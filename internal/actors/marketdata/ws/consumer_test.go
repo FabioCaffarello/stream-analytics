@@ -102,10 +102,16 @@ func TestConsumer_ShutdownWithoutSpuriousError(t *testing.T) {
 	fake := newFakeConn()
 
 	origDial := consumerDial
+	consumerDialMu.Lock()
 	consumerDial = func(ctx context.Context, url string) (wsConn, error) {
 		return fake, nil
 	}
-	defer func() { consumerDial = origDial }()
+	consumerDialMu.Unlock()
+	defer func() {
+		consumerDialMu.Lock()
+		consumerDial = origDial
+		consumerDialMu.Unlock()
+	}()
 
 	e, err := actor.NewEngine(actor.NewEngineConfig())
 	if err != nil {
@@ -143,10 +149,16 @@ func TestConsumer_ErrorEmitsWsErrorAndStateOnce(t *testing.T) {
 	fake.readCh <- readResult{err: errors.New("read failed")}
 
 	origDial := consumerDial
+	consumerDialMu.Lock()
 	consumerDial = func(ctx context.Context, url string) (wsConn, error) {
 		return fake, nil
 	}
-	defer func() { consumerDial = origDial }()
+	consumerDialMu.Unlock()
+	defer func() {
+		consumerDialMu.Lock()
+		consumerDial = origDial
+		consumerDialMu.Unlock()
+	}()
 
 	e, err := actor.NewEngine(actor.NewEngineConfig())
 	if err != nil {

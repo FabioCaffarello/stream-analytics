@@ -120,6 +120,8 @@ var consumerDial = func(ctx context.Context, url string) (wsConn, error) {
 	return &gorillaConn{conn: conn}, nil
 }
 
+var consumerDialMu sync.RWMutex
+
 type Consumer struct {
 	c      *actor.Context
 	config ConsumerConfig
@@ -170,7 +172,10 @@ func (c *Consumer) Receive(ac *actor.Context) {
 
 func (c *Consumer) connect() {
 	c.emitState("dialing", nil)
-	conn, err := consumerDial(c.ctx, c.config.Endpoint)
+	consumerDialMu.RLock()
+	dialFn := consumerDial
+	consumerDialMu.RUnlock()
+	conn, err := dialFn(c.ctx, c.config.Endpoint)
 	if err != nil {
 		c.reportFailure("dial", err)
 		return
