@@ -1,0 +1,11 @@
+services:
+  hello-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: market-raccoon/hello-app:dev
+    container_name: market-raccoon-hello-app
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true

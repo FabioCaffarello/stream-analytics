@@ -1,0 +1,40 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-merge-conflict
+
+  - repo: local
+    hooks:
+      - id: go-tidy-check
+        name: go tidy check
+        language: system
+        entry: make tidy-check
+        pass_filenames: false
+
+      - id: go-fmt-check
+        name: go fmt check
+        language: system
+        entry: make fmt-check
+        pass_filenames: false
+
+      - id: go-lint
+        name: go lint
+        language: system
+        entry: make lint
+        pass_filenames: false
+
+      - id: go-test-short
+        name: go test short
+        language: system
+        entry: make test-short
+        pass_filenames: false
+
+      - id: commit-msg-conventional
+        name: commit msg conventional
+        language: system
+        entry: scripts/validate-commit-msg.sh
+        stages: [commit-msg]

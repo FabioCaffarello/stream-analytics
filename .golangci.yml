@@ -1,0 +1,43 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+  modules-download-mode: readonly
+
+linters:
+  default: none
+  disable:
+    - godox
+    - musttag
+  enable:
+    - errcheck
+    - gocyclo
+    - gosec
+    - govet
+    - ineffassign
+    - revive
+    - staticcheck
+    - unused
+  settings:
+    gocyclo:
+      min-complexity: 15
+    revive:
+      rules:
+        - name: package-comments
+        - name: exported
+        - name: blank-imports
+        - name: imports-blocklist
+        - name: var-naming
+        - name: receiver-naming
+        - name: error-return
+        - name: error-strings
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
