@@ -24,7 +24,7 @@ func TestParseCanonicalPair_Invalid(t *testing.T) {
 }
 
 func TestNewInstrumentIdentity(t *testing.T) {
-	id, p := domain.NewInstrumentIdentity("eth/usdt", "ETHUSDT", "spot")
+	id, p := domain.NewInstrumentIdentity("eth/usdt", "ETHUSDT", "SPOT")
 	if p != nil {
 		t.Fatalf("NewInstrumentIdentity failed: %v", p)
 	}
@@ -34,7 +34,7 @@ func TestNewInstrumentIdentity(t *testing.T) {
 	if id.Base != "ETH" || id.Quote != "USDT" {
 		t.Fatalf("pair mismatch: %#v", id)
 	}
-	if id.VenueSymbol != "ETHUSDT" || id.Market != "spot" {
+	if id.VenueSymbol != "ETHUSDT" || id.MarketType != domain.MarketTypeSpot {
 		t.Fatalf("identity mismatch: %#v", id)
 	}
 }

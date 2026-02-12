@@ -14,7 +14,7 @@ type InstrumentIdentity struct {
 	Base        string
 	Quote       string
 	VenueSymbol string
-	Market      string
+	MarketType  MarketType
 }
 
 // ParseCanonicalPair parses canonical instrument string ("BASE-QUOTE").
@@ -35,16 +35,16 @@ func ParseCanonicalPair(raw string) (base string, quote string, p *problem.Probl
 }
 
 // NewInstrumentIdentity builds InstrumentIdentity from canonical instrument.
-func NewInstrumentIdentity(canonical, venueSymbol, market string) (InstrumentIdentity, *problem.Problem) {
-	base, quote, p := ParseCanonicalPair(canonical)
+func NewInstrumentIdentity(canonical, venueSymbol, marketType string) (InstrumentIdentity, *problem.Problem) {
+	meta, p := NewInstrumentMetadata(canonical, venueSymbol, marketType)
 	if p != nil {
 		return InstrumentIdentity{}, p
 	}
 	return InstrumentIdentity{
-		Canonical:   base + "-" + quote,
-		Base:        base,
-		Quote:       quote,
-		VenueSymbol: strings.ToUpper(strings.TrimSpace(venueSymbol)),
-		Market:      strings.ToLower(strings.TrimSpace(market)),
+		Canonical:   meta.CanonicalSymbol,
+		Base:        meta.BaseAsset,
+		Quote:       meta.QuoteAsset,
+		VenueSymbol: meta.VenueSymbol,
+		MarketType:  meta.MarketType,
 	}, nil
 }
