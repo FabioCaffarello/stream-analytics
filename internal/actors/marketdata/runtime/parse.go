@@ -43,6 +43,8 @@ type ParseMeta struct {
 	SkipReason     string
 	ProblemCode    string
 	ProblemMessage string
+	WSStream       string
+	Ticker         string
 }
 
 // ParseFuncV2 is an optional parse function that augments ParseFunc with

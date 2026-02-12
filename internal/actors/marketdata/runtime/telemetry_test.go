@@ -8,8 +8,8 @@ import (
 func TestParserTelemetry_RecordSkipByReason(t *testing.T) {
 	tel := newParserTelemetry()
 
-	tel.recordSkip("binance", "aggTrade", "unsupported_event", "")
-	tel.recordSkip("binance", "aggTrade", "parse_error", "VALIDATION_FAILED")
+	tel.recordSkip("binance", "aggTrade", "unsupported_event", "", "BTC-USDT", "btcusdt@aggTrade")
+	tel.recordSkip("binance", "aggTrade", "parse_error", "VALIDATION_FAILED", "BTC-USDT", "btcusdt@aggTrade")
 
 	if got, want := tel.total, uint64(2); got != want {
 		t.Fatalf("total = %d, want %d", got, want)
@@ -29,6 +29,12 @@ func TestParserTelemetry_RecordSkipByReason(t *testing.T) {
 	if got, want := tel.byExchangeEventAndSkip["binance|aggTrade|unsupported_event"], uint64(1); got != want {
 		t.Fatalf("byExchangeEventAndSkip count = %d, want %d", got, want)
 	}
+	if got, want := tel.byWSStream["btcusdt@aggTrade"], uint64(2); got != want {
+		t.Fatalf("byWSStream count = %d, want %d", got, want)
+	}
+	if got, want := tel.byTicker["BTC-USDT"], uint64(2); got != want {
+		t.Fatalf("byTicker count = %d, want %d", got, want)
+	}
 }
 
 func TestParserTelemetry_ShouldSampleRateLimited(t *testing.T) {
@@ -43,5 +49,20 @@ func TestParserTelemetry_ShouldSampleRateLimited(t *testing.T) {
 	}
 	if !tel.shouldSample(now.Add(31*time.Second), "parse_error") {
 		t.Fatal("sample should pass after sampleWindow")
+	}
+}
+
+func TestParserTelemetry_TopTickerSharePercent(t *testing.T) {
+	tel := newParserTelemetry()
+	tel.recordIngest("marketdata.trade", "BTC-USDT", "btcusdt@aggTrade")
+	tel.recordIngest("marketdata.trade", "BTC-USDT", "btcusdt@aggTrade")
+	tel.recordIngest("marketdata.trade", "ETH-USDT", "ethusdt@aggTrade")
+
+	top := tel.topTickerSharePercent(2)
+	if top["BTC-USDT"] < 66.0 || top["BTC-USDT"] > 67.0 {
+		t.Fatalf("BTC-USDT share = %f, want approx 66.67", top["BTC-USDT"])
+	}
+	if top["ETH-USDT"] < 33.0 || top["ETH-USDT"] > 34.0 {
+		t.Fatalf("ETH-USDT share = %f, want approx 33.33", top["ETH-USDT"])
 	}
 }

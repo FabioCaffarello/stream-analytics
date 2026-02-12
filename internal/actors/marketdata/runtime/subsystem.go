@@ -152,7 +152,7 @@ func (s *SubsystemActor) handleMessage(c *actor.Context, msg *ws.WsMessage) {
 			"endpoint", msg.Endpoint,
 			"bytes", len(msg.Data),
 		)
-		s.telemetry.recordSkip(msg.Exchange, "unknown", "parse_nil", "")
+		s.telemetry.recordSkip(msg.Exchange, "unknown", "parse_nil", "", "", "")
 		s.logProgress()
 		return
 	}
@@ -173,7 +173,7 @@ func (s *SubsystemActor) handleMessage(c *actor.Context, msg *ws.WsMessage) {
 	}
 
 	if skip {
-		s.telemetry.recordSkip(msg.Exchange, meta.EventType, meta.SkipReason, meta.ProblemCode)
+		s.telemetry.recordSkip(msg.Exchange, meta.EventType, meta.SkipReason, meta.ProblemCode, meta.Ticker, meta.WSStream)
 		if meta.SkipReason == "parse_error" && s.telemetry.shouldSample(time.Now(), meta.ProblemCode) {
 			s.logger.Warn("mdruntime: parse skip sampled",
 				"exchange", msg.Exchange,
@@ -204,7 +204,12 @@ func (s *SubsystemActor) handleMessage(c *actor.Context, msg *ws.WsMessage) {
 		return
 	}
 
-	s.telemetry.recordIngest(req.EventType)
+	wsStream := req.Metadata["ws_stream"]
+	ticker := req.Instrument
+	if req.Metadata["instrument_pair"] != "" {
+		ticker = req.Metadata["instrument_pair"]
+	}
+	s.telemetry.recordIngest(req.EventType, ticker, wsStream)
 	s.logProgress()
 
 	resp := res.Value()
@@ -225,6 +230,8 @@ func (s *SubsystemActor) logProgress() {
 			"skip_by_reason", s.telemetry.bySkipReason,
 			"skip_by_exchange_event_reason", s.telemetry.byExchangeEventAndSkip,
 			"parse_error_by_code", s.telemetry.parseErrorsByProblemCode,
+			"top_ws_streams", s.telemetry.topWSStreams(5),
+			"top_ticker_share_pct", s.telemetry.topTickerSharePercent(5),
 		)
 	}
 }
