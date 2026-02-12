@@ -1,6 +1,7 @@
 package codec
 
 import (
+	"encoding/json"
 	"math"
 	"strconv"
 	"strings"
@@ -10,8 +11,30 @@ import (
 )
 
 var (
-	payloadRegistryMu sync.RWMutex
-	payloadRegistry   *Registry
+	payloadRegistryMu       sync.RWMutex
+	payloadRegistry         *Registry
+	payloadFallbackPolicyMu sync.RWMutex
+	payloadFallbackPolicy   = FallbackPolicyAllowUnknownJSON
+)
+
+// FallbackPolicy defines unknown event-type handling when content_type resolves to JSON.
+type FallbackPolicy string
+
+const (
+	// FallbackPolicyAllowUnknownJSON keeps backward-compatible JSON decoding/encoding
+	// for event types that are not yet present in the typed payload registry.
+	FallbackPolicyAllowUnknownJSON FallbackPolicy = "allow_unknown_json"
+	// FallbackPolicyRejectUnknown disables unknown event-type fallback.
+	FallbackPolicyRejectUnknown FallbackPolicy = "reject_unknown"
+)
+
+const (
+	reasonUnknownContentType        = "validation_failed_unknown_content_type"
+	reasonUnknownEventTypeProto     = "validation_failed_unknown_event_type_proto"
+	reasonUnknownEventTypeRejected  = "validation_failed_unknown_event_type_rejected"
+	reasonMissingPayloadCodec       = "validation_failed_missing_payload_codec"
+	reasonInvalidFallbackPolicy     = "validation_failed_invalid_fallback_policy"
+	reasonUnknownJSONFallbackFailed = "validation_failed_unknown_event_type_json_fallback_decode"
 )
 
 // SetPayloadRegistry configures the registry used by EncodePayload/DecodePayload.
@@ -23,6 +46,31 @@ func SetPayloadRegistry(reg *Registry) *problem.Problem {
 	payloadRegistry = reg
 	payloadRegistryMu.Unlock()
 	return nil
+}
+
+// SetFallbackPolicy configures unknown event-type behavior for JSON payloads.
+func SetFallbackPolicy(policy FallbackPolicy) *problem.Problem {
+	if !policy.valid() {
+		return problem.WithDetail(
+			problem.WithDetail(
+				problem.Newf(problem.ValidationFailed, "unsupported payload fallback policy %q", policy),
+				"field", "fallback_policy",
+			),
+			"reason", reasonInvalidFallbackPolicy,
+		)
+	}
+	payloadFallbackPolicyMu.Lock()
+	payloadFallbackPolicy = policy
+	payloadFallbackPolicyMu.Unlock()
+	return nil
+}
+
+// FallbackPolicyValue returns the currently configured unknown-event fallback policy.
+func FallbackPolicyValue() FallbackPolicy {
+	payloadFallbackPolicyMu.RLock()
+	p := payloadFallbackPolicy
+	payloadFallbackPolicyMu.RUnlock()
+	return p
 }
 
 // EncodePayload encodes a domain payload using event schema key + content type.
@@ -42,9 +90,14 @@ func EncodePayload(eventType string, version int, contentType string, domainPayl
 	enc, ok := reg.Encoder(key)
 	if !ok {
 		if key.Format == FormatJSON {
-			// Backward-compatible fallback for event types that are not yet
-			// registered in the typed payload registry.
-			return MarshalPayload(eventType, version, domainPayload)
+			switch FallbackPolicyValue() {
+			case FallbackPolicyAllowUnknownJSON:
+				// Backward-compatible fallback for event types that are not yet
+				// registered in the typed payload registry.
+				return MarshalPayload(eventType, version, domainPayload)
+			case FallbackPolicyRejectUnknown:
+				return nil, unknownJSONEventTypeRejectedProblem(key)
+			}
 		}
 		return nil, missingPayloadCodecProblem("encoder", key)
 	}
@@ -74,6 +127,17 @@ func DecodePayload(eventType string, version int, contentType string, payload []
 	}
 	dec, ok := reg.Decoder(key)
 	if !ok {
+		if key.Format == FormatJSON {
+			switch FallbackPolicyValue() {
+			case FallbackPolicyAllowUnknownJSON:
+				return decodeUnknownJSONPayload(key, payload)
+			case FallbackPolicyRejectUnknown:
+				return nil, unknownJSONEventTypeRejectedProblem(key)
+			}
+		}
+		if key.Format == FormatProto && !registryHasAnyCodecForTypeVersion(reg, key.Type, key.Version) {
+			return nil, unknownProtoEventTypeProblem(key)
+		}
 		return nil, missingPayloadCodecProblem("decoder", key)
 	}
 	out, p := dec.Decode(payload)
@@ -84,6 +148,23 @@ func DecodePayload(eventType string, version int, contentType string, payload []
 				"version", key.Version,
 			),
 			"content_type", string(key.Format),
+		)
+	}
+	return out, nil
+}
+
+func decodeUnknownJSONPayload(key SchemaKey, payload []byte) (any, *problem.Problem) {
+	var out any
+	if err := json.Unmarshal(payload, &out); err != nil {
+		return nil, problem.WithDetail(
+			problem.WithDetail(
+				problem.WithDetail(
+					problem.Wrap(err, problem.ValidationFailed, "unknown event_type JSON fallback decode failed"),
+					"event_type", key.Type,
+				),
+				"version", key.Version,
+			),
+			"reason", reasonUnknownJSONFallbackFailed,
 		)
 	}
 	return out, nil
@@ -153,10 +234,13 @@ func payloadFormat(contentType string) (Format, *problem.Problem) {
 	default:
 		return "", problem.WithDetail(
 			problem.WithDetail(
-				problem.Newf(problem.ValidationFailed, "unsupported payload content_type %q", contentType),
-				"field", "content_type",
+				problem.WithDetail(
+					problem.Newf(problem.ValidationFailed, "unsupported payload content_type %q", contentType),
+					"field", "content_type",
+				),
+				"value", contentType,
 			),
-			"value", contentType,
+			"reason", reasonUnknownContentType,
 		)
 	}
 }
@@ -165,11 +249,74 @@ func missingPayloadCodecProblem(kind string, key SchemaKey) *problem.Problem {
 	return problem.WithDetail(
 		problem.WithDetail(
 			problem.WithDetail(
-				problem.Newf(problem.ValidationFailed, "no payload %s registered for type=%q version=%d format=%q", kind, key.Type, key.Version, key.Format),
-				"type", key.Type,
+				problem.WithDetail(
+					problem.Newf(problem.ValidationFailed, "no payload %s registered for type=%q version=%d format=%q", kind, key.Type, key.Version, key.Format),
+					"type", key.Type,
+				),
+				"version", key.Version,
 			),
-			"version", key.Version,
+			"format", key.Format,
 		),
-		"format", key.Format,
+		"reason", reasonMissingPayloadCodec,
 	)
+}
+
+func unknownProtoEventTypeProblem(key SchemaKey) *problem.Problem {
+	return problem.WithDetail(
+		problem.WithDetail(
+			problem.WithDetail(
+				problem.WithDetail(
+					problem.Newf(problem.ValidationFailed, "unknown protobuf event_type %q version=%d", key.Type, key.Version),
+					"type", key.Type,
+				),
+				"version", key.Version,
+			),
+			"content_type", string(key.Format),
+		),
+		"reason", reasonUnknownEventTypeProto,
+	)
+}
+
+func unknownJSONEventTypeRejectedProblem(key SchemaKey) *problem.Problem {
+	return problem.WithDetail(
+		problem.WithDetail(
+			problem.WithDetail(
+				problem.WithDetail(
+					problem.Newf(problem.ValidationFailed, "unknown JSON event_type %q version=%d with fallback policy reject_unknown", key.Type, key.Version),
+					"type", key.Type,
+				),
+				"version", key.Version,
+			),
+			"content_type", string(key.Format),
+		),
+		"reason", reasonUnknownEventTypeRejected,
+	)
+}
+
+func registryHasAnyCodecForTypeVersion(reg *Registry, eventType string, version int32) bool {
+	if reg == nil {
+		return false
+	}
+	reg.mu.RLock()
+	defer reg.mu.RUnlock()
+	for key := range reg.decoders {
+		if key.Type == eventType && key.Version == version {
+			return true
+		}
+	}
+	for key := range reg.encoders {
+		if key.Type == eventType && key.Version == version {
+			return true
+		}
+	}
+	return false
+}
+
+func (p FallbackPolicy) valid() bool {
+	switch p {
+	case FallbackPolicyAllowUnknownJSON, FallbackPolicyRejectUnknown:
+		return true
+	default:
+		return false
+	}
 }
