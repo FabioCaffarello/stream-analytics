@@ -358,6 +358,19 @@ func (p PublisherConfig) toConsumerDefaults(cfg ConsumerConfig) ConsumerConfig {
 }
 
 func validateConsumerConfig(cfg ConsumerConfig) *problem.Problem {
+	if p := validateConsumerRequired(cfg); p != nil {
+		return p
+	}
+	if p := validateConsumerPositive(cfg); p != nil {
+		return p
+	}
+	if _, p := mapDeliverPolicy(cfg.DeliverPolicy); p != nil {
+		return p
+	}
+	return nil
+}
+
+func validateConsumerRequired(cfg ConsumerConfig) *problem.Problem {
 	if strings.TrimSpace(cfg.URL) == "" {
 		return problem.New(problem.ValidationFailed, "jetstream consumer url must not be empty")
 	}
@@ -375,14 +388,15 @@ func validateConsumerConfig(cfg ConsumerConfig) *problem.Problem {
 			return problem.Newf(problem.ValidationFailed, "jetstream consumer filter_subjects[%d] must not be empty", i)
 		}
 	}
+	return nil
+}
+
+func validateConsumerPositive(cfg ConsumerConfig) *problem.Problem {
 	if cfg.AckWait <= 0 || cfg.MaxAckPending <= 0 || cfg.MaxDeliver <= 0 || cfg.FetchTimeout <= 0 || cfg.LagPollInterval <= 0 {
 		return problem.New(problem.ValidationFailed, "jetstream consumer config has non-positive values")
 	}
 	if cfg.MaxBytes <= 0 || cfg.MaxAge <= 0 || cfg.DedupWindow <= 0 {
 		return problem.New(problem.ValidationFailed, "jetstream consumer stream config has non-positive values")
-	}
-	if _, p := mapDeliverPolicy(cfg.DeliverPolicy); p != nil {
-		return p
 	}
 	return nil
 }
@@ -396,9 +410,10 @@ func (c *Consumer) updateLag() {
 		return
 	}
 	lag := info.NumPending
-	const maxInt64 = int64(^uint64(0) >> 1)
-	if lag > uint64(maxInt64) {
-		lag = uint64(maxInt64)
+	const maxInt64 = uint64(1<<63 - 1)
+	if lag > maxInt64 {
+		c.observer.SetConsumerLag(busTypeJetStream, 1<<63-1)
+		return
 	}
 	c.observer.SetConsumerLag(busTypeJetStream, int64(lag))
 }

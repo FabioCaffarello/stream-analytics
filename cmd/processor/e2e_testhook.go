@@ -55,7 +55,7 @@ func newE2ERuntime(logger *slog.Logger) *e2eRuntime {
 
 	rt.transientFails = 2
 	if raw := strings.TrimSpace(os.Getenv(envE2ETransientFails)); raw != "" {
-		if parsed, err := strconv.Atoi(raw); err == nil && parsed >= 0 {
+		if parsed, err := strconv.ParseInt(raw, 10, 32); err == nil && parsed >= 0 {
 			rt.transientFails = int32(parsed)
 		}
 	}

@@ -78,48 +78,20 @@ func (n *noopHotStore) Save(_ context.Context, _ aggdomain.SnapshotProduced) *pr
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// main
-// ---------------------------------------------------------------------------
+type envelopeSource struct {
+	envelopeCh <-chan envelope.Envelope
+	consumeErr <-chan *problem.Problem
+	shutdownFn func(context.Context)
+	onResult   func(aggruntime.EnvelopeProcessResult)
+}
 
-func main() {
-	configPath := flag.String("config", "config.jsonc", "path to JSONC config file")
-	logLevelOverride := flag.String("log-level", "", "log level override: debug|info|warn|error")
-	busTypeOverride := flag.String("bus", "", "bus adapter override: inmemory|jetstream")
-	flag.Parse()
-
-	cfg := loadProcessorConfig(*configPath, *logLevelOverride, *busTypeOverride)
-
-	// ── logger ─────────────────────────────────────────────────────────────
-	logger := buildLogger(cfg.Log)
-	slog.SetDefault(logger)
-	e2e := newE2ERuntime(logger)
-	if p := e2e.startProbe(); p != nil {
-		logger.Error("processor: failed to start e2e probe", "err", p)
-		os.Exit(1)
-	}
-
-	logger.Info("processor starting", "bus_type", cfg.Bus.Type)
-
-	// ── aggregation use case ────────────────────────────────────────────────
-	artifactPub := &logArtifactPublisher{logger: logger}
-	hotStore := &noopHotStore{}
-	updateBook := aggapp.NewUpdateOrderBookFromEvents(artifactPub, hotStore)
-
-	// ── envelope source wiring ───────────────────────────────────────────────
-	var (
-		envelopeCh <-chan envelope.Envelope
-		shutdownFn = func(context.Context) {}
-		consumeErr <-chan *problem.Problem
-		onResult   func(aggruntime.EnvelopeProcessResult)
-	)
-
+func initEnvelopeSource(cfg config.AppConfig, logger *slog.Logger, e2e *e2eRuntime) envelopeSource {
 	switch strings.ToLower(strings.TrimSpace(cfg.Bus.Type)) {
 	case "jetstream":
 		ch := make(chan envelope.Envelope, cfg.Processor.BusCapacity)
 		resultsCh := make(chan aggruntime.EnvelopeProcessResult, 1)
 
-		onResult = func(res aggruntime.EnvelopeProcessResult) {
+		onResult := func(res aggruntime.EnvelopeProcessResult) {
 			res.Problem = e2e.maybeInjectTransient(res.Envelope, res.Problem)
 			select {
 			case resultsCh <- res:
@@ -164,35 +136,73 @@ func main() {
 			})
 		}()
 
-		envelopeCh = ch
-		consumeErr = errCh
-		shutdownFn = func(ctx context.Context) {
-			cancelConsume()
-			if p := jetstreamConsumer.Close(ctx); p != nil {
-				logger.Warn("processor: jetstream consumer close failed", "err", p)
-			}
-		}
 		logger.Info("processor: subscribed to jetstream consumer",
 			"url", cfg.JetStream.URL,
 			"stream", cfg.JetStream.StreamName,
 			"durable", cfg.JetStream.ConsumerDurable,
 			"filters", cfg.JetStream.FilterSubjects,
 		)
+
+		return envelopeSource{
+			envelopeCh: ch,
+			consumeErr: errCh,
+			onResult:   onResult,
+			shutdownFn: func(ctx context.Context) {
+				cancelConsume()
+				if p := jetstreamConsumer.Close(ctx); p != nil {
+					logger.Warn("processor: jetstream consumer close failed", "err", p)
+				}
+			},
+		}
 	default:
 		eventBus := bus.NewInMemoryBus(cfg.Processor.BusCapacity, metrics.NewBusObserver())
-		envelopeCh = eventBus.Subscribe()
-		shutdownFn = func(context.Context) {
-			eventBus.Close()
-		}
 		logger.Info("processor: subscribed to in-memory bus")
+		return envelopeSource{
+			envelopeCh: eventBus.Subscribe(),
+			shutdownFn: func(context.Context) {
+				eventBus.Close()
+			},
+		}
 	}
+}
+
+// ---------------------------------------------------------------------------
+// main
+// ---------------------------------------------------------------------------
+
+func main() {
+	configPath := flag.String("config", "config.jsonc", "path to JSONC config file")
+	logLevelOverride := flag.String("log-level", "", "log level override: debug|info|warn|error")
+	busTypeOverride := flag.String("bus", "", "bus adapter override: inmemory|jetstream")
+	flag.Parse()
+
+	cfg := loadProcessorConfig(*configPath, *logLevelOverride, *busTypeOverride)
+
+	// ── logger ─────────────────────────────────────────────────────────────
+	logger := buildLogger(cfg.Log)
+	slog.SetDefault(logger)
+	e2e := newE2ERuntime(logger)
+	if p := e2e.startProbe(); p != nil {
+		logger.Error("processor: failed to start e2e probe", "err", p)
+		os.Exit(1)
+	}
+
+	logger.Info("processor starting", "bus_type", cfg.Bus.Type)
+
+	// ── aggregation use case ────────────────────────────────────────────────
+	artifactPub := &logArtifactPublisher{logger: logger}
+	hotStore := &noopHotStore{}
+	updateBook := aggapp.NewUpdateOrderBookFromEvents(artifactPub, hotStore)
+
+	// ── envelope source wiring ───────────────────────────────────────────────
+	source := initEnvelopeSource(cfg, logger, e2e)
 
 	// ── processor subsystem config ──────────────────────────────────────────
 	processorCfg := aggruntime.ProcessorConfig{
 		Logger:              logger,
-		EnvelopeCh:          envelopeCh,
+		EnvelopeCh:          source.envelopeCh,
 		UpdateBook:          updateBook,
-		OnEnvelopeProcessed: onResult,
+		OnEnvelopeProcessed: source.onResult,
 	}
 
 	// ── engine ──────────────────────────────────────────────────────────────
@@ -222,7 +232,7 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	select {
 	case <-quit:
-	case p := <-consumeErr:
+	case p := <-source.consumeErr:
 		if p != nil {
 			logger.Error("processor: jetstream consume loop failed", "err", p)
 		}
@@ -235,7 +245,7 @@ func main() {
 	if p := e2e.shutdown(shutCtx); p != nil {
 		logger.Warn("processor: e2e probe shutdown failed", "err", p)
 	}
-	shutdownFn(shutCtx)
+	source.shutdownFn(shutCtx)
 
 	e.Send(guardianPID, actorruntime.Stop{})
 	select {

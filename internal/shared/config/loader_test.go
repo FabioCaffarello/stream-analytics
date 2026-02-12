@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -15,69 +16,29 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 	if prob != nil {
 		t.Fatalf("Load(\"\") unexpectedly failed: %v", prob)
 	}
-	if cfg.Log.Level != "info" {
-		t.Errorf("default log.level = %q, want %q", cfg.Log.Level, "info")
-	}
-	if cfg.HTTP.Addr != ":8080" {
-		t.Errorf("default http.addr = %q, want %q", cfg.HTTP.Addr, ":8080")
-	}
-	if cfg.Bus.Type != "inmemory" {
-		t.Errorf("default bus.type = %q, want inmemory", cfg.Bus.Type)
-	}
-	if cfg.JetStream.StreamName != "MARKETDATA" {
-		t.Errorf("default jetstream.stream_name = %q, want MARKETDATA", cfg.JetStream.StreamName)
-	}
-	if cfg.JetStream.ConsumerDurable != "processor-v1" {
-		t.Errorf("default jetstream.consumer_durable = %q, want processor-v1", cfg.JetStream.ConsumerDurable)
-	}
-	if cfg.JetStream.AckWait != "30s" {
-		t.Errorf("default jetstream.ack_wait = %q, want 30s", cfg.JetStream.AckWait)
-	}
-	if cfg.JetStream.MaxAckPending != 1024 {
-		t.Errorf("default jetstream.max_ack_pending = %d, want 1024", cfg.JetStream.MaxAckPending)
-	}
-	if cfg.JetStream.MaxDeliver != 10 {
-		t.Errorf("default jetstream.max_deliver = %d, want 10", cfg.JetStream.MaxDeliver)
-	}
-	if cfg.JetStream.DeliverPolicy != "all" {
-		t.Errorf("default jetstream.deliver_policy = %q, want all", cfg.JetStream.DeliverPolicy)
-	}
-	if len(cfg.JetStream.FilterSubjects) != 1 || cfg.JetStream.FilterSubjects[0] != "marketdata.bookdelta.>" {
-		t.Errorf("default jetstream.filter_subjects = %v, want [marketdata.bookdelta.>]", cfg.JetStream.FilterSubjects)
-	}
-	if cfg.JetStream.DedupWindow != "5m" {
-		t.Errorf("default jetstream.dedup_window = %q, want 5m", cfg.JetStream.DedupWindow)
-	}
-	if cfg.JetStream.MaxAge != "24h" {
-		t.Errorf("default jetstream.max_age = %q, want 24h", cfg.JetStream.MaxAge)
-	}
-	if cfg.JetStream.MaxBytes != "10GB" {
-		t.Errorf("default jetstream.max_bytes = %q, want 10GB", cfg.JetStream.MaxBytes)
-	}
-	if cfg.Consumer.Exchange != "binance" {
-		t.Errorf("default consumer.exchange = %q, want %q", cfg.Consumer.Exchange, "binance")
-	}
-	if len(cfg.Consumer.Tickers) == 0 {
-		t.Error("default consumer.tickers should not be empty")
-	}
-	if cfg.Consumer.StreamsPerTicker != 2 {
-		t.Errorf("default consumer.streams_per_ticker = %d, want 2", cfg.Consumer.StreamsPerTicker)
-	}
-	if cfg.Consumer.MaxStreamsPerWebsocket != 200 {
-		t.Errorf("default consumer.max_streams_per_websocket = %d, want 200", cfg.Consumer.MaxStreamsPerWebsocket)
-	}
-	if cfg.Consumer.MaxWebsockets != 5 {
-		t.Errorf("default consumer.max_websockets = %d, want 5", cfg.Consumer.MaxWebsockets)
-	}
-	if cfg.Consumer.BinanceWSBaseURL == "" {
-		t.Error("default consumer.binance_ws_base_url should not be empty")
-	}
-	if cfg.MarketData.PublishContentType != "application/json" {
-		t.Errorf("default marketdata.publish_content_type = %q, want application/json", cfg.MarketData.PublishContentType)
-	}
-	if cfg.Processor.BusCapacity != 1024 {
-		t.Errorf("default processor.bus_capacity = %d, want 1024", cfg.Processor.BusCapacity)
-	}
+	assertChecks(t, []fieldCheck{
+		{name: "log.level", got: cfg.Log.Level, want: "info"},
+		{name: "http.addr", got: cfg.HTTP.Addr, want: ":8080"},
+		{name: "bus.type", got: cfg.Bus.Type, want: "inmemory"},
+		{name: "jetstream.stream_name", got: cfg.JetStream.StreamName, want: "MARKETDATA"},
+		{name: "jetstream.consumer_durable", got: cfg.JetStream.ConsumerDurable, want: "processor-v1"},
+		{name: "jetstream.ack_wait", got: cfg.JetStream.AckWait, want: "30s"},
+		{name: "jetstream.max_ack_pending", got: cfg.JetStream.MaxAckPending, want: 1024},
+		{name: "jetstream.max_deliver", got: cfg.JetStream.MaxDeliver, want: 10},
+		{name: "jetstream.deliver_policy", got: cfg.JetStream.DeliverPolicy, want: "all"},
+		{name: "jetstream.filter_subjects", got: cfg.JetStream.FilterSubjects, want: []string{"marketdata.bookdelta.>"}},
+		{name: "jetstream.dedup_window", got: cfg.JetStream.DedupWindow, want: "5m"},
+		{name: "jetstream.max_age", got: cfg.JetStream.MaxAge, want: "24h"},
+		{name: "jetstream.max_bytes", got: cfg.JetStream.MaxBytes, want: "10GB"},
+		{name: "consumer.exchange", got: cfg.Consumer.Exchange, want: "binance"},
+		{name: "consumer.tickers non-empty", got: len(cfg.Consumer.Tickers) > 0, want: true},
+		{name: "consumer.streams_per_ticker", got: cfg.Consumer.StreamsPerTicker, want: 2},
+		{name: "consumer.max_streams_per_websocket", got: cfg.Consumer.MaxStreamsPerWebsocket, want: 200},
+		{name: "consumer.max_websockets", got: cfg.Consumer.MaxWebsockets, want: 5},
+		{name: "consumer.binance_ws_base_url non-empty", got: cfg.Consumer.BinanceWSBaseURL != "", want: true},
+		{name: "marketdata.publish_content_type", got: cfg.MarketData.PublishContentType, want: "application/json"},
+		{name: "processor.bus_capacity", got: cfg.Processor.BusCapacity, want: 1024},
+	})
 }
 
 func TestLoad_NonExistentFile_ReturnsNotFound(t *testing.T) {
@@ -136,62 +97,41 @@ func TestLoad_ValidJSONC_ParsesFields(t *testing.T) {
 	if prob != nil {
 		t.Fatalf("Load failed: %v", prob)
 	}
-	if cfg.Log.Level != "debug" {
-		t.Errorf("log.level = %q, want debug", cfg.Log.Level)
-	}
-	if cfg.Log.Format != "json" {
-		t.Errorf("log.format = %q, want json", cfg.Log.Format)
-	}
-	if cfg.HTTP.Addr != ":9090" {
-		t.Errorf("http.addr = %q, want :9090", cfg.HTTP.Addr)
-	}
-	if cfg.HTTP.ShutdownTimeoutDuration() != 8*time.Second {
-		t.Errorf("shutdown_timeout = %v, want 8s", cfg.HTTP.ShutdownTimeoutDuration())
-	}
-	if cfg.Consumer.Exchange != "binance" {
-		t.Errorf("consumer.exchange = %q, want binance", cfg.Consumer.Exchange)
-	}
-	if cfg.Bus.Type != "jetstream" {
-		t.Errorf("bus.type = %q, want jetstream", cfg.Bus.Type)
-	}
-	if cfg.JetStream.URL != "nats://127.0.0.1:4222" {
-		t.Errorf("jetstream.url = %q", cfg.JetStream.URL)
-	}
-	if cfg.JetStream.ConsumerDurable != "processor-v2" {
-		t.Errorf("jetstream.consumer_durable = %q", cfg.JetStream.ConsumerDurable)
-	}
-	if cfg.JetStream.AckWaitDuration() != 45*time.Second {
-		t.Errorf("jetstream.ack_wait duration = %s, want 45s", cfg.JetStream.AckWaitDuration())
-	}
-	if cfg.JetStream.MaxAckPending != 2048 {
-		t.Errorf("jetstream.max_ack_pending = %d", cfg.JetStream.MaxAckPending)
-	}
-	if cfg.JetStream.MaxDeliver != 20 {
-		t.Errorf("jetstream.max_deliver = %d", cfg.JetStream.MaxDeliver)
-	}
-	if cfg.JetStream.DeliverPolicy != "new" {
-		t.Errorf("jetstream.deliver_policy = %q", cfg.JetStream.DeliverPolicy)
-	}
-	if len(cfg.JetStream.FilterSubjects) != 1 || cfg.JetStream.FilterSubjects[0] != "marketdata.>" {
-		t.Errorf("jetstream.filter_subjects = %v", cfg.JetStream.FilterSubjects)
-	}
-	if cfg.JetStream.MaxBytesInt64() != 2_000_000_000 {
-		t.Errorf("jetstream.max_bytes = %d, want 2000000000", cfg.JetStream.MaxBytesInt64())
-	}
-	if len(cfg.Consumer.Tickers) != 1 || cfg.Consumer.Tickers[0] != "BTC-USD" {
-		t.Errorf("consumer.tickers = %v, want [BTC-USD]", cfg.Consumer.Tickers)
-	}
-	if cfg.Consumer.MaxWebsockets != 3 {
-		t.Errorf("consumer.max_websockets = %d, want 3", cfg.Consumer.MaxWebsockets)
-	}
-	if cfg.Consumer.RespawnOverlapDuration() != 2*time.Second {
-		t.Errorf("consumer.respawn_overlap = %v, want 2s", cfg.Consumer.RespawnOverlapDuration())
-	}
-	if cfg.MarketData.PublishContentType != "application/protobuf" {
-		t.Errorf("marketdata.publish_content_type = %q, want application/protobuf", cfg.MarketData.PublishContentType)
-	}
-	if cfg.Processor.BusCapacity != 512 {
-		t.Errorf("processor.bus_capacity = %d, want 512", cfg.Processor.BusCapacity)
+	assertChecks(t, []fieldCheck{
+		{name: "log.level", got: cfg.Log.Level, want: "debug"},
+		{name: "log.format", got: cfg.Log.Format, want: "json"},
+		{name: "http.addr", got: cfg.HTTP.Addr, want: ":9090"},
+		{name: "http.shutdown_timeout", got: cfg.HTTP.ShutdownTimeoutDuration(), want: 8 * time.Second},
+		{name: "consumer.exchange", got: cfg.Consumer.Exchange, want: "binance"},
+		{name: "bus.type", got: cfg.Bus.Type, want: "jetstream"},
+		{name: "jetstream.url", got: cfg.JetStream.URL, want: "nats://127.0.0.1:4222"},
+		{name: "jetstream.consumer_durable", got: cfg.JetStream.ConsumerDurable, want: "processor-v2"},
+		{name: "jetstream.ack_wait", got: cfg.JetStream.AckWaitDuration(), want: 45 * time.Second},
+		{name: "jetstream.max_ack_pending", got: cfg.JetStream.MaxAckPending, want: 2048},
+		{name: "jetstream.max_deliver", got: cfg.JetStream.MaxDeliver, want: 20},
+		{name: "jetstream.deliver_policy", got: cfg.JetStream.DeliverPolicy, want: "new"},
+		{name: "jetstream.filter_subjects", got: cfg.JetStream.FilterSubjects, want: []string{"marketdata.>"}},
+		{name: "jetstream.max_bytes", got: cfg.JetStream.MaxBytesInt64(), want: int64(2_000_000_000)},
+		{name: "consumer.tickers", got: cfg.Consumer.Tickers, want: []string{"BTC-USD"}},
+		{name: "consumer.max_websockets", got: cfg.Consumer.MaxWebsockets, want: 3},
+		{name: "consumer.respawn_overlap", got: cfg.Consumer.RespawnOverlapDuration(), want: 2 * time.Second},
+		{name: "marketdata.publish_content_type", got: cfg.MarketData.PublishContentType, want: "application/protobuf"},
+		{name: "processor.bus_capacity", got: cfg.Processor.BusCapacity, want: 512},
+	})
+}
+
+type fieldCheck struct {
+	name string
+	got  any
+	want any
+}
+
+func assertChecks(t *testing.T, checks []fieldCheck) {
+	t.Helper()
+	for _, c := range checks {
+		if !reflect.DeepEqual(c.got, c.want) {
+			t.Errorf("%s = %#v, want %#v", c.name, c.got, c.want)
+		}
 	}
 }
 

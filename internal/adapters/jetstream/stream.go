@@ -8,13 +8,6 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
-type streamBootstrapConfig struct {
-	StreamName  string
-	DedupWindow int64
-	MaxAgeNanos int64
-	MaxBytes    int64
-}
-
 func ensureStream(ctx context.Context, js nats.JetStreamContext, cfg PublisherConfig) *problem.Problem {
 	streamCfg := &nats.StreamConfig{
 		Name:       cfg.StreamName,
