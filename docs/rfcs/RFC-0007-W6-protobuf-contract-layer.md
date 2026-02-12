@@ -193,7 +193,8 @@ cd internal/core/delivery && go test ./...
 ### CI gates summary
 
 - CI protobuf gates in `.github/workflows/ci.yml` now enforce:
-  - `buf lint proto` always
+  - `make tools` before generation drift checks to pin local `protoc-gen-go`
+  - `make proto-lint` always
   - `proto-breaking` on `main` always
   - on PRs: fetch `main`; if proto baseline exists, enforce `proto-breaking`; otherwise emit explicit bootstrap message and continue with lint + drift gates
   - generated drift gate scoped to `internal/shared/proto/gen` with actionable failure message
@@ -203,20 +204,30 @@ cd internal/core/delivery && go test ./...
 ### Validation commands executed
 
 ```bash
+make tools
 make proto-lint
 make proto-gen && git diff --exit-code -- internal/shared/proto/gen
 make proto-breaking
-go test -race ./...
-make test-workspace
+make test-workspace-race
 ```
 
 ### Validation output summary
 
-- `make proto-lint`: passed (using local `BUF_CACHE_DIR` workspace cache).
-- `make proto-gen && git diff --exit-code -- internal/shared/proto/gen`: failed in this execution environment because `buf generate` could not reach `buf.build` remote plugin host.
+- `make tools`: installs pinned `protoc-gen-go` into `./bin` for repo-local generation.
+- `make proto-lint`: passed.
+- `make proto-gen && git diff --exit-code -- internal/shared/proto/gen`: passed without requiring `buf.build` plugin access.
 - `make proto-breaking`: clear bootstrap-safe skip message emitted (`main` baseline not available in local git state for this run).
-- `go test -race ./...`: fails at workspace root pattern selection in this repository layout.
-- `make test-workspace`: passed as module-by-module `-race` equivalent across `go.work` modules, including `internal/shared/codec` and `internal/shared/contracts`.
+- `make test-workspace-race`: passed via workspace module iteration (root `go test ./...` is intentionally not the canonical workspace entrypoint).
+
+### Offline / Restricted environments
+
+- Proto generation is now local-plugin based (`proto/buf.gen.yaml` points to `../bin/protoc-gen-go`), so `make proto-gen` does not depend on the Buf remote plugin registry.
+- Use this sequence for deterministic local/CI validation in restricted networks:
+  1. `make tools`
+  2. `make proto-lint`
+  3. `make proto-gen && git diff --exit-code -- internal/shared/proto/gen`
+  4. `make proto-breaking`
+  5. `make test-workspace-race`
 
 ### Runtime behavior statement
 
