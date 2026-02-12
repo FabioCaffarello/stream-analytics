@@ -7,6 +7,14 @@
 
 ---
 
+## Amendment (2026-02-12)
+
+W6-1 foundation was implemented with zero runtime wire changes:
+- `proto/` scaffolding and v1 contracts were added.
+- Buf lint/breaking/generate toolchain and CI gates were enabled.
+- Go code generation is committed under `internal/shared/proto/gen/`.
+- Runtime publish/consume migration remains deferred to W6-2/W6-3.
+
 ## Context
 
 All serialization currently uses JSON via `codec.Marshal/Unmarshal`. There is no formal schema definition, no breaking change detection, and no type-safe wire contract between producers and consumers. PRD-0001 section A.5 flagged "Envelope.Payload — `[]byte` JSON blob sem schema registry" as a critical gap.

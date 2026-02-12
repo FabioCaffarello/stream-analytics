@@ -1,0 +1,44 @@
+{
+  "schemas": [
+    {
+      "type": "envelope",
+      "version": 1,
+      "proto_file": "envelope/v1/envelope.proto",
+      "message": "envelope.v1.Envelope",
+      "status": "draft",
+      "introduced_at": "2026-02-12"
+    },
+    {
+      "type": "marketdata.trade",
+      "version": 1,
+      "proto_file": "marketdata/v1/trade.proto",
+      "message": "marketdata.v1.TradeTickV1",
+      "status": "draft",
+      "introduced_at": "2026-02-12"
+    },
+    {
+      "type": "marketdata.bookdelta",
+      "version": 1,
+      "proto_file": "marketdata/v1/bookdelta.proto",
+      "message": "marketdata.v1.BookDeltaV1",
+      "status": "draft",
+      "introduced_at": "2026-02-12"
+    },
+    {
+      "type": "marketdata.markprice",
+      "version": 1,
+      "proto_file": "marketdata/v1/markprice.proto",
+      "message": "marketdata.v1.MarkPriceTickV1",
+      "status": "draft",
+      "introduced_at": "2026-02-12"
+    },
+    {
+      "type": "marketdata.liquidation",
+      "version": 1,
+      "proto_file": "marketdata/v1/liquidation.proto",
+      "message": "marketdata.v1.LiquidationTickV1",
+      "status": "draft",
+      "introduced_at": "2026-02-12"
+    }
+  ]
+}

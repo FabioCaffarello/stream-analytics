@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package envelope.v1;
+
+option go_package = "github.com/market-raccoon/internal/shared/proto/gen/envelope/v1";
+
+// Envelope wraps all bus events with canonical metadata.
+message Envelope {
+  // Type identifies the event kind (for example, "marketdata.trade").
+  string type = 1;
+  // Version is the payload contract version and starts at 1.
+  int32 version = 2;
+  // Venue is the canonical venue identifier (for example, "BINANCE").
+  string venue = 3;
+  // Instrument keeps the current domain canonical symbol format.
+  string instrument = 4;
+  // TsExchange is the exchange timestamp in Unix milliseconds.
+  int64 ts_exchange = 5;
+  // TsIngest is the ingest timestamp in Unix milliseconds.
+  int64 ts_ingest = 6;
+  // Seq is the monotonic stream sequence.
+  int64 seq = 7;
+  // IdempotencyKey is the deterministic deduplication key.
+  string idempotency_key = 8;
+  // Meta carries optional string metadata.
+  map<string, string> meta = 9;
+  // Payload carries serialized event bytes.
+  bytes payload = 10;
+  // ContentType is reserved for future runtime codec negotiation.
+  string content_type = 11;
+
+  reserved 100 to 199;
+}

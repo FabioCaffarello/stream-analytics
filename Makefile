@@ -24,7 +24,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools modules tidy tidy-check fmt fmt-check lint test test-workspace test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install ci
+.PHONY: help install-tools modules tidy tidy-check fmt fmt-check lint test test-workspace test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install proto-lint proto-gen proto-breaking proto ci
 
 help:
 	@echo "Targets:"
@@ -49,6 +49,10 @@ help:
 	@echo "  make ps                 - list compose service status"
 	@echo "  make logs               - stream compose logs"
 	@echo "  make pre-commit-install - install pre-commit hooks"
+	@echo "  make proto-lint         - run buf lint on proto contracts"
+	@echo "  make proto-gen          - generate Go code from proto contracts"
+	@echo "  make proto-breaking     - check proto breaking changes against main"
+	@echo "  make proto              - run proto-lint + proto-gen"
 	@echo "  make ci                 - tidy-check + fmt-check + lint + test + vuln + build"
 	@echo ""
 	@echo "Optional: MODULE=./pkg/hello-lib to target a single module"
@@ -175,5 +179,21 @@ logs:
 
 pre-commit-install:
 	$(PRE_COMMIT) install --hook-type pre-commit --hook-type commit-msg
+
+proto-lint:
+	buf lint proto
+
+proto-gen:
+	cd proto && buf generate
+
+proto-breaking:
+	@set -euo pipefail; \
+	if git ls-tree -r --name-only main -- proto | grep -qE '\.proto$$'; then \
+		buf breaking proto --against '.git#branch=main'; \
+	else \
+		echo "Skipping proto-breaking: main has no proto baseline yet."; \
+	fi
+
+proto: proto-lint proto-gen
 
 ci: tidy-check fmt-check lint test vuln build
