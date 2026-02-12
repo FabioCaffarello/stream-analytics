@@ -103,6 +103,8 @@ func NewIngestMarketDataWithConfig(
 	}
 
 	streams := ds.NewBoundedMap[domain.StreamID, *domain.InstrumentStream](cfg.MaxStreams, cfg.StreamTTL, clk)
+	streams.SetSweepEveryOps(1024)
+	streams.SetSweepMinInterval(time.Second)
 	streams.SetOnEvict(func(_ domain.StreamID, _ *domain.InstrumentStream, reason string) {
 		metrics.IncStreamsEvicted(reason)
 	})
@@ -210,7 +212,6 @@ func (uc *IngestMarketData) getOrCreateStream(rawVenue, rawInstrument string) (*
 	}
 	id := tmpStream.ID()
 
-	uc.streams.Sweep()
 	metrics.IngestStreamsActive.Set(float64(uc.streams.Len()))
 	if existing, ok := uc.streams.Get(id); ok {
 		return existing, nil

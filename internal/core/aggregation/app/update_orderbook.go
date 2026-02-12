@@ -84,6 +84,8 @@ func NewUpdateOrderBookFromEventsWithConfig(
 	}
 
 	books := ds.NewBoundedMap[domain.BookID, *domain.OrderBook](cfg.MaxBooks, cfg.BookTTL, cfg.Clock)
+	books.SetSweepEveryOps(1024)
+	books.SetSweepMinInterval(time.Second)
 	books.SetOnEvict(func(_ domain.BookID, _ *domain.OrderBook, reason string) {
 		metrics.IncBooksEvicted(reason)
 	})
@@ -150,7 +152,6 @@ func (uc *UpdateOrderBookFromEvents) Execute(ctx context.Context, req UpdateRequ
 // getOrCreateBook lazily initialises an OrderBook for the given identity.
 func (uc *UpdateOrderBookFromEvents) getOrCreateBook(venue, instrument string) (*domain.OrderBook, *problem.Problem) {
 	id := domain.BookID{Venue: venue, Instrument: instrument}
-	uc.books.Sweep()
 	metrics.AggregationBooksActive.Set(float64(uc.books.Len()))
 	if b, ok := uc.books.Get(id); ok {
 		return b, nil
