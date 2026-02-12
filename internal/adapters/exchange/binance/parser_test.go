@@ -60,3 +60,71 @@ func TestParseMessage_InvalidSkipsWithProblem(t *testing.T) {
 		t.Fatalf("expected skip + problem, got skip=%v problem=%v", skip, p)
 	}
 }
+
+func TestParseMessage_AggTrade_FallsBackToEventTime(t *testing.T) {
+	msg := []byte(`{"e":"aggTrade","E":1710000001111,"T":0,"s":"BTCUSDT","a":1,"p":"1.0","q":"2.0","m":false}`)
+	req, skip, p := binance.ParseMessage(msg, time.UnixMilli(1710000009999))
+	if p != nil || skip {
+		t.Fatalf("ParseMessage failed: skip=%v problem=%v", skip, p)
+	}
+	if req.TsExchange != 1710000001111 {
+		t.Fatalf("ts_exchange = %d, want 1710000001111", req.TsExchange)
+	}
+}
+
+func TestParseMessage_AggTrade_FallsBackToRecvAt(t *testing.T) {
+	recvAt := time.UnixMilli(1710000009999)
+	msg := []byte(`{"e":"aggTrade","E":0,"T":0,"s":"BTCUSDT","a":1,"p":"1.0","q":"2.0","m":false}`)
+	req, skip, p := binance.ParseMessage(msg, recvAt)
+	if p != nil || skip {
+		t.Fatalf("ParseMessage failed: skip=%v problem=%v", skip, p)
+	}
+	if req.TsExchange != recvAt.UnixMilli() {
+		t.Fatalf("ts_exchange = %d, want %d", req.TsExchange, recvAt.UnixMilli())
+	}
+}
+
+func TestParseMessage_CombinedEnvelopeWithoutData_Skips(t *testing.T) {
+	msg := []byte(`{"stream":"btcusdt@aggTrade","data":null}`)
+	req, skip, p := binance.ParseMessage(msg, time.Now())
+	if p != nil {
+		t.Fatalf("unexpected problem: %v", p)
+	}
+	if !skip {
+		t.Fatalf("expected skip, got req=%#v", req)
+	}
+}
+
+func TestParseMessage_DepthUpdateInvalidLevel_SkipsWithProblem(t *testing.T) {
+	msg := []byte(`{"e":"depthUpdate","E":1710000010000,"s":"ETHUSDT","b":[["2500.1"]],"a":[["2500.2","2.3"]]}`)
+	_, skip, p := binance.ParseMessage(msg, time.UnixMilli(1710000011000))
+	if !skip || p == nil {
+		t.Fatalf("expected skip + problem, got skip=%v problem=%v", skip, p)
+	}
+}
+
+func TestParseMessageWithMeta_UnsupportedEvent(t *testing.T) {
+	_, skip, meta := binance.ParseMessageWithMeta([]byte(`{"e":"bookTicker"}`), time.Now())
+	if !skip {
+		t.Fatal("expected skip for unsupported event")
+	}
+	if meta.SkipReason != "unsupported_event" {
+		t.Fatalf("skip reason = %q, want unsupported_event", meta.SkipReason)
+	}
+	if meta.EventType != "bookTicker" {
+		t.Fatalf("event type = %q, want bookTicker", meta.EventType)
+	}
+}
+
+func TestParseMessageWithMeta_InvalidJSON(t *testing.T) {
+	_, skip, meta := binance.ParseMessageWithMeta([]byte(`{invalid`), time.Now())
+	if !skip {
+		t.Fatal("expected skip for invalid JSON")
+	}
+	if meta.SkipReason != "parse_error" {
+		t.Fatalf("skip reason = %q, want parse_error", meta.SkipReason)
+	}
+	if meta.Problem == nil {
+		t.Fatal("expected problem for invalid JSON")
+	}
+}

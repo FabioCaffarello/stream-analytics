@@ -28,6 +28,27 @@ import (
 // packages outside this module and are injected via SubsystemConfig.
 type ParseFunc func(msg *ws.WsMessage) (req app.IngestRequest, skip bool)
 
+// ParseMeta carries parser diagnostics used by runtime telemetry.
+//
+// SkipReason examples:
+//   - "unsupported_event"
+//   - "parse_error"
+//   - "control_message"
+//   - "skip_unspecified"
+//
+// EventType should reflect the upstream event when known (e.g. "aggTrade",
+// "depthUpdate", "unknown").
+type ParseMeta struct {
+	EventType      string
+	SkipReason     string
+	ProblemCode    string
+	ProblemMessage string
+}
+
+// ParseFuncV2 is an optional parse function that augments ParseFunc with
+// telemetry metadata. Existing ParseFunc users remain supported.
+type ParseFuncV2 func(msg *ws.WsMessage) (req app.IngestRequest, skip bool, meta ParseMeta)
+
 // RawMessageV1 is a minimal pass-through payload used when no exchange-specific
 // parser is available.  It wraps the raw wire bytes so that the ingest pipeline
 // can still stamp, sequence and publish a trace envelope.

@@ -23,3 +23,20 @@ func TestBuildEndpoint_requiresTicker(t *testing.T) {
 		t.Fatal("expected problem")
 	}
 }
+
+func TestBuildEndpoint_TrimsTrailingSlash(t *testing.T) {
+	endpoint, p := binance.BuildEndpoint("wss://stream.binance.com:9443/stream/", []string{"BTC-USDT"})
+	if p != nil {
+		t.Fatalf("BuildEndpoint: %v", p)
+	}
+	if strings.Contains(endpoint, "//?streams=") {
+		t.Fatalf("unexpected endpoint with double slash: %s", endpoint)
+	}
+}
+
+func TestBuildEndpoint_InvalidTicker(t *testing.T) {
+	_, p := binance.BuildEndpoint("", []string{""})
+	if p == nil {
+		t.Fatal("expected problem for invalid ticker")
+	}
+}

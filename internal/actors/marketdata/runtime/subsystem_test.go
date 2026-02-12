@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/anthdm/hollywood/actor"
-	ws "github.com/market-raccoon/internal/actors/marketdata/ws"
 	mdruntime "github.com/market-raccoon/internal/actors/marketdata/runtime"
+	ws "github.com/market-raccoon/internal/actors/marketdata/ws"
 	runtime "github.com/market-raccoon/internal/actors/runtime"
 	mdapp "github.com/market-raccoon/internal/core/marketdata/app"
 	"github.com/market-raccoon/internal/shared/envelope"
@@ -56,26 +56,10 @@ func (f *fakeSequencer) Next(venue, instrument string) (int64, *problem.Problem)
 	return f.seq[key], nil
 }
 
-// captureActor collects all messages it receives into a buffered channel.
-type captureActor struct {
-	ch chan any
-}
-
-func (c *captureActor) Receive(ctx *actor.Context) {
-	switch m := ctx.Message().(type) {
-	case actor.Started, actor.Stopped:
-	default:
-		select {
-		case c.ch <- m:
-		default:
-		}
-	}
-}
-
 // parentActor spawns the subsystem as a child and captures messages it receives.
 type parentActor struct {
-	cfg   mdruntime.SubsystemConfig
-	ch    chan any
+	cfg    mdruntime.SubsystemConfig
+	ch     chan any
 	subPID *actor.PID
 }
 
@@ -250,9 +234,9 @@ func TestSubsystem_ParseSkip_doesNotIngest(t *testing.T) {
 	<-e.Poison(pid).Done()
 }
 
-// TestSubsystem_WsError_sendsChildFailedToParent verifies that a *ws.WsError
-// is forwarded to the parent actor as runtime.ChildFailed.
-func TestSubsystem_WsError_sendsChildFailedToParent(t *testing.T) {
+// TestSubsystem_WsError_TransientDoesNotEscalate verifies transient websocket
+// failures do not trigger parent-level ChildFailed restarts.
+func TestSubsystem_WsError_TransientDoesNotEscalate(t *testing.T) {
 	pub := &spyPublisher{}
 	ingest := newTestIngest(pub)
 
@@ -276,10 +260,44 @@ func TestSubsystem_WsError_sendsChildFailedToParent(t *testing.T) {
 		t.Fatal("subsystem PID not set; parent did not spawn child")
 	}
 
-	wsErr := makeWsError("binance", "read", errFakeRead)
+	wsErr := makeWsError("binance", "dial", errFakeRead)
 	e.Send(subPID, wsErr)
 
-	// Wait for parent to receive ChildFailed.
+	select {
+	case raw := <-parentCh:
+		t.Fatalf("expected no ChildFailed for transient ws error, got %T", raw)
+	case <-time.After(250 * time.Millisecond):
+	}
+
+	<-e.Poison(parentPID).Done()
+}
+
+// TestSubsystem_WsError_UnknownEscalates verifies non-transient websocket
+// failures are forwarded to parent actor as runtime.ChildFailed.
+func TestSubsystem_WsError_UnknownEscalates(t *testing.T) {
+	pub := &spyPublisher{}
+	ingest := newTestIngest(pub)
+
+	cfg := mdruntime.SubsystemConfig{
+		Ingest:       ingest,
+		ParseMessage: mdruntime.MakeRawParseFunc("binance", "BTC-USDT"),
+	}
+
+	parentCh := make(chan any, 16)
+	pa := &parentActor{cfg: cfg, ch: parentCh}
+
+	e := newEngine(t)
+	parentPID := e.Spawn(func() actor.Receiver { return pa }, "parent", actor.WithID("parent"))
+	time.Sleep(50 * time.Millisecond)
+
+	subPID := pa.subPID
+	if subPID == nil {
+		t.Fatal("subsystem PID not set; parent did not spawn child")
+	}
+
+	wsErr := makeWsError("binance", "unknown", errFakeRead)
+	e.Send(subPID, wsErr)
+
 	var got runtime.ChildFailed
 	select {
 	case raw := <-parentCh:
@@ -295,8 +313,8 @@ func TestSubsystem_WsError_sendsChildFailedToParent(t *testing.T) {
 	if got.Subsystem != runtime.SubsystemMarketData {
 		t.Errorf("expected subsystem=%s, got %s", runtime.SubsystemMarketData, got.Subsystem)
 	}
-	if got.Kind != "read" {
-		t.Errorf("expected kind=read, got %s", got.Kind)
+	if got.Kind != "unknown" {
+		t.Errorf("expected kind=unknown, got %s", got.Kind)
 	}
 
 	<-e.Poison(parentPID).Done()

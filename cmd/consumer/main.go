@@ -9,30 +9,24 @@
 //	  └─ Guardian  (runtime supervision)
 //	       └─ MarketDataSubsystemActor  (ws.Manager → IngestMarketData → LogPublisher)
 //
-// Exchange connections are real when fake=false and a valid exchange is
-// configured.  In fake=true mode (default) a synthetic feed goroutine
-// generates WsMessages directly so the ingest pipeline can be exercised
-// without a live network connection.
+// Exchange connections are real and sourced from Binance WebSocket streams.
 //
 // Usage:
 //
 //	go run ./cmd/consumer [flags]
 //	  -config     string  path to JSONC config file (default "config.jsonc")
 //	  -log-level  string  log level override: debug|info|warn|error
-//	  -binance-real       enable real Binance websocket source mode (overrides config)
 package main
 
 import (
 	"context"
 	"flag"
-	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
 	"sync"
 	"syscall"
-	"time"
 
 	"github.com/anthdm/hollywood/actor"
 	mdruntime "github.com/market-raccoon/internal/actors/marketdata/runtime"
@@ -74,26 +68,9 @@ func (s *inMemSequencer) Next(venue, instrument string) (int64, *problem.Problem
 func main() {
 	configPath := flag.String("config", "config.jsonc", "path to JSONC config file")
 	logLevelOverride := flag.String("log-level", "", "log level override: debug|info|warn|error")
-	binanceRealOverride := flag.Bool("binance-real", false, "enable real Binance websocket source mode")
 	flag.Parse()
 
-	// ── config ───────────────────────────────────────────────────────────────
-	cfg, prob := config.Load(*configPath)
-	if prob != nil {
-		slog.Error("consumer: config load failed", "err", prob)
-		os.Exit(1)
-	}
-	if *logLevelOverride != "" {
-		cfg.Log.Level = *logLevelOverride
-	}
-	if *binanceRealOverride {
-		cfg.Consumer.BinanceReal = true
-		cfg.Consumer.Fake = false
-	}
-	if prob = cfg.Validate(); prob != nil {
-		slog.Error("consumer: config validation failed", "err", prob)
-		os.Exit(1)
-	}
+	cfg := loadConsumerConfig(*configPath, *logLevelOverride)
 
 	// ── logger ───────────────────────────────────────────────────────────────
 	logger := buildLogger(cfg.Log)
@@ -105,8 +82,6 @@ func main() {
 	logger.Info("consumer starting",
 		"exchange", exchange,
 		"tickers", tickers,
-		"fake", cfg.Consumer.Fake,
-		"binance_real", cfg.Consumer.BinanceReal,
 	)
 
 	// ── dependencies ─────────────────────────────────────────────────────────
@@ -115,66 +90,19 @@ func main() {
 	clk := clock.NewSystemClock()
 	ingest := mdapp.NewIngestMarketData(clk, seq, pub)
 
-	// ── subsystem PID capture (used by fake feeder) ───────────────────────────
-	subsystemPIDCh := make(chan *actor.PID, 1)
-
 	if len(tickers) == 0 {
 		logger.Error("consumer: no tickers configured")
 		os.Exit(1)
 	}
-	realMode := cfg.Consumer.BinanceReal
 
-	var parseFunc mdruntime.ParseFunc
-	var managerCfg *ws.ManagerConfig
-	if realMode {
-		parseFunc = func(msg *ws.WsMessage) (mdapp.IngestRequest, bool) {
-			req, skip, p := binance.ParseMessage(msg.Data, msg.RecvAt)
-			if p != nil {
-				logger.Warn("consumer: binance parse skipped message",
-					"code", p.Code,
-					"message", p.Message,
-					"exchange", msg.Exchange,
-					"endpoint", msg.Endpoint,
-					"bucket_id", msg.BucketID,
-				)
-			}
-			return req, skip || p != nil
-		}
-		managerCfg = &ws.ManagerConfig{
-			Exchange:               exchange,
-			Tickers:                tickers,
-			StreamsPerTicker:       cfg.Consumer.StreamsPerTicker,
-			MaxStreamsPerWebsocket: cfg.Consumer.MaxStreamsPerWebsocket,
-			FillStrategy:           ws.FillStrategyAuto,
-			MaxWebsockets:          cfg.Consumer.MaxWebsockets,
-			MaxWebsocketLifetime:   cfg.Consumer.MaxWebsocketLifetimeDuration(),
-			RespawnOverlap:         cfg.Consumer.RespawnOverlapDuration(),
-			SubscriptionBuilder:    func([]string) [][]byte { return nil }, // combined stream URL encodes subscriptions
-			Heartbeat:              func() ws.Heartbeat { return ws.Heartbeat{} },
-			EndpointBuilder: func(bucket []string) string {
-				endpoint, p := binance.BuildEndpoint(cfg.Consumer.BinanceWSBaseURL, bucket)
-				if p != nil {
-					logger.Error("consumer: binance endpoint build failed", "err", p, "bucket", bucket)
-					return ""
-				}
-				return endpoint
-			},
-		}
-	} else {
-		parseFunc = mdruntime.MakeRawParseFunc(exchange, tickers[0])
-	}
+	parseFunc, managerCfg := buildParseFuncAndManagerCfg(cfg, logger, exchange, tickers)
 
 	subCfg := mdruntime.SubsystemConfig{
-		Logger:        logger,
-		Ingest:        ingest,
-		ParseMessage:  parseFunc,
-		ManagerConfig: managerCfg,
-		OnStarted: func(pid *actor.PID) {
-			select {
-			case subsystemPIDCh <- pid:
-			default:
-			}
-		},
+		Logger:         logger,
+		Ingest:         ingest,
+		ParseMessage:   parseFunc,
+		ParseMessageV2: buildParseFuncV2(logger),
+		ManagerConfig:  managerCfg,
 	}
 
 	// ── engine ───────────────────────────────────────────────────────────────
@@ -197,21 +125,16 @@ func main() {
 	)
 	logger.Info("guardian spawned", "pid", guardianPID.String())
 
-	// ── fake feed ─────────────────────────────────────────────────────────────
-	ctx, cancel := context.WithCancel(context.Background())
+	// ── signal handling ───────────────────────────────────────────────────────
+	_, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	if cfg.Consumer.Fake && !realMode {
-		go runFakeFeeder(ctx, e, subsystemPIDCh, exchange, tickers, cfg.Consumer.FakeRate(), logger)
-	}
-
-	// ── signal handling ───────────────────────────────────────────────────────
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
 	logger.Info("consumer: shutting down")
-	cancel() // stop fake feeder
+	cancel()
 
 	shutCtx, shutCancel := context.WithTimeout(context.Background(), cfg.HTTP.ShutdownTimeoutDuration())
 	defer shutCancel()
@@ -225,67 +148,87 @@ func main() {
 	logger.Info("consumer: shutdown complete")
 }
 
-// runFakeFeeder generates synthetic *ws.WsMessage at the given rate and sends
-// them directly to the subsystem actor.  It runs until ctx is cancelled.
-//
-// This is a development/testing aid — NOT production code.  In production,
-// real WsMessages come from ws.Consumer actors managed by ws.Manager.
-func runFakeFeeder(
-	ctx context.Context,
-	e *actor.Engine,
-	pidCh <-chan *actor.PID,
+func loadConsumerConfig(configPath, logLevelOverride string) config.AppConfig {
+	cfg, prob := config.Load(configPath)
+	if prob != nil {
+		slog.Error("consumer: config load failed", "err", prob)
+		os.Exit(1)
+	}
+	if logLevelOverride != "" {
+		cfg.Log.Level = logLevelOverride
+	}
+	if prob = cfg.Validate(); prob != nil {
+		slog.Error("consumer: config validation failed", "err", prob)
+		os.Exit(1)
+	}
+	return cfg
+}
+
+func buildParseFuncAndManagerCfg(
+	cfg config.AppConfig,
+	logger *slog.Logger,
 	exchange string,
 	tickers []string,
-	rate time.Duration,
-	logger *slog.Logger,
-) {
-	// Wait for the subsystem actor to report its PID.
-	var pid *actor.PID
-	select {
-	case pid = <-pidCh:
-	case <-time.After(5 * time.Second):
-		logger.Warn("fake feeder: timeout waiting for subsystem PID; not starting")
-		return
-	case <-ctx.Done():
-		return
+) (mdruntime.ParseFunc, *ws.ManagerConfig) {
+	parseFunc := func(msg *ws.WsMessage) (mdapp.IngestRequest, bool) {
+		req, skip, p := binance.ParseMessage(msg.Data, msg.RecvAt)
+		if p != nil {
+			logger.Warn("consumer: binance parse skipped message",
+				"code", p.Code,
+				"message", p.Message,
+				"exchange", msg.Exchange,
+				"endpoint", msg.Endpoint,
+				"bucket_id", msg.BucketID,
+			)
+		}
+		return req, skip || p != nil
 	}
 
-	logger.Info("fake feeder: started",
-		"exchange", exchange,
-		"tickers", tickers,
-		"rate", rate,
-		"target", pid.String(),
-	)
-
-	ticker := time.NewTicker(rate)
-	defer ticker.Stop()
-
-	var seq int64
-	for {
-		select {
-		case <-ctx.Done():
-			logger.Info("fake feeder: stopped")
-			return
-		case t := <-ticker.C:
-			seq++
-			for _, sym := range tickers {
-				data := []byte(fmt.Sprintf(
-					`{"price":%.2f,"size":0.001,"side":"buy","trade_id":"%d","timestamp_ms":%d,"symbol":"%s"}`,
-					42000+float64(seq)*0.01,
-					seq,
-					t.UnixMilli(),
-					sym,
-				))
-				e.Send(pid, &ws.WsMessage{
-					Exchange:   exchange,
-					BucketID:   0,
-					ConsumerID: "fake-feeder",
-					Endpoint:   "fake://",
-					Data:       data,
-					RecvAt:     t,
-				})
+	managerCfg := &ws.ManagerConfig{
+		Exchange:               exchange,
+		Tickers:                tickers,
+		StreamsPerTicker:       cfg.Consumer.StreamsPerTicker,
+		MaxStreamsPerWebsocket: cfg.Consumer.MaxStreamsPerWebsocket,
+		FillStrategy:           ws.FillStrategyAuto,
+		MaxWebsockets:          cfg.Consumer.MaxWebsockets,
+		MaxWebsocketLifetime:   cfg.Consumer.MaxWebsocketLifetimeDuration(),
+		RespawnOverlap:         cfg.Consumer.RespawnOverlapDuration(),
+		SubscriptionBuilder:    func([]string) [][]byte { return nil }, // combined stream URL encodes subscriptions
+		Heartbeat:              func() ws.Heartbeat { return ws.Heartbeat{} },
+		EndpointBuilder: func(bucket []string) string {
+			endpoint, p := binance.BuildEndpoint(cfg.Consumer.BinanceWSBaseURL, bucket)
+			if p != nil {
+				logger.Error("consumer: binance endpoint build failed", "err", p, "bucket", bucket)
+				return ""
 			}
+			logger.Info("consumer: ws endpoint planned", "endpoint", endpoint, "bucket", bucket)
+			return endpoint
+		},
+	}
+
+	return parseFunc, managerCfg
+}
+
+func buildParseFuncV2(logger *slog.Logger) mdruntime.ParseFuncV2 {
+	return func(msg *ws.WsMessage) (mdapp.IngestRequest, bool, mdruntime.ParseMeta) {
+		req, skip, meta := binance.ParseMessageWithMeta(msg.Data, msg.RecvAt)
+		out := mdruntime.ParseMeta{
+			EventType:  meta.EventType,
+			SkipReason: meta.SkipReason,
 		}
+		if meta.Problem != nil {
+			out.ProblemCode = string(meta.Problem.Code)
+			out.ProblemMessage = meta.Problem.Message
+			logger.Warn("consumer: binance parse skipped message",
+				"code", meta.Problem.Code,
+				"message", meta.Problem.Message,
+				"exchange", msg.Exchange,
+				"endpoint", msg.Endpoint,
+				"bucket_id", msg.BucketID,
+			)
+			return req, true, out
+		}
+		return req, skip, out
 	}
 }
 

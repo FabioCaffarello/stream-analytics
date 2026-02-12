@@ -1,9 +1,11 @@
+// Package binance provides Binance-specific market-data adapter helpers.
 package binance
 
 import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/market-raccoon/internal/core/marketdata/app"
@@ -13,6 +15,7 @@ import (
 )
 
 const (
+	// VenueBinance is the canonical venue identifier emitted for Binance events.
 	VenueBinance = "BINANCE"
 )
 
@@ -40,35 +43,72 @@ type depthUpdate struct {
 	AsksRaw     [][]string `json:"a"`
 }
 
+// ParseMeta carries parser diagnostics for observability.
+type ParseMeta struct {
+	EventType  string
+	SkipReason string
+	Problem    *problem.Problem
+}
+
 // ParseMessage parses Binance WS payload and maps supported messages to app.IngestRequest.
 // Returns skip=true for unsupported/heartbeat/control messages.
 func ParseMessage(data []byte, recvAt time.Time) (app.IngestRequest, bool, *problem.Problem) {
+	req, skip, meta := ParseMessageWithMeta(data, recvAt)
+	return req, skip, meta.Problem
+}
+
+// ParseMessageWithMeta parses Binance payload and returns telemetry metadata.
+func ParseMessageWithMeta(data []byte, recvAt time.Time) (app.IngestRequest, bool, ParseMeta) {
 	payload := data
+	meta := ParseMeta{}
 
 	// Binance combined stream wraps payload as {stream, data}.
 	var wrapped streamEnvelope
-	if err := json.Unmarshal(data, &wrapped); err == nil && len(wrapped.Data) > 0 {
-		payload = wrapped.Data
+	if err := json.Unmarshal(data, &wrapped); err == nil {
+		meta.EventType = eventTypeFromStream(wrapped.Stream)
+		if len(wrapped.Data) > 0 {
+			payload = wrapped.Data
+		} else if wrapped.Stream != "" {
+			meta.SkipReason = "envelope_empty_data"
+			return app.IngestRequest{}, true, meta
+		}
 	}
 
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(payload, &obj); err != nil {
-		return app.IngestRequest{}, true, problem.Wrap(err, problem.ValidationFailed, "binance parser: invalid JSON payload")
+		meta.SkipReason = "parse_error"
+		meta.Problem = problem.Wrap(err, problem.ValidationFailed, "binance parser: invalid JSON payload")
+		return app.IngestRequest{}, true, meta
 	}
 	var event string
 	if rawEvent, ok := obj["e"]; ok {
 		if err := json.Unmarshal(rawEvent, &event); err != nil {
-			return app.IngestRequest{}, true, problem.Wrap(err, problem.ValidationFailed, "binance parser: invalid event type")
+			meta.SkipReason = "parse_error"
+			meta.Problem = problem.Wrap(err, problem.ValidationFailed, "binance parser: invalid event type")
+			return app.IngestRequest{}, true, meta
 		}
+	}
+	if event != "" {
+		meta.EventType = event
 	}
 
 	switch event {
 	case "aggTrade":
-		return parseAggTrade(payload, recvAt)
+		req, skip, p := parseAggTrade(payload, recvAt)
+		meta.SkipReason = skipReasonFromProblem(p)
+		meta.Problem = p
+		return req, skip, meta
 	case "depthUpdate":
-		return parseDepthUpdate(payload, recvAt)
+		req, skip, p := parseDepthUpdate(payload, recvAt)
+		meta.SkipReason = skipReasonFromProblem(p)
+		meta.Problem = p
+		return req, skip, meta
 	default:
-		return app.IngestRequest{}, true, nil
+		meta.SkipReason = "unsupported_event"
+		if meta.EventType == "" {
+			meta.EventType = "unknown"
+		}
+		return app.IngestRequest{}, true, meta
 	}
 }
 
@@ -177,4 +217,29 @@ func parseLevels(raw [][]string) ([]domain.PriceLevel, *problem.Problem) {
 		out = append(out, domain.PriceLevel{Price: price, Size: size})
 	}
 	return out, nil
+}
+
+func skipReasonFromProblem(p *problem.Problem) string {
+	if p != nil {
+		return "parse_error"
+	}
+	return ""
+}
+
+func eventTypeFromStream(stream string) string {
+	if stream == "" {
+		return ""
+	}
+	parts := strings.Split(stream, "@")
+	if len(parts) < 2 {
+		return ""
+	}
+	switch parts[1] {
+	case "aggTrade":
+		return "aggTrade"
+	case "depth", "depthUpdate":
+		return "depthUpdate"
+	default:
+		return parts[1]
+	}
 }
