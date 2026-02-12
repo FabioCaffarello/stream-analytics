@@ -117,6 +117,14 @@ Protobuf provides:
 
 Buf specifically is preferred because it eliminates protoc toolchain management and provides integrated lint+breaking+generate in one tool.
 
+## Contract Authority Model
+
+- Proto schemas are canonical contract authority for market data events.
+- Domain structs are projections of proto fields, not independent schema definitions.
+- Proto-to-domain and domain-to-proto converters are mandatory boundaries for all contract payloads.
+- Breaking schema changes are blocked in CI via Buf breaking checks.
+- Deterministic replay and cross-exchange normalization depend on schema immutability.
+
 ## Alternatives Considered
 
 1. **Stay JSON-only:** Rejected — no schema enforcement, no breaking change detection, no wire compatibility guarantee.
