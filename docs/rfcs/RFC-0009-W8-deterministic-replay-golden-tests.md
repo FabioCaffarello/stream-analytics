@@ -363,3 +363,92 @@ Observed results:
 - `ae76422` test(w8): determinism + checksum gates
 - `c233b66` feat(w8): add opt-in record and replay runtime wiring
 - `3bfddc9` feat(w8): deterministic player and golden replay framework
+
+## 13. W8-2 Evidence (2026-02-12)
+
+### Delivered in code
+
+- JetStream deterministic replay source (opt-in):
+  - `internal/adapters/jetstream/replay_source.go`
+  - deterministic ordering tie-breakers:
+    - `ts_ingest` asc
+    - `venue` asc
+    - `instrument` asc
+    - `type` asc
+    - `seq` asc
+    - `idempotency_key` asc
+  - bounded merge buffer with explicit overflow failure (`merge_buffer_overflow`)
+  - bounded output channel / backpressure and clean close semantics
+  - replay modes:
+    - `all` (FULL)
+    - `by_start_time` + `window` (WINDOW)
+- Shared replay bridge for source recording:
+  - `internal/shared/replay/jetstream_reader.go`
+  - `RecordFromSource(ctx, src, outPath, maxN, until)` writing W8-1 JSONL fixture format
+- Config opt-in section:
+  - `internal/shared/config/schema.go`
+  - `internal/shared/config/loader.go`
+  - `internal/shared/config/replay_test.go`
+  - new keys:
+    - `replay.mode` = `off|file|jetstream` (default `off`)
+    - `replay.on_decode_error` = `fail|skip` (default `fail`)
+    - `replay.jetstream.window`
+    - `replay.jetstream.max_messages`
+    - `replay.jetstream.subject_filter`
+    - `replay.jetstream.deliver_policy` = `all|by_start_time`
+    - `replay.jetstream.merge_buffer`
+  - validation gates:
+    - `replay.mode=jetstream` requires `bus.type=jetstream`
+    - `deliver_policy=by_start_time` requires positive `window`
+    - `max_messages` bounded to `[1, 10_000_000]`
+- Processor opt-in wiring:
+  - `cmd/processor/main.go`
+  - when `replay.mode=jetstream`, processor uses replay source path (default path unchanged when `off`)
+- Replay metrics:
+  - `internal/shared/metrics/metrics.go`
+  - `internal/shared/metrics/metrics_test.go`
+  - metrics added:
+    - `replay_messages_total{mode,status}`
+    - `replay_latency_seconds{mode}`
+    - `replay_redeliveries_total{mode}`
+
+### Tests added
+
+- Unit:
+  - `internal/adapters/jetstream/replay_source_test.go`
+  - `internal/shared/replay/jetstream_reader_test.go`
+  - `internal/shared/config/replay_test.go`
+- Integration (`//go:build integration`):
+  - `internal/adapters/jetstream/replay_source_integration_test.go`
+  - coverage:
+    - full replay deterministic order
+    - window replay filtering
+    - restart without duplicate acked outputs (durable replay consumer)
+    - start/stop cycles (clean shutdown)
+    - source->fixture golden compare
+
+### Commands executed
+
+```bash
+go test ./...                                  # internal/shared
+go test -race ./...                            # internal/shared
+go test ./...                                  # internal/adapters
+go test -race ./jetstream                      # internal/adapters
+go test ./...                                  # cmd/processor
+go test -tags integration ./jetstream -run TestReplaySourceIntegration -count=1   # internal/adapters
+make test-workspace GO_TEST_FLAGS='-race'
+pre-commit run -a
+```
+
+Observed results:
+
+- all commands above passed
+- integration replay tests passed end-to-end on JetStream (testcontainers NATS)
+- default runtime behavior remains unchanged with `replay.mode=off`
+
+### Fixture hashes (determinism baseline)
+
+```text
+723a3341d107f8f1b0b14cc972f8051d0321ce5ff09f2d4bab22f3d60c0fb220  internal/shared/replay/testdata/fixtures/input-mini.jsonl
+723a3341d107f8f1b0b14cc972f8051d0321ce5ff09f2d4bab22f3d60c0fb220  internal/shared/replay/testdata/golden/output-mini.jsonl
+```
