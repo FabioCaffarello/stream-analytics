@@ -15,10 +15,10 @@ import (
 // The app layer depends on this port, not directly on shared/clock.
 type Clock = clock.Clock
 
-// Sequencer assigns monotonic sequence numbers per (venue, instrument) stream.
+// Sequencer assigns monotonic sequence numbers per stream key.
 // Implementations must be concurrency-safe.
 type Sequencer interface {
-	// Next returns the next sequence number for the given (venue, instrument) pair.
+	// Next returns the next sequence number for the given (venue, instrument-key) pair.
 	// The returned value is guaranteed to be strictly greater than all previous
 	// values for the same pair.
 	Next(venue, instrument string) (int64, *problem.Problem)

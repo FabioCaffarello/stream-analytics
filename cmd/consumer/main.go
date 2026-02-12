@@ -7,9 +7,9 @@
 //
 //	engine
 //	  └─ Guardian  (runtime supervision)
-//	       └─ MarketDataSubsystemActor  (ws.Manager → IngestMarketData → LogPublisher)
+//	       └─ MarketDataSubsystemActor[xN]  (one per configured exchange)
 //
-// Exchange connections are real and sourced from Binance WebSocket streams.
+// Exchange connections are real and sourced from configured exchange adapters.
 //
 // Usage:
 //
@@ -37,6 +37,7 @@ import (
 	actorruntime "github.com/market-raccoon/internal/actors/runtime"
 	"github.com/market-raccoon/internal/adapters/bus"
 	"github.com/market-raccoon/internal/adapters/exchange/binance"
+	"github.com/market-raccoon/internal/adapters/exchange/bybit"
 	adapterjs "github.com/market-raccoon/internal/adapters/jetstream"
 	mdapp "github.com/market-raccoon/internal/core/marketdata/app"
 	"github.com/market-raccoon/internal/core/marketdata/ports"
@@ -84,15 +85,10 @@ func main() {
 	// ── logger ───────────────────────────────────────────────────────────────
 	logger := buildLogger(cfg.Log)
 	slog.SetDefault(logger)
-
-	exchange := cfg.Consumer.Exchange
-	tickers := cfg.Consumer.Tickers
+	e2e := newE2ERuntime(logger)
 
 	logger.Info("consumer starting",
 		"bus_type", cfg.Bus.Type,
-		"exchange", exchange,
-		"market_type", cfg.Consumer.MarketType,
-		"tickers", tickers,
 		"streams_per_ticker", cfg.Consumer.StreamsPerTicker,
 		"max_streams_per_websocket", cfg.Consumer.MaxStreamsPerWebsocket,
 		"max_websockets", cfg.Consumer.MaxWebsockets,
@@ -112,21 +108,20 @@ func main() {
 	clk := clock.NewSystemClock()
 	ingest := mdapp.NewIngestMarketData(clk, seq, pub)
 
-	if len(tickers) == 0 {
-		logger.Error("consumer: no tickers configured")
+	runtimes, p := buildExchangeRuntimes(cfg, logger)
+	if p != nil {
+		logger.Error("consumer: exchange runtime build failed", "err", p)
 		os.Exit(1)
 	}
-
-	parseFunc, managerCfg := buildParseFuncAndManagerCfg(cfg, logger, exchange, tickers)
-
-	subCfg := mdruntime.SubsystemConfig{
-		Logger:                 logger,
-		Ingest:                 ingest,
-		ParseMessage:           parseFunc,
-		ParseMessageV2:         buildParseFuncV2(logger),
-		ManagerConfig:          managerCfg,
-		BackpressureBufferSize: cfg.Consumer.BackpressureBufferSize,
-		BackpressurePolicy:     cfg.Consumer.BackpressurePolicy,
+	for _, runtimeCfg := range runtimes {
+		logger.Info("consumer exchange configured",
+			"subsystem", runtimeCfg.Subsystem,
+			"name", runtimeCfg.Exchange.Name,
+			"type", runtimeCfg.Exchange.Type,
+			"market_type", runtimeCfg.Exchange.MarketType,
+			"tickers", runtimeCfg.Exchange.Tickers,
+			"base_url", runtimeCfg.Exchange.BaseURL,
+		)
 	}
 
 	// ── engine ───────────────────────────────────────────────────────────────
@@ -135,19 +130,46 @@ func main() {
 		logger.Error("failed to create actor engine", "err", err)
 		os.Exit(1)
 	}
+	e2e.bindEngine(e)
 
 	// ── guardian ─────────────────────────────────────────────────────────────
+	factories := make(map[actorruntime.Subsystem]actor.Producer, len(runtimes))
+	expected := make([]actorruntime.Subsystem, 0, len(runtimes))
+	for _, runtimeCfg := range runtimes {
+		managerCfg := runtimeCfg.ManagerCfg
+		if e2e.isEnabled() {
+			managerCfg = nil // E2E mode injects fake feed directly; no external WS dependency.
+		}
+		subCfg := mdruntime.SubsystemConfig{
+			Subsystem:              runtimeCfg.Subsystem,
+			Logger:                 logger,
+			Ingest:                 ingest,
+			ParseMessage:           runtimeCfg.ParseV1,
+			ParseMessageV2:         runtimeCfg.ParseV2,
+			ManagerConfig:          managerCfg,
+			OnStarted:              e2e.subsystemStartedHook(runtimeCfg.Exchange.Type, runtimeCfg.Exchange.Name),
+			BackpressureBufferSize: cfg.Consumer.BackpressureBufferSize,
+			BackpressurePolicy:     cfg.Consumer.BackpressurePolicy,
+		}
+		factories[runtimeCfg.Subsystem] = mdruntime.NewSubsystemActor(subCfg)
+		expected = append(expected, runtimeCfg.Subsystem)
+	}
+
 	guardianPID := e.Spawn(
 		actorruntime.NewGuardian(actorruntime.GuardianConfig{
-			Logger: logger,
-			Factories: map[actorruntime.Subsystem]actor.Producer{
-				actorruntime.SubsystemMarketData: mdruntime.NewSubsystemActor(subCfg),
-			},
+			Logger:             logger,
+			Factories:          factories,
+			ExpectedSubsystems: expected,
 		}),
 		"guardian",
 		actor.WithID("guardian"),
 	)
 	logger.Info("guardian spawned", "pid", guardianPID.String())
+	e2e.bindGuardian(guardianPID)
+	if p := e2e.startProbe(); p != nil {
+		logger.Error("consumer: failed to start e2e probe", "err", p)
+		os.Exit(1)
+	}
 
 	// ── signal handling ───────────────────────────────────────────────────────
 	_, cancel := context.WithCancel(context.Background())
@@ -162,6 +184,9 @@ func main() {
 
 	shutCtx, shutCancel := context.WithTimeout(context.Background(), cfg.HTTP.ShutdownTimeoutDuration())
 	defer shutCancel()
+	if p := e2e.shutdown(shutCtx); p != nil {
+		logger.Warn("consumer: e2e probe shutdown failed", "err", p)
+	}
 	if p := closePublisher(shutCtx); p != nil {
 		logger.Warn("consumer: publisher close failed", "err", p)
 	}
@@ -256,14 +281,108 @@ func wrapWithRecorderPublisher(
 	}
 }
 
-func buildParseFuncAndManagerCfg(
+type consumerExchangeRuntime struct {
+	Subsystem  actorruntime.Subsystem
+	Exchange   config.ConsumerExchangeConfig
+	ParseV1    mdruntime.ParseFunc
+	ParseV2    mdruntime.ParseFuncV2
+	ManagerCfg *ws.ManagerConfig
+}
+
+func buildExchangeRuntimes(cfg config.AppConfig, logger *slog.Logger) ([]consumerExchangeRuntime, *problem.Problem) {
+	exchanges := configuredExchanges(cfg)
+	if len(exchanges) == 0 {
+		return nil, problem.New(problem.ValidationFailed, "consumer: no exchange configured")
+	}
+
+	multi := len(exchanges) > 1
+	out := make([]consumerExchangeRuntime, 0, len(exchanges))
+	for _, exchange := range exchanges {
+		ex := exchange
+		if p := validateRuntimeExchange(ex); p != nil {
+			return nil, p
+		}
+		if strings.TrimSpace(ex.MarketType) == "" {
+			ex.MarketType = "SPOT"
+		}
+		runtimeCfg, p := buildExchangeRuntime(cfg, logger, ex, multi)
+		if p != nil {
+			return nil, p
+		}
+		out = append(out, runtimeCfg)
+	}
+
+	return out, nil
+}
+
+func configuredExchanges(cfg config.AppConfig) []config.ConsumerExchangeConfig {
+	exchanges := cfg.Consumer.Exchanges
+	if len(exchanges) != 0 {
+		return exchanges
+	}
+	exchange := strings.ToLower(strings.TrimSpace(cfg.Consumer.Exchange))
+	if exchange == "" {
+		exchange = "binance"
+	}
+	return []config.ConsumerExchangeConfig{
+		{
+			Name:       exchange,
+			Type:       exchange,
+			BaseURL:    strings.TrimSpace(cfg.Consumer.BinanceWSBaseURL),
+			Tickers:    append([]string(nil), cfg.Consumer.Tickers...),
+			MarketType: strings.ToUpper(strings.TrimSpace(cfg.Consumer.MarketType)),
+		},
+	}
+}
+
+func validateRuntimeExchange(ex config.ConsumerExchangeConfig) *problem.Problem {
+	if strings.TrimSpace(ex.Name) == "" {
+		return problem.New(problem.ValidationFailed, "consumer: exchange.name must not be empty")
+	}
+	if len(ex.Tickers) == 0 {
+		return problem.Newf(problem.ValidationFailed, "consumer: exchange %q has no tickers", ex.Name)
+	}
+	return nil
+}
+
+func buildExchangeRuntime(
 	cfg config.AppConfig,
 	logger *slog.Logger,
-	exchange string,
-	tickers []string,
-) (mdruntime.ParseFunc, *ws.ManagerConfig) {
-	parseFunc := func(msg *ws.WsMessage) (mdapp.IngestRequest, bool) {
-		req, skip, p := binance.ParseMessage(msg.Data, msg.RecvAt)
+	ex config.ConsumerExchangeConfig,
+	multi bool,
+) (consumerExchangeRuntime, *problem.Problem) {
+	subsystem := marketDataSubsystemKey(ex.Name, multi)
+	switch strings.ToLower(strings.TrimSpace(ex.Type)) {
+	case "binance":
+		return buildBinanceRuntime(cfg, logger, ex, subsystem), nil
+	case "bybit":
+		return buildBybitRuntime(cfg, logger, ex, subsystem), nil
+	default:
+		return consumerExchangeRuntime{}, problem.Newf(problem.ValidationFailed, "consumer: unsupported exchange type %q", ex.Type)
+	}
+}
+
+func buildBinanceRuntime(
+	cfg config.AppConfig,
+	logger *slog.Logger,
+	ex config.ConsumerExchangeConfig,
+	subsystem actorruntime.Subsystem,
+) consumerExchangeRuntime {
+	managerCfg := baseManagerConfig(cfg, ex)
+	managerCfg.SubscriptionBuilder = func([]string) [][]byte { return nil }
+	managerCfg.EndpointBuilder = func(bucket []string) string {
+		endpoint, p := binance.BuildEndpoint(ex.BaseURL, bucket)
+		if p != nil {
+			logger.Error("consumer: binance endpoint build failed", "err", p, "exchange", ex.Name, "bucket", bucket)
+			return ""
+		}
+		logger.Info("consumer: ws endpoint planned", "exchange", ex.Name, "endpoint", endpoint, "bucket", bucket)
+		return endpoint
+	}
+
+	parseV1 := func(msg *ws.WsMessage) (mdapp.IngestRequest, bool) {
+		req, skip, p := binance.ParseMessageForMarketType(msg.Data, msg.RecvAt, ex.MarketType)
+		enrichRequestMetadata(&req, msg, ex.MarketType, "")
 		if p != nil {
 			logger.Warn("consumer: binance parse skipped message",
 				"code", p.Code,
@@ -275,17 +394,105 @@ func buildParseFuncAndManagerCfg(
 		}
 		return req, skip || p != nil
 	}
+	parseV2 := func(msg *ws.WsMessage) (mdapp.IngestRequest, bool, mdruntime.ParseMeta) {
+		req, skip, meta := binance.ParseMessageWithMetaForMarketType(msg.Data, msg.RecvAt, ex.MarketType)
+		enrichRequestMetadata(&req, msg, ex.MarketType, meta.WSStream)
+		outMeta := toRuntimeParseMeta(meta.EventType, meta.SkipReason, meta.WSStream, meta.Ticker, meta.Problem)
+		if meta.Problem != nil {
+			logger.Warn("consumer: binance parse skipped message",
+				"code", meta.Problem.Code,
+				"message", meta.Problem.Message,
+				"exchange", msg.Exchange,
+				"endpoint", msg.Endpoint,
+				"bucket_id", msg.BucketID,
+			)
+			return req, true, outMeta
+		}
+		return req, skip, outMeta
+	}
+	return consumerExchangeRuntime{
+		Subsystem:  subsystem,
+		Exchange:   ex,
+		ParseV1:    parseV1,
+		ParseV2:    parseV2,
+		ManagerCfg: &managerCfg,
+	}
+}
 
-	managerCfg := &ws.ManagerConfig{
-		Exchange:               exchange,
-		Tickers:                tickers,
+func buildBybitRuntime(
+	cfg config.AppConfig,
+	logger *slog.Logger,
+	ex config.ConsumerExchangeConfig,
+	subsystem actorruntime.Subsystem,
+) consumerExchangeRuntime {
+	managerCfg := baseManagerConfig(cfg, ex)
+	managerCfg.SubscriptionBuilder = func(bucket []string) [][]byte {
+		msgs, p := bybit.BuildSubscriptions(bucket)
+		if p != nil {
+			logger.Error("consumer: bybit subscription build failed", "err", p, "exchange", ex.Name, "bucket", bucket)
+			return nil
+		}
+		return msgs
+	}
+	managerCfg.EndpointBuilder = func(bucket []string) string {
+		endpoint, p := bybit.BuildEndpoint(ex.BaseURL, bucket, ex.MarketType)
+		if p != nil {
+			logger.Error("consumer: bybit endpoint build failed", "err", p, "exchange", ex.Name, "bucket", bucket)
+			return ""
+		}
+		logger.Info("consumer: ws endpoint planned", "exchange", ex.Name, "endpoint", endpoint, "bucket", bucket)
+		return endpoint
+	}
+
+	parseV1 := func(msg *ws.WsMessage) (mdapp.IngestRequest, bool) {
+		req, skip, p := bybit.ParseMessageForMarketType(msg.Data, msg.RecvAt, ex.MarketType)
+		enrichRequestMetadata(&req, msg, ex.MarketType, "")
+		if p != nil {
+			logger.Warn("consumer: bybit parse skipped message",
+				"code", p.Code,
+				"message", p.Message,
+				"exchange", msg.Exchange,
+				"endpoint", msg.Endpoint,
+				"bucket_id", msg.BucketID,
+			)
+		}
+		return req, skip || p != nil
+	}
+	parseV2 := func(msg *ws.WsMessage) (mdapp.IngestRequest, bool, mdruntime.ParseMeta) {
+		req, skip, meta := bybit.ParseMessageWithMetaForMarketType(msg.Data, msg.RecvAt, ex.MarketType)
+		enrichRequestMetadata(&req, msg, ex.MarketType, meta.WSStream)
+		outMeta := toRuntimeParseMeta(meta.EventType, meta.SkipReason, meta.WSStream, meta.Ticker, meta.Problem)
+		if meta.Problem != nil {
+			logger.Warn("consumer: bybit parse skipped message",
+				"code", meta.Problem.Code,
+				"message", meta.Problem.Message,
+				"exchange", msg.Exchange,
+				"endpoint", msg.Endpoint,
+				"bucket_id", msg.BucketID,
+			)
+			return req, true, outMeta
+		}
+		return req, skip, outMeta
+	}
+	return consumerExchangeRuntime{
+		Subsystem:  subsystem,
+		Exchange:   ex,
+		ParseV1:    parseV1,
+		ParseV2:    parseV2,
+		ManagerCfg: &managerCfg,
+	}
+}
+
+func baseManagerConfig(cfg config.AppConfig, ex config.ConsumerExchangeConfig) ws.ManagerConfig {
+	return ws.ManagerConfig{
+		Exchange:               ex.Name,
+		Tickers:                ex.Tickers,
 		StreamsPerTicker:       cfg.Consumer.StreamsPerTicker,
 		MaxStreamsPerWebsocket: cfg.Consumer.MaxStreamsPerWebsocket,
 		FillStrategy:           ws.FillStrategyAuto,
 		MaxWebsockets:          cfg.Consumer.MaxWebsockets,
 		MaxWebsocketLifetime:   cfg.Consumer.MaxWebsocketLifetimeDuration(),
 		RespawnOverlap:         cfg.Consumer.RespawnOverlapDuration(),
-		SubscriptionBuilder:    func([]string) [][]byte { return nil }, // combined stream URL encodes subscriptions
 		Heartbeat:              func() ws.Heartbeat { return ws.Heartbeat{} },
 		Reconnect: ws.ReconnectPolicy{
 			BaseBackoff:  cfg.Consumer.ReconnectBaseBackoffDuration(),
@@ -295,55 +502,55 @@ func buildParseFuncAndManagerCfg(
 			BudgetWindow: cfg.Consumer.ReconnectBudgetWindowDuration(),
 			Cooldown:     cfg.Consumer.ReconnectCooldownDuration(),
 		},
-		EndpointBuilder: func(bucket []string) string {
-			endpoint, p := binance.BuildEndpoint(cfg.Consumer.BinanceWSBaseURL, bucket)
-			if p != nil {
-				logger.Error("consumer: binance endpoint build failed", "err", p, "bucket", bucket)
-				return ""
-			}
-			logger.Info("consumer: ws endpoint planned", "endpoint", endpoint, "bucket", bucket)
-			return endpoint
-		},
 	}
-
-	return parseFunc, managerCfg
 }
 
-func buildParseFuncV2(logger *slog.Logger) mdruntime.ParseFuncV2 {
-	return func(msg *ws.WsMessage) (mdapp.IngestRequest, bool, mdruntime.ParseMeta) {
-		req, skip, meta := binance.ParseMessageWithMeta(msg.Data, msg.RecvAt)
-		if req.Metadata == nil {
-			req.Metadata = make(map[string]string, 8)
-		}
-		req.Metadata["exchange"] = msg.Exchange
-		req.Metadata["endpoint"] = msg.Endpoint
-		req.Metadata["bucket_id"] = fmt.Sprintf("%d", msg.BucketID)
-		req.Metadata["consumer_id"] = msg.ConsumerID
-		req.Metadata["recv_at"] = fmt.Sprintf("%d", msg.RecvAt.UnixMilli())
-		if meta.WSStream != "" {
-			req.Metadata["ws_stream"] = meta.WSStream
-		}
-
-		out := mdruntime.ParseMeta{
-			EventType:  meta.EventType,
-			SkipReason: meta.SkipReason,
-			WSStream:   meta.WSStream,
-			Ticker:     meta.Ticker,
-		}
-		if meta.Problem != nil {
-			out.ProblemCode = string(meta.Problem.Code)
-			out.ProblemMessage = meta.Problem.Message
-			logger.Warn("consumer: binance parse skipped message",
-				"code", meta.Problem.Code,
-				"message", meta.Problem.Message,
-				"exchange", msg.Exchange,
-				"endpoint", msg.Endpoint,
-				"bucket_id", msg.BucketID,
-			)
-			return req, true, out
-		}
-		return req, skip, out
+func marketDataSubsystemKey(exchangeName string, multi bool) actorruntime.Subsystem {
+	if !multi {
+		return actorruntime.SubsystemMarketData
 	}
+	name := strings.ToLower(strings.TrimSpace(exchangeName))
+	if name == "" {
+		name = "exchange"
+	}
+	return actorruntime.Subsystem("marketdata:" + name)
+}
+
+func enrichRequestMetadata(req *mdapp.IngestRequest, msg *ws.WsMessage, defaultMarketType, wsStream string) {
+	if req.Metadata == nil {
+		req.Metadata = make(map[string]string, 8)
+	}
+	if strings.TrimSpace(req.MarketType) == "" {
+		req.MarketType = strings.ToUpper(strings.TrimSpace(defaultMarketType))
+		if req.MarketType == "" {
+			req.MarketType = "SPOT"
+		}
+	}
+	if req.Metadata["instrument_market_type"] == "" {
+		req.Metadata["instrument_market_type"] = req.MarketType
+	}
+	req.Metadata["exchange"] = msg.Exchange
+	req.Metadata["endpoint"] = msg.Endpoint
+	req.Metadata["bucket_id"] = fmt.Sprintf("%d", msg.BucketID)
+	req.Metadata["consumer_id"] = msg.ConsumerID
+	req.Metadata["recv_at"] = fmt.Sprintf("%d", msg.RecvAt.UnixMilli())
+	if wsStream != "" {
+		req.Metadata["ws_stream"] = wsStream
+	}
+}
+
+func toRuntimeParseMeta(eventType, skipReason, wsStream, ticker string, p *problem.Problem) mdruntime.ParseMeta {
+	out := mdruntime.ParseMeta{
+		EventType:  eventType,
+		SkipReason: skipReason,
+		WSStream:   wsStream,
+		Ticker:     ticker,
+	}
+	if p != nil {
+		out.ProblemCode = string(p.Code)
+		out.ProblemMessage = p.Message
+	}
+	return out
 }
 
 func buildLogger(cfg config.LogConfig) *slog.Logger {

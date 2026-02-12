@@ -27,13 +27,20 @@ type StreamHealth struct {
 	State     StreamState
 }
 
-// StreamID uniquely identifies a stream as (venue, instrument).
+// StreamID uniquely identifies a stream as (venue, instrument, market_type).
 type StreamID struct {
 	Venue      VenueID
 	Instrument InstrumentID
+	MarketType MarketType
 }
 
-// InstrumentStream is the aggregate for a single (venue, instrument) event stream.
+// SequencerInstrumentKey returns the key suffix used by sequencers to isolate
+// sequences per market type while preserving canonical instrument in envelopes.
+func (s StreamID) SequencerInstrumentKey() string {
+	return s.Instrument.String() + ":" + s.MarketType.String()
+}
+
+// InstrumentStream is the aggregate for a single (venue, instrument, market_type) event stream.
 //
 // Invariants:
 //   - Sequence is strictly monotonic (each new event must have seq > last).
@@ -49,9 +56,17 @@ type InstrumentStream struct {
 	duplicateCount  int
 }
 
-// NewInstrumentStream creates an InstrumentStream with an injected dedup window policy.
+// NewInstrumentStream creates an InstrumentStream with market type defaulted to SPOT.
 // Venue and instrument are accepted in raw form and normalized internally.
 func NewInstrumentStream(rawVenue, rawInstrument string, dedupWindow DedupWindow) (*InstrumentStream, *problem.Problem) {
+	return NewInstrumentStreamWithMarketType(rawVenue, rawInstrument, MarketTypeSpot.String(), dedupWindow)
+}
+
+// NewInstrumentStreamWithMarketType creates an InstrumentStream with explicit market type.
+func NewInstrumentStreamWithMarketType(
+	rawVenue, rawInstrument, rawMarketType string,
+	dedupWindow DedupWindow,
+) (*InstrumentStream, *problem.Problem) {
 	venue, p := NewVenueID(rawVenue)
 	if p != nil {
 		return nil, p
@@ -60,12 +75,19 @@ func NewInstrumentStream(rawVenue, rawInstrument string, dedupWindow DedupWindow
 	if p != nil {
 		return nil, p
 	}
+	if rawMarketType == "" {
+		rawMarketType = MarketTypeSpot.String()
+	}
+	marketType, p := NewMarketType(rawMarketType)
+	if p != nil {
+		return nil, p
+	}
 	if dedupWindow.Size() <= 0 {
 		return nil, problem.New(problem.ValidationFailed, "dedup_window must be > 0")
 	}
 	cap := dedupWindow.Size()
 	return &InstrumentStream{
-		id:          StreamID{Venue: venue, Instrument: instrument},
+		id:          StreamID{Venue: venue, Instrument: instrument, MarketType: marketType},
 		dedupWindow: dedupWindow,
 		seen:        make(map[IdempotencyKey]struct{}, cap),
 	}, nil

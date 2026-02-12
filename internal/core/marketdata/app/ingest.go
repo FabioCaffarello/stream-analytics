@@ -24,6 +24,8 @@ const defaultDedupWindowSize = 1024
 type IngestRequest struct {
 	Venue      string
 	Instrument string
+	// MarketType classifies stream identity partitioning (default: SPOT).
+	MarketType string
 	EventType  string
 	Version    int
 	TsExchange int64 // Unix ms from exchange (advisory)
@@ -137,8 +139,8 @@ func (uc *IngestMarketData) Execute(ctx context.Context, req IngestRequest) resu
 		return result.FailProblem[IngestResponse](p)
 	}
 
-	// Get or create the stream aggregate (normalizes venue+instrument).
-	stream, p := uc.getOrCreateStream(req.Venue, req.Instrument)
+	// Get or create the stream aggregate (normalizes venue+instrument+market_type).
+	stream, p := uc.getOrCreateStream(req.Venue, req.Instrument, req.MarketType)
 	if p != nil {
 		return result.FailProblem[IngestResponse](p)
 	}
@@ -156,7 +158,7 @@ func (uc *IngestMarketData) Execute(ctx context.Context, req IngestRequest) resu
 	}
 
 	// 5. Assign seq from sequencer.
-	seqNum, p := uc.sequencer.Next(stream.ID().Venue.String(), stream.ID().Instrument.String())
+	seqNum, p := uc.sequencer.Next(stream.ID().Venue.String(), stream.ID().SequencerInstrumentKey())
 	if p != nil {
 		return result.FailProblem[IngestResponse](p)
 	}
@@ -204,9 +206,9 @@ func (uc *IngestMarketData) Execute(ctx context.Context, req IngestRequest) resu
 }
 
 // getOrCreateStream retrieves or lazily initialises an InstrumentStream aggregate.
-func (uc *IngestMarketData) getOrCreateStream(rawVenue, rawInstrument string) (*domain.InstrumentStream, *problem.Problem) {
+func (uc *IngestMarketData) getOrCreateStream(rawVenue, rawInstrument, rawMarketType string) (*domain.InstrumentStream, *problem.Problem) {
 	// Build a temporary stream to get the canonical ID.
-	tmpStream, p := domain.NewInstrumentStream(rawVenue, rawInstrument, uc.dedupWindow)
+	tmpStream, p := domain.NewInstrumentStreamWithMarketType(rawVenue, rawInstrument, rawMarketType, uc.dedupWindow)
 	if p != nil {
 		return nil, p
 	}

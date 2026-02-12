@@ -15,10 +15,14 @@ import (
 
 // --- fakes ---
 
-type fakeSequencer struct{ n int64 }
+type fakeSequencer struct {
+	n     int64
+	calls []string
+}
 
-func (f *fakeSequencer) Next(_, _ string) (int64, *problem.Problem) {
+func (f *fakeSequencer) Next(venue, instrument string) (int64, *problem.Problem) {
 	f.n++
+	f.calls = append(f.calls, venue+"|"+instrument)
 	return f.n, nil
 }
 
@@ -292,5 +296,38 @@ func TestIngest_ThrottledSweepDoesNotRunEveryRequest(t *testing.T) {
 
 	if got := uc.ActiveStreams(); got < 2 {
 		t.Fatalf("expected no full sweep on each request, active streams=%d", got)
+	}
+}
+
+func TestIngest_StreamIdentityIncludesMarketType(t *testing.T) {
+	clk := clock.NewFakeClock(time.Now())
+	seq := &fakeSequencer{}
+	pub := &fakePublisher{}
+	uc := app.NewIngestMarketData(clk, seq, pub)
+
+	reqSpot := validReq()
+	reqSpot.MarketType = "SPOT"
+	if r := uc.Execute(context.Background(), reqSpot); r.IsFail() {
+		t.Fatalf("spot ingest failed: %v", r.Problem())
+	}
+
+	reqFutures := validReq()
+	reqFutures.MarketType = "USD_M_FUTURES"
+	clk.Advance(time.Millisecond)
+	if r := uc.Execute(context.Background(), reqFutures); r.IsFail() {
+		t.Fatalf("futures ingest failed: %v", r.Problem())
+	}
+
+	if got := uc.ActiveStreams(); got != 2 {
+		t.Fatalf("active streams=%d want=2", got)
+	}
+	if len(seq.calls) != 2 {
+		t.Fatalf("sequencer calls=%d want=2", len(seq.calls))
+	}
+	if seq.calls[0] != "BINANCE|BTCUSDT:SPOT" {
+		t.Fatalf("sequencer call[0]=%q want BINANCE|BTCUSDT:SPOT", seq.calls[0])
+	}
+	if seq.calls[1] != "BINANCE|BTCUSDT:USD_M_FUTURES" {
+		t.Fatalf("sequencer call[1]=%q want BINANCE|BTCUSDT:USD_M_FUTURES", seq.calls[1])
 	}
 }

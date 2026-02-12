@@ -20,7 +20,7 @@ type EventType string
 // SchemaVersion is the integer payload schema version. Must be >= 1.
 type SchemaVersion int
 
-// Sequence is a monotonic per-(venue, instrument) counter.
+// Sequence is a monotonic per-stream counter.
 type Sequence int64
 
 // Timestamp represents a Unix millisecond timestamp.

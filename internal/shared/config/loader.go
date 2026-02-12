@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -172,28 +173,14 @@ func validateHTTP(h HTTPConfig) *problem.Problem {
 }
 
 func validateConsumer(c ConsumerConfig) *problem.Problem {
-	if strings.TrimSpace(c.Exchange) == "" {
-		return problem.New(codeInvalid, "consumer.exchange must not be empty")
+	exchanges := c.Exchanges
+	if len(exchanges) == 0 {
+		exchanges = []ConsumerExchangeConfig{synthesizeLegacyExchange(c)}
 	}
-	if !strings.EqualFold(c.Exchange, "binance") {
-		return problem.New(codeInvalid, "consumer.exchange must be binance")
+	if prob := validateConsumerExchanges(exchanges); prob != nil {
+		return prob
 	}
-	if len(c.Tickers) == 0 {
-		return problem.New(codeInvalid, "consumer.tickers must not be empty")
-	}
-	for i, t := range c.Tickers {
-		if strings.TrimSpace(t) == "" {
-			return problem.Newf(codeInvalid, "consumer.tickers[%d] must not be empty", i)
-		}
-	}
-	switch strings.ToUpper(strings.TrimSpace(c.MarketType)) {
-	case "SPOT", "USD_M_FUTURES", "COIN_M_FUTURES":
-	default:
-		return problem.Newf(codeInvalid, "consumer.market_type must be SPOT|USD_M_FUTURES|COIN_M_FUTURES, got %q", c.MarketType)
-	}
-	if strings.TrimSpace(c.BinanceWSBaseURL) == "" {
-		return problem.New(codeInvalid, "consumer.binance_ws_base_url must not be empty")
-	}
+
 	if c.StreamsPerTicker <= 0 {
 		return problem.Newf(codeInvalid, "consumer.streams_per_ticker must be > 0, got %d", c.StreamsPerTicker)
 	}
@@ -232,8 +219,52 @@ func validateConsumer(c ConsumerConfig) *problem.Problem {
 			return problem.Newf(codeInvalid, "%s: invalid duration %q: %v", field.name, field.value, err)
 		}
 	}
-	if strings.EqualFold(c.MarketType, "SPOT") && c.StreamsPerTicker != 2 {
-		return problem.Newf(codeInvalid, "consumer.streams_per_ticker=%d incompatible with spot runtime baseline=2", c.StreamsPerTicker)
+
+	for _, ex := range exchanges {
+		if strings.EqualFold(ex.MarketType, "SPOT") && c.StreamsPerTicker != 2 {
+			return problem.Newf(codeInvalid, "consumer.streams_per_ticker=%d incompatible with spot runtime baseline=2", c.StreamsPerTicker)
+		}
+	}
+	return nil
+}
+
+func validateConsumerExchanges(exchanges []ConsumerExchangeConfig) *problem.Problem {
+	seen := make(map[string]struct{}, len(exchanges))
+	for i, ex := range exchanges {
+		name := strings.ToLower(strings.TrimSpace(ex.Name))
+		if name == "" {
+			return problem.Newf(codeInvalid, "consumer.exchanges[%d].name must not be empty", i)
+		}
+		if _, exists := seen[name]; exists {
+			return problem.Newf(codeInvalid, "consumer.exchanges name must be unique, duplicate %q", ex.Name)
+		}
+		seen[name] = struct{}{}
+
+		typ := strings.ToLower(strings.TrimSpace(ex.Type))
+		switch typ {
+		case "binance", "bybit":
+		default:
+			return problem.Newf(codeInvalid, "consumer.exchanges[%d].type must be binance|bybit, got %q", i, ex.Type)
+		}
+
+		if len(ex.Tickers) == 0 {
+			return problem.Newf(codeInvalid, "consumer.exchanges[%d].tickers must not be empty", i)
+		}
+		for j, t := range ex.Tickers {
+			if strings.TrimSpace(t) == "" {
+				return problem.Newf(codeInvalid, "consumer.exchanges[%d].tickers[%d] must not be empty", i, j)
+			}
+		}
+
+		switch strings.ToUpper(strings.TrimSpace(ex.MarketType)) {
+		case "SPOT", "USD_M_FUTURES", "COIN_M_FUTURES":
+		default:
+			return problem.Newf(codeInvalid, "consumer.exchanges[%d].market_type must be SPOT|USD_M_FUTURES|COIN_M_FUTURES, got %q", i, ex.MarketType)
+		}
+
+		if strings.TrimSpace(ex.BaseURL) == "" {
+			return problem.Newf(codeInvalid, "consumer.exchanges[%d].base_url must not be empty", i)
+		}
 	}
 	return nil
 }
@@ -418,6 +449,7 @@ func applyDefaults(c *AppConfig) {
 	if c.Consumer.ReconnectCooldown == "" {
 		c.Consumer.ReconnectCooldown = "30s"
 	}
+	normalizeConsumerExchanges(&c.Consumer)
 	if c.MarketData.PublishContentType == "" {
 		c.MarketData.PublishContentType = envelope.ContentTypeJSON
 	}
@@ -453,6 +485,113 @@ func applyDefaults(c *AppConfig) {
 	c.Replay.JetStream.DeliverPolicy = strings.TrimSpace(c.Replay.JetStream.DeliverPolicy)
 	if c.Processor.BusCapacity == 0 {
 		c.Processor.BusCapacity = 1024
+	}
+}
+
+func normalizeConsumerExchanges(c *ConsumerConfig) {
+	c.Exchange = strings.TrimSpace(c.Exchange)
+	c.MarketType = strings.ToUpper(strings.TrimSpace(c.MarketType))
+	c.BinanceWSBaseURL = strings.TrimSpace(c.BinanceWSBaseURL)
+
+	if len(c.Exchanges) == 0 {
+		c.Exchanges = []ConsumerExchangeConfig{synthesizeLegacyExchange(*c)}
+	}
+
+	normalized := make([]ConsumerExchangeConfig, 0, len(c.Exchanges))
+	for _, raw := range c.Exchanges {
+		ex := raw
+		ex.Name = strings.ToLower(strings.TrimSpace(ex.Name))
+		ex.Type = strings.ToLower(strings.TrimSpace(ex.Type))
+		if ex.Name == "" {
+			ex.Name = ex.Type
+		}
+		if ex.Type == "" {
+			ex.Type = ex.Name
+		}
+		if ex.MarketType == "" {
+			ex.MarketType = c.MarketType
+		}
+		ex.MarketType = strings.ToUpper(strings.TrimSpace(ex.MarketType))
+		ex.BaseURL = strings.TrimSpace(ex.BaseURL)
+		if ex.BaseURL == "" {
+			ex.BaseURL = defaultExchangeBaseURL(ex.Type, ex.MarketType, c.BinanceWSBaseURL)
+		}
+
+		if len(ex.Tickers) > 0 {
+			tickers := make([]string, 0, len(ex.Tickers))
+			for _, ticker := range ex.Tickers {
+				tickers = append(tickers, strings.TrimSpace(ticker))
+			}
+			ex.Tickers = tickers
+		}
+		if len(ex.Buckets) > 0 {
+			buckets := make([][]string, 0, len(ex.Buckets))
+			for _, bucket := range ex.Buckets {
+				tickers := make([]string, 0, len(bucket))
+				for _, ticker := range bucket {
+					tickers = append(tickers, strings.TrimSpace(ticker))
+				}
+				buckets = append(buckets, tickers)
+			}
+			ex.Buckets = buckets
+		}
+		normalized = append(normalized, ex)
+	}
+
+	sort.SliceStable(normalized, func(i, j int) bool {
+		if normalized[i].Name != normalized[j].Name {
+			return normalized[i].Name < normalized[j].Name
+		}
+		if normalized[i].Type != normalized[j].Type {
+			return normalized[i].Type < normalized[j].Type
+		}
+		return normalized[i].MarketType < normalized[j].MarketType
+	})
+	c.Exchanges = normalized
+}
+
+func synthesizeLegacyExchange(c ConsumerConfig) ConsumerExchangeConfig {
+	name := strings.ToLower(strings.TrimSpace(c.Exchange))
+	if name == "" {
+		name = "binance"
+	}
+	typ := name
+	baseURL := defaultExchangeBaseURL(typ, c.MarketType, c.BinanceWSBaseURL)
+	tickers := append([]string(nil), c.Tickers...)
+	if len(tickers) == 0 {
+		tickers = []string{"BTC-USDT", "ETH-USDT"}
+	}
+	marketType := strings.ToUpper(strings.TrimSpace(c.MarketType))
+	if marketType == "" {
+		marketType = "SPOT"
+	}
+	return ConsumerExchangeConfig{
+		Name:       name,
+		Type:       typ,
+		BaseURL:    baseURL,
+		Tickers:    tickers,
+		MarketType: marketType,
+	}
+}
+
+func defaultExchangeBaseURL(exchangeType, marketType, legacyBinanceBaseURL string) string {
+	switch strings.ToLower(strings.TrimSpace(exchangeType)) {
+	case "binance":
+		if strings.TrimSpace(legacyBinanceBaseURL) != "" {
+			return strings.TrimSpace(legacyBinanceBaseURL)
+		}
+		return "wss://stream.binance.com:9443/stream"
+	case "bybit":
+		switch strings.ToUpper(strings.TrimSpace(marketType)) {
+		case "USD_M_FUTURES":
+			return "wss://stream.bybit.com/v5/public/linear"
+		case "COIN_M_FUTURES":
+			return "wss://stream.bybit.com/v5/public/inverse"
+		default:
+			return "wss://stream.bybit.com/v5/public/spot"
+		}
+	default:
+		return ""
 	}
 }
 

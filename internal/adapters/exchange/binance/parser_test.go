@@ -162,3 +162,17 @@ func TestParseMessageWithMeta_WrappedStreamCarriesWSStream(t *testing.T) {
 		t.Fatalf("WSStream = %q, want btcusdt@depth@100ms", meta.WSStream)
 	}
 }
+
+func TestParseMessageForMarketType_PropagatesMarketType(t *testing.T) {
+	msg := []byte(`{"e":"aggTrade","E":1710000001111,"T":1710000001111,"s":"BTCUSDT","a":1,"p":"1.0","q":"2.0","m":false}`)
+	req, skip, p := binance.ParseMessageForMarketType(msg, time.UnixMilli(1710000009999), "USD_M_FUTURES")
+	if p != nil || skip {
+		t.Fatalf("ParseMessage failed: skip=%v problem=%v", skip, p)
+	}
+	if req.MarketType != domain.MarketTypeUSDMFutures.String() {
+		t.Fatalf("market type = %q, want %q", req.MarketType, domain.MarketTypeUSDMFutures.String())
+	}
+	if req.Metadata["instrument_market_type"] != domain.MarketTypeUSDMFutures.String() {
+		t.Fatalf("metadata market type = %q, want %q", req.Metadata["instrument_market_type"], domain.MarketTypeUSDMFutures.String())
+	}
+}

@@ -32,6 +32,8 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 		{name: "jetstream.max_bytes", got: cfg.JetStream.MaxBytes, want: "10GB"},
 		{name: "consumer.exchange", got: cfg.Consumer.Exchange, want: "binance"},
 		{name: "consumer.tickers non-empty", got: len(cfg.Consumer.Tickers) > 0, want: true},
+		{name: "consumer.exchanges has synthesized entry", got: len(cfg.Consumer.Exchanges), want: 1},
+		{name: "consumer.exchanges[0].type", got: cfg.Consumer.Exchanges[0].Type, want: "binance"},
 		{name: "consumer.streams_per_ticker", got: cfg.Consumer.StreamsPerTicker, want: int64(2)},
 		{name: "consumer.max_streams_per_websocket", got: cfg.Consumer.MaxStreamsPerWebsocket, want: int64(200)},
 		{name: "consumer.max_websockets", got: cfg.Consumer.MaxWebsockets, want: int64(5)},
@@ -107,6 +109,7 @@ func TestLoad_ValidJSONC_ParsesFields(t *testing.T) {
 		{name: "http.addr", got: cfg.HTTP.Addr, want: ":9090"},
 		{name: "http.shutdown_timeout", got: cfg.HTTP.ShutdownTimeoutDuration(), want: 8 * time.Second},
 		{name: "consumer.exchange", got: cfg.Consumer.Exchange, want: "binance"},
+		{name: "consumer.exchanges synthesized", got: len(cfg.Consumer.Exchanges), want: 1},
 		{name: "bus.type", got: cfg.Bus.Type, want: "jetstream"},
 		{name: "jetstream.url", got: cfg.JetStream.URL, want: "nats://127.0.0.1:4222"},
 		{name: "jetstream.consumer_durable", got: cfg.JetStream.ConsumerDurable, want: "processor-v2"},
@@ -215,21 +218,83 @@ func TestValidate_InvalidDuration(t *testing.T) {
 	}
 }
 
-func TestValidate_ConsumerExchangeMustBeBinance(t *testing.T) {
+func TestValidate_ConsumerExchangeUnknownType(t *testing.T) {
 	cfg, _ := Load("")
+	cfg.Consumer.Exchanges = nil
 	cfg.Consumer.Exchange = "kraken"
 	prob := cfg.Validate()
 	if prob == nil {
-		t.Fatal("expected validation error for exchange != binance")
+		t.Fatal("expected validation error for unknown legacy exchange type")
 	}
 }
 
-func TestValidate_ConsumerBinanceWSBaseURLEmpty(t *testing.T) {
+func TestValidate_ConsumerExchangeBaseURLEmpty(t *testing.T) {
 	cfg, _ := Load("")
-	cfg.Consumer.BinanceWSBaseURL = "   "
+	cfg.Consumer.Exchanges = []ConsumerExchangeConfig{
+		{
+			Name:       "binance",
+			Type:       "binance",
+			BaseURL:    "",
+			Tickers:    []string{"BTC-USDT"},
+			MarketType: "SPOT",
+		},
+	}
 	prob := cfg.Validate()
 	if prob == nil {
-		t.Fatal("expected validation error for empty consumer.binance_ws_base_url")
+		t.Fatal("expected validation error for empty consumer.exchanges[0].base_url")
+	}
+}
+
+func TestLoad_MultiExchangeNormalization_SortsDeterministically(t *testing.T) {
+	src := `{
+		"consumer": {
+			"exchanges": [
+				{"name":"zeta","type":"bybit","base_url":"wss://stream.bybit.com/v5/public/spot","tickers":["ETH-USDT"],"market_type":"spot"},
+				{"name":"alpha","type":"binance","base_url":"wss://stream.binance.com:9443/stream","tickers":["BTC-USDT"],"market_type":"spot"}
+			]
+		}
+	}`
+	path := writeTempFile(t, src)
+	cfg, prob := Load(path)
+	if prob != nil {
+		t.Fatalf("Load failed: %v", prob)
+	}
+	if len(cfg.Consumer.Exchanges) != 2 {
+		t.Fatalf("consumer.exchanges len = %d, want 2", len(cfg.Consumer.Exchanges))
+	}
+	if cfg.Consumer.Exchanges[0].Name != "alpha" || cfg.Consumer.Exchanges[1].Name != "zeta" {
+		t.Fatalf("consumer.exchanges order = %+v, want alpha then zeta", cfg.Consumer.Exchanges)
+	}
+}
+
+func TestValidate_ConsumerExchangesDuplicateName(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Consumer.Exchanges = []ConsumerExchangeConfig{
+		{Name: "binance-a", Type: "binance", BaseURL: "wss://stream.binance.com:9443/stream", Tickers: []string{"BTC-USDT"}, MarketType: "SPOT"},
+		{Name: "BINANCE-A", Type: "bybit", BaseURL: "wss://stream.bybit.com/v5/public/spot", Tickers: []string{"BTC-USDT"}, MarketType: "SPOT"},
+	}
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for duplicate exchange names")
+	}
+}
+
+func TestValidate_ConsumerExchangesEmptyTickers(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Consumer.Exchanges = []ConsumerExchangeConfig{
+		{Name: "binance-a", Type: "binance", BaseURL: "wss://stream.binance.com:9443/stream", Tickers: nil, MarketType: "SPOT"},
+	}
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for empty exchange tickers")
+	}
+}
+
+func TestValidate_ConsumerExchangesUnknownType(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Consumer.Exchanges = []ConsumerExchangeConfig{
+		{Name: "x", Type: "kraken", BaseURL: "wss://example.invalid/ws", Tickers: []string{"BTC-USDT"}, MarketType: "SPOT"},
+	}
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for unknown exchange type")
 	}
 }
 

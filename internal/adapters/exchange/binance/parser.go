@@ -58,12 +58,24 @@ type ParseMeta struct {
 // ParseMessage parses Binance WS payload and maps supported messages to app.IngestRequest.
 // Returns skip=true for unsupported/heartbeat/control messages.
 func ParseMessage(data []byte, recvAt time.Time) (app.IngestRequest, bool, *problem.Problem) {
-	req, skip, meta := ParseMessageWithMeta(data, recvAt)
+	req, skip, meta := ParseMessageWithMetaForMarketType(data, recvAt, domain.MarketTypeSpot.String())
 	return req, skip, meta.Problem
 }
 
 // ParseMessageWithMeta parses Binance payload and returns telemetry metadata.
 func ParseMessageWithMeta(data []byte, recvAt time.Time) (app.IngestRequest, bool, ParseMeta) {
+	return ParseMessageWithMetaForMarketType(data, recvAt, domain.MarketTypeSpot.String())
+}
+
+// ParseMessageForMarketType parses Binance WS payload with explicit market type.
+func ParseMessageForMarketType(data []byte, recvAt time.Time, marketType string) (app.IngestRequest, bool, *problem.Problem) {
+	req, skip, meta := ParseMessageWithMetaForMarketType(data, recvAt, marketType)
+	return req, skip, meta.Problem
+}
+
+// ParseMessageWithMetaForMarketType parses Binance payload and returns telemetry metadata.
+func ParseMessageWithMetaForMarketType(data []byte, recvAt time.Time, marketType string) (app.IngestRequest, bool, ParseMeta) {
+	marketType = normalizeMarketType(marketType)
 	payload := data
 	meta := ParseMeta{}
 
@@ -101,7 +113,7 @@ func ParseMessageWithMeta(data []byte, recvAt time.Time) (app.IngestRequest, boo
 
 	switch event {
 	case "aggTrade":
-		req, skip, p := parseAggTrade(payload, recvAt)
+		req, skip, p := parseAggTrade(payload, recvAt, marketType)
 		meta.Ticker = req.Instrument
 		if meta.WSStream != "" && req.Metadata != nil {
 			req.Metadata["ws_stream"] = meta.WSStream
@@ -110,7 +122,7 @@ func ParseMessageWithMeta(data []byte, recvAt time.Time) (app.IngestRequest, boo
 		meta.Problem = p
 		return req, skip, meta
 	case "depthUpdate":
-		req, skip, p := parseDepthUpdate(payload, recvAt)
+		req, skip, p := parseDepthUpdate(payload, recvAt, marketType)
 		meta.Ticker = req.Instrument
 		if meta.WSStream != "" && req.Metadata != nil {
 			req.Metadata["ws_stream"] = meta.WSStream
@@ -127,7 +139,7 @@ func ParseMessageWithMeta(data []byte, recvAt time.Time) (app.IngestRequest, boo
 	}
 }
 
-func parseAggTrade(payload []byte, recvAt time.Time) (app.IngestRequest, bool, *problem.Problem) {
+func parseAggTrade(payload []byte, recvAt time.Time, marketType string) (app.IngestRequest, bool, *problem.Problem) {
 	var m aggTrade
 	if err := json.Unmarshal(payload, &m); err != nil {
 		return app.IngestRequest{}, true, problem.Wrap(err, problem.ValidationFailed, "binance aggTrade: invalid payload")
@@ -161,6 +173,7 @@ func parseAggTrade(payload []byte, recvAt time.Time) (app.IngestRequest, bool, *
 	return app.IngestRequest{
 		Venue:      VenueBinance,
 		Instrument: instrument,
+		MarketType: marketType,
 		EventType:  "marketdata.trade",
 		Version:    1,
 		TsExchange: tsExchange,
@@ -169,7 +182,7 @@ func parseAggTrade(payload []byte, recvAt time.Time) (app.IngestRequest, bool, *
 			instrument,
 			fmt.Sprintf("%d", m.AggTradeID),
 		),
-		Metadata: buildInstrumentMetadata(m.Symbol, instrument),
+		Metadata: buildInstrumentMetadata(m.Symbol, instrument, marketType),
 		Payload: domain.TradeTickV1{
 			Price:     price,
 			Size:      size,
@@ -180,7 +193,7 @@ func parseAggTrade(payload []byte, recvAt time.Time) (app.IngestRequest, bool, *
 	}, false, nil
 }
 
-func parseDepthUpdate(payload []byte, recvAt time.Time) (app.IngestRequest, bool, *problem.Problem) {
+func parseDepthUpdate(payload []byte, recvAt time.Time, marketType string) (app.IngestRequest, bool, *problem.Problem) {
 	var m depthUpdate
 	if err := json.Unmarshal(payload, &m); err != nil {
 		return app.IngestRequest{}, true, problem.Wrap(err, problem.ValidationFailed, "binance depthUpdate: invalid payload")
@@ -210,6 +223,7 @@ func parseDepthUpdate(payload []byte, recvAt time.Time) (app.IngestRequest, bool
 	return app.IngestRequest{
 		Venue:      VenueBinance,
 		Instrument: instrument,
+		MarketType: marketType,
 		EventType:  "marketdata.bookdelta",
 		Version:    1,
 		TsExchange: tsExchange,
@@ -218,7 +232,7 @@ func parseDepthUpdate(payload []byte, recvAt time.Time) (app.IngestRequest, bool
 			instrument,
 			m.FinalID,
 		),
-		Metadata: buildInstrumentMetadata(m.Symbol, instrument),
+		Metadata: buildInstrumentMetadata(m.Symbol, instrument, marketType),
 		Payload: domain.BookDeltaV1{
 			Bids:      bids,
 			Asks:      asks,
@@ -293,17 +307,17 @@ func tickerFromStream(stream string) string {
 	return naming.CanonicalInstrument(parts[0])
 }
 
-func buildInstrumentMetadata(venueSymbol, canonical string) map[string]string {
+func buildInstrumentMetadata(venueSymbol, canonical, marketType string) map[string]string {
 	meta := map[string]string{
 		"instrument_venue_symbol": strings.ToUpper(strings.TrimSpace(venueSymbol)),
 		"instrument_canonical":    canonical,
-		"instrument_market_type":  domain.MarketTypeSpot.String(),
+		"instrument_market_type":  marketType,
 	}
 	canonicalPair := canonicalPairFromBinanceSymbol(venueSymbol)
 	if canonicalPair == "" {
 		return meta
 	}
-	id, p := domain.NewInstrumentIdentity(canonicalPair, venueSymbol, domain.MarketTypeSpot.String())
+	id, p := domain.NewInstrumentIdentity(canonicalPair, venueSymbol, marketType)
 	if p != nil {
 		return meta
 	}
@@ -328,4 +342,12 @@ func canonicalPairFromBinanceSymbol(symbol string) string {
 		}
 	}
 	return ""
+}
+
+func normalizeMarketType(raw string) string {
+	mt, p := domain.NewMarketType(raw)
+	if p != nil {
+		return domain.MarketTypeSpot.String()
+	}
+	return mt.String()
 }

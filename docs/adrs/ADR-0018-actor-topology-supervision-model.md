@@ -164,3 +164,9 @@ Explicit topology and restart policies:
 4. Document topology diagram in `docs/architecture/topology.md` (RFC-0006/W5)
 5. Validate TOP-1 through TOP-4 in integration tests (RFC-0006/W5)
 6. Validate TOP-5 with testcontainers NATS (RFC-0008/W7)
+
+## Amendment 2026-02-12 (W9-1)
+
+- Guardian now manages dynamic subsystem keys for configured marketdata instances (for example `marketdata:binance`, `marketdata:bybit`) while preserving legacy single-key behavior.
+- Readiness expectations are explicitly provided from consumer wiring for all configured marketdata subsystem keys.
+- No change to supervision policy semantics (restart, cooldown, degraded mode), bus behavior, or delivery routing.

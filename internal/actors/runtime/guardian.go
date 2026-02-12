@@ -3,6 +3,8 @@ package runtime
 import (
 	"fmt"
 	"log/slog"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/anthdm/hollywood/actor"
@@ -274,7 +276,7 @@ func (g *Guardian) startAll(c *actor.Context) {
 	}
 	g.started = true
 
-	for _, subsystem := range orderedSubsystems {
+	for _, subsystem := range g.managedSubsystems() {
 		g.startSubsystem(c, subsystem)
 	}
 }
@@ -289,8 +291,9 @@ func (g *Guardian) stopAll(c *actor.Context) {
 		g.retryGen[subsystem]++
 	}
 
-	for i := len(orderedSubsystems) - 1; i >= 0; i-- {
-		subsystem := orderedSubsystems[i]
+	managed := g.managedSubsystems()
+	for i := len(managed) - 1; i >= 0; i-- {
+		subsystem := managed[i]
 		pid := g.children[subsystem]
 		if pid == nil {
 			g.running[subsystem] = false
@@ -357,12 +360,14 @@ func (g *Guardian) ensureExpected() []Subsystem {
 		return g.expectedSubsystems
 	}
 	// Infer from Factories: subsystems with a non-nil factory are expected.
-	var inferred []Subsystem
-	for _, sub := range orderedSubsystems {
-		if f, ok := g.cfg.Factories[sub]; ok && f != nil {
-			inferred = append(inferred, sub)
+	inferred := make([]Subsystem, 0, len(g.cfg.Factories))
+	for sub, factory := range g.cfg.Factories {
+		if factory == nil {
+			continue
 		}
+		inferred = append(inferred, sub)
 	}
+	sort.Slice(inferred, func(i, j int) bool { return inferred[i] < inferred[j] })
 	g.expectedSubsystems = inferred
 	return g.expectedSubsystems
 }
@@ -530,11 +535,12 @@ func (g *Guardian) handleHeartbeat(msg SubsystemHeartbeat) {
 }
 
 func (g *Guardian) buildSnapshot() SnapshotState {
+	managed := g.managedSubsystems()
 	state := SnapshotState{
 		At:         g.clock.Now(),
-		Subsystems: make(map[Subsystem]SubsystemState, len(orderedSubsystems)),
+		Subsystems: make(map[Subsystem]SubsystemState, len(managed)),
 	}
-	for _, subsystem := range orderedSubsystems {
+	for _, subsystem := range managed {
 		policyState := g.policy.Status(subsystem)
 		s := SubsystemState{
 			Running:          g.running[subsystem],
@@ -568,9 +574,64 @@ func (g *Guardian) spawnSubsystem(c *actor.Context, subsystem Subsystem) (*actor
 	pid := c.SpawnChild(
 		producer,
 		"runtime-subsystem",
-		actor.WithID(fmt.Sprintf("runtime-%s", subsystem)),
+		actor.WithID(fmt.Sprintf("runtime-%s", sanitizeSubsystemID(subsystem))),
 	)
 	return pid, nil
+}
+
+func (g *Guardian) managedSubsystems() []Subsystem {
+	managed := make([]Subsystem, 0, len(orderedSubsystems)+len(g.cfg.Factories)+len(g.cfg.ExpectedSubsystems))
+	seen := make(map[Subsystem]struct{}, len(orderedSubsystems)+len(g.cfg.Factories)+len(g.cfg.ExpectedSubsystems))
+	hasDynamicMarketData := false
+
+	for sub := range g.cfg.Factories {
+		if strings.HasPrefix(string(sub), string(SubsystemMarketData)+":") {
+			hasDynamicMarketData = true
+			break
+		}
+	}
+	for _, sub := range g.cfg.ExpectedSubsystems {
+		if strings.HasPrefix(string(sub), string(SubsystemMarketData)+":") {
+			hasDynamicMarketData = true
+			break
+		}
+	}
+
+	for _, sub := range orderedSubsystems {
+		if hasDynamicMarketData && sub == SubsystemMarketData {
+			continue
+		}
+		managed = append(managed, sub)
+		seen[sub] = struct{}{}
+	}
+
+	var extras []Subsystem
+	for sub := range g.cfg.Factories {
+		if _, ok := seen[sub]; ok {
+			continue
+		}
+		extras = append(extras, sub)
+		seen[sub] = struct{}{}
+	}
+	for _, sub := range g.cfg.ExpectedSubsystems {
+		if _, ok := seen[sub]; ok {
+			continue
+		}
+		extras = append(extras, sub)
+		seen[sub] = struct{}{}
+	}
+	sort.Slice(extras, func(i, j int) bool { return extras[i] < extras[j] })
+	managed = append(managed, extras...)
+	return managed
+}
+
+func sanitizeSubsystemID(subsystem Subsystem) string {
+	id := strings.TrimSpace(string(subsystem))
+	if id == "" {
+		return "unknown"
+	}
+	repl := strings.NewReplacer(":", "-", "/", "-", " ", "-", "\t", "-", "\n", "-")
+	return repl.Replace(id)
 }
 
 func subsystemPlaceholder(subsystem Subsystem) actor.Producer {

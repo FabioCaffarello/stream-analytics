@@ -297,3 +297,134 @@ The `SubjectFromEnvelope()` function (RFC-0005/W4) already produces venue-qualif
 - [ ] `SubjectFromEnvelope` includes venue in subject (cross-venue routing works)
 - [ ] Single-exchange mode still works (regression: existing tests pass)
 - [ ] `go test -race ./...` green across all modules
+
+## 12. W9-1 Evidence (Implemented 2026-02-12)
+
+### 12.1 Config Examples
+
+Legacy single-exchange (still supported, unchanged):
+
+```jsonc
+{
+  "consumer": {
+    "exchange": "binance",
+    "market_type": "SPOT",
+    "tickers": ["BTC-USDT", "ETH-USDT"],
+    "binance_ws_base_url": "wss://stream.binance.com:9443/stream"
+  }
+}
+```
+
+Multi-exchange config (new):
+
+```jsonc
+{
+  "consumer": {
+    "exchanges": [
+      {
+        "name": "binance",
+        "type": "binance",
+        "base_url": "wss://stream.binance.com:9443/stream",
+        "tickers": ["BTC-USDT", "ETH-USDT"],
+        "market_type": "SPOT"
+      },
+      {
+        "name": "bybit",
+        "type": "bybit",
+        "base_url": "wss://stream.bybit.com/v5/public/spot",
+        "tickers": ["BTC-USDT", "ETH-USDT"],
+        "market_type": "SPOT"
+      }
+    ]
+  }
+}
+```
+
+### 12.2 Commands Executed
+
+```bash
+go test ./...                       # cmd/consumer
+go test ./...                       # internal/adapters
+go test ./...                       # internal/shared
+go test ./...                       # internal/core/marketdata
+go test ./...                       # internal/actors
+make test-workspace GO_TEST_FLAGS='-race'
+pre-commit run -a
+```
+
+All commands above passed in this implementation run.
+
+### 12.3 What Changed
+
+- Added `internal/adapters/exchange/bybit/` with:
+  - `endpoint.go` + `endpoint_test.go`
+  - `parser.go` + `parser_test.go`
+- Extended `consumer` config with `consumer.exchanges[]` including:
+  - legacy -> multi synthesis
+  - deterministic ordering normalization
+  - validation for duplicates, empty tickers, market_type, exchange type
+- Updated `cmd/consumer` wiring to build one marketdata subsystem per configured exchange.
+- Extended Guardian runtime handling to include dynamic subsystem keys (for `marketdata:<name>`), while preserving legacy behavior for single exchange.
+- Extended marketdata stream identity partitioning to include `market_type` (`venue + instrument + market_type`) without changing envelope subject format.
+- Added integration-oriented tests in `cmd/consumer/main_test.go` proving Binance + Bybit parse/ingest in the same process path.
+
+### 12.4 What Did NOT Change
+
+- No bus semantic changes.
+- No routing protocol or envelope subject format changes.
+- No JetStream behavior changes.
+- No actor topology redesign beyond enabling N configured marketdata subsystems.
+- No dual-write.
+- No protobuf imports added into `internal/core/*`, `internal/actors/*`, or `internal/interfaces/*`.
+- No full orderbook snapshot pipeline introduced.
+
+### 12.5 Explicit Invariants Checked
+
+- Stream identity partitioning: `venue + instrument + market_type`.
+- Subject format unchanged: `{type}.v{version}.{venue_lower}.{instrument}`.
+- Canonical instrument normalization remains stable (`naming.CanonicalInstrument`).
+- Legacy single-exchange runtime still starts with equivalent behavior.
+- Multi-exchange readiness tracks all configured marketdata subsystem keys.
+
+## 13. W9-2 E2E Consumer Gate (Implemented 2026-02-12)
+
+### 13.1 Scope
+
+- Added opt-in process gate for `cmd/consumer` under `E2E_TEST_MODE=1`.
+- Default runtime path is unchanged when `E2E_TEST_MODE` is not set.
+
+### 13.2 E2E Probe Endpoints
+
+When enabled:
+- `GET /healthz` -> `200`
+- `GET /readyz` -> `200` only when Guardian reports all expected subsystems ready
+- `GET /metrics` -> Prometheus exposition from shared registry
+
+### 13.3 No External Network Dependency
+
+- In E2E mode, consumer uses deterministic in-process message feed per exchange subsystem.
+- Real WS manager/dial path is bypassed only in E2E mode.
+- Feed emits valid Binance and Bybit trade/bookdelta payloads so ingest/WS metrics advance.
+
+### 13.4 Integration Test
+
+Added:
+- `cmd/consumer/e2e_consumer_integration_test.go` (`//go:build integration`)
+
+Flow:
+1. Build real binary `go build ./cmd/consumer`
+2. Start process with multi-ex config (`binance` + `bybit`) and `E2E_TEST_MODE=1`
+3. Poll `/readyz` until `200`
+4. Poll `/metrics` and assert per-exchange label series exist (binance + bybit)
+5. Send `SIGTERM`, require graceful exit within 10s
+6. Restart and re-validate readiness/metrics
+
+### 13.5 Commands Executed
+
+```bash
+go test -tags=integration ./cmd/consumer -run TestE2EConsumerMultiExchange -count=1
+make test-workspace GO_TEST_FLAGS='-race'
+pre-commit run -a
+```
+
+All commands above passed in this implementation run.

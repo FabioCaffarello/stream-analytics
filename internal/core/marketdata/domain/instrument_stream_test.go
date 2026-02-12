@@ -53,6 +53,27 @@ func TestInstrumentStream_normalize(t *testing.T) {
 	if id.Instrument.String() != "BTCUSDT" {
 		t.Errorf("Instrument = %q; want BTCUSDT", id.Instrument)
 	}
+	if id.MarketType.String() != domain.MarketTypeSpot.String() {
+		t.Errorf("MarketType = %q; want %q", id.MarketType, domain.MarketTypeSpot.String())
+	}
+}
+
+func TestInstrumentStream_withMarketType(t *testing.T) {
+	window, p := domain.NewDedupWindow(128)
+	if p != nil {
+		t.Fatalf("NewDedupWindow: %s", p)
+	}
+	s, p := domain.NewInstrumentStreamWithMarketType("binance", "BTC/USDT", "USD_M_FUTURES", window)
+	if p != nil {
+		t.Fatalf("unexpected problem: %s", p)
+	}
+	id := s.ID()
+	if id.MarketType.String() != domain.MarketTypeUSDMFutures.String() {
+		t.Errorf("MarketType = %q; want %q", id.MarketType, domain.MarketTypeUSDMFutures.String())
+	}
+	if got := id.SequencerInstrumentKey(); got != "BTCUSDT:USD_M_FUTURES" {
+		t.Errorf("SequencerInstrumentKey = %q; want BTCUSDT:USD_M_FUTURES", got)
+	}
 }
 
 func TestInstrumentStream_seqMonotonic(t *testing.T) {

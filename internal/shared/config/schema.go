@@ -88,14 +88,21 @@ type HTTPConfig struct {
 // ConsumerConfig controls the market-data consumer binary.
 type ConsumerConfig struct {
 	// Exchange is the canonical exchange name.  Default: "binance".
+	// Legacy single-exchange field; kept for backward compatibility.
 	Exchange string `json:"exchange"`
-	// MarketType classifies Binance market. Default: "SPOT".
+	// MarketType classifies market type. Default: "SPOT".
+	// Legacy single-exchange field; kept for backward compatibility.
 	MarketType string `json:"market_type"`
 	// Tickers is the list of canonical instrument names to subscribe to.  Default: ["BTC-USDT","ETH-USDT"].
+	// Legacy single-exchange field; kept for backward compatibility.
 	Tickers []string `json:"tickers"`
 	// BinanceWSBaseURL overrides Binance websocket combined-stream base URL.
 	// Default: "wss://stream.binance.com:9443/stream".
+	// Legacy single-exchange field; kept for backward compatibility.
 	BinanceWSBaseURL string `json:"binance_ws_base_url"`
+	// Exchanges is the normalized multi-exchange runtime configuration.
+	// If omitted, applyDefaults synthesizes it from legacy single-exchange fields.
+	Exchanges []ConsumerExchangeConfig `json:"exchanges"`
 	// StreamsPerTicker defines how many streams are opened per ticker in ws.Manager planning.
 	// For W3 Binance adapter, default is 2 (aggTrade + depth).
 	StreamsPerTicker int64 `json:"streams_per_ticker"`
@@ -123,6 +130,23 @@ type ConsumerConfig struct {
 	ReconnectBudgetWindow string `json:"reconnect_budget_window"`
 	// ReconnectCooldown applies when retry budget is exhausted.
 	ReconnectCooldown string `json:"reconnect_cooldown"`
+}
+
+// ConsumerExchangeConfig defines one exchange runtime in consumer.exchanges.
+type ConsumerExchangeConfig struct {
+	// Name is a unique logical key for this exchange runtime.
+	Name string `json:"name"`
+	// Type selects adapter implementation (e.g. "binance", "bybit").
+	Type string `json:"type"`
+	// BaseURL overrides exchange websocket base URL.
+	BaseURL string `json:"base_url"`
+	// Tickers is the list of instrument symbols for this exchange runtime.
+	Tickers []string `json:"tickers"`
+	// MarketType classifies instrument stream partitioning.
+	MarketType string `json:"market_type"`
+	// Buckets optionally pins websocket bucket allocation.
+	// Reserved for future bucket override support.
+	Buckets [][]string `json:"buckets"`
 }
 
 // MarketDataConfig controls marketdata publish encoding policy.

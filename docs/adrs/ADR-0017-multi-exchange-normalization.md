@@ -132,3 +132,11 @@ Guardian
 4. Wire two MarketDataSubsystems in `cmd/consumer` (RFC-0010/W9)
 5. Validate cross-venue Subject routing in delivery (RFC-0010/W9)
 6. Add MEX-4 grep check to CI (RFC-0010/W9)
+
+## Amendment 2026-02-12 (W9-1)
+
+- Implemented second exchange adapter using Bybit (`trade` + `bookdelta`).
+- Implemented `consumer.exchanges[]` config model with deterministic normalization and legacy synthesis.
+- Stream identity partitioning is now enforced in runtime as `venue:instrument:market_type`.
+- `SubjectFromEnvelope` format remains unchanged; market type is identity metadata, not subject dimension.
+- Scope note: `InstrumentCatalog` phase remains deferred for follow-up; W9-1 used parser-level normalization with existing canonical naming.

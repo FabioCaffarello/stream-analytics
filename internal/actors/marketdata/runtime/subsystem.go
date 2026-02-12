@@ -17,6 +17,10 @@ import (
 
 // SubsystemConfig configures the MarketDataSubsystemActor.
 type SubsystemConfig struct {
+	// Subsystem is the guardian subsystem key for this actor instance.
+	// Default: runtime.SubsystemMarketData.
+	Subsystem runtime.Subsystem
+
 	// Logger is used for structured logging.  Defaults to slog.Default().
 	Logger *slog.Logger
 
@@ -128,6 +132,9 @@ func (s *SubsystemActor) Receive(c *actor.Context) {
 
 // ensureDefaults fills in zero-value fields.
 func (s *SubsystemActor) ensureDefaults() {
+	if s.cfg.Subsystem == "" {
+		s.cfg.Subsystem = runtime.SubsystemMarketData
+	}
 	if s.logger == nil {
 		if s.cfg.Logger != nil {
 			s.logger = s.cfg.Logger
@@ -375,7 +382,7 @@ func (s *SubsystemActor) handleError(c *actor.Context, msg *ws.WsError) {
 		return
 	}
 	c.Send(c.Parent(), runtime.ChildFailed{
-		Subsystem: runtime.SubsystemMarketData,
+		Subsystem: s.cfg.Subsystem,
 		Kind:      msg.Kind,
 		Err:       msg.Err,
 	})
@@ -437,7 +444,7 @@ func (s *SubsystemActor) emitSubsystemHeartbeat(c *actor.Context, force bool) {
 	}
 	s.lastHeartbeatAt = now
 	c.Send(c.Parent(), runtime.SubsystemHeartbeat{
-		Subsystem:     runtime.SubsystemMarketData,
+		Subsystem:     s.cfg.Subsystem,
 		Connected:     s.wsConnected,
 		LastMessageAt: s.lastMessageAt,
 		LastPublishAt: s.lastPublishAt,
