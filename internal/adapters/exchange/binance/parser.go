@@ -39,6 +39,9 @@ type depthUpdate struct {
 	Event       string     `json:"e"`
 	EventTimeMs int64      `json:"E"`
 	Symbol      string     `json:"s"`
+	FirstID     int64      `json:"U"`
+	FinalID     int64      `json:"u"`
+	PrevFinal   int64      `json:"pu"`
 	BidsRaw     [][]string `json:"b"`
 	AsksRaw     [][]string `json:"a"`
 }
@@ -48,6 +51,8 @@ type ParseMeta struct {
 	EventType  string
 	SkipReason string
 	Problem    *problem.Problem
+	WSStream   string
+	Ticker     string
 }
 
 // ParseMessage parses Binance WS payload and maps supported messages to app.IngestRequest.
@@ -65,7 +70,9 @@ func ParseMessageWithMeta(data []byte, recvAt time.Time) (app.IngestRequest, boo
 	// Binance combined stream wraps payload as {stream, data}.
 	var wrapped streamEnvelope
 	if err := json.Unmarshal(data, &wrapped); err == nil {
+		meta.WSStream = strings.TrimSpace(wrapped.Stream)
 		meta.EventType = eventTypeFromStream(wrapped.Stream)
+		meta.Ticker = tickerFromStream(wrapped.Stream)
 		if len(wrapped.Data) > 0 {
 			payload = wrapped.Data
 		} else if wrapped.Stream != "" {
@@ -95,11 +102,19 @@ func ParseMessageWithMeta(data []byte, recvAt time.Time) (app.IngestRequest, boo
 	switch event {
 	case "aggTrade":
 		req, skip, p := parseAggTrade(payload, recvAt)
+		meta.Ticker = req.Instrument
+		if meta.WSStream != "" && req.Metadata != nil {
+			req.Metadata["ws_stream"] = meta.WSStream
+		}
 		meta.SkipReason = skipReasonFromProblem(p)
 		meta.Problem = p
 		return req, skip, meta
 	case "depthUpdate":
 		req, skip, p := parseDepthUpdate(payload, recvAt)
+		meta.Ticker = req.Instrument
+		if meta.WSStream != "" && req.Metadata != nil {
+			req.Metadata["ws_stream"] = meta.WSStream
+		}
 		meta.SkipReason = skipReasonFromProblem(p)
 		meta.Problem = p
 		return req, skip, meta
@@ -149,6 +164,7 @@ func parseAggTrade(payload []byte, recvAt time.Time) (app.IngestRequest, bool, *
 		EventType:  "marketdata.trade",
 		Version:    1,
 		TsExchange: tsExchange,
+		Metadata:   buildInstrumentMetadata(m.Symbol, instrument),
 		Payload: domain.TradeTickV1{
 			Price:     price,
 			Size:      size,
@@ -189,9 +205,13 @@ func parseDepthUpdate(payload []byte, recvAt time.Time) (app.IngestRequest, bool
 		EventType:  "marketdata.bookdelta",
 		Version:    1,
 		TsExchange: tsExchange,
+		Metadata:   buildInstrumentMetadata(m.Symbol, instrument),
 		Payload: domain.BookDeltaV1{
 			Bids:      bids,
 			Asks:      asks,
+			FirstID:   m.FirstID,
+			FinalID:   m.FinalID,
+			PrevFinal: m.PrevFinal,
 			Timestamp: tsExchange,
 		},
 	}, false, nil
@@ -242,4 +262,48 @@ func eventTypeFromStream(stream string) string {
 	default:
 		return parts[1]
 	}
+}
+
+func tickerFromStream(stream string) string {
+	parts := strings.Split(strings.TrimSpace(stream), "@")
+	if len(parts) == 0 || parts[0] == "" {
+		return ""
+	}
+	return naming.CanonicalInstrument(parts[0])
+}
+
+func buildInstrumentMetadata(venueSymbol, canonical string) map[string]string {
+	meta := map[string]string{
+		"instrument_venue_symbol": strings.ToUpper(strings.TrimSpace(venueSymbol)),
+		"instrument_canonical":    canonical,
+		"instrument_market":       "spot",
+	}
+	canonicalPair := canonicalPairFromBinanceSymbol(venueSymbol)
+	if canonicalPair == "" {
+		return meta
+	}
+	id, p := domain.NewInstrumentIdentity(canonicalPair, venueSymbol, "spot")
+	if p != nil {
+		return meta
+	}
+	meta["instrument_pair"] = id.Canonical
+	meta["instrument_base"] = id.Base
+	meta["instrument_quote"] = id.Quote
+	return meta
+}
+
+func canonicalPairFromBinanceSymbol(symbol string) string {
+	s := naming.CanonicalInstrument(symbol)
+	if s == "" {
+		return ""
+	}
+	for _, quote := range []string{
+		"USDT", "USDC", "BUSD", "FDUSD", "TUSD", "BTC", "ETH", "BNB", "EUR", "USD",
+	} {
+		if strings.HasSuffix(s, quote) && len(s) > len(quote) {
+			base := strings.TrimSuffix(s, quote)
+			return base + "-" + quote
+		}
+	}
+	return ""
 }

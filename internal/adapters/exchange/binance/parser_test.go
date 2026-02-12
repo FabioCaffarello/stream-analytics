@@ -27,7 +27,7 @@ func TestParseMessage_AggTrade(t *testing.T) {
 }
 
 func TestParseMessage_DepthUpdate(t *testing.T) {
-	msg := []byte(`{"e":"depthUpdate","E":1710000010000,"s":"ETHUSDT","b":[["2500.1","1.2"]],"a":[["2500.2","2.3"]]}`)
+	msg := []byte(`{"e":"depthUpdate","E":1710000010000,"s":"ETHUSDT","U":101,"u":105,"pu":100,"b":[["2500.1","1.2"]],"a":[["2500.2","2.3"]]}`)
 	req, skip, p := binance.ParseMessage(msg, time.UnixMilli(1710000011000))
 	if p != nil || skip {
 		t.Fatalf("ParseMessage failed: skip=%v problem=%v", skip, p)
@@ -41,6 +41,9 @@ func TestParseMessage_DepthUpdate(t *testing.T) {
 	}
 	if len(payload.Bids) != 1 || len(payload.Asks) != 1 {
 		t.Fatalf("unexpected depth payload: %#v", payload)
+	}
+	if payload.FirstID != 101 || payload.FinalID != 105 || payload.PrevFinal != 100 {
+		t.Fatalf("unexpected depth update ids: %#v", payload)
 	}
 }
 
@@ -126,5 +129,22 @@ func TestParseMessageWithMeta_InvalidJSON(t *testing.T) {
 	}
 	if meta.Problem == nil {
 		t.Fatal("expected problem for invalid JSON")
+	}
+}
+
+func TestParseMessageWithMeta_WrappedStreamCarriesWSStream(t *testing.T) {
+	msg := []byte(`{"stream":"btcusdt@depth@100ms","data":{"e":"depthUpdate","E":1710000010000,"s":"BTCUSDT","U":11,"u":12,"b":[["2500.1","1.2"]],"a":[["2500.2","2.3"]]}}`)
+	req, skip, meta := binance.ParseMessageWithMeta(msg, time.UnixMilli(1710000011000))
+	if skip || meta.Problem != nil {
+		t.Fatalf("expected parse success, skip=%v problem=%v", skip, meta.Problem)
+	}
+	if req.Metadata["instrument_base"] != "BTC" || req.Metadata["instrument_quote"] != "USDT" {
+		t.Fatalf("expected instrument base/quote metadata, got=%v", req.Metadata)
+	}
+	if req.Metadata["ws_stream"] != "btcusdt@depth@100ms" {
+		t.Fatalf("req metadata ws_stream = %q, want btcusdt@depth@100ms", req.Metadata["ws_stream"])
+	}
+	if meta.WSStream != "btcusdt@depth@100ms" {
+		t.Fatalf("WSStream = %q, want btcusdt@depth@100ms", meta.WSStream)
 	}
 }

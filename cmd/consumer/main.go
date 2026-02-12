@@ -21,6 +21,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -212,9 +213,23 @@ func buildParseFuncAndManagerCfg(
 func buildParseFuncV2(logger *slog.Logger) mdruntime.ParseFuncV2 {
 	return func(msg *ws.WsMessage) (mdapp.IngestRequest, bool, mdruntime.ParseMeta) {
 		req, skip, meta := binance.ParseMessageWithMeta(msg.Data, msg.RecvAt)
+		if req.Metadata == nil {
+			req.Metadata = make(map[string]string, 8)
+		}
+		req.Metadata["exchange"] = msg.Exchange
+		req.Metadata["endpoint"] = msg.Endpoint
+		req.Metadata["bucket_id"] = fmt.Sprintf("%d", msg.BucketID)
+		req.Metadata["consumer_id"] = msg.ConsumerID
+		req.Metadata["recv_at"] = fmt.Sprintf("%d", msg.RecvAt.UnixMilli())
+		if meta.WSStream != "" {
+			req.Metadata["ws_stream"] = meta.WSStream
+		}
+
 		out := mdruntime.ParseMeta{
 			EventType:  meta.EventType,
 			SkipReason: meta.SkipReason,
+			WSStream:   meta.WSStream,
+			Ticker:     meta.Ticker,
 		}
 		if meta.Problem != nil {
 			out.ProblemCode = string(meta.Problem.Code)
