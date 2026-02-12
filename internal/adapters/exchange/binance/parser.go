@@ -164,7 +164,12 @@ func parseAggTrade(payload []byte, recvAt time.Time) (app.IngestRequest, bool, *
 		EventType:  "marketdata.trade",
 		Version:    1,
 		TsExchange: tsExchange,
-		Metadata:   buildInstrumentMetadata(m.Symbol, instrument),
+		IdempotencyKey: buildTradeIdempotencyKey(
+			VenueBinance,
+			instrument,
+			fmt.Sprintf("%d", m.AggTradeID),
+		),
+		Metadata: buildInstrumentMetadata(m.Symbol, instrument),
 		Payload: domain.TradeTickV1{
 			Price:     price,
 			Size:      size,
@@ -198,6 +203,9 @@ func parseDepthUpdate(payload []byte, recvAt time.Time) (app.IngestRequest, bool
 	if tsExchange <= 0 {
 		tsExchange = recvAt.UnixMilli()
 	}
+	if m.FinalID <= 0 {
+		return app.IngestRequest{}, true, problem.New(problem.ValidationFailed, "binance depthUpdate: final update id must be > 0")
+	}
 
 	return app.IngestRequest{
 		Venue:      VenueBinance,
@@ -205,7 +213,12 @@ func parseDepthUpdate(payload []byte, recvAt time.Time) (app.IngestRequest, bool
 		EventType:  "marketdata.bookdelta",
 		Version:    1,
 		TsExchange: tsExchange,
-		Metadata:   buildInstrumentMetadata(m.Symbol, instrument),
+		IdempotencyKey: buildDepthIdempotencyKey(
+			VenueBinance,
+			instrument,
+			m.FinalID,
+		),
+		Metadata: buildInstrumentMetadata(m.Symbol, instrument),
 		Payload: domain.BookDeltaV1{
 			Bids:      bids,
 			Asks:      asks,
@@ -215,6 +228,14 @@ func parseDepthUpdate(payload []byte, recvAt time.Time) (app.IngestRequest, bool
 			Timestamp: tsExchange,
 		},
 	}, false, nil
+}
+
+func buildTradeIdempotencyKey(venue, instrument, tradeID string) string {
+	return fmt.Sprintf("venue=%s|instrument=%s|trade_id=%s", venue, instrument, tradeID)
+}
+
+func buildDepthIdempotencyKey(venue, instrument string, finalUpdateID int64) string {
+	return fmt.Sprintf("venue=%s|instrument=%s|final_update_id=%d", venue, instrument, finalUpdateID)
 }
 
 func parseLevels(raw [][]string) ([]domain.PriceLevel, *problem.Problem) {
@@ -276,19 +297,20 @@ func buildInstrumentMetadata(venueSymbol, canonical string) map[string]string {
 	meta := map[string]string{
 		"instrument_venue_symbol": strings.ToUpper(strings.TrimSpace(venueSymbol)),
 		"instrument_canonical":    canonical,
-		"instrument_market":       "spot",
+		"instrument_market_type":  domain.MarketTypeSpot.String(),
 	}
 	canonicalPair := canonicalPairFromBinanceSymbol(venueSymbol)
 	if canonicalPair == "" {
 		return meta
 	}
-	id, p := domain.NewInstrumentIdentity(canonicalPair, venueSymbol, "spot")
+	id, p := domain.NewInstrumentIdentity(canonicalPair, venueSymbol, domain.MarketTypeSpot.String())
 	if p != nil {
 		return meta
 	}
 	meta["instrument_pair"] = id.Canonical
 	meta["instrument_base"] = id.Base
 	meta["instrument_quote"] = id.Quote
+	meta["instrument_market_type"] = id.MarketType.String()
 	return meta
 }
 

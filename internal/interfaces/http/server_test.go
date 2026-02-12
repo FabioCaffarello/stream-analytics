@@ -93,12 +93,21 @@ func TestServer_Healthz_returnsJSON(t *testing.T) {
 		t.Fatalf("expected application/json Content-Type, got %q", ct)
 	}
 
-	var body map[string]string
+	var body map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("response is not valid JSON: %v\nbody: %s", err, rec.Body.String())
 	}
-	if body["status"] != "ok" {
-		t.Fatalf("expected status=ok, got %q", body["status"])
+	if body["status"] == "" {
+		t.Fatalf("expected status field, got %#v", body)
+	}
+	if _, ok := body["ws_connected"]; !ok {
+		t.Fatalf("expected ws_connected field, got %#v", body)
+	}
+	if _, ok := body["last_message_age_ms"]; !ok {
+		t.Fatalf("expected last_message_age_ms field, got %#v", body)
+	}
+	if _, ok := body["last_publish_age_ms"]; !ok {
+		t.Fatalf("expected last_publish_age_ms field, got %#v", body)
 	}
 }
 

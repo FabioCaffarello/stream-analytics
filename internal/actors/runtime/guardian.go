@@ -43,6 +43,9 @@ type Guardian struct {
 	lastError      map[Subsystem]string
 	lastFailureAt  map[Subsystem]time.Time
 	lastTransition map[Subsystem]time.Time
+	connected      map[Subsystem]bool
+	lastMessageAt  map[Subsystem]time.Time
+	lastPublishAt  map[Subsystem]time.Time
 	scheduledRetry map[Subsystem]cancelSchedule
 	retryGen       map[Subsystem]uint64
 
@@ -126,6 +129,8 @@ func (g *Guardian) Receive(c *actor.Context) {
 		g.stopAll(c)
 	case ChildFailed:
 		g.handleChildFailed(c, msg)
+	case SubsystemHeartbeat:
+		g.handleHeartbeat(msg)
 	case retrySubsystem:
 		g.retrySubsystem(c, msg.Subsystem, msg.Generation)
 	default:
@@ -181,6 +186,15 @@ func (g *Guardian) ensureDefaults(c *actor.Context) bool {
 	}
 	if g.lastTransition == nil {
 		g.lastTransition = make(map[Subsystem]time.Time)
+	}
+	if g.connected == nil {
+		g.connected = make(map[Subsystem]bool)
+	}
+	if g.lastMessageAt == nil {
+		g.lastMessageAt = make(map[Subsystem]time.Time)
+	}
+	if g.lastPublishAt == nil {
+		g.lastPublishAt = make(map[Subsystem]time.Time)
 	}
 	if g.scheduledRetry == nil {
 		g.scheduledRetry = make(map[Subsystem]cancelSchedule)
@@ -255,6 +269,9 @@ func (g *Guardian) startAll(c *actor.Context) {
 }
 
 func (g *Guardian) stopAll(c *actor.Context) {
+	if g.connected == nil {
+		g.connected = make(map[Subsystem]bool)
+	}
 	for subsystem, cancel := range g.scheduledRetry {
 		cancel()
 		delete(g.scheduledRetry, subsystem)
@@ -266,12 +283,14 @@ func (g *Guardian) stopAll(c *actor.Context) {
 		pid := g.children[subsystem]
 		if pid == nil {
 			g.running[subsystem] = false
+			g.connected[subsystem] = false
 			g.lastTransition[subsystem] = g.clock.Now()
 			continue
 		}
 		g.poisonFn(c, pid)
 		g.children[subsystem] = nil
 		g.running[subsystem] = false
+		g.connected[subsystem] = false
 		g.lastTransition[subsystem] = g.clock.Now()
 	}
 	g.started = false
@@ -354,6 +373,9 @@ func (g *Guardian) handleChildFailed(c *actor.Context, msg ChildFailed) {
 	if msg.Subsystem == "" {
 		return
 	}
+	if g.connected == nil {
+		g.connected = make(map[Subsystem]bool)
+	}
 	if g.shuttingDown {
 		return // no restarts during controlled shutdown
 	}
@@ -364,6 +386,7 @@ func (g *Guardian) handleChildFailed(c *actor.Context, msg ChildFailed) {
 	}
 	g.lastFailureAt[msg.Subsystem] = g.clock.Now()
 	g.running[msg.Subsystem] = false
+	g.connected[msg.Subsystem] = false
 	if pid := g.children[msg.Subsystem]; pid != nil {
 		if g.poisonFn != nil {
 			g.poisonFn(c, pid)
@@ -414,6 +437,19 @@ func (g *Guardian) replaceScheduledRetry(subsystem Subsystem, cancel cancelSched
 	g.scheduledRetry[subsystem] = cancel
 }
 
+func (g *Guardian) handleHeartbeat(msg SubsystemHeartbeat) {
+	if msg.Subsystem == "" {
+		return
+	}
+	g.connected[msg.Subsystem] = msg.Connected
+	if !msg.LastMessageAt.IsZero() {
+		g.lastMessageAt[msg.Subsystem] = msg.LastMessageAt
+	}
+	if !msg.LastPublishAt.IsZero() {
+		g.lastPublishAt[msg.Subsystem] = msg.LastPublishAt
+	}
+}
+
 func (g *Guardian) buildSnapshot() SnapshotState {
 	state := SnapshotState{
 		At:         g.clock.Now(),
@@ -424,10 +460,13 @@ func (g *Guardian) buildSnapshot() SnapshotState {
 		s := SubsystemState{
 			Running:          g.running[subsystem],
 			Degraded:         policyState.Degraded,
+			Connected:        g.connected[subsystem],
 			HasChild:         g.children[subsystem] != nil,
 			LastError:        g.lastError[subsystem],
 			LastFailureAt:    g.lastFailureAt[subsystem],
 			LastTransitionAt: g.lastTransition[subsystem],
+			LastMessageAt:    g.lastMessageAt[subsystem],
+			LastPublishAt:    g.lastPublishAt[subsystem],
 			RestartCount:     policyState.RestartCount,
 			CooldownUntil:    policyState.CooldownUntil,
 		}

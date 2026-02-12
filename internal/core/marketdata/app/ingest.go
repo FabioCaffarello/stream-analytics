@@ -22,8 +22,11 @@ type IngestRequest struct {
 	EventType  string
 	Version    int
 	TsExchange int64 // Unix ms from exchange (advisory)
-	Payload    any   // typed domain payload (e.g. TradeTickV1)
-	Metadata   map[string]string
+	// IdempotencyKey is an optional stable dedup key from the source stream.
+	// When empty, the aggregate falls back to deterministic key derivation.
+	IdempotencyKey string
+	Payload        any // typed domain payload (e.g. TradeTickV1)
+	Metadata       map[string]string
 }
 
 // IngestResponse is returned on success.
@@ -149,7 +152,7 @@ func (uc *IngestMarketData) Execute(ctx context.Context, req IngestRequest) resu
 	}
 
 	// 6. Build envelope (includes validate + dedup inside domain aggregate).
-	env, p := stream.BuildEnvelope(eventType, version, tsExchange, tsIngest, seq, req.Payload)
+	env, p := stream.BuildEnvelope(eventType, version, tsExchange, tsIngest, seq, req.Payload, req.IdempotencyKey)
 	if p != nil {
 		return result.FailProblem[IngestResponse](p)
 	}

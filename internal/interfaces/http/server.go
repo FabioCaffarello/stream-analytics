@@ -114,7 +114,40 @@ func (s *Server) SetSnapshotTimeout(d time.Duration) {
 // handleHealthz returns 200 OK unconditionally.
 // It is a liveness probe: it only checks that the HTTP layer is alive.
 func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	resp := s.engine.Request(s.guardianPID, runtime.Snapshot{}, s.snapshotTimeout)
+	result, err := resp.Result()
+	if err != nil {
+		s.logger.Warn("healthz snapshot timeout", "err", err)
+		writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "healthz timeout"})
+		return
+	}
+	state, ok := result.(runtime.SnapshotState)
+	if !ok {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "unexpected response"})
+		return
+	}
+
+	sub, hasMD := state.Subsystems[runtime.SubsystemMarketData]
+	lastMsgAge := int64(-1)
+	lastPubAge := int64(-1)
+	now := time.Now()
+	if hasMD && !sub.LastMessageAt.IsZero() {
+		lastMsgAge = now.Sub(sub.LastMessageAt).Milliseconds()
+	}
+	if hasMD && !sub.LastPublishAt.IsZero() {
+		lastPubAge = now.Sub(sub.LastPublishAt).Milliseconds()
+	}
+	status := "ok"
+	if hasMD && (!sub.Running || !sub.Connected) {
+		status = "degraded"
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":              status,
+		"ws_connected":        sub.Connected,
+		"last_message_age_ms": lastMsgAge,
+		"last_publish_age_ms": lastPubAge,
+	})
 }
 
 // handleReadyz queries the Guardian for readiness state.

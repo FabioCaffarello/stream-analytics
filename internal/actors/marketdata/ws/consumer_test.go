@@ -153,7 +153,7 @@ func TestConsumer_ShutdownWithoutSpuriousError(t *testing.T) {
 	}
 }
 
-func TestConsumer_ErrorEmitsWsErrorAndStateOnce(t *testing.T) {
+func TestConsumer_ErrorEmitsWsErrorAndReconnectState(t *testing.T) {
 	fake := newFakeConn()
 	fake.readCh <- readResult{err: errors.New("read failed")}
 
@@ -188,29 +188,23 @@ func TestConsumer_ErrorEmitsWsErrorAndStateOnce(t *testing.T) {
 
 	deadline := time.After(2 * time.Second)
 	var gotErr *WsError
-	errorStateCount := 0
+	gotReconnectState := false
 
-	for gotErr == nil || errorStateCount == 0 {
+	for gotErr == nil || !gotReconnectState {
 		select {
 		case raw := <-sinkCh:
 			switch msg := raw.(type) {
 			case *WsError:
 				if msg.Kind == "read" {
-					if gotErr != nil {
-						t.Fatalf("received duplicate WsError: %+v", msg)
-					}
 					gotErr = msg
 				}
 			case *WsState:
-				if msg.Status == "error" {
-					errorStateCount++
-					if errorStateCount > 1 {
-						t.Fatalf("received duplicate error state: %+v", msg)
-					}
+				if msg.Status == "reconnecting" {
+					gotReconnectState = true
 				}
 			}
 		case <-deadline:
-			t.Fatalf("timeout waiting error events; gotErr=%v errorStateCount=%d", gotErr != nil, errorStateCount)
+			t.Fatalf("timeout waiting error events; gotErr=%v gotReconnectState=%v", gotErr != nil, gotReconnectState)
 		}
 	}
 

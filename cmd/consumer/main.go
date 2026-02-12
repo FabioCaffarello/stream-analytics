@@ -82,7 +82,18 @@ func main() {
 
 	logger.Info("consumer starting",
 		"exchange", exchange,
+		"market_type", cfg.Consumer.MarketType,
 		"tickers", tickers,
+		"streams_per_ticker", cfg.Consumer.StreamsPerTicker,
+		"max_streams_per_websocket", cfg.Consumer.MaxStreamsPerWebsocket,
+		"max_websockets", cfg.Consumer.MaxWebsockets,
+		"backpressure_buffer_size", cfg.Consumer.BackpressureBufferSize,
+		"backpressure_policy", cfg.Consumer.BackpressurePolicy,
+		"reconnect_base_backoff", cfg.Consumer.ReconnectBaseBackoff,
+		"reconnect_max_backoff", cfg.Consumer.ReconnectMaxBackoff,
+		"reconnect_budget_window", cfg.Consumer.ReconnectBudgetWindow,
+		"reconnect_retry_budget", cfg.Consumer.ReconnectRetryBudget,
+		"reconnect_cooldown", cfg.Consumer.ReconnectCooldown,
 	)
 
 	// ── dependencies ─────────────────────────────────────────────────────────
@@ -99,11 +110,13 @@ func main() {
 	parseFunc, managerCfg := buildParseFuncAndManagerCfg(cfg, logger, exchange, tickers)
 
 	subCfg := mdruntime.SubsystemConfig{
-		Logger:         logger,
-		Ingest:         ingest,
-		ParseMessage:   parseFunc,
-		ParseMessageV2: buildParseFuncV2(logger),
-		ManagerConfig:  managerCfg,
+		Logger:                 logger,
+		Ingest:                 ingest,
+		ParseMessage:           parseFunc,
+		ParseMessageV2:         buildParseFuncV2(logger),
+		ManagerConfig:          managerCfg,
+		BackpressureBufferSize: cfg.Consumer.BackpressureBufferSize,
+		BackpressurePolicy:     cfg.Consumer.BackpressurePolicy,
 	}
 
 	// ── engine ───────────────────────────────────────────────────────────────
@@ -196,6 +209,14 @@ func buildParseFuncAndManagerCfg(
 		RespawnOverlap:         cfg.Consumer.RespawnOverlapDuration(),
 		SubscriptionBuilder:    func([]string) [][]byte { return nil }, // combined stream URL encodes subscriptions
 		Heartbeat:              func() ws.Heartbeat { return ws.Heartbeat{} },
+		Reconnect: ws.ReconnectPolicy{
+			BaseBackoff:  cfg.Consumer.ReconnectBaseBackoffDuration(),
+			MaxBackoff:   cfg.Consumer.ReconnectMaxBackoffDuration(),
+			Jitter:       cfg.Consumer.ReconnectJitter,
+			RetryBudget:  cfg.Consumer.ReconnectRetryBudget,
+			BudgetWindow: cfg.Consumer.ReconnectBudgetWindowDuration(),
+			Cooldown:     cfg.Consumer.ReconnectCooldownDuration(),
+		},
 		EndpointBuilder: func(bucket []string) string {
 			endpoint, p := binance.BuildEndpoint(cfg.Consumer.BinanceWSBaseURL, bucket)
 			if p != nil {

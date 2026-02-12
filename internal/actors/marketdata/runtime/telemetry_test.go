@@ -66,3 +66,26 @@ func TestParserTelemetry_TopTickerSharePercent(t *testing.T) {
 		t.Fatalf("ETH-USDT share = %f, want approx 33.33", top["ETH-USDT"])
 	}
 }
+
+func TestParserTelemetry_RecordDepthSequenceGap(t *testing.T) {
+	tel := newParserTelemetry()
+
+	gap, _ := tel.recordDepthSequence("BTCUSDT", 101, 105)
+	if gap {
+		t.Fatal("first depth sample must not report gap")
+	}
+
+	gap, last := tel.recordDepthSequence("BTCUSDT", 108, 110)
+	if !gap {
+		t.Fatal("expected depth gap")
+	}
+	if last != 105 {
+		t.Fatalf("last final = %d, want 105", last)
+	}
+	if tel.depthGapsTotal != 1 {
+		t.Fatalf("depthGapsTotal = %d, want 1", tel.depthGapsTotal)
+	}
+	if tel.depthGapsBySymbol["BTCUSDT"] != 1 {
+		t.Fatalf("depthGapsBySymbol[BTCUSDT] = %d, want 1", tel.depthGapsBySymbol["BTCUSDT"])
+	}
+}

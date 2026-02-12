@@ -17,6 +17,9 @@ func TestParseMessage_AggTrade(t *testing.T) {
 	if req.EventType != "marketdata.trade" || req.Venue != "BINANCE" || req.Instrument != "BTCUSDT" {
 		t.Fatalf("unexpected request: %#v", req)
 	}
+	if req.IdempotencyKey != "venue=BINANCE|instrument=BTCUSDT|trade_id=12345" {
+		t.Fatalf("idempotency key = %q", req.IdempotencyKey)
+	}
 	payload, ok := req.Payload.(domain.TradeTickV1)
 	if !ok {
 		t.Fatalf("unexpected payload type: %T", req.Payload)
@@ -34,6 +37,9 @@ func TestParseMessage_DepthUpdate(t *testing.T) {
 	}
 	if req.EventType != "marketdata.bookdelta" || req.Instrument != "ETHUSDT" {
 		t.Fatalf("unexpected request: %#v", req)
+	}
+	if req.IdempotencyKey != "venue=BINANCE|instrument=ETHUSDT|final_update_id=105" {
+		t.Fatalf("idempotency key = %q", req.IdempotencyKey)
 	}
 	payload, ok := req.Payload.(domain.BookDeltaV1)
 	if !ok {
@@ -100,6 +106,14 @@ func TestParseMessage_CombinedEnvelopeWithoutData_Skips(t *testing.T) {
 
 func TestParseMessage_DepthUpdateInvalidLevel_SkipsWithProblem(t *testing.T) {
 	msg := []byte(`{"e":"depthUpdate","E":1710000010000,"s":"ETHUSDT","b":[["2500.1"]],"a":[["2500.2","2.3"]]}`)
+	_, skip, p := binance.ParseMessage(msg, time.UnixMilli(1710000011000))
+	if !skip || p == nil {
+		t.Fatalf("expected skip + problem, got skip=%v problem=%v", skip, p)
+	}
+}
+
+func TestParseMessage_DepthUpdateMissingFinalID_SkipsWithProblem(t *testing.T) {
+	msg := []byte(`{"e":"depthUpdate","E":1710000010000,"s":"ETHUSDT","U":101,"u":0,"b":[["2500.1","1.2"]],"a":[["2500.2","2.3"]]}`)
 	_, skip, p := binance.ParseMessage(msg, time.UnixMilli(1710000011000))
 	if !skip || p == nil {
 		t.Fatalf("expected skip + problem, got skip=%v problem=%v", skip, p)

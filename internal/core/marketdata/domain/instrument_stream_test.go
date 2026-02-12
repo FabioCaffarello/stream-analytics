@@ -30,6 +30,7 @@ func buildTrade(t *testing.T, s *domain.InstrumentStream, seq int64, tsIngest in
 		domain.Timestamp(tsIngest),
 		domain.Sequence(seq),
 		payload,
+		"",
 	)
 	if p != nil {
 		t.Fatalf("BuildEnvelope seq=%d: %s", seq, p)
@@ -68,6 +69,7 @@ func TestInstrumentStream_seqMonotonic(t *testing.T) {
 		domain.Timestamp(1710000003000),
 		domain.Sequence(2),
 		payload,
+		"",
 	)
 	if p == nil {
 		t.Fatal("expected OUT_OF_ORDER problem, got nil")
@@ -87,6 +89,7 @@ func TestInstrumentStream_envelopeValid(t *testing.T) {
 		domain.Timestamp(1710000005000),
 		domain.Sequence(1),
 		payload,
+		"",
 	)
 	if p != nil {
 		t.Fatalf("BuildEnvelope: %s", p)
@@ -115,6 +118,7 @@ func TestInstrumentStream_dedupCacheEviction(t *testing.T) {
 			domain.Timestamp(i*1000+5),
 			domain.Sequence(i),
 			payload,
+			"",
 		)
 		if p != nil {
 			t.Fatalf("seq %d: %s", i, p)
@@ -190,6 +194,7 @@ func TestInstrumentStream_healthState(t *testing.T) {
 		domain.Timestamp(1710000001005),
 		domain.Sequence(1),
 		payload,
+		"",
 	)
 	_, _ = s.BuildEnvelope(
 		domain.EventType("marketdata.trade"),
@@ -198,9 +203,44 @@ func TestInstrumentStream_healthState(t *testing.T) {
 		domain.Timestamp(1710000003000),
 		domain.Sequence(1),
 		payload,
+		"",
 	)
 	degraded := s.Health()
 	if degraded.IsHealthy || degraded.State != domain.StreamNeedsAttention {
 		t.Fatalf("expected degraded stream after out-of-order, got %+v", degraded)
+	}
+}
+
+func TestInstrumentStream_sourceIdempotencyKeyDedupsAcrossSeq(t *testing.T) {
+	s := newStream(t)
+	payload := domain.TradeTickV1{Price: 1.0, Size: 1.0, Side: "buy", TradeID: "42"}
+
+	_, p := s.BuildEnvelope(
+		domain.EventType("marketdata.trade"),
+		domain.SchemaVersion(1),
+		domain.Timestamp(1710000001000),
+		domain.Timestamp(1710000001005),
+		domain.Sequence(1),
+		payload,
+		"venue=BINANCE|instrument=BTCUSDT|trade_id=42",
+	)
+	if p != nil {
+		t.Fatalf("first BuildEnvelope failed: %v", p)
+	}
+
+	_, p = s.BuildEnvelope(
+		domain.EventType("marketdata.trade"),
+		domain.SchemaVersion(1),
+		domain.Timestamp(1710000002000),
+		domain.Timestamp(1710000002005),
+		domain.Sequence(2),
+		payload,
+		"venue=BINANCE|instrument=BTCUSDT|trade_id=42",
+	)
+	if p == nil {
+		t.Fatal("expected duplicate problem")
+	}
+	if p.Code != problem.Duplicate {
+		t.Fatalf("problem code = %s, want %s", p.Code, problem.Duplicate)
 	}
 }

@@ -46,6 +46,8 @@ type HTTPConfig struct {
 type ConsumerConfig struct {
 	// Exchange is the canonical exchange name.  Default: "binance".
 	Exchange string `json:"exchange"`
+	// MarketType classifies Binance market. Default: "SPOT".
+	MarketType string `json:"market_type"`
 	// Tickers is the list of canonical instrument names to subscribe to.  Default: ["BTC-USDT","ETH-USDT"].
 	Tickers []string `json:"tickers"`
 	// BinanceWSBaseURL overrides Binance websocket combined-stream base URL.
@@ -62,6 +64,22 @@ type ConsumerConfig struct {
 	MaxWebsocketLifetime string `json:"max_websocket_lifetime"`
 	// RespawnOverlap defines overlap duration while swapping old/new websocket.
 	RespawnOverlap string `json:"respawn_overlap"`
+	// BackpressureBufferSize caps queued WS messages before ingest.
+	BackpressureBufferSize int `json:"backpressure_buffer_size"`
+	// BackpressurePolicy defines the drop strategy when queue is full.
+	BackpressurePolicy string `json:"backpressure_policy"`
+	// ReconnectBaseBackoff defines initial reconnect delay.
+	ReconnectBaseBackoff string `json:"reconnect_base_backoff"`
+	// ReconnectMaxBackoff defines reconnect delay cap.
+	ReconnectMaxBackoff string `json:"reconnect_max_backoff"`
+	// ReconnectJitter is jitter ratio [0,1].
+	ReconnectJitter float64 `json:"reconnect_jitter"`
+	// ReconnectRetryBudget limits retries per budget window.
+	ReconnectRetryBudget int `json:"reconnect_retry_budget"`
+	// ReconnectBudgetWindow defines retry budget window.
+	ReconnectBudgetWindow string `json:"reconnect_budget_window"`
+	// ReconnectCooldown applies when retry budget is exhausted.
+	ReconnectCooldown string `json:"reconnect_cooldown"`
 }
 
 // ProcessorConfig controls the aggregation processor binary.
@@ -92,6 +110,22 @@ func (c ConsumerConfig) MaxWebsocketLifetimeDuration() time.Duration {
 // RespawnOverlapDuration parses and returns ConsumerConfig.RespawnOverlap.
 func (c ConsumerConfig) RespawnOverlapDuration() time.Duration {
 	return mustParseDuration(c.RespawnOverlap)
+}
+
+func (c ConsumerConfig) ReconnectBaseBackoffDuration() time.Duration {
+	return mustParseDuration(c.ReconnectBaseBackoff)
+}
+
+func (c ConsumerConfig) ReconnectMaxBackoffDuration() time.Duration {
+	return mustParseDuration(c.ReconnectMaxBackoff)
+}
+
+func (c ConsumerConfig) ReconnectBudgetWindowDuration() time.Duration {
+	return mustParseDuration(c.ReconnectBudgetWindow)
+}
+
+func (c ConsumerConfig) ReconnectCooldownDuration() time.Duration {
+	return mustParseDuration(c.ReconnectCooldown)
 }
 
 func mustParseDuration(s string) time.Duration {

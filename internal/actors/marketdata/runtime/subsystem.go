@@ -10,6 +10,7 @@ import (
 	"github.com/market-raccoon/internal/actors/marketdata/ws"
 	runtime "github.com/market-raccoon/internal/actors/runtime"
 	"github.com/market-raccoon/internal/core/marketdata/app"
+	"github.com/market-raccoon/internal/core/marketdata/domain"
 )
 
 // SubsystemConfig configures the MarketDataSubsystemActor.
@@ -44,6 +45,11 @@ type SubsystemConfig struct {
 	// spawnManagerFn overrides the ws.Manager spawn for testing.
 	// Unexported; set via WithSpawnManagerFn option.
 	spawnManagerFn func(c *actor.Context, selfPID *actor.PID) *actor.PID
+
+	// BackpressureBufferSize is the bounded queue size between WS and ingest.
+	BackpressureBufferSize int
+	// BackpressurePolicy controls eviction strategy when queue is full.
+	BackpressurePolicy string
 }
 
 // SubsystemActor bridges the ws.Manager actor layer with the core
@@ -60,6 +66,19 @@ type SubsystemActor struct {
 	logger     *slog.Logger
 	managerPID *actor.PID
 	telemetry  *parserTelemetry
+	queue      *wsQueue
+	engine     *actor.Engine
+	selfPID    *actor.PID
+
+	lastMessageAt   time.Time
+	lastPublishAt   time.Time
+	wsConnected     bool
+	backpressureOn  bool
+	lastHeartbeatAt time.Time
+}
+
+type publishTick struct {
+	At time.Time
 }
 
 // NewSubsystemActor returns a hollywood actor.Producer for the
@@ -87,13 +106,18 @@ func (s *SubsystemActor) Receive(c *actor.Context) {
 	case actor.Started:
 		s.onStarted(c)
 	case actor.Stopped:
-		// engine handles child cleanup; nothing to do.
+		if s.queue != nil {
+			s.queue.Close()
+		}
 	case *ws.WsMessage:
 		s.handleMessage(c, msg)
 	case *ws.WsError:
 		s.handleError(c, msg)
 	case *ws.WsState:
-		s.handleState(msg)
+		s.handleState(c, msg)
+	case publishTick:
+		s.lastPublishAt = msg.At
+		s.emitSubsystemHeartbeat(c, false)
 	default:
 		s.logger.Warn("mdruntime: unknown message", "type", fmt.Sprintf("%T", msg))
 	}
@@ -111,13 +135,20 @@ func (s *SubsystemActor) ensureDefaults() {
 	if s.telemetry == nil {
 		s.telemetry = newParserTelemetry()
 	}
+	if s.queue == nil {
+		policy := normalizeBackpressurePolicy(s.cfg.BackpressurePolicy)
+		s.queue = newWSQueue(s.cfg.BackpressureBufferSize, policy)
+	}
 }
 
 func (s *SubsystemActor) onStarted(c *actor.Context) {
+	s.engine = c.Engine()
+	s.selfPID = c.PID()
 	s.logger.Info("mdruntime: subsystem started")
 	if s.cfg.OnStarted != nil {
 		s.cfg.OnStarted(c.PID())
 	}
+	go s.runIngestWorker()
 
 	spawnFn := s.cfg.spawnManagerFn
 	if spawnFn == nil && s.cfg.ManagerConfig != nil {
@@ -146,6 +177,32 @@ func (s *SubsystemActor) defaultSpawnManager(c *actor.Context, selfPID *actor.PI
 }
 
 func (s *SubsystemActor) handleMessage(c *actor.Context, msg *ws.WsMessage) {
+	s.lastMessageAt = msg.RecvAt
+	s.emitSubsystemHeartbeat(c, false)
+	dropped, entered := s.queue.Enqueue(msg)
+	if entered && !s.backpressureOn {
+		s.backpressureOn = true
+		s.logger.Warn("mdruntime: entering backpressure mode",
+			"policy", normalizeBackpressurePolicy(s.cfg.BackpressurePolicy),
+			"buffer_size", s.cfg.BackpressureBufferSize,
+		)
+	}
+	if dropped > 0 {
+		s.telemetry.recordBackpressureDrops(uint64(dropped))
+	}
+}
+
+func (s *SubsystemActor) runIngestWorker() {
+	for {
+		msg, ok := s.queue.Pop()
+		if !ok {
+			return
+		}
+		s.processMessage(msg)
+	}
+}
+
+func (s *SubsystemActor) processMessage(msg *ws.WsMessage) {
 	if s.cfg.ParseMessageV2 == nil && s.cfg.ParseMessage == nil {
 		s.logger.Debug("mdruntime: no ParseMessage configured — dropping message",
 			"exchange", msg.Exchange,
@@ -191,6 +248,19 @@ func (s *SubsystemActor) handleMessage(c *actor.Context, msg *ws.WsMessage) {
 		return
 	}
 
+	if req.EventType == "marketdata.bookdelta" {
+		if depth, ok := req.Payload.(domain.BookDeltaV1); ok && depth.FirstID > 0 && depth.FinalID > 0 {
+			if gap, lastFinal := s.telemetry.recordDepthSequence(req.Instrument, depth.FirstID, depth.FinalID); gap {
+				s.logger.Warn("mdruntime: depth gap detected",
+					"instrument", req.Instrument,
+					"first_update_id", depth.FirstID,
+					"final_update_id", depth.FinalID,
+					"last_final_update_id", lastFinal,
+				)
+			}
+		}
+	}
+
 	res := s.cfg.Ingest.Execute(context.Background(), req)
 	if res.IsFail() {
 		p := res.Problem()
@@ -211,6 +281,9 @@ func (s *SubsystemActor) handleMessage(c *actor.Context, msg *ws.WsMessage) {
 	}
 	s.telemetry.recordIngest(req.EventType, ticker, wsStream)
 	s.logProgress()
+	if s.engine != nil && s.selfPID != nil {
+		s.engine.Send(s.selfPID, publishTick{At: time.Now()})
+	}
 
 	resp := res.Value()
 	s.logger.Debug("mdruntime: ingested",
@@ -230,6 +303,12 @@ func (s *SubsystemActor) logProgress() {
 			"skip_by_reason", s.telemetry.bySkipReason,
 			"skip_by_exchange_event_reason", s.telemetry.byExchangeEventAndSkip,
 			"parse_error_by_code", s.telemetry.parseErrorsByProblemCode,
+			"depth_gaps_total", s.telemetry.depthGapsTotal,
+			"depth_gaps_by_symbol", s.telemetry.depthGapsBySymbol,
+			"ws_backpressure_drops_total", s.telemetry.backpressureDropsTotal,
+			"ws_reconnect_total", s.telemetry.wsReconnectTotal,
+			"ws_disconnect_reason", s.telemetry.wsDisconnectByReason,
+			"ws_connection_uptime_seconds", s.telemetry.wsConnectionUptimeSecs,
 			"top_ws_streams", s.telemetry.topWSStreams(5),
 			"top_ticker_share_pct", s.telemetry.topTickerSharePercent(5),
 		)
@@ -266,7 +345,19 @@ func (s *SubsystemActor) handleError(c *actor.Context, msg *ws.WsError) {
 	})
 }
 
-func (s *SubsystemActor) handleState(msg *ws.WsState) {
+func (s *SubsystemActor) handleState(c *actor.Context, msg *ws.WsState) {
+	if msg.Status == "reconnecting" {
+		s.telemetry.recordReconnect(msg.Reason, msg.UptimeSec)
+	}
+
+	switch msg.Status {
+	case "connected", "subscribed":
+		s.wsConnected = true
+	case "error", "closed":
+		s.wsConnected = false
+	}
+	s.emitSubsystemHeartbeat(c, true)
+
 	// Avoid log spam for high-frequency reconnects; log at appropriate levels.
 	switch msg.Status {
 	case "connected", "subscribed":
@@ -295,6 +386,23 @@ func (s *SubsystemActor) handleState(msg *ws.WsState) {
 			"endpoint", msg.Endpoint,
 		)
 	}
+}
+
+func (s *SubsystemActor) emitSubsystemHeartbeat(c *actor.Context, force bool) {
+	if c == nil || c.Parent() == nil {
+		return
+	}
+	now := time.Now()
+	if !force && !s.lastHeartbeatAt.IsZero() && now.Sub(s.lastHeartbeatAt) < time.Second {
+		return
+	}
+	s.lastHeartbeatAt = now
+	c.Send(c.Parent(), runtime.SubsystemHeartbeat{
+		Subsystem:     runtime.SubsystemMarketData,
+		Connected:     s.wsConnected,
+		LastMessageAt: s.lastMessageAt,
+		LastPublishAt: s.lastPublishAt,
+	})
 }
 
 func isEscalationWorthyWsError(kind string) bool {

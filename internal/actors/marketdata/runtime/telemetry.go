@@ -17,6 +17,13 @@ type parserTelemetry struct {
 	parseErrorsByProblemCode map[string]uint64
 	byWSStream               map[string]uint64
 	byTicker                 map[string]uint64
+	depthGapsBySymbol        map[string]uint64
+	lastDepthFinalBySymbol   map[string]int64
+	depthGapsTotal           uint64
+	backpressureDropsTotal   uint64
+	wsReconnectTotal         uint64
+	wsDisconnectByReason     map[string]uint64
+	wsConnectionUptimeSecs   float64
 
 	lastSampleAt map[string]time.Time
 	sampleWindow time.Duration
@@ -30,6 +37,9 @@ func newParserTelemetry() *parserTelemetry {
 		parseErrorsByProblemCode: make(map[string]uint64),
 		byWSStream:               make(map[string]uint64),
 		byTicker:                 make(map[string]uint64),
+		depthGapsBySymbol:        make(map[string]uint64),
+		lastDepthFinalBySymbol:   make(map[string]int64),
+		wsDisconnectByReason:     make(map[string]uint64),
 		lastSampleAt:             make(map[string]time.Time),
 		sampleWindow:             30 * time.Second,
 	}
@@ -78,6 +88,33 @@ func (t *parserTelemetry) shouldSample(now time.Time, key string) bool {
 
 func (t *parserTelemetry) shouldEmitProgress() bool {
 	return t.total > 0 && t.total%100 == 0
+}
+
+func (t *parserTelemetry) recordDepthSequence(symbol string, first, final int64) (gap bool, lastFinal int64) {
+	sym := normalizeLabel(symbol, "unknown")
+	lastFinal, seen := t.lastDepthFinalBySymbol[sym]
+	if seen && first > lastFinal+1 {
+		gap = true
+		t.depthGapsTotal++
+		t.depthGapsBySymbol[sym]++
+	}
+	if !seen || final > lastFinal {
+		t.lastDepthFinalBySymbol[sym] = final
+	}
+	return gap, lastFinal
+}
+
+func (t *parserTelemetry) recordBackpressureDrops(n uint64) {
+	t.backpressureDropsTotal += n
+}
+
+func (t *parserTelemetry) recordReconnect(reason string, uptimeSec float64) {
+	t.wsReconnectTotal++
+	r := normalizeLabel(reason, "unknown")
+	t.wsDisconnectByReason[r]++
+	if uptimeSec > 0 {
+		t.wsConnectionUptimeSecs += uptimeSec
+	}
 }
 
 func normalizeLabel(v, fallback string) string {

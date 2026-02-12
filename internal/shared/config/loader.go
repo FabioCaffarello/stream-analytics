@@ -108,6 +108,16 @@ func validateConsumer(c ConsumerConfig) *problem.Problem {
 	if len(c.Tickers) == 0 {
 		return problem.New(codeInvalid, "consumer.tickers must not be empty")
 	}
+	for i, t := range c.Tickers {
+		if strings.TrimSpace(t) == "" {
+			return problem.Newf(codeInvalid, "consumer.tickers[%d] must not be empty", i)
+		}
+	}
+	switch strings.ToUpper(strings.TrimSpace(c.MarketType)) {
+	case "SPOT", "USD_M_FUTURES", "COIN_M_FUTURES":
+	default:
+		return problem.Newf(codeInvalid, "consumer.market_type must be SPOT|USD_M_FUTURES|COIN_M_FUTURES, got %q", c.MarketType)
+	}
 	if strings.TrimSpace(c.BinanceWSBaseURL) == "" {
 		return problem.New(codeInvalid, "consumer.binance_ws_base_url must not be empty")
 	}
@@ -120,16 +130,37 @@ func validateConsumer(c ConsumerConfig) *problem.Problem {
 	if c.MaxWebsockets <= 0 {
 		return problem.Newf(codeInvalid, "consumer.max_websockets must be > 0, got %d", c.MaxWebsockets)
 	}
+	if c.BackpressureBufferSize <= 0 {
+		return problem.Newf(codeInvalid, "consumer.backpressure_buffer_size must be > 0, got %d", c.BackpressureBufferSize)
+	}
+	switch strings.TrimSpace(c.BackpressurePolicy) {
+	case "drop_oldest", "drop_depth_keep_trades":
+	default:
+		return problem.Newf(codeInvalid, "consumer.backpressure_policy must be drop_oldest|drop_depth_keep_trades, got %q", c.BackpressurePolicy)
+	}
+	if c.ReconnectJitter < 0 || c.ReconnectJitter > 1 {
+		return problem.Newf(codeInvalid, "consumer.reconnect_jitter must be in [0,1], got %f", c.ReconnectJitter)
+	}
+	if c.ReconnectRetryBudget <= 0 {
+		return problem.Newf(codeInvalid, "consumer.reconnect_retry_budget must be > 0, got %d", c.ReconnectRetryBudget)
+	}
 	for _, field := range []struct {
 		name  string
 		value string
 	}{
 		{"consumer.max_websocket_lifetime", c.MaxWebsocketLifetime},
 		{"consumer.respawn_overlap", c.RespawnOverlap},
+		{"consumer.reconnect_base_backoff", c.ReconnectBaseBackoff},
+		{"consumer.reconnect_max_backoff", c.ReconnectMaxBackoff},
+		{"consumer.reconnect_budget_window", c.ReconnectBudgetWindow},
+		{"consumer.reconnect_cooldown", c.ReconnectCooldown},
 	} {
 		if _, err := time.ParseDuration(field.value); err != nil {
 			return problem.Newf(codeInvalid, "%s: invalid duration %q: %v", field.name, field.value, err)
 		}
+	}
+	if strings.EqualFold(c.MarketType, "SPOT") && c.StreamsPerTicker != 2 {
+		return problem.Newf(codeInvalid, "consumer.streams_per_ticker=%d incompatible with spot runtime baseline=2", c.StreamsPerTicker)
 	}
 	return nil
 }
@@ -161,6 +192,9 @@ func applyDefaults(c *AppConfig) {
 	if c.Consumer.Exchange == "" {
 		c.Consumer.Exchange = "binance"
 	}
+	if c.Consumer.MarketType == "" {
+		c.Consumer.MarketType = "SPOT"
+	}
 	if len(c.Consumer.Tickers) == 0 {
 		c.Consumer.Tickers = []string{"BTC-USDT", "ETH-USDT"}
 	}
@@ -181,6 +215,30 @@ func applyDefaults(c *AppConfig) {
 	}
 	if c.Consumer.RespawnOverlap == "" {
 		c.Consumer.RespawnOverlap = "5s"
+	}
+	if c.Consumer.BackpressureBufferSize == 0 {
+		c.Consumer.BackpressureBufferSize = 8192
+	}
+	if c.Consumer.BackpressurePolicy == "" {
+		c.Consumer.BackpressurePolicy = "drop_depth_keep_trades"
+	}
+	if c.Consumer.ReconnectBaseBackoff == "" {
+		c.Consumer.ReconnectBaseBackoff = "500ms"
+	}
+	if c.Consumer.ReconnectMaxBackoff == "" {
+		c.Consumer.ReconnectMaxBackoff = "30s"
+	}
+	if c.Consumer.ReconnectJitter == 0 {
+		c.Consumer.ReconnectJitter = 0.2
+	}
+	if c.Consumer.ReconnectRetryBudget == 0 {
+		c.Consumer.ReconnectRetryBudget = 20
+	}
+	if c.Consumer.ReconnectBudgetWindow == "" {
+		c.Consumer.ReconnectBudgetWindow = "1m"
+	}
+	if c.Consumer.ReconnectCooldown == "" {
+		c.Consumer.ReconnectCooldown = "30s"
 	}
 	if c.Processor.BusCapacity == 0 {
 		c.Processor.BusCapacity = 1024

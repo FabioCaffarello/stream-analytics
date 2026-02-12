@@ -57,11 +57,14 @@ type SnapshotState struct {
 type SubsystemState struct {
 	Running          bool
 	Degraded         bool
+	Connected        bool
 	HasChild         bool
 	ChildPID         string
 	LastError        string
 	LastFailureAt    time.Time
 	LastTransitionAt time.Time
+	LastMessageAt    time.Time
+	LastPublishAt    time.Time
 	RestartCount     int
 	CooldownUntil    time.Time
 }
@@ -98,4 +101,12 @@ type ReadyResponse struct {
 	Ready bool
 	// Pending lists the expected subsystems that have not yet started.
 	Pending []Subsystem
+}
+
+// SubsystemHeartbeat updates runtime health signals for a subsystem.
+type SubsystemHeartbeat struct {
+	Subsystem     Subsystem
+	Connected     bool
+	LastMessageAt time.Time
+	LastPublishAt time.Time
 }

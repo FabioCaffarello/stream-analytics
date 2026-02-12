@@ -102,6 +102,7 @@ func (s *InstrumentStream) BuildEnvelope(
 	tsIngest Timestamp,
 	seq Sequence,
 	payload any,
+	sourceIdempotencyKey string,
 ) (envelope.Envelope, *problem.Problem) {
 	// 1. Validate sequence monotonicity.
 	if seq <= s.lastSeq && s.lastSeq > 0 {
@@ -123,8 +124,11 @@ func (s *InstrumentStream) BuildEnvelope(
 		return envelope.Envelope{}, p
 	}
 
-	// 3. Build deterministic idempotency key.
-	ikey := buildIdempotencyKey(s.id.Venue, s.id.Instrument, eventType, seq)
+	// 3. Resolve idempotency key (source-provided first, deterministic fallback).
+	ikey, p := resolveIdempotencyKey(s.id.Venue, s.id.Instrument, eventType, seq, sourceIdempotencyKey)
+	if p != nil {
+		return envelope.Envelope{}, p
+	}
 
 	// 4. Check dedup.
 	if _, dup := s.seen[ikey]; dup {
@@ -170,6 +174,19 @@ func buildIdempotencyKey(venue VenueID, instrument InstrumentID, eventType Event
 		seqToString(seq),
 	)
 	return IdempotencyKey(raw)
+}
+
+func resolveIdempotencyKey(
+	venue VenueID,
+	instrument InstrumentID,
+	eventType EventType,
+	seq Sequence,
+	source string,
+) (IdempotencyKey, *problem.Problem) {
+	if source == "" {
+		return buildIdempotencyKey(venue, instrument, eventType, seq), nil
+	}
+	return NewIdempotencyKey(source)
 }
 
 func seqToString(s Sequence) string {
