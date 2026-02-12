@@ -1,0 +1,28 @@
+{
+  "decisions": [
+    {
+      "title": "Canonical instrument and venue for Binance source",
+      "description": "Adotado instrument canônico BTCUSDT e venue BINANCE, alinhado a naming.CanonicalInstrument/CanonicalVenue para estabilidade de sequencer e dedup.",
+      "phase": "E",
+      "alternatives": [
+        "Usar BTC-USDT como canônico",
+        "Conservar símbolo raw da exchange"
+      ],
+      "status": "accepted",
+      "id": "dec-1770868006462",
+      "decidedAt": "2026-02-12T03:46:46.462Z"
+    },
+    {
+      "title": "Binance event mapping v1",
+      "description": "Mapeamento v1 definido: aggTrade -> marketdata.trade (TradeTickV1) e depthUpdate -> marketdata.bookdelta (BookDeltaV1). Eventos desconhecidos são skip sem derrubar pipeline.",
+      "phase": "E",
+      "alternatives": [
+        "Publicar payload raw para todos eventos",
+        "Rejeitar mensagens desconhecidas como erro fatal"
+      ],
+      "status": "accepted",
+      "id": "dec-1770868006467",
+      "decidedAt": "2026-02-12T03:46:46.467Z"
+    }
+  ]
+}

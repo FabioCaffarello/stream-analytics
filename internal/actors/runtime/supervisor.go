@@ -47,6 +47,13 @@ type SupervisorDecision struct {
 	Reason        string
 }
 
+// PolicyStatus is the policy-only health state for one subsystem.
+type PolicyStatus struct {
+	Degraded      bool
+	RestartCount  int
+	CooldownUntil time.Time
+}
+
 // SupervisorPolicy tracks per-subsystem failure history and computes restart actions.
 type SupervisorPolicy struct {
 	cfg   SupervisorConfig
@@ -150,10 +157,10 @@ func (p *SupervisorPolicy) MarkRecovered(subsystem Subsystem) {
 }
 
 // Status returns current policy status for a subsystem.
-func (p *SupervisorPolicy) Status(subsystem Subsystem) SubsystemState {
+func (p *SupervisorPolicy) Status(subsystem Subsystem) PolicyStatus {
 	now := p.clock.Now()
 	st := p.state(subsystem)
-	return SubsystemState{
+	return PolicyStatus{
 		Degraded:      now.Before(st.degradedUntil),
 		RestartCount:  st.restartCount,
 		CooldownUntil: st.degradedUntil,

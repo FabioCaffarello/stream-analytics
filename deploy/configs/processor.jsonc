@@ -1,0 +1,15 @@
+{
+  // Runtime config mounted in container at /etc/market-raccoon/processor.jsonc
+  "nats_url": "nats://nats:4222",
+  "log": {
+    "level": "info",
+    "format": "text"
+  },
+  "http": {
+    "addr": ":8082",
+    "shutdown_timeout": "10s"
+  },
+  "processor": {
+    "bus_capacity": 1024
+  }
+}

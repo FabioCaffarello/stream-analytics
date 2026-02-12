@@ -1,0 +1,15 @@
+{
+  // market-raccoon processor configuration
+  // Consumes envelopes from bus and runs aggregation use cases.
+  "log": {
+    "level": "info",
+    "format": "text"
+  },
+  "http": {
+    "addr": ":8082",
+    "shutdown_timeout": "10s"
+  },
+  "processor": {
+    "bus_capacity": 1024    // in-memory bus channel buffer size
+  }
+}

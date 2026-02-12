@@ -1,0 +1,14 @@
+{
+  "active": [
+    {
+      "slug": "context-bootstrap",
+      "path": "plans/context-bootstrap.md",
+      "title": "Context Bootstrapping Completion",
+      "summary": "Finalize robust `.context` documentation/playbooks and prepare workflow tracking artifacts.",
+      "linkedAt": "2026-02-12T02:22:43.643Z",
+      "status": "active"
+    }
+  ],
+  "completed": [],
+  "primary": "context-bootstrap"
+}

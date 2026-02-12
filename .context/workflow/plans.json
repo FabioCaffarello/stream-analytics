@@ -1,0 +1,14 @@
+{
+  "active": [
+    {
+      "slug": "w3-sources-marketdata-binance",
+      "path": "plans/w3-sources-marketdata-binance.md",
+      "title": "W3 Sources/MarketData v1 - Binance",
+      "summary": "Implementar adapter Binance (WS) em `internal/adapters/exchange/binance`, contratos doc-first de W3, wiring do `cmd/consumer` para modos `fake` e `binance real`, com robustez e testes determinísticos.",
+      "linkedAt": "2026-02-12T03:41:36.797Z",
+      "status": "active"
+    }
+  ],
+  "completed": [],
+  "primary": "w3-sources-marketdata-binance"
+}

@@ -55,11 +55,15 @@ type SnapshotState struct {
 
 // SubsystemState contains health/lifecycle data for one subsystem.
 type SubsystemState struct {
-	Running       bool
-	Degraded      bool
-	LastError     string
-	RestartCount  int
-	CooldownUntil time.Time
+	Running          bool
+	Degraded         bool
+	HasChild         bool
+	ChildPID         string
+	LastError        string
+	LastFailureAt    time.Time
+	LastTransitionAt time.Time
+	RestartCount     int
+	CooldownUntil    time.Time
 }
 
 // ChildFailed reports a child failure with a stable error kind.
@@ -75,7 +79,23 @@ type Degraded struct {
 	Reason    string
 }
 
-// Recovered is emitted when a subsystem exits degraded mode.
+// Recovered is emitted when a subsystem is considered recovered.
+// Runtime v1 emits this after a successful spawn (assumed recovery).
+// A future handshake (e.g. ChildReady) should confirm operational readiness.
 type Recovered struct {
 	Subsystem Subsystem
+}
+
+// ReadyQuery requests readiness state from the Guardian.
+// If ReplyTo is nil the response is sent to c.Sender() (enables engine.Request).
+type ReadyQuery struct {
+	ReplyTo *actor.PID
+}
+
+// ReadyResponse is returned in reply to ReadyQuery.
+type ReadyResponse struct {
+	// Ready is true when all expected subsystems have started at least once.
+	Ready bool
+	// Pending lists the expected subsystems that have not yet started.
+	Pending []Subsystem
 }

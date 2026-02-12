@@ -8,8 +8,8 @@ PRE_COMMIT ?= pre-commit
 GOLANGCI_LINT_VERSION ?= v2.6.0
 GOVULNCHECK_VERSION ?= latest
 
-APP_NAME ?= hello-app
-APP_CMD ?= ./cmd/hello-app
+APP_NAME ?= server
+APP_CMD ?= ./cmd/server
 
 DOCKER_IMAGE ?= market-raccoon/hello-app:dev
 DOCKERFILE ?= Dockerfile
@@ -27,7 +27,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools modules tidy tidy-check fmt fmt-check lint test test-short vuln build run clean docker-build docker-up docker-down pre-commit-install ci
+.PHONY: help install-tools modules tidy tidy-check fmt fmt-check lint test test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install ci
 
 help:
 	@echo "Targets:"
@@ -41,11 +41,16 @@ help:
 	@echo "  make test               - run tests with race+coverage"
 	@echo "  make test-short         - run short tests"
 	@echo "  make vuln               - run govulncheck"
-	@echo "  make build              - build hello-app binary"
-	@echo "  make run                - run hello-app"
+	@echo "  make build              - build all binaries under cmd/* (package main)"
+	@echo "  make run                - run selected app (default: server)"
 	@echo "  make docker-build       - build container image"
 	@echo "  make docker-up          - start docker compose"
 	@echo "  make docker-down        - stop docker compose"
+	@echo "  make up                 - start full stack (nats + server + consumer + processor)"
+	@echo "  make down               - stop full stack"
+	@echo "  make up-infra           - start only infrastructure services (nats)"
+	@echo "  make ps                 - list compose service status"
+	@echo "  make logs               - stream compose logs"
 	@echo "  make pre-commit-install - install pre-commit hooks"
 	@echo "  make ci                 - tidy-check + fmt-check + lint + test + vuln + build"
 	@echo ""
@@ -124,8 +129,22 @@ vuln:
 	fi
 
 build:
-	@mkdir -p bin
-	@$(GO) build -trimpath -ldflags "-s -w" -o bin/$(APP_NAME) $(APP_CMD)
+	@set -euo pipefail; \
+	mkdir -p bin; \
+	built=0; \
+	for app_dir in cmd/*; do \
+		[ -d "$$app_dir" ] || continue; \
+		if [ -f "$$app_dir/main.go" ]; then \
+			app_name="$$(basename "$$app_dir")"; \
+			echo "Building $$app_name from $$app_dir"; \
+			$(GO) build -trimpath -ldflags "-s -w" -o "bin/$$app_name" "./$$app_dir"; \
+			built=$$((built + 1)); \
+		fi; \
+	done; \
+	if [ "$$built" -eq 0 ]; then \
+		echo "No buildable apps found in cmd/* (expected main.go)."; \
+		exit 1; \
+	fi
 
 run:
 	@$(GO) run $(APP_CMD)
@@ -137,10 +156,25 @@ docker-build:
 	docker build -f $(DOCKERFILE) -t $(DOCKER_IMAGE) .
 
 docker-up:
-	docker compose up --build -d
+	docker compose -f deploy/compose/docker-compose.yml up --build -d
 
 docker-down:
-	docker compose down --remove-orphans
+	docker compose -f deploy/compose/docker-compose.yml down --remove-orphans
+
+up:
+	docker compose -f deploy/compose/docker-compose.yml up --build -d
+
+down:
+	docker compose -f deploy/compose/docker-compose.yml down --remove-orphans
+
+up-infra:
+	docker compose -f deploy/compose/docker-compose.yml up -d nats
+
+ps:
+	docker compose -f deploy/compose/docker-compose.yml ps
+
+logs:
+	docker compose -f deploy/compose/docker-compose.yml logs -f --tail=200
 
 pre-commit-install:
 	$(PRE_COMMIT) install --hook-type pre-commit --hook-type commit-msg

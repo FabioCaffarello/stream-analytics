@@ -1,0 +1,25 @@
+{
+  // market-raccoon consumer configuration
+  // Ingests real-time market data via WebSocket (or synthetic feed).
+  "log": {
+    "level": "info",
+    "format": "text"
+  },
+  "http": {
+    "addr": ":8081",    // observability HTTP on different port than server
+    "shutdown_timeout": "10s"
+  },
+  "consumer": {
+    "exchange": "binance",
+    "tickers": ["BTC-USDT", "ETH-USDT"],
+    "fake": true,           // default mode (synthetic feed)
+    "binance_real": false,  // set true to enable real Binance WS mode
+    "binance_ws_base_url": "wss://stream.binance.com:9443/stream",
+    "streams_per_ticker": 2,          // aggTrade + depth
+    "max_streams_per_websocket": 200,
+    "max_websockets": 5,
+    "max_websocket_lifetime": "45m",
+    "respawn_overlap": "5s",
+    "fake_rate_ms": 500     // synthetic message interval in milliseconds
+  }
+}

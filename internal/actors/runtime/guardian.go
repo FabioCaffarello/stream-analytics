@@ -13,6 +13,21 @@ type GuardianConfig struct {
 	Policy *SupervisorPolicy
 	Logger *slog.Logger
 	Clock  Clock
+
+	// Factories maps each Subsystem to an actor.Producer used when spawning
+	// that subsystem's child actor.  Any subsystem not present in the map is
+	// spawned as a no-op placeholder (safe for subsystems not yet wired).
+	//
+	// This allows cmd-level wiring to inject concrete implementations without
+	// modifying the Guardian itself.
+	Factories map[Subsystem]actor.Producer
+
+	// ExpectedSubsystems lists the subsystems that must be Running for the
+	// Guardian to report Ready==true via ReadyQuery.  If nil, the set is
+	// inferred from Factories (subsystems with a non-nil factory are expected).
+	// Pass an explicit empty slice to disable readiness tracking entirely
+	// (Guardian will always report Ready==true).
+	ExpectedSubsystems []Subsystem
 }
 
 // Guardian orchestrates subsystem actors and enforces supervisor policy.
@@ -25,12 +40,21 @@ type Guardian struct {
 
 	children       map[Subsystem]*actor.PID
 	running        map[Subsystem]bool
-	degraded       map[Subsystem]bool
 	lastError      map[Subsystem]string
+	lastFailureAt  map[Subsystem]time.Time
+	lastTransition map[Subsystem]time.Time
 	scheduledRetry map[Subsystem]cancelSchedule
+	retryGen       map[Subsystem]uint64
 
-	repeaterStopFn func()
-	started        bool
+	// readySystems tracks subsystems that have started at least once.
+	// Used to answer ReadyQuery.
+	readySystems map[Subsystem]bool
+	// expectedSubsystems is derived from cfg at first use.
+	expectedSubsystems []Subsystem
+	// shuttingDown is true after a Stop message is received; prevents restarts.
+	shuttingDown bool
+
+	started bool
 
 	spawnFn  func(c *actor.Context, subsystem Subsystem) (*actor.PID, error)
 	poisonFn func(c *actor.Context, pid *actor.PID)
@@ -44,7 +68,8 @@ type Guardian struct {
 }
 
 type retrySubsystem struct {
-	Subsystem Subsystem
+	Subsystem  Subsystem
+	Generation uint64
 }
 
 type cancelSchedule func()
@@ -57,17 +82,19 @@ func NewGuardian(cfg GuardianConfig) actor.Producer {
 }
 
 func (g *Guardian) Receive(c *actor.Context) {
-	g.ensureDefaults(c)
+	if !g.ensureDefaults(c) {
+		return
+	}
 
 	switch msg := c.Message().(type) {
+	case actor.Initialized:
+		// no-op; engine lifecycle preamble.
 	case actor.Started:
 		g.startAll(c)
 	case actor.Stopped:
 		g.stopAll(c)
 	case Start:
 		g.startAll(c)
-	case Stop:
-		g.stopAll(c)
 	case ReloadConfig:
 		g.stopAll(c)
 		g.startAll(c)
@@ -76,19 +103,37 @@ func (g *Guardian) Receive(c *actor.Context) {
 			g.sendFn(c, msg.ReplyTo, Pong{At: g.clock.Now()})
 		}
 	case Snapshot:
-		if msg.ReplyTo != nil {
-			g.sendFn(c, msg.ReplyTo, g.buildSnapshot())
+		// Honour explicit ReplyTo first; fall back to sender so that
+		// engine.Request() works without a ReplyTo (HTTP handler pattern).
+		replyTo := msg.ReplyTo
+		if replyTo == nil {
+			replyTo = c.Sender()
 		}
+		if replyTo != nil {
+			g.sendFn(c, replyTo, g.buildSnapshot())
+		}
+	case ReadyQuery:
+		replyTo := msg.ReplyTo
+		if replyTo == nil {
+			replyTo = c.Sender()
+		}
+		if replyTo != nil {
+			ready, pending := g.computeReady()
+			g.sendFn(c, replyTo, ReadyResponse{Ready: ready, Pending: pending})
+		}
+	case Stop:
+		g.shuttingDown = true
+		g.stopAll(c)
 	case ChildFailed:
 		g.handleChildFailed(c, msg)
 	case retrySubsystem:
-		g.retrySubsystem(c, msg.Subsystem)
+		g.retrySubsystem(c, msg.Subsystem, msg.Generation)
 	default:
 		g.logger.Warn("runtime guardian unknown message", "msg", fmt.Sprintf("%T", msg))
 	}
 }
 
-func (g *Guardian) ensureDefaults(c *actor.Context) {
+func (g *Guardian) ensureDefaults(c *actor.Context) bool {
 	if g.clock == nil {
 		if g.cfg.Clock != nil {
 			g.clock = g.cfg.Clock
@@ -110,7 +155,10 @@ func (g *Guardian) ensureDefaults(c *actor.Context) {
 			policy, err := NewSupervisorPolicy(SupervisorConfig{}, g.clock, nil)
 			if err != nil {
 				g.logger.Error("failed to create default supervisor policy", "err", err)
-				return
+				if c != nil {
+					c.Engine().Poison(c.PID())
+				}
+				return false
 			}
 			g.policy = policy
 		}
@@ -122,14 +170,23 @@ func (g *Guardian) ensureDefaults(c *actor.Context) {
 	if g.running == nil {
 		g.running = make(map[Subsystem]bool)
 	}
-	if g.degraded == nil {
-		g.degraded = make(map[Subsystem]bool)
+	if g.readySystems == nil {
+		g.readySystems = make(map[Subsystem]bool)
 	}
 	if g.lastError == nil {
 		g.lastError = make(map[Subsystem]string)
 	}
+	if g.lastFailureAt == nil {
+		g.lastFailureAt = make(map[Subsystem]time.Time)
+	}
+	if g.lastTransition == nil {
+		g.lastTransition = make(map[Subsystem]time.Time)
+	}
 	if g.scheduledRetry == nil {
 		g.scheduledRetry = make(map[Subsystem]cancelSchedule)
+	}
+	if g.retryGen == nil {
+		g.retryGen = make(map[Subsystem]uint64)
 	}
 
 	if g.spawnFn == nil {
@@ -140,7 +197,7 @@ func (g *Guardian) ensureDefaults(c *actor.Context) {
 			if ac == nil || pid == nil {
 				return
 			}
-			<-ac.Engine().Poison(pid).Done()
+			ac.Engine().Poison(pid)
 		}
 	}
 	if g.sendFn == nil {
@@ -159,12 +216,15 @@ func (g *Guardian) ensureDefaults(c *actor.Context) {
 			}
 		}
 	}
-	if g.selfPID == nil && c.PID() != nil {
+	if g.selfPID == nil && c != nil && c.PID() != nil {
 		cloned := *c.PID().CloneVT()
 		g.selfPID = &cloned
 	}
 	if g.sendToSelfFn == nil {
-		engine := c.Engine()
+		var engine *actor.Engine
+		if c != nil {
+			engine = c.Engine()
+		}
 		g.sendToSelfFn = func(pid *actor.PID, msg any) {
 			if engine == nil || pid == nil {
 				return
@@ -180,7 +240,7 @@ func (g *Guardian) ensureDefaults(c *actor.Context) {
 			ac.Send(ac.Parent(), msg)
 		}
 	}
-
+	return true
 }
 
 func (g *Guardian) startAll(c *actor.Context) {
@@ -188,10 +248,6 @@ func (g *Guardian) startAll(c *actor.Context) {
 		return
 	}
 	g.started = true
-	if c != nil && g.repeaterStopFn == nil {
-		repeater := c.Engine().SendRepeat(c.PID(), Ping{ReplyTo: c.PID()}, 30*time.Second)
-		g.repeaterStopFn = func() { repeater.Stop() }
-	}
 
 	for _, subsystem := range orderedSubsystems {
 		g.startSubsystem(c, subsystem)
@@ -199,11 +255,10 @@ func (g *Guardian) startAll(c *actor.Context) {
 }
 
 func (g *Guardian) stopAll(c *actor.Context) {
-	g.stopRepeater()
-
 	for subsystem, cancel := range g.scheduledRetry {
 		cancel()
 		delete(g.scheduledRetry, subsystem)
+		g.retryGen[subsystem]++
 	}
 
 	for i := len(orderedSubsystems) - 1; i >= 0; i-- {
@@ -211,11 +266,13 @@ func (g *Guardian) stopAll(c *actor.Context) {
 		pid := g.children[subsystem]
 		if pid == nil {
 			g.running[subsystem] = false
+			g.lastTransition[subsystem] = g.clock.Now()
 			continue
 		}
 		g.poisonFn(c, pid)
 		g.children[subsystem] = nil
 		g.running[subsystem] = false
+		g.lastTransition[subsystem] = g.clock.Now()
 	}
 	g.started = false
 }
@@ -231,22 +288,64 @@ func (g *Guardian) startSubsystem(c *actor.Context, subsystem Subsystem) {
 
 	g.children[subsystem] = pid
 	g.running[subsystem] = true
+	g.lastError[subsystem] = ""
+	g.lastTransition[subsystem] = g.clock.Now()
+	g.readySystems[subsystem] = true // v1 optimistic: ready on first successful spawn
 
-	if g.degraded[subsystem] {
-		g.degraded[subsystem] = false
+	if status := g.policy.Status(subsystem); status.Degraded {
 		g.policy.MarkRecovered(subsystem)
 		g.emitFn(c, Recovered{Subsystem: subsystem})
+		g.lastTransition[subsystem] = g.clock.Now()
 	}
 }
 
-func (g *Guardian) retrySubsystem(c *actor.Context, subsystem Subsystem) {
-	delete(g.scheduledRetry, subsystem)
-	if g.degraded[subsystem] {
-		now := g.clock.Now()
-		status := g.policy.Status(subsystem)
-		if status.Degraded && now.Before(status.CooldownUntil) {
-			return
+// computeReady returns whether all expected subsystems have started at least once.
+func (g *Guardian) computeReady() (ready bool, pending []Subsystem) {
+	expected := g.ensureExpected()
+	if len(expected) == 0 {
+		return true, nil
+	}
+	for _, sub := range expected {
+		if !g.readySystems[sub] {
+			pending = append(pending, sub)
 		}
+	}
+	return len(pending) == 0, pending
+}
+
+// ensureExpected returns the list of expected subsystems, computing it from
+// cfg.Factories the first time it is called (if cfg.ExpectedSubsystems is nil).
+func (g *Guardian) ensureExpected() []Subsystem {
+	if g.expectedSubsystems != nil {
+		return g.expectedSubsystems
+	}
+	if g.cfg.ExpectedSubsystems != nil {
+		g.expectedSubsystems = g.cfg.ExpectedSubsystems
+		return g.expectedSubsystems
+	}
+	// Infer from Factories: subsystems with a non-nil factory are expected.
+	var inferred []Subsystem
+	for _, sub := range orderedSubsystems {
+		if f, ok := g.cfg.Factories[sub]; ok && f != nil {
+			inferred = append(inferred, sub)
+		}
+	}
+	g.expectedSubsystems = inferred
+	return g.expectedSubsystems
+}
+
+func (g *Guardian) retrySubsystem(c *actor.Context, subsystem Subsystem, generation uint64) {
+	if g.shuttingDown {
+		return // stale retry during shutdown; discard
+	}
+	if g.retryGen[subsystem] != generation {
+		return
+	}
+	delete(g.scheduledRetry, subsystem)
+	status := g.policy.Status(subsystem)
+	now := g.clock.Now()
+	if status.Degraded && now.Before(status.CooldownUntil) {
+		return
 	}
 	g.startSubsystem(c, subsystem)
 }
@@ -255,19 +354,30 @@ func (g *Guardian) handleChildFailed(c *actor.Context, msg ChildFailed) {
 	if msg.Subsystem == "" {
 		return
 	}
+	if g.shuttingDown {
+		return // no restarts during controlled shutdown
+	}
 	if msg.Err != nil {
 		g.lastError[msg.Subsystem] = msg.Err.Error()
 	} else {
 		g.lastError[msg.Subsystem] = msg.Kind
 	}
+	g.lastFailureAt[msg.Subsystem] = g.clock.Now()
 	g.running[msg.Subsystem] = false
+	if pid := g.children[msg.Subsystem]; pid != nil {
+		if g.poisonFn != nil {
+			g.poisonFn(c, pid)
+		}
+	}
 	g.children[msg.Subsystem] = nil
+	g.lastTransition[msg.Subsystem] = g.clock.Now()
 
 	now := g.clock.Now()
 	decision := g.policy.OnFailure(msg.Subsystem, now)
+	gen := g.bumpRetryGeneration(msg.Subsystem)
 	if decision.EnterDegraded {
-		g.degraded[msg.Subsystem] = true
 		g.emitFn(c, Degraded{Subsystem: msg.Subsystem, Reason: decision.Reason})
+		g.lastTransition[msg.Subsystem] = g.clock.Now()
 		target := g.selfPID
 		send := g.sendToSelfFn
 		delay := decision.DegradedUntil.Sub(now)
@@ -275,7 +385,7 @@ func (g *Guardian) handleChildFailed(c *actor.Context, msg ChildFailed) {
 			delay = 0
 		}
 		cancel := g.scheduleFn(delay, func() {
-			send(target, retrySubsystem{Subsystem: msg.Subsystem})
+			send(target, retrySubsystem{Subsystem: msg.Subsystem, Generation: gen})
 		})
 		g.replaceScheduledRetry(msg.Subsystem, cancel)
 		return
@@ -287,9 +397,14 @@ func (g *Guardian) handleChildFailed(c *actor.Context, msg ChildFailed) {
 	target := g.selfPID
 	send := g.sendToSelfFn
 	cancel := g.scheduleFn(decision.Delay, func() {
-		send(target, retrySubsystem{Subsystem: msg.Subsystem})
+		send(target, retrySubsystem{Subsystem: msg.Subsystem, Generation: gen})
 	})
 	g.replaceScheduledRetry(msg.Subsystem, cancel)
+}
+
+func (g *Guardian) bumpRetryGeneration(subsystem Subsystem) uint64 {
+	g.retryGen[subsystem]++
+	return g.retryGen[subsystem]
 }
 
 func (g *Guardian) replaceScheduledRetry(subsystem Subsystem, cancel cancelSchedule) {
@@ -306,31 +421,34 @@ func (g *Guardian) buildSnapshot() SnapshotState {
 	}
 	for _, subsystem := range orderedSubsystems {
 		policyState := g.policy.Status(subsystem)
-		state.Subsystems[subsystem] = SubsystemState{
-			Running:       g.running[subsystem],
-			Degraded:      g.degraded[subsystem] || policyState.Degraded,
-			LastError:     g.lastError[subsystem],
-			RestartCount:  policyState.RestartCount,
-			CooldownUntil: policyState.CooldownUntil,
+		s := SubsystemState{
+			Running:          g.running[subsystem],
+			Degraded:         policyState.Degraded,
+			HasChild:         g.children[subsystem] != nil,
+			LastError:        g.lastError[subsystem],
+			LastFailureAt:    g.lastFailureAt[subsystem],
+			LastTransitionAt: g.lastTransition[subsystem],
+			RestartCount:     policyState.RestartCount,
+			CooldownUntil:    policyState.CooldownUntil,
 		}
+		if pid := g.children[subsystem]; pid != nil {
+			s.ChildPID = pid.String()
+		}
+		state.Subsystems[subsystem] = s
 	}
 	return state
-}
-
-func (g *Guardian) stopRepeater() {
-	if g.repeaterStopFn == nil {
-		return
-	}
-	g.repeaterStopFn()
-	g.repeaterStopFn = nil
 }
 
 func (g *Guardian) spawnSubsystem(c *actor.Context, subsystem Subsystem) (*actor.PID, error) {
 	if c == nil {
 		return nil, fmt.Errorf("actor context is nil")
 	}
+	producer := subsystemPlaceholder(subsystem)
+	if factory, ok := g.cfg.Factories[subsystem]; ok && factory != nil {
+		producer = factory
+	}
 	pid := c.SpawnChild(
-		subsystemPlaceholder(subsystem),
+		producer,
 		"runtime-subsystem",
 		actor.WithID(fmt.Sprintf("runtime-%s", subsystem)),
 	)

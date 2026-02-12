@@ -1,0 +1,45 @@
+project:
+  name: "w2-delivery-bc"
+  scale: MEDIUM
+  started: "2026-02-12T03:07:00.268Z"
+  current_phase: V
+
+phases:
+  P:
+    status: filled
+    started_at: "2026-02-12T03:07:00.268Z"
+    completed_at: "2026-02-12T03:07:52.777Z"
+  R:
+    status: filled
+    started_at: "2026-02-12T03:07:52.778Z"
+    completed_at: "2026-02-12T03:08:02.709Z"
+  E:
+    status: filled
+    started_at: "2026-02-12T03:08:02.710Z"
+    completed_at: "2026-02-12T03:15:46.772Z"
+  V:
+    status: completed
+    started_at: "2026-02-12T03:15:46.772Z"
+    completed_at: "2026-02-12T03:21:08.977Z"
+    outputs:
+      - path: "/Volumes/OWC Express 1M2/Develop/market-raccoon/.context/plans/w2-delivery-bc.md"
+        status: filled
+  C:
+    status: skipped
+    reason: "Not required for scale MEDIUM"
+
+execution:
+  history:
+    - timestamp: "2026-02-12T03:21:08.977Z"
+      phase: V
+      action: completed
+  last_activity: "2026-02-12T03:21:08.977Z"
+  resume_context: "Fase V (Validação) concluída"
+
+approval:
+  plan_created: true
+  plan_approved: true
+  approved_by: "reviewer"
+  approved_at: "2026-02-12T03:08:02.706Z"
+  approval_notes: "Plano W2 revisado e aprovado para execução."
+

@@ -1,6 +1,16 @@
-go 1.23.0
+go 1.25.6
 
 use (
-	./cmd/hello-app
-	./pkg/hello-lib
+	./cmd/consumer
+	./cmd/processor
+	./cmd/server
+	./cmd/store
+	./internal/actors
+	./internal/adapters
+	./internal/core/aggregation
+	./internal/core/delivery
+	./internal/core/insights
+	./internal/core/marketdata
+	./internal/interfaces
+	./internal/shared
 )
