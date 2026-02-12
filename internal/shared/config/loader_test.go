@@ -27,12 +27,6 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 	if len(cfg.Consumer.Tickers) == 0 {
 		t.Error("default consumer.tickers should not be empty")
 	}
-	if cfg.Consumer.FakeRateMs != 500 {
-		t.Errorf("default consumer.fake_rate_ms = %d, want 500", cfg.Consumer.FakeRateMs)
-	}
-	if !cfg.Consumer.Fake {
-		t.Errorf("default consumer.fake = %v, want true", cfg.Consumer.Fake)
-	}
 	if cfg.Consumer.StreamsPerTicker != 2 {
 		t.Errorf("default consumer.streams_per_ticker = %d, want 2", cfg.Consumer.StreamsPerTicker)
 	}
@@ -72,17 +66,14 @@ func TestLoad_ValidJSONC_ParsesFields(t *testing.T) {
 			"shutdown_timeout": "8s"
 		},
 		"consumer": {
-			"exchange": "kraken",
+			"exchange": "binance",
 			"tickers": ["BTC-USD"],
-			"fake": true,
-			"binance_real": false,
 			"binance_ws_base_url": "wss://stream.binance.com:9443/stream",
 			"streams_per_ticker": 2,
 			"max_streams_per_websocket": 200,
 			"max_websockets": 3,
 			"max_websocket_lifetime": "10m",
-			"respawn_overlap": "2s",
-			"fake_rate_ms": 250
+			"respawn_overlap": "2s"
 		},
 		"processor": { "bus_capacity": 512 }
 	}`
@@ -104,14 +95,11 @@ func TestLoad_ValidJSONC_ParsesFields(t *testing.T) {
 	if cfg.HTTP.ShutdownTimeoutDuration() != 8*time.Second {
 		t.Errorf("shutdown_timeout = %v, want 8s", cfg.HTTP.ShutdownTimeoutDuration())
 	}
-	if cfg.Consumer.Exchange != "kraken" {
-		t.Errorf("consumer.exchange = %q, want kraken", cfg.Consumer.Exchange)
+	if cfg.Consumer.Exchange != "binance" {
+		t.Errorf("consumer.exchange = %q, want binance", cfg.Consumer.Exchange)
 	}
 	if len(cfg.Consumer.Tickers) != 1 || cfg.Consumer.Tickers[0] != "BTC-USD" {
 		t.Errorf("consumer.tickers = %v, want [BTC-USD]", cfg.Consumer.Tickers)
-	}
-	if cfg.Consumer.FakeRateMs != 250 {
-		t.Errorf("consumer.fake_rate_ms = %d, want 250", cfg.Consumer.FakeRateMs)
 	}
 	if cfg.Consumer.MaxWebsockets != 3 {
 		t.Errorf("consumer.max_websockets = %d, want 3", cfg.Consumer.MaxWebsockets)
@@ -198,19 +186,26 @@ func TestValidate_InvalidDuration(t *testing.T) {
 	}
 }
 
-func TestValidate_BinanceRealRequiresBinanceExchange(t *testing.T) {
+func TestValidate_ConsumerExchangeMustBeBinance(t *testing.T) {
 	cfg, _ := Load("")
-	cfg.Consumer.BinanceReal = true
 	cfg.Consumer.Exchange = "kraken"
 	prob := cfg.Validate()
 	if prob == nil {
-		t.Fatal("expected validation error for invalid exchange with binance_real")
+		t.Fatal("expected validation error for exchange != binance")
 	}
 }
 
-func TestValidate_BinanceRealInvalidRespawnOverlap(t *testing.T) {
+func TestValidate_ConsumerBinanceWSBaseURLEmpty(t *testing.T) {
 	cfg, _ := Load("")
-	cfg.Consumer.BinanceReal = true
+	cfg.Consumer.BinanceWSBaseURL = "   "
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("expected validation error for empty consumer.binance_ws_base_url")
+	}
+}
+
+func TestValidate_ConsumerInvalidRespawnOverlap(t *testing.T) {
+	cfg, _ := Load("")
 	cfg.Consumer.RespawnOverlap = "nope"
 	prob := cfg.Validate()
 	if prob == nil {
@@ -292,6 +287,8 @@ func writeTempFile(t *testing.T, content string) string {
 	if _, err := f.WriteString(content); err != nil {
 		t.Fatalf("write temp file: %v", err)
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatalf("close temp file: %v", err)
+	}
 	return filepath.Clean(f.Name())
 }

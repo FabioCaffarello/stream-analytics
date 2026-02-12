@@ -6,7 +6,10 @@
 // and Validate must be called explicitly to fail fast before spawning actors.
 package config
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // AppConfig is the root config envelope.  All fields are optional; absent
 // fields receive safe defaults via applyDefaults.
@@ -45,10 +48,6 @@ type ConsumerConfig struct {
 	Exchange string `json:"exchange"`
 	// Tickers is the list of canonical instrument names to subscribe to.  Default: ["BTC-USDT","ETH-USDT"].
 	Tickers []string `json:"tickers"`
-	// Fake enables a synthetic message feed for development/testing.  Default: true.
-	Fake bool `json:"fake"`
-	// BinanceReal enables real Binance websocket ingestion mode.
-	BinanceReal bool `json:"binance_real"`
 	// BinanceWSBaseURL overrides Binance websocket combined-stream base URL.
 	// Default: "wss://stream.binance.com:9443/stream".
 	BinanceWSBaseURL string `json:"binance_ws_base_url"`
@@ -63,8 +62,6 @@ type ConsumerConfig struct {
 	MaxWebsocketLifetime string `json:"max_websocket_lifetime"`
 	// RespawnOverlap defines overlap duration while swapping old/new websocket.
 	RespawnOverlap string `json:"respawn_overlap"`
-	// FakeRateMs is the interval between synthetic messages in milliseconds.  Default: 500.
-	FakeRateMs int `json:"fake_rate_ms"`
 }
 
 // ProcessorConfig controls the aggregation processor binary.
@@ -87,11 +84,6 @@ func (h HTTPConfig) ShutdownTimeoutDuration() time.Duration {
 	return mustParseDuration(h.ShutdownTimeout)
 }
 
-// FakeRate parses and returns ConsumerConfig.FakeRateMs as a time.Duration.
-func (c ConsumerConfig) FakeRate() time.Duration {
-	return time.Duration(c.FakeRateMs) * time.Millisecond
-}
-
 // MaxWebsocketLifetimeDuration parses and returns ConsumerConfig.MaxWebsocketLifetime.
 func (c ConsumerConfig) MaxWebsocketLifetimeDuration() time.Duration {
 	return mustParseDuration(c.MaxWebsocketLifetime)
@@ -103,6 +95,9 @@ func (c ConsumerConfig) RespawnOverlapDuration() time.Duration {
 }
 
 func mustParseDuration(s string) time.Duration {
-	d, _ := time.ParseDuration(s)
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		panic(fmt.Sprintf("invalid duration %q: %v", s, err))
+	}
 	return d
 }

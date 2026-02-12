@@ -27,6 +27,7 @@ func Load(path string) (AppConfig, *problem.Problem) {
 		return cfg, nil
 	}
 
+	// #nosec G304 -- configuration path is intentionally runtime-configurable.
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -101,11 +102,14 @@ func validateConsumer(c ConsumerConfig) *problem.Problem {
 	if strings.TrimSpace(c.Exchange) == "" {
 		return problem.New(codeInvalid, "consumer.exchange must not be empty")
 	}
+	if !strings.EqualFold(c.Exchange, "binance") {
+		return problem.New(codeInvalid, "consumer.exchange must be binance")
+	}
 	if len(c.Tickers) == 0 {
 		return problem.New(codeInvalid, "consumer.tickers must not be empty")
 	}
-	if c.FakeRateMs <= 0 {
-		return problem.Newf(codeInvalid, "consumer.fake_rate_ms must be > 0, got %d", c.FakeRateMs)
+	if strings.TrimSpace(c.BinanceWSBaseURL) == "" {
+		return problem.New(codeInvalid, "consumer.binance_ws_base_url must not be empty")
 	}
 	if c.StreamsPerTicker <= 0 {
 		return problem.Newf(codeInvalid, "consumer.streams_per_ticker must be > 0, got %d", c.StreamsPerTicker)
@@ -125,14 +129,6 @@ func validateConsumer(c ConsumerConfig) *problem.Problem {
 	} {
 		if _, err := time.ParseDuration(field.value); err != nil {
 			return problem.Newf(codeInvalid, "%s: invalid duration %q: %v", field.name, field.value, err)
-		}
-	}
-	if c.BinanceReal {
-		if !strings.EqualFold(c.Exchange, "binance") {
-			return problem.New(codeInvalid, "consumer.binance_real requires consumer.exchange=binance")
-		}
-		if strings.TrimSpace(c.BinanceWSBaseURL) == "" {
-			return problem.New(codeInvalid, "consumer.binance_ws_base_url must not be empty when consumer.binance_real=true")
 		}
 	}
 	return nil
@@ -186,13 +182,6 @@ func applyDefaults(c *AppConfig) {
 	if c.Consumer.RespawnOverlap == "" {
 		c.Consumer.RespawnOverlap = "5s"
 	}
-	if c.Consumer.FakeRateMs == 0 {
-		c.Consumer.FakeRateMs = 500
-	}
-	if !c.Consumer.BinanceReal && !c.Consumer.Fake {
-		// W3 explicit mode: fake is default unless binance_real is enabled.
-		c.Consumer.Fake = true
-	}
 	if c.Processor.BusCapacity == 0 {
 		c.Processor.BusCapacity = 1024
 	}
@@ -235,24 +224,27 @@ func stripComments(src []byte) []byte {
 			}
 		case stString:
 			out = append(out, b)
-			if b == '\\' {
+			switch b {
+			case '\\':
 				st = stEscape
-			} else if b == '"' {
+			case '"':
 				st = stNormal
 			}
 		case stEscape:
 			out = append(out, b)
 			st = stString
 		case stLineComment:
-			if b == '\n' {
+			switch b {
+			case '\n':
 				out = append(out, b) // preserve newline for error line numbers
 				st = stNormal
 			}
 			// else: consume comment character
 		case stBlockComment:
-			if b == '\n' {
+			switch b {
+			case '\n':
 				out = append(out, b) // preserve newlines
-			} else if b == '*' {
+			case '*':
 				st = stBlockStar
 			}
 		case stBlockStar:

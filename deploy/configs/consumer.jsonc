@@ -12,14 +12,11 @@
   "consumer": {
     "exchange": "binance",
     "tickers": ["BTC-USDT", "ETH-USDT"],
-    "fake": true,
-    "binance_real": false,
     "binance_ws_base_url": "wss://stream.binance.com:9443/stream",
     "streams_per_ticker": 2,
     "max_streams_per_websocket": 200,
     "max_websockets": 5,
     "max_websocket_lifetime": "45m",
-    "respawn_overlap": "5s",
-    "fake_rate_ms": 500
+    "respawn_overlap": "5s"
   }
 }
