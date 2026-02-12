@@ -23,6 +23,7 @@ type IngestRequest struct {
 	Version    int
 	TsExchange int64 // Unix ms from exchange (advisory)
 	Payload    any   // typed domain payload (e.g. TradeTickV1)
+	Metadata   map[string]string
 }
 
 // IngestResponse is returned on success.
@@ -151,6 +152,13 @@ func (uc *IngestMarketData) Execute(ctx context.Context, req IngestRequest) resu
 	env, p := stream.BuildEnvelope(eventType, version, tsExchange, tsIngest, seq, req.Payload)
 	if p != nil {
 		return result.FailProblem[IngestResponse](p)
+	}
+	if len(req.Metadata) > 0 {
+		meta := make(map[string]string, len(req.Metadata))
+		for k, v := range req.Metadata {
+			meta[k] = v
+		}
+		env.Meta = meta
 	}
 
 	// 7. Publish.

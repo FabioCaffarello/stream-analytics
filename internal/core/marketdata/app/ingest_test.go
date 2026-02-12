@@ -153,3 +153,27 @@ func TestIngest_topicKeyFormat(t *testing.T) {
 		t.Errorf("TopicKey = %q; want %q", got, want)
 	}
 }
+
+func TestIngest_metadataPropagatesToEnvelope(t *testing.T) {
+	clk := clock.NewFakeClock(time.Now())
+	uc, _, _ := newUC(clk)
+	req := validReq()
+	req.Metadata = map[string]string{
+		"exchange":   "binance",
+		"ws_stream":  "btcusdt@aggTrade",
+		"instrument": "BTC-USDT",
+	}
+
+	r := uc.Execute(context.Background(), req)
+	if r.IsFail() {
+		t.Fatal(r.Problem())
+	}
+
+	env := r.Value().Published.Envelope
+	if env.Meta["exchange"] != "binance" {
+		t.Fatalf("meta exchange = %q, want binance", env.Meta["exchange"])
+	}
+	if env.Meta["ws_stream"] != "btcusdt@aggTrade" {
+		t.Fatalf("meta ws_stream = %q, want btcusdt@aggTrade", env.Meta["ws_stream"])
+	}
+}

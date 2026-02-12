@@ -13,6 +13,9 @@ type TradeTickV1 struct {
 type BookDeltaV1 struct {
 	Bids      []PriceLevel `json:"bids"` // [price, size]; size=0 means remove
 	Asks      []PriceLevel `json:"asks"`
+	FirstID   int64        `json:"first_update_id,omitempty"`      // Binance U
+	FinalID   int64        `json:"final_update_id,omitempty"`      // Binance u
+	PrevFinal int64        `json:"prev_final_update_id,omitempty"` // Binance pu (when present)
 	Timestamp int64        `json:"timestamp_ms"`
 }
 
