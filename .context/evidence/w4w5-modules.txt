@@ -1,0 +1,12 @@
+./cmd/consumer
+./cmd/processor
+./cmd/server
+./cmd/store
+./internal/actors
+./internal/adapters
+./internal/core/aggregation
+./internal/core/delivery
+./internal/core/insights
+./internal/core/marketdata
+./internal/interfaces
+./internal/shared
