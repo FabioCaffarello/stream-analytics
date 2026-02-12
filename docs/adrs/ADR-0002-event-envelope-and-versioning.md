@@ -37,3 +37,32 @@ Versioning rules:
 ## Alternatives
 
 - “Raw structs per adapter” (rejected: breaks replay and cross-venue invariants).
+
+## Amendment — 2026-02-12
+
+### Wire Format Strategy
+
+Envelope suporta multiplos formatos por `content_type`:
+- `application/json` (default atual)
+- `application/protobuf` (placeholder para W6)
+
+A deteccao de codec deve respeitar `content_type` sem quebrar retrocompatibilidade.
+
+### Schema Discovery
+
+Discovery de schema fica em manifest local (`proto/registry.json`) mapeando `(type, version)` para definicao. Sem servico externo nesta fase.
+
+### Compatibility Rules
+
+- nunca reutilizar numero de campo removido
+- nunca trocar tipo de campo existente
+- novos campos apenas opcionais
+- verificacao automatizada via `buf breaking` entra no W6
+
+### Meta Padronizada
+
+Campos reservados em `meta` para interoperabilidade futura:
+- `trace_id`
+- `source_stream`
+- `market_type`
+- `content_type`

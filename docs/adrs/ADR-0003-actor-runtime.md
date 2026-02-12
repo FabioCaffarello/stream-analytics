@@ -33,3 +33,23 @@ Actors are NOT the domain layer:
 ## Alternatives
 
 - Goroutine soup with shared locks (rejected: harder to reason and debug).
+
+## Amendment — 2026-02-12
+
+### Lifecycle Guarantees
+
+- `actor.Stopped` deve liberar todos os recursos (conn/timer/context)
+- teardown deve ser deterministico e idempotente
+- retries agendados devem validar geracao para descartar evento obsoleto
+
+### Request/Reply Pattern
+
+Handlers devem preferir `ReplyTo` quando presente e cair para `c.Sender()` quando nil para compatibilidade com `engine.Request()`.
+
+### Runtime Restart Guardrails
+
+Guardian usa:
+- policy por subsystem (backoff/cooldown)
+- limiter global de restart por janela para evitar storm/thundering herd
+
+Quando rate-limit global dispara, restart e adiado e subsystem segue degradado ate liberar janela.

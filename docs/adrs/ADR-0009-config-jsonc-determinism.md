@@ -22,3 +22,17 @@ We need human-editable configuration, versioning, and deterministic operational 
 ## Alternatives
 
 - YAML only (rejected: JSONC + schema validation is more robust for agents).
+
+## Amendment — 2026-02-12
+
+### Lifecycle/Hot Reload Boundaries
+
+`/runtime/reload` segue como mecanismo de reload controlado via restart de subsistemas quando necessario.
+
+### Multi-Exchange Config Model (Placeholder)
+
+Modelo de configuracao para multiplas exchanges e definido como lista de blocos por exchange (name/enabled/tickers/market_type/ws), sem implementacao nesta fase.
+
+### Secrets Handling
+
+Credenciais de exchange autenticada devem vir de env vars e nao de JSONC plano. Validacao fail-fast ao iniciar quando referencia existir e valor estiver ausente.
