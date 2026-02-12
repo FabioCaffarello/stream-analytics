@@ -1,3 +1,4 @@
+// Package binance provides Binance-specific market-data adapter helpers.
 package binance
 
 import (
@@ -9,6 +10,7 @@ import (
 )
 
 const (
+	// DefaultWSBaseURL is Binance's combined stream websocket endpoint.
 	DefaultWSBaseURL = "wss://stream.binance.com:9443/stream"
 )
 

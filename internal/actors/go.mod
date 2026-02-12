@@ -21,7 +21,7 @@ require (
 
 replace (
 	github.com/market-raccoon/internal/core/aggregation => ../core/aggregation
-	github.com/market-raccoon/internal/core/delivery    => ../core/delivery
-	github.com/market-raccoon/internal/core/marketdata  => ../core/marketdata
-	github.com/market-raccoon/internal/shared           => ../shared
+	github.com/market-raccoon/internal/core/delivery => ../core/delivery
+	github.com/market-raccoon/internal/core/marketdata => ../core/marketdata
+	github.com/market-raccoon/internal/shared => ../shared
 )

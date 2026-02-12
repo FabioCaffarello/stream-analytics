@@ -1,0 +1,51 @@
+{
+  "phases": {
+    "P": {
+      "status": "completed",
+      "updatedAt": "2026-02-12T04:35:11.903Z"
+    },
+    "R": {
+      "status": "completed",
+      "updatedAt": "2026-02-12T04:36:34.919Z"
+    }
+  },
+  "progress": 0,
+  "decisions": [
+    {
+      "title": "Deploy layout centralizado em deploy/",
+      "description": "Infra de container, compose e configs operacionais ficarão em deploy/ para isolar wiring de execução do código de domínio.",
+      "phase": "P",
+      "alternatives": [
+        "Manter docker-compose.yml e nats-server.conf na raiz",
+        "Criar layout por serviço em cmd/*"
+      ],
+      "status": "accepted",
+      "id": "dec-1770870911906",
+      "decidedAt": "2026-02-12T04:35:11.906Z"
+    },
+    {
+      "title": "Compose com bridge default sem subnet fixa",
+      "description": "A stack local usa network bridge padrão para reduzir acoplamento e evitar conflitos de CIDR; só adicionar subnet fixa se surgir necessidade operacional concreta.",
+      "phase": "R",
+      "alternatives": [
+        "Manter subnet fixa 10.69.69.0/24",
+        "Criar network externa pré-provisionada"
+      ],
+      "status": "accepted",
+      "id": "dec-1770870994916",
+      "decidedAt": "2026-02-12T04:36:34.916Z"
+    },
+    {
+      "title": "Health model por disponibilidade atual",
+      "description": "NATS e server têm healthcheck HTTP; consumer e processor dependem de NATS saudável e são validados por logs (não expõem endpoint de readiness dedicado ainda).",
+      "phase": "R",
+      "alternatives": [
+        "Adicionar endpoints HTTP em consumer/processor nesta tarefa",
+        "Usar healthcheck por processo (pgrep) sem sinal de prontidão real"
+      ],
+      "status": "accepted",
+      "id": "dec-1770870994918",
+      "decidedAt": "2026-02-12T04:36:34.918Z"
+    }
+  ]
+}

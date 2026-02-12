@@ -11,9 +11,6 @@ GOVULNCHECK_VERSION ?= latest
 APP_NAME ?= server
 APP_CMD ?= ./cmd/server
 
-DOCKER_IMAGE ?= market-raccoon/hello-app:dev
-DOCKERFILE ?= Dockerfile
-
 GO_TEST_FLAGS ?= -race -covermode=atomic
 VULN_REQUIRED ?= false
 MODULE ?=
@@ -27,7 +24,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools modules tidy tidy-check fmt fmt-check lint test test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install ci
+.PHONY: help install-tools modules tidy tidy-check fmt fmt-check lint test test-workspace test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install ci
 
 help:
 	@echo "Targets:"
@@ -38,12 +35,12 @@ help:
 	@echo "  make fmt                - format all Go files (gofmt)"
 	@echo "  make fmt-check          - check formatting (gofmt -l)"
 	@echo "  make lint               - run golangci-lint in workspace modules"
-	@echo "  make test               - run tests with race+coverage"
+	@echo "  make test               - alias for make test-workspace"
+	@echo "  make test-workspace     - run all workspace tests with race+coverage"
 	@echo "  make test-short         - run short tests"
 	@echo "  make vuln               - run govulncheck"
 	@echo "  make build              - build all binaries under cmd/* (package main)"
 	@echo "  make run                - run selected app (default: server)"
-	@echo "  make docker-build       - build container image"
 	@echo "  make docker-up          - start docker compose"
 	@echo "  make docker-down        - stop docker compose"
 	@echo "  make up                 - start full stack (nats + server + consumer + processor)"
@@ -103,10 +100,13 @@ fmt-check:
 	@./scripts/gofmt-all.sh check
 
 lint:
-	$(call RUN_IN_MODULES,$(GOLANGCI_LINT) run --config "$(CURDIR)/.golangci.yml" ./...)
+	$(call RUN_IN_MODULES,bash -lc 'pkgs="$$( $(GO) list ./... 2>/dev/null || true )"; if [ -n "$$pkgs" ]; then $(GOLANGCI_LINT) run --config "$(CURDIR)/.golangci.yml" ./...; else echo "no packages to lint (skipping)"; fi')
 
 test:
-	$(call RUN_IN_MODULES,$(GO) test $(GO_TEST_FLAGS) ./...)
+	$(MAKE) test-workspace
+
+test-workspace:
+	$(call RUN_IN_MODULES,bash -lc 'pkgs="$$( $(GO) list ./... 2>/dev/null || true )"; if [ -n "$$pkgs" ]; then $(GO) test $(GO_TEST_FLAGS) $$pkgs; else echo "no packages to test (skipping)"; fi')
 
 test-short:
 	$(call RUN_IN_MODULES,$(GO) test -short ./...)
@@ -151,9 +151,6 @@ run:
 
 clean:
 	@rm -rf ./bin ./dist ./.cache
-
-docker-build:
-	docker build -f $(DOCKERFILE) -t $(DOCKER_IMAGE) .
 
 docker-up:
 	docker compose -f deploy/compose/docker-compose.yml up --build -d

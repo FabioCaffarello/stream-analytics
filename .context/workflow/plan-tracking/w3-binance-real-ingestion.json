@@ -1,0 +1,91 @@
+{
+  "phases": {
+    "phase-1": {
+      "status": "completed",
+      "updatedAt": "2026-02-12T05:08:10.739Z"
+    },
+    "phase-2": {
+      "status": "completed",
+      "updatedAt": "2026-02-12T05:13:25.320Z"
+    },
+    "phase-3": {
+      "status": "completed",
+      "updatedAt": "2026-02-12T05:13:25.324Z"
+    }
+  },
+  "progress": 100,
+  "decisions": [
+    {
+      "title": "Consumer configurado somente para Binance no W3",
+      "description": "A validação de config agora exige consumer.exchange=binance e consumer.binance_ws_base_url não vazio, removendo completamente fake/binance_real para evitar wiring ambíguo no runtime.",
+      "phase": "E",
+      "alternatives": [
+        "Manter exchange genérico e ignorar endpoint builder para outros venues",
+        "Preservar flag binance_real temporariamente com fallback fake"
+      ],
+      "status": "accepted",
+      "id": "dec-1770872895672",
+      "decidedAt": "2026-02-12T05:08:15.672Z"
+    },
+    {
+      "title": "Observabilidade mínima no runtime de marketdata",
+      "description": "Adicionado log de endpoint planejado por bucket no consumer e contadores periódicos (total/ingested/skipped) no SubsystemActor a cada 100 mensagens para suporte a smoke e operação local.",
+      "phase": "E",
+      "alternatives": [
+        "Manter somente logs de erro sem contadores agregados",
+        "Adicionar stack de métricas completa antes do hard cut"
+      ],
+      "status": "accepted",
+      "id": "dec-1770872961317",
+      "decidedAt": "2026-02-12T05:09:21.317Z"
+    },
+    {
+      "title": "Erro WS transitório não escala para Guardian",
+      "description": "SubsystemActor agora trata kind=dial|subscribe|read|pingpong|heartbeat como transitório e não envia runtime.ChildFailed para o parent, evitando restart em cascata durante indisponibilidade de rede/DNS.",
+      "phase": "E",
+      "alternatives": [
+        "Continuar escalando qualquer WsError para o Guardian",
+        "Remover totalmente o envio de ChildFailed para qualquer tipo de erro WS"
+      ],
+      "status": "accepted",
+      "id": "dec-1770873205317",
+      "decidedAt": "2026-02-12T05:13:25.317Z"
+    },
+    {
+      "title": "Parse telemetry via ParseFuncV2 opcional",
+      "description": "Adicionado ParseFuncV2 em mdruntime para coletar event_type/skip_reason/problem sem quebrar ParseFunc existente. Consumer Binance injeta metadata via ParseMessageWithMeta.",
+      "phase": "E",
+      "alternatives": [
+        "Alterar assinatura de ParseFunc (breaking change)",
+        "Manter telemetria genérica sem motivo de skip"
+      ],
+      "status": "accepted",
+      "id": "dec-1770875217690",
+      "decidedAt": "2026-02-12T05:46:57.690Z"
+    },
+    {
+      "title": "WS liveness com read deadline + pong",
+      "description": "Consumer WS agora define SetReadDeadline e renova no PongHandler, com ping periódico e close handshake no Stop para evitar conexões meio-mortas.",
+      "phase": "E",
+      "alternatives": [
+        "Manter apenas ping sem deadline de leitura",
+        "Forçar reconnect agressivo por timer externo"
+      ],
+      "status": "accepted",
+      "id": "dec-1770875217695",
+      "decidedAt": "2026-02-12T05:46:57.695Z"
+    },
+    {
+      "title": "Config durations fail-fast",
+      "description": "mustParseDuration agora entra em fail-fast (panic) para evitar zero silencioso; validação continua barrando duration inválida no boot.",
+      "phase": "E",
+      "alternatives": [
+        "Continuar com parse silencioso para zero",
+        "Retornar erro nos accessors e propagar por toda a chamada"
+      ],
+      "status": "accepted",
+      "id": "dec-1770875217697",
+      "decidedAt": "2026-02-12T05:46:57.697Z"
+    }
+  ]
+}

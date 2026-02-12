@@ -103,7 +103,9 @@ func (s *SessionActor) onStarted() {
 	}
 	s.readerCtx, s.cancelReader = context.WithCancel(context.Background())
 	s.cfg.Conn.SetReadLimit(readLimitBytes)
-	s.cfg.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	if err := s.cfg.Conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
+		s.logger.Warn("delivery session: set read deadline failed", "err", err)
+	}
 	s.cfg.Conn.SetPongHandler(func(string) error {
 		return s.cfg.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	})

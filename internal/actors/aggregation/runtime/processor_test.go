@@ -49,22 +49,6 @@ func (n *noopStore) Save(_ context.Context, _ aggdomain.SnapshotProduced) *probl
 	return nil
 }
 
-// captureActor records non-lifecycle messages to a buffered channel.
-type captureActor struct {
-	ch chan any
-}
-
-func (c *captureActor) Receive(ctx *actor.Context) {
-	switch m := ctx.Message().(type) {
-	case actor.Initialized, actor.Started, actor.Stopped:
-	default:
-		select {
-		case c.ch <- m:
-		default:
-		}
-	}
-}
-
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
@@ -182,8 +166,8 @@ func TestProcessor_MultipleDeltas_allAggregated(t *testing.T) {
 	for i, sym := range instruments {
 		env := makeBookDeltaEnvelope(
 			"BINANCE", sym, int64(i+1),
-			[]mddomain.PriceLevel{{Price: 100.0, Size: 1.0}},  // bid
-			[]mddomain.PriceLevel{{Price: 101.0, Size: 1.0}},  // ask
+			[]mddomain.PriceLevel{{Price: 100.0, Size: 1.0}}, // bid
+			[]mddomain.PriceLevel{{Price: 101.0, Size: 1.0}}, // ask
 		)
 		ch <- env
 	}
@@ -257,7 +241,6 @@ func TestProcessor_BusClosed_sendsChildFailed(t *testing.T) {
 	ch := make(chan envelope.Envelope, 8)
 
 	parentCh := make(chan any, 16)
-	type parentActor struct{ subPID *actor.PID }
 	pa := &struct {
 		subPID *actor.PID
 		ch     chan any

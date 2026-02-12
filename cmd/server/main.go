@@ -49,23 +49,7 @@ func main() {
 	logLevelOverride := flag.String("log-level", "", "log level override: debug|info|warn|error")
 	flag.Parse()
 
-	// ── config ────────────────────────────────────────────────────────────────
-	cfg, prob := config.Load(*configPath)
-	if prob != nil {
-		slog.Error("server: config load failed", "err", prob)
-		os.Exit(1)
-	}
-	// Apply CLI overrides before validation.
-	if *addrOverride != "" {
-		cfg.HTTP.Addr = *addrOverride
-	}
-	if *logLevelOverride != "" {
-		cfg.Log.Level = *logLevelOverride
-	}
-	if prob = cfg.Validate(); prob != nil {
-		slog.Error("server: config validation failed", "err", prob)
-		os.Exit(1)
-	}
+	cfg := loadServerConfig(*configPath, *addrOverride, *logLevelOverride)
 
 	// ── logger ────────────────────────────────────────────────────────────────
 	logger := buildLogger(cfg.Log)
@@ -115,14 +99,7 @@ func main() {
 
 	// ── HTTP server ───────────────────────────────────────────────────────────
 	srv := httpserver.NewServer(e, guardianPID, cfg.HTTP.Addr, logger)
-	select {
-	case routerPID := <-routerPIDCh:
-		ws := wsserver.NewServer(e, routerPID, logger)
-		srv.HandleFunc("GET /ws", ws.HandleWS)
-		logger.Info("delivery websocket route enabled", "route", "GET /ws")
-	case <-time.After(2 * time.Second):
-		logger.Warn("delivery router not ready in time; /ws route disabled")
-	}
+	enableWSRoute(e, srv, routerPIDCh, logger)
 
 	serverErr := make(chan error, 1)
 	go func() {
@@ -159,6 +136,36 @@ func main() {
 		logger.Warn("server: guardian did not stop in time")
 	}
 	logger.Info("server: shutdown complete")
+}
+
+func loadServerConfig(configPath, addrOverride, logLevelOverride string) config.AppConfig {
+	cfg, prob := config.Load(configPath)
+	if prob != nil {
+		slog.Error("server: config load failed", "err", prob)
+		os.Exit(1)
+	}
+	if addrOverride != "" {
+		cfg.HTTP.Addr = addrOverride
+	}
+	if logLevelOverride != "" {
+		cfg.Log.Level = logLevelOverride
+	}
+	if prob = cfg.Validate(); prob != nil {
+		slog.Error("server: config validation failed", "err", prob)
+		os.Exit(1)
+	}
+	return cfg
+}
+
+func enableWSRoute(e *actor.Engine, srv *httpserver.Server, routerPIDCh <-chan *actor.PID, logger *slog.Logger) {
+	select {
+	case routerPID := <-routerPIDCh:
+		ws := wsserver.NewServer(e, routerPID, logger)
+		srv.HandleFunc("GET /ws", ws.HandleWS)
+		logger.Info("delivery websocket route enabled", "route", "GET /ws")
+	case <-time.After(2 * time.Second):
+		logger.Warn("delivery router not ready in time; /ws route disabled")
+	}
 }
 
 func buildLogger(cfg config.LogConfig) *slog.Logger {

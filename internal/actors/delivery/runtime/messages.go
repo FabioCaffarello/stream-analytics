@@ -3,7 +3,6 @@ package deliveryruntime
 import (
 	"github.com/anthdm/hollywood/actor"
 	"github.com/market-raccoon/internal/core/delivery/domain"
-	"github.com/market-raccoon/internal/core/delivery/ports"
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/ids"
 )
@@ -44,14 +43,6 @@ type sessionInboundText struct {
 
 // sessionDisconnected is emitted by ws read loop on connection close/error.
 type sessionDisconnected struct{}
-
-// getRangeResult is internal completion for getrange request handling.
-type getRangeResult struct {
-	RequestID string
-	Subject   string
-	Items     []ports.RangeItem
-	Err       string
-}
 
 type busEnvelopeMsg struct {
 	Env envelope.Envelope

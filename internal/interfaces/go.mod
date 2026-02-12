@@ -11,11 +11,16 @@ require (
 require (
 	github.com/DataDog/gostackparse v0.7.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
+	github.com/market-raccoon/internal/core/delivery v0.0.0 // indirect
+	github.com/market-raccoon/internal/shared v0.0.0 // indirect
 	github.com/zeebo/xxh3 v1.0.2 // indirect
 	google.golang.org/protobuf v1.32.0 // indirect
 )
 
 replace (
 	github.com/market-raccoon/internal/actors => ../actors
+	github.com/market-raccoon/internal/core/aggregation => ../core/aggregation
+	github.com/market-raccoon/internal/core/delivery => ../core/delivery
+	github.com/market-raccoon/internal/core/marketdata => ../core/marketdata
 	github.com/market-raccoon/internal/shared => ../shared
 )

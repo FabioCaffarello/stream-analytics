@@ -1,14 +1,21 @@
 {
   "active": [
     {
-      "slug": "w3-sources-marketdata-binance",
-      "path": "plans/w3-sources-marketdata-binance.md",
-      "title": "W3 Sources/MarketData v1 - Binance",
-      "summary": "Implementar adapter Binance (WS) em `internal/adapters/exchange/binance`, contratos doc-first de W3, wiring do `cmd/consumer` para modos `fake` e `binance real`, com robustez e testes determinísticos.",
-      "linkedAt": "2026-02-12T03:41:36.797Z",
+      "slug": "wx-docker-nats-compose",
+      "path": "plans/wx-docker-nats-compose.md",
+      "title": "WX-docker-nats-compose",
+      "linkedAt": "2026-02-12T04:35:11.899Z",
+      "status": "active"
+    },
+    {
+      "slug": "w3-binance-real-ingestion",
+      "path": "plans/w3-binance-real-ingestion.md",
+      "title": "W3 Binance Real Ingestion",
+      "summary": "Hard cut do fake feeder no consumer e consolidação do modo real Binance via `ws.Manager -> ws.Consumer -> Parse -> Ingest`, com resiliência e observabilidade.",
+      "linkedAt": "2026-02-12T05:05:03.693Z",
       "status": "active"
     }
   ],
   "completed": [],
-  "primary": "w3-sources-marketdata-binance"
+  "primary": "wx-docker-nats-compose"
 }

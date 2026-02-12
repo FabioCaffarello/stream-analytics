@@ -5,7 +5,9 @@ This directory contains plans for coordinating work across documentation and pla
 ## Plan Queue
 1. [Context Bootstrap](./context-bootstrap.md)
 2. [W2 Delivery Bc](./w2-delivery-bc.md)
-3. [W3 Sources Marketdata Binance](./w3-sources-marketdata-binance.md)
+3. [W3 Binance Real Ingestion](./w3-binance-real-ingestion.md)
+4. [W3 Sources Marketdata Binance](./w3-sources-marketdata-binance.md)
+5. [Wx Docker Nats Compose](./wx-docker-nats-compose.md)
 
 ## How To Create Or Update Plans
 - Run "ai-context plan <name>" to scaffold a new plan template.

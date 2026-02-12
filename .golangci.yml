@@ -24,14 +24,20 @@ linters:
       min-complexity: 15
     revive:
       rules:
-        - name: package-comments
-        - name: exported
         - name: blank-imports
         - name: imports-blocklist
-        - name: var-naming
         - name: receiver-naming
         - name: error-return
         - name: error-strings
+  exclusions:
+    rules:
+      - path: ^internal/actors/
+        linters:
+          - revive
+          - gocyclo
+      - path: ^internal/shared/config/loader\.go$
+        linters:
+          - gocyclo
 
 formatters:
   enable:

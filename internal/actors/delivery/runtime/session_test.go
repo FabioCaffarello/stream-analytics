@@ -78,7 +78,7 @@ func TestSession_parseSubscribeUnsubscribeGetRange(t *testing.T) {
 	}
 
 	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"unsubscribe","subject":"marketdata.trade/binance/BTC-USDT/raw","request_id":"r3"}`)}
-	_ = <-conn.writeCh
+	<-conn.writeCh
 	_ = waitForMessage[UnsubscribeSession](t, routerCh, time.Second)
 }
 
@@ -98,7 +98,7 @@ func TestSession_disconnectTriggersUnregister(t *testing.T) {
 	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
 	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"subscribe","subject":"marketdata.trade/binance/BTC-USDT/raw","request_id":"r1"}`)}
 	_ = waitForMessage[SubscribeSession](t, routerCh, time.Second)
-	_ = <-conn.writeCh
+	<-conn.writeCh
 	conn.readCh <- fakeRead{err: errors.New("disconnect")}
 
 	_ = waitForMessage[UnsubscribeSession](t, routerCh, time.Second)
