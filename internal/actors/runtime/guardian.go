@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/anthdm/hollywood/actor"
+	"github.com/market-raccoon/internal/shared/metrics"
 )
 
 // GuardianConfig configures runtime orchestration behavior.
@@ -285,6 +286,7 @@ func (g *Guardian) stopAll(c *actor.Context) {
 			g.running[subsystem] = false
 			g.connected[subsystem] = false
 			g.lastTransition[subsystem] = g.clock.Now()
+			metrics.SetGuardianSubsystemState(string(subsystem), 0)
 			continue
 		}
 		g.poisonFn(c, pid)
@@ -292,6 +294,7 @@ func (g *Guardian) stopAll(c *actor.Context) {
 		g.running[subsystem] = false
 		g.connected[subsystem] = false
 		g.lastTransition[subsystem] = g.clock.Now()
+		metrics.SetGuardianSubsystemState(string(subsystem), 0)
 	}
 	g.started = false
 }
@@ -310,6 +313,7 @@ func (g *Guardian) startSubsystem(c *actor.Context, subsystem Subsystem) {
 	g.lastError[subsystem] = ""
 	g.lastTransition[subsystem] = g.clock.Now()
 	g.readySystems[subsystem] = true // v1 optimistic: ready on first successful spawn
+	metrics.SetGuardianSubsystemState(string(subsystem), 1)
 
 	if status := g.policy.Status(subsystem); status.Degraded {
 		g.policy.MarkRecovered(subsystem)
@@ -399,6 +403,8 @@ func (g *Guardian) handleChildFailed(c *actor.Context, msg ChildFailed) {
 	decision := g.policy.OnFailure(msg.Subsystem, now)
 	gen := g.bumpRetryGeneration(msg.Subsystem)
 	if decision.EnterDegraded {
+		metrics.IncGuardianDegraded(string(msg.Subsystem))
+		metrics.SetGuardianSubsystemState(string(msg.Subsystem), 2)
 		g.emitFn(c, Degraded{Subsystem: msg.Subsystem, Reason: decision.Reason})
 		g.lastTransition[msg.Subsystem] = g.clock.Now()
 		target := g.selfPID
@@ -417,6 +423,7 @@ func (g *Guardian) handleChildFailed(c *actor.Context, msg ChildFailed) {
 	if !decision.Restart {
 		return
 	}
+	metrics.IncGuardianRestart(string(msg.Subsystem), msg.Kind)
 	target := g.selfPID
 	send := g.sendToSelfFn
 	cancel := g.scheduleFn(decision.Delay, func() {

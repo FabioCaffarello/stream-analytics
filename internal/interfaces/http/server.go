@@ -17,11 +17,14 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/http/pprof"
 	"time"
 
 	"github.com/anthdm/hollywood/actor"
 	"github.com/market-raccoon/internal/actors/runtime"
+	"github.com/market-raccoon/internal/shared/metrics"
 )
 
 const defaultSnapshotTimeout = 5 * time.Second
@@ -45,6 +48,7 @@ func NewServer(
 	engine *actor.Engine,
 	guardianPID *actor.PID,
 	addr string,
+	enablePprof bool,
 	logger *slog.Logger,
 ) *Server {
 	if logger == nil {
@@ -62,6 +66,10 @@ func NewServer(
 	mux.HandleFunc("GET /readyz", s.handleReadyz)
 	mux.HandleFunc("GET /runtime/snapshot", s.handleSnapshot)
 	mux.HandleFunc("POST /runtime/reload", s.handleReload)
+	mux.Handle("GET /metrics", withProcessMetrics(metrics.Handler()))
+	if enablePprof {
+		s.registerPprofRoutes(mux)
+	}
 	s.mux = mux
 
 	s.httpServer = &http.Server{
@@ -94,7 +102,7 @@ func (s *Server) Handler() http.Handler {
 // It must be called before ListenAndServe.
 func (s *Server) HandleFunc(pattern string, handler http.HandlerFunc) {
 	switch pattern {
-	case "GET /healthz", "GET /readyz", "GET /runtime/snapshot", "POST /runtime/reload":
+	case "GET /healthz", "GET /readyz", "GET /runtime/snapshot", "POST /runtime/reload", "GET /metrics":
 		s.logger.Warn("httpserver: refusing to override critical route", "pattern", pattern)
 		return
 	}
@@ -223,4 +231,41 @@ func writeJSON(w http.ResponseWriter, code int, body any) {
 		// WriteHeader already sent; nothing we can do except log.
 		slog.Error("httpserver: json encode failed", "err", err)
 	}
+}
+
+func withProcessMetrics(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		metrics.UpdateProcessMetrics()
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) registerPprofRoutes(mux *http.ServeMux) {
+	mux.Handle("GET /debug/pprof/", localhostOnly(http.HandlerFunc(pprof.Index)))
+	mux.Handle("GET /debug/pprof/cmdline", localhostOnly(http.HandlerFunc(pprof.Cmdline)))
+	mux.Handle("GET /debug/pprof/profile", localhostOnly(http.HandlerFunc(pprof.Profile)))
+	mux.Handle("GET /debug/pprof/symbol", localhostOnly(http.HandlerFunc(pprof.Symbol)))
+	mux.Handle("GET /debug/pprof/trace", localhostOnly(http.HandlerFunc(pprof.Trace)))
+	mux.Handle("GET /debug/pprof/allocs", localhostOnly(pprof.Handler("allocs")))
+	mux.Handle("GET /debug/pprof/block", localhostOnly(pprof.Handler("block")))
+	mux.Handle("GET /debug/pprof/goroutine", localhostOnly(pprof.Handler("goroutine")))
+	mux.Handle("GET /debug/pprof/heap", localhostOnly(pprof.Handler("heap")))
+	mux.Handle("GET /debug/pprof/mutex", localhostOnly(pprof.Handler("mutex")))
+	mux.Handle("GET /debug/pprof/threadcreate", localhostOnly(pprof.Handler("threadcreate")))
+}
+
+func localhostOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		ip := net.ParseIP(host)
+		if ip == nil || !ip.IsLoopback() {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }

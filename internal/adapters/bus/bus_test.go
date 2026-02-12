@@ -10,7 +10,9 @@ import (
 
 	"github.com/market-raccoon/internal/adapters/bus"
 	"github.com/market-raccoon/internal/shared/envelope"
+	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 // ---------------------------------------------------------------------------
@@ -144,6 +146,10 @@ func TestInMemoryBus_Publish_dropsWhenFull(t *testing.T) {
 	case extra := <-ch:
 		t.Fatalf("expected empty channel after drop, got seq=%d", extra.Seq)
 	default:
+	}
+
+	if got := testutil.ToFloat64(metrics.BusDroppedTotal.WithLabelValues("0")); got < 1 {
+		t.Fatalf("expected bus drop metric increment for subscriber 0, got %f", got)
 	}
 }
 

@@ -112,6 +112,12 @@ func (q *wsQueue) Pop() (*ws.WsMessage, bool) {
 	return msg, true
 }
 
+func (q *wsQueue) Len() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return len(q.items)
+}
+
 func isDepthWSMessage(msg *ws.WsMessage) bool {
 	if msg == nil || len(msg.Data) == 0 {
 		return false

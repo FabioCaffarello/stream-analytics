@@ -98,7 +98,7 @@ func main() {
 	logger.Info("guardian spawned", "pid", guardianPID.String())
 
 	// ── HTTP server ───────────────────────────────────────────────────────────
-	srv := httpserver.NewServer(e, guardianPID, cfg.HTTP.Addr, logger)
+	srv := httpserver.NewServer(e, guardianPID, cfg.HTTP.Addr, cfg.HTTP.EnablePprof, logger)
 	enableWSRoute(e, srv, routerPIDCh, logger)
 
 	serverErr := make(chan error, 1)

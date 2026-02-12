@@ -42,7 +42,7 @@ func newGuardian(t *testing.T, e *actor.Engine) *actor.PID {
 }
 
 func newTestServer(e *actor.Engine, guardianPID *actor.PID) *httpserver.Server {
-	srv := httpserver.NewServer(e, guardianPID, ":0", nil)
+	srv := httpserver.NewServer(e, guardianPID, ":0", false, nil)
 	// Use a tight timeout for tests.
 	srv.SetSnapshotTimeout(2 * time.Second)
 	return srv
@@ -178,7 +178,7 @@ func TestServer_Snapshot_timeout(t *testing.T) {
 	}, "silent", actor.WithID("silent-guardian"))
 	defer e.Poison(silentPID)
 
-	srv := httpserver.NewServer(e, silentPID, ":0", nil)
+	srv := httpserver.NewServer(e, silentPID, ":0", false, nil)
 	srv.SetSnapshotTimeout(100 * time.Millisecond) // very short for test
 
 	rec := doRequest(t, srv, http.MethodGet, "/runtime/snapshot", "")
@@ -318,12 +318,83 @@ func TestServer_Readyz_Timeout_Returns504(t *testing.T) {
 	}, "silent2", actor.WithID("silent-guardian-readyz"))
 	defer e.Poison(silentPID)
 
-	srv := httpserver.NewServer(e, silentPID, ":0", nil)
+	srv := httpserver.NewServer(e, silentPID, ":0", false, nil)
 	srv.SetSnapshotTimeout(100 * time.Millisecond)
 
 	rec := doRequest(t, srv, http.MethodGet, "/readyz", "")
 	if rec.Code != http.StatusGatewayTimeout {
 		t.Fatalf("expected 504, got %d", rec.Code)
+	}
+}
+
+func TestServer_Metrics_ExposesPrometheusFormat(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+	rec := doRequest(t, srv, http.MethodGet, "/metrics", "")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	ct := rec.Header().Get("Content-Type")
+	if !strings.Contains(ct, "text/plain") {
+		t.Fatalf("expected text/plain content type, got %q", ct)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "ingest_messages_total") {
+		t.Fatalf("expected ingest_messages_total in metrics output")
+	}
+	if !strings.Contains(body, "process_goroutines") {
+		t.Fatalf("expected process_goroutines in metrics output")
+	}
+}
+
+func TestServer_Pprof_DisabledReturns404(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := httpserver.NewServer(e, guardianPID, ":0", false, nil)
+	rec := doRequest(t, srv, http.MethodGet, "/debug/pprof/goroutine", "")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
+	}
+}
+
+func TestServer_Pprof_EnabledLocalhostAllowed(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := httpserver.NewServer(e, guardianPID, ":0", true, nil)
+	req := httptest.NewRequest(http.MethodGet, "/debug/pprof/goroutine?debug=1", strings.NewReader(""))
+	req.RemoteAddr = "127.0.0.1:12345"
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "goroutine") {
+		t.Fatalf("expected goroutine profile output")
+	}
+}
+
+func TestServer_Pprof_EnabledRemoteForbidden(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := httpserver.NewServer(e, guardianPID, ":0", true, nil)
+	req := httptest.NewRequest(http.MethodGet, "/debug/pprof/goroutine?debug=1", strings.NewReader(""))
+	req.RemoteAddr = "203.0.113.10:12345"
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", rec.Code)
 	}
 }
 

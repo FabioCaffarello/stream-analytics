@@ -11,6 +11,8 @@ import (
 	runtime "github.com/market-raccoon/internal/actors/runtime"
 	"github.com/market-raccoon/internal/core/marketdata/app"
 	"github.com/market-raccoon/internal/core/marketdata/domain"
+	"github.com/market-raccoon/internal/shared/metrics"
+	"github.com/market-raccoon/internal/shared/problem"
 )
 
 // SubsystemConfig configures the MarketDataSubsystemActor.
@@ -73,6 +75,7 @@ type SubsystemActor struct {
 	lastMessageAt   time.Time
 	lastPublishAt   time.Time
 	wsConnected     bool
+	wsConnectedByID map[string]bool
 	backpressureOn  bool
 	lastHeartbeatAt time.Time
 }
@@ -139,6 +142,9 @@ func (s *SubsystemActor) ensureDefaults() {
 		policy := normalizeBackpressurePolicy(s.cfg.BackpressurePolicy)
 		s.queue = newWSQueue(s.cfg.BackpressureBufferSize, policy)
 	}
+	if s.wsConnectedByID == nil {
+		s.wsConnectedByID = make(map[string]bool)
+	}
 }
 
 func (s *SubsystemActor) onStarted(c *actor.Context) {
@@ -180,6 +186,7 @@ func (s *SubsystemActor) handleMessage(c *actor.Context, msg *ws.WsMessage) {
 	s.lastMessageAt = msg.RecvAt
 	s.emitSubsystemHeartbeat(c, false)
 	dropped, entered := s.queue.Enqueue(msg)
+	metrics.SetBackpressureQueueDepth(msg.Exchange, s.queue.Len())
 	if entered && !s.backpressureOn {
 		s.backpressureOn = true
 		s.logger.Warn("mdruntime: entering backpressure mode",
@@ -189,6 +196,7 @@ func (s *SubsystemActor) handleMessage(c *actor.Context, msg *ws.WsMessage) {
 	}
 	if dropped > 0 {
 		s.telemetry.recordBackpressureDrops(uint64(dropped))
+		metrics.IncBackpressureDrops(string(normalizeBackpressurePolicy(s.cfg.BackpressurePolicy)), dropped)
 	}
 }
 
@@ -204,6 +212,8 @@ func (s *SubsystemActor) runIngestWorker() {
 
 func (s *SubsystemActor) processMessage(msg *ws.WsMessage) {
 	if s.cfg.ParseMessageV2 == nil && s.cfg.ParseMessage == nil {
+		metrics.IncWSMessageReceived(msg.Exchange, "unknown")
+		metrics.ObserveIngest(msg.Exchange, "UNKNOWN", "unknown", "validation_failed", 0)
 		s.logger.Debug("mdruntime: no ParseMessage configured — dropping message",
 			"exchange", msg.Exchange,
 			"endpoint", msg.Endpoint,
@@ -230,6 +240,16 @@ func (s *SubsystemActor) processMessage(msg *ws.WsMessage) {
 	}
 
 	if skip {
+		eventType := meta.EventType
+		if eventType == "" {
+			eventType = "unknown"
+		}
+		instrument := req.Instrument
+		if instrument == "" {
+			instrument = "UNKNOWN"
+		}
+		metrics.IncWSMessageReceived(msg.Exchange, eventType)
+		metrics.ObserveIngest(msg.Exchange, instrument, eventType, "validation_failed", 0)
 		s.telemetry.recordSkip(msg.Exchange, meta.EventType, meta.SkipReason, meta.ProblemCode, meta.Ticker, meta.WSStream)
 		if meta.SkipReason == "parse_error" && s.telemetry.shouldSample(time.Now(), meta.ProblemCode) {
 			s.logger.Warn("mdruntime: parse skip sampled",
@@ -261,9 +281,21 @@ func (s *SubsystemActor) processMessage(msg *ws.WsMessage) {
 		}
 	}
 
+	startedAt := time.Now()
 	res := s.cfg.Ingest.Execute(context.Background(), req)
 	if res.IsFail() {
 		p := res.Problem()
+		status := "failed"
+		switch p.Code {
+		case problem.Duplicate:
+			status = "duplicate"
+		case problem.OutOfOrder:
+			status = "out_of_order"
+		case problem.ValidationFailed, problem.InvalidArgument:
+			status = "validation_failed"
+		}
+		metrics.IncWSMessageReceived(msg.Exchange, req.EventType)
+		metrics.ObserveIngest(msg.Exchange, req.Instrument, req.EventType, status, time.Since(startedAt))
 		s.logger.Warn("mdruntime: ingest failed",
 			"code", p.Code,
 			"msg", p.Message,
@@ -279,6 +311,8 @@ func (s *SubsystemActor) processMessage(msg *ws.WsMessage) {
 	if req.Metadata["instrument_pair"] != "" {
 		ticker = req.Metadata["instrument_pair"]
 	}
+	metrics.IncWSMessageReceived(msg.Exchange, req.EventType)
+	metrics.ObserveIngest(msg.Exchange, req.Instrument, req.EventType, "ok", time.Since(startedAt))
 	s.telemetry.recordIngest(req.EventType, ticker, wsStream)
 	s.logProgress()
 	if s.engine != nil && s.selfPID != nil {
@@ -316,6 +350,7 @@ func (s *SubsystemActor) logProgress() {
 }
 
 func (s *SubsystemActor) handleError(c *actor.Context, msg *ws.WsError) {
+	metrics.IncWSError(msg.Exchange, msg.Kind)
 	s.logger.Error("mdruntime: ws error",
 		"exchange", msg.Exchange,
 		"bucket_id", msg.BucketID,
@@ -348,14 +383,17 @@ func (s *SubsystemActor) handleError(c *actor.Context, msg *ws.WsError) {
 func (s *SubsystemActor) handleState(c *actor.Context, msg *ws.WsState) {
 	if msg.Status == "reconnecting" {
 		s.telemetry.recordReconnect(msg.Reason, msg.UptimeSec)
+		metrics.IncWSReconnect(msg.Exchange, msg.Reason)
 	}
 
 	switch msg.Status {
 	case "connected", "subscribed":
-		s.wsConnected = true
+		s.wsConnectedByID[msg.ConsumerID] = true
 	case "error", "closed":
-		s.wsConnected = false
+		delete(s.wsConnectedByID, msg.ConsumerID)
 	}
+	s.wsConnected = len(s.wsConnectedByID) > 0
+	metrics.SetWSConnectionsActive(msg.Exchange, len(s.wsConnectedByID))
 	s.emitSubsystemHeartbeat(c, true)
 
 	// Avoid log spam for high-frequency reconnects; log at appropriate levels.

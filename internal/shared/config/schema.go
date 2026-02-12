@@ -32,6 +32,8 @@ type LogConfig struct {
 type HTTPConfig struct {
 	// Addr is the TCP address to listen on.  Default: ":8080".
 	Addr string `json:"addr"`
+	// EnablePprof enables /debug/pprof/* endpoints. Default: false.
+	EnablePprof bool `json:"enable_pprof"`
 	// ReadTimeout is the maximum duration for reading the request.  Default: "10s".
 	ReadTimeout string `json:"read_timeout"`
 	// WriteTimeout is the maximum duration for writing the response.  Default: "15s".

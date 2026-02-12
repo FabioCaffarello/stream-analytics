@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/market-raccoon/internal/shared/envelope"
+	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/problem"
 )
 
@@ -50,15 +51,18 @@ func (b *InMemoryBus) Subscribe() <-chan envelope.Envelope {
 // Publish delivers env to all current subscribers using a non-blocking send.
 // It never returns an error; full subscriber buffers are silently dropped.
 func (b *InMemoryBus) Publish(_ context.Context, env envelope.Envelope) *problem.Problem {
+	metrics.IncBusPublished(env.Type, env.Venue)
+
 	b.mu.RLock()
 	subs := b.subscribers
 	b.mu.RUnlock()
 
-	for _, ch := range subs {
+	for i, ch := range subs {
 		select {
 		case ch <- env:
 		default:
 			// subscriber buffer full — drop for this subscriber, continue.
+			metrics.IncBusDropped(i)
 		}
 	}
 	return nil
