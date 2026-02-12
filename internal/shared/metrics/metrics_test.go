@@ -93,6 +93,9 @@ func TestMetricsNamesPresent(t *testing.T) {
 	IncBusRedelivered("jetstream")
 	ObserveBusAckLatency("jetstream", 3*time.Millisecond)
 	SetBusConsumerLag("jetstream", 42)
+	IncReplayMessages("jetstream", "ok")
+	ObserveReplayLatency("jetstream", 4*time.Millisecond)
+	IncReplayRedeliveries("jetstream")
 
 	mfs, err := Registry().Gather()
 	if err != nil {
@@ -113,6 +116,9 @@ func TestMetricsNamesPresent(t *testing.T) {
 		"bus_redelivered_total",
 		"bus_ack_latency_seconds",
 		"bus_consumer_lag",
+		"replay_messages_total",
+		"replay_latency_seconds",
+		"replay_redeliveries_total",
 		"guardian_rate_limited_total",
 		"process_heap_alloc_bytes",
 	} {
