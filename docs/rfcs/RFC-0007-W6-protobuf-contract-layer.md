@@ -121,3 +121,30 @@ cd internal/core/delivery && go test ./...
 - [x] Envelope protobuf capability registration added.
 - [x] Cross-format semantic equivalence tests added for `TradeTickV1` and `BookDeltaV1`.
 - [x] Runtime publish/consume paths remain unchanged (no dual-write activation in W6-2).
+
+## W6-3 Evidence
+
+### Config flag
+
+- Added shared config flag: `marketdata.publish_content_type`.
+- Allowed values: `application/json` (default) and `application/protobuf` (opt-in).
+- Default remains `application/json`.
+- Deploy examples in `deploy/configs/*.jsonc` keep JSON default and show protobuf as a commented opt-in.
+
+### Unit tests
+
+- Added shared codec payload selector tests in `internal/shared/codec/payload_codec_test.go`:
+  - trade payload encode/decode works in JSON and protobuf
+  - bookdelta payload encode/decode works in JSON and protobuf
+  - semantic equivalence holds (`JSON -> domain == PROTO -> domain`)
+  - unknown content type is rejected with `ValidationFailed`
+- Added marketdata app tests in `internal/core/marketdata/app/ingest_test.go`:
+  - `PublishContentType=application/json` produces envelope `content_type=application/json` and payload decodes through JSON codec path
+  - `PublishContentType=application/protobuf` produces envelope `content_type=application/protobuf` and payload decodes through protobuf codec path
+  - default constructor path remains JSON
+
+### Runtime behavior statement
+
+- Runtime defaults remain unchanged: with no config override, producer envelopes are JSON.
+- No actor topology, bus semantics, or routing behavior changed in W6-3.
+- Consumer path was intentionally not migrated in this step; publish/consume behavior only changes when producer config explicitly opts into protobuf.
