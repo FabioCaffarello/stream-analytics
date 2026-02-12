@@ -9,6 +9,10 @@
     "addr": ":8082",
     "shutdown_timeout": "10s"
   },
+  "marketdata": {
+    "publish_content_type": "application/json"
+    // "publish_content_type": "application/protobuf"
+  },
   "processor": {
     "bus_capacity": 1024
   }

@@ -14,10 +14,11 @@ import (
 // AppConfig is the root config envelope.  All fields are optional; absent
 // fields receive safe defaults via applyDefaults.
 type AppConfig struct {
-	Log       LogConfig       `json:"log"`
-	HTTP      HTTPConfig      `json:"http"`
-	Consumer  ConsumerConfig  `json:"consumer"`
-	Processor ProcessorConfig `json:"processor"`
+	Log        LogConfig        `json:"log"`
+	HTTP       HTTPConfig       `json:"http"`
+	Consumer   ConsumerConfig   `json:"consumer"`
+	MarketData MarketDataConfig `json:"marketdata"`
+	Processor  ProcessorConfig  `json:"processor"`
 }
 
 // LogConfig controls structured logging output.
@@ -82,6 +83,13 @@ type ConsumerConfig struct {
 	ReconnectBudgetWindow string `json:"reconnect_budget_window"`
 	// ReconnectCooldown applies when retry budget is exhausted.
 	ReconnectCooldown string `json:"reconnect_cooldown"`
+}
+
+// MarketDataConfig controls marketdata publish encoding policy.
+type MarketDataConfig struct {
+	// PublishContentType controls the wire payload format for produced marketdata envelopes.
+	// Allowed: "application/json" (default) or "application/protobuf" (opt-in).
+	PublishContentType string `json:"publish_content_type"`
 }
 
 // ProcessorConfig controls the aggregation processor binary.

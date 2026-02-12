@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/problem"
 )
 
@@ -59,6 +60,9 @@ func (a AppConfig) Validate() *problem.Problem {
 		return prob
 	}
 	if prob := validateConsumer(a.Consumer); prob != nil {
+		return prob
+	}
+	if prob := validateMarketData(a.MarketData); prob != nil {
 		return prob
 	}
 	return nil
@@ -165,6 +169,13 @@ func validateConsumer(c ConsumerConfig) *problem.Problem {
 	return nil
 }
 
+func validateMarketData(m MarketDataConfig) *problem.Problem {
+	if _, p := envelope.NormalizeContentType(m.PublishContentType); p != nil {
+		return problem.Newf(codeInvalid, "marketdata.publish_content_type must be application/json|application/protobuf, got %q", m.PublishContentType)
+	}
+	return nil
+}
+
 // applyDefaults fills zero-value fields with safe defaults.
 // It is idempotent: calling it multiple times has no additional effect.
 func applyDefaults(c *AppConfig) {
@@ -239,6 +250,9 @@ func applyDefaults(c *AppConfig) {
 	}
 	if c.Consumer.ReconnectCooldown == "" {
 		c.Consumer.ReconnectCooldown = "30s"
+	}
+	if c.MarketData.PublishContentType == "" {
+		c.MarketData.PublishContentType = envelope.ContentTypeJSON
 	}
 	if c.Processor.BusCapacity == 0 {
 		c.Processor.BusCapacity = 1024

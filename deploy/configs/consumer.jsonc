@@ -18,5 +18,9 @@
     "max_websockets": 5,
     "max_websocket_lifetime": "45m",
     "respawn_overlap": "5s"
+  },
+  "marketdata": {
+    "publish_content_type": "application/json"
+    // "publish_content_type": "application/protobuf"
   }
 }

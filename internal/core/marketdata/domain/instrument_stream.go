@@ -1,7 +1,6 @@
 package domain
 
 import (
-	"github.com/market-raccoon/internal/shared/codec"
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/hash"
 	"github.com/market-raccoon/internal/shared/problem"
@@ -101,7 +100,8 @@ func (s *InstrumentStream) BuildEnvelope(
 	tsExchange Timestamp,
 	tsIngest Timestamp,
 	seq Sequence,
-	payload any,
+	contentType string,
+	payload []byte,
 	sourceIdempotencyKey string,
 ) (envelope.Envelope, *problem.Problem) {
 	// 1. Validate sequence monotonicity.
@@ -118,19 +118,13 @@ func (s *InstrumentStream) BuildEnvelope(
 		)
 	}
 
-	// 2. Serialize payload with event context for richer error messages.
-	payloadBytes, p := codec.MarshalPayload(eventType.String(), int(version), payload)
-	if p != nil {
-		return envelope.Envelope{}, p
-	}
-
-	// 3. Resolve idempotency key (source-provided first, deterministic fallback).
+	// 2. Resolve idempotency key (source-provided first, deterministic fallback).
 	ikey, p := resolveIdempotencyKey(s.id.Venue, s.id.Instrument, eventType, seq, sourceIdempotencyKey)
 	if p != nil {
 		return envelope.Envelope{}, p
 	}
 
-	// 4. Check dedup.
+	// 3. Check dedup.
 	if _, dup := s.seen[ikey]; dup {
 		s.duplicateCount++
 		return envelope.Envelope{}, problem.WithDetail(
@@ -140,7 +134,7 @@ func (s *InstrumentStream) BuildEnvelope(
 		)
 	}
 
-	// 5. Build envelope.
+	// 4. Build envelope.
 	env := envelope.Envelope{
 		Type:           eventType.String(),
 		Version:        int(version),
@@ -150,15 +144,16 @@ func (s *InstrumentStream) BuildEnvelope(
 		TsIngest:       tsIngest.UnixMilli(),
 		Seq:            seq.Int64(),
 		IdempotencyKey: string(ikey),
-		Payload:        payloadBytes,
+		ContentType:    contentType,
+		Payload:        payload,
 	}
 
-	// 6. Validate envelope invariants (always before committing state).
+	// 5. Validate envelope invariants (always before committing state).
 	if vp := env.Validate(); vp != nil {
 		return envelope.Envelope{}, vp
 	}
 
-	// 7. Commit state (only after all checks pass).
+	// 6. Commit state (only after all checks pass).
 	s.lastSeq = seq
 	s.recordSeen(ikey)
 

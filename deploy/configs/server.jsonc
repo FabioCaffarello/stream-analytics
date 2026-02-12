@@ -12,5 +12,9 @@
     "write_timeout": "15s",
     "idle_timeout": "60s",
     "shutdown_timeout": "10s"
+  },
+  "marketdata": {
+    "publish_content_type": "application/json"
+    // "publish_content_type": "application/protobuf"
   }
 }

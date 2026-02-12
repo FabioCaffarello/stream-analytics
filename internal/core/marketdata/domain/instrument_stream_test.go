@@ -22,14 +22,14 @@ func newStream(t *testing.T) *domain.InstrumentStream {
 
 func buildTrade(t *testing.T, s *domain.InstrumentStream, seq int64, tsIngest int64) {
 	t.Helper()
-	payload := domain.TradeTickV1{Price: 50_000.0, Size: 1.0, Side: "buy", TradeID: "t1"}
 	_, p := s.BuildEnvelope(
 		domain.EventType("marketdata.trade"),
 		domain.SchemaVersion(1),
 		domain.Timestamp(tsIngest-5),
 		domain.Timestamp(tsIngest),
 		domain.Sequence(seq),
-		payload,
+		"application/json",
+		[]byte(`{"trade_id":"t1"}`),
 		"",
 	)
 	if p != nil {
@@ -61,14 +61,14 @@ func TestInstrumentStream_seqMonotonic(t *testing.T) {
 	buildTrade(t, s, 2, 1710000002000)
 
 	// seq 2 again → OUT_OF_ORDER
-	payload := domain.TradeTickV1{Price: 1.0, Size: 1.0, Side: "buy", TradeID: "t2"}
 	_, p := s.BuildEnvelope(
 		domain.EventType("marketdata.trade"),
 		domain.SchemaVersion(1),
 		domain.Timestamp(1710000002000),
 		domain.Timestamp(1710000003000),
 		domain.Sequence(2),
-		payload,
+		"application/json",
+		[]byte(`{"trade_id":"t2"}`),
 		"",
 	)
 	if p == nil {
@@ -81,14 +81,14 @@ func TestInstrumentStream_seqMonotonic(t *testing.T) {
 
 func TestInstrumentStream_envelopeValid(t *testing.T) {
 	s := newStream(t)
-	payload := domain.TradeTickV1{Price: 50_000.0, Size: 0.5, Side: "sell", TradeID: "abc"}
 	env, p := s.BuildEnvelope(
 		domain.EventType("marketdata.trade"),
 		domain.SchemaVersion(1),
 		domain.Timestamp(1710000000000),
 		domain.Timestamp(1710000005000),
 		domain.Sequence(1),
-		payload,
+		"application/json",
+		[]byte(`{"trade_id":"abc"}`),
 		"",
 	)
 	if p != nil {
@@ -110,14 +110,14 @@ func TestInstrumentStream_dedupCacheEviction(t *testing.T) {
 	// process more than dedupCacheMax events without panic.
 	s := newStream(t)
 	for i := int64(1); i <= 1100; i++ {
-		payload := domain.TradeTickV1{Price: float64(i), Size: 1.0, Side: "buy", TradeID: "x"}
 		_, p := s.BuildEnvelope(
 			domain.EventType("marketdata.trade"),
 			domain.SchemaVersion(1),
 			domain.Timestamp(i*1000),
 			domain.Timestamp(i*1000+5),
 			domain.Sequence(i),
-			payload,
+			"application/json",
+			[]byte(`{"trade_id":"x"}`),
 			"",
 		)
 		if p != nil {
@@ -186,14 +186,14 @@ func TestInstrumentStream_healthState(t *testing.T) {
 		t.Fatalf("expected healthy stream, got %+v", healthy)
 	}
 
-	payload := domain.TradeTickV1{Price: 1.0, Size: 1.0, Side: "buy", TradeID: "t2"}
 	_, _ = s.BuildEnvelope(
 		domain.EventType("marketdata.trade"),
 		domain.SchemaVersion(1),
 		domain.Timestamp(1710000001000),
 		domain.Timestamp(1710000001005),
 		domain.Sequence(1),
-		payload,
+		"application/json",
+		[]byte(`{"trade_id":"t2"}`),
 		"",
 	)
 	_, _ = s.BuildEnvelope(
@@ -202,7 +202,8 @@ func TestInstrumentStream_healthState(t *testing.T) {
 		domain.Timestamp(1710000002000),
 		domain.Timestamp(1710000003000),
 		domain.Sequence(1),
-		payload,
+		"application/json",
+		[]byte(`{"trade_id":"t2"}`),
 		"",
 	)
 	degraded := s.Health()
@@ -213,15 +214,14 @@ func TestInstrumentStream_healthState(t *testing.T) {
 
 func TestInstrumentStream_sourceIdempotencyKeyDedupsAcrossSeq(t *testing.T) {
 	s := newStream(t)
-	payload := domain.TradeTickV1{Price: 1.0, Size: 1.0, Side: "buy", TradeID: "42"}
-
 	_, p := s.BuildEnvelope(
 		domain.EventType("marketdata.trade"),
 		domain.SchemaVersion(1),
 		domain.Timestamp(1710000001000),
 		domain.Timestamp(1710000001005),
 		domain.Sequence(1),
-		payload,
+		"application/json",
+		[]byte(`{"trade_id":"42"}`),
 		"venue=BINANCE|instrument=BTCUSDT|trade_id=42",
 	)
 	if p != nil {
@@ -234,7 +234,8 @@ func TestInstrumentStream_sourceIdempotencyKeyDedupsAcrossSeq(t *testing.T) {
 		domain.Timestamp(1710000002000),
 		domain.Timestamp(1710000002005),
 		domain.Sequence(2),
-		payload,
+		"application/json",
+		[]byte(`{"trade_id":"42"}`),
 		"venue=BINANCE|instrument=BTCUSDT|trade_id=42",
 	)
 	if p == nil {

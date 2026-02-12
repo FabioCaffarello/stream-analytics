@@ -8,6 +8,8 @@ import (
 
 	"github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/core/marketdata/ports"
+	"github.com/market-raccoon/internal/shared/codec"
+	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/ds"
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/metrics"
@@ -46,9 +48,10 @@ type PublishedEvent struct {
 
 // IngestConfig contains use-case level policies.
 type IngestConfig struct {
-	DedupWindowSize int
-	MaxStreams      int
-	StreamTTL       time.Duration
+	DedupWindowSize    int
+	MaxStreams         int
+	StreamTTL          time.Duration
+	PublishContentType string
 }
 
 // IngestMarketData is the primary use case for ingesting a single market event.
@@ -56,17 +59,19 @@ type IngestConfig struct {
 // Steps:
 //  1. Validate raw inputs
 //  2. Normalize (via domain VOs)
-//  3. Assign ts_ingest from clock
-//  4. Assign seq from sequencer
-//  5. Build envelope (domain aggregate)
-//  6. Validate envelope
+//  3. Encode payload using configured content_type
+//  4. Assign ts_ingest from clock
+//  5. Assign seq from sequencer
+//  6. Build envelope (domain aggregate)
 //  7. Publish via EventPublisher port
 type IngestMarketData struct {
-	clock       ports.Clock
-	sequencer   ports.Sequencer
-	publisher   ports.EventPublisher
-	streams     *ds.BoundedMap[domain.StreamID, *domain.InstrumentStream]
-	dedupWindow domain.DedupWindow
+	clock              ports.Clock
+	sequencer          ports.Sequencer
+	publisher          ports.EventPublisher
+	streams            *ds.BoundedMap[domain.StreamID, *domain.InstrumentStream]
+	dedupWindow        domain.DedupWindow
+	publishContentType string
+	payloadCodecErr    *problem.Problem
 }
 
 // NewIngestMarketData constructs the use case.
@@ -76,9 +81,10 @@ func NewIngestMarketData(
 	pub ports.EventPublisher,
 ) *IngestMarketData {
 	return NewIngestMarketDataWithConfig(clk, seq, pub, IngestConfig{
-		DedupWindowSize: defaultDedupWindowSize,
-		MaxStreams:      10_000,
-		StreamTTL:       time.Hour,
+		DedupWindowSize:    defaultDedupWindowSize,
+		MaxStreams:         10_000,
+		StreamTTL:          time.Hour,
+		PublishContentType: envelope.ContentTypeJSON,
 	})
 }
 
@@ -101,6 +107,10 @@ func NewIngestMarketDataWithConfig(
 	if cfg.StreamTTL <= 0 {
 		cfg.StreamTTL = time.Hour
 	}
+	if cfg.PublishContentType == "" {
+		cfg.PublishContentType = envelope.ContentTypeJSON
+	}
+	publishContentType, publishContentTypeErr := envelope.NormalizeContentType(cfg.PublishContentType)
 
 	streams := ds.NewBoundedMap[domain.StreamID, *domain.InstrumentStream](cfg.MaxStreams, cfg.StreamTTL, clk)
 	streams.SetSweepEveryOps(1024)
@@ -110,43 +120,24 @@ func NewIngestMarketDataWithConfig(
 	})
 
 	return &IngestMarketData{
-		clock:       clk,
-		sequencer:   seq,
-		publisher:   pub,
-		streams:     streams,
-		dedupWindow: window,
+		clock:              clk,
+		sequencer:          seq,
+		publisher:          pub,
+		streams:            streams,
+		dedupWindow:        window,
+		publishContentType: publishContentType,
+		payloadCodecErr:    combinePayloadBootstrapErrors(publishContentTypeErr, contracts.BootstrapPayloadCodecRegistry()),
 	}
 }
 
 // Execute runs the ingest use case and returns a Result.
 func (uc *IngestMarketData) Execute(ctx context.Context, req IngestRequest) result.Result[IngestResponse] {
-	// 1. Validate raw inputs.
-	if p := validation.Collect(
-		validation.NonEmptyString("venue", req.Venue),
-		validation.NonEmptyString("instrument", req.Instrument),
-		validation.NonEmptyString("event_type", req.EventType),
-		validation.PositiveInt("version", int64(req.Version)),
-	); p != nil {
-		return result.FailProblem[IngestResponse](p)
-	}
-
-	if req.Payload == nil {
-		return result.FailProblem[IngestResponse](
-			problem.New(problem.ValidationFailed, "payload must not be nil"),
-		)
-	}
-
-	// 2. Normalize via domain VOs.
-	eventType, p := domain.NewEventType(req.EventType)
-	if p != nil {
-		return result.FailProblem[IngestResponse](p)
-	}
-	version, p := domain.NewSchemaVersion(req.Version)
+	eventType, version, payloadBytes, p := uc.prepareRequest(req)
 	if p != nil {
 		return result.FailProblem[IngestResponse](p)
 	}
 
-	// 3. Get or create the stream aggregate (normalizes venue+instrument).
+	// Get or create the stream aggregate (normalizes venue+instrument).
 	stream, p := uc.getOrCreateStream(req.Venue, req.Instrument)
 	if p != nil {
 		return result.FailProblem[IngestResponse](p)
@@ -175,7 +166,16 @@ func (uc *IngestMarketData) Execute(ctx context.Context, req IngestRequest) resu
 	}
 
 	// 6. Build envelope (includes validate + dedup inside domain aggregate).
-	env, p := stream.BuildEnvelope(eventType, version, tsExchange, tsIngest, seq, req.Payload, req.IdempotencyKey)
+	env, p := stream.BuildEnvelope(
+		eventType,
+		version,
+		tsExchange,
+		tsIngest,
+		seq,
+		uc.publishContentType,
+		payloadBytes,
+		req.IdempotencyKey,
+	)
 	if p != nil {
 		return result.FailProblem[IngestResponse](p)
 	}
@@ -223,4 +223,45 @@ func (uc *IngestMarketData) getOrCreateStream(rawVenue, rawInstrument string) (*
 
 func (uc *IngestMarketData) ActiveStreams() int {
 	return uc.streams.Len()
+}
+
+func combinePayloadBootstrapErrors(errs ...*problem.Problem) *problem.Problem {
+	for _, p := range errs {
+		if p != nil {
+			return p
+		}
+	}
+	return nil
+}
+
+func (uc *IngestMarketData) prepareRequest(req IngestRequest) (domain.EventType, domain.SchemaVersion, []byte, *problem.Problem) {
+	if uc.payloadCodecErr != nil {
+		return "", 0, nil, uc.payloadCodecErr
+	}
+	if p := validation.Collect(
+		validation.NonEmptyString("venue", req.Venue),
+		validation.NonEmptyString("instrument", req.Instrument),
+		validation.NonEmptyString("event_type", req.EventType),
+		validation.PositiveInt("version", int64(req.Version)),
+	); p != nil {
+		return "", 0, nil, p
+	}
+	if req.Payload == nil {
+		return "", 0, nil, problem.New(problem.ValidationFailed, "payload must not be nil")
+	}
+
+	eventType, p := domain.NewEventType(req.EventType)
+	if p != nil {
+		return "", 0, nil, p
+	}
+	version, p := domain.NewSchemaVersion(req.Version)
+	if p != nil {
+		return "", 0, nil, p
+	}
+
+	payloadBytes, p := codec.EncodePayload(eventType.String(), int(version), uc.publishContentType, req.Payload)
+	if p != nil {
+		return "", 0, nil, p
+	}
+	return eventType, version, payloadBytes, nil
 }
