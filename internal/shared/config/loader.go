@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"sort"
 	"strings"
@@ -73,6 +74,9 @@ func (a AppConfig) Validate() *problem.Problem {
 		return prob
 	}
 	if prob := validateReplay(a.Bus, a.MarketData, a.Replay); prob != nil {
+		return prob
+	}
+	if prob := validateProcessor(a.Processor); prob != nil {
 		return prob
 	}
 	return nil
@@ -338,6 +342,45 @@ func validateReplay(bus BusConfig, marketData MarketDataConfig, replay ReplayCon
 	return nil
 }
 
+func validateProcessor(p ProcessorConfig) *problem.Problem {
+	if p.BusCapacity <= 0 {
+		return problem.Newf(codeInvalid, "processor.bus_capacity must be > 0, got %d", p.BusCapacity)
+	}
+
+	insights := p.Insights
+	if strings.TrimSpace(insights.JoinTradesSubject) == "" {
+		return problem.New(codeInvalid, "processor.insights.join_trades_subject must not be empty")
+	}
+	if insights.MaxInstruments <= 0 {
+		return problem.Newf(codeInvalid, "processor.insights.max_instruments must be > 0, got %d", insights.MaxInstruments)
+	}
+	ttl, err := time.ParseDuration(insights.TTL)
+	if err != nil || ttl <= 0 {
+		return problem.Newf(codeInvalid, "processor.insights.ttl must be > 0 duration, got %q", insights.TTL)
+	}
+	if insights.SweepEveryN < 0 {
+		return problem.Newf(codeInvalid, "processor.insights.sweep_every_n must be >= 0, got %d", insights.SweepEveryN)
+	}
+	if strings.TrimSpace(insights.SweepEvery) != "" {
+		d, err := time.ParseDuration(insights.SweepEvery)
+		if err != nil || d < 0 {
+			return problem.Newf(codeInvalid, "processor.insights.sweep_every must be >= 0 duration, got %q", insights.SweepEvery)
+		}
+	}
+	if insights.MinVenues < 2 {
+		return problem.Newf(codeInvalid, "processor.insights.min_venues must be >= 2, got %d", insights.MinVenues)
+	}
+	if insights.MinSpreadBPS < 0 || math.IsNaN(insights.MinSpreadBPS) || math.IsInf(insights.MinSpreadBPS, 0) {
+		return problem.Newf(codeInvalid, "processor.insights.min_spread_bps must be a finite number >= 0, got %v", insights.MinSpreadBPS)
+	}
+	switch strings.ToLower(strings.TrimSpace(insights.RoundingMode)) {
+	case "", "half_even", "floor":
+	default:
+		return problem.Newf(codeInvalid, "processor.insights.rounding_mode must be half_even|floor, got %q", insights.RoundingMode)
+	}
+	return nil
+}
+
 // applyDefaults fills zero-value fields with safe defaults.
 // It is idempotent: calling it multiple times has no additional effect.
 func applyDefaults(c *AppConfig) {
@@ -486,6 +529,32 @@ func applyDefaults(c *AppConfig) {
 	if c.Processor.BusCapacity == 0 {
 		c.Processor.BusCapacity = 1024
 	}
+	if c.Processor.Insights.JoinTradesSubject == "" {
+		c.Processor.Insights.JoinTradesSubject = "marketdata.trade.v1.>"
+	}
+	if c.Processor.Insights.MaxInstruments == 0 {
+		c.Processor.Insights.MaxInstruments = 10_000
+	}
+	if c.Processor.Insights.TTL == "" {
+		c.Processor.Insights.TTL = "1h"
+	}
+	if c.Processor.Insights.SweepEveryN == 0 && strings.TrimSpace(c.Processor.Insights.SweepEvery) == "" {
+		c.Processor.Insights.SweepEveryN = 1024
+	}
+	if c.Processor.Insights.SweepEvery == "" {
+		c.Processor.Insights.SweepEvery = "30s"
+	}
+	if c.Processor.Insights.MinVenues == 0 {
+		c.Processor.Insights.MinVenues = 2
+	}
+	if c.Processor.Insights.RoundingMode == "" {
+		c.Processor.Insights.RoundingMode = "half_even"
+	}
+	c.Processor.Insights.JoinTradesSubject = strings.TrimSpace(c.Processor.Insights.JoinTradesSubject)
+	c.Processor.Insights.SnapshotSubjectPrefix = strings.TrimSpace(c.Processor.Insights.SnapshotSubjectPrefix)
+	c.Processor.Insights.TTL = strings.TrimSpace(c.Processor.Insights.TTL)
+	c.Processor.Insights.SweepEvery = strings.TrimSpace(c.Processor.Insights.SweepEvery)
+	c.Processor.Insights.RoundingMode = strings.ToLower(strings.TrimSpace(c.Processor.Insights.RoundingMode))
 }
 
 func normalizeConsumerExchanges(c *ConsumerConfig) {

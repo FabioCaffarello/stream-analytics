@@ -96,6 +96,9 @@ func TestMetricsNamesPresent(t *testing.T) {
 	IncReplayMessages("jetstream", "ok")
 	ObserveReplayLatency("jetstream", 4*time.Millisecond)
 	IncReplayRedeliveries("jetstream")
+	IncInsightsSnapshots(2)
+	SetInsightsStateInstrumentsActive(3)
+	IncInsightsStateEvictions("ttl")
 
 	mfs, err := Registry().Gather()
 	if err != nil {
@@ -119,6 +122,9 @@ func TestMetricsNamesPresent(t *testing.T) {
 		"replay_messages_total",
 		"replay_latency_seconds",
 		"replay_redeliveries_total",
+		"insights_snapshots_total",
+		"insights_state_instruments_active",
+		"insights_state_evictions_total",
 		"guardian_rate_limited_total",
 		"process_heap_alloc_bytes",
 	} {
@@ -126,4 +132,32 @@ func TestMetricsNamesPresent(t *testing.T) {
 			t.Fatalf("expected metric %s in registry", want)
 		}
 	}
+}
+
+func TestInsightsSnapshotBucketsBounded(t *testing.T) {
+	before := insightsSnapshotSeriesCount(t)
+	for i := 1; i <= 512; i++ {
+		IncInsightsSnapshots(i)
+	}
+	after := insightsSnapshotSeriesCount(t)
+	if growth := after - before; growth > 4 {
+		t.Fatalf("expected bounded insights_snapshots_total cardinality growth <= 4, got %d", growth)
+	}
+}
+
+func insightsSnapshotSeriesCount(t *testing.T) int {
+	t.Helper()
+
+	mfs, err := Registry().Gather()
+	if err != nil {
+		t.Fatalf("gather metrics: %v", err)
+	}
+	for _, mf := range mfs {
+		if mf.GetName() == "insights_snapshots_total" {
+			return len(mf.GetMetric())
+		}
+	}
+
+	t.Fatal("insights_snapshots_total metric family not found")
+	return 0
 }

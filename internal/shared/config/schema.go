@@ -196,6 +196,38 @@ type ReplayJetStreamConfig struct {
 type ProcessorConfig struct {
 	// BusCapacity is the channel buffer size for the in-memory event bus.  Default: 1024.
 	BusCapacity int `json:"bus_capacity"`
+	// Insights controls optional processor-side insight derivations.
+	Insights ProcessorInsightsConfig `json:"insights"`
+}
+
+// ProcessorInsightsConfig controls optional cross-venue join derivation in processor runtime.
+type ProcessorInsightsConfig struct {
+	// EnableCrossVenueJoin toggles cross-venue trade join processing.
+	EnableCrossVenueJoin bool `json:"enable_crossvenue_join"`
+	// EnableSpreadSignal toggles optional spread-signal emission.
+	EnableSpreadSignal bool `json:"enable_spread_signal"`
+	// JoinTradesSubject is the JetStream filter subject required when join is enabled.
+	JoinTradesSubject string `json:"join_trades_subject"`
+	// SnapshotSubjectPrefix optionally overrides publish subject prefix for snapshots.
+	// Empty means default SubjectFromEnvelope output.
+	SnapshotSubjectPrefix string `json:"snapshot_subject_prefix"`
+	// MaxInstruments bounds tracked instruments in join state.
+	MaxInstruments int `json:"max_instruments"`
+	// TTL is per-instrument state lifetime.
+	TTL string `json:"ttl"`
+	// SweepEveryN triggers one explicit TTL sweep every N join updates.
+	// When >0, it takes precedence over SweepEvery.
+	SweepEveryN int `json:"sweep_every_n"`
+	// SweepEvery triggers one explicit TTL sweep by elapsed time.
+	// Used only when SweepEveryN==0.
+	SweepEvery string `json:"sweep_every"`
+	// MinVenues is the minimum venue count required to emit spread-signal events.
+	MinVenues int `json:"min_venues"`
+	// MinSpreadBPS is the minimum spread threshold required to emit spread-signal events.
+	MinSpreadBPS float64 `json:"min_spread_bps"`
+	// RoundingMode controls deterministic spread rounding.
+	// Supported: half_even (default) | floor.
+	RoundingMode string `json:"rounding_mode"`
 }
 
 // ReadTimeout parses and returns HTTPConfig.ReadTimeout as a time.Duration.
@@ -264,6 +296,20 @@ func (r ReplayJetStreamConfig) WindowDuration() time.Duration {
 		return 0
 	}
 	return mustParseDuration(r.Window)
+}
+
+// TTLDuration parses and returns ProcessorInsightsConfig.TTL.
+func (i ProcessorInsightsConfig) TTLDuration() time.Duration {
+	return mustParseDuration(i.TTL)
+}
+
+// SweepEveryDuration parses and returns ProcessorInsightsConfig.SweepEvery.
+// Empty values are interpreted as disabled (0).
+func (i ProcessorInsightsConfig) SweepEveryDuration() time.Duration {
+	if strings.TrimSpace(i.SweepEvery) == "" {
+		return 0
+	}
+	return mustParseDuration(i.SweepEvery)
 }
 
 func mustParseDuration(s string) time.Duration {

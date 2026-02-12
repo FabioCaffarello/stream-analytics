@@ -43,3 +43,26 @@ func TestMustParseDuration_PanicsOnInvalid(t *testing.T) {
 	c := ConsumerConfig{MaxWebsocketLifetime: "invalid"}
 	_ = c.MaxWebsocketLifetimeDuration()
 }
+
+func TestProcessorInsightsSweepEveryDuration_EmptyIsZero(t *testing.T) {
+	cfg := ProcessorInsightsConfig{}
+	if got := cfg.SweepEveryDuration(); got != 0 {
+		t.Fatalf("SweepEveryDuration=%s want=0", got)
+	}
+}
+
+func TestProcessorInsightsDefaultsAndDurationHelpers(t *testing.T) {
+	cfg, prob := Load("")
+	if prob != nil {
+		t.Fatalf("Load defaults failed: %v", prob)
+	}
+	if got := cfg.Processor.Insights.TTLDuration().String(); got != "1h0m0s" {
+		t.Fatalf("TTLDuration=%s want=1h0m0s", got)
+	}
+	if cfg.Processor.Insights.MinVenues != 2 {
+		t.Fatalf("MinVenues=%d want=2", cfg.Processor.Insights.MinVenues)
+	}
+	if cfg.Processor.Insights.RoundingMode != "half_even" {
+		t.Fatalf("RoundingMode=%q want=half_even", cfg.Processor.Insights.RoundingMode)
+	}
+}

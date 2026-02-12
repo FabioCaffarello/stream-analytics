@@ -30,6 +30,19 @@
     // "publish_content_type": "application/protobuf"
   },
   "processor": {
-    "bus_capacity": 1024
+    "bus_capacity": 1024,
+    "insights": {
+      "enable_crossvenue_join": false,
+      "join_trades_subject": "marketdata.trade.v1.>",
+      "snapshot_subject_prefix": "",
+      "max_instruments": 10000,
+      "ttl": "1h",
+      "enable_spread_signal": false,
+      "min_venues": 2,
+      "min_spread_bps": 0,
+      "rounding_mode": "half_even",
+      "sweep_every_n": 1024,
+      "sweep_every": "30s"
+    }
   }
 }

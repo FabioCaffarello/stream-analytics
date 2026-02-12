@@ -8,6 +8,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/market-raccoon/internal/core/aggregation v0.0.0
 	github.com/market-raccoon/internal/core/delivery v0.0.0
+	github.com/market-raccoon/internal/core/insights v0.0.0
 	github.com/market-raccoon/internal/core/marketdata v0.0.0
 	github.com/market-raccoon/internal/shared v0.0.0
 )
@@ -30,6 +31,7 @@ require (
 replace (
 	github.com/market-raccoon/internal/core/aggregation => ../core/aggregation
 	github.com/market-raccoon/internal/core/delivery => ../core/delivery
+	github.com/market-raccoon/internal/core/insights => ../core/insights
 	github.com/market-raccoon/internal/core/marketdata => ../core/marketdata
 	github.com/market-raccoon/internal/shared => ../shared
 )

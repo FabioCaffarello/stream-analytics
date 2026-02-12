@@ -235,6 +235,26 @@ var (
 		},
 		[]string{"reason"},
 	)
+	InsightsSnapshotsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "insights_snapshots_total",
+			Help: "Total cross-venue insight snapshots emitted by bounded venue-count bucket.",
+		},
+		[]string{"venue_count_bucket"},
+	)
+	InsightsStateInstrumentsActive = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "insights_state_instruments_active",
+			Help: "Number of active instrument states in cross-venue join cache.",
+		},
+	)
+	InsightsStateEvictionsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "insights_state_evictions_total",
+			Help: "Total cross-venue join cache evictions by reason.",
+		},
+		[]string{"reason"},
+	)
 )
 
 var (
@@ -288,6 +308,9 @@ func registerAll() {
 			AggregationBooksActive,
 			StreamsEvictedTotal,
 			BooksEvictedTotal,
+			InsightsSnapshotsTotal,
+			InsightsStateInstrumentsActive,
+			InsightsStateEvictionsTotal,
 		)
 
 		// Pre-create one series for vector metrics so /metrics exposition is stable
@@ -314,6 +337,11 @@ func registerAll() {
 		GuardianRestartsTotal.WithLabelValues("unknown", "unknown")
 		GuardianDegradedTotal.WithLabelValues("unknown")
 		GuardianSubsystemState.WithLabelValues("unknown")
+		InsightsSnapshotsTotal.WithLabelValues("2")
+		InsightsSnapshotsTotal.WithLabelValues("3_4")
+		InsightsSnapshotsTotal.WithLabelValues("5_8")
+		InsightsSnapshotsTotal.WithLabelValues("9_plus")
+		InsightsStateEvictionsTotal.WithLabelValues("unknown")
 	})
 }
 
@@ -435,6 +463,21 @@ func IncStreamsEvicted(reason string) {
 
 func IncBooksEvicted(reason string) {
 	BooksEvictedTotal.WithLabelValues(sanitizeReason(reason)).Inc()
+}
+
+func IncInsightsSnapshots(venueCount int) {
+	InsightsSnapshotsTotal.WithLabelValues(bucketVenueCount(venueCount)).Inc()
+}
+
+func SetInsightsStateInstrumentsActive(active float64) {
+	if active < 0 {
+		active = 0
+	}
+	InsightsStateInstrumentsActive.Set(active)
+}
+
+func IncInsightsStateEvictions(reason string) {
+	InsightsStateEvictionsTotal.WithLabelValues(sanitizeReason(reason)).Inc()
 }
 
 type busObserver struct{}
@@ -627,5 +670,18 @@ func bucketSubscriberID(subscriberIndex int) string {
 		return "s64_255"
 	default:
 		return "s256_plus"
+	}
+}
+
+func bucketVenueCount(venueCount int) string {
+	switch {
+	case venueCount <= 2:
+		return "2"
+	case venueCount <= 4:
+		return "3_4"
+	case venueCount <= 8:
+		return "5_8"
+	default:
+		return "9_plus"
 	}
 }

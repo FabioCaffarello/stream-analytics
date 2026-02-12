@@ -3,6 +3,7 @@ module github.com/market-raccoon/internal/shared
 go 1.25.6
 
 require (
+	github.com/market-raccoon/internal/core/insights v0.0.0
 	github.com/market-raccoon/internal/core/marketdata v0.0.0
 	github.com/prometheus/client_golang v1.18.0
 	google.golang.org/protobuf v1.36.11
@@ -19,4 +20,7 @@ require (
 	golang.org/x/sys v0.15.0 // indirect
 )
 
-replace github.com/market-raccoon/internal/core/marketdata => ../core/marketdata
+replace (
+	github.com/market-raccoon/internal/core/insights => ../core/insights
+	github.com/market-raccoon/internal/core/marketdata => ../core/marketdata
+)

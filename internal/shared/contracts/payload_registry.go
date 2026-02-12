@@ -24,6 +24,10 @@ func BootstrapPayloadCodecRegistry() *problem.Problem {
 			payloadRegistryErr = p
 			return
 		}
+		if p := RegisterInsightsPayloadV1(reg); p != nil {
+			payloadRegistryErr = p
+			return
+		}
 		payloadRegistryErr = codec.SetPayloadRegistry(reg)
 	})
 	return payloadRegistryErr
@@ -84,7 +88,6 @@ func RegisterMarketDataPayloadV1(reg *codec.Registry) *problem.Problem {
 	); p != nil {
 		return p
 	}
-
 	return nil
 }
 

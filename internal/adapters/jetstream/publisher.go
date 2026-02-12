@@ -16,9 +16,11 @@ import (
 const (
 	defaultPublishTimeout = 5 * time.Second
 	defaultCloseTimeout   = 2 * time.Second
-	subjectWildcard       = "marketdata.>"
+	subjectPrefixMetaKey  = "subject_prefix"
 	busTypeJetStream      = "jetstream"
 )
+
+var subjectWildcards = []string{"marketdata.>", "insights.>"}
 
 // PublisherConfig defines JetStream publisher runtime behavior.
 type PublisherConfig struct {
@@ -80,7 +82,7 @@ func NewPublisher(ctx context.Context, cfg PublisherConfig, observer observabili
 
 // Publish marshals envelope and publishes it to JetStream with NATS Msg-ID.
 func (p *Publisher) Publish(ctx context.Context, env envelope.Envelope) *problem.Problem {
-	subject := envelope.SubjectFromEnvelope(env)
+	subject := subjectFromEnvelopeWithPrefix(env)
 	data, prob := envelope.MarshalBinary(env)
 	if prob != nil {
 		p.observer.IncPublishError("validation")
@@ -197,4 +199,26 @@ func wrapUnavailable(kind string, err error, msg string) *problem.Problem {
 
 func (p *Publisher) String() string {
 	return fmt.Sprintf("jetstream publisher(stream=%s url=%s)", p.cfg.StreamName, p.cfg.URL)
+}
+
+func subjectFromEnvelopeWithPrefix(env envelope.Envelope) string {
+	base := envelope.SubjectFromEnvelope(env)
+	if len(env.Meta) == 0 {
+		return base
+	}
+	prefix := strings.TrimSpace(env.Meta[subjectPrefixMetaKey])
+	if prefix == "" {
+		return base
+	}
+
+	parts := strings.Split(base, ".")
+	if len(parts) < 4 {
+		return base
+	}
+	prefix = strings.Trim(strings.TrimSpace(prefix), ".")
+	if prefix == "" {
+		return base
+	}
+	suffix := strings.Join(parts[len(parts)-2:], ".")
+	return prefix + "." + suffix
 }

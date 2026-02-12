@@ -249,3 +249,137 @@ make audit-core-purity  # grep for exchange names in core
 | Goroutine stability | Δ ≤ 5 in 30min | pprof goroutine |
 | Heap stability | Growth < 10% in 30min | pprof heap |
 | Shutdown | < 10s | SIGTERM → exit timer |
+
+---
+
+## W10-1.1 Hardening Evidence
+
+**Date:** 2026-02-12
+
+### Scope Proven
+
+- Throttled explicit TTL sweeping added to cross-venue join state:
+  - `processor.insights.sweep_every_n` (default `1024`)
+  - `processor.insights.sweep_every` (default `30s`)
+  - precedence: `sweep_every_n > 0` uses N-based cadence; when `sweep_every_n == 0`, duration cadence applies; `0` duration disables explicit sweep.
+- Deterministic tie-break in join state update:
+  - higher `seq`
+  - then higher `ts_ingest`
+  - then higher `ts_exchange`
+- Bounded insights metrics (no instrument labels):
+  - `insights_snapshots_total{venue_count_bucket}`
+  - `insights_state_instruments_active`
+  - `insights_state_evictions_total{reason}`
+- Opt-in processor E2E gate for insights snapshot emission in test mode.
+
+### Commands + Outputs
+
+```bash
+go test ./...
+# module: internal/core/insights
+ok  	github.com/market-raccoon/internal/core/insights/app
+ok  	github.com/market-raccoon/internal/core/insights/domain
+```
+
+```bash
+go test ./...
+# module: internal/shared
+ok  	github.com/market-raccoon/internal/shared/config
+ok  	github.com/market-raccoon/internal/shared/contracts
+ok  	github.com/market-raccoon/internal/shared/metrics
+... (all packages green)
+```
+
+```bash
+go test ./...
+# module: internal/actors
+ok  	github.com/market-raccoon/internal/actors/aggregation/runtime
+... (all packages green)
+```
+
+```bash
+go test -tags integration ./internal/adapters/jetstream -run TestE2EProcessorJetStream_CrossVenueJoinOptIn -count=1
+ok  	github.com/market-raccoon/internal/adapters/jetstream	5.007s
+```
+
+```bash
+go test -tags integration ./internal/adapters/jetstream -run TestE2EProcessorJetStream -count=1
+ok  	github.com/market-raccoon/internal/adapters/jetstream	14.229s
+```
+
+```bash
+make test-workspace GO_TEST_FLAGS='-race'
+# PASS across workspace modules (consumer, actors, adapters, core/*, interfaces, shared)
+```
+
+```bash
+GOSUMDB=off pre-commit run -a
+check yaml...............................................................Passed
+fix end of files.........................................................Passed
+trim trailing whitespace.................................................Passed
+check for merge conflicts................................................Passed
+go tidy check............................................................Passed
+go fmt check.............................................................Passed
+go lint..................................................................Passed
+go test short............................................................Passed
+```
+
+## W10-2 Spread Metrics + Signal Evidence
+
+**Date:** 2026-02-12
+
+### Scope Proven
+
+- `insights.crossvenue.trade_snapshot` v1 now includes deterministic derived spread fields:
+  - `min_price`, `min_price_venue`
+  - `max_price`, `max_price_venue`
+  - `spread_abs`, `spread_bps`, `mid_price`
+- Optional event added:
+  - `insights.crossvenue.spread_signal` v1
+  - emitted only when:
+    - `processor.insights.enable_spread_signal=true`
+    - joined venues `>= processor.insights.min_venues`
+    - `spread_bps >= processor.insights.min_spread_bps`
+- Deterministic rounding mode added and documented:
+  - `processor.insights.rounding_mode`: `half_even` (default) | `floor`
+- Runtime remains opt-in:
+  - default behavior unchanged (`enable_crossvenue_join=false`, `enable_spread_signal=false`)
+- JSON codec registry includes snapshot + spread signal payloads (proto remains deferred for insights).
+
+### Commands + Outputs
+
+```bash
+go test ./internal/core/insights/...
+ok  	github.com/market-raccoon/internal/core/insights/app
+ok  	github.com/market-raccoon/internal/core/insights/domain
+```
+
+```bash
+go test ./internal/shared/config ./internal/shared/contracts ./internal/shared/codec ./internal/actors/aggregation/runtime
+ok  	github.com/market-raccoon/internal/shared/config
+ok  	github.com/market-raccoon/internal/shared/contracts
+ok  	github.com/market-raccoon/internal/shared/codec
+ok  	github.com/market-raccoon/internal/actors/aggregation/runtime
+```
+
+```bash
+go test -tags integration ./internal/adapters/jetstream -run TestE2EProcessorJetStream_CrossVenueJoinOptIn -count=1
+ok  	github.com/market-raccoon/internal/adapters/jetstream	4.690s
+```
+
+```bash
+make test-workspace GO_TEST_FLAGS='-race'
+# PASS across workspace modules (consumer, actors, adapters, core/*, interfaces, shared)
+```
+
+```bash
+pre-commit run -a
+check yaml...............................................................Passed
+fix end of files.........................................................Passed
+trim trailing whitespace.................................................Passed
+check for merge conflicts................................................Passed
+go tidy check............................................................Passed
+go fmt check.............................................................Passed
+go lint..................................................................Passed
+go test short............................................................Passed
+```

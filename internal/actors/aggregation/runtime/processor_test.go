@@ -11,8 +11,11 @@ import (
 	actorruntime "github.com/market-raccoon/internal/actors/runtime"
 	aggapp "github.com/market-raccoon/internal/core/aggregation/app"
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
+	insightsapp "github.com/market-raccoon/internal/core/insights/app"
+	insightsdomain "github.com/market-raccoon/internal/core/insights/domain"
 	mddomain "github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/shared/codec"
+	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/problem"
 )
@@ -47,6 +50,38 @@ type noopStore struct{}
 
 func (n *noopStore) Save(_ context.Context, _ aggdomain.SnapshotProduced) *problem.Problem {
 	return nil
+}
+
+type spyEnvelopePublisher struct {
+	mu   sync.Mutex
+	envs []envelope.Envelope
+}
+
+func (s *spyEnvelopePublisher) Publish(_ context.Context, env envelope.Envelope) *problem.Problem {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.envs = append(s.envs, env)
+	return nil
+}
+
+func (s *spyEnvelopePublisher) count() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.envs)
+}
+
+func (s *spyEnvelopePublisher) last() envelope.Envelope {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.envs[len(s.envs)-1]
+}
+
+func (s *spyEnvelopePublisher) all() []envelope.Envelope {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]envelope.Envelope, len(s.envs))
+	copy(out, s.envs)
+	return out
 }
 
 // ---------------------------------------------------------------------------
@@ -98,6 +133,34 @@ func makeRawEnvelope(venue, instrument string, seq int64) envelope.Envelope {
 		TsIngest:       time.Now().UnixMilli(),
 		IdempotencyKey: "test-raw",
 		Payload:        []byte(`{"data":"aGVsbG8="}`),
+	}
+}
+
+func makeTradeEnvelope(venue, instrument string, seq, tsIngest int64, price float64, side, tradeID string) envelope.Envelope {
+	payload, p := codec.EncodePayload("marketdata.trade", 1, envelope.ContentTypeJSON, mddomain.TradeTickV1{
+		Price:     price,
+		Size:      1.0,
+		Side:      side,
+		TradeID:   tradeID,
+		Timestamp: tsIngest - 10,
+	})
+	if p != nil {
+		panic("test: failed to encode TradeTickV1: " + p.Message)
+	}
+	return envelope.Envelope{
+		Type:           "marketdata.trade",
+		Version:        1,
+		Venue:          venue,
+		Instrument:     instrument,
+		TsExchange:     tsIngest - 10,
+		TsIngest:       tsIngest,
+		Seq:            seq,
+		IdempotencyKey: "trade-idem-" + tradeID,
+		ContentType:    envelope.ContentTypeJSON,
+		Meta: map[string]string{
+			"instrument_market_type": "SPOT",
+		},
+		Payload: payload,
 	}
 }
 
@@ -349,6 +412,156 @@ func TestProcessor_NilChannel_idle(t *testing.T) {
 	e := newEngine(t)
 	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
 	time.Sleep(30 * time.Millisecond)
+	<-e.Poison(pid).Done()
+}
+
+func TestProcessor_TradeEnvelopeWithoutJoin_ProducesValidationProblem(t *testing.T) {
+	if p := contracts.BootstrapPayloadCodecRegistry(); p != nil {
+		t.Fatalf("BootstrapPayloadCodecRegistry: %v", p)
+	}
+
+	pub := &spyArtifactPublisher{}
+	updateBook := newUpdateBook(pub)
+
+	ch := make(chan envelope.Envelope, 8)
+	resultCh := make(chan aggruntime.EnvelopeProcessResult, 1)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh: ch,
+		UpdateBook: updateBook,
+		OnEnvelopeProcessed: func(res aggruntime.EnvelopeProcessResult) {
+			resultCh <- res
+		},
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+
+	ch <- makeTradeEnvelope("BINANCE", "BTCUSDT", 1, 1000, 100.5, "buy", "trade-1")
+	select {
+	case res := <-resultCh:
+		if res.Problem == nil {
+			t.Fatal("expected problem for trade type when join is disabled")
+		}
+		if res.Problem.Code != problem.ValidationFailed {
+			t.Fatalf("problem code=%s want=%s", res.Problem.Code, problem.ValidationFailed)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for callback result")
+	}
+
+	<-e.Poison(pid).Done()
+}
+
+func TestProcessor_TradeJoinEnabled_PublishesCrossVenueSnapshot(t *testing.T) {
+	if p := contracts.BootstrapPayloadCodecRegistry(); p != nil {
+		t.Fatalf("BootstrapPayloadCodecRegistry: %v", p)
+	}
+
+	pub := &spyArtifactPublisher{}
+	updateBook := newUpdateBook(pub)
+	outPublisher := &spyEnvelopePublisher{}
+	joinUC := insightsapp.NewJoinCrossVenueTrades()
+
+	ch := make(chan envelope.Envelope, 8)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh:            ch,
+		UpdateBook:            updateBook,
+		JoinTrades:            joinUC,
+		PublishEnvelope:       outPublisher,
+		SnapshotSubjectPrefix: "",
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+
+	ch <- makeTradeEnvelope("BINANCE", "BTCUSDT", 1, 1000, 100.5, "buy", "trade-1")
+	ch <- makeTradeEnvelope("BYBIT", "BTCUSDT", 1, 1010, 100.7, "sell", "trade-2")
+
+	waitFor(t, 2*time.Second, func() bool { return outPublisher.count() == 1 })
+
+	out := outPublisher.last()
+	if out.Type != insightsdomain.CrossVenueTradeSnapshotType {
+		t.Fatalf("snapshot type=%q want=%q", out.Type, insightsdomain.CrossVenueTradeSnapshotType)
+	}
+	if out.Venue != insightsdomain.CrossVenueSnapshotVenue {
+		t.Fatalf("snapshot venue=%q want=%q", out.Venue, insightsdomain.CrossVenueSnapshotVenue)
+	}
+	if out.ContentType != envelope.ContentTypeJSON {
+		t.Fatalf("snapshot content_type=%q want=%q", out.ContentType, envelope.ContentTypeJSON)
+	}
+
+	decoded, p := codec.DecodePayload(out.Type, out.Version, out.ContentType, out.Payload)
+	if p != nil {
+		t.Fatalf("decode snapshot payload: %v", p)
+	}
+	snap, ok := decoded.(insightsdomain.CrossVenueTradeSnapshotV1)
+	if !ok {
+		t.Fatalf("snapshot payload type=%T want %T", decoded, insightsdomain.CrossVenueTradeSnapshotV1{})
+	}
+	if len(snap.Venues) != 2 {
+		t.Fatalf("snapshot venues=%d want=2", len(snap.Venues))
+	}
+	if snap.Venues[0].Venue != "BINANCE" || snap.Venues[1].Venue != "BYBIT" {
+		t.Fatalf("snapshot venues order=%q,%q want BINANCE,BYBIT", snap.Venues[0].Venue, snap.Venues[1].Venue)
+	}
+
+	<-e.Poison(pid).Done()
+}
+
+func TestProcessor_TradeJoinEnabledWithSpreadSignal_PublishesSignalEnvelope(t *testing.T) {
+	if p := contracts.BootstrapPayloadCodecRegistry(); p != nil {
+		t.Fatalf("BootstrapPayloadCodecRegistry: %v", p)
+	}
+
+	pub := &spyArtifactPublisher{}
+	updateBook := newUpdateBook(pub)
+	outPublisher := &spyEnvelopePublisher{}
+	joinUC := insightsapp.NewJoinCrossVenueTradesWithConfig(insightsapp.JoinCrossVenueTradesConfig{
+		EnableSpreadSignal: true,
+		MinVenues:          2,
+		MinSpreadBPS:       5,
+		RoundingMode:       "half_even",
+	})
+
+	ch := make(chan envelope.Envelope, 8)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh:      ch,
+		UpdateBook:      updateBook,
+		JoinTrades:      joinUC,
+		PublishEnvelope: outPublisher,
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+
+	ch <- makeTradeEnvelope("BINANCE", "BTCUSDT", 1, 1000, 100.0, "buy", "trade-1")
+	ch <- makeTradeEnvelope("BYBIT", "BTCUSDT", 1, 1010, 100.2, "sell", "trade-2")
+
+	waitFor(t, 2*time.Second, func() bool { return outPublisher.count() == 2 })
+
+	published := outPublisher.all()
+	if published[0].Type != insightsdomain.CrossVenueTradeSnapshotType {
+		t.Fatalf("first published type=%q want=%q", published[0].Type, insightsdomain.CrossVenueTradeSnapshotType)
+	}
+	if published[1].Type != insightsdomain.CrossVenueSpreadSignalType {
+		t.Fatalf("second published type=%q want=%q", published[1].Type, insightsdomain.CrossVenueSpreadSignalType)
+	}
+
+	decoded, p := codec.DecodePayload(published[1].Type, published[1].Version, published[1].ContentType, published[1].Payload)
+	if p != nil {
+		t.Fatalf("decode spread signal payload: %v", p)
+	}
+	signal, ok := decoded.(insightsdomain.CrossVenueSpreadSignalV1)
+	if !ok {
+		t.Fatalf("spread signal payload type=%T want %T", decoded, insightsdomain.CrossVenueSpreadSignalV1{})
+	}
+	if signal.Instrument != "BTCUSDT" {
+		t.Fatalf("signal instrument=%q want BTCUSDT", signal.Instrument)
+	}
+	if signal.SpreadBps < 5 {
+		t.Fatalf("signal spread_bps=%f want >= 5", signal.SpreadBps)
+	}
+
 	<-e.Poison(pid).Done()
 }
 

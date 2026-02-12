@@ -379,7 +379,7 @@ func withReplaySourceDefaults(cfg ReplaySourceConfig) ReplaySourceConfig {
 	cfg.MaxAckPending = base.MaxAckPending
 	cfg.MaxDeliver = base.MaxDeliver
 	if strings.TrimSpace(cfg.SubjectFilter) == "" {
-		cfg.SubjectFilter = subjectWildcard
+		cfg.SubjectFilter = subjectWildcards[0]
 	}
 	if strings.TrimSpace(cfg.ConsumerDurable) == "" {
 		cfg.ConsumerDurable = defaultReplayConsumerDurable

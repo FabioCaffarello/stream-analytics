@@ -116,6 +116,44 @@ func TestE2EProcessorJetStream(t *testing.T) {
 	}
 }
 
+func TestE2EProcessorJetStream_CrossVenueJoinOptIn(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	natsURL, cleanup := startJetStreamNATS(t)
+	defer cleanup()
+
+	repoRoot := findRepoRoot(t)
+	processorBin := buildProcessorBinary(t, ctx, repoRoot)
+
+	const durableName = "processor-e2e-join-v1"
+	metricsAddr := reserveLocalAddr(t)
+	configPath := writeProcessorConfigWithJoin(t, natsURL, durableName, true)
+
+	proc := startProcessorProcessWithEnv(t, ctx, repoRoot, processorBin, configPath, metricsAddr, map[string]string{
+		"E2E_INJECT_JOIN_FIXTURE": "1",
+		"E2E_JOIN_INSTRUMENT":     "E2E-JOIN",
+	})
+	defer proc.forceStop()
+	waitReady(t, ctx, proc, metricsAddr)
+
+	waitMetricAtLeast(t, ctx, proc, metricsAddr, "insights_snapshots_total", map[string]string{
+		"venue_count_bucket": "2",
+	}, 1)
+	waitMetricAtLeast(t, ctx, proc, metricsAddr, "insights_state_instruments_active", map[string]string{}, 1)
+
+	count := consumeCount(t, natsURL, "MARKETDATA", "insights.crossvenue.trade_snapshot.v1.>", 1, 10*time.Second)
+	if count < 1 {
+		proc.dumpLogs(t)
+		t.Fatalf("expected at least one insights snapshot, got %d", count)
+	}
+
+	if err := proc.stopGracefully(10 * time.Second); err != nil {
+		proc.dumpLogs(t)
+		t.Fatalf("processor graceful stop failed: %v", err)
+	}
+}
+
 type processorProcess struct {
 	cmd *exec.Cmd
 
@@ -131,6 +169,16 @@ type processorProcess struct {
 
 func startProcessorProcess(t *testing.T, ctx context.Context, repoRoot, binPath, configPath, metricsAddr string) *processorProcess {
 	t.Helper()
+	return startProcessorProcessWithEnv(t, ctx, repoRoot, binPath, configPath, metricsAddr, nil)
+}
+
+func startProcessorProcessWithEnv(
+	t *testing.T,
+	ctx context.Context,
+	repoRoot, binPath, configPath, metricsAddr string,
+	extraEnv map[string]string,
+) *processorProcess {
+	t.Helper()
 
 	p := &processorProcess{
 		done: make(chan error, 1),
@@ -139,12 +187,16 @@ func startProcessorProcess(t *testing.T, ctx context.Context, repoRoot, binPath,
 	cmd.Dir = repoRoot
 	cmd.Stdout = &p.stdout
 	cmd.Stderr = &p.stderr
-	cmd.Env = append(os.Environ(),
+	env := append(os.Environ(),
 		"E2E_TEST_MODE=1",
 		"E2E_HTTP_ADDR="+metricsAddr,
 		"E2E_TRANSIENT_INSTRUMENT=E2E-TRANSIENT",
 		"E2E_TRANSIENT_FAILS=2",
 	)
+	for key, val := range extraEnv {
+		env = append(env, key+"="+val)
+	}
+	cmd.Env = env
 	p.cmd = cmd
 
 	if err := cmd.Start(); err != nil {
@@ -437,6 +489,41 @@ func buildProcessorBinary(t *testing.T, ctx context.Context, repoRoot string) st
 
 func writeProcessorConfig(t *testing.T, natsURL, durable string) string {
 	t.Helper()
+	return writeProcessorConfigWithJoin(t, natsURL, durable, false)
+}
+
+func writeProcessorConfigWithJoin(t *testing.T, natsURL, durable string, enableJoin bool) string {
+	t.Helper()
+
+	insightsJSON := `"insights": {
+      "enable_crossvenue_join": false,
+      "enable_spread_signal": false,
+      "join_trades_subject": "marketdata.trade.v1.>",
+      "snapshot_subject_prefix": "",
+      "max_instruments": 10000,
+      "ttl": "1h",
+      "min_venues": 2,
+      "min_spread_bps": 0,
+      "rounding_mode": "half_even",
+      "sweep_every_n": 1024,
+      "sweep_every": "30s"
+    }`
+	if enableJoin {
+		insightsJSON = `"insights": {
+      "enable_crossvenue_join": true,
+      "enable_spread_signal": false,
+      "join_trades_subject": "marketdata.trade.v1.>",
+      "snapshot_subject_prefix": "insights.crossvenue.trade_snapshot.v1",
+      "max_instruments": 10000,
+      "ttl": "1h",
+      "min_venues": 2,
+      "min_spread_bps": 0,
+      "rounding_mode": "half_even",
+      "sweep_every_n": 1024,
+      "sweep_every": "30s"
+    }`
+	}
+
 	cfg := fmt.Sprintf(`{
   "bus": {"type": "jetstream"},
   "jetstream": {
@@ -454,9 +541,12 @@ func writeProcessorConfig(t *testing.T, natsURL, durable string) string {
   },
   "log": {"level": "debug", "format": "text"},
   "http": {"shutdown_timeout": "3s"},
-  "processor": {"bus_capacity": 1024}
+  "processor": {
+    "bus_capacity": 1024,
+    %s
+  }
 }
-`, natsURL, durable)
+`, natsURL, durable, insightsJSON)
 
 	path := filepath.Join(t.TempDir(), "processor-e2e.json")
 	if err := os.WriteFile(path, []byte(cfg), 0o600); err != nil {

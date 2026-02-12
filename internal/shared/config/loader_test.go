@@ -42,6 +42,17 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 		{name: "marketdata.record_path", got: cfg.MarketData.RecordPath, want: ""},
 		{name: "marketdata.replay_path", got: cfg.MarketData.ReplayPath, want: ""},
 		{name: "processor.bus_capacity", got: cfg.Processor.BusCapacity, want: 1024},
+		{name: "processor.insights.enable_crossvenue_join", got: cfg.Processor.Insights.EnableCrossVenueJoin, want: false},
+		{name: "processor.insights.join_trades_subject", got: cfg.Processor.Insights.JoinTradesSubject, want: "marketdata.trade.v1.>"},
+		{name: "processor.insights.snapshot_subject_prefix", got: cfg.Processor.Insights.SnapshotSubjectPrefix, want: ""},
+		{name: "processor.insights.max_instruments", got: cfg.Processor.Insights.MaxInstruments, want: 10_000},
+		{name: "processor.insights.ttl", got: cfg.Processor.Insights.TTL, want: "1h"},
+		{name: "processor.insights.enable_spread_signal", got: cfg.Processor.Insights.EnableSpreadSignal, want: false},
+		{name: "processor.insights.min_venues", got: cfg.Processor.Insights.MinVenues, want: 2},
+		{name: "processor.insights.min_spread_bps", got: cfg.Processor.Insights.MinSpreadBPS, want: float64(0)},
+		{name: "processor.insights.rounding_mode", got: cfg.Processor.Insights.RoundingMode, want: "half_even"},
+		{name: "processor.insights.sweep_every_n", got: cfg.Processor.Insights.SweepEveryN, want: 1024},
+		{name: "processor.insights.sweep_every", got: cfg.Processor.Insights.SweepEvery, want: "30s"},
 	})
 }
 
@@ -95,7 +106,22 @@ func TestLoad_ValidJSONC_ParsesFields(t *testing.T) {
 			"record_path": "  /tmp/consumer.record.jsonl ",
 			"replay_path": " /tmp/replay.input.jsonl "
 		},
-		"processor": { "bus_capacity": 512 }
+		"processor": {
+			"bus_capacity": 512,
+			"insights": {
+				"enable_crossvenue_join": true,
+				"enable_spread_signal": true,
+				"join_trades_subject": "marketdata.trade.v1.>",
+				"snapshot_subject_prefix": "insights.crossvenue.trade_snapshot.v1",
+				"max_instruments": 4096,
+				"ttl": "45m",
+				"min_venues": 3,
+				"min_spread_bps": 12.5,
+				"rounding_mode": "floor",
+				"sweep_every_n": 0,
+				"sweep_every": "15s"
+			}
+		}
 	}`
 	path := writeTempFile(t, src)
 
@@ -126,6 +152,17 @@ func TestLoad_ValidJSONC_ParsesFields(t *testing.T) {
 		{name: "marketdata.record_path", got: cfg.MarketData.RecordPath, want: "/tmp/consumer.record.jsonl"},
 		{name: "marketdata.replay_path", got: cfg.MarketData.ReplayPath, want: "/tmp/replay.input.jsonl"},
 		{name: "processor.bus_capacity", got: cfg.Processor.BusCapacity, want: 512},
+		{name: "processor.insights.enable_crossvenue_join", got: cfg.Processor.Insights.EnableCrossVenueJoin, want: true},
+		{name: "processor.insights.join_trades_subject", got: cfg.Processor.Insights.JoinTradesSubject, want: "marketdata.trade.v1.>"},
+		{name: "processor.insights.snapshot_subject_prefix", got: cfg.Processor.Insights.SnapshotSubjectPrefix, want: "insights.crossvenue.trade_snapshot.v1"},
+		{name: "processor.insights.max_instruments", got: cfg.Processor.Insights.MaxInstruments, want: 4096},
+		{name: "processor.insights.ttl", got: cfg.Processor.Insights.TTL, want: "45m"},
+		{name: "processor.insights.enable_spread_signal", got: cfg.Processor.Insights.EnableSpreadSignal, want: true},
+		{name: "processor.insights.min_venues", got: cfg.Processor.Insights.MinVenues, want: 3},
+		{name: "processor.insights.min_spread_bps", got: cfg.Processor.Insights.MinSpreadBPS, want: float64(12.5)},
+		{name: "processor.insights.rounding_mode", got: cfg.Processor.Insights.RoundingMode, want: "floor"},
+		{name: "processor.insights.sweep_every_n", got: cfg.Processor.Insights.SweepEveryN, want: 0},
+		{name: "processor.insights.sweep_every", got: cfg.Processor.Insights.SweepEvery, want: "15s"},
 	})
 }
 
@@ -380,6 +417,63 @@ func TestValidate_JetStreamFilterSubjects_Empty(t *testing.T) {
 	prob := cfg.Validate()
 	if prob == nil {
 		t.Fatal("expected validation error for empty jetstream.filter_subjects")
+	}
+}
+
+func TestValidate_ProcessorInsightsInvalidTTL(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Processor.Insights.TTL = "nope"
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for invalid processor.insights.ttl")
+	}
+}
+
+func TestValidate_ProcessorInsightsInvalidMaxInstruments(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Processor.Insights.MaxInstruments = 0
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for invalid processor.insights.max_instruments")
+	}
+}
+
+func TestValidate_ProcessorInsightsInvalidSweepEveryN(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Processor.Insights.SweepEveryN = -1
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for invalid processor.insights.sweep_every_n")
+	}
+}
+
+func TestValidate_ProcessorInsightsInvalidSweepEvery(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Processor.Insights.SweepEveryN = 0
+	cfg.Processor.Insights.SweepEvery = "not-a-duration"
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for invalid processor.insights.sweep_every")
+	}
+}
+
+func TestValidate_ProcessorInsightsInvalidMinVenues(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Processor.Insights.MinVenues = 1
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for invalid processor.insights.min_venues")
+	}
+}
+
+func TestValidate_ProcessorInsightsInvalidMinSpreadBPS(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Processor.Insights.MinSpreadBPS = -1
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for invalid processor.insights.min_spread_bps")
+	}
+}
+
+func TestValidate_ProcessorInsightsInvalidRoundingMode(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Processor.Insights.RoundingMode = "bankers_plus"
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for invalid processor.insights.rounding_mode")
 	}
 }
 

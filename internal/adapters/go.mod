@@ -38,6 +38,7 @@ require (
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/magiconair/properties v1.8.10 // indirect
+	github.com/market-raccoon/internal/core/insights v0.0.0 // indirect
 	github.com/matttproud/golang_protobuf_extensions/v2 v2.0.0 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moby/go-archive v0.1.0 // indirect
@@ -77,6 +78,9 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/market-raccoon/internal/shared => ../shared
+replace (
+	github.com/market-raccoon/internal/core/insights => ../core/insights
+	github.com/market-raccoon/internal/shared => ../shared
+)
 
 replace github.com/market-raccoon/internal/core/marketdata => ../core/marketdata

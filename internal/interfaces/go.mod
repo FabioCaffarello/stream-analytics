@@ -29,6 +29,7 @@ replace (
 	github.com/market-raccoon/internal/actors => ../actors
 	github.com/market-raccoon/internal/core/aggregation => ../core/aggregation
 	github.com/market-raccoon/internal/core/delivery => ../core/delivery
+	github.com/market-raccoon/internal/core/insights => ../core/insights
 	github.com/market-raccoon/internal/core/marketdata => ../core/marketdata
 	github.com/market-raccoon/internal/shared => ../shared
 )

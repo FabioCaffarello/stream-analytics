@@ -32,6 +32,7 @@ replace (
 	github.com/market-raccoon/internal/adapters => ../../internal/adapters
 	github.com/market-raccoon/internal/core/aggregation => ../../internal/core/aggregation
 	github.com/market-raccoon/internal/core/delivery => ../../internal/core/delivery
+	github.com/market-raccoon/internal/core/insights => ../../internal/core/insights
 	github.com/market-raccoon/internal/core/marketdata => ../../internal/core/marketdata
 	github.com/market-raccoon/internal/interfaces => ../../internal/interfaces
 	github.com/market-raccoon/internal/shared => ../../internal/shared

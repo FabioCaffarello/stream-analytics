@@ -9,6 +9,7 @@
 // v1 routing table:
 //
 //	"marketdata.bookdelta" v1 → UpdateOrderBookFromEvents
+//	"marketdata.trade"     v1 → JoinCrossVenueTrades (when configured)
 //	"marketdata.raw"       v1 → skip (no structured payload)
 //	anything else              → log warn + skip
 package aggruntime
@@ -18,20 +19,29 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/anthdm/hollywood/actor"
 	actorruntime "github.com/market-raccoon/internal/actors/runtime"
 	aggapp "github.com/market-raccoon/internal/core/aggregation/app"
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
+	insightsapp "github.com/market-raccoon/internal/core/insights/app"
+	insightsdomain "github.com/market-raccoon/internal/core/insights/domain"
 	mddomain "github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/shared/codec"
 	"github.com/market-raccoon/internal/shared/envelope"
+	sharedhash "github.com/market-raccoon/internal/shared/hash"
 	"github.com/market-raccoon/internal/shared/problem"
 )
 
 const (
 	typeBookDelta = "marketdata.bookdelta"
+	typeTrade     = "marketdata.trade"
 	typeRaw       = "marketdata.raw"
+
+	metaKeyMarketType          = "instrument_market_type"
+	metaKeySubjectPrefix       = "subject_prefix"
+	snapshotDefaultContentType = envelope.ContentTypeJSON
 )
 
 // busClosedMsg is sent by the consume goroutine when the envelope channel
@@ -42,6 +52,11 @@ type busClosedMsg struct{}
 type EnvelopeProcessResult struct {
 	Envelope envelope.Envelope
 	Problem  *problem.Problem
+}
+
+// EventPublisher publishes a canonical envelope to the configured bus adapter.
+type EventPublisher interface {
+	Publish(ctx context.Context, env envelope.Envelope) *problem.Problem
 }
 
 // ProcessorConfig configures the ProcessorSubsystemActor.
@@ -57,6 +72,15 @@ type ProcessorConfig struct {
 	// UpdateBook is the aggregation use case for order book updates.
 	// Required when routing BookDelta envelopes.
 	UpdateBook *aggapp.UpdateOrderBookFromEvents
+
+	// JoinTrades is the optional insights use case for cross-venue trade joins.
+	JoinTrades *insightsapp.JoinCrossVenueTrades
+
+	// PublishEnvelope is required when JoinTrades is enabled.
+	PublishEnvelope EventPublisher
+
+	// SnapshotSubjectPrefix optionally overrides publish subject prefix for insight snapshots.
+	SnapshotSubjectPrefix string
 
 	// OnEnvelopeProcessed is an optional callback invoked after each envelope
 	// processing attempt. It is used by runtime wiring (e.g. JetStream bridge)
@@ -163,6 +187,11 @@ func (p *ProcessorSubsystemActor) handleEnvelope(_ *actor.Context, env envelope.
 	switch env.Type {
 	case typeBookDelta:
 		return p.handleBookDelta(env)
+	case typeTrade:
+		if p.cfg.JoinTrades == nil {
+			return unhandledTypeProblem(env.Type)
+		}
+		return p.handleTrade(env)
 	case typeRaw:
 		p.logger.Debug("aggruntime: skipping raw envelope",
 			"venue", env.Venue,
@@ -171,14 +200,8 @@ func (p *ProcessorSubsystemActor) handleEnvelope(_ *actor.Context, env envelope.
 		)
 		return nil
 	default:
-		p.logger.Warn("aggruntime: unhandled envelope type",
-			"type", env.Type,
-			"version", env.Version,
-		)
-		return problem.WithDetail(
-			problem.Newf(problem.ValidationFailed, "unhandled envelope type %q", env.Type),
-			"type", env.Type,
-		)
+		p.logger.Warn("aggruntime: unhandled envelope type", "type", env.Type, "version", env.Version)
+		return unhandledTypeProblem(env.Type)
 	}
 }
 
@@ -232,6 +255,111 @@ func (p *ProcessorSubsystemActor) handleBookDelta(env envelope.Envelope) *proble
 	return nil
 }
 
+func (p *ProcessorSubsystemActor) handleTrade(env envelope.Envelope) *problem.Problem {
+	if p.cfg.JoinTrades == nil {
+		return problem.New(problem.ValidationFailed, "insights JoinTrades use case is not configured")
+	}
+	if p.cfg.PublishEnvelope == nil {
+		return problem.New(problem.ValidationFailed, "insights PublishEnvelope is not configured")
+	}
+
+	decoded, prob := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
+	if prob != nil {
+		p.logger.Warn("aggruntime: failed to decode trade payload",
+			"venue", env.Venue,
+			"instrument", env.Instrument,
+			"seq", env.Seq,
+			"code", prob.Code,
+			"err", prob.Message,
+		)
+		return prob
+	}
+	trade, ok := decoded.(mddomain.TradeTickV1)
+	if !ok {
+		p.logger.Warn("aggruntime: decoded trade payload has unexpected type",
+			"decoded_type", fmt.Sprintf("%T", decoded),
+		)
+		return problem.WithDetail(
+			problem.Newf(problem.ValidationFailed, "decoded trade payload type mismatch: got %T", decoded),
+			"event_type", env.Type,
+		)
+	}
+
+	req := insightsapp.JoinCrossVenueTradesRequest{
+		Venue:          env.Venue,
+		Instrument:     env.Instrument,
+		MarketType:     envelopeMarketType(env),
+		Price:          trade.Price,
+		Size:           trade.Size,
+		Side:           trade.Side,
+		TradeID:        trade.TradeID,
+		TsExchange:     env.TsExchange,
+		TsIngest:       env.TsIngest,
+		Seq:            env.Seq,
+		IdempotencyKey: env.IdempotencyKey,
+	}
+
+	res := p.cfg.JoinTrades.Execute(context.Background(), req)
+	if res.IsFail() {
+		joinProb := res.Problem()
+		p.logger.Warn("aggruntime: JoinCrossVenueTrades failed",
+			"venue", env.Venue,
+			"instrument", env.Instrument,
+			"seq", env.Seq,
+			"code", joinProb.Code,
+			"retryable", joinProb.Retryable,
+		)
+		return joinProb
+	}
+	if !res.Value().Emitted {
+		return nil
+	}
+
+	outEnv, prob := buildSnapshotEnvelope(env, res.Value().Snapshot, p.cfg.SnapshotSubjectPrefix)
+	if prob != nil {
+		return prob
+	}
+	if prob := p.cfg.PublishEnvelope.Publish(context.Background(), outEnv); prob != nil {
+		p.logger.Warn("aggruntime: publish cross-venue snapshot failed",
+			"instrument", outEnv.Instrument,
+			"seq", outEnv.Seq,
+			"code", prob.Code,
+			"retryable", prob.Retryable,
+		)
+		return prob
+	}
+	p.logger.Debug("aggruntime: cross-venue snapshot published",
+		"instrument", outEnv.Instrument,
+		"market_type", outEnv.Meta[metaKeyMarketType],
+		"watermark_ts_ingest", outEnv.TsIngest,
+		"venues", len(res.Value().Snapshot.Venues),
+	)
+
+	if !res.Value().SignalEmitted {
+		return nil
+	}
+	signalEnv, prob := buildSpreadSignalEnvelope(env, res.Value().SpreadSignal)
+	if prob != nil {
+		return prob
+	}
+	if prob := p.cfg.PublishEnvelope.Publish(context.Background(), signalEnv); prob != nil {
+		p.logger.Warn("aggruntime: publish cross-venue spread signal failed",
+			"instrument", signalEnv.Instrument,
+			"seq", signalEnv.Seq,
+			"code", prob.Code,
+			"retryable", prob.Retryable,
+		)
+		return prob
+	}
+	p.logger.Debug("aggruntime: cross-venue spread signal published",
+		"instrument", signalEnv.Instrument,
+		"market_type", signalEnv.Meta[metaKeyMarketType],
+		"watermark_ts_ingest", signalEnv.TsIngest,
+		"spread_bps", res.Value().SpreadSignal.SpreadBps,
+	)
+	return nil
+}
+
 // handleBusClosed signals the Guardian that the envelope source is gone.
 func (p *ProcessorSubsystemActor) handleBusClosed(c *actor.Context) {
 	p.logger.Warn("aggruntime: envelope channel closed unexpectedly")
@@ -258,6 +386,118 @@ func toLevels(pls []mddomain.PriceLevel) []aggdomain.Level {
 		}
 	}
 	return levels
+}
+
+func envelopeMarketType(env envelope.Envelope) string {
+	if len(env.Meta) == 0 {
+		return ""
+	}
+	return strings.ToUpper(strings.TrimSpace(env.Meta[metaKeyMarketType]))
+}
+
+func buildSnapshotEnvelope(
+	trigger envelope.Envelope,
+	snapshot insightsdomain.CrossVenueTradeSnapshotV1,
+	subjectPrefix string,
+) (envelope.Envelope, *problem.Problem) {
+	payload, p := codec.EncodePayload(
+		insightsdomain.CrossVenueTradeSnapshotType,
+		insightsdomain.CrossVenueTradeSnapshotVersion,
+		snapshotDefaultContentType,
+		snapshot,
+	)
+	if p != nil {
+		return envelope.Envelope{}, p
+	}
+
+	meta := make(map[string]string, 2)
+	if snapshot.MarketType != "" {
+		meta[metaKeyMarketType] = snapshot.MarketType
+	}
+	if prefix := strings.TrimSpace(subjectPrefix); prefix != "" {
+		meta[metaKeySubjectPrefix] = prefix
+	}
+	if len(meta) == 0 {
+		meta = nil
+	}
+
+	out := envelope.Envelope{
+		Type:        insightsdomain.CrossVenueTradeSnapshotType,
+		Version:     insightsdomain.CrossVenueTradeSnapshotVersion,
+		Venue:       insightsdomain.CrossVenueSnapshotVenue,
+		Instrument:  snapshot.Instrument,
+		TsExchange:  trigger.TsExchange,
+		TsIngest:    snapshot.WatermarkTsIngest,
+		Seq:         trigger.Seq,
+		ContentType: snapshotDefaultContentType,
+		Meta:        meta,
+		Payload:     payload,
+		IdempotencyKey: sharedhash.HashFields(
+			insightsdomain.CrossVenueTradeSnapshotType,
+			fmt.Sprintf("%d", insightsdomain.CrossVenueTradeSnapshotVersion),
+			strings.ToUpper(strings.TrimSpace(snapshot.Instrument)),
+			strings.ToUpper(strings.TrimSpace(snapshot.MarketType)),
+			strings.TrimSpace(trigger.IdempotencyKey),
+		),
+	}
+	if p := out.Validate(); p != nil {
+		return envelope.Envelope{}, p
+	}
+	return out, nil
+}
+
+func buildSpreadSignalEnvelope(
+	trigger envelope.Envelope,
+	signal insightsdomain.CrossVenueSpreadSignalV1,
+) (envelope.Envelope, *problem.Problem) {
+	payload, p := codec.EncodePayload(
+		insightsdomain.CrossVenueSpreadSignalType,
+		insightsdomain.CrossVenueSpreadSignalVersion,
+		snapshotDefaultContentType,
+		signal,
+	)
+	if p != nil {
+		return envelope.Envelope{}, p
+	}
+
+	meta := make(map[string]string, 1)
+	if signal.MarketType != "" {
+		meta[metaKeyMarketType] = signal.MarketType
+	}
+	if len(meta) == 0 {
+		meta = nil
+	}
+
+	out := envelope.Envelope{
+		Type:        insightsdomain.CrossVenueSpreadSignalType,
+		Version:     insightsdomain.CrossVenueSpreadSignalVersion,
+		Venue:       insightsdomain.CrossVenueSnapshotVenue,
+		Instrument:  signal.Instrument,
+		TsExchange:  trigger.TsExchange,
+		TsIngest:    signal.WatermarkTsIngest,
+		Seq:         trigger.Seq,
+		ContentType: snapshotDefaultContentType,
+		Meta:        meta,
+		Payload:     payload,
+		IdempotencyKey: sharedhash.HashFields(
+			insightsdomain.CrossVenueSpreadSignalType,
+			fmt.Sprintf("%d", insightsdomain.CrossVenueSpreadSignalVersion),
+			strings.ToUpper(strings.TrimSpace(signal.Instrument)),
+			strings.ToUpper(strings.TrimSpace(signal.MarketType)),
+			strings.TrimSpace(trigger.IdempotencyKey),
+		),
+	}
+	if p := out.Validate(); p != nil {
+		return envelope.Envelope{}, p
+	}
+	return out, nil
+}
+
+func unhandledTypeProblem(eventType string) *problem.Problem {
+	return problem.WithDetail(
+		problem.Newf(problem.ValidationFailed, "unhandled envelope type %q", eventType),
+		"type", eventType,
+	)
 }
 
 func (p *ProcessorSubsystemActor) emitProcessedResult(env envelope.Envelope, prob *problem.Problem) {

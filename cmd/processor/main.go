@@ -31,6 +31,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/anthdm/hollywood/actor"
 	aggruntime "github.com/market-raccoon/internal/actors/aggregation/runtime"
@@ -39,7 +40,11 @@ import (
 	adapterjs "github.com/market-raccoon/internal/adapters/jetstream"
 	aggapp "github.com/market-raccoon/internal/core/aggregation/app"
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
+	insightsapp "github.com/market-raccoon/internal/core/insights/app"
+	mddomain "github.com/market-raccoon/internal/core/marketdata/domain"
+	"github.com/market-raccoon/internal/shared/codec"
 	"github.com/market-raccoon/internal/shared/config"
+	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 	sharedhash "github.com/market-raccoon/internal/shared/hash"
 	"github.com/market-raccoon/internal/shared/metrics"
@@ -113,6 +118,7 @@ func initEnvelopeSource(cfg config.AppConfig, logger *slog.Logger, e2e *e2eRunti
 	case "jetstream":
 		ch := make(chan envelope.Envelope, cfg.Processor.BusCapacity)
 		resultsCh := make(chan aggruntime.EnvelopeProcessResult, 1)
+		filterSubjects := effectiveJetStreamFilters(cfg)
 
 		onResult := func(res aggruntime.EnvelopeProcessResult) {
 			res.Problem = e2e.maybeInjectTransient(res.Envelope, res.Problem)
@@ -130,7 +136,7 @@ func initEnvelopeSource(cfg config.AppConfig, logger *slog.Logger, e2e *e2eRunti
 			MaxAge:          cfg.JetStream.MaxAgeDuration(),
 			MaxBytes:        cfg.JetStream.MaxBytesInt64(),
 			ConsumerDurable: cfg.JetStream.ConsumerDurable,
-			FilterSubjects:  cfg.JetStream.FilterSubjects,
+			FilterSubjects:  filterSubjects,
 			AckWait:         cfg.JetStream.AckWaitDuration(),
 			MaxAckPending:   cfg.JetStream.MaxAckPending,
 			MaxDeliver:      cfg.JetStream.MaxDeliver,
@@ -163,7 +169,7 @@ func initEnvelopeSource(cfg config.AppConfig, logger *slog.Logger, e2e *e2eRunti
 			"url", cfg.JetStream.URL,
 			"stream", cfg.JetStream.StreamName,
 			"durable", cfg.JetStream.ConsumerDurable,
-			"filters", cfg.JetStream.FilterSubjects,
+			"filters", filterSubjects,
 		)
 
 		return envelopeSource{
@@ -351,6 +357,154 @@ func initReplayEnvelopeSource(path string, capacity int, logger *slog.Logger) en
 	}
 }
 
+func effectiveJetStreamFilters(cfg config.AppConfig) []string {
+	base := append([]string(nil), cfg.JetStream.FilterSubjects...)
+	if cfg.Processor.Insights.EnableCrossVenueJoin {
+		if joinSubject := strings.TrimSpace(cfg.Processor.Insights.JoinTradesSubject); joinSubject != "" {
+			covered := false
+			for _, existing := range base {
+				if subjectMatchesFilter(joinSubject, strings.TrimSpace(existing)) {
+					covered = true
+					break
+				}
+			}
+			if !covered {
+				base = append(base, joinSubject)
+			}
+		}
+	}
+	if len(base) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(base))
+	out := make([]string, 0, len(base))
+	for _, raw := range base {
+		subject := strings.TrimSpace(raw)
+		if subject == "" {
+			continue
+		}
+		if _, exists := seen[subject]; exists {
+			continue
+		}
+		seen[subject] = struct{}{}
+		out = append(out, subject)
+	}
+	return out
+}
+
+func subjectMatchesFilter(subject, filter string) bool {
+	subject = strings.TrimSpace(subject)
+	filter = strings.TrimSpace(filter)
+	if subject == "" || filter == "" {
+		return false
+	}
+	if filter == ">" {
+		return true
+	}
+	if subject == filter {
+		return true
+	}
+	if strings.HasSuffix(filter, ".>") {
+		prefix := strings.TrimSuffix(filter, ">")
+		return strings.HasPrefix(subject, prefix)
+	}
+	return false
+}
+
+func buildEnvelopePublisher(cfg config.AppConfig, logger *slog.Logger) (aggruntime.EventPublisher, func(context.Context) *problem.Problem) {
+	switch strings.ToLower(strings.TrimSpace(cfg.Bus.Type)) {
+	case "jetstream":
+		pub, p := adapterjs.NewPublisher(context.Background(), adapterjs.PublisherConfig{
+			URL:            cfg.JetStream.URL,
+			StreamName:     cfg.JetStream.StreamName,
+			DedupWindow:    cfg.JetStream.DedupWindowDuration(),
+			MaxAge:         cfg.JetStream.MaxAgeDuration(),
+			MaxBytes:       cfg.JetStream.MaxBytesInt64(),
+			PublishTimeout: 5 * time.Second,
+		}, metrics.NewBusObserver())
+		if p != nil {
+			logger.Error("processor: jetstream publisher init failed", "err", p)
+			os.Exit(1)
+		}
+		logger.Info("processor: using jetstream publisher",
+			"url", cfg.JetStream.URL,
+			"stream", cfg.JetStream.StreamName,
+		)
+		return pub, pub.Close
+	default:
+		logger.Info("processor: using in-memory/log publisher")
+		return bus.NewLogPublisher(logger), func(context.Context) *problem.Problem { return nil }
+	}
+}
+
+func maybeInjectJoinFixture(cfg config.AppConfig, e2e *e2eRuntime, pub aggruntime.EventPublisher, logger *slog.Logger) *problem.Problem {
+	if e2e == nil || !e2e.shouldInjectJoinFixture() {
+		return nil
+	}
+	if !cfg.Processor.Insights.EnableCrossVenueJoin {
+		logger.Warn("processor: skipping e2e join fixture injection because cross-venue join is disabled")
+		return nil
+	}
+	if pub == nil {
+		return problem.New(problem.ValidationFailed, "e2e join fixture injection requires publisher")
+	}
+
+	buildTrade := func(venue string, seq int64, tsIngest int64, price float64, side string, tradeID string) (envelope.Envelope, *problem.Problem) {
+		payload, p := codec.EncodePayload("marketdata.trade", 1, envelope.ContentTypeJSON, mddomain.TradeTickV1{
+			Price:     price,
+			Size:      1.0,
+			Side:      side,
+			TradeID:   tradeID,
+			Timestamp: tsIngest - 10,
+		})
+		if p != nil {
+			return envelope.Envelope{}, p
+		}
+		env := envelope.Envelope{
+			Type:           "marketdata.trade",
+			Version:        1,
+			Venue:          venue,
+			Instrument:     e2e.joinInstrument,
+			TsExchange:     tsIngest - 10,
+			TsIngest:       tsIngest,
+			Seq:            seq,
+			IdempotencyKey: sharedhash.HashFields("e2e_join_fixture", venue, e2e.joinInstrument, side, tradeID),
+			ContentType:    envelope.ContentTypeJSON,
+			Meta: map[string]string{
+				"instrument_market_type": "SPOT",
+			},
+			Payload: payload,
+		}
+		if p := env.Validate(); p != nil {
+			return envelope.Envelope{}, p
+		}
+		return env, nil
+	}
+
+	trades := []struct {
+		venue string
+		seq   int64
+		ts    int64
+		price float64
+		side  string
+		id    string
+	}{
+		{venue: "BINANCE", seq: 1, ts: 1_710_000_001_000, price: 100.25, side: "buy", id: "e2e-b-1"},
+		{venue: "BYBIT", seq: 1, ts: 1_710_000_001_010, price: 100.35, side: "sell", id: "e2e-y-1"},
+	}
+	for _, trade := range trades {
+		env, p := buildTrade(trade.venue, trade.seq, trade.ts, trade.price, trade.side, trade.id)
+		if p != nil {
+			return p
+		}
+		if p := pub.Publish(context.Background(), env); p != nil {
+			return p
+		}
+	}
+	logger.Info("processor: injected deterministic e2e join fixture", "instrument", e2e.joinInstrument, "venues", len(trades))
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
@@ -380,16 +534,51 @@ func main() {
 	artifactPub := &logArtifactPublisher{logger: logger}
 	hotStore := &noopHotStore{}
 	updateBook := aggapp.NewUpdateOrderBookFromEvents(artifactPub, hotStore)
+	var joinTrades *insightsapp.JoinCrossVenueTrades
+	var publishEnvelope aggruntime.EventPublisher
+	closePublisher := func(context.Context) *problem.Problem { return nil }
+	if cfg.Processor.Insights.EnableCrossVenueJoin {
+		if p := contracts.BootstrapPayloadCodecRegistry(); p != nil {
+			logger.Error("processor: payload codec registry bootstrap failed", "err", p)
+			os.Exit(1)
+		}
+		publishEnvelope, closePublisher = buildEnvelopePublisher(cfg, logger)
+		joinTrades = insightsapp.NewJoinCrossVenueTradesWithConfig(insightsapp.JoinCrossVenueTradesConfig{
+			MaxInstruments:     cfg.Processor.Insights.MaxInstruments,
+			TTL:                cfg.Processor.Insights.TTLDuration(),
+			EnableSpreadSignal: cfg.Processor.Insights.EnableSpreadSignal,
+			MinVenues:          cfg.Processor.Insights.MinVenues,
+			MinSpreadBPS:       cfg.Processor.Insights.MinSpreadBPS,
+			RoundingMode:       cfg.Processor.Insights.RoundingMode,
+			SweepEveryN:        cfg.Processor.Insights.SweepEveryN,
+			SweepEvery:         cfg.Processor.Insights.SweepEveryDuration(),
+		})
+		logger.Info("processor: cross-venue trade join enabled",
+			"join_subject", cfg.Processor.Insights.JoinTradesSubject,
+			"snapshot_subject_prefix", cfg.Processor.Insights.SnapshotSubjectPrefix,
+			"max_instruments", cfg.Processor.Insights.MaxInstruments,
+			"ttl", cfg.Processor.Insights.TTL,
+			"enable_spread_signal", cfg.Processor.Insights.EnableSpreadSignal,
+			"min_venues", cfg.Processor.Insights.MinVenues,
+			"min_spread_bps", cfg.Processor.Insights.MinSpreadBPS,
+			"rounding_mode", cfg.Processor.Insights.RoundingMode,
+			"sweep_every_n", cfg.Processor.Insights.SweepEveryN,
+			"sweep_every", cfg.Processor.Insights.SweepEvery,
+		)
+	}
 
 	// ── envelope source wiring ───────────────────────────────────────────────
 	source := initEnvelopeSource(cfg, logger, e2e)
 
 	// ── processor subsystem config ──────────────────────────────────────────
 	processorCfg := aggruntime.ProcessorConfig{
-		Logger:              logger,
-		EnvelopeCh:          source.envelopeCh,
-		UpdateBook:          updateBook,
-		OnEnvelopeProcessed: source.onResult,
+		Logger:                logger,
+		EnvelopeCh:            source.envelopeCh,
+		UpdateBook:            updateBook,
+		JoinTrades:            joinTrades,
+		PublishEnvelope:       publishEnvelope,
+		SnapshotSubjectPrefix: cfg.Processor.Insights.SnapshotSubjectPrefix,
+		OnEnvelopeProcessed:   source.onResult,
 	}
 
 	// ── engine ──────────────────────────────────────────────────────────────
@@ -412,6 +601,10 @@ func main() {
 	)
 	logger.Info("processor: guardian spawned", "pid", guardianPID.String())
 	logger.Info("processor: waiting for envelopes (use cmd/consumer or inject via InMemoryBus)")
+	if p := maybeInjectJoinFixture(cfg, e2e, publishEnvelope, logger); p != nil {
+		logger.Error("processor: failed to inject e2e join fixture", "err", p)
+		os.Exit(1)
+	}
 	e2e.markReady()
 
 	// ── signal handling ─────────────────────────────────────────────────────
@@ -433,6 +626,9 @@ func main() {
 		logger.Warn("processor: e2e probe shutdown failed", "err", p)
 	}
 	source.shutdownFn(shutCtx)
+	if p := closePublisher(shutCtx); p != nil {
+		logger.Warn("processor: publisher shutdown failed", "err", p)
+	}
 
 	e.Send(guardianPID, actorruntime.Stop{})
 	select {

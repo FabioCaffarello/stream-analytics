@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 
+	insightsdomain "github.com/market-raccoon/internal/core/insights/domain"
 	marketdomain "github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/shared/codec"
 	"github.com/market-raccoon/internal/shared/contracts"
@@ -162,6 +163,168 @@ func TestEncodePayload_DeterministicProtoBytes_Trade_100Runs(t *testing.T) {
 		}
 		if !bytes.Equal(first, next) {
 			t.Fatalf("protobuf bytes changed at run %d", i)
+		}
+	}
+}
+
+func TestEncodeDecodePayload_InsightsSnapshot_JSON(t *testing.T) {
+	bootstrapPayloadRegistry(t)
+
+	in := insightsdomain.CrossVenueTradeSnapshotV1{
+		Instrument:        "BTCUSDT",
+		MarketType:        "SPOT",
+		WatermarkTsIngest: 1_710_000_000_123,
+		Venues: []insightsdomain.SnapshotVenueTradeV1{
+			{
+				Venue:      "BINANCE",
+				Price:      100.25,
+				Size:       1.5,
+				Side:       "buy",
+				TradeID:    "b-1",
+				TsExchange: 1_710_000_000_100,
+				TsIngest:   1_710_000_000_120,
+				Seq:        11,
+			},
+			{
+				Venue:      "BYBIT",
+				Price:      100.35,
+				Size:       2.0,
+				Side:       "sell",
+				TradeID:    "y-1",
+				TsExchange: 1_710_000_000_110,
+				TsIngest:   1_710_000_000_123,
+				Seq:        7,
+			},
+		},
+		MinPrice:      100.25,
+		MinPriceVenue: "BINANCE",
+		MaxPrice:      100.35,
+		MaxPriceVenue: "BYBIT",
+		SpreadAbs:     0.10,
+		SpreadBps:     9.9701,
+		MidPrice:      100.30,
+	}
+
+	first, p := codec.EncodePayload(insightsdomain.CrossVenueTradeSnapshotType, 1, envelope.ContentTypeJSON, in)
+	if p != nil {
+		t.Fatalf("EncodePayload(JSON): %v", p)
+	}
+	for i := 0; i < 100; i++ {
+		next, nextProblem := codec.EncodePayload(insightsdomain.CrossVenueTradeSnapshotType, 1, envelope.ContentTypeJSON, in)
+		if nextProblem != nil {
+			t.Fatalf("EncodePayload(JSON) run %d: %v", i, nextProblem)
+		}
+		if !bytes.Equal(first, next) {
+			t.Fatalf("json bytes changed at run %d\nfirst=%s\nnext=%s", i, string(first), string(next))
+		}
+	}
+
+	outAny, p := codec.DecodePayload(insightsdomain.CrossVenueTradeSnapshotType, 1, envelope.ContentTypeJSON, first)
+	if p != nil {
+		t.Fatalf("DecodePayload(JSON): %v", p)
+	}
+	out, ok := outAny.(insightsdomain.CrossVenueTradeSnapshotV1)
+	if !ok {
+		t.Fatalf("decoded type = %T, want %T", outAny, insightsdomain.CrossVenueTradeSnapshotV1{})
+	}
+	if !reflect.DeepEqual(out, in) {
+		t.Fatalf("json roundtrip mismatch: got %+v want %+v", out, in)
+	}
+}
+
+func TestEncodePayload_DeterministicJSONBytes_InsightsSnapshot_50Runs(t *testing.T) {
+	bootstrapPayloadRegistry(t)
+
+	in := insightsdomain.CrossVenueTradeSnapshotV1{
+		Instrument:        "BTCUSDT",
+		MarketType:        "SPOT",
+		WatermarkTsIngest: 1_710_000_000_123,
+		Venues: []insightsdomain.SnapshotVenueTradeV1{
+			{Venue: "BINANCE", Price: 100.25, Size: 1.5, Side: "buy", TradeID: "b-1", TsExchange: 1_710_000_000_100, TsIngest: 1_710_000_000_120, Seq: 11},
+			{Venue: "BYBIT", Price: 100.35, Size: 2.0, Side: "sell", TradeID: "y-1", TsExchange: 1_710_000_000_110, TsIngest: 1_710_000_000_123, Seq: 7},
+		},
+		MinPrice:      100.25,
+		MinPriceVenue: "BINANCE",
+		MaxPrice:      100.35,
+		MaxPriceVenue: "BYBIT",
+		SpreadAbs:     0.10,
+		SpreadBps:     9.9701,
+		MidPrice:      100.30,
+	}
+
+	first, p := codec.EncodePayload(insightsdomain.CrossVenueTradeSnapshotType, 1, envelope.ContentTypeJSON, in)
+	if p != nil {
+		t.Fatalf("first encode: %v", p)
+	}
+	for i := 0; i < 50; i++ {
+		next, nextProblem := codec.EncodePayload(insightsdomain.CrossVenueTradeSnapshotType, 1, envelope.ContentTypeJSON, in)
+		if nextProblem != nil {
+			t.Fatalf("encode run %d: %v", i, nextProblem)
+		}
+		if !bytes.Equal(first, next) {
+			t.Fatalf("json bytes changed at run %d\nfirst=%s\nnext=%s", i, string(first), string(next))
+		}
+	}
+}
+
+func TestEncodeDecodePayload_InsightsSpreadSignal_JSON(t *testing.T) {
+	bootstrapPayloadRegistry(t)
+
+	in := insightsdomain.CrossVenueSpreadSignalV1{
+		Instrument:        "BTCUSDT",
+		MarketType:        "SPOT",
+		WatermarkTsIngest: 1_710_000_000_123,
+		MinPrice:          100.25,
+		MinPriceVenue:     "BINANCE",
+		MaxPrice:          100.35,
+		MaxPriceVenue:     "BYBIT",
+		SpreadAbs:         0.10,
+		SpreadBps:         9.9701,
+	}
+
+	first, p := codec.EncodePayload(insightsdomain.CrossVenueSpreadSignalType, 1, envelope.ContentTypeJSON, in)
+	if p != nil {
+		t.Fatalf("EncodePayload(JSON): %v", p)
+	}
+	outAny, p := codec.DecodePayload(insightsdomain.CrossVenueSpreadSignalType, 1, envelope.ContentTypeJSON, first)
+	if p != nil {
+		t.Fatalf("DecodePayload(JSON): %v", p)
+	}
+	out, ok := outAny.(insightsdomain.CrossVenueSpreadSignalV1)
+	if !ok {
+		t.Fatalf("decoded type = %T, want %T", outAny, insightsdomain.CrossVenueSpreadSignalV1{})
+	}
+	if !reflect.DeepEqual(out, in) {
+		t.Fatalf("json roundtrip mismatch: got %+v want %+v", out, in)
+	}
+}
+
+func TestEncodePayload_DeterministicJSONBytes_InsightsSpreadSignal_50Runs(t *testing.T) {
+	bootstrapPayloadRegistry(t)
+
+	in := insightsdomain.CrossVenueSpreadSignalV1{
+		Instrument:        "BTCUSDT",
+		MarketType:        "SPOT",
+		WatermarkTsIngest: 1_710_000_000_123,
+		MinPrice:          100.25,
+		MinPriceVenue:     "BINANCE",
+		MaxPrice:          100.35,
+		MaxPriceVenue:     "BYBIT",
+		SpreadAbs:         0.10,
+		SpreadBps:         9.9701,
+	}
+
+	first, p := codec.EncodePayload(insightsdomain.CrossVenueSpreadSignalType, 1, envelope.ContentTypeJSON, in)
+	if p != nil {
+		t.Fatalf("first encode: %v", p)
+	}
+	for i := 0; i < 50; i++ {
+		next, nextProblem := codec.EncodePayload(insightsdomain.CrossVenueSpreadSignalType, 1, envelope.ContentTypeJSON, in)
+		if nextProblem != nil {
+			t.Fatalf("encode run %d: %v", i, nextProblem)
+		}
+		if !bytes.Equal(first, next) {
+			t.Fatalf("json bytes changed at run %d\nfirst=%s\nnext=%s", i, string(first), string(next))
 		}
 	}
 }

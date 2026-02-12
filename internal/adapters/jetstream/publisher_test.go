@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/problem"
 	"github.com/nats-io/nats.go"
 )
@@ -68,5 +69,36 @@ func TestWrapUnavailable(t *testing.T) {
 	}
 	if !p.Retryable {
 		t.Fatal("expected retryable problem")
+	}
+}
+
+func TestSubjectFromEnvelopeWithPrefix_Default(t *testing.T) {
+	env := envelope.Envelope{
+		Type:       "insights.crossvenue.trade_snapshot",
+		Version:    1,
+		Venue:      "GLOBAL",
+		Instrument: "BTCUSDT",
+	}
+	got := subjectFromEnvelopeWithPrefix(env)
+	want := "insights.crossvenue.trade_snapshot.v1.global.BTCUSDT"
+	if got != want {
+		t.Fatalf("subject=%q want=%q", got, want)
+	}
+}
+
+func TestSubjectFromEnvelopeWithPrefix_Override(t *testing.T) {
+	env := envelope.Envelope{
+		Type:       "insights.crossvenue.trade_snapshot",
+		Version:    1,
+		Venue:      "GLOBAL",
+		Instrument: "BTCUSDT",
+		Meta: map[string]string{
+			subjectPrefixMetaKey: "insights.custom.snapshot.v1",
+		},
+	}
+	got := subjectFromEnvelopeWithPrefix(env)
+	want := "insights.custom.snapshot.v1.global.BTCUSDT"
+	if got != want {
+		t.Fatalf("subject=%q want=%q", got, want)
 	}
 }

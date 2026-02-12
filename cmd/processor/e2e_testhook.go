@@ -23,6 +23,8 @@ const (
 	envE2EHTTPAddr            = "E2E_HTTP_ADDR"
 	envE2ETransientInstrument = "E2E_TRANSIENT_INSTRUMENT"
 	envE2ETransientFails      = "E2E_TRANSIENT_FAILS"
+	envE2EInjectJoinFixture   = "E2E_INJECT_JOIN_FIXTURE"
+	envE2EJoinInstrument      = "E2E_JOIN_INSTRUMENT"
 )
 
 // e2eRuntime adds process-level hooks used only in integration tests.
@@ -37,6 +39,9 @@ type e2eRuntime struct {
 	transientInstrument string
 	transientFails      int32
 	attempts            sync.Map // map[string]*atomic.Int32
+
+	injectJoinFixture bool
+	joinInstrument    string
 }
 
 func newE2ERuntime(logger *slog.Logger) *e2eRuntime {
@@ -58,6 +63,11 @@ func newE2ERuntime(logger *slog.Logger) *e2eRuntime {
 		if parsed, err := strconv.ParseInt(raw, 10, 32); err == nil && parsed >= 0 {
 			rt.transientFails = int32(parsed)
 		}
+	}
+	rt.injectJoinFixture = strings.TrimSpace(os.Getenv(envE2EInjectJoinFixture)) == "1"
+	rt.joinInstrument = strings.TrimSpace(os.Getenv(envE2EJoinInstrument))
+	if rt.joinInstrument == "" {
+		rt.joinInstrument = "E2E-JOIN"
 	}
 
 	return rt
@@ -106,6 +116,8 @@ func (r *e2eRuntime) startProbe() *problem.Problem {
 		"http_addr", addr,
 		"transient_instrument", r.transientInstrument,
 		"transient_fails", r.transientFails,
+		"inject_join_fixture", r.injectJoinFixture,
+		"join_instrument", r.joinInstrument,
 	)
 	return nil
 }
@@ -156,4 +168,8 @@ func (r *e2eRuntime) attemptCounter(env envelope.Envelope) *atomic.Int32 {
 	counter := &atomic.Int32{}
 	actual, _ := r.attempts.LoadOrStore(key, counter)
 	return actual.(*atomic.Int32)
+}
+
+func (r *e2eRuntime) shouldInjectJoinFixture() bool {
+	return r.enabled && r.injectJoinFixture
 }

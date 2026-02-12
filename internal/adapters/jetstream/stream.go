@@ -11,7 +11,7 @@ import (
 func ensureStream(ctx context.Context, js nats.JetStreamContext, cfg PublisherConfig) *problem.Problem {
 	streamCfg := &nats.StreamConfig{
 		Name:       cfg.StreamName,
-		Subjects:   []string{subjectWildcard},
+		Subjects:   append([]string(nil), subjectWildcards...),
 		Retention:  nats.LimitsPolicy,
 		Storage:    nats.FileStorage,
 		MaxAge:     cfg.MaxAge,
