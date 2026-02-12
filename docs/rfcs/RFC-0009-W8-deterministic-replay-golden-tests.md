@@ -303,3 +303,63 @@ golden-check:
 - [ ] `-record` flag in `cmd/consumer` captures to file during live operation
 - [ ] `-replay` flag in `cmd/consumer` processes fixture file and exits
 - [ ] `go test -race ./...` green across all modules
+
+## 12. W8-1 Evidence (2026-02-12)
+
+### Delivered in code
+
+- `internal/shared/replay/` fixture core:
+  - `fixture.go`, `canon.go`, `writer.go`, `reader.go`, `hash.go`
+  - deterministic JSONL with canonical key ordering and checksum validation (`sha256`)
+  - JSON payload stored as canonical JSON value; protobuf payload stored as base64 bytes
+- Recorder wrapper:
+  - `internal/shared/replay/recorder_publisher.go`
+  - append-first behavior (`Append` before forwarding `Publish`)
+- Deterministic player + capture + golden:
+  - `internal/shared/replay/player.go`
+  - `internal/shared/replay/golden_test.go`
+  - `internal/shared/replay/testdata/fixtures/input-mini.jsonl`
+  - `internal/shared/replay/testdata/golden/output-mini.jsonl`
+- Opt-in runtime wiring:
+  - `cmd/consumer/main.go`:
+    - `-record-path` flag
+    - config key `marketdata.record_path`
+    - recorder wrapper enabled only when configured
+  - `cmd/processor/main.go`:
+    - `-replay-path` flag
+    - config key `marketdata.replay_path`
+    - file-backed replay source enabled only when configured
+- Config support:
+  - `internal/shared/config/schema.go`
+  - `internal/shared/config/loader.go`
+  - `internal/shared/config/loader_test.go`
+
+### Commands executed
+
+```bash
+pre-commit run -a
+GOCACHE=/tmp/go-build-cache go test -race ./...   # from internal/shared
+go test ./internal/shared/replay -run TestGoldenReplay -count=1
+go test ./internal/shared/replay -run TestGoldenReplayByteStable50Runs -count=1
+```
+
+Observed results:
+
+- `pre-commit run -a`: passed
+- `go test -race ./...` in `internal/shared`: passed
+- `TestGoldenReplay`: passed
+- `TestGoldenReplayByteStable50Runs`: passed
+
+### Fixture and golden hashes
+
+```text
+723a3341d107f8f1b0b14cc972f8051d0321ce5ff09f2d4bab22f3d60c0fb220  internal/shared/replay/testdata/fixtures/input-mini.jsonl
+723a3341d107f8f1b0b14cc972f8051d0321ce5ff09f2d4bab22f3d60c0fb220  internal/shared/replay/testdata/golden/output-mini.jsonl
+```
+
+### Commit trace (W8-1)
+
+- `c1268ec` feat(w8): replay fixtures core (package only)
+- `ae76422` test(w8): determinism + checksum gates
+- `c233b66` feat(w8): add opt-in record and replay runtime wiring
+- `3bfddc9` feat(w8): deterministic player and golden replay framework
