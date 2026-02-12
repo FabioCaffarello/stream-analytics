@@ -69,6 +69,10 @@ type Guardian struct {
 	sendToSelfFn func(pid *actor.PID, msg any)
 
 	scheduleFn func(delay time.Duration, fn func()) cancelSchedule
+
+	globalRestartWindow  time.Duration
+	globalRestartLimit   int
+	globalRestartHistory []time.Time
 }
 
 type retrySubsystem struct {
@@ -230,6 +234,12 @@ func (g *Guardian) ensureDefaults(c *actor.Context) bool {
 				t.Stop()
 			}
 		}
+	}
+	if g.globalRestartWindow <= 0 {
+		g.globalRestartWindow = time.Minute
+	}
+	if g.globalRestartLimit <= 0 {
+		g.globalRestartLimit = 5
 	}
 	if g.selfPID == nil && c != nil && c.PID() != nil {
 		cloned := *c.PID().CloneVT()
@@ -423,6 +433,22 @@ func (g *Guardian) handleChildFailed(c *actor.Context, msg ChildFailed) {
 	if !decision.Restart {
 		return
 	}
+	if !g.allowGlobalRestart(now) {
+		metrics.GuardianRateLimitedTotal.Inc()
+		metrics.IncGuardianDegraded(string(msg.Subsystem))
+		metrics.SetGuardianSubsystemState(string(msg.Subsystem), 2)
+		target := g.selfPID
+		send := g.sendToSelfFn
+		delay := g.nextGlobalRetryDelay(now)
+		if delay <= 0 {
+			delay = time.Second
+		}
+		cancel := g.scheduleFn(delay, func() {
+			send(target, retrySubsystem{Subsystem: msg.Subsystem, Generation: gen})
+		})
+		g.replaceScheduledRetry(msg.Subsystem, cancel)
+		return
+	}
 	metrics.IncGuardianRestart(string(msg.Subsystem), msg.Kind)
 	target := g.selfPID
 	send := g.sendToSelfFn
@@ -442,6 +468,52 @@ func (g *Guardian) replaceScheduledRetry(subsystem Subsystem, cancel cancelSched
 		prev()
 	}
 	g.scheduledRetry[subsystem] = cancel
+}
+
+func (g *Guardian) allowGlobalRestart(now time.Time) bool {
+	if g.globalRestartLimit <= 0 || g.globalRestartWindow <= 0 {
+		return true
+	}
+	g.globalRestartHistory = g.pruneGlobalRestarts(now)
+	if len(g.globalRestartHistory) >= g.globalRestartLimit {
+		return false
+	}
+	g.globalRestartHistory = append(g.globalRestartHistory, now)
+	return true
+}
+
+func (g *Guardian) nextGlobalRetryDelay(now time.Time) time.Duration {
+	if g.globalRestartLimit <= 0 || g.globalRestartWindow <= 0 {
+		return 0
+	}
+	g.globalRestartHistory = g.pruneGlobalRestarts(now)
+	if len(g.globalRestartHistory) < g.globalRestartLimit {
+		return 0
+	}
+	if len(g.globalRestartHistory) == 0 {
+		return g.globalRestartWindow
+	}
+	oldest := g.globalRestartHistory[0]
+	delay := oldest.Add(g.globalRestartWindow).Sub(now)
+	if delay < 0 {
+		return 0
+	}
+	return delay
+}
+
+func (g *Guardian) pruneGlobalRestarts(now time.Time) []time.Time {
+	if len(g.globalRestartHistory) == 0 {
+		return g.globalRestartHistory
+	}
+	cutoff := now.Add(-g.globalRestartWindow)
+	idx := 0
+	for idx < len(g.globalRestartHistory) && g.globalRestartHistory[idx].Before(cutoff) {
+		idx++
+	}
+	if idx == 0 {
+		return g.globalRestartHistory
+	}
+	return append([]time.Time(nil), g.globalRestartHistory[idx:]...)
 }
 
 func (g *Guardian) handleHeartbeat(msg SubsystemHeartbeat) {

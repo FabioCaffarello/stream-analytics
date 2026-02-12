@@ -2,11 +2,14 @@ package ws
 
 import (
 	"context"
+	cryptorand "crypto/rand"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
-	"math/rand"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -194,6 +197,18 @@ func (c *Consumer) connect() {
 		if c.isStopped() || c.ctx.Err() != nil {
 			return
 		}
+		if delay := c.globalReconnectJitter(); delay > 0 {
+			timer := time.NewTimer(delay)
+			select {
+			case <-timer.C:
+			case <-c.quitch:
+				timer.Stop()
+				return
+			case <-c.ctx.Done():
+				timer.Stop()
+				return
+			}
+		}
 		kind, err := c.connectOnce()
 		if err == nil {
 			return
@@ -205,11 +220,14 @@ func (c *Consumer) connect() {
 		if cooldown {
 			c.emitState("cooldown", err)
 		}
+		timer := time.NewTimer(delay)
 		select {
-		case <-time.After(delay):
+		case <-timer.C:
 		case <-c.quitch:
+			timer.Stop()
 			return
 		case <-c.ctx.Done():
+			timer.Stop()
 			return
 		}
 	}
@@ -436,6 +454,9 @@ func withReconnectDefaults(in ReconnectPolicy) ReconnectPolicy {
 }
 
 func (c *Consumer) connectOnce() (string, error) {
+	donech := make(chan struct{})
+	defer close(donech)
+
 	c.emitState("dialing", nil)
 	consumerDialMu.RLock()
 	dialFn := consumerDial
@@ -475,12 +496,10 @@ func (c *Consumer) connectOnce() (string, error) {
 		c.emitState("subscribed", nil)
 	}
 
-	donech := make(chan struct{})
 	go c.handleKeepalive(donech)
 	go c.handleHeartbeat(donech)
 
 	err = c.readLoop()
-	close(donech)
 	if err == nil {
 		return "", nil
 	}
@@ -538,7 +557,11 @@ func (c *Consumer) nextReconnectDelay() (time.Duration, bool) {
 		delay = c.reconnect.MaxBackoff
 	}
 	if c.reconnect.Jitter > 0 && delay > 0 {
-		f := 1 + ((rand.Float64()*2)-1)*c.reconnect.Jitter
+		jitter, err := randomUnitFloat64()
+		if err != nil {
+			jitter = 0.5
+		}
+		f := 1 + ((jitter*2)-1)*c.reconnect.Jitter
 		if f < 0 {
 			f = 0
 		}
@@ -546,6 +569,36 @@ func (c *Consumer) nextReconnectDelay() (time.Duration, bool) {
 	}
 	c.retryTimestamps = append(c.retryTimestamps, now)
 	return delay, false
+}
+
+func randomUnitFloat64() (float64, error) {
+	var b [8]byte
+	if _, err := cryptorand.Read(b[:]); err != nil {
+		return 0, err
+	}
+	const maxUint64Float = float64(^uint64(0))
+	return float64(binary.BigEndian.Uint64(b[:])) / maxUint64Float, nil
+}
+
+// globalReconnectJitter spreads reconnect attempts for the same exchange/bucket
+// to reduce dial spikes after transient outages.
+func (c *Consumer) globalReconnectJitter() time.Duration {
+	if c.reconnectCount == 0 {
+		return 0
+	}
+	if c.reconnect.MaxBackoff <= 0 {
+		return 0
+	}
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(c.config.Exchange))
+	_, _ = h.Write([]byte{':'})
+	_, _ = h.Write([]byte(strconv.FormatInt(c.config.BucketID, 10)))
+	_, _ = h.Write([]byte{':'})
+	_, _ = h.Write([]byte(c.config.ConsumerID))
+	// Cap herd-mitigation jitter to 250ms.
+	const maxJitterMs uint32 = 250
+	jitterMs := h.Sum32() % (maxJitterMs + 1)
+	return time.Duration(jitterMs) * time.Millisecond
 }
 
 func (c *Consumer) isStopped() bool {

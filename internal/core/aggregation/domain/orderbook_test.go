@@ -217,3 +217,33 @@ func TestOrderBook_lastSeq(t *testing.T) {
 		t.Errorf("lastSeq = %d; want 7", b.LastSeq())
 	}
 }
+
+func TestOrderBook_maxLevelsBoundedPerSide(t *testing.T) {
+	b, p := domain.NewOrderBookWithMaxLevels("binance", "BTCUSDT", 2)
+	if p != nil {
+		t.Fatalf("NewOrderBookWithMaxLevels: %v", p)
+	}
+
+	err := b.ApplyDelta(1,
+		[]domain.Level{
+			{Price: 103, Quantity: 1},
+			{Price: 102, Quantity: 1},
+			{Price: 101, Quantity: 1},
+		},
+		[]domain.Level{
+			{Price: 104, Quantity: 1},
+			{Price: 105, Quantity: 1},
+			{Price: 106, Quantity: 1},
+		},
+	)
+	if err != nil {
+		t.Fatalf("ApplyDelta: %v", err)
+	}
+
+	if got := len(b.Bids()); got != 2 {
+		t.Fatalf("bids len=%d want=2", got)
+	}
+	if got := len(b.Asks()); got != 2 {
+		t.Fatalf("asks len=%d want=2", got)
+	}
+}

@@ -50,21 +50,32 @@ type OrderBook struct {
 	lastSeq int64
 	bids    []Level // sorted desc by price
 	asks    []Level // sorted asc by price
+	maxLvls int
 	state   HealthState
 	events  []DomainEvent
 }
 
 // NewOrderBook creates an empty OrderBook for the given identity.
 func NewOrderBook(venue, instrument string) (*OrderBook, *problem.Problem) {
+	return NewOrderBookWithMaxLevels(venue, instrument, 0)
+}
+
+// NewOrderBookWithMaxLevels creates an order book with optional level bound per side.
+// maxLevels <= 0 means unbounded.
+func NewOrderBookWithMaxLevels(venue, instrument string, maxLevels int) (*OrderBook, *problem.Problem) {
 	if p := validation.Collect(
 		validation.NonEmptyString("venue", venue),
 		validation.NonEmptyString("instrument", instrument),
 	); p != nil {
 		return nil, p
 	}
+	if maxLevels < 0 {
+		return nil, problem.New(problem.ValidationFailed, "max_levels must be >= 0")
+	}
 	return &OrderBook{
-		id:    BookID{Venue: venue, Instrument: instrument},
-		state: Healthy,
+		id:      BookID{Venue: venue, Instrument: instrument},
+		maxLvls: maxLevels,
+		state:   Healthy,
 	}, nil
 }
 
@@ -152,6 +163,7 @@ func (b *OrderBook) ApplyDelta(seq int64, bids, asks []Level) *problem.Problem {
 	// Re-sort.
 	sort.Slice(b.bids, func(i, j int) bool { return b.bids[i].Price > b.bids[j].Price })
 	sort.Slice(b.asks, func(i, j int) bool { return b.asks[i].Price < b.asks[j].Price })
+	b.trimLevels()
 
 	// Invariant: no crossed book.
 	if p := b.checkSpread(); p != nil {
@@ -167,6 +179,18 @@ func (b *OrderBook) ApplyDelta(seq int64, bids, asks []Level) *problem.Problem {
 	b.state = Healthy
 	b.lastSeq = seq
 	return nil
+}
+
+func (b *OrderBook) trimLevels() {
+	if b.maxLvls <= 0 {
+		return
+	}
+	if len(b.bids) > b.maxLvls {
+		b.bids = b.bids[:b.maxLvls]
+	}
+	if len(b.asks) > b.maxLvls {
+		b.asks = b.asks[:b.maxLvls]
+	}
 }
 
 // LastSeq returns the last successfully applied sequence number.

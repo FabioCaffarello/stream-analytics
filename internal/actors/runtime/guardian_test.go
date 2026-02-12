@@ -260,6 +260,49 @@ func TestGuardian_ShuttingDown_RetrySubsystemIsNoop(t *testing.T) {
 	}
 }
 
+func TestGuardian_GlobalRestartRateLimit_DefersSixthRestart(t *testing.T) {
+	clock := &fakeClock{now: time.Unix(2000, 0)}
+	policy, err := NewSupervisorPolicy(SupervisorConfig{
+		BaseBackoff:   time.Millisecond,
+		MaxBackoff:    time.Second,
+		Jitter:        0,
+		RestartWindow: time.Minute,
+		RestartLimit:  100,
+		Cooldown:      time.Second,
+	}, clock, fixedRNG{value: 0.5})
+	if err != nil {
+		t.Fatalf("new policy: %v", err)
+	}
+	g := newGuardianForTest(policy, clock)
+	g.globalRestartWindow = time.Minute
+	g.globalRestartLimit = 5
+	g.emitFn = func(c *actor.Context, msg any) {}
+	g.spawnFn = func(c *actor.Context, subsystem Subsystem) (*actor.PID, error) {
+		return actor.NewPID("local", string(subsystem)), nil
+	}
+	g.startSubsystem(nil, SubsystemMarketData)
+
+	var scheduled []time.Duration
+	g.scheduleFn = func(delay time.Duration, fn func()) cancelSchedule {
+		scheduled = append(scheduled, delay)
+		return func() {}
+	}
+
+	for i := 0; i < 6; i++ {
+		g.handleChildFailed(nil, ChildFailed{
+			Subsystem: SubsystemMarketData,
+			Kind:      "read",
+			Err:       errors.New("boom"),
+		})
+	}
+	if len(scheduled) != 6 {
+		t.Fatalf("scheduled=%d want=6", len(scheduled))
+	}
+	if scheduled[5] < 30*time.Second {
+		t.Fatalf("expected 6th restart deferred by global limiter, delay=%v", scheduled[5])
+	}
+}
+
 func TestGuardian_Readiness_NoFactories_AlwaysReady(t *testing.T) {
 	clock := &fakeClock{now: time.Unix(1000, 0)}
 	policy := newTestPolicy(t, clock)

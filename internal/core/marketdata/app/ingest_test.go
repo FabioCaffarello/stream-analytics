@@ -177,3 +177,29 @@ func TestIngest_metadataPropagatesToEnvelope(t *testing.T) {
 		t.Fatalf("meta ws_stream = %q, want btcusdt@aggTrade", env.Meta["ws_stream"])
 	}
 }
+
+func TestIngest_boundedStreamsEvictsOldest(t *testing.T) {
+	clk := clock.NewFakeClock(time.Now())
+	seq := &fakeSequencer{}
+	pub := &fakePublisher{}
+	uc := app.NewIngestMarketDataWithConfig(clk, seq, pub, app.IngestConfig{
+		DedupWindowSize: 64,
+		MaxStreams:      1,
+		StreamTTL:       time.Hour,
+	})
+
+	req := validReq()
+	req.Instrument = "BTC/USDT"
+	if r := uc.Execute(context.Background(), req); r.IsFail() {
+		t.Fatalf("first ingest failed: %v", r.Problem())
+	}
+	req.Instrument = "ETH/USDT"
+	clk.Advance(time.Millisecond)
+	if r := uc.Execute(context.Background(), req); r.IsFail() {
+		t.Fatalf("second ingest failed: %v", r.Problem())
+	}
+
+	if got := uc.ActiveStreams(); got != 1 {
+		t.Fatalf("active streams=%d want=1", got)
+	}
+}

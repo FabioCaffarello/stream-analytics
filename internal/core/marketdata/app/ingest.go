@@ -4,10 +4,13 @@ package app
 
 import (
 	"context"
+	"time"
 
 	"github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/core/marketdata/ports"
+	"github.com/market-raccoon/internal/shared/ds"
 	"github.com/market-raccoon/internal/shared/envelope"
+	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/problem"
 	"github.com/market-raccoon/internal/shared/result"
 	"github.com/market-raccoon/internal/shared/validation"
@@ -44,6 +47,8 @@ type PublishedEvent struct {
 // IngestConfig contains use-case level policies.
 type IngestConfig struct {
 	DedupWindowSize int
+	MaxStreams      int
+	StreamTTL       time.Duration
 }
 
 // IngestMarketData is the primary use case for ingesting a single market event.
@@ -60,7 +65,7 @@ type IngestMarketData struct {
 	clock       ports.Clock
 	sequencer   ports.Sequencer
 	publisher   ports.EventPublisher
-	streams     map[domain.StreamID]*domain.InstrumentStream
+	streams     *ds.BoundedMap[domain.StreamID, *domain.InstrumentStream]
 	dedupWindow domain.DedupWindow
 }
 
@@ -70,7 +75,11 @@ func NewIngestMarketData(
 	seq ports.Sequencer,
 	pub ports.EventPublisher,
 ) *IngestMarketData {
-	return NewIngestMarketDataWithConfig(clk, seq, pub, IngestConfig{DedupWindowSize: defaultDedupWindowSize})
+	return NewIngestMarketDataWithConfig(clk, seq, pub, IngestConfig{
+		DedupWindowSize: defaultDedupWindowSize,
+		MaxStreams:      10_000,
+		StreamTTL:       time.Hour,
+	})
 }
 
 // NewIngestMarketDataWithConfig constructs the use case with explicit config.
@@ -86,11 +95,23 @@ func NewIngestMarketDataWithConfig(
 		window, _ = domain.NewDedupWindow(defaultDedupWindowSize)
 	}
 
+	if cfg.MaxStreams <= 0 {
+		cfg.MaxStreams = 10_000
+	}
+	if cfg.StreamTTL <= 0 {
+		cfg.StreamTTL = time.Hour
+	}
+
+	streams := ds.NewBoundedMap[domain.StreamID, *domain.InstrumentStream](cfg.MaxStreams, cfg.StreamTTL, clk)
+	streams.SetOnEvict(func(_ domain.StreamID, _ *domain.InstrumentStream, reason string) {
+		metrics.IncStreamsEvicted(reason)
+	})
+
 	return &IngestMarketData{
 		clock:       clk,
 		sequencer:   seq,
 		publisher:   pub,
-		streams:     make(map[domain.StreamID]*domain.InstrumentStream),
+		streams:     streams,
 		dedupWindow: window,
 	}
 }
@@ -189,9 +210,16 @@ func (uc *IngestMarketData) getOrCreateStream(rawVenue, rawInstrument string) (*
 	}
 	id := tmpStream.ID()
 
-	if existing, ok := uc.streams[id]; ok {
+	uc.streams.Sweep()
+	metrics.IngestStreamsActive.Set(float64(uc.streams.Len()))
+	if existing, ok := uc.streams.Get(id); ok {
 		return existing, nil
 	}
-	uc.streams[id] = tmpStream
+	uc.streams.Put(id, tmpStream)
+	metrics.IngestStreamsActive.Set(float64(uc.streams.Len()))
 	return tmpStream, nil
+}
+
+func (uc *IngestMarketData) ActiveStreams() int {
+	return uc.streams.Len()
 }

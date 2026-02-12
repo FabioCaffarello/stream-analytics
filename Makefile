@@ -109,7 +109,7 @@ test-workspace:
 	$(call RUN_IN_MODULES,bash -lc 'pkgs="$$( $(GO) list ./... 2>/dev/null || true )"; if [ -n "$$pkgs" ]; then $(GO) test $(GO_TEST_FLAGS) $$pkgs; else echo "no packages to test (skipping)"; fi')
 
 test-short:
-	$(call RUN_IN_MODULES,$(GO) test -short ./...)
+	$(call RUN_IN_MODULES,bash -lc 'pkgs="$$( $(GO) list ./... 2>/dev/null || true )"; if [ -n "$$pkgs" ]; then $(GO) test -short $$pkgs; else echo "no packages to test (skipping)"; fi')
 
 vuln:
 	@if command -v $(GOVULNCHECK) >/dev/null 2>&1; then \

@@ -283,6 +283,7 @@ func (s *SubsystemActor) processMessage(msg *ws.WsMessage) {
 
 	startedAt := time.Now()
 	res := s.cfg.Ingest.Execute(context.Background(), req)
+	metrics.IngestStreamsActive.Set(float64(s.cfg.Ingest.ActiveStreams()))
 	if res.IsFail() {
 		p := res.Problem()
 		status := "failed"

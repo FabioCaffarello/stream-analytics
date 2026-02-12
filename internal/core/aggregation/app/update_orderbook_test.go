@@ -3,9 +3,11 @@ package app_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/market-raccoon/internal/core/aggregation/app"
 	"github.com/market-raccoon/internal/core/aggregation/domain"
+	"github.com/market-raccoon/internal/shared/clock"
 	"github.com/market-raccoon/internal/shared/problem"
 )
 
@@ -158,5 +160,36 @@ func TestUpdateOrderBook_snapshotContainsLevels(t *testing.T) {
 	}
 	if len(snap.Asks) != 1 {
 		t.Errorf("snapshot asks = %d; want 1", len(snap.Asks))
+	}
+}
+
+func TestUpdateOrderBook_boundedBooksEvictsOldest(t *testing.T) {
+	pub := &fakePublisher{}
+	store := &fakeStore{}
+	clk := clock.NewFakeClock(time.Now())
+	uc := app.NewUpdateOrderBookFromEventsWithConfig(pub, store, app.UpdateConfig{
+		MaxBooks:  1,
+		BookTTL:   time.Hour,
+		MaxLevels: 10,
+		Clock:     clk,
+	})
+
+	req := app.UpdateRequest{
+		Venue:      "binance",
+		Instrument: "BTCUSDT",
+		Seq:        1,
+		Bids:       []domain.Level{{Price: 100, Quantity: 1}},
+		Asks:       []domain.Level{{Price: 101, Quantity: 1}},
+	}
+	if r := uc.Execute(context.Background(), req); r.IsFail() {
+		t.Fatalf("first execute failed: %v", r.Problem())
+	}
+	req.Instrument = "ETHUSDT"
+	clk.Advance(time.Millisecond)
+	if r := uc.Execute(context.Background(), req); r.IsFail() {
+		t.Fatalf("second execute failed: %v", r.Problem())
+	}
+	if got := uc.ActiveBooks(); got != 1 {
+		t.Fatalf("active books=%d want=1", got)
 	}
 }

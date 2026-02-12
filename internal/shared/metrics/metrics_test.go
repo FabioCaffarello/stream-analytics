@@ -74,6 +74,7 @@ func TestMetricsNamesPresent(t *testing.T) {
 		"ingest_latency_seconds",
 		"ws_connections_active",
 		"bus_dropped_total",
+		"guardian_rate_limited_total",
 		"process_heap_alloc_bytes",
 	} {
 		if !strings.Contains(joined, want) {

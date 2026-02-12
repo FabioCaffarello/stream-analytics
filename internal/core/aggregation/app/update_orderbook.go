@@ -3,9 +3,13 @@ package app
 
 import (
 	"context"
+	"time"
 
 	"github.com/market-raccoon/internal/core/aggregation/domain"
 	"github.com/market-raccoon/internal/core/aggregation/ports"
+	"github.com/market-raccoon/internal/shared/clock"
+	"github.com/market-raccoon/internal/shared/ds"
+	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/problem"
 	"github.com/market-raccoon/internal/shared/result"
 	"github.com/market-raccoon/internal/shared/validation"
@@ -37,7 +41,15 @@ type UpdateResponse struct {
 type UpdateOrderBookFromEvents struct {
 	publisher ports.ArtifactPublisher
 	store     ports.HotReadModelStore
-	books     map[domain.BookID]*domain.OrderBook
+	books     *ds.BoundedMap[domain.BookID, *domain.OrderBook]
+	maxLevels int
+}
+
+type UpdateConfig struct {
+	MaxBooks  int
+	BookTTL   time.Duration
+	MaxLevels int
+	Clock     clock.Clock
 }
 
 // NewUpdateOrderBookFromEvents constructs the use case.
@@ -45,10 +57,41 @@ func NewUpdateOrderBookFromEvents(
 	pub ports.ArtifactPublisher,
 	store ports.HotReadModelStore,
 ) *UpdateOrderBookFromEvents {
+	return NewUpdateOrderBookFromEventsWithConfig(pub, store, UpdateConfig{
+		MaxBooks:  10_000,
+		BookTTL:   time.Hour,
+		MaxLevels: 1_000,
+		Clock:     clock.NewSystemClock(),
+	})
+}
+
+func NewUpdateOrderBookFromEventsWithConfig(
+	pub ports.ArtifactPublisher,
+	store ports.HotReadModelStore,
+	cfg UpdateConfig,
+) *UpdateOrderBookFromEvents {
+	if cfg.MaxBooks <= 0 {
+		cfg.MaxBooks = 10_000
+	}
+	if cfg.BookTTL <= 0 {
+		cfg.BookTTL = time.Hour
+	}
+	if cfg.MaxLevels <= 0 {
+		cfg.MaxLevels = 1_000
+	}
+	if cfg.Clock == nil {
+		cfg.Clock = clock.NewSystemClock()
+	}
+
+	books := ds.NewBoundedMap[domain.BookID, *domain.OrderBook](cfg.MaxBooks, cfg.BookTTL, cfg.Clock)
+	books.SetOnEvict(func(_ domain.BookID, _ *domain.OrderBook, reason string) {
+		metrics.IncBooksEvicted(reason)
+	})
 	return &UpdateOrderBookFromEvents{
 		publisher: pub,
 		store:     store,
-		books:     make(map[domain.BookID]*domain.OrderBook),
+		books:     books,
+		maxLevels: cfg.MaxLevels,
 	}
 }
 
@@ -107,13 +150,20 @@ func (uc *UpdateOrderBookFromEvents) Execute(ctx context.Context, req UpdateRequ
 // getOrCreateBook lazily initialises an OrderBook for the given identity.
 func (uc *UpdateOrderBookFromEvents) getOrCreateBook(venue, instrument string) (*domain.OrderBook, *problem.Problem) {
 	id := domain.BookID{Venue: venue, Instrument: instrument}
-	if b, ok := uc.books[id]; ok {
+	uc.books.Sweep()
+	metrics.AggregationBooksActive.Set(float64(uc.books.Len()))
+	if b, ok := uc.books.Get(id); ok {
 		return b, nil
 	}
-	b, p := domain.NewOrderBook(venue, instrument)
+	b, p := domain.NewOrderBookWithMaxLevels(venue, instrument, uc.maxLevels)
 	if p != nil {
 		return nil, p
 	}
-	uc.books[id] = b
+	uc.books.Put(id, b)
+	metrics.AggregationBooksActive.Set(float64(uc.books.Len()))
 	return b, nil
+}
+
+func (uc *UpdateOrderBookFromEvents) ActiveBooks() int {
+	return uc.books.Len()
 }

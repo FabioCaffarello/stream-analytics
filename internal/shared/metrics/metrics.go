@@ -122,6 +122,12 @@ var (
 		},
 		[]string{"subsystem"},
 	)
+	GuardianRateLimitedTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "guardian_rate_limited_total",
+			Help: "Total guardian restart attempts deferred by global limiter.",
+		},
+	)
 
 	ProcessGoroutines = prometheus.NewGauge(
 		prometheus.GaugeOpts{
@@ -197,6 +203,7 @@ func registerAll() {
 			GuardianRestartsTotal,
 			GuardianDegradedTotal,
 			GuardianSubsystemState,
+			GuardianRateLimitedTotal,
 			ProcessGoroutines,
 			ProcessHeapAllocBytes,
 			ProcessGCPauseSeconds,

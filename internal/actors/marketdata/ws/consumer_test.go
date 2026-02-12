@@ -3,6 +3,8 @@ package ws
 import (
 	"context"
 	"errors"
+	"fmt"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -278,5 +280,101 @@ func TestConsumer_ConnectSetsReadDeadlineAndPongHandler(t *testing.T) {
 	}
 	if !hasPongHandler {
 		t.Fatal("expected pong handler to be set on connect")
+	}
+}
+
+func TestConsumer_ConnectDisconnectCycle_NoGoroutineLeak(t *testing.T) {
+	origDial := consumerDial
+	consumerDialMu.Lock()
+	consumerDial = func(ctx context.Context, url string) (wsConn, error) {
+		return newFakeConn(), nil
+	}
+	consumerDialMu.Unlock()
+	defer func() {
+		consumerDialMu.Lock()
+		consumerDial = origDial
+		consumerDialMu.Unlock()
+	}()
+
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("failed to create engine: %v", err)
+	}
+	sinkCh := make(chan any, 512)
+	sinkPID := e.Spawn(func() actor.Receiver { return &sinkActor{ch: sinkCh} }, "sink-leak")
+	defer e.Poison(sinkPID)
+
+	base := runtime.NumGoroutine()
+	const cycles = 40
+	for i := 0; i < cycles; i++ {
+		id := fmt.Sprintf("consumer-leak-%d", i)
+		consumerPID := e.Spawn(NewConsumer(ConsumerConfig{
+			Exchange:   "binance",
+			Endpoint:   "wss://fake",
+			BucketID:   int64(i % 4),
+			ConsumerID: id,
+			SendTo:     sinkPID,
+		}), id)
+		time.Sleep(5 * time.Millisecond)
+		<-e.Poison(consumerPID).Done()
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if runtime.NumGoroutine() <= base+3 {
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	after := runtime.NumGoroutine()
+	t.Fatalf("goroutine leak suspected: base=%d after=%d", base, after)
+}
+
+func TestConsumer_ConnectDisconnectCycle_HeapStable(t *testing.T) {
+	origDial := consumerDial
+	consumerDialMu.Lock()
+	consumerDial = func(ctx context.Context, url string) (wsConn, error) {
+		return newFakeConn(), nil
+	}
+	consumerDialMu.Unlock()
+	defer func() {
+		consumerDialMu.Lock()
+		consumerDial = origDial
+		consumerDialMu.Unlock()
+	}()
+
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("failed to create engine: %v", err)
+	}
+	sinkPID := e.Spawn(func() actor.Receiver { return &sinkActor{ch: make(chan any, 1024)} }, "sink-heap")
+	defer e.Poison(sinkPID)
+
+	runtime.GC()
+	var before runtime.MemStats
+	runtime.ReadMemStats(&before)
+
+	const cycles = 60
+	for i := 0; i < cycles; i++ {
+		id := fmt.Sprintf("consumer-heap-%d", i)
+		consumerPID := e.Spawn(NewConsumer(ConsumerConfig{
+			Exchange:   "binance",
+			Endpoint:   "wss://fake",
+			BucketID:   int64(i % 4),
+			ConsumerID: id,
+			SendTo:     sinkPID,
+		}), id)
+		time.Sleep(5 * time.Millisecond)
+		<-e.Poison(consumerPID).Done()
+	}
+
+	runtime.GC()
+	var after runtime.MemStats
+	runtime.ReadMemStats(&after)
+
+	// Allow moderate fluctuation from test harness allocations.
+	limit := before.HeapAlloc*2 + 5*1024*1024
+	if after.HeapAlloc > limit {
+		t.Fatalf("heap growth above limit: before=%d after=%d limit=%d", before.HeapAlloc, after.HeapAlloc, limit)
 	}
 }
