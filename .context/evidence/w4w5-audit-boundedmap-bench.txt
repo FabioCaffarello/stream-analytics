@@ -1,0 +1,8 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/market-raccoon/internal/shared/ds
+cpu: Apple M4
+BenchmarkBoundedMapPutGet-10              	755722233	        48.66 ns/op	       2 B/op	       0 allocs/op
+BenchmarkBoundedMapConcurrentPutGet-10    	164162312	       214.5 ns/op	       3 B/op	       0 allocs/op
+PASS
+ok  	github.com/market-raccoon/internal/shared/ds	99.274s

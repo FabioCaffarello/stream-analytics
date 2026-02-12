@@ -1,6 +1,7 @@
 package mdruntime
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -29,7 +30,7 @@ func TestParserTelemetry_RecordSkipByReason(t *testing.T) {
 	if got, want := tel.byExchangeEventAndSkip["binance|aggTrade|unsupported_event"], uint64(1); got != want {
 		t.Fatalf("byExchangeEventAndSkip count = %d, want %d", got, want)
 	}
-	if got, want := tel.byWSStream["btcusdt@aggTrade"], uint64(2); got != want {
+	if got, want := tel.byWSStream["aggtrade"], uint64(2); got != want {
 		t.Fatalf("byWSStream count = %d, want %d", got, want)
 	}
 	if got, want := tel.byTicker["BTC-USDT"], uint64(2); got != want {
@@ -87,5 +88,24 @@ func TestParserTelemetry_RecordDepthSequenceGap(t *testing.T) {
 	}
 	if tel.depthGapsBySymbol["BTCUSDT"] != 1 {
 		t.Fatalf("depthGapsBySymbol[BTCUSDT] = %d, want 1", tel.depthGapsBySymbol["BTCUSDT"])
+	}
+}
+
+func TestParserTelemetry_WSStreamCardinalityBounded(t *testing.T) {
+	tel := newParserTelemetry()
+
+	for i := 0; i < 1000; i++ {
+		tel.recordIngest("marketdata.trade", "BTC-USDT", fmt.Sprintf("sym%d@aggTrade", i))
+		tel.recordIngest("marketdata.bookdelta", "BTC-USDT", fmt.Sprintf("sym%d@depth@100ms", i))
+	}
+
+	if got := len(tel.byWSStream); got > 2 {
+		t.Fatalf("expected bounded ws stream buckets <= 2, got %d", got)
+	}
+	if tel.byWSStream["aggtrade"] == 0 {
+		t.Fatal("expected aggtrade bucket count > 0")
+	}
+	if tel.byWSStream["depth"] == 0 {
+		t.Fatal("expected depth bucket count > 0")
 	}
 }

@@ -3,6 +3,7 @@ package mdruntime
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -50,8 +51,8 @@ func (t *parserTelemetry) recordIngest(eventType, ticker, wsStream string) {
 	t.ingested++
 	t.byEvent[normalizeLabel(eventType, "unknown")]++
 	t.byTicker[normalizeLabel(ticker, "unknown")]++
-	if wsStream != "" {
-		t.byWSStream[wsStream]++
+	if bucket := normalizeWSStreamLabel(wsStream); bucket != "" {
+		t.byWSStream[bucket]++
 	}
 }
 
@@ -68,8 +69,8 @@ func (t *parserTelemetry) recordSkip(exchange, eventType, reason, problemCode, t
 	t.bySkipReason[skipReason]++
 	t.byExchangeEventAndSkip[fmt.Sprintf("%s|%s|%s", ex, event, skipReason)]++
 	t.byTicker[normalizeLabel(ticker, "unknown")]++
-	if wsStream != "" {
-		t.byWSStream[wsStream]++
+	if bucket := normalizeWSStreamLabel(wsStream); bucket != "" {
+		t.byWSStream[bucket]++
 	}
 	if skipReason == "parse_error" {
 		t.parseErrorsByProblemCode[code]++
@@ -122,6 +123,27 @@ func normalizeLabel(v, fallback string) string {
 		return fallback
 	}
 	return v
+}
+
+func normalizeWSStreamLabel(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return ""
+	}
+	parts := strings.Split(s, "@")
+	if len(parts) < 2 {
+		return "unknown"
+	}
+	switch strings.ToLower(parts[1]) {
+	case "aggtrade":
+		return "aggtrade"
+	case "depth":
+		return "depth"
+	case "trade":
+		return "trade"
+	default:
+		return "other"
+	}
 }
 
 func (t *parserTelemetry) topWSStreams(n int) map[string]uint64 {

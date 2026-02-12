@@ -148,7 +148,7 @@ func TestInMemoryBus_Publish_dropsWhenFull(t *testing.T) {
 	default:
 	}
 
-	if got := testutil.ToFloat64(metrics.BusDroppedTotal.WithLabelValues("0")); got < 1 {
+	if got := testutil.ToFloat64(metrics.BusDroppedTotal.WithLabelValues("s0")); got < 1 {
 		t.Fatalf("expected bus drop metric increment for subscriber 0, got %f", got)
 	}
 }

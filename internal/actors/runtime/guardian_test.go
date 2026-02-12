@@ -96,6 +96,25 @@ func TestGuardian_StartStopDeterministicOrder(t *testing.T) {
 	}
 }
 
+func TestGuardian_StopAll_CancelsAndClearsScheduledRetries(t *testing.T) {
+	clock := &fakeClock{now: time.Unix(100, 0)}
+	policy := newTestPolicy(t, clock)
+	g := newGuardianForTest(policy, clock)
+
+	cancelCalls := 0
+	g.scheduledRetry[SubsystemMarketData] = func() { cancelCalls++ }
+	g.scheduledRetry[SubsystemAggregation] = func() { cancelCalls++ }
+
+	g.stopAll(nil)
+
+	if got, want := cancelCalls, 2; got != want {
+		t.Fatalf("scheduled retry cancel calls = %d, want %d", got, want)
+	}
+	if len(g.scheduledRetry) != 0 {
+		t.Fatalf("expected scheduledRetry to be empty, got %d", len(g.scheduledRetry))
+	}
+}
+
 func TestGuardian_ChildFailedBackoffAndDegrade(t *testing.T) {
 	clock := &fakeClock{now: time.Unix(1000, 0)}
 	policy := newTestPolicy(t, clock)

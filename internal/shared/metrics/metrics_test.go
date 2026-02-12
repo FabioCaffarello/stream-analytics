@@ -37,14 +37,24 @@ func TestObserveIngestAndCardinalityGuard(t *testing.T) {
 }
 
 func TestBusDropSubscriberLabelBounded(t *testing.T) {
+	before := busDroppedSeriesCount(t)
+
 	IncBusDropped(7)
-	if got := testutil.ToFloat64(BusDroppedTotal.WithLabelValues("7")); got < 1 {
+	if got := testutil.ToFloat64(BusDroppedTotal.WithLabelValues("s4_15")); got < 1 {
 		t.Fatalf("expected subscriber id metric increment, got %f", got)
 	}
 
 	IncBusDropped(10001)
-	if got := testutil.ToFloat64(BusDroppedTotal.WithLabelValues("overflow")); got < 1 {
+	if got := testutil.ToFloat64(BusDroppedTotal.WithLabelValues("s256_plus")); got < 1 {
 		t.Fatalf("expected overflow metric increment, got %f", got)
+	}
+
+	for i := 0; i < 1000; i++ {
+		IncBusDropped(i)
+	}
+	after := busDroppedSeriesCount(t)
+	if growth := after - before; growth > 5 {
+		t.Fatalf("expected bounded bus_dropped_total cardinality growth <= 5, got %d", growth)
 	}
 }
 
@@ -56,6 +66,23 @@ func TestProcessMetricsUpdate(t *testing.T) {
 	if heap := testutil.ToFloat64(ProcessHeapAllocBytes); heap < 0 {
 		t.Fatalf("expected heap metric >= 0, got %f", heap)
 	}
+}
+
+func busDroppedSeriesCount(t *testing.T) int {
+	t.Helper()
+
+	mfs, err := Registry().Gather()
+	if err != nil {
+		t.Fatalf("gather metrics: %v", err)
+	}
+	for _, mf := range mfs {
+		if mf.GetName() == "bus_dropped_total" {
+			return len(mf.GetMetric())
+		}
+	}
+
+	t.Fatal("bus_dropped_total metric family not found")
+	return 0
 }
 
 func TestMetricsNamesPresent(t *testing.T) {

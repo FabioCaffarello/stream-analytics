@@ -3,7 +3,6 @@ package metrics
 import (
 	"regexp"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -219,7 +218,7 @@ func registerAll() {
 		BackpressureQueueDepth.WithLabelValues("unknown")
 		BackpressureDropsTotal.WithLabelValues("unknown")
 		BusPublishedTotal.WithLabelValues("unknown", "unknown")
-		BusDroppedTotal.WithLabelValues("overflow")
+		BusDroppedTotal.WithLabelValues("s256_plus")
 		WSConnectionsActive.WithLabelValues("unknown")
 		WSReconnectsTotal.WithLabelValues("unknown", "unknown")
 		WSMessagesReceivedTotal.WithLabelValues("unknown", "unknown")
@@ -257,11 +256,7 @@ func IncBusPublished(eventType, venue string) {
 }
 
 func IncBusDropped(subscriberIndex int) {
-	id := "overflow"
-	if subscriberIndex >= 0 && subscriberIndex <= 9999 {
-		id = strconv.Itoa(subscriberIndex)
-	}
-	BusDroppedTotal.WithLabelValues(id).Inc()
+	BusDroppedTotal.WithLabelValues(bucketSubscriberID(subscriberIndex)).Inc()
 }
 
 func SetWSConnectionsActive(venue string, active int) {
@@ -395,4 +390,23 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func bucketSubscriberID(subscriberIndex int) string {
+	switch {
+	case subscriberIndex < 0:
+		return "unknown"
+	case subscriberIndex == 0:
+		return "s0"
+	case subscriberIndex <= 3:
+		return "s1_3"
+	case subscriberIndex <= 15:
+		return "s4_15"
+	case subscriberIndex <= 63:
+		return "s16_63"
+	case subscriberIndex <= 255:
+		return "s64_255"
+	default:
+		return "s256_plus"
+	}
 }
