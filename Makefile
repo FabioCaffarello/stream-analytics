@@ -7,6 +7,7 @@ PRE_COMMIT ?= pre-commit
 
 GOLANGCI_LINT_VERSION ?= v2.6.0
 GOVULNCHECK_VERSION ?= latest
+PROTOC_GEN_GO_VERSION ?= v1.36.11
 
 APP_NAME ?= server
 APP_CMD ?= ./cmd/server
@@ -24,11 +25,12 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools modules tidy tidy-check fmt fmt-check lint test test-workspace test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install proto-lint proto-gen proto-breaking proto ci
+.PHONY: help install-tools tools modules tidy tidy-check fmt fmt-check lint test test-workspace test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install proto-lint proto-gen proto-breaking proto ci
 
 help:
 	@echo "Targets:"
 	@echo "  make install-tools      - install golangci-lint and govulncheck"
+	@echo "  make tools              - install pinned protobuf generation tools to ./bin"
 	@echo "  make modules            - list modules from go.work"
 	@echo "  make tidy               - run go mod tidy in workspace modules"
 	@echo "  make tidy-check         - fail if go.mod/go.sum are not tidy"
@@ -60,6 +62,11 @@ help:
 install-tools:
 	@$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 	@$(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+
+tools:
+	@mkdir -p "$(CURDIR)/bin"
+	@GOWORK=off GOBIN="$(CURDIR)/bin" $(GO) -C internal/tools install google.golang.org/protobuf/cmd/protoc-gen-go@$(PROTOC_GEN_GO_VERSION)
+	@echo "Installed protoc-gen-go@$(PROTOC_GEN_GO_VERSION) to $(CURDIR)/bin/protoc-gen-go"
 
 modules:
 	@./scripts/list-modules.sh
@@ -184,6 +191,7 @@ proto-lint:
 	buf lint proto
 
 proto-gen:
+	@test -x ./bin/protoc-gen-go || (echo "Missing ./bin/protoc-gen-go. Run 'make tools' first."; exit 1)
 	cd proto && buf generate
 
 proto-breaking:

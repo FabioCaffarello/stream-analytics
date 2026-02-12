@@ -1,5 +1,6 @@
 version: v2
 plugins:
-  - remote: buf.build/protocolbuffers/go
+  - plugin: go
+    path: ../bin/protoc-gen-go
     out: ../internal/shared/proto/gen
     opt: paths=source_relative
