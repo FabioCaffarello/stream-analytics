@@ -23,6 +23,7 @@ type AppConfig struct {
 	JetStream  JetStreamConfig  `json:"jetstream"`
 	Consumer   ConsumerConfig   `json:"consumer"`
 	MarketData MarketDataConfig `json:"marketdata"`
+	Replay     ReplayConfig     `json:"replay"`
 	Processor  ProcessorConfig  `json:"processor"`
 }
 
@@ -137,6 +138,36 @@ type MarketDataConfig struct {
 	ReplayPath string `json:"replay_path"`
 }
 
+// ReplayConfig controls opt-in replay runtime.
+type ReplayConfig struct {
+	// Mode selects replay behavior:
+	// - off (default)
+	// - file (fixture replay)
+	// - jetstream (JetStream replay source)
+	Mode string `json:"mode"`
+	// OnDecodeError controls replay behavior for invalid envelope payloads.
+	// Allowed: fail (default) | skip.
+	OnDecodeError string `json:"on_decode_error"`
+	// JetStream contains replay settings for jetstream mode.
+	JetStream ReplayJetStreamConfig `json:"jetstream"`
+}
+
+// ReplayJetStreamConfig controls JetStream replay source behavior.
+type ReplayJetStreamConfig struct {
+	// Window bounds replay input when deliver_policy=by_start_time.
+	// Empty means disabled.
+	Window string `json:"window"`
+	// MaxMessages hard-limits replay envelopes to prevent accidental infinite runs.
+	MaxMessages int `json:"max_messages"`
+	// SubjectFilter selects stream subjects to replay.
+	SubjectFilter string `json:"subject_filter"`
+	// DeliverPolicy controls replay start position.
+	// Supported: all|by_start_time.
+	DeliverPolicy string `json:"deliver_policy"`
+	// MergeBuffer controls bounded reordering window for deterministic global ordering.
+	MergeBuffer int `json:"merge_buffer"`
+}
+
 // ProcessorConfig controls the aggregation processor binary.
 type ProcessorConfig struct {
 	// BusCapacity is the channel buffer size for the in-memory event bus.  Default: 1024.
@@ -201,6 +232,14 @@ func (j JetStreamConfig) MaxBytesInt64() int64 {
 // AckWaitDuration parses and returns JetStreamConfig.AckWait.
 func (j JetStreamConfig) AckWaitDuration() time.Duration {
 	return mustParseDuration(j.AckWait)
+}
+
+// WindowDuration parses and returns ReplayJetStreamConfig.Window.
+func (r ReplayJetStreamConfig) WindowDuration() time.Duration {
+	if strings.TrimSpace(r.Window) == "" {
+		return 0
+	}
+	return mustParseDuration(r.Window)
 }
 
 func mustParseDuration(s string) time.Duration {

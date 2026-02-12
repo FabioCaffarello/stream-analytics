@@ -115,6 +115,28 @@ var (
 		},
 		[]string{"bus_type"},
 	)
+	ReplayMessagesTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "replay_messages_total",
+			Help: "Total replay messages by mode and status.",
+		},
+		[]string{"mode", "status"},
+	)
+	ReplayLatencySeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "replay_latency_seconds",
+			Help:    "Replay processing latency from envelope ts_ingest.",
+			Buckets: []float64{0.0001, 0.001, 0.01, 0.1, 1, 5, 15, 30, 60},
+		},
+		[]string{"mode"},
+	)
+	ReplayRedeliveriesTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "replay_redeliveries_total",
+			Help: "Total replay redelivered messages.",
+		},
+		[]string{"mode"},
+	)
 
 	WSConnectionsActive = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -249,6 +271,9 @@ func registerAll() {
 			BusRedeliveredTotal,
 			BusAckLatencySeconds,
 			BusConsumerLag,
+			ReplayMessagesTotal,
+			ReplayLatencySeconds,
+			ReplayRedeliveriesTotal,
 			WSConnectionsActive,
 			WSReconnectsTotal,
 			WSMessagesReceivedTotal,
@@ -279,6 +304,9 @@ func registerAll() {
 		BusRedeliveredTotal.WithLabelValues("unknown")
 		BusAckLatencySeconds.WithLabelValues("unknown")
 		BusConsumerLag.WithLabelValues("unknown")
+		ReplayMessagesTotal.WithLabelValues("unknown", "unknown")
+		ReplayLatencySeconds.WithLabelValues("unknown")
+		ReplayRedeliveriesTotal.WithLabelValues("unknown")
 		WSConnectionsActive.WithLabelValues("unknown")
 		WSReconnectsTotal.WithLabelValues("unknown", "unknown")
 		WSMessagesReceivedTotal.WithLabelValues("unknown", "unknown")
@@ -350,6 +378,21 @@ func SetBusConsumerLag(busType string, lag int64) {
 		lag = 0
 	}
 	BusConsumerLag.WithLabelValues(sanitizeBusType(busType)).Set(float64(lag))
+}
+
+func IncReplayMessages(mode, status string) {
+	ReplayMessagesTotal.WithLabelValues(sanitizeReplayMode(mode), sanitizeReplayStatus(status)).Inc()
+}
+
+func ObserveReplayLatency(mode string, latency time.Duration) {
+	if latency < 0 {
+		latency = 0
+	}
+	ReplayLatencySeconds.WithLabelValues(sanitizeReplayMode(mode)).Observe(latency.Seconds())
+}
+
+func IncReplayRedeliveries(mode string) {
+	ReplayRedeliveriesTotal.WithLabelValues(sanitizeReplayMode(mode)).Inc()
 }
 
 func SetWSConnectionsActive(venue string, active int) {
@@ -541,6 +584,24 @@ func sanitizeBusStatus(v string) string {
 	default:
 		return "unknown"
 	}
+}
+
+func sanitizeReplayMode(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	switch v {
+	case "file", "jetstream", "off":
+		return v
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeReplayStatus(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	if busStatusPattern.MatchString(v) {
+		return v
+	}
+	return "unknown"
 }
 
 func max(a, b int) int {

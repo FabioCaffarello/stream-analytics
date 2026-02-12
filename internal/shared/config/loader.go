@@ -71,6 +71,9 @@ func (a AppConfig) Validate() *problem.Problem {
 	if prob := validateMarketData(a.MarketData); prob != nil {
 		return prob
 	}
+	if prob := validateReplay(a.Bus, a.MarketData, a.Replay); prob != nil {
+		return prob
+	}
 	return nil
 }
 
@@ -248,6 +251,62 @@ func validateMarketData(m MarketDataConfig) *problem.Problem {
 	return nil
 }
 
+func validateReplay(bus BusConfig, marketData MarketDataConfig, replay ReplayConfig) *problem.Problem {
+	mode := strings.ToLower(strings.TrimSpace(replay.Mode))
+	switch mode {
+	case "off", "file", "jetstream":
+	default:
+		return problem.Newf(codeInvalid, "replay.mode must be off|file|jetstream, got %q", replay.Mode)
+	}
+
+	switch strings.ToLower(strings.TrimSpace(replay.OnDecodeError)) {
+	case "fail", "skip":
+	default:
+		return problem.Newf(codeInvalid, "replay.on_decode_error must be fail|skip, got %q", replay.OnDecodeError)
+	}
+
+	if mode == "file" && strings.TrimSpace(marketData.ReplayPath) == "" {
+		return problem.New(codeInvalid, "marketdata.replay_path must not be empty when replay.mode=file")
+	}
+	if mode != "jetstream" {
+		return nil
+	}
+
+	if !strings.EqualFold(strings.TrimSpace(bus.Type), "jetstream") {
+		return problem.New(codeInvalid, "replay.mode=jetstream requires bus.type=jetstream")
+	}
+
+	j := replay.JetStream
+	if strings.TrimSpace(j.SubjectFilter) == "" {
+		return problem.New(codeInvalid, "replay.jetstream.subject_filter must not be empty when replay.mode=jetstream")
+	}
+	if j.MaxMessages < 1 || j.MaxMessages > 10_000_000 {
+		return problem.Newf(codeInvalid, "replay.jetstream.max_messages must be in [1,10000000], got %d", j.MaxMessages)
+	}
+	switch strings.ToLower(strings.TrimSpace(j.DeliverPolicy)) {
+	case "all", "by_start_time":
+	default:
+		return problem.Newf(codeInvalid, "replay.jetstream.deliver_policy must be all|by_start_time, got %q", j.DeliverPolicy)
+	}
+
+	if strings.EqualFold(strings.TrimSpace(j.DeliverPolicy), "by_start_time") {
+		d, err := time.ParseDuration(j.Window)
+		if err != nil || d <= 0 {
+			return problem.Newf(codeInvalid, "replay.jetstream.window must be > 0 duration when deliver_policy=by_start_time, got %q", j.Window)
+		}
+	}
+	if strings.TrimSpace(j.Window) != "" {
+		if d, err := time.ParseDuration(j.Window); err != nil || d <= 0 {
+			return problem.Newf(codeInvalid, "replay.jetstream.window: invalid duration %q", j.Window)
+		}
+	}
+	if j.MergeBuffer <= 0 {
+		return problem.Newf(codeInvalid, "replay.jetstream.merge_buffer must be > 0, got %d", j.MergeBuffer)
+	}
+
+	return nil
+}
+
 // applyDefaults fills zero-value fields with safe defaults.
 // It is idempotent: calling it multiple times has no additional effect.
 func applyDefaults(c *AppConfig) {
@@ -362,8 +421,36 @@ func applyDefaults(c *AppConfig) {
 	if c.MarketData.PublishContentType == "" {
 		c.MarketData.PublishContentType = envelope.ContentTypeJSON
 	}
+	if c.Replay.Mode == "" {
+		c.Replay.Mode = "off"
+	}
+	if c.Replay.OnDecodeError == "" {
+		c.Replay.OnDecodeError = "fail"
+	}
+	if c.Replay.JetStream.SubjectFilter == "" {
+		c.Replay.JetStream.SubjectFilter = "marketdata.>"
+	}
+	if c.Replay.JetStream.MaxMessages == 0 {
+		c.Replay.JetStream.MaxMessages = 100_000
+	}
+	if c.Replay.JetStream.MergeBuffer == 0 {
+		c.Replay.JetStream.MergeBuffer = 4096
+	}
+	if c.Replay.JetStream.DeliverPolicy == "" {
+		if strings.TrimSpace(c.Replay.JetStream.Window) != "" {
+			c.Replay.JetStream.DeliverPolicy = "by_start_time"
+		} else {
+			c.Replay.JetStream.DeliverPolicy = "all"
+		}
+	}
+
 	c.MarketData.RecordPath = strings.TrimSpace(c.MarketData.RecordPath)
 	c.MarketData.ReplayPath = strings.TrimSpace(c.MarketData.ReplayPath)
+	c.Replay.Mode = strings.TrimSpace(c.Replay.Mode)
+	c.Replay.OnDecodeError = strings.TrimSpace(c.Replay.OnDecodeError)
+	c.Replay.JetStream.Window = strings.TrimSpace(c.Replay.JetStream.Window)
+	c.Replay.JetStream.SubjectFilter = strings.TrimSpace(c.Replay.JetStream.SubjectFilter)
+	c.Replay.JetStream.DeliverPolicy = strings.TrimSpace(c.Replay.JetStream.DeliverPolicy)
 	if c.Processor.BusCapacity == 0 {
 		c.Processor.BusCapacity = 1024
 	}

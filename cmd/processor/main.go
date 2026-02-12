@@ -29,6 +29,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/anthdm/hollywood/actor"
@@ -88,8 +89,24 @@ type envelopeSource struct {
 }
 
 func initEnvelopeSource(cfg config.AppConfig, logger *slog.Logger, e2e *e2eRuntime) envelopeSource {
-	if replayPath := strings.TrimSpace(cfg.MarketData.ReplayPath); replayPath != "" {
+	replayMode := strings.ToLower(strings.TrimSpace(cfg.Replay.Mode))
+	if replayMode == "" {
+		replayMode = "off"
+	}
+	if replayMode == "off" && strings.TrimSpace(cfg.MarketData.ReplayPath) != "" {
+		replayMode = "file"
+	}
+
+	switch replayMode {
+	case "file":
+		replayPath := strings.TrimSpace(cfg.MarketData.ReplayPath)
+		if replayPath == "" {
+			logger.Error("processor: replay.mode=file requires marketdata.replay_path")
+			os.Exit(1)
+		}
 		return initReplayEnvelopeSource(replayPath, cfg.Processor.BusCapacity, logger)
+	case "jetstream":
+		return initJetStreamReplayEnvelopeSource(cfg, logger)
 	}
 
 	switch strings.ToLower(strings.TrimSpace(cfg.Bus.Type)) {
@@ -172,6 +189,107 @@ func initEnvelopeSource(cfg config.AppConfig, logger *slog.Logger, e2e *e2eRunti
 	}
 }
 
+func initJetStreamReplayEnvelopeSource(cfg config.AppConfig, logger *slog.Logger) envelopeSource {
+	capacity := cfg.Processor.BusCapacity
+	if capacity <= 0 {
+		capacity = 1024
+	}
+
+	replayDurable := strings.TrimSpace(cfg.JetStream.ConsumerDurable) + "-replay"
+	src, p := adapterjs.NewJetStreamReplaySource(adapterjs.ReplaySourceConfig{
+		URL:             cfg.JetStream.URL,
+		StreamName:      cfg.JetStream.StreamName,
+		SubjectFilter:   cfg.Replay.JetStream.SubjectFilter,
+		ConsumerDurable: replayDurable,
+		DedupWindow:     cfg.JetStream.DedupWindowDuration(),
+		MaxAge:          cfg.JetStream.MaxAgeDuration(),
+		MaxBytes:        cfg.JetStream.MaxBytesInt64(),
+		AckWait:         cfg.JetStream.AckWaitDuration(),
+		MaxAckPending:   cfg.JetStream.MaxAckPending,
+		MaxDeliver:      cfg.JetStream.MaxDeliver,
+		DeliverPolicy:   cfg.Replay.JetStream.DeliverPolicy,
+		Window:          cfg.Replay.JetStream.WindowDuration(),
+		MaxMessages:     cfg.Replay.JetStream.MaxMessages,
+		MergeBufferSize: cfg.Replay.JetStream.MergeBuffer,
+		OutputBufferSize: func() int {
+			if capacity < 256 {
+				return capacity
+			}
+			return 256
+		}(),
+		DecodeErrorMode: cfg.Replay.OnDecodeError,
+	})
+	if p != nil {
+		logger.Error("processor: jetstream replay source init failed", "err", p)
+		os.Exit(1)
+	}
+
+	runCtx, cancel := context.WithCancel(context.Background())
+	sourceCh, closeFn, p := src.Read(runCtx)
+	if p != nil {
+		logger.Error("processor: jetstream replay source read init failed", "err", p)
+		os.Exit(1)
+	}
+
+	outCh := make(chan envelope.Envelope, capacity)
+	errCh := make(chan *problem.Problem, 1)
+	var closeOnce sync.Once
+	var closeProb *problem.Problem
+	safeClose := func() *problem.Problem {
+		closeOnce.Do(func() {
+			if err := closeFn(); err != nil {
+				closeProb = problem.WithRetryable(problem.Wrap(err, problem.Unavailable, "close jetstream replay source failed"))
+			}
+		})
+		return closeProb
+	}
+
+	go func() {
+		defer close(outCh)
+		defer close(errCh)
+
+		for {
+			select {
+			case <-runCtx.Done():
+				errCh <- safeClose()
+				return
+			case env, ok := <-sourceCh:
+				if !ok {
+					errCh <- safeClose()
+					return
+				}
+
+				select {
+				case <-runCtx.Done():
+					errCh <- safeClose()
+					return
+				case outCh <- env:
+				}
+			}
+		}
+	}()
+
+	logger.Info("processor: replay source mode jetstream enabled",
+		"url", cfg.JetStream.URL,
+		"stream", cfg.JetStream.StreamName,
+		"subject_filter", cfg.Replay.JetStream.SubjectFilter,
+		"deliver_policy", cfg.Replay.JetStream.DeliverPolicy,
+		"window", cfg.Replay.JetStream.Window,
+		"max_messages", cfg.Replay.JetStream.MaxMessages,
+		"merge_buffer", cfg.Replay.JetStream.MergeBuffer,
+		"durable", replayDurable,
+	)
+
+	return envelopeSource{
+		envelopeCh: outCh,
+		consumeErr: errCh,
+		shutdownFn: func(context.Context) {
+			cancel()
+			_ = safeClose()
+		},
+	}
+}
+
 func initReplayEnvelopeSource(path string, capacity int, logger *slog.Logger) envelopeSource {
 	if capacity <= 0 {
 		capacity = 1024
@@ -241,10 +359,11 @@ func main() {
 	configPath := flag.String("config", "config.jsonc", "path to JSONC config file")
 	logLevelOverride := flag.String("log-level", "", "log level override: debug|info|warn|error")
 	busTypeOverride := flag.String("bus", "", "bus adapter override: inmemory|jetstream")
+	replayModeOverride := flag.String("replay-mode", "", "replay mode override: off|file|jetstream")
 	replayPathOverride := flag.String("replay-path", "", "optional fixture path to replay envelopes")
 	flag.Parse()
 
-	cfg := loadProcessorConfig(*configPath, *logLevelOverride, *busTypeOverride, *replayPathOverride)
+	cfg := loadProcessorConfig(*configPath, *logLevelOverride, *busTypeOverride, *replayModeOverride, *replayPathOverride)
 
 	// ── logger ─────────────────────────────────────────────────────────────
 	logger := buildLogger(cfg.Log)
@@ -324,7 +443,7 @@ func main() {
 	logger.Info("processor: shutdown complete")
 }
 
-func loadProcessorConfig(configPath, logLevelOverride, busTypeOverride, replayPathOverride string) config.AppConfig {
+func loadProcessorConfig(configPath, logLevelOverride, busTypeOverride, replayModeOverride, replayPathOverride string) config.AppConfig {
 	cfg, prob := config.Load(configPath)
 	if prob != nil {
 		slog.Error("processor: config load failed", "err", prob)
@@ -336,8 +455,12 @@ func loadProcessorConfig(configPath, logLevelOverride, busTypeOverride, replayPa
 	if busTypeOverride != "" {
 		cfg.Bus.Type = busTypeOverride
 	}
+	if strings.TrimSpace(replayModeOverride) != "" {
+		cfg.Replay.Mode = strings.TrimSpace(replayModeOverride)
+	}
 	if strings.TrimSpace(replayPathOverride) != "" {
 		cfg.MarketData.ReplayPath = strings.TrimSpace(replayPathOverride)
+		cfg.Replay.Mode = "file"
 	}
 	if prob = cfg.Validate(); prob != nil {
 		slog.Error("processor: config validation failed", "err", prob)
