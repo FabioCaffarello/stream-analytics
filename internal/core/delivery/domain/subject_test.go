@@ -25,7 +25,7 @@ func TestParseSubject_invalid(t *testing.T) {
 }
 
 func TestSubjectFromEnvelope(t *testing.T) {
-	env := envelope.Envelope{Type: "marketdata.bookdelta", Venue: "binance", Instrument: "BTC-USDT"}
+	env := envelope.Envelope{Type: "marketdata.bookdelta", Venue: "binance", Instrument: "BTC-USDT", ContentType: ""}
 	sub, p := domain.SubjectFromEnvelope(env, "raw")
 	if p != nil {
 		t.Fatalf("SubjectFromEnvelope: %v", p)

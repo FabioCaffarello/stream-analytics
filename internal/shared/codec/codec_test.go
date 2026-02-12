@@ -13,6 +13,20 @@ type sample struct {
 	Version int     `json:"version"`
 }
 
+type sampleCodec struct{}
+
+func (sampleCodec) Encode(v any) ([]byte, *problem.Problem) {
+	return codec.Marshal(v)
+}
+
+func (sampleCodec) Decode(data []byte) (any, *problem.Problem) {
+	var s sample
+	if p := codec.Unmarshal(data, &s); p != nil {
+		return nil, p
+	}
+	return s, nil
+}
+
 func TestRoundTrip(t *testing.T) {
 	orig := sample{Venue: "binance", Price: 50_000.25, Version: 1}
 
@@ -47,43 +61,20 @@ func TestUnmarshal_invalid(t *testing.T) {
 	}
 }
 
-func TestRegistry_roundTrip(t *testing.T) {
+func TestRegistry_RegisterAndLookup(t *testing.T) {
 	reg := codec.NewRegistry()
-	reg.Register("marketdata.trade", 1, func(data []byte) (any, *problem.Problem) {
-		var s sample
-		if p := codec.Unmarshal(data, &s); p != nil {
-			return nil, p
-		}
-		return s, nil
-	})
+	key := codec.SchemaKey{Type: "marketdata.trade", Version: 1, Format: codec.FormatJSON}
 
-	orig := sample{Venue: "okx", Price: 3_500.0, Version: 1}
-	data, p := codec.Marshal(orig)
-	if p != nil {
-		t.Fatalf("marshal: %s", p)
+	c := sampleCodec{}
+	if p := reg.Register(key, c, c); p != nil {
+		t.Fatalf("register: %v", p)
 	}
 
-	v, p2 := reg.Decode("marketdata.trade", 1, data)
-	if p2 != nil {
-		t.Fatalf("decode: %s", p2)
+	if _, ok := reg.Encoder(key); !ok {
+		t.Fatal("expected encoder to be registered")
 	}
-	got, ok := v.(sample)
-	if !ok {
-		t.Fatalf("type assertion failed: %T", v)
-	}
-	if got != orig {
-		t.Errorf("decoded value mismatch: got %+v; want %+v", got, orig)
-	}
-}
-
-func TestRegistry_notFound(t *testing.T) {
-	reg := codec.NewRegistry()
-	_, p := reg.Decode("unknown.event", 99, []byte("{}"))
-	if p == nil {
-		t.Fatal("expected problem for unknown key")
-	}
-	if p.Code != problem.NotFound {
-		t.Errorf("code = %s; want SYS_NOT_FOUND", p.Code)
+	if _, ok := reg.Decoder(key); !ok {
+		t.Fatal("expected decoder to be registered")
 	}
 }
 

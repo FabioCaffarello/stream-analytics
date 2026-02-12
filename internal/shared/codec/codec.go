@@ -1,11 +1,4 @@
 // Package codec provides serialization utilities for event payloads.
-//
-// The default implementation uses encoding/json. When the project adds
-// github.com/fxamacker/cbor/v2 as a dependency, swap Marshal/Unmarshal
-// to use it — the API is identical.
-//
-// The registry maps (EventType, Version) → Decoder so consumers can decode
-// raw payload bytes without knowing the concrete type up-front.
 package codec
 
 import (
@@ -35,8 +28,7 @@ func Unmarshal(data []byte, out any) *problem.Problem {
 }
 
 // MarshalPayload serializes a typed payload and attaches event_type/version
-// context to any error returned. Use this in the ingest pipeline so that
-// failures always carry routing context.
+// context to any error returned. This helper keeps JSON as default runtime path.
 func MarshalPayload(eventType string, version int, v any) ([]byte, *problem.Problem) {
 	data, p := Marshal(v)
 	if p != nil {
@@ -52,7 +44,7 @@ func MarshalPayload(eventType string, version int, v any) ([]byte, *problem.Prob
 }
 
 // UnmarshalPayload deserializes raw bytes and attaches event_type/version/size
-// context to any error returned.
+// context to any error returned. This helper keeps JSON as default runtime path.
 func UnmarshalPayload(eventType string, version int, data []byte, out any) *problem.Problem {
 	if p := Unmarshal(data, out); p != nil {
 		return problem.WithDetail(
@@ -64,47 +56,4 @@ func UnmarshalPayload(eventType string, version int, data []byte, out any) *prob
 		)
 	}
 	return nil
-}
-
-// RegistryKey uniquely identifies a payload schema by type and version.
-type RegistryKey struct {
-	EventType string
-	Version   int
-}
-
-// Decoder is a function that deserializes raw bytes into a typed value.
-type Decoder func([]byte) (any, *problem.Problem)
-
-// Registry maps RegistryKeys to Decoder functions.
-// It is safe for concurrent reads after registration (write during init only).
-type Registry struct {
-	decoders map[RegistryKey]Decoder
-}
-
-// NewRegistry creates an empty Registry.
-func NewRegistry() *Registry {
-	return &Registry{decoders: make(map[RegistryKey]Decoder)}
-}
-
-// Register adds a Decoder for the given eventType and version.
-// Registering the same key twice overwrites the previous entry.
-func (r *Registry) Register(eventType string, version int, d Decoder) {
-	r.decoders[RegistryKey{EventType: eventType, Version: version}] = d
-}
-
-// Decode looks up the Decoder for (eventType, version) and decodes data.
-// Returns problem.NotFound if no decoder is registered for the key.
-func (r *Registry) Decode(eventType string, version int, data []byte) (any, *problem.Problem) {
-	d, ok := r.decoders[RegistryKey{EventType: eventType, Version: version}]
-	if !ok {
-		return nil, problem.WithDetail(
-			problem.WithDetail(
-				problem.Newf(problem.NotFound,
-					"no decoder registered for event_type=%q version=%d", eventType, version),
-				"event_type", eventType,
-			),
-			"version", version,
-		)
-	}
-	return d(data)
 }

@@ -10,6 +10,13 @@ import (
 	"github.com/market-raccoon/internal/shared/problem"
 )
 
+const (
+	// ContentTypeJSON is the default runtime payload format.
+	ContentTypeJSON = "application/json"
+	// ContentTypeProto is the opt-in protobuf runtime payload format.
+	ContentTypeProto = "application/protobuf"
+)
+
 // Envelope is the canonical wrapper for all events in the system.
 // Fields must match the contract in docs/contracts/event-bus.md.
 type Envelope struct {
@@ -38,6 +45,10 @@ type Envelope struct {
 
 	// IdempotencyKey is a stable, deterministic deduplication key.
 	IdempotencyKey string `json:"idempotency_key" cbor:"idempotency_key"`
+
+	// ContentType declares the payload wire format.
+	// Empty is treated as application/json for backward compatibility.
+	ContentType string `json:"content_type" cbor:"content_type"`
 
 	// Meta holds optional free-form string metadata (e.g. source_ip, parser_version).
 	Meta map[string]string `json:"meta,omitempty" cbor:"meta,omitempty"`
@@ -100,6 +111,11 @@ func (e *Envelope) Validate() *problem.Problem {
 			"field", "idempotency_key",
 		)
 	}
+	contentType, p := NormalizeContentType(e.ContentType)
+	if p != nil {
+		return p
+	}
+	e.ContentType = contentType
 	if len(e.Payload) == 0 {
 		return problem.WithDetail(
 			problem.New(problem.ValidationFailed, "envelope payload must not be empty"),
@@ -131,4 +147,25 @@ func (e Envelope) WithMeta(key, value string) Envelope {
 	}
 	out.Meta[key] = value
 	return out
+}
+
+// NormalizeContentType canonicalizes and validates envelope content type.
+// Empty values are normalized to application/json for compatibility.
+func NormalizeContentType(contentType string) (string, *problem.Problem) {
+	switch strings.ToLower(strings.TrimSpace(contentType)) {
+	case "":
+		return ContentTypeJSON, nil
+	case ContentTypeJSON:
+		return ContentTypeJSON, nil
+	case ContentTypeProto:
+		return ContentTypeProto, nil
+	default:
+		return "", problem.WithDetail(
+			problem.WithDetail(
+				problem.Newf(problem.ValidationFailed, "unsupported envelope content_type %q", contentType),
+				"field", "content_type",
+			),
+			"value", contentType,
+		)
+	}
 }
