@@ -3,108 +3,97 @@ package codec_test
 import (
 	"testing"
 
+	marketdomain "github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/problem"
+	marketdatav1 "github.com/market-raccoon/internal/shared/proto/gen/marketdata/v1"
 )
-
-type sample struct {
-	Venue   string  `json:"venue"`
-	Price   float64 `json:"price"`
-	Version int     `json:"version"`
-}
-
-type sampleCodec struct{}
-
-func (sampleCodec) Encode(v any) ([]byte, *problem.Problem) {
-	return codec.Marshal(v)
-}
-
-func (sampleCodec) Decode(data []byte) (any, *problem.Problem) {
-	var s sample
-	if p := codec.Unmarshal(data, &s); p != nil {
-		return nil, p
-	}
-	return s, nil
-}
-
-func TestRoundTrip(t *testing.T) {
-	orig := sample{Venue: "binance", Price: 50_000.25, Version: 1}
-
-	data, p := codec.Marshal(orig)
-	if p != nil {
-		t.Fatalf("Marshal failed: %s", p)
-	}
-	if len(data) == 0 {
-		t.Fatal("marshaled data must not be empty")
-	}
-
-	var got sample
-	if p := codec.Unmarshal(data, &got); p != nil {
-		t.Fatalf("Unmarshal failed: %s", p)
-	}
-	if got != orig {
-		t.Errorf("round-trip mismatch: got %+v; want %+v", got, orig)
-	}
-}
-
-func TestUnmarshal_invalid(t *testing.T) {
-	var out sample
-	p := codec.Unmarshal([]byte("not json"), &out)
-	if p == nil {
-		t.Fatal("expected problem on invalid input")
-	}
-	if p.Code != problem.Internal {
-		t.Errorf("code = %s; want INTERNAL", p.Code)
-	}
-	if p.Cause == nil {
-		t.Error("cause must be set")
-	}
-}
 
 func TestRegistry_RegisterAndLookup(t *testing.T) {
 	reg := codec.NewRegistry()
-	key := codec.SchemaKey{Type: "marketdata.trade", Version: 1, Format: codec.FormatJSON}
+	key := codec.SchemaKey{
+		Type:    "marketdata.trade",
+		Version: 1,
+		Format:  codec.FormatJSON,
+	}
 
-	c := sampleCodec{}
-	if p := reg.Register(key, c, c); p != nil {
-		t.Fatalf("register: %v", p)
+	jsonCodec := codec.JSONCodec[marketdomain.TradeTickV1]{}
+	if p := reg.Register(key, jsonCodec, jsonCodec); p != nil {
+		t.Fatalf("register codec: %v", p)
 	}
 
 	if _, ok := reg.Encoder(key); !ok {
-		t.Fatal("expected encoder to be registered")
+		t.Fatalf("expected encoder for key %+v", key)
 	}
 	if _, ok := reg.Decoder(key); !ok {
-		t.Fatal("expected decoder to be registered")
+		t.Fatalf("expected decoder for key %+v", key)
+	}
+
+	if _, ok := reg.Encoder(codec.SchemaKey{Type: key.Type, Version: key.Version, Format: codec.FormatProto}); ok {
+		t.Fatalf("expected missing encoder for unregistered format")
+	}
+	if _, ok := reg.Decoder(codec.SchemaKey{Type: "marketdata.unknown", Version: 1, Format: codec.FormatJSON}); ok {
+		t.Fatalf("expected missing decoder for unknown type")
 	}
 }
 
-func TestMarshalPayload_success(t *testing.T) {
-	orig := sample{Venue: "binance", Price: 1.0, Version: 1}
-	data, p := codec.MarshalPayload("marketdata.trade", 1, orig)
+func TestJSONCodec_Roundtrip_TradeTickV1(t *testing.T) {
+	c := codec.JSONCodec[marketdomain.TradeTickV1]{}
+	in := marketdomain.TradeTickV1{
+		Price:     65000.25,
+		Size:      0.42,
+		Side:      "buy",
+		TradeID:   "t-123",
+		Timestamp: 1700000000123,
+	}
+
+	data, p := c.Encode(in)
 	if p != nil {
-		t.Fatalf("MarshalPayload: %s", p)
+		t.Fatalf("encode: %v", p)
 	}
-	if len(data) == 0 {
-		t.Error("data must not be empty")
+	outAny, p := c.Decode(data)
+	if p != nil {
+		t.Fatalf("decode: %v", p)
+	}
+
+	out, ok := outAny.(marketdomain.TradeTickV1)
+	if !ok {
+		t.Fatalf("decode type = %T; want %T", outAny, marketdomain.TradeTickV1{})
+	}
+	if out != in {
+		t.Fatalf("roundtrip mismatch: got %+v want %+v", out, in)
 	}
 }
 
-func TestUnmarshalPayload_errorHasContext(t *testing.T) {
-	var out sample
-	p := codec.UnmarshalPayload("marketdata.trade", 1, []byte("bad json"), &out)
-	if p == nil {
-		t.Fatal("expected problem")
+func TestProtoCodec_Roundtrip_TradeTickV1_ProtoGenerated(t *testing.T) {
+	c := codec.ProtoCodec[*marketdatav1.TradeTickV1]{
+		New: func() *marketdatav1.TradeTickV1 { return &marketdatav1.TradeTickV1{} },
 	}
-	if p.Code != problem.Internal {
-		t.Errorf("code = %s; want SYS_INTERNAL", p.Code)
+	in := &marketdatav1.TradeTickV1{
+		Price:       65000.25,
+		Size:        0.42,
+		Side:        "buy",
+		TradeId:     "t-123",
+		TimestampMs: 1700000000123,
 	}
-	if p.Details["event_type"] != "marketdata.trade" {
-		t.Errorf("missing event_type detail: %v", p.Details)
+
+	data, p := c.Encode(in)
+	if p != nil {
+		t.Fatalf("encode: %v", p)
 	}
-	if p.Details["version"] != 1 {
-		t.Errorf("missing version detail: %v", p.Details)
+	outAny, p := c.Decode(data)
+	if p != nil {
+		t.Fatalf("decode: %v", p)
 	}
-	if _, ok := p.Details["payload_size"]; !ok {
-		t.Error("missing payload_size detail")
+
+	out, ok := outAny.(*marketdatav1.TradeTickV1)
+	if !ok {
+		t.Fatalf("decode type = %T; want *marketdatav1.TradeTickV1", outAny)
+	}
+	if out.GetPrice() != in.GetPrice() ||
+		out.GetSize() != in.GetSize() ||
+		out.GetSide() != in.GetSide() ||
+		out.GetTradeId() != in.GetTradeId() ||
+		out.GetTimestampMs() != in.GetTimestampMs() {
+		t.Fatalf("roundtrip mismatch: got %+v want %+v", out, in)
 	}
 }

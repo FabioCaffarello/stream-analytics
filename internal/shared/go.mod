@@ -2,7 +2,11 @@ module github.com/market-raccoon/internal/shared
 
 go 1.25.6
 
-require github.com/prometheus/client_golang v1.18.0
+require (
+	github.com/market-raccoon/internal/core/marketdata v0.0.0
+	github.com/prometheus/client_golang v1.18.0
+	google.golang.org/protobuf v1.32.0
+)
 
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -13,5 +17,6 @@ require (
 	github.com/prometheus/common v0.45.0 // indirect
 	github.com/prometheus/procfs v0.12.0 // indirect
 	golang.org/x/sys v0.15.0 // indirect
-	google.golang.org/protobuf v1.32.0 // indirect
 )
+
+replace github.com/market-raccoon/internal/core/marketdata => ../core/marketdata
