@@ -1,7 +1,9 @@
 package envelope
 
 import (
+	"fmt"
 	"math"
+	"strconv"
 	"strings"
 
 	"github.com/market-raccoon/internal/shared/codec"
@@ -53,15 +55,34 @@ func schemaKeyFromEnvelope(env Envelope) (codec.SchemaKey, *problem.Problem) {
 			"field", "version",
 		)
 	}
+	version, p := schemaKeyVersion(env.Version)
+	if p != nil {
+		return codec.SchemaKey{}, p
+	}
 	contentType, p := NormalizeContentType(env.ContentType)
 	if p != nil {
 		return codec.SchemaKey{}, p
 	}
 	return codec.SchemaKey{
 		Type:    strings.TrimSpace(env.Type),
-		Version: int32(env.Version),
+		Version: version,
 		Format:  codec.Format(contentType),
 	}, nil
+}
+
+func schemaKeyVersion(version int) (int32, *problem.Problem) {
+	// Parse through decimal text into int32 to avoid unsafe int -> int32 narrowing.
+	var out int32
+	if _, err := fmt.Sscanf(strconv.Itoa(version), "%d", &out); err != nil {
+		return 0, problem.WithDetail(
+			problem.WithDetail(
+				problem.Wrap(err, problem.ValidationFailed, "envelope version conversion failed"),
+				"field", "version",
+			),
+			"value", version,
+		)
+	}
+	return out, nil
 }
 
 func missingCodecProblem(kind string, key codec.SchemaKey) *problem.Problem {
