@@ -74,6 +74,7 @@ type wsConn interface {
 	WriteMessage(messageType int, data []byte) error
 	WriteControl(messageType int, data []byte, deadline time.Time) error
 	ReadMessage() (messageType int, p []byte, err error)
+	SetReadDeadline(t time.Time) error
 	SetPingHandler(h func(appData string) error)
 	SetPongHandler(h func(appData string) error)
 	Close() error
@@ -94,6 +95,10 @@ func (g *gorillaConn) WriteControl(messageType int, data []byte, deadline time.T
 
 func (g *gorillaConn) ReadMessage() (messageType int, p []byte, err error) {
 	return g.conn.ReadMessage()
+}
+
+func (g *gorillaConn) SetReadDeadline(t time.Time) error {
+	return g.conn.SetReadDeadline(t)
 }
 
 func (g *gorillaConn) SetPingHandler(h func(appData string) error) {
@@ -140,6 +145,7 @@ type Consumer struct {
 
 	nowFn          func() time.Time
 	keepaliveEvery time.Duration
+	readTimeout    time.Duration
 }
 
 func NewConsumer(config ConsumerConfig) actor.Producer {
@@ -149,6 +155,7 @@ func NewConsumer(config ConsumerConfig) actor.Producer {
 			quitch:         make(chan struct{}),
 			nowFn:          time.Now,
 			keepaliveEvery: time.Minute,
+			readTimeout:    2 * time.Minute,
 		}
 	}
 }
@@ -187,8 +194,12 @@ func (c *Consumer) connect() {
 	}
 
 	c.setConn(conn)
+	if err := conn.SetReadDeadline(c.now().Add(c.readTimeout)); err != nil {
+		c.reportFailure("read_deadline", err)
+		return
+	}
 	conn.SetPongHandler(func(string) error {
-		return nil
+		return conn.SetReadDeadline(c.now().Add(c.readTimeout))
 	})
 
 	c.emitState("connected", nil)
@@ -222,6 +233,7 @@ func (c *Consumer) Stop() {
 		if c.cancel != nil {
 			c.cancel()
 		}
+		_ = c.writeControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "shutdown"), c.now().Add(time.Second))
 		if err := c.closeConn(); err != nil {
 			slog.Error("error closing websocket connection", "err", err)
 		}

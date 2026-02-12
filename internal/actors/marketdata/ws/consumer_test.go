@@ -25,6 +25,8 @@ type fakeConn struct {
 
 	pingHandler func(string) error
 	pongHandler func(string) error
+
+	readDeadline time.Time
 }
 
 func newFakeConn() *fakeConn {
@@ -52,6 +54,13 @@ func (f *fakeConn) ReadMessage() (int, []byte, error) {
 		}
 		return 1, res.msg, nil
 	}
+}
+
+func (f *fakeConn) SetReadDeadline(t time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.readDeadline = t
+	return nil
 }
 
 func (f *fakeConn) SetPingHandler(h func(appData string) error) {
@@ -227,5 +236,53 @@ func TestConsumer_StopIsIdempotent(t *testing.T) {
 	}
 	if got := fake.getCloseCount(); got != 1 {
 		t.Fatalf("close calls = %d, want 1", got)
+	}
+}
+
+func TestConsumer_ConnectSetsReadDeadlineAndPongHandler(t *testing.T) {
+	fake := newFakeConn()
+	fake.readCh <- readResult{err: errors.New("force read exit")}
+
+	origDial := consumerDial
+	consumerDialMu.Lock()
+	consumerDial = func(ctx context.Context, url string) (wsConn, error) {
+		return fake, nil
+	}
+	consumerDialMu.Unlock()
+	defer func() {
+		consumerDialMu.Lock()
+		consumerDial = origDial
+		consumerDialMu.Unlock()
+	}()
+
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("failed to create engine: %v", err)
+	}
+
+	sinkCh := make(chan any, 64)
+	sinkPID := e.Spawn(func() actor.Receiver { return &sinkActor{ch: sinkCh} }, "sink")
+	consumerPID := e.Spawn(NewConsumer(ConsumerConfig{
+		Exchange:   "binance",
+		Endpoint:   "wss://fake",
+		BucketID:   7,
+		ConsumerID: "c-1",
+		SendTo:     sinkPID,
+	}), "consumer")
+	defer e.Poison(consumerPID)
+	defer e.Poison(sinkPID)
+
+	time.Sleep(100 * time.Millisecond)
+
+	fake.mu.Lock()
+	deadlineSet := !fake.readDeadline.IsZero()
+	hasPongHandler := fake.pongHandler != nil
+	fake.mu.Unlock()
+
+	if !deadlineSet {
+		t.Fatal("expected read deadline to be set on connect")
+	}
+	if !hasPongHandler {
+		t.Fatal("expected pong handler to be set on connect")
 	}
 }
