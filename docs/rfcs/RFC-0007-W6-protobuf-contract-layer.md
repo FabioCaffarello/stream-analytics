@@ -148,3 +148,80 @@ cd internal/core/delivery && go test ./...
 - Runtime defaults remain unchanged: with no config override, producer envelopes are JSON.
 - No actor topology, bus semantics, or routing behavior changed in W6-3.
 - Consumer path was intentionally not migrated in this step; publish/consume behavior only changes when producer config explicitly opts into protobuf.
+
+## W6-4 Evidence
+
+### Deterministic encoding guarantees
+
+- JSON determinism is now enforced with 100-run byte-equality tests for domain payload encoding:
+  - `internal/shared/codec/codec_test.go` (`JSONCodec` deterministic bytes)
+  - `internal/shared/codec/payload_codec_test.go` (`EncodePayload` JSON deterministic bytes)
+- Proto determinism is enforced with deterministic marshal mode and 100-run byte-equality tests:
+  - `internal/shared/codec/proto_codec.go` uses `proto.MarshalOptions{Deterministic: true}`
+  - `internal/shared/codec/codec_test.go` and `internal/shared/codec/payload_codec_test.go` verify stable protobuf bytes over 100 encodes
+- Map nondeterminism risk is guarded by domain payload map prohibition tests (`internal/shared/codec/codec_test.go`).
+
+### Fallback policy and safety rules
+
+- Added explicit codec fallback policy in `internal/shared/codec/payload_codec.go`:
+  - `FallbackPolicyAllowUnknownJSON` (default; preserves backward compatibility)
+  - `FallbackPolicyRejectUnknown` (future hardening switch)
+- Unknown event behavior is now explicit and tested:
+  - unknown event + empty `content_type` => JSON fallback allowed
+  - unknown event + `application/json` => JSON fallback allowed
+  - unknown event + `application/protobuf` => rejected with `ValidationFailed`
+  - unknown event + invalid `content_type` => rejected with `ValidationFailed`
+- Stable reason codes were added for metrics/log sampling:
+  - `validation_failed_unknown_content_type`
+  - `validation_failed_unknown_event_type_proto`
+  - `validation_failed_unknown_event_type_rejected`
+  - `validation_failed_missing_payload_codec`
+  - `validation_failed_invalid_fallback_policy`
+
+### Contract authority and schema identity gates
+
+- Authority manifest now carries explicit schema identity metadata (`event_type`, `version`, `proto_file`, `message`).
+- Field-level coverage guards enforce:
+  - every exported domain field is mapped (or explicitly listed in ignore list)
+  - every proto field is mapped (except explicitly listed deprecated ignores)
+- Added schema identity validation (`internal/shared/contracts/authority_test.go`):
+  - every authority binding must exist in `proto/registry.json` with matching `type` + `version`
+  - registry `message` and `proto_file` must match authority manifest metadata
+  - registry `message` must match generated protobuf descriptor full name
+  - payload codec registration must exist for JSON + protobuf for each authority binding
+
+### CI gates summary
+
+- CI protobuf gates in `.github/workflows/ci.yml` now enforce:
+  - `buf lint proto` always
+  - `proto-breaking` on `main` always
+  - on PRs: fetch `main`; if proto baseline exists, enforce `proto-breaking`; otherwise emit explicit bootstrap message and continue with lint + drift gates
+  - generated drift gate scoped to `internal/shared/proto/gen` with actionable failure message
+  - explicit import-boundary guard execution:
+    - `go test ./internal/shared/contracts -run TestImportGuard_ProtoImportsStayInSharedBoundary -count=1`
+
+### Validation commands executed
+
+```bash
+make proto-lint
+make proto-gen && git diff --exit-code -- internal/shared/proto/gen
+make proto-breaking
+go test -race ./...
+make test-workspace
+```
+
+### Validation output summary
+
+- `make proto-lint`: passed (using local `BUF_CACHE_DIR` workspace cache).
+- `make proto-gen && git diff --exit-code -- internal/shared/proto/gen`: failed in this execution environment because `buf generate` could not reach `buf.build` remote plugin host.
+- `make proto-breaking`: clear bootstrap-safe skip message emitted (`main` baseline not available in local git state for this run).
+- `go test -race ./...`: fails at workspace root pattern selection in this repository layout.
+- `make test-workspace`: passed as module-by-module `-race` equivalent across `go.work` modules, including `internal/shared/codec` and `internal/shared/contracts`.
+
+### Runtime behavior statement
+
+- Default runtime behavior remains JSON-first.
+- No JetStream changes were introduced.
+- No dual-write was introduced.
+- No actor topology, routing, bus semantics, or delivery protocol changes were introduced.
+- No protobuf imports were added to `internal/core/*`, `internal/actors/*`, or `internal/interfaces/*`.
