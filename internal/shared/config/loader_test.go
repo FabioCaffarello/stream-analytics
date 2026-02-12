@@ -39,6 +39,9 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 	if cfg.Consumer.BinanceWSBaseURL == "" {
 		t.Error("default consumer.binance_ws_base_url should not be empty")
 	}
+	if cfg.MarketData.PublishContentType != "application/json" {
+		t.Errorf("default marketdata.publish_content_type = %q, want application/json", cfg.MarketData.PublishContentType)
+	}
 	if cfg.Processor.BusCapacity != 1024 {
 		t.Errorf("default processor.bus_capacity = %d, want 1024", cfg.Processor.BusCapacity)
 	}
@@ -75,6 +78,9 @@ func TestLoad_ValidJSONC_ParsesFields(t *testing.T) {
 			"max_websocket_lifetime": "10m",
 			"respawn_overlap": "2s"
 		},
+		"marketdata": {
+			"publish_content_type": "application/protobuf"
+		},
 		"processor": { "bus_capacity": 512 }
 	}`
 	path := writeTempFile(t, src)
@@ -106,6 +112,9 @@ func TestLoad_ValidJSONC_ParsesFields(t *testing.T) {
 	}
 	if cfg.Consumer.RespawnOverlapDuration() != 2*time.Second {
 		t.Errorf("consumer.respawn_overlap = %v, want 2s", cfg.Consumer.RespawnOverlapDuration())
+	}
+	if cfg.MarketData.PublishContentType != "application/protobuf" {
+		t.Errorf("marketdata.publish_content_type = %q, want application/protobuf", cfg.MarketData.PublishContentType)
 	}
 	if cfg.Processor.BusCapacity != 512 {
 		t.Errorf("processor.bus_capacity = %d, want 512", cfg.Processor.BusCapacity)
@@ -210,6 +219,15 @@ func TestValidate_ConsumerInvalidRespawnOverlap(t *testing.T) {
 	prob := cfg.Validate()
 	if prob == nil {
 		t.Fatal("expected validation error for invalid respawn overlap")
+	}
+}
+
+func TestValidate_InvalidMarketDataPublishContentType(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.MarketData.PublishContentType = "application/xml"
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("expected validation error for invalid marketdata.publish_content_type")
 	}
 }
 

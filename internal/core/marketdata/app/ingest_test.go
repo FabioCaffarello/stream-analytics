@@ -8,6 +8,7 @@ import (
 	"github.com/market-raccoon/internal/core/marketdata/app"
 	"github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/shared/clock"
+	"github.com/market-raccoon/internal/shared/codec"
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/problem"
 )
@@ -71,6 +72,9 @@ func TestIngest_success(t *testing.T) {
 	}
 	if resp.Published.Envelope.IdempotencyKey == "" {
 		t.Error("IdempotencyKey must not be empty")
+	}
+	if resp.Published.Envelope.ContentType != envelope.ContentTypeJSON {
+		t.Errorf("ContentType = %q; want %q", resp.Published.Envelope.ContentType, envelope.ContentTypeJSON)
 	}
 	if resp.Published.Topic == "" {
 		t.Error("TopicKey must not be empty")
@@ -175,6 +179,62 @@ func TestIngest_metadataPropagatesToEnvelope(t *testing.T) {
 	}
 	if env.Meta["ws_stream"] != "btcusdt@aggTrade" {
 		t.Fatalf("meta ws_stream = %q, want btcusdt@aggTrade", env.Meta["ws_stream"])
+	}
+}
+
+func TestIngest_publishContentTypeJSON(t *testing.T) {
+	clk := clock.NewFakeClock(time.Now())
+	seq := &fakeSequencer{}
+	pub := &fakePublisher{}
+	uc := app.NewIngestMarketDataWithConfig(clk, seq, pub, app.IngestConfig{
+		DedupWindowSize:    64,
+		MaxStreams:         16,
+		StreamTTL:          time.Hour,
+		PublishContentType: envelope.ContentTypeJSON,
+	})
+
+	r := uc.Execute(context.Background(), validReq())
+	if r.IsFail() {
+		t.Fatalf("ingest failed: %v", r.Problem())
+	}
+	env := r.Value().Published.Envelope
+	if env.ContentType != envelope.ContentTypeJSON {
+		t.Fatalf("content_type = %q, want %q", env.ContentType, envelope.ContentTypeJSON)
+	}
+	decodedAny, p := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
+	if p != nil {
+		t.Fatalf("DecodePayload(JSON): %v", p)
+	}
+	if _, ok := decodedAny.(domain.TradeTickV1); !ok {
+		t.Fatalf("decoded payload type = %T, want %T", decodedAny, domain.TradeTickV1{})
+	}
+}
+
+func TestIngest_publishContentTypeProtobuf(t *testing.T) {
+	clk := clock.NewFakeClock(time.Now())
+	seq := &fakeSequencer{}
+	pub := &fakePublisher{}
+	uc := app.NewIngestMarketDataWithConfig(clk, seq, pub, app.IngestConfig{
+		DedupWindowSize:    64,
+		MaxStreams:         16,
+		StreamTTL:          time.Hour,
+		PublishContentType: envelope.ContentTypeProto,
+	})
+
+	r := uc.Execute(context.Background(), validReq())
+	if r.IsFail() {
+		t.Fatalf("ingest failed: %v", r.Problem())
+	}
+	env := r.Value().Published.Envelope
+	if env.ContentType != envelope.ContentTypeProto {
+		t.Fatalf("content_type = %q, want %q", env.ContentType, envelope.ContentTypeProto)
+	}
+	decodedAny, p := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
+	if p != nil {
+		t.Fatalf("DecodePayload(PROTO): %v", p)
+	}
+	if _, ok := decodedAny.(domain.TradeTickV1); !ok {
+		t.Fatalf("decoded payload type = %T, want %T", decodedAny, domain.TradeTickV1{})
 	}
 }
 
