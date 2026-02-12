@@ -115,12 +115,14 @@ func TestJSONCodec_DeterministicEncoding_TradeTickV1(t *testing.T) {
 	if p != nil {
 		t.Fatalf("first encode: %v", p)
 	}
-	second, p := c.Encode(in)
-	if p != nil {
-		t.Fatalf("second encode: %v", p)
-	}
-	if !bytes.Equal(first, second) {
-		t.Fatalf("non-deterministic JSON encoding:\nfirst=%s\nsecond=%s", string(first), string(second))
+	for i := 0; i < 100; i++ {
+		next, nextProblem := c.Encode(in)
+		if nextProblem != nil {
+			t.Fatalf("encode run %d: %v", i, nextProblem)
+		}
+		if !bytes.Equal(first, next) {
+			t.Fatalf("non-deterministic JSON encoding at run %d:\nfirst=%s\nnext=%s", i, string(first), string(next))
+		}
 	}
 }
 
@@ -224,6 +226,33 @@ func TestProtoCodec_RegistryRoundtrip_SemanticEquivalence(t *testing.T) {
 	// Validate semantic equivalence at the contract boundary helper.
 	if got, want := contracts.ProtoToDomainTradeTickV1(out), contracts.ProtoToDomainTradeTickV1(in); got != want {
 		t.Fatalf("semantic equivalence mismatch: got %+v want %+v", got, want)
+	}
+}
+
+func TestProtoCodec_DeterministicEncoding_TradeTickV1(t *testing.T) {
+	c := codec.ProtoCodec[*marketdatav1.TradeTickV1]{
+		New: func() *marketdatav1.TradeTickV1 { return &marketdatav1.TradeTickV1{} },
+	}
+	in := &marketdatav1.TradeTickV1{
+		Price:       65111.5,
+		Size:        2.25,
+		Side:        "sell",
+		TradeId:     "trade-9988",
+		TimestampMs: 1700005555666,
+	}
+
+	first, p := c.Encode(in)
+	if p != nil {
+		t.Fatalf("first encode: %v", p)
+	}
+	for i := 0; i < 100; i++ {
+		next, nextProblem := c.Encode(in)
+		if nextProblem != nil {
+			t.Fatalf("encode run %d: %v", i, nextProblem)
+		}
+		if !bytes.Equal(first, next) {
+			t.Fatalf("non-deterministic proto encoding at run %d", i)
+		}
 	}
 }
 
