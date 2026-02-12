@@ -129,6 +129,12 @@ type MarketDataConfig struct {
 	// PublishContentType controls the wire payload format for produced marketdata envelopes.
 	// Allowed: "application/json" (default) or "application/protobuf" (opt-in).
 	PublishContentType string `json:"publish_content_type"`
+	// RecordPath enables opt-in fixture recording of published envelopes.
+	// Empty disables recording (default behavior).
+	RecordPath string `json:"record_path"`
+	// ReplayPath enables opt-in fixture replay mode for processor runtime.
+	// Empty disables replay (default behavior).
+	ReplayPath string `json:"replay_path"`
 }
 
 // ProcessorConfig controls the aggregation processor binary.

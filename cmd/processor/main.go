@@ -40,8 +40,10 @@ import (
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
 	"github.com/market-raccoon/internal/shared/config"
 	"github.com/market-raccoon/internal/shared/envelope"
+	sharedhash "github.com/market-raccoon/internal/shared/hash"
 	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/market-raccoon/internal/shared/replay"
 )
 
 // ---------------------------------------------------------------------------
@@ -86,6 +88,10 @@ type envelopeSource struct {
 }
 
 func initEnvelopeSource(cfg config.AppConfig, logger *slog.Logger, e2e *e2eRuntime) envelopeSource {
+	if replayPath := strings.TrimSpace(cfg.MarketData.ReplayPath); replayPath != "" {
+		return initReplayEnvelopeSource(replayPath, cfg.Processor.BusCapacity, logger)
+	}
+
 	switch strings.ToLower(strings.TrimSpace(cfg.Bus.Type)) {
 	case "jetstream":
 		ch := make(chan envelope.Envelope, cfg.Processor.BusCapacity)
@@ -166,6 +172,67 @@ func initEnvelopeSource(cfg config.AppConfig, logger *slog.Logger, e2e *e2eRunti
 	}
 }
 
+func initReplayEnvelopeSource(path string, capacity int, logger *slog.Logger) envelopeSource {
+	if capacity <= 0 {
+		capacity = 1024
+	}
+
+	ch := make(chan envelope.Envelope, capacity)
+	errCh := make(chan *problem.Problem, 1)
+	runCtx, cancel := context.WithCancel(context.Background())
+
+	go func() {
+		defer close(ch)
+		defer close(errCh)
+
+		reader, p := replay.NewReader(path)
+		if p != nil {
+			errCh <- p
+			return
+		}
+		defer func() {
+			_ = reader.Close()
+		}()
+
+		count := 0
+		hashes := make([]string, 0, 1024)
+		for {
+			rec, ok, p := reader.Next()
+			if p != nil {
+				errCh <- p
+				return
+			}
+			if !ok {
+				break
+			}
+
+			select {
+			case <-runCtx.Done():
+				errCh <- nil
+				return
+			case ch <- rec.Envelope:
+				count++
+				hashes = append(hashes, rec.SHA256)
+			}
+		}
+
+		logger.Info("processor: replay fixture loaded",
+			"replay_path", path,
+			"records", count,
+			"sha256", sharedhash.HashFields(hashes...),
+		)
+		errCh <- nil
+	}()
+
+	return envelopeSource{
+		envelopeCh: ch,
+		consumeErr: errCh,
+		shutdownFn: func(context.Context) {
+			cancel()
+		},
+	}
+}
+
 // ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
@@ -174,9 +241,10 @@ func main() {
 	configPath := flag.String("config", "config.jsonc", "path to JSONC config file")
 	logLevelOverride := flag.String("log-level", "", "log level override: debug|info|warn|error")
 	busTypeOverride := flag.String("bus", "", "bus adapter override: inmemory|jetstream")
+	replayPathOverride := flag.String("replay-path", "", "optional fixture path to replay envelopes")
 	flag.Parse()
 
-	cfg := loadProcessorConfig(*configPath, *logLevelOverride, *busTypeOverride)
+	cfg := loadProcessorConfig(*configPath, *logLevelOverride, *busTypeOverride, *replayPathOverride)
 
 	// ── logger ─────────────────────────────────────────────────────────────
 	logger := buildLogger(cfg.Log)
@@ -256,7 +324,7 @@ func main() {
 	logger.Info("processor: shutdown complete")
 }
 
-func loadProcessorConfig(configPath, logLevelOverride, busTypeOverride string) config.AppConfig {
+func loadProcessorConfig(configPath, logLevelOverride, busTypeOverride, replayPathOverride string) config.AppConfig {
 	cfg, prob := config.Load(configPath)
 	if prob != nil {
 		slog.Error("processor: config load failed", "err", prob)
@@ -267,6 +335,9 @@ func loadProcessorConfig(configPath, logLevelOverride, busTypeOverride string) c
 	}
 	if busTypeOverride != "" {
 		cfg.Bus.Type = busTypeOverride
+	}
+	if strings.TrimSpace(replayPathOverride) != "" {
+		cfg.MarketData.ReplayPath = strings.TrimSpace(replayPathOverride)
 	}
 	if prob = cfg.Validate(); prob != nil {
 		slog.Error("processor: config validation failed", "err", prob)

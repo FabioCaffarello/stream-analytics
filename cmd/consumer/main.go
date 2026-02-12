@@ -44,6 +44,7 @@ import (
 	"github.com/market-raccoon/internal/shared/config"
 	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/market-raccoon/internal/shared/replay"
 )
 
 // ---------------------------------------------------------------------------
@@ -75,9 +76,10 @@ func main() {
 	configPath := flag.String("config", "config.jsonc", "path to JSONC config file")
 	logLevelOverride := flag.String("log-level", "", "log level override: debug|info|warn|error")
 	busTypeOverride := flag.String("bus", "", "bus adapter override: inmemory|jetstream")
+	recordPathOverride := flag.String("record-path", "", "optional fixture path to record published envelopes")
 	flag.Parse()
 
-	cfg := loadConsumerConfig(*configPath, *logLevelOverride, *busTypeOverride)
+	cfg := loadConsumerConfig(*configPath, *logLevelOverride, *busTypeOverride, *recordPathOverride)
 
 	// ── logger ───────────────────────────────────────────────────────────────
 	logger := buildLogger(cfg.Log)
@@ -105,6 +107,7 @@ func main() {
 
 	// ── dependencies ─────────────────────────────────────────────────────────
 	pub, closePublisher := buildPublisher(cfg, logger)
+	pub, closePublisher = wrapWithRecorderPublisher(cfg, logger, pub, closePublisher)
 	seq := newInMemSequencer()
 	clk := clock.NewSystemClock()
 	ingest := mdapp.NewIngestMarketData(clk, seq, pub)
@@ -172,7 +175,7 @@ func main() {
 	logger.Info("consumer: shutdown complete")
 }
 
-func loadConsumerConfig(configPath, logLevelOverride, busTypeOverride string) config.AppConfig {
+func loadConsumerConfig(configPath, logLevelOverride, busTypeOverride, recordPathOverride string) config.AppConfig {
 	cfg, prob := config.Load(configPath)
 	if prob != nil {
 		slog.Error("consumer: config load failed", "err", prob)
@@ -183,6 +186,9 @@ func loadConsumerConfig(configPath, logLevelOverride, busTypeOverride string) co
 	}
 	if busTypeOverride != "" {
 		cfg.Bus.Type = busTypeOverride
+	}
+	if strings.TrimSpace(recordPathOverride) != "" {
+		cfg.MarketData.RecordPath = strings.TrimSpace(recordPathOverride)
 	}
 	if prob = cfg.Validate(); prob != nil {
 		slog.Error("consumer: config validation failed", "err", prob)
@@ -217,6 +223,36 @@ func buildPublisher(cfg config.AppConfig, logger *slog.Logger) (ports.EventPubli
 	default:
 		logger.Info("consumer: using in-memory/log publisher")
 		return bus.NewLogPublisher(logger), func(context.Context) *problem.Problem { return nil }
+	}
+}
+
+func wrapWithRecorderPublisher(
+	cfg config.AppConfig,
+	logger *slog.Logger,
+	pub ports.EventPublisher,
+	closePublisher func(context.Context) *problem.Problem,
+) (ports.EventPublisher, func(context.Context) *problem.Problem) {
+	recordPath := strings.TrimSpace(cfg.MarketData.RecordPath)
+	if recordPath == "" {
+		return pub, closePublisher
+	}
+
+	recPub, p := replay.NewRecorderPublisher(pub, recordPath)
+	if p != nil {
+		logger.Error("consumer: recorder init failed", "record_path", recordPath, "err", p)
+		os.Exit(1)
+	}
+	logger.Info("consumer: fixture recording enabled", "record_path", recordPath)
+
+	return recPub, func(ctx context.Context) *problem.Problem {
+		var first *problem.Problem
+		if p := recPub.Close(); p != nil {
+			first = p
+		}
+		if p := closePublisher(ctx); p != nil && first == nil {
+			first = p
+		}
+		return first
 	}
 }
 

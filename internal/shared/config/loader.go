@@ -239,6 +239,12 @@ func validateMarketData(m MarketDataConfig) *problem.Problem {
 	if _, p := envelope.NormalizeContentType(m.PublishContentType); p != nil {
 		return problem.Newf(codeInvalid, "marketdata.publish_content_type must be application/json|application/protobuf, got %q", m.PublishContentType)
 	}
+	if strings.TrimSpace(m.RecordPath) == "." {
+		return problem.New(codeInvalid, "marketdata.record_path must not be \".\"")
+	}
+	if strings.TrimSpace(m.ReplayPath) == "." {
+		return problem.New(codeInvalid, "marketdata.replay_path must not be \".\"")
+	}
 	return nil
 }
 
@@ -356,6 +362,8 @@ func applyDefaults(c *AppConfig) {
 	if c.MarketData.PublishContentType == "" {
 		c.MarketData.PublishContentType = envelope.ContentTypeJSON
 	}
+	c.MarketData.RecordPath = strings.TrimSpace(c.MarketData.RecordPath)
+	c.MarketData.ReplayPath = strings.TrimSpace(c.MarketData.ReplayPath)
 	if c.Processor.BusCapacity == 0 {
 		c.Processor.BusCapacity = 1024
 	}

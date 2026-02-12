@@ -37,6 +37,8 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 		{name: "consumer.max_websockets", got: cfg.Consumer.MaxWebsockets, want: int64(5)},
 		{name: "consumer.binance_ws_base_url non-empty", got: cfg.Consumer.BinanceWSBaseURL != "", want: true},
 		{name: "marketdata.publish_content_type", got: cfg.MarketData.PublishContentType, want: "application/json"},
+		{name: "marketdata.record_path", got: cfg.MarketData.RecordPath, want: ""},
+		{name: "marketdata.replay_path", got: cfg.MarketData.ReplayPath, want: ""},
 		{name: "processor.bus_capacity", got: cfg.Processor.BusCapacity, want: 1024},
 	})
 }
@@ -87,7 +89,9 @@ func TestLoad_ValidJSONC_ParsesFields(t *testing.T) {
 			"respawn_overlap": "2s"
 		},
 		"marketdata": {
-			"publish_content_type": "application/protobuf"
+			"publish_content_type": "application/protobuf",
+			"record_path": "  /tmp/consumer.record.jsonl ",
+			"replay_path": " /tmp/replay.input.jsonl "
 		},
 		"processor": { "bus_capacity": 512 }
 	}`
@@ -116,6 +120,8 @@ func TestLoad_ValidJSONC_ParsesFields(t *testing.T) {
 		{name: "consumer.max_websockets", got: cfg.Consumer.MaxWebsockets, want: int64(3)},
 		{name: "consumer.respawn_overlap", got: cfg.Consumer.RespawnOverlapDuration(), want: 2 * time.Second},
 		{name: "marketdata.publish_content_type", got: cfg.MarketData.PublishContentType, want: "application/protobuf"},
+		{name: "marketdata.record_path", got: cfg.MarketData.RecordPath, want: "/tmp/consumer.record.jsonl"},
+		{name: "marketdata.replay_path", got: cfg.MarketData.ReplayPath, want: "/tmp/replay.input.jsonl"},
 		{name: "processor.bus_capacity", got: cfg.Processor.BusCapacity, want: 512},
 	})
 }
@@ -242,6 +248,24 @@ func TestValidate_InvalidMarketDataPublishContentType(t *testing.T) {
 	prob := cfg.Validate()
 	if prob == nil {
 		t.Fatal("expected validation error for invalid marketdata.publish_content_type")
+	}
+}
+
+func TestValidate_InvalidMarketDataRecordPathDot(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.MarketData.RecordPath = "."
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("expected validation error for invalid marketdata.record_path")
+	}
+}
+
+func TestValidate_InvalidMarketDataReplayPathDot(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.MarketData.ReplayPath = "."
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("expected validation error for invalid marketdata.replay_path")
 	}
 }
 
