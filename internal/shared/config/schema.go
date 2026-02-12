@@ -7,7 +7,10 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -16,9 +19,45 @@ import (
 type AppConfig struct {
 	Log        LogConfig        `json:"log"`
 	HTTP       HTTPConfig       `json:"http"`
+	Bus        BusConfig        `json:"bus"`
+	JetStream  JetStreamConfig  `json:"jetstream"`
 	Consumer   ConsumerConfig   `json:"consumer"`
 	MarketData MarketDataConfig `json:"marketdata"`
 	Processor  ProcessorConfig  `json:"processor"`
+}
+
+// BusConfig controls runtime bus adapter selection.
+type BusConfig struct {
+	// Type selects event bus implementation.
+	// Allowed: "inmemory" (default) | "jetstream".
+	Type string `json:"type"`
+}
+
+// JetStreamConfig controls JetStream connection and stream settings.
+type JetStreamConfig struct {
+	// URL is the nats-server URL.
+	URL string `json:"url"`
+	// StreamName is the JetStream stream name.
+	StreamName string `json:"stream_name"`
+	// ConsumerDurable is the processor durable consumer name.
+	ConsumerDurable string `json:"consumer_durable"`
+	// AckWait configures consumer ack timeout.
+	AckWait string `json:"ack_wait"`
+	// MaxAckPending limits in-flight unacked messages.
+	MaxAckPending int `json:"max_ack_pending"`
+	// MaxDeliver limits redelivery attempts before message is parked.
+	MaxDeliver int `json:"max_deliver"`
+	// DeliverPolicy controls initial delivery start point.
+	// Supported: all|new|last.
+	DeliverPolicy string `json:"deliver_policy"`
+	// FilterSubjects controls the consumer subject filters.
+	FilterSubjects []string `json:"filter_subjects"`
+	// DedupWindow configures JetStream duplicate tracking window.
+	DedupWindow string `json:"dedup_window"`
+	// MaxAge defines stream retention max age.
+	MaxAge string `json:"max_age"`
+	// MaxBytes is stream byte cap (supports e.g. "10GB").
+	MaxBytes string `json:"max_bytes"`
 }
 
 // LogConfig controls structured logging output.
@@ -138,10 +177,84 @@ func (c ConsumerConfig) ReconnectCooldownDuration() time.Duration {
 	return mustParseDuration(c.ReconnectCooldown)
 }
 
+// DedupWindowDuration parses and returns JetStreamConfig.DedupWindow.
+func (j JetStreamConfig) DedupWindowDuration() time.Duration {
+	return mustParseDuration(j.DedupWindow)
+}
+
+// MaxAgeDuration parses and returns JetStreamConfig.MaxAge.
+func (j JetStreamConfig) MaxAgeDuration() time.Duration {
+	return mustParseDuration(j.MaxAge)
+}
+
+// MaxBytesInt64 parses and returns JetStreamConfig.MaxBytes.
+func (j JetStreamConfig) MaxBytesInt64() int64 {
+	return mustParseByteSize(j.MaxBytes)
+}
+
+// AckWaitDuration parses and returns JetStreamConfig.AckWait.
+func (j JetStreamConfig) AckWaitDuration() time.Duration {
+	return mustParseDuration(j.AckWait)
+}
+
 func mustParseDuration(s string) time.Duration {
 	d, err := time.ParseDuration(s)
 	if err != nil {
 		panic(fmt.Sprintf("invalid duration %q: %v", s, err))
 	}
 	return d
+}
+
+func mustParseByteSize(s string) int64 {
+	v, err := parseByteSize(s)
+	if err != nil {
+		panic(fmt.Sprintf("invalid byte size %q: %v", s, err))
+	}
+	return v
+}
+
+func parseByteSize(s string) (int64, error) {
+	raw := strings.ToUpper(strings.TrimSpace(s))
+	if raw == "" {
+		return 0, errors.New("empty byte size")
+	}
+
+	// Allow plain bytes without unit.
+	if n, err := strconv.ParseInt(raw, 10, 64); err == nil {
+		if n <= 0 {
+			return 0, fmt.Errorf("byte size must be > 0, got %d", n)
+		}
+		return n, nil
+	}
+
+	units := []struct {
+		unit string
+		mul  int64
+	}{
+		{"TB", 1_000_000_000_000},
+		{"GB", 1_000_000_000},
+		{"MB", 1_000_000},
+		{"KB", 1_000},
+		{"B", 1},
+	}
+	for _, u := range units {
+		unit := u.unit
+		mul := u.mul
+		if strings.HasSuffix(raw, unit) {
+			numPart := strings.TrimSpace(strings.TrimSuffix(raw, unit))
+			n, err := strconv.ParseInt(numPart, 10, 64)
+			if err != nil {
+				return 0, fmt.Errorf("invalid numeric value %q", numPart)
+			}
+			if n <= 0 {
+				return 0, fmt.Errorf("byte size must be > 0, got %d", n)
+			}
+			if n > (int64(^uint64(0)>>1))/mul {
+				return 0, errors.New("byte size overflows int64")
+			}
+			return n * mul, nil
+		}
+	}
+
+	return 0, fmt.Errorf("unsupported size unit in %q", s)
 }

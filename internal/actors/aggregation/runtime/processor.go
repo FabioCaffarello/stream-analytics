@@ -26,6 +26,7 @@ import (
 	mddomain "github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/shared/codec"
 	"github.com/market-raccoon/internal/shared/envelope"
+	"github.com/market-raccoon/internal/shared/problem"
 )
 
 const (
@@ -36,6 +37,12 @@ const (
 // busClosedMsg is sent by the consume goroutine when the envelope channel
 // is closed.  It signals the actor to report a fatal failure to Guardian.
 type busClosedMsg struct{}
+
+// EnvelopeProcessResult reports the processing outcome for one envelope.
+type EnvelopeProcessResult struct {
+	Envelope envelope.Envelope
+	Problem  *problem.Problem
+}
 
 // ProcessorConfig configures the ProcessorSubsystemActor.
 type ProcessorConfig struct {
@@ -50,6 +57,11 @@ type ProcessorConfig struct {
 	// UpdateBook is the aggregation use case for order book updates.
 	// Required when routing BookDelta envelopes.
 	UpdateBook *aggapp.UpdateOrderBookFromEvents
+
+	// OnEnvelopeProcessed is an optional callback invoked after each envelope
+	// processing attempt. It is used by runtime wiring (e.g. JetStream bridge)
+	// to map processing outcomes into ack/nak/term dispositions.
+	OnEnvelopeProcessed func(EnvelopeProcessResult)
 }
 
 // ProcessorSubsystemActor consumes envelopes from a channel and dispatches
@@ -87,7 +99,8 @@ func (p *ProcessorSubsystemActor) Receive(c *actor.Context) {
 	case actor.Stopped:
 		p.onStopped()
 	case envelope.Envelope:
-		p.handleEnvelope(c, msg)
+		res := p.handleEnvelope(c, msg)
+		p.emitProcessedResult(msg, res)
 	case busClosedMsg:
 		p.handleBusClosed(c)
 	default:
@@ -146,29 +159,34 @@ func (p *ProcessorSubsystemActor) consumeLoop(ctx context.Context) {
 }
 
 // handleEnvelope routes the envelope to the appropriate use case.
-func (p *ProcessorSubsystemActor) handleEnvelope(c *actor.Context, env envelope.Envelope) {
+func (p *ProcessorSubsystemActor) handleEnvelope(_ *actor.Context, env envelope.Envelope) *problem.Problem {
 	switch env.Type {
 	case typeBookDelta:
-		p.handleBookDelta(env)
+		return p.handleBookDelta(env)
 	case typeRaw:
 		p.logger.Debug("aggruntime: skipping raw envelope",
 			"venue", env.Venue,
 			"instrument", env.Instrument,
 			"seq", env.Seq,
 		)
+		return nil
 	default:
 		p.logger.Warn("aggruntime: unhandled envelope type",
 			"type", env.Type,
 			"version", env.Version,
 		)
+		return problem.WithDetail(
+			problem.Newf(problem.ValidationFailed, "unhandled envelope type %q", env.Type),
+			"type", env.Type,
+		)
 	}
 }
 
 // handleBookDelta decodes a BookDeltaV1 payload and calls UpdateOrderBook.
-func (p *ProcessorSubsystemActor) handleBookDelta(env envelope.Envelope) {
+func (p *ProcessorSubsystemActor) handleBookDelta(env envelope.Envelope) *problem.Problem {
 	if p.cfg.UpdateBook == nil {
 		p.logger.Warn("aggruntime: no UpdateBook use case configured — dropping bookdelta")
-		return
+		return problem.New(problem.ValidationFailed, "aggregation UpdateBook use case is not configured")
 	}
 
 	var delta mddomain.BookDeltaV1
@@ -180,7 +198,7 @@ func (p *ProcessorSubsystemActor) handleBookDelta(env envelope.Envelope) {
 			"code", prob.Code,
 			"err", prob.Message,
 		)
-		return
+		return prob
 	}
 
 	req := aggapp.UpdateRequest{
@@ -201,7 +219,7 @@ func (p *ProcessorSubsystemActor) handleBookDelta(env envelope.Envelope) {
 			"code", prob.Code,
 			"retryable", prob.Retryable,
 		)
-		return
+		return prob
 	}
 
 	resp := res.Value()
@@ -211,6 +229,7 @@ func (p *ProcessorSubsystemActor) handleBookDelta(env envelope.Envelope) {
 		"seq", resp.Seq,
 		"spread", resp.Spread,
 	)
+	return nil
 }
 
 // handleBusClosed signals the Guardian that the envelope source is gone.
@@ -239,4 +258,14 @@ func toLevels(pls []mddomain.PriceLevel) []aggdomain.Level {
 		}
 	}
 	return levels
+}
+
+func (p *ProcessorSubsystemActor) emitProcessedResult(env envelope.Envelope, prob *problem.Problem) {
+	if p.cfg.OnEnvelopeProcessed == nil {
+		return
+	}
+	p.cfg.OnEnvelopeProcessed(EnvelopeProcessResult{
+		Envelope: env,
+		Problem:  prob,
+	})
 }

@@ -59,11 +59,77 @@ func (a AppConfig) Validate() *problem.Problem {
 	if prob := validateHTTP(a.HTTP); prob != nil {
 		return prob
 	}
+	if prob := validateBus(a.Bus); prob != nil {
+		return prob
+	}
+	if prob := validateJetStream(a.Bus, a.JetStream); prob != nil {
+		return prob
+	}
 	if prob := validateConsumer(a.Consumer); prob != nil {
 		return prob
 	}
 	if prob := validateMarketData(a.MarketData); prob != nil {
 		return prob
+	}
+	return nil
+}
+
+func validateBus(b BusConfig) *problem.Problem {
+	switch strings.ToLower(strings.TrimSpace(b.Type)) {
+	case "inmemory", "jetstream":
+		return nil
+	default:
+		return problem.Newf(codeInvalid, "bus.type must be inmemory|jetstream, got %q", b.Type)
+	}
+}
+
+func validateJetStream(bus BusConfig, j JetStreamConfig) *problem.Problem {
+	if !strings.EqualFold(strings.TrimSpace(bus.Type), "jetstream") {
+		return nil
+	}
+	if strings.TrimSpace(j.URL) == "" {
+		return problem.New(codeInvalid, "jetstream.url must not be empty when bus.type=jetstream")
+	}
+	if strings.TrimSpace(j.StreamName) == "" {
+		return problem.New(codeInvalid, "jetstream.stream_name must not be empty when bus.type=jetstream")
+	}
+	for _, field := range []struct {
+		name  string
+		value string
+	}{
+		{"jetstream.dedup_window", j.DedupWindow},
+		{"jetstream.max_age", j.MaxAge},
+		{"jetstream.ack_wait", j.AckWait},
+	} {
+		d, err := time.ParseDuration(field.value)
+		if err != nil || d <= 0 {
+			return problem.Newf(codeInvalid, "%s: invalid duration %q", field.name, field.value)
+		}
+	}
+	if strings.TrimSpace(j.ConsumerDurable) == "" {
+		return problem.New(codeInvalid, "jetstream.consumer_durable must not be empty when bus.type=jetstream")
+	}
+	if j.MaxAckPending <= 0 {
+		return problem.Newf(codeInvalid, "jetstream.max_ack_pending must be > 0, got %d", j.MaxAckPending)
+	}
+	if j.MaxDeliver <= 0 {
+		return problem.Newf(codeInvalid, "jetstream.max_deliver must be > 0, got %d", j.MaxDeliver)
+	}
+	switch strings.ToLower(strings.TrimSpace(j.DeliverPolicy)) {
+	case "all", "new", "last":
+	default:
+		return problem.Newf(codeInvalid, "jetstream.deliver_policy must be all|new|last, got %q", j.DeliverPolicy)
+	}
+	if len(j.FilterSubjects) == 0 {
+		return problem.New(codeInvalid, "jetstream.filter_subjects must not be empty when bus.type=jetstream")
+	}
+	for i, s := range j.FilterSubjects {
+		if strings.TrimSpace(s) == "" {
+			return problem.Newf(codeInvalid, "jetstream.filter_subjects[%d] must not be empty", i)
+		}
+	}
+	if _, err := parseByteSize(j.MaxBytes); err != nil {
+		return problem.Newf(codeInvalid, "jetstream.max_bytes: invalid size %q: %v", j.MaxBytes, err)
 	}
 	return nil
 }
@@ -199,6 +265,42 @@ func applyDefaults(c *AppConfig) {
 	}
 	if c.HTTP.ShutdownTimeout == "" {
 		c.HTTP.ShutdownTimeout = "10s"
+	}
+	if c.Bus.Type == "" {
+		c.Bus.Type = "inmemory"
+	}
+	if c.JetStream.URL == "" {
+		c.JetStream.URL = "nats://localhost:4222"
+	}
+	if c.JetStream.StreamName == "" {
+		c.JetStream.StreamName = "MARKETDATA"
+	}
+	if c.JetStream.ConsumerDurable == "" {
+		c.JetStream.ConsumerDurable = "processor-v1"
+	}
+	if c.JetStream.AckWait == "" {
+		c.JetStream.AckWait = "30s"
+	}
+	if c.JetStream.MaxAckPending == 0 {
+		c.JetStream.MaxAckPending = 1024
+	}
+	if c.JetStream.MaxDeliver == 0 {
+		c.JetStream.MaxDeliver = 10
+	}
+	if c.JetStream.DeliverPolicy == "" {
+		c.JetStream.DeliverPolicy = "all"
+	}
+	if len(c.JetStream.FilterSubjects) == 0 {
+		c.JetStream.FilterSubjects = []string{"marketdata.bookdelta.>"}
+	}
+	if c.JetStream.DedupWindow == "" {
+		c.JetStream.DedupWindow = "5m"
+	}
+	if c.JetStream.MaxAge == "" {
+		c.JetStream.MaxAge = "24h"
+	}
+	if c.JetStream.MaxBytes == "" {
+		c.JetStream.MaxBytes = "10GB"
 	}
 	if c.Consumer.Exchange == "" {
 		c.Consumer.Exchange = "binance"

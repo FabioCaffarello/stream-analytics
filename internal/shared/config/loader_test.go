@@ -21,6 +21,39 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 	if cfg.HTTP.Addr != ":8080" {
 		t.Errorf("default http.addr = %q, want %q", cfg.HTTP.Addr, ":8080")
 	}
+	if cfg.Bus.Type != "inmemory" {
+		t.Errorf("default bus.type = %q, want inmemory", cfg.Bus.Type)
+	}
+	if cfg.JetStream.StreamName != "MARKETDATA" {
+		t.Errorf("default jetstream.stream_name = %q, want MARKETDATA", cfg.JetStream.StreamName)
+	}
+	if cfg.JetStream.ConsumerDurable != "processor-v1" {
+		t.Errorf("default jetstream.consumer_durable = %q, want processor-v1", cfg.JetStream.ConsumerDurable)
+	}
+	if cfg.JetStream.AckWait != "30s" {
+		t.Errorf("default jetstream.ack_wait = %q, want 30s", cfg.JetStream.AckWait)
+	}
+	if cfg.JetStream.MaxAckPending != 1024 {
+		t.Errorf("default jetstream.max_ack_pending = %d, want 1024", cfg.JetStream.MaxAckPending)
+	}
+	if cfg.JetStream.MaxDeliver != 10 {
+		t.Errorf("default jetstream.max_deliver = %d, want 10", cfg.JetStream.MaxDeliver)
+	}
+	if cfg.JetStream.DeliverPolicy != "all" {
+		t.Errorf("default jetstream.deliver_policy = %q, want all", cfg.JetStream.DeliverPolicy)
+	}
+	if len(cfg.JetStream.FilterSubjects) != 1 || cfg.JetStream.FilterSubjects[0] != "marketdata.bookdelta.>" {
+		t.Errorf("default jetstream.filter_subjects = %v, want [marketdata.bookdelta.>]", cfg.JetStream.FilterSubjects)
+	}
+	if cfg.JetStream.DedupWindow != "5m" {
+		t.Errorf("default jetstream.dedup_window = %q, want 5m", cfg.JetStream.DedupWindow)
+	}
+	if cfg.JetStream.MaxAge != "24h" {
+		t.Errorf("default jetstream.max_age = %q, want 24h", cfg.JetStream.MaxAge)
+	}
+	if cfg.JetStream.MaxBytes != "10GB" {
+		t.Errorf("default jetstream.max_bytes = %q, want 10GB", cfg.JetStream.MaxBytes)
+	}
 	if cfg.Consumer.Exchange != "binance" {
 		t.Errorf("default consumer.exchange = %q, want %q", cfg.Consumer.Exchange, "binance")
 	}
@@ -68,6 +101,20 @@ func TestLoad_ValidJSONC_ParsesFields(t *testing.T) {
 			"idle_timeout": "30s",
 			"shutdown_timeout": "8s"
 		},
+		"bus": { "type": "jetstream" },
+		"jetstream": {
+			"url": "nats://127.0.0.1:4222",
+			"stream_name": "MARKETDATA",
+			"consumer_durable": "processor-v2",
+			"ack_wait": "45s",
+			"max_ack_pending": 2048,
+			"max_deliver": 20,
+			"deliver_policy": "new",
+			"filter_subjects": ["marketdata.>"],
+			"dedup_window": "5m",
+			"max_age": "24h",
+			"max_bytes": "2GB"
+		},
 		"consumer": {
 			"exchange": "binance",
 			"tickers": ["BTC-USD"],
@@ -103,6 +150,33 @@ func TestLoad_ValidJSONC_ParsesFields(t *testing.T) {
 	}
 	if cfg.Consumer.Exchange != "binance" {
 		t.Errorf("consumer.exchange = %q, want binance", cfg.Consumer.Exchange)
+	}
+	if cfg.Bus.Type != "jetstream" {
+		t.Errorf("bus.type = %q, want jetstream", cfg.Bus.Type)
+	}
+	if cfg.JetStream.URL != "nats://127.0.0.1:4222" {
+		t.Errorf("jetstream.url = %q", cfg.JetStream.URL)
+	}
+	if cfg.JetStream.ConsumerDurable != "processor-v2" {
+		t.Errorf("jetstream.consumer_durable = %q", cfg.JetStream.ConsumerDurable)
+	}
+	if cfg.JetStream.AckWaitDuration() != 45*time.Second {
+		t.Errorf("jetstream.ack_wait duration = %s, want 45s", cfg.JetStream.AckWaitDuration())
+	}
+	if cfg.JetStream.MaxAckPending != 2048 {
+		t.Errorf("jetstream.max_ack_pending = %d", cfg.JetStream.MaxAckPending)
+	}
+	if cfg.JetStream.MaxDeliver != 20 {
+		t.Errorf("jetstream.max_deliver = %d", cfg.JetStream.MaxDeliver)
+	}
+	if cfg.JetStream.DeliverPolicy != "new" {
+		t.Errorf("jetstream.deliver_policy = %q", cfg.JetStream.DeliverPolicy)
+	}
+	if len(cfg.JetStream.FilterSubjects) != 1 || cfg.JetStream.FilterSubjects[0] != "marketdata.>" {
+		t.Errorf("jetstream.filter_subjects = %v", cfg.JetStream.FilterSubjects)
+	}
+	if cfg.JetStream.MaxBytesInt64() != 2_000_000_000 {
+		t.Errorf("jetstream.max_bytes = %d, want 2000000000", cfg.JetStream.MaxBytesInt64())
 	}
 	if len(cfg.Consumer.Tickers) != 1 || cfg.Consumer.Tickers[0] != "BTC-USD" {
 		t.Errorf("consumer.tickers = %v, want [BTC-USD]", cfg.Consumer.Tickers)
@@ -228,6 +302,55 @@ func TestValidate_InvalidMarketDataPublishContentType(t *testing.T) {
 	prob := cfg.Validate()
 	if prob == nil {
 		t.Fatal("expected validation error for invalid marketdata.publish_content_type")
+	}
+}
+
+func TestValidate_InvalidBusType(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Bus.Type = "kafka"
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("expected validation error for invalid bus.type")
+	}
+}
+
+func TestValidate_JetStreamConfig_RequiredWhenEnabled(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Bus.Type = "jetstream"
+	cfg.JetStream.URL = ""
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("expected validation error for empty jetstream.url when bus.type=jetstream")
+	}
+}
+
+func TestValidate_JetStreamMaxBytes_Invalid(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Bus.Type = "jetstream"
+	cfg.JetStream.MaxBytes = "ten-gigabytes"
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("expected validation error for invalid jetstream.max_bytes")
+	}
+}
+
+func TestValidate_JetStreamDeliverPolicy_Invalid(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Bus.Type = "jetstream"
+	cfg.JetStream.DeliverPolicy = "by_sequence"
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("expected validation error for invalid jetstream.deliver_policy")
+	}
+}
+
+func TestValidate_JetStreamFilterSubjects_Empty(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Bus.Type = "jetstream"
+	cfg.JetStream.FilterSubjects = nil
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("expected validation error for empty jetstream.filter_subjects")
 	}
 }
 

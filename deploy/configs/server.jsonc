@@ -1,7 +1,22 @@
 {
   // Runtime config mounted in container at /etc/market-raccoon/server.jsonc
-  // Reserved for bus adapter wiring when NATS integration is enabled.
-  "nats_url": "nats://nats:4222",
+  "bus": {
+    "type": "inmemory"
+    // "type": "jetstream"
+  },
+  "jetstream": {
+    "url": "nats://nats:4222",
+    "stream_name": "MARKETDATA",
+    "consumer_durable": "processor-v1",
+    "ack_wait": "30s",
+    "max_ack_pending": 1024,
+    "max_deliver": 10,
+    "deliver_policy": "all",
+    "filter_subjects": ["marketdata.bookdelta.>"],
+    "dedup_window": "5m",
+    "max_age": "24h",
+    "max_bytes": "10GB"
+  },
   "log": {
     "level": "info",
     "format": "text"

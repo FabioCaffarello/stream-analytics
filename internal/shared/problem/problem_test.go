@@ -106,6 +106,7 @@ func TestCodeCategories(t *testing.T) {
 		{problem.NotFound, "SYS_"},
 		{problem.Conflict, "SYS_"},
 		{problem.Internal, "SYS_"},
+		{problem.Unavailable, "SYS_"},
 		{problem.OutOfOrder, "MD_"},
 		{problem.Duplicate, "MD_"},
 		{problem.IntegrityViolation, "AGG_"},

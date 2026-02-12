@@ -2,6 +2,7 @@ package envelope_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/market-raccoon/internal/shared/codec"
@@ -200,5 +201,67 @@ func TestWithMeta_chaining(t *testing.T) {
 
 	if e2.Meta["k1"] != "v1" || e2.Meta["k2"] != "v2" {
 		t.Error("meta chain broken")
+	}
+}
+
+func TestSubjectFromEnvelope(t *testing.T) {
+	env := validEnvelope()
+	env.Instrument = "BTC-USDT"
+	got := envelope.SubjectFromEnvelope(env)
+	want := "marketdata.trade.v1.binance.BTCUSDT"
+	if got != want {
+		t.Fatalf("SubjectFromEnvelope = %q, want %q", got, want)
+	}
+}
+
+func TestSubjectFromEnvelope_Deterministic(t *testing.T) {
+	env := validEnvelope()
+	env.Venue = "BINANCE"
+	env.Instrument = "btc_usdt"
+	s1 := envelope.SubjectFromEnvelope(env)
+	s2 := envelope.SubjectFromEnvelope(env)
+	if s1 != s2 {
+		t.Fatalf("subject must be deterministic: %q vs %q", s1, s2)
+	}
+}
+
+func TestMarshalBinary_RoundTrip(t *testing.T) {
+	envIn := validEnvelope()
+	envIn.ContentType = envelope.ContentTypeJSON
+
+	data, p := envelope.MarshalBinary(envIn)
+	if p != nil {
+		t.Fatalf("MarshalBinary: %v", p)
+	}
+	if len(data) == 0 {
+		t.Fatal("MarshalBinary returned empty payload")
+	}
+
+	envOut, p := envelope.UnmarshalBinary(data)
+	if p != nil {
+		t.Fatalf("UnmarshalBinary: %v", p)
+	}
+	if envOut.Type != envIn.Type || envOut.Instrument != envIn.Instrument || envOut.IdempotencyKey != envIn.IdempotencyKey {
+		t.Fatalf("roundtrip mismatch: got=%+v want=%+v", envOut, envIn)
+	}
+}
+
+func TestUnmarshalBinary_InvalidPayload(t *testing.T) {
+	_, p := envelope.UnmarshalBinary([]byte(`{bad`))
+	if p == nil {
+		t.Fatal("expected error for invalid envelope payload")
+	}
+	if p.Code != problem.ValidationFailed {
+		t.Fatalf("problem code=%s want=%s", p.Code, problem.ValidationFailed)
+	}
+}
+
+func TestMarshalBinary_ValidationError(t *testing.T) {
+	_, p := envelope.MarshalBinary(envelope.Envelope{})
+	if p == nil {
+		t.Fatal("expected validation problem")
+	}
+	if !strings.HasPrefix(string(p.Code), "VAL_") {
+		t.Fatalf("expected validation code, got %s", p.Code)
 	}
 }

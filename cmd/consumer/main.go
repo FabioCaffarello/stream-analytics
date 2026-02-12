@@ -16,6 +16,7 @@
 //	go run ./cmd/consumer [flags]
 //	  -config     string  path to JSONC config file (default "config.jsonc")
 //	  -log-level  string  log level override: debug|info|warn|error
+//	  -bus        string  bus adapter override: inmemory|jetstream
 package main
 
 import (
@@ -28,6 +29,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/anthdm/hollywood/actor"
 	mdruntime "github.com/market-raccoon/internal/actors/marketdata/runtime"
@@ -35,9 +37,12 @@ import (
 	actorruntime "github.com/market-raccoon/internal/actors/runtime"
 	"github.com/market-raccoon/internal/adapters/bus"
 	"github.com/market-raccoon/internal/adapters/exchange/binance"
+	adapterjs "github.com/market-raccoon/internal/adapters/jetstream"
 	mdapp "github.com/market-raccoon/internal/core/marketdata/app"
+	"github.com/market-raccoon/internal/core/marketdata/ports"
 	"github.com/market-raccoon/internal/shared/clock"
 	"github.com/market-raccoon/internal/shared/config"
+	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/problem"
 )
 
@@ -69,9 +74,10 @@ func (s *inMemSequencer) Next(venue, instrument string) (int64, *problem.Problem
 func main() {
 	configPath := flag.String("config", "config.jsonc", "path to JSONC config file")
 	logLevelOverride := flag.String("log-level", "", "log level override: debug|info|warn|error")
+	busTypeOverride := flag.String("bus", "", "bus adapter override: inmemory|jetstream")
 	flag.Parse()
 
-	cfg := loadConsumerConfig(*configPath, *logLevelOverride)
+	cfg := loadConsumerConfig(*configPath, *logLevelOverride, *busTypeOverride)
 
 	// ── logger ───────────────────────────────────────────────────────────────
 	logger := buildLogger(cfg.Log)
@@ -81,6 +87,7 @@ func main() {
 	tickers := cfg.Consumer.Tickers
 
 	logger.Info("consumer starting",
+		"bus_type", cfg.Bus.Type,
 		"exchange", exchange,
 		"market_type", cfg.Consumer.MarketType,
 		"tickers", tickers,
@@ -97,7 +104,7 @@ func main() {
 	)
 
 	// ── dependencies ─────────────────────────────────────────────────────────
-	pub := bus.NewLogPublisher(logger)
+	pub, closePublisher := buildPublisher(cfg, logger)
 	seq := newInMemSequencer()
 	clk := clock.NewSystemClock()
 	ingest := mdapp.NewIngestMarketData(clk, seq, pub)
@@ -152,6 +159,9 @@ func main() {
 
 	shutCtx, shutCancel := context.WithTimeout(context.Background(), cfg.HTTP.ShutdownTimeoutDuration())
 	defer shutCancel()
+	if p := closePublisher(shutCtx); p != nil {
+		logger.Warn("consumer: publisher close failed", "err", p)
+	}
 
 	e.Send(guardianPID, actorruntime.Stop{})
 	select {
@@ -162,7 +172,7 @@ func main() {
 	logger.Info("consumer: shutdown complete")
 }
 
-func loadConsumerConfig(configPath, logLevelOverride string) config.AppConfig {
+func loadConsumerConfig(configPath, logLevelOverride, busTypeOverride string) config.AppConfig {
 	cfg, prob := config.Load(configPath)
 	if prob != nil {
 		slog.Error("consumer: config load failed", "err", prob)
@@ -171,11 +181,43 @@ func loadConsumerConfig(configPath, logLevelOverride string) config.AppConfig {
 	if logLevelOverride != "" {
 		cfg.Log.Level = logLevelOverride
 	}
+	if busTypeOverride != "" {
+		cfg.Bus.Type = busTypeOverride
+	}
 	if prob = cfg.Validate(); prob != nil {
 		slog.Error("consumer: config validation failed", "err", prob)
 		os.Exit(1)
 	}
 	return cfg
+}
+
+func buildPublisher(cfg config.AppConfig, logger *slog.Logger) (ports.EventPublisher, func(context.Context) *problem.Problem) {
+	switch strings.ToLower(strings.TrimSpace(cfg.Bus.Type)) {
+	case "jetstream":
+		pub, p := adapterjs.NewPublisher(context.Background(), adapterjs.PublisherConfig{
+			URL:            cfg.JetStream.URL,
+			StreamName:     cfg.JetStream.StreamName,
+			DedupWindow:    cfg.JetStream.DedupWindowDuration(),
+			MaxAge:         cfg.JetStream.MaxAgeDuration(),
+			MaxBytes:       cfg.JetStream.MaxBytesInt64(),
+			PublishTimeout: 5 * time.Second,
+		}, metrics.NewBusObserver())
+		if p != nil {
+			logger.Error("consumer: jetstream publisher init failed", "err", p)
+			os.Exit(1)
+		}
+		logger.Info("consumer: using jetstream publisher",
+			"url", cfg.JetStream.URL,
+			"stream", cfg.JetStream.StreamName,
+			"dedup_window", cfg.JetStream.DedupWindow,
+			"max_age", cfg.JetStream.MaxAge,
+			"max_bytes", cfg.JetStream.MaxBytes,
+		)
+		return pub, pub.Close
+	default:
+		logger.Info("consumer: using in-memory/log publisher")
+		return bus.NewLogPublisher(logger), func(context.Context) *problem.Problem { return nil }
+	}
 }
 
 func buildParseFuncAndManagerCfg(

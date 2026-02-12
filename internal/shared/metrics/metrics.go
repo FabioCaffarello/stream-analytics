@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/market-raccoon/internal/shared/observability"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -59,7 +60,7 @@ var (
 	BusPublishedTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "bus_published_total",
-			Help: "Total messages published to in-memory bus.",
+			Help: "Total messages published successfully to the configured bus.",
 		},
 		[]string{"event_type", "venue"},
 	)
@@ -69,6 +70,50 @@ var (
 			Help: "Total dropped bus fanout messages per subscriber.",
 		},
 		[]string{"subscriber_id"},
+	)
+	BusPublishErrorsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "bus_publish_errors_total",
+			Help: "Total bus publish errors by error kind.",
+		},
+		[]string{"kind"},
+	)
+	BusPublishLatencySeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "bus_publish_latency_seconds",
+			Help:    "Latency of publish calls to the configured bus backend.",
+			Buckets: []float64{0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1},
+		},
+		[]string{"bus_type"},
+	)
+	BusConsumedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "bus_consumed_total",
+			Help: "Total consumed bus messages by status.",
+		},
+		[]string{"bus_type", "status"},
+	)
+	BusRedeliveredTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "bus_redelivered_total",
+			Help: "Total redelivered bus messages.",
+		},
+		[]string{"bus_type"},
+	)
+	BusAckLatencySeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "bus_ack_latency_seconds",
+			Help:    "Time between processing start and Ack/Nak/Term operation.",
+			Buckets: []float64{0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 2, 5},
+		},
+		[]string{"bus_type"},
+	)
+	BusConsumerLag = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "bus_consumer_lag",
+			Help: "Estimated JetStream consumer lag (NumPending).",
+		},
+		[]string{"bus_type"},
 	)
 
 	WSConnectionsActive = prometheus.NewGaugeVec(
@@ -179,6 +224,9 @@ var (
 	instrumentPattern = regexp.MustCompile(`^[A-Z0-9_\-]{1,32}$`)
 	eventTypePattern  = regexp.MustCompile(`^[a-z0-9_.]{1,64}$`)
 	policyPattern     = regexp.MustCompile(`^[a-z_]{1,32}$`)
+	kindPattern       = regexp.MustCompile(`^[a-z0-9_]{1,48}$`)
+	busTypePattern    = regexp.MustCompile(`^[a-z0-9_]{1,24}$`)
+	busStatusPattern  = regexp.MustCompile(`^[a-z_]{1,24}$`)
 )
 
 func init() {
@@ -195,6 +243,12 @@ func registerAll() {
 			BackpressureDropsTotal,
 			BusPublishedTotal,
 			BusDroppedTotal,
+			BusPublishErrorsTotal,
+			BusPublishLatencySeconds,
+			BusConsumedTotal,
+			BusRedeliveredTotal,
+			BusAckLatencySeconds,
+			BusConsumerLag,
 			WSConnectionsActive,
 			WSReconnectsTotal,
 			WSMessagesReceivedTotal,
@@ -219,6 +273,12 @@ func registerAll() {
 		BackpressureDropsTotal.WithLabelValues("unknown")
 		BusPublishedTotal.WithLabelValues("unknown", "unknown")
 		BusDroppedTotal.WithLabelValues("s256_plus")
+		BusPublishErrorsTotal.WithLabelValues("unknown")
+		BusPublishLatencySeconds.WithLabelValues("unknown")
+		BusConsumedTotal.WithLabelValues("unknown", "unknown")
+		BusRedeliveredTotal.WithLabelValues("unknown")
+		BusAckLatencySeconds.WithLabelValues("unknown")
+		BusConsumerLag.WithLabelValues("unknown")
 		WSConnectionsActive.WithLabelValues("unknown")
 		WSReconnectsTotal.WithLabelValues("unknown", "unknown")
 		WSMessagesReceivedTotal.WithLabelValues("unknown", "unknown")
@@ -257,6 +317,39 @@ func IncBusPublished(eventType, venue string) {
 
 func IncBusDropped(subscriberIndex int) {
 	BusDroppedTotal.WithLabelValues(bucketSubscriberID(subscriberIndex)).Inc()
+}
+
+func IncBusPublishError(kind string) {
+	BusPublishErrorsTotal.WithLabelValues(sanitizeKind(kind)).Inc()
+}
+
+func ObserveBusPublishLatency(busType string, latency time.Duration) {
+	if latency < 0 {
+		latency = 0
+	}
+	BusPublishLatencySeconds.WithLabelValues(sanitizeBusType(busType)).Observe(latency.Seconds())
+}
+
+func IncBusConsumed(busType, status string) {
+	BusConsumedTotal.WithLabelValues(sanitizeBusType(busType), sanitizeBusStatus(status)).Inc()
+}
+
+func IncBusRedelivered(busType string) {
+	BusRedeliveredTotal.WithLabelValues(sanitizeBusType(busType)).Inc()
+}
+
+func ObserveBusAckLatency(busType string, latency time.Duration) {
+	if latency < 0 {
+		latency = 0
+	}
+	BusAckLatencySeconds.WithLabelValues(sanitizeBusType(busType)).Observe(latency.Seconds())
+}
+
+func SetBusConsumerLag(busType string, lag int64) {
+	if lag < 0 {
+		lag = 0
+	}
+	BusConsumerLag.WithLabelValues(sanitizeBusType(busType)).Set(float64(lag))
 }
 
 func SetWSConnectionsActive(venue string, active int) {
@@ -299,6 +392,45 @@ func IncStreamsEvicted(reason string) {
 
 func IncBooksEvicted(reason string) {
 	BooksEvictedTotal.WithLabelValues(sanitizeReason(reason)).Inc()
+}
+
+type busObserver struct{}
+
+func (busObserver) IncPublished(eventType, venue string) {
+	IncBusPublished(eventType, venue)
+}
+
+func (busObserver) IncDropped(subscriberIndex int) {
+	IncBusDropped(subscriberIndex)
+}
+
+func (busObserver) IncPublishError(kind string) {
+	IncBusPublishError(kind)
+}
+
+func (busObserver) ObservePublishLatency(busType string, latency time.Duration) {
+	ObserveBusPublishLatency(busType, latency)
+}
+
+func (busObserver) IncConsumed(busType, status string) {
+	IncBusConsumed(busType, status)
+}
+
+func (busObserver) IncRedelivered(busType string) {
+	IncBusRedelivered(busType)
+}
+
+func (busObserver) ObserveAckLatency(busType string, latency time.Duration) {
+	ObserveBusAckLatency(busType, latency)
+}
+
+func (busObserver) SetConsumerLag(busType string, lag int64) {
+	SetBusConsumerLag(busType, lag)
+}
+
+// NewBusObserver returns the default metrics-backed bus observer.
+func NewBusObserver() observability.BusObserver {
+	return busObserver{}
 }
 
 // UpdateProcessMetrics refreshes runtime process gauges and appends new GC pauses.
@@ -379,6 +511,32 @@ func sanitizeReason(v string) string {
 	v = strings.ToLower(strings.TrimSpace(v))
 	switch v {
 	case "ttl", "size", "unknown":
+		return v
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeKind(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	if kindPattern.MatchString(v) {
+		return v
+	}
+	return "unknown"
+}
+
+func sanitizeBusType(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	if busTypePattern.MatchString(v) {
+		return v
+	}
+	return "unknown"
+}
+
+func sanitizeBusStatus(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	switch {
+	case busStatusPattern.MatchString(v):
 		return v
 	default:
 		return "unknown"

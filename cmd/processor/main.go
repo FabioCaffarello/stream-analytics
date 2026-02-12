@@ -19,6 +19,7 @@
 //	go run ./cmd/processor [flags]
 //	  -config     string  path to JSONC config file (default "config.jsonc")
 //	  -log-level  string  log level override: debug|info|warn|error
+//	  -bus        string  bus adapter override: inmemory|jetstream
 package main
 
 import (
@@ -34,9 +35,12 @@ import (
 	aggruntime "github.com/market-raccoon/internal/actors/aggregation/runtime"
 	actorruntime "github.com/market-raccoon/internal/actors/runtime"
 	"github.com/market-raccoon/internal/adapters/bus"
+	adapterjs "github.com/market-raccoon/internal/adapters/jetstream"
 	aggapp "github.com/market-raccoon/internal/core/aggregation/app"
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
 	"github.com/market-raccoon/internal/shared/config"
+	"github.com/market-raccoon/internal/shared/envelope"
+	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/problem"
 )
 
@@ -81,45 +85,114 @@ func (n *noopHotStore) Save(_ context.Context, _ aggdomain.SnapshotProduced) *pr
 func main() {
 	configPath := flag.String("config", "config.jsonc", "path to JSONC config file")
 	logLevelOverride := flag.String("log-level", "", "log level override: debug|info|warn|error")
+	busTypeOverride := flag.String("bus", "", "bus adapter override: inmemory|jetstream")
 	flag.Parse()
 
-	// ── config ─────────────────────────────────────────────────────────────
-	cfg, prob := config.Load(*configPath)
-	if prob != nil {
-		slog.Error("processor: config load failed", "err", prob)
-		os.Exit(1)
-	}
-	if *logLevelOverride != "" {
-		cfg.Log.Level = *logLevelOverride
-	}
-	if prob = cfg.Validate(); prob != nil {
-		slog.Error("processor: config validation failed", "err", prob)
-		os.Exit(1)
-	}
+	cfg := loadProcessorConfig(*configPath, *logLevelOverride, *busTypeOverride)
 
 	// ── logger ─────────────────────────────────────────────────────────────
 	logger := buildLogger(cfg.Log)
 	slog.SetDefault(logger)
+	e2e := newE2ERuntime(logger)
+	if p := e2e.startProbe(); p != nil {
+		logger.Error("processor: failed to start e2e probe", "err", p)
+		os.Exit(1)
+	}
 
-	logger.Info("processor starting")
-
-	// ── event bus (in-memory v1) ────────────────────────────────────────────
-	// In production: subscribe to NATS JetStream consumer instead.
-	eventBus := bus.NewInMemoryBus(cfg.Processor.BusCapacity)
-	envelopeCh := eventBus.Subscribe()
-
-	logger.Info("processor: subscribed to in-memory bus")
+	logger.Info("processor starting", "bus_type", cfg.Bus.Type)
 
 	// ── aggregation use case ────────────────────────────────────────────────
 	artifactPub := &logArtifactPublisher{logger: logger}
 	hotStore := &noopHotStore{}
 	updateBook := aggapp.NewUpdateOrderBookFromEvents(artifactPub, hotStore)
 
+	// ── envelope source wiring ───────────────────────────────────────────────
+	var (
+		envelopeCh <-chan envelope.Envelope
+		shutdownFn = func(context.Context) {}
+		consumeErr <-chan *problem.Problem
+		onResult   func(aggruntime.EnvelopeProcessResult)
+	)
+
+	switch strings.ToLower(strings.TrimSpace(cfg.Bus.Type)) {
+	case "jetstream":
+		ch := make(chan envelope.Envelope, cfg.Processor.BusCapacity)
+		resultsCh := make(chan aggruntime.EnvelopeProcessResult, 1)
+
+		onResult = func(res aggruntime.EnvelopeProcessResult) {
+			res.Problem = e2e.maybeInjectTransient(res.Envelope, res.Problem)
+			select {
+			case resultsCh <- res:
+			default:
+				logger.Warn("processor: dropped processing result notification")
+			}
+		}
+
+		jetstreamConsumer, p := adapterjs.NewConsumer(context.Background(), adapterjs.ConsumerConfig{
+			URL:             cfg.JetStream.URL,
+			StreamName:      cfg.JetStream.StreamName,
+			DedupWindow:     cfg.JetStream.DedupWindowDuration(),
+			MaxAge:          cfg.JetStream.MaxAgeDuration(),
+			MaxBytes:        cfg.JetStream.MaxBytesInt64(),
+			ConsumerDurable: cfg.JetStream.ConsumerDurable,
+			FilterSubjects:  cfg.JetStream.FilterSubjects,
+			AckWait:         cfg.JetStream.AckWaitDuration(),
+			MaxAckPending:   cfg.JetStream.MaxAckPending,
+			MaxDeliver:      cfg.JetStream.MaxDeliver,
+			DeliverPolicy:   cfg.JetStream.DeliverPolicy,
+		}, metrics.NewBusObserver())
+		if p != nil {
+			logger.Error("processor: jetstream consumer init failed", "err", p)
+			os.Exit(1)
+		}
+
+		runCtx, cancelConsume := context.WithCancel(context.Background())
+		errCh := make(chan *problem.Problem, 1)
+		go func() {
+			errCh <- jetstreamConsumer.Consume(runCtx, func(ctx context.Context, env envelope.Envelope) *problem.Problem {
+				select {
+				case ch <- env:
+				case <-ctx.Done():
+					return problem.WithRetryable(problem.Wrap(ctx.Err(), problem.Unavailable, "processor enqueue canceled"))
+				}
+				select {
+				case res := <-resultsCh:
+					return res.Problem
+				case <-ctx.Done():
+					return problem.WithRetryable(problem.Wrap(ctx.Err(), problem.Unavailable, "processor result wait canceled"))
+				}
+			})
+		}()
+
+		envelopeCh = ch
+		consumeErr = errCh
+		shutdownFn = func(ctx context.Context) {
+			cancelConsume()
+			if p := jetstreamConsumer.Close(ctx); p != nil {
+				logger.Warn("processor: jetstream consumer close failed", "err", p)
+			}
+		}
+		logger.Info("processor: subscribed to jetstream consumer",
+			"url", cfg.JetStream.URL,
+			"stream", cfg.JetStream.StreamName,
+			"durable", cfg.JetStream.ConsumerDurable,
+			"filters", cfg.JetStream.FilterSubjects,
+		)
+	default:
+		eventBus := bus.NewInMemoryBus(cfg.Processor.BusCapacity, metrics.NewBusObserver())
+		envelopeCh = eventBus.Subscribe()
+		shutdownFn = func(context.Context) {
+			eventBus.Close()
+		}
+		logger.Info("processor: subscribed to in-memory bus")
+	}
+
 	// ── processor subsystem config ──────────────────────────────────────────
 	processorCfg := aggruntime.ProcessorConfig{
-		Logger:     logger,
-		EnvelopeCh: envelopeCh,
-		UpdateBook: updateBook,
+		Logger:              logger,
+		EnvelopeCh:          envelopeCh,
+		UpdateBook:          updateBook,
+		OnEnvelopeProcessed: onResult,
 	}
 
 	// ── engine ──────────────────────────────────────────────────────────────
@@ -142,17 +215,27 @@ func main() {
 	)
 	logger.Info("processor: guardian spawned", "pid", guardianPID.String())
 	logger.Info("processor: waiting for envelopes (use cmd/consumer or inject via InMemoryBus)")
+	e2e.markReady()
 
 	// ── signal handling ─────────────────────────────────────────────────────
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
+	select {
+	case <-quit:
+	case p := <-consumeErr:
+		if p != nil {
+			logger.Error("processor: jetstream consume loop failed", "err", p)
+		}
+	}
 
 	logger.Info("processor: shutting down")
-	eventBus.Close()
 
 	shutCtx, cancel := context.WithTimeout(context.Background(), cfg.HTTP.ShutdownTimeoutDuration())
 	defer cancel()
+	if p := e2e.shutdown(shutCtx); p != nil {
+		logger.Warn("processor: e2e probe shutdown failed", "err", p)
+	}
+	shutdownFn(shutCtx)
 
 	e.Send(guardianPID, actorruntime.Stop{})
 	select {
@@ -161,6 +244,25 @@ func main() {
 		logger.Warn("processor: guardian did not stop in time")
 	}
 	logger.Info("processor: shutdown complete")
+}
+
+func loadProcessorConfig(configPath, logLevelOverride, busTypeOverride string) config.AppConfig {
+	cfg, prob := config.Load(configPath)
+	if prob != nil {
+		slog.Error("processor: config load failed", "err", prob)
+		os.Exit(1)
+	}
+	if logLevelOverride != "" {
+		cfg.Log.Level = logLevelOverride
+	}
+	if busTypeOverride != "" {
+		cfg.Bus.Type = busTypeOverride
+	}
+	if prob = cfg.Validate(); prob != nil {
+		slog.Error("processor: config validation failed", "err", prob)
+		os.Exit(1)
+	}
+	return cfg
 }
 
 func buildLogger(cfg config.LogConfig) *slog.Logger {

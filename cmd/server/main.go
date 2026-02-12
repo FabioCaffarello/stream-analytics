@@ -41,6 +41,7 @@ import (
 	httpserver "github.com/market-raccoon/internal/interfaces/http"
 	wsserver "github.com/market-raccoon/internal/interfaces/ws"
 	"github.com/market-raccoon/internal/shared/config"
+	"github.com/market-raccoon/internal/shared/metrics"
 )
 
 func main() {
@@ -65,7 +66,7 @@ func main() {
 	}
 
 	// ── delivery wiring (W2, in-memory source) ───────────────────────────────
-	eventBus := bus.NewInMemoryBus(cfg.Processor.BusCapacity)
+	eventBus := bus.NewInMemoryBus(cfg.Processor.BusCapacity, metrics.NewBusObserver())
 	envelopeCh := eventBus.Subscribe()
 	routerPIDCh := make(chan *actor.PID, 1)
 

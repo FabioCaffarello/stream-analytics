@@ -5,7 +5,7 @@ go 1.25.6
 require (
 	github.com/market-raccoon/internal/core/marketdata v0.0.0
 	github.com/prometheus/client_golang v1.18.0
-	google.golang.org/protobuf v1.32.0
+	google.golang.org/protobuf v1.36.11
 )
 
 require (

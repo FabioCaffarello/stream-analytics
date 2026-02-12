@@ -196,7 +196,21 @@ Dedup window of 5 minutes means:
 | Publish timeout | Retry once, then drop + counter | `jetstream_publish_errors_total` |
 | Stream not found | Create stream on startup (idempotent) | N/A |
 | Consumer ack timeout | Message redelivered by JetStream | `jetstream_redeliveries_total` |
-| Decode error on consume | Nak + log, skip message | `jetstream_decode_errors_total` |
+| Decode error on consume | Term + log (poison), sem redelivery infinita | `bus_consumed_total{status="term"}` |
+
+## 8.1 Poison Policy (W7-2)
+
+W7-2 adota classificação explícita por classe de falha no consumo JetStream:
+
+- `OK` -> `Ack()`
+- `TRANSIENT` (`Retryable=true`, `SYS_UNAVAILABLE`, `SYS_INTERNAL`) -> `Nak()`
+- `POISON` (`VAL_*`, `MD_OUT_OF_ORDER`, `MD_DUPLICATE`, `AGG_INTEGRITY_VIOLATION`, payload inválido/content-type não suportado) -> `Term()`
+
+Trade-off operacional:
+
+- `Term()` evita loop infinito de redelivery para mensagens não recuperáveis.
+- Mensagens poison não são silenciosamente descartadas: recebem `term`, log estruturado e contagem em métricas (`bus_consumed_total{status="term"}`).
+- Para falhas temporárias preservamos at-least-once com `Nak()` e redelivery até `max_deliver`.
 
 ## 9. Migration Strategy
 
@@ -258,3 +272,134 @@ func setupNATS(t *testing.T) (*nats.Conn, func()) {
 - [ ] `go test -race ./...` green with testcontainers
 - [ ] Stream auto-created on startup if not exists (idempotent)
 - [ ] Metrics: `jetstream_publish_errors_total`, `jetstream_reconnects_total` registered
+
+## 13. W7-1 Evidence
+
+Date: 2026-02-12
+
+### Command
+
+```bash
+go test ./internal/shared/... ./internal/adapters/... ./cmd/consumer/... ./cmd/server/... ./cmd/processor/...
+```
+
+### Output (excerpt)
+
+```text
+ok  	github.com/market-raccoon/internal/shared/config
+ok  	github.com/market-raccoon/internal/shared/envelope
+ok  	github.com/market-raccoon/internal/adapters/bus
+ok  	github.com/market-raccoon/internal/adapters/jetstream
+?   	github.com/market-raccoon/cmd/consumer	[no test files]
+?   	github.com/market-raccoon/cmd/server	[no test files]
+?   	github.com/market-raccoon/cmd/processor	[no test files]
+```
+
+### Command (JetStream integration)
+
+```bash
+go test -tags=integration ./internal/adapters/jetstream -count=1 -v
+```
+
+### Output (excerpt)
+
+```text
+=== RUN   TestPublisherIntegration_Publish100AndConsume
+--- PASS: TestPublisherIntegration_Publish100AndConsume
+=== RUN   TestPublisherIntegration_DedupByMsgID
+--- PASS: TestPublisherIntegration_DedupByMsgID
+=== RUN   TestPublisherIntegration_SubjectFromEnvelope
+--- PASS: TestPublisherIntegration_SubjectFromEnvelope
+PASS
+ok  	github.com/market-raccoon/internal/adapters/jetstream
+```
+
+### Command (workspace race)
+
+```bash
+DEFAULT_MODCACHE="$(go env GOMODCACHE)"; DEFAULT_GOCACHE="$(go env GOCACHE)"; make test-workspace GO_TEST_FLAGS='-race' GOMODCACHE="$DEFAULT_MODCACHE" GOCACHE="$DEFAULT_GOCACHE"
+```
+
+### Output (excerpt)
+
+```text
+ok  	github.com/market-raccoon/internal/actors/marketdata/runtime
+ok  	github.com/market-raccoon/internal/adapters/jetstream
+ok  	github.com/market-raccoon/internal/interfaces/http
+ok  	github.com/market-raccoon/internal/shared/metrics
+```
+
+## 14. W7-2 Evidence
+
+Date: 2026-02-12
+
+### Command (JetStream integration)
+
+```bash
+go test -tags=integration ./internal/adapters/jetstream -count=1 -v
+```
+
+### Output (excerpt)
+
+```text
+=== RUN   TestConsumerIntegration_DurableRestart
+--- PASS: TestConsumerIntegration_DurableRestart
+=== RUN   TestConsumerIntegration_PoisonMessageTerminated
+--- PASS: TestConsumerIntegration_PoisonMessageTerminated
+=== RUN   TestConsumerIntegration_TransientNakThenAck
+--- PASS: TestConsumerIntegration_TransientNakThenAck
+=== RUN   TestConsumerIntegration_StartStopCycles
+--- PASS: TestConsumerIntegration_StartStopCycles
+PASS
+ok  	github.com/market-raccoon/internal/adapters/jetstream
+```
+
+### Command (workspace race)
+
+```bash
+DEFAULT_MODCACHE="$(go env GOMODCACHE)"; DEFAULT_GOCACHE="$(go env GOCACHE)"; make test-workspace GO_TEST_FLAGS='-race' GOMODCACHE="$DEFAULT_MODCACHE" GOCACHE="$DEFAULT_GOCACHE"
+```
+
+### Output (excerpt)
+
+```text
+ok  	github.com/market-raccoon/internal/adapters/jetstream
+ok  	github.com/market-raccoon/internal/actors/aggregation/runtime
+ok  	github.com/market-raccoon/internal/interfaces/http
+ok  	github.com/market-raccoon/internal/shared/metrics
+ok  	github.com/market-raccoon/internal/shared/config
+```
+
+### Ack/Nak/Term behavior validated
+
+- `DurableRestart`: consumer durável retoma backlog após stop/restart sem perda.
+- `PoisonMessageTerminated`: payload inválido é classificado como poison e finalizado com `Term()` (sem redelivery infinita).
+- `TransientNakThenAck`: handler transiente gera `Nak()` nas primeiras tentativas e converte para `Ack()` após recuperação.
+
+## 15. W7-2.1 E2E Binary Gate
+
+Date: 2026-02-12
+
+### Command
+
+```bash
+go test -tags=integration ./internal/adapters/jetstream -count=1 -run TestE2EProcessorJetStream -v
+```
+
+### Output (excerpt)
+
+```text
+=== RUN   TestE2EProcessorJetStream
+--- PASS: TestE2EProcessorJetStream
+PASS
+ok  	github.com/market-raccoon/internal/adapters/jetstream
+```
+
+### What this gate validates
+
+1. Real `cmd/processor` binary starts with `bus.type=jetstream` and becomes ready (`/readyz`).
+2. Consumes `N` envelopes from JetStream and increments `bus_consumed_total{bus_type="jetstream",status="ok"}`.
+3. Receives `SIGTERM` and exits under timeout (sem hang/loop).
+4. Restart with same durable consumer (`processor-e2e-v1`) consumes backlog published while down.
+5. Poison envelope is terminated (`status="term"`) without endless redelivery loop.
+6. Transient injection in e2e mode causes redelivery (`bus_redelivered_total > 0`) and eventual success (`status="ok"` increments).

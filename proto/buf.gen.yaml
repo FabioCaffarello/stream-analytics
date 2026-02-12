@@ -1,6 +1,6 @@
 version: v2
 plugins:
-  - plugin: go
-    path: ../bin/protoc-gen-go
+  - local: go
     out: ../internal/shared/proto/gen
-    opt: paths=source_relative
+    opt:
+      - paths=source_relative

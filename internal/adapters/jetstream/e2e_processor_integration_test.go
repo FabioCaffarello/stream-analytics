@@ -1,0 +1,496 @@
+//go:build integration
+
+package jetstream
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
+	"syscall"
+	"testing"
+	"time"
+
+	"github.com/market-raccoon/internal/shared/envelope"
+	"github.com/nats-io/nats.go"
+)
+
+func TestE2EProcessorJetStream(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	natsURL, cleanup := startJetStreamNATS(t)
+	defer cleanup()
+
+	repoRoot := findRepoRoot(t)
+	processorBin := buildProcessorBinary(t, ctx, repoRoot)
+
+	pub := mustPublisher(t, natsURL)
+	defer func() { _ = pub.Close(context.Background()) }()
+
+	const durableName = "processor-e2e-v1"
+	seq := 1
+	n := 20
+	m := 10
+
+	metricsAddr1 := reserveLocalAddr(t)
+	configPath1 := writeProcessorConfig(t, natsURL, durableName)
+	proc1 := startProcessorProcess(t, ctx, repoRoot, processorBin, configPath1, metricsAddr1)
+	defer proc1.forceStop()
+	waitReady(t, ctx, proc1, metricsAddr1)
+
+	seq = publishRawBatch(t, pub, seq, n, "E2E-A")
+	waitMetricAtLeast(t, ctx, proc1, metricsAddr1, "bus_consumed_total", map[string]string{
+		"bus_type": "jetstream",
+		"status":   "ok",
+	}, float64(n))
+
+	if err := proc1.stopGracefully(10 * time.Second); err != nil {
+		proc1.dumpLogs(t)
+		t.Fatalf("processor #1 graceful stop failed: %v", err)
+	}
+
+	seq = publishRawBatch(t, pub, seq, m, "E2E-B")
+
+	metricsAddr2 := reserveLocalAddr(t)
+	configPath2 := writeProcessorConfig(t, natsURL, durableName)
+	proc2 := startProcessorProcess(t, ctx, repoRoot, processorBin, configPath2, metricsAddr2)
+	defer proc2.forceStop()
+	waitReady(t, ctx, proc2, metricsAddr2)
+
+	waitMetricAtLeast(t, ctx, proc2, metricsAddr2, "bus_consumed_total", map[string]string{
+		"bus_type": "jetstream",
+		"status":   "ok",
+	}, float64(m))
+
+	termBefore := mustMetricValue(t, ctx, proc2, metricsAddr2, "bus_consumed_total", map[string]string{
+		"bus_type": "jetstream",
+		"status":   "term",
+	})
+
+	publishInvalidEnvelope(t, natsURL, fmt.Sprintf("poison-%d", time.Now().UnixNano()))
+	waitMetricAtLeast(t, ctx, proc2, metricsAddr2, "bus_consumed_total", map[string]string{
+		"bus_type": "jetstream",
+		"status":   "term",
+	}, termBefore+1)
+
+	redeliveredAfterPoison := mustMetricValue(t, ctx, proc2, metricsAddr2, "bus_redelivered_total", map[string]string{
+		"bus_type": "jetstream",
+	})
+	time.Sleep(2 * time.Second)
+	redeliveredPoisonStable := mustMetricValue(t, ctx, proc2, metricsAddr2, "bus_redelivered_total", map[string]string{
+		"bus_type": "jetstream",
+	})
+	if redeliveredPoisonStable > redeliveredAfterPoison {
+		proc2.dumpLogs(t)
+		t.Fatalf("poison redelivery should stay stable; got %v -> %v", redeliveredAfterPoison, redeliveredPoisonStable)
+	}
+
+	okBeforeTransient := mustMetricValue(t, ctx, proc2, metricsAddr2, "bus_consumed_total", map[string]string{
+		"bus_type": "jetstream",
+		"status":   "ok",
+	})
+	redeliveredBeforeTransient := redeliveredPoisonStable
+
+	publishTransientEnvelope(t, pub, seq)
+	waitMetricAtLeast(t, ctx, proc2, metricsAddr2, "bus_redelivered_total", map[string]string{
+		"bus_type": "jetstream",
+	}, redeliveredBeforeTransient+1)
+	waitMetricAtLeast(t, ctx, proc2, metricsAddr2, "bus_consumed_total", map[string]string{
+		"bus_type": "jetstream",
+		"status":   "ok",
+	}, okBeforeTransient+1)
+
+	if err := proc2.stopGracefully(10 * time.Second); err != nil {
+		proc2.dumpLogs(t)
+		t.Fatalf("processor #2 graceful stop failed: %v", err)
+	}
+}
+
+type processorProcess struct {
+	cmd *exec.Cmd
+
+	stdout bytes.Buffer
+	stderr bytes.Buffer
+
+	done chan error
+
+	mu      sync.Mutex
+	exited  bool
+	exitErr error
+}
+
+func startProcessorProcess(t *testing.T, ctx context.Context, repoRoot, binPath, configPath, metricsAddr string) *processorProcess {
+	t.Helper()
+
+	p := &processorProcess{
+		done: make(chan error, 1),
+	}
+	cmd := exec.CommandContext(ctx, binPath, "-config", configPath, "-bus", "jetstream", "-log-level", "debug")
+	cmd.Dir = repoRoot
+	cmd.Stdout = &p.stdout
+	cmd.Stderr = &p.stderr
+	cmd.Env = append(os.Environ(),
+		"E2E_TEST_MODE=1",
+		"E2E_HTTP_ADDR="+metricsAddr,
+		"E2E_TRANSIENT_INSTRUMENT=E2E-TRANSIENT",
+		"E2E_TRANSIENT_FAILS=2",
+	)
+	p.cmd = cmd
+
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start processor failed: %v", err)
+	}
+	go func() {
+		p.done <- cmd.Wait()
+	}()
+	return p
+}
+
+func (p *processorProcess) pollExit() (bool, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.exited {
+		return true, p.exitErr
+	}
+	select {
+	case err := <-p.done:
+		p.exited = true
+		p.exitErr = err
+		return true, err
+	default:
+		return false, nil
+	}
+}
+
+func (p *processorProcess) stopGracefully(timeout time.Duration) error {
+	if exited, err := p.pollExit(); exited {
+		return err
+	}
+	if err := p.cmd.Process.Signal(syscall.SIGTERM); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		return err
+	}
+
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+
+	select {
+	case err := <-p.done:
+		p.mu.Lock()
+		p.exited = true
+		p.exitErr = err
+		p.mu.Unlock()
+		return err
+	case <-deadline.C:
+		_ = p.cmd.Process.Kill()
+		err := <-p.done
+		p.mu.Lock()
+		p.exited = true
+		p.exitErr = err
+		p.mu.Unlock()
+		return fmt.Errorf("timeout waiting graceful stop: %w", err)
+	}
+}
+
+func (p *processorProcess) forceStop() {
+	_ = p.stopGracefully(2 * time.Second)
+}
+
+func (p *processorProcess) dumpLogs(t *testing.T) {
+	t.Helper()
+	stdout := p.stdout.String()
+	stderr := p.stderr.String()
+	if strings.TrimSpace(stdout) != "" {
+		t.Logf("processor stdout:\n%s", stdout)
+	}
+	if strings.TrimSpace(stderr) != "" {
+		t.Logf("processor stderr:\n%s", stderr)
+	}
+}
+
+func waitReady(t *testing.T, ctx context.Context, proc *processorProcess, metricsAddr string) {
+	t.Helper()
+
+	client := &http.Client{Timeout: 800 * time.Millisecond}
+	url := "http://" + metricsAddr + "/readyz"
+	for {
+		if exited, err := proc.pollExit(); exited {
+			proc.dumpLogs(t)
+			t.Fatalf("processor exited before readyz: %v", err)
+		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			t.Fatalf("build readyz request failed: %v", err)
+		}
+		resp, err := client.Do(req)
+		if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return
+			}
+		}
+		if ctx.Err() != nil {
+			proc.dumpLogs(t)
+			t.Fatalf("timeout waiting readyz")
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
+}
+
+func waitMetricAtLeast(
+	t *testing.T,
+	ctx context.Context,
+	proc *processorProcess,
+	metricsAddr, metricName string,
+	labels map[string]string,
+	minValue float64,
+) {
+	t.Helper()
+
+	var last float64
+	for {
+		if exited, err := proc.pollExit(); exited {
+			proc.dumpLogs(t)
+			t.Fatalf("processor exited while waiting metric %s: %v", metricName, err)
+		}
+
+		value, err := scrapeMetricValue(ctx, metricsAddr, metricName, labels)
+		if err == nil {
+			last = value
+			if value >= minValue {
+				return
+			}
+		}
+		if ctx.Err() != nil {
+			proc.dumpLogs(t)
+			t.Fatalf("timeout waiting metric %s >= %v (last=%v)", metricName, minValue, last)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+func mustMetricValue(
+	t *testing.T,
+	ctx context.Context,
+	proc *processorProcess,
+	metricsAddr, metricName string,
+	labels map[string]string,
+) float64 {
+	t.Helper()
+	value, err := scrapeMetricValue(ctx, metricsAddr, metricName, labels)
+	if err != nil {
+		proc.dumpLogs(t)
+		t.Fatalf("scrape metric %s failed: %v", metricName, err)
+	}
+	return value
+}
+
+func scrapeMetricValue(ctx context.Context, metricsAddr, metricName string, labels map[string]string) (float64, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+metricsAddr+"/metrics", nil)
+	if err != nil {
+		return 0, err
+	}
+
+	resp, err := (&http.Client{Timeout: 2 * time.Second}).Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("metrics status=%d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, err
+	}
+	lines := strings.Split(string(body), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		series := fields[0]
+		valueRaw := fields[len(fields)-1]
+
+		name := series
+		if i := strings.IndexByte(series, '{'); i >= 0 {
+			name = series[:i]
+		}
+		if name != metricName {
+			continue
+		}
+
+		matched := true
+		for key, val := range labels {
+			if !strings.Contains(series, fmt.Sprintf(`%s="%s"`, key, val)) {
+				matched = false
+				break
+			}
+		}
+		if !matched {
+			continue
+		}
+
+		v, err := strconv.ParseFloat(valueRaw, 64)
+		if err != nil {
+			return 0, err
+		}
+		return v, nil
+	}
+	return 0, nil
+}
+
+func publishRawBatch(t *testing.T, pub *Publisher, seqStart, count int, instrumentPrefix string) int {
+	t.Helper()
+	next := seqStart
+	for i := 0; i < count; i++ {
+		seq := next
+		next++
+		inst := fmt.Sprintf("%s-%03d", instrumentPrefix, i)
+		env := envelope.Envelope{
+			Type:           "marketdata.raw",
+			Version:        1,
+			Venue:          "binance",
+			Instrument:     inst,
+			TsExchange:     1_710_000_000_000 + int64(seq),
+			TsIngest:       1_710_000_000_100 + int64(seq),
+			Seq:            int64(seq),
+			IdempotencyKey: fmt.Sprintf("e2e-%s-%d", instrumentPrefix, seq),
+			ContentType:    envelope.ContentTypeJSON,
+			Payload:        []byte(`{"kind":"raw"}`),
+		}
+		if p := pub.Publish(context.Background(), env); p != nil {
+			t.Fatalf("publish raw[%d] failed: %v", i, p)
+		}
+	}
+	return next
+}
+
+func publishTransientEnvelope(t *testing.T, pub *Publisher, seq int) {
+	t.Helper()
+	env := envelope.Envelope{
+		Type:           "marketdata.raw",
+		Version:        1,
+		Venue:          "binance",
+		Instrument:     "E2E-TRANSIENT",
+		TsExchange:     1_710_000_010_000 + int64(seq),
+		TsIngest:       1_710_000_010_100 + int64(seq),
+		Seq:            int64(seq),
+		IdempotencyKey: fmt.Sprintf("e2e-transient-%d", seq),
+		ContentType:    envelope.ContentTypeJSON,
+		Payload:        []byte(`{"kind":"transient"}`),
+	}
+	if p := pub.Publish(context.Background(), env); p != nil {
+		t.Fatalf("publish transient failed: %v", p)
+	}
+}
+
+func publishInvalidEnvelope(t *testing.T, natsURL, msgID string) {
+	t.Helper()
+
+	nc, err := nats.Connect(natsURL)
+	if err != nil {
+		t.Fatalf("nats connect failed: %v", err)
+	}
+	defer nc.Close()
+
+	js, err := nc.JetStream()
+	if err != nil {
+		t.Fatalf("jetstream context failed: %v", err)
+	}
+
+	msg := nats.NewMsg("marketdata.raw.v1.binance.E2EPOISON")
+	msg.Header.Set(nats.MsgIdHdr, msgID)
+	msg.Data = []byte("{invalid-envelope")
+	if _, err := js.PublishMsg(msg); err != nil {
+		t.Fatalf("publish invalid envelope failed: %v", err)
+	}
+}
+
+func buildProcessorBinary(t *testing.T, ctx context.Context, repoRoot string) string {
+	t.Helper()
+
+	outPath := filepath.Join(t.TempDir(), "processor-e2e")
+	cmd := exec.CommandContext(ctx, "go", "build", "-o", outPath, "./cmd/processor")
+	cmd.Dir = repoRoot
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("build processor binary failed: %v\n%s", err, string(output))
+	}
+	return outPath
+}
+
+func writeProcessorConfig(t *testing.T, natsURL, durable string) string {
+	t.Helper()
+	cfg := fmt.Sprintf(`{
+  "bus": {"type": "jetstream"},
+  "jetstream": {
+    "url": %q,
+    "stream_name": "MARKETDATA",
+    "consumer_durable": %q,
+    "ack_wait": "2s",
+    "max_ack_pending": 1024,
+    "max_deliver": 20,
+    "deliver_policy": "all",
+    "filter_subjects": ["marketdata.>"],
+    "dedup_window": "5m",
+    "max_age": "24h",
+    "max_bytes": "10GB"
+  },
+  "log": {"level": "debug", "format": "text"},
+  "http": {"shutdown_timeout": "3s"},
+  "processor": {"bus_capacity": 1024}
+}
+`, natsURL, durable)
+
+	path := filepath.Join(t.TempDir(), "processor-e2e.json")
+	if err := os.WriteFile(path, []byte(cfg), 0o600); err != nil {
+		t.Fatalf("write processor config failed: %v", err)
+	}
+	return path
+}
+
+func reserveLocalAddr(t *testing.T) string {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve local addr failed: %v", err)
+	}
+	defer l.Close()
+	return l.Addr().String()
+}
+
+func findRepoRoot(t *testing.T) string {
+	t.Helper()
+
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd failed: %v", err)
+	}
+	cur := wd
+	for {
+		if _, err := os.Stat(filepath.Join(cur, "go.work")); err == nil {
+			return cur
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			t.Fatalf("could not locate repository root from %s", wd)
+		}
+		cur = parent
+	}
+}

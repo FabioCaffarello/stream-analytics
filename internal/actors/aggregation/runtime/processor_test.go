@@ -232,6 +232,48 @@ func TestProcessor_UnknownType_doesNotCrash(t *testing.T) {
 	<-e.Poison(pid).Done()
 }
 
+func TestProcessor_OnEnvelopeProcessed_callbackReceivesProblem(t *testing.T) {
+	pub := &spyArtifactPublisher{}
+	updateBook := newUpdateBook(pub)
+
+	ch := make(chan envelope.Envelope, 8)
+	resultCh := make(chan aggruntime.EnvelopeProcessResult, 1)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh: ch,
+		UpdateBook: updateBook,
+		OnEnvelopeProcessed: func(res aggruntime.EnvelopeProcessResult) {
+			resultCh <- res
+		},
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+
+	ch <- envelope.Envelope{
+		Type:           "unknown.type",
+		Version:        1,
+		Venue:          "BINANCE",
+		Instrument:     "BTC-USDT",
+		TsIngest:       time.Now().UnixMilli(),
+		IdempotencyKey: "unknown-type-1",
+		Payload:        []byte(`{}`),
+	}
+
+	select {
+	case res := <-resultCh:
+		if res.Problem == nil {
+			t.Fatal("expected problem for unknown event type")
+		}
+		if res.Problem.Code != problem.ValidationFailed {
+			t.Fatalf("problem code=%s want=%s", res.Problem.Code, problem.ValidationFailed)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for callback result")
+	}
+
+	<-e.Poison(pid).Done()
+}
+
 // TestProcessor_BusClosed_sendsChildFailed verifies that closing the envelope
 // channel causes the actor to send runtime.ChildFailed to its parent.
 func TestProcessor_BusClosed_sendsChildFailed(t *testing.T) {

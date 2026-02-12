@@ -87,6 +87,12 @@ func busDroppedSeriesCount(t *testing.T) int {
 
 func TestMetricsNamesPresent(t *testing.T) {
 	SetWSConnectionsActive("binance", 1)
+	IncBusPublishError("timeout")
+	ObserveBusPublishLatency("jetstream", 2*time.Millisecond)
+	IncBusConsumed("jetstream", "ok")
+	IncBusRedelivered("jetstream")
+	ObserveBusAckLatency("jetstream", 3*time.Millisecond)
+	SetBusConsumerLag("jetstream", 42)
 
 	mfs, err := Registry().Gather()
 	if err != nil {
@@ -101,6 +107,12 @@ func TestMetricsNamesPresent(t *testing.T) {
 		"ingest_latency_seconds",
 		"ws_connections_active",
 		"bus_dropped_total",
+		"bus_publish_errors_total",
+		"bus_publish_latency_seconds",
+		"bus_consumed_total",
+		"bus_redelivered_total",
+		"bus_ack_latency_seconds",
+		"bus_consumer_lag",
 		"guardian_rate_limited_total",
 		"process_heap_alloc_bytes",
 	} {
