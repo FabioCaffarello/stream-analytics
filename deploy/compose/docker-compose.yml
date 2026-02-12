@@ -1,0 +1,82 @@
+services:
+  nats:
+    image: nats:2.10.18-alpine
+    container_name: market-raccoon-nats
+    command: ["-c", "/etc/nats/nats-server.conf"]
+    ports:
+      - "127.0.0.1:4222:4222"
+      - "127.0.0.1:8222:8222"
+    volumes:
+      - ../nats/nats-server.conf:/etc/nats/nats-server.conf:ro
+      - nats_data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
+  server:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/server.Dockerfile
+    image: market-raccoon/server:dev
+    container_name: market-raccoon-server
+    command: ["-config", "/etc/market-raccoon/server.jsonc"]
+    environment:
+      NATS_URL: nats://nats:4222
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ../configs/server.jsonc:/etc/market-raccoon/server.jsonc:ro
+    depends_on:
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  consumer:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/consumer.Dockerfile
+    image: market-raccoon/consumer:dev
+    container_name: market-raccoon-consumer
+    command: ["-config", "/etc/market-raccoon/consumer.jsonc"]
+    environment:
+      NATS_URL: nats://nats:4222
+    ports:
+      - "127.0.0.1:8081:8081"
+    volumes:
+      - ../configs/consumer.jsonc:/etc/market-raccoon/consumer.jsonc:ro
+    depends_on:
+      nats:
+        condition: service_healthy
+    restart: unless-stopped
+
+  processor:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/processor.Dockerfile
+    image: market-raccoon/processor:dev
+    container_name: market-raccoon-processor
+    command: ["-config", "/etc/market-raccoon/processor.jsonc"]
+    environment:
+      NATS_URL: nats://nats:4222
+    ports:
+      - "127.0.0.1:8082:8082"
+    volumes:
+      - ../configs/processor.jsonc:/etc/market-raccoon/processor.jsonc:ro
+    depends_on:
+      nats:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  nats_data:
+    name: market-raccoon-nats-data

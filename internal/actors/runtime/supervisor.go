@@ -1,9 +1,10 @@
 package runtime
 
 import (
+	crand "crypto/rand"
+	"encoding/binary"
 	"fmt"
 	"math"
-	"math/rand"
 	"time"
 )
 
@@ -21,11 +22,15 @@ type RNG interface {
 	Float64() float64
 }
 
-type stdRNG struct {
-	r *rand.Rand
-}
+type stdRNG struct{}
 
-func (s stdRNG) Float64() float64 { return s.r.Float64() }
+func (stdRNG) Float64() float64 {
+	var b [8]byte
+	if _, err := crand.Read(b[:]); err != nil {
+		return 0.5
+	}
+	return float64(binary.LittleEndian.Uint64(b[:])) / (1 << 64)
+}
 
 // SupervisorConfig configures restart/backoff/degrade behavior.
 type SupervisorConfig struct {
@@ -45,6 +50,13 @@ type SupervisorDecision struct {
 	EnterDegraded bool
 	DegradedUntil time.Time
 	Reason        string
+}
+
+// PolicyStatus is the policy-only health state for one subsystem.
+type PolicyStatus struct {
+	Degraded      bool
+	RestartCount  int
+	CooldownUntil time.Time
 }
 
 // SupervisorPolicy tracks per-subsystem failure history and computes restart actions.
@@ -90,7 +102,7 @@ func NewSupervisorPolicy(cfg SupervisorConfig, clock Clock, rng RNG) (*Superviso
 		clock = systemClock{}
 	}
 	if rng == nil {
-		rng = stdRNG{r: rand.New(rand.NewSource(clock.Now().UnixNano()))}
+		rng = stdRNG{}
 	}
 
 	return &SupervisorPolicy{
@@ -150,10 +162,10 @@ func (p *SupervisorPolicy) MarkRecovered(subsystem Subsystem) {
 }
 
 // Status returns current policy status for a subsystem.
-func (p *SupervisorPolicy) Status(subsystem Subsystem) SubsystemState {
+func (p *SupervisorPolicy) Status(subsystem Subsystem) PolicyStatus {
 	now := p.clock.Now()
 	st := p.state(subsystem)
-	return SubsystemState{
+	return PolicyStatus{
 		Degraded:      now.Before(st.degradedUntil),
 		RestartCount:  st.restartCount,
 		CooldownUntil: st.degradedUntil,

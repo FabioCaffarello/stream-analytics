@@ -267,6 +267,9 @@ func TestStopped_StopsRepeater(t *testing.T) {
 	if scheduleCanceled != 1 {
 		t.Fatalf("scheduled cancel calls = %d, want 1", scheduleCanceled)
 	}
+	if len(manager.scheduledPoison) != 0 {
+		t.Fatalf("expected scheduledPoison to be empty after stop, got %d", len(manager.scheduledPoison))
+	}
 	if poisonCalls != 1 {
 		t.Fatalf("poison calls = %d, want 1", poisonCalls)
 	}

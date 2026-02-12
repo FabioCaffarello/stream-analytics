@@ -44,9 +44,12 @@ func newGuardianForTest(policy *SupervisorPolicy, clock Clock) *Guardian {
 		clock:          clock,
 		children:       map[Subsystem]*actor.PID{},
 		running:        map[Subsystem]bool{},
-		degraded:       map[Subsystem]bool{},
+		readySystems:   map[Subsystem]bool{},
 		lastError:      map[Subsystem]string{},
+		lastFailureAt:  map[Subsystem]time.Time{},
+		lastTransition: map[Subsystem]time.Time{},
 		scheduledRetry: map[Subsystem]cancelSchedule{},
+		retryGen:       map[Subsystem]uint64{},
 		selfPID:        actor.NewPID("local", "guardian"),
 	}
 }
@@ -93,6 +96,25 @@ func TestGuardian_StartStopDeterministicOrder(t *testing.T) {
 	}
 }
 
+func TestGuardian_StopAll_CancelsAndClearsScheduledRetries(t *testing.T) {
+	clock := &fakeClock{now: time.Unix(100, 0)}
+	policy := newTestPolicy(t, clock)
+	g := newGuardianForTest(policy, clock)
+
+	cancelCalls := 0
+	g.scheduledRetry[SubsystemMarketData] = func() { cancelCalls++ }
+	g.scheduledRetry[SubsystemAggregation] = func() { cancelCalls++ }
+
+	g.stopAll(nil)
+
+	if got, want := cancelCalls, 2; got != want {
+		t.Fatalf("scheduled retry cancel calls = %d, want %d", got, want)
+	}
+	if len(g.scheduledRetry) != 0 {
+		t.Fatalf("expected scheduledRetry to be empty, got %d", len(g.scheduledRetry))
+	}
+}
+
 func TestGuardian_ChildFailedBackoffAndDegrade(t *testing.T) {
 	clock := &fakeClock{now: time.Unix(1000, 0)}
 	policy := newTestPolicy(t, clock)
@@ -105,7 +127,7 @@ func TestGuardian_ChildFailedBackoffAndDegrade(t *testing.T) {
 	}
 	g.sendToSelfFn = func(pid *actor.PID, msg any) {
 		if retry, ok := msg.(retrySubsystem); ok {
-			g.retrySubsystem(nil, retry.Subsystem)
+			g.retrySubsystem(nil, retry.Subsystem, retry.Generation)
 		}
 	}
 	g.emitFn = func(c *actor.Context, msg any) {}
@@ -141,7 +163,7 @@ func TestGuardian_ChildFailedBackoffAndDegrade(t *testing.T) {
 
 	clock.now = clock.now.Add(2 * time.Second)
 	g.handleChildFailed(nil, ChildFailed{Subsystem: SubsystemMarketData, Kind: "read", Err: errors.New("boom-3")})
-	if !g.degraded[SubsystemMarketData] {
+	if !policy.Status(SubsystemMarketData).Degraded {
 		t.Fatal("marketdata should enter degraded mode after restart limit")
 	}
 	if got, want := len(scheduled), 3; got != want {
@@ -159,7 +181,8 @@ func TestGuardian_SnapshotConsistent(t *testing.T) {
 
 	g.running[SubsystemMarketData] = true
 	g.lastError[SubsystemDelivery] = "delivery failure"
-	g.degraded[SubsystemDelivery] = true
+	_ = policy.OnFailure(SubsystemDelivery, clock.now)
+	_ = policy.OnFailure(SubsystemDelivery, clock.now)
 	_ = policy.OnFailure(SubsystemDelivery, clock.now)
 
 	snap := g.buildSnapshot()
@@ -184,5 +207,214 @@ func TestGuardian_SnapshotConsistent(t *testing.T) {
 	}
 	if delivery.RestartCount == 0 {
 		t.Fatal("delivery restart count should be > 0")
+	}
+}
+
+func TestGuardian_EnsureDefaultsSafeWithNilContext(t *testing.T) {
+	clock := &fakeClock{now: time.Unix(9000, 0)}
+	policy := newTestPolicy(t, clock)
+	g := &Guardian{
+		cfg: GuardianConfig{
+			Policy: policy,
+			Clock:  clock,
+		},
+	}
+
+	if ok := g.ensureDefaults(nil); !ok {
+		t.Fatal("ensureDefaults should succeed with injected policy and nil context")
+	}
+	if g.sendToSelfFn == nil {
+		t.Fatal("sendToSelfFn must be initialized even when context is nil")
+	}
+
+	g.sendToSelfFn(nil, retrySubsystem{})
+}
+
+func TestGuardian_ShuttingDown_IgnoresChildFailed(t *testing.T) {
+	clock := &fakeClock{now: time.Unix(1000, 0)}
+	policy := newTestPolicy(t, clock)
+	g := newGuardianForTest(policy, clock)
+
+	restartScheduled := false
+	g.scheduleFn = func(delay time.Duration, fn func()) cancelSchedule {
+		restartScheduled = true
+		return func() {}
+	}
+	g.emitFn = func(c *actor.Context, msg any) {}
+	g.spawnFn = func(c *actor.Context, subsystem Subsystem) (*actor.PID, error) {
+		return actor.NewPID("local", string(subsystem)), nil
+	}
+
+	g.startSubsystem(nil, SubsystemMarketData)
+	g.shuttingDown = true
+
+	g.handleChildFailed(nil, ChildFailed{Subsystem: SubsystemMarketData, Kind: "test"})
+
+	if restartScheduled {
+		t.Fatal("restart should not be scheduled during shutdown")
+	}
+}
+
+func TestGuardian_ShuttingDown_RetrySubsystemIsNoop(t *testing.T) {
+	clock := &fakeClock{now: time.Unix(1000, 0)}
+	policy := newTestPolicy(t, clock)
+	g := newGuardianForTest(policy, clock)
+
+	spawnCalled := false
+	g.spawnFn = func(c *actor.Context, subsystem Subsystem) (*actor.PID, error) {
+		spawnCalled = true
+		return actor.NewPID("local", string(subsystem)), nil
+	}
+	g.emitFn = func(c *actor.Context, msg any) {}
+
+	// Simulate: a retry was scheduled before shutdown, then shutdown happened.
+	gen := g.bumpRetryGeneration(SubsystemMarketData)
+	g.shuttingDown = true
+	spawnCalled = false // reset after bumpRetryGeneration doesn't spawn
+
+	g.retrySubsystem(nil, SubsystemMarketData, gen)
+
+	if spawnCalled {
+		t.Fatal("retrySubsystem should be a no-op during shutdown")
+	}
+}
+
+func TestGuardian_GlobalRestartRateLimit_DefersSixthRestart(t *testing.T) {
+	clock := &fakeClock{now: time.Unix(2000, 0)}
+	policy, err := NewSupervisorPolicy(SupervisorConfig{
+		BaseBackoff:   time.Millisecond,
+		MaxBackoff:    time.Second,
+		Jitter:        0,
+		RestartWindow: time.Minute,
+		RestartLimit:  100,
+		Cooldown:      time.Second,
+	}, clock, fixedRNG{value: 0.5})
+	if err != nil {
+		t.Fatalf("new policy: %v", err)
+	}
+	g := newGuardianForTest(policy, clock)
+	g.globalRestartWindow = time.Minute
+	g.globalRestartLimit = 5
+	g.emitFn = func(c *actor.Context, msg any) {}
+	g.spawnFn = func(c *actor.Context, subsystem Subsystem) (*actor.PID, error) {
+		return actor.NewPID("local", string(subsystem)), nil
+	}
+	g.startSubsystem(nil, SubsystemMarketData)
+
+	var scheduled []time.Duration
+	g.scheduleFn = func(delay time.Duration, fn func()) cancelSchedule {
+		scheduled = append(scheduled, delay)
+		return func() {}
+	}
+
+	for i := 0; i < 6; i++ {
+		g.handleChildFailed(nil, ChildFailed{
+			Subsystem: SubsystemMarketData,
+			Kind:      "read",
+			Err:       errors.New("boom"),
+		})
+	}
+	if len(scheduled) != 6 {
+		t.Fatalf("scheduled=%d want=6", len(scheduled))
+	}
+	if scheduled[5] < 30*time.Second {
+		t.Fatalf("expected 6th restart deferred by global limiter, delay=%v", scheduled[5])
+	}
+}
+
+func TestGuardian_Readiness_NoFactories_AlwaysReady(t *testing.T) {
+	clock := &fakeClock{now: time.Unix(1000, 0)}
+	policy := newTestPolicy(t, clock)
+	// Guardian with no Factories and nil ExpectedSubsystems → infers empty set → always ready.
+	g := newGuardianForTest(policy, clock)
+	g.cfg = GuardianConfig{Policy: policy, Clock: clock}
+
+	ready, pending := g.computeReady()
+	if !ready {
+		t.Fatal("guardian with no factories should be immediately ready")
+	}
+	if len(pending) != 0 {
+		t.Fatalf("pending should be empty, got %v", pending)
+	}
+}
+
+func TestGuardian_Readiness_WithFactory_PendingUntilStarted(t *testing.T) {
+	clock := &fakeClock{now: time.Unix(1000, 0)}
+	policy := newTestPolicy(t, clock)
+	g := newGuardianForTest(policy, clock)
+	g.cfg = GuardianConfig{
+		Policy: policy,
+		Clock:  clock,
+		Factories: map[Subsystem]actor.Producer{
+			SubsystemMarketData: func() actor.Receiver { return &placeholderReceiver{} },
+		},
+	}
+
+	ready, pending := g.computeReady()
+	if ready {
+		t.Fatal("guardian should not be ready before subsystem starts")
+	}
+	if len(pending) != 1 || pending[0] != SubsystemMarketData {
+		t.Fatalf("pending = %v, want [%s]", pending, SubsystemMarketData)
+	}
+
+	// Simulate successful spawn.
+	g.spawnFn = func(c *actor.Context, subsystem Subsystem) (*actor.PID, error) {
+		return actor.NewPID("local", string(subsystem)), nil
+	}
+	g.emitFn = func(c *actor.Context, msg any) {}
+	g.startSubsystem(nil, SubsystemMarketData)
+
+	ready, pending = g.computeReady()
+	if !ready {
+		t.Fatal("guardian should be ready after subsystem starts")
+	}
+	if len(pending) != 0 {
+		t.Fatalf("pending should be empty after start, got %v", pending)
+	}
+}
+
+func TestGuardian_Readiness_ExplicitExpectedSubsystems(t *testing.T) {
+	clock := &fakeClock{now: time.Unix(1000, 0)}
+	policy := newTestPolicy(t, clock)
+	g := newGuardianForTest(policy, clock)
+	g.cfg = GuardianConfig{
+		Policy: policy,
+		Clock:  clock,
+		// Only marketdata is expected, even though aggregation might also spawn.
+		ExpectedSubsystems: []Subsystem{SubsystemMarketData},
+	}
+
+	ready, _ := g.computeReady()
+	if ready {
+		t.Fatal("not ready before marketdata starts")
+	}
+
+	g.readySystems[SubsystemMarketData] = true
+	ready, pending := g.computeReady()
+	if !ready {
+		t.Fatal("ready after marketdata marked ready")
+	}
+	if len(pending) != 0 {
+		t.Fatalf("unexpected pending: %v", pending)
+	}
+}
+
+func TestGuardian_Readiness_ExplicitEmptySlice_AlwaysReady(t *testing.T) {
+	clock := &fakeClock{now: time.Unix(1000, 0)}
+	policy := newTestPolicy(t, clock)
+	g := newGuardianForTest(policy, clock)
+	g.cfg = GuardianConfig{
+		Policy:             policy,
+		Clock:              clock,
+		ExpectedSubsystems: []Subsystem{}, // explicit empty = no readiness tracking
+	}
+
+	ready, pending := g.computeReady()
+	if !ready {
+		t.Fatal("explicit empty ExpectedSubsystems should always be ready")
+	}
+	if len(pending) != 0 {
+		t.Fatalf("unexpected pending: %v", pending)
 	}
 }

@@ -1,0 +1,16 @@
+{
+  // Runtime config mounted in container at /etc/market-raccoon/server.jsonc
+  // Reserved for bus adapter wiring when NATS integration is enabled.
+  "nats_url": "nats://nats:4222",
+  "log": {
+    "level": "info",
+    "format": "text"
+  },
+  "http": {
+    "addr": ":8080",
+    "read_timeout": "10s",
+    "write_timeout": "15s",
+    "idle_timeout": "60s",
+    "shutdown_timeout": "10s"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "active": [
+    {
+      "slug": "w2-delivery-bc",
+      "path": "plans/w2-delivery-bc.md",
+      "title": "W2 Delivery BC - Router + Session (InMemory)",
+      "summary": "Implementar o bounded context Delivery com Subject VO, RouterActor + SessionActor, transporte WebSocket e roteamento por InMemoryBus, sem NATS real, sem novas bibliotecas.",
+      "linkedAt": "2026-02-12T03:07:48.707Z",
+      "status": "active"
+    }
+  ],
+  "completed": [],
+  "primary": "w2-delivery-bc"
+}

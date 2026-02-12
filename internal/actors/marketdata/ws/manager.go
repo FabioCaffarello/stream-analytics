@@ -50,6 +50,7 @@ type ManagerConfig struct {
 	EndpointBuilder        func([]string) string
 	SubscriptionBuilder    func([]string) [][]byte
 	Heartbeat              func() Heartbeat
+	Reconnect              ReconnectPolicy
 }
 
 // ManagerPlan contains computed values derived from ManagerConfig.
@@ -343,6 +344,7 @@ func (m *Manager) spawnInitialStream(c *actor.Context, index int, bucket []strin
 		Endpoint:             endpoint,
 		SubscriptionMessages: m.config.SubscriptionBuilder(bucket),
 		Heartbeat:            m.config.Heartbeat(),
+		Reconnect:            m.config.Reconnect,
 		BucketID:             int64(index),
 		ConsumerID:           s.uid,
 		SendTo:               m.config.SendTo,
@@ -377,6 +379,7 @@ func (m *Manager) createNewStream(c *actor.Context, oldStream *stream, index int
 		Endpoint:             newStream.endpoint,
 		SubscriptionMessages: m.config.SubscriptionBuilder(newStream.tickers),
 		Heartbeat:            m.config.Heartbeat(),
+		Reconnect:            m.config.Reconnect,
 		BucketID:             newStream.bid,
 		ConsumerID:           newStream.uid,
 		SendTo:               m.config.SendTo,

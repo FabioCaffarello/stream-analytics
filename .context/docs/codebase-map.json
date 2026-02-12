@@ -1,0 +1,126 @@
+{
+  "version": "1.0.0",
+  "generated": "2026-02-12T02:18:16.552Z",
+  "stack": {
+    "primaryLanguage": "go",
+    "languages": [
+      "go"
+    ],
+    "frameworks": [
+      "cli"
+    ],
+    "buildTools": [
+      "docker",
+      "docker-compose"
+    ],
+    "testFrameworks": [],
+    "packageManager": null,
+    "isMonorepo": false,
+    "hasDocker": true,
+    "hasCI": true
+  },
+  "structure": {
+    "totalFiles": 103,
+    "topDirectories": [
+      {
+        "name": "bin",
+        "fileCount": 3
+      },
+      {
+        "name": "cmd",
+        "fileCount": 9
+      },
+      {
+        "name": "docker-compose.yml",
+        "fileCount": 1
+      },
+      {
+        "name": "Dockerfile",
+        "fileCount": 1
+      },
+      {
+        "name": "docs",
+        "fileCount": 16
+      },
+      {
+        "name": "go.work",
+        "fileCount": 1
+      },
+      {
+        "name": "go.work.sum",
+        "fileCount": 1
+      },
+      {
+        "name": "internal",
+        "fileCount": 65
+      },
+      {
+        "name": "Makefile",
+        "fileCount": 1
+      },
+      {
+        "name": "pkg",
+        "fileCount": 0
+      },
+      {
+        "name": "README.md",
+        "fileCount": 1
+      },
+      {
+        "name": "scripts",
+        "fileCount": 4
+      }
+    ],
+    "languageDistribution": [
+      {
+        "extension": ".go",
+        "count": 58
+      },
+      {
+        "extension": ".md",
+        "count": 17
+      },
+      {
+        "extension": ".mod",
+        "count": 12
+      },
+      {
+        "extension": ".sum",
+        "count": 5
+      },
+      {
+        "extension": ".sh",
+        "count": 4
+      },
+      {
+        "extension": ".work",
+        "count": 1
+      },
+      {
+        "extension": ".yml",
+        "count": 1
+      }
+    ]
+  },
+  "architecture": {
+    "layers": [],
+    "patterns": [],
+    "entryPoints": []
+  },
+  "symbols": {
+    "classes": [],
+    "interfaces": [],
+    "functions": [],
+    "types": [],
+    "enums": []
+  },
+  "publicAPI": [],
+  "dependencies": {
+    "mostImported": []
+  },
+  "stats": {
+    "totalSymbols": 0,
+    "exportedSymbols": 0,
+    "analysisTimeMs": 13
+  }
+}

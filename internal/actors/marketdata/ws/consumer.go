@@ -2,10 +2,14 @@ package ws
 
 import (
 	"context"
+	cryptorand "crypto/rand"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -31,6 +35,9 @@ type WsState struct {
 	Endpoint   string
 	Status     string
 	Err        error
+	UptimeSec  float64
+	Reconnects int
+	Reason     string
 	At         time.Time
 }
 
@@ -60,20 +67,26 @@ type ConsumerConfig struct {
 	Endpoint             string
 	SubscriptionMessages [][]byte
 	Heartbeat            Heartbeat
+	Reconnect            ReconnectPolicy
 	BucketID             int64
 	ConsumerID           string
 	SendTo               *actor.PID
 }
 
-type consumerFailure struct {
-	kind string
-	err  error
+type ReconnectPolicy struct {
+	BaseBackoff  time.Duration
+	MaxBackoff   time.Duration
+	Jitter       float64
+	RetryBudget  int
+	BudgetWindow time.Duration
+	Cooldown     time.Duration
 }
 
 type wsConn interface {
 	WriteMessage(messageType int, data []byte) error
 	WriteControl(messageType int, data []byte, deadline time.Time) error
 	ReadMessage() (messageType int, p []byte, err error)
+	SetReadDeadline(t time.Time) error
 	SetPingHandler(h func(appData string) error)
 	SetPongHandler(h func(appData string) error)
 	Close() error
@@ -94,6 +107,10 @@ func (g *gorillaConn) WriteControl(messageType int, data []byte, deadline time.T
 
 func (g *gorillaConn) ReadMessage() (messageType int, p []byte, err error) {
 	return g.conn.ReadMessage()
+}
+
+func (g *gorillaConn) SetReadDeadline(t time.Time) error {
+	return g.conn.SetReadDeadline(t)
 }
 
 func (g *gorillaConn) SetPingHandler(h func(appData string) error) {
@@ -136,10 +153,16 @@ type Consumer struct {
 	quitch   chan struct{}
 	stopOnce sync.Once
 
-	failureOnce sync.Once
-
 	nowFn          func() time.Time
 	keepaliveEvery time.Duration
+	readTimeout    time.Duration
+	reconnect      ReconnectPolicy
+
+	retryMu         sync.Mutex
+	retryTimestamps []time.Time
+	reconnectCount  int
+	connStartedAt   time.Time
+	failureKind     string
 }
 
 func NewConsumer(config ConsumerConfig) actor.Producer {
@@ -149,12 +172,14 @@ func NewConsumer(config ConsumerConfig) actor.Producer {
 			quitch:         make(chan struct{}),
 			nowFn:          time.Now,
 			keepaliveEvery: time.Minute,
+			readTimeout:    2 * time.Minute,
+			reconnect:      withReconnectDefaults(config.Reconnect),
 		}
 	}
 }
 
 func (c *Consumer) Receive(ac *actor.Context) {
-	switch msg := ac.Message().(type) {
+	switch ac.Message().(type) {
 	case actor.Started:
 		c.c = ac
 		c.ctx, c.cancel = context.WithCancel(context.Background())
@@ -164,54 +189,47 @@ func (c *Consumer) Receive(ac *actor.Context) {
 	case actor.Stopped:
 		c.Stop()
 		c.emitState("closed", nil)
-
-	case consumerFailure:
-		c.handleFailure(msg.kind, msg.err)
 	}
 }
 
 func (c *Consumer) connect() {
-	c.emitState("dialing", nil)
-	consumerDialMu.RLock()
-	dialFn := consumerDial
-	consumerDialMu.RUnlock()
-	conn, err := dialFn(c.ctx, c.config.Endpoint)
-	if err != nil {
-		c.reportFailure("dial", err)
-		return
-	}
-
-	if c.isStopped() {
-		_ = conn.Close()
-		return
-	}
-
-	c.setConn(conn)
-	conn.SetPongHandler(func(string) error {
-		return nil
-	})
-
-	c.emitState("connected", nil)
-
-	for _, msg := range c.config.SubscriptionMessages {
-		if err := c.writeMessage(websocket.TextMessage, msg); err != nil {
-			c.reportFailure("subscribe", err)
+	for {
+		if c.isStopped() || c.ctx.Err() != nil {
 			return
 		}
-	}
-	if len(c.config.SubscriptionMessages) > 0 {
-		c.emitState("subscribed", nil)
-	}
-
-	donech := make(chan struct{})
-	go c.handleKeepalive(donech)
-	go c.handleHeartbeat(donech)
-
-	err = c.readLoop()
-	close(donech)
-
-	if err != nil {
-		c.reportFailure("read", err)
+		if delay := c.globalReconnectJitter(); delay > 0 {
+			timer := time.NewTimer(delay)
+			select {
+			case <-timer.C:
+			case <-c.quitch:
+				timer.Stop()
+				return
+			case <-c.ctx.Done():
+				timer.Stop()
+				return
+			}
+		}
+		kind, err := c.connectOnce()
+		if err == nil {
+			return
+		}
+		c.emitError(kind, err)
+		delay, cooldown := c.nextReconnectDelay()
+		c.reconnectCount++
+		c.emitState("reconnecting", fmt.Errorf("%s: %w", kind, err))
+		if cooldown {
+			c.emitState("cooldown", err)
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-timer.C:
+		case <-c.quitch:
+			timer.Stop()
+			return
+		case <-c.ctx.Done():
+			timer.Stop()
+			return
+		}
 	}
 }
 
@@ -222,6 +240,7 @@ func (c *Consumer) Stop() {
 		if c.cancel != nil {
 			c.cancel()
 		}
+		_ = c.writeControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "shutdown"), c.now().Add(time.Second))
 		if err := c.closeConn(); err != nil {
 			slog.Error("error closing websocket connection", "err", err)
 		}
@@ -236,7 +255,8 @@ func (c *Consumer) handleKeepalive(donech chan struct{}) {
 		select {
 		case <-ticker.C:
 			if err := c.writeControl(websocket.PingMessage, []byte{}, time.Now().Add(time.Second)); err != nil {
-				c.reportFailure("pingpong", err)
+				c.setFailureKind("heartbeat_timeout")
+				_ = c.closeConn()
 				return
 			}
 		case <-donech:
@@ -261,7 +281,8 @@ func (c *Consumer) handleHeartbeat(donech chan struct{}) {
 		select {
 		case <-ticker.C:
 			if err := c.writeMessage(websocket.TextMessage, c.config.Heartbeat.Message); err != nil {
-				c.reportFailure("heartbeat", err)
+				c.setFailureKind("heartbeat")
+				_ = c.closeConn()
 				return
 			}
 		case <-donech:
@@ -349,28 +370,13 @@ func (c *Consumer) writeControl(messageType int, data []byte, deadline time.Time
 	return conn.WriteControl(messageType, data, deadline)
 }
 
-func (c *Consumer) reportFailure(kind string, err error) {
-	if err == nil || c.c == nil {
-		return
-	}
-	c.c.Send(c.c.PID(), consumerFailure{kind: kind, err: err})
-}
-
-func (c *Consumer) handleFailure(kind string, err error) {
-	if err == nil {
-		return
-	}
-	c.failureOnce.Do(func() {
-		slog.Error("websocket consumer error", "kind", kind, "err", err)
-		c.emitError(kind, err)
-		c.emitState("error", err)
-		c.Stop()
-	})
-}
-
 func (c *Consumer) emitState(status string, err error) {
 	if c.c == nil || c.config.SendTo == nil {
 		return
+	}
+	uptime := 0.0
+	if !c.connStartedAt.IsZero() {
+		uptime = c.now().Sub(c.connStartedAt).Seconds()
 	}
 	c.c.Send(c.config.SendTo, &WsState{
 		Exchange:   c.config.Exchange,
@@ -379,6 +385,9 @@ func (c *Consumer) emitState(status string, err error) {
 		Endpoint:   c.config.Endpoint,
 		Status:     status,
 		Err:        err,
+		UptimeSec:  uptime,
+		Reconnects: c.reconnectCount,
+		Reason:     c.getFailureKind(),
 		At:         c.now(),
 	})
 }
@@ -417,6 +426,179 @@ func (c *Consumer) now() time.Time {
 		return c.nowFn()
 	}
 	return time.Now()
+}
+
+func withReconnectDefaults(in ReconnectPolicy) ReconnectPolicy {
+	if in.BaseBackoff <= 0 {
+		in.BaseBackoff = 500 * time.Millisecond
+	}
+	if in.MaxBackoff <= 0 {
+		in.MaxBackoff = 30 * time.Second
+	}
+	if in.Jitter < 0 {
+		in.Jitter = 0
+	}
+	if in.Jitter > 1 {
+		in.Jitter = 1
+	}
+	if in.RetryBudget <= 0 {
+		in.RetryBudget = 20
+	}
+	if in.BudgetWindow <= 0 {
+		in.BudgetWindow = time.Minute
+	}
+	if in.Cooldown <= 0 {
+		in.Cooldown = 30 * time.Second
+	}
+	return in
+}
+
+func (c *Consumer) connectOnce() (string, error) {
+	donech := make(chan struct{})
+	defer close(donech)
+
+	c.emitState("dialing", nil)
+	consumerDialMu.RLock()
+	dialFn := consumerDial
+	consumerDialMu.RUnlock()
+	conn, err := dialFn(c.ctx, c.config.Endpoint)
+	if err != nil {
+		c.setFailureKind("dial")
+		return "dial", err
+	}
+	if c.isStopped() {
+		_ = conn.Close()
+		return "", nil
+	}
+
+	c.setConn(conn)
+	defer func() {
+		_ = c.closeConn()
+	}()
+	c.connStartedAt = c.now()
+	c.setFailureKind("read")
+	if err := conn.SetReadDeadline(c.now().Add(c.readTimeout)); err != nil {
+		c.setFailureKind("read_deadline")
+		return "read_deadline", err
+	}
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(c.now().Add(c.readTimeout))
+	})
+	c.emitState("connected", nil)
+
+	for _, msg := range c.config.SubscriptionMessages {
+		if err := c.writeMessage(websocket.TextMessage, msg); err != nil {
+			c.setFailureKind("subscribe")
+			return "subscribe", err
+		}
+	}
+	if len(c.config.SubscriptionMessages) > 0 {
+		c.emitState("subscribed", nil)
+	}
+
+	go c.handleKeepalive(donech)
+	go c.handleHeartbeat(donech)
+
+	err = c.readLoop()
+	if err == nil {
+		return "", nil
+	}
+	kind := c.getFailureKind()
+	if kind == "" {
+		kind = classifyReadFailure(err)
+	}
+	return kind, err
+}
+
+func classifyReadFailure(err error) string {
+	if err == nil {
+		return ""
+	}
+	var ne net.Error
+	if errors.As(err, &ne) && ne.Timeout() {
+		return "read_timeout"
+	}
+	return "read"
+}
+
+func (c *Consumer) setFailureKind(kind string) {
+	c.retryMu.Lock()
+	defer c.retryMu.Unlock()
+	c.failureKind = kind
+}
+
+func (c *Consumer) getFailureKind() string {
+	c.retryMu.Lock()
+	defer c.retryMu.Unlock()
+	return c.failureKind
+}
+
+func (c *Consumer) nextReconnectDelay() (time.Duration, bool) {
+	c.retryMu.Lock()
+	defer c.retryMu.Unlock()
+
+	now := c.now()
+	windowStart := now.Add(-c.reconnect.BudgetWindow)
+	filtered := c.retryTimestamps[:0]
+	for _, ts := range c.retryTimestamps {
+		if ts.After(windowStart) {
+			filtered = append(filtered, ts)
+		}
+	}
+	c.retryTimestamps = filtered
+	if len(c.retryTimestamps) >= c.reconnect.RetryBudget {
+		c.retryTimestamps = nil
+		return c.reconnect.Cooldown, true
+	}
+
+	attempt := len(c.retryTimestamps)
+	delay := c.reconnect.BaseBackoff << attempt
+	if delay > c.reconnect.MaxBackoff {
+		delay = c.reconnect.MaxBackoff
+	}
+	if c.reconnect.Jitter > 0 && delay > 0 {
+		jitter, err := randomUnitFloat64()
+		if err != nil {
+			jitter = 0.5
+		}
+		f := 1 + ((jitter*2)-1)*c.reconnect.Jitter
+		if f < 0 {
+			f = 0
+		}
+		delay = time.Duration(float64(delay) * f)
+	}
+	c.retryTimestamps = append(c.retryTimestamps, now)
+	return delay, false
+}
+
+func randomUnitFloat64() (float64, error) {
+	var b [8]byte
+	if _, err := cryptorand.Read(b[:]); err != nil {
+		return 0, err
+	}
+	const maxUint64Float = float64(^uint64(0))
+	return float64(binary.BigEndian.Uint64(b[:])) / maxUint64Float, nil
+}
+
+// globalReconnectJitter spreads reconnect attempts for the same exchange/bucket
+// to reduce dial spikes after transient outages.
+func (c *Consumer) globalReconnectJitter() time.Duration {
+	if c.reconnectCount == 0 {
+		return 0
+	}
+	if c.reconnect.MaxBackoff <= 0 {
+		return 0
+	}
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(c.config.Exchange))
+	_, _ = h.Write([]byte{':'})
+	_, _ = h.Write([]byte(strconv.FormatInt(c.config.BucketID, 10)))
+	_, _ = h.Write([]byte{':'})
+	_, _ = h.Write([]byte(c.config.ConsumerID))
+	// Cap herd-mitigation jitter to 250ms.
+	const maxJitterMs uint32 = 250
+	jitterMs := h.Sum32() % (maxJitterMs + 1)
+	return time.Duration(jitterMs) * time.Millisecond
 }
 
 func (c *Consumer) isStopped() bool {
