@@ -1,7 +1,7 @@
 # ADR-0000 — Foundation & Decision Records
 
-**Status:** Accepted  
-**Date:** 2026-02-10  
+**Status:** Accepted
+**Date:** 2026-02-10
 **Owners:** Core maintainers
 
 ## Context

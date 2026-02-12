@@ -1,6 +1,6 @@
 # ADR-0001 — Bounded Contexts & Hexagonal Boundaries
 
-**Status:** Accepted  
+**Status:** Accepted
 **Date:** 2026-02-10
 
 ## Context

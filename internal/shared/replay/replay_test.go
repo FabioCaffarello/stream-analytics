@@ -20,195 +20,23 @@ func TestFixtureRoundtripJSON(t *testing.T) {
 	mustBootstrapPayloadRegistry(t)
 
 	path := filepath.Join(t.TempDir(), "roundtrip-json.jsonl")
-	w, p := NewWriter(path)
-	if p != nil {
-		t.Fatalf("NewWriter: %v", p)
-	}
-	t.Cleanup(func() {
-		_ = w.Close()
-	})
-
-	expected := make([]envelope.Envelope, 0, 10)
-	for i := 0; i < 10; i++ {
-		payload, p := codec.EncodePayload("marketdata.trade", 1, envelope.ContentTypeJSON, marketdomain.TradeTickV1{
-			Price:     1000.5 + float64(i),
-			Size:      0.1 + float64(i)/10,
-			Side:      "buy",
-			TradeID:   "trade-json-" + strings.Repeat("x", i+1),
-			Timestamp: 1_710_000_000_000 + int64(i),
-		})
-		if p != nil {
-			t.Fatalf("EncodePayload[%d]: %v", i, p)
-		}
-
-		env := envelope.Envelope{
-			Type:           "marketdata.trade",
-			Version:        1,
-			Venue:          "binance",
-			Instrument:     "BTC-USDT",
-			TsExchange:     1_710_000_100_000 + int64(i),
-			TsIngest:       1_710_000_200_000 + int64(i),
-			Seq:            int64(i + 1),
-			IdempotencyKey: "idem-json-" + strings.Repeat("a", i+1),
-			ContentType:    envelope.ContentTypeJSON,
-			Meta:           mapMetaVariant(i%2 == 0),
-			Payload:        payload,
-		}
-		if p := w.Append(env); p != nil {
-			t.Fatalf("Append[%d]: %v", i, p)
-		}
-		expected = append(expected, env)
-	}
-	if p := w.Close(); p != nil {
-		t.Fatalf("Close writer: %v", p)
-	}
-
-	r, p := NewReader(path)
-	if p != nil {
-		t.Fatalf("NewReader: %v", p)
-	}
-	t.Cleanup(func() {
-		_ = r.Close()
-	})
-
-	for i := 0; i < len(expected); i++ {
-		rec, ok, p := r.Next()
-		if p != nil {
-			t.Fatalf("Next[%d]: %v", i, p)
-		}
-		if !ok {
-			t.Fatalf("Next[%d]: unexpected EOF", i)
-		}
-		want := expected[i]
-
-		if rec.Subject != envelope.SubjectFromEnvelope(want) {
-			t.Fatalf("subject[%d]=%q want=%q", i, rec.Subject, envelope.SubjectFromEnvelope(want))
-		}
-		if rec.PayloadB64 != "" {
-			t.Fatalf("payload_b64[%d] should be empty for json content", i)
-		}
-		if len(rec.PayloadJSON) == 0 {
-			t.Fatalf("payload_json[%d] is empty", i)
-		}
-		if !bytes.Equal(rec.Envelope.Payload, rec.PayloadJSON) {
-			t.Fatalf("payload bytes[%d] must match payload_json", i)
-		}
-
-		gotAny, p := codec.DecodePayload(rec.Envelope.Type, rec.Envelope.Version, rec.Envelope.ContentType, rec.Envelope.Payload)
-		if p != nil {
-			t.Fatalf("DecodePayload(got)[%d]: %v", i, p)
-		}
-		wantAny, p := codec.DecodePayload(want.Type, want.Version, want.ContentType, want.Payload)
-		if p != nil {
-			t.Fatalf("DecodePayload(want)[%d]: %v", i, p)
-		}
-		if !reflect.DeepEqual(gotAny, wantAny) {
-			t.Fatalf("semantic payload mismatch[%d]: got=%#v want=%#v", i, gotAny, wantAny)
-		}
-
-		assertEnvelopeCoreEqual(t, i, rec.Envelope, want)
-	}
-
-	if _, ok, p := r.Next(); p != nil || ok {
-		t.Fatalf("expected EOF: ok=%v problem=%v", ok, p)
-	}
+	expected := writeJSONFixtureRecords(t, path, 10)
+	verifyJSONFixtureRecords(t, path, expected)
 }
 
 func TestFixtureRoundtripProtoBytes(t *testing.T) {
 	mustBootstrapPayloadRegistry(t)
 
 	path := filepath.Join(t.TempDir(), "roundtrip-proto.jsonl")
-	w, p := NewWriter(path)
-	if p != nil {
-		t.Fatalf("NewWriter: %v", p)
-	}
-	t.Cleanup(func() {
-		_ = w.Close()
-	})
-
-	expected := make([]envelope.Envelope, 0, 10)
-	for i := 0; i < 10; i++ {
-		payload, p := codec.EncodePayload("marketdata.bookdelta", 1, envelope.ContentTypeProto, marketdomain.BookDeltaV1{
-			Bids:      []marketdomain.PriceLevel{{Price: 50000 + float64(i), Size: 1.0 + float64(i)/10}},
-			Asks:      []marketdomain.PriceLevel{{Price: 50001 + float64(i), Size: 2.0 + float64(i)/10}},
-			FirstID:   int64(100 + i),
-			FinalID:   int64(200 + i),
-			PrevFinal: int64(99 + i),
-			Timestamp: 1_710_000_300_000 + int64(i),
-		})
-		if p != nil {
-			t.Fatalf("EncodePayload[%d]: %v", i, p)
-		}
-
-		env := envelope.Envelope{
-			Type:           "marketdata.bookdelta",
-			Version:        1,
-			Venue:          "binance",
-			Instrument:     "BTC-USDT",
-			TsExchange:     1_710_000_400_000 + int64(i),
-			TsIngest:       1_710_000_500_000 + int64(i),
-			Seq:            int64(i + 1),
-			IdempotencyKey: "idem-proto-" + strings.Repeat("b", i+1),
-			ContentType:    envelope.ContentTypeProto,
-			Meta:           mapMetaVariant(i%2 == 0),
-			Payload:        payload,
-		}
-		if p := w.Append(env); p != nil {
-			t.Fatalf("Append[%d]: %v", i, p)
-		}
-		expected = append(expected, env)
-	}
-	if p := w.Close(); p != nil {
-		t.Fatalf("Close writer: %v", p)
-	}
-
-	r, p := NewReader(path)
-	if p != nil {
-		t.Fatalf("NewReader: %v", p)
-	}
-	t.Cleanup(func() {
-		_ = r.Close()
-	})
-
-	for i := 0; i < len(expected); i++ {
-		rec, ok, p := r.Next()
-		if p != nil {
-			t.Fatalf("Next[%d]: %v", i, p)
-		}
-		if !ok {
-			t.Fatalf("Next[%d]: unexpected EOF", i)
-		}
-		want := expected[i]
-
-		if rec.Subject != envelope.SubjectFromEnvelope(want) {
-			t.Fatalf("subject[%d]=%q want=%q", i, rec.Subject, envelope.SubjectFromEnvelope(want))
-		}
-		if len(rec.PayloadJSON) != 0 {
-			t.Fatalf("payload_json[%d] should be empty for proto content", i)
-		}
-		if rec.PayloadB64 == "" {
-			t.Fatalf("payload_b64[%d] is empty", i)
-		}
-		if !bytes.Equal(rec.Envelope.Payload, want.Payload) {
-			t.Fatalf("proto payload bytes mismatch[%d]", i)
-		}
-
-		assertEnvelopeCoreEqual(t, i, rec.Envelope, want)
-	}
-
-	if _, ok, p := r.Next(); p != nil || ok {
-		t.Fatalf("expected EOF: ok=%v problem=%v", ok, p)
-	}
+	expected := writeProtoFixtureRecords(t, path, 10)
+	verifyProtoFixtureRecords(t, path, expected)
 }
 
 func TestFixtureChecksumMismatch(t *testing.T) {
 	mustBootstrapPayloadRegistry(t)
 
 	path := filepath.Join(t.TempDir(), "checksum-mismatch.jsonl")
-	w, p := NewWriter(path)
-	if p != nil {
-		t.Fatalf("NewWriter: %v", p)
-	}
+	w := newTestWriter(t, path)
 
 	payload, p := codec.EncodePayload("marketdata.trade", 1, envelope.ContentTypeJSON, marketdomain.TradeTickV1{
 		Price:     42,
@@ -240,38 +68,9 @@ func TestFixtureChecksumMismatch(t *testing.T) {
 		t.Fatalf("Close writer: %v", p)
 	}
 
-	rawBytes, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	line := strings.TrimSpace(string(rawBytes))
+	corruptFixtureChecksum(t, path)
 
-	var m map[string]any
-	if err := json.Unmarshal([]byte(line), &m); err != nil {
-		t.Fatalf("json.Unmarshal line: %v", err)
-	}
-	sha, ok := m["sha256"].(string)
-	if !ok || sha == "" {
-		t.Fatalf("missing sha256 in fixture line")
-	}
-	if strings.HasPrefix(sha, "0") {
-		m["sha256"] = "1" + sha[1:]
-	} else {
-		m["sha256"] = "0" + sha[1:]
-	}
-
-	corrupted, err := json.Marshal(m)
-	if err != nil {
-		t.Fatalf("json.Marshal corrupted line: %v", err)
-	}
-	if err := os.WriteFile(path, append(corrupted, '\n'), 0o644); err != nil {
-		t.Fatalf("WriteFile corrupted line: %v", err)
-	}
-
-	r, p := NewReader(path)
-	if p != nil {
-		t.Fatalf("NewReader: %v", p)
-	}
+	r := newTestReader(t, path)
 	t.Cleanup(func() {
 		_ = r.Close()
 	})
@@ -287,10 +86,7 @@ func TestFixtureChecksumMismatch(t *testing.T) {
 
 func TestDeterministicEncodingStable(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "deterministic.jsonl")
-	w, p := NewWriter(path)
-	if p != nil {
-		t.Fatalf("NewWriter: %v", p)
-	}
+	w := newTestWriter(t, path)
 
 	for i := 0; i < 100; i++ {
 		env := envelope.Envelope{
@@ -314,6 +110,7 @@ func TestDeterministicEncodingStable(t *testing.T) {
 		t.Fatalf("Close writer: %v", p)
 	}
 
+	// #nosec G304 -- path is test-local and created via t.TempDir.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
@@ -330,6 +127,253 @@ func TestDeterministicEncodingStable(t *testing.T) {
 			t.Fatalf("line[%d] differs from line[0]", i)
 		}
 	}
+}
+
+func writeJSONFixtureRecords(t *testing.T, path string, n int) []envelope.Envelope {
+	t.Helper()
+	w := newTestWriter(t, path)
+	defer func() {
+		_ = w.Close()
+	}()
+
+	expected := make([]envelope.Envelope, 0, n)
+	for i := 0; i < n; i++ {
+		env := buildJSONFixtureEnvelope(t, i)
+		if p := w.Append(env); p != nil {
+			t.Fatalf("Append[%d]: %v", i, p)
+		}
+		expected = append(expected, env)
+	}
+	if p := w.Close(); p != nil {
+		t.Fatalf("Close writer: %v", p)
+	}
+	return expected
+}
+
+func writeProtoFixtureRecords(t *testing.T, path string, n int) []envelope.Envelope {
+	t.Helper()
+	w := newTestWriter(t, path)
+	defer func() {
+		_ = w.Close()
+	}()
+
+	expected := make([]envelope.Envelope, 0, n)
+	for i := 0; i < n; i++ {
+		env := buildProtoFixtureEnvelope(t, i)
+		if p := w.Append(env); p != nil {
+			t.Fatalf("Append[%d]: %v", i, p)
+		}
+		expected = append(expected, env)
+	}
+	if p := w.Close(); p != nil {
+		t.Fatalf("Close writer: %v", p)
+	}
+	return expected
+}
+
+func verifyJSONFixtureRecords(t *testing.T, path string, expected []envelope.Envelope) {
+	t.Helper()
+	r := newTestReader(t, path)
+	defer func() {
+		_ = r.Close()
+	}()
+
+	for i := range expected {
+		rec := mustNextRecord(t, r, i)
+		want := expected[i]
+		assertJSONRecord(t, i, rec, want)
+	}
+	assertReaderEOF(t, r)
+}
+
+func verifyProtoFixtureRecords(t *testing.T, path string, expected []envelope.Envelope) {
+	t.Helper()
+	r := newTestReader(t, path)
+	defer func() {
+		_ = r.Close()
+	}()
+
+	for i := range expected {
+		rec := mustNextRecord(t, r, i)
+		want := expected[i]
+		assertProtoRecord(t, i, rec, want)
+	}
+	assertReaderEOF(t, r)
+}
+
+func assertJSONRecord(t *testing.T, idx int, rec FixtureRecord, want envelope.Envelope) {
+	t.Helper()
+	if rec.Subject != envelope.SubjectFromEnvelope(want) {
+		t.Fatalf("subject[%d]=%q want=%q", idx, rec.Subject, envelope.SubjectFromEnvelope(want))
+	}
+	if rec.PayloadB64 != "" {
+		t.Fatalf("payload_b64[%d] should be empty for json content", idx)
+	}
+	if len(rec.PayloadJSON) == 0 {
+		t.Fatalf("payload_json[%d] is empty", idx)
+	}
+	if !bytes.Equal(rec.Envelope.Payload, rec.PayloadJSON) {
+		t.Fatalf("payload bytes[%d] must match payload_json", idx)
+	}
+
+	gotAny, p := codec.DecodePayload(rec.Envelope.Type, rec.Envelope.Version, rec.Envelope.ContentType, rec.Envelope.Payload)
+	if p != nil {
+		t.Fatalf("DecodePayload(got)[%d]: %v", idx, p)
+	}
+	wantAny, p := codec.DecodePayload(want.Type, want.Version, want.ContentType, want.Payload)
+	if p != nil {
+		t.Fatalf("DecodePayload(want)[%d]: %v", idx, p)
+	}
+	if !reflect.DeepEqual(gotAny, wantAny) {
+		t.Fatalf("semantic payload mismatch[%d]: got=%#v want=%#v", idx, gotAny, wantAny)
+	}
+	assertEnvelopeCoreEqual(t, idx, rec.Envelope, want)
+}
+
+func assertProtoRecord(t *testing.T, idx int, rec FixtureRecord, want envelope.Envelope) {
+	t.Helper()
+	if rec.Subject != envelope.SubjectFromEnvelope(want) {
+		t.Fatalf("subject[%d]=%q want=%q", idx, rec.Subject, envelope.SubjectFromEnvelope(want))
+	}
+	if len(rec.PayloadJSON) != 0 {
+		t.Fatalf("payload_json[%d] should be empty for proto content", idx)
+	}
+	if rec.PayloadB64 == "" {
+		t.Fatalf("payload_b64[%d] is empty", idx)
+	}
+	if !bytes.Equal(rec.Envelope.Payload, want.Payload) {
+		t.Fatalf("proto payload bytes mismatch[%d]", idx)
+	}
+	assertEnvelopeCoreEqual(t, idx, rec.Envelope, want)
+}
+
+func newTestWriter(t *testing.T, path string) *Writer {
+	t.Helper()
+	w, p := NewWriter(path)
+	if p != nil {
+		t.Fatalf("NewWriter: %v", p)
+	}
+	return w
+}
+
+func newTestReader(t *testing.T, path string) *Reader {
+	t.Helper()
+	r, p := NewReader(path)
+	if p != nil {
+		t.Fatalf("NewReader: %v", p)
+	}
+	return r
+}
+
+func mustNextRecord(t *testing.T, r *Reader, idx int) FixtureRecord {
+	t.Helper()
+	rec, ok, p := r.Next()
+	if p != nil {
+		t.Fatalf("Next[%d]: %v", idx, p)
+	}
+	if !ok {
+		t.Fatalf("Next[%d]: unexpected EOF", idx)
+	}
+	return rec
+}
+
+func assertReaderEOF(t *testing.T, r *Reader) {
+	t.Helper()
+	if _, ok, p := r.Next(); p != nil || ok {
+		t.Fatalf("expected EOF: ok=%v problem=%v", ok, p)
+	}
+}
+
+func buildJSONFixtureEnvelope(t *testing.T, i int) envelope.Envelope {
+	t.Helper()
+	payload, p := codec.EncodePayload("marketdata.trade", 1, envelope.ContentTypeJSON, marketdomain.TradeTickV1{
+		Price:     1000.5 + float64(i),
+		Size:      0.1 + float64(i)/10,
+		Side:      "buy",
+		TradeID:   "trade-json-" + strings.Repeat("x", i+1),
+		Timestamp: 1_710_000_000_000 + int64(i),
+	})
+	if p != nil {
+		t.Fatalf("EncodePayload[%d]: %v", i, p)
+	}
+	return envelope.Envelope{
+		Type:           "marketdata.trade",
+		Version:        1,
+		Venue:          "binance",
+		Instrument:     "BTC-USDT",
+		TsExchange:     1_710_000_100_000 + int64(i),
+		TsIngest:       1_710_000_200_000 + int64(i),
+		Seq:            int64(i + 1),
+		IdempotencyKey: "idem-json-" + strings.Repeat("a", i+1),
+		ContentType:    envelope.ContentTypeJSON,
+		Meta:           mapMetaVariant(i%2 == 0),
+		Payload:        payload,
+	}
+}
+
+func buildProtoFixtureEnvelope(t *testing.T, i int) envelope.Envelope {
+	t.Helper()
+	payload, p := codec.EncodePayload("marketdata.bookdelta", 1, envelope.ContentTypeProto, marketdomain.BookDeltaV1{
+		Bids:      []marketdomain.PriceLevel{{Price: 50000 + float64(i), Size: 1.0 + float64(i)/10}},
+		Asks:      []marketdomain.PriceLevel{{Price: 50001 + float64(i), Size: 2.0 + float64(i)/10}},
+		FirstID:   int64(100 + i),
+		FinalID:   int64(200 + i),
+		PrevFinal: int64(99 + i),
+		Timestamp: 1_710_000_300_000 + int64(i),
+	})
+	if p != nil {
+		t.Fatalf("EncodePayload[%d]: %v", i, p)
+	}
+	return envelope.Envelope{
+		Type:           "marketdata.bookdelta",
+		Version:        1,
+		Venue:          "binance",
+		Instrument:     "BTC-USDT",
+		TsExchange:     1_710_000_400_000 + int64(i),
+		TsIngest:       1_710_000_500_000 + int64(i),
+		Seq:            int64(i + 1),
+		IdempotencyKey: "idem-proto-" + strings.Repeat("b", i+1),
+		ContentType:    envelope.ContentTypeProto,
+		Meta:           mapMetaVariant(i%2 == 0),
+		Payload:        payload,
+	}
+}
+
+func corruptFixtureChecksum(t *testing.T, path string) {
+	t.Helper()
+
+	// #nosec G304 -- path is test-local and created via t.TempDir.
+	rawBytes, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	line := strings.TrimSpace(string(rawBytes))
+
+	var m map[string]any
+	if err := json.Unmarshal([]byte(line), &m); err != nil {
+		t.Fatalf("json.Unmarshal line: %v", err)
+	}
+	sha, ok := m["sha256"].(string)
+	if !ok || sha == "" {
+		t.Fatalf("missing sha256 in fixture line")
+	}
+	m["sha256"] = mutateSHA(sha)
+
+	corrupted, err := json.Marshal(m)
+	if err != nil {
+		t.Fatalf("json.Marshal corrupted line: %v", err)
+	}
+	// #nosec G304 -- path is test-local and created via t.TempDir.
+	if err := os.WriteFile(path, append(corrupted, '\n'), 0o600); err != nil {
+		t.Fatalf("WriteFile corrupted line: %v", err)
+	}
+}
+
+func mutateSHA(sha string) string {
+	if strings.HasPrefix(sha, "0") {
+		return "1" + sha[1:]
+	}
+	return "0" + sha[1:]
 }
 
 func mustBootstrapPayloadRegistry(t *testing.T) {

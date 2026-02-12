@@ -162,9 +162,9 @@ Characteristics:
 
 Insights are:
 
-✔ probabilistic  
-✔ evidence-based  
-✔ auditable  
+✔ probabilistic
+✔ evidence-based
+✔ auditable
 
 They are NOT signals.
 

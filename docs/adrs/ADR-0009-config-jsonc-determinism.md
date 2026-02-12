@@ -1,6 +1,6 @@
 # ADR-0009 — Config & Operations: JSONC Settings + Deterministic Pipelines
 
-**Status:** Accepted  
+**Status:** Accepted
 **Date:** 2026-02-10
 
 ## Context

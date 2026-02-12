@@ -1,6 +1,6 @@
 # ADR-0004 — Message Bus Strategy (NATS JetStream First)
 
-**Status:** Accepted  
+**Status:** Accepted
 **Date:** 2026-02-10
 
 ## Context

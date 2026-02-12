@@ -1,6 +1,6 @@
 # ADR-0005 — Sequencing & Time Normalization
 
-**Status:** Accepted  
+**Status:** Accepted
 **Date:** 2026-02-10
 
 ## Context
@@ -30,6 +30,7 @@ We introduce a Sequencer in `core/marketdata/app`:
 ### Sequence Authorities
 
 Ha dois dominios de sequencia independentes:
+
 - `envelope.seq` (autoridade de dominio por stream)
 - sequencia de transporte (futura, JetStream)
 

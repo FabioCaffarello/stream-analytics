@@ -1,6 +1,6 @@
 # ADR-0006 — Storage Split: Hot Path vs Cold Path
 
-**Status:** Accepted  
+**Status:** Accepted
 **Date:** 2026-02-10
 
 ## Context

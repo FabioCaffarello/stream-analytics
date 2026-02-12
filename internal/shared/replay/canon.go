@@ -57,111 +57,113 @@ func marshalCanonicalJSON(v any) ([]byte, *problem.Problem) {
 }
 
 func writeCanonicalValue(b *bytes.Buffer, v any) *problem.Problem {
+	if handled, p := writeCanonicalScalar(b, v); handled {
+		return p
+	}
+	if handled, p := writeCanonicalInt(b, v); handled {
+		return p
+	}
+	if handled, p := writeCanonicalUint(b, v); handled {
+		return p
+	}
+	if handled, p := writeCanonicalFloat(b, v); handled {
+		return p
+	}
+	return writeCanonicalComposite(b, v)
+}
+
+func writeCanonicalScalar(b *bytes.Buffer, v any) (bool, *problem.Problem) {
 	switch x := v.(type) {
 	case nil:
 		b.WriteString("null")
-		return nil
+		return true, nil
 	case bool:
 		if x {
 			b.WriteString("true")
 		} else {
 			b.WriteString("false")
 		}
-		return nil
+		return true, nil
 	case string:
 		encoded, err := json.Marshal(x)
 		if err != nil {
-			return problem.Wrap(err, problem.Internal, "canonical json: string marshal failed")
+			return true, problem.Wrap(err, problem.Internal, "canonical json: string marshal failed")
 		}
 		b.Write(encoded)
-		return nil
+		return true, nil
 	case json.Number:
 		n := strings.TrimSpace(x.String())
 		if !json.Valid([]byte(n)) {
-			return problem.Newf(problem.ValidationFailed, "invalid json number %q", n)
+			return true, problem.Newf(problem.ValidationFailed, "invalid json number %q", n)
 		}
 		b.WriteString(n)
-		return nil
+		return true, nil
+	default:
+		return false, nil
+	}
+}
+
+func writeCanonicalInt(b *bytes.Buffer, v any) (bool, *problem.Problem) {
+	switch x := v.(type) {
+	case int:
+		b.WriteString(strconv.FormatInt(int64(x), 10))
+	case int8:
+		b.WriteString(strconv.FormatInt(int64(x), 10))
+	case int16:
+		b.WriteString(strconv.FormatInt(int64(x), 10))
+	case int32:
+		b.WriteString(strconv.FormatInt(int64(x), 10))
+	case int64:
+		b.WriteString(strconv.FormatInt(x, 10))
+	default:
+		return false, nil
+	}
+	return true, nil
+}
+
+func writeCanonicalUint(b *bytes.Buffer, v any) (bool, *problem.Problem) {
+	switch x := v.(type) {
+	case uint:
+		b.WriteString(strconv.FormatUint(uint64(x), 10))
+	case uint8:
+		b.WriteString(strconv.FormatUint(uint64(x), 10))
+	case uint16:
+		b.WriteString(strconv.FormatUint(uint64(x), 10))
+	case uint32:
+		b.WriteString(strconv.FormatUint(uint64(x), 10))
+	case uint64:
+		b.WriteString(strconv.FormatUint(x, 10))
+	default:
+		return false, nil
+	}
+	return true, nil
+}
+
+func writeCanonicalFloat(b *bytes.Buffer, v any) (bool, *problem.Problem) {
+	switch x := v.(type) {
 	case float64:
 		if math.IsNaN(x) || math.IsInf(x, 0) {
-			return problem.New(problem.ValidationFailed, "invalid float value for canonical json")
+			return true, problem.New(problem.ValidationFailed, "invalid float value for canonical json")
 		}
 		b.WriteString(strconv.FormatFloat(x, 'g', -1, 64))
-		return nil
 	case float32:
 		fx := float64(x)
 		if math.IsNaN(fx) || math.IsInf(fx, 0) {
-			return problem.New(problem.ValidationFailed, "invalid float value for canonical json")
+			return true, problem.New(problem.ValidationFailed, "invalid float value for canonical json")
 		}
 		b.WriteString(strconv.FormatFloat(fx, 'g', -1, 32))
-		return nil
-	case int:
-		b.WriteString(strconv.FormatInt(int64(x), 10))
-		return nil
-	case int8:
-		b.WriteString(strconv.FormatInt(int64(x), 10))
-		return nil
-	case int16:
-		b.WriteString(strconv.FormatInt(int64(x), 10))
-		return nil
-	case int32:
-		b.WriteString(strconv.FormatInt(int64(x), 10))
-		return nil
-	case int64:
-		b.WriteString(strconv.FormatInt(x, 10))
-		return nil
-	case uint:
-		b.WriteString(strconv.FormatUint(uint64(x), 10))
-		return nil
-	case uint8:
-		b.WriteString(strconv.FormatUint(uint64(x), 10))
-		return nil
-	case uint16:
-		b.WriteString(strconv.FormatUint(uint64(x), 10))
-		return nil
-	case uint32:
-		b.WriteString(strconv.FormatUint(uint64(x), 10))
-		return nil
-	case uint64:
-		b.WriteString(strconv.FormatUint(x, 10))
-		return nil
-	case []any:
-		b.WriteByte('[')
-		for i := range x {
-			if i > 0 {
-				b.WriteByte(',')
-			}
-			if p := writeCanonicalValue(b, x[i]); p != nil {
-				return p
-			}
-		}
-		b.WriteByte(']')
-		return nil
-	case map[string]any:
-		keys := make([]string, 0, len(x))
-		for k := range x {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
+	default:
+		return false, nil
+	}
+	return true, nil
+}
 
-		b.WriteByte('{')
-		for i := range keys {
-			if i > 0 {
-				b.WriteByte(',')
-			}
-			key := keys[i]
-			keyJSON, err := json.Marshal(key)
-			if err != nil {
-				return problem.Wrap(err, problem.Internal, "canonical json: key marshal failed")
-			}
-			b.Write(keyJSON)
-			b.WriteByte(':')
-			if p := writeCanonicalValue(b, x[key]); p != nil {
-				return p
-			}
-		}
-		b.WriteByte('}')
-		return nil
+func writeCanonicalComposite(b *bytes.Buffer, v any) *problem.Problem {
+	switch x := v.(type) {
+	case []any:
+		return writeCanonicalArray(b, x)
+	case map[string]any:
+		return writeCanonicalObject(b, x)
 	case json.RawMessage:
 		parsed, p := parseJSONValue(x)
 		if p != nil {
@@ -179,6 +181,47 @@ func writeCanonicalValue(b *bytes.Buffer, v any) *problem.Problem {
 		}
 		return writeCanonicalValue(b, parsed)
 	}
+}
+
+func writeCanonicalArray(b *bytes.Buffer, values []any) *problem.Problem {
+	b.WriteByte('[')
+	for i := range values {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		if p := writeCanonicalValue(b, values[i]); p != nil {
+			return p
+		}
+	}
+	b.WriteByte(']')
+	return nil
+}
+
+func writeCanonicalObject(b *bytes.Buffer, obj map[string]any) *problem.Problem {
+	keys := make([]string, 0, len(obj))
+	for k := range obj {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	b.WriteByte('{')
+	for i := range keys {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		key := keys[i]
+		keyJSON, err := json.Marshal(key)
+		if err != nil {
+			return problem.Wrap(err, problem.Internal, "canonical json: key marshal failed")
+		}
+		b.Write(keyJSON)
+		b.WriteByte(':')
+		if p := writeCanonicalValue(b, obj[key]); p != nil {
+			return p
+		}
+	}
+	b.WriteByte('}')
+	return nil
 }
 
 func canonicalEnvelopeMap(env envelope.Envelope) map[string]any {

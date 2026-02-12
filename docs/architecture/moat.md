@@ -24,10 +24,10 @@ Not from surface-level functionality.
 
 We are NOT:
 
-- a charting platform  
-- a signals provider  
-- a retail trading tool  
-- an execution engine  
+- a charting platform
+- a signals provider
+- a retail trading tool
+- an execution engine
 
 We are building:
 
@@ -47,11 +47,11 @@ Most competitors operate opaque pipelines.
 
 We prioritize:
 
-- versioned events  
-- replayability  
-- sequencing  
-- idempotency  
-- audit trails  
+- versioned events
+- replayability
+- sequencing
+- idempotency
+- audit trails
 
 Given identical input streams, the system must produce identical artifacts.
 
@@ -63,10 +63,10 @@ This level of operational determinism is difficult to retrofit and becomes a lon
 
 The actor runtime provides:
 
-- fault isolation  
-- supervised restarts  
-- controlled concurrency  
-- lifecycle clarity  
+- fault isolation
+- supervised restarts
+- controlled concurrency
+- lifecycle clarity
 
 This enables system resilience under high-frequency data loads.
 
@@ -88,9 +88,9 @@ Few explain market structure.
 
 We generate insights that are:
 
-- probabilistic  
-- evidence-backed  
-- reproducible  
+- probabilistic
+- evidence-backed
+- reproducible
 
 Every insight answers:
 
@@ -110,10 +110,10 @@ Our architecture explicitly supports cross-venue normalization and sequencing.
 
 Over time this enables detection of:
 
-- liquidity migration  
-- absorption asymmetry  
-- derivatives/spot dislocations  
-- liquidation cascades  
+- liquidity migration
+- absorption asymmetry
+- derivatives/spot dislocations
+- liquidation cascades
 
 These capabilities improve with data density and historical accumulation.
 
@@ -139,9 +139,9 @@ Once a professional integrates a tool into their cognition, switching costs rise
 
 Separating real-time read models from historical storage allows us to deliver:
 
-- ultra-low latency streaming  
-- large-scale analytics  
-- replay capability  
+- ultra-low latency streaming
+- large-scale analytics
+- replay capability
 
 Simultaneously.
 
@@ -157,10 +157,10 @@ Adapters isolate external dependencies.
 
 We can evolve:
 
-- message bus  
-- databases  
-- auth providers  
-- exchange connectors  
+- message bus
+- databases
+- auth providers
+- exchange connectors
 
 without rewriting the domain.
 
@@ -210,10 +210,10 @@ Tools integrated into professional routines are rarely replaced.
 
 We do not compete on:
 
-- charts  
-- cosmetic dashboards  
-- indicator quantity  
-- short-term feature parity  
+- charts
+- cosmetic dashboards
+- indicator quantity
+- short-term feature parity
 
 These are replicable.
 

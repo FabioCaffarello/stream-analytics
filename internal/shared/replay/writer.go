@@ -63,12 +63,13 @@ func NewWriter(path string, opts ...WriterOption) (*Writer, *problem.Problem) {
 
 	dir := filepath.Dir(path)
 	if dir != "." {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		if err := os.MkdirAll(dir, 0o750); err != nil {
 			return nil, problem.Wrap(err, problem.Internal, "create fixture directory failed")
 		}
 	}
 
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	// #nosec G304 -- fixture path is runtime-provided by explicit operator opt-in.
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, problem.Wrap(err, problem.Internal, "open fixture file failed")
 	}

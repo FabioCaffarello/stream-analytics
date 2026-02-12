@@ -1,6 +1,6 @@
 # ADR-0007 — Delivery Boundary: WebSocket Sessions as Actors
 
-**Status:** Accepted  
+**Status:** Accepted
 **Date:** 2026-02-10
 
 ## Context

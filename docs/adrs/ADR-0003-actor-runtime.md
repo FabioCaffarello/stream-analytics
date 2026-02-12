@@ -1,6 +1,6 @@
 # ADR-0003 — Actor Runtime as Execution Model
 
-**Status:** Accepted  
+**Status:** Accepted
 **Date:** 2026-02-10
 
 ## Context
@@ -49,6 +49,7 @@ Handlers devem preferir `ReplyTo` quando presente e cair para `c.Sender()` quand
 ### Runtime Restart Guardrails
 
 Guardian usa:
+
 - policy por subsystem (backoff/cooldown)
 - limiter global de restart por janela para evitar storm/thundering herd
 

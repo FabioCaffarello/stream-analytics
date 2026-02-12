@@ -30,8 +30,8 @@ Maps raw payloads into canonical domain types.
 
 Example:
 
-TradeTick  
-BookDelta  
+TradeTick
+BookDelta
 
 ---
 
@@ -55,9 +55,9 @@ When overwhelmed:
 
 Priority order:
 
-1. preserve ordering  
-2. avoid memory explosion  
-3. degrade gracefully  
+1. preserve ordering
+2. avoid memory explosion
+3. degrade gracefully
 
 Allowed strategies:
 

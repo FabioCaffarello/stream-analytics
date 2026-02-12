@@ -31,6 +31,7 @@ func NewReader(path string) (*Reader, *problem.Problem) {
 		)
 	}
 
+	// #nosec G304 -- fixture path is runtime-provided by explicit operator opt-in.
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, problem.Wrap(err, problem.Internal, "open fixture file failed")
@@ -83,45 +84,15 @@ func (r *Reader) Close() *problem.Problem {
 }
 
 func parseFixtureLine(raw fixtureLine, line int) (FixtureRecord, *problem.Problem) {
-	if strings.TrimSpace(raw.Subject) == "" {
-		return FixtureRecord{}, annotateLine(problem.WithDetail(
-			problem.New(problem.ValidationFailed, "subject must not be empty"),
-			"field", "subject",
-		), line)
-	}
-	if strings.TrimSpace(raw.SHA256) == "" {
-		return FixtureRecord{}, annotateLine(problem.WithDetail(
-			problem.New(problem.ValidationFailed, "sha256 must not be empty"),
-			"field", "sha256",
-		), line)
-	}
-
-	contentType, p := envelope.NormalizeContentType(raw.ContentType)
+	contentType, p := validateFixtureLineHeader(raw)
 	if p != nil {
 		return FixtureRecord{}, annotateLine(p, line)
 	}
 
-	env := raw.Envelope
-	if len(env.Payload) > 0 {
-		return FixtureRecord{}, annotateLine(problem.WithDetail(
-			problem.New(problem.ValidationFailed, "envelope payload must not be embedded in fixture envelope object"),
-			"field", "envelope.payload",
-		), line)
+	env, p := validateFixtureEnvelope(raw.Envelope, contentType)
+	if p != nil {
+		return FixtureRecord{}, annotateLine(p, line)
 	}
-
-	if strings.TrimSpace(env.ContentType) != "" {
-		envType, ep := envelope.NormalizeContentType(env.ContentType)
-		if ep != nil {
-			return FixtureRecord{}, annotateLine(ep, line)
-		}
-		if envType != contentType {
-			return FixtureRecord{}, annotateLine(problem.WithDetail(
-				problem.Newf(problem.ValidationFailed, "content_type mismatch envelope=%q line=%q", envType, contentType),
-				"field", "content_type",
-			), line)
-		}
-	}
-	env.ContentType = contentType
 
 	base := fixtureBase{
 		Subject:     raw.Subject,
@@ -130,76 +101,154 @@ func parseFixtureLine(raw fixtureLine, line int) (FixtureRecord, *problem.Proble
 		PayloadJSON: raw.PayloadJSON,
 		PayloadB64:  strings.TrimSpace(raw.PayloadB64),
 	}
-
-	switch contentType {
-	case envelope.ContentTypeJSON:
-		if len(bytes.TrimSpace(raw.PayloadJSON)) == 0 {
-			return FixtureRecord{}, annotateLine(problem.WithDetail(
-				problem.New(problem.ValidationFailed, "payload_json must not be empty for application/json fixture"),
-				"field", "payload_json",
-			), line)
-		}
-		if base.PayloadB64 != "" {
-			return FixtureRecord{}, annotateLine(problem.New(problem.ValidationFailed, "payload_b64 must be empty for application/json fixture"), line)
-		}
-	case envelope.ContentTypeProto:
-		if base.PayloadB64 == "" {
-			return FixtureRecord{}, annotateLine(problem.WithDetail(
-				problem.New(problem.ValidationFailed, "payload_b64 must not be empty for application/protobuf fixture"),
-				"field", "payload_b64",
-			), line)
-		}
-		if len(bytes.TrimSpace(raw.PayloadJSON)) > 0 {
-			return FixtureRecord{}, annotateLine(problem.New(problem.ValidationFailed, "payload_json must be empty for application/protobuf fixture"), line)
-		}
-	default:
-		return FixtureRecord{}, annotateLine(problem.Newf(problem.ValidationFailed, "unsupported content_type %q", contentType), line)
+	if p := validateFixturePayloadShape(base); p != nil {
+		return FixtureRecord{}, annotateLine(p, line)
+	}
+	if p := validateFixtureChecksum(base, raw.SHA256); p != nil {
+		return FixtureRecord{}, annotateLine(p, line)
 	}
 
-	baseCanonical, p := canonicalBaseBytes(base)
+	rec, p := decodeFixtureRecord(base, raw.SHA256)
 	if p != nil {
 		return FixtureRecord{}, annotateLine(p, line)
 	}
+	if p := validateDecodedFixtureSubject(rec); p != nil {
+		return FixtureRecord{}, annotateLine(p, line)
+	}
+	return rec, nil
+}
+
+func validateFixtureLineHeader(raw fixtureLine) (string, *problem.Problem) {
+	if strings.TrimSpace(raw.Subject) == "" {
+		return "", problem.WithDetail(
+			problem.New(problem.ValidationFailed, "subject must not be empty"),
+			"field", "subject",
+		)
+	}
+	if strings.TrimSpace(raw.SHA256) == "" {
+		return "", problem.WithDetail(
+			problem.New(problem.ValidationFailed, "sha256 must not be empty"),
+			"field", "sha256",
+		)
+	}
+	return envelope.NormalizeContentType(raw.ContentType)
+}
+
+func validateFixtureEnvelope(env envelope.Envelope, contentType string) (envelope.Envelope, *problem.Problem) {
+	if len(env.Payload) > 0 {
+		return envelope.Envelope{}, problem.WithDetail(
+			problem.New(problem.ValidationFailed, "envelope payload must not be embedded in fixture envelope object"),
+			"field", "envelope.payload",
+		)
+	}
+	if strings.TrimSpace(env.ContentType) != "" {
+		envType, p := envelope.NormalizeContentType(env.ContentType)
+		if p != nil {
+			return envelope.Envelope{}, p
+		}
+		if envType != contentType {
+			return envelope.Envelope{}, problem.WithDetail(
+				problem.Newf(problem.ValidationFailed, "content_type mismatch envelope=%q line=%q", envType, contentType),
+				"field", "content_type",
+			)
+		}
+	}
+	env.ContentType = contentType
+	return env, nil
+}
+
+func validateFixturePayloadShape(base fixtureBase) *problem.Problem {
+	switch base.ContentType {
+	case envelope.ContentTypeJSON:
+		if len(bytes.TrimSpace(base.PayloadJSON)) == 0 {
+			return problem.WithDetail(
+				problem.New(problem.ValidationFailed, "payload_json must not be empty for application/json fixture"),
+				"field", "payload_json",
+			)
+		}
+		if base.PayloadB64 != "" {
+			return problem.New(problem.ValidationFailed, "payload_b64 must be empty for application/json fixture")
+		}
+	case envelope.ContentTypeProto:
+		if base.PayloadB64 == "" {
+			return problem.WithDetail(
+				problem.New(problem.ValidationFailed, "payload_b64 must not be empty for application/protobuf fixture"),
+				"field", "payload_b64",
+			)
+		}
+		if len(bytes.TrimSpace(base.PayloadJSON)) > 0 {
+			return problem.New(problem.ValidationFailed, "payload_json must be empty for application/protobuf fixture")
+		}
+	default:
+		return problem.Newf(problem.ValidationFailed, "unsupported content_type %q", base.ContentType)
+	}
+	return nil
+}
+
+func validateFixtureChecksum(base fixtureBase, expectedSHA string) *problem.Problem {
+	baseCanonical, p := canonicalBaseBytes(base)
+	if p != nil {
+		return p
+	}
 	gotSHA := lineSHA256(baseCanonical)
-	if !sameSHA256(raw.SHA256, gotSHA) {
-		return FixtureRecord{}, annotateLine(problem.WithDetail(
-			problem.New(problem.ValidationFailed, "fixture checksum mismatch"),
-			"expected_sha256", strings.ToLower(strings.TrimSpace(raw.SHA256)),
-		), line)
+	if sameSHA256(expectedSHA, gotSHA) {
+		return nil
+	}
+	return problem.WithDetail(
+		problem.New(problem.ValidationFailed, "fixture checksum mismatch"),
+		"expected_sha256", strings.ToLower(strings.TrimSpace(expectedSHA)),
+	)
+}
+
+func decodeFixtureRecord(base fixtureBase, expectedSHA string) (FixtureRecord, *problem.Problem) {
+	rec := FixtureRecord{
+		Subject: base.Subject,
+		Envelope: envelope.Envelope{
+			Type:           base.Envelope.Type,
+			Version:        base.Envelope.Version,
+			Venue:          base.Envelope.Venue,
+			Instrument:     base.Envelope.Instrument,
+			TsExchange:     base.Envelope.TsExchange,
+			TsIngest:       base.Envelope.TsIngest,
+			Seq:            base.Envelope.Seq,
+			IdempotencyKey: base.Envelope.IdempotencyKey,
+			ContentType:    base.Envelope.ContentType,
+			Meta:           base.Envelope.Meta,
+		},
+		SHA256: strings.ToLower(strings.TrimSpace(expectedSHA)),
 	}
 
-	var payloadJSON json.RawMessage
-	var payloadB64 string
-	switch contentType {
+	switch base.ContentType {
 	case envelope.ContentTypeJSON:
-		payloadJSON, p = canonicalizeJSONRaw(base.PayloadJSON)
+		payloadJSON, p := canonicalizeJSONRaw(base.PayloadJSON)
 		if p != nil {
-			return FixtureRecord{}, annotateLine(p, line)
+			return FixtureRecord{}, p
 		}
-		env.Payload = append([]byte(nil), payloadJSON...)
+		rec.PayloadJSON = payloadJSON
+		rec.Envelope.Payload = append([]byte(nil), payloadJSON...)
 	case envelope.ContentTypeProto:
 		payloadBytes, err := base64.StdEncoding.DecodeString(base.PayloadB64)
 		if err != nil {
-			return FixtureRecord{}, annotateLine(problem.Wrap(err, problem.ValidationFailed, "invalid payload_b64"), line)
+			return FixtureRecord{}, problem.Wrap(err, problem.ValidationFailed, "invalid payload_b64")
 		}
-		env.Payload = payloadBytes
-		payloadB64 = base.PayloadB64
+		rec.PayloadB64 = base.PayloadB64
+		rec.Envelope.Payload = payloadBytes
+	default:
+		return FixtureRecord{}, problem.Newf(problem.ValidationFailed, "unsupported content_type %q", base.ContentType)
 	}
 
-	if p := env.Validate(); p != nil {
-		return FixtureRecord{}, annotateLine(p, line)
+	if p := rec.Envelope.Validate(); p != nil {
+		return FixtureRecord{}, p
 	}
-	if envelope.SubjectFromEnvelope(env) != raw.Subject {
-		return FixtureRecord{}, annotateLine(problem.Newf(problem.ValidationFailed, "subject mismatch: line=%q envelope=%q", raw.Subject, envelope.SubjectFromEnvelope(env)), line)
-	}
+	return rec, nil
+}
 
-	return FixtureRecord{
-		Subject:     raw.Subject,
-		Envelope:    env,
-		PayloadJSON: payloadJSON,
-		PayloadB64:  payloadB64,
-		SHA256:      strings.ToLower(strings.TrimSpace(raw.SHA256)),
-	}, nil
+func validateDecodedFixtureSubject(rec FixtureRecord) *problem.Problem {
+	want := envelope.SubjectFromEnvelope(rec.Envelope)
+	if want == rec.Subject {
+		return nil
+	}
+	return problem.Newf(problem.ValidationFailed, "subject mismatch: line=%q envelope=%q", rec.Subject, want)
 }
 
 func annotateLine(p *problem.Problem, line int) *problem.Problem {

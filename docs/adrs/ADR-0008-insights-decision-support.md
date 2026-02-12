@@ -1,6 +1,6 @@
 # ADR-0008 — Insights Are Decision Support, Not Execution
 
-**Status:** Accepted  
+**Status:** Accepted
 **Date:** 2026-02-10
 
 ## Context

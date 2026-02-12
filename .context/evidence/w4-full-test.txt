@@ -68,4 +68,3 @@ ok  	github.com/market-raccoon/internal/shared/problem	(cached)
 ok  	github.com/market-raccoon/internal/shared/result	(cached)
 ok  	github.com/market-raccoon/internal/shared/validation	(cached)
 exit_code=0
-
