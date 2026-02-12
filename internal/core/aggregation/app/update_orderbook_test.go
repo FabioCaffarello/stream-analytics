@@ -193,3 +193,41 @@ func TestUpdateOrderBook_boundedBooksEvictsOldest(t *testing.T) {
 		t.Fatalf("active books=%d want=1", got)
 	}
 }
+
+func TestUpdateOrderBook_ThrottledSweepDoesNotRunEveryRequest(t *testing.T) {
+	pub := &fakePublisher{}
+	store := &fakeStore{}
+	clk := clock.NewFakeClock(time.Unix(0, 0))
+	uc := app.NewUpdateOrderBookFromEventsWithConfig(pub, store, app.UpdateConfig{
+		MaxBooks:  16,
+		BookTTL:   10 * time.Millisecond,
+		MaxLevels: 10,
+		Clock:     clk,
+	})
+
+	makeReq := func(symbol string, seq int64) app.UpdateRequest {
+		return app.UpdateRequest{
+			Venue:      "binance",
+			Instrument: symbol,
+			Seq:        seq,
+			Bids:       []domain.Level{{Price: 100, Quantity: 1}},
+			Asks:       []domain.Level{{Price: 101, Quantity: 1}},
+		}
+	}
+
+	if r := uc.Execute(context.Background(), makeReq("BTCUSDT", 1)); r.IsFail() {
+		t.Fatalf("first execute failed: %v", r.Problem())
+	}
+	if r := uc.Execute(context.Background(), makeReq("ETHUSDT", 1)); r.IsFail() {
+		t.Fatalf("second execute failed: %v", r.Problem())
+	}
+
+	clk.Advance(20 * time.Millisecond)
+	if r := uc.Execute(context.Background(), makeReq("SOLUSDT", 1)); r.IsFail() {
+		t.Fatalf("third execute failed: %v", r.Problem())
+	}
+
+	if got := uc.ActiveBooks(); got < 2 {
+		t.Fatalf("expected no full sweep on each request, active books=%d", got)
+	}
+}

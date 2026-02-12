@@ -203,3 +203,34 @@ func TestIngest_boundedStreamsEvictsOldest(t *testing.T) {
 		t.Fatalf("active streams=%d want=1", got)
 	}
 }
+
+func TestIngest_ThrottledSweepDoesNotRunEveryRequest(t *testing.T) {
+	clk := clock.NewFakeClock(time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC))
+	seq := &fakeSequencer{}
+	pub := &fakePublisher{}
+	uc := app.NewIngestMarketDataWithConfig(clk, seq, pub, app.IngestConfig{
+		DedupWindowSize: 64,
+		MaxStreams:      16,
+		StreamTTL:       10 * time.Millisecond,
+	})
+
+	req := validReq()
+	req.Instrument = "BTC/USDT"
+	if r := uc.Execute(context.Background(), req); r.IsFail() {
+		t.Fatalf("first ingest failed: %v", r.Problem())
+	}
+	req.Instrument = "ETH/USDT"
+	if r := uc.Execute(context.Background(), req); r.IsFail() {
+		t.Fatalf("second ingest failed: %v", r.Problem())
+	}
+
+	clk.Advance(20 * time.Millisecond)
+	req.Instrument = "SOL/USDT"
+	if r := uc.Execute(context.Background(), req); r.IsFail() {
+		t.Fatalf("third ingest failed: %v", r.Problem())
+	}
+
+	if got := uc.ActiveStreams(); got < 2 {
+		t.Fatalf("expected no full sweep on each request, active streams=%d", got)
+	}
+}
