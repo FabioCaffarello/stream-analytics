@@ -13,6 +13,8 @@ APP_NAME ?= server
 APP_CMD ?= ./cmd/server
 
 GO_TEST_FLAGS ?= -race -covermode=atomic
+GO_TEST_RACE_TIMEOUT ?= 10m
+GO_TEST_RACE_FLAGS ?= -race -covermode=atomic -timeout=$(GO_TEST_RACE_TIMEOUT)
 VULN_REQUIRED ?= false
 MODULE ?=
 
@@ -25,7 +27,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules tidy tidy-check fmt fmt-check lint test test-workspace test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install proto-lint proto-gen proto-breaking proto ci
+.PHONY: help install-tools tools modules tidy tidy-check fmt fmt-check lint test test-root test-workspace test-workspace-race test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install proto-lint proto-gen proto-breaking proto ci
 
 help:
 	@echo "Targets:"
@@ -37,8 +39,10 @@ help:
 	@echo "  make fmt                - format all Go files (gofmt)"
 	@echo "  make fmt-check          - check formatting (gofmt -l)"
 	@echo "  make lint               - run golangci-lint in workspace modules"
-	@echo "  make test               - alias for make test-workspace"
-	@echo "  make test-workspace     - run all workspace tests with race+coverage"
+	@echo "  make test               - alias for make test-root"
+	@echo "  make test-root          - workspace-safe root test entrypoint"
+	@echo "  make test-workspace     - run all workspace tests module-by-module"
+	@echo "  make test-workspace-race - run module-by-module tests with -race"
 	@echo "  make test-short         - run short tests"
 	@echo "  make vuln               - run govulncheck"
 	@echo "  make build              - build all binaries under cmd/* (package main)"
@@ -114,10 +118,17 @@ lint:
 	$(call RUN_IN_MODULES,bash -lc 'pkgs="$$( $(GO) list ./... 2>/dev/null || true )"; if [ -n "$$pkgs" ]; then $(GOLANGCI_LINT) run --config "$(CURDIR)/.golangci.yml" ./...; else echo "no packages to lint (skipping)"; fi')
 
 test:
+	$(MAKE) test-root
+
+test-root:
+	@echo "go.work multi-module repository detected: use workspace-aware targets instead of 'go test ./...' at repository root."
 	$(MAKE) test-workspace
 
 test-workspace:
 	$(call RUN_IN_MODULES,bash -lc 'pkgs="$$( $(GO) list ./... 2>/dev/null || true )"; if [ -n "$$pkgs" ]; then $(GO) test $(GO_TEST_FLAGS) $$pkgs; else echo "no packages to test (skipping)"; fi')
+
+test-workspace-race:
+	$(call RUN_IN_MODULES,bash -lc 'pkgs="$$( $(GO) list ./... 2>/dev/null || true )"; if [ -n "$$pkgs" ]; then $(GO) test $(GO_TEST_RACE_FLAGS) $$pkgs; else echo "no packages to test (skipping)"; fi')
 
 test-short:
 	$(call RUN_IN_MODULES,bash -lc 'pkgs="$$( $(GO) list ./... 2>/dev/null || true )"; if [ -n "$$pkgs" ]; then $(GO) test -short $$pkgs; else echo "no packages to test (skipping)"; fi')
@@ -204,4 +215,4 @@ proto-breaking:
 
 proto: proto-lint proto-gen
 
-ci: tidy-check fmt-check lint test vuln build
+ci: tidy-check fmt-check lint test-workspace-race vuln build

@@ -20,10 +20,15 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.23.x"
       - name: Setup Buf
         uses: bufbuild/buf-setup-action@v1
+      - name: Install protobuf generator tools
+        run: make tools
       - name: Proto lint
-        run: buf lint proto
+        run: make proto-lint
       - name: Proto breaking
         shell: bash
         run: |
@@ -48,9 +53,6 @@ jobs:
             echo "Generated protobuf drift detected under internal/shared/proto/gen. Run 'make proto-gen' and commit generated files."
             exit 1
           fi
-      - uses: actions/setup-go@v6
-        with:
-          go-version: "1.23.x"
       - name: Import boundary guard
         run: go test ./internal/shared/contracts -run TestImportGuard_ProtoImportsStayInSharedBoundary -count=1
       - name: Install tools
