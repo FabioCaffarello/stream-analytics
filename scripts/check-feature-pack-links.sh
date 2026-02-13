@@ -126,7 +126,23 @@ while IFS= read -r pack; do
   check_pack "$pack"
 done < <(find "$packs_dir" -type f -name '*.md' | sort)
 
+subject_guard_status=0
+if [[ -x "${repo_root}/scripts/check-pack-subjects.sh" ]]; then
+  if [[ "$mode" == "check" ]]; then
+    if ! "${repo_root}/scripts/check-pack-subjects.sh"; then
+      subject_guard_status=1
+    fi
+  else
+    "${repo_root}/scripts/check-pack-subjects.sh" --fix-hints || true
+  fi
+else
+  report_issue "scripts/check-pack-subjects.sh" "1" "(missing)" "pack subject checker not executable" "chmod +x scripts/check-pack-subjects.sh."
+fi
+
 if [[ "$mode" == "check" ]]; then
+  if (( subject_guard_status != 0 )); then
+    errors=$((errors + 1))
+  fi
   if (( errors > 0 )); then
     echo "docs-check: feature-pack link guard failed with ${errors} issue(s)."
     exit 1
