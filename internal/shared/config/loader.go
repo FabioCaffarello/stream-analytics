@@ -79,6 +79,65 @@ func (a AppConfig) Validate() *problem.Problem {
 	if prob := validateProcessor(a.Processor); prob != nil {
 		return prob
 	}
+	if prob := ValidateFeatureSubjects(a); prob != nil {
+		return prob
+	}
+	return nil
+}
+
+// ValidateFeatureSubjects enforces fail-fast subject coverage for optional
+// feature paths that depend on JetStream subject filters.
+func ValidateFeatureSubjects(cfg AppConfig) *problem.Problem {
+	joinEnabled := cfg.Processor.Insights.EnableCrossVenueJoin
+	replayJetStream := strings.EqualFold(strings.TrimSpace(cfg.Replay.Mode), "jetstream")
+
+	if joinEnabled {
+		joinSubject := strings.TrimSpace(cfg.Processor.Insights.JoinTradesSubject)
+		if joinSubject == "" {
+			return problem.New(codeInvalid, `processor.insights.join_trades_subject must not be empty; e.g. "marketdata.trade.v1.>"`)
+		}
+		if !isValidNATSSubjectPattern(joinSubject) {
+			return problem.Newf(codeInvalid, `processor.insights.join_trades_subject is invalid; e.g. "marketdata.trade.v1.>"`)
+		}
+		if !matchesAnySubject(joinSubject, expectedTradeSubjects(cfg.Consumer)) {
+			return problem.New(codeInvalid, `processor.insights.join_trades_subject must match marketdata.trade subjects; e.g. "marketdata.trade.v1.>"`)
+		}
+		if p := validateInsightsPublishSubjectPrefix(cfg.Processor.Insights.SnapshotSubjectPrefix); p != nil {
+			return p
+		}
+	}
+
+	if replayJetStream {
+		filter := strings.TrimSpace(cfg.Replay.JetStream.SubjectFilter)
+		if filter == "" {
+			return problem.New(codeInvalid, `replay.jetstream.subject_filter must not be empty; e.g. "marketdata.>"`)
+		}
+		if !isValidNATSSubjectPattern(filter) {
+			return problem.Newf(codeInvalid, `replay.jetstream.subject_filter is invalid; e.g. "marketdata.>"`)
+		}
+		if !matchesAnySubject(filter, expectedMarketDataSubjects(cfg.Consumer)) {
+			return problem.New(codeInvalid, `replay.jetstream.subject_filter must include marketdata subjects; e.g. "marketdata.>"`)
+		}
+	}
+
+	if !joinEnabled {
+		return nil
+	}
+
+	patterns, key := runtimeInputSubjectPatterns(cfg)
+	if len(patterns) == 0 {
+		return nil
+	}
+	for _, required := range expectedTradeSubjects(cfg.Consumer) {
+		if !anyPatternMatchesSubject(patterns, required) {
+			return problem.Newf(
+				codeInvalid,
+				`%s must include trade subjects for all configured exchanges; e.g. "marketdata.trade.v1.>" (missing %q)`,
+				key,
+				required,
+			)
+		}
+	}
 	return nil
 }
 
@@ -379,6 +438,210 @@ func validateProcessor(p ProcessorConfig) *problem.Problem {
 		return problem.Newf(codeInvalid, "processor.insights.rounding_mode must be half_even|floor, got %q", insights.RoundingMode)
 	}
 	return nil
+}
+
+func runtimeInputSubjectPatterns(cfg AppConfig) ([]string, string) {
+	if strings.EqualFold(strings.TrimSpace(cfg.Replay.Mode), "jetstream") {
+		filter := strings.TrimSpace(cfg.Replay.JetStream.SubjectFilter)
+		if filter == "" {
+			return nil, "replay.jetstream.subject_filter"
+		}
+		return []string{filter}, "replay.jetstream.subject_filter"
+	}
+	if !strings.EqualFold(strings.TrimSpace(cfg.Bus.Type), "jetstream") {
+		return nil, ""
+	}
+
+	patterns := make([]string, 0, len(cfg.JetStream.FilterSubjects)+1)
+	for _, raw := range cfg.JetStream.FilterSubjects {
+		pattern := strings.TrimSpace(raw)
+		if pattern != "" {
+			patterns = append(patterns, pattern)
+		}
+	}
+	if cfg.Processor.Insights.EnableCrossVenueJoin {
+		if join := strings.TrimSpace(cfg.Processor.Insights.JoinTradesSubject); join != "" {
+			patterns = append(patterns, join)
+		}
+	}
+	if len(patterns) == 0 {
+		return nil, "jetstream.filter_subjects"
+	}
+	return dedupeStrings(patterns), "jetstream.filter_subjects + processor.insights.join_trades_subject"
+}
+
+func expectedTradeSubjects(c ConsumerConfig) []string {
+	venues := configuredExchangeVenues(c)
+	instruments := []string{"BTCUSDT", "ETHUSDT"}
+	out := make([]string, 0, len(venues)*len(instruments))
+	for _, venue := range venues {
+		for _, instrument := range instruments {
+			out = append(out, fmt.Sprintf("marketdata.trade.v1.%s.%s", venue, instrument))
+		}
+	}
+	return out
+}
+
+func expectedMarketDataSubjects(c ConsumerConfig) []string {
+	venues := configuredExchangeVenues(c)
+	out := make([]string, 0, len(venues)*2)
+	for _, venue := range venues {
+		out = append(out, fmt.Sprintf("marketdata.bookdelta.v1.%s.BTCUSDT", venue))
+		out = append(out, fmt.Sprintf("marketdata.trade.v1.%s.BTCUSDT", venue))
+	}
+	return out
+}
+
+func configuredExchangeVenues(c ConsumerConfig) []string {
+	exchanges := c.Exchanges
+	if len(exchanges) == 0 {
+		exchanges = []ConsumerExchangeConfig{synthesizeLegacyExchange(c)}
+	}
+	seen := make(map[string]struct{}, len(exchanges))
+	out := make([]string, 0, len(exchanges))
+	for _, ex := range exchanges {
+		venue := strings.ToLower(strings.TrimSpace(ex.Type))
+		if venue == "" {
+			venue = strings.ToLower(strings.TrimSpace(ex.Name))
+		}
+		if venue == "" {
+			continue
+		}
+		if _, exists := seen[venue]; exists {
+			continue
+		}
+		seen[venue] = struct{}{}
+		out = append(out, venue)
+	}
+	if len(out) == 0 {
+		return []string{"binance"}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func validateInsightsPublishSubjectPrefix(prefix string) *problem.Problem {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		return nil
+	}
+	if !strings.HasPrefix(prefix, "insights.") {
+		return problem.New(codeInvalid, `processor.insights.snapshot_subject_prefix must start with insights.; e.g. "insights.crossvenue.trade_snapshot.v1"`)
+	}
+	if !isValidNATSPublishSubject(prefix) {
+		return problem.New(codeInvalid, `processor.insights.snapshot_subject_prefix is invalid; e.g. "insights.crossvenue.trade_snapshot.v1"`)
+	}
+	return nil
+}
+
+func isValidNATSSubjectPattern(pattern string) bool {
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" {
+		return false
+	}
+	tokens := strings.Split(pattern, ".")
+	for i, token := range tokens {
+		if token == "" || strings.ContainsAny(token, " \t\r\n") {
+			return false
+		}
+		if token == ">" {
+			return i == len(tokens)-1
+		}
+		if strings.Contains(token, ">") {
+			return false
+		}
+		if token == "*" {
+			continue
+		}
+		if strings.Contains(token, "*") {
+			return false
+		}
+	}
+	return true
+}
+
+func isValidNATSPublishSubject(subject string) bool {
+	subject = strings.TrimSpace(subject)
+	if subject == "" {
+		return false
+	}
+	tokens := strings.Split(subject, ".")
+	for _, token := range tokens {
+		if token == "" || strings.ContainsAny(token, " \t\r\n") {
+			return false
+		}
+		if strings.ContainsAny(token, "*>") {
+			return false
+		}
+	}
+	return true
+}
+
+func matchesAnySubject(pattern string, subjects []string) bool {
+	for _, subject := range subjects {
+		if subjectPatternMatches(pattern, subject) {
+			return true
+		}
+	}
+	return false
+}
+
+func anyPatternMatchesSubject(patterns []string, subject string) bool {
+	for _, pattern := range patterns {
+		if subjectPatternMatches(pattern, subject) {
+			return true
+		}
+	}
+	return false
+}
+
+func subjectPatternMatches(pattern, subject string) bool {
+	pattern = strings.TrimSpace(pattern)
+	subject = strings.TrimSpace(subject)
+	if pattern == "" || subject == "" {
+		return false
+	}
+	pTokens := strings.Split(pattern, ".")
+	sTokens := strings.Split(subject, ".")
+
+	i, j := 0, 0
+	for i < len(pTokens) {
+		token := pTokens[i]
+		if token == ">" {
+			return i == len(pTokens)-1
+		}
+		if j >= len(sTokens) {
+			return false
+		}
+		if token == "*" {
+			i++
+			j++
+			continue
+		}
+		if token != sTokens[j] {
+			return false
+		}
+		i++
+		j++
+	}
+	return j == len(sTokens)
+}
+
+func dedupeStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, raw := range values {
+		v := strings.TrimSpace(raw)
+		if v == "" {
+			continue
+		}
+		if _, exists := seen[v]; exists {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	return out
 }
 
 // applyDefaults fills zero-value fields with safe defaults.

@@ -18,16 +18,17 @@ func TestRegistryAndMetricsInitialized(t *testing.T) {
 }
 
 func TestObserveIngestAndCardinalityGuard(t *testing.T) {
-	before := testutil.ToFloat64(IngestMessagesTotal.WithLabelValues("unknown", "UNKNOWN", "unknown", "unknown"))
+	before := testutil.ToFloat64(IngestMessagesTotal.WithLabelValues("unknown", "unknown", "unknown"))
 
 	ObserveIngest("binance", "BTCUSDT", "marketdata.trade", "ok", 2*time.Millisecond)
 	ObserveIngest("BINANCE", "trade_id=123", "marketdata.trade", "wild_status", 2*time.Millisecond)
 
-	if got := testutil.ToFloat64(IngestMessagesTotal.WithLabelValues("binance", "BTCUSDT", "marketdata.trade", "ok")); got < 1 {
+	if got := testutil.ToFloat64(IngestMessagesTotal.WithLabelValues("binance", "marketdata.trade", "ok")); got < 1 {
 		t.Fatalf("expected ingest counter increment, got %f", got)
 	}
 
-	after := testutil.ToFloat64(IngestMessagesTotal.WithLabelValues("binance", "UNKNOWN", "marketdata.trade", "unknown"))
+	// wild_status is sanitized to "unknown"; instrument label is no longer present
+	after := testutil.ToFloat64(IngestMessagesTotal.WithLabelValues("binance", "marketdata.trade", "unknown"))
 	if after < 1 {
 		t.Fatalf("expected sanitized label series increment, got %f", after)
 	}
@@ -93,6 +94,10 @@ func TestMetricsNamesPresent(t *testing.T) {
 	IncBusRedelivered("jetstream")
 	ObserveBusAckLatency("jetstream", 3*time.Millisecond)
 	SetBusConsumerLag("jetstream", 42)
+	IncIngestQuarantine("decode_failed")
+	IncIngestDrop("unknown_event_type")
+	IncIngestNak("transient_failure")
+	IncIngestTerm("validation_failed")
 	IncReplayMessages("jetstream", "ok")
 	ObserveReplayLatency("jetstream", 4*time.Millisecond)
 	IncReplayRedeliveries("jetstream")
@@ -119,6 +124,10 @@ func TestMetricsNamesPresent(t *testing.T) {
 		"bus_redelivered_total",
 		"bus_ack_latency_seconds",
 		"bus_consumer_lag",
+		"ingest_quarantine_total",
+		"ingest_drop_total",
+		"ingest_nak_total",
+		"ingest_term_total",
 		"replay_messages_total",
 		"replay_latency_seconds",
 		"replay_redeliveries_total",
@@ -131,6 +140,49 @@ func TestMetricsNamesPresent(t *testing.T) {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("expected metric %s in registry", want)
 		}
+	}
+}
+
+func TestSanitizeSubsystemMultiExchange(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"marketdata", "marketdata"},
+		{"aggregation", "aggregation"},
+		{"delivery", "delivery"},
+		{"insights", "insights"},
+		{"marketdata:binance", "marketdata"},
+		{"marketdata:bybit", "marketdata"},
+		{"MARKETDATA:BINANCE", "marketdata"},
+		{" marketdata:bybit ", "marketdata"},
+		{"unknown_subsystem", "unknown"},
+		{":leading_colon", "unknown"},
+		{"", "unknown"},
+	}
+	for _, tt := range tests {
+		got := sanitizeSubsystem(tt.input)
+		if got != tt.want {
+			t.Errorf("sanitizeSubsystem(%q) = %q; want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestGuardianMetricsMultiExchangeSubsystem(t *testing.T) {
+	// Verify that multi-exchange subsystem keys produce correct metric labels
+	// instead of "unknown".
+	IncGuardianRestart("marketdata:binance", "ok")
+	IncGuardianDegraded("marketdata:bybit")
+	SetGuardianSubsystemState("marketdata:binance", 1)
+
+	if got := testutil.ToFloat64(GuardianRestartsTotal.WithLabelValues("marketdata", "ok")); got < 1 {
+		t.Fatalf("expected guardian restart increment for marketdata:binance, got %f", got)
+	}
+	if got := testutil.ToFloat64(GuardianDegradedTotal.WithLabelValues("marketdata")); got < 1 {
+		t.Fatalf("expected guardian degraded increment for marketdata:bybit, got %f", got)
+	}
+	if got := testutil.ToFloat64(GuardianSubsystemState.WithLabelValues("marketdata")); got != 1 {
+		t.Fatalf("expected guardian subsystem state 1 for marketdata:binance, got %f", got)
 	}
 }
 

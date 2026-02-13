@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +24,9 @@ const (
 	envConsumerE2ETestMode = "E2E_TEST_MODE"
 	envConsumerE2EHTTPAddr = "E2E_HTTP_ADDR"
 	envConsumerProbeAddr   = "PROBE_ADDR"
+	envRunMode             = "RUN_MODE"
+	envMarketRaccoonMode   = "MARKET_RACCOON_MODE"
+	defaultProbePort       = "18083"
 )
 
 // e2eRuntime adds process-level hooks used only in integration tests.
@@ -45,15 +49,18 @@ type e2eRuntime struct {
 	mu sync.Mutex
 }
 
-func newE2ERuntime(logger *slog.Logger) *e2eRuntime {
+func newE2ERuntime(logger *slog.Logger) (*e2eRuntime, *problem.Problem) {
 	enabled := strings.TrimSpace(os.Getenv(envConsumerE2ETestMode)) == "1"
+	if enabled && !hasE2ETestPosture() {
+		return nil, problem.New(problem.ValidationFailed, "E2E_TEST_MODE=1 requires RUN_MODE=test or MARKET_RACCOON_MODE=test")
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &e2eRuntime{
 		enabled:    enabled,
 		logger:     logger,
 		feedCtx:    ctx,
 		feedCancel: cancel,
-	}
+	}, nil
 }
 
 func (r *e2eRuntime) isEnabled() bool { return r != nil && r.enabled }
@@ -94,13 +101,7 @@ func (r *e2eRuntime) startProbe() *problem.Problem {
 	if !r.isEnabled() {
 		return nil
 	}
-	addr := strings.TrimSpace(os.Getenv(envConsumerE2EHTTPAddr))
-	if addr == "" {
-		addr = strings.TrimSpace(os.Getenv(envConsumerProbeAddr))
-	}
-	if addr == "" {
-		addr = "127.0.0.1:18083"
-	}
+	addr := resolveLoopbackProbeAddr()
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return problem.Wrap(err, problem.Unavailable, "consumer e2e probe listen failed")
@@ -155,6 +156,49 @@ func (r *e2eRuntime) startProbe() *problem.Problem {
 
 	r.logger.Info("consumer: e2e hooks enabled", "http_addr", r.probeAddr)
 	return nil
+}
+
+func hasE2ETestPosture() bool {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv(envRunMode)), "test") {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(os.Getenv(envMarketRaccoonMode)), "test")
+}
+
+func resolveLoopbackProbeAddr() string {
+	raw := strings.TrimSpace(os.Getenv(envConsumerE2EHTTPAddr))
+	if raw == "" {
+		raw = strings.TrimSpace(os.Getenv(envConsumerProbeAddr))
+	}
+	port := extractProbePort(raw, defaultProbePort)
+	return net.JoinHostPort("127.0.0.1", port)
+}
+
+func extractProbePort(rawAddr, fallback string) string {
+	rawAddr = strings.TrimSpace(rawAddr)
+	if rawAddr == "" {
+		return fallback
+	}
+
+	if _, port, err := net.SplitHostPort(rawAddr); err == nil {
+		return validatedPortOrFallback(port, fallback)
+	}
+	if strings.HasPrefix(rawAddr, ":") {
+		return validatedPortOrFallback(strings.TrimPrefix(rawAddr, ":"), fallback)
+	}
+	return validatedPortOrFallback(rawAddr, fallback)
+}
+
+func validatedPortOrFallback(port, fallback string) string {
+	port = strings.TrimSpace(port)
+	if port == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(port)
+	if err != nil || parsed <= 0 || parsed > 65535 {
+		return fallback
+	}
+	return strconv.Itoa(parsed)
 }
 
 func (r *e2eRuntime) shutdown(ctx context.Context) *problem.Problem {

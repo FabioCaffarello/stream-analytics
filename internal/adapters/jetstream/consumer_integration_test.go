@@ -4,8 +4,10 @@ package jetstream
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -109,6 +111,30 @@ func TestConsumerIntegration_PoisonMessageTerminated(t *testing.T) {
 		t.Fatalf("poison payload should not reach handler, got %d calls", handlerCalls.Load())
 	}
 
+	quarantineSub, err := js.PullSubscribe("quarantine.v1.>", "", nats.BindStream("MARKETDATA"))
+	if err != nil {
+		t.Fatalf("quarantine pull subscribe failed: %v", err)
+	}
+	qmsgs, err := quarantineSub.Fetch(1, nats.MaxWait(2*time.Second))
+	if err != nil {
+		t.Fatalf("fetch quarantine failed: %v", err)
+	}
+	if len(qmsgs) != 1 {
+		t.Fatalf("expected one quarantine message, got %d", len(qmsgs))
+	}
+	qEnv, p := envelope.UnmarshalBinary(qmsgs[0].Data)
+	if p != nil {
+		t.Fatalf("decode quarantine envelope failed: %v", p)
+	}
+	var q quarantinePayload
+	if err := json.Unmarshal(qEnv.Payload, &q); err != nil {
+		t.Fatalf("decode quarantine payload failed: %v", err)
+	}
+	if q.ReasonCode != ingestReasonDecodeFailed {
+		t.Fatalf("quarantine reason=%q want=%q", q.ReasonCode, ingestReasonDecodeFailed)
+	}
+	_ = qmsgs[0].Ack()
+
 	// Verify no infinite redelivery for poison: no pending message remains.
 	sub, err := js.PullSubscribe("marketdata.>", "processor-w7-2-poison", nats.Bind("MARKETDATA", "processor-w7-2-poison"))
 	if err != nil {
@@ -203,6 +229,89 @@ func TestConsumerIntegration_StartStopCycles(t *testing.T) {
 		if p := c.Close(context.Background()); p != nil {
 			t.Fatalf("cycle %d: close failed: %v", i, p)
 		}
+	}
+}
+
+func TestConsumerIntegration_HeartbeatPreventsAckWaitRedelivery(t *testing.T) {
+	url, cleanup := startJetStreamNATS(t)
+	defer cleanup()
+
+	pub := mustPublisher(t, url)
+	defer func() { _ = pub.Close(context.Background()) }()
+
+	const totalMessages = 2
+	for i := 0; i < totalMessages; i++ {
+		env := testEnvelope(10+i, fmt.Sprintf("heartbeat-%d", i), "BTCUSDT")
+		if p := pub.Publish(context.Background(), env); p != nil {
+			t.Fatalf("publish[%d] failed: %v", i, p)
+		}
+	}
+
+	cfg := testConsumerConfig(url, "processor-w7-2-heartbeat")
+	cfg.AckWait = 1 * time.Second
+	cfg.MaxDeliver = 6
+	cfg.FetchTimeout = 200 * time.Millisecond
+
+	c, p := NewConsumer(context.Background(), cfg, metrics.NewBusObserver())
+	if p != nil {
+		t.Fatalf("new consumer failed: %v", p)
+	}
+	defer func() { _ = c.Close(context.Background()) }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	var (
+		mu         sync.Mutex
+		seen       = make(map[string]int, totalMessages)
+		duplicates atomic.Int64
+		unique     atomic.Int64
+		totalCalls atomic.Int64
+		scheduled  atomic.Bool
+	)
+
+	done := make(chan *problem.Problem, 1)
+	go func() {
+		done <- c.Consume(ctx, func(_ context.Context, env envelope.Envelope) *problem.Problem {
+			totalCalls.Add(1)
+
+			mu.Lock()
+			seen[env.IdempotencyKey]++
+			count := seen[env.IdempotencyKey]
+			if count == 1 {
+				unique.Add(1)
+			} else {
+				duplicates.Add(1)
+			}
+			seenCount := unique.Load()
+			mu.Unlock()
+
+			time.Sleep(2500 * time.Millisecond)
+
+			if seenCount >= totalMessages && scheduled.CompareAndSwap(false, true) {
+				time.AfterFunc(1500*time.Millisecond, cancel)
+			}
+			return nil
+		})
+	}()
+
+	select {
+	case p := <-done:
+		if p != nil {
+			t.Fatalf("consume failed: %v", p)
+		}
+	case <-time.After(22 * time.Second):
+		t.Fatal("consume timed out")
+	}
+
+	if got := unique.Load(); got != totalMessages {
+		t.Fatalf("unique processed=%d want=%d", got, totalMessages)
+	}
+	if got := duplicates.Load(); got > 1 {
+		t.Fatalf("redelivery duplicates too high: got=%d want<=1", got)
+	}
+	if got := totalCalls.Load(); got > totalMessages+1 {
+		t.Fatalf("handler calls unexpectedly high: got=%d want<=%d", got, totalMessages+1)
 	}
 }
 

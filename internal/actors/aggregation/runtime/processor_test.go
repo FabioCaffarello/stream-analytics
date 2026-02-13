@@ -295,6 +295,51 @@ func TestProcessor_UnknownType_doesNotCrash(t *testing.T) {
 	<-e.Poison(pid).Done()
 }
 
+func TestProcessor_UnknownVersion_ProducesValidationProblem(t *testing.T) {
+	pub := &spyArtifactPublisher{}
+	updateBook := newUpdateBook(pub)
+
+	ch := make(chan envelope.Envelope, 8)
+	resultCh := make(chan aggruntime.EnvelopeProcessResult, 1)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh: ch,
+		UpdateBook: updateBook,
+		OnEnvelopeProcessed: func(res aggruntime.EnvelopeProcessResult) {
+			resultCh <- res
+		},
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+
+	ch <- envelope.Envelope{
+		Type:           "marketdata.bookdelta",
+		Version:        2,
+		Venue:          "BINANCE",
+		Instrument:     "BTCUSDT",
+		TsIngest:       time.Now().UnixMilli(),
+		IdempotencyKey: "unknown-version-1",
+		Payload:        []byte(`{"bids":[],"asks":[]}`),
+	}
+
+	select {
+	case res := <-resultCh:
+		if res.Problem == nil {
+			t.Fatal("expected problem for unknown event version")
+		}
+		if res.Problem.Code != problem.ValidationFailed {
+			t.Fatalf("problem code=%s want=%s", res.Problem.Code, problem.ValidationFailed)
+		}
+		if got, ok := res.Problem.Details["reason_code"].(string); !ok || got != "UNKNOWN_EVENT_VERSION" {
+			t.Fatalf("reason_code=%v want=%q", res.Problem.Details["reason_code"], "UNKNOWN_EVENT_VERSION")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for callback result")
+	}
+
+	<-e.Poison(pid).Done()
+}
+
 func TestProcessor_OnEnvelopeProcessed_callbackReceivesProblem(t *testing.T) {
 	pub := &spyArtifactPublisher{}
 	updateBook := newUpdateBook(pub)

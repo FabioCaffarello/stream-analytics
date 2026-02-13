@@ -354,6 +354,56 @@ pre-commit run -a
 
 All commands above passed in this implementation run.
 
+### 12.2.1 W9-3 Feature Subject Validation Gate (Implemented 2026-02-12)
+
+#### Rule Added
+
+Fail-fast validation now cross-checks feature flags against required JetStream subject families:
+
+- `processor.insights.enable_crossvenue_join=true`
+  - requires `processor.insights.join_trades_subject` to be a valid NATS subject pattern in `marketdata.trade` family
+  - requires runtime input filters to cover trade subjects for all configured exchanges (including wildcard coverage)
+- `replay.mode=jetstream`
+  - requires `replay.jetstream.subject_filter` to be a valid NATS subject pattern
+  - requires `replay.jetstream.subject_filter` to include `marketdata.*` family coverage
+- `processor.insights.snapshot_subject_prefix` (when set)
+  - must be a concrete publish prefix without wildcards and must start with `insights.`
+
+Validation messages are short and actionable, include the failing key, and include an example subject.
+
+#### Example Config Snippet
+
+```jsonc
+{
+  "bus": {"type": "jetstream"},
+  "jetstream": {
+    "filter_subjects": ["marketdata.bookdelta.v1.>"]
+  },
+  "processor": {
+    "insights": {
+      "enable_crossvenue_join": true,
+      "join_trades_subject": "marketdata.trade.v1.>",
+      "snapshot_subject_prefix": "insights.crossvenue.trade_snapshot.v1"
+    }
+  },
+  "replay": {
+    "mode": "off",
+    "jetstream": {
+      "subject_filter": "marketdata.>"
+    }
+  }
+}
+```
+
+#### Test Evidence
+
+New tests in `internal/shared/config/loader_test.go`:
+
+- `TestJoinEnabled_MissingSubjects_Fails`
+- `TestJoinEnabled_SubjectsPresent_Passes`
+- `TestReplayJetStream_MissingSubjects_Fails`
+- `TestDefaults_NoBehaviorChange`
+
 ### 12.3 What Changed
 
 - Added `internal/adapters/exchange/bybit/` with:

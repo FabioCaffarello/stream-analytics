@@ -477,6 +477,63 @@ func TestValidate_ProcessorInsightsInvalidRoundingMode(t *testing.T) {
 	}
 }
 
+func TestJoinEnabled_MissingSubjects_Fails(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Bus.Type = "jetstream"
+	cfg.Consumer.Exchanges = testConsumerExchanges()
+	cfg.Processor.Insights.EnableCrossVenueJoin = true
+	cfg.Processor.Insights.JoinTradesSubject = "marketdata.trade.v1.binance.BTCUSDT"
+	cfg.JetStream.FilterSubjects = []string{"marketdata.bookdelta.v1.binance.>", "marketdata.bookdelta.v1.bybit.>"}
+
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("expected validation error for missing join subject coverage")
+	}
+	if !strings.Contains(prob.Message, "jetstream.filter_subjects + processor.insights.join_trades_subject") {
+		t.Fatalf("unexpected error message: %q", prob.Message)
+	}
+}
+
+func TestJoinEnabled_SubjectsPresent_Passes(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Bus.Type = "jetstream"
+	cfg.Consumer.Exchanges = testConsumerExchanges()
+	cfg.Processor.Insights.EnableCrossVenueJoin = true
+	cfg.Processor.Insights.JoinTradesSubject = "marketdata.trade.v1.>"
+	cfg.JetStream.FilterSubjects = []string{"marketdata.bookdelta.v1.>"}
+
+	if prob := cfg.Validate(); prob != nil {
+		t.Fatalf("expected join-enabled config to pass, got: %v", prob)
+	}
+}
+
+func TestReplayJetStream_MissingSubjects_Fails(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Bus.Type = "jetstream"
+	cfg.Consumer.Exchanges = testConsumerExchanges()
+	cfg.Replay.Mode = "jetstream"
+	cfg.Replay.JetStream.SubjectFilter = "insights.>"
+
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("expected validation error for replay subject filter not covering marketdata")
+	}
+	if !strings.Contains(prob.Message, "replay.jetstream.subject_filter") {
+		t.Fatalf("unexpected error message: %q", prob.Message)
+	}
+}
+
+func TestDefaults_NoBehaviorChange(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Bus.Type = "jetstream"
+	cfg.Processor.Insights.EnableCrossVenueJoin = false
+	cfg.Replay.Mode = "off"
+
+	if prob := cfg.Validate(); prob != nil {
+		t.Fatalf("default feature-off config should still pass, got: %v", prob)
+	}
+}
+
 // ── stripComments ─────────────────────────────────────────────────────────────
 
 func TestStripComments_LineComment(t *testing.T) {
@@ -541,6 +598,25 @@ func TestStripComments_BlockCommentPreservesNewlines(t *testing.T) {
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
+
+func testConsumerExchanges() []ConsumerExchangeConfig {
+	return []ConsumerExchangeConfig{
+		{
+			Name:       "binance",
+			Type:       "binance",
+			BaseURL:    "wss://stream.binance.com:9443/stream",
+			Tickers:    []string{"BTC-USDT"},
+			MarketType: "SPOT",
+		},
+		{
+			Name:       "bybit",
+			Type:       "bybit",
+			BaseURL:    "wss://stream.bybit.com/v5/public/spot",
+			Tickers:    []string{"BTC-USDT"},
+			MarketType: "SPOT",
+		},
+	}
+}
 
 func writeTempFile(t *testing.T, content string) string {
 	t.Helper()

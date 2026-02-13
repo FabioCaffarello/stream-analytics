@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -55,6 +56,36 @@ func TestE2EConsumerMultiExchange(t *testing.T) {
 	}
 }
 
+func TestE2EConsumerFailClosedWithoutTestRunMode(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	repoRoot := findRepoRoot(t)
+	consumerBin := buildConsumerBinary(t, ctx, repoRoot)
+	configPath := writeConsumerConfig(t)
+	probeAddr := reserveLocalAddr(t)
+
+	proc := startConsumerProcessWithEnv(t, ctx, repoRoot, consumerBin, configPath, probeAddr, map[string]string{
+		"RUN_MODE":            "prod",
+		"MARKET_RACCOON_MODE": "prod",
+		"E2E_TEST_MODE":       "1",
+		"E2E_HTTP_ADDR":       probeAddr,
+	})
+	defer proc.forceStop()
+
+	err := proc.waitExit(5 * time.Second)
+	if err == nil {
+		proc.dumpLogs(t)
+		t.Fatal("expected fail-closed exit when E2E_TEST_MODE=1 without test posture")
+	}
+
+	logs := proc.stdout.String() + "\n" + proc.stderr.String()
+	if !strings.Contains(logs, "requires RUN_MODE=test or MARKET_RACCOON_MODE=test") {
+		proc.dumpLogs(t)
+		t.Fatalf("expected fail-closed message in logs, got:\n%s", logs)
+	}
+}
+
 type consumerProcess struct {
 	cmd *exec.Cmd
 
@@ -70,6 +101,16 @@ type consumerProcess struct {
 
 func startConsumerProcess(t *testing.T, ctx context.Context, repoRoot, binPath, configPath, probeAddr string) *consumerProcess {
 	t.Helper()
+	return startConsumerProcessWithEnv(t, ctx, repoRoot, binPath, configPath, probeAddr, nil)
+}
+
+func startConsumerProcessWithEnv(
+	t *testing.T,
+	ctx context.Context,
+	repoRoot, binPath, configPath, probeAddr string,
+	extraEnv map[string]string,
+) *consumerProcess {
+	t.Helper()
 
 	p := &consumerProcess{
 		done: make(chan error, 1),
@@ -78,10 +119,15 @@ func startConsumerProcess(t *testing.T, ctx context.Context, repoRoot, binPath, 
 	cmd.Dir = repoRoot
 	cmd.Stdout = &p.stdout
 	cmd.Stderr = &p.stderr
-	cmd.Env = append(os.Environ(),
-		"E2E_TEST_MODE=1",
-		"E2E_HTTP_ADDR="+probeAddr,
-	)
+	envOverrides := map[string]string{
+		"E2E_TEST_MODE": "1",
+		"E2E_HTTP_ADDR": probeAddr,
+		"RUN_MODE":      "test",
+	}
+	for key, val := range extraEnv {
+		envOverrides[key] = val
+	}
+	cmd.Env = withEnvOverrides(envOverrides)
 	p.cmd = cmd
 
 	if err := cmd.Start(); err != nil {
@@ -91,6 +137,31 @@ func startConsumerProcess(t *testing.T, ctx context.Context, repoRoot, binPath, 
 		p.done <- cmd.Wait()
 	}()
 	return p
+}
+
+func withEnvOverrides(overrides map[string]string) []string {
+	if len(overrides) == 0 {
+		return os.Environ()
+	}
+	base := os.Environ()
+	filtered := make([]string, 0, len(base)+len(overrides))
+	for _, item := range base {
+		if i := strings.IndexByte(item, '='); i > 0 {
+			if _, exists := overrides[item[:i]]; exists {
+				continue
+			}
+		}
+		filtered = append(filtered, item)
+	}
+	keys := make([]string, 0, len(overrides))
+	for key := range overrides {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		filtered = append(filtered, key+"="+overrides[key])
+	}
+	return filtered
 }
 
 func (p *consumerProcess) pollExit() (bool, error) {
@@ -140,6 +211,24 @@ func (p *consumerProcess) stopGracefully(timeout time.Duration) error {
 
 func (p *consumerProcess) forceStop() {
 	_ = p.stopGracefully(2 * time.Second)
+}
+
+func (p *consumerProcess) waitExit(timeout time.Duration) error {
+	if exited, err := p.pollExit(); exited {
+		return err
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case err := <-p.done:
+		p.mu.Lock()
+		p.exited = true
+		p.exitErr = err
+		p.mu.Unlock()
+		return err
+	case <-timer.C:
+		return fmt.Errorf("timeout waiting process exit")
+	}
 }
 
 func (p *consumerProcess) dumpLogs(t *testing.T) {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -25,6 +26,9 @@ const (
 	envE2ETransientFails      = "E2E_TRANSIENT_FAILS"
 	envE2EInjectJoinFixture   = "E2E_INJECT_JOIN_FIXTURE"
 	envE2EJoinInstrument      = "E2E_JOIN_INSTRUMENT"
+	envProcessorRunMode       = "RUN_MODE"
+	envProcessorMode          = "MARKET_RACCOON_MODE"
+	defaultProcessorProbePort = "18082"
 )
 
 // e2eRuntime adds process-level hooks used only in integration tests.
@@ -36,6 +40,8 @@ type e2eRuntime struct {
 	ready atomic.Bool
 	srv   *http.Server
 
+	probeAddr string
+
 	transientInstrument string
 	transientFails      int32
 	attempts            sync.Map // map[string]*atomic.Int32
@@ -44,13 +50,16 @@ type e2eRuntime struct {
 	joinInstrument    string
 }
 
-func newE2ERuntime(logger *slog.Logger) *e2eRuntime {
+func newE2ERuntime(logger *slog.Logger) (*e2eRuntime, *problem.Problem) {
 	rt := &e2eRuntime{
 		enabled: strings.TrimSpace(os.Getenv(envE2ETestMode)) == "1",
 		logger:  logger,
 	}
 	if !rt.enabled {
-		return rt
+		return rt, nil
+	}
+	if !hasProcessorE2ETestPosture() {
+		return nil, problem.New(problem.ValidationFailed, "E2E_TEST_MODE=1 requires RUN_MODE=test or MARKET_RACCOON_MODE=test")
 	}
 
 	rt.transientInstrument = strings.TrimSpace(os.Getenv(envE2ETransientInstrument))
@@ -70,16 +79,17 @@ func newE2ERuntime(logger *slog.Logger) *e2eRuntime {
 		rt.joinInstrument = "E2E-JOIN"
 	}
 
-	return rt
+	return rt, nil
 }
 
 func (r *e2eRuntime) startProbe() *problem.Problem {
 	if !r.enabled {
 		return nil
 	}
-	addr := strings.TrimSpace(os.Getenv(envE2EHTTPAddr))
-	if addr == "" {
-		addr = "127.0.0.1:18082"
+	addr := resolveProcessorLoopbackProbeAddr()
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return problem.Wrap(err, problem.Unavailable, "processor e2e probe listen failed")
 	}
 
 	mux := http.NewServeMux()
@@ -102,24 +112,64 @@ func (r *e2eRuntime) startProbe() *problem.Problem {
 	}))
 
 	r.srv = &http.Server{
-		Addr:              addr,
 		Handler:           mux,
 		ReadHeaderTimeout: 3 * time.Second,
 	}
+	r.probeAddr = ln.Addr().String()
+
 	go func() {
-		if err := r.srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := r.srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			r.logger.Error("processor: e2e probe server failed", "err", err)
 		}
 	}()
 
 	r.logger.Info("processor: e2e hooks enabled",
-		"http_addr", addr,
+		"http_addr", r.probeAddr,
 		"transient_instrument", r.transientInstrument,
 		"transient_fails", r.transientFails,
 		"inject_join_fixture", r.injectJoinFixture,
 		"join_instrument", r.joinInstrument,
 	)
 	return nil
+}
+
+func hasProcessorE2ETestPosture() bool {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv(envProcessorRunMode)), "test") {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(os.Getenv(envProcessorMode)), "test")
+}
+
+func resolveProcessorLoopbackProbeAddr() string {
+	raw := strings.TrimSpace(os.Getenv(envE2EHTTPAddr))
+	port := extractProcessorProbePort(raw, defaultProcessorProbePort)
+	return net.JoinHostPort("127.0.0.1", port)
+}
+
+func extractProcessorProbePort(rawAddr, fallback string) string {
+	rawAddr = strings.TrimSpace(rawAddr)
+	if rawAddr == "" {
+		return fallback
+	}
+	if _, port, err := net.SplitHostPort(rawAddr); err == nil {
+		return validatedProcessorPortOrFallback(port, fallback)
+	}
+	if strings.HasPrefix(rawAddr, ":") {
+		return validatedProcessorPortOrFallback(strings.TrimPrefix(rawAddr, ":"), fallback)
+	}
+	return validatedProcessorPortOrFallback(rawAddr, fallback)
+}
+
+func validatedProcessorPortOrFallback(port, fallback string) string {
+	port = strings.TrimSpace(port)
+	if port == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(port)
+	if err != nil || parsed <= 0 || parsed > 65535 {
+		return fallback
+	}
+	return strconv.Itoa(parsed)
 }
 
 func (r *e2eRuntime) markReady() {

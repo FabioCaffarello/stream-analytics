@@ -522,7 +522,11 @@ func main() {
 	// ── logger ─────────────────────────────────────────────────────────────
 	logger := buildLogger(cfg.Log)
 	slog.SetDefault(logger)
-	e2e := newE2ERuntime(logger)
+	e2e, p := newE2ERuntime(logger)
+	if p != nil {
+		logger.Error("processor: invalid e2e runtime posture", "err", p)
+		os.Exit(1)
+	}
 	if p := e2e.startProbe(); p != nil {
 		logger.Error("processor: failed to start e2e probe", "err", p)
 		os.Exit(1)

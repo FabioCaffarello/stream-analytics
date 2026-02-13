@@ -85,3 +85,11 @@ Se quiser, no próximo passo eu posso te entregar:
 🔥 como preparar o sistema para **10x volume** sem reescrever
 
 Só falar — porque agora você está montando fundação de empresa, não só repo.
+
+---
+
+## E2E Hook Safety (2026-02-12)
+
+- `E2E_TEST_MODE=1` is fail-closed unless `RUN_MODE=test` or `MARKET_RACCOON_MODE=test`.
+- If the posture check fails, process startup exits with code `1` before runtime initialization.
+- In E2E mode, probe HTTP binding is forced to loopback (`127.0.0.1`) regardless of configured probe address.

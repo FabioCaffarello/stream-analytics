@@ -39,6 +39,11 @@ const (
 	typeTrade     = "marketdata.trade"
 	typeRaw       = "marketdata.raw"
 
+	reasonCodeDecodeFailed        = "DECODE_FAILED"
+	reasonCodeValidationFailed    = "VALIDATION_FAILED"
+	reasonCodeUnknownEventType    = "UNKNOWN_EVENT_TYPE"
+	reasonCodeUnknownEventVersion = "UNKNOWN_EVENT_VERSION"
+
 	metaKeyMarketType          = "instrument_market_type"
 	metaKeySubjectPrefix       = "subject_prefix"
 	snapshotDefaultContentType = envelope.ContentTypeJSON
@@ -186,13 +191,25 @@ func (p *ProcessorSubsystemActor) consumeLoop(ctx context.Context) {
 func (p *ProcessorSubsystemActor) handleEnvelope(_ *actor.Context, env envelope.Envelope) *problem.Problem {
 	switch env.Type {
 	case typeBookDelta:
+		if env.Version != 1 {
+			return unsupportedVersionProblem(env.Type, env.Version)
+		}
 		return p.handleBookDelta(env)
 	case typeTrade:
+		if env.Version != 1 {
+			return unsupportedVersionProblem(env.Type, env.Version)
+		}
 		if p.cfg.JoinTrades == nil {
-			return unhandledTypeProblem(env.Type)
+			return problem.WithDetail(
+				problem.New(problem.ValidationFailed, "insights JoinTrades use case is not configured"),
+				"reason_code", reasonCodeValidationFailed,
+			)
 		}
 		return p.handleTrade(env)
 	case typeRaw:
+		if env.Version != 1 {
+			return unsupportedVersionProblem(env.Type, env.Version)
+		}
 		p.logger.Debug("aggruntime: skipping raw envelope",
 			"venue", env.Venue,
 			"instrument", env.Instrument,
@@ -221,7 +238,7 @@ func (p *ProcessorSubsystemActor) handleBookDelta(env envelope.Envelope) *proble
 			"code", prob.Code,
 			"err", prob.Message,
 		)
-		return prob
+		return problem.WithDetail(prob, "reason_code", reasonCodeDecodeFailed)
 	}
 
 	req := aggapp.UpdateRequest{
@@ -272,7 +289,7 @@ func (p *ProcessorSubsystemActor) handleTrade(env envelope.Envelope) *problem.Pr
 			"code", prob.Code,
 			"err", prob.Message,
 		)
-		return prob
+		return problem.WithDetail(prob, "reason_code", reasonCodeDecodeFailed)
 	}
 	trade, ok := decoded.(mddomain.TradeTickV1)
 	if !ok {
@@ -280,7 +297,10 @@ func (p *ProcessorSubsystemActor) handleTrade(env envelope.Envelope) *problem.Pr
 			"decoded_type", fmt.Sprintf("%T", decoded),
 		)
 		return problem.WithDetail(
-			problem.Newf(problem.ValidationFailed, "decoded trade payload type mismatch: got %T", decoded),
+			problem.WithDetail(
+				problem.Newf(problem.ValidationFailed, "decoded trade payload type mismatch: got %T", decoded),
+				"reason_code", reasonCodeValidationFailed,
+			),
 			"event_type", env.Type,
 		)
 	}
@@ -495,7 +515,20 @@ func buildSpreadSignalEnvelope(
 
 func unhandledTypeProblem(eventType string) *problem.Problem {
 	return problem.WithDetail(
-		problem.Newf(problem.ValidationFailed, "unhandled envelope type %q", eventType),
+		problem.WithDetail(
+			problem.Newf(problem.ValidationFailed, "unhandled envelope type %q", eventType),
+			"reason_code", reasonCodeUnknownEventType,
+		),
+		"type", eventType,
+	)
+}
+
+func unsupportedVersionProblem(eventType string, version int) *problem.Problem {
+	return problem.WithDetail(
+		problem.WithDetail(
+			problem.Newf(problem.ValidationFailed, "unsupported envelope version type=%q version=%d", eventType, version),
+			"reason_code", reasonCodeUnknownEventVersion,
+		),
 		"type", eventType,
 	)
 }

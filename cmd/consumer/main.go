@@ -85,7 +85,11 @@ func main() {
 	// ── logger ───────────────────────────────────────────────────────────────
 	logger := buildLogger(cfg.Log)
 	slog.SetDefault(logger)
-	e2e := newE2ERuntime(logger)
+	e2e, p := newE2ERuntime(logger)
+	if p != nil {
+		logger.Error("consumer: invalid e2e runtime posture", "err", p)
+		os.Exit(1)
+	}
 
 	logger.Info("consumer starting",
 		"bus_type", cfg.Bus.Type,

@@ -231,11 +231,19 @@ func seqToString(s Sequence) string {
 
 // recordSeen adds ikey to the dedup cache, evicting oldest entry if at capacity.
 func (s *InstrumentStream) recordSeen(ikey IdempotencyKey) {
-	cap := s.dedupWindow.Size()
-	if len(s.seenOrd) >= cap {
+	maxSize := s.dedupWindow.Size()
+	if len(s.seenOrd) >= maxSize {
 		oldest := s.seenOrd[0]
 		s.seenOrd = s.seenOrd[1:]
 		delete(s.seen, oldest)
+
+		// Compact: when the backing array is more than 2x the live slice,
+		// copy into a fresh allocation to release the unused prefix.
+		if cap(s.seenOrd) > 2*len(s.seenOrd)+1 {
+			compacted := make([]IdempotencyKey, len(s.seenOrd), maxSize)
+			copy(compacted, s.seenOrd)
+			s.seenOrd = compacted
+		}
 	}
 	s.seen[ikey] = struct{}{}
 	s.seenOrd = append(s.seenOrd, ikey)

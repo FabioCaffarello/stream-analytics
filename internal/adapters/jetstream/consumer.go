@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/market-raccoon/internal/shared/envelope"
+	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/observability"
 	"github.com/market-raccoon/internal/shared/problem"
 	"github.com/nats-io/nats.go"
@@ -15,6 +16,9 @@ import (
 const (
 	defaultFetchTimeout    = 750 * time.Millisecond
 	defaultLagPollInterval = 5 * time.Second
+	minHeartbeatInterval   = 250 * time.Millisecond
+	maxHeartbeatInterval   = 5 * time.Second
+	quarantinePublishTTL   = 2 * time.Second
 )
 
 type Disposition int
@@ -181,21 +185,85 @@ func (c *Consumer) consumeOne(ctx context.Context, msg *nats.Msg, handler Consum
 
 	env, decodeProb := envelope.UnmarshalBinary(msg.Data)
 	if decodeProb != nil {
-		return c.ackWithDisposition(ctx, msg, DispositionTerm, "term", time.Now())
+		decision := classifyEnvelopeDecodeFailure(decodeProb)
+		if decision.Quarantine && !isQuarantineMessage(msg, envelope.Envelope{}) {
+			decision = applyQuarantinePublishResult(decision, c.publishQuarantine(ctx, msg, envelope.Envelope{}, decision.ReasonCode, decodeProb))
+		}
+		return c.ackWithDisposition(ctx, msg, decision.Disposition, decision.Status, decision.ReasonCode, time.Now())
 	}
+
+	stopHeartbeat := startAckHeartbeat(
+		ctx,
+		c.cfg.AckWait,
+		msg.InProgress,
+		func(error) {
+			c.observer.IncConsumed(busTypeJetStream, "heartbeat_error")
+		},
+	)
 
 	started := time.Now()
 	procProb := handler(ctx, env)
+	stopHeartbeat()
 	if ctx.Err() != nil {
 		// Shutdown path: do not ack/nak/term. Let JetStream redeliver.
 		return nil
 	}
 
-	disposition, status := MapProblemToDisposition(procProb)
-	return c.ackWithDisposition(ctx, msg, disposition, status, started)
+	decision := ClassifyIngestError(procProb, env)
+	if decision.Quarantine && !isQuarantineMessage(msg, env) {
+		decision = applyQuarantinePublishResult(decision, c.publishQuarantine(ctx, msg, env, decision.ReasonCode, procProb))
+	}
+	return c.ackWithDisposition(ctx, msg, decision.Disposition, decision.Status, decision.ReasonCode, started)
 }
 
-func (c *Consumer) ackWithDisposition(ctx context.Context, msg *nats.Msg, disposition Disposition, status string, startedAt time.Time) *problem.Problem {
+func startAckHeartbeat(
+	ctx context.Context,
+	ackWait time.Duration,
+	inProgressFn func(...nats.AckOpt) error,
+	onHeartbeatError func(error),
+) func() {
+	if inProgressFn == nil {
+		return func() {}
+	}
+
+	heartbeatCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	interval := heartbeatInterval(ackWait)
+	ticker := time.NewTicker(interval)
+
+	go func() {
+		defer close(done)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-heartbeatCtx.Done():
+				return
+			case <-ticker.C:
+				if err := inProgressFn(); err != nil && onHeartbeatError != nil {
+					onHeartbeatError(err)
+				}
+			}
+		}
+	}()
+
+	return func() {
+		cancel()
+		<-done
+	}
+}
+
+func heartbeatInterval(ackWait time.Duration) time.Duration {
+	interval := ackWait / 3
+	if interval < minHeartbeatInterval {
+		return minHeartbeatInterval
+	}
+	if interval > maxHeartbeatInterval {
+		return maxHeartbeatInterval
+	}
+	return interval
+}
+
+func (c *Consumer) ackWithDisposition(ctx context.Context, msg *nats.Msg, disposition Disposition, status, reasonCode string, startedAt time.Time) *problem.Problem {
 	if ctx.Err() != nil {
 		return nil
 	}
@@ -219,6 +287,7 @@ func (c *Consumer) ackWithDisposition(ctx context.Context, msg *nats.Msg, dispos
 		return wrapUnavailable("ack_failed", ackErr, "jetstream ack operation failed")
 	}
 	c.observer.IncConsumed(busTypeJetStream, status)
+	recordIngestDecisionMetrics(disposition, reasonCode)
 	return nil
 }
 
@@ -256,24 +325,8 @@ func (c *Consumer) Close(ctx context.Context) *problem.Problem {
 }
 
 func MapProblemToDisposition(p *problem.Problem) (Disposition, string) {
-	if p == nil {
-		return DispositionAck, "ok"
-	}
-	if p.Retryable || p.Code == problem.Unavailable || p.Code == problem.Internal {
-		return DispositionNak, "nak"
-	}
-	switch p.Code {
-	case problem.ValidationFailed,
-		problem.InvalidArgument,
-		problem.NotFound,
-		problem.Conflict,
-		problem.OutOfOrder,
-		problem.Duplicate,
-		problem.IntegrityViolation:
-		return DispositionTerm, "term"
-	default:
-		return DispositionNak, "nak"
-	}
+	decision := ClassifyIngestError(p, envelope.Envelope{})
+	return decision.Disposition, decision.Status
 }
 
 func toNATSConsumerConfig(cfg ConsumerConfig) (*nats.ConsumerConfig, *problem.Problem) {
@@ -416,4 +469,46 @@ func (c *Consumer) updateLag() {
 		return
 	}
 	c.observer.SetConsumerLag(busTypeJetStream, int64(lag))
+}
+
+func (c *Consumer) publishQuarantine(ctx context.Context, msg *nats.Msg, env envelope.Envelope, reasonCode string, procProb *problem.Problem) *problem.Problem {
+	if c == nil || c.js == nil || msg == nil {
+		return problem.WithRetryable(problem.New(problem.Unavailable, "jetstream quarantine publisher unavailable"))
+	}
+	out, p := buildQuarantineEnvelope(msg, env, reasonCode, procProb)
+	if p != nil {
+		return p
+	}
+	data, p := envelope.MarshalBinary(out)
+	if p != nil {
+		return p
+	}
+
+	quarantineMsg := nats.NewMsg(envelope.SubjectFromEnvelope(out))
+	quarantineMsg.Data = data
+	quarantineMsg.Header.Set(nats.MsgIdHdr, out.IdempotencyKey)
+
+	pubCtx, cancel := context.WithTimeout(ctx, quarantinePublishTTL)
+	defer cancel()
+
+	_, err := c.js.PublishMsg(quarantineMsg, nats.Context(pubCtx))
+	if err != nil {
+		kind := classifyPublishError(err)
+		return problem.WithRetryable(problem.WithDetail(problem.Wrap(err, problem.Unavailable, "jetstream quarantine publish failed"), "kind", kind))
+	}
+	metrics.IncIngestQuarantine(reasonCode)
+	return nil
+}
+
+func recordIngestDecisionMetrics(disposition Disposition, reasonCode string) {
+	switch disposition {
+	case DispositionAck:
+		if normalizeIngestReason(reasonCode) != ingestReasonOK {
+			metrics.IncIngestDrop(reasonCode)
+		}
+	case DispositionNak:
+		metrics.IncIngestNak(reasonCode)
+	case DispositionTerm:
+		metrics.IncIngestTerm(reasonCode)
+	}
 }

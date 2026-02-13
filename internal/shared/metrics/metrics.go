@@ -25,7 +25,7 @@ var (
 			Name: "ingest_messages_total",
 			Help: "Total ingest messages processed by status.",
 		},
-		[]string{"venue", "instrument", "event_type", "status"},
+		[]string{"venue", "event_type", "status"},
 	)
 	IngestLatencySeconds = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
@@ -33,7 +33,7 @@ var (
 			Help:    "Ingest pipeline latency in seconds.",
 			Buckets: []float64{0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05},
 		},
-		[]string{"venue", "instrument", "event_type"},
+		[]string{"venue", "event_type"},
 	)
 	IngestStreamsActive = prometheus.NewGauge(
 		prometheus.GaugeOpts{
@@ -114,6 +114,34 @@ var (
 			Help: "Estimated JetStream consumer lag (NumPending).",
 		},
 		[]string{"bus_type"},
+	)
+	IngestQuarantineTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ingest_quarantine_total",
+			Help: "Total poison envelopes routed to quarantine by reason.",
+		},
+		[]string{"reason"},
+	)
+	IngestDropTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ingest_drop_total",
+			Help: "Total explicitly dropped ingest envelopes by reason.",
+		},
+		[]string{"reason"},
+	)
+	IngestNakTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ingest_nak_total",
+			Help: "Total ingest envelopes NAKed by reason.",
+		},
+		[]string{"reason"},
+	)
+	IngestTermTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ingest_term_total",
+			Help: "Total ingest envelopes TERMed by reason.",
+		},
+		[]string{"reason"},
 	)
 	ReplayMessagesTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -262,13 +290,12 @@ var (
 	gcMu         sync.Mutex
 	lastNumGC    uint32
 
-	venuePattern      = regexp.MustCompile(`^[a-z0-9_\-]{1,24}$`)
-	instrumentPattern = regexp.MustCompile(`^[A-Z0-9_\-]{1,32}$`)
-	eventTypePattern  = regexp.MustCompile(`^[a-z0-9_.]{1,64}$`)
-	policyPattern     = regexp.MustCompile(`^[a-z_]{1,32}$`)
-	kindPattern       = regexp.MustCompile(`^[a-z0-9_]{1,48}$`)
-	busTypePattern    = regexp.MustCompile(`^[a-z0-9_]{1,24}$`)
-	busStatusPattern  = regexp.MustCompile(`^[a-z_]{1,24}$`)
+	venuePattern     = regexp.MustCompile(`^[a-z0-9_\-]{1,24}$`)
+	eventTypePattern = regexp.MustCompile(`^[a-z0-9_.]{1,64}$`)
+	policyPattern    = regexp.MustCompile(`^[a-z_]{1,32}$`)
+	kindPattern      = regexp.MustCompile(`^[a-z0-9_]{1,48}$`)
+	busTypePattern   = regexp.MustCompile(`^[a-z0-9_]{1,24}$`)
+	busStatusPattern = regexp.MustCompile(`^[a-z_]{1,24}$`)
 )
 
 func init() {
@@ -291,6 +318,10 @@ func registerAll() {
 			BusRedeliveredTotal,
 			BusAckLatencySeconds,
 			BusConsumerLag,
+			IngestQuarantineTotal,
+			IngestDropTotal,
+			IngestNakTotal,
+			IngestTermTotal,
 			ReplayMessagesTotal,
 			ReplayLatencySeconds,
 			ReplayRedeliveriesTotal,
@@ -315,8 +346,8 @@ func registerAll() {
 
 		// Pre-create one series for vector metrics so /metrics exposition is stable
 		// even before the first domain event is observed.
-		IngestMessagesTotal.WithLabelValues("unknown", "UNKNOWN", "unknown", "unknown")
-		IngestLatencySeconds.WithLabelValues("unknown", "UNKNOWN", "unknown")
+		IngestMessagesTotal.WithLabelValues("unknown", "unknown", "unknown")
+		IngestLatencySeconds.WithLabelValues("unknown", "unknown")
 		BackpressureQueueDepth.WithLabelValues("unknown")
 		BackpressureDropsTotal.WithLabelValues("unknown")
 		BusPublishedTotal.WithLabelValues("unknown", "unknown")
@@ -327,6 +358,10 @@ func registerAll() {
 		BusRedeliveredTotal.WithLabelValues("unknown")
 		BusAckLatencySeconds.WithLabelValues("unknown")
 		BusConsumerLag.WithLabelValues("unknown")
+		IngestQuarantineTotal.WithLabelValues("unknown")
+		IngestDropTotal.WithLabelValues("unknown")
+		IngestNakTotal.WithLabelValues("unknown")
+		IngestTermTotal.WithLabelValues("unknown")
 		ReplayMessagesTotal.WithLabelValues("unknown", "unknown")
 		ReplayLatencySeconds.WithLabelValues("unknown")
 		ReplayRedeliveriesTotal.WithLabelValues("unknown")
@@ -347,12 +382,11 @@ func registerAll() {
 
 func ObserveIngest(venue, instrument, eventType, status string, latency time.Duration) {
 	v := sanitizeVenue(venue)
-	i := sanitizeInstrument(instrument)
 	e := sanitizeEventType(eventType)
 	s := sanitizeStatus(status)
-	IngestMessagesTotal.WithLabelValues(v, i, e, s).Inc()
+	IngestMessagesTotal.WithLabelValues(v, e, s).Inc()
 	if s == statusOK {
-		IngestLatencySeconds.WithLabelValues(v, i, e).Observe(latency.Seconds())
+		IngestLatencySeconds.WithLabelValues(v, e).Observe(latency.Seconds())
 	}
 }
 
@@ -406,6 +440,22 @@ func SetBusConsumerLag(busType string, lag int64) {
 		lag = 0
 	}
 	BusConsumerLag.WithLabelValues(sanitizeBusType(busType)).Set(float64(lag))
+}
+
+func IncIngestQuarantine(reason string) {
+	IngestQuarantineTotal.WithLabelValues(sanitizeIngestReason(reason)).Inc()
+}
+
+func IncIngestDrop(reason string) {
+	IngestDropTotal.WithLabelValues(sanitizeIngestReason(reason)).Inc()
+}
+
+func IncIngestNak(reason string) {
+	IngestNakTotal.WithLabelValues(sanitizeIngestReason(reason)).Inc()
+}
+
+func IncIngestTerm(reason string) {
+	IngestTermTotal.WithLabelValues(sanitizeIngestReason(reason)).Inc()
 }
 
 func IncReplayMessages(mode, status string) {
@@ -549,14 +599,6 @@ func sanitizeVenue(v string) string {
 	return "unknown"
 }
 
-func sanitizeInstrument(v string) string {
-	v = strings.ToUpper(strings.TrimSpace(v))
-	if instrumentPattern.MatchString(v) {
-		return v
-	}
-	return "UNKNOWN"
-}
-
 func sanitizeEventType(v string) string {
 	v = strings.ToLower(strings.TrimSpace(v))
 	if eventTypePattern.MatchString(v) {
@@ -585,6 +627,10 @@ func sanitizePolicy(v string) string {
 
 func sanitizeSubsystem(v string) string {
 	v = strings.ToLower(strings.TrimSpace(v))
+	// Strip colon suffix for multi-exchange keys (e.g. "marketdata:binance" → "marketdata").
+	if idx := strings.IndexByte(v, ':'); idx > 0 {
+		v = v[:idx]
+	}
 	switch v {
 	case "marketdata", "aggregation", "delivery", "insights":
 		return v
@@ -642,6 +688,14 @@ func sanitizeReplayMode(v string) string {
 func sanitizeReplayStatus(v string) string {
 	v = strings.ToLower(strings.TrimSpace(v))
 	if busStatusPattern.MatchString(v) {
+		return v
+	}
+	return "unknown"
+}
+
+func sanitizeIngestReason(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	if kindPattern.MatchString(v) {
 		return v
 	}
 	return "unknown"

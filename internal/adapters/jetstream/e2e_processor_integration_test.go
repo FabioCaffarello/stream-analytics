@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -76,12 +77,18 @@ func TestE2EProcessorJetStream(t *testing.T) {
 		"bus_type": "jetstream",
 		"status":   "term",
 	})
+	quarantineBefore := mustMetricValue(t, ctx, proc2, metricsAddr2, "ingest_quarantine_total", map[string]string{
+		"reason": "decode_failed",
+	})
 
 	publishInvalidEnvelope(t, natsURL, fmt.Sprintf("poison-%d", time.Now().UnixNano()))
 	waitMetricAtLeast(t, ctx, proc2, metricsAddr2, "bus_consumed_total", map[string]string{
 		"bus_type": "jetstream",
 		"status":   "term",
 	}, termBefore+1)
+	waitMetricAtLeast(t, ctx, proc2, metricsAddr2, "ingest_quarantine_total", map[string]string{
+		"reason": "decode_failed",
+	}, quarantineBefore+1)
 
 	redeliveredAfterPoison := mustMetricValue(t, ctx, proc2, metricsAddr2, "bus_redelivered_total", map[string]string{
 		"bus_type": "jetstream",
@@ -154,6 +161,33 @@ func TestE2EProcessorJetStream_CrossVenueJoinOptIn(t *testing.T) {
 	}
 }
 
+func TestE2EProcessorJetStream_FailClosedWithoutTestRunMode(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	repoRoot := findRepoRoot(t)
+	processorBin := buildProcessorBinary(t, ctx, repoRoot)
+	metricsAddr := reserveLocalAddr(t)
+	configPath := writeProcessorConfig(t, "nats://127.0.0.1:4222", "processor-e2e-failclosed")
+
+	proc := startProcessorProcessWithEnv(t, ctx, repoRoot, processorBin, configPath, metricsAddr, map[string]string{
+		"RUN_MODE":            "prod",
+		"MARKET_RACCOON_MODE": "prod",
+	})
+	defer proc.forceStop()
+
+	err := proc.waitExit(5 * time.Second)
+	if err == nil {
+		proc.dumpLogs(t)
+		t.Fatal("expected fail-closed exit when E2E_TEST_MODE=1 without test posture")
+	}
+	logs := proc.stdout.String() + "\n" + proc.stderr.String()
+	if !strings.Contains(logs, "requires RUN_MODE=test or MARKET_RACCOON_MODE=test") {
+		proc.dumpLogs(t)
+		t.Fatalf("expected fail-closed message in logs, got:\n%s", logs)
+	}
+}
+
 type processorProcess struct {
 	cmd *exec.Cmd
 
@@ -187,16 +221,17 @@ func startProcessorProcessWithEnv(
 	cmd.Dir = repoRoot
 	cmd.Stdout = &p.stdout
 	cmd.Stderr = &p.stderr
-	env := append(os.Environ(),
-		"E2E_TEST_MODE=1",
-		"E2E_HTTP_ADDR="+metricsAddr,
-		"E2E_TRANSIENT_INSTRUMENT=E2E-TRANSIENT",
-		"E2E_TRANSIENT_FAILS=2",
-	)
-	for key, val := range extraEnv {
-		env = append(env, key+"="+val)
+	envOverrides := map[string]string{
+		"E2E_TEST_MODE":            "1",
+		"E2E_HTTP_ADDR":            metricsAddr,
+		"E2E_TRANSIENT_INSTRUMENT": "E2E-TRANSIENT",
+		"E2E_TRANSIENT_FAILS":      "2",
+		"RUN_MODE":                 "test",
 	}
-	cmd.Env = env
+	for key, val := range extraEnv {
+		envOverrides[key] = val
+	}
+	cmd.Env = withEnvOverrides(envOverrides)
 	p.cmd = cmd
 
 	if err := cmd.Start(); err != nil {
@@ -206,6 +241,31 @@ func startProcessorProcessWithEnv(
 		p.done <- cmd.Wait()
 	}()
 	return p
+}
+
+func withEnvOverrides(overrides map[string]string) []string {
+	if len(overrides) == 0 {
+		return os.Environ()
+	}
+	base := os.Environ()
+	filtered := make([]string, 0, len(base)+len(overrides))
+	for _, item := range base {
+		if i := strings.IndexByte(item, '='); i > 0 {
+			if _, exists := overrides[item[:i]]; exists {
+				continue
+			}
+		}
+		filtered = append(filtered, item)
+	}
+	keys := make([]string, 0, len(overrides))
+	for key := range overrides {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		filtered = append(filtered, key+"="+overrides[key])
+	}
+	return filtered
 }
 
 func (p *processorProcess) pollExit() (bool, error) {
@@ -255,6 +315,24 @@ func (p *processorProcess) stopGracefully(timeout time.Duration) error {
 
 func (p *processorProcess) forceStop() {
 	_ = p.stopGracefully(2 * time.Second)
+}
+
+func (p *processorProcess) waitExit(timeout time.Duration) error {
+	if exited, err := p.pollExit(); exited {
+		return err
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case err := <-p.done:
+		p.mu.Lock()
+		p.exited = true
+		p.exitErr = err
+		p.mu.Unlock()
+		return err
+	case <-timer.C:
+		return fmt.Errorf("timeout waiting process exit")
+	}
 }
 
 func (p *processorProcess) dumpLogs(t *testing.T) {

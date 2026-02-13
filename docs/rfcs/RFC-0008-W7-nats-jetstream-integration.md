@@ -403,3 +403,56 @@ ok  	github.com/market-raccoon/internal/adapters/jetstream
 4. Restart with same durable consumer (`processor-e2e-v1`) consumes backlog published while down.
 5. Poison envelope is terminated (`status="term"`) without endless redelivery loop.
 6. Transient injection in e2e mode causes redelivery (`bus_redelivered_total > 0`) and eventual success (`status="ok"` increments).
+
+## 16. W7-2.2 AckWait Heartbeat Evidence
+
+Date: 2026-02-12
+
+### What changed (localized)
+
+- `internal/adapters/jetstream/consumer.go`
+  - Added processing heartbeat controller that calls `msg.InProgress()` on a ticker while handler is running.
+  - Heartbeat period is `ack_wait/3` clamped to `[250ms, 5s]`.
+  - Heartbeat stops on terminal disposition path (`Ack/Nak/Term`) and on context cancellation.
+  - `InProgress()` errors increment low-cardinality consume metric status `heartbeat_error`; processing continues.
+- `internal/adapters/jetstream/consumer_test.go`
+  - Added unit tests for heartbeat interval clamp, prompt stop, and bounded goroutine delta under repeated slow-handler simulation.
+- `internal/adapters/jetstream/consumer_integration_test.go`
+  - Added integration test with `AckWait=1s` and `handler sleep=2.5s` validating bounded redelivery and single effective processing per message set.
+
+### Command (targeted heartbeat integration)
+
+```bash
+go test -tags=integration ./internal/adapters/jetstream -run Test...Heartbeat... -count=1 -v
+```
+
+### Output (excerpt)
+
+```text
+=== RUN   TestConsumerIntegration_HeartbeatPreventsAckWaitRedelivery
+--- PASS: TestConsumerIntegration_HeartbeatPreventsAckWaitRedelivery
+=== RUN   TestHeartbeatIntervalClamp
+--- PASS: TestHeartbeatIntervalClamp
+=== RUN   TestAckHeartbeatStopsPromptlyAfterDisposition
+--- PASS: TestAckHeartbeatStopsPromptlyAfterDisposition
+=== RUN   TestAckHeartbeatGoroutineDeltaBounded
+--- PASS: TestAckHeartbeatGoroutineDeltaBounded
+PASS
+ok  	github.com/market-raccoon/internal/adapters/jetstream
+```
+
+### Command (workspace race)
+
+```bash
+make test-workspace GO_TEST_FLAGS='-race'
+```
+
+### Output (excerpt)
+
+```text
+ok  	github.com/market-raccoon/internal/adapters/jetstream
+ok  	github.com/market-raccoon/internal/core/marketdata/domain
+ok  	github.com/market-raccoon/internal/interfaces/http
+ok  	github.com/market-raccoon/internal/shared/metrics
+ok  	github.com/market-raccoon/internal/shared/replay
+```
