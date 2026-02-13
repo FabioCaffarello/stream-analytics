@@ -2,8 +2,11 @@
 set -euo pipefail
 
 mode="check"
+scope="all"
 if [[ "${1:-}" == "--fix-hints" ]]; then
   mode="fix-hints"
+elif [[ "${1:-}" == "--changed-only" ]]; then
+  scope="changed"
 fi
 
 errors=0
@@ -100,9 +103,28 @@ check_markdown_file() {
   done < "$file"
 }
 
-while IFS= read -r file; do
-  check_markdown_file "$file"
-done < <(find docs -type f -name '*.md' | sort)
+if [[ "$scope" == "changed" ]]; then
+  changed_count=0
+  while IFS= read -r f; do
+    if [[ -n "$f" && "$f" =~ ^docs/.*\.md$ && -f "$f" ]]; then
+      check_markdown_file "$f"
+      changed_count=$((changed_count + 1))
+    fi
+  done < <(git diff --name-only --diff-filter=ACMR HEAD -- docs 2>/dev/null | sort -u)
+  while IFS= read -r f; do
+    if [[ -n "$f" && "$f" =~ ^docs/.*\.md$ && -f "$f" ]]; then
+      check_markdown_file "$f"
+      changed_count=$((changed_count + 1))
+    fi
+  done < <(git diff --name-only --diff-filter=ACMR --cached -- docs 2>/dev/null | sort -u)
+  if [[ "$changed_count" -eq 0 ]]; then
+    echo "docs-check: no changed docs markdown files; links changed-only guard skipped."
+  fi
+else
+  while IFS= read -r file; do
+    check_markdown_file "$file"
+  done < <(find docs -type f -name '*.md' | sort)
+fi
 
 if [[ "$mode" == "check" ]]; then
   if (( errors > 0 )); then
