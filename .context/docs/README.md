@@ -23,6 +23,7 @@ This folder is the operational knowledge base for contributors and AI agents wor
 - [Architecture Overview](../../docs/architecture/README.md)
 - [System Invariants](../../docs/architecture/system-invariants.md)
 - [Event Bus Contract](../../docs/contracts/event-bus.md)
+- [Heatmap Architecture](../../docs/architecture/heatmap.md)
 - [ADRs](../../docs/adrs)
 
 ## Repository Snapshot

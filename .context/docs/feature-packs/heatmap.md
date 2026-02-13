@@ -5,7 +5,7 @@
 
 ## Inputs/Outputs
 - Inputs: `marketdata.bookdelta.v1.{venue}.{instrument}`, `marketdata.trade.v1.{venue}.{instrument}`.
-- Outputs (planned, not in event-bus.md matrix): `insights.heatmap_snapshot.v1.{venue}.{instrument}`, `insights.heatmap_delta.v1.{venue}.{instrument}`.
+- Outputs (planned): `insights.heatmap_snapshot.v1.{venue}.{instrument}`, `insights.heatmap_delta.v1.{venue}.{instrument}`.
 - Planned WS: `insights.heatmap/{venue}/{symbol}/{timeframe}` ([delivery-ws](../../../docs/contracts/delivery-ws.md)).
 - Subject refs: [ADR-0014](../../../docs/adrs/ADR-0014-stream-partitioning-strategy.md).
 
@@ -13,6 +13,7 @@
 - Bucket assignment deterministic for same `tick_size` + input ([heatmap](../../../docs/architecture/heatmap.md) HM-1, [ADR-0015](../../../docs/adrs/ADR-0015-deterministic-replay-time-invariants.md)).
 - Closed windows immutable after commit ([ADR-0015](../../../docs/adrs/ADR-0015-deterministic-replay-time-invariants.md) HM-2).
 - Bounded resolution: hard cap per `(venue,instrument,timeframe)` ([ADR-0013](../../../docs/adrs/ADR-0013-backpressure-overload-policies.md) HM-4).
+- Caps v1: `max_price_buckets_per_window=512`, `max_size_buckets=5`, `max_cells_per_window=2048`, `max_open_windows_per_partition=2`.
 - Replay of same fixture yields same matrix values and ordering (HM-5).
 - Payload budget: `max_cells_per_frame` + `max_payload_bytes` ([heatmap](../../../docs/architecture/heatmap.md)).
 
