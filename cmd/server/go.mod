@@ -18,6 +18,7 @@ require (
 	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
 	github.com/market-raccoon/internal/core/aggregation v0.0.0 // indirect
 	github.com/market-raccoon/internal/core/delivery v0.0.0 // indirect
+	github.com/market-raccoon/internal/core/insights v0.0.0 // indirect
 	github.com/matttproud/golang_protobuf_extensions/v2 v2.0.0 // indirect
 	github.com/prometheus/client_golang v1.18.0 // indirect
 	github.com/prometheus/client_model v0.5.0 // indirect
