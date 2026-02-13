@@ -10,6 +10,7 @@ import (
 
 	"github.com/market-raccoon/internal/core/insights/domain"
 	"github.com/market-raccoon/internal/shared/hash"
+	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/naming"
 	"github.com/market-raccoon/internal/shared/problem"
 	"github.com/market-raccoon/internal/shared/result"
@@ -209,12 +210,15 @@ func (uc *BuildVolumeProfile) getWindow(req vpvrNormalizedTrade) (*vpvrWindowSta
 		uc.states[key] = ps
 	}
 	if ws, ok := ps.windows[windowStart]; ok {
+		metrics.SetVPVRBuilderWindowsOpen(req.venue, req.instrument, req.timeframe, len(ps.order))
+		metrics.SetVPVRBuilderBucketCount(req.venue, req.instrument, req.timeframe, len(ws.buckets))
 		return ws, nil
 	}
 	if len(ps.order) >= uc.cfg.MaxOpenWindowsPerKey {
 		oldest := ps.order[0]
 		delete(ps.windows, oldest)
 		ps.order = ps.order[1:]
+		metrics.IncVPVRBuilderOverloadAction("window_evict")
 	}
 	ws := &vpvrWindowState{
 		windowStartMs: windowStart,
@@ -223,6 +227,8 @@ func (uc *BuildVolumeProfile) getWindow(req vpvrNormalizedTrade) (*vpvrWindowSta
 	}
 	ps.windows[windowStart] = ws
 	ps.order = append(ps.order, windowStart)
+	metrics.SetVPVRBuilderWindowsOpen(req.venue, req.instrument, req.timeframe, len(ps.order))
+	metrics.SetVPVRBuilderBucketCount(req.venue, req.instrument, req.timeframe, len(ws.buckets))
 	return ws, nil
 }
 
@@ -235,6 +241,7 @@ func (uc *BuildVolumeProfile) applyTrade(ws *vpvrWindowState, req vpvrNormalized
 	b := ws.buckets[bucketKey]
 	if b == nil {
 		if len(ws.buckets) >= uc.cfg.MaxBucketsPerWindow {
+			metrics.IncVPVRBuilderDrop("bucket_cap")
 			return nil, "bucket_cap", nil
 		}
 		b = &vpvrBucketState{
@@ -244,6 +251,9 @@ func (uc *BuildVolumeProfile) applyTrade(ws *vpvrWindowState, req vpvrNormalized
 			seqMax: req.seq,
 		}
 		ws.buckets[bucketKey] = b
+		metrics.SetVPVRBuilderBucketCount(req.venue, req.instrument, req.timeframe, len(ws.buckets))
+	} else if req.seq <= b.seqMax {
+		metrics.IncVPVRBuilderReplayMismatch()
 	}
 	if req.side == "buy" {
 		b.buy += req.size

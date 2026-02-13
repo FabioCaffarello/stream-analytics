@@ -316,6 +316,40 @@ var (
 		},
 		[]string{"reason"},
 	)
+	VPVRBuilderBucketCount = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "vpvr_builder_bucket_count",
+			Help: "Current VPVR bucket count per active partition window.",
+		},
+		[]string{"venue", "instrument", "timeframe"},
+	)
+	VPVRBuilderWindowsOpen = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "vpvr_builder_windows_open",
+			Help: "Current VPVR open windows per partition.",
+		},
+		[]string{"venue", "instrument", "timeframe"},
+	)
+	VPVRBuilderOverloadActionsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "vpvr_builder_overload_actions_total",
+			Help: "Total VPVR builder overload actions by type.",
+		},
+		[]string{"action"},
+	)
+	VPVRBuilderDropTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "vpvr_builder_drop_total",
+			Help: "Total VPVR builder dropped trades by reason.",
+		},
+		[]string{"reason"},
+	)
+	VPVRBuilderReplayMismatchTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "vpvr_builder_replay_mismatch_total",
+			Help: "Total VPVR builder replay/out-of-order mismatches observed while updating buckets.",
+		},
+	)
 	HeatmapBuildLatencyMilliseconds = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "heatmap_build_latency_ms",
@@ -418,6 +452,11 @@ func registerAll() {
 			InsightsSnapshotsTotal,
 			InsightsStateInstrumentsActive,
 			InsightsStateEvictionsTotal,
+			VPVRBuilderBucketCount,
+			VPVRBuilderWindowsOpen,
+			VPVRBuilderOverloadActionsTotal,
+			VPVRBuilderDropTotal,
+			VPVRBuilderReplayMismatchTotal,
 			HeatmapBuildLatencyMilliseconds,
 			HeatmapCellsTotal,
 			HeatmapPayloadBytes,
@@ -460,6 +499,10 @@ func registerAll() {
 		InsightsSnapshotsTotal.WithLabelValues("5_8")
 		InsightsSnapshotsTotal.WithLabelValues("9_plus")
 		InsightsStateEvictionsTotal.WithLabelValues("unknown")
+		VPVRBuilderBucketCount.WithLabelValues("unknown", "unknown", "unknown")
+		VPVRBuilderWindowsOpen.WithLabelValues("unknown", "unknown", "unknown")
+		VPVRBuilderOverloadActionsTotal.WithLabelValues("unknown")
+		VPVRBuilderDropTotal.WithLabelValues("unknown")
 		HeatmapBuildLatencyMilliseconds.WithLabelValues("unknown", "unknown", "unknown")
 		HeatmapCellsTotal.WithLabelValues("unknown", "unknown", "unknown")
 		HeatmapPayloadBytes.WithLabelValues("unknown", "unknown", "unknown")
@@ -643,6 +686,40 @@ func SetInsightsStateInstrumentsActive(active float64) {
 
 func IncInsightsStateEvictions(reason string) {
 	InsightsStateEvictionsTotal.WithLabelValues(sanitizeReason(reason)).Inc()
+}
+
+func SetVPVRBuilderBucketCount(venue, instrument, timeframe string, count int) {
+	if count < 0 {
+		count = 0
+	}
+	VPVRBuilderBucketCount.WithLabelValues(
+		sanitizeVenue(venue),
+		sanitizeInstrument(instrument),
+		sanitizeTimeframe(timeframe),
+	).Set(float64(count))
+}
+
+func SetVPVRBuilderWindowsOpen(venue, instrument, timeframe string, count int) {
+	if count < 0 {
+		count = 0
+	}
+	VPVRBuilderWindowsOpen.WithLabelValues(
+		sanitizeVenue(venue),
+		sanitizeInstrument(instrument),
+		sanitizeTimeframe(timeframe),
+	).Set(float64(count))
+}
+
+func IncVPVRBuilderOverloadAction(action string) {
+	VPVRBuilderOverloadActionsTotal.WithLabelValues(sanitizeKind(action)).Inc()
+}
+
+func IncVPVRBuilderDrop(reason string) {
+	VPVRBuilderDropTotal.WithLabelValues(sanitizeIngestReason(reason)).Inc()
+}
+
+func IncVPVRBuilderReplayMismatch() {
+	VPVRBuilderReplayMismatchTotal.Inc()
 }
 
 func ObserveHeatmapBuildLatency(venue, instrument, timeframe string, latency time.Duration) {
