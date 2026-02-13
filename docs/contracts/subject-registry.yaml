@@ -9,12 +9,15 @@ normalization:
   venue: lowercase
   instrument: uppercase_alnum
   ws_symbol_note: "WS may use symbol label; event-bus subjects must use canonical instrument token."
+governance:
+  schema_authority_rule: "When producer_bc != owner_bc, schema_authority_bc determines who approves payload schema changes. Payload evolution (field additions, version bumps, deprecations) requires approval from schema_authority_bc."
 subjects:
   - id: marketdata.trade.v1
     pattern: marketdata.trade.v1.{venue}.{instrument}
     root: marketdata
     owner_bc: marketdata
     producer_bc: marketdata
+    schema_authority_bc: marketdata
     consumer_bcs: [aggregation, delivery, storage]
     status: stable
     sources:
@@ -29,6 +32,7 @@ subjects:
     root: marketdata
     owner_bc: marketdata
     producer_bc: marketdata
+    schema_authority_bc: marketdata
     consumer_bcs: [aggregation, delivery, storage]
     status: stable
     sources:
@@ -43,6 +47,7 @@ subjects:
     root: marketdata
     owner_bc: marketdata
     producer_bc: marketdata
+    schema_authority_bc: marketdata
     consumer_bcs: [delivery, storage]
     status: stable
     sources:
@@ -55,6 +60,7 @@ subjects:
     root: marketdata
     owner_bc: marketdata
     producer_bc: marketdata
+    schema_authority_bc: marketdata
     consumer_bcs: [delivery, storage]
     status: stable
     sources:
@@ -67,6 +73,7 @@ subjects:
     root: insights
     owner_bc: insights
     producer_bc: aggregation
+    schema_authority_bc: aggregation
     consumer_bcs: [delivery]
     status: stable
     sources:
@@ -76,6 +83,7 @@ subjects:
     root: insights
     owner_bc: insights
     producer_bc: aggregation
+    schema_authority_bc: aggregation
     consumer_bcs: [delivery]
     status: stable
     sources:
@@ -85,6 +93,7 @@ subjects:
     root: quarantine
     owner_bc: marketdata
     producer_bc: marketdata
+    schema_authority_bc: marketdata
     consumer_bcs: [storage]
     status: stable
     sources:
@@ -94,6 +103,7 @@ subjects:
     root: aggregation
     owner_bc: aggregation
     producer_bc: aggregation
+    schema_authority_bc: aggregation
     consumer_bcs: [storage]
     status: draft
     sources:
@@ -104,6 +114,7 @@ subjects:
     root: aggregation
     owner_bc: aggregation
     producer_bc: aggregation
+    schema_authority_bc: aggregation
     consumer_bcs: [storage]
     status: draft
     sources:
@@ -114,6 +125,7 @@ subjects:
     root: insights
     owner_bc: insights
     producer_bc: insights
+    schema_authority_bc: insights
     consumer_bcs: [delivery]
     status: draft
     sources:
@@ -123,6 +135,7 @@ subjects:
     root: insights
     owner_bc: insights
     producer_bc: insights
+    schema_authority_bc: insights
     consumer_bcs: [delivery]
     status: planned
     sources:
@@ -132,6 +145,7 @@ subjects:
     root: insights
     owner_bc: insights
     producer_bc: insights
+    schema_authority_bc: insights
     consumer_bcs: [delivery]
     status: draft
     sources:
@@ -141,6 +155,7 @@ subjects:
     root: insights
     owner_bc: insights
     producer_bc: insights
+    schema_authority_bc: insights
     consumer_bcs: [delivery]
     status: planned
     sources:
@@ -150,6 +165,7 @@ subjects:
     root: insights
     owner_bc: insights
     producer_bc: insights
+    schema_authority_bc: insights
     consumer_bcs: [delivery]
     status: planned
     sources:
