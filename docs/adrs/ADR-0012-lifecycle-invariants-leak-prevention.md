@@ -130,3 +130,8 @@ Implementation changelog:
 - Order book depth bound enforced: `internal/core/aggregation/domain/orderbook_test.go` (`file:test TestOrderBook_maxLevelsBoundedPerSide`).
 - WS lifecycle leak fix and cycle tests: `internal/actors/marketdata/ws/consumer.go` (`file:symbol connectOnce`) and `internal/actors/marketdata/ws/consumer_test.go` (`file:test TestConsumer_ConnectDisconnectCycle_NoGoroutineLeak`).
 - Guardian global restart limiter: `internal/actors/runtime/guardian_test.go` (`file:test TestGuardian_GlobalRestartRateLimit_DefersSixthRestart`).
+
+## Evidence
+
+- Validation gate: `make docs-check-full`
+- Authority path: file-local ADR source.
