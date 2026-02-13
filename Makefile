@@ -36,7 +36,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules tidy tidy-check fmt fmt-check vet quick docs-check docs-fix check-doc-headers check-doc-links check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-soak soak-check test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install commit-msg-check proto-lint proto-gen proto-breaking proto ci
+.PHONY: help install-tools tools modules tidy tidy-check fmt fmt-check vet quick docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-soak soak-check test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install commit-msg-check proto-lint proto-gen proto-breaking proto ci
 
 help:
 	@echo "Targets:"
@@ -49,7 +49,9 @@ help:
 	@echo "  make fmt-check          - check formatting (gofmt -l)"
 	@echo "  make vet                - run go vet in workspace modules"
 	@echo "  make quick              - fast local loop (fmt-check + vet + invariants-check + short tests)"
-	@echo "  make docs-check         - fast docs guardrails (headers, links, truth-map consistency)"
+	@echo "  make docs-check         - strict docs guardrails (alias for docs-check-full)"
+	@echo "  make docs-check-fast    - lightweight docs guardrails for local loop"
+	@echo "  make docs-check-full    - full strict docs guardrails"
 	@echo "  make docs-fix           - print docs fix checklist based on current guardrail findings"
 	@echo "  make invariants-check   - enforce domain isolation and runtime invariants checks"
 	@echo "  make lint               - run golangci-lint in workspace modules"
@@ -144,6 +146,15 @@ quick:
 	@$(MAKE) test-short
 
 docs-check:
+	@$(MAKE) docs-check-full
+
+docs-check-fast:
+	@$(MAKE) check-truth-map
+	@$(MAKE) check-feature-pack-links
+	@$(MAKE) check-pack-subjects-vs-event-bus
+	@$(MAKE) registry-check
+
+docs-check-full:
 	@$(MAKE) check-doc-headers
 	@$(MAKE) check-doc-links
 	@$(MAKE) check-truth-map
