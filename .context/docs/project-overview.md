@@ -22,6 +22,11 @@ Market Raccoon is a market intelligence backend that ingests market data, normal
 - Build orchestration: `Makefile`
 - Full generated snapshot: [`codebase-map.json`](./codebase-map.json)
 
+## Context Truth Navigation
+- Context bridge index: [`truth-pack.md`](./truth-pack.md)
+- Canonical authority map: [`docs/architecture/TRUTH-MAP.md`](../../docs/architecture/TRUTH-MAP.md)
+- Execution/program baseline: [`docs/rfcs/EXECUTION-SEQUENCE.md`](../../docs/rfcs/EXECUTION-SEQUENCE.md), [`docs/prd/PRD-0001-extreme-runtime.md`](../../docs/prd/PRD-0001-extreme-runtime.md)
+
 ## Entry Points
 - [`cmd/consumer/main.go`](../../cmd/consumer/main.go#L1) - Market data ingestion runtime (supports fake feed mode for development).
 - [`cmd/processor/main.go`](../../cmd/processor/main.go#L1) - Envelope processing and aggregation pipeline wiring.
