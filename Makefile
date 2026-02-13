@@ -44,13 +44,14 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules tidy tidy-check fmt fmt-check vet quick ci-local docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-partition test-replay-golden test-replay-golden-if-needed test-soak soak-check test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install commit-msg-check proto-tools proto-lint proto-gen proto-breaking proto-check proto ci
+.PHONY: help install-tools tools modules workspace-check tidy tidy-check fmt fmt-check vet quick ci-local docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-partition test-replay-golden test-replay-golden-if-needed test-soak soak-check test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install commit-msg-check proto-tools proto-lint proto-gen proto-breaking proto-check proto ci
 
 help:
 	@echo "Targets:"
 	@echo "  make install-tools      - install golangci-lint and govulncheck"
 	@echo "  make tools              - install pinned protobuf generation tools to ./bin"
 	@echo "  make modules            - list modules from go.work"
+	@echo "  make workspace-check    - validate all go.work modules resolve with go list"
 	@echo "  make tidy               - run go mod tidy in workspace modules"
 	@echo "  make tidy-check         - fail if go.mod/go.sum are not tidy"
 	@echo "  make fmt                - format all Go files (gofmt)"
@@ -110,6 +111,9 @@ tools:
 
 modules:
 	@./scripts/list-modules.sh
+
+workspace-check:
+	@./scripts/check-workspace-modules.sh
 
 define RUN_IN_MODULES
 	@MODULE='$(MODULE)' ./scripts/for-each-module.sh $(1)
@@ -221,12 +225,13 @@ test:
 
 test-root:
 	@echo "go.work multi-module repository detected: use workspace-aware targets instead of 'go test ./...' at repository root."
+	$(MAKE) workspace-check
 	$(MAKE) test-workspace
 
-test-workspace: invariants-check
+test-workspace: invariants-check workspace-check
 	$(call RUN_IN_MODULES,bash -lc 'pkgs="$$( $(GO) list ./... 2>/dev/null || true )"; if [ -n "$$pkgs" ]; then $(GO) test $(GO_TEST_FLAGS) $$pkgs; else echo "no packages to test (skipping)"; fi')
 
-test-workspace-race: invariants-check
+test-workspace-race: invariants-check workspace-check
 	$(call RUN_IN_MODULES,bash -lc 'pkgs="$$( $(GO) list ./... 2>/dev/null || true )"; if [ -n "$$pkgs" ]; then $(GO) test $(GO_TEST_RACE_FLAGS) $$pkgs; else echo "no packages to test (skipping)"; fi')
 
 test-unit: invariants-check
