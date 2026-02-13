@@ -1,104 +1,113 @@
 # Event Bus Contract
 
-## Goal
-
-Define a canonical structure for all messages flowing through the system.
-
-This ensures:
-
-- replayability
-- compatibility
-- deterministic processing
-- auditability
+**Status:** Active
+**Owner:** Governance Doc-First Maintainer
+**Last updated:** 2026-02-13
+**Relates to:** `docs/adrs/ADR-0002-event-envelope-and-versioning.md`, `docs/adrs/ADR-0014-stream-partitioning-strategy.md`, `docs/adrs/ADR-0016-protobuf-contract-layer.md`
 
 ---
 
-## Envelope
+## Objetivo
 
-All messages MUST follow:
+Definir contrato canônico de envelope e subject para publicacao/consumo no bus, garantindo compatibilidade, rastreabilidade e validação determinística.
+
+## Escopo
+
+- Estrutura do envelope de eventos.
+- Taxonomia de subject para publish e filtros.
+- Regras de versionamento e deduplicação.
+
+## Nao-Escopo
+
+- Política de retenção detalhada por stream (tratada em RFC de JetStream).
+- Semântica de negócio de cada payload (tratada por contratos de domínio).
+
+## Envelope Canonico
 
 ```json
 {
   "type": "marketdata.trade",
   "version": 1,
-  "venue": "binance",
-  "instrument": "BTC-PERP",
+  "venue": "BINANCE",
+  "instrument": "BTC-USDT",
   "ts_exchange": 1710000000,
   "ts_ingest": 1710000005,
   "seq": 9283749823,
-  "idempotency_key": "binance-BTC-123456",
+  "idempotency_key": "binance-BTCUSDT-123456",
+  "content_type": "application/json",
   "payload": {}
 }
 ```
 
----
+Campos obrigatórios:
+- `type`, `version`, `venue`, `instrument`, `seq`, `idempotency_key`, `payload`.
 
-## Field Definitions
+## Subject Taxonomy
 
-### type
-
-Stable event identifier.
-
-Never rename.
-
----
-
-### version
-
-Increment when payload changes break decoding.
-
-Consumers must support N-1 versions during migration.
-
----
-
-### seq
-
-Monotonic per `(venue, instrument)`.
-
-Used for ordering.
-
-Never trust exchange timestamps alone.
-
----
-
-### idempotency_key
-
-Guarantees deduplication.
-
-Must be deterministic.
-
----
-
-## Subject Naming Strategy
-
-Pattern:
+Subject de publish concreto:
 
 ```text
-<context>.<event>.<venue>.<instrument>
+{event}.v{version}.{venue_lower}.{instrument_alnum_upper}
 ```
 
-Example:
+Exemplos válidos:
+- `marketdata.trade.v1.binance.BTCUSDT`
+- `marketdata.bookdelta.v1.bybit.ETHUSDT`
+- `quarantine.v1.binance.BTCUSDT`
 
-```text
-marketdata.trade.binance.btc-perp
-aggregation.orderbook.binance.btc-perp
-insights.liquidity_shift.global.btc
-```
+Regras:
+- `event` pode ter múltiplos segmentos (`marketdata.trade`, `insights.crossvenue.trade_snapshot`).
+- `version` deve ser `v{int}`.
+- `venue` sem espaços, lowercase no subject.
+- `instrument` normalizado para alfanumérico uppercase no subject.
 
-Avoid wildcard-heavy patterns that destroy partitioning.
+## Pattern Taxonomy (filters)
 
----
+Patterns com wildcard são válidos para subscription/filter quando respeitam raiz permitida (`marketdata`, `insights`, `quarantine`) e regras de token.
+
+Exemplos:
+- `marketdata.>`
+- `marketdata.trade.v1.*.BTCUSDT`
+- `quarantine.v1.>`
 
 ## Versioning Rules
 
-Allowed:
+Permitido:
+- adicionar campos opcionais.
+- introduzir novo `version` mantendo compatibilidade de consumo.
 
-- add optional fields
-- expand payload
+Proibido:
+- renomear campos sem mudança de versão.
+- reaproveitar semântica de campo existente silenciosamente.
 
-Forbidden:
+## Deduplication Rule
 
-- rename fields
-- change semantics silently
+- `idempotency_key` é obrigatório e determinístico.
+- Em JetStream, deve ser propagado como `Nats-Msg-Id` para dedup na janela configurada.
 
----
+## Implementation Matrix
+
+| Capability | Status | Referencia |
+|---|---|---|
+| Subject canônico derivado do envelope | Implemented | `internal/shared/envelope/subject.go:9`, `internal/shared/envelope/envelope_test.go:207` |
+| Validação de subject concreto | Implemented | `internal/adapters/jetstream/subject_validation.go:24`, `internal/adapters/jetstream/subject_validation_test.go:5` |
+| Validação de pattern com wildcard | Implemented | `internal/adapters/jetstream/subject_validation.go:50`, `internal/adapters/jetstream/subject_validation_test.go:35` |
+| Enforcement em publish path | Implemented | `internal/adapters/jetstream/publisher.go:86` |
+| Enforcement em ingest/quarantine path | Implemented | `internal/adapters/jetstream/ingest_policy.go:300`, `internal/adapters/jetstream/consumer_test.go:393` |
+| Proto content-type opt-in no payload | Partially Implemented | `internal/shared/envelope/envelope.go:14`, `docs/adrs/ADR-0016-protobuf-contract-layer.md` |
+
+## Evidence
+
+- `internal/shared/envelope/subject.go:9`
+- `internal/shared/envelope/envelope_test.go:207`
+- `internal/adapters/jetstream/subject_validation.go:24`
+- `internal/adapters/jetstream/subject_validation.go:50`
+- `internal/adapters/jetstream/publisher_integration_test.go:64`
+- `internal/adapters/jetstream/ingest_conformance_test.go:15`
+
+## Changelog
+
+- 2026-02-13:
+- Contrato alinhado à taxonomia real de subject (`{event}.v{version}.{venue}.{instrument}`).
+- Drift removido em relação ao padrão antigo de quatro tokens fixos.
+- Matriz e evidências adicionadas.
