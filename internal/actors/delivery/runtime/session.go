@@ -12,6 +12,7 @@ import (
 	"github.com/market-raccoon/internal/core/delivery/app"
 	"github.com/market-raccoon/internal/core/delivery/domain"
 	"github.com/market-raccoon/internal/core/delivery/ports"
+	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/problem"
 )
 
@@ -31,6 +32,8 @@ type SessionConfig struct {
 	RouterPID  *actor.PID
 	Conn       wsConn
 	RangeStore ports.RangeStore
+	// OutboundQueueSize bounds queued delivery events per session.
+	OutboundQueueSize int
 }
 
 type SessionActor struct {
@@ -46,6 +49,9 @@ type SessionActor struct {
 	readerCtx    context.Context
 	cancelReader context.CancelFunc
 	closed       bool
+	outbound     []DeliveryEvent
+	outboundCap  int
+	flushing     bool
 }
 
 func NewSessionActor(cfg SessionConfig) actor.Producer {
@@ -68,7 +74,9 @@ func (s *SessionActor) Receive(c *actor.Context) {
 	case sessionDisconnected:
 		s.closeSession()
 	case DeliveryEvent:
-		s.writeData(msg)
+		s.enqueueDelivery(msg)
+	case sessionFlushOutbound:
+		s.flushOutbound()
 	default:
 		s.logger.Warn("delivery session: unknown message", "type", fmt.Sprintf("%T", msg))
 	}
@@ -92,12 +100,19 @@ func (s *SessionActor) ensureDefaults(c *actor.Context) {
 	if s.service == nil {
 		s.service = app.NewSessionService(s.cfg.RangeStore)
 	}
+	if s.outboundCap <= 0 {
+		s.outboundCap = s.cfg.OutboundQueueSize
+		if s.outboundCap <= 0 {
+			s.outboundCap = 256
+		}
+	}
 }
 
 func (s *SessionActor) onStarted() {
 	if s.cfg.RouterPID != nil {
 		s.engine.Send(s.cfg.RouterPID, RegisterSession{SessionID: s.session.ID(), PID: s.self})
 	}
+	metrics.IncWSClientsConnected()
 	if s.cfg.Conn == nil {
 		return
 	}
@@ -237,14 +252,53 @@ func (s *SessionActor) handleGetRange(cmd clientCommand) {
 	})
 }
 
-func (s *SessionActor) writeData(evt DeliveryEvent) {
-	s.writeJSON(map[string]any{
+func (s *SessionActor) enqueueDelivery(evt DeliveryEvent) {
+	if len(s.outbound) >= s.outboundCap {
+		metrics.IncWSDrops("queue_full")
+		return
+	}
+	s.outbound = append(s.outbound, evt)
+	metrics.SetWSQueueDepth(len(s.outbound))
+	if s.flushing {
+		return
+	}
+	s.flushing = true
+	s.engine.Send(s.self, sessionFlushOutbound{})
+}
+
+func (s *SessionActor) flushOutbound() {
+	if s.closed {
+		s.flushing = false
+		return
+	}
+	if len(s.outbound) == 0 {
+		s.flushing = false
+		metrics.SetWSQueueDepth(0)
+		return
+	}
+	evt := s.outbound[0]
+	s.outbound = s.outbound[1:]
+	metrics.SetWSQueueDepth(len(s.outbound))
+
+	started := time.Now()
+	if err := s.writeJSONDirect(map[string]any{
 		"type":      "event",
 		"subject":   evt.Subject.String(),
 		"seq":       evt.Env.Seq,
 		"ts_ingest": evt.Env.TsIngest,
 		"payload":   evt.Env.Payload,
-	})
+	}); err != nil {
+		s.logger.Warn("delivery session: write failed", "err", err)
+		s.closeSession()
+		return
+	}
+	metrics.ObserveWSSendLatency(time.Since(started))
+
+	if len(s.outbound) > 0 {
+		s.engine.Send(s.self, sessionFlushOutbound{})
+		return
+	}
+	s.flushing = false
 }
 
 func (s *SessionActor) writeProblem(op, requestID string, p *problem.Problem) {
@@ -263,13 +317,17 @@ func (s *SessionActor) writeProblem(op, requestID string, p *problem.Problem) {
 }
 
 func (s *SessionActor) writeJSON(v any) {
-	if s.cfg.Conn == nil {
-		return
-	}
-	if err := s.cfg.Conn.WriteJSON(v); err != nil {
+	if err := s.writeJSONDirect(v); err != nil {
 		s.logger.Warn("delivery session: write failed", "err", err)
 		s.closeSession()
 	}
+}
+
+func (s *SessionActor) writeJSONDirect(v any) error {
+	if s.cfg.Conn == nil {
+		return nil
+	}
+	return s.cfg.Conn.WriteJSON(v)
 }
 
 func (s *SessionActor) closeSession() {
@@ -280,6 +338,8 @@ func (s *SessionActor) closeSession() {
 	if s.cancelReader != nil {
 		s.cancelReader()
 	}
+	metrics.DecWSClientsConnected()
+	metrics.SetWSQueueDepth(0)
 	// Explicitly emit unsubscribe for each tracked subject before unregister.
 	// Unregister remains the idempotent safety net.
 	for _, sub := range s.session.Subscriptions() {

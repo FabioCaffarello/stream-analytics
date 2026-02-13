@@ -201,6 +201,32 @@ var (
 		},
 		[]string{"venue", "status"},
 	)
+	WSQueueDepth = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "ws_queue_depth",
+			Help: "Current outbound websocket queue depth across delivery sessions.",
+		},
+	)
+	WSDropsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ws_drops_total",
+			Help: "Total dropped websocket outbound events by reason.",
+		},
+		[]string{"reason"},
+	)
+	WSSendLatencyMilliseconds = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "ws_send_latency_ms",
+			Help:    "Latency in milliseconds for websocket event frame writes.",
+			Buckets: []float64{0.1, 0.5, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000},
+		},
+	)
+	WSClientsConnected = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "ws_clients_connected",
+			Help: "Connected websocket delivery clients.",
+		},
+	)
 
 	GuardianRestartsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -337,6 +363,10 @@ func registerAll() {
 			WSReconnectsTotal,
 			WSMessagesReceivedTotal,
 			WSErrorsTotal,
+			WSQueueDepth,
+			WSDropsTotal,
+			WSSendLatencyMilliseconds,
+			WSClientsConnected,
 			GuardianRestartsTotal,
 			GuardianDegradedTotal,
 			GuardianSubsystemState,
@@ -378,6 +408,7 @@ func registerAll() {
 		WSReconnectsTotal.WithLabelValues("unknown", "unknown")
 		WSMessagesReceivedTotal.WithLabelValues("unknown", "unknown")
 		WSErrorsTotal.WithLabelValues("unknown", "unknown")
+		WSDropsTotal.WithLabelValues("unknown")
 		GuardianRestartsTotal.WithLabelValues("unknown", "unknown")
 		GuardianDegradedTotal.WithLabelValues("unknown")
 		GuardianSubsystemState.WithLabelValues("unknown")
@@ -500,6 +531,29 @@ func IncWSMessageReceived(venue, eventType string) {
 
 func IncWSError(venue, status string) {
 	WSErrorsTotal.WithLabelValues(sanitizeVenue(venue), sanitizeStatus(status)).Inc()
+}
+
+func SetWSQueueDepth(depth int) {
+	WSQueueDepth.Set(float64(max(depth, 0)))
+}
+
+func IncWSDrops(reason string) {
+	WSDropsTotal.WithLabelValues(sanitizeKind(reason)).Inc()
+}
+
+func ObserveWSSendLatency(latency time.Duration) {
+	if latency < 0 {
+		latency = 0
+	}
+	WSSendLatencyMilliseconds.Observe(float64(latency) / float64(time.Millisecond))
+}
+
+func IncWSClientsConnected() {
+	WSClientsConnected.Inc()
+}
+
+func DecWSClientsConnected() {
+	WSClientsConnected.Dec()
 }
 
 func IncGuardianRestart(subsystem, status string) {

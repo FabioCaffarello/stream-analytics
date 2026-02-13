@@ -38,6 +38,7 @@ import (
 	deliveryruntime "github.com/market-raccoon/internal/actors/delivery/runtime"
 	actorruntime "github.com/market-raccoon/internal/actors/runtime"
 	"github.com/market-raccoon/internal/adapters/bus"
+	"github.com/market-raccoon/internal/adapters/storage/timescale"
 	httpserver "github.com/market-raccoon/internal/interfaces/http"
 	wsserver "github.com/market-raccoon/internal/interfaces/ws"
 	"github.com/market-raccoon/internal/shared/config"
@@ -69,13 +70,15 @@ func main() {
 	eventBus := bus.NewInMemoryBus(cfg.Processor.BusCapacity, metrics.NewBusObserver())
 	envelopeCh := eventBus.Subscribe()
 	routerPIDCh := make(chan *actor.PID, 1)
+	rangeStore := timescale.NewDeliveryRangeStore(4096)
 
 	deliveryCfg := deliveryruntime.SubsystemConfig{
 		Logger: logger,
 		Router: deliveryruntime.RouterConfig{
-			Logger:     logger,
-			EnvelopeCh: envelopeCh,
-			Timeframe:  "raw",
+			Logger:        logger,
+			EnvelopeCh:    envelopeCh,
+			Timeframe:     "raw",
+			EnvelopeStore: rangeStore,
 		},
 		OnRouterReady: func(pid *actor.PID) {
 			select {
@@ -100,7 +103,7 @@ func main() {
 
 	// ── HTTP server ───────────────────────────────────────────────────────────
 	srv := httpserver.NewServer(e, guardianPID, cfg.HTTP.Addr, cfg.HTTP.EnablePprof, logger)
-	enableWSRoute(e, srv, routerPIDCh, logger)
+	enableWSRoute(e, srv, routerPIDCh, logger, rangeStore)
 
 	serverErr := make(chan error, 1)
 	go func() {
@@ -158,10 +161,10 @@ func loadServerConfig(configPath, addrOverride, logLevelOverride string) config.
 	return cfg
 }
 
-func enableWSRoute(e *actor.Engine, srv *httpserver.Server, routerPIDCh <-chan *actor.PID, logger *slog.Logger) {
+func enableWSRoute(e *actor.Engine, srv *httpserver.Server, routerPIDCh <-chan *actor.PID, logger *slog.Logger, rangeStore *timescale.DeliveryRangeStore) {
 	select {
 	case routerPID := <-routerPIDCh:
-		ws := wsserver.NewServer(e, routerPID, logger)
+		ws := wsserver.NewServer(e, routerPID, logger, rangeStore, 256)
 		srv.HandleFunc("GET /ws", ws.HandleWS)
 		logger.Info("delivery websocket route enabled", "route", "GET /ws")
 	case <-time.After(2 * time.Second):

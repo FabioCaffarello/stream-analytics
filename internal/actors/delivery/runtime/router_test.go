@@ -74,7 +74,7 @@ func TestRouter_subscribeUnsubscribeAndBroadcast(t *testing.T) {
 	e.Send(routerPID, SubscribeSession{SessionID: id1, Subject: subject})
 	e.Send(routerPID, SubscribeSession{SessionID: id2, Subject: subject})
 
-	envCh <- envelope.Envelope{Type: "marketdata.trade", Venue: "binance", Instrument: "BTC-USDT", Seq: 10, TsIngest: time.Now().UnixMilli(), Payload: []byte("x")}
+	envCh <- envelope.Envelope{Type: "marketdata.trade", Version: 1, Venue: "binance", Instrument: "BTC-USDT", Seq: 10, TsIngest: time.Now().UnixMilli(), Payload: []byte("x")}
 
 	msg1 := waitForMessage[DeliveryEvent](t, ch1, time.Second)
 	msg2 := waitForMessage[DeliveryEvent](t, ch2, time.Second)
@@ -83,7 +83,7 @@ func TestRouter_subscribeUnsubscribeAndBroadcast(t *testing.T) {
 	}
 
 	e.Send(routerPID, UnsubscribeSession{SessionID: id2, Subject: subject})
-	envCh <- envelope.Envelope{Type: "marketdata.trade", Venue: "binance", Instrument: "BTC-USDT", Seq: 11, TsIngest: time.Now().UnixMilli(), Payload: []byte("y")}
+	envCh <- envelope.Envelope{Type: "marketdata.trade", Version: 1, Venue: "binance", Instrument: "BTC-USDT", Seq: 11, TsIngest: time.Now().UnixMilli(), Payload: []byte("y")}
 
 	_ = waitForMessage[DeliveryEvent](t, ch1, time.Second)
 	select {
@@ -95,12 +95,86 @@ func TestRouter_subscribeUnsubscribeAndBroadcast(t *testing.T) {
 	}
 
 	e.Send(routerPID, UnregisterSession{SessionID: id1})
-	envCh <- envelope.Envelope{Type: "marketdata.trade", Venue: "binance", Instrument: "BTC-USDT", Seq: 12, TsIngest: time.Now().UnixMilli(), Payload: []byte("z")}
+	envCh <- envelope.Envelope{Type: "marketdata.trade", Version: 1, Venue: "binance", Instrument: "BTC-USDT", Seq: 12, TsIngest: time.Now().UnixMilli(), Payload: []byte("z")}
 	select {
 	case raw := <-ch1:
 		if _, ok := raw.(DeliveryEvent); ok {
 			t.Fatal("session 1 should not receive after unregister")
 		}
 	case <-time.After(150 * time.Millisecond):
+	}
+}
+
+func TestRouter_routesAggregationSnapshot(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	envCh := make(chan envelope.Envelope, 16)
+	routerPID := e.Spawn(NewRouterActor(RouterConfig{EnvelopeCh: envCh, Timeframe: "raw"}), "router")
+	defer e.Poison(routerPID)
+
+	ch := make(chan any, 16)
+	s := e.Spawn(func() actor.Receiver { return &captureActor{ch: ch} }, "session-capture")
+	defer e.Poison(s)
+
+	id := ids.NewSessionID()
+	subject := mustParseSubject(t, "aggregation.snapshot/binance/BTC-USDT/raw")
+
+	e.Send(routerPID, RegisterSession{SessionID: id, PID: s})
+	e.Send(routerPID, SubscribeSession{SessionID: id, Subject: subject})
+
+	envCh <- envelope.Envelope{
+		Type:       "aggregation.snapshot",
+		Version:    1,
+		Venue:      "binance",
+		Instrument: "BTC-USDT",
+		Seq:        100,
+		TsIngest:   time.Now().UnixMilli(),
+		Payload:    []byte(`{"ok":true}`),
+	}
+
+	msg := waitForMessage[DeliveryEvent](t, ch, time.Second)
+	if got, want := msg.Subject.String(), "aggregation.snapshot/binance/BTCUSDT/raw"; got != want {
+		t.Fatalf("subject=%q want=%q", got, want)
+	}
+}
+
+func TestRouter_rejectsUngovernedEnvelopeType(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	envCh := make(chan envelope.Envelope, 16)
+	routerPID := e.Spawn(NewRouterActor(RouterConfig{EnvelopeCh: envCh, Timeframe: "raw"}), "router")
+	defer e.Poison(routerPID)
+
+	ch := make(chan any, 16)
+	s := e.Spawn(func() actor.Receiver { return &captureActor{ch: ch} }, "session-capture")
+	defer e.Poison(s)
+
+	id := ids.NewSessionID()
+	subject := mustParseSubject(t, "insights.unknown/binance/BTCUSDT/raw")
+
+	e.Send(routerPID, RegisterSession{SessionID: id, PID: s})
+	e.Send(routerPID, SubscribeSession{SessionID: id, Subject: subject})
+	envCh <- envelope.Envelope{
+		Type:       "insights.unknown",
+		Version:    1,
+		Venue:      "binance",
+		Instrument: "BTCUSDT",
+		Seq:        1,
+		TsIngest:   time.Now().UnixMilli(),
+		Payload:    []byte(`{}`),
+	}
+
+	select {
+	case raw := <-ch:
+		if _, ok := raw.(DeliveryEvent); ok {
+			t.Fatal("unexpected delivery event for ungoverned envelope type")
+		}
+	case <-time.After(200 * time.Millisecond):
 	}
 }

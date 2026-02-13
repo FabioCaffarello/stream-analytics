@@ -89,6 +89,11 @@ func busDroppedSeriesCount(t *testing.T) int {
 
 func TestMetricsNamesPresent(t *testing.T) {
 	SetWSConnectionsActive("binance", 1)
+	SetWSQueueDepth(2)
+	IncWSDrops("queue_full")
+	ObserveWSSendLatency(5 * time.Millisecond)
+	IncWSClientsConnected()
+	DecWSClientsConnected()
 	IncBusPublishError("timeout")
 	ObserveBusPublishLatency("jetstream", 2*time.Millisecond)
 	IncBusConsumed("jetstream", "ok")
@@ -119,6 +124,10 @@ func TestMetricsNamesPresent(t *testing.T) {
 		"ingest_messages_total",
 		"ingest_latency_seconds",
 		"ws_connections_active",
+		"ws_queue_depth",
+		"ws_drops_total",
+		"ws_send_latency_ms",
+		"ws_clients_connected",
 		"bus_dropped_total",
 		"bus_publish_errors_total",
 		"bus_publish_latency_seconds",

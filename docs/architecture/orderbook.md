@@ -27,7 +27,7 @@ Define the orderbook state contract, snapshot generation, and downstream deliver
 
 ### Outputs
 
-- Planned derived event: `aggregation.snapshot.v1.{venue}.{instrument}` (tracked in ADR revision NOTE-001 for subject-root alignment)
+- Derived event: `aggregation.snapshot.v1.{venue}.{instrument}`
 - Planned derived event: `aggregation.<orderbook_inconsistency>.v1.{venue}.{instrument}` (TBD registry key, same NOTE-001)
 - WS delivery stream: `<stream_type>/<venue>/<symbol>/<timeframe>` with `stream_type=aggregation.snapshot`
 
@@ -116,7 +116,7 @@ Operational minimum:
 | Replay golden for aggregation snapshots | Existing | `internal/core/aggregation/app/golden_replay_test.go` | `internal/core/aggregation/app/golden_replay_test.go:TestAggregationGoldenReplayFromFixture` |
 | Processor routing `marketdata.bookdelta` -> aggregation | Existing | `internal/actors/aggregation/runtime/processor.go` | `internal/actors/aggregation/runtime/processor_test.go:TestProcessor_BookDelta_callsUpdateOrderBook` |
 | Durable hot/cold writers for orderbook | TODO | `internal/adapters/storage/timescale/` and `internal/adapters/storage/clickhouse/` (TODO) | `internal/adapters/storage/orderbook_snapshot_writer_test.go` (TODO) |
-| Bus contract for `aggregation.snapshot` | Planned | `docs/rfcs/RFC-0011-product-parity-marketmonkey.md` | `internal/adapters/jetstream/subject_validation_test.go` (root-rule alignment required) |
+| Bus contract for `aggregation.snapshot` | Existing | `docs/contracts/event-bus.md` | `internal/adapters/jetstream/subject_validation_test.go` |
 
 ## Acceptance Tests
 

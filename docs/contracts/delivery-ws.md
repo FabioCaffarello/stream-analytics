@@ -1,6 +1,6 @@
 # Delivery WS Contract (Envelope, Streams, Backpressure)
 
-**Status:** Draft
+**Status:** Active
 **Owner:** Product Architect
 **Last updated:** 2026-02-13
 **Relates to:** `docs/adrs/ADR-0002-event-envelope-and-versioning.md`, `docs/adrs/ADR-0007-delivery-ws-sessions.md`, `docs/adrs/ADR-0013-backpressure-overload-policies.md`, `docs/adrs/ADR-0014-stream-partitioning-strategy.md`, `docs/contracts/event-bus.md`, `docs/rfcs/RFC-0003-W2-DELIVERY-BC.md`
@@ -14,7 +14,7 @@ Define WS delivery contract for marketdata/aggregation/insights streams with exp
 - `subject` (WS): `<stream_type>/<venue>/<symbol>/<timeframe>`.
 - `subject` (bus): `{event}.v{version}.{venue}.{instrument}`.
 - `stream_type`: namespaced event token (for example `marketdata.trade`).
-- `symbol`: client-facing symbol token in WS subject.
+- `symbol`: client-facing token in WS subject; canonicalized from `instrument` (`BTC-USDT` -> `BTCUSDT`).
 - `envelope`: canonical bus wrapper from ADR-0002.
 - `frame`: WS JSON message emitted by the session actor.
 
@@ -29,7 +29,7 @@ Accepted delivery router inputs:
 - `marketdata.liquidation.v1.{venue}.{instrument}`
 - `insights.crossvenue.trade_snapshot.v1.global.{instrument}`
 - `insights.crossvenue.spread_signal.v1.global.{instrument}`
-- planned: `aggregation.snapshot.v1.{venue}.{instrument}` (root alignment tracked in `docs/rfcs/ADR-REVISIONS-patch-plan.md`, NOTE-001)
+- `aggregation.snapshot.v1.{venue}.{instrument}`
 - planned: `insights.<heatmap_event>.v1.{venue}.{instrument}` (TBD registry key)
 - planned: `insights.<volume_profile_event>.v1.{venue}.{instrument}` (TBD registry key)
 
@@ -42,7 +42,7 @@ Examples:
 - `marketdata.trade/binance/BTCUSDT/raw`
 - `marketdata.markprice/bybit/BTCUSDT/raw`
 - `insights.crossvenue.trade_snapshot/global/BTCUSDT/raw`
-- `aggregation.snapshot/binance/BTCUSDT/raw` (planned)
+- `aggregation.snapshot/binance/BTCUSDT/raw`
 
 ## Contracts
 
@@ -124,19 +124,19 @@ Range:
 
 Current runtime behavior:
 1. session lifecycle isolation and cleanup are implemented;
-2. explicit configurable slow-client queue/drop policy is not implemented yet;
-3. connection write failures close the session.
+2. bounded per-session outbound queue is implemented;
+3. drop policy is `drop_newest` with reason `queue_full`;
+4. connection write failures close the session.
 
 Planned parity policy:
-1. bounded outbound buffer per session;
-2. non-critical streams (`heatmap`, `volume_profile`) keep-latest policy;
-3. critical streams (`orderbook`, `markprice`) prioritized throughput;
-4. slow clients disconnected after threshold breach.
+1. stream-priority policies (`keep-latest` vs `drop_newest`) per stream class;
+2. slow clients disconnected after threshold breach.
 
 Required metrics:
-- `delivery_ws_queue_depth{session_id}`
-- `delivery_ws_drop_total{stream_type,reason}`
-- `delivery_ws_slow_client_total{reason}`
+- `ws_queue_depth`
+- `ws_drops_total{reason}`
+- `ws_send_latency_ms`
+- `ws_clients_connected`
 
 ## Storage Strategy
 
@@ -159,7 +159,7 @@ Required metrics:
 | Router broadcast only to subscribed sessions | Existing | `internal/actors/delivery/runtime/router.go` | `internal/actors/delivery/runtime/router_test.go:TestRouter_subscribeUnsubscribeAndBroadcast` |
 | Disconnect cleanup and unregister | Existing | `internal/actors/delivery/runtime/session.go` | `internal/actors/delivery/runtime/session_test.go:TestSession_disconnectTriggersUnregister` |
 | Deterministic range from durable store | Planned | `internal/core/delivery/ports/ports.go` | `internal/core/delivery/app/session_usecase_test.go:TestSessionService_GetRange_storeUnavailable` |
-| Slow-client backpressure policy | TODO | `internal/core/delivery/domain/backpressure_policy.go` (TODO) | `internal/actors/delivery/runtime/session_backpressure_test.go` (TODO) |
+| Slow-client backpressure policy | Existing (drop_newest baseline) | `internal/actors/delivery/runtime/session.go` | `internal/actors/delivery/runtime/session_test.go:TestSession_backpressureDropsWhenQueueFull` |
 
 ## Observability
 

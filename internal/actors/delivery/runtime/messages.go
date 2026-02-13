@@ -44,6 +44,8 @@ type sessionInboundText struct {
 // sessionDisconnected is emitted by ws read loop on connection close/error.
 type sessionDisconnected struct{}
 
+type sessionFlushOutbound struct{}
+
 type busEnvelopeMsg struct {
 	Env envelope.Envelope
 }

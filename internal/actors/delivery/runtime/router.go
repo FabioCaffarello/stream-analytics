@@ -12,9 +12,14 @@ import (
 
 // RouterConfig configures the Delivery router actor.
 type RouterConfig struct {
-	Logger     *slog.Logger
-	EnvelopeCh <-chan envelope.Envelope
-	Timeframe  string
+	Logger        *slog.Logger
+	EnvelopeCh    <-chan envelope.Envelope
+	Timeframe     string
+	EnvelopeStore envelopeStore
+}
+
+type envelopeStore interface {
+	StoreEnvelope(env envelope.Envelope)
 }
 
 // RouterActor owns subject routing state.
@@ -180,6 +185,13 @@ func (r *RouterActor) removeSessionFromSubject(sessionID string, subject domain.
 func (r *RouterActor) handleEnvelope(env envelope.Envelope) {
 	if r.stopped {
 		return
+	}
+	if p := domain.ValidateEnvelopeForDelivery(env); p != nil {
+		r.logger.Warn("delivery router: envelope rejected by contract policy", "err", p)
+		return
+	}
+	if r.cfg.EnvelopeStore != nil {
+		r.cfg.EnvelopeStore.StoreEnvelope(env)
 	}
 	timeframe := r.cfg.Timeframe
 	if timeframe == "" {

@@ -18,6 +18,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
+	github.com/market-raccoon/internal/core/delivery v0.0.0 // indirect
 	github.com/matttproud/golang_protobuf_extensions/v2 v2.0.0 // indirect
 	github.com/nats-io/nats.go v1.48.0 // indirect
 	github.com/nats-io/nkeys v0.4.11 // indirect
@@ -40,3 +41,5 @@ replace (
 	github.com/market-raccoon/internal/core/marketdata => ../../internal/core/marketdata
 	github.com/market-raccoon/internal/shared => ../../internal/shared
 )
+
+replace github.com/market-raccoon/internal/core/delivery => ../../internal/core/delivery
