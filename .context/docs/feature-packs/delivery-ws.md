@@ -3,7 +3,7 @@
 ## Purpose
 - Delivery WS constraints only; authority: [delivery-ws](../../../docs/contracts/delivery-ws.md), [event-bus](../../../docs/contracts/event-bus.md), [ADR-0007](../../../docs/adrs/ADR-0007-delivery-ws-sessions.md).
 
-## Inputs-Outputs
+## Inputs/Outputs
 - Inputs: `marketdata.trade.v1.{venue}.{instrument}`, `marketdata.bookdelta.v1.{venue}.{instrument}`, `marketdata.markprice.v1.{venue}.{instrument}`, `marketdata.liquidation.v1.{venue}.{instrument}`.
 - Outputs: WS subject `<stream_type>/<venue>/<symbol>/<timeframe>` and event frame fields `type|subject|seq|ts_ingest|payload`.
 - Ordering refs: [ADR-0014](../../../docs/adrs/ADR-0014-stream-partitioning-strategy.md), [ADR-0015](../../../docs/adrs/ADR-0015-deterministic-replay-time-invariants.md).

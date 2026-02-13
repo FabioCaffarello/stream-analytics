@@ -11,9 +11,8 @@ packs_dir="${repo_root}/.context/docs/feature-packs"
 contract_file="${repo_root}/docs/contracts/event-bus.md"
 errors=0
 
-contract_subjects_file="$(mktemp)"
 contract_prefixes_file="$(mktemp)"
-trap 'rm -f "$contract_subjects_file" "$contract_prefixes_file"' EXIT
+trap 'rm -f "$contract_prefixes_file"' EXIT
 
 report_issue() {
   local file="$1"
@@ -45,6 +44,7 @@ normalize_subject() {
   s="${s//\{timeframe\}/*}"
   s="${s//\{event\}/*}"
   s="${s//\{version\}/*}"
+  s="${s//\{instrument_alnum_upper\}/*}"
   s="${s//<stream_type>/*}"
   s="${s//<venue>/*}"
   s="${s//<symbol>/*}"
@@ -69,55 +69,58 @@ subject_prefix() {
   return 1
 }
 
-load_contract_subjects() {
+line_has_required_marker() {
+  local line="$1"
+  [[ "$line" == *"(planned, not in event-bus.md matrix)"* || "$line" == *"(runtime, not yet in event-bus.md matrix)"* ]]
+}
+
+load_contract_prefixes() {
   local raw
   while IFS= read -r raw; do
     local subject
     local prefix
+
     subject="$(normalize_subject "$raw")"
     [[ -n "$subject" ]] || continue
     [[ "$subject" == */* ]] && continue
     [[ "$subject" == *.* ]] || continue
 
-    printf '%s\n' "$subject" >> "$contract_subjects_file"
     if prefix="$(subject_prefix "$subject")"; then
       printf '%s\n' "$prefix" >> "$contract_prefixes_file"
     fi
   done < <(
     {
+      rg -o '(marketdata|insights|aggregation|quarantine)\.[A-Za-z0-9_.{}*><-]+' "$contract_file"
       rg -o '\`[^`]+\`' "$contract_file" | sed -E 's/^`//; s/`$//'
-      rg -o 'marketdata\.[A-Za-z0-9_.{}*>\-]+' "$contract_file"
-      rg -o 'insights\.[A-Za-z0-9_.{}*>\-]+' "$contract_file"
-      rg -o 'quarantine\.[A-Za-z0-9_.{}*>\-]+' "$contract_file"
-      rg -o 'aggregation\.[A-Za-z0-9_.{}*>\-]+' "$contract_file"
     } | sort -u
   )
 
-  sort -u -o "$contract_subjects_file" "$contract_subjects_file"
   sort -u -o "$contract_prefixes_file" "$contract_prefixes_file"
 }
 
 validate_candidate() {
   local file="$1"
   local line_no="$2"
-  local raw_subject="$3"
+  local line_text="$3"
+  local raw_subject="$4"
+
   local subject
   local prefix
-
   subject="$(normalize_subject "$raw_subject")"
+
   [[ -n "$subject" ]] || return 0
   [[ "$subject" == */* ]] && return 0
   [[ "$subject" == *.* ]] || return 0
 
-  if rg -Fxq "$subject" "$contract_subjects_file"; then
+  if ! prefix="$(subject_prefix "$subject")"; then
     return 0
   fi
 
-  if prefix="$(subject_prefix "$subject")"; then
-    if rg -Fxq "$prefix" "$contract_prefixes_file"; then
-      return 0
-    fi
-  else
+  if rg -Fxq "$prefix" "$contract_prefixes_file"; then
+    return 0
+  fi
+
+  if line_has_required_marker "$line_text"; then
     return 0
   fi
 
@@ -125,8 +128,8 @@ validate_candidate() {
     "$file" \
     "$line_no" \
     "$subject" \
-    "subject not found in docs/contracts/event-bus.md" \
-    "update docs/contracts/event-bus.md first; then align .context feature-pack subject list."
+    "subject prefix not found in docs/contracts/event-bus.md and missing explicit drift marker" \
+    "align docs/contracts/event-bus.md or add '(planned, not in event-bus.md matrix)' / '(runtime, not yet in event-bus.md matrix)'."
 }
 
 check_pack_subjects() {
@@ -136,21 +139,15 @@ check_pack_subjects() {
 
   while IFS= read -r line || [[ -n "$line" ]]; do
     line_no=$((line_no + 1))
-    if ! printf '%s\n' "$line" | rg -qi '(subject|subjects|marketdata\.)'; then
-      continue
-    fi
 
     local token
     while IFS= read -r token; do
       [[ -n "$token" ]] || continue
-      validate_candidate "$rel_pack" "$line_no" "$token"
+      validate_candidate "$rel_pack" "$line_no" "$line" "$token"
     done < <(
       {
         printf '%s\n' "$line" | rg -o '\`[^`]+\`' | sed -E 's/^`//; s/`$//'
-        printf '%s\n' "$line" | rg -o 'marketdata\.[A-Za-z0-9_.{}*>\-]+'
-        printf '%s\n' "$line" | rg -o 'insights\.[A-Za-z0-9_.{}*>\-]+'
-        printf '%s\n' "$line" | rg -o 'quarantine\.[A-Za-z0-9_.{}*>\-]+'
-        printf '%s\n' "$line" | rg -o 'aggregation\.[A-Za-z0-9_.{}*>\-]+'
+        printf '%s\n' "$line" | rg -o '(marketdata|insights|aggregation|quarantine)\.[A-Za-z0-9_.{}*><-]+'
       } | sort -u
     )
   done < "$pack"
@@ -165,12 +162,14 @@ if [[ ! -d "$packs_dir" ]]; then
 fi
 
 if [[ -f "$contract_file" ]]; then
-  load_contract_subjects
+  load_contract_prefixes
 fi
 
-while IFS= read -r pack; do
-  check_pack_subjects "$pack"
-done < <(find "$packs_dir" -type f -name '*.md' | sort)
+if [[ -d "$packs_dir" ]]; then
+  while IFS= read -r pack; do
+    check_pack_subjects "$pack"
+  done < <(find "$packs_dir" -type f -name '*.md' | sort)
+fi
 
 if [[ "$mode" == "check" ]]; then
   if (( errors > 0 )); then

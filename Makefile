@@ -31,7 +31,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules tidy tidy-check fmt fmt-check docs-check docs-fix invariants-check lint test test-root test-workspace test-workspace-race soak-check test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install proto-lint proto-gen proto-breaking proto ci
+.PHONY: help install-tools tools modules tidy tidy-check fmt fmt-check docs-check docs-fix check-doc-headers check-doc-links check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus invariants-check lint test test-root test-workspace test-workspace-race soak-check test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install proto-lint proto-gen proto-breaking proto ci
 
 help:
 	@echo "Targets:"
@@ -123,16 +123,33 @@ fmt-check:
 	@./scripts/gofmt-all.sh check
 
 docs-check:
+	@$(MAKE) check-doc-headers
+	@$(MAKE) check-doc-links
+	@$(MAKE) check-truth-map
+	@$(MAKE) check-feature-pack-links
+	@$(MAKE) check-pack-subjects-vs-event-bus
+
+check-doc-headers:
 	@./scripts/check-doc-headers.sh
+
+check-doc-links:
 	@./scripts/check-doc-links.sh
+
+check-truth-map:
 	@./scripts/check-truth-map.sh
+
+check-feature-pack-links:
 	@./scripts/check-feature-pack-links.sh
+
+check-pack-subjects-vs-event-bus:
+	@./scripts/check-pack-subjects-vs-event-bus.sh
 
 docs-fix:
 	@./scripts/check-doc-headers.sh --fix-hints
 	@./scripts/check-doc-links.sh --fix-hints
 	@./scripts/check-truth-map.sh --fix-hints
 	@./scripts/check-feature-pack-links.sh --fix-hints
+	@./scripts/check-pack-subjects-vs-event-bus.sh --fix-hints
 
 invariants-check:
 	@./scripts/check-domain-isolation.sh "$(CURDIR)"

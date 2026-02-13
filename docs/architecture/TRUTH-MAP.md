@@ -21,7 +21,7 @@ Create one authoritative map of:
 | Volume profile (VPVR) | `docs/architecture/volume-profiles.md` | `docs/adrs/ADR-0013-backpressure-overload-policies.md`, `docs/adrs/ADR-0014-stream-partitioning-strategy.md`, `docs/adrs/ADR-0017-multi-exchange-normalization.md` | `internal/core/insights/app/join_crossvenue_trades_test.go:TestJoinCrossVenueTrades_GoldenDeterministicSnapshotAndSignalBytes_50Runs` | Draft doc, feature TODO |
 | Liquidations and markprice parity path | `docs/architecture/liquidations-markprice.md` | `docs/adrs/ADR-0002-event-envelope-and-versioning.md`, `docs/adrs/ADR-0004-bus-nats-jetstream.md`, `docs/adrs/ADR-0013-backpressure-overload-policies.md`, `docs/adrs/ADR-0017-multi-exchange-normalization.md` | `internal/shared/contracts/converter_completeness_test.go:TestConverterCompleteness_MarkPriceTickV1`, `internal/shared/contracts/converter_completeness_test.go:TestConverterCompleteness_LiquidationTickV1` | Draft doc, contracts existing |
 | Delivery WS wire contract and lifecycle | `docs/contracts/delivery-ws.md` | `docs/adrs/ADR-0007-delivery-ws-sessions.md`, `docs/adrs/ADR-0013-backpressure-overload-policies.md`, `docs/rfcs/RFC-0003-W2-DELIVERY-BC.md` | `internal/actors/delivery/runtime/session_test.go:TestSession_parseSubscribeUnsubscribeGetRange`, `internal/actors/delivery/runtime/router_test.go:TestRouter_subscribeUnsubscribeAndBroadcast` | Draft doc, backpressure gap explicit |
-| Parity roadmap and acceptance gates | `docs/rfcs/RFC-0011-product-parity-marketmonkey.md` | `docs/prd/PRD-0001-extreme-runtime.md`, `docs/audits/AUDIT-PACK-W11-finalization.md` | `make invariants-check`, `make test-workspace`, `make test-workspace-race` | Draft RFC, active planning authority |
+| Parity roadmap and acceptance gates | `docs/rfcs/RFC-0011-product-parity-marketmonkey.md` | `docs/prd/PRD-0001-extreme-runtime.md`, `docs/audits/AUDIT-PACK-W11-finalization.md` | `make docs-check`, `make invariants-check`, `make test-workspace`, `make test-workspace-race` | Draft RFC, active planning authority |
 
 ## Invariants
 
@@ -123,13 +123,14 @@ Status anchors: `docs/rfcs/RFC-0001-robustness-roadmap.md:3`, `docs/rfcs/RFC-000
 Canonical gates in this round:
 
 ```bash
+make docs-check
 make invariants-check
 make test-workspace
 make test-workspace-race
 make soak-check
 ```
 
-Anchor: `Makefile:123`, `Makefile:136`, `Makefile:139`, `Makefile:142`.
+Anchor: `Makefile`, `scripts/check-doc-headers.sh`, `scripts/check-doc-links.sh`, `scripts/check-truth-map.sh`, `scripts/check-feature-pack-links.sh`, `scripts/check-pack-subjects-vs-event-bus.sh`, `scripts/check-domain-isolation.sh`, `scripts/soak-test.sh`.
 
 ## Acceptance
 
@@ -143,6 +144,7 @@ Anchor: `Makefile:123`, `Makefile:136`, `Makefile:139`, `Makefile:142`.
   - created W11 truth map with full ADR/RFC/architecture/contracts inventory;
   - mapped single source of truth for runtime invariants, taxonomy, ACK semantics, replay, backpressure, storage, contract layer and multi-exchange;
   - added workspace-safe gate commands used by PREVC validation.
+  - aligned gate set to include `make docs-check` + `check-pack-subjects-vs-event-bus` guard.
   - reconciled PRD/RFC W7/W9 summaries after governance normalization wave 2.
   - added MEX-4 guard anchor (`scripts/check-domain-isolation.sh`) in multi-exchange authority row.
   - added parity v1 document authority set (`storage`, `orderbook`, `heatmap`, `volume-profiles`, `liquidations-markprice`, `delivery-ws`, `RFC-0011`).

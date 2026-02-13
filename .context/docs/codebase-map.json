@@ -78,7 +78,8 @@
     ],
     "gates": [
       "Makefile:docs-check",
-      "scripts/check-feature-pack-links.sh"
+      "scripts/check-feature-pack-links.sh",
+      "scripts/check-pack-subjects-vs-event-bus.sh"
     ]
   },
   "architecture": {

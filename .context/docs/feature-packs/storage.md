@@ -8,7 +8,7 @@
 
 - Inputs: `marketdata.trade.v1.{venue}.{instrument}`, `marketdata.bookdelta.v1.{venue}.{instrument}`, `marketdata.markprice.v1.{venue}.{instrument}`, `marketdata.liquidation.v1.{venue}.{instrument}`.
 - Outputs (runtime, not yet in event-bus.md matrix): `insights.crossvenue.trade_snapshot.v1.global.{instrument}`, `insights.crossvenue.spread_signal.v1.global.{instrument}`.
-- Outputs (planned): `aggregation.snapshot.v1.{venue}.{instrument}`.
+- Outputs (planned, not in event-bus.md matrix): `aggregation.snapshot.v1.{venue}.{instrument}`.
 - Contract refs: [ADR-0014](../../../docs/adrs/ADR-0014-stream-partitioning-strategy.md), [ADR-0002](../../../docs/adrs/ADR-0002-event-envelope-and-versioning.md).
 
 ## Invariants

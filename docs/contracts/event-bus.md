@@ -53,6 +53,8 @@ Subject de publish concreto:
 Exemplos válidos:
 - `marketdata.trade.v1.binance.BTCUSDT`
 - `marketdata.bookdelta.v1.bybit.ETHUSDT`
+- `marketdata.markprice.v1.binance.BTCUSDT`
+- `marketdata.liquidation.v1.bybit.ETHUSDT`
 - `quarantine.v1.binance.BTCUSDT`
 
 Regras:

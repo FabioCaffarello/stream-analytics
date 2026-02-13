@@ -127,16 +127,16 @@ while IFS= read -r pack; do
 done < <(find "$packs_dir" -type f -name '*.md' | sort)
 
 subject_guard_status=0
-if [[ -x "${repo_root}/scripts/check-pack-subjects.sh" ]]; then
+if [[ -x "${repo_root}/scripts/check-pack-subjects-vs-event-bus.sh" ]]; then
   if [[ "$mode" == "check" ]]; then
-    if ! "${repo_root}/scripts/check-pack-subjects.sh"; then
+    if ! "${repo_root}/scripts/check-pack-subjects-vs-event-bus.sh"; then
       subject_guard_status=1
     fi
   else
-    "${repo_root}/scripts/check-pack-subjects.sh" --fix-hints || true
+    "${repo_root}/scripts/check-pack-subjects-vs-event-bus.sh" --fix-hints || true
   fi
 else
-  report_issue "scripts/check-pack-subjects.sh" "1" "(missing)" "pack subject checker not executable" "chmod +x scripts/check-pack-subjects.sh."
+  report_issue "scripts/check-pack-subjects-vs-event-bus.sh" "1" "(missing)" "pack subject checker not executable" "chmod +x scripts/check-pack-subjects-vs-event-bus.sh."
 fi
 
 if [[ "$mode" == "check" ]]; then
