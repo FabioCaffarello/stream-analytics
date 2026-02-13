@@ -3,9 +3,10 @@
 ## Purpose
 - Storage constraints and bridge only; authority: [storage](../../../docs/architecture/storage.md), [event-bus](../../../docs/contracts/event-bus.md), [ADR-0006](../../../docs/adrs/ADR-0006-storage-hot-vs-cold.md).
 
-## Inputs-Outputs
+## Inputs/Outputs
 - Inputs: `marketdata.trade.v1.{venue}.{instrument}`, `marketdata.bookdelta.v1.{venue}.{instrument}`, `marketdata.markprice.v1.{venue}.{instrument}`, `marketdata.liquidation.v1.{venue}.{instrument}`.
-- Outputs: `insights.crossvenue.trade_snapshot.v1.global.{instrument}`, `insights.crossvenue.spread_signal.v1.global.{instrument}`, planned `aggregation.snapshot.v1.{venue}.{instrument}`.
+- Outputs (runtime, not yet in event-bus.md matrix): `insights.crossvenue.trade_snapshot.v1.global.{instrument}`, `insights.crossvenue.spread_signal.v1.global.{instrument}`.
+- Outputs (planned): `aggregation.snapshot.v1.{venue}.{instrument}`.
 - Contract refs: [ADR-0014](../../../docs/adrs/ADR-0014-stream-partitioning-strategy.md), [ADR-0002](../../../docs/adrs/ADR-0002-event-envelope-and-versioning.md).
 
 ## Invariants
@@ -22,11 +23,13 @@
 - Replay baseline: [RFC-0009](../../../docs/rfcs/RFC-0009-W8-deterministic-replay-golden-tests.md).
 
 ## Evidence Hooks
-- `internal/adapters/jetstream/consumer.go:67`
-- `internal/adapters/jetstream/ingest_policy.go:59`
-- `internal/core/aggregation/ports/ports.go:19`
-- `internal/shared/replay/player.go:45`
-- `internal/shared/replay/sequencer.go:32`
+- `internal/adapters/jetstream/consumer.go:67` (NewConsumer — ack boundary entry)
+- `internal/adapters/jetstream/ingest_policy.go:59` (ClassifyIngestError — ack/nak/term)
+- `internal/core/aggregation/ports/ports.go:17` (HotReadModelStore interface)
+- `internal/core/aggregation/app/update_orderbook.go:141` (hotStore.Save call-site)
+- `internal/shared/envelope/subject.go:9` (canonical subject derivation)
+- `internal/shared/replay/player.go:45` (Replay entry)
+- `internal/shared/replay/sequencer.go:32` (Enqueue — deterministic seq)
 - TODO: `internal/adapters/storage/timescale/writer.go`
 
 ## Acceptance Tests
