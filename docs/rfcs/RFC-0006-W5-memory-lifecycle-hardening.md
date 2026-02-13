@@ -265,3 +265,13 @@ No migration needed. All changes are backward compatible:
 - 2026-02-13:
   - normalizado status para taxonomia RFC (`Draft|Accepted`);
   - mantidas evidências de hardening da rodada W5.
+
+## Test Plan
+
+```bash
+make docs-check-full
+```
+
+## Acceptance
+
+- Required RFC sections are present and validated by `make docs-check-full`.

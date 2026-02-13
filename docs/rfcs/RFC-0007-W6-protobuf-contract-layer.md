@@ -242,3 +242,13 @@ make test-workspace-race
 - 2026-02-13:
   - normalizado status para taxonomia RFC (`Draft|Accepted`);
   - mantido escopo de aceitação como foundation W6 (migração runtime segue faseada).
+
+## Test Plan
+
+```bash
+make docs-check-full
+```
+
+## Acceptance
+
+- Required RFC sections are present and validated by `make docs-check-full`.
