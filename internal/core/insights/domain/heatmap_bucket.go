@@ -39,6 +39,32 @@ type HeatmapArtifactV1 struct {
 }
 
 func (a HeatmapArtifactV1) Validate() *problem.Problem {
+	if p := validateHeatmapArtifactMetadata(a); p != nil {
+		return p
+	}
+	type key struct {
+		low  float64
+		high float64
+		size string
+	}
+	seen := make(map[key]struct{}, len(a.Cells))
+	for _, c := range a.Cells {
+		if p := validateHeatmapCell(c); p != nil {
+			return p
+		}
+		k := key{low: c.PriceBucketLow, high: c.PriceBucketHigh, size: strings.ToUpper(strings.TrimSpace(c.SizeBucket))}
+		if _, ok := seen[k]; ok {
+			return problem.New(problem.ValidationFailed, "heatmap cells must be unique by price bucket + size bucket")
+		}
+		seen[k] = struct{}{}
+	}
+	if !slices.IsSortedFunc(a.Cells, compareCellOrder) {
+		return problem.New(problem.ValidationFailed, "heatmap cells must be sorted by price bucket then size bucket")
+	}
+	return nil
+}
+
+func validateHeatmapArtifactMetadata(a HeatmapArtifactV1) *problem.Problem {
 	if strings.TrimSpace(a.Venue) == "" {
 		return problem.New(problem.ValidationFailed, "heatmap venue must not be empty")
 	}
@@ -54,39 +80,27 @@ func (a HeatmapArtifactV1) Validate() *problem.Problem {
 	if len(a.Cells) == 0 {
 		return problem.New(problem.ValidationFailed, "heatmap artifact requires at least one cell")
 	}
-	type key struct {
-		low  float64
-		high float64
-		size string
+	return nil
+}
+
+func validateHeatmapCell(c HeatmapCellV1) *problem.Problem {
+	if strings.TrimSpace(c.SizeBucket) == "" {
+		return problem.New(problem.ValidationFailed, "heatmap size_bucket must not be empty")
 	}
-	seen := make(map[key]struct{}, len(a.Cells))
-	for _, c := range a.Cells {
-		if strings.TrimSpace(c.SizeBucket) == "" {
-			return problem.New(problem.ValidationFailed, "heatmap size_bucket must not be empty")
-		}
-		if !isFinite(c.PriceBucketLow) || !isFinite(c.PriceBucketHigh) {
-			return problem.New(problem.ValidationFailed, "heatmap price buckets must be finite")
-		}
-		if c.PriceBucketHigh < c.PriceBucketLow {
-			return problem.New(problem.ValidationFailed, "heatmap price_bucket_high must be >= price_bucket_low")
-		}
-		if c.BidLiquidity < 0 || c.AskLiquidity < 0 || c.TradeVolume < 0 {
-			return problem.New(problem.ValidationFailed, "heatmap cell volumes must be >= 0")
-		}
-		if c.SeqMin <= 0 || c.SeqMax < c.SeqMin {
-			return problem.New(problem.ValidationFailed, "heatmap seq bounds are invalid")
-		}
-		if c.Samples <= 0 {
-			return problem.New(problem.ValidationFailed, "heatmap samples must be > 0")
-		}
-		k := key{low: c.PriceBucketLow, high: c.PriceBucketHigh, size: strings.ToUpper(strings.TrimSpace(c.SizeBucket))}
-		if _, ok := seen[k]; ok {
-			return problem.New(problem.ValidationFailed, "heatmap cells must be unique by price bucket + size bucket")
-		}
-		seen[k] = struct{}{}
+	if !isFinite(c.PriceBucketLow) || !isFinite(c.PriceBucketHigh) {
+		return problem.New(problem.ValidationFailed, "heatmap price buckets must be finite")
 	}
-	if !slices.IsSortedFunc(a.Cells, compareCellOrder) {
-		return problem.New(problem.ValidationFailed, "heatmap cells must be sorted by price bucket then size bucket")
+	if c.PriceBucketHigh < c.PriceBucketLow {
+		return problem.New(problem.ValidationFailed, "heatmap price_bucket_high must be >= price_bucket_low")
+	}
+	if c.BidLiquidity < 0 || c.AskLiquidity < 0 || c.TradeVolume < 0 {
+		return problem.New(problem.ValidationFailed, "heatmap cell volumes must be >= 0")
+	}
+	if c.SeqMin <= 0 || c.SeqMax < c.SeqMin {
+		return problem.New(problem.ValidationFailed, "heatmap seq bounds are invalid")
+	}
+	if c.Samples <= 0 {
+		return problem.New(problem.ValidationFailed, "heatmap samples must be > 0")
 	}
 	return nil
 }
