@@ -8,6 +8,7 @@ PRE_COMMIT ?= pre-commit
 GOLANGCI_LINT_VERSION ?= v2.6.0
 GOVULNCHECK_VERSION ?= latest
 PROTOC_GEN_GO_VERSION ?= v1.36.11
+BUF_VERSION ?= v1.57.2
 
 APP_NAME ?= server
 APP_CMD ?= ./cmd/server
@@ -30,6 +31,9 @@ VULN_REQUIRED ?= false
 MODULE ?=
 MSG_FILE ?=
 MSG ?= build(local): commit message check sample
+PROTOBUF_BIN_DIR ?= $(CURDIR)/bin
+BUF ?= $(PROTOBUF_BIN_DIR)/buf
+PROTOC_GEN_GO ?= $(PROTOBUF_BIN_DIR)/protoc-gen-go
 
 GOCACHE ?= $(CURDIR)/.cache/go-build
 GOMODCACHE ?= $(CURDIR)/.cache/go-mod
@@ -40,7 +44,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules tidy tidy-check fmt fmt-check vet quick docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-replay-golden test-replay-golden-if-needed test-soak soak-check test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install commit-msg-check proto-lint proto-gen proto-breaking proto ci
+.PHONY: help install-tools tools modules tidy tidy-check fmt fmt-check vet quick docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-replay-golden test-replay-golden-if-needed test-soak soak-check test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install commit-msg-check proto-tools proto-lint proto-gen proto-breaking proto-check proto ci
 
 help:
 	@echo "Targets:"
@@ -83,9 +87,11 @@ help:
 	@echo "  make logs               - stream compose logs"
 	@echo "  make pre-commit-install - install pre-commit hooks"
 	@echo "  make commit-msg-check   - validate Conventional Commit message (MSG_FILE or MSG)"
+	@echo "  make proto-tools        - install/verify local proto tools in ./bin"
 	@echo "  make proto-lint         - run buf lint on proto contracts"
 	@echo "  make proto-gen          - generate Go code from proto contracts"
 	@echo "  make proto-breaking     - check proto breaking changes against main"
+	@echo "  make proto-check        - lint + breaking + gen and fail if proto outputs are dirty"
 	@echo "  make proto              - run proto-lint + proto-gen"
 	@echo "  make ci                 - tidy-check + fmt-check + lint + test + vuln + build"
 	@echo ""
@@ -326,19 +332,36 @@ commit-msg-check:
 		./scripts/validate-commit-msg.sh "$$tmp"; \
 	fi
 
-proto-lint:
-	buf lint proto
+proto-tools:
+	@mkdir -p "$(PROTOBUF_BIN_DIR)"
+	@set -euo pipefail; \
+	if [ ! -x "$(BUF)" ]; then \
+		GOWORK=off GOBIN="$(PROTOBUF_BIN_DIR)" $(GO) install github.com/bufbuild/buf/cmd/buf@$(BUF_VERSION); \
+	fi; \
+	if [ ! -x "$(PROTOC_GEN_GO)" ]; then \
+		GOWORK=off GOBIN="$(PROTOBUF_BIN_DIR)" $(GO) install google.golang.org/protobuf/cmd/protoc-gen-go@$(PROTOC_GEN_GO_VERSION); \
+	fi
 
-proto-gen:
-	@test -x ./bin/protoc-gen-go || (echo "Missing ./bin/protoc-gen-go. Run 'make tools' first."; exit 1)
-	cd proto && buf generate
+proto-lint: proto-tools
+	@"$(BUF)" lint proto
 
-proto-breaking:
+proto-gen: proto-tools
+	@cd proto && PATH="$(PROTOBUF_BIN_DIR):$$PATH" "$(BUF)" generate
+
+proto-breaking: proto-tools
 	@set -euo pipefail; \
 	if git ls-tree -r --name-only main -- proto | grep -qE '\.proto$$'; then \
-		buf breaking proto --against '.git#branch=main'; \
+		"$(BUF)" breaking proto --against '.git#branch=main'; \
 	else \
 		echo "Skipping proto-breaking: main has no proto baseline yet."; \
+	fi
+
+proto-check: proto-lint proto-breaking proto-gen
+	@set -euo pipefail; \
+	if ! git diff --quiet -- internal/shared/proto/gen; then \
+		echo "proto-check failed: generated protobuf artifacts are dirty."; \
+		git --no-pager diff --name-only -- internal/shared/proto/gen; \
+		exit 1; \
 	fi
 
 proto: proto-lint proto-gen
