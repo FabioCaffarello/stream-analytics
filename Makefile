@@ -31,7 +31,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules tidy tidy-check fmt fmt-check docs-check docs-fix check-doc-headers check-doc-links check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race soak-check test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install proto-lint proto-gen proto-breaking proto ci
+.PHONY: help install-tools tools modules tidy tidy-check fmt fmt-check vet quick docs-check docs-fix check-doc-headers check-doc-links check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race soak-check test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install proto-lint proto-gen proto-breaking proto ci
 
 help:
 	@echo "Targets:"
@@ -42,6 +42,8 @@ help:
 	@echo "  make tidy-check         - fail if go.mod/go.sum are not tidy"
 	@echo "  make fmt                - format all Go files (gofmt)"
 	@echo "  make fmt-check          - check formatting (gofmt -l)"
+	@echo "  make vet                - run go vet in workspace modules"
+	@echo "  make quick              - fast local loop (fmt-check + vet + invariants-check + short tests)"
 	@echo "  make docs-check         - fast docs guardrails (headers, links, truth-map consistency)"
 	@echo "  make docs-fix           - print docs fix checklist based on current guardrail findings"
 	@echo "  make invariants-check   - enforce domain isolation and runtime invariants checks"
@@ -121,6 +123,15 @@ fmt:
 
 fmt-check:
 	@./scripts/gofmt-all.sh check
+
+vet:
+	$(call RUN_IN_MODULES,bash -lc 'pkgs="$$( $(GO) list ./... 2>/dev/null || true )"; if [ -n "$$pkgs" ]; then $(GO) vet $$pkgs; else echo "no packages to vet (skipping)"; fi')
+
+quick:
+	@$(MAKE) fmt-check
+	@$(MAKE) vet
+	@$(MAKE) invariants-check
+	@$(MAKE) test-short
 
 docs-check:
 	@$(MAKE) check-doc-headers
