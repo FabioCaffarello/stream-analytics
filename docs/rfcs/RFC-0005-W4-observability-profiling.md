@@ -1,6 +1,6 @@
 # RFC-0005 — W4: Observability & Profiling
 
-**Status:** Done
+**Status:** Accepted
 **Date:** 2026-02-12
 **Author:** Chief Architect
 **Workflow:** W4 of PRD-0001
@@ -148,3 +148,9 @@ pprof endpoints:
 - Endpoint integration tests: `/metrics` and `/debug/pprof/*` validated in `internal/interfaces/http/server_test.go`.
 - Full module matrix green (`go test` and `go test -race`) except `cmd/store` expected `no packages to test` (recorded in `.context/evidence/w4-full-test.txt` and `.context/evidence/w4-full-race.txt`).
 - Metrics wired with cardinality guards and bounded labels in `internal/shared/metrics/metrics.go`; drop counters emitted from backpressure queue and in-memory bus.
+
+## Changelog
+
+- 2026-02-13:
+  - normalizado status para taxonomia RFC (`Draft|Accepted`);
+  - preservadas evidências operacionais da rodada W4.

@@ -1,6 +1,6 @@
 # RFC-0007 — W6: Protobuf Contract Layer (W6-1 Foundation)
 
-**Status:** Implemented (W6-1)
+**Status:** Accepted
 **Date:** 2026-02-12
 **Author:** Chief Architect
 **Workflow:** W6 of PRD-0001
@@ -236,3 +236,9 @@ make test-workspace-race
 - No dual-write was introduced.
 - No actor topology, routing, bus semantics, or delivery protocol changes were introduced.
 - No protobuf imports were added to `internal/core/*`, `internal/actors/*`, or `internal/interfaces/*`.
+
+## Changelog
+
+- 2026-02-13:
+  - normalizado status para taxonomia RFC (`Draft|Accepted`);
+  - mantido escopo de aceitação como foundation W6 (migração runtime segue faseada).

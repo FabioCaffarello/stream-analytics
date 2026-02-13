@@ -1,6 +1,6 @@
 # RFC-0002 — W1: Config & Shutdown & Runtime Hardening
 
-**Status**: Accepted — Pronto para Implementação
+**Status:** Accepted
 **Date**: 2026-02-11
 **Author**: Chief Architect
 **Workflow**: W1 do RFC-0001
@@ -482,3 +482,9 @@ Ao completar W1:
 1. Atualizar `MEMORY.md` com padrão de config loading
 2. Criar RFC-0003 para W2 (Delivery BC)
 3. Marcar W1 como concluído no RFC-0001
+
+## Changelog
+
+- 2026-02-13:
+  - normalizado status para taxonomia RFC (`Draft|Accepted`);
+  - mantida rastreabilidade histórica do conteúdo original.

@@ -1,6 +1,6 @@
 # RFC-0006 — W5: Memory Leak Mitigation & Lifecycle Hardening
 
-**Status:** Done
+**Status:** Accepted
 **Date:** 2026-02-12
 **Author:** Chief Architect
 **Workflow:** W5 of PRD-0001
@@ -259,3 +259,9 @@ No migration needed. All changes are backward compatible:
 - Soak harness executed (`scripts/soak-test.sh`) with goroutine/heap leak checks and bounded-map stress pass (`.context/evidence/w5-soak.txt`).
 - Full module matrix green (`go test` and `go test -race`) except `cmd/store` expected `no packages to test` (recorded in `.context/evidence/w5-full-test.txt` and `.context/evidence/w5-full-race.txt`).
 - Runtime hardening delivered in `internal/actors/marketdata/ws/consumer.go`, bounded state maps in core use-cases, and bounded order book depth in domain aggregate.
+
+## Changelog
+
+- 2026-02-13:
+  - normalizado status para taxonomia RFC (`Draft|Accepted`);
+  - mantidas evidências de hardening da rodada W5.

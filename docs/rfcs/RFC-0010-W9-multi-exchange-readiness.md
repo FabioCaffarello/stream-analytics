@@ -27,7 +27,7 @@ Validar readiness multi-exchange no mesmo processo, preservando isolamento de do
 
 - Cobertura completa de API Bybit.
 - Estratégias de arbitragem cross-venue.
-- Gate dedicado `audit-core-purity` no Makefile (ainda pendente).
+- Criar target separado no Makefile para pureza de core (guard já está no `invariants-check`).
 
 ## Design
 
@@ -50,7 +50,7 @@ Validar readiness multi-exchange no mesmo processo, preservando isolamento de do
 | W9-1: bybit adapter + wiring multi-exchange | Implemented | `cmd/consumer/e2e_consumer_integration_test.go:24` |
 | W9-2: gate E2E consumer multi-exchange | Implemented | `cmd/consumer/e2e_consumer_integration_test.go:24` |
 | W9-3: validações de subject para features | Implemented | `internal/shared/config/loader_test.go:610` |
-| MEX-4 audit dedicated make target | Planned | `docs/audits/DRIFT-REPORT-W11.md` |
+| MEX-4 core purity guard em invariants-check | Implemented | `scripts/check-domain-isolation.sh` |
 
 ## Test Plan
 
@@ -80,7 +80,7 @@ Validações mínimas:
 | Risk | Impact | Mitigation |
 |---|---|---|
 | Drift documental sobre "SubsystemKey" dinâmico | Medio | alinhar texto ao tipo real `Subsystem string` + chaves configuradas |
-| Ausência de gate MEX-4 dedicado | Medio | manter como item planned com tracking explícito |
+| Falso positivo no guard MEX-4 | Medio | manter regex focada em literais/constantes e revisar quando surgir novo adapter |
 | Divergência entre canonical display e canonical key interna | Alto | referenciar ADR-0017 e testes de naming/instrument identity |
 
 ## Implementation Matrix
@@ -92,7 +92,7 @@ Validações mínimas:
 | Guardian expected subsystem readiness | Implemented | `internal/actors/runtime/guardian.go:28`, `internal/actors/runtime/guardian_test.go:99` |
 | Consumer E2E multi-exchange | Implemented | `cmd/consumer/e2e_consumer_integration_test.go:24` |
 | Feature-subject fail-fast validation | Implemented | `internal/shared/config/loader_test.go:610` |
-| Dedicated `audit-core-purity` make target | Planned | `Makefile` (target inexistente), `docs/audits/DRIFT-REPORT-W11.md` |
+| MEX-4 core purity guard (`internal/core` sem literais exchange-specific) | Implemented | `scripts/check-domain-isolation.sh` |
 
 ## Evidence
 
@@ -114,3 +114,4 @@ Validações mínimas:
 - Normalização para contrato RFC doc-first.
 - Marcador explícito de implementação parcial.
 - Remoção de expectativa implícita de target inexistente (`audit-core-purity`) como se já estivesse entregue.
+- Guard MEX-4 integrado ao `invariants-check` via `scripts/check-domain-isolation.sh`.

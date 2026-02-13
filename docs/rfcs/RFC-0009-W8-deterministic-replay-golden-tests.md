@@ -1,6 +1,6 @@
 # RFC-0009 — W8: Deterministic Replay & Golden Tests
 
-**Status:** Done
+**Status:** Accepted
 **Date:** 2026-02-12
 **Author:** Chief Architect
 **Workflow:** W8 of PRD-0001
@@ -361,6 +361,12 @@ Observed results:
 723a3341d107f8f1b0b14cc972f8051d0321ce5ff09f2d4bab22f3d60c0fb220  internal/shared/replay/testdata/fixtures/input-mini.jsonl
 723a3341d107f8f1b0b14cc972f8051d0321ce5ff09f2d4bab22f3d60c0fb220  internal/shared/replay/testdata/golden/output-mini.jsonl
 ```
+
+## Changelog
+
+- 2026-02-13:
+  - normalizado status para taxonomia RFC (`Draft|Accepted`);
+  - mantidas evidências determinísticas e hashes baseline.
 
 ### Commit trace (W8-1)
 

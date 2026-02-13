@@ -1,6 +1,6 @@
 # RFC-0003 — W2 Delivery BC (Router + Session, InMemory)
 
-**Status**: Implemented (W2)
+**Status:** Accepted
 **Date**: 2026-02-12
 **Relates to**: ADR-0007, RFC-0001, RFC-0002
 
@@ -141,3 +141,9 @@ W3 substitui somente a origem dos envelopes no router:
   - `internal/actors`
   - `internal/interfaces`
   - `cmd/server`
+
+## Changelog
+
+- 2026-02-13:
+  - normalizado status para taxonomia RFC (`Draft|Accepted`);
+  - mantido escopo histórico da entrega W2.
