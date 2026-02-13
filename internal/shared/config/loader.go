@@ -221,6 +221,8 @@ func validateHTTP(h HTTPConfig) *problem.Problem {
 	if strings.TrimSpace(h.Addr) == "" {
 		return problem.New(codeInvalid, "http.addr must not be empty")
 	}
+	var publisherFlushTimeout time.Duration
+	var guardianShutdownTimeout time.Duration
 	for _, field := range []struct {
 		name  string
 		value string
@@ -232,9 +234,24 @@ func validateHTTP(h HTTPConfig) *problem.Problem {
 		{"http.publisher_flush_timeout", h.PublisherFlushTimeout},
 		{"http.guardian_shutdown_timeout", h.GuardianShutdownTimeout},
 	} {
-		if _, err := time.ParseDuration(field.value); err != nil {
+		d, err := time.ParseDuration(field.value)
+		if err != nil {
 			return problem.Newf(codeInvalid, "%s: invalid duration %q: %v", field.name, field.value, err)
 		}
+		switch field.name {
+		case "http.publisher_flush_timeout":
+			publisherFlushTimeout = d
+		case "http.guardian_shutdown_timeout":
+			guardianShutdownTimeout = d
+		}
+	}
+	if publisherFlushTimeout >= guardianShutdownTimeout {
+		return problem.Newf(
+			codeInvalid,
+			"http.publisher_flush_timeout (%s) must be less than http.guardian_shutdown_timeout (%s)",
+			publisherFlushTimeout,
+			guardianShutdownTimeout,
+		)
 	}
 	return nil
 }

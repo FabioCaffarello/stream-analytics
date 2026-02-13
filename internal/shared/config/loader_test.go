@@ -281,6 +281,52 @@ func TestValidate_InvalidDuration(t *testing.T) {
 	}
 }
 
+func TestValidate_FlushTimeoutLessThanGuardianTimeout(t *testing.T) {
+	t.Run("invalid when flush is greater", func(t *testing.T) {
+		cfg, _ := Load("")
+		cfg.HTTP.PublisherFlushTimeout = "10s"
+		cfg.HTTP.GuardianShutdownTimeout = "3s"
+
+		prob := cfg.Validate()
+		if prob == nil {
+			t.Fatal("expected validation error when publisher_flush_timeout > guardian_shutdown_timeout")
+		}
+		if prob.Code != codeInvalid {
+			t.Fatalf("problem code = %q, want %q", prob.Code, codeInvalid)
+		}
+		if !strings.Contains(prob.Message, "http.publisher_flush_timeout (10s)") {
+			t.Fatalf("expected publisher_flush_timeout in message, got %q", prob.Message)
+		}
+		if !strings.Contains(prob.Message, "http.guardian_shutdown_timeout (3s)") {
+			t.Fatalf("expected guardian_shutdown_timeout in message, got %q", prob.Message)
+		}
+	})
+
+	t.Run("invalid when flush equals guardian", func(t *testing.T) {
+		cfg, _ := Load("")
+		cfg.HTTP.PublisherFlushTimeout = "3s"
+		cfg.HTTP.GuardianShutdownTimeout = "3s"
+
+		prob := cfg.Validate()
+		if prob == nil {
+			t.Fatal("expected validation error when publisher_flush_timeout == guardian_shutdown_timeout")
+		}
+		if prob.Code != codeInvalid {
+			t.Fatalf("problem code = %q, want %q", prob.Code, codeInvalid)
+		}
+	})
+
+	t.Run("valid when flush is less", func(t *testing.T) {
+		cfg, _ := Load("")
+		cfg.HTTP.PublisherFlushTimeout = "3s"
+		cfg.HTTP.GuardianShutdownTimeout = "10s"
+
+		if prob := cfg.Validate(); prob != nil {
+			t.Fatalf("expected config to be valid when publisher_flush_timeout < guardian_shutdown_timeout, got %v", prob)
+		}
+	})
+}
+
 func TestValidate_ConsumerExchangeUnknownType(t *testing.T) {
 	cfg, _ := Load("")
 	cfg.Consumer.Exchanges = nil
