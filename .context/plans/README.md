@@ -3,8 +3,9 @@
 This directory contains plans for coordinating work across documentation and playbooks.
 
 ## Plan Queue
-1. [Retomada Market Parity Commit Chain](./retomada-market-parity-commit-chain.md)
-2. [Subject Taxonomy Stabilization](./subject-taxonomy-stabilization.md)
+1. [Build Accel W0](./build-accel-w0.md)
+2. [Retomada Market Parity Commit Chain](./retomada-market-parity-commit-chain.md)
+3. [Subject Taxonomy Stabilization](./subject-taxonomy-stabilization.md)
 
 ## How To Create Or Update Plans
 - Run "ai-context plan <name>" to scaffold a new plan template.
