@@ -27,3 +27,12 @@ We keep Kafka/Redpanda as a future adapter; no Kafka-specific assumptions in cor
 
 - Kafka first (rejected initially: higher ops cost and complexity for MVP).
 - In-memory pubsub only (rejected: no durability/replay).
+
+## Evidence
+
+- Validation gate: `make docs-check-full`
+- Authority path: file-local ADR source.
+
+## Changelog
+
+- 2026-02-13: added required header sections for docs compliance.
