@@ -156,7 +156,7 @@ quick:
 	@$(MAKE) fmt-check
 	@$(MAKE) vet
 	@$(MAKE) invariants-check
-	@$(MAKE) test-short
+	@$(MAKE) test-unit
 
 ci-local:
 	@$(MAKE) quick
