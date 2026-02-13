@@ -104,4 +104,33 @@ if [ "${#replay_nats_violations[@]}" -gt 0 ]; then
   exit 1
 fi
 
-echo "invariants-check: determinism and replay-offline guards passed"
+exchange_specific_core_violations=()
+scan_exchange_specific_core_with_rg() {
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    exchange_specific_core_violations+=("$line")
+  done < <(rg -n --no-heading --glob '*.go' --glob '!**/*_test.go' --regexp '"(binance|bybit|okx)"|exchange\.(Binance|Bybit|OKX)' internal/core || true)
+}
+
+scan_exchange_specific_core_with_grep() {
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    exchange_specific_core_violations+=("$line")
+  done < <(grep -R -n -E --include='*.go' --exclude='*_test.go' '"(binance|bybit|okx)"|exchange\.(Binance|Bybit|OKX)' internal/core || true)
+}
+
+if [ -d "internal/core" ]; then
+  if command -v rg >/dev/null 2>&1; then
+    scan_exchange_specific_core_with_rg
+  else
+    scan_exchange_specific_core_with_grep
+  fi
+fi
+
+if [ "${#exchange_specific_core_violations[@]}" -gt 0 ]; then
+  echo "multi-exchange purity invariant violation: internal/core must not embed exchange-specific literals/constants"
+  printf '%s\n' "${exchange_specific_core_violations[@]}"
+  exit 1
+fi
+
+echo "invariants-check: determinism, replay-offline, and core exchange-purity guards passed"
