@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	sharedhash "github.com/market-raccoon/internal/shared/hash"
@@ -167,5 +168,93 @@ func TestBuildVolumeProfile_EmitsSnapshotAndDelta(t *testing.T) {
 	}
 	if len(out.Delta.Buckets) != 1 {
 		t.Fatalf("expected delta with one bucket, got %d", len(out.Delta.Buckets))
+	}
+}
+
+func TestBuildVolumeProfile_Deterministic50Runs(t *testing.T) {
+	sequence := []BuildVolumeProfileRequest{
+		{EventType: "marketdata.trade", Venue: "binance", Instrument: "BTC-USDT", Timeframe: "1m", TickSize: 0.5, Price: 100.2, Size: 1.5, Side: "buy", TsIngest: 1710000000000, Seq: 1},
+		{EventType: "marketdata.trade", Venue: "binance", Instrument: "BTCUSDT", Timeframe: "1m", TickSize: 0.5, Price: 100.7, Size: 2.0, Side: "sell", TsIngest: 1710000001000, Seq: 2},
+		{EventType: "marketdata.trade", Venue: "binance", Instrument: "BTCUSDT", Timeframe: "1m", TickSize: 0.5, Price: 101.3, Size: 0.9, Side: "buy", TsIngest: 1710000002000, Seq: 3},
+		{EventType: "marketdata.trade", Venue: "binance", Instrument: "BTCUSDT", Timeframe: "1m", TickSize: 0.5, Price: 100.1, Size: 1.2, Side: "sell", TsIngest: 1710000003000, Seq: 4},
+	}
+
+	var baselineHash string
+	var baselineKey string
+	for run := 0; run < 50; run++ {
+		uc := NewBuildVolumeProfile()
+		var out BuildVolumeProfileResponse
+		for _, req := range sequence {
+			res := uc.Execute(context.Background(), req)
+			if res.IsFail() {
+				t.Fatalf("run=%d execute failed: %v", run, res.Problem())
+			}
+			out = res.Value()
+		}
+		raw, err := MarshalVPVRSnapshotStableBytes(out.Snapshot)
+		if err != nil {
+			t.Fatalf("run=%d marshal snapshot: %v", run, err)
+		}
+		hash := sharedhash.HashBytes(raw)
+		if run == 0 {
+			baselineHash = hash
+			baselineKey = out.IdempotencyKey
+			continue
+		}
+		if hash != baselineHash {
+			t.Fatalf("run=%d snapshot hash mismatch: got=%s want=%s", run, hash, baselineHash)
+		}
+		if out.IdempotencyKey != baselineKey {
+			t.Fatalf("run=%d idempotency key mismatch: got=%s want=%s", run, out.IdempotencyKey, baselineKey)
+		}
+	}
+}
+
+func TestBuildVolumeProfile_WindowEviction_FIFODeterministic(t *testing.T) {
+	cfg := BuildVolumeProfileConfig{
+		MaxBucketsPerWindow:  64,
+		MaxLevelsPerPayload:  64,
+		MaxOpenWindowsPerKey: 2,
+	}
+	sequence := []BuildVolumeProfileRequest{
+		{EventType: "marketdata.trade", Venue: "binance", Instrument: "BTCUSDT", Timeframe: "1m", TickSize: 1, Price: 100, Size: 1, Side: "buy", TsIngest: 1710000000000, Seq: 1}, // w0
+		{EventType: "marketdata.trade", Venue: "binance", Instrument: "BTCUSDT", Timeframe: "1m", TickSize: 1, Price: 101, Size: 1, Side: "buy", TsIngest: 1710000060000, Seq: 2}, // w1
+		{EventType: "marketdata.trade", Venue: "binance", Instrument: "BTCUSDT", Timeframe: "1m", TickSize: 1, Price: 102, Size: 1, Side: "buy", TsIngest: 1710000120000, Seq: 3}, // w2 (evict w0)
+		{EventType: "marketdata.trade", Venue: "binance", Instrument: "BTCUSDT", Timeframe: "1m", TickSize: 1, Price: 103, Size: 1, Side: "buy", TsIngest: 1710000005000, Seq: 4}, // w0 re-created (evict w1)
+	}
+
+	run := func() (order []int64, finalHash string) {
+		uc := NewBuildVolumeProfileWithConfig(cfg)
+		var out BuildVolumeProfileResponse
+		for _, req := range sequence {
+			res := uc.Execute(context.Background(), req)
+			if res.IsFail() {
+				t.Fatalf("execute failed: %v", res.Problem())
+			}
+			out = res.Value()
+		}
+		key := "BINANCE|BTCUSDT|1m"
+		ps, ok := uc.states[key]
+		if !ok {
+			t.Fatalf("partition state missing for %s", key)
+		}
+		order = append([]int64(nil), ps.order...)
+		if got, want := len(order), 2; got != want {
+			t.Fatalf("open windows=%d want=%d", got, want)
+		}
+		raw, err := MarshalVPVRSnapshotStableBytes(out.Snapshot)
+		if err != nil {
+			t.Fatalf("marshal final snapshot: %v", err)
+		}
+		return order, sharedhash.HashBytes(raw)
+	}
+
+	order1, hash1 := run()
+	order2, hash2 := run()
+	if !slices.Equal(order1, order2) {
+		t.Fatalf("window order mismatch: run1=%v run2=%v", order1, order2)
+	}
+	if hash1 != hash2 {
+		t.Fatalf("final hash mismatch: run1=%s run2=%s", hash1, hash2)
 	}
 }
