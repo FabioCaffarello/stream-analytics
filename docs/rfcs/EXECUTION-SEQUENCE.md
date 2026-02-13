@@ -51,7 +51,7 @@ W5 (Lifecycle)      ────────────────────
 - [x] `curl localhost:8080/debug/pprof/goroutine?debug=1` returns goroutine dump (`file:test internal/interfaces/http/server_test.go:TestServer_Pprof_EnabledLocalhostAllowed`)
 - [x] All metrics from PRD-0001 B.5 registered and emitting (`file:test internal/shared/metrics/metrics_test.go:TestMetricsNamesPresent`)
 - [x] `make test-workspace-race` green gate is wired (`file:symbol Makefile:test-workspace-race`)
-- [ ] No perf regression > 5% (benchmark before/after ingest) — pending benchmark artifact
+- [ ] No perf regression > 5% (benchmark before/after ingest) — Deferred: existem benchmarks de ingest/aggregation (`internal/core/marketdata/app/ingest_bench_test.go`, `internal/core/aggregation/domain/orderbook_bench_test.go`), mas não há artefato versionado com comparação before/after <= 5%. Plan: executar `go test -run '^$' -bench BenchmarkIngest_1000Envelopes -benchmem ./internal/core/marketdata/app` e `go test -run '^$' -bench BenchmarkApplyDelta_1000Levels -benchmem ./internal/core/aggregation/domain`, publicar relatório comparativo em `.context/evidence/`.
 
 **pprof Expectations (baseline capture):**
 - Record goroutine count at t=0 and t=30min with 2 tickers
@@ -82,7 +82,7 @@ W5 (Lifecycle)      ────────────────────
 - [x] OrderBook with MaxLevels=100: never exceeds 100 per side (`file:test internal/core/aggregation/domain/orderbook_test.go:TestOrderBook_maxLevelsBoundedPerSide`)
 - [x] Consumer 100-cycle leak test: 0 goroutine leaks (`file:test internal/actors/marketdata/ws/consumer_test.go:TestConsumer_ConnectDisconnectCycle_NoGoroutineLeak`)
 - [x] Guardian rate limiter: 6th restart denied within window (`file:test internal/actors/runtime/guardian_test.go:TestGuardian_GlobalRestartRateLimit_DefersSixthRestart`)
-- [ ] Soak test (30min, 200 tickers): goroutine delta <= 5, heap growth < 10% — pending long-run execution evidence
+- [ ] Soak test (30min, 200 tickers): goroutine delta <= 5, heap growth < 10% — Deferred: há harness e evidência curta (`file:symbol scripts/soak-test.sh`, `.context/evidence/w5-soak.txt`), mas não há execução comprovada de 30min com 200 tickers e critérios do checkpoint. Plan: rodar soak de 30min/200 tickers e anexar evidência com delta de goroutines e crescimento de heap em `.context/evidence/`.
 - [x] `make test-workspace-race` green gate is wired (`file:symbol Makefile:test-workspace-race`)
 
 **pprof Validation (compare vs W4 baseline):**
@@ -111,7 +111,7 @@ W5 (Lifecycle)      ────────────────────
 
 **Checkpoint W6:**
 - [x] `buf lint` passes with 0 errors (`file:symbol Makefile:proto-lint`)
-- [ ] `buf breaking` FAILS when a field is intentionally removed (negative test) — pending explicit negative-test artifact
+- [ ] `buf breaking` FAILS when a field is intentionally removed (negative test) — Deferred: gate existe (`file:symbol Makefile:proto-breaking`), porém não há artefato de teste negativo intencional versionado demonstrando falha. Plan: executar cenário controlado removendo campo `.proto` em branch temporária e anexar saída de falha do `make proto-breaking`.
 - [x] Generated Go code compiles (`file:symbol internal/shared/proto/gen/marketdata/v1/trade.pb.go`)
 - [x] Proto roundtrip: marshal → unmarshal → compare == identical (`file:test internal/shared/codec/payload_codec_test.go:TestEncodeDecodePayload_Trade_JSONAndProtoSemanticEquivalence`)
 - [x] `registry.json` lists all schemas with correct paths (`file:test internal/shared/contracts/authority_test.go:TestContractAuthority_SchemaIdentityMatchesRegistry`)
@@ -199,8 +199,8 @@ W5 (Lifecycle)      ────────────────────
 - [x] Two subsystems run in same process without interference (`file:test cmd/consumer/e2e_consumer_integration_test.go:TestE2EConsumerMultiExchange`)
 - [x] Poison one: other continues running (`file:test internal/actors/runtime/guardian_test.go:TestGuardian_StartOrder_DynamicMarketDataKeys`)
 - [x] `naming.CanonicalInstrument` same result across exchanges (`file:test internal/shared/naming/naming_test.go:TestCanonicalInstrument_idempotent`)
-- [ ] 0 exchange-specific references in `internal/core/` — pending dedicated audit artifact in this document
-- [ ] Single-exchange regression: existing tests pass — pending explicit single-exchange e2e artifact
+- [ ] 0 exchange-specific references in `internal/core/` — Deferred: existe audit de invariantes para protobuf/time/replay (`file:symbol scripts/check-domain-isolation.sh`), mas não há check dedicado versionado para termos exchange-specific em `internal/core/`. Plan: adicionar comando/auditoria dedicado e registrar output no RFC.
+- [x] Single-exchange regression: existing tests pass (`file:test cmd/consumer/main_test.go:TestBuildExchangeRuntimes_LegacySingleExchange`)
 - [x] `make test-workspace-race` green gate is wired (`file:symbol Makefile:test-workspace-race`)
 
 ---
