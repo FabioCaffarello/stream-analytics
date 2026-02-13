@@ -98,6 +98,40 @@ func TestVolumeProfileWriter_ReplaySafetyDeterministic(t *testing.T) {
 	}
 }
 
+func TestVolumeProfileWriter_ReplaySameWindow_FinalStateStable(t *testing.T) {
+	a := testVPVRUpsert(1.2, 0.8, 2.0, 10, 12)
+	b := testVPVRUpsert(0.4, 0.6, 1.0, 9, 15)
+
+	run := func(repeat bool) insightsports.VolumeProfileBucketUpsert {
+		w := timescale.NewVolumeProfileWriter()
+		if p := w.UpsertVolumeProfileBucket(context.Background(), a); p != nil {
+			t.Fatalf("upsert A failed: %v", p)
+		}
+		if p := w.UpsertVolumeProfileBucket(context.Background(), b); p != nil {
+			t.Fatalf("upsert B failed: %v", p)
+		}
+		if repeat {
+			if p := w.UpsertVolumeProfileBucket(context.Background(), a); p != nil {
+				t.Fatalf("upsert A repeat failed: %v", p)
+			}
+			if p := w.UpsertVolumeProfileBucket(context.Background(), b); p != nil {
+				t.Fatalf("upsert B repeat failed: %v", p)
+			}
+		}
+		row, ok := w.ReadByKey(a.Venue, a.Instrument, a.Timeframe, a.WindowStartTs, a.BucketLow, a.BucketHigh)
+		if !ok {
+			t.Fatal("expected row to exist")
+		}
+		return row
+	}
+
+	state1 := run(false)
+	state2 := run(true)
+	if state1 != state2 {
+		t.Fatalf("final state mismatch on replay same window: base=%+v replay=%+v", state1, state2)
+	}
+}
+
 func testVPVRUpsert(buy, sell, total float64, seqMin, seqMax int64) insightsports.VolumeProfileBucketUpsert {
 	return insightsports.VolumeProfileBucketUpsert{
 		Venue:         "binance",
