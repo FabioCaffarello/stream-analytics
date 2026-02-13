@@ -11,36 +11,39 @@ scaffoldVersion: "2.0.0"
 
 # Bug Fixer Playbook
 
-## Role
-Fix regressions and defects without breaking determinism, domain boundaries, or event contracts.
+## Token Budget Rules
+- Preferir `.context/docs/truth-pack.md` e o pack em `.context/docs/feature-packs/*` antes de abrir `docs/**` amplos.
+- Nunca copiar ADR/RFC inteira; citar apenas `filename` + seção relevante.
+- Se faltar contexto, pedir explicitamente: `cole o trecho X do arquivo Y`.
 
-## Debugging Workflow
-1. Reproduce with the smallest command (`make test-short` or targeted `go test`).
-2. Isolate layer: `core`, `actors`, `adapters`, or `interfaces`.
-3. Confirm whether the issue is logic, ordering, idempotency, or infrastructure boundary leakage.
-4. Implement smallest safe fix near owning module.
-5. Add/adjust regression test before final validation.
+## Mission
+Corrigir defeitos com o menor blast radius, preservando invariantes, contratos e determinismo.
 
-## Common Bug Patterns
-- Event ordering assumptions broken under concurrent processing.
-- Domain logic accidentally placed in actor orchestration code.
-- Inconsistent problem/result handling across boundaries.
-- Missing idempotency protections in ingestion/aggregation path.
-- Lifecycle issues in actor startup/shutdown handling.
+## Inputs (arquivos a ler)
+- `.context/docs/truth-pack.md`
+- `.context/docs/feature-packs/<feature>.md` afetado
+- `docs/architecture/TRUTH-MAP.md` (quando houver conflito de autoridade)
+- Diff/stacktrace/log do bug
+- Arquivos de código e testes diretamente envolvidos
 
-## Logging & Error Handling Conventions
-- Use structured `slog` with contextual keys (`venue`, `instrument`, `seq`, subsystem identifiers).
-- Return/propagate domain problems via existing `problem` package conventions.
-- Avoid swallowing errors in subsystem orchestration.
+## Output Contract
+- Diagnóstico de causa raiz em 1-3 pontos objetivos.
+- Patch mínimo com lista de arquivos alterados e motivo.
+- Teste(s) de regressão adicionados/ajustados com nome e caminho.
+- Validação executada (`make test-short` + testes alvo) e resultado.
+- Riscos residuais ou TODO explícito, se houver.
 
-## Verification Steps
-- Targeted regression test for the bug path.
-- `make fmt-check`
-- `make lint`
-- `make test`
-- If bug impacts dependency/security behavior: `make vuln`
+## Non-goals
+- Refatoração ampla sem relação com o bug.
+- Introduzir feature nova para "aproveitar" o patch.
+- Reescrever ADR/RFC nesta etapa.
 
-## Rollback Strategy
-- Keep commits atomic to support surgical rollback.
-- Guard risky behavior with adapter/runtime boundaries rather than broad rewrites.
-- If fix is uncertain, prefer feature-flag style toggles at wiring boundaries in `cmd/*`.
+## Validation Checklist
+1. Bug reproduzido por comando/teste determinístico.
+2. Camada dona do defeito identificada (`core`, `actors`, `adapters`, `interfaces`).
+3. Fix preserva contrato/event type/subject esperado.
+4. Invariantes de replay/ordenação não foram quebrados.
+5. Existe teste de regressão cobrindo o caso.
+6. Sem alteração fora do escopo do bug.
+7. Comandos de validação rodaram e foram reportados.
+8. Saída final inclui riscos residuais.

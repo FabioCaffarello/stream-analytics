@@ -11,38 +11,38 @@ scaffoldVersion: "2.0.0"
 
 # Test Writer Playbook
 
-## Role
-Design and implement tests that protect deterministic behavior, contracts, and concurrency safety.
+## Token Budget Rules
+- Começar por `.context/docs/truth-pack.md` e o pack da feature em `.context/docs/feature-packs/*`.
+- Nunca copiar ADR/RFC inteira; citar `filename` + seção do invariante validado.
+- Se faltar contexto, pedir explicitamente: `cole o trecho X do arquivo Y`.
 
-## Framework & Conventions
-- Native Go testing (`go test`) is the canonical framework.
-- Test files follow `*_test.go` colocated with tested packages.
-- Favor table-driven tests for deterministic rule coverage.
-- Keep tests independent and side-effect controlled.
+## Mission
+Criar testes de alto valor que protejam invariantes, contratos e comportamento determinístico.
 
-## Test Organization
-- `internal/shared/*` for primitive/value-object reliability.
-- `internal/core/*` for domain and application behavior.
-- `internal/actors/*` for runtime/subsystem lifecycle semantics.
-- `internal/interfaces/http/*` for request/response behavior.
-- `internal/adapters/*` for adapter-level guarantees.
+## Inputs (arquivos a ler)
+- `.context/docs/truth-pack.md`
+- `.context/docs/feature-packs/<feature>.md`
+- Código-alvo e testes existentes no pacote
+- `docs/architecture/system-invariants.md` quando aplicável
+- ADRs/contratos citados pelo pack
 
-## Mocking Strategy
-- Use minimal hand-rolled fakes for ports.
-- Prefer in-memory deterministic adapters for app-level tests.
-- Avoid over-mocking internals that can be validated via public behavior.
+## Output Contract
+- Novos testes (ou ajuste) com nome claro e objetivo verificável.
+- Mapeamento de cada teste para regra/invariante/contrato coberto.
+- Estratégia de dados/fakes determinísticos documentada no teste.
+- Comandos de execução e resultado resumido.
 
-## Coverage Priorities
-1. Domain invariants and edge cases.
-2. Event ordering/idempotency paths.
-3. Regression tests for fixed bugs.
-4. Actor lifecycle transitions and supervision behavior.
+## Non-goals
+- Criar testes frágeis dependentes de timing externo.
+- Cobertura cosmética sem assertiva de comportamento.
+- Refatorar produção extensivamente ao escrever testes.
 
-## CI Integration
-Before finalizing a change, run:
-```bash
-make test-short
-make test
-make ci VULN_REQUIRED=true
-```
-If full CI command is too slow during iteration, use module-scoped test runs and finish with full pipeline.
+## Validation Checklist
+1. Teste cobre comportamento observável, não detalhes internos acidentais.
+2. Cenários de borda críticos foram incluídos.
+3. Ordem/idempotência/replay foi testada quando aplicável.
+4. Dados de teste são determinísticos e reproduzíveis.
+5. Nomes de teste explicam intenção.
+6. Não há flaky patterns óbvios.
+7. Suite alvo roda com comando documentado.
+8. Resultado final indica lacunas remanescentes.

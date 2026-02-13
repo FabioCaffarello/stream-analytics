@@ -11,36 +11,39 @@ scaffoldVersion: "2.0.0"
 
 # Feature Developer Playbook
 
-## Role
-Deliver new capabilities while preserving deterministic behavior and clean architecture boundaries.
+## Token Budget Rules
+- Começar por `.context/docs/truth-pack.md` e pack em `.context/docs/feature-packs/*` da feature.
+- Nunca copiar ADR/RFC inteira; referenciar `filename` + seção aplicável.
+- Se faltar contexto, pedir explicitamente: `cole o trecho X do arquivo Y`.
 
-## Development Workflow
-1. Identify owning bounded context (`marketdata`, `aggregation`, `delivery`, `insights`).
-2. Add/extend domain model and use case in `internal/core/*`.
-3. Wire orchestration in actors/adapters only after domain contract is clear.
-4. Integrate via `cmd/*` composition layer.
-5. Add tests by layer and validate with `make ci`.
+## Mission
+Entregar feature com comportamento determinístico, contratos estáveis e validação por teste.
 
-## Code Organization Rules
-- Business invariants: `internal/core/*/domain`
-- Use-case orchestration: `internal/core/*/app`
-- Infrastructure details: `internal/adapters/*`
-- Runtime supervision and process control: `internal/actors/*`
-- Process wiring and flags: `cmd/*`
+## Inputs (arquivos a ler)
+- `.context/docs/truth-pack.md`
+- `.context/docs/feature-packs/<feature>.md`
+- Spec/ticket do usuário
+- Arquivos de domínio (`internal/core/*`) e wiring (`internal/actors/*`, `cmd/*`) da feature
+- ADRs/contratos listados no pack
 
-## Integration Points
-- Event bus envelope compatibility and versioning.
-- Actor subsystem registration in guardian factories.
-- Shared primitives in `internal/shared/*` (avoid duplicate utility types).
-- HTTP/runtime visibility where needed (`internal/interfaces/http`).
+## Output Contract
+- Implementação focada no bounded context dono.
+- Testes unitários/integrados para o comportamento novo.
+- Lista de arquivos alterados e racional técnico curto.
+- Evidência de validação executada (comandos + resultado).
+- Atualização documental mínima quando houver mudança de contrato/comando.
 
-## Testing Requirements
-- Unit tests for new domain behavior.
-- Regression tests for changed flows.
-- Actor/runtime tests when lifecycle or message routing changes.
-- `make test` and `make lint` required before review.
+## Non-goals
+- Misturar refatoração ampla com entrega de feature.
+- Quebrar compatibilidade de contrato sem migração explícita.
+- Mover lógica de negócio para camadas de orquestração.
 
-## Documentation Expectations
-- Update `.context/docs/*` for workflow/tooling impacts.
-- Update architecture/ADR docs if decision-level changes are introduced.
-- Document operational flags and runtime behavior for new entrypoint options.
+## Validation Checklist
+1. Requisito da feature está mapeado a um contexto dono.
+2. Regras de negócio vivem em `internal/core/*`.
+3. Contrato/evento/subject permanecem consistentes.
+4. Backpressure/replay invariants avaliados quando aplicável.
+5. Testes cobrem cenário principal e bordas críticas.
+6. Não há mudança acidental fora do escopo.
+7. `make test-short` e testes alvo foram executados.
+8. Saída final descreve riscos residuais.
