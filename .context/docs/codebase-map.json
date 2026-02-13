@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "generated": "2026-02-12T02:18:16.552Z",
+  "generated": "2026-02-13T00:00:00.000Z",
   "stack": {
     "primaryLanguage": "go",
     "languages": [
@@ -31,40 +31,12 @@
         "fileCount": 9
       },
       {
-        "name": "docker-compose.yml",
-        "fileCount": 1
-      },
-      {
-        "name": "Dockerfile",
-        "fileCount": 1
-      },
-      {
         "name": "docs",
         "fileCount": 16
       },
       {
-        "name": "go.work",
-        "fileCount": 1
-      },
-      {
-        "name": "go.work.sum",
-        "fileCount": 1
-      },
-      {
         "name": "internal",
         "fileCount": 65
-      },
-      {
-        "name": "Makefile",
-        "fileCount": 1
-      },
-      {
-        "name": "pkg",
-        "fileCount": 0
-      },
-      {
-        "name": "README.md",
-        "fileCount": 1
       },
       {
         "name": "scripts",
@@ -91,15 +63,22 @@
       {
         "extension": ".sh",
         "count": 4
-      },
-      {
-        "extension": ".work",
-        "count": 1
-      },
-      {
-        "extension": ".yml",
-        "count": 1
       }
+    ]
+  },
+  "contextInterface": {
+    "truthPack": ".context/docs/truth-pack.md",
+    "featurePacks": [
+      ".context/docs/feature-packs/storage.md",
+      ".context/docs/feature-packs/orderbook.md",
+      ".context/docs/feature-packs/heatmap.md",
+      ".context/docs/feature-packs/volume-profiles.md",
+      ".context/docs/feature-packs/liquidations-markprice.md",
+      ".context/docs/feature-packs/delivery-ws.md"
+    ],
+    "gates": [
+      "Makefile:docs-check",
+      "scripts/check-feature-pack-links.sh"
     ]
   },
   "architecture": {
