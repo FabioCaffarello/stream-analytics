@@ -1,0 +1,59 @@
+project:
+  name: "docs-governance-normalization"
+  scale: LARGE
+  started: "2026-02-13T06:30:43.945Z"
+  current_phase: C
+
+phases:
+  P:
+    status: filled
+    started_at: "2026-02-13T06:30:43.945Z"
+    completed_at: "2026-02-13T06:31:27.145Z"
+  R:
+    status: filled
+    started_at: "2026-02-13T06:31:27.146Z"
+    completed_at: "2026-02-13T06:38:06.478Z"
+  E:
+    status: filled
+    started_at: "2026-02-13T06:38:06.479Z"
+    completed_at: "2026-02-13T06:38:11.316Z"
+  V:
+    status: filled
+    started_at: "2026-02-13T06:38:11.317Z"
+    completed_at: "2026-02-13T06:38:13.618Z"
+  C:
+    status: completed
+    started_at: "2026-02-13T06:38:13.619Z"
+    completed_at: "2026-02-13T06:38:18.375Z"
+    outputs:
+      - path: "docs/adrs/ADR-0016-protobuf-contract-layer.md"
+        status: filled
+      - path: "docs/adrs/ADR-0017-multi-exchange-normalization.md"
+        status: filled
+      - path: "docs/adrs/ADR-0018-actor-topology-supervision-model.md"
+        status: filled
+      - path: "docs/rfcs/EXECUTION-SEQUENCE.md"
+        status: filled
+      - path: "docs/rfcs/RFC-0001-robustness-roadmap.md"
+        status: filled
+      - path: "docs/architecture/system-invariants.md"
+        status: filled
+      - path: "docs/architecture/doc-contract-template.md"
+        status: filled
+
+execution:
+  history:
+    - timestamp: "2026-02-13T06:38:18.375Z"
+      phase: C
+      action: completed
+  last_activity: "2026-02-13T06:38:18.375Z"
+  resume_context: "Fase C (Confirmação) concluída"
+
+settings:
+  autonomous_mode: false
+  require_plan: true
+  require_approval: false
+
+approval:
+  plan_created: true
+  plan_approved: false

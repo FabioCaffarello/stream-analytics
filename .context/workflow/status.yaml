@@ -1,36 +1,51 @@
 project:
-  name: "WX-docker-nats-compose"
-  scale: MEDIUM
-  started: "2026-02-12T04:34:06.644Z"
-  current_phase: E
+  name: "docs-governance-normalization-wave2"
+  scale: LARGE
+  started: "2026-02-13T06:43:20.539Z"
+  current_phase: C
 
 phases:
   P:
     status: filled
-    started_at: "2026-02-12T04:34:06.644Z"
-    completed_at: "2026-02-12T04:36:25.088Z"
+    started_at: "2026-02-13T06:43:20.539Z"
+    completed_at: "2026-02-13T06:43:44.787Z"
   R:
     status: filled
-    started_at: "2026-02-12T04:36:25.089Z"
-    completed_at: "2026-02-12T04:36:38.032Z"
+    started_at: "2026-02-13T06:43:44.789Z"
+    completed_at: "2026-02-13T06:47:17.118Z"
   E:
-    status: in_progress
-    started_at: "2026-02-12T04:36:38.033Z"
+    status: filled
+    started_at: "2026-02-13T06:47:17.119Z"
+    completed_at: "2026-02-13T06:47:21.632Z"
   V:
-    status: pending
+    status: filled
+    started_at: "2026-02-13T06:47:21.633Z"
+    completed_at: "2026-02-13T06:47:25.112Z"
   C:
-    status: skipped
-    reason: "Not required for scale MEDIUM"
+    status: completed
+    started_at: "2026-02-13T06:47:25.113Z"
+    completed_at: "2026-02-13T06:47:29.806Z"
+    outputs:
+      - path: "docs/prd/PRD-0001-extreme-runtime.md"
+        status: filled
+      - path: "docs/contracts/event-bus.md"
+        status: filled
+      - path: "docs/rfcs/RFC-0008-W7-nats-jetstream-integration.md"
+        status: filled
+      - path: "docs/rfcs/RFC-0010-W9-multi-exchange-readiness.md"
+        status: filled
+      - path: "docs/architecture/TRUTH-MAP.md"
+        status: filled
+      - path: "docs/audits/DRIFT-REPORT-W11.md"
+        status: filled
 
 execution:
   history:
-    - timestamp: "2026-02-12T05:46:57.698Z"
-      phase: E
-      action: decision_recorded
-      plan: "w3-binance-real-ingestion"
-      description: "Decision recorded: Config durations fail-fast"
-  last_activity: "2026-02-12T05:46:57.698Z"
-  resume_context: "Decisão registrada"
+    - timestamp: "2026-02-13T06:47:29.806Z"
+      phase: C
+      action: completed
+  last_activity: "2026-02-13T06:47:29.806Z"
+  resume_context: "Fase C (Confirmação) concluída"
 
 settings:
   autonomous_mode: false
