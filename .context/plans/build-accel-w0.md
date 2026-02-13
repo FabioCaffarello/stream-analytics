@@ -35,7 +35,7 @@ phases:
 
 # Build Acceleration W0 Plan
 
-> Reduce build/test time, improve determinism, and harden local build/test gates with atomic reversible commits
+> Commit-driven build acceleration with atomic C1..C8 commits, gate checkpoints, and deterministic local/CI loops
 
 ## Task Snapshot
 - **Primary goal:** TODO: Describe the outcome to achieve.

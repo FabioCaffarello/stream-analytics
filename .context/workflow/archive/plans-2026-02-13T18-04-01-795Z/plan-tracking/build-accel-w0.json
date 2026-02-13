@@ -1,0 +1,68 @@
+{
+  "decisions": [
+    {
+      "title": "W0 planning snapshot, file scope, and Definition of Done",
+      "description": "Snapshot baseline (2026-02-13): `make build` ~3.31s; `make test-workspace` warm ~17.78s; uncached race run (`GO_TEST_FLAGS=-race -covermode=atomic -count=1`) ~31.27s; hotspot package `internal/adapters/jetstream` ~10.226s; `go test ./...` at repo root fails for go.work multi-module layout; `invariants-check` passes; `docs-check` fails due legacy header issues (~38). Scope for C1..C8 limited to build/tooling/gates (no runtime/product logic).\nExpected touched files by commit chain: `Makefile`; `scripts/list-modules.sh`; `scripts/for-each-module.sh`; `scripts/validate-commit-msg.sh`; `scripts/check-doc-headers.sh`; `scripts/check-doc-links.sh`; new helper scripts under `scripts/` for replay/proto checks; optional `README.md` for target notes (if needed).\nW0 Definition of Done: `make quick` stable for local loop; `test-unit`/`test-integration`/`test-race`/`test-soak` targets available; go.work-driven module iteration is single source of truth; explicit `commit-msg-check` target exists; `docs-check-fast` and `docs-check-full` split with `docs-check` alias policy; `test-replay-golden` target exists with trigger rule documented in Makefile help/comments; `proto-tools` + `proto-check` incremental and dirty-tree-safe; `ci-local` chain enforces stop-on-fail ordering.",
+      "phase": "P",
+      "status": "accepted",
+      "id": "dec-1771001977852",
+      "decidedAt": "2026-02-13T16:59:37.852Z"
+    },
+    {
+      "title": "Per-commit risk review and mitigations for C1..C8",
+      "description": "C1 risk: quick loop interpreted as final release gate. Mitigation: keep `test-workspace` and `ci-local` as strong/full gates; label quick as local loop only.\nC2 risk: wrong unit/integration classification masks failures. Mitigation: conservative integration pattern matching, keep `test-workspace` unchanged as completeness baseline.\nC3 risk: module discovery drift or non-deterministic ordering. Mitigation: single source of truth from `go.work`, stable sorted output, explicit failure when no modules.\nC4 risk: commit-msg-check diverges from hook behavior. Mitigation: target delegates directly to `scripts/validate-commit-msg.sh` and supports explicit msg file input.\nC5 risk: docs-check-fast diverges from docs-check-full semantics. Mitigation: docs-check remains alias for full; fast target limited to a documented subset only.\nC6 risk: replay trigger misses relevant changes. Mitigation: explicit path rule in Makefile and always-available manual `make test-replay-golden`; flake check with 5 runs.\nC7 risk: proto-check may produce false pass/fail due missing tools or dirty worktree handling. Mitigation: explicit `proto-tools` preflight and clear dirty-tree diff failure in `proto-check`.\nC8 risk: ci-local chain over-constrains developer flow. Mitigation: ordered stop-on-fail chain with explicit target docs, preserving separate strong/full gates and rollback by commit.",
+      "phase": "R",
+      "status": "accepted",
+      "id": "dec-1771001994440",
+      "decidedAt": "2026-02-13T16:59:54.440Z"
+    },
+    {
+      "title": "C1 checkpoint: build(make): add quick local loop",
+      "description": "Commit objective: add reproducible fast local loop target.\nFiles changed: `Makefile`.\nGate before: `make quick` failed (`No rule to make target 'quick'`), real 0.01s.\nGate after: `make quick` passed, real 6.35s (warm), running `fmt-check`, workspace-aware `vet`, `invariants-check`, and `test-short`.\nRisk note: quick is local-only and does not replace strong gate (`make test-workspace`).\nRollback: `git revert <C1-hash>`.",
+      "phase": "E",
+      "status": "accepted",
+      "id": "dec-1771002035161",
+      "decidedAt": "2026-02-13T17:00:35.161Z"
+    },
+    {
+      "title": "C2 checkpoint: build(test): partition unit/integration/race/soak",
+      "description": "Commit objective: add explicit test partitions while preserving full workspace suite.\nFiles changed: `Makefile`.\nGate before: `make test-unit` and `make test-integration` both missing (no rule), each failed in ~0.01s.\nGate after: `make test-unit` passed in 2.38s (warm) and runs `-short` workspace tests; `make test-integration` passed in 3.17s and runs integration-focused regex on `./internal/adapters/jetstream` + `./cmd/consumer`.\nCompatibility: `test-workspace` and `test-workspace-race` remain unchanged as strong suites.\nRollback: `git revert <C2-hash>`.",
+      "phase": "E",
+      "status": "accepted",
+      "id": "dec-1771002113453",
+      "decidedAt": "2026-02-13T17:01:53.453Z"
+    },
+    {
+      "title": "C3 checkpoint: build(workspace): align module discovery with go.work",
+      "description": "Commit objective: make module resolution deterministic and go.work-centric with cleaner iteration behavior.\nFiles changed: `scripts/list-modules.sh`, `scripts/for-each-module.sh`.\nGate before: `make modules` passed in 0.02s; `make test-workspace` passed in 2.59s (warm).\nImplementation detail: `list-modules.sh` now supports jq fallback (awk parser) and stable `sort -u`; `for-each-module.sh` now validates non-empty module list before iterating.\nIssue found and fixed during execution: initial `mapfile` usage failed on macOS bash (`command not found`); replaced with bash3-compatible loop.\nGate after: `make modules` passed in 0.03s; `make test-workspace` passed in 2.49s (warm).\nRollback: `git revert <C3-hash>`.",
+      "phase": "E",
+      "status": "accepted",
+      "id": "dec-1771002186887",
+      "decidedAt": "2026-02-13T17:03:06.887Z"
+    },
+    {
+      "title": "C4 checkpoint: build(gates): add explicit commit-msg-check target",
+      "description": "Commit objective: expose reproducible commit message gate in Makefile without removing git hook enforcement.\nFiles changed: `Makefile`.\nGate before: `make commit-msg-check` missing (no rule), failed in 0.01s.\nGate after: `make commit-msg-check` passed in 0.03s using default sample Conventional Commit; target also supports `MSG_FILE=<path>` for validating real commit messages.\nRisk control: target delegates to existing `scripts/validate-commit-msg.sh` to avoid policy drift.\nRollback: `git revert <C4-hash>`.",
+      "phase": "E",
+      "status": "accepted",
+      "id": "dec-1771002232097",
+      "decidedAt": "2026-02-13T17:03:52.097Z"
+    },
+    {
+      "title": "C5 checkpoint: build(docs): split docs-check-fast/docs-check-full",
+      "description": "Commit objective: split docs gates for local speed while preserving strict full gate.\nFiles changed: `Makefile`.\nGate before: `make docs-check-fast`/`make docs-check-full` missing (no rule).\nGate after: `make docs-check-fast` passed in 4.49s; `make docs-check-full` failed in 0.32s with existing legacy header backlog (38 issues), matching known baseline behavior.\nPolicy: `docs-check` now aliases `docs-check-full`; strict behavior preserved.\nSTOP applied: execution chain halted after this gate failure per hard rule; no C6..C8 execution in this run.\nRollback: `git revert <C5-hash>`.",
+      "phase": "E",
+      "status": "accepted",
+      "id": "dec-1771002293508",
+      "decidedAt": "2026-02-13T17:04:53.508Z"
+    },
+    {
+      "title": "Validation checkpoint after stop at C5",
+      "description": "Chain status: stopped after C5 due strict docs gate failure (`make docs-check-full`), by policy.\nValidation commands:\n- `make ci-local`: not available (no target) because C8 was not executed after stop; failed in 0.01s.\n- `make test-workspace-race`: passed in 2.54s (warm).\nPrimary bottleneck/stop reason in this run: docs strict header backlog (38 issues) surfaced by `docs-check-full`.\nFollow-up required: separate docs-only commit chain (`docs(...)`) to resolve header compliance before resuming C6..C8.",
+      "phase": "V",
+      "status": "accepted",
+      "id": "dec-1771002335463",
+      "decidedAt": "2026-02-13T17:05:35.463Z"
+    }
+  ]
+}

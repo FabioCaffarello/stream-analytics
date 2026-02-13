@@ -1,41 +1,44 @@
 project:
-  name: "build-accel-w0"
-  scale: LARGE
-  started: "2026-02-13T16:40:40.173Z"
-  current_phase: C
+  name: "build-accel-w0-c6-c8"
+  scale: MEDIUM
+  started: "2026-02-13T18:21:04.108Z"
+  current_phase: V
 
 phases:
   P:
     status: filled
-    started_at: "2026-02-13T16:40:40.173Z"
-    completed_at: "2026-02-13T16:43:32.943Z"
+    started_at: "2026-02-13T18:21:04.108Z"
+    completed_at: "2026-02-13T18:21:16.451Z"
   R:
     status: filled
-    started_at: "2026-02-13T16:43:32.944Z"
-    completed_at: "2026-02-13T16:43:56.054Z"
+    started_at: "2026-02-13T18:21:16.452Z"
+    completed_at: "2026-02-13T18:21:24.494Z"
   E:
     status: filled
-    started_at: "2026-02-13T16:43:56.055Z"
-    completed_at: "2026-02-13T16:44:17.316Z"
+    started_at: "2026-02-13T18:21:24.495Z"
+    completed_at: "2026-02-13T18:27:01.444Z"
   V:
-    status: filled
-    started_at: "2026-02-13T16:44:17.317Z"
-    completed_at: "2026-02-13T16:44:28.445Z"
-  C:
     status: completed
-    started_at: "2026-02-13T16:44:28.447Z"
-    completed_at: "2026-02-13T16:44:44.280Z"
+    started_at: "2026-02-13T18:27:01.445Z"
+    completed_at: "2026-02-13T18:27:12.808Z"
     outputs:
-      - path: ".context/plans/build-accel-w0.md"
+      - path: "/tmp/mr_c8_ci_local.log"
         status: filled
+      - path: "/tmp/mr_c7_proto_check_r5.log"
+        status: filled
+      - path: "/tmp/mr_c6_gate_main.log"
+        status: filled
+  C:
+    status: skipped
+    reason: "Not required for scale MEDIUM"
 
 execution:
   history:
-    - timestamp: "2026-02-13T16:44:44.280Z"
-      phase: C
+    - timestamp: "2026-02-13T18:27:12.808Z"
+      phase: V
       action: completed
-  last_activity: "2026-02-13T16:44:44.280Z"
-  resume_context: "Fase C (Confirmação) concluída"
+  last_activity: "2026-02-13T18:27:12.808Z"
+  resume_context: "Fase V (Validação) concluída"
 
 settings:
   autonomous_mode: false
