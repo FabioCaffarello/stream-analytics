@@ -2,9 +2,9 @@ package replay
 
 import (
 	"context"
+	"flag"
 	"os"
 	"path/filepath"
-	"strconv"
 	"testing"
 	"time"
 
@@ -12,6 +12,8 @@ import (
 	"github.com/market-raccoon/internal/shared/envelope"
 	sharedhash "github.com/market-raccoon/internal/shared/hash"
 )
+
+var updateGolden = flag.Bool("update-golden", false, "update golden replay fixtures")
 
 func TestGoldenReplay(t *testing.T) {
 	mustBootstrapPayloadRegistry(t)
@@ -110,15 +112,7 @@ func ensureMiniInputFixture(t *testing.T, inputPath string, n int, allowCreate b
 }
 
 func shouldUpdateGolden() bool {
-	raw := os.Getenv("UPDATE_GOLDEN")
-	if raw == "" {
-		return false
-	}
-	v, err := strconv.Atoi(raw)
-	if err != nil {
-		return false
-	}
-	return v == 1
+	return *updateGolden
 }
 
 func copyFile(t *testing.T, src, dst string) {

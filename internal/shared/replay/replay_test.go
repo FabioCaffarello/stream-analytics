@@ -84,6 +84,87 @@ func TestFixtureChecksumMismatch(t *testing.T) {
 	}
 }
 
+func TestFixtureUnknownContentTypeFailsDeterministically(t *testing.T) {
+	mustBootstrapPayloadRegistry(t)
+
+	path := filepath.Join(t.TempDir(), "unknown-content-type.jsonl")
+	w := newTestWriter(t, path)
+	env := buildJSONFixtureEnvelope(t, 0)
+	if p := w.Append(env); p != nil {
+		t.Fatalf("Append: %v", p)
+	}
+	if p := w.Close(); p != nil {
+		t.Fatalf("Close writer: %v", p)
+	}
+
+	// #nosec G304 -- path is test-local and created via t.TempDir.
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	mutated := bytes.Replace(raw, []byte(`"content_type":"application/json"`), []byte(`"content_type":"application/unknown"`), 1)
+	// #nosec G304 -- path is test-local and created via t.TempDir.
+	if err := os.WriteFile(path, mutated, 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	r := newTestReader(t, path)
+	defer func() { _ = r.Close() }()
+	_, _, p := r.Next()
+	if p == nil {
+		t.Fatal("expected unknown content_type error")
+	}
+	if p.Code != problem.ValidationFailed {
+		t.Fatalf("code=%s want=%s", p.Code, problem.ValidationFailed)
+	}
+}
+
+func TestFixtureReaderInvalidLineFailsDeterministically(t *testing.T) {
+	mustBootstrapPayloadRegistry(t)
+
+	path := filepath.Join(t.TempDir(), "invalid-line.jsonl")
+	w := newTestWriter(t, path)
+	if p := w.Append(buildJSONFixtureEnvelope(t, 0)); p != nil {
+		t.Fatalf("Append: %v", p)
+	}
+	if p := w.Close(); p != nil {
+		t.Fatalf("Close writer: %v", p)
+	}
+
+	// #nosec G304 -- path is test-local and created via t.TempDir.
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	raw = append(raw, []byte("{not-json}\n")...)
+	// #nosec G304 -- path is test-local and created via t.TempDir.
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	assertReadDeterministicInvalidLine := func() {
+		r := newTestReader(t, path)
+		defer func() { _ = r.Close() }()
+
+		if _, ok, p := r.Next(); !ok || p != nil {
+			t.Fatalf("first line should be valid: ok=%v problem=%v", ok, p)
+		}
+		_, _, p := r.Next()
+		if p == nil {
+			t.Fatal("expected invalid-line problem")
+		}
+		if p.Code != problem.ValidationFailed {
+			t.Fatalf("code=%s want=%s", p.Code, problem.ValidationFailed)
+		}
+		if got := p.Details["line"]; got != "2" {
+			t.Fatalf("line detail=%v want=2", got)
+		}
+	}
+
+	assertReadDeterministicInvalidLine()
+	assertReadDeterministicInvalidLine()
+}
+
 func TestDeterministicEncodingStable(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "deterministic.jsonl")
 	w := newTestWriter(t, path)

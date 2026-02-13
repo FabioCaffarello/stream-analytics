@@ -1,6 +1,6 @@
 # RFC-0009 — W8: Deterministic Replay & Golden Tests
 
-**Status:** Proposed
+**Status:** Done
 **Date:** 2026-02-12
 **Author:** Chief Architect
 **Workflow:** W8 of PRD-0001
@@ -16,6 +16,11 @@ Build recording and replay infrastructure so that any event sequence can be capt
 - Golden tests validate output byte-for-byte against known-good baselines
 - `cmd/consumer` supports `-record` and `-replay` flags
 - No `time.Now()` calls exist in `internal/core/` (verified by CI grep check)
+
+Implementation notes:
+- `cmd/consumer -replay` runs in offline mode (no WS and no remote bus connect); optional `-record` still captures output fixture.
+- Golden baselines live in repository root `testdata/fixtures/` and `testdata/golden/`.
+- CI invariants include replay-offline guard (no NATS import inside `internal/shared/replay`).
 
 ## 2. Scope
 

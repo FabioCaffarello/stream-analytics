@@ -2,6 +2,8 @@ package replay
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,7 +14,6 @@ import (
 	"github.com/market-raccoon/internal/shared/codec"
 	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
-	sharedhash "github.com/market-raccoon/internal/shared/hash"
 	"github.com/market-raccoon/internal/shared/problem"
 )
 
@@ -24,33 +25,20 @@ type ReplaySummary struct {
 
 // Player replays fixture envelopes deterministically through a handler.
 type Player struct {
-	records []FixtureRecord
-	clock   *clock.FakeClock
+	path      string
+	clock     *clock.FakeClock
+	sequencer *ReplaySequencer
 }
 
-// NewPlayer loads and validates all fixture records from path.
+// NewPlayer creates a streaming replay player for the fixture path.
 func NewPlayer(path string, fakeClock *clock.FakeClock) (*Player, *problem.Problem) {
-	r, p := NewReader(path)
-	if p != nil {
-		return nil, p
+	if strings.TrimSpace(path) == "" {
+		return nil, problem.WithDetail(
+			problem.New(problem.ValidationFailed, "fixture path must not be empty"),
+			"field", "path",
+		)
 	}
-	defer func() {
-		_ = r.Close()
-	}()
-
-	records := make([]FixtureRecord, 0, 1024)
-	for {
-		rec, ok, p := r.Next()
-		if p != nil {
-			return nil, p
-		}
-		if !ok {
-			break
-		}
-		records = append(records, rec)
-	}
-
-	return &Player{records: records, clock: fakeClock}, nil
+	return &Player{path: path, clock: fakeClock}, nil
 }
 
 // Replay executes records in order, validating sequence and payload decode invariants.
@@ -65,32 +53,62 @@ func (p *Player) Replay(ctx context.Context, handler func(context.Context, envel
 		return ReplaySummary{}, pp
 	}
 
-	lastSeqByStream := make(map[string]int64, 256)
-	inputHashes := make([]string, 0, len(p.records))
+	r, pp := NewReader(p.path)
+	if pp != nil {
+		return ReplaySummary{}, pp
+	}
+	defer func() {
+		_ = r.Close()
+	}()
 
-	for i := range p.records {
-		rec := p.records[i]
+	lastSeqByStream := make(map[string]int64, 256)
+	sum := sha256.New()
+	count := 0
+
+	for {
+		rec, ok, pp := r.Next()
+		if pp != nil {
+			return ReplaySummary{}, annotateReplayIndex(pp, count)
+		}
+		if !ok {
+			break
+		}
 		env := rec.Envelope
 
 		if p.clock != nil {
 			p.clock.Set(time.UnixMilli(env.TsIngest))
 		}
+		if p.sequencer != nil {
+			if pp := p.sequencer.Enqueue(env); pp != nil {
+				return ReplaySummary{}, annotateReplayIndex(pp, count)
+			}
+		}
 		if pp := validateMonotonicSeq(lastSeqByStream, env); pp != nil {
-			return ReplaySummary{}, annotateReplayIndex(pp, i)
+			return ReplaySummary{}, annotateReplayIndex(pp, count)
 		}
 		if _, pp := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload); pp != nil {
-			return ReplaySummary{}, annotateReplayIndex(pp, i)
+			return ReplaySummary{}, annotateReplayIndex(pp, count)
 		}
 		if pp := handler(ctx, env); pp != nil {
-			return ReplaySummary{}, annotateReplayIndex(pp, i)
+			return ReplaySummary{}, annotateReplayIndex(pp, count)
 		}
-		inputHashes = append(inputHashes, rec.SHA256)
+		_, _ = sum.Write([]byte(strings.ToLower(strings.TrimSpace(rec.SHA256))))
+		_, _ = sum.Write([]byte{'\n'})
+		count++
 	}
 
 	return ReplaySummary{
-		InputCount: len(p.records),
-		InputSHA:   sharedhash.HashFields(inputHashes...),
+		InputCount: count,
+		InputSHA:   hex.EncodeToString(sum.Sum(nil)),
 	}, nil
+}
+
+// SetReplaySequencer injects a fixture-backed sequencer for replayed handlers.
+func (p *Player) SetReplaySequencer(seq *ReplaySequencer) {
+	if p == nil {
+		return
+	}
+	p.sequencer = seq
 }
 
 func validateMonotonicSeq(lastSeqByStream map[string]int64, env envelope.Envelope) *problem.Problem {
@@ -106,7 +124,7 @@ func validateMonotonicSeq(lastSeqByStream map[string]int64, env envelope.Envelop
 }
 
 func replayStreamKey(env envelope.Envelope) string {
-	return strings.TrimSpace(env.Venue) + "|" + strings.TrimSpace(env.Instrument) + "|" + strings.TrimSpace(env.Type)
+	return replaySequencerKeyFromEnvelope(env)
 }
 
 func annotateReplayIndex(p *problem.Problem, index int) *problem.Problem {
