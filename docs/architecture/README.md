@@ -207,3 +207,13 @@ without requiring rewrites.
 - `docs/architecture/system-invariants.md`
 - `docs/architecture/TRUTH-MAP.md`
 - `docs/architecture/doc-contract-template.md`
+
+## Feature Docs (Parity v1)
+
+- `docs/architecture/storage.md`
+- `docs/architecture/orderbook.md`
+- `docs/architecture/heatmap.md`
+- `docs/architecture/volume-profiles.md`
+- `docs/architecture/liquidations-markprice.md`
+- `docs/contracts/delivery-ws.md`
+- `docs/rfcs/RFC-0011-product-parity-marketmonkey.md`
