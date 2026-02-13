@@ -81,8 +81,12 @@ type HTTPConfig struct {
 	WriteTimeout string `json:"write_timeout"`
 	// IdleTimeout is the maximum time to wait for the next request.  Default: "60s".
 	IdleTimeout string `json:"idle_timeout"`
-	// ShutdownTimeout is the maximum time to wait for graceful shutdown.  Default: "10s".
+	// ShutdownTimeout is the legacy graceful shutdown timeout.  Default: "10s".
 	ShutdownTimeout string `json:"shutdown_timeout"`
+	// PublisherFlushTimeout is the maximum time to wait for publisher flush/close. Default: "3s".
+	PublisherFlushTimeout string `json:"publisher_flush_timeout"`
+	// GuardianShutdownTimeout is the maximum time to wait for guardian shutdown. Default: "10s".
+	GuardianShutdownTimeout string `json:"guardian_shutdown_timeout"`
 }
 
 // ConsumerConfig controls the market-data consumer binary.
@@ -246,6 +250,16 @@ func (h HTTPConfig) IdleTimeoutDuration() time.Duration { return mustParseDurati
 // ShutdownTimeoutDuration parses and returns HTTPConfig.ShutdownTimeout as a time.Duration.
 func (h HTTPConfig) ShutdownTimeoutDuration() time.Duration {
 	return mustParseDuration(h.ShutdownTimeout)
+}
+
+// PublisherFlushTimeoutDuration parses and returns HTTPConfig.PublisherFlushTimeout.
+func (h HTTPConfig) PublisherFlushTimeoutDuration() time.Duration {
+	return mustParseDuration(h.PublisherFlushTimeout)
+}
+
+// GuardianShutdownTimeoutDuration parses and returns HTTPConfig.GuardianShutdownTimeout.
+func (h HTTPConfig) GuardianShutdownTimeoutDuration() time.Duration {
+	return mustParseDuration(h.GuardianShutdownTimeout)
 }
 
 // MaxWebsocketLifetimeDuration parses and returns ConsumerConfig.MaxWebsocketLifetime.

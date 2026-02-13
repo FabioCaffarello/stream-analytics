@@ -24,9 +24,8 @@ const (
 // If the file exists but cannot be parsed, Load returns a non-nil *problem.Problem.
 func Load(path string) (AppConfig, *problem.Problem) {
 	var cfg AppConfig
-	applyDefaults(&cfg)
-
 	if path == "" {
+		applyDefaults(&cfg)
 		return cfg, nil
 	}
 
@@ -227,6 +226,8 @@ func validateHTTP(h HTTPConfig) *problem.Problem {
 		{"http.write_timeout", h.WriteTimeout},
 		{"http.idle_timeout", h.IdleTimeout},
 		{"http.shutdown_timeout", h.ShutdownTimeout},
+		{"http.publisher_flush_timeout", h.PublisherFlushTimeout},
+		{"http.guardian_shutdown_timeout", h.GuardianShutdownTimeout},
 	} {
 		if _, err := time.ParseDuration(field.value); err != nil {
 			return problem.Newf(codeInvalid, "%s: invalid duration %q: %v", field.name, field.value, err)
@@ -673,6 +674,13 @@ func applyDefaults(c *AppConfig) {
 	}
 	if c.HTTP.ShutdownTimeout == "" {
 		c.HTTP.ShutdownTimeout = "10s"
+	}
+	if c.HTTP.PublisherFlushTimeout == "" {
+		c.HTTP.PublisherFlushTimeout = "3s"
+	}
+	if c.HTTP.GuardianShutdownTimeout == "" {
+		// Backward compatible fallback to legacy shutdown_timeout when the new field is absent.
+		c.HTTP.GuardianShutdownTimeout = c.HTTP.ShutdownTimeout
 	}
 	if c.Bus.Type == "" {
 		c.Bus.Type = "inmemory"

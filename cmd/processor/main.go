@@ -626,20 +626,25 @@ func main() {
 
 	logger.Info("processor: shutting down")
 
-	shutCtx, cancel := context.WithTimeout(context.Background(), cfg.HTTP.ShutdownTimeoutDuration())
-	defer cancel()
-	if p := e2e.shutdown(shutCtx); p != nil {
+	depsCtx, depsCancel := context.WithTimeout(context.Background(), cfg.HTTP.GuardianShutdownTimeoutDuration())
+	defer depsCancel()
+	if p := e2e.shutdown(depsCtx); p != nil {
 		logger.Warn("processor: e2e probe shutdown failed", "err", p)
 	}
-	source.shutdownFn(shutCtx)
-	if p := closePublisher(shutCtx); p != nil {
+	source.shutdownFn(depsCtx)
+
+	flushCtx, flushCancel := context.WithTimeout(context.Background(), cfg.HTTP.PublisherFlushTimeoutDuration())
+	if p := closePublisher(flushCtx); p != nil {
 		logger.Warn("processor: publisher shutdown failed", "err", p)
 	}
+	flushCancel()
 
+	guardianCtx, guardianCancel := context.WithTimeout(context.Background(), cfg.HTTP.GuardianShutdownTimeoutDuration())
+	defer guardianCancel()
 	e.Send(guardianPID, actorruntime.Stop{})
 	select {
 	case <-e.Poison(guardianPID).Done():
-	case <-shutCtx.Done():
+	case <-guardianCtx.Done():
 		logger.Warn("processor: guardian did not stop in time")
 	}
 	logger.Info("processor: shutdown complete")

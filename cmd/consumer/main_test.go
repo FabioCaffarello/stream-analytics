@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -218,5 +221,88 @@ func TestBuildExchangeRuntimes_MarketTypePropagation(t *testing.T) {
 	}
 	if req.MarketType != domain.MarketTypeUSDMFutures.String() {
 		t.Fatalf("req.MarketType=%q want %q", req.MarketType, domain.MarketTypeUSDMFutures.String())
+	}
+}
+
+func TestShutdown_SlowPublisherDoesNotStarveGuardian(t *testing.T) {
+	const (
+		publisherFlushTimeout   = 40 * time.Millisecond
+		guardianShutdownTimeout = 200 * time.Millisecond
+		tolerance               = 35 * time.Millisecond
+	)
+
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	var (
+		mu                  sync.Mutex
+		sequence            []string
+		stopCalled          bool
+		waitCalled          bool
+		observedGuardBudget time.Duration
+	)
+
+	shutdownConsumerRuntime(
+		logger,
+		consumerShutdownHooks{
+			shutdownE2E: func(context.Context) *problem.Problem {
+				mu.Lock()
+				sequence = append(sequence, "e2e")
+				mu.Unlock()
+				return nil
+			},
+			closePublisher: func(ctx context.Context) *problem.Problem {
+				mu.Lock()
+				sequence = append(sequence, "publisher")
+				mu.Unlock()
+
+				start := time.Now()
+				<-ctx.Done() // Simula flush lento que estoura o timeout dedicado do publisher.
+				elapsed := time.Since(start)
+				if elapsed < publisherFlushTimeout-tolerance {
+					t.Fatalf("publisher close elapsed=%s want >= %s", elapsed, publisherFlushTimeout-tolerance)
+				}
+				if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+					t.Fatalf("publisher close ctx err=%v want deadline exceeded", ctx.Err())
+				}
+				return nil
+			},
+			stopGuardian: func() {
+				mu.Lock()
+				sequence = append(sequence, "stop")
+				stopCalled = true
+				mu.Unlock()
+			},
+			waitGuardianStopped: func(ctx context.Context) bool {
+				mu.Lock()
+				sequence = append(sequence, "wait")
+				waitCalled = true
+				if deadline, ok := ctx.Deadline(); ok {
+					observedGuardBudget = time.Until(deadline)
+				}
+				mu.Unlock()
+				return true
+			},
+		},
+		publisherFlushTimeout,
+		guardianShutdownTimeout,
+	)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !stopCalled {
+		t.Fatal("guardian stop was not executed")
+	}
+	if !waitCalled {
+		t.Fatal("guardian poison/wait was not executed")
+	}
+	if observedGuardBudget < guardianShutdownTimeout-tolerance {
+		t.Fatalf("guardian budget observed=%s want >= %s", observedGuardBudget, guardianShutdownTimeout-tolerance)
+	}
+	if got, want := strings.Join(sequence, ","), "e2e,publisher,stop,wait"; got != want {
+		t.Fatalf("shutdown sequence=%q want %q", got, want)
+	}
+	if strings.Contains(logs.String(), "guardian did not stop in time") {
+		t.Fatalf("unexpected guardian timeout log: %s", logs.String())
 	}
 }

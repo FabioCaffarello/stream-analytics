@@ -203,19 +203,59 @@ func main() {
 	logger.Info("consumer: shutting down")
 	cancel()
 
-	shutCtx, shutCancel := context.WithTimeout(context.Background(), cfg.HTTP.ShutdownTimeoutDuration())
-	defer shutCancel()
-	if p := e2e.shutdown(shutCtx); p != nil {
+	shutdownConsumerRuntime(
+		logger,
+		consumerShutdownHooks{
+			shutdownE2E: e2e.shutdown,
+			closePublisher: func(ctx context.Context) *problem.Problem {
+				return closePublisher(ctx)
+			},
+			stopGuardian: func() {
+				e.Send(guardianPID, actorruntime.Stop{})
+			},
+			waitGuardianStopped: func(ctx context.Context) bool {
+				select {
+				case <-e.Poison(guardianPID).Done():
+					return true
+				case <-ctx.Done():
+					return false
+				}
+			},
+		},
+		cfg.HTTP.PublisherFlushTimeoutDuration(),
+		cfg.HTTP.GuardianShutdownTimeoutDuration(),
+	)
+}
+
+type consumerShutdownHooks struct {
+	shutdownE2E         func(context.Context) *problem.Problem
+	closePublisher      func(context.Context) *problem.Problem
+	stopGuardian        func()
+	waitGuardianStopped func(context.Context) bool
+}
+
+func shutdownConsumerRuntime(
+	logger *slog.Logger,
+	hooks consumerShutdownHooks,
+	publisherFlushTimeout time.Duration,
+	guardianShutdownTimeout time.Duration,
+) {
+	depsCtx, depsCancel := context.WithTimeout(context.Background(), guardianShutdownTimeout)
+	defer depsCancel()
+	if p := hooks.shutdownE2E(depsCtx); p != nil {
 		logger.Warn("consumer: e2e probe shutdown failed", "err", p)
 	}
-	if p := closePublisher(shutCtx); p != nil {
+
+	flushCtx, flushCancel := context.WithTimeout(context.Background(), publisherFlushTimeout)
+	if p := hooks.closePublisher(flushCtx); p != nil {
 		logger.Warn("consumer: publisher close failed", "err", p)
 	}
+	flushCancel()
 
-	e.Send(guardianPID, actorruntime.Stop{})
-	select {
-	case <-e.Poison(guardianPID).Done():
-	case <-shutCtx.Done():
+	guardianCtx, guardianCancel := context.WithTimeout(context.Background(), guardianShutdownTimeout)
+	defer guardianCancel()
+	hooks.stopGuardian()
+	if !hooks.waitGuardianStopped(guardianCtx) {
 		logger.Warn("consumer: guardian did not stop in time")
 	}
 	logger.Info("consumer: shutdown complete")

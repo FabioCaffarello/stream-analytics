@@ -19,6 +19,8 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 	assertChecks(t, []fieldCheck{
 		{name: "log.level", got: cfg.Log.Level, want: "info"},
 		{name: "http.addr", got: cfg.HTTP.Addr, want: ":8080"},
+		{name: "http.publisher_flush_timeout", got: cfg.HTTP.PublisherFlushTimeoutDuration(), want: 3 * time.Second},
+		{name: "http.guardian_shutdown_timeout", got: cfg.HTTP.GuardianShutdownTimeoutDuration(), want: 10 * time.Second},
 		{name: "bus.type", got: cfg.Bus.Type, want: "inmemory"},
 		{name: "jetstream.stream_name", got: cfg.JetStream.StreamName, want: "MARKETDATA"},
 		{name: "jetstream.consumer_durable", got: cfg.JetStream.ConsumerDurable, want: "processor-v1"},
@@ -77,7 +79,9 @@ func TestLoad_ValidJSONC_ParsesFields(t *testing.T) {
 			"read_timeout": "5s",
 			"write_timeout": "10s",
 			"idle_timeout": "30s",
-			"shutdown_timeout": "8s"
+			"shutdown_timeout": "8s",
+			"publisher_flush_timeout": "4s",
+			"guardian_shutdown_timeout": "12s"
 		},
 		"bus": { "type": "jetstream" },
 		"jetstream": {
@@ -138,6 +142,8 @@ func TestLoad_ValidJSONC_ParsesFields(t *testing.T) {
 		{name: "log.format", got: cfg.Log.Format, want: "json"},
 		{name: "http.addr", got: cfg.HTTP.Addr, want: ":9090"},
 		{name: "http.shutdown_timeout", got: cfg.HTTP.ShutdownTimeoutDuration(), want: 8 * time.Second},
+		{name: "http.publisher_flush_timeout", got: cfg.HTTP.PublisherFlushTimeoutDuration(), want: 4 * time.Second},
+		{name: "http.guardian_shutdown_timeout", got: cfg.HTTP.GuardianShutdownTimeoutDuration(), want: 12 * time.Second},
 		{name: "consumer.exchange", got: cfg.Consumer.Exchange, want: "binance"},
 		{name: "consumer.exchanges synthesized", got: len(cfg.Consumer.Exchanges), want: 1},
 		{name: "bus.type", got: cfg.Bus.Type, want: "jetstream"},
@@ -210,6 +216,20 @@ func TestLoad_PartialFile_FillsRemainingDefaults(t *testing.T) {
 	// Unspecified field should be defaulted.
 	if cfg.HTTP.Addr != ":8080" {
 		t.Errorf("http.addr = %q, want :8080 (default)", cfg.HTTP.Addr)
+	}
+}
+
+func TestLoad_HTTPGuardianTimeout_FallsBackToLegacyShutdownTimeout(t *testing.T) {
+	path := writeTempFile(t, `{"http": {"shutdown_timeout": "8s"}}`)
+	cfg, prob := Load(path)
+	if prob != nil {
+		t.Fatalf("Load failed: %v", prob)
+	}
+	if got := cfg.HTTP.GuardianShutdownTimeoutDuration(); got != 8*time.Second {
+		t.Fatalf("guardian_shutdown_timeout=%s want 8s", got)
+	}
+	if got := cfg.HTTP.PublisherFlushTimeoutDuration(); got != 3*time.Second {
+		t.Fatalf("publisher_flush_timeout=%s want 3s", got)
 	}
 }
 
