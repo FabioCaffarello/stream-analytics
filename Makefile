@@ -31,7 +31,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules tidy tidy-check fmt fmt-check docs-check docs-fix check-doc-headers check-doc-links check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus invariants-check lint test test-root test-workspace test-workspace-race soak-check test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install proto-lint proto-gen proto-breaking proto ci
+.PHONY: help install-tools tools modules tidy tidy-check fmt fmt-check docs-check docs-fix check-doc-headers check-doc-links check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race soak-check test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install proto-lint proto-gen proto-breaking proto ci
 
 help:
 	@echo "Targets:"
@@ -128,6 +128,7 @@ docs-check:
 	@$(MAKE) check-truth-map
 	@$(MAKE) check-feature-pack-links
 	@$(MAKE) check-pack-subjects-vs-event-bus
+	@$(MAKE) registry-check
 
 check-doc-headers:
 	@./scripts/check-doc-headers.sh
@@ -143,6 +144,9 @@ check-feature-pack-links:
 
 check-pack-subjects-vs-event-bus:
 	@./scripts/check-pack-subjects-vs-event-bus.sh
+
+registry-check:
+	@./scripts/check-registry.sh
 
 docs-fix:
 	@./scripts/check-doc-headers.sh --fix-hints
