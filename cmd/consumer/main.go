@@ -125,7 +125,9 @@ func main() {
 	pub, closePublisher = wrapWithRecorderPublisher(cfg, logger, pub, closePublisher)
 	seq := newInMemSequencer()
 	clk := clock.NewSystemClock()
-	ingest := mdapp.NewIngestMarketData(clk, seq, pub)
+	ingest := mdapp.NewIngestMarketDataWithConfig(clk, seq, pub, mdapp.IngestConfig{
+		MaxStreams: cfg.MarketData.MaxInstruments,
+	})
 
 	runtimes, p := buildExchangeRuntimes(cfg, logger)
 	if p != nil {
@@ -274,7 +276,9 @@ func runConsumerReplay(cfg config.AppConfig, logger *slog.Logger) {
 
 	fakeClock := clock.NewFakeClock(time.UnixMilli(0))
 	replaySeq := replay.NewReplaySequencer()
-	ingest := mdapp.NewIngestMarketData(fakeClock, replaySeq, pub)
+	ingest := mdapp.NewIngestMarketDataWithConfig(fakeClock, replaySeq, pub, mdapp.IngestConfig{
+		MaxStreams: cfg.MarketData.MaxInstruments,
+	})
 
 	player, p := replay.NewPlayer(replayPath, fakeClock)
 	if p != nil {

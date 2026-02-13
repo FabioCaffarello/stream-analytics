@@ -39,9 +39,11 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 		{name: "consumer.max_websockets", got: cfg.Consumer.MaxWebsockets, want: int64(5)},
 		{name: "consumer.binance_ws_base_url non-empty", got: cfg.Consumer.BinanceWSBaseURL != "", want: true},
 		{name: "marketdata.publish_content_type", got: cfg.MarketData.PublishContentType, want: "application/json"},
+		{name: "marketdata.max_instruments", got: cfg.MarketData.MaxInstruments, want: 2048},
 		{name: "marketdata.record_path", got: cfg.MarketData.RecordPath, want: ""},
 		{name: "marketdata.replay_path", got: cfg.MarketData.ReplayPath, want: ""},
 		{name: "processor.bus_capacity", got: cfg.Processor.BusCapacity, want: 1024},
+		{name: "processor.max_instruments", got: cfg.Processor.MaxInstruments, want: 2048},
 		{name: "processor.insights.enable_crossvenue_join", got: cfg.Processor.Insights.EnableCrossVenueJoin, want: false},
 		{name: "processor.insights.join_trades_subject", got: cfg.Processor.Insights.JoinTradesSubject, want: "marketdata.trade.v1.>"},
 		{name: "processor.insights.snapshot_subject_prefix", got: cfg.Processor.Insights.SnapshotSubjectPrefix, want: ""},
@@ -103,11 +105,13 @@ func TestLoad_ValidJSONC_ParsesFields(t *testing.T) {
 		},
 		"marketdata": {
 			"publish_content_type": "application/protobuf",
+			"max_instruments": 1536,
 			"record_path": "  /tmp/consumer.record.jsonl ",
 			"replay_path": " /tmp/replay.input.jsonl "
 		},
 		"processor": {
 			"bus_capacity": 512,
+			"max_instruments": 1024,
 			"insights": {
 				"enable_crossvenue_join": true,
 				"enable_spread_signal": true,
@@ -149,9 +153,11 @@ func TestLoad_ValidJSONC_ParsesFields(t *testing.T) {
 		{name: "consumer.max_websockets", got: cfg.Consumer.MaxWebsockets, want: int64(3)},
 		{name: "consumer.respawn_overlap", got: cfg.Consumer.RespawnOverlapDuration(), want: 2 * time.Second},
 		{name: "marketdata.publish_content_type", got: cfg.MarketData.PublishContentType, want: "application/protobuf"},
+		{name: "marketdata.max_instruments", got: cfg.MarketData.MaxInstruments, want: 1536},
 		{name: "marketdata.record_path", got: cfg.MarketData.RecordPath, want: "/tmp/consumer.record.jsonl"},
 		{name: "marketdata.replay_path", got: cfg.MarketData.ReplayPath, want: "/tmp/replay.input.jsonl"},
 		{name: "processor.bus_capacity", got: cfg.Processor.BusCapacity, want: 512},
+		{name: "processor.max_instruments", got: cfg.Processor.MaxInstruments, want: 1024},
 		{name: "processor.insights.enable_crossvenue_join", got: cfg.Processor.Insights.EnableCrossVenueJoin, want: true},
 		{name: "processor.insights.join_trades_subject", got: cfg.Processor.Insights.JoinTradesSubject, want: "marketdata.trade.v1.>"},
 		{name: "processor.insights.snapshot_subject_prefix", got: cfg.Processor.Insights.SnapshotSubjectPrefix, want: "insights.crossvenue.trade_snapshot.v1"},
@@ -371,6 +377,15 @@ func TestValidate_InvalidMarketDataReplayPathDot(t *testing.T) {
 	}
 }
 
+func TestValidate_InvalidMarketDataMaxInstruments(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.MarketData.MaxInstruments = 0
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("expected validation error for invalid marketdata.max_instruments")
+	}
+}
+
 func TestValidate_InvalidBusType(t *testing.T) {
 	cfg, _ := Load("")
 	cfg.Bus.Type = "kafka"
@@ -425,6 +440,14 @@ func TestValidate_ProcessorInsightsInvalidTTL(t *testing.T) {
 	cfg.Processor.Insights.TTL = "nope"
 	if prob := cfg.Validate(); prob == nil {
 		t.Fatal("expected validation error for invalid processor.insights.ttl")
+	}
+}
+
+func TestValidate_ProcessorInvalidMaxInstruments(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Processor.MaxInstruments = 0
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for invalid processor.max_instruments")
 	}
 }
 

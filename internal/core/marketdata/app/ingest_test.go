@@ -268,6 +268,73 @@ func TestIngest_boundedStreamsEvictsOldest(t *testing.T) {
 	}
 }
 
+func TestIngest_boundedStreamsEvictionDeterministicVictim(t *testing.T) {
+	run := func(t *testing.T) (ethWasEvicted bool, btcWasRetained bool) {
+		t.Helper()
+
+		clk := clock.NewFakeClock(time.UnixMilli(1_710_000_000_000))
+		seq := &fakeSequencer{}
+		pub := &fakePublisher{}
+		uc := app.NewIngestMarketDataWithConfig(clk, seq, pub, app.IngestConfig{
+			DedupWindowSize: 64,
+			MaxStreams:      2,
+			StreamTTL:       time.Hour,
+		})
+
+		makeReq := func(instrument, idempotencyKey string) app.IngestRequest {
+			req := validReq()
+			req.Instrument = instrument
+			req.IdempotencyKey = idempotencyKey
+			req.MarketType = "SPOT"
+			return req
+		}
+
+		ctx := context.Background()
+		if r := uc.Execute(ctx, makeReq("BTC/USDT", "btc-dup")); r.IsFail() {
+			t.Fatalf("btc first ingest failed: %v", r.Problem())
+		}
+		clk.Advance(time.Millisecond)
+		if r := uc.Execute(ctx, makeReq("ETH/USDT", "eth-dup")); r.IsFail() {
+			t.Fatalf("eth first ingest failed: %v", r.Problem())
+		}
+		clk.Advance(time.Millisecond)
+		if r := uc.Execute(ctx, makeReq("BTC/USDT", "btc-touch")); r.IsFail() {
+			t.Fatalf("btc touch ingest failed: %v", r.Problem())
+		}
+		clk.Advance(time.Millisecond)
+		if r := uc.Execute(ctx, makeReq("SOL/USDT", "sol-1")); r.IsFail() {
+			t.Fatalf("sol ingest failed: %v", r.Problem())
+		}
+
+		// BTC should still be resident at this point, so duplicate idempotency key must fail.
+		clk.Advance(time.Millisecond)
+		btcResult := uc.Execute(ctx, makeReq("BTC/USDT", "btc-dup"))
+		btcWasRetained = btcResult.IsFail() && btcResult.Problem().Code == problem.Duplicate
+
+		// ETH should be the deterministic LRU victim and therefore accepted again.
+		clk.Advance(time.Millisecond)
+		ethResult := uc.Execute(ctx, makeReq("ETH/USDT", "eth-dup"))
+		ethWasEvicted = ethResult.IsOk()
+		return ethWasEvicted, btcWasRetained
+	}
+
+	ethFirst, btcFirst := run(t)
+	ethSecond, btcSecond := run(t)
+
+	if !ethFirst || !btcFirst {
+		t.Fatalf("unexpected eviction result first run: ethWasEvicted=%v btcWasRetained=%v", ethFirst, btcFirst)
+	}
+	if ethFirst != ethSecond || btcFirst != btcSecond {
+		t.Fatalf(
+			"non-deterministic eviction result first=(eth:%v btc:%v) second=(eth:%v btc:%v)",
+			ethFirst,
+			btcFirst,
+			ethSecond,
+			btcSecond,
+		)
+	}
+}
+
 func TestIngest_ThrottledSweepDoesNotRunEveryRequest(t *testing.T) {
 	clk := clock.NewFakeClock(time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC))
 	seq := &fakeSequencer{}

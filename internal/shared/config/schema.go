@@ -154,6 +154,8 @@ type MarketDataConfig struct {
 	// PublishContentType controls the wire payload format for produced marketdata envelopes.
 	// Allowed: "application/json" (default) or "application/protobuf" (opt-in).
 	PublishContentType string `json:"publish_content_type"`
+	// MaxInstruments bounds in-memory instrument stream state for ingest.
+	MaxInstruments int `json:"max_instruments"`
 	// RecordPath enables opt-in fixture recording of published envelopes.
 	// Empty disables recording (default behavior).
 	RecordPath string `json:"record_path"`
@@ -196,6 +198,8 @@ type ReplayJetStreamConfig struct {
 type ProcessorConfig struct {
 	// BusCapacity is the channel buffer size for the in-memory event bus.  Default: 1024.
 	BusCapacity int `json:"bus_capacity"`
+	// MaxInstruments bounds in-memory order book state for aggregation.
+	MaxInstruments int `json:"max_instruments"`
 	// Insights controls optional processor-side insight derivations.
 	Insights ProcessorInsightsConfig `json:"insights"`
 }

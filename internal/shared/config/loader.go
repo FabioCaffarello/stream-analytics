@@ -336,6 +336,9 @@ func validateMarketData(m MarketDataConfig) *problem.Problem {
 	if _, p := envelope.NormalizeContentType(m.PublishContentType); p != nil {
 		return problem.Newf(codeInvalid, "marketdata.publish_content_type must be application/json|application/protobuf, got %q", m.PublishContentType)
 	}
+	if m.MaxInstruments <= 0 {
+		return problem.Newf(codeInvalid, "marketdata.max_instruments must be > 0, got %d", m.MaxInstruments)
+	}
 	if strings.TrimSpace(m.RecordPath) == "." {
 		return problem.New(codeInvalid, "marketdata.record_path must not be \".\"")
 	}
@@ -404,6 +407,9 @@ func validateReplay(bus BusConfig, marketData MarketDataConfig, replay ReplayCon
 func validateProcessor(p ProcessorConfig) *problem.Problem {
 	if p.BusCapacity <= 0 {
 		return problem.Newf(codeInvalid, "processor.bus_capacity must be > 0, got %d", p.BusCapacity)
+	}
+	if p.MaxInstruments <= 0 {
+		return problem.Newf(codeInvalid, "processor.max_instruments must be > 0, got %d", p.MaxInstruments)
 	}
 
 	insights := p.Insights
@@ -759,6 +765,9 @@ func applyDefaults(c *AppConfig) {
 	if c.MarketData.PublishContentType == "" {
 		c.MarketData.PublishContentType = envelope.ContentTypeJSON
 	}
+	if c.MarketData.MaxInstruments == 0 {
+		c.MarketData.MaxInstruments = 2048
+	}
 	if c.Replay.Mode == "" {
 		c.Replay.Mode = "off"
 	}
@@ -791,6 +800,9 @@ func applyDefaults(c *AppConfig) {
 	c.Replay.JetStream.DeliverPolicy = strings.TrimSpace(c.Replay.JetStream.DeliverPolicy)
 	if c.Processor.BusCapacity == 0 {
 		c.Processor.BusCapacity = 1024
+	}
+	if c.Processor.MaxInstruments == 0 {
+		c.Processor.MaxInstruments = 2048
 	}
 	if c.Processor.Insights.JoinTradesSubject == "" {
 		c.Processor.Insights.JoinTradesSubject = "marketdata.trade.v1.>"

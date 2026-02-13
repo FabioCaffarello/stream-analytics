@@ -17,6 +17,9 @@ Eliminate all known memory and goroutine leak vectors, bound every state map, an
 - Guardian has a global restart rate limiter
 - Soak test validates goroutine and heap stability over 30 minutes
 
+Implementation note (W11 partial follow-up):
+- Runtime sizing is now externally bounded by config: `marketdata.max_instruments` and `processor.max_instruments` (default `2048` each), with deterministic LRU eviction.
+
 ## 2. Scope
 
 - Create `internal/shared/ds/` package with generic `BoundedMap[K,V]` (LRU + TTL)

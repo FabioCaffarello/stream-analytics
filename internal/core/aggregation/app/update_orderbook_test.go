@@ -194,6 +194,75 @@ func TestUpdateOrderBook_boundedBooksEvictsOldest(t *testing.T) {
 	}
 }
 
+func TestUpdateOrderBook_boundedBooksEvictionDeterministicVictim(t *testing.T) {
+	run := func(t *testing.T) (ethWasEvicted bool, btcWasRetained bool) {
+		t.Helper()
+
+		pub := &fakePublisher{}
+		store := &fakeStore{}
+		clk := clock.NewFakeClock(time.Unix(0, 0))
+		uc := app.NewUpdateOrderBookFromEventsWithConfig(pub, store, app.UpdateConfig{
+			MaxBooks:  2,
+			BookTTL:   time.Hour,
+			MaxLevels: 10,
+			Clock:     clk,
+		})
+
+		makeReq := func(symbol string, seq int64) app.UpdateRequest {
+			return app.UpdateRequest{
+				Venue:      "binance",
+				Instrument: symbol,
+				Seq:        seq,
+				Bids:       []domain.Level{{Price: 100, Quantity: 1}},
+				Asks:       []domain.Level{{Price: 101, Quantity: 1}},
+			}
+		}
+
+		if r := uc.Execute(context.Background(), makeReq("BTCUSDT", 1)); r.IsFail() {
+			t.Fatalf("btc first execute failed: %v", r.Problem())
+		}
+		clk.Advance(time.Millisecond)
+		if r := uc.Execute(context.Background(), makeReq("ETHUSDT", 1)); r.IsFail() {
+			t.Fatalf("eth first execute failed: %v", r.Problem())
+		}
+		clk.Advance(time.Millisecond)
+		if r := uc.Execute(context.Background(), makeReq("BTCUSDT", 2)); r.IsFail() {
+			t.Fatalf("btc touch execute failed: %v", r.Problem())
+		}
+		clk.Advance(time.Millisecond)
+		if r := uc.Execute(context.Background(), makeReq("SOLUSDT", 1)); r.IsFail() {
+			t.Fatalf("sol execute failed: %v", r.Problem())
+		}
+
+		// BTC should still be resident at this point, so lower seq remains out_of_order.
+		clk.Advance(time.Millisecond)
+		btcResult := uc.Execute(context.Background(), makeReq("BTCUSDT", 1))
+		btcWasRetained = btcResult.IsFail() && btcResult.Problem().Code == problem.OutOfOrder
+
+		// ETH should be the deterministic LRU victim and therefore accepted again.
+		clk.Advance(time.Millisecond)
+		ethResult := uc.Execute(context.Background(), makeReq("ETHUSDT", 1))
+		ethWasEvicted = ethResult.IsOk()
+		return ethWasEvicted, btcWasRetained
+	}
+
+	ethFirst, btcFirst := run(t)
+	ethSecond, btcSecond := run(t)
+
+	if !ethFirst || !btcFirst {
+		t.Fatalf("unexpected eviction result first run: ethWasEvicted=%v btcWasRetained=%v", ethFirst, btcFirst)
+	}
+	if ethFirst != ethSecond || btcFirst != btcSecond {
+		t.Fatalf(
+			"non-deterministic eviction result first=(eth:%v btc:%v) second=(eth:%v btc:%v)",
+			ethFirst,
+			btcFirst,
+			ethSecond,
+			btcSecond,
+		)
+	}
+}
+
 func TestUpdateOrderBook_ThrottledSweepDoesNotRunEveryRequest(t *testing.T) {
 	pub := &fakePublisher{}
 	store := &fakeStore{}

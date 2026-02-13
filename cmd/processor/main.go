@@ -537,7 +537,9 @@ func main() {
 	// ── aggregation use case ────────────────────────────────────────────────
 	artifactPub := &logArtifactPublisher{logger: logger}
 	hotStore := &noopHotStore{}
-	updateBook := aggapp.NewUpdateOrderBookFromEvents(artifactPub, hotStore)
+	updateBook := aggapp.NewUpdateOrderBookFromEventsWithConfig(artifactPub, hotStore, aggapp.UpdateConfig{
+		MaxBooks: cfg.Processor.MaxInstruments,
+	})
 	var joinTrades *insightsapp.JoinCrossVenueTrades
 	var publishEnvelope aggruntime.EventPublisher
 	closePublisher := func(context.Context) *problem.Problem { return nil }
