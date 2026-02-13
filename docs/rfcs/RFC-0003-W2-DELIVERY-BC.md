@@ -147,3 +147,13 @@ W3 substitui somente a origem dos envelopes no router:
 - 2026-02-13:
   - normalizado status para taxonomia RFC (`Draft|Accepted`);
   - mantido escopo histórico da entrega W2.
+
+## Test Plan
+
+```bash
+make docs-check-full
+```
+
+## Acceptance
+
+- Required RFC sections are present and validated by `make docs-check-full`.
