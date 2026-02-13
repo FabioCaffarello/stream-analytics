@@ -1,122 +1,59 @@
-# System Invariants
+# System Invariants Index
 
-These rules are never violated.
-
----
-
-## Determinism
-
-Same input → same output.
+**Status:** Active
+**Owner:** Governance Doc-First Maintainer
+**Last updated:** 2026-02-13
 
 ---
 
-## Replayability
+## Purpose
 
-All pipelines must be reconstructable.
+Este documento e o indice vivo de invariantes operacionais do runtime.
+Cada invariante referencia:
+- decisao arquitetural (ADR/RFC)
+- evidencia de codigo e teste
+- gate de validacao executavel
 
----
+## Live Invariants
 
-## Domain Isolation
+| Invariant ID | Rule | Authority | Evidence | Gate |
+|---|---|---|---|---|
+| INV-DOM-01 | `internal/core/*`, `internal/actors/*`, `internal/interfaces/*` devem permanecer protobuf-free | `docs/adrs/ADR-0016-protobuf-contract-layer.md` | `scripts/check-domain-isolation.sh:13`, `scripts/check-domain-isolation.sh:49` | `make invariants-check` |
+| INV-DET-01 | `internal/core/*` nao pode chamar `time.Now()` diretamente | `docs/adrs/ADR-0015-deterministic-replay-time-invariants.md` | `scripts/check-domain-isolation.sh:56`, `scripts/check-domain-isolation.sh:73` | `make invariants-check` |
+| INV-REP-01 | `internal/shared/replay` deve ficar offline (sem dependencia de NATS) | `docs/adrs/ADR-0015-deterministic-replay-time-invariants.md` | `scripts/check-domain-isolation.sh:83`, `scripts/check-domain-isolation.sh:102` | `make invariants-check` |
+| INV-BUS-01 | Subject taxonomy deve manter familia/versionamento validos | `docs/adrs/ADR-0014-stream-partitioning-strategy.md` | `internal/adapters/jetstream/subject_validation.go:24`, `internal/adapters/jetstream/subject_validation_test.go:5` | `make test-workspace` |
+| INV-ACK-01 | Fluxo ingest JetStream deve manter semantica ACK/NAK/TERM | `docs/adrs/ADR-0004-bus-nats-jetstream.md` | `internal/adapters/jetstream/ingest_conformance_test.go:15` | `make test-workspace` |
+| INV-CONTRACT-01 | Registry de contratos deve ser autoridade de schemas protobuf ativos | `docs/adrs/ADR-0016-protobuf-contract-layer.md` | `proto/registry.json`, `internal/shared/contracts/authority_test.go:268` | `make proto-lint` + `make proto-breaking` |
+| INV-TOPO-01 | Guardian deve aplicar readiness por expected subsystems e restart budget | `docs/adrs/ADR-0018-actor-topology-supervision-model.md` | `internal/actors/runtime/guardian_test.go:315`, `internal/actors/runtime/guardian_test.go:436` | `make test-workspace-race` |
+| INV-MEX-01 | Identidade de stream deve incluir `venue+instrument+market_type` | `docs/adrs/ADR-0017-multi-exchange-normalization.md` | `internal/core/marketdata/domain/instrument_stream.go:30`, `cmd/consumer/e2e_consumer_integration_test.go:24` | `make test-workspace-race` |
 
-Business rules never live in actors.
+## Standard Validation Gates
 
----
-
-## Replaceable Infrastructure
-
-Adapters are swappable.
-
----
-
-## Evidence Over Opinion
-
-Insights must be explainable.
-
-
----
-
-# O que fazer AGORA (ordem perfeita)
-
-Crie:
-
+```bash
+make invariants-check
+make test-workspace
+make test-workspace-race
+make proto-lint
+make proto-breaking
+make soak-check
 ```
 
-docs/
- ├── adrs/
- ├── architecture/
- │     README.md
- │     ingestion.md
- │     insights.md
- │     system-invariants.md
- └── contracts/
-       event-bus.md
+Replay determinism evidence (quando aplicavel):
 
+```bash
+go test ./internal/shared/replay -run TestGoldenReplay
+go test ./cmd/consumer -run TestReplayIngestGolden1000
 ```
 
-Commit gigante inicial:
+## Evidence Maintenance Rules
 
-👉 `feat(architecture): foundational system design`
+- Toda nova afirmacao de invariante precisa adicionar pelo menos um anchor de teste ou script.
+- Se um item estiver parcialmente implementado, a ADR/RFC correspondente deve usar `Status: Partially Implemented` e `Implementation Matrix`.
+- `docs/architecture/TRUTH-MAP.md` e `docs/audits/DRIFT-REPORT-W11.md` devem continuar como baseline de reconciliação doc vs runtime.
 
----
+## Changelog
 
-# Próximo passo que EU recomendo fortemente
-
-Depois desses docs…
-
-Crie UM documento que muda o destino do produto:
-
-## 👉 `docs/architecture/moat.md`
-
-Explica:
-
-> por que esse sistema será difícil de copiar.
-
-Isso guia TODAS as decisões futuras.
-
-Posso escrever ele para você — e honestamente, é um dos documentos mais valiosos que uma startup deep-tech pode ter.
-
----
-
-Se quiser, no próximo passo eu posso te entregar:
-
-🔥 o blueprint do **runtime de actors ideal para market data**
-🔥 como estruturar o **Instrument Actor** (talvez o actor mais importante do sistema)
-🔥 o erro arquitetural que destrói 80% das plataformas de dados
-🔥 como preparar o sistema para **10x volume** sem reescrever
-
-Só falar — porque agora você está montando fundação de empresa, não só repo.
-
----
-
-## E2E Hook Safety (2026-02-12)
-
-- `E2E_TEST_MODE=1` is fail-closed unless `RUN_MODE=test` or `MARKET_RACCOON_MODE=test`.
-- If the posture check fails, process startup exits with code `1` before runtime initialization.
-- In E2E mode, probe HTTP binding is forced to loopback (`127.0.0.1`) regardless of configured probe address.
-
-## Startup Fail-Fast Invariants
-
-- Subject taxonomy validation is enforced for concrete publish subjects and startup subject patterns.
-- Stream bounds validation is enforced before JetStream `AddStream`/`UpdateStream`: at least one hard bound (`MaxAge`/`MaxBytes`/`MaxMsgs`) must exist, `MaxAge` must be positive, and dedup window must be configured.
-- Operational impact: startup fails immediately on config drift, preventing silent misrouting, unbounded retention, or retry storms in production.
-
-## Retry Budget (NAK Bounded)
-
-- Retryable ingest failures (`TRANSIENT_FAILURE`, `QUARANTINE_PUBLISH_FAILED`) are bounded by a local retry budget.
-- Primary source of truth is JetStream delivery count (`NumDelivered` / `Nats-Num-Delivered` / `Nats-Msg-Redelivery`).
-- When delivery count reaches budget `N`, action is `TERM` with reason code `TRANSIENT_EXHAUSTED` (no infinite transient NAK loop).
-- If delivery metadata is unavailable, fallback uses a bounded in-memory partition tracker keyed by `venue|instrument` with fixed capacity and deterministic eviction.
-
-## Runtime Boundedness (Adapter)
-
-- JetStream replay merge buffer is bounded (`MergeBufferSize`); output channel is bounded (`OutputBufferSize`).
-- Transient retry fallback state is bounded by fixed-capacity ring+map (`retryBudgetTracker`), never unbounded by message cardinality.
-- On fallback tracker eviction, decision is observable via `ingest_drop_total{reason="buffer_full_drop"}` and deterministic log message.
-
-## Protobuf-Free Domain Guardrail
-
-- `internal/core/**`, `internal/actors/**`, and `internal/interfaces/**` must not import:
-  - `google.golang.org/protobuf/*`
-  - `github.com/golang/protobuf/*`
-- `make invariants-check` enforces this rule and fails with:
-  - `protobuf import violates Domain Isolation; move to internal/shared/contracts boundary`
+- 2026-02-13:
+- Reescrito como indice vivo de invariantes.
+- Conteudo legacy de bootstrap removido.
+- Cross-links para ADRs, testes e gates reais adicionados.

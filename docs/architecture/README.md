@@ -199,3 +199,11 @@ The architecture is intentionally prepared for:
 - on-chain analytics
 
 without requiring rewrites.
+
+---
+
+## Governance References
+
+- `docs/architecture/system-invariants.md`
+- `docs/architecture/TRUTH-MAP.md`
+- `docs/architecture/doc-contract-template.md`
