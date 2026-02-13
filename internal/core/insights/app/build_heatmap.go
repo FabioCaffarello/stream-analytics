@@ -27,6 +27,8 @@ const (
 	heatmapDefaultMaxPayload     = 256 * 1024
 )
 
+var heatmapSizeBuckets = []string{"XS", "S", "M", "L", "XL"}
+
 type BuildHeatmapConfig struct {
 	MaxPriceBucketsPerWindow int
 	MaxSizeBuckets           int
