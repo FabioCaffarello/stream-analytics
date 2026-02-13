@@ -71,3 +71,13 @@ W4 troca somente integração de transporte/pub-sub:
 - 2026-02-13:
   - normalizado status para taxonomia RFC (`Draft|Accepted`);
   - mantido contexto histórico da entrega W3.
+
+## Test Plan
+
+```bash
+make docs-check-full
+```
+
+## Acceptance
+
+- Required RFC sections are present and validated by `make docs-check-full`.

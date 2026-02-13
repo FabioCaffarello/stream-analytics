@@ -154,3 +154,13 @@ pprof endpoints:
 - 2026-02-13:
   - normalizado status para taxonomia RFC (`Draft|Accepted`);
   - preservadas evidências operacionais da rodada W4.
+
+## Test Plan
+
+```bash
+make docs-check-full
+```
+
+## Acceptance
+
+- Required RFC sections are present and validated by `make docs-check-full`.
