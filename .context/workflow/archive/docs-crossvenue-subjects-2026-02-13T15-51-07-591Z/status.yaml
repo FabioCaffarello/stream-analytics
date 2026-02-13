@@ -1,0 +1,49 @@
+project:
+  name: "docs-crossvenue-subjects"
+  scale: LARGE
+  started: "2026-02-13T15:10:07.114Z"
+  current_phase: C
+
+phases:
+  P:
+    status: filled
+    started_at: "2026-02-13T15:10:07.114Z"
+    completed_at: "2026-02-13T15:10:32.279Z"
+  R:
+    status: filled
+    started_at: "2026-02-13T15:10:32.280Z"
+    completed_at: "2026-02-13T15:12:18.922Z"
+  E:
+    status: filled
+    started_at: "2026-02-13T15:12:18.923Z"
+    completed_at: "2026-02-13T15:12:58.447Z"
+  V:
+    status: filled
+    started_at: "2026-02-13T15:12:58.448Z"
+    completed_at: "2026-02-13T15:13:02.539Z"
+  C:
+    status: completed
+    started_at: "2026-02-13T15:13:02.540Z"
+    completed_at: "2026-02-13T15:13:06.867Z"
+    outputs:
+      - path: "Confirmação: commit docs isolado criado com sucesso e sem alterações em .context no commit"
+        status: filled
+
+execution:
+  history:
+    - timestamp: "2026-02-13T15:13:06.867Z"
+      phase: C
+      action: completed
+  last_activity: "2026-02-13T15:13:06.867Z"
+  resume_context: "Fase C (Confirmação) concluída"
+
+settings:
+  autonomous_mode: true
+  require_plan: true
+  require_approval: true
+
+approval:
+  plan_created: false
+  plan_approved: true
+  approved_by: "system-migration"
+  approved_at: "2026-02-13T15:12:58.447Z"

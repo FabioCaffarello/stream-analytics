@@ -1,49 +1,37 @@
 project:
-  name: "docs-crossvenue-subjects"
+  name: "retomada-market-parity-commit-chain"
   scale: LARGE
-  started: "2026-02-13T15:10:07.114Z"
-  current_phase: C
+  started: "2026-02-13T15:51:07.594Z"
+  current_phase: R
 
 phases:
   P:
     status: filled
-    started_at: "2026-02-13T15:10:07.114Z"
-    completed_at: "2026-02-13T15:10:32.279Z"
+    started_at: "2026-02-13T15:51:07.594Z"
+    completed_at: "2026-02-13T15:56:19.921Z"
   R:
-    status: filled
-    started_at: "2026-02-13T15:10:32.280Z"
-    completed_at: "2026-02-13T15:12:18.922Z"
+    status: in_progress
+    started_at: "2026-02-13T15:56:19.922Z"
   E:
-    status: filled
-    started_at: "2026-02-13T15:12:18.923Z"
-    completed_at: "2026-02-13T15:12:58.447Z"
+    status: pending
   V:
-    status: filled
-    started_at: "2026-02-13T15:12:58.448Z"
-    completed_at: "2026-02-13T15:13:02.539Z"
+    status: pending
   C:
-    status: completed
-    started_at: "2026-02-13T15:13:02.540Z"
-    completed_at: "2026-02-13T15:13:06.867Z"
-    outputs:
-      - path: "Confirmação: commit docs isolado criado com sucesso e sem alterações em .context no commit"
-        status: filled
+    status: pending
 
 execution:
   history:
-    - timestamp: "2026-02-13T15:13:06.867Z"
-      phase: C
-      action: completed
-  last_activity: "2026-02-13T15:13:06.867Z"
-  resume_context: "Fase C (Confirmação) concluída"
+    - timestamp: "2026-02-13T15:56:19.922Z"
+      phase: R
+      action: started
+  last_activity: "2026-02-13T15:56:19.922Z"
+  resume_context: "Fase R (Revisão) em progresso"
 
 settings:
-  autonomous_mode: true
+  autonomous_mode: false
   require_plan: true
-  require_approval: true
+  require_approval: false
 
 approval:
-  plan_created: false
-  plan_approved: true
-  approved_by: "system-migration"
-  approved_at: "2026-02-13T15:12:58.447Z"
+  plan_created: true
+  plan_approved: false
