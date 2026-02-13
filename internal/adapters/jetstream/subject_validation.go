@@ -13,9 +13,10 @@ var (
 )
 
 var allowedSubjectRoots = map[string]struct{}{
-	"insights":   {},
-	"marketdata": {},
-	"quarantine": {},
+	"aggregation": {},
+	"insights":    {},
+	"marketdata":  {},
+	"quarantine":  {},
 }
 
 // ValidateSubjectTaxonomy validates concrete publish subjects.

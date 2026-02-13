@@ -7,7 +7,7 @@
 ## Inputs/Outputs
 
 - Inputs: `marketdata.bookdelta.v1.{venue}.{instrument}`; optional context `marketdata.trade.v1.{venue}.{instrument}`.
-- Outputs (planned, not in event-bus.md matrix): `aggregation.snapshot.v1.{venue}.{instrument}`, `aggregation.orderbook_inconsistency.v1.{venue}.{instrument}`.
+- Outputs (draft): `aggregation.snapshot.v1.{venue}.{instrument}`, `aggregation.orderbook_inconsistency.v1.{venue}.{instrument}`.
 - Partition/subject refs: [ADR-0014](../../../docs/adrs/ADR-0014-stream-partitioning-strategy.md), [delivery-ws](../../../docs/contracts/delivery-ws.md).
 
 ## Invariants
