@@ -32,7 +32,8 @@ Accepted delivery router inputs:
 - `aggregation.snapshot.v1.{venue}.{instrument}`
 - planned: `insights.heatmap_snapshot.v1.{venue}.{instrument}`
 - planned: `insights.heatmap_delta.v1.{venue}.{instrument}`
-- planned: `insights.<volume_profile_event>.v1.{venue}.{instrument}` (TBD registry key)
+- planned: `insights.volume_profile_snapshot.v1.{venue}.{instrument}`
+- planned: `insights.volume_profile_delta.v1.{venue}.{instrument}`
 
 ### Output Plane (WS frames)
 
