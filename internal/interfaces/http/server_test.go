@@ -382,6 +382,25 @@ func TestServer_Pprof_EnabledLocalhostAllowed(t *testing.T) {
 	}
 }
 
+func TestServer_PprofIndex_EnabledLocalhostAllowed(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := httpserver.NewServer(e, guardianPID, ":0", true, nil)
+	req := httptest.NewRequest(http.MethodGet, "/debug/pprof/", strings.NewReader(""))
+	req.RemoteAddr = "127.0.0.1:12345"
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "profiles") {
+		t.Fatalf("expected pprof index output")
+	}
+}
+
 func TestServer_Pprof_EnabledRemoteForbidden(t *testing.T) {
 	e := newEngine(t)
 	guardianPID := newGuardian(t, e)
