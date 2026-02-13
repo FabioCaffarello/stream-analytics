@@ -16,7 +16,7 @@ APP_CMD ?= ./cmd/server
 GO_TEST_FLAGS ?= -covermode=atomic
 GO_TEST_RACE_TIMEOUT ?= 10m
 GO_TEST_RACE_FLAGS ?= -race -covermode=atomic -timeout=$(GO_TEST_RACE_TIMEOUT)
-INTEGRATION_TEST_PATTERN ?= Integration|E2E|Conformance|ReplayIngestGolden1000
+INTEGRATION_TEST_PATTERN ?= Integration|E2E|Conformance
 INTEGRATION_TEST_PKGS ?= ./internal/adapters/jetstream ./cmd/consumer
 TEST_RACE_PKGS ?= ./internal/adapters/jetstream ./internal/shared/replay ./internal/actors/runtime ./cmd/consumer
 REPLAY_GOLDEN_PKGS ?= ./internal/shared/replay ./cmd/consumer
