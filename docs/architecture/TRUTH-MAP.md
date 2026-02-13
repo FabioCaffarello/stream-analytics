@@ -23,7 +23,7 @@ Create one authoritative map of:
 
 | Doc | Summary | Anchor |
 |---|---|---|
-| PRD-0001 | Snapshot still mixes pre-W11 gaps and post-W11 evidence; requires drift reconciliation. | `docs/prd/PRD-0001-extreme-runtime.md:35`, `docs/prd/PRD-0001-extreme-runtime.md:473` |
+| PRD-0001 | Normalized active baseline with Implemented/Partially Implemented/Planned matrix and workspace-safe gates. | `docs/prd/PRD-0001-extreme-runtime.md:1`, `docs/prd/PRD-0001-extreme-runtime.md:81` |
 | AUDIT-PACK-W11 | Contains strongest evidence matrix linking docs to code/tests. | `docs/audits/AUDIT-PACK-W11-finalization.md:25` |
 | EXECUTION-SEQUENCE | Tracks W4..W13 with explicit Implemented/Partially Implemented/Planned matrix and real workspace gates. | `docs/rfcs/EXECUTION-SEQUENCE.md:1`, `docs/rfcs/EXECUTION-SEQUENCE.md:94` |
 | ADR-REVISIONS patch plan | Historical patch plan; some amendments already absorbed into ADRs. | `docs/rfcs/ADR-REVISIONS-patch-plan.md:1` |
@@ -63,9 +63,9 @@ Status anchors: `docs/adrs/ADR-0000-foundation.md:3`, `docs/adrs/ADR-0010-config
 - `docs/rfcs/RFC-0005-W4-observability-profiling.md` (raw: Done, normalized: Accepted)
 - `docs/rfcs/RFC-0006-W5-memory-lifecycle-hardening.md` (raw: Done, normalized: Accepted)
 - `docs/rfcs/RFC-0007-W6-protobuf-contract-layer.md` (raw: Implemented, normalized: Accepted (partial))
-- `docs/rfcs/RFC-0008-W7-nats-jetstream-integration.md` (raw: Proposed, normalized: Draft)
+- `docs/rfcs/RFC-0008-W7-nats-jetstream-integration.md` (raw: Draft + Partially Implemented marker, normalized: Draft)
 - `docs/rfcs/RFC-0009-W8-deterministic-replay-golden-tests.md` (raw: Done, normalized: Accepted)
-- `docs/rfcs/RFC-0010-W9-multi-exchange-readiness.md` (raw: Proposed, normalized: Draft)
+- `docs/rfcs/RFC-0010-W9-multi-exchange-readiness.md` (raw: Draft + Partially Implemented marker, normalized: Draft)
 
 Status anchors: `docs/rfcs/RFC-0001-robustness-roadmap.md:3`, `docs/rfcs/RFC-0005-W4-observability-profiling.md:3`, `docs/rfcs/RFC-0008-W7-nats-jetstream-integration.md:3`, `docs/rfcs/RFC-0010-W9-multi-exchange-readiness.md:3`.
 
@@ -84,12 +84,12 @@ Status anchors: `docs/rfcs/RFC-0001-robustness-roadmap.md:3`, `docs/rfcs/RFC-000
 |---|---|---|---|---|
 | Runtime invariants | `docs/audits/AUDIT-PACK-W11-finalization.md:25` | `scripts/check-domain-isolation.sh:16`, `internal/actors/runtime/guardian.go:273` | `internal/shared/contracts/import_guard_test.go:15`, `internal/actors/runtime/guardian_test.go:57` | Accepted (operational evidence) |
 | Subject taxonomy | `docs/adrs/ADR-0014-stream-partitioning-strategy.md:33` | `internal/adapters/jetstream/subject_validation.go:24` | `internal/adapters/jetstream/subject_validation_test.go:5` | Accepted |
-| ACK semantics (ACK/NAK/TERM) | `docs/adrs/ADR-0004-bus-nats-jetstream.md:1`, `docs/rfcs/RFC-0008-W7-nats-jetstream-integration.md:13` | `internal/adapters/jetstream/consumer.go:279`, `internal/adapters/jetstream/ingest_policy.go:59` | `internal/adapters/jetstream/ingest_conformance_test.go:15` | Accepted in runtime, RFC status drift (`TODO`) |
+| ACK semantics (ACK/NAK/TERM) | `docs/adrs/ADR-0004-bus-nats-jetstream.md:1`, `docs/rfcs/RFC-0008-W7-nats-jetstream-integration.md:1` | `internal/adapters/jetstream/consumer.go:279`, `internal/adapters/jetstream/ingest_policy.go:59` | `internal/adapters/jetstream/ingest_conformance_test.go:15` | Accepted in runtime; RFC remains Draft with explicit partial matrix |
 | Replay deterministico | `docs/adrs/ADR-0015-deterministic-replay-time-invariants.md:1`, `docs/rfcs/RFC-0009-W8-deterministic-replay-golden-tests.md:1` | `internal/shared/replay/player.go:45`, `internal/shared/replay/sequencer.go:56`, `internal/shared/replay/canon.go:284` | `internal/shared/replay/golden_test.go:18`, `cmd/consumer/replay_test.go:63` | Accepted |
 | Backpressure | `docs/adrs/ADR-0013-backpressure-overload-policies.md:1`, `docs/rfcs/RFC-0006-W5-memory-lifecycle-hardening.md:1` | `internal/actors/marketdata/runtime/backpressure_queue.go:56`, `internal/shared/config/loader.go:280` | `internal/actors/marketdata/runtime/backpressure_queue_test.go:1` | Proposed ADR + implemented runtime (`OPEN QUESTION` for ADR acceptance) |
 | Storage hot/cold | `docs/adrs/ADR-0006-storage-hot-vs-cold.md:12` | `internal/core/aggregation/ports/ports.go:17`, `internal/core/aggregation/app/update_orderbook.go:141` | `internal/core/aggregation/app/update_orderbook_test.go:33` | Accepted with explicit cold-path deferral |
 | Contract layer | `docs/adrs/ADR-0016-protobuf-contract-layer.md:3`, `docs/rfcs/RFC-0007-W6-protobuf-contract-layer.md:1` | `internal/shared/contracts/payload_registry.go:19`, `internal/shared/codec/proto_codec.go:25` | `internal/shared/contracts/import_guard_test.go:15`, `internal/shared/contracts/authority_test.go:284` | Proposed ADR + accepted W6 foundation |
-| Multi-exchange | `docs/adrs/ADR-0017-multi-exchange-normalization.md:1`, `docs/rfcs/RFC-0010-W9-multi-exchange-readiness.md:1` | `cmd/consumer/main.go:455`, `cmd/consumer/main.go:481` | `cmd/consumer/e2e_consumer_integration_test.go:24`, `internal/actors/runtime/guardian_test.go:99` | Accepted in runtime, RFC status drift (`TODO`) |
+| Multi-exchange | `docs/adrs/ADR-0017-multi-exchange-normalization.md:1`, `docs/rfcs/RFC-0010-W9-multi-exchange-readiness.md:1` | `cmd/consumer/main.go:157`, `cmd/consumer/main.go:183` | `cmd/consumer/e2e_consumer_integration_test.go:24`, `internal/actors/runtime/guardian_test.go:99` | Runtime implemented; RFC remains Draft with explicit partial matrix |
 
 ### Real Validation Gates (Workspace-Safe)
 
@@ -116,3 +116,4 @@ Anchor: `Makefile:123`, `Makefile:136`, `Makefile:139`, `Makefile:142`.
   - created W11 truth map with full ADR/RFC/architecture/contracts inventory;
   - mapped single source of truth for runtime invariants, taxonomy, ACK semantics, replay, backpressure, storage, contract layer and multi-exchange;
   - added workspace-safe gate commands used by PREVC validation.
+  - reconciled PRD/RFC W7/W9 summaries after governance normalization wave 2.
