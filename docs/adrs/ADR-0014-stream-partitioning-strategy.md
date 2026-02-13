@@ -146,3 +146,8 @@ This ensures subject derivation is deterministic and testable without NATS depen
 3. Publisher uses `SubjectFromEnvelope()` for NATS publish subject (RFC-0008/W7)
 4. Consumer uses FilterSubject for subscription (RFC-0008/W7)
 5. Cross-venue wildcard tested in RFC-0010/W9 (multi-exchange)
+
+## Evidence
+
+- Validation gate: `make docs-check-full`
+- Authority path: file-local ADR source.

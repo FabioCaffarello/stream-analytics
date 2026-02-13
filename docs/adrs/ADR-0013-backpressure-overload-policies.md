@@ -126,3 +126,8 @@ Without changing this ADR status (`Proposed`), W11 established partial implicit 
   - Define explicit per-reason overload actions (for example: decode failure, slow consumer, publish timeout, redelivery storm), not only generic drop behavior.
   - Bind each overload reason to deterministic policy (`drop`, `nak`, `term`, `quarantine`, `rate-limit`) with documented precedence.
   - Add dedicated tests/alerts proving policy transitions by overload reason, beyond current implicit boundedness and lag visibility.
+
+## Evidence
+
+- Validation gate: `make docs-check-full`
+- Authority path: file-local ADR source.
