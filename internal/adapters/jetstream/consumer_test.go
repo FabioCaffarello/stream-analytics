@@ -11,6 +11,7 @@ import (
 
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/metrics"
+	"github.com/market-raccoon/internal/shared/observability"
 	"github.com/market-raccoon/internal/shared/problem"
 	"github.com/nats-io/nats.go"
 	"github.com/prometheus/client_golang/prometheus/testutil"
@@ -218,6 +219,58 @@ func TestAckHeartbeatGoroutineDeltaBounded(t *testing.T) {
 	after := runtime.NumGoroutine()
 	if delta := after - before; delta > 6 {
 		t.Fatalf("goroutine delta too high: before=%d after=%d delta=%d", before, after, delta)
+	}
+}
+
+func TestConsumer_HandlerPanic_HeartbeatCleansUp(t *testing.T) {
+	before := runtime.NumGoroutine()
+
+	data, p := envelope.MarshalBinary(envelope.Envelope{
+		Type:           "marketdata.bookdelta",
+		Version:        1,
+		Venue:          "binance",
+		Instrument:     "BTCUSDT",
+		TsExchange:     time.Now().UnixMilli(),
+		TsIngest:       time.Now().UnixMilli(),
+		Seq:            1,
+		IdempotencyKey: "panic-heartbeat-cleanup",
+		Payload:        []byte(`{"ok":true}`),
+	})
+	if p != nil {
+		t.Fatalf("marshal envelope: %v", p)
+	}
+
+	c := &Consumer{
+		cfg: ConsumerConfig{
+			AckWait: 300 * time.Millisecond,
+		},
+		observer: observability.NopBusObserver(),
+	}
+
+	const iterations = 16
+	for i := 0; i < iterations; i++ {
+		msg := nats.NewMsg("marketdata.bookdelta.v1.binance.BTCUSDT")
+		msg.Data = data
+
+		func() {
+			defer func() {
+				if r := recover(); r == nil {
+					t.Fatal("expected panic from handler")
+				}
+			}()
+
+			_ = c.consumeOne(context.Background(), msg, func(context.Context, envelope.Envelope) *problem.Problem {
+				panic("handler panic")
+			})
+		}()
+	}
+
+	waitUntil(t, 2*time.Second, func() bool {
+		return runtime.NumGoroutine() <= before+4
+	})
+	after := runtime.NumGoroutine()
+	if delta := after - before; delta > 4 {
+		t.Fatalf("goroutine delta too high after panic cleanup: before=%d after=%d delta=%d", before, after, delta)
 	}
 }
 

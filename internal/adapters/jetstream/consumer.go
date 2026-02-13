@@ -211,6 +211,7 @@ func (c *Consumer) consumeOne(ctx context.Context, msg *nats.Msg, handler Consum
 			c.observer.IncConsumed(busTypeJetStream, "heartbeat_error")
 		},
 	)
+	defer stopHeartbeat()
 
 	started := time.Now()
 	procProb := handler(ctx, env)
