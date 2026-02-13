@@ -34,6 +34,7 @@ O documento segue tres principios:
 3. **No ghost checklist:** comandos listados precisam existir no `Makefile` ou em testes identificados.
 
 Gate authority (workspace atual):
+- `make docs-check`
 - `make invariants-check`
 - `make test-workspace`
 - `make test-workspace-race`
@@ -60,6 +61,7 @@ Gate authority (workspace atual):
 ### Mandatory for governance/runtime safety
 
 ```bash
+make docs-check
 make invariants-check
 make test-workspace
 make test-workspace-race
@@ -91,6 +93,7 @@ make soak-check
 - Itens incompletos estao marcados como `Partially Implemented` ou `Planned`.
 - Nao existe referencia a comandos inexistentes no workspace.
 - Gates refletem estado real de `Makefile` e suites de teste atuais.
+- `make docs-check` e o gate inicial de governanca documental.
 
 ## Risks
 
@@ -104,6 +107,7 @@ make soak-check
 
 | Capability | Status | Reference |
 |---|---|---|
+| Documentation guardrails (headers, links, truth-map) | Implemented | `Makefile`, `scripts/check-doc-headers.sh`, `scripts/check-doc-links.sh`, `scripts/check-truth-map.sh` |
 | Domain isolation + determinism guards | Implemented | `Makefile:123`, `scripts/check-domain-isolation.sh:49`, `scripts/check-domain-isolation.sh:107` |
 | Workspace-wide tests (`go test` all modules) | Implemented | `Makefile:136`, `Makefile:139` |
 | JetStream durability/restart | Implemented | `internal/adapters/jetstream/consumer_integration_test.go:21` |
@@ -121,6 +125,7 @@ make soak-check
 - `docs/audits/DRIFT-REPORT-W11.md`
 
 - Gate anchors:
+- `Makefile`
 - `Makefile:123`
 - `Makefile:136`
 - `Makefile:139`
@@ -140,5 +145,6 @@ make soak-check
 - 2026-02-13:
 - Documento normalizado para contrato RFC.
 - Gates reais confirmados com `Makefile`.
+- Gate inicial de docs adicionado (`make docs-check`) para prevenir drift documental.
 - Checklist fantasma removido (`golden-check`, `audit-core-purity`).
 - Matriz de implementacao adicionada para diferenciar entregue/parcial/planejado.

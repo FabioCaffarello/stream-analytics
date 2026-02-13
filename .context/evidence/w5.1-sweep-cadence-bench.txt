@@ -1,8 +1,0 @@
-goos: darwin
-goarch: arm64
-pkg: github.com/market-raccoon/internal/shared/ds
-cpu: Apple M4
-BenchmarkBoundedMapPutGet_WithSweepEveryOp-10    	 4321135	      5533 ns/op	     135 B/op	       4 allocs/op
-BenchmarkBoundedMapPutGet_ThrottledSweep-10      	137624929	       158.6 ns/op	     138 B/op	       4 allocs/op
-PASS
-ok  	github.com/market-raccoon/internal/shared/ds	69.811s

@@ -31,7 +31,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules tidy tidy-check fmt fmt-check invariants-check lint test test-root test-workspace test-workspace-race soak-check test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install proto-lint proto-gen proto-breaking proto ci
+.PHONY: help install-tools tools modules tidy tidy-check fmt fmt-check docs-check docs-fix invariants-check lint test test-root test-workspace test-workspace-race soak-check test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install proto-lint proto-gen proto-breaking proto ci
 
 help:
 	@echo "Targets:"
@@ -42,6 +42,8 @@ help:
 	@echo "  make tidy-check         - fail if go.mod/go.sum are not tidy"
 	@echo "  make fmt                - format all Go files (gofmt)"
 	@echo "  make fmt-check          - check formatting (gofmt -l)"
+	@echo "  make docs-check         - fast docs guardrails (headers, links, truth-map consistency)"
+	@echo "  make docs-fix           - print docs fix checklist based on current guardrail findings"
 	@echo "  make invariants-check   - enforce domain isolation and runtime invariants checks"
 	@echo "  make lint               - run golangci-lint in workspace modules"
 	@echo "  make test               - alias for make test-root"
@@ -119,6 +121,16 @@ fmt:
 
 fmt-check:
 	@./scripts/gofmt-all.sh check
+
+docs-check:
+	@./scripts/check-doc-headers.sh
+	@./scripts/check-doc-links.sh
+	@./scripts/check-truth-map.sh
+
+docs-fix:
+	@./scripts/check-doc-headers.sh --fix-hints
+	@./scripts/check-doc-links.sh --fix-hints
+	@./scripts/check-truth-map.sh --fix-hints
 
 invariants-check:
 	@./scripts/check-domain-isolation.sh "$(CURDIR)"
