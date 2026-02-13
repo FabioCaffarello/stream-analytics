@@ -44,7 +44,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules workspace-check tidy tidy-check fmt fmt-check vet quick ci-local docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-partition test-replay-golden test-replay-golden-if-needed test-soak soak-check test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-breaking proto-check proto ci
+.PHONY: help install-tools tools modules workspace-check tidy tidy-check fmt fmt-check vet quick ci-local docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-breaking proto-check proto ci
 
 help:
 	@echo "Targets:"
@@ -75,6 +75,7 @@ help:
 	@echo "  make test-partition     - run partitioned suites (unit -> integration -> race -> soak)"
 	@echo "  make test-replay-golden - run replay golden tests only (shared/replay + cmd/consumer)"
 	@echo "  make test-replay-golden-if-needed - run replay golden only when changed paths match trigger regex"
+	@echo "  make replay-trigger-self-check - validate replay trigger include/exclude paths"
 	@echo "  make test-soak          - alias for soak-check long-running validation"
 	@echo "  make soak-check         - run soak harness checks and emit evidence file"
 	@echo "  make test-short         - run short tests"
@@ -263,12 +264,16 @@ test-replay-golden-if-needed:
 		echo "Set REPLAY_GOLDEN_CHANGED with changed paths (e.g. git diff --name-only HEAD~1)"; \
 		exit 1; \
 	fi; \
-	if printf "%s\n" "$(REPLAY_GOLDEN_CHANGED)" | tr ' ' '\n' | rg -Eq '$(REPLAY_GOLDEN_TRIGGER_REGEX)'; then \
+	if printf "%s\n" "$(REPLAY_GOLDEN_CHANGED)" | tr ' ' '\n' | rg -q -e '$(REPLAY_GOLDEN_TRIGGER_REGEX)'; then \
 		echo "replay trigger matched; running test-replay-golden"; \
 		$(MAKE) test-replay-golden; \
 	else \
 		echo "replay trigger not matched; skipping test-replay-golden"; \
 	fi
+
+replay-trigger-self-check:
+	@$(MAKE) test-replay-golden-if-needed REPLAY_GOLDEN_CHANGED='internal/shared/replay/foo.go'
+	@$(MAKE) test-replay-golden-if-needed REPLAY_GOLDEN_CHANGED='README.md'
 
 test-soak:
 	@$(MAKE) soak-check
