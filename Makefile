@@ -167,13 +167,7 @@ quick:
 	@$(MAKE) test-unit
 
 ci-local:
-	@$(MAKE) quick
-	@$(MAKE) docs-check-full
-	@$(MAKE) invariants-check
-	@$(MAKE) test-unit
-	@$(MAKE) test-integration
-	@$(MAKE) test-replay-golden
-	@$(MAKE) proto-check
+	@./scripts/ci-local.sh
 
 docs-check:
 	@$(MAKE) docs-check-full
