@@ -5,7 +5,7 @@
 
 ## Inputs/Outputs
 - Inputs: `marketdata.markprice.v1.{venue}.{instrument}`, `marketdata.liquidation.v1.{venue}.{instrument}`.
-- Outputs: WS `marketdata.markprice/{venue}/{symbol}/{timeframe}`, WS `marketdata.liquidation/{venue}/{symbol}/{timeframe}`, planned `insights.markprice_liquidation_snapshot.v1.{venue}.{instrument}`.
+- Outputs: WS `marketdata.markprice/{venue}/{symbol}/{timeframe}`, WS `marketdata.liquidation/{venue}/{symbol}/{timeframe}`, (planned, not in event-bus.md matrix) `insights.markprice_liquidation_snapshot.v1.{venue}.{instrument}`.
 - Mapping refs: [ADR-0017](../../../docs/adrs/ADR-0017-multi-exchange-normalization.md), [delivery-ws](../../../docs/contracts/delivery-ws.md).
 
 ## Invariants

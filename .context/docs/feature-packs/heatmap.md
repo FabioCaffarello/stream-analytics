@@ -5,7 +5,7 @@
 
 ## Inputs/Outputs
 - Inputs: `marketdata.bookdelta.v1.{venue}.{instrument}`, `marketdata.trade.v1.{venue}.{instrument}`.
-- Outputs (planned): `insights.heatmap_snapshot.v1.{venue}.{instrument}`, `insights.heatmap_delta.v1.{venue}.{instrument}`.
+- Outputs (planned, not in event-bus.md matrix): `insights.heatmap_snapshot.v1.{venue}.{instrument}`, `insights.heatmap_delta.v1.{venue}.{instrument}`.
 - Planned WS: `insights.heatmap/{venue}/{symbol}/{timeframe}` ([delivery-ws](../../../docs/contracts/delivery-ws.md)).
 - Subject refs: [ADR-0014](../../../docs/adrs/ADR-0014-stream-partitioning-strategy.md).
 
