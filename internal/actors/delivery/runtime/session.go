@@ -1,10 +1,12 @@
 package deliveryruntime
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sort"
 	"time"
 
 	"github.com/anthdm/hollywood/actor"
@@ -211,6 +213,18 @@ func paginateTail(items []ports.RangeItem, page, limit int) []ports.RangeItem {
 	return items[start:end]
 }
 
+func sortRangeItems(items []ports.RangeItem) {
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].Seq != items[j].Seq {
+			return items[i].Seq < items[j].Seq
+		}
+		if items[i].TsIngest != items[j].TsIngest {
+			return items[i].TsIngest < items[j].TsIngest
+		}
+		return bytes.Compare(items[i].Payload, items[j].Payload) < 0
+	})
+}
+
 func (s *SessionActor) handleSubscribe(cmd clientCommand) {
 	subRes := s.service.ParseSubject(cmd.Subject)
 	if subRes.IsFail() {
@@ -271,9 +285,10 @@ func (s *SessionActor) handleGetLast(cmd clientCommand) {
 		return
 	}
 	var item any
-	items := res.Value()
+	items := append([]ports.RangeItem(nil), res.Value()...)
+	sortRangeItems(items)
 	if len(items) > 0 {
-		item = items[len(items)-1]
+		item = items[len(items)-1] // highest seq after defensive sort
 	}
 	s.writeJSON(map[string]any{
 		"type":       "last",
@@ -331,7 +346,9 @@ func (s *SessionActor) handleGetRange(cmd clientCommand) {
 		s.writeProblem(cmd.Op, cmd.RequestID, res.Problem())
 		return
 	}
-	items := paginateTail(res.Value(), page, limit)
+	items := append([]ports.RangeItem(nil), res.Value()...)
+	sortRangeItems(items)
+	items = paginateTail(items, page, limit)
 	if len(items) > maxResponseItems {
 		items = items[len(items)-maxResponseItems:]
 	}
