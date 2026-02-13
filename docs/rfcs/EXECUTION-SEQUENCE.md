@@ -1,8 +1,32 @@
-# Execution Sequence — W4 through W9
+# Execution Sequence — W4 through W13
 
-**Date:** 2026-02-12
+**Status:** Accepted
+**Date:** 2026-02-13
 **PRD:** PRD-0001 (Market Raccoon Extreme Runtime)
-**Total Work Packages:** 6 (W4..W9)
+**Total Work Packages:** 10 (W4..W10 delivered, W12 delivered, W13 opened)
+
+---
+
+## Truth Anchors (W11)
+
+- Canonical doc authority map: `docs/architecture/TRUTH-MAP.md`
+- Drift baseline before refactor: `docs/audits/DRIFT-REPORT-W11.md`
+- Real validation gates (workspace-safe):
+
+```bash
+make invariants-check
+make test-workspace
+make test-workspace-race
+make soak-check
+```
+
+Gate anchors: `Makefile:123`, `Makefile:136`, `Makefile:139`, `Makefile:142`.
+
+## Changelog
+
+- 2026-02-13:
+  - linked execution sequence to `TRUTH-MAP` and `DRIFT-REPORT-W11`;
+  - aligned explicit gate commands with current Makefile targets.
 
 ---
 
@@ -51,7 +75,7 @@ W5 (Lifecycle)      ────────────────────
 - [x] `curl localhost:8080/debug/pprof/goroutine?debug=1` returns goroutine dump (`file:test internal/interfaces/http/server_test.go:TestServer_Pprof_EnabledLocalhostAllowed`)
 - [x] All metrics from PRD-0001 B.5 registered and emitting (`file:test internal/shared/metrics/metrics_test.go:TestMetricsNamesPresent`)
 - [x] `make test-workspace-race` green gate is wired (`file:symbol Makefile:test-workspace-race`)
-- [ ] No perf regression > 5% (benchmark before/after ingest) — Deferred: existem benchmarks de ingest/aggregation (`internal/core/marketdata/app/ingest_bench_test.go`, `internal/core/aggregation/domain/orderbook_bench_test.go`), mas não há artefato versionado com comparação before/after <= 5%. Plan: executar `go test -run '^$' -bench BenchmarkIngest_1000Envelopes -benchmem ./internal/core/marketdata/app` e `go test -run '^$' -bench BenchmarkApplyDelta_1000Levels -benchmem ./internal/core/aggregation/domain`, publicar relatório comparativo em `.context/evidence/`.
+- [ ] No perf regression > 5% (benchmark before/after ingest) — Deferred: existem benchmarks de ingest/aggregation (`internal/core/marketdata/app/ingest_bench_test.go`, `internal/core/aggregation/domain/orderbook_bench_test.go`), mas não há artefato versionado com comparação before/after <= 5%. Plan: executar `go test -run '^$' -bench BenchmarkIngest -benchmem ./internal/core/marketdata/app` e `go test -run '^$' -bench BenchmarkApplyDelta -benchmem ./internal/core/aggregation/...`, publicar relatório comparativo em `.context/evidence/`.
 
 **pprof Expectations (baseline capture):**
 - Record goroutine count at t=0 and t=30min with 2 tickers
@@ -249,6 +273,64 @@ make audit-core-purity  # grep for exchange names in core
 | Goroutine stability | Δ ≤ 5 in 30min | pprof goroutine |
 | Heap stability | Growth < 10% in 30min | pprof heap |
 | Shutdown | < 10s | SIGTERM → exit timer |
+
+---
+
+## W12 — Operational Maturity Gate (Delivered)
+
+**Date:** 2026-02-13
+**Scope:** fechar lacunas operacionais P0 sem quebrar isolamento de domínio, determinismo e gates workspace-safe.
+
+### W12 Deliverables
+
+- Bench ingest: `internal/core/marketdata/app/ingest_bench_test.go` (`file:test BenchmarkIngest_1000Envelopes`)
+- Bench orderbook: `internal/core/aggregation/domain/orderbook_bench_test.go` (`file:test BenchmarkApplyDelta_1000Levels`)
+- Gate soak padronizado: `Makefile` (`file:symbol soak-check`) chamando `scripts/soak-test.sh` com parâmetros (`file:symbol --out-file`, `file:symbol --go-cache`, `file:symbol --ws-pattern`, `file:symbol --boundedmap-pattern`)
+- Checklist de execução alinhado ao workspace e com anchors de evidência (esta seção + PRD)
+
+### W12 Acceptance Commands (Workspace-Safe)
+
+```bash
+make invariants-check
+make test-workspace
+make test-workspace-race
+go test -run '^$' -bench BenchmarkIngest ./internal/core/marketdata/app
+go test -run '^$' -bench BenchmarkApplyDelta ./internal/core/aggregation/...
+make soak-check
+```
+
+### W12 Evidence Anchors
+
+- Domain isolation and determinism guards: `scripts/check-domain-isolation.sh` (`file:symbol scan_with_rg`, `file:symbol scan_time_now_with_rg`)
+- Bench coverage and deterministic setup:
+  - `internal/core/marketdata/app/ingest_bench_test.go` (`file:test BenchmarkIngest_1000Envelopes`)
+  - `internal/core/aggregation/domain/orderbook_bench_test.go` (`file:test BenchmarkApplyDelta_1000Levels`)
+- Soak gate orchestration:
+  - `Makefile` (`file:symbol soak-check`)
+  - `scripts/soak-test.sh` (`file:symbol usage`, `file:symbol W5 soak harness`)
+
+### W12 Risks and Mitigations
+
+| Risk | Impact | Mitigation |
+|---|---|---|
+| Benchmark flakiness em CI compartilhada | Ruído em comparação temporal | Tratar benchmark como baseline observável; comparar runs em ambiente homogêneo e fixar `-run '^$'` para eliminar custo de testes não benchmark |
+| Runtime do soak | Pipeline lenta e custo alto | `soak-check` padronizado como gate manual/operacional por ora; comando único reproduzível para local/CI agendada |
+| Custo de CI para integração completa | Fila e tempo de feedback altos | Manter gates obrigatórios em `invariants-check` + `test-workspace-race`; executar soak/long-run por janela dedicada |
+
+## W13 — Contract Layer Completion (Opened)
+
+**Date:** 2026-02-13
+
+### Objective
+
+Completar migração operacional da camada de contratos protobuf sem violar o boundary `internal/shared/*`.
+
+### Initial Checklist
+
+- `buf lint` e `buf breaking` como gates obrigatórios de PR para schemas alterados.
+- Cobertura de `proto/registry.json` para novos contratos e versões.
+- Opt-in de runtime (`ContentType`/codec) por configuração com regressão JSON preservada.
+- Evidência E2E de publish/consume opt-in protobuf sem dependência protobuf em `internal/core/*`, `internal/actors/*`, `internal/interfaces/*`.
 
 ---
 
