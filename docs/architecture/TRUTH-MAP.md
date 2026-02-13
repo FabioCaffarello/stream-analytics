@@ -25,7 +25,7 @@ Create one authoritative map of:
 |---|---|---|
 | PRD-0001 | Snapshot still mixes pre-W11 gaps and post-W11 evidence; requires drift reconciliation. | `docs/prd/PRD-0001-extreme-runtime.md:35`, `docs/prd/PRD-0001-extreme-runtime.md:473` |
 | AUDIT-PACK-W11 | Contains strongest evidence matrix linking docs to code/tests. | `docs/audits/AUDIT-PACK-W11-finalization.md:25` |
-| EXECUTION-SEQUENCE | Declares W4..W10 done with deferred checkpoints explicitly listed. | `docs/rfcs/EXECUTION-SEQUENCE.md:12`, `docs/rfcs/EXECUTION-SEQUENCE.md:54` |
+| EXECUTION-SEQUENCE | Tracks W4..W13 with explicit Implemented/Partially Implemented/Planned matrix and real workspace gates. | `docs/rfcs/EXECUTION-SEQUENCE.md:1`, `docs/rfcs/EXECUTION-SEQUENCE.md:94` |
 | ADR-REVISIONS patch plan | Historical patch plan; some amendments already absorbed into ADRs. | `docs/rfcs/ADR-REVISIONS-patch-plan.md:1` |
 
 ### Document Inventory
