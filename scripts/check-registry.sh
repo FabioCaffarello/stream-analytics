@@ -116,6 +116,11 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     field_value="${field_value%% }"
 
     case "$field_name" in
+      pattern)
+        if [[ "$field_value" == *"TBD"* || "$field_value" == *"<"* || "$field_value" == *">"* ]]; then
+          fail "${current_id}: pattern must not contain placeholders like TBD/<...>, got '${field_value}'"
+        fi
+        ;;
       root)
         if [[ -s "$runtime_roots_file" ]] && ! grep -Fxq "$field_value" "$runtime_roots_file"; then
           fail "${current_id}: root '${field_value}' not in allowedSubjectRoots (${validation_src##*/})"

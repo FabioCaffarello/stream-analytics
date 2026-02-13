@@ -126,20 +126,22 @@ subjects:
     owner_bc: insights
     producer_bc: insights
     schema_authority_bc: insights
-    consumer_bcs: [delivery]
+    consumer_bcs: [delivery, storage]
     status: draft
     sources:
       - .context/docs/feature-packs/heatmap.md
+      - docs/contracts/event-bus.md
   - id: insights.heatmap_delta.v1
     pattern: insights.heatmap_delta.v1.{venue}.{instrument}
     root: insights
     owner_bc: insights
     producer_bc: insights
     schema_authority_bc: insights
-    consumer_bcs: [delivery]
+    consumer_bcs: [delivery, storage]
     status: planned
     sources:
       - .context/docs/feature-packs/heatmap.md
+      - docs/contracts/event-bus.md
   - id: insights.volume_profile_snapshot.v1
     pattern: insights.volume_profile_snapshot.v1.{venue}.{instrument}
     root: insights
