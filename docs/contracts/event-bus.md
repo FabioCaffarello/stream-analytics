@@ -96,6 +96,13 @@ Proibido:
 | Enforcement em ingest/quarantine path | Implemented | `internal/adapters/jetstream/ingest_policy.go:300`, `internal/adapters/jetstream/consumer_test.go:393` |
 | Proto content-type opt-in no payload | Partially Implemented | `internal/shared/envelope/envelope.go:14`, `docs/adrs/ADR-0016-protobuf-contract-layer.md` |
 
+### Runtime Subjects Matrix (`insights.crossvenue.*`)
+
+| Subject | Producer (BC/runtime) | Consumer(s) esperados | Storage relevance | Replay note | Referencia |
+|---|---|---|---|---|---|
+| `insights.crossvenue.trade_snapshot.v1.global.{instrument}` | `aggregation` runtime (`ProcessorSubsystemActor` via `JoinCrossVenueTrades` + `PublishEnvelope`) | `delivery` WS contract input plane (`insights.crossvenue.trade_snapshot` stream quando subscrito) | Hot: L0 read-model em memória; L1/L2 planejado | Determinismo coberto por golden bytes (snapshot+signal) | `internal/actors/aggregation/runtime/processor.go:420`, `internal/actors/aggregation/runtime/processor_test.go:500`, `internal/adapters/jetstream/publisher_test.go:83`, `docs/contracts/delivery-ws.md:30`, `docs/architecture/storage.md:35`, `internal/shared/contracts/insights_registry.go:20`, `internal/core/insights/app/join_crossvenue_trades_test.go:529` |
+| `insights.crossvenue.spread_signal.v1.global.{instrument}` | `aggregation` runtime (`ProcessorSubsystemActor` com `EnableSpreadSignal`) | `delivery` WS contract input plane (`insights.crossvenue.spread_signal` stream quando subscrito) | Hot: L0 read-model em memória; L1/L2 planejado | Determinismo coberto por golden bytes (snapshot+signal) | `internal/actors/aggregation/runtime/processor.go:471`, `internal/actors/aggregation/runtime/processor_test.go:564`, `docs/contracts/delivery-ws.md:31`, `docs/architecture/storage.md:36`, `internal/shared/contracts/insights_registry.go:29`, `internal/core/insights/app/join_crossvenue_trades_test.go:529` |
+
 ## Evidence
 
 - `internal/shared/envelope/subject.go:9`
