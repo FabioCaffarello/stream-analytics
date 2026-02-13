@@ -308,6 +308,47 @@ func TestValidate_ConsumerExchangeBaseURLEmpty(t *testing.T) {
 	}
 }
 
+func TestValidate_ExchangeNameMatchesMetricsPattern(t *testing.T) {
+	t.Run("invalid long and chars", func(t *testing.T) {
+		cfg, _ := Load("")
+		cfg.Consumer.Exchanges = []ConsumerExchangeConfig{
+			{
+				Name:       "bybit-super-long-exchange-name-123!",
+				Type:       "bybit",
+				BaseURL:    "wss://stream.bybit.com/v5/public/spot",
+				Tickers:    []string{"ETH-USDT"},
+				MarketType: "SPOT",
+			},
+		}
+		if prob := cfg.Validate(); prob == nil {
+			t.Fatal("expected validation error for exchange name outside metrics label pattern")
+		}
+	})
+
+	t.Run("valid names", func(t *testing.T) {
+		cfg, _ := Load("")
+		cfg.Consumer.Exchanges = []ConsumerExchangeConfig{
+			{
+				Name:       "binance",
+				Type:       "binance",
+				BaseURL:    "wss://stream.binance.com:9443/stream",
+				Tickers:    []string{"BTC-USDT"},
+				MarketType: "SPOT",
+			},
+			{
+				Name:       "bybit",
+				Type:       "bybit",
+				BaseURL:    "wss://stream.bybit.com/v5/public/spot",
+				Tickers:    []string{"ETH-USDT"},
+				MarketType: "SPOT",
+			},
+		}
+		if prob := cfg.Validate(); prob != nil {
+			t.Fatalf("expected valid exchange names, got error: %v", prob)
+		}
+	})
+}
+
 func TestLoad_MultiExchangeNormalization_SortsDeterministically(t *testing.T) {
 	src := `{
 		"consumer": {

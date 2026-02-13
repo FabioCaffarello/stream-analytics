@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -18,6 +19,8 @@ const (
 	codeParseError problem.ProblemCode = "CFG_PARSE_ERROR"
 	codeInvalid    problem.ProblemCode = "CFG_INVALID"
 )
+
+var metricsExchangeNamePattern = regexp.MustCompile(`^[a-z0-9_-]{1,24}$`)
 
 // Load reads a JSONC config file and returns an AppConfig with defaults applied.
 // If path is empty, Load returns a fully-defaulted AppConfig without reading any file.
@@ -298,6 +301,14 @@ func validateConsumerExchanges(exchanges []ConsumerExchangeConfig) *problem.Prob
 		name := strings.ToLower(strings.TrimSpace(ex.Name))
 		if name == "" {
 			return problem.Newf(codeInvalid, "consumer.exchanges[%d].name must not be empty", i)
+		}
+		if !metricsExchangeNamePattern.MatchString(name) {
+			return problem.Newf(
+				codeInvalid,
+				`consumer.exchanges[%d].name must match [a-z0-9_-]{1,24} for metrics labels, got %q`,
+				i,
+				ex.Name,
+			)
 		}
 		if _, exists := seen[name]; exists {
 			return problem.Newf(codeInvalid, "consumer.exchanges name must be unique, duplicate %q", ex.Name)
