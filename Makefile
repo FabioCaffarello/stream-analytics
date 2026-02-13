@@ -24,6 +24,8 @@ SOAK_WS_PATTERN ?= TestConsumer_ConnectDisconnectCycle_(NoGoroutineLeak|HeapStab
 SOAK_BOUNDEDMAP_PATTERN ?= TestBoundedMap_(ConcurrentAccess|EvictBySizeLRU|EvictByTTL)
 VULN_REQUIRED ?= false
 MODULE ?=
+MSG_FILE ?=
+MSG ?= build(local): commit message check sample
 
 GOCACHE ?= $(CURDIR)/.cache/go-build
 GOMODCACHE ?= $(CURDIR)/.cache/go-mod
@@ -34,7 +36,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules tidy tidy-check fmt fmt-check vet quick docs-check docs-fix check-doc-headers check-doc-links check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-soak soak-check test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install proto-lint proto-gen proto-breaking proto ci
+.PHONY: help install-tools tools modules tidy tidy-check fmt fmt-check vet quick docs-check docs-fix check-doc-headers check-doc-links check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-soak soak-check test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install commit-msg-check proto-lint proto-gen proto-breaking proto ci
 
 help:
 	@echo "Targets:"
@@ -72,6 +74,7 @@ help:
 	@echo "  make ps                 - list compose service status"
 	@echo "  make logs               - stream compose logs"
 	@echo "  make pre-commit-install - install pre-commit hooks"
+	@echo "  make commit-msg-check   - validate Conventional Commit message (MSG_FILE or MSG)"
 	@echo "  make proto-lint         - run buf lint on proto contracts"
 	@echo "  make proto-gen          - generate Go code from proto contracts"
 	@echo "  make proto-breaking     - check proto breaking changes against main"
@@ -278,6 +281,17 @@ logs:
 
 pre-commit-install:
 	$(PRE_COMMIT) install --hook-type pre-commit --hook-type commit-msg
+
+commit-msg-check:
+	@set -euo pipefail; \
+	if [ -n "$(MSG_FILE)" ]; then \
+		./scripts/validate-commit-msg.sh "$(MSG_FILE)"; \
+	else \
+		tmp="$$(mktemp)"; \
+		trap 'rm -f "$$tmp"' EXIT; \
+		printf '%s\n' "$(MSG)" > "$$tmp"; \
+		./scripts/validate-commit-msg.sh "$$tmp"; \
+	fi
 
 proto-lint:
 	buf lint proto
