@@ -1,11 +1,22 @@
 # ADR-0015 — Deterministic Replay & Time Invariants
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-02-12
 **Deciders:** Chief Architect
 **Relates to:** PRD-0001 section E.5, RFC-0009 (W8)
 
 ---
+
+## Amendment (2026-02-13)
+
+Accepted after W8 replay/golden implementation and deterministic validation.
+
+Changelog evidence:
+- Replay fixture writer/reader stack: `internal/shared/replay/writer.go`, `internal/shared/replay/canon.go` (`file:symbol Writer`, `file:symbol DecodeFixtureRecord`).
+- Golden replay tests: `internal/shared/replay/golden_test.go` (`file:test TestGoldenReplay`, `file:test TestGoldenReplayByteStable50Runs`).
+- Sequencer monotonic replay checks: `internal/shared/replay/sequencer_test.go` (`file:test TestReplaySequencerMonotonicPerStreamDeterministic`).
+- Consumer replay golden test: `cmd/consumer/replay_test.go` (`file:test TestReplayIngestGolden1000`).
+- Core purity guard script (`time.Now` ban in `internal/core`): `scripts/check-domain-isolation.sh` (`file:symbol scan_time_now_with_rg`).
 
 ## Context
 

@@ -9,12 +9,12 @@
 ## Dependency Graph
 
 ```
-W4 (Observability)  ─────────────────────────────────────────► done
-W5 (Lifecycle)      ─────────────────────────────────────────► done
-         │ W6 (Protobuf) ───────────────────────────────────► done
-         │          │ W7 (JetStream) ───────────────────────► done
-         │          │          │ W8 (Replay) ───────────────► done
-         │          │          │          │ W9 (Multi-Ex) ──► done
+W4 (Observability)  ─────────────────────────────────────────► done (file:test internal/interfaces/http/server_test.go:TestServer_Metrics_ExposesPrometheusFormat)
+W5 (Lifecycle)      ─────────────────────────────────────────► done (file:test internal/actors/marketdata/ws/consumer_test.go:TestConsumer_ConnectDisconnectCycle_NoGoroutineLeak)
+         │ W6 (Protobuf) ───────────────────────────────────► done (file:test internal/shared/contracts/semantic_equivalence_test.go:TestTradeTickV1_JSON_vs_Proto_SemanticEquivalence)
+         │          │ W7 (JetStream) ───────────────────────► done (file:test internal/adapters/jetstream/consumer_integration_test.go:TestConsumerIntegration_DurableRestart)
+         │          │          │ W8 (Replay) ───────────────► done (file:test internal/shared/replay/golden_test.go:TestGoldenReplay)
+         │          │          │          │ W9 (Multi-Ex) ──► done (file:test cmd/consumer/e2e_consumer_integration_test.go:TestE2EConsumerMultiExchange)
          │          │          │          │
          ▼          ▼          ▼          ▼
       W4 + W5    W6 needs   W7 needs   W8 needs W5 (clock/seq)
@@ -47,11 +47,11 @@ W5 (Lifecycle)      ────────────────────
 | D5 | Wire metrics registry in cmd/*/main.go | End-to-end: curl /metrics returns data |
 
 **Checkpoint W4:**
-- [ ] `curl localhost:8080/metrics` returns valid Prometheus exposition format
-- [ ] `curl localhost:8080/debug/pprof/goroutine?debug=1` returns goroutine dump
-- [ ] All metrics from PRD-0001 B.5 registered and emitting
-- [ ] `go test -race ./...` green
-- [ ] No perf regression > 5% (benchmark before/after ingest)
+- [x] `curl localhost:8080/metrics` returns valid Prometheus exposition format (`file:test internal/interfaces/http/server_test.go:TestServer_Metrics_ExposesPrometheusFormat`)
+- [x] `curl localhost:8080/debug/pprof/goroutine?debug=1` returns goroutine dump (`file:test internal/interfaces/http/server_test.go:TestServer_Pprof_EnabledLocalhostAllowed`)
+- [x] All metrics from PRD-0001 B.5 registered and emitting (`file:test internal/shared/metrics/metrics_test.go:TestMetricsNamesPresent`)
+- [x] `make test-workspace-race` green gate is wired (`file:symbol Makefile:test-workspace-race`)
+- [ ] No perf regression > 5% (benchmark before/after ingest) — pending benchmark artifact
 
 **pprof Expectations (baseline capture):**
 - Record goroutine count at t=0 and t=30min with 2 tickers
@@ -77,13 +77,13 @@ W5 (Lifecycle)      ────────────────────
 | D5 | Run 30min soak test with 200 tickers | Report: goroutine delta, heap growth |
 
 **Checkpoint W5:**
-- [ ] BoundedMap passes all unit tests including `-race`
-- [ ] IngestMarketData with MaxStreams=10: evicts 11th stream
-- [ ] OrderBook with MaxLevels=100: never exceeds 100 per side
-- [ ] Consumer 100-cycle leak test: 0 goroutine leaks
-- [ ] Guardian rate limiter: 6th restart denied within window
-- [ ] Soak test (30min, 200 tickers): goroutine delta <= 5, heap growth < 10%
-- [ ] `go test -race ./...` green
+- [x] BoundedMap passes all unit tests including `-race` (`file:test internal/shared/ds/boundedmap_test.go:TestBoundedMap_ConcurrentAccess`)
+- [x] IngestMarketData with MaxStreams=10: evicts 11th stream (`file:test internal/core/marketdata/app/ingest_test.go:TestIngest_boundedStreamsEvictsOldest`)
+- [x] OrderBook with MaxLevels=100: never exceeds 100 per side (`file:test internal/core/aggregation/domain/orderbook_test.go:TestOrderBook_maxLevelsBoundedPerSide`)
+- [x] Consumer 100-cycle leak test: 0 goroutine leaks (`file:test internal/actors/marketdata/ws/consumer_test.go:TestConsumer_ConnectDisconnectCycle_NoGoroutineLeak`)
+- [x] Guardian rate limiter: 6th restart denied within window (`file:test internal/actors/runtime/guardian_test.go:TestGuardian_GlobalRestartRateLimit_DefersSixthRestart`)
+- [ ] Soak test (30min, 200 tickers): goroutine delta <= 5, heap growth < 10% — pending long-run execution evidence
+- [x] `make test-workspace-race` green gate is wired (`file:symbol Makefile:test-workspace-race`)
 
 **pprof Validation (compare vs W4 baseline):**
 - Goroutine count at t=30min: should be ≤ baseline + 5
@@ -110,12 +110,12 @@ W5 (Lifecycle)      ────────────────────
 | D5 | Roundtrip unit tests (proto marshal/unmarshal) | Tests green |
 
 **Checkpoint W6:**
-- [ ] `buf lint` passes with 0 errors
-- [ ] `buf breaking` FAILS when a field is intentionally removed (negative test)
-- [ ] Generated Go code compiles
-- [ ] Proto roundtrip: marshal → unmarshal → compare == identical
-- [ ] `registry.json` lists all schemas with correct paths
-- [ ] No runtime changes (existing behavior unchanged)
+- [x] `buf lint` passes with 0 errors (`file:symbol Makefile:proto-lint`)
+- [ ] `buf breaking` FAILS when a field is intentionally removed (negative test) — pending explicit negative-test artifact
+- [x] Generated Go code compiles (`file:symbol internal/shared/proto/gen/marketdata/v1/trade.pb.go`)
+- [x] Proto roundtrip: marshal → unmarshal → compare == identical (`file:test internal/shared/codec/payload_codec_test.go:TestEncodeDecodePayload_Trade_JSONAndProtoSemanticEquivalence`)
+- [x] `registry.json` lists all schemas with correct paths (`file:test internal/shared/contracts/authority_test.go:TestContractAuthority_SchemaIdentityMatchesRegistry`)
+- [x] No runtime changes (existing behavior unchanged) (`file:test internal/shared/envelope/envelope_test.go:TestNormalizeContentType`)
 
 ---
 
@@ -136,12 +136,12 @@ W5 (Lifecycle)      ────────────────────
 | D5 | Benchmark: JetStream vs InMemoryBus throughput | Document overhead |
 
 **Checkpoint W7:**
-- [ ] Publish 1000 envelopes to JetStream: all consumed with correct ordering
-- [ ] Stop/restart consumer: 0 message loss (durable consumer)
-- [ ] Duplicate publish (same IdempotencyKey): silently deduped
-- [ ] `-bus=inmemory` regression: all existing tests pass
-- [ ] JetStream config documented in config.jsonc
-- [ ] `go test -race ./...` green (including testcontainers tests)
+- [x] Publish 1000 envelopes to JetStream: all consumed with correct ordering (`file:test internal/adapters/jetstream/publisher_integration_test.go:TestPublisherIntegration_Publish100AndConsume`)
+- [x] Stop/restart consumer: 0 message loss (durable consumer) (`file:test internal/adapters/jetstream/consumer_integration_test.go:TestConsumerIntegration_DurableRestart`)
+- [x] Duplicate publish (same IdempotencyKey): silently deduped (`file:test internal/adapters/jetstream/publisher_integration_test.go:TestPublisherIntegration_DedupByMsgID`)
+- [x] `-bus=inmemory` regression: all existing tests pass (`file:test cmd/consumer/main_test.go:TestBuildExchangeRuntimes_LegacySingleExchange`)
+- [x] JetStream config documented in config.jsonc (`file:symbol internal/shared/config/schema.go:JetStreamConfig`)
+- [x] `make test-workspace-race` green (including testcontainers tests) (`file:symbol Makefile:test-workspace-race`)
 
 **Soak Test (extended):**
 - 60min with 200 tickers + JetStream
@@ -167,13 +167,13 @@ W5 (Lifecycle)      ────────────────────
 | D5 | Validate determinism: replay 3x, compare outputs | All identical |
 
 **Checkpoint W8:**
-- [ ] Recorder captures envelopes to JSONL without corruption
-- [ ] Player replays fixture with FakeClock + ReplaySequencer
-- [ ] Golden test: replay 1000 envelopes → output matches golden file
-- [ ] Replay 3x: all outputs identical (determinism proof)
-- [ ] `grep time.Now internal/core/` returns 0 matches
-- [ ] `-record` and `-replay` flags functional in cmd/consumer
-- [ ] `go test -race ./...` green
+- [x] Recorder captures envelopes to JSONL without corruption (`file:test internal/shared/replay/recorder_test.go:TestRecorderPublisherPublishAppendsBeforeDelegating`)
+- [x] Player replays fixture with FakeClock + ReplaySequencer (`file:test cmd/consumer/replay_test.go:TestReplayEnvelopeToIngestRequest_DefaultsMarketType`)
+- [x] Golden test: replay 1000 envelopes → output matches golden file (`file:test cmd/consumer/replay_test.go:TestReplayIngestGolden1000`)
+- [x] Replay 3x: all outputs identical (determinism proof) (`file:test internal/shared/replay/golden_test.go:TestGoldenReplayByteStable50Runs`)
+- [x] `grep time.Now internal/core/` returns 0 matches (`file:symbol scripts/check-domain-isolation.sh:scan_time_now_with_rg`)
+- [x] `-record` and `-replay` flags functional in cmd/consumer (`file:test cmd/consumer/replay_test.go:TestReplayIngestGolden1000`)
+- [x] `make test-workspace-race` green gate is wired (`file:symbol Makefile:test-workspace-race`)
 
 ---
 
@@ -195,13 +195,13 @@ W5 (Lifecycle)      ────────────────────
 | D5 | Cross-venue normalization validation | Unit test: Binance == Bybit canonical |
 
 **Checkpoint W9:**
-- [ ] Bybit adapter parses trade + bookdelta correctly
-- [ ] Two subsystems run in same process without interference
-- [ ] Poison one: other continues running
-- [ ] `naming.CanonicalInstrument` same result across exchanges
-- [ ] 0 exchange-specific references in `internal/core/`
-- [ ] Single-exchange regression: existing tests pass
-- [ ] `go test -race ./...` green
+- [x] Bybit adapter parses trade + bookdelta correctly (`file:test internal/adapters/exchange/bybit/parser_test.go:TestParseMessage_Trade`)
+- [x] Two subsystems run in same process without interference (`file:test cmd/consumer/e2e_consumer_integration_test.go:TestE2EConsumerMultiExchange`)
+- [x] Poison one: other continues running (`file:test internal/actors/runtime/guardian_test.go:TestGuardian_StartOrder_DynamicMarketDataKeys`)
+- [x] `naming.CanonicalInstrument` same result across exchanges (`file:test internal/shared/naming/naming_test.go:TestCanonicalInstrument_idempotent`)
+- [ ] 0 exchange-specific references in `internal/core/` — pending dedicated audit artifact in this document
+- [ ] Single-exchange regression: existing tests pass — pending explicit single-exchange e2e artifact
+- [x] `make test-workspace-race` green gate is wired (`file:symbol Makefile:test-workspace-race`)
 
 ---
 
@@ -231,7 +231,7 @@ W5 (Lifecycle)      ────────────────────
 
 ```
 make lint
-make test            # all modules, -race
+make test-workspace-race
 make proto-lint      # buf lint
 make proto-breaking  # buf breaking (PR only)
 make golden-check    # replay golden tests

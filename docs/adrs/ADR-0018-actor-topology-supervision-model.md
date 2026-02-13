@@ -170,3 +170,24 @@ Explicit topology and restart policies:
 - Guardian now manages dynamic subsystem keys for configured marketdata instances (for example `marketdata:binance`, `marketdata:bybit`) while preserving legacy single-key behavior.
 - Readiness expectations are explicitly provided from consumer wiring for all configured marketdata subsystem keys.
 - No change to supervision policy semantics (restart, cooldown, degraded mode), bus behavior, or delivery routing.
+
+## W9 Amendment (Topology Per Exchange)
+
+Topology is now exchange-qualified in runtime wiring:
+
+```
+Guardian
+├── marketdata:binance
+├── marketdata:bybit
+├── aggregation
+└── delivery
+```
+
+Notes:
+- Each configured exchange gets an independent marketdata subsystem key.
+- Readiness is computed against the full expected key set, not a single legacy marketdata key.
+- Restart/degraded semantics remain unchanged and apply per subsystem key.
+
+Evidence:
+- Dynamic subsystem start ordering/readiness tests: `internal/actors/runtime/guardian_test.go` (`file:test TestGuardian_StartOrder_DynamicMarketDataKeys`, `file:test TestGuardian_Readiness_DynamicExpectedSubsystems`).
+- Multi-exchange end-to-end consumer wiring: `cmd/consumer/e2e_consumer_integration_test.go` (`file:test TestE2EConsumerMultiExchange`).

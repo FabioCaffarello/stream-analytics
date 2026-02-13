@@ -1,11 +1,21 @@
 # ADR-0014 — Stream Partitioning Strategy
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-02-12
 **Deciders:** Chief Architect
 **Relates to:** PRD-0001 section E.4, ADR-0004, RFC-0008 (W7)
 
 ---
+
+## Amendment (2026-02-13)
+
+Accepted after W7 runtime wiring and integration validation.
+
+Changelog evidence:
+- Subject derivation implemented: `internal/shared/envelope/subject.go` (`file:symbol SubjectFromEnvelope`).
+- Deterministic subject unit test: `internal/shared/envelope/envelope_test.go` (`file:test TestSubjectFromEnvelope_Deterministic`).
+- JetStream publish subject integration test: `internal/adapters/jetstream/publisher_integration_test.go` (`file:test TestPublisherIntegration_SubjectFromEnvelope`).
+- Durable ordering/restart behavior integration test: `internal/adapters/jetstream/consumer_integration_test.go` (`file:test TestConsumerIntegration_DurableRestart`).
 
 ## Context
 

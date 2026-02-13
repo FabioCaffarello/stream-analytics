@@ -1,6 +1,6 @@
 # ADR-0012 — Lifecycle Invariants & Leak Prevention
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-02-12
 **Deciders:** Chief Architect
 **Relates to:** PRD-0001 sections E.1, A.3 (R1, R2, R3), RFC-0006 (W5)
@@ -45,11 +45,11 @@ All in-memory maps that grow with cardinality (instruments, sessions, streams) M
 - **TTL eviction** with clock-based expiry
 - **Explicit lifecycle** (created on subscribe, removed on unsubscribe)
 
-Concrete bounds:
+Concrete bounds (reconciled with runtime defaults):
 | Map | Owner | Default Max | Eviction |
 |-----|-------|-------------|----------|
-| `streams` | `IngestMarketData` | 10,000 | LRU + TTL (1h idle) |
-| `books` | `UpdateOrderBookFromEvents` | 10,000 | LRU + TTL (1h idle) |
+| `streams` | `IngestMarketData` | 2,048 | LRU + TTL (1h idle default) |
+| `books` | `UpdateOrderBookFromEvents` | 2,048 | LRU + TTL (1h idle default) |
 | `bids/asks` per OrderBook | `OrderBook` | 1,000 levels per side | Trim deepest on insert |
 | `sessions` | `RouterActor` | Explicit (register/unregister) | N/A |
 | `dedup seen` per stream | `InstrumentStream` | DedupWindow (1024) | FIFO (already bounded) |
@@ -113,3 +113,20 @@ Leak prevention cannot be ad-hoc. Invariants formalize expectations so that:
 4. Audit consumer.go lifecycle paths (close(donech) in all connectOnce exits)
 5. Add goroutine metric and soak test validation
 6. Add INV-2 post-condition assertions to guardian_test and manager_test
+
+## Amendment 2026-02-13 (Defaults Reconciliation + Acceptance)
+
+Reconciled defaults:
+- `marketdata.max_instruments` default is `2048` (not `10000`): `internal/shared/config/loader.go` (`file:symbol applyDefaults`), validated in `internal/shared/config/loader_test.go` (`file:test TestLoad_EmptyPath_ReturnsDefaults`).
+- `processor.max_instruments` default is `2048` (not `10000`): same evidence as above.
+- Bounded state still uses TTL eviction in runtime use-case configs (default `1h`):
+  - `internal/core/marketdata/app/ingest.go` (`file:symbol NewIngestMarketDataWithConfig`)
+  - `internal/core/aggregation/app/update_orderbook.go` (`file:symbol NewUpdateOrderBookFromEventsWithConfig`)
+
+Implementation changelog:
+- Generic bounded LRU+TTL map implemented: `internal/shared/ds/boundedmap.go` (`file:symbol NewBoundedMap`) with tests in `internal/shared/ds/boundedmap_test.go` (`file:test TestBoundedMap_EvictByTTL`).
+- Ingest bounded-map eviction enforced: `internal/core/marketdata/app/ingest_test.go` (`file:test TestIngest_boundedStreamsEvictsOldest`).
+- Aggregation bounded-map eviction enforced: `internal/core/aggregation/app/update_orderbook_test.go` (`file:test TestUpdateOrderBook_boundedBooksEvictsOldest`).
+- Order book depth bound enforced: `internal/core/aggregation/domain/orderbook_test.go` (`file:test TestOrderBook_maxLevelsBoundedPerSide`).
+- WS lifecycle leak fix and cycle tests: `internal/actors/marketdata/ws/consumer.go` (`file:symbol connectOnce`) and `internal/actors/marketdata/ws/consumer_test.go` (`file:test TestConsumer_ConnectDisconnectCycle_NoGoroutineLeak`).
+- Guardian global restart limiter: `internal/actors/runtime/guardian_test.go` (`file:test TestGuardian_GlobalRestartRateLimit_DefersSixthRestart`).

@@ -28,3 +28,12 @@ Final selection per workload remains pluggable behind `core/storage/ports`.
 ## Alternatives
 
 - Single DB for everything (rejected: either slow realtime or expensive analytics).
+
+## Amendment 2026-02-13 — Deferred Cold-Path
+
+Acceptance remains in force.
+
+Clarification:
+- The hot-path decision (bounded in-memory read models for realtime delivery) is active.
+- Cold-path runtime wiring is intentionally deferred and remains pluggable behind `core/storage/ports`.
+- This amendment does not revoke ADR acceptance; it narrows current delivery scope to avoid implying a forced cold-store implementation in the current phase.

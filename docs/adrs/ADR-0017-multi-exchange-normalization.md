@@ -1,6 +1,6 @@
 # ADR-0017 — Multi-Exchange Normalization Invariants
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-02-12
 **Deciders:** Chief Architect
 **Relates to:** PRD-0001 section E.3 (topology), ADR-0011, RFC-0010 (W9)
@@ -140,3 +140,11 @@ Guardian
 - Stream identity partitioning is now enforced in runtime as `venue:instrument:market_type`.
 - `SubjectFromEnvelope` format remains unchanged; market type is identity metadata, not subject dimension.
 - Scope note: `InstrumentCatalog` phase remains deferred for follow-up; W9-1 used parser-level normalization with existing canonical naming.
+
+## Amendment 2026-02-13 (Acceptance Changelog)
+
+Acceptance evidence:
+- Bybit parser coverage: `internal/adapters/exchange/bybit/parser_test.go` (`file:test TestParseMessage_Trade`, `file:test TestParseMessage_BookDelta`).
+- Multi-exchange runtime wiring: `cmd/consumer/e2e_consumer_integration_test.go` (`file:test TestE2EConsumerMultiExchange`).
+- Dynamic guardian subsystem keys: `internal/actors/runtime/guardian_test.go` (`file:test TestGuardian_StartOrder_DynamicMarketDataKeys`).
+- Cross-exchange canonical normalization invariant: `internal/shared/naming/naming_test.go` (`file:test TestCanonicalInstrument`, `file:test TestCanonicalInstrument_idempotent`).

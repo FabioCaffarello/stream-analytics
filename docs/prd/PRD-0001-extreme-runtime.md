@@ -198,7 +198,7 @@ O programa "Extreme Runtime" esta Done quando:
    - Dropped messages (bus drops = 0 em operacao normal)
    - Sequence gaps nao-justificados (exchange-side gaps OK; internal gaps = bug)
 
-2. **`go test -race ./...` verde** em todos os modulos
+2. **`make test-workspace-race` verde** em todos os modulos
 
 3. **Replay deterministico funcional**: dado fixture de 1000 envelopes gravados, replay produz output identico
 
@@ -441,10 +441,10 @@ O programa "Extreme Runtime" esta Done quando:
 - All metrics listed in B.5
 
 **Criterios de aceite:**
-- [ ] `curl localhost:8080/metrics` returns Prometheus format with all defined metrics
-- [ ] `curl localhost:8080/debug/pprof/goroutine?debug=1` returns goroutine dump
-- [ ] pprof endpoints NOT accessible from public interface (localhost or auth only)
-- [ ] `go test -race ./...` verde
+- [ ] `curl localhost:8080/metrics` returns Prometheus format with all defined metrics (`file:test internal/interfaces/http/server_test.go:TestServer_Metrics_ExposesPrometheusFormat`)
+- [ ] `curl localhost:8080/debug/pprof/goroutine?debug=1` returns goroutine dump (`file:test internal/interfaces/http/server_test.go:TestServer_Pprof_EnabledLocalhostAllowed`)
+- [ ] pprof endpoints NOT accessible from public interface (localhost or auth only) (`file:test internal/interfaces/http/server_test.go:TestServer_Pprof_EnabledRemoteForbidden`)
+- [ ] `make test-workspace-race` verde (`file:symbol Makefile:test-workspace-race`)
 - [ ] No performance regression > 5% on ingest throughput (benchmark before/after)
 
 ---
@@ -579,7 +579,7 @@ O programa "Extreme Runtime" esta Done quando:
 - [ ] Duplicate publish detected and suppressed by NATS dedup
 - [ ] Consumer registry creates/destroys consumers as sessions subscribe/unsubscribe
 - [ ] `cmd/consumer -bus=inmemory` still works (regression)
-- [ ] `go test -race ./...` verde with testcontainers
+- [ ] `make test-workspace-race` verde with testcontainers
 
 ---
 
@@ -613,10 +613,10 @@ O programa "Extreme Runtime" esta Done quando:
 - Golden: `go test -update-golden` writes expected output; subsequent runs compare
 
 **Criterios de aceite:**
-- [ ] Record 1000 envelopes from live Binance stream to fixture file
-- [ ] Replay fixture produces byte-identical output (envelope payload + metadata)
-- [ ] FakeClock replay uses timestamps from fixture (not wall clock)
-- [ ] Golden test fails if domain logic changes output (intentional detection)
+- [ ] Record 1000 envelopes from live Binance stream to fixture file (`file:test internal/shared/replay/jetstream_reader_test.go:TestRecordFromSourceWritesFixture`)
+- [ ] Replay fixture produces byte-identical output (envelope payload + metadata) (`file:test internal/shared/replay/golden_test.go:TestGoldenReplayByteStable50Runs`)
+- [ ] FakeClock replay uses timestamps from fixture (not wall clock) (`file:test cmd/consumer/replay_test.go:TestReplayIngestGolden1000`)
+- [ ] Golden test fails if domain logic changes output (intentional detection) (`file:test internal/shared/replay/golden_test.go:TestGoldenReplay`)
 - [ ] `go test -run TestGolden -update-golden` regenerates golden files
 
 ---
@@ -655,19 +655,19 @@ O programa "Extreme Runtime" esta Done quando:
 - [ ] Subject `marketdata.trade/bybit/BTC-USDT/raw` delivers correctly
 - [ ] `naming.CanonicalInstrument` produces same result for Binance "BTCUSDT" and Bybit "BTCUSDT"
 - [ ] No changes to `internal/core/*` domain logic
-- [ ] `go test -race ./...` verde
+- [ ] `make test-workspace-race` verde
 
 ---
 
 ### D.7 Sequencia de Execucao
 
 ```
-W4 (Observability)  ──────────────────► done
-W5 (Leak Mitigation) ─────────────────► done
-         W6 (Protobuf) ───────────────► done
-              W7 (JetStream) ─────────► done
-                   W8 (Replay) ───────► done
-                        W9 (Multi-Ex) ► done
+W4 (Observability)  ──────────────────► done (file:test internal/interfaces/http/server_test.go:TestServer_Metrics_ExposesPrometheusFormat)
+W5 (Leak Mitigation) ─────────────────► done (file:test internal/actors/marketdata/ws/consumer_test.go:TestConsumer_ConnectDisconnectCycle_NoGoroutineLeak)
+         W6 (Protobuf) ───────────────► done (file:test internal/shared/contracts/semantic_equivalence_test.go:TestTradeTickV1_JSON_vs_Proto_SemanticEquivalence)
+              W7 (JetStream) ─────────► done (file:test internal/adapters/jetstream/consumer_integration_test.go:TestConsumerIntegration_DurableRestart)
+                   W8 (Replay) ───────► done (file:test internal/shared/replay/golden_test.go:TestGoldenReplay)
+                        W9 (Multi-Ex) ► done (file:test cmd/consumer/e2e_consumer_integration_test.go:TestE2EConsumerMultiExchange)
 ```
 
 **Dependencias:**
@@ -1272,12 +1272,12 @@ Phase 4 (post-W9): JSON deprecated for bus traffic
 
 ```bash
 # All modules
-go test -race -count=3 ./...
+make test-workspace-race
 
-# Critical modules (longer timeout)
-go test -race -timeout=5m ./internal/actors/...
-go test -race -timeout=5m ./internal/core/marketdata/...
-go test -race -timeout=5m ./internal/adapters/...
+# Optional focused reruns (workspace-aware)
+MODULE=internal/actors make test-workspace-race
+MODULE=internal/core/marketdata make test-workspace-race
+MODULE=internal/adapters make test-workspace-race
 ```
 
 ### F.3 Profiling Validation

@@ -15,6 +15,18 @@ W6-1 foundation was implemented with zero runtime wire changes:
 - Go code generation is committed under `internal/shared/proto/gen/`.
 - Runtime publish/consume migration remains deferred to W6-2/W6-3.
 
+## Current Scope Boundary
+
+Phase 1 is complete and accepted as documentation+tooling scope:
+- Proto contracts and manifest are present under `proto/`.
+- Buf lint/breaking/generate workflow is active via Make targets and CI wiring.
+- Generated Go artifacts are committed in `internal/shared/proto/gen/`.
+
+Runtime wire migration is explicitly deferred:
+- No forced migration of live publish/consume paths to protobuf in this phase.
+- Envelope `ContentType` support exists for compatibility, but runtime rollout remains W6-2/W6-3.
+- Existing JSON runtime behavior remains the default production path.
+
 ## Context
 
 All serialization currently uses JSON via `codec.Marshal/Unmarshal`. There is no formal schema definition, no breaking change detection, and no type-safe wire contract between producers and consumers. PRD-0001 section A.5 flagged "Envelope.Payload — `[]byte` JSON blob sem schema registry" as a critical gap.
