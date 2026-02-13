@@ -89,7 +89,7 @@ Status anchors: `docs/rfcs/RFC-0001-robustness-roadmap.md:3`, `docs/rfcs/RFC-000
 | Backpressure | `docs/adrs/ADR-0013-backpressure-overload-policies.md:1`, `docs/rfcs/RFC-0006-W5-memory-lifecycle-hardening.md:1` | `internal/actors/marketdata/runtime/backpressure_queue.go:56`, `internal/shared/config/loader.go:280` | `internal/actors/marketdata/runtime/backpressure_queue_test.go:1` | Proposed ADR + implemented runtime (`OPEN QUESTION` for ADR acceptance) |
 | Storage hot/cold | `docs/adrs/ADR-0006-storage-hot-vs-cold.md:12` | `internal/core/aggregation/ports/ports.go:17`, `internal/core/aggregation/app/update_orderbook.go:141` | `internal/core/aggregation/app/update_orderbook_test.go:33` | Accepted with explicit cold-path deferral |
 | Contract layer | `docs/adrs/ADR-0016-protobuf-contract-layer.md:3`, `docs/rfcs/RFC-0007-W6-protobuf-contract-layer.md:1` | `internal/shared/contracts/payload_registry.go:19`, `internal/shared/codec/proto_codec.go:25` | `internal/shared/contracts/import_guard_test.go:15`, `internal/shared/contracts/authority_test.go:284` | Proposed ADR + accepted W6 foundation |
-| Multi-exchange | `docs/adrs/ADR-0017-multi-exchange-normalization.md:1`, `docs/rfcs/RFC-0010-W9-multi-exchange-readiness.md:1` | `cmd/consumer/main.go:157`, `cmd/consumer/main.go:183` | `cmd/consumer/e2e_consumer_integration_test.go:24`, `internal/actors/runtime/guardian_test.go:99` | Runtime implemented; RFC remains Draft with explicit partial matrix |
+| Multi-exchange | `docs/adrs/ADR-0017-multi-exchange-normalization.md:1`, `docs/rfcs/RFC-0010-W9-multi-exchange-readiness.md:1` | `cmd/consumer/main.go:157`, `scripts/check-domain-isolation.sh:109` | `cmd/consumer/e2e_consumer_integration_test.go:24`, `internal/actors/runtime/guardian_test.go:99` | Runtime implemented; MEX-4 guard wired in `invariants-check` |
 
 ### Real Validation Gates (Workspace-Safe)
 
@@ -117,3 +117,4 @@ Anchor: `Makefile:123`, `Makefile:136`, `Makefile:139`, `Makefile:142`.
   - mapped single source of truth for runtime invariants, taxonomy, ACK semantics, replay, backpressure, storage, contract layer and multi-exchange;
   - added workspace-safe gate commands used by PREVC validation.
   - reconciled PRD/RFC W7/W9 summaries after governance normalization wave 2.
+  - added MEX-4 guard anchor (`scripts/check-domain-isolation.sh`) in multi-exchange authority row.

@@ -65,10 +65,10 @@ Authoritative mapping is consolidated in `docs/architecture/TRUTH-MAP.md`, with 
 
 | ID | Severity | Gap | Evidence | Tracking |
 |---|---|---|---|---|
-| L-01 | P0 | RFC taxonomy normalization still incomplete across all RFC files. | `docs/rfcs/RFC-0005-W4-observability-profiling.md:3`, `docs/rfcs/RFC-0007-W6-protobuf-contract-layer.md:3` | `TODO`: normalize remaining RFC headers not touched in wave 1/2. |
+| L-01 | P0 | RFC taxonomy normalization still incomplete across all RFC files. | `docs/rfcs/RFC-0005-W4-observability-profiling.md:3`, `docs/rfcs/RFC-0007-W6-protobuf-contract-layer.md:3` | `RESOLVED (2026-02-13)`: RFC-0001..RFC-0010 now use `Draft|Accepted` only. |
 | L-02 | P1 | PRD taxonomy target says `Active|Deprecated`, but PRD was `Draft`. | `docs/prd/PRD-0001-extreme-runtime.md:3` | `RESOLVED (2026-02-13)`: PRD-0001 reclassified as `Active`. |
 | L-03 | P1 | Cold-path in ADR-0006 remains accepted but runtime implementation is deferred. | `docs/adrs/ADR-0006-storage-hot-vs-cold.md:32`, `internal/core/aggregation/ports/ports.go:17` | `OPEN QUESTION`: keep ADR accepted with explicit partial scope, or split into Accepted+Superseded follow-up ADR. |
-| L-04 | P1 | MEX-4 CI guard (exchange-specific terms forbidden in core) still deferred. | `docs/rfcs/RFC-0010-W9-multi-exchange-readiness.md:76`, `Makefile:123` | `TODO`: add deterministic grep/audit command into `make invariants-check`. |
+| L-04 | P1 | MEX-4 CI guard (exchange-specific terms forbidden in core) still deferred. | `docs/rfcs/RFC-0010-W9-multi-exchange-readiness.md:76`, `scripts/check-domain-isolation.sh:109` | `RESOLVED (2026-02-13)`: deterministic grep guard integrated in `invariants-check`. |
 | L-05 | P2 | ACK/NAK/TERM behavior has strong test evidence but lacks a compact architecture doc as canonical entry point. | `internal/adapters/jetstream/ingest_conformance_test.go:15`, `internal/adapters/jetstream/consumer.go:279` | `TODO`: add short architecture note linking ADR-0004 + ingest conformance matrix. |
 | L-06 | P2 | Some historical RFC sections still reference deprecated checkpoints/commands. | `docs/rfcs/W4-W5-AUDIT.md:1`, `docs/rfcs/ADR-REVISIONS-patch-plan.md:1` | `TODO`: continue archival/normalization of historical docs in next wave. |
 
@@ -139,5 +139,6 @@ Apply to docs touched in W12/W13:
 - 2026-02-13:
   - created W11 drift report with three required sections;
   - added severity-ranked contradictions, gaps, and obsolescence candidates;
-  - defined incremental patch sequence and risk mitigation plan for W12/W13 docs.
+  - defined incremental patch sequence and risk mitigation plan for W12/W13 docs;
+  - updated lacuna tracking after RFC taxonomy normalization and MEX-4 guard wiring.
   - wave 2 updates: PRD, event-bus, RFC-0008 and RFC-0010 normalized; resolved contradictions marked explicitly.
