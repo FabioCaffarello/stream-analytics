@@ -111,6 +111,11 @@ func TestMetricsNamesPresent(t *testing.T) {
 	IncInsightsSnapshots(2)
 	SetInsightsStateInstrumentsActive(3)
 	IncInsightsStateEvictions("ttl")
+	ObserveHeatmapBuildLatency("binance", "BTC-USDT", "1m", 3*time.Millisecond)
+	SetHeatmapCells("binance", "BTC-USDT", "1m", 42)
+	ObserveHeatmapPayloadBytes("binance", "BTC-USDT", "1m", 2048)
+	IncHeatmapDrop("queue_full")
+	SetHeatmapQueueDepth("binance", "BTC-USDT", 7)
 
 	mfs, err := Registry().Gather()
 	if err != nil {
@@ -146,6 +151,11 @@ func TestMetricsNamesPresent(t *testing.T) {
 		"insights_snapshots_total",
 		"insights_state_instruments_active",
 		"insights_state_evictions_total",
+		"heatmap_build_latency_ms",
+		"heatmap_cells_total",
+		"heatmap_payload_bytes",
+		"heatmap_drop_total",
+		"heatmap_queue_depth",
 		"guardian_rate_limited_total",
 		"process_heap_alloc_bytes",
 	} {

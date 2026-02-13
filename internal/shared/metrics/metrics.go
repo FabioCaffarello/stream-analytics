@@ -316,6 +316,43 @@ var (
 		},
 		[]string{"reason"},
 	)
+	HeatmapBuildLatencyMilliseconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "heatmap_build_latency_ms",
+			Help:    "Latency in milliseconds to build one heatmap artifact window.",
+			Buckets: []float64{0.1, 0.5, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000},
+		},
+		[]string{"venue", "instrument", "timeframe"},
+	)
+	HeatmapCellsTotal = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "heatmap_cells_total",
+			Help: "Current emitted heatmap cell count by partition.",
+		},
+		[]string{"venue", "instrument", "timeframe"},
+	)
+	HeatmapPayloadBytes = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "heatmap_payload_bytes",
+			Help:    "Size in bytes of emitted heatmap payloads.",
+			Buckets: []float64{64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144},
+		},
+		[]string{"venue", "instrument", "timeframe"},
+	)
+	HeatmapDropTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "heatmap_drop_total",
+			Help: "Total heatmap drops/degradations by reason.",
+		},
+		[]string{"reason"},
+	)
+	HeatmapQueueDepth = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "heatmap_queue_depth",
+			Help: "Current heatmap pipeline queue depth by partition.",
+		},
+		[]string{"venue", "instrument"},
+	)
 )
 
 var (
@@ -329,6 +366,7 @@ var (
 	kindPattern      = regexp.MustCompile(`^[a-z0-9_]{1,48}$`)
 	busTypePattern   = regexp.MustCompile(`^[a-z0-9_]{1,24}$`)
 	busStatusPattern = regexp.MustCompile(`^[a-z_]{1,24}$`)
+	timeframePattern = regexp.MustCompile(`^[a-z0-9_]{1,16}$`)
 )
 
 func init() {
@@ -380,6 +418,11 @@ func registerAll() {
 			InsightsSnapshotsTotal,
 			InsightsStateInstrumentsActive,
 			InsightsStateEvictionsTotal,
+			HeatmapBuildLatencyMilliseconds,
+			HeatmapCellsTotal,
+			HeatmapPayloadBytes,
+			HeatmapDropTotal,
+			HeatmapQueueDepth,
 		)
 
 		// Pre-create one series for vector metrics so /metrics exposition is stable
@@ -417,6 +460,11 @@ func registerAll() {
 		InsightsSnapshotsTotal.WithLabelValues("5_8")
 		InsightsSnapshotsTotal.WithLabelValues("9_plus")
 		InsightsStateEvictionsTotal.WithLabelValues("unknown")
+		HeatmapBuildLatencyMilliseconds.WithLabelValues("unknown", "unknown", "unknown")
+		HeatmapCellsTotal.WithLabelValues("unknown", "unknown", "unknown")
+		HeatmapPayloadBytes.WithLabelValues("unknown", "unknown", "unknown")
+		HeatmapDropTotal.WithLabelValues("unknown")
+		HeatmapQueueDepth.WithLabelValues("unknown", "unknown")
 	})
 }
 
@@ -597,6 +645,47 @@ func IncInsightsStateEvictions(reason string) {
 	InsightsStateEvictionsTotal.WithLabelValues(sanitizeReason(reason)).Inc()
 }
 
+func ObserveHeatmapBuildLatency(venue, instrument, timeframe string, latency time.Duration) {
+	if latency < 0 {
+		latency = 0
+	}
+	HeatmapBuildLatencyMilliseconds.WithLabelValues(
+		sanitizeVenue(venue),
+		sanitizeInstrument(instrument),
+		sanitizeTimeframe(timeframe),
+	).Observe(float64(latency) / float64(time.Millisecond))
+}
+
+func SetHeatmapCells(venue, instrument, timeframe string, cells int) {
+	HeatmapCellsTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		sanitizeInstrument(instrument),
+		sanitizeTimeframe(timeframe),
+	).Set(float64(max(cells, 0)))
+}
+
+func ObserveHeatmapPayloadBytes(venue, instrument, timeframe string, payloadBytes int) {
+	if payloadBytes < 0 {
+		payloadBytes = 0
+	}
+	HeatmapPayloadBytes.WithLabelValues(
+		sanitizeVenue(venue),
+		sanitizeInstrument(instrument),
+		sanitizeTimeframe(timeframe),
+	).Observe(float64(payloadBytes))
+}
+
+func IncHeatmapDrop(reason string) {
+	HeatmapDropTotal.WithLabelValues(sanitizeIngestReason(reason)).Inc()
+}
+
+func SetHeatmapQueueDepth(venue, instrument string, depth int) {
+	HeatmapQueueDepth.WithLabelValues(
+		sanitizeVenue(venue),
+		sanitizeInstrument(instrument),
+	).Set(float64(max(depth, 0)))
+}
+
 type busObserver struct{}
 
 func (busObserver) IncPublished(eventType, venue string) {
@@ -763,6 +852,33 @@ func sanitizeReplayStatus(v string) string {
 func sanitizeIngestReason(v string) string {
 	v = strings.ToLower(strings.TrimSpace(v))
 	if kindPattern.MatchString(v) {
+		return v
+	}
+	return "unknown"
+}
+
+func sanitizeInstrument(v string) string {
+	v = strings.ToUpper(strings.TrimSpace(v))
+	if v == "" {
+		return "unknown"
+	}
+	// Keep cardinality bounded by dropping non-alnum characters.
+	var b strings.Builder
+	b.Grow(len(v))
+	for _, r := range v {
+		if (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	if b.Len() == 0 {
+		return "unknown"
+	}
+	return b.String()
+}
+
+func sanitizeTimeframe(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	if timeframePattern.MatchString(v) {
 		return v
 	}
 	return "unknown"
