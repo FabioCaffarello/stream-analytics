@@ -293,6 +293,9 @@ func buildQuarantineEnvelope(msg *nats.Msg, env envelope.Envelope, reasonCode st
 	if pp := out.Validate(); pp != nil {
 		return envelope.Envelope{}, pp
 	}
+	if err := ValidateSubjectTaxonomy(envelope.SubjectFromEnvelope(out)); err != nil {
+		return envelope.Envelope{}, problem.Newf(problem.ValidationFailed, "jetstream quarantine subject taxonomy invalid: %v", err)
+	}
 	return out, nil
 }
 

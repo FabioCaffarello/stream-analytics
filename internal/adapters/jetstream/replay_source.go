@@ -423,6 +423,9 @@ func validateReplaySourceConfig(cfg ReplaySourceConfig) *problem.Problem {
 	if strings.TrimSpace(cfg.SubjectFilter) == "" {
 		return problem.New(problem.ValidationFailed, "jetstream replay source subject_filter must not be empty")
 	}
+	if err := ValidateSubjectPattern(cfg.SubjectFilter); err != nil {
+		return problem.Newf(problem.ValidationFailed, "jetstream replay source subject_filter invalid: %v", err)
+	}
 	if strings.TrimSpace(cfg.ConsumerDurable) == "" {
 		return problem.New(problem.ValidationFailed, "jetstream replay source consumer_durable must not be empty")
 	}

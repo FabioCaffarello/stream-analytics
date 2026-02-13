@@ -62,6 +62,22 @@ func TestReplaySourceValidation_WindowRequiredForByStartTime(t *testing.T) {
 	}
 }
 
+func TestReplaySourceValidation_InvalidSubjectFilter(t *testing.T) {
+	cfg := withReplaySourceDefaults(ReplaySourceConfig{
+		URL:             "nats://127.0.0.1:4222",
+		StreamName:      "MARKETDATA",
+		SubjectFilter:   "freeprefix.>",
+		ConsumerDurable: "processor-replay-test",
+	})
+	p := validateReplaySourceConfig(cfg)
+	if p == nil {
+		t.Fatal("expected validation failure for invalid subject filter")
+	}
+	if p.Code != problem.ValidationFailed {
+		t.Fatalf("problem code=%s want=%s", p.Code, problem.ValidationFailed)
+	}
+}
+
 func TestEnvelopeLessDeterministicOrdering(t *testing.T) {
 	a := envelope.Envelope{
 		Type:           "marketdata.trade",

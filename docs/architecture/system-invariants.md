@@ -93,3 +93,9 @@ Só falar — porque agora você está montando fundação de empresa, não só 
 - `E2E_TEST_MODE=1` is fail-closed unless `RUN_MODE=test` or `MARKET_RACCOON_MODE=test`.
 - If the posture check fails, process startup exits with code `1` before runtime initialization.
 - In E2E mode, probe HTTP binding is forced to loopback (`127.0.0.1`) regardless of configured probe address.
+
+## Startup Fail-Fast Invariants
+
+- Subject taxonomy validation is enforced for concrete publish subjects and startup subject patterns.
+- Stream bounds validation is enforced before JetStream `AddStream`/`UpdateStream`: at least one hard bound (`MaxAge`/`MaxBytes`/`MaxMsgs`) must exist, `MaxAge` must be positive, and dedup window must be configured.
+- Operational impact: startup fails immediately on config drift, preventing silent misrouting, unbounded retention, or retry storms in production.

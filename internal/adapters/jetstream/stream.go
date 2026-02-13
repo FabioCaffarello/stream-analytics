@@ -3,6 +3,7 @@ package jetstream
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/market-raccoon/internal/shared/problem"
 	"github.com/nats-io/nats.go"
@@ -10,6 +11,9 @@ import (
 
 func ensureStream(ctx context.Context, js nats.JetStreamContext, cfg PublisherConfig) *problem.Problem {
 	streamCfg := buildStreamConfig(cfg)
+	if p := validateStreamConfigInvariants(*streamCfg); p != nil {
+		return p
+	}
 
 	info, err := js.StreamInfo(cfg.StreamName, nats.Context(ctx))
 	switch {
@@ -41,6 +45,33 @@ func buildStreamConfig(cfg PublisherConfig) *nats.StreamConfig {
 		MaxBytes:   cfg.MaxBytes,
 		Duplicates: cfg.DedupWindow,
 	}
+}
+
+func validateStreamConfigInvariants(cfg nats.StreamConfig) *problem.Problem {
+	if strings.TrimSpace(cfg.Name) == "" {
+		return problem.New(problem.ValidationFailed, "jetstream stream name must not be empty")
+	}
+	if len(cfg.Subjects) == 0 {
+		return problem.New(problem.ValidationFailed, "jetstream stream subjects must not be empty")
+	}
+	for i, subject := range cfg.Subjects {
+		if err := ValidateSubjectPattern(subject); err != nil {
+			return problem.Newf(problem.ValidationFailed, "jetstream stream subjects[%d] invalid: %v", i, err)
+		}
+	}
+	if cfg.MaxAge <= 0 && cfg.MaxBytes <= 0 && cfg.MaxMsgs <= 0 {
+		return problem.New(problem.ValidationFailed, "jetstream stream requires at least one bound (max_age|max_bytes|max_msgs)")
+	}
+	if cfg.MaxAge <= 0 {
+		return problem.New(problem.ValidationFailed, "jetstream stream max_age must be > 0")
+	}
+	if cfg.MaxBytes < 0 || cfg.MaxMsgs < 0 {
+		return problem.New(problem.ValidationFailed, "jetstream stream max_bytes/max_msgs must be >= 0")
+	}
+	if cfg.Duplicates <= 0 {
+		return problem.New(problem.ValidationFailed, "jetstream stream dedup_window must be > 0")
+	}
+	return nil
 }
 
 func streamConfigMatches(current nats.StreamConfig, desired nats.StreamConfig) bool {

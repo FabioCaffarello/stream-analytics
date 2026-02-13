@@ -83,6 +83,10 @@ func NewPublisher(ctx context.Context, cfg PublisherConfig, observer observabili
 // Publish marshals envelope and publishes it to JetStream with NATS Msg-ID.
 func (p *Publisher) Publish(ctx context.Context, env envelope.Envelope) *problem.Problem {
 	subject := subjectFromEnvelopeWithPrefix(env)
+	if err := ValidateSubjectTaxonomy(subject); err != nil {
+		p.observer.IncPublishError("validation")
+		return problem.Newf(problem.ValidationFailed, "jetstream publish subject taxonomy invalid: %v", err)
+	}
 	data, prob := envelope.MarshalBinary(env)
 	if prob != nil {
 		p.observer.IncPublishError("validation")

@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -143,6 +144,15 @@ func TestMetricsNamesPresent(t *testing.T) {
 	}
 }
 
+func TestIngestOutcomeMetrics_ReasonOnlyNoInstrumentLabel(t *testing.T) {
+	t.Parallel()
+
+	assertMetricLabelNames(t, "ingest_quarantine_total", []string{"reason"})
+	assertMetricLabelNames(t, "ingest_drop_total", []string{"reason"})
+	assertMetricLabelNames(t, "ingest_nak_total", []string{"reason"})
+	assertMetricLabelNames(t, "ingest_term_total", []string{"reason"})
+}
+
 func TestSanitizeSubsystemMultiExchange(t *testing.T) {
 	tests := []struct {
 		input string
@@ -212,4 +222,40 @@ func insightsSnapshotSeriesCount(t *testing.T) int {
 
 	t.Fatal("insights_snapshots_total metric family not found")
 	return 0
+}
+
+func assertMetricLabelNames(t *testing.T, metricName string, want []string) {
+	t.Helper()
+
+	mfs, err := Registry().Gather()
+	if err != nil {
+		t.Fatalf("gather metrics: %v", err)
+	}
+	for _, mf := range mfs {
+		if mf.GetName() != metricName {
+			continue
+		}
+		if len(mf.GetMetric()) == 0 {
+			t.Fatalf("metric %s has no samples", metricName)
+		}
+
+		got := make([]string, 0, len(mf.GetMetric()[0].GetLabel()))
+		for _, lp := range mf.GetMetric()[0].GetLabel() {
+			got = append(got, lp.GetName())
+		}
+		sort.Strings(got)
+		wantSorted := append([]string(nil), want...)
+		sort.Strings(wantSorted)
+		if strings.Join(got, ",") != strings.Join(wantSorted, ",") {
+			t.Fatalf("metric %s labels=%v want=%v", metricName, got, wantSorted)
+		}
+		for _, label := range got {
+			if label == "instrument" {
+				t.Fatalf("metric %s must not expose instrument label", metricName)
+			}
+		}
+		return
+	}
+
+	t.Fatalf("metric family %s not found", metricName)
 }

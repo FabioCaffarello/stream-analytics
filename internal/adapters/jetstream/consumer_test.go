@@ -84,6 +84,20 @@ func TestConsumerConfigDefaultsAndValidation(t *testing.T) {
 	}
 }
 
+func TestConsumerConfigValidation_InvalidFilterSubjectFailsFast(t *testing.T) {
+	cfg := withConsumerDefaults(ConsumerConfig{
+		URL:            "nats://127.0.0.1:4222",
+		StreamName:     "MARKETDATA",
+		DedupWindow:    5 * time.Minute,
+		MaxAge:         24 * time.Hour,
+		MaxBytes:       1_000_000,
+		FilterSubjects: []string{"freeprefix.>"},
+	})
+	if p := validateConsumerConfig(cfg); p == nil {
+		t.Fatal("expected validation failure for invalid filter_subjects")
+	}
+}
+
 func TestToNATSConsumerConfig_FilterMapping(t *testing.T) {
 	cfg := withConsumerDefaults(ConsumerConfig{
 		URL:            "nats://127.0.0.1:4222",

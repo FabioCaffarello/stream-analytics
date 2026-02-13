@@ -48,6 +48,12 @@ type ConsumerConfig struct {
 
 type ConsumeHandler func(ctx context.Context, env envelope.Envelope) *problem.Problem
 
+type ackDispositionMessage interface {
+	Ack(...nats.AckOpt) error
+	Nak(...nats.AckOpt) error
+	Term(...nats.AckOpt) error
+}
+
 type Consumer struct {
 	nc       *nats.Conn
 	js       nats.JetStreamContext
@@ -264,9 +270,12 @@ func heartbeatInterval(ackWait time.Duration) time.Duration {
 	return interval
 }
 
-func (c *Consumer) ackWithDisposition(ctx context.Context, msg *nats.Msg, disposition Disposition, status, reasonCode string, startedAt time.Time) *problem.Problem {
+func (c *Consumer) ackWithDisposition(ctx context.Context, msg ackDispositionMessage, disposition Disposition, status, reasonCode string, startedAt time.Time) *problem.Problem {
 	if ctx.Err() != nil {
 		return nil
+	}
+	if msg == nil {
+		return problem.New(problem.ValidationFailed, "jetstream ack message must not be nil")
 	}
 
 	var ackErr error
@@ -440,6 +449,9 @@ func validateConsumerRequired(cfg ConsumerConfig) *problem.Problem {
 	for i, s := range cfg.FilterSubjects {
 		if strings.TrimSpace(s) == "" {
 			return problem.Newf(problem.ValidationFailed, "jetstream consumer filter_subjects[%d] must not be empty", i)
+		}
+		if err := ValidateSubjectPattern(s); err != nil {
+			return problem.Newf(problem.ValidationFailed, "jetstream consumer filter_subjects[%d] invalid: %v", i, err)
 		}
 	}
 	return nil
