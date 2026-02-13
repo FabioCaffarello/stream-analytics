@@ -42,3 +42,12 @@ Bounded contexts:
 ## Alternatives
 
 - Monolithic package layout (rejected: increases coupling and slows evolution).
+
+## Evidence
+
+- Validation gate: `make docs-check-full`
+- Authority path: `docs/adrs/ADR-0001-bounded-contexts-and-boundaries.md`
+
+## Changelog
+
+- 2026-02-13: added required `Evidence` and `Changelog` sections for docs header compliance.

@@ -23,3 +23,12 @@ We are building a Go platform for market data aggregation and decision-support i
 ## Alternatives
 
 - RFC-only (rejected: ADRs are simpler and better as a permanent record).
+
+## Evidence
+
+- Validation gate: `make docs-check-full`
+- Authority path: `docs/adrs/ADR-0000-foundation.md`
+
+## Changelog
+
+- 2026-02-13: added required `Evidence` and `Changelog` sections for docs header compliance.
