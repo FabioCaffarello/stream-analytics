@@ -18,6 +18,10 @@ GO_TEST_RACE_FLAGS ?= -race -covermode=atomic -timeout=$(GO_TEST_RACE_TIMEOUT)
 INTEGRATION_TEST_PATTERN ?= Integration|E2E|Conformance|ReplayIngestGolden1000
 INTEGRATION_TEST_PKGS ?= ./internal/adapters/jetstream ./cmd/consumer
 TEST_RACE_PKGS ?= ./internal/adapters/jetstream ./internal/shared/replay ./internal/actors/runtime ./cmd/consumer
+REPLAY_GOLDEN_PKGS ?= ./internal/shared/replay ./cmd/consumer
+REPLAY_GOLDEN_PATTERN ?= TestGoldenReplay|TestReplayIngestGolden1000
+REPLAY_GOLDEN_TRIGGER_REGEX ?= ^(internal/shared/replay/|internal/shared/envelope/|internal/.*/sequencer|internal/core/storage/|internal/adapters/storage/)
+REPLAY_GOLDEN_CHANGED ?=
 SOAK_OUT_FILE ?= .context/evidence/w5-soak.txt
 SOAK_GO_CACHE ?= /tmp/go-build
 SOAK_WS_PATTERN ?= TestConsumer_ConnectDisconnectCycle_(NoGoroutineLeak|HeapStable)
@@ -36,7 +40,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules tidy tidy-check fmt fmt-check vet quick docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-soak soak-check test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install commit-msg-check proto-lint proto-gen proto-breaking proto ci
+.PHONY: help install-tools tools modules tidy tidy-check fmt fmt-check vet quick docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-replay-golden test-replay-golden-if-needed test-soak soak-check test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install commit-msg-check proto-lint proto-gen proto-breaking proto ci
 
 help:
 	@echo "Targets:"
@@ -62,6 +66,8 @@ help:
 	@echo "  make test-unit          - run fast short/unit-oriented workspace tests"
 	@echo "  make test-integration   - run integration-focused suites in selected packages"
 	@echo "  make test-race          - run targeted high-risk race-enabled suites"
+	@echo "  make test-replay-golden - run replay golden tests only (shared/replay + cmd/consumer)"
+	@echo "  make test-replay-golden-if-needed - run replay golden only when changed paths match trigger regex"
 	@echo "  make test-soak          - alias for soak-check long-running validation"
 	@echo "  make soak-check         - run soak harness checks and emit evidence file"
 	@echo "  make test-short         - run short tests"
@@ -214,6 +220,22 @@ test-integration: invariants-check
 
 test-race: invariants-check
 	@$(GO) test $(GO_TEST_RACE_FLAGS) $(TEST_RACE_PKGS)
+
+test-replay-golden: invariants-check
+	@$(GO) test $(GO_TEST_FLAGS) $(REPLAY_GOLDEN_PKGS) -run '$(REPLAY_GOLDEN_PATTERN)'
+
+test-replay-golden-if-needed:
+	@set -euo pipefail; \
+	if [ -z "$(REPLAY_GOLDEN_CHANGED)" ]; then \
+		echo "Set REPLAY_GOLDEN_CHANGED with changed paths (e.g. git diff --name-only HEAD~1)"; \
+		exit 1; \
+	fi; \
+	if printf "%s\n" "$(REPLAY_GOLDEN_CHANGED)" | tr ' ' '\n' | rg -Eq '$(REPLAY_GOLDEN_TRIGGER_REGEX)'; then \
+		echo "replay trigger matched; running test-replay-golden"; \
+		$(MAKE) test-replay-golden; \
+	else \
+		echo "replay trigger not matched; skipping test-replay-golden"; \
+	fi
 
 test-soak:
 	@$(MAKE) soak-check
