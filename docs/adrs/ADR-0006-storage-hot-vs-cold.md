@@ -37,3 +37,8 @@ Clarification:
 - The hot-path decision (bounded in-memory read models for realtime delivery) is active.
 - Cold-path runtime wiring is intentionally deferred and remains pluggable behind `core/storage/ports`.
 - This amendment does not revoke ADR acceptance; it narrows current delivery scope to avoid implying a forced cold-store implementation in the current phase.
+
+## Evidence
+
+- Validation gate: `make docs-check-full`
+- Authority path: file-local ADR source.

@@ -43,3 +43,8 @@ No replay deterministico, `seq` e timestamps de ingest devem vir do fixture para
 ### Persistencia de Sequencer
 
 Continuidades cross-restart podem ser adicionadas no futuro via armazenamento de `lastSeq` por stream, sem alterar o contrato atual nesta fase.
+
+## Evidence
+
+- Validation gate: `make docs-check-full`
+- Authority path: file-local ADR source.
