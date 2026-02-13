@@ -54,3 +54,8 @@ Guardian usa:
 - limiter global de restart por janela para evitar storm/thundering herd
 
 Quando rate-limit global dispara, restart e adiado e subsystem segue degradado ate liberar janela.
+
+## Evidence
+
+- Validation gate: `make docs-check-full`
+- Authority path: file-local ADR source.

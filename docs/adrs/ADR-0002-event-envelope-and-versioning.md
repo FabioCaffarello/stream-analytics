@@ -68,3 +68,8 @@ Campos reservados em `meta` para interoperabilidade futura:
 - `source_stream`
 - `market_type`
 - `content_type`
+
+## Evidence
+
+- Validation gate: `make docs-check-full`
+- Authority path: file-local ADR source.
