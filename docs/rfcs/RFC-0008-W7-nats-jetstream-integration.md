@@ -212,6 +212,21 @@ Trade-off operacional:
 - Mensagens poison não são silenciosamente descartadas: recebem `term`, log estruturado e contagem em métricas (`bus_consumed_total{status="term"}`).
 - Para falhas temporárias preservamos at-least-once com `Nak()` e redelivery até `max_deliver`.
 
+### Quarantine ACL + Failure Semantics
+
+- Poison envelopes são publicados em `quarantine.v1.{venue}.{instrument}` (taxonomia estrita).
+- Se publish em quarantine falhar por erro transitório (`timeout`, `disconnected`, `no responders`), a mensagem original recebe `Nak()`.
+- Se falhar por erro permanente de ACL/autorização (`Authorization Violation`, `permission denied`, `forbidden`), a mensagem original recebe `Term()` para evitar NAK storm.
+- Métricas:
+  - `ingest_nak_total{reason="quarantine_publish_failed"}` para transitório.
+  - `ingest_term_total{reason="quarantine_publish_failed"}` para permanente.
+
+### Quarantine Storage Bounds
+
+- O subject `quarantine.>` fica no mesmo stream JetStream com retenção `LimitsPolicy`.
+- Boundaries seguem os limites já configurados no stream (`MaxAge`, `MaxBytes`, `Duplicates`) e não usam armazenamento ilimitado.
+- Risco operacional: ACL que bloqueia publish em `quarantine.v1.*` move poison para `Term()` (sem redelivery infinito). Garantir permissão explícita em produção.
+
 ## 9. Migration Strategy
 
 ```

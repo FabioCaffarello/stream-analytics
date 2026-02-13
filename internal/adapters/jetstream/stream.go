@@ -9,15 +9,7 @@ import (
 )
 
 func ensureStream(ctx context.Context, js nats.JetStreamContext, cfg PublisherConfig) *problem.Problem {
-	streamCfg := &nats.StreamConfig{
-		Name:       cfg.StreamName,
-		Subjects:   append([]string(nil), subjectWildcards...),
-		Retention:  nats.LimitsPolicy,
-		Storage:    nats.FileStorage,
-		MaxAge:     cfg.MaxAge,
-		MaxBytes:   cfg.MaxBytes,
-		Duplicates: cfg.DedupWindow,
-	}
+	streamCfg := buildStreamConfig(cfg)
 
 	info, err := js.StreamInfo(cfg.StreamName, nats.Context(ctx))
 	switch {
@@ -35,6 +27,19 @@ func ensureStream(ctx context.Context, js nats.JetStreamContext, cfg PublisherCo
 		return nil
 	default:
 		return wrapUnavailable("stream_info_failed", err, "jetstream stream info failed")
+	}
+}
+
+func buildStreamConfig(cfg PublisherConfig) *nats.StreamConfig {
+	cfg = withDefaults(cfg)
+	return &nats.StreamConfig{
+		Name:       cfg.StreamName,
+		Subjects:   append([]string(nil), subjectWildcards...),
+		Retention:  nats.LimitsPolicy,
+		Storage:    nats.FileStorage,
+		MaxAge:     cfg.MaxAge,
+		MaxBytes:   cfg.MaxBytes,
+		Duplicates: cfg.DedupWindow,
 	}
 }
 

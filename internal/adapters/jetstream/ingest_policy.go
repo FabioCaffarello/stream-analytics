@@ -1,7 +1,9 @@
 package jetstream
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"strings"
 
@@ -109,6 +111,13 @@ func classifyEnvelopeDecodeFailure(p *problem.Problem) ingestDecision {
 func applyQuarantinePublishResult(decision ingestDecision, quarantineErr *problem.Problem) ingestDecision {
 	if quarantineErr == nil {
 		return decision
+	}
+	if !quarantineErr.Retryable {
+		return ingestDecision{
+			Disposition: DispositionTerm,
+			Status:      "term",
+			ReasonCode:  ingestReasonQuarantinePublishError,
+		}
 	}
 	return ingestDecision{
 		Disposition: DispositionNak,
@@ -218,6 +227,38 @@ func isQuarantineMessage(msg *nats.Msg, env envelope.Envelope) bool {
 		return true
 	}
 	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(msg.Subject)), "quarantine.v1.")
+}
+
+// ClassifyQuarantinePublishError decides whether quarantine publish failure is
+// transient (NAK) or permanent (TERM).
+func ClassifyQuarantinePublishError(err error) (retryable bool, reasonCode string) {
+	if err == nil {
+		return false, ""
+	}
+
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	if errors.Is(err, nats.ErrAuthorization) ||
+		strings.Contains(msg, "authorization violation") ||
+		strings.Contains(msg, "permission denied") ||
+		strings.Contains(msg, "no permissions") ||
+		strings.Contains(msg, "not authorized") ||
+		strings.Contains(msg, "forbidden") ||
+		strings.Contains(msg, " 403") ||
+		strings.Contains(msg, "403 ") {
+		return false, ingestReasonQuarantinePublishError
+	}
+
+	switch {
+	case errors.Is(err, context.DeadlineExceeded),
+		errors.Is(err, nats.ErrTimeout),
+		errors.Is(err, nats.ErrNoResponders),
+		errors.Is(err, nats.ErrConnectionClosed),
+		errors.Is(err, nats.ErrDisconnected):
+		return true, ingestReasonQuarantinePublishError
+	default:
+		// Keep default as retryable for safety; permanent classes are explicit.
+		return true, ingestReasonQuarantinePublishError
+	}
 }
 
 func buildQuarantineEnvelope(msg *nats.Msg, env envelope.Envelope, reasonCode string, p *problem.Problem) (envelope.Envelope, *problem.Problem) {
@@ -341,15 +382,6 @@ func normalizeBoundedProblemText(p *problem.Problem, maxLen int) string {
 		return ""
 	}
 	text := strings.TrimSpace(p.Message)
-	if p.Cause != nil {
-		cause := strings.TrimSpace(p.Cause.Error())
-		if cause != "" {
-			if text != "" {
-				text += ": "
-			}
-			text += cause
-		}
-	}
 	text = strings.Join(strings.Fields(text), " ")
 	if maxLen <= 0 || len(text) <= maxLen {
 		return text

@@ -3,14 +3,17 @@ package jetstream
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/market-raccoon/internal/shared/envelope"
+	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/problem"
 	"github.com/nats-io/nats.go"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 func TestMapProblemToDisposition(t *testing.T) {
@@ -250,6 +253,49 @@ func TestApplyQuarantinePublishResult_FailureTurnsIntoNak(t *testing.T) {
 	}
 }
 
+func TestClassifyQuarantinePublishError_PermissionDenied_Terms(t *testing.T) {
+	retryable, reasonCode := ClassifyQuarantinePublishError(errors.New("nats: Authorization Violation"))
+	if retryable {
+		t.Fatal("expected permission denied to be non-retryable")
+	}
+	if reasonCode != ingestReasonQuarantinePublishError {
+		t.Fatalf("reason=%q want=%q", reasonCode, ingestReasonQuarantinePublishError)
+	}
+
+	decision := applyQuarantinePublishResult(
+		poisonDecision(ingestReasonDecodeFailed),
+		problem.New(problem.Unavailable, "jetstream quarantine publish failed"),
+	)
+	if decision.Disposition != DispositionTerm {
+		t.Fatalf("disposition=%v want=%v", decision.Disposition, DispositionTerm)
+	}
+
+	before := testutil.ToFloat64(metrics.IngestTermTotal.WithLabelValues("quarantine_publish_failed"))
+	recordIngestDecisionMetrics(decision.Disposition, decision.ReasonCode)
+	after := testutil.ToFloat64(metrics.IngestTermTotal.WithLabelValues("quarantine_publish_failed"))
+	if after != before+1 {
+		t.Fatalf("term metric delta=%f want=1", after-before)
+	}
+}
+
+func TestClassifyQuarantinePublishError_Timeout_Naks(t *testing.T) {
+	retryable, reasonCode := ClassifyQuarantinePublishError(context.DeadlineExceeded)
+	if !retryable {
+		t.Fatal("expected timeout to be retryable")
+	}
+	if reasonCode != ingestReasonQuarantinePublishError {
+		t.Fatalf("reason=%q want=%q", reasonCode, ingestReasonQuarantinePublishError)
+	}
+
+	decision := applyQuarantinePublishResult(
+		poisonDecision(ingestReasonDecodeFailed),
+		problem.WithRetryable(problem.New(problem.Unavailable, "jetstream quarantine publish failed")),
+	)
+	if decision.Disposition != DispositionNak {
+		t.Fatalf("disposition=%v want=%v", decision.Disposition, DispositionNak)
+	}
+}
+
 func TestBuildQuarantineEnvelope_TruncatesProblemTextDeterministically(t *testing.T) {
 	msg := nats.NewMsg("marketdata.bookdelta.v1.binance.BTCUSDT")
 	msg.Data = []byte(`{"a":"b"}`)
@@ -274,6 +320,57 @@ func TestBuildQuarantineEnvelope_TruncatesProblemTextDeterministically(t *testin
 	}
 	if string(env.Payload) != string(env2.Payload) {
 		t.Fatal("quarantine payload must be deterministic for identical input")
+	}
+}
+
+func TestQuarantineSubjectTaxonomy_IsStrict(t *testing.T) {
+	msg := nats.NewMsg("marketdata.trade.v1.binance.BTCUSDT")
+	msg.Data = []byte(`{"p":1}`)
+	msg.Header.Set(nats.MsgIdHdr, "q-taxonomy-1")
+
+	out, p := buildQuarantineEnvelope(msg, envelope.Envelope{
+		Venue:          "BINANCE",
+		Instrument:     "BTCUSDT",
+		TsIngest:       1,
+		IdempotencyKey: "src-1",
+	}, ingestReasonDecodeFailed, problem.New(problem.ValidationFailed, "decode failed"))
+	if p != nil {
+		t.Fatalf("buildQuarantineEnvelope failed: %v", p)
+	}
+
+	subject := envelope.SubjectFromEnvelope(out)
+	if subject != "quarantine.v1.binance.BTCUSDT" {
+		t.Fatalf("subject=%q want=%q", subject, "quarantine.v1.binance.BTCUSDT")
+	}
+	parts := strings.Split(subject, ".")
+	if len(parts) != 4 {
+		t.Fatalf("subject parts=%d want=4 (%q)", len(parts), subject)
+	}
+	if parts[0] != "quarantine" || parts[1] != "v1" {
+		t.Fatalf("unexpected event/version in subject: %q", subject)
+	}
+	if strings.TrimSpace(parts[2]) == "" || strings.TrimSpace(parts[3]) == "" {
+		t.Fatalf("venue/instrument must be non-empty in subject: %q", subject)
+	}
+}
+
+func TestBuildQuarantineEnvelope_DeterministicErrorTextIgnoresCause(t *testing.T) {
+	msg := nats.NewMsg("marketdata.bookdelta.v1.binance.BTCUSDT")
+	msg.Data = []byte(`{"a":"b"}`)
+	msg.Header.Set(nats.MsgIdHdr, "q-deterministic-cause")
+
+	probA := problem.Wrap(errors.New("dial tcp 127.0.0.1:4222: i/o timeout"), problem.ValidationFailed, "decode failed")
+	probB := problem.Wrap(errors.New("dial tcp 127.0.0.1:4333: i/o timeout"), problem.ValidationFailed, "decode failed")
+	envA, p := buildQuarantineEnvelope(msg, envelope.Envelope{}, ingestReasonDecodeFailed, probA)
+	if p != nil {
+		t.Fatalf("buildQuarantineEnvelope(A) failed: %v", p)
+	}
+	envB, p := buildQuarantineEnvelope(msg, envelope.Envelope{}, ingestReasonDecodeFailed, probB)
+	if p != nil {
+		t.Fatalf("buildQuarantineEnvelope(B) failed: %v", p)
+	}
+	if string(envA.Payload) != string(envB.Payload) {
+		t.Fatal("quarantine payload error text must stay deterministic across variable causes")
 	}
 }
 

@@ -3,6 +3,7 @@ package jetstream
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -494,7 +495,24 @@ func (c *Consumer) publishQuarantine(ctx context.Context, msg *nats.Msg, env env
 	_, err := c.js.PublishMsg(quarantineMsg, nats.Context(pubCtx))
 	if err != nil {
 		kind := classifyPublishError(err)
-		return problem.WithRetryable(problem.WithDetail(problem.Wrap(err, problem.Unavailable, "jetstream quarantine publish failed"), "kind", kind))
+		retryable, classifiedReason := ClassifyQuarantinePublishError(err)
+		if classifiedReason == "" {
+			classifiedReason = ingestReasonQuarantinePublishError
+		}
+		out := problem.WithDetail(
+			problem.WithDetail(problem.Wrap(err, problem.Unavailable, "jetstream quarantine publish failed"), "kind", kind),
+			"reason_code", classifiedReason,
+		)
+		if retryable {
+			return problem.WithRetryable(out)
+		}
+		slog.Warn(
+			"jetstream: permanent quarantine publish failure, terminating poison message",
+			"reason_code", classifiedReason,
+			"kind", kind,
+			"subject", strings.TrimSpace(quarantineMsg.Subject),
+		)
+		return out
 	}
 	metrics.IncIngestQuarantine(reasonCode)
 	return nil
