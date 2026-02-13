@@ -161,6 +161,7 @@ type getRangeParams struct {
 	FromMs int64 `json:"from_ms"`
 	ToMs   int64 `json:"to_ms"`
 	Limit  int   `json:"limit"`
+	Page   int   `json:"page"`
 }
 
 func (s *SessionActor) handleInboundText(data []byte) {
@@ -174,11 +175,32 @@ func (s *SessionActor) handleInboundText(data []byte) {
 		s.handleSubscribe(cmd)
 	case "unsubscribe":
 		s.handleUnsubscribe(cmd)
+	case "getlast":
+		s.handleGetLast(cmd)
 	case "getrange":
 		s.handleGetRange(cmd)
 	default:
 		s.writeProblem(cmd.Op, cmd.RequestID, problem.Newf(problem.ValidationFailed, "unsupported op %q", cmd.Op))
 	}
+}
+
+func paginateTail(items []ports.RangeItem, page, limit int) []ports.RangeItem {
+	if limit <= 0 {
+		return items
+	}
+	if page <= 0 {
+		page = 1
+	}
+	n := len(items)
+	end := n - (page-1)*limit
+	if end <= 0 {
+		return []ports.RangeItem{}
+	}
+	start := end - limit
+	if start < 0 {
+		start = 0
+	}
+	return items[start:end]
 }
 
 func (s *SessionActor) handleSubscribe(cmd clientCommand) {
@@ -225,6 +247,29 @@ func (s *SessionActor) handleUnsubscribe(cmd clientCommand) {
 	})
 }
 
+func (s *SessionActor) handleGetLast(cmd clientCommand) {
+	res := s.service.GetRange(context.Background(), app.GetRangeRequest{
+		SubjectRaw: cmd.Subject,
+		Limit:      1,
+	})
+	if res.IsFail() {
+		s.writeProblem(cmd.Op, cmd.RequestID, res.Problem())
+		return
+	}
+	var item any
+	items := res.Value()
+	if len(items) > 0 {
+		item = items[len(items)-1]
+	}
+	s.writeJSON(map[string]any{
+		"type":       "last",
+		"op":         cmd.Op,
+		"request_id": cmd.RequestID,
+		"subject":    cmd.Subject,
+		"item":       item,
+	})
+}
+
 func (s *SessionActor) handleGetRange(cmd clientCommand) {
 	var params getRangeParams
 	if len(cmd.Params) != 0 {
@@ -233,22 +278,33 @@ func (s *SessionActor) handleGetRange(cmd clientCommand) {
 			return
 		}
 	}
+	page := params.Page
+	if page <= 0 {
+		page = 1
+	}
+	queryLimit := params.Limit
+	if queryLimit > 0 {
+		queryLimit = queryLimit * page
+	}
 	res := s.service.GetRange(context.Background(), app.GetRangeRequest{
 		SubjectRaw: cmd.Subject,
 		FromMs:     params.FromMs,
 		ToMs:       params.ToMs,
-		Limit:      params.Limit,
+		Limit:      queryLimit,
 	})
 	if res.IsFail() {
 		s.writeProblem(cmd.Op, cmd.RequestID, res.Problem())
 		return
 	}
+	items := paginateTail(res.Value(), page, params.Limit)
 	s.writeJSON(map[string]any{
 		"type":       "range",
 		"op":         cmd.Op,
 		"request_id": cmd.RequestID,
 		"subject":    cmd.Subject,
-		"items":      res.Value(),
+		"page":       page,
+		"limit":      params.Limit,
+		"items":      items,
 	})
 }
 
