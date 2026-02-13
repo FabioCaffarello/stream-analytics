@@ -30,7 +30,8 @@ Accepted delivery router inputs:
 - `insights.crossvenue.trade_snapshot.v1.global.{instrument}`
 - `insights.crossvenue.spread_signal.v1.global.{instrument}`
 - `aggregation.snapshot.v1.{venue}.{instrument}`
-- planned: `insights.<heatmap_event>.v1.{venue}.{instrument}` (TBD registry key)
+- planned: `insights.heatmap_snapshot.v1.{venue}.{instrument}`
+- planned: `insights.heatmap_delta.v1.{venue}.{instrument}`
 - planned: `insights.<volume_profile_event>.v1.{venue}.{instrument}` (TBD registry key)
 
 ### Output Plane (WS frames)

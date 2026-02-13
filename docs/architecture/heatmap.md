@@ -27,7 +27,8 @@ Define liquidity/activity heatmap modeling by price-time buckets with determinis
 
 ### Outputs
 
-- Planned derived event: `insights.<heatmap_event>.v1.{venue}.{instrument}` (TBD registry key)
+- Planned derived event: `insights.heatmap_snapshot.v1.{venue}.{instrument}`
+- Planned derived event: `insights.heatmap_delta.v1.{venue}.{instrument}`
 - Planned WS stream: `insights.heatmap/{venue}/{symbol}/{timeframe}`
 
 ### Storage
