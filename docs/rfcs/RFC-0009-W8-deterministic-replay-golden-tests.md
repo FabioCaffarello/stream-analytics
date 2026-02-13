@@ -463,3 +463,13 @@ Observed results:
 723a3341d107f8f1b0b14cc972f8051d0321ce5ff09f2d4bab22f3d60c0fb220  internal/shared/replay/testdata/fixtures/input-mini.jsonl
 723a3341d107f8f1b0b14cc972f8051d0321ce5ff09f2d4bab22f3d60c0fb220  internal/shared/replay/testdata/golden/output-mini.jsonl
 ```
+
+## Test Plan
+
+```bash
+make docs-check-full
+```
+
+## Acceptance
+
+- Required RFC sections are present and validated by `make docs-check-full`.
