@@ -4,6 +4,7 @@ This directory contains plans for coordinating work across documentation and pla
 
 ## Plan Queue
 1. [Retomada Market Parity Commit Chain](./retomada-market-parity-commit-chain.md)
+2. [Subject Taxonomy Stabilization](./subject-taxonomy-stabilization.md)
 
 ## How To Create Or Update Plans
 - Run "ai-context plan <name>" to scaffold a new plan template.

@@ -1,13 +1,14 @@
 {
   "active": [
     {
-      "slug": "retomada-market-parity-commit-chain",
-      "path": "plans/retomada-market-parity-commit-chain.md",
-      "title": "1) Program Snapshot",
-      "linkedAt": "2026-02-13T15:55:14.377Z",
+      "slug": "subject-taxonomy-stabilization",
+      "path": "plans/subject-taxonomy-stabilization.md",
+      "title": "Stabilizar taxonomia de subjects",
+      "summary": "Consolidar subjects existentes e planejados, criar registry YAML machine-readable, corrigir inconsistências conceituais em packs sem alterar runtime.",
+      "linkedAt": "2026-02-13T16:05:00.698Z",
       "status": "active"
     }
   ],
   "completed": [],
-  "primary": "retomada-market-parity-commit-chain"
+  "primary": "subject-taxonomy-stabilization"
 }
