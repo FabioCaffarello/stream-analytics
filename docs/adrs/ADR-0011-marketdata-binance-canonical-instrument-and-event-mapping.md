@@ -29,3 +29,12 @@ W3 introduz Binance como primeira source real. Era necessário fixar:
 
 - `BTC-USDT` como canônico: rejeitado por divergir da canonicalização já usada em domínio.
 - parsing dentro de actors/runtime: rejeitado por violar separação de responsabilidades.
+
+## Evidence
+
+- Validation gate: `make docs-check-full`
+- Authority path: file-local ADR source.
+
+## Changelog
+
+- 2026-02-13: added required header sections for docs compliance.
