@@ -278,7 +278,7 @@ func (s *SessionActor) handleGetLast(cmd clientCommand) {
 	subject := subRes.Value()
 	res := s.service.GetRange(context.Background(), app.GetRangeRequest{
 		SubjectRaw: subject.String(),
-		Limit:      1,
+		Limit:      maxQueryLimit,
 	})
 	if res.IsFail() {
 		s.writeProblem(cmd.Op, cmd.RequestID, res.Problem())
@@ -336,11 +336,13 @@ func (s *SessionActor) handleGetRange(cmd clientCommand) {
 		return
 	}
 
+	// Defensive window: fetch bounded superset, then sort/paginate in-memory.
+	// This avoids relying on implicit store ordering semantics.
 	res := s.service.GetRange(context.Background(), app.GetRangeRequest{
 		SubjectRaw: subject.String(),
 		FromMs:     params.FromMs,
 		ToMs:       params.ToMs,
-		Limit:      queryLimit,
+		Limit:      maxQueryLimit,
 	})
 	if res.IsFail() {
 		s.writeProblem(cmd.Op, cmd.RequestID, res.Problem())
