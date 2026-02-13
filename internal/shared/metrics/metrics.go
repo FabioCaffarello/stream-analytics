@@ -350,6 +350,33 @@ var (
 			Help: "Total VPVR builder replay/out-of-order mismatches observed while updating buckets.",
 		},
 	)
+	VPVRWriterUpsertOpsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "vpvr_writer_upsert_ops_total",
+			Help: "Total VPVR writer upsert operations by status.",
+		},
+		[]string{"status"},
+	)
+	VPVRWriterUpsertDedupTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "vpvr_writer_upsert_dedup_total",
+			Help: "Total VPVR writer deduplicated upsert operations.",
+		},
+	)
+	VPVRWriterUpsertLatencyMilliseconds = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "vpvr_writer_upsert_latency_ms",
+			Help:    "Latency in milliseconds for VPVR writer upsert operations.",
+			Buckets: []float64{0, 0.1, 0.5, 1, 2, 5, 10, 25, 50, 100, 250, 500},
+		},
+	)
+	VPVRWriterWriteFailTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "vpvr_writer_write_fail_total",
+			Help: "Total VPVR writer failures by reason.",
+		},
+		[]string{"reason"},
+	)
 	HeatmapBuildLatencyMilliseconds = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "heatmap_build_latency_ms",
@@ -457,6 +484,10 @@ func registerAll() {
 			VPVRBuilderOverloadActionsTotal,
 			VPVRBuilderDropTotal,
 			VPVRBuilderReplayMismatchTotal,
+			VPVRWriterUpsertOpsTotal,
+			VPVRWriterUpsertDedupTotal,
+			VPVRWriterUpsertLatencyMilliseconds,
+			VPVRWriterWriteFailTotal,
 			HeatmapBuildLatencyMilliseconds,
 			HeatmapCellsTotal,
 			HeatmapPayloadBytes,
@@ -503,6 +534,8 @@ func registerAll() {
 		VPVRBuilderWindowsOpen.WithLabelValues("unknown", "unknown", "unknown")
 		VPVRBuilderOverloadActionsTotal.WithLabelValues("unknown")
 		VPVRBuilderDropTotal.WithLabelValues("unknown")
+		VPVRWriterUpsertOpsTotal.WithLabelValues("unknown")
+		VPVRWriterWriteFailTotal.WithLabelValues("unknown")
 		HeatmapBuildLatencyMilliseconds.WithLabelValues("unknown", "unknown", "unknown")
 		HeatmapCellsTotal.WithLabelValues("unknown", "unknown", "unknown")
 		HeatmapPayloadBytes.WithLabelValues("unknown", "unknown", "unknown")
@@ -720,6 +753,25 @@ func IncVPVRBuilderDrop(reason string) {
 
 func IncVPVRBuilderReplayMismatch() {
 	VPVRBuilderReplayMismatchTotal.Inc()
+}
+
+func IncVPVRWriterUpsertOps(status string) {
+	VPVRWriterUpsertOpsTotal.WithLabelValues(sanitizeStatus(status)).Inc()
+}
+
+func IncVPVRWriterUpsertDedup() {
+	VPVRWriterUpsertDedupTotal.Inc()
+}
+
+func ObserveVPVRWriterUpsertLatencyMilliseconds(latencyMs float64) {
+	if latencyMs < 0 {
+		latencyMs = 0
+	}
+	VPVRWriterUpsertLatencyMilliseconds.Observe(latencyMs)
+}
+
+func IncVPVRWriterWriteFail(reason string) {
+	VPVRWriterWriteFailTotal.WithLabelValues(sanitizeKind(reason)).Inc()
 }
 
 func ObserveHeatmapBuildLatency(venue, instrument, timeframe string, latency time.Duration) {

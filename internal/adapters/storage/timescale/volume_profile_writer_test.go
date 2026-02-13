@@ -6,11 +6,16 @@ import (
 
 	"github.com/market-raccoon/internal/adapters/storage/timescale"
 	insightsports "github.com/market-raccoon/internal/core/insights/ports"
+	"github.com/market-raccoon/internal/shared/metrics"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 func TestVolumeProfileWriter_IdempotentUpsertSamePayload(t *testing.T) {
 	w := timescale.NewVolumeProfileWriter()
 	upsert := testVPVRUpsert(1.5, 2.5, 4.0, 10, 12)
+	beforeOK := testutil.ToFloat64(metrics.VPVRWriterUpsertOpsTotal.WithLabelValues("ok"))
+	beforeDup := testutil.ToFloat64(metrics.VPVRWriterUpsertOpsTotal.WithLabelValues("duplicate"))
+	beforeDedup := testutil.ToFloat64(metrics.VPVRWriterUpsertDedupTotal)
 
 	if p := w.UpsertVolumeProfileBucket(context.Background(), upsert); p != nil {
 		t.Fatalf("first upsert failed: %v", p)
@@ -34,6 +39,34 @@ func TestVolumeProfileWriter_IdempotentUpsertSamePayload(t *testing.T) {
 	}
 	if got := w.CommitCount(); got != 1 {
 		t.Fatalf("commit count mismatch: got=%d want=1", got)
+	}
+	if got := testutil.ToFloat64(metrics.VPVRWriterUpsertOpsTotal.WithLabelValues("ok")); got < beforeOK+1 {
+		t.Fatalf("expected ok op increment, got=%f before=%f", got, beforeOK)
+	}
+	if got := testutil.ToFloat64(metrics.VPVRWriterUpsertOpsTotal.WithLabelValues("duplicate")); got < beforeDup+1 {
+		t.Fatalf("expected duplicate op increment, got=%f before=%f", got, beforeDup)
+	}
+	if got := testutil.ToFloat64(metrics.VPVRWriterUpsertDedupTotal); got < beforeDedup+1 {
+		t.Fatalf("expected dedup increment, got=%f before=%f", got, beforeDedup)
+	}
+}
+
+func TestVolumeProfileWriter_ValidationFailMetrics(t *testing.T) {
+	w := timescale.NewVolumeProfileWriter()
+	beforeOps := testutil.ToFloat64(metrics.VPVRWriterUpsertOpsTotal.WithLabelValues("validation_failed"))
+	beforeFail := testutil.ToFloat64(metrics.VPVRWriterWriteFailTotal.WithLabelValues("validation_failed"))
+
+	bad := testVPVRUpsert(1, 2, 3, 10, 12)
+	bad.BucketHigh = bad.BucketLow
+	if p := w.UpsertVolumeProfileBucket(context.Background(), bad); p == nil {
+		t.Fatal("expected validation failure")
+	}
+
+	if got := testutil.ToFloat64(metrics.VPVRWriterUpsertOpsTotal.WithLabelValues("validation_failed")); got < beforeOps+1 {
+		t.Fatalf("expected validation_failed op increment, got=%f before=%f", got, beforeOps)
+	}
+	if got := testutil.ToFloat64(metrics.VPVRWriterWriteFailTotal.WithLabelValues("validation_failed")); got < beforeFail+1 {
+		t.Fatalf("expected write_fail validation increment, got=%f before=%f", got, beforeFail)
 	}
 }
 

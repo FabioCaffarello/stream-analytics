@@ -8,6 +8,7 @@ import (
 
 	insightsports "github.com/market-raccoon/internal/core/insights/ports"
 	"github.com/market-raccoon/internal/shared/hash"
+	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/naming"
 	"github.com/market-raccoon/internal/shared/problem"
 )
@@ -42,9 +43,15 @@ func NewVolumeProfileWriter() *VolumeProfileWriter {
 
 func (w *VolumeProfileWriter) UpsertVolumeProfileBucket(_ context.Context, upsert insightsports.VolumeProfileBucketUpsert) *problem.Problem {
 	if w == nil {
+		metrics.IncVPVRWriterWriteFail("writer_nil")
+		metrics.IncVPVRWriterUpsertOps("failed")
+		metrics.ObserveVPVRWriterUpsertLatencyMilliseconds(0)
 		return problem.New(problem.ValidationFailed, "timescale volume profile writer is nil")
 	}
 	if p := upsert.Validate(); p != nil {
+		metrics.IncVPVRWriterWriteFail("validation_failed")
+		metrics.IncVPVRWriterUpsertOps("validation_failed")
+		metrics.ObserveVPVRWriterUpsertLatencyMilliseconds(0)
 		return p
 	}
 
@@ -59,6 +66,9 @@ func (w *VolumeProfileWriter) UpsertVolumeProfileBucket(_ context.Context, upser
 		w.seenOps[key] = make(map[string]struct{})
 	}
 	if _, dup := w.seenOps[key][fp]; dup {
+		metrics.IncVPVRWriterUpsertDedup()
+		metrics.IncVPVRWriterUpsertOps("duplicate")
+		metrics.ObserveVPVRWriterUpsertLatencyMilliseconds(0)
 		return nil
 	}
 
@@ -70,6 +80,8 @@ func (w *VolumeProfileWriter) UpsertVolumeProfileBucket(_ context.Context, upser
 	}
 	w.seenOps[key][fp] = struct{}{}
 	w.commits++
+	metrics.IncVPVRWriterUpsertOps("ok")
+	metrics.ObserveVPVRWriterUpsertLatencyMilliseconds(0)
 	return nil
 }
 
