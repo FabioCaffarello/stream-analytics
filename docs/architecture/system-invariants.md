@@ -99,3 +99,24 @@ Só falar — porque agora você está montando fundação de empresa, não só 
 - Subject taxonomy validation is enforced for concrete publish subjects and startup subject patterns.
 - Stream bounds validation is enforced before JetStream `AddStream`/`UpdateStream`: at least one hard bound (`MaxAge`/`MaxBytes`/`MaxMsgs`) must exist, `MaxAge` must be positive, and dedup window must be configured.
 - Operational impact: startup fails immediately on config drift, preventing silent misrouting, unbounded retention, or retry storms in production.
+
+## Retry Budget (NAK Bounded)
+
+- Retryable ingest failures (`TRANSIENT_FAILURE`, `QUARANTINE_PUBLISH_FAILED`) are bounded by a local retry budget.
+- Primary source of truth is JetStream delivery count (`NumDelivered` / `Nats-Num-Delivered` / `Nats-Msg-Redelivery`).
+- When delivery count reaches budget `N`, action is `TERM` with reason code `TRANSIENT_EXHAUSTED` (no infinite transient NAK loop).
+- If delivery metadata is unavailable, fallback uses a bounded in-memory partition tracker keyed by `venue|instrument` with fixed capacity and deterministic eviction.
+
+## Runtime Boundedness (Adapter)
+
+- JetStream replay merge buffer is bounded (`MergeBufferSize`); output channel is bounded (`OutputBufferSize`).
+- Transient retry fallback state is bounded by fixed-capacity ring+map (`retryBudgetTracker`), never unbounded by message cardinality.
+- On fallback tracker eviction, decision is observable via `ingest_drop_total{reason="buffer_full_drop"}` and deterministic log message.
+
+## Protobuf-Free Domain Guardrail
+
+- `internal/core/**`, `internal/actors/**`, and `internal/interfaces/**` must not import:
+  - `google.golang.org/protobuf/*`
+  - `github.com/golang/protobuf/*`
+- `make invariants-check` enforces this rule and fails with:
+  - `protobuf import violates Domain Isolation; move to internal/shared/contracts boundary`

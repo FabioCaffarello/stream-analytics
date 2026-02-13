@@ -27,7 +27,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules tidy tidy-check fmt fmt-check lint test test-root test-workspace test-workspace-race test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install proto-lint proto-gen proto-breaking proto ci
+.PHONY: help install-tools tools modules tidy tidy-check fmt fmt-check invariants-check lint test test-root test-workspace test-workspace-race test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install proto-lint proto-gen proto-breaking proto ci
 
 help:
 	@echo "Targets:"
@@ -38,6 +38,7 @@ help:
 	@echo "  make tidy-check         - fail if go.mod/go.sum are not tidy"
 	@echo "  make fmt                - format all Go files (gofmt)"
 	@echo "  make fmt-check          - check formatting (gofmt -l)"
+	@echo "  make invariants-check   - enforce domain isolation and runtime invariants checks"
 	@echo "  make lint               - run golangci-lint in workspace modules"
 	@echo "  make test               - alias for make test-root"
 	@echo "  make test-root          - workspace-safe root test entrypoint"
@@ -114,7 +115,10 @@ fmt:
 fmt-check:
 	@./scripts/gofmt-all.sh check
 
-lint:
+invariants-check:
+	@./scripts/check-domain-isolation.sh "$(CURDIR)"
+
+lint: invariants-check
 	$(call RUN_IN_MODULES,bash -lc 'pkgs="$$( $(GO) list ./... 2>/dev/null || true )"; if [ -n "$$pkgs" ]; then $(GOLANGCI_LINT) run --config "$(CURDIR)/.golangci.yml" ./...; else echo "no packages to lint (skipping)"; fi')
 
 test:
@@ -124,10 +128,10 @@ test-root:
 	@echo "go.work multi-module repository detected: use workspace-aware targets instead of 'go test ./...' at repository root."
 	$(MAKE) test-workspace
 
-test-workspace:
+test-workspace: invariants-check
 	$(call RUN_IN_MODULES,bash -lc 'pkgs="$$( $(GO) list ./... 2>/dev/null || true )"; if [ -n "$$pkgs" ]; then $(GO) test $(GO_TEST_FLAGS) $$pkgs; else echo "no packages to test (skipping)"; fi')
 
-test-workspace-race:
+test-workspace-race: invariants-check
 	$(call RUN_IN_MODULES,bash -lc 'pkgs="$$( $(GO) list ./... 2>/dev/null || true )"; if [ -n "$$pkgs" ]; then $(GO) test $(GO_TEST_RACE_FLAGS) $$pkgs; else echo "no packages to test (skipping)"; fi')
 
 test-short:

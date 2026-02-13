@@ -55,11 +55,13 @@ type ackDispositionMessage interface {
 }
 
 type Consumer struct {
-	nc       *nats.Conn
-	js       nats.JetStreamContext
-	cfg      ConsumerConfig
-	sub      *nats.Subscription
-	observer observability.BusObserver
+	nc                   *nats.Conn
+	js                   nats.JetStreamContext
+	cfg                  ConsumerConfig
+	sub                  *nats.Subscription
+	observer             observability.BusObserver
+	transientRetryBudget int
+	retryBudget          *retryBudgetTracker
 }
 
 func NewConsumer(ctx context.Context, cfg ConsumerConfig, observer observability.BusObserver) (*Consumer, *problem.Problem) {
@@ -131,11 +133,13 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig, observer observability
 	}
 
 	return &Consumer{
-		nc:       nc,
-		js:       js,
-		cfg:      cfg,
-		sub:      sub,
-		observer: observer,
+		nc:                   nc,
+		js:                   js,
+		cfg:                  cfg,
+		sub:                  sub,
+		observer:             observer,
+		transientRetryBudget: withTransientRetryBudget(cfg.MaxDeliver),
+		retryBudget:          newRetryBudgetTracker(defaultRetryBudgetFallbackCapacity),
 	}, nil
 }
 
@@ -220,6 +224,7 @@ func (c *Consumer) consumeOne(ctx context.Context, msg *nats.Msg, handler Consum
 	if decision.Quarantine && !isQuarantineMessage(msg, env) {
 		decision = applyQuarantinePublishResult(decision, c.publishQuarantine(ctx, msg, env, decision.ReasonCode, procProb))
 	}
+	decision = c.applyTransientRetryBudget(msg, env, meta, decision)
 	return c.ackWithDisposition(ctx, msg, decision.Disposition, decision.Status, decision.ReasonCode, started)
 }
 

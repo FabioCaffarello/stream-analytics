@@ -73,11 +73,36 @@ func TestImportGuard_ProtoImportsStayInSharedBoundary(t *testing.T) {
 	t.Fatalf("protobuf imports are restricted to internal/shared/* and proto/gen\nviolations:\n%s", strings.Join(violations, "\n"))
 }
 
-func isForbiddenProtoImport(importPath string) bool {
-	if strings.Contains(importPath, "/internal/shared/proto/gen/") {
-		return true
+func TestImportGuard_DetectsSimulatedViolationFixture(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join("testdata", "import_guard", "violating_import.go")
+	file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+	if err != nil {
+		t.Fatalf("parse imports for fixture %s: %v", path, err)
 	}
-	return strings.HasPrefix(importPath, "google.golang.org/protobuf")
+
+	found := make([]string, 0, len(file.Imports))
+	for _, imp := range file.Imports {
+		importPath := strings.Trim(imp.Path.Value, "\"")
+		if isForbiddenProtoImport(importPath) {
+			found = append(found, importPath)
+		}
+	}
+	slices.Sort(found)
+	want := []string{
+		"github.com/golang/protobuf/proto",
+		"google.golang.org/protobuf/proto",
+	}
+	if !slices.Equal(found, want) {
+		t.Fatalf("forbidden imports=%v want=%v", found, want)
+	}
+}
+
+func isForbiddenProtoImport(importPath string) bool {
+	importPath = strings.TrimSpace(importPath)
+	return strings.HasPrefix(importPath, "google.golang.org/protobuf") ||
+		strings.HasPrefix(importPath, "github.com/golang/protobuf")
 }
 
 func findRepoRoot(t *testing.T) string {

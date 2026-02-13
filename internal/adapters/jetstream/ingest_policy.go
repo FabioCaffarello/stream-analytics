@@ -20,7 +20,10 @@ const (
 	ingestReasonUnknownEventType       = "UNKNOWN_EVENT_TYPE"
 	ingestReasonUnknownEventVersion    = "UNKNOWN_EVENT_VERSION"
 	ingestReasonTransientFailure       = "TRANSIENT_FAILURE"
+	ingestReasonTransientExhausted     = "TRANSIENT_EXHAUSTED"
 	ingestReasonQuarantinePublishError = "QUARANTINE_PUBLISH_FAILED"
+	ingestReasonBackpressureDrop       = "BACKPRESSURE_DROP"
+	ingestReasonBufferFullDrop         = "BUFFER_FULL_DROP"
 
 	quarantineEventType    = "quarantine"
 	quarantineEventVersion = 1
@@ -215,6 +218,7 @@ func normalizeIngestReason(reasonCode string) string {
 		ingestReasonUnknownEventType,
 		ingestReasonUnknownEventVersion,
 		ingestReasonTransientFailure,
+		ingestReasonTransientExhausted,
 		ingestReasonQuarantinePublishError:
 		return strings.ToUpper(strings.TrimSpace(reasonCode))
 	default:
