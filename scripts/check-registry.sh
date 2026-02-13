@@ -39,12 +39,18 @@ required_fields="id pattern root owner_bc producer_bc schema_authority_bc consum
 
 current_id=""
 found_fields=""
+current_owner_bc=""
+current_producer_bc=""
+current_schema_authority_bc=""
 line_no=0
 in_subjects=false
 
 check_subject() {
   local sid="$1"
   local fields="$2"
+  local owner="$3"
+  local producer="$4"
+  local schema_authority="$5"
   [[ -n "$sid" ]] || return 0
 
   for field in $required_fields; do
@@ -52,6 +58,16 @@ check_subject() {
       fail "${sid}: missing required field '${field}'"
     fi
   done
+
+  if [[ -n "$owner" && -n "$producer" && "$owner" != "$producer" ]]; then
+    if [[ -z "$schema_authority" ]]; then
+      fail "${sid}: producer_bc ('${producer}') differs from owner_bc ('${owner}') but schema_authority_bc is empty"
+      return
+    fi
+    if [[ "$schema_authority" != "$owner" && "$schema_authority" != "$producer" ]]; then
+      fail "${sid}: schema_authority_bc ('${schema_authority}') must be owner_bc ('${owner}') or producer_bc ('${producer}') when producer_bc != owner_bc"
+    fi
+  fi
 }
 
 while IFS= read -r line || [[ -n "$line" ]]; do
@@ -65,10 +81,13 @@ while IFS= read -r line || [[ -n "$line" ]]; do
 
   # Detect end of subjects section (non-indented key after subjects).
   if $in_subjects && [[ "$line" =~ ^[a-z] ]]; then
-    check_subject "$current_id" "$found_fields"
+    check_subject "$current_id" "$found_fields" "$current_owner_bc" "$current_producer_bc" "$current_schema_authority_bc"
     in_subjects=false
     current_id=""
     found_fields=""
+    current_owner_bc=""
+    current_producer_bc=""
+    current_schema_authority_bc=""
     continue
   fi
 
@@ -76,10 +95,13 @@ while IFS= read -r line || [[ -n "$line" ]]; do
 
   # New subject entry.
   if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*id:[[:space:]]*(.+) ]]; then
-    check_subject "$current_id" "$found_fields"
+    check_subject "$current_id" "$found_fields" "$current_owner_bc" "$current_producer_bc" "$current_schema_authority_bc"
     current_id="${BASH_REMATCH[1]}"
     current_id="${current_id%% *}"
     found_fields="id"
+    current_owner_bc=""
+    current_producer_bc=""
+    current_schema_authority_bc=""
     continue
   fi
 
@@ -108,13 +130,18 @@ while IFS= read -r line || [[ -n "$line" ]]; do
         if ! echo " $valid_bcs " | grep -q " ${field_value} "; then
           fail "${current_id}: invalid ${field_name} '${field_value}' (expected: ${valid_bcs})"
         fi
+        case "$field_name" in
+          owner_bc) current_owner_bc="$field_value" ;;
+          producer_bc) current_producer_bc="$field_value" ;;
+          schema_authority_bc) current_schema_authority_bc="$field_value" ;;
+        esac
         ;;
     esac
   fi
 done < "$registry"
 
 # Check last subject if file ends inside subjects section.
-check_subject "$current_id" "$found_fields"
+check_subject "$current_id" "$found_fields" "$current_owner_bc" "$current_producer_bc" "$current_schema_authority_bc"
 
 if (( errors > 0 )); then
   echo "registry-check: failed with ${errors} issue(s)."

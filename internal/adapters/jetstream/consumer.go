@@ -54,6 +54,10 @@ type ackDispositionMessage interface {
 	Term(...nats.AckOpt) error
 }
 
+type ackSyncMessage interface {
+	AckSync(...nats.AckOpt) error
+}
+
 type Consumer struct {
 	nc                   *nats.Conn
 	js                   nats.JetStreamContext
@@ -287,7 +291,13 @@ func (c *Consumer) ackWithDisposition(ctx context.Context, msg ackDispositionMes
 	var ackErr error
 	switch disposition {
 	case DispositionAck:
-		ackErr = msg.Ack()
+		// Stronger boundary: prefer AckSync when available so broker confirms
+		// ack persistence before message disposition is considered complete.
+		if syncMsg, ok := msg.(ackSyncMessage); ok {
+			ackErr = syncMsg.AckSync()
+		} else {
+			ackErr = msg.Ack()
+		}
 	case DispositionNak:
 		ackErr = msg.Nak()
 	case DispositionTerm:

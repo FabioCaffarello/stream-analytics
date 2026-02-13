@@ -69,6 +69,48 @@ func TestMapProblemToDisposition(t *testing.T) {
 	}
 }
 
+func TestAckWithDisposition_AckUsesAckSyncWhenAvailable(t *testing.T) {
+	c := &Consumer{observer: observability.NopBusObserver()}
+	msg := &fakeAckSyncMessage{}
+
+	if p := c.ackWithDisposition(context.Background(), msg, DispositionAck, "ok", ingestReasonOK, time.Now()); p != nil {
+		t.Fatalf("ackWithDisposition failed: %v", p)
+	}
+	if msg.ackSyncCalls != 1 {
+		t.Fatalf("ackSync calls=%d want=1", msg.ackSyncCalls)
+	}
+	if msg.ackCalls != 0 {
+		t.Fatalf("ack calls=%d want=0 when AckSync is available", msg.ackCalls)
+	}
+}
+
+type fakeAckSyncMessage struct {
+	ackCalls     int
+	ackSyncCalls int
+	nakCalls     int
+	termCalls    int
+}
+
+func (f *fakeAckSyncMessage) Ack(...nats.AckOpt) error {
+	f.ackCalls++
+	return nil
+}
+
+func (f *fakeAckSyncMessage) AckSync(...nats.AckOpt) error {
+	f.ackSyncCalls++
+	return nil
+}
+
+func (f *fakeAckSyncMessage) Nak(...nats.AckOpt) error {
+	f.nakCalls++
+	return nil
+}
+
+func (f *fakeAckSyncMessage) Term(...nats.AckOpt) error {
+	f.termCalls++
+	return nil
+}
+
 func TestConsumerConfigDefaultsAndValidation(t *testing.T) {
 	cfg := withConsumerDefaults(ConsumerConfig{
 		URL:         "nats://127.0.0.1:4222",

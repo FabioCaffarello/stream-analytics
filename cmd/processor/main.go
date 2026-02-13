@@ -38,6 +38,9 @@ import (
 	actorruntime "github.com/market-raccoon/internal/actors/runtime"
 	"github.com/market-raccoon/internal/adapters/bus"
 	adapterjs "github.com/market-raccoon/internal/adapters/jetstream"
+	adapterstorage "github.com/market-raccoon/internal/adapters/storage"
+	"github.com/market-raccoon/internal/adapters/storage/clickhouse"
+	"github.com/market-raccoon/internal/adapters/storage/timescale"
 	aggapp "github.com/market-raccoon/internal/core/aggregation/app"
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
 	insightsapp "github.com/market-raccoon/internal/core/insights/app"
@@ -80,10 +83,15 @@ func (p *logArtifactPublisher) PublishInconsistent(_ context.Context, evt aggdom
 	return nil
 }
 
-type noopHotStore struct{}
+type committedHotStore struct {
+	committer *adapterstorage.SnapshotCommitter
+}
 
-func (n *noopHotStore) Save(_ context.Context, _ aggdomain.SnapshotProduced) *problem.Problem {
-	return nil
+func (s *committedHotStore) Save(ctx context.Context, snap aggdomain.SnapshotProduced) *problem.Problem {
+	if s == nil || s.committer == nil {
+		return problem.New(problem.ValidationFailed, "committed hot store is not configured")
+	}
+	return s.committer.Commit(ctx, snap)
 }
 
 type envelopeSource struct {
@@ -536,7 +544,9 @@ func main() {
 
 	// ── aggregation use case ────────────────────────────────────────────────
 	artifactPub := &logArtifactPublisher{logger: logger}
-	hotStore := &noopHotStore{}
+	hotStore := &committedHotStore{
+		committer: adapterstorage.NewSnapshotCommitter(timescale.NewWriter(), clickhouse.NewWriter()),
+	}
 	updateBook := aggapp.NewUpdateOrderBookFromEventsWithConfig(artifactPub, hotStore, aggapp.UpdateConfig{
 		MaxBooks: cfg.Processor.MaxInstruments,
 	})

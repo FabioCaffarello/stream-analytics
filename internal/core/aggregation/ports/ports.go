@@ -19,3 +19,9 @@ type ArtifactPublisher interface {
 type HotReadModelStore interface {
 	Save(ctx context.Context, snap domain.SnapshotProduced) *problem.Problem
 }
+
+// ColdReadModelStore archives immutable snapshots for replay/analytics.
+// Implementations are expected to enforce idempotency at write boundary.
+type ColdReadModelStore interface {
+	Save(ctx context.Context, snap domain.SnapshotProduced) *problem.Problem
+}
