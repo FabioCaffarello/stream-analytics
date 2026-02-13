@@ -9,6 +9,14 @@
 
 Define end-to-end flow for `marketdata.markprice` and `marketdata.liquidation`, with strong dedup keys and deterministic multi-exchange normalization.
 
+## Terminology (canonical)
+
+- `instrument`: canonical instrument identity key in envelope/domain.
+- `subject`: bus route key (`marketdata.markprice.v1.binance.BTCUSDT`).
+- `stream`: delivery key (`marketdata.markprice/binance/BTCUSDT/raw`).
+- `envelope`: ADR-0002 fields (`ts_ingest`, `seq`, `idempotency_key`, etc).
+- `payload`: versioned marketdata tick (`MarkPriceTickV1` / `LiquidationTickV1`).
+
 ## Data Planes
 
 ### Inputs
@@ -20,7 +28,7 @@ Define end-to-end flow for `marketdata.markprice` and `marketdata.liquidation`, 
 
 - WS stream: `marketdata.markprice/{venue}/{symbol}/{timeframe}`
 - WS stream: `marketdata.liquidation/{venue}/{symbol}/{timeframe}`
-- Planned derived event: `insights.liquidation.markprice_snapshot.v1.{venue}.{instrument}`
+- Planned derived event: `insights.<markprice_liquidation_snapshot>.v1.{venue}.{instrument}` (TBD registry key)
 
 ### Storage
 
@@ -40,8 +48,8 @@ Keys/idempotency:
 
 - Event types and version already registered in `proto/registry.json`.
 - Mandatory normalization:
-- canonical uppercase `venue` (`BINANCE`, `BYBIT`, ...)
-- canonical key `instrument` (`BTCUSDT`) in envelope
+- canonical venue identity in domain (`BINANCE`, `BYBIT`, ...), serialized for subject as lowercase token
+- canonical key `instrument` (`BTCUSDT`) in envelope/subject partitioning
 - canonical subject with lowercase venue + uppercase alnum instrument
 - When exchange timestamp is absent, use `ts_ingest` as authoritative time.
 
@@ -61,6 +69,17 @@ Keys/idempotency:
 2. compact liquidation events in short batches;
 3. emit per-reason drop alert.
 - ACK only on commit.
+
+## Implementation Matrix
+
+| Feature | Status | Evidence | Tests |
+|---|---|---|---|
+| Contract registration for markprice/liquidation | Existing | `proto/registry.json`, `internal/shared/contracts/marketdata_registry.go` | `internal/shared/contracts/marketdata_registry_test.go:TestRegisterMarketDataV1_RegistersAll` |
+| Proto/domain converter completeness | Existing | `internal/shared/contracts/authority_manifest.go` | `internal/shared/contracts/converter_completeness_test.go:TestConverterCompleteness_MarkPriceTickV1`, `internal/shared/contracts/converter_completeness_test.go:TestConverterCompleteness_LiquidationTickV1` |
+| Codec compatibility JSON/protobuf | Existing | `internal/shared/codec/payload_codec.go` | `internal/shared/codec/payload_codec_test.go` |
+| Ack/nak/term ingest semantics | Existing | `internal/adapters/jetstream/consumer.go` | `internal/adapters/jetstream/ingest_conformance_test.go:TestIngestConformance_AckNakTermGoldenTable` |
+| Dedicated markprice/liquidation runtime pipeline | TODO | `internal/core/marketdata/app/normalize_markprice_liquidation.go` (TODO) | `internal/actors/marketdata/runtime/markprice_liquidation_pipeline_test.go` (TODO) |
+| Hot/cold durable writers for markprice/liquidation | TODO | `internal/adapters/storage/timescale/markprice_liquidation_writer.go` (TODO), `internal/adapters/storage/clickhouse/markprice_liquidation_writer.go` (TODO) | `internal/adapters/storage/markprice_liquidation_writer_test.go` (TODO) |
 
 ## Storage Strategy
 
@@ -92,18 +111,19 @@ Minimum:
 
 ## Acceptance Tests
 
-Planned test names:
-- `TestMarkPriceDedupStrongKey`
-- `TestLiquidationDedupStrongKey`
-- `TestMarkPriceLiquidationCanonicalNormalization`
-- `TestMarkPriceLiquidationReplayGolden`
-- `TestMarkPricePriorityOverLiquidationUnderPressure`
+Existing tests:
+- `internal/shared/contracts/converter_completeness_test.go:TestConverterCompleteness_MarkPriceTickV1`
+- `internal/shared/contracts/converter_completeness_test.go:TestConverterCompleteness_LiquidationTickV1`
+- `internal/shared/contracts/marketdata_registry_test.go:TestRegisterMarketDataV1_RegistersAll`
+- `internal/adapters/jetstream/ingest_conformance_test.go:TestIngestConformance_AckNakTermGoldenTable`
+- `internal/adapters/jetstream/replay_source_integration_test.go:TestReplaySourceIntegration_FullDeterministicOrder`
 
-Scenarios:
-- duplicate envelopes with slight payload variation;
-- out-of-order events;
-- multi-exchange same instrument;
-- burst preserving markprice priority.
+Tests to create for feature parity:
+- `internal/core/marketdata/app/normalize_markprice_liquidation_test.go:TestMarkPriceDedupStrongKey` (TODO)
+- `internal/core/marketdata/app/normalize_markprice_liquidation_test.go:TestLiquidationDedupStrongKey` (TODO)
+- `internal/core/marketdata/app/normalize_markprice_liquidation_test.go:TestMarkPriceLiquidationCanonicalNormalization` (TODO)
+- `internal/actors/marketdata/runtime/markprice_liquidation_pipeline_test.go:TestMarkPriceLiquidationReplayGolden` (TODO)
+- `internal/actors/marketdata/runtime/markprice_liquidation_pipeline_test.go:TestMarkPricePriorityOverLiquidationUnderPressure` (TODO)
 
 ## Evidence Hooks
 
@@ -112,6 +132,7 @@ Current evidence:
 - `internal/shared/contracts/authority_manifest.go`
 - `internal/core/marketdata/domain/payloads.go`
 - `internal/shared/codec/payload_codec_test.go`
+- `internal/shared/contracts/converter_completeness_test.go`
 
 TODO hooks (skeleton):
 - `internal/core/marketdata/app/normalize_markprice_liquidation.go` (TODO)

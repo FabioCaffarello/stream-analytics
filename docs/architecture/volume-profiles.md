@@ -9,6 +9,15 @@
 
 Define minimum-scope VPVR/footprint for v1, including price-range aggregation, cardinality risk controls, and hot/cold persistence plan.
 
+## Terminology (canonical)
+
+- `instrument`: canonical envelope identity key.
+- `subject`: bus routing key with version segment.
+- `stream`: subscription pattern (JetStream/WS).
+- `timeframe`: aggregation window boundary.
+- `envelope`: ordering/idempotency carrier.
+- `payload`: volume-distribution snapshot or delta body.
+
 ## Data Planes
 
 ### Inputs
@@ -18,8 +27,8 @@ Define minimum-scope VPVR/footprint for v1, including price-range aggregation, c
 
 ### Outputs
 
-- Planned derived event: `insights.volume_profile.snapshot.v1.{venue}.{instrument}`
-- Planned derived event: `insights.volume_profile.delta.v1.{venue}.{instrument}`
+- Planned derived event: `insights.<volume_profile_snapshot>.v1.{venue}.{instrument}` (TBD registry key)
+- Planned derived event: `insights.<volume_profile_delta>.v1.{venue}.{instrument}` (TBD registry key)
 - Planned WS stream: `insights.volume_profile/{venue}/{symbol}/{timeframe}`
 
 ### Storage
@@ -65,6 +74,16 @@ Minimum v1 scope:
 3. prioritize window close over incremental updates.
 - ACK only after hot commit.
 
+## Implementation Matrix
+
+| Feature | Status | Evidence | Tests |
+|---|---|---|---|
+| Deterministic insights join foundation | Existing | `internal/core/insights/app/join_crossvenue_trades.go` | `internal/core/insights/app/join_crossvenue_trades_test.go:TestJoinCrossVenueTrades_GoldenDeterministicSnapshotAndSignalBytes_50Runs` |
+| Input subject and partition validation | Existing | `internal/adapters/jetstream/subject_validation.go`, `internal/shared/config/loader.go` | `internal/adapters/jetstream/subject_validation_test.go`, `internal/shared/config/loader_test.go` |
+| VPVR domain model and aggregation use case | TODO | `internal/core/insights/domain/volume_profile.go` (TODO), `internal/core/insights/app/build_volume_profile.go` (TODO) | `internal/core/insights/app/build_volume_profile_test.go` (TODO) |
+| VPVR durable storage adapters | TODO | `internal/adapters/storage/timescale/volume_profile_writer.go` (TODO), `internal/adapters/storage/clickhouse/volume_profile_writer.go` (TODO) | `internal/adapters/storage/volume_profile_writer_test.go` (TODO) |
+| VPVR WS delivery contract | TODO | `internal/interfaces/ws/volume_profile_delivery.go` (TODO) | `internal/interfaces/ws/volume_profile_delivery_test.go` (TODO) |
+
 ## Storage Strategy
 
 - Timescale: recent snapshots/deltas for low-latency query.
@@ -95,17 +114,19 @@ Minimum:
 
 ## Acceptance Tests
 
-Planned test names:
-- `TestVPVRBucketDeterminism`
-- `TestVPVRCardinalityCap`
-- `TestVPVRPointOfControlConsistency`
-- `TestVPVRReplayGoldenWindow`
-- `TestVPVRBackpressureGracefulDegrade`
+Existing tests used as baseline:
+- `internal/core/insights/app/join_crossvenue_trades_test.go:TestJoinCrossVenueTrades_GoldenDeterministicSnapshotAndSignalBytes_50Runs`
+- `internal/shared/replay/golden_test.go:TestGoldenReplay`
+- `internal/shared/config/loader_test.go:TestJoinEnabled_SubjectsPresent_Passes`
+- `internal/shared/config/loader_test.go:TestJoinEnabled_MissingSubjects_Fails`
 
-Scenarios:
-- high-volatility period with many price levels;
-- overlapping windows;
-- full replay vs incremental replay with same output.
+Tests to create for VPVR parity:
+- `internal/core/insights/app/build_volume_profile_test.go:TestVPVRBucketDeterminism` (TODO)
+- `internal/core/insights/app/build_volume_profile_test.go:TestVPVRCardinalityCap` (TODO)
+- `internal/core/insights/app/build_volume_profile_test.go:TestVPVRPointOfControlConsistency` (TODO)
+- `internal/core/insights/app/build_volume_profile_test.go:TestVPVRReplayGoldenWindow` (TODO)
+- `internal/core/insights/app/build_volume_profile_test.go:TestVPVRBackpressureGracefulDegrade` (TODO)
+- `internal/interfaces/ws/volume_profile_delivery_test.go:TestVPVRPayloadBudgetAndPagination` (TODO)
 
 ## Evidence Hooks
 
@@ -113,6 +134,7 @@ Current related evidence:
 - `internal/core/insights/app/join_crossvenue_trades.go`
 - `internal/core/insights/app/join_crossvenue_trades_test.go`
 - `internal/shared/replay/golden_test.go`
+- `internal/shared/config/loader.go`
 
 TODO hooks (skeleton):
 - `internal/core/insights/domain/volume_profile.go` (TODO)

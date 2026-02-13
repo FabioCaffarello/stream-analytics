@@ -9,6 +9,15 @@
 
 Define the orderbook state contract, snapshot generation, and downstream delivery while preserving per-instrument determinism and bounded behavior under burst.
 
+## Terminology (canonical)
+
+- `instrument`: canonical envelope key (`BTCUSDT`).
+- `symbol`: delivery-side token on WS subjects.
+- `subject`: bus key (`marketdata.bookdelta.v1.binance.BTCUSDT`).
+- `stream`: JetStream filter/publish patterns validated by taxonomy guards.
+- `envelope`: ADR-0002 wrapper carrying sequencing and idempotency.
+- `payload`: typed body (`marketdata.BookDeltaV1` for inputs).
+
 ## Data Planes
 
 ### Inputs
@@ -18,8 +27,8 @@ Define the orderbook state contract, snapshot generation, and downstream deliver
 
 ### Outputs
 
-- Planned derived event: `aggregation.snapshot.v1.{venue}.{instrument}`
-- Planned derived event: `aggregation.orderbook.inconsistent.v1.{venue}.{instrument}`
+- Planned derived event: `aggregation.snapshot.v1.{venue}.{instrument}` (tracked in ADR revision NOTE-001 for subject-root alignment)
+- Planned derived event: `aggregation.<orderbook_inconsistency>.v1.{venue}.{instrument}` (TBD registry key, same NOTE-001)
 - WS delivery stream: `<stream_type>/<venue>/<symbol>/<timeframe>` with `stream_type=aggregation.snapshot`
 
 ### Storage
@@ -36,19 +45,23 @@ Keys/idempotency:
 
 ## Contracts
 
-Planned snapshot payload v1 minimum:
+Current runtime domain contracts:
+- `SnapshotProduced` (`internal/core/aggregation/domain/events.go`)
+- `OrderBookInconsistentDetected` (`internal/core/aggregation/domain/events.go`)
+
+Planned bus contract (v1 minimum):
 - `venue`, `instrument`, `seq`, `ts_ingest`
 - `best_bid`, `best_ask`, `spread`
 - `bids[]`, `asks[]` truncated by `max_levels`
 - deterministic orderbook `checksum`
 
-Inconsistency contract:
+Planned inconsistency contract:
 - mandatory `reason` (`crossed_book`, `sequence_gap`, `invalid_level`)
 - `needs_resync=true`
 
 ## Invariants
 
-- `OB-1`: single writer per `(venue, instrument, market_type)`.
+- `OB-1`: single writer per partition (`venue`, `instrument`, and `market_type` when present in upstream stream identity).
 - `OB-2`: strict seq monotonicity per stream.
 - `OB-3`: book cannot be committed with bid > ask; if it happens, emit inconsistency and block snapshot.
 - `OB-4`: `max_levels` bounded in memory and payload.
@@ -67,6 +80,7 @@ Inconsistency contract:
 
 - Hot (Timescale): latest snapshot + short range for `getrange`.
 - Cold (ClickHouse): compacted snapshot history by time bucket.
+- Current runtime: in-memory hot read model (`HotReadModelStore`) is the only implemented store.
 - Write strategy:
 1. hot upsert by `(venue,instrument,seq)`;
 2. cold append ordered by `(ts_ingest, seq)`.
@@ -93,21 +107,33 @@ Operational minimum:
 - drops
 - queue depth
 
+## Implementation Matrix
+
+| Feature | Status | Evidence | Tests |
+|---|---|---|---|
+| Deterministic `ApplyDelta` and crossed-book detection | Existing | `internal/core/aggregation/domain/orderbook.go` | `internal/core/aggregation/domain/orderbook_test.go` |
+| Orderbook use case publishes snapshot + inconsistency | Existing | `internal/core/aggregation/app/update_orderbook.go` | `internal/core/aggregation/app/update_orderbook_test.go` |
+| Replay golden for aggregation snapshots | Existing | `internal/core/aggregation/app/golden_replay_test.go` | `internal/core/aggregation/app/golden_replay_test.go:TestAggregationGoldenReplayFromFixture` |
+| Processor routing `marketdata.bookdelta` -> aggregation | Existing | `internal/actors/aggregation/runtime/processor.go` | `internal/actors/aggregation/runtime/processor_test.go:TestProcessor_BookDelta_callsUpdateOrderBook` |
+| Durable hot/cold writers for orderbook | TODO | `internal/adapters/storage/timescale/` and `internal/adapters/storage/clickhouse/` (TODO) | `internal/adapters/storage/orderbook_snapshot_writer_test.go` (TODO) |
+| Bus contract for `aggregation.snapshot` | Planned | `docs/rfcs/RFC-0011-product-parity-marketmonkey.md` | `internal/adapters/jetstream/subject_validation_test.go` (root-rule alignment required) |
+
 ## Acceptance Tests
 
-Planned test names:
-- `TestOrderbookApplyDeltaMonotonicSeq`
-- `TestOrderbookCrossedBookTriggersInconsistentEvent`
-- `TestOrderbookSnapshotBoundedByMaxLevels`
-- `TestOrderbookReplayGoldenDeterministic`
-- `TestOrderbookAckOnCommit`
-- `TestOrderbookSoak_NoGoroutineLeak`
+Existing tests:
+- `internal/core/aggregation/domain/orderbook_test.go:TestOrderBook_applyDelta_seqMonotonic`
+- `internal/core/aggregation/domain/orderbook_test.go:TestOrderBook_crossedBook`
+- `internal/core/aggregation/domain/orderbook_test.go:TestOrderBook_maxLevelsBoundedPerSide`
+- `internal/core/aggregation/app/update_orderbook_test.go:TestUpdateOrderBook_crossedBook`
+- `internal/core/aggregation/app/update_orderbook_test.go:TestUpdateOrderBook_boundedBooksEvictionDeterministicVictim`
+- `internal/core/aggregation/app/golden_replay_test.go:TestAggregationGoldenReplayFromFixture`
+- `internal/actors/aggregation/runtime/processor_test.go:TestProcessor_BookDelta_callsUpdateOrderBook`
 
-Scenarios:
-- out-of-order sequence;
-- crossed-book delta;
-- level burst above budget;
-- replay of 1000+ events with stable checksum.
+Tests to create (contract/storage/delivery parity):
+- `internal/actors/aggregation/runtime/processor_test.go:TestProcessor_BookDelta_AckOnCommitBoundary` (TODO)
+- `internal/adapters/storage/orderbook_snapshot_writer_test.go:TestOrderbookSnapshotWriter_IdempotentUpsert` (TODO)
+- `internal/interfaces/ws/orderbook_delivery_contract_test.go:TestOrderbookDeliverySlowClientPolicy` (TODO)
+- `internal/interfaces/ws/orderbook_delivery_contract_test.go:TestOrderbookDeliveryReplayRangeDeterministic` (TODO)
 
 ## Evidence Hooks
 
