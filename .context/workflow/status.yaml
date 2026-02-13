@@ -1,57 +1,52 @@
 project:
-  name: "docs-governance-normalization-wave2"
+  name: "product-parity-marketmonkey-docs"
   scale: LARGE
-  started: "2026-02-13T06:43:20.539Z"
+  started: "2026-02-13T07:12:46.915Z"
   current_phase: C
 
 phases:
   P:
     status: filled
-    started_at: "2026-02-13T06:43:20.539Z"
-    completed_at: "2026-02-13T06:43:44.787Z"
+    started_at: "2026-02-13T07:12:46.915Z"
+    completed_at: "2026-02-13T07:31:17.441Z"
   R:
     status: filled
-    started_at: "2026-02-13T06:43:44.789Z"
-    completed_at: "2026-02-13T06:47:17.118Z"
+    started_at: "2026-02-13T07:31:17.442Z"
+    completed_at: "2026-02-13T07:31:24.053Z"
   E:
     status: filled
-    started_at: "2026-02-13T06:47:17.119Z"
-    completed_at: "2026-02-13T06:47:21.632Z"
+    started_at: "2026-02-13T07:31:24.054Z"
+    completed_at: "2026-02-13T07:31:32.256Z"
   V:
     status: filled
-    started_at: "2026-02-13T06:47:21.633Z"
-    completed_at: "2026-02-13T06:47:25.112Z"
+    started_at: "2026-02-13T07:31:32.257Z"
+    completed_at: "2026-02-13T07:31:35.184Z"
   C:
     status: completed
-    started_at: "2026-02-13T06:47:25.113Z"
-    completed_at: "2026-02-13T06:47:29.806Z"
+    started_at: "2026-02-13T07:31:35.185Z"
+    completed_at: "2026-02-13T07:31:45.721Z"
     outputs:
-      - path: "docs/prd/PRD-0001-extreme-runtime.md"
-        status: filled
-      - path: "docs/contracts/event-bus.md"
-        status: filled
-      - path: "docs/rfcs/RFC-0008-W7-nats-jetstream-integration.md"
-        status: filled
-      - path: "docs/rfcs/RFC-0010-W9-multi-exchange-readiness.md"
+      - path: "docs/rfcs/RFC-0011-product-parity-marketmonkey.md"
         status: filled
       - path: "docs/architecture/TRUTH-MAP.md"
         status: filled
-      - path: "docs/audits/DRIFT-REPORT-W11.md"
+      - path: "docs/rfcs/ADR-REVISIONS-patch-plan.md"
+        status: filled
+      - path: "make invariants-check"
+        status: filled
+      - path: "make test-workspace"
         status: filled
 
 execution:
   history:
-    - timestamp: "2026-02-13T06:47:29.806Z"
+    - timestamp: "2026-02-13T07:31:45.721Z"
       phase: C
       action: completed
-  last_activity: "2026-02-13T06:47:29.806Z"
+  last_activity: "2026-02-13T07:31:45.721Z"
   resume_context: "Fase C (Confirmação) concluída"
 
-settings:
-  autonomous_mode: false
-  require_plan: true
-  require_approval: false
-
 approval:
-  plan_created: true
-  plan_approved: false
+  plan_created: false
+  plan_approved: true
+  approved_by: "system-migration"
+  approved_at: "2026-02-13T07:31:32.256Z"

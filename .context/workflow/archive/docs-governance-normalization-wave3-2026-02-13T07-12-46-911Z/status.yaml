@@ -1,0 +1,46 @@
+project:
+  name: "docs-governance-normalization-wave3"
+  scale: LARGE
+  started: "2026-02-13T07:02:04.945Z"
+  current_phase: C
+
+phases:
+  P:
+    status: filled
+    started_at: "2026-02-13T07:02:04.945Z"
+    completed_at: "2026-02-13T07:02:34.263Z"
+  R:
+    status: filled
+    started_at: "2026-02-13T07:02:34.264Z"
+    completed_at: "2026-02-13T07:06:12.684Z"
+  E:
+    status: filled
+    started_at: "2026-02-13T07:06:12.685Z"
+    completed_at: "2026-02-13T07:06:15.498Z"
+  V:
+    status: filled
+    started_at: "2026-02-13T07:06:15.499Z"
+    completed_at: "2026-02-13T07:06:17.837Z"
+  C:
+    status: filled
+    started_at: "2026-02-13T07:06:17.838Z"
+    completed_at: "2026-02-13T07:07:56.218Z"
+
+execution:
+  history:
+    - timestamp: "2026-02-13T07:08:35.763Z"
+      phase: C
+      action: plan_phase_updated
+      plan: "doc-governance-normalization-wave3"
+      description: "Plan phase phase-3 updated to completed"
+  last_activity: "2026-02-13T07:08:35.763Z"
+  resume_context: "Fase do plano atualizada"
+
+settings:
+  autonomous_mode: false
+  require_plan: true
+  require_approval: false
+
+approval:
+  plan_created: true
+  plan_approved: false

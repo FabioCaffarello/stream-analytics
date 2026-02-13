@@ -15,6 +15,10 @@ APP_CMD ?= ./cmd/server
 GO_TEST_FLAGS ?= -race -covermode=atomic
 GO_TEST_RACE_TIMEOUT ?= 10m
 GO_TEST_RACE_FLAGS ?= -race -covermode=atomic -timeout=$(GO_TEST_RACE_TIMEOUT)
+SOAK_OUT_FILE ?= .context/evidence/w5-soak.txt
+SOAK_GO_CACHE ?= /tmp/go-build
+SOAK_WS_PATTERN ?= TestConsumer_ConnectDisconnectCycle_(NoGoroutineLeak|HeapStable)
+SOAK_BOUNDEDMAP_PATTERN ?= TestBoundedMap_(ConcurrentAccess|EvictBySizeLRU|EvictByTTL)
 VULN_REQUIRED ?= false
 MODULE ?=
 
@@ -27,7 +31,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules tidy tidy-check fmt fmt-check invariants-check lint test test-root test-workspace test-workspace-race test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install proto-lint proto-gen proto-breaking proto ci
+.PHONY: help install-tools tools modules tidy tidy-check fmt fmt-check invariants-check lint test test-root test-workspace test-workspace-race soak-check test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install proto-lint proto-gen proto-breaking proto ci
 
 help:
 	@echo "Targets:"
@@ -44,6 +48,7 @@ help:
 	@echo "  make test-root          - workspace-safe root test entrypoint"
 	@echo "  make test-workspace     - run all workspace tests module-by-module"
 	@echo "  make test-workspace-race - run module-by-module tests with -race"
+	@echo "  make soak-check         - run soak harness checks and emit evidence file"
 	@echo "  make test-short         - run short tests"
 	@echo "  make vuln               - run govulncheck"
 	@echo "  make build              - build all binaries under cmd/* (package main)"
@@ -133,6 +138,13 @@ test-workspace: invariants-check
 
 test-workspace-race: invariants-check
 	$(call RUN_IN_MODULES,bash -lc 'pkgs="$$( $(GO) list ./... 2>/dev/null || true )"; if [ -n "$$pkgs" ]; then $(GO) test $(GO_TEST_RACE_FLAGS) $$pkgs; else echo "no packages to test (skipping)"; fi')
+
+soak-check: invariants-check
+	@./scripts/soak-test.sh \
+		--out-file "$(SOAK_OUT_FILE)" \
+		--go-cache "$(SOAK_GO_CACHE)" \
+		--ws-pattern "$(SOAK_WS_PATTERN)" \
+		--boundedmap-pattern "$(SOAK_BOUNDEDMAP_PATTERN)"
 
 test-short:
 	$(call RUN_IN_MODULES,bash -lc 'pkgs="$$( $(GO) list ./... 2>/dev/null || true )"; if [ -n "$$pkgs" ]; then $(GO) test -short $$pkgs; else echo "no packages to test (skipping)"; fi')
