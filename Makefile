@@ -44,7 +44,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules tidy tidy-check fmt fmt-check vet quick docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-replay-golden test-replay-golden-if-needed test-soak soak-check test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install commit-msg-check proto-tools proto-lint proto-gen proto-breaking proto-check proto ci
+.PHONY: help install-tools tools modules tidy tidy-check fmt fmt-check vet quick ci-local docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-replay-golden test-replay-golden-if-needed test-soak soak-check test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install commit-msg-check proto-tools proto-lint proto-gen proto-breaking proto-check proto ci
 
 help:
 	@echo "Targets:"
@@ -57,6 +57,7 @@ help:
 	@echo "  make fmt-check          - check formatting (gofmt -l)"
 	@echo "  make vet                - run go vet in workspace modules"
 	@echo "  make quick              - fast local loop (fmt-check + vet + invariants-check + short tests)"
+	@echo "  make ci-local           - strict local chain (quick -> docs -> invariants -> unit -> integration -> replay -> proto)"
 	@echo "  make docs-check         - strict docs guardrails (alias for docs-check-full)"
 	@echo "  make docs-check-fast    - lightweight docs guardrails for local loop"
 	@echo "  make docs-check-full    - full strict docs guardrails"
@@ -156,6 +157,15 @@ quick:
 	@$(MAKE) vet
 	@$(MAKE) invariants-check
 	@$(MAKE) test-short
+
+ci-local:
+	@$(MAKE) quick
+	@$(MAKE) docs-check-full
+	@$(MAKE) invariants-check
+	@$(MAKE) test-unit
+	@$(MAKE) test-integration
+	@$(MAKE) test-replay-golden
+	@$(MAKE) proto-check
 
 docs-check:
 	@$(MAKE) docs-check-full
