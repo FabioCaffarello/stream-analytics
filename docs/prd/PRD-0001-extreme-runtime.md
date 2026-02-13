@@ -441,11 +441,15 @@ O programa "Extreme Runtime" esta Done quando:
 - All metrics listed in B.5
 
 **Criterios de aceite:**
-- [ ] `curl localhost:8080/metrics` returns Prometheus format with all defined metrics (`file:test internal/interfaces/http/server_test.go:TestServer_Metrics_ExposesPrometheusFormat`)
-- [ ] `curl localhost:8080/debug/pprof/goroutine?debug=1` returns goroutine dump (`file:test internal/interfaces/http/server_test.go:TestServer_Pprof_EnabledLocalhostAllowed`)
-- [ ] pprof endpoints NOT accessible from public interface (localhost or auth only) (`file:test internal/interfaces/http/server_test.go:TestServer_Pprof_EnabledRemoteForbidden`)
-- [ ] `make test-workspace-race` verde (`file:symbol Makefile:test-workspace-race`)
-- [ ] No performance regression > 5% on ingest throughput (benchmark before/after)
+- [x] `curl localhost:8080/metrics` returns Prometheus format with all defined metrics (`file:test internal/interfaces/http/server_test.go:TestServer_Metrics_ExposesPrometheusFormat`)
+  Evidence: internal/interfaces/http/server_test.go:TestServer_Metrics_ExposesPrometheusFormat
+- [x] `curl localhost:8080/debug/pprof/goroutine?debug=1` returns goroutine dump (`file:test internal/interfaces/http/server_test.go:TestServer_Pprof_EnabledLocalhostAllowed`)
+  Evidence: internal/interfaces/http/server_test.go:TestServer_Pprof_EnabledLocalhostAllowed
+- [x] pprof endpoints NOT accessible from public interface (localhost or auth only) (`file:test internal/interfaces/http/server_test.go:TestServer_Pprof_EnabledRemoteForbidden`)
+  Evidence: internal/interfaces/http/server_test.go:TestServer_Pprof_EnabledRemoteForbidden
+- [x] `make test-workspace-race` verde (`file:symbol Makefile:test-workspace-race`)
+  Evidence: Makefile:test-workspace-race + .github/workflows/ci.yml
+- [ ] No performance regression > 5% on ingest throughput (benchmark before/after) — Deferred: benchmarks existem (`internal/core/marketdata/app/ingest_bench_test.go`, `internal/core/aggregation/domain/orderbook_bench_test.go`), mas falta artefato comparativo before/after <= 5%.
 
 ---
 
@@ -480,11 +484,14 @@ O programa "Extreme Runtime" esta Done quando:
 - Soak: 30min with 200 tickers — goroutine count delta < 5, heap growth < 10%
 
 **Criterios de aceite:**
-- [ ] `go test -count=1 -race -run TestGoroutineLeak` passes (goroutine count before == after)
-- [ ] IngestMarketData with MaxStreams=10 evicts oldest stream when 11th arrives
-- [ ] OrderBook with MaxLevels=100 never has > 100 levels on either side
-- [ ] Consumer stop/reconnect cycle: 0 goroutine leaks over 100 iterations
-- [ ] pprof heap profile shows stable allocations in 30min soak
+- [ ] `go test -count=1 -race -run TestGoroutineLeak` passes (goroutine count before == after) — Partial: não existe `TestGoroutineLeak` nominal; cobertura equivalente está em `TestConsumer_ConnectDisconnectCycle_NoGoroutineLeak`.
+- [x] IngestMarketData with MaxStreams=10 evicts oldest stream when 11th arrives
+  Evidence: internal/core/marketdata/app/ingest_test.go:TestIngest_boundedStreamsEvictsOldest
+- [x] OrderBook with MaxLevels=100 never has > 100 levels on either side
+  Evidence: internal/core/aggregation/domain/orderbook_test.go:TestOrderBook_maxLevelsBoundedPerSide
+- [x] Consumer stop/reconnect cycle: 0 goroutine leaks over 100 iterations
+  Evidence: internal/actors/marketdata/ws/consumer_test.go:TestConsumer_ConnectDisconnectCycle_NoGoroutineLeak
+- [ ] pprof heap profile shows stable allocations in 30min soak — Deferred: há teste curto de estabilidade (`TestConsumer_ConnectDisconnectCycle_HeapStable`), mas falta evidência versionada de soak de 30min.
 
 ---
 
@@ -529,12 +536,17 @@ O programa "Extreme Runtime" esta Done quando:
 - Golden: recorded JSON fixtures re-encoded as proto produce identical domain objects
 
 **Criterios de aceite:**
-- [ ] `buf lint` passes with no errors
-- [ ] `buf breaking` detects intentional breaking change (e.g., removed field) and fails
-- [ ] Proto-encoded TradeTickV1 decodes identically to JSON-encoded version
-- [ ] `make proto-gen` generates Go code without manual intervention
-- [ ] `proto/registry.json` lists all schemas with versions
-- [ ] Envelope ContentType field defaults to "application/json" (backward compat)
+- [x] `buf lint` passes with no errors
+  Evidence: Makefile:proto-lint + .github/workflows/ci.yml
+- [ ] `buf breaking` detects intentional breaking change (e.g., removed field) and fails — Deferred: gate existe, mas falta artefato explícito de teste negativo intencional no repositório.
+- [x] Proto-encoded TradeTickV1 decodes identically to JSON-encoded version
+  Evidence: internal/shared/codec/payload_codec_test.go:TestEncodeDecodePayload_Trade_JSONAndProtoSemanticEquivalence
+- [x] `make proto-gen` generates Go code without manual intervention
+  Evidence: Makefile:proto-gen + .github/workflows/ci.yml
+- [x] `proto/registry.json` lists all schemas with versions
+  Evidence: internal/shared/contracts/authority_test.go:TestContractAuthority_SchemaIdentityMatchesRegistry
+- [x] Envelope ContentType field defaults to "application/json" (backward compat)
+  Evidence: internal/shared/envelope/envelope_test.go:TestNormalizeContentType
 
 ---
 
@@ -573,13 +585,17 @@ O programa "Extreme Runtime" esta Done quando:
 - Integration: duplicate publish (same Msg-ID) — verify dedup
 
 **Criterios de aceite:**
-- [ ] `cmd/consumer -bus=jetstream` publishes to JetStream
-- [ ] `cmd/processor -bus=jetstream` consumes from JetStream with durable consumer
-- [ ] Stop and restart processor — zero message loss
-- [ ] Duplicate publish detected and suppressed by NATS dedup
-- [ ] Consumer registry creates/destroys consumers as sessions subscribe/unsubscribe
-- [ ] `cmd/consumer -bus=inmemory` still works (regression)
-- [ ] `make test-workspace-race` verde with testcontainers
+- [ ] `cmd/consumer -bus=jetstream` publishes to JetStream — Partial: adapter de publish está coberto, mas falta E2E explícito do binário `cmd/consumer` com `-bus=jetstream`.
+- [x] `cmd/processor -bus=jetstream` consumes from JetStream with durable consumer
+  Evidence: internal/adapters/jetstream/e2e_processor_integration_test.go:TestE2EProcessorJetStream
+- [x] Stop and restart processor — zero message loss
+  Evidence: internal/adapters/jetstream/e2e_processor_integration_test.go:TestE2EProcessorJetStream
+- [x] Duplicate publish detected and suppressed by NATS dedup
+  Evidence: internal/adapters/jetstream/publisher_integration_test.go:TestPublisherIntegration_DedupByMsgID
+- [ ] Consumer registry creates/destroys consumers as sessions subscribe/unsubscribe — Deferred: não há `consumer_registry` dedicado nem teste de create/destroy por sessão no estado atual.
+- [x] `cmd/consumer -bus=inmemory` still works (regression)
+  Evidence: cmd/consumer/main_test.go:TestBuildExchangeRuntimes_LegacySingleExchange
+- [ ] `make test-workspace-race` verde with testcontainers — Partial: `make test-workspace-race` existe, mas não executa os testes com tag `integration` de testcontainers.
 
 ---
 
@@ -613,11 +629,15 @@ O programa "Extreme Runtime" esta Done quando:
 - Golden: `go test -update-golden` writes expected output; subsequent runs compare
 
 **Criterios de aceite:**
-- [ ] Record 1000 envelopes from live Binance stream to fixture file (`file:test internal/shared/replay/jetstream_reader_test.go:TestRecordFromSourceWritesFixture`)
-- [ ] Replay fixture produces byte-identical output (envelope payload + metadata) (`file:test internal/shared/replay/golden_test.go:TestGoldenReplayByteStable50Runs`)
-- [ ] FakeClock replay uses timestamps from fixture (not wall clock) (`file:test cmd/consumer/replay_test.go:TestReplayIngestGolden1000`)
-- [ ] Golden test fails if domain logic changes output (intentional detection) (`file:test internal/shared/replay/golden_test.go:TestGoldenReplay`)
-- [ ] `go test -run TestGolden -update-golden` regenerates golden files
+- [ ] Record 1000 envelopes from live Binance stream to fixture file (`file:test internal/shared/replay/jetstream_reader_test.go:TestRecordFromSourceWritesFixture`) — Deferred: teste/arquivo citado não existe no repositório atual.
+- [x] Replay fixture produces byte-identical output (envelope payload + metadata) (`file:test internal/shared/replay/golden_test.go:TestGoldenReplayByteStable50Runs`)
+  Evidence: internal/shared/replay/golden_test.go:TestGoldenReplayByteStable50Runs
+- [x] FakeClock replay uses timestamps from fixture (not wall clock) (`file:test cmd/consumer/replay_test.go:TestReplayIngestGolden1000`)
+  Evidence: cmd/consumer/replay_test.go:TestReplayIngestGolden1000
+- [x] Golden test fails if domain logic changes output (intentional detection) (`file:test internal/shared/replay/golden_test.go:TestGoldenReplay`)
+  Evidence: internal/shared/replay/golden_test.go:TestGoldenReplay
+- [x] `go test -run TestGolden -update-golden` regenerates golden files
+  Evidence: internal/shared/replay/golden_test.go:TestGoldenReplay + cmd/consumer/replay_test.go:TestReplayIngestGolden1000
 
 ---
 
@@ -650,12 +670,15 @@ O programa "Extreme Runtime" esta Done quando:
 - Regression: single-exchange mode unaffected
 
 **Criterios de aceite:**
-- [ ] Bybit adapter parses at least trade + bookdelta events
-- [ ] Two exchanges run in same process without interference
-- [ ] Subject `marketdata.trade/bybit/BTC-USDT/raw` delivers correctly
-- [ ] `naming.CanonicalInstrument` produces same result for Binance "BTCUSDT" and Bybit "BTCUSDT"
-- [ ] No changes to `internal/core/*` domain logic
-- [ ] `make test-workspace-race` verde
+- [x] Bybit adapter parses at least trade + bookdelta events
+  Evidence: internal/adapters/exchange/bybit/parser_test.go:TestParseMessage_Trade + internal/adapters/exchange/bybit/parser_test.go:TestParseMessage_BookDelta
+- [x] Two exchanges run in same process without interference
+  Evidence: cmd/consumer/e2e_consumer_integration_test.go:TestE2EConsumerMultiExchange
+- [ ] Subject `marketdata.trade/bybit/BTC-USDT/raw` delivers correctly — Deferred: não há teste explícito desse subject string com venue `bybit` e timeframe `raw`.
+- [ ] `naming.CanonicalInstrument` produces same result for Binance "BTCUSDT" and Bybit "BTCUSDT" — Partial: função é agnóstica de venue e há testes de normalização/idempotência, mas falta asserção explícita comparando Binance vs Bybit para este caso.
+- [ ] No changes to `internal/core/*` domain logic — Deferred: falta gate/auditoria dedicada versionada para provar esse critério.
+- [x] `make test-workspace-race` verde
+  Evidence: Makefile:test-workspace-race + .github/workflows/ci.yml
 
 ---
 
@@ -1292,9 +1315,11 @@ MODULE=internal/adapters make test-workspace-race
 ### F.4 Metricas Minimas
 
 All metrics from B.5 must be:
-- [ ] Registered and emitting values
-- [ ] Scrapable from `/metrics`
-- [ ] Non-zero after 5 minutes of operation (except error counters)
+- [x] Registered and emitting values
+  Evidence: internal/shared/metrics/metrics_test.go:TestMetricsNamesPresent
+- [x] Scrapable from `/metrics`
+  Evidence: internal/interfaces/http/server_test.go:TestServer_Metrics_ExposesPrometheusFormat
+- [ ] Non-zero after 5 minutes of operation (except error counters) — Deferred: não há evidência versionada de execução temporal contínua de 5 minutos.
 
 ### F.5 Shutdown Graceful
 
@@ -1330,6 +1355,17 @@ buf breaking proto/ --against .git#branch=main
 
 # Golden test: encode/decode roundtrip
 go test -run TestProtoRoundtrip ./internal/shared/codec/
+```
+
+### F.8 Verification Commands (workspace-safe)
+
+```bash
+make invariants-check
+make test-workspace
+make test-workspace-race
+go test ./internal/shared/replay -run TestGoldenReplayByteStable50Runs -count=1
+go test ./internal/shared/replay -run TestGoldenReplay -update-golden -count=1
+git diff -- testdata/golden/
 ```
 
 ---
