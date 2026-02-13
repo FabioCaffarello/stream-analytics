@@ -44,7 +44,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules workspace-check tidy tidy-check fmt fmt-check vet quick ci-local docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-partition test-replay-golden test-replay-golden-if-needed test-soak soak-check test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install commit-msg-check proto-tools proto-lint proto-gen proto-breaking proto-check proto ci
+.PHONY: help install-tools tools modules workspace-check tidy tidy-check fmt fmt-check vet quick ci-local docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-partition test-replay-golden test-replay-golden-if-needed test-soak soak-check test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-breaking proto-check proto ci
 
 help:
 	@echo "Targets:"
@@ -90,6 +90,7 @@ help:
 	@echo "  make logs               - stream compose logs"
 	@echo "  make pre-commit-install - install pre-commit hooks"
 	@echo "  make commit-msg-check   - validate Conventional Commit message (MSG_FILE or MSG)"
+	@echo "  make commit-msg-self-check - run pass/fail commit-msg examples"
 	@echo "  make proto-tools        - install/verify local proto tools in ./bin"
 	@echo "  make proto-lint         - run buf lint on proto contracts"
 	@echo "  make proto-gen          - generate Go code from proto contracts"
@@ -353,6 +354,11 @@ commit-msg-check:
 		printf '%s\n' "$(MSG)" > "$$tmp"; \
 		./scripts/validate-commit-msg.sh "$$tmp"; \
 	fi
+
+commit-msg-self-check:
+	@$(MAKE) commit-msg-check MSG='feat(build): sample conventional commit'
+	@! $(MAKE) commit-msg-check MSG='bad message' >/dev/null 2>&1 || (echo "expected invalid message to fail" >&2; exit 1)
+	@echo "commit-msg-self-check: pass/fail cases validated."
 
 proto-tools:
 	@mkdir -p "$(PROTOBUF_BIN_DIR)"
