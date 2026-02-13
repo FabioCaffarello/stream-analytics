@@ -44,7 +44,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules workspace-check tidy tidy-check fmt fmt-check vet quick ci-local docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-breaking proto-check proto ci
+.PHONY: help install-tools tools modules workspace-check tidy tidy-check fmt fmt-check vet quick ci-local docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci
 
 help:
 	@echo "Targets:"
@@ -95,6 +95,7 @@ help:
 	@echo "  make proto-tools        - install/verify local proto tools in ./bin"
 	@echo "  make proto-lint         - run buf lint on proto contracts"
 	@echo "  make proto-gen          - generate Go code from proto contracts"
+	@echo "  make proto-gen-if-needed - generate proto code only when proto/config changed"
 	@echo "  make proto-breaking     - check proto breaking changes against main"
 	@echo "  make proto-check        - lint + breaking + gen and fail if proto outputs are dirty"
 	@echo "  make proto              - run proto-lint + proto-gen"
@@ -385,6 +386,15 @@ proto-lint: proto-tools
 proto-gen: proto-tools
 	@cd proto && PATH="$(PROTOBUF_BIN_DIR):$$PATH" "$(BUF)" generate
 
+proto-gen-if-needed: proto-tools
+	@set -euo pipefail; \
+	if ./scripts/proto-needs-gen.sh; then \
+		echo "proto-check: proto/config changes detected; running proto-gen"; \
+		$(MAKE) proto-gen; \
+	else \
+		echo "proto-check: no proto/config changes; skipping proto-gen"; \
+	fi
+
 proto-breaking: proto-tools
 	@set -euo pipefail; \
 	if git ls-tree -r --name-only main -- proto | grep -qE '\.proto$$'; then \
@@ -393,7 +403,7 @@ proto-breaking: proto-tools
 		echo "Skipping proto-breaking: main has no proto baseline yet."; \
 	fi
 
-proto-check: proto-lint proto-breaking proto-gen
+proto-check: proto-lint proto-breaking proto-gen-if-needed
 	@set -euo pipefail; \
 	if ! git diff --quiet -- internal/shared/proto/gen; then \
 		echo "proto-check failed: generated protobuf artifacts are dirty."; \
