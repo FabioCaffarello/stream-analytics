@@ -1,0 +1,22 @@
+# Microbenchmark baseline (local, no CI gate yet)
+
+This file tracks a simple textual baseline for two hot paths.
+
+How to regenerate locally:
+
+1. Run:
+   `go test -run '^$' -bench BenchmarkIngest_1000Envelopes ./internal/core/marketdata/app`
+2. Run:
+   `go test -run '^$' -bench BenchmarkApplyDelta_1000Levels ./internal/core/aggregation/domain`
+3. Copy the latest `ns/op`, `B/op`, and `allocs/op` into this file.
+
+Initial baseline capture:
+
+Environment:
+- `goos=darwin`
+- `goarch=arm64`
+- `cpu=Apple M4`
+
+Results:
+- `BenchmarkIngest_1000Envelopes-10`: `1828874 ns/op`, `7265932 B/op`, `18039 allocs/op`
+- `BenchmarkApplyDelta_1000Levels-10`: `50362 ns/op`, `74071 B/op`, `16 allocs/op`
