@@ -1,0 +1,40 @@
+{
+  "decisions": [
+    {
+      "title": "Replay coverage dedup strategy",
+      "description": "Remove ReplayIngestGolden1000 from integration selector because replay gate already enforces replay golden scenarios. This keeps ci-local strict while reducing duplicated execution in integration path.",
+      "phase": "R",
+      "alternatives": [
+        "Keep overlap and accept duplicate runtime",
+        "Move replay checks to integration only"
+      ],
+      "status": "accepted",
+      "id": "dec-1771023058040",
+      "decidedAt": "2026-02-13T22:50:58.040Z"
+    },
+    {
+      "title": "Checkpoint D1 concluido",
+      "description": "Commit 79a1983 executado: INTEGRATION_TEST_PATTERN removeu ReplayIngestGolden1000 (deduplicação com test-replay-golden). Gates pós-commit: test-integration=1s, test-replay-golden=0s, ci-local=15s.",
+      "phase": "E",
+      "alternatives": [
+        "Manter replay no gate de integração",
+        "Mover replay para integração e remover gate dedicado"
+      ],
+      "status": "accepted",
+      "id": "dec-1771023113850",
+      "decidedAt": "2026-02-13T22:51:53.850Z"
+    },
+    {
+      "title": "Validação W1",
+      "description": "Sem relaxamento de gate: test-integration, test-replay-golden e ci-local passaram. Replay continuou coberto pelo gate dedicado; integração removeu sobreposição de selector replay. Timings observados: pre integration=0s vs post integration=1s (sem regressão material), pre replay=1s vs post replay=0s (cached).",
+      "phase": "V",
+      "alternatives": [
+        "Aceitar dedup sem rerodar ci-local",
+        "Reverter mudança e manter cobertura duplicada"
+      ],
+      "status": "accepted",
+      "id": "dec-1771023121668",
+      "decidedAt": "2026-02-13T22:52:01.668Z"
+    }
+  ]
+}

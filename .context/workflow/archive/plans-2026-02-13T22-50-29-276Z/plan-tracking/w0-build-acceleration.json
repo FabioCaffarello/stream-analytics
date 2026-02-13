@@ -1,0 +1,179 @@
+{
+  "decisions": [
+    {
+      "title": "Stop Conditions locked",
+      "description": "Execution must stop immediately if any of: gate drift fast/full, workspace module coverage regression, replay golden flakiness, commit-msg inconsistency (MSG vs MSG_FILE), proto-check dirty-tree without proto/toolchain changes.",
+      "phase": "R",
+      "alternatives": [
+        "Proceed despite flaky gates",
+        "Defer stop conditions to CI"
+      ],
+      "status": "accepted",
+      "id": "dec-1771022020097",
+      "decidedAt": "2026-02-13T22:33:40.097Z"
+    },
+    {
+      "title": "Checkpoint C1 concluido",
+      "description": "Commit d28fc4a executado: quick agora roda test-unit. Gates C1 passaram com timings: make quick=7s, make test-unit=3s, make invariants-check=0s. Próximo da cadeia: C2 (partição unit/integration/race/soak).",
+      "phase": "E",
+      "alternatives": [
+        "Alterar quick para manter test-short",
+        "Executar C2 no mesmo commit (rejeitado por regra hard)"
+      ],
+      "status": "accepted",
+      "id": "dec-1771022085141",
+      "decidedAt": "2026-02-13T22:34:45.141Z"
+    },
+    {
+      "title": "Validação C1 timings",
+      "description": "Comparação baseline vs pós-C1: make build 0s->2s (ruído de arredondamento em segundos inteiros), make test-workspace warm 4s->4s (sem mudança), make docs-check-full 5s->5s (sem mudança). Ganho real observado nesta etapa: escopo do quick loop alinhado a unit tests; tempos globais ainda estáveis.",
+      "phase": "V",
+      "alternatives": [
+        "Considerar ganho de performance sem medir",
+        "Executar C2 no mesmo ciclo para buscar ganho acumulado imediato"
+      ],
+      "status": "accepted",
+      "id": "dec-1771022113216",
+      "decidedAt": "2026-02-13T22:35:13.216Z"
+    },
+    {
+      "title": "Checkpoint C2 concluido",
+      "description": "Commit ad20f0c executado. Partição explícita criada via target test-partition (unit->integration->race->soak) e GO_TEST_FLAGS sem -race para loop padrão; race mantém cobertura dedicada em test-race. Gates C2: test-unit=4s, test-integration=1s, test-race=3s, soak-check=2s.",
+      "phase": "E",
+      "alternatives": [
+        "Manter suite mista sem partição explícita",
+        "Manter -race em GO_TEST_FLAGS para todos os targets"
+      ],
+      "status": "accepted",
+      "id": "dec-1771022275286",
+      "decidedAt": "2026-02-13T22:37:55.286Z"
+    },
+    {
+      "title": "STOP C3 gate failure",
+      "description": "C3 interrompido por falha de gate em make test-root. Erro: scripts/check-workspace-modules.sh usa mapfile, indisponível no bash 3.2 local (macOS). Saída: 'mapfile: command not found' -> workspace-check Error 127 -> test-root Error 2. Timings até a falha: make modules=1s.",
+      "phase": "E",
+      "alternatives": [
+        "Prosseguir para C4 apesar da falha (rejeitado por regra hard)",
+        "Remover workspace-check do fluxo (rejeitado por objetivo arquitetural)"
+      ],
+      "status": "accepted",
+      "id": "dec-1771022313534",
+      "decidedAt": "2026-02-13T22:38:33.534Z"
+    },
+    {
+      "title": "Checkpoint C3 concluido após hotfix",
+      "description": "Commit ab8e277 executado com workspace-check no Makefile + script compatível com Bash 3.2 (sem mapfile). Gates C3: make modules=0s, make test-root=25s, make test-workspace=3s. Falha anterior do C3 foi resolvida mantendo regra de stop-on-fail.",
+      "phase": "E",
+      "alternatives": [
+        "Remover workspace-check do caminho de teste",
+        "Exigir bash>=4 no ambiente local"
+      ],
+      "status": "accepted",
+      "id": "dec-1771022420386",
+      "decidedAt": "2026-02-13T22:40:20.386Z"
+    },
+    {
+      "title": "Checkpoint C4 concluido",
+      "description": "Commit 7064be5 executado. Adicionado target make commit-msg-self-check para validar casos pass/fail e garantir enforcement reproduzível via Makefile. Gates C4: valid=0s, invalid=0s (falha esperada), self-check=0s.",
+      "phase": "E",
+      "alternatives": [
+        "Confiar apenas no hook sem target de verificação",
+        "Executar validação somente com MSG_FILE"
+      ],
+      "status": "accepted",
+      "id": "dec-1771022471387",
+      "decidedAt": "2026-02-13T22:41:11.387Z"
+    },
+    {
+      "title": "STOP C5 gate failure",
+      "description": "C5 interrompido por falha em make docs-check-fast. O modo --changed-only de check-doc-links analisou arquivo fora de docs ('.context/plans/README.md') e encontrou link quebrado '../../CONTRIBUTING.md'. Resultado: check-doc-links-changed Error 1 -> docs-check-fast Error 2. make docs-check-full não foi executado por stop condition.",
+      "phase": "E",
+      "alternatives": [
+        "Prosseguir para C6 mesmo com falha de gate (rejeitado)",
+        "Remover checagem de links do fast para evitar falha (rejeitado por risco de drift)"
+      ],
+      "status": "accepted",
+      "id": "dec-1771022509373",
+      "decidedAt": "2026-02-13T22:41:49.373Z"
+    },
+    {
+      "title": "Checkpoint C5 concluido após hotfix",
+      "description": "Commit 245e1e2 executado. docs-check-fast agora inclui check-doc-links-changed limitado a docs/**/*.md; docs-check-full permanece referência completa. Gates C5: docs-check-fast=5s, docs-check-full=5s, sem drift.",
+      "phase": "E",
+      "alternatives": [
+        "Aplicar check-doc-links completo no fast sempre",
+        "Remover check-doc-links do fast"
+      ],
+      "status": "accepted",
+      "id": "dec-1771022683862",
+      "decidedAt": "2026-02-13T22:44:43.862Z"
+    },
+    {
+      "title": "STOP C6 gate failure",
+      "description": "C6 interrompido: test-replay-golden-if-needed usa 'rg -Eq', combinação inválida no ripgrep (erro: unknown encoding: q). Efeito: trigger match virou skip silencioso, comprometendo enforcement. Timings coletados: trigger_match=0s, trigger_skip=0s, self-check=0s (mas inválidos por erro de regex tool flags).",
+      "phase": "E",
+      "alternatives": [
+        "Prosseguir para C7 sem corrigir trigger",
+        "Trocar para grep -E sem validar comportamento"
+      ],
+      "status": "accepted",
+      "id": "dec-1771022711305",
+      "decidedAt": "2026-02-13T22:45:11.305Z"
+    },
+    {
+      "title": "Checkpoint C6 concluido após hotfix",
+      "description": "Commit 2f23fe1 executado. Corrigido trigger replay para ripgrep compatível (rg -q -e) e mantido target replay-trigger-self-check. Gates C6: trigger_match=4s (executou replay golden), trigger_skip=0s (skip correto), self-check=1s.",
+      "phase": "E",
+      "alternatives": [
+        "Manter rg -Eq e aceitar falso skip",
+        "Trocar para grep e remover dependência de rg"
+      ],
+      "status": "accepted",
+      "id": "dec-1771022763633",
+      "decidedAt": "2026-02-13T22:46:03.633Z"
+    },
+    {
+      "title": "Checkpoint C7 concluido",
+      "description": "Commit 5c7d461 executado. proto-check agora usa proto-gen-if-needed e só gera quando proto/config muda (detecção em script). Gates C7: proto-check(first)=1s, proto-check(second)=0s, internal/shared/proto/gen limpo após ambas execuções.",
+      "phase": "E",
+      "alternatives": [
+        "Manter proto-check sempre regenerando",
+        "Pular proto-check local e delegar somente para CI"
+      ],
+      "status": "accepted",
+      "id": "dec-1771022827942",
+      "decidedAt": "2026-02-13T22:47:07.942Z"
+    },
+    {
+      "title": "Checkpoint C8 concluido",
+      "description": "Commit 6230cda executado. ci-local migrado para runner dedicado com stop-on-fail determinístico e timings por etapa. Gate C8: make ci-local=15s (pass), com saída de duração por target.",
+      "phase": "E",
+      "alternatives": [
+        "Manter cadeia embutida no Makefile sem timing por etapa",
+        "Adicionar timing sem fail-fast explícito"
+      ],
+      "status": "accepted",
+      "id": "dec-1771022916845",
+      "decidedAt": "2026-02-13T22:48:36.845Z"
+    },
+    {
+      "title": "Validação final W0 (C2..C8)",
+      "description": "Comparação baseline -> final: make build 0s->2s (variação de arredondamento), make test-workspace warm 4s->3s (ganho real de 1s, 25%), make docs-check-full 5s->5s (estável). Ganhos adicionais: partição explícita de testes, workspace-check obrigatório, replay-trigger validado, proto-check incremental (segunda execução 0s), ci-local com stop-on-fail e timing por etapa.",
+      "phase": "V",
+      "alternatives": [
+        "Medir apenas tempos globais e ignorar ganhos de determinismo",
+        "Encerrar sem validação comparativa antes/depois"
+      ],
+      "status": "accepted",
+      "id": "dec-1771022942335",
+      "decidedAt": "2026-02-13T22:49:02.335Z"
+    }
+  ],
+  "phases": {
+    "phase-2": {
+      "status": "in_progress",
+      "updatedAt": "2026-02-13T22:34:45.034Z"
+    }
+  },
+  "progress": 0
+}

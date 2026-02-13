@@ -256,8 +256,14 @@ func (s *SessionActor) handleUnsubscribe(cmd clientCommand) {
 }
 
 func (s *SessionActor) handleGetLast(cmd clientCommand) {
+	subRes := s.service.ParseSubject(cmd.Subject)
+	if subRes.IsFail() {
+		s.writeProblem(cmd.Op, cmd.RequestID, subRes.Problem())
+		return
+	}
+	subject := subRes.Value()
 	res := s.service.GetRange(context.Background(), app.GetRangeRequest{
-		SubjectRaw: cmd.Subject,
+		SubjectRaw: subject.String(),
 		Limit:      1,
 	})
 	if res.IsFail() {
@@ -273,7 +279,7 @@ func (s *SessionActor) handleGetLast(cmd clientCommand) {
 		"type":       "last",
 		"op":         cmd.Op,
 		"request_id": cmd.RequestID,
-		"subject":    cmd.Subject,
+		"subject":    subject.String(),
 		"item":       item,
 	})
 }
@@ -286,6 +292,12 @@ func (s *SessionActor) handleGetRange(cmd clientCommand) {
 			return
 		}
 	}
+	subRes := s.service.ParseSubject(cmd.Subject)
+	if subRes.IsFail() {
+		s.writeProblem(cmd.Op, cmd.RequestID, subRes.Problem())
+		return
+	}
+	subject := subRes.Value()
 
 	page := params.Page
 	if page <= 0 {
@@ -310,7 +322,7 @@ func (s *SessionActor) handleGetRange(cmd clientCommand) {
 	}
 
 	res := s.service.GetRange(context.Background(), app.GetRangeRequest{
-		SubjectRaw: cmd.Subject,
+		SubjectRaw: subject.String(),
 		FromMs:     params.FromMs,
 		ToMs:       params.ToMs,
 		Limit:      queryLimit,
@@ -327,7 +339,7 @@ func (s *SessionActor) handleGetRange(cmd clientCommand) {
 		"type":       "range",
 		"op":         cmd.Op,
 		"request_id": cmd.RequestID,
-		"subject":    cmd.Subject,
+		"subject":    subject.String(),
 		"page":       page,
 		"limit":      limit,
 		"items":      items,
