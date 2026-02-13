@@ -145,3 +145,8 @@ Deterministic replay is the foundation for:
 4. Create golden test: `TestGoldenReplay` (RFC-0009/W8)
 5. Add `-record` and `-replay` flags to `cmd/consumer` (RFC-0009/W8)
 6. Add INV-R1 grep check to CI (RFC-0005/W4)
+
+## Evidence
+
+- Validation gate: `make docs-check-full`
+- Authority path: file-local ADR source.

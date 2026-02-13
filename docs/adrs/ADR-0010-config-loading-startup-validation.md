@@ -1,6 +1,6 @@
 # ADR-0010 — Config Loading and Startup Validation
 
-**Status**: Accepted
+**Status:** Accepted
 **Date**: 2026-02-11
 **Deciders**: Chief Architect
 **Relates to**: ADR-0009 (Config JSONC Determinism), RFC-0002 (W1 plan)
@@ -141,3 +141,12 @@ Arquivos a alterar:
 - `cmd/server/main.go`
 - `cmd/consumer/main.go`
 - `cmd/processor/main.go`
+
+## Evidence
+
+- Validation gate: `make docs-check-full`
+- Authority path: file-local ADR source.
+
+## Changelog
+
+- 2026-02-13: normalized status metadata and added required header sections for docs compliance.
