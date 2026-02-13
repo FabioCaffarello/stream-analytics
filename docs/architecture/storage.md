@@ -7,35 +7,52 @@
 
 ## Purpose
 
-Define doc-first storage architecture for parity v1 with MarketMonkey, separating:
-- hot operational path per bounded context (Timescale);
-- cold analytical path (ClickHouse);
-- current in-memory hot path for ultra-low latency delivery.
+Define parity-v1 storage boundaries without introducing runtime features in this cycle:
+- current hot path in memory (authoritative for realtime delivery, per ADR-0006 amendment);
+- planned durable hot extension (Timescale);
+- planned cold analytical extension (ClickHouse).
+
+## Terminology (canonical)
+
+- `instrument`: canonical key in envelope/domain (ADR-0011: `BTCUSDT`).
+- `symbol`: WS-facing token in delivery subjects (for example `BTC-USDT`).
+- `subject`: bus routing key `{event}.v{version}.{venue}.{instrument}`.
+- `stream`: JetStream stream/filter using validated subject patterns.
+- `envelope`: canonical event wrapper from ADR-0002.
+- `payload`: versioned schema body decoded from `content_type`.
 
 ## Data Planes
 
-### Plane A: Event Plane (input)
+### Plane A: Event Plane (current input authority)
 
-Canonical input events (current authority in `proto/registry.json`):
+Current registered marketdata events (`proto/registry.json`):
 - `marketdata.trade.v1.{venue}.{instrument}`
 - `marketdata.bookdelta.v1.{venue}.{instrument}`
 - `marketdata.markprice.v1.{venue}.{instrument}`
 - `marketdata.liquidation.v1.{venue}.{instrument}`
 
-Existing derived events (registry/runtime):
+Current derived events in runtime:
 - `insights.crossvenue.trade_snapshot.v1.global.{instrument}`
 - `insights.crossvenue.spread_signal.v1.global.{instrument}`
 
-Planned derived events for storage fanout (no implementation in this cycle):
-- `aggregation.snapshot.v1.{venue}.{instrument}` (orderbook snapshot)
-- `insights.heatmap.bucket.v1.{venue}.{instrument}`
-- `insights.volume_profile.snapshot.v1.{venue}.{instrument}`
+Planned derived events for storage fanout (not implemented in this cycle):
+- `aggregation.snapshot.v1.{venue}.{instrument}` (subject root alignment tracked in `docs/rfcs/ADR-REVISIONS-patch-plan.md`, NOTE-001)
+- `insights.<heatmap_event>.v1.{venue}.{instrument}` (TBD registry key under existing taxonomy)
+- `insights.<volume_profile_event>.v1.{venue}.{instrument}` (TBD registry key under existing taxonomy)
 
-### Plane B: Hot Storage Plane (Timescale)
+### Plane B: L0 Hot Read Model (existing)
 
-Goal: fast API/range reads, short to medium retention, idempotent upsert.
+Current storage write-port in aggregation:
+- `internal/core/aggregation/ports/ports.go` (`HotReadModelStore.Save`)
 
-Proposed tables per BC:
+Current behavior:
+- in-memory latest snapshot model for low-latency delivery;
+- bounded state via `BoundedMap` in runtime/app layers;
+- no durable storage adapter in repository yet.
+
+### Plane C: L1 Durable Hot (planned)
+
+Planned Timescale layer for short/medium query windows:
 - `timescale.marketdata_ticks_hot`
 - `timescale.aggregation_orderbook_snapshot_hot`
 - `timescale.insights_heatmap_bucket_hot`
@@ -43,14 +60,9 @@ Proposed tables per BC:
 - `timescale.marketdata_markprice_hot`
 - `timescale.marketdata_liquidation_hot`
 
-Standard idempotency key:
-- `(event_type, version, venue, instrument, seq, idempotency_key)`
+### Plane D: L2 Cold Analytics (planned)
 
-### Plane C: Cold Storage Plane (ClickHouse)
-
-Goal: long-term history, analytics, backfill, auditable replay.
-
-Proposed tables per BC:
+Planned ClickHouse layer for history/backfill/rebuild:
 - `clickhouse.marketdata_ticks_cold`
 - `clickhouse.aggregation_orderbook_snapshot_cold`
 - `clickhouse.insights_heatmap_bucket_cold`
@@ -59,90 +71,106 @@ Proposed tables per BC:
 - `clickhouse.marketdata_liquidation_cold`
 
 Recommended partitioning:
-- `toDate(ts_ingest)` + bucketing by `(venue, instrument)`.
+- `toDate(ts_ingest)` + bucket by `(venue, instrument)`.
 
 ## Contracts
 
-- Mandatory envelope fields: `type`, `version`, `venue`, `instrument`, `seq`, `idempotency_key`, `payload`.
-- Canonical subject: `{event}.v{version}.{venue_lower}.{instrument_alnum_upper}`.
-- Ack semantics for persistence:
-1. `ACK` only after commit on required destination.
-2. `NAK` for transient failure (timeout/network).
-3. `TERM` for poison/invalid contract and route to `quarantine.v1.*`.
+Envelope fields for persistence semantics (ADR-0002):
+- mandatory: `type`, `version`, `venue`, `instrument`, `ts_ingest`, `seq`, `idempotency_key`, `payload`
+- optional/advisory: `ts_exchange`, `meta`
+- codec discriminator: `content_type` (`application/json` current default, protobuf opt-in)
+
+Subject examples (existing taxonomy):
+- `marketdata.trade.v1.binance.BTCUSDT`
+- `marketdata.bookdelta.v1.binance.BTCUSDT`
+- `insights.crossvenue.trade_snapshot.v1.global.BTCUSDT`
+- `quarantine.v1.binance.BTCUSDT`
+
+Ack semantics for persistence boundaries:
+1. `ACK` only after required durable commit boundary.
+2. `NAK` for transient failure with bounded retry/jitter.
+3. `TERM` for poison/invalid contract; route to `quarantine.v1.*`.
 
 ## Invariants
 
-- `STO-1`: single writer per `(venue, instrument, event_type)` in each persistence stage.
-- `STO-2`: bounded queues in all writers (no unbounded path).
-- `STO-3`: strong idempotency by `idempotency_key` + `seq`.
-- `STO-4`: deterministic ordering preserved by `(venue, instrument)` partition.
-- `STO-5`: replay over same input must produce same hot/cold artifacts.
+- `STO-1`: single writer per partition key (`venue`, `instrument`, and `market_type` when present).
+- `STO-2`: bounded queues/mailboxes in all writer stages.
+- `STO-3`: idempotency by `idempotency_key` and monotonic `seq`.
+- `STO-4`: deterministic ordering by `(ts_ingest, seq)` inside each partition.
+- `STO-5`: replay over equivalent input must produce identical artifacts/checksums.
+- `STO-6`: no `ack-on-enqueue`; only `ack-on-commit`.
+
+## Implementation Matrix
+
+| Feature | Status | Evidence | Tests |
+|---|---|---|---|
+| L0 in-memory hot read model | Existing | `internal/core/aggregation/ports/ports.go`, `internal/core/aggregation/app/update_orderbook.go` | `internal/core/aggregation/app/update_orderbook_test.go` |
+| ACK/NAK/TERM boundary in ingest | Existing | `internal/adapters/jetstream/consumer.go` | `internal/adapters/jetstream/ingest_conformance_test.go:TestIngestConformance_AckNakTermGoldenTable` |
+| Replay determinism foundation | Existing | `internal/shared/replay/player.go`, `internal/shared/replay/sequencer.go` | `internal/shared/replay/golden_test.go:TestGoldenReplay`, `cmd/consumer/replay_test.go:TestReplayIngestGolden1000` |
+| L1 Timescale writers | TODO | `internal/adapters/storage/timescale/` (TODO) | `internal/adapters/storage/timescale/writer_test.go` (TODO) |
+| L2 ClickHouse writers | TODO | `internal/adapters/storage/clickhouse/` (TODO) | `internal/adapters/storage/clickhouse/writer_test.go` (TODO) |
+| Storage reconciliation/rebuilder | TODO | `internal/adapters/storage/replay/rebuilder.go` (TODO) | `internal/adapters/storage/replay/rebuilder_test.go` (TODO) |
 
 ## Backpressure
 
-- Bounded writer queues per BC (`queue_depth_max` per worker).
-- Policy:
-1. throttle per partition when `queue_depth > 80%`;
-2. NAK with exponential jitter when destination is unavailable;
-3. TERM + quarantine for poison payload.
-- Never ACK on enqueue; ACK only on persisted commit.
+Storage-side policy target (ADR-0013 aligned):
+1. bounded queues per partition;
+2. throttle when queue depth exceeds threshold;
+3. `NAK` with bounded retry budget on transient failures;
+4. `TERM` + quarantine on poison payload.
 
-## Storage Strategy
-
-- Three-layer strategy:
-1. L0 (memory): ultra-low latency read model for live delivery.
-2. L1 (Timescale): durable hot layer for short/medium window queries.
-3. L2 (ClickHouse): durable cold layer for long analytics and replay.
-- L1 -> L2 promotion is asynchronous and idempotent.
+Current observable coverage:
+- ingest disposition counters and lag are available in JetStream adapter;
+- storage-specific queue metrics remain TODO until storage adapters exist.
 
 ## Replay Strategy
 
-- Primary source: existing fixture/JetStream replay stack (`internal/shared/replay`).
-- Secondary source: ClickHouse reprocessing by time partition.
-- Deterministic rule:
-1. rehydrate by `ts_ingest, seq`;
-2. rerun aggregators;
-3. validate artifact checksum per window.
+- primary source: fixture/JetStream replay stack in `internal/shared/replay` and `internal/adapters/jetstream/replay_source.go`;
+- deterministic ordering: `(ts_ingest, seq)` per partition;
+- parity rule: repeated replay over same fixture must be byte-stable in golden outputs.
 
 ## Observability
 
-Minimum required:
+Minimum required for parity closure:
+- lag (`bus_consumer_lag` existing on bus path)
+- drop/disposition reason (`*_drop_total` / ack disposition counters; storage-specific TODO)
+- queue depth (storage writer queue depth TODO)
+- poison/quarantine counters (existing ingest path, storage path TODO)
+
+Planned storage metrics namespace (TODO):
 - `storage_writer_queue_depth{bc,plane}`
 - `storage_write_latency_ms{bc,plane}`
 - `storage_commit_total{bc,plane,status}`
 - `storage_drop_total{bc,plane,reason}`
 - `storage_replay_lag_ms{bc}`
 
-Initial SLO:
-- p95 hot write < 150ms
-- p99 cold write < 2s
-- drop rate < 0.01% per 5m window
-
 ## Acceptance Tests
 
-Planned test names:
-- `TestStorageHotIdempotencyByIdempotencyKey`
-- `TestStorageColdUpsertDeterministicReplay`
-- `TestStorageAckOnCommit_NotOnEnqueue`
-- `TestStorageBackpressureNAKAndJitterPolicy`
-- `TestStoragePoisonRoutesToQuarantine`
-- `TestStorageSingleWriterPerInstrument`
+Existing tests (current evidence):
+- `internal/adapters/jetstream/ingest_conformance_test.go:TestIngestConformance_AckNakTermGoldenTable`
+- `internal/shared/replay/golden_test.go:TestGoldenReplay`
+- `internal/shared/replay/golden_test.go:TestGoldenReplayByteStable50Runs`
+- `cmd/consumer/replay_test.go:TestReplayIngestGolden1000`
 
-Minimum scenarios:
-- duplicate `idempotency_key` does not create duplicate rows;
-- transient failure triggers `NAK` and jittered retry;
-- poison payload triggers `TERM` + quarantine;
-- replay twice yields same output table checksum.
+Tests to create for storage adapters (no implementation in this cycle):
+- `internal/adapters/storage/storage_integration_test.go:TestStorageHotIdempotencyByIdempotencyKey` (TODO)
+- `internal/adapters/storage/storage_integration_test.go:TestStorageColdUpsertDeterministicReplay` (TODO)
+- `internal/adapters/storage/storage_integration_test.go:TestStorageAckOnCommit_NotOnEnqueue` (TODO)
+- `internal/adapters/storage/storage_integration_test.go:TestStorageBackpressureNakAndJitterPolicy` (TODO)
+- `internal/adapters/storage/storage_integration_test.go:TestStoragePoisonRoutesToQuarantine` (TODO)
+- `internal/adapters/storage/storage_integration_test.go:TestStorageSingleWriterPerPartition` (TODO)
 
 ## Evidence Hooks
 
 Current evidence:
 - `internal/core/aggregation/ports/ports.go`
-- `internal/shared/replay/player.go`
+- `internal/core/aggregation/app/update_orderbook.go`
 - `internal/adapters/jetstream/consumer.go`
 - `internal/adapters/jetstream/ingest_conformance_test.go`
+- `internal/shared/replay/player.go`
+- `internal/shared/replay/golden_test.go`
 
-TODO hooks (skeleton only, no implementation in this cycle):
+TODO hooks (skeleton only):
 - `internal/core/storage/ports/ports.go` (TODO)
 - `internal/core/storage/app/persist_hot_path.go` (TODO)
 - `internal/core/storage/app/persist_cold_path.go` (TODO)
@@ -153,13 +181,13 @@ TODO hooks (skeleton only, no implementation in this cycle):
 
 ## Failure Modes
 
-- Hot DB unavailable: lag growth risk.
-  - Mitigation: NAK + retry budget + queue depth alert.
-- Cold DB unavailable: long-history loss risk.
-  - Mitigation: bounded temporary buffer + idempotent batch redrive.
-- Poison payload: infinite loop risk.
-  - Mitigation: TERM + `quarantine.v1.*` + operational DLQ.
-- Premature ack (enqueue): silent loss risk.
-  - Mitigation: explicit `ack-on-commit` policy.
-- Partition skew: hotspot risk.
-  - Mitigation: sharding by `(venue,instrument)` + per-writer limits.
+- Premature ack before durable boundary:
+  - Mitigation: enforce `ack-on-commit` only.
+- Partition skew (`venue,instrument,market_type`) saturation:
+  - Mitigation: bounded queues + throttling + partition-level alerts.
+- Durable sink unavailable (Timescale/ClickHouse):
+  - Mitigation: bounded retries, explicit `NAK`, no silent drop.
+- Poison payload loop:
+  - Mitigation: `TERM` + `quarantine.v1.*` + DLQ telemetry.
+- Replay divergence between runs:
+  - Mitigation: mandatory golden replay checksums before rollout.
