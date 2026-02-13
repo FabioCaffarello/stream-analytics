@@ -126,11 +126,13 @@ docs-check:
 	@./scripts/check-doc-headers.sh
 	@./scripts/check-doc-links.sh
 	@./scripts/check-truth-map.sh
+	@./scripts/check-feature-pack-links.sh
 
 docs-fix:
 	@./scripts/check-doc-headers.sh --fix-hints
 	@./scripts/check-doc-links.sh --fix-hints
 	@./scripts/check-truth-map.sh --fix-hints
+	@./scripts/check-feature-pack-links.sh --fix-hints
 
 invariants-check:
 	@./scripts/check-domain-isolation.sh "$(CURDIR)"
