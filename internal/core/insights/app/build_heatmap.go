@@ -11,6 +11,7 @@ import (
 
 	"github.com/market-raccoon/internal/core/insights/domain"
 	"github.com/market-raccoon/internal/shared/hash"
+	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/naming"
 	"github.com/market-raccoon/internal/shared/problem"
 	"github.com/market-raccoon/internal/shared/result"
@@ -127,12 +128,20 @@ func (uc *BuildHeatmap) Execute(_ context.Context, req BuildHeatmapRequest) resu
 	ps := uc.getPartition(key)
 	ws := uc.getWindow(ps, windowStart, windowEnd)
 	reason := uc.apply(ws, req)
+	if reason != "" {
+		metrics.IncHeatmapDrop(reason)
+	}
 
 	artifact := toArtifact(req, ws)
 	trimmed := uc.trimToPayloadBudget(artifact)
 	if p := trimmed.Validate(); p != nil {
 		return result.FailProblem[BuildHeatmapResponse](p)
 	}
+	payload, _ := json.Marshal(trimmed)
+	metrics.SetHeatmapCells(trimmed.Venue, trimmed.Instrument, trimmed.Timeframe, len(trimmed.Cells))
+	metrics.ObserveHeatmapPayloadBytes(trimmed.Venue, trimmed.Instrument, trimmed.Timeframe, len(payload))
+	metrics.SetHeatmapQueueDepth(trimmed.Venue, trimmed.Instrument, len(ws.cells))
+	metrics.ObserveHeatmapBuildLatency(trimmed.Venue, trimmed.Instrument, trimmed.Timeframe, 0)
 
 	resp := BuildHeatmapResponse{
 		Emitted:        true,
