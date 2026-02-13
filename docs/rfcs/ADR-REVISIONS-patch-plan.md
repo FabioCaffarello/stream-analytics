@@ -47,6 +47,9 @@ Patch plan:
 3. alinhar `docs/contracts/event-bus.md` + validator/testes para eliminar drift.
 
 Status: `OPEN QUESTION` (sem alteração de runtime neste ciclo doc-first).
+Atualizacao 2026-02-13 (parity patch):
+- docs de parity mantem `aggregation.*` como `Planned`, nunca como `Existing`;
+- `docs/contracts/delivery-ws.md` e `docs/architecture/storage.md` agora referenciam explicitamente esta NOTE-001 para evitar drift silencioso.
 
 ### NOTE-002: definição de hot-path em ADR-0006
 
@@ -60,6 +63,9 @@ Patch plan:
 3. registrar critérios de consistência L0/L1 em invariantes de storage.
 
 Status: `OPEN QUESTION` (documentado; sem implementação neste ciclo).
+Atualizacao 2026-02-13 (parity patch):
+- docs de storage/orderbook foram ajustados para refletir `L0 memoria = Existing`, `L1/L2 = Planned/TODO`;
+- nenhum texto de parity afirma adaptadores Timescale/ClickHouse como implementados.
 
 ## Rollout
 
