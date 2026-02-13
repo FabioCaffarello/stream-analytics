@@ -58,9 +58,13 @@ func mustParseSubjectForSession(t *testing.T, raw string) domain.Subject {
 
 type stubRangeStore struct {
 	bySubject map[string][]ports.RangeItem
+	calls     int
+	lastLimit int
 }
 
 func (s *stubRangeStore) GetRange(_ context.Context, subject domain.Subject, fromMs, toMs int64, limit int) ([]ports.RangeItem, *problem.Problem) {
+	s.calls++
+	s.lastLimit = limit
 	items := append([]ports.RangeItem(nil), s.bySubject[subject.String()]...)
 	filtered := make([]ports.RangeItem, 0, len(items))
 	for _, it := range items {
@@ -164,6 +168,42 @@ func TestSession_getLastVPVRSnapshot(t *testing.T) {
 	}
 }
 
+func TestSession_getLastVPVRSnapshot_unorderedStore(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-capture")
+	defer e.Poison(routerPID)
+
+	sub := mustParseSubjectForSession(t, "insights.volume_profile_snapshot.v1/binance/BTCUSDT/1m")
+	store := &stubRangeStore{
+		bySubject: map[string][]ports.RangeItem{
+			sub.String(): {
+				{Seq: 10, TsIngest: 1700000000010, Payload: []byte(`{"seq":10}`)},
+				{Seq: 12, TsIngest: 1700000000012, Payload: []byte(`{"seq":12}`)},
+				{Seq: 11, TsIngest: 1700000000011, Payload: []byte(`{"seq":11}`)},
+			},
+		},
+	}
+
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{RouterPID: routerPID, Conn: conn, RangeStore: store}), "ws-session")
+	defer e.Poison(sessionPID)
+
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"getlast","subject":"insights.volume_profile_snapshot.v1/binance/BTC-USDT/1m","request_id":"r-last-u"}`)}
+
+	resp := <-conn.writeCh
+	msg := resp.(map[string]any)
+	item := msg["item"].(ports.RangeItem)
+	if got, want := item.Seq, int64(12); got != want {
+		t.Fatalf("last seq=%d want=%d", got, want)
+	}
+}
+
 func TestSession_getRangeVPVRPagination(t *testing.T) {
 	e, err := actor.NewEngine(actor.NewEngineConfig())
 	if err != nil {
@@ -214,6 +254,110 @@ func TestSession_getRangeVPVRPagination(t *testing.T) {
 	}
 	if got, want := items[1].Seq, int64(3); got != want {
 		t.Fatalf("items[1].seq=%d want=%d", got, want)
+	}
+}
+
+func TestSession_getRangeVPVRPagination_unorderedStore_ordersBeforePaginate(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-capture")
+	defer e.Poison(routerPID)
+
+	sub := mustParseSubjectForSession(t, "insights.volume_profile_snapshot.v1/binance/BTCUSDT/1m")
+	store := &stubRangeStore{
+		bySubject: map[string][]ports.RangeItem{
+			sub.String(): {
+				{Seq: 5, TsIngest: 1700000000005, Payload: []byte(`{"seq":5}`)},
+				{Seq: 1, TsIngest: 1700000000001, Payload: []byte(`{"seq":1}`)},
+				{Seq: 3, TsIngest: 1700000000003, Payload: []byte(`{"seq":3}`)},
+				{Seq: 4, TsIngest: 1700000000004, Payload: []byte(`{"seq":4}`)},
+				{Seq: 2, TsIngest: 1700000000002, Payload: []byte(`{"seq":2}`)},
+			},
+		},
+	}
+
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{RouterPID: routerPID, Conn: conn, RangeStore: store}), "ws-session")
+	defer e.Poison(sessionPID)
+
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"getrange","subject":"insights.volume_profile_snapshot.v1/binance/BTC-USDT/1m","request_id":"r-range-u","params":{"from_ms":0,"to_ms":0,"limit":2,"page":2}}`)}
+
+	resp := <-conn.writeCh
+	msg := resp.(map[string]any)
+	items := msg["items"].([]ports.RangeItem)
+	if got, want := items[0].Seq, int64(2); got != want {
+		t.Fatalf("items[0].seq=%d want=%d", got, want)
+	}
+	if got, want := items[1].Seq, int64(3); got != want {
+		t.Fatalf("items[1].seq=%d want=%d", got, want)
+	}
+}
+
+func TestSession_getRangeVPVRPagination_capsRejectExplosive(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-capture")
+	defer e.Poison(routerPID)
+
+	sub := mustParseSubjectForSession(t, "insights.volume_profile_snapshot.v1/binance/BTCUSDT/1m")
+	store := &stubRangeStore{bySubject: map[string][]ports.RangeItem{sub.String(): {}}}
+
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{RouterPID: routerPID, Conn: conn, RangeStore: store}), "ws-session")
+	defer e.Poison(sessionPID)
+
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"getrange","subject":"insights.volume_profile_snapshot.v1/binance/BTC-USDT/1m","request_id":"r-cap","params":{"from_ms":0,"to_ms":0,"limit":1000,"page":100}}`)}
+
+	resp := <-conn.writeCh
+	msg := resp.(map[string]any)
+	if got, want := msg["type"], "error"; got != want {
+		t.Fatalf("type=%v want=%v", got, want)
+	}
+	if store.calls != 0 {
+		t.Fatalf("store calls=%d want=0", store.calls)
+	}
+}
+
+func TestSession_getLastVPVRSnapshot_empty_returnsNotFoundOrEmpty(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-capture")
+	defer e.Poison(routerPID)
+
+	sub := mustParseSubjectForSession(t, "insights.volume_profile_snapshot.v1/binance/BTCUSDT/1m")
+	store := &stubRangeStore{bySubject: map[string][]ports.RangeItem{sub.String(): {}}}
+
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{RouterPID: routerPID, Conn: conn, RangeStore: store}), "ws-session")
+	defer e.Poison(sessionPID)
+
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"getlast","subject":"insights.volume_profile_snapshot.v1/binance/BTC-USDT/1m","request_id":"r-empty"}`)}
+
+	resp := <-conn.writeCh
+	msg := resp.(map[string]any)
+	if got, want := msg["type"], "last"; got != want {
+		t.Fatalf("type=%v want=%v", got, want)
+	}
+	if _, ok := msg["item"]; !ok {
+		t.Fatalf("expected item key in response")
+	}
+	if msg["item"] != nil {
+		t.Fatalf("item=%v want=nil", msg["item"])
 	}
 }
 
