@@ -6,7 +6,7 @@
 ## Inputs/Outputs
 - Inputs (sole volume authority): `marketdata.trade.v1.{venue}.{instrument}`.
 - Inputs (context-only, NOT volume source): `marketdata.bookdelta.v1.{venue}.{instrument}`.
-- Outputs (planned, not in event-bus.md matrix; subjects TBD per [volume-profiles](../../../docs/architecture/volume-profiles.md)): `insights.<volume_profile_snapshot>.v1.{venue}.{instrument}`, `insights.<volume_profile_delta>.v1.{venue}.{instrument}`.
+- Outputs (planned): `insights.volume_profile_snapshot.v1.{venue}.{instrument}`, `insights.volume_profile_delta.v1.{venue}.{instrument}`.
 - Planned WS: `insights.volume_profile/{venue}/{symbol}/{timeframe}` ([delivery-ws](../../../docs/contracts/delivery-ws.md)).
 - Subject refs: [ADR-0014](../../../docs/adrs/ADR-0014-stream-partitioning-strategy.md).
 

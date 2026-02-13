@@ -5,7 +5,9 @@
 
 ## Inputs/Outputs
 - Inputs: `marketdata.trade.v1.{venue}.{instrument}`, `marketdata.bookdelta.v1.{venue}.{instrument}`, `marketdata.markprice.v1.{venue}.{instrument}`, `marketdata.liquidation.v1.{venue}.{instrument}`.
+- Inputs (insights stable): `insights.crossvenue.trade_snapshot.v1.global.{instrument}`, `insights.crossvenue.spread_signal.v1.global.{instrument}`.
 - Outputs: WS subject `<stream_type>/<venue>/<symbol>/<timeframe>` and event frame fields `type|subject|seq|ts_ingest|payload`.
+- Naming note: event-bus subjects use canonical `{instrument}` token; WS stream path may use `{symbol}` representation.
 - Ordering refs: [ADR-0014](../../../docs/adrs/ADR-0014-stream-partitioning-strategy.md), [ADR-0015](../../../docs/adrs/ADR-0015-deterministic-replay-time-invariants.md).
 
 ## Invariants
