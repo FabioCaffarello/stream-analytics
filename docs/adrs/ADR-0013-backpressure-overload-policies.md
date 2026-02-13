@@ -111,3 +111,18 @@ Silent data loss is the worst failure mode for a market data platform. Making dr
 3. Formalize priority enum in `internal/actors/marketdata/runtime/` (RFC-0006/W5)
 4. Add 80%/50% threshold logging to wsQueue (RFC-0006/W5)
 5. Wire all counters to Prometheus registry (RFC-0005/W4)
+
+## Amendment (W11): Current Implicit Coverage
+
+Without changing this ADR status (`Proposed`), W11 established partial implicit coverage that already reduces overload risk:
+
+- Cardinality protection today:
+  - `max_instruments` configuration limits active instrument cardinality at runtime.
+  - Bounded maps in ingest/aggregation (`BoundedMap` with eviction) cap state growth and prevent unbounded map expansion under symbol churn.
+- JetStream operational signals today:
+  - `MaxAckPending` is configured and validated, providing a hard cap on outstanding unacked deliveries.
+  - Consumer lag is surfaced as an operational signal (`bus_consumer_lag`) and can be used to detect overload before sustained loss.
+- Remaining future work (explicit overload policies):
+  - Define explicit per-reason overload actions (for example: decode failure, slow consumer, publish timeout, redelivery storm), not only generic drop behavior.
+  - Bind each overload reason to deterministic policy (`drop`, `nak`, `term`, `quarantine`, `rate-limit`) with documented precedence.
+  - Add dedicated tests/alerts proving policy transitions by overload reason, beyond current implicit boundedness and lag visibility.
