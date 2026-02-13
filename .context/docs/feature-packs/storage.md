@@ -1,54 +1,37 @@
 # Feature Pack: Storage
 
 ## Purpose
-- Keep storage authority explicit: L0 hot in-memory exists; L1/L2 remain planned.
-- Bridge event-plane contracts to persistence boundaries and ack semantics.
-- Keep parity planning auditable without claiming unimplemented adapters.
+- Storage constraints and bridge only; authority: [storage](../../../docs/architecture/storage.md), [event-bus](../../../docs/contracts/event-bus.md), [ADR-0006](../../../docs/adrs/ADR-0006-storage-hot-vs-cold.md).
 
-## Inputs/Outputs
-- Authority: [`docs/contracts/event-bus.md`](../../../docs/contracts/event-bus.md), [`docs/architecture/storage.md`](../../../docs/architecture/storage.md), [`docs/adrs/ADR-0014-stream-partitioning-strategy.md`](../../../docs/adrs/ADR-0014-stream-partitioning-strategy.md).
-- Inputs (existing subjects/events):
-- `marketdata.trade.v1.{venue}.{instrument}`
-- `marketdata.bookdelta.v1.{venue}.{instrument}`
-- `marketdata.markprice.v1.{venue}.{instrument}`
-- `marketdata.liquidation.v1.{venue}.{instrument}`
-- Outputs (existing/planned):
-- `insights.crossvenue.trade_snapshot.v1.global.{instrument}` (existing)
-- `insights.crossvenue.spread_signal.v1.global.{instrument}` (existing)
-- `aggregation.snapshot.v1.{venue}.{instrument}` (planned)
-- `insights.<heatmap_event>.v1.{venue}.{instrument}` (planned)
-- `insights.<volume_profile_event>.v1.{venue}.{instrument}` (planned)
+## Inputs-Outputs
+- Inputs: `marketdata.trade.v1.{venue}.{instrument}`, `marketdata.bookdelta.v1.{venue}.{instrument}`, `marketdata.markprice.v1.{venue}.{instrument}`, `marketdata.liquidation.v1.{venue}.{instrument}`.
+- Outputs: `insights.crossvenue.trade_snapshot.v1.global.{instrument}`, `insights.crossvenue.spread_signal.v1.global.{instrument}`, planned `aggregation.snapshot.v1.{venue}.{instrument}`.
+- Contract refs: [ADR-0014](../../../docs/adrs/ADR-0014-stream-partitioning-strategy.md), [ADR-0002](../../../docs/adrs/ADR-0002-event-envelope-and-versioning.md).
 
 ## Invariants
-- Ack boundary is commit-based (`ack-on-commit`), not enqueue-based ([`ADR-0004`](../../../docs/adrs/ADR-0004-bus-nats-jetstream.md), [`ADR-0006`](../../../docs/adrs/ADR-0006-storage-hot-vs-cold.md)).
-- Ordering inside partition follows `(ts_ingest, seq)` ([`ADR-0015`](../../../docs/adrs/ADR-0015-deterministic-replay-time-invariants.md)).
-- Subject and partition identity must remain deterministic ([`ADR-0014`](../../../docs/adrs/ADR-0014-stream-partitioning-strategy.md)).
-- Idempotency key is required and deterministic ([`ADR-0002`](../../../docs/adrs/ADR-0002-event-envelope-and-versioning.md)).
+- Ack boundary is commit-only (`ack-on-commit`), never enqueue ([ADR-0004](../../../docs/adrs/ADR-0004-bus-nats-jetstream.md), [ADR-0013](../../../docs/adrs/ADR-0013-backpressure-overload-policies.md)).
+- Per-partition ordering remains deterministic by `(ts_ingest, seq)` ([ADR-0005](../../../docs/adrs/ADR-0005-sequencing-and-time-normalization.md), [ADR-0015](../../../docs/adrs/ADR-0015-deterministic-replay-time-invariants.md)).
+- Idempotency key is mandatory and deterministic ([ADR-0002](../../../docs/adrs/ADR-0002-event-envelope-and-versioning.md)).
 
 ## Backpressure
-- Bounded stages only; no silent unbounded queue in data path ([`ADR-0013`](../../../docs/adrs/ADR-0013-backpressure-overload-policies.md)).
-- Drops/NAK/TERM must stay observable by reason ([`ADR-0013`](../../../docs/adrs/ADR-0013-backpressure-overload-policies.md)).
-- Storage adapters (when implemented) must document overload action precedence per stage ([`ADR-0013`](../../../docs/adrs/ADR-0013-backpressure-overload-policies.md)).
+- Bounded stages only; drops/NAK/TERM must be observable with reason ([ADR-0013](../../../docs/adrs/ADR-0013-backpressure-overload-policies.md)).
+- Overload precedence must be declared before enabling new storage adapters ([storage](../../../docs/architecture/storage.md)).
 
 ## Replay
-- Replay must preserve deterministic ordering and equivalent outputs ([`ADR-0015`](../../../docs/adrs/ADR-0015-deterministic-replay-time-invariants.md)).
-- Use replay package for fixture/golden flow: `internal/shared/replay/player.go`, `internal/shared/replay/sequencer.go`, `internal/shared/replay/golden_test.go`.
-- Consumer replay baseline remains `cmd/consumer/replay_test.go` (`TestReplayIngestGolden1000`).
+- Equal fixtures must yield equivalent outputs and order ([ADR-0015](../../../docs/adrs/ADR-0015-deterministic-replay-time-invariants.md)).
+- Replay baseline: [RFC-0009](../../../docs/rfcs/RFC-0009-W8-deterministic-replay-golden-tests.md).
 
 ## Evidence Hooks
-- `internal/core/aggregation/ports/ports.go`
-- `internal/core/aggregation/app/update_orderbook.go`
-- `internal/adapters/jetstream/consumer.go`
-- `internal/adapters/jetstream/ingest_conformance_test.go`
-- `internal/shared/replay/player.go`
-- `internal/shared/replay/sequencer.go`
+- `internal/adapters/jetstream/consumer.go:67`
+- `internal/adapters/jetstream/ingest_policy.go:59`
+- `internal/core/aggregation/ports/ports.go:19`
+- `internal/shared/replay/player.go:45`
+- `internal/shared/replay/sequencer.go:32`
 - TODO: `internal/adapters/storage/timescale/writer.go`
-- TODO: `internal/adapters/storage/clickhouse/writer.go`
 
 ## Acceptance Tests
-- `TestIngestConformance_AckNakTermGoldenTable` - `internal/adapters/jetstream/ingest_conformance_test.go`
-- `TestGoldenReplay` - `internal/shared/replay/golden_test.go`
-- `TestGoldenReplayByteStable50Runs` - `internal/shared/replay/golden_test.go`
-- `TestReplayIngestGolden1000` - `cmd/consumer/replay_test.go`
-- TODO: `TestStorageAckOnCommit_NotOnEnqueue` - `internal/adapters/storage/storage_integration_test.go`
-- TODO: `TestStoragePoisonRoutesToQuarantine` - `internal/adapters/storage/storage_integration_test.go`
+- `TestIngestConformance_AckNakTermGoldenTable` -> `internal/adapters/jetstream/ingest_conformance_test.go:15`
+- `TestGoldenReplay` -> `internal/shared/replay/golden_test.go:18`
+- `TestGoldenReplayByteStable50Runs` -> `internal/shared/replay/golden_test.go:42`
+- `TestReplayIngestGolden1000` -> `cmd/consumer/replay_test.go:63`
+- TODO: `TestStorageAckOnCommit_NotOnEnqueue` -> `internal/adapters/storage/storage_integration_test.go`
