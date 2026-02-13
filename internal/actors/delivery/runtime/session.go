@@ -18,6 +18,14 @@ import (
 
 const readLimitBytes = 64 * 1024
 
+const (
+	defaultRangeLimit = 100
+	maxLimit          = 1000
+	maxPage           = 100
+	maxQueryLimit     = 20000
+	maxResponseItems  = 1000
+)
+
 type wsConn interface {
 	ReadMessage() (messageType int, p []byte, err error)
 	WriteJSON(v any) error
@@ -278,14 +286,29 @@ func (s *SessionActor) handleGetRange(cmd clientCommand) {
 			return
 		}
 	}
+
 	page := params.Page
 	if page <= 0 {
 		page = 1
 	}
-	queryLimit := params.Limit
-	if queryLimit > 0 {
-		queryLimit = queryLimit * page
+	limit := params.Limit
+	if limit <= 0 {
+		limit = defaultRangeLimit
 	}
+	if limit > maxLimit {
+		s.writeProblem(cmd.Op, cmd.RequestID, problem.Newf(problem.ValidationFailed, "limit must be <= %d", maxLimit))
+		return
+	}
+	if page > maxPage {
+		s.writeProblem(cmd.Op, cmd.RequestID, problem.Newf(problem.ValidationFailed, "page must be <= %d", maxPage))
+		return
+	}
+	queryLimit := limit * page
+	if queryLimit > maxQueryLimit {
+		s.writeProblem(cmd.Op, cmd.RequestID, problem.Newf(problem.ValidationFailed, "limit*page must be <= %d", maxQueryLimit))
+		return
+	}
+
 	res := s.service.GetRange(context.Background(), app.GetRangeRequest{
 		SubjectRaw: cmd.Subject,
 		FromMs:     params.FromMs,
@@ -296,14 +319,17 @@ func (s *SessionActor) handleGetRange(cmd clientCommand) {
 		s.writeProblem(cmd.Op, cmd.RequestID, res.Problem())
 		return
 	}
-	items := paginateTail(res.Value(), page, params.Limit)
+	items := paginateTail(res.Value(), page, limit)
+	if len(items) > maxResponseItems {
+		items = items[len(items)-maxResponseItems:]
+	}
 	s.writeJSON(map[string]any{
 		"type":       "range",
 		"op":         cmd.Op,
 		"request_id": cmd.RequestID,
 		"subject":    cmd.Subject,
 		"page":       page,
-		"limit":      params.Limit,
+		"limit":      limit,
 		"items":      items,
 	})
 }
