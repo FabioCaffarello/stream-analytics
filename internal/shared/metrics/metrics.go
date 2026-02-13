@@ -143,6 +143,13 @@ var (
 		},
 		[]string{"reason"},
 	)
+	IngestBoundedMapEvictionsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ingest_bounded_map_evictions_total",
+			Help: "Total ingest bounded map evictions by reason.",
+		},
+		[]string{"reason"},
+	)
 	ReplayMessagesTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "replay_messages_total",
@@ -322,6 +329,7 @@ func registerAll() {
 			IngestDropTotal,
 			IngestNakTotal,
 			IngestTermTotal,
+			IngestBoundedMapEvictionsTotal,
 			ReplayMessagesTotal,
 			ReplayLatencySeconds,
 			ReplayRedeliveriesTotal,
@@ -362,6 +370,7 @@ func registerAll() {
 		IngestDropTotal.WithLabelValues("unknown")
 		IngestNakTotal.WithLabelValues("unknown")
 		IngestTermTotal.WithLabelValues("unknown")
+		IngestBoundedMapEvictionsTotal.WithLabelValues("unknown")
 		ReplayMessagesTotal.WithLabelValues("unknown", "unknown")
 		ReplayLatencySeconds.WithLabelValues("unknown")
 		ReplayRedeliveriesTotal.WithLabelValues("unknown")
@@ -456,6 +465,10 @@ func IncIngestNak(reason string) {
 
 func IncIngestTerm(reason string) {
 	IngestTermTotal.WithLabelValues(sanitizeIngestReason(reason)).Inc()
+}
+
+func IncIngestBoundedMapEvictions(reason string) {
+	IngestBoundedMapEvictionsTotal.WithLabelValues(sanitizeIngestReason(reason)).Inc()
 }
 
 func IncReplayMessages(mode, status string) {

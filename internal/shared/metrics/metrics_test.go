@@ -99,6 +99,7 @@ func TestMetricsNamesPresent(t *testing.T) {
 	IncIngestDrop("unknown_event_type")
 	IncIngestNak("transient_failure")
 	IncIngestTerm("validation_failed")
+	IncIngestBoundedMapEvictions("max_instruments")
 	IncReplayMessages("jetstream", "ok")
 	ObserveReplayLatency("jetstream", 4*time.Millisecond)
 	IncReplayRedeliveries("jetstream")
@@ -129,6 +130,7 @@ func TestMetricsNamesPresent(t *testing.T) {
 		"ingest_drop_total",
 		"ingest_nak_total",
 		"ingest_term_total",
+		"ingest_bounded_map_evictions_total",
 		"replay_messages_total",
 		"replay_latency_seconds",
 		"replay_redeliveries_total",
@@ -151,6 +153,7 @@ func TestIngestOutcomeMetrics_ReasonOnlyNoInstrumentLabel(t *testing.T) {
 	assertMetricLabelNames(t, "ingest_drop_total", []string{"reason"})
 	assertMetricLabelNames(t, "ingest_nak_total", []string{"reason"})
 	assertMetricLabelNames(t, "ingest_term_total", []string{"reason"})
+	assertMetricLabelNames(t, "ingest_bounded_map_evictions_total", []string{"reason"})
 }
 
 func TestSanitizeSubsystemMultiExchange(t *testing.T) {

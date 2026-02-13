@@ -10,7 +10,9 @@ import (
 	"github.com/market-raccoon/internal/shared/clock"
 	"github.com/market-raccoon/internal/shared/codec"
 	"github.com/market-raccoon/internal/shared/envelope"
+	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 // --- fakes ---
@@ -265,6 +267,42 @@ func TestIngest_boundedStreamsEvictsOldest(t *testing.T) {
 
 	if got := uc.ActiveStreams(); got != 1 {
 		t.Fatalf("active streams=%d want=1", got)
+	}
+}
+
+func TestIngest_EvictionMetricEmittedOnBoundedOverflow(t *testing.T) {
+	clk := clock.NewFakeClock(time.Now())
+	seq := &fakeSequencer{}
+	pub := &fakePublisher{}
+	uc := app.NewIngestMarketDataWithConfig(clk, seq, pub, app.IngestConfig{
+		DedupWindowSize: 64,
+		MaxStreams:      2,
+		StreamTTL:       time.Hour,
+	})
+
+	before := testutil.ToFloat64(metrics.IngestBoundedMapEvictionsTotal.WithLabelValues("max_instruments"))
+	ctx := context.Background()
+	req := validReq()
+	req.Instrument = "BTC/USDT"
+	if r := uc.Execute(ctx, req); r.IsFail() {
+		t.Fatalf("first ingest failed: %v", r.Problem())
+	}
+
+	clk.Advance(time.Millisecond)
+	req.Instrument = "ETH/USDT"
+	if r := uc.Execute(ctx, req); r.IsFail() {
+		t.Fatalf("second ingest failed: %v", r.Problem())
+	}
+
+	clk.Advance(time.Millisecond)
+	req.Instrument = "SOL/USDT"
+	if r := uc.Execute(ctx, req); r.IsFail() {
+		t.Fatalf("third ingest failed: %v", r.Problem())
+	}
+
+	after := testutil.ToFloat64(metrics.IngestBoundedMapEvictionsTotal.WithLabelValues("max_instruments"))
+	if after-before < 1 {
+		t.Fatalf("expected bounded-map eviction metric increment, before=%f after=%f", before, after)
 	}
 }
 

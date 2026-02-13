@@ -118,7 +118,11 @@ func NewIngestMarketDataWithConfig(
 	streams.SetSweepEveryOps(1024)
 	streams.SetSweepMinInterval(time.Second)
 	streams.SetOnEvict(func(_ domain.StreamID, _ *domain.InstrumentStream, reason string) {
-		metrics.IncStreamsEvicted(reason)
+		evictionReason := reason
+		if reason == "size" {
+			evictionReason = "max_instruments"
+		}
+		metrics.IncIngestBoundedMapEvictions(evictionReason)
 	})
 
 	return &IngestMarketData{
