@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -145,7 +146,7 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig, observer observability
 		return nil, wrapUnavailable("subscribe_failed", err, "jetstream pull subscribe failed")
 	}
 
-	return &Consumer{
+	cn := &Consumer{
 		nc:                   nc,
 		js:                   js,
 		cfg:                  cfg,
@@ -153,7 +154,21 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig, observer observability
 		observer:             observer,
 		transientRetryBudget: withTransientRetryBudget(cfg.MaxDeliver),
 		retryBudget:          newRetryBudgetTracker(defaultRetryBudgetFallbackCapacity),
-	}, nil
+	}
+
+	// Pre-create shard-group metric series for this consumer instance when
+	// sharding is enabled so /metrics exposition is stable even before the
+	// first observed events.  One line per metric keeps the startup change
+	// minimal and deterministic.
+	if cfg.ShardGroupCount > 1 {
+		groupLabel := strconv.Itoa(cfg.ShardGroupID)
+		metrics.ShardConsumerLag.WithLabelValues(groupLabel)
+		metrics.ShardRedeliveredTotal.WithLabelValues(groupLabel)
+		metrics.ShardAckLatencySeconds.WithLabelValues(groupLabel)
+		metrics.ShardSkipTotal.WithLabelValues(groupLabel)
+	}
+
+	return cn, nil
 }
 
 func (c *Consumer) Consume(ctx context.Context, handler ConsumeHandler) *problem.Problem {
@@ -206,10 +221,12 @@ func (c *Consumer) consumeOne(ctx context.Context, msg *nats.Msg, handler Consum
 	// different shard group.  This is the coordination-free path — each group
 	// holds its own durable consumer and independently decides ownership.
 	if subjectBelongsToOtherShard(msg.Subject, c.cfg.ShardGroupCount, c.cfg.ShardGroupID) {
+		groupLabel := strconv.Itoa(c.cfg.ShardGroupID)
 		if ackErr := msg.Ack(); ackErr != nil && ctx.Err() == nil {
 			c.observer.IncConsumed(busTypeJetStream, "shard_skip_ack_failed")
 		} else {
 			c.observer.IncConsumed(busTypeJetStream, "shard_skip")
+			metrics.IncShardSkip(groupLabel)
 		}
 		return nil
 	}
@@ -217,6 +234,9 @@ func (c *Consumer) consumeOne(ctx context.Context, msg *nats.Msg, handler Consum
 	meta, _ := msg.Metadata()
 	if meta != nil && meta.NumDelivered > 1 {
 		c.observer.IncRedelivered(busTypeJetStream)
+		if c.cfg.ShardGroupCount > 1 {
+			metrics.IncShardRedelivered(strconv.Itoa(c.cfg.ShardGroupID))
+		}
 	}
 
 	env, decodeProb := envelope.UnmarshalBinary(msg.Data)
@@ -327,7 +347,11 @@ func (c *Consumer) ackWithDisposition(ctx context.Context, msg ackDispositionMes
 		ackErr = msg.Nak()
 		status = "nak"
 	}
-	c.observer.ObserveAckLatency(busTypeJetStream, time.Since(startedAt))
+	elapsed := time.Since(startedAt)
+	c.observer.ObserveAckLatency(busTypeJetStream, elapsed)
+	if c.cfg.ShardGroupCount > 1 {
+		metrics.ObserveShardAckLatency(strconv.Itoa(c.cfg.ShardGroupID), elapsed)
+	}
 
 	if ackErr != nil {
 		c.observer.IncConsumed(busTypeJetStream, "error")
@@ -524,9 +548,16 @@ func (c *Consumer) updateLag() {
 	const maxInt64 = uint64(1<<63 - 1)
 	if lag > maxInt64 {
 		c.observer.SetConsumerLag(busTypeJetStream, 1<<63-1)
+		if c.cfg.ShardGroupCount > 1 {
+			metrics.SetShardConsumerLag(strconv.Itoa(c.cfg.ShardGroupID), 1<<63-1)
+		}
 		return
 	}
-	c.observer.SetConsumerLag(busTypeJetStream, int64(lag))
+	lagI64 := int64(lag)
+	c.observer.SetConsumerLag(busTypeJetStream, lagI64)
+	if c.cfg.ShardGroupCount > 1 {
+		metrics.SetShardConsumerLag(strconv.Itoa(c.cfg.ShardGroupID), lagI64)
+	}
 }
 
 func (c *Consumer) publishQuarantine(ctx context.Context, msg *nats.Msg, env envelope.Envelope, reasonCode string, procProb *problem.Problem) *problem.Problem {

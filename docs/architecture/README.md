@@ -207,6 +207,7 @@ without requiring rewrites.
 ### Observability
 
 - [Metrics Budget & Label Policy](./metrics-budget-label-policy.md)
+ - [Sharding and consumer group operations](../operations/sharding.md)
 
 ### ADR Index
 
