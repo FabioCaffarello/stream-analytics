@@ -46,7 +46,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules workspace-check tidy tidy-check fmt fmt-check vet quick ci-local contract-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci
+.PHONY: help install-tools tools modules workspace-check tidy tidy-check fmt fmt-check vet quick ci-local contract-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci
 
 help:
 	@echo "Targets:"
@@ -82,6 +82,7 @@ help:
 	@echo "  make test-soak          - alias for soak-check long-running validation"
 	@echo "  make soak-check         - run soak harness checks and emit evidence file"
 	@echo "  make soak-vpvr          - run deterministic VPVR burst soak checks"
+	@echo "  make soak-cold-path     - run cold-path commit/ack soak harness"
 	@echo "  make test-short         - run short tests"
 	@echo "  make vuln               - run govulncheck"
 	@echo "  make build              - build all binaries under cmd/* (package main)"
@@ -303,6 +304,12 @@ soak-vpvr: invariants-check
 		--out-file "$(SOAK_VPVR_OUT_FILE)" \
 		--go-cache "$(SOAK_GO_CACHE)" \
 		--pattern "$(SOAK_VPVR_PATTERN)"
+
+soak-cold-path: invariants-check
+	@chmod +x ./scripts/soak-cold-path.sh
+	@./scripts/soak-cold-path.sh \
+		--out-file ".context/evidence/w2-cold-path-soak.txt" \
+		--go-cache "$(SOAK_GO_CACHE)"
 
 test-short:
 	$(call RUN_IN_MODULES,bash -lc 'pkgs="$$( $(GO) list ./... 2>/dev/null || true )"; if [ -n "$$pkgs" ]; then $(GO) test -short $$pkgs; else echo "no packages to test (skipping)"; fi')
