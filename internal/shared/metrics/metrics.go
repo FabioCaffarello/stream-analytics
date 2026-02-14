@@ -391,6 +391,41 @@ var (
 		},
 		[]string{"reason"},
 	)
+	VPVROverloadLevel = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "vpvr_overload_level",
+			Help: "Current VPVR overload level per partition.",
+		},
+		[]string{"venue", "instrument", "timeframe"},
+	)
+	VPVRDropTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "vpvr_drop_total",
+			Help: "Total VPVR emit-path drops by reason.",
+		},
+		[]string{"reason"},
+	)
+	VPVRDegradeTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "vpvr_degrade_total",
+			Help: "Total VPVR emit-path degradations by action.",
+		},
+		[]string{"action"},
+	)
+	VPVRCompressRatio = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "vpvr_compress_ratio",
+			Help:    "VPVR snapshot compression ratio (compressed buckets / original buckets).",
+			Buckets: []float64{0, 0.1, 0.2, 0.25, 0.33, 0.5, 0.66, 0.75, 0.9, 1.0},
+		},
+	)
+	VPVRProcessingLatencyMilliseconds = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "vpvr_processing_latency_ms",
+			Help:    "Latency in milliseconds observed for VPVR processing in emit path.",
+			Buckets: []float64{0, 0.1, 0.5, 1, 2, 5, 10, 25, 50, 100, 250, 500},
+		},
+	)
 	HeatmapBuildLatencyMilliseconds = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "heatmap_build_latency_ms",
@@ -504,6 +539,11 @@ func registerAll() {
 			VPVRWriterUpsertDedupTotal,
 			VPVRWriterUpsertLatencyMilliseconds,
 			VPVRWriterWriteFailTotal,
+			VPVROverloadLevel,
+			VPVRDropTotal,
+			VPVRDegradeTotal,
+			VPVRCompressRatio,
+			VPVRProcessingLatencyMilliseconds,
 			HeatmapBuildLatencyMilliseconds,
 			HeatmapCellsTotal,
 			HeatmapPayloadBytes,
@@ -554,6 +594,9 @@ func registerAll() {
 		VPVRBuilderDropTotal.WithLabelValues("unknown")
 		VPVRWriterUpsertOpsTotal.WithLabelValues("unknown")
 		VPVRWriterWriteFailTotal.WithLabelValues("unknown")
+		VPVROverloadLevel.WithLabelValues("unknown", "unknown", "unknown")
+		VPVRDropTotal.WithLabelValues("unknown")
+		VPVRDegradeTotal.WithLabelValues("unknown")
 		HeatmapBuildLatencyMilliseconds.WithLabelValues("unknown", "unknown", "unknown")
 		HeatmapCellsTotal.WithLabelValues("unknown", "unknown", "unknown")
 		HeatmapPayloadBytes.WithLabelValues("unknown", "unknown", "unknown")
@@ -798,6 +841,45 @@ func ObserveVPVRWriterUpsertLatencyMilliseconds(latencyMs float64) {
 
 func IncVPVRWriterWriteFail(reason string) {
 	VPVRWriterWriteFailTotal.WithLabelValues(sanitizeKind(reason)).Inc()
+}
+
+func SetVPVROverloadLevel(venue, instrument, timeframe string, level int) {
+	if level < 0 {
+		level = 0
+	}
+	if level > 3 {
+		level = 3
+	}
+	VPVROverloadLevel.WithLabelValues(
+		sanitizeVenue(venue),
+		sanitizeInstrument(instrument),
+		sanitizeTimeframe(timeframe),
+	).Set(float64(level))
+}
+
+func IncVPVRDrop(reason string) {
+	VPVRDropTotal.WithLabelValues(sanitizeIngestReason(reason)).Inc()
+}
+
+func IncVPVRDegrade(action string) {
+	VPVRDegradeTotal.WithLabelValues(sanitizeKind(action)).Inc()
+}
+
+func ObserveVPVRCompressRatio(ratio float64) {
+	if ratio < 0 {
+		ratio = 0
+	}
+	if ratio > 1 {
+		ratio = 1
+	}
+	VPVRCompressRatio.Observe(ratio)
+}
+
+func ObserveVPVRProcessingLatencyMilliseconds(latencyMs float64) {
+	if latencyMs < 0 {
+		latencyMs = 0
+	}
+	VPVRProcessingLatencyMilliseconds.Observe(latencyMs)
 }
 
 func ObserveHeatmapBuildLatency(venue, instrument, timeframe string, latency time.Duration) {

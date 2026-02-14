@@ -111,6 +111,11 @@ func TestMetricsNamesPresent(t *testing.T) {
 	IncInsightsSnapshots(2)
 	SetInsightsStateInstrumentsActive(3)
 	IncInsightsStateEvictions("ttl")
+	SetVPVROverloadLevel("binance", "BTC-USDT", "1m", 2)
+	IncVPVRDrop("delta_l3")
+	IncVPVRDegrade("compress")
+	ObserveVPVRCompressRatio(0.5)
+	ObserveVPVRProcessingLatencyMilliseconds(4)
 	ObserveHeatmapBuildLatency("binance", "BTC-USDT", "1m", 3*time.Millisecond)
 	SetHeatmapCells("binance", "BTC-USDT", "1m", 42)
 	ObserveHeatmapPayloadBytes("binance", "BTC-USDT", "1m", 2048)
@@ -151,6 +156,11 @@ func TestMetricsNamesPresent(t *testing.T) {
 		"insights_snapshots_total",
 		"insights_state_instruments_active",
 		"insights_state_evictions_total",
+		"vpvr_overload_level",
+		"vpvr_drop_total",
+		"vpvr_degrade_total",
+		"vpvr_compress_ratio",
+		"vpvr_processing_latency_ms",
 		"heatmap_build_latency_ms",
 		"heatmap_cells_total",
 		"heatmap_payload_bytes",
