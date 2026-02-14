@@ -9,6 +9,11 @@ import (
 
 const insightsV1Version int32 = 1
 
+const (
+	insightsEventTypeVPVRWindowClose = "insights.volume_profile_window_close"
+	insightsEventTypeVPVRFinal       = "insights.volume_profile_final"
+)
+
 type InsightsCodecOptions struct {
 	EnableVolumeProfileSnapshotProto bool
 }
@@ -52,6 +57,20 @@ func RegisterInsightsPayloadV1WithOptions(reg *codec.Registry, opts InsightsCode
 	}
 	if p := reg.Register(codec.SchemaKey{
 		Type:    insightsdomain.VolumeProfileSnapshotType,
+		Version: insightsV1Version,
+		Format:  codec.FormatJSON,
+	}, codec.JSONCodec[insightsdomain.VolumeProfileSnapshotV1]{}, codec.JSONCodec[insightsdomain.VolumeProfileSnapshotV1]{}); p != nil {
+		return p
+	}
+	if p := reg.Register(codec.SchemaKey{
+		Type:    insightsEventTypeVPVRWindowClose,
+		Version: insightsV1Version,
+		Format:  codec.FormatJSON,
+	}, codec.JSONCodec[insightsdomain.VolumeProfileSnapshotV1]{}, codec.JSONCodec[insightsdomain.VolumeProfileSnapshotV1]{}); p != nil {
+		return p
+	}
+	if p := reg.Register(codec.SchemaKey{
+		Type:    insightsEventTypeVPVRFinal,
 		Version: insightsV1Version,
 		Format:  codec.FormatJSON,
 	}, codec.JSONCodec[insightsdomain.VolumeProfileSnapshotV1]{}, codec.JSONCodec[insightsdomain.VolumeProfileSnapshotV1]{}); p != nil {

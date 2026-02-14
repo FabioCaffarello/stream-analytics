@@ -43,6 +43,30 @@ func TestRegisterInsightsV1_DefaultsToJSONOnly(t *testing.T) {
 		t.Fatalf("missing decoder for key %+v", signalKey)
 	}
 
+	windowCloseKey := codec.SchemaKey{
+		Type:    "insights.volume_profile_window_close",
+		Version: 1,
+		Format:  codec.FormatJSON,
+	}
+	if _, ok := reg.Encoder(windowCloseKey); !ok {
+		t.Fatalf("missing encoder for key %+v", windowCloseKey)
+	}
+	if _, ok := reg.Decoder(windowCloseKey); !ok {
+		t.Fatalf("missing decoder for key %+v", windowCloseKey)
+	}
+
+	finalKey := codec.SchemaKey{
+		Type:    "insights.volume_profile_final",
+		Version: 1,
+		Format:  codec.FormatJSON,
+	}
+	if _, ok := reg.Encoder(finalKey); !ok {
+		t.Fatalf("missing encoder for key %+v", finalKey)
+	}
+	if _, ok := reg.Decoder(finalKey); !ok {
+		t.Fatalf("missing decoder for key %+v", finalKey)
+	}
+
 	vpvrProtoKey := codec.SchemaKey{
 		Type:    insightsdomain.VolumeProfileSnapshotType,
 		Version: 1,
