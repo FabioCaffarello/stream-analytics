@@ -6,6 +6,7 @@ import (
 
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
 	aggports "github.com/market-raccoon/internal/core/aggregation/ports"
+	"github.com/market-raccoon/internal/shared/observability"
 	"github.com/market-raccoon/internal/shared/problem"
 )
 
@@ -22,20 +23,35 @@ func NewSnapshotCommitter(hot aggports.HotReadModelStore, cold aggports.ColdRead
 
 func (c *SnapshotCommitter) Commit(ctx context.Context, snap aggdomain.SnapshotProduced) *problem.Problem {
 	if c == nil {
-		return problem.New(problem.ValidationFailed, "snapshot committer is nil")
+		p := problem.New(problem.ValidationFailed, "snapshot committer is nil")
+		observability.SetCommitterErr(p)
+		return p
 	}
 	if c.hot == nil {
-		return problem.New(problem.ValidationFailed, "hot writer is nil")
+		p := problem.New(problem.ValidationFailed, "hot writer is nil")
+		observability.SetHotErr(p)
+		observability.SetCommitterErr(p)
+		return p
 	}
 	if c.cold == nil {
-		return problem.New(problem.ValidationFailed, "cold writer is nil")
+		p := problem.New(problem.ValidationFailed, "cold writer is nil")
+		observability.SetColdErr(p)
+		observability.SetCommitterErr(p)
+		return p
 	}
 	if p := c.hot.Save(ctx, snap); p != nil {
+		observability.SetHotErr(p)
+		observability.SetCommitterErr(p)
 		return p
 	}
+	observability.SetHotOk()
 	if p := c.cold.Save(ctx, snap); p != nil {
+		observability.SetColdErr(p)
+		observability.SetCommitterErr(p)
 		return p
 	}
+	observability.SetColdOk()
+	observability.SetCommitterOk()
 	return nil
 }
 

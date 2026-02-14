@@ -291,6 +291,51 @@ func TestServer_RuntimeOverload_AcceptProto_returnsProtobufEnvelope(t *testing.T
 	}
 }
 
+func TestServer_RuntimeStorage_returns200AndValidJSON(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+	rec := doRequest(t, srv, http.MethodGet, "/runtime/storage", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d\nbody: %s", rec.Code, rec.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("response is not valid JSON: %v\nbody: %s", err, rec.Body.String())
+	}
+	assertStoragePathShape(t, body, "hot")
+	assertStoragePathShape(t, body, "cold")
+	assertCommitterShape(t, body)
+}
+
+func TestServer_RuntimeStorage_AcceptProto_returnsProtobufEnvelope(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+	rec := doRequestWithHeaders(t, srv, http.MethodGet, "/runtime/storage", "", map[string]string{
+		"Accept": "application/x-protobuf",
+	})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/x-protobuf") {
+		t.Fatalf("content-type=%q want application/x-protobuf", got)
+	}
+	out, p := contracts.UnmarshalEnvelopeV1ToDomain(rec.Body.Bytes())
+	if p != nil {
+		t.Fatalf("proto unmarshal failed: %v", p)
+	}
+	if out.Type != "runtime.storage" {
+		t.Fatalf("envelope.type=%q want runtime.storage", out.Type)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // POST /runtime/reload
 // ---------------------------------------------------------------------------
@@ -584,4 +629,78 @@ func keys(m map[string]any) []string {
 		ks = append(ks, k)
 	}
 	return ks
+}
+
+func assertStoragePathShape(t *testing.T, body map[string]any, field string) {
+	t.Helper()
+	raw, ok := body[field]
+	if !ok {
+		t.Fatalf("expected %q field, got %#v", field, body)
+	}
+	entry, ok := raw.(map[string]any)
+	if !ok {
+		t.Fatalf("%s should be object, got %#v", field, raw)
+	}
+	assertBoolOrUnknown(t, entry, "last_ok")
+	if v, ok := entry["last_error"]; !ok {
+		t.Fatalf("%s.last_error missing", field)
+	} else if _, ok := v.(string); !ok {
+		t.Fatalf("%s.last_error should be string, got %#v", field, v)
+	}
+	assertNumberOrUnknown(t, entry, "fails_total")
+}
+
+func assertCommitterShape(t *testing.T, body map[string]any) {
+	t.Helper()
+	raw, ok := body["committer"]
+	if !ok {
+		t.Fatalf("expected committer field, got %#v", body)
+	}
+	entry, ok := raw.(map[string]any)
+	if !ok {
+		t.Fatalf("committer should be object, got %#v", raw)
+	}
+	assertBoolOrUnknown(t, entry, "last_ok")
+	if v, ok := entry["last_error"]; !ok {
+		t.Fatal("committer.last_error missing")
+	} else if _, ok := v.(string); !ok {
+		t.Fatalf("committer.last_error should be string, got %#v", v)
+	}
+}
+
+func assertBoolOrUnknown(t *testing.T, body map[string]any, field string) {
+	t.Helper()
+	v, ok := body[field]
+	if !ok {
+		t.Fatalf("%s missing", field)
+	}
+	switch typed := v.(type) {
+	case bool:
+	case string:
+		if typed != "unknown" {
+			t.Fatalf("%s string=%q want unknown", field, typed)
+		}
+	default:
+		t.Fatalf("%s should be bool or unknown string, got %#v", field, v)
+	}
+}
+
+func assertNumberOrUnknown(t *testing.T, body map[string]any, field string) {
+	t.Helper()
+	v, ok := body[field]
+	if !ok {
+		t.Fatalf("%s missing", field)
+	}
+	switch typed := v.(type) {
+	case float64:
+		if typed < 0 {
+			t.Fatalf("%s should be >= 0, got %v", field, typed)
+		}
+	case string:
+		if typed != "unknown" {
+			t.Fatalf("%s string=%q want unknown", field, typed)
+		}
+	default:
+		t.Fatalf("%s should be number or unknown string, got %#v", field, v)
+	}
 }

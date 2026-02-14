@@ -70,6 +70,7 @@ func NewServer(
 	mux.HandleFunc("GET /readyz", s.handleReadyz)
 	mux.HandleFunc("GET /runtime/snapshot", s.handleSnapshot)
 	mux.HandleFunc("GET /runtime/overload", s.handleRuntimeOverload)
+	mux.HandleFunc("GET /runtime/storage", s.handleRuntimeStorage)
 	mux.HandleFunc("POST /runtime/reload", s.handleReload)
 	mux.Handle("GET /metrics", withProcessMetrics(metrics.Handler()))
 	if enablePprof {
@@ -107,7 +108,7 @@ func (s *Server) Handler() http.Handler {
 // It must be called before ListenAndServe.
 func (s *Server) HandleFunc(pattern string, handler http.HandlerFunc) {
 	switch pattern {
-	case "GET /healthz", "GET /readyz", "GET /runtime/snapshot", "GET /runtime/overload", "POST /runtime/reload", "GET /metrics":
+	case "GET /healthz", "GET /readyz", "GET /runtime/snapshot", "GET /runtime/overload", "GET /runtime/storage", "POST /runtime/reload", "GET /metrics":
 		s.logger.Warn("httpserver: refusing to override critical route", "pattern", pattern)
 		return
 	}
@@ -234,6 +235,11 @@ func (s *Server) handleRuntimeOverload(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, r, http.StatusOK, "runtime.overload", snapshot)
 }
 
+func (s *Server) handleRuntimeStorage(w http.ResponseWriter, r *http.Request) {
+	snapshot := buildStorageStateSnapshot()
+	writeResponse(w, r, http.StatusOK, "runtime.storage", snapshot)
+}
+
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
@@ -334,6 +340,23 @@ type overloadResponseJSON struct {
 	ActivePartitionsCapped bool                    `json:"active_partitions_capped"`
 }
 
+type storagePathJSON struct {
+	LastOK     any    `json:"last_ok"`
+	LastError  string `json:"last_error"`
+	FailsTotal any    `json:"fails_total"`
+}
+
+type storageCommitterJSON struct {
+	LastOK    any    `json:"last_ok"`
+	LastError string `json:"last_error"`
+}
+
+type storageResponseJSON struct {
+	Hot       storagePathJSON      `json:"hot"`
+	Cold      storagePathJSON      `json:"cold"`
+	Committer storageCommitterJSON `json:"committer"`
+}
+
 func buildPolicyKitOverloadSnapshot() overloadResponseJSON {
 	entries := observability.SnapshotPolicyKitOverload()
 	out := overloadResponseJSON{
@@ -364,6 +387,40 @@ func buildPolicyKitOverloadSnapshot() overloadResponseJSON {
 		})
 	}
 	return out
+}
+
+func buildStorageStateSnapshot() storageResponseJSON {
+	snapshot := observability.SnapshotStorageState()
+	return storageResponseJSON{
+		Hot: storagePathJSON{
+			LastOK:     boolOrUnknown(snapshot.Hot.LastOKKnown, snapshot.Hot.LastOK),
+			LastError:  snapshot.Hot.LastError,
+			FailsTotal: numberOrUnknown(snapshot.Hot.FailsTotalKnown, snapshot.Hot.FailsTotal),
+		},
+		Cold: storagePathJSON{
+			LastOK:     boolOrUnknown(snapshot.Cold.LastOKKnown, snapshot.Cold.LastOK),
+			LastError:  snapshot.Cold.LastError,
+			FailsTotal: numberOrUnknown(snapshot.Cold.FailsTotalKnown, snapshot.Cold.FailsTotal),
+		},
+		Committer: storageCommitterJSON{
+			LastOK:    boolOrUnknown(snapshot.Committer.LastOKKnown, snapshot.Committer.LastOK),
+			LastError: snapshot.Committer.LastError,
+		},
+	}
+}
+
+func boolOrUnknown(known bool, value bool) any {
+	if !known {
+		return "unknown"
+	}
+	return value
+}
+
+func numberOrUnknown(known bool, value uint64) any {
+	if !known {
+		return "unknown"
+	}
+	return value
 }
 
 func (s *Server) registerPprofRoutes(mux *http.ServeMux) {
