@@ -149,6 +149,7 @@ func TestSession_getLastVPVRSnapshot(t *testing.T) {
 	defer e.Poison(sessionPID)
 
 	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+	beforeQuery := testutil.ToFloat64(metrics.WSQueryTotal.WithLabelValues("getlast", "insights"))
 	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"getlast","subject":"insights.volume_profile_snapshot.v1/binance/BTC-USDT/1m","request_id":"r-last"}`)}
 
 	resp := <-conn.writeCh
@@ -165,6 +166,9 @@ func TestSession_getLastVPVRSnapshot(t *testing.T) {
 	}
 	if got, want := item.Seq, int64(101); got != want {
 		t.Fatalf("last seq=%d want=%d", got, want)
+	}
+	if got := testutil.ToFloat64(metrics.WSQueryTotal.WithLabelValues("getlast", "insights")); got < beforeQuery+1 {
+		t.Fatalf("expected ws_query_total getlast/insights increment, got=%f before=%f", got, beforeQuery)
 	}
 }
 
@@ -316,6 +320,7 @@ func TestSession_getRangeVPVRPagination_capsRejectExplosive(t *testing.T) {
 	defer e.Poison(sessionPID)
 
 	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+	beforeRejected := testutil.ToFloat64(metrics.WSQueryRejectedTotal.WithLabelValues("query_cap"))
 	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"getrange","subject":"insights.volume_profile_snapshot.v1/binance/BTC-USDT/1m","request_id":"r-cap","params":{"from_ms":0,"to_ms":0,"limit":1000,"page":100}}`)}
 
 	resp := <-conn.writeCh
@@ -325,6 +330,9 @@ func TestSession_getRangeVPVRPagination_capsRejectExplosive(t *testing.T) {
 	}
 	if store.calls != 0 {
 		t.Fatalf("store calls=%d want=0", store.calls)
+	}
+	if got := testutil.ToFloat64(metrics.WSQueryRejectedTotal.WithLabelValues("query_cap")); got < beforeRejected+1 {
+		t.Fatalf("expected ws_query_rejected_total query_cap increment, got=%f before=%f", got, beforeRejected)
 	}
 }
 

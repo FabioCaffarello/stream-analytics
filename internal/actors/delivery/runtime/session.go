@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/anthdm/hollywood/actor"
@@ -272,6 +273,7 @@ func (s *SessionActor) handleUnsubscribe(cmd clientCommand) {
 func (s *SessionActor) handleGetLast(cmd clientCommand) {
 	subRes := s.service.ParseSubject(cmd.Subject)
 	if subRes.IsFail() {
+		metrics.IncWSQueryRejected("subject_invalid")
 		s.writeProblem(cmd.Op, cmd.RequestID, subRes.Problem())
 		return
 	}
@@ -281,6 +283,7 @@ func (s *SessionActor) handleGetLast(cmd clientCommand) {
 		Limit:      maxQueryLimit,
 	})
 	if res.IsFail() {
+		metrics.IncWSQueryRejected("range_failed")
 		s.writeProblem(cmd.Op, cmd.RequestID, res.Problem())
 		return
 	}
@@ -290,6 +293,7 @@ func (s *SessionActor) handleGetLast(cmd clientCommand) {
 	if len(items) > 0 {
 		item = items[len(items)-1] // highest seq after defensive sort
 	}
+	metrics.IncWSQuery("getlast", wsQueryBucket(subject.StreamType))
 	s.writeJSON(map[string]any{
 		"type":       "last",
 		"op":         cmd.Op,
@@ -303,12 +307,14 @@ func (s *SessionActor) handleGetRange(cmd clientCommand) {
 	var params getRangeParams
 	if len(cmd.Params) != 0 {
 		if err := json.Unmarshal(cmd.Params, &params); err != nil {
+			metrics.IncWSQueryRejected("params_invalid")
 			s.writeProblem(cmd.Op, cmd.RequestID, problem.Wrap(err, problem.ValidationFailed, "invalid getrange params"))
 			return
 		}
 	}
 	subRes := s.service.ParseSubject(cmd.Subject)
 	if subRes.IsFail() {
+		metrics.IncWSQueryRejected("subject_invalid")
 		s.writeProblem(cmd.Op, cmd.RequestID, subRes.Problem())
 		return
 	}
@@ -323,15 +329,18 @@ func (s *SessionActor) handleGetRange(cmd clientCommand) {
 		limit = defaultRangeLimit
 	}
 	if limit > maxLimit {
+		metrics.IncWSQueryRejected("limit_cap")
 		s.writeProblem(cmd.Op, cmd.RequestID, problem.Newf(problem.ValidationFailed, "limit must be <= %d", maxLimit))
 		return
 	}
 	if page > maxPage {
+		metrics.IncWSQueryRejected("page_cap")
 		s.writeProblem(cmd.Op, cmd.RequestID, problem.Newf(problem.ValidationFailed, "page must be <= %d", maxPage))
 		return
 	}
 	queryLimit := limit * page
 	if queryLimit > maxQueryLimit {
+		metrics.IncWSQueryRejected("query_cap")
 		s.writeProblem(cmd.Op, cmd.RequestID, problem.Newf(problem.ValidationFailed, "limit*page must be <= %d", maxQueryLimit))
 		return
 	}
@@ -345,6 +354,7 @@ func (s *SessionActor) handleGetRange(cmd clientCommand) {
 		Limit:      maxQueryLimit,
 	})
 	if res.IsFail() {
+		metrics.IncWSQueryRejected("range_failed")
 		s.writeProblem(cmd.Op, cmd.RequestID, res.Problem())
 		return
 	}
@@ -354,6 +364,7 @@ func (s *SessionActor) handleGetRange(cmd clientCommand) {
 	if len(items) > maxResponseItems {
 		items = items[len(items)-maxResponseItems:]
 	}
+	metrics.IncWSQuery("getrange", wsQueryBucket(subject.StreamType))
 	s.writeJSON(map[string]any{
 		"type":       "range",
 		"op":         cmd.Op,
@@ -441,6 +452,19 @@ func (s *SessionActor) writeJSONDirect(v any) error {
 		return nil
 	}
 	return s.cfg.Conn.WriteJSON(v)
+}
+
+func wsQueryBucket(streamType string) string {
+	switch {
+	case strings.HasPrefix(streamType, "marketdata."):
+		return "marketdata"
+	case strings.HasPrefix(streamType, "aggregation."):
+		return "aggregation"
+	case strings.HasPrefix(streamType, "insights."):
+		return "insights"
+	default:
+		return "unknown"
+	}
 }
 
 func (s *SessionActor) closeSession() {

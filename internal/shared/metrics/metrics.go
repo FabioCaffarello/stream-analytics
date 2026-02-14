@@ -227,6 +227,20 @@ var (
 			Help: "Connected websocket delivery clients.",
 		},
 	)
+	WSQueryTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ws_query_total",
+			Help: "Total websocket read-path queries by operation and bounded category.",
+		},
+		[]string{"op", "bc"},
+	)
+	WSQueryRejectedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ws_query_rejected_total",
+			Help: "Total rejected websocket read-path queries by reason.",
+		},
+		[]string{"reason"},
+	)
 
 	GuardianRestartsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -466,6 +480,8 @@ func registerAll() {
 			WSDropsTotal,
 			WSSendLatencyMilliseconds,
 			WSClientsConnected,
+			WSQueryTotal,
+			WSQueryRejectedTotal,
 			GuardianRestartsTotal,
 			GuardianDegradedTotal,
 			GuardianSubsystemState,
@@ -522,6 +538,8 @@ func registerAll() {
 		WSMessagesReceivedTotal.WithLabelValues("unknown", "unknown")
 		WSErrorsTotal.WithLabelValues("unknown", "unknown")
 		WSDropsTotal.WithLabelValues("unknown")
+		WSQueryTotal.WithLabelValues("unknown", "unknown")
+		WSQueryRejectedTotal.WithLabelValues("unknown")
 		GuardianRestartsTotal.WithLabelValues("unknown", "unknown")
 		GuardianDegradedTotal.WithLabelValues("unknown")
 		GuardianSubsystemState.WithLabelValues("unknown")
@@ -678,6 +696,14 @@ func IncWSClientsConnected() {
 
 func DecWSClientsConnected() {
 	WSClientsConnected.Dec()
+}
+
+func IncWSQuery(op, boundedCategory string) {
+	WSQueryTotal.WithLabelValues(sanitizeWSQueryOp(op), sanitizeWSQueryCategory(boundedCategory)).Inc()
+}
+
+func IncWSQueryRejected(reason string) {
+	WSQueryRejectedTotal.WithLabelValues(sanitizeKind(reason)).Inc()
 }
 
 func IncGuardianRestart(subsystem, status string) {
@@ -1036,6 +1062,26 @@ func bucketSubscriberID(subscriberIndex int) string {
 		return "s64_255"
 	default:
 		return "s256_plus"
+	}
+}
+
+func sanitizeWSQueryOp(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	switch v {
+	case "getlast", "getrange":
+		return v
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeWSQueryCategory(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	switch v {
+	case "marketdata", "aggregation", "insights":
+		return v
+	default:
+		return "unknown"
 	}
 }
 
