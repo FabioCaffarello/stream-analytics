@@ -73,6 +73,48 @@ func TestApplierDegradeByStride(t *testing.T) {
 	}
 }
 
+func TestApplierDegradeStrideCloseFinalDoesNotShiftCadence(t *testing.T) {
+	decision := Decision{Actions: []Action{{Type: ActionDegradeStride, Stride: 2}}}
+	hooks := ApplyHooks{
+		PartitionKey: func(env envelope.Envelope) string {
+			return env.Venue + "|" + env.Instrument
+		},
+	}
+
+	withClose := []envelope.Envelope{
+		makeEnv("marketdata.bookdelta", 1),
+		makeEnv("insights.volume_profile_final", 10),
+		makeEnv("marketdata.bookdelta", 2),
+		makeEnv("marketdata.bookdelta", 3),
+		makeEnv("marketdata.bookdelta", 4),
+	}
+	withoutClose := []envelope.Envelope{
+		makeEnv("marketdata.bookdelta", 1),
+		makeEnv("marketdata.bookdelta", 2),
+		makeEnv("marketdata.bookdelta", 3),
+		makeEnv("marketdata.bookdelta", 4),
+	}
+
+	outWithClose := NewApplier(NewCategoryResolver()).Apply(decision, withClose, hooks)
+	outWithoutClose := NewApplier(NewCategoryResolver()).Apply(decision, withoutClose, hooks)
+
+	if !slices.ContainsFunc(outWithClose, func(env envelope.Envelope) bool {
+		return env.Type == "insights.volume_profile_final" && env.Seq == 10
+	}) {
+		t.Fatal("close/final must always be emitted")
+	}
+
+	var deltaWithClose []int64
+	for _, env := range outWithClose {
+		if env.Type == "marketdata.bookdelta" {
+			deltaWithClose = append(deltaWithClose, env.Seq)
+		}
+	}
+	if got, want := deltaWithClose, seqs(outWithoutClose); !slices.Equal(got, want) {
+		t.Fatalf("delta cadence shifted by close/final: got=%v want=%v", got, want)
+	}
+}
+
 func TestApplierCompressNeverOnCloseFinal(t *testing.T) {
 	decision := Decision{Actions: []Action{{Type: ActionCompressSnapshot}}}
 	envs := []envelope.Envelope{

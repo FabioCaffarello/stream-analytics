@@ -48,9 +48,11 @@ func (a *Applier) Apply(decision Decision, envs []envelope.Envelope, hooks Apply
 			continue
 		}
 
-		count := a.nextCount(partitionFn(env))
-		if strideEnabled && category != CategoryCloseFinal && count%stride != 0 {
-			continue
+		if strideEnabled && category != CategoryCloseFinal {
+			count := a.nextCount(partitionFn(env))
+			if count%stride != 0 {
+				continue
+			}
 		}
 
 		if decision.HasAction(ActionCompressSnapshot) && category == CategorySnapshot && hooks.CompressSnapshot != nil {
