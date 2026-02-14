@@ -3,7 +3,6 @@ package codec
 import (
 	"encoding/json"
 	"math"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -212,17 +211,16 @@ func payloadSchemaKey(eventType string, version int, contentType string) (Schema
 }
 
 func payloadSchemaVersion(version int) (int32, *problem.Problem) {
-	v64, err := strconv.ParseInt(strconv.Itoa(version), 10, 32)
-	if err != nil {
+	if version < 1 || version > math.MaxInt32 {
 		return 0, problem.WithDetail(
 			problem.WithDetail(
-				problem.Wrap(err, problem.ValidationFailed, "version conversion failed"),
+				problem.Newf(problem.ValidationFailed, "version must be in [1,%d], got %d", math.MaxInt32, version),
 				"field", "version",
 			),
 			"value", version,
 		)
 	}
-	return int32(v64), nil
+	return int32(version), nil
 }
 
 func payloadFormat(contentType string) (Format, *problem.Problem) {

@@ -510,6 +510,56 @@ func TestEncodePayload_UnknownContentTypeRejected(t *testing.T) {
 	}
 }
 
+func TestEncodePayload_VersionValidation_Negative(t *testing.T) {
+	bootstrapPayloadRegistry(t)
+
+	_, p := codec.EncodePayload("marketdata.trade", -1, envelope.ContentTypeJSON, marketdomain.TradeTickV1{})
+	if p == nil {
+		t.Fatal("expected validation error for negative version")
+	}
+	if p.Code != problem.ValidationFailed {
+		t.Fatalf("problem code = %s, want %s", p.Code, problem.ValidationFailed)
+	}
+	if p.Details["field"] != "version" {
+		t.Fatalf("field = %v, want version", p.Details["field"])
+	}
+}
+
+func TestDecodePayload_VersionValidation_Overflow(t *testing.T) {
+	bootstrapPayloadRegistry(t)
+
+	overflowVersion := int(math.MaxInt32) + 1
+	_, p := codec.DecodePayload("marketdata.trade", overflowVersion, envelope.ContentTypeJSON, []byte(`{}`))
+	if p == nil {
+		t.Fatal("expected validation error for overflow version")
+	}
+	if p.Code != problem.ValidationFailed {
+		t.Fatalf("problem code = %s, want %s", p.Code, problem.ValidationFailed)
+	}
+	if p.Details["field"] != "version" {
+		t.Fatalf("field = %v, want version", p.Details["field"])
+	}
+}
+
+func TestEncodePayload_VersionValidation_HappyPath(t *testing.T) {
+	bootstrapPayloadRegistry(t)
+	setFallbackPolicyForTest(t, codec.FallbackPolicyAllowUnknownJSON)
+
+	payload := map[string]any{"ok": true}
+	data, p := codec.EncodePayload("marketdata.unknown", 1, envelope.ContentTypeJSON, payload)
+	if p != nil {
+		t.Fatalf("expected happy path to pass: %v", p)
+	}
+
+	var out map[string]any
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("marshal result should be valid JSON: %v", err)
+	}
+	if out["ok"] != true {
+		t.Fatalf("encoded payload mismatch: got=%v", out)
+	}
+}
+
 func bootstrapPayloadRegistry(t *testing.T) {
 	t.Helper()
 	if p := contracts.BootstrapPayloadCodecRegistry(); p != nil {
