@@ -87,6 +87,22 @@ go test ./cmd/consumer -run TestReplayIngestGolden1000
 make soak-check
 ```
 
+### W2 commit-driven hard-order gates (cold-path correctness)
+
+```bash
+make commit-msg-check
+make docs-check-full
+make invariants-check
+make registry-check
+```
+
+When C1+ touches `internal/adapters/storage/**`, also run:
+
+```bash
+make test-unit
+make test-workspace
+```
+
 ## Acceptance
 
 - Todos os itens ja implementados estao marcados como `Implemented`.

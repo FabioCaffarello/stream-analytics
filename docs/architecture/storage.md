@@ -100,6 +100,17 @@ Ack semantics for persistence boundaries:
 - `STO-5`: replay over equivalent input must produce identical artifacts/checksums.
 - `STO-6`: no `ack-on-enqueue`; only `ack-on-commit`.
 
+### W2 Cold-Path Correctness Contract (ClickHouse)
+
+- Success semantics: no silent success. Every storage commit outcome must be surfaced as `*problem.Problem` on failure.
+- Durable boundary: `ACK` happens only after the required durable commit boundary succeeds (`ack-on-commit`).
+- Canonical idempotency key for cold upsert/dedup: deterministic key from canonical subject + `(venue,instrument,seq[,source_idempotency_key])`.
+- Forbidden key source: do not reuse publish dedup-only markers such as heatmap `seqMax` as the canonical snapshot upsert key.
+- Replay safety: reprocessing the same input window/events must converge to identical final state with zero duplicate commits.
+- Subject safety: cold-path consumers/writers must stay aligned with registry taxonomy `{event}.v{version}.{venue}.{instrument}`.
+- Port contract: storage ports and adapters return `*problem.Problem` (never `error`) at domain boundaries.
+- Minimum observability proof under load: lag, insert errors, retries, duplicates detected, and queue depth.
+
 ## Implementation Matrix
 
 | Feature | Status | Evidence | Tests |
