@@ -1,0 +1,266 @@
+groups:
+  - name: slo-ingest
+    interval: 30s
+    rules:
+      - record: slo:ingest_success:rate
+        expr: |
+          sum by (stream, venue) (
+            label_replace(rate(ingest_messages_total{status="ok"}[5m]), "stream", "$1", "event_type", "(.*)")
+          )
+        labels:
+          service: market-raccoon
+      - record: slo:ingest_total:rate
+        expr: |
+          sum by (stream, venue) (
+            label_replace(rate(ingest_messages_total[5m]), "stream", "$1", "event_type", "(.*)")
+          )
+        labels:
+          service: market-raccoon
+      - record: slo:ingest:error_ratio
+        expr: |
+          clamp_min(1 - (slo:ingest_success:rate / clamp_min(slo:ingest_total:rate, 1e-9)), 0)
+        labels:
+          service: market-raccoon
+      - record: slo:ingest:error_ratio_30m
+        expr: |
+          clamp_min(
+            1 - (
+              sum by (stream, venue) (label_replace(rate(ingest_messages_total{status="ok"}[30m]), "stream", "$1", "event_type", "(.*)"))
+              /
+              clamp_min(sum by (stream, venue) (label_replace(rate(ingest_messages_total[30m]), "stream", "$1", "event_type", "(.*)")), 1e-9)
+            ),
+            0
+          )
+        labels:
+          service: market-raccoon
+      - record: slo:ingest:error_ratio_1h
+        expr: |
+          clamp_min(
+            1 - (
+              sum by (stream, venue) (label_replace(rate(ingest_messages_total{status="ok"}[1h]), "stream", "$1", "event_type", "(.*)"))
+              /
+              clamp_min(sum by (stream, venue) (label_replace(rate(ingest_messages_total[1h]), "stream", "$1", "event_type", "(.*)")), 1e-9)
+            ),
+            0
+          )
+        labels:
+          service: market-raccoon
+      - record: slo:ingest:error_ratio_6h
+        expr: |
+          clamp_min(
+            1 - (
+              sum by (stream, venue) (label_replace(rate(ingest_messages_total{status="ok"}[6h]), "stream", "$1", "event_type", "(.*)"))
+              /
+              clamp_min(sum by (stream, venue) (label_replace(rate(ingest_messages_total[6h]), "stream", "$1", "event_type", "(.*)")), 1e-9)
+            ),
+            0
+          )
+        labels:
+          service: market-raccoon
+      - record: slo:ingest:burn_rate_5m
+        expr: slo:ingest:error_ratio / 0.001
+        labels:
+          service: market-raccoon
+      - record: slo:ingest:burn_rate_30m
+        expr: slo:ingest:error_ratio_30m / 0.001
+        labels:
+          service: market-raccoon
+      - record: slo:ingest:burn_rate_1h
+        expr: slo:ingest:error_ratio_1h / 0.001
+        labels:
+          service: market-raccoon
+      - record: slo:ingest:burn_rate_6h
+        expr: slo:ingest:error_ratio_6h / 0.001
+        labels:
+          service: market-raccoon
+
+  - name: slo-delivery-latency
+    interval: 30s
+    rules:
+      - record: slo:delivery_latency:rate
+        expr: |
+          sum(rate(ws_send_latency_ms_bucket{le="250"}[5m]))
+          /
+          clamp_min(sum(rate(ws_send_latency_ms_count[5m])), 1e-9)
+        labels:
+          service: market-raccoon
+          stream: ws
+          venue: all
+      - record: slo:delivery_latency:error_ratio
+        expr: clamp_min(1 - slo:delivery_latency:rate, 0)
+        labels:
+          service: market-raccoon
+          stream: ws
+          venue: all
+      - record: slo:delivery_latency:error_ratio_30m
+        expr: |
+          clamp_min(
+            1 - (
+              sum(rate(ws_send_latency_ms_bucket{le="250"}[30m]))
+              /
+              clamp_min(sum(rate(ws_send_latency_ms_count[30m])), 1e-9)
+            ),
+            0
+          )
+        labels:
+          service: market-raccoon
+          stream: ws
+          venue: all
+      - record: slo:delivery_latency:error_ratio_1h
+        expr: |
+          clamp_min(
+            1 - (
+              sum(rate(ws_send_latency_ms_bucket{le="250"}[1h]))
+              /
+              clamp_min(sum(rate(ws_send_latency_ms_count[1h])), 1e-9)
+            ),
+            0
+          )
+        labels:
+          service: market-raccoon
+          stream: ws
+          venue: all
+      - record: slo:delivery_latency:error_ratio_6h
+        expr: |
+          clamp_min(
+            1 - (
+              sum(rate(ws_send_latency_ms_bucket{le="250"}[6h]))
+              /
+              clamp_min(sum(rate(ws_send_latency_ms_count[6h])), 1e-9)
+            ),
+            0
+          )
+        labels:
+          service: market-raccoon
+          stream: ws
+          venue: all
+      - record: slo:delivery_latency:burn_rate_5m
+        expr: slo:delivery_latency:error_ratio / 0.01
+        labels:
+          service: market-raccoon
+          stream: ws
+          venue: all
+      - record: slo:delivery_latency:burn_rate_30m
+        expr: slo:delivery_latency:error_ratio_30m / 0.01
+        labels:
+          service: market-raccoon
+          stream: ws
+          venue: all
+      - record: slo:delivery_latency:burn_rate_1h
+        expr: slo:delivery_latency:error_ratio_1h / 0.01
+        labels:
+          service: market-raccoon
+          stream: ws
+          venue: all
+      - record: slo:delivery_latency:burn_rate_6h
+        expr: slo:delivery_latency:error_ratio_6h / 0.01
+        labels:
+          service: market-raccoon
+          stream: ws
+          venue: all
+
+  - name: slo-data-loss
+    interval: 30s
+    rules:
+      - record: slo:data_loss:drop_rate_5m
+        expr: |
+          sum(rate(ingest_drop_total[5m]))
+          + sum(rate(ingest_nak_total[5m]))
+          + sum(rate(ingest_term_total[5m]))
+          + sum(rate(vpvr_drop_total[5m]))
+          + sum(rate(heatmap_drop_total[5m]))
+          + sum(rate(ws_drops_total[5m]))
+        labels:
+          service: market-raccoon
+          stream: all
+          venue: all
+      - record: slo:data_loss:cold_commit_errors_rate_5m
+        expr: |
+          sum(rate(vpvr_writer_write_fail_total[5m]))
+          + sum(rate(bus_publish_errors_total[5m]))
+        labels:
+          service: market-raccoon
+          stream: all
+          venue: all
+      - record: slo:data_loss:rate
+        expr: slo:data_loss:drop_rate_5m + slo:data_loss:cold_commit_errors_rate_5m
+        labels:
+          service: market-raccoon
+          stream: all
+          venue: all
+      - record: slo:data_loss:error_ratio
+        expr: |
+          clamp_max(
+            slo:data_loss:rate / clamp_min(sum(rate(ingest_messages_total[5m])), 1e-9),
+            1
+          )
+        labels:
+          service: market-raccoon
+          stream: all
+          venue: all
+      - record: slo:data_loss:error_ratio_30m
+        expr: |
+          clamp_max(
+            (
+              sum(rate(ingest_drop_total[30m])) + sum(rate(ingest_nak_total[30m])) + sum(rate(ingest_term_total[30m]))
+              + sum(rate(vpvr_drop_total[30m])) + sum(rate(heatmap_drop_total[30m])) + sum(rate(ws_drops_total[30m]))
+              + sum(rate(vpvr_writer_write_fail_total[30m])) + sum(rate(bus_publish_errors_total[30m]))
+            ) / clamp_min(sum(rate(ingest_messages_total[30m])), 1e-9),
+            1
+          )
+        labels:
+          service: market-raccoon
+          stream: all
+          venue: all
+      - record: slo:data_loss:error_ratio_1h
+        expr: |
+          clamp_max(
+            (
+              sum(rate(ingest_drop_total[1h])) + sum(rate(ingest_nak_total[1h])) + sum(rate(ingest_term_total[1h]))
+              + sum(rate(vpvr_drop_total[1h])) + sum(rate(heatmap_drop_total[1h])) + sum(rate(ws_drops_total[1h]))
+              + sum(rate(vpvr_writer_write_fail_total[1h])) + sum(rate(bus_publish_errors_total[1h]))
+            ) / clamp_min(sum(rate(ingest_messages_total[1h])), 1e-9),
+            1
+          )
+        labels:
+          service: market-raccoon
+          stream: all
+          venue: all
+      - record: slo:data_loss:error_ratio_6h
+        expr: |
+          clamp_max(
+            (
+              sum(rate(ingest_drop_total[6h])) + sum(rate(ingest_nak_total[6h])) + sum(rate(ingest_term_total[6h]))
+              + sum(rate(vpvr_drop_total[6h])) + sum(rate(heatmap_drop_total[6h])) + sum(rate(ws_drops_total[6h]))
+              + sum(rate(vpvr_writer_write_fail_total[6h])) + sum(rate(bus_publish_errors_total[6h]))
+            ) / clamp_min(sum(rate(ingest_messages_total[6h])), 1e-9),
+            1
+          )
+        labels:
+          service: market-raccoon
+          stream: all
+          venue: all
+      - record: slo:data_loss:burn_rate_5m
+        expr: slo:data_loss:error_ratio / 0.0001
+        labels:
+          service: market-raccoon
+          stream: all
+          venue: all
+      - record: slo:data_loss:burn_rate_30m
+        expr: slo:data_loss:error_ratio_30m / 0.0001
+        labels:
+          service: market-raccoon
+          stream: all
+          venue: all
+      - record: slo:data_loss:burn_rate_1h
+        expr: slo:data_loss:error_ratio_1h / 0.0001
+        labels:
+          service: market-raccoon
+          stream: all
+          venue: all
+      - record: slo:data_loss:burn_rate_6h
+        expr: slo:data_loss:error_ratio_6h / 0.0001
+        labels:
+          service: market-raccoon
+          stream: all
+          venue: all
