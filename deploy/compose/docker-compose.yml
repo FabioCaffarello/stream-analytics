@@ -99,9 +99,9 @@ services:
     volumes:
       - clickhouse_data:/var/lib/clickhouse/
       - clickhouse_logs:/var/log/clickhouse-server/
-      - ../clickhouse/config:/etc/clickhouse-server/config.d/
-      - ../clickhouse/users:/etc/clickhouse-server/users.d/
-      - ../clickhouse/init:/docker-entrypoint-initdb.d/
+      - ../clickhouse/config:/etc/clickhouse-server/config.d/:ro
+      - ../clickhouse/users:/etc/clickhouse-server/users.d/:ro
+      - ../../sql/clickhouse/migrations:/docker-entrypoint-initdb.d:ro
     networks:
       - market-raccoon-network
     healthcheck:
