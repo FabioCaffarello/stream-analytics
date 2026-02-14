@@ -26,6 +26,16 @@ func ShardKey(subject string) uint32 {
 	return h.Sum32()
 }
 
+// subjectBelongsToOtherShard reports whether a concrete subject should be
+// skipped by the consumer with the given group configuration.  Returns false
+// (do not skip) when sharding is disabled (groupCount <= 1).
+func subjectBelongsToOtherShard(subject string, groupCount, myGroupID int) bool {
+	if groupCount <= 1 {
+		return false
+	}
+	return ShardGroup(ShardKey(subject), groupCount) != myGroupID
+}
+
 // ShardGroup maps a shard key to a group ID in [0, groupCount).
 //
 // groupCount must be >= 1.  When groupCount is 0 or 1 ShardGroup always

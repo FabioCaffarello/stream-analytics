@@ -3,6 +3,7 @@ package jetstream
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -44,6 +45,14 @@ type ConsumerConfig struct {
 	DeliverPolicy   string
 	FetchTimeout    time.Duration
 	LagPollInterval time.Duration
+	// ShardGroupCount is the total number of shard groups.  Default 1 (disabled).
+	// When > 1, messages whose ShardGroup(ShardKey(subject), ShardGroupCount)
+	// != ShardGroupID are immediately acked and skipped (client-side dispatch).
+	ShardGroupCount int
+	// ShardGroupID is the 0-based group index for this consumer instance.
+	// The durable consumer name is automatically set to mr-processor-g{ID}
+	// when ShardGroupCount > 1 and ConsumerDurable is empty.
+	ShardGroupID int
 }
 
 type ConsumeHandler func(ctx context.Context, env envelope.Envelope) *problem.Problem
@@ -193,6 +202,18 @@ func (c *Consumer) Consume(ctx context.Context, handler ConsumeHandler) *problem
 }
 
 func (c *Consumer) consumeOne(ctx context.Context, msg *nats.Msg, handler ConsumeHandler) *problem.Problem {
+	// Client-side shard dispatch: ack-and-skip messages that belong to a
+	// different shard group.  This is the coordination-free path — each group
+	// holds its own durable consumer and independently decides ownership.
+	if subjectBelongsToOtherShard(msg.Subject, c.cfg.ShardGroupCount, c.cfg.ShardGroupID) {
+		if ackErr := msg.Ack(); ackErr != nil && ctx.Err() == nil {
+			c.observer.IncConsumed(busTypeJetStream, "shard_skip_ack_failed")
+		} else {
+			c.observer.IncConsumed(busTypeJetStream, "shard_skip")
+		}
+		return nil
+	}
+
 	meta, _ := msg.Metadata()
 	if meta != nil && meta.NumDelivered > 1 {
 		c.observer.IncRedelivered(busTypeJetStream)
@@ -400,8 +421,16 @@ func withConsumerDefaults(cfg ConsumerConfig) ConsumerConfig {
 		MaxBytes:       cfg.MaxBytes,
 		PublishTimeout: defaultPublishTimeout,
 	}).toConsumerDefaults(cfg)
+	if cfg.ShardGroupCount <= 0 {
+		cfg.ShardGroupCount = 1
+	}
+	// ShardGroupID zero value (0) is the correct default.
 	if cfg.ConsumerDurable == "" {
-		cfg.ConsumerDurable = "processor-v1"
+		if cfg.ShardGroupCount > 1 {
+			cfg.ConsumerDurable = fmt.Sprintf("mr-processor-g%d", cfg.ShardGroupID)
+		} else {
+			cfg.ConsumerDurable = "processor-v1"
+		}
 	}
 	if cfg.AckWait <= 0 {
 		cfg.AckWait = 30 * time.Second

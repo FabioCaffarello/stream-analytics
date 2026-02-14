@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"testing"
+	"time"
 )
 
 // TestShardKey_Deterministic verifies that the same subject always produces
@@ -163,6 +164,160 @@ func TestShardGroup_UnionCoversAllMessages(t *testing.T) {
 		if assigned[s] != 1 {
 			t.Errorf("subject %q appears in %d groups; want exactly 1", s, assigned[s])
 		}
+	}
+}
+
+// ── Consumer topology (S2) ────────────────────────────────────────────────────
+
+// TestSubjectBelongsToOtherShard_ShardingDisabled verifies that when
+// groupCount <= 1 no subject is ever skipped (backward-compatible OFF mode).
+func TestSubjectBelongsToOtherShard_ShardingDisabled(t *testing.T) {
+	subjects := []string{
+		"marketdata.bookdelta.v1.binance.BTCUSDT",
+		"marketdata.trade.v1.bybit.ETHUSDT",
+		"aggregation.snapshot.v1.binance.BTCUSDT",
+	}
+	for _, s := range subjects {
+		for _, count := range []int{0, 1} {
+			if subjectBelongsToOtherShard(s, count, 0) {
+				t.Errorf("subjectBelongsToOtherShard(%q, %d, 0) = true; want false (sharding disabled)", s, count)
+			}
+		}
+	}
+}
+
+// TestSubjectBelongsToOtherShard_TwoGroups_Partition verifies the core
+// consumer-topology contract: with groupCount=2, every subject is claimed by
+// exactly one group (union == total, no overlap).
+func TestSubjectBelongsToOtherShard_TwoGroups_Partition(t *testing.T) {
+	subjects := []string{
+		"marketdata.bookdelta.v1.binance.BTCUSDT",
+		"marketdata.bookdelta.v1.binance.ETHUSDT",
+		"marketdata.bookdelta.v1.bybit.BTCUSDT",
+		"marketdata.bookdelta.v1.bybit.ETHUSDT",
+		"marketdata.trade.v1.binance.BTCUSDT",
+		"marketdata.trade.v1.binance.ETHUSDT",
+		"marketdata.trade.v1.bybit.BTCUSDT",
+		"marketdata.trade.v1.bybit.ETHUSDT",
+		"aggregation.snapshot.v1.binance.BTCUSDT",
+	}
+	const groupCount = 2
+
+	ownerCount := make(map[string]int, len(subjects))
+	for _, s := range subjects {
+		owners := 0
+		for g := 0; g < groupCount; g++ {
+			if !subjectBelongsToOtherShard(s, groupCount, g) {
+				owners++
+			}
+		}
+		ownerCount[s] = owners
+	}
+
+	for _, s := range subjects {
+		if ownerCount[s] != 1 {
+			t.Errorf("subject %q claimed by %d groups; want exactly 1", s, ownerCount[s])
+		}
+	}
+}
+
+// TestSubjectBelongsToOtherShard_NGroups_Partition generalises the partition
+// invariant for N = 3 and N = 4 groups.
+func TestSubjectBelongsToOtherShard_NGroups_Partition(t *testing.T) {
+	subjects := make([]string, 0, 40)
+	for _, venue := range []string{"binance", "bybit", "okx", "kraken", "coinbase"} {
+		for _, instrument := range []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "ADAUSDT", "DOGEUSDT", "DOTUSDT"} {
+			subjects = append(subjects, "marketdata.bookdelta.v1."+venue+"."+instrument)
+		}
+	}
+
+	for _, groupCount := range []int{2, 3, 4} {
+		groupCount := groupCount
+		t.Run(fmt.Sprintf("groups=%d", groupCount), func(t *testing.T) {
+			ownerCount := make(map[string]int, len(subjects))
+			for _, s := range subjects {
+				for g := 0; g < groupCount; g++ {
+					if !subjectBelongsToOtherShard(s, groupCount, g) {
+						ownerCount[s]++
+					}
+				}
+			}
+			for _, s := range subjects {
+				if ownerCount[s] != 1 {
+					t.Errorf("groups=%d: subject %q claimed by %d groups; want 1", groupCount, s, ownerCount[s])
+				}
+			}
+		})
+	}
+}
+
+// TestConsumerDurableName_ShardingEnabled verifies that withConsumerDefaults
+// automatically assigns the canonical durable name mr-processor-g{ID} when
+// ShardGroupCount > 1 and no explicit durable is provided.
+func TestConsumerDurableName_ShardingEnabled(t *testing.T) {
+	cases := []struct {
+		count int
+		id    int
+		want  string
+	}{
+		{2, 0, "mr-processor-g0"},
+		{2, 1, "mr-processor-g1"},
+		{4, 3, "mr-processor-g3"},
+		{8, 7, "mr-processor-g7"},
+	}
+	base := ConsumerConfig{
+		URL:         "nats://127.0.0.1:4222",
+		StreamName:  "MARKETDATA",
+		DedupWindow: 5 * time.Minute,
+		MaxAge:      24 * time.Hour,
+		MaxBytes:    1_000_000,
+	}
+	for _, tc := range cases {
+		cfg := base
+		cfg.ShardGroupCount = tc.count
+		cfg.ShardGroupID = tc.id
+		got := withConsumerDefaults(cfg)
+		if got.ConsumerDurable != tc.want {
+			t.Errorf("count=%d id=%d: ConsumerDurable=%q; want %q", tc.count, tc.id, got.ConsumerDurable, tc.want)
+		}
+	}
+}
+
+// TestConsumerDurableName_ShardingDisabled verifies that the legacy default
+// durable name "processor-v1" is used when ShardGroupCount <= 1.
+func TestConsumerDurableName_ShardingDisabled(t *testing.T) {
+	base := ConsumerConfig{
+		URL:         "nats://127.0.0.1:4222",
+		StreamName:  "MARKETDATA",
+		DedupWindow: 5 * time.Minute,
+		MaxAge:      24 * time.Hour,
+		MaxBytes:    1_000_000,
+	}
+	for _, count := range []int{0, 1} {
+		cfg := base
+		cfg.ShardGroupCount = count
+		got := withConsumerDefaults(cfg)
+		if got.ConsumerDurable != "processor-v1" {
+			t.Errorf("count=%d: ConsumerDurable=%q; want processor-v1", count, got.ConsumerDurable)
+		}
+	}
+}
+
+// TestConsumerDurableName_ExplicitOverride verifies that an explicitly-provided
+// ConsumerDurable is never overwritten by the shard-aware defaulting logic.
+func TestConsumerDurableName_ExplicitOverride(t *testing.T) {
+	cfg := withConsumerDefaults(ConsumerConfig{
+		URL:             "nats://127.0.0.1:4222",
+		StreamName:      "MARKETDATA",
+		DedupWindow:     5 * time.Minute,
+		MaxAge:          24 * time.Hour,
+		MaxBytes:        1_000_000,
+		ConsumerDurable: "my-custom-durable",
+		ShardGroupCount: 4,
+		ShardGroupID:    2,
+	})
+	if cfg.ConsumerDurable != "my-custom-durable" {
+		t.Errorf("ConsumerDurable=%q; want my-custom-durable", cfg.ConsumerDurable)
 	}
 }
 
