@@ -62,6 +62,24 @@ func TestWriter_ClickHouseSchemaContractMatchesUpsertKey(t *testing.T) {
 	}
 }
 
+func TestWriter_ClickHouseSchemaContractW2HasCanonicalSubjectKey(t *testing.T) {
+	path := filepath.Clean(filepath.Join("..", "..", "..", "..", "sql", "clickhouse", "migrations", "0002_w2_cold_correctness.sql"))
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read schema %s: %v", path, err)
+	}
+	ddl := string(raw)
+	if !strings.Contains(ddl, "CREATE TABLE IF NOT EXISTS aggregation_snapshots_v2") {
+		t.Fatalf("schema must define aggregation_snapshots_v2 table")
+	}
+	if !strings.Contains(ddl, "source_idempotency_key String") {
+		t.Fatalf("schema must persist source_idempotency_key for traceability")
+	}
+	if !strings.Contains(ddl, "ORDER BY (subject, venue, instrument, seq, source_idempotency_key)") {
+		t.Fatalf("schema must preserve canonical key order by (subject, venue, instrument, seq, source_idempotency_key)")
+	}
+}
+
 func testSnapshot(seq int64, bid, ask float64) aggdomain.SnapshotProduced {
 	return aggdomain.SnapshotProduced{
 		BookID: aggdomain.BookID{
