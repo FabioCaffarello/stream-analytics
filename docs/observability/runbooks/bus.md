@@ -18,6 +18,8 @@ curl -fsS http://localhost:8080/debug/pprof/goroutine?debug=1 | head -n 120
 ```promql
 slo:data_loss:drop_rate_5m
 sum by (reason) (rate(ingest_drop_total[5m]))
+sum by (reason) (rate(vpvr_drop_total[5m]))
+sum by (reason) (rate(heatmap_drop_total[5m]))
 sum by (reason) (rate(ws_drops_total[5m]))
 sum by (subscriber_id) (rate(bus_dropped_total[5m]))
 ```
