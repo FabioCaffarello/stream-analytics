@@ -71,6 +71,7 @@ func NewServer(
 	mux.HandleFunc("GET /runtime/snapshot", s.handleSnapshot)
 	mux.HandleFunc("GET /runtime/overload", s.handleRuntimeOverload)
 	mux.HandleFunc("GET /runtime/storage", s.handleRuntimeStorage)
+	mux.HandleFunc("GET /runtime/ws", s.handleRuntimeWS)
 	mux.HandleFunc("POST /runtime/reload", s.handleReload)
 	mux.Handle("GET /metrics", withProcessMetrics(metrics.Handler()))
 	if enablePprof {
@@ -108,7 +109,7 @@ func (s *Server) Handler() http.Handler {
 // It must be called before ListenAndServe.
 func (s *Server) HandleFunc(pattern string, handler http.HandlerFunc) {
 	switch pattern {
-	case "GET /healthz", "GET /readyz", "GET /runtime/snapshot", "GET /runtime/overload", "GET /runtime/storage", "POST /runtime/reload", "GET /metrics":
+	case "GET /healthz", "GET /readyz", "GET /runtime/snapshot", "GET /runtime/overload", "GET /runtime/storage", "GET /runtime/ws", "POST /runtime/reload", "GET /metrics":
 		s.logger.Warn("httpserver: refusing to override critical route", "pattern", pattern)
 		return
 	}
@@ -240,6 +241,11 @@ func (s *Server) handleRuntimeStorage(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, r, http.StatusOK, "runtime.storage", snapshot)
 }
 
+func (s *Server) handleRuntimeWS(w http.ResponseWriter, r *http.Request) {
+	snapshot := buildWSStateSnapshot()
+	writeResponse(w, r, http.StatusOK, "runtime.ws", snapshot)
+}
+
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
@@ -357,6 +363,14 @@ type storageResponseJSON struct {
 	Committer storageCommitterJSON `json:"committer"`
 }
 
+type wsResponseJSON struct {
+	SessionsActive       any `json:"sessions_active"`
+	PreferProtoSessions  any `json:"prefer_proto_sessions"`
+	DeliveriesProtoTotal any `json:"deliveries_proto_total"`
+	DeliveriesJSONTotal  any `json:"deliveries_json_total"`
+	ReconnectsTotal      any `json:"reconnects_total"`
+}
+
 func buildPolicyKitOverloadSnapshot() overloadResponseJSON {
 	entries := observability.SnapshotPolicyKitOverload()
 	out := overloadResponseJSON{
@@ -409,6 +423,17 @@ func buildStorageStateSnapshot() storageResponseJSON {
 	}
 }
 
+func buildWSStateSnapshot() wsResponseJSON {
+	snapshot := observability.SnapshotWSState()
+	return wsResponseJSON{
+		SessionsActive:       signedNumberOrUnknown(snapshot.SessionsActiveKnown, snapshot.SessionsActive),
+		PreferProtoSessions:  signedNumberOrUnknown(snapshot.PreferProtoSessionsKnown, snapshot.PreferProtoSessions),
+		DeliveriesProtoTotal: numberOrUnknown(snapshot.DeliveriesProtoTotalKnown, snapshot.DeliveriesProtoTotal),
+		DeliveriesJSONTotal:  numberOrUnknown(snapshot.DeliveriesJSONTotalKnown, snapshot.DeliveriesJSONTotal),
+		ReconnectsTotal:      numberOrUnknown(snapshot.ReconnectsTotalKnown, snapshot.ReconnectsTotal),
+	}
+}
+
 func boolOrUnknown(known bool, value bool) any {
 	if !known {
 		return "unknown"
@@ -417,6 +442,13 @@ func boolOrUnknown(known bool, value bool) any {
 }
 
 func numberOrUnknown(known bool, value uint64) any {
+	if !known {
+		return "unknown"
+	}
+	return value
+}
+
+func signedNumberOrUnknown(known bool, value int64) any {
 	if !known {
 		return "unknown"
 	}

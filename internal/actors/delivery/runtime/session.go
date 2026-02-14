@@ -17,6 +17,7 @@ import (
 	"github.com/market-raccoon/internal/core/delivery/ports"
 	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/metrics"
+	"github.com/market-raccoon/internal/shared/observability"
 	"github.com/market-raccoon/internal/shared/problem"
 )
 
@@ -128,6 +129,10 @@ func (s *SessionActor) onStarted() {
 		s.engine.Send(s.cfg.RouterPID, RegisterSession{SessionID: s.session.ID(), PID: s.self})
 	}
 	metrics.IncWSClientsConnected()
+	observability.IncSessionsActive()
+	if s.cfg.PreferProto {
+		observability.IncPreferProtoSessions()
+	}
 	if s.cfg.Conn == nil {
 		return
 	}
@@ -429,15 +434,23 @@ func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) error {
 		if p != nil {
 			return p
 		}
-		return s.writeProtoDirect(websocket.BinaryMessage, raw)
+		if err := s.writeProtoDirect(websocket.BinaryMessage, raw); err != nil {
+			return err
+		}
+		observability.IncDeliveryProto()
+		return nil
 	}
-	return s.writeJSONDirect(map[string]any{
+	if err := s.writeJSONDirect(map[string]any{
 		"type":      "event",
 		"subject":   evt.Subject.String(),
 		"seq":       evt.Env.Seq,
 		"ts_ingest": evt.Env.TsIngest,
 		"payload":   evt.Env.Payload,
-	})
+	}); err != nil {
+		return err
+	}
+	observability.IncDeliveryJSON()
+	return nil
 }
 
 func (s *SessionActor) writeProblem(op, requestID string, p *problem.Problem) {
@@ -498,6 +511,10 @@ func (s *SessionActor) closeSession() {
 		s.cancelReader()
 	}
 	metrics.DecWSClientsConnected()
+	observability.DecSessionsActive()
+	if s.cfg.PreferProto {
+		observability.DecPreferProtoSessions()
+	}
 	metrics.SetWSQueueDepth(0)
 	// Explicitly emit unsubscribe for each tracked subject before unregister.
 	// Unregister remains the idempotent safety net.

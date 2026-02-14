@@ -336,6 +336,53 @@ func TestServer_RuntimeStorage_AcceptProto_returnsProtobufEnvelope(t *testing.T)
 	}
 }
 
+func TestServer_RuntimeWS_returns200AndValidJSON(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+	rec := doRequest(t, srv, http.MethodGet, "/runtime/ws", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d\nbody: %s", rec.Code, rec.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("response is not valid JSON: %v\nbody: %s", err, rec.Body.String())
+	}
+	assertNumberOrUnknown(t, body, "sessions_active")
+	assertNumberOrUnknown(t, body, "prefer_proto_sessions")
+	assertNumberOrUnknown(t, body, "deliveries_proto_total")
+	assertNumberOrUnknown(t, body, "deliveries_json_total")
+	assertNumberOrUnknown(t, body, "reconnects_total")
+}
+
+func TestServer_RuntimeWS_AcceptProto_returnsProtobufEnvelope(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+	rec := doRequestWithHeaders(t, srv, http.MethodGet, "/runtime/ws", "", map[string]string{
+		"Accept": "application/x-protobuf",
+	})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/x-protobuf") {
+		t.Fatalf("content-type=%q want application/x-protobuf", got)
+	}
+	out, p := contracts.UnmarshalEnvelopeV1ToDomain(rec.Body.Bytes())
+	if p != nil {
+		t.Fatalf("proto unmarshal failed: %v", p)
+	}
+	if out.Type != "runtime.ws" {
+		t.Fatalf("envelope.type=%q want runtime.ws", out.Type)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // POST /runtime/reload
 // ---------------------------------------------------------------------------
