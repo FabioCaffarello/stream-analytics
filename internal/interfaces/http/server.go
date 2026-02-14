@@ -20,14 +20,17 @@ import (
 	"net"
 	"net/http"
 	"net/http/pprof"
+	"strings"
 	"time"
 
 	"github.com/anthdm/hollywood/actor"
 	"github.com/market-raccoon/internal/actors/runtime"
+	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/metrics"
 )
 
 const defaultSnapshotTimeout = 5 * time.Second
+const httpContentTypeProto = "application/x-protobuf"
 
 // Server wraps net/http and provides runtime HTTP endpoints.
 type Server struct {
@@ -121,17 +124,17 @@ func (s *Server) SetSnapshotTimeout(d time.Duration) {
 
 // handleHealthz returns 200 OK unconditionally.
 // It is a liveness probe: it only checks that the HTTP layer is alive.
-func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	resp := s.engine.Request(s.guardianPID, runtime.Snapshot{}, s.snapshotTimeout)
 	result, err := resp.Result()
 	if err != nil {
 		s.logger.Warn("healthz snapshot timeout", "err", err)
-		writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "healthz timeout"})
+		writeResponse(w, r, http.StatusGatewayTimeout, "runtime.healthz", map[string]string{"error": "healthz timeout"})
 		return
 	}
 	state, ok := result.(runtime.SnapshotState)
 	if !ok {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "unexpected response"})
+		writeResponse(w, r, http.StatusInternalServerError, "runtime.healthz", map[string]string{"error": "unexpected response"})
 		return
 	}
 
@@ -150,7 +153,7 @@ func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 		status = "degraded"
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	writeResponse(w, r, http.StatusOK, "runtime.healthz", map[string]any{
 		"status":              status,
 		"ws_connected":        sub.Connected,
 		"last_message_age_ms": lastMsgAge,
@@ -161,28 +164,28 @@ func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 // handleReadyz queries the Guardian for readiness state.
 // Returns 200 when all expected subsystems are running; 503 otherwise.
 // Returns 504 if the Guardian does not respond in time.
-func (s *Server) handleReadyz(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	resp := s.engine.Request(s.guardianPID, runtime.ReadyQuery{}, s.snapshotTimeout)
 	result, err := resp.Result()
 	if err != nil {
 		s.logger.Warn("readyz request timed out", "err", err)
-		writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "readyz timeout"})
+		writeResponse(w, r, http.StatusGatewayTimeout, "runtime.readyz", map[string]string{"error": "readyz timeout"})
 		return
 	}
 	rr, ok := result.(runtime.ReadyResponse)
 	if !ok {
 		s.logger.Error("unexpected readyz response type")
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "unexpected response"})
+		writeResponse(w, r, http.StatusInternalServerError, "runtime.readyz", map[string]string{"error": "unexpected response"})
 		return
 	}
 	if !rr.Ready {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+		writeResponse(w, r, http.StatusServiceUnavailable, "runtime.readyz", map[string]any{
 			"ready":   false,
 			"pending": rr.Pending,
 		})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ready": true})
+	writeResponse(w, r, http.StatusOK, "runtime.readyz", map[string]bool{"ready": true})
 }
 
 // handleSnapshot queries the Guardian actor and returns its SnapshotState as JSON.
@@ -195,7 +198,7 @@ func (s *Server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 	result, err := resp.Result()
 	if err != nil {
 		s.logger.Warn("snapshot request failed", "err", err)
-		writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "snapshot timeout"})
+		writeResponse(w, r, http.StatusGatewayTimeout, "runtime.snapshot", map[string]string{"error": "snapshot timeout"})
 		return
 	}
 	state, ok := result.(runtime.SnapshotState)
@@ -207,17 +210,21 @@ func (s *Server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 				}
 				return "unknown"
 			}())
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "unexpected response"})
+		writeResponse(w, r, http.StatusInternalServerError, "runtime.snapshot", map[string]string{"error": "unexpected response"})
 		return
 	}
-	writeJSON(w, http.StatusOK, state)
+	writeResponse(w, r, http.StatusOK, "runtime.snapshot", state)
 }
 
 // handleReload sends a ReloadConfig message to the Guardian and returns 202.
 // The reload is asynchronous — the HTTP response does not wait for completion.
-func (s *Server) handleReload(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
+	if !supportedRequestContentType(r.Header.Get("Content-Type")) {
+		http.Error(w, "unsupported media type", http.StatusUnsupportedMediaType)
+		return
+	}
 	s.engine.Send(s.guardianPID, runtime.ReloadConfig{})
-	writeJSON(w, http.StatusAccepted, map[string]bool{"accepted": true})
+	writeResponse(w, r, http.StatusAccepted, "runtime.reload", map[string]bool{"accepted": true})
 }
 
 // ---------------------------------------------------------------------------
@@ -230,6 +237,59 @@ func writeJSON(w http.ResponseWriter, code int, body any) {
 	if err := json.NewEncoder(w).Encode(body); err != nil {
 		// WriteHeader already sent; nothing we can do except log.
 		slog.Error("httpserver: json encode failed", "err", err)
+	}
+}
+
+func writeResponse(w http.ResponseWriter, r *http.Request, code int, envelopeType string, body any) {
+	if acceptsProto(r) {
+		writeProtoEnvelope(w, code, envelopeType, body)
+		return
+	}
+	writeJSON(w, code, body)
+}
+
+func writeProtoEnvelope(w http.ResponseWriter, code int, envelopeType string, body any) {
+	jsonPayload, err := json.Marshal(body)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "encode failed"})
+		return
+	}
+	raw, p := contracts.MarshalEnvelopeV1FromPayload(envelopeType, jsonPayload, "application/json")
+	if p != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "encode failed"})
+		return
+	}
+	w.Header().Set("Content-Type", httpContentTypeProto)
+	w.WriteHeader(code)
+	if _, err := w.Write(raw); err != nil {
+		slog.Error("httpserver: proto write failed", "err", err)
+	}
+}
+
+func acceptsProto(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	accept := strings.TrimSpace(r.Header.Get("Accept"))
+	if accept == "" {
+		return false
+	}
+	for _, token := range strings.Split(accept, ",") {
+		mediaType := strings.ToLower(strings.TrimSpace(strings.SplitN(token, ";", 2)[0]))
+		if mediaType == httpContentTypeProto {
+			return true
+		}
+	}
+	return false
+}
+
+func supportedRequestContentType(raw string) bool {
+	ct := strings.ToLower(strings.TrimSpace(strings.SplitN(raw, ";", 2)[0]))
+	switch ct {
+	case "", "application/json", httpContentTypeProto:
+		return true
+	default:
+		return false
 	}
 }
 

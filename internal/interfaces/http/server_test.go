@@ -11,6 +11,7 @@ import (
 	"github.com/anthdm/hollywood/actor"
 	actorruntime "github.com/market-raccoon/internal/actors/runtime"
 	httpserver "github.com/market-raccoon/internal/interfaces/http"
+	"github.com/market-raccoon/internal/shared/contracts"
 )
 
 // ---------------------------------------------------------------------------
@@ -58,6 +59,17 @@ func doRequest(t *testing.T, srv *httpserver.Server, method, path, body string) 
 		reqBody = strings.NewReader("")
 	}
 	req := httptest.NewRequest(method, path, reqBody)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	return rec
+}
+
+func doRequestWithHeaders(t *testing.T, srv *httpserver.Server, method, path, body string, headers map[string]string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
 	return rec
@@ -168,6 +180,37 @@ func TestServer_Snapshot_containsAllSubsystems(t *testing.T) {
 	}
 }
 
+func TestServer_Snapshot_AcceptProto_returnsProtobufEnvelope(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+	rec := doRequestWithHeaders(t, srv, http.MethodGet, "/runtime/snapshot", "", map[string]string{
+		"Accept": "application/x-protobuf",
+	})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/x-protobuf") {
+		t.Fatalf("content-type=%q want application/x-protobuf", got)
+	}
+	out, p := contracts.UnmarshalEnvelopeV1ToDomain(rec.Body.Bytes())
+	if p != nil {
+		t.Fatalf("proto unmarshal failed: %v", p)
+	}
+	if out.Type != "runtime.snapshot" {
+		t.Fatalf("envelope.type=%q want runtime.snapshot", out.Type)
+	}
+	if out.ContentType != "application/json" {
+		t.Fatalf("envelope.content_type=%q want application/json", out.ContentType)
+	}
+	if len(out.Payload) == 0 {
+		t.Fatal("expected non-empty envelope payload")
+	}
+}
+
 // TestServer_Snapshot_timeout verifies that the handler returns 504 when the
 // guardian does not respond within the configured timeout.
 func TestServer_Snapshot_timeout(t *testing.T) {
@@ -219,6 +262,36 @@ func TestServer_Reload_returnsAcceptedJSON(t *testing.T) {
 	}
 	if !body["accepted"] {
 		t.Fatalf("expected accepted=true, got %v", body)
+	}
+}
+
+func TestServer_Reload_ContentTypeProtoAccepted(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+	rec := doRequestWithHeaders(t, srv, http.MethodPost, "/runtime/reload", "", map[string]string{
+		"Content-Type": "application/x-protobuf",
+	})
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", rec.Code)
+	}
+}
+
+func TestServer_Reload_ContentTypeUnsupportedReturns415(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+	rec := doRequestWithHeaders(t, srv, http.MethodPost, "/runtime/reload", "", map[string]string{
+		"Content-Type": "application/octet-stream",
+	})
+
+	if rec.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("expected 415, got %d", rec.Code)
 	}
 }
 
