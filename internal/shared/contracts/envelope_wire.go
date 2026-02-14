@@ -1,6 +1,7 @@
 package contracts
 
 import (
+	"math"
 	"strings"
 
 	"github.com/market-raccoon/internal/shared/envelope"
@@ -16,6 +17,31 @@ func MarshalEnvelopeV1FromPayload(eventType string, payload []byte, contentType 
 		Version:     1,
 		Payload:     payload,
 		ContentType: strings.TrimSpace(contentType),
+	}
+	raw, err := proto.Marshal(msg)
+	if err != nil {
+		return nil, problem.Wrap(err, problem.ValidationFailed, "marshal envelope.v1 failed")
+	}
+	return raw, nil
+}
+
+// MarshalEnvelopeV1FromDomain marshals a domain envelope projection into envelope.v1 wire bytes.
+func MarshalEnvelopeV1FromDomain(env envelope.Envelope) ([]byte, *problem.Problem) {
+	if env.Version < 0 || env.Version > math.MaxInt32 {
+		return nil, problem.Newf(problem.ValidationFailed, "envelope version out of int32 range: %d", env.Version)
+	}
+	msg := &envelopev1.Envelope{
+		Type:           strings.TrimSpace(env.Type),
+		Version:        int32(env.Version),
+		Venue:          strings.TrimSpace(env.Venue),
+		Instrument:     strings.TrimSpace(env.Instrument),
+		TsExchange:     env.TsExchange,
+		TsIngest:       env.TsIngest,
+		Seq:            env.Seq,
+		IdempotencyKey: strings.TrimSpace(env.IdempotencyKey),
+		Meta:           env.Meta,
+		Payload:        env.Payload,
+		ContentType:    strings.TrimSpace(env.ContentType),
 	}
 	raw, err := proto.Marshal(msg)
 	if err != nil {

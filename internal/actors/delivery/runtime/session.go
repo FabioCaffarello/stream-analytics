@@ -15,6 +15,7 @@ import (
 	"github.com/market-raccoon/internal/core/delivery/app"
 	"github.com/market-raccoon/internal/core/delivery/domain"
 	"github.com/market-raccoon/internal/core/delivery/ports"
+	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/problem"
 )
@@ -32,6 +33,7 @@ const (
 type wsConn interface {
 	ReadMessage() (messageType int, p []byte, err error)
 	WriteJSON(v any) error
+	WriteMessage(messageType int, data []byte) error
 	SetReadLimit(limit int64)
 	SetReadDeadline(t time.Time) error
 	SetPongHandler(h func(string) error)
@@ -45,6 +47,8 @@ type SessionConfig struct {
 	RangeStore ports.RangeStore
 	// OutboundQueueSize bounds queued delivery events per session.
 	OutboundQueueSize int
+	// PreferProto toggles protobuf wire frames for outbound delivery events.
+	PreferProto bool
 }
 
 type SessionActor struct {
@@ -405,13 +409,7 @@ func (s *SessionActor) flushOutbound() {
 	metrics.SetWSQueueDepth(len(s.outbound))
 
 	started := time.Now()
-	if err := s.writeJSONDirect(map[string]any{
-		"type":      "event",
-		"subject":   evt.Subject.String(),
-		"seq":       evt.Env.Seq,
-		"ts_ingest": evt.Env.TsIngest,
-		"payload":   evt.Env.Payload,
-	}); err != nil {
+	if err := s.writeDeliveryEvent(evt); err != nil {
 		s.logger.Warn("delivery session: write failed", "err", err)
 		s.closeSession()
 		return
@@ -423,6 +421,23 @@ func (s *SessionActor) flushOutbound() {
 		return
 	}
 	s.flushing = false
+}
+
+func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) error {
+	if s.cfg.PreferProto {
+		raw, p := contracts.MarshalEnvelopeV1FromDomain(evt.Env)
+		if p != nil {
+			return p
+		}
+		return s.writeProtoDirect(websocket.BinaryMessage, raw)
+	}
+	return s.writeJSONDirect(map[string]any{
+		"type":      "event",
+		"subject":   evt.Subject.String(),
+		"seq":       evt.Env.Seq,
+		"ts_ingest": evt.Env.TsIngest,
+		"payload":   evt.Env.Payload,
+	})
 }
 
 func (s *SessionActor) writeProblem(op, requestID string, p *problem.Problem) {
@@ -452,6 +467,13 @@ func (s *SessionActor) writeJSONDirect(v any) error {
 		return nil
 	}
 	return s.cfg.Conn.WriteJSON(v)
+}
+
+func (s *SessionActor) writeProtoDirect(messageType int, payload []byte) error {
+	if s.cfg.Conn == nil {
+		return nil
+	}
+	return s.cfg.Conn.WriteMessage(messageType, payload)
 }
 
 func wsQueryBucket(streamType string) string {

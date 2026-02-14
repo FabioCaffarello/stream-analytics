@@ -3,6 +3,7 @@ package wsserver
 import (
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/anthdm/hollywood/actor"
 	"github.com/gorilla/websocket"
@@ -59,7 +60,27 @@ func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 			Conn:              conn,
 			RangeStore:        s.rangeStore,
 			OutboundQueueSize: s.outboundQueueSize,
+			PreferProto:       sessionWantsProto(r),
 		}),
 		"delivery-session",
 	)
+}
+
+func sessionWantsProto(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("format")), "proto") {
+		return true
+	}
+	if strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Delivery-Format")), "proto") {
+		return true
+	}
+	// Optional handshake hint for clients that use ws subprotocol negotiation.
+	for _, token := range strings.Split(r.Header.Get("Sec-WebSocket-Protocol"), ",") {
+		if strings.EqualFold(strings.TrimSpace(token), "proto") {
+			return true
+		}
+	}
+	return false
 }

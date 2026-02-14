@@ -10,6 +10,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/market-raccoon/internal/core/delivery/domain"
 	"github.com/market-raccoon/internal/core/delivery/ports"
+	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/problem"
@@ -39,6 +40,17 @@ func (f *fakeConn) ReadMessage() (int, []byte, error) {
 
 func (f *fakeConn) WriteJSON(v any) error {
 	f.writeCh <- v
+	return nil
+}
+
+type fakeBinaryWrite struct {
+	messageType int
+	payload     []byte
+}
+
+func (f *fakeConn) WriteMessage(messageType int, data []byte) error {
+	cp := append([]byte(nil), data...)
+	f.writeCh <- fakeBinaryWrite{messageType: messageType, payload: cp}
 	return nil
 }
 
@@ -445,5 +457,96 @@ func TestSession_backpressureDropsWhenQueueFull(t *testing.T) {
 			t.Fatalf("expected ws drop increment, got before=%f after=%f", before, after)
 		case <-time.After(20 * time.Millisecond):
 		}
+	}
+}
+
+func TestSession_deliveryEventDefaultJSONFrame(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-capture")
+	defer e.Poison(routerPID)
+
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{RouterPID: routerPID, Conn: conn}), "ws-session")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	e.Send(sessionPID, DeliveryEvent{
+		Subject: mustParseSubjectForSession(t, "marketdata.trade/binance/BTCUSDT/raw"),
+		Env: envelope.Envelope{
+			Type:           "marketdata.trade",
+			Version:        1,
+			Venue:          "binance",
+			Instrument:     "BTC-USDT",
+			TsIngest:       1_710_000_000_100,
+			Seq:            42,
+			IdempotencyKey: "idem-42",
+			ContentType:    envelope.ContentTypeJSON,
+			Payload:        []byte(`{"price":1}`),
+		},
+	})
+
+	msg := <-conn.writeCh
+	event, ok := msg.(map[string]any)
+	if !ok {
+		t.Fatalf("message type=%T want map[string]any", msg)
+	}
+	if got, want := event["type"], "event"; got != want {
+		t.Fatalf("type=%v want=%v", got, want)
+	}
+}
+
+func TestSession_deliveryEventProtoFrameWhenEnabled(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-capture")
+	defer e.Poison(routerPID)
+
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{
+		RouterPID:   routerPID,
+		Conn:        conn,
+		PreferProto: true,
+	}), "ws-session")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	wantEnv := envelope.Envelope{
+		Type:           "marketdata.trade",
+		Version:        1,
+		Venue:          "binance",
+		Instrument:     "BTC-USDT",
+		TsExchange:     1_710_000_000_050,
+		TsIngest:       1_710_000_000_100,
+		Seq:            43,
+		IdempotencyKey: "idem-43",
+		ContentType:    envelope.ContentTypeProto,
+		Payload:        []byte{0x08, 0x2a},
+	}
+	e.Send(sessionPID, DeliveryEvent{
+		Subject: mustParseSubjectForSession(t, "marketdata.trade/binance/BTCUSDT/raw"),
+		Env:     wantEnv,
+	})
+
+	msg := <-conn.writeCh
+	bin, ok := msg.(fakeBinaryWrite)
+	if !ok {
+		t.Fatalf("message type=%T want fakeBinaryWrite", msg)
+	}
+	if got, want := bin.messageType, websocket.BinaryMessage; got != want {
+		t.Fatalf("messageType=%d want=%d", got, want)
+	}
+	gotEnv, p := contracts.UnmarshalEnvelopeV1ToDomain(bin.payload)
+	if p != nil {
+		t.Fatalf("UnmarshalEnvelopeV1ToDomain: %v", p)
+	}
+	if gotEnv.Type != wantEnv.Type || gotEnv.Seq != wantEnv.Seq || gotEnv.ContentType != wantEnv.ContentType {
+		t.Fatalf("decoded envelope mismatch got=%+v want=%+v", gotEnv, wantEnv)
 	}
 }
