@@ -15,6 +15,8 @@ services:
       timeout: 3s
       retries: 10
       start_period: 5s
+    networks:
+      - market-raccoon-network
     restart: unless-stopped
 
   server:
@@ -39,6 +41,8 @@ services:
       timeout: 3s
       retries: 10
       start_period: 10s
+    networks:
+      - market-raccoon-network
     restart: unless-stopped
 
   consumer:
@@ -57,6 +61,8 @@ services:
     depends_on:
       nats:
         condition: service_healthy
+    networks:
+      - market-raccoon-network
     restart: unless-stopped
 
   processor:
@@ -75,8 +81,92 @@ services:
     depends_on:
       nats:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8082/readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - market-raccoon-network
     restart: unless-stopped
+  clickhouse:
+    image: clickhouse/clickhouse-server:23.9.1.6
+    container_name: market-raccoon-clickhouse
+    ports:
+      - "127.0.0.1:8123:8123"
+      - "127.0.0.1:9000:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse/
+      - clickhouse_logs:/var/log/clickhouse-server/
+      - ../clickhouse/config:/etc/clickhouse-server/config.d/
+      - ../clickhouse/users:/etc/clickhouse-server/users.d/
+      - ../clickhouse/init:/docker-entrypoint-initdb.d/
+    networks:
+      - market-raccoon-network
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --host 127.0.0.1 --query 'SELECT 1' >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:2.49.0
+    container_name: market-raccoon-prometheus
+    volumes:
+      - ../observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../observability/prometheus/recording.rules.yml:/etc/prometheus/recording.rules.yml:ro
+      - ../observability/prometheus/alerts.rules.yml:/etc/prometheus/alerts.rules.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/-/healthy"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - market-raccoon-network
+
+  grafana:
+    image: grafana/grafana:9.5.11
+    container_name: market-raccoon-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SECURITY_ADMIN_USER: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_INSTALL_PLUGINS: grafana-clock-panel
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ../observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - market-raccoon-network
+    depends_on:
+      prometheus:
+        condition: service_healthy
 
 volumes:
   nats_data:
     name: market-raccoon-nats-data
+  clickhouse_data:
+    name: market-raccoon-clickhouse-data
+  clickhouse_logs:
+    name: market-raccoon-clickhouse-logs
+  prometheus_data:
+    name: market-raccoon-prometheus-data
+  grafana_data:
+    name: market-raccoon-grafana-data
