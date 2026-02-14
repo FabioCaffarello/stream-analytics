@@ -65,6 +65,12 @@ services:
         condition: service_healthy
       server:
         condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
     networks:
       - market-raccoon-network
     restart: unless-stopped
@@ -111,6 +117,8 @@ services:
       - ../clickhouse/config:/etc/clickhouse-server/config.d/:ro
       - ../clickhouse/users:/etc/clickhouse-server/users.d/:ro
       - ../../sql/clickhouse/migrations:/docker-entrypoint-initdb.d:ro
+    cap_add:
+      - SYS_NICE
     networks:
       - market-raccoon-network
     healthcheck:
