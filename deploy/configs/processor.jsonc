@@ -1,8 +1,8 @@
 {
   // Runtime config mounted in container at /etc/market-raccoon/processor.jsonc
   "bus": {
-    "type": "inmemory"
-    // "type": "jetstream"
+    // "type": "inmemory"
+    "type": "jetstream"
   },
   "jetstream": {
     "url": "nats://nats:4222",
@@ -26,8 +26,8 @@
     "shutdown_timeout": "10s"
   },
   "marketdata": {
-    "publish_content_type": "application/json"
-    // "publish_content_type": "application/protobuf"
+    // "publish_content_type": "application/json"
+    "publish_content_type": "application/protobuf"
   },
   "processor": {
     "bus_capacity": 1024,

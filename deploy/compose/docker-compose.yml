@@ -35,6 +35,8 @@ services:
     depends_on:
       nats:
         condition: service_healthy
+      clickhouse:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/readyz"]
       interval: 10s
@@ -61,6 +63,8 @@ services:
     depends_on:
       nats:
         condition: service_healthy
+      server:
+        condition: service_started
     networks:
       - market-raccoon-network
     restart: unless-stopped
@@ -81,6 +85,10 @@ services:
     depends_on:
       nats:
         condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      server:
+        condition: service_started
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8082/readyz"]
       interval: 10s
@@ -90,8 +98,9 @@ services:
     networks:
       - market-raccoon-network
     restart: unless-stopped
+
   clickhouse:
-    image: clickhouse/clickhouse-server:23.9.1.6
+    image: clickhouse/clickhouse-server:24.8.8
     container_name: market-raccoon-clickhouse
     ports:
       - "127.0.0.1:8123:8123"
@@ -105,7 +114,7 @@ services:
     networks:
       - market-raccoon-network
     healthcheck:
-      test: ["CMD-SHELL", "clickhouse-client --host 127.0.0.1 --query 'SELECT 1' >/dev/null 2>&1"]
+      test: ["CMD-SHELL", "clickhouse-client --host 127.0.0.1 --user default --password password --query 'SELECT 1' >/dev/null 2>&1"]
       interval: 10s
       timeout: 3s
       retries: 10
@@ -113,7 +122,7 @@ services:
     restart: unless-stopped
 
   prometheus:
-    image: prom/prometheus:2.49.0
+    image: prom/prometheus:v2.54.1
     container_name: market-raccoon-prometheus
     volumes:
       - ../observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
@@ -133,7 +142,7 @@ services:
       - market-raccoon-network
 
   grafana:
-    image: grafana/grafana:9.5.11
+    image: grafana/grafana:11.2.0
     container_name: market-raccoon-grafana
     environment:
       GF_SECURITY_ADMIN_PASSWORD: admin
@@ -162,6 +171,7 @@ services:
 networks:
   market-raccoon-network:
     name: market-raccoon-network
+    driver: bridge
 
 volumes:
   nats_data:

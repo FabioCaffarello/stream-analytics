@@ -46,7 +46,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules workspace-check tidy tidy-check fmt fmt-check vet quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path test-short bench-hotpath vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci
+.PHONY: help install-tools tools modules workspace-check tidy tidy-check fmt fmt-check vet quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path test-short bench-hotpath vuln build run clean docker-build up down up-infra ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci
 
 help:
 	@echo "Targets:"
@@ -88,11 +88,9 @@ help:
 	@echo "  make vuln               - run govulncheck"
 	@echo "  make build              - build all binaries under cmd/* (package main)"
 	@echo "  make run                - run selected app (default: server)"
-	@echo "  make docker-up          - start docker compose"
-	@echo "  make docker-down        - stop docker compose"
-	@echo "  make up                 - start full stack (nats + server + consumer + processor)"
 	@echo "  make down               - stop full stack"
-	@echo "  make up-infra           - start only infrastructure services (nats)"
+	@echo "  make up                 - start full stack (nats + server + consumer + processor + clickhouse + prometheus + grafana)"
+	@echo "  make up-infra           - start only infrastructure services (nats + clickhouse + prometheus + grafana)"
 	@echo "  make ps                 - list compose service status"
 	@echo "  make logs               - stream compose logs"
 	@echo "  make pre-commit-install - install pre-commit hooks"
@@ -369,7 +367,7 @@ docker-down:
 	docker compose -f deploy/compose/docker-compose.yml down --remove-orphans
 
 up:
-	docker compose -f deploy/compose/docker-compose.yml up --build -d
+	docker compose -f deploy/compose/docker-compose.yml up --build
 
 down:
 	docker compose -f deploy/compose/docker-compose.yml down --remove-orphans
