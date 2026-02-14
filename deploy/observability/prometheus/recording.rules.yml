@@ -264,3 +264,24 @@ groups:
           service: market-raccoon
           stream: all
           venue: all
+
+  - name: slo-data-loss-triage
+    interval: 30s
+    rules:
+      # Triage-only: drop rate broken down by stream and venue for incident drilling.
+      # These rules do NOT back any alert — use slo:data_loss:* for SLO alerting.
+      - record: slo:data_loss:by_stream_venue:drop_rate_5m
+        expr: |
+          sum by (stream, venue) (
+            rate(ingest_drop_total[5m])
+            + rate(ingest_nak_total[5m])
+            + rate(ingest_term_total[5m])
+            + rate(vpvr_drop_total[5m])
+            + rate(heatmap_drop_total[5m])
+            + rate(ws_drops_total[5m])
+            + rate(backpressure_drops_total[5m])
+            + rate(bus_dropped_total[5m])
+            + rate(policykit_drop_total[5m])
+          )
+        labels:
+          service: market-raccoon
