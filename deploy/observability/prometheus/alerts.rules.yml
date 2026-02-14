@@ -12,7 +12,7 @@ groups:
         annotations:
           summary: "Ingest SLO fast burn-rate high"
           description: "Ingest error budget burn-rate is above fast threshold on 5m/1h windows."
-          runbook_url: "https://runbooks.local/observability/ingest"
+          runbook_url: "docs/observability/runbooks/ingest.md"
 
       - alert: SLOIngestBurnRateSlow
         expr: (slo:ingest:burn_rate_30m > 6) and (slo:ingest:burn_rate_6h > 6)
@@ -24,7 +24,7 @@ groups:
         annotations:
           summary: "Ingest SLO slow burn-rate high"
           description: "Ingest error budget burn-rate is above slow threshold on 30m/6h windows."
-          runbook_url: "https://runbooks.local/observability/ingest"
+          runbook_url: "docs/observability/runbooks/ingest.md"
 
       - alert: SLODeliveryLatencyBurnRateFast
         expr: (slo:delivery_latency:burn_rate_5m > 14.4) and (slo:delivery_latency:burn_rate_1h > 14.4)
@@ -36,7 +36,7 @@ groups:
         annotations:
           summary: "Delivery latency SLO fast burn-rate high"
           description: "Delivery latency error budget burn-rate is above fast threshold on 5m/1h windows."
-          runbook_url: "https://runbooks.local/observability/websocket"
+          runbook_url: "docs/observability/runbooks/websocket.md"
 
       - alert: SLODeliveryLatencyBurnRateSlow
         expr: (slo:delivery_latency:burn_rate_30m > 6) and (slo:delivery_latency:burn_rate_6h > 6)
@@ -48,7 +48,7 @@ groups:
         annotations:
           summary: "Delivery latency SLO slow burn-rate high"
           description: "Delivery latency error budget burn-rate is above slow threshold on 30m/6h windows."
-          runbook_url: "https://runbooks.local/observability/websocket"
+          runbook_url: "docs/observability/runbooks/websocket.md"
 
       - alert: SLODataLossBurnRateFast
         expr: (slo:data_loss:burn_rate_5m > 14.4) and (slo:data_loss:burn_rate_1h > 14.4)
@@ -60,7 +60,7 @@ groups:
         annotations:
           summary: "Data loss guard fast burn-rate high"
           description: "Data loss guard error budget burn-rate is above fast threshold on 5m/1h windows."
-          runbook_url: "https://runbooks.local/observability/guardian"
+          runbook_url: "docs/observability/runbooks/guardian.md"
 
       - alert: SLODataLossBurnRateSlow
         expr: (slo:data_loss:burn_rate_30m > 6) and (slo:data_loss:burn_rate_6h > 6)
@@ -72,28 +72,28 @@ groups:
         annotations:
           summary: "Data loss guard slow burn-rate high"
           description: "Data loss guard error budget burn-rate is above slow threshold on 30m/6h windows."
-          runbook_url: "https://runbooks.local/observability/guardian"
+          runbook_url: "docs/observability/runbooks/guardian.md"
 
       - alert: DataLossDropRateNonZero
         expr: slo:data_loss:drop_rate_5m > 0
-        for: 1m
+        for: 15m
         labels:
-          severity: page
+          severity: ticket
           service: market-raccoon
           slo: data_loss
         annotations:
           summary: "Drop-rate detected"
           description: "Drop-related counters are increasing in the last 5 minutes."
-          runbook_url: "https://runbooks.local/observability/bus"
+          runbook_url: "docs/observability/runbooks/bus.md"
 
       - alert: ColdPathCommitErrorsNonZero
         expr: slo:data_loss:cold_commit_errors_rate_5m > 0
-        for: 1m
+        for: 15m
         labels:
-          severity: page
+          severity: ticket
           service: market-raccoon
           slo: data_loss
         annotations:
           summary: "Cold-path commit errors detected"
           description: "Cold-path commit/write related errors are increasing in the last 5 minutes."
-          runbook_url: "https://runbooks.local/observability/guardian"
+          runbook_url: "docs/observability/runbooks/guardian.md"
