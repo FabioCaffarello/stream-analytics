@@ -79,85 +79,76 @@ groups:
     rules:
       - record: slo:delivery_latency:rate
         expr: |
-          sum(rate(ws_send_latency_ms_bucket{le="250"}[5m]))
+          sum by (venue) (rate(ws_send_latency_ms_bucket{le="250"}[5m]))
           /
-          clamp_min(sum(rate(ws_send_latency_ms_count[5m])), 1e-9)
+          clamp_min(sum by (venue) (rate(ws_send_latency_ms_count[5m])), 1e-9)
         labels:
           service: market-raccoon
           stream: ws
-          venue: all
       - record: slo:delivery_latency:error_ratio
         expr: clamp_min(1 - slo:delivery_latency:rate, 0)
         labels:
           service: market-raccoon
           stream: ws
-          venue: all
       - record: slo:delivery_latency:error_ratio_30m
         expr: |
           clamp_min(
             1 - (
-              sum(rate(ws_send_latency_ms_bucket{le="250"}[30m]))
+              sum by (venue) (rate(ws_send_latency_ms_bucket{le="250"}[30m]))
               /
-              clamp_min(sum(rate(ws_send_latency_ms_count[30m])), 1e-9)
+              clamp_min(sum by (venue) (rate(ws_send_latency_ms_count[30m])), 1e-9)
             ),
             0
           )
         labels:
           service: market-raccoon
           stream: ws
-          venue: all
       - record: slo:delivery_latency:error_ratio_1h
         expr: |
           clamp_min(
             1 - (
-              sum(rate(ws_send_latency_ms_bucket{le="250"}[1h]))
+              sum by (venue) (rate(ws_send_latency_ms_bucket{le="250"}[1h]))
               /
-              clamp_min(sum(rate(ws_send_latency_ms_count[1h])), 1e-9)
+              clamp_min(sum by (venue) (rate(ws_send_latency_ms_count[1h])), 1e-9)
             ),
             0
           )
         labels:
           service: market-raccoon
           stream: ws
-          venue: all
       - record: slo:delivery_latency:error_ratio_6h
         expr: |
           clamp_min(
             1 - (
-              sum(rate(ws_send_latency_ms_bucket{le="250"}[6h]))
+              sum by (venue) (rate(ws_send_latency_ms_bucket{le="250"}[6h]))
               /
-              clamp_min(sum(rate(ws_send_latency_ms_count[6h])), 1e-9)
+              clamp_min(sum by (venue) (rate(ws_send_latency_ms_count[6h])), 1e-9)
             ),
             0
           )
         labels:
           service: market-raccoon
           stream: ws
-          venue: all
       - record: slo:delivery_latency:burn_rate_5m
         expr: slo:delivery_latency:error_ratio / 0.01
         labels:
           service: market-raccoon
           stream: ws
-          venue: all
       - record: slo:delivery_latency:burn_rate_30m
         expr: slo:delivery_latency:error_ratio_30m / 0.01
         labels:
           service: market-raccoon
           stream: ws
-          venue: all
       - record: slo:delivery_latency:burn_rate_1h
         expr: slo:delivery_latency:error_ratio_1h / 0.01
         labels:
           service: market-raccoon
           stream: ws
-          venue: all
       - record: slo:delivery_latency:burn_rate_6h
         expr: slo:delivery_latency:error_ratio_6h / 0.01
         labels:
           service: market-raccoon
           stream: ws
-          venue: all
 
   - name: slo-data-loss
     interval: 30s
