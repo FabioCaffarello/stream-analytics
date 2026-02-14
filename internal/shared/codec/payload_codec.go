@@ -4,17 +4,19 @@ import (
 	"encoding/json"
 	"math"
 	"strings"
-	"sync"
+	"sync/atomic"
 
 	"github.com/market-raccoon/internal/shared/problem"
 )
 
 var (
-	payloadRegistryMu       sync.RWMutex
-	payloadRegistry         *Registry
-	payloadFallbackPolicyMu sync.RWMutex
-	payloadFallbackPolicy   = FallbackPolicyAllowUnknownJSON
+	payloadRegistry       atomic.Pointer[Registry]
+	payloadFallbackPolicy atomic.Value
 )
+
+func init() {
+	payloadFallbackPolicy.Store(FallbackPolicyAllowUnknownJSON)
+}
 
 // FallbackPolicy defines unknown event-type handling when content_type resolves to JSON.
 type FallbackPolicy string
@@ -41,9 +43,7 @@ func SetPayloadRegistry(reg *Registry) *problem.Problem {
 	if reg == nil {
 		return problem.New(problem.ValidationFailed, "payload codec registry must not be nil")
 	}
-	payloadRegistryMu.Lock()
-	payloadRegistry = reg
-	payloadRegistryMu.Unlock()
+	payloadRegistry.Store(reg)
 	return nil
 }
 
@@ -58,18 +58,18 @@ func SetFallbackPolicy(policy FallbackPolicy) *problem.Problem {
 			"reason", reasonInvalidFallbackPolicy,
 		)
 	}
-	payloadFallbackPolicyMu.Lock()
-	payloadFallbackPolicy = policy
-	payloadFallbackPolicyMu.Unlock()
+	payloadFallbackPolicy.Store(policy)
 	return nil
 }
 
 // FallbackPolicyValue returns the currently configured unknown-event fallback policy.
 func FallbackPolicyValue() FallbackPolicy {
-	payloadFallbackPolicyMu.RLock()
-	p := payloadFallbackPolicy
-	payloadFallbackPolicyMu.RUnlock()
-	return p
+	value := payloadFallbackPolicy.Load()
+	policy, ok := value.(FallbackPolicy)
+	if !ok {
+		return FallbackPolicyAllowUnknownJSON
+	}
+	return policy
 }
 
 // EncodePayload encodes a domain payload using event schema key + content type.
@@ -170,9 +170,7 @@ func decodeUnknownJSONPayload(key SchemaKey, payload []byte) (any, *problem.Prob
 }
 
 func getPayloadRegistry() (*Registry, *problem.Problem) {
-	payloadRegistryMu.RLock()
-	reg := payloadRegistry
-	payloadRegistryMu.RUnlock()
+	reg := payloadRegistry.Load()
 	if reg == nil {
 		return nil, problem.New(problem.ValidationFailed, "payload codec registry is not configured")
 	}

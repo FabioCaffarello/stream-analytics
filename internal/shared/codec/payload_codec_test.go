@@ -3,8 +3,10 @@ package codec_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"math"
 	"reflect"
+	"sync"
 	"testing"
 
 	insightsdomain "github.com/market-raccoon/internal/core/insights/domain"
@@ -557,6 +559,56 @@ func TestEncodePayload_VersionValidation_HappyPath(t *testing.T) {
 	}
 	if out["ok"] != true {
 		t.Fatalf("encoded payload mismatch: got=%v", out)
+	}
+}
+
+func TestPayloadRegistryConcurrentReadsAndBootstrap(t *testing.T) {
+	bootstrapPayloadRegistry(t)
+	setFallbackPolicyForTest(t, codec.FallbackPolicyAllowUnknownJSON)
+
+	const (
+		readers    = 24
+		writers    = 6
+		iterations = 100
+	)
+	errCh := make(chan error, readers+writers)
+	var wg sync.WaitGroup
+
+	for i := 0; i < readers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				out, p := codec.DecodePayload("marketdata.unknown", 1, envelope.ContentTypeJSON, []byte(`{"x":1}`))
+				if p != nil {
+					errCh <- fmt.Errorf("decode failed: %v", p)
+					return
+				}
+				if _, ok := out.(map[string]any); !ok {
+					errCh <- fmt.Errorf("decoded type = %T, want map[string]any", out)
+					return
+				}
+				_ = codec.FallbackPolicyValue()
+			}
+		}()
+	}
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				if p := contracts.BootstrapPayloadCodecRegistry(); p != nil {
+					errCh <- fmt.Errorf("bootstrap failed: %v", p)
+					return
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		t.Fatal(err)
 	}
 }
 
