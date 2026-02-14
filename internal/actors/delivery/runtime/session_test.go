@@ -500,6 +500,8 @@ func TestSession_deliveryEventDefaultJSONFrame(t *testing.T) {
 }
 
 func TestSession_deliveryEventProtoFrameWhenEnabled(t *testing.T) {
+	t.Setenv(contracts.EnvProtoMarketDataTrade, "1")
+
 	e, err := actor.NewEngine(actor.NewEngineConfig())
 	if err != nil {
 		t.Fatalf("new engine: %v", err)

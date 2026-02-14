@@ -424,7 +424,7 @@ func (s *SessionActor) flushOutbound() {
 }
 
 func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) error {
-	if s.cfg.PreferProto {
+	if s.cfg.PreferProto && contracts.ProtoRolloutEnabledForEventType(evt.Env.Type) {
 		raw, p := contracts.MarshalEnvelopeV1FromDomain(evt.Env)
 		if p != nil {
 			return p

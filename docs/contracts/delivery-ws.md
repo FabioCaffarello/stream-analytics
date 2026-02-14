@@ -46,6 +46,12 @@ Examples:
 - `insights.crossvenue.trade_snapshot/global/BTCUSDT/raw`
 - `aggregation.snapshot/binance/BTCUSDT/raw`
 
+Proto rollout (marketdata subjects only):
+- `PROTO_MARKETDATA_TRADE`
+- `PROTO_MARKETDATA_BOOKDELTA`
+- `PROTO_MARKETDATA_MARKPRICE`
+- default for all flags is disabled (`false`), keeping JSON output by default.
+
 ## Contracts
 
 ### Client -> Server Commands
@@ -85,6 +91,16 @@ Event:
   "payload": {}
 }
 ```
+
+Proto event frame negotiation:
+- session can request proto frames via `GET /ws?format=proto` or `X-Delivery-Format: proto`.
+- when session proto mode is active and rollout flag for the event type is enabled, event frames are sent as binary `envelope.v1.Envelope` protobuf.
+- when proto mode is not requested, or rollout flag is disabled for that subject type, event frames stay JSON.
+
+Client quick-start:
+- web: connect with `wss://<host>/ws?format=proto`; parse binary frames as `envelope.v1.Envelope`.
+- desktop: use the same query/header negotiation and decode binary protobuf frames.
+- app/mobile: send `X-Delivery-Format: proto` during WS handshake when query params are constrained.
 
 Current runtime event frame fields:
 - mandatory: `type`, `subject`, `seq`, `ts_ingest`, `payload`
