@@ -12,6 +12,7 @@ import (
 	actorruntime "github.com/market-raccoon/internal/actors/runtime"
 	httpserver "github.com/market-raccoon/internal/interfaces/http"
 	"github.com/market-raccoon/internal/shared/contracts"
+	"github.com/market-raccoon/internal/shared/observability"
 )
 
 // ---------------------------------------------------------------------------
@@ -228,6 +229,65 @@ func TestServer_Snapshot_timeout(t *testing.T) {
 
 	if rec.Code != http.StatusGatewayTimeout {
 		t.Fatalf("expected 504, got %d\nbody: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestServer_RuntimeOverload_returns200AndValidJSON(t *testing.T) {
+	observability.UpdatePolicyKitOverload(observability.PolicyKitOverloadEntry{
+		Stream:        "marketdata.bookdelta",
+		Venue:         "binance",
+		OverloadLevel: 2,
+		Stride:        2,
+		Thresholds: observability.PolicyKitThresholdPair{
+			Enter:   observability.PolicyKitThreshold{QueueRatio: 0.8, BacklogRatio: 0.8, MapRatio: 0.85, LatencyMs: 40},
+			Recover: observability.PolicyKitThreshold{QueueRatio: 0.7, BacklogRatio: 0.7, MapRatio: 0.8, LatencyMs: 30},
+		},
+	})
+
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+	rec := doRequest(t, srv, http.MethodGet, "/runtime/overload", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d\nbody: %s", rec.Code, rec.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("response is not valid JSON: %v\nbody: %s", err, rec.Body.String())
+	}
+	if _, ok := body["partitions"]; !ok {
+		t.Fatalf("expected partitions field, got %#v", body)
+	}
+	if _, ok := body["active_partitions"]; !ok {
+		t.Fatalf("expected active_partitions field, got %#v", body)
+	}
+}
+
+func TestServer_RuntimeOverload_AcceptProto_returnsProtobufEnvelope(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+	rec := doRequestWithHeaders(t, srv, http.MethodGet, "/runtime/overload", "", map[string]string{
+		"Accept": "application/x-protobuf",
+	})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/x-protobuf") {
+		t.Fatalf("content-type=%q want application/x-protobuf", got)
+	}
+	out, p := contracts.UnmarshalEnvelopeV1ToDomain(rec.Body.Bytes())
+	if p != nil {
+		t.Fatalf("proto unmarshal failed: %v", p)
+	}
+	if out.Type != "runtime.overload" {
+		t.Fatalf("envelope.type=%q want runtime.overload", out.Type)
 	}
 }
 

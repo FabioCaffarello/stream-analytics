@@ -33,6 +33,7 @@ import (
 	"github.com/market-raccoon/internal/shared/envelope"
 	sharedhash "github.com/market-raccoon/internal/shared/hash"
 	"github.com/market-raccoon/internal/shared/metrics"
+	"github.com/market-raccoon/internal/shared/observability"
 	"github.com/market-raccoon/internal/shared/policykit"
 	"github.com/market-raccoon/internal/shared/problem"
 )
@@ -267,7 +268,29 @@ func (p *ProcessorSubsystemActor) applyPolicyKit(env envelope.Envelope) (envelop
 	})
 	p.policyLevels[partition] = decision.Level
 	metrics.SetPolicyKitOverloadLevel(env.Type, env.Venue, env.Instrument, int(decision.Level))
-	if stride := decision.DegradeStride(); stride > 1 {
+	stride := decision.DegradeStride()
+	enter, recover := activeThresholdsForLevel(decision.Level)
+	observability.UpdatePolicyKitOverload(observability.PolicyKitOverloadEntry{
+		Stream:        env.Type,
+		Venue:         env.Venue,
+		OverloadLevel: int(decision.Level),
+		Stride:        stride,
+		Thresholds: observability.PolicyKitThresholdPair{
+			Enter: observability.PolicyKitThreshold{
+				QueueRatio:   enter.QueueRatio,
+				BacklogRatio: enter.BacklogRatio,
+				MapRatio:     enter.MapRatio,
+				LatencyMs:    enter.LatencyMs,
+			},
+			Recover: observability.PolicyKitThreshold{
+				QueueRatio:   recover.QueueRatio,
+				BacklogRatio: recover.BacklogRatio,
+				MapRatio:     recover.MapRatio,
+				LatencyMs:    recover.LatencyMs,
+			},
+		},
+	})
+	if stride > 1 {
 		metrics.IncPolicyKitDegrade(env.Type, fmt.Sprintf("stride_%d", stride))
 	}
 
@@ -278,6 +301,18 @@ func (p *ProcessorSubsystemActor) applyPolicyKit(env envelope.Envelope) (envelop
 		return env, true
 	}
 	return applied, false
+}
+
+func activeThresholdsForLevel(level policykit.Level) (policykit.Threshold, policykit.Threshold) {
+	cfg := policykit.DefaultThresholdConfig()
+	switch level {
+	case policykit.L3:
+		return cfg.EnterL3, cfg.RecoverL3
+	case policykit.L2:
+		return cfg.EnterL2, cfg.RecoverL2
+	default:
+		return cfg.EnterL1, cfg.RecoverL1
+	}
 }
 
 // handleBookDelta decodes a BookDeltaV1 payload and calls UpdateOrderBook.

@@ -27,6 +27,7 @@ import (
 	"github.com/market-raccoon/internal/actors/runtime"
 	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/metrics"
+	"github.com/market-raccoon/internal/shared/observability"
 )
 
 const defaultSnapshotTimeout = 5 * time.Second
@@ -68,6 +69,7 @@ func NewServer(
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("GET /readyz", s.handleReadyz)
 	mux.HandleFunc("GET /runtime/snapshot", s.handleSnapshot)
+	mux.HandleFunc("GET /runtime/overload", s.handleRuntimeOverload)
 	mux.HandleFunc("POST /runtime/reload", s.handleReload)
 	mux.Handle("GET /metrics", withProcessMetrics(metrics.Handler()))
 	if enablePprof {
@@ -105,7 +107,7 @@ func (s *Server) Handler() http.Handler {
 // It must be called before ListenAndServe.
 func (s *Server) HandleFunc(pattern string, handler http.HandlerFunc) {
 	switch pattern {
-	case "GET /healthz", "GET /readyz", "GET /runtime/snapshot", "POST /runtime/reload", "GET /metrics":
+	case "GET /healthz", "GET /readyz", "GET /runtime/snapshot", "GET /runtime/overload", "POST /runtime/reload", "GET /metrics":
 		s.logger.Warn("httpserver: refusing to override critical route", "pattern", pattern)
 		return
 	}
@@ -227,6 +229,11 @@ func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, r, http.StatusAccepted, "runtime.reload", map[string]bool{"accepted": true})
 }
 
+func (s *Server) handleRuntimeOverload(w http.ResponseWriter, r *http.Request) {
+	snapshot := buildPolicyKitOverloadSnapshot()
+	writeResponse(w, r, http.StatusOK, "runtime.overload", snapshot)
+}
+
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
@@ -298,6 +305,65 @@ func withProcessMetrics(next http.Handler) http.Handler {
 		metrics.UpdateProcessMetrics()
 		next.ServeHTTP(w, r)
 	})
+}
+
+type overloadThresholdJSON struct {
+	QueueRatio   float64 `json:"queue_ratio"`
+	BacklogRatio float64 `json:"backlog_ratio"`
+	MapRatio     float64 `json:"map_ratio"`
+	LatencyMs    float64 `json:"latency_ms"`
+}
+
+type overloadThresholdPairJSON struct {
+	Enter   overloadThresholdJSON `json:"enter"`
+	Recover overloadThresholdJSON `json:"recover"`
+}
+
+type overloadPartitionJSON struct {
+	Stream           string                    `json:"stream"`
+	Venue            string                    `json:"venue"`
+	OverloadLevel    int                       `json:"overload_level"`
+	Thresholds       overloadThresholdPairJSON `json:"thresholds"`
+	Stride           int                       `json:"stride"`
+	ActivePartitions int                       `json:"active_partitions"`
+}
+
+type overloadResponseJSON struct {
+	Partitions             []overloadPartitionJSON `json:"partitions"`
+	ActivePartitions       int                     `json:"active_partitions"`
+	ActivePartitionsCapped bool                    `json:"active_partitions_capped"`
+}
+
+func buildPolicyKitOverloadSnapshot() overloadResponseJSON {
+	entries := observability.SnapshotPolicyKitOverload()
+	out := overloadResponseJSON{
+		Partitions:       make([]overloadPartitionJSON, 0, len(entries)),
+		ActivePartitions: len(entries),
+	}
+	for _, entry := range entries {
+		out.Partitions = append(out.Partitions, overloadPartitionJSON{
+			Stream:        entry.Stream,
+			Venue:         entry.Venue,
+			OverloadLevel: entry.OverloadLevel,
+			Thresholds: overloadThresholdPairJSON{
+				Enter: overloadThresholdJSON{
+					QueueRatio:   entry.Thresholds.Enter.QueueRatio,
+					BacklogRatio: entry.Thresholds.Enter.BacklogRatio,
+					MapRatio:     entry.Thresholds.Enter.MapRatio,
+					LatencyMs:    entry.Thresholds.Enter.LatencyMs,
+				},
+				Recover: overloadThresholdJSON{
+					QueueRatio:   entry.Thresholds.Recover.QueueRatio,
+					BacklogRatio: entry.Thresholds.Recover.BacklogRatio,
+					MapRatio:     entry.Thresholds.Recover.MapRatio,
+					LatencyMs:    entry.Thresholds.Recover.LatencyMs,
+				},
+			},
+			Stride:           entry.Stride,
+			ActivePartitions: out.ActivePartitions,
+		})
+	}
+	return out
 }
 
 func (s *Server) registerPprofRoutes(mux *http.ServeMux) {
