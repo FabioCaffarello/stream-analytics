@@ -47,42 +47,56 @@ func TestProto_BackwardCompat_DecodesGoldenV1(t *testing.T) {
 		t.Fatalf("RegisterInsightsPayloadV1WithOptions: %v", p)
 	}
 
-	for _, tc := range []struct {
+	for _, tc := range protoBackwardDecodeCases(reg) {
+		raw := decodeProtoGoldenHex(t, tc.path)
+		if err := tc.decode(raw); err != nil {
+			t.Fatalf("failed to decode golden %s: %v", tc.path, err)
+		}
+	}
+}
+
+func protoBackwardDecodeCases(reg *codec.Registry) []struct {
+	path   string
+	decode func([]byte) error
+} {
+	return []struct {
 		path   string
 		decode func([]byte) error
 	}{
 		{
 			path: filepath.Join("testdata", "golden", "marketdata_trade_proto_v1.hex"),
 			decode: func(raw []byte) error {
-				dec, ok := reg.Decoder(codec.SchemaKey{Type: "marketdata.trade", Version: 1, Format: codec.FormatProto})
-				if !ok {
-					return errString("missing marketdata.trade proto decoder")
-				}
-				outAny, p := dec.Decode(raw)
-				if p != nil {
-					return errString(p.Error())
-				}
-				if _, ok := outAny.(marketdomain.TradeTickV1); !ok {
-					return errString("decoded trade payload has unexpected type")
-				}
-				return nil
+				return decodeDomainType(reg, "marketdata.trade", raw, func(out any) bool {
+					_, ok := out.(marketdomain.TradeTickV1)
+					return ok
+				}, "trade")
+			},
+		},
+		{
+			path: filepath.Join("testdata", "golden", "marketdata_bookdelta_proto_v1.hex"),
+			decode: func(raw []byte) error {
+				return decodeDomainType(reg, "marketdata.bookdelta", raw, func(out any) bool {
+					_, ok := out.(marketdomain.BookDeltaV1)
+					return ok
+				}, "bookdelta")
+			},
+		},
+		{
+			path: filepath.Join("testdata", "golden", "marketdata_markprice_proto_v1.hex"),
+			decode: func(raw []byte) error {
+				return decodeDomainType(reg, "marketdata.markprice", raw, func(out any) bool {
+					_, ok := out.(marketdomain.MarkPriceTickV1)
+					return ok
+				}, "markprice")
 			},
 		},
 		{
 			path: filepath.Join("testdata", "golden", "insights_volume_profile_snapshot_proto_v1.hex"),
 			decode: func(raw []byte) error {
-				dec, ok := reg.Decoder(codec.SchemaKey{Type: insightsdomain.VolumeProfileSnapshotType, Version: 1, Format: codec.FormatProto})
-				if !ok {
-					return errString("missing insights.volume_profile_snapshot proto decoder")
-				}
-				outAny, p := dec.Decode(raw)
-				if p != nil {
-					return errString(p.Error())
-				}
-				if _, ok := outAny.(insightsdomain.VolumeProfileSnapshotV1); !ok {
-					return errString("decoded vpvr payload has unexpected type")
-				}
-				return nil
+				return decodeDomainType(reg, insightsdomain.VolumeProfileSnapshotType, raw, func(out any) bool {
+					_, ok := out.(insightsdomain.VolumeProfileSnapshotV1)
+					return ok
+				}, "vpvr")
 			},
 		},
 		{
@@ -98,12 +112,22 @@ func TestProto_BackwardCompat_DecodesGoldenV1(t *testing.T) {
 				return nil
 			},
 		},
-	} {
-		raw := decodeProtoGoldenHex(t, tc.path)
-		if err := tc.decode(raw); err != nil {
-			t.Fatalf("failed to decode golden %s: %v", tc.path, err)
-		}
 	}
+}
+
+func decodeDomainType(reg *codec.Registry, eventType string, raw []byte, accept func(any) bool, label string) error {
+	dec, ok := reg.Decoder(codec.SchemaKey{Type: eventType, Version: 1, Format: codec.FormatProto})
+	if !ok {
+		return errString("missing " + eventType + " proto decoder")
+	}
+	outAny, p := dec.Decode(raw)
+	if p != nil {
+		return errString(p.Error())
+	}
+	if !accept(outAny) {
+		return errString("decoded " + label + " payload has unexpected type")
+	}
+	return nil
 }
 
 type protoGoldenFixture struct {
@@ -121,6 +145,32 @@ func protoGoldenV1Fixtures() []protoGoldenFixture {
 				Side:      "buy",
 				TradeID:   "trade-001",
 				Timestamp: 1_710_000_000_100,
+			}),
+		},
+		{
+			path: filepath.Join("testdata", "golden", "marketdata_bookdelta_proto_v1.hex"),
+			msg: contracts.DomainToProtoBookDeltaV1(marketdomain.BookDeltaV1{
+				Bids: []marketdomain.PriceLevel{
+					{Price: 65000.1, Size: 1.2},
+					{Price: 64999.8, Size: 0.9},
+				},
+				Asks: []marketdomain.PriceLevel{
+					{Price: 65000.7, Size: 1.1},
+					{Price: 65001.2, Size: 0.7},
+				},
+				FirstID:   1200,
+				FinalID:   1210,
+				PrevFinal: 1199,
+				Timestamp: 1_710_000_000_250,
+			}),
+		},
+		{
+			path: filepath.Join("testdata", "golden", "marketdata_markprice_proto_v1.hex"),
+			msg: contracts.DomainToProtoMarkPriceTickV1(marketdomain.MarkPriceTickV1{
+				MarkPrice:   64999.75,
+				IndexPrice:  65000.00,
+				FundingRate: 0.0001,
+				Timestamp:   1_710_000_000_300,
 			}),
 		},
 		{
