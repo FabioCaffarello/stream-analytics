@@ -74,6 +74,33 @@ Minimum v1 scope:
 3. prioritize window close over incremental updates.
 - ACK only after hot commit.
 
+## VPVR Overload Policy (L0-L3)
+
+Deterministic inputs only:
+- queue depth / queue capacity
+- bounded-map occupancy / limit
+- processing latency measured outside domain and injected as signal
+- event counters (`N`) and deterministic `window_close` flag
+
+Transition table:
+
+| From | Escalate if | Recover if | To |
+|---|---|---|---|
+| L0 | q>=0.60 or m>=0.70 or lat>=20ms | n/a | L1 |
+| L0/L1/L2 | q>=0.80 or m>=0.85 or lat>=40ms | n/a | L2 |
+| L0/L1/L2 | q>=0.92 or m>=0.95 or lat>=80ms | n/a | L3 |
+| L1 | n/a | q<0.50 and m<0.60 and lat<15ms | L0 |
+| L2 | n/a | q<0.70 and m<0.80 and lat<30ms | L1 |
+| L3 | n/a | q<0.85 and m<0.90 and lat<60ms | L2 |
+
+Emit/delivery actions:
+- L0: full snapshot + full delta.
+- L1: deterministic snapshot compression; cadence 1:1.
+- L2: stronger compression; cadence stride=2; delta drop on odd `N`.
+- L3: strongest compression; cadence stride=4; drop non-close deltas.
+- Never drop `window_close` snapshot (final snapshot per window is preserved).
+- Overload policy changes payload/emit only; VPVR builder state remains unchanged.
+
 ## Implementation Matrix
 
 | Feature | Status | Evidence | Tests |
@@ -101,11 +128,11 @@ Minimum v1 scope:
 
 ## Observability
 
-- `volume_profile_build_latency_ms{venue,instrument,timeframe}`
-- `volume_profile_bucket_count{venue,instrument,timeframe}`
-- `volume_profile_drop_total{reason}`
-- `volume_profile_queue_depth{venue,instrument}`
-- `volume_profile_replay_lag_ms{venue,instrument}`
+- `vpvr_overload_level{venue,instrument,timeframe}`
+- `vpvr_drop_total{reason}`
+- `vpvr_degrade_total{action}`
+- `vpvr_compress_ratio`
+- `vpvr_processing_latency_ms`
 
 Minimum:
 - lag

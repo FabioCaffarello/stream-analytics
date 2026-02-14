@@ -1,9 +1,11 @@
 package app
 
 import (
+	"context"
 	"testing"
 
 	"github.com/market-raccoon/internal/core/insights/domain"
+	sharedhash "github.com/market-raccoon/internal/shared/hash"
 )
 
 func TestNextVPVROverloadLevel_Transitions(t *testing.T) {
@@ -297,5 +299,147 @@ func testVPVRSnapshot(count int) domain.VolumeProfileSnapshotV1 {
 		POCPrice:      buckets[len(buckets)-1].PriceLow,
 		ValueAreaLow:  buckets[0].PriceLow,
 		ValueAreaHigh: buckets[len(buckets)-1].PriceHigh,
+	}
+}
+
+func TestVPVROverloadPolicy_BurstDeterministic(t *testing.T) {
+	run := func() string {
+		uc := NewBuildVolumeProfile()
+		policy := NewVPVREmitPolicy()
+		hashes := make([]string, 0, 4096)
+		for i := 1; i <= 2000; i++ {
+			side := "buy"
+			if i%2 != 0 {
+				side = "sell"
+			}
+			req := BuildVolumeProfileRequest{
+				EventType:  "marketdata.trade",
+				Venue:      "binance",
+				Instrument: "BTC-USDT",
+				Timeframe:  "1m",
+				TickSize:   0.5,
+				Price:      100 + float64(i%64)*0.5,
+				Size:       1 + float64(i%7),
+				Side:       side,
+				TsIngest:   1_710_000_000_000 + int64(i)*1_000,
+				Seq:        int64(i),
+			}
+			res := uc.Execute(context.Background(), req)
+			if res.IsFail() {
+				t.Fatalf("execute failed i=%d: %v", i, res.Problem())
+			}
+			out := res.Value()
+			if !out.Emitted {
+				continue
+			}
+			windowClose := i%60 == 0
+			decision := policy.Apply(VPVROverloadInput{
+				Venue:       req.Venue,
+				Instrument:  req.Instrument,
+				Timeframe:   req.Timeframe,
+				Seq:         req.Seq,
+				WindowClose: windowClose,
+				Signals: VPVROverloadSignals{
+					QueueDepth:          (i * 37) % 100,
+					QueueCapacity:       100,
+					BoundedMapOccupancy: (i * 13) % 100,
+					BoundedMapLimit:     100,
+					ProcessingLatencyMs: float64((i * 7) % 120),
+				},
+				Snapshot:     out.Snapshot,
+				Delta:        out.Delta,
+				HasDelta:     true,
+				ProcessingMs: float64((i * 5) % 20),
+			})
+			if decision.EmitSnapshot {
+				raw, err := MarshalVPVRSnapshotStableBytes(decision.Snapshot)
+				if err != nil {
+					t.Fatalf("marshal snapshot i=%d: %v", i, err)
+				}
+				hashes = append(hashes, "s:"+sharedhash.HashBytes(raw))
+			}
+			if decision.EmitDelta {
+				raw, err := MarshalVPVRSnapshotStableBytes(decision.Delta)
+				if err != nil {
+					t.Fatalf("marshal delta i=%d: %v", i, err)
+				}
+				hashes = append(hashes, "d:"+sharedhash.HashBytes(raw))
+			}
+		}
+		return sharedhash.HashFields(hashes...)
+	}
+
+	h1 := run()
+	h2 := run()
+	if h1 != h2 {
+		t.Fatalf("burst deterministic hash mismatch: %s vs %s", h1, h2)
+	}
+}
+
+func TestVPVROverloadPolicy_SameWindowFinalStateUnchanged(t *testing.T) {
+	uc := NewBuildVolumeProfile()
+	policy := NewVPVREmitPolicy()
+
+	for i := 1; i <= 240; i++ {
+		side := "buy"
+		if i%2 != 0 {
+			side = "sell"
+		}
+		req := BuildVolumeProfileRequest{
+			EventType:  "marketdata.trade",
+			Venue:      "binance",
+			Instrument: "BTC-USDT",
+			Timeframe:  "1m",
+			TickSize:   0.5,
+			Price:      100 + float64(i%32)*0.5,
+			Size:       1 + float64(i%5),
+			Side:       side,
+			TsIngest:   1_710_000_000_000 + int64(i)*1_000,
+			Seq:        int64(i),
+		}
+		res := uc.Execute(context.Background(), req)
+		if res.IsFail() {
+			t.Fatalf("execute failed i=%d: %v", i, res.Problem())
+		}
+		out := res.Value()
+		if !out.Emitted {
+			continue
+		}
+		windowClose := i%60 == 0
+		decision := policy.Apply(VPVROverloadInput{
+			Venue:       req.Venue,
+			Instrument:  req.Instrument,
+			Timeframe:   req.Timeframe,
+			Seq:         req.Seq,
+			WindowClose: windowClose,
+			Signals: VPVROverloadSignals{
+				QueueDepth:          95,
+				QueueCapacity:       100,
+				BoundedMapOccupancy: 95,
+				BoundedMapLimit:     100,
+				ProcessingLatencyMs: 100,
+			},
+			Snapshot:     out.Snapshot,
+			Delta:        out.Delta,
+			HasDelta:     true,
+			ProcessingMs: 10,
+		})
+		if !windowClose {
+			continue
+		}
+		if !decision.EmitSnapshot {
+			t.Fatalf("window close i=%d snapshot must emit", i)
+		}
+		gotRaw, err := MarshalVPVRSnapshotStableBytes(decision.Snapshot)
+		if err != nil {
+			t.Fatalf("marshal policy snapshot i=%d: %v", i, err)
+		}
+		wantRaw, err := MarshalVPVRSnapshotStableBytes(out.Snapshot)
+		if err != nil {
+			t.Fatalf("marshal builder snapshot i=%d: %v", i, err)
+		}
+		if sharedhash.HashBytes(gotRaw) != sharedhash.HashBytes(wantRaw) {
+			t.Fatalf("window close final-state changed at i=%d", i)
+		}
 	}
 }
