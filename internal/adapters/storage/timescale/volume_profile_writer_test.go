@@ -165,6 +165,34 @@ func TestVolumeProfileWriter_ReplaySameWindow_FinalStateStable(t *testing.T) {
 	}
 }
 
+func TestVolumeProfileWriter_SeenOpsBoundedByRecentWindows(t *testing.T) {
+	w := timescale.NewVolumeProfileWriter()
+
+	apply := func(startWindow, count int) int {
+		for i := 0; i < count; i++ {
+			upsert := testVPVRUpsert(1+float64(i), 2, 3+float64(i), int64(10+i), int64(20+i))
+			upsert.WindowStartTs = int64(startWindow+i) * 60_000
+			if p := w.UpsertVolumeProfileBucket(context.Background(), upsert); p != nil {
+				t.Fatalf("upsert failed i=%d: %v", i, p)
+			}
+		}
+		return w.SeenOpsCount()
+	}
+
+	first := apply(1, 20)
+	second := apply(21, 20)
+
+	if first <= 0 {
+		t.Fatalf("expected seen ops after first batch, got=%d", first)
+	}
+	if first >= 20 {
+		t.Fatalf("seen ops must be bounded; got=%d inserted=%d", first, 20)
+	}
+	if second > first {
+		t.Fatalf("seen ops bound regressed: first=%d second=%d", first, second)
+	}
+}
+
 func testVPVRUpsert(buy, sell, total float64, seqMin, seqMax int64) insightsports.VolumeProfileBucketUpsert {
 	return insightsports.VolumeProfileBucketUpsert{
 		Venue:         "binance",

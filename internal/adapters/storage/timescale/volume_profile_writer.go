@@ -17,10 +17,11 @@ import (
 // TODO(sql/timescale/insights_volume_profile_hot.sql): create table and ON CONFLICT upsert.
 // ACK boundary is external and must use CommitAndAck in adapter flow (VPVR-STO-4).
 type VolumeProfileWriter struct {
-	mu      sync.RWMutex
-	rows    map[vpvrStorageKey]insightsports.VolumeProfileBucketUpsert
-	seenOps map[vpvrStorageKey]map[string]struct{}
-	commits int
+	mu              sync.RWMutex
+	rows            map[vpvrStorageKey]insightsports.VolumeProfileBucketUpsert
+	seenOpsByWindow map[int64]map[vpvrStorageKey]map[string]struct{}
+	seenWindowOrder []int64
+	commits         int
 }
 
 type vpvrStorageKey struct {
@@ -34,10 +35,13 @@ type vpvrStorageKey struct {
 
 var _ insightsports.VolumeProfileHotWriter = (*VolumeProfileWriter)(nil)
 
+const vpvrSeenOpsWindowRetention = 4
+
 func NewVolumeProfileWriter() *VolumeProfileWriter {
 	return &VolumeProfileWriter{
-		rows:    make(map[vpvrStorageKey]insightsports.VolumeProfileBucketUpsert),
-		seenOps: make(map[vpvrStorageKey]map[string]struct{}),
+		rows:            make(map[vpvrStorageKey]insightsports.VolumeProfileBucketUpsert),
+		seenOpsByWindow: make(map[int64]map[vpvrStorageKey]map[string]struct{}),
+		seenWindowOrder: make([]int64, 0, vpvrSeenOpsWindowRetention),
 	}
 }
 
@@ -62,10 +66,11 @@ func (w *VolumeProfileWriter) UpsertVolumeProfileBucket(_ context.Context, upser
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if _, ok := w.seenOps[key]; !ok {
-		w.seenOps[key] = make(map[string]struct{})
+	windowSeen := w.seenOpsWindow(norm.WindowStartTs)
+	if _, ok := windowSeen[key]; !ok {
+		windowSeen[key] = make(map[string]struct{})
 	}
-	if _, dup := w.seenOps[key][fp]; dup {
+	if _, dup := windowSeen[key][fp]; dup {
 		metrics.IncVPVRWriterUpsertDedup()
 		metrics.IncVPVRWriterUpsertOps("duplicate")
 		metrics.ObserveVPVRWriterUpsertLatencyMilliseconds(0)
@@ -78,7 +83,7 @@ func (w *VolumeProfileWriter) UpsertVolumeProfileBucket(_ context.Context, upser
 	} else {
 		w.rows[key] = norm
 	}
-	w.seenOps[key][fp] = struct{}{}
+	windowSeen[key][fp] = struct{}{}
 	w.commits++
 	metrics.IncVPVRWriterUpsertOps("ok")
 	metrics.ObserveVPVRWriterUpsertLatencyMilliseconds(0)
@@ -95,6 +100,19 @@ func (w *VolumeProfileWriter) RowCount() int {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	return len(w.rows)
+}
+
+func (w *VolumeProfileWriter) SeenOpsCount() int {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+
+	total := 0
+	for _, byKey := range w.seenOpsByWindow {
+		for _, fps := range byKey {
+			total += len(fps)
+		}
+	}
+	return total
 }
 
 func (w *VolumeProfileWriter) ReadByKey(venue, instrument, timeframe string, windowStartTs int64, bucketLow, bucketHigh float64) (insightsports.VolumeProfileBucketUpsert, bool) {
@@ -161,4 +179,19 @@ func mergeUpsert(existing, incoming insightsports.VolumeProfileBucketUpsert) ins
 		out.SeqMax = incoming.SeqMax
 	}
 	return out
+}
+
+func (w *VolumeProfileWriter) seenOpsWindow(windowStartTs int64) map[vpvrStorageKey]map[string]struct{} {
+	if byKey, ok := w.seenOpsByWindow[windowStartTs]; ok {
+		return byKey
+	}
+	if len(w.seenWindowOrder) >= vpvrSeenOpsWindowRetention {
+		oldest := w.seenWindowOrder[0]
+		delete(w.seenOpsByWindow, oldest)
+		w.seenWindowOrder = w.seenWindowOrder[1:]
+	}
+	byKey := make(map[vpvrStorageKey]map[string]struct{})
+	w.seenOpsByWindow[windowStartTs] = byKey
+	w.seenWindowOrder = append(w.seenWindowOrder, windowStartTs)
+	return byKey
 }
