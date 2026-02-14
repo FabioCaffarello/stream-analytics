@@ -39,6 +39,14 @@
       "message": "marketdata.v1.LiquidationTickV1",
       "status": "draft",
       "introduced_at": "2026-02-12"
+    },
+    {
+      "type": "insights.volume_profile_snapshot",
+      "version": 1,
+      "proto_file": "insights/v1/volume_profile.proto",
+      "message": "insights.v1.VolumeProfileSnapshotV1",
+      "status": "draft",
+      "introduced_at": "2026-02-14"
     }
   ]
 }

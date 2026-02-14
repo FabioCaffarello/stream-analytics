@@ -123,6 +123,13 @@ Proibido:
 | `insights.volume_profile_snapshot.v1.{venue}.{instrument}` | `insights` runtime (`BuildVolumeProfile` + overload emit policy) | `delivery` | stable | `internal/core/insights/app/build_volume_profile.go`, `internal/core/insights/app/vpvr_overload_policy.go`, `docs/architecture/volume-profiles.md`, `docs/contracts/subject-registry.yaml` |
 | `insights.volume_profile_delta.v1.{venue}.{instrument}` | `insights` runtime (`BuildVolumeProfile` + overload emit policy) | `delivery` | stable | `internal/core/insights/app/build_volume_profile.go`, `internal/core/insights/app/vpvr_overload_policy.go`, `docs/architecture/volume-profiles.md`, `docs/contracts/subject-registry.yaml` |
 
+### VPVR Codec Status (Current vs Planned)
+
+| Payload | Current (default flags) | Planned / Opt-in |
+|---|---|---|
+| `insights.volume_profile_snapshot` | `application/json` path remains canonical/default | `application/protobuf` available via explicit feature flag (`enable_volume_profile_snapshot_proto`) |
+| Replay golden impact | unchanged with default flags OFF | separate VPVR proto golden tracked in contracts testdata |
+
 ### Planned Subjects (`aggregation.*`)
 
 | Subject | Producer (BC/runtime) | Consumer(s) esperados | Status | Referencia |

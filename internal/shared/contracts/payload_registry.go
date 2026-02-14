@@ -16,15 +16,27 @@ var (
 	payloadRegistryErr  *problem.Problem
 )
 
+type PayloadRegistryOptions struct {
+	EnableInsightsVolumeProfileSnapshotProto bool
+}
+
 // BootstrapPayloadCodecRegistry configures shared codec payload encode/decode registry.
 func BootstrapPayloadCodecRegistry() *problem.Problem {
+	return BootstrapPayloadCodecRegistryWithOptions(PayloadRegistryOptions{})
+}
+
+// BootstrapPayloadCodecRegistryWithOptions configures shared codec payload
+// encode/decode registry with explicit feature-flag options.
+func BootstrapPayloadCodecRegistryWithOptions(opts PayloadRegistryOptions) *problem.Problem {
 	payloadRegistryOnce.Do(func() {
 		reg := codec.NewRegistry()
 		if p := RegisterMarketDataPayloadV1(reg); p != nil {
 			payloadRegistryErr = p
 			return
 		}
-		if p := RegisterInsightsPayloadV1(reg); p != nil {
+		if p := RegisterInsightsPayloadV1WithOptions(reg, InsightsCodecOptions{
+			EnableVolumeProfileSnapshotProto: opts.EnableInsightsVolumeProfileSnapshotProto,
+		}); p != nil {
 			payloadRegistryErr = p
 			return
 		}

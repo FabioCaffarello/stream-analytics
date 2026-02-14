@@ -80,6 +80,7 @@ O drift identificado no W11 e de governanca: o texto misturava "fundacao entregu
 | Toolchain Buf (`lint/gen/breaking`) | Implemented | `Makefile:217`, `Makefile:220`, `Makefile:224` |
 | Registro de payload com codecs JSON/Proto | Implemented | `internal/shared/contracts/payload_registry.go`, `internal/shared/contracts/semantic_equivalence_test.go:13` |
 | `ContentType` com suporte protobuf no envelope/codec | Implemented | `internal/shared/envelope/envelope.go`, `internal/shared/codec/payload_codec_test.go:17` |
+| VPVR snapshot proto opt-in (default OFF) | Implemented | `proto/insights/v1/volume_profile.proto`, `internal/shared/contracts/insights_registry.go`, `internal/shared/contracts/insights_registry_test.go` |
 | Publish/consume protobuf como caminho operacional padrao | Planned | `docs/rfcs/RFC-0007-W6-protobuf-contract-layer.md`, `docs/rfcs/EXECUTION-SEQUENCE.md` |
 | Evidencia negativa formal de `proto-breaking` (campo removido) | Planned | `docs/rfcs/EXECUTION-SEQUENCE.md` |
 

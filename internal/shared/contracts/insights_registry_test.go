@@ -1,6 +1,10 @@
 package contracts_test
 
 import (
+	"encoding/hex"
+	"os"
+	"reflect"
+	"strings"
 	"testing"
 
 	insightsdomain "github.com/market-raccoon/internal/core/insights/domain"
@@ -8,7 +12,7 @@ import (
 	"github.com/market-raccoon/internal/shared/contracts"
 )
 
-func TestRegisterInsightsV1_RegistersJSONCodec(t *testing.T) {
+func TestRegisterInsightsV1_DefaultsToJSONOnly(t *testing.T) {
 	reg := codec.NewRegistry()
 	if p := contracts.RegisterInsightsV1(reg); p != nil {
 		t.Fatalf("RegisterInsightsV1: %v", p)
@@ -38,27 +42,102 @@ func TestRegisterInsightsV1_RegistersJSONCodec(t *testing.T) {
 		t.Fatalf("missing decoder for key %+v", signalKey)
 	}
 
-	snapshotProtoKey := codec.SchemaKey{
-		Type:    insightsdomain.CrossVenueTradeSnapshotType,
+	vpvrProtoKey := codec.SchemaKey{
+		Type:    insightsdomain.VolumeProfileSnapshotType,
 		Version: 1,
 		Format:  codec.FormatProto,
 	}
-	if _, ok := reg.Encoder(snapshotProtoKey); ok {
-		t.Fatalf("unexpected proto encoder for key %+v", snapshotProtoKey)
+	if _, ok := reg.Encoder(vpvrProtoKey); ok {
+		t.Fatalf("unexpected proto encoder for key %+v", vpvrProtoKey)
 	}
-	if _, ok := reg.Decoder(snapshotProtoKey); ok {
-		t.Fatalf("unexpected proto decoder for key %+v", snapshotProtoKey)
+	if _, ok := reg.Decoder(vpvrProtoKey); ok {
+		t.Fatalf("unexpected proto decoder for key %+v", vpvrProtoKey)
+	}
+}
+
+func TestRegisterInsightsPayloadV1WithOptions_EnablesVPVRProto(t *testing.T) {
+	reg := codec.NewRegistry()
+	if p := contracts.RegisterInsightsPayloadV1WithOptions(reg, contracts.InsightsCodecOptions{
+		EnableVolumeProfileSnapshotProto: true,
+	}); p != nil {
+		t.Fatalf("RegisterInsightsPayloadV1WithOptions: %v", p)
 	}
 
-	signalProtoKey := codec.SchemaKey{
-		Type:    insightsdomain.CrossVenueSpreadSignalType,
+	vpvrProtoKey := codec.SchemaKey{
+		Type:    insightsdomain.VolumeProfileSnapshotType,
 		Version: 1,
 		Format:  codec.FormatProto,
 	}
-	if _, ok := reg.Encoder(signalProtoKey); ok {
-		t.Fatalf("unexpected proto encoder for key %+v", signalProtoKey)
+	enc, ok := reg.Encoder(vpvrProtoKey)
+	if !ok {
+		t.Fatalf("missing proto encoder for key %+v", vpvrProtoKey)
 	}
-	if _, ok := reg.Decoder(signalProtoKey); ok {
-		t.Fatalf("unexpected proto decoder for key %+v", signalProtoKey)
+	dec, ok := reg.Decoder(vpvrProtoKey)
+	if !ok {
+		t.Fatalf("missing proto decoder for key %+v", vpvrProtoKey)
 	}
+
+	in := testVPVRSnapshot()
+	raw, p := enc.Encode(in)
+	if p != nil {
+		t.Fatalf("encode vpvr proto: %v", p)
+	}
+	if got, want := hex.EncodeToString(raw), readGoldenHex(t); got != want {
+		t.Fatalf("vpvr proto golden mismatch\ngot=%s\nwant=%s", got, want)
+	}
+
+	outAny, p := dec.Decode(raw)
+	if p != nil {
+		t.Fatalf("decode vpvr proto: %v", p)
+	}
+	out, ok := outAny.(insightsdomain.VolumeProfileSnapshotV1)
+	if !ok {
+		t.Fatalf("decoded type=%T want %T", outAny, insightsdomain.VolumeProfileSnapshotV1{})
+	}
+	if !reflect.DeepEqual(out, in) {
+		t.Fatalf("vpvr proto roundtrip mismatch\ngot=%+v\nwant=%+v", out, in)
+	}
+}
+
+func testVPVRSnapshot() insightsdomain.VolumeProfileSnapshotV1 {
+	return insightsdomain.VolumeProfileSnapshotV1{
+		Venue:         "binance",
+		Instrument:    "BTCUSDT",
+		Timeframe:     "1m",
+		WindowStartTs: 1_710_000_000_000,
+		WindowEndTs:   1_710_000_060_000,
+		Buckets: []insightsdomain.VolumeProfileBucketV1{
+			{
+				PriceLow:    65000,
+				PriceHigh:   65010,
+				BuyVolume:   1.25,
+				SellVolume:  0.75,
+				TotalVolume: 2.00,
+				SeqMin:      101,
+				SeqMax:      120,
+			},
+			{
+				PriceLow:    65010,
+				PriceHigh:   65020,
+				BuyVolume:   0.50,
+				SellVolume:  1.00,
+				TotalVolume: 1.50,
+				SeqMin:      121,
+				SeqMax:      133,
+			},
+		},
+		POCPrice:      65000,
+		ValueAreaLow:  65000,
+		ValueAreaHigh: 65020,
+	}
+}
+
+func readGoldenHex(t *testing.T) string {
+	t.Helper()
+	const goldenPath = "testdata/golden/insights_volume_profile_snapshot_proto_v1.hex"
+	raw, err := os.ReadFile(goldenPath)
+	if err != nil {
+		t.Fatalf("read golden %s: %v", goldenPath, err)
+	}
+	return strings.TrimSpace(string(raw))
 }

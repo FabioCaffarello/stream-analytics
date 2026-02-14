@@ -47,6 +47,7 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 		{name: "processor.bus_capacity", got: cfg.Processor.BusCapacity, want: 1024},
 		{name: "processor.max_instruments", got: cfg.Processor.MaxInstruments, want: 2048},
 		{name: "processor.insights.enable_crossvenue_join", got: cfg.Processor.Insights.EnableCrossVenueJoin, want: false},
+		{name: "processor.insights.enable_volume_profile_snapshot_proto", got: cfg.Processor.Insights.EnableVolumeProfileSnapshotProto, want: false},
 		{name: "processor.insights.join_trades_subject", got: cfg.Processor.Insights.JoinTradesSubject, want: "marketdata.trade.v1.>"},
 		{name: "processor.insights.snapshot_subject_prefix", got: cfg.Processor.Insights.SnapshotSubjectPrefix, want: ""},
 		{name: "processor.insights.max_instruments", got: cfg.Processor.Insights.MaxInstruments, want: 10_000},
@@ -118,6 +119,7 @@ func TestLoad_ValidJSONC_ParsesFields(t *testing.T) {
 			"max_instruments": 1024,
 			"insights": {
 				"enable_crossvenue_join": true,
+				"enable_volume_profile_snapshot_proto": true,
 				"enable_spread_signal": true,
 				"join_trades_subject": "marketdata.trade.v1.>",
 				"snapshot_subject_prefix": "insights.crossvenue.trade_snapshot.v1",
@@ -165,6 +167,7 @@ func TestLoad_ValidJSONC_ParsesFields(t *testing.T) {
 		{name: "processor.bus_capacity", got: cfg.Processor.BusCapacity, want: 512},
 		{name: "processor.max_instruments", got: cfg.Processor.MaxInstruments, want: 1024},
 		{name: "processor.insights.enable_crossvenue_join", got: cfg.Processor.Insights.EnableCrossVenueJoin, want: true},
+		{name: "processor.insights.enable_volume_profile_snapshot_proto", got: cfg.Processor.Insights.EnableVolumeProfileSnapshotProto, want: true},
 		{name: "processor.insights.join_trades_subject", got: cfg.Processor.Insights.JoinTradesSubject, want: "marketdata.trade.v1.>"},
 		{name: "processor.insights.snapshot_subject_prefix", got: cfg.Processor.Insights.SnapshotSubjectPrefix, want: "insights.crossvenue.trade_snapshot.v1"},
 		{name: "processor.insights.max_instruments", got: cfg.Processor.Insights.MaxInstruments, want: 4096},

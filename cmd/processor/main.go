@@ -554,7 +554,9 @@ func main() {
 	var publishEnvelope aggruntime.EventPublisher
 	closePublisher := func(context.Context) *problem.Problem { return nil }
 	if cfg.Processor.Insights.EnableCrossVenueJoin {
-		if p := contracts.BootstrapPayloadCodecRegistry(); p != nil {
+		if p := contracts.BootstrapPayloadCodecRegistryWithOptions(contracts.PayloadRegistryOptions{
+			EnableInsightsVolumeProfileSnapshotProto: cfg.Processor.Insights.EnableVolumeProfileSnapshotProto,
+		}); p != nil {
 			logger.Error("processor: payload codec registry bootstrap failed", "err", p)
 			os.Exit(1)
 		}

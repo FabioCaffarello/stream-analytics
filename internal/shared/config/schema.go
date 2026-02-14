@@ -212,6 +212,9 @@ type ProcessorConfig struct {
 type ProcessorInsightsConfig struct {
 	// EnableCrossVenueJoin toggles cross-venue trade join processing.
 	EnableCrossVenueJoin bool `json:"enable_crossvenue_join"`
+	// EnableVolumeProfileSnapshotProto enables opt-in protobuf payload codec
+	// for insights.volume_profile_snapshot publish path. Default: false.
+	EnableVolumeProfileSnapshotProto bool `json:"enable_volume_profile_snapshot_proto"`
 	// EnableSpreadSignal toggles optional spread-signal emission.
 	EnableSpreadSignal bool `json:"enable_spread_signal"`
 	// JoinTradesSubject is the JetStream filter subject required when join is enabled.
