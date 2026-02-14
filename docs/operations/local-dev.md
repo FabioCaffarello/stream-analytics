@@ -8,8 +8,7 @@ Prerequisites:
 Start services:
 
 ```bash
-cd deploy/compose
-docker compose up -d
+make up
 ```
 
 Important local URLs:
@@ -75,7 +74,6 @@ Examples:
 
 ```bash
 # start infra and full stack
-cd deploy/compose
 make up-infra
 make up
 

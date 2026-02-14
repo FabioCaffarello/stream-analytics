@@ -162,6 +162,7 @@ services:
 networks:
   market-raccoon-network:
     name: market-raccoon-network
+
 volumes:
   nats_data:
     name: market-raccoon-nats-data
