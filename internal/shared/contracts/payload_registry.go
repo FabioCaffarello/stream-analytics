@@ -16,6 +16,13 @@ var (
 	payloadRegistryErr  *problem.Problem
 )
 
+const (
+	marketDataEventTypeTrade     = "marketdata.trade"
+	marketDataEventTypeBookDelta = "marketdata.bookdelta"
+	marketDataEventTypeMarkPrice = "marketdata.markprice"
+	marketDataEventTypeLiq       = "marketdata.liquidation"
+)
+
 type PayloadRegistryOptions struct {
 	EnableInsightsVolumeProfileSnapshotProto bool
 }
@@ -54,7 +61,7 @@ func RegisterMarketDataPayloadV1(reg *codec.Registry) *problem.Problem {
 
 	if p := registerPayloadDual(
 		reg,
-		"marketdata.trade",
+		marketDataEventTypeTrade,
 		codec.JSONCodec[marketdomain.TradeTickV1]{},
 		domainProtoPayloadCodec[marketdomain.TradeTickV1, *marketdatav1.TradeTickV1]{
 			newProto: func() *marketdatav1.TradeTickV1 { return &marketdatav1.TradeTickV1{} },
@@ -66,7 +73,7 @@ func RegisterMarketDataPayloadV1(reg *codec.Registry) *problem.Problem {
 	}
 	if p := registerPayloadDual(
 		reg,
-		"marketdata.bookdelta",
+		marketDataEventTypeBookDelta,
 		codec.JSONCodec[marketdomain.BookDeltaV1]{},
 		domainProtoPayloadCodec[marketdomain.BookDeltaV1, *marketdatav1.BookDeltaV1]{
 			newProto: func() *marketdatav1.BookDeltaV1 { return &marketdatav1.BookDeltaV1{} },
@@ -78,7 +85,7 @@ func RegisterMarketDataPayloadV1(reg *codec.Registry) *problem.Problem {
 	}
 	if p := registerPayloadDual(
 		reg,
-		"marketdata.markprice",
+		marketDataEventTypeMarkPrice,
 		codec.JSONCodec[marketdomain.MarkPriceTickV1]{},
 		domainProtoPayloadCodec[marketdomain.MarkPriceTickV1, *marketdatav1.MarkPriceTickV1]{
 			newProto: func() *marketdatav1.MarkPriceTickV1 { return &marketdatav1.MarkPriceTickV1{} },
@@ -90,7 +97,7 @@ func RegisterMarketDataPayloadV1(reg *codec.Registry) *problem.Problem {
 	}
 	if p := registerPayloadDual(
 		reg,
-		"marketdata.liquidation",
+		marketDataEventTypeLiq,
 		codec.JSONCodec[marketdomain.LiquidationTickV1]{},
 		domainProtoPayloadCodec[marketdomain.LiquidationTickV1, *marketdatav1.LiquidationTickV1]{
 			newProto: func() *marketdatav1.LiquidationTickV1 { return &marketdatav1.LiquidationTickV1{} },

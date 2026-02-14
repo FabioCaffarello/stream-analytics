@@ -33,3 +33,27 @@ func TestRegisterMarketDataV1_RegistersAll(t *testing.T) {
 		}
 	}
 }
+
+func TestRegisterMarketDataPayloadV1_RegistersProtoForCoreSubjects(t *testing.T) {
+	reg := codec.NewRegistry()
+	if p := contracts.RegisterMarketDataPayloadV1(reg); p != nil {
+		t.Fatalf("RegisterMarketDataPayloadV1: %v", p)
+	}
+
+	coreTypes := []string{
+		"marketdata.trade",
+		"marketdata.bookdelta",
+		"marketdata.markprice",
+	}
+	for _, eventType := range coreTypes {
+		for _, format := range []codec.Format{codec.FormatJSON, codec.FormatProto} {
+			key := codec.SchemaKey{Type: eventType, Version: 1, Format: format}
+			if _, ok := reg.Encoder(key); !ok {
+				t.Fatalf("missing encoder for key %+v", key)
+			}
+			if _, ok := reg.Decoder(key); !ok {
+				t.Fatalf("missing decoder for key %+v", key)
+			}
+		}
+	}
+}
