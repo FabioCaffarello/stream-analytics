@@ -13,6 +13,7 @@ required_files=(
   "docs/observability/runbooks/vpvr-overload-runbook.md"
   "deploy/observability/prometheus/recording.rules.yml"
   "deploy/observability/prometheus/alerts.rules.yml"
+  "deploy/observability/prometheus/tests.yml"
   "deploy/observability/grafana/dashboards/overview.json"
   "deploy/observability/grafana/dashboards/ingest.json"
   "deploy/observability/grafana/dashboards/vpvr.json"
@@ -32,6 +33,7 @@ fi
 
 promtool check rules deploy/observability/prometheus/recording.rules.yml
 promtool check rules deploy/observability/prometheus/alerts.rules.yml
+promtool test rules deploy/observability/prometheus/tests.yml
 
 jq -e . deploy/observability/grafana/dashboards/overview.json >/dev/null
 jq -e . deploy/observability/grafana/dashboards/ingest.json >/dev/null
