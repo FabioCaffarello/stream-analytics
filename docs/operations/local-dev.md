@@ -39,3 +39,14 @@ Notes:
 - The compose setup mounts files from the repository to make iteration fast; changes to dashboards or provisioning are picked up on Grafana restart.
 - For operability checks run: `./scripts/check-operability.sh` (requires `promtool` and `jq`).
 - For docs link checks run: `./scripts/check-doc-links.sh`
+
+Sanity checks
+-------------
+
+After `docker compose up -d` verify the stack is healthy:
+
+- Prometheus healthy: `curl -sSf http://127.0.0.1:9090/-/healthy`
+- Prometheus rules loaded: open `http://127.0.0.1:9090/` -> Status -> Rules (or `curl -s http://127.0.0.1:9090/api/v1/rules`).
+- Grafana health: `curl -sSf http://127.0.0.1:3000/api/health`
+- Grafana login: admin / `GF_SECURITY_ADMIN_PASSWORD` (default `admin`)
+- ClickHouse query: `clickhouse-client --host 127.0.0.1 --query 'SELECT 1'` or `curl -sSf 'http://127.0.0.1:8123/?query=SELECT+1'`
