@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	sharedhash "github.com/market-raccoon/internal/shared/hash"
+	"github.com/market-raccoon/internal/shared/metrics"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 func TestBuildVolumeProfile_TradesOnlyInput(t *testing.T) {
@@ -256,5 +258,61 @@ func TestBuildVolumeProfile_WindowEviction_FIFODeterministic(t *testing.T) {
 	}
 	if hash1 != hash2 {
 		t.Fatalf("final hash mismatch: run1=%s run2=%s", hash1, hash2)
+	}
+}
+
+func TestBuildVolumeProfile_ObservabilityCountersAndGauges(t *testing.T) {
+	uc := NewBuildVolumeProfileWithConfig(BuildVolumeProfileConfig{
+		MaxBucketsPerWindow:  1,
+		MaxLevelsPerPayload:  8,
+		MaxOpenWindowsPerKey: 1,
+	})
+
+	overloadBefore := testutil.ToFloat64(metrics.VPVRBuilderOverloadActionsTotal.WithLabelValues("window_evict"))
+	dropBefore := testutil.ToFloat64(metrics.VPVRBuilderDropTotal.WithLabelValues("bucket_cap"))
+	replayBefore := testutil.ToFloat64(metrics.VPVRBuilderReplayMismatchTotal)
+
+	req1 := BuildVolumeProfileRequest{
+		EventType:  "marketdata.trade",
+		Venue:      "binance",
+		Instrument: "BTC-USDT",
+		Timeframe:  "1m",
+		TickSize:   1,
+		Price:      100,
+		Size:       1,
+		Side:       "buy",
+		TsIngest:   1710000000000,
+		Seq:        10,
+	}
+	req2 := req1
+	req2.TsIngest = 1710000060000
+	req2.Seq = 11
+	req3 := req2
+	req3.Price = 101
+	req3.Seq = 12
+	req4 := req2
+	req4.Seq = 10
+
+	for _, req := range []BuildVolumeProfileRequest{req1, req2, req3, req4} {
+		res := uc.Execute(context.Background(), req)
+		if res.IsFail() {
+			t.Fatalf("execute failed: %v", res.Problem())
+		}
+	}
+
+	if got := testutil.ToFloat64(metrics.VPVRBuilderOverloadActionsTotal.WithLabelValues("window_evict")); got < overloadBefore+1 {
+		t.Fatalf("expected overload increment, got=%f before=%f", got, overloadBefore)
+	}
+	if got := testutil.ToFloat64(metrics.VPVRBuilderDropTotal.WithLabelValues("bucket_cap")); got < dropBefore+1 {
+		t.Fatalf("expected drop increment, got=%f before=%f", got, dropBefore)
+	}
+	if got := testutil.ToFloat64(metrics.VPVRBuilderReplayMismatchTotal); got < replayBefore+1 {
+		t.Fatalf("expected replay mismatch increment, got=%f before=%f", got, replayBefore)
+	}
+	if got := testutil.ToFloat64(metrics.VPVRBuilderWindowsOpen.WithLabelValues("binance", "BTCUSDT", "1m")); got != 1 {
+		t.Fatalf("expected windows_open=1, got=%f", got)
+	}
+	if got := testutil.ToFloat64(metrics.VPVRBuilderBucketCount.WithLabelValues("binance", "BTCUSDT", "1m")); got != 1 {
+		t.Fatalf("expected bucket_count=1, got=%f", got)
 	}
 }
