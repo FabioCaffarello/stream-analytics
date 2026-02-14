@@ -19,4 +19,7 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 )
 
-replace github.com/market-raccoon/internal/shared => ../../../internal/shared
+replace (
+	github.com/market-raccoon/internal/core/marketdata => ../../../internal/core/marketdata
+	github.com/market-raccoon/internal/shared => ../../../internal/shared
+)

@@ -9,16 +9,19 @@ import (
 	"github.com/market-raccoon/internal/core/insights/domain"
 	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/naming"
+	"github.com/market-raccoon/internal/shared/policykit"
 )
 
-type VPVROverloadLevel int
+type VPVROverloadLevel = policykit.Level
 
 const (
-	VPVROverloadL0 VPVROverloadLevel = iota
-	VPVROverloadL1
-	VPVROverloadL2
-	VPVROverloadL3
+	VPVROverloadL0 VPVROverloadLevel = policykit.L0
+	VPVROverloadL1 VPVROverloadLevel = policykit.L1
+	VPVROverloadL2 VPVROverloadLevel = policykit.L2
+	VPVROverloadL3 VPVROverloadLevel = policykit.L3
 )
+
+var vpvrThresholdEngine = policykit.NewThresholdEngine(policykit.DefaultThresholdConfig())
 
 type VPVROverloadSignals struct {
 	QueueDepth          int
@@ -73,50 +76,23 @@ func NewVPVREmitPolicy() *VPVREmitPolicy {
 }
 
 func NextVPVROverloadLevel(prev VPVROverloadLevel, signals VPVROverloadSignals) VPVROverloadLevel {
-	queueRatio := ratio(signals.QueueDepth, signals.QueueCapacity)
-	mapRatio := ratio(signals.BoundedMapOccupancy, signals.BoundedMapLimit)
-	latencyMs := signals.ProcessingLatencyMs
-
-	severity := classifyOverloadSeverity(queueRatio, mapRatio, latencyMs)
-	switch prev {
-	case VPVROverloadL0:
-		return severity
-	case VPVROverloadL1:
-		if severity >= VPVROverloadL2 {
-			return severity
-		}
-		if shouldRecoverToL0(queueRatio, mapRatio, latencyMs) {
-			return VPVROverloadL0
-		}
-		return VPVROverloadL1
-	case VPVROverloadL2:
-		if severity == VPVROverloadL3 {
-			return VPVROverloadL3
-		}
-		if shouldRecoverToL1(queueRatio, mapRatio, latencyMs) {
-			return VPVROverloadL1
-		}
-		return VPVROverloadL2
-	default:
-		if shouldRecoverToL2(queueRatio, mapRatio, latencyMs) {
-			return VPVROverloadL2
-		}
-		return VPVROverloadL3
-	}
+	decision := vpvrThresholdEngine.Decide(prev, toPolicySignals(signals))
+	return decision.Level
 }
 
 func EvaluateVPVROverload(input VPVROverloadInput) VPVROverloadOutput {
 	next := input.PartitionState
-	next.Level = NextVPVROverloadLevel(input.PartitionState.Level, input.Signals)
+	decision := vpvrThresholdEngine.Decide(input.PartitionState.Level, toPolicySignals(input.Signals))
+	next.Level = decision.Level
 	next.EventCount++
 	snapshot := input.Snapshot
 	compressed := false
 	compressRatio := 1.0
-	if !input.WindowClose {
+	if !input.WindowClose && decision.HasAction(policykit.ActionCompressSnapshot) {
 		snapshot, compressed, compressRatio = compressSnapshotByLevel(snapshot, next.Level)
 	}
-	emitSnapshot := shouldEmitSnapshotAtCadence(next.EventCount, next.Level, input.WindowClose)
-	emitDelta, dropReason := shouldEmitDelta(next.EventCount, next.Level, input.WindowClose, input.HasDelta)
+	emitSnapshot := shouldEmitSnapshotAtCadence(next.EventCount, decision.DegradeStride(), input.WindowClose)
+	emitDelta, dropReason := shouldEmitDelta(next.EventCount, decision, input.WindowClose, input.HasDelta)
 
 	return VPVROverloadOutput{
 		NextState:      next,
@@ -164,39 +140,16 @@ func overloadPartitionKey(venue, instrument, timeframe string) string {
 	return naming.CanonicalVenue(venue) + "|" + naming.CanonicalInstrument(instrument) + "|" + strings.ToLower(strings.TrimSpace(timeframe))
 }
 
-func ratio(current, capacity int) float64 {
-	if capacity <= 0 {
-		return 0
+func toPolicySignals(signals VPVROverloadSignals) policykit.Signals {
+	return policykit.Signals{
+		QueueDepth:          signals.QueueDepth,
+		QueueCapacity:       signals.QueueCapacity,
+		Backlog:             signals.QueueDepth,
+		BacklogCap:          signals.QueueCapacity,
+		Occupancy:           signals.BoundedMapOccupancy,
+		Limit:               signals.BoundedMapLimit,
+		ProcessingLatencyMs: signals.ProcessingLatencyMs,
 	}
-	if current <= 0 {
-		return 0
-	}
-	return float64(current) / float64(capacity)
-}
-
-func classifyOverloadSeverity(queueRatio, mapRatio, latencyMs float64) VPVROverloadLevel {
-	if queueRatio >= 0.92 || mapRatio >= 0.95 || latencyMs >= 80 {
-		return VPVROverloadL3
-	}
-	if queueRatio >= 0.80 || mapRatio >= 0.85 || latencyMs >= 40 {
-		return VPVROverloadL2
-	}
-	if queueRatio >= 0.60 || mapRatio >= 0.70 || latencyMs >= 20 {
-		return VPVROverloadL1
-	}
-	return VPVROverloadL0
-}
-
-func shouldRecoverToL0(queueRatio, mapRatio, latencyMs float64) bool {
-	return queueRatio < 0.50 && mapRatio < 0.60 && latencyMs < 15
-}
-
-func shouldRecoverToL1(queueRatio, mapRatio, latencyMs float64) bool {
-	return queueRatio < 0.70 && mapRatio < 0.80 && latencyMs < 30
-}
-
-func shouldRecoverToL2(queueRatio, mapRatio, latencyMs float64) bool {
-	return queueRatio < 0.85 && mapRatio < 0.90 && latencyMs < 60
 }
 
 func compressSnapshotByLevel(snapshot domain.VolumeProfileSnapshotV1, level VPVROverloadLevel) (domain.VolumeProfileSnapshotV1, bool, float64) {
@@ -271,44 +224,31 @@ func compareCompressedBucketPrice(a, b domain.VolumeProfileBucketV1) int {
 	return 0
 }
 
-func shouldEmitSnapshotAtCadence(eventCount uint64, level VPVROverloadLevel, windowClose bool) bool {
+func shouldEmitSnapshotAtCadence(eventCount uint64, stride int, windowClose bool) bool {
 	if windowClose {
 		return true
 	}
-	stride := cadenceStrideForLevel(level)
 	if stride <= 1 {
 		return true
 	}
 	return eventCount%uint64(stride) == 0
 }
 
-func cadenceStrideForLevel(level VPVROverloadLevel) int {
-	switch level {
-	case VPVROverloadL2:
-		return 2
-	case VPVROverloadL3:
-		return 4
-	default:
-		return 1
-	}
-}
-
-func shouldEmitDelta(eventCount uint64, level VPVROverloadLevel, windowClose bool, hasDelta bool) (bool, string) {
+func shouldEmitDelta(eventCount uint64, decision policykit.Decision, windowClose bool, hasDelta bool) (bool, string) {
 	if !hasDelta {
 		return false, ""
 	}
 	if windowClose {
 		return true, ""
 	}
-	switch level {
-	case VPVROverloadL3:
+	if decision.HasAction(policykit.ActionDropDelta) {
 		return false, "delta_l3"
-	case VPVROverloadL2:
+	}
+	if decision.DegradeStride() == 2 {
 		if eventCount%2 == 1 {
 			return false, "delta_l2"
 		}
 		return true, ""
-	default:
-		return true, ""
 	}
+	return true, ""
 }

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/market-raccoon/internal/core/insights/domain"
@@ -441,5 +442,176 @@ func TestVPVROverloadPolicy_SameWindowFinalStateUnchanged(t *testing.T) {
 		if sharedhash.HashBytes(gotRaw) != sharedhash.HashBytes(wantRaw) {
 			t.Fatalf("window close final-state changed at i=%d", i)
 		}
+	}
+}
+
+func TestVPVROverloadPolicy_EmittedSequenceEquivalentToLegacy(t *testing.T) {
+	snapshot := testVPVRSnapshot(8)
+	stateNew := VPVROverloadState{}
+	stateLegacy := VPVROverloadState{}
+	newSeq := make([]string, 0, 512)
+	legacySeq := make([]string, 0, 512)
+
+	for i := 1; i <= 240; i++ {
+		queueDepth := 82
+		latency := 50.0
+		if i%2 == 0 {
+			queueDepth = 95
+			latency = 100
+		}
+		in := VPVROverloadInput{
+			WindowClose: i%60 == 0,
+			Signals: VPVROverloadSignals{
+				QueueDepth:          queueDepth,
+				QueueCapacity:       100,
+				BoundedMapOccupancy: queueDepth,
+				BoundedMapLimit:     100,
+				ProcessingLatencyMs: latency,
+			},
+			Snapshot:       snapshot,
+			Delta:          snapshot,
+			HasDelta:       true,
+			PartitionState: stateNew,
+		}
+		newOut := EvaluateVPVROverload(in)
+		legacyOut := legacyEvaluateVPVROverload(in, stateLegacy)
+		stateNew = newOut.NextState
+		stateLegacy = legacyOut.NextState
+
+		if newOut.EmitSnapshot {
+			newSeq = append(newSeq, "S")
+		}
+		if newOut.EmitDelta {
+			newSeq = append(newSeq, "D")
+		}
+		if legacyOut.EmitSnapshot {
+			legacySeq = append(legacySeq, "S")
+		}
+		if legacyOut.EmitDelta {
+			legacySeq = append(legacySeq, "D")
+		}
+	}
+
+	if !slices.Equal(newSeq, legacySeq) {
+		t.Fatalf("emitted sequence mismatch\nnew=%v\nlegacy=%v", newSeq, legacySeq)
+	}
+}
+
+func legacyEvaluateVPVROverload(input VPVROverloadInput, state VPVROverloadState) VPVROverloadOutput {
+	next := state
+	next.Level = legacyNextLevel(state.Level, input.Signals)
+	next.EventCount++
+
+	snapshot := input.Snapshot
+	compressed := false
+	compressRatio := 1.0
+	if !input.WindowClose {
+		snapshot, compressed, compressRatio = compressSnapshotByLevel(snapshot, next.Level)
+	}
+	emitSnapshot := legacyShouldEmitSnapshot(next.EventCount, next.Level, input.WindowClose)
+	emitDelta, reason := legacyShouldEmitDelta(next.EventCount, next.Level, input.WindowClose, input.HasDelta)
+
+	return VPVROverloadOutput{
+		NextState:      next,
+		Level:          next.Level,
+		Snapshot:       snapshot,
+		EmitSnapshot:   emitSnapshot,
+		Delta:          input.Delta,
+		EmitDelta:      emitDelta,
+		Compressed:     compressed,
+		CompressRatio:  compressRatio,
+		CadenceDropped: !emitSnapshot,
+		DeltaDropped:   input.HasDelta && !emitDelta,
+		DropReason:     reason,
+	}
+}
+
+func legacyNextLevel(prev VPVROverloadLevel, signals VPVROverloadSignals) VPVROverloadLevel {
+	queueRatio := legacyRatio(signals.QueueDepth, signals.QueueCapacity)
+	mapRatio := legacyRatio(signals.BoundedMapOccupancy, signals.BoundedMapLimit)
+	latencyMs := signals.ProcessingLatencyMs
+
+	severity := legacyClassify(queueRatio, mapRatio, latencyMs)
+	switch prev {
+	case VPVROverloadL0:
+		return severity
+	case VPVROverloadL1:
+		if severity >= VPVROverloadL2 {
+			return severity
+		}
+		if queueRatio < 0.50 && mapRatio < 0.60 && latencyMs < 15 {
+			return VPVROverloadL0
+		}
+		return VPVROverloadL1
+	case VPVROverloadL2:
+		if severity == VPVROverloadL3 {
+			return VPVROverloadL3
+		}
+		if queueRatio < 0.70 && mapRatio < 0.80 && latencyMs < 30 {
+			return VPVROverloadL1
+		}
+		return VPVROverloadL2
+	default:
+		if queueRatio < 0.85 && mapRatio < 0.90 && latencyMs < 60 {
+			return VPVROverloadL2
+		}
+		return VPVROverloadL3
+	}
+}
+
+func legacyClassify(queueRatio, mapRatio, latencyMs float64) VPVROverloadLevel {
+	if queueRatio >= 0.92 || mapRatio >= 0.95 || latencyMs >= 80 {
+		return VPVROverloadL3
+	}
+	if queueRatio >= 0.80 || mapRatio >= 0.85 || latencyMs >= 40 {
+		return VPVROverloadL2
+	}
+	if queueRatio >= 0.60 || mapRatio >= 0.70 || latencyMs >= 20 {
+		return VPVROverloadL1
+	}
+	return VPVROverloadL0
+}
+
+func legacyRatio(current, capacity int) float64 {
+	if capacity <= 0 || current <= 0 {
+		return 0
+	}
+	return float64(current) / float64(capacity)
+}
+
+func legacyShouldEmitSnapshot(eventCount uint64, level VPVROverloadLevel, windowClose bool) bool {
+	if windowClose {
+		return true
+	}
+	stride := 1
+	if level == VPVROverloadL2 {
+		stride = 2
+	}
+	if level == VPVROverloadL3 {
+		stride = 4
+	}
+	if stride <= 1 {
+		return true
+	}
+	return eventCount%uint64(stride) == 0
+}
+
+func legacyShouldEmitDelta(eventCount uint64, level VPVROverloadLevel, windowClose bool, hasDelta bool) (bool, string) {
+	if !hasDelta {
+		return false, ""
+	}
+	if windowClose {
+		return true, ""
+	}
+	switch level {
+	case VPVROverloadL3:
+		return false, "delta_l3"
+	case VPVROverloadL2:
+		if eventCount%2 == 1 {
+			return false, "delta_l2"
+		}
+		return true, ""
+	default:
+		return true, ""
 	}
 }
