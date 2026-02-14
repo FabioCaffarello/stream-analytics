@@ -43,6 +43,20 @@ func RegisterInsightsPayloadV1WithOptions(reg *codec.Registry, opts InsightsCode
 	}, codec.JSONCodec[insightsdomain.CrossVenueSpreadSignalV1]{}, codec.JSONCodec[insightsdomain.CrossVenueSpreadSignalV1]{}); p != nil {
 		return p
 	}
+	if p := reg.Register(codec.SchemaKey{
+		Type:    insightsdomain.HeatmapSnapshotType,
+		Version: insightsV1Version,
+		Format:  codec.FormatJSON,
+	}, codec.JSONCodec[insightsdomain.HeatmapArtifactV1]{}, codec.JSONCodec[insightsdomain.HeatmapArtifactV1]{}); p != nil {
+		return p
+	}
+	if p := reg.Register(codec.SchemaKey{
+		Type:    insightsdomain.VolumeProfileSnapshotType,
+		Version: insightsV1Version,
+		Format:  codec.FormatJSON,
+	}, codec.JSONCodec[insightsdomain.VolumeProfileSnapshotV1]{}, codec.JSONCodec[insightsdomain.VolumeProfileSnapshotV1]{}); p != nil {
+		return p
+	}
 	if !opts.EnableVolumeProfileSnapshotProto {
 		return nil
 	}
