@@ -33,28 +33,14 @@ jobs:
         uses: bufbuild/buf-setup-action@v1
       - name: Install protobuf generator tools
         run: make tools
-      - name: Proto lint
-        run: make proto-lint
-      - name: Proto breaking
+      - name: Ensure local main baseline for proto-breaking
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
-            echo "Main branch detected; enforcing full proto-breaking gate."
-            make proto-breaking
-            exit 0
-          fi
-
-          git fetch --no-tags --prune --depth=1 origin main:main
-          if git ls-tree -r --name-only main -- proto | grep -qE '\.proto$'; then
-            echo "Main proto baseline detected; enforcing proto-breaking gate."
-            make proto-breaking
-          else
-            echo "Main proto baseline does not exist yet; enforcing lint + proto-gen drift gates only."
-          fi
+          git fetch --no-tags --prune --depth=1 origin main:main || true
       - name: Proto generate check
         run: |
-          make proto-gen
+          make proto-gen-if-needed
           if ! git diff --exit-code -- internal/shared/proto/gen; then
             echo "Generated protobuf drift detected under internal/shared/proto/gen. Run 'make proto-gen' and commit generated files."
             exit 1
@@ -63,8 +49,8 @@ jobs:
         run: go test ./internal/shared/contracts -run TestImportGuard_ProtoImportsStayInSharedBoundary -count=1
       - name: Install tools
         run: make install-tools
-      - name: Run CI pipeline
-        run: make ci VULN_REQUIRED=true
+      - name: Run contract gates
+        run: make contract-gates
 
   integration-jetstream:
     if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.run_integration == 'true' }}

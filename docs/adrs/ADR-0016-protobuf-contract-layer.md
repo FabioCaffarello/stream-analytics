@@ -49,6 +49,29 @@ O drift identificado no W11 e de governanca: o texto misturava "fundacao entregu
 - `PROTO-4`: `proto/registry.json` deve cobrir os contratos versionados ativos.
 - `PROTO-5`: boundary protobuf-free no dominio deve ser preservado por `make invariants-check`.
 
+## Compatibility Rules
+
+1. Toda mudanca em `.proto` deve manter backward compatibility por default.
+2. Reuso de field number e proibido, mesmo para campo removido.
+3. Campo removido deve virar `reserved` (numero e nome).
+4. Adicao permitida apenas para campos opcionais/repeated.
+5. Renomear campo sem `reserved` e breaking change.
+6. Troca de tipo wire-incompatible e breaking change.
+7. `oneof` novo so pode adicionar variantes sem remover existentes.
+8. `package` e `go_package` sao estaveis por versao major.
+9. `type` + `version` em `proto/registry.json` sao autoridade canonica.
+10. Conversores `Domain<->Proto` devem preservar equivalencia semantica.
+11. `content_type=application/protobuf` continua opt-in.
+12. Caminho `application/json` permanece comportamento default.
+13. Decoder deve rejeitar `content_type` desconhecido explicitamente.
+14. Unknown event type em proto deve falhar com erro de validacao.
+15. Unknown event type em json segue fallback policy configurada.
+16. Dominio (`internal/core/*`) nao importa protobuf runtime.
+17. Gates minimos de contrato: `proto-lint` + `proto-breaking`.
+18. Replay/determinismo nao pode depender de codec selecionado.
+19. Flags default OFF nao podem alterar golden existente.
+20. Qualquer quebra de contrato deve subir `version` explicitamente.
+
 ## Implementation Matrix
 
 | Feature | Status | Referencia |

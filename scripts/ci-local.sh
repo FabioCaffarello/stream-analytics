@@ -24,10 +24,7 @@ run_step() {
 
 run_step quick
 run_step docs-check-full
-run_step invariants-check
-run_step test-unit
-run_step test-integration
-run_step test-replay-golden
-run_step proto-check
+run_step contract-gates
+run_step proto-gen-if-needed
 
 echo "ci-local: completed all steps"

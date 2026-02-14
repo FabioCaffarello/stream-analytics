@@ -46,7 +46,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules workspace-check tidy tidy-check fmt fmt-check vet quick ci-local docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci
+.PHONY: help install-tools tools modules workspace-check tidy tidy-check fmt fmt-check vet quick ci-local contract-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci
 
 help:
 	@echo "Targets:"
@@ -61,6 +61,7 @@ help:
 	@echo "  make vet                - run go vet in workspace modules"
 	@echo "  make quick              - fast local loop (fmt-check + vet + invariants-check + short tests)"
 	@echo "  make ci-local           - strict local chain (quick -> docs -> invariants -> unit -> integration -> replay -> proto)"
+	@echo "  make contract-gates     - W6 contract gate chain (registry -> replay -> proto)"
 	@echo "  make docs-check         - strict docs guardrails (alias for docs-check-full)"
 	@echo "  make docs-check-fast    - lightweight docs guardrails for local loop"
 	@echo "  make docs-check-full    - full strict docs guardrails"
@@ -171,6 +172,16 @@ quick:
 
 ci-local:
 	@./scripts/ci-local.sh
+
+contract-gates:
+	@$(MAKE) registry-check
+	@$(MAKE) invariants-check
+	@$(MAKE) test-workspace
+	@$(MAKE) lint
+	@$(MAKE) test-replay-golden
+	@$(MAKE) test-workspace-race
+	@$(MAKE) proto-lint
+	@$(MAKE) proto-breaking
 
 docs-check:
 	@$(MAKE) docs-check-full
