@@ -84,3 +84,17 @@ tests:
               summary: "Cold-path commit errors detected"
               description: "Cold-path commit/write related errors are increasing in the last 5 minutes."
               runbook_url: "docs/observability/runbooks/guardian.md"
+
+  # ── Test 4 ────────────────────────────────────────────────────────────────
+  # SLOIngestBurnRateFast must NOT fire when only the 5m window exceeds 14.4
+  # but the 1h window stays below the threshold (conjunction guard).
+  - interval: 1m
+    input_series:
+      - series: 'slo:ingest:burn_rate_5m{service="market-raccoon",stream="bookdelta",venue="binance"}'
+        values: "20+0x4"
+      - series: 'slo:ingest:burn_rate_1h{service="market-raccoon",stream="bookdelta",venue="binance"}'
+        values: "5+0x4"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: SLOIngestBurnRateFast
+        exp_alerts: []   # 1h below threshold — conjunction false, must NOT fire
