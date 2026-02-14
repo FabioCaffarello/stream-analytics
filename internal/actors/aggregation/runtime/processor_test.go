@@ -2,6 +2,7 @@ package aggruntime_test
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/market-raccoon/internal/shared/codec"
 	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
+	"github.com/market-raccoon/internal/shared/policykit"
 	"github.com/market-raccoon/internal/shared/problem"
 )
 
@@ -610,6 +612,113 @@ func TestProcessor_TradeJoinEnabledWithSpreadSignal_PublishesSignalEnvelope(t *t
 	<-e.Poison(pid).Done()
 }
 
+func TestProcessor_PolicyKit_BookDeltaDeterministicStride(t *testing.T) {
+	type runResult struct {
+		processed []int64
+		snaps     int
+	}
+	run := func() runResult {
+		pub := &spyArtifactPublisher{}
+		updateBook := newUpdateBook(pub)
+
+		ch := make(chan envelope.Envelope, 16)
+		var mu sync.Mutex
+		processed := make([]int64, 0, 8)
+		cfg := aggruntime.ProcessorConfig{
+			EnvelopeCh:               ch,
+			UpdateBook:               updateBook,
+			PolicyKitEngine:          staticEngine{decision: policykit.Decision{Actions: []policykit.Action{{Type: policykit.ActionDegradeStride, Stride: 2}}}},
+			PolicyKitBacklogCapacity: 16,
+			OnEnvelopeProcessed: func(res aggruntime.EnvelopeProcessResult) {
+				if res.Envelope.Type == "marketdata.bookdelta" {
+					mu.Lock()
+					processed = append(processed, res.Envelope.Seq)
+					mu.Unlock()
+				}
+			},
+		}
+
+		e := newEngine(t)
+		pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+		for i := 1; i <= 6; i++ {
+			ch <- makeBookDeltaEnvelope(
+				"BINANCE", "BTC-USDT", int64(i),
+				[]mddomain.PriceLevel{{Price: 42000, Size: 1.5}},
+				[]mddomain.PriceLevel{{Price: 42001, Size: 2.0}},
+			)
+		}
+
+		waitFor(t, 2*time.Second, func() bool {
+			mu.Lock()
+			defer mu.Unlock()
+			return len(processed) >= 6
+		})
+		<-e.Poison(pid).Done()
+		mu.Lock()
+		defer mu.Unlock()
+		out := make([]int64, len(processed))
+		copy(out, processed)
+		return runResult{processed: out, snaps: pub.count()}
+	}
+
+	first := run()
+	second := run()
+	want := []int64{1, 2, 3, 4, 5, 6}
+	if !slices.Equal(first.processed, want) {
+		t.Fatalf("first run seq=%v want=%v", first.processed, want)
+	}
+	if !slices.Equal(second.processed, want) {
+		t.Fatalf("second run seq=%v want=%v", second.processed, want)
+	}
+	if first.snaps != 3 || second.snaps != 3 {
+		t.Fatalf("snapshot count mismatch first=%d second=%d want=3", first.snaps, second.snaps)
+	}
+}
+
+func TestProcessor_PolicyKit_NeverDropCloseFinal(t *testing.T) {
+	pub := &spyArtifactPublisher{}
+	updateBook := newUpdateBook(pub)
+
+	ch := make(chan envelope.Envelope, 8)
+	resultCh := make(chan aggruntime.EnvelopeProcessResult, 1)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh:               ch,
+		UpdateBook:               updateBook,
+		PolicyKitEngine:          staticEngine{decision: policykit.Decision{Actions: []policykit.Action{{Type: policykit.ActionDropDelta}}}},
+		PolicyKitBacklogCapacity: 8,
+		OnEnvelopeProcessed: func(res aggruntime.EnvelopeProcessResult) {
+			resultCh <- res
+		},
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+
+	ch <- envelope.Envelope{
+		Type:       "marketdata.bookdelta_final",
+		Version:    1,
+		Venue:      "BINANCE",
+		Instrument: "BTCUSDT",
+		Seq:        1,
+		TsIngest:   time.Now().UnixMilli(),
+		Payload:    []byte(`{}`),
+	}
+
+	select {
+	case res := <-resultCh:
+		if res.Problem == nil {
+			t.Fatal("expected processing problem for unhandled close/final type")
+		}
+		if res.Envelope.Type != "marketdata.bookdelta_final" {
+			t.Fatalf("envelope type=%q want marketdata.bookdelta_final", res.Envelope.Type)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for callback result")
+	}
+
+	<-e.Poison(pid).Done()
+}
+
 // ---------------------------------------------------------------------------
 // inline parent actor helper
 // ---------------------------------------------------------------------------
@@ -618,6 +727,14 @@ type inlineParent struct {
 	ch         chan any
 	spawnChild func(ctx *actor.Context) *actor.PID
 	subPID     **actor.PID
+}
+
+type staticEngine struct {
+	decision policykit.Decision
+}
+
+func (s staticEngine) Decide(_ policykit.Level, _ policykit.Signals) policykit.Decision {
+	return s.decision
 }
 
 func (p *inlineParent) Receive(ctx *actor.Context) {

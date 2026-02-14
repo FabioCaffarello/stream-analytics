@@ -31,6 +31,7 @@ import (
 	"github.com/market-raccoon/internal/shared/codec"
 	"github.com/market-raccoon/internal/shared/envelope"
 	sharedhash "github.com/market-raccoon/internal/shared/hash"
+	"github.com/market-raccoon/internal/shared/policykit"
 	"github.com/market-raccoon/internal/shared/problem"
 )
 
@@ -91,6 +92,14 @@ type ProcessorConfig struct {
 	// processing attempt. It is used by runtime wiring (e.g. JetStream bridge)
 	// to map processing outcomes into ack/nak/term dispositions.
 	OnEnvelopeProcessed func(EnvelopeProcessResult)
+
+	// PolicyKitEngine enables deterministic overload actions in the processor path.
+	// When nil, policy actions are disabled (default).
+	PolicyKitEngine policykit.Engine
+	// PolicyKitBacklogCapacity normalizes backlog ratio for policy signals.
+	PolicyKitBacklogCapacity int
+	// PolicyKitResolver customizes subject category mapping.
+	PolicyKitResolver policykit.CategoryResolver
 }
 
 // ProcessorSubsystemActor consumes envelopes from a channel and dispatches
@@ -107,6 +116,9 @@ type ProcessorSubsystemActor struct {
 	engine     *actor.Engine
 	selfPID    *actor.PID
 	stopCancel context.CancelFunc
+
+	policyApplier *policykit.Applier
+	policyLevels  map[string]policykit.Level
 }
 
 // NewProcessorSubsystemActor returns a hollywood actor.Producer for the
@@ -143,6 +155,17 @@ func (p *ProcessorSubsystemActor) ensureDefaults() {
 			p.logger = p.cfg.Logger
 		} else {
 			p.logger = slog.Default()
+		}
+	}
+	if p.cfg.PolicyKitBacklogCapacity <= 0 {
+		p.cfg.PolicyKitBacklogCapacity = 1
+	}
+	if p.cfg.PolicyKitEngine != nil {
+		if p.policyApplier == nil {
+			p.policyApplier = policykit.NewApplier(p.cfg.PolicyKitResolver)
+		}
+		if p.policyLevels == nil {
+			p.policyLevels = make(map[string]policykit.Level)
 		}
 	}
 }
@@ -189,6 +212,12 @@ func (p *ProcessorSubsystemActor) consumeLoop(ctx context.Context) {
 
 // handleEnvelope routes the envelope to the appropriate use case.
 func (p *ProcessorSubsystemActor) handleEnvelope(_ *actor.Context, env envelope.Envelope) *problem.Problem {
+	if adjusted, dropped := p.applyPolicyKit(env); dropped {
+		return nil
+	} else {
+		env = adjusted
+	}
+
 	switch env.Type {
 	case typeBookDelta:
 		if env.Version != 1 {
@@ -220,6 +249,26 @@ func (p *ProcessorSubsystemActor) handleEnvelope(_ *actor.Context, env envelope.
 		p.logger.Warn("aggruntime: unhandled envelope type", "type", env.Type, "version", env.Version)
 		return unhandledTypeProblem(env.Type)
 	}
+}
+
+func (p *ProcessorSubsystemActor) applyPolicyKit(env envelope.Envelope) (envelope.Envelope, bool) {
+	if p.cfg.PolicyKitEngine == nil || p.policyApplier == nil {
+		return env, false
+	}
+
+	partition := env.Type + "|" + env.Venue + "|" + env.Instrument
+	prev := p.policyLevels[partition]
+	decision := p.cfg.PolicyKitEngine.Decide(prev, policykit.Signals{
+		Backlog:    len(p.cfg.EnvelopeCh),
+		BacklogCap: p.cfg.PolicyKitBacklogCapacity,
+	})
+	p.policyLevels[partition] = decision.Level
+
+	applied := p.policyApplier.Apply(decision, []envelope.Envelope{env}, policykit.ApplyHooks{})
+	if len(applied) == 0 {
+		return env, true
+	}
+	return applied[0], false
 }
 
 // handleBookDelta decodes a BookDeltaV1 payload and calls UpdateOrderBook.
