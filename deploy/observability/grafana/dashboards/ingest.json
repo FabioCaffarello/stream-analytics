@@ -1,0 +1,59 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "none"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "id": 1,
+      "title": "Ingest Burn Rate 5m",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "slo:ingest:burn_rate_5m{service=\"market-raccoon\"}", "legendFormat": "{{stream}}/{{venue}}", "refId": "A"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "none"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "id": 2,
+      "title": "Ingest Burn Rate 1h",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "slo:ingest:burn_rate_1h{service=\"market-raccoon\"}", "legendFormat": "{{stream}}/{{venue}}", "refId": "A"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "percentunit"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "id": 3,
+      "title": "Ingest Error Ratio",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "slo:ingest:error_ratio{service=\"market-raccoon\"}", "legendFormat": "{{stream}}/{{venue}}", "refId": "A"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "id": 4,
+      "title": "Ingest Total Rate",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "slo:ingest_total:rate{service=\"market-raccoon\"}", "legendFormat": "{{stream}}/{{venue}}", "refId": "A"}
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["observability", "ingest"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "title": "Market-Raccoon Ingest",
+  "uid": "market-raccoon-ingest",
+  "version": 1
+}

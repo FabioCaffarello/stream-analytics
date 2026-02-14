@@ -1,0 +1,59 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "percentunit"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0},
+      "id": 1,
+      "title": "Ingest Error Ratio",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "slo:ingest:error_ratio{service=\"market-raccoon\"}", "legendFormat": "{{stream}}/{{venue}}", "refId": "A"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "none"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0},
+      "id": 2,
+      "title": "Delivery Latency Burn Rate (5m)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "slo:delivery_latency:burn_rate_5m{service=\"market-raccoon\"}", "legendFormat": "{{stream}}/{{venue}}", "refId": "A"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "none"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0},
+      "id": 3,
+      "title": "Data Loss Burn Rate (5m)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "slo:data_loss:burn_rate_5m{service=\"market-raccoon\"}", "legendFormat": "{{stream}}/{{venue}}", "refId": "A"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "none"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+      "id": 4,
+      "title": "Ingest Success Rate",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "slo:ingest_success:rate{service=\"market-raccoon\"}", "legendFormat": "{{stream}}/{{venue}}", "refId": "A"}
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["observability", "slo"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "title": "Market-Raccoon Overview",
+  "uid": "market-raccoon-overview",
+  "version": 1
+}
