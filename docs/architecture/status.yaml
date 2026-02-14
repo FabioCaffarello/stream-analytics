@@ -1,0 +1,13 @@
+version: 1
+updated_at: "2026-02-14"
+items:
+  - id: vpvr_overload_policy
+    authority: "ADR-0013"
+    area: "insights.volume_profile"
+    status: "Accepted"
+    execution: "Done"
+    readiness: "Production-ready"
+    notes:
+      - "Deterministic overload engine L0-L3 active in emit path."
+      - "Window-close/final snapshot preserved."
+      - "Ack boundary integration evidence and deterministic soak evidence captured."

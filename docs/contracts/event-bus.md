@@ -116,6 +116,13 @@ Proibido:
 | `insights.heatmap_snapshot.v1.{venue}.{instrument}` | `insights` runtime (`BuildHeatmap`) | `delivery`, `storage` | draft | `docs/architecture/heatmap.md`, `docs/contracts/subject-registry.yaml` |
 | `insights.heatmap_delta.v1.{venue}.{instrument}` | `insights` runtime (`BuildHeatmap`) | `delivery`, `storage` | planned | `docs/architecture/heatmap.md`, `docs/contracts/subject-registry.yaml` |
 
+### Stable Subjects (`insights.volume_profile_*`)
+
+| Subject | Producer (BC/runtime) | Consumer(s) esperados | Status | Referencia |
+|---|---|---|---|---|
+| `insights.volume_profile_snapshot.v1.{venue}.{instrument}` | `insights` runtime (`BuildVolumeProfile` + overload emit policy) | `delivery` | stable | `internal/core/insights/app/build_volume_profile.go`, `internal/core/insights/app/vpvr_overload_policy.go`, `docs/architecture/volume-profiles.md`, `docs/contracts/subject-registry.yaml` |
+| `insights.volume_profile_delta.v1.{venue}.{instrument}` | `insights` runtime (`BuildVolumeProfile` + overload emit policy) | `delivery` | stable | `internal/core/insights/app/build_volume_profile.go`, `internal/core/insights/app/vpvr_overload_policy.go`, `docs/architecture/volume-profiles.md`, `docs/contracts/subject-registry.yaml` |
+
 ### Planned Subjects (`aggregation.*`)
 
 | Subject | Producer (BC/runtime) | Consumer(s) esperados | Status | Referencia |

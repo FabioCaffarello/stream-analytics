@@ -149,9 +149,10 @@ subjects:
     producer_bc: insights
     schema_authority_bc: insights
     consumer_bcs: [delivery]
-    status: draft
+    status: stable
     sources:
       - .context/docs/feature-packs/volume-profiles.md
+      - docs/contracts/event-bus.md
   - id: insights.volume_profile_delta.v1
     pattern: insights.volume_profile_delta.v1.{venue}.{instrument}
     root: insights
@@ -159,9 +160,10 @@ subjects:
     producer_bc: insights
     schema_authority_bc: insights
     consumer_bcs: [delivery]
-    status: planned
+    status: stable
     sources:
       - .context/docs/feature-packs/volume-profiles.md
+      - docs/contracts/event-bus.md
   - id: insights.markprice_liquidation_snapshot.v1
     pattern: insights.markprice_liquidation_snapshot.v1.{venue}.{instrument}
     root: insights
