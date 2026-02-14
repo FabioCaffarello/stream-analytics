@@ -1,4 +1,12 @@
--- M1 skeleton migration wiring for ClickHouse cold-path writer.
--- Schema DDL intentionally deferred to dedicated contract/migration step.
--- This file exists so migration runners can detect ClickHouse lane bootstrap.
-SELECT 1;
+-- M1 cold-path schema contract for deterministic idempotent upsert key.
+-- Storage key invariant: (venue, instrument, seq).
+CREATE TABLE IF NOT EXISTS aggregation_snapshots_v1
+(
+  venue      LowCardinality(String),
+  instrument LowCardinality(String),
+  seq        UInt64,
+  bids_json  String,
+  asks_json  String
+)
+ENGINE = ReplacingMergeTree
+ORDER BY (venue, instrument, seq);
