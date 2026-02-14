@@ -86,3 +86,29 @@ make logs
 make lint
 make test-workspace
 ```
+
+Reset and troubleshooting
+-------------------------
+
+Clean reset (use when ClickHouse skipped init or state is inconsistent):
+
+```bash
+make down
+docker volume rm market-raccoon-clickhouse-data market-raccoon-prometheus-data market-raccoon-grafana-data || true
+make up
+```
+
+Grafana provisioning issues
+ - If Grafana logs "can't read dashboard provisioning files from directory /etc/grafana/provisioning/dashboards":
+   - Ensure `deploy/observability/grafana/provisioning/dashboards/dashboards.yml` exists and references `/var/lib/grafana/dashboards`.
+   - Ensure the compose mounts `../observability/grafana/provisioning:/etc/grafana/provisioning:ro` and `../observability/grafana/dashboards:/var/lib/grafana/dashboards:ro`.
+   - Restart Grafana: `docker compose restart grafana` (or `make down && make up` if provisioning changed).
+
+Prometheus troubleshooting
+ - Confirm Prometheus is scraping targets: `curl -s http://127.0.0.1:9090/targets`
+ - Confirm rules loaded: `curl -s http://127.0.0.1:9090/api/v1/rules` or open UI -> Status -> Rules.
+
+Helpful endpoints & creds
+ - Grafana: `http://127.0.0.1:3000` — default admin user `admin`, password from `GF_SECURITY_ADMIN_PASSWORD` (default `admin`)
+ - Prometheus: `http://127.0.0.1:9090` (`/-/healthy` for health)
+ - ClickHouse HTTP: `http://127.0.0.1:8123` (use `clickhouse-client` for reliable checks)
