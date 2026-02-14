@@ -1,14 +1,14 @@
 {
   "active": [
     {
-      "slug": "m3-vpvr-plan",
-      "path": "plans/m3-vpvr-plan.md",
-      "title": "M3 VPVR Plan (Commit-Driven)",
-      "summary": "Last updated: 2026-02-13T20:41:05.043Z | Progress: 0%",
-      "linkedAt": "2026-02-13T23:07:14.940Z",
+      "slug": "m3-closeout-post-c6-audit",
+      "path": "plans/m3-closeout-post-c6-audit.md",
+      "title": "M3 closeout pos-auditoria C6",
+      "summary": "Fechar M3 com correcoes nao-blocking da auditoria, evidencia de qualidade e criterio de done para transicao M4.",
+      "linkedAt": "2026-02-14T00:07:11.701Z",
       "status": "active"
     }
   ],
   "completed": [],
-  "primary": "m3-vpvr-plan"
+  "primary": "m3-closeout-post-c6-audit"
 }
