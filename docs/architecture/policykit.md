@@ -17,9 +17,9 @@
 - Mesma entrada gera mesma saída.
 
 ## Métricas comuns por stream
-- `policykit_overload_level{stream,venue,instrument}`
-- `policykit_drop_total{stream,reason}`
-- `policykit_degrade_total{stream,action}`
+- `policykit_overload_level{stream,venue}`
+- `policykit_drop_total{stream,venue}`
+- `policykit_degrade_total{stream,venue}`
 - `policykit_compress_total{stream}`
 - `policykit_latency_ms{stream}`
 

@@ -204,6 +204,10 @@ without requiring rewrites.
 
 ## Docs Index (Official)
 
+### Observability
+
+- [Metrics Budget & Label Policy](./metrics-budget-label-policy.md)
+
 ### ADR Index
 
 - [ADR-0000](../adrs/ADR-0000-foundation.md)
