@@ -19,9 +19,9 @@ GO_TEST_RACE_FLAGS ?= -race -covermode=atomic -timeout=$(GO_TEST_RACE_TIMEOUT)
 INTEGRATION_TEST_PATTERN ?= Integration|E2E|Conformance
 INTEGRATION_TEST_PKGS ?= ./internal/adapters/jetstream ./cmd/consumer
 TEST_RACE_PKGS ?= ./internal/adapters/jetstream ./internal/shared/replay ./internal/actors/runtime ./cmd/consumer
-REPLAY_GOLDEN_PKGS ?= ./internal/shared/replay ./cmd/consumer
-REPLAY_GOLDEN_PATTERN ?= TestGoldenReplay|TestReplayIngestGolden1000|TestReplayHeatmapGolden1000|TestHeatmapReplayByteStable50Runs
-REPLAY_GOLDEN_TRIGGER_REGEX ?= ^(internal/shared/replay/|internal/shared/envelope/|internal/.*/sequencer|internal/core/storage/|internal/adapters/storage/)
+REPLAY_GOLDEN_PKGS ?= ./internal/shared/replay ./cmd/consumer ./internal/adapters/jetstream
+REPLAY_GOLDEN_PATTERN ?= TestGoldenReplay|TestReplayIngestGolden1000|TestReplayHeatmapGolden1000|TestHeatmapReplayByteStable50Runs|TestShardGolden|TestShardReplayInvariant
+REPLAY_GOLDEN_TRIGGER_REGEX ?= ^(internal/shared/replay/|internal/shared/envelope/|internal/.*/sequencer|internal/core/storage/|internal/adapters/storage/|internal/adapters/jetstream/shard)
 REPLAY_GOLDEN_CHANGED ?=
 SOAK_OUT_FILE ?= .context/evidence/w5-soak.txt
 SOAK_VPVR_OUT_FILE ?= .context/evidence/vpvr-soak.txt
