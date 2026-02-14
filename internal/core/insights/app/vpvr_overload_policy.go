@@ -1,6 +1,8 @@
 package app
 
 import (
+	"math"
+	"slices"
 	"strings"
 	"sync"
 
@@ -46,12 +48,14 @@ type VPVROverloadInput struct {
 }
 
 type VPVROverloadOutput struct {
-	NextState    VPVROverloadState
-	Level        VPVROverloadLevel
-	Snapshot     domain.VolumeProfileSnapshotV1
-	EmitSnapshot bool
-	Delta        domain.VolumeProfileSnapshotV1
-	EmitDelta    bool
+	NextState     VPVROverloadState
+	Level         VPVROverloadLevel
+	Snapshot      domain.VolumeProfileSnapshotV1
+	EmitSnapshot  bool
+	Delta         domain.VolumeProfileSnapshotV1
+	EmitDelta     bool
+	Compressed    bool
+	CompressRatio float64
 }
 
 type VPVREmitPolicy struct {
@@ -102,14 +106,22 @@ func EvaluateVPVROverload(input VPVROverloadInput) VPVROverloadOutput {
 	next := input.PartitionState
 	next.Level = NextVPVROverloadLevel(input.PartitionState.Level, input.Signals)
 	next.EventCount++
+	snapshot := input.Snapshot
+	compressed := false
+	compressRatio := 1.0
+	if !input.WindowClose {
+		snapshot, compressed, compressRatio = compressSnapshotByLevel(snapshot, next.Level)
+	}
 
 	return VPVROverloadOutput{
-		NextState:    next,
-		Level:        next.Level,
-		Snapshot:     input.Snapshot,
-		EmitSnapshot: true,
-		Delta:        input.Delta,
-		EmitDelta:    input.HasDelta,
+		NextState:     next,
+		Level:         next.Level,
+		Snapshot:      snapshot,
+		EmitSnapshot:  true,
+		Delta:         input.Delta,
+		EmitDelta:     input.HasDelta,
+		Compressed:    compressed,
+		CompressRatio: compressRatio,
 	}
 }
 
@@ -127,6 +139,10 @@ func (p *VPVREmitPolicy) Apply(input VPVROverloadInput) VPVROverloadOutput {
 
 	metrics.SetVPVROverloadLevel(input.Venue, input.Instrument, input.Timeframe, int(out.Level))
 	metrics.ObserveVPVRProcessingLatencyMilliseconds(input.ProcessingMs)
+	if out.Compressed {
+		metrics.IncVPVRDegrade("compress")
+	}
+	metrics.ObserveVPVRCompressRatio(out.CompressRatio)
 	return out
 }
 
@@ -167,4 +183,76 @@ func shouldRecoverToL1(queueRatio, mapRatio, latencyMs float64) bool {
 
 func shouldRecoverToL2(queueRatio, mapRatio, latencyMs float64) bool {
 	return queueRatio < 0.85 && mapRatio < 0.90 && latencyMs < 60
+}
+
+func compressSnapshotByLevel(snapshot domain.VolumeProfileSnapshotV1, level VPVROverloadLevel) (domain.VolumeProfileSnapshotV1, bool, float64) {
+	switch level {
+	case VPVROverloadL1:
+		return compressSnapshotByRatio(snapshot, 0.75)
+	case VPVROverloadL2:
+		return compressSnapshotByRatio(snapshot, 0.50)
+	case VPVROverloadL3:
+		return compressSnapshotByRatio(snapshot, 0.25)
+	default:
+		return snapshot, false, 1.0
+	}
+}
+
+func compressSnapshotByRatio(snapshot domain.VolumeProfileSnapshotV1, ratio float64) (domain.VolumeProfileSnapshotV1, bool, float64) {
+	if ratio >= 1 || len(snapshot.Buckets) <= 1 {
+		return snapshot, false, 1.0
+	}
+	buckets := append([]domain.VolumeProfileBucketV1(nil), snapshot.Buckets...)
+	target := int(math.Ceil(float64(len(buckets)) * ratio))
+	if target < 1 {
+		target = 1
+	}
+	if target >= len(buckets) {
+		return snapshot, false, 1.0
+	}
+
+	slices.SortFunc(buckets, func(a, b domain.VolumeProfileBucketV1) int {
+		if a.TotalVolume != b.TotalVolume {
+			if a.TotalVolume > b.TotalVolume {
+				return -1
+			}
+			return 1
+		}
+		return compareCompressedBucketPrice(a, b)
+	})
+	buckets = buckets[:target]
+	slices.SortFunc(buckets, compareCompressedBucketPrice)
+
+	out := snapshot
+	out.Buckets = buckets
+	poc := buckets[0].PriceLow
+	maxTotal := buckets[0].TotalVolume
+	for _, b := range buckets {
+		if b.TotalVolume > maxTotal {
+			maxTotal = b.TotalVolume
+			poc = b.PriceLow
+		}
+	}
+	out.POCPrice = poc
+	out.ValueAreaLow = buckets[0].PriceLow
+	out.ValueAreaHigh = buckets[len(buckets)-1].PriceHigh
+
+	compressRatio := float64(len(buckets)) / float64(len(snapshot.Buckets))
+	return out, true, compressRatio
+}
+
+func compareCompressedBucketPrice(a, b domain.VolumeProfileBucketV1) int {
+	if a.PriceLow != b.PriceLow {
+		if a.PriceLow < b.PriceLow {
+			return -1
+		}
+		return 1
+	}
+	if a.PriceHigh < b.PriceHigh {
+		return -1
+	}
+	if a.PriceHigh > b.PriceHigh {
+		return 1
+	}
+	return 0
 }

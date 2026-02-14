@@ -1,6 +1,10 @@
 package app
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/market-raccoon/internal/core/insights/domain"
+)
 
 func TestNextVPVROverloadLevel_Transitions(t *testing.T) {
 	tests := []struct {
@@ -100,5 +104,91 @@ func TestEvaluateVPVROverload_IsPureDeterministic(t *testing.T) {
 	}
 	if !a.EmitDelta || !b.EmitDelta {
 		t.Fatal("expected delta emission")
+	}
+}
+
+func TestEvaluateVPVROverload_CompressesOpenWindowDeterministic(t *testing.T) {
+	snapshot := testVPVRSnapshot(8)
+	in := VPVROverloadInput{
+		WindowClose: false,
+		Snapshot:    snapshot,
+		PartitionState: VPVROverloadState{
+			Level: VPVROverloadL1,
+		},
+		Signals: VPVROverloadSignals{
+			QueueDepth:    95,
+			QueueCapacity: 100,
+		},
+	}
+
+	out := EvaluateVPVROverload(in)
+	if !out.Compressed {
+		t.Fatal("expected compressed snapshot")
+	}
+	if got, want := len(out.Snapshot.Buckets), 2; got != want {
+		t.Fatalf("bucket count=%d want=%d", got, want)
+	}
+	if out.CompressRatio != 0.25 {
+		t.Fatalf("compress ratio=%f want=0.25", out.CompressRatio)
+	}
+
+	out2 := EvaluateVPVROverload(in)
+	if len(out2.Snapshot.Buckets) != len(out.Snapshot.Buckets) {
+		t.Fatalf("nondeterministic compressed bucket count: first=%d second=%d", len(out.Snapshot.Buckets), len(out2.Snapshot.Buckets))
+	}
+	if out2.CompressRatio != out.CompressRatio {
+		t.Fatalf("nondeterministic compress ratio: first=%f second=%f", out.CompressRatio, out2.CompressRatio)
+	}
+}
+
+func TestEvaluateVPVROverload_DoesNotCompressWindowClose(t *testing.T) {
+	snapshot := testVPVRSnapshot(8)
+	in := VPVROverloadInput{
+		WindowClose: true,
+		Snapshot:    snapshot,
+		PartitionState: VPVROverloadState{
+			Level: VPVROverloadL3,
+		},
+		Signals: VPVROverloadSignals{
+			QueueDepth:    95,
+			QueueCapacity: 100,
+		},
+	}
+	out := EvaluateVPVROverload(in)
+	if out.Compressed {
+		t.Fatal("window close snapshot must not be compressed")
+	}
+	if out.CompressRatio != 1.0 {
+		t.Fatalf("compress ratio=%f want=1", out.CompressRatio)
+	}
+	if got, want := len(out.Snapshot.Buckets), len(snapshot.Buckets); got != want {
+		t.Fatalf("bucket count=%d want=%d", got, want)
+	}
+}
+
+func testVPVRSnapshot(count int) domain.VolumeProfileSnapshotV1 {
+	buckets := make([]domain.VolumeProfileBucketV1, 0, count)
+	for i := 0; i < count; i++ {
+		low := 100.0 + float64(i)
+		buckets = append(buckets, domain.VolumeProfileBucketV1{
+			PriceLow:    low,
+			PriceHigh:   low + 0.5,
+			BuyVolume:   float64(i + 1),
+			SellVolume:  float64(i + 2),
+			TotalVolume: float64((i + 1) + (i + 2)),
+			SeqMin:      int64(i + 1),
+			SeqMax:      int64(i + 1),
+		})
+	}
+	return domain.VolumeProfileSnapshotV1{
+		Venue:         "BINANCE",
+		Instrument:    "BTCUSDT",
+		Timeframe:     "1m",
+		WindowStartTs: 1_710_000_000_000,
+		WindowEndTs:   1_710_000_060_000,
+		Buckets:       buckets,
+		POCPrice:      buckets[len(buckets)-1].PriceLow,
+		ValueAreaLow:  buckets[0].PriceLow,
+		ValueAreaHigh: buckets[len(buckets)-1].PriceHigh,
 	}
 }
