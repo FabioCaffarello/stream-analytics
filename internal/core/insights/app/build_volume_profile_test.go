@@ -275,7 +275,7 @@ func TestBuildVolumeProfile_ObservabilityCountersAndGauges(t *testing.T) {
 	req1 := BuildVolumeProfileRequest{
 		EventType:  "marketdata.trade",
 		Venue:      "binance",
-		Instrument: "BTC-USDT",
+		Instrument: "BTC",
 		Timeframe:  "1m",
 		TickSize:   1,
 		Price:      100,
@@ -309,10 +309,10 @@ func TestBuildVolumeProfile_ObservabilityCountersAndGauges(t *testing.T) {
 	if got := testutil.ToFloat64(metrics.VPVRBuilderReplayMismatchTotal); got < replayBefore+1 {
 		t.Fatalf("expected replay mismatch increment, got=%f before=%f", got, replayBefore)
 	}
-	if got := testutil.ToFloat64(metrics.VPVRBuilderWindowsOpen.WithLabelValues("binance", "BTCUSDT", "1m")); got != 1 {
+	if got := testutil.ToFloat64(metrics.VPVRBuilderWindowsOpen.WithLabelValues("binance", "btc", "1m")); got != 1 {
 		t.Fatalf("expected windows_open=1, got=%f", got)
 	}
-	if got := testutil.ToFloat64(metrics.VPVRBuilderBucketCount.WithLabelValues("binance", "BTCUSDT", "1m")); got != 1 {
+	if got := testutil.ToFloat64(metrics.VPVRBuilderBucketCount.WithLabelValues("binance", "btc", "1m")); got != 1 {
 		t.Fatalf("expected bucket_count=1, got=%f", got)
 	}
 }
