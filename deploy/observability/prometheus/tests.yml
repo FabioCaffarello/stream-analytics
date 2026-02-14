@@ -1,0 +1,86 @@
+# Prometheus unit tests for alert rules.
+# Run with: promtool test rules deploy/observability/prometheus/tests.yml
+#
+# Strategy: inject recording-rule series directly as inputs so tests are
+# self-contained and fast (no need to replay >1h of raw metric history).
+# Only alerts.rules.yml is loaded; recording.rules.yml is validated
+# separately via `promtool check rules`.
+
+rule_files:
+  - alerts.rules.yml
+
+evaluation_interval: 1m
+
+tests:
+  # ── Test 1 ────────────────────────────────────────────────────────────────
+  # SLOIngestBurnRateFast must fire when BOTH 5m and 1h windows exceed 14.4.
+  # for: 2m → alert is active at eval_time=3m (condition true since t=0).
+  - interval: 1m
+    input_series:
+      - series: 'slo:ingest:burn_rate_5m{service="market-raccoon",stream="bookdelta",venue="binance"}'
+        values: "20+0x4"
+      - series: 'slo:ingest:burn_rate_1h{service="market-raccoon",stream="bookdelta",venue="binance"}'
+        values: "20+0x4"
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: SLOIngestBurnRateFast
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              service: market-raccoon
+              slo: ingest
+              stream: bookdelta
+              venue: binance
+            exp_annotations:
+              summary: "Ingest SLO fast burn-rate high"
+              description: "Ingest error budget burn-rate is above fast threshold on 5m/1h windows."
+              runbook_url: "docs/observability/runbooks/ingest.md"
+
+  # ── Test 2 ────────────────────────────────────────────────────────────────
+  # DataLossDropRateNonZero must NOT fire at 14m (transient < for:15m),
+  # and MUST fire at 16m (sustained ≥ 15m). Validates noise-reduction fix.
+  - interval: 1m
+    input_series:
+      - series: 'slo:data_loss:drop_rate_5m{service="market-raccoon",stream="all",venue="all"}'
+        values: "0.001+0x17"
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: DataLossDropRateNonZero
+        exp_alerts: []   # still pending — must NOT page on transient event
+      - eval_time: 16m
+        alertname: DataLossDropRateNonZero
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: market-raccoon
+              slo: data_loss
+              stream: all
+              venue: all
+            exp_annotations:
+              summary: "Drop-rate detected"
+              description: "Drop-related counters are increasing in the last 5 minutes."
+              runbook_url: "docs/observability/runbooks/bus.md"
+
+  # ── Test 3 ────────────────────────────────────────────────────────────────
+  # ColdPathCommitErrorsNonZero: same policy — no page at 14m, ticket at 16m.
+  - interval: 1m
+    input_series:
+      - series: 'slo:data_loss:cold_commit_errors_rate_5m{service="market-raccoon",stream="all",venue="all"}'
+        values: "0.001+0x17"
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: ColdPathCommitErrorsNonZero
+        exp_alerts: []   # still pending
+      - eval_time: 16m
+        alertname: ColdPathCommitErrorsNonZero
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: market-raccoon
+              slo: data_loss
+              stream: all
+              venue: all
+            exp_annotations:
+              summary: "Cold-path commit errors detected"
+              description: "Cold-path commit/write related errors are increasing in the last 5 minutes."
+              runbook_url: "docs/observability/runbooks/guardian.md"
