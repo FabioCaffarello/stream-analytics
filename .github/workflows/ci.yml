@@ -49,6 +49,13 @@ jobs:
         run: go test ./internal/shared/contracts -run TestImportGuard_ProtoImportsStayInSharedBoundary -count=1
       - name: Install tools
         run: make install-tools
+      - name: Install promtool
+        shell: bash
+        run: |
+          set -euo pipefail
+          go install github.com/prometheus/prometheus/cmd/promtool@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          promtool --version
       - name: Run contract gates
         run: make contract-gates
       - name: Run operability gates

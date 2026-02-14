@@ -25,12 +25,13 @@ for f in "${required_files[@]}"; do
   fi
 done
 
-if command -v promtool >/dev/null 2>&1; then
-  promtool check rules deploy/observability/prometheus/recording.rules.yml
-  promtool check rules deploy/observability/prometheus/alerts.rules.yml
-else
-  echo "operability-gates: promtool not found, skipping Prometheus rule syntax validation"
+if ! command -v promtool >/dev/null 2>&1; then
+  echo "operability-gates: promtool not found (required)"
+  exit 1
 fi
+
+promtool check rules deploy/observability/prometheus/recording.rules.yml
+promtool check rules deploy/observability/prometheus/alerts.rules.yml
 
 jq -e . deploy/observability/grafana/dashboards/overview.json >/dev/null
 jq -e . deploy/observability/grafana/dashboards/ingest.json >/dev/null
