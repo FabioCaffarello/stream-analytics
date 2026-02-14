@@ -431,21 +431,21 @@ var (
 			Name: "policykit_overload_level",
 			Help: "Current PolicyKit overload level per stream partition.",
 		},
-		[]string{"stream", "venue", "instrument"},
+		[]string{"stream", "venue"},
 	)
 	PolicyKitDropTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "policykit_drop_total",
-			Help: "Total PolicyKit drops by stream and reason.",
+			Help: "Total PolicyKit drops by stream and venue.",
 		},
-		[]string{"stream", "reason"},
+		[]string{"stream", "venue"},
 	)
 	PolicyKitDegradeTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "policykit_degrade_total",
-			Help: "Total PolicyKit degradations by stream and action.",
+			Help: "Total PolicyKit degradations by stream and venue.",
 		},
-		[]string{"stream", "action"},
+		[]string{"stream", "venue"},
 	)
 	PolicyKitCompressTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -638,7 +638,7 @@ func registerAll() {
 		VPVROverloadLevel.WithLabelValues("unknown", "unknown", "unknown")
 		VPVRDropTotal.WithLabelValues("unknown")
 		VPVRDegradeTotal.WithLabelValues("unknown")
-		PolicyKitOverloadLevel.WithLabelValues("unknown", "unknown", "unknown")
+		PolicyKitOverloadLevel.WithLabelValues("unknown", "unknown")
 		PolicyKitDropTotal.WithLabelValues("unknown", "unknown")
 		PolicyKitDegradeTotal.WithLabelValues("unknown", "unknown")
 		PolicyKitCompressTotal.WithLabelValues("unknown")
@@ -935,19 +935,25 @@ func SetPolicyKitOverloadLevel(stream, venue, instrument string, level int) {
 	if level > 3 {
 		level = 3
 	}
+	_ = instrument
 	PolicyKitOverloadLevel.WithLabelValues(
 		sanitizeEventType(stream),
 		sanitizeVenue(venue),
-		sanitizeInstrument(instrument),
 	).Set(float64(level))
 }
 
-func IncPolicyKitDrop(stream, reason string) {
-	PolicyKitDropTotal.WithLabelValues(sanitizeEventType(stream), sanitizeIngestReason(reason)).Inc()
+func IncPolicyKitDrop(stream string, args ...string) {
+	PolicyKitDropTotal.WithLabelValues(
+		sanitizeEventType(stream),
+		policyKitVenueFromArgs(args...),
+	).Inc()
 }
 
-func IncPolicyKitDegrade(stream, action string) {
-	PolicyKitDegradeTotal.WithLabelValues(sanitizeEventType(stream), sanitizeKind(action)).Inc()
+func IncPolicyKitDegrade(stream string, args ...string) {
+	PolicyKitDegradeTotal.WithLabelValues(
+		sanitizeEventType(stream),
+		policyKitVenueFromArgs(args...),
+	).Inc()
 }
 
 func IncPolicyKitCompress(stream string) {
@@ -959,6 +965,19 @@ func ObservePolicyKitLatencyMilliseconds(stream string, latencyMs float64) {
 		latencyMs = 0
 	}
 	PolicyKitLatencyMilliseconds.WithLabelValues(sanitizeEventType(stream)).Observe(latencyMs)
+}
+
+func policyKitVenueFromArgs(args ...string) string {
+	switch len(args) {
+	case 0:
+		return "unknown"
+	case 1:
+		// Backward compatible shape: (stream, reason|action).
+		return "unknown"
+	default:
+		// Preferred shape: (stream, venue, reason|action).
+		return sanitizeVenue(args[0])
+	}
 }
 
 func ObserveHeatmapBuildLatency(venue, instrument, timeframe string, latency time.Duration) {

@@ -117,8 +117,8 @@ func TestMetricsNamesPresent(t *testing.T) {
 	ObserveVPVRCompressRatio(0.5)
 	ObserveVPVRProcessingLatencyMilliseconds(4)
 	SetPolicyKitOverloadLevel("marketdata.bookdelta", "binance", "BTC-USDT", 2)
-	IncPolicyKitDrop("marketdata.bookdelta", "delta_l3")
-	IncPolicyKitDegrade("marketdata.bookdelta", "stride_2")
+	IncPolicyKitDrop("marketdata.bookdelta", "binance", "delta_l3")
+	IncPolicyKitDegrade("marketdata.bookdelta", "binance", "stride_2")
 	IncPolicyKitCompress("insights.volume_profile_snapshot")
 	ObservePolicyKitLatencyMilliseconds("marketdata.bookdelta", 1.5)
 	ObserveHeatmapBuildLatency("binance", "BTC-USDT", "1m", 3*time.Millisecond)
@@ -193,6 +193,18 @@ func TestIngestOutcomeMetrics_ReasonOnlyNoInstrumentLabel(t *testing.T) {
 	assertMetricLabelNames(t, "ingest_nak_total", []string{"reason"})
 	assertMetricLabelNames(t, "ingest_term_total", []string{"reason"})
 	assertMetricLabelNames(t, "ingest_bounded_map_evictions_total", []string{"reason"})
+}
+
+func TestPolicyKitMetrics_StableLabelsOnly(t *testing.T) {
+	t.Parallel()
+
+	SetPolicyKitOverloadLevel("marketdata.bookdelta", "binance", "BTC-USDT", 2)
+	IncPolicyKitDrop("marketdata.bookdelta", "binance", "policy_drop")
+	IncPolicyKitDegrade("marketdata.bookdelta", "binance", "stride_2")
+
+	assertMetricLabelNames(t, "policykit_overload_level", []string{"stream", "venue"})
+	assertMetricLabelNames(t, "policykit_drop_total", []string{"stream", "venue"})
+	assertMetricLabelNames(t, "policykit_degrade_total", []string{"stream", "venue"})
 }
 
 func TestSanitizeSubsystemMultiExchange(t *testing.T) {
