@@ -53,6 +53,15 @@ type JetStreamConfig struct {
 	DeliverPolicy string `json:"deliver_policy"`
 	// FilterSubjects controls the consumer subject filters.
 	FilterSubjects []string `json:"filter_subjects"`
+	// ShardGroupCount defines the total number of shard groups for horizontal
+	// scaling.  Default: 1 (sharding disabled).  When > 1, each processor
+	// instance handles only the subjects whose venue+instrument hash maps to
+	// its ShardGroupID.  No external coordination is required; assignment is
+	// purely deterministic (FNV-1a mod N).
+	ShardGroupCount int `json:"shard_group_count"`
+	// ShardGroupID is the 0-based group index for this processor instance.
+	// Must be in [0, ShardGroupCount).  Default: 0.
+	ShardGroupID int `json:"shard_group_id"`
 	// DedupWindow configures JetStream duplicate tracking window.
 	DedupWindow string `json:"dedup_window"`
 	// MaxAge defines stream retention max age.

@@ -730,6 +730,96 @@ func TestStripComments_BlockCommentPreservesNewlines(t *testing.T) {
 	}
 }
 
+// ── Shard config validation ───────────────────────────────────────────────────
+
+func jetStreamShardBaseConfig() AppConfig {
+	cfg, _ := Load("")
+	cfg.Bus.Type = "jetstream"
+	// Provide the minimum valid JetStream fields so validation reaches shard checks.
+	cfg.JetStream.URL = "nats://localhost:4222"
+	cfg.JetStream.StreamName = "MARKETDATA"
+	cfg.JetStream.ConsumerDurable = "processor-v1"
+	return cfg
+}
+
+func TestValidate_ShardGroupCount_DefaultOne_Passes(t *testing.T) {
+	cfg := jetStreamShardBaseConfig()
+	// Default is ShardGroupCount=1, ShardGroupID=0 — sharding disabled.
+	if prob := cfg.Validate(); prob != nil {
+		t.Fatalf("default shard config should pass validation, got: %v", prob)
+	}
+}
+
+func TestValidate_ShardGroupCount_Zero_Fails(t *testing.T) {
+	cfg := jetStreamShardBaseConfig()
+	cfg.JetStream.ShardGroupCount = 0
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("shard_group_count=0 should fail validation")
+	}
+	if !strings.Contains(prob.Message, "shard_group_count") {
+		t.Fatalf("error message should mention shard_group_count, got: %q", prob.Message)
+	}
+}
+
+func TestValidate_ShardGroupCount_Negative_Fails(t *testing.T) {
+	cfg := jetStreamShardBaseConfig()
+	cfg.JetStream.ShardGroupCount = -1
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("shard_group_count=-1 should fail validation")
+	}
+}
+
+func TestValidate_ShardGroupID_EqualCount_Fails(t *testing.T) {
+	cfg := jetStreamShardBaseConfig()
+	cfg.JetStream.ShardGroupCount = 3
+	cfg.JetStream.ShardGroupID = 3 // must be in [0, 3)
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("shard_group_id=3 with count=3 should fail validation")
+	}
+	if !strings.Contains(prob.Message, "shard_group_id") {
+		t.Fatalf("error message should mention shard_group_id, got: %q", prob.Message)
+	}
+}
+
+func TestValidate_ShardGroupID_Negative_Fails(t *testing.T) {
+	cfg := jetStreamShardBaseConfig()
+	cfg.JetStream.ShardGroupCount = 2
+	cfg.JetStream.ShardGroupID = -1
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("shard_group_id=-1 should fail validation")
+	}
+}
+
+func TestValidate_ShardGroupID_ValidRange_Passes(t *testing.T) {
+	for count := 1; count <= 4; count++ {
+		for id := 0; id < count; id++ {
+			cfg := jetStreamShardBaseConfig()
+			cfg.JetStream.ShardGroupCount = count
+			cfg.JetStream.ShardGroupID = id
+			if prob := cfg.Validate(); prob != nil {
+				t.Errorf("count=%d id=%d should pass validation, got: %v", count, id, prob)
+			}
+		}
+	}
+}
+
+func TestLoad_ShardGroupDefaults(t *testing.T) {
+	cfg, prob := Load("")
+	if prob != nil {
+		t.Fatalf("Load: %v", prob)
+	}
+	if cfg.JetStream.ShardGroupCount != 1 {
+		t.Errorf("default ShardGroupCount = %d; want 1", cfg.JetStream.ShardGroupCount)
+	}
+	if cfg.JetStream.ShardGroupID != 0 {
+		t.Errorf("default ShardGroupID = %d; want 0", cfg.JetStream.ShardGroupID)
+	}
+}
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 func testConsumerExchanges() []ConsumerExchangeConfig {

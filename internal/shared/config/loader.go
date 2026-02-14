@@ -197,6 +197,12 @@ func validateJetStream(bus BusConfig, j JetStreamConfig) *problem.Problem {
 			return problem.Newf(codeInvalid, "jetstream.filter_subjects[%d] must not be empty", i)
 		}
 	}
+	if j.ShardGroupCount < 1 {
+		return problem.Newf(codeInvalid, "jetstream.shard_group_count must be >= 1, got %d", j.ShardGroupCount)
+	}
+	if j.ShardGroupID < 0 || j.ShardGroupID >= j.ShardGroupCount {
+		return problem.Newf(codeInvalid, "jetstream.shard_group_id must be in [0, %d), got %d", j.ShardGroupCount, j.ShardGroupID)
+	}
 	if _, err := parseByteSize(j.MaxBytes); err != nil {
 		return problem.Newf(codeInvalid, "jetstream.max_bytes: invalid size %q: %v", j.MaxBytes, err)
 	}
@@ -737,6 +743,10 @@ func applyDefaults(c *AppConfig) {
 	if len(c.JetStream.FilterSubjects) == 0 {
 		c.JetStream.FilterSubjects = []string{"marketdata.bookdelta.>"}
 	}
+	if c.JetStream.ShardGroupCount == 0 {
+		c.JetStream.ShardGroupCount = 1
+	}
+	// ShardGroupID zero value (0) is the correct default.
 	if c.JetStream.DedupWindow == "" {
 		c.JetStream.DedupWindow = "5m"
 	}
