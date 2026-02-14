@@ -208,6 +208,7 @@ without requiring rewrites.
 
 - [Metrics Budget & Label Policy](./metrics-budget-label-policy.md)
  - [Sharding and consumer group operations](../operations/sharding.md)
+ - [Local dev observability setup](../operations/local-dev.md)
 
 ### ADR Index
 
