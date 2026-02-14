@@ -24,9 +24,11 @@ REPLAY_GOLDEN_PATTERN ?= TestGoldenReplay|TestReplayIngestGolden1000|TestReplayH
 REPLAY_GOLDEN_TRIGGER_REGEX ?= ^(internal/shared/replay/|internal/shared/envelope/|internal/.*/sequencer|internal/core/storage/|internal/adapters/storage/)
 REPLAY_GOLDEN_CHANGED ?=
 SOAK_OUT_FILE ?= .context/evidence/w5-soak.txt
+SOAK_VPVR_OUT_FILE ?= .context/evidence/vpvr-soak.txt
 SOAK_GO_CACHE ?= /tmp/go-build
 SOAK_WS_PATTERN ?= TestConsumer_ConnectDisconnectCycle_(NoGoroutineLeak|HeapStable)
 SOAK_BOUNDEDMAP_PATTERN ?= TestBoundedMap_(ConcurrentAccess|EvictBySizeLRU|EvictByTTL)
+SOAK_VPVR_PATTERN ?= TestVPVROverloadSoakBurstDeterministicBudgets
 VULN_REQUIRED ?= false
 MODULE ?=
 MSG_FILE ?=
@@ -44,7 +46,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules workspace-check tidy tidy-check fmt fmt-check vet quick ci-local docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci
+.PHONY: help install-tools tools modules workspace-check tidy tidy-check fmt fmt-check vet quick ci-local docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr test-short vuln build run clean docker-build docker-up docker-down up down up-infra ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci
 
 help:
 	@echo "Targets:"
@@ -78,6 +80,7 @@ help:
 	@echo "  make replay-trigger-self-check - validate replay trigger include/exclude paths"
 	@echo "  make test-soak          - alias for soak-check long-running validation"
 	@echo "  make soak-check         - run soak harness checks and emit evidence file"
+	@echo "  make soak-vpvr          - run deterministic VPVR burst soak checks"
 	@echo "  make test-short         - run short tests"
 	@echo "  make vuln               - run govulncheck"
 	@echo "  make build              - build all binaries under cmd/* (package main)"
@@ -279,6 +282,16 @@ soak-check: invariants-check
 		--go-cache "$(SOAK_GO_CACHE)" \
 		--ws-pattern "$(SOAK_WS_PATTERN)" \
 		--boundedmap-pattern "$(SOAK_BOUNDEDMAP_PATTERN)"
+	@./scripts/soak-vpvr.sh \
+		--out-file "$(SOAK_VPVR_OUT_FILE)" \
+		--go-cache "$(SOAK_GO_CACHE)" \
+		--pattern "$(SOAK_VPVR_PATTERN)"
+
+soak-vpvr: invariants-check
+	@./scripts/soak-vpvr.sh \
+		--out-file "$(SOAK_VPVR_OUT_FILE)" \
+		--go-cache "$(SOAK_GO_CACHE)" \
+		--pattern "$(SOAK_VPVR_PATTERN)"
 
 test-short:
 	$(call RUN_IN_MODULES,bash -lc 'pkgs="$$( $(GO) list ./... 2>/dev/null || true )"; if [ -n "$$pkgs" ]; then $(GO) test -short $$pkgs; else echo "no packages to test (skipping)"; fi')
