@@ -137,6 +137,26 @@ func TestStorageIdempotency_DuplicateSnapshotCommitsOncePerPath(t *testing.T) {
 	if got := cold.CommitCount(); got != 1 {
 		t.Fatalf("cold commits=%d want=1", got)
 	}
+
+	mismatch := snap
+	mismatch.Bids = []aggdomain.Level{{
+		Price:    100,
+		Quantity: 2,
+	}}
+
+	if p := hot.Save(context.Background(), mismatch); p == nil {
+		t.Fatal("expected hot duplicate key conflict for mismatched payload")
+	}
+	if p := committer.Commit(context.Background(), mismatch); p == nil {
+		t.Fatal("expected duplicate key conflict for mismatched payload")
+	}
+
+	if got := hot.CommitCount(); got != 1 {
+		t.Fatalf("hot commits after mismatch=%d want=1", got)
+	}
+	if got := cold.CommitCount(); got != 1 {
+		t.Fatalf("cold commits after mismatch=%d want=1", got)
+	}
 }
 
 func testSnapshot() aggdomain.SnapshotProduced {
