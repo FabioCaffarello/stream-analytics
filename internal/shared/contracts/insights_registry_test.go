@@ -1,6 +1,7 @@
 package contracts_test
 
 import (
+	"bytes"
 	"encoding/hex"
 	"os"
 	"reflect"
@@ -96,6 +97,58 @@ func TestRegisterInsightsPayloadV1WithOptions_EnablesVPVRProto(t *testing.T) {
 	}
 	if !reflect.DeepEqual(out, in) {
 		t.Fatalf("vpvr proto roundtrip mismatch\ngot=%+v\nwant=%+v", out, in)
+	}
+}
+
+func TestRegisterInsightsPayloadV1WithOptions_VPVRProtoByteStability(t *testing.T) {
+	reg := codec.NewRegistry()
+	if p := contracts.RegisterInsightsPayloadV1WithOptions(reg, contracts.InsightsCodecOptions{
+		EnableVolumeProfileSnapshotProto: true,
+	}); p != nil {
+		t.Fatalf("RegisterInsightsPayloadV1WithOptions: %v", p)
+	}
+
+	key := codec.SchemaKey{
+		Type:    insightsdomain.VolumeProfileSnapshotType,
+		Version: 1,
+		Format:  codec.FormatProto,
+	}
+	enc, ok := reg.Encoder(key)
+	if !ok {
+		t.Fatalf("missing proto encoder for key %+v", key)
+	}
+	dec, ok := reg.Decoder(key)
+	if !ok {
+		t.Fatalf("missing proto decoder for key %+v", key)
+	}
+
+	in := testVPVRSnapshot()
+	first, p := enc.Encode(in)
+	if p != nil {
+		t.Fatalf("first encode vpvr proto: %v", p)
+	}
+	second, p := enc.Encode(in)
+	if p != nil {
+		t.Fatalf("second encode vpvr proto: %v", p)
+	}
+	if !bytes.Equal(first, second) {
+		t.Fatalf("byte stability mismatch: first=%x second=%x", first, second)
+	}
+
+	decodedAny, p := dec.Decode(first)
+	if p != nil {
+		t.Fatalf("decode vpvr proto: %v", p)
+	}
+	decoded, ok := decodedAny.(insightsdomain.VolumeProfileSnapshotV1)
+	if !ok {
+		t.Fatalf("decoded type=%T want %T", decodedAny, insightsdomain.VolumeProfileSnapshotV1{})
+	}
+	third, p := enc.Encode(decoded)
+	if p != nil {
+		t.Fatalf("re-encode decoded vpvr proto: %v", p)
+	}
+	if !bytes.Equal(first, third) {
+		t.Fatalf("re-encode byte stability mismatch: original=%x reencoded=%x", first, third)
 	}
 }
 
