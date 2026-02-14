@@ -207,6 +207,21 @@ func TestPolicyKitMetrics_StableLabelsOnly(t *testing.T) {
 	assertMetricLabelNames(t, "policykit_degrade_total", []string{"stream", "venue"})
 }
 
+func TestPolicyKitLatencyDeterministicSampling(t *testing.T) {
+	t.Parallel()
+
+	stream := "marketdata.bookdelta_sampling"
+	venue := "binance"
+	before := policyKitLatencySampleCount(t, sanitizeEventType(stream))
+	for i := 0; i < int(policyKitLatencyEveryN*2); i++ {
+		ObservePolicyKitLatencyMilliseconds(stream, 1.5, venue)
+	}
+	after := policyKitLatencySampleCount(t, sanitizeEventType(stream))
+	if got := after - before; got != 2 {
+		t.Fatalf("expected deterministic sampling count delta=2, got %d", got)
+	}
+}
+
 func TestSanitizeSubsystemMultiExchange(t *testing.T) {
 	tests := []struct {
 		input string
@@ -312,4 +327,29 @@ func assertMetricLabelNames(t *testing.T, metricName string, want []string) {
 	}
 
 	t.Fatalf("metric family %s not found", metricName)
+}
+
+func policyKitLatencySampleCount(t *testing.T, stream string) uint64 {
+	t.Helper()
+
+	mfs, err := Registry().Gather()
+	if err != nil {
+		t.Fatalf("gather metrics: %v", err)
+	}
+	for _, mf := range mfs {
+		if mf.GetName() != "policykit_latency_ms" {
+			continue
+		}
+		for _, metric := range mf.GetMetric() {
+			labels := metric.GetLabel()
+			for _, label := range labels {
+				if label.GetName() == "stream" && label.GetValue() == stream {
+					if h := metric.GetHistogram(); h != nil {
+						return h.GetSampleCount()
+					}
+				}
+			}
+		}
+	}
+	return 0
 }

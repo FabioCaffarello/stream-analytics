@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/market-raccoon/internal/shared/observability"
@@ -17,6 +18,7 @@ const (
 	statusDuplicate        = "duplicate"
 	statusOutOfOrder       = "out_of_order"
 	statusValidationFailed = "validation_failed"
+	policyKitLatencyEveryN = uint64(8)
 )
 
 var (
@@ -505,6 +507,7 @@ var (
 	registerOnce sync.Once
 	gcMu         sync.Mutex
 	lastNumGC    uint32
+	samplerMu    sync.Map
 
 	venuePattern     = regexp.MustCompile(`^[a-z0-9_\-]{1,24}$`)
 	eventTypePattern = regexp.MustCompile(`^[a-z0-9_.]{1,64}$`)
@@ -960,9 +963,16 @@ func IncPolicyKitCompress(stream string) {
 	PolicyKitCompressTotal.WithLabelValues(sanitizeEventType(stream)).Inc()
 }
 
-func ObservePolicyKitLatencyMilliseconds(stream string, latencyMs float64) {
+func ObservePolicyKitLatencyMilliseconds(stream string, latencyMs float64, args ...string) {
 	if latencyMs < 0 {
 		latencyMs = 0
+	}
+	venue := policyKitVenueFromArgs(args...)
+	if !shouldSampleDeterministically(
+		"policykit_latency:"+sanitizeEventType(stream)+":"+venue,
+		policyKitLatencyEveryN,
+	) {
+		return
 	}
 	PolicyKitLatencyMilliseconds.WithLabelValues(sanitizeEventType(stream)).Observe(latencyMs)
 }
@@ -978,6 +988,16 @@ func policyKitVenueFromArgs(args ...string) string {
 		// Preferred shape: (stream, venue, reason|action).
 		return sanitizeVenue(args[0])
 	}
+}
+
+func shouldSampleDeterministically(partition string, everyN uint64) bool {
+	if everyN <= 1 {
+		return true
+	}
+	counterAny, _ := samplerMu.LoadOrStore(partition, &atomic.Uint64{})
+	counter := counterAny.(*atomic.Uint64)
+	// First observation passes, then every Nth.
+	return (counter.Add(1)-1)%everyN == 0
 }
 
 func ObserveHeatmapBuildLatency(venue, instrument, timeframe string, latency time.Duration) {
