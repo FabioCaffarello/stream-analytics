@@ -501,6 +501,41 @@ var (
 		},
 		[]string{"venue", "instrument_bucket"},
 	)
+
+	// ── Shard consumer observability ─────────────────────────────────────
+	// These metrics carry a group_id label so each horizontal shard replica
+	// can be monitored independently.  They are only populated when
+	// jetstream.shard_group_count > 1; at count=1 they remain at zero.
+
+	ShardConsumerLag = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "jetstream_shard_consumer_lag",
+			Help: "Estimated JetStream consumer lag (NumPending) per shard group.",
+		},
+		[]string{"group_id"},
+	)
+	ShardRedeliveredTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "jetstream_shard_redelivered_total",
+			Help: "Total redelivered messages per shard group.",
+		},
+		[]string{"group_id"},
+	)
+	ShardAckLatencySeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "jetstream_shard_ack_latency_seconds",
+			Help:    "Time between processing start and Ack/Nak/Term per shard group.",
+			Buckets: []float64{0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 2, 5},
+		},
+		[]string{"group_id"},
+	)
+	ShardSkipTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "jetstream_shard_skip_total",
+			Help: "Total messages skipped (belong to a different shard group).",
+		},
+		[]string{"group_id"},
+	)
 )
 
 var (
@@ -616,6 +651,10 @@ func registerAll() {
 			HeatmapPayloadBytes,
 			HeatmapDropTotal,
 			HeatmapQueueDepth,
+			ShardConsumerLag,
+			ShardRedeliveredTotal,
+			ShardAckLatencySeconds,
+			ShardSkipTotal,
 		)
 
 		// Pre-create one series for vector metrics so /metrics exposition is stable
@@ -674,6 +713,10 @@ func registerAll() {
 		HeatmapPayloadBytes.WithLabelValues("unknown", "unknown", "unknown")
 		HeatmapDropTotal.WithLabelValues("unknown")
 		HeatmapQueueDepth.WithLabelValues("unknown", "unknown")
+		ShardConsumerLag.WithLabelValues("0")
+		ShardRedeliveredTotal.WithLabelValues("0")
+		ShardAckLatencySeconds.WithLabelValues("0")
+		ShardSkipTotal.WithLabelValues("0")
 	})
 }
 
@@ -1062,6 +1105,53 @@ func SetHeatmapQueueDepth(venue, instrument string, depth int) {
 		sanitizeVenue(venue),
 		bucketInstrument(instrument),
 	).Set(float64(max(depth, 0)))
+}
+
+// ── Shard consumer observability ─────────────────────────────────────────────
+
+// SetShardConsumerLag sets the NumPending lag for the given shard group.
+func SetShardConsumerLag(groupID string, lag int64) {
+	if lag < 0 {
+		lag = 0
+	}
+	ShardConsumerLag.WithLabelValues(sanitizeGroupID(groupID)).Set(float64(lag))
+}
+
+// IncShardRedelivered increments the redelivery counter for the given shard group.
+func IncShardRedelivered(groupID string) {
+	ShardRedeliveredTotal.WithLabelValues(sanitizeGroupID(groupID)).Inc()
+}
+
+// ObserveShardAckLatency records an ack latency observation for the shard group.
+func ObserveShardAckLatency(groupID string, latency time.Duration) {
+	if latency < 0 {
+		latency = 0
+	}
+	ShardAckLatencySeconds.WithLabelValues(sanitizeGroupID(groupID)).Observe(latency.Seconds())
+}
+
+// IncShardSkip increments the skip counter for the given shard group.
+func IncShardSkip(groupID string) {
+	ShardSkipTotal.WithLabelValues(sanitizeGroupID(groupID)).Inc()
+}
+
+// sanitizeGroupID normalises a group ID string for use as a Prometheus label.
+// Group IDs are always small non-negative integers; values outside [0,999]
+// are collapsed to "unknown" to prevent label explosion.
+func sanitizeGroupID(v string) string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return "unknown"
+	}
+	for _, c := range v {
+		if c < '0' || c > '9' {
+			return "unknown"
+		}
+	}
+	if len(v) > 3 {
+		return "unknown"
+	}
+	return v
 }
 
 type busObserver struct{}
