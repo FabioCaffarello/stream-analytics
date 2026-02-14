@@ -1,6 +1,7 @@
 package contracts
 
 import (
+	"encoding/json"
 	"math"
 	"strings"
 
@@ -9,6 +10,13 @@ import (
 	envelopev1 "github.com/market-raccoon/internal/shared/proto/gen/envelope/v1"
 	"google.golang.org/protobuf/proto"
 )
+
+// HTTPEnvelopeDecodeResult is the decoded envelope projection used by HTTP tests and adapters.
+type HTTPEnvelopeDecodeResult struct {
+	Type             string
+	ContentType      string
+	PayloadJSONBytes []byte
+}
 
 // MarshalEnvelopeV1FromPayload builds an envelope.v1 wrapper and marshals it to protobuf wire bytes.
 func MarshalEnvelopeV1FromPayload(eventType string, payload []byte, contentType string) ([]byte, *problem.Problem) {
@@ -68,5 +76,34 @@ func UnmarshalEnvelopeV1ToDomain(raw []byte) (envelope.Envelope, *problem.Proble
 		Meta:           msg.GetMeta(),
 		Payload:        msg.GetPayload(),
 		ContentType:    msg.GetContentType(),
+	}, nil
+}
+
+// DecodeEnvelopeV1FromHTTP decodes an envelope.v1 HTTP body and validates required wire invariants.
+func DecodeEnvelopeV1FromHTTP(body []byte) (HTTPEnvelopeDecodeResult, *problem.Problem) {
+	var msg envelopev1.Envelope
+	if err := proto.Unmarshal(body, &msg); err != nil {
+		return HTTPEnvelopeDecodeResult{}, problem.Wrap(err, problem.ValidationFailed, "unmarshal envelope.v1 failed")
+	}
+
+	eventType := strings.TrimSpace(msg.GetType())
+	if eventType == "" {
+		return HTTPEnvelopeDecodeResult{}, problem.WithDetail(
+			problem.New(problem.ValidationFailed, "envelope type must not be empty"),
+			"field", "type",
+		)
+	}
+	payload := msg.GetPayload()
+	if !json.Valid(payload) {
+		return HTTPEnvelopeDecodeResult{}, problem.WithDetail(
+			problem.New(problem.ValidationFailed, "envelope payload must be valid JSON"),
+			"field", "payload",
+		)
+	}
+
+	return HTTPEnvelopeDecodeResult{
+		Type:             eventType,
+		ContentType:      strings.TrimSpace(msg.GetContentType()),
+		PayloadJSONBytes: payload,
 	}, nil
 }
