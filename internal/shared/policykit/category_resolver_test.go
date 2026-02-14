@@ -25,12 +25,12 @@ func TestCategoryResolverResolveSubject(t *testing.T) {
 	}
 }
 
-func TestNeverDropCloseFinalGuard(t *testing.T) {
+func TestDropAllowedGuard(t *testing.T) {
 	decision := Decision{Actions: []Action{{Type: ActionDropDelta}}}
-	if !NeverDropCloseFinal(CategoryCloseFinal, decision) {
-		t.Fatal("guard must block drop for close/final")
+	if DropAllowed(CategoryCloseFinal, decision) {
+		t.Fatal("close/final must never be drop-eligible")
 	}
-	if NeverDropCloseFinal(CategoryDelta, decision) {
-		t.Fatal("guard must not block drop for delta")
+	if !DropAllowed(CategoryDelta, decision) {
+		t.Fatal("delta must be drop-eligible when DropDelta is active")
 	}
 }

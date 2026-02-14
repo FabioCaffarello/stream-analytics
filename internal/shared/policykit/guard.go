@@ -1,9 +1,13 @@
 package policykit
 
-// NeverDropCloseFinal blocks drop decisions for close/final categories.
-func NeverDropCloseFinal(category Category, decision Decision) bool {
-	if category != CategoryCloseFinal {
+// DropAllowed reports whether DropDelta can remove an event from this category.
+// Close/final is never drop-eligible.
+func DropAllowed(category Category, decision Decision) bool {
+	if !decision.HasAction(ActionDropDelta) {
 		return false
 	}
-	return decision.HasAction(ActionDropDelta)
+	if category == CategoryCloseFinal {
+		return false
+	}
+	return category == CategoryDelta
 }

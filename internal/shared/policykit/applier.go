@@ -101,5 +101,5 @@ func resolveStride(decision Decision) (uint64, bool) {
 }
 
 func shouldDrop(decision Decision, category Category) bool {
-	return decision.HasAction(ActionDropDelta) && category == CategoryDelta && !NeverDropCloseFinal(category, decision)
+	return DropAllowed(category, decision)
 }
