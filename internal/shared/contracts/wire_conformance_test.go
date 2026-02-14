@@ -2,6 +2,9 @@ package contracts_test
 
 import (
 	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -15,33 +18,100 @@ import (
 )
 
 func TestWireConformance_SubjectPayloadCodecDecode_TradeProto(t *testing.T) {
-	reg := newConformanceRegistry(t)
-	in := marketdomain.TradeTickV1{
+	runMarketDataSubjectProtoRoundtrip(t, "marketdata.trade", marketdomain.TradeTickV1{
 		Price:     65000.5,
 		Size:      0.25,
 		Side:      "buy",
 		TradeID:   "t-100",
 		Timestamp: 1_710_000_000_100,
-	}
+	}, validateTradeTick)
+}
 
+func TestWireConformance_SubjectPayloadCodecDecode_BookDeltaProto(t *testing.T) {
+	runMarketDataSubjectProtoRoundtrip(t, "marketdata.bookdelta", marketdomain.BookDeltaV1{
+		Bids:      []marketdomain.PriceLevel{{Price: 65000.1, Size: 1.2}},
+		Asks:      []marketdomain.PriceLevel{{Price: 65001.3, Size: 0.8}},
+		FirstID:   100,
+		FinalID:   101,
+		PrevFinal: 99,
+		Timestamp: 1_710_000_000_200,
+	}, validateBookDelta)
+}
+
+func TestWireConformance_SubjectPayloadCodecDecode_MarkPriceProto(t *testing.T) {
+	runMarketDataSubjectProtoRoundtrip(t, "marketdata.markprice", marketdomain.MarkPriceTickV1{
+		MarkPrice:   64999.7,
+		IndexPrice:  65000.0,
+		FundingRate: 0.0001,
+		Timestamp:   1_710_000_000_300,
+	}, validateMarkPrice)
+}
+
+func runMarketDataSubjectProtoRoundtrip(t *testing.T, eventType string, payload any, validate func(t *testing.T, got any, want any)) {
+	t.Helper()
+	reg := newConformanceRegistry(t)
 	subject := envelope.SubjectFromEnvelope(envelope.Envelope{
-		Type:       "marketdata.trade",
+		Type:       eventType,
 		Version:    1,
 		Venue:      "binance",
 		Instrument: "BTC-USDT",
 	})
-
-	raw := mustEncode(t, reg, codec.SchemaKey{Type: "marketdata.trade", Version: 1, Format: codec.FormatProto}, in)
+	raw := mustEncode(t, reg, codec.SchemaKey{Type: eventType, Version: 1, Format: codec.FormatProto}, payload)
 	outAny, p := decodeBySubject(reg, subject, envelope.ContentTypeProto, raw)
 	if p != nil {
 		t.Fatalf("decodeBySubject: %v", p)
 	}
-	out, ok := outAny.(marketdomain.TradeTickV1)
+	validate(t, outAny, payload)
+}
+
+func validateTradeTick(t *testing.T, got any, want any) {
+	t.Helper()
+	out, ok := got.(marketdomain.TradeTickV1)
 	if !ok {
-		t.Fatalf("decoded type=%T want %T", outAny, marketdomain.TradeTickV1{})
+		t.Fatalf("decoded type=%T want %T", got, marketdomain.TradeTickV1{})
 	}
+	in := want.(marketdomain.TradeTickV1)
 	if out != in {
 		t.Fatalf("decoded mismatch\ngot=%+v\nwant=%+v", out, in)
+	}
+	if out.Side != "buy" && out.Side != "sell" {
+		t.Fatalf("invalid trade side enum %q", out.Side)
+	}
+	if out.TradeID == "" || out.Timestamp <= 0 {
+		t.Fatalf("missing required trade fields: %+v", out)
+	}
+}
+
+func validateBookDelta(t *testing.T, got any, want any) {
+	t.Helper()
+	out, ok := got.(marketdomain.BookDeltaV1)
+	if !ok {
+		t.Fatalf("decoded type=%T want %T", got, marketdomain.BookDeltaV1{})
+	}
+	in := want.(marketdomain.BookDeltaV1)
+	if len(out.Bids) != len(in.Bids) || len(out.Asks) != len(in.Asks) || out.FirstID != in.FirstID || out.FinalID != in.FinalID || out.Timestamp != in.Timestamp {
+		t.Fatalf("decoded mismatch\ngot=%+v\nwant=%+v", out, in)
+	}
+	if out.FinalID < out.FirstID {
+		t.Fatalf("invalid bookdelta ids first=%d final=%d", out.FirstID, out.FinalID)
+	}
+	if out.Timestamp <= 0 {
+		t.Fatalf("missing required bookdelta timestamp: %+v", out)
+	}
+}
+
+func validateMarkPrice(t *testing.T, got any, want any) {
+	t.Helper()
+	out, ok := got.(marketdomain.MarkPriceTickV1)
+	if !ok {
+		t.Fatalf("decoded type=%T want %T", got, marketdomain.MarkPriceTickV1{})
+	}
+	in := want.(marketdomain.MarkPriceTickV1)
+	if out != in {
+		t.Fatalf("decoded mismatch\ngot=%+v\nwant=%+v", out, in)
+	}
+	if out.Timestamp <= 0 {
+		t.Fatalf("missing required markprice timestamp: %+v", out)
 	}
 }
 
@@ -95,6 +165,61 @@ func TestWireConformance_RejectsPayloadMismatchForSubjectProto(t *testing.T) {
 	}
 	if p.Code != problem.ValidationFailed {
 		t.Fatalf("problem code=%q want=%q", p.Code, problem.ValidationFailed)
+	}
+}
+
+func TestWireConformance_RegistrySchemasRequireProtoDecoderForCoreMarketData(t *testing.T) {
+	t.Parallel()
+
+	reg := newConformanceRegistry(t)
+	type schema struct {
+		Type    string `json:"type"`
+		Version int32  `json:"version"`
+		Status  string `json:"status"`
+	}
+	var parsed struct {
+		Schemas []schema `json:"schemas"`
+	}
+
+	path := filepath.Join(findRepoRootFromWD(t), "proto", "registry.json")
+	// #nosec G304 -- path is repository-owned registry fixture.
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("decode %s: %v", path, err)
+	}
+	for _, sch := range parsed.Schemas {
+		if sch.Status != "stable" && sch.Status != "draft" {
+			continue
+		}
+		if sch.Type != "marketdata.trade" && sch.Type != "marketdata.bookdelta" && sch.Type != "marketdata.markprice" {
+			continue
+		}
+		key := codec.SchemaKey{Type: sch.Type, Version: sch.Version, Format: codec.FormatProto}
+		if _, ok := reg.Decoder(key); !ok {
+			t.Fatalf("missing proto decoder for registry schema type=%q version=%d", sch.Type, sch.Version)
+		}
+	}
+}
+
+func findRepoRootFromWD(t *testing.T) string {
+	t.Helper()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	dir := wd
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.work")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatalf("unable to locate repository root from %s", wd)
+		}
+		dir = parent
 	}
 }
 
