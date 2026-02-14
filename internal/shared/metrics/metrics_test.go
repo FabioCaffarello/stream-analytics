@@ -116,6 +116,11 @@ func TestMetricsNamesPresent(t *testing.T) {
 	IncVPVRDegrade("compress")
 	ObserveVPVRCompressRatio(0.5)
 	ObserveVPVRProcessingLatencyMilliseconds(4)
+	SetPolicyKitOverloadLevel("marketdata.bookdelta", "binance", "BTC-USDT", 2)
+	IncPolicyKitDrop("marketdata.bookdelta", "delta_l3")
+	IncPolicyKitDegrade("marketdata.bookdelta", "stride_2")
+	IncPolicyKitCompress("insights.volume_profile_snapshot")
+	ObservePolicyKitLatencyMilliseconds("marketdata.bookdelta", 1.5)
 	ObserveHeatmapBuildLatency("binance", "BTC-USDT", "1m", 3*time.Millisecond)
 	SetHeatmapCells("binance", "BTC-USDT", "1m", 42)
 	ObserveHeatmapPayloadBytes("binance", "BTC-USDT", "1m", 2048)
@@ -161,6 +166,11 @@ func TestMetricsNamesPresent(t *testing.T) {
 		"vpvr_degrade_total",
 		"vpvr_compress_ratio",
 		"vpvr_processing_latency_ms",
+		"policykit_overload_level",
+		"policykit_drop_total",
+		"policykit_degrade_total",
+		"policykit_compress_total",
+		"policykit_latency_ms",
 		"heatmap_build_latency_ms",
 		"heatmap_cells_total",
 		"heatmap_payload_bytes",

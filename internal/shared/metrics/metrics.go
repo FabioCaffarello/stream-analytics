@@ -426,6 +426,42 @@ var (
 			Buckets: []float64{0, 0.1, 0.5, 1, 2, 5, 10, 25, 50, 100, 250, 500},
 		},
 	)
+	PolicyKitOverloadLevel = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "policykit_overload_level",
+			Help: "Current PolicyKit overload level per stream partition.",
+		},
+		[]string{"stream", "venue", "instrument"},
+	)
+	PolicyKitDropTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "policykit_drop_total",
+			Help: "Total PolicyKit drops by stream and reason.",
+		},
+		[]string{"stream", "reason"},
+	)
+	PolicyKitDegradeTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "policykit_degrade_total",
+			Help: "Total PolicyKit degradations by stream and action.",
+		},
+		[]string{"stream", "action"},
+	)
+	PolicyKitCompressTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "policykit_compress_total",
+			Help: "Total PolicyKit compress actions by stream.",
+		},
+		[]string{"stream"},
+	)
+	PolicyKitLatencyMilliseconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "policykit_latency_ms",
+			Help:    "Latency in milliseconds for PolicyKit decision+apply path.",
+			Buckets: []float64{0, 0.05, 0.1, 0.5, 1, 2, 5, 10, 25, 50, 100, 250},
+		},
+		[]string{"stream"},
+	)
 	HeatmapBuildLatencyMilliseconds = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "heatmap_build_latency_ms",
@@ -544,6 +580,11 @@ func registerAll() {
 			VPVRDegradeTotal,
 			VPVRCompressRatio,
 			VPVRProcessingLatencyMilliseconds,
+			PolicyKitOverloadLevel,
+			PolicyKitDropTotal,
+			PolicyKitDegradeTotal,
+			PolicyKitCompressTotal,
+			PolicyKitLatencyMilliseconds,
 			HeatmapBuildLatencyMilliseconds,
 			HeatmapCellsTotal,
 			HeatmapPayloadBytes,
@@ -597,6 +638,11 @@ func registerAll() {
 		VPVROverloadLevel.WithLabelValues("unknown", "unknown", "unknown")
 		VPVRDropTotal.WithLabelValues("unknown")
 		VPVRDegradeTotal.WithLabelValues("unknown")
+		PolicyKitOverloadLevel.WithLabelValues("unknown", "unknown", "unknown")
+		PolicyKitDropTotal.WithLabelValues("unknown", "unknown")
+		PolicyKitDegradeTotal.WithLabelValues("unknown", "unknown")
+		PolicyKitCompressTotal.WithLabelValues("unknown")
+		PolicyKitLatencyMilliseconds.WithLabelValues("unknown")
 		HeatmapBuildLatencyMilliseconds.WithLabelValues("unknown", "unknown", "unknown")
 		HeatmapCellsTotal.WithLabelValues("unknown", "unknown", "unknown")
 		HeatmapPayloadBytes.WithLabelValues("unknown", "unknown", "unknown")
@@ -880,6 +926,39 @@ func ObserveVPVRProcessingLatencyMilliseconds(latencyMs float64) {
 		latencyMs = 0
 	}
 	VPVRProcessingLatencyMilliseconds.Observe(latencyMs)
+}
+
+func SetPolicyKitOverloadLevel(stream, venue, instrument string, level int) {
+	if level < 0 {
+		level = 0
+	}
+	if level > 3 {
+		level = 3
+	}
+	PolicyKitOverloadLevel.WithLabelValues(
+		sanitizeEventType(stream),
+		sanitizeVenue(venue),
+		sanitizeInstrument(instrument),
+	).Set(float64(level))
+}
+
+func IncPolicyKitDrop(stream, reason string) {
+	PolicyKitDropTotal.WithLabelValues(sanitizeEventType(stream), sanitizeIngestReason(reason)).Inc()
+}
+
+func IncPolicyKitDegrade(stream, action string) {
+	PolicyKitDegradeTotal.WithLabelValues(sanitizeEventType(stream), sanitizeKind(action)).Inc()
+}
+
+func IncPolicyKitCompress(stream string) {
+	PolicyKitCompressTotal.WithLabelValues(sanitizeEventType(stream)).Inc()
+}
+
+func ObservePolicyKitLatencyMilliseconds(stream string, latencyMs float64) {
+	if latencyMs < 0 {
+		latencyMs = 0
+	}
+	PolicyKitLatencyMilliseconds.WithLabelValues(sanitizeEventType(stream)).Observe(latencyMs)
 }
 
 func ObserveHeatmapBuildLatency(venue, instrument, timeframe string, latency time.Duration) {

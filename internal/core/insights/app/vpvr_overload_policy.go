@@ -122,15 +122,21 @@ func (p *VPVREmitPolicy) Apply(input VPVROverloadInput) VPVROverloadOutput {
 	p.mu.Unlock()
 
 	metrics.SetVPVROverloadLevel(input.Venue, input.Instrument, input.Timeframe, int(out.Level))
+	metrics.SetPolicyKitOverloadLevel("insights.volume_profile", input.Venue, input.Instrument, int(out.Level))
 	metrics.ObserveVPVRProcessingLatencyMilliseconds(input.ProcessingMs)
+	metrics.ObservePolicyKitLatencyMilliseconds("insights.volume_profile", input.ProcessingMs)
 	if out.Compressed {
 		metrics.IncVPVRDegrade("compress")
+		metrics.IncPolicyKitCompress("insights.volume_profile")
+		metrics.IncPolicyKitDegrade("insights.volume_profile", "compress")
 	}
 	if out.CadenceDropped {
 		metrics.IncVPVRDegrade("cadence_skip")
+		metrics.IncPolicyKitDegrade("insights.volume_profile", "cadence_skip")
 	}
 	if out.DeltaDropped {
 		metrics.IncVPVRDrop(out.DropReason)
+		metrics.IncPolicyKitDrop("insights.volume_profile", out.DropReason)
 	}
 	metrics.ObserveVPVRCompressRatio(out.CompressRatio)
 	return out

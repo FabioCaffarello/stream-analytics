@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/anthdm/hollywood/actor"
 	actorruntime "github.com/market-raccoon/internal/actors/runtime"
@@ -31,6 +32,7 @@ import (
 	"github.com/market-raccoon/internal/shared/codec"
 	"github.com/market-raccoon/internal/shared/envelope"
 	sharedhash "github.com/market-raccoon/internal/shared/hash"
+	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/policykit"
 	"github.com/market-raccoon/internal/shared/problem"
 )
@@ -255,6 +257,7 @@ func (p *ProcessorSubsystemActor) applyPolicyKit(env envelope.Envelope) (envelop
 	if p.cfg.PolicyKitEngine == nil || p.policyApplier == nil {
 		return env, false
 	}
+	started := time.Now()
 
 	partition := env.Type + "|" + env.Venue + "|" + env.Instrument
 	prev := p.policyLevels[partition]
@@ -263,9 +266,15 @@ func (p *ProcessorSubsystemActor) applyPolicyKit(env envelope.Envelope) (envelop
 		BacklogCap: p.cfg.PolicyKitBacklogCapacity,
 	})
 	p.policyLevels[partition] = decision.Level
+	metrics.SetPolicyKitOverloadLevel(env.Type, env.Venue, env.Instrument, int(decision.Level))
+	if stride := decision.DegradeStride(); stride > 1 {
+		metrics.IncPolicyKitDegrade(env.Type, fmt.Sprintf("stride_%d", stride))
+	}
 
 	applied := p.policyApplier.Apply(decision, []envelope.Envelope{env}, policykit.ApplyHooks{})
+	metrics.ObservePolicyKitLatencyMilliseconds(env.Type, float64(time.Since(started))/float64(time.Millisecond))
 	if len(applied) == 0 {
+		metrics.IncPolicyKitDrop(env.Type, "policy_drop")
 		return env, true
 	}
 	return applied[0], false
