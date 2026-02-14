@@ -114,19 +114,21 @@ services:
     volumes:
       - clickhouse_data:/var/lib/clickhouse/
       - clickhouse_logs:/var/log/clickhouse-server/
-      - ../clickhouse/config:/etc/clickhouse-server/config.d/:ro
-      - ../clickhouse/users:/etc/clickhouse-server/users.d/:ro
+      - ../clickhouse/config/listen.xml:/etc/clickhouse-server/config.d/listen.xml:ro
+      - ../clickhouse/users/raccoon-user.xml:/etc/clickhouse-server/users.d/raccoon-user.xml:ro
       - ../../sql/clickhouse/migrations:/docker-entrypoint-initdb.d:ro
     cap_add:
       - SYS_NICE
     networks:
       - market-raccoon-network
+    env_file:
+      - ../envs/local.env
     healthcheck:
-      test: ["CMD-SHELL", "clickhouse-client --host 127.0.0.1 --user default --password password --query 'SELECT 1' >/dev/null 2>&1"]
+      test: ["CMD-SHELL", "clickhouse-client --port 9000 --user default --password password --query 'SELECT 1' >/dev/null 2>&1"]
       interval: 10s
       timeout: 3s
-      retries: 10
-      start_period: 10s
+      retries: 20
+      start_period: 30s
     restart: unless-stopped
 
   prometheus:
@@ -152,11 +154,8 @@ services:
   grafana:
     image: grafana/grafana:11.2.0
     container_name: market-raccoon-grafana
-    environment:
-      GF_SECURITY_ADMIN_PASSWORD: admin
-      GF_SECURITY_ADMIN_USER: admin
-      GF_USERS_ALLOW_SIGN_UP: "false"
-      GF_INSTALL_PLUGINS: grafana-clock-panel
+    env_file:
+      - ../envs/local.env
     ports:
       - "127.0.0.1:3000:3000"
     volumes:

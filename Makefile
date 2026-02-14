@@ -360,14 +360,8 @@ run:
 clean:
 	@rm -rf ./bin ./dist ./.cache
 
-docker-up:
-	docker compose -f deploy/compose/docker-compose.yml up --build -d
-
-docker-down:
-	docker compose -f deploy/compose/docker-compose.yml down --remove-orphans
-
 up:
-	docker compose -f deploy/compose/docker-compose.yml up --build
+	docker compose -f deploy/compose/docker-compose.yml up --build -d
 
 down:
 	docker compose -f deploy/compose/docker-compose.yml down -v --remove-orphans
