@@ -2,6 +2,7 @@ package clickhouse
 
 import (
 	"context"
+	"strings"
 	"sync"
 
 	insightsdomain "github.com/market-raccoon/internal/core/insights/domain"
@@ -27,13 +28,14 @@ func (w *HeatmapWriter) Save(_ context.Context, artifact insightsdomain.HeatmapA
 	if p := artifact.Validate(); p != nil {
 		return p
 	}
-	seqMax := artifact.Cells[len(artifact.Cells)-1].SeqMax
+	if strings.TrimSpace(sourceIdempotencyKey) == "" {
+		return problem.New(problem.ValidationFailed, "clickhouse heatmap source idempotency key must not be empty")
+	}
 	key := ids.HeatmapArtifactWriteKey(
 		artifact.Venue,
 		artifact.Instrument,
 		artifact.Timeframe,
 		artifact.WindowStartTs,
-		seqMax,
 		sourceIdempotencyKey,
 	)
 	w.mu.Lock()

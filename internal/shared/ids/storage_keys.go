@@ -33,14 +33,13 @@ func AggregationSnapshotWriteKey(venue, instrument string, seq int64, sourceIdem
 
 // HeatmapArtifactWriteKey builds the deterministic idempotency key for
 // heatmap artifacts persisted in hot/cold paths.
-func HeatmapArtifactWriteKey(venue, instrument, timeframe string, windowStartTs, seqMax int64, sourceIdempotencyKey string) string {
+func HeatmapArtifactWriteKey(venue, instrument, timeframe string, windowStartTs int64, sourceIdempotencyKey string) string {
 	return hash.HashFields(
 		naming.NormalizeEventType(heatmapSnapshotSubject),
 		naming.CanonicalVenue(venue),
 		naming.CanonicalInstrument(instrument),
 		strconv.FormatInt(windowStartTs, 10),
 		strings.ToLower(strings.TrimSpace(timeframe)),
-		strconv.FormatInt(seqMax, 10),
 		sourceIdempotencyKey,
 	)
 }
