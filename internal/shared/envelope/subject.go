@@ -1,7 +1,7 @@
 package envelope
 
 import (
-	"fmt"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -26,13 +26,16 @@ func SubjectFromEnvelope(env Envelope) string {
 	}
 
 	instrument := normalizeSubjectInstrument(env.Instrument)
-	return fmt.Sprintf("%s.v%d.%s.%s", eventType, version, venue, instrument)
+	return eventType + ".v" + strconv.Itoa(version) + "." + venue + "." + instrument
 }
 
 func normalizeSubjectInstrument(instrument string) string {
 	raw := strings.ToUpper(strings.TrimSpace(instrument))
 	if raw == "" {
 		return "UNKNOWN"
+	}
+	if isUpperAlphaNumeric(raw) {
+		return raw
 	}
 
 	var b strings.Builder
@@ -46,4 +49,18 @@ func normalizeSubjectInstrument(instrument string) string {
 		return "UNKNOWN"
 	}
 	return b.String()
+}
+
+func isUpperAlphaNumeric(s string) bool {
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if ch >= 'A' && ch <= 'Z' {
+			continue
+		}
+		if ch >= '0' && ch <= '9' {
+			continue
+		}
+		return false
+	}
+	return true
 }
