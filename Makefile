@@ -370,10 +370,10 @@ up:
 	docker compose -f deploy/compose/docker-compose.yml up --build
 
 down:
-	docker compose -f deploy/compose/docker-compose.yml down --remove-orphans
+	docker compose -f deploy/compose/docker-compose.yml down -v --remove-orphans
 
 up-infra:
-	docker compose -f deploy/compose/docker-compose.yml up -d nats
+	docker compose -f deploy/compose/docker-compose.yml up -d nats clickhouse prometheus grafana
 
 ps:
 	docker compose -f deploy/compose/docker-compose.yml ps
