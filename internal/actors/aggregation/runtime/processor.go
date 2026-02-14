@@ -271,13 +271,13 @@ func (p *ProcessorSubsystemActor) applyPolicyKit(env envelope.Envelope) (envelop
 		metrics.IncPolicyKitDegrade(env.Type, fmt.Sprintf("stride_%d", stride))
 	}
 
-	applied := p.policyApplier.Apply(decision, []envelope.Envelope{env}, policykit.ApplyHooks{})
+	applied, keep := p.policyApplier.ApplySingle(decision, env, policykit.ApplyHooks{})
 	metrics.ObservePolicyKitLatencyMilliseconds(env.Type, float64(time.Since(started))/float64(time.Millisecond))
-	if len(applied) == 0 {
+	if !keep {
 		metrics.IncPolicyKitDrop(env.Type, "policy_drop")
 		return env, true
 	}
-	return applied[0], false
+	return applied, false
 }
 
 // handleBookDelta decodes a BookDeltaV1 payload and calls UpdateOrderBook.

@@ -32,6 +32,14 @@ func NewApplier(resolver CategoryResolver) *Applier {
 	}
 }
 
+// ApplySingle executes Drop/Degrade/Compress actions for one envelope.
+func (a *Applier) ApplySingle(decision Decision, env envelope.Envelope, hooks ApplyHooks) (envelope.Envelope, bool) {
+	resolver := a.resolveResolver(hooks)
+	partitionFn := resolvePartitionKey(hooks)
+	stride, strideEnabled := resolveStride(decision)
+	return a.applySingleResolved(decision, env, hooks, resolver, partitionFn, stride, strideEnabled)
+}
+
 // Apply executes Drop/Degrade/Compress actions in deterministic order.
 func (a *Applier) Apply(decision Decision, envs []envelope.Envelope, hooks ApplyHooks) []envelope.Envelope {
 	if len(envs) == 0 {
@@ -40,29 +48,49 @@ func (a *Applier) Apply(decision Decision, envs []envelope.Envelope, hooks Apply
 	resolver := a.resolveResolver(hooks)
 	partitionFn := resolvePartitionKey(hooks)
 	stride, strideEnabled := resolveStride(decision)
+	if len(envs) == 1 {
+		if envOut, keep := a.applySingleResolved(decision, envs[0], hooks, resolver, partitionFn, stride, strideEnabled); keep {
+			return []envelope.Envelope{envOut}
+		}
+		return nil
+	}
 
 	out := make([]envelope.Envelope, 0, len(envs))
 	for _, env := range envs {
-		category := resolver.ResolveSubject(envelope.SubjectFromEnvelope(env))
-		if shouldDrop(decision, category) {
-			continue
+		if envOut, keep := a.applySingleResolved(decision, env, hooks, resolver, partitionFn, stride, strideEnabled); keep {
+			out = append(out, envOut)
 		}
-
-		if strideEnabled && category != CategoryCloseFinal {
-			count := a.nextCount(partitionFn(env))
-			if count%stride != 0 {
-				continue
-			}
-		}
-
-		if decision.HasAction(ActionCompressSnapshot) && category == CategorySnapshot && hooks.CompressSnapshot != nil {
-			if compressed, ok := hooks.CompressSnapshot(env); ok {
-				env = compressed
-			}
-		}
-		out = append(out, env)
 	}
 	return out
+}
+
+func (a *Applier) applySingleResolved(
+	decision Decision,
+	env envelope.Envelope,
+	hooks ApplyHooks,
+	resolver CategoryResolver,
+	partitionFn func(envelope.Envelope) string,
+	stride uint64,
+	strideEnabled bool,
+) (envelope.Envelope, bool) {
+	category := resolver.ResolveSubject(envelope.SubjectFromEnvelope(env))
+	if shouldDrop(decision, category) {
+		return env, false
+	}
+
+	if strideEnabled && category != CategoryCloseFinal {
+		count := a.nextCount(partitionFn(env))
+		if count%stride != 0 {
+			return env, false
+		}
+	}
+
+	if decision.HasAction(ActionCompressSnapshot) && category == CategorySnapshot && hooks.CompressSnapshot != nil {
+		if compressed, ok := hooks.CompressSnapshot(env); ok {
+			env = compressed
+		}
+	}
+	return env, true
 }
 
 func (a *Applier) nextCount(partition string) uint64 {

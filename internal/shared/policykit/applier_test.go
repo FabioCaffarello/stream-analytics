@@ -2,6 +2,7 @@ package policykit
 
 import (
 	"fmt"
+	"reflect"
 	"slices"
 	"testing"
 
@@ -151,6 +152,44 @@ func TestApplierNoDuplicatesIntroduced(t *testing.T) {
 			t.Fatalf("duplicate seq %d", env.Seq)
 		}
 		seen[env.Seq] = true
+	}
+}
+
+func TestApplySingleEquivalentToApply(t *testing.T) {
+	decision := Decision{
+		Actions: []Action{
+			{Type: ActionDropDelta},
+			{Type: ActionDegradeStride, Stride: 2},
+			{Type: ActionCompressSnapshot},
+		},
+	}
+	envs := []envelope.Envelope{
+		makeEnv("marketdata.bookdelta", 1),
+		makeEnv("insights.volume_profile_snapshot", 2),
+		makeEnv("insights.volume_profile_snapshot", 3),
+		makeEnv("insights.volume_profile_final", 4),
+	}
+	hooks := ApplyHooks{
+		CompressSnapshot: func(env envelope.Envelope) (envelope.Envelope, bool) {
+			if env.Meta == nil {
+				env.Meta = map[string]string{}
+			}
+			env.Meta["compressed"] = "1"
+			return env, true
+		},
+	}
+
+	batch := NewApplier(NewCategoryResolver()).Apply(decision, envs, hooks)
+	singleApplier := NewApplier(NewCategoryResolver())
+	single := make([]envelope.Envelope, 0, len(envs))
+	for _, env := range envs {
+		if envOut, keep := singleApplier.ApplySingle(decision, env, hooks); keep {
+			single = append(single, envOut)
+		}
+	}
+
+	if !reflect.DeepEqual(batch, single) {
+		t.Fatalf("Apply vs ApplySingle mismatch: batch=%v single=%v", batch, single)
 	}
 }
 
