@@ -101,6 +101,23 @@ func TestStorageAckOnCommit_NoAckWhenCommitFails(t *testing.T) {
 	}
 }
 
+func TestStorageAckOnCommit_FailsWhenCommitterIsNil(t *testing.T) {
+	acked := false
+	p := storage.CommitAndAck(context.Background(), nil, testSnapshot(), func() error {
+		acked = true
+		return nil
+	})
+	if p == nil {
+		t.Fatal("expected validation failure for nil committer")
+	}
+	if p.Code != problem.ValidationFailed {
+		t.Fatalf("problem code=%q want=%q", p.Code, problem.ValidationFailed)
+	}
+	if acked {
+		t.Fatal("ack must not be called when committer is nil")
+	}
+}
+
 func TestStorageIdempotency_DuplicateSnapshotCommitsOncePerPath(t *testing.T) {
 	hot := timescale.NewWriter()
 	cold := clickhouse.NewWriter()

@@ -42,6 +42,9 @@ func (c *SnapshotCommitter) Commit(ctx context.Context, snap aggdomain.SnapshotP
 // CommitAndAck enforces ack-on-commit boundary: ack is called only after
 // both storage writes have committed successfully.
 func CommitAndAck(ctx context.Context, committer *SnapshotCommitter, snap aggdomain.SnapshotProduced, ack func() error) *problem.Problem {
+	if committer == nil {
+		return problem.New(problem.ValidationFailed, "snapshot committer is nil")
+	}
 	if p := committer.Commit(ctx, snap); p != nil {
 		return p
 	}
