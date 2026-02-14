@@ -1,5 +1,5 @@
 version: 1
-last_updated: 2026-02-13
+last_updated: 2026-02-14
 canonical_subject_format: "{event}.v{version}.{venue}.{instrument}"
 status_values:
   - stable
@@ -155,6 +155,28 @@ subjects:
       - docs/contracts/event-bus.md
   - id: insights.volume_profile_delta.v1
     pattern: insights.volume_profile_delta.v1.{venue}.{instrument}
+    root: insights
+    owner_bc: insights
+    producer_bc: insights
+    schema_authority_bc: insights
+    consumer_bcs: [delivery]
+    status: stable
+    sources:
+      - .context/docs/feature-packs/volume-profiles.md
+      - docs/contracts/event-bus.md
+  - id: insights.volume_profile_window_close.v1
+    pattern: insights.volume_profile_window_close.v1.{venue}.{instrument}
+    root: insights
+    owner_bc: insights
+    producer_bc: insights
+    schema_authority_bc: insights
+    consumer_bcs: [delivery]
+    status: stable
+    sources:
+      - .context/docs/feature-packs/volume-profiles.md
+      - docs/contracts/event-bus.md
+  - id: insights.volume_profile_final.v1
+    pattern: insights.volume_profile_final.v1.{venue}.{instrument}
     root: insights
     owner_bc: insights
     producer_bc: insights
