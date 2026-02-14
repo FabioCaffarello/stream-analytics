@@ -57,6 +57,8 @@ type VPVROverloadOutput struct {
 	Compressed     bool
 	CompressRatio  float64
 	CadenceDropped bool
+	DeltaDropped   bool
+	DropReason     string
 }
 
 type VPVREmitPolicy struct {
@@ -114,6 +116,7 @@ func EvaluateVPVROverload(input VPVROverloadInput) VPVROverloadOutput {
 		snapshot, compressed, compressRatio = compressSnapshotByLevel(snapshot, next.Level)
 	}
 	emitSnapshot := shouldEmitSnapshotAtCadence(next.EventCount, next.Level, input.WindowClose)
+	emitDelta, dropReason := shouldEmitDelta(next.EventCount, next.Level, input.WindowClose, input.HasDelta)
 
 	return VPVROverloadOutput{
 		NextState:      next,
@@ -121,10 +124,12 @@ func EvaluateVPVROverload(input VPVROverloadInput) VPVROverloadOutput {
 		Snapshot:       snapshot,
 		EmitSnapshot:   emitSnapshot,
 		Delta:          input.Delta,
-		EmitDelta:      input.HasDelta,
+		EmitDelta:      emitDelta,
 		Compressed:     compressed,
 		CompressRatio:  compressRatio,
 		CadenceDropped: !emitSnapshot,
+		DeltaDropped:   input.HasDelta && !emitDelta,
+		DropReason:     dropReason,
 	}
 }
 
@@ -147,6 +152,9 @@ func (p *VPVREmitPolicy) Apply(input VPVROverloadInput) VPVROverloadOutput {
 	}
 	if out.CadenceDropped {
 		metrics.IncVPVRDegrade("cadence_skip")
+	}
+	if out.DeltaDropped {
+		metrics.IncVPVRDrop(out.DropReason)
 	}
 	metrics.ObserveVPVRCompressRatio(out.CompressRatio)
 	return out
@@ -282,5 +290,25 @@ func cadenceStrideForLevel(level VPVROverloadLevel) int {
 		return 4
 	default:
 		return 1
+	}
+}
+
+func shouldEmitDelta(eventCount uint64, level VPVROverloadLevel, windowClose bool, hasDelta bool) (bool, string) {
+	if !hasDelta {
+		return false, ""
+	}
+	if windowClose {
+		return true, ""
+	}
+	switch level {
+	case VPVROverloadL3:
+		return false, "delta_l3"
+	case VPVROverloadL2:
+		if eventCount%2 == 1 {
+			return false, "delta_l2"
+		}
+		return true, ""
+	default:
+		return true, ""
 	}
 }

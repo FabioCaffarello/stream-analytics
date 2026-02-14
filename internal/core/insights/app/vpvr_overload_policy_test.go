@@ -209,6 +209,70 @@ func TestEvaluateVPVROverload_CadenceNeverDropsWindowClose(t *testing.T) {
 	}
 }
 
+func TestEvaluateVPVROverload_DropDeltaL3ButKeepWindowClose(t *testing.T) {
+	open := EvaluateVPVROverload(VPVROverloadInput{
+		WindowClose: false,
+		HasDelta:    true,
+		Snapshot:    testVPVRSnapshot(4),
+		PartitionState: VPVROverloadState{
+			Level: VPVROverloadL3,
+		},
+		Signals: VPVROverloadSignals{
+			QueueDepth:    95,
+			QueueCapacity: 100,
+		},
+	})
+	if open.EmitDelta {
+		t.Fatal("expected delta drop in L3 open window")
+	}
+	if !open.DeltaDropped || open.DropReason != "delta_l3" {
+		t.Fatalf("drop info=%v/%q want dropped delta_l3", open.DeltaDropped, open.DropReason)
+	}
+
+	closeOut := EvaluateVPVROverload(VPVROverloadInput{
+		WindowClose: true,
+		HasDelta:    true,
+		Snapshot:    testVPVRSnapshot(4),
+		PartitionState: VPVROverloadState{
+			Level: VPVROverloadL3,
+		},
+		Signals: VPVROverloadSignals{
+			QueueDepth:    95,
+			QueueCapacity: 100,
+		},
+	})
+	if !closeOut.EmitDelta {
+		t.Fatal("window close must keep delta")
+	}
+	if closeOut.DeltaDropped {
+		t.Fatal("window close delta must not be marked dropped")
+	}
+}
+
+func TestEvaluateVPVROverload_DropDeltaL2DeterministicEveryOther(t *testing.T) {
+	state := VPVROverloadState{Level: VPVROverloadL2}
+	got := make([]bool, 0, 6)
+	for i := 0; i < 6; i++ {
+		out := EvaluateVPVROverload(VPVROverloadInput{
+			HasDelta:       true,
+			Snapshot:       testVPVRSnapshot(4),
+			PartitionState: state,
+			Signals: VPVROverloadSignals{
+				QueueDepth:    80,
+				QueueCapacity: 100,
+			},
+		})
+		got = append(got, out.EmitDelta)
+		state = out.NextState
+	}
+	want := []bool{false, true, false, true, false, true}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("emit_delta[%d]=%v want=%v seq=%v", i, got[i], want[i], got)
+		}
+	}
+}
+
 func testVPVRSnapshot(count int) domain.VolumeProfileSnapshotV1 {
 	buckets := make([]domain.VolumeProfileBucketV1, 0, count)
 	for i := 0; i < count; i++ {
