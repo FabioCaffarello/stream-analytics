@@ -80,7 +80,7 @@ func TestEvaluateVPVROverload_IsPureDeterministic(t *testing.T) {
 		Instrument: "BTC-USDT",
 		Timeframe:  "1m",
 		Signals: VPVROverloadSignals{
-			QueueDepth:    80,
+			QueueDepth:    40,
 			QueueCapacity: 100,
 		},
 		PartitionState: VPVROverloadState{
@@ -99,11 +99,11 @@ func TestEvaluateVPVROverload_IsPureDeterministic(t *testing.T) {
 	if a.Level != b.Level {
 		t.Fatalf("level mismatch: a=%d b=%d", a.Level, b.Level)
 	}
-	if !a.EmitSnapshot || !b.EmitSnapshot {
-		t.Fatal("expected snapshot emission")
+	if a.EmitSnapshot != b.EmitSnapshot {
+		t.Fatalf("snapshot emission mismatch: a=%v b=%v", a.EmitSnapshot, b.EmitSnapshot)
 	}
-	if !a.EmitDelta || !b.EmitDelta {
-		t.Fatal("expected delta emission")
+	if a.EmitDelta != b.EmitDelta {
+		t.Fatalf("delta emission mismatch: a=%v b=%v", a.EmitDelta, b.EmitDelta)
 	}
 }
 
@@ -163,6 +163,49 @@ func TestEvaluateVPVROverload_DoesNotCompressWindowClose(t *testing.T) {
 	}
 	if got, want := len(out.Snapshot.Buckets), len(snapshot.Buckets); got != want {
 		t.Fatalf("bucket count=%d want=%d", got, want)
+	}
+}
+
+func TestEvaluateVPVROverload_DegradeCadenceByCountNoClock(t *testing.T) {
+	snapshot := testVPVRSnapshot(4)
+	state := VPVROverloadState{Level: VPVROverloadL2}
+	emits := make([]bool, 0, 6)
+	for i := 0; i < 6; i++ {
+		out := EvaluateVPVROverload(VPVROverloadInput{
+			Snapshot:       snapshot,
+			PartitionState: state,
+			Signals: VPVROverloadSignals{
+				QueueDepth:    80,
+				QueueCapacity: 100,
+			},
+		})
+		emits = append(emits, out.EmitSnapshot)
+		state = out.NextState
+	}
+
+	want := []bool{false, true, false, true, false, true}
+	for i := range want {
+		if emits[i] != want[i] {
+			t.Fatalf("emit[%d]=%v want=%v sequence=%v", i, emits[i], want[i], emits)
+		}
+	}
+}
+
+func TestEvaluateVPVROverload_CadenceNeverDropsWindowClose(t *testing.T) {
+	out := EvaluateVPVROverload(VPVROverloadInput{
+		WindowClose: true,
+		Snapshot:    testVPVRSnapshot(4),
+		PartitionState: VPVROverloadState{
+			Level:      VPVROverloadL3,
+			EventCount: 1,
+		},
+		Signals: VPVROverloadSignals{
+			QueueDepth:    95,
+			QueueCapacity: 100,
+		},
+	})
+	if !out.EmitSnapshot {
+		t.Fatal("window close must always emit snapshot")
 	}
 }
 

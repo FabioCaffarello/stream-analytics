@@ -48,14 +48,15 @@ type VPVROverloadInput struct {
 }
 
 type VPVROverloadOutput struct {
-	NextState     VPVROverloadState
-	Level         VPVROverloadLevel
-	Snapshot      domain.VolumeProfileSnapshotV1
-	EmitSnapshot  bool
-	Delta         domain.VolumeProfileSnapshotV1
-	EmitDelta     bool
-	Compressed    bool
-	CompressRatio float64
+	NextState      VPVROverloadState
+	Level          VPVROverloadLevel
+	Snapshot       domain.VolumeProfileSnapshotV1
+	EmitSnapshot   bool
+	Delta          domain.VolumeProfileSnapshotV1
+	EmitDelta      bool
+	Compressed     bool
+	CompressRatio  float64
+	CadenceDropped bool
 }
 
 type VPVREmitPolicy struct {
@@ -112,16 +113,18 @@ func EvaluateVPVROverload(input VPVROverloadInput) VPVROverloadOutput {
 	if !input.WindowClose {
 		snapshot, compressed, compressRatio = compressSnapshotByLevel(snapshot, next.Level)
 	}
+	emitSnapshot := shouldEmitSnapshotAtCadence(next.EventCount, next.Level, input.WindowClose)
 
 	return VPVROverloadOutput{
-		NextState:     next,
-		Level:         next.Level,
-		Snapshot:      snapshot,
-		EmitSnapshot:  true,
-		Delta:         input.Delta,
-		EmitDelta:     input.HasDelta,
-		Compressed:    compressed,
-		CompressRatio: compressRatio,
+		NextState:      next,
+		Level:          next.Level,
+		Snapshot:       snapshot,
+		EmitSnapshot:   emitSnapshot,
+		Delta:          input.Delta,
+		EmitDelta:      input.HasDelta,
+		Compressed:     compressed,
+		CompressRatio:  compressRatio,
+		CadenceDropped: !emitSnapshot,
 	}
 }
 
@@ -141,6 +144,9 @@ func (p *VPVREmitPolicy) Apply(input VPVROverloadInput) VPVROverloadOutput {
 	metrics.ObserveVPVRProcessingLatencyMilliseconds(input.ProcessingMs)
 	if out.Compressed {
 		metrics.IncVPVRDegrade("compress")
+	}
+	if out.CadenceDropped {
+		metrics.IncVPVRDegrade("cadence_skip")
 	}
 	metrics.ObserveVPVRCompressRatio(out.CompressRatio)
 	return out
@@ -255,4 +261,26 @@ func compareCompressedBucketPrice(a, b domain.VolumeProfileBucketV1) int {
 		return 1
 	}
 	return 0
+}
+
+func shouldEmitSnapshotAtCadence(eventCount uint64, level VPVROverloadLevel, windowClose bool) bool {
+	if windowClose {
+		return true
+	}
+	stride := cadenceStrideForLevel(level)
+	if stride <= 1 {
+		return true
+	}
+	return eventCount%uint64(stride) == 0
+}
+
+func cadenceStrideForLevel(level VPVROverloadLevel) int {
+	switch level {
+	case VPVROverloadL2:
+		return 2
+	case VPVROverloadL3:
+		return 4
+	default:
+		return 1
+	}
 }
