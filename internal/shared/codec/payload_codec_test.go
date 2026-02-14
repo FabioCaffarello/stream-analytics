@@ -3,6 +3,7 @@ package codec_test
 import (
 	"bytes"
 	"encoding/json"
+	"math"
 	"reflect"
 	"testing"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/problem"
+	"google.golang.org/protobuf/encoding/protowire"
 )
 
 func TestEncodeDecodePayload_Trade_JSONAndProtoSemanticEquivalence(t *testing.T) {
@@ -164,6 +166,73 @@ func TestEncodePayload_DeterministicProtoBytes_Trade_100Runs(t *testing.T) {
 		if !bytes.Equal(first, next) {
 			t.Fatalf("protobuf bytes changed at run %d", i)
 		}
+	}
+}
+
+func TestDecodePayload_TradeProto_BackwardCompatible_MissingOptionalFields(t *testing.T) {
+	bootstrapPayloadRegistry(t)
+
+	// Simula payload antigo com apenas campos 1..3.
+	wire := make([]byte, 0, 64)
+	wire = protowire.AppendTag(wire, 1, protowire.Fixed64Type)
+	wire = protowire.AppendFixed64(wire, math.Float64bits(42000.25))
+	wire = protowire.AppendTag(wire, 2, protowire.Fixed64Type)
+	wire = protowire.AppendFixed64(wire, math.Float64bits(0.75))
+	wire = protowire.AppendTag(wire, 3, protowire.BytesType)
+	wire = protowire.AppendString(wire, "buy")
+
+	outAny, p := codec.DecodePayload("marketdata.trade", 1, envelope.ContentTypeProto, wire)
+	if p != nil {
+		t.Fatalf("DecodePayload(PROTO): %v", p)
+	}
+	out, ok := outAny.(marketdomain.TradeTickV1)
+	if !ok {
+		t.Fatalf("decoded type = %T, want %T", outAny, marketdomain.TradeTickV1{})
+	}
+	if got, want := out.Price, 42000.25; got != want {
+		t.Fatalf("Price=%v want=%v", got, want)
+	}
+	if got, want := out.Size, 0.75; got != want {
+		t.Fatalf("Size=%v want=%v", got, want)
+	}
+	if got, want := out.Side, "buy"; got != want {
+		t.Fatalf("Side=%q want=%q", got, want)
+	}
+	if out.TradeID != "" || out.Timestamp != 0 {
+		t.Fatalf("expected zero defaults for missing fields, got TradeID=%q Timestamp=%d", out.TradeID, out.Timestamp)
+	}
+}
+
+func TestDecodePayload_TradeProto_ForwardCompatible_UnknownFieldsIgnored(t *testing.T) {
+	bootstrapPayloadRegistry(t)
+
+	in := marketdomain.TradeTickV1{
+		Price:     65321.25,
+		Size:      1.5,
+		Side:      "sell",
+		TradeID:   "trade-789",
+		Timestamp: 1700001111222,
+	}
+	base, p := codec.EncodePayload("marketdata.trade", 1, envelope.ContentTypeProto, in)
+	if p != nil {
+		t.Fatalf("EncodePayload(PROTO): %v", p)
+	}
+
+	// Simula payload futuro: adiciona field number 100 (string).
+	wire := append([]byte(nil), base...)
+	wire = protowire.AppendTag(wire, 100, protowire.BytesType)
+	wire = protowire.AppendString(wire, "future-compatible-extension")
+
+	outAny, p := codec.DecodePayload("marketdata.trade", 1, envelope.ContentTypeProto, wire)
+	if p != nil {
+		t.Fatalf("DecodePayload(PROTO): %v", p)
+	}
+	out, ok := outAny.(marketdomain.TradeTickV1)
+	if !ok {
+		t.Fatalf("decoded type = %T, want %T", outAny, marketdomain.TradeTickV1{})
+	}
+	if out != in {
+		t.Fatalf("decoded payload changed with unknown fields: got %+v want %+v", out, in)
 	}
 }
 
