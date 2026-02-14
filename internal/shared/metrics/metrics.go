@@ -337,14 +337,14 @@ var (
 			Name: "vpvr_builder_bucket_count",
 			Help: "Current VPVR bucket count per active partition window.",
 		},
-		[]string{"venue", "instrument", "timeframe"},
+		[]string{"venue", "instrument_bucket", "timeframe_bucket"},
 	)
 	VPVRBuilderWindowsOpen = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "vpvr_builder_windows_open",
 			Help: "Current VPVR open windows per partition.",
 		},
-		[]string{"venue", "instrument", "timeframe"},
+		[]string{"venue", "instrument_bucket", "timeframe_bucket"},
 	)
 	VPVRBuilderOverloadActionsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -398,7 +398,7 @@ var (
 			Name: "vpvr_overload_level",
 			Help: "Current VPVR overload level per partition.",
 		},
-		[]string{"venue", "instrument", "timeframe"},
+		[]string{"venue", "instrument_bucket", "timeframe_bucket"},
 	)
 	VPVRDropTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -470,14 +470,14 @@ var (
 			Help:    "Latency in milliseconds to build one heatmap artifact window.",
 			Buckets: []float64{0.1, 0.5, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000},
 		},
-		[]string{"venue", "instrument", "timeframe"},
+		[]string{"venue", "instrument_bucket", "timeframe_bucket"},
 	)
 	HeatmapCellsTotal = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "heatmap_cells_total",
 			Help: "Current emitted heatmap cell count by partition.",
 		},
-		[]string{"venue", "instrument", "timeframe"},
+		[]string{"venue", "instrument_bucket", "timeframe_bucket"},
 	)
 	HeatmapPayloadBytes = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
@@ -485,7 +485,7 @@ var (
 			Help:    "Size in bytes of emitted heatmap payloads.",
 			Buckets: []float64{64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144},
 		},
-		[]string{"venue", "instrument", "timeframe"},
+		[]string{"venue", "instrument_bucket", "timeframe_bucket"},
 	)
 	HeatmapDropTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -499,7 +499,7 @@ var (
 			Name: "heatmap_queue_depth",
 			Help: "Current heatmap pipeline queue depth by partition.",
 		},
-		[]string{"venue", "instrument"},
+		[]string{"venue", "instrument_bucket"},
 	)
 )
 
@@ -509,13 +509,36 @@ var (
 	lastNumGC    uint32
 	samplerMu    sync.Map
 
-	venuePattern     = regexp.MustCompile(`^[a-z0-9_\-]{1,24}$`)
-	eventTypePattern = regexp.MustCompile(`^[a-z0-9_.]{1,64}$`)
-	policyPattern    = regexp.MustCompile(`^[a-z_]{1,32}$`)
-	kindPattern      = regexp.MustCompile(`^[a-z0-9_]{1,48}$`)
-	busTypePattern   = regexp.MustCompile(`^[a-z0-9_]{1,24}$`)
-	busStatusPattern = regexp.MustCompile(`^[a-z_]{1,24}$`)
-	timeframePattern = regexp.MustCompile(`^[a-z0-9_]{1,16}$`)
+	venuePattern            = regexp.MustCompile(`^[a-z0-9_\-]{1,24}$`)
+	eventTypePattern        = regexp.MustCompile(`^[a-z0-9_.]{1,64}$`)
+	policyPattern           = regexp.MustCompile(`^[a-z_]{1,32}$`)
+	kindPattern             = regexp.MustCompile(`^[a-z0-9_]{1,48}$`)
+	busTypePattern          = regexp.MustCompile(`^[a-z0-9_]{1,24}$`)
+	busStatusPattern        = regexp.MustCompile(`^[a-z_]{1,24}$`)
+	instrumentBucketAliases = map[string]string{
+		"btc":   "btc",
+		"xbt":   "btc",
+		"eth":   "eth",
+		"usdt":  "stable",
+		"usdc":  "stable",
+		"dai":   "stable",
+		"fdusd": "stable",
+		"bnb":   "major",
+		"sol":   "major",
+		"xrp":   "major",
+		"ada":   "major",
+		"doge":  "major",
+		"dot":   "major",
+		"avax":  "major",
+	}
+	timeframeAllowedBuckets = map[string]struct{}{
+		"1m":  {},
+		"5m":  {},
+		"15m": {},
+		"1h":  {},
+		"4h":  {},
+		"1d":  {},
+	}
 )
 
 func init() {
@@ -845,8 +868,8 @@ func SetVPVRBuilderBucketCount(venue, instrument, timeframe string, count int) {
 	}
 	VPVRBuilderBucketCount.WithLabelValues(
 		sanitizeVenue(venue),
-		sanitizeInstrument(instrument),
-		sanitizeTimeframe(timeframe),
+		bucketInstrument(instrument),
+		bucketTimeframe(timeframe),
 	).Set(float64(count))
 }
 
@@ -856,8 +879,8 @@ func SetVPVRBuilderWindowsOpen(venue, instrument, timeframe string, count int) {
 	}
 	VPVRBuilderWindowsOpen.WithLabelValues(
 		sanitizeVenue(venue),
-		sanitizeInstrument(instrument),
-		sanitizeTimeframe(timeframe),
+		bucketInstrument(instrument),
+		bucketTimeframe(timeframe),
 	).Set(float64(count))
 }
 
@@ -901,8 +924,8 @@ func SetVPVROverloadLevel(venue, instrument, timeframe string, level int) {
 	}
 	VPVROverloadLevel.WithLabelValues(
 		sanitizeVenue(venue),
-		sanitizeInstrument(instrument),
-		sanitizeTimeframe(timeframe),
+		bucketInstrument(instrument),
+		bucketTimeframe(timeframe),
 	).Set(float64(level))
 }
 
@@ -1006,16 +1029,16 @@ func ObserveHeatmapBuildLatency(venue, instrument, timeframe string, latency tim
 	}
 	HeatmapBuildLatencyMilliseconds.WithLabelValues(
 		sanitizeVenue(venue),
-		sanitizeInstrument(instrument),
-		sanitizeTimeframe(timeframe),
+		bucketInstrument(instrument),
+		bucketTimeframe(timeframe),
 	).Observe(float64(latency) / float64(time.Millisecond))
 }
 
 func SetHeatmapCells(venue, instrument, timeframe string, cells int) {
 	HeatmapCellsTotal.WithLabelValues(
 		sanitizeVenue(venue),
-		sanitizeInstrument(instrument),
-		sanitizeTimeframe(timeframe),
+		bucketInstrument(instrument),
+		bucketTimeframe(timeframe),
 	).Set(float64(max(cells, 0)))
 }
 
@@ -1025,8 +1048,8 @@ func ObserveHeatmapPayloadBytes(venue, instrument, timeframe string, payloadByte
 	}
 	HeatmapPayloadBytes.WithLabelValues(
 		sanitizeVenue(venue),
-		sanitizeInstrument(instrument),
-		sanitizeTimeframe(timeframe),
+		bucketInstrument(instrument),
+		bucketTimeframe(timeframe),
 	).Observe(float64(payloadBytes))
 }
 
@@ -1037,7 +1060,7 @@ func IncHeatmapDrop(reason string) {
 func SetHeatmapQueueDepth(venue, instrument string, depth int) {
 	HeatmapQueueDepth.WithLabelValues(
 		sanitizeVenue(venue),
-		sanitizeInstrument(instrument),
+		bucketInstrument(instrument),
 	).Set(float64(max(depth, 0)))
 }
 
@@ -1212,12 +1235,11 @@ func sanitizeIngestReason(v string) string {
 	return "unknown"
 }
 
-func sanitizeInstrument(v string) string {
+func bucketInstrument(v string) string {
 	v = strings.ToUpper(strings.TrimSpace(v))
 	if v == "" {
 		return "unknown"
 	}
-	// Keep cardinality bounded by dropping non-alnum characters.
 	var b strings.Builder
 	b.Grow(len(v))
 	for _, r := range v {
@@ -1225,15 +1247,24 @@ func sanitizeInstrument(v string) string {
 			b.WriteRune(r)
 		}
 	}
-	if b.Len() == 0 {
+	sanitized := b.String()
+	if sanitized == "" {
 		return "unknown"
 	}
-	return b.String()
+	for alias, bucket := range instrumentBucketAliases {
+		if strings.Contains(strings.ToLower(sanitized), alias) {
+			return bucket
+		}
+	}
+	if strings.HasSuffix(strings.ToLower(sanitized), "usd") {
+		return "fiat"
+	}
+	return "other"
 }
 
-func sanitizeTimeframe(v string) string {
+func bucketTimeframe(v string) string {
 	v = strings.ToLower(strings.TrimSpace(v))
-	if timeframePattern.MatchString(v) {
+	if _, ok := timeframeAllowedBuckets[v]; ok {
 		return v
 	}
 	return "unknown"

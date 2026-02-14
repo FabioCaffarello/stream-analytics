@@ -207,6 +207,31 @@ func TestPolicyKitMetrics_StableLabelsOnly(t *testing.T) {
 	assertMetricLabelNames(t, "policykit_degrade_total", []string{"stream", "venue"})
 }
 
+func TestVPVRAndHeatmapMetrics_BoundedLabelsOnly(t *testing.T) {
+	t.Parallel()
+
+	SetVPVRBuilderBucketCount("binance", "BTC-USDT", "1m", 8)
+	SetVPVRBuilderWindowsOpen("binance", "BTC-USDT", "1m", 2)
+	SetVPVROverloadLevel("binance", "BTC-USDT", "1m", 1)
+	ObserveHeatmapBuildLatency("binance", "BTC-USDT", "1m", 2*time.Millisecond)
+	SetHeatmapCells("binance", "BTC-USDT", "1m", 50)
+	ObserveHeatmapPayloadBytes("binance", "BTC-USDT", "1m", 1024)
+	SetHeatmapQueueDepth("binance", "BTC-USDT", 3)
+
+	for _, metricName := range []string{
+		"vpvr_builder_bucket_count",
+		"vpvr_builder_windows_open",
+		"vpvr_overload_level",
+		"heatmap_build_latency_ms",
+		"heatmap_cells_total",
+		"heatmap_payload_bytes",
+	} {
+		assertMetricLabelNames(t, metricName, []string{"instrument_bucket", "timeframe_bucket", "venue"})
+	}
+
+	assertMetricLabelNames(t, "heatmap_queue_depth", []string{"instrument_bucket", "venue"})
+}
+
 func TestPolicyKitLatencyDeterministicSampling(t *testing.T) {
 	t.Parallel()
 
@@ -276,6 +301,50 @@ func TestInsightsSnapshotBucketsBounded(t *testing.T) {
 	}
 }
 
+func TestInstrumentBucketAllowList(t *testing.T) {
+	t.Parallel()
+
+	allowed := map[string]struct{}{
+		"unknown": {},
+		"btc":     {},
+		"eth":     {},
+		"stable":  {},
+		"major":   {},
+		"fiat":    {},
+		"other":   {},
+	}
+	inputs := []string{
+		"", "BTC-USDT", "ETHUSDT", "USDCUSD", "BNB-USDT", "SOLUSDT", "EURUSD", "WEIRD-PAIR",
+	}
+	for _, input := range inputs {
+		got := bucketInstrument(input)
+		if _, ok := allowed[got]; !ok {
+			t.Fatalf("bucketInstrument(%q)=%q not in allow-list", input, got)
+		}
+	}
+}
+
+func TestTimeframeBucketAllowList(t *testing.T) {
+	t.Parallel()
+
+	allowed := map[string]struct{}{
+		"1m":      {},
+		"5m":      {},
+		"15m":     {},
+		"1h":      {},
+		"4h":      {},
+		"1d":      {},
+		"unknown": {},
+	}
+	inputs := []string{"1m", "5m", "15m", "1h", "4h", "1d", "30m", "7d", ""}
+	for _, input := range inputs {
+		got := bucketTimeframe(input)
+		if _, ok := allowed[got]; !ok {
+			t.Fatalf("bucketTimeframe(%q)=%q not in allow-list", input, got)
+		}
+	}
+}
+
 func insightsSnapshotSeriesCount(t *testing.T) int {
 	t.Helper()
 
@@ -319,8 +388,8 @@ func assertMetricLabelNames(t *testing.T, metricName string, want []string) {
 			t.Fatalf("metric %s labels=%v want=%v", metricName, got, wantSorted)
 		}
 		for _, label := range got {
-			if label == "instrument" {
-				t.Fatalf("metric %s must not expose instrument label", metricName)
+			if label == "instrument" || label == "timeframe" {
+				t.Fatalf("metric %s must not expose unbounded labels instrument/timeframe", metricName)
 			}
 		}
 		return
