@@ -469,7 +469,7 @@ func withConsumerDefaults(cfg ConsumerConfig) ConsumerConfig {
 		cfg.DeliverPolicy = "all"
 	}
 	if len(cfg.FilterSubjects) == 0 {
-		cfg.FilterSubjects = []string{"marketdata.bookdelta.>"}
+		cfg.FilterSubjects = []string{"marketdata.>"}
 	}
 	if cfg.FetchTimeout <= 0 {
 		cfg.FetchTimeout = defaultFetchTimeout

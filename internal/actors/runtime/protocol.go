@@ -14,6 +14,7 @@ const (
 	SubsystemAggregation Subsystem = "aggregation"
 	SubsystemDelivery    Subsystem = "delivery"
 	SubsystemInsights    Subsystem = "insights"
+	SubsystemStorage     Subsystem = "storage"
 )
 
 var orderedSubsystems = []Subsystem{
@@ -21,6 +22,7 @@ var orderedSubsystems = []Subsystem{
 	SubsystemAggregation,
 	SubsystemDelivery,
 	SubsystemInsights,
+	SubsystemStorage,
 }
 
 // Start requests Guardian startup orchestration.

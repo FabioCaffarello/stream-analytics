@@ -536,6 +536,32 @@ var (
 		},
 		[]string{"group_id"},
 	)
+
+	// ── Processor observability ──────────────────────────────────────────
+	// Tracks envelope processing outcomes in the aggregation processor
+	// actor so operators can prove the pipeline is alive.
+
+	ProcessorProcessedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "processor_processed_total",
+			Help: "Total envelopes processed by the aggregation processor actor.",
+		},
+		[]string{"event_type", "status"},
+	)
+	ProcessorCommitTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "processor_commit_total",
+			Help: "Total snapshot commit operations by status.",
+		},
+		[]string{"status"},
+	)
+	ProcessorCommitLatencySeconds = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "processor_commit_latency_seconds",
+			Help:    "Snapshot commit latency (hot+cold dual-write) in seconds.",
+			Buckets: []float64{0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 2, 5},
+		},
+	)
 )
 
 var (
@@ -655,6 +681,9 @@ func registerAll() {
 			ShardRedeliveredTotal,
 			ShardAckLatencySeconds,
 			ShardSkipTotal,
+			ProcessorProcessedTotal,
+			ProcessorCommitTotal,
+			ProcessorCommitLatencySeconds,
 		)
 
 		// Pre-create one series for vector metrics so /metrics exposition is stable
@@ -717,6 +746,10 @@ func registerAll() {
 		ShardRedeliveredTotal.WithLabelValues("0")
 		ShardAckLatencySeconds.WithLabelValues("0")
 		ShardSkipTotal.WithLabelValues("0")
+		ProcessorProcessedTotal.WithLabelValues("unknown", "ok")
+		ProcessorProcessedTotal.WithLabelValues("unknown", "failed")
+		ProcessorCommitTotal.WithLabelValues("ok")
+		ProcessorCommitTotal.WithLabelValues("failed")
 	})
 }
 
@@ -1152,6 +1185,26 @@ func sanitizeGroupID(v string) string {
 		return "unknown"
 	}
 	return v
+}
+
+// ── Processor observability ──────────────────────────────────────────────────
+
+// IncProcessorProcessed increments the processor_processed_total counter.
+func IncProcessorProcessed(eventType, status string) {
+	ProcessorProcessedTotal.WithLabelValues(sanitizeEventType(eventType), sanitizeStatus(status)).Inc()
+}
+
+// IncProcessorCommit increments processor_commit_total with the given status.
+func IncProcessorCommit(status string) {
+	ProcessorCommitTotal.WithLabelValues(sanitizeStatus(status)).Inc()
+}
+
+// ObserveProcessorCommitLatency records a commit latency observation.
+func ObserveProcessorCommitLatency(latency time.Duration) {
+	if latency < 0 {
+		latency = 0
+	}
+	ProcessorCommitLatencySeconds.Observe(latency.Seconds())
 }
 
 type busObserver struct{}

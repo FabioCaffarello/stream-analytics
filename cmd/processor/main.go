@@ -544,6 +544,16 @@ func main() {
 
 	logger.Info("processor starting", "bus_type", cfg.Bus.Type)
 
+	// Ensure payload codec registry is bootstrapped unconditionally so that
+	// content-type-aware decoding (e.g. protobuf) works even when
+	// EnableCrossVenueJoin is disabled. Options remain controlled by config.
+	if p := contracts.BootstrapPayloadCodecRegistryWithOptions(contracts.PayloadRegistryOptions{
+		EnableInsightsVolumeProfileSnapshotProto: cfg.Processor.Insights.EnableVolumeProfileSnapshotProto,
+	}); p != nil {
+		logger.Error("processor: payload codec registry bootstrap failed", "err", p)
+		os.Exit(1)
+	}
+
 	// ── aggregation use case ────────────────────────────────────────────────
 	artifactPub := &logArtifactPublisher{logger: logger}
 	hotStore := &committedHotStore{
@@ -556,12 +566,6 @@ func main() {
 	var publishEnvelope aggruntime.EventPublisher
 	closePublisher := func(context.Context) *problem.Problem { return nil }
 	if cfg.Processor.Insights.EnableCrossVenueJoin {
-		if p := contracts.BootstrapPayloadCodecRegistryWithOptions(contracts.PayloadRegistryOptions{
-			EnableInsightsVolumeProfileSnapshotProto: cfg.Processor.Insights.EnableVolumeProfileSnapshotProto,
-		}); p != nil {
-			logger.Error("processor: payload codec registry bootstrap failed", "err", p)
-			os.Exit(1)
-		}
 		publishEnvelope, closePublisher = buildEnvelopePublisher(cfg, logger)
 		joinTrades = insightsapp.NewJoinCrossVenueTradesWithConfig(insightsapp.JoinCrossVenueTradesConfig{
 			MaxInstruments:     cfg.Processor.Insights.MaxInstruments,

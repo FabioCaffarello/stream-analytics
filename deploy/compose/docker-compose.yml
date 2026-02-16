@@ -105,6 +105,36 @@ services:
       - market-raccoon-network
     restart: unless-stopped
 
+  store:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/store.Dockerfile
+    image: market-raccoon/store:dev
+    container_name: market-raccoon-store
+    command: ["-config", "/etc/market-raccoon/store.jsonc"]
+    environment:
+      NATS_URL: nats://nats:4222
+    ports:
+      - "127.0.0.1:8082:8082"
+    volumes:
+      - ../configs/store.jsonc:/etc/market-raccoon/store.jsonc:ro
+    depends_on:
+      nats:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      server:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8082/readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - market-raccoon-network
+    restart: unless-stopped
+
   clickhouse:
     image: clickhouse/clickhouse-server:24.8.8
     container_name: market-raccoon-clickhouse

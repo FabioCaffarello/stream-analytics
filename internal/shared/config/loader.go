@@ -81,6 +81,9 @@ func (a AppConfig) Validate() *problem.Problem {
 	if prob := validateProcessor(a.Processor); prob != nil {
 		return prob
 	}
+	if prob := validateStore(a.Store); prob != nil {
+		return prob
+	}
 	if prob := ValidateFeatureSubjects(a); prob != nil {
 		return prob
 	}
@@ -481,6 +484,13 @@ func validateProcessor(p ProcessorConfig) *problem.Problem {
 	return nil
 }
 
+func validateStore(s StoreConfig) *problem.Problem {
+	if strings.TrimSpace(s.ClickHouse.DSN) == "" {
+		return problem.New(codeInvalid, "store.clickhouse.dsn must not be empty")
+	}
+	return nil
+}
+
 func runtimeInputSubjectPatterns(cfg AppConfig) ([]string, string) {
 	if strings.EqualFold(strings.TrimSpace(cfg.Replay.Mode), "jetstream") {
 		filter := strings.TrimSpace(cfg.Replay.JetStream.SubjectFilter)
@@ -741,7 +751,7 @@ func applyDefaults(c *AppConfig) {
 		c.JetStream.DeliverPolicy = "all"
 	}
 	if len(c.JetStream.FilterSubjects) == 0 {
-		c.JetStream.FilterSubjects = []string{"marketdata.bookdelta.>"}
+		c.JetStream.FilterSubjects = []string{"marketdata.>"}
 	}
 	if c.JetStream.ShardGroupCount == 0 {
 		c.JetStream.ShardGroupCount = 1
@@ -870,6 +880,9 @@ func applyDefaults(c *AppConfig) {
 	}
 	if c.Processor.Insights.RoundingMode == "" {
 		c.Processor.Insights.RoundingMode = "half_even"
+	}
+	if c.Store.ClickHouse.DSN == "" {
+		c.Store.ClickHouse.DSN = "clickhouse://default:password@localhost:9000/default"
 	}
 	c.Processor.Insights.JoinTradesSubject = strings.TrimSpace(c.Processor.Insights.JoinTradesSubject)
 	c.Processor.Insights.SnapshotSubjectPrefix = strings.TrimSpace(c.Processor.Insights.SnapshotSubjectPrefix)

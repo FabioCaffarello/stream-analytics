@@ -84,7 +84,7 @@ func TestGuardian_StartStopDeterministicOrder(t *testing.T) {
 
 	g.stopAll(nil)
 
-	wantStop := []Subsystem{SubsystemInsights, SubsystemDelivery, SubsystemAggregation, SubsystemMarketData}
+	wantStop := []Subsystem{SubsystemStorage, SubsystemInsights, SubsystemDelivery, SubsystemAggregation, SubsystemMarketData}
 	if !reflect.DeepEqual(stopped, wantStop) {
 		t.Fatalf("stop order = %v, want %v", stopped, wantStop)
 	}
@@ -121,6 +121,7 @@ func TestGuardian_StartOrder_DynamicMarketDataKeys(t *testing.T) {
 		SubsystemAggregation,
 		SubsystemDelivery,
 		SubsystemInsights,
+		SubsystemStorage,
 		"marketdata:binance",
 		"marketdata:bybit",
 	}
@@ -222,7 +223,7 @@ func TestGuardian_SnapshotConsistent(t *testing.T) {
 	if !snap.At.Equal(clock.now) {
 		t.Fatalf("snapshot at = %v, want %v", snap.At, clock.now)
 	}
-	if got, want := len(snap.Subsystems), 4; got != want {
+	if got, want := len(snap.Subsystems), 5; got != want {
 		t.Fatalf("snapshot subsystem count = %d, want %d", got, want)
 	}
 

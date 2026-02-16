@@ -126,7 +126,8 @@ func main() {
 	seq := newInMemSequencer()
 	clk := clock.NewSystemClock()
 	ingest := mdapp.NewIngestMarketDataWithConfig(clk, seq, pub, mdapp.IngestConfig{
-		MaxStreams: cfg.MarketData.MaxInstruments,
+		MaxStreams:         cfg.MarketData.MaxInstruments,
+		PublishContentType: cfg.MarketData.PublishContentType,
 	})
 
 	runtimes, p := buildExchangeRuntimes(cfg, logger)

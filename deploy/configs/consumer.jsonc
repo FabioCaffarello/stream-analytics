@@ -12,7 +12,7 @@
     "max_ack_pending": 1024,
     "max_deliver": 10,
     "deliver_policy": "all",
-    "filter_subjects": ["marketdata.bookdelta.>"],
+    "filter_subjects": ["marketdata.>"],
     "dedup_window": "5m",
     "max_age": "24h",
     "max_bytes": "10GB"

@@ -25,6 +25,7 @@ type AppConfig struct {
 	MarketData MarketDataConfig `json:"marketdata"`
 	Replay     ReplayConfig     `json:"replay"`
 	Processor  ProcessorConfig  `json:"processor"`
+	Store      StoreConfig      `json:"store"`
 }
 
 // BusConfig controls runtime bus adapter selection.
@@ -205,6 +206,20 @@ type ReplayJetStreamConfig struct {
 	DeliverPolicy string `json:"deliver_policy"`
 	// MergeBuffer controls bounded reordering window for deterministic global ordering.
 	MergeBuffer int `json:"merge_buffer"`
+}
+
+// StoreConfig controls the store cold-path binary.
+type StoreConfig struct {
+	// ClickHouse controls ClickHouse connection for cold-path writes.
+	ClickHouse StoreClickHouseConfig `json:"clickhouse"`
+}
+
+// StoreClickHouseConfig controls ClickHouse connection for the store binary.
+type StoreClickHouseConfig struct {
+	// DSN is the ClickHouse connection string.
+	// Format: clickhouse://user:password@host:port/database
+	// Default: "clickhouse://default:password@localhost:9000/default".
+	DSN string `json:"dsn"`
 }
 
 // ProcessorConfig controls the aggregation processor binary.

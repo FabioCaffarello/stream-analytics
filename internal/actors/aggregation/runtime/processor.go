@@ -105,6 +105,12 @@ type ProcessorConfig struct {
 	PolicyKitResolver policykit.CategoryResolver
 }
 
+// heartbeatInterval controls how often the processor emits an Info-level
+// heartbeat log.  Every N envelopes processed, the actor logs aggregated
+// counters so operators can prove the pipeline is alive without tailing
+// Debug-level output.
+const heartbeatInterval = 1000
+
 // ProcessorSubsystemActor consumes envelopes from a channel and dispatches
 // them to core aggregation use cases.
 //
@@ -122,6 +128,12 @@ type ProcessorSubsystemActor struct {
 
 	policyApplier *policykit.Applier
 	policyLevels  map[string]policykit.Level
+
+	// heartbeat state — pure runtime counters, not persisted.
+	hbTotal         int64
+	hbByType        map[string]int64
+	hbLastSubject   string
+	hbLastStreamSeq int64
 }
 
 // NewProcessorSubsystemActor returns a hollywood actor.Producer for the
@@ -144,6 +156,8 @@ func (p *ProcessorSubsystemActor) Receive(c *actor.Context) {
 		p.onStopped()
 	case envelope.Envelope:
 		res := p.handleEnvelope(c, msg)
+		metrics.IncProcessorProcessed(msg.Type, processorStatus(res))
+		p.recordHeartbeat(msg)
 		p.emitProcessedResult(msg, res)
 	case busClosedMsg:
 		p.handleBusClosed(c)
@@ -322,8 +336,8 @@ func (p *ProcessorSubsystemActor) handleBookDelta(env envelope.Envelope) *proble
 		return problem.New(problem.ValidationFailed, "aggregation UpdateBook use case is not configured")
 	}
 
-	var delta mddomain.BookDeltaV1
-	if prob := codec.UnmarshalPayload(env.Type, env.Version, env.Payload, &delta); prob != nil {
+	decoded, prob := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
+	if prob != nil {
 		p.logger.Warn("aggruntime: failed to decode bookdelta payload",
 			"venue", env.Venue,
 			"instrument", env.Instrument,
@@ -332,6 +346,19 @@ func (p *ProcessorSubsystemActor) handleBookDelta(env envelope.Envelope) *proble
 			"err", prob.Message,
 		)
 		return problem.WithDetail(prob, "reason_code", reasonCodeDecodeFailed)
+	}
+	delta, ok := decoded.(mddomain.BookDeltaV1)
+	if !ok {
+		p.logger.Warn("aggruntime: decoded bookdelta payload has unexpected type",
+			"decoded_type", fmt.Sprintf("%T", decoded),
+		)
+		return problem.WithDetail(
+			problem.WithDetail(
+				problem.Newf(problem.ValidationFailed, "decoded bookdelta payload type mismatch: got %T", decoded),
+				"reason_code", reasonCodeValidationFailed,
+			),
+			"event_type", env.Type,
+		)
 	}
 
 	req := aggapp.UpdateRequest{
@@ -624,6 +651,69 @@ func unsupportedVersionProblem(eventType string, version int) *problem.Problem {
 		),
 		"type", eventType,
 	)
+}
+
+func processorStatus(prob *problem.Problem) string {
+	if prob == nil {
+		return "ok"
+	}
+	return "failed"
+}
+
+// recordHeartbeat increments counters and emits an Info-level log every
+// heartbeatInterval envelopes so operators can confirm the processor is alive.
+func (p *ProcessorSubsystemActor) recordHeartbeat(env envelope.Envelope) {
+	if p.hbByType == nil {
+		p.hbByType = make(map[string]int64)
+	}
+	p.hbTotal++
+	p.hbByType[env.Type]++
+	p.hbLastSubject = env.Type
+	p.hbLastStreamSeq = env.Seq
+
+	if p.hbTotal%heartbeatInterval == 0 {
+		p.logger.Info("aggruntime: processor heartbeat",
+			"total_processed", p.hbTotal,
+			"by_event_top", p.hbTopTypes(3),
+			"last_subject_seen", p.hbLastSubject,
+			"last_stream_seq", p.hbLastStreamSeq,
+		)
+	}
+}
+
+// hbTopTypes returns the top-N event types by count as a compact string slice
+// (e.g. ["marketdata.bookdelta:4200","marketdata.trade:800"]).
+func (p *ProcessorSubsystemActor) hbTopTypes(n int) []string {
+	if len(p.hbByType) == 0 {
+		return nil
+	}
+	type kv struct {
+		k string
+		v int64
+	}
+	entries := make([]kv, 0, len(p.hbByType))
+	for k, v := range p.hbByType {
+		entries = append(entries, kv{k, v})
+	}
+	// Simple selection sort — bounded by number of distinct event types (≤10).
+	for i := 0; i < len(entries) && i < n; i++ {
+		maxIdx := i
+		for j := i + 1; j < len(entries); j++ {
+			if entries[j].v > entries[maxIdx].v {
+				maxIdx = j
+			}
+		}
+		entries[i], entries[maxIdx] = entries[maxIdx], entries[i]
+	}
+	limit := n
+	if limit > len(entries) {
+		limit = len(entries)
+	}
+	out := make([]string, limit)
+	for i := 0; i < limit; i++ {
+		out[i] = fmt.Sprintf("%s:%d", entries[i].k, entries[i].v)
+	}
+	return out
 }
 
 func (p *ProcessorSubsystemActor) emitProcessedResult(env envelope.Envelope, prob *problem.Problem) {

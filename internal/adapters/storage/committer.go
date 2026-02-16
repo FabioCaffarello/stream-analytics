@@ -3,9 +3,11 @@ package storage
 import (
 	"context"
 	"errors"
+	"time"
 
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
 	aggports "github.com/market-raccoon/internal/core/aggregation/ports"
+	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/observability"
 	"github.com/market-raccoon/internal/shared/problem"
 )
@@ -22,36 +24,46 @@ func NewSnapshotCommitter(hot aggports.HotReadModelStore, cold aggports.ColdRead
 }
 
 func (c *SnapshotCommitter) Commit(ctx context.Context, snap aggdomain.SnapshotProduced) *problem.Problem {
+	started := time.Now()
 	if c == nil {
 		p := problem.New(problem.ValidationFailed, "snapshot committer is nil")
 		observability.SetCommitterErr(p)
+		metrics.IncProcessorCommit("failed")
 		return p
 	}
 	if c.hot == nil {
 		p := problem.New(problem.ValidationFailed, "hot writer is nil")
 		observability.SetHotErr(p)
 		observability.SetCommitterErr(p)
+		metrics.IncProcessorCommit("failed")
 		return p
 	}
 	if c.cold == nil {
 		p := problem.New(problem.ValidationFailed, "cold writer is nil")
 		observability.SetColdErr(p)
 		observability.SetCommitterErr(p)
+		metrics.IncProcessorCommit("failed")
 		return p
 	}
 	if p := c.hot.Save(ctx, snap); p != nil {
 		observability.SetHotErr(p)
 		observability.SetCommitterErr(p)
+		metrics.IncProcessorCommit("failed")
+		metrics.ObserveProcessorCommitLatency(time.Since(started))
 		return p
 	}
 	observability.SetHotOk()
 	if p := c.cold.Save(ctx, snap); p != nil {
 		observability.SetColdErr(p)
 		observability.SetCommitterErr(p)
+		metrics.IncProcessorCommit("failed")
+		metrics.ObserveProcessorCommitLatency(time.Since(started))
 		return p
 	}
 	observability.SetColdOk()
 	observability.SetCommitterOk()
+	metrics.IncProcessorCommit("ok")
+	metrics.ObserveProcessorCommitLatency(time.Since(started))
 	return nil
 }
 

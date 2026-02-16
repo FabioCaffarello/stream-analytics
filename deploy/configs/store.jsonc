@@ -1,18 +1,17 @@
 {
-  // Runtime config mounted in container at /etc/market-raccoon/server.jsonc
+  // Runtime config mounted in container at /etc/market-raccoon/store.jsonc
   "bus": {
-    // "type": "inmemory"
     "type": "jetstream"
   },
   "jetstream": {
     "url": "nats://nats:4222",
     "stream_name": "MARKETDATA",
-    "consumer_durable": "processor-v1",
+    "consumer_durable": "store-v1",
     "ack_wait": "30s",
     "max_ack_pending": 1024,
     "max_deliver": 10,
     "deliver_policy": "all",
-    "filter_subjects": ["marketdata.>"],
+    "filter_subjects": ["aggregation.snapshot.v1.>", "aggregation.orderbook_inconsistency.v1.>"],
     "dedup_window": "5m",
     "max_age": "24h",
     "max_bytes": "10GB"
@@ -22,14 +21,12 @@
     "format": "text"
   },
   "http": {
-    "addr": ":8080",
-    "read_timeout": "10s",
-    "write_timeout": "15s",
-    "idle_timeout": "60s",
+    "addr": ":8083",
     "shutdown_timeout": "10s"
   },
-  "marketdata": {
-    // "publish_content_type": "application/json"
-    "publish_content_type": "application/protobuf"
+  "store": {
+    "clickhouse": {
+      "dsn": "clickhouse://default:password@clickhouse:9000/default"
+    }
   }
 }

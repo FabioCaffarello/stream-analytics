@@ -28,7 +28,7 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 		{name: "jetstream.max_ack_pending", got: cfg.JetStream.MaxAckPending, want: 1024},
 		{name: "jetstream.max_deliver", got: cfg.JetStream.MaxDeliver, want: 10},
 		{name: "jetstream.deliver_policy", got: cfg.JetStream.DeliverPolicy, want: "all"},
-		{name: "jetstream.filter_subjects", got: cfg.JetStream.FilterSubjects, want: []string{"marketdata.bookdelta.>"}},
+		{name: "jetstream.filter_subjects", got: cfg.JetStream.FilterSubjects, want: []string{"marketdata.>"}},
 		{name: "jetstream.dedup_window", got: cfg.JetStream.DedupWindow, want: "5m"},
 		{name: "jetstream.max_age", got: cfg.JetStream.MaxAge, want: "24h"},
 		{name: "jetstream.max_bytes", got: cfg.JetStream.MaxBytes, want: "10GB"},
@@ -58,6 +58,7 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 		{name: "processor.insights.rounding_mode", got: cfg.Processor.Insights.RoundingMode, want: "half_even"},
 		{name: "processor.insights.sweep_every_n", got: cfg.Processor.Insights.SweepEveryN, want: 1024},
 		{name: "processor.insights.sweep_every", got: cfg.Processor.Insights.SweepEvery, want: "30s"},
+		{name: "store.clickhouse.dsn", got: cfg.Store.ClickHouse.DSN, want: "clickhouse://default:password@localhost:9000/default"},
 	})
 }
 
@@ -664,6 +665,48 @@ func TestDefaults_NoBehaviorChange(t *testing.T) {
 
 	if prob := cfg.Validate(); prob != nil {
 		t.Fatalf("default feature-off config should still pass, got: %v", prob)
+	}
+}
+
+// ── Store config validation ───────────────────────────────────────────────────
+
+func TestValidate_StoreClickHouseDSN_EmptyFails(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Store.ClickHouse.DSN = "   "
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("expected validation error for empty store.clickhouse.dsn")
+	}
+	if prob.Code != codeInvalid {
+		t.Errorf("problem code = %q, want %q", prob.Code, codeInvalid)
+	}
+}
+
+func TestValidate_StoreClickHouseDSN_DefaultPasses(t *testing.T) {
+	cfg, _ := Load("")
+	if prob := cfg.Validate(); prob != nil {
+		t.Fatalf("default store config should pass, got: %v", prob)
+	}
+	if cfg.Store.ClickHouse.DSN == "" {
+		t.Fatal("store.clickhouse.dsn should have a non-empty default")
+	}
+}
+
+func TestLoad_StoreConfigFromJSONC(t *testing.T) {
+	src := `{
+		"store": {
+			"clickhouse": {
+				"dsn": "clickhouse://user:pass@remote:9000/mydb"
+			}
+		}
+	}`
+	path := writeTempFile(t, src)
+	cfg, prob := Load(path)
+	if prob != nil {
+		t.Fatalf("Load failed: %v", prob)
+	}
+	if cfg.Store.ClickHouse.DSN != "clickhouse://user:pass@remote:9000/mydb" {
+		t.Errorf("store.clickhouse.dsn = %q, want custom DSN", cfg.Store.ClickHouse.DSN)
 	}
 }
 

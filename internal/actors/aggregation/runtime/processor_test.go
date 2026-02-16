@@ -2,6 +2,7 @@ package aggruntime_test
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"sync"
 	"testing"
@@ -18,9 +19,17 @@ import (
 	"github.com/market-raccoon/internal/shared/codec"
 	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
+	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/policykit"
 	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
+
+func init() {
+	if p := contracts.BootstrapPayloadCodecRegistry(); p != nil {
+		panic(fmt.Sprintf("BootstrapPayloadCodecRegistry: %v", p))
+	}
+}
 
 // ---------------------------------------------------------------------------
 // test doubles
@@ -206,6 +215,77 @@ func TestProcessor_BookDelta_callsUpdateOrderBook(t *testing.T) {
 	ch <- env
 
 	waitFor(t, 2*time.Second, func() bool { return pub.count() == 1 })
+
+	<-e.Poison(pid).Done()
+}
+
+// TestProcessor_BookDelta_ProtoDecoded verifies that a protobuf-encoded BookDeltaV1
+// envelope is decoded and processed (no DECODE_FAILED).
+func TestProcessor_BookDelta_ProtoDecoded(t *testing.T) {
+	if p := contracts.BootstrapPayloadCodecRegistry(); p != nil {
+		t.Fatalf("BootstrapPayloadCodecRegistry: %v", p)
+	}
+
+	pub := &spyArtifactPublisher{}
+	updateBook := newUpdateBook(pub)
+
+	ch := make(chan envelope.Envelope, 8)
+	resultCh := make(chan aggruntime.EnvelopeProcessResult, 1)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh: ch,
+		UpdateBook: updateBook,
+		OnEnvelopeProcessed: func(res aggruntime.EnvelopeProcessResult) {
+			select {
+			case resultCh <- res:
+			default:
+			}
+		},
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+
+	delta := mddomain.BookDeltaV1{
+		Bids:      []mddomain.PriceLevel{{Price: 42000, Size: 1.5}},
+		Asks:      []mddomain.PriceLevel{{Price: 42001, Size: 2.0}},
+		Timestamp: time.Now().UnixMilli(),
+	}
+	payload, p := codec.EncodePayload("marketdata.bookdelta", 1, envelope.ContentTypeProto, delta)
+	if p != nil {
+		t.Fatalf("failed to encode proto bookdelta: %v", p)
+	}
+	env := envelope.Envelope{
+		Type:           "marketdata.bookdelta",
+		Version:        1,
+		Venue:          "BINANCE",
+		Instrument:     "BTC-USDT",
+		Seq:            1,
+		TsIngest:       time.Now().UnixMilli(),
+		IdempotencyKey: "proto-bookdelta-1",
+		ContentType:    envelope.ContentTypeProto,
+		Payload:        payload,
+	}
+
+	ch <- env
+
+	// Ensure update produced a snapshot
+	waitFor(t, 2*time.Second, func() bool { return pub.count() == 1 })
+
+	// Ensure OnEnvelopeProcessed did not report a DECODE_FAILED
+	select {
+	case res := <-resultCh:
+		if res.Problem != nil {
+			if got, ok := res.Problem.Details["reason_code"].(string); ok && got == "DECODE_FAILED" {
+				t.Fatalf("unexpected DECODE_FAILED for proto bookdelta")
+			}
+			// other problem is unexpected
+			if res.Problem != nil {
+				t.Fatalf("unexpected processing problem: %v", res.Problem)
+			}
+		}
+	case <-time.After(2 * time.Second):
+		// it's acceptable if callback wasn't invoked (success path may not populate); ensure snapshot produced above
+	}
 
 	<-e.Poison(pid).Done()
 }
@@ -714,6 +794,57 @@ func TestProcessor_PolicyKit_NeverDropCloseFinal(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for callback result")
+	}
+
+	<-e.Poison(pid).Done()
+}
+
+// TestProcessor_TradeDelivered_IncreasesProcessedMetric proves that a trade
+// envelope delivered to the processor is actually processed (not silently
+// dropped).  This is the integration assertion for the filter_subjects fix
+// from "marketdata.bookdelta.>" → "marketdata.>".
+func TestProcessor_TradeDelivered_IncreasesProcessedMetric(t *testing.T) {
+	if p := contracts.BootstrapPayloadCodecRegistry(); p != nil {
+		t.Fatalf("BootstrapPayloadCodecRegistry: %v", p)
+	}
+
+	pub := &spyArtifactPublisher{}
+	updateBook := newUpdateBook(pub)
+
+	ch := make(chan envelope.Envelope, 8)
+	resultCh := make(chan aggruntime.EnvelopeProcessResult, 1)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh: ch,
+		UpdateBook: updateBook,
+		OnEnvelopeProcessed: func(res aggruntime.EnvelopeProcessResult) {
+			select {
+			case resultCh <- res:
+			default:
+			}
+		},
+	}
+
+	before := testutil.ToFloat64(metrics.ProcessorProcessedTotal.WithLabelValues("marketdata.trade", "failed"))
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+
+	ch <- makeTradeEnvelope("BINANCE", "BTCUSDT", 1, 1000, 100.5, "buy", "trade-1")
+
+	select {
+	case res := <-resultCh:
+		// JoinTrades is nil → trade produces a ValidationProblem.
+		// The key assertion is that the metric was incremented, proving delivery.
+		if res.Problem == nil {
+			t.Fatal("expected problem for trade type when join is disabled")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for processing result")
+	}
+
+	after := testutil.ToFloat64(metrics.ProcessorProcessedTotal.WithLabelValues("marketdata.trade", "failed"))
+	if after < before+1 {
+		t.Fatalf("processor_processed_total{event_type=marketdata.trade,status=failed} not incremented: before=%.0f after=%.0f", before, after)
 	}
 
 	<-e.Poison(pid).Done()

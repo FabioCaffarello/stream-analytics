@@ -112,3 +112,34 @@ Helpful endpoints & creds
  - Grafana: `http://127.0.0.1:3000` — default admin user `admin`, password from `GF_SECURITY_ADMIN_PASSWORD` (default `admin`)
  - Prometheus: `http://127.0.0.1:9090` (`/-/healthy` for health)
  - ClickHouse HTTP: `http://127.0.0.1:8123` (use `clickhouse-client` for reliable checks)
+
+Processor JetStream filter subjects
+------------------------------------
+
+The processor's JetStream consumer uses `filter_subjects` to control which
+subjects are delivered from the MARKETDATA stream.
+
+Default: `["marketdata.>"]` — receives **all** marketdata event types
+(bookdelta, trade, raw, markprice, liquidation, etc.).
+
+The processor actor routes by `env.Type`:
+- `marketdata.bookdelta` v1 → UpdateOrderBookFromEvents
+- `marketdata.trade` v1 → JoinCrossVenueTrades (when `enable_crossvenue_join: true`)
+- `marketdata.raw` v1 → skip (no structured payload)
+- anything else → log warn + skip
+
+To restrict delivery to a specific event type, override in config:
+
+```jsonc
+"filter_subjects": ["marketdata.bookdelta.>"]   // bookdelta only
+"filter_subjects": ["marketdata.bookdelta.>", "marketdata.trade.>"]  // both
+"filter_subjects": ["marketdata.>"]              // all (default)
+```
+
+When `enable_crossvenue_join` is true, the runtime automatically merges
+`join_trades_subject` into the effective filter list (see `effectiveJetStreamFilters`
+in `cmd/processor/main.go`).
+
+For sharding implications, see `docs/operations/sharding.md` — the shard key
+is derived from `venue + instrument`, so all event types for the same instrument
+always go to the same processor replica regardless of filter breadth.
