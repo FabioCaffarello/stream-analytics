@@ -1,4 +1,5 @@
 {
+  "_coverage_note": "Proto schemas are opt-in.  Only hot-path marketdata payloads and volume_profile_snapshot have proto coverage.  Aggregation, quarantine, heatmap, and other insights subjects use JSON-only encoding (see docs/contracts/subject-registry.yaml for the full subject catalog).",
   "schemas": [
     {
       "type": "envelope",
