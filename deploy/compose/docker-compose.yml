@@ -26,8 +26,6 @@ services:
     image: market-raccoon/server:dev
     container_name: market-raccoon-server
     command: ["-config", "/etc/market-raccoon/server.jsonc"]
-    environment:
-      NATS_URL: nats://nats:4222
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
@@ -55,8 +53,6 @@ services:
     image: market-raccoon/consumer:dev
     container_name: market-raccoon-consumer
     command: ["-config", "/etc/market-raccoon/consumer.jsonc"]
-    environment:
-      NATS_URL: nats://nats:4222
     ports:
       - "127.0.0.1:8081:8081"
     volumes:
@@ -84,8 +80,6 @@ services:
     image: market-raccoon/processor:dev
     container_name: market-raccoon-processor
     command: ["-config", "/etc/market-raccoon/processor.jsonc"]
-    environment:
-      NATS_URL: nats://nats:4222
     ports:
       - "127.0.0.1:8082:8082"
     volumes:
@@ -115,8 +109,6 @@ services:
     image: market-raccoon/store:dev
     container_name: market-raccoon-store
     command: ["-config", "/etc/market-raccoon/store.jsonc"]
-    environment:
-      NATS_URL: nats://nats:4222
     ports:
       - "127.0.0.1:8083:8083"
     volumes:
