@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/market-raccoon/internal/adapters/storage/clickhouse"
@@ -123,5 +124,42 @@ func TestBatcher_Idempotent_RedeliveryInSameBatch(t *testing.T) {
 	}
 	if got := w.CommitCount(); got != 1 {
 		t.Fatalf("commit count=%d want=1 (idempotent dedup within batch)", got)
+	}
+}
+
+func TestBatcher_ConcurrentWriteClose(t *testing.T) {
+	w := clickhouse.NewWriter()
+	cfg := defaultBatchCfg()
+	cfg.MaxRows = 100
+	cfg.FlushInterval = "1h"
+	b := NewStoreBatcher(w, cfg)
+
+	const writers = 10
+	const writesPerGoroutine = 50
+	var wg sync.WaitGroup
+	wg.Add(writers + 1)
+
+	// Spawn writers that race against Close.
+	for g := 0; g < writers; g++ {
+		go func(g int) {
+			defer wg.Done()
+			for i := 0; i < writesPerGoroutine; i++ {
+				_ = b.Write(context.Background(), batchSnap(int64(g*1000+i)), "k")
+			}
+		}(g)
+	}
+
+	// Close races with the writers.
+	go func() {
+		defer wg.Done()
+		_ = b.Close(context.Background())
+	}()
+
+	wg.Wait()
+
+	// After Close, every Write must be rejected.
+	p := b.Write(context.Background(), batchSnap(99999), "k")
+	if p == nil {
+		t.Fatal("expected error from Write after Close, got nil")
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
@@ -38,6 +39,7 @@ type StoreBatcher struct {
 	writer StoreWriter
 	cfg    config.StoreBatchConfig
 
+	closed       atomic.Bool
 	mu           sync.Mutex
 	pending      []batchItem
 	pendingBytes int
@@ -60,6 +62,10 @@ func (b *StoreBatcher) Write(ctx context.Context, snap aggdomain.SnapshotProduce
 		return problem.New(problem.ValidationFailed, "store batcher or writer is nil")
 	}
 	b.mu.Lock()
+	if b.closed.Load() {
+		b.mu.Unlock()
+		return problem.New(problem.ValidationFailed, "store batcher is closed")
+	}
 
 	b.pending = append(b.pending, batchItem{snap: snap, dedupKey: dedupKey})
 	b.pendingBytes += estimatePayloadSize(snap)
@@ -112,7 +118,9 @@ func (b *StoreBatcher) flush(ctx context.Context, items []batchItem) *problem.Pr
 }
 
 // Close flushes any remaining pending items.
+// After Close returns, any subsequent Write call returns an error.
 func (b *StoreBatcher) Close(ctx context.Context) *problem.Problem {
+	b.closed.Store(true)
 	b.mu.Lock()
 	items := b.pending
 	b.pending = nil
