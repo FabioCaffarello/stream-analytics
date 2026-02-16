@@ -244,15 +244,15 @@ func applyLevels(current []Level, updates []Level) []Level {
 
 	for _, u := range updates {
 		if u.Quantity == 0 {
-			// Remove level.
+			// Remove level via swap-remove — O(1) per deletion.
 			if i, ok := index[u.Price]; ok {
-				current[i] = current[len(current)-1]
-				current = current[:len(current)-1]
-				// Rebuild index (simple approach).
-				index = make(map[Price]int, len(current))
-				for j, l := range current {
-					index[l.Price] = j
+				last := len(current) - 1
+				if i != last {
+					current[i] = current[last]
+					index[current[i].Price] = i
 				}
+				delete(index, u.Price)
+				current = current[:last]
 			}
 		} else {
 			// Upsert.
