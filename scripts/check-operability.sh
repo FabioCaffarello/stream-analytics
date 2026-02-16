@@ -18,6 +18,7 @@ required_files=(
   "deploy/observability/grafana/dashboards/overview.json"
   "deploy/observability/grafana/dashboards/ingest.json"
   "deploy/observability/grafana/dashboards/vpvr.json"
+  "deploy/observability/grafana/dashboards/delivery.json"
 )
 
 for f in "${required_files[@]}"; do
@@ -40,6 +41,7 @@ jq -e . deploy/observability/grafana/dashboards/overview.json >/dev/null
 jq -e . deploy/observability/grafana/dashboards/ingest.json >/dev/null
 jq -e . deploy/observability/grafana/dashboards/vpvr.json >/dev/null
 jq -e . deploy/observability/grafana/dashboards/store.json >/dev/null
+jq -e . deploy/observability/grafana/dashboards/delivery.json >/dev/null
 
 # Forbidden labels must not be present as raw label keys.
 forbidden='instrument|symbol|subject|window_id|seq|request_id'
