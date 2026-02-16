@@ -270,6 +270,20 @@ groups:
           stream: all
           venue: all
 
+  - name: slo-consumer-lag
+    interval: 30s
+    rules:
+      # Rate of change of consumer lag — positive means falling behind.
+      - record: slo:consumer_lag:deriv_5m
+        expr: deriv(bus_consumer_lag{bus_type="jetstream"}[5m])
+        labels:
+          service: market-raccoon
+      # Store commit throughput (scalar-like, used for stall detection).
+      - record: slo:store:commit_rate_ok_5m
+        expr: sum(rate(store_commit_total{status="ok"}[5m])) or vector(0)
+        labels:
+          service: market-raccoon
+
   - name: slo-data-loss-triage
     interval: 30s
     rules:

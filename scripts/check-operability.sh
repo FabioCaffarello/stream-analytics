@@ -11,6 +11,7 @@ required_files=(
   "docs/observability/runbooks/bus.md"
   "docs/observability/runbooks/websocket.md"
   "docs/observability/runbooks/vpvr-overload-runbook.md"
+  "docs/observability/runbooks/consumer-stall.md"
   "deploy/observability/prometheus/recording.rules.yml"
   "deploy/observability/prometheus/alerts.rules.yml"
   "deploy/observability/prometheus/tests.yml"
@@ -38,6 +39,7 @@ promtool test rules deploy/observability/prometheus/tests.yml
 jq -e . deploy/observability/grafana/dashboards/overview.json >/dev/null
 jq -e . deploy/observability/grafana/dashboards/ingest.json >/dev/null
 jq -e . deploy/observability/grafana/dashboards/vpvr.json >/dev/null
+jq -e . deploy/observability/grafana/dashboards/store.json >/dev/null
 
 # Forbidden labels must not be present as raw label keys.
 forbidden='instrument|symbol|subject|window_id|seq|request_id'

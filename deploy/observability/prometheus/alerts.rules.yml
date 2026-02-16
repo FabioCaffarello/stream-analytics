@@ -98,6 +98,45 @@ groups:
           description: "Cold-path ClickHouse commit p95 latency is above 1 second for 5 minutes, indicating storage degradation."
           runbook_url: "docs/operations/degradation.md"
 
+      - alert: ConsumerLagGrowingNoProgress
+        expr: |
+          (slo:consumer_lag:deriv_5m > 0)
+          and on (service)
+          (slo:store:commit_rate_ok_5m < 0.01)
+        for: 5m
+        labels:
+          severity: page
+          service: market-raccoon
+          slo: store
+        annotations:
+          summary: "Consumer lag growing with zero commits"
+          description: "JetStream consumer lag is increasing but store commit rate is near-zero for 5 minutes. Pipeline may be stalled or deadlocked."
+          runbook_url: "docs/observability/runbooks/consumer-stall.md"
+
+      - alert: ProcessGoroutinesHigh
+        expr: process_goroutines > 10000
+        for: 5m
+        labels:
+          severity: ticket
+          service: market-raccoon
+          slo: runtime
+        annotations:
+          summary: "Goroutine count is abnormally high"
+          description: "process_goroutines exceeds 10 000 for 5 minutes. Possible goroutine leak in actor spawning or consumer loops."
+          runbook_url: "docs/observability/runbooks/consumer-stall.md"
+
+      - alert: ProcessHeapAllocHigh
+        expr: process_heap_alloc_bytes > 500e6
+        for: 5m
+        labels:
+          severity: ticket
+          service: market-raccoon
+          slo: runtime
+        annotations:
+          summary: "Heap allocation is high"
+          description: "process_heap_alloc_bytes exceeds 500 MB for 5 minutes. Possible memory leak or unbounded cache growth."
+          runbook_url: "docs/observability/runbooks/consumer-stall.md"
+
       - alert: ColdPathCommitErrorsNonZero
         expr: slo:data_loss:cold_commit_errors_rate_5m > 0
         for: 15m

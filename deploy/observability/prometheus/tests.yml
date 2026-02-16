@@ -99,6 +99,90 @@ tests:
         alertname: SLOIngestBurnRateFast
         exp_alerts: []   # 1h below threshold — conjunction false, must NOT fire
 
+  # ── Test 5a ───────────────────────────────────────────────────────────────
+  # ConsumerLagGrowingNoProgress must fire when lag derivative > 0 AND
+  # commit rate ≈ 0 for 5 minutes. Validates no-progress detection.
+  # Both series are recording-rule outputs injected directly.
+  - interval: 1m
+    input_series:
+      - series: 'slo:consumer_lag:deriv_5m{service="market-raccoon"}'
+        values: "5+0x10"
+      - series: 'slo:store:commit_rate_ok_5m{service="market-raccoon"}'
+        values: "0+0x10"
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: ConsumerLagGrowingNoProgress
+        exp_alerts: []   # still pending — not sustained 5m yet
+      - eval_time: 7m
+        alertname: ConsumerLagGrowingNoProgress
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              service: market-raccoon
+              slo: store
+            exp_annotations:
+              summary: "Consumer lag growing with zero commits"
+              description: "JetStream consumer lag is increasing but store commit rate is near-zero for 5 minutes. Pipeline may be stalled or deadlocked."
+              runbook_url: "docs/observability/runbooks/consumer-stall.md"
+
+  # ── Test 5b ───────────────────────────────────────────────────────────────
+  # ConsumerLagGrowingNoProgress must NOT fire when commits are healthy,
+  # even if lag derivative is positive (lag catching up is normal).
+  - interval: 1m
+    input_series:
+      - series: 'slo:consumer_lag:deriv_5m{service="market-raccoon"}'
+        values: "2+0x10"
+      - series: 'slo:store:commit_rate_ok_5m{service="market-raccoon"}'
+        values: "5+0x10"
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: ConsumerLagGrowingNoProgress
+        exp_alerts: []   # commits healthy — must NOT fire
+
+  # ── Test 5c ───────────────────────────────────────────────────────────────
+  # ProcessGoroutinesHigh must fire when goroutines > 10000 for 5m.
+  - interval: 1m
+    input_series:
+      - series: 'process_goroutines'
+        values: "15000+0x10"
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: ProcessGoroutinesHigh
+        exp_alerts: []   # still pending
+      - eval_time: 7m
+        alertname: ProcessGoroutinesHigh
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: market-raccoon
+              slo: runtime
+            exp_annotations:
+              summary: "Goroutine count is abnormally high"
+              description: "process_goroutines exceeds 10 000 for 5 minutes. Possible goroutine leak in actor spawning or consumer loops."
+              runbook_url: "docs/observability/runbooks/consumer-stall.md"
+
+  # ── Test 5d ───────────────────────────────────────────────────────────────
+  # ProcessHeapAllocHigh must fire when heap > 500MB for 5m.
+  - interval: 1m
+    input_series:
+      - series: 'process_heap_alloc_bytes'
+        values: "600000000+0x10"
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: ProcessHeapAllocHigh
+        exp_alerts: []   # still pending
+      - eval_time: 7m
+        alertname: ProcessHeapAllocHigh
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: market-raccoon
+              slo: runtime
+            exp_annotations:
+              summary: "Heap allocation is high"
+              description: "process_heap_alloc_bytes exceeds 500 MB for 5 minutes. Possible memory leak or unbounded cache growth."
+              runbook_url: "docs/observability/runbooks/consumer-stall.md"
+
   # ── Test 5 ────────────────────────────────────────────────────────────────
   # StoreCommitLatencyHigh must NOT fire at 4m (condition not yet sustained
   # for 5m) and MUST fire at 7m.  All observations are placed in the (1,2.5]

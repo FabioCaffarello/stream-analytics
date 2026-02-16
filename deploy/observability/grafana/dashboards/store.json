@@ -157,6 +157,54 @@
       "targets": [
         {"expr": "sum(rate(bus_redelivered_total{bus_type=\"jetstream\"}[5m]))", "legendFormat": "redeliveries/s", "refId": "A"}
       ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 36},
+      "id": 104,
+      "title": "Store — No-Progress Detection",
+      "type": "row"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 37},
+      "id": 11,
+      "title": "ACK Latency (p50 / p95)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "histogram_quantile(0.50, sum by (le) (rate(bus_ack_latency_seconds_bucket[5m])))", "legendFormat": "p50", "refId": "A"},
+        {"expr": "histogram_quantile(0.95, sum by (le) (rate(bus_ack_latency_seconds_bucket[5m])))", "legendFormat": "p95", "refId": "B"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {
+        "defaults": {"unit": "short"},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "commit_rate_ok"}, "properties": [{"id": "custom.axisPlacement", "value": "right"}, {"id": "unit", "value": "ops"}]}
+        ]
+      },
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 37},
+      "id": 12,
+      "title": "Lag Growth vs Commit Rate (stall detector)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "slo:consumer_lag:deriv_5m", "legendFormat": "lag_growth_rate", "refId": "A"},
+        {"expr": "sum(rate(store_commit_total{status=\"ok\"}[5m]))", "legendFormat": "commit_rate_ok", "refId": "B"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 37},
+      "id": 13,
+      "title": "Process Health (goroutines / heap MB)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "process_goroutines", "legendFormat": "goroutines", "refId": "A"},
+        {"expr": "process_heap_alloc_bytes / 1e6", "legendFormat": "heap_MB", "refId": "B"}
+      ]
     }
   ],
   "schemaVersion": 39,
