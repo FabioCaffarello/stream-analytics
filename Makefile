@@ -265,6 +265,13 @@ test-integration: invariants-check
 bench-hotpath: invariants-check
 	@$(GO) test -run=^$$ -bench=HotPath -benchmem ./internal/shared/codec ./internal/shared/policykit
 
+bench-baseline: invariants-check
+	@$(GO) test -run='^$$' -bench=HotPath -benchmem -count=5 ./internal/shared/codec ./internal/shared/policykit > .benchmarks/baseline.txt 2>&1
+	@echo "bench-baseline: saved to .benchmarks/baseline.txt"
+
+bench-check: invariants-check
+	@bash scripts/bench-check.sh
+
 test-race: invariants-check
 	@$(GO) test $(GO_TEST_RACE_FLAGS) $(TEST_RACE_PKGS)
 

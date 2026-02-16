@@ -1,0 +1,27 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/market-raccoon/internal/shared/codec
+cpu: Apple M4
+BenchmarkHotPathDecodePayloadAndSubjectFromEnvelope-10    	 1440115	       839.5 ns/op	     416 B/op	      10 allocs/op
+BenchmarkHotPathDecodePayloadAndSubjectFromEnvelope-10    	 1439128	       841.3 ns/op	     416 B/op	      10 allocs/op
+BenchmarkHotPathDecodePayloadAndSubjectFromEnvelope-10    	 1426153	       840.1 ns/op	     416 B/op	      10 allocs/op
+BenchmarkHotPathDecodePayloadAndSubjectFromEnvelope-10    	 1438123	       910.7 ns/op	     416 B/op	      10 allocs/op
+BenchmarkHotPathDecodePayloadAndSubjectFromEnvelope-10    	 1395314	       856.0 ns/op	     416 B/op	      10 allocs/op
+PASS
+ok  	github.com/market-raccoon/internal/shared/codec	10.546s
+goos: darwin
+goarch: arm64
+pkg: github.com/market-raccoon/internal/shared/policykit
+cpu: Apple M4
+BenchmarkHotPathPolicyKitApplySingle-10       	 3106401	       388.6 ns/op	     256 B/op	       6 allocs/op
+BenchmarkHotPathPolicyKitApplySingle-10       	 3049417	       392.4 ns/op	     256 B/op	       6 allocs/op
+BenchmarkHotPathPolicyKitApplySingle-10       	 3027382	       395.7 ns/op	     256 B/op	       6 allocs/op
+BenchmarkHotPathPolicyKitApplySingle-10       	 3007940	       395.6 ns/op	     256 B/op	       6 allocs/op
+BenchmarkHotPathPolicyKitApplySingle-10       	 3015046	       394.1 ns/op	     256 B/op	       6 allocs/op
+BenchmarkHotPathPolicyKitApplyBatchLen1-10    	 2945253	       404.6 ns/op	     328 B/op	       6 allocs/op
+BenchmarkHotPathPolicyKitApplyBatchLen1-10    	 2915382	       407.0 ns/op	     328 B/op	       6 allocs/op
+BenchmarkHotPathPolicyKitApplyBatchLen1-10    	 2921007	       409.3 ns/op	     328 B/op	       6 allocs/op
+BenchmarkHotPathPolicyKitApplyBatchLen1-10    	 2920147	       427.5 ns/op	     328 B/op	       6 allocs/op
+BenchmarkHotPathPolicyKitApplyBatchLen1-10    	 2940514	       412.8 ns/op	     328 B/op	       6 allocs/op
+PASS
+ok  	github.com/market-raccoon/internal/shared/policykit	16.252s
