@@ -212,6 +212,26 @@ type ReplayJetStreamConfig struct {
 type StoreConfig struct {
 	// ClickHouse controls ClickHouse connection for cold-path writes.
 	ClickHouse StoreClickHouseConfig `json:"clickhouse"`
+	// Batch controls write batching policy for the cold-path pipeline.
+	Batch StoreBatchConfig `json:"batch"`
+}
+
+// StoreBatchConfig controls write batching thresholds for the store pipeline.
+type StoreBatchConfig struct {
+	// MaxRows triggers a flush when the batch reaches this many rows.
+	// Default: 1 (write-through; increase when concurrent dispatch is enabled).
+	MaxRows int `json:"max_rows"`
+	// MaxBytes triggers a flush when accumulated payload bytes reach this limit.
+	// Default: 0 (disabled).
+	MaxBytes int `json:"max_bytes"`
+	// FlushInterval triggers a time-based flush regardless of batch size.
+	// Default: "100ms".
+	FlushInterval string `json:"flush_interval"`
+}
+
+// FlushIntervalDuration parses and returns StoreBatchConfig.FlushInterval.
+func (b StoreBatchConfig) FlushIntervalDuration() time.Duration {
+	return mustParseDuration(b.FlushInterval)
 }
 
 // StoreClickHouseConfig controls ClickHouse connection for the store binary.

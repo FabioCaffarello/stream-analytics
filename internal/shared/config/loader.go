@@ -488,6 +488,15 @@ func validateStore(s StoreConfig) *problem.Problem {
 	if strings.TrimSpace(s.ClickHouse.DSN) == "" {
 		return problem.New(codeInvalid, "store.clickhouse.dsn must not be empty")
 	}
+	if s.Batch.MaxRows <= 0 {
+		return problem.New(codeInvalid, "store.batch.max_rows must be > 0")
+	}
+	if s.Batch.MaxBytes < 0 {
+		return problem.New(codeInvalid, "store.batch.max_bytes must be >= 0")
+	}
+	if _, err := time.ParseDuration(s.Batch.FlushInterval); err != nil {
+		return problem.Newf(codeInvalid, "store.batch.flush_interval invalid: %v", err)
+	}
 	return nil
 }
 
@@ -883,6 +892,12 @@ func applyDefaults(c *AppConfig) {
 	}
 	if c.Store.ClickHouse.DSN == "" {
 		c.Store.ClickHouse.DSN = "clickhouse://default:password@localhost:9000/default"
+	}
+	if c.Store.Batch.MaxRows <= 0 {
+		c.Store.Batch.MaxRows = 1
+	}
+	if strings.TrimSpace(c.Store.Batch.FlushInterval) == "" {
+		c.Store.Batch.FlushInterval = "100ms"
 	}
 	c.Processor.Insights.JoinTradesSubject = strings.TrimSpace(c.Processor.Insights.JoinTradesSubject)
 	c.Processor.Insights.SnapshotSubjectPrefix = strings.TrimSpace(c.Processor.Insights.SnapshotSubjectPrefix)

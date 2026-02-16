@@ -89,14 +89,20 @@ func main() {
 	)
 	logger.Info("store: guardian spawned", "pid", guardianPID.String())
 
-	// ── ClickHouse writer (in-memory skeleton — batch pipeline TODO) ─────────
+	// ── ClickHouse writer + batcher ──────────────────────────────────────────
 	chWriter := clickhouse.NewWriter()
+	batcher := NewStoreBatcher(chWriter, cfg.Store.Batch)
+	logger.Info("store: batcher configured",
+		"max_rows", cfg.Store.Batch.MaxRows,
+		"max_bytes", cfg.Store.Batch.MaxBytes,
+		"flush_interval", cfg.Store.Batch.FlushInterval,
+	)
 
 	// ── JetStream consumer (when bus.type=jetstream) ─────────────────────────
 	var consumeErr <-chan *problem.Problem
 	var shutdownConsumer func(context.Context)
 	if strings.EqualFold(strings.TrimSpace(cfg.Bus.Type), "jetstream") {
-		consumeErr, shutdownConsumer = initStoreConsumer(cfg, chWriter, logger)
+		consumeErr, shutdownConsumer = initStoreConsumer(cfg, batcher, logger)
 	} else {
 		logger.Info("store: bus.type is not jetstream, running in observer mode")
 	}
@@ -139,6 +145,10 @@ func main() {
 		shutdownConsumer(shutCtx)
 	}
 
+	if p := batcher.Close(shutCtx); p != nil {
+		logger.Warn("store: batcher close error", "err", p)
+	}
+
 	e.Send(guardianPID, actorruntime.Stop{})
 	select {
 	case <-e.Poison(guardianPID).Done():
@@ -151,7 +161,7 @@ func main() {
 // initStoreConsumer creates a JetStream consumer for the store pipeline and
 // starts consuming in a background goroutine.  Returns an error channel for
 // fatal consume errors and a shutdown function.
-func initStoreConsumer(cfg config.AppConfig, writer *clickhouse.Writer, logger *slog.Logger) (<-chan *problem.Problem, func(context.Context)) {
+func initStoreConsumer(cfg config.AppConfig, batcher *StoreBatcher, logger *slog.Logger) (<-chan *problem.Problem, func(context.Context)) {
 	jsConsumer, p := adapterjs.NewConsumer(context.Background(), adapterjs.ConsumerConfig{
 		URL:             cfg.JetStream.URL,
 		StreamName:      cfg.JetStream.StreamName,
@@ -175,7 +185,7 @@ func initStoreConsumer(cfg config.AppConfig, writer *clickhouse.Writer, logger *
 
 	go func() {
 		errCh <- jsConsumer.Consume(consumeCtx, func(ctx context.Context, env envelope.Envelope) *problem.Problem {
-			return handleStoreEnvelope(ctx, env, writer, logger)
+			return handleStoreEnvelope(ctx, env, batcher, logger)
 		})
 	}()
 
@@ -197,7 +207,7 @@ func initStoreConsumer(cfg config.AppConfig, writer *clickhouse.Writer, logger *
 // handleStoreEnvelope routes an envelope to the appropriate write handler.
 // For S2, only aggregation.snapshot.v1 is implemented; all other event types
 // are ACKed with a skip metric.
-func handleStoreEnvelope(ctx context.Context, env envelope.Envelope, writer *clickhouse.Writer, logger *slog.Logger) *problem.Problem {
+func handleStoreEnvelope(ctx context.Context, env envelope.Envelope, batcher *StoreBatcher, logger *slog.Logger) *problem.Problem {
 	eventKey := fmt.Sprintf("%s.v%d", env.Type, env.Version)
 
 	// Heartbeat log every N messages so operators can prove liveness.
@@ -208,7 +218,7 @@ func handleStoreEnvelope(ctx context.Context, env envelope.Envelope, writer *cli
 
 	switch {
 	case env.Type == "aggregation.snapshot" && env.Version == 1:
-		p := handleAggregationSnapshot(ctx, env, writer, logger)
+		p := handleAggregationSnapshot(ctx, env, batcher, logger)
 		if p != nil {
 			metrics.IncStoreConsumed("failed", "commit")
 		} else {
@@ -226,7 +236,7 @@ func handleStoreEnvelope(ctx context.Context, env envelope.Envelope, writer *cli
 // handleAggregationSnapshot decodes an aggregation snapshot envelope and
 // commits to the ClickHouse writer.  The JetStream consumer ACKs only after
 // this function returns nil.
-func handleAggregationSnapshot(ctx context.Context, env envelope.Envelope, writer *clickhouse.Writer, logger *slog.Logger) *problem.Problem {
+func handleAggregationSnapshot(ctx context.Context, env envelope.Envelope, batcher *StoreBatcher, logger *slog.Logger) *problem.Problem {
 	var snap aggdomain.SnapshotProduced
 	if err := json.Unmarshal(env.Payload, &snap); err != nil {
 		metrics.IncStoreQuarantine("decode")
@@ -246,7 +256,7 @@ func handleAggregationSnapshot(ctx context.Context, env envelope.Envelope, write
 	}
 
 	started := time.Now()
-	if p := writer.SaveIdempotent(ctx, snap, env.IdempotencyKey); p != nil {
+	if p := batcher.Write(ctx, snap, env.IdempotencyKey); p != nil {
 		metrics.IncStoreCommit("failed")
 		metrics.ObserveStoreCommitLatency(time.Since(started))
 		// Return as-is — consumer's ClassifyIngestError checks p.Retryable

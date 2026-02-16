@@ -569,6 +569,27 @@ var (
 		},
 		[]string{"reason"},
 	)
+	StoreBatchSize = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "store_batch_size",
+			Help:    "Number of rows per flushed batch in the store pipeline.",
+			Buckets: []float64{1, 2, 5, 10, 25, 50, 100, 250, 500, 1000},
+		},
+	)
+	StoreFlushTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "store_flush_total",
+			Help: "Total batch flush operations in the store by status.",
+		},
+		[]string{"status"},
+	)
+	StoreFlushLatencySeconds = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "store_flush_latency_seconds",
+			Help:    "Store batch flush latency in seconds.",
+			Buckets: []float64{0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10},
+		},
+	)
 
 	// ── Processor observability ──────────────────────────────────────────
 	// Tracks envelope processing outcomes in the aggregation processor
@@ -718,6 +739,9 @@ func registerAll() {
 			StoreCommitTotal,
 			StoreCommitLatencySeconds,
 			StoreQuarantineTotal,
+			StoreBatchSize,
+			StoreFlushTotal,
+			StoreFlushLatencySeconds,
 			ProcessorProcessedTotal,
 			ProcessorCommitTotal,
 			ProcessorCommitLatencySeconds,
@@ -790,6 +814,8 @@ func registerAll() {
 		StoreCommitTotal.WithLabelValues("ok")
 		StoreCommitTotal.WithLabelValues("failed")
 		StoreQuarantineTotal.WithLabelValues("unknown")
+		StoreFlushTotal.WithLabelValues("ok")
+		StoreFlushTotal.WithLabelValues("failed")
 		ProcessorProcessedTotal.WithLabelValues("unknown", "ok")
 		ProcessorProcessedTotal.WithLabelValues("unknown", "failed")
 		ProcessorCommitTotal.WithLabelValues("ok")
@@ -1274,6 +1300,24 @@ func ObserveStoreCommitLatency(latency time.Duration) {
 // IncStoreQuarantine increments store_quarantine_total with the given reason.
 func IncStoreQuarantine(reason string) {
 	StoreQuarantineTotal.WithLabelValues(sanitizeIngestReason(reason)).Inc()
+}
+
+// ObserveStoreBatchSize records the number of rows in a flushed batch.
+func ObserveStoreBatchSize(size int) {
+	StoreBatchSize.Observe(float64(size))
+}
+
+// IncStoreFlush increments store_flush_total with the given status.
+func IncStoreFlush(status string) {
+	StoreFlushTotal.WithLabelValues(sanitizeStatus(status)).Inc()
+}
+
+// ObserveStoreFlushLatency records a batch flush latency observation.
+func ObserveStoreFlushLatency(latency time.Duration) {
+	if latency < 0 {
+		latency = 0
+	}
+	StoreFlushLatencySeconds.Observe(latency.Seconds())
 }
 
 type busObserver struct{}

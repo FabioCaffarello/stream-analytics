@@ -51,13 +51,19 @@ func snapshotEnvelope(t *testing.T, venue, instrument string, seq int64) envelop
 	}
 }
 
+// testBatcher creates a batcher with batch-size-1 (default, write-through).
+func testBatcher(w *clickhouse.Writer) *StoreBatcher {
+	return NewStoreBatcher(w, defaultBatchCfg())
+}
+
 // ── handleAggregationSnapshot ────────────────────────────────────────────────
 
 func TestHandleAggregationSnapshot_CommitSucceeds_ReturnsNil(t *testing.T) {
 	writer := clickhouse.NewWriter()
+	b := testBatcher(writer)
 	env := snapshotEnvelope(t, "binance", "BTCUSDT", 1)
 
-	p := handleAggregationSnapshot(context.Background(), env, writer, testLogger)
+	p := handleAggregationSnapshot(context.Background(), env, b, testLogger)
 	if p != nil {
 		t.Fatalf("expected nil, got %v", p)
 	}
@@ -66,18 +72,18 @@ func TestHandleAggregationSnapshot_CommitSucceeds_ReturnsNil(t *testing.T) {
 	}
 }
 
-func TestHandleAggregationSnapshot_NilWriter_ReturnsProblem(t *testing.T) {
+func TestHandleAggregationSnapshot_NilBatcher_ReturnsProblem(t *testing.T) {
 	env := snapshotEnvelope(t, "binance", "BTCUSDT", 1)
 
-	// A nil writer simulates ClickHouse being unavailable.
 	p := handleAggregationSnapshot(context.Background(), env, nil, testLogger)
 	if p == nil {
-		t.Fatal("expected problem for nil writer, got nil")
+		t.Fatal("expected problem for nil batcher, got nil")
 	}
 }
 
 func TestHandleAggregationSnapshot_DecodeFailure_ReturnsProblem(t *testing.T) {
 	writer := clickhouse.NewWriter()
+	b := testBatcher(writer)
 	env := envelope.Envelope{
 		Type:    "aggregation.snapshot",
 		Version: 1,
@@ -85,7 +91,7 @@ func TestHandleAggregationSnapshot_DecodeFailure_ReturnsProblem(t *testing.T) {
 		Payload: []byte(`{invalid json`),
 	}
 
-	p := handleAggregationSnapshot(context.Background(), env, writer, testLogger)
+	p := handleAggregationSnapshot(context.Background(), env, b, testLogger)
 	if p == nil {
 		t.Fatal("expected problem for invalid payload, got nil")
 	}
@@ -99,12 +105,13 @@ func TestHandleAggregationSnapshot_DecodeFailure_ReturnsProblem(t *testing.T) {
 
 func TestHandleAggregationSnapshot_DuplicateIdempotent(t *testing.T) {
 	writer := clickhouse.NewWriter()
+	b := testBatcher(writer)
 	env := snapshotEnvelope(t, "binance", "BTCUSDT", 42)
 
-	if p := handleAggregationSnapshot(context.Background(), env, writer, testLogger); p != nil {
+	if p := handleAggregationSnapshot(context.Background(), env, b, testLogger); p != nil {
 		t.Fatalf("first: %v", p)
 	}
-	if p := handleAggregationSnapshot(context.Background(), env, writer, testLogger); p != nil {
+	if p := handleAggregationSnapshot(context.Background(), env, b, testLogger); p != nil {
 		t.Fatalf("second (idempotent): %v", p)
 	}
 	if got := writer.CommitCount(); got != 1 {
@@ -114,6 +121,7 @@ func TestHandleAggregationSnapshot_DuplicateIdempotent(t *testing.T) {
 
 func TestHandleAggregationSnapshot_BookIDFallsBackToEnvelope(t *testing.T) {
 	writer := clickhouse.NewWriter()
+	b := testBatcher(writer)
 
 	// Payload with empty BookID — handler should fill from envelope metadata.
 	snap := aggdomain.SnapshotProduced{
@@ -131,7 +139,7 @@ func TestHandleAggregationSnapshot_BookIDFallsBackToEnvelope(t *testing.T) {
 		Payload:    payload,
 	}
 
-	p := handleAggregationSnapshot(context.Background(), env, writer, testLogger)
+	p := handleAggregationSnapshot(context.Background(), env, b, testLogger)
 	if p != nil {
 		t.Fatalf("unexpected problem: %v", p)
 	}
@@ -144,14 +152,15 @@ func TestHandleAggregationSnapshot_BookIDFallsBackToEnvelope(t *testing.T) {
 
 func TestHandleAggregationSnapshot_RedeliveryWithSameIdempotencyKey_NoDuplicate(t *testing.T) {
 	writer := clickhouse.NewWriter()
+	b := testBatcher(writer)
 	env := snapshotEnvelope(t, "binance", "BTCUSDT", 42)
 	env.IdempotencyKey = "js-msg-id-001"
 
-	if p := handleAggregationSnapshot(context.Background(), env, writer, testLogger); p != nil {
+	if p := handleAggregationSnapshot(context.Background(), env, b, testLogger); p != nil {
 		t.Fatalf("first delivery: %v", p)
 	}
 	// Simulate JetStream redelivery (NumDelivered>1) — same envelope, same key.
-	if p := handleAggregationSnapshot(context.Background(), env, writer, testLogger); p != nil {
+	if p := handleAggregationSnapshot(context.Background(), env, b, testLogger); p != nil {
 		t.Fatalf("redelivery: %v", p)
 	}
 	if got := writer.CommitCount(); got != 1 {
@@ -161,15 +170,16 @@ func TestHandleAggregationSnapshot_RedeliveryWithSameIdempotencyKey_NoDuplicate(
 
 func TestHandleAggregationSnapshot_DifferentIdempotencyKeys_BothStored(t *testing.T) {
 	writer := clickhouse.NewWriter()
+	b := testBatcher(writer)
 	env1 := snapshotEnvelope(t, "binance", "BTCUSDT", 42)
 	env1.IdempotencyKey = "key-a"
 	env2 := snapshotEnvelope(t, "binance", "BTCUSDT", 42)
 	env2.IdempotencyKey = "key-b"
 
-	if p := handleAggregationSnapshot(context.Background(), env1, writer, testLogger); p != nil {
+	if p := handleAggregationSnapshot(context.Background(), env1, b, testLogger); p != nil {
 		t.Fatalf("first: %v", p)
 	}
-	if p := handleAggregationSnapshot(context.Background(), env2, writer, testLogger); p != nil {
+	if p := handleAggregationSnapshot(context.Background(), env2, b, testLogger); p != nil {
 		t.Fatalf("second: %v", p)
 	}
 	if got := writer.CommitCount(); got != 2 {
@@ -181,9 +191,10 @@ func TestHandleAggregationSnapshot_DifferentIdempotencyKeys_BothStored(t *testin
 
 func TestHandleStoreEnvelope_RoutesSnapshot(t *testing.T) {
 	writer := clickhouse.NewWriter()
+	b := testBatcher(writer)
 	env := snapshotEnvelope(t, "binance", "BTCUSDT", 1)
 
-	p := handleStoreEnvelope(context.Background(), env, writer, testLogger)
+	p := handleStoreEnvelope(context.Background(), env, b, testLogger)
 	if p != nil {
 		t.Fatalf("expected nil, got %v", p)
 	}
@@ -194,6 +205,7 @@ func TestHandleStoreEnvelope_RoutesSnapshot(t *testing.T) {
 
 func TestHandleStoreEnvelope_SkipsUnhandledEvent(t *testing.T) {
 	writer := clickhouse.NewWriter()
+	b := testBatcher(writer)
 	env := envelope.Envelope{
 		Type:    "aggregation.orderbook_inconsistency",
 		Version: 1,
@@ -201,7 +213,7 @@ func TestHandleStoreEnvelope_SkipsUnhandledEvent(t *testing.T) {
 		Payload: []byte(`{}`),
 	}
 
-	p := handleStoreEnvelope(context.Background(), env, writer, testLogger)
+	p := handleStoreEnvelope(context.Background(), env, b, testLogger)
 	if p != nil {
 		t.Fatalf("expected nil for skipped event, got %v", p)
 	}
@@ -212,10 +224,11 @@ func TestHandleStoreEnvelope_SkipsUnhandledEvent(t *testing.T) {
 
 func TestHandleStoreEnvelope_SnapshotWrongVersion_Skipped(t *testing.T) {
 	writer := clickhouse.NewWriter()
+	b := testBatcher(writer)
 	env := snapshotEnvelope(t, "binance", "BTCUSDT", 1)
 	env.Version = 99
 
-	p := handleStoreEnvelope(context.Background(), env, writer, testLogger)
+	p := handleStoreEnvelope(context.Background(), env, b, testLogger)
 	if p != nil {
 		t.Fatalf("expected nil for wrong version, got %v", p)
 	}
@@ -231,9 +244,10 @@ func TestHeartbeat_IncrementsConcurrently(t *testing.T) {
 	storeConsumedCount.Store(0)
 
 	writer := clickhouse.NewWriter()
+	b := testBatcher(writer)
 	for i := int64(0); i < 10; i++ {
 		env := snapshotEnvelope(t, "binance", "BTCUSDT", i)
-		_ = handleStoreEnvelope(context.Background(), env, writer, testLogger)
+		_ = handleStoreEnvelope(context.Background(), env, b, testLogger)
 	}
 
 	if got := storeConsumedCount.Load(); got != 10 {
