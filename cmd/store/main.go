@@ -35,6 +35,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -49,6 +50,12 @@ import (
 	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/problem"
 )
+
+// storeHeartbeatEveryN controls the heartbeat log interval.
+const storeHeartbeatEveryN = 1000
+
+// storeConsumedCount tracks total consumed messages for heartbeat logging.
+var storeConsumedCount atomic.Uint64
 
 func main() {
 	configPath := flag.String("config", "config.jsonc", "path to JSONC config file")
@@ -193,10 +200,23 @@ func initStoreConsumer(cfg config.AppConfig, writer *clickhouse.Writer, logger *
 func handleStoreEnvelope(ctx context.Context, env envelope.Envelope, writer *clickhouse.Writer, logger *slog.Logger) *problem.Problem {
 	eventKey := fmt.Sprintf("%s.v%d", env.Type, env.Version)
 
+	// Heartbeat log every N messages so operators can prove liveness.
+	n := storeConsumedCount.Add(1)
+	if n%storeHeartbeatEveryN == 0 {
+		logger.Info("store: heartbeat", "consumed", n)
+	}
+
 	switch {
 	case env.Type == "aggregation.snapshot" && env.Version == 1:
-		return handleAggregationSnapshot(ctx, env, writer, logger)
+		p := handleAggregationSnapshot(ctx, env, writer, logger)
+		if p != nil {
+			metrics.IncStoreConsumed("failed", "commit")
+		} else {
+			metrics.IncStoreConsumed("ok", "snapshot")
+		}
+		return p
 	default:
+		metrics.IncStoreConsumed("ok", "skipped")
 		logger.Debug("store: skipping unhandled event", "type", eventKey,
 			"venue", env.Venue, "instrument", env.Instrument)
 		return nil
@@ -209,6 +229,7 @@ func handleStoreEnvelope(ctx context.Context, env envelope.Envelope, writer *cli
 func handleAggregationSnapshot(ctx context.Context, env envelope.Envelope, writer *clickhouse.Writer, logger *slog.Logger) *problem.Problem {
 	var snap aggdomain.SnapshotProduced
 	if err := json.Unmarshal(env.Payload, &snap); err != nil {
+		metrics.IncStoreQuarantine("decode")
 		return problem.Wrap(err, problem.ValidationFailed, "store: decode aggregation.snapshot payload failed")
 	}
 
@@ -226,15 +247,15 @@ func handleAggregationSnapshot(ctx context.Context, env envelope.Envelope, write
 
 	started := time.Now()
 	if p := writer.Save(ctx, snap); p != nil {
-		metrics.IncProcessorCommit("failed")
-		metrics.ObserveProcessorCommitLatency(time.Since(started))
+		metrics.IncStoreCommit("failed")
+		metrics.ObserveStoreCommitLatency(time.Since(started))
 		// Return as-is — consumer's ClassifyIngestError checks p.Retryable
 		// to decide NAK (transient) vs TERM (permanent).
 		return p
 	}
 
-	metrics.IncProcessorCommit("ok")
-	metrics.ObserveProcessorCommitLatency(time.Since(started))
+	metrics.IncStoreCommit("ok")
+	metrics.ObserveStoreCommitLatency(time.Since(started))
 
 	logger.Debug("store: snapshot committed",
 		"venue", snap.BookID.Venue,

@@ -537,6 +537,39 @@ var (
 		[]string{"group_id"},
 	)
 
+	// ── Store observability ─────────────────────────────────────────────
+	// Tracks envelope consumption and ClickHouse commit outcomes in
+	// cmd/store so operators can prove the cold-path is alive.
+
+	StoreConsumedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "store_consumed_total",
+			Help: "Total envelopes consumed by the store pipeline by status and reason.",
+		},
+		[]string{"status", "reason"},
+	)
+	StoreCommitTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "store_commit_total",
+			Help: "Total ClickHouse commit operations in the store by status.",
+		},
+		[]string{"status"},
+	)
+	StoreCommitLatencySeconds = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "store_commit_latency_seconds",
+			Help:    "ClickHouse commit latency in the store pipeline in seconds.",
+			Buckets: []float64{0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10},
+		},
+	)
+	StoreQuarantineTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "store_quarantine_total",
+			Help: "Total store envelopes quarantined by reason.",
+		},
+		[]string{"reason"},
+	)
+
 	// ── Processor observability ──────────────────────────────────────────
 	// Tracks envelope processing outcomes in the aggregation processor
 	// actor so operators can prove the pipeline is alive.
@@ -681,6 +714,10 @@ func registerAll() {
 			ShardRedeliveredTotal,
 			ShardAckLatencySeconds,
 			ShardSkipTotal,
+			StoreConsumedTotal,
+			StoreCommitTotal,
+			StoreCommitLatencySeconds,
+			StoreQuarantineTotal,
 			ProcessorProcessedTotal,
 			ProcessorCommitTotal,
 			ProcessorCommitLatencySeconds,
@@ -746,6 +783,13 @@ func registerAll() {
 		ShardRedeliveredTotal.WithLabelValues("0")
 		ShardAckLatencySeconds.WithLabelValues("0")
 		ShardSkipTotal.WithLabelValues("0")
+		StoreConsumedTotal.WithLabelValues("ok", "snapshot")
+		StoreConsumedTotal.WithLabelValues("ok", "skipped")
+		StoreConsumedTotal.WithLabelValues("failed", "decode")
+		StoreConsumedTotal.WithLabelValues("failed", "commit")
+		StoreCommitTotal.WithLabelValues("ok")
+		StoreCommitTotal.WithLabelValues("failed")
+		StoreQuarantineTotal.WithLabelValues("unknown")
 		ProcessorProcessedTotal.WithLabelValues("unknown", "ok")
 		ProcessorProcessedTotal.WithLabelValues("unknown", "failed")
 		ProcessorCommitTotal.WithLabelValues("ok")
@@ -1205,6 +1249,31 @@ func ObserveProcessorCommitLatency(latency time.Duration) {
 		latency = 0
 	}
 	ProcessorCommitLatencySeconds.Observe(latency.Seconds())
+}
+
+// ── Store observability ──────────────────────────────────────────────────────
+
+// IncStoreConsumed increments store_consumed_total with sanitized labels.
+func IncStoreConsumed(status, reason string) {
+	StoreConsumedTotal.WithLabelValues(sanitizeStatus(status), sanitizeIngestReason(reason)).Inc()
+}
+
+// IncStoreCommit increments store_commit_total with the given status.
+func IncStoreCommit(status string) {
+	StoreCommitTotal.WithLabelValues(sanitizeStatus(status)).Inc()
+}
+
+// ObserveStoreCommitLatency records a ClickHouse commit latency observation.
+func ObserveStoreCommitLatency(latency time.Duration) {
+	if latency < 0 {
+		latency = 0
+	}
+	StoreCommitLatencySeconds.Observe(latency.Seconds())
+}
+
+// IncStoreQuarantine increments store_quarantine_total with the given reason.
+func IncStoreQuarantine(reason string) {
+	StoreQuarantineTotal.WithLabelValues(sanitizeIngestReason(reason)).Inc()
 }
 
 type busObserver struct{}
