@@ -26,6 +26,8 @@
   },
   "store": {
     "clickhouse": {
+      // Local-dev only.  Production must override via mounted config or env.
+      // Credentials match deploy/envs/local.env (CLICKHOUSE_USER/PASSWORD).
       "dsn": "clickhouse://default:password@clickhouse:9000/default"
     }
   }
