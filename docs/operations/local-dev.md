@@ -15,6 +15,7 @@ Important local URLs:
 - **Server API (ready/metrics)**: http://127.0.0.1:8080
 - **Consumer API**: http://127.0.0.1:8081
 - **Processor API**: http://127.0.0.1:8082
+- **Store API (cold-path)**: http://127.0.0.1:8083
 - **NATS monitoring**: http://127.0.0.1:8222
 - **Prometheus**: http://127.0.0.1:9090
 - **Grafana**: http://127.0.0.1:3000 (admin/admin)
@@ -57,10 +58,11 @@ This repository exposes convenient Makefile targets that wrap common local dev t
 
 - Start the full stack (build images): `make docker-up` or `make up`
 - Stop the stack: `make docker-down` or `make down`
-- Start only infra (NATS): `make up-infra`
+- Start only infra (NATS + ClickHouse): `make up-infra`
+- Start infra + app services (no observability): `make up-core`
 - Show compose status: `make ps`
 - Tail logs: `make logs`
-- Bring up the full stack with automatic rebuild: `make up` (equivalent to `docker compose up --build -d`)
+- Bring up the full stack with automatic rebuild: `make up` (includes profiles `core` + `obs`)
 
 Developer checks and gates:
 
@@ -143,3 +145,51 @@ in `cmd/processor/main.go`).
 For sharding implications, see `docs/operations/sharding.md` — the shard key
 is derived from `venue + instrument`, so all event types for the same instrument
 always go to the same processor replica regardless of filter breadth.
+
+Store (cold-path ClickHouse authority)
+--------------------------------------
+
+The store binary is the cold-path writer. It consumes aggregation events from
+JetStream and commits them to ClickHouse with ack-on-commit semantics.
+
+- **Port**: 8083 (config: `deploy/configs/store.jsonc`)
+- **JetStream durable**: `store-v1`
+- **Filter subjects**: `aggregation.snapshot.v1.>`, `aggregation.orderbook_inconsistency.v1.>`
+
+Endpoints:
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/healthz` | GET | Liveness probe (always 200) |
+| `/readyz` | GET | Readiness gate (503 until schema validated + consumer connected) |
+| `/metrics` | GET | Prometheus exposition |
+| `/runtime/snapshot` | GET | Guardian state JSON |
+| `/runtime/reload` | POST | Reload signal (202) |
+
+Debug checklist:
+
+```bash
+# 1. Verify store is healthy
+curl -sSf http://127.0.0.1:8083/healthz
+
+# 2. Verify store is ready (schema validated + consumer started)
+curl -sSf http://127.0.0.1:8083/readyz
+
+# 3. Check Prometheus is scraping store
+curl -s http://127.0.0.1:9090/targets | grep store
+
+# 4. Check commit metrics (should increase when aggregation events flow)
+curl -s http://127.0.0.1:8083/metrics | grep store_commit_total
+
+# 5. Check for quarantine (decode failures / poison messages)
+curl -s http://127.0.0.1:8083/metrics | grep store_quarantine_total
+
+# 6. Verify ClickHouse has the expected table
+curl -s 'http://127.0.0.1:8123/?query=SHOW+TABLES+FROM+default' | grep aggregation
+
+# 7. Query committed snapshots
+curl -s 'http://127.0.0.1:8123/?query=SELECT+count()+FROM+default.aggregation_snapshots_v2'
+```
+
+Grafana dashboard: **Market-Raccoon Store** (uid: `market-raccoon-store`) — covers
+commit rate, commit latency p50/p95, quarantine, flush rate/latency, batch size.
