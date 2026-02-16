@@ -2,12 +2,18 @@ package bus
 
 import (
 	"context"
+	"log/slog"
 	"sync"
+	"sync/atomic"
 
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/observability"
 	"github.com/market-raccoon/internal/shared/problem"
 )
+
+// dropLogEveryN controls the sampling rate for bus drop warnings.
+// One structured log per N drops prevents log spam under sustained backpressure.
+const dropLogEveryN = 100
 
 const defaultBusCapacity = 1024
 
@@ -21,10 +27,11 @@ const defaultBusCapacity = 1024
 //
 // InMemoryBus is safe for concurrent use.
 type InMemoryBus struct {
-	mu          sync.RWMutex
-	subscribers []chan envelope.Envelope
-	capacity    int
-	observer    observability.BusObserver
+	mu           sync.RWMutex
+	subscribers  []chan envelope.Envelope
+	capacity     int
+	observer     observability.BusObserver
+	droppedTotal atomic.Int64
 }
 
 // NewInMemoryBus creates an InMemoryBus with the given per-subscriber channel
@@ -71,6 +78,15 @@ func (b *InMemoryBus) Publish(_ context.Context, env envelope.Envelope) *problem
 		default:
 			// subscriber buffer full — drop for this subscriber, continue.
 			b.observer.IncDropped(i)
+			n := b.droppedTotal.Add(1)
+			if n%dropLogEveryN == 1 {
+				slog.Warn("bus: envelope dropped (subscriber buffer full)",
+					"subscriber", i,
+					"type", env.Type,
+					"venue", env.Venue,
+					"total_dropped", n,
+				)
+			}
 		}
 	}
 	return nil
