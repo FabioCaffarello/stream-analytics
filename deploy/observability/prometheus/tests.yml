@@ -98,3 +98,31 @@ tests:
       - eval_time: 3m
         alertname: SLOIngestBurnRateFast
         exp_alerts: []   # 1h below threshold — conjunction false, must NOT fire
+
+  # ── Test 5 ────────────────────────────────────────────────────────────────
+  # StoreCommitLatencyHigh must NOT fire at 4m (condition not yet sustained
+  # for 5m) and MUST fire at 7m.  All observations are placed in the (1,2.5]
+  # histogram bucket so p95 ≈ 2.4s, well above the 1s threshold.
+  - interval: 1m
+    input_series:
+      - series: 'store_commit_latency_seconds_bucket{le="1"}'
+        values: "0+0x10"
+      - series: 'store_commit_latency_seconds_bucket{le="2.5"}'
+        values: "0+10x10"
+      - series: 'store_commit_latency_seconds_bucket{le="+Inf"}'
+        values: "0+10x10"
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: StoreCommitLatencyHigh
+        exp_alerts: []   # still pending — not sustained 5m yet
+      - eval_time: 7m
+        alertname: StoreCommitLatencyHigh
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: market-raccoon
+              slo: store
+            exp_annotations:
+              summary: "Store commit latency p95 exceeds 1s"
+              description: "Cold-path ClickHouse commit p95 latency is above 1 second for 5 minutes, indicating storage degradation."
+              runbook_url: "docs/operations/degradation.md"
