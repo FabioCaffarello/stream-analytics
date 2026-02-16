@@ -246,7 +246,7 @@ func handleAggregationSnapshot(ctx context.Context, env envelope.Envelope, write
 	}
 
 	started := time.Now()
-	if p := writer.Save(ctx, snap); p != nil {
+	if p := writer.SaveIdempotent(ctx, snap, env.IdempotencyKey); p != nil {
 		metrics.IncStoreCommit("failed")
 		metrics.ObserveStoreCommitLatency(time.Since(started))
 		// Return as-is — consumer's ClassifyIngestError checks p.Retryable

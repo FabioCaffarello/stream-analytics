@@ -26,7 +26,15 @@ func NewWriter() *Writer {
 	return &Writer{byKey: make(map[string]aggdomain.SnapshotProduced)}
 }
 
-func (w *Writer) Save(_ context.Context, snap aggdomain.SnapshotProduced) *problem.Problem {
+func (w *Writer) Save(ctx context.Context, snap aggdomain.SnapshotProduced) *problem.Problem {
+	return w.SaveIdempotent(ctx, snap, "")
+}
+
+// SaveIdempotent persists a snapshot using a deterministic write key that
+// includes sourceIdempotencyKey (typically envelope.IdempotencyKey).  Same
+// (venue, instrument, seq, sourceKey) → idempotent skip; same key with
+// different payload → conflict error.
+func (w *Writer) SaveIdempotent(_ context.Context, snap aggdomain.SnapshotProduced, sourceIdempotencyKey string) *problem.Problem {
 	if w == nil {
 		return problem.New(problem.ValidationFailed, "clickhouse writer is nil")
 	}
@@ -34,7 +42,7 @@ func (w *Writer) Save(_ context.Context, snap aggdomain.SnapshotProduced) *probl
 		snap.BookID.Venue,
 		snap.BookID.Instrument,
 		snap.Seq,
-		"",
+		sourceIdempotencyKey,
 	)
 
 	w.mu.Lock()
@@ -42,7 +50,7 @@ func (w *Writer) Save(_ context.Context, snap aggdomain.SnapshotProduced) *probl
 
 	if existing, exists := w.byKey[key]; exists {
 		if snapshotFingerprint(existing) != snapshotFingerprint(snap) {
-			return problem.New(problem.ValidationFailed, "clickhouse duplicate key conflict for (venue,instrument,seq)")
+			return problem.New(problem.ValidationFailed, "clickhouse duplicate key conflict for (venue,instrument,seq,source_idempotency_key)")
 		}
 		return nil
 	}

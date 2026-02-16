@@ -80,6 +80,68 @@ func TestWriter_ClickHouseSchemaContractW2HasCanonicalSubjectKey(t *testing.T) {
 	}
 }
 
+// ── SaveIdempotent (S3-D1) ───────────────────────────────────────────────────
+
+func TestWriter_SaveIdempotent_RedeliverySameKey_NoDuplicate(t *testing.T) {
+	w := clickhouse.NewWriter()
+	snap := testSnapshot(42, 100, 101)
+	key := "envelope-abc-123"
+
+	if p := w.SaveIdempotent(context.Background(), snap, key); p != nil {
+		t.Fatalf("first: %v", p)
+	}
+	if p := w.SaveIdempotent(context.Background(), snap, key); p != nil {
+		t.Fatalf("redelivery: %v", p)
+	}
+	if got := w.CommitCount(); got != 1 {
+		t.Fatalf("commit count=%d want=1 (redelivery must not duplicate)", got)
+	}
+}
+
+func TestWriter_SaveIdempotent_DifferentKey_BothStored(t *testing.T) {
+	w := clickhouse.NewWriter()
+	snap := testSnapshot(42, 100, 101)
+
+	if p := w.SaveIdempotent(context.Background(), snap, "key-a"); p != nil {
+		t.Fatalf("first: %v", p)
+	}
+	if p := w.SaveIdempotent(context.Background(), snap, "key-b"); p != nil {
+		t.Fatalf("second: %v", p)
+	}
+	if got := w.CommitCount(); got != 2 {
+		t.Fatalf("commit count=%d want=2 (different keys must both store)", got)
+	}
+}
+
+func TestWriter_SaveIdempotent_ConflictDetection(t *testing.T) {
+	w := clickhouse.NewWriter()
+	first := testSnapshot(42, 100, 101)
+	conflict := testSnapshot(42, 99, 101) // same seq, different bid
+
+	if p := w.SaveIdempotent(context.Background(), first, "same-key"); p != nil {
+		t.Fatalf("first: %v", p)
+	}
+	p := w.SaveIdempotent(context.Background(), conflict, "same-key")
+	if p == nil {
+		t.Fatal("expected conflict problem, got nil")
+	}
+	if p.Code != problem.ValidationFailed {
+		t.Fatalf("code=%q want=%q", p.Code, problem.ValidationFailed)
+	}
+	if got := w.CommitCount(); got != 1 {
+		t.Fatalf("commit count=%d want=1", got)
+	}
+}
+
+func TestWriter_SaveIdempotent_NilWriter_ReturnsProblem(t *testing.T) {
+	var w *clickhouse.Writer
+	snap := testSnapshot(1, 100, 101)
+	p := w.SaveIdempotent(context.Background(), snap, "key")
+	if p == nil {
+		t.Fatal("expected problem for nil writer")
+	}
+}
+
 func testSnapshot(seq int64, bid, ask float64) aggdomain.SnapshotProduced {
 	return aggdomain.SnapshotProduced{
 		BookID: aggdomain.BookID{

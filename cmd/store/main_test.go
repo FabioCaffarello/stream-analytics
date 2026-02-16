@@ -140,6 +140,43 @@ func TestHandleAggregationSnapshot_BookIDFallsBackToEnvelope(t *testing.T) {
 	}
 }
 
+// ── redelivery / idempotency (S3-D1) ─────────────────────────────────────────
+
+func TestHandleAggregationSnapshot_RedeliveryWithSameIdempotencyKey_NoDuplicate(t *testing.T) {
+	writer := clickhouse.NewWriter()
+	env := snapshotEnvelope(t, "binance", "BTCUSDT", 42)
+	env.IdempotencyKey = "js-msg-id-001"
+
+	if p := handleAggregationSnapshot(context.Background(), env, writer, testLogger); p != nil {
+		t.Fatalf("first delivery: %v", p)
+	}
+	// Simulate JetStream redelivery (NumDelivered>1) — same envelope, same key.
+	if p := handleAggregationSnapshot(context.Background(), env, writer, testLogger); p != nil {
+		t.Fatalf("redelivery: %v", p)
+	}
+	if got := writer.CommitCount(); got != 1 {
+		t.Fatalf("commit count=%d want=1 (redelivery must not duplicate)", got)
+	}
+}
+
+func TestHandleAggregationSnapshot_DifferentIdempotencyKeys_BothStored(t *testing.T) {
+	writer := clickhouse.NewWriter()
+	env1 := snapshotEnvelope(t, "binance", "BTCUSDT", 42)
+	env1.IdempotencyKey = "key-a"
+	env2 := snapshotEnvelope(t, "binance", "BTCUSDT", 42)
+	env2.IdempotencyKey = "key-b"
+
+	if p := handleAggregationSnapshot(context.Background(), env1, writer, testLogger); p != nil {
+		t.Fatalf("first: %v", p)
+	}
+	if p := handleAggregationSnapshot(context.Background(), env2, writer, testLogger); p != nil {
+		t.Fatalf("second: %v", p)
+	}
+	if got := writer.CommitCount(); got != 2 {
+		t.Fatalf("commit count=%d want=2 (different idempotency keys are independent)", got)
+	}
+}
+
 // ── handleStoreEnvelope routing ──────────────────────────────────────────────
 
 func TestHandleStoreEnvelope_RoutesSnapshot(t *testing.T) {
