@@ -6,12 +6,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/market-raccoon/internal/adapters/storage/clickhouse"
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
 	"github.com/market-raccoon/internal/shared/config"
 	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/problem"
 )
+
+// StoreWriter is the minimal interface for the cold-path writer used by the batcher.
+type StoreWriter interface {
+	SaveIdempotent(ctx context.Context, snap aggdomain.SnapshotProduced, sourceIdempotencyKey string) *problem.Problem
+}
 
 // batchItem holds a single enqueued snapshot with its dedup key.
 type batchItem struct {
@@ -31,7 +35,7 @@ func estimatePayloadSize(snap aggdomain.SnapshotProduced) int {
 // immediately — preserving ack-on-commit semantics.  The infrastructure is
 // ready for batch-size>1 when concurrent dispatch arrives.
 type StoreBatcher struct {
-	writer *clickhouse.Writer
+	writer StoreWriter
 	cfg    config.StoreBatchConfig
 
 	mu           sync.Mutex
@@ -41,7 +45,7 @@ type StoreBatcher struct {
 }
 
 // NewStoreBatcher creates a batcher with the given config.
-func NewStoreBatcher(writer *clickhouse.Writer, cfg config.StoreBatchConfig) *StoreBatcher {
+func NewStoreBatcher(writer StoreWriter, cfg config.StoreBatchConfig) *StoreBatcher {
 	return &StoreBatcher{
 		writer:    writer,
 		cfg:       cfg,

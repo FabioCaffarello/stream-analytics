@@ -16,6 +16,7 @@ import (
 	"github.com/market-raccoon/internal/adapters/storage/clickhouse"
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
 	"github.com/market-raccoon/internal/shared/envelope"
+	"github.com/market-raccoon/internal/shared/problem"
 )
 
 // soakDuration reads SOAK_DURATION_SECONDS from the environment or defaults to 60.
@@ -280,5 +281,116 @@ func TestStoreSoak_RedeliveryStorm(t *testing.T) {
 	// Consumed counter = total replayed.
 	if got := storeConsumedCount.Load(); got != uint64(totalExpected) {
 		t.Fatalf("consumed count=%d want=%d", got, totalExpected)
+	}
+}
+
+// ── storage-slow soak (S5-D3) ────────────────────────────────────────────────
+
+// slowWriter wraps a StoreWriter and injects artificial latency before each
+// call to SaveIdempotent, simulating a degraded storage backend.
+type slowWriter struct {
+	delegate StoreWriter
+	latency  time.Duration
+}
+
+func (w *slowWriter) SaveIdempotent(ctx context.Context, snap aggdomain.SnapshotProduced, sourceIdempotencyKey string) *problem.Problem {
+	select {
+	case <-time.After(w.latency):
+	case <-ctx.Done():
+		return problem.Wrap(ctx.Err(), problem.Unavailable, "slow writer: context cancelled during latency injection")
+	}
+	return w.delegate.SaveIdempotent(ctx, snap, sourceIdempotencyKey)
+}
+
+// TestStoreSoak_StorageSlow processes envelopes through a writer with
+// artificial latency and asserts:
+//   - ACK only occurs after commit (handler returns nil only after slow write).
+//   - Redelivery does not duplicate writes (idempotency maintained).
+//   - Observed handler latency reflects injected latency.
+func TestStoreSoak_StorageSlow(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping soak test in short mode")
+	}
+
+	const (
+		injectedLatency = 10 * time.Millisecond
+		uniqueCount     = 200
+		replaysEach     = 3
+		totalExpected   = uniqueCount * (1 + replaysEach) // first delivery + replays
+	)
+
+	writer := clickhouse.NewWriter()
+	sw := &slowWriter{delegate: writer, latency: injectedLatency}
+	b := NewStoreBatcher(sw, defaultBatchCfg())
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
+
+	// Reset global counter for deterministic test.
+	storeConsumedCount.Store(0)
+
+	// Generate unique envelopes.
+	envs := make([]envelope.Envelope, uniqueCount)
+	for i := range uniqueCount {
+		envs[i] = soakEnvelope("binance", "BTCUSDT", int64(i+1), fmt.Sprintf("slow-%d", i+1))
+	}
+
+	latencies := make([]time.Duration, 0, totalExpected)
+
+	// First pass: all unique — each must take >= injectedLatency.
+	for _, env := range envs {
+		started := time.Now()
+		p := handleStoreEnvelope(context.Background(), env, b, logger)
+		elapsed := time.Since(started)
+		latencies = append(latencies, elapsed)
+		if p != nil {
+			t.Fatalf("unique write should succeed: %v", p)
+		}
+	}
+
+	// Replay passes: simulate redelivery — all must be idempotent successes
+	// and still pay the latency cost.
+	for replay := range replaysEach {
+		for _, env := range envs {
+			started := time.Now()
+			p := handleStoreEnvelope(context.Background(), env, b, logger)
+			elapsed := time.Since(started)
+			latencies = append(latencies, elapsed)
+			if p != nil {
+				t.Fatalf("redelivery (replay=%d) should succeed idempotently: %v", replay+1, p)
+			}
+		}
+	}
+
+	// ── Assertions ───────────────────────────────────────────────────────────
+
+	t.Logf("total processed=%d unique=%d replays=%d commits=%d",
+		totalExpected, uniqueCount, replaysEach, writer.CommitCount())
+
+	// 1. Exactly uniqueCount commits — redeliveries must be deduplicated.
+	if got := writer.CommitCount(); got != uniqueCount {
+		t.Fatalf("commit count=%d want=%d (zero duplicates despite slow writes)", got, uniqueCount)
+	}
+
+	// 2. Consumed counter = total processed.
+	if got := storeConsumedCount.Load(); got != uint64(totalExpected) {
+		t.Fatalf("consumed count=%d want=%d", got, totalExpected)
+	}
+
+	// 3. Latency p50 must be >= injectedLatency (proves we actually waited).
+	slices.Sort(latencies)
+	p50 := latencies[len(latencies)/2]
+	p95Idx := int(float64(len(latencies)) * 0.95)
+	p95 := latencies[p95Idx]
+	t.Logf("latency p50=%s p95=%s max=%s (injected=%s)",
+		p50, p95, latencies[len(latencies)-1], injectedLatency)
+
+	if p50 < injectedLatency {
+		t.Fatalf("p50 latency=%s is below injected latency=%s — slow writer not effective", p50, injectedLatency)
+	}
+
+	// 4. Latency p95 should be reasonable (injected + small overhead).
+	// Allow 5x injected as ceiling for CI variance.
+	maxAllowed := 5 * injectedLatency
+	if p95 > maxAllowed {
+		t.Fatalf("p95 latency=%s exceeds %s — unexpected overhead beyond injected latency", p95, maxAllowed)
 	}
 }
