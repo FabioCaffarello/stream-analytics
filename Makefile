@@ -92,8 +92,9 @@ help:
 	@echo "  make build              - build all binaries under cmd/* (package main)"
 	@echo "  make run                - run selected app (default: server)"
 	@echo "  make down               - stop full stack"
-	@echo "  make up                 - start full stack (nats + server + consumer + processor + clickhouse + prometheus + grafana)"
+	@echo "  make up                 - start full stack (nats + server + consumer + processor + store + clickhouse + prometheus + grafana)"
 	@echo "  make up-infra           - start only infrastructure services (nats + clickhouse + prometheus + grafana)"
+	@echo "  make up-core            - start infra + core app services (no observability)"
 	@echo "  make ps                 - list compose service status"
 	@echo "  make logs               - stream compose logs"
 	@echo "  make pre-commit-install - install pre-commit hooks"
@@ -371,19 +372,22 @@ clean:
 	@rm -rf ./bin ./dist ./.cache
 
 up:
-	docker compose -f deploy/compose/docker-compose.yml up --build -d
+	docker compose -f deploy/compose/docker-compose.yml --profile core --profile obs up --build -d
 
 down:
-	docker compose -f deploy/compose/docker-compose.yml down -v --remove-orphans
+	docker compose -f deploy/compose/docker-compose.yml --profile core --profile obs down -v --remove-orphans
 
 up-infra:
-	docker compose -f deploy/compose/docker-compose.yml up -d nats clickhouse prometheus grafana
+	docker compose -f deploy/compose/docker-compose.yml --profile obs up -d nats clickhouse prometheus grafana
+
+up-core:
+	docker compose -f deploy/compose/docker-compose.yml --profile core up --build -d
 
 ps:
-	docker compose -f deploy/compose/docker-compose.yml ps
+	docker compose -f deploy/compose/docker-compose.yml --profile core --profile obs ps
 
 logs:
-	docker compose -f deploy/compose/docker-compose.yml logs -f --tail=200
+	docker compose -f deploy/compose/docker-compose.yml --profile core --profile obs logs -f --tail=200
 
 pre-commit-install:
 	$(PRE_COMMIT) install --hook-type pre-commit --hook-type commit-msg

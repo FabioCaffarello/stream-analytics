@@ -10,7 +10,7 @@ scrape_configs:
   - job_name: 'market-raccoon'
     metrics_path: /metrics
     static_configs:
-      - targets: ['server:8080', 'consumer:8081', 'processor:8082']
+      - targets: ['server:8080', 'consumer:8081', 'processor:8082', 'store:8083']
 
   - job_name: 'prometheus'
     static_configs:
