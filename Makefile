@@ -29,6 +29,8 @@ SOAK_GO_CACHE ?= /tmp/go-build
 SOAK_WS_PATTERN ?= TestConsumer_ConnectDisconnectCycle_(NoGoroutineLeak|HeapStable)
 SOAK_BOUNDEDMAP_PATTERN ?= TestBoundedMap_(ConcurrentAccess|EvictBySizeLRU|EvictByTTL)
 SOAK_VPVR_PATTERN ?= TestVPVROverloadSoakBurstDeterministicBudgets
+SOAK_STORE_OUT_FILE ?= .context/evidence/s3-store-soak.txt
+SOAK_STORE_PATTERN ?= TestStoreSoak_
 VULN_REQUIRED ?= false
 MODULE ?=
 MSG_FILE ?=
@@ -46,7 +48,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules workspace-check tidy tidy-check fmt fmt-check vet quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path test-short bench-hotpath vuln build run clean docker-build up down up-infra ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci
+.PHONY: help install-tools tools modules workspace-check tidy tidy-check fmt fmt-check vet quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store test-short bench-hotpath vuln build run clean docker-build up down up-infra ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci
 
 help:
 	@echo "Targets:"
@@ -84,6 +86,7 @@ help:
 	@echo "  make soak-check         - run soak harness checks and emit evidence file"
 	@echo "  make soak-vpvr          - run deterministic VPVR burst soak checks"
 	@echo "  make soak-cold-path     - run cold-path commit/ack soak harness"
+	@echo "  make soak-store         - run store pipeline dedup/batch soak harness"
 	@echo "  make test-short         - run short tests"
 	@echo "  make vuln               - run govulncheck"
 	@echo "  make build              - build all binaries under cmd/* (package main)"
@@ -315,6 +318,13 @@ soak-cold-path: invariants-check
 	@./scripts/soak-cold-path.sh \
 		--out-file ".context/evidence/w2-cold-path-soak.txt" \
 		--go-cache "$(SOAK_GO_CACHE)"
+
+soak-store: invariants-check
+	@chmod +x ./scripts/soak-store.sh
+	@./scripts/soak-store.sh \
+		--out-file "$(SOAK_STORE_OUT_FILE)" \
+		--go-cache "$(SOAK_GO_CACHE)" \
+		--pattern "$(SOAK_STORE_PATTERN)"
 
 test-short:
 	$(call RUN_IN_MODULES,bash -lc 'pkgs="$$( $(GO) list ./... 2>/dev/null || true )"; if [ -n "$$pkgs" ]; then $(GO) test -short $$pkgs; else echo "no packages to test (skipping)"; fi')
