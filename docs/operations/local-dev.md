@@ -56,8 +56,8 @@ Makefile shortcuts
 
 This repository exposes convenient Makefile targets that wrap common local dev tasks. Use these instead of calling `docker compose` directly when possible.
 
-- Start the full stack (build images): `make docker-up` or `make up`
-- Stop the stack: `make docker-down` or `make down`
+- Start the full stack (build images): `make up`
+- Stop the stack: `make down`
 - Start only infra (NATS + ClickHouse): `make up-infra`
 - Start infra + app services (no observability): `make up-core`
 - Show compose status: `make ps`
