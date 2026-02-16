@@ -536,6 +536,61 @@ func TestServer_Readyz_PendingSubsystems_Returns503(t *testing.T) {
 	}
 }
 
+func TestServer_Readyz_GateBlocksBeforeReady(t *testing.T) {
+	e := newEngine(t)
+	pid := e.Spawn(
+		actorruntime.NewGuardian(actorruntime.GuardianConfig{}),
+		"guardian",
+		actor.WithID("guardian-readyz-gate-blocked"),
+	)
+	time.Sleep(50 * time.Millisecond)
+	defer e.Poison(pid)
+
+	srv := newTestServer(e, pid)
+	srv.SetReadyGate(func() bool { return false })
+
+	rec := doRequest(t, srv, http.MethodGet, "/readyz", "")
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d\nbody: %s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("json unmarshal: %v", err)
+	}
+	if ready, _ := body["ready"].(bool); ready {
+		t.Fatalf("expected ready=false, got body: %v", body)
+	}
+	if gate, _ := body["gate"].(string); gate != "startup" {
+		t.Fatalf("expected gate=startup, got %q", gate)
+	}
+}
+
+func TestServer_Readyz_GatePassesThroughWhenReady(t *testing.T) {
+	e := newEngine(t)
+	pid := e.Spawn(
+		actorruntime.NewGuardian(actorruntime.GuardianConfig{}),
+		"guardian",
+		actor.WithID("guardian-readyz-gate-pass"),
+	)
+	time.Sleep(50 * time.Millisecond)
+	defer e.Poison(pid)
+
+	srv := newTestServer(e, pid)
+	srv.SetReadyGate(func() bool { return true })
+
+	rec := doRequest(t, srv, http.MethodGet, "/readyz", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d\nbody: %s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("json unmarshal: %v", err)
+	}
+	if ready, _ := body["ready"].(bool); !ready {
+		t.Fatalf("expected ready=true, got body: %v", body)
+	}
+}
+
 func TestServer_Readyz_Timeout_Returns504(t *testing.T) {
 	e := newEngine(t)
 	silentPID := e.Spawn(func() actor.Receiver {

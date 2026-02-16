@@ -44,6 +44,12 @@ type Server struct {
 	// snapshotTimeout controls how long the snapshot handler waits for a
 	// Guardian response before returning 504.  Settable for testing.
 	snapshotTimeout time.Duration
+
+	// readyGate is an optional pre-check for /readyz.  When set and
+	// returning false, the endpoint returns 503 without querying the
+	// Guardian.  Used by cmd/store to gate readiness on ClickHouse +
+	// consumer startup.
+	readyGate func() bool
 }
 
 // NewServer creates a Server that listens on addr and talks to guardianPID.
@@ -88,6 +94,10 @@ func NewServer(
 	}
 	return s
 }
+
+// SetReadyGate installs an optional pre-check for the /readyz endpoint.
+// When fn returns false, /readyz returns 503 without querying the Guardian.
+func (s *Server) SetReadyGate(fn func() bool) { s.readyGate = fn }
 
 // ListenAndServe starts the HTTP server.  It blocks until the server stops.
 func (s *Server) ListenAndServe() error {
@@ -169,6 +179,13 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 // Returns 200 when all expected subsystems are running; 503 otherwise.
 // Returns 504 if the Guardian does not respond in time.
 func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
+	if s.readyGate != nil && !s.readyGate() {
+		writeResponse(w, r, http.StatusServiceUnavailable, "runtime.readyz", map[string]any{
+			"ready": false,
+			"gate":  "startup",
+		})
+		return
+	}
 	resp := s.engine.Request(s.guardianPID, runtime.ReadyQuery{}, s.snapshotTimeout)
 	result, err := resp.Result()
 	if err != nil {

@@ -89,6 +89,13 @@ func main() {
 	)
 	logger.Info("store: guardian spawned", "pid", guardianPID.String())
 
+	// ── schema contract validation (fail fast) ──────────────────────────────
+	if p := ValidateSchemaContract("sql/clickhouse/migrations"); p != nil {
+		logger.Error("store: schema contract validation failed", "err", p)
+		os.Exit(1)
+	}
+	logger.Info("store: schema contract validated")
+
 	// ── ClickHouse writer + batcher ──────────────────────────────────────────
 	chWriter := clickhouse.NewWriter()
 	batcher := NewStoreBatcher(chWriter, cfg.Store.Batch)
@@ -97,6 +104,9 @@ func main() {
 		"max_bytes", cfg.Store.Batch.MaxBytes,
 		"flush_interval", cfg.Store.Batch.FlushInterval,
 	)
+
+	// ── readiness gate ───────────────────────────────────────────────────────
+	var storeReady atomic.Bool
 
 	// ── JetStream consumer (when bus.type=jetstream) ─────────────────────────
 	var consumeErr <-chan *problem.Problem
@@ -107,8 +117,13 @@ func main() {
 		logger.Info("store: bus.type is not jetstream, running in observer mode")
 	}
 
+	// Schema validated + consumer started → store is ready.
+	storeReady.Store(true)
+	logger.Info("store: ready")
+
 	// ── HTTP server ───────────────────────────────────────────────────────────
 	srv := httpserver.NewServer(e, guardianPID, cfg.HTTP.Addr, cfg.HTTP.EnablePprof, logger)
+	srv.SetReadyGate(func() bool { return storeReady.Load() })
 
 	serverErr := make(chan error, 1)
 	go func() {
