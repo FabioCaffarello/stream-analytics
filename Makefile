@@ -371,6 +371,9 @@ run:
 clean:
 	@rm -rf ./bin ./dist ./.cache
 
+docker-build:
+	docker compose -f deploy/compose/docker-compose.yml --profile core build
+
 up:
 	docker compose -f deploy/compose/docker-compose.yml --profile core --profile obs up --build -d
 
