@@ -18,6 +18,13 @@ services:
     networks:
       - market-raccoon-network
     restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.50"
 
   server:
     build:
@@ -45,6 +52,13 @@ services:
       - market-raccoon-network
     restart: unless-stopped
     profiles: ["core"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.00"
 
   consumer:
     build:
@@ -72,6 +86,13 @@ services:
       - market-raccoon-network
     restart: unless-stopped
     profiles: ["core"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.00"
 
   processor:
     build:
@@ -101,6 +122,13 @@ services:
       - market-raccoon-network
     restart: unless-stopped
     profiles: ["core"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.00"
 
   store:
     build:
@@ -128,6 +156,13 @@ services:
       - market-raccoon-network
     restart: unless-stopped
     profiles: ["core"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.00"
 
   clickhouse:
     image: clickhouse/clickhouse-server:24.8.8
@@ -143,6 +178,8 @@ services:
       - ../../sql/clickhouse/migrations:/docker-entrypoint-initdb.d:ro
     cap_add:
       - SYS_NICE
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     networks:
       - market-raccoon-network
     env_file:
@@ -154,6 +191,11 @@ services:
       retries: 20
       start_period: 30s
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "2.00"
 
   prometheus:
     image: prom/prometheus:v2.54.1
@@ -175,6 +217,13 @@ services:
     networks:
       - market-raccoon-network
     profiles: ["obs"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.50"
 
   grafana:
     image: grafana/grafana:11.2.0
@@ -200,6 +249,13 @@ services:
       prometheus:
         condition: service_healthy
     profiles: ["obs"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.50"
 
 networks:
   market-raccoon-network:
