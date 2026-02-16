@@ -122,6 +122,41 @@
         "textMode": "auto",
         "reduceOptions": {"calcs": ["lastNotNull"]}
       }
+    },
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 27},
+      "id": 103,
+      "title": "Store — Backpressure",
+      "type": "row"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {
+        "defaults": {"unit": "short"},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "commit_latency_p95"}, "properties": [{"id": "custom.axisPlacement", "value": "right"}, {"id": "unit", "value": "s"}]}
+        ]
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28},
+      "id": 9,
+      "title": "Consumer Lag vs Commit Latency",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "bus_consumer_lag{bus_type=\"jetstream\"}", "legendFormat": "consumer_lag", "refId": "A"},
+        {"expr": "histogram_quantile(0.95, sum by (le) (rate(store_commit_latency_seconds_bucket[5m])))", "legendFormat": "commit_latency_p95", "refId": "B"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 28},
+      "id": 10,
+      "title": "Redelivery Rate",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "sum(rate(bus_redelivered_total{bus_type=\"jetstream\"}[5m]))", "legendFormat": "redeliveries/s", "refId": "A"}
+      ]
     }
   ],
   "schemaVersion": 39,

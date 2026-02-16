@@ -172,6 +172,8 @@ groups:
         expr: |
           sum(rate(vpvr_writer_write_fail_total[5m]))
           + sum(rate(bus_publish_errors_total[5m]))
+          + sum(rate(store_commit_total{status="failed"}[5m]))
+          + sum(rate(store_flush_total{status="failed"}[5m]))
         labels:
           service: market-raccoon
           stream: all
@@ -201,6 +203,7 @@ groups:
               + sum(rate(backpressure_drops_total[30m])) + sum(rate(bus_dropped_total[30m]))
               + sum(rate(policykit_drop_total[30m]))
               + sum(rate(vpvr_writer_write_fail_total[30m])) + sum(rate(bus_publish_errors_total[30m]))
+              + sum(rate(store_commit_total{status="failed"}[30m])) + sum(rate(store_flush_total{status="failed"}[30m]))
             ) / clamp_min(sum(rate(ingest_messages_total[30m])), 1e-9),
             1
           )
@@ -217,6 +220,7 @@ groups:
               + sum(rate(backpressure_drops_total[1h])) + sum(rate(bus_dropped_total[1h]))
               + sum(rate(policykit_drop_total[1h]))
               + sum(rate(vpvr_writer_write_fail_total[1h])) + sum(rate(bus_publish_errors_total[1h]))
+              + sum(rate(store_commit_total{status="failed"}[1h])) + sum(rate(store_flush_total{status="failed"}[1h]))
             ) / clamp_min(sum(rate(ingest_messages_total[1h])), 1e-9),
             1
           )
@@ -233,6 +237,7 @@ groups:
               + sum(rate(backpressure_drops_total[6h])) + sum(rate(bus_dropped_total[6h]))
               + sum(rate(policykit_drop_total[6h]))
               + sum(rate(vpvr_writer_write_fail_total[6h])) + sum(rate(bus_publish_errors_total[6h]))
+              + sum(rate(store_commit_total{status="failed"}[6h])) + sum(rate(store_flush_total{status="failed"}[6h]))
             ) / clamp_min(sum(rate(ingest_messages_total[6h])), 1e-9),
             1
           )
