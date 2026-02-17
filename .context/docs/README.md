@@ -5,6 +5,8 @@ description: Documentation index and navigation for .context guides
 category: index
 generated: 2026-02-12
 status: filled
+docStatus: ACTIVE
+last_reviewed: "2026-02-17"
 scaffoldVersion: "2.0.0"
 ---
 

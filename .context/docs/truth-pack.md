@@ -1,5 +1,7 @@
 # Truth Pack
 
+**STATUS:** ACTIVE | **last_reviewed:** 2026-02-17
+
 Context interface for `.context/docs`: pointers, invariants, acceptance gates.
 
 ## Authoritative Sources

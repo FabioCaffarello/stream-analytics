@@ -5,6 +5,8 @@ description: Toolchain setup, automation commands, and productivity workflows
 category: tooling
 generated: 2026-02-12
 status: filled
+docStatus: ACTIVE
+last_reviewed: "2026-02-17"
 scaffoldVersion: "2.0.0"
 ---
 

@@ -1,5 +1,7 @@
 # Feature Pack: Storage
 
+**STATUS:** ACTIVE | **last_reviewed:** 2026-02-17
+
 ## Purpose
 
 - Storage constraints and bridge only; authority: [storage](../../../docs/architecture/storage.md), [event-bus](../../../docs/contracts/event-bus.md), [ADR-0006](../../../docs/adrs/ADR-0006-storage-hot-vs-cold.md).

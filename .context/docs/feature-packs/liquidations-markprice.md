@@ -1,5 +1,7 @@
 # Feature Pack: Liquidations + MarkPrice
 
+**STATUS:** ACTIVE | **last_reviewed:** 2026-02-17
+
 ## Purpose
 - Markprice/liquidation constraints only; authority: [liquidations-markprice](../../../docs/architecture/liquidations-markprice.md), [event-bus](../../../docs/contracts/event-bus.md), [ADR-0011](../../../docs/adrs/ADR-0011-marketdata-binance-canonical-instrument-and-event-mapping.md).
 

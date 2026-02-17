@@ -1,5 +1,7 @@
 # Feature Pack: Orderbook
 
+**STATUS:** ACTIVE | **last_reviewed:** 2026-02-17
+
 ## Purpose
 
 - Deterministic orderbook constraints only; authority: [orderbook](../../../docs/architecture/orderbook.md), [event-bus](../../../docs/contracts/event-bus.md), [ADR-0005](../../../docs/adrs/ADR-0005-sequencing-and-time-normalization.md).

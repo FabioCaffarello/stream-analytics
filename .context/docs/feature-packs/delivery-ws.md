@@ -1,5 +1,7 @@
 # Feature Pack: Delivery WS
 
+**STATUS:** ACTIVE | **last_reviewed:** 2026-02-17
+
 ## Purpose
 - Delivery WS constraints only; authority: [delivery-ws](../../../docs/contracts/delivery-ws.md), [event-bus](../../../docs/contracts/event-bus.md), [ADR-0007](../../../docs/adrs/ADR-0007-delivery-ws-sessions.md).
 

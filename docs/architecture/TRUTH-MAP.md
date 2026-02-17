@@ -1,7 +1,8 @@
 # TRUTH-MAP — W11/W12 Doc Inventory + Single Source of Truth
 
-**Status:** Draft
+**Status:** Active
 **Date:** 2026-02-13
+**last_reviewed:** 2026-02-17
 **Scope:** `docs/prd/PRD-0001-extreme-runtime.md`, `docs/audits/AUDIT-PACK-W11-finalization.md`, `docs/rfcs/EXECUTION-SEQUENCE.md`, `docs/rfcs/ADR-REVISIONS-patch-plan.md`, `docs/rfcs/RFC-0011-product-parity-marketmonkey.md`
 
 ## Purpose

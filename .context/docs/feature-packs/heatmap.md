@@ -1,5 +1,7 @@
 # Feature Pack: Heatmap
 
+**STATUS:** ACTIVE | **last_reviewed:** 2026-02-17
+
 ## Purpose
 - Heatmap parity constraints only; authority: [heatmap](../../../docs/architecture/heatmap.md), [event-bus](../../../docs/contracts/event-bus.md), [ADR-0013](../../../docs/adrs/ADR-0013-backpressure-overload-policies.md).
 

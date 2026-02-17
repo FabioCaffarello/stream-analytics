@@ -1,5 +1,7 @@
 # Drift Runbook
 
+**STATUS:** ACTIVE | **last_reviewed:** 2026-02-17
+
 ## Goal
 - Detect drift between `.context/docs/feature-packs/*` and `docs/**` without editing runtime code.
 

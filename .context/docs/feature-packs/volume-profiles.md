@@ -1,5 +1,7 @@
 # Feature Pack: Volume Profiles
 
+**STATUS:** ACTIVE | **last_reviewed:** 2026-02-17
+
 ## Purpose
 - VPVR constraints only; authority: [volume-profiles](../../../docs/architecture/volume-profiles.md), [event-bus](../../../docs/contracts/event-bus.md), [ADR-0017](../../../docs/adrs/ADR-0017-multi-exchange-normalization.md).
 

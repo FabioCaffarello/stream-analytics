@@ -5,6 +5,8 @@ description: High-level overview of the project, its purpose, and key components
 category: overview
 generated: 2026-02-12
 status: filled
+docStatus: ACTIVE
+last_reviewed: "2026-02-17"
 scaffoldVersion: "2.0.0"
 ---
 
