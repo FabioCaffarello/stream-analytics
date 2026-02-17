@@ -64,6 +64,9 @@ type EnvelopeProcessResult struct {
 }
 
 // EventPublisher publishes a canonical envelope to the configured bus adapter.
+// Defined here (consumer-side) rather than in core/aggregation/ports because
+// publishing is an actor-layer concern — core usecases return domain events,
+// the actor decides how/where to publish them.
 type EventPublisher interface {
 	Publish(ctx context.Context, env envelope.Envelope) *problem.Problem
 }
