@@ -2,7 +2,7 @@
 
 **Status:** Active
 **Owner:** Governance Doc-First Maintainer
-**Last updated:** 2026-02-13
+**Last updated:** 2026-02-17
 
 ---
 
@@ -26,6 +26,8 @@ Cada invariante referencia:
 | INV-CONTRACT-01 | Registry de contratos deve ser autoridade de schemas protobuf ativos | `docs/adrs/ADR-0016-protobuf-contract-layer.md` | `proto/registry.json`, `internal/shared/contracts/authority_test.go:268` | `make proto-lint` + `make proto-breaking` |
 | INV-TOPO-01 | Guardian deve aplicar readiness por expected subsystems e restart budget | `docs/adrs/ADR-0018-actor-topology-supervision-model.md` | `internal/actors/runtime/guardian_test.go:315`, `internal/actors/runtime/guardian_test.go:436` | `make test-workspace-race` |
 | INV-MEX-01 | Identidade de stream deve incluir `venue+instrument+market_type` | `docs/adrs/ADR-0017-multi-exchange-normalization.md` | `internal/core/marketdata/domain/instrument_stream.go:30`, `cmd/consumer/e2e_consumer_integration_test.go:24` | `make test-workspace-race` |
+| INV-LAY-01 | `internal/core/*` nao pode importar `internal/actors` | `docs/adrs/ADR-0001-bounded-contexts-and-boundaries.md` | `scripts/check-domain-isolation.sh` | `make invariants-check` |
+| INV-LAY-02 | `internal/interfaces/*` nao pode importar `internal/adapters` | `docs/adrs/ADR-0001-bounded-contexts-and-boundaries.md` | `scripts/check-domain-isolation.sh` | `make invariants-check` |
 
 ## Standard Validation Gates
 
@@ -53,7 +55,9 @@ go test ./cmd/consumer -run TestReplayIngestGolden1000
 
 ## Changelog
 
+- 2026-02-17:
+  - Adicionados INV-LAY-01 (core->actors) e INV-LAY-02 (interfaces->adapters).
 - 2026-02-13:
-- Reescrito como indice vivo de invariantes.
-- Conteudo legacy de bootstrap removido.
-- Cross-links para ADRs, testes e gates reais adicionados.
+  - Reescrito como indice vivo de invariantes.
+  - Conteudo legacy de bootstrap removido.
+  - Cross-links para ADRs, testes e gates reais adicionados.
