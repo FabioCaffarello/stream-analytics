@@ -25,9 +25,11 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -525,9 +527,11 @@ func main() {
 	busTypeOverride := flag.String("bus", "", "bus adapter override: inmemory|jetstream")
 	replayModeOverride := flag.String("replay-mode", "", "replay mode override: off|file|jetstream")
 	replayPathOverride := flag.String("replay-path", "", "optional fixture path to replay envelopes")
+	shardIndex := flag.Int("shard-index", -1, "shard index override (0-based); env: SHARD_INDEX")
+	shardCount := flag.Int("shard-count", -1, "total shard count override; env: SHARD_COUNT")
 	flag.Parse()
 
-	cfg := loadProcessorConfig(*configPath, *logLevelOverride, *busTypeOverride, *replayModeOverride, *replayPathOverride)
+	cfg := loadProcessorConfig(*configPath, *logLevelOverride, *busTypeOverride, *replayModeOverride, *replayPathOverride, *shardIndex, *shardCount)
 
 	// ── logger ─────────────────────────────────────────────────────────────
 	logger := buildLogger(cfg.Log)
@@ -542,7 +546,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	logger.Info("processor starting", "bus_type", cfg.Bus.Type)
+	logger.Info("processor starting",
+		"shard", fmt.Sprintf("%d/%d", cfg.Shard.Index, cfg.Shard.Count),
+		"bus_type", cfg.Bus.Type,
+	)
 
 	// Ensure payload codec registry is bootstrapped unconditionally so that
 	// content-type-aware decoding (e.g. protobuf) works even when
@@ -668,7 +675,7 @@ func main() {
 	logger.Info("processor: shutdown complete")
 }
 
-func loadProcessorConfig(configPath, logLevelOverride, busTypeOverride, replayModeOverride, replayPathOverride string) config.AppConfig {
+func loadProcessorConfig(configPath, logLevelOverride, busTypeOverride, replayModeOverride, replayPathOverride string, shardIndex, shardCount int) config.AppConfig {
 	cfg, prob := config.Load(configPath)
 	if prob != nil {
 		slog.Error("processor: config load failed", "err", prob)
@@ -687,11 +694,34 @@ func loadProcessorConfig(configPath, logLevelOverride, busTypeOverride, replayMo
 		cfg.MarketData.ReplayPath = strings.TrimSpace(replayPathOverride)
 		cfg.Replay.Mode = "file"
 	}
+	applyShardOverrides(&cfg, shardIndex, shardCount)
 	if prob = cfg.Validate(); prob != nil {
 		slog.Error("processor: config validation failed", "err", prob)
 		os.Exit(1)
 	}
 	return cfg
+}
+
+// applyShardOverrides resolves shard index/count from flag > env > JSONC.
+// It also propagates the top-level Shard config to JetStream shard fields.
+func applyShardOverrides(cfg *config.AppConfig, flagIndex, flagCount int) {
+	if flagIndex >= 0 {
+		cfg.Shard.Index = flagIndex
+	} else if v := os.Getenv("SHARD_INDEX"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Shard.Index = n
+		}
+	}
+	if flagCount >= 0 {
+		cfg.Shard.Count = flagCount
+	} else if v := os.Getenv("SHARD_COUNT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Shard.Count = n
+		}
+	}
+	// Propagate top-level shard to JetStream shard fields.
+	cfg.JetStream.ShardGroupCount = cfg.Shard.Count
+	cfg.JetStream.ShardGroupID = cfg.Shard.Index
 }
 
 func buildLogger(cfg config.LogConfig) *slog.Logger {

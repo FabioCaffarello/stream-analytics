@@ -26,6 +26,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -82,6 +83,8 @@ func main() {
 	recordPathOverride := flag.String("record", "", "optional fixture path to record published envelopes")
 	recordPathLegacyOverride := flag.String("record-path", "", "deprecated: use -record")
 	replayPathOverride := flag.String("replay", "", "optional fixture path to replay envelopes offline")
+	shardIndex := flag.Int("shard-index", -1, "shard index override (0-based); env: SHARD_INDEX")
+	shardCount := flag.Int("shard-count", -1, "total shard count override; env: SHARD_COUNT")
 	flag.Parse()
 
 	cfg := loadConsumerConfig(
@@ -91,6 +94,8 @@ func main() {
 		*recordPathOverride,
 		*recordPathLegacyOverride,
 		*replayPathOverride,
+		*shardIndex,
+		*shardCount,
 	)
 
 	// ── logger ───────────────────────────────────────────────────────────────
@@ -107,6 +112,7 @@ func main() {
 	}
 
 	logger.Info("consumer starting",
+		"shard", fmt.Sprintf("%d/%d", cfg.Shard.Index, cfg.Shard.Count),
 		"bus_type", cfg.Bus.Type,
 		"streams_per_ticker", cfg.Consumer.StreamsPerTicker,
 		"max_streams_per_websocket", cfg.Consumer.MaxStreamsPerWebsocket,
@@ -269,6 +275,7 @@ func loadConsumerConfig(
 	recordPathOverride,
 	recordPathLegacyOverride,
 	replayPathOverride string,
+	shardIndex, shardCount int,
 ) config.AppConfig {
 	cfg, prob := config.Load(configPath)
 	if prob != nil {
@@ -291,11 +298,34 @@ func loadConsumerConfig(
 	if strings.TrimSpace(replayPathOverride) != "" {
 		cfg.MarketData.ReplayPath = strings.TrimSpace(replayPathOverride)
 	}
+	applyShardOverrides(&cfg, shardIndex, shardCount)
 	if prob = cfg.Validate(); prob != nil {
 		slog.Error("consumer: config validation failed", "err", prob)
 		os.Exit(1)
 	}
 	return cfg
+}
+
+// applyShardOverrides resolves shard index/count from flag > env > JSONC.
+// It also propagates the top-level Shard config to JetStream shard fields.
+func applyShardOverrides(cfg *config.AppConfig, flagIndex, flagCount int) {
+	if flagIndex >= 0 {
+		cfg.Shard.Index = flagIndex
+	} else if v := os.Getenv("SHARD_INDEX"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Shard.Index = n
+		}
+	}
+	if flagCount >= 0 {
+		cfg.Shard.Count = flagCount
+	} else if v := os.Getenv("SHARD_COUNT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Shard.Count = n
+		}
+	}
+	// Propagate top-level shard to JetStream shard fields.
+	cfg.JetStream.ShardGroupCount = cfg.Shard.Count
+	cfg.JetStream.ShardGroupID = cfg.Shard.Index
 }
 
 func runConsumerReplay(cfg config.AppConfig, logger *slog.Logger) {
