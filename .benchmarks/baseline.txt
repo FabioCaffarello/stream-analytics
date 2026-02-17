@@ -2,26 +2,59 @@ goos: darwin
 goarch: arm64
 pkg: github.com/market-raccoon/internal/shared/codec
 cpu: Apple M4
-BenchmarkHotPathDecodePayloadAndSubjectFromEnvelope-10    	 1440115	       839.5 ns/op	     416 B/op	      10 allocs/op
-BenchmarkHotPathDecodePayloadAndSubjectFromEnvelope-10    	 1439128	       841.3 ns/op	     416 B/op	      10 allocs/op
-BenchmarkHotPathDecodePayloadAndSubjectFromEnvelope-10    	 1426153	       840.1 ns/op	     416 B/op	      10 allocs/op
-BenchmarkHotPathDecodePayloadAndSubjectFromEnvelope-10    	 1438123	       910.7 ns/op	     416 B/op	      10 allocs/op
-BenchmarkHotPathDecodePayloadAndSubjectFromEnvelope-10    	 1395314	       856.0 ns/op	     416 B/op	      10 allocs/op
+BenchmarkHotPathDecodePayloadAndSubjectFromEnvelope-10    	 1311474	       841.0 ns/op	     416 B/op	      10 allocs/op
+BenchmarkHotPathDecodePayloadAndSubjectFromEnvelope-10    	 1431246	       842.0 ns/op	     416 B/op	      10 allocs/op
+BenchmarkHotPathDecodePayloadAndSubjectFromEnvelope-10    	 1431628	       839.6 ns/op	     416 B/op	      10 allocs/op
+BenchmarkHotPathDecodePayloadAndSubjectFromEnvelope-10    	 1427748	       840.4 ns/op	     416 B/op	      10 allocs/op
+BenchmarkHotPathDecodePayloadAndSubjectFromEnvelope-10    	 1423028	       842.4 ns/op	     416 B/op	      10 allocs/op
 PASS
-ok  	github.com/market-raccoon/internal/shared/codec	10.546s
+ok  	github.com/market-raccoon/internal/shared/codec	10.379s
 goos: darwin
 goarch: arm64
 pkg: github.com/market-raccoon/internal/shared/policykit
 cpu: Apple M4
-BenchmarkHotPathPolicyKitApplySingle-10       	 3106401	       388.6 ns/op	     256 B/op	       6 allocs/op
-BenchmarkHotPathPolicyKitApplySingle-10       	 3049417	       392.4 ns/op	     256 B/op	       6 allocs/op
-BenchmarkHotPathPolicyKitApplySingle-10       	 3027382	       395.7 ns/op	     256 B/op	       6 allocs/op
-BenchmarkHotPathPolicyKitApplySingle-10       	 3007940	       395.6 ns/op	     256 B/op	       6 allocs/op
-BenchmarkHotPathPolicyKitApplySingle-10       	 3015046	       394.1 ns/op	     256 B/op	       6 allocs/op
-BenchmarkHotPathPolicyKitApplyBatchLen1-10    	 2945253	       404.6 ns/op	     328 B/op	       6 allocs/op
-BenchmarkHotPathPolicyKitApplyBatchLen1-10    	 2915382	       407.0 ns/op	     328 B/op	       6 allocs/op
-BenchmarkHotPathPolicyKitApplyBatchLen1-10    	 2921007	       409.3 ns/op	     328 B/op	       6 allocs/op
-BenchmarkHotPathPolicyKitApplyBatchLen1-10    	 2920147	       427.5 ns/op	     328 B/op	       6 allocs/op
-BenchmarkHotPathPolicyKitApplyBatchLen1-10    	 2940514	       412.8 ns/op	     328 B/op	       6 allocs/op
+BenchmarkHotPathPolicyKitApplySingle-10       	 3116472	       388.7 ns/op	     256 B/op	       6 allocs/op
+BenchmarkHotPathPolicyKitApplySingle-10       	 3096507	       401.0 ns/op	     256 B/op	       6 allocs/op
+BenchmarkHotPathPolicyKitApplySingle-10       	 2990070	       387.3 ns/op	     256 B/op	       6 allocs/op
+BenchmarkHotPathPolicyKitApplySingle-10       	 3089402	       384.8 ns/op	     256 B/op	       6 allocs/op
+BenchmarkHotPathPolicyKitApplySingle-10       	 3112990	       387.9 ns/op	     256 B/op	       6 allocs/op
+BenchmarkHotPathPolicyKitApplyBatchLen1-10    	 3029424	       396.8 ns/op	     328 B/op	       6 allocs/op
+BenchmarkHotPathPolicyKitApplyBatchLen1-10    	 3019348	       396.1 ns/op	     328 B/op	       6 allocs/op
+BenchmarkHotPathPolicyKitApplyBatchLen1-10    	 3043513	       396.0 ns/op	     328 B/op	       6 allocs/op
+BenchmarkHotPathPolicyKitApplyBatchLen1-10    	 3017620	       398.9 ns/op	     328 B/op	       6 allocs/op
+BenchmarkHotPathPolicyKitApplyBatchLen1-10    	 3025398	       398.7 ns/op	     328 B/op	       6 allocs/op
 PASS
-ok  	github.com/market-raccoon/internal/shared/policykit	16.252s
+ok  	github.com/market-raccoon/internal/shared/policykit	16.136s
+goos: darwin
+goarch: arm64
+pkg: github.com/market-raccoon/internal/shared/hash
+cpu: Apple M4
+BenchmarkHotPathHashFields5-10    	 8367303	       143.0 ns/op	     288 B/op	       6 allocs/op
+BenchmarkHotPathHashFields5-10    	 8390329	       145.0 ns/op	     288 B/op	       6 allocs/op
+BenchmarkHotPathHashFields5-10    	 8375335	       144.7 ns/op	     288 B/op	       6 allocs/op
+BenchmarkHotPathHashFields5-10    	 8374370	       143.1 ns/op	     288 B/op	       6 allocs/op
+BenchmarkHotPathHashFields5-10    	 8304962	       143.5 ns/op	     288 B/op	       6 allocs/op
+PASS
+ok  	github.com/market-raccoon/internal/shared/hash	6.876s
+goos: darwin
+goarch: arm64
+pkg: github.com/market-raccoon/internal/core/marketdata/app
+cpu: Apple M4
+BenchmarkIngest_1000Envelopes-10    	     758	   1597942 ns/op	 7266020 B/op	   18038 allocs/op
+BenchmarkIngest_1000Envelopes-10    	     757	   1590074 ns/op	 7265931 B/op	   18037 allocs/op
+BenchmarkIngest_1000Envelopes-10    	     762	   1584307 ns/op	 7265975 B/op	   18038 allocs/op
+BenchmarkIngest_1000Envelopes-10    	     758	   1593888 ns/op	 7265986 B/op	   18038 allocs/op
+BenchmarkIngest_1000Envelopes-10    	     746	   1578928 ns/op	 7265661 B/op	   18036 allocs/op
+PASS
+ok  	github.com/market-raccoon/internal/core/marketdata/app	6.976s
+goos: darwin
+goarch: arm64
+pkg: github.com/market-raccoon/internal/core/aggregation/domain
+cpu: Apple M4
+BenchmarkApplyDelta_1000Levels-10    	   25467	     47842 ns/op	   74071 B/op	      16 allocs/op
+BenchmarkApplyDelta_1000Levels-10    	   25441	     48064 ns/op	   74071 B/op	      16 allocs/op
+BenchmarkApplyDelta_1000Levels-10    	   25040	     48068 ns/op	   74071 B/op	      16 allocs/op
+BenchmarkApplyDelta_1000Levels-10    	   25034	     47685 ns/op	   74071 B/op	      16 allocs/op
+BenchmarkApplyDelta_1000Levels-10    	   25555	     47928 ns/op	   74071 B/op	      16 allocs/op
+PASS
+ok  	github.com/market-raccoon/internal/core/aggregation/domain	8.598s

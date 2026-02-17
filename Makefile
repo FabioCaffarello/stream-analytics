@@ -262,11 +262,17 @@ test-unit: invariants-check
 test-integration: invariants-check
 	@$(GO) test $(GO_TEST_FLAGS) $(INTEGRATION_TEST_PKGS) -run '$(INTEGRATION_TEST_PATTERN)'
 
+BENCH_HOTPATH_PKGS ?= ./internal/shared/codec ./internal/shared/policykit ./internal/shared/hash ./internal/core/marketdata/app ./internal/core/aggregation/domain
+
 bench-hotpath: invariants-check
-	@$(GO) test -run=^$$ -bench=HotPath -benchmem ./internal/shared/codec ./internal/shared/policykit
+	@$(GO) test -run=^$$ -bench=HotPath -benchmem ./internal/shared/codec ./internal/shared/policykit ./internal/shared/hash
+	@$(GO) test -run=^$$ -bench=BenchmarkIngest -benchmem ./internal/core/marketdata/app
+	@$(GO) test -run=^$$ -bench=BenchmarkApplyDelta -benchmem ./internal/core/aggregation/domain
 
 bench-baseline: invariants-check
-	@$(GO) test -run='^$$' -bench=HotPath -benchmem -count=5 ./internal/shared/codec ./internal/shared/policykit > .benchmarks/baseline.txt 2>&1
+	@$(GO) test -run='^$$' -bench=HotPath -benchmem -count=5 ./internal/shared/codec ./internal/shared/policykit ./internal/shared/hash > .benchmarks/baseline.txt 2>&1
+	@$(GO) test -run='^$$' -bench=BenchmarkIngest -benchmem -count=5 ./internal/core/marketdata/app >> .benchmarks/baseline.txt 2>&1
+	@$(GO) test -run='^$$' -bench=BenchmarkApplyDelta -benchmem -count=5 ./internal/core/aggregation/domain >> .benchmarks/baseline.txt 2>&1
 	@echo "bench-baseline: saved to .benchmarks/baseline.txt"
 
 bench-check: invariants-check

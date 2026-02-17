@@ -34,8 +34,14 @@ fi
 # ── run current benchmarks ───────────────────────────────────────────────────
 echo "bench-check: running hot-path benchmarks (count=5) …"
 go test -run='^$' -bench=HotPath -benchmem -count=5 \
-  ./internal/shared/codec ./internal/shared/policykit \
+  ./internal/shared/codec ./internal/shared/policykit ./internal/shared/hash \
   > "$CURRENT" 2>&1
+go test -run='^$' -bench=BenchmarkIngest -benchmem -count=5 \
+  ./internal/core/marketdata/app \
+  >> "$CURRENT" 2>&1
+go test -run='^$' -bench=BenchmarkApplyDelta -benchmem -count=5 \
+  ./internal/core/aggregation/domain \
+  >> "$CURRENT" 2>&1
 
 echo "bench-check: comparing against baseline …"
 echo ""
