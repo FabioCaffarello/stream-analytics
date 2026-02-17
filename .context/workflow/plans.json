@@ -1,10 +1,14 @@
 {
   "active": [
     {
-      "name": "context-restructuring",
-      "file": "../plans/context-restructuring.md",
-      "linked": "2026-02-17T17:13:06.848Z"
+      "slug": "composition-root",
+      "path": "plans/composition-root.md",
+      "title": "Unified Composition Root — cmd/ ultra-thin",
+      "summary": "Extract all wiring, adapter instantiation, and bootstrap logic from cmd/ binaries into dedicated bootstrap packages. Each cmd/*/main.go becomes 20-40 lines: load config, validate, bootstrap, run. Eliminates cross-binary duplication and centralizes dependency wiring per binary.",
+      "linkedAt": "2026-02-17T17:31:33.848Z",
+      "status": "active"
     }
   ],
-  "completed": []
+  "completed": [],
+  "primary": "composition-root"
 }
