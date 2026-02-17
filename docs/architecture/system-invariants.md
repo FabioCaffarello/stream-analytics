@@ -29,6 +29,9 @@ Cada invariante referencia:
 | INV-LAY-01 | `internal/core/*` nao pode importar `internal/actors` | `docs/adrs/ADR-0001-bounded-contexts-and-boundaries.md` | `scripts/check-domain-isolation.sh` | `make invariants-check` |
 | INV-LAY-02 | `internal/interfaces/*` nao pode importar `internal/adapters` | `docs/adrs/ADR-0001-bounded-contexts-and-boundaries.md` | `scripts/check-domain-isolation.sh` | `make invariants-check` |
 | INV-LAY-03 | `internal/core/*` nao pode importar `internal/shared/policykit` | `docs/adrs/ADR-0013-backpressure-overload-policies.md` | `scripts/check-domain-isolation.sh` | `make invariants-check` |
+| INV-LAY-04 | `internal/core/*` nao pode importar `internal/adapters` | `docs/adrs/ADR-0001-bounded-contexts-and-boundaries.md` | `scripts/check-domain-isolation.sh` | `make invariants-check` |
+| INV-LAY-05 | `internal/core/*` nao pode importar `internal/interfaces` | `docs/adrs/ADR-0001-bounded-contexts-and-boundaries.md` | `scripts/check-domain-isolation.sh` | `make invariants-check` |
+| INV-LAY-06 | `internal/actors/*` nao pode importar `internal/interfaces` | `docs/adrs/ADR-0001-bounded-contexts-and-boundaries.md` | `scripts/check-domain-isolation.sh` | `make invariants-check` |
 
 ## Standard Validation Gates
 
@@ -57,6 +60,7 @@ go test ./cmd/consumer -run TestReplayIngestGolden1000
 ## Changelog
 
 - 2026-02-17:
+  - Adicionados INV-LAY-04 (core->adapters), INV-LAY-05 (core->interfaces), INV-LAY-06 (actors->interfaces).
   - Adicionados INV-LAY-01 (core->actors), INV-LAY-02 (interfaces->adapters), INV-LAY-03 (core->policykit).
 - 2026-02-13:
   - Reescrito como indice vivo de invariantes.
