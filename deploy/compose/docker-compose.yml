@@ -65,10 +65,13 @@ services:
       context: ../..
       dockerfile: deploy/docker/consumer.Dockerfile
     image: market-raccoon/consumer:dev
-    container_name: market-raccoon-consumer
+    # container_name omitted to allow --scale consumer=N
     command: ["-config", "/etc/market-raccoon/consumer.jsonc"]
     ports:
-      - "127.0.0.1:8081:8081"
+      - "8081"
+    environment:
+      SHARD_INDEX: "${SHARD_INDEX:-0}"
+      SHARD_COUNT: "${SHARD_COUNT:-1}"
     volumes:
       - ../configs/consumer.jsonc:/etc/market-raccoon/consumer.jsonc:ro
     depends_on:
@@ -99,10 +102,13 @@ services:
       context: ../..
       dockerfile: deploy/docker/processor.Dockerfile
     image: market-raccoon/processor:dev
-    container_name: market-raccoon-processor
+    # container_name omitted to allow --scale processor=N
     command: ["-config", "/etc/market-raccoon/processor.jsonc"]
     ports:
-      - "127.0.0.1:8082:8082"
+      - "8082"
+    environment:
+      SHARD_INDEX: "${SHARD_INDEX:-0}"
+      SHARD_COUNT: "${SHARD_COUNT:-1}"
     volumes:
       - ../configs/processor.jsonc:/etc/market-raccoon/processor.jsonc:ro
     depends_on:

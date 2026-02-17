@@ -34,20 +34,29 @@ immediately acked and skipped (client-side dispatch).
 
 ## Configuration
 
+The top-level `shard` config is the single source of truth.  It propagates
+automatically to the JetStream consumer:
+
 ```jsonc
 {
-  "bus": { "type": "jetstream" },
-  "jetstream": {
-    "shard_group_count": 2,   // total number of replicas
-    "shard_group_id":    0    // this replica's index, 0-based
+  "shard": {
+    "index": 0,   // 0-based shard index for this instance
+    "count": 1    // total number of shards (1 = disabled)
   }
 }
 ```
 
-| Field               | Default | Description                                      |
-|---------------------|---------|--------------------------------------------------|
-| `shard_group_count` | `1`     | Total shard groups (1 = sharding disabled)       |
-| `shard_group_id`    | `0`     | Group index for this instance `[0, count)`       |
+| Field          | Default | Description                                      |
+|----------------|---------|--------------------------------------------------|
+| `shard.index`  | `0`     | Shard index for this instance `[0, count)`       |
+| `shard.count`  | `1`     | Total shard count (1 = sharding disabled)        |
+
+CLI flags and environment variables override JSONC values:
+
+| Source          | Flag             | Env var        |
+|-----------------|------------------|----------------|
+| Shard index     | `-shard-index`   | `SHARD_INDEX`  |
+| Shard count     | `-shard-count`   | `SHARD_COUNT`  |
 
 When `shard_group_count = 1` (the default), the system behaves exactly as
 before — no messages are ever skipped, the durable consumer name remains
@@ -108,3 +117,31 @@ alerts can be scoped per replica.
   annotations:
     summary: "Shard group {{ $labels.group_id }} lag is high ({{ $value }} messages)"
 ```
+
+## Quickstart: 2 shards local (docker compose)
+
+The consumer and processor services support `--scale` via `SHARD_INDEX`
+and `SHARD_COUNT` environment variables.
+
+```bash
+# Start infrastructure
+cd deploy/compose
+docker compose --profile core up -d nats clickhouse server
+
+# Start 2 processor shards (manual index assignment)
+SHARD_COUNT=2 SHARD_INDEX=0 docker compose --profile core up -d processor
+SHARD_COUNT=2 SHARD_INDEX=1 docker compose --profile core run -d processor
+
+# Verify both shards are running
+docker compose ps processor
+docker compose logs processor | grep 'shard='
+```
+
+Each processor instance logs its shard assignment at startup:
+
+```
+processor starting shard=0/2 bus_type=jetstream
+processor starting shard=1/2 bus_type=jetstream
+```
+
+The durable consumer name is auto-suffixed: `processor-v1-s0`, `processor-v1-s1`.
