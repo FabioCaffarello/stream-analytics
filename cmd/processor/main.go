@@ -139,13 +139,15 @@ func initEnvelopeSource(cfg config.AppConfig, logger *slog.Logger, e2e *e2eRunti
 			}
 		}
 
+		durableName := shardAwareDurable(cfg.JetStream.ConsumerDurable, cfg.Shard.Index, cfg.Shard.Count)
+
 		jetstreamConsumer, p := adapterjs.NewConsumer(context.Background(), adapterjs.ConsumerConfig{
 			URL:             cfg.JetStream.URL,
 			StreamName:      cfg.JetStream.StreamName,
 			DedupWindow:     cfg.JetStream.DedupWindowDuration(),
 			MaxAge:          cfg.JetStream.MaxAgeDuration(),
 			MaxBytes:        cfg.JetStream.MaxBytesInt64(),
-			ConsumerDurable: cfg.JetStream.ConsumerDurable,
+			ConsumerDurable: durableName,
 			FilterSubjects:  filterSubjects,
 			AckWait:         cfg.JetStream.AckWaitDuration(),
 			MaxAckPending:   cfg.JetStream.MaxAckPending,
@@ -180,8 +182,9 @@ func initEnvelopeSource(cfg config.AppConfig, logger *slog.Logger, e2e *e2eRunti
 		logger.Info("processor: subscribed to jetstream consumer",
 			"url", cfg.JetStream.URL,
 			"stream", cfg.JetStream.StreamName,
-			"durable", cfg.JetStream.ConsumerDurable,
+			"durable", durableName,
 			"filters", filterSubjects,
+			"shard", fmt.Sprintf("%d/%d", cfg.Shard.Index, cfg.Shard.Count),
 		)
 
 		return envelopeSource{
@@ -700,6 +703,16 @@ func loadProcessorConfig(configPath, logLevelOverride, busTypeOverride, replayMo
 		os.Exit(1)
 	}
 	return cfg
+}
+
+// shardAwareDurable appends a shard suffix to the durable consumer name when
+// sharding is active (count > 1).  This ensures each shard instance creates its
+// own NATS durable consumer (e.g. "processor-v1-s0", "processor-v1-s1").
+func shardAwareDurable(base string, index, count int) string {
+	if count <= 1 {
+		return base
+	}
+	return fmt.Sprintf("%s-s%d", base, index)
 }
 
 // applyShardOverrides resolves shard index/count from flag > env > JSONC.
