@@ -63,6 +63,9 @@ func (a AppConfig) Validate() *problem.Problem {
 	if prob := validateHTTP(a.HTTP); prob != nil {
 		return prob
 	}
+	if prob := validateShard(a.Shard); prob != nil {
+		return prob
+	}
 	if prob := validateBus(a.Bus); prob != nil {
 		return prob
 	}
@@ -142,6 +145,16 @@ func ValidateFeatureSubjects(cfg AppConfig) *problem.Problem {
 				required,
 			)
 		}
+	}
+	return nil
+}
+
+func validateShard(s ShardConfig) *problem.Problem {
+	if s.Count < 1 {
+		return problem.Newf(codeInvalid, "shard.count must be >= 1, got %d", s.Count)
+	}
+	if s.Index < 0 || s.Index >= s.Count {
+		return problem.Newf(codeInvalid, "shard.index must be in [0, %d), got %d", s.Count, s.Index)
 	}
 	return nil
 }
@@ -735,6 +748,10 @@ func applyDefaults(c *AppConfig) {
 		// Backward compatible fallback to legacy shutdown_timeout when the new field is absent.
 		c.HTTP.GuardianShutdownTimeout = c.HTTP.ShutdownTimeout
 	}
+	if c.Shard.Count == 0 {
+		c.Shard.Count = 1
+	}
+	// Shard.Index zero value (0) is the correct default.
 	if c.Bus.Type == "" {
 		c.Bus.Type = "inmemory"
 	}

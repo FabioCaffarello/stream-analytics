@@ -17,6 +17,12 @@
     "max_age": "24h",
     "max_bytes": "10GB"
   },
+  // Horizontal scaling: shard assignment for this instance.
+  // Default: single-instance (index=0, count=1, sharding disabled).
+  "shard": {
+    "index": 0,
+    "count": 1
+  },
   "log": {
     "level": "info",
     "format": "text"

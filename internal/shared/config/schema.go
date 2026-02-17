@@ -20,12 +20,21 @@ type AppConfig struct {
 	Log        LogConfig        `json:"log"`
 	HTTP       HTTPConfig       `json:"http"`
 	Bus        BusConfig        `json:"bus"`
+	Shard      ShardConfig      `json:"shard"`
 	JetStream  JetStreamConfig  `json:"jetstream"`
 	Consumer   ConsumerConfig   `json:"consumer"`
 	MarketData MarketDataConfig `json:"marketdata"`
 	Replay     ReplayConfig     `json:"replay"`
 	Processor  ProcessorConfig  `json:"processor"`
 	Store      StoreConfig      `json:"store"`
+}
+
+// ShardConfig controls deterministic shard assignment for horizontal scaling.
+type ShardConfig struct {
+	// Index is the 0-based shard index for this instance.
+	Index int `json:"index"`
+	// Count is the total number of shards. Default: 1 (sharding disabled).
+	Count int `json:"count"`
 }
 
 // BusConfig controls runtime bus adapter selection.

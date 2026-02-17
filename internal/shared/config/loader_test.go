@@ -21,6 +21,8 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 		{name: "http.addr", got: cfg.HTTP.Addr, want: ":8080"},
 		{name: "http.publisher_flush_timeout", got: cfg.HTTP.PublisherFlushTimeoutDuration(), want: 3 * time.Second},
 		{name: "http.guardian_shutdown_timeout", got: cfg.HTTP.GuardianShutdownTimeoutDuration(), want: 10 * time.Second},
+		{name: "shard.index", got: cfg.Shard.Index, want: 0},
+		{name: "shard.count", got: cfg.Shard.Count, want: 1},
 		{name: "bus.type", got: cfg.Bus.Type, want: "inmemory"},
 		{name: "jetstream.stream_name", got: cfg.JetStream.StreamName, want: "MARKETDATA"},
 		{name: "jetstream.consumer_durable", got: cfg.JetStream.ConsumerDurable, want: "processor-v1"},
@@ -773,7 +775,94 @@ func TestStripComments_BlockCommentPreservesNewlines(t *testing.T) {
 	}
 }
 
-// ── Shard config validation ───────────────────────────────────────────────────
+// ── Top-level Shard config validation ─────────────────────────────────────────
+
+func TestLoad_ShardDefaults(t *testing.T) {
+	cfg, prob := Load("")
+	if prob != nil {
+		t.Fatalf("Load: %v", prob)
+	}
+	if cfg.Shard.Count != 1 {
+		t.Errorf("default Shard.Count = %d; want 1", cfg.Shard.Count)
+	}
+	if cfg.Shard.Index != 0 {
+		t.Errorf("default Shard.Index = %d; want 0", cfg.Shard.Index)
+	}
+}
+
+func TestValidate_ShardCount_Zero_Fails(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Shard.Count = 0
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("shard.count=0 should fail validation")
+	}
+	if !strings.Contains(prob.Message, "shard.count") {
+		t.Fatalf("error message should mention shard.count, got: %q", prob.Message)
+	}
+}
+
+func TestValidate_ShardCount_Negative_Fails(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Shard.Count = -1
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("shard.count=-1 should fail validation")
+	}
+}
+
+func TestValidate_ShardIndex_EqualCount_Fails(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Shard.Count = 3
+	cfg.Shard.Index = 3
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("shard.index=3 with count=3 should fail validation")
+	}
+	if !strings.Contains(prob.Message, "shard.index") {
+		t.Fatalf("error message should mention shard.index, got: %q", prob.Message)
+	}
+}
+
+func TestValidate_ShardIndex_Negative_Fails(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Shard.Count = 2
+	cfg.Shard.Index = -1
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("shard.index=-1 should fail validation")
+	}
+}
+
+func TestValidate_ShardIndex_ValidRange_Passes(t *testing.T) {
+	for count := 1; count <= 4; count++ {
+		for idx := 0; idx < count; idx++ {
+			cfg, _ := Load("")
+			cfg.Shard.Count = count
+			cfg.Shard.Index = idx
+			if prob := cfg.Validate(); prob != nil {
+				t.Errorf("count=%d index=%d should pass validation, got: %v", count, idx, prob)
+			}
+		}
+	}
+}
+
+func TestLoad_ShardFromJSONC(t *testing.T) {
+	src := `{"shard": {"index": 1, "count": 4}}`
+	path := writeTempFile(t, src)
+	cfg, prob := Load(path)
+	if prob != nil {
+		t.Fatalf("Load failed: %v", prob)
+	}
+	if cfg.Shard.Index != 1 {
+		t.Errorf("Shard.Index = %d; want 1", cfg.Shard.Index)
+	}
+	if cfg.Shard.Count != 4 {
+		t.Errorf("Shard.Count = %d; want 4", cfg.Shard.Count)
+	}
+}
+
+// ── JetStream Shard config validation ─────────────────────────────────────────
 
 func jetStreamShardBaseConfig() AppConfig {
 	cfg, _ := Load("")
