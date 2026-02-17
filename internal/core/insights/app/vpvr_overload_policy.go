@@ -9,19 +9,27 @@ import (
 	"github.com/market-raccoon/internal/core/insights/domain"
 	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/naming"
-	"github.com/market-raccoon/internal/shared/policykit"
 )
 
-type VPVROverloadLevel = policykit.Level
+// VPVROverloadLevel represents overload severity (L0=normal through L3=critical).
+type VPVROverloadLevel = int
 
 const (
-	VPVROverloadL0 VPVROverloadLevel = policykit.L0
-	VPVROverloadL1 VPVROverloadLevel = policykit.L1
-	VPVROverloadL2 VPVROverloadLevel = policykit.L2
-	VPVROverloadL3 VPVROverloadLevel = policykit.L3
+	VPVROverloadL0 VPVROverloadLevel = 0
+	VPVROverloadL1 VPVROverloadLevel = 1
+	VPVROverloadL2 VPVROverloadLevel = 2
+	VPVROverloadL3 VPVROverloadLevel = 3
 )
 
-var vpvrThresholdEngine = policykit.NewThresholdEngine(policykit.DefaultThresholdConfig())
+// OverloadDecideFunc resolves overload level and actions from previous level
+// and runtime signals.  The caller provides the policykit binding; core only
+// depends on this function signature.
+type OverloadDecideFunc func(prev VPVROverloadLevel, signals VPVROverloadSignals) (
+	nextLevel VPVROverloadLevel,
+	compressSnapshot bool,
+	degradeStride int,
+	dropDelta bool,
+)
 
 type VPVROverloadSignals struct {
 	QueueDepth          int
@@ -67,32 +75,31 @@ type VPVROverloadOutput struct {
 type VPVREmitPolicy struct {
 	mu     sync.Mutex
 	states map[string]VPVROverloadState
+	decide OverloadDecideFunc
 }
 
-func NewVPVREmitPolicy() *VPVREmitPolicy {
+func NewVPVREmitPolicy(decide OverloadDecideFunc) *VPVREmitPolicy {
 	return &VPVREmitPolicy{
 		states: make(map[string]VPVROverloadState),
+		decide: decide,
 	}
 }
 
-func NextVPVROverloadLevel(prev VPVROverloadLevel, signals VPVROverloadSignals) VPVROverloadLevel {
-	decision := vpvrThresholdEngine.Decide(prev, toPolicySignals(signals))
-	return decision.Level
-}
-
-func EvaluateVPVROverload(input VPVROverloadInput) VPVROverloadOutput {
+// EvaluateVPVROverload is a pure function that applies pre-computed overload
+// decisions to the VPVR pipeline.  It does not call policykit; the caller
+// must resolve nextLevel/compressSnapshot/degradeStride/dropDelta beforehand.
+func EvaluateVPVROverload(input VPVROverloadInput, nextLevel VPVROverloadLevel, compressSnapshot bool, degradeStride int, dropDelta bool) VPVROverloadOutput {
 	next := input.PartitionState
-	decision := vpvrThresholdEngine.Decide(input.PartitionState.Level, toPolicySignals(input.Signals))
-	next.Level = decision.Level
+	next.Level = nextLevel
 	next.EventCount++
 	snapshot := input.Snapshot
 	compressed := false
 	compressRatio := 1.0
-	if !input.WindowClose && decision.HasAction(policykit.ActionCompressSnapshot) {
+	if !input.WindowClose && compressSnapshot {
 		snapshot, compressed, compressRatio = compressSnapshotByLevel(snapshot, next.Level)
 	}
-	emitSnapshot := shouldEmitSnapshotAtCadence(next.EventCount, decision.DegradeStride(), input.WindowClose)
-	emitDelta, dropReason := shouldEmitDelta(next.EventCount, decision, input.WindowClose, input.HasDelta)
+	emitSnapshot := shouldEmitSnapshotAtCadence(next.EventCount, degradeStride, input.WindowClose)
+	emitDelta, dropReason := shouldEmitDelta(next.EventCount, dropDelta, degradeStride, input.WindowClose, input.HasDelta)
 
 	return VPVROverloadOutput{
 		NextState:      next,
@@ -110,14 +117,14 @@ func EvaluateVPVROverload(input VPVROverloadInput) VPVROverloadOutput {
 }
 
 func (p *VPVREmitPolicy) Apply(input VPVROverloadInput) VPVROverloadOutput {
-	if p == nil {
-		return EvaluateVPVROverload(input)
-	}
 	key := overloadPartitionKey(input.Venue, input.Instrument, input.Timeframe)
 	p.mu.Lock()
 	state := p.states[key]
 	input.PartitionState = state
-	out := EvaluateVPVROverload(input)
+
+	nextLevel, compress, stride, drop := p.decide(state.Level, input.Signals)
+	out := EvaluateVPVROverload(input, nextLevel, compress, stride, drop)
+
 	p.states[key] = out.NextState
 	p.mu.Unlock()
 
@@ -144,18 +151,6 @@ func (p *VPVREmitPolicy) Apply(input VPVROverloadInput) VPVROverloadOutput {
 
 func overloadPartitionKey(venue, instrument, timeframe string) string {
 	return naming.CanonicalVenue(venue) + "|" + naming.CanonicalInstrument(instrument) + "|" + strings.ToLower(strings.TrimSpace(timeframe))
-}
-
-func toPolicySignals(signals VPVROverloadSignals) policykit.Signals {
-	return policykit.Signals{
-		QueueDepth:          signals.QueueDepth,
-		QueueCapacity:       signals.QueueCapacity,
-		Backlog:             signals.QueueDepth,
-		BacklogCap:          signals.QueueCapacity,
-		Occupancy:           signals.BoundedMapOccupancy,
-		Limit:               signals.BoundedMapLimit,
-		ProcessingLatencyMs: signals.ProcessingLatencyMs,
-	}
 }
 
 func compressSnapshotByLevel(snapshot domain.VolumeProfileSnapshotV1, level VPVROverloadLevel) (domain.VolumeProfileSnapshotV1, bool, float64) {
@@ -240,17 +235,17 @@ func shouldEmitSnapshotAtCadence(eventCount uint64, stride int, windowClose bool
 	return eventCount%uint64(stride) == 0
 }
 
-func shouldEmitDelta(eventCount uint64, decision policykit.Decision, windowClose bool, hasDelta bool) (bool, string) {
+func shouldEmitDelta(eventCount uint64, dropDelta bool, degradeStride int, windowClose bool, hasDelta bool) (bool, string) {
 	if !hasDelta {
 		return false, ""
 	}
 	if windowClose {
 		return true, ""
 	}
-	if decision.HasAction(policykit.ActionDropDelta) {
+	if dropDelta {
 		return false, "delta_l3"
 	}
-	if decision.DegradeStride() == 2 {
+	if degradeStride == 2 {
 		if eventCount%2 == 1 {
 			return false, "delta_l2"
 		}

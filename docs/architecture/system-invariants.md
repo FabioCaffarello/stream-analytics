@@ -28,6 +28,7 @@ Cada invariante referencia:
 | INV-MEX-01 | Identidade de stream deve incluir `venue+instrument+market_type` | `docs/adrs/ADR-0017-multi-exchange-normalization.md` | `internal/core/marketdata/domain/instrument_stream.go:30`, `cmd/consumer/e2e_consumer_integration_test.go:24` | `make test-workspace-race` |
 | INV-LAY-01 | `internal/core/*` nao pode importar `internal/actors` | `docs/adrs/ADR-0001-bounded-contexts-and-boundaries.md` | `scripts/check-domain-isolation.sh` | `make invariants-check` |
 | INV-LAY-02 | `internal/interfaces/*` nao pode importar `internal/adapters` | `docs/adrs/ADR-0001-bounded-contexts-and-boundaries.md` | `scripts/check-domain-isolation.sh` | `make invariants-check` |
+| INV-LAY-03 | `internal/core/*` nao pode importar `internal/shared/policykit` | `docs/adrs/ADR-0013-backpressure-overload-policies.md` | `scripts/check-domain-isolation.sh` | `make invariants-check` |
 
 ## Standard Validation Gates
 
@@ -56,7 +57,7 @@ go test ./cmd/consumer -run TestReplayIngestGolden1000
 ## Changelog
 
 - 2026-02-17:
-  - Adicionados INV-LAY-01 (core->actors) e INV-LAY-02 (interfaces->adapters).
+  - Adicionados INV-LAY-01 (core->actors), INV-LAY-02 (interfaces->adapters), INV-LAY-03 (core->policykit).
 - 2026-02-13:
   - Reescrito como indice vivo de invariantes.
   - Conteudo legacy de bootstrap removido.

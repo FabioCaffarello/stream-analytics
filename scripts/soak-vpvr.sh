@@ -39,8 +39,8 @@ echo "test_pattern=$TEST_PATTERN" | tee -a "$OUT_FILE"
 
 echo "Running VPVR deterministic burst soak..." | tee -a "$OUT_FILE"
 (
-	cd internal/core/insights
-	GOCACHE="$GO_CACHE_DIR" go test ./app -run "$TEST_PATTERN" -count=1 -v
+	cd internal/actors
+	GOCACHE="$GO_CACHE_DIR" go test ./insights/runtime -run "$TEST_PATTERN" -count=1 -v
 ) 2>&1 | tee -a "$OUT_FILE"
 
 echo "VPVR soak harness completed" | tee -a "$OUT_FILE"

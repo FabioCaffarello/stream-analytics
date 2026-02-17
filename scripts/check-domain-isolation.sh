@@ -196,3 +196,35 @@ if [ "${#interfaces_adapters_violations[@]}" -gt 0 ]; then
 fi
 
 echo "invariants-check: layering guards (core->actors, interfaces->adapters) passed"
+
+# --- Guard: internal/core must not import internal/shared/policykit ---
+core_policykit_violations=()
+scan_core_policykit_with_rg() {
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    core_policykit_violations+=("$line")
+  done < <(rg -n --no-heading --glob '*.go' --glob '!**/*_test.go' --regexp '"github\.com/market-raccoon/internal/shared/policykit"' internal/core || true)
+}
+
+scan_core_policykit_with_grep() {
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    core_policykit_violations+=("$line")
+  done < <(grep -R -n -E --include='*.go' --exclude='*_test.go' '"github\.com/market-raccoon/internal/shared/policykit"' internal/core || true)
+}
+
+if [ -d "internal/core" ]; then
+  if command -v rg >/dev/null 2>&1; then
+    scan_core_policykit_with_rg
+  else
+    scan_core_policykit_with_grep
+  fi
+fi
+
+if [ "${#core_policykit_violations[@]}" -gt 0 ]; then
+  echo "layering violation: internal/core must not import internal/shared/policykit (runtime policy belongs in actors layer)"
+  printf '%s\n' "${core_policykit_violations[@]}"
+  exit 1
+fi
+
+echo "invariants-check: policykit isolation guard passed"

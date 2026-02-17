@@ -1,4 +1,4 @@
-package app
+package insightsruntime
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	insightsapp "github.com/market-raccoon/internal/core/insights/app"
 	insightsdomain "github.com/market-raccoon/internal/core/insights/domain"
 	sharedhash "github.com/market-raccoon/internal/shared/hash"
 )
@@ -57,14 +58,14 @@ func TestVPVROverloadSoakBurstDeterministicBudgets(t *testing.T) {
 
 func runVPVRSoakBurst(t *testing.T) ([]time.Duration, []vpvrSoakEmission, string) {
 	t.Helper()
-	uc := NewBuildVolumeProfile()
-	policy := NewVPVREmitPolicy()
+	uc := insightsapp.NewBuildVolumeProfile()
+	policy := insightsapp.NewVPVREmitPolicy(DefaultDecideFunc())
 	latencies := make([]time.Duration, 0, 4000)
 	emitted := make([]vpvrSoakEmission, 0, 4000)
 	hashInput := make([]string, 0, 4000)
 
 	for i := 1; i <= 4000; i++ {
-		req := BuildVolumeProfileRequest{
+		req := insightsapp.BuildVolumeProfileRequest{
 			EventType:  "marketdata.trade",
 			Venue:      "binance",
 			Instrument: "BTC-USDT",
@@ -85,13 +86,13 @@ func runVPVRSoakBurst(t *testing.T) ([]time.Duration, []vpvrSoakEmission, string
 			continue
 		}
 		start := time.Now()
-		decision := policy.Apply(VPVROverloadInput{
+		decision := policy.Apply(insightsapp.VPVROverloadInput{
 			Venue:       req.Venue,
 			Instrument:  req.Instrument,
 			Timeframe:   req.Timeframe,
 			Seq:         req.Seq,
 			WindowClose: i%60 == 0,
-			Signals: VPVROverloadSignals{
+			Signals: insightsapp.VPVROverloadSignals{
 				QueueDepth:          (i * 37) % 100,
 				QueueCapacity:       100,
 				BoundedMapOccupancy: (i * 11) % 100,
@@ -155,7 +156,7 @@ func appendVPVRSoakEmission(
 	if !emit {
 		return
 	}
-	raw, err := MarshalVPVRSnapshotStableBytes(snapshot)
+	raw, err := insightsapp.MarshalVPVRSnapshotStableBytes(snapshot)
 	if err != nil {
 		t.Fatalf("marshal %s i=%d: %v", kind, i, err)
 	}

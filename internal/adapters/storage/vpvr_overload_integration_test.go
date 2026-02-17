@@ -12,6 +12,7 @@ import (
 	insightsapp "github.com/market-raccoon/internal/core/insights/app"
 	insightsdomain "github.com/market-raccoon/internal/core/insights/domain"
 	sharedhash "github.com/market-raccoon/internal/shared/hash"
+	"github.com/market-raccoon/internal/shared/policykit"
 	"github.com/market-raccoon/internal/shared/problem"
 )
 
@@ -72,7 +73,20 @@ func TestIntegrationVPVROverload_AckBoundarySafeAndDeterministic(t *testing.T) {
 func runVPVROverloadIntegration(t *testing.T) integrationRunResult {
 	t.Helper()
 	uc := insightsapp.NewBuildVolumeProfile()
-	policy := insightsapp.NewVPVREmitPolicy()
+	engine := policykit.NewThresholdEngine(policykit.DefaultThresholdConfig())
+	decide := func(prev insightsapp.VPVROverloadLevel, signals insightsapp.VPVROverloadSignals) (insightsapp.VPVROverloadLevel, bool, int, bool) {
+		d := engine.Decide(policykit.Level(prev), policykit.Signals{
+			QueueDepth: signals.QueueDepth, QueueCapacity: signals.QueueCapacity,
+			Backlog: signals.QueueDepth, BacklogCap: signals.QueueCapacity,
+			Occupancy: signals.BoundedMapOccupancy, Limit: signals.BoundedMapLimit,
+			ProcessingLatencyMs: signals.ProcessingLatencyMs,
+		})
+		return insightsapp.VPVROverloadLevel(d.Level),
+			d.HasAction(policykit.ActionCompressSnapshot),
+			d.DegradeStride(),
+			d.HasAction(policykit.ActionDropDelta)
+	}
+	policy := insightsapp.NewVPVREmitPolicy(decide)
 	rec := newCommitRecorder()
 	committer := storage.NewSnapshotCommitter(commitRecorderHot{rec: rec}, commitRecorderCold{rec: rec})
 
