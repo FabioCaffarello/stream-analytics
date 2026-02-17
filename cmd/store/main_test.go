@@ -8,6 +8,7 @@ import (
 
 	"github.com/market-raccoon/internal/adapters/storage/clickhouse"
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
+	"github.com/market-raccoon/internal/shared/config"
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/problem"
 )
@@ -15,6 +16,13 @@ import (
 var testLogger = slog.Default()
 
 // ── helpers ──────────────────────────────────────────────────────────────────
+
+func defaultBatchCfg() config.StoreBatchConfig {
+	return config.StoreBatchConfig{
+		MaxRows:       1,
+		FlushInterval: "100ms",
+	}
+}
 
 func testSnapshot(venue, instrument string, seq int64) aggdomain.SnapshotProduced {
 	return aggdomain.SnapshotProduced{
@@ -52,8 +60,8 @@ func snapshotEnvelope(t *testing.T, venue, instrument string, seq int64) envelop
 }
 
 // testBatcher creates a batcher with batch-size-1 (default, write-through).
-func testBatcher(w *clickhouse.Writer) *StoreBatcher {
-	return NewStoreBatcher(w, defaultBatchCfg())
+func testBatcher(w *clickhouse.Writer) *clickhouse.BatchWriter {
+	return clickhouse.NewBatchWriter(w, defaultBatchCfg())
 }
 
 // ── handleAggregationSnapshot ────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-package main
+package clickhouse
 
 import (
 	"context"
@@ -13,8 +13,9 @@ import (
 	"github.com/market-raccoon/internal/shared/problem"
 )
 
-// StoreWriter is the minimal interface for the cold-path writer used by the batcher.
-type StoreWriter interface {
+// SnapshotWriter is the minimal write interface consumed by BatchWriter.
+// Both *Writer and test decorators (e.g. slow-writer) satisfy this contract.
+type SnapshotWriter interface {
 	SaveIdempotent(ctx context.Context, snap aggdomain.SnapshotProduced, sourceIdempotencyKey string) *problem.Problem
 }
 
@@ -30,13 +31,15 @@ func estimatePayloadSize(snap aggdomain.SnapshotProduced) int {
 	return len(data)
 }
 
-// StoreBatcher accumulates snapshots and flushes them to the ClickHouse writer
-// when any configured threshold is met.  With the current serial JetStream
-// consumer (Fetch(1)), the default max_rows=1 makes every Write call flush
-// immediately — preserving ack-on-commit semantics.  The infrastructure is
-// ready for batch-size>1 when concurrent dispatch arrives.
-type StoreBatcher struct {
-	writer StoreWriter
+// BatchWriter accumulates snapshots and flushes them to the underlying writer
+// when any configured threshold is met.  With the default max_rows=1, every
+// Write call flushes immediately — preserving ack-on-commit semantics.  The
+// infrastructure is ready for batch-size>1 when concurrent dispatch arrives.
+//
+// Timer/interval logic is confined to this adapter layer; domain code never
+// references time-based flush.
+type BatchWriter struct {
+	writer SnapshotWriter
 	cfg    config.StoreBatchConfig
 
 	closed       atomic.Bool
@@ -46,9 +49,9 @@ type StoreBatcher struct {
 	lastFlush    time.Time
 }
 
-// NewStoreBatcher creates a batcher with the given config.
-func NewStoreBatcher(writer StoreWriter, cfg config.StoreBatchConfig) *StoreBatcher {
-	return &StoreBatcher{
+// NewBatchWriter creates a batch writer with the given config.
+func NewBatchWriter(writer SnapshotWriter, cfg config.StoreBatchConfig) *BatchWriter {
+	return &BatchWriter{
 		writer:    writer,
 		cfg:       cfg,
 		lastFlush: time.Now(),
@@ -57,14 +60,14 @@ func NewStoreBatcher(writer StoreWriter, cfg config.StoreBatchConfig) *StoreBatc
 
 // Write enqueues a snapshot and flushes synchronously if any threshold is met.
 // Returns nil only after the batch containing this item has been flushed.
-func (b *StoreBatcher) Write(ctx context.Context, snap aggdomain.SnapshotProduced, dedupKey string) *problem.Problem {
+func (b *BatchWriter) Write(ctx context.Context, snap aggdomain.SnapshotProduced, dedupKey string) *problem.Problem {
 	if b == nil || b.writer == nil {
-		return problem.New(problem.ValidationFailed, "store batcher or writer is nil")
+		return problem.New(problem.ValidationFailed, "batch writer or underlying writer is nil")
 	}
 	b.mu.Lock()
 	if b.closed.Load() {
 		b.mu.Unlock()
-		return problem.New(problem.ValidationFailed, "store batcher is closed")
+		return problem.New(problem.ValidationFailed, "batch writer is closed")
 	}
 
 	b.pending = append(b.pending, batchItem{snap: snap, dedupKey: dedupKey})
@@ -85,7 +88,7 @@ func (b *StoreBatcher) Write(ctx context.Context, snap aggdomain.SnapshotProduce
 
 // shouldFlush returns true when any configured threshold is met.
 // Caller must hold b.mu.
-func (b *StoreBatcher) shouldFlush() bool {
+func (b *BatchWriter) shouldFlush() bool {
 	if len(b.pending) >= b.cfg.MaxRows {
 		return true
 	}
@@ -98,9 +101,9 @@ func (b *StoreBatcher) shouldFlush() bool {
 	return false
 }
 
-// flush writes all items to the ClickHouse writer and emits metrics.
+// flush writes all items to the underlying writer and emits metrics.
 // Returns on the first error; remaining items will be redelivered by JetStream.
-func (b *StoreBatcher) flush(ctx context.Context, items []batchItem) *problem.Problem {
+func (b *BatchWriter) flush(ctx context.Context, items []batchItem) *problem.Problem {
 	started := time.Now()
 	metrics.ObserveStoreBatchSize(len(items))
 
@@ -117,9 +120,9 @@ func (b *StoreBatcher) flush(ctx context.Context, items []batchItem) *problem.Pr
 	return nil
 }
 
-// Close flushes any remaining pending items.
+// Close flushes any remaining pending items (shutdown drain).
 // After Close returns, any subsequent Write call returns an error.
-func (b *StoreBatcher) Close(ctx context.Context) *problem.Problem {
+func (b *BatchWriter) Close(ctx context.Context) *problem.Problem {
 	b.closed.Store(true)
 	b.mu.Lock()
 	items := b.pending

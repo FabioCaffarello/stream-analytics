@@ -1,4 +1,4 @@
-package main
+package clickhouse_test
 
 import (
 	"context"
@@ -26,9 +26,9 @@ func batchSnap(seq int64) aggdomain.SnapshotProduced {
 	}
 }
 
-func TestBatcher_SingleItem_FlushesImmediately(t *testing.T) {
+func TestBatchWriter_SingleItem_FlushesImmediately(t *testing.T) {
 	w := clickhouse.NewWriter()
-	b := NewStoreBatcher(w, defaultBatchCfg())
+	b := clickhouse.NewBatchWriter(w, defaultBatchCfg())
 
 	if p := b.Write(context.Background(), batchSnap(1), "k1"); p != nil {
 		t.Fatalf("write: %v", p)
@@ -38,12 +38,12 @@ func TestBatcher_SingleItem_FlushesImmediately(t *testing.T) {
 	}
 }
 
-func TestBatcher_MaxRows_TriggersFlush(t *testing.T) {
+func TestBatchWriter_MaxRows_TriggersFlush(t *testing.T) {
 	w := clickhouse.NewWriter()
 	cfg := defaultBatchCfg()
 	cfg.MaxRows = 3
 	cfg.FlushInterval = "1h" // disable time-based flush
-	b := NewStoreBatcher(w, cfg)
+	b := clickhouse.NewBatchWriter(w, cfg)
 
 	// First two items: below threshold, no flush.
 	for i := int64(1); i <= 2; i++ {
@@ -64,8 +64,8 @@ func TestBatcher_MaxRows_TriggersFlush(t *testing.T) {
 	}
 }
 
-func TestBatcher_FlushError_ReturnsFirstProblem(t *testing.T) {
-	b := NewStoreBatcher(nil, defaultBatchCfg()) // nil writer → error
+func TestBatchWriter_FlushError_ReturnsFirstProblem(t *testing.T) {
+	b := clickhouse.NewBatchWriter(nil, defaultBatchCfg()) // nil writer → error
 
 	p := b.Write(context.Background(), batchSnap(1), "k")
 	if p == nil {
@@ -73,12 +73,12 @@ func TestBatcher_FlushError_ReturnsFirstProblem(t *testing.T) {
 	}
 }
 
-func TestBatcher_Close_FlushesRemaining(t *testing.T) {
+func TestBatchWriter_Close_FlushesRemaining(t *testing.T) {
 	w := clickhouse.NewWriter()
 	cfg := defaultBatchCfg()
 	cfg.MaxRows = 100
 	cfg.FlushInterval = "1h"
-	b := NewStoreBatcher(w, cfg)
+	b := clickhouse.NewBatchWriter(w, cfg)
 
 	for i := int64(1); i <= 5; i++ {
 		_ = b.Write(context.Background(), batchSnap(i), "k")
@@ -95,9 +95,9 @@ func TestBatcher_Close_FlushesRemaining(t *testing.T) {
 	}
 }
 
-func TestBatcher_Close_EmptyBatch_Noop(t *testing.T) {
+func TestBatchWriter_Close_EmptyBatch_Noop(t *testing.T) {
 	w := clickhouse.NewWriter()
-	b := NewStoreBatcher(w, defaultBatchCfg())
+	b := clickhouse.NewBatchWriter(w, defaultBatchCfg())
 
 	if p := b.Close(context.Background()); p != nil {
 		t.Fatalf("close: %v", p)
@@ -107,12 +107,12 @@ func TestBatcher_Close_EmptyBatch_Noop(t *testing.T) {
 	}
 }
 
-func TestBatcher_Idempotent_RedeliveryInSameBatch(t *testing.T) {
+func TestBatchWriter_Idempotent_RedeliveryInSameBatch(t *testing.T) {
 	w := clickhouse.NewWriter()
 	cfg := defaultBatchCfg()
 	cfg.MaxRows = 10
 	cfg.FlushInterval = "1h"
-	b := NewStoreBatcher(w, cfg)
+	b := clickhouse.NewBatchWriter(w, cfg)
 
 	snap := batchSnap(42)
 	// Enqueue same snapshot+key twice (simulates redelivery within same batch).
@@ -127,12 +127,12 @@ func TestBatcher_Idempotent_RedeliveryInSameBatch(t *testing.T) {
 	}
 }
 
-func TestBatcher_ConcurrentWriteClose(t *testing.T) {
+func TestBatchWriter_ConcurrentWriteClose(t *testing.T) {
 	w := clickhouse.NewWriter()
 	cfg := defaultBatchCfg()
 	cfg.MaxRows = 100
 	cfg.FlushInterval = "1h"
-	b := NewStoreBatcher(w, cfg)
+	b := clickhouse.NewBatchWriter(w, cfg)
 
 	const writers = 10
 	const writesPerGoroutine = 50

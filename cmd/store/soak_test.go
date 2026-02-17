@@ -81,7 +81,7 @@ type soakBurstState struct {
 // and processes it through the handler, updating counters.
 func (s *soakBurstState) generateAndProcess(
 	t *testing.T,
-	b *StoreBatcher,
+	b *clickhouse.BatchWriter,
 	logger *slog.Logger,
 	redeliveryRate, decodeFailRate float64,
 ) {
@@ -286,10 +286,10 @@ func TestStoreSoak_RedeliveryStorm(t *testing.T) {
 
 // ── storage-slow soak (S5-D3) ────────────────────────────────────────────────
 
-// slowWriter wraps a StoreWriter and injects artificial latency before each
-// call to SaveIdempotent, simulating a degraded storage backend.
+// slowWriter wraps a clickhouse.SnapshotWriter and injects artificial latency
+// before each call to SaveIdempotent, simulating a degraded storage backend.
 type slowWriter struct {
-	delegate StoreWriter
+	delegate clickhouse.SnapshotWriter
 	latency  time.Duration
 }
 
@@ -321,7 +321,7 @@ func TestStoreSoak_StorageSlow(t *testing.T) {
 
 	writer := clickhouse.NewWriter()
 	sw := &slowWriter{delegate: writer, latency: injectedLatency}
-	b := NewStoreBatcher(sw, defaultBatchCfg())
+	b := clickhouse.NewBatchWriter(sw, defaultBatchCfg())
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
 	// Reset global counter for deterministic test.

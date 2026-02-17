@@ -12,8 +12,10 @@ import (
 	"github.com/market-raccoon/internal/shared/problem"
 )
 
-// Writer is a minimal cold-path storage writer skeleton for ClickHouse.
-// TODO(m1): replace in-memory map with batch insert pipeline.
+// Writer is a cold-path storage writer for ClickHouse snapshots.
+// The in-memory map is used for tests and local dev; production deployments
+// should use the real ClickHouse driver.  BatchWriter wraps this type to
+// provide flush-on-size and shutdown-drain semantics.
 type Writer struct {
 	mu      sync.RWMutex
 	byKey   map[string]aggdomain.SnapshotProduced

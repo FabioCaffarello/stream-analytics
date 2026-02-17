@@ -98,7 +98,7 @@ func main() {
 
 	// ── ClickHouse writer + batcher ──────────────────────────────────────────
 	chWriter := clickhouse.NewWriter()
-	batcher := NewStoreBatcher(chWriter, cfg.Store.Batch)
+	batcher := clickhouse.NewBatchWriter(chWriter, cfg.Store.Batch)
 	logger.Info("store: batcher configured",
 		"max_rows", cfg.Store.Batch.MaxRows,
 		"max_bytes", cfg.Store.Batch.MaxBytes,
@@ -176,7 +176,7 @@ func main() {
 // initStoreConsumer creates a JetStream consumer for the store pipeline and
 // starts consuming in a background goroutine.  Returns an error channel for
 // fatal consume errors and a shutdown function.
-func initStoreConsumer(cfg config.AppConfig, batcher *StoreBatcher, logger *slog.Logger) (<-chan *problem.Problem, func(context.Context)) {
+func initStoreConsumer(cfg config.AppConfig, batcher *clickhouse.BatchWriter, logger *slog.Logger) (<-chan *problem.Problem, func(context.Context)) {
 	jsConsumer, p := adapterjs.NewConsumer(context.Background(), adapterjs.ConsumerConfig{
 		URL:             cfg.JetStream.URL,
 		StreamName:      cfg.JetStream.StreamName,
@@ -222,7 +222,7 @@ func initStoreConsumer(cfg config.AppConfig, batcher *StoreBatcher, logger *slog
 // handleStoreEnvelope routes an envelope to the appropriate write handler.
 // For S2, only aggregation.snapshot.v1 is implemented; all other event types
 // are ACKed with a skip metric.
-func handleStoreEnvelope(ctx context.Context, env envelope.Envelope, batcher *StoreBatcher, logger *slog.Logger) *problem.Problem {
+func handleStoreEnvelope(ctx context.Context, env envelope.Envelope, batcher *clickhouse.BatchWriter, logger *slog.Logger) *problem.Problem {
 	eventKey := fmt.Sprintf("%s.v%d", env.Type, env.Version)
 
 	// Heartbeat log every N messages so operators can prove liveness.
@@ -251,7 +251,7 @@ func handleStoreEnvelope(ctx context.Context, env envelope.Envelope, batcher *St
 // handleAggregationSnapshot decodes an aggregation snapshot envelope and
 // commits to the ClickHouse writer.  The JetStream consumer ACKs only after
 // this function returns nil.
-func handleAggregationSnapshot(ctx context.Context, env envelope.Envelope, batcher *StoreBatcher, logger *slog.Logger) *problem.Problem {
+func handleAggregationSnapshot(ctx context.Context, env envelope.Envelope, batcher *clickhouse.BatchWriter, logger *slog.Logger) *problem.Problem {
 	var snap aggdomain.SnapshotProduced
 	if err := json.Unmarshal(env.Payload, &snap); err != nil {
 		metrics.IncStoreQuarantine("decode")
