@@ -24,8 +24,8 @@ type SubsystemConfig struct {
 	// Logger is used for structured logging.  Defaults to slog.Default().
 	Logger *slog.Logger
 
-	// Ingest is the marketdata ingest use case.  Required.
-	Ingest *app.IngestMarketData
+	// Service is the marketdata BC facade.  Required.
+	Service *app.MarketDataService
 
 	// ParseMessage converts a raw WS message into an IngestRequest.
 	// If nil, all messages are silently skipped (safe default for tests that
@@ -289,8 +289,8 @@ func (s *SubsystemActor) processMessage(msg *ws.WsMessage) {
 	}
 
 	startedAt := time.Now()
-	res := s.cfg.Ingest.Execute(context.Background(), req)
-	metrics.IngestStreamsActive.Set(float64(s.cfg.Ingest.ActiveStreams()))
+	res := s.cfg.Service.Ingest.Execute(context.Background(), req)
+	metrics.IngestStreamsActive.Set(float64(s.cfg.Service.Ingest.ActiveStreams()))
 	if res.IsFail() {
 		p := res.Problem()
 		status := "failed"

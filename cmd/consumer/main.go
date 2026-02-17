@@ -131,10 +131,12 @@ func main() {
 	pub, closePublisher = wrapWithRecorderPublisher(cfg, logger, pub, closePublisher)
 	seq := newInMemSequencer()
 	clk := clock.NewSystemClock()
-	ingest := mdapp.NewIngestMarketDataWithConfig(clk, seq, pub, mdapp.IngestConfig{
-		MaxStreams:         cfg.MarketData.MaxInstruments,
-		PublishContentType: cfg.MarketData.PublishContentType,
-	})
+	mdService := &mdapp.MarketDataService{
+		Ingest: mdapp.NewIngestMarketDataWithConfig(clk, seq, pub, mdapp.IngestConfig{
+			MaxStreams:         cfg.MarketData.MaxInstruments,
+			PublishContentType: cfg.MarketData.PublishContentType,
+		}),
+	}
 
 	runtimes, p := buildExchangeRuntimes(cfg, logger)
 	if p != nil {
@@ -171,7 +173,7 @@ func main() {
 		subCfg := mdruntime.SubsystemConfig{
 			Subsystem:              runtimeCfg.Subsystem,
 			Logger:                 logger,
-			Ingest:                 ingest,
+			Service:                mdService,
 			ParseMessage:           runtimeCfg.ParseV1,
 			ParseMessageV2:         runtimeCfg.ParseV2,
 			ManagerConfig:          managerCfg,

@@ -83,12 +83,14 @@ func (p *parentActor) Receive(ctx *actor.Context) {
 // helpers
 // ---------------------------------------------------------------------------
 
-func newTestIngest(pub *spyPublisher) *mdapp.IngestMarketData {
-	return mdapp.NewIngestMarketData(
-		fakeClock{},
-		newFakeSequencer(),
-		pub,
-	)
+func newTestService(pub *spyPublisher) *mdapp.MarketDataService {
+	return &mdapp.MarketDataService{
+		Ingest: mdapp.NewIngestMarketData(
+			fakeClock{},
+			newFakeSequencer(),
+			pub,
+		),
+	}
 }
 
 type fakeClock struct{}
@@ -160,11 +162,11 @@ func waitFor(t *testing.T, timeout time.Duration, fn func() bool) {
 // ParseFunc results in a published envelope via the EventPublisher port.
 func TestSubsystem_WsMessage_callsIngest(t *testing.T) {
 	pub := &spyPublisher{}
-	ingest := newTestIngest(pub)
+	svc := newTestService(pub)
 	parse := mdruntime.MakeRawParseFunc("binance", "BTC-USDT")
 
 	cfg := mdruntime.SubsystemConfig{
-		Ingest:       ingest,
+		Service:      svc,
 		ParseMessage: parse,
 	}
 
@@ -183,10 +185,10 @@ func TestSubsystem_WsMessage_callsIngest(t *testing.T) {
 // ParseMessage is nil, no ingest call is made and nothing panics.
 func TestSubsystem_WsMessage_nilParseFn_dropsMessage(t *testing.T) {
 	pub := &spyPublisher{}
-	ingest := newTestIngest(pub)
+	svc := newTestService(pub)
 
 	cfg := mdruntime.SubsystemConfig{
-		Ingest:       ingest,
+		Service:      svc,
 		ParseMessage: nil, // intentionally nil
 	}
 
@@ -209,14 +211,14 @@ func TestSubsystem_WsMessage_nilParseFn_dropsMessage(t *testing.T) {
 // skip=true the ingest use case is not called.
 func TestSubsystem_ParseSkip_doesNotIngest(t *testing.T) {
 	pub := &spyPublisher{}
-	ingest := newTestIngest(pub)
+	svc := newTestService(pub)
 
 	skipAll := mdruntime.ParseFunc(func(msg *ws.WsMessage) (mdapp.IngestRequest, bool) {
 		return mdapp.IngestRequest{}, true // skip
 	})
 
 	cfg := mdruntime.SubsystemConfig{
-		Ingest:       ingest,
+		Service:      svc,
 		ParseMessage: skipAll,
 	}
 
@@ -238,10 +240,10 @@ func TestSubsystem_ParseSkip_doesNotIngest(t *testing.T) {
 // failures do not trigger parent-level ChildFailed restarts.
 func TestSubsystem_WsError_TransientDoesNotEscalate(t *testing.T) {
 	pub := &spyPublisher{}
-	ingest := newTestIngest(pub)
+	svc := newTestService(pub)
 
 	cfg := mdruntime.SubsystemConfig{
-		Ingest:       ingest,
+		Service:      svc,
 		ParseMessage: mdruntime.MakeRawParseFunc("binance", "BTC-USDT"),
 	}
 
@@ -276,10 +278,10 @@ func TestSubsystem_WsError_TransientDoesNotEscalate(t *testing.T) {
 // failures are forwarded to parent actor as runtime.ChildFailed.
 func TestSubsystem_WsError_UnknownEscalates(t *testing.T) {
 	pub := &spyPublisher{}
-	ingest := newTestIngest(pub)
+	svc := newTestService(pub)
 
 	cfg := mdruntime.SubsystemConfig{
-		Ingest:       ingest,
+		Service:      svc,
 		ParseMessage: mdruntime.MakeRawParseFunc("binance", "BTC-USDT"),
 	}
 
@@ -324,10 +326,10 @@ func TestSubsystem_WsError_UnknownEscalates(t *testing.T) {
 // are handled without panic.
 func TestSubsystem_WsState_doesNotPanic(t *testing.T) {
 	pub := &spyPublisher{}
-	ingest := newTestIngest(pub)
+	svc := newTestService(pub)
 
 	cfg := mdruntime.SubsystemConfig{
-		Ingest:       ingest,
+		Service:      svc,
 		ParseMessage: mdruntime.MakeRawParseFunc("binance", "BTC-USDT"),
 	}
 
@@ -348,11 +350,11 @@ func TestSubsystem_WsState_doesNotPanic(t *testing.T) {
 // delivery and ingest under a real engine.
 func TestSubsystem_MultipleMessages_allIngested(t *testing.T) {
 	pub := &spyPublisher{}
-	ingest := newTestIngest(pub)
+	svc := newTestService(pub)
 	parse := mdruntime.MakeRawParseFunc("binance", "ETH-USDT")
 
 	cfg := mdruntime.SubsystemConfig{
-		Ingest:       ingest,
+		Service:      svc,
 		ParseMessage: parse,
 	}
 
@@ -373,10 +375,10 @@ func TestSubsystem_MultipleMessages_allIngested(t *testing.T) {
 // spawned when ManagerConfig is nil (test-only / processor mode).
 func TestSubsystem_NoManagerSpawned_whenConfigIsNil(t *testing.T) {
 	pub := &spyPublisher{}
-	ingest := newTestIngest(pub)
+	svc := newTestService(pub)
 
 	cfg := mdruntime.SubsystemConfig{
-		Ingest:        ingest,
+		Service:       svc,
 		ParseMessage:  mdruntime.MakeRawParseFunc("binance", "BTC-USDT"),
 		ManagerConfig: nil, // explicit
 	}
