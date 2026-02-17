@@ -91,6 +91,61 @@ func TestParserTelemetry_RecordDepthSequenceGap(t *testing.T) {
 	}
 }
 
+func TestParserTelemetry_ByTickerCardinalityBounded(t *testing.T) {
+	tel := newParserTelemetry()
+
+	// Ingest more unique tickers than maxTelemetryKeys.
+	for i := 0; i < maxTelemetryKeys+500; i++ {
+		tel.recordIngest("marketdata.trade", fmt.Sprintf("SYM%d", i), "")
+	}
+
+	if got := len(tel.byTicker); got > maxTelemetryKeys {
+		t.Fatalf("byTicker cardinality = %d, want <= %d", got, maxTelemetryKeys)
+	}
+
+	// Keys that were tracked should have correct counts.
+	if tel.byTicker["SYM0"] != 1 {
+		t.Fatalf("SYM0 count = %d, want 1", tel.byTicker["SYM0"])
+	}
+}
+
+func TestParserTelemetry_DepthGapsSymbolCardinalityBounded(t *testing.T) {
+	tel := newParserTelemetry()
+
+	// Record depth sequences for more unique symbols than cap.
+	for i := 0; i < maxTelemetryKeys+500; i++ {
+		sym := fmt.Sprintf("SYM%d", i)
+		tel.recordDepthSequence(sym, 1, 10)
+		// Second call with a gap to trigger depthGapsBySymbol.
+		tel.recordDepthSequence(sym, 20, 30)
+	}
+
+	if got := len(tel.lastDepthFinalBySymbol); got > maxTelemetryKeys {
+		t.Fatalf("lastDepthFinalBySymbol cardinality = %d, want <= %d", got, maxTelemetryKeys)
+	}
+	if got := len(tel.depthGapsBySymbol); got > maxTelemetryKeys {
+		t.Fatalf("depthGapsBySymbol cardinality = %d, want <= %d", got, maxTelemetryKeys)
+	}
+}
+
+func TestParserTelemetry_IncCapped_ExistingKeyAlwaysUpdated(t *testing.T) {
+	m := make(map[string]uint64)
+	// Fill to cap.
+	for i := 0; i < maxTelemetryKeys; i++ {
+		incCapped(m, fmt.Sprintf("key%d", i), maxTelemetryKeys)
+	}
+	// New key should be rejected.
+	incCapped(m, "overflow", maxTelemetryKeys)
+	if _, ok := m["overflow"]; ok {
+		t.Fatal("overflow key should not be inserted when at cap")
+	}
+	// Existing key should still be updated.
+	incCapped(m, "key0", maxTelemetryKeys)
+	if m["key0"] != 2 {
+		t.Fatalf("key0 = %d, want 2", m["key0"])
+	}
+}
+
 func TestParserTelemetry_WSStreamCardinalityBounded(t *testing.T) {
 	tel := newParserTelemetry()
 

@@ -7,6 +7,11 @@ import (
 	"time"
 )
 
+// maxTelemetryKeys caps high-cardinality per-symbol/per-ticker maps to
+// prevent unbounded memory growth.  The first maxTelemetryKeys unique
+// keys are tracked; subsequent new keys are silently skipped.
+const maxTelemetryKeys = 2048
+
 type parserTelemetry struct {
 	total    uint64
 	ingested uint64
@@ -50,7 +55,7 @@ func (t *parserTelemetry) recordIngest(eventType, ticker, wsStream string) {
 	t.total++
 	t.ingested++
 	t.byEvent[normalizeLabel(eventType, "unknown")]++
-	t.byTicker[normalizeLabel(ticker, "unknown")]++
+	incCapped(t.byTicker, normalizeLabel(ticker, "unknown"), maxTelemetryKeys)
 	if bucket := normalizeWSStreamLabel(wsStream); bucket != "" {
 		t.byWSStream[bucket]++
 	}
@@ -68,7 +73,7 @@ func (t *parserTelemetry) recordSkip(exchange, eventType, reason, problemCode, t
 	t.byEvent[event]++
 	t.bySkipReason[skipReason]++
 	t.byExchangeEventAndSkip[fmt.Sprintf("%s|%s|%s", ex, event, skipReason)]++
-	t.byTicker[normalizeLabel(ticker, "unknown")]++
+	incCapped(t.byTicker, normalizeLabel(ticker, "unknown"), maxTelemetryKeys)
 	if bucket := normalizeWSStreamLabel(wsStream); bucket != "" {
 		t.byWSStream[bucket]++
 	}
@@ -97,10 +102,12 @@ func (t *parserTelemetry) recordDepthSequence(symbol string, first, final int64)
 	if seen && first > lastFinal+1 {
 		gap = true
 		t.depthGapsTotal++
-		t.depthGapsBySymbol[sym]++
+		incCapped(t.depthGapsBySymbol, sym, maxTelemetryKeys)
 	}
-	if !seen || final > lastFinal {
-		t.lastDepthFinalBySymbol[sym] = final
+	if seen || len(t.lastDepthFinalBySymbol) < maxTelemetryKeys {
+		if !seen || final > lastFinal {
+			t.lastDepthFinalBySymbol[sym] = final
+		}
 	}
 	return gap, lastFinal
 }
@@ -160,6 +167,19 @@ func (t *parserTelemetry) topTickerSharePercent(n int) map[string]float64 {
 		out[k] = float64(v) * 100.0 / float64(t.total)
 	}
 	return out
+}
+
+// incCapped increments m[key] only if the key already exists or the map has
+// room below maxKeys.  This prevents unbounded cardinality growth while still
+// tracking the first maxKeys unique keys faithfully.
+func incCapped(m map[string]uint64, key string, maxKeys int) {
+	if _, ok := m[key]; ok {
+		m[key]++
+		return
+	}
+	if len(m) < maxKeys {
+		m[key] = 1
+	}
 }
 
 func topCounts(m map[string]uint64, n int) map[string]uint64 {
