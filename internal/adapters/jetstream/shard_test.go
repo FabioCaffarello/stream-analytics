@@ -440,6 +440,106 @@ func TestShardReplayInvariant_UnionEqualsTotal(t *testing.T) {
 	}
 }
 
+// ── S4 integration: 2 shards, 10 instruments, exactly-once ─────────────────────
+
+// TestShard_TwoShards_TenInstruments_ExactlyOnce is the S4 integration test
+// specification: 2 consumers (shard 0/2 and 1/2), 10 canonical instruments,
+// prove each instrument always goes to the same shard, prove no duplicates
+// across shards.
+func TestShard_TwoShards_TenInstruments_ExactlyOnce(t *testing.T) {
+	venues := []string{"binance", "bybit"}
+	instruments := []string{
+		"BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT",
+		"ADAUSDT", "DOGEUSDT", "DOTUSDT", "AVAXUSDT", "LTCUSDT",
+	}
+	eventTypes := []string{"marketdata.bookdelta.v1", "marketdata.trade.v1"}
+	const shardCount = 2
+
+	subjects := buildSubjectMatrix(venues, instruments, eventTypes)
+	claimedBy := assignSubjectsToShards(t, subjects, shardCount)
+
+	assertAllSubjectsClaimed(t, claimedBy, subjects)
+	assertOrderBookConsistency(t, claimedBy)
+	assertNonDegeneratePartition(t, claimedBy, shardCount)
+	t.Logf("shard distribution: shard0=%d shard1=%d (total=%d)",
+		shardCountFor(claimedBy, 0), shardCountFor(claimedBy, 1), len(subjects))
+}
+
+func buildSubjectMatrix(venues, instruments, eventTypes []string) []string {
+	var out []string
+	for _, venue := range venues {
+		for _, instrument := range instruments {
+			for _, eventType := range eventTypes {
+				out = append(out, eventType+"."+venue+"."+instrument)
+			}
+		}
+	}
+	return out
+}
+
+func assignSubjectsToShards(t *testing.T, subjects []string, shardCount int) map[string]int {
+	t.Helper()
+	claimedBy := make(map[string]int, len(subjects))
+	for _, subject := range subjects {
+		for shardID := 0; shardID < shardCount; shardID++ {
+			if !subjectBelongsToOtherShard(subject, shardCount, shardID) {
+				if prev, dup := claimedBy[subject]; dup {
+					t.Fatalf("DUPLICATE: subject %q claimed by shard %d AND %d", subject, prev, shardID)
+				}
+				claimedBy[subject] = shardID
+			}
+		}
+	}
+	return claimedBy
+}
+
+func assertAllSubjectsClaimed(t *testing.T, claimedBy map[string]int, subjects []string) {
+	t.Helper()
+	if len(claimedBy) != len(subjects) {
+		t.Fatalf("claimed %d of %d subjects; want all claimed (exactly-once violated)", len(claimedBy), len(subjects))
+	}
+}
+
+func assertOrderBookConsistency(t *testing.T, claimedBy map[string]int) {
+	t.Helper()
+	type venueInstr struct{ v, i string }
+	shardFor := make(map[venueInstr]int)
+	for subject, shardID := range claimedBy {
+		_, _, venue, instrument, err := splitSubjectTaxonomy(subject)
+		if err != nil {
+			t.Fatalf("splitSubjectTaxonomy(%q): %v", subject, err)
+		}
+		key := venueInstr{venue, instrument}
+		if prev, seen := shardFor[key]; seen && prev != shardID {
+			t.Errorf("consistency violated: %s/%s split between shard %d and %d", venue, instrument, prev, shardID)
+		}
+		shardFor[key] = shardID
+	}
+}
+
+func assertNonDegeneratePartition(t *testing.T, claimedBy map[string]int, shardCount int) {
+	t.Helper()
+	counts := make(map[int]int)
+	for _, id := range claimedBy {
+		counts[id]++
+	}
+	for shard := 0; shard < shardCount; shard++ {
+		if counts[shard] == 0 {
+			t.Errorf("shard %d received 0 subjects; partition is degenerate", shard)
+		}
+	}
+}
+
+func shardCountFor(claimedBy map[string]int, shardID int) int {
+	n := 0
+	for _, id := range claimedBy {
+		if id == shardID {
+			n++
+		}
+	}
+	return n
+}
+
 // TestShardKey_StableAcrossGroups verifies the combined contract: same subject
 // always ends up in the same group regardless of how many times it is computed.
 func TestShardKey_StableAcrossGroups(t *testing.T) {
