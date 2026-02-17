@@ -104,7 +104,7 @@ Status anchors: `docs/rfcs/RFC-0001-robustness-roadmap.md:3`, `docs/rfcs/RFC-000
 
 | Theme | Authoritative doc | Code anchor | Test anchor | State |
 |---|---|---|---|---|
-| Runtime invariants | `docs/audits/AUDIT-PACK-W11-finalization.md:25` | `scripts/check-domain-isolation.sh:16`, `internal/actors/runtime/guardian.go:273` | `internal/shared/contracts/import_guard_test.go:15`, `internal/actors/runtime/guardian_test.go:57` | Accepted (operational evidence) |
+| Runtime invariants | `docs/audits/AUDIT-PACK-W11-finalization.md:25` | `scripts/check-domain-isolation.sh:16`, `internal/actors/runtime/guardian.go:273` | `internal/shared/contracts/import_guard_test.go:15`, `internal/actors/runtime/guardian_test.go:57` | Accepted (operational evidence); INV-LAY-01..06 automated |
 | Subject taxonomy | `docs/adrs/ADR-0014-stream-partitioning-strategy.md:33` | `internal/adapters/jetstream/subject_validation.go:24` | `internal/adapters/jetstream/subject_validation_test.go:5` | Accepted |
 | ACK semantics (ACK/NAK/TERM) | `docs/adrs/ADR-0004-bus-nats-jetstream.md:1`, `docs/rfcs/RFC-0008-W7-nats-jetstream-integration.md:1` | `internal/adapters/jetstream/consumer.go:279`, `internal/adapters/jetstream/ingest_policy.go:59` | `internal/adapters/jetstream/ingest_conformance_test.go:15` | Accepted in runtime; RFC remains Draft with explicit partial matrix |
 | Replay deterministico | `docs/adrs/ADR-0015-deterministic-replay-time-invariants.md:1`, `docs/rfcs/RFC-0009-W8-deterministic-replay-golden-tests.md:1` | `internal/shared/replay/player.go:45`, `internal/shared/replay/sequencer.go:56`, `internal/shared/replay/canon.go:284` | `internal/shared/replay/golden_test.go:18`, `cmd/consumer/replay_test.go:63` | Accepted |
@@ -141,6 +141,9 @@ Anchor: `Makefile`, `scripts/check-doc-headers.sh`, `scripts/check-doc-links.sh`
 ## Changelog
 
 - 2026-02-17:
+  - updated runtime invariants row: INV-LAY-01..06 automated guards;
+  - added BC facade files: `marketdata/app/service.go`, `aggregation/app/service.go`, `insights/app/service.go`;
+  - actors rewired to use facade services (MarketDataService, AggregationService);
   - updated VPVR/backpressure rows: soak test moved from `core/insights/app` to `actors/insights/runtime`;
   - added `vpvr_policy.go` code anchor for backpressure (policykit binding now in actors layer).
 - 2026-02-13:
