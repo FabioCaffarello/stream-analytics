@@ -1,0 +1,14 @@
+{
+  "active": [
+    {
+      "slug": "m3-closeout-post-c6-audit",
+      "path": "plans/m3-closeout-post-c6-audit.md",
+      "title": "M3 closeout pos-auditoria C6",
+      "summary": "Fechar M3 com correcoes nao-blocking da auditoria, evidencia de qualidade e criterio de done para transicao M4.",
+      "linkedAt": "2026-02-14T00:07:11.701Z",
+      "status": "active"
+    }
+  ],
+  "completed": [],
+  "primary": "m3-closeout-post-c6-audit"
+}

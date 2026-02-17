@@ -1,40 +1,43 @@
 project:
-  name: "m3-closeout-after-c6-audit"
+  name: "context-restructuring"
   scale: MEDIUM
-  started: "2026-02-14T00:06:53.888Z"
+  started: "2026-02-17T17:13:06.848Z"
   current_phase: V
 
 phases:
   P:
-    status: filled
-    started_at: "2026-02-14T00:06:53.888Z"
-    completed_at: "2026-02-14T00:09:45.970Z"
-  R:
-    status: filled
-    started_at: "2026-02-14T00:09:45.971Z"
-    completed_at: "2026-02-14T00:09:57.901Z"
-  E:
-    status: filled
-    started_at: "2026-02-14T00:09:57.902Z"
-    completed_at: "2026-02-14T00:10:02.305Z"
-  V:
     status: completed
-    started_at: "2026-02-14T00:10:02.306Z"
-    completed_at: "2026-02-14T00:10:08.429Z"
-    outputs:
-      - path: "M3 closed out after C6 audit: commit b8f18d0 + all gates green + backlog items staged for M4"
-        status: filled
+    started_at: "2026-02-17T17:13:06.848Z"
+    completed_at: "2026-02-17T17:14:00.000Z"
+  R:
+    status: completed
+    started_at: "2026-02-17T17:14:00.000Z"
+    completed_at: "2026-02-17T17:14:30.000Z"
+  E:
+    status: completed
+    started_at: "2026-02-17T17:14:30.000Z"
+    completed_at: "2026-02-17T17:22:00.000Z"
+  V:
+    status: in_progress
+    started_at: "2026-02-17T17:22:00.000Z"
   C:
     status: skipped
     reason: "Not required for scale MEDIUM"
 
 execution:
   history:
-    - timestamp: "2026-02-14T00:10:08.429Z"
-      phase: V
+    - timestamp: "2026-02-17T17:14:00.000Z"
+      phase: P
       action: completed
-  last_activity: "2026-02-14T00:10:08.429Z"
-  resume_context: "Fase V (Validação) concluída"
+    - timestamp: "2026-02-17T17:14:30.000Z"
+      phase: R
+      action: completed
+    - timestamp: "2026-02-17T17:22:00.000Z"
+      phase: E
+      action: completed
+      notes: "6 commits: delete garbage, archive obsoletes, rewrite AGENTS.md, STATUS headers, 00-START-HERE"
+  last_activity: "2026-02-17T17:22:00.000Z"
+  resume_context: "Fase V — validar gates e sync Claude+Codex"
 
 settings:
   autonomous_mode: true
@@ -43,4 +46,4 @@ settings:
 
 approval:
   plan_created: true
-  plan_approved: false
+  plan_approved: true
