@@ -452,6 +452,82 @@ func TestStoreSoak_ColdPathBurst10k_CommitAckInvariants(t *testing.T) {
 	assertBurstInvariants(t, state, writer, ackCommitViolations.Load())
 }
 
+// ── cold-path commit latency budgets (C4) ────────────────────────────────────
+
+// latencyBudget defines a percentile threshold for latency assertions.
+type latencyBudget struct {
+	percentile float64
+	threshold  time.Duration
+}
+
+// assertLatencyBudgets checks multiple percentile thresholds.
+func assertLatencyBudgets(t *testing.T, latencies []time.Duration, budgets []latencyBudget) {
+	t.Helper()
+	if len(latencies) == 0 {
+		return
+	}
+	slices.Sort(latencies)
+	n := len(latencies)
+	p50 := latencies[n/2]
+	t.Logf("latency p50=%s n=%d", p50, n)
+
+	for _, b := range budgets {
+		idx := int(float64(n) * b.percentile)
+		if idx >= n {
+			idx = n - 1
+		}
+		val := latencies[idx]
+		t.Logf("  p%.0f=%s budget=%s", b.percentile*100, val, b.threshold)
+		if val > b.threshold {
+			t.Fatalf("p%.0f latency=%s exceeds budget %s", b.percentile*100, val, b.threshold)
+		}
+	}
+}
+
+// TestStoreSoak_ColdPathLatencyBudgets sends a sustained burst and enforces
+// explicit p95 and p99 commit latency budgets.
+func TestStoreSoak_ColdPathLatencyBudgets(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping soak test in short mode")
+	}
+
+	duration := soakDuration()
+	rate := soakBurstRate()
+	t.Logf("latency budget soak: rate=%d/s duration=%s", rate, duration)
+
+	writer := clickhouse.NewWriter()
+	b := testBatcher(writer)
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
+
+	storeConsumedCount.Store(0)
+
+	state := &soakBurstState{
+		rng:         rand.New(rand.NewPCG(777, 0)), //nolint:gosec // deterministic seed
+		venueNames:  []string{"binance", "bybit", "okx"},
+		instruments: []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "DOGEUSDT"},
+	}
+
+	deadline := time.Now().Add(duration)
+	for time.Now().Before(deadline) {
+		batchStart := time.Now()
+		for range rate {
+			state.generateAndProcess(t, b, logger, 0.05, 0.01)
+		}
+		if sleepFor := time.Second - time.Since(batchStart); sleepFor > 0 {
+			time.Sleep(sleepFor)
+		}
+	}
+
+	t.Logf("latency budget soak: sent=%d unique=%d redelivered=%d invalid=%d commits=%d",
+		state.totalSent, state.totalUnique, state.totalRedeliver, state.totalInvalid, writer.CommitCount())
+
+	// Enforce explicit p95 and p99 budgets for the cold-path commit pipeline.
+	assertLatencyBudgets(t, state.latencies, []latencyBudget{
+		{percentile: 0.95, threshold: 10 * time.Millisecond},
+		{percentile: 0.99, threshold: 25 * time.Millisecond},
+	})
+}
+
 // ── storage-slow soak (S5-D3) ────────────────────────────────────────────────
 
 // slowWriter wraps a clickhouse.SnapshotWriter and injects artificial latency
