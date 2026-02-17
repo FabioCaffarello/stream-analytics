@@ -540,6 +540,70 @@ func shardCountFor(claimedBy map[string]int, shardID int) int {
 	return n
 }
 
+// ── S5 replay equivalence: sharded vs non-sharded ──────────────────────────────
+
+// TestShard_ReplayEquivalence_ShardedVsNonSharded replays the same deterministic
+// fixture through non-sharded (count=1) and sharded (count=2) configurations.
+// The union of all sharded outputs must be identical to the non-sharded output.
+func TestShard_ReplayEquivalence_ShardedVsNonSharded(t *testing.T) {
+	// Deterministic fixture: canonical subject stream.
+	venues := []string{"binance", "bybit"}
+	instruments := []string{
+		"BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT",
+		"ADAUSDT", "DOGEUSDT", "DOTUSDT", "AVAXUSDT", "LTCUSDT",
+	}
+	eventTypes := []string{"marketdata.bookdelta.v1", "marketdata.trade.v1"}
+	fixture := buildSubjectMatrix(venues, instruments, eventTypes)
+
+	// Non-sharded replay: count=1, all subjects pass.
+	nonSharded := replayWithShard(fixture, 1)
+	if len(nonSharded) != len(fixture) {
+		t.Fatalf("non-sharded: got %d subjects; want %d", len(nonSharded), len(fixture))
+	}
+
+	// Sharded replay: count=2, collect union of shard 0 and shard 1.
+	const shardCount = 2
+	shardedUnion := make(map[string]struct{}, len(fixture))
+	for shardID := 0; shardID < shardCount; shardID++ {
+		for subj := range replayWithShard(fixture, shardCount, shardID) {
+			shardedUnion[subj] = struct{}{}
+		}
+	}
+
+	// Equivalence: non-sharded output == sharded union.
+	if len(shardedUnion) != len(nonSharded) {
+		t.Fatalf("sharded union has %d subjects; non-sharded has %d", len(shardedUnion), len(nonSharded))
+	}
+	for subj := range nonSharded {
+		if _, ok := shardedUnion[subj]; !ok {
+			t.Errorf("subject %q in non-sharded but missing from sharded union", subj)
+		}
+	}
+	for subj := range shardedUnion {
+		if _, ok := nonSharded[subj]; !ok {
+			t.Errorf("subject %q in sharded union but missing from non-sharded", subj)
+		}
+	}
+}
+
+// replayWithShard simulates replay of subjects through a shard filter.
+// With one int arg (count), it simulates non-sharded (all pass).
+// With two int args (count, shardID), it simulates a specific shard.
+func replayWithShard(subjects []string, args ...int) map[string]struct{} {
+	count := args[0]
+	shardID := 0
+	if len(args) > 1 {
+		shardID = args[1]
+	}
+	out := make(map[string]struct{})
+	for _, s := range subjects {
+		if !subjectBelongsToOtherShard(s, count, shardID) {
+			out[s] = struct{}{}
+		}
+	}
+	return out
+}
+
 // TestShardKey_StableAcrossGroups verifies the combined contract: same subject
 // always ends up in the same group regardless of how many times it is computed.
 func TestShardKey_StableAcrossGroups(t *testing.T) {
