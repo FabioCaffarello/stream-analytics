@@ -41,8 +41,13 @@ Context interface for `.context/docs`: pointers, invariants, acceptance gates.
 - [`docs/adrs/ADR-0015-deterministic-replay-time-invariants.md`](../../docs/adrs/ADR-0015-deterministic-replay-time-invariants.md)
 - [`docs/adrs/ADR-0017-multi-exchange-normalization.md`](../../docs/adrs/ADR-0017-multi-exchange-normalization.md)
 
-## Runbook Index
+## Operational Runbooks
 
-- QA runbooks: [`qa/README.md`](./qa/README.md), [`qa/getting-started.md`](./qa/getting-started.md), [`qa/project-structure.md`](./qa/project-structure.md), [`qa/deployment.md`](./qa/deployment.md), [`qa/cli-commands.md`](./qa/cli-commands.md), [`qa/cli-arguments.md`](./qa/cli-arguments.md)
+- Observability runbooks: [`docs/observability/runbooks/`](../../docs/observability/runbooks/) — ingest, guardian, websocket, vpvr-overload, bus, consumer-stall
+- SLO definitions: [`docs/observability/slo.md`](../../docs/observability/slo.md)
+- Operations: [`docs/operations/`](../../docs/operations/) — degradation, local-dev, sharding, cold-path-runbook
+
+## Validation Gates
+
 - Gate targets in [`Makefile`](../../Makefile): `docs-check`, `invariants-check`, `test-workspace`, `test-workspace-race`, `proto-lint`, `proto-breaking`, `soak-check`
 - Docs gate scripts: [`scripts/check-doc-headers.sh`](../../scripts/check-doc-headers.sh), [`scripts/check-doc-links.sh`](../../scripts/check-doc-links.sh), [`scripts/check-truth-map.sh`](../../scripts/check-truth-map.sh), [`scripts/check-feature-pack-links.sh`](../../scripts/check-feature-pack-links.sh)

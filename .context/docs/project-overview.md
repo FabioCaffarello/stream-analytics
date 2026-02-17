@@ -12,15 +12,11 @@ scaffoldVersion: "2.0.0"
 
 Market Raccoon is a market intelligence backend that ingests market data, normalizes and sequences events, builds read models, and serves runtime/delivery capabilities through an actor-based architecture. It is designed for deterministic processing, replayability, and low-latency delivery rather than trade execution.
 
-## Codebase Reference
-> **Detailed Analysis**: For generated repository structure metadata, see [`codebase-map.json`](./codebase-map.json).
-
 ## Quick Facts
 - Root: `/Volumes/OWC Express 1M2/Develop/market-raccoon`
 - Primary language: Go (workspace with multiple modules in `go.work`)
 - Main entrypoints: `cmd/consumer`, `cmd/processor`, `cmd/server`
 - Build orchestration: `Makefile`
-- Full generated snapshot: [`codebase-map.json`](./codebase-map.json)
 
 ## Context Truth Navigation
 - Context bridge index: [`truth-pack.md`](./truth-pack.md)
@@ -33,7 +29,7 @@ Market Raccoon is a market intelligence backend that ingests market data, normal
 - [`cmd/server/main.go`](../../cmd/server/main.go#L1) - Runtime supervision and HTTP endpoints (`/healthz`, `/runtime/snapshot`, `/runtime/reload`).
 
 ## Key Exports
-Primary exported behavior is organized by bounded context modules under `internal/core/*`, plus actor runtime orchestration under `internal/actors/*`. See [`codebase-map.json`](./codebase-map.json) and package-level docs for detailed symbol inventory.
+Primary exported behavior is organized by bounded context modules under `internal/core/*`, plus actor runtime orchestration under `internal/actors/*`. See package-level docs for detailed symbol inventory.
 
 ## File Structure & Code Organization
 - `cmd/` - Process-level composition and dependency wiring for binaries.

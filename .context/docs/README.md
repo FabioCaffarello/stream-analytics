@@ -13,11 +13,11 @@ scaffoldVersion: "2.0.0"
 This folder is the operational knowledge base for contributors and AI agents working in Market Raccoon.
 
 ## Core Guides
+- [Start Here](./00-START-HERE.md)
 - [Project Overview](./project-overview.md)
 - [Development Workflow](./development-workflow.md)
 - [Testing Strategy](./testing-strategy.md)
 - [Tooling & Productivity Guide](./tooling.md)
-- [Codebase Map](./codebase-map.json)
 
 ## Architecture Sources (Primary)
 - [Architecture Overview](../../docs/architecture/README.md)
