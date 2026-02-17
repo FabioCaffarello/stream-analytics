@@ -1,6 +1,6 @@
 # W4/W5 Post-Merge Audit (Historical)
 
-**Status:** Accepted
+**Status:** ARCHIVED — Superado por `docs/audits/DRIFT-REPORT-W11.md` e `docs/audits/AUDIT-PACK-W11-finalization.md`
 **Document class:** Historical Audit Record
 **Owner:** Governance Doc-First Maintainer
 **Last updated:** 2026-02-13

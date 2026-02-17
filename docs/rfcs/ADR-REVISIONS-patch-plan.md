@@ -1,6 +1,6 @@
 # ADR Revisions Patch Plan (Historical)
 
-**Status:** Accepted
+**Status:** ARCHIVED — Patches absorvidos nos ADRs finais (0002/0003/0004/0005/0009/0011)
 **Document class:** Historical
 **Owner:** Governance Doc-First Maintainer
 **Last updated:** 2026-02-13

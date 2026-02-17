@@ -38,7 +38,9 @@ Create one authoritative map of:
 | PRD-0001 | Normalized active baseline with Implemented/Partially Implemented/Planned matrix and workspace-safe gates. | `docs/prd/PRD-0001-extreme-runtime.md:1`, `docs/prd/PRD-0001-extreme-runtime.md:81` |
 | AUDIT-PACK-W11 | Contains strongest evidence matrix linking docs to code/tests. | `docs/audits/AUDIT-PACK-W11-finalization.md:25` |
 | EXECUTION-SEQUENCE | Tracks W4..W13 with explicit Implemented/Partially Implemented/Planned matrix and real workspace gates. | `docs/rfcs/EXECUTION-SEQUENCE.md:1`, `docs/rfcs/EXECUTION-SEQUENCE.md:94` |
-| ADR-REVISIONS patch plan | Historical patch plan; some amendments already absorbed into ADRs. | `docs/rfcs/ADR-REVISIONS-patch-plan.md:1` |
+| ADR-REVISIONS patch plan | **(ARCHIVED)** Historical patch plan; amendments absorbed into ADRs. | `docs/rfcs/ADR-REVISIONS-patch-plan.md:1` |
+| W4-W5 Post-Merge Audit | **(ARCHIVED)** Superado por AUDIT-PACK-W11 e DRIFT-REPORT-W11. | `docs/rfcs/W4-W5-AUDIT.md:1` |
+| W5.1 Sweep Throttling | **(ARCHIVED)** Superado por RFC-0006-W5-memory-lifecycle-hardening. | `docs/rfcs/W5.1-SWEEP-THROTTLING.md:1` |
 
 ### Document Inventory
 
