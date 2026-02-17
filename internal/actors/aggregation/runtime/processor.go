@@ -81,9 +81,9 @@ type ProcessorConfig struct {
 	// lifetime; it must not be shared with other actors.
 	EnvelopeCh <-chan envelope.Envelope
 
-	// UpdateBook is the aggregation use case for order book updates.
+	// Service is the aggregation BC facade.
 	// Required when routing BookDelta envelopes.
-	UpdateBook *aggapp.UpdateOrderBookFromEvents
+	Service *aggapp.AggregationService
 
 	// JoinTrades is the optional insights use case for cross-venue trade joins.
 	JoinTrades *insightsapp.JoinCrossVenueTrades
@@ -334,7 +334,7 @@ func activeThresholdsForLevel(level policykit.Level) (policykit.Threshold, polic
 
 // handleBookDelta decodes a BookDeltaV1 payload and calls UpdateOrderBook.
 func (p *ProcessorSubsystemActor) handleBookDelta(env envelope.Envelope) *problem.Problem {
-	if p.cfg.UpdateBook == nil {
+	if p.cfg.Service == nil || p.cfg.Service.UpdateBook == nil {
 		p.logger.Warn("aggruntime: no UpdateBook use case configured — dropping bookdelta")
 		return problem.New(problem.ValidationFailed, "aggregation UpdateBook use case is not configured")
 	}
@@ -372,7 +372,7 @@ func (p *ProcessorSubsystemActor) handleBookDelta(env envelope.Envelope) *proble
 		Asks:       toLevels(delta.Asks),
 	}
 
-	res := p.cfg.UpdateBook.Execute(context.Background(), req)
+	res := p.cfg.Service.UpdateBook.Execute(context.Background(), req)
 	if res.IsFail() {
 		prob := res.Problem()
 		p.logger.Warn("aggruntime: UpdateOrderBook failed",

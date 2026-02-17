@@ -108,8 +108,10 @@ func newEngine(t *testing.T) *actor.Engine {
 	return e
 }
 
-func newUpdateBook(pub *spyArtifactPublisher) *aggapp.UpdateOrderBookFromEvents {
-	return aggapp.NewUpdateOrderBookFromEvents(pub, &noopStore{})
+func newAggService(pub *spyArtifactPublisher) *aggapp.AggregationService {
+	return &aggapp.AggregationService{
+		UpdateBook: aggapp.NewUpdateOrderBookFromEvents(pub, &noopStore{}),
+	}
 }
 
 func makeBookDeltaEnvelope(venue, instrument string, seq int64, bids, asks []mddomain.PriceLevel) envelope.Envelope {
@@ -196,12 +198,12 @@ func waitFor(t *testing.T, timeout time.Duration, fn func() bool) {
 // BookDeltaV1 envelope → UpdateOrderBook → ArtifactPublisher.PublishSnapshot.
 func TestProcessor_BookDelta_callsUpdateOrderBook(t *testing.T) {
 	pub := &spyArtifactPublisher{}
-	updateBook := newUpdateBook(pub)
+	aggSvc := newAggService(pub)
 
 	ch := make(chan envelope.Envelope, 8)
 	cfg := aggruntime.ProcessorConfig{
 		EnvelopeCh: ch,
-		UpdateBook: updateBook,
+		Service:    aggSvc,
 	}
 
 	e := newEngine(t)
@@ -227,13 +229,13 @@ func TestProcessor_BookDelta_ProtoDecoded(t *testing.T) {
 	}
 
 	pub := &spyArtifactPublisher{}
-	updateBook := newUpdateBook(pub)
+	aggSvc := newAggService(pub)
 
 	ch := make(chan envelope.Envelope, 8)
 	resultCh := make(chan aggruntime.EnvelopeProcessResult, 1)
 	cfg := aggruntime.ProcessorConfig{
 		EnvelopeCh: ch,
-		UpdateBook: updateBook,
+		Service:    aggSvc,
 		OnEnvelopeProcessed: func(res aggruntime.EnvelopeProcessResult) {
 			select {
 			case resultCh <- res:
@@ -294,12 +296,12 @@ func TestProcessor_BookDelta_ProtoDecoded(t *testing.T) {
 // different instruments each produce one snapshot (independent order books).
 func TestProcessor_MultipleDeltas_allAggregated(t *testing.T) {
 	pub := &spyArtifactPublisher{}
-	updateBook := newUpdateBook(pub)
+	aggSvc := newAggService(pub)
 
 	ch := make(chan envelope.Envelope, 16)
 	cfg := aggruntime.ProcessorConfig{
 		EnvelopeCh: ch,
-		UpdateBook: updateBook,
+		Service:    aggSvc,
 	}
 
 	e := newEngine(t)
@@ -326,12 +328,12 @@ func TestProcessor_MultipleDeltas_allAggregated(t *testing.T) {
 // skipped and do not call the aggregation use case.
 func TestProcessor_RawEnvelope_skipped(t *testing.T) {
 	pub := &spyArtifactPublisher{}
-	updateBook := newUpdateBook(pub)
+	aggSvc := newAggService(pub)
 
 	ch := make(chan envelope.Envelope, 8)
 	cfg := aggruntime.ProcessorConfig{
 		EnvelopeCh: ch,
-		UpdateBook: updateBook,
+		Service:    aggSvc,
 	}
 
 	e := newEngine(t)
@@ -351,12 +353,12 @@ func TestProcessor_RawEnvelope_skipped(t *testing.T) {
 // handled gracefully without panicking.
 func TestProcessor_UnknownType_doesNotCrash(t *testing.T) {
 	pub := &spyArtifactPublisher{}
-	updateBook := newUpdateBook(pub)
+	aggSvc := newAggService(pub)
 
 	ch := make(chan envelope.Envelope, 8)
 	cfg := aggruntime.ProcessorConfig{
 		EnvelopeCh: ch,
-		UpdateBook: updateBook,
+		Service:    aggSvc,
 	}
 
 	e := newEngine(t)
@@ -379,13 +381,13 @@ func TestProcessor_UnknownType_doesNotCrash(t *testing.T) {
 
 func TestProcessor_UnknownVersion_ProducesValidationProblem(t *testing.T) {
 	pub := &spyArtifactPublisher{}
-	updateBook := newUpdateBook(pub)
+	aggSvc := newAggService(pub)
 
 	ch := make(chan envelope.Envelope, 8)
 	resultCh := make(chan aggruntime.EnvelopeProcessResult, 1)
 	cfg := aggruntime.ProcessorConfig{
 		EnvelopeCh: ch,
-		UpdateBook: updateBook,
+		Service:    aggSvc,
 		OnEnvelopeProcessed: func(res aggruntime.EnvelopeProcessResult) {
 			resultCh <- res
 		},
@@ -424,13 +426,13 @@ func TestProcessor_UnknownVersion_ProducesValidationProblem(t *testing.T) {
 
 func TestProcessor_OnEnvelopeProcessed_callbackReceivesProblem(t *testing.T) {
 	pub := &spyArtifactPublisher{}
-	updateBook := newUpdateBook(pub)
+	aggSvc := newAggService(pub)
 
 	ch := make(chan envelope.Envelope, 8)
 	resultCh := make(chan aggruntime.EnvelopeProcessResult, 1)
 	cfg := aggruntime.ProcessorConfig{
 		EnvelopeCh: ch,
-		UpdateBook: updateBook,
+		Service:    aggSvc,
 		OnEnvelopeProcessed: func(res aggruntime.EnvelopeProcessResult) {
 			resultCh <- res
 		},
@@ -468,7 +470,7 @@ func TestProcessor_OnEnvelopeProcessed_callbackReceivesProblem(t *testing.T) {
 // channel causes the actor to send runtime.ChildFailed to its parent.
 func TestProcessor_BusClosed_sendsChildFailed(t *testing.T) {
 	pub := &spyArtifactPublisher{}
-	updateBook := newUpdateBook(pub)
+	aggSvc := newAggService(pub)
 
 	ch := make(chan envelope.Envelope, 8)
 
@@ -485,7 +487,7 @@ func TestProcessor_BusClosed_sendsChildFailed(t *testing.T) {
 			spawnChild: func(ctx *actor.Context) *actor.PID {
 				cfg := aggruntime.ProcessorConfig{
 					EnvelopeCh: ch,
-					UpdateBook: updateBook,
+					Service:    aggSvc,
 				}
 				return ctx.SpawnChild(
 					aggruntime.NewProcessorSubsystemActor(cfg),
@@ -529,11 +531,11 @@ func TestProcessor_BusClosed_sendsChildFailed(t *testing.T) {
 // TestProcessor_NilChannel_idle verifies no panic when EnvelopeCh is nil.
 func TestProcessor_NilChannel_idle(t *testing.T) {
 	pub := &spyArtifactPublisher{}
-	updateBook := newUpdateBook(pub)
+	aggSvc := newAggService(pub)
 
 	cfg := aggruntime.ProcessorConfig{
 		EnvelopeCh: nil,
-		UpdateBook: updateBook,
+		Service:    aggSvc,
 	}
 
 	e := newEngine(t)
@@ -548,13 +550,13 @@ func TestProcessor_TradeEnvelopeWithoutJoin_ProducesValidationProblem(t *testing
 	}
 
 	pub := &spyArtifactPublisher{}
-	updateBook := newUpdateBook(pub)
+	aggSvc := newAggService(pub)
 
 	ch := make(chan envelope.Envelope, 8)
 	resultCh := make(chan aggruntime.EnvelopeProcessResult, 1)
 	cfg := aggruntime.ProcessorConfig{
 		EnvelopeCh: ch,
-		UpdateBook: updateBook,
+		Service:    aggSvc,
 		OnEnvelopeProcessed: func(res aggruntime.EnvelopeProcessResult) {
 			resultCh <- res
 		},
@@ -585,14 +587,14 @@ func TestProcessor_TradeJoinEnabled_PublishesCrossVenueSnapshot(t *testing.T) {
 	}
 
 	pub := &spyArtifactPublisher{}
-	updateBook := newUpdateBook(pub)
+	aggSvc := newAggService(pub)
 	outPublisher := &spyEnvelopePublisher{}
 	joinUC := insightsapp.NewJoinCrossVenueTrades()
 
 	ch := make(chan envelope.Envelope, 8)
 	cfg := aggruntime.ProcessorConfig{
 		EnvelopeCh:            ch,
-		UpdateBook:            updateBook,
+		Service:               aggSvc,
 		JoinTrades:            joinUC,
 		PublishEnvelope:       outPublisher,
 		SnapshotSubjectPrefix: "",
@@ -641,7 +643,7 @@ func TestProcessor_TradeJoinEnabledWithSpreadSignal_PublishesSignalEnvelope(t *t
 	}
 
 	pub := &spyArtifactPublisher{}
-	updateBook := newUpdateBook(pub)
+	aggSvc := newAggService(pub)
 	outPublisher := &spyEnvelopePublisher{}
 	joinUC := insightsapp.NewJoinCrossVenueTradesWithConfig(insightsapp.JoinCrossVenueTradesConfig{
 		EnableSpreadSignal: true,
@@ -653,7 +655,7 @@ func TestProcessor_TradeJoinEnabledWithSpreadSignal_PublishesSignalEnvelope(t *t
 	ch := make(chan envelope.Envelope, 8)
 	cfg := aggruntime.ProcessorConfig{
 		EnvelopeCh:      ch,
-		UpdateBook:      updateBook,
+		Service:         aggSvc,
 		JoinTrades:      joinUC,
 		PublishEnvelope: outPublisher,
 	}
@@ -699,14 +701,14 @@ func TestProcessor_PolicyKit_BookDeltaDeterministicStride(t *testing.T) {
 	}
 	run := func() runResult {
 		pub := &spyArtifactPublisher{}
-		updateBook := newUpdateBook(pub)
+		aggSvc := newAggService(pub)
 
 		ch := make(chan envelope.Envelope, 16)
 		var mu sync.Mutex
 		processed := make([]int64, 0, 8)
 		cfg := aggruntime.ProcessorConfig{
 			EnvelopeCh:               ch,
-			UpdateBook:               updateBook,
+			Service:                  aggSvc,
 			PolicyKitEngine:          staticEngine{decision: policykit.Decision{Actions: []policykit.Action{{Type: policykit.ActionDegradeStride, Stride: 2}}}},
 			PolicyKitBacklogCapacity: 16,
 			OnEnvelopeProcessed: func(res aggruntime.EnvelopeProcessResult) {
@@ -757,13 +759,13 @@ func TestProcessor_PolicyKit_BookDeltaDeterministicStride(t *testing.T) {
 
 func TestProcessor_PolicyKit_NeverDropCloseFinal(t *testing.T) {
 	pub := &spyArtifactPublisher{}
-	updateBook := newUpdateBook(pub)
+	aggSvc := newAggService(pub)
 
 	ch := make(chan envelope.Envelope, 8)
 	resultCh := make(chan aggruntime.EnvelopeProcessResult, 1)
 	cfg := aggruntime.ProcessorConfig{
 		EnvelopeCh:               ch,
-		UpdateBook:               updateBook,
+		Service:                  aggSvc,
 		PolicyKitEngine:          staticEngine{decision: policykit.Decision{Actions: []policykit.Action{{Type: policykit.ActionDropDelta}}}},
 		PolicyKitBacklogCapacity: 8,
 		OnEnvelopeProcessed: func(res aggruntime.EnvelopeProcessResult) {
@@ -809,13 +811,13 @@ func TestProcessor_TradeDelivered_IncreasesProcessedMetric(t *testing.T) {
 	}
 
 	pub := &spyArtifactPublisher{}
-	updateBook := newUpdateBook(pub)
+	aggSvc := newAggService(pub)
 
 	ch := make(chan envelope.Envelope, 8)
 	resultCh := make(chan aggruntime.EnvelopeProcessResult, 1)
 	cfg := aggruntime.ProcessorConfig{
 		EnvelopeCh: ch,
-		UpdateBook: updateBook,
+		Service:    aggSvc,
 		OnEnvelopeProcessed: func(res aggruntime.EnvelopeProcessResult) {
 			select {
 			case resultCh <- res:

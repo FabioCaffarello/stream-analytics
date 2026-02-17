@@ -569,9 +569,11 @@ func main() {
 	hotStore := &committedHotStore{
 		committer: adapterstorage.NewSnapshotCommitter(timescale.NewWriter(), clickhouse.NewWriter()),
 	}
-	updateBook := aggapp.NewUpdateOrderBookFromEventsWithConfig(artifactPub, hotStore, aggapp.UpdateConfig{
-		MaxBooks: cfg.Processor.MaxInstruments,
-	})
+	aggSvc := &aggapp.AggregationService{
+		UpdateBook: aggapp.NewUpdateOrderBookFromEventsWithConfig(artifactPub, hotStore, aggapp.UpdateConfig{
+			MaxBooks: cfg.Processor.MaxInstruments,
+		}),
+	}
 	var joinTrades *insightsapp.JoinCrossVenueTrades
 	var publishEnvelope aggruntime.EventPublisher
 	closePublisher := func(context.Context) *problem.Problem { return nil }
@@ -608,7 +610,7 @@ func main() {
 	processorCfg := aggruntime.ProcessorConfig{
 		Logger:                logger,
 		EnvelopeCh:            source.envelopeCh,
-		UpdateBook:            updateBook,
+		Service:               aggSvc,
 		JoinTrades:            joinTrades,
 		PublishEnvelope:       publishEnvelope,
 		SnapshotSubjectPrefix: cfg.Processor.Insights.SnapshotSubjectPrefix,
