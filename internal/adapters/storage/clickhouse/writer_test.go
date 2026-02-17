@@ -80,6 +80,27 @@ func TestWriter_ClickHouseSchemaContractW2HasCanonicalSubjectKey(t *testing.T) {
 	}
 }
 
+func TestWriter_ClickHouseSchemaContractW4HasTTLAndPartition(t *testing.T) {
+	path := filepath.Clean(filepath.Join("..", "..", "..", "..", "sql", "clickhouse", "migrations", "0003_w4_ttl_partition.sql"))
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read schema %s: %v", path, err)
+	}
+	ddl := string(raw)
+	if !strings.Contains(ddl, "CREATE TABLE IF NOT EXISTS aggregation_snapshots_v3") {
+		t.Fatalf("schema must define aggregation_snapshots_v3 table")
+	}
+	if !strings.Contains(ddl, "ts") {
+		t.Fatalf("schema must include ts column for TTL and partitioning")
+	}
+	if !strings.Contains(ddl, "PARTITION BY toYYYYMM(ts)") {
+		t.Fatalf("schema must partition by toYYYYMM(ts)")
+	}
+	if !strings.Contains(ddl, "TTL toDateTime(ts) + INTERVAL 90 DAY") {
+		t.Fatalf("schema must have TTL of 90 days on ts column")
+	}
+}
+
 // ── SaveIdempotent (S3-D1) ───────────────────────────────────────────────────
 
 func TestWriter_SaveIdempotent_RedeliverySameKey_NoDuplicate(t *testing.T) {

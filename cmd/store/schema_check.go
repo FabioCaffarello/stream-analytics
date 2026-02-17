@@ -22,6 +22,15 @@ var schemaContracts = []struct {
 			"ORDER BY (subject, venue, instrument, seq, source_idempotency_key)",
 		},
 	},
+	{
+		file: "0003_w4_ttl_partition.sql",
+		patterns: []string{
+			"CREATE TABLE IF NOT EXISTS aggregation_snapshots_v3",
+			"ts                     DateTime64(3)",
+			"PARTITION BY toYYYYMM(ts)",
+			"TTL toDateTime(ts) + INTERVAL 90 DAY",
+		},
+	},
 }
 
 // ValidateSchemaContract reads SQL migration files from migrationsDir and
