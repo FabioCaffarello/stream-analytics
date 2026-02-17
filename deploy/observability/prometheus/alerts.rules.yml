@@ -96,7 +96,7 @@ groups:
         annotations:
           summary: "Store commit latency p95 exceeds 1s"
           description: "Cold-path ClickHouse commit p95 latency is above 1 second for 5 minutes, indicating storage degradation."
-          runbook_url: "docs/operations/degradation.md"
+          runbook_url: "docs/operations/cold-path-runbook.md"
 
       - alert: ConsumerLagGrowingNoProgress
         expr: |
@@ -147,4 +147,40 @@ groups:
         annotations:
           summary: "Cold-path commit errors detected"
           description: "Cold-path commit/write related errors are increasing in the last 5 minutes."
-          runbook_url: "docs/observability/runbooks/guardian.md"
+          runbook_url: "docs/operations/cold-path-runbook.md"
+
+      - alert: StoreFlushFailures
+        expr: rate(store_flush_total{status="failed"}[5m]) > 0
+        for: 5m
+        labels:
+          severity: ticket
+          service: market-raccoon
+          slo: store
+        annotations:
+          summary: "Store batch flush failures detected"
+          description: "store_flush_total{status=failed} is increasing. ClickHouse writes may be failing."
+          runbook_url: "docs/operations/cold-path-runbook.md"
+
+      - alert: StoreQuarantineRateHigh
+        expr: rate(store_quarantine_total[5m]) > 0
+        for: 15m
+        labels:
+          severity: ticket
+          service: market-raccoon
+          slo: store
+        annotations:
+          summary: "Store quarantine rate is non-zero"
+          description: "Envelopes are being quarantined (decode failure) for 15+ minutes. Publisher may be emitting malformed payloads."
+          runbook_url: "docs/operations/cold-path-runbook.md"
+
+      - alert: StoreFlushLatencyHigh
+        expr: histogram_quantile(0.95, sum by (le) (rate(store_flush_latency_seconds_bucket[5m]))) > 0.5
+        for: 5m
+        labels:
+          severity: ticket
+          service: market-raccoon
+          slo: store
+        annotations:
+          summary: "Store batch flush latency p95 exceeds 500ms"
+          description: "Cold-path batch flush p95 latency is above 500ms for 5 minutes. ClickHouse may be under load."
+          runbook_url: "docs/operations/cold-path-runbook.md"
