@@ -29,6 +29,7 @@ type AppConfig struct {
 	Processor  ProcessorConfig  `json:"processor"`
 	Store      StoreConfig      `json:"store"`
 	Storage    StorageConfig    `json:"storage"`
+	Backfill   BackfillConfig   `json:"backfill"`
 }
 
 // ShardConfig controls deterministic shard assignment for horizontal scaling.
@@ -250,6 +251,18 @@ type ReplayJetStreamConfig struct {
 	DeliverPolicy string `json:"deliver_policy"`
 	// MergeBuffer controls bounded reordering window for deterministic global ordering.
 	MergeBuffer int `json:"merge_buffer"`
+}
+
+// BackfillConfig controls operational backfill and gap-detection tooling.
+type BackfillConfig struct {
+	Mode       string `json:"mode"`
+	Exchange   string `json:"exchange"`
+	Symbol     string `json:"symbol"`
+	MarketType string `json:"market_type"`
+	FromDate   string `json:"from_date"`
+	ToDate     string `json:"to_date"`
+	OutputDir  string `json:"output_dir"`
+	Timeframe  string `json:"timeframe"`
 }
 
 // StoreConfig controls the store cold-path binary.
