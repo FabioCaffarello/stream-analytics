@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package insights.v1;
+
+option go_package = "github.com/market-raccoon/internal/shared/proto/gen/insights/v1";
+
+// HeatmapCellV1 models one bounded price/size bucket inside a heatmap window.
+message HeatmapCellV1 {
+  // PriceBucketLow is the inclusive low bound of the price bucket.
+  double price_bucket_low = 1;
+  // PriceBucketHigh is the exclusive high bound of the price bucket.
+  double price_bucket_high = 2;
+  // SizeBucket is the size bucket label.
+  string size_bucket = 3;
+  // BidLiquidity is the aggregated bid liquidity.
+  double bid_liquidity = 4;
+  // AskLiquidity is the aggregated ask liquidity.
+  double ask_liquidity = 5;
+  // TradeVolume is the aggregated trade volume.
+  double trade_volume = 6;
+  // SeqMin is the first sequence represented in the cell.
+  int64 seq_min = 7;
+  // SeqMax is the last sequence represented in the cell.
+  int64 seq_max = 8;
+  // Samples is the number of samples in the cell.
+  int64 samples = 9;
+
+  reserved 100 to 199;
+}
+
+// HeatmapArtifactV1 models one deterministic heatmap snapshot payload.
+message HeatmapArtifactV1 {
+  // Venue is the canonical venue identifier.
+  string venue = 1;
+  // Instrument is the canonical instrument identifier.
+  string instrument = 2;
+  // Timeframe is the heatmap timeframe (e.g. 1m, 5m).
+  string timeframe = 3;
+  // WindowStartTs is window start in Unix milliseconds.
+  int64 window_start_ts = 4;
+  // WindowEndTs is window end in Unix milliseconds.
+  int64 window_end_ts = 5;
+  // Cells carries the heatmap cells sorted by price bucket.
+  repeated HeatmapCellV1 cells = 6;
+
+  reserved 100 to 199;
+}

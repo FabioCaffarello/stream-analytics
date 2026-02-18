@@ -7,6 +7,7 @@ import (
 	marketdomain "github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/shared/codec"
 	"github.com/market-raccoon/internal/shared/problem"
+	aggregationv1 "github.com/market-raccoon/internal/shared/proto/gen/aggregation/v1"
 	marketdatav1 "github.com/market-raccoon/internal/shared/proto/gen/marketdata/v1"
 	"google.golang.org/protobuf/proto"
 )
@@ -27,6 +28,7 @@ const (
 
 type PayloadRegistryOptions struct {
 	EnableInsightsVolumeProfileSnapshotProto bool
+	EnableInsightsHeatmapSnapshotProto       bool
 }
 
 // BootstrapPayloadCodecRegistry configures shared codec payload encode/decode registry.
@@ -45,6 +47,7 @@ func BootstrapPayloadCodecRegistryWithOptions(opts PayloadRegistryOptions) *prob
 		}
 		if p := RegisterInsightsPayloadV1WithOptions(reg, InsightsCodecOptions{
 			EnableVolumeProfileSnapshotProto: opts.EnableInsightsVolumeProfileSnapshotProto,
+			EnableHeatmapSnapshotProto:       opts.EnableInsightsHeatmapSnapshotProto,
 		}); p != nil {
 			payloadRegistryErr = p
 			return
@@ -117,23 +120,33 @@ func RegisterMarketDataPayloadV1(reg *codec.Registry) *problem.Problem {
 }
 
 // RegisterAggregationPayloadV1 registers aggregation payload codecs for runtime
-// envelope encoding/decoding.
+// envelope encoding/decoding across JSON and protobuf content types.
 func RegisterAggregationPayloadV1(reg *codec.Registry) *problem.Problem {
 	if reg == nil {
 		return problem.New(problem.ValidationFailed, "codec registry must not be nil")
 	}
-	if p := reg.Register(codec.SchemaKey{
-		Type:    aggregationEventTypeCandle,
-		Version: 1,
-		Format:  codec.FormatJSON,
-	}, codec.JSONCodec[AggregationCandleClosedV1]{}, codec.JSONCodec[AggregationCandleClosedV1]{}); p != nil {
+	if p := registerPayloadDual(
+		reg,
+		aggregationEventTypeCandle,
+		codec.JSONCodec[AggregationCandleClosedV1]{},
+		domainProtoPayloadCodec[AggregationCandleClosedV1, *aggregationv1.CandleClosedV1]{
+			newProto: func() *aggregationv1.CandleClosedV1 { return &aggregationv1.CandleClosedV1{} },
+			toProto:  WireDTOToProtoCandleClosedV1,
+			toDomain: ProtoToWireDTOCandleClosedV1,
+		},
+	); p != nil {
 		return p
 	}
-	if p := reg.Register(codec.SchemaKey{
-		Type:    aggregationEventTypeStats,
-		Version: 1,
-		Format:  codec.FormatJSON,
-	}, codec.JSONCodec[AggregationStatsWindowClosedV1]{}, codec.JSONCodec[AggregationStatsWindowClosedV1]{}); p != nil {
+	if p := registerPayloadDual(
+		reg,
+		aggregationEventTypeStats,
+		codec.JSONCodec[AggregationStatsWindowClosedV1]{},
+		domainProtoPayloadCodec[AggregationStatsWindowClosedV1, *aggregationv1.StatsWindowClosedV1]{
+			newProto: func() *aggregationv1.StatsWindowClosedV1 { return &aggregationv1.StatsWindowClosedV1{} },
+			toProto:  WireDTOToProtoStatsWindowClosedV1,
+			toDomain: ProtoToWireDTOStatsWindowClosedV1,
+		},
+	); p != nil {
 		return p
 	}
 	return nil

@@ -27,13 +27,22 @@ func TestPayloadRegistryCoverage_SubjectRegistryStableDraft(t *testing.T) {
 	if p := RegisterInsightsPayloadV1WithOptions(reg, InsightsCodecOptions{}); p != nil {
 		t.Fatalf("RegisterInsightsPayloadV1WithOptions: %v", p)
 	}
+	if p := RegisterAggregationPayloadV1(reg); p != nil {
+		t.Fatalf("RegisterAggregationPayloadV1: %v", p)
+	}
+
+	// Aggregation subjects that use non-standard payload schemas (not candle/stats).
+	aggregationSkip := map[string]bool{
+		"aggregation.snapshot":                true,
+		"aggregation.orderbook_inconsistency": true,
+	}
 
 	subjects := readSubjectRegistry(t)
 	for _, subject := range subjects {
 		if subject.Status != "stable" && subject.Status != "draft" {
 			continue
 		}
-		if subject.Root != "marketdata" && subject.Root != "insights" {
+		if subject.Root != "marketdata" && subject.Root != "insights" && subject.Root != "aggregation" {
 			continue
 		}
 		// Delta payloads are not typed contracts yet in this phase.
@@ -44,6 +53,9 @@ func TestPayloadRegistryCoverage_SubjectRegistryStableDraft(t *testing.T) {
 		eventType, version, ok := parseSubjectEventTypeVersion(subject.ID)
 		if !ok {
 			t.Fatalf("invalid subject id format %q", subject.ID)
+		}
+		if aggregationSkip[eventType] {
+			continue
 		}
 		if !hasRegisteredCodec(reg, eventType, version) {
 			t.Fatalf("forgot to register codec for subject %s", subject.ID)

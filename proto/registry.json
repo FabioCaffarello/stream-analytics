@@ -1,5 +1,5 @@
 {
-  "_coverage_note": "Proto schemas are opt-in.  Only hot-path marketdata payloads and volume_profile_snapshot have proto coverage.  Aggregation, quarantine, heatmap, and other insights subjects use JSON-only encoding (see docs/contracts/subject-registry.yaml for the full subject catalog).",
+  "_coverage_note": "Proto schemas cover all hot-path payloads: marketdata, aggregation (candle + stats), and insights (volume_profile + heatmap).  See docs/contracts/subject-registry.yaml for the full subject catalog.",
   "schemas": [
     {
       "type": "envelope",
@@ -42,12 +42,36 @@
       "introduced_at": "2026-02-12"
     },
     {
+      "type": "aggregation.candle",
+      "version": 1,
+      "proto_file": "aggregation/v1/candle.proto",
+      "message": "aggregation.v1.CandleClosedV1",
+      "status": "draft",
+      "introduced_at": "2026-02-18"
+    },
+    {
+      "type": "aggregation.stats",
+      "version": 1,
+      "proto_file": "aggregation/v1/stats.proto",
+      "message": "aggregation.v1.StatsWindowClosedV1",
+      "status": "draft",
+      "introduced_at": "2026-02-18"
+    },
+    {
       "type": "insights.volume_profile_snapshot",
       "version": 1,
       "proto_file": "insights/v1/volume_profile.proto",
       "message": "insights.v1.VolumeProfileSnapshotV1",
       "status": "draft",
       "introduced_at": "2026-02-14"
+    },
+    {
+      "type": "insights.heatmap_snapshot",
+      "version": 1,
+      "proto_file": "insights/v1/heatmap.proto",
+      "message": "insights.v1.HeatmapArtifactV1",
+      "status": "draft",
+      "introduced_at": "2026-02-18"
     }
   ]
 }

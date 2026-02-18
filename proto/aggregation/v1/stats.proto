@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package aggregation.v1;
+
+option go_package = "github.com/market-raccoon/internal/shared/proto/gen/aggregation/v1";
+
+// StatsWindowClosedV1 models a closed stats window with liquidation, mark price, and funding data.
+message StatsWindowClosedV1 {
+  // Venue is the canonical venue identifier.
+  string venue = 1;
+  // Instrument is the canonical instrument identifier.
+  string instrument = 2;
+  // Timeframe is the stats window timeframe (e.g. 1m, 5m, 1h).
+  string timeframe = 3;
+  // WindowStartTs is the window start in Unix milliseconds.
+  int64 window_start_ts = 4;
+  // WindowEndTs is the window end in Unix milliseconds.
+  int64 window_end_ts = 5;
+  // LiqBuyVolume is total liquidation buy volume.
+  double liq_buy_volume = 6;
+  // LiqSellVolume is total liquidation sell volume.
+  double liq_sell_volume = 7;
+  // LiqTotalVolume is total liquidation volume (buy + sell).
+  double liq_total_volume = 8;
+  // LiqCount is the number of liquidation events.
+  int64 liq_count = 9;
+  // MarkPriceOpen is the opening mark price.
+  double mark_price_open = 10;
+  // MarkPriceHigh is the highest mark price.
+  double mark_price_high = 11;
+  // MarkPriceLow is the lowest mark price.
+  double mark_price_low = 12;
+  // MarkPriceClose is the closing mark price.
+  double mark_price_close = 13;
+  // FundingRateAvg is the average funding rate in the window.
+  double funding_rate_avg = 14;
+  // FundingRateLast is the last funding rate in the window.
+  double funding_rate_last = 15;
+  // SeqFirst is the first sequence number in the window.
+  int64 seq_first = 16;
+  // SeqLast is the last sequence number in the window.
+  int64 seq_last = 17;
+  // IsClosed indicates the stats window is finalized.
+  bool is_closed = 18;
+
+  reserved 100 to 199;
+}

@@ -190,11 +190,18 @@ func TestWireConformance_RegistrySchemasRequireProtoDecoderForCoreMarketData(t *
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		t.Fatalf("decode %s: %v", path, err)
 	}
+	protoRequiredTypes := map[string]bool{
+		"marketdata.trade":     true,
+		"marketdata.bookdelta": true,
+		"marketdata.markprice": true,
+		"aggregation.candle":   true,
+		"aggregation.stats":    true,
+	}
 	for _, sch := range parsed.Schemas {
 		if sch.Status != "stable" && sch.Status != "draft" {
 			continue
 		}
-		if sch.Type != "marketdata.trade" && sch.Type != "marketdata.bookdelta" && sch.Type != "marketdata.markprice" {
+		if !protoRequiredTypes[sch.Type] {
 			continue
 		}
 		key := codec.SchemaKey{Type: sch.Type, Version: sch.Version, Format: codec.FormatProto}
@@ -231,8 +238,12 @@ func newConformanceRegistry(t *testing.T) *codec.Registry {
 	}
 	if p := contracts.RegisterInsightsPayloadV1WithOptions(reg, contracts.InsightsCodecOptions{
 		EnableVolumeProfileSnapshotProto: true,
+		EnableHeatmapSnapshotProto:       true,
 	}); p != nil {
 		t.Fatalf("RegisterInsightsPayloadV1WithOptions: %v", p)
+	}
+	if p := contracts.RegisterAggregationPayloadV1(reg); p != nil {
+		t.Fatalf("RegisterAggregationPayloadV1: %v", p)
 	}
 	return reg
 }

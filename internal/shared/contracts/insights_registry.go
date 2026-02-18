@@ -16,6 +16,7 @@ const (
 
 type InsightsCodecOptions struct {
 	EnableVolumeProfileSnapshotProto bool
+	EnableHeatmapSnapshotProto       bool
 }
 
 // RegisterInsightsV1 registers insights v1 payload codecs.
@@ -75,6 +76,20 @@ func RegisterInsightsPayloadV1WithOptions(reg *codec.Registry, opts InsightsCode
 		Format:  codec.FormatJSON,
 	}, codec.JSONCodec[insightsdomain.VolumeProfileSnapshotV1]{}, codec.JSONCodec[insightsdomain.VolumeProfileSnapshotV1]{}); p != nil {
 		return p
+	}
+	if opts.EnableHeatmapSnapshotProto {
+		heatmapCodec := domainProtoPayloadCodec[insightsdomain.HeatmapArtifactV1, *insightsv1.HeatmapArtifactV1]{
+			newProto: func() *insightsv1.HeatmapArtifactV1 { return &insightsv1.HeatmapArtifactV1{} },
+			toProto:  DomainToProtoHeatmapArtifactV1,
+			toDomain: ProtoToDomainHeatmapArtifactV1,
+		}
+		if p := reg.Register(codec.SchemaKey{
+			Type:    insightsdomain.HeatmapSnapshotType,
+			Version: insightsV1Version,
+			Format:  codec.FormatProto,
+		}, heatmapCodec, heatmapCodec); p != nil {
+			return p
+		}
 	}
 	if !opts.EnableVolumeProfileSnapshotProto {
 		return nil

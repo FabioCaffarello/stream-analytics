@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package aggregation.v1;
+
+option go_package = "github.com/market-raccoon/internal/shared/proto/gen/aggregation/v1";
+
+// CandleClosedV1 models a closed OHLCV candle for a single instrument and timeframe.
+message CandleClosedV1 {
+  // Venue is the canonical venue identifier.
+  string venue = 1;
+  // Instrument is the canonical instrument identifier.
+  string instrument = 2;
+  // Timeframe is the candle timeframe (e.g. 1m, 5m, 1h).
+  string timeframe = 3;
+  // WindowStartTs is the window start in Unix milliseconds.
+  int64 window_start_ts = 4;
+  // WindowEndTs is the window end in Unix milliseconds.
+  int64 window_end_ts = 5;
+  // Open is the opening price.
+  double open = 6;
+  // High is the highest price in the window.
+  double high = 7;
+  // Low is the lowest price in the window.
+  double low = 8;
+  // ClosePrice is the closing price.
+  double close_price = 9;
+  // Volume is total traded volume.
+  double volume = 10;
+  // BuyVolume is taker buy volume.
+  double buy_volume = 11;
+  // SellVolume is taker sell volume.
+  double sell_volume = 12;
+  // TradeCount is the number of trades in the window.
+  int64 trade_count = 13;
+  // SeqFirst is the first sequence number in the window.
+  int64 seq_first = 14;
+  // SeqLast is the last sequence number in the window.
+  int64 seq_last = 15;
+  // IsClosed indicates the candle window is finalized.
+  bool is_closed = 16;
+
+  reserved 100 to 199;
+}
