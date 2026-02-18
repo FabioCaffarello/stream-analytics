@@ -114,7 +114,7 @@ alerts can be scoped per replica.
 ## Alerts
 
 Three production alert rules are defined in
-[`deploy/alerts/shard-alerts.yaml`](../../deploy/alerts/shard-alerts.yaml):
+[`deploy/observability/prometheus/shard-alerts.rules.yml`](../../deploy/observability/prometheus/shard-alerts.rules.yml):
 
 | Alert                       | Severity | Condition                                      | Window |
 |-----------------------------|----------|-------------------------------------------------|--------|

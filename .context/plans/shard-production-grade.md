@@ -242,7 +242,7 @@ func TestShardGroup_FairnessDistribution(t *testing.T) {
 
 ### 2.1 — Alert rules YAML
 
-**Arquivo:** `deploy/alerts/shard-alerts.yaml`
+**Arquivo:** `deploy/observability/prometheus/shard-alerts.rules.yml`
 
 ```yaml
 groups:
@@ -458,7 +458,7 @@ Novo arquivo — runbook operacional com:
 | `internal/adapters/jetstream/shard_test.go` | +fairness + soak tests (~150 linhas) |
 | `internal/interfaces/http/server.go` | +/shardz endpoint (opcional) |
 | `internal/shared/bootstrap/shard.go` | +propagacao MaxLag |
-| `deploy/alerts/shard-alerts.yaml` | novo — 3 alert rules |
+| `deploy/observability/prometheus/shard-alerts.rules.yml` | novo — 3 alert rules |
 | `deploy/configs/*.jsonc` | +max_lag field |
 | `docs/operations/shard-incidents.md` | novo — runbook completo |
 | `docs/operations/sharding.md` | +referencias novas metricas e runbook |

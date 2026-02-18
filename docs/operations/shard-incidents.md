@@ -16,7 +16,7 @@ Market Raccoon processor deployments.
 | `ShardLagBudgetExceeded`    | critical | Shard lag exceeds configured `max_lag` budget   | 3 min       |
 | `ShardConsumerHighLag`      | warning  | Shard consumer lag > 10 000 messages            | 5 min       |
 
-Alert rules are defined in [`deploy/alerts/shard-alerts.yaml`](../../deploy/alerts/shard-alerts.yaml).
+Alert rules are defined in [`deploy/observability/prometheus/shard-alerts.rules.yml`](../../deploy/observability/prometheus/shard-alerts.rules.yml).
 
 ---
 

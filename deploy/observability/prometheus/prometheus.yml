@@ -5,6 +5,7 @@ global:
 rule_files:
   - /etc/prometheus/recording.rules.yml
   - /etc/prometheus/alerts.rules.yml
+  - /etc/prometheus/shard-alerts.rules.yml
 
 scrape_configs:
   - job_name: 'market-raccoon'

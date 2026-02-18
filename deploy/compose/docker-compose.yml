@@ -210,6 +210,7 @@ services:
       - ../observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ../observability/prometheus/recording.rules.yml:/etc/prometheus/recording.rules.yml:ro
       - ../observability/prometheus/alerts.rules.yml:/etc/prometheus/alerts.rules.yml:ro
+      - ../observability/prometheus/shard-alerts.rules.yml:/etc/prometheus/shard-alerts.rules.yml:ro
       - prometheus_data:/prometheus
     ports:
       - "127.0.0.1:9090:9090"
