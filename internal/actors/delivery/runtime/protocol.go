@@ -30,6 +30,16 @@ type DeliverEnvelope struct {
 	Envelope envelope.Envelope
 }
 
+// SpawnSession asks delivery subsystem to spawn one session actor child.
+type SpawnSession struct {
+	Config SessionConfig
+}
+
+// SpawnSessionAck is returned by delivery subsystem for SpawnSession.
+type SpawnSessionAck struct {
+	PID *actor.PID
+}
+
 type GetRangeRequest struct {
 	RequestID string
 	Subject   string

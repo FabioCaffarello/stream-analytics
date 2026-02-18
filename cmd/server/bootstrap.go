@@ -14,6 +14,7 @@ import (
 	actorruntime "github.com/market-raccoon/internal/actors/runtime"
 	"github.com/market-raccoon/internal/adapters/bus"
 	"github.com/market-raccoon/internal/adapters/storage/timescale"
+	deliverydomain "github.com/market-raccoon/internal/core/delivery/domain"
 	"github.com/market-raccoon/internal/core/delivery/ports"
 	httpserver "github.com/market-raccoon/internal/interfaces/http"
 	wsserver "github.com/market-raccoon/internal/interfaces/ws"
@@ -25,6 +26,8 @@ import (
 
 // Run is the server composition root.  It wires all dependencies, starts
 // the actor engine, HTTP server, and blocks until a signal or fatal error.
+//
+//nolint:gocyclo // composition root intentionally wires many runtime branches.
 func Run(ctx context.Context, cfg config.AppConfig) error {
 	logger := bootstrap.BuildLogger(cfg.Log)
 	slog.SetDefault(logger)
@@ -69,8 +72,9 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	}
 
 	// ── delivery wiring ───────────────────────────────────────────────────
-	eventBus := bus.NewInMemoryBus(cfg.Processor.BusCapacity, metrics.NewBusObserver())
 	routerPIDCh := make(chan *actor.PID, 1)
+	subsystemPIDCh := make(chan *actor.PID, 1)
+	var eventBus *bus.InMemoryBus
 	var rangeStore interface {
 		ports.RangeStore
 		StoreEnvelope(env envelope.Envelope)
@@ -82,27 +86,41 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		rangeStore = timescale.NewDeliveryRangeStore(4096)
 	}
 
-	deliveryCfg := deliveryruntime.SubsystemConfig{
-		Logger: logger,
-		Router: deliveryruntime.RouterConfig{
-			Logger:        logger,
-			Timeframe:     "raw",
-			EnvelopeStore: rangeStore,
-		},
-		OnRouterReady: func(pid *actor.PID) {
-			select {
-			case routerPIDCh <- pid:
-			default:
-			}
-		},
+	var deliveryFactory actor.Producer
+	if cfg.Delivery.Enabled {
+		eventBus = bus.NewInMemoryBus(cfg.Processor.BusCapacity, metrics.NewBusObserver())
+		deliveryCfg := deliveryruntime.SubsystemConfig{
+			Logger:       logger,
+			EnvelopeCh:   eventBus.Subscribe(),
+			MaxSessions:  cfg.Delivery.MaxSessions,
+			Backpressure: cfg.Delivery.BackpressurePolicy,
+			NATSDurable:  cfg.Delivery.NATS.ConsumerDurable,
+			NATSSubjects: append([]string(nil), cfg.Delivery.NATS.FilterSubjects...),
+			Router: deliveryruntime.RouterConfig{
+				Logger:        logger,
+				Timeframe:     "raw",
+				EnvelopeStore: rangeStore,
+			},
+			OnRouterReady: func(pid *actor.PID) {
+				select {
+				case routerPIDCh <- pid:
+				default:
+				}
+			},
+			OnReady: func(subsystemPID, _ *actor.PID) {
+				select {
+				case subsystemPIDCh <- subsystemPID:
+				default:
+				}
+			},
+		}
+		deliveryFactory = deliveryruntime.NewSubsystemActor(deliveryCfg)
 	}
 
 	// ── guardian ──────────────────────────────────────────────────────────
 	guardianPID := actorruntime.SpawnGuardian(e, actorruntime.GuardianConfig{
-		Logger: logger,
-		Factories: map[actorruntime.Subsystem]actor.Producer{
-			actorruntime.SubsystemDelivery: deliveryruntime.NewSubsystemActor(deliveryCfg),
-		},
+		Logger:    logger,
+		Factories: buildServerFactories(cfg.Delivery.Enabled, deliveryFactory),
 	})
 	logger.Info("guardian spawned", "pid", guardianPID.String())
 
@@ -115,7 +133,9 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		logger,
 		httpserver.WithTLS(cfg.HTTP.TLSCert, cfg.HTTP.TLSKey),
 	)
-	enableWSRoute(e, srv, routerPIDCh, logger, rangeStore, cfg)
+	if cfg.Delivery.Enabled {
+		enableWSRoute(e, srv, routerPIDCh, subsystemPIDCh, logger, rangeStore, cfg)
+	}
 
 	serverErr := make(chan error, 1)
 	go func() {
@@ -137,7 +157,9 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 
 	// ── shutdown ─────────────────────────────────────────────────────────
 	logger.Info("server: shutting down")
-	eventBus.Close()
+	if eventBus != nil {
+		eventBus.Close()
+	}
 
 	shutCtx, cancel := context.WithTimeout(context.Background(), cfg.HTTP.ShutdownTimeoutDuration())
 	defer cancel()
@@ -162,21 +184,45 @@ func enableWSRoute(
 	e *actor.Engine,
 	srv *httpserver.Server,
 	routerPIDCh <-chan *actor.PID,
+	subsystemPIDCh <-chan *actor.PID,
 	logger *slog.Logger,
 	rangeStore ports.RangeStore,
 	cfg config.AppConfig,
 ) {
 	select {
 	case routerPID := <-routerPIDCh:
+		var subsystemPID *actor.PID
+		select {
+		case subsystemPID = <-subsystemPIDCh:
+		case <-time.After(500 * time.Millisecond):
+		}
 		ws := wsserver.NewServer(
 			e,
 			routerPID,
 			logger,
 			rangeStore,
-			256,
+			cfg.Delivery.MaxSessions,
 			wsserver.WithAuthConfig(wsserver.AuthConfig{
 				Enabled: cfg.WS.Auth.Enabled,
 				APIKeys: cfg.WS.Auth.APIKeys,
+			}),
+			wsserver.WithSessionSpawner(func(sessionCfg deliveryruntime.SessionConfig) *actor.PID {
+				sessionCfg.BackpressurePolicy = deliverydomain.BackpressurePolicy(cfg.Delivery.BackpressurePolicy)
+				if subsystemPID == nil {
+					return nil
+				}
+				resp := e.Request(subsystemPID, deliveryruntime.SpawnSession{Config: sessionCfg}, 2*time.Second)
+				result, err := resp.Result()
+				if err != nil {
+					logger.Warn("delivery session spawn request failed", "err", err)
+					return nil
+				}
+				ack, ok := result.(deliveryruntime.SpawnSessionAck)
+				if !ok {
+					logger.Warn("delivery session spawn response type mismatch", "type", fmt.Sprintf("%T", result))
+					return nil
+				}
+				return ack.PID
 			}),
 			wsserver.WithRateLimit(deliveryruntime.RateLimitConfig{
 				Enabled:       cfg.WS.RateLimit.Enabled,
@@ -189,4 +235,12 @@ func enableWSRoute(
 	case <-time.After(2 * time.Second):
 		logger.Warn("delivery router not ready in time; /ws route disabled")
 	}
+}
+
+func buildServerFactories(deliveryEnabled bool, deliveryFactory actor.Producer) map[actorruntime.Subsystem]actor.Producer {
+	factories := make(map[actorruntime.Subsystem]actor.Producer)
+	if deliveryEnabled && deliveryFactory != nil {
+		factories[actorruntime.SubsystemDelivery] = deliveryFactory
+	}
+	return factories
 }

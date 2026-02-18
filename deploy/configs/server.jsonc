@@ -33,6 +33,15 @@
       "burst_capacity": 200
     }
   },
+  "delivery": {
+    "enabled": true,
+    "max_sessions": 10000,
+    "backpressure_policy": "drop_newest",
+    "nats": {
+      "consumer_durable": "delivery-v1",
+      "filter_subjects": ["marketdata.>", "aggregation.>", "insights.>"]
+    }
+  },
   "storage": {
     "timescale": {
       "enabled": true,

@@ -19,7 +19,12 @@ type SubsystemConfig struct {
 	Logger        *slog.Logger
 	Router        RouterConfig
 	EnvelopeCh    <-chan envelope.Envelope
+	MaxSessions   int
+	Backpressure  string
+	NATSDurable   string
+	NATSSubjects  []string
 	OnRouterReady func(pid *actor.PID)
+	OnReady       func(subsystemPID, routerPID *actor.PID)
 	// RouterProducer overrides child producer in tests.
 	RouterProducer actor.Producer
 }
@@ -55,6 +60,13 @@ func (s *SubsystemActor) Receive(c *actor.Context) {
 		if s.routerPID != nil {
 			s.engine.Send(s.routerPID, DeliverEnvelope(msg))
 		}
+	case SpawnSession:
+		cfg := msg.Config
+		if cfg.RouterPID == nil {
+			cfg.RouterPID = s.routerPID
+		}
+		pid := c.SpawnChild(NewSessionActor(cfg), "delivery-session")
+		c.Respond(SpawnSessionAck{PID: pid})
 	case actorruntime.ChildFailed:
 		if c.Parent() != nil {
 			c.Send(c.Parent(), msg)
@@ -86,6 +98,9 @@ func (s *SubsystemActor) onStarted(c *actor.Context) {
 	s.routerPID = c.SpawnChild(routerProducer, "delivery-router", actor.WithID("delivery-router"))
 	if s.cfg.OnRouterReady != nil {
 		s.cfg.OnRouterReady(s.routerPID)
+	}
+	if s.cfg.OnReady != nil {
+		s.cfg.OnReady(s.selfPID, s.routerPID)
 	}
 	if s.cfg.EnvelopeCh != nil && s.engine != nil && s.selfPID != nil {
 		s.consumeCtx, s.cancel = context.WithCancel(context.Background())

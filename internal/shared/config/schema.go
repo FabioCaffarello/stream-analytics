@@ -20,6 +20,7 @@ type AppConfig struct {
 	Log        LogConfig        `json:"log"`
 	HTTP       HTTPConfig       `json:"http"`
 	WS         WSConfig         `json:"ws"`
+	Delivery   DeliveryConfig   `json:"delivery"`
 	Bus        BusConfig        `json:"bus"`
 	Shard      ShardConfig      `json:"shard"`
 	JetStream  JetStreamConfig  `json:"jetstream"`
@@ -139,6 +140,20 @@ type WSRateLimitConfig struct {
 	Enabled       bool `json:"enabled"`
 	MaxPerSecond  int  `json:"max_per_second"`
 	BurstCapacity int  `json:"burst_capacity"`
+}
+
+// DeliveryConfig controls delivery subsystem runtime wiring in server binary.
+type DeliveryConfig struct {
+	Enabled            bool               `json:"enabled"`
+	MaxSessions        int                `json:"max_sessions"`
+	BackpressurePolicy string             `json:"backpressure_policy"`
+	NATS               DeliveryNATSConfig `json:"nats"`
+}
+
+// DeliveryNATSConfig controls delivery consumer behavior for NATS/JetStream.
+type DeliveryNATSConfig struct {
+	ConsumerDurable string   `json:"consumer_durable"`
+	FilterSubjects  []string `json:"filter_subjects"`
 }
 
 // ConsumerConfig controls the market-data consumer binary.

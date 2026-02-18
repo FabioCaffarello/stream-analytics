@@ -66,6 +66,9 @@ func (a AppConfig) Validate() *problem.Problem {
 	if prob := validateWS(a.WS); prob != nil {
 		return prob
 	}
+	if prob := validateDelivery(a.Delivery); prob != nil {
+		return prob
+	}
 	if prob := validateShard(a.Shard); prob != nil {
 		return prob
 	}
@@ -323,6 +326,32 @@ func validateWS(w WSConfig) *problem.Problem {
 		}
 		if w.RateLimit.BurstCapacity <= 0 {
 			return problem.Newf(codeInvalid, "ws.rate_limit.burst_capacity must be > 0 when ws.rate_limit.enabled=true, got %d", w.RateLimit.BurstCapacity)
+		}
+	}
+	return nil
+}
+
+func validateDelivery(d DeliveryConfig) *problem.Problem {
+	if d.MaxSessions < 0 {
+		return problem.Newf(codeInvalid, "delivery.max_sessions must be >= 0, got %d", d.MaxSessions)
+	}
+	switch strings.ToLower(strings.TrimSpace(d.BackpressurePolicy)) {
+	case "drop_newest", "drop_oldest", "priority_drop":
+	default:
+		return problem.Newf(codeInvalid, "delivery.backpressure_policy must be drop_newest|drop_oldest|priority_drop, got %q", d.BackpressurePolicy)
+	}
+	if !d.Enabled {
+		return nil
+	}
+	if strings.TrimSpace(d.NATS.ConsumerDurable) == "" {
+		return problem.New(codeInvalid, "delivery.nats.consumer_durable must not be empty when delivery.enabled=true")
+	}
+	if len(d.NATS.FilterSubjects) == 0 {
+		return problem.New(codeInvalid, "delivery.nats.filter_subjects must not be empty when delivery.enabled=true")
+	}
+	for i, subject := range d.NATS.FilterSubjects {
+		if strings.TrimSpace(subject) == "" {
+			return problem.Newf(codeInvalid, "delivery.nats.filter_subjects[%d] must not be empty", i)
 		}
 	}
 	return nil
@@ -888,6 +917,18 @@ func applyDefaults(c *AppConfig) {
 	}
 	c.HTTP.TLSCert = strings.TrimSpace(c.HTTP.TLSCert)
 	c.HTTP.TLSKey = strings.TrimSpace(c.HTTP.TLSKey)
+	if c.Delivery.MaxSessions == 0 {
+		c.Delivery.MaxSessions = 10000
+	}
+	if strings.TrimSpace(c.Delivery.BackpressurePolicy) == "" {
+		c.Delivery.BackpressurePolicy = "drop_newest"
+	}
+	if strings.TrimSpace(c.Delivery.NATS.ConsumerDurable) == "" {
+		c.Delivery.NATS.ConsumerDurable = "delivery-v1"
+	}
+	if len(c.Delivery.NATS.FilterSubjects) == 0 {
+		c.Delivery.NATS.FilterSubjects = []string{"marketdata.>", "aggregation.>", "insights.>"}
+	}
 	if c.Shard.Count == 0 {
 		c.Shard.Count = 1
 	}
