@@ -25,6 +25,10 @@ func NewChStatsWriter(pool *Pool) *ChStatsWriter {
 	return &ChStatsWriter{preparer: pool}
 }
 
+func NewChStatsWriterWithPreparer(preparer BatchPreparer) *ChStatsWriter {
+	return &ChStatsWriter{preparer: preparer}
+}
+
 func (w *ChStatsWriter) SaveStats(ctx context.Context, evt aggdomain.StatsWindowClosed) *problem.Problem {
 	if w == nil || w.preparer == nil {
 		return problem.New(problem.ValidationFailed, "clickhouse stats writer is nil")

@@ -70,9 +70,12 @@ func (w *Writer) CommitCount() int {
 	return w.commits
 }
 
-type batchPreparer interface {
+// BatchPreparer abstracts ClickHouse batch preparation for writers.
+type BatchPreparer interface {
 	PrepareInsert(ctx context.Context, query string) (adapterstorage.BatchInserter, *problem.Problem)
 }
+
+type batchPreparer = BatchPreparer
 
 // ChWriter is the production ClickHouse writer for cold snapshot persistence.
 type ChWriter struct {
@@ -86,7 +89,7 @@ func NewChWriter(pool *Pool) *ChWriter {
 	return &ChWriter{preparer: pool}
 }
 
-func NewChWriterWithPreparer(preparer batchPreparer) *ChWriter {
+func NewChWriterWithPreparer(preparer BatchPreparer) *ChWriter {
 	return &ChWriter{preparer: preparer}
 }
 

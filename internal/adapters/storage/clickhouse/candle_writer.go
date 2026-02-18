@@ -25,6 +25,10 @@ func NewChCandleWriter(pool *Pool) *ChCandleWriter {
 	return &ChCandleWriter{preparer: pool}
 }
 
+func NewChCandleWriterWithPreparer(preparer BatchPreparer) *ChCandleWriter {
+	return &ChCandleWriter{preparer: preparer}
+}
+
 func (w *ChCandleWriter) SaveCandle(ctx context.Context, evt aggdomain.CandleClosed) *problem.Problem {
 	if w == nil || w.preparer == nil {
 		return problem.New(problem.ValidationFailed, "clickhouse candle writer is nil")
