@@ -21,6 +21,8 @@ const (
 	marketDataEventTypeBookDelta = "marketdata.bookdelta"
 	marketDataEventTypeMarkPrice = "marketdata.markprice"
 	marketDataEventTypeLiq       = "marketdata.liquidation"
+	aggregationEventTypeCandle   = "aggregation.candle"
+	aggregationEventTypeStats    = "aggregation.stats"
 )
 
 type PayloadRegistryOptions struct {
@@ -44,6 +46,10 @@ func BootstrapPayloadCodecRegistryWithOptions(opts PayloadRegistryOptions) *prob
 		if p := RegisterInsightsPayloadV1WithOptions(reg, InsightsCodecOptions{
 			EnableVolumeProfileSnapshotProto: opts.EnableInsightsVolumeProfileSnapshotProto,
 		}); p != nil {
+			payloadRegistryErr = p
+			return
+		}
+		if p := RegisterAggregationPayloadV1(reg); p != nil {
 			payloadRegistryErr = p
 			return
 		}
@@ -105,6 +111,29 @@ func RegisterMarketDataPayloadV1(reg *codec.Registry) *problem.Problem {
 			toDomain: ProtoToDomainLiquidationTickV1,
 		},
 	); p != nil {
+		return p
+	}
+	return nil
+}
+
+// RegisterAggregationPayloadV1 registers aggregation payload codecs for runtime
+// envelope encoding/decoding.
+func RegisterAggregationPayloadV1(reg *codec.Registry) *problem.Problem {
+	if reg == nil {
+		return problem.New(problem.ValidationFailed, "codec registry must not be nil")
+	}
+	if p := reg.Register(codec.SchemaKey{
+		Type:    aggregationEventTypeCandle,
+		Version: 1,
+		Format:  codec.FormatJSON,
+	}, codec.JSONCodec[AggregationCandleClosedV1]{}, codec.JSONCodec[AggregationCandleClosedV1]{}); p != nil {
+		return p
+	}
+	if p := reg.Register(codec.SchemaKey{
+		Type:    aggregationEventTypeStats,
+		Version: 1,
+		Format:  codec.FormatJSON,
+	}, codec.JSONCodec[AggregationStatsWindowClosedV1]{}, codec.JSONCodec[AggregationStatsWindowClosedV1]{}); p != nil {
 		return p
 	}
 	return nil

@@ -12,6 +12,8 @@ import (
 type ArtifactPublisher interface {
 	PublishSnapshot(ctx context.Context, snap domain.SnapshotProduced) *problem.Problem
 	PublishInconsistent(ctx context.Context, evt domain.OrderBookInconsistentDetected) *problem.Problem
+	PublishCandleClosed(ctx context.Context, evt domain.CandleClosed) *problem.Problem
+	PublishStatsClosed(ctx context.Context, evt domain.StatsWindowClosed) *problem.Problem
 }
 
 // HotReadModelStore is the write port for the in-memory hot read model.
@@ -24,4 +26,14 @@ type HotReadModelStore interface {
 // Implementations are expected to enforce idempotency at write boundary.
 type ColdReadModelStore interface {
 	Save(ctx context.Context, snap domain.SnapshotProduced) *problem.Problem
+}
+
+// CandleHotReadModelStore writes closed candles to the hot read model.
+type CandleHotReadModelStore interface {
+	SaveCandle(ctx context.Context, evt domain.CandleClosed) *problem.Problem
+}
+
+// StatsHotReadModelStore writes closed stats windows to the hot read model.
+type StatsHotReadModelStore interface {
+	SaveStats(ctx context.Context, evt domain.StatsWindowClosed) *problem.Problem
 }

@@ -39,6 +39,15 @@
   },
   "processor": {
     "bus_capacity": 1024,
+    "max_instruments": 2048,
+    "candle": {
+      "enabled": true,
+      "max_candles": 50000
+    },
+    "stats": {
+      "enabled": true,
+      "max_windows": 50000
+    },
     "insights": {
       "enable_crossvenue_join": false,
       "join_trades_subject": "marketdata.trade.v1.>",

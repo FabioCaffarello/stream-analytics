@@ -2,7 +2,7 @@
 
 **Status:** Active
 **Owner:** Governance Doc-First Maintainer
-**Last updated:** 2026-02-13
+**Last updated:** 2026-02-18
 **Relates to:** `docs/adrs/ADR-0002-event-envelope-and-versioning.md`, `docs/adrs/ADR-0014-stream-partitioning-strategy.md`, `docs/adrs/ADR-0016-protobuf-contract-layer.md`, `docs/contracts/subject-registry.yaml`
 
 ---
@@ -136,6 +136,8 @@ Proibido:
 |---|---|---|---|---|
 | `aggregation.snapshot.v1.{venue}.{instrument}` | `aggregation` runtime (`UpdateOrderBookFromEvents` via `ArtifactPublisher`) | `storage`, `delivery` (via hot read-model) | draft | `.context/docs/feature-packs/orderbook.md`, `internal/core/aggregation/ports/ports.go:12` |
 | `aggregation.orderbook_inconsistency.v1.{venue}.{instrument}` | `aggregation` runtime (`UpdateOrderBookFromEvents` on crossed book) | `storage` | draft | `.context/docs/feature-packs/orderbook.md`, `internal/core/aggregation/ports/ports.go:13` |
+| `aggregation.candle.v1.{venue}.{instrument}` | `aggregation` runtime (`BuildCandleFromEvents` via `ArtifactPublisher`) | `delivery`, `storage` | draft | `.context/docs/feature-packs/candle-aggregation.md`, `internal/core/aggregation/ports/ports.go:14` |
+| `aggregation.stats.v1.{venue}.{instrument}` | `aggregation` runtime (`BuildStatsFromEvents` via `ArtifactPublisher`) | `delivery`, `storage` | draft | `.context/docs/feature-packs/stats-aggregation.md`, `internal/core/aggregation/ports/ports.go:15` |
 
 ## Evidence
 
@@ -148,6 +150,9 @@ Proibido:
 
 ## Changelog
 
+- 2026-02-18:
+- Adicionados subjects `aggregation.candle` e `aggregation.stats` na matriz de runtime.
+- Referencias alinhadas com feature packs de candle/stats.
 - 2026-02-13:
 - Contrato alinhado à taxonomia real de subject (`{event}.v{version}.{venue}.{instrument}`).
 - Drift removido em relação ao padrão antigo de quatro tokens fixos.

@@ -7,7 +7,7 @@
 
 ## Inputs/Outputs
 - Inputs: `marketdata.trade.v1.{venue}.{instrument}`.
-- Outputs (planned, not in event-bus.md matrix): `aggregation.candle.v1.{venue}.{instrument}`.
+- Outputs: `aggregation.candle.v1.{venue}.{instrument}`.
 - Planned WS: `aggregation.candle/{venue}/{symbol}/{timeframe}` ([delivery-ws](../../../docs/contracts/delivery-ws.md)).
 - Subject refs: [ADR-0014](../../../docs/adrs/ADR-0014-stream-partitioning-strategy.md).
 

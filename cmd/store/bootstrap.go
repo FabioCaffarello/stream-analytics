@@ -33,6 +33,8 @@ var storeConsumedCount atomic.Uint64
 
 // Run is the store composition root.  It wires ClickHouse, JetStream consumer,
 // Guardian (observer mode), and HTTP server, then blocks until signal or error.
+//
+//nolint:gocyclo // composition root wires lifecycle branches by design.
 func Run(ctx context.Context, cfg config.AppConfig) error {
 	logger := bootstrap.BuildLogger(cfg.Log)
 	slog.SetDefault(logger)

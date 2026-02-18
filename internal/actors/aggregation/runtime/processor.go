@@ -39,9 +39,11 @@ import (
 )
 
 const (
-	typeBookDelta = "marketdata.bookdelta"
-	typeTrade     = "marketdata.trade"
-	typeRaw       = "marketdata.raw"
+	typeBookDelta   = "marketdata.bookdelta"
+	typeTrade       = "marketdata.trade"
+	typeRaw         = "marketdata.raw"
+	typeLiquidation = "marketdata.liquidation"
+	typeMarkPrice   = "marketdata.markprice"
 
 	reasonCodeDecodeFailed        = "DECODE_FAILED"
 	reasonCodeValidationFailed    = "VALIDATION_FAILED"
@@ -248,13 +250,30 @@ func (p *ProcessorSubsystemActor) handleEnvelope(_ *actor.Context, env envelope.
 		if env.Version != 1 {
 			return unsupportedVersionProblem(env.Type, env.Version)
 		}
+		if p.cfg.Service != nil && p.cfg.Service.Candle != nil {
+			if prob := p.handleTradeForCandle(env); prob != nil {
+				p.logger.Warn("aggruntime: BuildCandle failed",
+					"venue", env.Venue,
+					"instrument", env.Instrument,
+					"seq", env.Seq,
+					"code", prob.Code,
+				)
+			}
+		}
 		if p.cfg.JoinTrades == nil {
-			return problem.WithDetail(
-				problem.New(problem.ValidationFailed, "insights JoinTrades use case is not configured"),
-				"reason_code", reasonCodeValidationFailed,
-			)
+			return nil
 		}
 		return p.handleTrade(env)
+	case typeLiquidation:
+		if env.Version != 1 {
+			return unsupportedVersionProblem(env.Type, env.Version)
+		}
+		return p.handleLiquidation(env)
+	case typeMarkPrice:
+		if env.Version != 1 {
+			return unsupportedVersionProblem(env.Type, env.Version)
+		}
+		return p.handleMarkPrice(env)
 	case typeRaw:
 		if env.Version != 1 {
 			return unsupportedVersionProblem(env.Type, env.Version)
@@ -500,6 +519,139 @@ func (p *ProcessorSubsystemActor) handleTrade(env envelope.Envelope) *problem.Pr
 		"watermark_ts_ingest", signalEnv.TsIngest,
 		"spread_bps", res.Value().SpreadSignal.SpreadBps,
 	)
+	return nil
+}
+
+func (p *ProcessorSubsystemActor) handleTradeForCandle(env envelope.Envelope) *problem.Problem {
+	if p.cfg.Service == nil || p.cfg.Service.Candle == nil {
+		return nil
+	}
+
+	decoded, prob := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
+	if prob != nil {
+		return problem.WithDetail(prob, "reason_code", reasonCodeDecodeFailed)
+	}
+	trade, ok := decoded.(mddomain.TradeTickV1)
+	if !ok {
+		return problem.WithDetail(
+			problem.Newf(problem.ValidationFailed, "decoded trade payload type mismatch: got %T", decoded),
+			"reason_code", reasonCodeValidationFailed,
+		)
+	}
+	req := aggapp.BuildCandleRequest{
+		Venue:      env.Venue,
+		Instrument: env.Instrument,
+		Price:      trade.Price,
+		Quantity:   trade.Size,
+		IsBuy:      strings.EqualFold(trade.Side, "buy"),
+		Seq:        env.Seq,
+		TsIngest:   env.TsIngest,
+	}
+	resp, prob := p.cfg.Service.Candle.Execute(context.Background(), req)
+	if prob != nil {
+		return prob
+	}
+	if len(resp.Closed) > 0 {
+		p.logger.Debug("aggruntime: candles closed",
+			"venue", env.Venue,
+			"instrument", env.Instrument,
+			"closed_count", len(resp.Closed),
+			"active_candles", resp.ActiveCandles,
+		)
+	}
+	return nil
+}
+
+func (p *ProcessorSubsystemActor) handleLiquidation(env envelope.Envelope) *problem.Problem {
+	if p.cfg.Service == nil || p.cfg.Service.Stats == nil {
+		p.logger.Warn("aggruntime: no Stats use case configured — dropping liquidation")
+		return nil
+	}
+
+	decoded, prob := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
+	if prob != nil {
+		return problem.WithDetail(prob, "reason_code", reasonCodeDecodeFailed)
+	}
+	liq, ok := decoded.(mddomain.LiquidationTickV1)
+	if !ok {
+		return problem.WithDetail(
+			problem.Newf(problem.ValidationFailed, "decoded liquidation type mismatch: got %T", decoded),
+			"reason_code", reasonCodeValidationFailed,
+		)
+	}
+	req := aggapp.BuildStatsRequest{
+		Venue:           env.Venue,
+		Instrument:      env.Instrument,
+		Kind:            aggapp.StatsInputLiquidation,
+		Seq:             env.Seq,
+		TsIngest:        env.TsIngest,
+		LiquidationSide: liq.Side,
+		LiquidationQty:  liq.Size,
+	}
+	resp, prob := p.cfg.Service.Stats.Execute(context.Background(), req)
+	if prob != nil {
+		return prob
+	}
+	if len(resp.Closed) > 0 {
+		p.logger.Debug("aggruntime: stats windows closed (liquidation)",
+			"venue", env.Venue,
+			"instrument", env.Instrument,
+			"closed_count", len(resp.Closed),
+		)
+	}
+	return nil
+}
+
+func (p *ProcessorSubsystemActor) handleMarkPrice(env envelope.Envelope) *problem.Problem {
+	if p.cfg.Service == nil || p.cfg.Service.Stats == nil {
+		p.logger.Warn("aggruntime: no Stats use case configured — dropping markprice")
+		return nil
+	}
+
+	decoded, prob := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
+	if prob != nil {
+		return problem.WithDetail(prob, "reason_code", reasonCodeDecodeFailed)
+	}
+	mark, ok := decoded.(mddomain.MarkPriceTickV1)
+	if !ok {
+		return problem.WithDetail(
+			problem.Newf(problem.ValidationFailed, "decoded markprice type mismatch: got %T", decoded),
+			"reason_code", reasonCodeValidationFailed,
+		)
+	}
+	markReq := aggapp.BuildStatsRequest{
+		Venue:      env.Venue,
+		Instrument: env.Instrument,
+		Kind:       aggapp.StatsInputMarkPrice,
+		Seq:        env.Seq,
+		TsIngest:   env.TsIngest,
+		MarkPrice:  mark.MarkPrice,
+	}
+	resp, prob := p.cfg.Service.Stats.Execute(context.Background(), markReq)
+	if prob != nil {
+		return prob
+	}
+	if mark.FundingRate != 0 {
+		fundingReq := aggapp.BuildStatsRequest{
+			Venue:       env.Venue,
+			Instrument:  env.Instrument,
+			Kind:        aggapp.StatsInputFundingRate,
+			Seq:         env.Seq,
+			TsIngest:    env.TsIngest,
+			FundingRate: mark.FundingRate,
+		}
+		resp, prob = p.cfg.Service.Stats.Execute(context.Background(), fundingReq)
+		if prob != nil {
+			return prob
+		}
+	}
+	if len(resp.Closed) > 0 {
+		p.logger.Debug("aggruntime: stats windows closed (markprice)",
+			"venue", env.Venue,
+			"instrument", env.Instrument,
+			"closed_count", len(resp.Closed),
+		)
+	}
 	return nil
 }
 

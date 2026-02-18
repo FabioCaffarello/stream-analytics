@@ -38,6 +38,8 @@ func init() {
 type spyArtifactPublisher struct {
 	mu        sync.Mutex
 	snapshots []aggdomain.SnapshotProduced
+	candles   []aggdomain.CandleClosed
+	stats     []aggdomain.StatsWindowClosed
 }
 
 func (s *spyArtifactPublisher) PublishSnapshot(_ context.Context, snap aggdomain.SnapshotProduced) *problem.Problem {
@@ -51,10 +53,42 @@ func (s *spyArtifactPublisher) PublishInconsistent(_ context.Context, _ aggdomai
 	return nil
 }
 
+func (s *spyArtifactPublisher) PublishCandleClosed(_ context.Context, evt aggdomain.CandleClosed) *problem.Problem {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.candles = append(s.candles, evt)
+	return nil
+}
+
+func (s *spyArtifactPublisher) PublishStatsClosed(_ context.Context, evt aggdomain.StatsWindowClosed) *problem.Problem {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stats = append(s.stats, evt)
+	return nil
+}
+
 func (s *spyArtifactPublisher) count() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.snapshots)
+}
+
+func (s *spyArtifactPublisher) candleCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.candles)
+}
+
+func (s *spyArtifactPublisher) statsCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.stats)
+}
+
+func (s *spyArtifactPublisher) lastStats() aggdomain.StatsWindowClosed {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stats[len(s.stats)-1]
 }
 
 type noopStore struct{}
@@ -109,9 +143,13 @@ func newEngine(t *testing.T) *actor.Engine {
 }
 
 func newAggService(pub *spyArtifactPublisher) *aggapp.AggregationService {
-	return &aggapp.AggregationService{
-		UpdateBook: aggapp.NewUpdateOrderBookFromEvents(pub, &noopStore{}),
-	}
+	return aggapp.NewAggregationService(aggapp.AggregationServiceConfig{
+		Update:    aggapp.UpdateConfig{},
+		Candle:    aggapp.BuildCandleConfig{},
+		Stats:     aggapp.BuildStatsConfig{},
+		Publisher: pub,
+		Store:     &noopStore{},
+	})
 }
 
 func makeBookDeltaEnvelope(venue, instrument string, seq int64, bids, asks []mddomain.PriceLevel) envelope.Envelope {
@@ -174,6 +212,54 @@ func makeTradeEnvelope(venue, instrument string, seq, tsIngest int64, price floa
 			"instrument_market_type": "SPOT",
 		},
 		Payload: payload,
+	}
+}
+
+func makeLiquidationEnvelope(venue, instrument string, seq, tsIngest int64, size float64, side string) envelope.Envelope {
+	payload, p := codec.EncodePayload("marketdata.liquidation", 1, envelope.ContentTypeJSON, mddomain.LiquidationTickV1{
+		Side:      side,
+		Price:     100.0,
+		Size:      size,
+		Timestamp: tsIngest - 10,
+	})
+	if p != nil {
+		panic("test: failed to encode LiquidationTickV1: " + p.Message)
+	}
+	return envelope.Envelope{
+		Type:           "marketdata.liquidation",
+		Version:        1,
+		Venue:          venue,
+		Instrument:     instrument,
+		TsExchange:     tsIngest - 10,
+		TsIngest:       tsIngest,
+		Seq:            seq,
+		IdempotencyKey: fmt.Sprintf("liq-idem-%d", seq),
+		ContentType:    envelope.ContentTypeJSON,
+		Payload:        payload,
+	}
+}
+
+func makeMarkPriceEnvelope(venue, instrument string, seq, tsIngest int64, markPrice, fundingRate float64) envelope.Envelope {
+	payload, p := codec.EncodePayload("marketdata.markprice", 1, envelope.ContentTypeJSON, mddomain.MarkPriceTickV1{
+		MarkPrice:   markPrice,
+		IndexPrice:  markPrice,
+		FundingRate: fundingRate,
+		Timestamp:   tsIngest - 10,
+	})
+	if p != nil {
+		panic("test: failed to encode MarkPriceTickV1: " + p.Message)
+	}
+	return envelope.Envelope{
+		Type:           "marketdata.markprice",
+		Version:        1,
+		Venue:          venue,
+		Instrument:     instrument,
+		TsExchange:     tsIngest - 10,
+		TsIngest:       tsIngest,
+		Seq:            seq,
+		IdempotencyKey: fmt.Sprintf("mark-idem-%d", seq),
+		ContentType:    envelope.ContentTypeJSON,
+		Payload:        payload,
 	}
 }
 
@@ -544,7 +630,7 @@ func TestProcessor_NilChannel_idle(t *testing.T) {
 	<-e.Poison(pid).Done()
 }
 
-func TestProcessor_TradeEnvelopeWithoutJoin_ProducesValidationProblem(t *testing.T) {
+func TestProcessor_TradeEnvelopeWithoutJoin_ProcessesCandle(t *testing.T) {
 	if p := contracts.BootstrapPayloadCodecRegistry(); p != nil {
 		t.Fatalf("BootstrapPayloadCodecRegistry: %v", p)
 	}
@@ -553,29 +639,90 @@ func TestProcessor_TradeEnvelopeWithoutJoin_ProducesValidationProblem(t *testing
 	aggSvc := newAggService(pub)
 
 	ch := make(chan envelope.Envelope, 8)
-	resultCh := make(chan aggruntime.EnvelopeProcessResult, 1)
+	resultCh := make(chan aggruntime.EnvelopeProcessResult, 8)
 	cfg := aggruntime.ProcessorConfig{
 		EnvelopeCh: ch,
 		Service:    aggSvc,
 		OnEnvelopeProcessed: func(res aggruntime.EnvelopeProcessResult) {
-			resultCh <- res
+			select {
+			case resultCh <- res:
+			default:
+			}
 		},
 	}
 
 	e := newEngine(t)
 	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
 
-	ch <- makeTradeEnvelope("BINANCE", "BTCUSDT", 1, 1000, 100.5, "buy", "trade-1")
-	select {
-	case res := <-resultCh:
-		if res.Problem == nil {
-			t.Fatal("expected problem for trade type when join is disabled")
+	ch <- makeTradeEnvelope("BINANCE", "BTCUSDT", 1, 1, 100.5, "buy", "trade-1")
+	ch <- makeTradeEnvelope("BINANCE", "BTCUSDT", 2, 60_001, 101.5, "sell", "trade-2")
+	waitFor(t, 2*time.Second, func() bool { return pub.candleCount() == 1 })
+
+	for i := 0; i < 2; i++ {
+		select {
+		case res := <-resultCh:
+			if res.Problem != nil {
+				t.Fatalf("unexpected trade processing problem with join disabled: %v", res.Problem)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("timeout waiting for callback result")
 		}
-		if res.Problem.Code != problem.ValidationFailed {
-			t.Fatalf("problem code=%s want=%s", res.Problem.Code, problem.ValidationFailed)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("timeout waiting for callback result")
+	}
+
+	<-e.Poison(pid).Done()
+}
+
+func TestProcessor_LiquidationRoute_EmitsStatsClosed(t *testing.T) {
+	if p := contracts.BootstrapPayloadCodecRegistry(); p != nil {
+		t.Fatalf("BootstrapPayloadCodecRegistry: %v", p)
+	}
+
+	pub := &spyArtifactPublisher{}
+	aggSvc := newAggService(pub)
+
+	ch := make(chan envelope.Envelope, 8)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh: ch,
+		Service:    aggSvc,
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+
+	ch <- makeLiquidationEnvelope("BINANCE", "BTCUSDT", 1, 1, 2.0, "buy")
+	ch <- makeLiquidationEnvelope("BINANCE", "BTCUSDT", 2, 60_001, 1.0, "sell")
+	waitFor(t, 2*time.Second, func() bool { return pub.statsCount() > 0 })
+
+	<-e.Poison(pid).Done()
+}
+
+func TestProcessor_MarkPriceRoute_WithFunding_EmitsStatsClosed(t *testing.T) {
+	if p := contracts.BootstrapPayloadCodecRegistry(); p != nil {
+		t.Fatalf("BootstrapPayloadCodecRegistry: %v", p)
+	}
+
+	pub := &spyArtifactPublisher{}
+	aggSvc := newAggService(pub)
+
+	ch := make(chan envelope.Envelope, 8)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh: ch,
+		Service:    aggSvc,
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+
+	ch <- makeMarkPriceEnvelope("BINANCE", "BTCUSDT", 1, 1, 100.0, 0.0002)
+	ch <- makeMarkPriceEnvelope("BINANCE", "BTCUSDT", 2, 60_001, 101.0, 0.0003)
+	waitFor(t, 2*time.Second, func() bool { return pub.statsCount() > 0 })
+
+	closed := pub.lastStats().Stats
+	if closed.MarkPriceOpen == 0 || closed.MarkPriceClose == 0 {
+		t.Fatalf("expected markprice fields to be populated, got open=%f close=%f", closed.MarkPriceOpen, closed.MarkPriceClose)
+	}
+	if closed.FundingRateLast == 0 {
+		t.Fatalf("expected non-zero funding_rate_last from dual routing, got %f", closed.FundingRateLast)
 	}
 
 	<-e.Poison(pid).Done()
@@ -826,7 +973,7 @@ func TestProcessor_TradeDelivered_IncreasesProcessedMetric(t *testing.T) {
 		},
 	}
 
-	before := testutil.ToFloat64(metrics.ProcessorProcessedTotal.WithLabelValues("marketdata.trade", "failed"))
+	before := testutil.ToFloat64(metrics.ProcessorProcessedTotal.WithLabelValues("marketdata.trade", "ok"))
 
 	e := newEngine(t)
 	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
@@ -835,18 +982,18 @@ func TestProcessor_TradeDelivered_IncreasesProcessedMetric(t *testing.T) {
 
 	select {
 	case res := <-resultCh:
-		// JoinTrades is nil → trade produces a ValidationProblem.
-		// The key assertion is that the metric was incremented, proving delivery.
-		if res.Problem == nil {
-			t.Fatal("expected problem for trade type when join is disabled")
+		// JoinTrades is nil and candles are enabled by service config.
+		// The key assertion is that the trade is processed successfully.
+		if res.Problem != nil {
+			t.Fatalf("unexpected processing problem for trade with join disabled: %v", res.Problem)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for processing result")
 	}
 
-	after := testutil.ToFloat64(metrics.ProcessorProcessedTotal.WithLabelValues("marketdata.trade", "failed"))
+	after := testutil.ToFloat64(metrics.ProcessorProcessedTotal.WithLabelValues("marketdata.trade", "ok"))
 	if after < before+1 {
-		t.Fatalf("processor_processed_total{event_type=marketdata.trade,status=failed} not incremented: before=%.0f after=%.0f", before, after)
+		t.Fatalf("processor_processed_total{event_type=marketdata.trade,status=ok} not incremented: before=%.0f after=%.0f", before, after)
 	}
 
 	<-e.Poison(pid).Done()

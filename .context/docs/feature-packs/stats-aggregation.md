@@ -7,7 +7,7 @@
 
 ## Inputs/Outputs
 - Inputs: `marketdata.liquidation.v1.{venue}.{instrument}`, `marketdata.markprice.v1.{venue}.{instrument}`, `marketdata.fundingrate.v1.{venue}.{instrument}` (planned, not in event-bus.md matrix).
-- Outputs (planned, not in event-bus.md matrix): `aggregation.stats.v1.{venue}.{instrument}`.
+- Outputs: `aggregation.stats.v1.{venue}.{instrument}`.
 - Planned WS: `aggregation.stats/{venue}/{symbol}/{timeframe}` ([delivery-ws](../../../docs/contracts/delivery-ws.md)).
 - Subject refs: [ADR-0014](../../../docs/adrs/ADR-0014-stream-partitioning-strategy.md).
 

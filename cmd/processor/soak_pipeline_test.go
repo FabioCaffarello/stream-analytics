@@ -55,6 +55,7 @@ func (soakStatsStore) SaveStats(context.Context, aggdomain.StatsWindowClosed) *p
 	return nil
 }
 
+//nolint:gocyclo // soak scenario intentionally exercises the full pipeline in one flow.
 func TestSoak_FullPipeline_1M_Messages(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping soak test in short mode")
@@ -88,11 +89,7 @@ func TestSoak_FullPipeline_1M_Messages(t *testing.T) {
 		StatsStore:  soakStatsStore{},
 	})
 
-	instruments := make([]string, instrumentsN)
-	for i := range instruments {
-		instruments[i] = fmt.Sprintf("SYM%03dUSDT", i)
-	}
-	seqByInstrument := make([]int64, instrumentsN)
+	seqByInstrument := make(map[string]int64, instrumentsN)
 
 	runtime.GC()
 	var before runtime.MemStats
@@ -104,10 +101,9 @@ func TestSoak_FullPipeline_1M_Messages(t *testing.T) {
 	const baseTs = int64(1_710_000_000_000)
 
 	for i := 0; i < totalMessages; i++ {
-		idx := i % instrumentsN
-		inst := instruments[idx]
-		seqByInstrument[idx]++
-		seq := seqByInstrument[idx]
+		inst := fmt.Sprintf("SYM%03dUSDT", i%instrumentsN)
+		seqByInstrument[inst]++
+		seq := seqByInstrument[inst]
 		ts := baseTs + int64(i)*500
 
 		if res := svc.UpdateBook.Execute(ctx, aggapp.UpdateRequest{
@@ -183,7 +179,11 @@ func TestSoak_FullPipeline_1M_Messages(t *testing.T) {
 	if afterG-beforeG > 32 {
 		t.Fatalf("goroutine drift too high: before=%d after=%d", beforeG, afterG)
 	}
-	if delta := int64(after.HeapAlloc) - int64(before.HeapAlloc); delta > 512*1024*1024 {
+	var delta uint64
+	if after.HeapAlloc > before.HeapAlloc {
+		delta = after.HeapAlloc - before.HeapAlloc
+	}
+	if delta > 512*1024*1024 {
 		t.Fatalf("heap growth too high delta=%d bytes", delta)
 	}
 }

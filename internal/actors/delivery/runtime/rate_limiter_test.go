@@ -11,8 +11,10 @@ func TestRateLimiter_BurstThenReject(t *testing.T) {
 	clk := clock.NewFakeClock(time.Unix(100, 0))
 	rl := NewRateLimiter(3, 1, clk)
 
-	if !rl.Allow() || !rl.Allow() || !rl.Allow() {
-		t.Fatal("expected first 3 requests to pass")
+	for i := 0; i < 3; i++ {
+		if !rl.Allow() {
+			t.Fatalf("expected allow for initial burst at i=%d", i)
+		}
 	}
 	if rl.Allow() {
 		t.Fatal("expected request over burst to be rejected")
@@ -23,16 +25,20 @@ func TestRateLimiter_RefillOverTime(t *testing.T) {
 	clk := clock.NewFakeClock(time.Unix(100, 0))
 	rl := NewRateLimiter(2, 2, clk)
 
-	if !rl.Allow() || !rl.Allow() {
-		t.Fatal("expected initial burst to pass")
+	for i := 0; i < 2; i++ {
+		if !rl.Allow() {
+			t.Fatalf("expected initial burst allow at i=%d", i)
+		}
 	}
 	if rl.Allow() {
 		t.Fatal("expected no tokens before refill")
 	}
 
 	clk.Advance(1 * time.Second)
-	if !rl.Allow() || !rl.Allow() {
-		t.Fatal("expected refill tokens after 1 second")
+	for i := 0; i < 2; i++ {
+		if !rl.Allow() {
+			t.Fatalf("expected refill allow after 1 second at i=%d", i)
+		}
 	}
 	if rl.Allow() {
 		t.Fatal("expected burst cap to be enforced")

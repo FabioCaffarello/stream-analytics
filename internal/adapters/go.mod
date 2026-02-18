@@ -5,6 +5,8 @@ go 1.25.6
 require github.com/market-raccoon/internal/shared v0.0.0
 
 require (
+	github.com/ClickHouse/clickhouse-go/v2 v2.33.1
+	github.com/jackc/pgx/v5 v5.7.2
 	github.com/market-raccoon/internal/core/marketdata v0.0.0
 	github.com/nats-io/nats.go v1.48.0
 	github.com/prometheus/client_golang v1.18.0
@@ -12,11 +14,27 @@ require (
 )
 
 require (
+	github.com/ClickHouse/ch-go v0.65.1 // indirect
+	github.com/andybalholm/brotli v1.1.1 // indirect
+	github.com/go-faster/city v1.0.1 // indirect
+	github.com/go-faster/errors v0.7.1 // indirect
+	github.com/jackc/pgpassfile v1.0.0 // indirect
+	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
+	github.com/jackc/puddle/v2 v2.2.2 // indirect
+	github.com/paulmach/orb v0.11.1 // indirect
+	github.com/pierrec/lz4/v4 v4.1.22 // indirect
+	github.com/segmentio/asm v1.2.0 // indirect
+	github.com/shopspring/decimal v1.4.0 // indirect
+	golang.org/x/sync v0.16.0 // indirect
+	golang.org/x/text v0.28.0 // indirect
+)
+
+require (
 	dario.cat/mergo v1.0.2 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20210617225240-d185dfc1b5a1 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/cenkalti/backoff/v4 v4.2.1 // indirect
+	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect

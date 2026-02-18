@@ -5,8 +5,10 @@ import (
 	"strconv"
 	"sync"
 
+	adapterstorage "github.com/market-raccoon/internal/adapters/storage"
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
 	aggports "github.com/market-raccoon/internal/core/aggregation/ports"
+	"github.com/market-raccoon/internal/shared/codec"
 	sharedhash "github.com/market-raccoon/internal/shared/hash"
 	"github.com/market-raccoon/internal/shared/ids"
 	"github.com/market-raccoon/internal/shared/problem"
@@ -23,6 +25,7 @@ type Writer struct {
 }
 
 var _ aggports.ColdReadModelStore = (*Writer)(nil)
+var _ aggports.ColdReadModelStore = (*ChWriter)(nil)
 
 func NewWriter() *Writer {
 	return &Writer{byKey: make(map[string]aggdomain.SnapshotProduced)}
@@ -65,6 +68,80 @@ func (w *Writer) CommitCount() int {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	return w.commits
+}
+
+type batchPreparer interface {
+	PrepareInsert(ctx context.Context, query string) (adapterstorage.BatchInserter, *problem.Problem)
+}
+
+// ChWriter is the production ClickHouse writer for cold snapshot persistence.
+type ChWriter struct {
+	preparer batchPreparer
+}
+
+func NewChWriter(pool *Pool) *ChWriter {
+	if pool == nil {
+		return &ChWriter{}
+	}
+	return &ChWriter{preparer: pool}
+}
+
+func NewChWriterWithPreparer(preparer batchPreparer) *ChWriter {
+	return &ChWriter{preparer: preparer}
+}
+
+func (w *ChWriter) Save(ctx context.Context, snap aggdomain.SnapshotProduced) *problem.Problem {
+	return w.SaveIdempotent(ctx, snap, "")
+}
+
+func (w *ChWriter) SaveIdempotent(ctx context.Context, snap aggdomain.SnapshotProduced, sourceIdempotencyKey string) *problem.Problem {
+	if w == nil || w.preparer == nil {
+		return problem.New(problem.ValidationFailed, "clickhouse writer is nil")
+	}
+
+	bidsJSON, err := codec.Marshal(snap.Bids)
+	if err != nil {
+		return problem.Wrap(err, problem.Internal, "marshal bids failed")
+	}
+	asksJSON, err := codec.Marshal(snap.Asks)
+	if err != nil {
+		return problem.Wrap(err, problem.Internal, "marshal asks failed")
+	}
+
+	const insertSQL = `
+INSERT INTO aggregation_orderbook_snapshot_cold (
+    venue,
+    instrument,
+    seq,
+    bids_json,
+    asks_json,
+    source_idempotency_key,
+    created_at
+)`
+
+	batch, p := w.preparer.PrepareInsert(ctx, insertSQL)
+	if p != nil {
+		return p
+	}
+	defer func() {
+		_ = batch.Close()
+	}()
+
+	if p := batch.AppendRow(
+		ctx,
+		snap.BookID.Venue,
+		snap.BookID.Instrument,
+		snap.Seq,
+		string(bidsJSON),
+		string(asksJSON),
+		sourceIdempotencyKey,
+	); p != nil {
+		return p
+	}
+	if _, p := batch.Flush(ctx); p != nil {
+		return p
+	}
+	return nil
 }
 
 func snapshotFingerprint(snap aggdomain.SnapshotProduced) string {

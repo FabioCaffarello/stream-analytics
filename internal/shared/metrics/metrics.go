@@ -637,6 +637,13 @@ var (
 			Buckets: []float64{0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 2, 5},
 		},
 	)
+	ProcessorAckAfterCommitTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "processor_ack_after_commit_total",
+			Help: "Total processor ack decisions after commit boundary by status.",
+		},
+		[]string{"status"},
+	)
 )
 
 var (
@@ -769,6 +776,7 @@ func registerAll() {
 			ProcessorProcessedTotal,
 			ProcessorCommitTotal,
 			ProcessorCommitLatencySeconds,
+			ProcessorAckAfterCommitTotal,
 		)
 
 		// Pre-create one series for vector metrics so /metrics exposition is stable
@@ -846,6 +854,8 @@ func registerAll() {
 		ProcessorProcessedTotal.WithLabelValues("unknown", "failed")
 		ProcessorCommitTotal.WithLabelValues("ok")
 		ProcessorCommitTotal.WithLabelValues("failed")
+		ProcessorAckAfterCommitTotal.WithLabelValues("ok")
+		ProcessorAckAfterCommitTotal.WithLabelValues("failed")
 	})
 }
 
@@ -1316,6 +1326,11 @@ func ObserveProcessorCommitLatency(latency time.Duration) {
 		latency = 0
 	}
 	ProcessorCommitLatencySeconds.Observe(latency.Seconds())
+}
+
+// IncProcessorAckAfterCommit increments processor_ack_after_commit_total.
+func IncProcessorAckAfterCommit(status string) {
+	ProcessorAckAfterCommitTotal.WithLabelValues(sanitizeStatus(status)).Inc()
 }
 
 // ── Store observability ──────────────────────────────────────────────────────

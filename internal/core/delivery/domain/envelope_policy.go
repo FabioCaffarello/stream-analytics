@@ -22,6 +22,8 @@ var deliveryContracts = map[string]deliveryContract{
 	"insights.crossvenue.trade_snapshot": {version: 1, ownerBC: "insights", producerBC: "aggregation", schemaAuthority: "aggregation"},
 	"insights.crossvenue.spread_signal":  {version: 1, ownerBC: "insights", producerBC: "aggregation", schemaAuthority: "aggregation"},
 	"aggregation.snapshot":               {version: 1, ownerBC: "aggregation", producerBC: "aggregation", schemaAuthority: "aggregation"},
+	"aggregation.candle":                 {version: 1, ownerBC: "aggregation", producerBC: "aggregation", schemaAuthority: "aggregation"},
+	"aggregation.stats":                  {version: 1, ownerBC: "aggregation", producerBC: "aggregation", schemaAuthority: "aggregation"},
 }
 
 // ValidateEnvelopeForDelivery enforces allowed delivery stream types and

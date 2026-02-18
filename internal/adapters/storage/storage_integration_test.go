@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/market-raccoon/internal/adapters/storage"
+	adapterstorage "github.com/market-raccoon/internal/adapters/storage"
 	"github.com/market-raccoon/internal/adapters/storage/clickhouse"
 	"github.com/market-raccoon/internal/adapters/storage/timescale"
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
@@ -40,7 +40,7 @@ var _ ports.ColdReadModelStore = (*noopColdWriter)(nil)
 
 func TestStorageAckOnCommit_NotOnEnqueue(t *testing.T) {
 	hot := &blockingHotWriter{start: make(chan struct{}), release: make(chan struct{})}
-	committer := storage.NewSnapshotCommitter(hot, noopColdWriter{})
+	committer := adapterstorage.NewSnapshotCommitter(hot, noopColdWriter{})
 
 	var (
 		mu      sync.Mutex
@@ -50,7 +50,7 @@ func TestStorageAckOnCommit_NotOnEnqueue(t *testing.T) {
 
 	done := make(chan *problem.Problem, 1)
 	go func() {
-		done <- storage.CommitAndAck(context.Background(), committer, testSnapshot(), func() error {
+		done <- adapterstorage.CommitAndAck(context.Background(), committer, testSnapshot(), func() error {
 			mu.Lock()
 			defer mu.Unlock()
 			acked = true
@@ -86,10 +86,10 @@ func TestStorageAckOnCommit_NotOnEnqueue(t *testing.T) {
 
 func TestStorageAckOnCommit_NoAckWhenCommitFails(t *testing.T) {
 	hot := timescale.NewWriter()
-	committer := storage.NewSnapshotCommitter(hot, failColdWriter{})
+	committer := adapterstorage.NewSnapshotCommitter(hot, failColdWriter{})
 	acked := false
 
-	p := storage.CommitAndAck(context.Background(), committer, testSnapshot(), func() error {
+	p := adapterstorage.CommitAndAck(context.Background(), committer, testSnapshot(), func() error {
 		acked = true
 		return nil
 	})
@@ -103,7 +103,7 @@ func TestStorageAckOnCommit_NoAckWhenCommitFails(t *testing.T) {
 
 func TestStorageAckOnCommit_FailsWhenCommitterIsNil(t *testing.T) {
 	acked := false
-	p := storage.CommitAndAck(context.Background(), nil, testSnapshot(), func() error {
+	p := adapterstorage.CommitAndAck(context.Background(), nil, testSnapshot(), func() error {
 		acked = true
 		return nil
 	})
@@ -121,7 +121,7 @@ func TestStorageAckOnCommit_FailsWhenCommitterIsNil(t *testing.T) {
 func TestStorageIdempotency_DuplicateSnapshotCommitsOncePerPath(t *testing.T) {
 	hot := timescale.NewWriter()
 	cold := clickhouse.NewWriter()
-	committer := storage.NewSnapshotCommitter(hot, cold)
+	committer := adapterstorage.NewSnapshotCommitter(hot, cold)
 
 	snap := testSnapshot()
 	if p := committer.Commit(context.Background(), snap); p != nil {
@@ -158,6 +158,59 @@ func TestStorageIdempotency_DuplicateSnapshotCommitsOncePerPath(t *testing.T) {
 		t.Fatalf("cold commits after mismatch=%d want=1", got)
 	}
 }
+
+func TestSnapshotCommitter_WithRealWriterInterfaces(t *testing.T) {
+	hotExec := &fakeHotExec{}
+	coldPrep := &fakeColdPreparer{batch: &fakeColdBatch{}}
+
+	hot := timescale.NewPgWriterWithExecutor(hotExec)
+	cold := clickhouse.NewChWriterWithPreparer(coldPrep)
+	committer := adapterstorage.NewSnapshotCommitter(hot, cold)
+
+	if p := committer.Commit(context.Background(), testSnapshot()); p != nil {
+		t.Fatalf("commit failed: %v", p)
+	}
+	if hotExec.execs != 1 {
+		t.Fatalf("hot execs=%d want=1", hotExec.execs)
+	}
+	if coldPrep.batch.flushes != 1 {
+		t.Fatalf("cold flushes=%d want=1", coldPrep.batch.flushes)
+	}
+}
+
+type fakeHotExec struct{ execs int }
+
+func (f *fakeHotExec) Exec(context.Context, string, ...any) (int64, *problem.Problem) {
+	f.execs++
+	return 1, nil
+}
+
+func (f *fakeHotExec) QueryRow(context.Context, string, ...any) adapterstorage.Row { return nil }
+
+type fakeColdPreparer struct {
+	batch *fakeColdBatch
+}
+
+func (f *fakeColdPreparer) PrepareInsert(context.Context, string) (adapterstorage.BatchInserter, *problem.Problem) {
+	return f.batch, nil
+}
+
+type fakeColdBatch struct {
+	rows    int
+	flushes int
+}
+
+func (b *fakeColdBatch) AppendRow(context.Context, ...any) *problem.Problem {
+	b.rows++
+	return nil
+}
+
+func (b *fakeColdBatch) Flush(context.Context) (int64, *problem.Problem) {
+	b.flushes++
+	return int64(b.rows), nil
+}
+
+func (b *fakeColdBatch) Close() *problem.Problem { return nil }
 
 func testSnapshot() aggdomain.SnapshotProduced {
 	return aggdomain.SnapshotProduced{

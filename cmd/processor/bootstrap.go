@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"strings"
 	"sync"
@@ -136,6 +137,8 @@ type envelopeSource struct {
 
 // Run is the processor composition root.  It wires the aggregation use case,
 // envelope source, guardian, and blocks until a signal or error.
+//
+//nolint:gocyclo // composition root wires many runtime branches by design.
 func Run(ctx context.Context, cfg config.AppConfig) error {
 	logger := bootstrap.BuildLogger(cfg.Log)
 	slog.SetDefault(logger)
@@ -169,10 +172,18 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	var statsStore aggports.StatsHotReadModelStore = &logStatsHotStore{logger: logger}
 	var tsPool *timescale.Pool
 	if cfg.Storage.Timescale.Enabled {
+		maxConns, err := int32FromConfig(cfg.Storage.Timescale.MaxConns, "storage.timescale.max_conns")
+		if err != nil {
+			return err
+		}
+		minConns, err := int32FromConfig(cfg.Storage.Timescale.MinConns, "storage.timescale.min_conns")
+		if err != nil {
+			return err
+		}
 		pool, p := timescale.NewPool(ctx, timescale.PoolConfig{
 			DSN:               cfg.Storage.Timescale.DSN,
-			MaxConns:          int32(cfg.Storage.Timescale.MaxConns),
-			MinConns:          int32(cfg.Storage.Timescale.MinConns),
+			MaxConns:          maxConns,
+			MinConns:          minConns,
 			MaxConnLifetime:   cfg.Storage.Timescale.MaxConnLifetimeDuration(),
 			MaxConnIdleTime:   cfg.Storage.Timescale.MaxConnIdleTimeDuration(),
 			HealthCheckPeriod: cfg.Storage.Timescale.HealthCheckPeriodDuration(),
@@ -339,6 +350,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 // envelope source wiring
 // ---------------------------------------------------------------------------
 
+//nolint:gocyclo // runtime source selection intentionally handles many branches.
 func initEnvelopeSource(cfg config.AppConfig, logger *slog.Logger, e2e *e2eRuntime) envelopeSource {
 	replayMode := strings.ToLower(strings.TrimSpace(cfg.Replay.Mode))
 	if replayMode == "" {
@@ -740,6 +752,13 @@ func shardAwareDurable(base string, index, count int) string {
 		return base
 	}
 	return fmt.Sprintf("%s-s%d", base, index)
+}
+
+func int32FromConfig(v int, field string) (int32, error) {
+	if v < math.MinInt32 || v > math.MaxInt32 {
+		return 0, fmt.Errorf("%s out of int32 range: %d", field, v)
+	}
+	return int32(v), nil
 }
 
 // ---------------------------------------------------------------------------

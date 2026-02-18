@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"time"
 
@@ -31,10 +32,18 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	var tsPool *timescale.Pool
 	timescale.SetStubMode(timescale.AdapterModeStubMemory)
 	if cfg.Storage.Timescale.Enabled {
+		maxConns, err := int32FromConfig(cfg.Storage.Timescale.MaxConns, "storage.timescale.max_conns")
+		if err != nil {
+			return err
+		}
+		minConns, err := int32FromConfig(cfg.Storage.Timescale.MinConns, "storage.timescale.min_conns")
+		if err != nil {
+			return err
+		}
 		pool, p := timescale.NewPool(ctx, timescale.PoolConfig{
 			DSN:               cfg.Storage.Timescale.DSN,
-			MaxConns:          int32(cfg.Storage.Timescale.MaxConns),
-			MinConns:          int32(cfg.Storage.Timescale.MinConns),
+			MaxConns:          maxConns,
+			MinConns:          minConns,
 			MaxConnLifetime:   cfg.Storage.Timescale.MaxConnLifetimeDuration(),
 			MaxConnIdleTime:   cfg.Storage.Timescale.MaxConnIdleTimeDuration(),
 			HealthCheckPeriod: cfg.Storage.Timescale.HealthCheckPeriodDuration(),
@@ -142,6 +151,13 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	actorruntime.ShutdownGuardian(shutCtx, e, guardianPID, logger)
 	logger.Info("server: shutdown complete")
 	return nil
+}
+
+func int32FromConfig(v int, field string) (int32, error) {
+	if v < math.MinInt32 || v > math.MaxInt32 {
+		return 0, fmt.Errorf("%s out of int32 range: %d", field, v)
+	}
+	return int32(v), nil
 }
 
 func enableWSRoute(

@@ -24,6 +24,7 @@ func (soakEnvelopeStore) StoreEnvelope(envelope.Envelope) {}
 
 const wsSoakEnableEnv = "MR_ENABLE_SOAK"
 
+//nolint:gocyclo // end-to-end soak flow intentionally validates many lifecycle branches.
 func TestSoak_WSDelivery_SlowClients(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping soak test in short mode")

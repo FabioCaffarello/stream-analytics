@@ -16,6 +16,8 @@ import (
 type fakePublisher struct {
 	snaps        []domain.SnapshotProduced
 	inconsistent []domain.OrderBookInconsistentDetected
+	candles      []domain.CandleClosed
+	stats        []domain.StatsWindowClosed
 	snapErr      *problem.Problem
 }
 
@@ -29,6 +31,16 @@ func (f *fakePublisher) PublishSnapshot(_ context.Context, s domain.SnapshotProd
 
 func (f *fakePublisher) PublishInconsistent(_ context.Context, e domain.OrderBookInconsistentDetected) *problem.Problem {
 	f.inconsistent = append(f.inconsistent, e)
+	return nil
+}
+
+func (f *fakePublisher) PublishCandleClosed(_ context.Context, e domain.CandleClosed) *problem.Problem {
+	f.candles = append(f.candles, e)
+	return nil
+}
+
+func (f *fakePublisher) PublishStatsClosed(_ context.Context, e domain.StatsWindowClosed) *problem.Problem {
+	f.stats = append(f.stats, e)
 	return nil
 }
 

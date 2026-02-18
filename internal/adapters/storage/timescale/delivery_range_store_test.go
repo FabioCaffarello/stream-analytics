@@ -45,3 +45,27 @@ func TestDeliveryRangeStore_GetRange(t *testing.T) {
 		t.Fatalf("first seq=%d want=%d", got, want)
 	}
 }
+
+func TestPgRangeStore_NilPool_GracefulFallback(t *testing.T) {
+	store := timescale.NewPgRangeStore(nil, 10)
+	sub, p := domain.ParseSubject("aggregation.snapshot/binance/BTCUSDT/raw")
+	if p != nil {
+		t.Fatalf("ParseSubject: %v", p)
+	}
+	items, pp := store.GetRange(context.Background(), sub, 0, 0, 10)
+	if pp != nil {
+		t.Fatalf("GetRange: %v", pp)
+	}
+	if len(items) != 0 {
+		t.Fatalf("items len=%d want=0", len(items))
+	}
+	store.StoreEnvelope(envelope.Envelope{
+		Type:       "aggregation.snapshot",
+		Version:    1,
+		Venue:      "binance",
+		Instrument: "BTCUSDT",
+		Seq:        1,
+		TsIngest:   1,
+		Payload:    []byte(`{"ok":true}`),
+	})
+}

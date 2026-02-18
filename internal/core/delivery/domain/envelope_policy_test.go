@@ -17,6 +17,18 @@ func TestValidateEnvelopeForDelivery_AllowsAggregationSnapshot(t *testing.T) {
 	}
 }
 
+func TestValidateEnvelopeForDelivery_AllowsAggregationCandleAndStats(t *testing.T) {
+	for _, eventType := range []string{"aggregation.candle", "aggregation.stats"} {
+		p := domain.ValidateEnvelopeForDelivery(envelope.Envelope{
+			Type:    eventType,
+			Version: 1,
+		})
+		if p != nil {
+			t.Fatalf("ValidateEnvelopeForDelivery(%q) failed: %v", eventType, p)
+		}
+	}
+}
+
 func TestValidateEnvelopeForDelivery_RejectsUnknownType(t *testing.T) {
 	p := domain.ValidateEnvelopeForDelivery(envelope.Envelope{
 		Type:    "insights.unknown",
