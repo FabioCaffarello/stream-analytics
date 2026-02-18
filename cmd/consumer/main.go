@@ -27,7 +27,6 @@ func main() {
 	logLevelOverride := flag.String("log-level", "", "log level override: debug|info|warn|error")
 	busTypeOverride := flag.String("bus", "", "bus adapter override: inmemory|jetstream")
 	recordPathOverride := flag.String("record", "", "optional fixture path to record published envelopes")
-	recordPathLegacyOverride := flag.String("record-path", "", "deprecated: use -record")
 	replayPathOverride := flag.String("replay", "", "optional fixture path to replay envelopes offline")
 	shardIndex := flag.Int("shard-index", -1, "shard index override (0-based); env: SHARD_INDEX")
 	shardCount := flag.Int("shard-count", -1, "total shard count override; env: SHARD_COUNT")
@@ -40,12 +39,8 @@ func main() {
 		if *busTypeOverride != "" {
 			c.Bus.Type = *busTypeOverride
 		}
-		recordPath := strings.TrimSpace(*recordPathOverride)
-		if recordPath == "" {
-			recordPath = strings.TrimSpace(*recordPathLegacyOverride)
-		}
-		if recordPath != "" {
-			c.MarketData.RecordPath = recordPath
+		if strings.TrimSpace(*recordPathOverride) != "" {
+			c.MarketData.RecordPath = strings.TrimSpace(*recordPathOverride)
 		}
 		if strings.TrimSpace(*replayPathOverride) != "" {
 			c.MarketData.ReplayPath = strings.TrimSpace(*replayPathOverride)

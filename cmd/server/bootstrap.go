@@ -25,6 +25,11 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	logger := bootstrap.BuildLogger(cfg.Log)
 	slog.SetDefault(logger)
 	logger.Info("server starting", "addr", cfg.HTTP.Addr)
+	if !timescale.IsProductionReady() {
+		logger.Warn("server: timescale adapter running in non-production stub mode",
+			"adapter_mode", timescale.AdapterMode(),
+		)
+	}
 
 	// ── engine ────────────────────────────────────────────────────────────
 	e, err := actorruntime.NewDefaultEngine()

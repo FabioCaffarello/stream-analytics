@@ -11,6 +11,8 @@ import (
 	ws "github.com/market-raccoon/internal/actors/marketdata/ws"
 	runtime "github.com/market-raccoon/internal/actors/runtime"
 	mdapp "github.com/market-raccoon/internal/core/marketdata/app"
+	"github.com/market-raccoon/internal/core/marketdata/domain"
+	"github.com/market-raccoon/internal/shared/codec"
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/problem"
 )
@@ -36,6 +38,14 @@ func (s *spyPublisher) count() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.published)
+}
+
+func (s *spyPublisher) snapshot() []envelope.Envelope {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]envelope.Envelope, len(s.published))
+	copy(out, s.published)
+	return out
 }
 
 // fakeSequencer provides monotonically increasing sequence numbers.
@@ -387,6 +397,103 @@ func TestSubsystem_NoManagerSpawned_whenConfigIsNil(t *testing.T) {
 	pid := e.Spawn(mdruntime.NewSubsystemActor(cfg), "subsystem", actor.WithID("subsystem"))
 	time.Sleep(30 * time.Millisecond)
 	// No panic or error expected; actor starts and waits for messages.
+	<-e.Poison(pid).Done()
+}
+
+func TestSubsystem_MarkPriceNormalization_setsCanonicalAndIdempotency(t *testing.T) {
+	pub := &spyPublisher{}
+	svc := newTestService(pub)
+	parse := mdruntime.ParseFunc(func(_ *ws.WsMessage) (mdapp.IngestRequest, bool) {
+		return mdapp.IngestRequest{
+			Venue:      " binance ",
+			Instrument: " btc/usdt ",
+			EventType:  "MARKETDATA.MARKPRICE",
+			Version:    1,
+			TsExchange: 1710000001000,
+			Payload: domain.MarkPriceTickV1{
+				MarkPrice:   50000,
+				IndexPrice:  49990,
+				FundingRate: 0.0001,
+				Timestamp:   1710000001000,
+			},
+		}, false
+	})
+
+	cfg := mdruntime.SubsystemConfig{
+		Service:      svc,
+		ParseMessage: parse,
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(mdruntime.NewSubsystemActor(cfg), "subsystem", actor.WithID("subsystem"))
+
+	msg := makeWsMessage("binance", "wss://fake", []byte(`{"e":"markPriceUpdate"}`))
+	msg.RecvAt = time.UnixMilli(1710000001000)
+	e.Send(pid, msg)
+
+	waitFor(t, 2*time.Second, func() bool { return pub.count() == 1 })
+	env := pub.snapshot()[0]
+	if env.Venue != "BINANCE" {
+		t.Fatalf("env venue=%q want BINANCE", env.Venue)
+	}
+	if env.Instrument != "BTCUSDT" {
+		t.Fatalf("env instrument=%q want BTCUSDT", env.Instrument)
+	}
+	if env.Type != "marketdata.markprice" {
+		t.Fatalf("env type=%q want marketdata.markprice", env.Type)
+	}
+	if env.IdempotencyKey == "" {
+		t.Fatal("idempotency key must not be empty after normalization")
+	}
+	decoded, p := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
+	if p != nil {
+		t.Fatalf("decode payload failed: %v", p)
+	}
+	if _, ok := decoded.(domain.MarkPriceTickV1); !ok {
+		t.Fatalf("decoded type=%T want=%T", decoded, domain.MarkPriceTickV1{})
+	}
+
+	<-e.Poison(pid).Done()
+}
+
+func TestSubsystem_LiquidationDuplicateSkippedByNormalizer(t *testing.T) {
+	pub := &spyPublisher{}
+	svc := newTestService(pub)
+	parse := mdruntime.ParseFunc(func(_ *ws.WsMessage) (mdapp.IngestRequest, bool) {
+		return mdapp.IngestRequest{
+			Venue:      "BYBIT",
+			Instrument: "ETH-USDT",
+			EventType:  "marketdata.liquidation",
+			Version:    1,
+			TsExchange: 1710000002000,
+			Payload: domain.LiquidationTickV1{
+				Side:      "SELL",
+				Price:     3200.5,
+				Size:      10,
+				Timestamp: 1710000002000,
+			},
+		}, false
+	})
+
+	cfg := mdruntime.SubsystemConfig{
+		Service:      svc,
+		ParseMessage: parse,
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(mdruntime.NewSubsystemActor(cfg), "subsystem", actor.WithID("subsystem"))
+
+	msg := makeWsMessage("bybit", "wss://fake", []byte(`{"e":"forceOrder"}`))
+	msg.RecvAt = time.UnixMilli(1710000002000)
+	e.Send(pid, msg)
+	e.Send(pid, msg)
+
+	waitFor(t, 2*time.Second, func() bool { return pub.count() == 1 })
+	time.Sleep(50 * time.Millisecond)
+	if pub.count() != 1 {
+		t.Fatalf("expected duplicate liquidation to be skipped; published=%d", pub.count())
+	}
+
 	<-e.Poison(pid).Done()
 }
 

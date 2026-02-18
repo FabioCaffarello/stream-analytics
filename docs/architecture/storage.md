@@ -2,7 +2,7 @@
 
 **Status:** Draft
 **Owner:** Product Architect
-**Last updated:** 2026-02-13
+**Last updated:** 2026-02-18
 **Relates to:** `docs/adrs/ADR-0002-event-envelope-and-versioning.md`, `docs/adrs/ADR-0004-bus-nats-jetstream.md`, `docs/adrs/ADR-0006-storage-hot-vs-cold.md`, `docs/adrs/ADR-0013-backpressure-overload-policies.md`, `docs/adrs/ADR-0014-stream-partitioning-strategy.md`, `docs/adrs/ADR-0015-deterministic-replay-time-invariants.md`, `docs/adrs/ADR-0018-actor-topology-supervision-model.md`
 
 ## Purpose
@@ -11,6 +11,10 @@ Define parity-v1 storage boundaries without introducing runtime features in this
 - current hot path in memory (authoritative for realtime delivery, per ADR-0006 amendment);
 - planned durable hot extension (Timescale);
 - planned cold analytical extension (ClickHouse).
+
+Execution note (2026-02-18):
+- Timescale implementation is explicitly out of scope for the current codebase modernization cycle.
+- Timescale items remain documented as planned, while delivery focuses on boundary hardening and domain closure without new Timescale adapters.
 
 ## Terminology (canonical)
 
@@ -59,6 +63,10 @@ Planned Timescale layer for short/medium query windows:
 - `timescale.insights_volume_profile_hot`
 - `timescale.marketdata_markprice_hot`
 - `timescale.marketdata_liquidation_hot`
+
+Current cycle policy:
+- no new Timescale implementation work;
+- existing in-repo placeholders/stubs are treated as non-production adapters.
 
 ### Plane D: L2 Cold Analytics (planned)
 

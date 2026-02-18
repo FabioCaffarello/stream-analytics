@@ -113,6 +113,7 @@ Operational minimum:
 |---|---|---|---|
 | Deterministic `ApplyDelta` and crossed-book detection | Existing | `internal/core/aggregation/domain/orderbook.go` | `internal/core/aggregation/domain/orderbook_test.go` |
 | Orderbook use case publishes snapshot + inconsistency | Existing | `internal/core/aggregation/app/update_orderbook.go` | `internal/core/aggregation/app/update_orderbook_test.go` |
+| Commit boundary in use case (save before publish) | Existing | `internal/core/aggregation/app/update_orderbook.go` | `internal/core/aggregation/app/update_orderbook_test.go:TestUpdateOrderBook_saveFailureDoesNotPublishSnapshot` |
 | Replay golden for aggregation snapshots | Existing | `internal/core/aggregation/app/golden_replay_test.go` | `internal/core/aggregation/app/golden_replay_test.go:TestAggregationGoldenReplayFromFixture` |
 | Processor routing `marketdata.bookdelta` -> aggregation | Existing | `internal/actors/aggregation/runtime/processor.go` | `internal/actors/aggregation/runtime/processor_test.go:TestProcessor_BookDelta_callsUpdateOrderBook` |
 | Durable hot/cold writers for orderbook | TODO | `internal/adapters/storage/timescale/` and `internal/adapters/storage/clickhouse/` (TODO) | `internal/adapters/storage/orderbook_snapshot_writer_test.go` (TODO) |
@@ -126,14 +127,14 @@ Existing tests:
 - `internal/core/aggregation/domain/orderbook_test.go:TestOrderBook_maxLevelsBoundedPerSide`
 - `internal/core/aggregation/app/update_orderbook_test.go:TestUpdateOrderBook_crossedBook`
 - `internal/core/aggregation/app/update_orderbook_test.go:TestUpdateOrderBook_boundedBooksEvictionDeterministicVictim`
+- `internal/core/aggregation/app/update_orderbook_test.go:TestUpdateOrderBook_saveFailureDoesNotPublishSnapshot`
 - `internal/core/aggregation/app/golden_replay_test.go:TestAggregationGoldenReplayFromFixture`
 - `internal/actors/aggregation/runtime/processor_test.go:TestProcessor_BookDelta_callsUpdateOrderBook`
+- `internal/interfaces/ws/orderbook_delivery_contract_test.go:TestOrderbookDeliverySlowClientPolicy`
+- `internal/interfaces/ws/orderbook_delivery_contract_test.go:TestOrderbookDeliveryReplayRangeDeterministic`
 
 Tests to create (contract/storage/delivery parity):
-- `internal/actors/aggregation/runtime/processor_test.go:TestProcessor_BookDelta_AckOnCommitBoundary` (TODO)
 - `internal/adapters/storage/orderbook_snapshot_writer_test.go:TestOrderbookSnapshotWriter_IdempotentUpsert` (TODO)
-- `internal/interfaces/ws/orderbook_delivery_contract_test.go:TestOrderbookDeliverySlowClientPolicy` (TODO)
-- `internal/interfaces/ws/orderbook_delivery_contract_test.go:TestOrderbookDeliveryReplayRangeDeterministic` (TODO)
 
 ## Evidence Hooks
 
@@ -149,7 +150,6 @@ TODO hooks (skeleton):
 - `internal/core/aggregation/app/publish_orderbook_snapshot.go` (TODO)
 - `internal/adapters/storage/timescale/orderbook_snapshot_writer.go` (TODO)
 - `internal/adapters/storage/clickhouse/orderbook_snapshot_writer.go` (TODO)
-- `internal/interfaces/ws/orderbook_delivery_contract_test.go` (TODO)
 
 ## Failure Modes
 

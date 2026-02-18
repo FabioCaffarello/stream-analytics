@@ -53,7 +53,8 @@ func BuildEndpoint(baseURL string, tickers []string, marketType string) (string,
 }
 
 // BuildSubscriptions returns Bybit subscribe frames for trade+bookdelta topics.
-func BuildSubscriptions(tickers []string) ([][]byte, *problem.Problem) {
+// When includeMarkPriceLiquidation=true, adds tickers/liquidation topics.
+func BuildSubscriptions(tickers []string, includeMarkPriceLiquidation bool) ([][]byte, *problem.Problem) {
 	if len(tickers) == 0 {
 		return nil, problem.WithDetail(
 			problem.New(problem.ValidationFailed, "bybit subscriptions require at least one ticker"),
@@ -61,7 +62,11 @@ func BuildSubscriptions(tickers []string) ([][]byte, *problem.Problem) {
 		)
 	}
 
-	args := make([]string, 0, len(tickers)*2)
+	topicsPerTicker := 2
+	if includeMarkPriceLiquidation {
+		topicsPerTicker = 4
+	}
+	args := make([]string, 0, len(tickers)*topicsPerTicker)
 	for i, rawTicker := range tickers {
 		symbol := naming.CanonicalInstrument(rawTicker)
 		if symbol == "" {
@@ -74,6 +79,12 @@ func BuildSubscriptions(tickers []string) ([][]byte, *problem.Problem) {
 			fmt.Sprintf("publicTrade.%s", symbol),
 			fmt.Sprintf("orderbook.50.%s", symbol),
 		)
+		if includeMarkPriceLiquidation {
+			args = append(args,
+				fmt.Sprintf("tickers.%s", symbol),
+				fmt.Sprintf("liquidation.%s", symbol),
+			)
+		}
 	}
 
 	body, err := json.Marshal(map[string]any{

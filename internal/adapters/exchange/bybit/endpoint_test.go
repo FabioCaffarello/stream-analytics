@@ -42,7 +42,7 @@ func TestBuildEndpoint_RejectsInvalidMarketType(t *testing.T) {
 }
 
 func TestBuildSubscriptions(t *testing.T) {
-	msgs, p := bybit.BuildSubscriptions([]string{"BTC-USDT", "ethusdt"})
+	msgs, p := bybit.BuildSubscriptions([]string{"BTC-USDT", "ethusdt"}, false)
 	if p != nil {
 		t.Fatalf("BuildSubscriptions: %v", p)
 	}
@@ -51,6 +51,20 @@ func TestBuildSubscriptions(t *testing.T) {
 	}
 	body := string(msgs[0])
 	if !strings.Contains(body, "publicTrade.BTCUSDT") || !strings.Contains(body, "orderbook.50.ETHUSDT") {
+		t.Fatalf("unexpected subscription body: %s", body)
+	}
+}
+
+func TestBuildSubscriptions_IncludesMarkPriceLiquidation(t *testing.T) {
+	msgs, p := bybit.BuildSubscriptions([]string{"BTC-USDT"}, true)
+	if p != nil {
+		t.Fatalf("BuildSubscriptions: %v", p)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("messages len = %d, want 1", len(msgs))
+	}
+	body := string(msgs[0])
+	if !strings.Contains(body, "tickers.BTCUSDT") || !strings.Contains(body, "liquidation.BTCUSDT") {
 		t.Fatalf("unexpected subscription body: %s", body)
 	}
 }

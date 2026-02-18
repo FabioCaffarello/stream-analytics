@@ -70,6 +70,8 @@ type SessionActor struct {
 	flushing     bool
 }
 
+const sessionBackpressurePolicy = domain.BackpressureDropNewest
+
 func NewSessionActor(cfg SessionConfig) actor.Producer {
 	return func() actor.Receiver {
 		return &SessionActor{cfg: cfg}
@@ -386,7 +388,7 @@ func (s *SessionActor) handleGetRange(cmd clientCommand) {
 }
 
 func (s *SessionActor) enqueueDelivery(evt DeliveryEvent) {
-	if len(s.outbound) >= s.outboundCap {
+	if domain.ShouldDropOnBackpressure(sessionBackpressurePolicy, len(s.outbound), s.outboundCap) {
 		metrics.IncWSDrops("queue_full")
 		return
 	}

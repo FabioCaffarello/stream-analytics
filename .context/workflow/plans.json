@@ -7,6 +7,14 @@
       "summary": "Make sharding production-grade with lag/backlog budgets per shard, fairness/distribution checks, hot-shard skew alerting, and operational runbook for shard incidents.",
       "linkedAt": "2026-02-17T18:07:50.444Z",
       "status": "active"
+    },
+    {
+      "slug": "codebase-evolution-modernization",
+      "path": "plans/codebase-evolution-modernization.md",
+      "title": "Codebase Evolution and Modernization Program",
+      "summary": "Plano mestre para remover legado, consolidar design patterns, fechar lacunas de implementacao planejada e definir a evolucao do Market Raccoon com gates de qualidade.",
+      "linkedAt": "2026-02-18T15:21:48.588Z",
+      "status": "active"
     }
   ],
   "completed": [],

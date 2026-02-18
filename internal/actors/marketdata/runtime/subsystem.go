@@ -12,6 +12,7 @@ import (
 	"github.com/market-raccoon/internal/core/marketdata/app"
 	"github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/shared/metrics"
+	"github.com/market-raccoon/internal/shared/naming"
 	"github.com/market-raccoon/internal/shared/problem"
 )
 
@@ -82,6 +83,8 @@ type SubsystemActor struct {
 	wsConnectedByID map[string]bool
 	backpressureOn  bool
 	lastHeartbeatAt time.Time
+
+	lmNormalizer *app.NormalizeMarkPriceLiquidation
 }
 
 type publishTick struct {
@@ -151,6 +154,9 @@ func (s *SubsystemActor) ensureDefaults() {
 	}
 	if s.wsConnectedByID == nil {
 		s.wsConnectedByID = make(map[string]bool)
+	}
+	if s.lmNormalizer == nil {
+		s.lmNormalizer = app.NewNormalizeMarkPriceLiquidation(app.NormalizeMarkPriceLiquidationConfig{})
 	}
 }
 
@@ -275,6 +281,15 @@ func (s *SubsystemActor) processMessage(msg *ws.WsMessage) {
 		return
 	}
 
+	req, duplicate := s.normalizeMarkPriceLiquidation(msg, req)
+	if duplicate {
+		metrics.IncWSMessageReceived(msg.Exchange, req.EventType)
+		metrics.ObserveIngest(msg.Exchange, req.Instrument, req.EventType, "duplicate", 0)
+		s.telemetry.recordSkip(msg.Exchange, req.EventType, "duplicate_normalized", string(problem.Duplicate), req.Instrument, req.Metadata["ws_stream"])
+		s.logProgress()
+		return
+	}
+
 	if req.EventType == "marketdata.bookdelta" {
 		if depth, ok := req.Payload.(domain.BookDeltaV1); ok && depth.FirstID > 0 && depth.FinalID > 0 {
 			if gap, lastFinal := s.telemetry.recordDepthSequence(req.Instrument, depth.FirstID, depth.FinalID); gap {
@@ -333,6 +348,80 @@ func (s *SubsystemActor) processMessage(msg *ws.WsMessage) {
 		"seq", resp.Seq,
 		"exchange", msg.Exchange,
 	)
+}
+
+func (s *SubsystemActor) normalizeMarkPriceLiquidation(msg *ws.WsMessage, req app.IngestRequest) (app.IngestRequest, bool) {
+	eventType := naming.NormalizeEventType(req.EventType)
+	if eventType != "marketdata.markprice" && eventType != "marketdata.liquidation" {
+		return req, false
+	}
+	if s.lmNormalizer == nil {
+		return req, false
+	}
+
+	tsIngest := msg.RecvAt.UnixMilli()
+	if tsIngest <= 0 {
+		tsIngest = time.Now().UnixMilli()
+	}
+	normReq := app.NormalizeMarkPriceLiquidationRequest{
+		Venue:             req.Venue,
+		Instrument:        req.Instrument,
+		EventType:         req.EventType,
+		Version:           req.Version,
+		TsExchange:        req.TsExchange,
+		TsIngest:          tsIngest,
+		SourceIdempotency: req.IdempotencyKey,
+	}
+	switch eventType {
+	case "marketdata.markprice":
+		switch p := req.Payload.(type) {
+		case domain.MarkPriceTickV1:
+			payload := p
+			normReq.MarkPricePayload = &payload
+		case *domain.MarkPriceTickV1:
+			normReq.MarkPricePayload = p
+		default:
+			s.logger.Warn("mdruntime: markprice payload type mismatch",
+				"payload_type", fmt.Sprintf("%T", req.Payload),
+			)
+			return req, false
+		}
+	case "marketdata.liquidation":
+		switch p := req.Payload.(type) {
+		case domain.LiquidationTickV1:
+			payload := p
+			normReq.LiquidationPayload = &payload
+		case *domain.LiquidationTickV1:
+			normReq.LiquidationPayload = p
+		default:
+			s.logger.Warn("mdruntime: liquidation payload type mismatch",
+				"payload_type", fmt.Sprintf("%T", req.Payload),
+			)
+			return req, false
+		}
+	}
+
+	res := s.lmNormalizer.Execute(context.Background(), normReq)
+	if res.IsFail() {
+		s.logger.Warn("mdruntime: lm normalization failed",
+			"event_type", req.EventType,
+			"problem", res.Problem(),
+		)
+		return req, false
+	}
+	out := res.Value()
+	req.Venue = out.Venue
+	req.Instrument = out.Instrument
+	req.EventType = out.EventType
+	req.Version = out.Version
+	req.IdempotencyKey = out.DedupKey
+	if out.MarkPrice != nil {
+		req.Payload = *out.MarkPrice
+	}
+	if out.Liquidation != nil {
+		req.Payload = *out.Liquidation
+	}
+	return req, out.IsDuplicate
 }
 
 func (s *SubsystemActor) logProgress() {

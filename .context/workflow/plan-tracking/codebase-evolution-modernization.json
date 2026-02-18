@@ -1,0 +1,223 @@
+{
+  "phases": {
+    "phase-1": {
+      "status": "completed",
+      "updatedAt": "2026-02-18T15:22:59.602Z"
+    },
+    "phase-2": {
+      "status": "in_progress",
+      "updatedAt": "2026-02-18T15:53:31.107Z"
+    }
+  },
+  "progress": 33,
+  "decisions": [
+    {
+      "title": "Timescale out of scope for modernization cycle",
+      "description": "Neste ciclo M1-M4 nao sera implementado adapter Timescale. Itens timescale permanecem Planned/TODO e o trabalho foca em remocao de legado, hardening de boundaries e fechamento de dominios sem novo path Timescale.",
+      "phase": "P",
+      "alternatives": [
+        "Implementar parcialmente writer Timescale para orderbook",
+        "Adiar toda trilha de storage sem hardening de boundaries"
+      ],
+      "status": "accepted",
+      "id": "dec-1771428126315",
+      "decidedAt": "2026-02-18T15:22:06.315Z"
+    },
+    {
+      "title": "Timescale stubs isolated with explicit non-production mode",
+      "description": "Foi adicionado status explicito no pacote timescale (stub-memory, non-production) e warnings nos composition roots de server e processor para evitar interpretacao de readiness de adapter duravel.",
+      "phase": "E",
+      "alternatives": [
+        "Manter apenas comments em codigo sem sinalizacao em runtime",
+        "Remover completamente stubs timescale neste momento"
+      ],
+      "status": "accepted",
+      "id": "dec-1771428179613",
+      "decidedAt": "2026-02-18T15:22:59.613Z"
+    },
+    {
+      "title": "Plan queue hygiene applied for executable focus",
+      "description": "README de planos foi reorganizado para separar fila ativa de planos executaveis e backlog de templates com TODOs, reduzindo ruido de governanca e risco de execucao em plano incompleto.",
+      "phase": "E",
+      "alternatives": [
+        "Manter todos os planos misturados na fila unica",
+        "Remover planos incompletos sem manter backlog visivel"
+      ],
+      "status": "accepted",
+      "id": "dec-1771428222549",
+      "decidedAt": "2026-02-18T15:23:42.549Z"
+    },
+    {
+      "title": "Delivery backpressure policy formalized in domain",
+      "description": "Policy drop_newest foi extraida para internal/core/delivery/domain/backpressure_policy.go e runtime session passou a depender da policy de dominio. Foi adicionado teste dedicado TestWSBackpressureSlowClientDropPolicy e contrato delivery-ws atualizado.",
+      "phase": "E",
+      "alternatives": [
+        "Manter policy implícita apenas no actor runtime",
+        "Implementar múltiplas policies configuráveis neste momento"
+      ],
+      "status": "accepted",
+      "id": "dec-1771428454497",
+      "decidedAt": "2026-02-18T15:27:34.497Z"
+    },
+    {
+      "title": "Orderbook commit boundary hardened in use case",
+      "description": "UpdateOrderBook agora persiste snapshot antes de publicar. Foi adicionado teste TestUpdateOrderBook_saveFailureDoesNotPublishSnapshot para impedir publish quando Save falha, reforcando semantica de commit boundary.",
+      "phase": "E",
+      "alternatives": [
+        "Manter ordem publish->save e tratar rollback posterior",
+        "Empurrar garantia apenas para camada de adapter"
+      ],
+      "status": "accepted",
+      "id": "dec-1771428547773",
+      "decidedAt": "2026-02-18T15:29:07.773Z"
+    },
+    {
+      "title": "WS and orderbook contract tests added for M2 closure",
+      "description": "Foram adicionados testes de contrato em internal/interfaces/ws cobrindo range deterministico, race subscribe/unsubscribe e reconnect/resubscribe, alem de testes de contrato orderbook para slow-client policy e replay range deterministic. Docs de delivery e orderbook foram atualizados removendo TODOs correspondentes.",
+      "phase": "E",
+      "alternatives": [
+        "Deixar testes apenas em runtime/session sem cobertura de interface WS",
+        "Postergar contratos e manter TODO documental"
+      ],
+      "status": "accepted",
+      "id": "dec-1771428841201",
+      "decidedAt": "2026-02-18T15:34:01.201Z"
+    },
+    {
+      "title": "Delivery feature-pack and orderbook docs synchronized with implemented tests",
+      "description": "Removidos TODOs já resolvidos no feature-pack delivery-ws e no orderbook architecture hooks para refletir os testes efetivamente entregues (backpressure + contract tests de WS/orderbook).",
+      "phase": "E",
+      "alternatives": [
+        "Manter TODOs até closeout final",
+        "Atualizar apenas docs canônicos e deixar feature-pack desatualizado"
+      ],
+      "status": "accepted",
+      "id": "dec-1771429146754",
+      "decidedAt": "2026-02-18T15:39:06.754Z"
+    },
+    {
+      "title": "M3 started with markprice/liquidation ingest baseline tests",
+      "description": "Adicionados testes em ingest para marketdata.markprice e marketdata.liquidation validando encode/decode e publicação, e documentação de liquidations-markprice atualizada com essa evidência baseline.",
+      "phase": "E",
+      "alternatives": [
+        "Aguardar pipeline dedicado antes de criar qualquer teste",
+        "Focar apenas em documentação sem adicionar testes de baseline"
+      ],
+      "status": "accepted",
+      "id": "dec-1771429146760",
+      "decidedAt": "2026-02-18T15:39:06.760Z"
+    },
+    {
+      "title": "Markprice over liquidation backpressure priority implemented and documented",
+      "description": "No runtime marketdata queue, mensagens de markprice agora preservam prioridade sobre liquidation sob pressão (quando sem depth disponível), com teste dedicado e atualização do documento liquidations-markprice.",
+      "phase": "E",
+      "alternatives": [
+        "Manter priorização apenas como requisito documental",
+        "Aguardar pipeline dedicado para introduzir prioridade"
+      ],
+      "status": "accepted",
+      "id": "dec-1771429219932",
+      "decidedAt": "2026-02-18T15:40:19.932Z"
+    },
+    {
+      "title": "Liquidations feature-pack synchronized with new baseline evidence",
+      "description": "Feature-pack de liquidations-markprice foi atualizado para refletir testes e evidências já implementados (ingest markprice/liquidation e prioridade de backpressure no runtime), mantendo pipeline dedicado como TODO.",
+      "phase": "E",
+      "alternatives": [
+        "Manter evidência apenas em docs de arquitetura",
+        "Adiar sincronização do feature-pack para fase de closeout"
+      ],
+      "status": "accepted",
+      "id": "dec-1771429254192",
+      "decidedAt": "2026-02-18T15:40:54.192Z"
+    },
+    {
+      "title": "Dedicated markprice/liquidation normalization use case implemented",
+      "description": "Foi criado normalize_markprice_liquidation no core marketdata app com dedup key forte e normalização canônica, incluindo testes TestMarkPriceDedupStrongKey, TestLiquidationDedupStrongKey e TestMarkPriceLiquidationCanonicalNormalization. Docs e feature-pack foram atualizados para refletir baseline existente e manter apenas pipeline dedicado como TODO.",
+      "phase": "E",
+      "alternatives": [
+        "Manter dedup apenas no ingest genérico sem use case dedicado",
+        "Implementar pipeline completo de runtime antes de introduzir normalizer"
+      ],
+      "status": "accepted",
+      "id": "dec-1771429529109",
+      "decidedAt": "2026-02-18T15:45:29.109Z"
+    },
+    {
+      "title": "Markprice/liquidation dedup key strategy extracted to dedicated module",
+      "description": "Foi criado dedup_keys_markprice_liquidation.go com builders explícitos de chave forte para markprice e liquidation. O normalizer passou a usar esse módulo e foram adicionados testes unitários dedicados de estabilidade/canonicalização.",
+      "phase": "E",
+      "alternatives": [
+        "Manter dedup embutido apenas dentro do normalizer",
+        "Centralizar dedup key apenas em runtime sem contrato no app core"
+      ],
+      "status": "accepted",
+      "id": "dec-1771429653377",
+      "decidedAt": "2026-02-18T15:47:33.377Z"
+    },
+    {
+      "title": "Dedup keys module and runtime replay golden established for markprice/liquidation",
+      "description": "A estratégia de dedup key foi extraída para dedup_keys_markprice_liquidation.go com testes dedicados, o normalizer foi acoplado a esse módulo, e foi adicionado TestMarkPriceLiquidationReplayGolden no runtime para garantir replay determinístico do baseline atual.",
+      "phase": "E",
+      "alternatives": [
+        "Manter dedup key sem módulo dedicado",
+        "Adiar replay golden até pipeline completo"
+      ],
+      "status": "accepted",
+      "id": "dec-1771429731137",
+      "decidedAt": "2026-02-18T15:48:51.137Z"
+    },
+    {
+      "title": "Integrar normalizador dedicado no runtime marketdata",
+      "description": "O SubsystemActor agora aplica NormalizeMarkPriceLiquidation para marketdata.markprice e marketdata.liquidation antes do ingest, padroniza venue/instrument/event_type, define idempotency key forte via dedup key e descarta duplicatas no runtime para reduzir carga e manter determinismo de replay/ingest.",
+      "phase": "E",
+      "alternatives": [
+        "Manter dedup apenas no aggregate de ingest por seq/idempotency implícita",
+        "Aplicar normalização somente nos parsers por exchange"
+      ],
+      "status": "accepted",
+      "id": "dec-1771430011112",
+      "decidedAt": "2026-02-18T15:53:31.112Z"
+    },
+    {
+      "title": "Parsers Binance/Bybit estendidos para markprice e liquidation",
+      "description": "Adapters de exchange agora convertem eventos de markprice/liquidation em payloads canônicos (marketdata.markprice e marketdata.liquidation), mantendo metadados de instrument identity e compatibilidade com normalização/dedup no runtime.",
+      "phase": "E",
+      "alternatives": [
+        "Manter parser limitado a trade/bookdelta e depender apenas de payload raw",
+        "Implementar markprice/liquidation somente para um exchange nesta etapa"
+      ],
+      "status": "accepted",
+      "id": "dec-1771430401252",
+      "decidedAt": "2026-02-18T16:00:01.252Z"
+    },
+    {
+      "title": "Baseline integrado validado com test-short após parser/runtime M3",
+      "description": "Após integração do normalizador runtime e extensão dos parsers Binance/Bybit para markprice/liquidation, o baseline integrado foi validado com make test-short, docs-check e invariants-check sem regressões.",
+      "phase": "E",
+      "alternatives": [
+        "Validar apenas pacotes tocados e adiar suíte curta",
+        "Executar apenas checks de lint/docs sem testes de integração curta"
+      ],
+      "status": "accepted",
+      "id": "dec-1771430435868",
+      "decidedAt": "2026-02-18T16:00:35.868Z"
+    },
+    {
+      "title": "Rollout gate de markprice/liquidation acoplado ao planner",
+      "description": "Adicionada flag consumer.enable_markprice_liquidation para ativar streams/subscriptions de markprice/liquidation em Binance/Bybit, com validação de capacidade: spot exige streams_per_ticker=4 quando ativado (e 2 quando desativado), evitando drift entre planejamento do ws.Manager e quantidade real de streams.",
+      "phase": "E",
+      "status": "accepted",
+      "id": "dec-1771430650354",
+      "decidedAt": "2026-02-18T16:04:10.354Z"
+    },
+    {
+      "title": "Rollout de streams LM coberto com testes de runtime wiring",
+      "description": "Foram adicionados testes em cmd/consumer para garantir que enable_markprice_liquidation alterna corretamente endpoint/subscription builders de Binance e Bybit, prevenindo regressão na montagem de streams em produção.",
+      "phase": "E",
+      "status": "accepted",
+      "id": "dec-1771430743855",
+      "decidedAt": "2026-02-18T16:05:43.855Z"
+    }
+  ]
+}

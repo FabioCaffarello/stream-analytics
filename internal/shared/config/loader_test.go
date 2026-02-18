@@ -454,6 +454,28 @@ func TestValidate_ConsumerExchangesUnknownType(t *testing.T) {
 	}
 }
 
+func TestValidate_ConsumerSpotMarkPriceLiquidationStreamBaseline(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Consumer.EnableMarkPriceLiquidation = true
+	cfg.Consumer.StreamsPerTicker = 2
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("expected validation error for mismatched streams_per_ticker when enable_markprice_liquidation=true")
+	}
+	if !strings.Contains(prob.Message, "baseline=4") {
+		t.Fatalf("expected baseline=4 in validation message, got: %q", prob.Message)
+	}
+}
+
+func TestValidate_ConsumerSpotMarkPriceLiquidationStreamBaselineOK(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Consumer.EnableMarkPriceLiquidation = true
+	cfg.Consumer.StreamsPerTicker = 4
+	if prob := cfg.Validate(); prob != nil {
+		t.Fatalf("expected valid config for enable_markprice_liquidation=true and streams_per_ticker=4, got: %v", prob)
+	}
+}
+
 func TestValidate_ConsumerInvalidRespawnOverlap(t *testing.T) {
 	cfg, _ := Load("")
 	cfg.Consumer.RespawnOverlap = "nope"

@@ -177,7 +177,7 @@ Required metrics:
 | Router broadcast only to subscribed sessions | Existing | `internal/actors/delivery/runtime/router.go` | `internal/actors/delivery/runtime/router_test.go:TestRouter_subscribeUnsubscribeAndBroadcast` |
 | Disconnect cleanup and unregister | Existing | `internal/actors/delivery/runtime/session.go` | `internal/actors/delivery/runtime/session_test.go:TestSession_disconnectTriggersUnregister` |
 | Deterministic range from durable store | Planned | `internal/core/delivery/ports/ports.go` | `internal/core/delivery/app/session_usecase_test.go:TestSessionService_GetRange_storeUnavailable` |
-| Slow-client backpressure policy | Existing (drop_newest baseline) | `internal/actors/delivery/runtime/session.go` | `internal/actors/delivery/runtime/session_test.go:TestSession_backpressureDropsWhenQueueFull` |
+| Slow-client backpressure policy | Existing (drop_newest baseline) | `internal/core/delivery/domain/backpressure_policy.go`, `internal/actors/delivery/runtime/session.go` | `internal/actors/delivery/runtime/session_backpressure_test.go:TestWSBackpressureSlowClientDropPolicy` |
 
 ## Observability
 
@@ -202,12 +202,12 @@ Existing tests:
 - `internal/core/delivery/domain/subject_test.go:TestParseSubject`
 - `internal/core/delivery/domain/subject_test.go:TestParseSubject_invalid`
 - `internal/core/delivery/app/session_usecase_test.go:TestSessionService_GetRange_storeUnavailable`
+- `internal/interfaces/ws/delivery_contract_e2e_test.go:TestWSRangeDeterminismReplay`
+- `internal/interfaces/ws/delivery_contract_e2e_test.go:TestWSRaceSubscribeUnsubscribeNoLeak`
+- `internal/interfaces/ws/delivery_contract_e2e_test.go:TestWSReconnectResubscribeIdempotent`
 
 Tests to create for parity completion:
-- `internal/actors/delivery/runtime/session_backpressure_test.go:TestWSBackpressureSlowClientDropPolicy` (TODO)
-- `internal/interfaces/ws/delivery_contract_e2e_test.go:TestWSRangeDeterminismReplay` (TODO)
-- `internal/interfaces/ws/delivery_contract_e2e_test.go:TestWSRaceSubscribeUnsubscribeNoLeak` (TODO)
-- `internal/interfaces/ws/delivery_contract_e2e_test.go:TestWSReconnectResubscribeIdempotent` (TODO)
+- None for current delivery WS baseline.
 
 ## Compatibility
 
@@ -228,9 +228,7 @@ Current evidence:
 - `docs/rfcs/RFC-0003-W2-DELIVERY-BC.md`
 
 TODO hooks (skeleton):
-- `internal/core/delivery/domain/backpressure_policy.go` (TODO)
-- `internal/actors/delivery/runtime/session_backpressure_test.go` (TODO)
-- `internal/interfaces/ws/delivery_contract_e2e_test.go` (TODO)
+- none for current delivery WS baseline.
 
 ## Failure Modes
 

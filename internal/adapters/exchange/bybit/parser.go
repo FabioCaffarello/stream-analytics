@@ -52,6 +52,35 @@ type orderBookData struct {
 	TsMs      int64      `json:"cts"`
 }
 
+type tickerEnvelope struct {
+	Topic string     `json:"topic"`
+	Type  string     `json:"type"`
+	TsMs  int64      `json:"ts"`
+	Data  tickerData `json:"data"`
+}
+
+type tickerData struct {
+	Symbol      string `json:"symbol"`
+	MarkPrice   string `json:"markPrice"`
+	IndexPrice  string `json:"indexPrice"`
+	FundingRate string `json:"fundingRate"`
+}
+
+type liquidationEnvelope struct {
+	Topic string            `json:"topic"`
+	Type  string            `json:"type"`
+	TsMs  int64             `json:"ts"`
+	Data  []liquidationData `json:"data"`
+}
+
+type liquidationData struct {
+	Symbol      string `json:"s"`
+	Side        string `json:"S"`
+	PriceRaw    string `json:"p"`
+	SizeRaw     string `json:"v"`
+	UpdatedTime int64  `json:"T"`
+}
+
 // ParseMeta carries parser diagnostics for observability.
 type ParseMeta struct {
 	EventType  string
@@ -111,7 +140,11 @@ func ParseMessageWithMetaForMarketType(data []byte, recvAt time.Time, marketType
 	if req.Instrument != "" {
 		meta.Ticker = req.Instrument
 	}
-	if p != nil && !strings.HasPrefix(topic, "publicTrade.") && !strings.HasPrefix(topic, "orderbook.") {
+	if p != nil &&
+		!strings.HasPrefix(topic, "publicTrade.") &&
+		!strings.HasPrefix(topic, "orderbook.") &&
+		!strings.HasPrefix(topic, "tickers.") &&
+		!strings.HasPrefix(topic, "liquidation.") {
 		meta.SkipReason = "unsupported_event"
 	}
 	return req, skip, meta
@@ -130,6 +163,10 @@ func parseByTopic(
 		return parseTrade(data, recvAt, marketType)
 	case strings.HasPrefix(topic, "orderbook."):
 		return parseOrderBookDelta(data, recvAt, marketType)
+	case strings.HasPrefix(topic, "tickers."):
+		return parseMarkPrice(data, recvAt, marketType)
+	case strings.HasPrefix(topic, "liquidation."):
+		return parseLiquidation(data, recvAt, marketType)
 	default:
 		return app.IngestRequest{}, true, unsupportedEventProblem(topic, msgType, op)
 	}
@@ -302,6 +339,127 @@ func parseOrderBookDelta(data []byte, recvAt time.Time, marketType string) (app.
 	}, false, nil
 }
 
+func parseMarkPrice(data []byte, recvAt time.Time, marketType string) (app.IngestRequest, bool, *problem.Problem) {
+	var msg tickerEnvelope
+	if err := json.Unmarshal(data, &msg); err != nil {
+		return app.IngestRequest{}, true, problem.Wrap(err, problem.ValidationFailed, "bybit ticker: invalid payload")
+	}
+
+	symbol := strings.TrimSpace(msg.Data.Symbol)
+	if symbol == "" {
+		symbol = symbolFromTopic(msg.Topic)
+	}
+	instrument := naming.CanonicalInstrument(symbol)
+	if instrument == "" {
+		return app.IngestRequest{}, true, problem.WithDetail(
+			problem.New(problem.ValidationFailed, "bybit ticker: symbol is empty"),
+			"reason", "missing_symbol",
+		)
+	}
+
+	markPrice, err := strconv.ParseFloat(msg.Data.MarkPrice, 64)
+	if err != nil {
+		return app.IngestRequest{}, true, problem.Wrap(err, problem.ValidationFailed, "bybit ticker: invalid mark price")
+	}
+	indexPrice := 0.0
+	if strings.TrimSpace(msg.Data.IndexPrice) != "" {
+		indexPrice, err = strconv.ParseFloat(msg.Data.IndexPrice, 64)
+		if err != nil {
+			return app.IngestRequest{}, true, problem.Wrap(err, problem.ValidationFailed, "bybit ticker: invalid index price")
+		}
+	}
+	fundingRate := 0.0
+	if strings.TrimSpace(msg.Data.FundingRate) != "" {
+		fundingRate, err = strconv.ParseFloat(msg.Data.FundingRate, 64)
+		if err != nil {
+			return app.IngestRequest{}, true, problem.Wrap(err, problem.ValidationFailed, "bybit ticker: invalid funding rate")
+		}
+	}
+
+	tsExchange := msg.TsMs
+	if tsExchange <= 0 {
+		tsExchange = recvAt.UnixMilli()
+	}
+
+	return app.IngestRequest{
+		Venue:      VenueBybit,
+		Instrument: instrument,
+		MarketType: marketType,
+		EventType:  "marketdata.markprice",
+		Version:    1,
+		TsExchange: tsExchange,
+		Metadata:   buildInstrumentMetadata(symbol, instrument, marketType),
+		Payload: domain.MarkPriceTickV1{
+			MarkPrice:   markPrice,
+			IndexPrice:  indexPrice,
+			FundingRate: fundingRate,
+			Timestamp:   tsExchange,
+		},
+	}, false, nil
+}
+
+func parseLiquidation(data []byte, recvAt time.Time, marketType string) (app.IngestRequest, bool, *problem.Problem) {
+	var msg liquidationEnvelope
+	if err := json.Unmarshal(data, &msg); err != nil {
+		return app.IngestRequest{}, true, problem.Wrap(err, problem.ValidationFailed, "bybit liquidation: invalid payload")
+	}
+	if len(msg.Data) == 0 {
+		return app.IngestRequest{}, true, problem.WithDetail(
+			problem.New(problem.ValidationFailed, "bybit liquidation: data must not be empty"),
+			"reason", "empty_liquidation_data",
+		)
+	}
+	ld := msg.Data[0]
+
+	symbol := strings.TrimSpace(ld.Symbol)
+	if symbol == "" {
+		symbol = symbolFromTopic(msg.Topic)
+	}
+	instrument := naming.CanonicalInstrument(symbol)
+	if instrument == "" {
+		return app.IngestRequest{}, true, problem.WithDetail(
+			problem.New(problem.ValidationFailed, "bybit liquidation: symbol is empty"),
+			"reason", "missing_symbol",
+		)
+	}
+	side, p := normalizeSide(ld.Side)
+	if p != nil {
+		return app.IngestRequest{}, true, p
+	}
+	price, err := strconv.ParseFloat(ld.PriceRaw, 64)
+	if err != nil {
+		return app.IngestRequest{}, true, problem.Wrap(err, problem.ValidationFailed, "bybit liquidation: invalid price")
+	}
+	size, err := strconv.ParseFloat(ld.SizeRaw, 64)
+	if err != nil {
+		return app.IngestRequest{}, true, problem.Wrap(err, problem.ValidationFailed, "bybit liquidation: invalid size")
+	}
+
+	tsExchange := ld.UpdatedTime
+	if tsExchange <= 0 {
+		tsExchange = msg.TsMs
+	}
+	if tsExchange <= 0 {
+		tsExchange = recvAt.UnixMilli()
+	}
+
+	return app.IngestRequest{
+		Venue:      VenueBybit,
+		Instrument: instrument,
+		MarketType: marketType,
+		EventType:  "marketdata.liquidation",
+		Version:    1,
+		TsExchange: tsExchange,
+		Metadata:   buildInstrumentMetadata(symbol, instrument, marketType),
+		Payload: domain.LiquidationTickV1{
+			Side:      side,
+			Price:     price,
+			Size:      size,
+			Timestamp: tsExchange,
+		},
+	}, false, nil
+}
+
 func buildTradeIdempotencyKey(venue, instrument, tradeID string) string {
 	return fmt.Sprintf("venue=%s|instrument=%s|trade_id=%s", venue, instrument, tradeID)
 }
@@ -374,6 +532,10 @@ func deriveEventType(topic, msgType, op string) string {
 		return "publicTrade"
 	case strings.HasPrefix(topic, "orderbook."):
 		return "orderbook"
+	case strings.HasPrefix(topic, "tickers."):
+		return "ticker"
+	case strings.HasPrefix(topic, "liquidation."):
+		return "liquidation"
 	case strings.TrimSpace(msgType) != "":
 		return msgType
 	default:

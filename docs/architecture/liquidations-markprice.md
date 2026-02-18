@@ -70,15 +70,24 @@ Keys/idempotency:
 3. emit per-reason drop alert.
 - ACK only on commit.
 
+## Rollout Control
+
+- Stream enablement is gated by `consumer.enable_markprice_liquidation`.
+- With `enable_markprice_liquidation=false` (default), runtime baseline remains trade+bookdelta (`consumer.streams_per_ticker=2`).
+- With `enable_markprice_liquidation=true`, websocket planning must use `consumer.streams_per_ticker=4` for spot runtimes (trade, depth, markprice, liquidation).
+
 ## Implementation Matrix
 
 | Feature | Status | Evidence | Tests |
 |---|---|---|---|
 | Contract registration for markprice/liquidation | Existing | `proto/registry.json`, `internal/shared/contracts/marketdata_registry.go` | `internal/shared/contracts/marketdata_registry_test.go:TestRegisterMarketDataV1_RegistersAll` |
+| Ingest baseline for markprice/liquidation payloads | Existing | `internal/core/marketdata/app/ingest.go` | `internal/core/marketdata/app/ingest_test.go:TestIngest_markPricePayloadEncodesAndPublishes`, `internal/core/marketdata/app/ingest_test.go:TestIngest_liquidationPayloadEncodesAndPublishes` |
 | Proto/domain converter completeness | Existing | `internal/shared/contracts/authority_manifest.go` | `internal/shared/contracts/converter_completeness_test.go:TestConverterCompleteness_MarkPriceTickV1`, `internal/shared/contracts/converter_completeness_test.go:TestConverterCompleteness_LiquidationTickV1` |
 | Codec compatibility JSON/protobuf | Existing | `internal/shared/codec/payload_codec.go` | `internal/shared/codec/payload_codec_test.go` |
 | Ack/nak/term ingest semantics | Existing | `internal/adapters/jetstream/consumer.go` | `internal/adapters/jetstream/ingest_conformance_test.go:TestIngestConformance_AckNakTermGoldenTable` |
-| Dedicated markprice/liquidation runtime pipeline | TODO | `internal/core/marketdata/app/normalize_markprice_liquidation.go` (TODO) | `internal/actors/marketdata/runtime/markprice_liquidation_pipeline_test.go` (TODO) |
+| Runtime backpressure priority (`markprice` over `liquidation`) | Existing | `internal/actors/marketdata/runtime/backpressure_queue.go` | `internal/actors/marketdata/runtime/backpressure_queue_test.go:TestWSQueue_DropDepthKeepTrades_PreserveMarkPriceOverLiquidation` |
+| Dedicated normalization use case for markprice/liquidation | Existing (baseline) | `internal/core/marketdata/app/normalize_markprice_liquidation.go` | `internal/core/marketdata/app/normalize_markprice_liquidation_test.go:TestMarkPriceDedupStrongKey`, `internal/core/marketdata/app/normalize_markprice_liquidation_test.go:TestLiquidationDedupStrongKey`, `internal/core/marketdata/app/normalize_markprice_liquidation_test.go:TestMarkPriceLiquidationCanonicalNormalization` |
+| Dedicated runtime pipeline for markprice/liquidation | Existing (baseline) | `internal/actors/marketdata/runtime/subsystem.go`, `internal/adapters/exchange/binance/parser.go`, `internal/adapters/exchange/bybit/parser.go` | `internal/actors/marketdata/runtime/subsystem_test.go:TestSubsystem_MarkPriceNormalization_setsCanonicalAndIdempotency`, `internal/actors/marketdata/runtime/subsystem_test.go:TestSubsystem_LiquidationDuplicateSkippedByNormalizer`, `internal/adapters/exchange/binance/parser_test.go:TestParseMessage_MarkPriceUpdate`, `internal/adapters/exchange/binance/parser_test.go:TestParseMessage_ForceOrderLiquidation`, `internal/adapters/exchange/bybit/parser_test.go:TestParseMessage_MarkPrice`, `internal/adapters/exchange/bybit/parser_test.go:TestParseMessage_Liquidation` |
 | Hot/cold durable writers for markprice/liquidation | TODO | `internal/adapters/storage/timescale/markprice_liquidation_writer.go` (TODO), `internal/adapters/storage/clickhouse/markprice_liquidation_writer.go` (TODO) | `internal/adapters/storage/markprice_liquidation_writer_test.go` (TODO) |
 
 ## Storage Strategy
@@ -117,13 +126,13 @@ Existing tests:
 - `internal/shared/contracts/marketdata_registry_test.go:TestRegisterMarketDataV1_RegistersAll`
 - `internal/adapters/jetstream/ingest_conformance_test.go:TestIngestConformance_AckNakTermGoldenTable`
 - `internal/adapters/jetstream/replay_source_integration_test.go:TestReplaySourceIntegration_FullDeterministicOrder`
+- `internal/core/marketdata/app/ingest_test.go:TestIngest_markPricePayloadEncodesAndPublishes`
+- `internal/core/marketdata/app/ingest_test.go:TestIngest_liquidationPayloadEncodesAndPublishes`
+- `internal/actors/marketdata/runtime/backpressure_queue_test.go:TestWSQueue_DropDepthKeepTrades_PreserveMarkPriceOverLiquidation`
+- `internal/actors/marketdata/runtime/markprice_liquidation_pipeline_test.go:TestMarkPriceLiquidationReplayGolden`
 
 Tests to create for feature parity:
-- `internal/core/marketdata/app/normalize_markprice_liquidation_test.go:TestMarkPriceDedupStrongKey` (TODO)
-- `internal/core/marketdata/app/normalize_markprice_liquidation_test.go:TestLiquidationDedupStrongKey` (TODO)
-- `internal/core/marketdata/app/normalize_markprice_liquidation_test.go:TestMarkPriceLiquidationCanonicalNormalization` (TODO)
-- `internal/actors/marketdata/runtime/markprice_liquidation_pipeline_test.go:TestMarkPriceLiquidationReplayGolden` (TODO)
-- `internal/actors/marketdata/runtime/markprice_liquidation_pipeline_test.go:TestMarkPricePriorityOverLiquidationUnderPressure` (TODO)
+- durable storage writers remain planned.
 
 ## Evidence Hooks
 
@@ -133,13 +142,17 @@ Current evidence:
 - `internal/core/marketdata/domain/payloads.go`
 - `internal/shared/codec/payload_codec_test.go`
 - `internal/shared/contracts/converter_completeness_test.go`
+- `internal/core/marketdata/app/dedup_keys_markprice_liquidation.go`
+- `internal/adapters/exchange/binance/parser.go`
+- `internal/adapters/exchange/bybit/parser.go`
+- `internal/actors/marketdata/runtime/backpressure_queue.go`
+- `internal/actors/marketdata/runtime/subsystem.go`
+- `internal/actors/marketdata/runtime/backpressure_queue_test.go`
+- `internal/actors/marketdata/runtime/markprice_liquidation_pipeline_test.go`
 
 TODO hooks (skeleton):
-- `internal/core/marketdata/app/normalize_markprice_liquidation.go` (TODO)
-- `internal/core/marketdata/app/dedup_keys_markprice_liquidation.go` (TODO)
 - `internal/adapters/storage/timescale/markprice_liquidation_writer.go` (TODO)
 - `internal/adapters/storage/clickhouse/markprice_liquidation_writer.go` (TODO)
-- `internal/actors/marketdata/runtime/markprice_liquidation_pipeline_test.go` (TODO)
 
 ## Failure Modes
 

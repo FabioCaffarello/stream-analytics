@@ -37,6 +37,9 @@
     "exchange": "binance",
     "tickers": ["BTC-USDT", "ETH-USDT"],
     "binance_ws_base_url": "wss://stream.binance.com:9443/stream",
+    // Enables markprice/liquidation streams on supported exchanges.
+    // When true for SPOT, streams_per_ticker must be 4.
+    "enable_markprice_liquidation": false,
     "streams_per_ticker": 2,
     "max_streams_per_websocket": 200,
     "max_websockets": 5,

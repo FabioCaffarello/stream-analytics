@@ -54,6 +54,42 @@ func TestParseMessage_BookDelta(t *testing.T) {
 	}
 }
 
+func TestParseMessage_MarkPrice(t *testing.T) {
+	msg := []byte(`{"topic":"tickers.BTCUSDT","type":"snapshot","ts":1710000020000,"data":{"symbol":"BTCUSDT","markPrice":"65010.5","indexPrice":"65005.1","fundingRate":"0.0001"}}`)
+	req, skip, p := bybit.ParseMessage(msg, time.UnixMilli(1710000021000))
+	if p != nil || skip {
+		t.Fatalf("ParseMessage failed: skip=%v problem=%v", skip, p)
+	}
+	if req.EventType != "marketdata.markprice" || req.Instrument != "BTCUSDT" {
+		t.Fatalf("unexpected request: %#v", req)
+	}
+	payload, ok := req.Payload.(domain.MarkPriceTickV1)
+	if !ok {
+		t.Fatalf("unexpected payload type: %T", req.Payload)
+	}
+	if payload.MarkPrice != 65010.5 || payload.IndexPrice != 65005.1 || payload.FundingRate != 0.0001 {
+		t.Fatalf("unexpected markprice payload: %#v", payload)
+	}
+}
+
+func TestParseMessage_Liquidation(t *testing.T) {
+	msg := []byte(`{"topic":"liquidation.BTCUSDT","type":"snapshot","ts":1710000030000,"data":[{"s":"BTCUSDT","S":"Sell","v":"5.25","p":"64900.5","T":1710000030001}]}`)
+	req, skip, p := bybit.ParseMessage(msg, time.UnixMilli(1710000031000))
+	if p != nil || skip {
+		t.Fatalf("ParseMessage failed: skip=%v problem=%v", skip, p)
+	}
+	if req.EventType != "marketdata.liquidation" || req.Instrument != "BTCUSDT" {
+		t.Fatalf("unexpected request: %#v", req)
+	}
+	payload, ok := req.Payload.(domain.LiquidationTickV1)
+	if !ok {
+		t.Fatalf("unexpected payload type: %T", req.Payload)
+	}
+	if payload.Side != "sell" || payload.Price != 64900.5 || payload.Size != 5.25 || payload.Timestamp != 1710000030001 {
+		t.Fatalf("unexpected liquidation payload: %#v", payload)
+	}
+}
+
 func TestParseMessageForMarketType_PropagatesMarketType(t *testing.T) {
 	msg := []byte(`{"topic":"publicTrade.BTCUSDT","type":"snapshot","ts":1710000001000,"data":[{"T":1710000001001,"s":"BTCUSDT","S":"Sell","v":"0.010","p":"65000.50","i":"123456"}]}`)
 	req, skip, p := bybit.ParseMessageForMarketType(msg, time.UnixMilli(1710000003000), "USD_M_FUTURES")
@@ -69,7 +105,7 @@ func TestParseMessageForMarketType_PropagatesMarketType(t *testing.T) {
 }
 
 func TestParseMessage_UnknownEventRejected(t *testing.T) {
-	_, skip, p := bybit.ParseMessage([]byte(`{"topic":"liquidation.BTCUSDT","type":"delta","data":{}}`), time.Now())
+	_, skip, p := bybit.ParseMessage([]byte(`{"topic":"option.BTCUSDT","type":"delta","data":{}}`), time.Now())
 	if !skip || p == nil {
 		t.Fatalf("expected skip + problem, got skip=%v problem=%v", skip, p)
 	}

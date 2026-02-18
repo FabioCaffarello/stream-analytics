@@ -436,3 +436,67 @@ func TestIngest_StreamIdentityIncludesMarketType(t *testing.T) {
 		t.Fatalf("sequencer call[1]=%q want BINANCE|BTCUSDT:USD_M_FUTURES", seq.calls[1])
 	}
 }
+
+func TestIngest_markPricePayloadEncodesAndPublishes(t *testing.T) {
+	clk := clock.NewFakeClock(time.Now())
+	uc, _, pub := newUC(clk)
+	req := validReq()
+	req.EventType = "marketdata.markprice"
+	req.Payload = domain.MarkPriceTickV1{
+		MarkPrice:   50010.5,
+		IndexPrice:  50000.0,
+		FundingRate: 0.0001,
+		Timestamp:   time.Now().UnixMilli(),
+	}
+
+	r := uc.Execute(context.Background(), req)
+	if r.IsFail() {
+		t.Fatalf("markprice ingest failed: %v", r.Problem())
+	}
+	if len(pub.published) != 1 {
+		t.Fatalf("published=%d want=1", len(pub.published))
+	}
+	env := pub.published[0]
+	if env.Type != "marketdata.markprice" {
+		t.Fatalf("env type=%q want=marketdata.markprice", env.Type)
+	}
+	decoded, p := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
+	if p != nil {
+		t.Fatalf("decode markprice payload: %v", p)
+	}
+	if _, ok := decoded.(domain.MarkPriceTickV1); !ok {
+		t.Fatalf("decoded type=%T want=%T", decoded, domain.MarkPriceTickV1{})
+	}
+}
+
+func TestIngest_liquidationPayloadEncodesAndPublishes(t *testing.T) {
+	clk := clock.NewFakeClock(time.Now())
+	uc, _, pub := newUC(clk)
+	req := validReq()
+	req.EventType = "marketdata.liquidation"
+	req.Payload = domain.LiquidationTickV1{
+		Side:      "sell",
+		Price:     49950.0,
+		Size:      2.5,
+		Timestamp: time.Now().UnixMilli(),
+	}
+
+	r := uc.Execute(context.Background(), req)
+	if r.IsFail() {
+		t.Fatalf("liquidation ingest failed: %v", r.Problem())
+	}
+	if len(pub.published) != 1 {
+		t.Fatalf("published=%d want=1", len(pub.published))
+	}
+	env := pub.published[0]
+	if env.Type != "marketdata.liquidation" {
+		t.Fatalf("env type=%q want=marketdata.liquidation", env.Type)
+	}
+	decoded, p := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
+	if p != nil {
+		t.Fatalf("decode liquidation payload: %v", p)
+	}
+	if _, ok := decoded.(domain.LiquidationTickV1); !ok {
+		t.Fatalf("decoded type=%T want=%T", decoded, domain.LiquidationTickV1{})
+	}
+}

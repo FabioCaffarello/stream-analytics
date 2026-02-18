@@ -103,6 +103,11 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		"shard", fmt.Sprintf("%d/%d", cfg.Shard.Index, cfg.Shard.Count),
 		"bus_type", cfg.Bus.Type,
 	)
+	if !timescale.IsProductionReady() {
+		logger.Warn("processor: timescale adapter running in non-production stub mode",
+			"adapter_mode", timescale.AdapterMode(),
+		)
+	}
 
 	// Bootstrap payload codec registry.
 	if p := contracts.BootstrapPayloadCodecRegistryWithOptions(contracts.PayloadRegistryOptions{

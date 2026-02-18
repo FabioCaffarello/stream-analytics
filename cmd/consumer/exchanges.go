@@ -105,7 +105,7 @@ func buildBinanceRuntime(
 	managerCfg := baseManagerConfig(cfg, ex)
 	managerCfg.SubscriptionBuilder = func([]string) [][]byte { return nil }
 	managerCfg.EndpointBuilder = func(bucket []string) string {
-		endpoint, p := binance.BuildEndpoint(ex.BaseURL, bucket)
+		endpoint, p := binance.BuildEndpoint(ex.BaseURL, bucket, cfg.Consumer.EnableMarkPriceLiquidation)
 		if p != nil {
 			logger.Error("consumer: binance endpoint build failed", "err", p, "exchange", ex.Name, "bucket", bucket)
 			return ""
@@ -161,7 +161,7 @@ func buildBybitRuntime(
 ) consumerExchangeRuntime {
 	managerCfg := baseManagerConfig(cfg, ex)
 	managerCfg.SubscriptionBuilder = func(bucket []string) [][]byte {
-		msgs, p := bybit.BuildSubscriptions(bucket)
+		msgs, p := bybit.BuildSubscriptions(bucket, cfg.Consumer.EnableMarkPriceLiquidation)
 		if p != nil {
 			logger.Error("consumer: bybit subscription build failed", "err", p, "exchange", ex.Name, "bucket", bucket)
 			return nil

@@ -36,8 +36,8 @@ type UpdateResponse struct {
 //  1. Validate inputs
 //  2. Get or create OrderBook aggregate
 //  3. ApplyDelta — on crossed book, emit inconsistency event
-//  4. Publish updated snapshot via ArtifactPublisher
-//  5. Persist snapshot in hot read model
+//  4. Persist snapshot in hot read model
+//  5. Publish updated snapshot via ArtifactPublisher
 type UpdateOrderBookFromEvents struct {
 	publisher ports.ArtifactPublisher
 	store     ports.HotReadModelStore
@@ -132,14 +132,14 @@ func (uc *UpdateOrderBookFromEvents) Execute(ctx context.Context, req UpdateRequ
 		return result.FailProblem[UpdateResponse](p)
 	}
 
-	// 4. Publish snapshot.
+	// 4. Persist snapshot in hot read model.
 	snap := domain.NewSnapshotProduced(book)
-	if p := uc.publisher.PublishSnapshot(ctx, snap); p != nil {
+	if p := uc.store.Save(ctx, snap); p != nil {
 		return result.FailProblem[UpdateResponse](p)
 	}
 
-	// 5. Persist in hot read model.
-	if p := uc.store.Save(ctx, snap); p != nil {
+	// 5. Publish snapshot.
+	if p := uc.publisher.PublishSnapshot(ctx, snap); p != nil {
 		return result.FailProblem[UpdateResponse](p)
 	}
 

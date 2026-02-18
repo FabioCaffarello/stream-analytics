@@ -98,6 +98,32 @@ func TestWSQueue_DropDepthKeepTrades_IncomingDepthDropped(t *testing.T) {
 	}
 }
 
+func TestWSQueue_DropDepthKeepTrades_PreserveMarkPriceOverLiquidation(t *testing.T) {
+	q := newWSQueue(3, BackpressureDropDepthKeepOps)
+	q.Enqueue(tradeMsg(0))
+	q.Enqueue(liquidationMsg(1))
+	q.Enqueue(tradeMsg(2))
+
+	// Queue full without depth. Incoming markprice should evict liquidation first.
+	dropped, bp := q.Enqueue(markPriceMsg(3))
+	if dropped != 1 || !bp {
+		t.Fatalf("expected dropped=1 bp=true, got dropped=%d bp=%v", dropped, bp)
+	}
+
+	msg, ok := q.Pop()
+	if !ok || string(msg.Data) != "trade-0" {
+		t.Fatalf("expected trade-0, got %v ok=%v", msg, ok)
+	}
+	msg, ok = q.Pop()
+	if !ok || string(msg.Data) != "trade-2" {
+		t.Fatalf("expected trade-2, got %v ok=%v", msg, ok)
+	}
+	msg, ok = q.Pop()
+	if !ok || string(msg.Data) != `{"e":"markPriceUpdate","d":3}` {
+		t.Fatalf("expected markprice message, got %v ok=%v", msg, ok)
+	}
+}
+
 func TestWSQueue_Close_UnblocksPop(t *testing.T) {
 	q := newWSQueue(4, BackpressureDropOldest)
 	done := make(chan struct{})
@@ -274,6 +300,20 @@ func tradeMsg(i int) *ws.WsMessage {
 func depthMsg(i int) *ws.WsMessage {
 	return &ws.WsMessage{
 		Data:     []byte(fmt.Sprintf(`{"e":"depthUpdate","d":%d}`, i)),
+		Exchange: "test",
+	}
+}
+
+func liquidationMsg(i int) *ws.WsMessage {
+	return &ws.WsMessage{
+		Data:     []byte(fmt.Sprintf(`{"e":"forceOrder","d":%d}`, i)),
+		Exchange: "test",
+	}
+}
+
+func markPriceMsg(i int) *ws.WsMessage {
+	return &ws.WsMessage{
+		Data:     []byte(fmt.Sprintf(`{"e":"markPriceUpdate","d":%d}`, i)),
 		Exchange: "test",
 	}
 }

@@ -330,8 +330,21 @@ func validateConsumer(c ConsumerConfig) *problem.Problem {
 	}
 
 	for _, ex := range exchanges {
-		if strings.EqualFold(ex.MarketType, "SPOT") && c.StreamsPerTicker != 2 {
-			return problem.Newf(codeInvalid, "consumer.streams_per_ticker=%d incompatible with spot runtime baseline=2", c.StreamsPerTicker)
+		if !strings.EqualFold(ex.MarketType, "SPOT") {
+			continue
+		}
+		requiredStreams := int64(2)
+		if c.EnableMarkPriceLiquidation {
+			requiredStreams = 4
+		}
+		if c.StreamsPerTicker != requiredStreams {
+			return problem.Newf(
+				codeInvalid,
+				"consumer.streams_per_ticker=%d incompatible with spot runtime baseline=%d (enable_markprice_liquidation=%t)",
+				c.StreamsPerTicker,
+				requiredStreams,
+				c.EnableMarkPriceLiquidation,
+			)
 		}
 	}
 	return nil

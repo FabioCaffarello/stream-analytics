@@ -30,7 +30,7 @@
 - `internal/core/delivery/app/session_usecase.go:36`
 - `internal/actors/delivery/runtime/session.go:57`
 - `internal/actors/delivery/runtime/router.go:43`
-- TODO: `internal/core/delivery/domain/backpressure_policy.go`
+- `internal/core/delivery/domain/backpressure_policy.go`
 
 ## Acceptance Tests
 - `TestParseSubject` -> `internal/core/delivery/domain/subject_test.go:10`
@@ -39,4 +39,4 @@
 - `TestSession_disconnectTriggersUnregister` -> `internal/actors/delivery/runtime/session_test.go:85`
 - `TestRouter_subscribeUnsubscribeAndBroadcast` -> `internal/actors/delivery/runtime/router_test.go:51`
 - `TestSessionService_GetRange_storeUnavailable` -> `internal/core/delivery/app/session_usecase_test.go:49`
-- TODO: `TestWSBackpressureSlowClientDropPolicy` -> `internal/actors/delivery/runtime/session_backpressure_test.go`
+- `TestWSBackpressureSlowClientDropPolicy` -> `internal/actors/delivery/runtime/session_backpressure_test.go`

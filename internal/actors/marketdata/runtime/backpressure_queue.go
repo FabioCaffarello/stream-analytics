@@ -82,6 +82,11 @@ func (q *wsQueue) Enqueue(msg *ws.WsMessage) (dropped int, enteredBackpressure b
 			return 1, true
 		}
 		dropIdx := q.findFirstDepth()
+		// Preserve markprice under pressure by evicting liquidation first
+		// when no depth message is available.
+		if dropIdx < 0 && isMarkPriceWSMessage(msg) {
+			dropIdx = q.findFirstLiquidation()
+		}
 		if dropIdx < 0 {
 			dropIdx = 0
 		}
@@ -143,6 +148,15 @@ func (q *wsQueue) findFirstDepth() int {
 	return -1
 }
 
+func (q *wsQueue) findFirstLiquidation() int {
+	for i := 0; i < q.count; i++ {
+		if isLiquidationWSMessage(q.buf[(q.head+i)%q.capacity]) {
+			return i
+		}
+	}
+	return -1
+}
+
 // removeAt removes the element at logical index idx (0-based from head)
 // and shifts subsequent elements backward to fill the gap.
 func (q *wsQueue) removeAt(idx int) {
@@ -167,4 +181,18 @@ func isDepthWSMessage(msg *ws.WsMessage) bool {
 		return false
 	}
 	return bytes.Contains(msg.Data, []byte(`"depthUpdate"`))
+}
+
+func isLiquidationWSMessage(msg *ws.WsMessage) bool {
+	if msg == nil || len(msg.Data) == 0 {
+		return false
+	}
+	return bytes.Contains(msg.Data, []byte(`"forceOrder"`))
+}
+
+func isMarkPriceWSMessage(msg *ws.WsMessage) bool {
+	if msg == nil || len(msg.Data) == 0 {
+		return false
+	}
+	return bytes.Contains(msg.Data, []byte(`"markPriceUpdate"`))
 }

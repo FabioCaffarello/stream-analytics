@@ -132,6 +132,9 @@ type ConsumerConfig struct {
 	// StreamsPerTicker defines how many streams are opened per ticker in ws.Manager planning.
 	// For W3 Binance adapter, default is 2 (aggTrade + depth).
 	StreamsPerTicker int64 `json:"streams_per_ticker"`
+	// EnableMarkPriceLiquidation enables markprice/liquidation streams on supported exchanges.
+	// Default: false (trade + bookdelta only).
+	EnableMarkPriceLiquidation bool `json:"enable_markprice_liquidation"`
 	// MaxStreamsPerWebsocket is ws.Manager upper bound per websocket.
 	MaxStreamsPerWebsocket int64 `json:"max_streams_per_websocket"`
 	// MaxWebsockets is max parallel websocket consumers in ws.Manager.

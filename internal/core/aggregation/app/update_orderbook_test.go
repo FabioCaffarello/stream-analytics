@@ -16,9 +16,13 @@ import (
 type fakePublisher struct {
 	snaps        []domain.SnapshotProduced
 	inconsistent []domain.OrderBookInconsistentDetected
+	snapErr      *problem.Problem
 }
 
 func (f *fakePublisher) PublishSnapshot(_ context.Context, s domain.SnapshotProduced) *problem.Problem {
+	if f.snapErr != nil {
+		return f.snapErr
+	}
 	f.snaps = append(f.snaps, s)
 	return nil
 }
@@ -28,9 +32,15 @@ func (f *fakePublisher) PublishInconsistent(_ context.Context, e domain.OrderBoo
 	return nil
 }
 
-type fakeStore struct{ saved []domain.SnapshotProduced }
+type fakeStore struct {
+	saved   []domain.SnapshotProduced
+	saveErr *problem.Problem
+}
 
 func (f *fakeStore) Save(_ context.Context, s domain.SnapshotProduced) *problem.Problem {
+	if f.saveErr != nil {
+		return f.saveErr
+	}
 	f.saved = append(f.saved, s)
 	return nil
 }
@@ -160,6 +170,33 @@ func TestUpdateOrderBook_snapshotContainsLevels(t *testing.T) {
 	}
 	if len(snap.Asks) != 1 {
 		t.Errorf("snapshot asks = %d; want 1", len(snap.Asks))
+	}
+}
+
+func TestUpdateOrderBook_saveFailureDoesNotPublishSnapshot(t *testing.T) {
+	pub := &fakePublisher{}
+	store := &fakeStore{
+		saveErr: problem.New(problem.Unavailable, "store unavailable"),
+	}
+	uc := app.NewUpdateOrderBookFromEvents(pub, store)
+	r := uc.Execute(context.Background(), app.UpdateRequest{
+		Venue:      "binance",
+		Instrument: "BTCUSDT",
+		Seq:        1,
+		Bids:       []domain.Level{{Price: 100, Quantity: 1}},
+		Asks:       []domain.Level{{Price: 101, Quantity: 1}},
+	})
+	if r.IsOk() {
+		t.Fatal("expected failure when store save fails")
+	}
+	if r.Problem().Code != problem.Unavailable {
+		t.Fatalf("code=%s want=%s", r.Problem().Code, problem.Unavailable)
+	}
+	if len(pub.snaps) != 0 {
+		t.Fatalf("published snapshots=%d want=0", len(pub.snaps))
+	}
+	if len(store.saved) != 0 {
+		t.Fatalf("persisted snapshots=%d want=0", len(store.saved))
 	}
 }
 
