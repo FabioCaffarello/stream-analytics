@@ -9,6 +9,7 @@ import (
 	"github.com/gorilla/websocket"
 	deliveryruntime "github.com/market-raccoon/internal/actors/delivery/runtime"
 	"github.com/market-raccoon/internal/core/delivery/ports"
+	"github.com/market-raccoon/internal/shared/metrics"
 )
 
 // Server upgrades HTTP connections to WebSocket and delegates lifecycle to SessionActor.
@@ -19,13 +20,29 @@ type Server struct {
 	upgrader          websocket.Upgrader
 	rangeStore        ports.RangeStore
 	outboundQueueSize int
+	auth              AuthConfig
+	rateLimit         deliveryruntime.RateLimitConfig
 }
 
-func NewServer(engine *actor.Engine, routerPID *actor.PID, logger *slog.Logger, rangeStore ports.RangeStore, outboundQueueSize int) *Server {
+type Option func(*Server)
+
+func WithAuthConfig(cfg AuthConfig) Option {
+	return func(s *Server) {
+		s.auth = cfg
+	}
+}
+
+func WithRateLimit(cfg deliveryruntime.RateLimitConfig) Option {
+	return func(s *Server) {
+		s.rateLimit = cfg
+	}
+}
+
+func NewServer(engine *actor.Engine, routerPID *actor.PID, logger *slog.Logger, rangeStore ports.RangeStore, outboundQueueSize int, opts ...Option) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Server{
+	srv := &Server{
 		engine:            engine,
 		routerPID:         routerPID,
 		logger:            logger,
@@ -39,11 +56,23 @@ func NewServer(engine *actor.Engine, routerPID *actor.PID, logger *slog.Logger, 
 			},
 		},
 	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(srv)
+		}
+	}
+	return srv
 }
 
 func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 	if s.routerPID == nil {
 		http.Error(w, "delivery router unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	clientID, p := s.auth.Authenticate(r)
+	if p != nil {
+		metrics.IncWSQueryRejected("unauthorized")
+		http.Error(w, p.Message, http.StatusUnauthorized)
 		return
 	}
 
@@ -58,9 +87,11 @@ func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 			Logger:            s.logger,
 			RouterPID:         s.routerPID,
 			Conn:              conn,
+			ClientID:          clientID,
 			RangeStore:        s.rangeStore,
 			OutboundQueueSize: s.outboundQueueSize,
 			PreferProto:       sessionWantsProto(r),
+			RateLimit:         s.rateLimit,
 		}),
 		"delivery-session",
 	)

@@ -10,6 +10,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/market-raccoon/internal/core/delivery/domain"
 	"github.com/market-raccoon/internal/core/delivery/ports"
+	sharedclock "github.com/market-raccoon/internal/shared/clock"
 	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/metrics"
@@ -345,6 +346,53 @@ func TestSession_getRangeVPVRPagination_capsRejectExplosive(t *testing.T) {
 	}
 	if got := testutil.ToFloat64(metrics.WSQueryRejectedTotal.WithLabelValues("query_cap")); got < beforeRejected+1 {
 		t.Fatalf("expected ws_query_rejected_total query_cap increment, got=%f before=%f", got, beforeRejected)
+	}
+}
+
+func TestSession_RateLimit_RejectsSubscribeWhenBucketEmpty(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-capture-rate-limit")
+	defer e.Poison(routerPID)
+
+	clk := sharedclock.NewFakeClock(time.Unix(100, 0))
+	conn := newFakeConn()
+	beforeRejected := testutil.ToFloat64(metrics.WSQueryRejectedTotal.WithLabelValues("rate_limited"))
+
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{
+		RouterPID: routerPID,
+		Conn:      conn,
+		RateLimit: RateLimitConfig{
+			Enabled:       true,
+			MaxPerSecond:  1,
+			BurstCapacity: 1,
+		},
+		Clock: clk,
+	}), "ws-session-rate-limit")
+	defer e.Poison(sessionPID)
+
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"subscribe","subject":"marketdata.trade/binance/BTC-USDT/raw","request_id":"s1"}`)}
+	first := <-conn.writeCh
+	firstMsg, ok := first.(map[string]any)
+	if !ok || firstMsg["type"] != "ack" {
+		t.Fatalf("expected first subscribe ack, got %#v", first)
+	}
+
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"subscribe","subject":"marketdata.trade/binance/BTC-USDT/raw","request_id":"s2"}`)}
+	second := <-conn.writeCh
+	secondMsg, ok := second.(map[string]any)
+	if !ok || secondMsg["type"] != "error" {
+		t.Fatalf("expected second subscribe error, got %#v", second)
+	}
+
+	afterRejected := testutil.ToFloat64(metrics.WSQueryRejectedTotal.WithLabelValues("rate_limited"))
+	if afterRejected < beforeRejected+1 {
+		t.Fatalf("expected rate_limited metric increment, before=%f after=%f", beforeRejected, afterRejected)
 	}
 }
 

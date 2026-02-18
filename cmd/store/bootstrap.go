@@ -58,8 +58,34 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	logger.Info("store: schema contract validated")
 
 	// ── ClickHouse writer + batcher ─────────────────────────────────────
-	chWriter := clickhouse.NewWriter()
-	batcher := clickhouse.NewBatchWriter(chWriter, cfg.Store.Batch)
+	snapshotWriter := clickhouse.SnapshotWriter(clickhouse.NewWriter())
+	if cfg.Storage.ClickHouse.Enabled {
+		chPool, p := clickhouse.NewPool(ctx, clickhouse.PoolConfig{
+			Addrs:           cfg.Storage.ClickHouse.Addrs,
+			Database:        cfg.Storage.ClickHouse.Database,
+			Username:        cfg.Storage.ClickHouse.Username,
+			Password:        cfg.Storage.ClickHouse.Password,
+			MaxOpenConns:    cfg.Storage.ClickHouse.MaxOpenConns,
+			MaxIdleConns:    cfg.Storage.ClickHouse.MaxIdleConns,
+			ConnMaxLifetime: cfg.Storage.ClickHouse.ConnMaxLifetimeDuration(),
+			DialTimeout:     cfg.Storage.ClickHouse.DialTimeoutDuration(),
+			ReadTimeout:     cfg.Storage.ClickHouse.ReadTimeoutDuration(),
+		})
+		if p != nil {
+			return fmt.Errorf("clickhouse pool init failed: %v", p)
+		}
+		defer func() {
+			if p := chPool.Close(); p != nil {
+				logger.Warn("store: clickhouse pool close failed", "err", p)
+			}
+		}()
+		snapshotWriter = clickhouse.NewChWriter(chPool)
+		logger.Info("store: using ClickHouse writer")
+	} else {
+		logger.Warn("store: using in-memory ClickHouse writer (storage.clickhouse.enabled=false)")
+	}
+
+	batcher := clickhouse.NewBatchWriter(snapshotWriter, cfg.Store.Batch)
 	logger.Info("store: batcher configured",
 		"max_rows", cfg.Store.Batch.MaxRows,
 		"max_bytes", cfg.Store.Batch.MaxBytes,
@@ -82,7 +108,14 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	logger.Info("store: ready")
 
 	// ── HTTP server ──────────────────────────────────────────────────────
-	srv := httpserver.NewServer(e, guardianPID, cfg.HTTP.Addr, cfg.HTTP.EnablePprof, logger)
+	srv := httpserver.NewServer(
+		e,
+		guardianPID,
+		cfg.HTTP.Addr,
+		cfg.HTTP.EnablePprof,
+		logger,
+		httpserver.WithTLS(cfg.HTTP.TLSCert, cfg.HTTP.TLSKey),
+	)
 	srv.SetReadyGate(func() bool { return storeReady.Load() })
 
 	serverErr := make(chan error, 1)

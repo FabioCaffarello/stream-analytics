@@ -15,6 +15,7 @@ import (
 	"github.com/market-raccoon/internal/core/delivery/app"
 	"github.com/market-raccoon/internal/core/delivery/domain"
 	"github.com/market-raccoon/internal/core/delivery/ports"
+	sharedclock "github.com/market-raccoon/internal/shared/clock"
 	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/observability"
@@ -45,11 +46,26 @@ type SessionConfig struct {
 	Logger     *slog.Logger
 	RouterPID  *actor.PID
 	Conn       wsConn
+	ClientID   string
 	RangeStore ports.RangeStore
+	// HotSnapshotProvider returns latest snapshot bytes for a subject.
+	HotSnapshotProvider HotSnapshotProvider
 	// OutboundQueueSize bounds queued delivery events per session.
 	OutboundQueueSize int
+	// BackpressurePolicy controls behavior when outbound queue is full.
+	BackpressurePolicy domain.BackpressurePolicy
+	// BackpressurePriorities overrides default event priorities.
+	BackpressurePriorities map[string]int
 	// PreferProto toggles protobuf wire frames for outbound delivery events.
 	PreferProto bool
+	// RateLimit enables per-session token bucket rate limiting for read commands.
+	RateLimit RateLimitConfig
+	// Clock is optional; defaults to SystemClock.
+	Clock sharedclock.Clock
+}
+
+type HotSnapshotProvider interface {
+	GetLatest(subject domain.Subject) ([]byte, bool)
 }
 
 type SessionActor struct {
@@ -68,9 +84,10 @@ type SessionActor struct {
 	outbound     []DeliveryEvent
 	outboundCap  int
 	flushing     bool
+	policy       domain.BackpressurePolicy
+	priorities   map[string]int
+	rateLimiter  *RateLimiter
 }
-
-const sessionBackpressurePolicy = domain.BackpressureDropNewest
 
 func NewSessionActor(cfg SessionConfig) actor.Producer {
 	return func() actor.Receiver {
@@ -123,6 +140,29 @@ func (s *SessionActor) ensureDefaults(c *actor.Context) {
 		if s.outboundCap <= 0 {
 			s.outboundCap = 256
 		}
+	}
+	if s.policy == "" {
+		s.policy = domain.NormalizeBackpressurePolicy(s.cfg.BackpressurePolicy)
+	}
+	if s.priorities == nil {
+		s.priorities = domain.DefaultBackpressurePriorities()
+		for key, pri := range s.cfg.BackpressurePriorities {
+			s.priorities[strings.ToLower(strings.TrimSpace(key))] = pri
+		}
+	}
+	if s.cfg.Clock == nil {
+		s.cfg.Clock = sharedclock.NewSystemClock()
+	}
+	if s.rateLimiter == nil && s.cfg.RateLimit.Enabled {
+		burst := s.cfg.RateLimit.BurstCapacity
+		if burst <= 0 {
+			burst = 200
+		}
+		rate := s.cfg.RateLimit.MaxPerSecond
+		if rate <= 0 {
+			rate = 100
+		}
+		s.rateLimiter = NewRateLimiter(burst, rate, s.cfg.Clock)
 	}
 }
 
@@ -238,6 +278,9 @@ func sortRangeItems(items []ports.RangeItem) {
 }
 
 func (s *SessionActor) handleSubscribe(cmd clientCommand) {
+	if !s.allowRateLimitedCommand(cmd.Op, cmd.RequestID) {
+		return
+	}
 	subRes := s.service.ParseSubject(cmd.Subject)
 	if subRes.IsFail() {
 		s.writeProblem(cmd.Op, cmd.RequestID, subRes.Problem())
@@ -248,6 +291,7 @@ func (s *SessionActor) handleSubscribe(cmd clientCommand) {
 		s.writeProblem(cmd.Op, cmd.RequestID, p)
 		return
 	}
+	s.emitSnapshot(subject)
 	if s.cfg.RouterPID != nil {
 		s.engine.Send(s.cfg.RouterPID, SubscribeSession{SessionID: s.session.ID(), Subject: subject})
 	}
@@ -257,6 +301,27 @@ func (s *SessionActor) handleSubscribe(cmd clientCommand) {
 		"request_id": cmd.RequestID,
 		"subject":    subject.String(),
 	})
+}
+
+func (s *SessionActor) emitSnapshot(subject domain.Subject) {
+	if s.cfg.HotSnapshotProvider == nil {
+		return
+	}
+	raw, ok := s.cfg.HotSnapshotProvider.GetLatest(subject)
+	if !ok || len(raw) == 0 {
+		return
+	}
+	payload := json.RawMessage(raw)
+	if !json.Valid(payload) {
+		s.logger.Warn("delivery session: invalid snapshot payload, skipping", "subject", subject.String())
+		return
+	}
+	s.writeJSON(map[string]any{
+		"type":    "snapshot",
+		"subject": subject.String(),
+		"payload": payload,
+	})
+	metrics.IncWSQuery("snapshot", wsQueryBucket(subject.StreamType))
 }
 
 func (s *SessionActor) handleUnsubscribe(cmd clientCommand) {
@@ -315,6 +380,9 @@ func (s *SessionActor) handleGetLast(cmd clientCommand) {
 }
 
 func (s *SessionActor) handleGetRange(cmd clientCommand) {
+	if !s.allowRateLimitedCommand(cmd.Op, cmd.RequestID) {
+		return
+	}
 	var params getRangeParams
 	if len(cmd.Params) != 0 {
 		if err := json.Unmarshal(cmd.Params, &params); err != nil {
@@ -387,10 +455,48 @@ func (s *SessionActor) handleGetRange(cmd clientCommand) {
 	})
 }
 
+func (s *SessionActor) allowRateLimitedCommand(op, requestID string) bool {
+	switch op {
+	case "subscribe", "getrange":
+	default:
+		return true
+	}
+	if s.rateLimiter == nil {
+		return true
+	}
+	if s.rateLimiter.Allow() {
+		return true
+	}
+	metrics.IncWSQueryRejected("rate_limited")
+	s.writeProblem(op, requestID, problem.New(problem.Unavailable, "rate limit exceeded"))
+	return false
+}
+
 func (s *SessionActor) enqueueDelivery(evt DeliveryEvent) {
-	if domain.ShouldDropOnBackpressure(sessionBackpressurePolicy, len(s.outbound), s.outboundCap) {
-		metrics.IncWSDrops("queue_full")
-		return
+	if len(s.outbound) >= s.outboundCap {
+		switch s.policy {
+		case domain.BackpressureDropNewest:
+			metrics.IncWSDrops("queue_full")
+			return
+		case domain.BackpressureDropOldest:
+			s.outbound = s.outbound[1:]
+			metrics.IncWSDrops("drop_oldest")
+		case domain.BackpressurePriorityDrop:
+			if !s.priorityDrop(evt) {
+				metrics.IncWSDrops("priority_drop_self")
+				return
+			}
+			metrics.SetWSQueueDepth(len(s.outbound))
+			if s.flushing {
+				return
+			}
+			s.flushing = true
+			s.engine.Send(s.self, sessionFlushOutbound{})
+			return
+		default:
+			metrics.IncWSDrops("queue_full")
+			return
+		}
 	}
 	s.outbound = append(s.outbound, evt)
 	metrics.SetWSQueueDepth(len(s.outbound))
@@ -399,6 +505,37 @@ func (s *SessionActor) enqueueDelivery(evt DeliveryEvent) {
 	}
 	s.flushing = true
 	s.engine.Send(s.self, sessionFlushOutbound{})
+}
+
+func (s *SessionActor) priorityDrop(evt DeliveryEvent) bool {
+	if len(s.outbound) < s.outboundCap {
+		s.outbound = append(s.outbound, evt)
+		return true
+	}
+	incomingPri := s.eventPriority(evt.Env.Type)
+	lowestIdx := -1
+	lowestPri := incomingPri
+	for i, queued := range s.outbound {
+		pri := s.eventPriority(queued.Env.Type)
+		if pri < lowestPri {
+			lowestPri = pri
+			lowestIdx = i
+		}
+	}
+	if lowestIdx < 0 {
+		return false
+	}
+	s.outbound = append(s.outbound[:lowestIdx], s.outbound[lowestIdx+1:]...)
+	s.outbound = append(s.outbound, evt)
+	metrics.IncWSDrops("priority_drop")
+	return true
+}
+
+func (s *SessionActor) eventPriority(eventType string) int {
+	if s.priorities == nil {
+		return 0
+	}
+	return s.priorities[strings.ToLower(strings.TrimSpace(eventType))]
 }
 
 func (s *SessionActor) flushOutbound() {

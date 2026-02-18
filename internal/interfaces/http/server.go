@@ -51,6 +51,18 @@ type Server struct {
 	// Guardian.  Used by cmd/store to gate readiness on ClickHouse +
 	// consumer startup.
 	readyGate func() bool
+
+	tlsCertFile string
+	tlsKeyFile  string
+}
+
+type Option func(*Server)
+
+func WithTLS(certFile, keyFile string) Option {
+	return func(s *Server) {
+		s.tlsCertFile = strings.TrimSpace(certFile)
+		s.tlsKeyFile = strings.TrimSpace(keyFile)
+	}
 }
 
 // NewServer creates a Server that listens on addr and talks to guardianPID.
@@ -61,6 +73,7 @@ func NewServer(
 	addr string,
 	enablePprof bool,
 	logger *slog.Logger,
+	opts ...Option,
 ) *Server {
 	if logger == nil {
 		logger = slog.Default()
@@ -94,6 +107,11 @@ func NewServer(
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(s)
+		}
+	}
 	return s
 }
 
@@ -104,6 +122,9 @@ func (s *Server) SetReadyGate(fn func() bool) { s.readyGate = fn }
 // ListenAndServe starts the HTTP server.  It blocks until the server stops.
 func (s *Server) ListenAndServe() error {
 	s.logger.Info("http server listening", "addr", s.httpServer.Addr)
+	if s.tlsCertFile != "" && s.tlsKeyFile != "" {
+		return s.httpServer.ListenAndServeTLS(s.tlsCertFile, s.tlsKeyFile)
+	}
 	return s.httpServer.ListenAndServe()
 }
 

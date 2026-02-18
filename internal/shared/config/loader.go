@@ -63,6 +63,9 @@ func (a AppConfig) Validate() *problem.Problem {
 	if prob := validateHTTP(a.HTTP); prob != nil {
 		return prob
 	}
+	if prob := validateWS(a.WS); prob != nil {
+		return prob
+	}
 	if prob := validateShard(a.Shard); prob != nil {
 		return prob
 	}
@@ -85,6 +88,9 @@ func (a AppConfig) Validate() *problem.Problem {
 		return prob
 	}
 	if prob := validateStore(a.Store); prob != nil {
+		return prob
+	}
+	if prob := validateStorage(a.Storage); prob != nil {
 		return prob
 	}
 	if prob := ValidateFeatureSubjects(a); prob != nil {
@@ -246,6 +252,11 @@ func validateHTTP(h HTTPConfig) *problem.Problem {
 	if strings.TrimSpace(h.Addr) == "" {
 		return problem.New(codeInvalid, "http.addr must not be empty")
 	}
+	tlsCert := strings.TrimSpace(h.TLSCert)
+	tlsKey := strings.TrimSpace(h.TLSKey)
+	if (tlsCert == "") != (tlsKey == "") {
+		return problem.New(codeInvalid, "http.tls_cert and http.tls_key must be configured together")
+	}
 	var publisherFlushTimeout time.Duration
 	var guardianShutdownTimeout time.Duration
 	for _, field := range []struct {
@@ -277,6 +288,37 @@ func validateHTTP(h HTTPConfig) *problem.Problem {
 			publisherFlushTimeout,
 			guardianShutdownTimeout,
 		)
+	}
+	return nil
+}
+
+func validateWS(w WSConfig) *problem.Problem {
+	if w.RateLimit.MaxPerSecond < 0 {
+		return problem.Newf(codeInvalid, "ws.rate_limit.max_per_second must be >= 0, got %d", w.RateLimit.MaxPerSecond)
+	}
+	if w.RateLimit.BurstCapacity < 0 {
+		return problem.Newf(codeInvalid, "ws.rate_limit.burst_capacity must be >= 0, got %d", w.RateLimit.BurstCapacity)
+	}
+	if w.Auth.Enabled {
+		if len(w.Auth.APIKeys) == 0 {
+			return problem.New(codeInvalid, "ws.auth.api_keys must not be empty when ws.auth.enabled=true")
+		}
+		for key, clientID := range w.Auth.APIKeys {
+			if strings.TrimSpace(key) == "" {
+				return problem.New(codeInvalid, "ws.auth.api_keys keys must not be empty")
+			}
+			if strings.TrimSpace(clientID) == "" {
+				return problem.Newf(codeInvalid, "ws.auth.api_keys[%q] client_id must not be empty", key)
+			}
+		}
+	}
+	if w.RateLimit.Enabled {
+		if w.RateLimit.MaxPerSecond <= 0 {
+			return problem.Newf(codeInvalid, "ws.rate_limit.max_per_second must be > 0 when ws.rate_limit.enabled=true, got %d", w.RateLimit.MaxPerSecond)
+		}
+		if w.RateLimit.BurstCapacity <= 0 {
+			return problem.Newf(codeInvalid, "ws.rate_limit.burst_capacity must be > 0 when ws.rate_limit.enabled=true, got %d", w.RateLimit.BurstCapacity)
+		}
 	}
 	return nil
 }
@@ -478,6 +520,12 @@ func validateProcessor(p ProcessorConfig) *problem.Problem {
 	if p.MaxInstruments <= 0 {
 		return problem.Newf(codeInvalid, "processor.max_instruments must be > 0, got %d", p.MaxInstruments)
 	}
+	if p.Candle.MaxCandles <= 0 {
+		return problem.Newf(codeInvalid, "processor.candle.max_candles must be > 0, got %d", p.Candle.MaxCandles)
+	}
+	if p.Stats.MaxWindows <= 0 {
+		return problem.Newf(codeInvalid, "processor.stats.max_windows must be > 0, got %d", p.Stats.MaxWindows)
+	}
 
 	insights := p.Insights
 	if strings.TrimSpace(insights.JoinTradesSubject) == "" {
@@ -526,6 +574,69 @@ func validateStore(s StoreConfig) *problem.Problem {
 	if _, err := time.ParseDuration(s.Batch.FlushInterval); err != nil {
 		return problem.Newf(codeInvalid, "store.batch.flush_interval invalid: %v", err)
 	}
+	return nil
+}
+
+func validateStorage(s StorageConfig) *problem.Problem {
+	if s.Timescale.Enabled {
+		if strings.TrimSpace(s.Timescale.DSN) == "" {
+			return problem.New(codeInvalid, "storage.timescale.dsn must not be empty when storage.timescale.enabled=true")
+		}
+		if s.Timescale.MaxConns <= 0 {
+			return problem.Newf(codeInvalid, "storage.timescale.max_conns must be > 0, got %d", s.Timescale.MaxConns)
+		}
+		if s.Timescale.MinConns < 0 {
+			return problem.Newf(codeInvalid, "storage.timescale.min_conns must be >= 0, got %d", s.Timescale.MinConns)
+		}
+		if s.Timescale.MinConns > s.Timescale.MaxConns {
+			return problem.Newf(codeInvalid, "storage.timescale.min_conns (%d) must be <= max_conns (%d)", s.Timescale.MinConns, s.Timescale.MaxConns)
+		}
+		for _, field := range []struct {
+			name  string
+			value string
+		}{
+			{"storage.timescale.max_conn_lifetime", s.Timescale.MaxConnLifetime},
+			{"storage.timescale.max_conn_idle_time", s.Timescale.MaxConnIdleTime},
+			{"storage.timescale.health_check_period", s.Timescale.HealthCheckPeriod},
+		} {
+			if _, err := time.ParseDuration(field.value); err != nil {
+				return problem.Newf(codeInvalid, "%s: invalid duration %q: %v", field.name, field.value, err)
+			}
+		}
+	}
+
+	if s.ClickHouse.Enabled {
+		if len(s.ClickHouse.Addrs) == 0 {
+			return problem.New(codeInvalid, "storage.clickhouse.addrs must not be empty when storage.clickhouse.enabled=true")
+		}
+		for i, addr := range s.ClickHouse.Addrs {
+			if strings.TrimSpace(addr) == "" {
+				return problem.Newf(codeInvalid, "storage.clickhouse.addrs[%d] must not be empty", i)
+			}
+		}
+		if strings.TrimSpace(s.ClickHouse.Database) == "" {
+			return problem.New(codeInvalid, "storage.clickhouse.database must not be empty when storage.clickhouse.enabled=true")
+		}
+		if s.ClickHouse.MaxOpenConns <= 0 {
+			return problem.Newf(codeInvalid, "storage.clickhouse.max_open_conns must be > 0, got %d", s.ClickHouse.MaxOpenConns)
+		}
+		if s.ClickHouse.MaxIdleConns < 0 {
+			return problem.Newf(codeInvalid, "storage.clickhouse.max_idle_conns must be >= 0, got %d", s.ClickHouse.MaxIdleConns)
+		}
+		for _, field := range []struct {
+			name  string
+			value string
+		}{
+			{"storage.clickhouse.conn_max_lifetime", s.ClickHouse.ConnMaxLifetime},
+			{"storage.clickhouse.dial_timeout", s.ClickHouse.DialTimeout},
+			{"storage.clickhouse.read_timeout", s.ClickHouse.ReadTimeout},
+		} {
+			if _, err := time.ParseDuration(field.value); err != nil {
+				return problem.Newf(codeInvalid, "%s: invalid duration %q: %v", field.name, field.value, err)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -764,6 +875,8 @@ func applyDefaults(c *AppConfig) {
 		// Backward compatible fallback to legacy shutdown_timeout when the new field is absent.
 		c.HTTP.GuardianShutdownTimeout = c.HTTP.ShutdownTimeout
 	}
+	c.HTTP.TLSCert = strings.TrimSpace(c.HTTP.TLSCert)
+	c.HTTP.TLSKey = strings.TrimSpace(c.HTTP.TLSKey)
 	if c.Shard.Count == 0 {
 		c.Shard.Count = 1
 	}
@@ -902,6 +1015,12 @@ func applyDefaults(c *AppConfig) {
 	if c.Processor.MaxInstruments == 0 {
 		c.Processor.MaxInstruments = 2048
 	}
+	if c.Processor.Candle.MaxCandles == 0 {
+		c.Processor.Candle.MaxCandles = 50_000
+	}
+	if c.Processor.Stats.MaxWindows == 0 {
+		c.Processor.Stats.MaxWindows = 50_000
+	}
 	if c.Processor.Insights.JoinTradesSubject == "" {
 		c.Processor.Insights.JoinTradesSubject = "marketdata.trade.v1.>"
 	}
@@ -932,11 +1051,81 @@ func applyDefaults(c *AppConfig) {
 	if strings.TrimSpace(c.Store.Batch.FlushInterval) == "" {
 		c.Store.Batch.FlushInterval = "100ms"
 	}
+	if c.Storage.Timescale.MaxConns <= 0 {
+		c.Storage.Timescale.MaxConns = 10
+	}
+	if c.Storage.Timescale.MinConns < 0 {
+		c.Storage.Timescale.MinConns = 0
+	}
+	if strings.TrimSpace(c.Storage.Timescale.MaxConnLifetime) == "" {
+		c.Storage.Timescale.MaxConnLifetime = "1h"
+	}
+	if strings.TrimSpace(c.Storage.Timescale.MaxConnIdleTime) == "" {
+		c.Storage.Timescale.MaxConnIdleTime = "15m"
+	}
+	if strings.TrimSpace(c.Storage.Timescale.HealthCheckPeriod) == "" {
+		c.Storage.Timescale.HealthCheckPeriod = "30s"
+	}
+	if len(c.Storage.ClickHouse.Addrs) == 0 {
+		c.Storage.ClickHouse.Addrs = []string{"127.0.0.1:9000"}
+	}
+	if c.Storage.ClickHouse.Database == "" {
+		c.Storage.ClickHouse.Database = "default"
+	}
+	if c.Storage.ClickHouse.Username == "" {
+		c.Storage.ClickHouse.Username = "default"
+	}
+	if c.Storage.ClickHouse.MaxOpenConns <= 0 {
+		c.Storage.ClickHouse.MaxOpenConns = 10
+	}
+	if c.Storage.ClickHouse.MaxIdleConns < 0 {
+		c.Storage.ClickHouse.MaxIdleConns = 0
+	}
+	if strings.TrimSpace(c.Storage.ClickHouse.ConnMaxLifetime) == "" {
+		c.Storage.ClickHouse.ConnMaxLifetime = "1h"
+	}
+	if strings.TrimSpace(c.Storage.ClickHouse.DialTimeout) == "" {
+		c.Storage.ClickHouse.DialTimeout = "2s"
+	}
+	if strings.TrimSpace(c.Storage.ClickHouse.ReadTimeout) == "" {
+		c.Storage.ClickHouse.ReadTimeout = "5s"
+	}
+	if c.WS.RateLimit.MaxPerSecond <= 0 {
+		c.WS.RateLimit.MaxPerSecond = 100
+	}
+	if c.WS.RateLimit.BurstCapacity <= 0 {
+		c.WS.RateLimit.BurstCapacity = 200
+	}
+	if len(c.WS.Auth.APIKeys) > 0 {
+		normalized := make(map[string]string, len(c.WS.Auth.APIKeys))
+		for key, clientID := range c.WS.Auth.APIKeys {
+			k := strings.TrimSpace(key)
+			v := strings.TrimSpace(clientID)
+			if k == "" || v == "" {
+				continue
+			}
+			normalized[k] = v
+		}
+		c.WS.Auth.APIKeys = normalized
+	}
 	c.Processor.Insights.JoinTradesSubject = strings.TrimSpace(c.Processor.Insights.JoinTradesSubject)
 	c.Processor.Insights.SnapshotSubjectPrefix = strings.TrimSpace(c.Processor.Insights.SnapshotSubjectPrefix)
 	c.Processor.Insights.TTL = strings.TrimSpace(c.Processor.Insights.TTL)
 	c.Processor.Insights.SweepEvery = strings.TrimSpace(c.Processor.Insights.SweepEvery)
 	c.Processor.Insights.RoundingMode = strings.ToLower(strings.TrimSpace(c.Processor.Insights.RoundingMode))
+	c.Storage.Timescale.DSN = strings.TrimSpace(c.Storage.Timescale.DSN)
+	c.Storage.Timescale.MaxConnLifetime = strings.TrimSpace(c.Storage.Timescale.MaxConnLifetime)
+	c.Storage.Timescale.MaxConnIdleTime = strings.TrimSpace(c.Storage.Timescale.MaxConnIdleTime)
+	c.Storage.Timescale.HealthCheckPeriod = strings.TrimSpace(c.Storage.Timescale.HealthCheckPeriod)
+	for i := range c.Storage.ClickHouse.Addrs {
+		c.Storage.ClickHouse.Addrs[i] = strings.TrimSpace(c.Storage.ClickHouse.Addrs[i])
+	}
+	c.Storage.ClickHouse.Database = strings.TrimSpace(c.Storage.ClickHouse.Database)
+	c.Storage.ClickHouse.Username = strings.TrimSpace(c.Storage.ClickHouse.Username)
+	c.Storage.ClickHouse.Password = strings.TrimSpace(c.Storage.ClickHouse.Password)
+	c.Storage.ClickHouse.ConnMaxLifetime = strings.TrimSpace(c.Storage.ClickHouse.ConnMaxLifetime)
+	c.Storage.ClickHouse.DialTimeout = strings.TrimSpace(c.Storage.ClickHouse.DialTimeout)
+	c.Storage.ClickHouse.ReadTimeout = strings.TrimSpace(c.Storage.ClickHouse.ReadTimeout)
 }
 
 func normalizeConsumerExchanges(c *ConsumerConfig) {

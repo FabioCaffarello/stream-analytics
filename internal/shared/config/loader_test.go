@@ -21,6 +21,8 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 		{name: "http.addr", got: cfg.HTTP.Addr, want: ":8080"},
 		{name: "http.publisher_flush_timeout", got: cfg.HTTP.PublisherFlushTimeoutDuration(), want: 3 * time.Second},
 		{name: "http.guardian_shutdown_timeout", got: cfg.HTTP.GuardianShutdownTimeoutDuration(), want: 10 * time.Second},
+		{name: "ws.rate_limit.max_per_second", got: cfg.WS.RateLimit.MaxPerSecond, want: 100},
+		{name: "ws.rate_limit.burst_capacity", got: cfg.WS.RateLimit.BurstCapacity, want: 200},
 		{name: "shard.index", got: cfg.Shard.Index, want: 0},
 		{name: "shard.count", got: cfg.Shard.Count, want: 1},
 		{name: "bus.type", got: cfg.Bus.Type, want: "inmemory"},
@@ -48,6 +50,10 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 		{name: "marketdata.replay_path", got: cfg.MarketData.ReplayPath, want: ""},
 		{name: "processor.bus_capacity", got: cfg.Processor.BusCapacity, want: 1024},
 		{name: "processor.max_instruments", got: cfg.Processor.MaxInstruments, want: 2048},
+		{name: "processor.candle.enabled", got: cfg.Processor.Candle.Enabled, want: false},
+		{name: "processor.candle.max_candles", got: cfg.Processor.Candle.MaxCandles, want: 50_000},
+		{name: "processor.stats.enabled", got: cfg.Processor.Stats.Enabled, want: false},
+		{name: "processor.stats.max_windows", got: cfg.Processor.Stats.MaxWindows, want: 50_000},
 		{name: "processor.insights.enable_crossvenue_join", got: cfg.Processor.Insights.EnableCrossVenueJoin, want: false},
 		{name: "processor.insights.enable_volume_profile_snapshot_proto", got: cfg.Processor.Insights.EnableVolumeProfileSnapshotProto, want: false},
 		{name: "processor.insights.join_trades_subject", got: cfg.Processor.Insights.JoinTradesSubject, want: "marketdata.trade.v1.>"},
@@ -61,6 +67,8 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 		{name: "processor.insights.sweep_every_n", got: cfg.Processor.Insights.SweepEveryN, want: 1024},
 		{name: "processor.insights.sweep_every", got: cfg.Processor.Insights.SweepEvery, want: "30s"},
 		{name: "store.clickhouse.dsn", got: cfg.Store.ClickHouse.DSN, want: "clickhouse://default:password@localhost:9000/default"},
+		{name: "storage.timescale.max_conns", got: cfg.Storage.Timescale.MaxConns, want: 10},
+		{name: "storage.clickhouse.database", got: cfg.Storage.ClickHouse.Database, want: "default"},
 	})
 }
 
@@ -120,6 +128,14 @@ func TestLoad_ValidJSONC_ParsesFields(t *testing.T) {
 		"processor": {
 			"bus_capacity": 512,
 			"max_instruments": 1024,
+			"candle": {
+				"enabled": true,
+				"max_candles": 60000
+			},
+			"stats": {
+				"enabled": true,
+				"max_windows": 70000
+			},
 			"insights": {
 				"enable_crossvenue_join": true,
 				"enable_volume_profile_snapshot_proto": true,
@@ -169,6 +185,10 @@ func TestLoad_ValidJSONC_ParsesFields(t *testing.T) {
 		{name: "marketdata.replay_path", got: cfg.MarketData.ReplayPath, want: "/tmp/replay.input.jsonl"},
 		{name: "processor.bus_capacity", got: cfg.Processor.BusCapacity, want: 512},
 		{name: "processor.max_instruments", got: cfg.Processor.MaxInstruments, want: 1024},
+		{name: "processor.candle.enabled", got: cfg.Processor.Candle.Enabled, want: true},
+		{name: "processor.candle.max_candles", got: cfg.Processor.Candle.MaxCandles, want: 60000},
+		{name: "processor.stats.enabled", got: cfg.Processor.Stats.Enabled, want: true},
+		{name: "processor.stats.max_windows", got: cfg.Processor.Stats.MaxWindows, want: 70000},
 		{name: "processor.insights.enable_crossvenue_join", got: cfg.Processor.Insights.EnableCrossVenueJoin, want: true},
 		{name: "processor.insights.enable_volume_profile_snapshot_proto", got: cfg.Processor.Insights.EnableVolumeProfileSnapshotProto, want: true},
 		{name: "processor.insights.join_trades_subject", got: cfg.Processor.Insights.JoinTradesSubject, want: "marketdata.trade.v1.>"},
@@ -331,6 +351,55 @@ func TestValidate_FlushTimeoutLessThanGuardianTimeout(t *testing.T) {
 			t.Fatalf("expected config to be valid when publisher_flush_timeout < guardian_shutdown_timeout, got %v", prob)
 		}
 	})
+}
+
+func TestValidate_HTTP_TLSPairRequired(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.HTTP.TLSCert = "/tmp/cert.pem"
+	cfg.HTTP.TLSKey = ""
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error when only http.tls_cert is configured")
+	}
+
+	cfg.HTTP.TLSKey = "/tmp/key.pem"
+	if prob := cfg.Validate(); prob != nil {
+		t.Fatalf("expected tls cert/key pair to pass validation, got: %v", prob)
+	}
+}
+
+func TestValidate_WSAuthEnabledRequiresKeys(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.WS.Auth.Enabled = true
+	cfg.WS.Auth.APIKeys = nil
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error when ws.auth.enabled=true and api_keys is empty")
+	}
+
+	cfg.WS.Auth.APIKeys = map[string]string{"k1": "client-a"}
+	if prob := cfg.Validate(); prob != nil {
+		t.Fatalf("expected ws auth config to pass validation, got: %v", prob)
+	}
+}
+
+func TestValidate_WSRateLimitEnabledRequiresPositive(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.WS.RateLimit.Enabled = true
+	cfg.WS.RateLimit.MaxPerSecond = 0
+	cfg.WS.RateLimit.BurstCapacity = 200
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for ws.rate_limit.max_per_second <= 0 when enabled")
+	}
+
+	cfg.WS.RateLimit.MaxPerSecond = 100
+	cfg.WS.RateLimit.BurstCapacity = 0
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for ws.rate_limit.burst_capacity <= 0 when enabled")
+	}
+
+	cfg.WS.RateLimit.BurstCapacity = 200
+	if prob := cfg.Validate(); prob != nil {
+		t.Fatalf("expected ws rate limit config to pass validation, got: %v", prob)
+	}
 }
 
 func TestValidate_ConsumerExchangeUnknownType(t *testing.T) {
@@ -971,6 +1040,54 @@ func TestLoad_ShardGroupDefaults(t *testing.T) {
 	}
 	if cfg.JetStream.ShardGroupID != 0 {
 		t.Errorf("default ShardGroupID = %d; want 0", cfg.JetStream.ShardGroupID)
+	}
+}
+
+func TestLoad_StorageDefaults(t *testing.T) {
+	cfg, prob := Load("")
+	if prob != nil {
+		t.Fatalf("Load: %v", prob)
+	}
+	assertChecks(t, []fieldCheck{
+		{name: "storage.timescale.enabled", got: cfg.Storage.Timescale.Enabled, want: false},
+		{name: "storage.timescale.max_conns", got: cfg.Storage.Timescale.MaxConns, want: 10},
+		{name: "storage.timescale.min_conns", got: cfg.Storage.Timescale.MinConns, want: 0},
+		{name: "storage.clickhouse.enabled", got: cfg.Storage.ClickHouse.Enabled, want: false},
+		{name: "storage.clickhouse.database", got: cfg.Storage.ClickHouse.Database, want: "default"},
+		{name: "storage.clickhouse.max_open_conns", got: cfg.Storage.ClickHouse.MaxOpenConns, want: 10},
+		{name: "storage.clickhouse.max_idle_conns", got: cfg.Storage.ClickHouse.MaxIdleConns, want: 0},
+	})
+}
+
+func TestValidate_StorageTimescaleEnabled_EmptyDSNFails(t *testing.T) {
+	cfg, prob := Load("")
+	if prob != nil {
+		t.Fatalf("Load: %v", prob)
+	}
+	cfg.Storage.Timescale.Enabled = true
+	cfg.Storage.Timescale.DSN = ""
+	p := cfg.Validate()
+	if p == nil {
+		t.Fatal("expected validation failure for empty storage.timescale.dsn")
+	}
+	if !strings.Contains(p.Message, "storage.timescale.dsn") {
+		t.Fatalf("message=%q", p.Message)
+	}
+}
+
+func TestValidate_StorageClickHouseEnabled_EmptyAddrsFails(t *testing.T) {
+	cfg, prob := Load("")
+	if prob != nil {
+		t.Fatalf("Load: %v", prob)
+	}
+	cfg.Storage.ClickHouse.Enabled = true
+	cfg.Storage.ClickHouse.Addrs = nil
+	p := cfg.Validate()
+	if p == nil {
+		t.Fatal("expected validation failure for empty storage.clickhouse.addrs")
+	}
+	if !strings.Contains(p.Message, "storage.clickhouse.addrs") {
+		t.Fatalf("message=%q", p.Message)
 	}
 }
 

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -12,10 +13,12 @@ import (
 	actorruntime "github.com/market-raccoon/internal/actors/runtime"
 	"github.com/market-raccoon/internal/adapters/bus"
 	"github.com/market-raccoon/internal/adapters/storage/timescale"
+	"github.com/market-raccoon/internal/core/delivery/ports"
 	httpserver "github.com/market-raccoon/internal/interfaces/http"
 	wsserver "github.com/market-raccoon/internal/interfaces/ws"
 	"github.com/market-raccoon/internal/shared/bootstrap"
 	"github.com/market-raccoon/internal/shared/config"
+	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/metrics"
 )
 
@@ -25,6 +28,25 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	logger := bootstrap.BuildLogger(cfg.Log)
 	slog.SetDefault(logger)
 	logger.Info("server starting", "addr", cfg.HTTP.Addr)
+	var tsPool *timescale.Pool
+	timescale.SetStubMode(timescale.AdapterModeStubMemory)
+	if cfg.Storage.Timescale.Enabled {
+		pool, p := timescale.NewPool(ctx, timescale.PoolConfig{
+			DSN:               cfg.Storage.Timescale.DSN,
+			MaxConns:          int32(cfg.Storage.Timescale.MaxConns),
+			MinConns:          int32(cfg.Storage.Timescale.MinConns),
+			MaxConnLifetime:   cfg.Storage.Timescale.MaxConnLifetimeDuration(),
+			MaxConnIdleTime:   cfg.Storage.Timescale.MaxConnIdleTimeDuration(),
+			HealthCheckPeriod: cfg.Storage.Timescale.HealthCheckPeriodDuration(),
+		})
+		if p != nil {
+			return fmt.Errorf("timescale pool init failed: %v", p)
+		}
+		tsPool = pool
+		defer tsPool.Close()
+		timescale.SetProductionReady(timescale.AdapterModePGX)
+		logger.Info("server: using Timescale pgx pool")
+	}
 	if !timescale.IsProductionReady() {
 		logger.Warn("server: timescale adapter running in non-production stub mode",
 			"adapter_mode", timescale.AdapterMode(),
@@ -41,7 +63,16 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	eventBus := bus.NewInMemoryBus(cfg.Processor.BusCapacity, metrics.NewBusObserver())
 	envelopeCh := eventBus.Subscribe()
 	routerPIDCh := make(chan *actor.PID, 1)
-	rangeStore := timescale.NewDeliveryRangeStore(4096)
+	var rangeStore interface {
+		ports.RangeStore
+		StoreEnvelope(env envelope.Envelope)
+	}
+	if tsPool != nil {
+		rangeStore = timescale.NewPgRangeStore(tsPool, 4096)
+		logger.Info("server: using Timescale range store")
+	} else {
+		rangeStore = timescale.NewDeliveryRangeStore(4096)
+	}
 
 	deliveryCfg := deliveryruntime.SubsystemConfig{
 		Logger: logger,
@@ -69,8 +100,15 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	logger.Info("guardian spawned", "pid", guardianPID.String())
 
 	// ── HTTP server ──────────────────────────────────────────────────────
-	srv := httpserver.NewServer(e, guardianPID, cfg.HTTP.Addr, cfg.HTTP.EnablePprof, logger)
-	enableWSRoute(e, srv, routerPIDCh, logger, rangeStore)
+	srv := httpserver.NewServer(
+		e,
+		guardianPID,
+		cfg.HTTP.Addr,
+		cfg.HTTP.EnablePprof,
+		logger,
+		httpserver.WithTLS(cfg.HTTP.TLSCert, cfg.HTTP.TLSKey),
+	)
+	enableWSRoute(e, srv, routerPIDCh, logger, rangeStore, cfg)
 
 	serverErr := make(chan error, 1)
 	go func() {
@@ -106,10 +144,32 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	return nil
 }
 
-func enableWSRoute(e *actor.Engine, srv *httpserver.Server, routerPIDCh <-chan *actor.PID, logger *slog.Logger, rangeStore *timescale.DeliveryRangeStore) {
+func enableWSRoute(
+	e *actor.Engine,
+	srv *httpserver.Server,
+	routerPIDCh <-chan *actor.PID,
+	logger *slog.Logger,
+	rangeStore ports.RangeStore,
+	cfg config.AppConfig,
+) {
 	select {
 	case routerPID := <-routerPIDCh:
-		ws := wsserver.NewServer(e, routerPID, logger, rangeStore, 256)
+		ws := wsserver.NewServer(
+			e,
+			routerPID,
+			logger,
+			rangeStore,
+			256,
+			wsserver.WithAuthConfig(wsserver.AuthConfig{
+				Enabled: cfg.WS.Auth.Enabled,
+				APIKeys: cfg.WS.Auth.APIKeys,
+			}),
+			wsserver.WithRateLimit(deliveryruntime.RateLimitConfig{
+				Enabled:       cfg.WS.RateLimit.Enabled,
+				MaxPerSecond:  cfg.WS.RateLimit.MaxPerSecond,
+				BurstCapacity: cfg.WS.RateLimit.BurstCapacity,
+			}),
+		)
 		srv.HandleFunc("GET /ws", ws.HandleWS)
 		logger.Info("delivery websocket route enabled", "route", "GET /ws")
 	case <-time.After(2 * time.Second):

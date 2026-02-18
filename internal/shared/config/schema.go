@@ -19,6 +19,7 @@ import (
 type AppConfig struct {
 	Log        LogConfig        `json:"log"`
 	HTTP       HTTPConfig       `json:"http"`
+	WS         WSConfig         `json:"ws"`
 	Bus        BusConfig        `json:"bus"`
 	Shard      ShardConfig      `json:"shard"`
 	JetStream  JetStreamConfig  `json:"jetstream"`
@@ -27,6 +28,7 @@ type AppConfig struct {
 	Replay     ReplayConfig     `json:"replay"`
 	Processor  ProcessorConfig  `json:"processor"`
 	Store      StoreConfig      `json:"store"`
+	Storage    StorageConfig    `json:"storage"`
 }
 
 // ShardConfig controls deterministic shard assignment for horizontal scaling.
@@ -109,6 +111,30 @@ type HTTPConfig struct {
 	PublisherFlushTimeout string `json:"publisher_flush_timeout"`
 	// GuardianShutdownTimeout is the maximum time to wait for guardian shutdown. Default: "10s".
 	GuardianShutdownTimeout string `json:"guardian_shutdown_timeout"`
+	// TLSCert is the optional filesystem path to the TLS certificate.
+	TLSCert string `json:"tls_cert"`
+	// TLSKey is the optional filesystem path to the TLS private key.
+	TLSKey string `json:"tls_key"`
+}
+
+// WSConfig controls websocket auth and per-session read-path rate limiting.
+type WSConfig struct {
+	Auth      WSAuthConfig      `json:"auth"`
+	RateLimit WSRateLimitConfig `json:"rate_limit"`
+}
+
+// WSAuthConfig controls API-key authentication for websocket connections.
+type WSAuthConfig struct {
+	Enabled bool              `json:"enabled"`
+	APIKeys map[string]string `json:"api_keys"`
+}
+
+// WSRateLimitConfig controls per-session token bucket settings for websocket
+// read-path commands.
+type WSRateLimitConfig struct {
+	Enabled       bool `json:"enabled"`
+	MaxPerSecond  int  `json:"max_per_second"`
+	BurstCapacity int  `json:"burst_capacity"`
 }
 
 // ConsumerConfig controls the market-data consumer binary.
@@ -231,6 +257,37 @@ type StoreConfig struct {
 	Batch StoreBatchConfig `json:"batch"`
 }
 
+// StorageConfig controls opt-in production storage drivers.
+type StorageConfig struct {
+	Timescale  StorageTimescaleConfig  `json:"timescale"`
+	ClickHouse StorageClickHouseConfig `json:"clickhouse"`
+}
+
+// StorageTimescaleConfig controls Timescale connection options.
+type StorageTimescaleConfig struct {
+	Enabled           bool   `json:"enabled"`
+	DSN               string `json:"dsn"`
+	MaxConns          int    `json:"max_conns"`
+	MinConns          int    `json:"min_conns"`
+	MaxConnLifetime   string `json:"max_conn_lifetime"`
+	MaxConnIdleTime   string `json:"max_conn_idle_time"`
+	HealthCheckPeriod string `json:"health_check_period"`
+}
+
+// StorageClickHouseConfig controls ClickHouse connection options.
+type StorageClickHouseConfig struct {
+	Enabled         bool     `json:"enabled"`
+	Addrs           []string `json:"addrs"`
+	Database        string   `json:"database"`
+	Username        string   `json:"username"`
+	Password        string   `json:"password"`
+	MaxOpenConns    int      `json:"max_open_conns"`
+	MaxIdleConns    int      `json:"max_idle_conns"`
+	ConnMaxLifetime string   `json:"conn_max_lifetime"`
+	DialTimeout     string   `json:"dial_timeout"`
+	ReadTimeout     string   `json:"read_timeout"`
+}
+
 // StoreBatchConfig controls write batching thresholds for the store pipeline.
 type StoreBatchConfig struct {
 	// MaxRows triggers a flush when the batch reaches this many rows.
@@ -249,6 +306,36 @@ func (b StoreBatchConfig) FlushIntervalDuration() time.Duration {
 	return mustParseDuration(b.FlushInterval)
 }
 
+// MaxConnLifetimeDuration parses and returns StorageTimescaleConfig.MaxConnLifetime.
+func (s StorageTimescaleConfig) MaxConnLifetimeDuration() time.Duration {
+	return mustParseDuration(s.MaxConnLifetime)
+}
+
+// MaxConnIdleTimeDuration parses and returns StorageTimescaleConfig.MaxConnIdleTime.
+func (s StorageTimescaleConfig) MaxConnIdleTimeDuration() time.Duration {
+	return mustParseDuration(s.MaxConnIdleTime)
+}
+
+// HealthCheckPeriodDuration parses and returns StorageTimescaleConfig.HealthCheckPeriod.
+func (s StorageTimescaleConfig) HealthCheckPeriodDuration() time.Duration {
+	return mustParseDuration(s.HealthCheckPeriod)
+}
+
+// ConnMaxLifetimeDuration parses and returns StorageClickHouseConfig.ConnMaxLifetime.
+func (s StorageClickHouseConfig) ConnMaxLifetimeDuration() time.Duration {
+	return mustParseDuration(s.ConnMaxLifetime)
+}
+
+// DialTimeoutDuration parses and returns StorageClickHouseConfig.DialTimeout.
+func (s StorageClickHouseConfig) DialTimeoutDuration() time.Duration {
+	return mustParseDuration(s.DialTimeout)
+}
+
+// ReadTimeoutDuration parses and returns StorageClickHouseConfig.ReadTimeout.
+func (s StorageClickHouseConfig) ReadTimeoutDuration() time.Duration {
+	return mustParseDuration(s.ReadTimeout)
+}
+
 // StoreClickHouseConfig controls ClickHouse connection for the store binary.
 type StoreClickHouseConfig struct {
 	// DSN is the ClickHouse connection string.
@@ -265,6 +352,26 @@ type ProcessorConfig struct {
 	MaxInstruments int `json:"max_instruments"`
 	// Insights controls optional processor-side insight derivations.
 	Insights ProcessorInsightsConfig `json:"insights"`
+	// Candle controls candle aggregation runtime options.
+	Candle ProcessorCandleConfig `json:"candle"`
+	// Stats controls stats aggregation runtime options.
+	Stats ProcessorStatsConfig `json:"stats"`
+}
+
+// ProcessorCandleConfig controls candle aggregation options in processor runtime.
+type ProcessorCandleConfig struct {
+	// Enabled toggles candle aggregation route handling.
+	Enabled bool `json:"enabled"`
+	// MaxCandles bounds active candle windows in memory.
+	MaxCandles int `json:"max_candles"`
+}
+
+// ProcessorStatsConfig controls stats aggregation options in processor runtime.
+type ProcessorStatsConfig struct {
+	// Enabled toggles stats aggregation route handling.
+	Enabled bool `json:"enabled"`
+	// MaxWindows bounds active stats windows in memory.
+	MaxWindows int `json:"max_windows"`
 }
 
 // ProcessorInsightsConfig controls optional cross-venue join derivation in processor runtime.
