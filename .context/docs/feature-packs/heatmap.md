@@ -1,6 +1,6 @@
 # Feature Pack: Heatmap
 
-**STATUS:** ACTIVE | **last_reviewed:** 2026-02-17
+**STATUS:** ACTIVE | **last_reviewed:** 2026-02-18
 
 ## Purpose
 - Heatmap parity constraints only; authority: [heatmap](../../../docs/architecture/heatmap.md), [event-bus](../../../docs/contracts/event-bus.md), [ADR-0013](../../../docs/adrs/ADR-0013-backpressure-overload-policies.md).
@@ -32,8 +32,9 @@
 - `internal/actors/marketdata/runtime/backpressure_queue.go:56` (wsQueue.Enqueue — bounded queue)
 - `internal/shared/ds/boundedmap.go:24` (BoundedMap — bounded state primitive)
 - `internal/shared/replay/player.go:45` (Replay — deterministic replay entry)
-- TODO: `internal/core/insights/domain/heatmap_bucket.go` (bucket model)
-- TODO: `internal/core/insights/app/build_heatmap.go` (builder usecase)
+- `internal/core/insights/domain/heatmap_bucket.go:1` (bucket model — Existing)
+- `internal/core/insights/app/build_heatmap.go:1` (builder usecase — Existing)
+- `internal/core/insights/app/service.go:1` (InsightsService facade — Existing)
 
 ## Acceptance Tests
 - `TestValidateSubjectTaxonomy_Valid` -> `internal/adapters/jetstream/subject_validation_test.go:5`

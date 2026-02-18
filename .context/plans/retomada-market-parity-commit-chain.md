@@ -6,7 +6,7 @@ title: Retomada Estratégica M1-M3 (Commit Chains)
 owner: Release Engineer + Architect
 workflow: PREVC
 phase: P
-lastUpdated: "2026-02-13T15:56:08.439Z"
+lastUpdated: "2026-02-18T00:00:00.000Z"
 ---
 
 # 1) Program Snapshot
@@ -34,8 +34,8 @@ Leituras mandatórias concluídas:
 - `docs/rfcs/EXECUTION-SEQUENCE.md`
 
 Contradição/tensão registrada:
-- RFC-0011 GD-02 mantém `aggregation.*` como planejado, enquanto runtime validator aceita roots `marketdata|insights|quarantine` (`internal/adapters/jetstream/subject_validation.go`).
-- Decisão operacional: manter root atual no runtime até decisão explícita de contrato; qualquer mudança de root entra em cadeia própria de `contracts` antes de runtime.
+- ~~RFC-0011 GD-02 mantém `aggregation.*` como planejado, enquanto runtime validator aceita roots `marketdata|insights|quarantine`.~~
+- **RESOLVIDO (2026-02-18):** runtime validator já aceita `aggregation` root (`internal/adapters/jetstream/subject_validation.go:15`); NOTE-001 superada; GD-02 fechado em RFC-0011.
 
 # 3) Retomada Estratégica — Milestones
 
@@ -61,6 +61,12 @@ Contradição/tensão registrada:
 
 ## M3 — Heatmap + Volume Profiles + replay rebuild
 
+**NOTE (2026-02-18):** Domain models and builder use cases for heatmap and VP already exist:
+- `internal/core/insights/domain/heatmap_bucket.go` (136 LOC) + `internal/core/insights/app/build_heatmap.go` (517 LOC)
+- `internal/core/insights/domain/volume_profile.go` (169 LOC) + `internal/core/insights/app/build_volume_profile.go` (433 LOC)
+- `internal/core/insights/app/service.go` (InsightsService facade)
+- **M3.C2 (feat: builders) is already done.** Remaining: M3.C1 (docs contracts), M3.C3 (writers), M3.C4 (replay tests).
+
 - Módulos Go afetados: `./internal/core/insights`, `./internal/adapters`, `./internal/shared`, `./internal/interfaces`, `./cmd/processor`, `./cmd/consumer`.
 - Contracts (proto/envelope/subjects): `insights.<heatmap_event>.v1.{venue}.{instrument}`, `insights.<volume_profile_event>.v1.{venue}.{instrument}` (registry explícito); WS `insights.heatmap/*` e `insights.volume_profile/*`.
 - Storage tables (hot/cold + keys): hot `timescale.insights_heatmap_bucket_hot`, `timescale.insights_volume_profile_hot`; cold `clickhouse.insights_heatmap_bucket_cold`, `clickhouse.insights_volume_profile_cold`; keys `(venue,instrument,timeframe,price_bucket,window_start_ts[,seq_max])` + `idempotency_key`.
@@ -68,6 +74,18 @@ Contradição/tensão registrada:
 - Test plan: golden de janela/hash, replay rebuild equivalence, race em builders/writers, soak em cardinalidade alta.
 - Observability mínima: `heatmap_cells_total`, `heatmap_payload_bytes`, `volume_profile_bucket_count`, `*_replay_lag_ms`, `*_drop_total`.
 - Rollback strategy: revert por feature (heatmap/VP) sem tocar replay core; manter somente baseline de replay existente.
+
+## M4 — Candle + Stats Aggregation (Product Parity)
+
+**Added 2026-02-18** — covers marketmonkey's `actor/trade/` (candle sampler) and `actor/stat/` (stats aggregator).
+
+- Módulos Go afetados: `./internal/core/aggregation`, `./internal/adapters`, `./internal/shared`, `./internal/interfaces`, `./cmd/processor`.
+- Contracts (proto/envelope/subjects): `aggregation.candle.v1.{venue}.{instrument}`, `aggregation.stats.v1.{venue}.{instrument}` (subject root `aggregation` accepted in runtime).
+- Architecture authority: `docs/architecture/candle-aggregation.md`, `docs/architecture/stats-aggregation.md`.
+- Invariants (ADRs): ADR-0002, ADR-0006, ADR-0013, ADR-0014, ADR-0015.
+- Test plan: golden OHLCV determinism, stats determinism, multi-timeframe cascade, partial-input tolerance.
+- Observability mínima: `candle_build_latency_ms`, `candle_close_total`, `stats_build_latency_ms`, `stats_partial_total`.
+- Dependencies: M1 (storage writers) should land first for persistence path.
 
 # 4) Commit Slicing — COMMIT CHAINS
 
@@ -250,4 +268,5 @@ Regra de interrupção:
 
 ## Execution History
 
-> Last updated: 2026-02-13T15:56:08.439Z | Progress: 0%
+> Last updated: 2026-02-18 | Progress: 0%
+> 2026-02-18: GD-02 resolved; M3.C2 (builders) confirmed existing; M4 (candle+stats) milestone added; all docs-check gates passing.

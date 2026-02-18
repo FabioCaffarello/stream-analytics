@@ -1,6 +1,6 @@
 # Feature Pack: Volume Profiles
 
-**STATUS:** ACTIVE | **last_reviewed:** 2026-02-17
+**STATUS:** ACTIVE | **last_reviewed:** 2026-02-18
 
 ## Purpose
 - VPVR constraints only; authority: [volume-profiles](../../../docs/architecture/volume-profiles.md), [event-bus](../../../docs/contracts/event-bus.md), [ADR-0017](../../../docs/adrs/ADR-0017-multi-exchange-normalization.md).
@@ -34,8 +34,9 @@
 - `internal/core/insights/app/join_crossvenue_trades.go:291` (buildSnapshot — deterministic assembly)
 - `internal/adapters/jetstream/subject_validation.go:24` (ValidateSubjectTaxonomy — input gate)
 - `internal/shared/ds/boundedmap.go:24` (BoundedMap — cardinality cap primitive)
-- TODO: `internal/core/insights/domain/volume_profile.go` (VPVR domain model)
-- TODO: `internal/core/insights/app/build_volume_profile.go` (builder usecase)
+- `internal/core/insights/domain/volume_profile.go:1` (VPVR domain model — Existing)
+- `internal/core/insights/app/build_volume_profile.go:1` (builder usecase — Existing)
+- `internal/core/insights/app/service.go:1` (InsightsService facade — Existing)
 
 ## Acceptance Tests
 - `TestJoinCrossVenueTrades_DeterministicGivenSameInputSequence` -> `internal/core/insights/app/join_crossvenue_trades_test.go:292`

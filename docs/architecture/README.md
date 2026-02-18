@@ -264,6 +264,8 @@ without requiring rewrites.
 - [Heatmap](heatmap.md)
 - [Volume Profiles](volume-profiles.md)
 - [Liquidations and MarkPrice](liquidations-markprice.md)
+- [Candle Aggregation](candle-aggregation.md)
+- [Stats Aggregation](stats-aggregation.md)
 
 ### Contracts Index
 

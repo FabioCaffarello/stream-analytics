@@ -2,7 +2,7 @@
 
 **Status:** Draft
 **Owner:** Product Architect
-**Last updated:** 2026-02-13
+**Last updated:** 2026-02-18
 **Date:** 2026-02-13
 **Author:** Product Architect
 **Relates to:** `docs/prd/PRD-0001-extreme-runtime.md`, `docs/audits/AUDIT-PACK-W11-finalization.md`, `docs/adrs/ADR-0002-event-envelope-and-versioning.md`, `docs/adrs/ADR-0004-bus-nats-jetstream.md`, `docs/adrs/ADR-0006-storage-hot-vs-cold.md`, `docs/adrs/ADR-0013-backpressure-overload-policies.md`, `docs/adrs/ADR-0014-stream-partitioning-strategy.md`, `docs/adrs/ADR-0015-deterministic-replay-time-invariants.md`, `docs/adrs/ADR-0016-protobuf-contract-layer.md`, `docs/adrs/ADR-0018-actor-topology-supervision-model.md`, `docs/contracts/event-bus.md`
@@ -31,7 +31,7 @@ Consolidar parity v1 em modo doc-first, alinhando arquitetura de storage/orderbo
 | ID | Sev | Gap/Drift | Impacto | Status nesta rodada |
 |---|---|---|---|---|
 | GD-01 | P0 | Contrato WS documentava `content_type` no frame de evento, mas runtime atual nao envia esse campo | risco de contrato wire incorreto para cliente | RESOLVIDO: docs WS agora refletem frame atual + extensao planejada opcional |
-| GD-02 | P0 | `aggregation.*` aparece como subject planejado, mas validator atual aceita roots `marketdata|insights|quarantine` | risco de contradicao ADR/runtime em rollout de novos tipos | OPEN QUESTION: mantido com ADR-REVISION NOTE (NOTE-001) |
+| GD-02 | P0 | `aggregation.*` aparece como subject planejado, mas validator atual aceita roots `marketdata|insights|quarantine` | risco de contradicao ADR/runtime em rollout de novos tipos | RESOLVIDO: runtime validator já aceita `aggregation` root (`internal/adapters/jetstream/subject_validation.go:15`); NOTE-001 superada |
 | GD-03 | P0 | Storage docs podiam sugerir L1/L2 como existentes, conflitante com ADR-0006 (L0 memoria ativo) | risco operacional de expectativa incorreta | RESOLVIDO: docs marcam L0 `Existing`, L1/L2 `Planned/TODO` |
 | GD-04 | P0 | Campos obrigatorios de envelope estavam incompletos em alguns textos de parity | risco de contrato parcial | RESOLVIDO: obrigatorios alinhados a ADR-0002 |
 | GD-05 | P1 | Acceptance tests sem path/test id padronizado | baixa auditabilidade de aceite | RESOLVIDO: todos docs parity incluem testes existentes e/ou lista TODO com nome+path |
@@ -40,6 +40,9 @@ Consolidar parity v1 em modo doc-first, alinhando arquitetura de storage/orderbo
 | GD-08 | P1 | Backpressure e ack boundary descritos genericamente | risco de politica nao testavel | RESOLVIDO com referencias diretas a ADR-0013 e testes existentes |
 | GD-09 | P2 | Terminologia misturada (instrument/symbol/subject/stream/envelope/payload) | ambiguidade de leitura | RESOLVIDO com secoes de terminologia em cada doc |
 | GD-10 | P2 | TRUTH-MAP sem amarracao explicita por tema parity | governanca incompleta para W12/W13 | RESOLVIDO com atualizacao de temas parity + gates |
+| GD-11 | P1 | Candle aggregation (OHLCV multi-timeframe) absent from all docs and code | marketmonkey core feature without raccoon equivalent | NEW: doc-first skeleton planned (`docs/architecture/candle-aggregation.md`) |
+| GD-12 | P1 | Stats aggregation (liq/funding/markprice per timeframe) absent from all docs and code | marketmonkey feature for dashboard analytics | NEW: doc-first skeleton planned (`docs/architecture/stats-aggregation.md`) |
+| GD-13 | P2 | Funding rate not a standalone pipeline — embedded in markprice/liquidation flow | limits independent stats computation | TRACKED: will address in stats aggregation design |
 
 ## Review Matrix (Padrao por Documento)
 
@@ -61,6 +64,8 @@ Consolidar parity v1 em modo doc-first, alinhando arquitetura de storage/orderbo
 3. Heatmap derivation + persistence plan
 4. Volume profile (VPVR) + range aggregations
 5. Liquidations/MarkPrice end-to-end plan
+6. Candle aggregation (OHLCV multi-timeframe from trade events)
+7. Stats aggregation (liq volume + funding + markprice per timeframe)
 
 ### Dependencies by Feature
 
@@ -81,7 +86,12 @@ Consolidar parity v1 em modo doc-first, alinhando arquitetura de storage/orderbo
 | Replay determinism baseline | Existing | `internal/shared/replay/player.go`, `internal/shared/replay/sequencer.go` | `internal/shared/replay/golden_test.go`, `cmd/consumer/replay_test.go:TestReplayIngestGolden1000` |
 | Delivery session/router baseline | Existing | `internal/actors/delivery/runtime/session.go`, `internal/actors/delivery/runtime/router.go` | `internal/actors/delivery/runtime/session_test.go`, `internal/actors/delivery/runtime/router_test.go` |
 | Storage L1/L2 adapters | TODO | `internal/adapters/storage/` (TODO) | `internal/adapters/storage/*_test.go` (TODO) |
-| Heatmap/VPVR builders and writers | TODO | `internal/core/insights/app/build_heatmap.go` (TODO), `internal/core/insights/app/build_volume_profile.go` (TODO) | dedicated TODO tests by path in each architecture doc |
+| Heatmap builder (domain + use case) | Existing | `internal/core/insights/domain/heatmap_bucket.go`, `internal/core/insights/app/build_heatmap.go` | `internal/core/insights/app/build_heatmap_test.go` |
+| VPVR builder (domain + use case) | Existing | `internal/core/insights/domain/volume_profile.go`, `internal/core/insights/app/build_volume_profile.go` | `internal/core/insights/app/build_volume_profile_test.go` |
+| InsightsService facade | Existing | `internal/core/insights/app/service.go` | — |
+| Heatmap/VPVR storage writers | TODO | `internal/adapters/storage/timescale/` (TODO) | dedicated TODO tests by path in each architecture doc |
+| Candle aggregation (OHLCV multi-timeframe) | TODO | `internal/core/aggregation/domain/` (TODO) | `internal/core/aggregation/app/` (TODO) |
+| Stats aggregation (liq/funding/markprice per TF) | TODO | `internal/core/aggregation/domain/` (TODO) | `internal/core/aggregation/app/` (TODO) |
 | MarkPrice/Liquidation dedicated pipeline | TODO | `internal/core/marketdata/app/normalize_markprice_liquidation.go` (TODO) | `internal/actors/marketdata/runtime/markprice_liquidation_pipeline_test.go` (TODO) |
 
 ## Incremental Commit Plan
@@ -201,7 +211,7 @@ make proto-breaking
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| subject root conflict for planned `aggregation.*` | High | manter ADR-REVISION NOTE ate decisao de root support |
+| subject root conflict for planned `aggregation.*` | ~~High~~ Resolved | RESOLVIDO: runtime validator already accepts `aggregation` root |
 | docs declararem feature como existente sem evidencia | High | obrigatoriedade de `Implementation Matrix` com path de teste |
 | drift entre WS frame doc e runtime | High | contrato separado em current vs planned e revisao em cada rodada PREVC |
 | cold-path assumptions sem adapter real | Medium | manter L1/L2 como planned/TODO e validar apenas gates existentes |
@@ -217,6 +227,15 @@ make proto-breaking
 - `docs/architecture/TRUTH-MAP.md`
 
 ## Changelog
+
+- 2026-02-18:
+  - RESOLVIDO GD-02: runtime validator already accepts `aggregation` root; NOTE-001 superada.
+  - Added GD-11 (P1): Candle aggregation gap.
+  - Added GD-12 (P1): Stats aggregation gap.
+  - Added GD-13 (P2): Funding rate standalone pipeline gap.
+  - Fixed Implementation Matrix: Heatmap/VPVR builders `TODO` → `Existing`.
+  - Added candle/stats rows to Implementation Matrix.
+  - Added design items 6 (candle) and 7 (stats) to Feature Set v1.
 
 - 2026-02-13:
 - RFC atualizado para parity doc-hardening em PREVC.

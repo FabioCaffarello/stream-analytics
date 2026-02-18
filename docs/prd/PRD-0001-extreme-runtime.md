@@ -2,7 +2,7 @@
 
 **Status:** Active
 **Owner:** Governance Doc-First Maintainer
-**Last updated:** 2026-02-13
+**Last updated:** 2026-02-18
 **Date:** 2026-02-12
 **Author:** Chief Architect
 **Relates to:** `docs/architecture/TRUTH-MAP.md`, `docs/audits/DRIFT-REPORT-W11.md`, `docs/rfcs/EXECUTION-SEQUENCE.md`
@@ -38,7 +38,12 @@ Manter uma especificacao de produto alinhada ao estado real do runtime: o que ja
 | Multi-exchange runtime readiness | Partially Implemented | `cmd/consumer/e2e_consumer_integration_test.go:24`, `docs/rfcs/RFC-0010-W9-multi-exchange-readiness.md` |
 | Protobuf contract layer (tooling+authority) | Partially Implemented | `internal/shared/contracts/authority_test.go:268`, `docs/adrs/ADR-0016-protobuf-contract-layer.md` |
 | Operational soak maturity evidence | Partially Implemented | `Makefile:142`, `.context/evidence/w5-soak.txt` |
+| Heatmap domain model + builder use case | Implemented | `internal/core/insights/domain/heatmap_bucket.go:1`, `internal/core/insights/app/build_heatmap.go:1` |
+| Volume Profile domain model + builder use case | Implemented | `internal/core/insights/domain/volume_profile.go:1`, `internal/core/insights/app/build_volume_profile.go:1` |
+| InsightsService facade | Implemented | `internal/core/insights/app/service.go:1` |
 | Contract-layer runtime completion (W13) | Planned | `docs/rfcs/EXECUTION-SEQUENCE.md` |
+| Candle aggregation (OHLCV multi-timeframe) | Planned | `docs/architecture/candle-aggregation.md` |
+| Stats aggregation (liq/funding/markprice per TF) | Planned | `docs/architecture/stats-aggregation.md` |
 
 ## Program Goals (SLO-driven)
 
@@ -83,6 +88,7 @@ go test -run '^$' -bench BenchmarkApplyDelta ./internal/core/aggregation/...
 | W11 | Implemented | `docs/architecture/TRUTH-MAP.md`, `docs/audits/DRIFT-REPORT-W11.md` |
 | W12 | Implemented | `docs/rfcs/EXECUTION-SEQUENCE.md` |
 | W13 | Planned | `docs/rfcs/EXECUTION-SEQUENCE.md` |
+| W14 | Planned | `docs/rfcs/RFC-0011-product-parity-marketmonkey.md` |
 
 ## Risks
 
@@ -108,6 +114,11 @@ go test -run '^$' -bench BenchmarkApplyDelta ./internal/core/aggregation/...
 O snapshot detalhado anterior foi preservado no historico Git e substituido aqui por uma versao normalizada e anti-drift para governanca operacional.
 
 ## Changelog
+
+- 2026-02-18:
+  - Added Implemented rows: Heatmap builder, VP builder, InsightsService facade.
+  - Added Planned rows: Candle aggregation (OHLCV), Stats aggregation (liq/funding/markprice per TF).
+  - Added W14 (product parity) to Implementation Matrix.
 
 - 2026-02-12:
 - PRD consolidado como draft de programa extremo.

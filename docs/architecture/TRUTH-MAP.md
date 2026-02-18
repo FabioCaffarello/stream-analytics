@@ -2,7 +2,7 @@
 
 **Status:** Active
 **Date:** 2026-02-13
-**last_reviewed:** 2026-02-17
+**last_reviewed:** 2026-02-18
 **Scope:** `docs/prd/PRD-0001-extreme-runtime.md`, `docs/audits/AUDIT-PACK-W11-finalization.md`, `docs/rfcs/EXECUTION-SEQUENCE.md`, `docs/rfcs/ADR-REVISIONS-patch-plan.md`, `docs/rfcs/RFC-0011-product-parity-marketmonkey.md`
 
 ## Purpose
@@ -18,7 +18,7 @@ Create one authoritative map of:
 |---|---|---|---|---|
 | Storage planes and persistence boundaries | `docs/architecture/storage.md` | `docs/adrs/ADR-0002-event-envelope-and-versioning.md`, `docs/adrs/ADR-0006-storage-hot-vs-cold.md`, `docs/adrs/ADR-0013-backpressure-overload-policies.md`, `docs/adrs/ADR-0015-deterministic-replay-time-invariants.md` | `internal/adapters/jetstream/ingest_conformance_test.go:TestIngestConformance_AckNakTermGoldenTable`, `internal/shared/replay/golden_test.go:TestGoldenReplay` | Draft doc, runtime baseline existing, L1/L2 TODO |
 | Orderbook snapshot and consistency flow | `docs/architecture/orderbook.md` | `docs/adrs/ADR-0005-sequencing-and-time-normalization.md`, `docs/adrs/ADR-0014-stream-partitioning-strategy.md`, `docs/adrs/ADR-0015-deterministic-replay-time-invariants.md` | `internal/core/aggregation/domain/orderbook_test.go:TestOrderBook_crossedBook`, `internal/core/aggregation/app/golden_replay_test.go:TestAggregationGoldenReplayFromFixture` | Draft doc, runtime partial existing |
-| Heatmap derivation and payload budget | `docs/architecture/heatmap.md` | `docs/adrs/ADR-0013-backpressure-overload-policies.md`, `docs/adrs/ADR-0014-stream-partitioning-strategy.md`, `docs/adrs/ADR-0015-deterministic-replay-time-invariants.md` | `internal/shared/replay/golden_test.go:TestGoldenReplay`, `internal/actors/marketdata/runtime/subsystem_test.go:TestSubsystem_WsMessage_nilParseFn_dropsMessage` | Draft doc, feature TODO |
+| Heatmap derivation and payload budget | `docs/architecture/heatmap.md` | `docs/adrs/ADR-0013-backpressure-overload-policies.md`, `docs/adrs/ADR-0014-stream-partitioning-strategy.md`, `docs/adrs/ADR-0015-deterministic-replay-time-invariants.md` | `internal/core/insights/app/build_heatmap_test.go:1` | Draft doc; domain+builder Existing; writers/delivery TODO |
 | Volume profile (VPVR) | `docs/architecture/volume-profiles.md` | `docs/adrs/ADR-0013-backpressure-overload-policies.md`, `docs/adrs/ADR-0014-stream-partitioning-strategy.md`, `docs/adrs/ADR-0017-multi-exchange-normalization.md` | `internal/adapters/storage/vpvr_overload_integration_test.go:TestIntegrationVPVROverload_AckBoundarySafeAndDeterministic`, `internal/actors/insights/runtime/vpvr_soak_test.go:TestVPVROverloadSoakBurstDeterministicBudgets` | Accepted/Done/Production-ready (overload policy VPVR) |
 | Liquidations and markprice parity path | `docs/architecture/liquidations-markprice.md` | `docs/adrs/ADR-0002-event-envelope-and-versioning.md`, `docs/adrs/ADR-0004-bus-nats-jetstream.md`, `docs/adrs/ADR-0013-backpressure-overload-policies.md`, `docs/adrs/ADR-0017-multi-exchange-normalization.md` | `internal/shared/contracts/converter_completeness_test.go:TestConverterCompleteness_MarkPriceTickV1`, `internal/shared/contracts/converter_completeness_test.go:TestConverterCompleteness_LiquidationTickV1` | Draft doc, contracts existing |
 | Delivery WS wire contract and lifecycle | `docs/contracts/delivery-ws.md` | `docs/adrs/ADR-0007-delivery-ws-sessions.md`, `docs/adrs/ADR-0013-backpressure-overload-policies.md`, `docs/rfcs/RFC-0003-W2-DELIVERY-BC.md` | `internal/actors/delivery/runtime/session_test.go:TestSession_parseSubscribeUnsubscribeGetRange`, `internal/actors/delivery/runtime/router_test.go:TestRouter_subscribeUnsubscribeAndBroadcast` | Draft doc, backpressure gap explicit |
@@ -60,12 +60,12 @@ Create one authoritative map of:
 - `docs/adrs/ADR-0010-config-loading-startup-validation.md` (Accepted)
 - `docs/adrs/ADR-0011-marketdata-binance-canonical-instrument-and-event-mapping.md` (Accepted)
 - `docs/adrs/ADR-0012-lifecycle-invariants-leak-prevention.md` (Accepted)
-- `docs/adrs/ADR-0013-backpressure-overload-policies.md` (Proposed)
+- `docs/adrs/ADR-0013-backpressure-overload-policies.md` (Accepted)
 - `docs/adrs/ADR-0014-stream-partitioning-strategy.md` (Accepted)
 - `docs/adrs/ADR-0015-deterministic-replay-time-invariants.md` (Accepted)
-- `docs/adrs/ADR-0016-protobuf-contract-layer.md` (Proposed; W6-1 accepted)
+- `docs/adrs/ADR-0016-protobuf-contract-layer.md` (Accepted; partial implementation)
 - `docs/adrs/ADR-0017-multi-exchange-normalization.md` (Accepted)
-- `docs/adrs/ADR-0018-actor-topology-supervision-model.md` (Proposed; runtime implemented, evidence partial)
+- `docs/adrs/ADR-0018-actor-topology-supervision-model.md` (Accepted; partial implementation)
 
 Status anchors: `docs/adrs/ADR-0000-foundation.md:3`, `docs/adrs/ADR-0010-config-loading-startup-validation.md:3`, `docs/adrs/ADR-0016-protobuf-contract-layer.md:3`, `docs/adrs/ADR-0018-actor-topology-supervision-model.md:3`.
 
@@ -78,9 +78,9 @@ Status anchors: `docs/adrs/ADR-0000-foundation.md:3`, `docs/adrs/ADR-0010-config
 - `docs/rfcs/RFC-0005-W4-observability-profiling.md` (raw: Done, normalized: Accepted)
 - `docs/rfcs/RFC-0006-W5-memory-lifecycle-hardening.md` (raw: Done, normalized: Accepted)
 - `docs/rfcs/RFC-0007-W6-protobuf-contract-layer.md` (raw: Implemented, normalized: Accepted (partial))
-- `docs/rfcs/RFC-0008-W7-nats-jetstream-integration.md` (raw: Draft + Partially Implemented marker, normalized: Draft)
+- `docs/rfcs/RFC-0008-W7-nats-jetstream-integration.md` (raw: Draft + Partially Implemented marker, normalized: Accepted (partial))
 - `docs/rfcs/RFC-0009-W8-deterministic-replay-golden-tests.md` (raw: Done, normalized: Accepted)
-- `docs/rfcs/RFC-0010-W9-multi-exchange-readiness.md` (raw: Draft + Partially Implemented marker, normalized: Draft)
+- `docs/rfcs/RFC-0010-W9-multi-exchange-readiness.md` (raw: Draft + Partially Implemented marker, normalized: Accepted (partial))
 
 Status anchors: `docs/rfcs/RFC-0001-robustness-roadmap.md:3`, `docs/rfcs/RFC-0005-W4-observability-profiling.md:3`, `docs/rfcs/RFC-0008-W7-nats-jetstream-integration.md:3`, `docs/rfcs/RFC-0010-W9-multi-exchange-readiness.md:3`.
 
@@ -115,10 +115,12 @@ Status anchors: `docs/rfcs/RFC-0001-robustness-roadmap.md:3`, `docs/rfcs/RFC-000
 | Storage hot/cold | `docs/adrs/ADR-0006-storage-hot-vs-cold.md:12` | `internal/core/aggregation/ports/ports.go:17`, `internal/core/aggregation/app/update_orderbook.go:141` | `internal/core/aggregation/app/update_orderbook_test.go:33` | Accepted with explicit cold-path deferral |
 | Product parity roadmap | `docs/rfcs/RFC-0011-product-parity-marketmonkey.md:1` | `internal/shared/contracts/authority_manifest.go:37`, `internal/adapters/jetstream/subject_validation.go:13` | `internal/shared/contracts/marketdata_registry_test.go:17`, `internal/adapters/jetstream/subject_validation_test.go:5` | Draft (doc-first planning) |
 | Orderbook snapshots and delivery contract | `docs/architecture/orderbook.md:1`, `docs/contracts/delivery-ws.md:1` | `internal/core/aggregation/app/update_orderbook.go:33`, `internal/actors/delivery/runtime/router.go:167` | `internal/core/aggregation/app/golden_replay_test.go:1`, `internal/actors/delivery/runtime/router_test.go:70` | Draft docs; runtime partial |
-| Heatmap derivation/persistence | `docs/architecture/heatmap.md:1` | `internal/core/aggregation/app/update_orderbook.go:33` | `internal/shared/replay/golden_test.go:18` | Draft (`TODO` implementation paths) |
-| Volume profile (VPVR) | `docs/architecture/volume-profiles.md:1` | `internal/core/insights/app/join_crossvenue_trades.go:160` | `internal/core/insights/app/join_crossvenue_trades_test.go:54` | Draft (`TODO` implementation paths) |
+| Heatmap derivation/persistence | `docs/architecture/heatmap.md:1` | `internal/core/insights/domain/heatmap_bucket.go:1`, `internal/core/insights/app/build_heatmap.go:1` | `internal/core/insights/app/build_heatmap_test.go:1` | Draft doc; domain + app use cases Existing; writers/delivery TODO |
+| Volume profile (VPVR) | `docs/architecture/volume-profiles.md:1` | `internal/core/insights/domain/volume_profile.go:1`, `internal/core/insights/app/build_volume_profile.go:1` | `internal/core/insights/app/build_volume_profile_test.go:1` | Draft doc; domain + app use cases Existing; writers/delivery TODO |
+| Candle aggregation (OHLCV) | `docs/architecture/candle-aggregation.md:1` | — | — | Not started; doc-first |
+| Stats aggregation (liq/funding/markprice per TF) | `docs/architecture/stats-aggregation.md:1` | — | — | Not started; doc-first |
 | Liquidations and mark price e2e | `docs/architecture/liquidations-markprice.md:1` | `internal/shared/contracts/authority_manifest.go:80`, `internal/shared/contracts/authority_manifest.go:100` | `internal/shared/contracts/marketdata_registry_test.go:17`, `internal/shared/codec/payload_codec_test.go:28` | Draft (contracts exist, pipeline planned) |
-| Contract layer | `docs/adrs/ADR-0016-protobuf-contract-layer.md:3`, `docs/rfcs/RFC-0007-W6-protobuf-contract-layer.md:1` | `internal/shared/contracts/payload_registry.go:19`, `internal/shared/codec/proto_codec.go:25` | `internal/shared/contracts/import_guard_test.go:15`, `internal/shared/contracts/authority_test.go:284` | Proposed ADR + accepted W6 foundation |
+| Contract layer | `docs/adrs/ADR-0016-protobuf-contract-layer.md:3`, `docs/rfcs/RFC-0007-W6-protobuf-contract-layer.md:1` | `internal/shared/contracts/payload_registry.go:19`, `internal/shared/codec/proto_codec.go:25` | `internal/shared/contracts/import_guard_test.go:15`, `internal/shared/contracts/authority_test.go:284` | Accepted ADR + accepted W6 foundation |
 | Multi-exchange | `docs/adrs/ADR-0017-multi-exchange-normalization.md:1`, `docs/rfcs/RFC-0010-W9-multi-exchange-readiness.md:1` | `cmd/consumer/main.go:157`, `scripts/check-domain-isolation.sh:109` | `cmd/consumer/e2e_consumer_integration_test.go:24`, `internal/actors/runtime/guardian_test.go:99` | Runtime implemented; MEX-4 guard wired in `invariants-check` |
 
 ### Real Validation Gates (Workspace-Safe)
@@ -143,6 +145,17 @@ Anchor: `Makefile`, `scripts/check-doc-headers.sh`, `scripts/check-doc-links.sh`
 
 ## Changelog
 
+- 2026-02-18:
+  - fixed ADR-0013 inventory status: `Proposed` → `Accepted` (matches actual ADR file);
+  - fixed ADR-0016 inventory status: `Proposed; W6-1 accepted` → `Accepted; partial implementation`;
+  - fixed ADR-0018 inventory status: `Proposed; runtime implemented` → `Accepted; partial implementation`;
+  - promoted RFC-0008 normalized status: `Draft` → `Accepted (partial)`;
+  - promoted RFC-0010 normalized status: `Draft` → `Accepted (partial)`;
+  - fixed Heatmap SSoT row: domain+builder exist (not TODO); updated code anchors;
+  - fixed Volume Profile SSoT row: domain+builder exist (not TODO); updated code anchors;
+  - fixed Heatmap parity row: domain+builder Existing; writers/delivery TODO;
+  - fixed Contract layer SSoT row: `Proposed ADR` → `Accepted ADR`;
+  - added SSoT rows for Candle aggregation (OHLCV) and Stats aggregation (not started; doc-first).
 - 2026-02-17:
   - updated runtime invariants row: INV-LAY-01..06 automated guards;
   - added BC facade files: `marketdata/app/service.go`, `aggregation/app/service.go`, `insights/app/service.go`;

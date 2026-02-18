@@ -2,7 +2,7 @@
 
 **Status:** Draft
 **Owner:** Product Architect
-**Last updated:** 2026-02-13
+**Last updated:** 2026-02-18
 **Relates to:** `docs/adrs/ADR-0002-event-envelope-and-versioning.md`, `docs/adrs/ADR-0006-storage-hot-vs-cold.md`, `docs/adrs/ADR-0013-backpressure-overload-policies.md`, `docs/adrs/ADR-0014-stream-partitioning-strategy.md`, `docs/adrs/ADR-0015-deterministic-replay-time-invariants.md`
 
 ## Purpose
@@ -81,7 +81,7 @@ WS payload budget rules:
 | Input event taxonomy and subject validation | Existing | `internal/adapters/jetstream/subject_validation.go` | `internal/adapters/jetstream/subject_validation_test.go` |
 | Deterministic replay foundation (`ts_ingest`, `seq`) | Existing | `internal/shared/replay/player.go`, `internal/shared/replay/sequencer.go` | `internal/shared/replay/golden_test.go:TestGoldenReplay` |
 | Bounded state/backpressure primitives | Existing | `internal/shared/ds/boundedmap.go`, `internal/actors/marketdata/runtime/backpressure_queue.go` | `internal/actors/marketdata/runtime/subsystem_test.go:TestSubsystem_WsMessage_nilParseFn_dropsMessage` |
-| Heatmap domain model and builder use case | TODO | `internal/core/insights/domain/heatmap_bucket.go` (TODO), `internal/core/insights/app/build_heatmap.go` (TODO) | `internal/core/insights/app/build_heatmap_test.go` (TODO) |
+| Heatmap domain model and builder use case | Existing | `internal/core/insights/domain/heatmap_bucket.go`, `internal/core/insights/app/build_heatmap.go` | `internal/core/insights/app/build_heatmap_test.go` |
 | Heatmap hot/cold writers | TODO | `internal/adapters/storage/timescale/heatmap_writer.go` (TODO), `internal/adapters/storage/clickhouse/heatmap_writer.go` (TODO) | `internal/adapters/storage/heatmap_writer_test.go` (TODO) |
 | Heatmap WS delivery contract | TODO | `internal/interfaces/ws/heatmap_delivery.go` (TODO) | `internal/interfaces/ws/heatmap_delivery_test.go` (TODO) |
 
@@ -136,9 +136,12 @@ Current related evidence:
 - `internal/adapters/jetstream/consumer.go`
 - `internal/actors/marketdata/runtime/backpressure_queue.go`
 
+Existing hooks:
+- `internal/core/insights/domain/heatmap_bucket.go` (Existing)
+- `internal/core/insights/app/build_heatmap.go` (Existing)
+- `internal/core/insights/app/service.go` (Existing — InsightsService facade)
+
 TODO hooks (skeleton):
-- `internal/core/insights/domain/heatmap_bucket.go` (TODO)
-- `internal/core/insights/app/build_heatmap.go` (TODO)
 - `internal/adapters/storage/timescale/heatmap_writer.go` (TODO)
 - `internal/adapters/storage/clickhouse/heatmap_writer.go` (TODO)
 - `internal/interfaces/ws/heatmap_delivery_test.go` (TODO)

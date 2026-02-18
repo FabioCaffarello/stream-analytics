@@ -2,7 +2,7 @@
 
 **Status:** Draft
 **Owner:** Product Architect
-**Last updated:** 2026-02-13
+**Last updated:** 2026-02-18
 **Relates to:** `docs/adrs/ADR-0002-event-envelope-and-versioning.md`, `docs/adrs/ADR-0006-storage-hot-vs-cold.md`, `docs/adrs/ADR-0013-backpressure-overload-policies.md`, `docs/adrs/ADR-0014-stream-partitioning-strategy.md`, `docs/adrs/ADR-0015-deterministic-replay-time-invariants.md`, `docs/adrs/ADR-0017-multi-exchange-normalization.md`
 
 ## Purpose
@@ -107,7 +107,7 @@ Emit/delivery actions:
 |---|---|---|---|
 | Deterministic insights join foundation | Existing | `internal/core/insights/app/join_crossvenue_trades.go` | `internal/core/insights/app/join_crossvenue_trades_test.go:TestJoinCrossVenueTrades_GoldenDeterministicSnapshotAndSignalBytes_50Runs` |
 | Input subject and partition validation | Existing | `internal/adapters/jetstream/subject_validation.go`, `internal/shared/config/loader.go` | `internal/adapters/jetstream/subject_validation_test.go`, `internal/shared/config/loader_test.go` |
-| VPVR domain model and aggregation use case | TODO | `internal/core/insights/domain/volume_profile.go` (TODO), `internal/core/insights/app/build_volume_profile.go` (TODO) | `internal/core/insights/app/build_volume_profile_test.go` (TODO) |
+| VPVR domain model and aggregation use case | Existing | `internal/core/insights/domain/volume_profile.go`, `internal/core/insights/app/build_volume_profile.go` | `internal/core/insights/app/build_volume_profile_test.go` |
 | VPVR durable storage adapters | TODO | `internal/adapters/storage/timescale/volume_profile_writer.go` (TODO), `internal/adapters/storage/clickhouse/volume_profile_writer.go` (TODO) | `internal/adapters/storage/volume_profile_writer_test.go` (TODO) |
 | VPVR WS delivery contract | TODO | `internal/interfaces/ws/volume_profile_delivery.go` (TODO) | `internal/interfaces/ws/volume_profile_delivery_test.go` (TODO) |
 
@@ -163,9 +163,12 @@ Current related evidence:
 - `internal/shared/replay/golden_test.go`
 - `internal/shared/config/loader.go`
 
+Existing hooks:
+- `internal/core/insights/domain/volume_profile.go` (Existing)
+- `internal/core/insights/app/build_volume_profile.go` (Existing)
+- `internal/core/insights/app/service.go` (Existing — InsightsService facade)
+
 TODO hooks (skeleton):
-- `internal/core/insights/domain/volume_profile.go` (TODO)
-- `internal/core/insights/app/build_volume_profile.go` (TODO)
 - `internal/adapters/storage/timescale/volume_profile_writer.go` (TODO)
 - `internal/adapters/storage/clickhouse/volume_profile_writer.go` (TODO)
 - `internal/interfaces/ws/volume_profile_delivery_test.go` (TODO)

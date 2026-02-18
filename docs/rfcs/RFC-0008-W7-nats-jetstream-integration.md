@@ -1,6 +1,6 @@
 # RFC-0008 - W7: NATS JetStream Integration
 
-**Status:** Draft
+**Status:** Accepted
 **Implementation status:** Partially Implemented
 **Partial marker:** Status: Partially Implemented
 **Owner:** Governance Doc-First Maintainer

@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 **Owner:** Governance Doc-First Maintainer
-**Last updated:** 2026-02-13
+**Last updated:** 2026-02-18
 **Date:** 2026-02-13
 **PRD:** `docs/prd/PRD-0001-extreme-runtime.md`
 **Relates to:** `docs/architecture/TRUTH-MAP.md`, `docs/audits/DRIFT-REPORT-W11.md`
@@ -55,6 +55,7 @@ Gate authority (workspace atual):
 | W10 | Insights hardening evidence | Implemented | `docs/rfcs/EXECUTION-SEQUENCE.md` (historico consolidado em Git) |
 | W12 | Operational maturity gate | Implemented | `Makefile:156`, `scripts/soak-test.sh` |
 | W13 | Contract layer completion | Planned | `docs/adrs/ADR-0016-protobuf-contract-layer.md` |
+| W14 | Product parity: candle + stats aggregation | Planned | `docs/rfcs/RFC-0011-product-parity-marketmonkey.md` |
 
 ## Test Plan
 
@@ -133,6 +134,8 @@ make test-workspace
 | Protobuf schema authority/toolchain | Partially Implemented | `Makefile:217`, `Makefile:224`, `internal/shared/contracts/authority_test.go:268` |
 | Long-run soak evidence policy | Partially Implemented | `Makefile:156`, `scripts/soak-test.sh` |
 | Contract-layer runtime completion (W13) | Planned | `docs/adrs/ADR-0016-protobuf-contract-layer.md` |
+| Candle aggregation OHLCV (W14) | Planned | `docs/architecture/candle-aggregation.md` |
+| Stats aggregation liq/funding/markprice (W14) | Planned | `docs/architecture/stats-aggregation.md` |
 
 ## Evidence
 
@@ -157,6 +160,10 @@ make test-workspace
 - `cmd/consumer/e2e_consumer_integration_test.go:24`
 
 ## Changelog
+
+- 2026-02-18:
+  - Added W14 row (product parity: candle + stats aggregation) to Rollout table.
+  - Added candle and stats capability rows to Implementation Matrix.
 
 - 2026-02-13:
 - Documento normalizado para contrato RFC.

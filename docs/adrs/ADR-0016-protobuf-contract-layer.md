@@ -1,6 +1,6 @@
 # ADR-0016 - Protobuf Contract Layer
 
-**Status:** Proposed
+**Status:** Accepted
 **Implementation status:** Partially Implemented
 **Partial marker:** Status: Partially Implemented
 **Owner:** Governance Doc-First Maintainer

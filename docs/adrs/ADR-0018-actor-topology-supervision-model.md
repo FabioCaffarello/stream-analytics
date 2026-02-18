@@ -1,6 +1,6 @@
 # ADR-0018 - Actor Topology and Supervision Model
 
-**Status:** Proposed
+**Status:** Accepted
 **Implementation status:** Partially Implemented
 **Partial marker:** Status: Partially Implemented
 **Owner:** Governance Doc-First Maintainer

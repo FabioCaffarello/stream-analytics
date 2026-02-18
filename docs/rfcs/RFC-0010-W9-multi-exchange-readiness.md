@@ -1,6 +1,6 @@
 # RFC-0010 - W9: Multi-Exchange Readiness
 
-**Status:** Draft
+**Status:** Accepted
 **Implementation status:** Partially Implemented
 **Partial marker:** Status: Partially Implemented
 **Owner:** Governance Doc-First Maintainer
