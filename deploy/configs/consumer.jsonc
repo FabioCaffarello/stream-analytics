@@ -2,7 +2,9 @@
   // Runtime config mounted in container at /etc/market-raccoon/consumer.jsonc
   "bus": {
     // "type": "inmemory"
-    "type": "jetstream"
+    "type": "jetstream",
+    // Wire format rollout knob: json (default) | proto (opt-in).
+    "wire_format": "json"
   },
   "jetstream": {
     "url": "nats://nats:4222",
@@ -37,6 +39,39 @@
     "exchange": "binance",
     "tickers": ["BTC-USDT", "ETH-USDT"],
     "binance_ws_base_url": "wss://stream.binance.com:9443/stream",
+    // Multi-exchange config (preferred over legacy single-exchange fields).
+    "exchanges": [
+      {
+        "name": "binance-spot",
+        "type": "binance",
+        "tickers": ["BTCUSDT", "ETHUSDT"],
+        "market_type": "SPOT"
+      },
+      {
+        "name": "binance-futures",
+        "type": "binance",
+        "tickers": ["BTCUSDT", "ETHUSDT"],
+        "market_type": "USD_M_FUTURES"
+      },
+      {
+        "name": "bybit",
+        "type": "bybit",
+        "tickers": ["BTCUSDT", "ETHUSDT"],
+        "market_type": "USD_M_FUTURES"
+      },
+      {
+        "name": "coinbase",
+        "type": "coinbase",
+        "tickers": ["BTC-USD", "ETH-USD"],
+        "market_type": "SPOT"
+      },
+      {
+        "name": "hyperliquid",
+        "type": "hyperliquid",
+        "tickers": ["BTCUSDT", "ETHUSDT"],
+        "market_type": "USD_M_FUTURES"
+      }
+    ],
     // Enables markprice/liquidation streams on supported exchanges.
     // When true for SPOT, streams_per_ticker must be 4.
     "enable_markprice_liquidation": false,
@@ -48,6 +83,6 @@
   },
   "marketdata": {
     // "publish_content_type": "application/json"
-    "publish_content_type": "application/protobuf"
+    "publish_content_type": "application/json"
   }
 }

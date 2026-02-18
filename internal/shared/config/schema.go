@@ -47,6 +47,9 @@ type BusConfig struct {
 	// Type selects event bus implementation.
 	// Allowed: "inmemory" (default) | "jetstream".
 	Type string `json:"type"`
+	// WireFormat selects runtime payload wire format for event envelopes.
+	// Allowed: "json" (default) | "proto".
+	WireFormat string `json:"wire_format"`
 }
 
 // JetStreamConfig controls JetStream connection and stream settings.

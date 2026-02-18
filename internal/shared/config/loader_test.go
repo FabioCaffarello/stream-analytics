@@ -26,6 +26,7 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 		{name: "shard.index", got: cfg.Shard.Index, want: 0},
 		{name: "shard.count", got: cfg.Shard.Count, want: 1},
 		{name: "bus.type", got: cfg.Bus.Type, want: "inmemory"},
+		{name: "bus.wire_format", got: cfg.Bus.WireFormat, want: "json"},
 		{name: "jetstream.stream_name", got: cfg.JetStream.StreamName, want: "MARKETDATA"},
 		{name: "jetstream.consumer_durable", got: cfg.JetStream.ConsumerDurable, want: "processor-v1"},
 		{name: "jetstream.ack_wait", got: cfg.JetStream.AckWait, want: "30s"},
@@ -95,7 +96,7 @@ func TestLoad_ValidJSONC_ParsesFields(t *testing.T) {
 			"publisher_flush_timeout": "4s",
 			"guardian_shutdown_timeout": "12s"
 		},
-		"bus": { "type": "jetstream" },
+		"bus": { "type": "jetstream", "wire_format": "proto" },
 		"jetstream": {
 			"url": "nats://127.0.0.1:4222",
 			"stream_name": "MARKETDATA",
@@ -168,6 +169,7 @@ func TestLoad_ValidJSONC_ParsesFields(t *testing.T) {
 		{name: "consumer.exchange", got: cfg.Consumer.Exchange, want: "binance"},
 		{name: "consumer.exchanges synthesized", got: len(cfg.Consumer.Exchanges), want: 1},
 		{name: "bus.type", got: cfg.Bus.Type, want: "jetstream"},
+		{name: "bus.wire_format", got: cfg.Bus.WireFormat, want: "proto"},
 		{name: "jetstream.url", got: cfg.JetStream.URL, want: "nats://127.0.0.1:4222"},
 		{name: "jetstream.consumer_durable", got: cfg.JetStream.ConsumerDurable, want: "processor-v2"},
 		{name: "jetstream.ack_wait", got: cfg.JetStream.AckWaitDuration(), want: 45 * time.Second},
@@ -596,6 +598,26 @@ func TestValidate_InvalidBusType(t *testing.T) {
 	prob := cfg.Validate()
 	if prob == nil {
 		t.Fatal("expected validation error for invalid bus.type")
+	}
+}
+
+func TestValidate_InvalidBusWireFormat(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Bus.WireFormat = "xml"
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("expected validation error for invalid bus.wire_format")
+	}
+}
+
+func TestLoad_BusWireFormatProto_DefaultsMarketDataPublishContentType(t *testing.T) {
+	path := writeTempFile(t, `{"bus":{"wire_format":"proto"}}`)
+	cfg, prob := Load(path)
+	if prob != nil {
+		t.Fatalf("Load failed: %v", prob)
+	}
+	if cfg.MarketData.PublishContentType != "application/protobuf" {
+		t.Fatalf("marketdata.publish_content_type=%q want=%q", cfg.MarketData.PublishContentType, "application/protobuf")
 	}
 }
 

@@ -171,9 +171,14 @@ func validateShard(s ShardConfig) *problem.Problem {
 func validateBus(b BusConfig) *problem.Problem {
 	switch strings.ToLower(strings.TrimSpace(b.Type)) {
 	case "inmemory", "jetstream":
-		return nil
 	default:
 		return problem.Newf(codeInvalid, "bus.type must be inmemory|jetstream, got %q", b.Type)
+	}
+	switch strings.ToLower(strings.TrimSpace(b.WireFormat)) {
+	case "", "json", "proto":
+		return nil
+	default:
+		return problem.Newf(codeInvalid, "bus.wire_format must be json|proto, got %q", b.WireFormat)
 	}
 }
 
@@ -884,6 +889,10 @@ func applyDefaults(c *AppConfig) {
 	if c.Bus.Type == "" {
 		c.Bus.Type = "inmemory"
 	}
+	if c.Bus.WireFormat == "" {
+		c.Bus.WireFormat = "json"
+	}
+	c.Bus.WireFormat = strings.ToLower(strings.TrimSpace(c.Bus.WireFormat))
 	if c.JetStream.URL == "" {
 		c.JetStream.URL = "nats://localhost:4222"
 	}
@@ -974,7 +983,7 @@ func applyDefaults(c *AppConfig) {
 	}
 	normalizeConsumerExchanges(&c.Consumer)
 	if c.MarketData.PublishContentType == "" {
-		c.MarketData.PublishContentType = envelope.ContentTypeJSON
+		c.MarketData.PublishContentType = wireFormatContentType(c.Bus.WireFormat)
 	}
 	if c.MarketData.MaxInstruments == 0 {
 		c.MarketData.MaxInstruments = 2048
@@ -1126,6 +1135,15 @@ func applyDefaults(c *AppConfig) {
 	c.Storage.ClickHouse.ConnMaxLifetime = strings.TrimSpace(c.Storage.ClickHouse.ConnMaxLifetime)
 	c.Storage.ClickHouse.DialTimeout = strings.TrimSpace(c.Storage.ClickHouse.DialTimeout)
 	c.Storage.ClickHouse.ReadTimeout = strings.TrimSpace(c.Storage.ClickHouse.ReadTimeout)
+}
+
+func wireFormatContentType(wireFormat string) string {
+	switch strings.ToLower(strings.TrimSpace(wireFormat)) {
+	case "proto":
+		return envelope.ContentTypeProto
+	default:
+		return envelope.ContentTypeJSON
+	}
 }
 
 func normalizeConsumerExchanges(c *ConsumerConfig) {

@@ -2,7 +2,9 @@
   // Runtime config mounted in container at /etc/market-raccoon/processor.jsonc
   "bus": {
     // "type": "inmemory"
-    "type": "jetstream"
+    "type": "jetstream",
+    // Wire format rollout knob: json (default) | proto (opt-in).
+    "wire_format": "json"
   },
   "jetstream": {
     "url": "nats://nats:4222",
@@ -35,7 +37,7 @@
   },
   "marketdata": {
     // "publish_content_type": "application/json"
-    "publish_content_type": "application/protobuf"
+    "publish_content_type": "application/json"
   },
   "processor": {
     "bus_capacity": 1024,

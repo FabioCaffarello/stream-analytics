@@ -42,6 +42,9 @@ go test -run='^$' -bench=BenchmarkIngest -benchmem -count=5 \
 go test -run='^$' -bench=BenchmarkApplyDelta -benchmem -count=5 \
   ./internal/core/aggregation/domain \
   >> "$CURRENT" 2>&1
+go test -run='^$' -bench=BenchmarkE2E -benchmem -count=5 \
+  ./internal/core/aggregation/app \
+  >> "$CURRENT" 2>&1
 
 echo "bench-check: comparing against baseline …"
 echo ""

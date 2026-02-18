@@ -97,7 +97,8 @@ services:
       dockerfile: deploy/docker/consumer.Dockerfile
     image: market-raccoon/consumer:dev
     # container_name omitted to allow --scale consumer=N
-    command: ["-config", "/etc/market-raccoon/consumer.jsonc"]
+    # Scale with: docker compose up --scale consumer=2 (set SHARD_INDEX per instance).
+    command: ["-config", "/etc/market-raccoon/consumer.jsonc", "-shard-index", "${SHARD_INDEX:-0}", "-shard-count", "${SHARD_COUNT:-1}"]
     ports:
       - "8081"
     environment:
@@ -134,7 +135,7 @@ services:
       dockerfile: deploy/docker/processor.Dockerfile
     image: market-raccoon/processor:dev
     # container_name omitted to allow --scale processor=N
-    command: ["-config", "/etc/market-raccoon/processor.jsonc"]
+    command: ["-config", "/etc/market-raccoon/processor.jsonc", "-shard-index", "${SHARD_INDEX:-0}", "-shard-count", "${SHARD_COUNT:-1}"]
     ports:
       - "8082"
     environment:
