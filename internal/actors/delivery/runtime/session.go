@@ -104,6 +104,8 @@ func (s *SessionActor) Receive(c *actor.Context) {
 		s.onStarted()
 	case actor.Stopped:
 		s.onStopped()
+	case AttachConn:
+		s.attachConn(msg.Conn)
 	case sessionInboundText:
 		s.handleInboundText(msg.Data)
 	case sessionDisconnected:
@@ -174,6 +176,19 @@ func (s *SessionActor) onStarted() {
 	observability.IncSessionsActive()
 	if s.cfg.PreferProto {
 		observability.IncPreferProtoSessions()
+	}
+	s.attachConn(s.cfg.Conn)
+}
+
+func (s *SessionActor) attachConn(conn wsConn) {
+	if conn == nil || s.closed {
+		return
+	}
+	if s.cancelReader != nil {
+		return
+	}
+	if s.cfg.Conn == nil {
+		s.cfg.Conn = conn
 	}
 	if s.cfg.Conn == nil {
 		return

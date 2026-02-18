@@ -137,6 +137,34 @@ func TestSession_parseSubscribeUnsubscribeGetRange(t *testing.T) {
 	_ = waitForMessage[UnsubscribeSession](t, routerCh, time.Second)
 }
 
+func TestSession_attachConnStartsReadLoop(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-capture")
+	defer e.Poison(routerPID)
+
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{RouterPID: routerPID}), "ws-session")
+	defer e.Poison(sessionPID)
+
+	reg := waitForMessage[RegisterSession](t, routerCh, time.Second)
+	if reg.SessionID == "" {
+		t.Fatal("expected register with session id")
+	}
+
+	conn := newFakeConn()
+	e.Send(sessionPID, AttachConn{Conn: conn})
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"subscribe","subject":"marketdata.trade/binance/BTC-USDT/raw","request_id":"r-attach"}`)}
+
+	sub := waitForMessage[SubscribeSession](t, routerCh, time.Second)
+	if got, want := sub.Subject.String(), "marketdata.trade/binance/BTCUSDT/raw"; got != want {
+		t.Fatalf("subscribe subject = %q, want %q", got, want)
+	}
+}
+
 func TestSession_getLastVPVRSnapshot(t *testing.T) {
 	e, err := actor.NewEngine(actor.NewEngineConfig())
 	if err != nil {
