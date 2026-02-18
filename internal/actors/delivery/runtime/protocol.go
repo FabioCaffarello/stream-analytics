@@ -3,6 +3,7 @@ package deliveryruntime
 import (
 	"github.com/anthdm/hollywood/actor"
 	"github.com/market-raccoon/internal/core/delivery/domain"
+	"github.com/market-raccoon/internal/core/delivery/ports"
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/ids"
 )
@@ -29,16 +30,21 @@ type DeliverEnvelope struct {
 	Envelope envelope.Envelope
 }
 
-// GetRangeRequest is a delivery protocol placeholder for replay requests.
-// SessionActor currently handles the request on websocket command messages.
 type GetRangeRequest struct {
 	RequestID string
 	Subject   string
+	FromMs    int64
+	ToMs      int64
+	Limit     int
+	Page      int
 }
 
-// GetRangeResponse is a delivery protocol placeholder for replay responses.
 type GetRangeResponse struct {
 	RequestID string
+	Subject   string
+	Page      int
+	Limit     int
+	Items     []ports.RangeItem
 }
 
 // RegisterSession registers a session PID in the router.

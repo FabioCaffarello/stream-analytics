@@ -108,6 +108,8 @@ func (s *SessionActor) Receive(c *actor.Context) {
 		s.attachConn(msg.Conn)
 	case sessionInboundText:
 		s.handleInboundText(msg.Data)
+	case GetRangeRequest:
+		s.handleGetRangeRequest(msg)
 	case sessionDisconnected:
 		s.closeSession()
 	case DeliveryEvent:
@@ -406,10 +408,26 @@ func (s *SessionActor) handleGetRange(cmd clientCommand) {
 			return
 		}
 	}
-	subRes := s.service.ParseSubject(cmd.Subject)
+	s.executeGetRange(cmd.Op, cmd.RequestID, cmd.Subject, params)
+}
+
+func (s *SessionActor) handleGetRangeRequest(req GetRangeRequest) {
+	if !s.allowRateLimitedCommand("getrange", req.RequestID) {
+		return
+	}
+	s.executeGetRange("getrange", req.RequestID, req.Subject, getRangeParams{
+		FromMs: req.FromMs,
+		ToMs:   req.ToMs,
+		Limit:  req.Limit,
+		Page:   req.Page,
+	})
+}
+
+func (s *SessionActor) executeGetRange(op, requestID, subjectRaw string, params getRangeParams) {
+	subRes := s.service.ParseSubject(subjectRaw)
 	if subRes.IsFail() {
 		metrics.IncWSQueryRejected("subject_invalid")
-		s.writeProblem(cmd.Op, cmd.RequestID, subRes.Problem())
+		s.writeProblem(op, requestID, subRes.Problem())
 		return
 	}
 	subject := subRes.Value()
@@ -424,18 +442,18 @@ func (s *SessionActor) handleGetRange(cmd clientCommand) {
 	}
 	if limit > maxLimit {
 		metrics.IncWSQueryRejected("limit_cap")
-		s.writeProblem(cmd.Op, cmd.RequestID, problem.Newf(problem.ValidationFailed, "limit must be <= %d", maxLimit))
+		s.writeProblem(op, requestID, problem.Newf(problem.ValidationFailed, "limit must be <= %d", maxLimit))
 		return
 	}
 	if page > maxPage {
 		metrics.IncWSQueryRejected("page_cap")
-		s.writeProblem(cmd.Op, cmd.RequestID, problem.Newf(problem.ValidationFailed, "page must be <= %d", maxPage))
+		s.writeProblem(op, requestID, problem.Newf(problem.ValidationFailed, "page must be <= %d", maxPage))
 		return
 	}
 	queryLimit := limit * page
 	if queryLimit > maxQueryLimit {
 		metrics.IncWSQueryRejected("query_cap")
-		s.writeProblem(cmd.Op, cmd.RequestID, problem.Newf(problem.ValidationFailed, "limit*page must be <= %d", maxQueryLimit))
+		s.writeProblem(op, requestID, problem.Newf(problem.ValidationFailed, "limit*page must be <= %d", maxQueryLimit))
 		return
 	}
 
@@ -449,7 +467,7 @@ func (s *SessionActor) handleGetRange(cmd clientCommand) {
 	})
 	if res.IsFail() {
 		metrics.IncWSQueryRejected("range_failed")
-		s.writeProblem(cmd.Op, cmd.RequestID, res.Problem())
+		s.writeProblem(op, requestID, res.Problem())
 		return
 	}
 	items := append([]ports.RangeItem(nil), res.Value()...)
@@ -461,8 +479,8 @@ func (s *SessionActor) handleGetRange(cmd clientCommand) {
 	metrics.IncWSQuery("getrange", wsQueryBucket(subject.StreamType))
 	s.writeJSON(map[string]any{
 		"type":       "range",
-		"op":         cmd.Op,
-		"request_id": cmd.RequestID,
+		"op":         op,
+		"request_id": requestID,
 		"subject":    subject.String(),
 		"page":       page,
 		"limit":      limit,
