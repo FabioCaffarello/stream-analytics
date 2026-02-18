@@ -380,6 +380,12 @@ func validateConsumer(c ConsumerConfig) *problem.Problem {
 		if !strings.EqualFold(ex.MarketType, "SPOT") {
 			continue
 		}
+		// coinbase/hyperliquid override StreamsPerTicker in their runtime
+		// builders; the global value does not apply to them.
+		typ := strings.ToLower(strings.TrimSpace(ex.Type))
+		if typ != "binance" && typ != "bybit" {
+			continue
+		}
 		requiredStreams := int64(2)
 		if c.EnableMarkPriceLiquidation {
 			requiredStreams = 4
@@ -419,9 +425,9 @@ func validateConsumerExchanges(exchanges []ConsumerExchangeConfig) *problem.Prob
 
 		typ := strings.ToLower(strings.TrimSpace(ex.Type))
 		switch typ {
-		case "binance", "bybit":
+		case "binance", "bybit", "coinbase", "hyperliquid":
 		default:
-			return problem.Newf(codeInvalid, "consumer.exchanges[%d].type must be binance|bybit, got %q", i, ex.Type)
+			return problem.Newf(codeInvalid, "consumer.exchanges[%d].type must be binance|bybit|coinbase|hyperliquid, got %q", i, ex.Type)
 		}
 
 		if len(ex.Tickers) == 0 {
@@ -1238,7 +1244,12 @@ func defaultExchangeBaseURL(exchangeType, marketType, legacyBinanceBaseURL strin
 		if strings.TrimSpace(legacyBinanceBaseURL) != "" {
 			return strings.TrimSpace(legacyBinanceBaseURL)
 		}
-		return "wss://stream.binance.com:9443/stream"
+		switch strings.ToUpper(strings.TrimSpace(marketType)) {
+		case "USD_M_FUTURES", "COIN_M_FUTURES":
+			return "wss://fstream.binance.com/stream"
+		default:
+			return "wss://stream.binance.com:9443/stream"
+		}
 	case "bybit":
 		switch strings.ToUpper(strings.TrimSpace(marketType)) {
 		case "USD_M_FUTURES":
@@ -1248,6 +1259,10 @@ func defaultExchangeBaseURL(exchangeType, marketType, legacyBinanceBaseURL strin
 		default:
 			return "wss://stream.bybit.com/v5/public/spot"
 		}
+	case "coinbase":
+		return "wss://ws-feed.exchange.coinbase.com"
+	case "hyperliquid":
+		return "wss://api.hyperliquid.xyz/ws"
 	default:
 		return ""
 	}

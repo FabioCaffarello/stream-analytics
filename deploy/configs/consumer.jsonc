@@ -1,10 +1,8 @@
 {
   // Runtime config mounted in container at /etc/market-raccoon/consumer.jsonc
   "bus": {
-    // "type": "inmemory"
     "type": "jetstream",
-    // Wire format rollout knob: json (default) | proto (opt-in).
-    "wire_format": "json"
+    "wire_format": "proto"
   },
   "jetstream": {
     "url": "nats://nats:4222",
@@ -19,70 +17,74 @@
     "max_age": "24h",
     "max_bytes": "10GB"
   },
-  // Horizontal scaling: shard assignment for this instance.
-  // Default: single-instance (index=0, count=1, sharding disabled).
   "shard": {
     "index": 0,
     "count": 1,
-    // max_lag is the per-shard lag budget.  0 = no enforcement (default).
     "max_lag": 0
   },
   "log": {
     "level": "info",
-    "format": "text"
+    "format": "json"
   },
   "http": {
     "addr": ":8081",
-    "shutdown_timeout": "10s"
+    "shutdown_timeout": "10s",
+    "publisher_flush_timeout": "3s",
+    "guardian_shutdown_timeout": "10s"
   },
   "consumer": {
-    "exchange": "binance",
-    "tickers": ["BTC-USDT", "ETH-USDT"],
-    "binance_ws_base_url": "wss://stream.binance.com:9443/stream",
-    // Multi-exchange config (preferred over legacy single-exchange fields).
+    // Multi-exchange production configuration.
+    // Legacy single-exchange fields (exchange, tickers, binance_ws_base_url)
+    // are superseded by the exchanges[] array below.
     "exchanges": [
       {
         "name": "binance-spot",
         "type": "binance",
-        "tickers": ["BTCUSDT", "ETHUSDT"],
+        "tickers": ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"],
         "market_type": "SPOT"
       },
       {
         "name": "binance-futures",
         "type": "binance",
-        "tickers": ["BTCUSDT", "ETHUSDT"],
+        "tickers": ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"],
         "market_type": "USD_M_FUTURES"
       },
       {
         "name": "bybit",
         "type": "bybit",
-        "tickers": ["BTCUSDT", "ETHUSDT"],
+        "tickers": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
         "market_type": "USD_M_FUTURES"
       },
       {
         "name": "coinbase",
         "type": "coinbase",
-        "tickers": ["BTC-USD", "ETH-USD"],
+        "tickers": ["BTC-USD", "ETH-USD", "SOL-USD"],
         "market_type": "SPOT"
       },
       {
         "name": "hyperliquid",
         "type": "hyperliquid",
-        "tickers": ["BTCUSDT", "ETHUSDT"],
+        "tickers": ["BTC", "ETH", "SOL"],
         "market_type": "USD_M_FUTURES"
       }
     ],
-    // Enables markprice/liquidation streams on supported exchanges.
-    // When true for SPOT, streams_per_ticker must be 4.
     "enable_markprice_liquidation": false,
     "streams_per_ticker": 2,
     "max_streams_per_websocket": 200,
-    "max_websockets": 5,
+    "max_websockets": 10,
     "max_websocket_lifetime": "45m",
-    "respawn_overlap": "5s"
+    "respawn_overlap": "5s",
+    "backpressure_buffer_size": 16384,
+    "backpressure_policy": "drop_depth_keep_trades",
+    "reconnect_base_backoff": "500ms",
+    "reconnect_max_backoff": "30s",
+    "reconnect_jitter": 0.2,
+    "reconnect_retry_budget": 20,
+    "reconnect_budget_window": "1m",
+    "reconnect_cooldown": "30s"
   },
   "marketdata": {
-    // "publish_content_type": "application/json"
-    "publish_content_type": "application/json"
+    "publish_content_type": "application/protobuf",
+    "max_instruments": 4096
   }
 }

@@ -1,17 +1,15 @@
 {
   // Runtime config mounted in container at /etc/market-raccoon/processor.jsonc
   "bus": {
-    // "type": "inmemory"
     "type": "jetstream",
-    // Wire format rollout knob: json (default) | proto (opt-in).
-    "wire_format": "json"
+    "wire_format": "proto"
   },
   "jetstream": {
     "url": "nats://nats:4222",
     "stream_name": "MARKETDATA",
     "consumer_durable": "processor-v1",
     "ack_wait": "30s",
-    "max_ack_pending": 1024,
+    "max_ack_pending": 2048,
     "max_deliver": 10,
     "deliver_policy": "all",
     "filter_subjects": ["marketdata.>"],
@@ -19,48 +17,48 @@
     "max_age": "24h",
     "max_bytes": "10GB"
   },
-  // Horizontal scaling: shard assignment for this instance.
-  // Default: single-instance (index=0, count=1, sharding disabled).
   "shard": {
     "index": 0,
     "count": 1,
-    // max_lag is the per-shard lag budget.  0 = no enforcement (default).
     "max_lag": 0
   },
   "log": {
     "level": "info",
-    "format": "text"
+    "format": "json"
   },
   "http": {
     "addr": ":8082",
-    "shutdown_timeout": "10s"
+    "shutdown_timeout": "10s",
+    "publisher_flush_timeout": "3s",
+    "guardian_shutdown_timeout": "10s"
   },
   "marketdata": {
-    // "publish_content_type": "application/json"
-    "publish_content_type": "application/json"
+    "publish_content_type": "application/protobuf",
+    "max_instruments": 4096
   },
   "processor": {
-    "bus_capacity": 1024,
-    "max_instruments": 2048,
+    "bus_capacity": 4096,
+    "max_instruments": 4096,
     "candle": {
       "enabled": true,
-      "max_candles": 50000
+      "max_candles": 100000
     },
     "stats": {
       "enabled": true,
-      "max_windows": 50000
+      "max_windows": 100000
     },
     "insights": {
-      "enable_crossvenue_join": false,
+      "enable_crossvenue_join": true,
+      "enable_volume_profile_snapshot_proto": true,
+      "enable_spread_signal": true,
       "join_trades_subject": "marketdata.trade.v1.>",
       "snapshot_subject_prefix": "",
       "max_instruments": 10000,
       "ttl": "1h",
-      "enable_spread_signal": false,
       "min_venues": 2,
       "min_spread_bps": 0,
       "rounding_mode": "half_even",
-      "sweep_every_n": 1024,
+      "sweep_every_n": 2048,
       "sweep_every": "30s"
     }
   },
@@ -80,8 +78,8 @@
       "database": "default",
       "username": "default",
       "password": "password",
-      "max_open_conns": 10,
-      "max_idle_conns": 5,
+      "max_open_conns": 20,
+      "max_idle_conns": 10,
       "conn_max_lifetime": "30m",
       "dial_timeout": "5s",
       "read_timeout": "30s"

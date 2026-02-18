@@ -1,14 +1,15 @@
 {
   // Runtime config mounted in container at /etc/market-raccoon/store.jsonc
   "bus": {
-    "type": "jetstream"
+    "type": "jetstream",
+    "wire_format": "proto"
   },
   "jetstream": {
     "url": "nats://nats:4222",
     "stream_name": "MARKETDATA",
     "consumer_durable": "store-v1",
     "ack_wait": "30s",
-    "max_ack_pending": 1024,
+    "max_ack_pending": 2048,
     "max_deliver": 10,
     "deliver_policy": "all",
     "filter_subjects": ["aggregation.snapshot.v1.>", "aggregation.orderbook_inconsistency.v1.>"],
@@ -16,27 +17,30 @@
     "max_age": "24h",
     "max_bytes": "10GB"
   },
-  // Horizontal scaling: shard assignment for this instance.
-  // Default: single-instance (index=0, count=1, sharding disabled).
   "shard": {
     "index": 0,
     "count": 1,
-    // max_lag is the per-shard lag budget.  0 = no enforcement (default).
     "max_lag": 0
   },
   "log": {
     "level": "info",
-    "format": "text"
+    "format": "json"
   },
   "http": {
     "addr": ":8083",
-    "shutdown_timeout": "10s"
+    "shutdown_timeout": "10s",
+    "publisher_flush_timeout": "3s",
+    "guardian_shutdown_timeout": "10s"
   },
   "store": {
     "clickhouse": {
-      // Local-dev only.  Production must override via mounted config or env.
-      // Credentials match deploy/envs/local.env (CLICKHOUSE_USER/PASSWORD).
+      // Production: override via mounted secret or env.
       "dsn": "clickhouse://default:password@clickhouse:9000/default"
+    },
+    "batch": {
+      "max_rows": 5000,
+      "max_bytes": 0,
+      "flush_interval": "250ms"
     }
   },
   "storage": {
@@ -46,8 +50,8 @@
       "database": "default",
       "username": "default",
       "password": "password",
-      "max_open_conns": 10,
-      "max_idle_conns": 5,
+      "max_open_conns": 20,
+      "max_idle_conns": 10,
       "conn_max_lifetime": "30m",
       "dial_timeout": "5s",
       "read_timeout": "30s"
