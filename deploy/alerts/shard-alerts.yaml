@@ -1,0 +1,58 @@
+groups:
+  - name: shard_health
+    rules:
+      - alert: ShardHotSkew
+        # Fires when any shard has 3x the median throughput sustained for 5 min.
+        expr: |
+          (
+            rate(jetstream_shard_events_total[5m])
+            / ignoring(group_id)
+            group_left()
+            quantile without(group_id) (0.5, rate(jetstream_shard_events_total[5m]))
+          ) > 3
+        for: 5m
+        labels:
+          severity: warning
+          service: market-raccoon
+          slo: shard
+        annotations:
+          summary: >-
+            Shard {{ $labels.group_id }} has {{ $value | humanize }}x median throughput
+          description: >-
+            Shard group {{ $labels.group_id }} throughput is more than 3x the
+            median across all shards for 5 minutes. This indicates a hot shard
+            caused by uneven key distribution or a burst on specific instruments.
+          runbook_url: "docs/operations/shard-incidents.md#hot-shard-skew"
+
+      - alert: ShardLagBudgetExceeded
+        expr: |
+          jetstream_shard_consumer_lag > jetstream_shard_lag_budget > 0
+        for: 3m
+        labels:
+          severity: critical
+          service: market-raccoon
+          slo: shard
+        annotations:
+          summary: >-
+            Shard {{ $labels.group_id }} lag {{ $value }} exceeds budget
+          description: >-
+            Shard group {{ $labels.group_id }} consumer lag has exceeded the
+            configured lag budget for 3 minutes. The consumer is falling behind
+            and may lose data when JetStream retention kicks in.
+          runbook_url: "docs/operations/shard-incidents.md#lag-budget-exceeded"
+
+      - alert: ShardConsumerHighLag
+        expr: jetstream_shard_consumer_lag > 10000
+        for: 5m
+        labels:
+          severity: warning
+          service: market-raccoon
+          slo: shard
+        annotations:
+          summary: >-
+            Shard group {{ $labels.group_id }} lag is high ({{ $value }} messages)
+          description: >-
+            Shard group {{ $labels.group_id }} consumer lag exceeds 10 000
+            messages for 5 minutes. Processing may be stalled or throughput
+            is insufficient for the current load.
+          runbook_url: "docs/operations/shard-incidents.md#high-lag"

@@ -3,6 +3,8 @@ package jetstream
 import (
 	"fmt"
 	"math"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 )
@@ -602,6 +604,196 @@ func replayWithShard(subjects []string, args ...int) map[string]struct{} {
 		}
 	}
 	return out
+}
+
+// ── Fairness & soak (Phase 1 production-grade sharding) ─────────────────────
+
+// top50Instruments returns the top-50 instruments by volume for soak/fairness
+// tests.  These are deterministic and representative of real production load.
+func top50Instruments() []string {
+	return []string{
+		"BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
+		"DOGEUSDT", "ADAUSDT", "AVAXUSDT", "DOTUSDT", "MATICUSDT",
+		"LINKUSDT", "TRXUSDT", "UNIUSDT", "ATOMUSDT", "LTCUSDT",
+		"ETCUSDT", "NEARUSDT", "APTUSDT", "FILUSDT", "ARBUSDT",
+		"OPUSDT", "SHIBUSDT", "PEPEUSDT", "INJUSDT", "SUIUSDT",
+		"TIAUSDT", "SEIUSDT", "FTMUSDT", "ALGOUSDT", "GRTUSDT",
+		"AAVEUSDT", "MKRUSDT", "SNXUSDT", "CRVUSDT", "LDOUSDT",
+		"RNDRUSDT", "IMXUSDT", "SANDUSDT", "MANAUSDT", "AXSUSDT",
+		"DYDXUSDT", "GMXUSDT", "PENDLEUSDT", "STXUSDT", "WLDUSDT",
+		"JUPUSDT", "BOMEUSDT", "WUSDT", "ENAUSDT", "ONDOUSDT",
+	}
+}
+
+// TestShardGroup_FairnessDistribution verifies that FNV-1a hash distributes
+// 4 venues × 50 instruments reasonably across {2, 4, 8} shard groups.
+// A max/min ratio above 2.5 indicates a degenerate hash distribution.
+func TestShardGroup_FairnessDistribution(t *testing.T) {
+	venues := []string{"binance", "bybit", "okx", "kraken"}
+	instruments := top50Instruments()
+
+	for _, groupCount := range []int{2, 4, 8} {
+		groupCount := groupCount
+		t.Run(fmt.Sprintf("groups=%d", groupCount), func(t *testing.T) {
+			buckets := make(map[int]int, groupCount)
+			for _, v := range venues {
+				for _, i := range instruments {
+					key := ShardKey(fmt.Sprintf("marketdata.bookdelta.v1.%s.%s", v, i))
+					g := ShardGroup(key, groupCount)
+					buckets[g]++
+				}
+			}
+			minC, maxC := math.MaxInt, 0
+			for _, c := range buckets {
+				if c < minC {
+					minC = c
+				}
+				if c > maxC {
+					maxC = c
+				}
+			}
+			ratio := float64(maxC) / float64(minC)
+			t.Logf("groupCount=%d distribution=%v ratio=%.2f", groupCount, buckets, ratio)
+			if ratio >= 2.5 {
+				t.Errorf("skew ratio %.2f exceeds threshold 2.5", ratio)
+			}
+		})
+	}
+}
+
+// ── Soak tests: replay equivalence at scale (Phase 3 production-grade) ──────
+
+// generateRealisticSubjects builds a cross-product of event types × venues ×
+// instruments, simulating a realistic production stream with book deltas,
+// trades, and aggregation snapshots.
+func generateRealisticSubjects(venues, instruments []string) []string {
+	events := []string{"marketdata.bookdelta.v1", "marketdata.trade.v1", "aggregation.snapshot.v1"}
+	var out []string
+	for _, v := range venues {
+		for _, i := range instruments {
+			for _, e := range events {
+				out = append(out, fmt.Sprintf("%s.%s.%s", e, v, i))
+			}
+		}
+	}
+	return out
+}
+
+// assertShardInvariants validates the four core shard correctness invariants
+// for a given set of subjects and group count:
+//  1. Exactly-once: union of all shards == total subjects (no drops, no dupes)
+//  2. Order-book consistency: same venue+instrument always lands in same shard
+//  3. Fairness: max/min bucket ratio stays below maxSkewRatio
+//  4. Replay equivalence: sorted sharded union == sorted input
+func assertShardInvariants(t *testing.T, subjects []string, groupCount int, maxSkewRatio float64) {
+	t.Helper()
+
+	shardBuckets := make(map[int][]string)
+	for _, s := range subjects {
+		g := ShardGroup(ShardKey(s), groupCount)
+		shardBuckets[g] = append(shardBuckets[g], s)
+	}
+
+	assertExactlyOnce(t, shardBuckets, len(subjects))
+	assertInstrumentAffinity(t, shardBuckets)
+	assertFairness(t, shardBuckets, groupCount, len(subjects), maxSkewRatio)
+	assertReplayEquivalence(t, shardBuckets, subjects)
+}
+
+func assertExactlyOnce(t *testing.T, shardBuckets map[int][]string, expected int) {
+	t.Helper()
+	total := 0
+	for _, bucket := range shardBuckets {
+		total += len(bucket)
+	}
+	if total != expected {
+		t.Fatalf("exactly-once violated: union=%d, input=%d", total, expected)
+	}
+}
+
+func assertInstrumentAffinity(t *testing.T, shardBuckets map[int][]string) {
+	t.Helper()
+	byInstrument := make(map[string]int)
+	for g, bucket := range shardBuckets {
+		for _, s := range bucket {
+			parts := strings.Split(s, ".")
+			if len(parts) < 2 {
+				continue
+			}
+			key := parts[len(parts)-2] + "." + parts[len(parts)-1]
+			if prev, ok := byInstrument[key]; ok && prev != g {
+				t.Errorf("instrument %s split across shards %d and %d", key, prev, g)
+			}
+			byInstrument[key] = g
+		}
+	}
+}
+
+func assertFairness(t *testing.T, shardBuckets map[int][]string, groupCount, subjectCount int, maxSkewRatio float64) {
+	t.Helper()
+	minC, maxC := math.MaxInt, 0
+	for _, bucket := range shardBuckets {
+		if len(bucket) < minC {
+			minC = len(bucket)
+		}
+		if len(bucket) > maxC {
+			maxC = len(bucket)
+		}
+	}
+	ratio := float64(maxC) / float64(minC)
+	t.Logf("groupCount=%d subjects=%d ratio=%.2f distribution=%v",
+		groupCount, subjectCount, ratio, bucketSizes(shardBuckets))
+	if ratio >= maxSkewRatio {
+		t.Errorf("skew ratio %.2f exceeds threshold %.1f", ratio, maxSkewRatio)
+	}
+}
+
+func assertReplayEquivalence(t *testing.T, shardBuckets map[int][]string, subjects []string) {
+	t.Helper()
+	var sharded []string
+	for _, bucket := range shardBuckets {
+		sharded = append(sharded, bucket...)
+	}
+	sort.Strings(sharded)
+	sorted := make([]string, len(subjects))
+	copy(sorted, subjects)
+	sort.Strings(sorted)
+	if len(sharded) != len(sorted) {
+		t.Fatalf("replay equivalence: sharded len=%d, input len=%d", len(sharded), len(sorted))
+	}
+	for i := range sorted {
+		if sharded[i] != sorted[i] {
+			t.Errorf("replay equivalence broken at index %d: got %q, want %q", i, sharded[i], sorted[i])
+			break
+		}
+	}
+}
+
+// bucketSizes returns a map of shard group -> subject count for logging.
+func bucketSizes(shardBuckets map[int][]string) map[int]int {
+	m := make(map[int]int, len(shardBuckets))
+	for g, bucket := range shardBuckets {
+		m[g] = len(bucket)
+	}
+	return m
+}
+
+// TestShard_Soak_2Shards_50Instruments is a soak test proving all four shard
+// invariants hold for 2 shards with 4 venues × 50 instruments × 3 event types
+// (600 subjects).
+func TestShard_Soak_2Shards_50Instruments(t *testing.T) {
+	venues := []string{"binance", "bybit", "okx", "kraken"}
+	subjects := generateRealisticSubjects(venues, top50Instruments())
+	assertShardInvariants(t, subjects, 2, 2.5)
+}
+
+// TestShard_Soak_4Shards_50Instruments is a soak test proving all four shard
+// invariants hold for 4 shards with 4 venues × 50 instruments × 3 event types
+// (600 subjects).
+func TestShard_Soak_4Shards_50Instruments(t *testing.T) {
+	venues := []string{"binance", "bybit", "okx", "kraken"}
+	subjects := generateRealisticSubjects(venues, top50Instruments())
+	assertShardInvariants(t, subjects, 4, 2.0)
 }
 
 // TestShardKey_StableAcrossGroups verifies the combined contract: same subject

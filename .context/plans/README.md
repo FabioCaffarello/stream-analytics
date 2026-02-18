@@ -12,9 +12,10 @@ This directory contains plans for coordinating work across documentation and pla
 7. [M3 Heatmap Plan](./m3-heatmap-plan.md)
 8. [M3 Vpvr Plan](./m3-vpvr-plan.md)
 9. [Retomada Market Parity Commit Chain](./retomada-market-parity-commit-chain.md)
-10. [Subject Taxonomy Stabilization](./subject-taxonomy-stabilization.md)
-11. [W0 Build Acceleration](./w0-build-acceleration.md)
-12. [W1 Consumer Hotspot Dedup](./w1-consumer-hotspot-dedup.md)
+10. [Shard Production Grade](./shard-production-grade.md)
+11. [Subject Taxonomy Stabilization](./subject-taxonomy-stabilization.md)
+12. [W0 Build Acceleration](./w0-build-acceleration.md)
+13. [W1 Consumer Hotspot Dedup](./w1-consumer-hotspot-dedup.md)
 
 ## How To Create Or Update Plans
 - Run "ai-context plan <name>" to scaffold a new plan template.

@@ -156,6 +156,9 @@ func validateShard(s ShardConfig) *problem.Problem {
 	if s.Index < 0 || s.Index >= s.Count {
 		return problem.Newf(codeInvalid, "shard.index must be in [0, %d), got %d", s.Count, s.Index)
 	}
+	if s.MaxLag < 0 {
+		return problem.Newf(codeInvalid, "shard.max_lag must be >= 0, got %d", s.MaxLag)
+	}
 	return nil
 }
 

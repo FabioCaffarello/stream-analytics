@@ -54,6 +54,9 @@ type ConsumerConfig struct {
 	// The durable consumer name is automatically set to mr-processor-g{ID}
 	// when ShardGroupCount > 1 and ConsumerDurable is empty.
 	ShardGroupID int
+	// MaxLag is the lag budget for this shard.  When exceeded, a warning is
+	// logged.  0 means no budget enforcement.
+	MaxLag int
 }
 
 type ConsumeHandler func(ctx context.Context, env envelope.Envelope) *problem.Problem
@@ -166,6 +169,12 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig, observer observability
 		metrics.ShardRedeliveredTotal.WithLabelValues(groupLabel)
 		metrics.ShardAckLatencySeconds.WithLabelValues(groupLabel)
 		metrics.ShardSkipTotal.WithLabelValues(groupLabel)
+		metrics.ShardEventsTotal.WithLabelValues(groupLabel)
+		metrics.SetShardInfo(strconv.Itoa(cfg.ShardGroupID), strconv.Itoa(cfg.ShardGroupCount))
+		observability.SetShardTopology(cfg.ShardGroupID, cfg.ShardGroupCount, cfg.MaxLag)
+		if cfg.MaxLag > 0 {
+			metrics.SetShardLagBudget(groupLabel, cfg.MaxLag)
+		}
 	}
 
 	return cn, nil
@@ -227,6 +236,7 @@ func (c *Consumer) consumeOne(ctx context.Context, msg *nats.Msg, handler Consum
 		} else {
 			c.observer.IncConsumed(busTypeJetStream, "shard_skip")
 			metrics.IncShardSkip(groupLabel)
+			observability.IncShardSkipTotal()
 		}
 		return nil
 	}
@@ -358,6 +368,10 @@ func (c *Consumer) ackWithDisposition(ctx context.Context, msg ackDispositionMes
 		return wrapUnavailable("ack_failed", ackErr, "jetstream ack operation failed")
 	}
 	c.observer.IncConsumed(busTypeJetStream, status)
+	if disposition == DispositionAck && c.cfg.ShardGroupCount > 1 {
+		metrics.IncShardEvents(strconv.Itoa(c.cfg.ShardGroupID))
+		observability.IncShardEventsTotal()
+	}
 	recordIngestDecisionMetrics(disposition, reasonCode)
 	return nil
 }
@@ -557,6 +571,14 @@ func (c *Consumer) updateLag() {
 	c.observer.SetConsumerLag(busTypeJetStream, lagI64)
 	if c.cfg.ShardGroupCount > 1 {
 		metrics.SetShardConsumerLag(strconv.Itoa(c.cfg.ShardGroupID), lagI64)
+		observability.SetShardLag(lagI64)
+		if c.cfg.MaxLag > 0 && lagI64 > int64(c.cfg.MaxLag) {
+			slog.Warn("shard lag budget exceeded",
+				"group_id", c.cfg.ShardGroupID,
+				"lag", lagI64,
+				"budget", c.cfg.MaxLag,
+			)
+		}
 	}
 }
 

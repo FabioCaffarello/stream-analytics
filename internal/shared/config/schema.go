@@ -35,6 +35,9 @@ type ShardConfig struct {
 	Index int `json:"index"`
 	// Count is the total number of shards. Default: 1 (sharding disabled).
 	Count int `json:"count"`
+	// MaxLag is the lag budget per shard.  When exceeded, a warning is logged.
+	// 0 means no budget enforcement (default).
+	MaxLag int `json:"max_lag"`
 }
 
 // BusConfig controls runtime bus adapter selection.

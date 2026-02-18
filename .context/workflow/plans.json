@@ -1,14 +1,14 @@
 {
   "active": [
     {
-      "slug": "composition-root",
-      "path": "plans/composition-root.md",
-      "title": "Unified Composition Root — cmd/ ultra-thin",
-      "summary": "Extract all wiring, adapter instantiation, and bootstrap logic from cmd/ binaries into dedicated bootstrap packages. Each cmd/*/main.go becomes 20-40 lines: load config, validate, bootstrap, run. Eliminates cross-binary duplication and centralizes dependency wiring per binary.",
-      "linkedAt": "2026-02-17T17:31:33.848Z",
+      "slug": "shard-production-grade",
+      "path": "plans/shard-production-grade.md",
+      "title": "Production-Grade Shardability: Budgets, Invariants & Runbook",
+      "summary": "Make sharding production-grade with lag/backlog budgets per shard, fairness/distribution checks, hot-shard skew alerting, and operational runbook for shard incidents.",
+      "linkedAt": "2026-02-17T18:07:50.444Z",
       "status": "active"
     }
   ],
   "completed": [],
-  "primary": "composition-root"
+  "primary": "shard-production-grade"
 }

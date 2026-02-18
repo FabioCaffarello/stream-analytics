@@ -607,6 +607,105 @@ func TestServer_Readyz_Timeout_Returns504(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// GET /shardz
+// ---------------------------------------------------------------------------
+
+func TestServer_Shardz_NotConfigured_Returns404(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+	rec := doRequest(t, srv, http.MethodGet, "/shardz", "")
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 when sharding not configured, got %d\nbody: %s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("response is not valid JSON: %v\nbody: %s", err, rec.Body.String())
+	}
+	if _, ok := body["error"]; !ok {
+		t.Fatalf("expected error field in response, got %#v", body)
+	}
+}
+
+func TestServer_Shardz_Configured_Returns200(t *testing.T) {
+	// Configure shard state so endpoint returns 200.
+	observability.SetShardTopology(1, 4, 50000)
+	observability.SetShardLag(1234)
+	// Increment counters a few times.
+	observability.IncShardEventsTotal()
+	observability.IncShardEventsTotal()
+	observability.IncShardSkipTotal()
+
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+	rec := doRequest(t, srv, http.MethodGet, "/shardz", "")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d\nbody: %s", rec.Code, rec.Body.String())
+	}
+	ct := rec.Header().Get("Content-Type")
+	if !strings.HasPrefix(ct, "application/json") {
+		t.Fatalf("expected application/json Content-Type, got %q", ct)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("response is not valid JSON: %v\nbody: %s", err, rec.Body.String())
+	}
+
+	expectedFields := []string{"shard_index", "shard_count", "lag", "events_total", "skip_total", "budget", "budget_ok"}
+	for _, f := range expectedFields {
+		if _, ok := body[f]; !ok {
+			t.Errorf("expected %q field in response, got keys: %v", f, keys(body))
+		}
+	}
+
+	if idx, _ := body["shard_count"].(float64); idx != 4 {
+		t.Errorf("expected shard_count=4, got %v", body["shard_count"])
+	}
+	if budgetOK, _ := body["budget_ok"].(bool); !budgetOK {
+		t.Errorf("expected budget_ok=true (lag 1234 < budget 50000), got %v", body["budget_ok"])
+	}
+}
+
+func TestServer_Shardz_AcceptProto_returnsProtobufEnvelope(t *testing.T) {
+	observability.SetShardTopology(0, 2, 0)
+
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+	rec := doRequestWithHeaders(t, srv, http.MethodGet, "/shardz", "", map[string]string{
+		"Accept": "application/x-protobuf",
+	})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/x-protobuf") {
+		t.Fatalf("content-type=%q want application/x-protobuf", got)
+	}
+	out, p := contracts.UnmarshalEnvelopeV1ToDomain(rec.Body.Bytes())
+	if p != nil {
+		t.Fatalf("proto unmarshal failed: %v", p)
+	}
+	if out.Type != "runtime.shardz" {
+		t.Fatalf("envelope.type=%q want runtime.shardz", out.Type)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GET /metrics
+// ---------------------------------------------------------------------------
+
 func TestServer_Metrics_ExposesPrometheusFormat(t *testing.T) {
 	e := newEngine(t)
 	guardianPID := newGuardian(t, e)

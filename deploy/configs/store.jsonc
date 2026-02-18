@@ -20,7 +20,9 @@
   // Default: single-instance (index=0, count=1, sharding disabled).
   "shard": {
     "index": 0,
-    "count": 1
+    "count": 1,
+    // max_lag is the per-shard lag budget.  0 = no enforcement (default).
+    "max_lag": 0
   },
   "log": {
     "level": "info",

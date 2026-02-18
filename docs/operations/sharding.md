@@ -40,16 +40,18 @@ automatically to the JetStream consumer:
 ```jsonc
 {
   "shard": {
-    "index": 0,   // 0-based shard index for this instance
-    "count": 1    // total number of shards (1 = disabled)
+    "index": 0,     // 0-based shard index for this instance
+    "count": 1,     // total number of shards (1 = disabled)
+    "max_lag": 0    // lag budget per shard (0 = no enforcement)
   }
 }
 ```
 
-| Field          | Default | Description                                      |
-|----------------|---------|--------------------------------------------------|
-| `shard.index`  | `0`     | Shard index for this instance `[0, count)`       |
-| `shard.count`  | `1`     | Total shard count (1 = sharding disabled)        |
+| Field           | Default | Description                                       |
+|-----------------|---------|---------------------------------------------------|
+| `shard.index`   | `0`     | Shard index for this instance `[0, count)`        |
+| `shard.count`   | `1`     | Total shard count (1 = sharding disabled)         |
+| `shard.max_lag` | `0`     | Lag budget per shard (0 = no budget enforcement)  |
 
 CLI flags and environment variables override JSONC values:
 
@@ -96,27 +98,32 @@ To scale from 1 to N replicas:
 
 ## Metrics per shard group
 
-| Metric                              | Type      | Description                        |
-|-------------------------------------|-----------|------------------------------------|
-| `jetstream_shard_consumer_lag`      | Gauge     | NumPending lag per `{group_id}`    |
-| `jetstream_shard_redelivered_total` | Counter   | Redeliveries per `{group_id}`      |
-| `jetstream_shard_ack_latency_seconds` | Histogram | Processing latency per `{group_id}`|
-| `jetstream_shard_skip_total`        | Counter   | Messages skipped per `{group_id}`  |
+| Metric                                | Type      | Description                                    |
+|---------------------------------------|-----------|------------------------------------------------|
+| `jetstream_shard_consumer_lag`        | Gauge     | NumPending lag per `{group_id}`                |
+| `jetstream_shard_redelivered_total`   | Counter   | Redeliveries per `{group_id}`                  |
+| `jetstream_shard_ack_latency_seconds` | Histogram | Processing latency per `{group_id}`            |
+| `jetstream_shard_skip_total`          | Counter   | Messages skipped per `{group_id}`              |
+| `jetstream_shard_events_total`        | Counter   | Events successfully processed per `{group_id}` |
+| `jetstream_shard_info`                | Gauge     | Static topology info (`{shard_index, shard_count}`, always 1) |
+| `jetstream_shard_lag_budget`          | Gauge     | Configured max-lag budget per `{group_id}` (0 = no budget) |
 
 All metrics carry the `group_id` label (e.g. `"0"`, `"1"`) so dashboards and
 alerts can be scoped per replica.
 
-## Example alert
+## Alerts
 
-```yaml
-- alert: ShardConsumerHighLag
-  expr: jetstream_shard_consumer_lag > 10000
-  for: 5m
-  labels:
-    severity: warning
-  annotations:
-    summary: "Shard group {{ $labels.group_id }} lag is high ({{ $value }} messages)"
-```
+Three production alert rules are defined in
+[`deploy/alerts/shard-alerts.yaml`](../../deploy/alerts/shard-alerts.yaml):
+
+| Alert                       | Severity | Condition                                      | Window |
+|-----------------------------|----------|-------------------------------------------------|--------|
+| `ShardHotSkew`              | warning  | One shard has 3x median throughput              | 5 min  |
+| `ShardLagBudgetExceeded`    | critical | Shard lag exceeds configured `max_lag` budget   | 3 min  |
+| `ShardConsumerHighLag`      | warning  | Shard consumer lag > 10 000 messages            | 5 min  |
+
+For incident response procedures, see the
+**[Shard Incident Runbook](shard-incidents.md)**.
 
 ## Quickstart: 2 shards local (docker compose)
 

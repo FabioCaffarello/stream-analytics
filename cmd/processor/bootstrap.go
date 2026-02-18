@@ -276,6 +276,7 @@ func initEnvelopeSource(cfg config.AppConfig, logger *slog.Logger, e2e *e2eRunti
 			DeliverPolicy:   cfg.JetStream.DeliverPolicy,
 			ShardGroupCount: cfg.JetStream.ShardGroupCount,
 			ShardGroupID:    cfg.JetStream.ShardGroupID,
+			MaxLag:          cfg.Shard.MaxLag,
 		}, metrics.NewBusObserver())
 		if p != nil {
 			logger.Error("processor: jetstream consumer init failed", "err", p)

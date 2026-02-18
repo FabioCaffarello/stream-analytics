@@ -25,6 +25,11 @@ func ApplyShardOverrides(cfg *config.AppConfig, flagIndex, flagCount int) {
 			cfg.Shard.Count = n
 		}
 	}
+	if v := os.Getenv("SHARD_MAX_LAG"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Shard.MaxLag = n
+		}
+	}
 	// Propagate top-level shard to JetStream shard fields.
 	cfg.JetStream.ShardGroupCount = cfg.Shard.Count
 	cfg.JetStream.ShardGroupID = cfg.Shard.Index

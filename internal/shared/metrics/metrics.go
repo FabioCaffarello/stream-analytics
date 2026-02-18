@@ -536,6 +536,27 @@ var (
 		},
 		[]string{"group_id"},
 	)
+	ShardEventsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "jetstream_shard_events_total",
+			Help: "Total events successfully processed per shard group.",
+		},
+		[]string{"group_id"},
+	)
+	ShardInfo = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "jetstream_shard_info",
+			Help: "Static info labels for shard topology. Value is always 1.",
+		},
+		[]string{"shard_index", "shard_count"},
+	)
+	ShardLagBudget = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "jetstream_shard_lag_budget",
+			Help: "Configured maximum acceptable lag per shard group. 0 means no budget.",
+		},
+		[]string{"group_id"},
+	)
 
 	// ── Store observability ─────────────────────────────────────────────
 	// Tracks envelope consumption and ClickHouse commit outcomes in
@@ -735,6 +756,9 @@ func registerAll() {
 			ShardRedeliveredTotal,
 			ShardAckLatencySeconds,
 			ShardSkipTotal,
+			ShardEventsTotal,
+			ShardInfo,
+			ShardLagBudget,
 			StoreConsumedTotal,
 			StoreCommitTotal,
 			StoreCommitLatencySeconds,
@@ -807,6 +831,8 @@ func registerAll() {
 		ShardRedeliveredTotal.WithLabelValues("0")
 		ShardAckLatencySeconds.WithLabelValues("0")
 		ShardSkipTotal.WithLabelValues("0")
+		ShardEventsTotal.WithLabelValues("0")
+		ShardLagBudget.WithLabelValues("0")
 		StoreConsumedTotal.WithLabelValues("ok", "snapshot")
 		StoreConsumedTotal.WithLabelValues("ok", "skipped")
 		StoreConsumedTotal.WithLabelValues("failed", "decode")
@@ -1236,6 +1262,21 @@ func ObserveShardAckLatency(groupID string, latency time.Duration) {
 // IncShardSkip increments the skip counter for the given shard group.
 func IncShardSkip(groupID string) {
 	ShardSkipTotal.WithLabelValues(sanitizeGroupID(groupID)).Inc()
+}
+
+// IncShardEvents increments the processed-events counter for the shard group.
+func IncShardEvents(groupID string) {
+	ShardEventsTotal.WithLabelValues(sanitizeGroupID(groupID)).Inc()
+}
+
+// SetShardInfo sets the static shard topology info gauge to 1.
+func SetShardInfo(shardIndex, shardCount string) {
+	ShardInfo.WithLabelValues(sanitizeGroupID(shardIndex), sanitizeGroupID(shardCount)).Set(1)
+}
+
+// SetShardLagBudget records the configured max-lag budget for a shard group.
+func SetShardLagBudget(groupID string, maxLag int) {
+	ShardLagBudget.WithLabelValues(sanitizeGroupID(groupID)).Set(float64(maxLag))
 }
 
 // sanitizeGroupID normalises a group ID string for use as a Prometheus label.

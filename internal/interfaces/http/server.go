@@ -5,6 +5,7 @@
 //	GET  /healthz            → 200 {"status":"ok"}          (liveness)
 //	GET  /readyz             → 200/503 {"ready":bool,...}   (readiness)
 //	GET  /runtime/snapshot   → 200 JSON of runtime.SnapshotState
+//	GET  /shardz             → 200/404 JSON shard status    (shard diagnostics)
 //	POST /runtime/reload     → 202 {"accepted":true}
 //
 // The snapshot and readyz endpoints use engine.Request() (Hollywood built-in)
@@ -78,6 +79,7 @@ func NewServer(
 	mux.HandleFunc("GET /runtime/overload", s.handleRuntimeOverload)
 	mux.HandleFunc("GET /runtime/storage", s.handleRuntimeStorage)
 	mux.HandleFunc("GET /runtime/ws", s.handleRuntimeWS)
+	mux.HandleFunc("GET /shardz", s.handleShardz)
 	mux.HandleFunc("POST /runtime/reload", s.handleReload)
 	mux.Handle("GET /metrics", withProcessMetrics(metrics.Handler()))
 	if enablePprof {
@@ -119,7 +121,7 @@ func (s *Server) Handler() http.Handler {
 // It must be called before ListenAndServe.
 func (s *Server) HandleFunc(pattern string, handler http.HandlerFunc) {
 	switch pattern {
-	case "GET /healthz", "GET /readyz", "GET /runtime/snapshot", "GET /runtime/overload", "GET /runtime/storage", "GET /runtime/ws", "POST /runtime/reload", "GET /metrics":
+	case "GET /healthz", "GET /readyz", "GET /runtime/snapshot", "GET /runtime/overload", "GET /runtime/storage", "GET /runtime/ws", "GET /shardz", "POST /runtime/reload", "GET /metrics":
 		s.logger.Warn("httpserver: refusing to override critical route", "pattern", pattern)
 		return
 	}
@@ -261,6 +263,19 @@ func (s *Server) handleRuntimeStorage(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRuntimeWS(w http.ResponseWriter, r *http.Request) {
 	snapshot := buildWSStateSnapshot()
 	writeResponse(w, r, http.StatusOK, "runtime.ws", snapshot)
+}
+
+// handleShardz returns live shard topology, lag, and budget status as JSON.
+// Returns 404 when this process is not running in shard mode.
+func (s *Server) handleShardz(w http.ResponseWriter, r *http.Request) {
+	if !observability.ShardConfigured() {
+		writeResponse(w, r, http.StatusNotFound, "runtime.shardz", map[string]string{
+			"error": "sharding not configured",
+		})
+		return
+	}
+	snapshot := observability.SnapshotShardState()
+	writeResponse(w, r, http.StatusOK, "runtime.shardz", snapshot)
 }
 
 // ---------------------------------------------------------------------------
