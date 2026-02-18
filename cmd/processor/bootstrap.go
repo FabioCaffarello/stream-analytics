@@ -19,6 +19,7 @@ import (
 	"github.com/market-raccoon/internal/adapters/storage/timescale"
 	aggapp "github.com/market-raccoon/internal/core/aggregation/app"
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
+	aggports "github.com/market-raccoon/internal/core/aggregation/ports"
 	insightsapp "github.com/market-raccoon/internal/core/insights/app"
 	mddomain "github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/shared/bootstrap"
@@ -59,6 +60,30 @@ func (p *logArtifactPublisher) PublishInconsistent(_ context.Context, evt aggdom
 	return nil
 }
 
+func (p *logArtifactPublisher) PublishCandleClosed(_ context.Context, evt aggdomain.CandleClosed) *problem.Problem {
+	p.logger.Debug("aggregation: candle closed",
+		"venue", evt.Candle.Venue,
+		"instrument", evt.Candle.Instrument,
+		"timeframe", evt.Candle.Timeframe,
+		"window_start_ts", evt.Candle.WindowStartTs,
+		"window_end_ts", evt.Candle.WindowEndTs,
+		"trade_count", evt.Candle.TradeCount,
+	)
+	return nil
+}
+
+func (p *logArtifactPublisher) PublishStatsClosed(_ context.Context, evt aggdomain.StatsWindowClosed) *problem.Problem {
+	p.logger.Debug("aggregation: stats window closed",
+		"venue", evt.Stats.Venue,
+		"instrument", evt.Stats.Instrument,
+		"timeframe", evt.Stats.Timeframe,
+		"window_start_ts", evt.Stats.WindowStartTs,
+		"window_end_ts", evt.Stats.WindowEndTs,
+		"liq_count", evt.Stats.LiqCount,
+	)
+	return nil
+}
+
 type committedHotStore struct {
 	committer *adapterstorage.SnapshotCommitter
 }
@@ -68,6 +93,30 @@ func (s *committedHotStore) Save(ctx context.Context, snap aggdomain.SnapshotPro
 		return problem.New(problem.ValidationFailed, "committed hot store is not configured")
 	}
 	return s.committer.Commit(ctx, snap)
+}
+
+type logCandleHotStore struct{ logger *slog.Logger }
+
+func (s *logCandleHotStore) SaveCandle(_ context.Context, evt aggdomain.CandleClosed) *problem.Problem {
+	s.logger.Debug("aggregation: candle saved to hot store",
+		"venue", evt.Candle.Venue,
+		"instrument", evt.Candle.Instrument,
+		"timeframe", evt.Candle.Timeframe,
+		"trade_count", evt.Candle.TradeCount,
+	)
+	return nil
+}
+
+type logStatsHotStore struct{ logger *slog.Logger }
+
+func (s *logStatsHotStore) SaveStats(_ context.Context, evt aggdomain.StatsWindowClosed) *problem.Problem {
+	s.logger.Debug("aggregation: stats saved to hot store",
+		"venue", evt.Stats.Venue,
+		"instrument", evt.Stats.Instrument,
+		"timeframe", evt.Stats.Timeframe,
+		"liq_count", evt.Stats.LiqCount,
+	)
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -103,11 +152,6 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		"shard", fmt.Sprintf("%d/%d", cfg.Shard.Index, cfg.Shard.Count),
 		"bus_type", cfg.Bus.Type,
 	)
-	if !timescale.IsProductionReady() {
-		logger.Warn("processor: timescale adapter running in non-production stub mode",
-			"adapter_mode", timescale.AdapterMode(),
-		)
-	}
 
 	// Bootstrap payload codec registry.
 	if p := contracts.BootstrapPayloadCodecRegistryWithOptions(contracts.PayloadRegistryOptions{
@@ -118,14 +162,80 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 
 	// ── aggregation use case ────────────────────────────────────────────
 	artifactPub := &logArtifactPublisher{logger: logger}
+	timescale.SetStubMode(timescale.AdapterModeStubMemory)
+
+	var hotWriter aggports.HotReadModelStore = timescale.NewWriter()
+	var candleStore aggports.CandleHotReadModelStore = &logCandleHotStore{logger: logger}
+	var statsStore aggports.StatsHotReadModelStore = &logStatsHotStore{logger: logger}
+	var tsPool *timescale.Pool
+	if cfg.Storage.Timescale.Enabled {
+		pool, p := timescale.NewPool(ctx, timescale.PoolConfig{
+			DSN:               cfg.Storage.Timescale.DSN,
+			MaxConns:          int32(cfg.Storage.Timescale.MaxConns),
+			MinConns:          int32(cfg.Storage.Timescale.MinConns),
+			MaxConnLifetime:   cfg.Storage.Timescale.MaxConnLifetimeDuration(),
+			MaxConnIdleTime:   cfg.Storage.Timescale.MaxConnIdleTimeDuration(),
+			HealthCheckPeriod: cfg.Storage.Timescale.HealthCheckPeriodDuration(),
+		})
+		if p != nil {
+			return fmt.Errorf("timescale pool init failed: %v", p)
+		}
+		tsPool = pool
+		defer tsPool.Close()
+
+		hotWriter = timescale.NewPgWriter(tsPool)
+		candleStore = timescale.NewPgCandleWriter(tsPool)
+		statsStore = timescale.NewPgStatsWriter(tsPool)
+		timescale.SetProductionReady(timescale.AdapterModePGX)
+		logger.Info("processor: using Timescale pgx writer")
+	} else {
+		logger.Warn("processor: using in-memory Timescale writer (storage.timescale.enabled=false)")
+	}
+
+	var coldWriter aggports.ColdReadModelStore = clickhouse.NewWriter()
+	if cfg.Storage.ClickHouse.Enabled {
+		chPool, p := clickhouse.NewPool(ctx, clickhouse.PoolConfig{
+			Addrs:           cfg.Storage.ClickHouse.Addrs,
+			Database:        cfg.Storage.ClickHouse.Database,
+			Username:        cfg.Storage.ClickHouse.Username,
+			Password:        cfg.Storage.ClickHouse.Password,
+			MaxOpenConns:    cfg.Storage.ClickHouse.MaxOpenConns,
+			MaxIdleConns:    cfg.Storage.ClickHouse.MaxIdleConns,
+			ConnMaxLifetime: cfg.Storage.ClickHouse.ConnMaxLifetimeDuration(),
+			DialTimeout:     cfg.Storage.ClickHouse.DialTimeoutDuration(),
+			ReadTimeout:     cfg.Storage.ClickHouse.ReadTimeoutDuration(),
+		})
+		if p != nil {
+			return fmt.Errorf("clickhouse pool init failed: %v", p)
+		}
+		defer func() {
+			if p := chPool.Close(); p != nil {
+				logger.Warn("processor: clickhouse pool close failed", "err", p)
+			}
+		}()
+
+		coldWriter = clickhouse.NewChWriter(chPool)
+		logger.Info("processor: using ClickHouse writer")
+	} else {
+		logger.Warn("processor: using in-memory ClickHouse writer (storage.clickhouse.enabled=false)")
+	}
+
+	if !timescale.IsProductionReady() {
+		logger.Warn("processor: timescale adapter running in non-production stub mode", "adapter_mode", timescale.AdapterMode())
+	}
+
 	hotStore := &committedHotStore{
-		committer: adapterstorage.NewSnapshotCommitter(timescale.NewWriter(), clickhouse.NewWriter()),
+		committer: adapterstorage.NewSnapshotCommitter(hotWriter, coldWriter),
 	}
-	aggSvc := &aggapp.AggregationService{
-		UpdateBook: aggapp.NewUpdateOrderBookFromEventsWithConfig(artifactPub, hotStore, aggapp.UpdateConfig{
-			MaxBooks: cfg.Processor.MaxInstruments,
-		}),
-	}
+	aggSvc := aggapp.NewAggregationService(aggapp.AggregationServiceConfig{
+		Update:      aggapp.UpdateConfig{MaxBooks: cfg.Processor.MaxInstruments},
+		Candle:      aggapp.BuildCandleConfig{MaxCandles: cfg.Processor.Candle.MaxCandles},
+		Stats:       aggapp.BuildStatsConfig{MaxWindows: cfg.Processor.Stats.MaxWindows},
+		Publisher:   artifactPub,
+		Store:       hotStore,
+		CandleStore: candleStore,
+		StatsStore:  statsStore,
+	})
 
 	var joinTrades *insightsapp.JoinCrossVenueTrades
 	var publishEnvelope aggruntime.EventPublisher
@@ -254,6 +364,10 @@ func initEnvelopeSource(cfg config.AppConfig, logger *slog.Logger, e2e *e2eRunti
 	case "jetstream":
 		ch := make(chan envelope.Envelope, cfg.Processor.BusCapacity)
 		resultsCh := make(chan aggruntime.EnvelopeProcessResult, 1)
+		resultWaitTimeout := cfg.JetStream.AckWaitDuration()
+		if resultWaitTimeout <= 0 {
+			resultWaitTimeout = 30 * time.Second
+		}
 		filterSubjects := effectiveJetStreamFilters(cfg)
 
 		onResult := func(res aggruntime.EnvelopeProcessResult) {
@@ -297,11 +411,33 @@ func initEnvelopeSource(cfg config.AppConfig, logger *slog.Logger, e2e *e2eRunti
 				case <-consumeCtx.Done():
 					return problem.WithRetryable(problem.Wrap(consumeCtx.Err(), problem.Unavailable, "processor enqueue canceled"))
 				}
-				select {
-				case res := <-resultsCh:
-					return res.Problem
-				case <-consumeCtx.Done():
-					return problem.WithRetryable(problem.Wrap(consumeCtx.Err(), problem.Unavailable, "processor result wait canceled"))
+
+				waitCtx, cancelWait := context.WithTimeout(consumeCtx, resultWaitTimeout)
+				defer cancelWait()
+
+				for {
+					select {
+					case res := <-resultsCh:
+						// Guard against stale results when a previous wait timed out.
+						if !sameProcessedEnvelope(res.Envelope, env) {
+							logger.Warn("processor: dropped stale processing result",
+								"expected_type", env.Type,
+								"expected_venue", env.Venue,
+								"expected_instrument", env.Instrument,
+								"expected_seq", env.Seq,
+								"got_type", res.Envelope.Type,
+								"got_venue", res.Envelope.Venue,
+								"got_instrument", res.Envelope.Instrument,
+								"got_seq", res.Envelope.Seq,
+							)
+							continue
+						}
+						metrics.IncProcessorAckAfterCommit(ackAfterCommitStatus(res.Problem))
+						return res.Problem
+					case <-waitCtx.Done():
+						metrics.IncProcessorAckAfterCommit("failed")
+						return problem.WithRetryable(problem.Wrap(waitCtx.Err(), problem.Unavailable, "processor result wait timed out"))
+					}
 				}
 			})
 		}()
@@ -335,6 +471,22 @@ func initEnvelopeSource(cfg config.AppConfig, logger *slog.Logger, e2e *e2eRunti
 			},
 		}
 	}
+}
+
+func sameProcessedEnvelope(got, want envelope.Envelope) bool {
+	return strings.EqualFold(strings.TrimSpace(got.Type), strings.TrimSpace(want.Type)) &&
+		got.Version == want.Version &&
+		strings.EqualFold(strings.TrimSpace(got.Venue), strings.TrimSpace(want.Venue)) &&
+		strings.EqualFold(strings.TrimSpace(got.Instrument), strings.TrimSpace(want.Instrument)) &&
+		got.Seq == want.Seq &&
+		strings.TrimSpace(got.IdempotencyKey) == strings.TrimSpace(want.IdempotencyKey)
+}
+
+func ackAfterCommitStatus(p *problem.Problem) string {
+	if p == nil {
+		return "ok"
+	}
+	return "failed"
 }
 
 func initJetStreamReplayEnvelopeSource(cfg config.AppConfig, logger *slog.Logger) envelopeSource {
