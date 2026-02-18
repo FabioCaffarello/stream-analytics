@@ -26,6 +26,35 @@ services:
           memory: 256M
           cpus: "0.50"
 
+  timescale:
+    image: timescale/timescaledb:latest-pg16
+    container_name: market-raccoon-timescale
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_USER: raccoon
+      POSTGRES_PASSWORD: raccoon
+      POSTGRES_DB: raccoon
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+      - ../../sql/timescale/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U raccoon -d raccoon"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    networks:
+      - market-raccoon-network
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.00"
+
   server:
     build:
       context: ../..
@@ -39,6 +68,8 @@ services:
       - ../configs/server.jsonc:/etc/market-raccoon/server.jsonc:ro
     depends_on:
       nats:
+        condition: service_healthy
+      timescale:
         condition: service_healthy
       clickhouse:
         condition: service_healthy
@@ -113,6 +144,8 @@ services:
       - ../configs/processor.jsonc:/etc/market-raccoon/processor.jsonc:ro
     depends_on:
       nats:
+        condition: service_healthy
+      timescale:
         condition: service_healthy
       clickhouse:
         condition: service_healthy
@@ -272,6 +305,8 @@ networks:
 volumes:
   nats_data:
     name: market-raccoon-nats-data
+  timescale_data:
+    name: market-raccoon-timescale-data
   clickhouse_data:
     name: market-raccoon-clickhouse-data
   clickhouse_logs:

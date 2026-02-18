@@ -92,8 +92,8 @@ help:
 	@echo "  make build              - build all binaries under cmd/* (package main)"
 	@echo "  make run                - run selected app (default: server)"
 	@echo "  make down               - stop full stack"
-	@echo "  make up                 - start full stack (nats + server + consumer + processor + store + clickhouse + prometheus + grafana)"
-	@echo "  make up-infra           - start only infrastructure services (nats + clickhouse + prometheus + grafana)"
+	@echo "  make up                 - start full stack (nats + timescale + clickhouse + app services + observability)"
+	@echo "  make up-infra           - start only infrastructure services (nats + timescale + clickhouse + prometheus + grafana)"
 	@echo "  make up-core            - start infra + core app services (no observability)"
 	@echo "  make ps                 - list compose service status"
 	@echo "  make logs               - stream compose logs"
@@ -394,7 +394,7 @@ down:
 	docker compose -f deploy/compose/docker-compose.yml --profile core --profile obs down -v --remove-orphans
 
 up-infra:
-	docker compose -f deploy/compose/docker-compose.yml --profile obs up -d nats clickhouse prometheus grafana
+	docker compose -f deploy/compose/docker-compose.yml --profile obs up -d nats timescale clickhouse prometheus grafana
 
 up-core:
 	docker compose -f deploy/compose/docker-compose.yml --profile core up --build -d

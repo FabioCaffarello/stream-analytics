@@ -1,18 +1,5 @@
--- S1 orderbook snapshot storage schema.
--- Applied externally by deployment tooling.
-
--- Timescale (hot path)
-CREATE TABLE IF NOT EXISTS aggregation_orderbook_snapshot (
-    venue       TEXT NOT NULL,
-    instrument  TEXT NOT NULL,
-    seq         BIGINT NOT NULL,
-    bids_json   JSONB NOT NULL,
-    asks_json   JSONB NOT NULL,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (venue, instrument, seq)
-);
-
--- ClickHouse (cold path)
+-- S1 orderbook cold-path schema (aligned with Timescale hot-path).
+-- Supersedes v3 with canonical column names matching hot-path schema.
 CREATE TABLE IF NOT EXISTS aggregation_orderbook_snapshot_cold
 (
     venue                  LowCardinality(String),

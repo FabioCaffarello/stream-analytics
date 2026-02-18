@@ -1,7 +1,7 @@
 -- S4 artifact storage schema (candle, stats, heatmap, volume profile).
--- Applied externally by deployment tooling.
+-- Applied externally by deployment tooling (init container or manual).
 
--- Timescale (hot path): candle
+-- Candle OHLCV aggregation
 CREATE TABLE IF NOT EXISTS aggregation_candle (
     venue           TEXT NOT NULL,
     instrument      TEXT NOT NULL,
@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS aggregation_candle (
     PRIMARY KEY (venue, instrument, timeframe, window_start)
 );
 
--- Timescale (hot path): stats
+-- Stats aggregation (liquidation volume + markprice + funding rate per timeframe)
 CREATE TABLE IF NOT EXISTS aggregation_stats (
     venue             TEXT NOT NULL,
     instrument        TEXT NOT NULL,
@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS aggregation_stats (
     PRIMARY KEY (venue, instrument, timeframe, window_start)
 );
 
--- Timescale (hot path): heatmap artifact cells
+-- Heatmap artifact cells
 CREATE TABLE IF NOT EXISTS aggregation_heatmap (
     venue                  TEXT NOT NULL,
     instrument             TEXT NOT NULL,
@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS aggregation_heatmap (
     )
 );
 
--- Timescale (hot path): volume profile bucket aggregates
+-- Volume profile bucket aggregates
 CREATE TABLE IF NOT EXISTS aggregation_volume_profile (
     venue             TEXT NOT NULL,
     instrument        TEXT NOT NULL,
@@ -97,66 +97,25 @@ CREATE TABLE IF NOT EXISTS aggregation_volume_profile (
     PRIMARY KEY (venue, instrument, timeframe, window_start_ts, bucket_low, bucket_high)
 );
 
--- Optional dedup log for VPVR operation ids (bounded by retention policy).
+-- VPVR operation dedup log (bounded by retention policy)
 CREATE TABLE IF NOT EXISTS aggregation_volume_profile_oplog (
-    operation_id   TEXT PRIMARY KEY,
-    venue          TEXT NOT NULL,
-    instrument     TEXT NOT NULL,
-    timeframe      TEXT NOT NULL,
+    operation_id    TEXT PRIMARY KEY,
+    venue           TEXT NOT NULL,
+    instrument      TEXT NOT NULL,
+    timeframe       TEXT NOT NULL,
     window_start_ts BIGINT NOT NULL,
-    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- ClickHouse (cold path): candle
-CREATE TABLE IF NOT EXISTS aggregation_candle_cold
-(
-    venue           LowCardinality(String),
-    instrument      LowCardinality(String),
-    timeframe       LowCardinality(String),
-    window_start    Int64,
-    window_end      Int64,
-    open_price      Float64,
-    high_price      Float64,
-    low_price       Float64,
-    close_price     Float64,
-    volume          Float64,
-    buy_volume      Float64,
-    sell_volume     Float64,
-    trade_count     Int64,
-    seq_first       Int64,
-    seq_last        Int64,
-    idempotency_key String,
-    created_at      DateTime64(3) DEFAULT now64(3)
-)
-ENGINE = ReplacingMergeTree
-PARTITION BY toYYYYMM(created_at)
-ORDER BY (venue, instrument, timeframe, window_start, idempotency_key)
-TTL toDateTime(created_at) + INTERVAL 90 DAY;
+-- Delivery events for GetRange queries
+CREATE TABLE IF NOT EXISTS delivery_events (
+    id         BIGSERIAL PRIMARY KEY,
+    subject    TEXT NOT NULL,
+    seq        BIGINT NOT NULL,
+    ts_ingest  BIGINT NOT NULL,
+    payload    BYTEA NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
--- ClickHouse (cold path): stats
-CREATE TABLE IF NOT EXISTS aggregation_stats_cold
-(
-    venue             LowCardinality(String),
-    instrument        LowCardinality(String),
-    timeframe         LowCardinality(String),
-    window_start      Int64,
-    window_end        Int64,
-    liq_buy_volume    Float64,
-    liq_sell_volume   Float64,
-    liq_total_volume  Float64,
-    liq_count         Int64,
-    markprice_open    Nullable(Float64),
-    markprice_high    Nullable(Float64),
-    markprice_low     Nullable(Float64),
-    markprice_close   Nullable(Float64),
-    funding_rate_avg  Nullable(Float64),
-    funding_rate_last Nullable(Float64),
-    seq_first         Int64,
-    seq_last          Int64,
-    idempotency_key   String,
-    created_at        DateTime64(3) DEFAULT now64(3)
-)
-ENGINE = ReplacingMergeTree
-PARTITION BY toYYYYMM(created_at)
-ORDER BY (venue, instrument, timeframe, window_start, idempotency_key)
-TTL toDateTime(created_at) + INTERVAL 90 DAY;
+CREATE INDEX IF NOT EXISTS idx_delivery_events_subject_ts
+    ON delivery_events (subject, ts_ingest, seq);

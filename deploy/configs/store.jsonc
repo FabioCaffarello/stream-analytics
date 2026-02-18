@@ -38,5 +38,19 @@
       // Credentials match deploy/envs/local.env (CLICKHOUSE_USER/PASSWORD).
       "dsn": "clickhouse://default:password@clickhouse:9000/default"
     }
+  },
+  "storage": {
+    "clickhouse": {
+      "enabled": true,
+      "addrs": ["clickhouse:9000"],
+      "database": "default",
+      "username": "default",
+      "password": "password",
+      "max_open_conns": 10,
+      "max_idle_conns": 5,
+      "conn_max_lifetime": "30m",
+      "dial_timeout": "5s",
+      "read_timeout": "30s"
+    }
   }
 }
