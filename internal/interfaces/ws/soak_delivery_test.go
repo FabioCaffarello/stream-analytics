@@ -48,9 +48,7 @@ func TestSoak_WSDelivery_SlowClients(t *testing.T) {
 		t.Fatalf("new engine: %v", err)
 	}
 
-	envCh := make(chan envelope.Envelope, 8_192)
 	routerPID := e.Spawn(deliveryruntime.NewRouterActor(deliveryruntime.RouterConfig{
-		EnvelopeCh:    envCh,
 		Timeframe:     "raw",
 		EnvelopeStore: soakEnvelopeStore{},
 	}), "delivery-router-soak")
@@ -124,7 +122,7 @@ func TestSoak_WSDelivery_SlowClients(t *testing.T) {
 
 	payload := []byte(`{"v":1}`)
 	for i := 1; i <= totalMessages; i++ {
-		envCh <- envelope.Envelope{
+		e.Send(routerPID, deliveryruntime.DeliverEnvelope{Envelope: envelope.Envelope{
 			Type:       "marketdata.trade",
 			Version:    1,
 			Venue:      "binance",
@@ -132,7 +130,7 @@ func TestSoak_WSDelivery_SlowClients(t *testing.T) {
 			Seq:        int64(i),
 			TsIngest:   1_710_000_000_000 + int64(i),
 			Payload:    payload,
-		}
+		}})
 	}
 
 	deadline := time.Now().Add(15 * time.Second)
@@ -150,7 +148,6 @@ func TestSoak_WSDelivery_SlowClients(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	close(done)
-	close(envCh)
 	time.Sleep(500 * time.Millisecond)
 
 	for i := 0; i < fastClients; i++ {

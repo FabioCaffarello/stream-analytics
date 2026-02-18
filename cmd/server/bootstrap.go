@@ -70,7 +70,6 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 
 	// ── delivery wiring ───────────────────────────────────────────────────
 	eventBus := bus.NewInMemoryBus(cfg.Processor.BusCapacity, metrics.NewBusObserver())
-	envelopeCh := eventBus.Subscribe()
 	routerPIDCh := make(chan *actor.PID, 1)
 	var rangeStore interface {
 		ports.RangeStore
@@ -87,7 +86,6 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		Logger: logger,
 		Router: deliveryruntime.RouterConfig{
 			Logger:        logger,
-			EnvelopeCh:    envelopeCh,
 			Timeframe:     "raw",
 			EnvelopeStore: rangeStore,
 		},

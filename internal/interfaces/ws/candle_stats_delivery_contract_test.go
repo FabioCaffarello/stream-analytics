@@ -19,10 +19,8 @@ func TestWSDelivery_CandleClosed_RoutedToSubscriber(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	envCh := make(chan envelope.Envelope, 32)
 	routerPID := e.Spawn(deliveryruntime.NewRouterActor(deliveryruntime.RouterConfig{
-		EnvelopeCh: envCh,
-		Timeframe:  "raw",
+		Timeframe: "raw",
 	}), "delivery-router-candle")
 	defer e.Poison(routerPID)
 
@@ -53,7 +51,7 @@ func TestWSDelivery_CandleClosed_RoutedToSubscriber(t *testing.T) {
 		t.Fatalf("ack type=%v want=%v", got, want)
 	}
 
-	envCh <- envelope.Envelope{
+	e.Send(routerPID, deliveryruntime.DeliverEnvelope{Envelope: envelope.Envelope{
 		Type:       "aggregation.candle",
 		Version:    1,
 		Venue:      "binance",
@@ -61,7 +59,7 @@ func TestWSDelivery_CandleClosed_RoutedToSubscriber(t *testing.T) {
 		Seq:        1,
 		TsIngest:   time.Now().UnixMilli(),
 		Payload:    []byte(`{"candle":"closed"}`),
-	}
+	}})
 
 	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	var evt map[string]any
@@ -86,10 +84,8 @@ func TestWSDelivery_StatsClosed_RoutedToSubscriber(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	envCh := make(chan envelope.Envelope, 32)
 	routerPID := e.Spawn(deliveryruntime.NewRouterActor(deliveryruntime.RouterConfig{
-		EnvelopeCh: envCh,
-		Timeframe:  "raw",
+		Timeframe: "raw",
 	}), "delivery-router-stats")
 	defer e.Poison(routerPID)
 
@@ -120,7 +116,7 @@ func TestWSDelivery_StatsClosed_RoutedToSubscriber(t *testing.T) {
 		t.Fatalf("ack type=%v want=%v", got, want)
 	}
 
-	envCh <- envelope.Envelope{
+	e.Send(routerPID, deliveryruntime.DeliverEnvelope{Envelope: envelope.Envelope{
 		Type:       "aggregation.stats",
 		Version:    1,
 		Venue:      "binance",
@@ -128,7 +124,7 @@ func TestWSDelivery_StatsClosed_RoutedToSubscriber(t *testing.T) {
 		Seq:        2,
 		TsIngest:   time.Now().UnixMilli(),
 		Payload:    []byte(`{"stats":"closed"}`),
-	}
+	}})
 
 	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	var evt map[string]any
@@ -153,10 +149,8 @@ func TestWSDelivery_CandleClosed_MultiInstrumentSubscriptions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new engine: %v", err)
 	}
-	envCh := make(chan envelope.Envelope, 32)
 	routerPID := e.Spawn(deliveryruntime.NewRouterActor(deliveryruntime.RouterConfig{
-		EnvelopeCh: envCh,
-		Timeframe:  "raw",
+		Timeframe: "raw",
 	}), "delivery-router-candle-multi")
 	defer e.Poison(routerPID)
 
@@ -193,7 +187,7 @@ func TestWSDelivery_CandleClosed_MultiInstrumentSubscriptions(t *testing.T) {
 		}
 	}
 
-	envCh <- envelope.Envelope{
+	e.Send(routerPID, deliveryruntime.DeliverEnvelope{Envelope: envelope.Envelope{
 		Type:       "aggregation.candle",
 		Version:    1,
 		Venue:      "binance",
@@ -201,8 +195,8 @@ func TestWSDelivery_CandleClosed_MultiInstrumentSubscriptions(t *testing.T) {
 		Seq:        1,
 		TsIngest:   time.Now().UnixMilli(),
 		Payload:    []byte(`{"venue":"binance"}`),
-	}
-	envCh <- envelope.Envelope{
+	}})
+	e.Send(routerPID, deliveryruntime.DeliverEnvelope{Envelope: envelope.Envelope{
 		Type:       "aggregation.candle",
 		Version:    1,
 		Venue:      "bybit",
@@ -210,7 +204,7 @@ func TestWSDelivery_CandleClosed_MultiInstrumentSubscriptions(t *testing.T) {
 		Seq:        2,
 		TsIngest:   time.Now().UnixMilli(),
 		Payload:    []byte(`{"venue":"bybit"}`),
-	}
+	}})
 
 	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	var first map[string]any
