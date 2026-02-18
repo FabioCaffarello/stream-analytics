@@ -81,7 +81,7 @@ type soakBurstState struct {
 // and processes it through the handler, updating counters.
 func (s *soakBurstState) generateAndProcess(
 	t *testing.T,
-	b *clickhouse.BatchWriter,
+	b *storeWriters,
 	logger *slog.Logger,
 	redeliveryRate, decodeFailRate float64,
 ) {
@@ -155,7 +155,7 @@ func TestStoreSoak_BatchDedupBurst(t *testing.T) {
 	t.Logf("soak duration: %s", duration)
 
 	writer := clickhouse.NewWriter()
-	b := testBatcher(writer)
+	b := testStoreWriters(writer)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
 	// Reset global counter for deterministic test.
@@ -233,7 +233,7 @@ func TestStoreSoak_RedeliveryStorm(t *testing.T) {
 	}
 
 	writer := clickhouse.NewWriter()
-	b := testBatcher(writer)
+	b := testStoreWriters(writer)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
 	// Reset global counter.
@@ -411,7 +411,7 @@ func TestStoreSoak_ColdPathBurst10k_CommitAckInvariants(t *testing.T) {
 	t.Logf("cold-path burst soak: rate=%d/s duration=%s", rate, duration)
 
 	writer := clickhouse.NewWriter()
-	b := testBatcher(writer)
+	b := testStoreWriters(writer)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
 	storeConsumedCount.Store(0)
@@ -496,7 +496,7 @@ func TestStoreSoak_ColdPathLatencyBudgets(t *testing.T) {
 	t.Logf("latency budget soak: rate=%d/s duration=%s", rate, duration)
 
 	writer := clickhouse.NewWriter()
-	b := testBatcher(writer)
+	b := testStoreWriters(writer)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
 	storeConsumedCount.Store(0)
@@ -565,7 +565,11 @@ func TestStoreSoak_StorageSlow(t *testing.T) {
 
 	writer := clickhouse.NewWriter()
 	sw := &slowWriter{delegate: writer, latency: injectedLatency}
-	b := clickhouse.NewBatchWriter(sw, defaultBatchCfg())
+	b := &storeWriters{
+		batcher: clickhouse.NewBatchWriter(sw, defaultBatchCfg()),
+		candle:  clickhouse.NewChCandleWriter(nil),
+		stats:   clickhouse.NewChStatsWriter(nil),
+	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
 	// Reset global counter for deterministic test.

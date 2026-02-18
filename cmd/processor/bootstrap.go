@@ -163,8 +163,30 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		return fmt.Errorf("payload codec registry bootstrap: %v", p)
 	}
 
+	// ── JetStream publisher (shared for artifacts + insights) ───────────
+	var artifactPub aggports.ArtifactPublisher = &logArtifactPublisher{logger: logger}
+	var jsPub *adapterjs.Publisher
+	if strings.EqualFold(strings.TrimSpace(cfg.Bus.Type), "jetstream") {
+		pub, p := adapterjs.NewPublisher(context.Background(), adapterjs.PublisherConfig{
+			URL:            cfg.JetStream.URL,
+			StreamName:     cfg.JetStream.StreamName,
+			DedupWindow:    cfg.JetStream.DedupWindowDuration(),
+			MaxAge:         cfg.JetStream.MaxAgeDuration(),
+			MaxBytes:       cfg.JetStream.MaxBytesInt64(),
+			PublishTimeout: 5 * time.Second,
+		}, metrics.NewBusObserver())
+		if p != nil {
+			return fmt.Errorf("jetstream publisher init failed: %v", p)
+		}
+		jsPub = pub
+		artifactPub = adapterjs.NewArtifactPublisher(pub, logger)
+		logger.Info("processor: using jetstream artifact publisher",
+			"url", cfg.JetStream.URL,
+			"stream", cfg.JetStream.StreamName,
+		)
+	}
+
 	// ── aggregation use case ────────────────────────────────────────────
-	artifactPub := &logArtifactPublisher{logger: logger}
 	timescale.SetStubMode(timescale.AdapterModeStubMemory)
 
 	var hotWriter aggports.HotReadModelStore = timescale.NewWriter()
@@ -250,9 +272,12 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 
 	var joinTrades *insightsapp.JoinCrossVenueTrades
 	var publishEnvelope aggruntime.EventPublisher
-	closePublisher := func(context.Context) *problem.Problem { return nil }
 	if cfg.Processor.Insights.EnableCrossVenueJoin {
-		publishEnvelope, closePublisher = buildEnvelopePublisher(cfg, logger)
+		if jsPub != nil {
+			publishEnvelope = jsPub
+		} else {
+			publishEnvelope = bus.NewLogPublisher(logger)
+		}
 		joinTrades = insightsapp.NewJoinCrossVenueTradesWithConfig(insightsapp.JoinCrossVenueTradesConfig{
 			MaxInstruments:     cfg.Processor.Insights.MaxInstruments,
 			TTL:                cfg.Processor.Insights.TTLDuration(),
@@ -333,11 +358,13 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	}
 	source.shutdownFn(depsCtx)
 
-	flushCtx, flushCancel := context.WithTimeout(context.Background(), cfg.HTTP.PublisherFlushTimeoutDuration())
-	if p := closePublisher(flushCtx); p != nil {
-		logger.Warn("processor: publisher shutdown failed", "err", p)
+	if jsPub != nil {
+		flushCtx, flushCancel := context.WithTimeout(context.Background(), cfg.HTTP.PublisherFlushTimeoutDuration())
+		if p := jsPub.Close(flushCtx); p != nil {
+			logger.Warn("processor: jetstream publisher shutdown failed", "err", p)
+		}
+		flushCancel()
 	}
-	flushCancel()
 
 	shutCtx, shutCancel := context.WithTimeout(context.Background(), cfg.HTTP.GuardianShutdownTimeoutDuration())
 	defer shutCancel()
@@ -666,32 +693,6 @@ func initReplayEnvelopeSource(path string, capacity int, logger *slog.Logger) en
 // ---------------------------------------------------------------------------
 // publisher + JetStream helpers
 // ---------------------------------------------------------------------------
-
-func buildEnvelopePublisher(cfg config.AppConfig, logger *slog.Logger) (aggruntime.EventPublisher, func(context.Context) *problem.Problem) {
-	switch strings.ToLower(strings.TrimSpace(cfg.Bus.Type)) {
-	case "jetstream":
-		pub, p := adapterjs.NewPublisher(context.Background(), adapterjs.PublisherConfig{
-			URL:            cfg.JetStream.URL,
-			StreamName:     cfg.JetStream.StreamName,
-			DedupWindow:    cfg.JetStream.DedupWindowDuration(),
-			MaxAge:         cfg.JetStream.MaxAgeDuration(),
-			MaxBytes:       cfg.JetStream.MaxBytesInt64(),
-			PublishTimeout: 5 * time.Second,
-		}, metrics.NewBusObserver())
-		if p != nil {
-			logger.Error("processor: jetstream publisher init failed", "err", p)
-			os.Exit(1)
-		}
-		logger.Info("processor: using jetstream publisher",
-			"url", cfg.JetStream.URL,
-			"stream", cfg.JetStream.StreamName,
-		)
-		return pub, pub.Close
-	default:
-		logger.Info("processor: using in-memory/log publisher")
-		return bus.NewLogPublisher(logger), func(context.Context) *problem.Problem { return nil }
-	}
-}
 
 func effectiveJetStreamFilters(cfg config.AppConfig) []string {
 	base := append([]string(nil), cfg.JetStream.FilterSubjects...)

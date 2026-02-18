@@ -19,7 +19,9 @@ import (
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
 	httpserver "github.com/market-raccoon/internal/interfaces/http"
 	"github.com/market-raccoon/internal/shared/bootstrap"
+	"github.com/market-raccoon/internal/shared/codec"
 	"github.com/market-raccoon/internal/shared/config"
+	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/problem"
@@ -30,6 +32,13 @@ const storeHeartbeatEveryN = 1000
 
 // storeConsumedCount tracks total consumed messages for heartbeat logging.
 var storeConsumedCount atomic.Uint64
+
+// storeWriters bundles all cold storage writers for the store pipeline.
+type storeWriters struct {
+	batcher *clickhouse.BatchWriter
+	candle  *clickhouse.ChCandleWriter
+	stats   *clickhouse.ChStatsWriter
+}
 
 // Run is the store composition root.  It wires ClickHouse, JetStream consumer,
 // Guardian (observer mode), and HTTP server, then blocks until signal or error.
@@ -53,6 +62,11 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	})
 	logger.Info("store: guardian spawned", "pid", guardianPID.String())
 
+	// ── payload codec registry (enables proto decode for candle/stats) ───
+	if p := contracts.BootstrapPayloadCodecRegistry(); p != nil {
+		return fmt.Errorf("payload codec registry bootstrap: %v", p)
+	}
+
 	// ── schema contract validation (fail fast) ───────────────────────────
 	if p := ValidateSchemaContract("sql/clickhouse/migrations"); p != nil {
 		return fmt.Errorf("schema contract validation: %v", p)
@@ -61,8 +75,9 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 
 	// ── ClickHouse writer + batcher ─────────────────────────────────────
 	snapshotWriter := clickhouse.SnapshotWriter(clickhouse.NewWriter())
+	var chPool *clickhouse.Pool
 	if cfg.Storage.ClickHouse.Enabled {
-		chPool, p := clickhouse.NewPool(ctx, clickhouse.PoolConfig{
+		pool, p := clickhouse.NewPool(ctx, clickhouse.PoolConfig{
 			Addrs:           cfg.Storage.ClickHouse.Addrs,
 			Database:        cfg.Storage.ClickHouse.Database,
 			Username:        cfg.Storage.ClickHouse.Username,
@@ -76,6 +91,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		if p != nil {
 			return fmt.Errorf("clickhouse pool init failed: %v", p)
 		}
+		chPool = pool
 		defer func() {
 			if p := chPool.Close(); p != nil {
 				logger.Warn("store: clickhouse pool close failed", "err", p)
@@ -88,6 +104,11 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	}
 
 	batcher := clickhouse.NewBatchWriter(snapshotWriter, cfg.Store.Batch)
+	writers := &storeWriters{
+		batcher: batcher,
+		candle:  clickhouse.NewChCandleWriter(chPool),
+		stats:   clickhouse.NewChStatsWriter(chPool),
+	}
 	logger.Info("store: batcher configured",
 		"max_rows", cfg.Store.Batch.MaxRows,
 		"max_bytes", cfg.Store.Batch.MaxBytes,
@@ -101,7 +122,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	var consumeErr <-chan *problem.Problem
 	var shutdownConsumer func(context.Context)
 	if strings.EqualFold(strings.TrimSpace(cfg.Bus.Type), "jetstream") {
-		consumeErr, shutdownConsumer = initStoreConsumer(cfg, batcher, logger)
+		consumeErr, shutdownConsumer = initStoreConsumer(cfg, writers, logger)
 	} else {
 		logger.Info("store: bus.type is not jetstream, running in observer mode")
 	}
@@ -165,7 +186,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 
 // initStoreConsumer creates a JetStream consumer for the store pipeline and
 // starts consuming in a background goroutine.
-func initStoreConsumer(cfg config.AppConfig, batcher *clickhouse.BatchWriter, logger *slog.Logger) (<-chan *problem.Problem, func(context.Context)) {
+func initStoreConsumer(cfg config.AppConfig, writers *storeWriters, logger *slog.Logger) (<-chan *problem.Problem, func(context.Context)) {
 	jsConsumer, p := adapterjs.NewConsumer(context.Background(), adapterjs.ConsumerConfig{
 		URL:             cfg.JetStream.URL,
 		StreamName:      cfg.JetStream.StreamName,
@@ -192,7 +213,7 @@ func initStoreConsumer(cfg config.AppConfig, batcher *clickhouse.BatchWriter, lo
 
 	go func() {
 		errCh <- jsConsumer.Consume(consumeCtx, func(ctx context.Context, env envelope.Envelope) *problem.Problem {
-			return handleStoreEnvelope(ctx, env, batcher, logger)
+			return handleStoreEnvelope(ctx, env, writers, logger)
 		})
 	}()
 
@@ -212,7 +233,7 @@ func initStoreConsumer(cfg config.AppConfig, batcher *clickhouse.BatchWriter, lo
 }
 
 // handleStoreEnvelope routes an envelope to the appropriate write handler.
-func handleStoreEnvelope(ctx context.Context, env envelope.Envelope, batcher *clickhouse.BatchWriter, logger *slog.Logger) *problem.Problem {
+func handleStoreEnvelope(ctx context.Context, env envelope.Envelope, writers *storeWriters, logger *slog.Logger) *problem.Problem {
 	eventKey := fmt.Sprintf("%s.v%d", env.Type, env.Version)
 
 	n := storeConsumedCount.Add(1)
@@ -222,11 +243,27 @@ func handleStoreEnvelope(ctx context.Context, env envelope.Envelope, batcher *cl
 
 	switch {
 	case env.Type == "aggregation.snapshot" && env.Version == 1:
-		p := handleAggregationSnapshot(ctx, env, batcher, logger)
+		p := handleAggregationSnapshot(ctx, env, writers.batcher, logger)
 		if p != nil {
 			metrics.IncStoreConsumed("failed", "commit")
 		} else {
 			metrics.IncStoreConsumed("ok", "snapshot")
+		}
+		return p
+	case env.Type == "aggregation.candle" && env.Version == 1:
+		p := handleAggregationCandle(ctx, env, writers.candle, logger)
+		if p != nil {
+			metrics.IncStoreConsumed("failed", "candle")
+		} else {
+			metrics.IncStoreConsumed("ok", "candle")
+		}
+		return p
+	case env.Type == "aggregation.stats" && env.Version == 1:
+		p := handleAggregationStats(ctx, env, writers.stats, logger)
+		if p != nil {
+			metrics.IncStoreConsumed("failed", "stats")
+		} else {
+			metrics.IncStoreConsumed("ok", "stats")
 		}
 		return p
 	default:
@@ -270,6 +307,112 @@ func handleAggregationSnapshot(ctx context.Context, env envelope.Envelope, batch
 		"venue", snap.BookID.Venue,
 		"instrument", snap.BookID.Instrument,
 		"seq", snap.Seq,
+	)
+	return nil
+}
+
+// handleAggregationCandle decodes a candle envelope via the codec registry
+// and writes to ClickHouse cold storage.
+func handleAggregationCandle(ctx context.Context, env envelope.Envelope, writer *clickhouse.ChCandleWriter, logger *slog.Logger) *problem.Problem {
+	decoded, p := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
+	if p != nil {
+		metrics.IncStoreQuarantine("decode")
+		return p
+	}
+	wireDTO, ok := decoded.(contracts.AggregationCandleClosedV1)
+	if !ok {
+		metrics.IncStoreQuarantine("decode")
+		return problem.Newf(problem.ValidationFailed, "store: candle payload type mismatch: got %T", decoded)
+	}
+
+	domainEvt := aggdomain.CandleClosed{
+		Candle: aggdomain.CandleV1{
+			Venue:         wireDTO.Candle.Venue,
+			Instrument:    wireDTO.Candle.Instrument,
+			Timeframe:     wireDTO.Candle.Timeframe,
+			WindowStartTs: wireDTO.Candle.WindowStartTs,
+			WindowEndTs:   wireDTO.Candle.WindowEndTs,
+			Open:          wireDTO.Candle.Open,
+			High:          wireDTO.Candle.High,
+			Low:           wireDTO.Candle.Low,
+			ClosePrice:    wireDTO.Candle.ClosePrice,
+			Volume:        wireDTO.Candle.Volume,
+			BuyVolume:     wireDTO.Candle.BuyVolume,
+			SellVolume:    wireDTO.Candle.SellVolume,
+			TradeCount:    wireDTO.Candle.TradeCount,
+			SeqFirst:      wireDTO.Candle.SeqFirst,
+			SeqLast:       wireDTO.Candle.SeqLast,
+			IsClosed:      wireDTO.Candle.IsClosed,
+		},
+	}
+
+	started := time.Now()
+	if p := writer.SaveCandle(ctx, domainEvt); p != nil {
+		metrics.IncStoreCommit("failed")
+		metrics.ObserveStoreCommitLatency(time.Since(started))
+		return p
+	}
+	metrics.IncStoreCommit("ok")
+	metrics.ObserveStoreCommitLatency(time.Since(started))
+
+	logger.Debug("store: candle committed",
+		"venue", wireDTO.Candle.Venue,
+		"instrument", wireDTO.Candle.Instrument,
+		"timeframe", wireDTO.Candle.Timeframe,
+	)
+	return nil
+}
+
+// handleAggregationStats decodes a stats envelope via the codec registry
+// and writes to ClickHouse cold storage.
+func handleAggregationStats(ctx context.Context, env envelope.Envelope, writer *clickhouse.ChStatsWriter, logger *slog.Logger) *problem.Problem {
+	decoded, p := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
+	if p != nil {
+		metrics.IncStoreQuarantine("decode")
+		return p
+	}
+	wireDTO, ok := decoded.(contracts.AggregationStatsWindowClosedV1)
+	if !ok {
+		metrics.IncStoreQuarantine("decode")
+		return problem.Newf(problem.ValidationFailed, "store: stats payload type mismatch: got %T", decoded)
+	}
+
+	domainEvt := aggdomain.StatsWindowClosed{
+		Stats: aggdomain.StatsWindowV1{
+			Venue:           wireDTO.Stats.Venue,
+			Instrument:      wireDTO.Stats.Instrument,
+			Timeframe:       wireDTO.Stats.Timeframe,
+			WindowStartTs:   wireDTO.Stats.WindowStartTs,
+			WindowEndTs:     wireDTO.Stats.WindowEndTs,
+			LiqBuyVolume:    wireDTO.Stats.LiqBuyVolume,
+			LiqSellVolume:   wireDTO.Stats.LiqSellVolume,
+			LiqTotalVolume:  wireDTO.Stats.LiqTotalVolume,
+			LiqCount:        wireDTO.Stats.LiqCount,
+			MarkPriceOpen:   wireDTO.Stats.MarkPriceOpen,
+			MarkPriceHigh:   wireDTO.Stats.MarkPriceHigh,
+			MarkPriceLow:    wireDTO.Stats.MarkPriceLow,
+			MarkPriceClose:  wireDTO.Stats.MarkPriceClose,
+			FundingRateAvg:  wireDTO.Stats.FundingRateAvg,
+			FundingRateLast: wireDTO.Stats.FundingRateLast,
+			SeqFirst:        wireDTO.Stats.SeqFirst,
+			SeqLast:         wireDTO.Stats.SeqLast,
+			IsClosed:        wireDTO.Stats.IsClosed,
+		},
+	}
+
+	started := time.Now()
+	if p := writer.SaveStats(ctx, domainEvt); p != nil {
+		metrics.IncStoreCommit("failed")
+		metrics.ObserveStoreCommitLatency(time.Since(started))
+		return p
+	}
+	metrics.IncStoreCommit("ok")
+	metrics.ObserveStoreCommitLatency(time.Since(started))
+
+	logger.Debug("store: stats committed",
+		"venue", wireDTO.Stats.Venue,
+		"instrument", wireDTO.Stats.Instrument,
+		"timeframe", wireDTO.Stats.Timeframe,
 	)
 	return nil
 }
