@@ -12,6 +12,8 @@ import (
 const (
 	// DefaultWSBaseURL is Binance's combined stream websocket endpoint.
 	DefaultWSBaseURL = "wss://stream.binance.com:9443/stream"
+	// DefaultFuturesWSBaseURL is Binance USD-M futures combined stream endpoint.
+	DefaultFuturesWSBaseURL = "wss://fstream.binance.com/stream"
 )
 
 // BuildEndpoint builds a Binance combined-stream endpoint with aggTrade+depth per ticker.

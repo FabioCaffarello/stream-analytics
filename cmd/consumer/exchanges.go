@@ -10,7 +10,10 @@ import (
 	actorruntime "github.com/market-raccoon/internal/actors/runtime"
 	"github.com/market-raccoon/internal/adapters/exchange/binance"
 	"github.com/market-raccoon/internal/adapters/exchange/bybit"
+	"github.com/market-raccoon/internal/adapters/exchange/coinbase"
+	"github.com/market-raccoon/internal/adapters/exchange/hyperliquid"
 	mdapp "github.com/market-raccoon/internal/core/marketdata/app"
+	"github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/shared/config"
 	"github.com/market-raccoon/internal/shared/problem"
 )
@@ -37,7 +40,7 @@ func buildExchangeRuntimes(cfg config.AppConfig, logger *slog.Logger) ([]consume
 			return nil, p
 		}
 		if strings.TrimSpace(ex.MarketType) == "" {
-			ex.MarketType = "SPOT"
+			ex.MarketType = defaultMarketTypeForExchange(ex.Type)
 		}
 		runtimeCfg, p := buildExchangeRuntime(cfg, logger, ex, multi)
 		if p != nil {
@@ -91,6 +94,10 @@ func buildExchangeRuntime(
 		return buildBinanceRuntime(cfg, logger, ex, subsystem), nil
 	case "bybit":
 		return buildBybitRuntime(cfg, logger, ex, subsystem), nil
+	case "coinbase":
+		return buildCoinbaseRuntime(cfg, logger, ex, subsystem), nil
+	case "hyperliquid":
+		return buildHyperLiquidRuntime(cfg, logger, ex, subsystem), nil
 	default:
 		return consumerExchangeRuntime{}, problem.Newf(problem.ValidationFailed, "consumer: unsupported exchange type %q", ex.Type)
 	}
@@ -103,9 +110,19 @@ func buildBinanceRuntime(
 	subsystem actorruntime.Subsystem,
 ) consumerExchangeRuntime {
 	managerCfg := baseManagerConfig(cfg, ex)
+	isFutures := strings.Contains(strings.ToUpper(strings.TrimSpace(ex.MarketType)), "FUTURES")
+	if isFutures {
+		managerCfg.StreamsPerTicker = 4
+		if strings.TrimSpace(ex.BaseURL) == "" {
+			ex.BaseURL = binance.DefaultFuturesWSBaseURL
+		}
+	} else {
+		managerCfg.StreamsPerTicker = 2
+	}
+	enableExtras := cfg.Consumer.EnableMarkPriceLiquidation || isFutures
 	managerCfg.SubscriptionBuilder = func([]string) [][]byte { return nil }
 	managerCfg.EndpointBuilder = func(bucket []string) string {
-		endpoint, p := binance.BuildEndpoint(ex.BaseURL, bucket, cfg.Consumer.EnableMarkPriceLiquidation)
+		endpoint, p := binance.BuildEndpoint(ex.BaseURL, bucket, enableExtras)
 		if p != nil {
 			logger.Error("consumer: binance endpoint build failed", "err", p, "exchange", ex.Name, "bucket", bucket)
 			return ""
@@ -134,6 +151,128 @@ func buildBinanceRuntime(
 		outMeta := toRuntimeParseMeta(meta.EventType, meta.SkipReason, meta.WSStream, meta.Ticker, meta.Problem)
 		if meta.Problem != nil {
 			logger.Warn("consumer: binance parse skipped message",
+				"code", meta.Problem.Code,
+				"message", meta.Problem.Message,
+				"exchange", msg.Exchange,
+				"endpoint", msg.Endpoint,
+				"bucket_id", msg.BucketID,
+			)
+			return req, true, outMeta
+		}
+		return req, skip, outMeta
+	}
+	return consumerExchangeRuntime{
+		Subsystem:  subsystem,
+		Exchange:   ex,
+		ParseV1:    parseV1,
+		ParseV2:    parseV2,
+		ManagerCfg: &managerCfg,
+	}
+}
+
+func buildCoinbaseRuntime(
+	cfg config.AppConfig,
+	logger *slog.Logger,
+	ex config.ConsumerExchangeConfig,
+	subsystem actorruntime.Subsystem,
+) consumerExchangeRuntime {
+	managerCfg := baseManagerConfig(cfg, ex)
+	managerCfg.StreamsPerTicker = 3
+	managerCfg.EndpointBuilder = func(bucket []string) string {
+		endpoint := coinbase.BuildEndpoint(ex.BaseURL)
+		logger.Info("consumer: ws endpoint planned", "exchange", ex.Name, "endpoint", endpoint, "bucket", bucket)
+		return endpoint
+	}
+	managerCfg.SubscriptionBuilder = func(bucket []string) [][]byte {
+		msgs, p := coinbase.BuildSubscriptions(bucket)
+		if p != nil {
+			logger.Error("consumer: coinbase subscription build failed", "err", p, "exchange", ex.Name, "bucket", bucket)
+			return nil
+		}
+		return msgs
+	}
+
+	parseV1 := func(msg *ws.WsMessage) (mdapp.IngestRequest, bool) {
+		req, skip, p := coinbase.ParseMessageForMarketType(msg.Data, msg.RecvAt, ex.MarketType)
+		enrichRequestMetadata(&req, msg, ex.MarketType, "")
+		if p != nil {
+			logger.Warn("consumer: coinbase parse skipped message",
+				"code", p.Code,
+				"message", p.Message,
+				"exchange", msg.Exchange,
+				"endpoint", msg.Endpoint,
+				"bucket_id", msg.BucketID,
+			)
+		}
+		return req, skip || p != nil
+	}
+	parseV2 := func(msg *ws.WsMessage) (mdapp.IngestRequest, bool, mdruntime.ParseMeta) {
+		req, skip, meta := coinbase.ParseMessageWithMetaForMarketType(msg.Data, msg.RecvAt, ex.MarketType)
+		enrichRequestMetadata(&req, msg, ex.MarketType, meta.WSStream)
+		outMeta := toRuntimeParseMeta(meta.EventType, meta.SkipReason, meta.WSStream, meta.Ticker, meta.Problem)
+		if meta.Problem != nil {
+			logger.Warn("consumer: coinbase parse skipped message",
+				"code", meta.Problem.Code,
+				"message", meta.Problem.Message,
+				"exchange", msg.Exchange,
+				"endpoint", msg.Endpoint,
+				"bucket_id", msg.BucketID,
+			)
+			return req, true, outMeta
+		}
+		return req, skip, outMeta
+	}
+	return consumerExchangeRuntime{
+		Subsystem:  subsystem,
+		Exchange:   ex,
+		ParseV1:    parseV1,
+		ParseV2:    parseV2,
+		ManagerCfg: &managerCfg,
+	}
+}
+
+func buildHyperLiquidRuntime(
+	cfg config.AppConfig,
+	logger *slog.Logger,
+	ex config.ConsumerExchangeConfig,
+	subsystem actorruntime.Subsystem,
+) consumerExchangeRuntime {
+	managerCfg := baseManagerConfig(cfg, ex)
+	managerCfg.StreamsPerTicker = 2
+	managerCfg.EndpointBuilder = func(bucket []string) string {
+		endpoint := hyperliquid.BuildEndpoint(ex.BaseURL)
+		logger.Info("consumer: ws endpoint planned", "exchange", ex.Name, "endpoint", endpoint, "bucket", bucket)
+		return endpoint
+	}
+	managerCfg.SubscriptionBuilder = func(bucket []string) [][]byte {
+		msgs, p := hyperliquid.BuildSubscriptions(bucket)
+		if p != nil {
+			logger.Error("consumer: hyperliquid subscription build failed", "err", p, "exchange", ex.Name, "bucket", bucket)
+			return nil
+		}
+		return msgs
+	}
+
+	parseV1 := func(msg *ws.WsMessage) (mdapp.IngestRequest, bool) {
+		req, skip, p := hyperliquid.ParseMessageForMarketType(msg.Data, msg.RecvAt, ex.MarketType)
+		enrichRequestMetadata(&req, msg, ex.MarketType, "")
+		if p != nil {
+			logger.Warn("consumer: hyperliquid parse skipped message",
+				"code", p.Code,
+				"message", p.Message,
+				"exchange", msg.Exchange,
+				"endpoint", msg.Endpoint,
+				"bucket_id", msg.BucketID,
+			)
+		}
+		return req, skip || p != nil
+	}
+	parseV2 := func(msg *ws.WsMessage) (mdapp.IngestRequest, bool, mdruntime.ParseMeta) {
+		req, skip, meta := hyperliquid.ParseMessageWithMetaForMarketType(msg.Data, msg.RecvAt, ex.MarketType)
+		enrichRequestMetadata(&req, msg, ex.MarketType, meta.WSStream)
+		outMeta := toRuntimeParseMeta(meta.EventType, meta.SkipReason, meta.WSStream, meta.Ticker, meta.Problem)
+		if meta.Problem != nil {
+			logger.Warn("consumer: hyperliquid parse skipped message",
 				"code", meta.Problem.Code,
 				"message", meta.Problem.Message,
 				"exchange", msg.Exchange,
@@ -214,6 +353,15 @@ func buildBybitRuntime(
 		ParseV1:    parseV1,
 		ParseV2:    parseV2,
 		ManagerCfg: &managerCfg,
+	}
+}
+
+func defaultMarketTypeForExchange(exchangeType string) string {
+	switch strings.ToLower(strings.TrimSpace(exchangeType)) {
+	case "hyperliquid":
+		return domain.MarketTypeUSDMFutures.String()
+	default:
+		return domain.MarketTypeSpot.String()
 	}
 }
 
