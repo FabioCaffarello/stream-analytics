@@ -22,6 +22,7 @@ type Server struct {
 	outboundQueueSize int
 	auth              AuthConfig
 	rateLimit         deliveryruntime.RateLimitConfig
+	spawnSession      func(cfg deliveryruntime.SessionConfig) *actor.PID
 }
 
 type Option func(*Server)
@@ -35,6 +36,12 @@ func WithAuthConfig(cfg AuthConfig) Option {
 func WithRateLimit(cfg deliveryruntime.RateLimitConfig) Option {
 	return func(s *Server) {
 		s.rateLimit = cfg
+	}
+}
+
+func WithSessionSpawner(spawn func(cfg deliveryruntime.SessionConfig) *actor.PID) Option {
+	return func(s *Server) {
+		s.spawnSession = spawn
 	}
 }
 
@@ -61,10 +68,21 @@ func NewServer(engine *actor.Engine, routerPID *actor.PID, logger *slog.Logger, 
 			opt(srv)
 		}
 	}
+	if srv.spawnSession == nil {
+		srv.spawnSession = func(cfg deliveryruntime.SessionConfig) *actor.PID {
+			if srv.engine == nil {
+				return nil
+			}
+			return srv.engine.Spawn(
+				deliveryruntime.NewSessionActor(cfg),
+				"delivery-session",
+			)
+		}
+	}
 	return srv
 }
 
-func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleUpgrade(w http.ResponseWriter, r *http.Request) {
 	if s.routerPID == nil {
 		http.Error(w, "delivery router unavailable", http.StatusServiceUnavailable)
 		return
@@ -82,19 +100,20 @@ func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.engine.Spawn(
-		deliveryruntime.NewSessionActor(deliveryruntime.SessionConfig{
-			Logger:            s.logger,
-			RouterPID:         s.routerPID,
-			Conn:              conn,
-			ClientID:          clientID,
-			RangeStore:        s.rangeStore,
-			OutboundQueueSize: s.outboundQueueSize,
-			PreferProto:       sessionWantsProto(r),
-			RateLimit:         s.rateLimit,
-		}),
-		"delivery-session",
-	)
+	s.spawnSession(deliveryruntime.SessionConfig{
+		Logger:            s.logger,
+		RouterPID:         s.routerPID,
+		Conn:              conn,
+		ClientID:          clientID,
+		RangeStore:        s.rangeStore,
+		OutboundQueueSize: s.outboundQueueSize,
+		PreferProto:       sessionWantsProto(r),
+		RateLimit:         s.rateLimit,
+	})
+}
+
+func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
+	s.HandleUpgrade(w, r)
 }
 
 func sessionWantsProto(r *http.Request) bool {

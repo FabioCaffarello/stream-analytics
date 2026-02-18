@@ -16,8 +16,9 @@ func TestAuthConfig_Disabled_AllowsAnonymous(t *testing.T) {
 	}
 }
 
-func TestAuthConfig_Authenticate_QueryParam(t *testing.T) {
-	req := httptest.NewRequest("GET", "/ws?api_key=k1", nil)
+func TestAuthConfig_Authenticate_Header(t *testing.T) {
+	req := httptest.NewRequest("GET", "/ws", nil)
+	req.Header.Set("X-API-Key", "k1")
 	clientID, p := (AuthConfig{
 		Enabled: true,
 		APIKeys: map[string]string{"k1": "client-a"},
@@ -30,7 +31,7 @@ func TestAuthConfig_Authenticate_QueryParam(t *testing.T) {
 	}
 }
 
-func TestAuthConfig_Authenticate_HeaderAndBearer(t *testing.T) {
+func TestAuthConfig_Authenticate_HeaderOnly(t *testing.T) {
 	req := httptest.NewRequest("GET", "/ws", nil)
 	req.Header.Set("X-API-Key", "k1")
 	clientID, p := (AuthConfig{
@@ -38,17 +39,7 @@ func TestAuthConfig_Authenticate_HeaderAndBearer(t *testing.T) {
 		APIKeys: map[string]string{"k1": "client-a"},
 	}).Authenticate(req)
 	if p != nil || clientID != "client-a" {
-		t.Fatalf("x-api-key failed: client=%q problem=%v", clientID, p)
-	}
-
-	req2 := httptest.NewRequest("GET", "/ws", nil)
-	req2.Header.Set("Authorization", "Bearer k2")
-	clientID, p = (AuthConfig{
-		Enabled: true,
-		APIKeys: map[string]string{"k2": "client-b"},
-	}).Authenticate(req2)
-	if p != nil || clientID != "client-b" {
-		t.Fatalf("bearer failed: client=%q problem=%v", clientID, p)
+		t.Fatalf("header failed: client=%q problem=%v", clientID, p)
 	}
 }
 
@@ -59,7 +50,8 @@ func TestAuthConfig_Authenticate_MissingOrInvalid(t *testing.T) {
 		t.Fatal("expected missing api key problem")
 	}
 
-	req2 := httptest.NewRequest("GET", "/ws?api_key=unknown", nil)
+	req2 := httptest.NewRequest("GET", "/ws", nil)
+	req2.Header.Set("X-API-Key", "unknown")
 	_, p = (AuthConfig{Enabled: true, APIKeys: map[string]string{"k1": "client-a"}}).Authenticate(req2)
 	if p == nil {
 		t.Fatal("expected invalid api key problem")

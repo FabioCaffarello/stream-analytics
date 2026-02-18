@@ -93,6 +93,27 @@ func TestServer_Healthz_returns200(t *testing.T) {
 	}
 }
 
+func TestServer_WithWSHandler_registersWSRoute(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := httpserver.NewServer(
+		e,
+		guardianPID,
+		":0",
+		false,
+		nil,
+		httpserver.WithWSHandler(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusSwitchingProtocols)
+		}),
+	)
+	rec := doRequest(t, srv, http.MethodGet, "/ws", "")
+	if rec.Code != http.StatusSwitchingProtocols {
+		t.Fatalf("expected 101, got %d", rec.Code)
+	}
+}
+
 func TestServer_Healthz_returnsJSON(t *testing.T) {
 	e := newEngine(t)
 	guardianPID := newGuardian(t, e)

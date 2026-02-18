@@ -54,6 +54,7 @@ type Server struct {
 
 	tlsCertFile string
 	tlsKeyFile  string
+	wsHandler   http.HandlerFunc
 }
 
 type Option func(*Server)
@@ -62,6 +63,12 @@ func WithTLS(certFile, keyFile string) Option {
 	return func(s *Server) {
 		s.tlsCertFile = strings.TrimSpace(certFile)
 		s.tlsKeyFile = strings.TrimSpace(keyFile)
+	}
+}
+
+func WithWSHandler(handler http.HandlerFunc) Option {
+	return func(s *Server) {
+		s.wsHandler = handler
 	}
 }
 
@@ -84,6 +91,11 @@ func NewServer(
 		logger:          logger,
 		snapshotTimeout: defaultSnapshotTimeout,
 	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(s)
+		}
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
@@ -94,6 +106,9 @@ func NewServer(
 	mux.HandleFunc("GET /runtime/ws", s.handleRuntimeWS)
 	mux.HandleFunc("GET /shardz", s.handleShardz)
 	mux.HandleFunc("POST /runtime/reload", s.handleReload)
+	if s.wsHandler != nil {
+		mux.HandleFunc("GET /ws", s.wsHandler)
+	}
 	mux.Handle("GET /metrics", withProcessMetrics(metrics.Handler()))
 	if enablePprof {
 		s.registerPprofRoutes(mux)
@@ -106,11 +121,6 @@ func NewServer(
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
-	}
-	for _, opt := range opts {
-		if opt != nil {
-			opt(s)
-		}
 	}
 	return s
 }

@@ -1,10 +1,14 @@
 package wsserver
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/anthdm/hollywood/actor"
+	"github.com/gorilla/websocket"
+	deliveryruntime "github.com/market-raccoon/internal/actors/delivery/runtime"
 )
 
 func TestSessionWantsProto_QueryFormat(t *testing.T) {
@@ -44,14 +48,15 @@ func TestHandleWS_AuthRejectsUnauthorized(t *testing.T) {
 
 	req := httptest.NewRequest("GET", "/ws", nil)
 	rec := httptest.NewRecorder()
-	srv.HandleWS(rec, req)
+	srv.HandleUpgrade(rec, req)
 
 	if rec.Code != 401 {
 		t.Fatalf("status=%d want=401", rec.Code)
 	}
 }
 
-func TestHandleWS_AuthAllowsKnownKey(t *testing.T) {
+func TestHandleWS_UpgradeSpawnsSessionWithValidAPIKey(t *testing.T) {
+	spawned := make(chan struct{}, 1)
 	srv := NewServer(
 		nil,
 		&actor.PID{},
@@ -62,13 +67,36 @@ func TestHandleWS_AuthAllowsKnownKey(t *testing.T) {
 			Enabled: true,
 			APIKeys: map[string]string{"k1": "client-a"},
 		}),
+		WithSessionSpawner(func(cfg deliveryruntime.SessionConfig) *actor.PID {
+			if cfg.ClientID != "client-a" {
+				t.Fatalf("client_id=%q want=client-a", cfg.ClientID)
+			}
+			select {
+			case spawned <- struct{}{}:
+			default:
+			}
+			_ = cfg.Conn.Close()
+			return &actor.PID{}
+		}),
 	)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", srv.HandleUpgrade)
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
 
-	req := httptest.NewRequest("GET", "/ws?api_key=k1", nil)
-	rec := httptest.NewRecorder()
-	srv.HandleWS(rec, req)
-
-	if rec.Code == 401 {
-		t.Fatal("expected request to pass auth check")
+	header := http.Header{}
+	header.Set("X-API-Key", "k1")
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURLFromHTTP(ts.URL)+"/ws", header)
+	if err != nil {
+		t.Fatalf("dial ws: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+	if resp == nil || resp.StatusCode != http.StatusSwitchingProtocols {
+		t.Fatalf("status=%v want=%d", resp.StatusCode, http.StatusSwitchingProtocols)
+	}
+	select {
+	case <-spawned:
+	case <-time.After(time.Second):
+		t.Fatal("expected session spawner to be called")
 	}
 }
