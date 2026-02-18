@@ -71,6 +71,24 @@ func TestParseMessage_MarkPriceUpdate(t *testing.T) {
 	}
 }
 
+func TestParseMarkPriceUpdate_WithFundingRate(t *testing.T) {
+	msg := []byte(`{"stream":"btcusdt@markPrice","data":{"e":"markPriceUpdate","E":1700000000000,"s":"BTCUSDT","p":"42000.50","i":"42001.00","r":"0.00010000"}}`)
+	req, skip, p := binance.ParseMessage(msg, time.UnixMilli(1700000001000))
+	if p != nil || skip {
+		t.Fatalf("ParseMessage failed: skip=%v problem=%v", skip, p)
+	}
+	if req.EventType != "marketdata.markprice" || req.Venue != "BINANCE" || req.Instrument != "BTCUSDT" {
+		t.Fatalf("unexpected request: %#v", req)
+	}
+	payload, ok := req.Payload.(domain.MarkPriceTickV1)
+	if !ok {
+		t.Fatalf("unexpected payload type: %T", req.Payload)
+	}
+	if payload.MarkPrice != 42000.50 || payload.IndexPrice != 42001.0 || payload.FundingRate != 0.0001 {
+		t.Fatalf("unexpected payload: %#v", payload)
+	}
+}
+
 func TestParseMessage_ForceOrderLiquidation(t *testing.T) {
 	msg := []byte(`{"e":"forceOrder","E":1710000030000,"o":{"s":"ETHUSDT","S":"SELL","p":"2500.25","q":"12.4","T":1710000030001}}`)
 	req, skip, p := binance.ParseMessage(msg, time.UnixMilli(1710000031000))

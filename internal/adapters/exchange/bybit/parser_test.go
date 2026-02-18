@@ -72,6 +72,24 @@ func TestParseMessage_MarkPrice(t *testing.T) {
 	}
 }
 
+func TestParseMarkPrice_WithFundingRate(t *testing.T) {
+	msg := []byte(`{"topic":"tickers.BTCUSDT","type":"snapshot","ts":1700000000000,"data":{"symbol":"BTCUSDT","markPrice":"42000.50","indexPrice":"42001.00","fundingRate":"0.00010000"}}`)
+	req, skip, p := bybit.ParseMessage(msg, time.UnixMilli(1700000001000))
+	if p != nil || skip {
+		t.Fatalf("ParseMessage failed: skip=%v problem=%v", skip, p)
+	}
+	if req.EventType != "marketdata.markprice" || req.Venue != "BYBIT" || req.Instrument != "BTCUSDT" {
+		t.Fatalf("unexpected request: %#v", req)
+	}
+	payload, ok := req.Payload.(domain.MarkPriceTickV1)
+	if !ok {
+		t.Fatalf("unexpected payload type: %T", req.Payload)
+	}
+	if payload.MarkPrice != 42000.50 || payload.IndexPrice != 42001.0 || payload.FundingRate != 0.0001 {
+		t.Fatalf("unexpected payload: %#v", payload)
+	}
+}
+
 func TestParseMessage_Liquidation(t *testing.T) {
 	msg := []byte(`{"topic":"liquidation.BTCUSDT","type":"snapshot","ts":1710000030000,"data":[{"s":"BTCUSDT","S":"Sell","v":"5.25","p":"64900.5","T":1710000030001}]}`)
 	req, skip, p := bybit.ParseMessage(msg, time.UnixMilli(1710000031000))
