@@ -52,7 +52,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules workspace-check tidy tidy-check fmt fmt-check vet quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store soak-roundtrip soak-pipeline soak-ws-delivery soak-full test-short bench-hotpath vuln build run clean docker-build up down up-infra up-core dev-scale-smoke ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci
+.PHONY: help install-tools tools modules workspace-check tidy tidy-check fmt fmt-check vet quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check legacy-check-staged legacy-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store soak-roundtrip soak-pipeline soak-ws-delivery soak-full test-short bench-hotpath vuln build run clean docker-build up down up-infra up-core dev-scale-smoke ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci
 
 help:
 	@echo "Targets:"
@@ -65,6 +65,8 @@ help:
 	@echo "  make fmt                - format all Go files (gofmt)"
 	@echo "  make fmt-check          - check formatting (gofmt -l)"
 	@echo "  make vet                - run go vet in workspace modules"
+	@echo "  make legacy-check-staged - scan staged files + key configs for forbidden legacy strings"
+	@echo "  make legacy-check       - scan full repository for forbidden legacy strings"
 	@echo "  make quick              - fast local loop (fmt-check + vet + invariants-check + short tests)"
 	@echo "  make ci-local           - strict local chain (quick -> docs -> invariants -> unit -> integration -> replay -> proto)"
 	@echo "  make contract-gates     - W6 contract gate chain (registry -> replay -> proto)"
@@ -250,6 +252,12 @@ docs-fix:
 
 invariants-check:
 	@./scripts/check-domain-isolation.sh "$(CURDIR)"
+
+legacy-check-staged:
+	@./scripts/legacy-scan.sh --staged
+
+legacy-check:
+	@./scripts/legacy-scan.sh --all
 
 lint: invariants-check
 	$(call RUN_IN_MODULES,bash -lc 'pkgs="$$( $(GO) list ./... 2>/dev/null || true )"; if [ -n "$$pkgs" ]; then $(GOLANGCI_LINT) run --config "$(CURDIR)/.golangci.yml" ./...; else echo "no packages to lint (skipping)"; fi')
@@ -550,4 +558,4 @@ proto-check: proto-lint proto-breaking proto-gen-if-needed
 
 proto: proto-lint proto-gen
 
-ci: tidy-check fmt-check lint test-workspace-race vuln build
+ci: legacy-check tidy-check fmt-check lint test-workspace-race vuln build
