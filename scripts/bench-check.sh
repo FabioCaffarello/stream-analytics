@@ -45,6 +45,12 @@ go test -run='^$' -bench=BenchmarkApplyDelta -benchmem -count=5 \
 go test -run='^$' -bench=BenchmarkE2E -benchmem -count=5 \
   ./internal/core/aggregation/app \
   >> "$CURRENT" 2>&1
+go test -run='^$' -bench=BenchmarkDeliveryFanOut -benchmem -count=5 \
+  ./internal/actors/delivery/runtime \
+  >> "$CURRENT" 2>&1
+go test -run='^$' -bench=BenchmarkSessionWrite -benchmem -count=5 \
+  ./internal/interfaces/ws \
+  >> "$CURRENT" 2>&1
 
 echo "bench-check: comparing against baseline …"
 echo ""
