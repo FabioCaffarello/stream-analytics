@@ -276,6 +276,25 @@ func waitFor(t *testing.T, timeout time.Duration, fn func() bool) {
 	t.Fatal("waitFor: condition not met within timeout")
 }
 
+type delayedTickActor struct {
+	delay time.Duration
+	kind  aggruntime.SnapshotTickKind
+}
+
+func (a *delayedTickActor) Receive(c *actor.Context) {
+	switch c.Message().(type) {
+	case actor.Started:
+		parent := c.Parent()
+		engine := c.Engine()
+		go func() {
+			time.Sleep(a.delay)
+			if parent != nil {
+				engine.Send(parent, aggruntime.SnapshotTick{Kind: a.kind})
+			}
+		}()
+	}
+}
+
 // ---------------------------------------------------------------------------
 // tests
 // ---------------------------------------------------------------------------
@@ -994,6 +1013,81 @@ func TestProcessor_TradeDelivered_IncreasesProcessedMetric(t *testing.T) {
 	after := testutil.ToFloat64(metrics.ProcessorProcessedTotal.WithLabelValues("marketdata.trade", "ok"))
 	if after < before+1 {
 		t.Fatalf("processor_processed_total{event_type=marketdata.trade,status=ok} not incremented: before=%.0f after=%.0f", before, after)
+	}
+
+	<-e.Poison(pid).Done()
+}
+
+func TestProcessor_TickerWiring_PublishesPeriodicOrderbookSnapshot(t *testing.T) {
+	pub := &spyArtifactPublisher{}
+	outPublisher := &spyEnvelopePublisher{}
+	aggSvc := newAggService(pub)
+
+	ch := make(chan envelope.Envelope, 8)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh:      ch,
+		Service:         aggSvc,
+		PublishEnvelope: outPublisher,
+		RTPublish: aggruntime.ProcessorRTPublishConfig{
+			OrderbookInterval: 10 * time.Millisecond,
+		},
+		TickerProducer: func() actor.Receiver {
+			return &delayedTickActor{
+				delay: 40 * time.Millisecond,
+				kind:  aggruntime.SnapshotTickOrderBook,
+			}
+		},
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+
+	ch <- makeBookDeltaEnvelope(
+		"BINANCE", "BTC-USDT", 1,
+		[]mddomain.PriceLevel{{Price: 42000, Size: 1.5}},
+		[]mddomain.PriceLevel{{Price: 42001, Size: 2.0}},
+	)
+
+	waitFor(t, 2*time.Second, func() bool { return outPublisher.count() >= 1 })
+	last := outPublisher.last()
+	if got, want := last.Type, "aggregation.snapshot"; got != want {
+		t.Fatalf("type=%s want=%s", got, want)
+	}
+	if got, want := last.Venue, "BINANCE"; got != want {
+		t.Fatalf("venue=%s want=%s", got, want)
+	}
+
+	<-e.Poison(pid).Done()
+}
+
+func TestProcessor_NoPublishAfterShutdownBegins(t *testing.T) {
+	pub := &spyArtifactPublisher{}
+	outPublisher := &spyEnvelopePublisher{}
+	aggSvc := newAggService(pub)
+
+	ch := make(chan envelope.Envelope, 8)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh:      ch,
+		Service:         aggSvc,
+		PublishEnvelope: outPublisher,
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+
+	ch <- makeBookDeltaEnvelope(
+		"BINANCE", "BTC-USDT", 1,
+		[]mddomain.PriceLevel{{Price: 42000, Size: 1.5}},
+		[]mddomain.PriceLevel{{Price: 42001, Size: 2.0}},
+	)
+	waitFor(t, 2*time.Second, func() bool { return pub.count() == 1 })
+
+	e.Send(pid, actorruntime.Stop{})
+	e.Send(pid, aggruntime.SnapshotTick{Kind: aggruntime.SnapshotTickOrderBook})
+	time.Sleep(100 * time.Millisecond)
+
+	if got := outPublisher.count(); got != 0 {
+		t.Fatalf("published snapshots after shutdown begin=%d want=0", got)
 	}
 
 	<-e.Poison(pid).Done()

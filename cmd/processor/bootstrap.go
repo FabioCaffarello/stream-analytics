@@ -270,15 +270,17 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		StatsStore:  statsStore,
 	})
 
-	var joinTrades *insightsapp.JoinCrossVenueTrades
 	var publishEnvelope aggruntime.EventPublisher
-	if cfg.Processor.Insights.EnableCrossVenueJoin {
-		if jsPub != nil {
-			publishEnvelope = jsPub
-		} else {
-			publishEnvelope = bus.NewLogPublisher(logger)
-		}
-		joinTrades = insightsapp.NewJoinCrossVenueTradesWithConfig(insightsapp.JoinCrossVenueTradesConfig{
+	if jsPub != nil {
+		publishEnvelope = jsPub
+	} else {
+		publishEnvelope = bus.NewLogPublisher(logger)
+	}
+
+	insightsSvc := insightsapp.NewInsightsService(insightsapp.InsightsServiceConfig{
+		VolumeProfile: insightsapp.BuildVolumeProfileConfig{},
+		Heatmap:       insightsapp.BuildHeatmapConfig{},
+		JoinTrades: insightsapp.JoinCrossVenueTradesConfig{
 			MaxInstruments:     cfg.Processor.Insights.MaxInstruments,
 			TTL:                cfg.Processor.Insights.TTLDuration(),
 			EnableSpreadSignal: cfg.Processor.Insights.EnableSpreadSignal,
@@ -287,7 +289,12 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 			RoundingMode:       cfg.Processor.Insights.RoundingMode,
 			SweepEveryN:        cfg.Processor.Insights.SweepEveryN,
 			SweepEvery:         cfg.Processor.Insights.SweepEveryDuration(),
-		})
+		},
+	})
+
+	var joinTrades *insightsapp.JoinCrossVenueTrades
+	if cfg.Processor.Insights.EnableCrossVenueJoin {
+		joinTrades = insightsSvc.JoinTrades
 		logger.Info("processor: cross-venue trade join enabled",
 			"join_subject", cfg.Processor.Insights.JoinTradesSubject,
 			"snapshot_subject_prefix", cfg.Processor.Insights.SnapshotSubjectPrefix,
@@ -310,10 +317,16 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		Logger:                logger,
 		EnvelopeCh:            source.envelopeCh,
 		Service:               aggSvc,
+		Insights:              insightsSvc,
 		JoinTrades:            joinTrades,
 		PublishEnvelope:       publishEnvelope,
 		SnapshotSubjectPrefix: cfg.Processor.Insights.SnapshotSubjectPrefix,
-		OnEnvelopeProcessed:   source.onResult,
+		RTPublish: aggruntime.ProcessorRTPublishConfig{
+			OrderbookInterval: time.Duration(cfg.Processor.RTPublish.OrderbookIntervalMs) * time.Millisecond,
+			HeatmapInterval:   time.Duration(cfg.Processor.RTPublish.HeatmapIntervalMs) * time.Millisecond,
+			VolumeInterval:    time.Duration(cfg.Processor.RTPublish.VolumeIntervalMs) * time.Millisecond,
+		},
+		OnEnvelopeProcessed: source.onResult,
 	}
 
 	// ── engine ──────────────────────────────────────────────────────────
