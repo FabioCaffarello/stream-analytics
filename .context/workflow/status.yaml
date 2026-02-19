@@ -1,38 +1,41 @@
 project:
-  name: "prd0002-g11-release-tag"
-  scale: SMALL
-  started: "2026-02-19T19:16:32.931Z"
+  name: "prd0002-advance-dedicated-branch"
+  scale: MEDIUM
+  started: "2026-02-19T19:22:14.517Z"
   current_phase: V
 
 phases:
   P:
     status: filled
-    started_at: "2026-02-19T19:16:32.931Z"
-    completed_at: "2026-02-19T19:18:11.079Z"
+    started_at: "2026-02-19T19:22:14.517Z"
+    completed_at: "2026-02-19T19:25:29.679Z"
   R:
-    status: skipped
-    reason: "Not required for scale SMALL"
+    status: filled
+    started_at: "2026-02-19T19:25:29.680Z"
+    completed_at: "2026-02-19T19:25:42.905Z"
   E:
     status: filled
-    started_at: "2026-02-19T19:18:11.080Z"
-    completed_at: "2026-02-19T19:18:19.780Z"
+    started_at: "2026-02-19T19:25:42.906Z"
+    completed_at: "2026-02-19T19:27:29.575Z"
   V:
     status: completed
-    started_at: "2026-02-19T19:18:19.781Z"
-    completed_at: "2026-02-19T19:18:24.837Z"
+    started_at: "2026-02-19T19:27:29.580Z"
+    completed_at: "2026-02-19T19:28:21.959Z"
     outputs:
-      - path: "Validation complete: docs-check green and tag ref confirmed on origin"
+      - path: "docs/prd/PRD-0002-backend-stable-and-odin-ready.md"
+        status: filled
+      - path: ".context/workflow/docs/prd0002-advance-pr.md"
         status: filled
   C:
     status: skipped
-    reason: "Not required for scale SMALL"
+    reason: "Not required for scale MEDIUM"
 
 execution:
   history:
-    - timestamp: "2026-02-19T19:18:24.837Z"
+    - timestamp: "2026-02-19T19:28:21.959Z"
       phase: V
       action: completed
-  last_activity: "2026-02-19T19:18:24.837Z"
+  last_activity: "2026-02-19T19:28:21.959Z"
   resume_context: "Fase V (Validação) concluída"
 
 settings:
