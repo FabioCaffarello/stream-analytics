@@ -1,5 +1,8 @@
 # Cold-Path Store Pipeline — Operational Runbook
 
+**Status:** Active
+**Last updated:** 2026-02-19
+
 ## Overview
 
 The cold-path pipeline persists aggregation snapshots to ClickHouse for

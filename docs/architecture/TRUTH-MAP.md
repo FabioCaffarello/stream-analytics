@@ -3,7 +3,7 @@
 **Status:** Active
 **Date:** 2026-02-13
 **last_reviewed:** 2026-02-18
-**Scope:** `docs/prd/PRD-0001-extreme-runtime.md`, `docs/audits/AUDIT-PACK-W11-finalization.md`, `docs/rfcs/EXECUTION-SEQUENCE.md`, `docs/rfcs/archive/ADR-REVISIONS-patch-plan.md`, `docs/rfcs/RFC-0011-product-parity-marketmonkey.md`
+**Scope:** `docs/prd/PRD-0001-extreme-runtime.md`, `docs/prd/PRD-0002-backend-stable-and-odin-ready.md`, `docs/audits/AUDIT-PACK-W11-finalization.md`, `docs/rfcs/EXECUTION-SEQUENCE.md`, `docs/rfcs/archive/ADR-REVISIONS-patch-plan.md`, `docs/rfcs/RFC-0011-product-parity-marketmonkey.md`
 
 ## Purpose
 
@@ -37,6 +37,7 @@ Create one authoritative map of:
 | Doc | Summary | Anchor |
 |---|---|---|
 | PRD-0001 | Normalized active baseline with Implemented/Partially Implemented/Planned matrix and workspace-safe gates. | `docs/prd/PRD-0001-extreme-runtime.md:1`, `docs/prd/PRD-0001-extreme-runtime.md:81` |
+| PRD-0002 | Backend stable + Odin-ready acceptance gates, milestones, release checklist. | `docs/prd/PRD-0002-backend-stable-and-odin-ready.md:1` |
 | AUDIT-PACK-W11 | Contains strongest evidence matrix linking docs to code/tests. | `docs/audits/AUDIT-PACK-W11-finalization.md:25` |
 | EXECUTION-SEQUENCE | Tracks W4..W13 with explicit Implemented/Partially Implemented/Planned matrix and real workspace gates. | `docs/rfcs/EXECUTION-SEQUENCE.md:1`, `docs/rfcs/EXECUTION-SEQUENCE.md:94` |
 | ADR-REVISIONS patch plan | **(ARCHIVED)** Historical patch plan; amendments absorbed into ADRs. | `docs/rfcs/archive/ADR-REVISIONS-patch-plan.md:1` |
@@ -117,8 +118,8 @@ Status anchors: `docs/rfcs/RFC-0001-robustness-roadmap.md:3`, `docs/rfcs/RFC-000
 | Orderbook snapshots and delivery contract | `docs/architecture/orderbook.md:1`, `docs/contracts/delivery-ws.md:1` | `internal/core/aggregation/app/update_orderbook.go:33`, `internal/actors/delivery/runtime/router.go:167` | `internal/core/aggregation/app/golden_replay_test.go:1`, `internal/actors/delivery/runtime/router_test.go:70` | Draft docs; runtime partial |
 | Heatmap derivation/persistence | `docs/architecture/heatmap.md:1` | `internal/core/insights/domain/heatmap_bucket.go:1`, `internal/core/insights/app/build_heatmap.go:1` | `internal/core/insights/app/build_heatmap_test.go:1` | Draft doc; domain + app use cases Existing; writers/delivery TODO |
 | Volume profile (VPVR) | `docs/architecture/volume-profiles.md:1` | `internal/core/insights/domain/volume_profile.go:1`, `internal/core/insights/app/build_volume_profile.go:1` | `internal/core/insights/app/build_volume_profile_test.go:1` | Draft doc; domain + app use cases Existing; writers/delivery TODO |
-| Candle aggregation (OHLCV) | `docs/architecture/candle-aggregation.md:1` | — | — | Not started; doc-first |
-| Stats aggregation (liq/funding/markprice per TF) | `docs/architecture/stats-aggregation.md:1` | — | — | Not started; doc-first |
+| Candle aggregation (OHLCV) | `docs/architecture/candle-aggregation.md:1` | — | — | Deferred — PRD-0002 Non-Goal for Odin v0; W14 scope per EXECUTION-SEQUENCE |
+| Stats aggregation (liq/funding/markprice per TF) | `docs/architecture/stats-aggregation.md:1` | — | — | Deferred — PRD-0002 Non-Goal for Odin v0; W14 scope per EXECUTION-SEQUENCE |
 | Liquidations and mark price e2e | `docs/architecture/liquidations-markprice.md:1` | `internal/shared/contracts/authority_manifest.go:80`, `internal/shared/contracts/authority_manifest.go:100` | `internal/shared/contracts/marketdata_registry_test.go:17`, `internal/shared/codec/payload_codec_test.go:28` | Draft (contracts exist, pipeline planned) |
 | Contract layer | `docs/adrs/ADR-0016-protobuf-contract-layer.md:3`, `docs/rfcs/RFC-0007-W6-protobuf-contract-layer.md:1` | `internal/shared/contracts/payload_registry.go:19`, `internal/shared/codec/proto_codec.go:25` | `internal/shared/contracts/import_guard_test.go:15`, `internal/shared/contracts/authority_test.go:284` | Accepted ADR + accepted W6 foundation |
 | Multi-exchange | `docs/adrs/ADR-0017-multi-exchange-normalization.md:1`, `docs/rfcs/RFC-0010-W9-multi-exchange-readiness.md:1` | `cmd/consumer/main.go:157`, `scripts/check-domain-isolation.sh:109` | `cmd/consumer/e2e_consumer_integration_test.go:24`, `internal/actors/runtime/guardian_test.go:99` | Runtime implemented; MEX-4 guard wired in `invariants-check` |
@@ -145,6 +146,10 @@ Anchor: `Makefile`, `scripts/check-doc-headers.sh`, `scripts/check-doc-links.sh`
 
 ## Changelog
 
+- 2026-02-19:
+  - added PRD-0002 to scope and evidence table;
+  - updated candle/stats SSoT rows: "Not started" → "Deferred — PRD-0002 Non-Goal for Odin v0";
+  - created `docs/architecture/AUTHORITY-MAP.md` (governance domains).
 - 2026-02-18:
   - fixed ADR-0013 inventory status: `Proposed` → `Accepted` (matches actual ADR file);
   - fixed ADR-0016 inventory status: `Proposed; W6-1 accepted` → `Accepted; partial implementation`;

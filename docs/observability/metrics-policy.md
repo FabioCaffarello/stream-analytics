@@ -1,5 +1,8 @@
 # Metrics Budget & Label Policy
 
+**Status:** Active
+**Last updated:** 2026-02-19
+
 ## Objetivo
 
 Definir governanca minima para manter instrumentacao Prometheus-ready com baixo custo de GC/scrape e sem explosao de series.

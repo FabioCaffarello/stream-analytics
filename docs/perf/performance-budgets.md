@@ -1,5 +1,8 @@
 # Performance Budgets
 
+**Status:** Active
+**Last updated:** 2026-02-19
+
 ## Pipeline Throughput
 
 - Target: >= 83,000 events/sec (10M events in < 120s)

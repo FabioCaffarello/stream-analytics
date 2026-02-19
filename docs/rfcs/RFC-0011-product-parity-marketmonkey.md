@@ -90,8 +90,8 @@ Consolidar parity v1 em modo doc-first, alinhando arquitetura de storage/orderbo
 | VPVR builder (domain + use case) | Existing | `internal/core/insights/domain/volume_profile.go`, `internal/core/insights/app/build_volume_profile.go` | `internal/core/insights/app/build_volume_profile_test.go` |
 | InsightsService facade | Existing | `internal/core/insights/app/service.go` | — |
 | Heatmap/VPVR storage writers | TODO | `internal/adapters/storage/timescale/` (TODO) | dedicated TODO tests by path in each architecture doc |
-| Candle aggregation (OHLCV multi-timeframe) | TODO | `internal/core/aggregation/domain/` (TODO) | `internal/core/aggregation/app/` (TODO) |
-| Stats aggregation (liq/funding/markprice per TF) | TODO | `internal/core/aggregation/domain/` (TODO) | `internal/core/aggregation/app/` (TODO) |
+| Candle aggregation (OHLCV multi-timeframe) | Deferred (PRD-0002 Non-Goal for Odin v0; W14 scope) | `internal/core/aggregation/domain/` (TODO) | `internal/core/aggregation/app/` (TODO) |
+| Stats aggregation (liq/funding/markprice per TF) | Deferred (PRD-0002 Non-Goal for Odin v0; W14 scope) | `internal/core/aggregation/domain/` (TODO) | `internal/core/aggregation/app/` (TODO) |
 | MarkPrice/Liquidation dedicated pipeline | TODO | `internal/core/marketdata/app/normalize_markprice_liquidation.go` (TODO) | `internal/actors/marketdata/runtime/markprice_liquidation_pipeline_test.go` (TODO) |
 
 ## Incremental Commit Plan
@@ -228,6 +228,8 @@ make proto-breaking
 
 ## Changelog
 
+- 2026-02-19:
+  - Implementation Matrix: candle/stats status changed from `TODO` to `Deferred (PRD-0002 Non-Goal for Odin v0; W14 scope)`.
 - 2026-02-18:
   - RESOLVIDO GD-02: runtime validator already accepts `aggregation` root; NOTE-001 superada.
   - Added GD-11 (P1): Candle aggregation gap.

@@ -20,6 +20,12 @@ Context interface for `.context/docs`: pointers, invariants, acceptance gates.
 | Liquidations + markprice | [`docs/architecture/liquidations-markprice.md`](../../docs/architecture/liquidations-markprice.md), [`docs/adrs/ADR-0011-marketdata-binance-canonical-instrument-and-event-mapping.md`](../../docs/adrs/ADR-0011-marketdata-binance-canonical-instrument-and-event-mapping.md) |
 | Delivery WS contract | [`docs/contracts/delivery-ws.md`](../../docs/contracts/delivery-ws.md), [`docs/adrs/ADR-0007-delivery-ws-sessions.md`](../../docs/adrs/ADR-0007-delivery-ws-sessions.md) |
 | Replay determinism | [`docs/adrs/ADR-0015-deterministic-replay-time-invariants.md`](../../docs/adrs/ADR-0015-deterministic-replay-time-invariants.md), [`docs/rfcs/RFC-0009-W8-deterministic-replay-golden-tests.md`](../../docs/rfcs/RFC-0009-W8-deterministic-replay-golden-tests.md) |
+| Acceptance gates (Backend Stable) | [`docs/prd/PRD-0002-backend-stable-and-odin-ready.md`](../../docs/prd/PRD-0002-backend-stable-and-odin-ready.md) |
+| Authority map | [`docs/architecture/AUTHORITY-MAP.md`](../../docs/architecture/AUTHORITY-MAP.md) |
+| Performance budgets | [`docs/perf/performance-budgets.md`](../../docs/perf/performance-budgets.md) |
+| Operations (cold-path) | [`docs/operations/cold-path-runbook.md`](../../docs/operations/cold-path-runbook.md) |
+| Operations (degradation) | [`docs/operations/degradation.md`](../../docs/operations/degradation.md) |
+| Operations (sharding) | [`docs/operations/sharding.md`](../../docs/operations/sharding.md), [`docs/operations/shard-incidents.md`](../../docs/operations/shard-incidents.md) |
 
 ## Feature Packs Index
 
