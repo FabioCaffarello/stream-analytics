@@ -675,6 +675,68 @@ var (
 		},
 		[]string{"status"},
 	)
+
+	// ── Codec observability ──────────────────────────────────────────────
+
+	CodecRegistrySize = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "codec_registry_size",
+			Help: "Number of registered encoder entries in the payload codec registry.",
+		},
+	)
+	CodecUnknownEventsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "codec_unknown_events_total",
+			Help: "Total unknown event type lookups in the payload codec by format.",
+		},
+		[]string{"format"},
+	)
+
+	// ── BoundedMap observability ─────────────────────────────────────────
+
+	BoundedMapSize = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "bounded_map_size",
+			Help: "Current number of entries in a BoundedMap instance.",
+		},
+		[]string{"name"},
+	)
+	BoundedMapEvictionsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "bounded_map_evictions_total",
+			Help: "Total BoundedMap evictions by instance and reason.",
+		},
+		[]string{"name", "reason"},
+	)
+	BoundedMapSweepsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "bounded_map_sweeps_total",
+			Help: "Total BoundedMap sweep operations by instance.",
+		},
+		[]string{"name"},
+	)
+
+	// ── Delivery router observability ────────────────────────────────────
+
+	DeliveryRouterSubscriptionsActive = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "delivery_router_subscriptions_active",
+			Help: "Total active subject subscriptions across all delivery sessions.",
+		},
+	)
+	DeliveryRouterEventsRoutedTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "delivery_router_events_routed_total",
+			Help: "Total events successfully routed to at least one delivery session.",
+		},
+	)
+	DeliveryRouterEventsRejectedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "delivery_router_events_rejected_total",
+			Help: "Total events rejected by the delivery router by reason.",
+		},
+		[]string{"reason"},
+	)
 )
 
 var (
@@ -813,6 +875,14 @@ func registerAll() {
 			ProcessorCommitTotal,
 			ProcessorCommitLatencySeconds,
 			ProcessorAckAfterCommitTotal,
+			CodecRegistrySize,
+			CodecUnknownEventsTotal,
+			BoundedMapSize,
+			BoundedMapEvictionsTotal,
+			BoundedMapSweepsTotal,
+			DeliveryRouterSubscriptionsActive,
+			DeliveryRouterEventsRoutedTotal,
+			DeliveryRouterEventsRejectedTotal,
 		)
 
 		// Pre-create one series for vector metrics so /metrics exposition is stable
@@ -895,6 +965,14 @@ func registerAll() {
 		ProcessorCommitTotal.WithLabelValues("failed")
 		ProcessorAckAfterCommitTotal.WithLabelValues("ok")
 		ProcessorAckAfterCommitTotal.WithLabelValues("failed")
+		CodecUnknownEventsTotal.WithLabelValues("json")
+		CodecUnknownEventsTotal.WithLabelValues("proto")
+		BoundedMapSize.WithLabelValues("unknown")
+		BoundedMapEvictionsTotal.WithLabelValues("unknown", "size")
+		BoundedMapEvictionsTotal.WithLabelValues("unknown", "ttl")
+		BoundedMapSweepsTotal.WithLabelValues("unknown")
+		DeliveryRouterEventsRejectedTotal.WithLabelValues("contract_policy")
+		DeliveryRouterEventsRejectedTotal.WithLabelValues("invalid_subject")
 	})
 }
 
@@ -1714,4 +1792,67 @@ func bucketVenueCount(venueCount int) string {
 	default:
 		return "9_plus"
 	}
+}
+
+// ── Codec observability helpers ──────────────────────────────────────────────
+
+// SetCodecRegistrySize sets the codec_registry_size gauge.
+func SetCodecRegistrySize(size int) {
+	CodecRegistrySize.Set(float64(max(size, 0)))
+}
+
+// IncCodecUnknownEvent increments the unknown event counter for the given format.
+func IncCodecUnknownEvent(format string) {
+	f := strings.ToLower(strings.TrimSpace(format))
+	switch f {
+	case "json", "proto":
+	default:
+		f = "unknown"
+	}
+	CodecUnknownEventsTotal.WithLabelValues(f).Inc()
+}
+
+// ── BoundedMap observability helpers ─────────────────────────────────────────
+
+// SetBoundedMapSize sets the bounded_map_size gauge for the named instance.
+func SetBoundedMapSize(name string, size int) {
+	BoundedMapSize.WithLabelValues(sanitizeBoundedMapName(name)).Set(float64(max(size, 0)))
+}
+
+// IncBoundedMapEviction increments evictions for the named instance and reason.
+func IncBoundedMapEviction(name, reason string) {
+	BoundedMapEvictionsTotal.WithLabelValues(sanitizeBoundedMapName(name), sanitizeReason(reason)).Inc()
+}
+
+// IncBoundedMapSweep increments the sweep counter for the named instance.
+func IncBoundedMapSweep(name string) {
+	BoundedMapSweepsTotal.WithLabelValues(sanitizeBoundedMapName(name)).Inc()
+}
+
+func sanitizeBoundedMapName(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	if v == "" {
+		return "unknown"
+	}
+	if kindPattern.MatchString(v) {
+		return v
+	}
+	return "unknown"
+}
+
+// ── Delivery router observability helpers ────────────────────────────────────
+
+// SetDeliveryRouterSubscriptionsActive sets the active subscriptions gauge.
+func SetDeliveryRouterSubscriptionsActive(count int) {
+	DeliveryRouterSubscriptionsActive.Set(float64(max(count, 0)))
+}
+
+// IncDeliveryRouterEventsRouted increments the routed events counter.
+func IncDeliveryRouterEventsRouted() {
+	DeliveryRouterEventsRoutedTotal.Inc()
+}
+
+// IncDeliveryRouterEventsRejected increments the rejected events counter.
+func IncDeliveryRouterEventsRejected(reason string) {
+	DeliveryRouterEventsRejectedTotal.WithLabelValues(sanitizeKind(reason)).Inc()
 }

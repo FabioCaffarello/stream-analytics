@@ -6,6 +6,7 @@ import (
 
 	marketdomain "github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/shared/codec"
+	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/problem"
 	aggregationv1 "github.com/market-raccoon/internal/shared/proto/gen/aggregation/v1"
 	marketdatav1 "github.com/market-raccoon/internal/shared/proto/gen/marketdata/v1"
@@ -59,6 +60,9 @@ func BootstrapPayloadCodecRegistryWithOptions(opts PayloadRegistryOptions) *prob
 			return
 		}
 		payloadRegistryErr = codec.SetPayloadRegistry(reg)
+		if payloadRegistryErr == nil {
+			metrics.SetCodecRegistrySize(reg.Size())
+		}
 	})
 	return payloadRegistryErr
 }

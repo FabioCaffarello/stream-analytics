@@ -608,7 +608,10 @@ func (s *SessionActor) eventPriority(eventType string) int {
 	if s.priorities == nil {
 		return 0
 	}
-	return s.priorities[strings.ToLower(strings.TrimSpace(eventType))]
+	// eventType arrives pre-normalized (lowercase, trimmed) from the ingest
+	// pipeline via envelope.Validate(). Priorities map keys are also lowercase
+	// (built in ensureDefaults). Direct lookup avoids per-event string allocs.
+	return s.priorities[eventType]
 }
 
 func (s *SessionActor) flushOutbound() {

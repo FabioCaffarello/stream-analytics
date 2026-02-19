@@ -21,6 +21,13 @@ type SchemaKey struct {
 	Format  Format
 }
 
+// typeVersionKey is used for O(1) existence checks by type+version,
+// regardless of wire format.
+type typeVersionKey struct {
+	Type    string
+	Version int32
+}
+
 type Encoder interface {
 	Encode(any) ([]byte, *problem.Problem)
 }
@@ -31,15 +38,17 @@ type Decoder interface {
 
 // Registry holds wire codecs indexed by schema key.
 type Registry struct {
-	mu       sync.RWMutex
-	decoders map[SchemaKey]Decoder
-	encoders map[SchemaKey]Encoder
+	mu           sync.RWMutex
+	decoders     map[SchemaKey]Decoder
+	encoders     map[SchemaKey]Encoder
+	knownTypeVer map[typeVersionKey]struct{}
 }
 
 func NewRegistry() *Registry {
 	return &Registry{
-		decoders: make(map[SchemaKey]Decoder),
-		encoders: make(map[SchemaKey]Encoder),
+		decoders:     make(map[SchemaKey]Decoder),
+		encoders:     make(map[SchemaKey]Encoder),
+		knownTypeVer: make(map[typeVersionKey]struct{}),
 	}
 }
 
@@ -70,6 +79,7 @@ func (r *Registry) Register(key SchemaKey, enc Encoder, dec Decoder) *problem.Pr
 
 	r.encoders[key] = enc
 	r.decoders[key] = dec
+	r.knownTypeVer[typeVersionKey{Type: key.Type, Version: key.Version}] = struct{}{}
 	return nil
 }
 
@@ -99,6 +109,28 @@ func (r *Registry) Decoder(key SchemaKey) (Decoder, bool) {
 	defer r.mu.RUnlock()
 	dec, ok := r.decoders[key]
 	return dec, ok
+}
+
+// HasTypeVersion returns true if any codec (encoder or decoder) is registered
+// for the given type+version pair, regardless of wire format. O(1) lookup.
+func (r *Registry) HasTypeVersion(eventType string, version int32) bool {
+	if r == nil {
+		return false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, ok := r.knownTypeVer[typeVersionKey{Type: eventType, Version: version}]
+	return ok
+}
+
+// Size returns the number of registered encoder entries.
+func (r *Registry) Size() int {
+	if r == nil {
+		return 0
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return len(r.encoders)
 }
 
 func normalizeSchemaKey(key SchemaKey) (SchemaKey, *problem.Problem) {

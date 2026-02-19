@@ -290,22 +290,7 @@ func unknownJSONEventTypeRejectedProblem(key SchemaKey) *problem.Problem {
 }
 
 func registryHasAnyCodecForTypeVersion(reg *Registry, eventType string, version int32) bool {
-	if reg == nil {
-		return false
-	}
-	reg.mu.RLock()
-	defer reg.mu.RUnlock()
-	for key := range reg.decoders {
-		if key.Type == eventType && key.Version == version {
-			return true
-		}
-	}
-	for key := range reg.encoders {
-		if key.Type == eventType && key.Version == version {
-			return true
-		}
-	}
-	return false
+	return reg.HasTypeVersion(eventType, version)
 }
 
 func (p FallbackPolicy) valid() bool {
