@@ -57,7 +57,10 @@ runs:
         if command -v promtool >/dev/null 2>&1; then
           echo "promtool already cached"
         else
-          PROMTOOL_VERSION="${PROMTOOL_VERSION:-v3.2.1}"
-          go install "github.com/prometheus/prometheus/cmd/promtool@${PROMTOOL_VERSION}"
+          PROMTOOL_VERSION="${PROMTOOL_VERSION:-3.9.1}"
+          echo "Installing promtool ${PROMTOOL_VERSION} from GitHub release"
+          mkdir -p "$HOME/go/bin"
+          curl -sSLf "https://github.com/prometheus/prometheus/releases/download/v${PROMTOOL_VERSION}/prometheus-${PROMTOOL_VERSION}.linux-amd64.tar.gz" \
+            | tar xzf - --strip-components=1 -C "$HOME/go/bin" "prometheus-${PROMTOOL_VERSION}.linux-amd64/promtool"
         fi
         promtool --version
