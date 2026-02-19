@@ -52,7 +52,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules workspace-check tidy tidy-check fmt fmt-check vet quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store soak-roundtrip soak-pipeline soak-ws-delivery soak-full test-short bench-hotpath vuln build run clean docker-build up down up-infra ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci
+.PHONY: help install-tools tools modules workspace-check tidy tidy-check fmt fmt-check vet quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store soak-roundtrip soak-pipeline soak-ws-delivery soak-full test-short bench-hotpath vuln build run clean docker-build up down up-infra up-core dev-scale-smoke ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci
 
 help:
 	@echo "Targets:"
@@ -105,6 +105,8 @@ help:
 	@echo "                           dev/local: SHARD_INDEX is auto-derived from replica hostname when unset"
 	@echo "  make up-infra           - start only infrastructure services (nats + timescale + clickhouse + prometheus + grafana)"
 	@echo "  make up-core            - start infra + core app services (no observability)"
+	@echo "  make dev-scale-smoke    - start core with N processor replicas and print shard-resolution evidence"
+	@echo "                           vars: N or PROCESSOR_REPLICAS (default 3 for this target)"
 	@echo "  make ps                 - list compose service status"
 	@echo "  make logs               - stream compose logs"
 	@echo "  make pre-commit-install - install pre-commit hooks"
@@ -451,6 +453,34 @@ up-core:
 	PROCESSOR_SHARD_COUNT=$(PROCESSOR_SHARD_COUNT) \
 	docker compose -f deploy/compose/docker-compose.yml --profile core up --build -d \
 		--scale processor=$$p_rep
+
+dev-scale-smoke:
+	@set -euo pipefail; \
+	p_rep="$${N:-$${PROCESSOR_REPLICAS:-3}}"; \
+	if [ "$$p_rep" -lt 1 ]; then \
+		echo "N/PROCESSOR_REPLICAS must be >= 1 (got $$p_rep)"; exit 1; \
+	fi; \
+	p_shards="$${PROCESSOR_SHARD_COUNT:-$$p_rep}"; \
+	echo "[dev-scale-smoke] down previous stack"; \
+	$(MAKE) down >/dev/null; \
+	echo "[dev-scale-smoke] up core with PROCESSOR_REPLICAS=$$p_rep PROCESSOR_SHARD_COUNT=$$p_shards"; \
+	PROCESSOR_SHARD_COUNT="$$p_shards" docker compose -f deploy/compose/docker-compose.yml --profile core up --build -d --scale processor="$$p_rep"; \
+	echo "[dev-scale-smoke] waiting for processor replicas to become healthy"; \
+	for i in $$(seq 1 90); do \
+		healthy="$$(docker compose -f deploy/compose/docker-compose.yml --profile core ps | awk '/compose-processor-[0-9]+/ && /healthy/ {c++} END {print c+0}')"; \
+		if [ "$$healthy" -ge "$$p_rep" ]; then break; fi; \
+		sleep 2; \
+	done; \
+	echo ""; \
+	echo "=== docker compose ps (core) ==="; \
+	docker compose -f deploy/compose/docker-compose.yml --profile core ps; \
+	echo ""; \
+	echo "=== shard resolution evidence ==="; \
+	logs="$$(docker compose -f deploy/compose/docker-compose.yml --profile core logs --since=10m --tail=500 processor)"; \
+	for idx in $$(seq 1 "$$p_rep"); do \
+		echo "--- processor-$$idx ---"; \
+		printf '%s\n' "$$logs" | rg "^processor-$$idx  \\| .*shard resolution applied|^processor-$$idx  \\| .*processor starting" | head -n 4 || true; \
+	done
 
 ps:
 	docker compose -f deploy/compose/docker-compose.yml --profile core --profile obs ps

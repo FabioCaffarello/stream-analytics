@@ -125,33 +125,33 @@ Three production alert rules are defined in
 For incident response procedures, see the
 **[Shard Incident Runbook](shard-incidents.md)**.
 
-## Quickstart: 2 shards local (docker compose)
+## Quickstart: N shards local (docker compose)
 
-The consumer and processor services support `--scale` via `SHARD_INDEX`
-and `SHARD_COUNT` environment variables.
+DEV/local uses `docker compose --scale processor=N` and derives `SHARD_INDEX`
+automatically when `SHARD_INDEX` is not set.
 
 ```bash
-# Start infrastructure
-cd deploy/compose
-docker compose --profile core up -d nats clickhouse server
+# Start with 3 processor replicas; shard count defaults to replica count
+make up PROCESSOR_REPLICAS=3
 
-# Start 2 processor shards (manual index assignment)
-SHARD_COUNT=2 SHARD_INDEX=0 docker compose --profile core up -d processor
-SHARD_COUNT=2 SHARD_INDEX=1 docker compose --profile core run -d processor
-
-# Verify both shards are running
-docker compose ps processor
-docker compose logs processor | grep 'shard='
+# Or run the dedicated smoke command
+make dev-scale-smoke N=3
 ```
 
-Each processor instance logs its shard assignment at startup:
+Expected logs per replica include shard source and assignment, for example:
 
 ```
-processor starting shard=0/2 bus_type=jetstream
-processor starting shard=1/2 bus_type=jetstream
+shard resolution applied shard_index_source=hostname shard_index=0 shard_count=3
+processor starting shard=0/3 bus_type=jetstream
 ```
 
-The durable consumer name is auto-suffixed: `processor-v1-s0`, `processor-v1-s1`.
+Durable names are shard-aware when count > 1: `processor-v4-s0`, `processor-v4-s1`, `processor-v4-s2`, ...
+
+## DEV vs PROD shard index source
+
+- DEV (`MR_ENV=dev`, default): when `SHARD_COUNT>1` and `SHARD_INDEX` is unset, runtime can derive index from hostname/ordinal.
+- PROD (`MR_ENV=prod`): `SHARD_INDEX` must be explicit for `SHARD_COUNT>1`; hostname fallback is rejected (fail-fast).
+- For single shard (`SHARD_COUNT=1`), index defaults to `0`.
 
 ## Optional shard registry lease (feature-flagged)
 

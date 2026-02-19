@@ -60,6 +60,7 @@ This repository exposes convenient Makefile targets that wrap common local dev t
 - Stop the stack: `make down`
 - Start only infra (NATS + ClickHouse): `make up-infra`
 - Start infra + app services (no observability): `make up-core`
+- Run shard scale smoke with N replicas: `make dev-scale-smoke N=3`
 - Show compose status: `make ps`
 - Tail logs: `make logs`
 - Bring up the full stack with automatic rebuild: `make up` (includes profiles `core` + `obs`)
