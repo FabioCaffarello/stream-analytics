@@ -133,6 +133,7 @@ services:
     command: ["-config", "/etc/market-raccoon/processor.jsonc"]
     user: "0:0"
     environment:
+      MR_ENV: ${MR_ENV:-dev}
       SHARD_COUNT: ${PROCESSOR_SHARD_COUNT:-1}
       SHARD_REGISTRY_ENABLED: ${SHARD_REGISTRY_ENABLED:-false}
       SHARD_REGISTRY_STRICT: ${SHARD_REGISTRY_STRICT:-false}

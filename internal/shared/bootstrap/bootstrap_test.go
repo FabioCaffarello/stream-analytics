@@ -118,6 +118,7 @@ func TestApplyShardOverrides_NegativeFlags_NoOverride(t *testing.T) {
 func TestApplyShardOverrides_HostnameFallbackWhenIndexUnset(t *testing.T) {
 	t.Setenv("SHARD_INDEX", "")
 	t.Setenv("SHARD_COUNT", "2")
+	t.Setenv("MR_ENV", "dev")
 	hostnameProvider = func() (string, error) { return "market-raccoon-processor-2", nil }
 	composeContainerNumberProvider = defaultComposeContainerNumberProvider
 	t.Cleanup(func() {
@@ -145,6 +146,7 @@ func TestApplyShardOverrides_HostnameFallbackWhenIndexUnset(t *testing.T) {
 func TestApplyShardOverrides_UnresolvedIndexFailsForMultiShard(t *testing.T) {
 	t.Setenv("SHARD_INDEX", "")
 	t.Setenv("SHARD_COUNT", "3")
+	t.Setenv("MR_ENV", "dev")
 	hostnameProvider = func() (string, error) { return "processor", nil }
 	composeContainerNumberProvider = defaultComposeContainerNumberProvider
 	t.Cleanup(func() {
@@ -169,6 +171,7 @@ func TestApplyShardOverrides_UnresolvedIndexFailsForMultiShard(t *testing.T) {
 func TestApplyShardOverrides_ComposeContainerIDFallbackWhenIndexUnset(t *testing.T) {
 	t.Setenv("SHARD_INDEX", "")
 	t.Setenv("SHARD_COUNT", "3")
+	t.Setenv("MR_ENV", "dev")
 	hostnameProvider = func() (string, error) { return "13d5d7951762", nil }
 	composeContainerNumberProvider = func(containerID string) (int, bool) {
 		if containerID != "13d5d7951762" {
@@ -192,6 +195,46 @@ func TestApplyShardOverrides_ComposeContainerIDFallbackWhenIndexUnset(t *testing
 	}
 	if cfg.Shard.Count != 3 {
 		t.Fatalf("expected shard count from env=3, got %d", cfg.Shard.Count)
+	}
+}
+
+func TestApplyShardOverrides_ProdRequiresExplicitIndexForMultiShard(t *testing.T) {
+	t.Setenv("SHARD_INDEX", "")
+	t.Setenv("SHARD_COUNT", "2")
+	t.Setenv("MR_ENV", "prod")
+	hostnameProvider = func() (string, error) { return "processor-1", nil }
+	t.Cleanup(func() {
+		hostnameProvider = defaultHostnameProvider
+	})
+
+	cfg := defaultTestConfig()
+	cfg.Shard.Index = 0
+	cfg.Shard.Count = 1
+
+	ApplyShardOverrides(&cfg, -1, -1)
+
+	if cfg.Shard.Index != -1 {
+		t.Fatalf("expected shard index=-1 in prod when env is absent, got %d", cfg.Shard.Index)
+	}
+}
+
+func TestApplyShardOverrides_SingleShardDefaultsToZeroWithoutEnv(t *testing.T) {
+	t.Setenv("SHARD_INDEX", "")
+	t.Setenv("SHARD_COUNT", "1")
+	t.Setenv("MR_ENV", "prod")
+	hostnameProvider = func() (string, error) { return "anything", nil }
+	t.Cleanup(func() {
+		hostnameProvider = defaultHostnameProvider
+	})
+
+	cfg := defaultTestConfig()
+	cfg.Shard.Index = 0
+	cfg.Shard.Count = 1
+
+	ApplyShardOverrides(&cfg, -1, -1)
+
+	if cfg.Shard.Index != 0 {
+		t.Fatalf("expected shard index default 0 for single shard, got %d", cfg.Shard.Index)
 	}
 }
 

@@ -48,3 +48,35 @@ func TestDeriveShardIndexFromComposeMetadata(t *testing.T) {
 		t.Fatalf("index=%d want=1", got)
 	}
 }
+
+func TestApplyShardOverrides_DevComposeHostnameToIndexZero(t *testing.T) {
+	t.Setenv("MR_ENV", "dev")
+	t.Setenv("SHARD_INDEX", "")
+	t.Setenv("SHARD_COUNT", "3")
+	hostnameProvider = func() (string, error) { return "compose-processor-1", nil }
+	t.Cleanup(func() {
+		hostnameProvider = defaultHostnameProvider
+	})
+
+	cfg := defaultTestConfig()
+	ApplyShardOverrides(&cfg, -1, -1)
+	if cfg.Shard.Index != 0 {
+		t.Fatalf("index=%d want=0", cfg.Shard.Index)
+	}
+}
+
+func TestApplyShardOverrides_DevK8sHostnameToIndexZero(t *testing.T) {
+	t.Setenv("MR_ENV", "dev")
+	t.Setenv("SHARD_INDEX", "")
+	t.Setenv("SHARD_COUNT", "3")
+	hostnameProvider = func() (string, error) { return "processor-0", nil }
+	t.Cleanup(func() {
+		hostnameProvider = defaultHostnameProvider
+	})
+
+	cfg := defaultTestConfig()
+	ApplyShardOverrides(&cfg, -1, -1)
+	if cfg.Shard.Index != 0 {
+		t.Fatalf("index=%d want=0", cfg.Shard.Index)
+	}
+}

@@ -22,6 +22,13 @@ var hostnameProvider = defaultHostnameProvider
 var defaultComposeContainerNumberProvider = composeContainerNumberFromDockerAPI
 var composeContainerNumberProvider = defaultComposeContainerNumberProvider
 
+const (
+	runtimeEnvVar     = "MR_ENV"
+	runtimeEnvDev     = "dev"
+	runtimeEnvProd    = "prod"
+	defaultRuntimeEnv = runtimeEnvDev
+)
+
 // ApplyShardOverrides resolves shard index/count from flag > env > JSONC and
 // propagates the result to JetStream shard fields.  Flag values of -1 mean
 // "not set" and fall through to environment variables.
@@ -36,28 +43,18 @@ func ApplyShardOverrides(cfg *config.AppConfig, flagIndex, flagCount int) {
 		}
 	}
 
-	indexSource := "config"
+	mode := runtimeMode()
+	indexSource := "default"
 	resolvedHost := ""
 	indexSet := false
 	if flagIndex >= 0 {
 		cfg.Shard.Index = flagIndex
-		indexSource = "flag"
+		indexSource = "env"
 		indexSet = true
 	} else if v := os.Getenv("SHARD_INDEX"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.Shard.Index = n
 			indexSource = "env"
-			indexSet = true
-		}
-	} else if host, err := hostnameProvider(); err == nil {
-		resolvedHost = host
-		if n, ok := deriveShardIndexFromHostname(host); ok {
-			cfg.Shard.Index = n
-			indexSource = "hostname"
-			indexSet = true
-		} else if n, ok := deriveShardIndexFromComposeMetadata(host); ok {
-			cfg.Shard.Index = n
-			indexSource = "hostname"
 			indexSet = true
 		}
 	}
@@ -69,13 +66,43 @@ func ApplyShardOverrides(cfg *config.AppConfig, flagIndex, flagCount int) {
 	}
 
 	if !indexSet && cfg.Shard.Count > 1 {
-		cfg.Shard.Index = -1
-		slog.Error("shard index resolution failed",
-			"shard_index_source", "unresolved",
-			"hostname", resolvedHost,
-			"shard_count", cfg.Shard.Count,
-			"reason", "set SHARD_INDEX or ensure hostname ends with -<ordinal>",
-		)
+		if mode == runtimeEnvProd {
+			cfg.Shard.Index = -1
+			slog.Error("shard index resolution failed",
+				"shard_index_source", "default",
+				"hostname", resolvedHost,
+				"shard_count", cfg.Shard.Count,
+				"mode", mode,
+				"reason", "prod requires explicit SHARD_INDEX when SHARD_COUNT>1",
+			)
+		} else if host, err := hostnameProvider(); err == nil {
+			resolvedHost = host
+			if n, ok := deriveShardIndexFromHostname(host); ok {
+				cfg.Shard.Index = n
+				indexSource = "hostname"
+			} else if n, ok := deriveShardIndexFromComposeMetadata(host); ok {
+				cfg.Shard.Index = n
+				indexSource = "hostname"
+			} else {
+				cfg.Shard.Index = -1
+				slog.Error("shard index resolution failed",
+					"shard_index_source", "hostname",
+					"hostname", resolvedHost,
+					"shard_count", cfg.Shard.Count,
+					"mode", mode,
+					"reason", "unable to derive shard index from hostname",
+				)
+			}
+		} else {
+			cfg.Shard.Index = -1
+			slog.Error("shard index resolution failed",
+				"shard_index_source", "hostname",
+				"hostname", resolvedHost,
+				"shard_count", cfg.Shard.Count,
+				"mode", mode,
+				"reason", "unable to read hostname",
+			)
+		}
 	}
 
 	if v := os.Getenv("SHARD_MAX_LAG"); v != "" {
@@ -92,7 +119,20 @@ func ApplyShardOverrides(cfg *config.AppConfig, flagIndex, flagCount int) {
 		"hostname", resolvedHost,
 		"shard_index", cfg.Shard.Index,
 		"shard_count", cfg.Shard.Count,
+		"mode", mode,
 	)
+}
+
+func runtimeMode() string {
+	raw := strings.ToLower(strings.TrimSpace(os.Getenv(runtimeEnvVar)))
+	switch raw {
+	case runtimeEnvProd:
+		return runtimeEnvProd
+	case runtimeEnvDev:
+		return runtimeEnvDev
+	default:
+		return defaultRuntimeEnv
+	}
 }
 
 func deriveShardIndexFromHostname(host string) (int, bool) {

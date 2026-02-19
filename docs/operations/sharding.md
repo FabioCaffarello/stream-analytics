@@ -149,7 +149,7 @@ Durable names are shard-aware when count > 1: `processor-v4-s0`, `processor-v4-s
 
 ## DEV vs PROD shard index source
 
-- DEV (`MR_ENV=dev`, default): when `SHARD_COUNT>1` and `SHARD_INDEX` is unset, runtime can derive index from hostname/ordinal.
+- DEV (`MR_ENV=dev`, default in docker compose): when `SHARD_COUNT>1` and `SHARD_INDEX` is unset, runtime can derive index from hostname/ordinal.
 - PROD (`MR_ENV=prod`): `SHARD_INDEX` must be explicit for `SHARD_COUNT>1`; hostname fallback is rejected (fail-fast).
 - For single shard (`SHARD_COUNT=1`), index defaults to `0`.
 
