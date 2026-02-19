@@ -168,3 +168,21 @@ func (uc *UpdateOrderBookFromEvents) getOrCreateBook(venue, instrument string) (
 func (uc *UpdateOrderBookFromEvents) ActiveBooks() int {
 	return uc.books.Len()
 }
+
+// Snapshot returns the current in-memory snapshot for a book key.
+// It performs no writes and does not publish artifacts.
+func (uc *UpdateOrderBookFromEvents) Snapshot(venue, instrument string) (domain.SnapshotProduced, *problem.Problem) {
+	if p := validation.Collect(
+		validation.NonEmptyString("venue", venue),
+		validation.NonEmptyString("instrument", instrument),
+	); p != nil {
+		return domain.SnapshotProduced{}, p
+	}
+
+	id := domain.BookID{Venue: venue, Instrument: instrument}
+	book, ok := uc.books.Get(id)
+	if !ok {
+		return domain.SnapshotProduced{}, problem.Newf(problem.NotFound, "orderbook snapshot not found for %s/%s", venue, instrument)
+	}
+	return domain.NewSnapshotProduced(book), nil
+}
