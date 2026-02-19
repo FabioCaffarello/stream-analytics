@@ -86,7 +86,7 @@ type SessionActor struct {
 	readerCtx    context.Context
 	cancelReader context.CancelFunc
 	closed       bool
-	outbound     []DeliveryEvent
+	outbound     *deliveryRing
 	outboundCap  int
 	flushing     bool
 	policy       domain.BackpressurePolicy
@@ -150,6 +150,9 @@ func (s *SessionActor) ensureDefaults(c *actor.Context) {
 		if s.outboundCap <= 0 {
 			s.outboundCap = 256
 		}
+	}
+	if s.outbound == nil {
+		s.outbound = newDeliveryRing(s.outboundCap)
 	}
 	if s.policy == "" {
 		s.policy = domain.NormalizeBackpressurePolicy(s.cfg.BackpressurePolicy)
@@ -512,7 +515,7 @@ func (s *SessionActor) allowRateLimitedCommand(op, requestID string) bool {
 }
 
 func (s *SessionActor) enqueueDelivery(evt DeliveryEvent) {
-	if len(s.outbound) >= s.outboundCap {
+	if s.outbound.IsFull() {
 		switch s.policy {
 		case domain.BackpressureDropNewest:
 			if s.onDrop("queue_full") {
@@ -520,7 +523,7 @@ func (s *SessionActor) enqueueDelivery(evt DeliveryEvent) {
 			}
 			return
 		case domain.BackpressureDropOldest:
-			s.outbound = s.outbound[1:]
+			s.outbound.DropFront()
 			if s.onDrop("drop_oldest") {
 				return
 			}
@@ -534,7 +537,7 @@ func (s *SessionActor) enqueueDelivery(evt DeliveryEvent) {
 			if s.onDrop("priority_drop") {
 				return
 			}
-			metrics.SetWSQueueDepth(len(s.outbound))
+			metrics.SetWSQueueDepth(s.outbound.Len())
 			if s.flushing {
 				return
 			}
@@ -548,8 +551,8 @@ func (s *SessionActor) enqueueDelivery(evt DeliveryEvent) {
 			return
 		}
 	}
-	s.outbound = append(s.outbound, evt)
-	metrics.SetWSQueueDepth(len(s.outbound))
+	s.outbound.PushBack(evt)
+	metrics.SetWSQueueDepth(s.outbound.Len())
 	if s.flushing {
 		return
 	}
@@ -558,15 +561,15 @@ func (s *SessionActor) enqueueDelivery(evt DeliveryEvent) {
 }
 
 func (s *SessionActor) priorityDrop(evt DeliveryEvent) bool {
-	if len(s.outbound) < s.outboundCap {
-		s.outbound = append(s.outbound, evt)
+	if !s.outbound.IsFull() {
+		s.outbound.PushBack(evt)
 		return true
 	}
 	incomingPri := s.eventPriority(evt.Env.Type)
 	lowestIdx := -1
 	lowestPri := incomingPri
-	for i, queued := range s.outbound {
-		pri := s.eventPriority(queued.Env.Type)
+	for i := 0; i < s.outbound.Len(); i++ {
+		pri := s.eventPriority(s.outbound.At(i).Env.Type)
 		if pri < lowestPri {
 			lowestPri = pri
 			lowestIdx = i
@@ -575,8 +578,8 @@ func (s *SessionActor) priorityDrop(evt DeliveryEvent) bool {
 	if lowestIdx < 0 {
 		return false
 	}
-	s.outbound = append(s.outbound[:lowestIdx], s.outbound[lowestIdx+1:]...)
-	s.outbound = append(s.outbound, evt)
+	s.outbound.RemoveAt(lowestIdx)
+	s.outbound.PushBack(evt)
 	return true
 }
 
@@ -613,14 +616,13 @@ func (s *SessionActor) flushOutbound() {
 		s.flushing = false
 		return
 	}
-	if len(s.outbound) == 0 {
+	evt, ok := s.outbound.PopFront()
+	if !ok {
 		s.flushing = false
 		metrics.SetWSQueueDepth(0)
 		return
 	}
-	evt := s.outbound[0]
-	s.outbound = s.outbound[1:]
-	metrics.SetWSQueueDepth(len(s.outbound))
+	metrics.SetWSQueueDepth(s.outbound.Len())
 
 	started := time.Now()
 	if err := s.writeDeliveryEvent(evt); err != nil {
@@ -630,7 +632,7 @@ func (s *SessionActor) flushOutbound() {
 	}
 	metrics.ObserveWSSendLatency(time.Since(started))
 
-	if len(s.outbound) > 0 {
+	if s.outbound.Len() > 0 {
 		s.engine.Send(s.self, sessionFlushOutbound{})
 		return
 	}

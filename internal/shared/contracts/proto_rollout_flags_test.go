@@ -7,6 +7,9 @@ import (
 )
 
 func TestProtoRolloutEnabledForEventType(t *testing.T) {
+	contracts.ResetProtoRolloutCache()
+	t.Cleanup(contracts.ResetProtoRolloutCache)
+
 	t.Setenv(contracts.EnvProtoMarketDataTrade, "true")
 	t.Setenv(contracts.EnvProtoMarketDataBookDelta, "1")
 	t.Setenv(contracts.EnvProtoMarketDataMarkPrice, "yes")
@@ -42,6 +45,9 @@ func TestProtoRolloutEnabledForEventType(t *testing.T) {
 }
 
 func TestProtoRolloutEnabledForEventType_DefaultDisabled(t *testing.T) {
+	contracts.ResetProtoRolloutCache()
+	t.Cleanup(contracts.ResetProtoRolloutCache)
+
 	all := []string{
 		contracts.EnvProtoMarketDataTrade,
 		contracts.EnvProtoMarketDataBookDelta,
