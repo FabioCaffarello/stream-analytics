@@ -170,8 +170,8 @@ make down
 | `TestSession_parseSubscribeUnsubscribeGetRange` | `internal/actors/delivery/runtime/session_test.go` |
 | `TestRouter_subscribeUnsubscribeAndBroadcast` | `internal/actors/delivery/runtime/router_test.go` |
 | `TestWSBackpressureSlowClientDropPolicy` | `internal/actors/delivery/runtime/session_backpressure_test.go` |
-| `TestWSAuth_ValidKey` + `TestWSAuth_InvalidKey` | **TODO:** `internal/interfaces/http/auth_test.go` (file does not exist yet — must be created before M2) |
-| `TestWSRateLimit_TokenBucket` | **TODO:** `internal/interfaces/http/ratelimit_test.go` (file does not exist yet — must be created before M2) |
+| `TestWSAuth_ValidKey` + `TestWSAuth_InvalidKey` | `internal/interfaces/http/auth_test.go` |
+| `TestWSRateLimit_TokenBucket` | `internal/interfaces/http/ratelimit_test.go` |
 
 ### Gate 5: Exchange Parsers
 
@@ -189,7 +189,7 @@ make down
 | 1 | Gate 1 passes on `main` | CI | Pending | `make ci` (`Makefile`) |
 | 2 | Gate 2 soak evidence committed to `.context/evidence/` | Dev | Pending | `make soak-pipeline` (`Makefile`); evidence: `.context/evidence/c4-pipeline-soak.txt` |
 | 3 | Gate 3 compose smoke passes locally and in CI | Dev | Pending | **TODO:** `scripts/smoke-compose.sh`; `make up-core` (`Makefile`) |
-| 4 | Gate 4 delivery contract tests green | Dev | Pending | `internal/actors/delivery/runtime/*_test.go`; **TODO:** `internal/interfaces/http/{auth,ratelimit}_test.go` |
+| 4 | Gate 4 delivery contract tests green | Dev | Done | `internal/actors/delivery/runtime/*_test.go`; `internal/interfaces/http/{auth,ratelimit}_test.go` |
 | 5 | Gate 5 all exchange parsers green | Dev | Pending | `internal/adapters/exchange/{binance,bybit,coinbase,hyperliquid}/parser_test.go` |
 | 6 | `deploy/configs/*.jsonc` reviewed — no `CHANGE_ME` tokens | Dev | Pending | **OPEN:** `deploy/configs/server.jsonc:27` has `CHANGE_ME_prod_key_1` |
 | 7 | Alert rules pass `promtool check rules` | Dev | Pending | `deploy/observability/prometheus/alerts.rules.yml`, `shard-alerts.rules.yml` |
@@ -216,7 +216,7 @@ make down
 |---|---|---|---|---|
 | **M0 — CI Green on main** | All Gate 1 tests pass, no flaky failures | — | `make ci` green for 5 consecutive runs | `Makefile` (`ci` target) |
 | **M1 — Compose Smoke** | `make up-core` boots to healthy; smoke script passes | M0 | Gate 3 green | `Makefile` (`up-core`); **TODO:** `scripts/smoke-compose.sh` |
-| **M2 — Delivery Contract Hardened** | All Gate 4 tests pass; slow-client drop metrics wired | M0 | Gate 4 green + `ws_drops_total` metric exists | `internal/actors/delivery/runtime/`; **TODO:** auth/ratelimit tests |
+| **M2 — Delivery Contract Hardened** | All Gate 4 tests pass; slow-client drop metrics wired | M0 | Gate 4 green + `ws_drops_total` metric exists | `internal/actors/delivery/runtime/`; `internal/interfaces/http/{auth,ratelimit}_test.go` |
 | **M3 — Cold-Path Operational (C3)** | Backfill binary + gap detector + cold-path read ports | M0 | FR-5.3, FR-5.4 green | `cmd/backfill/` (stub); `.context/prompts/codex-prompt-C3-operational-tooling.md` |
 | **M4 — Multi-Exchange Soak (C4)** | 10M-event soak with 4 exchanges, budget assertions | M1, M2 | Gate 2 green; evidence in `.context/evidence/c4-pipeline-soak.txt` | `.context/prompts/codex-prompt-C4-production-soak.md` |
 | **M5 — Backend Stable** | All gates pass; release checklist complete | M1, M2, M3, M4 | Tag `v0.1.0-stable`; PRD-0002 status `Active` | Release Checklist (above) |
@@ -236,6 +236,10 @@ make down
 
 ## Changelog
 
+- 2026-02-19 (gate-4):
+  - Added WS auth contract tests in `internal/interfaces/http/auth_test.go`.
+  - Added WS rate-limit token bucket test in `internal/interfaces/http/ratelimit_test.go`.
+  - Gate 4 checklist item updated to `Done`; removed stale TODO anchors for auth/rate-limit test files.
 - 2026-02-19 (audit):
   - Gate 3: marked `scripts/smoke-compose.sh` as TODO (file does not exist yet).
   - Gate 4: marked `auth_test.go` and `ratelimit_test.go` as TODO (files do not exist yet).

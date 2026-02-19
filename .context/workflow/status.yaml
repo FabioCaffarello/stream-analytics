@@ -1,39 +1,48 @@
 project:
-  name: "shard-alerts-skew-detection"
-  scale: SMALL
-  started: "2026-02-17T18:07:44.925Z"
+  name: "prd0002-gate4-ws-auth-ratelimit"
+  scale: MEDIUM
+  started: "2026-02-19T18:37:13.840Z"
   current_phase: V
 
 phases:
   P:
     status: filled
-    started_at: "2026-02-17T18:07:44.925Z"
-    completed_at: "2026-02-17T18:07:53.159Z"
+    started_at: "2026-02-19T18:37:13.840Z"
+    completed_at: "2026-02-19T18:37:51.810Z"
   R:
-    status: skipped
-    reason: "Not required for scale SMALL"
+    status: filled
+    started_at: "2026-02-19T18:37:51.811Z"
+    completed_at: "2026-02-19T18:38:51.303Z"
   E:
     status: filled
-    started_at: "2026-02-17T18:07:53.159Z"
-    completed_at: "2026-02-17T18:12:34.335Z"
+    started_at: "2026-02-19T18:38:51.304Z"
+    completed_at: "2026-02-19T18:43:59.735Z"
   V:
-    status: filled
-    started_at: "2026-02-17T18:12:34.336Z"
-    completed_at: "2026-02-17T18:12:55.170Z"
+    status: completed
+    started_at: "2026-02-19T18:43:59.737Z"
+    completed_at: "2026-02-19T18:44:04.154Z"
+    outputs:
+      - path: "Validation and confirmation concluded for Gate 4 without introducing new runtime features"
+        status: filled
   C:
     status: skipped
-    reason: "Not required for scale SMALL"
+    reason: "Not required for scale MEDIUM"
 
 execution:
   history:
-    - timestamp: "2026-02-18T16:05:43.857Z"
-      phase: E
-      action: decision_recorded
-      plan: "codebase-evolution-modernization"
-      description: "Decision recorded: Rollout de streams LM coberto com testes de runtime wiring"
-  last_activity: "2026-02-18T16:05:43.857Z"
-  resume_context: "Decisão registrada"
+    - timestamp: "2026-02-19T18:44:04.154Z"
+      phase: V
+      action: completed
+  last_activity: "2026-02-19T18:44:04.154Z"
+  resume_context: "Fase V (Validação) concluída"
+
+settings:
+  autonomous_mode: true
+  require_plan: true
+  require_approval: false
 
 approval:
-  plan_created: true
-  plan_approved: false
+  plan_created: false
+  plan_approved: true
+  approved_by: "system-migration"
+  approved_at: "2026-02-19T18:43:59.735Z"
