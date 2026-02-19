@@ -52,12 +52,12 @@ The project uses Go workspace modules (`go.work`) with actor runtime patterns (`
 Key workflow entrypoints:
 - `make` targets for formatting, lint, test, vulnerability scan, and build.
 - `scripts/*` helpers for module-aware workspace operations.
-- pre-commit hooks for fast local guardrails (`tidy-check`, `fmt-check`, `lint`, `test-short`, commit message validation).
+- pre-commit hooks for fast local guardrails (`legacy-check-staged`, `tidy-check-changed`, `fmt-check`, `lint-changed`, `test-short-changed`, commit message validation), with heavier checks on pre-push and CI.
 
 ## Getting Started Checklist
 1. Install Go toolchain compatible with workspace and install tools with `make install-tools`.
 2. Run `make modules` to inspect workspace module boundaries.
-3. Execute `make test-short` to validate baseline environment quickly.
+3. Execute `make tidy-check-changed && make lint-changed && make test-short-changed` for a fast changed-path validation loop.
 4. Execute `make ci` to run the same quality gates expected in CI.
 5. Run a binary locally, for example `make run APP_CMD=./cmd/server`.
 6. Read [`development-workflow.md`](./development-workflow.md) and [`testing-strategy.md`](./testing-strategy.md) before opening PRs.

@@ -22,9 +22,11 @@ Testing in this repository protects deterministic event processing, actor superv
 - Adapter tests for infrastructure behavior (`internal/adapters/*`).
 
 ## Standard Commands
-- Fast local cycle:
+- Fast local cycle (changed paths only):
 ```bash
-make test-short
+make tidy-check-changed
+make lint-changed
+make test-short-changed
 ```
 - Full suite with race detector and coverage mode:
 ```bash
@@ -37,12 +39,13 @@ make ci VULN_REQUIRED=true
 
 ## Quality Gates
 `make ci` composes the required gates:
-1. `make tidy-check`
-2. `make fmt-check`
-3. `make lint`
-4. `make test`
-5. `make vuln`
-6. `make build`
+1. `make legacy-check`
+2. `make tidy-check`
+3. `make fmt-check`
+4. `make lint`
+5. `make test-workspace-race`
+6. `make vuln`
+7. `make build`
 
 ## Test Design Principles
 - Keep domain behavior deterministic and assertion-oriented.

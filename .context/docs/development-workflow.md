@@ -33,18 +33,23 @@ make modules
 - Keep module dependencies tidy:
 ```bash
 make tidy
-make tidy-check
+make tidy-check-changed
 ```
 - Format and lint:
 ```bash
 make fmt
 make fmt-check
-make lint
+make lint-changed
 ```
 - Run tests:
 ```bash
 make test
-make test-short
+make test-short-changed
+```
+- Run legacy guards:
+```bash
+make legacy-check-staged
+make legacy-check
 ```
 - Run vulnerability scan and full CI-equivalent pipeline:
 ```bash
@@ -72,7 +77,7 @@ Required review checks:
 ## Onboarding Tasks
 1. Read architecture docs in `docs/architecture/` and ADRs in `docs/adrs/`.
 2. Run `make modules` and inspect module boundaries from `go.work`.
-3. Run `make test-short` first, then `make ci`.
+3. Run `make tidy-check-changed && make lint-changed && make test-short-changed` first, then `make ci`.
 4. Explore binary entrypoints in `cmd/` to understand runtime responsibilities.
 
 ## Cross-References

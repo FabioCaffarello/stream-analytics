@@ -61,7 +61,7 @@ Sinais objetivos levantados no repositorio:
 
 - `make docs-check`
 - `make invariants-check`
-- `make test-short`
+- `make test-short-changed`
 - Mudou runtime/core: `make test` + `make test-workspace-race`
 - Fechamento de wave: `make ci`
 

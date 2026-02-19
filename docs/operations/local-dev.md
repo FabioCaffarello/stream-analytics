@@ -70,8 +70,11 @@ Developer checks and gates:
 - Run operability checks (Prometheus rules, etc): `make operability-gates` (alias for `./scripts/check-operability.sh`)
 - Run docs link checks: `make check-doc-links`
 - Install pre-commit hooks locally: `make pre-commit-install`
-- Run linter: `make lint`
-- Run all workspace tests: `make test-workspace`
+- Fast staged Go checks: `make tidy-check-changed && make lint-changed && make test-short-changed`
+- Legacy gate (staged): `make legacy-check-staged`
+- Legacy gate (repo-wide): `make legacy-check`
+- Full CI-equivalent local chain: `make ci`
+- Optional pre-push integration gate (changed paths only): `make test-integration-changed` (`SKIP_INTEGRATION=1` to skip)
 
 Examples:
 
@@ -86,8 +89,11 @@ make logs
 # run the standard gates locally
 ./scripts/check-doc-links.sh
 ./scripts/check-operability.sh
-make lint
-make test-workspace
+make tidy-check-changed
+make lint-changed
+make test-short-changed
+make legacy-check-staged
+make ci
 ```
 
 Reset and troubleshooting
