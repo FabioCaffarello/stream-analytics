@@ -104,6 +104,38 @@ func NewBuildVolumeProfileWithConfig(cfg BuildVolumeProfileConfig) *BuildVolumeP
 	}
 }
 
+// Snapshot returns the latest in-memory volume profile snapshot for a key.
+func (uc *BuildVolumeProfile) Snapshot(venue, instrument, timeframe string) (domain.VolumeProfileSnapshotV1, *problem.Problem) {
+	if p := validation.Collect(
+		validation.NonEmptyString("venue", venue),
+		validation.NonEmptyString("instrument", instrument),
+		validation.NonEmptyString("timeframe", timeframe),
+	); p != nil {
+		return domain.VolumeProfileSnapshotV1{}, p
+	}
+
+	nreq := vpvrNormalizedTrade{
+		venue:      naming.CanonicalVenue(venue),
+		instrument: naming.CanonicalInstrument(instrument),
+		timeframe:  strings.ToLower(strings.TrimSpace(timeframe)),
+	}
+	if _, ok := domain.VPVRTimeframes[nreq.timeframe]; !ok {
+		return domain.VolumeProfileSnapshotV1{}, problem.New(problem.ValidationFailed, "vpvr timeframe is unsupported")
+	}
+
+	key := nreq.venue + "|" + nreq.instrument + "|" + nreq.timeframe
+	ps, ok := uc.states[key]
+	if !ok || len(ps.order) == 0 {
+		return domain.VolumeProfileSnapshotV1{}, problem.Newf(problem.NotFound, "vpvr snapshot not found for %s/%s/%s", venue, instrument, timeframe)
+	}
+	windowStart := ps.order[len(ps.order)-1]
+	ws, ok := ps.windows[windowStart]
+	if !ok {
+		return domain.VolumeProfileSnapshotV1{}, problem.Newf(problem.NotFound, "vpvr snapshot window not found for %s/%s/%s", venue, instrument, timeframe)
+	}
+	return uc.buildSnapshot(nreq, ws)
+}
+
 func (uc *BuildVolumeProfile) Execute(_ context.Context, req BuildVolumeProfileRequest) result.Result[BuildVolumeProfileResponse] {
 	nreq, p := normalizeAndValidateVPVRRequest(req)
 	if p != nil {

@@ -111,6 +111,41 @@ func NewBuildHeatmapWithConfig(cfg BuildHeatmapConfig) *BuildHeatmap {
 	}
 }
 
+// Snapshot returns the latest in-memory heatmap snapshot for a key.
+func (uc *BuildHeatmap) Snapshot(venue, instrument, timeframe string) (domain.HeatmapArtifactV1, *problem.Problem) {
+	if p := validation.Collect(
+		validation.NonEmptyString("venue", venue),
+		validation.NonEmptyString("instrument", instrument),
+		validation.NonEmptyString("timeframe", timeframe),
+	); p != nil {
+		return domain.HeatmapArtifactV1{}, p
+	}
+
+	key := naming.CanonicalVenue(venue) + "|" +
+		naming.CanonicalInstrument(instrument) + "|" +
+		strings.ToLower(strings.TrimSpace(timeframe))
+	ps, ok := uc.states[key]
+	if !ok || len(ps.order) == 0 {
+		return domain.HeatmapArtifactV1{}, problem.Newf(problem.NotFound, "heatmap snapshot not found for %s/%s/%s", venue, instrument, timeframe)
+	}
+	windowStart := ps.order[len(ps.order)-1]
+	ws, ok := ps.windows[windowStart]
+	if !ok {
+		return domain.HeatmapArtifactV1{}, problem.Newf(problem.NotFound, "heatmap snapshot window not found for %s/%s/%s", venue, instrument, timeframe)
+	}
+
+	artifact := toArtifact(BuildHeatmapRequest{
+		Venue:      venue,
+		Instrument: instrument,
+		Timeframe:  timeframe,
+	}, ws)
+	artifact = uc.trimToPayloadBudget(artifact)
+	if p := artifact.Validate(); p != nil {
+		return domain.HeatmapArtifactV1{}, p
+	}
+	return artifact, nil
+}
+
 func (uc *BuildHeatmap) Execute(_ context.Context, req BuildHeatmapRequest) result.Result[BuildHeatmapResponse] {
 	if p := validateHeatmapRequest(req); p != nil {
 		return result.FailProblem[BuildHeatmapResponse](p)
