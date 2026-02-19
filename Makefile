@@ -9,6 +9,8 @@ GOLANGCI_LINT_VERSION ?= v2.6.0
 GOVULNCHECK_VERSION ?= latest
 PROTOC_GEN_GO_VERSION ?= v1.36.11
 BUF_VERSION ?= v1.57.2
+PROCESSOR_REPLICAS ?= 1
+PROCESSOR_SHARD_COUNT ?= $(PROCESSOR_REPLICAS)
 
 APP_NAME ?= server
 APP_CMD ?= ./cmd/server
@@ -99,6 +101,8 @@ help:
 	@echo "  make run                - run selected app (default: server)"
 	@echo "  make down               - stop full stack"
 	@echo "  make up                 - start full stack (nats + timescale + clickhouse + app services + observability)"
+	@echo "                           vars: PROCESSOR_REPLICAS=N, PROCESSOR_SHARD_COUNT (defaults to N; consumer fixed at 1 replica)"
+	@echo "                           dev/local: SHARD_INDEX is auto-derived from replica hostname when unset"
 	@echo "  make up-infra           - start only infrastructure services (nats + timescale + clickhouse + prometheus + grafana)"
 	@echo "  make up-core            - start infra + core app services (no observability)"
 	@echo "  make ps                 - list compose service status"
@@ -423,7 +427,14 @@ docker-build:
 	docker compose -f deploy/compose/docker-compose.yml --profile core build
 
 up:
-	docker compose -f deploy/compose/docker-compose.yml --profile core --profile obs up --build -d
+	@set -euo pipefail; \
+	p_rep="$(PROCESSOR_REPLICAS)"; \
+	if [ "$$p_rep" -lt 1 ]; then \
+		echo "PROCESSOR_REPLICAS must be >= 1 (got $$p_rep)"; exit 1; \
+	fi; \
+	PROCESSOR_SHARD_COUNT=$(PROCESSOR_SHARD_COUNT) \
+	docker compose -f deploy/compose/docker-compose.yml --profile core --profile obs up --build -d \
+		--scale processor=$$p_rep
 
 down:
 	docker compose -f deploy/compose/docker-compose.yml --profile core --profile obs down -v --remove-orphans
@@ -432,7 +443,14 @@ up-infra:
 	docker compose -f deploy/compose/docker-compose.yml --profile obs up -d nats timescale clickhouse prometheus grafana
 
 up-core:
-	docker compose -f deploy/compose/docker-compose.yml --profile core up --build -d
+	@set -euo pipefail; \
+	p_rep="$(PROCESSOR_REPLICAS)"; \
+	if [ "$$p_rep" -lt 1 ]; then \
+		echo "PROCESSOR_REPLICAS must be >= 1 (got $$p_rep)"; exit 1; \
+	fi; \
+	PROCESSOR_SHARD_COUNT=$(PROCESSOR_SHARD_COUNT) \
+	docker compose -f deploy/compose/docker-compose.yml --profile core up --build -d \
+		--scale processor=$$p_rep
 
 ps:
 	docker compose -f deploy/compose/docker-compose.yml --profile core --profile obs ps

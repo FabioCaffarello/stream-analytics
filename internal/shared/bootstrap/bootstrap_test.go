@@ -1,16 +1,15 @@
-package bootstrap_test
+package bootstrap
 
 import (
 	"context"
 	"log/slog"
 	"testing"
 
-	"github.com/market-raccoon/internal/shared/bootstrap"
 	"github.com/market-raccoon/internal/shared/config"
 )
 
 func TestBuildLogger_TextFormat(t *testing.T) {
-	logger := bootstrap.BuildLogger(config.LogConfig{Level: "debug", Format: "text"})
+	logger := BuildLogger(config.LogConfig{Level: "debug", Format: "text"})
 	if logger == nil {
 		t.Fatal("expected non-nil logger")
 	}
@@ -20,7 +19,7 @@ func TestBuildLogger_TextFormat(t *testing.T) {
 }
 
 func TestBuildLogger_JSONFormat(t *testing.T) {
-	logger := bootstrap.BuildLogger(config.LogConfig{Level: "warn", Format: "json"})
+	logger := BuildLogger(config.LogConfig{Level: "warn", Format: "json"})
 	if logger == nil {
 		t.Fatal("expected non-nil logger")
 	}
@@ -30,7 +29,7 @@ func TestBuildLogger_JSONFormat(t *testing.T) {
 }
 
 func TestBuildLogger_InvalidLevel_DefaultsToInfo(t *testing.T) {
-	logger := bootstrap.BuildLogger(config.LogConfig{Level: "invalid", Format: "text"})
+	logger := BuildLogger(config.LogConfig{Level: "invalid", Format: "text"})
 	if logger == nil {
 		t.Fatal("expected non-nil logger")
 	}
@@ -43,7 +42,7 @@ func TestBuildLogger_InvalidLevel_DefaultsToInfo(t *testing.T) {
 }
 
 func TestLoadAndValidate_EmptyPath_ReturnsDefaults(t *testing.T) {
-	cfg, prob := bootstrap.LoadAndValidate("")
+	cfg, prob := LoadAndValidate("")
 	if prob != nil {
 		t.Fatalf("unexpected problem: %v", prob)
 	}
@@ -56,7 +55,7 @@ func TestLoadAndValidate_EmptyPath_ReturnsDefaults(t *testing.T) {
 }
 
 func TestLoadAndValidate_WithOverrides(t *testing.T) {
-	cfg, prob := bootstrap.LoadAndValidate("", func(c *config.AppConfig) {
+	cfg, prob := LoadAndValidate("", func(c *config.AppConfig) {
 		c.HTTP.Addr = ":9090"
 		c.Log.Level = "debug"
 	})
@@ -72,7 +71,7 @@ func TestLoadAndValidate_WithOverrides(t *testing.T) {
 }
 
 func TestLoadAndValidate_InvalidConfig_ReturnsProblem(t *testing.T) {
-	_, prob := bootstrap.LoadAndValidate("", func(c *config.AppConfig) {
+	_, prob := LoadAndValidate("", func(c *config.AppConfig) {
 		c.Log.Level = "invalid_level"
 	})
 	if prob == nil {
@@ -85,7 +84,7 @@ func TestApplyShardOverrides_FlagsOverrideConfig(t *testing.T) {
 	cfg.Shard.Index = 0
 	cfg.Shard.Count = 1
 
-	bootstrap.ApplyShardOverrides(&cfg, 2, 4)
+	ApplyShardOverrides(&cfg, 2, 4)
 
 	if cfg.Shard.Index != 2 {
 		t.Errorf("expected shard index 2, got %d", cfg.Shard.Index)
@@ -104,20 +103,100 @@ func TestApplyShardOverrides_FlagsOverrideConfig(t *testing.T) {
 func TestApplyShardOverrides_NegativeFlags_NoOverride(t *testing.T) {
 	cfg := defaultTestConfig()
 	cfg.Shard.Index = 1
-	cfg.Shard.Count = 3
+	cfg.Shard.Count = 1
 
-	bootstrap.ApplyShardOverrides(&cfg, -1, -1)
+	ApplyShardOverrides(&cfg, -1, -1)
+
+	if cfg.Shard.Index != 0 {
+		t.Errorf("expected shard index to default to 0 for single shard, got %d", cfg.Shard.Index)
+	}
+	if cfg.Shard.Count != 1 {
+		t.Errorf("expected shard count 1 (unchanged), got %d", cfg.Shard.Count)
+	}
+}
+
+func TestApplyShardOverrides_HostnameFallbackWhenIndexUnset(t *testing.T) {
+	t.Setenv("SHARD_INDEX", "")
+	t.Setenv("SHARD_COUNT", "2")
+	hostnameProvider = func() (string, error) { return "market-raccoon-processor-2", nil }
+	composeContainerNumberProvider = defaultComposeContainerNumberProvider
+	t.Cleanup(func() {
+		hostnameProvider = defaultHostnameProvider
+		composeContainerNumberProvider = defaultComposeContainerNumberProvider
+	})
+
+	cfg := defaultTestConfig()
+	cfg.Shard.Index = 0
+	cfg.Shard.Count = 1
+
+	ApplyShardOverrides(&cfg, -1, -1)
 
 	if cfg.Shard.Index != 1 {
-		t.Errorf("expected shard index 1 (unchanged), got %d", cfg.Shard.Index)
+		t.Fatalf("expected shard index from hostname=1, got %d", cfg.Shard.Index)
+	}
+	if cfg.Shard.Count != 2 {
+		t.Fatalf("expected shard count from env=2, got %d", cfg.Shard.Count)
+	}
+	if cfg.JetStream.ShardGroupCount != 2 {
+		t.Fatalf("expected jetstream shard group count 2, got %d", cfg.JetStream.ShardGroupCount)
+	}
+}
+
+func TestApplyShardOverrides_UnresolvedIndexFailsForMultiShard(t *testing.T) {
+	t.Setenv("SHARD_INDEX", "")
+	t.Setenv("SHARD_COUNT", "3")
+	hostnameProvider = func() (string, error) { return "processor", nil }
+	composeContainerNumberProvider = defaultComposeContainerNumberProvider
+	t.Cleanup(func() {
+		hostnameProvider = defaultHostnameProvider
+		composeContainerNumberProvider = defaultComposeContainerNumberProvider
+	})
+
+	cfg := defaultTestConfig()
+	cfg.Shard.Index = 0
+	cfg.Shard.Count = 1
+
+	ApplyShardOverrides(&cfg, -1, -1)
+
+	if cfg.Shard.Index != -1 {
+		t.Fatalf("expected unresolved shard index=-1, got %d", cfg.Shard.Index)
 	}
 	if cfg.Shard.Count != 3 {
-		t.Errorf("expected shard count 3 (unchanged), got %d", cfg.Shard.Count)
+		t.Fatalf("expected shard count from env=3, got %d", cfg.Shard.Count)
+	}
+}
+
+func TestApplyShardOverrides_ComposeContainerIDFallbackWhenIndexUnset(t *testing.T) {
+	t.Setenv("SHARD_INDEX", "")
+	t.Setenv("SHARD_COUNT", "3")
+	hostnameProvider = func() (string, error) { return "13d5d7951762", nil }
+	composeContainerNumberProvider = func(containerID string) (int, bool) {
+		if containerID != "13d5d7951762" {
+			return 0, false
+		}
+		return 3, true
+	}
+	t.Cleanup(func() {
+		hostnameProvider = defaultHostnameProvider
+		composeContainerNumberProvider = defaultComposeContainerNumberProvider
+	})
+
+	cfg := defaultTestConfig()
+	cfg.Shard.Index = 0
+	cfg.Shard.Count = 1
+
+	ApplyShardOverrides(&cfg, -1, -1)
+
+	if cfg.Shard.Index != 2 {
+		t.Fatalf("expected shard index 2 from compose container-number, got %d", cfg.Shard.Index)
+	}
+	if cfg.Shard.Count != 3 {
+		t.Fatalf("expected shard count from env=3, got %d", cfg.Shard.Count)
 	}
 }
 
 func TestSignalChannel_ReturnsNonNil(t *testing.T) {
-	ch := bootstrap.SignalChannel()
+	ch := SignalChannel()
 	if ch == nil {
 		t.Fatal("expected non-nil signal channel")
 	}

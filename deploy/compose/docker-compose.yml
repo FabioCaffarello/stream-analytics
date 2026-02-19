@@ -47,8 +47,6 @@ services:
     networks:
       - market-raccoon-network
     restart: unless-stopped
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
     deploy:
       resources:
         limits:
@@ -96,14 +94,12 @@ services:
       context: ../..
       dockerfile: deploy/docker/consumer.Dockerfile
     image: market-raccoon/consumer:dev
-    # container_name omitted to allow --scale consumer=N
-    # Scale with: docker compose up --scale consumer=2 (set SHARD_INDEX per instance).
-    command: ["-config", "/etc/market-raccoon/consumer.jsonc", "-shard-index", "${SHARD_INDEX:-0}", "-shard-count", "${SHARD_COUNT:-1}"]
+    command: ["-config", "/etc/market-raccoon/consumer.jsonc"]
+    environment:
+      SHARD_INDEX: 0
+      SHARD_COUNT: ${CONSUMER_SHARD_COUNT:-1}
     ports:
       - "8081"
-    environment:
-      SHARD_INDEX: "${SHARD_INDEX:-0}"
-      SHARD_COUNT: "${SHARD_COUNT:-1}"
     volumes:
       - ../configs/consumer.jsonc:/etc/market-raccoon/consumer.jsonc:ro
     depends_on:
@@ -134,15 +130,15 @@ services:
       context: ../..
       dockerfile: deploy/docker/processor.Dockerfile
     image: market-raccoon/processor:dev
-    # container_name omitted to allow --scale processor=N
-    command: ["-config", "/etc/market-raccoon/processor.jsonc", "-shard-index", "${SHARD_INDEX:-0}", "-shard-count", "${SHARD_COUNT:-1}"]
+    command: ["-config", "/etc/market-raccoon/processor.jsonc"]
+    user: "0:0"
+    environment:
+      SHARD_COUNT: ${PROCESSOR_SHARD_COUNT:-1}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ../configs/processor.jsonc:/etc/market-raccoon/processor.jsonc:ro
     ports:
       - "8082"
-    environment:
-      SHARD_INDEX: "${SHARD_INDEX:-0}"
-      SHARD_COUNT: "${SHARD_COUNT:-1}"
-    volumes:
-      - ../configs/processor.jsonc:/etc/market-raccoon/processor.jsonc:ro
     depends_on:
       nats:
         condition: service_healthy
@@ -181,6 +177,7 @@ services:
       - "127.0.0.1:8083:8083"
     volumes:
       - ../configs/store.jsonc:/etc/market-raccoon/store.jsonc:ro
+      - ../../sql/clickhouse/migrations:/sql/clickhouse/migrations:ro
     depends_on:
       nats:
         condition: service_healthy
@@ -218,8 +215,6 @@ services:
       - ../../sql/clickhouse/migrations:/docker-entrypoint-initdb.d:ro
     cap_add:
       - SYS_NICE
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
     networks:
       - market-raccoon-network
     env_file:
