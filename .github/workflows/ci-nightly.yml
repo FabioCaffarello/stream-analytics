@@ -1,0 +1,92 @@
+name: ci-nightly
+
+# Tier 3 CI: long-running validations on a daily schedule.
+# Catches drift, performance regressions, CVEs, and soak failures.
+
+on:
+  schedule:
+    - cron: '0 4 * * *'   # 04:00 UTC daily
+  workflow_dispatch:
+    inputs:
+      skip_soak:
+        description: 'Skip soak tests (run vuln/legacy/bench only)'
+        type: boolean
+        default: false
+
+permissions: {}
+
+jobs:
+  # ── Soak harnesses (all suites) ────────────────────────────────────
+  soak:
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      github.event.inputs.skip_soak != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      - uses: ./.github/actions/setup-go-workspace
+      - name: Run soak-check (core + vpvr + roundtrip)
+        run: make soak-check
+      - name: Run soak-store
+        run: make soak-store
+      - name: Run soak-cold-path
+        run: make soak-cold-path
+      - name: Run soak-roundtrip
+        run: make soak-roundtrip
+      - name: Run soak-pipeline
+        run: MR_ENABLE_SOAK=1 make soak-pipeline
+      - name: Run soak-ws-delivery
+        run: make soak-ws-delivery
+      - name: Upload soak evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: soak-evidence-${{ github.run_id }}
+          path: .context/evidence/
+          retention-days: 30
+
+  # ── Vulnerability scan ─────────────────────────────────────────────
+  vuln-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      - uses: ./.github/actions/setup-go-workspace
+        with:
+          install-lint-tools: 'true'
+      - name: Run govulncheck
+        run: VULN_REQUIRED=true make vuln
+
+  # ── Full legacy string scan ────────────────────────────────────────
+  legacy-check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      - uses: ./.github/actions/setup-go-workspace
+      - name: Full legacy scan
+        run: make legacy-check
+
+  # ── Benchmark baseline refresh ─────────────────────────────────────
+  bench-baseline:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      - uses: ./.github/actions/setup-go-workspace
+      - name: Run benchmark baseline (count=5)
+        run: |
+          mkdir -p .benchmarks
+          make bench-baseline
+      - name: Upload baseline artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: bench-baseline-${{ github.run_id }}
+          path: .benchmarks/baseline.txt
+          retention-days: 90

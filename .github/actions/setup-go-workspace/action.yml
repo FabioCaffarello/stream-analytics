@@ -1,0 +1,66 @@
+name: 'Setup Go Workspace'
+description: 'Setup Go from go.work, restore caches, install tools'
+
+inputs:
+  install-proto-tools:
+    description: 'Install buf + protoc-gen-go (pinned in Makefile)'
+    default: 'false'
+  install-lint-tools:
+    description: 'Install golangci-lint + govulncheck (pinned in Makefile)'
+    default: 'false'
+  install-promtool:
+    description: 'Install prometheus promtool'
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Go
+      uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5  # v6.2.0
+      with:
+        go-version-file: go.work
+        cache: true
+        cache-dependency-path: |
+          **/go.sum
+          go.work.sum
+
+    - name: Align cache paths with setup-go
+      shell: bash
+      run: |
+        echo "GOCACHE=$(go env GOCACHE)" >> "$GITHUB_ENV"
+        echo "GOMODCACHE=$(go env GOMODCACHE)" >> "$GITHUB_ENV"
+        echo "GOLANGCI_LINT_CACHE=$HOME/.cache/golangci-lint" >> "$GITHUB_ENV"
+
+    - name: Restore tool cache
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+      with:
+        path: |
+          ./bin
+          ~/go/bin
+        key: go-tools-${{ runner.os }}-${{ hashFiles('Makefile') }}
+        restore-keys: go-tools-${{ runner.os }}-
+
+    - name: Install proto tools
+      if: inputs.install-proto-tools == 'true'
+      shell: bash
+      run: make proto-tools
+
+    - name: Install lint tools
+      if: inputs.install-lint-tools == 'true'
+      shell: bash
+      run: make install-tools
+
+    - name: Install promtool
+      if: inputs.install-promtool == 'true'
+      shell: bash
+      run: |
+        if command -v promtool >/dev/null 2>&1; then
+          echo "promtool already cached"
+        else
+          PROMTOOL_VERSION="${PROMTOOL_VERSION:-3.9.1}"
+          echo "Installing promtool ${PROMTOOL_VERSION} from GitHub release"
+          mkdir -p "$HOME/go/bin"
+          curl -sSLf "https://github.com/prometheus/prometheus/releases/download/v${PROMTOOL_VERSION}/prometheus-${PROMTOOL_VERSION}.linux-amd64.tar.gz" \
+            | tar xzf - --strip-components=1 -C "$HOME/go/bin" "prometheus-${PROMTOOL_VERSION}.linux-amd64/promtool"
+        fi
+        promtool --version

@@ -18,7 +18,7 @@ This repository follows a deterministic workflow centered on Go workspaces, Make
 - Main integration branch: `main`.
 - Feature/fix branches should be short-lived and focused on a single concern.
 - Commit messages should follow Conventional Commits (enforced by pre-commit commit-msg hook script).
-- CI runs on `push` to `main` and all pull requests (`.github/workflows/ci.yml`).
+- CI runs in tiers: `ci-fast` (every PR/push), `ci-full` (path/label-triggered), `ci-nightly` (scheduled). See `.github/workflows/ci-*.yml`.
 - Release cadence is currently commit-driven; binaries are built from `cmd/*` through `make build`.
 
 ## Local Development

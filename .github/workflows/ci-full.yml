@@ -1,0 +1,84 @@
+name: ci-full
+
+# Tier 2 CI: heavier gates run conditionally on high-impact changes.
+# Triggers: path-based (auto), label-based (ci:full / ci:integration), manual dispatch.
+
+on:
+  pull_request:
+    paths:
+      - 'internal/**'
+      - 'cmd/**'
+      - 'proto/**'
+      - '**/go.mod'
+      - '**/go.sum'
+      - 'go.work'
+      - 'go.work.sum'
+      - '.github/workflows/ci-full.yml'
+
+  workflow_dispatch:
+    inputs:
+      skip_bench:
+        description: 'Skip bench-check (useful for docs-only hotfixes)'
+        type: boolean
+        default: false
+      skip_integration:
+        description: 'Skip integration tests'
+        type: boolean
+        default: false
+
+concurrency:
+  group: ci-full-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  # ── Race-enabled workspace tests ────────────────────────────────────
+  test-race:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      - uses: ./.github/actions/setup-go-workspace
+      - name: Workspace tests with -race
+        run: make test-workspace-race
+
+  # ── Replay golden determinism suite ─────────────────────────────────
+  test-replay-golden:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      - uses: ./.github/actions/setup-go-workspace
+      - name: Replay golden tests
+        run: make test-replay-golden
+
+  # ── Benchmark regression gate ───────────────────────────────────────
+  bench-check:
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      github.event.inputs.skip_bench != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      - uses: ./.github/actions/setup-go-workspace
+      - name: Benchmark regression check
+        run: BENCH_THRESHOLD=20 make bench-check
+
+  # ── JetStream integration (testcontainers — needs Docker) ──────────
+  integration-jetstream:
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      github.event.inputs.skip_integration != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      - uses: ./.github/actions/setup-go-workspace
+      - name: JetStream integration tests
+        run: go test -tags=integration ./internal/adapters/jetstream -count=1 -v -timeout=5m

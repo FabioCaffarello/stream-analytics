@@ -66,10 +66,10 @@ There is no hard numeric threshold in CI, but practical expectations are:
 - Changed public behavior in runtime/interfaces requires tests that fail before the fix.
 
 ## CI/CD Integration
-GitHub Actions workflow (`.github/workflows/ci.yml`) runs:
-- Go setup
-- Tool installation (`make install-tools`)
-- Full pipeline (`make ci VULN_REQUIRED=true`)
+GitHub Actions workflows (`.github/workflows/ci-*.yml`) run in tiers:
+- **ci-fast** (every PR): lint, unit tests, proto checks, operability gates
+- **ci-full** (path/label-triggered): race tests, replay golden, bench regression, integration
+- **ci-nightly** (scheduled): soak harnesses, govulncheck, legacy scan, bench baseline
 
 This means local `make ci VULN_REQUIRED=true` is the closest reliable pre-PR signal.
 

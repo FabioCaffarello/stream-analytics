@@ -50,6 +50,6 @@ This folder is the operational knowledge base for contributors and AI agents wor
 4. Use `tooling.md` for local setup, linting, reproducibility, and CI parity.
 
 ## Maintenance Rules
-- Keep documentation aligned with `Makefile`, `go.work`, and `.github/workflows/ci.yml`.
+- Keep documentation aligned with `Makefile`, `go.work`, and `.github/workflows/ci-*.yml`.
 - When adding/changing a subsystem, update both docs and agent playbooks.
 - Treat docs as versioned engineering assets, not optional notes.

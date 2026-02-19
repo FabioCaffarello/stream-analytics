@@ -26,8 +26,9 @@ if [[ -z "$BENCHSTAT" ]]; then
   BENCHSTAT="$(command -v benchstat 2>/dev/null || true)"
 fi
 if [[ -z "$BENCHSTAT" ]]; then
-  echo "bench-check: benchstat not in PATH — installing to /tmp/gobin"
-  GOBIN=/tmp/gobin go install golang.org/x/perf/cmd/benchstat@latest
+  BENCHSTAT_VERSION="${BENCHSTAT_VERSION:-v0.0.0-20260211190930-8161c38c6cdc}"
+  echo "bench-check: benchstat not in PATH — installing ${BENCHSTAT_VERSION} to /tmp/gobin"
+  GOBIN=/tmp/gobin go install "golang.org/x/perf/cmd/benchstat@${BENCHSTAT_VERSION}"
   BENCHSTAT=/tmp/gobin/benchstat
 fi
 

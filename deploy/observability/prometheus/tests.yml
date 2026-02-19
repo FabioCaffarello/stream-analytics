@@ -83,7 +83,7 @@ tests:
             exp_annotations:
               summary: "Cold-path commit errors detected"
               description: "Cold-path commit/write related errors are increasing in the last 5 minutes."
-              runbook_url: "docs/observability/runbooks/guardian.md"
+              runbook_url: "docs/operations/cold-path-runbook.md"
 
   # ── Test 4 ────────────────────────────────────────────────────────────────
   # SLOIngestBurnRateFast must NOT fire when only the 5m window exceeds 14.4
@@ -209,7 +209,7 @@ tests:
             exp_annotations:
               summary: "Store commit latency p95 exceeds 1s"
               description: "Cold-path ClickHouse commit p95 latency is above 1 second for 5 minutes, indicating storage degradation."
-              runbook_url: "docs/operations/degradation.md"
+              runbook_url: "docs/operations/cold-path-runbook.md"
 
   # ── Test 6a ───────────────────────────────────────────────────────────────
   # SLOIngestBurnRateSlow must fire when BOTH 30m and 6h windows exceed 6.
