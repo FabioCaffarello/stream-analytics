@@ -1,5 +1,8 @@
 # Horizontal Scaling with Static Shard-Range Consumers
 
+**Status:** Active
+**Last updated:** 2026-02-19
+
 ## Overview
 
 Market-raccoon processors scale horizontally using **static shard-range

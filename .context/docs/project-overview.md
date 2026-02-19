@@ -15,7 +15,6 @@ scaffoldVersion: "2.0.0"
 Market Raccoon is a market intelligence backend that ingests market data, normalizes and sequences events, builds read models, and serves runtime/delivery capabilities through an actor-based architecture. It is designed for deterministic processing, replayability, and low-latency delivery rather than trade execution.
 
 ## Quick Facts
-- Root: `/Volumes/OWC Express 1M2/Develop/market-raccoon`
 - Primary language: Go (workspace with multiple modules in `go.work`)
 - Main entrypoints: `cmd/consumer`, `cmd/processor`, `cmd/server`
 - Build orchestration: `Makefile`
@@ -65,5 +64,5 @@ Key workflow entrypoints:
 ## Next Steps
 For design decisions and future direction, continue with:
 - `../../docs/architecture/README.md`
-- `../../docs/architecture/moat.md`
+- `../../docs/prd/moat.md`
 - `../../docs/adrs/`

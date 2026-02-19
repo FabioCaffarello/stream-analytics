@@ -40,7 +40,7 @@ Current derived events in runtime:
 - `insights.crossvenue.spread_signal.v1.global.{instrument}`
 
 Planned derived events for storage fanout (not implemented in this cycle):
-- `aggregation.snapshot.v1.{venue}.{instrument}` (subject root alignment tracked in `docs/rfcs/ADR-REVISIONS-patch-plan.md`, NOTE-001)
+- `aggregation.snapshot.v1.{venue}.{instrument}` (subject root alignment tracked in `docs/rfcs/archive/ADR-REVISIONS-patch-plan.md`, NOTE-001)
 - `insights.<heatmap_event>.v1.{venue}.{instrument}` (TBD registry key under existing taxonomy)
 - `insights.<volume_profile_event>.v1.{venue}.{instrument}` (TBD registry key under existing taxonomy)
 

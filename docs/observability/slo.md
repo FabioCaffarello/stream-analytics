@@ -1,5 +1,8 @@
 # SLO / SLI (Market-Raccoon)
 
+**Status:** Active
+**Last updated:** 2026-02-19
+
 ## SLO-1: Ingest Success Ratio
 - Objective (30d): `99.9%`
 - SLI: successful ingest ratio (`ok / total`) from ingest pipeline.

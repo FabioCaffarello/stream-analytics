@@ -206,9 +206,9 @@ without requiring rewrites.
 
 ### Observability
 
-- [Metrics Budget & Label Policy](./metrics-budget-label-policy.md)
+- [Metrics Budget & Label Policy](../observability/metrics-policy.md)
  - [Sharding and consumer group operations](../operations/sharding.md)
- - [Local dev observability setup](../operations/local-dev.md)
+ - [Local dev setup](../../.context/docs/local-dev.md)
 
 ### ADR Index
 
@@ -246,19 +246,20 @@ without requiring rewrites.
 - [RFC-0010](../rfcs/RFC-0010-W9-multi-exchange-readiness.md)
 - [RFC-0011](../rfcs/RFC-0011-product-parity-marketmonkey.md)
 - [EXECUTION-SEQUENCE](../rfcs/EXECUTION-SEQUENCE.md)
-- [ADR-REVISIONS patch plan](../rfcs/ADR-REVISIONS-patch-plan.md)
-- [W4-W5 Audit](../rfcs/W4-W5-AUDIT.md)
-- [W5.1 Sweep Throttling](../rfcs/W5.1-SWEEP-THROTTLING.md)
+- [ADR-REVISIONS patch plan](../rfcs/archive/ADR-REVISIONS-patch-plan.md) (ARCHIVED)
+- [W4-W5 Audit](../audits/W4-W5-AUDIT.md) (ARCHIVED)
+- [W5.1 Sweep Throttling](../rfcs/archive/W5.1-SWEEP-THROTTLING.md) (ARCHIVED)
 
 ### Architecture Docs Index
 
 - [Architecture Overview](README.md)
-- [Doc Contract Template](doc-contract-template.md)
+- [Doc Contract Template](../../.context/docs/doc-contract-template.md)
 - [System Invariants](system-invariants.md)
 - [TRUTH-MAP](TRUTH-MAP.md)
 - [Ingestion](ingestion.md)
 - [Insights](insights.md)
-- [Moat](moat.md)
+- [Moat](../prd/moat.md)
+- [Authority Map](AUTHORITY-MAP.md)
 - [Storage](storage.md)
 - [Orderbook](orderbook.md)
 - [Heatmap](heatmap.md)

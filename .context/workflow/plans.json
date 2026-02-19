@@ -1,22 +1,13 @@
 {
   "active": [
     {
-      "slug": "shard-production-grade",
-      "path": "plans/shard-production-grade.md",
-      "title": "Production-Grade Shardability: Budgets, Invariants & Runbook",
-      "summary": "Make sharding production-grade with lag/backlog budgets per shard, fairness/distribution checks, hot-shard skew alerting, and operational runbook for shard incidents.",
-      "linkedAt": "2026-02-17T18:07:50.444Z",
-      "status": "active"
-    },
-    {
-      "slug": "codebase-evolution-modernization",
-      "path": "plans/codebase-evolution-modernization.md",
-      "title": "Codebase Evolution and Modernization Program",
-      "summary": "Plano mestre para remover legado, consolidar design patterns, fechar lacunas de implementacao planejada e definir a evolucao do Market Raccoon com gates de qualidade.",
-      "linkedAt": "2026-02-18T15:21:48.588Z",
+      "slug": "prd0002-next-steps",
+      "path": "plans/prd0002-next-steps.md",
+      "title": "PRD-0002 Next Steps",
+      "linkedAt": "2026-02-19T18:55:49.573Z",
       "status": "active"
     }
   ],
   "completed": [],
-  "primary": "shard-production-grade"
+  "primary": "prd0002-next-steps"
 }

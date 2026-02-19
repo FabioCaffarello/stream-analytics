@@ -11,9 +11,11 @@
 - Mapping refs: [ADR-0017](../../../docs/adrs/ADR-0017-multi-exchange-normalization.md), [delivery-ws](../../../docs/contracts/delivery-ws.md).
 
 ## Invariants
-- Dedup key must be deterministic and replay-stable ([liquidations-markprice](../../../docs/architecture/liquidations-markprice.md), [ADR-0015](../../../docs/adrs/ADR-0015-deterministic-replay-time-invariants.md)).
-- Canonical venue/instrument mapping is mandatory ([ADR-0011](../../../docs/adrs/ADR-0011-marketdata-binance-canonical-instrument-and-event-mapping.md), [ADR-0017](../../../docs/adrs/ADR-0017-multi-exchange-normalization.md)).
-- Subject taxonomy remains deterministic ([ADR-0014](../../../docs/adrs/ADR-0014-stream-partitioning-strategy.md)).
+- LM-1: Dedup key must be deterministic and replay-stable ([liquidations-markprice](../../../docs/architecture/liquidations-markprice.md), [ADR-0015](../../../docs/adrs/ADR-0015-deterministic-replay-time-invariants.md)).
+- LM-2: Same input message cannot create multiple commits (hot/cold) ([liquidations-markprice](../../../docs/architecture/liquidations-markprice.md)).
+- LM-3: Canonical venue/instrument mapping is mandatory ([ADR-0011](../../../docs/adrs/ADR-0011-marketdata-binance-canonical-instrument-and-event-mapping.md), [ADR-0017](../../../docs/adrs/ADR-0017-multi-exchange-normalization.md)).
+- LM-4: Backpressure priority: markprice > liquidation ([ADR-0013](../../../docs/adrs/ADR-0013-backpressure-overload-policies.md)).
+- LM-5: Replay of same fixture preserves same output time series ([ADR-0015](../../../docs/adrs/ADR-0015-deterministic-replay-time-invariants.md)).
 
 ## Backpressure
 - Bounded queue by `(venue,instrument)` with observable drop reason ([ADR-0013](../../../docs/adrs/ADR-0013-backpressure-overload-policies.md)).

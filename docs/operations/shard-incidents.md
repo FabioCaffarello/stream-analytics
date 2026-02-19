@@ -1,5 +1,8 @@
 # Shard Incident Runbook
 
+**Status:** Active
+**Last updated:** 2026-02-19
+
 Operational runbook for diagnosing and resolving shard-related incidents in
 Market Raccoon processor deployments.
 

@@ -55,7 +55,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules workspace-check tidy tidy-check tidy-check-changed fmt fmt-check vet quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check legacy-check-staged legacy-check lint lint-changed test test-root test-workspace test-workspace-race test-unit test-integration test-integration-changed test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store soak-roundtrip soak-pipeline soak-ws-delivery soak-full test-short test-short-changed bench-hotpath vuln build run clean docker-build up down up-infra up-core dev-scale-smoke ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci
+.PHONY: help install-tools tools modules workspace-check tidy tidy-check go-tidy-check tidy-check-changed fmt fmt-check vet shell-script-check quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check legacy-check-staged legacy-check lint lint-changed smoke test test-root test-workspace test-workspace-race test-unit test-integration test-integration-changed test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store soak-roundtrip soak-pipeline soak-ws-delivery soak-full test-short test-short-changed bench-hotpath vuln build run clean docker-build up down up-infra up-core dev-scale-smoke ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci
 
 help:
 	@echo "Targets:"
@@ -65,9 +65,11 @@ help:
 	@echo "  make workspace-check    - validate all go.work modules resolve with go list"
 	@echo "  make tidy               - run go mod tidy in workspace modules"
 	@echo "  make tidy-check         - fail if go.mod/go.sum are not tidy"
+	@echo "  make go-tidy-check      - alias for tidy-check"
 	@echo "  make tidy-check-changed - run tidy-check only when staged/worktree includes go.mod/go.sum/go.work"
 	@echo "  make fmt                - format all Go files (gofmt)"
 	@echo "  make fmt-check          - check formatting (gofmt -l)"
+	@echo "  make shell-script-check - syntax-check all scripts/*.sh with bash -n"
 	@echo "  make vet                - run go vet in workspace modules"
 	@echo "  make legacy-check-staged - scan staged files + key configs for forbidden legacy strings"
 	@echo "  make legacy-check       - scan full repository for forbidden legacy strings"
@@ -114,6 +116,7 @@ help:
 	@echo "                           dev/local: SHARD_INDEX is auto-derived from replica hostname when unset"
 	@echo "  make up-infra           - start only infrastructure services (nats + timescale + clickhouse + prometheus + grafana)"
 	@echo "  make up-core            - start infra + core app services (no observability)"
+	@echo "  make smoke              - wait up to 60s for /readyz on core services via docker compose"
 	@echo "  make dev-scale-smoke    - start core with N processor replicas and print shard-resolution evidence"
 	@echo "                           vars: N or PROCESSOR_REPLICAS (default 3 for this target)"
 	@echo "  make ps                 - list compose service status"
@@ -180,6 +183,9 @@ tidy-check:
 		exit 1; \
 	fi
 
+go-tidy-check:
+	@$(MAKE) tidy-check
+
 tidy-check-changed:
 	@set -euo pipefail; \
 	changed="$$(./scripts/list-changed-files.sh --auto || true)"; \
@@ -202,6 +208,9 @@ fmt-check:
 
 vet:
 	$(call RUN_IN_MODULES,bash -lc 'pkgs="$$( $(GO) list ./... 2>/dev/null || true )"; if [ -n "$$pkgs" ]; then $(GO) vet $$pkgs; else echo "no packages to vet (skipping)"; fi')
+
+shell-script-check:
+	@bash -n scripts/*.sh
 
 quick:
 	@$(MAKE) fmt-check
@@ -532,6 +541,10 @@ up-core:
 	PROCESSOR_SHARD_COUNT=$(PROCESSOR_SHARD_COUNT) \
 	docker compose -f deploy/compose/docker-compose.yml --profile core up --build -d \
 		--scale processor=$$p_rep
+
+smoke: shell-script-check
+	@chmod +x ./scripts/smoke-compose.sh
+	@./scripts/smoke-compose.sh
 
 dev-scale-smoke:
 	@set -euo pipefail; \

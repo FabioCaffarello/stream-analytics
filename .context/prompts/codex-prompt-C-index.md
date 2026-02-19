@@ -139,6 +139,6 @@ go test -list "TestSoak" ./cmd/processor/... ./internal/interfaces/ws/...
 3. **Feature flags** — All new features gated by config. Proto: `bus.wire_format`. Sharding: `shard.count`. Exchange: `consumer.exchange`.
 4. **Backward compat** — Every wave must leave all existing tests passing. JSON remains default wire format.
 5. **Soak tests behind `testing.Short()`** — Must not slow CI.
-6. **Metrics cardinality** — Follow `docs/architecture/metrics-budget-label-policy.md`.
+6. **Metrics cardinality** — Follow `docs/observability/metrics-policy.md`.
 7. **`*problem.Problem` at boundaries** — Adapters wrap `error` to `*problem.Problem` at the port boundary.
 8. **Proto only in shared/** — Never import proto/gen types from core/ or actors/.

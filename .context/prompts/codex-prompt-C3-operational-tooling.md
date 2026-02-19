@@ -577,6 +577,6 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 5. **go.mod hygiene** — `cmd/backfill/go.mod` needs `require` + `replace` directives for shared, adapters, and core/marketdata. Add `./cmd/backfill` to `go.work`. Run `make tidy`.
 6. **Read ports in `aggregation/ports/`** — Cold-path readers implement ports defined in the core layer, consistent with hexagonal architecture. Implementations live in `internal/adapters/storage/clickhouse/`.
 7. **`*problem.Problem` at boundaries** — All adapter functions returning errors use `*problem.Problem`.
-8. **Metrics cardinality** — Follow `docs/architecture/metrics-budget-label-policy.md`. Backfill operations should not pollute runtime metrics — use separate counters or skip metrics entirely.
+8. **Metrics cardinality** — Follow `docs/observability/metrics-policy.md`. Backfill operations should not pollute runtime metrics — use separate counters or skip metrics entirely.
 9. **ClickHouse `FINAL`** — Reader queries should use `FINAL` keyword or accept lazy deduplication from `ReplacingMergeTree`. Document the choice.
 10. **Backfill is Binance-only for now** — The architecture supports future exchange-specific backfill modules, but C3 implements only Binance (spot + futures). Other exchanges can be added in future waves.

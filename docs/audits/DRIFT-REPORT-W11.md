@@ -1,6 +1,6 @@
 # DRIFT-REPORT-W11 — Pre-Refactor Documentation Drift
 
-**Status:** Draft
+**Status:** Accepted
 **Date:** 2026-02-13
 **Scope:** documentation-only round (PREVC), before runtime refactor.
 
@@ -23,7 +23,7 @@ Document drift between intent (PRD/ADR/RFC/docs) and executable truth (code/test
 | `docs/prd/PRD-0001-extreme-runtime.md` | Normalized in wave 2 as Active baseline with implemented/partial/planned matrix. | `docs/prd/PRD-0001-extreme-runtime.md:1`, `docs/prd/PRD-0001-extreme-runtime.md:24` |
 | `docs/audits/AUDIT-PACK-W11-finalization.md` | Best current evidence graph (doc -> code -> test) for invariants and gates. | `docs/audits/AUDIT-PACK-W11-finalization.md:25` |
 | `docs/rfcs/EXECUTION-SEQUENCE.md` | Operational timeline says W4..W10 done, with explicit deferred checkpoints. | `docs/rfcs/EXECUTION-SEQUENCE.md:12`, `docs/rfcs/EXECUTION-SEQUENCE.md:54` |
-| `docs/rfcs/ADR-REVISIONS-patch-plan.md` | Historical amendment plan; parts already absorbed in ADR files. | `docs/rfcs/ADR-REVISIONS-patch-plan.md:1` |
+| `docs/rfcs/archive/ADR-REVISIONS-patch-plan.md` | Historical amendment plan; parts already absorbed in ADR files. | `docs/rfcs/archive/ADR-REVISIONS-patch-plan.md:1` |
 
 ### P2) Inventory snapshot
 
@@ -33,7 +33,7 @@ Document drift between intent (PRD/ADR/RFC/docs) and executable truth (code/test
   - `docs/architecture/README.md`
   - `docs/architecture/ingestion.md`
   - `docs/architecture/insights.md`
-  - `docs/architecture/moat.md`
+  - `docs/prd/moat.md`
   - `docs/architecture/system-invariants.md`
 - Contracts docs:
   - `docs/contracts/event-bus.md`
@@ -70,15 +70,15 @@ Authoritative mapping is consolidated in `docs/architecture/TRUTH-MAP.md`, with 
 | L-03 | P1 | Cold-path in ADR-0006 remains accepted but runtime implementation is deferred. | `docs/adrs/ADR-0006-storage-hot-vs-cold.md:32`, `internal/core/aggregation/ports/ports.go:17` | `OPEN QUESTION`: keep ADR accepted with explicit partial scope, or split into Accepted+Superseded follow-up ADR. |
 | L-04 | P1 | MEX-4 CI guard (exchange-specific terms forbidden in core) still deferred. | `docs/rfcs/RFC-0010-W9-multi-exchange-readiness.md:76`, `scripts/check-domain-isolation.sh:109` | `RESOLVED (2026-02-13)`: deterministic grep guard integrated in `invariants-check`. |
 | L-05 | P2 | ACK/NAK/TERM behavior has strong test evidence but lacks a compact architecture doc as canonical entry point. | `internal/adapters/jetstream/ingest_conformance_test.go:15`, `internal/adapters/jetstream/consumer.go:279` | `TODO`: add short architecture note linking ADR-0004 + ingest conformance matrix. |
-| L-06 | P2 | Some historical RFC sections still reference deprecated checkpoints/commands. | `docs/rfcs/W4-W5-AUDIT.md:1`, `docs/rfcs/ADR-REVISIONS-patch-plan.md:1`, `docs/rfcs/W5.1-SWEEP-THROTTLING.md:1` | `RESOLVED (2026-02-13)`: historical RFC docs normalized with explicit document class, authority links, and contract sections. |
+| L-06 | P2 | Some historical RFC sections still reference deprecated checkpoints/commands. | `docs/audits/W4-W5-AUDIT.md:1`, `docs/rfcs/archive/ADR-REVISIONS-patch-plan.md:1`, `docs/rfcs/archive/W5.1-SWEEP-THROTTLING.md:1` | `RESOLVED (2026-02-13)`: historical RFC docs normalized with explicit document class, authority links, and contract sections. |
 
 #### (c) Obsolete or repetitive docs
 
 | ID | Severity | Candidate | Why obsolete/repetitive | Tracking |
 |---|---|---|---|---|
 | O-01 | P1 | `docs/architecture/system-invariants.md` | Contains bootstrap-era instructions and marketing text mixed with invariants. | `docs/architecture/system-invariants.md:38`, `docs/architecture/system-invariants.md:82` | `TODO`: split into clean invariants doc + archive legacy bootstrap narrative. |
-| O-02 | P2 | `docs/rfcs/ADR-REVISIONS-patch-plan.md` | Patch-plan artifact now duplicates amendments already merged in ADRs. | `docs/rfcs/ADR-REVISIONS-patch-plan.md:1` | `RESOLVED (2026-02-13)`: document reclassified as historical and cross-linked to canonical ADR files. |
-| O-03 | P2 | `docs/rfcs/W4-W5-AUDIT.md` vs `docs/audits/AUDIT-PACK-W11-finalization.md` | Two audit narratives overlap; W11 audit is broader and newer. | `docs/rfcs/W4-W5-AUDIT.md:1`, `docs/audits/AUDIT-PACK-W11-finalization.md:1` | `RESOLVED (2026-02-13)`: W4/W5 audit retained as historical appendix and W11 documents declared as current authority. |
+| O-02 | P2 | `docs/rfcs/archive/ADR-REVISIONS-patch-plan.md` | Patch-plan artifact now duplicates amendments already merged in ADRs. | `docs/rfcs/archive/ADR-REVISIONS-patch-plan.md:1` | `RESOLVED (2026-02-13)`: document reclassified as historical and cross-linked to canonical ADR files. |
+| O-03 | P2 | `docs/audits/W4-W5-AUDIT.md` vs `docs/audits/AUDIT-PACK-W11-finalization.md` | Two audit narratives overlap; W11 audit is broader and newer. | `docs/audits/W4-W5-AUDIT.md:1`, `docs/audits/AUDIT-PACK-W11-finalization.md:1` | `RESOLVED (2026-02-13)`: W4/W5 audit retained as historical appendix and W11 documents declared as current authority. |
 | O-04 | P1 | PRD section A snapshot | Stale capability snapshot conflicted with implemented runtime. | `docs/prd/PRD-0001-extreme-runtime.md:1` | `RESOLVED (2026-02-13)`: PRD now uses explicit as-of matrix and active status. |
 
 ## Review (R)
@@ -100,7 +100,7 @@ Authoritative mapping is consolidated in `docs/architecture/TRUTH-MAP.md`, with 
 7. `docs(w12): clarify ADR-0017 canonical key vs display canonical`
    Files: `docs/adrs/ADR-0017-multi-exchange-normalization.md`
 8. `chore(docs): deprecate/supersede repetitive audit and patch-plan docs`
-   Files: `docs/rfcs/W4-W5-AUDIT.md`, `docs/rfcs/ADR-REVISIONS-patch-plan.md`
+   Files: `docs/audits/W4-W5-AUDIT.md`, `docs/rfcs/archive/ADR-REVISIONS-patch-plan.md`
 
 ### R2) Truth anchors to add first
 

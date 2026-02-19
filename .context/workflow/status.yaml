@@ -1,38 +1,47 @@
 project:
-  name: "shard-alerts-skew-detection"
-  scale: SMALL
-  started: "2026-02-17T18:07:44.925Z"
+  name: "prd0002-next-steps"
+  scale: MEDIUM
+  started: "2026-02-19T18:55:11.807Z"
   current_phase: V
 
 phases:
   P:
     status: filled
-    started_at: "2026-02-17T18:07:44.925Z"
-    completed_at: "2026-02-17T18:07:53.159Z"
+    started_at: "2026-02-19T18:55:11.807Z"
+    completed_at: "2026-02-19T18:59:17.481Z"
   R:
-    status: skipped
-    reason: "Not required for scale SMALL"
+    status: filled
+    started_at: "2026-02-19T18:59:17.482Z"
+    completed_at: "2026-02-19T18:59:23.519Z"
   E:
     status: filled
-    started_at: "2026-02-17T18:07:53.159Z"
-    completed_at: "2026-02-17T18:12:34.335Z"
+    started_at: "2026-02-19T18:59:23.519Z"
+    completed_at: "2026-02-19T19:04:05.154Z"
   V:
-    status: filled
-    started_at: "2026-02-17T18:12:34.336Z"
-    completed_at: "2026-02-17T18:12:55.170Z"
+    status: completed
+    started_at: "2026-02-19T19:04:05.155Z"
+    completed_at: "2026-02-19T19:04:11.134Z"
+    outputs:
+      - path: "Validation complete: docs-check and ci passed after PRD sync"
+        status: filled
+      - path: "Residual: Gate 11 pending by release policy (tag creation on main branch)"
+        status: filled
   C:
     status: skipped
-    reason: "Not required for scale SMALL"
+    reason: "Not required for scale MEDIUM"
 
 execution:
   history:
-    - timestamp: "2026-02-18T16:05:43.857Z"
-      phase: E
-      action: decision_recorded
-      plan: "codebase-evolution-modernization"
-      description: "Decision recorded: Rollout de streams LM coberto com testes de runtime wiring"
-  last_activity: "2026-02-18T16:05:43.857Z"
-  resume_context: "Decisão registrada"
+    - timestamp: "2026-02-19T19:04:11.134Z"
+      phase: V
+      action: completed
+  last_activity: "2026-02-19T19:04:11.134Z"
+  resume_context: "Fase V (Validação) concluída"
+
+settings:
+  autonomous_mode: true
+  require_plan: true
+  require_approval: false
 
 approval:
   plan_created: true

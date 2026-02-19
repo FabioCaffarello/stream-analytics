@@ -340,7 +340,7 @@ soak-check: ## Run standard soak gate (WS lifecycle + VPVR + roundtrip)
 
 #### Step 5.1: Document performance budgets
 
-**File:** `docs/architecture/performance-budgets.md` (NEW)
+**File:** `docs/perf/performance-budgets.md`
 
 ```markdown
 # Performance Budgets
@@ -420,7 +420,7 @@ All soak scripts write evidence to `.context/evidence/`. After running the full 
 | `scripts/soak-test.sh` | Existing soak script |
 | `Makefile` | Soak targets to extend |
 | `.benchmarks/baseline.txt` | Performance baselines |
-| `docs/architecture/metrics-budget-label-policy.md` | Metrics cardinality policy |
+| `docs/observability/metrics-policy.md` | Metrics cardinality policy |
 
 ---
 
@@ -484,7 +484,7 @@ feat(c4): add soak harness scripts and make targets
 
 docs(c4): document performance budgets and soak coverage matrix
 
-- docs/architecture/performance-budgets.md: throughput, memory, goroutine, latency budgets
+- docs/perf/performance-budgets.md: throughput, memory, goroutine, latency budgets
 - Cardinality budgets for active resources
 
 Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>

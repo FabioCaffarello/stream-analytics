@@ -14,9 +14,12 @@
 
 ## Invariants
 
-- Ack boundary is commit-only (`ack-on-commit`), never enqueue ([ADR-0004](../../../docs/adrs/ADR-0004-bus-nats-jetstream.md), [ADR-0013](../../../docs/adrs/ADR-0013-backpressure-overload-policies.md)).
-- Per-partition ordering remains deterministic by `(ts_ingest, seq)` ([ADR-0005](../../../docs/adrs/ADR-0005-sequencing-and-time-normalization.md), [ADR-0015](../../../docs/adrs/ADR-0015-deterministic-replay-time-invariants.md)).
-- Idempotency key is mandatory and deterministic ([ADR-0002](../../../docs/adrs/ADR-0002-event-envelope-and-versioning.md)).
+- STO-1: Single writer per partition key — venue, instrument, and market_type when present ([storage](../../../docs/architecture/storage.md)).
+- STO-2: Bounded queues/mailboxes in all writer stages ([storage](../../../docs/architecture/storage.md), [ADR-0013](../../../docs/adrs/ADR-0013-backpressure-overload-policies.md)).
+- STO-3: Idempotency key is mandatory and deterministic ([ADR-0002](../../../docs/adrs/ADR-0002-event-envelope-and-versioning.md)).
+- STO-4: Per-partition ordering remains deterministic by `(ts_ingest, seq)` ([ADR-0005](../../../docs/adrs/ADR-0005-sequencing-and-time-normalization.md), [ADR-0015](../../../docs/adrs/ADR-0015-deterministic-replay-time-invariants.md)).
+- STO-5: Replay over equivalent input must produce identical artifacts/checksums ([ADR-0015](../../../docs/adrs/ADR-0015-deterministic-replay-time-invariants.md)).
+- STO-6: Ack boundary is commit-only (`ack-on-commit`), never enqueue ([ADR-0004](../../../docs/adrs/ADR-0004-bus-nats-jetstream.md), [ADR-0013](../../../docs/adrs/ADR-0013-backpressure-overload-policies.md)).
 
 ## Backpressure
 

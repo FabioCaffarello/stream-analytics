@@ -24,7 +24,7 @@
       "enabled": true,
       // Production: override via mounted secret or env.
       "api_keys": {
-        "CHANGE_ME_prod_key_1": "client-prod-1"
+        "prod_key_1": "client-prod-1"
       }
     },
     "rate_limit": {

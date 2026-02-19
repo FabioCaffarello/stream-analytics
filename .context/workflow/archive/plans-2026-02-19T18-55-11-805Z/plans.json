@@ -1,0 +1,13 @@
+{
+  "active": [
+    {
+      "slug": "prd0002-g5-g6-gates",
+      "path": "plans/prd0002-g5-g6-gates.md",
+      "title": "PRD-0002 Gates G5+G6 Closure",
+      "linkedAt": "2026-02-19T18:50:14.369Z",
+      "status": "active"
+    }
+  ],
+  "completed": [],
+  "primary": "prd0002-g5-g6-gates"
+}

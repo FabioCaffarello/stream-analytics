@@ -16,6 +16,7 @@
 - Closed window immutable after commit (ST-2).
 - Deterministic for same input sequence ([ADR-0015](../../../docs/adrs/ADR-0015-deterministic-replay-time-invariants.md) ST-3).
 - Replay of same fixture yields identical stats (ST-4).
+- Bounded open window state per (venue, instrument) — max one open window per timeframe (ST-5).
 - Missing input type produces partial stats, not failure (ST-6).
 
 ## Backpressure
