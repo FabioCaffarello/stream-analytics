@@ -291,8 +291,8 @@ func (s *SubsystemActor) processMessage(msg *ws.WsMessage) {
 	}
 
 	if req.EventType == "marketdata.bookdelta" {
-		if depth, ok := req.Payload.(domain.BookDeltaV1); ok && depth.FirstID > 0 && depth.FinalID > 0 {
-			if gap, lastFinal := s.telemetry.recordDepthSequence(req.Instrument, depth.FirstID, depth.FinalID); gap {
+		if depth, ok := req.Payload.(domain.BookDeltaV1); ok && depth.FirstID > 0 && depth.FinalID > 0 && !depth.IsSnapshot {
+			if gap, lastFinal := s.telemetry.recordDepthSequence(req.Instrument, depth.FirstID, depth.FinalID, depth.PrevFinal); gap {
 				s.logger.Warn("mdruntime: depth gap detected",
 					"instrument", req.Instrument,
 					"first_update_id", depth.FirstID,

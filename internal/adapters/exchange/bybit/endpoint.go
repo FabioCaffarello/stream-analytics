@@ -53,7 +53,7 @@ func BuildEndpoint(baseURL string, tickers []string, marketType string) (string,
 }
 
 // BuildSubscriptions returns Bybit subscribe frames for trade+bookdelta topics.
-// When includeMarkPriceLiquidation=true, adds tickers/liquidation topics.
+// When includeMarkPriceLiquidation=true, adds tickers and allLiquidation topics.
 func BuildSubscriptions(tickers []string, includeMarkPriceLiquidation bool) ([][]byte, *problem.Problem) {
 	if len(tickers) == 0 {
 		return nil, problem.WithDetail(
@@ -82,7 +82,7 @@ func BuildSubscriptions(tickers []string, includeMarkPriceLiquidation bool) ([][
 		if includeMarkPriceLiquidation {
 			args = append(args,
 				fmt.Sprintf("tickers.%s", symbol),
-				fmt.Sprintf("liquidation.%s", symbol),
+				fmt.Sprintf("allLiquidation.%s", symbol),
 			)
 		}
 	}

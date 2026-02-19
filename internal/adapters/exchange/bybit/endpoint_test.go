@@ -55,7 +55,7 @@ func TestBuildSubscriptions(t *testing.T) {
 	}
 }
 
-func TestBuildSubscriptions_IncludesMarkPriceLiquidation(t *testing.T) {
+func TestBuildSubscriptions_IncludesMarkPrice(t *testing.T) {
 	msgs, p := bybit.BuildSubscriptions([]string{"BTC-USDT"}, true)
 	if p != nil {
 		t.Fatalf("BuildSubscriptions: %v", p)
@@ -64,7 +64,10 @@ func TestBuildSubscriptions_IncludesMarkPriceLiquidation(t *testing.T) {
 		t.Fatalf("messages len = %d, want 1", len(msgs))
 	}
 	body := string(msgs[0])
-	if !strings.Contains(body, "tickers.BTCUSDT") || !strings.Contains(body, "liquidation.BTCUSDT") {
+	if !strings.Contains(body, "tickers.BTCUSDT") {
 		t.Fatalf("unexpected subscription body: %s", body)
+	}
+	if !strings.Contains(body, "allLiquidation.BTCUSDT") {
+		t.Fatalf("expected allLiquidation topic in bybit subscriptions: %s", body)
 	}
 }

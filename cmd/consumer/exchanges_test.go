@@ -27,6 +27,9 @@ func TestBuildBinanceRuntime_StreamToggle(t *testing.T) {
 	}
 	cfg.Consumer.EnableMarkPriceLiquidation = false
 	r := buildBinanceRuntime(cfg, slog.Default(), ex, actorruntime.SubsystemMarketData)
+	if r.ManagerCfg.StreamsPerTicker != 2 {
+		t.Fatalf("spot without extras: streams_per_ticker=%d want=2", r.ManagerCfg.StreamsPerTicker)
+	}
 	endpoint := r.ManagerCfg.EndpointBuilder([]string{"BTC-USDT"})
 	if !strings.Contains(endpoint, "btcusdt@aggTrade") || !strings.Contains(endpoint, "btcusdt@depth@100ms") {
 		t.Fatalf("expected trade/depth streams in endpoint: %s", endpoint)
@@ -37,6 +40,9 @@ func TestBuildBinanceRuntime_StreamToggle(t *testing.T) {
 
 	cfg.Consumer.EnableMarkPriceLiquidation = true
 	r = buildBinanceRuntime(cfg, slog.Default(), ex, actorruntime.SubsystemMarketData)
+	if r.ManagerCfg.StreamsPerTicker != 4 {
+		t.Fatalf("spot with extras: streams_per_ticker=%d want=4", r.ManagerCfg.StreamsPerTicker)
+	}
 	endpoint = r.ManagerCfg.EndpointBuilder([]string{"BTC-USDT"})
 	if !strings.Contains(endpoint, "btcusdt@markPrice") || !strings.Contains(endpoint, "btcusdt@forceOrder") {
 		t.Fatalf("expected markprice/liquidation streams when enabled: %s", endpoint)
@@ -132,6 +138,9 @@ func TestBuildBybitRuntime_SubscriptionToggle(t *testing.T) {
 	}
 	cfg.Consumer.EnableMarkPriceLiquidation = false
 	r := buildBybitRuntime(cfg, slog.Default(), ex, actorruntime.SubsystemMarketData)
+	if r.ManagerCfg.StreamsPerTicker != 2 {
+		t.Fatalf("bybit without extras: streams_per_ticker=%d want=2", r.ManagerCfg.StreamsPerTicker)
+	}
 	msgs := r.ManagerCfg.SubscriptionBuilder([]string{"BTC-USDT"})
 	if len(msgs) != 1 {
 		t.Fatalf("subscriptions len=%d want 1", len(msgs))
@@ -140,18 +149,32 @@ func TestBuildBybitRuntime_SubscriptionToggle(t *testing.T) {
 	if !strings.Contains(body, "publicTrade.BTCUSDT") || !strings.Contains(body, "orderbook.50.BTCUSDT") {
 		t.Fatalf("expected trade/depth topics: %s", body)
 	}
-	if strings.Contains(body, "tickers.BTCUSDT") || strings.Contains(body, "liquidation.BTCUSDT") {
+	if strings.Contains(body, "tickers.BTCUSDT") || strings.Contains(body, "allLiquidation.BTCUSDT") {
 		t.Fatalf("unexpected markprice/liquidation topics when disabled: %s", body)
 	}
 
 	cfg.Consumer.EnableMarkPriceLiquidation = true
 	r = buildBybitRuntime(cfg, slog.Default(), ex, actorruntime.SubsystemMarketData)
+	if r.ManagerCfg.StreamsPerTicker != 4 {
+		t.Fatalf("bybit with extras: streams_per_ticker=%d want=4", r.ManagerCfg.StreamsPerTicker)
+	}
 	msgs = r.ManagerCfg.SubscriptionBuilder([]string{"BTC-USDT"})
 	if len(msgs) != 1 {
 		t.Fatalf("subscriptions len=%d want 1", len(msgs))
 	}
 	body = string(msgs[0])
-	if !strings.Contains(body, "tickers.BTCUSDT") || !strings.Contains(body, "liquidation.BTCUSDT") {
-		t.Fatalf("expected markprice/liquidation topics when enabled: %s", body)
+	if !strings.Contains(body, "tickers.BTCUSDT") {
+		t.Fatalf("expected markprice topic when enabled: %s", body)
+	}
+	if !strings.Contains(body, "allLiquidation.BTCUSDT") {
+		t.Fatalf("expected allLiquidation topic when enabled: %s", body)
+	}
+
+	hb := r.ManagerCfg.Heartbeat()
+	if hb.Interval != 20*time.Second {
+		t.Fatalf("heartbeat interval=%s want=%s", hb.Interval, 20*time.Second)
+	}
+	if got := string(hb.Message); got != `{"op":"ping"}` {
+		t.Fatalf("heartbeat message=%q want=%q", got, `{"op":"ping"}`)
 	}
 }

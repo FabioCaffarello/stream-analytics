@@ -118,8 +118,7 @@ INSERT INTO aggregation_orderbook_snapshot_cold (
     seq,
     bids_json,
     asks_json,
-    source_idempotency_key,
-    created_at
+    source_idempotency_key
 )`
 
 	batch, p := w.preparer.PrepareInsert(ctx, insertSQL)

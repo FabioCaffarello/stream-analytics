@@ -96,13 +96,23 @@ func (t *parserTelemetry) shouldEmitProgress() bool {
 	return t.total > 0 && t.total%100 == 0
 }
 
-func (t *parserTelemetry) recordDepthSequence(symbol string, first, final int64) (gap bool, lastFinal int64) {
+func (t *parserTelemetry) recordDepthSequence(symbol string, first, final, prevFinal int64) (gap bool, lastFinal int64) {
 	sym := normalizeLabel(symbol, "unknown")
 	lastFinal, seen := t.lastDepthFinalBySymbol[sym]
-	if seen && first > lastFinal+1 {
-		gap = true
-		t.depthGapsTotal++
-		incCapped(t.depthGapsBySymbol, sym, maxTelemetryKeys)
+	if seen {
+		// When prevFinal (pu) is available, use it for gap detection.
+		// For Binance Futures, firstID (U) is a global counter much larger
+		// than finalID (u), so comparing first vs lastFinal is always a
+		// false positive.  prevFinal == lastFinal means no gap.
+		if prevFinal > 0 {
+			gap = prevFinal != lastFinal
+		} else {
+			gap = first > lastFinal+1
+		}
+		if gap {
+			t.depthGapsTotal++
+			incCapped(t.depthGapsBySymbol, sym, maxTelemetryKeys)
+		}
 	}
 	if seen || len(t.lastDepthFinalBySymbol) < maxTelemetryKeys {
 		if !seen || final > lastFinal {
@@ -137,17 +147,61 @@ func normalizeWSStreamLabel(raw string) string {
 	if s == "" {
 		return ""
 	}
-	parts := strings.Split(s, "@")
-	if len(parts) < 2 {
-		return "unknown"
+	if strings.Contains(s, "@") {
+		parts := strings.Split(s, "@")
+		if len(parts) < 2 {
+			return "unknown"
+		}
+		switch strings.ToLower(parts[1]) {
+		case "aggtrade":
+			return "aggtrade"
+		case "depth":
+			return "depth"
+		case "trade":
+			return "trade"
+		case "markprice":
+			return "markprice"
+		case "forceorder":
+			return "liquidation"
+		default:
+			return "other"
+		}
 	}
-	switch strings.ToLower(parts[1]) {
-	case "aggtrade":
+	switch {
+	case strings.HasPrefix(strings.ToLower(s), "publictrade."):
 		return "aggtrade"
-	case "depth":
+	case strings.HasPrefix(strings.ToLower(s), "orderbook."):
 		return "depth"
-	case "trade":
+	case strings.EqualFold(s, "trades"):
+		return "aggtrade"
+	case strings.EqualFold(s, "l2book"):
+		return "depth"
+	case strings.HasPrefix(strings.ToLower(s), "trade."):
 		return "trade"
+	case strings.EqualFold(s, "match"), strings.EqualFold(s, "last_match"):
+		return "trade"
+	case strings.EqualFold(s, "snapshot"), strings.EqualFold(s, "l2update"):
+		return "depth"
+	case strings.EqualFold(s, "ticker"):
+		return "ticker"
+	case strings.EqualFold(s, "markPrice"):
+		return "markprice"
+	case strings.EqualFold(s, "forceOrder"):
+		return "liquidation"
+	case strings.EqualFold(s, "subscriptions"),
+		strings.EqualFold(s, "subscriptionresponse"),
+		strings.EqualFold(s, "subscribe"),
+		strings.EqualFold(s, "ping"),
+		strings.EqualFold(s, "pong"),
+		strings.EqualFold(s, "heartbeat"),
+		strings.EqualFold(s, "error"):
+		return "control"
+	case strings.HasPrefix(strings.ToLower(s), "tickers."):
+		return "ticker"
+	case strings.HasPrefix(strings.ToLower(s), "liquidation."):
+		return "liquidation"
+	case strings.HasPrefix(strings.ToLower(s), "allliquidation."):
+		return "liquidation"
 	default:
 		return "other"
 	}
@@ -161,10 +215,22 @@ func (t *parserTelemetry) topTickerSharePercent(n int) map[string]float64 {
 	if t.total == 0 {
 		return map[string]float64{}
 	}
-	top := topCounts(t.byTicker, n)
+	filtered := make(map[string]uint64, len(t.byTicker))
+	var total uint64
+	for ticker, count := range t.byTicker {
+		if ticker == "unknown" || count == 0 {
+			continue
+		}
+		filtered[ticker] = count
+		total += count
+	}
+	if total == 0 {
+		return map[string]float64{}
+	}
+	top := topCounts(filtered, n)
 	out := make(map[string]float64, len(top))
 	for k, v := range top {
-		out[k] = float64(v) * 100.0 / float64(t.total)
+		out[k] = float64(v) * 100.0 / float64(total)
 	}
 	return out
 }

@@ -7,11 +7,11 @@
   "jetstream": {
     "url": "nats://nats:4222",
     "stream_name": "MARKETDATA",
-    "consumer_durable": "consumer-v1",
+    "consumer_durable": "consumer-v2",
     "ack_wait": "30s",
     "max_ack_pending": 1024,
     "max_deliver": 10,
-    "deliver_policy": "all",
+    "deliver_policy": "new",
     "filter_subjects": ["marketdata.>"],
     "dedup_window": "5m",
     "max_age": "24h",
@@ -68,8 +68,8 @@
         "market_type": "USD_M_FUTURES"
       }
     ],
-    "enable_markprice_liquidation": false,
-    "streams_per_ticker": 2,
+    "enable_markprice_liquidation": true,
+    "streams_per_ticker": 4,
     "max_streams_per_websocket": 200,
     "max_websockets": 10,
     "max_websocket_lifetime": "45m",

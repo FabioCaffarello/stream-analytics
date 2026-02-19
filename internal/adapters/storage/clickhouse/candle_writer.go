@@ -51,8 +51,7 @@ INSERT INTO aggregation_candle_cold (
     trade_count,
     seq_first,
     seq_last,
-    idempotency_key,
-    created_at
+    idempotency_key
 )`
 
 	idempotencyKey := sharedhash.HashFields(

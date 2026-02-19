@@ -100,6 +100,9 @@ func ParseMessageWithMetaForMarketType(data []byte, recvAt time.Time, marketType
 		meta.SkipReason = skipReasonFromProblem(p)
 		meta.Ticker = req.Instrument
 		return req, skip, meta
+	case "subscriptionResponse", "pong":
+		meta.SkipReason = "control_event"
+		return app.IngestRequest{}, true, meta
 	default:
 		meta.SkipReason = "unsupported_event"
 		return app.IngestRequest{}, true, meta
@@ -136,7 +139,7 @@ func parseTrades(data json.RawMessage, recvAt time.Time, marketType string) (app
 		tsExchange = recvAt.UnixMilli()
 	}
 	tradeID := strings.TrimSpace(entry.Hash)
-	if tradeID == "" {
+	if tradeID == "" || isZeroHash(tradeID) {
 		tradeID = fmt.Sprintf("%d", entry.Tid)
 	}
 	if strings.TrimSpace(tradeID) == "" || tradeID == "0" {
@@ -183,6 +186,19 @@ func parseL2Book(data json.RawMessage, recvAt time.Time, marketType string) (app
 	if p != nil {
 		return app.IngestRequest{}, true, p
 	}
+	bids, asks = normalizeBookSides(bids, asks)
+	if len(bids) > 0 && len(asks) > 0 {
+		bestBid := maxPrice(bids)
+		bestAsk := minPrice(asks)
+		if bestBid >= bestAsk {
+			return app.IngestRequest{}, true, problem.Newf(
+				problem.ValidationFailed,
+				"hyperliquid l2Book: crossed snapshot best bid %.8f >= best ask %.8f",
+				bestBid,
+				bestAsk,
+			)
+		}
+	}
 	tsExchange := msg.Time
 	if tsExchange <= 0 {
 		tsExchange = recvAt.UnixMilli()
@@ -206,13 +222,61 @@ func parseL2Book(data json.RawMessage, recvAt time.Time, marketType string) (app
 		),
 		Metadata: buildInstrumentMetadata(msg.Coin, instrument, marketType),
 		Payload: domain.BookDeltaV1{
-			Bids:      bids,
-			Asks:      asks,
-			FirstID:   seq,
-			FinalID:   seq,
-			Timestamp: tsExchange,
+			Bids:       bids,
+			Asks:       asks,
+			FirstID:    seq,
+			FinalID:    seq,
+			Timestamp:  tsExchange,
+			IsSnapshot: true, // HyperLiquid always sends full L2 snapshots
 		},
 	}, false, nil
+}
+
+// normalizeBookSides ensures sides are ordered as bids/asks.
+// Hyperliquid may emit l2Book levels with reversed side ordering in some feeds.
+func normalizeBookSides(bids, asks []domain.PriceLevel) ([]domain.PriceLevel, []domain.PriceLevel) {
+	if len(bids) == 0 || len(asks) == 0 {
+		return bids, asks
+	}
+
+	bestBid := maxPrice(bids)
+	bestAsk := minPrice(asks)
+	if bestBid < bestAsk {
+		return bids, asks
+	}
+
+	swappedBestBid := maxPrice(asks)
+	swappedBestAsk := minPrice(bids)
+	if swappedBestBid < swappedBestAsk {
+		return asks, bids
+	}
+	return bids, asks
+}
+
+func maxPrice(levels []domain.PriceLevel) float64 {
+	if len(levels) == 0 {
+		return 0
+	}
+	max := levels[0].Price
+	for i := 1; i < len(levels); i++ {
+		if levels[i].Price > max {
+			max = levels[i].Price
+		}
+	}
+	return max
+}
+
+func minPrice(levels []domain.PriceLevel) float64 {
+	if len(levels) == 0 {
+		return 0
+	}
+	min := levels[0].Price
+	for i := 1; i < len(levels); i++ {
+		if levels[i].Price < min {
+			min = levels[i].Price
+		}
+	}
+	return min
 }
 
 func parseBookLevels(raw []bookLevel) ([]domain.PriceLevel, *problem.Problem) {
@@ -282,6 +346,20 @@ func skipReasonFromProblem(p *problem.Problem) string {
 		return "parse_error"
 	}
 	return ""
+}
+
+func isZeroHash(s string) bool {
+	s = strings.TrimPrefix(s, "0x")
+	s = strings.TrimPrefix(s, "0X")
+	if len(s) == 0 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] != '0' {
+			return false
+		}
+	}
+	return true
 }
 
 func normalizeMarketType(raw string) string {

@@ -19,6 +19,8 @@ import (
 const (
 	defaultFetchTimeout    = 750 * time.Millisecond
 	defaultLagPollInterval = 5 * time.Second
+	defaultFetchBatchSize  = 128
+	maxFetchBatchSize      = 256
 	minHeartbeatInterval   = 250 * time.Millisecond
 	maxHeartbeatInterval   = 5 * time.Second
 	quarantinePublishTTL   = 2 * time.Second
@@ -45,6 +47,7 @@ type ConsumerConfig struct {
 	MaxDeliver      int
 	DeliverPolicy   string
 	FetchTimeout    time.Duration
+	FetchBatchSize  int
 	LagPollInterval time.Duration
 	// ShardGroupCount is the total number of shard groups.  Default 1 (disabled).
 	// When > 1, messages whose ShardGroup(ShardKey(subject), ShardGroupCount)
@@ -139,7 +142,7 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig, observer observability
 	}
 
 	sub, err := js.PullSubscribe(
-		cfg.FilterSubjects[0],
+		pullSubscribeSubject(cfg.FilterSubjects),
 		cfg.ConsumerDurable,
 		nats.Bind(cfg.StreamName, cfg.ConsumerDurable),
 	)
@@ -194,7 +197,7 @@ func (c *Consumer) Consume(ctx context.Context, handler ConsumeHandler) *problem
 			return nil
 		}
 
-		msgs, err := c.sub.Fetch(1, nats.MaxWait(c.cfg.FetchTimeout))
+		msgs, err := c.sub.Fetch(c.fetchBatchSize(), nats.MaxWait(c.cfg.FetchTimeout))
 		if err != nil {
 			if errors.Is(err, nats.ErrTimeout) {
 				select {
@@ -223,6 +226,23 @@ func (c *Consumer) Consume(ctx context.Context, handler ConsumeHandler) *problem
 		default:
 		}
 	}
+}
+
+func (c *Consumer) fetchBatchSize() int {
+	size := c.cfg.FetchBatchSize
+	if size <= 0 {
+		size = defaultFetchBatchSize
+	}
+	if c.cfg.MaxAckPending > 0 && size > c.cfg.MaxAckPending {
+		size = c.cfg.MaxAckPending
+	}
+	if size > maxFetchBatchSize {
+		size = maxFetchBatchSize
+	}
+	if size < 1 {
+		return 1
+	}
+	return size
 }
 
 func (c *Consumer) consumeOne(ctx context.Context, msg *nats.Msg, handler ConsumeHandler) *problem.Problem {
@@ -437,6 +457,13 @@ func toNATSConsumerConfig(cfg ConsumerConfig) (*nats.ConsumerConfig, *problem.Pr
 	return ccfg, nil
 }
 
+func pullSubscribeSubject(filterSubjects []string) string {
+	if len(filterSubjects) == 1 {
+		return filterSubjects[0]
+	}
+	return ""
+}
+
 func mapDeliverPolicy(policy string) (nats.DeliverPolicy, *problem.Problem) {
 	switch strings.ToLower(strings.TrimSpace(policy)) {
 	case "all":
@@ -487,6 +514,9 @@ func withConsumerDefaults(cfg ConsumerConfig) ConsumerConfig {
 	}
 	if cfg.FetchTimeout <= 0 {
 		cfg.FetchTimeout = defaultFetchTimeout
+	}
+	if cfg.FetchBatchSize <= 0 {
+		cfg.FetchBatchSize = defaultFetchBatchSize
 	}
 	if cfg.LagPollInterval <= 0 {
 		cfg.LagPollInterval = defaultLagPollInterval

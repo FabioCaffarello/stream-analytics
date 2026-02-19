@@ -9,6 +9,7 @@ import (
 
 	"github.com/market-raccoon/internal/core/marketdata/app"
 	"github.com/market-raccoon/internal/core/marketdata/domain"
+	sharedhash "github.com/market-raccoon/internal/shared/hash"
 	"github.com/market-raccoon/internal/shared/naming"
 	"github.com/market-raccoon/internal/shared/problem"
 )
@@ -34,6 +35,7 @@ type snapshotMessage struct {
 	ProductID string     `json:"product_id"`
 	Bids      [][]string `json:"bids"`
 	Asks      [][]string `json:"asks"`
+	Sequence  int64      `json:"sequence"`
 }
 
 type l2UpdateMessage struct {
@@ -41,6 +43,7 @@ type l2UpdateMessage struct {
 	ProductID string     `json:"product_id"`
 	Time      string     `json:"time"`
 	Changes   [][]string `json:"changes"`
+	Sequence  int64      `json:"sequence"`
 }
 
 type tickerMessage struct {
@@ -48,6 +51,7 @@ type tickerMessage struct {
 	ProductID string `json:"product_id"`
 	Price     string `json:"price"`
 	Time      string `json:"time"`
+	Sequence  int64  `json:"sequence"`
 }
 
 // ParseMeta carries parser diagnostics for observability.
@@ -204,18 +208,20 @@ func parseSnapshot(data []byte, recvAt time.Time, marketType string) (app.Ingest
 		EventType:  "marketdata.bookdelta",
 		Version:    1,
 		TsExchange: tsExchange,
-		IdempotencyKey: buildDepthIdempotencyKey(
+		IdempotencyKey: buildDepthIdempotencyKeyFromSequenceOrPayload(
 			VenueCoinbase,
 			instrument,
-			1,
+			msg.Sequence,
+			data,
 		),
 		Metadata: buildInstrumentMetadata(msg.ProductID, instrument, marketType),
 		Payload: domain.BookDeltaV1{
-			Bids:      bids,
-			Asks:      asks,
-			FirstID:   0,
-			FinalID:   1,
-			Timestamp: tsExchange,
+			Bids:       bids,
+			Asks:       asks,
+			FirstID:    0,
+			FinalID:    1,
+			Timestamp:  tsExchange,
+			IsSnapshot: true, // Coinbase "snapshot" message is a full L2 book
 		},
 	}, false, nil
 }
@@ -271,10 +277,11 @@ func parseL2Update(data []byte, recvAt time.Time, marketType string) (app.Ingest
 		EventType:  "marketdata.bookdelta",
 		Version:    1,
 		TsExchange: tsExchange,
-		IdempotencyKey: buildDepthIdempotencyKey(
+		IdempotencyKey: buildDepthIdempotencyKeyFromSequenceOrPayload(
 			VenueCoinbase,
 			instrument,
-			tsExchange,
+			msg.Sequence,
+			data,
 		),
 		Metadata: buildInstrumentMetadata(msg.ProductID, instrument, marketType),
 		Payload: domain.BookDeltaV1{
@@ -312,7 +319,12 @@ func parseTicker(data []byte, recvAt time.Time, marketType string) (app.IngestRe
 		EventType:  "marketdata.markprice",
 		Version:    1,
 		TsExchange: tsExchange,
-		Metadata:   buildInstrumentMetadata(msg.ProductID, instrument, marketType),
+		IdempotencyKey: buildMarkPriceIdempotencyKey(
+			VenueCoinbase,
+			instrument,
+			msg.Sequence,
+		),
+		Metadata: buildInstrumentMetadata(msg.ProductID, instrument, marketType),
 		Payload: domain.MarkPriceTickV1{
 			MarkPrice:   markPrice,
 			IndexPrice:  0,
@@ -381,6 +393,25 @@ func buildTradeIdempotencyKey(venue, instrument, tradeID string) string {
 
 func buildDepthIdempotencyKey(venue, instrument string, finalUpdateID int64) string {
 	return fmt.Sprintf("venue=%s|instrument=%s|final_update_id=%d", venue, instrument, finalUpdateID)
+}
+
+func buildDepthIdempotencyKeyFromSequenceOrPayload(venue, instrument string, sequence int64, payload []byte) string {
+	if sequence > 0 {
+		return buildDepthIdempotencyKey(venue, instrument, sequence)
+	}
+	return fmt.Sprintf(
+		"venue=%s|instrument=%s|payload_sha=%s",
+		venue,
+		instrument,
+		sharedhash.HashBytes(payload),
+	)
+}
+
+func buildMarkPriceIdempotencyKey(venue, instrument string, sequence int64) string {
+	if sequence <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("venue=%s|instrument=%s|sequence=%d", venue, instrument, sequence)
 }
 
 func buildInstrumentMetadata(venueSymbol, canonical, marketType string) map[string]string {

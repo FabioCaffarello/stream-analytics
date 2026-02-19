@@ -53,6 +53,8 @@ func (r *RouterActor) Receive(c *actor.Context) {
 		r.onStopped()
 	case actor.ActorStoppedEvent:
 		r.onActorStopped(msg)
+	case actor.ActorStartedEvent:
+	case actor.ActorInitializedEvent:
 	case RegisterSession:
 		r.register(msg)
 	case UnregisterSession:

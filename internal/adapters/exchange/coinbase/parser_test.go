@@ -131,8 +131,26 @@ func TestParseMessage_L2UpdateSplitBySide(t *testing.T) {
 	}
 }
 
+func TestParseMessage_L2UpdateIdempotency_UsesPayloadHashWhenSequenceMissing(t *testing.T) {
+	recvAt := time.UnixMilli(1700000005000)
+	reqA, skipA, pA := coinbase.ParseMessage([]byte(`{"type":"l2update","product_id":"ETH-USD","time":"2023-11-14T22:13:20.000000Z","changes":[["buy","2500.1","1.2"]]}`), recvAt)
+	if pA != nil || skipA {
+		t.Fatalf("ParseMessage A failed: skip=%v problem=%v", skipA, pA)
+	}
+	reqB, skipB, pB := coinbase.ParseMessage([]byte(`{"type":"l2update","product_id":"ETH-USD","time":"2023-11-14T22:13:20.000000Z","changes":[["buy","2500.1","1.3"]]}`), recvAt)
+	if pB != nil || skipB {
+		t.Fatalf("ParseMessage B failed: skip=%v problem=%v", skipB, pB)
+	}
+	if reqA.IdempotencyKey == "" || reqB.IdempotencyKey == "" {
+		t.Fatal("idempotency key must not be empty")
+	}
+	if reqA.IdempotencyKey == reqB.IdempotencyKey {
+		t.Fatalf("idempotency keys must differ for distinct payloads: %q", reqA.IdempotencyKey)
+	}
+}
+
 func TestParseMessage_TickerPayload(t *testing.T) {
-	req, skip, p := coinbase.ParseMessage([]byte(`{"type":"ticker","product_id":"BTC-USD","price":"42000.50","time":"2023-11-14T22:13:20.000000Z"}`), time.UnixMilli(1700000005000))
+	req, skip, p := coinbase.ParseMessage([]byte(`{"type":"ticker","product_id":"BTC-USD","price":"42000.50","time":"2023-11-14T22:13:20.000000Z","sequence":4242}`), time.UnixMilli(1700000005000))
 	if p != nil || skip {
 		t.Fatalf("ParseMessage failed: skip=%v problem=%v", skip, p)
 	}
@@ -142,5 +160,8 @@ func TestParseMessage_TickerPayload(t *testing.T) {
 	}
 	if payload.MarkPrice != 42000.5 || payload.FundingRate != 0 {
 		t.Fatalf("unexpected payload: %#v", payload)
+	}
+	if req.IdempotencyKey != "venue=COINBASE|instrument=BTCUSD|sequence=4242" {
+		t.Fatalf("idempotency key = %q", req.IdempotencyKey)
 	}
 }

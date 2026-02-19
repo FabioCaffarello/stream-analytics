@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	mdruntime "github.com/market-raccoon/internal/actors/marketdata/runtime"
 	ws "github.com/market-raccoon/internal/actors/marketdata/ws"
@@ -111,15 +112,15 @@ func buildBinanceRuntime(
 ) consumerExchangeRuntime {
 	managerCfg := baseManagerConfig(cfg, ex)
 	isFutures := strings.Contains(strings.ToUpper(strings.TrimSpace(ex.MarketType)), "FUTURES")
-	if isFutures {
+	enableExtras := cfg.Consumer.EnableMarkPriceLiquidation || isFutures
+	if enableExtras {
 		managerCfg.StreamsPerTicker = 4
-		if strings.TrimSpace(ex.BaseURL) == "" {
-			ex.BaseURL = binance.DefaultFuturesWSBaseURL
-		}
 	} else {
 		managerCfg.StreamsPerTicker = 2
 	}
-	enableExtras := cfg.Consumer.EnableMarkPriceLiquidation || isFutures
+	if isFutures && strings.TrimSpace(ex.BaseURL) == "" {
+		ex.BaseURL = binance.DefaultFuturesWSBaseURL
+	}
 	managerCfg.SubscriptionBuilder = func([]string) [][]byte { return nil }
 	managerCfg.EndpointBuilder = func(bucket []string) string {
 		endpoint, p := binance.BuildEndpoint(ex.BaseURL, bucket, enableExtras)
@@ -299,6 +300,17 @@ func buildBybitRuntime(
 	subsystem actorruntime.Subsystem,
 ) consumerExchangeRuntime {
 	managerCfg := baseManagerConfig(cfg, ex)
+	if cfg.Consumer.EnableMarkPriceLiquidation {
+		managerCfg.StreamsPerTicker = 4
+	} else {
+		managerCfg.StreamsPerTicker = 2
+	}
+	managerCfg.Heartbeat = func() ws.Heartbeat {
+		return ws.Heartbeat{
+			Interval: 20 * time.Second,
+			Message:  []byte(`{"op":"ping"}`),
+		}
+	}
 	managerCfg.SubscriptionBuilder = func(bucket []string) [][]byte {
 		msgs, p := bybit.BuildSubscriptions(bucket, cfg.Consumer.EnableMarkPriceLiquidation)
 		if p != nil {

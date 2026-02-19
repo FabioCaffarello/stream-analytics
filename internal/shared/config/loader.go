@@ -1300,13 +1300,20 @@ func synthesizeLegacyExchange(c ConsumerConfig) ConsumerExchangeConfig {
 func defaultExchangeBaseURL(exchangeType, marketType, legacyBinanceBaseURL string) string {
 	switch strings.ToLower(strings.TrimSpace(exchangeType)) {
 	case "binance":
-		if strings.TrimSpace(legacyBinanceBaseURL) != "" {
-			return strings.TrimSpace(legacyBinanceBaseURL)
-		}
-		switch strings.ToUpper(strings.TrimSpace(marketType)) {
+		mt := strings.ToUpper(strings.TrimSpace(marketType))
+		legacy := strings.TrimSpace(legacyBinanceBaseURL)
+		switch mt {
 		case "USD_M_FUTURES", "COIN_M_FUTURES":
+			// Protect multi-exchange configs from inheriting the legacy SPOT URL.
+			// Only keep an explicit legacy override when it is already a futures URL.
+			if strings.Contains(strings.ToLower(legacy), "fstream.binance.com") {
+				return legacy
+			}
 			return "wss://fstream.binance.com/stream"
 		default:
+			if legacy != "" {
+				return legacy
+			}
 			return "wss://stream.binance.com:9443/stream"
 		}
 	case "bybit":

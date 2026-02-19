@@ -505,6 +505,45 @@ func TestLoad_MultiExchangeNormalization_SortsDeterministically(t *testing.T) {
 	}
 }
 
+func TestLoad_MultiExchangeNormalization_BinanceFuturesIgnoresLegacySpotBaseURL(t *testing.T) {
+	src := `{
+		"consumer": {
+			"binance_ws_base_url": "wss://stream.binance.com:9443/stream",
+			"exchanges": [
+				{"name":"binance-futures","type":"binance","tickers":["BTCUSDT"],"market_type":"USD_M_FUTURES"},
+				{"name":"binance-spot","type":"binance","tickers":["BTCUSDT"],"market_type":"SPOT"}
+			]
+		}
+	}`
+	path := writeTempFile(t, src)
+	cfg, prob := Load(path)
+	if prob != nil {
+		t.Fatalf("Load failed: %v", prob)
+	}
+	if len(cfg.Consumer.Exchanges) != 2 {
+		t.Fatalf("consumer.exchanges len = %d, want 2", len(cfg.Consumer.Exchanges))
+	}
+
+	byName := make(map[string]ConsumerExchangeConfig, len(cfg.Consumer.Exchanges))
+	for _, ex := range cfg.Consumer.Exchanges {
+		byName[ex.Name] = ex
+	}
+	fut, ok := byName["binance-futures"]
+	if !ok {
+		t.Fatalf("missing binance-futures exchange: %+v", cfg.Consumer.Exchanges)
+	}
+	if fut.BaseURL != "wss://fstream.binance.com/stream" {
+		t.Fatalf("binance-futures base_url=%q want %q", fut.BaseURL, "wss://fstream.binance.com/stream")
+	}
+	spot, ok := byName["binance-spot"]
+	if !ok {
+		t.Fatalf("missing binance-spot exchange: %+v", cfg.Consumer.Exchanges)
+	}
+	if spot.BaseURL != "wss://stream.binance.com:9443/stream" {
+		t.Fatalf("binance-spot base_url=%q want %q", spot.BaseURL, "wss://stream.binance.com:9443/stream")
+	}
+}
+
 func TestValidate_ConsumerExchangesDuplicateName(t *testing.T) {
 	cfg, _ := Load("")
 	cfg.Consumer.Exchanges = []ConsumerExchangeConfig{

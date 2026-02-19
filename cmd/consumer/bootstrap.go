@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -16,6 +18,7 @@ import (
 	adapterjs "github.com/market-raccoon/internal/adapters/jetstream"
 	mdapp "github.com/market-raccoon/internal/core/marketdata/app"
 	"github.com/market-raccoon/internal/core/marketdata/ports"
+	httpserver "github.com/market-raccoon/internal/interfaces/http"
 	"github.com/market-raccoon/internal/shared/bootstrap"
 	"github.com/market-raccoon/internal/shared/clock"
 	"github.com/market-raccoon/internal/shared/config"
@@ -29,18 +32,26 @@ import (
 // ---------------------------------------------------------------------------
 
 type inMemSequencer struct {
-	mu  sync.Mutex
-	seq map[string]int64
+	mu      sync.Mutex
+	seq     map[string]int64
+	nowUnix func() int64
 }
 
 func newInMemSequencer() *inMemSequencer {
-	return &inMemSequencer{seq: make(map[string]int64)}
+	return &inMemSequencer{
+		seq:     make(map[string]int64),
+		nowUnix: time.Now().UnixMilli,
+	}
 }
 
 func (s *inMemSequencer) Next(venue, instrument string) (int64, *problem.Problem) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	key := venue + ":" + instrument
+	// Seed sequence from wall-clock to avoid regressions after process restart.
+	if _, exists := s.seq[key]; !exists {
+		s.seq[key] = s.nowUnix() * 1000
+	}
 	s.seq[key]++
 	return s.seq[key], nil
 }
@@ -97,16 +108,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	if p != nil {
 		return fmt.Errorf("exchange runtime build failed: %v", p)
 	}
-	for _, runtimeCfg := range runtimes {
-		logger.Info("consumer exchange configured",
-			"subsystem", runtimeCfg.Subsystem,
-			"name", runtimeCfg.Exchange.Name,
-			"type", runtimeCfg.Exchange.Type,
-			"market_type", runtimeCfg.Exchange.MarketType,
-			"tickers", runtimeCfg.Exchange.Tickers,
-			"base_url", runtimeCfg.Exchange.BaseURL,
-		)
-	}
+	logConfiguredExchanges(logger, runtimes)
 
 	// ── engine ───────────────────────────────────────────────────────────
 	e, err := actorruntime.NewDefaultEngine()
@@ -116,27 +118,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	e2e.bindEngine(e)
 
 	// ── guardian ─────────────────────────────────────────────────────────
-	factories := make(map[actorruntime.Subsystem]actor.Producer, len(runtimes))
-	expected := make([]actorruntime.Subsystem, 0, len(runtimes))
-	for _, runtimeCfg := range runtimes {
-		managerCfg := runtimeCfg.ManagerCfg
-		if e2e.isEnabled() {
-			managerCfg = nil
-		}
-		subCfg := mdruntime.SubsystemConfig{
-			Subsystem:              runtimeCfg.Subsystem,
-			Logger:                 logger,
-			Service:                mdService,
-			ParseMessage:           runtimeCfg.ParseV1,
-			ParseMessageV2:         runtimeCfg.ParseV2,
-			ManagerConfig:          managerCfg,
-			OnStarted:              e2e.subsystemStartedHook(runtimeCfg.Exchange.Type, runtimeCfg.Exchange.Name),
-			BackpressureBufferSize: cfg.Consumer.BackpressureBufferSize,
-			BackpressurePolicy:     cfg.Consumer.BackpressurePolicy,
-		}
-		factories[runtimeCfg.Subsystem] = mdruntime.NewSubsystemActor(subCfg)
-		expected = append(expected, runtimeCfg.Subsystem)
-	}
+	factories, expected := buildGuardianFactories(runtimes, logger, mdService, cfg, e2e)
 
 	guardianPID := actorruntime.SpawnGuardian(e, actorruntime.GuardianConfig{
 		Logger:             logger,
@@ -149,14 +131,25 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		return fmt.Errorf("failed to start e2e probe: %v", p)
 	}
 
-	// ── signal handling ──────────────────────────────────────────────────
-	quit := bootstrap.SignalChannel()
-	select {
-	case <-quit:
-	case <-ctx.Done():
-	}
+	// ── HTTP server ─────────────────────────────────────────────────────
+	srv := httpserver.NewServer(
+		e,
+		guardianPID,
+		cfg.HTTP.Addr,
+		cfg.HTTP.EnablePprof,
+		logger,
+		httpserver.WithTLS(cfg.HTTP.TLSCert, cfg.HTTP.TLSKey),
+	)
+
+	waitConsumerExit(ctx, logger, srv)
 
 	logger.Info("consumer: shutting down")
+
+	shutCtx, shutCancel := context.WithTimeout(context.Background(), cfg.HTTP.ShutdownTimeoutDuration())
+	defer shutCancel()
+	if err := srv.Shutdown(shutCtx); err != nil {
+		logger.Warn("consumer: HTTP shutdown error", "err", err)
+	}
 
 	shutdownConsumerRuntime(
 		logger,
@@ -181,6 +174,67 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		cfg.HTTP.GuardianShutdownTimeoutDuration(),
 	)
 	return nil
+}
+
+func logConfiguredExchanges(logger *slog.Logger, runtimes []consumerExchangeRuntime) {
+	for _, runtimeCfg := range runtimes {
+		logger.Info("consumer exchange configured",
+			"subsystem", runtimeCfg.Subsystem,
+			"name", runtimeCfg.Exchange.Name,
+			"type", runtimeCfg.Exchange.Type,
+			"market_type", runtimeCfg.Exchange.MarketType,
+			"tickers", runtimeCfg.Exchange.Tickers,
+			"base_url", runtimeCfg.Exchange.BaseURL,
+		)
+	}
+}
+
+func buildGuardianFactories(
+	runtimes []consumerExchangeRuntime,
+	logger *slog.Logger,
+	mdService *mdapp.MarketDataService,
+	cfg config.AppConfig,
+	e2e *e2eRuntime,
+) (map[actorruntime.Subsystem]actor.Producer, []actorruntime.Subsystem) {
+	factories := make(map[actorruntime.Subsystem]actor.Producer, len(runtimes))
+	expected := make([]actorruntime.Subsystem, 0, len(runtimes))
+	for _, runtimeCfg := range runtimes {
+		managerCfg := runtimeCfg.ManagerCfg
+		if e2e.isEnabled() {
+			managerCfg = nil
+		}
+		subCfg := mdruntime.SubsystemConfig{
+			Subsystem:              runtimeCfg.Subsystem,
+			Logger:                 logger,
+			Service:                mdService,
+			ParseMessage:           runtimeCfg.ParseV1,
+			ParseMessageV2:         runtimeCfg.ParseV2,
+			ManagerConfig:          managerCfg,
+			OnStarted:              e2e.subsystemStartedHook(runtimeCfg.Exchange.Type, runtimeCfg.Exchange.Name),
+			BackpressureBufferSize: cfg.Consumer.BackpressureBufferSize,
+			BackpressurePolicy:     cfg.Consumer.BackpressurePolicy,
+		}
+		factories[runtimeCfg.Subsystem] = mdruntime.NewSubsystemActor(subCfg)
+		expected = append(expected, runtimeCfg.Subsystem)
+	}
+	return factories, expected
+}
+
+func waitConsumerExit(ctx context.Context, logger *slog.Logger, srv *httpserver.Server) {
+	serverErr := make(chan error, 1)
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverErr <- err
+		}
+	}()
+
+	quit := bootstrap.SignalChannel()
+	select {
+	case <-quit:
+	case err := <-serverErr:
+		logger.Error("consumer: HTTP server error", "err", err)
+	case <-ctx.Done():
+	}
 }
 
 // ---------------------------------------------------------------------------

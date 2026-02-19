@@ -38,7 +38,7 @@
     "max_sessions": 10000,
     "backpressure_policy": "drop_newest",
     "nats": {
-      "consumer_durable": "delivery-v1",
+      "consumer_durable": "delivery-v2",
       "filter_subjects": ["marketdata.>", "aggregation.>", "insights.>"]
     }
   },

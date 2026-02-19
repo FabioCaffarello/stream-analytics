@@ -119,11 +119,58 @@ func TestConsumerConfigDefaultsAndValidation(t *testing.T) {
 		MaxAge:      24 * time.Hour,
 		MaxBytes:    1_000_000,
 	})
-	if cfg.ConsumerDurable == "" || cfg.AckWait <= 0 || cfg.MaxAckPending <= 0 || cfg.MaxDeliver <= 0 {
+	if cfg.ConsumerDurable == "" || cfg.AckWait <= 0 || cfg.MaxAckPending <= 0 || cfg.MaxDeliver <= 0 || cfg.FetchBatchSize <= 0 {
 		t.Fatalf("defaults not applied: %+v", cfg)
 	}
 	if p := validateConsumerConfig(cfg); p != nil {
 		t.Fatalf("validateConsumerConfig failed: %v", p)
+	}
+}
+
+func TestConsumer_FetchBatchSizeClamp(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  ConsumerConfig
+		want int
+	}{
+		{
+			name: "default batch size",
+			cfg:  ConsumerConfig{},
+			want: defaultFetchBatchSize,
+		},
+		{
+			name: "respects configured size",
+			cfg: ConsumerConfig{
+				FetchBatchSize: 64,
+				MaxAckPending:  1024,
+			},
+			want: 64,
+		},
+		{
+			name: "clamped by max ack pending",
+			cfg: ConsumerConfig{
+				FetchBatchSize: 64,
+				MaxAckPending:  16,
+			},
+			want: 16,
+		},
+		{
+			name: "clamped by hard max",
+			cfg: ConsumerConfig{
+				FetchBatchSize: 4096,
+				MaxAckPending:  4096,
+			},
+			want: maxFetchBatchSize,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &Consumer{cfg: tc.cfg}
+			if got := c.fetchBatchSize(); got != tc.want {
+				t.Fatalf("fetchBatchSize()=%d want=%d", got, tc.want)
+			}
+		})
 	}
 }
 
@@ -160,6 +207,15 @@ func TestToNATSConsumerConfig_FilterMapping(t *testing.T) {
 	}
 	if len(ccfg.FilterSubjects) != 2 {
 		t.Fatalf("FilterSubjects len=%d want=2", len(ccfg.FilterSubjects))
+	}
+}
+
+func TestPullSubscribeSubject_Mapping(t *testing.T) {
+	if got := pullSubscribeSubject([]string{"marketdata.>"}); got != "marketdata.>" {
+		t.Fatalf("single filter subject=%q want=%q", got, "marketdata.>")
+	}
+	if got := pullSubscribeSubject([]string{"aggregation.snapshot.v1.>", "aggregation.candle.v1.>"}); got != "" {
+		t.Fatalf("multi filter subject=%q want empty", got)
 	}
 }
 

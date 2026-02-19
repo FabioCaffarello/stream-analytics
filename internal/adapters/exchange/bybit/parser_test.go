@@ -72,6 +72,31 @@ func TestParseMessage_MarkPrice(t *testing.T) {
 	}
 }
 
+func TestParseMessage_MarkPriceMissingSkipsWithoutProblem(t *testing.T) {
+	msg := []byte(`{"topic":"tickers.BTCUSDT","type":"delta","ts":1710000020000,"data":{"symbol":"BTCUSDT","markPrice":"","indexPrice":"65005.1","fundingRate":"0.0001"}}`)
+	_, skip, p := bybit.ParseMessage(msg, time.UnixMilli(1710000021000))
+	if !skip {
+		t.Fatal("expected skip")
+	}
+	if p != nil {
+		t.Fatalf("unexpected problem: %v", p)
+	}
+}
+
+func TestParseMessageWithMeta_MarkPriceMissingUsesExplicitSkipReason(t *testing.T) {
+	msg := []byte(`{"topic":"tickers.BTCUSDT","type":"delta","ts":1710000020000,"data":{"symbol":"BTCUSDT","markPrice":"","indexPrice":"65005.1","fundingRate":"0.0001"}}`)
+	_, skip, meta := bybit.ParseMessageWithMeta(msg, time.UnixMilli(1710000021000))
+	if !skip {
+		t.Fatal("expected skip")
+	}
+	if meta.Problem != nil {
+		t.Fatalf("unexpected problem: %v", meta.Problem)
+	}
+	if meta.SkipReason != "markprice_unavailable" {
+		t.Fatalf("skip reason = %q, want markprice_unavailable", meta.SkipReason)
+	}
+}
+
 func TestParseMarkPrice_WithFundingRate(t *testing.T) {
 	msg := []byte(`{"topic":"tickers.BTCUSDT","type":"snapshot","ts":1700000000000,"data":{"symbol":"BTCUSDT","markPrice":"42000.50","indexPrice":"42001.00","fundingRate":"0.00010000"}}`)
 	req, skip, p := bybit.ParseMessage(msg, time.UnixMilli(1700000001000))
@@ -91,7 +116,7 @@ func TestParseMarkPrice_WithFundingRate(t *testing.T) {
 }
 
 func TestParseMessage_Liquidation(t *testing.T) {
-	msg := []byte(`{"topic":"liquidation.BTCUSDT","type":"snapshot","ts":1710000030000,"data":[{"s":"BTCUSDT","S":"Sell","v":"5.25","p":"64900.5","T":1710000030001}]}`)
+	msg := []byte(`{"topic":"allLiquidation.BTCUSDT","type":"snapshot","ts":1710000030000,"data":[{"s":"BTCUSDT","S":"Sell","v":"5.25","p":"64900.5","T":1710000030001}]}`)
 	req, skip, p := bybit.ParseMessage(msg, time.UnixMilli(1710000031000))
 	if p != nil || skip {
 		t.Fatalf("ParseMessage failed: skip=%v problem=%v", skip, p)
@@ -142,5 +167,21 @@ func TestParseMessage_ControlEventSkipsWithoutProblem(t *testing.T) {
 	}
 	if p != nil {
 		t.Fatalf("unexpected problem: %v", p)
+	}
+}
+
+func TestParseMessage_SubscribeRejectedReturnsProblem(t *testing.T) {
+	_, skip, p := bybit.ParseMessage([]byte(`{"op":"subscribe","success":false,"ret_msg":"handler not found","ret_code":10404}`), time.Now())
+	if !skip {
+		t.Fatal("expected skip")
+	}
+	if p == nil {
+		t.Fatal("expected problem")
+	}
+	if p.Code != problem.ValidationFailed {
+		t.Fatalf("problem code = %q, want %q", p.Code, problem.ValidationFailed)
+	}
+	if got := p.Details["reason"]; got != "subscribe_rejected" {
+		t.Fatalf("reason = %v, want subscribe_rejected", got)
 	}
 }

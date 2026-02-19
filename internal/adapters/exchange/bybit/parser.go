@@ -4,6 +4,7 @@ package bybit
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -127,6 +128,11 @@ func ParseMessageWithMetaForMarketType(data []byte, recvAt time.Time, marketType
 	meta.Ticker = tickerFromTopic(topic)
 
 	if isControlMessage(topic, op, root) {
+		if p := controlMessageProblem(op, root); p != nil {
+			meta.Problem = p
+			meta.SkipReason = skipReasonFromProblem(p)
+			return app.IngestRequest{}, true, meta
+		}
 		meta.SkipReason = "control_event"
 		return app.IngestRequest{}, true, meta
 	}
@@ -134,6 +140,9 @@ func ParseMessageWithMetaForMarketType(data []byte, recvAt time.Time, marketType
 	req, skip, p := parseByTopic(topic, data, recvAt, marketType, msgType, op)
 	meta.Problem = p
 	meta.SkipReason = skipReasonFromProblem(p)
+	if skip && meta.SkipReason == "" {
+		meta.SkipReason = defaultSkipReason(topic)
+	}
 	if strings.TrimSpace(topic) != "" && req.Metadata != nil {
 		req.Metadata["ws_stream"] = topic
 	}
@@ -144,7 +153,8 @@ func ParseMessageWithMetaForMarketType(data []byte, recvAt time.Time, marketType
 		!strings.HasPrefix(topic, "publicTrade.") &&
 		!strings.HasPrefix(topic, "orderbook.") &&
 		!strings.HasPrefix(topic, "tickers.") &&
-		!strings.HasPrefix(topic, "liquidation.") {
+		!strings.HasPrefix(topic, "liquidation.") &&
+		!strings.HasPrefix(topic, "allLiquidation.") {
 		meta.SkipReason = "unsupported_event"
 	}
 	return req, skip, meta
@@ -165,7 +175,7 @@ func parseByTopic(
 		return parseOrderBookDelta(data, recvAt, marketType)
 	case strings.HasPrefix(topic, "tickers."):
 		return parseMarkPrice(data, recvAt, marketType)
-	case strings.HasPrefix(topic, "liquidation."):
+	case strings.HasPrefix(topic, "liquidation."), strings.HasPrefix(topic, "allLiquidation."):
 		return parseLiquidation(data, recvAt, marketType)
 	default:
 		return app.IngestRequest{}, true, unsupportedEventProblem(topic, msgType, op)
@@ -180,6 +190,25 @@ func isControlMessage(topic, op string, root map[string]json.RawMessage) bool {
 		return true
 	}
 	return hasKey(root, "success") && op == ""
+}
+
+func controlMessageProblem(op string, root map[string]json.RawMessage) *problem.Problem {
+	if strings.ToLower(strings.TrimSpace(op)) != "subscribe" {
+		return nil
+	}
+	success, ok := rawBool(root, "success")
+	if !ok || success {
+		return nil
+	}
+	p := problem.New(problem.ValidationFailed, "bybit subscribe rejected")
+	p = problem.WithDetail(p, "reason", "subscribe_rejected")
+	if msg := rawString(root, "ret_msg"); msg != "" {
+		p = problem.WithDetail(p, "ret_msg", msg)
+	}
+	if code, ok := rawInt64(root, "ret_code"); ok {
+		p = problem.WithDetail(p, "ret_code", code)
+	}
+	return p
 }
 
 func parseTrade(data []byte, recvAt time.Time, marketType string) (app.IngestRequest, bool, *problem.Problem) {
@@ -357,22 +386,29 @@ func parseMarkPrice(data []byte, recvAt time.Time, marketType string) (app.Inges
 		)
 	}
 
-	markPrice, err := strconv.ParseFloat(msg.Data.MarkPrice, 64)
-	if err != nil {
-		return app.IngestRequest{}, true, problem.Wrap(err, problem.ValidationFailed, "bybit ticker: invalid mark price")
+	markPriceRaw := strings.TrimSpace(msg.Data.MarkPrice)
+	if markPriceRaw == "" {
+		// Bybit can emit ticker updates without markPrice; skip silently.
+		return app.IngestRequest{}, true, nil
 	}
+	markPrice, err := strconv.ParseFloat(markPriceRaw, 64)
+	if err != nil || math.IsNaN(markPrice) || math.IsInf(markPrice, 0) || markPrice <= 0 {
+		// Non-finite/zero markPrice is non-actionable for our markprice event.
+		return app.IngestRequest{}, true, nil
+	}
+
 	indexPrice := 0.0
 	if strings.TrimSpace(msg.Data.IndexPrice) != "" {
 		indexPrice, err = strconv.ParseFloat(msg.Data.IndexPrice, 64)
 		if err != nil {
-			return app.IngestRequest{}, true, problem.Wrap(err, problem.ValidationFailed, "bybit ticker: invalid index price")
+			indexPrice = 0
 		}
 	}
 	fundingRate := 0.0
 	if strings.TrimSpace(msg.Data.FundingRate) != "" {
 		fundingRate, err = strconv.ParseFloat(msg.Data.FundingRate, 64)
 		if err != nil {
-			return app.IngestRequest{}, true, problem.Wrap(err, problem.ValidationFailed, "bybit ticker: invalid funding rate")
+			fundingRate = 0
 		}
 	}
 
@@ -526,6 +562,15 @@ func skipReasonFromProblem(p *problem.Problem) string {
 	return ""
 }
 
+func defaultSkipReason(topic string) string {
+	switch {
+	case strings.HasPrefix(topic, "tickers."):
+		return "markprice_unavailable"
+	default:
+		return "skip_unspecified"
+	}
+}
+
 func deriveEventType(topic, msgType, op string) string {
 	switch {
 	case strings.HasPrefix(topic, "publicTrade."):
@@ -535,6 +580,8 @@ func deriveEventType(topic, msgType, op string) string {
 	case strings.HasPrefix(topic, "tickers."):
 		return "ticker"
 	case strings.HasPrefix(topic, "liquidation."):
+		return "liquidation"
+	case strings.HasPrefix(topic, "allLiquidation."):
 		return "liquidation"
 	case strings.TrimSpace(msgType) != "":
 		return msgType
@@ -623,4 +670,32 @@ func rawString(obj map[string]json.RawMessage, key string) string {
 func hasKey(obj map[string]json.RawMessage, key string) bool {
 	_, ok := obj[key]
 	return ok
+}
+
+func rawBool(obj map[string]json.RawMessage, key string) (bool, bool) {
+	raw, ok := obj[key]
+	if !ok {
+		return false, false
+	}
+	var out bool
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return false, false
+	}
+	return out, true
+}
+
+func rawInt64(obj map[string]json.RawMessage, key string) (int64, bool) {
+	raw, ok := obj[key]
+	if !ok {
+		return 0, false
+	}
+	var out int64
+	if err := json.Unmarshal(raw, &out); err == nil {
+		return out, true
+	}
+	var f float64
+	if err := json.Unmarshal(raw, &f); err == nil {
+		return int64(f), true
+	}
+	return 0, false
 }

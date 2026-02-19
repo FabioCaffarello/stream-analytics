@@ -7,11 +7,11 @@
   "jetstream": {
     "url": "nats://nats:4222",
     "stream_name": "MARKETDATA",
-    "consumer_durable": "processor-v1",
+    "consumer_durable": "processor-v4",
     "ack_wait": "30s",
     "max_ack_pending": 2048,
     "max_deliver": 10,
-    "deliver_policy": "all",
+    "deliver_policy": "new",
     "filter_subjects": ["marketdata.>"],
     "dedup_window": "5m",
     "max_age": "24h",
@@ -46,6 +46,11 @@
     "stats": {
       "enabled": true,
       "max_windows": 100000
+    },
+    "rt_publish": {
+      "orderbook_interval_ms": 200,
+      "heatmap_interval_ms": 200,
+      "volume_interval_ms": 250
     },
     "insights": {
       "enable_crossvenue_join": true,

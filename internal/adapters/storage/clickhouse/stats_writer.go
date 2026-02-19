@@ -53,8 +53,7 @@ INSERT INTO aggregation_stats_cold (
     funding_rate_last,
     seq_first,
     seq_last,
-    idempotency_key,
-    created_at
+    idempotency_key
 )`
 
 	markOpen, markHigh, markLow, markClose := statsNullableMarkPrice(s)

@@ -233,6 +233,87 @@ func TestServer_Snapshot_AcceptProto_returnsProtobufEnvelope(t *testing.T) {
 	}
 }
 
+func TestServer_MainEndpoints_AcceptProto_EnvelopeAndJSONPayloadConformance(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		body       string
+		wantStatus int
+		wantType   string
+	}{
+		{
+			name:       "healthz",
+			method:     http.MethodGet,
+			path:       "/healthz",
+			body:       "",
+			wantStatus: http.StatusOK,
+			wantType:   "runtime.healthz",
+		},
+		{
+			name:       "readyz",
+			method:     http.MethodGet,
+			path:       "/readyz",
+			body:       "",
+			wantStatus: http.StatusOK,
+			wantType:   "runtime.readyz",
+		},
+		{
+			name:       "snapshot",
+			method:     http.MethodGet,
+			path:       "/runtime/snapshot",
+			body:       "",
+			wantStatus: http.StatusOK,
+			wantType:   "runtime.snapshot",
+		},
+		{
+			name:       "reload",
+			method:     http.MethodPost,
+			path:       "/runtime/reload",
+			body:       "",
+			wantStatus: http.StatusAccepted,
+			wantType:   "runtime.reload",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			headers := map[string]string{
+				"Accept": "application/x-protobuf",
+			}
+			if tc.method == http.MethodPost {
+				headers["Content-Type"] = "application/json"
+			}
+			rec := doRequestWithHeaders(t, srv, tc.method, tc.path, tc.body, headers)
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status=%d want=%d", rec.Code, tc.wantStatus)
+			}
+			if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/x-protobuf") {
+				t.Fatalf("content-type=%q want application/x-protobuf", got)
+			}
+			out, p := contracts.UnmarshalEnvelopeV1ToDomain(rec.Body.Bytes())
+			if p != nil {
+				t.Fatalf("proto unmarshal failed: %v", p)
+			}
+			if out.Type != tc.wantType {
+				t.Fatalf("envelope.type=%q want=%q", out.Type, tc.wantType)
+			}
+			if out.ContentType != "application/json" {
+				t.Fatalf("envelope.content_type=%q want=application/json", out.ContentType)
+			}
+			if !json.Valid(out.Payload) {
+				t.Fatalf("envelope.payload is not valid JSON: %q", string(out.Payload))
+			}
+		})
+	}
+}
+
 // TestServer_Snapshot_timeout verifies that the handler returns 504 when the
 // guardian does not respond within the configured timeout.
 func TestServer_Snapshot_timeout(t *testing.T) {
