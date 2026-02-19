@@ -93,7 +93,7 @@ cd internal/shared && go test -race ./...
 - `internal/shared/proto/gen/marketdata/v1/markprice.pb.go`
 - `internal/shared/proto/gen/marketdata/v1/liquidation.pb.go`
 - `Makefile` (proto targets)
-- `.github/workflows/ci.yml` (buf + generated-check gate)
+- `.github/workflows/ci-fast.yml` (buf + generated-check gate)
 
 ## 7. W6-2 Completed Evidence (Codec Infra + Registry)
 
@@ -192,7 +192,7 @@ cd internal/core/delivery && go test ./...
 
 ### CI gates summary
 
-- CI protobuf gates in `.github/workflows/ci.yml` now enforce:
+- CI protobuf gates in `.github/workflows/ci-fast.yml` now enforce:
   - `make tools` before generation drift checks to pin local `protoc-gen-go`
   - `make proto-lint` always
   - `proto-breaking` on `main` always

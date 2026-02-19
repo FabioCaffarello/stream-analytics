@@ -1,0 +1,82 @@
+name: ci-fast
+
+on:
+  workflow_call:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ci-fast-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  lint-and-vet:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      - uses: ./.github/actions/setup-go-workspace
+        with:
+          install-lint-tools: 'true'
+      - name: Check formatting
+        run: make fmt-check
+      - name: Vet
+        run: make vet
+      - name: Lint (includes invariants-check)
+        run: make lint
+
+  test-unit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      - uses: ./.github/actions/setup-go-workspace
+      - name: Workspace tests
+        run: make test-workspace
+
+  proto-check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-go-workspace
+        with:
+          install-proto-tools: 'true'
+      - name: Fetch main for proto-breaking baseline
+        run: git fetch --no-tags --prune --depth=1 origin main:main || true
+      - name: Proto generate drift check
+        run: |
+          make proto-gen-if-needed
+          if ! git diff --exit-code -- internal/shared/proto/gen; then
+            echo "::error::Generated protobuf drift detected. Run 'make proto-gen' and commit."
+            exit 1
+          fi
+      - name: Import boundary guard
+        run: go test ./internal/shared/contracts -run TestImportGuard_ProtoImportsStayInSharedBoundary -count=1
+      - name: Proto lint
+        run: make proto-lint
+      - name: Proto breaking change check
+        run: make proto-breaking
+
+  docs-and-ops:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      - uses: ./.github/actions/setup-go-workspace
+        with:
+          install-promtool: 'true'
+      - name: Registry check
+        run: make registry-check
+      - name: Operability gates
+        run: make operability-gates
