@@ -25,6 +25,12 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
+type shardE2EProc struct {
+	proc        *processorProcess
+	metricsAddr string
+	configPath  string
+}
+
 func TestE2EProcessorJetStream(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
@@ -44,7 +50,7 @@ func TestE2EProcessorJetStream(t *testing.T) {
 	m := 10
 
 	metricsAddr1 := reserveLocalAddr(t)
-	configPath1 := writeProcessorConfig(t, natsURL, durableName)
+	configPath1 := writeProcessorConfig(t, natsURL, durableName, metricsAddr1)
 	proc1 := startProcessorProcess(t, ctx, repoRoot, processorBin, configPath1, metricsAddr1)
 	defer proc1.forceStop()
 	waitReady(t, ctx, proc1, metricsAddr1)
@@ -63,7 +69,7 @@ func TestE2EProcessorJetStream(t *testing.T) {
 	seq = publishRawBatch(t, pub, seq, m, "E2E-B")
 
 	metricsAddr2 := reserveLocalAddr(t)
-	configPath2 := writeProcessorConfig(t, natsURL, durableName)
+	configPath2 := writeProcessorConfig(t, natsURL, durableName, metricsAddr2)
 	proc2 := startProcessorProcess(t, ctx, repoRoot, processorBin, configPath2, metricsAddr2)
 	defer proc2.forceStop()
 	waitReady(t, ctx, proc2, metricsAddr2)
@@ -135,7 +141,7 @@ func TestE2EProcessorJetStream_CrossVenueJoinOptIn(t *testing.T) {
 
 	const durableName = "processor-e2e-join-v1"
 	metricsAddr := reserveLocalAddr(t)
-	configPath := writeProcessorConfigWithJoin(t, natsURL, durableName, true)
+	configPath := writeProcessorConfigWithJoin(t, natsURL, durableName, metricsAddr, true)
 
 	proc := startProcessorProcessWithEnv(t, ctx, repoRoot, processorBin, configPath, metricsAddr, map[string]string{
 		"E2E_INJECT_JOIN_FIXTURE": "1",
@@ -168,7 +174,7 @@ func TestE2EProcessorJetStream_FailClosedWithoutTestRunMode(t *testing.T) {
 	repoRoot := findRepoRoot(t)
 	processorBin := buildProcessorBinary(t, ctx, repoRoot)
 	metricsAddr := reserveLocalAddr(t)
-	configPath := writeProcessorConfig(t, "nats://127.0.0.1:4222", "processor-e2e-failclosed")
+	configPath := writeProcessorConfig(t, "nats://127.0.0.1:4222", "processor-e2e-failclosed", metricsAddr)
 
 	proc := startProcessorProcessWithEnv(t, ctx, repoRoot, processorBin, configPath, metricsAddr, map[string]string{
 		"RUN_MODE":            "prod",
@@ -186,6 +192,117 @@ func TestE2EProcessorJetStream_FailClosedWithoutTestRunMode(t *testing.T) {
 		proc.dumpLogs(t)
 		t.Fatalf("expected fail-closed message in logs, got:\n%s", logs)
 	}
+}
+
+func TestE2EProcessorJetStream_ThreeShardsCrashRestart(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	natsURL, cleanup := startJetStreamNATS(t)
+	defer cleanup()
+
+	repoRoot := findRepoRoot(t)
+	processorBin := buildProcessorBinary(t, ctx, repoRoot)
+	pub := mustPublisher(t, natsURL)
+	defer func() { _ = pub.Close(context.Background()) }()
+
+	const (
+		shardCount      = 3
+		perShardInitial = 12
+		perShardAfter   = 6
+		durableName     = "processor-e2e-sharded-v1"
+	)
+
+	processes := make([]shardE2EProc, shardCount)
+	for shardIdx := 0; shardIdx < shardCount; shardIdx++ {
+		metricsAddr := reserveLocalAddr(t)
+		configPath := writeProcessorConfig(t, natsURL, durableName, metricsAddr)
+		proc := startProcessorProcessWithEnv(t, ctx, repoRoot, processorBin, configPath, metricsAddr, map[string]string{
+			"MR_ENV":                   "dev",
+			"SHARD_COUNT":              strconv.Itoa(shardCount),
+			"SHARD_INDEX":              strconv.Itoa(shardIdx),
+			"SHARD_REGISTRY_ENABLED":   "true",
+			"SHARD_REGISTRY_STRICT":    "true",
+			"SHARD_REGISTRY_GRACE":     "20s",
+			"E2E_HTTP_ADDR":            reserveLocalAddr(t),
+			"E2E_TRANSIENT_INSTRUMENT": "E2E-TRANSIENT",
+		})
+		processes[shardIdx] = shardE2EProc{proc: proc, metricsAddr: metricsAddr, configPath: configPath}
+		defer proc.forceStop()
+	}
+	for _, item := range processes {
+		waitReady(t, ctx, item.proc, item.metricsAddr)
+	}
+
+	initialInstruments := pickInstrumentsPerShard(shardCount, perShardInitial)
+	seq := 1
+	for shardIdx := 0; shardIdx < shardCount; shardIdx++ {
+		for _, instrument := range initialInstruments[shardIdx] {
+			env := envelope.Envelope{
+				Type:           "marketdata.raw",
+				Version:        1,
+				Venue:          "binance",
+				Instrument:     instrument,
+				TsExchange:     1_710_000_000_000 + int64(seq),
+				TsIngest:       1_710_000_000_100 + int64(seq),
+				Seq:            int64(seq),
+				IdempotencyKey: fmt.Sprintf("e2e-shard-initial-%d", seq),
+				ContentType:    envelope.ContentTypeJSON,
+				Payload:        []byte(`{"kind":"raw"}`),
+			}
+			if p := pub.Publish(context.Background(), env); p != nil {
+				t.Fatalf("publish initial envelope failed: %v", p)
+			}
+			seq++
+		}
+	}
+	for _, item := range processes {
+		waitMetricAtLeast(t, ctx, item.proc, item.metricsAddr, "bus_consumed_total", map[string]string{
+			"bus_type": "jetstream",
+			"status":   "ok",
+		}, 1)
+	}
+
+	// Crash shard 1 process, publish additional shard-1 routed envelopes,
+	// then restart the same shard to validate convergence.
+	crashed := processes[1]
+	if err := crashed.proc.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		t.Fatalf("kill shard 1 processor failed: %v", err)
+	}
+	_ = crashed.proc.waitExit(5 * time.Second)
+	time.Sleep(32 * time.Second) // wait for shard lease TTL (30s) to expire before restart
+
+	afterInstruments := pickInstrumentsForShard(shardCount, 1, perShardAfter, 10_000)
+	for _, instrument := range afterInstruments {
+		env := envelope.Envelope{
+			Type:           "marketdata.raw",
+			Version:        1,
+			Venue:          "binance",
+			Instrument:     instrument,
+			TsExchange:     1_710_001_000_000 + int64(seq),
+			TsIngest:       1_710_001_000_100 + int64(seq),
+			Seq:            int64(seq),
+			IdempotencyKey: fmt.Sprintf("e2e-shard-restart-%d", seq),
+			ContentType:    envelope.ContentTypeJSON,
+			Payload:        []byte(`{"kind":"raw"}`),
+		}
+		if p := pub.Publish(context.Background(), env); p != nil {
+			t.Fatalf("publish restart envelope failed: %v", p)
+		}
+		seq++
+	}
+	restarted := startProcessorProcessWithEnv(t, ctx, repoRoot, processorBin, crashed.configPath, crashed.metricsAddr, map[string]string{
+		"MR_ENV":                 "dev",
+		"SHARD_COUNT":            strconv.Itoa(shardCount),
+		"SHARD_INDEX":            "1",
+		"SHARD_REGISTRY_ENABLED": "true",
+		"SHARD_REGISTRY_STRICT":  "true",
+		"SHARD_REGISTRY_GRACE":   "20s",
+		"E2E_HTTP_ADDR":          reserveLocalAddr(t),
+	})
+	processes[1].proc = restarted
+	defer restarted.forceStop()
+	waitReady(t, ctx, restarted, crashed.metricsAddr)
 }
 
 type processorProcess struct {
@@ -223,7 +340,6 @@ func startProcessorProcessWithEnv(
 	cmd.Stderr = &p.stderr
 	envOverrides := map[string]string{
 		"E2E_TEST_MODE":            "1",
-		"E2E_HTTP_ADDR":            metricsAddr,
 		"E2E_TRANSIENT_INSTRUMENT": "E2E-TRANSIENT",
 		"E2E_TRANSIENT_FAILS":      "2",
 		"RUN_MODE":                 "test",
@@ -565,12 +681,12 @@ func buildProcessorBinary(t *testing.T, ctx context.Context, repoRoot string) st
 	return outPath
 }
 
-func writeProcessorConfig(t *testing.T, natsURL, durable string) string {
+func writeProcessorConfig(t *testing.T, natsURL, durable, httpAddr string) string {
 	t.Helper()
-	return writeProcessorConfigWithJoin(t, natsURL, durable, false)
+	return writeProcessorConfigWithJoin(t, natsURL, durable, httpAddr, false)
 }
 
-func writeProcessorConfigWithJoin(t *testing.T, natsURL, durable string, enableJoin bool) string {
+func writeProcessorConfigWithJoin(t *testing.T, natsURL, durable, httpAddr string, enableJoin bool) string {
 	t.Helper()
 
 	insightsJSON := `"insights": {
@@ -618,13 +734,18 @@ func writeProcessorConfigWithJoin(t *testing.T, natsURL, durable string, enableJ
     "max_bytes": "10GB"
   },
   "log": {"level": "debug", "format": "text"},
-  "http": {"shutdown_timeout": "3s"},
+  "http": {
+    "addr": %q,
+    "shutdown_timeout": "5s",
+    "guardian_shutdown_timeout": "4s",
+    "publisher_flush_timeout": "2s"
+  },
   "processor": {
     "bus_capacity": 1024,
     %s
   }
 }
-`, natsURL, durable, insightsJSON)
+`, natsURL, durable, httpAddr, insightsJSON)
 
 	path := filepath.Join(t.TempDir(), "processor-e2e.json")
 	if err := os.WriteFile(path, []byte(cfg), 0o600); err != nil {
@@ -661,4 +782,27 @@ func findRepoRoot(t *testing.T) string {
 		}
 		cur = parent
 	}
+}
+
+func pickInstrumentsPerShard(shardCount, perShard int) map[int][]string {
+	out := make(map[int][]string, shardCount)
+	for shard := 0; shard < shardCount; shard++ {
+		out[shard] = pickInstrumentsForShard(shardCount, shard, perShard, shard*100_000)
+	}
+	return out
+}
+
+func pickInstrumentsForShard(shardCount, shardID, needed, start int) []string {
+	if needed <= 0 {
+		return nil
+	}
+	out := make([]string, 0, needed)
+	for i := start; len(out) < needed; i++ {
+		instrument := fmt.Sprintf("E2E-S%06d", i)
+		subject := fmt.Sprintf("marketdata.raw.v1.binance.%s", instrument)
+		if ShardGroup(ShardKey(subject), shardCount) == shardID {
+			out = append(out, instrument)
+		}
+	}
+	return out
 }
