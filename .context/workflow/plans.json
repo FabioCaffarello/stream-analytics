@@ -1,13 +1,13 @@
 {
   "active": [
     {
-      "slug": "prd0002-next-steps",
-      "path": "plans/prd0002-next-steps.md",
-      "title": "PRD-0002 Next Steps",
-      "linkedAt": "2026-02-19T18:55:49.573Z",
+      "slug": "prd0002-g11-release-tag",
+      "path": "plans/prd0002-g11-release-tag.md",
+      "title": "PRD-0002 Gate 11 Release Tag",
+      "linkedAt": "2026-02-19T19:17:00.518Z",
       "status": "active"
     }
   ],
   "completed": [],
-  "primary": "prd0002-next-steps"
+  "primary": "prd0002-g11-release-tag"
 }

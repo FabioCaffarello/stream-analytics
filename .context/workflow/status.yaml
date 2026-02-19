@@ -1,42 +1,32 @@
 project:
-  name: "prd0002-next-steps"
-  scale: MEDIUM
-  started: "2026-02-19T18:55:11.807Z"
-  current_phase: V
+  name: "prd0002-g11-release-tag"
+  scale: SMALL
+  started: "2026-02-19T19:16:32.931Z"
+  current_phase: P
 
 phases:
   P:
-    status: filled
-    started_at: "2026-02-19T18:55:11.807Z"
-    completed_at: "2026-02-19T18:59:17.481Z"
+    status: in_progress
+    started_at: "2026-02-19T19:16:32.931Z"
   R:
-    status: filled
-    started_at: "2026-02-19T18:59:17.482Z"
-    completed_at: "2026-02-19T18:59:23.519Z"
+    status: skipped
+    reason: "Not required for scale SMALL"
   E:
-    status: filled
-    started_at: "2026-02-19T18:59:23.519Z"
-    completed_at: "2026-02-19T19:04:05.154Z"
+    status: pending
   V:
-    status: completed
-    started_at: "2026-02-19T19:04:05.155Z"
-    completed_at: "2026-02-19T19:04:11.134Z"
-    outputs:
-      - path: "Validation complete: docs-check and ci passed after PRD sync"
-        status: filled
-      - path: "Residual: Gate 11 pending by release policy (tag creation on main branch)"
-        status: filled
+    status: pending
   C:
     status: skipped
-    reason: "Not required for scale MEDIUM"
+    reason: "Not required for scale SMALL"
 
 execution:
   history:
-    - timestamp: "2026-02-19T19:04:11.134Z"
-      phase: V
-      action: completed
-  last_activity: "2026-02-19T19:04:11.134Z"
-  resume_context: "Fase V (Validação) concluída"
+    - timestamp: "2026-02-19T19:17:00.519Z"
+      phase: P
+      action: plan_linked
+      plan: "prd0002-g11-release-tag"
+  last_activity: "2026-02-19T19:17:00.519Z"
+  resume_context: "Plano vinculado - aguardando revisão"
 
 settings:
   autonomous_mode: true

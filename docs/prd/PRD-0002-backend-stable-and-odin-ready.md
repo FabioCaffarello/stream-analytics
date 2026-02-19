@@ -196,7 +196,7 @@ make down
 | 8 | ClickHouse migrations run without error on fresh DB | Dev | Done | `sql/clickhouse/migrations/` validated on fresh compose volume (`make down -v` + `make up-core`) |
 | 9 | TimescaleDB migrations run without error on fresh DB | Dev | Done | `sql/timescale/migrations/` validated on fresh compose volume (`make down -v` + `make up-core`) |
 | 10 | PRD-0002 status changed to `Active` | Architect | Done | This file, line 3 |
-| 11 | Tag `v0.1.0-stable` created on `main` | Architect | Pending | `git tag v0.1.0-stable` |
+| 11 | Tag `v0.1.0-stable` created on `main` | Architect | Done | `git tag v0.1.0-stable` |
 
 ## Open Risks
 
@@ -236,6 +236,8 @@ make down
 
 ## Changelog
 
+- 2026-02-19 (gate-11):
+  - Gate 11 marked `Done` after creating tag `v0.1.0-stable` on `main`.
 - 2026-02-19 (gates-1-3-7-10):
   - Gate 1 marked `Done` after `make ci` passed.
   - Gate 2 marked `Done` with new soak evidence in `.context/evidence/c4-pipeline-soak.txt`.

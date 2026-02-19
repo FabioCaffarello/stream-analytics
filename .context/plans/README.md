@@ -14,13 +14,14 @@ This directory contains plans for coordinating work across documentation and pla
 9. [M3 Heatmap Plan](./m3-heatmap-plan.md)
 10. [M3 Vpvr Plan](./m3-vpvr-plan.md)
 11. [Next Evolution Blocks 80 20](./next-evolution-blocks-80-20.md)
-12. [Prd0002 G5 G6 Gates](./prd0002-g5-g6-gates.md)
-13. [Prd0002 Next Steps](./prd0002-next-steps.md)
-14. [Retomada Market Parity Commit Chain](./retomada-market-parity-commit-chain.md)
-15. [Shard Production Grade](./shard-production-grade.md)
-16. [Subject Taxonomy Stabilization](./subject-taxonomy-stabilization.md)
-17. [W0 Build Acceleration](./w0-build-acceleration.md)
-18. [W1 Consumer Hotspot Dedup](./w1-consumer-hotspot-dedup.md)
+12. [Prd0002 G11 Release Tag](./prd0002-g11-release-tag.md)
+13. [Prd0002 G5 G6 Gates](./prd0002-g5-g6-gates.md)
+14. [Prd0002 Next Steps](./prd0002-next-steps.md)
+15. [Retomada Market Parity Commit Chain](./retomada-market-parity-commit-chain.md)
+16. [Shard Production Grade](./shard-production-grade.md)
+17. [Subject Taxonomy Stabilization](./subject-taxonomy-stabilization.md)
+18. [W0 Build Acceleration](./w0-build-acceleration.md)
+19. [W1 Consumer Hotspot Dedup](./w1-consumer-hotspot-dedup.md)
 
 ## How To Create Or Update Plans
 - Run "ai-context plan <name>" to scaffold a new plan template.
