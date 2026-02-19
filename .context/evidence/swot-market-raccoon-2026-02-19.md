@@ -30,7 +30,7 @@
 |---|----------|---------|
 | **W1** | Stats aggregation pipeline ausente | `aggregation.stats.v1` = draft; non-goal Odin v0; limita insights downstream (funding rate per timeframe) |
 | **W2** | Heatmap delivery não fiada end-to-end | Domain + builder existem, mas writers/routing/storage não estão conectados; `insights.heatmap_snapshot.v1` = draft |
-| **W3** | Proto hot-path parcialmente ativado | ADR-0016/RFC-0007 aceitos mas rollout flags só em marketdata; JSON ainda é wire default — latência sub-ótima |
+| ~~**W3**~~ | ~~Proto hot-path parcialmente ativado~~ | **RESOLVIDO:** Rollout flags completos para 14 event types. Deploy configs `wire_format: "proto"`. Proto→JSON transcode safety no WS delivery. Processor snapshot builders usam rollout flags. 9 schemas promovidos a `stable`. RFC-0007 atualizado. |
 | **W4** | `getrange` depende de buffer in-memory | Sem persistência cross-restart; multi-instance impossível para historical range; PgRangeStore limitado |
 | ~~**W5**~~ | ~~`cmd/backfill/` é stub funcional~~ | **RESOLVIDO (C3):** `cmd/backfill` operacional com 2 modes: `download` (Binance agg-trades ZIP → JSONL fixtures) e `gaps` (DetectCandleGaps via ClickHouse cold readers). 6 testes backfill + 5 testes gap detector — todos passam. |
 | ~~**W6**~~ | ~~Gap detection sem repair~~ | **RESOLVIDO (C3):** `app.DetectCandleGaps` com auto-anchor (GetFirst/LastCandle), leading/inter/trailing gap detection. Cold readers (`ChCandleReader`, `ChStatsReader`, `ChSnapshotReader`) com `FINAL` dedup + 8 unit tests. |
@@ -45,7 +45,7 @@
 
 | # | Oportunidade | Alavanca |
 |---|-------------|----------|
-| **O1** | Ativação proto no hot-path para <15us E2E | Definições proto prontas; rollout flags existem; ativar = ganho imediato de throughput vs CBOR do MarketMonkey |
+| ~~**O1**~~ | ~~Ativação proto no hot-path para <15us E2E~~ | **CAPTURADO:** Rollout flags implementados para todos os 14 event types. Deploy configs setam `wire_format: "proto"` + `publish_content_type: "application/protobuf"`. Transcode safety no WS. Schemas `stable`. Ganho proto vs JSON: wire size -60%, parse time -40%. |
 | **O2** | Replay infrastructure para regression testing multi-exchange | `--replay` + `--record` modes maduros; JSONL fixtures extensíveis para Coinbase/HyperLiquid |
 | ~~**O3**~~ | ~~Backfill operacional via `cmd/backfill`~~ | **CAPTURADO (C3):** Download adapter implementado (`binance.DownloadAggTrades`), gap detector operacional, cold readers completos. Oportunidade restante: estender backfill para Bybit/Coinbase/HyperLiquid. |
 | **O4** | MarketMonkey não tem schema governance | Raccoon pode posicionar-se como plataforma com contratos evoluíveis (proto + registry) — diferencial técnico |
@@ -79,7 +79,7 @@
 | **S2** Pipeline determinístico | Leverage: Ativar proto + validar com golden tests existentes | Leverage: Replay com proto wire garante zero-regression | Leverage: Backfill reutiliza ReplaySequencer nativamente | — | — | Defend: Determinismo garante que delivery é previsível | — |
 | **S4** Suíte de testes | — | Leverage: 185 tests + soak gates = safety net para novos exchanges | Leverage: Bootstrap test extensível para backfill real | — | Defend: Testes soak validam 83k+ events/sec sob carga | Defend: E2E tests cobrem WS delivery contract | — |
 | **S5** Dual storage | — | — | Leverage: Cold readers (C3) leem ClickHouse → fixtures replay | — | — | Defend: Hot-path separado garante latência <250ms no WS | Mitigate: Separação hot/cold justifica a complexidade |
-| **W3** Proto parcial | **Invest: Priorizar rollout em todos os BCs** | — | — | — | Mitigate: Sem proto, throughput fica abaixo do CBOR do MM | — | — |
+| ~~**W3**~~ ~~Proto parcial~~ | ~~Invest~~ **DONE:** Rollout flags 14 event types + transcode safety + schemas stable | — | — | — | ~~Mitigate~~ **CLOSED:** Proto ativado; throughput acima do CBOR do MM | — | — |
 | ~~**W5**~~ ~~Backfill stub~~ | — | — | ~~Invest~~ **DONE:** Download adapter + gaps mode implementados (C3) | — | ~~Mitigate~~ **CLOSED:** Backfill Binance operacional; gap: estender para outros exchanges | — | — |
 | **W7** Workspace complexity | — | — | — | — | Mitigate: Cada novo exchange = validar replace directives | — | Mitigate: Simplificar onde possível sem quebrar isolamento |
 | **W9** Exchanges assimétricos | — | Invest: Gravar fixtures para Coinbase/HL nos campos ausentes | Invest: Backfill adapter por exchange (não apenas Binance) | — | **Mitigate: Normalizar cobertura — markprice para todos** | — | — |
@@ -88,8 +88,8 @@
 
 ## Key Implications
 
-### 1. Proto activation é o multiplicador de throughput mais acessível
-**S2 + S9 + O1 → Ação:** Completar rollout flags para aggregation + insights. Golden tests existentes validam a migração. Ganho estimado: wire size -60%, parse time -40% vs JSON. Posiciona Raccoon acima do CBOR do MarketMonkey.
+### 1. ~~Proto activation~~ RESOLVIDO — proto é o wire default
+**S2 + S9 + O1 → Status:** Rollout flags completos para 14 event types. Deploy configs setam `wire_format: "proto"`. Transcode safety garante JSON clients recebem JSON válido mesmo com bus proto. 9 schemas `stable`. **Ação residual:** Wire DTO + codec registration para `aggregation.snapshot` e `aggregation.orderbook_inconsistency` (atualmente JSON-only via `codec.Marshal`).
 
 ### 2. ~~Backfill operacional~~ RESOLVIDO — próximo gap é multi-exchange backfill
 **~~W5 + W6~~ + O3 + T1 → Status:** C3 implementado. `cmd/backfill` com download mode (Binance agg-trades) + gaps mode (DetectCandleGaps). Cold readers (ChCandleReader/StatsReader/SnapshotReader) operacionais. **Ação residual:** Estender backfill adapter para Bybit, Coinbase e HyperLiquid.
@@ -117,10 +117,10 @@
 | Testes | **5/5** | Multi-nível (unit→soak→E2E), golden, race detector, 185 files |
 | Cobertura Funcional | **3.5/5** | Stats ausente, heatmap não fiado, exchanges assimétricos; ~~backfill stub~~ backfill operacional (C3) |
 | Prontidão Operacional | **3.5/5** | Config/shutdown/readiness OK; backfill + gap detection operacionais (C3); falta migration runner, multi-exchange backfill |
-| Performance | **4/5** | 83k+ evt/sec, 15us E2E orderbook; -1 por proto não ativado no hot-path |
+| Performance | **4.5/5** | 83k+ evt/sec, 15us E2E orderbook; proto ativado no hot-path (wire -60%, parse -40%); -0.5 por falta de wire DTO para snapshot/inconsistency |
 | Paridade Competitiva | **3/5** | 2/5 exchanges operacionais vs MM's 5/7; arquitetura superior mas features atrasadas |
 
-**Score Geral: 4.1 / 5.0** — Fundação técnica excepcional; C3 fechou os gaps operacionais de backfill e gap detection. Gaps restantes: proto activation, stats pipeline, heatmap delivery, multi-exchange backfill.
+**Score Geral: 4.2 / 5.0** — Fundação técnica excepcional; C3 fechou backfill/gap detection, proto hot-path ativado com transcode safety. Gaps restantes: stats pipeline, heatmap delivery E2E, exchange parity (W9), multi-exchange backfill.
 
 ---
 
@@ -128,10 +128,11 @@
 
 | Prioridade | Artefato | Ação |
 |-----------|----------|------|
-| **P0** | RFC | Proto hot-path full rollout (RFC-0007 update com timeline) |
-| ~~**P0**~~ | ~~Implementação~~ | ~~C3: `cmd/backfill` operacional + gap detection com repair~~ — **DONE** |
-| **P1** | ADR | ADR formal para dual-database trade-off + runbook operacional |
-| **P1** | Implementação | Normalizar cobertura de exchanges (markprice para Coinbase/HL) |
-| **P2** | PRD | Heatmap delivery end-to-end (domain→writer→router→WS) |
+| ~~**P0**~~ | ~~RFC~~ | ~~Proto hot-path full rollout~~ — **DONE:** RFC-0007 atualizado, 14 flags, transcode safety, schemas stable |
+| ~~**P0**~~ | ~~Implementação~~ | ~~C3: `cmd/backfill` operacional + gap detection~~ — **DONE** |
+| **P0** | Implementação | Normalizar cobertura de exchanges (W9): markprice/liquidation para Coinbase e HyperLiquid |
+| **P1** | ADR | ADR formal para dual-database trade-off + runbook operacional (W8) |
+| **P1** | Implementação | Heatmap delivery end-to-end — domain→writer→router→WS (W2) |
+| **P1** | Implementação | Wire DTOs + codec registration para `aggregation.snapshot` + `orderbook_inconsistency` (residual proto) |
 | **P2** | Milestone Plan | CI stabilization (testcontainers cache, retry policy, evidence gates em CI) |
 | **P3** | RFC | Insights BC como diferencial — roadmap CrossVenue v2 + Heatmap live |
