@@ -236,6 +236,8 @@ make down
 
 ## Changelog
 
+- 2026-02-19 (release-closeout):
+  - PRD changelog normalized after release completion; stale Gate 11 pending note removed.
 - 2026-02-19 (gate-11):
   - Gate 11 marked `Done` after creating tag `v0.1.0-stable` on `main`.
 - 2026-02-19 (gates-1-3-7-10):
@@ -245,7 +247,6 @@ make down
   - Gate 7 marked `Done` after `promtool check rules` passed for active alert rule files.
   - Gate 8/9 marked `Done` after fresh-volume compose bootstrap validated ClickHouse/Timescale migration tables.
   - PRD status promoted from `Draft` to `Active` (Gate 10 done).
-  - Gate 11 remains pending because release tag must be created on `main`.
 - 2026-02-19 (gate-5-6):
   - Gate 5 marked `Done` after parser suites for Binance/Bybit/Coinbase/HyperLiquid passed.
   - Gate 6 marked `Done` after removing last `CHANGE_ME` token from `deploy/configs/server.jsonc`.

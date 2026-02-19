@@ -1,0 +1,63 @@
+{
+  "decisions": [
+    {
+      "title": "Scope pivot: post-release PRD consistency pass",
+      "description": "All PRD release checklist gates are already marked Done. This cycle will advance PRD quality by removing stale contradictory changelog text and adding explicit release-closeout note, then validate and open PR via gh from dedicated branch.",
+      "phase": "P",
+      "alternatives": [
+        "Force new technical gate work despite no pending gates (rejected due artificial scope and risk)."
+      ],
+      "status": "accepted",
+      "id": "dec-1771529129657",
+      "decidedAt": "2026-02-19T19:25:29.657Z"
+    },
+    {
+      "title": "Minimal PRD consistency patch",
+      "description": "Apply doc-only change in PRD changelog: remove stale statement that Gate 11 is pending and add explicit release-closeout note. No runtime/test/config changes required.",
+      "phase": "R",
+      "alternatives": [
+        "Run new technical changes despite zero pending gates (rejected)."
+      ],
+      "status": "accepted",
+      "id": "dec-1771529142650",
+      "decidedAt": "2026-02-19T19:25:42.650Z"
+    },
+    {
+      "title": "Execution completed with minimal PRD changelog fix",
+      "description": "Applied minimal doc-only patch in PRD-0002 to remove stale Gate 11 pending note and add release-closeout changelog entry. No code paths, contracts, handlers, or runtime behavior were changed.",
+      "phase": "E",
+      "alternatives": [
+        "Expand scope to new feature work (rejected to keep PRD advancement minimal and low-risk)."
+      ],
+      "status": "accepted",
+      "id": "dec-1771529244793",
+      "decidedAt": "2026-02-19T19:27:24.793Z"
+    },
+    {
+      "title": "Validation gates passed with no regressions",
+      "description": "Validation run completed successfully: make docs-check, make invariants-check, make test-workspace, make lint, and make go-tidy-check all passed. No runtime regressions observed because patch is documentation-only.",
+      "phase": "V",
+      "alternatives": [
+        "Skip validation due doc-only scope (rejected to preserve gate discipline)."
+      ],
+      "status": "accepted",
+      "id": "dec-1771529267486",
+      "decidedAt": "2026-02-19T19:27:47.486Z"
+    }
+  ],
+  "phases": {
+    "phase-2": {
+      "status": "completed",
+      "updatedAt": "2026-02-19T19:27:24.792Z"
+    },
+    "phase-3": {
+      "status": "completed",
+      "updatedAt": "2026-02-19T19:27:47.490Z"
+    },
+    "phase-1": {
+      "status": "completed",
+      "updatedAt": "2026-02-19T19:28:00.823Z"
+    }
+  },
+  "progress": 100
+}
