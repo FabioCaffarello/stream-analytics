@@ -1,0 +1,48 @@
+{
+  "decisions": [
+    {
+      "title": "Baseline for remaining PRD-0002 gates",
+      "description": "G4/G5/G6 are already done. G3 has implementation present (scripts/smoke-compose.sh + make smoke), but PRD still marks it TODO. G7 is technically green via promtool check rules. Remaining execution focus: run compose smoke evidence (G3), validate fresh-db migrations (G8/G9), generate c4 pipeline soak evidence file (G2), run make ci (G1), then update PRD status fields (G10/G11 readiness).",
+      "phase": "P",
+      "alternatives": [
+        "Start directly with make ci before operational gates (rejected: would not produce missing gate-specific evidence)."
+      ],
+      "status": "accepted",
+      "id": "dec-1771527557473",
+      "decidedAt": "2026-02-19T18:59:17.473Z"
+    },
+    {
+      "title": "Execution order to minimize regressions and wasted runtime",
+      "description": "Run docker-backed operational gates first (G3/G8/G9) on fresh volumes, then soak evidence (G2), then full CI gate (G1). Apply PRD/status updates only after evidence is complete to avoid premature documentation drift.",
+      "phase": "R",
+      "alternatives": [
+        "Update PRD checklist before command evidence (rejected: risks truth drift)."
+      ],
+      "status": "accepted",
+      "id": "dec-1771527563515",
+      "decidedAt": "2026-02-19T18:59:23.515Z"
+    },
+    {
+      "title": "Operational gates executed on fresh compose state",
+      "description": "Executed make down -v, make up-core, make smoke, validated migration tables in ClickHouse and Timescale, executed make soak-pipeline, and ran make ci successfully. This closed G1,G2,G3,G7,G8,G9 and enabled G10 doc promotion.",
+      "phase": "E",
+      "alternatives": [
+        "Partial gate execution without fresh-volume reset (rejected due weaker migration evidence)."
+      ],
+      "status": "accepted",
+      "id": "dec-1771527845148",
+      "decidedAt": "2026-02-19T19:04:05.148Z"
+    },
+    {
+      "title": "Gate 11 is release-branch constrained",
+      "description": "All executable gates in workspace are validated and documented. Gate 11 (tag v0.1.0-stable created on main) remains pending because current branch is feat/context-calibration; tagging must be performed on main during release cut.",
+      "phase": "V",
+      "alternatives": [
+        "Create v0.1.0-stable tag on non-main branch (rejected as it violates PRD criterion)."
+      ],
+      "status": "accepted",
+      "id": "dec-1771527851117",
+      "decidedAt": "2026-02-19T19:04:11.117Z"
+    }
+  ]
+}

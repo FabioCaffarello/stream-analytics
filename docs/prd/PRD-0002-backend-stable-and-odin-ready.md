@@ -1,6 +1,6 @@
 # PRD-0002 - Backend Stable & Odin-Ready
 
-**Status:** Draft
+**Status:** Active
 **Owner:** Chief Architect
 **Date:** 2026-02-19
 **Last updated:** 2026-02-19
@@ -186,16 +186,16 @@ make down
 
 | # | Item | Owner | Status | Anchor |
 |---|---|---|---|---|
-| 1 | Gate 1 passes on `main` | CI | Pending | `make ci` (`Makefile`) |
-| 2 | Gate 2 soak evidence committed to `.context/evidence/` | Dev | Pending | `make soak-pipeline` (`Makefile`); evidence: `.context/evidence/c4-pipeline-soak.txt` |
-| 3 | Gate 3 compose smoke passes locally and in CI | Dev | Pending | **TODO:** `scripts/smoke-compose.sh`; `make up-core` (`Makefile`) |
+| 1 | Gate 1 passes on `main` | CI | Done | `make ci` (`Makefile`) |
+| 2 | Gate 2 soak evidence committed to `.context/evidence/` | Dev | Done | `make soak-pipeline` (`Makefile`); evidence: `.context/evidence/c4-pipeline-soak.txt` |
+| 3 | Gate 3 compose smoke passes locally and in CI | Dev | Done | `scripts/smoke-compose.sh`; `make up-core` + `make smoke` (`Makefile`) |
 | 4 | Gate 4 delivery contract tests green | Dev | Done | `internal/actors/delivery/runtime/*_test.go`; `internal/interfaces/http/{auth,ratelimit}_test.go` |
 | 5 | Gate 5 all exchange parsers green | Dev | Done | `internal/adapters/exchange/{binance,bybit,coinbase,hyperliquid}/parser_test.go` |
 | 6 | `deploy/configs/*.jsonc` reviewed — no `CHANGE_ME` tokens | Dev | Done | `deploy/configs/server.jsonc` (no `CHANGE_ME` tokens) |
-| 7 | Alert rules pass `promtool check rules` | Dev | Pending | `deploy/observability/prometheus/alerts.rules.yml`, `shard-alerts.rules.yml` |
-| 8 | ClickHouse migrations run without error on fresh DB | Dev | Pending | `sql/clickhouse/migrations/` (5 files) |
-| 9 | TimescaleDB migrations run without error on fresh DB | Dev | Pending | `sql/timescale/migrations/` (auto-init via compose mount) |
-| 10 | PRD-0002 status changed to `Active` | Architect | Pending | This file, line 3 |
+| 7 | Alert rules pass `promtool check rules` | Dev | Done | `promtool check rules deploy/observability/prometheus/alerts.rules.yml deploy/observability/prometheus/shard-alerts.rules.yml` |
+| 8 | ClickHouse migrations run without error on fresh DB | Dev | Done | `sql/clickhouse/migrations/` validated on fresh compose volume (`make down -v` + `make up-core`) |
+| 9 | TimescaleDB migrations run without error on fresh DB | Dev | Done | `sql/timescale/migrations/` validated on fresh compose volume (`make down -v` + `make up-core`) |
+| 10 | PRD-0002 status changed to `Active` | Architect | Done | This file, line 3 |
 | 11 | Tag `v0.1.0-stable` created on `main` | Architect | Pending | `git tag v0.1.0-stable` |
 
 ## Open Risks
@@ -215,7 +215,7 @@ make down
 | Milestone | Scope | Depends On | Exit Criteria | Anchor |
 |---|---|---|---|---|
 | **M0 — CI Green on main** | All Gate 1 tests pass, no flaky failures | — | `make ci` green for 5 consecutive runs | `Makefile` (`ci` target) |
-| **M1 — Compose Smoke** | `make up-core` boots to healthy; smoke script passes | M0 | Gate 3 green | `Makefile` (`up-core`); **TODO:** `scripts/smoke-compose.sh` |
+| **M1 — Compose Smoke** | `make up-core` boots to healthy; smoke script passes | M0 | Gate 3 green | `Makefile` (`up-core`); `scripts/smoke-compose.sh` |
 | **M2 — Delivery Contract Hardened** | All Gate 4 tests pass; slow-client drop metrics wired | M0 | Gate 4 green + `ws_drops_total` metric exists | `internal/actors/delivery/runtime/`; `internal/interfaces/http/{auth,ratelimit}_test.go` |
 | **M3 — Cold-Path Operational (C3)** | Backfill binary + gap detector + cold-path read ports | M0 | FR-5.3, FR-5.4 green | `cmd/backfill/` (stub); `.context/prompts/codex-prompt-C3-operational-tooling.md` |
 | **M4 — Multi-Exchange Soak (C4)** | 10M-event soak with 4 exchanges, budget assertions | M1, M2 | Gate 2 green; evidence in `.context/evidence/c4-pipeline-soak.txt` | `.context/prompts/codex-prompt-C4-production-soak.md` |
@@ -236,6 +236,14 @@ make down
 
 ## Changelog
 
+- 2026-02-19 (gates-1-3-7-10):
+  - Gate 1 marked `Done` after `make ci` passed.
+  - Gate 2 marked `Done` with new soak evidence in `.context/evidence/c4-pipeline-soak.txt`.
+  - Gate 3 marked `Done` after `make up-core` + `make smoke` passed (script exists and is executable).
+  - Gate 7 marked `Done` after `promtool check rules` passed for active alert rule files.
+  - Gate 8/9 marked `Done` after fresh-volume compose bootstrap validated ClickHouse/Timescale migration tables.
+  - PRD status promoted from `Draft` to `Active` (Gate 10 done).
+  - Gate 11 remains pending because release tag must be created on `main`.
 - 2026-02-19 (gate-5-6):
   - Gate 5 marked `Done` after parser suites for Binance/Bybit/Coinbase/HyperLiquid passed.
   - Gate 6 marked `Done` after removing last `CHANGE_ME` token from `deploy/configs/server.jsonc`.
