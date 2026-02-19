@@ -55,6 +55,7 @@ const (
 
 	metaKeyMarketType        = "instrument_market_type"
 	metaKeySubjectPrefix     = "subject_prefix"
+	metaKeyTimeframe         = "timeframe"
 	defaultInsightsTimeframe = "1m"
 	defaultInsightsTickSize  = 0.5
 )
@@ -1230,6 +1231,7 @@ func buildHeatmapSnapshotEnvelope(snapshot insightsdomain.HeatmapArtifactV1, now
 		TsIngest:    nowMs,
 		Seq:         heatmapSeq(snapshot),
 		ContentType: ct,
+		Meta:        map[string]string{metaKeyTimeframe: snapshot.Timeframe},
 		Payload:     payload,
 		IdempotencyKey: sharedhash.HashFields(
 			insightsdomain.HeatmapSnapshotType,
@@ -1265,6 +1267,7 @@ func buildVolumeSnapshotEnvelope(snapshot insightsdomain.VolumeProfileSnapshotV1
 		TsIngest:    nowMs,
 		Seq:         volumeSeq(snapshot),
 		ContentType: ct,
+		Meta:        map[string]string{metaKeyTimeframe: snapshot.Timeframe},
 		Payload:     payload,
 		IdempotencyKey: sharedhash.HashFields(
 			insightsdomain.VolumeProfileSnapshotType,

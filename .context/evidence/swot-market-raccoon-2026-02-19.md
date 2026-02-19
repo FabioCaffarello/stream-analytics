@@ -29,7 +29,7 @@
 | # | Fraqueza | Impacto |
 |---|----------|---------|
 | **W1** | Stats aggregation pipeline ausente | `aggregation.stats.v1` = draft; non-goal Odin v0; limita insights downstream (funding rate per timeframe) |
-| **W2** | Heatmap delivery não fiada end-to-end | Domain + builder existem, mas writers/routing/storage não estão conectados; `insights.heatmap_snapshot.v1` = draft |
+| ~~**W2**~~ | ~~Heatmap delivery não fiada end-to-end~~ | **RESOLVIDO:** Pipeline completo: processor timer → `buildHeatmapSnapshotEnvelope` (com `Meta["timeframe"]`) → bus → router (extrai timeframe de `env.Meta["timeframe"]`) → session → WS client. Bug crítico corrigido: router usava `cfg.Timeframe` global ("raw") ignorando timeframe per-envelope. `insights.volume_profile_snapshot` adicionado ao delivery contract. Testes E2E validam heatmap (1m) e volume profile (5m) com meta-based routing. |
 | ~~**W3**~~ | ~~Proto hot-path parcialmente ativado~~ | **RESOLVIDO:** Rollout flags completos para 14 event types. Deploy configs `wire_format: "proto"`. Proto→JSON transcode safety no WS delivery. Processor snapshot builders usam rollout flags. 9 schemas promovidos a `stable`. RFC-0007 atualizado. |
 | **W4** | `getrange` depende de buffer in-memory | Sem persistência cross-restart; multi-instance impossível para historical range; PgRangeStore limitado |
 | ~~**W5**~~ | ~~`cmd/backfill/` é stub funcional~~ | **RESOLVIDO (C3):** `cmd/backfill` operacional com 2 modes: `download` (Binance agg-trades ZIP → JSONL fixtures) e `gaps` (DetectCandleGaps via ClickHouse cold readers). 6 testes backfill + 5 testes gap detector — todos passam. |
@@ -100,8 +100,8 @@
 ### 4. ~~Exchange parity requer normalização~~ PARCIALMENTE RESOLVIDO — markprice normalizado para todos
 **~~W9~~ + O8 + T1 → Status:** Cobertura de markprice normalizada: Coinbase já tinha (ticker parser, descoberto pela investigação), HyperLiquid adicionado via `allMids` broadcast com `ParseFuncBatch`. Coinbase liquidation impossível (spot exchange). **Ação residual:** Estender backfill adapters para Bybit/Coinbase/HyperLiquid (apenas Binance implementado); adicionar Kraken/KrakenF.
 
-### 5. Insights BC é o diferencial competitivo sustentável
-**S1 + O6 + T8 → Ação:** CrossVenue signals + VolumeProfile + Heatmap são capabilities que MarketMonkey tem de forma rudimentar. Raccoon pode aprofundar este BC como moat técnico, especialmente quando heatmap delivery estiver fiado end-to-end (W2).
+### 5. ~~Insights BC precisa de heatmap delivery~~ RESOLVIDO — heatmap + volume profile delivery E2E
+**S1 + O6 + T8 → Status:** Heatmap delivery E2E corrigido: bug de routing por timeframe resolvido (router agora extrai `Meta["timeframe"]` do envelope). Volume profile delivery adicionado ao contrato. CrossVenue signals, VolumeProfile e Heatmap agora são capabilities completas de delivery. **Ação residual:** Aprofundar Insights BC como moat técnico — heatmap live, CrossVenue v2.
 
 ### 6. Dual-database é uma aposta consciente, não uma fraqueza acidental
 **S5 + W8 + T7 → Ação:** Documentar trade-off em ADR formal. TimescaleDB para hot reads (latência) + ClickHouse para analytics (throughput) é uma escolha arquitetural válida, mas precisa de runbooks operacionais maduros e monitoring unificado.
@@ -115,12 +115,12 @@
 | Arquitetura | **5/5** | DDD + Hexagonal + Actor model + invariantes enforced por CI |
 | Qualidade de Código | **4/5** | Fixed-point, `*problem.Problem`, `result.Result[T]`; -1 por workspace complexity |
 | Testes | **5/5** | Multi-nível (unit→soak→E2E), golden, race detector, 185 files |
-| Cobertura Funcional | **3.5/5** | Stats ausente, heatmap não fiado; ~~exchanges assimétricos~~ markprice normalizado para 4 exchanges; ~~backfill stub~~ backfill operacional (C3) |
+| Cobertura Funcional | **4/5** | Stats ausente; ~~heatmap não fiado~~ heatmap + volume profile delivery E2E; ~~exchanges assimétricos~~ markprice normalizado para 4 exchanges; ~~backfill stub~~ backfill operacional (C3) |
 | Prontidão Operacional | **3.5/5** | Config/shutdown/readiness OK; backfill + gap detection operacionais (C3); falta migration runner, multi-exchange backfill |
 | Performance | **4.5/5** | 83k+ evt/sec, 15us E2E orderbook; proto ativado no hot-path (wire -60%, parse -40%); -0.5 por falta de wire DTO para snapshot/inconsistency |
 | Paridade Competitiva | **3.5/5** | 4/5 exchanges com markprice completo (Coinbase spot não tem liquidation por design); arquitetura superior; backfill adapter apenas Binance |
 
-**Score Geral: 4.3 / 5.0** — Fundação técnica excepcional; C3 fechou backfill/gap detection, proto hot-path ativado com transcode safety, markprice normalizado para todos os 4 exchanges. Gaps restantes: stats pipeline, heatmap delivery E2E, multi-exchange backfill, Kraken/KrakenF.
+**Score Geral: 4.4 / 5.0** — Fundação técnica excepcional; C3 fechou backfill/gap detection, proto hot-path ativado com transcode safety, markprice normalizado para todos os 4 exchanges, heatmap + volume profile delivery E2E corrigidos (bug de timeframe routing). Gaps restantes: stats pipeline, multi-exchange backfill, Kraken/KrakenF.
 
 ---
 
@@ -132,7 +132,7 @@
 | ~~**P0**~~ | ~~Implementação~~ | ~~C3: `cmd/backfill` operacional + gap detection~~ — **DONE** |
 | ~~**P0**~~ | ~~Implementação~~ | ~~Normalizar cobertura de exchanges (W9)~~ — **DONE:** Coinbase markprice já existia (ticker parser); HyperLiquid markprice via `allMids` + `ParseFuncBatch`; Coinbase liquidation impossível (spot) |
 | **P1** | ADR | ADR formal para dual-database trade-off + runbook operacional (W8) |
-| **P1** | Implementação | Heatmap delivery end-to-end — domain→writer→router→WS (W2) |
+| ~~**P1**~~ | ~~Implementação~~ | ~~Heatmap delivery end-to-end (W2)~~ — **DONE:** Bug de timeframe routing corrigido (`Meta["timeframe"]` nos envelopes + router extrai). `volume_profile_snapshot` adicionado ao delivery contract. Testes E2E validam heatmap 1m e VPVR 5m. |
 | **P1** | Implementação | Wire DTOs + codec registration para `aggregation.snapshot` + `orderbook_inconsistency` (residual proto) |
 | **P2** | Milestone Plan | CI stabilization (testcontainers cache, retry policy, evidence gates em CI) |
 | **P3** | RFC | Insights BC como diferencial — roadmap CrossVenue v2 + Heatmap live |

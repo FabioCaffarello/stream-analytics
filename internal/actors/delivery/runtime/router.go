@@ -202,6 +202,9 @@ func (r *RouterActor) handleEnvelope(env envelope.Envelope) {
 		r.cfg.EnvelopeStore.StoreEnvelope(env)
 	}
 	timeframe := r.cfg.Timeframe
+	if tf, ok := env.Meta["timeframe"]; ok && tf != "" {
+		timeframe = tf
+	}
 	if timeframe == "" {
 		timeframe = domain.DefaultTimeframe
 	}
