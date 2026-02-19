@@ -497,7 +497,7 @@ logs:
 	docker compose -f deploy/compose/docker-compose.yml --profile core --profile obs logs -f --tail=200
 
 pre-commit-install:
-	$(PRE_COMMIT) install --hook-type pre-commit --hook-type commit-msg
+	$(PRE_COMMIT) install --hook-type pre-commit --hook-type pre-push --hook-type commit-msg
 
 commit-msg-check:
 	@set -euo pipefail; \

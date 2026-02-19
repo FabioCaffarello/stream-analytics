@@ -27,6 +27,12 @@ repos:
         entry: make fmt-check
         pass_filenames: false
 
+      - id: legacy-check-staged
+        name: legacy check staged
+        language: system
+        entry: make legacy-check-staged
+        pass_filenames: false
+
       - id: go-lint
         name: go lint
         language: system
@@ -38,6 +44,13 @@ repos:
         language: system
         entry: make test-short
         pass_filenames: false
+
+      - id: legacy-check
+        name: legacy check
+        language: system
+        entry: make legacy-check
+        pass_filenames: false
+        stages: [pre-push]
 
       - id: commit-msg-conventional
         name: commit msg conventional
