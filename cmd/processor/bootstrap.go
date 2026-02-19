@@ -188,6 +188,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 			HeartbeatInterval: shardregistry.DefaultHeartbeatInterval,
 		})
 		if err != nil {
+			metrics.IncShardRegistryError("init")
 			return fmt.Errorf("processor: shard registry init failed: %w", err)
 		}
 		registryConn = nc
@@ -195,6 +196,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		instanceID := fmt.Sprintf("%s:%d:%d", strings.TrimSpace(cfg.JetStream.ConsumerDurable), os.Getpid(), time.Now().UnixNano())
 		lease, err := registry.Acquire(context.Background(), cfg.Shard.Index, cfg.Shard.Count, instanceID)
 		if err != nil {
+			metrics.IncShardRegistryError("acquire")
 			registryConn.Close()
 			return fmt.Errorf("processor: shard lease acquire failed: %w", err)
 		}
@@ -215,6 +217,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 
 		complete, err := registry.WaitForTopology(context.Background(), cfg.Shard.Count, shardRegistryGraceDur)
 		if err != nil {
+			metrics.IncShardRegistryError("topology_wait")
 			hbCancel()
 			_ = shardLease.Release(context.Background())
 			registryConn.Close()
@@ -464,6 +467,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		}
 	case err := <-leaseLostCh:
 		leaseLostErr = err
+		metrics.IncShardLeaseLost()
 		logger.Error("processor: shard lease lost", "err", err)
 	case <-ctx.Done():
 	}

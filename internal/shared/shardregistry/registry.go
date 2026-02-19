@@ -118,16 +118,20 @@ func NewWithKV(kv kvStore, cfg Config) *Registry {
 //nolint:gocyclo // acquire path intentionally handles CAS, takeover and retry branches.
 func (r *Registry) Acquire(ctx context.Context, shardIndex, shardCount int, instanceID string) (Lease, error) {
 	if r == nil || r.kv == nil {
+		metrics.IncShardRegistryError("acquire_validate")
 		return nil, fmt.Errorf("shardregistry: nil registry")
 	}
 	if shardCount < 1 {
+		metrics.IncShardRegistryError("acquire_validate")
 		return nil, fmt.Errorf("shardregistry: shard_count must be >= 1, got %d", shardCount)
 	}
 	if shardIndex < 0 || shardIndex >= shardCount {
+		metrics.IncShardRegistryError("acquire_validate")
 		return nil, fmt.Errorf("shardregistry: shard_index must be in [0,%d), got %d", shardCount, shardIndex)
 	}
 	instanceID = strings.TrimSpace(instanceID)
 	if instanceID == "" {
+		metrics.IncShardRegistryError("acquire_validate")
 		return nil, fmt.Errorf("shardregistry: instance_id must not be empty")
 	}
 
@@ -155,6 +159,7 @@ func (r *Registry) Acquire(ctx context.Context, shardIndex, shardCount int, inst
 				}
 				payload, marshalErr := json.Marshal(rec)
 				if marshalErr != nil {
+					metrics.IncShardRegistryError("acquire_marshal")
 					return nil, marshalErr
 				}
 				rev, createErr := r.kv.Create(key, payload)
@@ -162,6 +167,7 @@ func (r *Registry) Acquire(ctx context.Context, shardIndex, shardCount int, inst
 					if errors.Is(createErr, errKeyExists) {
 						continue
 					}
+					metrics.IncShardRegistryError("acquire_create")
 					return nil, createErr
 				}
 				l := &lease{
@@ -178,11 +184,13 @@ func (r *Registry) Acquire(ctx context.Context, shardIndex, shardCount int, inst
 				metrics.SetShardLeaseAgeSeconds(0)
 				return l, nil
 			}
+			metrics.IncShardRegistryError("acquire_get")
 			return nil, err
 		}
 
 		current, decodeErr := decodeOwner(entry.Value())
 		if decodeErr != nil {
+			metrics.IncShardRegistryError("acquire_decode")
 			return nil, fmt.Errorf("shardregistry: decode existing owner for %s: %w", key, decodeErr)
 		}
 
@@ -202,6 +210,7 @@ func (r *Registry) Acquire(ctx context.Context, shardIndex, shardCount int, inst
 		}
 		payload, marshalErr := json.Marshal(rec)
 		if marshalErr != nil {
+			metrics.IncShardRegistryError("acquire_marshal")
 			return nil, marshalErr
 		}
 		rev, updateErr := r.kv.Update(key, payload, entry.Revision())
@@ -209,6 +218,7 @@ func (r *Registry) Acquire(ctx context.Context, shardIndex, shardCount int, inst
 			if errors.Is(updateErr, errWrongVersion) || errors.Is(updateErr, errKeyNotFound) {
 				continue
 			}
+			metrics.IncShardRegistryError("acquire_update")
 			return nil, updateErr
 		}
 
@@ -232,10 +242,12 @@ func (r *Registry) Acquire(ctx context.Context, shardIndex, shardCount int, inst
 
 func (r *Registry) TopologyComplete(ctx context.Context, shardCount int) (bool, error) {
 	if shardCount < 1 {
+		metrics.IncShardRegistryError("topology_validate")
 		return false, fmt.Errorf("shardregistry: shard_count must be >= 1, got %d", shardCount)
 	}
 	keys, err := r.kv.Keys()
 	if err != nil {
+		metrics.IncShardRegistryError("topology_keys")
 		return false, err
 	}
 
@@ -257,10 +269,12 @@ func (r *Registry) TopologyComplete(ctx context.Context, shardCount int) (bool, 
 			if errors.Is(getErr, errKeyNotFound) {
 				continue
 			}
+			metrics.IncShardRegistryError("topology_get")
 			return false, getErr
 		}
 		rec, decodeErr := decodeOwner(entry.Value())
 		if decodeErr != nil {
+			metrics.IncShardRegistryError("topology_decode")
 			continue
 		}
 		if nowUnix-rec.LastHeartbeatUnix > int64(r.leaseTTL.Seconds()) {
@@ -302,6 +316,7 @@ func (r *Registry) WaitForTopology(ctx context.Context, shardCount int, grace ti
 
 func (l *lease) Heartbeat(ctx context.Context) error {
 	if l == nil || l.registry == nil || l.registry.kv == nil {
+		metrics.IncShardRegistryError("heartbeat_validate")
 		return fmt.Errorf("shardregistry: nil lease")
 	}
 	select {
@@ -315,11 +330,13 @@ func (l *lease) Heartbeat(ctx context.Context) error {
 		if errors.Is(err, errKeyNotFound) {
 			return fmt.Errorf("lease lost for %s: key missing", l.key)
 		}
+		metrics.IncShardRegistryError("heartbeat_get")
 		return err
 	}
 
 	current, decodeErr := decodeOwner(entry.Value())
 	if decodeErr != nil {
+		metrics.IncShardRegistryError("heartbeat_decode")
 		return decodeErr
 	}
 	if current.InstanceID != l.instanceID {
@@ -337,6 +354,7 @@ func (l *lease) Heartbeat(ctx context.Context) error {
 	}
 	payload, marshalErr := json.Marshal(rec)
 	if marshalErr != nil {
+		metrics.IncShardRegistryError("heartbeat_marshal")
 		return marshalErr
 	}
 
@@ -345,6 +363,7 @@ func (l *lease) Heartbeat(ctx context.Context) error {
 		if errors.Is(updateErr, errWrongVersion) || errors.Is(updateErr, errKeyNotFound) {
 			return fmt.Errorf("lease lost for %s: %w", l.key, updateErr)
 		}
+		metrics.IncShardRegistryError("heartbeat_update")
 		return updateErr
 	}
 	l.rev.Store(rev)
@@ -394,6 +413,7 @@ func (l *lease) Release(ctx context.Context) error {
 		if errors.Is(err, errKeyNotFound) {
 			return nil
 		}
+		metrics.IncShardRegistryError("release_get")
 		return err
 	}
 
@@ -412,10 +432,15 @@ func (l *lease) Release(ctx context.Context) error {
 
 	select {
 	case <-ctx.Done():
+		metrics.IncShardRegistryError("release_ctx")
 		return ctx.Err()
 	default:
 	}
-	return l.registry.kv.Delete(l.key)
+	if err := l.registry.kv.Delete(l.key); err != nil {
+		metrics.IncShardRegistryError("release_delete")
+		return err
+	}
+	return nil
 }
 
 func (l *lease) LastHeartbeatUnix() int64 {

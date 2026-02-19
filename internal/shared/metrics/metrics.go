@@ -575,6 +575,19 @@ var (
 			Help: "Total shard owner conflict detections (dual-owner or lease-lost).",
 		},
 	)
+	ShardLeaseLostTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "shard_lease_lost_total",
+			Help: "Total shard lease lost events that triggered processor shutdown.",
+		},
+	)
+	ShardRegistryErrorsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "shard_registry_errors_total",
+			Help: "Total shard registry operation errors by operation.",
+		},
+		[]string{"op"},
+	)
 
 	// ── Store observability ─────────────────────────────────────────────
 	// Tracks envelope consumption and ClickHouse commit outcomes in
@@ -787,6 +800,8 @@ func registerAll() {
 			ShardTopologyComplete,
 			ShardLeaseAgeSeconds,
 			ShardOwnerConflictsTotal,
+			ShardLeaseLostTotal,
+			ShardRegistryErrorsTotal,
 			StoreConsumedTotal,
 			StoreCommitTotal,
 			StoreCommitLatencySeconds,
@@ -864,6 +879,7 @@ func registerAll() {
 		ShardLagBudget.WithLabelValues("0")
 		ShardTopologyComplete.Set(0)
 		ShardLeaseAgeSeconds.Set(0)
+		ShardRegistryErrorsTotal.WithLabelValues("unknown")
 		StoreConsumedTotal.WithLabelValues("ok", "snapshot")
 		StoreConsumedTotal.WithLabelValues("ok", "skipped")
 		StoreConsumedTotal.WithLabelValues("failed", "decode")
@@ -1332,6 +1348,20 @@ func SetShardLeaseAgeSeconds(age float64) {
 // IncShardOwnerConflicts increments shard owner conflict counter.
 func IncShardOwnerConflicts() {
 	ShardOwnerConflictsTotal.Inc()
+}
+
+// IncShardLeaseLost increments shard lease lost counter.
+func IncShardLeaseLost() {
+	ShardLeaseLostTotal.Inc()
+}
+
+// IncShardRegistryError increments shard registry errors for the given operation.
+func IncShardRegistryError(op string) {
+	op = strings.TrimSpace(op)
+	if op == "" {
+		op = "unknown"
+	}
+	ShardRegistryErrorsTotal.WithLabelValues(op).Inc()
 }
 
 // sanitizeGroupID normalises a group ID string for use as a Prometheus label.
