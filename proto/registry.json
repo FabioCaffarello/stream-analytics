@@ -6,7 +6,7 @@
       "version": 1,
       "proto_file": "envelope/v1/envelope.proto",
       "message": "envelope.v1.Envelope",
-      "status": "draft",
+      "status": "stable",
       "introduced_at": "2026-02-12"
     },
     {
@@ -14,7 +14,7 @@
       "version": 1,
       "proto_file": "marketdata/v1/trade.proto",
       "message": "marketdata.v1.TradeTickV1",
-      "status": "draft",
+      "status": "stable",
       "introduced_at": "2026-02-12"
     },
     {
@@ -22,7 +22,7 @@
       "version": 1,
       "proto_file": "marketdata/v1/bookdelta.proto",
       "message": "marketdata.v1.BookDeltaV1",
-      "status": "draft",
+      "status": "stable",
       "introduced_at": "2026-02-12"
     },
     {
@@ -30,7 +30,7 @@
       "version": 1,
       "proto_file": "marketdata/v1/markprice.proto",
       "message": "marketdata.v1.MarkPriceTickV1",
-      "status": "draft",
+      "status": "stable",
       "introduced_at": "2026-02-12"
     },
     {
@@ -38,7 +38,7 @@
       "version": 1,
       "proto_file": "marketdata/v1/liquidation.proto",
       "message": "marketdata.v1.LiquidationTickV1",
-      "status": "draft",
+      "status": "stable",
       "introduced_at": "2026-02-12"
     },
     {
@@ -46,7 +46,7 @@
       "version": 1,
       "proto_file": "aggregation/v1/candle.proto",
       "message": "aggregation.v1.CandleClosedV1",
-      "status": "draft",
+      "status": "stable",
       "introduced_at": "2026-02-18"
     },
     {
@@ -54,7 +54,7 @@
       "version": 1,
       "proto_file": "aggregation/v1/stats.proto",
       "message": "aggregation.v1.StatsWindowClosedV1",
-      "status": "draft",
+      "status": "stable",
       "introduced_at": "2026-02-18"
     },
     {
@@ -62,7 +62,7 @@
       "version": 1,
       "proto_file": "insights/v1/volume_profile.proto",
       "message": "insights.v1.VolumeProfileSnapshotV1",
-      "status": "draft",
+      "status": "stable",
       "introduced_at": "2026-02-14"
     },
     {
@@ -70,7 +70,7 @@
       "version": 1,
       "proto_file": "insights/v1/heatmap.proto",
       "message": "insights.v1.HeatmapArtifactV1",
-      "status": "draft",
+      "status": "stable",
       "introduced_at": "2026-02-18"
     }
   ]

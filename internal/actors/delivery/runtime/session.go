@@ -16,7 +16,9 @@ import (
 	"github.com/market-raccoon/internal/core/delivery/domain"
 	"github.com/market-raccoon/internal/core/delivery/ports"
 	sharedclock "github.com/market-raccoon/internal/shared/clock"
+	"github.com/market-raccoon/internal/shared/codec"
 	"github.com/market-raccoon/internal/shared/contracts"
+	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/observability"
 	"github.com/market-raccoon/internal/shared/problem"
@@ -647,12 +649,24 @@ func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) error {
 		observability.IncDeliveryProto()
 		return nil
 	}
+	payload := evt.Env.Payload
+	if evt.Env.ContentType == envelope.ContentTypeProto {
+		decoded, p := codec.DecodePayload(evt.Env.Type, evt.Env.Version, evt.Env.ContentType, payload)
+		if p != nil {
+			return p
+		}
+		transcoded, err := json.Marshal(decoded)
+		if err != nil {
+			return fmt.Errorf("proto→json transcode: %w", err)
+		}
+		payload = json.RawMessage(transcoded)
+	}
 	if err := s.writeJSONDirect(map[string]any{
 		"type":      "event",
 		"subject":   evt.Subject.String(),
 		"seq":       evt.Env.Seq,
 		"ts_ingest": evt.Env.TsIngest,
-		"payload":   evt.Env.Payload,
+		"payload":   payload,
 	}); err != nil {
 		return err
 	}

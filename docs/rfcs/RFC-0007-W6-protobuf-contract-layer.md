@@ -25,13 +25,16 @@ Establish protobuf contract foundations without changing runtime wire behavior:
 - Generated Go code into `internal/shared/proto/gen`.
 - Added Makefile targets: `proto-lint`, `proto-gen`, `proto-breaking`, `proto`.
 - Added CI gates for buf lint/breaking and generated-file drift detection.
-- Added lightweight schema registry (`proto/registry.json`) with `draft` status.
+- Added lightweight schema registry (`proto/registry.json`). All 9 schemas promoted from `draft` to `stable` after hot-path activation (2026-02-19).
 
-## 3. Explicit Non-Goals (Still Deferred)
+## 3. Former Non-Goals — Now Implemented
 
-- No runtime publish/consume migration to protobuf.
-- No envelope runtime codec switching by `content_type`.
-- No NATS JetStream/replay changes.
+The following items were originally deferred but are now implemented as part of the
+proto hot-path full rollout (2026-02-19):
+
+- ~~No runtime publish/consume migration to protobuf.~~ **Implemented:** Deploy configs set `bus.wire_format: "proto"` and `publish_content_type: "application/protobuf"`. All market data producers emit proto payloads. Processor decodes format-transparently via `envelope.ContentType`.
+- ~~No envelope runtime codec switching by `content_type`.~~ **Implemented:** `codec.EncodePayload()`/`DecodePayload()` dispatch by content type. WS delivery transcodes proto→JSON for JSON clients. Rollout flags gate proto per event type.
+- ~~No NATS JetStream/replay changes.~~ **Implemented:** JetStream artifact publisher uses `chooseArtifactContentType()` for candle/stats. Replay infrastructure works with both JSON and proto fixtures via content-type-aware codec.
 
 ## 4. Contracts Added
 

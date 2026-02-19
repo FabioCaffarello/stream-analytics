@@ -32,6 +32,7 @@ import (
 	insightsports "github.com/market-raccoon/internal/core/insights/ports"
 	mddomain "github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/shared/codec"
+	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 	sharedhash "github.com/market-raccoon/internal/shared/hash"
 	"github.com/market-raccoon/internal/shared/metrics"
@@ -52,11 +53,10 @@ const (
 	reasonCodeUnknownEventType    = "UNKNOWN_EVENT_TYPE"
 	reasonCodeUnknownEventVersion = "UNKNOWN_EVENT_VERSION"
 
-	metaKeyMarketType          = "instrument_market_type"
-	metaKeySubjectPrefix       = "subject_prefix"
-	snapshotDefaultContentType = envelope.ContentTypeJSON
-	defaultInsightsTimeframe   = "1m"
-	defaultInsightsTickSize    = 0.5
+	metaKeyMarketType        = "instrument_market_type"
+	metaKeySubjectPrefix     = "subject_prefix"
+	defaultInsightsTimeframe = "1m"
+	defaultInsightsTickSize  = 0.5
 )
 
 type heartbeatTickMsg struct{}
@@ -1175,6 +1175,14 @@ func (p *ProcessorSubsystemActor) publishVolumeSnapshots() {
 	}
 }
 
+// resolveContentType selects proto or JSON based on rollout flags for the given event type.
+func resolveContentType(eventType string) string {
+	if contracts.ProtoRolloutEnabledForEventType(eventType) {
+		return envelope.ContentTypeProto
+	}
+	return envelope.ContentTypeJSON
+}
+
 func buildOrderbookSnapshotEnvelope(snapshot aggdomain.SnapshotProduced, nowMs int64) (envelope.Envelope, *problem.Problem) {
 	payload, p := codec.Marshal(snapshot)
 	if p != nil {
@@ -1204,10 +1212,11 @@ func buildOrderbookSnapshotEnvelope(snapshot aggdomain.SnapshotProduced, nowMs i
 }
 
 func buildHeatmapSnapshotEnvelope(snapshot insightsdomain.HeatmapArtifactV1, nowMs int64) (envelope.Envelope, *problem.Problem) {
+	ct := resolveContentType(insightsdomain.HeatmapSnapshotType)
 	payload, p := codec.EncodePayload(
 		insightsdomain.HeatmapSnapshotType,
 		insightsdomain.HeatmapSnapshotVersion,
-		envelope.ContentTypeJSON,
+		ct,
 		snapshot,
 	)
 	if p != nil {
@@ -1220,7 +1229,7 @@ func buildHeatmapSnapshotEnvelope(snapshot insightsdomain.HeatmapArtifactV1, now
 		Instrument:  snapshot.Instrument,
 		TsIngest:    nowMs,
 		Seq:         heatmapSeq(snapshot),
-		ContentType: envelope.ContentTypeJSON,
+		ContentType: ct,
 		Payload:     payload,
 		IdempotencyKey: sharedhash.HashFields(
 			insightsdomain.HeatmapSnapshotType,
@@ -1238,10 +1247,11 @@ func buildHeatmapSnapshotEnvelope(snapshot insightsdomain.HeatmapArtifactV1, now
 }
 
 func buildVolumeSnapshotEnvelope(snapshot insightsdomain.VolumeProfileSnapshotV1, nowMs int64) (envelope.Envelope, *problem.Problem) {
+	ct := resolveContentType(insightsdomain.VolumeProfileSnapshotType)
 	payload, p := codec.EncodePayload(
 		insightsdomain.VolumeProfileSnapshotType,
 		insightsdomain.VolumeProfileSnapshotVersion,
-		envelope.ContentTypeJSON,
+		ct,
 		snapshot,
 	)
 	if p != nil {
@@ -1254,7 +1264,7 @@ func buildVolumeSnapshotEnvelope(snapshot insightsdomain.VolumeProfileSnapshotV1
 		Instrument:  snapshot.Instrument,
 		TsIngest:    nowMs,
 		Seq:         volumeSeq(snapshot),
-		ContentType: envelope.ContentTypeJSON,
+		ContentType: ct,
 		Payload:     payload,
 		IdempotencyKey: sharedhash.HashFields(
 			insightsdomain.VolumeProfileSnapshotType,
@@ -1296,10 +1306,11 @@ func buildSnapshotEnvelope(
 	snapshot insightsdomain.CrossVenueTradeSnapshotV1,
 	subjectPrefix string,
 ) (envelope.Envelope, *problem.Problem) {
+	ct := resolveContentType(insightsdomain.CrossVenueTradeSnapshotType)
 	payload, p := codec.EncodePayload(
 		insightsdomain.CrossVenueTradeSnapshotType,
 		insightsdomain.CrossVenueTradeSnapshotVersion,
-		snapshotDefaultContentType,
+		ct,
 		snapshot,
 	)
 	if p != nil {
@@ -1325,7 +1336,7 @@ func buildSnapshotEnvelope(
 		TsExchange:  trigger.TsExchange,
 		TsIngest:    snapshot.WatermarkTsIngest,
 		Seq:         trigger.Seq,
-		ContentType: snapshotDefaultContentType,
+		ContentType: ct,
 		Meta:        meta,
 		Payload:     payload,
 		IdempotencyKey: sharedhash.HashFields(
@@ -1346,10 +1357,11 @@ func buildSpreadSignalEnvelope(
 	trigger envelope.Envelope,
 	signal insightsdomain.CrossVenueSpreadSignalV1,
 ) (envelope.Envelope, *problem.Problem) {
+	ct := resolveContentType(insightsdomain.CrossVenueSpreadSignalType)
 	payload, p := codec.EncodePayload(
 		insightsdomain.CrossVenueSpreadSignalType,
 		insightsdomain.CrossVenueSpreadSignalVersion,
-		snapshotDefaultContentType,
+		ct,
 		signal,
 	)
 	if p != nil {
@@ -1372,7 +1384,7 @@ func buildSpreadSignalEnvelope(
 		TsExchange:  trigger.TsExchange,
 		TsIngest:    signal.WatermarkTsIngest,
 		Seq:         trigger.Seq,
-		ContentType: snapshotDefaultContentType,
+		ContentType: ct,
 		Meta:        meta,
 		Payload:     payload,
 		IdempotencyKey: sharedhash.HashFields(
