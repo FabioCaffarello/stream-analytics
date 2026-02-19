@@ -557,6 +557,24 @@ var (
 		},
 		[]string{"group_id"},
 	)
+	ShardTopologyComplete = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "shard_topology_complete",
+			Help: "Shard topology completeness state. 1=all shard owners present, 0=incomplete.",
+		},
+	)
+	ShardLeaseAgeSeconds = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "shard_lease_age_seconds",
+			Help: "Age in seconds since the current process lease last heartbeat update.",
+		},
+	)
+	ShardOwnerConflictsTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "shard_owner_conflicts_total",
+			Help: "Total shard owner conflict detections (dual-owner or lease-lost).",
+		},
+	)
 
 	// ── Store observability ─────────────────────────────────────────────
 	// Tracks envelope consumption and ClickHouse commit outcomes in
@@ -766,6 +784,9 @@ func registerAll() {
 			ShardEventsTotal,
 			ShardInfo,
 			ShardLagBudget,
+			ShardTopologyComplete,
+			ShardLeaseAgeSeconds,
+			ShardOwnerConflictsTotal,
 			StoreConsumedTotal,
 			StoreCommitTotal,
 			StoreCommitLatencySeconds,
@@ -841,6 +862,8 @@ func registerAll() {
 		ShardSkipTotal.WithLabelValues("0")
 		ShardEventsTotal.WithLabelValues("0")
 		ShardLagBudget.WithLabelValues("0")
+		ShardTopologyComplete.Set(0)
+		ShardLeaseAgeSeconds.Set(0)
 		StoreConsumedTotal.WithLabelValues("ok", "snapshot")
 		StoreConsumedTotal.WithLabelValues("ok", "skipped")
 		StoreConsumedTotal.WithLabelValues("failed", "decode")
@@ -1287,6 +1310,28 @@ func SetShardInfo(shardIndex, shardCount string) {
 // SetShardLagBudget records the configured max-lag budget for a shard group.
 func SetShardLagBudget(groupID string, maxLag int) {
 	ShardLagBudget.WithLabelValues(sanitizeGroupID(groupID)).Set(float64(maxLag))
+}
+
+// SetShardTopologyComplete records whether all shard leases are present.
+func SetShardTopologyComplete(complete bool) {
+	if complete {
+		ShardTopologyComplete.Set(1)
+		return
+	}
+	ShardTopologyComplete.Set(0)
+}
+
+// SetShardLeaseAgeSeconds records lease heartbeat age.
+func SetShardLeaseAgeSeconds(age float64) {
+	if age < 0 {
+		age = 0
+	}
+	ShardLeaseAgeSeconds.Set(age)
+}
+
+// IncShardOwnerConflicts increments shard owner conflict counter.
+func IncShardOwnerConflicts() {
+	ShardOwnerConflictsTotal.Inc()
 }
 
 // sanitizeGroupID normalises a group ID string for use as a Prometheus label.

@@ -152,3 +152,14 @@ processor starting shard=1/2 bus_type=jetstream
 ```
 
 The durable consumer name is auto-suffixed: `processor-v1-s0`, `processor-v1-s1`.
+
+## Optional shard registry lease (feature-flagged)
+
+Processor startup supports an optional JetStream KV lease guard for shard
+ownership and topology completeness checks.
+
+- `SHARD_REGISTRY_ENABLED=true` enables lease acquire/heartbeat/release (default: off).
+- `SHARD_REGISTRY_STRICT=true` fails startup if topology stays incomplete after grace.
+- `SHARD_REGISTRY_GRACE=60s` sets topology wait window (default: `60s`).
+- Bucket: `MR_SHARD_REGISTRY`, key format: `shard/{index}`, TTL: `30s`, heartbeat: `10s`.
+- On lease loss, processor logs `shard lease lost`, triggers graceful shutdown, and exits non-zero.

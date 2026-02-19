@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -23,6 +25,7 @@ import (
 	aggports "github.com/market-raccoon/internal/core/aggregation/ports"
 	insightsapp "github.com/market-raccoon/internal/core/insights/app"
 	mddomain "github.com/market-raccoon/internal/core/marketdata/domain"
+	httpserver "github.com/market-raccoon/internal/interfaces/http"
 	"github.com/market-raccoon/internal/shared/bootstrap"
 	"github.com/market-raccoon/internal/shared/codec"
 	"github.com/market-raccoon/internal/shared/config"
@@ -32,6 +35,7 @@ import (
 	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/problem"
 	"github.com/market-raccoon/internal/shared/replay"
+	"github.com/market-raccoon/internal/shared/shardregistry"
 )
 
 // ---------------------------------------------------------------------------
@@ -142,6 +146,8 @@ type envelopeSource struct {
 func Run(ctx context.Context, cfg config.AppConfig) error {
 	logger := bootstrap.BuildLogger(cfg.Log)
 	slog.SetDefault(logger)
+	metrics.SetShardTopologyComplete(false)
+	metrics.SetShardLeaseAgeSeconds(0)
 
 	e2e, p := newE2ERuntime(logger)
 	if p != nil {
@@ -155,6 +161,85 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		"shard", fmt.Sprintf("%d/%d", cfg.Shard.Index, cfg.Shard.Count),
 		"bus_type", cfg.Bus.Type,
 	)
+
+	var (
+		registryConn          interface{ Close() }
+		shardLease            shardregistry.Lease
+		leaseLostErr          error
+		leaseHeartbeatCancel  context.CancelFunc
+		leaseLostCh           = make(chan error, 1)
+		shardRegistryEnabled  = strings.EqualFold(strings.TrimSpace(os.Getenv("SHARD_REGISTRY_ENABLED")), "true")
+		shardRegistryStrict   = strings.EqualFold(strings.TrimSpace(os.Getenv("SHARD_REGISTRY_STRICT")), "true")
+		shardRegistryGraceDur = shardregistry.DefaultTopologyGrace
+	)
+	if rawGrace := strings.TrimSpace(os.Getenv("SHARD_REGISTRY_GRACE")); rawGrace != "" {
+		if parsed, err := time.ParseDuration(rawGrace); err == nil && parsed > 0 {
+			shardRegistryGraceDur = parsed
+		}
+	}
+	if shardRegistryEnabled {
+		logger.Info("processor: shard registry enabled",
+			"strict", shardRegistryStrict,
+			"grace", shardRegistryGraceDur.String(),
+			"bucket", shardregistry.DefaultBucket,
+		)
+		registry, nc, err := shardregistry.NewJetStreamKV(context.Background(), cfg.JetStream.URL, shardregistry.DefaultBucket, shardregistry.Config{
+			LeaseTTL:          shardregistry.DefaultLeaseTTL,
+			HeartbeatInterval: shardregistry.DefaultHeartbeatInterval,
+		})
+		if err != nil {
+			return fmt.Errorf("processor: shard registry init failed: %w", err)
+		}
+		registryConn = nc
+
+		instanceID := fmt.Sprintf("%s:%d:%d", strings.TrimSpace(cfg.JetStream.ConsumerDurable), os.Getpid(), time.Now().UnixNano())
+		lease, err := registry.Acquire(context.Background(), cfg.Shard.Index, cfg.Shard.Count, instanceID)
+		if err != nil {
+			if registryConn != nil {
+				registryConn.Close()
+			}
+			return fmt.Errorf("processor: shard lease acquire failed: %w", err)
+		}
+		shardLease = lease
+		logger.Info("processor: shard lease acquired",
+			"shard", fmt.Sprintf("%d/%d", cfg.Shard.Index, cfg.Shard.Count),
+			"instance_id", instanceID,
+		)
+
+		hbCtx, hbCancel := context.WithCancel(context.Background())
+		leaseHeartbeatCancel = hbCancel
+		shardLease.StartHeartbeat(hbCtx, func(err error) {
+			select {
+			case leaseLostCh <- err:
+			default:
+			}
+		})
+
+		complete, err := registry.WaitForTopology(context.Background(), cfg.Shard.Count, shardRegistryGraceDur)
+		if err != nil {
+			hbCancel()
+			_ = shardLease.Release(context.Background())
+			if registryConn != nil {
+				registryConn.Close()
+			}
+			return fmt.Errorf("processor: shard topology check failed: %w", err)
+		}
+		metrics.SetShardTopologyComplete(complete)
+		if !complete {
+			msg := fmt.Sprintf("processor: shard topology incomplete after grace=%s shard_count=%d", shardRegistryGraceDur, cfg.Shard.Count)
+			if shardRegistryStrict {
+				hbCancel()
+				_ = shardLease.Release(context.Background())
+				if registryConn != nil {
+					registryConn.Close()
+				}
+				return fmt.Errorf("%s", msg)
+			}
+			logger.Warn(msg)
+		} else {
+			logger.Info("processor: shard topology complete", "shard_count", cfg.Shard.Count)
+		}
+	}
 
 	// Bootstrap payload codec registry.
 	if p := contracts.BootstrapPayloadCodecRegistryWithOptions(contracts.PayloadRegistryOptions{
@@ -192,6 +277,8 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	var hotWriter aggports.HotReadModelStore = timescale.NewWriter()
 	var candleStore aggports.CandleHotReadModelStore = &logCandleHotStore{logger: logger}
 	var statsStore aggports.StatsHotReadModelStore = &logStatsHotStore{logger: logger}
+	var heatmapStore *timescale.HeatmapWriter
+	var volumeProfileStore *timescale.VolumeProfileWriter
 	var tsPool *timescale.Pool
 	if cfg.Storage.Timescale.Enabled {
 		maxConns, err := int32FromConfig(cfg.Storage.Timescale.MaxConns, "storage.timescale.max_conns")
@@ -219,6 +306,8 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		hotWriter = timescale.NewPgWriter(tsPool)
 		candleStore = timescale.NewPgCandleWriter(tsPool)
 		statsStore = timescale.NewPgStatsWriter(tsPool)
+		heatmapStore = timescale.NewPgHeatmapWriter(tsPool)
+		volumeProfileStore = timescale.NewPgVolumeProfileWriter(tsPool)
 		timescale.SetProductionReady(timescale.AdapterModePGX)
 		logger.Info("processor: using Timescale pgx writer")
 	} else {
@@ -320,6 +409,8 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		Insights:              insightsSvc,
 		JoinTrades:            joinTrades,
 		PublishEnvelope:       publishEnvelope,
+		HeatmapStore:          heatmapStore,
+		VolumeProfileStore:    volumeProfileStore,
 		SnapshotSubjectPrefix: cfg.Processor.Insights.SnapshotSubjectPrefix,
 		RTPublish: aggruntime.ProcessorRTPublishConfig{
 			OrderbookInterval: time.Duration(cfg.Processor.RTPublish.OrderbookIntervalMs) * time.Millisecond,
@@ -350,24 +441,63 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	}
 	e2e.markReady()
 
+	// ── HTTP server ─────────────────────────────────────────────────────
+	srv := httpserver.NewServer(
+		e,
+		guardianPID,
+		cfg.HTTP.Addr,
+		cfg.HTTP.EnablePprof,
+		logger,
+		httpserver.WithTLS(cfg.HTTP.TLSCert, cfg.HTTP.TLSKey),
+	)
+
+	serverErr := make(chan error, 1)
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverErr <- err
+		}
+	}()
+
 	// ── wait for signal or error ────────────────────────────────────────
 	quit := bootstrap.SignalChannel()
 	select {
 	case <-quit:
+	case err := <-serverErr:
+		logger.Error("processor: HTTP server error", "err", err)
 	case p := <-source.consumeErr:
 		if p != nil {
 			logger.Error("processor: jetstream consume loop failed", "err", p)
 		}
+	case err := <-leaseLostCh:
+		leaseLostErr = err
+		logger.Error("processor: shard lease lost", "err", err)
 	case <-ctx.Done():
 	}
 
 	// ── shutdown ────────────────────────────────────────────────────────
 	logger.Info("processor: shutting down")
 
+	httpShutCtx, httpShutCancel := context.WithTimeout(context.Background(), cfg.HTTP.ShutdownTimeoutDuration())
+	defer httpShutCancel()
+	if err := srv.Shutdown(httpShutCtx); err != nil {
+		logger.Warn("processor: HTTP shutdown error", "err", err)
+	}
+
 	depsCtx, depsCancel := context.WithTimeout(context.Background(), cfg.HTTP.GuardianShutdownTimeoutDuration())
 	defer depsCancel()
 	if p := e2e.shutdown(depsCtx); p != nil {
 		logger.Warn("processor: e2e probe shutdown failed", "err", p)
+	}
+	if leaseHeartbeatCancel != nil {
+		leaseHeartbeatCancel()
+	}
+	if shardLease != nil {
+		if err := shardLease.Release(depsCtx); err != nil {
+			logger.Warn("processor: shard lease release failed", "err", err)
+		}
+	}
+	if registryConn != nil {
+		registryConn.Close()
 	}
 	source.shutdownFn(depsCtx)
 
@@ -383,6 +513,9 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	defer shutCancel()
 	actorruntime.ShutdownGuardian(shutCtx, e, guardianPID, logger)
 	logger.Info("processor: shutdown complete")
+	if leaseLostErr != nil {
+		return fmt.Errorf("processor: shard lease lost: %w", leaseLostErr)
+	}
 	return nil
 }
 
@@ -415,7 +548,7 @@ func initEnvelopeSource(cfg config.AppConfig, logger *slog.Logger, e2e *e2eRunti
 	switch strings.ToLower(strings.TrimSpace(cfg.Bus.Type)) {
 	case "jetstream":
 		ch := make(chan envelope.Envelope, cfg.Processor.BusCapacity)
-		resultsCh := make(chan aggruntime.EnvelopeProcessResult, 1)
+		resultMailbox := newEnvelopeResultMailbox()
 		resultWaitTimeout := cfg.JetStream.AckWaitDuration()
 		if resultWaitTimeout <= 0 {
 			resultWaitTimeout = 30 * time.Second
@@ -424,11 +557,7 @@ func initEnvelopeSource(cfg config.AppConfig, logger *slog.Logger, e2e *e2eRunti
 
 		onResult := func(res aggruntime.EnvelopeProcessResult) {
 			res.Problem = e2e.maybeInjectTransient(res.Envelope, res.Problem)
-			select {
-			case resultsCh <- res:
-			default:
-				logger.Warn("processor: dropped processing result notification")
-			}
+			resultMailbox.push(res)
 		}
 
 		durableName := shardAwareDurable(cfg.JetStream.ConsumerDurable, cfg.Shard.Index, cfg.Shard.Count)
@@ -468,24 +597,17 @@ func initEnvelopeSource(cfg config.AppConfig, logger *slog.Logger, e2e *e2eRunti
 				defer cancelWait()
 
 				for {
-					select {
-					case res := <-resultsCh:
-						// Guard against stale results when a previous wait timed out.
-						if !sameProcessedEnvelope(res.Envelope, env) {
-							logger.Warn("processor: dropped stale processing result",
-								"expected_type", env.Type,
-								"expected_venue", env.Venue,
-								"expected_instrument", env.Instrument,
-								"expected_seq", env.Seq,
-								"got_type", res.Envelope.Type,
-								"got_venue", res.Envelope.Venue,
-								"got_instrument", res.Envelope.Instrument,
-								"got_seq", res.Envelope.Seq,
-							)
-							continue
-						}
+					if res, ok := resultMailbox.pop(env); ok {
 						metrics.IncProcessorAckAfterCommit(ackAfterCommitStatus(res.Problem))
+						if res.Problem != nil && !res.Problem.Retryable {
+							return nil // ACK non-retryable errors; retrying won't help
+						}
 						return res.Problem
+					}
+
+					select {
+					case <-resultMailbox.wait():
+						continue
 					case <-waitCtx.Done():
 						metrics.IncProcessorAckAfterCommit("failed")
 						return problem.WithRetryable(problem.Wrap(waitCtx.Err(), problem.Unavailable, "processor result wait timed out"))
@@ -525,13 +647,70 @@ func initEnvelopeSource(cfg config.AppConfig, logger *slog.Logger, e2e *e2eRunti
 	}
 }
 
-func sameProcessedEnvelope(got, want envelope.Envelope) bool {
-	return strings.EqualFold(strings.TrimSpace(got.Type), strings.TrimSpace(want.Type)) &&
-		got.Version == want.Version &&
-		strings.EqualFold(strings.TrimSpace(got.Venue), strings.TrimSpace(want.Venue)) &&
-		strings.EqualFold(strings.TrimSpace(got.Instrument), strings.TrimSpace(want.Instrument)) &&
-		got.Seq == want.Seq &&
-		strings.TrimSpace(got.IdempotencyKey) == strings.TrimSpace(want.IdempotencyKey)
+type envelopeResultMailbox struct {
+	mu      sync.Mutex
+	byKey   map[string][]aggruntime.EnvelopeProcessResult
+	notifyC chan struct{}
+}
+
+func newEnvelopeResultMailbox() *envelopeResultMailbox {
+	return &envelopeResultMailbox{
+		byKey:   make(map[string][]aggruntime.EnvelopeProcessResult),
+		notifyC: make(chan struct{}, 1),
+	}
+}
+
+func (m *envelopeResultMailbox) push(res aggruntime.EnvelopeProcessResult) {
+	if m == nil {
+		return
+	}
+	key := processedEnvelopeKey(res.Envelope)
+	m.mu.Lock()
+	m.byKey[key] = append(m.byKey[key], res)
+	m.mu.Unlock()
+
+	select {
+	case m.notifyC <- struct{}{}:
+	default:
+	}
+}
+
+func (m *envelopeResultMailbox) pop(env envelope.Envelope) (aggruntime.EnvelopeProcessResult, bool) {
+	if m == nil {
+		return aggruntime.EnvelopeProcessResult{}, false
+	}
+	key := processedEnvelopeKey(env)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	queue := m.byKey[key]
+	if len(queue) == 0 {
+		return aggruntime.EnvelopeProcessResult{}, false
+	}
+	res := queue[0]
+	if len(queue) == 1 {
+		delete(m.byKey, key)
+	} else {
+		m.byKey[key] = queue[1:]
+	}
+	return res, true
+}
+
+func (m *envelopeResultMailbox) wait() <-chan struct{} {
+	if m == nil {
+		closed := make(chan struct{})
+		close(closed)
+		return closed
+	}
+	return m.notifyC
+}
+
+func processedEnvelopeKey(env envelope.Envelope) string {
+	return strings.ToLower(strings.TrimSpace(env.Type)) + "|" +
+		fmt.Sprintf("%d", env.Version) + "|" +
+		strings.ToLower(strings.TrimSpace(env.Venue)) + "|" +
+		strings.ToLower(strings.TrimSpace(env.Instrument)) + "|" +
+		fmt.Sprintf("%d", env.Seq) + "|" +
+		strings.TrimSpace(env.IdempotencyKey)
 }
 
 func ackAfterCommitStatus(p *problem.Problem) string {

@@ -134,6 +134,9 @@ services:
     user: "0:0"
     environment:
       SHARD_COUNT: ${PROCESSOR_SHARD_COUNT:-1}
+      SHARD_REGISTRY_ENABLED: ${SHARD_REGISTRY_ENABLED:-false}
+      SHARD_REGISTRY_STRICT: ${SHARD_REGISTRY_STRICT:-false}
+      SHARD_REGISTRY_GRACE: ${SHARD_REGISTRY_GRACE:-60s}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ../configs/processor.jsonc:/etc/market-raccoon/processor.jsonc:ro
