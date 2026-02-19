@@ -24,6 +24,7 @@ type consumerExchangeRuntime struct {
 	Exchange   config.ConsumerExchangeConfig
 	ParseV1    mdruntime.ParseFunc
 	ParseV2    mdruntime.ParseFuncV2
+	ParseBatch mdruntime.ParseFuncBatch
 	ManagerCfg *ws.ManagerConfig
 }
 
@@ -246,12 +247,35 @@ func buildHyperLiquidRuntime(
 		return endpoint
 	}
 	managerCfg.SubscriptionBuilder = func(bucket []string) [][]byte {
-		msgs, p := hyperliquid.BuildSubscriptions(bucket)
+		msgs, p := hyperliquid.BuildSubscriptionsWithMarkPrice(bucket)
 		if p != nil {
 			logger.Error("consumer: hyperliquid subscription build failed", "err", p, "exchange", ex.Name, "bucket", bucket)
 			return nil
 		}
 		return msgs
+	}
+
+	// Build subscribed coin set for allMids filtering.
+	subscribedCoins := make(map[string]bool, len(ex.Tickers))
+	for _, t := range ex.Tickers {
+		coin := hyperliquid.ToCoinName(t)
+		if coin != "" {
+			subscribedCoins[strings.ToUpper(coin)] = true
+		}
+	}
+	batchParser := hyperliquid.ParseAllMids(subscribedCoins, ex.MarketType)
+	parseBatch := func(msg *ws.WsMessage) ([]mdapp.IngestRequest, error) {
+		reqs, err := batchParser(msg.Data, msg.RecvAt)
+		if err != nil {
+			return nil, err
+		}
+		if reqs == nil {
+			return nil, nil
+		}
+		for i := range reqs {
+			enrichRequestMetadata(&reqs[i], msg, ex.MarketType, "allMids")
+		}
+		return reqs, nil
 	}
 
 	parseV1 := func(msg *ws.WsMessage) (mdapp.IngestRequest, bool) {
@@ -289,6 +313,7 @@ func buildHyperLiquidRuntime(
 		Exchange:   ex,
 		ParseV1:    parseV1,
 		ParseV2:    parseV2,
+		ParseBatch: parseBatch,
 		ManagerCfg: &managerCfg,
 	}
 }

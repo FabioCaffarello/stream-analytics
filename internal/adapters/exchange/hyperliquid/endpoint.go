@@ -50,6 +50,32 @@ func BuildSubscriptions(tickers []string) ([][]byte, *problem.Problem) {
 	return msgs, nil
 }
 
+// BuildSubscriptionsWithMarkPrice returns per-ticker subscribe messages for
+// trades + l2Book, plus a single allMids subscription for mark price data.
+func BuildSubscriptionsWithMarkPrice(tickers []string) ([][]byte, *problem.Problem) {
+	msgs, p := BuildSubscriptions(tickers)
+	if p != nil {
+		return nil, p
+	}
+	allMidsSub, err := json.Marshal(map[string]any{
+		"method": "subscribe",
+		"subscription": map[string]any{
+			"type": "allMids",
+		},
+	})
+	if err != nil {
+		return nil, problem.Wrap(err, problem.Internal, "hyperliquid allMids subscription: marshal failed")
+	}
+	msgs = append(msgs, allMidsSub)
+	return msgs, nil
+}
+
+// ToCoinName extracts the coin base symbol from a canonical ticker
+// (e.g., "BTCUSDT" → "BTC", "ETHPERP" → "ETH").
+func ToCoinName(ticker string) string {
+	return toCoinName(ticker)
+}
+
 func toCoinName(ticker string) string {
 	s := naming.CanonicalInstrument(ticker)
 	if s == "" {

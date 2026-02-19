@@ -61,6 +61,16 @@ type RawMessageV1 struct {
 	Data []byte `json:"data"`
 }
 
+// ParseFuncBatch converts a raw WebSocket message into zero or more IngestRequests.
+//
+// Return a non-nil (possibly empty) slice when the message is handled.
+// Return nil to signal "not handled" — the runtime falls through to the
+// regular ParseFunc / ParseFuncV2 path.
+//
+// Used for broadcast channels where a single WS message carries data for
+// multiple instruments (e.g., HyperLiquid allMids).
+type ParseFuncBatch func(msg *ws.WsMessage) ([]app.IngestRequest, error)
+
 // MakeRawParseFunc returns a ParseFunc that wraps every received byte slice in
 // a RawMessageV1 payload addressed to the given venue and instrument.
 //

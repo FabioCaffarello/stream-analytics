@@ -162,3 +162,82 @@ func TestParseMessage_L2BookRejectsCrossedSnapshot(t *testing.T) {
 		t.Fatalf("expected empty request on skip, got event_type=%q", req.EventType)
 	}
 }
+
+func TestParseAllMids_ParsesBroadcast(t *testing.T) {
+	subscribedCoins := map[string]bool{"BTC": true, "ETH": true}
+	parse := hyperliquid.ParseAllMids(subscribedCoins, "USDM_FUTURES")
+	input := `{"channel":"allMids","data":{"mids":{"BTC":"96000.5","ETH":"2700.3","SOL":"150.2"}}}`
+	recvAt := time.UnixMilli(1700000005000)
+
+	reqs, err := parse([]byte(input), recvAt)
+	if err != nil {
+		t.Fatalf("ParseAllMids error: %v", err)
+	}
+	if len(reqs) != 2 {
+		t.Fatalf("reqs len=%d want=2 (BTC+ETH, SOL filtered out)", len(reqs))
+	}
+
+	byInstrument := make(map[string]domain.MarkPriceTickV1)
+	for _, req := range reqs {
+		if req.EventType != "marketdata.markprice" {
+			t.Fatalf("event_type=%q want=marketdata.markprice", req.EventType)
+		}
+		if req.Venue != "HYPERLIQUID" {
+			t.Fatalf("venue=%q want=HYPERLIQUID", req.Venue)
+		}
+		payload, ok := req.Payload.(domain.MarkPriceTickV1)
+		if !ok {
+			t.Fatalf("payload type=%T", req.Payload)
+		}
+		byInstrument[req.Instrument] = payload
+	}
+
+	btc, ok := byInstrument["BTCUSD"]
+	if !ok {
+		t.Fatal("missing BTC request")
+	}
+	if btc.MarkPrice != 96000.5 {
+		t.Fatalf("BTC markprice=%f want=96000.5", btc.MarkPrice)
+	}
+
+	eth, ok := byInstrument["ETHUSD"]
+	if !ok {
+		t.Fatal("missing ETH request")
+	}
+	if eth.MarkPrice != 2700.3 {
+		t.Fatalf("ETH markprice=%f want=2700.3", eth.MarkPrice)
+	}
+}
+
+func TestParseAllMids_ReturnsNilForNonAllMids(t *testing.T) {
+	subscribedCoins := map[string]bool{"BTC": true}
+	parse := hyperliquid.ParseAllMids(subscribedCoins, "USDM_FUTURES")
+	input := `{"channel":"trades","data":[{"coin":"BTC","side":"B","px":"42000.5","sz":"0.2","time":1700000000000,"hash":"0xabc","tid":7}]}`
+	recvAt := time.UnixMilli(1700000005000)
+
+	reqs, err := parse([]byte(input), recvAt)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if reqs != nil {
+		t.Fatalf("expected nil for non-allMids message, got len=%d", len(reqs))
+	}
+}
+
+func TestParseAllMids_EmptyWhenNoSubscribedCoins(t *testing.T) {
+	subscribedCoins := map[string]bool{"DOGE": true}
+	parse := hyperliquid.ParseAllMids(subscribedCoins, "USDM_FUTURES")
+	input := `{"channel":"allMids","data":{"mids":{"BTC":"96000.5","ETH":"2700.3"}}}`
+	recvAt := time.UnixMilli(1700000005000)
+
+	reqs, err := parse([]byte(input), recvAt)
+	if err != nil {
+		t.Fatalf("ParseAllMids error: %v", err)
+	}
+	if reqs == nil {
+		t.Fatal("expected non-nil (handled) result, got nil")
+	}
+	if len(reqs) != 0 {
+		t.Fatalf("reqs len=%d want=0 (no subscribed coins matched)", len(reqs))
+	}
+}

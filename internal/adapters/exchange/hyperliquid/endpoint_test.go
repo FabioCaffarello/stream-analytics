@@ -42,3 +42,27 @@ func TestToCoinName(t *testing.T) {
 		}
 	}
 }
+
+func TestToCoinNameExported(t *testing.T) {
+	if got := ToCoinName("BTCUSDT"); got != "BTC" {
+		t.Fatalf("ToCoinName(BTCUSDT)=%q want=BTC", got)
+	}
+	if got := ToCoinName("SOLPERP"); got != "SOL" {
+		t.Fatalf("ToCoinName(SOLPERP)=%q want=SOL", got)
+	}
+}
+
+func TestBuildSubscriptionsWithMarkPrice(t *testing.T) {
+	msgs, p := BuildSubscriptionsWithMarkPrice([]string{"BTCUSDT", "ETHPERP"})
+	if p != nil {
+		t.Fatalf("BuildSubscriptionsWithMarkPrice: %v", p)
+	}
+	// 2 tickers * 2 channels (trades, l2Book) + 1 allMids = 5
+	if len(msgs) != 5 {
+		t.Fatalf("messages len=%d want 5", len(msgs))
+	}
+	lastMsg := string(msgs[len(msgs)-1])
+	if !strings.Contains(lastMsg, `"type":"allMids"`) {
+		t.Fatalf("last message should be allMids subscription, got: %s", lastMsg)
+	}
+}

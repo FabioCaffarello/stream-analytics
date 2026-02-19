@@ -36,7 +36,7 @@
 | ~~**W6**~~ | ~~Gap detection sem repair~~ | **RESOLVIDO (C3):** `app.DetectCandleGaps` com auto-anchor (GetFirst/LastCandle), leading/inter/trailing gap detection. Cold readers (`ChCandleReader`, `ChStatsReader`, `ChSnapshotReader`) com `FINAL` dedup + 8 unit tests. |
 | **W7** | Complexidade do workspace multi-módulo | 13 módulos com `replace` directives obrigatórias; `make tidy` necessário após cada change; onboarding friction |
 | **W8** | Duas databases = overhead operacional | TimescaleDB + ClickHouse requerem ambos saudáveis; DDL manual; sem migration runner automatizado tipo Flyway |
-| **W9** | Cobertura de exchange assimétrica | Coinbase: sem markprice/liquidation; HyperLiquid: sem markprice; Binance é o único com backfill.go |
+| ~~**W9**~~ | ~~Cobertura de exchange assimétrica~~ | **PARCIALMENTE RESOLVIDO:** Coinbase markprice já existia (ticker→markprice parser); Coinbase liquidation impossível (spot). HyperLiquid markprice agora implementado via `allMids` broadcast + `ParseFuncBatch`. Gaps restantes: Coinbase é spot-only (sem liquidation por design); Binance é o único com backfill adapter. |
 | **W10** | Desktop client inexistente | Odin terminal é dependência externa fora do escopo; backend-only limita demonstrabilidade |
 
 ---
@@ -82,7 +82,7 @@
 | ~~**W3**~~ ~~Proto parcial~~ | ~~Invest~~ **DONE:** Rollout flags 14 event types + transcode safety + schemas stable | — | — | — | ~~Mitigate~~ **CLOSED:** Proto ativado; throughput acima do CBOR do MM | — | — |
 | ~~**W5**~~ ~~Backfill stub~~ | — | — | ~~Invest~~ **DONE:** Download adapter + gaps mode implementados (C3) | — | ~~Mitigate~~ **CLOSED:** Backfill Binance operacional; gap: estender para outros exchanges | — | — |
 | **W7** Workspace complexity | — | — | — | — | Mitigate: Cada novo exchange = validar replace directives | — | Mitigate: Simplificar onde possível sem quebrar isolamento |
-| **W9** Exchanges assimétricos | — | Invest: Gravar fixtures para Coinbase/HL nos campos ausentes | Invest: Backfill adapter por exchange (não apenas Binance) | — | **Mitigate: Normalizar cobertura — markprice para todos** | — | — |
+| ~~**W9**~~ Exchanges normalizados | — | Invest: Gravar fixtures para Coinbase/HL nos campos ausentes | Invest: Backfill adapter por exchange (não apenas Binance) | — | ~~Mitigate~~ **DONE:** Markprice cobertura normalizada (Coinbase=ticker, HL=allMids, Binance+Bybit=dedicated) | — | — |
 
 ---
 
@@ -97,8 +97,8 @@
 ### 3. A suíte de testes é o ativo defensivo mais valioso
 **S4 + T2 + T5 → Ação:** Investir em estabilização de CI (cache de testcontainers, retry policy para flaky integration tests). Os 185 test files + soak gates são a garantia de que Odin v0 não terá regressões. Proteger esse ativo.
 
-### 4. Exchange parity requer normalização, não apenas novos parsers
-**W9 + O8 + T1 → Ação:** Além de adicionar parsers (Kraken/KrakenF), normalizar cobertura de eventos. Coinbase sem liquidation e HyperLiquid sem markprice criam assimetrias que propagam até o delivery layer.
+### 4. ~~Exchange parity requer normalização~~ PARCIALMENTE RESOLVIDO — markprice normalizado para todos
+**~~W9~~ + O8 + T1 → Status:** Cobertura de markprice normalizada: Coinbase já tinha (ticker parser, descoberto pela investigação), HyperLiquid adicionado via `allMids` broadcast com `ParseFuncBatch`. Coinbase liquidation impossível (spot exchange). **Ação residual:** Estender backfill adapters para Bybit/Coinbase/HyperLiquid (apenas Binance implementado); adicionar Kraken/KrakenF.
 
 ### 5. Insights BC é o diferencial competitivo sustentável
 **S1 + O6 + T8 → Ação:** CrossVenue signals + VolumeProfile + Heatmap são capabilities que MarketMonkey tem de forma rudimentar. Raccoon pode aprofundar este BC como moat técnico, especialmente quando heatmap delivery estiver fiado end-to-end (W2).
@@ -115,12 +115,12 @@
 | Arquitetura | **5/5** | DDD + Hexagonal + Actor model + invariantes enforced por CI |
 | Qualidade de Código | **4/5** | Fixed-point, `*problem.Problem`, `result.Result[T]`; -1 por workspace complexity |
 | Testes | **5/5** | Multi-nível (unit→soak→E2E), golden, race detector, 185 files |
-| Cobertura Funcional | **3.5/5** | Stats ausente, heatmap não fiado, exchanges assimétricos; ~~backfill stub~~ backfill operacional (C3) |
+| Cobertura Funcional | **3.5/5** | Stats ausente, heatmap não fiado; ~~exchanges assimétricos~~ markprice normalizado para 4 exchanges; ~~backfill stub~~ backfill operacional (C3) |
 | Prontidão Operacional | **3.5/5** | Config/shutdown/readiness OK; backfill + gap detection operacionais (C3); falta migration runner, multi-exchange backfill |
 | Performance | **4.5/5** | 83k+ evt/sec, 15us E2E orderbook; proto ativado no hot-path (wire -60%, parse -40%); -0.5 por falta de wire DTO para snapshot/inconsistency |
-| Paridade Competitiva | **3/5** | 2/5 exchanges operacionais vs MM's 5/7; arquitetura superior mas features atrasadas |
+| Paridade Competitiva | **3.5/5** | 4/5 exchanges com markprice completo (Coinbase spot não tem liquidation por design); arquitetura superior; backfill adapter apenas Binance |
 
-**Score Geral: 4.2 / 5.0** — Fundação técnica excepcional; C3 fechou backfill/gap detection, proto hot-path ativado com transcode safety. Gaps restantes: stats pipeline, heatmap delivery E2E, exchange parity (W9), multi-exchange backfill.
+**Score Geral: 4.3 / 5.0** — Fundação técnica excepcional; C3 fechou backfill/gap detection, proto hot-path ativado com transcode safety, markprice normalizado para todos os 4 exchanges. Gaps restantes: stats pipeline, heatmap delivery E2E, multi-exchange backfill, Kraken/KrakenF.
 
 ---
 
@@ -130,7 +130,7 @@
 |-----------|----------|------|
 | ~~**P0**~~ | ~~RFC~~ | ~~Proto hot-path full rollout~~ — **DONE:** RFC-0007 atualizado, 14 flags, transcode safety, schemas stable |
 | ~~**P0**~~ | ~~Implementação~~ | ~~C3: `cmd/backfill` operacional + gap detection~~ — **DONE** |
-| **P0** | Implementação | Normalizar cobertura de exchanges (W9): markprice/liquidation para Coinbase e HyperLiquid |
+| ~~**P0**~~ | ~~Implementação~~ | ~~Normalizar cobertura de exchanges (W9)~~ — **DONE:** Coinbase markprice já existia (ticker parser); HyperLiquid markprice via `allMids` + `ParseFuncBatch`; Coinbase liquidation impossível (spot) |
 | **P1** | ADR | ADR formal para dual-database trade-off + runbook operacional (W8) |
 | **P1** | Implementação | Heatmap delivery end-to-end — domain→writer→router→WS (W2) |
 | **P1** | Implementação | Wire DTOs + codec registration para `aggregation.snapshot` + `orderbook_inconsistency` (residual proto) |

@@ -362,6 +362,67 @@ func isZeroHash(s string) bool {
 	return true
 }
 
+// allMidsData is the envelope for the allMids broadcast channel.
+type allMidsData struct {
+	Mids map[string]string `json:"mids"`
+}
+
+// ParseAllMids returns a batch parser for the HyperLiquid allMids broadcast.
+// The returned function produces one MarkPriceTickV1 IngestRequest per
+// subscribed coin. Messages for other channels return nil (not handled).
+func ParseAllMids(subscribedCoins map[string]bool, marketType string) func(data []byte, recvAt time.Time) ([]app.IngestRequest, error) {
+	marketType = normalizeMarketType(marketType)
+	return func(data []byte, recvAt time.Time) ([]app.IngestRequest, error) {
+		var msg wsResponse
+		if err := json.Unmarshal(data, &msg); err != nil {
+			return nil, fmt.Errorf("hyperliquid allMids: invalid JSON: %w", err)
+		}
+		if msg.Channel != "allMids" {
+			return nil, nil // not handled — fall through to single parser
+		}
+
+		var payload allMidsData
+		if err := json.Unmarshal(msg.Data, &payload); err != nil {
+			return nil, fmt.Errorf("hyperliquid allMids: invalid data: %w", err)
+		}
+
+		tsExchange := recvAt.UnixMilli()
+		reqs := make([]app.IngestRequest, 0, len(subscribedCoins))
+		for coin, midStr := range payload.Mids {
+			upperCoin := strings.ToUpper(strings.TrimSpace(coin))
+			if !subscribedCoins[upperCoin] {
+				continue
+			}
+			mid, err := strconv.ParseFloat(midStr, 64)
+			if err != nil {
+				continue // skip unparseable prices
+			}
+			instrument, p := instrumentFromCoin(upperCoin)
+			if p != nil {
+				continue
+			}
+			reqs = append(reqs, app.IngestRequest{
+				Venue:      VenueHyperLiquid,
+				Instrument: instrument,
+				MarketType: marketType,
+				EventType:  "marketdata.markprice",
+				Version:    1,
+				TsExchange: tsExchange,
+				IdempotencyKey: fmt.Sprintf("venue=%s|instrument=%s|markprice|ts=%d",
+					VenueHyperLiquid, instrument, tsExchange),
+				Metadata: buildInstrumentMetadata(upperCoin, instrument, marketType),
+				Payload: domain.MarkPriceTickV1{
+					MarkPrice:   mid,
+					IndexPrice:  0,
+					FundingRate: 0,
+					Timestamp:   tsExchange,
+				},
+			})
+		}
+		return reqs, nil
+	}
+}
+
 func normalizeMarketType(raw string) string {
 	mt, p := domain.NewMarketType(raw)
 	if p != nil {
