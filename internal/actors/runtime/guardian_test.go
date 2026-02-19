@@ -489,3 +489,67 @@ func TestGuardian_Readiness_ExplicitEmptySlice_AlwaysReady(t *testing.T) {
 		t.Fatalf("unexpected pending: %v", pending)
 	}
 }
+
+func TestGuardian_SnapshotCache_HitAndInvalidation(t *testing.T) {
+	clock := &fakeClock{now: time.Unix(100, 0)}
+	policy := newTestPolicy(t, clock)
+	g := newGuardianForTest(policy, clock)
+	g.connected = make(map[Subsystem]bool)
+	g.lastMessageAt = make(map[Subsystem]time.Time)
+	g.lastPublishAt = make(map[Subsystem]time.Time)
+
+	g.spawnFn = func(c *actor.Context, subsystem Subsystem) (*actor.PID, error) {
+		return actor.NewPID("local", fmt.Sprintf("%s-child", subsystem)), nil
+	}
+	g.poisonFn = func(c *actor.Context, pid *actor.PID) {}
+	g.scheduleFn = func(delay time.Duration, fn func()) cancelSchedule { return func() {} }
+	g.emitFn = func(c *actor.Context, msg any) {}
+
+	g.startAll(nil)
+
+	// First call builds the snapshot.
+	snap1 := g.buildSnapshot()
+	if snap1.At != clock.Now() {
+		t.Fatalf("snap1.At=%v want=%v", snap1.At, clock.Now())
+	}
+
+	// Second call should return the cached snapshot (same pointer via cached).
+	snap2 := g.buildSnapshot()
+	if snap2.At != snap1.At {
+		t.Fatalf("snap2.At=%v != snap1.At=%v — cache miss when hit expected", snap2.At, snap1.At)
+	}
+
+	// Advance time and trigger heartbeat — should invalidate cache.
+	clock.now = time.Unix(200, 0)
+	g.handleHeartbeat(SubsystemHeartbeat{
+		Subsystem:     SubsystemMarketData,
+		Connected:     true,
+		LastMessageAt: clock.Now(),
+	})
+
+	snap3 := g.buildSnapshot()
+	if snap3.At != clock.Now() {
+		t.Fatalf("snap3.At=%v want=%v — cache should have been invalidated", snap3.At, clock.Now())
+	}
+	if snap3.At.Equal(snap1.At) {
+		t.Fatal("snapshot not regenerated after heartbeat invalidation")
+	}
+
+	// Verify heartbeat data is reflected.
+	mdState := snap3.Subsystems[SubsystemMarketData]
+	if !mdState.Connected {
+		t.Fatal("marketdata should be connected after heartbeat")
+	}
+
+	// ChildFailed should also invalidate.
+	clock.now = time.Unix(300, 0)
+	g.handleChildFailed(nil, ChildFailed{
+		Subsystem: SubsystemMarketData,
+		Kind:      "test_failure",
+	})
+
+	snap4 := g.buildSnapshot()
+	if snap4.At != clock.Now() {
+		t.Fatalf("snap4.At=%v want=%v — cache should have been invalidated by ChildFailed", snap4.At, clock.Now())
+	}
+}

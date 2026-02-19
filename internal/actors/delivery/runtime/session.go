@@ -67,6 +67,10 @@ type SessionConfig struct {
 	SlowClientDropThreshold int
 	// Clock is optional; defaults to SystemClock.
 	Clock sharedclock.Clock
+	// TranscodeCache is an optional shared proto→JSON transcode cache.
+	// When set, proto payloads destined for JSON clients are cached to avoid
+	// redundant decode+marshal across sessions receiving the same event.
+	TranscodeCache *TranscodeCache
 }
 
 type HotSnapshotProvider interface {
@@ -656,15 +660,25 @@ func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) error {
 	}
 	payload := evt.Env.Payload
 	if evt.Env.ContentType == envelope.ContentTypeProto {
-		decoded, p := codec.DecodePayload(evt.Env.Type, evt.Env.Version, evt.Env.ContentType, payload)
-		if p != nil {
-			return p
+		if s.cfg.TranscodeCache != nil {
+			cached, p := s.cfg.TranscodeCache.TranscodeProtoToJSON(
+				evt.Env.Type, evt.Env.Version, evt.Env.ContentType, payload,
+			)
+			if p != nil {
+				return p
+			}
+			payload = cached
+		} else {
+			decoded, p := codec.DecodePayload(evt.Env.Type, evt.Env.Version, evt.Env.ContentType, payload)
+			if p != nil {
+				return p
+			}
+			transcoded, err := json.Marshal(decoded)
+			if err != nil {
+				return fmt.Errorf("proto→json transcode: %w", err)
+			}
+			payload = json.RawMessage(transcoded)
 		}
-		transcoded, err := json.Marshal(decoded)
-		if err != nil {
-			return fmt.Errorf("proto→json transcode: %w", err)
-		}
-		payload = json.RawMessage(transcoded)
 	}
 	if err := s.writeJSONDirect(map[string]any{
 		"type":      "event",

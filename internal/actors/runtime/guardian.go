@@ -60,6 +60,10 @@ type Guardian struct {
 	// shuttingDown is true after a Stop message is received; prevents restarts.
 	shuttingDown bool
 
+	// cachedSnapshot holds the last built SnapshotState. Cleared on any state
+	// mutation so that the next Snapshot query triggers a rebuild.
+	cachedSnapshot *SnapshotState
+
 	started bool
 
 	spawnFn  func(c *actor.Context, subsystem Subsystem) (*actor.PID, error)
@@ -310,6 +314,7 @@ func (g *Guardian) stopAll(c *actor.Context) {
 		metrics.SetGuardianSubsystemState(string(subsystem), 0)
 	}
 	g.started = false
+	g.invalidateSnapshot()
 }
 
 func (g *Guardian) startSubsystem(c *actor.Context, subsystem Subsystem) {
@@ -318,6 +323,7 @@ func (g *Guardian) startSubsystem(c *actor.Context, subsystem Subsystem) {
 		g.lastError[subsystem] = err.Error()
 		g.running[subsystem] = false
 		g.logger.Error("failed to spawn subsystem", "subsystem", subsystem, "err", err)
+		g.invalidateSnapshot()
 		return
 	}
 
@@ -326,6 +332,7 @@ func (g *Guardian) startSubsystem(c *actor.Context, subsystem Subsystem) {
 	g.lastError[subsystem] = ""
 	g.lastTransition[subsystem] = g.clock.Now()
 	g.readySystems[subsystem] = true // v1 optimistic: ready on first successful spawn
+	g.invalidateSnapshot()
 	metrics.SetGuardianSubsystemState(string(subsystem), 1)
 
 	if status := g.policy.Status(subsystem); status.Degraded {
@@ -395,6 +402,7 @@ func (g *Guardian) handleChildFailed(c *actor.Context, msg ChildFailed) {
 	if g.connected == nil {
 		g.connected = make(map[Subsystem]bool)
 	}
+	g.invalidateSnapshot()
 	if g.shuttingDown {
 		return // no restarts during controlled shutdown
 	}
@@ -532,9 +540,17 @@ func (g *Guardian) handleHeartbeat(msg SubsystemHeartbeat) {
 	if !msg.LastPublishAt.IsZero() {
 		g.lastPublishAt[msg.Subsystem] = msg.LastPublishAt
 	}
+	g.invalidateSnapshot()
+}
+
+func (g *Guardian) invalidateSnapshot() {
+	g.cachedSnapshot = nil
 }
 
 func (g *Guardian) buildSnapshot() SnapshotState {
+	if g.cachedSnapshot != nil {
+		return *g.cachedSnapshot
+	}
 	managed := g.managedSubsystems()
 	state := SnapshotState{
 		At:         g.clock.Now(),
@@ -560,6 +576,7 @@ func (g *Guardian) buildSnapshot() SnapshotState {
 		}
 		state.Subsystems[subsystem] = s
 	}
+	g.cachedSnapshot = &state
 	return state
 }
 

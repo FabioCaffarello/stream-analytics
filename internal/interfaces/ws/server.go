@@ -23,6 +23,7 @@ type Server struct {
 	slowClientDropThreshold int
 	auth                    AuthConfig
 	rateLimit               deliveryruntime.RateLimitConfig
+	transcodeCache          *deliveryruntime.TranscodeCache
 	spawnSession            func(cfg deliveryruntime.SessionConfig) *actor.PID
 }
 
@@ -43,6 +44,12 @@ func WithRateLimit(cfg deliveryruntime.RateLimitConfig) Option {
 func WithSlowClientDropThreshold(threshold int) Option {
 	return func(s *Server) {
 		s.slowClientDropThreshold = threshold
+	}
+}
+
+func WithTranscodeCache(cache *deliveryruntime.TranscodeCache) Option {
+	return func(s *Server) {
+		s.transcodeCache = cache
 	}
 }
 
@@ -117,6 +124,7 @@ func (s *Server) HandleUpgrade(w http.ResponseWriter, r *http.Request) {
 		SlowClientDropThreshold: s.slowClientDropThreshold,
 		PreferProto:             sessionWantsProto(r),
 		RateLimit:               s.rateLimit,
+		TranscodeCache:          s.transcodeCache,
 	})
 }
 

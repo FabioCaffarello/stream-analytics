@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/market-raccoon/internal/adapters/exchange/binance"
+	"github.com/market-raccoon/internal/adapters/exchange/bybit"
 	"github.com/market-raccoon/internal/adapters/storage/clickhouse"
 	"github.com/market-raccoon/internal/core/aggregation/app"
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
@@ -29,9 +30,10 @@ type runConfig struct {
 }
 
 var (
-	runDownloadAggTrades = binance.DownloadAggTrades
-	runNewClickHousePool = clickhouse.NewPool
-	runDetectCandleGaps  = app.DetectCandleGaps
+	runDownloadAggTrades   = binance.DownloadAggTrades
+	runDownloadBybitTrades = bybit.DownloadTrades
+	runNewClickHousePool   = clickhouse.NewPool
+	runDetectCandleGaps    = app.DetectCandleGaps
 )
 
 //nolint:gocyclo // CLI mode branching is explicit to keep operational flow easy to audit.
@@ -47,9 +49,6 @@ func Run(ctx context.Context, appCfg config.AppConfig, cfg runConfig) (int, erro
 
 	switch mode {
 	case "download":
-		if exchange != "binance" {
-			return 1, fmt.Errorf("unsupported exchange %q", exchange)
-		}
 		from, err := parseDateRequired(cfg.From, "from")
 		if err != nil {
 			return 1, err
@@ -59,18 +58,45 @@ func Run(ctx context.Context, appCfg config.AppConfig, cfg runConfig) (int, erro
 			return 1, err
 		}
 
-		result, p := runDownloadAggTrades(ctx, binance.BackfillConfig{
-			Symbol:     cfg.Symbol,
-			From:       from,
-			To:         to,
-			OutputDir:  cfg.OutputDir,
-			MarketType: cfg.MarketType,
-		})
-		if p != nil {
-			return 1, fmt.Errorf("backfill download failed: %v", p)
+		var outputPath string
+		var datesDownloaded, datesSkipped int
+		var tradesParsed int64
+
+		switch exchange {
+		case "binance":
+			result, p := runDownloadAggTrades(ctx, binance.BackfillConfig{
+				Symbol:     cfg.Symbol,
+				From:       from,
+				To:         to,
+				OutputDir:  cfg.OutputDir,
+				MarketType: cfg.MarketType,
+			})
+			if p != nil {
+				return 1, fmt.Errorf("backfill download failed: %v", p)
+			}
+			outputPath = result.OutputPath
+			datesDownloaded = result.DatesDownloaded
+			datesSkipped = result.DatesSkipped
+			tradesParsed = result.TradesParsed
+		case "bybit":
+			result, p := runDownloadBybitTrades(ctx, bybit.BackfillConfig{
+				Symbol:     cfg.Symbol,
+				From:       from,
+				To:         to,
+				OutputDir:  cfg.OutputDir,
+				MarketType: cfg.MarketType,
+			})
+			if p != nil {
+				return 1, fmt.Errorf("backfill download failed: %v", p)
+			}
+			outputPath = result.OutputPath
+			datesDownloaded = result.DatesDownloaded
+			datesSkipped = result.DatesSkipped
+			tradesParsed = result.TradesParsed
+		default:
+			return 1, fmt.Errorf("unsupported exchange %q (allowed: binance|bybit)", exchange)
 		}
 
-		outputPath := result.OutputPath
 		if strings.TrimSpace(cfg.Fixture) != "" {
 			target := strings.TrimSpace(cfg.Fixture)
 			if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
@@ -85,9 +111,9 @@ func Run(ctx context.Context, appCfg config.AppConfig, cfg runConfig) (int, erro
 		}
 
 		fmt.Printf("download complete: downloaded=%d skipped=%d trades=%d fixture=%s\n",
-			result.DatesDownloaded,
-			result.DatesSkipped,
-			result.TradesParsed,
+			datesDownloaded,
+			datesSkipped,
+			tradesParsed,
 			outputPath,
 		)
 		return 0, nil
