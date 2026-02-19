@@ -20,6 +20,7 @@ GO_TEST_RACE_TIMEOUT ?= 10m
 GO_TEST_RACE_FLAGS ?= -race -covermode=atomic -timeout=$(GO_TEST_RACE_TIMEOUT)
 INTEGRATION_TEST_PATTERN ?= Integration|E2E|Conformance
 INTEGRATION_TEST_PKGS ?= ./internal/adapters/jetstream ./cmd/consumer
+INTEGRATION_TEST_TRIGGER_REGEX ?= ^(internal/adapters/jetstream/|cmd/consumer/|go\.work$$|go\.work\.sum$$)
 TEST_RACE_PKGS ?= ./internal/adapters/jetstream ./internal/shared/replay ./internal/actors/runtime ./cmd/consumer
 REPLAY_GOLDEN_PKGS ?= ./internal/shared/replay ./cmd/consumer ./internal/adapters/jetstream
 REPLAY_GOLDEN_PATTERN ?= TestGoldenReplay|TestReplayIngestGolden1000|TestReplayHeatmapGolden1000|TestHeatmapReplayByteStable50Runs|TestShardGolden|TestShardReplayInvariant
@@ -52,7 +53,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules workspace-check tidy tidy-check fmt fmt-check vet quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check legacy-check-staged legacy-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store soak-roundtrip soak-pipeline soak-ws-delivery soak-full test-short bench-hotpath vuln build run clean docker-build up down up-infra up-core dev-scale-smoke ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci
+.PHONY: help install-tools tools modules workspace-check tidy tidy-check tidy-check-changed fmt fmt-check vet quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check legacy-check-staged legacy-check lint lint-changed test test-root test-workspace test-workspace-race test-unit test-integration test-integration-changed test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store soak-roundtrip soak-pipeline soak-ws-delivery soak-full test-short test-short-changed bench-hotpath vuln build run clean docker-build up down up-infra up-core dev-scale-smoke ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci
 
 help:
 	@echo "Targets:"
@@ -62,6 +63,7 @@ help:
 	@echo "  make workspace-check    - validate all go.work modules resolve with go list"
 	@echo "  make tidy               - run go mod tidy in workspace modules"
 	@echo "  make tidy-check         - fail if go.mod/go.sum are not tidy"
+	@echo "  make tidy-check-changed - run tidy-check only when staged/worktree includes go.mod/go.sum/go.work"
 	@echo "  make fmt                - format all Go files (gofmt)"
 	@echo "  make fmt-check          - check formatting (gofmt -l)"
 	@echo "  make vet                - run go vet in workspace modules"
@@ -76,12 +78,14 @@ help:
 	@echo "  make docs-fix           - print docs fix checklist based on current guardrail findings"
 	@echo "  make invariants-check   - enforce domain isolation and runtime invariants checks"
 	@echo "  make lint               - run golangci-lint in workspace modules"
+	@echo "  make lint-changed       - run invariants + golangci-lint only in changed Go modules"
 	@echo "  make test               - alias for make test-root"
 	@echo "  make test-root          - workspace-safe root test entrypoint"
 	@echo "  make test-workspace     - run all workspace tests module-by-module"
 	@echo "  make test-workspace-race - run module-by-module tests with -race"
 	@echo "  make test-unit          - run fast short/unit-oriented workspace tests"
 	@echo "  make test-integration   - run integration-focused suites in selected packages"
+	@echo "  make test-integration-changed - run integration suite only when trigger paths changed (SKIP_INTEGRATION=1 to skip)"
 	@echo "  make test-race          - run targeted high-risk race-enabled suites"
 	@echo "  make test-partition     - run partitioned suites (unit -> integration -> race -> soak)"
 	@echo "  make test-replay-golden - run replay golden tests only (shared/replay + cmd/consumer)"
@@ -98,6 +102,7 @@ help:
 	@echo "  make soak-ws-delivery   - run full vertical + ws backpressure + guardian restart soaks"
 	@echo "  make soak-full          - run all soak harnesses"
 	@echo "  make test-short         - run short tests"
+	@echo "  make test-short-changed - run short tests only in changed Go modules"
 	@echo "  make vuln               - run govulncheck"
 	@echo "  make build              - build all binaries under cmd/* (package main)"
 	@echo "  make run                - run selected app (default: server)"
@@ -171,6 +176,20 @@ tidy-check:
 	if [ "$$status" -ne 0 ]; then \
 		echo "Run: make tidy"; \
 		exit 1; \
+	fi
+
+tidy-check-changed:
+	@set -euo pipefail; \
+	changed="$$(./scripts/list-changed-files.sh --auto || true)"; \
+	if [ -z "$$changed" ]; then \
+		echo "tidy-check-changed: no changed files; skipping"; \
+		exit 0; \
+	fi; \
+	if printf "%s\n" "$$changed" | rg -q '(^|/)go\.(mod|sum)$$|^go\.work$$|^go\.work\.sum$$'; then \
+		echo "tidy-check-changed: go module/workspace files changed; running tidy-check"; \
+		$(MAKE) tidy-check; \
+	else \
+		echo "tidy-check-changed: no go.mod/go.sum/go.work changes; skipping"; \
 	fi
 
 fmt:
@@ -262,6 +281,23 @@ legacy-check:
 lint: invariants-check
 	$(call RUN_IN_MODULES,bash -lc 'pkgs="$$( $(GO) list ./... 2>/dev/null || true )"; if [ -n "$$pkgs" ]; then $(GOLANGCI_LINT) run --config "$(CURDIR)/.golangci.yml" ./...; else echo "no packages to lint (skipping)"; fi')
 
+lint-changed:
+	@set -euo pipefail; \
+	mods="$$(./scripts/changed-go-modules.sh --auto || true)"; \
+	if [ -z "$$mods" ]; then \
+		echo "lint-changed: no changed Go modules; skipping"; \
+		exit 0; \
+	fi; \
+	echo "lint-changed: running invariants-check before module lint"; \
+	$(MAKE) invariants-check; \
+	status=0; \
+	while IFS= read -r mod; do \
+		[ -z "$$mod" ] && continue; \
+		echo ">>> $$mod: $(GOLANGCI_LINT)"; \
+		( cd "$$mod" && pkgs="$$( $(GO) list ./... 2>/dev/null || true )"; if [ -n "$$pkgs" ]; then $(GOLANGCI_LINT) run --config "$(CURDIR)/.golangci.yml" ./...; else echo "no packages to lint (skipping)"; fi ) || status=$$?; \
+	done <<< "$$mods"; \
+	exit $$status
+
 test:
 	$(MAKE) test-root
 
@@ -281,6 +317,24 @@ test-unit: invariants-check
 
 test-integration: invariants-check
 	@$(GO) test $(GO_TEST_FLAGS) $(INTEGRATION_TEST_PKGS) -run '$(INTEGRATION_TEST_PATTERN)'
+
+test-integration-changed:
+	@set -euo pipefail; \
+	if [ "${SKIP_INTEGRATION:-0}" = "1" ]; then \
+		echo "test-integration-changed: SKIP_INTEGRATION=1; skipping"; \
+		exit 0; \
+	fi; \
+	changed="$$(./scripts/list-changed-files.sh --auto || true)"; \
+	if [ -z "$$changed" ]; then \
+		echo "test-integration-changed: no changed files; skipping"; \
+		exit 0; \
+	fi; \
+	if printf "%s\n" "$$changed" | rg -q -e '$(INTEGRATION_TEST_TRIGGER_REGEX)'; then \
+		echo "test-integration-changed: trigger matched; running integration tests"; \
+		$(MAKE) test-integration; \
+	else \
+		echo "test-integration-changed: trigger not matched; skipping"; \
+	fi
 
 BENCH_HOTPATH_PKGS ?= ./internal/shared/codec ./internal/shared/policykit ./internal/shared/hash ./internal/core/marketdata/app ./internal/core/aggregation/domain ./internal/core/aggregation/app ./internal/actors/delivery/runtime ./internal/interfaces/ws
 
@@ -391,6 +445,21 @@ soak-full: soak-check soak-store soak-cold-path soak-roundtrip soak-pipeline soa
 
 test-short:
 	$(call RUN_IN_MODULES,bash -lc 'pkgs="$$( $(GO) list ./... 2>/dev/null || true )"; if [ -n "$$pkgs" ]; then $(GO) test -short $$pkgs; else echo "no packages to test (skipping)"; fi')
+
+test-short-changed:
+	@set -euo pipefail; \
+	mods="$$(./scripts/changed-go-modules.sh --auto || true)"; \
+	if [ -z "$$mods" ]; then \
+		echo "test-short-changed: no changed Go modules; skipping"; \
+		exit 0; \
+	fi; \
+	status=0; \
+	while IFS= read -r mod; do \
+		[ -z "$$mod" ] && continue; \
+		echo ">>> $$mod: $(GO) test -short"; \
+		( cd "$$mod" && pkgs="$$( $(GO) list ./... 2>/dev/null || true )"; if [ -n "$$pkgs" ]; then $(GO) test -short $$pkgs; else echo "no packages to test (skipping)"; fi ) || status=$$?; \
+	done <<< "$$mods"; \
+	exit $$status
 
 vuln:
 	@if command -v $(GOVULNCHECK) >/dev/null 2>&1; then \
