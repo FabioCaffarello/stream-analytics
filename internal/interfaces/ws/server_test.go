@@ -1,6 +1,8 @@
 package wsserver
 
 import (
+	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -81,12 +83,21 @@ func TestHandleWS_UpgradeSpawnsSessionWithValidAPIKey(t *testing.T) {
 	)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", srv.HandleUpgrade)
-	ts := httptest.NewServer(mux)
-	defer ts.Close()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("loopback listener unavailable in this environment: %v", err)
+		return
+	}
+	httpSrv := &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: 2 * time.Second,
+	}
+	go func() { _ = httpSrv.Serve(ln) }()
+	defer func() { _ = httpSrv.Shutdown(context.Background()) }()
 
 	header := http.Header{}
 	header.Set("X-API-Key", "k1")
-	conn, resp, err := websocket.DefaultDialer.Dial(wsURLFromHTTP(ts.URL)+"/ws", header)
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURLFromHTTP("http://"+ln.Addr().String())+"/ws", header)
 	if err != nil {
 		t.Fatalf("dial ws: %v", err)
 	}
