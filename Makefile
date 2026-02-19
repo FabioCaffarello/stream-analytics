@@ -50,7 +50,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules workspace-check tidy tidy-check fmt fmt-check vet quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store soak-roundtrip soak-pipeline soak-full test-short bench-hotpath vuln build run clean docker-build up down up-infra ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci
+.PHONY: help install-tools tools modules workspace-check tidy tidy-check fmt fmt-check vet quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check lint test test-root test-workspace test-workspace-race test-unit test-integration test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store soak-roundtrip soak-pipeline soak-ws-delivery soak-full test-short bench-hotpath vuln build run clean docker-build up down up-infra ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci
 
 help:
 	@echo "Targets:"
@@ -91,6 +91,7 @@ help:
 	@echo "  make soak-store         - run store pipeline dedup/batch soak harness"
 	@echo "  make soak-roundtrip     - run cold-path candle/stats roundtrip + store write soaks"
 	@echo "  make soak-pipeline      - run 10M multi-exchange + pipeline/delivery soaks (MR_ENABLE_SOAK=1)"
+	@echo "  make soak-ws-delivery   - run full vertical + ws backpressure + guardian restart soaks"
 	@echo "  make soak-full          - run all soak harnesses"
 	@echo "  make test-short         - run short tests"
 	@echo "  make vuln               - run govulncheck"
@@ -366,7 +367,13 @@ soak-pipeline: invariants-check
 		--out-file "$(SOAK_PIPELINE_OUT_FILE)" \
 		--go-cache "$(SOAK_GO_CACHE)"
 
-soak-full: soak-check soak-store soak-cold-path soak-roundtrip soak-pipeline
+soak-ws-delivery: invariants-check
+	@chmod +x ./scripts/soak-ws-delivery.sh
+	@./scripts/soak-ws-delivery.sh \
+		--out-file ".context/evidence/c4-ws-delivery-soak.txt" \
+		--go-cache "$(SOAK_GO_CACHE)"
+
+soak-full: soak-check soak-store soak-cold-path soak-roundtrip soak-pipeline soak-ws-delivery
 
 test-short:
 	$(call RUN_IN_MODULES,bash -lc 'pkgs="$$( $(GO) list ./... 2>/dev/null || true )"; if [ -n "$$pkgs" ]; then $(GO) test -short $$pkgs; else echo "no packages to test (skipping)"; fi')

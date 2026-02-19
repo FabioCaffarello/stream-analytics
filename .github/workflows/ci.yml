@@ -60,6 +60,8 @@ jobs:
         run: make contract-gates
       - name: Run operability gates
         run: make operability-gates
+      - name: Run benchmark regression gate
+        run: BENCH_THRESHOLD=20 make bench-check
 
   integration-jetstream:
     if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.run_integration == 'true' }}
