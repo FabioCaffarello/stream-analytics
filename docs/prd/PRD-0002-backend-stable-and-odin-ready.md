@@ -190,8 +190,8 @@ make down
 | 2 | Gate 2 soak evidence committed to `.context/evidence/` | Dev | Pending | `make soak-pipeline` (`Makefile`); evidence: `.context/evidence/c4-pipeline-soak.txt` |
 | 3 | Gate 3 compose smoke passes locally and in CI | Dev | Pending | **TODO:** `scripts/smoke-compose.sh`; `make up-core` (`Makefile`) |
 | 4 | Gate 4 delivery contract tests green | Dev | Done | `internal/actors/delivery/runtime/*_test.go`; `internal/interfaces/http/{auth,ratelimit}_test.go` |
-| 5 | Gate 5 all exchange parsers green | Dev | Pending | `internal/adapters/exchange/{binance,bybit,coinbase,hyperliquid}/parser_test.go` |
-| 6 | `deploy/configs/*.jsonc` reviewed — no `CHANGE_ME` tokens | Dev | Pending | **OPEN:** `deploy/configs/server.jsonc:27` has `CHANGE_ME_prod_key_1` |
+| 5 | Gate 5 all exchange parsers green | Dev | Done | `internal/adapters/exchange/{binance,bybit,coinbase,hyperliquid}/parser_test.go` |
+| 6 | `deploy/configs/*.jsonc` reviewed — no `CHANGE_ME` tokens | Dev | Done | `deploy/configs/server.jsonc` (no `CHANGE_ME` tokens) |
 | 7 | Alert rules pass `promtool check rules` | Dev | Pending | `deploy/observability/prometheus/alerts.rules.yml`, `shard-alerts.rules.yml` |
 | 8 | ClickHouse migrations run without error on fresh DB | Dev | Pending | `sql/clickhouse/migrations/` (5 files) |
 | 9 | TimescaleDB migrations run without error on fresh DB | Dev | Pending | `sql/timescale/migrations/` (auto-init via compose mount) |
@@ -236,6 +236,9 @@ make down
 
 ## Changelog
 
+- 2026-02-19 (gate-5-6):
+  - Gate 5 marked `Done` after parser suites for Binance/Bybit/Coinbase/HyperLiquid passed.
+  - Gate 6 marked `Done` after removing last `CHANGE_ME` token from `deploy/configs/server.jsonc`.
 - 2026-02-19 (gate-4):
   - Added WS auth contract tests in `internal/interfaces/http/auth_test.go`.
   - Added WS rate-limit token bucket test in `internal/interfaces/http/ratelimit_test.go`.

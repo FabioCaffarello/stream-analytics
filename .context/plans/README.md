@@ -2,23 +2,24 @@
 
 This directory contains plans for coordinating work across documentation and playbooks.
 
-## Active Queue
-1. [Codebase Evolution Modernization](./codebase-evolution-modernization.md)
-2. [Retomada Market Parity Commit Chain](./retomada-market-parity-commit-chain.md)
-3. [Shard Production Grade](./shard-production-grade.md)
-4. [Subject Taxonomy Stabilization](./subject-taxonomy-stabilization.md)
-5. [W0 Build Acceleration](./w0-build-acceleration.md)
-6. [W1 Consumer Hotspot Dedup](./w1-consumer-hotspot-dedup.md)
-7. [Composition Root](./composition-root.md)
-8. [Context Restructuring](./context-restructuring.md)
-9. [M3 Vpvr Plan](./m3-vpvr-plan.md)
-
-## Template Backlog (Needs Cleanup Before Execution)
+## Plan Queue
 1. [Build Accel W0](./build-accel-w0.md)
-2. [M3 Bootstrap](./m3-bootstrap.md)
-3. [M3 C6 Vpvr Observability](./m3-c6-vpvr-observability.md)
-4. [M3 Closeout Post C6 Audit](./m3-closeout-post-c6-audit.md)
-5. [M3 Heatmap Plan](./m3-heatmap-plan.md)
+2. [Codebase Evolution Modernization](./codebase-evolution-modernization.md)
+3. [Codebase Modernization Baseline](./codebase-modernization-baseline.md)
+4. [Composition Root](./composition-root.md)
+5. [Context Restructuring](./context-restructuring.md)
+6. [M3 Bootstrap](./m3-bootstrap.md)
+7. [M3 C6 Vpvr Observability](./m3-c6-vpvr-observability.md)
+8. [M3 Closeout Post C6 Audit](./m3-closeout-post-c6-audit.md)
+9. [M3 Heatmap Plan](./m3-heatmap-plan.md)
+10. [M3 Vpvr Plan](./m3-vpvr-plan.md)
+11. [Next Evolution Blocks 80 20](./next-evolution-blocks-80-20.md)
+12. [Prd0002 G5 G6 Gates](./prd0002-g5-g6-gates.md)
+13. [Retomada Market Parity Commit Chain](./retomada-market-parity-commit-chain.md)
+14. [Shard Production Grade](./shard-production-grade.md)
+15. [Subject Taxonomy Stabilization](./subject-taxonomy-stabilization.md)
+16. [W0 Build Acceleration](./w0-build-acceleration.md)
+17. [W1 Consumer Hotspot Dedup](./w1-consumer-hotspot-dedup.md)
 
 ## How To Create Or Update Plans
 - Run "ai-context plan <name>" to scaffold a new plan template.
