@@ -3,6 +3,7 @@ package app_test
 import (
 	"context"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -125,5 +126,104 @@ func TestBuildStats_BoundedMap_EvictsOldest(t *testing.T) {
 	}
 	if got := uc.ActiveWindows(); got != 1 {
 		t.Fatalf("active windows=%d want=1", got)
+	}
+}
+
+func TestBuildStats_MixedInputs_CloseAllTimeframes_CrossSourceConsistency(t *testing.T) {
+	uc, _, _ := newStatsUC(1_000)
+
+	events := []app.BuildStatsRequest{
+		{
+			Venue:           "binance",
+			Instrument:      "BTCUSDT",
+			Kind:            app.StatsInputLiquidation,
+			Seq:             1,
+			TsIngest:        1,
+			LiquidationSide: "buy",
+			LiquidationQty:  2.5,
+		},
+		{
+			Venue:      "binance",
+			Instrument: "BTCUSDT",
+			Kind:       app.StatsInputMarkPrice,
+			Seq:        2,
+			TsIngest:   10_000,
+			MarkPrice:  100.0,
+		},
+		{
+			Venue:       "binance",
+			Instrument:  "BTCUSDT",
+			Kind:        app.StatsInputFundingRate,
+			Seq:         3,
+			TsIngest:    20_000,
+			FundingRate: 0.0002,
+		},
+		{
+			// Rolls all open windows (1m/5m/15m/30m/1h).
+			Venue:      "binance",
+			Instrument: "BTCUSDT",
+			Kind:       app.StatsInputMarkPrice,
+			Seq:        4,
+			TsIngest:   3_600_001,
+			MarkPrice:  101.0,
+		},
+	}
+
+	resp, p := executeStatsSequence(uc, events)
+	if p != nil {
+		t.Fatalf("Execute sequence: %v", p)
+	}
+	if got, want := len(resp.Closed), len(domain.AllowedStatsTimeframes); got != want {
+		t.Fatalf("closed windows=%d want=%d", got, want)
+	}
+
+	gotTFs := assertStatsCrossSourceClosed(t, resp.Closed)
+	slices.Sort(gotTFs)
+	wantTFs := append([]string(nil), domain.AllowedStatsTimeframes...)
+	slices.Sort(wantTFs)
+	if !reflect.DeepEqual(gotTFs, wantTFs) {
+		t.Fatalf("timeframes mismatch: got=%v want=%v", gotTFs, wantTFs)
+	}
+}
+
+func executeStatsSequence(uc *app.BuildStatsFromEvents, events []app.BuildStatsRequest) (app.BuildStatsResponse, *problem.Problem) {
+	for i := 0; i < len(events)-1; i++ {
+		if _, p := uc.Execute(context.Background(), events[i]); p != nil {
+			return app.BuildStatsResponse{}, p
+		}
+	}
+	return uc.Execute(context.Background(), events[len(events)-1])
+}
+
+func assertStatsCrossSourceClosed(t *testing.T, closed []domain.StatsWindowClosed) []string {
+	t.Helper()
+	gotTFs := make([]string, 0, len(closed))
+	for _, evt := range closed {
+		s := evt.Stats
+		gotTFs = append(gotTFs, s.Timeframe)
+		assertStatsWindowValues(t, s)
+	}
+	return gotTFs
+}
+
+func assertStatsWindowValues(t *testing.T, s domain.StatsWindowV1) {
+	t.Helper()
+	if s.LiqCount != 1 {
+		t.Fatalf("timeframe=%s liq_count=%d want=1", s.Timeframe, s.LiqCount)
+	}
+	if s.LiqBuyVolume != 2.5 || s.LiqSellVolume != 0 {
+		t.Fatalf("timeframe=%s unexpected liq sides: buy=%f sell=%f", s.Timeframe, s.LiqBuyVolume, s.LiqSellVolume)
+	}
+	if s.LiqTotalVolume != s.LiqBuyVolume+s.LiqSellVolume {
+		t.Fatalf("timeframe=%s liq_total mismatch: total=%f buy+sell=%f", s.Timeframe, s.LiqTotalVolume, s.LiqBuyVolume+s.LiqSellVolume)
+	}
+	if s.MarkPriceOpen != 100.0 || s.MarkPriceClose != 100.0 {
+		t.Fatalf("timeframe=%s unexpected markprice open/close: open=%f close=%f", s.Timeframe, s.MarkPriceOpen, s.MarkPriceClose)
+	}
+	if s.FundingRateAvg != 0.0002 || s.FundingRateLast != 0.0002 {
+		t.Fatalf("timeframe=%s unexpected funding: avg=%f last=%f", s.Timeframe, s.FundingRateAvg, s.FundingRateLast)
+	}
+	if !s.IsClosed {
+		t.Fatalf("timeframe=%s expected closed window", s.Timeframe)
 	}
 }

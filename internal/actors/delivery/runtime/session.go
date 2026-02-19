@@ -60,6 +60,9 @@ type SessionConfig struct {
 	PreferProto bool
 	// RateLimit enables per-session token bucket rate limiting for read commands.
 	RateLimit RateLimitConfig
+	// SlowClientDropThreshold disconnects a session after N dropped outbound
+	// events due to backpressure. 0 disables threshold-based disconnects.
+	SlowClientDropThreshold int
 	// Clock is optional; defaults to SystemClock.
 	Clock sharedclock.Clock
 }
@@ -87,6 +90,7 @@ type SessionActor struct {
 	policy       domain.BackpressurePolicy
 	priorities   map[string]int
 	rateLimiter  *RateLimiter
+	dropCount    int
 }
 
 func NewSessionActor(cfg SessionConfig) actor.Producer {
@@ -509,14 +513,23 @@ func (s *SessionActor) enqueueDelivery(evt DeliveryEvent) {
 	if len(s.outbound) >= s.outboundCap {
 		switch s.policy {
 		case domain.BackpressureDropNewest:
-			metrics.IncWSDrops("queue_full")
+			if s.onDrop("queue_full") {
+				return
+			}
 			return
 		case domain.BackpressureDropOldest:
 			s.outbound = s.outbound[1:]
-			metrics.IncWSDrops("drop_oldest")
+			if s.onDrop("drop_oldest") {
+				return
+			}
 		case domain.BackpressurePriorityDrop:
 			if !s.priorityDrop(evt) {
-				metrics.IncWSDrops("priority_drop_self")
+				if s.onDrop("priority_drop_self") {
+					return
+				}
+				return
+			}
+			if s.onDrop("priority_drop") {
 				return
 			}
 			metrics.SetWSQueueDepth(len(s.outbound))
@@ -527,7 +540,9 @@ func (s *SessionActor) enqueueDelivery(evt DeliveryEvent) {
 			s.engine.Send(s.self, sessionFlushOutbound{})
 			return
 		default:
-			metrics.IncWSDrops("queue_full")
+			if s.onDrop("queue_full") {
+				return
+			}
 			return
 		}
 	}
@@ -560,7 +575,27 @@ func (s *SessionActor) priorityDrop(evt DeliveryEvent) bool {
 	}
 	s.outbound = append(s.outbound[:lowestIdx], s.outbound[lowestIdx+1:]...)
 	s.outbound = append(s.outbound, evt)
-	metrics.IncWSDrops("priority_drop")
+	return true
+}
+
+func (s *SessionActor) onDrop(reason string) bool {
+	metrics.IncWSDrops(reason)
+	s.dropCount++
+	threshold := s.cfg.SlowClientDropThreshold
+	if threshold <= 0 || s.dropCount < threshold {
+		return false
+	}
+
+	metrics.IncWSDrops("slow_client_disconnect")
+	s.logger.Warn(
+		"delivery session: slow client disconnected after drop threshold breach",
+		"client_id", s.cfg.ClientID,
+		"session_id", s.session.ID(),
+		"drops", s.dropCount,
+		"threshold", threshold,
+		"reason", reason,
+	)
+	s.closeSession()
 	return true
 }
 

@@ -3,6 +3,7 @@ package deliveryruntime
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -27,7 +28,7 @@ type fakeRead struct {
 type fakeConn struct {
 	readCh  chan fakeRead
 	writeCh chan any
-	closed  bool
+	closed  atomic.Bool
 }
 
 func newFakeConn() *fakeConn {
@@ -58,7 +59,10 @@ func (f *fakeConn) WriteMessage(messageType int, data []byte) error {
 func (f *fakeConn) SetReadLimit(limit int64)            {}
 func (f *fakeConn) SetReadDeadline(t time.Time) error   { return nil }
 func (f *fakeConn) SetPongHandler(h func(string) error) {}
-func (f *fakeConn) Close() error                        { f.closed = true; return nil }
+func (f *fakeConn) Close() error {
+	f.closed.Store(true)
+	return nil
+}
 
 func mustParseSubjectForSession(t *testing.T, raw string) domain.Subject {
 	t.Helper()
@@ -479,7 +483,7 @@ func TestSession_disconnectTriggersUnregister(t *testing.T) {
 	_ = waitForMessage[UnsubscribeSession](t, routerCh, time.Second)
 	_ = waitForMessage[UnregisterSession](t, routerCh, time.Second)
 	<-e.Poison(sessionPID).Done()
-	if !conn.closed {
+	if !conn.closed.Load() {
 		t.Fatal("connection should be closed")
 	}
 }

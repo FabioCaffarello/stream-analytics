@@ -38,6 +38,7 @@ SOAK_STORE_OUT_FILE ?= .context/evidence/s3-store-soak.txt
 SOAK_STORE_PATTERN ?= TestStoreSoak_
 SOAK_ROUNDTRIP_OUT_FILE ?= .context/evidence/c4-cold-roundtrip.txt
 SOAK_PIPELINE_OUT_FILE ?= .context/evidence/c4-pipeline-soak.txt
+RUNTIME_GATE_REPORT_DIR ?= .context/evidence/runtime-gate
 VULN_REQUIRED ?= false
 MODULE ?=
 MSG_FILE ?=
@@ -55,7 +56,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules workspace-check tidy tidy-check go-tidy-check tidy-check-changed fmt fmt-check vet shell-script-check quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check legacy-check-staged legacy-check lint lint-changed smoke test test-root test-workspace test-workspace-race test-unit test-integration test-integration-changed test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store soak-roundtrip soak-pipeline soak-ws-delivery soak-full test-short test-short-changed bench-hotpath vuln build run clean docker-build up down up-infra up-core dev-scale-smoke ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci
+.PHONY: help install-tools tools modules workspace-check tidy tidy-check go-tidy-check tidy-check-changed fmt fmt-check vet shell-script-check quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check legacy-check-staged legacy-check lint lint-changed smoke runtime-gate runtime-gate-full test test-root test-workspace test-workspace-race test-unit test-integration test-integration-changed test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store soak-roundtrip soak-pipeline soak-ws-delivery soak-full test-short test-short-changed bench-hotpath vuln build run clean docker-build up down up-infra up-core dev-scale-smoke ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci
 
 help:
 	@echo "Targets:"
@@ -117,6 +118,8 @@ help:
 	@echo "  make up-infra           - start only infrastructure services (nats + timescale + clickhouse + prometheus + grafana)"
 	@echo "  make up-core            - start infra + core app services (no observability)"
 	@echo "  make smoke              - wait up to 60s for /readyz on core services via docker compose"
+	@echo "  make runtime-gate       - run up-core + smoke + soak-check with versioned evidence report"
+	@echo "  make runtime-gate-full  - run runtime-gate plus heavy C4 pipeline and ws-delivery soaks"
 	@echo "  make dev-scale-smoke    - start core with N processor replicas and print shard-resolution evidence"
 	@echo "                           vars: N or PROCESSOR_REPLICAS (default 3 for this target)"
 	@echo "  make ps                 - list compose service status"
@@ -545,6 +548,14 @@ up-core:
 smoke: shell-script-check
 	@chmod +x ./scripts/smoke-compose.sh
 	@./scripts/smoke-compose.sh
+
+runtime-gate: shell-script-check
+	@chmod +x ./scripts/runtime-reliability-gate.sh
+	@./scripts/runtime-reliability-gate.sh --report-dir "$(RUNTIME_GATE_REPORT_DIR)"
+
+runtime-gate-full: shell-script-check
+	@chmod +x ./scripts/runtime-reliability-gate.sh
+	@./scripts/runtime-reliability-gate.sh --report-dir "$(RUNTIME_GATE_REPORT_DIR)" --full
 
 dev-scale-smoke:
 	@set -euo pipefail; \

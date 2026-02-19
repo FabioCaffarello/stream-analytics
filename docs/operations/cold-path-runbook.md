@@ -19,6 +19,43 @@ JetStream consumer (store-v1)
 Key invariant: **ack-on-commit** — the JetStream message is only ACKed
 after the underlying writer has committed successfully.
 
+## Operational Tooling (C3)
+
+The repository now includes `cmd/backfill` for historical bootstrap and
+gap diagnostics.
+
+### Backfill fixture generation
+
+```bash
+go run ./cmd/backfill \
+  --mode download \
+  --exchange binance \
+  --symbol BTCUSDT \
+  --from 2025-01-01 \
+  --to 2025-01-03 \
+  --market-type USD_M_FUTURES \
+  --output-dir ./backfill \
+  --fixture ./fixtures/binance-btcusdt-2025-01-01-2025-01-03.jsonl
+```
+
+Expected result: exit code `0` and a JSONL fixture path printed in stdout.
+
+### Candle gap detection
+
+```bash
+go run ./cmd/backfill \
+  --mode gaps \
+  --exchange binance \
+  --symbol BTCUSDT \
+  --timeframe 1m \
+  --from 2025-01-01 \
+  --to 2025-01-07
+```
+
+Expected result:
+- exit code `0`: no gaps found in queried range
+- exit code `1`: one or more gaps found (gap windows are printed)
+
 ## Configuration
 
 Batch settings in `store.jsonc`:

@@ -14,15 +14,16 @@ import (
 
 // Server upgrades HTTP connections to WebSocket and delegates lifecycle to SessionActor.
 type Server struct {
-	engine            *actor.Engine
-	routerPID         *actor.PID
-	logger            *slog.Logger
-	upgrader          websocket.Upgrader
-	rangeStore        ports.RangeStore
-	outboundQueueSize int
-	auth              AuthConfig
-	rateLimit         deliveryruntime.RateLimitConfig
-	spawnSession      func(cfg deliveryruntime.SessionConfig) *actor.PID
+	engine                  *actor.Engine
+	routerPID               *actor.PID
+	logger                  *slog.Logger
+	upgrader                websocket.Upgrader
+	rangeStore              ports.RangeStore
+	outboundQueueSize       int
+	slowClientDropThreshold int
+	auth                    AuthConfig
+	rateLimit               deliveryruntime.RateLimitConfig
+	spawnSession            func(cfg deliveryruntime.SessionConfig) *actor.PID
 }
 
 type Option func(*Server)
@@ -36,6 +37,12 @@ func WithAuthConfig(cfg AuthConfig) Option {
 func WithRateLimit(cfg deliveryruntime.RateLimitConfig) Option {
 	return func(s *Server) {
 		s.rateLimit = cfg
+	}
+}
+
+func WithSlowClientDropThreshold(threshold int) Option {
+	return func(s *Server) {
+		s.slowClientDropThreshold = threshold
 	}
 }
 
@@ -101,14 +108,15 @@ func (s *Server) HandleUpgrade(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.spawnSession(deliveryruntime.SessionConfig{
-		Logger:            s.logger,
-		RouterPID:         s.routerPID,
-		Conn:              conn,
-		ClientID:          clientID,
-		RangeStore:        s.rangeStore,
-		OutboundQueueSize: s.outboundQueueSize,
-		PreferProto:       sessionWantsProto(r),
-		RateLimit:         s.rateLimit,
+		Logger:                  s.logger,
+		RouterPID:               s.routerPID,
+		Conn:                    conn,
+		ClientID:                clientID,
+		RangeStore:              s.rangeStore,
+		OutboundQueueSize:       s.outboundQueueSize,
+		SlowClientDropThreshold: s.slowClientDropThreshold,
+		PreferProto:             sessionWantsProto(r),
+		RateLimit:               s.rateLimit,
 	})
 }
 

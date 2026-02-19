@@ -1,0 +1,37 @@
+{
+  "decisions": [
+    {
+      "title": "Priorização por risco operacional",
+      "description": "A sequência M1→M4 foi priorizada para reduzir risco sistêmico cedo: primeiro proteção de sessão WS, depois leitura cold-path e tooling C3, e por fim gate contínuo de confiabilidade.",
+      "phase": "P",
+      "alternatives": [
+        "Priorizar funcionalidades novas não críticas (rejeitado por não atacar gaps de maturidade)."
+      ],
+      "status": "accepted",
+      "id": "dec-1771529694841",
+      "decidedAt": "2026-02-19T19:34:54.841Z"
+    },
+    {
+      "title": "Congelamento explícito de non-goals Odin v0",
+      "description": "Candle aggregation, stats aggregation e heatmap delivery permanecem fora de escopo deste plano para evitar diluição de esforço e regressão nos critérios de estabilidade já definidos no PRD-0002.",
+      "phase": "P",
+      "alternatives": [
+        "Incluir non-goals no mesmo ciclo (rejeitado por aumentar risco e tempo sem ganho para Odin v0)."
+      ],
+      "status": "accepted",
+      "id": "dec-1771529694845",
+      "decidedAt": "2026-02-19T19:34:54.845Z"
+    },
+    {
+      "title": "Promoção de non-goals para pré-requisitos de lançamento",
+      "description": "Os itens candle aggregation, stats aggregation, heatmap delivery, getrange durável e funding standalone deixam de ser non-goals de Odin v0 para se tornarem critérios mandatórios antes do início do client Odin.",
+      "phase": "P",
+      "alternatives": [
+        "Manter como pós-lançamento (rejeitado por objetivo explícito de robustez máxima pré-início do client)."
+      ],
+      "status": "accepted",
+      "id": "dec-1771530130246",
+      "decidedAt": "2026-02-19T19:42:10.246Z"
+    }
+  ]
+}

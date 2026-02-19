@@ -28,6 +28,12 @@ type runConfig struct {
 	Timeframe  string
 }
 
+var (
+	runDownloadAggTrades = binance.DownloadAggTrades
+	runNewClickHousePool = clickhouse.NewPool
+	runDetectCandleGaps  = app.DetectCandleGaps
+)
+
 //nolint:gocyclo // CLI mode branching is explicit to keep operational flow easy to audit.
 func Run(ctx context.Context, appCfg config.AppConfig, cfg runConfig) (int, error) {
 	mode := strings.ToLower(strings.TrimSpace(cfg.Mode))
@@ -53,7 +59,7 @@ func Run(ctx context.Context, appCfg config.AppConfig, cfg runConfig) (int, erro
 			return 1, err
 		}
 
-		result, p := binance.DownloadAggTrades(ctx, binance.BackfillConfig{
+		result, p := runDownloadAggTrades(ctx, binance.BackfillConfig{
 			Symbol:     cfg.Symbol,
 			From:       from,
 			To:         to,
@@ -98,7 +104,7 @@ func Run(ctx context.Context, appCfg config.AppConfig, cfg runConfig) (int, erro
 			return 1, fmt.Errorf("storage.clickhouse.enabled must be true for gaps mode")
 		}
 
-		pool, p := clickhouse.NewPool(ctx, clickhouse.PoolConfig{
+		pool, p := runNewClickHousePool(ctx, clickhouse.PoolConfig{
 			Addrs:           appCfg.Storage.ClickHouse.Addrs,
 			Database:        appCfg.Storage.ClickHouse.Database,
 			Username:        appCfg.Storage.ClickHouse.Username,
@@ -130,7 +136,7 @@ func Run(ctx context.Context, appCfg config.AppConfig, cfg runConfig) (int, erro
 			venue = naming.CanonicalVenue(binance.VenueBinance)
 		}
 
-		reports, p := app.DetectCandleGaps(ctx, clickhouse.NewChCandleReader(pool), app.GapDetectorConfig{
+		reports, p := runDetectCandleGaps(ctx, clickhouse.NewChCandleReader(pool), app.GapDetectorConfig{
 			Venue:          venue,
 			Instrument:     naming.CanonicalInstrument(cfg.Symbol),
 			Timeframe:      strings.TrimSpace(cfg.Timeframe),

@@ -1,47 +1,40 @@
 project:
-  name: "prd0002-advance-dedicated-branch"
-  scale: MEDIUM
-  started: "2026-02-19T19:22:14.517Z"
-  current_phase: V
+  name: "odin-v0-capability-maturity"
+  scale: LARGE
+  started: "2026-02-19T19:44:41.781Z"
+  current_phase: E
 
 phases:
   P:
     status: filled
-    started_at: "2026-02-19T19:22:14.517Z"
-    completed_at: "2026-02-19T19:25:29.679Z"
+    started_at: "2026-02-19T19:44:41.781Z"
+    completed_at: "2026-02-19T19:44:51.791Z"
   R:
     status: filled
-    started_at: "2026-02-19T19:25:29.680Z"
-    completed_at: "2026-02-19T19:25:42.905Z"
+    started_at: "2026-02-19T19:44:51.792Z"
+    completed_at: "2026-02-19T19:44:51.796Z"
   E:
-    status: filled
-    started_at: "2026-02-19T19:25:42.906Z"
-    completed_at: "2026-02-19T19:27:29.575Z"
+    status: in_progress
+    started_at: "2026-02-19T19:44:51.797Z"
   V:
-    status: completed
-    started_at: "2026-02-19T19:27:29.580Z"
-    completed_at: "2026-02-19T19:28:21.959Z"
-    outputs:
-      - path: "docs/prd/PRD-0002-backend-stable-and-odin-ready.md"
-        status: filled
-      - path: ".context/workflow/docs/prd0002-advance-pr.md"
-        status: filled
+    status: pending
   C:
-    status: skipped
-    reason: "Not required for scale MEDIUM"
+    status: pending
 
 execution:
   history:
-    - timestamp: "2026-02-19T19:28:21.959Z"
-      phase: V
-      action: completed
-  last_activity: "2026-02-19T19:28:21.959Z"
-  resume_context: "Fase V (Validação) concluída"
+    - timestamp: "2026-02-19T20:57:45.289Z"
+      phase: E
+      action: decision_recorded
+      plan: "odin-v0-capability-maturity"
+      description: "Decision recorded: M8 concluído: heatmap snapshot delivery production"
+  last_activity: "2026-02-19T20:57:45.289Z"
+  resume_context: "Decisão registrada"
 
 settings:
   autonomous_mode: true
   require_plan: true
-  require_approval: false
+  require_approval: true
 
 approval:
   plan_created: true

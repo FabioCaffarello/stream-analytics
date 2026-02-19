@@ -1,13 +1,13 @@
 # Candle Aggregation Architecture (Multi-Timeframe OHLCV)
 
-**Status:** Draft
+**Status:** Active
 **Owner:** Product Architect
-**Last updated:** 2026-02-18
+**Last updated:** 2026-02-19
 **Relates to:** `docs/adrs/ADR-0002-event-envelope-and-versioning.md`, `docs/adrs/ADR-0006-storage-hot-vs-cold.md`, `docs/adrs/ADR-0013-backpressure-overload-policies.md`, `docs/adrs/ADR-0014-stream-partitioning-strategy.md`, `docs/adrs/ADR-0015-deterministic-replay-time-invariants.md`
 
 ## Purpose
 
-Define multi-timeframe OHLCV candle aggregation from trade events with deterministic bucketing, bounded state, and hot/cold persistence plan. This is a core product parity gap vs marketmonkey (`actor/trade/` candle sampler).
+Define multi-timeframe OHLCV candle aggregation from trade events with deterministic bucketing, bounded state, and hot/cold persistence. This capability is active in runtime and part of pre-launch maturity gates for Odin.
 
 ## Terminology (canonical)
 
@@ -26,8 +26,8 @@ Define multi-timeframe OHLCV candle aggregation from trade events with determini
 
 ### Outputs
 
-- Planned derived event: `aggregation.candle.v1.{venue}.{instrument}` (subject root TBD — `aggregation` root accepted in runtime)
-- Planned WS stream: `aggregation.candle/{venue}/{symbol}/{timeframe}`
+- Derived event: `aggregation.candle.v1.{venue}.{instrument}`
+- WS stream: `aggregation.candle/{venue}/{symbol}/{timeframe}`
 
 ### Storage
 
@@ -43,7 +43,7 @@ Keys/idempotency:
 
 ## Contracts
 
-Planned candle payload v1:
+Candle payload v1:
 - `venue`, `instrument`, `timeframe`
 - `window_start_ts`, `window_end_ts`
 - `open`, `high`, `low`, `close`, `volume`
@@ -82,10 +82,10 @@ Multi-timeframe hierarchy:
 |---|---|---|---|
 | Input event taxonomy and subject validation | Existing | `internal/adapters/jetstream/subject_validation.go` | `internal/adapters/jetstream/subject_validation_test.go` |
 | Deterministic replay foundation (`ts_ingest`, `seq`) | Existing | `internal/shared/replay/player.go`, `internal/shared/replay/sequencer.go` | `internal/shared/replay/golden_test.go:TestGoldenReplay` |
-| Candle domain model (OHLCV aggregate) | TODO | `internal/core/aggregation/domain/candle.go` (TODO) | `internal/core/aggregation/domain/candle_test.go` (TODO) |
-| Candle builder use case (multi-timeframe) | TODO | `internal/core/aggregation/app/build_candle.go` (TODO) | `internal/core/aggregation/app/build_candle_test.go` (TODO) |
-| Candle hot/cold writers | TODO | `internal/adapters/storage/timescale/candle_writer.go` (TODO) | `internal/adapters/storage/candle_writer_test.go` (TODO) |
-| Candle WS delivery | TODO | `internal/interfaces/ws/candle_delivery.go` (TODO) | `internal/interfaces/ws/candle_delivery_test.go` (TODO) |
+| Candle domain model (OHLCV aggregate) | Implemented | `internal/core/aggregation/domain/candle.go` | `internal/core/aggregation/domain/candle_test.go` |
+| Candle builder use case (multi-timeframe) | Implemented | `internal/core/aggregation/app/build_candle.go` | `internal/core/aggregation/app/build_candle_test.go`, `internal/core/aggregation/app/build_candle_golden_test.go`, `internal/core/aggregation/app/build_candle_soak_test.go` |
+| Candle hot/cold writers | Implemented | `internal/adapters/storage/timescale/candle_writer.go`, `internal/adapters/storage/clickhouse/candle_writer.go` | `internal/adapters/storage/timescale/candle_writer_test.go`, `internal/adapters/storage/clickhouse/roundtrip_test.go` |
+| Candle WS delivery | Implemented | `internal/actors/delivery/runtime/router.go`, `internal/interfaces/ws/server.go` | `internal/interfaces/ws/candle_stats_delivery_contract_test.go` |
 
 ## Storage Strategy
 
@@ -115,24 +115,26 @@ Minimum:
 
 ## Acceptance Tests
 
-Tests to create for candle feature:
-- `internal/core/aggregation/domain/candle_test.go:TestCandleOHLCVInvariantsHoldForAllInputs` (TODO)
-- `internal/core/aggregation/app/build_candle_test.go:TestCandleDeterministicFromSameTradeSequence` (TODO)
-- `internal/core/aggregation/app/build_candle_test.go:TestCandleClosedImmutability` (TODO)
-- `internal/core/aggregation/app/build_candle_test.go:TestCandleMultiTimeframeCascade` (TODO)
-- `internal/core/aggregation/app/build_candle_test.go:TestCandleReplayGoldenOHLCV` (TODO)
+Primary acceptance tests:
+- `internal/core/aggregation/domain/candle_test.go:TestCandleV1_NewValidation`
+- `internal/core/aggregation/domain/candle_test.go:TestCandleV1_Deterministic`
+- `internal/core/aggregation/app/build_candle_test.go:TestBuildCandle_MultiTimeframe_1mCascades`
+- `internal/core/aggregation/app/build_candle_test.go:TestBuildCandle_Deterministic_SameInputSameOutput`
+- `internal/core/aggregation/app/build_candle_golden_test.go:TestBuildCandle_GoldenDeterminism`
+- `internal/core/aggregation/app/build_candle_soak_test.go:TestBuildCandle_Soak_HighCardinality`
+- `internal/actors/aggregation/runtime/processor_e2e_test.go:TestProcessorE2E_TradeToCandle_WindowClose`
+- `internal/interfaces/ws/candle_stats_delivery_contract_test.go:TestWSDelivery_CandleClosed_RoutedToSubscriber`
 
 ## Evidence Hooks
 
 Current related evidence:
-- `internal/core/aggregation/app/update_orderbook.go` (closest aggregation use case)
-- `internal/shared/replay/player.go`
-- `internal/adapters/jetstream/consumer.go`
-
-TODO hooks (skeleton):
-- `internal/core/aggregation/domain/candle.go` (TODO)
-- `internal/core/aggregation/app/build_candle.go` (TODO)
-- `internal/adapters/storage/timescale/candle_writer.go` (TODO)
+- `internal/core/aggregation/domain/candle.go`
+- `internal/core/aggregation/app/build_candle.go`
+- `internal/adapters/storage/timescale/candle_writer.go`
+- `internal/adapters/storage/clickhouse/candle_writer.go`
+- `internal/actors/aggregation/runtime/processor.go`
+- `internal/interfaces/ws/candle_stats_delivery_contract_test.go`
+- `internal/core/aggregation/app/bench_e2e_pipeline_test.go`
 
 ## Failure Modes
 

@@ -23,6 +23,7 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 		{name: "http.guardian_shutdown_timeout", got: cfg.HTTP.GuardianShutdownTimeoutDuration(), want: 10 * time.Second},
 		{name: "ws.rate_limit.max_per_second", got: cfg.WS.RateLimit.MaxPerSecond, want: 100},
 		{name: "ws.rate_limit.burst_capacity", got: cfg.WS.RateLimit.BurstCapacity, want: 200},
+		{name: "delivery.slow_client_drop_threshold", got: cfg.Delivery.SlowClientDropThreshold, want: 1000},
 		{name: "shard.index", got: cfg.Shard.Index, want: 0},
 		{name: "shard.count", got: cfg.Shard.Count, want: 1},
 		{name: "bus.type", got: cfg.Bus.Type, want: "inmemory"},
@@ -412,6 +413,19 @@ func TestValidate_WSRateLimitEnabledRequiresPositive(t *testing.T) {
 	cfg.WS.RateLimit.BurstCapacity = 200
 	if prob := cfg.Validate(); prob != nil {
 		t.Fatalf("expected ws rate limit config to pass validation, got: %v", prob)
+	}
+}
+
+func TestValidate_DeliverySlowClientDropThresholdNonNegative(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Delivery.SlowClientDropThreshold = -1
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for delivery.slow_client_drop_threshold < 0")
+	}
+
+	cfg.Delivery.SlowClientDropThreshold = 100
+	if prob := cfg.Validate(); prob != nil {
+		t.Fatalf("expected delivery slow-client threshold config to pass validation, got: %v", prob)
 	}
 }
 

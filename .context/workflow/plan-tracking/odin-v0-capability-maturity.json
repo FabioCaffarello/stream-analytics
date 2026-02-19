@@ -1,0 +1,127 @@
+{
+  "phases": {
+    "phase-1": {
+      "status": "completed",
+      "updatedAt": "2026-02-19T19:57:04.112Z"
+    },
+    "phase-2": {
+      "status": "in_progress",
+      "updatedAt": "2026-02-19T19:57:04.116Z"
+    }
+  },
+  "progress": 33,
+  "decisions": [
+    {
+      "title": "M0 baseline lock concluído",
+      "description": "Baseline de capabilities congelado com evidência em .context/evidence/odin-m0-baseline-lock-2026-02-19.md; launch policy mantém client Odin bloqueado até M10.",
+      "phase": "E",
+      "alternatives": [
+        "Prosseguir sem baseline escrito (rejeitado por perda de rastreabilidade)."
+      ],
+      "status": "accepted",
+      "id": "dec-1771531024117",
+      "decidedAt": "2026-02-19T19:57:04.117Z"
+    },
+    {
+      "title": "M1 slow-client threshold implementado e validado",
+      "description": "Threshold de desconexão para cliente lento implementado no runtime de sessão, parametrizado por delivery.slow_client_drop_threshold e validado por testes/race/lint/docs-check/invariants-check/make ci.",
+      "phase": "E",
+      "alternatives": [
+        "Manter somente drop policy sem disconnect (rejeitado por risco de acumular drops silenciosamente)."
+      ],
+      "status": "accepted",
+      "id": "dec-1771531024119",
+      "decidedAt": "2026-02-19T19:57:04.119Z"
+    },
+    {
+      "title": "M2 cold-path read ports concluído",
+      "description": "Cold read ports foram consolidados com contrato de snapshot reader no adapter ClickHouse (query/select/dedup/error semantics) e validação por testes focados + invariants-check + docs-check.",
+      "phase": "E",
+      "alternatives": [
+        "Adiar testes de contrato para C3 (rejeitado por manter risco de regressão no boundary de leitura)."
+      ],
+      "status": "accepted",
+      "id": "dec-1771531505267",
+      "decidedAt": "2026-02-19T20:05:05.267Z"
+    },
+    {
+      "title": "M3 iniciado após fechamento de read ports",
+      "description": "Com M2 fechado, a próxima wave é C3 tooling: implementação de cmd/backfill e gap detector CLI apoiados pelos read ports já validados.",
+      "phase": "E",
+      "alternatives": [
+        "Iniciar candle/stats/heatmap antes do C3 (rejeitado por dependência operacional direta de tooling)."
+      ],
+      "status": "accepted",
+      "id": "dec-1771531505332",
+      "decidedAt": "2026-02-19T20:05:05.332Z"
+    },
+    {
+      "title": "M3 C3 tooling concluído com FR-5.3/FR-5.4 verdes",
+      "description": "cmd/backfill consolidado com modos download/gaps, testes nomeados TestBackfill_ProducesValidFixture e TestGapDetector_ReturnsGaps verdes, PRD atualizado e evidência registrada em .context/evidence/odin-m3-c3-tooling-2026-02-19.md.",
+      "phase": "E",
+      "alternatives": [
+        "Postergar fechamento de M3 para depois de M4 (rejeitado por atrasar readiness operacional de cold-path)."
+      ],
+      "status": "accepted",
+      "id": "dec-1771531922794",
+      "decidedAt": "2026-02-19T20:12:02.794Z"
+    },
+    {
+      "title": "M4 runtime reliability gate consolidado e auditável",
+      "description": "Criado gate unificado `make runtime-gate` (up-core + smoke + soak-check) com relatório versionado em `.context/evidence/runtime-gate/<timestamp>/report.md` e ponteiro `.context/evidence/runtime-gate/latest.md`. Execução validada em 2026-02-19T20:20:10Z com status PASS.",
+      "phase": "E",
+      "alternatives": [
+        "Manter smoke e soaks desacoplados sem relatório versionado (rejeitado por baixa auditabilidade e repetibilidade operacional)."
+      ],
+      "status": "accepted",
+      "id": "dec-1771532520724",
+      "decidedAt": "2026-02-19T20:22:00.724Z"
+    },
+    {
+      "title": "M5 core maturity sign-off concluído com gates completos",
+      "description": "Milestone M5 fechado com `make ci`, `make test-workspace-race`, `make docs-check` e `make operability-gates` verdes; evidência registrada em .context/evidence/odin-m5-core-maturity-signoff-2026-02-19.md. Incluído hardening no legacy-scan para ignorar paths inexistentes e remover ruído de CI.",
+      "phase": "E",
+      "alternatives": [
+        "Aceitar sign-off apenas com execução anterior de `make ci` sem race/docs/operability explícitos (rejeitado por menor rigor de fechamento)."
+      ],
+      "status": "accepted",
+      "id": "dec-1771532773735",
+      "decidedAt": "2026-02-19T20:26:13.735Z"
+    },
+    {
+      "title": "M6 candle aggregation production concluído",
+      "description": "Fechado M6 com enforcement de toggles no runtime (`processor.candle.enabled`/`processor.stats.enabled`), testes de roteamento e contrato WS para candle verdes, benchmark `BenchmarkE2E_TradeToCandle` abaixo do budget de 20 us/op, e documentação/subject registry atualizados para refletir candle como capability estável.",
+      "phase": "E",
+      "alternatives": [
+        "Manter roteamento candle/stats sempre ativo e só documentar comportamento (rejeitado por drift entre config e runtime)."
+      ],
+      "status": "accepted",
+      "id": "dec-1771533449909",
+      "decidedAt": "2026-02-19T20:37:29.909Z"
+    },
+    {
+      "title": "M7 stats aggregation production concluído",
+      "description": "Fechado M7 com validação por timeframe (1m/5m/15m/30m/1h), consistência cross-source (liquidation+markprice+funding), benchmark E2E `BenchmarkE2E_MarkPriceToStats` abaixo do budget (<=25 us/op) e contratos/docs promovendo `aggregation.stats.v1` para estável.",
+      "phase": "E",
+      "alternatives": [
+        "Manter stats como draft e adiar fechamento para M8 (rejeitado por manter gap explícito de maturidade antes de heatmap)."
+      ],
+      "status": "accepted",
+      "id": "dec-1771533927381",
+      "decidedAt": "2026-02-19T20:45:27.381Z"
+    },
+    {
+      "title": "M8 concluído: heatmap snapshot delivery production",
+      "description": "Pipeline `insights.heatmap_snapshot.v1` fechado fim-a-fim com writer cold ClickHouse batchado, roteamento no cmd/store, contrato WS validado e sincronização de contratos/docs. Evidência: .context/evidence/odin-m8-heatmap-delivery-production-2026-02-19.md.",
+      "phase": "E",
+      "alternatives": [
+        "Manter heatmap como non-goal e adiar para pós-Odin",
+        "Entregar somente WS sem cold-path writer/migration",
+        "Entregar somente writer/storage sem contrato WS"
+      ],
+      "status": "accepted",
+      "id": "dec-1771534665287",
+      "decidedAt": "2026-02-19T20:57:45.287Z"
+    }
+  ]
+}

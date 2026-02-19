@@ -335,6 +335,9 @@ func validateDelivery(d DeliveryConfig) *problem.Problem {
 	if d.MaxSessions < 0 {
 		return problem.Newf(codeInvalid, "delivery.max_sessions must be >= 0, got %d", d.MaxSessions)
 	}
+	if d.SlowClientDropThreshold < 0 {
+		return problem.Newf(codeInvalid, "delivery.slow_client_drop_threshold must be >= 0, got %d", d.SlowClientDropThreshold)
+	}
 	switch strings.ToLower(strings.TrimSpace(d.BackpressurePolicy)) {
 	case "drop_newest", "drop_oldest", "priority_drop":
 	default:
@@ -931,6 +934,9 @@ func applyDefaults(c *AppConfig) {
 	}
 	if strings.TrimSpace(c.Delivery.BackpressurePolicy) == "" {
 		c.Delivery.BackpressurePolicy = "drop_newest"
+	}
+	if c.Delivery.SlowClientDropThreshold == 0 {
+		c.Delivery.SlowClientDropThreshold = 1000
 	}
 	if strings.TrimSpace(c.Delivery.NATS.ConsumerDurable) == "" {
 		c.Delivery.NATS.ConsumerDurable = "delivery-v1"

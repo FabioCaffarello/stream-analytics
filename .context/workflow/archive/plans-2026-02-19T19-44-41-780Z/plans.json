@@ -1,0 +1,20 @@
+{
+  "active": [
+    {
+      "slug": "prd0002-advance-dedicated-branch",
+      "path": "plans/prd0002-advance-dedicated-branch.md",
+      "title": "PRD-0002 Advance Plan (Dedicated Branch)",
+      "linkedAt": "2026-02-19T19:22:39.138Z",
+      "status": "active"
+    },
+    {
+      "slug": "odin-v0-capability-maturity",
+      "path": "plans/odin-v0-capability-maturity.md",
+      "title": "Odin v0 Capability Maturity",
+      "linkedAt": "2026-02-19T19:34:40.957Z",
+      "status": "active"
+    }
+  ],
+  "completed": [],
+  "primary": "prd0002-advance-dedicated-branch"
+}

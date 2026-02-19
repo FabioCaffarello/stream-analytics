@@ -229,6 +229,7 @@ func enableWSRoute(
 				MaxPerSecond:  cfg.WS.RateLimit.MaxPerSecond,
 				BurstCapacity: cfg.WS.RateLimit.BurstCapacity,
 			}),
+			wsserver.WithSlowClientDropThreshold(cfg.Delivery.SlowClientDropThreshold),
 		)
 		srv.HandleFunc("GET /ws", ws.HandleWS)
 		logger.Info("delivery websocket route enabled", "route", "GET /ws")

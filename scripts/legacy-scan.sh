@@ -44,8 +44,15 @@ fi
 
 scan_files=()
 while IFS= read -r file; do
-  scan_files+=("$file")
+  if [[ -e "$file" ]]; then
+    scan_files+=("$file")
+  fi
 done < "$tmp_files"
+
+if [[ "${#scan_files[@]}" -eq 0 ]]; then
+  echo "legacy-scan: no existing files selected; pass"
+  exit 0
+fi
 
 check_pattern() {
   local label="$1"

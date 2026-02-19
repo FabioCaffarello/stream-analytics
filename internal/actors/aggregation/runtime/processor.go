@@ -102,6 +102,12 @@ type ProcessorConfig struct {
 	// Service is the aggregation BC facade.
 	// Required when routing BookDelta envelopes.
 	Service *aggapp.AggregationService
+	// CandleEnabled explicitly toggles candle route handling.
+	// Nil keeps backward-compatible default (enabled when candle use case exists).
+	CandleEnabled *bool
+	// StatsEnabled explicitly toggles stats route handling.
+	// Nil keeps backward-compatible default (enabled when stats use case exists).
+	StatsEnabled *bool
 
 	// JoinTrades is the optional insights use case for cross-venue trade joins.
 	JoinTrades *insightsapp.JoinCrossVenueTrades
@@ -362,7 +368,7 @@ func (p *ProcessorSubsystemActor) handleEnvelope(_ *actor.Context, env envelope.
 		if env.Version != 1 {
 			return unsupportedVersionProblem(env.Type, env.Version)
 		}
-		if p.cfg.Service != nil && p.cfg.Service.Candle != nil {
+		if p.candleEnabled() && p.cfg.Service != nil && p.cfg.Service.Candle != nil {
 			if prob := p.handleTradeForCandle(env); prob != nil {
 				if isBenignStreamOrderProblem(prob) {
 					p.logger.Debug("aggruntime: BuildCandle ignored stale event",
@@ -768,6 +774,9 @@ func (p *ProcessorSubsystemActor) handleTradeForInsights(env envelope.Envelope, 
 }
 
 func (p *ProcessorSubsystemActor) handleTradeForCandle(env envelope.Envelope) *problem.Problem {
+	if !p.candleEnabled() {
+		return nil
+	}
 	if p.cfg.Service == nil || p.cfg.Service.Candle == nil {
 		return nil
 	}
@@ -808,6 +817,9 @@ func (p *ProcessorSubsystemActor) handleTradeForCandle(env envelope.Envelope) *p
 }
 
 func (p *ProcessorSubsystemActor) handleLiquidation(env envelope.Envelope) *problem.Problem {
+	if !p.statsEnabled() {
+		return nil
+	}
 	if p.cfg.Service == nil || p.cfg.Service.Stats == nil {
 		p.logger.Warn("aggruntime: no Stats use case configured — dropping liquidation")
 		return nil
@@ -859,6 +871,9 @@ func (p *ProcessorSubsystemActor) handleLiquidation(env envelope.Envelope) *prob
 }
 
 func (p *ProcessorSubsystemActor) handleMarkPrice(env envelope.Envelope) *problem.Problem {
+	if !p.statsEnabled() {
+		return nil
+	}
 	if p.cfg.Service == nil || p.cfg.Service.Stats == nil {
 		p.logger.Warn("aggruntime: no Stats use case configured — dropping markprice")
 		return nil
@@ -944,6 +959,20 @@ func (p *ProcessorSubsystemActor) handleBusClosed(c *actor.Context) {
 		Kind:      "bus_closed",
 		Err:       errors.New("envelope channel closed unexpectedly"),
 	})
+}
+
+func (p *ProcessorSubsystemActor) candleEnabled() bool {
+	if p.cfg.CandleEnabled == nil {
+		return true
+	}
+	return *p.cfg.CandleEnabled
+}
+
+func (p *ProcessorSubsystemActor) statsEnabled() bool {
+	if p.cfg.StatsEnabled == nil {
+		return true
+	}
+	return *p.cfg.StatsEnabled
 }
 
 // toLevels maps marketdata PriceLevel slices to aggregation domain Level slices.

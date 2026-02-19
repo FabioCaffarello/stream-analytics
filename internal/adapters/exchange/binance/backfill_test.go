@@ -157,6 +157,10 @@ func TestDownloadAggTrades_ProducesValidFixture(t *testing.T) {
 	}
 }
 
+func TestBackfill_ProducesValidFixture(t *testing.T) {
+	TestDownloadAggTrades_ProducesValidFixture(t)
+}
+
 func TestDownloadAggTrades_EmptyDateRange(t *testing.T) {
 	tmp := t.TempDir()
 	restore := withMockBackfillDownloader(t, func(_ context.Context, _ string, _ time.Time, _ string) ([]byte, *problem.Problem) {

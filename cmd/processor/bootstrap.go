@@ -403,6 +403,8 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		Logger:                logger,
 		EnvelopeCh:            source.envelopeCh,
 		Service:               aggSvc,
+		CandleEnabled:         boolPtr(cfg.Processor.Candle.Enabled),
+		StatsEnabled:          boolPtr(cfg.Processor.Stats.Enabled),
 		Insights:              insightsSvc,
 		JoinTrades:            joinTrades,
 		PublishEnvelope:       publishEnvelope,
@@ -950,6 +952,10 @@ func int32FromConfig(v int, field string) (int32, error) {
 		return 0, fmt.Errorf("%s out of int32 range: %d", field, v)
 	}
 	return int32(v), nil
+}
+
+func boolPtr(v bool) *bool {
+	return &v
 }
 
 // ---------------------------------------------------------------------------
