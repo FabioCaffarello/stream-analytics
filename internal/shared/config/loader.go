@@ -566,6 +566,15 @@ func validateProcessor(p ProcessorConfig) *problem.Problem {
 	if p.Stats.MaxWindows <= 0 {
 		return problem.Newf(codeInvalid, "processor.stats.max_windows must be > 0, got %d", p.Stats.MaxWindows)
 	}
+	if p.RTPublish.OrderbookIntervalMs < 0 {
+		return problem.Newf(codeInvalid, "processor.rt_publish.orderbook_interval_ms must be >= 0, got %d", p.RTPublish.OrderbookIntervalMs)
+	}
+	if p.RTPublish.HeatmapIntervalMs < 0 {
+		return problem.Newf(codeInvalid, "processor.rt_publish.heatmap_interval_ms must be >= 0, got %d", p.RTPublish.HeatmapIntervalMs)
+	}
+	if p.RTPublish.VolumeIntervalMs < 0 {
+		return problem.Newf(codeInvalid, "processor.rt_publish.volume_interval_ms must be >= 0, got %d", p.RTPublish.VolumeIntervalMs)
+	}
 
 	insights := p.Insights
 	if strings.TrimSpace(insights.JoinTradesSubject) == "" {
@@ -1076,6 +1085,15 @@ func applyDefaults(c *AppConfig) {
 	}
 	if c.Processor.Stats.MaxWindows == 0 {
 		c.Processor.Stats.MaxWindows = 50_000
+	}
+	if c.Processor.RTPublish.OrderbookIntervalMs == 0 && !c.Processor.RTPublish.orderbookConfigured() {
+		c.Processor.RTPublish.OrderbookIntervalMs = 200
+	}
+	if c.Processor.RTPublish.HeatmapIntervalMs == 0 && !c.Processor.RTPublish.heatmapConfigured() {
+		c.Processor.RTPublish.HeatmapIntervalMs = 200
+	}
+	if c.Processor.RTPublish.VolumeIntervalMs == 0 && !c.Processor.RTPublish.volumeConfigured() {
+		c.Processor.RTPublish.VolumeIntervalMs = 250
 	}
 	if c.Processor.Insights.JoinTradesSubject == "" {
 		c.Processor.Insights.JoinTradesSubject = "marketdata.trade.v1.>"

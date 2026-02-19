@@ -55,6 +55,9 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 		{name: "processor.candle.max_candles", got: cfg.Processor.Candle.MaxCandles, want: 50_000},
 		{name: "processor.stats.enabled", got: cfg.Processor.Stats.Enabled, want: false},
 		{name: "processor.stats.max_windows", got: cfg.Processor.Stats.MaxWindows, want: 50_000},
+		{name: "processor.rt_publish.orderbook_interval_ms", got: cfg.Processor.RTPublish.OrderbookIntervalMs, want: 200},
+		{name: "processor.rt_publish.heatmap_interval_ms", got: cfg.Processor.RTPublish.HeatmapIntervalMs, want: 200},
+		{name: "processor.rt_publish.volume_interval_ms", got: cfg.Processor.RTPublish.VolumeIntervalMs, want: 250},
 		{name: "processor.insights.enable_crossvenue_join", got: cfg.Processor.Insights.EnableCrossVenueJoin, want: false},
 		{name: "processor.insights.enable_volume_profile_snapshot_proto", got: cfg.Processor.Insights.EnableVolumeProfileSnapshotProto, want: false},
 		{name: "processor.insights.join_trades_subject", got: cfg.Processor.Insights.JoinTradesSubject, want: "marketdata.trade.v1.>"},
@@ -137,6 +140,11 @@ func TestLoad_ValidJSONC_ParsesFields(t *testing.T) {
 				"enabled": true,
 				"max_windows": 70000
 			},
+			"rt_publish": {
+				"orderbook_interval_ms": 150,
+				"heatmap_interval_ms": 0,
+				"volume_interval_ms": 300
+			},
 			"insights": {
 				"enable_crossvenue_join": true,
 				"enable_volume_profile_snapshot_proto": true,
@@ -191,6 +199,9 @@ func TestLoad_ValidJSONC_ParsesFields(t *testing.T) {
 		{name: "processor.candle.max_candles", got: cfg.Processor.Candle.MaxCandles, want: 60000},
 		{name: "processor.stats.enabled", got: cfg.Processor.Stats.Enabled, want: true},
 		{name: "processor.stats.max_windows", got: cfg.Processor.Stats.MaxWindows, want: 70000},
+		{name: "processor.rt_publish.orderbook_interval_ms", got: cfg.Processor.RTPublish.OrderbookIntervalMs, want: 150},
+		{name: "processor.rt_publish.heatmap_interval_ms", got: cfg.Processor.RTPublish.HeatmapIntervalMs, want: 0},
+		{name: "processor.rt_publish.volume_interval_ms", got: cfg.Processor.RTPublish.VolumeIntervalMs, want: 300},
 		{name: "processor.insights.enable_crossvenue_join", got: cfg.Processor.Insights.EnableCrossVenueJoin, want: true},
 		{name: "processor.insights.enable_volume_profile_snapshot_proto", got: cfg.Processor.Insights.EnableVolumeProfileSnapshotProto, want: true},
 		{name: "processor.insights.join_trades_subject", got: cfg.Processor.Insights.JoinTradesSubject, want: "marketdata.trade.v1.>"},
@@ -723,6 +734,42 @@ func TestValidate_ProcessorInsightsInvalidRoundingMode(t *testing.T) {
 	cfg.Processor.Insights.RoundingMode = "bankers_plus"
 	if prob := cfg.Validate(); prob == nil {
 		t.Fatal("expected validation error for invalid processor.insights.rounding_mode")
+	}
+}
+
+func TestValidate_ProcessorRTPublishIntervals_MustBeNonNegative(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*AppConfig)
+	}{
+		{
+			name: "orderbook_interval_ms",
+			mutate: func(cfg *AppConfig) {
+				cfg.Processor.RTPublish.OrderbookIntervalMs = -1
+			},
+		},
+		{
+			name: "heatmap_interval_ms",
+			mutate: func(cfg *AppConfig) {
+				cfg.Processor.RTPublish.HeatmapIntervalMs = -1
+			},
+		},
+		{
+			name: "volume_interval_ms",
+			mutate: func(cfg *AppConfig) {
+				cfg.Processor.RTPublish.VolumeIntervalMs = -1
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, _ := Load("")
+			tc.mutate(&cfg)
+			if prob := cfg.Validate(); prob == nil {
+				t.Fatalf("expected validation error for invalid processor.rt_publish.%s", tc.name)
+			}
+		})
 	}
 }
 

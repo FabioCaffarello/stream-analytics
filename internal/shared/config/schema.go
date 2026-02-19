@@ -7,6 +7,7 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -387,6 +388,8 @@ type ProcessorConfig struct {
 	Candle ProcessorCandleConfig `json:"candle"`
 	// Stats controls stats aggregation runtime options.
 	Stats ProcessorStatsConfig `json:"stats"`
+	// RTPublish controls timer-driven publishing intervals for real-time snapshots.
+	RTPublish ProcessorRTPublishConfig `json:"rt_publish"`
 }
 
 // ProcessorCandleConfig controls candle aggregation options in processor runtime.
@@ -403,6 +406,61 @@ type ProcessorStatsConfig struct {
 	Enabled bool `json:"enabled"`
 	// MaxWindows bounds active stats windows in memory.
 	MaxWindows int `json:"max_windows"`
+}
+
+// ProcessorRTPublishConfig controls timer-driven publish intervals in milliseconds.
+type ProcessorRTPublishConfig struct {
+	// OrderbookIntervalMs controls periodic orderbook snapshot publish cadence.
+	// Default: 200ms. 0 disables timer-driven orderbook publishing.
+	OrderbookIntervalMs int `json:"orderbook_interval_ms"`
+	// HeatmapIntervalMs controls periodic heatmap snapshot publish cadence.
+	// Default: 200ms. 0 disables timer-driven heatmap publishing.
+	HeatmapIntervalMs int `json:"heatmap_interval_ms"`
+	// VolumeIntervalMs controls periodic volume profile snapshot publish cadence.
+	// Default: 250ms. 0 disables timer-driven volume profile publishing.
+	VolumeIntervalMs int `json:"volume_interval_ms"`
+
+	orderbookIntervalSet bool `json:"-"`
+	heatmapIntervalSet   bool `json:"-"`
+	volumeIntervalSet    bool `json:"-"`
+}
+
+func (c *ProcessorRTPublishConfig) UnmarshalJSON(data []byte) error {
+	type Alias ProcessorRTPublishConfig
+	aux := struct {
+		*Alias
+	}{
+		Alias: (*Alias)(c),
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if _, ok := raw["orderbook_interval_ms"]; ok {
+		c.orderbookIntervalSet = true
+	}
+	if _, ok := raw["heatmap_interval_ms"]; ok {
+		c.heatmapIntervalSet = true
+	}
+	if _, ok := raw["volume_interval_ms"]; ok {
+		c.volumeIntervalSet = true
+	}
+	return nil
+}
+
+func (c ProcessorRTPublishConfig) orderbookConfigured() bool {
+	return c.orderbookIntervalSet
+}
+
+func (c ProcessorRTPublishConfig) heatmapConfigured() bool {
+	return c.heatmapIntervalSet
+}
+
+func (c ProcessorRTPublishConfig) volumeConfigured() bool {
+	return c.volumeIntervalSet
 }
 
 // ProcessorInsightsConfig controls optional cross-venue join derivation in processor runtime.
