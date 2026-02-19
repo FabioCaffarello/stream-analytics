@@ -17,6 +17,7 @@ import (
 	adapterjs "github.com/market-raccoon/internal/adapters/jetstream"
 	"github.com/market-raccoon/internal/adapters/storage/clickhouse"
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
+	insightsdomain "github.com/market-raccoon/internal/core/insights/domain"
 	httpserver "github.com/market-raccoon/internal/interfaces/http"
 	"github.com/market-raccoon/internal/shared/bootstrap"
 	"github.com/market-raccoon/internal/shared/codec"
@@ -38,6 +39,7 @@ type storeWriters struct {
 	batcher *clickhouse.BatchWriter
 	candle  *clickhouse.ChCandleWriter
 	stats   *clickhouse.ChStatsWriter
+	heatmap *clickhouse.ChHeatmapWriter
 }
 
 // Run is the store composition root.  It wires ClickHouse, JetStream consumer,
@@ -108,6 +110,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		batcher: batcher,
 		candle:  clickhouse.NewChCandleWriter(chPool),
 		stats:   clickhouse.NewChStatsWriter(chPool),
+		heatmap: clickhouse.NewChHeatmapWriter(chPool),
 	}
 	logger.Info("store: batcher configured",
 		"max_rows", cfg.Store.Batch.MaxRows,
@@ -266,6 +269,14 @@ func handleStoreEnvelope(ctx context.Context, env envelope.Envelope, writers *st
 			metrics.IncStoreConsumed("ok", "stats")
 		}
 		return p
+	case env.Type == insightsdomain.HeatmapSnapshotType && env.Version == insightsdomain.HeatmapSnapshotVersion:
+		p := handleInsightsHeatmapSnapshot(ctx, env, writers.heatmap, logger)
+		if p != nil {
+			metrics.IncStoreConsumed("failed", "heatmap")
+		} else {
+			metrics.IncStoreConsumed("ok", "heatmap")
+		}
+		return p
 	default:
 		metrics.IncStoreConsumed("ok", "skipped")
 		logger.Debug("store: skipping unhandled event", "type", eventKey,
@@ -413,6 +424,38 @@ func handleAggregationStats(ctx context.Context, env envelope.Envelope, writer *
 		"venue", wireDTO.Stats.Venue,
 		"instrument", wireDTO.Stats.Instrument,
 		"timeframe", wireDTO.Stats.Timeframe,
+	)
+	return nil
+}
+
+// handleInsightsHeatmapSnapshot decodes an insights heatmap snapshot envelope
+// and writes all artifact cells to ClickHouse cold storage.
+func handleInsightsHeatmapSnapshot(ctx context.Context, env envelope.Envelope, writer *clickhouse.ChHeatmapWriter, logger *slog.Logger) *problem.Problem {
+	decoded, p := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
+	if p != nil {
+		metrics.IncStoreQuarantine("decode")
+		return p
+	}
+	artifact, ok := decoded.(insightsdomain.HeatmapArtifactV1)
+	if !ok {
+		metrics.IncStoreQuarantine("decode")
+		return problem.Newf(problem.ValidationFailed, "store: heatmap payload type mismatch: got %T", decoded)
+	}
+
+	started := time.Now()
+	if p := writer.Save(ctx, artifact, env.IdempotencyKey); p != nil {
+		metrics.IncStoreCommit("failed")
+		metrics.ObserveStoreCommitLatency(time.Since(started))
+		return p
+	}
+	metrics.IncStoreCommit("ok")
+	metrics.ObserveStoreCommitLatency(time.Since(started))
+
+	logger.Debug("store: heatmap snapshot committed",
+		"venue", artifact.Venue,
+		"instrument", artifact.Instrument,
+		"timeframe", artifact.Timeframe,
+		"cells", len(artifact.Cells),
 	)
 	return nil
 }

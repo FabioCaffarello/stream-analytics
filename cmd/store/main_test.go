@@ -70,6 +70,7 @@ func testStoreWriters(w *clickhouse.Writer) *storeWriters {
 		batcher: testBatcher(w),
 		candle:  clickhouse.NewChCandleWriter(nil),
 		stats:   clickhouse.NewChStatsWriter(nil),
+		heatmap: clickhouse.NewChHeatmapWriter(nil),
 	}
 }
 

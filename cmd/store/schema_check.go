@@ -31,6 +31,15 @@ var schemaContracts = []struct {
 			"TTL toDateTime(ts) + INTERVAL 90 DAY",
 		},
 	},
+	{
+		file: "0006_m8_heatmap_cold.sql",
+		patterns: []string{
+			"CREATE TABLE IF NOT EXISTS aggregation_heatmap_cold",
+			"source_idempotency_key String",
+			"ORDER BY (venue, instrument, timeframe, window_start, price_bucket_low, price_bucket_high, size_bucket, source_idempotency_key)",
+			"TTL toDateTime(created_at) + INTERVAL 90 DAY",
+		},
+	},
 }
 
 // ValidateSchemaContract reads SQL migration files from migrationsDir and

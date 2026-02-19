@@ -65,6 +65,7 @@ func TestStoreSoak_CandleColdWrite_10k(t *testing.T) {
 		batcher: testBatcher(clickhouse.NewWriter()),
 		candle:  candleWriter,
 		stats:   clickhouse.NewChStatsWriter(nil),
+		heatmap: clickhouse.NewChHeatmapWriter(nil),
 	}
 
 	const total = 10_000
@@ -142,6 +143,7 @@ func TestStoreSoak_StatsColdWrite_10k(t *testing.T) {
 		batcher: testBatcher(clickhouse.NewWriter()),
 		candle:  clickhouse.NewChCandleWriter(nil),
 		stats:   statsWriter,
+		heatmap: clickhouse.NewChHeatmapWriter(nil),
 	}
 
 	const total = 10_000

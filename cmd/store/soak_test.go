@@ -569,6 +569,7 @@ func TestStoreSoak_StorageSlow(t *testing.T) {
 		batcher: clickhouse.NewBatchWriter(sw, defaultBatchCfg()),
 		candle:  clickhouse.NewChCandleWriter(nil),
 		stats:   clickhouse.NewChStatsWriter(nil),
+		heatmap: clickhouse.NewChHeatmapWriter(nil),
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
