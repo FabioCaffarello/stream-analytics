@@ -33,12 +33,13 @@ func ProtoToDomainBookDeltaV1(in *marketdatav1.BookDeltaV1) marketdomain.BookDel
 		return marketdomain.BookDeltaV1{}
 	}
 	return marketdomain.BookDeltaV1{
-		Bids:      protoToDomainPriceLevels(in.GetBids()),
-		Asks:      protoToDomainPriceLevels(in.GetAsks()),
-		FirstID:   in.GetFirstUpdateId(),
-		FinalID:   in.GetFinalUpdateId(),
-		PrevFinal: in.GetPrevFinalUpdateId(),
-		Timestamp: in.GetTimestampMs(),
+		Bids:       protoToDomainPriceLevels(in.GetBids()),
+		Asks:       protoToDomainPriceLevels(in.GetAsks()),
+		FirstID:    in.GetFirstUpdateId(),
+		FinalID:    in.GetFinalUpdateId(),
+		PrevFinal:  in.GetPrevFinalUpdateId(),
+		Timestamp:  in.GetTimestampMs(),
+		IsSnapshot: in.GetIsSnapshot(),
 	}
 }
 
@@ -50,6 +51,7 @@ func DomainToProtoBookDeltaV1(in marketdomain.BookDeltaV1) *marketdatav1.BookDel
 		FinalUpdateId:     in.FinalID,
 		PrevFinalUpdateId: in.PrevFinal,
 		TimestampMs:       in.Timestamp,
+		IsSnapshot:        in.IsSnapshot,
 	}
 }
 

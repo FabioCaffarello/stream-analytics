@@ -90,7 +90,9 @@ type BookDeltaV1 struct {
 	// PrevFinalUpdateId is the previous final venue sequence when present.
 	PrevFinalUpdateId int64 `protobuf:"varint,5,opt,name=prev_final_update_id,json=prevFinalUpdateId,proto3" json:"prev_final_update_id,omitempty"`
 	// TimestampMs is the event timestamp in Unix milliseconds.
-	TimestampMs   int64 `protobuf:"varint,6,opt,name=timestamp_ms,json=timestampMs,proto3" json:"timestamp_ms,omitempty"`
+	TimestampMs int64 `protobuf:"varint,6,opt,name=timestamp_ms,json=timestampMs,proto3" json:"timestamp_ms,omitempty"`
+	// IsSnapshot indicates this payload is a full L2 snapshot, not an incremental delta.
+	IsSnapshot    bool `protobuf:"varint,7,opt,name=is_snapshot,json=isSnapshot,proto3" json:"is_snapshot,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -167,6 +169,13 @@ func (x *BookDeltaV1) GetTimestampMs() int64 {
 	return 0
 }
 
+func (x *BookDeltaV1) GetIsSnapshot() bool {
+	if x != nil {
+		return x.IsSnapshot
+	}
+	return false
+}
+
 var File_marketdata_v1_bookdelta_proto protoreflect.FileDescriptor
 
 const file_marketdata_v1_bookdelta_proto_rawDesc = "" +
@@ -175,14 +184,16 @@ const file_marketdata_v1_bookdelta_proto_rawDesc = "" +
 	"\n" +
 	"PriceLevel\x12\x14\n" +
 	"\x05price\x18\x01 \x01(\x01R\x05price\x12\x12\n" +
-	"\x04size\x18\x02 \x01(\x01R\x04sizeJ\x05\bd\x10\xc8\x01\"\x96\x02\n" +
+	"\x04size\x18\x02 \x01(\x01R\x04sizeJ\x05\bd\x10\xc8\x01\"\xb7\x02\n" +
 	"\vBookDeltaV1\x12-\n" +
 	"\x04bids\x18\x01 \x03(\v2\x19.marketdata.v1.PriceLevelR\x04bids\x12-\n" +
 	"\x04asks\x18\x02 \x03(\v2\x19.marketdata.v1.PriceLevelR\x04asks\x12&\n" +
 	"\x0ffirst_update_id\x18\x03 \x01(\x03R\rfirstUpdateId\x12&\n" +
 	"\x0ffinal_update_id\x18\x04 \x01(\x03R\rfinalUpdateId\x12/\n" +
 	"\x14prev_final_update_id\x18\x05 \x01(\x03R\x11prevFinalUpdateId\x12!\n" +
-	"\ftimestamp_ms\x18\x06 \x01(\x03R\vtimestampMsJ\x05\bd\x10\xc8\x01BCZAgithub.com/market-raccoon/internal/shared/proto/gen/marketdata/v1b\x06proto3"
+	"\ftimestamp_ms\x18\x06 \x01(\x03R\vtimestampMs\x12\x1f\n" +
+	"\vis_snapshot\x18\a \x01(\bR\n" +
+	"isSnapshotJ\x05\bd\x10\xc8\x01BCZAgithub.com/market-raccoon/internal/shared/proto/gen/marketdata/v1b\x06proto3"
 
 var (
 	file_marketdata_v1_bookdelta_proto_rawDescOnce sync.Once

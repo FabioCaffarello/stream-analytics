@@ -122,6 +122,9 @@ func (w *StatsWindowV1) ApplyLiquidation(side string, qty float64, seq int64) *p
 	if p != nil {
 		return p
 	}
+	if p := w.bumpSeq(seq); p != nil {
+		return p
+	}
 	side = strings.ToLower(strings.TrimSpace(side))
 	switch side {
 	case "buy":
@@ -130,9 +133,6 @@ func (w *StatsWindowV1) ApplyLiquidation(side string, qty float64, seq int64) *p
 		w.liqSellVolumeFixed += qtyFixed
 	default:
 		return problem.Newf(problem.ValidationFailed, "liquidation side must be buy|sell, got %q", side)
-	}
-	if p := w.bumpSeq(seq); p != nil {
-		return p
 	}
 	w.liqTotalVolumeFixed = w.liqBuyVolumeFixed + w.liqSellVolumeFixed
 	w.LiqCount++

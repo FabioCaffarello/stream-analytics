@@ -74,6 +74,7 @@ var marketDataAuthorityBindings = []authorityBinding{
 			"final_update_id":      "FinalID",
 			"prev_final_update_id": "PrevFinal",
 			"timestamp_ms":         "Timestamp",
+			"is_snapshot":          "IsSnapshot",
 		},
 	},
 	{

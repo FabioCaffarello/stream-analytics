@@ -115,6 +115,7 @@ func NewWithKV(kv kvStore, cfg Config) *Registry {
 	}
 }
 
+//nolint:gocyclo // acquire path intentionally handles CAS, takeover and retry branches.
 func (r *Registry) Acquire(ctx context.Context, shardIndex, shardCount int, instanceID string) (Lease, error) {
 	if r == nil || r.kv == nil {
 		return nil, fmt.Errorf("shardregistry: nil registry")

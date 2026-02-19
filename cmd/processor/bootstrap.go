@@ -195,9 +195,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		instanceID := fmt.Sprintf("%s:%d:%d", strings.TrimSpace(cfg.JetStream.ConsumerDurable), os.Getpid(), time.Now().UnixNano())
 		lease, err := registry.Acquire(context.Background(), cfg.Shard.Index, cfg.Shard.Count, instanceID)
 		if err != nil {
-			if registryConn != nil {
-				registryConn.Close()
-			}
+			registryConn.Close()
 			return fmt.Errorf("processor: shard lease acquire failed: %w", err)
 		}
 		shardLease = lease
@@ -219,9 +217,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		if err != nil {
 			hbCancel()
 			_ = shardLease.Release(context.Background())
-			if registryConn != nil {
-				registryConn.Close()
-			}
+			registryConn.Close()
 			return fmt.Errorf("processor: shard topology check failed: %w", err)
 		}
 		metrics.SetShardTopologyComplete(complete)
@@ -230,9 +226,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 			if shardRegistryStrict {
 				hbCancel()
 				_ = shardLease.Release(context.Background())
-				if registryConn != nil {
-					registryConn.Close()
-				}
+				registryConn.Close()
 				return fmt.Errorf("%s", msg)
 			}
 			logger.Warn(msg)
@@ -496,7 +490,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 			logger.Warn("processor: shard lease release failed", "err", err)
 		}
 	}
-	if registryConn != nil {
+	if shardRegistryEnabled {
 		registryConn.Close()
 	}
 	source.shutdownFn(depsCtx)

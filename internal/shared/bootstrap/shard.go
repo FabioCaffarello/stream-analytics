@@ -25,6 +25,8 @@ var composeContainerNumberProvider = defaultComposeContainerNumberProvider
 // ApplyShardOverrides resolves shard index/count from flag > env > JSONC and
 // propagates the result to JetStream shard fields.  Flag values of -1 mean
 // "not set" and fall through to environment variables.
+//
+//nolint:gocyclo // configuration precedence + dev/prod fallback rules.
 func ApplyShardOverrides(cfg *config.AppConfig, flagIndex, flagCount int) {
 	if flagCount >= 0 {
 		cfg.Shard.Count = flagCount
@@ -140,7 +142,9 @@ func composeContainerNumberFromDockerAPI(containerID string) (int, bool) {
 	if err != nil {
 		return 0, false
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 	if resp.StatusCode != http.StatusOK {
 		return 0, false
 	}

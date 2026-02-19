@@ -22,6 +22,7 @@ type UpdateRequest struct {
 	Seq        int64
 	Bids       []domain.Level
 	Asks       []domain.Level
+	IsSnapshot bool // true when the message is a full L2 snapshot
 }
 
 // UpdateResponse is returned on success.
@@ -114,8 +115,12 @@ func (uc *UpdateOrderBookFromEvents) Execute(ctx context.Context, req UpdateRequ
 		return result.FailProblem[UpdateResponse](p)
 	}
 
-	// 3. Apply delta.
-	if p := book.ApplyDelta(req.Seq, req.Bids, req.Asks); p != nil {
+	// 3. Apply delta (or snapshot).
+	applyFn := book.ApplyDelta
+	if req.IsSnapshot {
+		applyFn = book.ApplySnapshot
+	}
+	if p := applyFn(req.Seq, req.Bids, req.Asks); p != nil {
 		if p.Code == problem.IntegrityViolation {
 			events := book.PullDomainEvents()
 			for _, evt := range events {

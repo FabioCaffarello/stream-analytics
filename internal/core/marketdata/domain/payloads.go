@@ -11,12 +11,13 @@ type TradeTickV1 struct {
 
 // BookDeltaV1 is the V1 schema for an order book delta (incremental update).
 type BookDeltaV1 struct {
-	Bids      []PriceLevel // [price, size]; size=0 means remove
-	Asks      []PriceLevel
-	FirstID   int64 // Binance U
-	FinalID   int64 // Binance u
-	PrevFinal int64 // Binance pu (when present)
-	Timestamp int64
+	Bids       []PriceLevel // [price, size]; size=0 means remove
+	Asks       []PriceLevel
+	FirstID    int64 // Binance U
+	FinalID    int64 // Binance u
+	PrevFinal  int64 // Binance pu (when present)
+	Timestamp  int64
+	IsSnapshot bool // true when the message is a full L2 snapshot (not incremental)
 }
 
 // PriceLevel represents a [price, size] entry in the order book.

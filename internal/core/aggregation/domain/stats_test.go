@@ -100,3 +100,22 @@ func TestStatsWindowV1_Deterministic(t *testing.T) {
 		t.Fatalf("determinism failed for funding fields: left=%+v right=%+v", left, right)
 	}
 }
+
+func TestStatsWindowV1_ApplyLiquidation_OutOfOrderDoesNotMutate(t *testing.T) {
+	w := newStatsWindow(t)
+	if p := w.ApplyLiquidation("buy", 2.0, 10); p != nil {
+		t.Fatalf("ApplyLiquidation initial: %v", p)
+	}
+	buyBefore := w.LiqBuyVolume
+	totalBefore := w.LiqTotalVolume
+	countBefore := w.LiqCount
+
+	p := w.ApplyLiquidation("sell", 3.0, 9)
+	if p == nil || p.Code != problem.OutOfOrder {
+		t.Fatalf("expected out_of_order, got %v", p)
+	}
+	if w.LiqBuyVolume != buyBefore || w.LiqTotalVolume != totalBefore || w.LiqCount != countBefore {
+		t.Fatalf("window mutated on out_of_order: before(buy=%v total=%v count=%d) after(buy=%v total=%v count=%d)",
+			buyBefore, totalBefore, countBefore, w.LiqBuyVolume, w.LiqTotalVolume, w.LiqCount)
+	}
+}

@@ -29,6 +29,7 @@ import (
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
 	insightsapp "github.com/market-raccoon/internal/core/insights/app"
 	insightsdomain "github.com/market-raccoon/internal/core/insights/domain"
+	insightsports "github.com/market-raccoon/internal/core/insights/ports"
 	mddomain "github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/shared/codec"
 	"github.com/market-raccoon/internal/shared/envelope"
@@ -58,6 +59,8 @@ const (
 	defaultInsightsTickSize    = 0.5
 )
 
+type heartbeatTickMsg struct{}
+
 // busClosedMsg is sent by the consume goroutine when the envelope channel
 // is closed.  It signals the actor to report a fatal failure to Guardian.
 type busClosedMsg struct{}
@@ -74,6 +77,16 @@ type EnvelopeProcessResult struct {
 // the actor decides how/where to publish them.
 type EventPublisher interface {
 	Publish(ctx context.Context, env envelope.Envelope) *problem.Problem
+}
+
+// HeatmapSnapshotStore persists heatmap snapshots into hot storage.
+type HeatmapSnapshotStore interface {
+	Save(ctx context.Context, artifact insightsdomain.HeatmapArtifactV1, sourceIdempotencyKey string) *problem.Problem
+}
+
+// VolumeProfileStore persists VPVR bucket upserts into hot storage.
+type VolumeProfileStore interface {
+	UpsertVolumeProfileBucket(ctx context.Context, upsert insightsports.VolumeProfileBucketUpsert) *problem.Problem
 }
 
 // ProcessorConfig configures the ProcessorSubsystemActor.
@@ -97,6 +110,10 @@ type ProcessorConfig struct {
 
 	// PublishEnvelope is required when JoinTrades is enabled.
 	PublishEnvelope EventPublisher
+	// HeatmapStore persists heatmap snapshots into hot storage.
+	HeatmapStore HeatmapSnapshotStore
+	// VolumeProfileStore persists volume profile bucket upserts into hot storage.
+	VolumeProfileStore VolumeProfileStore
 
 	// SnapshotSubjectPrefix optionally overrides publish subject prefix for insight snapshots.
 	SnapshotSubjectPrefix string
@@ -127,11 +144,15 @@ type ProcessorRTPublishConfig struct {
 	VolumeInterval    time.Duration
 }
 
-// heartbeatInterval controls how often the processor emits an Info-level
-// heartbeat log.  Every N envelopes processed, the actor logs aggregated
-// counters so operators can prove the pipeline is alive without tailing
-// Debug-level output.
-const heartbeatInterval = 1000
+const (
+	// heartbeatInterval emits progress heartbeats every N processed envelopes.
+	heartbeatInterval = 1000
+	// heartbeatTickInterval drives periodic liveness ticks even when traffic is
+	// below heartbeatInterval, avoiding "stuck" perception in low-throughput windows.
+	heartbeatTickInterval = 10 * time.Second
+	// heartbeatLogInterval bounds timer-driven heartbeat emission frequency.
+	heartbeatLogInterval = 20 * time.Second
+)
 
 // ProcessorSubsystemActor consumes envelopes from a channel and dispatches
 // them to core aggregation use cases.
@@ -162,6 +183,8 @@ type ProcessorSubsystemActor struct {
 	hbByType        map[string]int64
 	hbLastSubject   string
 	hbLastStreamSeq int64
+	hbLastTsIngest  int64
+	hbLastEmitAt    time.Time
 }
 
 // NewProcessorSubsystemActor returns a hollywood actor.Producer for the
@@ -192,6 +215,8 @@ func (p *ProcessorSubsystemActor) Receive(c *actor.Context) {
 		p.emitProcessedResult(msg, res)
 	case SnapshotTick:
 		p.handleSnapshotTick(msg)
+	case heartbeatTickMsg:
+		p.emitHeartbeat(false, "timer")
 	case busClosedMsg:
 		p.handleBusClosed(c)
 	default:
@@ -244,6 +269,7 @@ func (p *ProcessorSubsystemActor) onStarted(c *actor.Context) {
 	} else {
 		go p.consumeLoop(ctx)
 	}
+	go p.heartbeatLoop(ctx)
 	p.spawnTickerChild(c)
 }
 
@@ -266,6 +292,21 @@ func (p *ProcessorSubsystemActor) consumeLoop(ctx context.Context) {
 				return
 			}
 			p.engine.Send(p.selfPID, env)
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (p *ProcessorSubsystemActor) heartbeatLoop(ctx context.Context) {
+	ticker := time.NewTicker(heartbeatTickInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			if p.engine != nil && p.selfPID != nil {
+				p.engine.Send(p.selfPID, heartbeatTickMsg{})
+			}
 		case <-ctx.Done():
 			return
 		}
@@ -323,12 +364,25 @@ func (p *ProcessorSubsystemActor) handleEnvelope(_ *actor.Context, env envelope.
 		}
 		if p.cfg.Service != nil && p.cfg.Service.Candle != nil {
 			if prob := p.handleTradeForCandle(env); prob != nil {
-				p.logger.Warn("aggruntime: BuildCandle failed",
-					"venue", env.Venue,
-					"instrument", env.Instrument,
-					"seq", env.Seq,
-					"code", prob.Code,
-				)
+				if isBenignStreamOrderProblem(prob) {
+					p.logger.Debug("aggruntime: BuildCandle ignored stale event",
+						"venue", env.Venue,
+						"instrument", env.Instrument,
+						"market_type", envelopeMarketType(env),
+						"seq", env.Seq,
+						"code", prob.Code,
+						"reason", prob.Message,
+					)
+				} else {
+					p.logger.Warn("aggruntime: BuildCandle failed",
+						"venue", env.Venue,
+						"instrument", env.Instrument,
+						"market_type", envelopeMarketType(env),
+						"seq", env.Seq,
+						"code", prob.Code,
+						"reason", prob.Message,
+					)
+				}
 			}
 		}
 		if prob := p.handleTradeForRealtimeInsights(env); prob != nil {
@@ -464,19 +518,29 @@ func (p *ProcessorSubsystemActor) handleBookDelta(env envelope.Envelope) *proble
 
 	req := aggapp.UpdateRequest{
 		Venue:      env.Venue,
-		Instrument: env.Instrument,
-		Seq:        env.Seq,
+		Instrument: orderBookInstrumentKey(env),
+		Seq:        orderBookSeq(env, delta),
 		Bids:       toLevels(delta.Bids),
 		Asks:       toLevels(delta.Asks),
+		IsSnapshot: delta.IsSnapshot,
 	}
 
 	res := p.cfg.Service.UpdateBook.Execute(context.Background(), req)
 	if res.IsFail() {
 		prob := res.Problem()
+		if isBenignBookProblem(prob) {
+			p.logger.Debug("aggruntime: UpdateOrderBook ignored stale/inconsistent event",
+				"venue", env.Venue,
+				"instrument", env.Instrument,
+				"seq", req.Seq,
+				"code", prob.Code,
+			)
+			return nil
+		}
 		p.logger.Warn("aggruntime: UpdateOrderBook failed",
 			"venue", env.Venue,
 			"instrument", env.Instrument,
-			"seq", env.Seq,
+			"seq", req.Seq,
 			"code", prob.Code,
 			"retryable", prob.Retryable,
 		)
@@ -484,7 +548,7 @@ func (p *ProcessorSubsystemActor) handleBookDelta(env envelope.Envelope) *proble
 	}
 
 	resp := res.Value()
-	p.markOrderBookActive(env.Venue, env.Instrument)
+	p.markOrderBookActive(env.Venue, orderBookInstrumentKey(env))
 	p.handleBookDeltaForInsights(env, delta)
 	p.logger.Debug("aggruntime: order book updated",
 		"venue", env.Venue,
@@ -634,7 +698,7 @@ func (p *ProcessorSubsystemActor) handleBookDeltaForInsights(env envelope.Envelo
 		_ = p.cfg.Insights.Heatmap.Execute(context.Background(), insightsapp.BuildHeatmapRequest{
 			EventType:  env.Type,
 			Venue:      env.Venue,
-			Instrument: env.Instrument,
+			Instrument: stateInstrumentKey(env),
 			Timeframe:  timeframe,
 			TickSize:   defaultInsightsTickSize,
 			Price:      delta.Bids[0].Price,
@@ -648,7 +712,7 @@ func (p *ProcessorSubsystemActor) handleBookDeltaForInsights(env envelope.Envelo
 		_ = p.cfg.Insights.Heatmap.Execute(context.Background(), insightsapp.BuildHeatmapRequest{
 			EventType:  env.Type,
 			Venue:      env.Venue,
-			Instrument: env.Instrument,
+			Instrument: stateInstrumentKey(env),
 			Timeframe:  timeframe,
 			TickSize:   defaultInsightsTickSize,
 			Price:      delta.Asks[0].Price,
@@ -658,7 +722,7 @@ func (p *ProcessorSubsystemActor) handleBookDeltaForInsights(env envelope.Envelo
 			Seq:        env.Seq,
 		})
 	}
-	p.markHeatmapActive(env.Venue, env.Instrument, timeframe)
+	p.markHeatmapActive(env.Venue, stateInstrumentKey(env), timeframe)
 }
 
 func (p *ProcessorSubsystemActor) handleTradeForInsights(env envelope.Envelope, trade mddomain.TradeTickV1) {
@@ -671,7 +735,7 @@ func (p *ProcessorSubsystemActor) handleTradeForInsights(env envelope.Envelope, 
 		res := p.cfg.Insights.Heatmap.Execute(context.Background(), insightsapp.BuildHeatmapRequest{
 			EventType:  env.Type,
 			Venue:      env.Venue,
-			Instrument: env.Instrument,
+			Instrument: stateInstrumentKey(env),
 			Timeframe:  timeframe,
 			TickSize:   defaultInsightsTickSize,
 			Price:      trade.Price,
@@ -681,14 +745,14 @@ func (p *ProcessorSubsystemActor) handleTradeForInsights(env envelope.Envelope, 
 			Seq:        env.Seq,
 		})
 		if res.IsOk() {
-			p.markHeatmapActive(env.Venue, env.Instrument, timeframe)
+			p.markHeatmapActive(env.Venue, stateInstrumentKey(env), timeframe)
 		}
 	}
 	if p.cfg.Insights.VolumeProfile != nil {
 		res := p.cfg.Insights.VolumeProfile.Execute(context.Background(), insightsapp.BuildVolumeProfileRequest{
 			EventType:  env.Type,
 			Venue:      env.Venue,
-			Instrument: env.Instrument,
+			Instrument: stateInstrumentKey(env),
 			Timeframe:  timeframe,
 			TickSize:   defaultInsightsTickSize,
 			Price:      trade.Price,
@@ -698,7 +762,7 @@ func (p *ProcessorSubsystemActor) handleTradeForInsights(env envelope.Envelope, 
 			Seq:        env.Seq,
 		})
 		if res.IsOk() && res.Value().Emitted {
-			p.markVolumeActive(env.Venue, env.Instrument, timeframe)
+			p.markVolumeActive(env.Venue, stateInstrumentKey(env), timeframe)
 		}
 	}
 }
@@ -721,7 +785,7 @@ func (p *ProcessorSubsystemActor) handleTradeForCandle(env envelope.Envelope) *p
 	}
 	req := aggapp.BuildCandleRequest{
 		Venue:      env.Venue,
-		Instrument: env.Instrument,
+		Instrument: stateInstrumentKey(env),
 		Price:      trade.Price,
 		Quantity:   trade.Size,
 		IsBuy:      strings.EqualFold(trade.Side, "buy"),
@@ -762,7 +826,7 @@ func (p *ProcessorSubsystemActor) handleLiquidation(env envelope.Envelope) *prob
 	}
 	req := aggapp.BuildStatsRequest{
 		Venue:           env.Venue,
-		Instrument:      env.Instrument,
+		Instrument:      stateInstrumentKey(env),
 		Kind:            aggapp.StatsInputLiquidation,
 		Seq:             env.Seq,
 		TsIngest:        env.TsIngest,
@@ -771,6 +835,17 @@ func (p *ProcessorSubsystemActor) handleLiquidation(env envelope.Envelope) *prob
 	}
 	resp, prob := p.cfg.Service.Stats.Execute(context.Background(), req)
 	if prob != nil {
+		if isBenignStreamOrderProblem(prob) {
+			p.logger.Debug("aggruntime: BuildStats ignored stale liquidation",
+				"venue", env.Venue,
+				"instrument", env.Instrument,
+				"market_type", envelopeMarketType(env),
+				"seq", env.Seq,
+				"code", prob.Code,
+				"reason", prob.Message,
+			)
+			return nil
+		}
 		return prob
 	}
 	if len(resp.Closed) > 0 {
@@ -802,7 +877,7 @@ func (p *ProcessorSubsystemActor) handleMarkPrice(env envelope.Envelope) *proble
 	}
 	markReq := aggapp.BuildStatsRequest{
 		Venue:      env.Venue,
-		Instrument: env.Instrument,
+		Instrument: stateInstrumentKey(env),
 		Kind:       aggapp.StatsInputMarkPrice,
 		Seq:        env.Seq,
 		TsIngest:   env.TsIngest,
@@ -810,12 +885,23 @@ func (p *ProcessorSubsystemActor) handleMarkPrice(env envelope.Envelope) *proble
 	}
 	resp, prob := p.cfg.Service.Stats.Execute(context.Background(), markReq)
 	if prob != nil {
+		if isBenignStreamOrderProblem(prob) {
+			p.logger.Debug("aggruntime: BuildStats ignored stale markprice",
+				"venue", env.Venue,
+				"instrument", env.Instrument,
+				"market_type", envelopeMarketType(env),
+				"seq", env.Seq,
+				"code", prob.Code,
+				"reason", prob.Message,
+			)
+			return nil
+		}
 		return prob
 	}
 	if mark.FundingRate != 0 {
 		fundingReq := aggapp.BuildStatsRequest{
 			Venue:       env.Venue,
-			Instrument:  env.Instrument,
+			Instrument:  stateInstrumentKey(env),
 			Kind:        aggapp.StatsInputFundingRate,
 			Seq:         env.Seq,
 			TsIngest:    env.TsIngest,
@@ -823,6 +909,17 @@ func (p *ProcessorSubsystemActor) handleMarkPrice(env envelope.Envelope) *proble
 		}
 		resp, prob = p.cfg.Service.Stats.Execute(context.Background(), fundingReq)
 		if prob != nil {
+			if isBenignStreamOrderProblem(prob) {
+				p.logger.Debug("aggruntime: BuildStats ignored stale funding",
+					"venue", env.Venue,
+					"instrument", env.Instrument,
+					"market_type", envelopeMarketType(env),
+					"seq", env.Seq,
+					"code", prob.Code,
+					"reason", prob.Message,
+				)
+				return nil
+			}
 			return prob
 		}
 	}
@@ -869,6 +966,39 @@ func envelopeMarketType(env envelope.Envelope) string {
 		return ""
 	}
 	return strings.ToUpper(strings.TrimSpace(env.Meta[metaKeyMarketType]))
+}
+
+func orderBookInstrumentKey(env envelope.Envelope) string {
+	return stateInstrumentKey(env)
+}
+
+func stateInstrumentKey(env envelope.Envelope) string {
+	marketType := envelopeMarketType(env)
+	if marketType == "" {
+		return env.Instrument
+	}
+	return env.Instrument + ":" + marketType
+}
+
+func orderBookSeq(env envelope.Envelope, delta mddomain.BookDeltaV1) int64 {
+	if delta.FinalID > 0 {
+		return delta.FinalID
+	}
+	return env.Seq
+}
+
+func isBenignStreamOrderProblem(prob *problem.Problem) bool {
+	if prob == nil {
+		return false
+	}
+	return prob.Code == problem.OutOfOrder
+}
+
+func isBenignBookProblem(prob *problem.Problem) bool {
+	if prob == nil {
+		return false
+	}
+	return prob.Code == problem.OutOfOrder || prob.Code == problem.IntegrityViolation
 }
 
 func (p *ProcessorSubsystemActor) markOrderBookActive(venue, instrument string) {
@@ -945,6 +1075,16 @@ func (p *ProcessorSubsystemActor) publishHeatmapSnapshots() {
 		if prob != nil {
 			continue
 		}
+		if p.cfg.HeatmapStore != nil {
+			if prob := p.cfg.HeatmapStore.Save(context.Background(), res.Value(), env.IdempotencyKey); prob != nil {
+				p.logger.Warn("aggruntime: persist heatmap snapshot failed",
+					"venue", key.Venue,
+					"instrument", key.Instrument,
+					"timeframe", key.Timeframe,
+					"code", prob.Code,
+				)
+			}
+		}
 		if prob := p.cfg.PublishEnvelope.Publish(context.Background(), env); prob != nil {
 			p.logger.Warn("aggruntime: publish heatmap snapshot tick failed",
 				"venue", key.Venue,
@@ -968,6 +1108,32 @@ func (p *ProcessorSubsystemActor) publishVolumeSnapshots() {
 		env, prob := buildVolumeSnapshotEnvelope(res.Value(), time.Now().UnixMilli())
 		if prob != nil {
 			continue
+		}
+		if p.cfg.VolumeProfileStore != nil {
+			for _, bucket := range res.Value().Buckets {
+				upsert := insightsports.VolumeProfileBucketUpsert{
+					Venue:         res.Value().Venue,
+					Instrument:    res.Value().Instrument,
+					Timeframe:     res.Value().Timeframe,
+					WindowStartTs: res.Value().WindowStartTs,
+					BucketLow:     bucket.PriceLow,
+					BucketHigh:    bucket.PriceHigh,
+					BuyVolume:     bucket.BuyVolume,
+					SellVolume:    bucket.SellVolume,
+					TotalVolume:   bucket.TotalVolume,
+					SeqMin:        bucket.SeqMin,
+					SeqMax:        bucket.SeqMax,
+				}
+				if prob := p.cfg.VolumeProfileStore.UpsertVolumeProfileBucket(context.Background(), upsert); prob != nil {
+					p.logger.Warn("aggruntime: persist volume snapshot bucket failed",
+						"venue", key.Venue,
+						"instrument", key.Instrument,
+						"timeframe", key.Timeframe,
+						"code", prob.Code,
+					)
+					break
+				}
+			}
 		}
 		if prob := p.cfg.PublishEnvelope.Publish(context.Background(), env); prob != nil {
 			p.logger.Warn("aggruntime: publish volume snapshot tick failed",
@@ -1231,15 +1397,38 @@ func (p *ProcessorSubsystemActor) recordHeartbeat(env envelope.Envelope) {
 	p.hbByType[env.Type]++
 	p.hbLastSubject = env.Type
 	p.hbLastStreamSeq = env.Seq
+	p.hbLastTsIngest = env.TsIngest
 
-	if p.hbTotal%heartbeatInterval == 0 {
-		p.logger.Info("aggruntime: processor heartbeat",
-			"total_processed", p.hbTotal,
-			"by_event_top", p.hbTopTypes(3),
-			"last_subject_seen", p.hbLastSubject,
-			"last_stream_seq", p.hbLastStreamSeq,
-		)
+	p.emitHeartbeat(p.hbTotal%heartbeatInterval == 0, "progress")
+}
+
+func (p *ProcessorSubsystemActor) emitHeartbeat(force bool, trigger string) {
+	now := time.Now()
+	if !shouldEmitHeartbeat(now, p.hbLastEmitAt, force, heartbeatLogInterval) {
+		return
 	}
+	p.hbLastEmitAt = now
+	p.logger.Info("aggruntime: processor heartbeat",
+		"trigger", trigger,
+		"total_processed", p.hbTotal,
+		"by_event_top", p.hbTopTypes(3),
+		"last_subject_seen", p.hbLastSubject,
+		"last_stream_seq", p.hbLastStreamSeq,
+		"last_ts_ingest", p.hbLastTsIngest,
+	)
+}
+
+func shouldEmitHeartbeat(now, last time.Time, force bool, interval time.Duration) bool {
+	if force {
+		return true
+	}
+	if interval <= 0 {
+		return true
+	}
+	if last.IsZero() {
+		return true
+	}
+	return now.Sub(last) >= interval
 }
 
 // hbTopTypes returns the top-N event types by count as a compact string slice

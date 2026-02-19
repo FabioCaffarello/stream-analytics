@@ -28,6 +28,8 @@ message BookDeltaV1 {
   int64 prev_final_update_id = 5;
   // TimestampMs is the event timestamp in Unix milliseconds.
   int64 timestamp_ms = 6;
+  // IsSnapshot indicates this payload is a full L2 snapshot, not an incremental delta.
+  bool is_snapshot = 7;
 
   reserved 100 to 199;
 }
