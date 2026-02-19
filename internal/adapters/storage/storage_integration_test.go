@@ -1,0 +1,228 @@
+package storage_test
+
+import (
+	"context"
+	"sync"
+	"testing"
+	"time"
+
+	adapterstorage "github.com/market-raccoon/internal/adapters/storage"
+	"github.com/market-raccoon/internal/adapters/storage/clickhouse"
+	"github.com/market-raccoon/internal/adapters/storage/timescale"
+	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
+	"github.com/market-raccoon/internal/core/aggregation/ports"
+	"github.com/market-raccoon/internal/shared/problem"
+)
+
+type blockingHotWriter struct {
+	start   chan struct{}
+	release chan struct{}
+}
+
+func (w *blockingHotWriter) Save(context.Context, aggdomain.SnapshotProduced) *problem.Problem {
+	close(w.start)
+	<-w.release
+	return nil
+}
+
+type noopColdWriter struct{}
+
+func (noopColdWriter) Save(context.Context, aggdomain.SnapshotProduced) *problem.Problem { return nil }
+
+type failColdWriter struct{}
+
+func (failColdWriter) Save(context.Context, aggdomain.SnapshotProduced) *problem.Problem {
+	return problem.New(problem.Unavailable, "cold write failed")
+}
+
+var _ ports.HotReadModelStore = (*blockingHotWriter)(nil)
+var _ ports.ColdReadModelStore = (*noopColdWriter)(nil)
+
+func TestStorageAckOnCommit_NotOnEnqueue(t *testing.T) {
+	hot := &blockingHotWriter{start: make(chan struct{}), release: make(chan struct{})}
+	committer := adapterstorage.NewSnapshotCommitter(hot, noopColdWriter{})
+
+	var (
+		mu      sync.Mutex
+		acked   bool
+		ackTime time.Time
+	)
+
+	done := make(chan *problem.Problem, 1)
+	go func() {
+		done <- adapterstorage.CommitAndAck(context.Background(), committer, testSnapshot(), func() error {
+			mu.Lock()
+			defer mu.Unlock()
+			acked = true
+			ackTime = time.Now()
+			return nil
+		})
+	}()
+
+	<-hot.start
+	time.Sleep(50 * time.Millisecond)
+
+	mu.Lock()
+	if acked {
+		t.Fatal("ack happened before storage commit")
+	}
+	mu.Unlock()
+
+	hot.release <- struct{}{}
+
+	if p := <-done; p != nil {
+		t.Fatalf("CommitAndAck failed: %v", p)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !acked {
+		t.Fatal("ack did not happen after commit")
+	}
+	if ackTime.IsZero() {
+		t.Fatal("ack timestamp not recorded")
+	}
+}
+
+func TestStorageAckOnCommit_NoAckWhenCommitFails(t *testing.T) {
+	hot := timescale.NewWriter()
+	committer := adapterstorage.NewSnapshotCommitter(hot, failColdWriter{})
+	acked := false
+
+	p := adapterstorage.CommitAndAck(context.Background(), committer, testSnapshot(), func() error {
+		acked = true
+		return nil
+	})
+	if p == nil {
+		t.Fatal("expected commit failure")
+	}
+	if acked {
+		t.Fatal("ack must not be called when commit fails")
+	}
+}
+
+func TestStorageAckOnCommit_FailsWhenCommitterIsNil(t *testing.T) {
+	acked := false
+	p := adapterstorage.CommitAndAck(context.Background(), nil, testSnapshot(), func() error {
+		acked = true
+		return nil
+	})
+	if p == nil {
+		t.Fatal("expected validation failure for nil committer")
+	}
+	if p.Code != problem.ValidationFailed {
+		t.Fatalf("problem code=%q want=%q", p.Code, problem.ValidationFailed)
+	}
+	if acked {
+		t.Fatal("ack must not be called when committer is nil")
+	}
+}
+
+func TestStorageIdempotency_DuplicateSnapshotCommitsOncePerPath(t *testing.T) {
+	hot := timescale.NewWriter()
+	cold := clickhouse.NewWriter()
+	committer := adapterstorage.NewSnapshotCommitter(hot, cold)
+
+	snap := testSnapshot()
+	if p := committer.Commit(context.Background(), snap); p != nil {
+		t.Fatalf("first commit failed: %v", p)
+	}
+	if p := committer.Commit(context.Background(), snap); p != nil {
+		t.Fatalf("second commit failed: %v", p)
+	}
+
+	if got := hot.CommitCount(); got != 1 {
+		t.Fatalf("hot commits=%d want=1", got)
+	}
+	if got := cold.CommitCount(); got != 1 {
+		t.Fatalf("cold commits=%d want=1", got)
+	}
+
+	mismatch := snap
+	mismatch.Bids = []aggdomain.Level{{
+		Price:    100,
+		Quantity: 2,
+	}}
+
+	if p := hot.Save(context.Background(), mismatch); p == nil {
+		t.Fatal("expected hot duplicate key conflict for mismatched payload")
+	}
+	if p := committer.Commit(context.Background(), mismatch); p == nil {
+		t.Fatal("expected duplicate key conflict for mismatched payload")
+	}
+
+	if got := hot.CommitCount(); got != 1 {
+		t.Fatalf("hot commits after mismatch=%d want=1", got)
+	}
+	if got := cold.CommitCount(); got != 1 {
+		t.Fatalf("cold commits after mismatch=%d want=1", got)
+	}
+}
+
+func TestSnapshotCommitter_WithRealWriterInterfaces(t *testing.T) {
+	hotExec := &fakeHotExec{}
+	coldPrep := &fakeColdPreparer{batch: &fakeColdBatch{}}
+
+	hot := timescale.NewPgWriterWithExecutor(hotExec)
+	cold := clickhouse.NewChWriterWithPreparer(coldPrep)
+	committer := adapterstorage.NewSnapshotCommitter(hot, cold)
+
+	if p := committer.Commit(context.Background(), testSnapshot()); p != nil {
+		t.Fatalf("commit failed: %v", p)
+	}
+	if hotExec.execs != 1 {
+		t.Fatalf("hot execs=%d want=1", hotExec.execs)
+	}
+	if coldPrep.batch.flushes != 1 {
+		t.Fatalf("cold flushes=%d want=1", coldPrep.batch.flushes)
+	}
+}
+
+type fakeHotExec struct{ execs int }
+
+func (f *fakeHotExec) Exec(context.Context, string, ...any) (int64, *problem.Problem) {
+	f.execs++
+	return 1, nil
+}
+
+func (f *fakeHotExec) QueryRow(context.Context, string, ...any) adapterstorage.Row { return nil }
+
+type fakeColdPreparer struct {
+	batch *fakeColdBatch
+}
+
+func (f *fakeColdPreparer) PrepareInsert(context.Context, string) (adapterstorage.BatchInserter, *problem.Problem) {
+	return f.batch, nil
+}
+
+type fakeColdBatch struct {
+	rows    int
+	flushes int
+}
+
+func (b *fakeColdBatch) AppendRow(context.Context, ...any) *problem.Problem {
+	b.rows++
+	return nil
+}
+
+func (b *fakeColdBatch) Flush(context.Context) (int64, *problem.Problem) {
+	b.flushes++
+	return int64(b.rows), nil
+}
+
+func (b *fakeColdBatch) Close() *problem.Problem { return nil }
+
+func testSnapshot() aggdomain.SnapshotProduced {
+	return aggdomain.SnapshotProduced{
+		BookID: aggdomain.BookID{Venue: "binance", Instrument: "BTCUSDT"},
+		Seq:    42,
+		Bids: []aggdomain.Level{{
+			Price:    100,
+			Quantity: 1,
+		}},
+		Asks: []aggdomain.Level{{
+			Price:    101,
+			Quantity: 1,
+		}},
+	}
+}

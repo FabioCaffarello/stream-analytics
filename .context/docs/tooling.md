@@ -5,6 +5,8 @@ description: Toolchain setup, automation commands, and productivity workflows
 category: tooling
 generated: 2026-02-12
 status: filled
+docStatus: ACTIVE
+last_reviewed: "2026-02-17"
 scaffoldVersion: "2.0.0"
 ---
 
@@ -36,21 +38,28 @@ make pre-commit-install
 ```bash
 make modules
 ```
-- Keep dependencies clean:
+- Keep dependencies clean (changed-path fast check + full check when needed):
 ```bash
 make tidy
+make tidy-check-changed
 make tidy-check
 ```
 - Format and lint:
 ```bash
 make fmt
 make fmt-check
+make lint-changed
 make lint
 ```
 - Validate behavior:
 ```bash
-make test-short
+make test-short-changed
 make test
+```
+- Legacy guardrails:
+```bash
+make legacy-check-staged
+make legacy-check
 ```
 - Security gate:
 ```bash
@@ -87,11 +96,11 @@ make docker-build
 ```
 - Start stack:
 ```bash
-make docker-up
+make up
 ```
 - Stop stack:
 ```bash
-make docker-down
+make down
 ```
 
 ## Troubleshooting

@@ -11,6 +11,8 @@ import (
 	"github.com/anthdm/hollywood/actor"
 	actorruntime "github.com/market-raccoon/internal/actors/runtime"
 	httpserver "github.com/market-raccoon/internal/interfaces/http"
+	"github.com/market-raccoon/internal/shared/contracts"
+	"github.com/market-raccoon/internal/shared/observability"
 )
 
 // ---------------------------------------------------------------------------
@@ -63,6 +65,17 @@ func doRequest(t *testing.T, srv *httpserver.Server, method, path, body string) 
 	return rec
 }
 
+func doRequestWithHeaders(t *testing.T, srv *httpserver.Server, method, path, body string, headers map[string]string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	return rec
+}
+
 // ---------------------------------------------------------------------------
 // GET /healthz
 // ---------------------------------------------------------------------------
@@ -77,6 +90,27 @@ func TestServer_Healthz_returns200(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+}
+
+func TestServer_WithWSHandler_registersWSRoute(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := httpserver.NewServer(
+		e,
+		guardianPID,
+		":0",
+		false,
+		nil,
+		httpserver.WithWSHandler(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusSwitchingProtocols)
+		}),
+	)
+	rec := doRequest(t, srv, http.MethodGet, "/ws", "")
+	if rec.Code != http.StatusSwitchingProtocols {
+		t.Fatalf("expected 101, got %d", rec.Code)
 	}
 }
 
@@ -168,6 +202,118 @@ func TestServer_Snapshot_containsAllSubsystems(t *testing.T) {
 	}
 }
 
+func TestServer_Snapshot_AcceptProto_returnsProtobufEnvelope(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+	rec := doRequestWithHeaders(t, srv, http.MethodGet, "/runtime/snapshot", "", map[string]string{
+		"Accept": "application/x-protobuf",
+	})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/x-protobuf") {
+		t.Fatalf("content-type=%q want application/x-protobuf", got)
+	}
+	out, p := contracts.UnmarshalEnvelopeV1ToDomain(rec.Body.Bytes())
+	if p != nil {
+		t.Fatalf("proto unmarshal failed: %v", p)
+	}
+	if out.Type != "runtime.snapshot" {
+		t.Fatalf("envelope.type=%q want runtime.snapshot", out.Type)
+	}
+	if out.ContentType != "application/json" {
+		t.Fatalf("envelope.content_type=%q want application/json", out.ContentType)
+	}
+	if len(out.Payload) == 0 {
+		t.Fatal("expected non-empty envelope payload")
+	}
+}
+
+func TestServer_MainEndpoints_AcceptProto_EnvelopeAndJSONPayloadConformance(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		body       string
+		wantStatus int
+		wantType   string
+	}{
+		{
+			name:       "healthz",
+			method:     http.MethodGet,
+			path:       "/healthz",
+			body:       "",
+			wantStatus: http.StatusOK,
+			wantType:   "runtime.healthz",
+		},
+		{
+			name:       "readyz",
+			method:     http.MethodGet,
+			path:       "/readyz",
+			body:       "",
+			wantStatus: http.StatusOK,
+			wantType:   "runtime.readyz",
+		},
+		{
+			name:       "snapshot",
+			method:     http.MethodGet,
+			path:       "/runtime/snapshot",
+			body:       "",
+			wantStatus: http.StatusOK,
+			wantType:   "runtime.snapshot",
+		},
+		{
+			name:       "reload",
+			method:     http.MethodPost,
+			path:       "/runtime/reload",
+			body:       "",
+			wantStatus: http.StatusAccepted,
+			wantType:   "runtime.reload",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			headers := map[string]string{
+				"Accept": "application/x-protobuf",
+			}
+			if tc.method == http.MethodPost {
+				headers["Content-Type"] = "application/json"
+			}
+			rec := doRequestWithHeaders(t, srv, tc.method, tc.path, tc.body, headers)
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status=%d want=%d", rec.Code, tc.wantStatus)
+			}
+			if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/x-protobuf") {
+				t.Fatalf("content-type=%q want application/x-protobuf", got)
+			}
+			out, p := contracts.UnmarshalEnvelopeV1ToDomain(rec.Body.Bytes())
+			if p != nil {
+				t.Fatalf("proto unmarshal failed: %v", p)
+			}
+			if out.Type != tc.wantType {
+				t.Fatalf("envelope.type=%q want=%q", out.Type, tc.wantType)
+			}
+			if out.ContentType != "application/json" {
+				t.Fatalf("envelope.content_type=%q want=application/json", out.ContentType)
+			}
+			if !json.Valid(out.Payload) {
+				t.Fatalf("envelope.payload is not valid JSON: %q", string(out.Payload))
+			}
+		})
+	}
+}
+
 // TestServer_Snapshot_timeout verifies that the handler returns 504 when the
 // guardian does not respond within the configured timeout.
 func TestServer_Snapshot_timeout(t *testing.T) {
@@ -185,6 +331,157 @@ func TestServer_Snapshot_timeout(t *testing.T) {
 
 	if rec.Code != http.StatusGatewayTimeout {
 		t.Fatalf("expected 504, got %d\nbody: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestServer_RuntimeOverload_returns200AndValidJSON(t *testing.T) {
+	observability.UpdatePolicyKitOverload(observability.PolicyKitOverloadEntry{
+		Stream:        "marketdata.bookdelta",
+		Venue:         "binance",
+		OverloadLevel: 2,
+		Stride:        2,
+		Thresholds: observability.PolicyKitThresholdPair{
+			Enter:   observability.PolicyKitThreshold{QueueRatio: 0.8, BacklogRatio: 0.8, MapRatio: 0.85, LatencyMs: 40},
+			Recover: observability.PolicyKitThreshold{QueueRatio: 0.7, BacklogRatio: 0.7, MapRatio: 0.8, LatencyMs: 30},
+		},
+	})
+
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+	rec := doRequest(t, srv, http.MethodGet, "/runtime/overload", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d\nbody: %s", rec.Code, rec.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("response is not valid JSON: %v\nbody: %s", err, rec.Body.String())
+	}
+	if _, ok := body["partitions"]; !ok {
+		t.Fatalf("expected partitions field, got %#v", body)
+	}
+	if _, ok := body["active_partitions"]; !ok {
+		t.Fatalf("expected active_partitions field, got %#v", body)
+	}
+}
+
+func TestServer_RuntimeOverload_AcceptProto_returnsProtobufEnvelope(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+	rec := doRequestWithHeaders(t, srv, http.MethodGet, "/runtime/overload", "", map[string]string{
+		"Accept": "application/x-protobuf",
+	})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/x-protobuf") {
+		t.Fatalf("content-type=%q want application/x-protobuf", got)
+	}
+	out, p := contracts.UnmarshalEnvelopeV1ToDomain(rec.Body.Bytes())
+	if p != nil {
+		t.Fatalf("proto unmarshal failed: %v", p)
+	}
+	if out.Type != "runtime.overload" {
+		t.Fatalf("envelope.type=%q want runtime.overload", out.Type)
+	}
+}
+
+func TestServer_RuntimeStorage_returns200AndValidJSON(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+	rec := doRequest(t, srv, http.MethodGet, "/runtime/storage", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d\nbody: %s", rec.Code, rec.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("response is not valid JSON: %v\nbody: %s", err, rec.Body.String())
+	}
+	assertStoragePathShape(t, body, "hot")
+	assertStoragePathShape(t, body, "cold")
+	assertCommitterShape(t, body)
+}
+
+func TestServer_RuntimeStorage_AcceptProto_returnsProtobufEnvelope(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+	rec := doRequestWithHeaders(t, srv, http.MethodGet, "/runtime/storage", "", map[string]string{
+		"Accept": "application/x-protobuf",
+	})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/x-protobuf") {
+		t.Fatalf("content-type=%q want application/x-protobuf", got)
+	}
+	out, p := contracts.UnmarshalEnvelopeV1ToDomain(rec.Body.Bytes())
+	if p != nil {
+		t.Fatalf("proto unmarshal failed: %v", p)
+	}
+	if out.Type != "runtime.storage" {
+		t.Fatalf("envelope.type=%q want runtime.storage", out.Type)
+	}
+}
+
+func TestServer_RuntimeWS_returns200AndValidJSON(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+	rec := doRequest(t, srv, http.MethodGet, "/runtime/ws", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d\nbody: %s", rec.Code, rec.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("response is not valid JSON: %v\nbody: %s", err, rec.Body.String())
+	}
+	assertNumberOrUnknown(t, body, "sessions_active")
+	assertNumberOrUnknown(t, body, "prefer_proto_sessions")
+	assertNumberOrUnknown(t, body, "deliveries_proto_total")
+	assertNumberOrUnknown(t, body, "deliveries_json_total")
+	assertNumberOrUnknown(t, body, "reconnects_total")
+}
+
+func TestServer_RuntimeWS_AcceptProto_returnsProtobufEnvelope(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+	rec := doRequestWithHeaders(t, srv, http.MethodGet, "/runtime/ws", "", map[string]string{
+		"Accept": "application/x-protobuf",
+	})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/x-protobuf") {
+		t.Fatalf("content-type=%q want application/x-protobuf", got)
+	}
+	out, p := contracts.UnmarshalEnvelopeV1ToDomain(rec.Body.Bytes())
+	if p != nil {
+		t.Fatalf("proto unmarshal failed: %v", p)
+	}
+	if out.Type != "runtime.ws" {
+		t.Fatalf("envelope.type=%q want runtime.ws", out.Type)
 	}
 }
 
@@ -219,6 +516,36 @@ func TestServer_Reload_returnsAcceptedJSON(t *testing.T) {
 	}
 	if !body["accepted"] {
 		t.Fatalf("expected accepted=true, got %v", body)
+	}
+}
+
+func TestServer_Reload_ContentTypeProtoAccepted(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+	rec := doRequestWithHeaders(t, srv, http.MethodPost, "/runtime/reload", "", map[string]string{
+		"Content-Type": "application/x-protobuf",
+	})
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", rec.Code)
+	}
+}
+
+func TestServer_Reload_ContentTypeUnsupportedReturns415(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+	rec := doRequestWithHeaders(t, srv, http.MethodPost, "/runtime/reload", "", map[string]string{
+		"Content-Type": "application/octet-stream",
+	})
+
+	if rec.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("expected 415, got %d", rec.Code)
 	}
 }
 
@@ -311,6 +638,61 @@ func TestServer_Readyz_PendingSubsystems_Returns503(t *testing.T) {
 	}
 }
 
+func TestServer_Readyz_GateBlocksBeforeReady(t *testing.T) {
+	e := newEngine(t)
+	pid := e.Spawn(
+		actorruntime.NewGuardian(actorruntime.GuardianConfig{}),
+		"guardian",
+		actor.WithID("guardian-readyz-gate-blocked"),
+	)
+	time.Sleep(50 * time.Millisecond)
+	defer e.Poison(pid)
+
+	srv := newTestServer(e, pid)
+	srv.SetReadyGate(func() bool { return false })
+
+	rec := doRequest(t, srv, http.MethodGet, "/readyz", "")
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d\nbody: %s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("json unmarshal: %v", err)
+	}
+	if ready, _ := body["ready"].(bool); ready {
+		t.Fatalf("expected ready=false, got body: %v", body)
+	}
+	if gate, _ := body["gate"].(string); gate != "startup" {
+		t.Fatalf("expected gate=startup, got %q", gate)
+	}
+}
+
+func TestServer_Readyz_GatePassesThroughWhenReady(t *testing.T) {
+	e := newEngine(t)
+	pid := e.Spawn(
+		actorruntime.NewGuardian(actorruntime.GuardianConfig{}),
+		"guardian",
+		actor.WithID("guardian-readyz-gate-pass"),
+	)
+	time.Sleep(50 * time.Millisecond)
+	defer e.Poison(pid)
+
+	srv := newTestServer(e, pid)
+	srv.SetReadyGate(func() bool { return true })
+
+	rec := doRequest(t, srv, http.MethodGet, "/readyz", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d\nbody: %s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("json unmarshal: %v", err)
+	}
+	if ready, _ := body["ready"].(bool); !ready {
+		t.Fatalf("expected ready=true, got body: %v", body)
+	}
+}
+
 func TestServer_Readyz_Timeout_Returns504(t *testing.T) {
 	e := newEngine(t)
 	silentPID := e.Spawn(func() actor.Receiver {
@@ -326,6 +708,105 @@ func TestServer_Readyz_Timeout_Returns504(t *testing.T) {
 		t.Fatalf("expected 504, got %d", rec.Code)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// GET /shardz
+// ---------------------------------------------------------------------------
+
+func TestServer_Shardz_NotConfigured_Returns404(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+	rec := doRequest(t, srv, http.MethodGet, "/shardz", "")
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 when sharding not configured, got %d\nbody: %s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("response is not valid JSON: %v\nbody: %s", err, rec.Body.String())
+	}
+	if _, ok := body["error"]; !ok {
+		t.Fatalf("expected error field in response, got %#v", body)
+	}
+}
+
+func TestServer_Shardz_Configured_Returns200(t *testing.T) {
+	// Configure shard state so endpoint returns 200.
+	observability.SetShardTopology(1, 4, 50000)
+	observability.SetShardLag(1234)
+	// Increment counters a few times.
+	observability.IncShardEventsTotal()
+	observability.IncShardEventsTotal()
+	observability.IncShardSkipTotal()
+
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+	rec := doRequest(t, srv, http.MethodGet, "/shardz", "")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d\nbody: %s", rec.Code, rec.Body.String())
+	}
+	ct := rec.Header().Get("Content-Type")
+	if !strings.HasPrefix(ct, "application/json") {
+		t.Fatalf("expected application/json Content-Type, got %q", ct)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("response is not valid JSON: %v\nbody: %s", err, rec.Body.String())
+	}
+
+	expectedFields := []string{"shard_index", "shard_count", "lag", "events_total", "skip_total", "budget", "budget_ok"}
+	for _, f := range expectedFields {
+		if _, ok := body[f]; !ok {
+			t.Errorf("expected %q field in response, got keys: %v", f, keys(body))
+		}
+	}
+
+	if idx, _ := body["shard_count"].(float64); idx != 4 {
+		t.Errorf("expected shard_count=4, got %v", body["shard_count"])
+	}
+	if budgetOK, _ := body["budget_ok"].(bool); !budgetOK {
+		t.Errorf("expected budget_ok=true (lag 1234 < budget 50000), got %v", body["budget_ok"])
+	}
+}
+
+func TestServer_Shardz_AcceptProto_returnsProtobufEnvelope(t *testing.T) {
+	observability.SetShardTopology(0, 2, 0)
+
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+	rec := doRequestWithHeaders(t, srv, http.MethodGet, "/shardz", "", map[string]string{
+		"Accept": "application/x-protobuf",
+	})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/x-protobuf") {
+		t.Fatalf("content-type=%q want application/x-protobuf", got)
+	}
+	out, p := contracts.UnmarshalEnvelopeV1ToDomain(rec.Body.Bytes())
+	if p != nil {
+		t.Fatalf("proto unmarshal failed: %v", p)
+	}
+	if out.Type != "runtime.shardz" {
+		t.Fatalf("envelope.type=%q want runtime.shardz", out.Type)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GET /metrics
+// ---------------------------------------------------------------------------
 
 func TestServer_Metrics_ExposesPrometheusFormat(t *testing.T) {
 	e := newEngine(t)
@@ -382,6 +863,25 @@ func TestServer_Pprof_EnabledLocalhostAllowed(t *testing.T) {
 	}
 }
 
+func TestServer_PprofIndex_EnabledLocalhostAllowed(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := httpserver.NewServer(e, guardianPID, ":0", true, nil)
+	req := httptest.NewRequest(http.MethodGet, "/debug/pprof/", strings.NewReader(""))
+	req.RemoteAddr = "127.0.0.1:12345"
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "profiles") {
+		t.Fatalf("expected pprof index output")
+	}
+}
+
 func TestServer_Pprof_EnabledRemoteForbidden(t *testing.T) {
 	e := newEngine(t)
 	guardianPID := newGuardian(t, e)
@@ -432,4 +932,78 @@ func keys(m map[string]any) []string {
 		ks = append(ks, k)
 	}
 	return ks
+}
+
+func assertStoragePathShape(t *testing.T, body map[string]any, field string) {
+	t.Helper()
+	raw, ok := body[field]
+	if !ok {
+		t.Fatalf("expected %q field, got %#v", field, body)
+	}
+	entry, ok := raw.(map[string]any)
+	if !ok {
+		t.Fatalf("%s should be object, got %#v", field, raw)
+	}
+	assertBoolOrUnknown(t, entry, "last_ok")
+	if v, ok := entry["last_error"]; !ok {
+		t.Fatalf("%s.last_error missing", field)
+	} else if _, ok := v.(string); !ok {
+		t.Fatalf("%s.last_error should be string, got %#v", field, v)
+	}
+	assertNumberOrUnknown(t, entry, "fails_total")
+}
+
+func assertCommitterShape(t *testing.T, body map[string]any) {
+	t.Helper()
+	raw, ok := body["committer"]
+	if !ok {
+		t.Fatalf("expected committer field, got %#v", body)
+	}
+	entry, ok := raw.(map[string]any)
+	if !ok {
+		t.Fatalf("committer should be object, got %#v", raw)
+	}
+	assertBoolOrUnknown(t, entry, "last_ok")
+	if v, ok := entry["last_error"]; !ok {
+		t.Fatal("committer.last_error missing")
+	} else if _, ok := v.(string); !ok {
+		t.Fatalf("committer.last_error should be string, got %#v", v)
+	}
+}
+
+func assertBoolOrUnknown(t *testing.T, body map[string]any, field string) {
+	t.Helper()
+	v, ok := body[field]
+	if !ok {
+		t.Fatalf("%s missing", field)
+	}
+	switch typed := v.(type) {
+	case bool:
+	case string:
+		if typed != "unknown" {
+			t.Fatalf("%s string=%q want unknown", field, typed)
+		}
+	default:
+		t.Fatalf("%s should be bool or unknown string, got %#v", field, v)
+	}
+}
+
+func assertNumberOrUnknown(t *testing.T, body map[string]any, field string) {
+	t.Helper()
+	v, ok := body[field]
+	if !ok {
+		t.Fatalf("%s missing", field)
+	}
+	switch typed := v.(type) {
+	case float64:
+		if typed < 0 {
+			t.Fatalf("%s should be >= 0, got %v", field, typed)
+		}
+	case string:
+		if typed != "unknown" {
+			t.Fatalf("%s string=%q want unknown", field, typed)
+		}
+	default:
+		t.Fatalf("%s should be number or unknown string, got %#v", field, v)
+	}
 }

@@ -5,6 +5,8 @@ description: Documentation index and navigation for .context guides
 category: index
 generated: 2026-02-12
 status: filled
+docStatus: ACTIVE
+last_reviewed: "2026-02-17"
 scaffoldVersion: "2.0.0"
 ---
 
@@ -13,16 +15,17 @@ scaffoldVersion: "2.0.0"
 This folder is the operational knowledge base for contributors and AI agents working in Market Raccoon.
 
 ## Core Guides
+- [Start Here](./00-START-HERE.md)
 - [Project Overview](./project-overview.md)
 - [Development Workflow](./development-workflow.md)
 - [Testing Strategy](./testing-strategy.md)
 - [Tooling & Productivity Guide](./tooling.md)
-- [Codebase Map](./codebase-map.json)
 
 ## Architecture Sources (Primary)
 - [Architecture Overview](../../docs/architecture/README.md)
 - [System Invariants](../../docs/architecture/system-invariants.md)
 - [Event Bus Contract](../../docs/contracts/event-bus.md)
+- [Heatmap Architecture](../../docs/architecture/heatmap.md)
 - [ADRs](../../docs/adrs)
 
 ## Repository Snapshot

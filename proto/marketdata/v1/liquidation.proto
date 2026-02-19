@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package marketdata.v1;
+
+option go_package = "github.com/market-raccoon/internal/shared/proto/gen/marketdata/v1";
+
+// LiquidationTickV1 models a liquidation event.
+message LiquidationTickV1 {
+  // Side is the liquidation side (buy or sell).
+  string side = 1;
+  // Price is the liquidation execution price.
+  double price = 2;
+  // Size is the liquidation quantity.
+  double size = 3;
+  // TimestampMs is the event timestamp in Unix milliseconds.
+  int64 timestamp_ms = 4;
+
+  reserved 100 to 199;
+}

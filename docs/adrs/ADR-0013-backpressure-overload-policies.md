@@ -1,6 +1,6 @@
 # ADR-0013 — Backpressure & Overload Policies
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-02-12
 **Deciders:** Chief Architect
 **Relates to:** PRD-0001 sections E.2, A.5, RFC-0006 (W5)
@@ -111,3 +111,31 @@ Silent data loss is the worst failure mode for a market data platform. Making dr
 3. Formalize priority enum in `internal/actors/marketdata/runtime/` (RFC-0006/W5)
 4. Add 80%/50% threshold logging to wsQueue (RFC-0006/W5)
 5. Wire all counters to Prometheus registry (RFC-0005/W4)
+
+## Amendment (W11/W12): Current Coverage
+
+W11/W12 established explicit deterministic overload coverage for VPVR emit path:
+
+- Formal levels `L0-L3` and deterministic transitions based on bounded signals.
+- Deterministic compress/cadence/drop policies without wall-clock dependency.
+- `window_close` preservation and same-window final-state invariance under overload.
+- Integration evidence for ack boundary + deterministic emitted sequence.
+- Soak evidence for deterministic burst and budget assertions.
+
+W11 baseline implicit coverage that already reduced overload risk:
+
+- Cardinality protection today:
+  - `max_instruments` configuration limits active instrument cardinality at runtime.
+  - Bounded maps in ingest/aggregation (`BoundedMap` with eviction) cap state growth and prevent unbounded map expansion under symbol churn.
+- JetStream operational signals today:
+  - `MaxAckPending` is configured and validated, providing a hard cap on outstanding unacked deliveries.
+  - Consumer lag is surfaced as an operational signal (`bus_consumer_lag`) and can be used to detect overload before sustained loss.
+- Remaining future work (explicit overload policies):
+  - Define explicit per-reason overload actions (for example: decode failure, slow consumer, publish timeout, redelivery storm), not only generic drop behavior.
+  - Bind each overload reason to deterministic policy (`drop`, `nak`, `term`, `quarantine`, `rate-limit`) with documented precedence.
+  - Add dedicated tests/alerts proving policy transitions by overload reason, beyond current implicit boundedness and lag visibility.
+
+## Evidence
+
+- Validation gate: `make docs-check-full`
+- Authority path: file-local ADR source.

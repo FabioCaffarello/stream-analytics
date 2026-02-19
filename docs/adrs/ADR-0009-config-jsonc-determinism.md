@@ -1,6 +1,6 @@
 # ADR-0009 — Config & Operations: JSONC Settings + Deterministic Pipelines
 
-**Status:** Accepted  
+**Status:** Accepted
 **Date:** 2026-02-10
 
 ## Context
@@ -36,3 +36,8 @@ Modelo de configuracao para multiplas exchanges e definido como lista de blocos 
 ### Secrets Handling
 
 Credenciais de exchange autenticada devem vir de env vars e nao de JSONC plano. Validacao fail-fast ao iniciar quando referencia existir e valor estiver ausente.
+
+## Evidence
+
+- Validation gate: `make docs-check-full`
+- Authority path: file-local ADR source.

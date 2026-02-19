@@ -1,11 +1,14 @@
-# W5 soak harness 2026-02-12T07:43:21Z
+# W5 soak harness 2026-02-14T00:38:38Z
+go_cache=/tmp/go-build
+ws_pattern=TestConsumer_ConnectDisconnectCycle_(NoGoroutineLeak|HeapStable)
+boundedmap_pattern=TestBoundedMap_(ConcurrentAccess|EvictBySizeLRU|EvictByTTL)
 Running consumer lifecycle leak checks...
 === RUN   TestConsumer_ConnectDisconnectCycle_NoGoroutineLeak
 --- PASS: TestConsumer_ConnectDisconnectCycle_NoGoroutineLeak (0.23s)
 === RUN   TestConsumer_ConnectDisconnectCycle_HeapStable
 --- PASS: TestConsumer_ConnectDisconnectCycle_HeapStable (0.34s)
 PASS
-ok  	github.com/market-raccoon/internal/actors/marketdata/ws	0.727s
+ok  	github.com/market-raccoon/internal/actors/marketdata/ws	0.773s
 Running bounded map stability checks...
 === RUN   TestBoundedMap_EvictBySizeLRU
 --- PASS: TestBoundedMap_EvictBySizeLRU (0.00s)
@@ -14,5 +17,5 @@ Running bounded map stability checks...
 === RUN   TestBoundedMap_ConcurrentAccess
 --- PASS: TestBoundedMap_ConcurrentAccess (0.00s)
 PASS
-ok  	github.com/market-raccoon/internal/shared/ds	0.132s
+ok  	github.com/market-raccoon/internal/shared/ds	0.164s
 Soak harness completed

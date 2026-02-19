@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/market-raccoon/internal/shared/envelope"
+	"github.com/market-raccoon/internal/shared/naming"
 	"github.com/market-raccoon/internal/shared/problem"
 )
 
@@ -35,7 +36,7 @@ func ParseSubject(raw string) (Subject, *problem.Problem) {
 func NewSubject(streamType, venue, symbol, timeframe string) (Subject, *problem.Problem) {
 	streamType = strings.ToLower(strings.TrimSpace(streamType))
 	venue = strings.ToLower(strings.TrimSpace(venue))
-	symbol = strings.ToUpper(strings.TrimSpace(symbol))
+	symbol = NormalizeSymbol(symbol)
 	timeframe = strings.ToLower(strings.TrimSpace(timeframe))
 
 	if streamType == "" {
@@ -57,6 +58,18 @@ func NewSubject(streamType, venue, symbol, timeframe string) (Subject, *problem.
 		Symbol:     symbol,
 		Timeframe:  timeframe,
 	}, nil
+}
+
+// NormalizeSymbol converts WS symbol tokens to canonical event-bus instrument
+// representation for deterministic routing and parity checks.
+func NormalizeSymbol(raw string) string {
+	return naming.CanonicalInstrument(raw)
+}
+
+// IsInstrumentSymbolEquivalent reports whether WS symbol and bus instrument
+// refer to the same canonical token.
+func IsInstrumentSymbolEquivalent(symbol, instrument string) bool {
+	return NormalizeSymbol(symbol) == NormalizeSymbol(instrument)
 }
 
 func SubjectFromEnvelope(env envelope.Envelope, timeframe string) (Subject, *problem.Problem) {

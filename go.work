@@ -1,6 +1,7 @@
 go 1.25.6
 
 use (
+	./cmd/backfill
 	./cmd/consumer
 	./cmd/processor
 	./cmd/server

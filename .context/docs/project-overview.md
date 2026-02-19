@@ -5,6 +5,8 @@ description: High-level overview of the project, its purpose, and key components
 category: overview
 generated: 2026-02-12
 status: filled
+docStatus: ACTIVE
+last_reviewed: "2026-02-17"
 scaffoldVersion: "2.0.0"
 ---
 
@@ -12,15 +14,16 @@ scaffoldVersion: "2.0.0"
 
 Market Raccoon is a market intelligence backend that ingests market data, normalizes and sequences events, builds read models, and serves runtime/delivery capabilities through an actor-based architecture. It is designed for deterministic processing, replayability, and low-latency delivery rather than trade execution.
 
-## Codebase Reference
-> **Detailed Analysis**: For generated repository structure metadata, see [`codebase-map.json`](./codebase-map.json).
-
 ## Quick Facts
 - Root: `/Volumes/OWC Express 1M2/Develop/market-raccoon`
 - Primary language: Go (workspace with multiple modules in `go.work`)
 - Main entrypoints: `cmd/consumer`, `cmd/processor`, `cmd/server`
 - Build orchestration: `Makefile`
-- Full generated snapshot: [`codebase-map.json`](./codebase-map.json)
+
+## Context Truth Navigation
+- Context bridge index: [`truth-pack.md`](./truth-pack.md)
+- Canonical authority map: [`docs/architecture/TRUTH-MAP.md`](../../docs/architecture/TRUTH-MAP.md)
+- Execution/program baseline: [`docs/rfcs/EXECUTION-SEQUENCE.md`](../../docs/rfcs/EXECUTION-SEQUENCE.md), [`docs/prd/PRD-0001-extreme-runtime.md`](../../docs/prd/PRD-0001-extreme-runtime.md)
 
 ## Entry Points
 - [`cmd/consumer/main.go`](../../cmd/consumer/main.go#L1) - Market data ingestion runtime (supports fake feed mode for development).
@@ -28,7 +31,7 @@ Market Raccoon is a market intelligence backend that ingests market data, normal
 - [`cmd/server/main.go`](../../cmd/server/main.go#L1) - Runtime supervision and HTTP endpoints (`/healthz`, `/runtime/snapshot`, `/runtime/reload`).
 
 ## Key Exports
-Primary exported behavior is organized by bounded context modules under `internal/core/*`, plus actor runtime orchestration under `internal/actors/*`. See [`codebase-map.json`](./codebase-map.json) and package-level docs for detailed symbol inventory.
+Primary exported behavior is organized by bounded context modules under `internal/core/*`, plus actor runtime orchestration under `internal/actors/*`. See package-level docs for detailed symbol inventory.
 
 ## File Structure & Code Organization
 - `cmd/` - Process-level composition and dependency wiring for binaries.
@@ -49,12 +52,12 @@ The project uses Go workspace modules (`go.work`) with actor runtime patterns (`
 Key workflow entrypoints:
 - `make` targets for formatting, lint, test, vulnerability scan, and build.
 - `scripts/*` helpers for module-aware workspace operations.
-- pre-commit hooks for fast local guardrails (`tidy-check`, `fmt-check`, `lint`, `test-short`, commit message validation).
+- pre-commit hooks for fast local guardrails (`legacy-check-staged`, `tidy-check-changed`, `fmt-check`, `lint-changed`, `test-short-changed`, commit message validation), with heavier checks on pre-push and CI.
 
 ## Getting Started Checklist
 1. Install Go toolchain compatible with workspace and install tools with `make install-tools`.
 2. Run `make modules` to inspect workspace module boundaries.
-3. Execute `make test-short` to validate baseline environment quickly.
+3. Execute `make tidy-check-changed && make lint-changed && make test-short-changed` for a fast changed-path validation loop.
 4. Execute `make ci` to run the same quality gates expected in CI.
 5. Run a binary locally, for example `make run APP_CMD=./cmd/server`.
 6. Read [`development-workflow.md`](./development-workflow.md) and [`testing-strategy.md`](./testing-strategy.md) before opening PRs.

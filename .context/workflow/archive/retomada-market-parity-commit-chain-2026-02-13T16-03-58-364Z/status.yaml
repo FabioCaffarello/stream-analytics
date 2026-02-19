@@ -1,0 +1,37 @@
+project:
+  name: "retomada-market-parity-commit-chain"
+  scale: LARGE
+  started: "2026-02-13T15:51:07.594Z"
+  current_phase: R
+
+phases:
+  P:
+    status: filled
+    started_at: "2026-02-13T15:51:07.594Z"
+    completed_at: "2026-02-13T15:56:19.921Z"
+  R:
+    status: in_progress
+    started_at: "2026-02-13T15:56:19.922Z"
+  E:
+    status: pending
+  V:
+    status: pending
+  C:
+    status: pending
+
+execution:
+  history:
+    - timestamp: "2026-02-13T15:56:19.922Z"
+      phase: R
+      action: started
+  last_activity: "2026-02-13T15:56:19.922Z"
+  resume_context: "Fase R (Revisão) em progresso"
+
+settings:
+  autonomous_mode: false
+  require_plan: true
+  require_approval: false
+
+approval:
+  plan_created: true
+  plan_approved: false

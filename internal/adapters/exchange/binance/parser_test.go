@@ -53,6 +53,60 @@ func TestParseMessage_DepthUpdate(t *testing.T) {
 	}
 }
 
+func TestParseMessage_MarkPriceUpdate(t *testing.T) {
+	msg := []byte(`{"stream":"btcusdt@markPrice","data":{"e":"markPriceUpdate","E":1710000020000,"s":"BTCUSDT","p":"42100.5","i":"42095.1","r":"0.0003"}}`)
+	req, skip, p := binance.ParseMessage(msg, time.UnixMilli(1710000021000))
+	if p != nil || skip {
+		t.Fatalf("ParseMessage failed: skip=%v problem=%v", skip, p)
+	}
+	if req.EventType != "marketdata.markprice" || req.Instrument != "BTCUSDT" {
+		t.Fatalf("unexpected request: %#v", req)
+	}
+	payload, ok := req.Payload.(domain.MarkPriceTickV1)
+	if !ok {
+		t.Fatalf("unexpected payload type: %T", req.Payload)
+	}
+	if payload.MarkPrice != 42100.5 || payload.IndexPrice != 42095.1 || payload.FundingRate != 0.0003 {
+		t.Fatalf("unexpected markprice payload: %#v", payload)
+	}
+}
+
+func TestParseMarkPriceUpdate_WithFundingRate(t *testing.T) {
+	msg := []byte(`{"stream":"btcusdt@markPrice","data":{"e":"markPriceUpdate","E":1700000000000,"s":"BTCUSDT","p":"42000.50","i":"42001.00","r":"0.00010000"}}`)
+	req, skip, p := binance.ParseMessage(msg, time.UnixMilli(1700000001000))
+	if p != nil || skip {
+		t.Fatalf("ParseMessage failed: skip=%v problem=%v", skip, p)
+	}
+	if req.EventType != "marketdata.markprice" || req.Venue != "BINANCE" || req.Instrument != "BTCUSDT" {
+		t.Fatalf("unexpected request: %#v", req)
+	}
+	payload, ok := req.Payload.(domain.MarkPriceTickV1)
+	if !ok {
+		t.Fatalf("unexpected payload type: %T", req.Payload)
+	}
+	if payload.MarkPrice != 42000.50 || payload.IndexPrice != 42001.0 || payload.FundingRate != 0.0001 {
+		t.Fatalf("unexpected payload: %#v", payload)
+	}
+}
+
+func TestParseMessage_ForceOrderLiquidation(t *testing.T) {
+	msg := []byte(`{"e":"forceOrder","E":1710000030000,"o":{"s":"ETHUSDT","S":"SELL","p":"2500.25","q":"12.4","T":1710000030001}}`)
+	req, skip, p := binance.ParseMessage(msg, time.UnixMilli(1710000031000))
+	if p != nil || skip {
+		t.Fatalf("ParseMessage failed: skip=%v problem=%v", skip, p)
+	}
+	if req.EventType != "marketdata.liquidation" || req.Instrument != "ETHUSDT" {
+		t.Fatalf("unexpected request: %#v", req)
+	}
+	payload, ok := req.Payload.(domain.LiquidationTickV1)
+	if !ok {
+		t.Fatalf("unexpected payload type: %T", req.Payload)
+	}
+	if payload.Side != "sell" || payload.Price != 2500.25 || payload.Size != 12.4 || payload.Timestamp != 1710000030001 {
+		t.Fatalf("unexpected liquidation payload: %#v", payload)
+	}
+}
+
 func TestParseMessage_UnknownEventSkips(t *testing.T) {
 	req, skip, p := binance.ParseMessage([]byte(`{"e":"ping"}`), time.Now())
 	if p != nil {
@@ -160,5 +214,19 @@ func TestParseMessageWithMeta_WrappedStreamCarriesWSStream(t *testing.T) {
 	}
 	if meta.WSStream != "btcusdt@depth@100ms" {
 		t.Fatalf("WSStream = %q, want btcusdt@depth@100ms", meta.WSStream)
+	}
+}
+
+func TestParseMessageForMarketType_PropagatesMarketType(t *testing.T) {
+	msg := []byte(`{"e":"aggTrade","E":1710000001111,"T":1710000001111,"s":"BTCUSDT","a":1,"p":"1.0","q":"2.0","m":false}`)
+	req, skip, p := binance.ParseMessageForMarketType(msg, time.UnixMilli(1710000009999), "USD_M_FUTURES")
+	if p != nil || skip {
+		t.Fatalf("ParseMessage failed: skip=%v problem=%v", skip, p)
+	}
+	if req.MarketType != domain.MarketTypeUSDMFutures.String() {
+		t.Fatalf("market type = %q, want %q", req.MarketType, domain.MarketTypeUSDMFutures.String())
+	}
+	if req.Metadata["instrument_market_type"] != domain.MarketTypeUSDMFutures.String() {
+		t.Fatalf("metadata market type = %q, want %q", req.Metadata["instrument_market_type"], domain.MarketTypeUSDMFutures.String())
 	}
 }

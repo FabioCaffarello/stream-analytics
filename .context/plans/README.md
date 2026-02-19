@@ -2,12 +2,23 @@
 
 This directory contains plans for coordinating work across documentation and playbooks.
 
-## Plan Queue
-1. [Context Bootstrap](./context-bootstrap.md)
-2. [W2 Delivery Bc](./w2-delivery-bc.md)
-3. [W3 Binance Real Ingestion](./w3-binance-real-ingestion.md)
-4. [W3 Sources Marketdata Binance](./w3-sources-marketdata-binance.md)
-5. [Wx Docker Nats Compose](./wx-docker-nats-compose.md)
+## Active Queue
+1. [Codebase Evolution Modernization](./codebase-evolution-modernization.md)
+2. [Retomada Market Parity Commit Chain](./retomada-market-parity-commit-chain.md)
+3. [Shard Production Grade](./shard-production-grade.md)
+4. [Subject Taxonomy Stabilization](./subject-taxonomy-stabilization.md)
+5. [W0 Build Acceleration](./w0-build-acceleration.md)
+6. [W1 Consumer Hotspot Dedup](./w1-consumer-hotspot-dedup.md)
+7. [Composition Root](./composition-root.md)
+8. [Context Restructuring](./context-restructuring.md)
+9. [M3 Vpvr Plan](./m3-vpvr-plan.md)
+
+## Template Backlog (Needs Cleanup Before Execution)
+1. [Build Accel W0](./build-accel-w0.md)
+2. [M3 Bootstrap](./m3-bootstrap.md)
+3. [M3 C6 Vpvr Observability](./m3-c6-vpvr-observability.md)
+4. [M3 Closeout Post C6 Audit](./m3-closeout-post-c6-audit.md)
+5. [M3 Heatmap Plan](./m3-heatmap-plan.md)
 
 ## How To Create Or Update Plans
 - Run "ai-context plan <name>" to scaffold a new plan template.

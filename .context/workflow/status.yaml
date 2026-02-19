@@ -1,41 +1,38 @@
 project:
-  name: "WX-docker-nats-compose"
-  scale: MEDIUM
-  started: "2026-02-12T04:34:06.644Z"
-  current_phase: E
+  name: "shard-alerts-skew-detection"
+  scale: SMALL
+  started: "2026-02-17T18:07:44.925Z"
+  current_phase: V
 
 phases:
   P:
     status: filled
-    started_at: "2026-02-12T04:34:06.644Z"
-    completed_at: "2026-02-12T04:36:25.088Z"
+    started_at: "2026-02-17T18:07:44.925Z"
+    completed_at: "2026-02-17T18:07:53.159Z"
   R:
-    status: filled
-    started_at: "2026-02-12T04:36:25.089Z"
-    completed_at: "2026-02-12T04:36:38.032Z"
+    status: skipped
+    reason: "Not required for scale SMALL"
   E:
-    status: in_progress
-    started_at: "2026-02-12T04:36:38.033Z"
+    status: filled
+    started_at: "2026-02-17T18:07:53.159Z"
+    completed_at: "2026-02-17T18:12:34.335Z"
   V:
-    status: pending
+    status: filled
+    started_at: "2026-02-17T18:12:34.336Z"
+    completed_at: "2026-02-17T18:12:55.170Z"
   C:
     status: skipped
-    reason: "Not required for scale MEDIUM"
+    reason: "Not required for scale SMALL"
 
 execution:
   history:
-    - timestamp: "2026-02-12T05:46:57.698Z"
+    - timestamp: "2026-02-18T16:05:43.857Z"
       phase: E
       action: decision_recorded
-      plan: "w3-binance-real-ingestion"
-      description: "Decision recorded: Config durations fail-fast"
-  last_activity: "2026-02-12T05:46:57.698Z"
+      plan: "codebase-evolution-modernization"
+      description: "Decision recorded: Rollout de streams LM coberto com testes de runtime wiring"
+  last_activity: "2026-02-18T16:05:43.857Z"
   resume_context: "Decisão registrada"
-
-settings:
-  autonomous_mode: false
-  require_plan: true
-  require_approval: false
 
 approval:
   plan_created: true

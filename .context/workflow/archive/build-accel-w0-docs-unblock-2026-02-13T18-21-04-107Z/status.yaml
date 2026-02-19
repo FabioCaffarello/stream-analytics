@@ -1,0 +1,46 @@
+project:
+  name: "build-accel-w0-docs-unblock"
+  scale: MEDIUM
+  started: "2026-02-13T18:04:01.796Z"
+  current_phase: V
+
+phases:
+  P:
+    status: filled
+    started_at: "2026-02-13T18:04:01.796Z"
+    completed_at: "2026-02-13T18:04:44.834Z"
+  R:
+    status: filled
+    started_at: "2026-02-13T18:04:44.835Z"
+    completed_at: "2026-02-13T18:04:44.839Z"
+  E:
+    status: filled
+    started_at: "2026-02-13T18:04:44.839Z"
+    completed_at: "2026-02-13T18:14:13.446Z"
+  V:
+    status: completed
+    started_at: "2026-02-13T18:14:13.447Z"
+    completed_at: "2026-02-13T18:14:16.349Z"
+    outputs:
+      - path: "/tmp/mr_docs_full_final.log"
+        status: filled
+  C:
+    status: skipped
+    reason: "Not required for scale MEDIUM"
+
+execution:
+  history:
+    - timestamp: "2026-02-13T18:14:16.349Z"
+      phase: V
+      action: completed
+  last_activity: "2026-02-13T18:14:16.349Z"
+  resume_context: "Fase V (Validação) concluída"
+
+settings:
+  autonomous_mode: false
+  require_plan: true
+  require_approval: false
+
+approval:
+  plan_created: true
+  plan_approved: false

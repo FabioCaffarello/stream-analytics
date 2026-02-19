@@ -1,6 +1,6 @@
 # ADR-0008 — Insights Are Decision Support, Not Execution
 
-**Status:** Accepted  
+**Status:** Accepted
 **Date:** 2026-02-10
 
 ## Context
@@ -27,3 +27,12 @@ Execution automation is explicitly out of scope for the initial product.
 
 - Signal product (rejected: higher liability and harder compliance).
 - Fully automated trading agents (rejected for MVP).
+
+## Evidence
+
+- Validation gate: `make docs-check-full`
+- Authority path: file-local ADR source.
+
+## Changelog
+
+- 2026-02-13: added required header sections for docs compliance.

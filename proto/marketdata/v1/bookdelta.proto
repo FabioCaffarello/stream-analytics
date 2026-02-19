@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package marketdata.v1;
+
+option go_package = "github.com/market-raccoon/internal/shared/proto/gen/marketdata/v1";
+
+// PriceLevel models one order book level.
+message PriceLevel {
+  // Price is the level price.
+  double price = 1;
+  // Size is the level quantity.
+  double size = 2;
+
+  reserved 100 to 199;
+}
+
+// BookDeltaV1 models one incremental order book update.
+message BookDeltaV1 {
+  // Bids carries bid-side level updates.
+  repeated PriceLevel bids = 1;
+  // Asks carries ask-side level updates.
+  repeated PriceLevel asks = 2;
+  // FirstUpdateId is the first venue sequence in this delta.
+  int64 first_update_id = 3;
+  // FinalUpdateId is the final venue sequence in this delta.
+  int64 final_update_id = 4;
+  // PrevFinalUpdateId is the previous final venue sequence when present.
+  int64 prev_final_update_id = 5;
+  // TimestampMs is the event timestamp in Unix milliseconds.
+  int64 timestamp_ms = 6;
+  // IsSnapshot indicates this payload is a full L2 snapshot, not an incremental delta.
+  bool is_snapshot = 7;
+
+  reserved 100 to 199;
+}

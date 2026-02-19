@@ -128,12 +128,25 @@ func (b *OrderBook) Asks() []Level {
 //
 // seq must be strictly greater than the last applied seq (monotonicity).
 // Each level with quantity=0 is removed; otherwise upserted.
-// After applying, invariants are validated.
+// After applying, invariants are validated.  If the resulting book is
+// crossed (best bid >= best ask), the book is cleared and NeedsResync
+// is set.  lastSeq still advances so subsequent deltas are not stuck.
 func (b *OrderBook) ApplyDelta(seq int64, bids, asks []Level) *problem.Problem {
+	return b.applyDelta(seq, bids, asks, false)
+}
+
+// ApplySnapshot replaces the entire order book with the given levels.
+// Unlike ApplyDelta, it clears existing levels first so that stale
+// prices from previous snapshots do not accumulate.
+func (b *OrderBook) ApplySnapshot(seq int64, bids, asks []Level) *problem.Problem {
+	return b.applyDelta(seq, bids, asks, true)
+}
+
+func (b *OrderBook) applyDelta(seq int64, bids, asks []Level, isSnapshot bool) *problem.Problem {
 	if p := validation.PositiveInt("seq", seq); p != nil {
 		return p
 	}
-	if seq <= b.lastSeq {
+	if seq <= b.lastSeq && !isSnapshot {
 		return problem.WithDetail(
 			problem.WithDetail(
 				problem.Newf(problem.OutOfOrder,
@@ -156,6 +169,12 @@ func (b *OrderBook) ApplyDelta(seq int64, bids, asks []Level) *problem.Problem {
 		}
 	}
 
+	// Full snapshot: clear existing levels so stale prices don't accumulate.
+	if isSnapshot {
+		b.bids = b.bids[:0]
+		b.asks = b.asks[:0]
+	}
+
 	// Apply updates.
 	b.bids = applyLevels(b.bids, bids)
 	b.asks = applyLevels(b.asks, asks)
@@ -168,11 +187,17 @@ func (b *OrderBook) ApplyDelta(seq int64, bids, asks []Level) *problem.Problem {
 	// Invariant: no crossed book.
 	if p := b.checkSpread(); p != nil {
 		b.state = NeedsResync
+		b.lastSeq = seq // advance seq to prevent infinite retry loop
 		b.events = append(b.events, OrderBookInconsistentDetected{
 			BookID: b.ID(),
 			Seq:    seq,
 			Reason: p.Message,
 		})
+		// Clear the book so the next delta rebuilds from scratch.
+		// Stale levels from prior snapshots are the typical cause of
+		// crossed books; keeping them would poison every future delta.
+		b.bids = b.bids[:0]
+		b.asks = b.asks[:0]
 		return p
 	}
 
@@ -244,15 +269,15 @@ func applyLevels(current []Level, updates []Level) []Level {
 
 	for _, u := range updates {
 		if u.Quantity == 0 {
-			// Remove level.
+			// Remove level via swap-remove — O(1) per deletion.
 			if i, ok := index[u.Price]; ok {
-				current[i] = current[len(current)-1]
-				current = current[:len(current)-1]
-				// Rebuild index (simple approach).
-				index = make(map[Price]int, len(current))
-				for j, l := range current {
-					index[l.Price] = j
+				last := len(current) - 1
+				if i != last {
+					current[i] = current[last]
+					index[current[i].Price] = i
 				}
+				delete(index, u.Price)
+				current = current[:last]
 			}
 		} else {
 			// Upsert.

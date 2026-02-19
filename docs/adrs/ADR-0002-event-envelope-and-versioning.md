@@ -1,6 +1,6 @@
 # ADR-0002 — Canonical Event Envelope & Versioning
 
-**Status:** Accepted  
+**Status:** Accepted
 **Date:** 2026-02-10
 
 ## Context
@@ -43,6 +43,7 @@ Versioning rules:
 ### Wire Format Strategy
 
 Envelope suporta multiplos formatos por `content_type`:
+
 - `application/json` (default atual)
 - `application/protobuf` (placeholder para W6)
 
@@ -62,7 +63,13 @@ Discovery de schema fica em manifest local (`proto/registry.json`) mapeando `(ty
 ### Meta Padronizada
 
 Campos reservados em `meta` para interoperabilidade futura:
+
 - `trace_id`
 - `source_stream`
 - `market_type`
 - `content_type`
+
+## Evidence
+
+- Validation gate: `make docs-check-full`
+- Authority path: file-local ADR source.

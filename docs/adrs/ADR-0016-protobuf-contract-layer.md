@@ -1,149 +1,116 @@
-# ADR-0016 — Protobuf Contract Layer
+# ADR-0016 - Protobuf Contract Layer
 
-**Status:** Proposed
+**Status:** Accepted
+**Implementation status:** Partially Implemented
+**Partial marker:** Status: Partially Implemented
+**Owner:** Governance Doc-First Maintainer
+**Last updated:** 2026-02-13
 **Date:** 2026-02-12
 **Deciders:** Chief Architect
-**Relates to:** PRD-0001 section E.6, RFC-0007 (W6)
+**Relates to:** PRD-0001 section E.6, `docs/rfcs/RFC-0007-W6-protobuf-contract-layer.md`, `docs/rfcs/EXECUTION-SEQUENCE.md`
 
 ---
 
-## Context
+## Contexto
 
-All serialization currently uses JSON via `codec.Marshal/Unmarshal`. There is no formal schema definition, no breaking change detection, and no type-safe wire contract between producers and consumers. PRD-0001 section A.5 flagged "Envelope.Payload — `[]byte` JSON blob sem schema registry" as a critical gap.
+O runtime em producao ainda opera com JSON como caminho padrao de payload, mas a camada de contratos protobuf ja foi parcialmente entregue (W6-1): schemas versionados, geracao de codigo e gates de compatibilidade.
 
-We need:
-- Schema definitions that are language-agnostic and versionable
-- Breaking change detection in CI
-- Wire-format efficiency (smaller payloads on bus)
-- Type-safe generated Go code for payloads
+O drift identificado no W11 e de governanca: o texto misturava "fundacao entregue" com "migracao runtime completa", sem separar claramente o que e verdade hoje vs o que permanece planejado.
 
-## Decision
+## Decisao
 
-### 1. Tooling: Buf (not raw protoc)
+1. Manter esta ADR como **decisao proposta** ate a migracao de publish/consume protobuf em runtime estar validada end-to-end.
+2. Tratar W6-1 como **escopo implementado** e obrigatorio nos gates:
+- `make proto-lint`
+- `make proto-gen`
+- `make proto-breaking`
+3. Preservar o boundary de dominio:
+- protobuf permitido apenas em `internal/shared/*`
+- proibido em `internal/core/*`, `internal/actors/*`, `internal/interfaces/*`
+4. Definir `proto/registry.json` como autoridade do inventario de schemas.
+5. Registrar explicitamente itens ainda pendentes para W6-2/W6-3 em matriz de implementacao.
 
-We adopt [Buf](https://buf.build) for:
-- **Linting:** enforces style and correctness rules on `.proto` files
-- **Breaking change detection:** `buf breaking --against .git#branch=main` in CI
-- **Code generation:** `buf generate` with `protocolbuffers/go` plugin
-- **Dependency management:** `buf.lock` for proto imports
+## Consequencias
 
-**Why not raw protoc:** protoc requires manual plugin management, has no built-in lint/breaking checks, and needs shell scripts for CI integration. Buf provides all of this as a single binary with declarative config.
+- Positivas:
+- Contratos protobuf passam a ter fonte canonica versionada e auditavel.
+- Drift de status entre ADR/RFC e codigo fica explicitado.
+- Gates de schema passam a ser rastreaveis em um unico documento.
 
-### 2. Directory Layout
+- Negativas:
+- Decisao final continua aberta enquanto runtime protobuf opt-in nao fecha E2E.
+- Equipe precisa operar dois caminhos de payload durante a transicao (json/protobuf).
 
-```
-proto/
-├── buf.yaml              # Workspace + lint/breaking config
-├── buf.gen.yaml           # Code generation config
-├── buf.lock               # Dependency lock file
-├── registry.json          # Schema manifest (type → proto file → message)
-├── envelope/
-│   └── v1/
-│       └── envelope.proto
-└── marketdata/
-    └── v1/
-        ├── trade.proto
-        ├── bookdelta.proto
-        ├── markprice.proto
-        └── liquidation.proto
-```
+## Invariantes
 
-Generated Go code output: `internal/shared/proto/gen/`
+- `PROTO-1`: `buf lint` deve passar para alteracoes em `proto/*`.
+- `PROTO-2`: `buf breaking` deve proteger compatibilidade wire contra `main`.
+- `PROTO-3`: serializacao JSON e protobuf devem manter equivalencia semantica dos payloads suportados.
+- `PROTO-4`: `proto/registry.json` deve cobrir os contratos versionados ativos.
+- `PROTO-5`: boundary protobuf-free no dominio deve ser preservado por `make invariants-check`.
 
-### 3. Schema Versioning Convention
+## Compatibility Rules
 
-- Package path includes version: `marketdata.v1`
-- Message names include version suffix: `TradeTickV1`
-- New incompatible versions get new package: `marketdata.v2`
-- Old versions remain available (append-only registry)
+1. Toda mudanca em `.proto` deve manter backward compatibility por default.
+2. Reuso de field number e proibido, mesmo para campo removido.
+3. Campo removido deve virar `reserved` (numero e nome).
+4. Adicao permitida apenas para campos opcionais/repeated.
+5. Renomear campo sem `reserved` e breaking change.
+6. Troca de tipo wire-incompatible e breaking change.
+7. `oneof` novo so pode adicionar variantes sem remover existentes.
+8. `package` e `go_package` sao estaveis por versao major.
+9. `type` + `version` em `proto/registry.json` sao autoridade canonica.
+10. Conversores `Domain<->Proto` devem preservar equivalencia semantica.
+11. `content_type=application/protobuf` continua opt-in.
+12. Caminho `application/json` permanece comportamento default.
+13. Decoder deve rejeitar `content_type` desconhecido explicitamente.
+14. Unknown event type em proto deve falhar com erro de validacao.
+15. Unknown event type em json segue fallback policy configurada.
+16. Dominio (`internal/core/*`) nao importa protobuf runtime.
+17. Gates minimos de contrato: `proto-lint` + `proto-breaking`.
+18. Replay/determinismo nao pode depender de codec selecionado.
+19. Flags default OFF nao podem alterar golden existente.
+20. Qualquer quebra de contrato deve subir `version` explicitamente.
 
-### 4. Compatibility Rules
+## Implementation Matrix
 
-| Rule | Enforcement |
-|------|-------------|
-| Never reuse field numbers | `buf breaking` (WIRE rule set) |
-| Never change field types | `buf breaking` |
-| Never remove required fields | `reserved` directive + `buf breaking` |
-| Never add to existing `oneof` | `buf breaking` |
-| New optional fields only | Code review |
+| Feature | Status | Referencia |
+|---|---|---|
+| Schemas v1 em `proto/` + manifest authority | Implemented | `proto/envelope/v1/envelope.proto`, `proto/marketdata/v1/trade.proto`, `proto/registry.json` |
+| Toolchain Buf (`lint/gen/breaking`) | Implemented | `Makefile:217`, `Makefile:220`, `Makefile:224` |
+| Registro de payload com codecs JSON/Proto | Implemented | `internal/shared/contracts/payload_registry.go`, `internal/shared/contracts/semantic_equivalence_test.go:13` |
+| `ContentType` com suporte protobuf no envelope/codec | Implemented | `internal/shared/envelope/envelope.go`, `internal/shared/codec/payload_codec_test.go:17` |
+| VPVR snapshot proto opt-in (default OFF) | Implemented | `proto/insights/v1/volume_profile.proto`, `internal/shared/contracts/insights_registry.go`, `internal/shared/contracts/insights_registry_test.go` |
+| Publish/consume protobuf como caminho operacional padrao | Planned | `docs/rfcs/RFC-0007-W6-protobuf-contract-layer.md`, `docs/rfcs/EXECUTION-SEQUENCE.md` |
+| Evidencia negativa formal de `proto-breaking` (campo removido) | Planned | `docs/rfcs/EXECUTION-SEQUENCE.md` |
 
-### 5. Envelope ContentType
+## Evidence
 
-`Envelope` gains a `ContentType` field:
-- `"application/json"` (default, backward compatible)
-- `"application/protobuf"` (opt-in)
+- Build and schema gates:
+- `Makefile:217`
+- `Makefile:220`
+- `Makefile:224`
 
-Codec auto-detects format based on ContentType and dispatches to JSON or proto decoder.
+- Contract authority and equivalence:
+- `internal/shared/contracts/authority_test.go:268`
+- `internal/shared/contracts/semantic_equivalence_test.go:13`
+- `internal/shared/codec/payload_codec_test.go:17`
 
-### 6. Migration Strategy
+- Envelope content type behavior:
+- `internal/shared/envelope/envelope.go:14`
+- `internal/shared/envelope/envelope_test.go:96`
 
-| Phase | Scope | Runtime Impact |
-|-------|-------|----------------|
-| Phase 1 (W6) | Define schemas, generate code, add `buf lint` + `buf breaking` to CI | None — schemas are documentation only |
-| Phase 2 (W7) | Add ContentType to Envelope. Codec supports both JSON and proto. | Backward compatible — default is JSON |
-| Phase 3 (post-W7) | Opt-in proto publishing via config flag `encoding: protobuf` | Dual-codec consumers |
-| Phase 4 (post-W9) | Deprecate JSON for bus traffic. HTTP API remains JSON. | Proto-only on bus |
+- Domain boundary guard:
+- `scripts/check-domain-isolation.sh:13`
+- `scripts/check-domain-isolation.sh:49`
 
-### 7. Schema Registry Lite
+## Changelog
 
-`proto/registry.json` — static manifest mapping event types to proto definitions:
+- 2026-02-12:
+- ADR criada com decisao de adotar protobuf + Buf.
+- W6-1 registrado como fundacao entregue sem corte de runtime.
 
-```json
-{
-  "schemas": [
-    {"type": "marketdata.trade", "version": 1, "proto": "marketdata/v1/trade.proto", "message": "marketdata.v1.TradeTickV1", "status": "stable"},
-    {"type": "marketdata.bookdelta", "version": 1, "proto": "marketdata/v1/bookdelta.proto", "message": "marketdata.v1.BookDeltaV1", "status": "stable"}
-  ]
-}
-```
-
-No external registry service needed. This file is versioned in git alongside schemas.
-
-## Rationale
-
-Protobuf provides:
-- **Wire compatibility guarantees** via field numbering (not names)
-- **CI-enforceable breaking change detection** via `buf breaking`
-- **Smaller payloads** (2-10x smaller than JSON for numeric-heavy market data)
-- **Generated type-safe code** eliminating manual serialization bugs
-
-Buf specifically is preferred because it eliminates protoc toolchain management and provides integrated lint+breaking+generate in one tool.
-
-## Alternatives Considered
-
-1. **Stay JSON-only:** Rejected — no schema enforcement, no breaking change detection, no wire compatibility guarantee.
-2. **Avro:** Rejected — smaller ecosystem in Go, requires schema registry service.
-3. **FlatBuffers:** Rejected — more complex API, smaller community.
-4. **CBOR:** Already planned as codec option (codec.go is CBOR-ready). CBOR is complementary to proto, not a replacement for schema definition.
-5. **Raw protoc (no Buf):** Rejected — see Decision section 1.
-
-## Consequences
-
-### Positive
-- Breaking changes caught in CI before merge
-- Wire format efficiency reduces bus bandwidth
-- Generated code eliminates manual marshal/unmarshal bugs
-- Schema documentation is machine-readable (`.proto` files)
-
-### Negative
-- Buf is a build-time dependency (single binary, ~50MB)
-- Generated code adds to repo size (~10KB per message)
-- Dual-codec support adds complexity to codec package
-- Team must learn proto3 syntax and Buf workflow
-
-### Invariants (testable)
-- `PROTO-1`: `buf lint` passes with 0 errors (CI check)
-- `PROTO-2`: `buf breaking --against .git#branch=main` passes on PR (CI check)
-- `PROTO-3`: Proto-encoded message decodes identically to JSON-encoded version (roundtrip unit test)
-- `PROTO-4`: `registry.json` lists all schemas with correct proto file paths (CI validation script)
-- `PROTO-5`: Removing a field from `.proto` causes `buf breaking` to fail (negative test in CI docs)
-
-## Rollout Plan
-
-1. Install Buf in dev environment and CI (RFC-0007/W6)
-2. Create `proto/` directory with buf.yaml, buf.gen.yaml (RFC-0007/W6)
-3. Define envelope.v1 and marketdata.v1 schemas (RFC-0007/W6)
-4. Add `make proto-gen`, `make proto-lint`, `make proto-breaking` targets (RFC-0007/W6)
-5. Generate Go code, add to `internal/shared/proto/gen/` (RFC-0007/W6)
-6. Add ContentType field to Envelope (RFC-0008/W7)
-7. Wire proto codec alongside JSON in codec package (RFC-0008/W7)
+- 2026-02-13:
+- Normalizacao governance doc-first.
+- Status explicito para implementacao parcial.
+- Inclusao de `Implementation Matrix` e `Evidence` com anchors de codigo/teste.

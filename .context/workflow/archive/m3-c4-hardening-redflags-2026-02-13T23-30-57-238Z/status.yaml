@@ -1,0 +1,47 @@
+project:
+  name: "m3-c4-hardening-redflags"
+  scale: LARGE
+  started: "2026-02-13T23:06:46.952Z"
+  current_phase: C
+
+phases:
+  P:
+    status: filled
+    started_at: "2026-02-13T23:06:46.952Z"
+    completed_at: "2026-02-13T23:07:18.623Z"
+  R:
+    status: filled
+    started_at: "2026-02-13T23:07:18.624Z"
+    completed_at: "2026-02-13T23:07:24.176Z"
+  E:
+    status: filled
+    started_at: "2026-02-13T23:07:24.177Z"
+    completed_at: "2026-02-13T23:15:11.946Z"
+  V:
+    status: filled
+    started_at: "2026-02-13T23:15:11.947Z"
+    completed_at: "2026-02-13T23:15:21.977Z"
+  C:
+    status: completed
+    started_at: "2026-02-13T23:15:21.978Z"
+    completed_at: "2026-02-13T23:15:29.531Z"
+    outputs:
+      - path: "confirmation:m3-c4-hardening-delivered"
+        status: filled
+
+execution:
+  history:
+    - timestamp: "2026-02-13T23:15:29.531Z"
+      phase: C
+      action: completed
+  last_activity: "2026-02-13T23:15:29.531Z"
+  resume_context: "Fase C (Confirmação) concluída"
+
+settings:
+  autonomous_mode: false
+  require_plan: true
+  require_approval: false
+
+approval:
+  plan_created: true
+  plan_approved: false

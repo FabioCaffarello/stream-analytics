@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package marketdata.v1;
+
+option go_package = "github.com/market-raccoon/internal/shared/proto/gen/marketdata/v1";
+
+// TradeTickV1 models a single trade tick.
+message TradeTickV1 {
+  // Price is the execution price.
+  double price = 1;
+  // Size is the executed quantity.
+  double size = 2;
+  // Side is the aggressor side (buy or sell).
+  string side = 3;
+  // TradeId is the venue trade identifier.
+  string trade_id = 4;
+  // TimestampMs is the event timestamp in Unix milliseconds.
+  int64 timestamp_ms = 5;
+
+  reserved 100 to 199;
+}

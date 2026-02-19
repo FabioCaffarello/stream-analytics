@@ -2,12 +2,18 @@ package bus
 
 import (
 	"context"
+	"log/slog"
 	"sync"
+	"sync/atomic"
 
 	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/metrics"
+	"github.com/market-raccoon/internal/shared/observability"
 	"github.com/market-raccoon/internal/shared/problem"
 )
+
+// dropLogEveryN controls the sampling rate for bus drop warnings.
+// One structured log per N drops prevents log spam under sustained backpressure.
+const dropLogEveryN = 100
 
 const defaultBusCapacity = 1024
 
@@ -21,18 +27,27 @@ const defaultBusCapacity = 1024
 //
 // InMemoryBus is safe for concurrent use.
 type InMemoryBus struct {
-	mu          sync.RWMutex
-	subscribers []chan envelope.Envelope
-	capacity    int
+	mu           sync.RWMutex
+	subscribers  []chan envelope.Envelope
+	capacity     int
+	observer     observability.BusObserver
+	droppedTotal atomic.Int64
 }
 
 // NewInMemoryBus creates an InMemoryBus with the given per-subscriber channel
 // capacity.  Pass 0 to use the default (1024).
-func NewInMemoryBus(capacity int) *InMemoryBus {
+func NewInMemoryBus(capacity int, observer ...observability.BusObserver) *InMemoryBus {
 	if capacity <= 0 {
 		capacity = defaultBusCapacity
 	}
-	return &InMemoryBus{capacity: capacity}
+	o := observability.NopBusObserver()
+	if len(observer) > 0 && observer[0] != nil {
+		o = observer[0]
+	}
+	return &InMemoryBus{
+		capacity: capacity,
+		observer: o,
+	}
 }
 
 // Subscribe returns a new receive-only channel that will receive published
@@ -51,7 +66,7 @@ func (b *InMemoryBus) Subscribe() <-chan envelope.Envelope {
 // Publish delivers env to all current subscribers using a non-blocking send.
 // It never returns an error; full subscriber buffers are silently dropped.
 func (b *InMemoryBus) Publish(_ context.Context, env envelope.Envelope) *problem.Problem {
-	metrics.IncBusPublished(env.Type, env.Venue)
+	b.observer.IncPublished(env.Type, env.Venue)
 
 	b.mu.RLock()
 	subs := b.subscribers
@@ -62,7 +77,16 @@ func (b *InMemoryBus) Publish(_ context.Context, env envelope.Envelope) *problem
 		case ch <- env:
 		default:
 			// subscriber buffer full — drop for this subscriber, continue.
-			metrics.IncBusDropped(i)
+			b.observer.IncDropped(i)
+			n := b.droppedTotal.Add(1)
+			if n%dropLogEveryN == 1 {
+				slog.Warn("bus: envelope dropped (subscriber buffer full)",
+					"subscriber", i,
+					"type", env.Type,
+					"venue", env.Venue,
+					"total_dropped", n,
+				)
+			}
 		}
 	}
 	return nil

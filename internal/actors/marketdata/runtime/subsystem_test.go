@@ -11,6 +11,8 @@ import (
 	ws "github.com/market-raccoon/internal/actors/marketdata/ws"
 	runtime "github.com/market-raccoon/internal/actors/runtime"
 	mdapp "github.com/market-raccoon/internal/core/marketdata/app"
+	"github.com/market-raccoon/internal/core/marketdata/domain"
+	"github.com/market-raccoon/internal/shared/codec"
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/problem"
 )
@@ -36,6 +38,14 @@ func (s *spyPublisher) count() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.published)
+}
+
+func (s *spyPublisher) snapshot() []envelope.Envelope {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]envelope.Envelope, len(s.published))
+	copy(out, s.published)
+	return out
 }
 
 // fakeSequencer provides monotonically increasing sequence numbers.
@@ -83,12 +93,14 @@ func (p *parentActor) Receive(ctx *actor.Context) {
 // helpers
 // ---------------------------------------------------------------------------
 
-func newTestIngest(pub *spyPublisher) *mdapp.IngestMarketData {
-	return mdapp.NewIngestMarketData(
-		fakeClock{},
-		newFakeSequencer(),
-		pub,
-	)
+func newTestService(pub *spyPublisher) *mdapp.MarketDataService {
+	return &mdapp.MarketDataService{
+		Ingest: mdapp.NewIngestMarketData(
+			fakeClock{},
+			newFakeSequencer(),
+			pub,
+		),
+	}
 }
 
 type fakeClock struct{}
@@ -160,11 +172,11 @@ func waitFor(t *testing.T, timeout time.Duration, fn func() bool) {
 // ParseFunc results in a published envelope via the EventPublisher port.
 func TestSubsystem_WsMessage_callsIngest(t *testing.T) {
 	pub := &spyPublisher{}
-	ingest := newTestIngest(pub)
+	svc := newTestService(pub)
 	parse := mdruntime.MakeRawParseFunc("binance", "BTC-USDT")
 
 	cfg := mdruntime.SubsystemConfig{
-		Ingest:       ingest,
+		Service:      svc,
 		ParseMessage: parse,
 	}
 
@@ -183,10 +195,10 @@ func TestSubsystem_WsMessage_callsIngest(t *testing.T) {
 // ParseMessage is nil, no ingest call is made and nothing panics.
 func TestSubsystem_WsMessage_nilParseFn_dropsMessage(t *testing.T) {
 	pub := &spyPublisher{}
-	ingest := newTestIngest(pub)
+	svc := newTestService(pub)
 
 	cfg := mdruntime.SubsystemConfig{
-		Ingest:       ingest,
+		Service:      svc,
 		ParseMessage: nil, // intentionally nil
 	}
 
@@ -209,14 +221,14 @@ func TestSubsystem_WsMessage_nilParseFn_dropsMessage(t *testing.T) {
 // skip=true the ingest use case is not called.
 func TestSubsystem_ParseSkip_doesNotIngest(t *testing.T) {
 	pub := &spyPublisher{}
-	ingest := newTestIngest(pub)
+	svc := newTestService(pub)
 
 	skipAll := mdruntime.ParseFunc(func(msg *ws.WsMessage) (mdapp.IngestRequest, bool) {
 		return mdapp.IngestRequest{}, true // skip
 	})
 
 	cfg := mdruntime.SubsystemConfig{
-		Ingest:       ingest,
+		Service:      svc,
 		ParseMessage: skipAll,
 	}
 
@@ -238,10 +250,10 @@ func TestSubsystem_ParseSkip_doesNotIngest(t *testing.T) {
 // failures do not trigger parent-level ChildFailed restarts.
 func TestSubsystem_WsError_TransientDoesNotEscalate(t *testing.T) {
 	pub := &spyPublisher{}
-	ingest := newTestIngest(pub)
+	svc := newTestService(pub)
 
 	cfg := mdruntime.SubsystemConfig{
-		Ingest:       ingest,
+		Service:      svc,
 		ParseMessage: mdruntime.MakeRawParseFunc("binance", "BTC-USDT"),
 	}
 
@@ -276,10 +288,10 @@ func TestSubsystem_WsError_TransientDoesNotEscalate(t *testing.T) {
 // failures are forwarded to parent actor as runtime.ChildFailed.
 func TestSubsystem_WsError_UnknownEscalates(t *testing.T) {
 	pub := &spyPublisher{}
-	ingest := newTestIngest(pub)
+	svc := newTestService(pub)
 
 	cfg := mdruntime.SubsystemConfig{
-		Ingest:       ingest,
+		Service:      svc,
 		ParseMessage: mdruntime.MakeRawParseFunc("binance", "BTC-USDT"),
 	}
 
@@ -324,10 +336,10 @@ func TestSubsystem_WsError_UnknownEscalates(t *testing.T) {
 // are handled without panic.
 func TestSubsystem_WsState_doesNotPanic(t *testing.T) {
 	pub := &spyPublisher{}
-	ingest := newTestIngest(pub)
+	svc := newTestService(pub)
 
 	cfg := mdruntime.SubsystemConfig{
-		Ingest:       ingest,
+		Service:      svc,
 		ParseMessage: mdruntime.MakeRawParseFunc("binance", "BTC-USDT"),
 	}
 
@@ -348,11 +360,11 @@ func TestSubsystem_WsState_doesNotPanic(t *testing.T) {
 // delivery and ingest under a real engine.
 func TestSubsystem_MultipleMessages_allIngested(t *testing.T) {
 	pub := &spyPublisher{}
-	ingest := newTestIngest(pub)
+	svc := newTestService(pub)
 	parse := mdruntime.MakeRawParseFunc("binance", "ETH-USDT")
 
 	cfg := mdruntime.SubsystemConfig{
-		Ingest:       ingest,
+		Service:      svc,
 		ParseMessage: parse,
 	}
 
@@ -373,10 +385,10 @@ func TestSubsystem_MultipleMessages_allIngested(t *testing.T) {
 // spawned when ManagerConfig is nil (test-only / processor mode).
 func TestSubsystem_NoManagerSpawned_whenConfigIsNil(t *testing.T) {
 	pub := &spyPublisher{}
-	ingest := newTestIngest(pub)
+	svc := newTestService(pub)
 
 	cfg := mdruntime.SubsystemConfig{
-		Ingest:        ingest,
+		Service:       svc,
 		ParseMessage:  mdruntime.MakeRawParseFunc("binance", "BTC-USDT"),
 		ManagerConfig: nil, // explicit
 	}
@@ -385,6 +397,103 @@ func TestSubsystem_NoManagerSpawned_whenConfigIsNil(t *testing.T) {
 	pid := e.Spawn(mdruntime.NewSubsystemActor(cfg), "subsystem", actor.WithID("subsystem"))
 	time.Sleep(30 * time.Millisecond)
 	// No panic or error expected; actor starts and waits for messages.
+	<-e.Poison(pid).Done()
+}
+
+func TestSubsystem_MarkPriceNormalization_setsCanonicalAndIdempotency(t *testing.T) {
+	pub := &spyPublisher{}
+	svc := newTestService(pub)
+	parse := mdruntime.ParseFunc(func(_ *ws.WsMessage) (mdapp.IngestRequest, bool) {
+		return mdapp.IngestRequest{
+			Venue:      " binance ",
+			Instrument: " btc/usdt ",
+			EventType:  "MARKETDATA.MARKPRICE",
+			Version:    1,
+			TsExchange: 1710000001000,
+			Payload: domain.MarkPriceTickV1{
+				MarkPrice:   50000,
+				IndexPrice:  49990,
+				FundingRate: 0.0001,
+				Timestamp:   1710000001000,
+			},
+		}, false
+	})
+
+	cfg := mdruntime.SubsystemConfig{
+		Service:      svc,
+		ParseMessage: parse,
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(mdruntime.NewSubsystemActor(cfg), "subsystem", actor.WithID("subsystem"))
+
+	msg := makeWsMessage("binance", "wss://fake", []byte(`{"e":"markPriceUpdate"}`))
+	msg.RecvAt = time.UnixMilli(1710000001000)
+	e.Send(pid, msg)
+
+	waitFor(t, 2*time.Second, func() bool { return pub.count() == 1 })
+	env := pub.snapshot()[0]
+	if env.Venue != "BINANCE" {
+		t.Fatalf("env venue=%q want BINANCE", env.Venue)
+	}
+	if env.Instrument != "BTCUSDT" {
+		t.Fatalf("env instrument=%q want BTCUSDT", env.Instrument)
+	}
+	if env.Type != "marketdata.markprice" {
+		t.Fatalf("env type=%q want marketdata.markprice", env.Type)
+	}
+	if env.IdempotencyKey == "" {
+		t.Fatal("idempotency key must not be empty after normalization")
+	}
+	decoded, p := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
+	if p != nil {
+		t.Fatalf("decode payload failed: %v", p)
+	}
+	if _, ok := decoded.(domain.MarkPriceTickV1); !ok {
+		t.Fatalf("decoded type=%T want=%T", decoded, domain.MarkPriceTickV1{})
+	}
+
+	<-e.Poison(pid).Done()
+}
+
+func TestSubsystem_LiquidationDuplicateSkippedByNormalizer(t *testing.T) {
+	pub := &spyPublisher{}
+	svc := newTestService(pub)
+	parse := mdruntime.ParseFunc(func(_ *ws.WsMessage) (mdapp.IngestRequest, bool) {
+		return mdapp.IngestRequest{
+			Venue:      "BYBIT",
+			Instrument: "ETH-USDT",
+			EventType:  "marketdata.liquidation",
+			Version:    1,
+			TsExchange: 1710000002000,
+			Payload: domain.LiquidationTickV1{
+				Side:      "SELL",
+				Price:     3200.5,
+				Size:      10,
+				Timestamp: 1710000002000,
+			},
+		}, false
+	})
+
+	cfg := mdruntime.SubsystemConfig{
+		Service:      svc,
+		ParseMessage: parse,
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(mdruntime.NewSubsystemActor(cfg), "subsystem", actor.WithID("subsystem"))
+
+	msg := makeWsMessage("bybit", "wss://fake", []byte(`{"e":"forceOrder"}`))
+	msg.RecvAt = time.UnixMilli(1710000002000)
+	e.Send(pid, msg)
+	e.Send(pid, msg)
+
+	waitFor(t, 2*time.Second, func() bool { return pub.count() == 1 })
+	time.Sleep(50 * time.Millisecond)
+	if pub.count() != 1 {
+		t.Fatalf("expected duplicate liquidation to be skipped; published=%d", pub.count())
+	}
+
 	<-e.Poison(pid).Done()
 }
 

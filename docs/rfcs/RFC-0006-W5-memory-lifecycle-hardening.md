@@ -1,6 +1,6 @@
 # RFC-0006 — W5: Memory Leak Mitigation & Lifecycle Hardening
 
-**Status:** Done
+**Status:** Accepted
 **Date:** 2026-02-12
 **Author:** Chief Architect
 **Workflow:** W5 of PRD-0001
@@ -16,6 +16,9 @@ Eliminate all known memory and goroutine leak vectors, bound every state map, an
 - `ws/consumer.go` lifecycle paths are audited and all goroutines cancel deterministically
 - Guardian has a global restart rate limiter
 - Soak test validates goroutine and heap stability over 30 minutes
+
+Implementation note (W11 partial follow-up):
+- Runtime sizing is now externally bounded by config: `marketdata.max_instruments` and `processor.max_instruments` (default `2048` each), with deterministic LRU eviction.
 
 ## 2. Scope
 
@@ -256,3 +259,19 @@ No migration needed. All changes are backward compatible:
 - Soak harness executed (`scripts/soak-test.sh`) with goroutine/heap leak checks and bounded-map stress pass (`.context/evidence/w5-soak.txt`).
 - Full module matrix green (`go test` and `go test -race`) except `cmd/store` expected `no packages to test` (recorded in `.context/evidence/w5-full-test.txt` and `.context/evidence/w5-full-race.txt`).
 - Runtime hardening delivered in `internal/actors/marketdata/ws/consumer.go`, bounded state maps in core use-cases, and bounded order book depth in domain aggregate.
+
+## Changelog
+
+- 2026-02-13:
+  - normalizado status para taxonomia RFC (`Draft|Accepted`);
+  - mantidas evidências de hardening da rodada W5.
+
+## Test Plan
+
+```bash
+make docs-check-full
+```
+
+## Acceptance
+
+- Required RFC sections are present and validated by `make docs-check-full`.

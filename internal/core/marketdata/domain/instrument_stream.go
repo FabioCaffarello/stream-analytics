@@ -1,7 +1,6 @@
 package domain
 
 import (
-	"github.com/market-raccoon/internal/shared/codec"
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/hash"
 	"github.com/market-raccoon/internal/shared/problem"
@@ -28,13 +27,20 @@ type StreamHealth struct {
 	State     StreamState
 }
 
-// StreamID uniquely identifies a stream as (venue, instrument).
+// StreamID uniquely identifies a stream as (venue, instrument, market_type).
 type StreamID struct {
 	Venue      VenueID
 	Instrument InstrumentID
+	MarketType MarketType
 }
 
-// InstrumentStream is the aggregate for a single (venue, instrument) event stream.
+// SequencerInstrumentKey returns the key suffix used by sequencers to isolate
+// sequences per market type while preserving canonical instrument in envelopes.
+func (s StreamID) SequencerInstrumentKey() string {
+	return s.Instrument.String() + ":" + s.MarketType.String()
+}
+
+// InstrumentStream is the aggregate for a single (venue, instrument, market_type) event stream.
 //
 // Invariants:
 //   - Sequence is strictly monotonic (each new event must have seq > last).
@@ -50,9 +56,17 @@ type InstrumentStream struct {
 	duplicateCount  int
 }
 
-// NewInstrumentStream creates an InstrumentStream with an injected dedup window policy.
+// NewInstrumentStream creates an InstrumentStream with market type defaulted to SPOT.
 // Venue and instrument are accepted in raw form and normalized internally.
 func NewInstrumentStream(rawVenue, rawInstrument string, dedupWindow DedupWindow) (*InstrumentStream, *problem.Problem) {
+	return NewInstrumentStreamWithMarketType(rawVenue, rawInstrument, MarketTypeSpot.String(), dedupWindow)
+}
+
+// NewInstrumentStreamWithMarketType creates an InstrumentStream with explicit market type.
+func NewInstrumentStreamWithMarketType(
+	rawVenue, rawInstrument, rawMarketType string,
+	dedupWindow DedupWindow,
+) (*InstrumentStream, *problem.Problem) {
 	venue, p := NewVenueID(rawVenue)
 	if p != nil {
 		return nil, p
@@ -61,12 +75,19 @@ func NewInstrumentStream(rawVenue, rawInstrument string, dedupWindow DedupWindow
 	if p != nil {
 		return nil, p
 	}
+	if rawMarketType == "" {
+		rawMarketType = MarketTypeSpot.String()
+	}
+	marketType, p := NewMarketType(rawMarketType)
+	if p != nil {
+		return nil, p
+	}
 	if dedupWindow.Size() <= 0 {
 		return nil, problem.New(problem.ValidationFailed, "dedup_window must be > 0")
 	}
 	cap := dedupWindow.Size()
 	return &InstrumentStream{
-		id:          StreamID{Venue: venue, Instrument: instrument},
+		id:          StreamID{Venue: venue, Instrument: instrument, MarketType: marketType},
 		dedupWindow: dedupWindow,
 		seen:        make(map[IdempotencyKey]struct{}, cap),
 	}, nil
@@ -101,7 +122,8 @@ func (s *InstrumentStream) BuildEnvelope(
 	tsExchange Timestamp,
 	tsIngest Timestamp,
 	seq Sequence,
-	payload any,
+	contentType string,
+	payload []byte,
 	sourceIdempotencyKey string,
 ) (envelope.Envelope, *problem.Problem) {
 	// 1. Validate sequence monotonicity.
@@ -118,19 +140,13 @@ func (s *InstrumentStream) BuildEnvelope(
 		)
 	}
 
-	// 2. Serialize payload with event context for richer error messages.
-	payloadBytes, p := codec.MarshalPayload(eventType.String(), int(version), payload)
-	if p != nil {
-		return envelope.Envelope{}, p
-	}
-
-	// 3. Resolve idempotency key (source-provided first, deterministic fallback).
+	// 2. Resolve idempotency key (source-provided first, deterministic fallback).
 	ikey, p := resolveIdempotencyKey(s.id.Venue, s.id.Instrument, eventType, seq, sourceIdempotencyKey)
 	if p != nil {
 		return envelope.Envelope{}, p
 	}
 
-	// 4. Check dedup.
+	// 3. Check dedup.
 	if _, dup := s.seen[ikey]; dup {
 		s.duplicateCount++
 		return envelope.Envelope{}, problem.WithDetail(
@@ -140,7 +156,7 @@ func (s *InstrumentStream) BuildEnvelope(
 		)
 	}
 
-	// 5. Build envelope.
+	// 4. Build envelope.
 	env := envelope.Envelope{
 		Type:           eventType.String(),
 		Version:        int(version),
@@ -150,15 +166,16 @@ func (s *InstrumentStream) BuildEnvelope(
 		TsIngest:       tsIngest.UnixMilli(),
 		Seq:            seq.Int64(),
 		IdempotencyKey: string(ikey),
-		Payload:        payloadBytes,
+		ContentType:    contentType,
+		Payload:        payload,
 	}
 
-	// 6. Validate envelope invariants (always before committing state).
+	// 5. Validate envelope invariants (always before committing state).
 	if vp := env.Validate(); vp != nil {
 		return envelope.Envelope{}, vp
 	}
 
-	// 7. Commit state (only after all checks pass).
+	// 6. Commit state (only after all checks pass).
 	s.lastSeq = seq
 	s.recordSeen(ikey)
 
@@ -214,11 +231,19 @@ func seqToString(s Sequence) string {
 
 // recordSeen adds ikey to the dedup cache, evicting oldest entry if at capacity.
 func (s *InstrumentStream) recordSeen(ikey IdempotencyKey) {
-	cap := s.dedupWindow.Size()
-	if len(s.seenOrd) >= cap {
+	maxSize := s.dedupWindow.Size()
+	if len(s.seenOrd) >= maxSize {
 		oldest := s.seenOrd[0]
 		s.seenOrd = s.seenOrd[1:]
 		delete(s.seen, oldest)
+
+		// Compact: when the backing array is more than 2x the live slice,
+		// copy into a fresh allocation to release the unused prefix.
+		if cap(s.seenOrd) > 2*len(s.seenOrd)+1 {
+			compacted := make([]IdempotencyKey, len(s.seenOrd), maxSize)
+			copy(compacted, s.seenOrd)
+			s.seenOrd = compacted
+		}
 	}
 	s.seen[ikey] = struct{}{}
 	s.seenOrd = append(s.seenOrd, ikey)

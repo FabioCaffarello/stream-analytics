@@ -1,0 +1,14 @@
+{
+  "active": [
+    {
+      "slug": "build-accel-w0",
+      "path": "plans/build-accel-w0.md",
+      "title": "Build Acceleration W0",
+      "summary": "Reduce build/test time, improve determinism, and harden local build/test gates with atomic reversible commits",
+      "linkedAt": "2026-02-13T16:43:15.579Z",
+      "status": "active"
+    }
+  ],
+  "completed": [],
+  "primary": "build-accel-w0"
+}

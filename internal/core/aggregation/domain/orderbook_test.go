@@ -85,6 +85,28 @@ func TestOrderBook_applyDelta_seqMonotonic(t *testing.T) {
 	}
 }
 
+func TestOrderBook_applySnapshot_allowsSeqReanchor(t *testing.T) {
+	b := newBook(t)
+	p := b.ApplySnapshot(10,
+		[]domain.Level{{Price: 100, Quantity: 1}},
+		[]domain.Level{{Price: 101, Quantity: 1}},
+	)
+	if p != nil {
+		t.Fatalf("initial snapshot failed: %v", p)
+	}
+
+	p = b.ApplySnapshot(7,
+		[]domain.Level{{Price: 99, Quantity: 1}},
+		[]domain.Level{{Price: 100, Quantity: 1}},
+	)
+	if p != nil {
+		t.Fatalf("expected snapshot seq re-anchor to be accepted, got %v", p)
+	}
+	if b.LastSeq() != 7 {
+		t.Fatalf("lastSeq=%d want=7", b.LastSeq())
+	}
+}
+
 func TestOrderBook_applyDelta_removeLevel(t *testing.T) {
 	b := newBook(t)
 	_ = b.ApplyDelta(1,
@@ -120,6 +142,14 @@ func TestOrderBook_crossedBook(t *testing.T) {
 	if !b.NeedsResync() || b.IsHealthy() {
 		t.Errorf("expected state NEEDS_RESYNC, got state=%s", b.State())
 	}
+	// lastSeq must advance to prevent infinite retry loop.
+	if b.LastSeq() != 1 {
+		t.Errorf("lastSeq = %d; want 1 (must advance on crossed book)", b.LastSeq())
+	}
+	// Book must be cleared to allow self-healing on next delta.
+	if len(b.Bids()) != 0 || len(b.Asks()) != 0 {
+		t.Errorf("book should be cleared after crossed detection, got bids=%d asks=%d", len(b.Bids()), len(b.Asks()))
+	}
 	evts := b.PullDomainEvents()
 	if len(evts) != 1 {
 		t.Fatalf("expected 1 domain event, got %d", len(evts))
@@ -133,6 +163,38 @@ func TestOrderBook_crossedBook(t *testing.T) {
 	}
 	if len(b.PullDomainEvents()) != 0 {
 		t.Error("expected domain events to be cleared after pull")
+	}
+}
+
+func TestOrderBook_crossedBook_selfHeals(t *testing.T) {
+	b := newBook(t)
+
+	// Delta 1: crossed book.
+	p := b.ApplyDelta(1,
+		[]domain.Level{{Price: 200, Quantity: 1}},
+		[]domain.Level{{Price: 100, Quantity: 1}},
+	)
+	if p == nil || p.Code != problem.IntegrityViolation {
+		t.Fatalf("expected INTEGRITY_VIOLATION, got %v", p)
+	}
+	_ = b.PullDomainEvents()
+
+	// Delta 2: valid levels on the now-empty book → self-heals.
+	p = b.ApplyDelta(2,
+		[]domain.Level{{Price: 50_000, Quantity: 1}},
+		[]domain.Level{{Price: 50_100, Quantity: 1}},
+	)
+	if p != nil {
+		t.Fatalf("expected self-heal, got %v", p)
+	}
+	if !b.IsHealthy() {
+		t.Errorf("state = %s; want HEALTHY after self-heal", b.State())
+	}
+	if b.LastSeq() != 2 {
+		t.Errorf("lastSeq = %d; want 2", b.LastSeq())
+	}
+	if s := b.Spread(); s != 100 {
+		t.Errorf("spread = %f; want 100", s)
 	}
 }
 
@@ -245,5 +307,68 @@ func TestOrderBook_maxLevelsBoundedPerSide(t *testing.T) {
 	}
 	if got := len(b.Asks()); got != 2 {
 		t.Fatalf("asks len=%d want=2", got)
+	}
+}
+
+func TestOrderBook_applySnapshot_replacesLevels(t *testing.T) {
+	b := newBook(t)
+
+	// Delta 1: populate the book.
+	p := b.ApplyDelta(1,
+		[]domain.Level{{Price: 42000, Quantity: 1}, {Price: 41990, Quantity: 2}},
+		[]domain.Level{{Price: 42010, Quantity: 1}, {Price: 42020, Quantity: 2}},
+	)
+	if p != nil {
+		t.Fatalf("ApplyDelta: %v", p)
+	}
+	if len(b.Bids()) != 2 || len(b.Asks()) != 2 {
+		t.Fatalf("bids=%d asks=%d; want 2/2", len(b.Bids()), len(b.Asks()))
+	}
+
+	// Snapshot: completely different price range — old levels must NOT remain.
+	p = b.ApplySnapshot(2,
+		[]domain.Level{{Price: 50000, Quantity: 1}},
+		[]domain.Level{{Price: 50100, Quantity: 1}},
+	)
+	if p != nil {
+		t.Fatalf("ApplySnapshot: %v", p)
+	}
+	if len(b.Bids()) != 1 || len(b.Asks()) != 1 {
+		t.Fatalf("after snapshot bids=%d asks=%d; want 1/1", len(b.Bids()), len(b.Asks()))
+	}
+	if got := b.BestBid(); got == nil || float64(got.Price) != 50000 {
+		t.Errorf("best bid = %v; want 50000", got)
+	}
+	if got := b.BestAsk(); got == nil || float64(got.Price) != 50100 {
+		t.Errorf("best ask = %v; want 50100", got)
+	}
+	if b.Spread() != 100 {
+		t.Errorf("spread = %f; want 100", b.Spread())
+	}
+	if !b.IsHealthy() {
+		t.Errorf("state = %s; want HEALTHY", b.State())
+	}
+}
+
+func TestOrderBook_applySnapshot_preventsAccumulationCross(t *testing.T) {
+	b := newBook(t)
+
+	// Delta 1: normal book at 42000/42010.
+	_ = b.ApplyDelta(1,
+		[]domain.Level{{Price: 42000, Quantity: 1}},
+		[]domain.Level{{Price: 42010, Quantity: 1}},
+	)
+
+	// Snapshot 2: price shifted down to 41000/41010.
+	// Without snapshot clearing, old bid@42000 would cross new ask@41010.
+	p := b.ApplySnapshot(2,
+		[]domain.Level{{Price: 41000, Quantity: 1}},
+		[]domain.Level{{Price: 41010, Quantity: 1}},
+	)
+	if p != nil {
+		t.Fatalf("expected no cross with snapshot, got %v", p)
+	}
+	if !b.IsHealthy() {
+		t.Errorf("state = %s; want HEALTHY", b.State())
 	}
 }

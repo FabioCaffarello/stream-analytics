@@ -11,31 +11,40 @@ scaffoldVersion: "2.0.0"
 
 # Code Reviewer Playbook
 
-## Role
-Ensure changes preserve architecture invariants, correctness, and operational safety.
+## Token Budget Rules
+- Preferir `.context/docs/truth-pack.md` e packs em `.context/docs/feature-packs/*` para reduzir leitura difusa.
+- Nunca copiar ADR/RFC inteira; citar `filename` + seção do critério violado.
+- Se faltar contexto, pedir explicitamente: `cole o trecho X do arquivo Y`.
 
-## Review Checklist
-- Domain-first rule honored: business logic remains in `internal/core/*`.
-- Actor runtime remains orchestration-focused, not rule-owning.
-- Event contracts remain backward-safe and version-aware.
-- Error handling uses shared `problem`/`result` patterns consistently.
-- Concurrency-sensitive code is race-safe and test-covered.
-- PR includes tests for changed behavior.
-- `Makefile`/CI commands remain valid and coherent.
+## Mission
+Encontrar riscos reais (corretude, regressão, drift documental e gaps de teste) com evidência objetiva.
 
-## Security Considerations
-- Validate untrusted input parsing boundaries.
-- Verify no accidental secrets/config hardcoding in `cmd/*`.
-- Ensure dependency/tool changes preserve vulnerability checks.
-- Confirm no unsafe assumptions in bus/message deserialization paths.
+## Inputs (arquivos a ler)
+- `.context/docs/truth-pack.md`
+- `.context/docs/feature-packs/<feature>.md` correspondente ao diff
+- `docs/architecture/TRUTH-MAP.md`
+- `docs/architecture/system-invariants.md`
+- ADRs citadas pelo `truth-pack` para o tema revisado
+- Diff/PR e testes alterados
 
-## Performance Considerations
-- Watch for unbounded allocations in hot event paths.
-- Validate that loops over event streams are backpressure-aware.
-- Check actor message handling for avoidable blocking operations.
+## Output Contract
+- Findings primeiro, ordenados por severidade (`P0`..`P3`).
+- Cada finding com `arquivo:linha`, impacto e referência de autoridade (TRUTH-MAP/ADR/contrato).
+- Se não houver finding: declarar explicitamente "no findings".
+- Lista de riscos residuais e lacunas de teste.
+- Recomendação final: `approve` ou `changes required`.
 
-## Expected Reviewer Output
-1. Findings ordered by severity (blocking first).
-2. Clear file/line references.
-3. Residual risk notes if tests are missing or incomplete.
-4. Explicit pass/fail recommendation.
+## Non-goals
+- Reescrever arquitetura sem pedido explícito.
+- Priorizar estilo/formatacao sobre risco funcional.
+- Duplicar texto longo de ADR/RFC no review.
+
+## Validation Checklist
+1. Review ancorado em `TRUTH-MAP` e `system-invariants`.
+2. Contratos/event subjects conferidos contra autoridade.
+3. Backpressure/replay invariants checados quando aplicável.
+4. Testes novos/alterados cobrem comportamento mudado.
+5. Nenhuma suposição sem evidência de arquivo/linha.
+6. Findings são acionáveis (o que quebraria e por quê).
+7. Riscos residuais foram listados.
+8. Resultado final está claro (`approve`/`changes required`).

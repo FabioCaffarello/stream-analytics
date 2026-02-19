@@ -16,9 +16,15 @@ import (
 type fakePublisher struct {
 	snaps        []domain.SnapshotProduced
 	inconsistent []domain.OrderBookInconsistentDetected
+	candles      []domain.CandleClosed
+	stats        []domain.StatsWindowClosed
+	snapErr      *problem.Problem
 }
 
 func (f *fakePublisher) PublishSnapshot(_ context.Context, s domain.SnapshotProduced) *problem.Problem {
+	if f.snapErr != nil {
+		return f.snapErr
+	}
 	f.snaps = append(f.snaps, s)
 	return nil
 }
@@ -28,9 +34,25 @@ func (f *fakePublisher) PublishInconsistent(_ context.Context, e domain.OrderBoo
 	return nil
 }
 
-type fakeStore struct{ saved []domain.SnapshotProduced }
+func (f *fakePublisher) PublishCandleClosed(_ context.Context, e domain.CandleClosed) *problem.Problem {
+	f.candles = append(f.candles, e)
+	return nil
+}
+
+func (f *fakePublisher) PublishStatsClosed(_ context.Context, e domain.StatsWindowClosed) *problem.Problem {
+	f.stats = append(f.stats, e)
+	return nil
+}
+
+type fakeStore struct {
+	saved   []domain.SnapshotProduced
+	saveErr *problem.Problem
+}
 
 func (f *fakeStore) Save(_ context.Context, s domain.SnapshotProduced) *problem.Problem {
+	if f.saveErr != nil {
+		return f.saveErr
+	}
 	f.saved = append(f.saved, s)
 	return nil
 }
@@ -163,6 +185,33 @@ func TestUpdateOrderBook_snapshotContainsLevels(t *testing.T) {
 	}
 }
 
+func TestUpdateOrderBook_saveFailureDoesNotPublishSnapshot(t *testing.T) {
+	pub := &fakePublisher{}
+	store := &fakeStore{
+		saveErr: problem.New(problem.Unavailable, "store unavailable"),
+	}
+	uc := app.NewUpdateOrderBookFromEvents(pub, store)
+	r := uc.Execute(context.Background(), app.UpdateRequest{
+		Venue:      "binance",
+		Instrument: "BTCUSDT",
+		Seq:        1,
+		Bids:       []domain.Level{{Price: 100, Quantity: 1}},
+		Asks:       []domain.Level{{Price: 101, Quantity: 1}},
+	})
+	if r.IsOk() {
+		t.Fatal("expected failure when store save fails")
+	}
+	if r.Problem().Code != problem.Unavailable {
+		t.Fatalf("code=%s want=%s", r.Problem().Code, problem.Unavailable)
+	}
+	if len(pub.snaps) != 0 {
+		t.Fatalf("published snapshots=%d want=0", len(pub.snaps))
+	}
+	if len(store.saved) != 0 {
+		t.Fatalf("persisted snapshots=%d want=0", len(store.saved))
+	}
+}
+
 func TestUpdateOrderBook_boundedBooksEvictsOldest(t *testing.T) {
 	pub := &fakePublisher{}
 	store := &fakeStore{}
@@ -191,6 +240,75 @@ func TestUpdateOrderBook_boundedBooksEvictsOldest(t *testing.T) {
 	}
 	if got := uc.ActiveBooks(); got != 1 {
 		t.Fatalf("active books=%d want=1", got)
+	}
+}
+
+func TestUpdateOrderBook_boundedBooksEvictionDeterministicVictim(t *testing.T) {
+	run := func(t *testing.T) (ethWasEvicted bool, btcWasRetained bool) {
+		t.Helper()
+
+		pub := &fakePublisher{}
+		store := &fakeStore{}
+		clk := clock.NewFakeClock(time.Unix(0, 0))
+		uc := app.NewUpdateOrderBookFromEventsWithConfig(pub, store, app.UpdateConfig{
+			MaxBooks:  2,
+			BookTTL:   time.Hour,
+			MaxLevels: 10,
+			Clock:     clk,
+		})
+
+		makeReq := func(symbol string, seq int64) app.UpdateRequest {
+			return app.UpdateRequest{
+				Venue:      "binance",
+				Instrument: symbol,
+				Seq:        seq,
+				Bids:       []domain.Level{{Price: 100, Quantity: 1}},
+				Asks:       []domain.Level{{Price: 101, Quantity: 1}},
+			}
+		}
+
+		if r := uc.Execute(context.Background(), makeReq("BTCUSDT", 1)); r.IsFail() {
+			t.Fatalf("btc first execute failed: %v", r.Problem())
+		}
+		clk.Advance(time.Millisecond)
+		if r := uc.Execute(context.Background(), makeReq("ETHUSDT", 1)); r.IsFail() {
+			t.Fatalf("eth first execute failed: %v", r.Problem())
+		}
+		clk.Advance(time.Millisecond)
+		if r := uc.Execute(context.Background(), makeReq("BTCUSDT", 2)); r.IsFail() {
+			t.Fatalf("btc touch execute failed: %v", r.Problem())
+		}
+		clk.Advance(time.Millisecond)
+		if r := uc.Execute(context.Background(), makeReq("SOLUSDT", 1)); r.IsFail() {
+			t.Fatalf("sol execute failed: %v", r.Problem())
+		}
+
+		// BTC should still be resident at this point, so lower seq remains out_of_order.
+		clk.Advance(time.Millisecond)
+		btcResult := uc.Execute(context.Background(), makeReq("BTCUSDT", 1))
+		btcWasRetained = btcResult.IsFail() && btcResult.Problem().Code == problem.OutOfOrder
+
+		// ETH should be the deterministic LRU victim and therefore accepted again.
+		clk.Advance(time.Millisecond)
+		ethResult := uc.Execute(context.Background(), makeReq("ETHUSDT", 1))
+		ethWasEvicted = ethResult.IsOk()
+		return ethWasEvicted, btcWasRetained
+	}
+
+	ethFirst, btcFirst := run(t)
+	ethSecond, btcSecond := run(t)
+
+	if !ethFirst || !btcFirst {
+		t.Fatalf("unexpected eviction result first run: ethWasEvicted=%v btcWasRetained=%v", ethFirst, btcFirst)
+	}
+	if ethFirst != ethSecond || btcFirst != btcSecond {
+		t.Fatalf(
+			"non-deterministic eviction result first=(eth:%v btc:%v) second=(eth:%v btc:%v)",
+			ethFirst,
+			btcFirst,
+			ethSecond,
+			btcSecond,
+		)
 	}
 }
 

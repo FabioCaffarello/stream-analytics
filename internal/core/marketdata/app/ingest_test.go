@@ -8,16 +8,23 @@ import (
 	"github.com/market-raccoon/internal/core/marketdata/app"
 	"github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/shared/clock"
+	"github.com/market-raccoon/internal/shared/codec"
 	"github.com/market-raccoon/internal/shared/envelope"
+	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 // --- fakes ---
 
-type fakeSequencer struct{ n int64 }
+type fakeSequencer struct {
+	n     int64
+	calls []string
+}
 
-func (f *fakeSequencer) Next(_, _ string) (int64, *problem.Problem) {
+func (f *fakeSequencer) Next(venue, instrument string) (int64, *problem.Problem) {
 	f.n++
+	f.calls = append(f.calls, venue+"|"+instrument)
 	return f.n, nil
 }
 
@@ -71,6 +78,9 @@ func TestIngest_success(t *testing.T) {
 	}
 	if resp.Published.Envelope.IdempotencyKey == "" {
 		t.Error("IdempotencyKey must not be empty")
+	}
+	if resp.Published.Envelope.ContentType != envelope.ContentTypeJSON {
+		t.Errorf("ContentType = %q; want %q", resp.Published.Envelope.ContentType, envelope.ContentTypeJSON)
 	}
 	if resp.Published.Topic == "" {
 		t.Error("TopicKey must not be empty")
@@ -178,6 +188,62 @@ func TestIngest_metadataPropagatesToEnvelope(t *testing.T) {
 	}
 }
 
+func TestIngest_publishContentTypeJSON(t *testing.T) {
+	clk := clock.NewFakeClock(time.Now())
+	seq := &fakeSequencer{}
+	pub := &fakePublisher{}
+	uc := app.NewIngestMarketDataWithConfig(clk, seq, pub, app.IngestConfig{
+		DedupWindowSize:    64,
+		MaxStreams:         16,
+		StreamTTL:          time.Hour,
+		PublishContentType: envelope.ContentTypeJSON,
+	})
+
+	r := uc.Execute(context.Background(), validReq())
+	if r.IsFail() {
+		t.Fatalf("ingest failed: %v", r.Problem())
+	}
+	env := r.Value().Published.Envelope
+	if env.ContentType != envelope.ContentTypeJSON {
+		t.Fatalf("content_type = %q, want %q", env.ContentType, envelope.ContentTypeJSON)
+	}
+	decodedAny, p := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
+	if p != nil {
+		t.Fatalf("DecodePayload(JSON): %v", p)
+	}
+	if _, ok := decodedAny.(domain.TradeTickV1); !ok {
+		t.Fatalf("decoded payload type = %T, want %T", decodedAny, domain.TradeTickV1{})
+	}
+}
+
+func TestIngest_publishContentTypeProtobuf(t *testing.T) {
+	clk := clock.NewFakeClock(time.Now())
+	seq := &fakeSequencer{}
+	pub := &fakePublisher{}
+	uc := app.NewIngestMarketDataWithConfig(clk, seq, pub, app.IngestConfig{
+		DedupWindowSize:    64,
+		MaxStreams:         16,
+		StreamTTL:          time.Hour,
+		PublishContentType: envelope.ContentTypeProto,
+	})
+
+	r := uc.Execute(context.Background(), validReq())
+	if r.IsFail() {
+		t.Fatalf("ingest failed: %v", r.Problem())
+	}
+	env := r.Value().Published.Envelope
+	if env.ContentType != envelope.ContentTypeProto {
+		t.Fatalf("content_type = %q, want %q", env.ContentType, envelope.ContentTypeProto)
+	}
+	decodedAny, p := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
+	if p != nil {
+		t.Fatalf("DecodePayload(PROTO): %v", p)
+	}
+	if _, ok := decodedAny.(domain.TradeTickV1); !ok {
+		t.Fatalf("decoded payload type = %T, want %T", decodedAny, domain.TradeTickV1{})
+	}
+}
+
 func TestIngest_boundedStreamsEvictsOldest(t *testing.T) {
 	clk := clock.NewFakeClock(time.Now())
 	seq := &fakeSequencer{}
@@ -201,6 +267,109 @@ func TestIngest_boundedStreamsEvictsOldest(t *testing.T) {
 
 	if got := uc.ActiveStreams(); got != 1 {
 		t.Fatalf("active streams=%d want=1", got)
+	}
+}
+
+func TestIngest_EvictionMetricEmittedOnBoundedOverflow(t *testing.T) {
+	clk := clock.NewFakeClock(time.Now())
+	seq := &fakeSequencer{}
+	pub := &fakePublisher{}
+	uc := app.NewIngestMarketDataWithConfig(clk, seq, pub, app.IngestConfig{
+		DedupWindowSize: 64,
+		MaxStreams:      2,
+		StreamTTL:       time.Hour,
+	})
+
+	before := testutil.ToFloat64(metrics.IngestBoundedMapEvictionsTotal.WithLabelValues("max_instruments"))
+	ctx := context.Background()
+	req := validReq()
+	req.Instrument = "BTC/USDT"
+	if r := uc.Execute(ctx, req); r.IsFail() {
+		t.Fatalf("first ingest failed: %v", r.Problem())
+	}
+
+	clk.Advance(time.Millisecond)
+	req.Instrument = "ETH/USDT"
+	if r := uc.Execute(ctx, req); r.IsFail() {
+		t.Fatalf("second ingest failed: %v", r.Problem())
+	}
+
+	clk.Advance(time.Millisecond)
+	req.Instrument = "SOL/USDT"
+	if r := uc.Execute(ctx, req); r.IsFail() {
+		t.Fatalf("third ingest failed: %v", r.Problem())
+	}
+
+	after := testutil.ToFloat64(metrics.IngestBoundedMapEvictionsTotal.WithLabelValues("max_instruments"))
+	if after-before < 1 {
+		t.Fatalf("expected bounded-map eviction metric increment, before=%f after=%f", before, after)
+	}
+}
+
+func TestIngest_boundedStreamsEvictionDeterministicVictim(t *testing.T) {
+	run := func(t *testing.T) (ethWasEvicted bool, btcWasRetained bool) {
+		t.Helper()
+
+		clk := clock.NewFakeClock(time.UnixMilli(1_710_000_000_000))
+		seq := &fakeSequencer{}
+		pub := &fakePublisher{}
+		uc := app.NewIngestMarketDataWithConfig(clk, seq, pub, app.IngestConfig{
+			DedupWindowSize: 64,
+			MaxStreams:      2,
+			StreamTTL:       time.Hour,
+		})
+
+		makeReq := func(instrument, idempotencyKey string) app.IngestRequest {
+			req := validReq()
+			req.Instrument = instrument
+			req.IdempotencyKey = idempotencyKey
+			req.MarketType = "SPOT"
+			return req
+		}
+
+		ctx := context.Background()
+		if r := uc.Execute(ctx, makeReq("BTC/USDT", "btc-dup")); r.IsFail() {
+			t.Fatalf("btc first ingest failed: %v", r.Problem())
+		}
+		clk.Advance(time.Millisecond)
+		if r := uc.Execute(ctx, makeReq("ETH/USDT", "eth-dup")); r.IsFail() {
+			t.Fatalf("eth first ingest failed: %v", r.Problem())
+		}
+		clk.Advance(time.Millisecond)
+		if r := uc.Execute(ctx, makeReq("BTC/USDT", "btc-touch")); r.IsFail() {
+			t.Fatalf("btc touch ingest failed: %v", r.Problem())
+		}
+		clk.Advance(time.Millisecond)
+		if r := uc.Execute(ctx, makeReq("SOL/USDT", "sol-1")); r.IsFail() {
+			t.Fatalf("sol ingest failed: %v", r.Problem())
+		}
+
+		// BTC should still be resident at this point, so duplicate idempotency key must fail.
+		clk.Advance(time.Millisecond)
+		btcResult := uc.Execute(ctx, makeReq("BTC/USDT", "btc-dup"))
+		btcWasRetained = btcResult.IsFail() && btcResult.Problem().Code == problem.Duplicate
+
+		// ETH should be the deterministic LRU victim and therefore accepted again.
+		clk.Advance(time.Millisecond)
+		ethResult := uc.Execute(ctx, makeReq("ETH/USDT", "eth-dup"))
+		ethWasEvicted = ethResult.IsOk()
+		return ethWasEvicted, btcWasRetained
+	}
+
+	ethFirst, btcFirst := run(t)
+	ethSecond, btcSecond := run(t)
+
+	if !ethFirst || !btcFirst {
+		t.Fatalf("unexpected eviction result first run: ethWasEvicted=%v btcWasRetained=%v", ethFirst, btcFirst)
+	}
+	if ethFirst != ethSecond || btcFirst != btcSecond {
+		t.Fatalf(
+			"non-deterministic eviction result first=(eth:%v btc:%v) second=(eth:%v btc:%v)",
+			ethFirst,
+			btcFirst,
+			ethSecond,
+			btcSecond,
+		)
 	}
 }
 
@@ -232,5 +401,102 @@ func TestIngest_ThrottledSweepDoesNotRunEveryRequest(t *testing.T) {
 
 	if got := uc.ActiveStreams(); got < 2 {
 		t.Fatalf("expected no full sweep on each request, active streams=%d", got)
+	}
+}
+
+func TestIngest_StreamIdentityIncludesMarketType(t *testing.T) {
+	clk := clock.NewFakeClock(time.Now())
+	seq := &fakeSequencer{}
+	pub := &fakePublisher{}
+	uc := app.NewIngestMarketData(clk, seq, pub)
+
+	reqSpot := validReq()
+	reqSpot.MarketType = "SPOT"
+	if r := uc.Execute(context.Background(), reqSpot); r.IsFail() {
+		t.Fatalf("spot ingest failed: %v", r.Problem())
+	}
+
+	reqFutures := validReq()
+	reqFutures.MarketType = "USD_M_FUTURES"
+	clk.Advance(time.Millisecond)
+	if r := uc.Execute(context.Background(), reqFutures); r.IsFail() {
+		t.Fatalf("futures ingest failed: %v", r.Problem())
+	}
+
+	if got := uc.ActiveStreams(); got != 2 {
+		t.Fatalf("active streams=%d want=2", got)
+	}
+	if len(seq.calls) != 2 {
+		t.Fatalf("sequencer calls=%d want=2", len(seq.calls))
+	}
+	if seq.calls[0] != "BINANCE|BTCUSDT:SPOT" {
+		t.Fatalf("sequencer call[0]=%q want BINANCE|BTCUSDT:SPOT", seq.calls[0])
+	}
+	if seq.calls[1] != "BINANCE|BTCUSDT:USD_M_FUTURES" {
+		t.Fatalf("sequencer call[1]=%q want BINANCE|BTCUSDT:USD_M_FUTURES", seq.calls[1])
+	}
+}
+
+func TestIngest_markPricePayloadEncodesAndPublishes(t *testing.T) {
+	clk := clock.NewFakeClock(time.Now())
+	uc, _, pub := newUC(clk)
+	req := validReq()
+	req.EventType = "marketdata.markprice"
+	req.Payload = domain.MarkPriceTickV1{
+		MarkPrice:   50010.5,
+		IndexPrice:  50000.0,
+		FundingRate: 0.0001,
+		Timestamp:   time.Now().UnixMilli(),
+	}
+
+	r := uc.Execute(context.Background(), req)
+	if r.IsFail() {
+		t.Fatalf("markprice ingest failed: %v", r.Problem())
+	}
+	if len(pub.published) != 1 {
+		t.Fatalf("published=%d want=1", len(pub.published))
+	}
+	env := pub.published[0]
+	if env.Type != "marketdata.markprice" {
+		t.Fatalf("env type=%q want=marketdata.markprice", env.Type)
+	}
+	decoded, p := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
+	if p != nil {
+		t.Fatalf("decode markprice payload: %v", p)
+	}
+	if _, ok := decoded.(domain.MarkPriceTickV1); !ok {
+		t.Fatalf("decoded type=%T want=%T", decoded, domain.MarkPriceTickV1{})
+	}
+}
+
+func TestIngest_liquidationPayloadEncodesAndPublishes(t *testing.T) {
+	clk := clock.NewFakeClock(time.Now())
+	uc, _, pub := newUC(clk)
+	req := validReq()
+	req.EventType = "marketdata.liquidation"
+	req.Payload = domain.LiquidationTickV1{
+		Side:      "sell",
+		Price:     49950.0,
+		Size:      2.5,
+		Timestamp: time.Now().UnixMilli(),
+	}
+
+	r := uc.Execute(context.Background(), req)
+	if r.IsFail() {
+		t.Fatalf("liquidation ingest failed: %v", r.Problem())
+	}
+	if len(pub.published) != 1 {
+		t.Fatalf("published=%d want=1", len(pub.published))
+	}
+	env := pub.published[0]
+	if env.Type != "marketdata.liquidation" {
+		t.Fatalf("env type=%q want=marketdata.liquidation", env.Type)
+	}
+	decoded, p := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
+	if p != nil {
+		t.Fatalf("decode liquidation payload: %v", p)
+	}
+	if _, ok := decoded.(domain.LiquidationTickV1); !ok {
+		t.Fatalf("decoded type=%T want=%T", decoded, domain.LiquidationTickV1{})
 	}
 }

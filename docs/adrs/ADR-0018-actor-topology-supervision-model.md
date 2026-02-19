@@ -1,166 +1,87 @@
-# ADR-0018 — Actor Topology & Supervision Model
+# ADR-0018 - Actor Topology and Supervision Model
 
-**Status:** Proposed
+**Status:** Accepted
+**Implementation status:** Partially Implemented
+**Partial marker:** Status: Partially Implemented
+**Owner:** Governance Doc-First Maintainer
+**Last updated:** 2026-02-13
 **Date:** 2026-02-12
 **Deciders:** Chief Architect
-**Relates to:** PRD-0001 section E.3, ADR-0003, ADR-0012, RFC-0006 (W5)
+**Relates to:** PRD-0001 section E.3, ADR-0003, ADR-0012, `docs/rfcs/RFC-0006-W5-memory-lifecycle-hardening.md`, `docs/rfcs/RFC-0010-W9-multi-exchange-readiness.md`
 
 ---
 
-## Context
+## Contexto
 
-The current actor topology works but is informally documented. As we add multi-exchange support and increase instrument count, we need explicit rules for:
-- Which actors exist and their parent-child relationships
-- Restart policies per level (transient vs fatal errors)
-- How to prevent restart storms
-- How to guarantee no double-publish after restart
+A topologia de atores e as politicas de supervisao ja estao parcialmente materializadas em runtime (guardian com readiness e isolamento por subsistema), mas a evidencia operacional de longo prazo ainda nao esta completa para fechar todos os invariantes desta ADR.
 
-PRD-0001 section E.3 designed the target topology. This ADR formalizes it.
+O objetivo deste patch e remover ambiguidade: separar claramente o que esta implementado hoje do que segue pendente de validacao operacional.
 
-## Decision
+## Decisao
 
-### 1. Target Topology
+1. Manter a ADR como decisao proposta ate fechar evidencias operacionais pendentes (principalmente soak longo e evidencias ampliadas de dedup/isolamento).
+2. Consolidar como implementado no estado atual:
+- guardian com expected subsystems e readiness por conjunto configurado
+- suporte a topologia multi-exchange por chaves de subsistema
+- rate limit de restart no guardian
+3. Preservar boundary de dominio: politicas de lifecycle/supervisao permanecem fora de `internal/core/*`.
+4. Usar matriz de implementacao para governar fechamento incremental dos invariantes `TOP-*`.
 
-```
-Guardian (root supervisor)
-│
-├── MarketDataSubsystem["binance"]
-│   ├── WS Manager
-│   │   ├── Consumer[bucket-0]  (goroutines: readLoop, keepalive, heartbeat)
-│   │   ├── Consumer[bucket-1]
-│   │   └── Consumer[bucket-N]
-│   └── IngestWorker (goroutine: wsQueue → IngestMarketData)
-│
-├── MarketDataSubsystem["bybit"]  (future: one per exchange)
-│   └── (same structure)
-│
-├── AggregationSubsystem
-│   └── consumeLoop (goroutine: bus channel → UpdateOrderBookFromEvents)
-│
-├── DeliverySubsystem
-│   └── RouterActor
-│       ├── SessionActor[session-1]  (per WS client)
-│       └── SessionActor[session-N]
-│
-└── InsightsSubsystem (future)
-```
+## Consequencias
 
-### 2. Supervision Strategy Per Level
+- Positivas:
+- Estado operacional real fica auditavel sem forcar "Accepted" prematuro.
+- Regras de supervisao e isolamento ficam ligadas a testes concretos.
+- Menor risco de checklist fantasma em revisoes futuras.
 
-| Level | Supervisor | Restart Policy | Escalation |
-|-------|-----------|----------------|------------|
-| **Consumer** | WS Manager | Manager rotates/respawns on MaxWebsocketLifetime. Consumer retries internally with backoff on transient errors. | Non-transient WS errors → `ChildFailed` to SubsystemActor |
-| **WS Manager** | SubsystemActor | Part of subsystem lifecycle. Manager crash = subsystem crash. | Escalates to Guardian |
-| **SubsystemActor** | Guardian | `SupervisorPolicy`: 5 failures in 30s window → degraded 30s cooldown. Exponential backoff with jitter. | Guardian decides restart vs degrade |
-| **RouterActor** | DeliverySubsystem | Part of subsystem lifecycle. | Escalates to Guardian |
-| **SessionActor** | RouterActor | Self-poisons on WS disconnect. No restart — client reconnects. | Unregister from router on stop |
-| **Guardian** | None (root) | Never restarts. Process exit on unrecoverable failure. | N/A |
+- Negativas:
+- Parte da confianca operacional depende de evidencia ainda nao capturada (soak e alguns cenarios de dedup).
 
-### 3. Error Classification
+## Invariantes
 
-```
-TRANSIENT (local retry, no escalation):
-  WS errors: dial, read, subscribe, pingpong, heartbeat
-  → Consumer retries internally via reconnect backoff
-  → Metric: ws_reconnects_total
+- `TOP-1`: falha em subsistema nao deve derrubar os demais subsistemas ativos.
+- `TOP-2`: limite global de restart deve impedir storm de reinicios.
+- `TOP-3`: atores de sessao devem encerrar de forma limpa e remover registro do roteador.
+- `TOP-4`: ciclos repetidos de restart devem manter estabilidade de goroutines (soak).
+- `TOP-5`: deduplicacao por `Msg-ID` no JetStream deve evitar dupla entrega em janela de dedup.
 
-ESCALATABLE (subsystem restart via Guardian):
-  Unknown WS errors (not in transient list)
-  Bus closure (channel closed)
-  Config errors at runtime
-  → ChildFailed message to Guardian
-  → Guardian applies SupervisorPolicy
-  → Metric: guardian_restarts_total{subsystem}
+## Implementation Matrix
 
-FATAL (process exit):
-  Config validation failure at startup
-  → os.Exit(1) before any actor spawn
+| Feature | Status | Referencia |
+|---|---|---|
+| Expected subsystems e readiness dinamico no guardian | Implemented | `internal/actors/runtime/guardian.go:28`, `internal/actors/runtime/guardian_test.go:436` |
+| Topologia multi-exchange no runtime | Implemented | `cmd/consumer/main.go:183`, `cmd/consumer/e2e_consumer_integration_test.go:24` |
+| Restart rate limiter global | Implemented | `internal/actors/runtime/guardian_test.go:315` |
+| Isolamento forte entre subsistemas sob falha | Partially Implemented | `internal/actors/runtime/guardian_test.go:99` |
+| Soak longo para estabilidade de restart (`TOP-4`) | Planned | `Makefile:142`, `scripts/soak-test.sh` |
+| Evidencia completa de dedup em janela operacional (`TOP-5`) | Partially Implemented | `internal/adapters/jetstream/publisher_integration_test.go:41` |
 
-DOMAIN (log + skip, no restart):
-  Out-of-order sequence (MD_OUT_OF_ORDER)
-  Duplicate (MD_DUPLICATE)
-  Parse error (VALIDATION_FAILED)
-  → Metric + sampled log, processing continues
-```
+## Evidence
 
-### 4. Restart Storm Prevention
+- Runtime supervision and readiness:
+- `internal/actors/runtime/guardian.go:28`
+- `internal/actors/runtime/guardian_test.go:99`
+- `internal/actors/runtime/guardian_test.go:315`
+- `internal/actors/runtime/guardian_test.go:436`
 
-**Global restart rate limiter** in Guardian:
+- Multi-exchange process wiring:
+- `cmd/consumer/main.go:183`
+- `cmd/consumer/e2e_consumer_integration_test.go:24`
 
-```go
-type restartRateLimiter struct {
-    window    time.Duration  // 1 minute
-    maxPerWin int            // 5 total subsystem restarts
-    history   []time.Time
-}
-```
+- Dedup and bus behavior:
+- `internal/adapters/jetstream/publisher_integration_test.go:41`
+- `internal/adapters/jetstream/consumer_integration_test.go:21`
 
-If rate limiter denies a restart:
-- Subsystem enters degraded mode
-- Cooldown = `max(policy.Cooldown, remaining_window_time)`
-- Log ERROR: "restart rate limit exceeded, deferring restart"
-- Metric: `guardian_rate_limited_total`
+- Soak gate (operational evidence path):
+- `Makefile:142`
+- `.context/evidence/w5-soak.txt`
 
-This prevents cascading restart storms when multiple subsystems fail simultaneously (e.g., network outage affecting all exchanges).
+## Changelog
 
-### 5. No Double-Publish Guarantee
+- 2026-02-12:
+- ADR criada para formalizar topologia e supervisao de atores.
 
-**Problem:** When a subsystem restarts, `IngestMarketData` loses its in-memory `streams` map. Without JetStream dedup, the same event could be published twice.
-
-**Solution by bus type:**
-- **InMemoryBus:** No guarantee possible (bus is ephemeral). Acceptable because InMemoryBus consumers are also ephemeral.
-- **JetStream:** NATS dedup window (5 minutes) prevents double-publish. `IdempotencyKey` maps to NATS `Msg-ID` header. If same `Msg-ID` is published within dedup window, NATS rejects it silently.
-
-**Consumer-side defense:** All consumers MUST be idempotent. `IdempotencyKey` enables downstream dedup regardless of bus guarantees.
-
-### 6. Actor Lifecycle Rules
-
-1. **Actors MUST NOT call `os.Exit()`** — only `cmd/*/main.go` may exit the process.
-2. **Actors MUST release all resources in `actor.Stopped`** — close connections, cancel contexts, stop timers.
-3. **Actors MUST NOT spawn goroutines without cancellation** — per ADR-0012 INV-1.
-4. **Child actors MUST NOT outlive their parent** — Hollywood guarantees this via poison propagation.
-5. **Actors MUST NOT hold references to other actors' state** — communicate only via messages.
-
-## Rationale
-
-Explicit topology and restart policies:
-- Enable operators to understand failure domains
-- Prevent restart storms from cascading across subsystems
-- Ensure predictable recovery times (SLO: < 5s subsystem, < 30s full)
-- Make double-publish risk explicit and mitigated
-
-## Alternatives Considered
-
-1. **Flat actor topology (all actors direct children of Guardian):** Rejected — no intermediate supervision. One WS consumer failure would restart the entire marketdata subsystem.
-2. **Actor-per-instrument:** Rejected — 10k+ actors for large instrument sets. Hollywood mailbox overhead would dominate. Goroutine-based workers within subsystem are more efficient.
-3. **No restart rate limiter:** Rejected — thundering herd of restarts after network blip could overwhelm system.
-4. **Persistent lastPublishedSeq for dedup:** Rejected — adds storage dependency to hot path. NATS dedup is simpler and sufficient.
-
-## Consequences
-
-### Positive
-- Clear failure domains: WS failure ≠ aggregation failure
-- Restart storms prevented by rate limiter
-- Double-publish prevented by NATS dedup (production) or accepted (dev/InMemoryBus)
-- Operators can reason about recovery time from topology diagram
-
-### Negative
-- Per-exchange subsystems increase actor count (minor overhead)
-- Rate limiter may delay legitimate restarts if threshold is too aggressive
-- NATS dedup window (5min) means restarts within 5min of last publish are safe; longer gaps may allow duplicates (edge case)
-
-### Invariants (testable)
-- `TOP-1`: Guardian with 3 subsystems — poison one — other two continue running (integration test)
-- `TOP-2`: Rate limiter: 6 rapid ChildFailed events → only 5 restarts, 6th deferred (unit test)
-- `TOP-3`: SessionActor disconnect → unregister from router → actor stopped (integration test)
-- `TOP-4`: Subsystem restart cycle (10x): goroutine count returns to baseline (soak test)
-- `TOP-5`: JetStream publish with duplicate Msg-ID within 5min → no duplicate delivery (integration test with testcontainers)
-
-## Rollout Plan
-
-1. Add global restart rate limiter to Guardian (RFC-0006/W5)
-2. Add `guardian_rate_limited_total` metric (RFC-0005/W4)
-3. Extend Guardian to support string-based SubsystemKey for multi-exchange (RFC-0010/W9)
-4. Document topology diagram in `docs/architecture/topology.md` (RFC-0006/W5)
-5. Validate TOP-1 through TOP-4 in integration tests (RFC-0006/W5)
-6. Validate TOP-5 with testcontainers NATS (RFC-0008/W7)
+- 2026-02-13:
+- Normalizacao governance doc-first.
+- Status explicito de implementacao parcial.
+- Inclusao de `Implementation Matrix` e `Evidence` com trilhas verificaveis.

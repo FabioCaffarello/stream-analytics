@@ -1,21 +1,22 @@
 {
   "active": [
     {
-      "slug": "wx-docker-nats-compose",
-      "path": "plans/wx-docker-nats-compose.md",
-      "title": "WX-docker-nats-compose",
-      "linkedAt": "2026-02-12T04:35:11.899Z",
+      "slug": "shard-production-grade",
+      "path": "plans/shard-production-grade.md",
+      "title": "Production-Grade Shardability: Budgets, Invariants & Runbook",
+      "summary": "Make sharding production-grade with lag/backlog budgets per shard, fairness/distribution checks, hot-shard skew alerting, and operational runbook for shard incidents.",
+      "linkedAt": "2026-02-17T18:07:50.444Z",
       "status": "active"
     },
     {
-      "slug": "w3-binance-real-ingestion",
-      "path": "plans/w3-binance-real-ingestion.md",
-      "title": "W3 Binance Real Ingestion",
-      "summary": "Hard cut do fake feeder no consumer e consolidação do modo real Binance via `ws.Manager -> ws.Consumer -> Parse -> Ingest`, com resiliência e observabilidade.",
-      "linkedAt": "2026-02-12T05:05:03.693Z",
+      "slug": "codebase-evolution-modernization",
+      "path": "plans/codebase-evolution-modernization.md",
+      "title": "Codebase Evolution and Modernization Program",
+      "summary": "Plano mestre para remover legado, consolidar design patterns, fechar lacunas de implementacao planejada e definir a evolucao do Market Raccoon com gates de qualidade.",
+      "linkedAt": "2026-02-18T15:21:48.588Z",
       "status": "active"
     }
   ],
   "completed": [],
-  "primary": "wx-docker-nats-compose"
+  "primary": "shard-production-grade"
 }

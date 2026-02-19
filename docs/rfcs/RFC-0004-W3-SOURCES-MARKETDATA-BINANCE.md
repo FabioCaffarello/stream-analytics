@@ -1,6 +1,6 @@
 # RFC-0004 — W3 Sources/MarketData v1 (Binance)
 
-**Status**: Implemented (W3)
+**Status:** Accepted
 **Date**: 2026-02-12
 **Relates to**: RFC-0001, ADR-0004, ADR-0011
 
@@ -65,3 +65,19 @@ W4 troca somente integração de transporte/pub-sub:
 1. Substituir publisher/log por adapter JetStream.
 2. Manter parser Binance e contratos `IngestRequest` estáveis.
 3. Evoluir idempotency para usar `Msg-ID` em publish e dedup window de broker.
+
+## Changelog
+
+- 2026-02-13:
+  - normalizado status para taxonomia RFC (`Draft|Accepted`);
+  - mantido contexto histórico da entrega W3.
+
+## Test Plan
+
+```bash
+make docs-check-full
+```
+
+## Acceptance
+
+- Required RFC sections are present and validated by `make docs-check-full`.

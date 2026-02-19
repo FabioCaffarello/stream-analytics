@@ -1,6 +1,6 @@
 # ADR-0007 — Delivery Boundary: WebSocket Sessions as Actors
 
-**Status:** Accepted  
+**Status:** Accepted
 **Date:** 2026-02-10
 
 ## Context
@@ -22,3 +22,12 @@ Real-time clients subscribe/unsubscribe frequently. We need per-connection isola
 ## Alternatives
 
 - Shared global WS hub (rejected: harder backpressure and isolation).
+
+## Evidence
+
+- Validation gate: `make docs-check-full`
+- Authority path: file-local ADR source.
+
+## Changelog
+
+- 2026-02-13: added required header sections for docs compliance.

@@ -18,7 +18,16 @@ if [[ -n "${MODULE:-}" ]]; then
   exit 0
 fi
 
-"$ROOT_DIR/scripts/list-modules.sh" | while IFS= read -r module; do
+modules=()
+while IFS= read -r module; do
+  modules+=("$module")
+done < <("$ROOT_DIR/scripts/list-modules.sh")
+if [[ ${#modules[@]} -eq 0 ]]; then
+  echo "no modules resolved from go.work" >&2
+  exit 1
+fi
+
+for module in "${modules[@]}"; do
   [[ -z "$module" ]] && continue
   echo ">>> ${module}: $*"
   (

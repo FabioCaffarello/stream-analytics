@@ -12,16 +12,21 @@ import (
 	"github.com/market-raccoon/internal/core/marketdata/app"
 	"github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/shared/metrics"
+	"github.com/market-raccoon/internal/shared/naming"
 	"github.com/market-raccoon/internal/shared/problem"
 )
 
 // SubsystemConfig configures the MarketDataSubsystemActor.
 type SubsystemConfig struct {
+	// Subsystem is the guardian subsystem key for this actor instance.
+	// Default: runtime.SubsystemMarketData.
+	Subsystem runtime.Subsystem
+
 	// Logger is used for structured logging.  Defaults to slog.Default().
 	Logger *slog.Logger
 
-	// Ingest is the marketdata ingest use case.  Required.
-	Ingest *app.IngestMarketData
+	// Service is the marketdata BC facade.  Required.
+	Service *app.MarketDataService
 
 	// ParseMessage converts a raw WS message into an IngestRequest.
 	// If nil, all messages are silently skipped (safe default for tests that
@@ -78,6 +83,8 @@ type SubsystemActor struct {
 	wsConnectedByID map[string]bool
 	backpressureOn  bool
 	lastHeartbeatAt time.Time
+
+	lmNormalizer *app.NormalizeMarkPriceLiquidation
 }
 
 type publishTick struct {
@@ -128,6 +135,9 @@ func (s *SubsystemActor) Receive(c *actor.Context) {
 
 // ensureDefaults fills in zero-value fields.
 func (s *SubsystemActor) ensureDefaults() {
+	if s.cfg.Subsystem == "" {
+		s.cfg.Subsystem = runtime.SubsystemMarketData
+	}
 	if s.logger == nil {
 		if s.cfg.Logger != nil {
 			s.logger = s.cfg.Logger
@@ -144,6 +154,9 @@ func (s *SubsystemActor) ensureDefaults() {
 	}
 	if s.wsConnectedByID == nil {
 		s.wsConnectedByID = make(map[string]bool)
+	}
+	if s.lmNormalizer == nil {
+		s.lmNormalizer = app.NewNormalizeMarkPriceLiquidation(app.NormalizeMarkPriceLiquidationConfig{})
 	}
 }
 
@@ -268,9 +281,18 @@ func (s *SubsystemActor) processMessage(msg *ws.WsMessage) {
 		return
 	}
 
+	req, duplicate := s.normalizeMarkPriceLiquidation(msg, req)
+	if duplicate {
+		metrics.IncWSMessageReceived(msg.Exchange, req.EventType)
+		metrics.ObserveIngest(msg.Exchange, req.Instrument, req.EventType, "duplicate", 0)
+		s.telemetry.recordSkip(msg.Exchange, req.EventType, "duplicate_normalized", string(problem.Duplicate), req.Instrument, req.Metadata["ws_stream"])
+		s.logProgress()
+		return
+	}
+
 	if req.EventType == "marketdata.bookdelta" {
-		if depth, ok := req.Payload.(domain.BookDeltaV1); ok && depth.FirstID > 0 && depth.FinalID > 0 {
-			if gap, lastFinal := s.telemetry.recordDepthSequence(req.Instrument, depth.FirstID, depth.FinalID); gap {
+		if depth, ok := req.Payload.(domain.BookDeltaV1); ok && depth.FirstID > 0 && depth.FinalID > 0 && !depth.IsSnapshot {
+			if gap, lastFinal := s.telemetry.recordDepthSequence(req.Instrument, depth.FirstID, depth.FinalID, depth.PrevFinal); gap {
 				s.logger.Warn("mdruntime: depth gap detected",
 					"instrument", req.Instrument,
 					"first_update_id", depth.FirstID,
@@ -282,8 +304,8 @@ func (s *SubsystemActor) processMessage(msg *ws.WsMessage) {
 	}
 
 	startedAt := time.Now()
-	res := s.cfg.Ingest.Execute(context.Background(), req)
-	metrics.IngestStreamsActive.Set(float64(s.cfg.Ingest.ActiveStreams()))
+	res := s.cfg.Service.Ingest.Execute(context.Background(), req)
+	metrics.IngestStreamsActive.Set(float64(s.cfg.Service.Ingest.ActiveStreams()))
 	if res.IsFail() {
 		p := res.Problem()
 		status := "failed"
@@ -326,6 +348,80 @@ func (s *SubsystemActor) processMessage(msg *ws.WsMessage) {
 		"seq", resp.Seq,
 		"exchange", msg.Exchange,
 	)
+}
+
+func (s *SubsystemActor) normalizeMarkPriceLiquidation(msg *ws.WsMessage, req app.IngestRequest) (app.IngestRequest, bool) {
+	eventType := naming.NormalizeEventType(req.EventType)
+	if eventType != "marketdata.markprice" && eventType != "marketdata.liquidation" {
+		return req, false
+	}
+	if s.lmNormalizer == nil {
+		return req, false
+	}
+
+	tsIngest := msg.RecvAt.UnixMilli()
+	if tsIngest <= 0 {
+		tsIngest = time.Now().UnixMilli()
+	}
+	normReq := app.NormalizeMarkPriceLiquidationRequest{
+		Venue:             req.Venue,
+		Instrument:        req.Instrument,
+		EventType:         req.EventType,
+		Version:           req.Version,
+		TsExchange:        req.TsExchange,
+		TsIngest:          tsIngest,
+		SourceIdempotency: req.IdempotencyKey,
+	}
+	switch eventType {
+	case "marketdata.markprice":
+		switch p := req.Payload.(type) {
+		case domain.MarkPriceTickV1:
+			payload := p
+			normReq.MarkPricePayload = &payload
+		case *domain.MarkPriceTickV1:
+			normReq.MarkPricePayload = p
+		default:
+			s.logger.Warn("mdruntime: markprice payload type mismatch",
+				"payload_type", fmt.Sprintf("%T", req.Payload),
+			)
+			return req, false
+		}
+	case "marketdata.liquidation":
+		switch p := req.Payload.(type) {
+		case domain.LiquidationTickV1:
+			payload := p
+			normReq.LiquidationPayload = &payload
+		case *domain.LiquidationTickV1:
+			normReq.LiquidationPayload = p
+		default:
+			s.logger.Warn("mdruntime: liquidation payload type mismatch",
+				"payload_type", fmt.Sprintf("%T", req.Payload),
+			)
+			return req, false
+		}
+	}
+
+	res := s.lmNormalizer.Execute(context.Background(), normReq)
+	if res.IsFail() {
+		s.logger.Warn("mdruntime: lm normalization failed",
+			"event_type", req.EventType,
+			"problem", res.Problem(),
+		)
+		return req, false
+	}
+	out := res.Value()
+	req.Venue = out.Venue
+	req.Instrument = out.Instrument
+	req.EventType = out.EventType
+	req.Version = out.Version
+	req.IdempotencyKey = out.DedupKey
+	if out.MarkPrice != nil {
+		req.Payload = *out.MarkPrice
+	}
+	if out.Liquidation != nil {
+		req.Payload = *out.Liquidation
+	}
+	return req, out.IsDuplicate
 }
 
 func (s *SubsystemActor) logProgress() {
@@ -375,7 +471,7 @@ func (s *SubsystemActor) handleError(c *actor.Context, msg *ws.WsError) {
 		return
 	}
 	c.Send(c.Parent(), runtime.ChildFailed{
-		Subsystem: runtime.SubsystemMarketData,
+		Subsystem: s.cfg.Subsystem,
 		Kind:      msg.Kind,
 		Err:       msg.Err,
 	})
@@ -437,7 +533,7 @@ func (s *SubsystemActor) emitSubsystemHeartbeat(c *actor.Context, force bool) {
 	}
 	s.lastHeartbeatAt = now
 	c.Send(c.Parent(), runtime.SubsystemHeartbeat{
-		Subsystem:     runtime.SubsystemMarketData,
+		Subsystem:     s.cfg.Subsystem,
 		Connected:     s.wsConnected,
 		LastMessageAt: s.lastMessageAt,
 		LastPublishAt: s.lastPublishAt,

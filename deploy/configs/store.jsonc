@@ -1,0 +1,67 @@
+{
+  // Runtime config mounted in container at /etc/market-raccoon/store.jsonc
+  "bus": {
+    "type": "jetstream",
+    "wire_format": "proto"
+  },
+  "jetstream": {
+    "url": "nats://nats:4222",
+    "stream_name": "MARKETDATA",
+    "consumer_durable": "store-v2",
+    "ack_wait": "30s",
+    "max_ack_pending": 2048,
+    "max_deliver": 10,
+    "deliver_policy": "all",
+    "filter_subjects": [
+      "aggregation.snapshot.v1.>",
+      "aggregation.candle.v1.>",
+      "aggregation.stats.v1.>",
+      "aggregation.orderbook_inconsistency.v1.>",
+      "insights.heatmap_snapshot.v1.>",
+      "insights.volume_profile_snapshot.v1.>"
+    ],
+    "dedup_window": "5m",
+    "max_age": "24h",
+    "max_bytes": "10GB"
+  },
+  "shard": {
+    "index": 0,
+    "count": 1,
+    "max_lag": 0
+  },
+  "log": {
+    "level": "info",
+    "format": "json"
+  },
+  "http": {
+    "addr": ":8083",
+    "shutdown_timeout": "10s",
+    "publisher_flush_timeout": "3s",
+    "guardian_shutdown_timeout": "10s"
+  },
+  "store": {
+    "clickhouse": {
+      // Production: override via mounted secret or env.
+      "dsn": "clickhouse://default:password@clickhouse:9000/default"
+    },
+    "batch": {
+      "max_rows": 5000,
+      "max_bytes": 0,
+      "flush_interval": "250ms"
+    }
+  },
+  "storage": {
+    "clickhouse": {
+      "enabled": true,
+      "addrs": ["clickhouse:9000"],
+      "database": "default",
+      "username": "default",
+      "password": "password",
+      "max_open_conns": 20,
+      "max_idle_conns": 10,
+      "conn_max_lifetime": "30m",
+      "dial_timeout": "5s",
+      "read_timeout": "30s"
+    }
+  }
+}

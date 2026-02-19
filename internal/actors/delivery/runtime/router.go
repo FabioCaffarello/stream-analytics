@@ -1,7 +1,6 @@
 package deliveryruntime
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 
@@ -12,9 +11,13 @@ import (
 
 // RouterConfig configures the Delivery router actor.
 type RouterConfig struct {
-	Logger     *slog.Logger
-	EnvelopeCh <-chan envelope.Envelope
-	Timeframe  string
+	Logger        *slog.Logger
+	Timeframe     string
+	EnvelopeStore envelopeStore
+}
+
+type envelopeStore interface {
+	StoreEnvelope(env envelope.Envelope)
 }
 
 // RouterActor owns subject routing state.
@@ -24,14 +27,13 @@ type RouterActor struct {
 	logger *slog.Logger
 
 	sessions        map[string]*actor.PID
+	sessionByPID    map[string]string
 	sessionSubjects map[string]map[domain.Subject]struct{}
 	subjectSessions map[domain.Subject]map[string]*actor.PID
 
-	engine     *actor.Engine
-	selfPID    *actor.PID
-	consumeCtx context.Context
-	cancel     context.CancelFunc
-	stopped    bool
+	engine  *actor.Engine
+	selfPID *actor.PID
+	stopped bool
 }
 
 func NewRouterActor(cfg RouterConfig) actor.Producer {
@@ -49,6 +51,10 @@ func (r *RouterActor) Receive(c *actor.Context) {
 		r.onStarted()
 	case actor.Stopped:
 		r.onStopped()
+	case actor.ActorStoppedEvent:
+		r.onActorStopped(msg)
+	case actor.ActorStartedEvent:
+	case actor.ActorInitializedEvent:
 	case RegisterSession:
 		r.register(msg)
 	case UnregisterSession:
@@ -57,6 +63,8 @@ func (r *RouterActor) Receive(c *actor.Context) {
 		r.subscribe(msg)
 	case UnsubscribeSession:
 		r.unsubscribe(msg)
+	case DeliverEnvelope:
+		r.handleEnvelope(msg.Envelope)
 	case busEnvelopeMsg:
 		r.handleEnvelope(msg.Env)
 	default:
@@ -75,6 +83,9 @@ func (r *RouterActor) ensureDefaults(c *actor.Context) {
 	if r.sessions == nil {
 		r.sessions = make(map[string]*actor.PID)
 	}
+	if r.sessionByPID == nil {
+		r.sessionByPID = make(map[string]string)
+	}
 	if r.sessionSubjects == nil {
 		r.sessionSubjects = make(map[string]map[domain.Subject]struct{})
 	}
@@ -88,32 +99,27 @@ func (r *RouterActor) ensureDefaults(c *actor.Context) {
 }
 
 func (r *RouterActor) onStarted() {
-	if r.cfg.EnvelopeCh == nil || r.engine == nil || r.selfPID == nil {
-		return
+	if r.engine != nil && r.selfPID != nil {
+		r.engine.Subscribe(r.selfPID)
 	}
-	r.consumeCtx, r.cancel = context.WithCancel(context.Background())
-	go r.consumeLoop()
 }
 
 func (r *RouterActor) onStopped() {
 	r.stopped = true
-	if r.cancel != nil {
-		r.cancel()
+	if r.engine != nil && r.selfPID != nil {
+		r.engine.Unsubscribe(r.selfPID)
 	}
 }
 
-func (r *RouterActor) consumeLoop() {
-	for {
-		select {
-		case <-r.consumeCtx.Done():
-			return
-		case env, ok := <-r.cfg.EnvelopeCh:
-			if !ok {
-				return
-			}
-			r.engine.Send(r.selfPID, busEnvelopeMsg{Env: env})
-		}
+func (r *RouterActor) onActorStopped(evt actor.ActorStoppedEvent) {
+	if evt.PID == nil || r.selfPID == nil || evt.PID.Equals(r.selfPID) {
+		return
 	}
+	sessionID, ok := r.sessionByPID[evt.PID.String()]
+	if !ok {
+		return
+	}
+	r.unregister(sessionID)
 }
 
 func (r *RouterActor) register(msg RegisterSession) {
@@ -121,7 +127,11 @@ func (r *RouterActor) register(msg RegisterSession) {
 	if id == "" || msg.PID == nil {
 		return
 	}
+	if previousPID, exists := r.sessions[id]; exists && previousPID != nil {
+		delete(r.sessionByPID, previousPID.String())
+	}
 	r.sessions[id] = msg.PID
+	r.sessionByPID[msg.PID.String()] = id
 	if _, ok := r.sessionSubjects[id]; !ok {
 		r.sessionSubjects[id] = make(map[domain.Subject]struct{})
 	}
@@ -135,6 +145,9 @@ func (r *RouterActor) unregister(sessionID string) {
 		}
 	}
 	delete(r.sessionSubjects, sessionID)
+	if pid, ok := r.sessions[sessionID]; ok && pid != nil {
+		delete(r.sessionByPID, pid.String())
+	}
 	delete(r.sessions, sessionID)
 }
 
@@ -180,6 +193,13 @@ func (r *RouterActor) removeSessionFromSubject(sessionID string, subject domain.
 func (r *RouterActor) handleEnvelope(env envelope.Envelope) {
 	if r.stopped {
 		return
+	}
+	if p := domain.ValidateEnvelopeForDelivery(env); p != nil {
+		r.logger.Warn("delivery router: envelope rejected by contract policy", "err", p)
+		return
+	}
+	if r.cfg.EnvelopeStore != nil {
+		r.cfg.EnvelopeStore.StoreEnvelope(env)
 	}
 	timeframe := r.cfg.Timeframe
 	if timeframe == "" {

@@ -1,0 +1,76 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "none"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "id": 1,
+      "title": "VPVR Overload Level (bounded buckets)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "max by (venue, instrument_bucket, timeframe_bucket) (vpvr_overload_level)", "legendFormat": "{{venue}}/{{instrument_bucket}}/{{timeframe_bucket}}", "refId": "A"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "id": 2,
+      "title": "VPVR Drop Rate",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "sum by (reason) (rate(vpvr_drop_total[5m]))", "legendFormat": "{{reason}}", "refId": "A"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "none"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "id": 3,
+      "title": "Data Loss Burn Rate (5m)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "slo:data_loss:burn_rate_5m{service=\"market-raccoon\"}", "legendFormat": "{{stream}}/{{venue}}", "refId": "A"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "none"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "id": 4,
+      "title": "Heatmap Queue Depth (bounded buckets)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "max by (venue, instrument_bucket) (heatmap_queue_depth)", "legendFormat": "{{venue}}/{{instrument_bucket}}", "refId": "A"}
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["observability", "vpvr"],
+  "templating": {
+    "list": [
+      {
+        "current": {"selected": false, "text": "Prometheus", "value": "Prometheus"},
+        "hide": 0,
+        "includeAll": false,
+        "label": "Prometheus",
+        "multi": false,
+        "name": "DS_PROMETHEUS",
+        "options": [],
+        "query": "prometheus",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "type": "datasource"
+      }
+    ]
+  },
+  "time": {"from": "now-6h", "to": "now"},
+  "title": "Market-Raccoon VPVR",
+  "uid": "market-raccoon-vpvr",
+  "version": 1
+}

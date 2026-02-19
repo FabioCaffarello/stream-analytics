@@ -1,6 +1,6 @@
 # ADR-0005 — Sequencing & Time Normalization
 
-**Status:** Accepted  
+**Status:** Accepted
 **Date:** 2026-02-10
 
 ## Context
@@ -30,6 +30,7 @@ We introduce a Sequencer in `core/marketdata/app`:
 ### Sequence Authorities
 
 Ha dois dominios de sequencia independentes:
+
 - `envelope.seq` (autoridade de dominio por stream)
 - sequencia de transporte (futura, JetStream)
 
@@ -42,3 +43,8 @@ No replay deterministico, `seq` e timestamps de ingest devem vir do fixture para
 ### Persistencia de Sequencer
 
 Continuidades cross-restart podem ser adicionadas no futuro via armazenamento de `lastSeq` por stream, sem alterar o contrato atual nesta fase.
+
+## Evidence
+
+- Validation gate: `make docs-check-full`
+- Authority path: file-local ADR source.

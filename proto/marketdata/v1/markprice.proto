@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package marketdata.v1;
+
+option go_package = "github.com/market-raccoon/internal/shared/proto/gen/marketdata/v1";
+
+// MarkPriceTickV1 models a mark price update.
+message MarkPriceTickV1 {
+  // MarkPrice is the current mark price.
+  double mark_price = 1;
+  // IndexPrice is the underlying index price.
+  double index_price = 2;
+  // FundingRate is the current funding rate.
+  double funding_rate = 3;
+  // TimestampMs is the event timestamp in Unix milliseconds.
+  int64 timestamp_ms = 4;
+
+  reserved 100 to 199;
+}

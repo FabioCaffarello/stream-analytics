@@ -1,0 +1,14 @@
+{
+  "active": [
+    {
+      "slug": "m3-vpvr-plan",
+      "path": "plans/m3-vpvr-plan.md",
+      "title": "M3 VPVR Plan (Commit-Driven)",
+      "summary": "Last updated: 2026-02-13T20:41:05.043Z | Progress: 0%",
+      "linkedAt": "2026-02-13T23:07:14.940Z",
+      "status": "active"
+    }
+  ],
+  "completed": [],
+  "primary": "m3-vpvr-plan"
+}

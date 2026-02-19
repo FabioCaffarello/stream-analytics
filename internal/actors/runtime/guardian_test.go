@@ -84,7 +84,7 @@ func TestGuardian_StartStopDeterministicOrder(t *testing.T) {
 
 	g.stopAll(nil)
 
-	wantStop := []Subsystem{SubsystemInsights, SubsystemDelivery, SubsystemAggregation, SubsystemMarketData}
+	wantStop := []Subsystem{SubsystemStorage, SubsystemInsights, SubsystemDelivery, SubsystemAggregation, SubsystemMarketData}
 	if !reflect.DeepEqual(stopped, wantStop) {
 		t.Fatalf("stop order = %v, want %v", stopped, wantStop)
 	}
@@ -93,6 +93,40 @@ func TestGuardian_StartStopDeterministicOrder(t *testing.T) {
 		if g.running[subsystem] {
 			t.Fatalf("subsystem %s should be stopped", subsystem)
 		}
+	}
+}
+
+func TestGuardian_StartOrder_DynamicMarketDataKeys(t *testing.T) {
+	clock := &fakeClock{now: time.Unix(100, 0)}
+	policy := newTestPolicy(t, clock)
+	g := newGuardianForTest(policy, clock)
+	g.cfg = GuardianConfig{
+		Factories: map[Subsystem]actor.Producer{
+			"marketdata:binance": func() actor.Receiver { return &placeholderReceiver{} },
+			"marketdata:bybit":   func() actor.Receiver { return &placeholderReceiver{} },
+		},
+	}
+
+	var started []Subsystem
+	g.spawnFn = func(c *actor.Context, subsystem Subsystem) (*actor.PID, error) {
+		started = append(started, subsystem)
+		return actor.NewPID("local", fmt.Sprintf("%s-child", subsystem)), nil
+	}
+	g.poisonFn = func(c *actor.Context, pid *actor.PID) {}
+	g.scheduleFn = func(delay time.Duration, fn func()) cancelSchedule { return func() {} }
+
+	g.startAll(nil)
+
+	want := []Subsystem{
+		SubsystemAggregation,
+		SubsystemDelivery,
+		SubsystemInsights,
+		SubsystemStorage,
+		"marketdata:binance",
+		"marketdata:bybit",
+	}
+	if !reflect.DeepEqual(started, want) {
+		t.Fatalf("start order = %v, want %v", started, want)
 	}
 }
 
@@ -189,7 +223,7 @@ func TestGuardian_SnapshotConsistent(t *testing.T) {
 	if !snap.At.Equal(clock.now) {
 		t.Fatalf("snapshot at = %v, want %v", snap.At, clock.now)
 	}
-	if got, want := len(snap.Subsystems), 4; got != want {
+	if got, want := len(snap.Subsystems), 5; got != want {
 		t.Fatalf("snapshot subsystem count = %d, want %d", got, want)
 	}
 
@@ -397,6 +431,43 @@ func TestGuardian_Readiness_ExplicitExpectedSubsystems(t *testing.T) {
 	}
 	if len(pending) != 0 {
 		t.Fatalf("unexpected pending: %v", pending)
+	}
+}
+
+func TestGuardian_Readiness_DynamicExpectedSubsystems(t *testing.T) {
+	clock := &fakeClock{now: time.Unix(1000, 0)}
+	policy := newTestPolicy(t, clock)
+	g := newGuardianForTest(policy, clock)
+	g.cfg = GuardianConfig{
+		Policy: policy,
+		Clock:  clock,
+		ExpectedSubsystems: []Subsystem{
+			"marketdata:binance",
+			"marketdata:bybit",
+		},
+	}
+
+	ready, pending := g.computeReady()
+	if ready {
+		t.Fatal("expected not ready before dynamic subsystems start")
+	}
+	if len(pending) != 2 {
+		t.Fatalf("pending=%v want 2 subsystems", pending)
+	}
+
+	g.readySystems["marketdata:binance"] = true
+	ready, pending = g.computeReady()
+	if ready {
+		t.Fatal("expected not ready with only one dynamic subsystem ready")
+	}
+	if len(pending) != 1 || pending[0] != "marketdata:bybit" {
+		t.Fatalf("pending=%v want [marketdata:bybit]", pending)
+	}
+
+	g.readySystems["marketdata:bybit"] = true
+	ready, pending = g.computeReady()
+	if !ready || len(pending) != 0 {
+		t.Fatalf("expected ready after both subsystems, ready=%v pending=%v", ready, pending)
 	}
 }
 

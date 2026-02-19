@@ -1,0 +1,227 @@
+{
+  "decisions": [
+    {
+      "title": "Checkpoint M3-vpvr-plan",
+      "description": "Checkpoint criado para cadeia Commit-Driven de VPVR com cardinalidade-first (caps/janelas), subjects definidos e escopo MVP fechado sem schema fisico no feature-pack.",
+      "phase": "P",
+      "alternatives": [
+        "Prosseguir sem checkpoint formal",
+        "Definir runtime antes de caps/janelas"
+      ],
+      "status": "accepted",
+      "id": "dec-1771015259827",
+      "decidedAt": "2026-02-13T20:40:59.827Z"
+    },
+    {
+      "title": "Commit Chain: VPVR",
+      "description": "Chain C1..C6 registrada com dominio/core+invariantes, storage write path, delivery read path, golden replay, gates e rollback por commit.",
+      "phase": "E",
+      "alternatives": [
+        "Merge unico sem gates por commit",
+        "Executar delivery antes de storage hot path"
+      ],
+      "status": "accepted",
+      "id": "dec-1771015259830",
+      "decidedAt": "2026-02-13T20:40:59.830Z"
+    },
+    {
+      "title": "MVP scope confirmado",
+      "description": "Escopo MVP fixado: input unico marketdata.trade.v1.{venue}.{instrument}; outputs insights.volume_profile_snapshot.v1.{venue}.{instrument}(draft) e insights.volume_profile_delta.v1.{venue}.{instrument}(planned); WS suporta last snapshot e range paginado com caps de cardinalidade para 1m/5m/1h/4h/1d.",
+      "phase": "P",
+      "alternatives": [
+        "Incluir markprice/bookdelta no calculo de volume",
+        "Permitir queries sem limite de range"
+      ],
+      "status": "accepted",
+      "id": "dec-1771015805624",
+      "decidedAt": "2026-02-13T20:50:05.624Z"
+    },
+    {
+      "title": "Decision instrument vs symbol",
+      "description": "Seguir mapping canonico do Delivery M2: WS usa subject com symbol normalizado para token canonico de instrument (NormalizeSymbol -> CanonicalInstrument). Event-bus continua em {instrument}. Consistencia garantida por testes de equivalencia instrument/symbol no dominio delivery.",
+      "phase": "P",
+      "alternatives": [
+        "Separar semanticamente symbol e instrument em runtime agora",
+        "Aceitar symbol cru no WS sem normalizacao"
+      ],
+      "status": "accepted",
+      "id": "dec-1771015805627",
+      "decidedAt": "2026-02-13T20:50:05.627Z"
+    },
+    {
+      "title": "Risco P0: subject drift e roots nao permitidos",
+      "description": "Mitigacao: commit docs/contracts isolado antes de runtime, removendo placeholders TBD e alinhando matriz event-bus/registry para subjects VPVR com status draft/planned e root insights.",
+      "phase": "R",
+      "alternatives": [
+        "Mitigar apenas em runtime subject_validation",
+        "Adiar registry ate fim da cadeia"
+      ],
+      "status": "accepted",
+      "id": "dec-1771015805630",
+      "decidedAt": "2026-02-13T20:50:05.630Z"
+    },
+    {
+      "title": "Risco P0: determinismo/idempotencia/replay",
+      "description": "Mitigacao: bucket assignment deterministico com tick_size e caps; idempotency key deterministica por janela+bucket+seq/version; writer hot com upsert idempotente; golden replay VPVR byte-stable 50x e hook de mismatch.",
+      "phase": "R",
+      "alternatives": [
+        "Comparar apenas igualdade sem byte-stability",
+        "Aceitar idempotencia parcial por janela"
+      ],
+      "status": "accepted",
+      "id": "dec-1771015805633",
+      "decidedAt": "2026-02-13T20:50:05.633Z"
+    },
+    {
+      "title": "Risco P0: backpressure e cardinalidade",
+      "description": "Mitigacao: estrategia obrigatoria compress->degrade->drop (drop apenas delta intermediario), caps hard de buckets/levels/windows/query e testes de limite no dominio/delivery.",
+      "phase": "R",
+      "alternatives": [
+        "Drop earliest sem degrade",
+        "Aumentar buffers sem caps"
+      ],
+      "status": "accepted",
+      "id": "dec-1771015805635",
+      "decidedAt": "2026-02-13T20:50:05.635Z"
+    },
+    {
+      "title": "Checkpoint: gate failure before C1 runtime chain",
+      "description": "Cadeia interrompida no commit inicial de docs devido falha de gate no hook go-lint. Falhas reportadas em internal/core/insights/domain/heatmap_bucket.go (gocyclo Validate=20>15) e internal/core/insights/app/build_heatmap.go (var heatmapSizeBuckets unused). Nenhum commit VPVR aplicado.",
+      "phase": "V",
+      "alternatives": [
+        "Prosseguir ignorando hook (proibido)",
+        "Corrigir debt de lint em commit isolado antes de retomar VPVR"
+      ],
+      "status": "accepted",
+      "id": "dec-1771015856827",
+      "decidedAt": "2026-02-13T20:50:56.827Z"
+    },
+    {
+      "title": "Checkpoint: C1 gate failure (vpvr domain)",
+      "description": "Parada imediata da cadeia VPVR em C1 por falha de gate no commit hook go-lint: cyclomatic complexity 18 (>15) em internal/core/insights/domain/volume_profile.go func (VolumeProfileSnapshotV1).Validate. Nenhum commit C1 aplicado.",
+      "phase": "E",
+      "alternatives": [
+        "Relaxar limite de lint (rejeitado)",
+        "Refatorar Validate em helpers menores e reexecutar gates"
+      ],
+      "status": "accepted",
+      "id": "dec-1771017767897",
+      "decidedAt": "2026-02-13T21:22:47.897Z"
+    },
+    {
+      "title": "C1 checklist audit PASS",
+      "description": "Checklist C1: PASS subject taxonomy (volume_profile types em insights.* e roots permitidas), PASS BC boundary (implementacao confinada a core/insights), PASS determinismo (bucket assignment + ordenacao + testes), PASS cardinalidade (caps e timeframes em codigo + teste de cap), PASS storage hot-path (nao tocado no C1), PASS replay (nao tocado; gate replay-golden verde), PASS observability (deferido para C6 conforme plano). Evidence hooks: internal/core/insights/domain/volume_profile.go:12, internal/core/insights/domain/volume_profile.go:17, internal/core/insights/domain/volume_profile.go:53, internal/core/insights/domain/volume_profile.go:64, internal/core/insights/domain/volume_profile_test.go:9, internal/core/insights/domain/volume_profile_test.go:20, docs/contracts/event-bus.md:50, docs/contracts/event-bus.md:72, docs/contracts/subject-registry.yaml:145, internal/adapters/jetstream/subject_validation.go:15, internal/adapters/jetstream/subject_validation.go:44.",
+      "phase": "V",
+      "alternatives": [
+        "Marcar C1 como FAIL por ausencia de storage/replay/metrics no commit",
+        "Avancar sem checklist formal"
+      ],
+      "status": "accepted",
+      "id": "dec-1771018804650",
+      "decidedAt": "2026-02-13T21:40:04.650Z"
+    },
+    {
+      "title": "C1 gates PASS",
+      "description": "Gates C1 executados e verdes: docs-check-full, invariants-check, commit-msg-check, test-unit, test-workspace, test-workspace-race, test-replay-golden.",
+      "phase": "V",
+      "alternatives": [
+        "STOP-C1 por gate failure",
+        "Executar apenas subconjunto de gates"
+      ],
+      "status": "accepted",
+      "id": "dec-1771018807834",
+      "decidedAt": "2026-02-13T21:40:07.834Z"
+    },
+    {
+      "title": "STOP-C2",
+      "description": "Gate hard-stop em C2: hook commit-msg-conventional falhou por titulo >72 chars (77/72) ao tentar commit do builder VPVR. Nenhum commit C2 criado. Proximo corretivo: recommit com mensagem curta padrao feat(m3): ... sem alterar codigo.",
+      "phase": "E",
+      "alternatives": [
+        "Ignorar hook (proibido)",
+        "Alterar escopo de codigo no mesmo passo (evitar)"
+      ],
+      "status": "accepted",
+      "id": "dec-1771019131439",
+      "decidedAt": "2026-02-13T21:45:31.439Z"
+    },
+    {
+      "title": "C2 plan (atomic)",
+      "description": "C2 objetivo: builder VPVR a partir de marketdata.trade com snapshot/delta in-memory e idempotency key deterministica. Arquivos acoplados: internal/core/insights/app/build_volume_profile.go e internal/core/insights/app/build_volume_profile_test.go. Gates planejados/executados: docs-check-full, invariants-check, commit-msg-check, test-unit, test-workspace, test-workspace-race, test-replay-golden. Rollback: git revert <hash C2> apos commit.",
+      "phase": "E",
+      "alternatives": [
+        "Expandir C2 para storage/delivery (quebra atomicidade)",
+        "Adiar idempotency key para C3"
+      ],
+      "status": "accepted",
+      "id": "dec-1771019155159",
+      "decidedAt": "2026-02-13T21:45:55.159Z"
+    },
+    {
+      "title": "C2 gates runtime PASS pre-commit",
+      "description": "Antes do commit C2, todos gates de make executados ficaram verdes (docs/invariants/commit-msg-check/test-unit/test-workspace/test-workspace-race/test-replay-golden). O bloqueio ocorreu apenas no hook de commit-msg-conventional por titulo >72 chars.",
+      "phase": "V",
+      "alternatives": [
+        "Considerar gate fail global e resetar mudancas",
+        "Repetir commit com titulo curto convencional"
+      ],
+      "status": "accepted",
+      "id": "dec-1771019155161",
+      "decidedAt": "2026-02-13T21:45:55.161Z"
+    },
+    {
+      "title": "C2 committed + gates ok",
+      "description": "C2 commit confirmado: 1c01625 feat(m3): vpvr builder usecase and tests. Escopo atomico mantido em 2 arquivos de app (build_volume_profile.go, build_volume_profile_test.go). Gates executados em ordem e verdes: commit-msg-check, docs-check-full, invariants-check, test-unit, test-workspace, test-workspace-race, test-replay-golden.",
+      "phase": "E",
+      "alternatives": [
+        "Repetir commit (desnecessario)",
+        "Avancar para C3 sem registrar checkpoint"
+      ],
+      "status": "accepted",
+      "id": "dec-1771020539843",
+      "decidedAt": "2026-02-13T22:08:59.843Z"
+    },
+    {
+      "title": "C3 start",
+      "description": "Escopo C3: implementar hot writer Timescale VPVR com upsert idempotente e testes, limitado a internal/core/insights/ports/storage.go, internal/adapters/storage/timescale/volume_profile_writer.go e internal/adapters/storage/timescale/volume_profile_writer_test.go. Invariantes obrigatorios: VPVR-STO-1 key sem seqMax; VPVR-STO-2 ON CONFLICT deterministico com merge buy/sell/total/seqMin/seqMax; VPVR-STO-3 port retorna *problem.Problem; VPVR-STO-4 ack-on-commit preservado (nenhum ACK antes de write); VPVR-STO-5 replay safety sem duplicata.",
+      "phase": "E",
+      "alternatives": [
+        "Postergar writer para C4",
+        "Incluir replay/overload neste commit (fora de escopo)"
+      ],
+      "status": "accepted",
+      "id": "dec-1771021426537",
+      "decidedAt": "2026-02-13T22:23:46.537Z"
+    },
+    {
+      "title": "C3 committed + gates ok",
+      "description": "C3 commit b82f737 aplicado com escopo atomico em 3 arquivos: internal/core/insights/ports/storage.go, internal/adapters/storage/timescale/volume_profile_writer.go, internal/adapters/storage/timescale/volume_profile_writer_test.go. Invariantes VPVR-STO-1..5 atendidos: key sem seqMax, merge deterministico, port com *problem.Problem, sem ACK no writer (boundary externo CommitAndAck), replay safety coberta por testes. Gates verdes: commit-msg-check, docs-check-full, invariants-check, test-unit, test-workspace, test-workspace-race, test-replay-golden, registry-check, lint. TODO criado: sql/timescale/insights_volume_profile_hot.sql.",
+      "phase": "E",
+      "alternatives": [
+        "Dividir C3 em dois commits (port e writer separados)",
+        "Adicionar migrations neste C3"
+      ],
+      "status": "accepted",
+      "id": "dec-1771021648502",
+      "decidedAt": "2026-02-13T22:27:28.502Z"
+    },
+    {
+      "title": "C3 gate timings",
+      "description": "Tempos aproximados dos gates C3: commit-msg-check 0.1s; docs-check-full 5.3s; invariants-check 0.1s; test-unit 4.6s; test-workspace 6.5s; test-workspace-race 3.6s; test-replay-golden 0.3s; registry-check 0.4s; lint 5.5s. Todos PASS.",
+      "phase": "V",
+      "alternatives": [
+        "Executar subset de gates",
+        "Nao registrar tempos"
+      ],
+      "status": "accepted",
+      "id": "dec-1771021670187",
+      "decidedAt": "2026-02-13T22:27:50.187Z"
+    }
+  ],
+  "phases": {
+    "phase-1": {
+      "status": "completed",
+      "updatedAt": "2026-02-13T20:50:09.759Z"
+    }
+  },
+  "progress": 33
+}

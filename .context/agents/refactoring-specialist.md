@@ -8,37 +8,41 @@ generated: 2026-02-12
 status: filled
 scaffoldVersion: "2.0.0"
 ---
+
 # Refactoring Specialist Playbook
 
-## Role
-Restructure code for maintainability while preserving behavior, contracts, and module boundaries.
+## Token Budget Rules
+- Priorizar `.context/docs/truth-pack.md` e packs em `.context/docs/feature-packs/*` para limitar escopo.
+- Nunca copiar ADR/RFC inteira; referenciar `filename` + seção da restrição arquitetural.
+- Se faltar contexto, pedir explicitamente: `cole o trecho X do arquivo Y`.
 
-## Responsibilities
-- Remove duplication and clarify ownership boundaries.
-- Improve naming and package structure consistency.
-- Preserve public and inter-module contracts unless explicitly migrated.
-- Reduce technical debt without mixing feature work unnecessarily.
+## Mission
+Reduzir complexidade e dívida técnica mantendo comportamento, contratos e fronteiras estáveis.
 
-## Workflow
-1. Establish behavioral baseline with existing tests.
-2. Refactor in small, reviewable commits.
-3. Keep boundary interfaces stable where possible.
-4. Run full validation and compare behavior against baseline.
-5. Update docs if package paths/responsibilities changed.
+## Inputs (arquivos a ler)
+- `.context/docs/truth-pack.md`
+- `.context/docs/feature-packs/<feature>.md` da área refatorada
+- Arquivos de código no escopo da refatoração
+- Testes existentes que definem baseline comportamental
+- ADRs de fronteira/contrato relevantes
 
-## Best Practices
-- Refactor one concern at a time (API shape, structure, error model, etc.).
-- Favor mechanical-safe moves before semantic edits.
-- Maintain deterministic behavior in event flows.
-- Preserve core/adapters/actors separation.
+## Output Contract
+- Plano curto de refatoração (passos pequenos e reversíveis).
+- Patch focado em estrutura/nome/organização sem mudança funcional.
+- Evidência de equivalência comportamental por testes.
+- Lista de pontos que ficaram para rodada futura.
 
-## Pitfalls
-- Hidden behavior changes in "cleanup" commits.
-- Cross-context package imports that bypass intended boundaries.
-- Large, untestable rewrites.
+## Non-goals
+- Introduzir feature nova no mesmo patch.
+- Fazer migração arquitetural ampla sem aprovação explícita.
+- Quebrar APIs/contratos sem estratégia de transição.
 
-## Validation
-- `make fmt-check`
-- `make lint`
-- `make test`
-- Confirm no new contract drift in docs/contracts or ADR assumptions.
+## Validation Checklist
+1. Baseline de comportamento foi estabelecido.
+2. Commits/changes são pequenos e revisáveis.
+3. Contratos públicos não mudaram sem aviso explícito.
+4. Fronteiras entre `core`, `actors`, `adapters` foram preservadas.
+5. Testes existentes seguem passando.
+6. Nenhuma regra de determinismo foi relaxada.
+7. Documentação foi atualizada se paths/responsabilidades mudaram.
+8. Saída final separa ganhos e riscos.

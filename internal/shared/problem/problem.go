@@ -26,6 +26,8 @@ const (
 	Conflict ProblemCode = "SYS_CONFLICT"
 	// Internal indicates unexpected system/internal error.
 	Internal ProblemCode = "SYS_INTERNAL"
+	// Unavailable indicates temporary system/network unavailability.
+	Unavailable ProblemCode = "SYS_UNAVAILABLE"
 
 	// OutOfOrder indicates sequence/ordering violation.
 	OutOfOrder ProblemCode = "MD_OUT_OF_ORDER"

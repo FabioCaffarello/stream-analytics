@@ -5,6 +5,12 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      run_integration:
+        description: "Run optional JetStream integration tests"
+        required: false
+        default: "false"
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -18,10 +24,52 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v6
         with:
           go-version: "1.23.x"
+      - name: Setup Buf
+        uses: bufbuild/buf-setup-action@v1
+      - name: Install protobuf generator tools
+        run: make tools
+      - name: Ensure local main baseline for proto-breaking
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --prune --depth=1 origin main:main || true
+      - name: Proto generate check
+        run: |
+          make proto-gen-if-needed
+          if ! git diff --exit-code -- internal/shared/proto/gen; then
+            echo "Generated protobuf drift detected under internal/shared/proto/gen. Run 'make proto-gen' and commit generated files."
+            exit 1
+          fi
+      - name: Import boundary guard
+        run: go test ./internal/shared/contracts -run TestImportGuard_ProtoImportsStayInSharedBoundary -count=1
       - name: Install tools
         run: make install-tools
-      - name: Run CI pipeline
-        run: make ci VULN_REQUIRED=true
+      - name: Install promtool
+        shell: bash
+        run: |
+          set -euo pipefail
+          go install github.com/prometheus/prometheus/cmd/promtool@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          promtool --version
+      - name: Run contract gates
+        run: make contract-gates
+      - name: Run operability gates
+        run: make operability-gates
+      - name: Run benchmark regression gate
+        run: BENCH_THRESHOLD=20 make bench-check
+
+  integration-jetstream:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.run_integration == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.23.x"
+      - name: Run JetStream integration tests
+        run: go test -tags=integration ./internal/adapters/jetstream -count=1 -v

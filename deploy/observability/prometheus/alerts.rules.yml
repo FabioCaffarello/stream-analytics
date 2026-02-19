@@ -1,0 +1,186 @@
+groups:
+  - name: slo-burn-rate-alerts
+    interval: 30s
+    rules:
+      - alert: SLOIngestBurnRateFast
+        expr: (slo:ingest:burn_rate_5m > 14.4) and (slo:ingest:burn_rate_1h > 14.4)
+        for: 2m
+        labels:
+          severity: page
+          service: market-raccoon
+          slo: ingest
+        annotations:
+          summary: "Ingest SLO fast burn-rate high"
+          description: "Ingest error budget burn-rate is above fast threshold on 5m/1h windows."
+          runbook_url: "docs/observability/runbooks/ingest.md"
+
+      - alert: SLOIngestBurnRateSlow
+        expr: (slo:ingest:burn_rate_30m > 6) and (slo:ingest:burn_rate_6h > 6)
+        for: 5m
+        labels:
+          severity: ticket
+          service: market-raccoon
+          slo: ingest
+        annotations:
+          summary: "Ingest SLO slow burn-rate high"
+          description: "Ingest error budget burn-rate is above slow threshold on 30m/6h windows."
+          runbook_url: "docs/observability/runbooks/ingest.md"
+
+      - alert: SLODeliveryLatencyBurnRateFast
+        expr: (slo:delivery_latency:burn_rate_5m > 14.4) and (slo:delivery_latency:burn_rate_1h > 14.4)
+        for: 2m
+        labels:
+          severity: page
+          service: market-raccoon
+          slo: delivery_latency
+        annotations:
+          summary: "Delivery latency SLO fast burn-rate high"
+          description: "Delivery latency error budget burn-rate is above fast threshold on 5m/1h windows."
+          runbook_url: "docs/observability/runbooks/websocket.md"
+
+      - alert: SLODeliveryLatencyBurnRateSlow
+        expr: (slo:delivery_latency:burn_rate_30m > 6) and (slo:delivery_latency:burn_rate_6h > 6)
+        for: 5m
+        labels:
+          severity: ticket
+          service: market-raccoon
+          slo: delivery_latency
+        annotations:
+          summary: "Delivery latency SLO slow burn-rate high"
+          description: "Delivery latency error budget burn-rate is above slow threshold on 30m/6h windows."
+          runbook_url: "docs/observability/runbooks/websocket.md"
+
+      - alert: SLODataLossBurnRateFast
+        expr: (slo:data_loss:burn_rate_5m > 14.4) and (slo:data_loss:burn_rate_1h > 14.4)
+        for: 2m
+        labels:
+          severity: page
+          service: market-raccoon
+          slo: data_loss
+        annotations:
+          summary: "Data loss guard fast burn-rate high"
+          description: "Data loss guard error budget burn-rate is above fast threshold on 5m/1h windows."
+          runbook_url: "docs/observability/runbooks/guardian.md"
+
+      - alert: SLODataLossBurnRateSlow
+        expr: (slo:data_loss:burn_rate_30m > 6) and (slo:data_loss:burn_rate_6h > 6)
+        for: 5m
+        labels:
+          severity: ticket
+          service: market-raccoon
+          slo: data_loss
+        annotations:
+          summary: "Data loss guard slow burn-rate high"
+          description: "Data loss guard error budget burn-rate is above slow threshold on 30m/6h windows."
+          runbook_url: "docs/observability/runbooks/guardian.md"
+
+      - alert: DataLossDropRateNonZero
+        expr: slo:data_loss:drop_rate_5m > 0
+        for: 15m
+        labels:
+          severity: ticket
+          service: market-raccoon
+          slo: data_loss
+        annotations:
+          summary: "Drop-rate detected"
+          description: "Drop-related counters are increasing in the last 5 minutes."
+          runbook_url: "docs/observability/runbooks/bus.md"
+
+      - alert: StoreCommitLatencyHigh
+        expr: histogram_quantile(0.95, sum by (le) (rate(store_commit_latency_seconds_bucket[5m]))) > 1
+        for: 5m
+        labels:
+          severity: ticket
+          service: market-raccoon
+          slo: store
+        annotations:
+          summary: "Store commit latency p95 exceeds 1s"
+          description: "Cold-path ClickHouse commit p95 latency is above 1 second for 5 minutes, indicating storage degradation."
+          runbook_url: "docs/operations/cold-path-runbook.md"
+
+      - alert: ConsumerLagGrowingNoProgress
+        expr: |
+          (slo:consumer_lag:deriv_5m > 0)
+          and on (service)
+          (slo:store:commit_rate_ok_5m < 0.01)
+        for: 5m
+        labels:
+          severity: page
+          service: market-raccoon
+          slo: store
+        annotations:
+          summary: "Consumer lag growing with zero commits"
+          description: "JetStream consumer lag is increasing but store commit rate is near-zero for 5 minutes. Pipeline may be stalled or deadlocked."
+          runbook_url: "docs/observability/runbooks/consumer-stall.md"
+
+      - alert: ProcessGoroutinesHigh
+        expr: process_goroutines > 10000
+        for: 5m
+        labels:
+          severity: ticket
+          service: market-raccoon
+          slo: runtime
+        annotations:
+          summary: "Goroutine count is abnormally high"
+          description: "process_goroutines exceeds 10 000 for 5 minutes. Possible goroutine leak in actor spawning or consumer loops."
+          runbook_url: "docs/observability/runbooks/consumer-stall.md"
+
+      - alert: ProcessHeapAllocHigh
+        expr: process_heap_alloc_bytes > 500e6
+        for: 5m
+        labels:
+          severity: ticket
+          service: market-raccoon
+          slo: runtime
+        annotations:
+          summary: "Heap allocation is high"
+          description: "process_heap_alloc_bytes exceeds 500 MB for 5 minutes. Possible memory leak or unbounded cache growth."
+          runbook_url: "docs/observability/runbooks/consumer-stall.md"
+
+      - alert: ColdPathCommitErrorsNonZero
+        expr: slo:data_loss:cold_commit_errors_rate_5m > 0
+        for: 15m
+        labels:
+          severity: ticket
+          service: market-raccoon
+          slo: data_loss
+        annotations:
+          summary: "Cold-path commit errors detected"
+          description: "Cold-path commit/write related errors are increasing in the last 5 minutes."
+          runbook_url: "docs/operations/cold-path-runbook.md"
+
+      - alert: StoreFlushFailures
+        expr: rate(store_flush_total{status="failed"}[5m]) > 0
+        for: 5m
+        labels:
+          severity: ticket
+          service: market-raccoon
+          slo: store
+        annotations:
+          summary: "Store batch flush failures detected"
+          description: "store_flush_total{status=failed} is increasing. ClickHouse writes may be failing."
+          runbook_url: "docs/operations/cold-path-runbook.md"
+
+      - alert: StoreQuarantineRateHigh
+        expr: rate(store_quarantine_total[5m]) > 0
+        for: 15m
+        labels:
+          severity: ticket
+          service: market-raccoon
+          slo: store
+        annotations:
+          summary: "Store quarantine rate is non-zero"
+          description: "Envelopes are being quarantined (decode failure) for 15+ minutes. Publisher may be emitting malformed payloads."
+          runbook_url: "docs/operations/cold-path-runbook.md"
+
+      - alert: StoreFlushLatencyHigh
+        expr: histogram_quantile(0.95, sum by (le) (rate(store_flush_latency_seconds_bucket[5m]))) > 0.5
+        for: 5m
+        labels:
+          severity: ticket
+          service: market-raccoon
+          slo: store
+        annotations:
+          summary: "Store batch flush latency p95 exceeds 500ms"
+          description: "Cold-path batch flush p95 latency is above 500ms for 5 minutes. ClickHouse may be under load."
+          runbook_url: "docs/operations/cold-path-runbook.md"

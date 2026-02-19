@@ -15,7 +15,43 @@ services:
       timeout: 3s
       retries: 10
       start_period: 5s
+    networks:
+      - market-raccoon-network
     restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.50"
+
+  timescale:
+    image: timescale/timescaledb:latest-pg16
+    container_name: market-raccoon-timescale
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_USER: raccoon
+      POSTGRES_PASSWORD: raccoon
+      POSTGRES_DB: raccoon
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+      - ../../sql/timescale/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U raccoon -d raccoon"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    networks:
+      - market-raccoon-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.00"
 
   server:
     build:
@@ -24,8 +60,6 @@ services:
     image: market-raccoon/server:dev
     container_name: market-raccoon-server
     command: ["-config", "/etc/market-raccoon/server.jsonc"]
-    environment:
-      NATS_URL: nats://nats:4222
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
@@ -33,50 +67,251 @@ services:
     depends_on:
       nats:
         condition: service_healthy
+      timescale:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/readyz"]
       interval: 10s
       timeout: 3s
       retries: 10
       start_period: 10s
+    networks:
+      - market-raccoon-network
     restart: unless-stopped
+    profiles: ["core"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.00"
 
   consumer:
     build:
       context: ../..
       dockerfile: deploy/docker/consumer.Dockerfile
     image: market-raccoon/consumer:dev
-    container_name: market-raccoon-consumer
     command: ["-config", "/etc/market-raccoon/consumer.jsonc"]
     environment:
-      NATS_URL: nats://nats:4222
+      SHARD_INDEX: 0
+      SHARD_COUNT: ${CONSUMER_SHARD_COUNT:-1}
     ports:
-      - "127.0.0.1:8081:8081"
+      - "8081"
     volumes:
       - ../configs/consumer.jsonc:/etc/market-raccoon/consumer.jsonc:ro
     depends_on:
       nats:
         condition: service_healthy
+      server:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - market-raccoon-network
     restart: unless-stopped
+    profiles: ["core"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.00"
 
   processor:
     build:
       context: ../..
       dockerfile: deploy/docker/processor.Dockerfile
     image: market-raccoon/processor:dev
-    container_name: market-raccoon-processor
     command: ["-config", "/etc/market-raccoon/processor.jsonc"]
+    user: "0:0"
     environment:
-      NATS_URL: nats://nats:4222
-    ports:
-      - "127.0.0.1:8082:8082"
+      MR_ENV: ${MR_ENV:-dev}
+      SHARD_COUNT: ${PROCESSOR_SHARD_COUNT:-1}
+      SHARD_REGISTRY_ENABLED: ${SHARD_REGISTRY_ENABLED:-false}
+      SHARD_REGISTRY_STRICT: ${SHARD_REGISTRY_STRICT:-false}
+      SHARD_REGISTRY_GRACE: ${SHARD_REGISTRY_GRACE:-60s}
     volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
       - ../configs/processor.jsonc:/etc/market-raccoon/processor.jsonc:ro
+    ports:
+      - "8082"
     depends_on:
       nats:
         condition: service_healthy
+      timescale:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      server:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8082/readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - market-raccoon-network
     restart: unless-stopped
+    profiles: ["core"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.00"
+
+  store:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/store.Dockerfile
+    image: market-raccoon/store:dev
+    container_name: market-raccoon-store
+    command: ["-config", "/etc/market-raccoon/store.jsonc"]
+    ports:
+      - "127.0.0.1:8083:8083"
+    volumes:
+      - ../configs/store.jsonc:/etc/market-raccoon/store.jsonc:ro
+      - ../../sql/clickhouse/migrations:/sql/clickhouse/migrations:ro
+    depends_on:
+      nats:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8083/readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - market-raccoon-network
+    restart: unless-stopped
+    profiles: ["core"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.00"
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8.8
+    container_name: market-raccoon-clickhouse
+    ports:
+      - "127.0.0.1:8123:8123"
+      - "127.0.0.1:9000:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse/
+      - clickhouse_logs:/var/log/clickhouse-server/
+      - ../clickhouse/config/listen.xml:/etc/clickhouse-server/config.d/listen.xml:ro
+      - ../clickhouse/users/raccoon-user.xml:/etc/clickhouse-server/users.d/raccoon-user.xml:ro
+      - ../../sql/clickhouse/migrations:/docker-entrypoint-initdb.d:ro
+    cap_add:
+      - SYS_NICE
+    networks:
+      - market-raccoon-network
+    env_file:
+      - ../envs/local.env
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --port 9000 --user default --password password --query 'SELECT 1' >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "2.00"
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: market-raccoon-prometheus
+    volumes:
+      - ../observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../observability/prometheus/recording.rules.yml:/etc/prometheus/recording.rules.yml:ro
+      - ../observability/prometheus/alerts.rules.yml:/etc/prometheus/alerts.rules.yml:ro
+      - ../observability/prometheus/shard-alerts.rules.yml:/etc/prometheus/shard-alerts.rules.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/-/healthy"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - market-raccoon-network
+    profiles: ["obs"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.50"
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: market-raccoon-grafana
+    env_file:
+      - ../envs/local.env
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ../observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - market-raccoon-network
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    profiles: ["obs"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.50"
+
+networks:
+  market-raccoon-network:
+    name: market-raccoon-network
+    driver: bridge
 
 volumes:
   nats_data:
     name: market-raccoon-nats-data
+  timescale_data:
+    name: market-raccoon-timescale-data
+  clickhouse_data:
+    name: market-raccoon-clickhouse-data
+  clickhouse_logs:
+    name: market-raccoon-clickhouse-logs
+  prometheus_data:
+    name: market-raccoon-prometheus-data
+  grafana_data:
+    name: market-raccoon-grafana-data

@@ -1,15 +1,93 @@
 {
   // Runtime config mounted in container at /etc/market-raccoon/processor.jsonc
-  "nats_url": "nats://nats:4222",
+  "bus": {
+    "type": "jetstream",
+    "wire_format": "proto"
+  },
+  "jetstream": {
+    "url": "nats://nats:4222",
+    "stream_name": "MARKETDATA",
+    "consumer_durable": "processor-v4",
+    "ack_wait": "30s",
+    "max_ack_pending": 2048,
+    "max_deliver": 10,
+    "deliver_policy": "new",
+    "filter_subjects": ["marketdata.>"],
+    "dedup_window": "5m",
+    "max_age": "24h",
+    "max_bytes": "10GB"
+  },
+  "shard": {
+    "index": 0,
+    "count": 1,
+    "max_lag": 0
+  },
   "log": {
     "level": "info",
-    "format": "text"
+    "format": "json"
   },
   "http": {
     "addr": ":8082",
-    "shutdown_timeout": "10s"
+    "shutdown_timeout": "10s",
+    "publisher_flush_timeout": "3s",
+    "guardian_shutdown_timeout": "10s"
+  },
+  "marketdata": {
+    "publish_content_type": "application/protobuf",
+    "max_instruments": 4096
   },
   "processor": {
-    "bus_capacity": 1024
+    "bus_capacity": 4096,
+    "max_instruments": 4096,
+    "candle": {
+      "enabled": true,
+      "max_candles": 100000
+    },
+    "stats": {
+      "enabled": true,
+      "max_windows": 100000
+    },
+    "rt_publish": {
+      "orderbook_interval_ms": 200,
+      "heatmap_interval_ms": 200,
+      "volume_interval_ms": 250
+    },
+    "insights": {
+      "enable_crossvenue_join": true,
+      "enable_volume_profile_snapshot_proto": true,
+      "enable_spread_signal": true,
+      "join_trades_subject": "marketdata.trade.v1.>",
+      "snapshot_subject_prefix": "",
+      "max_instruments": 10000,
+      "ttl": "1h",
+      "min_venues": 2,
+      "min_spread_bps": 0,
+      "rounding_mode": "half_even",
+      "sweep_every_n": 2048,
+      "sweep_every": "30s"
+    }
+  },
+  "storage": {
+    "timescale": {
+      "enabled": true,
+      "dsn": "postgres://raccoon:raccoon@timescale:5432/raccoon?sslmode=disable",
+      "max_conns": 20,
+      "min_conns": 4,
+      "max_conn_lifetime": "30m",
+      "max_conn_idle_time": "5m",
+      "health_check_period": "30s"
+    },
+    "clickhouse": {
+      "enabled": true,
+      "addrs": ["clickhouse:9000"],
+      "database": "default",
+      "username": "default",
+      "password": "password",
+      "max_open_conns": 20,
+      "max_idle_conns": 10,
+      "conn_max_lifetime": "30m",
+      "dial_timeout": "5s",
+      "read_timeout": "30s"
+    }
   }
 }

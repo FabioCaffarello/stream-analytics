@@ -1,16 +1,68 @@
 {
   // Runtime config mounted in container at /etc/market-raccoon/server.jsonc
-  // Reserved for bus adapter wiring when NATS integration is enabled.
-  "nats_url": "nats://nats:4222",
+  // The server binary serves WebSocket delivery; no JetStream consumer needed.
+  "bus": {
+    "type": "inmemory",
+    "wire_format": "proto"
+  },
   "log": {
     "level": "info",
-    "format": "text"
+    "format": "json"
   },
   "http": {
     "addr": ":8080",
     "read_timeout": "10s",
     "write_timeout": "15s",
     "idle_timeout": "60s",
-    "shutdown_timeout": "10s"
+    "shutdown_timeout": "10s",
+    "publisher_flush_timeout": "3s",
+    "guardian_shutdown_timeout": "10s",
+    "enable_pprof": false
+  },
+  "ws": {
+    "auth": {
+      "enabled": true,
+      // Production: override via mounted secret or env.
+      "api_keys": {
+        "CHANGE_ME_prod_key_1": "client-prod-1"
+      }
+    },
+    "rate_limit": {
+      "enabled": true,
+      "max_per_second": 100,
+      "burst_capacity": 200
+    }
+  },
+  "delivery": {
+    "enabled": true,
+    "max_sessions": 10000,
+    "backpressure_policy": "drop_newest",
+    "nats": {
+      "consumer_durable": "delivery-v2",
+      "filter_subjects": ["marketdata.>", "aggregation.>", "insights.>"]
+    }
+  },
+  "storage": {
+    "timescale": {
+      "enabled": true,
+      "dsn": "postgres://raccoon:raccoon@timescale:5432/raccoon?sslmode=disable",
+      "max_conns": 20,
+      "min_conns": 4,
+      "max_conn_lifetime": "30m",
+      "max_conn_idle_time": "5m",
+      "health_check_period": "30s"
+    },
+    "clickhouse": {
+      "enabled": true,
+      "addrs": ["clickhouse:9000"],
+      "database": "default",
+      "username": "default",
+      "password": "password",
+      "max_open_conns": 10,
+      "max_idle_conns": 5,
+      "conn_max_lifetime": "30m",
+      "dial_timeout": "5s",
+      "read_timeout": "30s"
+    }
   }
 }

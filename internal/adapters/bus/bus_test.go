@@ -33,6 +33,10 @@ func makeEnvelope(venue, instrument, evtype string, seq int64) envelope.Envelope
 	}
 }
 
+func newInMemoryBus(capacity int) *bus.InMemoryBus {
+	return bus.NewInMemoryBus(capacity, metrics.NewBusObserver())
+}
+
 // ---------------------------------------------------------------------------
 // LogPublisher
 // ---------------------------------------------------------------------------
@@ -78,7 +82,7 @@ func TestLogPublisher_Publish_returnsNil(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestInMemoryBus_defaultCapacity(t *testing.T) {
-	b := bus.NewInMemoryBus(0)
+	b := newInMemoryBus(0)
 	ch := b.Subscribe()
 	if cap(ch) != 1024 {
 		t.Fatalf("expected default capacity 1024, got %d", cap(ch))
@@ -86,7 +90,7 @@ func TestInMemoryBus_defaultCapacity(t *testing.T) {
 }
 
 func TestInMemoryBus_customCapacity(t *testing.T) {
-	b := bus.NewInMemoryBus(16)
+	b := newInMemoryBus(16)
 	ch := b.Subscribe()
 	if cap(ch) != 16 {
 		t.Fatalf("expected capacity 16, got %d", cap(ch))
@@ -94,7 +98,7 @@ func TestInMemoryBus_customCapacity(t *testing.T) {
 }
 
 func TestInMemoryBus_Len(t *testing.T) {
-	b := bus.NewInMemoryBus(8)
+	b := newInMemoryBus(8)
 	if b.Len() != 0 {
 		t.Fatal("expected 0 subscribers initially")
 	}
@@ -106,7 +110,7 @@ func TestInMemoryBus_Len(t *testing.T) {
 }
 
 func TestInMemoryBus_Publish_deliversToAllSubscribers(t *testing.T) {
-	b := bus.NewInMemoryBus(8)
+	b := newInMemoryBus(8)
 	ch1 := b.Subscribe()
 	ch2 := b.Subscribe()
 
@@ -123,7 +127,7 @@ func TestInMemoryBus_Publish_deliversToAllSubscribers(t *testing.T) {
 }
 
 func TestInMemoryBus_Publish_dropsWhenFull(t *testing.T) {
-	b := bus.NewInMemoryBus(1)
+	b := newInMemoryBus(1)
 	ch := b.Subscribe()
 
 	env := makeEnvelope("binance", "BTC-USDT", "marketdata.trade", 1)
@@ -154,7 +158,7 @@ func TestInMemoryBus_Publish_dropsWhenFull(t *testing.T) {
 }
 
 func TestInMemoryBus_Publish_concurrentSafe(t *testing.T) {
-	b := bus.NewInMemoryBus(512)
+	b := newInMemoryBus(512)
 	ch := b.Subscribe()
 
 	const goroutines = 50
@@ -191,7 +195,7 @@ done:
 }
 
 func TestInMemoryBus_Close_closesSubscriberChannels(t *testing.T) {
-	b := bus.NewInMemoryBus(8)
+	b := newInMemoryBus(8)
 	ch1 := b.Subscribe()
 	ch2 := b.Subscribe()
 
@@ -212,7 +216,7 @@ func TestInMemoryBus_Close_closesSubscriberChannels(t *testing.T) {
 }
 
 func TestInMemoryBus_Publish_afterClose_isNoop(t *testing.T) {
-	b := bus.NewInMemoryBus(8)
+	b := newInMemoryBus(8)
 	b.Close()
 
 	env := makeEnvelope("binance", "BTC-USDT", "marketdata.trade", 99)

@@ -1,0 +1,235 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+      "id": 100,
+      "title": "Store — Cold Path",
+      "type": "row"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 1},
+      "id": 1,
+      "title": "Commit Rate by Status",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "sum by (status) (rate(store_commit_total[5m]))", "legendFormat": "{{status}}", "refId": "A"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 1},
+      "id": 2,
+      "title": "Commit Latency (p50 / p95)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "histogram_quantile(0.50, sum by (le) (rate(store_commit_latency_seconds_bucket[5m])))", "legendFormat": "p50", "refId": "A"},
+        {"expr": "histogram_quantile(0.95, sum by (le) (rate(store_commit_latency_seconds_bucket[5m])))", "legendFormat": "p95", "refId": "B"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 1},
+      "id": 3,
+      "title": "Quarantine Total",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "sum by (reason) (rate(store_quarantine_total[5m]))", "legendFormat": "{{reason}}", "refId": "A"}
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 9},
+      "id": 101,
+      "title": "Store — Batch / Flush",
+      "type": "row"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 10},
+      "id": 4,
+      "title": "Flush Rate by Status",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "sum by (status) (rate(store_flush_total[5m]))", "legendFormat": "{{status}}", "refId": "A"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 10},
+      "id": 5,
+      "title": "Flush Latency (p50 / p95)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "histogram_quantile(0.50, sum by (le) (rate(store_flush_latency_seconds_bucket[5m])))", "legendFormat": "p50", "refId": "A"},
+        {"expr": "histogram_quantile(0.95, sum by (le) (rate(store_flush_latency_seconds_bucket[5m])))", "legendFormat": "p95", "refId": "B"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 10},
+      "id": 6,
+      "title": "Batch Size Distribution (p50 / p95)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "histogram_quantile(0.50, sum by (le) (rate(store_batch_size_bucket[5m])))", "legendFormat": "p50", "refId": "A"},
+        {"expr": "histogram_quantile(0.95, sum by (le) (rate(store_batch_size_bucket[5m])))", "legendFormat": "p95", "refId": "B"}
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 18},
+      "id": 102,
+      "title": "Store — Consumption",
+      "type": "row"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 19},
+      "id": 7,
+      "title": "Consumed Rate by Status/Reason",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "sum by (status, reason) (rate(store_consumed_total[5m]))", "legendFormat": "{{status}}/{{reason}}", "refId": "A"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 19},
+      "id": 8,
+      "title": "Commit Total (cumulative)",
+      "type": "stat",
+      "targets": [
+        {"expr": "sum(store_commit_total{status=\"ok\"})", "legendFormat": "ok", "refId": "A"},
+        {"expr": "sum(store_commit_total{status=\"failed\"})", "legendFormat": "failed", "refId": "B"}
+      ],
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"]}
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 27},
+      "id": 103,
+      "title": "Store — Backpressure",
+      "type": "row"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {
+        "defaults": {"unit": "short"},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "commit_latency_p95"}, "properties": [{"id": "custom.axisPlacement", "value": "right"}, {"id": "unit", "value": "s"}]}
+        ]
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28},
+      "id": 9,
+      "title": "Consumer Lag vs Commit Latency",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "bus_consumer_lag{bus_type=\"jetstream\"}", "legendFormat": "consumer_lag", "refId": "A"},
+        {"expr": "histogram_quantile(0.95, sum by (le) (rate(store_commit_latency_seconds_bucket[5m])))", "legendFormat": "commit_latency_p95", "refId": "B"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 28},
+      "id": 10,
+      "title": "Redelivery Rate",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "sum(rate(bus_redelivered_total{bus_type=\"jetstream\"}[5m]))", "legendFormat": "redeliveries/s", "refId": "A"}
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 36},
+      "id": 104,
+      "title": "Store — No-Progress Detection",
+      "type": "row"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 37},
+      "id": 11,
+      "title": "ACK Latency (p50 / p95)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "histogram_quantile(0.50, sum by (le) (rate(bus_ack_latency_seconds_bucket[5m])))", "legendFormat": "p50", "refId": "A"},
+        {"expr": "histogram_quantile(0.95, sum by (le) (rate(bus_ack_latency_seconds_bucket[5m])))", "legendFormat": "p95", "refId": "B"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {
+        "defaults": {"unit": "short"},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "commit_rate_ok"}, "properties": [{"id": "custom.axisPlacement", "value": "right"}, {"id": "unit", "value": "ops"}]}
+        ]
+      },
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 37},
+      "id": 12,
+      "title": "Lag Growth vs Commit Rate (stall detector)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "slo:consumer_lag:deriv_5m", "legendFormat": "lag_growth_rate", "refId": "A"},
+        {"expr": "sum(rate(store_commit_total{status=\"ok\"}[5m]))", "legendFormat": "commit_rate_ok", "refId": "B"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 37},
+      "id": 13,
+      "title": "Process Health (goroutines / heap MB)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "process_goroutines", "legendFormat": "goroutines", "refId": "A"},
+        {"expr": "process_heap_alloc_bytes / 1e6", "legendFormat": "heap_MB", "refId": "B"}
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["store", "cold-path", "clickhouse"],
+  "templating": {
+    "list": [
+      {
+        "current": {"selected": false, "text": "Prometheus", "value": "Prometheus"},
+        "hide": 0,
+        "includeAll": false,
+        "label": "Prometheus",
+        "multi": false,
+        "name": "DS_PROMETHEUS",
+        "options": [],
+        "query": "prometheus",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "type": "datasource"
+      }
+    ]
+  },
+  "time": {"from": "now-1h", "to": "now"},
+  "title": "Market-Raccoon Store",
+  "uid": "market-raccoon-store",
+  "version": 1
+}

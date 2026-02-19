@@ -22,6 +22,7 @@ type UpdateRequest struct {
 	Seq        int64
 	Bids       []domain.Level
 	Asks       []domain.Level
+	IsSnapshot bool // true when the message is a full L2 snapshot
 }
 
 // UpdateResponse is returned on success.
@@ -36,8 +37,8 @@ type UpdateResponse struct {
 //  1. Validate inputs
 //  2. Get or create OrderBook aggregate
 //  3. ApplyDelta — on crossed book, emit inconsistency event
-//  4. Publish updated snapshot via ArtifactPublisher
-//  5. Persist snapshot in hot read model
+//  4. Persist snapshot in hot read model
+//  5. Publish updated snapshot via ArtifactPublisher
 type UpdateOrderBookFromEvents struct {
 	publisher ports.ArtifactPublisher
 	store     ports.HotReadModelStore
@@ -114,8 +115,12 @@ func (uc *UpdateOrderBookFromEvents) Execute(ctx context.Context, req UpdateRequ
 		return result.FailProblem[UpdateResponse](p)
 	}
 
-	// 3. Apply delta.
-	if p := book.ApplyDelta(req.Seq, req.Bids, req.Asks); p != nil {
+	// 3. Apply delta (or snapshot).
+	applyFn := book.ApplyDelta
+	if req.IsSnapshot {
+		applyFn = book.ApplySnapshot
+	}
+	if p := applyFn(req.Seq, req.Bids, req.Asks); p != nil {
 		if p.Code == problem.IntegrityViolation {
 			events := book.PullDomainEvents()
 			for _, evt := range events {
@@ -132,14 +137,14 @@ func (uc *UpdateOrderBookFromEvents) Execute(ctx context.Context, req UpdateRequ
 		return result.FailProblem[UpdateResponse](p)
 	}
 
-	// 4. Publish snapshot.
+	// 4. Persist snapshot in hot read model.
 	snap := domain.NewSnapshotProduced(book)
-	if p := uc.publisher.PublishSnapshot(ctx, snap); p != nil {
+	if p := uc.store.Save(ctx, snap); p != nil {
 		return result.FailProblem[UpdateResponse](p)
 	}
 
-	// 5. Persist in hot read model.
-	if p := uc.store.Save(ctx, snap); p != nil {
+	// 5. Publish snapshot.
+	if p := uc.publisher.PublishSnapshot(ctx, snap); p != nil {
 		return result.FailProblem[UpdateResponse](p)
 	}
 
@@ -167,4 +172,22 @@ func (uc *UpdateOrderBookFromEvents) getOrCreateBook(venue, instrument string) (
 
 func (uc *UpdateOrderBookFromEvents) ActiveBooks() int {
 	return uc.books.Len()
+}
+
+// Snapshot returns the current in-memory snapshot for a book key.
+// It performs no writes and does not publish artifacts.
+func (uc *UpdateOrderBookFromEvents) Snapshot(venue, instrument string) (domain.SnapshotProduced, *problem.Problem) {
+	if p := validation.Collect(
+		validation.NonEmptyString("venue", venue),
+		validation.NonEmptyString("instrument", instrument),
+	); p != nil {
+		return domain.SnapshotProduced{}, p
+	}
+
+	id := domain.BookID{Venue: venue, Instrument: instrument}
+	book, ok := uc.books.Get(id)
+	if !ok {
+		return domain.SnapshotProduced{}, problem.Newf(problem.NotFound, "orderbook snapshot not found for %s/%s", venue, instrument)
+	}
+	return domain.NewSnapshotProduced(book), nil
 }

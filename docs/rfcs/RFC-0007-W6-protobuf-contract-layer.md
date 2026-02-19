@@ -1,6 +1,6 @@
-# RFC-0007 — W6: Protobuf Contract Layer
+# RFC-0007 — W6: Protobuf Contract Layer (W6-1 Foundation)
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-02-12
 **Author:** Chief Architect
 **Workflow:** W6 of PRD-0001
@@ -8,264 +8,247 @@
 
 ---
 
-## 1. Goal
+## 1. Goal (W6-1)
 
-Introduce formal schema definitions for all wire-format payloads, breaking change detection in CI, and generated Go code for type-safe serialization. After W6:
-- `.proto` schemas exist for envelope, trade, and bookdelta
-- `buf lint` enforces style rules on every commit
-- `buf breaking` detects incompatible schema changes on every PR
-- Generated Go code exists in `internal/shared/proto/gen/`
-- Schema registry manifest (`proto/registry.json`) documents all schemas
+Establish protobuf contract foundations without changing runtime wire behavior:
+- protobuf scaffolding under `proto/`
+- Buf lint/breaking/generate toolchain
+- generated Go code under `internal/shared/proto/gen/`
+- CI gates for compatibility and generated-code drift
+- schema registry manifest (`proto/registry.json`)
 
-## 2. Scope
+## 2. Scope Implemented
 
-- Install and configure Buf toolchain
-- Create `proto/` directory with schemas for envelope.v1, marketdata.v1
-- Define `buf.yaml` (lint + breaking rules) and `buf.gen.yaml` (code generation)
-- Generate Go code via `buf generate`
-- Create schema registry manifest
-- Add Makefile targets: `proto-gen`, `proto-lint`, `proto-breaking`
-- **Phase 1 only:** schemas as documentation + CI checks. No runtime changes.
+- Created `proto/` with Buf v2 config and initial v1 contracts.
+- Added comments for all fields to satisfy `COMMENTS` lint.
+- Configured `breaking` with `WIRE_JSON` for strong compatibility checks.
+- Generated Go code into `internal/shared/proto/gen`.
+- Added Makefile targets: `proto-lint`, `proto-gen`, `proto-breaking`, `proto`.
+- Added CI gates for buf lint/breaking and generated-file drift detection.
+- Added lightweight schema registry (`proto/registry.json`) with `draft` status.
 
-## 3. Non-Goals
+## 3. Explicit Non-Goals (Still Deferred)
 
-- Runtime proto serialization (Phase 2, part of W7)
-- Dual-codec support in Envelope (Phase 2)
-- ContentType field in Envelope (Phase 2)
-- Protobuf for HTTP API responses (stays JSON)
+- No runtime publish/consume migration to protobuf.
+- No envelope runtime codec switching by `content_type`.
+- No NATS JetStream/replay changes.
 
-## 4. Affected Modules
+## 4. Contracts Added
 
-| File | Action | Change |
-|------|--------|--------|
-| `proto/buf.yaml` | CREATE | Buf workspace config with lint + breaking rules |
-| `proto/buf.gen.yaml` | CREATE | Code generation config (protocolbuffers/go plugin) |
-| `proto/envelope/v1/envelope.proto` | CREATE | Envelope wire format schema |
-| `proto/marketdata/v1/trade.proto` | CREATE | TradeTickV1 schema |
-| `proto/marketdata/v1/bookdelta.proto` | CREATE | BookDeltaV1 schema |
-| `proto/marketdata/v1/markprice.proto` | CREATE | MarkPriceTickV1 schema |
-| `proto/marketdata/v1/liquidation.proto` | CREATE | LiquidationTickV1 schema |
-| `proto/registry.json` | CREATE | Schema manifest (type → proto → message) |
-| `internal/shared/proto/gen/` | GENERATED | Go code from buf generate |
-| `Makefile` | ALTER | Add proto-gen, proto-lint, proto-breaking targets |
-| `.github/workflows/ci.yml` (or equivalent) | ALTER | Add buf lint + buf breaking to CI pipeline |
+- `envelope.v1.Envelope`
+- `marketdata.v1.TradeTickV1`
+- `marketdata.v1.PriceLevel`
+- `marketdata.v1.BookDeltaV1`
+- `marketdata.v1.MarkPriceTickV1`
+- `marketdata.v1.LiquidationTickV1`
 
-## 5. Schema Definitions
+Notes:
+- `BookDeltaV1` keeps existing domain fields (`first_update_id`, `final_update_id`, `prev_final_update_id`) to stay 1:1 with current payload shape.
+- `instrument` format remains whatever the current domain emits (`BTCUSDT` or `BTC-USDT`), with no domain normalization changes in W6-1.
 
-### envelope/v1/envelope.proto
+## 5. W6-1 Completed Evidence
 
-```protobuf
-syntax = "proto3";
-package envelope.v1;
-option go_package = "github.com/market-raccoon/internal/shared/proto/gen/envelope/v1";
+### Commands executed
 
-message Envelope {
-  string type = 1;
-  int32 version = 2;
-  string venue = 3;
-  string instrument = 4;
-  int64 ts_exchange = 5;
-  int64 ts_ingest = 6;
-  int64 seq = 7;
-  string idempotency_key = 8;
-  map<string, string> meta = 9;
-  bytes payload = 10;
-  string content_type = 11;
-}
+```bash
+make proto-lint
+make proto-breaking
+make proto-gen
+make proto-gen && git diff --exit-code -- internal/shared/proto/gen
+cd internal/shared && go mod tidy
+cd internal/shared && go test -race ./...
 ```
 
-### marketdata/v1/trade.proto
+### Output summary
 
-```protobuf
-syntax = "proto3";
-package marketdata.v1;
-option go_package = "github.com/market-raccoon/internal/shared/proto/gen/marketdata/v1";
+- `make proto-lint`: passed with zero violations.
+- `make proto-breaking`: bootstrap-skipped locally because `main` has no `.proto` baseline yet; gate is active automatically once baseline exists in `main`.
+- `make proto-gen`: succeeded and generated `.pb.go` files into `internal/shared/proto/gen/...`.
+- `make proto-gen && git diff --exit-code -- internal/shared/proto/gen`: passed (no generated drift).
+- `go mod tidy` (`internal/shared`): completed; protobuf runtime dependency is present.
+- `go test -race ./...` (`internal/shared`): passed; generated packages compile.
 
-message TradeTickV1 {
-  double price = 1;
-  double size = 2;
-  string side = 3;
-  string trade_id = 4;
-  int64 timestamp_ms = 5;
-}
+### Checklist
+
+- [x] `buf lint` ok
+- [x] `buf breaking` gate wired to `main` (bootstrap skip until baseline exists)
+- [x] `buf generate` ok
+- [x] `internal/shared` compiles/tests with generated code
+- [x] CI gate includes buf lint/breaking + generated drift check (`git diff --exit-code`)
+- [x] Runtime publish/consume behavior unchanged
+
+## 6. Files Delivered in W6-1
+
+- `proto/buf.yaml`
+- `proto/buf.gen.yaml`
+- `proto/registry.json`
+- `proto/envelope/v1/envelope.proto`
+- `proto/marketdata/v1/trade.proto`
+- `proto/marketdata/v1/bookdelta.proto`
+- `proto/marketdata/v1/markprice.proto`
+- `proto/marketdata/v1/liquidation.proto`
+- `internal/shared/proto/gen/envelope/v1/envelope.pb.go`
+- `internal/shared/proto/gen/marketdata/v1/trade.pb.go`
+- `internal/shared/proto/gen/marketdata/v1/bookdelta.pb.go`
+- `internal/shared/proto/gen/marketdata/v1/markprice.pb.go`
+- `internal/shared/proto/gen/marketdata/v1/liquidation.pb.go`
+- `Makefile` (proto targets)
+- `.github/workflows/ci.yml` (buf + generated-check gate)
+
+## 7. W6-2 Completed Evidence (Codec Infra + Registry)
+
+### Commands executed
+
+```bash
+cd internal/shared && go test ./...
+cd internal/shared && go test -race ./...
+cd internal/core/delivery && go test ./...
 ```
 
-### marketdata/v1/bookdelta.proto
+### Output summary
 
-```protobuf
-syntax = "proto3";
-package marketdata.v1;
-option go_package = "github.com/market-raccoon/internal/shared/proto/gen/marketdata/v1";
+- `go test ./...` (`internal/shared`): passed with new codec registry, JSON/proto codecs, contracts bootstrap, and envelope content-type helpers.
+- `go test -race ./...` (`internal/shared`): passed for all packages, including `codec`, `contracts`, and `envelope`.
+- `go test ./...` (`internal/core/delivery`): passed; `SubjectFromEnvelope` routing remains unchanged when envelope `content_type` is empty.
 
-message PriceLevel {
-  double price = 1;
-  double size = 2;
-}
+### W6-2 checklist
 
-message BookDeltaV1 {
-  repeated PriceLevel bids = 1;
-  repeated PriceLevel asks = 2;
-  int64 first_update_id = 3;
-  int64 final_update_id = 4;
-  int64 prev_final_update_id = 5;
-  int64 timestamp_ms = 6;
-}
+- [x] Envelope runtime has `content_type` with default fallback to `application/json`.
+- [x] Envelope validation accepts empty `content_type` and rejects unsupported values.
+- [x] Typed codec registry added with `(type, version, format)` schema key.
+- [x] Generic JSON and protobuf codecs added (protobuf marshal deterministic).
+- [x] Contracts bootstrap registers marketdata v1 for JSON + protobuf formats.
+- [x] Envelope protobuf capability registration added.
+- [x] Cross-format semantic equivalence tests added for `TradeTickV1` and `BookDeltaV1`.
+- [x] Runtime publish/consume paths remain unchanged (no dual-write activation in W6-2).
+
+## W6-3 Evidence
+
+### Config flag
+
+- Added shared config flag: `marketdata.publish_content_type`.
+- Allowed values: `application/json` (default) and `application/protobuf` (opt-in).
+- Default remains `application/json`.
+- Deploy examples in `deploy/configs/*.jsonc` keep JSON default and show protobuf as a commented opt-in.
+
+### Unit tests
+
+- Added shared codec payload selector tests in `internal/shared/codec/payload_codec_test.go`:
+  - trade payload encode/decode works in JSON and protobuf
+  - bookdelta payload encode/decode works in JSON and protobuf
+  - semantic equivalence holds (`JSON -> domain == PROTO -> domain`)
+  - unknown content type is rejected with `ValidationFailed`
+- Added marketdata app tests in `internal/core/marketdata/app/ingest_test.go`:
+  - `PublishContentType=application/json` produces envelope `content_type=application/json` and payload decodes through JSON codec path
+  - `PublishContentType=application/protobuf` produces envelope `content_type=application/protobuf` and payload decodes through protobuf codec path
+  - default constructor path remains JSON
+
+### Runtime behavior statement
+
+- Runtime defaults remain unchanged: with no config override, producer envelopes are JSON.
+- No actor topology, bus semantics, or routing behavior changed in W6-3.
+- Consumer path was intentionally not migrated in this step; publish/consume behavior only changes when producer config explicitly opts into protobuf.
+
+## W6-4 Evidence
+
+### Deterministic encoding guarantees
+
+- JSON determinism is now enforced with 100-run byte-equality tests for domain payload encoding:
+  - `internal/shared/codec/codec_test.go` (`JSONCodec` deterministic bytes)
+  - `internal/shared/codec/payload_codec_test.go` (`EncodePayload` JSON deterministic bytes)
+- Proto determinism is enforced with deterministic marshal mode and 100-run byte-equality tests:
+  - `internal/shared/codec/proto_codec.go` uses `proto.MarshalOptions{Deterministic: true}`
+  - `internal/shared/codec/codec_test.go` and `internal/shared/codec/payload_codec_test.go` verify stable protobuf bytes over 100 encodes
+- Map nondeterminism risk is guarded by domain payload map prohibition tests (`internal/shared/codec/codec_test.go`).
+
+### Fallback policy and safety rules
+
+- Added explicit codec fallback policy in `internal/shared/codec/payload_codec.go`:
+  - `FallbackPolicyAllowUnknownJSON` (default; preserves backward compatibility)
+  - `FallbackPolicyRejectUnknown` (future hardening switch)
+- Unknown event behavior is now explicit and tested:
+  - unknown event + empty `content_type` => JSON fallback allowed
+  - unknown event + `application/json` => JSON fallback allowed
+  - unknown event + `application/protobuf` => rejected with `ValidationFailed`
+  - unknown event + invalid `content_type` => rejected with `ValidationFailed`
+- Stable reason codes were added for metrics/log sampling:
+  - `validation_failed_unknown_content_type`
+  - `validation_failed_unknown_event_type_proto`
+  - `validation_failed_unknown_event_type_rejected`
+  - `validation_failed_missing_payload_codec`
+  - `validation_failed_invalid_fallback_policy`
+
+### Contract authority and schema identity gates
+
+- Authority manifest now carries explicit schema identity metadata (`event_type`, `version`, `proto_file`, `message`).
+- Field-level coverage guards enforce:
+  - every exported domain field is mapped (or explicitly listed in ignore list)
+  - every proto field is mapped (except explicitly listed deprecated ignores)
+- Added schema identity validation (`internal/shared/contracts/authority_test.go`):
+  - every authority binding must exist in `proto/registry.json` with matching `type` + `version`
+  - registry `message` and `proto_file` must match authority manifest metadata
+  - registry `message` must match generated protobuf descriptor full name
+  - payload codec registration must exist for JSON + protobuf for each authority binding
+
+### CI gates summary
+
+- CI protobuf gates in `.github/workflows/ci.yml` now enforce:
+  - `make tools` before generation drift checks to pin local `protoc-gen-go`
+  - `make proto-lint` always
+  - `proto-breaking` on `main` always
+  - on PRs: fetch `main`; if proto baseline exists, enforce `proto-breaking`; otherwise emit explicit bootstrap message and continue with lint + drift gates
+  - generated drift gate scoped to `internal/shared/proto/gen` with actionable failure message
+  - explicit import-boundary guard execution:
+    - `go test ./internal/shared/contracts -run TestImportGuard_ProtoImportsStayInSharedBoundary -count=1`
+
+### Validation commands executed
+
+```bash
+make tools
+make proto-lint
+make proto-gen && git diff --exit-code -- internal/shared/proto/gen
+make proto-breaking
+make test-workspace-race
 ```
 
-### marketdata/v1/markprice.proto
+### Validation output summary
 
-```protobuf
-syntax = "proto3";
-package marketdata.v1;
-option go_package = "github.com/market-raccoon/internal/shared/proto/gen/marketdata/v1";
+- `make tools`: installs pinned `protoc-gen-go` into `./bin` for repo-local generation.
+- `make proto-lint`: passed.
+- `make proto-gen && git diff --exit-code -- internal/shared/proto/gen`: passed without requiring `buf.build` plugin access.
+- `make proto-breaking`: clear bootstrap-safe skip message emitted (`main` baseline not available in local git state for this run).
+- `make test-workspace-race`: passed via workspace module iteration (root `go test ./...` is intentionally not the canonical workspace entrypoint).
 
-message MarkPriceTickV1 {
-  double mark_price = 1;
-  double index_price = 2;
-  double funding_rate = 3;
-  int64 next_funding_time_ms = 4;
-  int64 timestamp_ms = 5;
-}
+### Offline / Restricted environments
+
+- Proto generation is now local-plugin based (`proto/buf.gen.yaml` points to `../bin/protoc-gen-go`), so `make proto-gen` does not depend on the Buf remote plugin registry.
+- Use this sequence for deterministic local/CI validation in restricted networks:
+  1. `make tools`
+  2. `make proto-lint`
+  3. `make proto-gen && git diff --exit-code -- internal/shared/proto/gen`
+  4. `make proto-breaking`
+  5. `make test-workspace-race`
+
+### Runtime behavior statement
+
+- Default runtime behavior remains JSON-first.
+- No JetStream changes were introduced.
+- No dual-write was introduced.
+- No actor topology, routing, bus semantics, or delivery protocol changes were introduced.
+- No protobuf imports were added to `internal/core/*`, `internal/actors/*`, or `internal/interfaces/*`.
+
+## Changelog
+
+- 2026-02-13:
+  - normalizado status para taxonomia RFC (`Draft|Accepted`);
+  - mantido escopo de aceitação como foundation W6 (migração runtime segue faseada).
+
+## Test Plan
+
+```bash
+make docs-check-full
 ```
 
-### marketdata/v1/liquidation.proto
+## Acceptance
 
-```protobuf
-syntax = "proto3";
-package marketdata.v1;
-option go_package = "github.com/market-raccoon/internal/shared/proto/gen/marketdata/v1";
-
-message LiquidationTickV1 {
-  string instrument = 1;
-  string side = 2;
-  double price = 3;
-  double size = 4;
-  int64 timestamp_ms = 5;
-}
-```
-
-## 6. Buf Configuration
-
-### buf.yaml
-
-```yaml
-version: v2
-modules:
-  - path: .
-lint:
-  use:
-    - STANDARD
-  except:
-    - PACKAGE_VERSION_SUFFIX
-breaking:
-  use:
-    - WIRE_JSON
-```
-
-### buf.gen.yaml
-
-```yaml
-version: v2
-plugins:
-  - remote: buf.build/protocolbuffers/go
-    out: ../internal/shared/proto/gen
-    opt: paths=source_relative
-```
-
-## 7. Schema Registry Manifest
-
-```json
-{
-  "version": "1.0",
-  "schemas": [
-    {
-      "type": "envelope",
-      "version": 1,
-      "proto": "envelope/v1/envelope.proto",
-      "message": "envelope.v1.Envelope",
-      "status": "stable"
-    },
-    {
-      "type": "marketdata.trade",
-      "version": 1,
-      "proto": "marketdata/v1/trade.proto",
-      "message": "marketdata.v1.TradeTickV1",
-      "status": "stable"
-    },
-    {
-      "type": "marketdata.bookdelta",
-      "version": 1,
-      "proto": "marketdata/v1/bookdelta.proto",
-      "message": "marketdata.v1.BookDeltaV1",
-      "status": "stable"
-    },
-    {
-      "type": "marketdata.markprice",
-      "version": 1,
-      "proto": "marketdata/v1/markprice.proto",
-      "message": "marketdata.v1.MarkPriceTickV1",
-      "status": "stable"
-    },
-    {
-      "type": "marketdata.liquidation",
-      "version": 1,
-      "proto": "marketdata/v1/liquidation.proto",
-      "message": "marketdata.v1.LiquidationTickV1",
-      "status": "stable"
-    }
-  ]
-}
-```
-
-## 8. Makefile Targets
-
-```makefile
-.PHONY: proto-gen proto-lint proto-breaking
-
-proto-gen:
-	cd proto && buf generate
-
-proto-lint:
-	cd proto && buf lint
-
-proto-breaking:
-	cd proto && buf breaking --against '.git#branch=main'
-```
-
-## 9. Migration Strategy
-
-**Phase 1 (this RFC):** Schema definitions + CI only. Zero runtime impact.
-- Schemas document the existing JSON wire format
-- `buf lint` prevents style violations
-- `buf breaking` prevents incompatible changes
-- Generated Go code is committed but not imported by any production code
-
-**Phase 2 (W7/RFC-0008):** Add ContentType to Envelope. Codec dispatches based on content type.
-
-**Phase 3 (post-W7):** Opt-in proto publishing via config flag `encoding: protobuf`.
-
-**Phase 4 (post-W9):** Deprecate JSON for bus traffic. HTTP API remains JSON.
-
-## 10. Test Plan
-
-| Type | Test | Pass Criteria |
-|------|------|---------------|
-| CI | `buf lint proto/` | 0 errors |
-| CI | `buf breaking proto/ --against .git#branch=main` | 0 breaking changes on PR |
-| Unit | Proto roundtrip: marshal TradeTickV1, unmarshal, compare fields | Identical |
-| Unit | Proto roundtrip: marshal BookDeltaV1, unmarshal, compare fields | Identical |
-| Unit | Generated code compiles (`go build ./internal/shared/proto/gen/...`) | No errors |
-| Negative | Remove field from .proto, run `buf breaking` | Fails with error |
-| Validation | `registry.json` entries match existing .proto files | Script validates all paths exist |
-
-## 11. Acceptance Criteria
-
-- [ ] `proto/` directory exists with all schema files
-- [ ] `buf lint` passes with 0 errors
-- [ ] `buf breaking --against .git#branch=main` passes on clean branch
-- [ ] `buf breaking` FAILS when a field is intentionally removed (negative test documented)
-- [ ] `make proto-gen` generates Go code in `internal/shared/proto/gen/` without errors
-- [ ] Generated code compiles: `go build ./internal/shared/proto/gen/...`
-- [ ] `proto/registry.json` lists all 5 schemas with correct proto file paths
-- [ ] Proto-encoded `TradeTickV1` decodes identically to JSON-encoded version (roundtrip test)
-- [ ] No runtime changes — existing behavior unchanged
+- Required RFC sections are present and validated by `make docs-check-full`.

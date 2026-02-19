@@ -9,10 +9,16 @@ repos:
 
   - repo: local
     hooks:
-      - id: go-tidy-check
-        name: go tidy check
+      - id: metrics-unstaged-guard
+        name: metrics unstaged guard
         language: system
-        entry: make tidy-check
+        entry: scripts/check-metrics-unstaged.sh
+        pass_filenames: false
+
+      - id: go-tidy-check
+        name: go tidy check changed
+        language: system
+        entry: make tidy-check-changed
         pass_filenames: false
 
       - id: go-fmt-check
@@ -21,17 +27,37 @@ repos:
         entry: make fmt-check
         pass_filenames: false
 
-      - id: go-lint
-        name: go lint
+      - id: legacy-check-staged
+        name: legacy check staged
         language: system
-        entry: make lint
+        entry: make legacy-check-staged
         pass_filenames: false
 
-      - id: go-test-short
-        name: go test short
+      - id: go-lint-changed
+        name: go lint changed
         language: system
-        entry: make test-short
+        entry: make lint-changed
         pass_filenames: false
+
+      - id: go-test-short-changed
+        name: go test short changed
+        language: system
+        entry: make test-short-changed
+        pass_filenames: false
+
+      - id: legacy-check
+        name: legacy check
+        language: system
+        entry: make legacy-check
+        pass_filenames: false
+        stages: [pre-push]
+
+      - id: go-test-integration-changed
+        name: go test integration changed
+        language: system
+        entry: make test-integration-changed
+        pass_filenames: false
+        stages: [pre-push]
 
       - id: commit-msg-conventional
         name: commit msg conventional

@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package insights.v1;
+
+option go_package = "github.com/market-raccoon/internal/shared/proto/gen/insights/v1";
+
+// VolumeProfileBucketV1 models one deterministic VPVR bucket.
+message VolumeProfileBucketV1 {
+  // PriceLow is the inclusive low bound of the bucket.
+  double price_low = 1;
+  // PriceHigh is the exclusive high bound of the bucket.
+  double price_high = 2;
+  // BuyVolume is taker buy volume in the bucket.
+  double buy_volume = 3;
+  // SellVolume is taker sell volume in the bucket.
+  double sell_volume = 4;
+  // TotalVolume equals buy_volume + sell_volume.
+  double total_volume = 5;
+  // SeqMin is the first sequence represented in the bucket.
+  int64 seq_min = 6;
+  // SeqMax is the last sequence represented in the bucket.
+  int64 seq_max = 7;
+
+  reserved 100 to 199;
+}
+
+// VolumeProfileSnapshotV1 models one VPVR snapshot payload.
+message VolumeProfileSnapshotV1 {
+  // Venue is the canonical venue identifier.
+  string venue = 1;
+  // Instrument is the canonical instrument identifier.
+  string instrument = 2;
+  // Timeframe is the deterministic VPVR timeframe (e.g. 1m).
+  string timeframe = 3;
+  // WindowStartTs is window start in Unix milliseconds.
+  int64 window_start_ts = 4;
+  // WindowEndTs is window end in Unix milliseconds.
+  int64 window_end_ts = 5;
+  // Buckets carries sorted bucket rows by price range.
+  repeated VolumeProfileBucketV1 buckets = 6;
+  // PocPrice is point-of-control price.
+  double poc_price = 7;
+  // ValueAreaLow is value area low bound.
+  double value_area_low = 8;
+  // ValueAreaHigh is value area high bound.
+  double value_area_high = 9;
+
+  reserved 100 to 199;
+}

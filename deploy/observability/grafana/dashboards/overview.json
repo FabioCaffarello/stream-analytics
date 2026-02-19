@@ -1,0 +1,149 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "percentunit"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0},
+      "id": 1,
+      "title": "Ingest Error Ratio",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "slo:ingest:error_ratio{service=\"market-raccoon\"}", "legendFormat": "{{stream}}/{{venue}}", "refId": "A"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "none"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0},
+      "id": 2,
+      "title": "Delivery Latency Burn Rate (5m)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "slo:delivery_latency:burn_rate_5m{service=\"market-raccoon\"}", "legendFormat": "{{stream}}/{{venue}}", "refId": "A"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "none"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0},
+      "id": 3,
+      "title": "Data Loss Burn Rate (5m)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "slo:data_loss:burn_rate_5m{service=\"market-raccoon\"}", "legendFormat": "{{stream}}/{{venue}}", "refId": "A"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "none"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+      "id": 4,
+      "title": "Ingest Success Rate",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "slo:ingest_success:rate{service=\"market-raccoon\"}", "legendFormat": "{{stream}}/{{venue}}", "refId": "A"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "none"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "id": 5,
+      "title": "Process Goroutines",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "process_goroutines", "legendFormat": "goroutines", "refId": "A"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "id": 6,
+      "title": "Process Heap Alloc",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "process_heap_alloc_bytes", "legendFormat": "heap_alloc_bytes", "refId": "A"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "none"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+      "id": 7,
+      "title": "Backpressure Queue Depth",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "max by (venue) (backpressure_queue_depth)", "legendFormat": "{{venue}}", "refId": "A"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
+      "id": 8,
+      "title": "Ingest Messages Rate",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "sum by (venue) (rate(ingest_messages_total[5m]))", "legendFormat": "{{venue}}", "refId": "A"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {
+        "defaults": {"unit": "short"},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "commit_rate_ok"}, "properties": [{"id": "custom.axisPlacement", "value": "right"}, {"id": "unit", "value": "ops"}]}
+        ]
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32},
+      "id": 9,
+      "title": "Consumer Lag vs Store Commit Rate",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "bus_consumer_lag{bus_type=\"jetstream\"}", "legendFormat": "consumer_lag", "refId": "A"},
+        {"expr": "sum(rate(store_commit_total{status=\"ok\"}[5m]))", "legendFormat": "commit_rate_ok", "refId": "B"}
+      ]
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "fieldConfig": {"defaults": {"unit": "ms"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32},
+      "id": 10,
+      "title": "WS Delivery Latency (p50 / p95)",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "histogram_quantile(0.50, sum by (le) (rate(ws_send_latency_ms_bucket[5m])))", "legendFormat": "p50", "refId": "A"},
+        {"expr": "histogram_quantile(0.95, sum by (le) (rate(ws_send_latency_ms_bucket[5m])))", "legendFormat": "p95", "refId": "B"}
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["observability", "slo"],
+  "templating": {
+    "list": [
+      {
+        "current": {"selected": false, "text": "Prometheus", "value": "Prometheus"},
+        "hide": 0,
+        "includeAll": false,
+        "label": "Prometheus",
+        "multi": false,
+        "name": "DS_PROMETHEUS",
+        "options": [],
+        "query": "prometheus",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "type": "datasource"
+      }
+    ]
+  },
+  "time": {"from": "now-6h", "to": "now"},
+  "title": "Market-Raccoon Overview",
+  "uid": "market-raccoon-overview",
+  "version": 1
+}

@@ -46,6 +46,29 @@ type depthUpdate struct {
 	AsksRaw     [][]string `json:"a"`
 }
 
+type markPriceUpdate struct {
+	Event       string `json:"e"`
+	EventTimeMs int64  `json:"E"`
+	Symbol      string `json:"s"`
+	MarkPrice   string `json:"p"`
+	IndexPrice  string `json:"i"`
+	FundingRate string `json:"r"`
+}
+
+type forceOrderEnvelope struct {
+	Event       string     `json:"e"`
+	EventTimeMs int64      `json:"E"`
+	Order       forceOrder `json:"o"`
+}
+
+type forceOrder struct {
+	Symbol    string `json:"s"`
+	Side      string `json:"S"`
+	PriceRaw  string `json:"p"`
+	SizeRaw   string `json:"q"`
+	TradeTime int64  `json:"T"`
+}
+
 // ParseMeta carries parser diagnostics for observability.
 type ParseMeta struct {
 	EventType  string
@@ -58,12 +81,24 @@ type ParseMeta struct {
 // ParseMessage parses Binance WS payload and maps supported messages to app.IngestRequest.
 // Returns skip=true for unsupported/heartbeat/control messages.
 func ParseMessage(data []byte, recvAt time.Time) (app.IngestRequest, bool, *problem.Problem) {
-	req, skip, meta := ParseMessageWithMeta(data, recvAt)
+	req, skip, meta := ParseMessageWithMetaForMarketType(data, recvAt, domain.MarketTypeSpot.String())
 	return req, skip, meta.Problem
 }
 
 // ParseMessageWithMeta parses Binance payload and returns telemetry metadata.
 func ParseMessageWithMeta(data []byte, recvAt time.Time) (app.IngestRequest, bool, ParseMeta) {
+	return ParseMessageWithMetaForMarketType(data, recvAt, domain.MarketTypeSpot.String())
+}
+
+// ParseMessageForMarketType parses Binance WS payload with explicit market type.
+func ParseMessageForMarketType(data []byte, recvAt time.Time, marketType string) (app.IngestRequest, bool, *problem.Problem) {
+	req, skip, meta := ParseMessageWithMetaForMarketType(data, recvAt, marketType)
+	return req, skip, meta.Problem
+}
+
+// ParseMessageWithMetaForMarketType parses Binance payload and returns telemetry metadata.
+func ParseMessageWithMetaForMarketType(data []byte, recvAt time.Time, marketType string) (app.IngestRequest, bool, ParseMeta) {
+	marketType = normalizeMarketType(marketType)
 	payload := data
 	meta := ParseMeta{}
 
@@ -99,35 +134,141 @@ func ParseMessageWithMeta(data []byte, recvAt time.Time) (app.IngestRequest, boo
 		meta.EventType = event
 	}
 
-	switch event {
-	case "aggTrade":
-		req, skip, p := parseAggTrade(payload, recvAt)
-		meta.Ticker = req.Instrument
-		if meta.WSStream != "" && req.Metadata != nil {
-			req.Metadata["ws_stream"] = meta.WSStream
-		}
-		meta.SkipReason = skipReasonFromProblem(p)
-		meta.Problem = p
-		return req, skip, meta
-	case "depthUpdate":
-		req, skip, p := parseDepthUpdate(payload, recvAt)
-		meta.Ticker = req.Instrument
-		if meta.WSStream != "" && req.Metadata != nil {
-			req.Metadata["ws_stream"] = meta.WSStream
-		}
-		meta.SkipReason = skipReasonFromProblem(p)
-		meta.Problem = p
-		return req, skip, meta
-	default:
+	req, skip, p, ok := parseByEvent(event, payload, recvAt, marketType)
+	if !ok {
 		meta.SkipReason = "unsupported_event"
 		if meta.EventType == "" {
 			meta.EventType = "unknown"
 		}
 		return app.IngestRequest{}, true, meta
 	}
+	applyWSStreamMeta(&req, meta.WSStream)
+	meta.Ticker = req.Instrument
+	meta.SkipReason = skipReasonFromProblem(p)
+	meta.Problem = p
+	return req, skip, meta
 }
 
-func parseAggTrade(payload []byte, recvAt time.Time) (app.IngestRequest, bool, *problem.Problem) {
+func parseByEvent(event string, payload []byte, recvAt time.Time, marketType string) (app.IngestRequest, bool, *problem.Problem, bool) {
+	switch event {
+	case "aggTrade":
+		req, skip, p := parseAggTrade(payload, recvAt, marketType)
+		return req, skip, p, true
+	case "depthUpdate":
+		req, skip, p := parseDepthUpdate(payload, recvAt, marketType)
+		return req, skip, p, true
+	case "markPriceUpdate":
+		req, skip, p := parseMarkPriceUpdate(payload, recvAt, marketType)
+		return req, skip, p, true
+	case "forceOrder":
+		req, skip, p := parseForceOrder(payload, recvAt, marketType)
+		return req, skip, p, true
+	default:
+		return app.IngestRequest{}, true, nil, false
+	}
+}
+
+func applyWSStreamMeta(req *app.IngestRequest, wsStream string) {
+	if req == nil || wsStream == "" || req.Metadata == nil {
+		return
+	}
+	req.Metadata["ws_stream"] = wsStream
+}
+
+func parseMarkPriceUpdate(payload []byte, recvAt time.Time, marketType string) (app.IngestRequest, bool, *problem.Problem) {
+	var m markPriceUpdate
+	if err := json.Unmarshal(payload, &m); err != nil {
+		return app.IngestRequest{}, true, problem.Wrap(err, problem.ValidationFailed, "binance markPriceUpdate: invalid payload")
+	}
+	instrument := naming.CanonicalInstrument(m.Symbol)
+	if instrument == "" {
+		return app.IngestRequest{}, true, problem.New(problem.ValidationFailed, "binance markPriceUpdate: symbol is empty")
+	}
+	markPrice, err := strconv.ParseFloat(m.MarkPrice, 64)
+	if err != nil {
+		return app.IngestRequest{}, true, problem.Wrap(err, problem.ValidationFailed, "binance markPriceUpdate: invalid mark price")
+	}
+	indexPrice := 0.0
+	if strings.TrimSpace(m.IndexPrice) != "" {
+		indexPrice, err = strconv.ParseFloat(m.IndexPrice, 64)
+		if err != nil {
+			return app.IngestRequest{}, true, problem.Wrap(err, problem.ValidationFailed, "binance markPriceUpdate: invalid index price")
+		}
+	}
+	fundingRate := 0.0
+	if strings.TrimSpace(m.FundingRate) != "" {
+		fundingRate, err = strconv.ParseFloat(m.FundingRate, 64)
+		if err != nil {
+			return app.IngestRequest{}, true, problem.Wrap(err, problem.ValidationFailed, "binance markPriceUpdate: invalid funding rate")
+		}
+	}
+	tsExchange := m.EventTimeMs
+	if tsExchange <= 0 {
+		tsExchange = recvAt.UnixMilli()
+	}
+	return app.IngestRequest{
+		Venue:      VenueBinance,
+		Instrument: instrument,
+		MarketType: marketType,
+		EventType:  "marketdata.markprice",
+		Version:    1,
+		TsExchange: tsExchange,
+		Metadata:   buildInstrumentMetadata(m.Symbol, instrument, marketType),
+		Payload: domain.MarkPriceTickV1{
+			MarkPrice:   markPrice,
+			IndexPrice:  indexPrice,
+			FundingRate: fundingRate,
+			Timestamp:   tsExchange,
+		},
+	}, false, nil
+}
+
+func parseForceOrder(payload []byte, recvAt time.Time, marketType string) (app.IngestRequest, bool, *problem.Problem) {
+	var m forceOrderEnvelope
+	if err := json.Unmarshal(payload, &m); err != nil {
+		return app.IngestRequest{}, true, problem.Wrap(err, problem.ValidationFailed, "binance forceOrder: invalid payload")
+	}
+	instrument := naming.CanonicalInstrument(m.Order.Symbol)
+	if instrument == "" {
+		return app.IngestRequest{}, true, problem.New(problem.ValidationFailed, "binance forceOrder: symbol is empty")
+	}
+	side, p := normalizeSide(m.Order.Side)
+	if p != nil {
+		return app.IngestRequest{}, true, p
+	}
+	price, err := strconv.ParseFloat(m.Order.PriceRaw, 64)
+	if err != nil {
+		return app.IngestRequest{}, true, problem.Wrap(err, problem.ValidationFailed, "binance forceOrder: invalid price")
+	}
+	size, err := strconv.ParseFloat(m.Order.SizeRaw, 64)
+	if err != nil {
+		return app.IngestRequest{}, true, problem.Wrap(err, problem.ValidationFailed, "binance forceOrder: invalid size")
+	}
+	tsExchange := m.Order.TradeTime
+	if tsExchange <= 0 {
+		tsExchange = m.EventTimeMs
+	}
+	if tsExchange <= 0 {
+		tsExchange = recvAt.UnixMilli()
+	}
+	return app.IngestRequest{
+		Venue:      VenueBinance,
+		Instrument: instrument,
+		MarketType: marketType,
+		EventType:  "marketdata.liquidation",
+		Version:    1,
+		TsExchange: tsExchange,
+		Metadata:   buildInstrumentMetadata(m.Order.Symbol, instrument, marketType),
+		Payload: domain.LiquidationTickV1{
+			Side:      side,
+			Price:     price,
+			Size:      size,
+			Timestamp: tsExchange,
+		},
+	}, false, nil
+}
+
+func parseAggTrade(payload []byte, recvAt time.Time, marketType string) (app.IngestRequest, bool, *problem.Problem) {
 	var m aggTrade
 	if err := json.Unmarshal(payload, &m); err != nil {
 		return app.IngestRequest{}, true, problem.Wrap(err, problem.ValidationFailed, "binance aggTrade: invalid payload")
@@ -161,6 +302,7 @@ func parseAggTrade(payload []byte, recvAt time.Time) (app.IngestRequest, bool, *
 	return app.IngestRequest{
 		Venue:      VenueBinance,
 		Instrument: instrument,
+		MarketType: marketType,
 		EventType:  "marketdata.trade",
 		Version:    1,
 		TsExchange: tsExchange,
@@ -169,7 +311,7 @@ func parseAggTrade(payload []byte, recvAt time.Time) (app.IngestRequest, bool, *
 			instrument,
 			fmt.Sprintf("%d", m.AggTradeID),
 		),
-		Metadata: buildInstrumentMetadata(m.Symbol, instrument),
+		Metadata: buildInstrumentMetadata(m.Symbol, instrument, marketType),
 		Payload: domain.TradeTickV1{
 			Price:     price,
 			Size:      size,
@@ -180,7 +322,7 @@ func parseAggTrade(payload []byte, recvAt time.Time) (app.IngestRequest, bool, *
 	}, false, nil
 }
 
-func parseDepthUpdate(payload []byte, recvAt time.Time) (app.IngestRequest, bool, *problem.Problem) {
+func parseDepthUpdate(payload []byte, recvAt time.Time, marketType string) (app.IngestRequest, bool, *problem.Problem) {
 	var m depthUpdate
 	if err := json.Unmarshal(payload, &m); err != nil {
 		return app.IngestRequest{}, true, problem.Wrap(err, problem.ValidationFailed, "binance depthUpdate: invalid payload")
@@ -210,6 +352,7 @@ func parseDepthUpdate(payload []byte, recvAt time.Time) (app.IngestRequest, bool
 	return app.IngestRequest{
 		Venue:      VenueBinance,
 		Instrument: instrument,
+		MarketType: marketType,
 		EventType:  "marketdata.bookdelta",
 		Version:    1,
 		TsExchange: tsExchange,
@@ -218,7 +361,7 @@ func parseDepthUpdate(payload []byte, recvAt time.Time) (app.IngestRequest, bool
 			instrument,
 			m.FinalID,
 		),
-		Metadata: buildInstrumentMetadata(m.Symbol, instrument),
+		Metadata: buildInstrumentMetadata(m.Symbol, instrument, marketType),
 		Payload: domain.BookDeltaV1{
 			Bids:      bids,
 			Asks:      asks,
@@ -260,6 +403,17 @@ func parseLevels(raw [][]string) ([]domain.PriceLevel, *problem.Problem) {
 	return out, nil
 }
 
+func normalizeSide(side string) (string, *problem.Problem) {
+	switch strings.ToLower(strings.TrimSpace(side)) {
+	case "buy":
+		return "buy", nil
+	case "sell":
+		return "sell", nil
+	default:
+		return "", problem.Newf(problem.ValidationFailed, "binance: unsupported side %q", side)
+	}
+}
+
 func skipReasonFromProblem(p *problem.Problem) string {
 	if p != nil {
 		return "parse_error"
@@ -293,17 +447,17 @@ func tickerFromStream(stream string) string {
 	return naming.CanonicalInstrument(parts[0])
 }
 
-func buildInstrumentMetadata(venueSymbol, canonical string) map[string]string {
+func buildInstrumentMetadata(venueSymbol, canonical, marketType string) map[string]string {
 	meta := map[string]string{
 		"instrument_venue_symbol": strings.ToUpper(strings.TrimSpace(venueSymbol)),
 		"instrument_canonical":    canonical,
-		"instrument_market_type":  domain.MarketTypeSpot.String(),
+		"instrument_market_type":  marketType,
 	}
 	canonicalPair := canonicalPairFromBinanceSymbol(venueSymbol)
 	if canonicalPair == "" {
 		return meta
 	}
-	id, p := domain.NewInstrumentIdentity(canonicalPair, venueSymbol, domain.MarketTypeSpot.String())
+	id, p := domain.NewInstrumentIdentity(canonicalPair, venueSymbol, marketType)
 	if p != nil {
 		return meta
 	}
@@ -328,4 +482,12 @@ func canonicalPairFromBinanceSymbol(symbol string) string {
 		}
 	}
 	return ""
+}
+
+func normalizeMarketType(raw string) string {
+	mt, p := domain.NewMarketType(raw)
+	if p != nil {
+		return domain.MarketTypeSpot.String()
+	}
+	return mt.String()
 }
