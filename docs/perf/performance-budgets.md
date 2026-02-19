@@ -26,7 +26,7 @@
 
 | Path | p95 | p99 | Source |
 |------|-----|-----|--------|
-| Ingest (parse->envelope) | <= 500 us | <= 1 ms | PRD-0001 |
+| Ingest (parse->envelope) | <= 500 us | < 10 ms | PRD-0001 (p99 < 10ms is the authoritative product target) |
 | E2E (ingest->orderbook snapshot) | <= 15 us/op | - | BenchmarkE2E_IngestToOrderbookSnapshot |
 | E2E (trade->candle) | <= 20 us/op | - | BenchmarkE2E_TradeToCandle |
 | Cold-path commit | <= 10 ms | <= 25 ms | TestStoreSoak_ColdPathLatencyBudgets |

@@ -298,4 +298,4 @@ feat(s5): add funding rate extraction to Binance parser
 4. **API keys from config, not database** — simple deployment, no key management service
 5. **Soak tests behind `testing.Short()`** — must not slow CI
 6. **No goroutine leaks** — soak tests verify NumGoroutine before/after
-7. **Metrics cardinality** — labels must follow `docs/architecture/metrics-budget-label-policy.md`
+7. **Metrics cardinality** — labels must follow `docs/observability/metrics-policy.md`

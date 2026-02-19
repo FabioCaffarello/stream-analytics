@@ -186,5 +186,5 @@ feat(s5): add funding rate extraction to Binance parser
 3. **Feature flags** — Storage pools gated by `cfg.Storage.Timescale.Enabled` / `cfg.Storage.ClickHouse.Enabled`. Auth gated by `cfg.WS.Auth.Enabled`.
 4. **Backward compat** — Every wave must leave all existing tests passing. Log stubs remain as fallback when storage is disabled.
 5. **Soak tests behind `testing.Short()`** — Must not slow CI.
-6. **Metrics cardinality** — Follow `docs/architecture/metrics-budget-label-policy.md`.
+6. **Metrics cardinality** — Follow `docs/observability/metrics-policy.md`.
 7. **`*problem.Problem` at boundaries** — Adapters wrap `error` to `*problem.Problem` at the port boundary.

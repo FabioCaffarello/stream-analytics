@@ -15,6 +15,7 @@
 ## Invariants
 - Volume additivity: non-negative aggregates only ([volume-profiles](../../../docs/architecture/volume-profiles.md) VP-1).
 - Deterministic binning: same `tick_size` + input → same buckets ([ADR-0015](../../../docs/adrs/ADR-0015-deterministic-replay-time-invariants.md) VP-2). No floating-precision buckets.
+- poc_price must belong to highest-volume bucket ([volume-profiles](../../../docs/architecture/volume-profiles.md) VP-3).
 - Bounded price bands: hard cap on bucket count per `(venue,instrument,timeframe)` ([ADR-0013](../../../docs/adrs/ADR-0013-backpressure-overload-policies.md) VP-4). No dynamic bucket creation beyond cap.
 - Window policy: time-based only; trade-count windows prohibited in v1 ([volume-profiles](../../../docs/architecture/volume-profiles.md)).
 - Replay rebuild: same window fixture → identical snapshot including `poc_price` (VP-5).

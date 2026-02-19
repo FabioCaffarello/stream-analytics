@@ -1,5 +1,6 @@
 # Execution Sequence - W4 through W13
 
+**Document class:** Governance Timeline (not a technical RFC)
 **Status:** Accepted
 **Owner:** Governance Doc-First Maintainer
 **Last updated:** 2026-02-18

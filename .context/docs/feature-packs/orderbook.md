@@ -14,10 +14,11 @@
 
 ## Invariants
 
-- Seq monotonicity per partition is mandatory ([ADR-0005](../../../docs/adrs/ADR-0005-sequencing-and-time-normalization.md)).
-- Subject identity and partitioning remain deterministic ([ADR-0014](../../../docs/adrs/ADR-0014-stream-partitioning-strategy.md)).
-- Crossed book cannot be committed as healthy snapshot ([orderbook](../../../docs/architecture/orderbook.md)).
-- Replay on equal fixture must be stable ([ADR-0015](../../../docs/adrs/ADR-0015-deterministic-replay-time-invariants.md)).
+- OB-1: Single writer per partition — venue, instrument, and market_type when present ([orderbook](../../../docs/architecture/orderbook.md)).
+- OB-2: Seq monotonicity per partition is mandatory ([ADR-0005](../../../docs/adrs/ADR-0005-sequencing-and-time-normalization.md)).
+- OB-3: Crossed book cannot be committed as healthy snapshot ([orderbook](../../../docs/architecture/orderbook.md)).
+- OB-4: max_levels bounded in memory and payload ([orderbook](../../../docs/architecture/orderbook.md), [ADR-0013](../../../docs/adrs/ADR-0013-backpressure-overload-policies.md)).
+- OB-5: Replay on equal fixture must be stable ([ADR-0015](../../../docs/adrs/ADR-0015-deterministic-replay-time-invariants.md)).
 
 ## Backpressure
 

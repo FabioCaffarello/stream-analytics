@@ -3,7 +3,7 @@
 **Status:** Active
 **Date:** 2026-02-13
 **last_reviewed:** 2026-02-18
-**Scope:** `docs/prd/PRD-0001-extreme-runtime.md`, `docs/audits/AUDIT-PACK-W11-finalization.md`, `docs/rfcs/EXECUTION-SEQUENCE.md`, `docs/rfcs/ADR-REVISIONS-patch-plan.md`, `docs/rfcs/RFC-0011-product-parity-marketmonkey.md`
+**Scope:** `docs/prd/PRD-0001-extreme-runtime.md`, `docs/audits/AUDIT-PACK-W11-finalization.md`, `docs/rfcs/EXECUTION-SEQUENCE.md`, `docs/rfcs/archive/ADR-REVISIONS-patch-plan.md`, `docs/rfcs/RFC-0011-product-parity-marketmonkey.md`
 
 ## Purpose
 
@@ -39,9 +39,9 @@ Create one authoritative map of:
 | PRD-0001 | Normalized active baseline with Implemented/Partially Implemented/Planned matrix and workspace-safe gates. | `docs/prd/PRD-0001-extreme-runtime.md:1`, `docs/prd/PRD-0001-extreme-runtime.md:81` |
 | AUDIT-PACK-W11 | Contains strongest evidence matrix linking docs to code/tests. | `docs/audits/AUDIT-PACK-W11-finalization.md:25` |
 | EXECUTION-SEQUENCE | Tracks W4..W13 with explicit Implemented/Partially Implemented/Planned matrix and real workspace gates. | `docs/rfcs/EXECUTION-SEQUENCE.md:1`, `docs/rfcs/EXECUTION-SEQUENCE.md:94` |
-| ADR-REVISIONS patch plan | **(ARCHIVED)** Historical patch plan; amendments absorbed into ADRs. | `docs/rfcs/ADR-REVISIONS-patch-plan.md:1` |
-| W4-W5 Post-Merge Audit | **(ARCHIVED)** Superado por AUDIT-PACK-W11 e DRIFT-REPORT-W11. | `docs/rfcs/W4-W5-AUDIT.md:1` |
-| W5.1 Sweep Throttling | **(ARCHIVED)** Superado por RFC-0006-W5-memory-lifecycle-hardening. | `docs/rfcs/W5.1-SWEEP-THROTTLING.md:1` |
+| ADR-REVISIONS patch plan | **(ARCHIVED)** Historical patch plan; amendments absorbed into ADRs. | `docs/rfcs/archive/ADR-REVISIONS-patch-plan.md:1` |
+| W4-W5 Post-Merge Audit | **(ARCHIVED)** Superado por AUDIT-PACK-W11 e DRIFT-REPORT-W11. | `docs/audits/W4-W5-AUDIT.md:1` |
+| W5.1 Sweep Throttling | **(ARCHIVED)** Superado por RFC-0006-W5-memory-lifecycle-hardening. | `docs/rfcs/archive/W5.1-SWEEP-THROTTLING.md:1` |
 
 ### Document Inventory
 
@@ -93,7 +93,7 @@ Status anchors: `docs/rfcs/RFC-0001-robustness-roadmap.md:3`, `docs/rfcs/RFC-000
 - `docs/architecture/README.md`
 - `docs/architecture/ingestion.md`
 - `docs/architecture/insights.md`
-- `docs/architecture/moat.md`
+- `docs/prd/moat.md`
 - `docs/architecture/system-invariants.md`
 - `docs/architecture/storage.md`
 - `docs/architecture/orderbook.md`

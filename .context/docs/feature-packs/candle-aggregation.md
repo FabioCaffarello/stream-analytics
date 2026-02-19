@@ -18,6 +18,7 @@
 - `high >= max(open,close)` and `low <= min(open,close)` always (CA-5).
 - `volume = buy_volume + sell_volume` always (CA-6).
 - Replay of same fixture yields identical OHLCV (CA-4).
+- Bounded open candle state per (venue, instrument) — max one open candle per timeframe (CA-7).
 
 ## Backpressure
 - Bounded queue per instrument ([ADR-0013](../../../docs/adrs/ADR-0013-backpressure-overload-policies.md)).

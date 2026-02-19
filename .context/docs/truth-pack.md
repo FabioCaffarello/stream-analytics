@@ -1,6 +1,6 @@
 # Truth Pack
 
-**STATUS:** ACTIVE | **last_reviewed:** 2026-02-17
+**STATUS:** ACTIVE | **last_reviewed:** 2026-02-19
 
 Context interface for `.context/docs`: pointers, invariants, acceptance gates.
 
@@ -15,6 +15,8 @@ Context interface for `.context/docs`: pointers, invariants, acceptance gates.
 | Orderbook domain | [`docs/architecture/orderbook.md`](../../docs/architecture/orderbook.md), [`docs/adrs/ADR-0005-sequencing-and-time-normalization.md`](../../docs/adrs/ADR-0005-sequencing-and-time-normalization.md) |
 | Heatmap domain | [`docs/architecture/heatmap.md`](../../docs/architecture/heatmap.md), [`docs/adrs/ADR-0013-backpressure-overload-policies.md`](../../docs/adrs/ADR-0013-backpressure-overload-policies.md) |
 | Volume profiles domain | [`docs/architecture/volume-profiles.md`](../../docs/architecture/volume-profiles.md), [`docs/adrs/ADR-0017-multi-exchange-normalization.md`](../../docs/adrs/ADR-0017-multi-exchange-normalization.md) |
+| Candle aggregation | [`docs/architecture/candle-aggregation.md`](../../docs/architecture/candle-aggregation.md) |
+| Stats aggregation | [`docs/architecture/stats-aggregation.md`](../../docs/architecture/stats-aggregation.md) |
 | Liquidations + markprice | [`docs/architecture/liquidations-markprice.md`](../../docs/architecture/liquidations-markprice.md), [`docs/adrs/ADR-0011-marketdata-binance-canonical-instrument-and-event-mapping.md`](../../docs/adrs/ADR-0011-marketdata-binance-canonical-instrument-and-event-mapping.md) |
 | Delivery WS contract | [`docs/contracts/delivery-ws.md`](../../docs/contracts/delivery-ws.md), [`docs/adrs/ADR-0007-delivery-ws-sessions.md`](../../docs/adrs/ADR-0007-delivery-ws-sessions.md) |
 | Replay determinism | [`docs/adrs/ADR-0015-deterministic-replay-time-invariants.md`](../../docs/adrs/ADR-0015-deterministic-replay-time-invariants.md), [`docs/rfcs/RFC-0009-W8-deterministic-replay-golden-tests.md`](../../docs/rfcs/RFC-0009-W8-deterministic-replay-golden-tests.md) |
@@ -27,6 +29,8 @@ Context interface for `.context/docs`: pointers, invariants, acceptance gates.
 - Volume Profiles: [`feature-packs/volume-profiles.md`](./feature-packs/volume-profiles.md)
 - Liquidations + MarkPrice: [`feature-packs/liquidations-markprice.md`](./feature-packs/liquidations-markprice.md)
 - Delivery WS: [`feature-packs/delivery-ws.md`](./feature-packs/delivery-ws.md)
+- Candle Aggregation: [`feature-packs/candle-aggregation.md`](./feature-packs/candle-aggregation.md)
+- Stats Aggregation: [`feature-packs/stats-aggregation.md`](./feature-packs/stats-aggregation.md)
 
 ## Invariants Index
 
@@ -47,7 +51,8 @@ Context interface for `.context/docs`: pointers, invariants, acceptance gates.
 
 - Observability runbooks: [`docs/observability/runbooks/`](../../docs/observability/runbooks/) — ingest, guardian, websocket, vpvr-overload, bus, consumer-stall
 - SLO definitions: [`docs/observability/slo.md`](../../docs/observability/slo.md)
-- Operations: [`docs/operations/`](../../docs/operations/) — degradation, local-dev, sharding, cold-path-runbook
+- Operations: [`docs/operations/`](../../docs/operations/) — degradation, sharding, cold-path-runbook
+- Local dev: [`local-dev.md`](./local-dev.md)
 
 ## Validation Gates
 

@@ -14,6 +14,7 @@
 ## Invariants
 - Bucket assignment deterministic for same `tick_size` + input ([heatmap](../../../docs/architecture/heatmap.md) HM-1, [ADR-0015](../../../docs/adrs/ADR-0015-deterministic-replay-time-invariants.md)).
 - Closed windows immutable after commit ([ADR-0015](../../../docs/adrs/ADR-0015-deterministic-replay-time-invariants.md) HM-2).
+- No negative cells: bid_liquidity, ask_liquidity, trade_volume >= 0 ([heatmap](../../../docs/architecture/heatmap.md) HM-3).
 - Bounded resolution: hard cap per `(venue,instrument,timeframe)` ([ADR-0013](../../../docs/adrs/ADR-0013-backpressure-overload-policies.md) HM-4).
 - Caps v1: `max_price_buckets_per_window=512`, `max_size_buckets=5`, `max_cells_per_window=2048`, `max_open_windows_per_partition=2`.
 - Replay of same fixture yields same matrix values and ordering (HM-5).

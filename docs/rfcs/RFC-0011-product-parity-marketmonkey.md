@@ -23,7 +23,7 @@ Consolidar parity v1 em modo doc-first, alinhando arquitetura de storage/orderbo
 ## Nao-Escopo
 
 - Implementacao runtime de storage adapters, novos contratos ou novas pipelines.
-- Mudanca silenciosa de ADR: conflitos permanecem rastreados em `docs/rfcs/ADR-REVISIONS-patch-plan.md`.
+- Mudanca silenciosa de ADR: conflitos permanecem rastreados em `docs/rfcs/archive/ADR-REVISIONS-patch-plan.md`.
 - Alteracao de postura de risco regulatorio do produto.
 
 ## Gap & Drift Checklist (P0/P1/P2)
@@ -109,7 +109,7 @@ Consolidar parity v1 em modo doc-first, alinhando arquitetura de storage/orderbo
 Scope:
 - `docs/architecture/storage.md`
 - `docs/contracts/delivery-ws.md`
-- `docs/rfcs/ADR-REVISIONS-patch-plan.md` (apenas notas de conflito)
+- `docs/rfcs/archive/ADR-REVISIONS-patch-plan.md` (apenas notas de conflito)
 
 Gates (must pass):
 - `make invariants-check`

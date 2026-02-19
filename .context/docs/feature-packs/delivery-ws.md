@@ -13,9 +13,11 @@
 - Ordering refs: [ADR-0014](../../../docs/adrs/ADR-0014-stream-partitioning-strategy.md), [ADR-0015](../../../docs/adrs/ADR-0015-deterministic-replay-time-invariants.md).
 
 ## Invariants
-- One connection maps to one isolated session actor ([ADR-0007](../../../docs/adrs/ADR-0007-delivery-ws-sessions.md)).
-- Subject keeps exactly 4 segments ([delivery-ws](../../../docs/contracts/delivery-ws.md)).
-- Unsubscribe/disconnect releases routing state ([delivery-ws](../../../docs/contracts/delivery-ws.md)).
+- WS-1: One connection maps to one isolated session actor; one session failure cannot cascade ([ADR-0007](../../../docs/adrs/ADR-0007-delivery-ws-sessions.md)).
+- WS-2: Subject keeps exactly 4 segments ([delivery-ws](../../../docs/contracts/delivery-ws.md)).
+- WS-3: Per-subject ordering by seq is preserved inside one session ([delivery-ws](../../../docs/contracts/delivery-ws.md)).
+- WS-4: No unbounded per-session queue in parity target design ([delivery-ws](../../../docs/contracts/delivery-ws.md), [ADR-0013](../../../docs/adrs/ADR-0013-backpressure-overload-policies.md)).
+- WS-5: Unsubscribe/disconnect releases routing state and memory ([delivery-ws](../../../docs/contracts/delivery-ws.md)).
 
 ## Backpressure
 - Bounded queue policy with observable drops is mandatory ([ADR-0013](../../../docs/adrs/ADR-0013-backpressure-overload-policies.md)).

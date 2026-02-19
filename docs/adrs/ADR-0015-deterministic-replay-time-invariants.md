@@ -20,7 +20,7 @@ Changelog evidence:
 
 ## Context
 
-The system's competitive moat depends on deterministic event pipelines (docs/architecture/moat.md). Currently:
+The system's competitive moat depends on deterministic event pipelines (docs/prd/moat.md). Currently:
 - Domain logic uses `clock.Clock` port — good, enables deterministic time.
 - Sequencer is in-memory and ephemeral — lost on restart.
 - No mechanism to record and replay event streams.

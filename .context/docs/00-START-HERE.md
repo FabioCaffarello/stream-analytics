@@ -12,7 +12,7 @@ Three binaries: **consumer** (ingest), **processor** (aggregation), **server** (
 ### I need to understand the architecture
 - [Architecture Overview](../../docs/architecture/README.md)
 - [System Invariants](../../docs/architecture/system-invariants.md)
-- [Competitive Moat](../../docs/architecture/moat.md)
+- [Competitive Moat](../../docs/prd/moat.md)
 
 ### I need to decide/code a feature
 - [Feature Packs](./feature-packs/) — constraint specs per domain (inputs, outputs, invariants, backpressure, replay)

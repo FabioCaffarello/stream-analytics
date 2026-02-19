@@ -238,7 +238,7 @@ Block 3 ──→ Block 1 ──→ Block 2 ──→ Block 4 ──→ Block 5
 | Metric | Budget | Where to Measure | Gate |
 |--------|--------|------------------|------|
 | **Ingest p95** | ≤ 500 µs (WS parse → envelope published) | `ingest_latency_seconds{quantile="0.95"}` on consumer:8081/metrics | `make bench-gate` (BenchmarkIngest) |
-| **Ingest p99** | ≤ 2 ms | `ingest_latency_seconds{quantile="0.99"}` | `make bench-gate` + soak (`scripts/soak-test.sh`) |
+| **Ingest p99** | < 10 ms (PRD-0001 authority; ≤ 2 ms stretch goal) | `ingest_latency_seconds{quantile="0.99"}` | `make bench-gate` + soak (`scripts/soak-test.sh`) |
 | **Delivery WS p95** | ≤ 5 ms (envelope → WS frame sent) | `ws_send_latency_seconds{quantile="0.95"}` on server:8080/metrics | Recording rule `slo:delivery:latency:burn_rate` → alert on >250ms |
 | **Delivery WS p99** | ≤ 15 ms | `ws_send_latency_seconds{quantile="0.99"}` | Same SLO burn-rate alert |
 | **Cold-path write p95** | ≤ 10 ms (commit hot+cold) | `processor_commit_latency_seconds{quantile="0.95"}` on processor:8082/metrics | `make soak-cold-path` (TestStorageSoak) |

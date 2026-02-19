@@ -666,4 +666,4 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 7. **Symbol normalization must be exchange-specific** — Each exchange has its own symbol format. The parser normalizes to canonical format before building IngestRequest. Do not share normalization code across exchanges.
 8. **go.mod hygiene** — Run `make tidy` after adding new packages. Verify no missing `replace` directives.
 9. **`*problem.Problem` at boundaries** — All parser error returns use `*problem.Problem`, not plain `error`.
-10. **Metrics cardinality** — New exchanges add venue labels. Follow `docs/architecture/metrics-budget-label-policy.md`.
+10. **Metrics cardinality** — New exchanges add venue labels. Follow `docs/observability/metrics-policy.md`.

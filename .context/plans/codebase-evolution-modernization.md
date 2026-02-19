@@ -148,7 +148,7 @@ Definition of Done:
 
 | Milestone | Janela | Objetivo | Saida principal |
 |---|---|---|---|
-| M0 - Baseline lock | 3-5 dias | congelar inventario de legado + backlog priorizado | `docs/audits/codebase-modernization-baseline.md` |
+| M0 - Baseline lock | 3-5 dias | congelar inventario de legado + backlog priorizado | `.context/plans/codebase-modernization-baseline.md` |
 | M1 - Legacy and boundaries | 1-2 semanas | remover compatibilidade obsoleta + endurecer fronteiras | commit chain WS1+WS2 |
 | M2 - Domain closure wave 1 | 2-4 semanas | fechar orderbook/delivery e hardening de boundary de storage sem Timescale | PRs por subdominio com gates completos |
 | M3 - Domain closure wave 2 | 2-4 semanas | fechar insights + liquidations/markprice + replay evidence | matriz Existing atualizada em docs |
@@ -281,8 +281,8 @@ Triggers de rollback:
 
 ## 12) Follow-up Artifacts
 
-- `docs/audits/codebase-modernization-baseline.md`
-- `docs/audits/codebase-modernization-scorecard.md`
+- `.context/plans/codebase-modernization-baseline.md`
+- `docs/audits/codebase-modernization-scorecard.md` (future)
 - updates em `docs/architecture/TRUTH-MAP.md`
 - updates em `.context/plans/README.md` com fila ativa limpa
 - registro de decisoes via MCP plan tracking
