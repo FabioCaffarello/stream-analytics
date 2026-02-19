@@ -19,7 +19,7 @@
 | **S6** | Governança de schema machine-checked | `subject-registry.yaml` com `owner_bc`, `schema_authority_bc`; `make registry-check` + `make docs-check` validam drift |
 | **S7** | Backpressure de produção na delivery | 3 políticas (DropNewest/DropOldest/PriorityDrop); sessões isoladas como atores; slow-client disconnect configurável; métricas labeled `ws_drops_total{reason}` |
 | **S8** | Aritmética fixed-point para dados financeiros | `CandleV1` usa inteiros fixed-point; evita acúmulo de erro float64 (weakness do MarketMonkey) |
-| **S9** | Protobuf-ready com domain limpo | `proto/` com definições para todos os BCs; camada `contracts` isola proto do domínio (INV-DOM-01); rollout flags preparados |
+| **S9** | Protobuf completo com domain limpo | `proto/` com definições para todos os BCs (incluindo snapshot + inconsistency); camada `contracts` isola proto do domínio (INV-DOM-01); rollout flags para 16 event types; 11 schemas `stable` |
 | **S10** | Config hot-reload + validation | `config.Load()` JSONC → `Validate()` → `*problem.Problem`; `/runtime/reload` endpoint; `ShutdownTimeoutDuration()` helpers |
 
 ---
@@ -35,7 +35,7 @@
 | ~~**W5**~~ | ~~`cmd/backfill/` é stub funcional~~ | **RESOLVIDO (C3):** `cmd/backfill` operacional com 2 modes: `download` (Binance agg-trades ZIP → JSONL fixtures) e `gaps` (DetectCandleGaps via ClickHouse cold readers). 6 testes backfill + 5 testes gap detector — todos passam. |
 | ~~**W6**~~ | ~~Gap detection sem repair~~ | **RESOLVIDO (C3):** `app.DetectCandleGaps` com auto-anchor (GetFirst/LastCandle), leading/inter/trailing gap detection. Cold readers (`ChCandleReader`, `ChStatsReader`, `ChSnapshotReader`) com `FINAL` dedup + 8 unit tests. |
 | **W7** | Complexidade do workspace multi-módulo | 13 módulos com `replace` directives obrigatórias; `make tidy` necessário após cada change; onboarding friction |
-| **W8** | Duas databases = overhead operacional | TimescaleDB + ClickHouse requerem ambos saudáveis; DDL manual; sem migration runner automatizado tipo Flyway |
+| **W8** | Duas databases = overhead operacional | TimescaleDB + ClickHouse requerem ambos saudáveis; DDL manual; sem migration runner automatizado tipo Flyway. **Mitigado:** ADR-0019 documenta trade-off, invariantes (INV-STO-01→05), runbook operacional, failure scenarios e backup strategy. |
 | ~~**W9**~~ | ~~Cobertura de exchange assimétrica~~ | **PARCIALMENTE RESOLVIDO:** Coinbase markprice já existia (ticker→markprice parser); Coinbase liquidation impossível (spot). HyperLiquid markprice agora implementado via `allMids` broadcast + `ParseFuncBatch`. Gaps restantes: Coinbase é spot-only (sem liquidation por design); Binance é o único com backfill adapter. |
 | **W10** | Desktop client inexistente | Odin terminal é dependência externa fora do escopo; backend-only limita demonstrabilidade |
 
@@ -88,8 +88,8 @@
 
 ## Key Implications
 
-### 1. ~~Proto activation~~ RESOLVIDO — proto é o wire default
-**S2 + S9 + O1 → Status:** Rollout flags completos para 14 event types. Deploy configs setam `wire_format: "proto"`. Transcode safety garante JSON clients recebem JSON válido mesmo com bus proto. 9 schemas `stable`. **Ação residual:** Wire DTO + codec registration para `aggregation.snapshot` e `aggregation.orderbook_inconsistency` (atualmente JSON-only via `codec.Marshal`).
+### 1. ~~Proto activation~~ RESOLVIDO — proto é o wire default (100% cobertura)
+**S2 + S9 + O1 → Status:** Rollout flags completos para 16 event types (incluindo snapshot + inconsistency). Deploy configs setam `wire_format: "proto"`. Transcode safety garante JSON clients recebem JSON válido mesmo com bus proto. 11 schemas `stable`. **Ação residual anterior FECHADA:** Wire DTOs + codec registration implementados para `aggregation.snapshot` e `aggregation.orderbook_inconsistency`. Publisher usa `codec.EncodePayload()` + rollout flags. Subject registry promovido para `stable`. Testes round-trip (completeness + semantic equivalence) passam.
 
 ### 2. ~~Backfill operacional~~ RESOLVIDO — próximo gap é multi-exchange backfill
 **~~W5 + W6~~ + O3 + T1 → Status:** C3 implementado. `cmd/backfill` com download mode (Binance agg-trades) + gaps mode (DetectCandleGaps). Cold readers (ChCandleReader/StatsReader/SnapshotReader) operacionais. **Ação residual:** Estender backfill adapter para Bybit, Coinbase e HyperLiquid.
@@ -103,8 +103,8 @@
 ### 5. ~~Insights BC precisa de heatmap delivery~~ RESOLVIDO — heatmap + volume profile delivery E2E
 **S1 + O6 + T8 → Status:** Heatmap delivery E2E corrigido: bug de routing por timeframe resolvido (router agora extrai `Meta["timeframe"]` do envelope). Volume profile delivery adicionado ao contrato. CrossVenue signals, VolumeProfile e Heatmap agora são capabilities completas de delivery. **Ação residual:** Aprofundar Insights BC como moat técnico — heatmap live, CrossVenue v2.
 
-### 6. Dual-database é uma aposta consciente, não uma fraqueza acidental
-**S5 + W8 + T7 → Ação:** Documentar trade-off em ADR formal. TimescaleDB para hot reads (latência) + ClickHouse para analytics (throughput) é uma escolha arquitetural válida, mas precisa de runbooks operacionais maduros e monitoring unificado.
+### 6. ~~Dual-database é uma aposta consciente~~ DOCUMENTADO — ADR-0019
+**S5 + W8 + T7 → Status:** ADR-0019 documenta formalmente a estrategia dual-database. Inclui: topologia de armazenamento (hot/warm/cold), workload routing, failure isolation, invariantes (INV-STO-01→05), runbook operacional com health checks, capacity indicators, failure scenarios e backup strategy. **Ação residual:** Implementar migration runner automatizado (debt aceito, mitigado por init scripts docker).
 
 ---
 
@@ -116,11 +116,11 @@
 | Qualidade de Código | **4/5** | Fixed-point, `*problem.Problem`, `result.Result[T]`; -1 por workspace complexity |
 | Testes | **5/5** | Multi-nível (unit→soak→E2E), golden, race detector, 185 files |
 | Cobertura Funcional | **4/5** | Stats ausente; ~~heatmap não fiado~~ heatmap + volume profile delivery E2E; ~~exchanges assimétricos~~ markprice normalizado para 4 exchanges; ~~backfill stub~~ backfill operacional (C3) |
-| Prontidão Operacional | **3.5/5** | Config/shutdown/readiness OK; backfill + gap detection operacionais (C3); falta migration runner, multi-exchange backfill |
-| Performance | **4.5/5** | 83k+ evt/sec, 15us E2E orderbook; proto ativado no hot-path (wire -60%, parse -40%); -0.5 por falta de wire DTO para snapshot/inconsistency |
+| Prontidão Operacional | **4/5** | Config/shutdown/readiness OK; backfill + gap detection operacionais (C3); ADR-0019 documenta dual-DB com runbook + invariantes; falta migration runner, multi-exchange backfill |
+| Performance | **5/5** | 83k+ evt/sec, 15us E2E orderbook; proto ativado no hot-path para todos os 16 event types (wire -60%, parse -40%); snapshot/inconsistency wire DTOs completos |
 | Paridade Competitiva | **3.5/5** | 4/5 exchanges com markprice completo (Coinbase spot não tem liquidation por design); arquitetura superior; backfill adapter apenas Binance |
 
-**Score Geral: 4.4 / 5.0** — Fundação técnica excepcional; C3 fechou backfill/gap detection, proto hot-path ativado com transcode safety, markprice normalizado para todos os 4 exchanges, heatmap + volume profile delivery E2E corrigidos (bug de timeframe routing). Gaps restantes: stats pipeline, multi-exchange backfill, Kraken/KrakenF.
+**Score Geral: 4.5 / 5.0** — Fundação técnica excepcional; proto cobertura 100% (16 event types, 11 schemas stable), dual-DB formalizado com ADR-0019 + runbook operacional, backfill/gap detection operacionais, markprice normalizado para todos os 4 exchanges, heatmap + volume profile delivery E2E. Gaps restantes: stats pipeline, multi-exchange backfill, Kraken/KrakenF, migration runner.
 
 ---
 
@@ -131,8 +131,8 @@
 | ~~**P0**~~ | ~~RFC~~ | ~~Proto hot-path full rollout~~ — **DONE:** RFC-0007 atualizado, 14 flags, transcode safety, schemas stable |
 | ~~**P0**~~ | ~~Implementação~~ | ~~C3: `cmd/backfill` operacional + gap detection~~ — **DONE** |
 | ~~**P0**~~ | ~~Implementação~~ | ~~Normalizar cobertura de exchanges (W9)~~ — **DONE:** Coinbase markprice já existia (ticker parser); HyperLiquid markprice via `allMids` + `ParseFuncBatch`; Coinbase liquidation impossível (spot) |
-| **P1** | ADR | ADR formal para dual-database trade-off + runbook operacional (W8) |
+| ~~**P1**~~ | ~~ADR~~ | ~~ADR formal para dual-database trade-off + runbook operacional (W8)~~ — **DONE:** ADR-0019 criado com topologia, workload routing, failure isolation, invariantes INV-STO-01→05, runbook completo (health, capacity, failure, backup). |
 | ~~**P1**~~ | ~~Implementação~~ | ~~Heatmap delivery end-to-end (W2)~~ — **DONE:** Bug de timeframe routing corrigido (`Meta["timeframe"]` nos envelopes + router extrai). `volume_profile_snapshot` adicionado ao delivery contract. Testes E2E validam heatmap 1m e VPVR 5m. |
-| **P1** | Implementação | Wire DTOs + codec registration para `aggregation.snapshot` + `orderbook_inconsistency` (residual proto) |
-| **P2** | Milestone Plan | CI stabilization (testcontainers cache, retry policy, evidence gates em CI) |
-| **P3** | RFC | Insights BC como diferencial — roadmap CrossVenue v2 + Heatmap live |
+| ~~**P1**~~ | ~~Implementação~~ | ~~Wire DTOs + codec registration para `aggregation.snapshot` + `orderbook_inconsistency`~~ — **DONE:** Proto definitions criados (`snapshot.proto`, `orderbook_inconsistency.proto`), wire DTOs, converters, dual codec registration (JSON+Proto), publisher atualizado para `codec.EncodePayload()` + rollout flags. Subject registry `stable`. Testes completeness + semantic equivalence passam. |
+| **P1** | Milestone Plan | CI stabilization (testcontainers cache, retry policy, evidence gates em CI) |
+| **P2** | RFC | Insights BC como diferencial — roadmap CrossVenue v2 + Heatmap live |

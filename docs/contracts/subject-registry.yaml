@@ -105,10 +105,11 @@ subjects:
     producer_bc: aggregation
     schema_authority_bc: aggregation
     consumer_bcs: [storage]
-    status: draft
+    status: stable
     sources:
       - docs/contracts/event-bus.md
       - .context/docs/feature-packs/orderbook.md
+      - proto/aggregation/v1/snapshot.proto
   - id: aggregation.orderbook_inconsistency.v1
     pattern: aggregation.orderbook_inconsistency.v1.{venue}.{instrument}
     root: aggregation
@@ -116,10 +117,11 @@ subjects:
     producer_bc: aggregation
     schema_authority_bc: aggregation
     consumer_bcs: [storage]
-    status: draft
+    status: stable
     sources:
       - docs/contracts/event-bus.md
       - .context/docs/feature-packs/orderbook.md
+      - proto/aggregation/v1/orderbook_inconsistency.proto
   - id: aggregation.candle.v1
     pattern: aggregation.candle.v1.{venue}.{instrument}
     root: aggregation

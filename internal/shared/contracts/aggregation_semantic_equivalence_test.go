@@ -148,3 +148,116 @@ func TestStatsWindowClosedV1_JSON_vs_Proto_SemanticEquivalence(t *testing.T) {
 		t.Fatalf("proto roundtrip mismatch: got %+v want %+v", protoResult, canonical)
 	}
 }
+
+func TestSnapshotV1_JSON_vs_Proto_SemanticEquivalence(t *testing.T) {
+	reg := codec.NewRegistry()
+	if p := contracts.RegisterAggregationPayloadV1(reg); p != nil {
+		t.Fatalf("RegisterAggregationPayloadV1: %v", p)
+	}
+
+	canonical := contracts.AggregationSnapshotV1{
+		Venue:      "binance",
+		Instrument: "BTC-USDT",
+		Seq:        42,
+		Bids: []contracts.AggregationOrderBookLevelV1{
+			{Price: 65000.5, Quantity: 1.25},
+			{Price: 64999.0, Quantity: 3.5},
+		},
+		Asks: []contracts.AggregationOrderBookLevelV1{
+			{Price: 65001.0, Quantity: 0.75},
+			{Price: 65002.5, Quantity: 2.0},
+		},
+	}
+
+	jsonKey := codec.SchemaKey{Type: "aggregation.snapshot", Version: 1, Format: codec.FormatJSON}
+	jsonEnc, _ := reg.Encoder(jsonKey)
+	jsonDec, _ := reg.Decoder(jsonKey)
+	jsonBytes, p := jsonEnc.Encode(canonical)
+	if p != nil {
+		t.Fatalf("json encode: %v", p)
+	}
+	jsonAny, p := jsonDec.Decode(jsonBytes)
+	if p != nil {
+		t.Fatalf("json decode: %v", p)
+	}
+	jsonResult, ok := jsonAny.(contracts.AggregationSnapshotV1)
+	if !ok {
+		t.Fatalf("json decoded type = %T; want contracts.AggregationSnapshotV1", jsonAny)
+	}
+
+	protoKey := codec.SchemaKey{Type: "aggregation.snapshot", Version: 1, Format: codec.FormatProto}
+	protoEnc, _ := reg.Encoder(protoKey)
+	protoDec, _ := reg.Decoder(protoKey)
+	protoBytes, p := protoEnc.Encode(canonical)
+	if p != nil {
+		t.Fatalf("proto encode: %v", p)
+	}
+	protoAny, p := protoDec.Decode(protoBytes)
+	if p != nil {
+		t.Fatalf("proto decode: %v", p)
+	}
+	protoResult, ok := protoAny.(contracts.AggregationSnapshotV1)
+	if !ok {
+		t.Fatalf("proto decoded type = %T; want contracts.AggregationSnapshotV1", protoAny)
+	}
+
+	if !reflect.DeepEqual(jsonResult, canonical) {
+		t.Fatalf("json roundtrip mismatch: got %+v want %+v", jsonResult, canonical)
+	}
+	if !reflect.DeepEqual(protoResult, canonical) {
+		t.Fatalf("proto roundtrip mismatch: got %+v want %+v", protoResult, canonical)
+	}
+}
+
+func TestOrderBookInconsistencyV1_JSON_vs_Proto_SemanticEquivalence(t *testing.T) {
+	reg := codec.NewRegistry()
+	if p := contracts.RegisterAggregationPayloadV1(reg); p != nil {
+		t.Fatalf("RegisterAggregationPayloadV1: %v", p)
+	}
+
+	canonical := contracts.AggregationOrderBookInconsistencyV1{
+		Venue:      "binance",
+		Instrument: "BTC-USDT",
+		Seq:        99,
+		Reason:     "crossed_book",
+	}
+
+	jsonKey := codec.SchemaKey{Type: "aggregation.orderbook_inconsistency", Version: 1, Format: codec.FormatJSON}
+	jsonEnc, _ := reg.Encoder(jsonKey)
+	jsonDec, _ := reg.Decoder(jsonKey)
+	jsonBytes, p := jsonEnc.Encode(canonical)
+	if p != nil {
+		t.Fatalf("json encode: %v", p)
+	}
+	jsonAny, p := jsonDec.Decode(jsonBytes)
+	if p != nil {
+		t.Fatalf("json decode: %v", p)
+	}
+	jsonResult, ok := jsonAny.(contracts.AggregationOrderBookInconsistencyV1)
+	if !ok {
+		t.Fatalf("json decoded type = %T; want contracts.AggregationOrderBookInconsistencyV1", jsonAny)
+	}
+
+	protoKey := codec.SchemaKey{Type: "aggregation.orderbook_inconsistency", Version: 1, Format: codec.FormatProto}
+	protoEnc, _ := reg.Encoder(protoKey)
+	protoDec, _ := reg.Decoder(protoKey)
+	protoBytes, p := protoEnc.Encode(canonical)
+	if p != nil {
+		t.Fatalf("proto encode: %v", p)
+	}
+	protoAny, p := protoDec.Decode(protoBytes)
+	if p != nil {
+		t.Fatalf("proto decode: %v", p)
+	}
+	protoResult, ok := protoAny.(contracts.AggregationOrderBookInconsistencyV1)
+	if !ok {
+		t.Fatalf("proto decoded type = %T; want contracts.AggregationOrderBookInconsistencyV1", protoAny)
+	}
+
+	if !reflect.DeepEqual(jsonResult, canonical) {
+		t.Fatalf("json roundtrip mismatch: got %+v want %+v", jsonResult, canonical)
+	}
+	if !reflect.DeepEqual(protoResult, canonical) {
+		t.Fatalf("proto roundtrip mismatch: got %+v want %+v", protoResult, canonical)
+	}
+}

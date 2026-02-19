@@ -72,6 +72,22 @@
       "message": "insights.v1.HeatmapArtifactV1",
       "status": "stable",
       "introduced_at": "2026-02-18"
+    },
+    {
+      "type": "aggregation.snapshot",
+      "version": 1,
+      "proto_file": "aggregation/v1/snapshot.proto",
+      "message": "aggregation.v1.OrderBookSnapshotV1",
+      "status": "stable",
+      "introduced_at": "2026-02-19"
+    },
+    {
+      "type": "aggregation.orderbook_inconsistency",
+      "version": 1,
+      "proto_file": "aggregation/v1/orderbook_inconsistency.proto",
+      "message": "aggregation.v1.OrderBookInconsistencyV1",
+      "status": "stable",
+      "introduced_at": "2026-02-19"
     }
   ]
 }

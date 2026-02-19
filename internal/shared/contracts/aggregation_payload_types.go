@@ -51,3 +51,26 @@ type AggregationStatsWindowV1 struct {
 	SeqLast         int64
 	IsClosed        bool
 }
+
+// AggregationSnapshotV1 is the shared wire DTO for aggregation.snapshot v1.
+type AggregationSnapshotV1 struct {
+	Venue      string
+	Instrument string
+	Seq        int64
+	Bids       []AggregationOrderBookLevelV1
+	Asks       []AggregationOrderBookLevelV1
+}
+
+// AggregationOrderBookLevelV1 is a single price level in the wire DTO.
+type AggregationOrderBookLevelV1 struct {
+	Price    float64
+	Quantity float64
+}
+
+// AggregationOrderBookInconsistencyV1 is the shared wire DTO for aggregation.orderbook_inconsistency v1.
+type AggregationOrderBookInconsistencyV1 struct {
+	Venue      string
+	Instrument string
+	Seq        int64
+	Reason     string
+}

@@ -41,7 +41,9 @@ func NewArtifactPublisher(pub *Publisher, logger *slog.Logger) *ArtifactPublishe
 
 // PublishSnapshot publishes an aggregation snapshot event.
 func (a *ArtifactPublisher) PublishSnapshot(ctx context.Context, snap aggdomain.SnapshotProduced) *problem.Problem {
-	payload, p := codec.Marshal(snap)
+	wireDTO := domainSnapshotToWireDTO(snap)
+	contentType := chooseArtifactContentType("aggregation.snapshot")
+	payload, p := codec.EncodePayload("aggregation.snapshot", 1, contentType, wireDTO)
 	if p != nil {
 		return p
 	}
@@ -58,7 +60,7 @@ func (a *ArtifactPublisher) PublishSnapshot(ctx context.Context, snap aggdomain.
 			snap.BookID.Instrument,
 			strconv.FormatInt(snap.Seq, 10),
 		),
-		ContentType: envelope.ContentTypeJSON,
+		ContentType: contentType,
 		Payload:     payload,
 	}
 	if p := env.Validate(); p != nil {
@@ -69,7 +71,9 @@ func (a *ArtifactPublisher) PublishSnapshot(ctx context.Context, snap aggdomain.
 
 // PublishInconsistent publishes an orderbook inconsistency event.
 func (a *ArtifactPublisher) PublishInconsistent(ctx context.Context, evt aggdomain.OrderBookInconsistentDetected) *problem.Problem {
-	payload, p := codec.Marshal(evt)
+	wireDTO := domainInconsistentToWireDTO(evt)
+	contentType := chooseArtifactContentType("aggregation.orderbook_inconsistency")
+	payload, p := codec.EncodePayload("aggregation.orderbook_inconsistency", 1, contentType, wireDTO)
 	if p != nil {
 		return p
 	}
@@ -87,7 +91,7 @@ func (a *ArtifactPublisher) PublishInconsistent(ctx context.Context, evt aggdoma
 			strconv.FormatInt(evt.Seq, 10),
 			evt.Reason,
 		),
-		ContentType: envelope.ContentTypeJSON,
+		ContentType: contentType,
 		Payload:     payload,
 	}
 	if p := env.Validate(); p != nil {
@@ -215,5 +219,34 @@ func domainStatsToWireDTO(evt aggdomain.StatsWindowClosed) contracts.Aggregation
 			SeqLast:         s.SeqLast,
 			IsClosed:        s.IsClosed,
 		},
+	}
+}
+
+// domainSnapshotToWireDTO converts a domain SnapshotProduced to the shared wire DTO.
+func domainSnapshotToWireDTO(snap aggdomain.SnapshotProduced) contracts.AggregationSnapshotV1 {
+	bids := make([]contracts.AggregationOrderBookLevelV1, len(snap.Bids))
+	for i, b := range snap.Bids {
+		bids[i] = contracts.AggregationOrderBookLevelV1{Price: float64(b.Price), Quantity: float64(b.Quantity)}
+	}
+	asks := make([]contracts.AggregationOrderBookLevelV1, len(snap.Asks))
+	for i, a := range snap.Asks {
+		asks[i] = contracts.AggregationOrderBookLevelV1{Price: float64(a.Price), Quantity: float64(a.Quantity)}
+	}
+	return contracts.AggregationSnapshotV1{
+		Venue:      snap.BookID.Venue,
+		Instrument: snap.BookID.Instrument,
+		Seq:        snap.Seq,
+		Bids:       bids,
+		Asks:       asks,
+	}
+}
+
+// domainInconsistentToWireDTO converts a domain OrderBookInconsistentDetected to the shared wire DTO.
+func domainInconsistentToWireDTO(evt aggdomain.OrderBookInconsistentDetected) contracts.AggregationOrderBookInconsistencyV1 {
+	return contracts.AggregationOrderBookInconsistencyV1{
+		Venue:      evt.BookID.Venue,
+		Instrument: evt.BookID.Instrument,
+		Seq:        evt.Seq,
+		Reason:     evt.Reason,
 	}
 }

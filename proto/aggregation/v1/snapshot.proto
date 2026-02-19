@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package aggregation.v1;
+
+option go_package = "github.com/market-raccoon/internal/shared/proto/gen/aggregation/v1";
+
+// OrderBookLevelV1 represents a single price level in the order book.
+message OrderBookLevelV1 {
+  // Price is the price at this level.
+  double price = 1;
+  // Quantity is the size/amount at this level.
+  double quantity = 2;
+}
+
+// OrderBookSnapshotV1 models a full order book snapshot produced by the aggregation BC.
+message OrderBookSnapshotV1 {
+  // Venue is the canonical venue identifier.
+  string venue = 1;
+  // Instrument is the canonical instrument identifier.
+  string instrument = 2;
+  // Seq is the sequence number of the snapshot.
+  int64 seq = 3;
+  // Bids are the bid levels sorted by price descending.
+  repeated OrderBookLevelV1 bids = 4;
+  // Asks are the ask levels sorted by price ascending.
+  repeated OrderBookLevelV1 asks = 5;
+
+  reserved 100 to 199;
+}
