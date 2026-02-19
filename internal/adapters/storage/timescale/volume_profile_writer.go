@@ -14,8 +14,8 @@ import (
 	"github.com/market-raccoon/internal/shared/problem"
 )
 
-// VolumeProfileWriter is a hot-path Timescale writer skeleton for VPVR buckets.
-// TODO(sql/timescale/insights_volume_profile_hot.sql): create table and ON CONFLICT upsert.
+// VolumeProfileWriter is a hot-path Timescale writer for VPVR buckets.
+// DDL: sql/timescale/migrations/0002_s4_artifact_tables.sql (aggregation_volume_profile + oplog).
 // ACK boundary is external and must use CommitAndAck in adapter flow (VPVR-STO-4).
 type VolumeProfileWriter struct {
 	exec adapterstorage.SQLExecutor

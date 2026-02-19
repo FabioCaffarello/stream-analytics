@@ -9,6 +9,8 @@ import (
 
 	"github.com/market-raccoon/internal/adapters/exchange/binance"
 	"github.com/market-raccoon/internal/adapters/exchange/bybit"
+	"github.com/market-raccoon/internal/adapters/exchange/coinbase"
+	"github.com/market-raccoon/internal/adapters/exchange/hyperliquid"
 	"github.com/market-raccoon/internal/adapters/storage/clickhouse"
 	aggapp "github.com/market-raccoon/internal/core/aggregation/app"
 	aggports "github.com/market-raccoon/internal/core/aggregation/ports"
@@ -162,14 +164,123 @@ func TestBackfill_BybitDownload(t *testing.T) {
 	}
 }
 
+func TestBackfill_CoinbaseDownload(t *testing.T) {
+	appCfg, prob := config.Load("")
+	if prob != nil {
+		t.Fatalf("config.Load defaults: %v", prob)
+	}
+
+	tmp := t.TempDir()
+	downloaded := filepath.Join(tmp, "fixture.jsonl")
+	if err := os.WriteFile(downloaded, []byte("{\"fixture\":\"ok\"}\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile fixture: %v", err)
+	}
+
+	restore := patchBackfillDepsAll(
+		nil,
+		nil,
+		func(_ context.Context, cfg coinbase.BackfillConfig) (coinbase.BackfillResult, *problem.Problem) {
+			if cfg.Symbol != "BTC-USD" {
+				t.Fatalf("symbol=%q want=BTC-USD", cfg.Symbol)
+			}
+			return coinbase.BackfillResult{
+				DatesDownloaded: 1,
+				TradesParsed:    5,
+				OutputPath:      downloaded,
+			}, nil
+		},
+		nil,
+		nil,
+		nil,
+	)
+	defer restore()
+
+	exitCode, err := Run(context.Background(), appCfg, runConfig{
+		Mode:       "download",
+		Exchange:   "coinbase",
+		Symbol:     "BTC-USD",
+		From:       "2025-01-01",
+		To:         "2025-01-01",
+		MarketType: "SPOT",
+		OutputDir:  tmp,
+	})
+	if err != nil {
+		t.Fatalf("Run(download coinbase): %v", err)
+	}
+	if exitCode != 0 {
+		t.Fatalf("exitCode=%d want=0", exitCode)
+	}
+}
+
+func TestBackfill_HyperLiquidDownload(t *testing.T) {
+	appCfg, prob := config.Load("")
+	if prob != nil {
+		t.Fatalf("config.Load defaults: %v", prob)
+	}
+
+	tmp := t.TempDir()
+	downloaded := filepath.Join(tmp, "fixture.jsonl")
+	if err := os.WriteFile(downloaded, []byte("{\"fixture\":\"ok\"}\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile fixture: %v", err)
+	}
+
+	restore := patchBackfillDepsAll(
+		nil,
+		nil,
+		nil,
+		func(_ context.Context, cfg hyperliquid.BackfillConfig) (hyperliquid.BackfillResult, *problem.Problem) {
+			if cfg.Symbol != "BTCUSD" {
+				t.Fatalf("symbol=%q want=BTCUSD", cfg.Symbol)
+			}
+			return hyperliquid.BackfillResult{
+				DatesDownloaded: 1,
+				TradesParsed:    4,
+				OutputPath:      downloaded,
+			}, nil
+		},
+		nil,
+		nil,
+	)
+	defer restore()
+
+	exitCode, err := Run(context.Background(), appCfg, runConfig{
+		Mode:       "download",
+		Exchange:   "hyperliquid",
+		Symbol:     "BTCUSD",
+		From:       "2025-01-01",
+		To:         "2025-01-01",
+		MarketType: "USD_M_FUTURES",
+		OutputDir:  tmp,
+	})
+	if err != nil {
+		t.Fatalf("Run(download hyperliquid): %v", err)
+	}
+	if exitCode != 0 {
+		t.Fatalf("exitCode=%d want=0", exitCode)
+	}
+}
+
 func patchBackfillDeps(
 	download func(ctx context.Context, cfg binance.BackfillConfig) (binance.BackfillResult, *problem.Problem),
 	downloadBybit func(ctx context.Context, cfg bybit.BackfillConfig) (bybit.BackfillResult, *problem.Problem),
 	newPool func(ctx context.Context, cfg clickhouse.PoolConfig) (*clickhouse.Pool, *problem.Problem),
 	detect func(ctx context.Context, reader aggports.CandleReader, cfg aggapp.GapDetectorConfig) ([]aggapp.GapReport, *problem.Problem),
 ) func() {
+	return patchBackfillDepsAll(download, downloadBybit, nil, nil, newPool, detect)
+}
+
+func patchBackfillDepsAll(
+	download func(ctx context.Context, cfg binance.BackfillConfig) (binance.BackfillResult, *problem.Problem),
+	downloadBybit func(ctx context.Context, cfg bybit.BackfillConfig) (bybit.BackfillResult, *problem.Problem),
+	downloadCoinbase func(ctx context.Context, cfg coinbase.BackfillConfig) (coinbase.BackfillResult, *problem.Problem),
+	downloadHL func(ctx context.Context, cfg hyperliquid.BackfillConfig) (hyperliquid.BackfillResult, *problem.Problem),
+	newPool func(ctx context.Context, cfg clickhouse.PoolConfig) (*clickhouse.Pool, *problem.Problem),
+	detect func(ctx context.Context, reader aggports.CandleReader, cfg aggapp.GapDetectorConfig) ([]aggapp.GapReport, *problem.Problem),
+) func() {
 	prevDownload := runDownloadAggTrades
 	prevDownloadBybit := runDownloadBybitTrades
+	prevDownloadCoinbase := runDownloadCoinbaseTrades
+	prevDownloadHL := runDownloadHyperLiquidTrades
 	prevNewPool := runNewClickHousePool
 	prevDetect := runDetectCandleGaps
 	if download != nil {
@@ -177,6 +288,12 @@ func patchBackfillDeps(
 	}
 	if downloadBybit != nil {
 		runDownloadBybitTrades = downloadBybit
+	}
+	if downloadCoinbase != nil {
+		runDownloadCoinbaseTrades = downloadCoinbase
+	}
+	if downloadHL != nil {
+		runDownloadHyperLiquidTrades = downloadHL
 	}
 	if newPool != nil {
 		runNewClickHousePool = newPool
@@ -187,6 +304,8 @@ func patchBackfillDeps(
 	return func() {
 		runDownloadAggTrades = prevDownload
 		runDownloadBybitTrades = prevDownloadBybit
+		runDownloadCoinbaseTrades = prevDownloadCoinbase
+		runDownloadHyperLiquidTrades = prevDownloadHL
 		runNewClickHousePool = prevNewPool
 		runDetectCandleGaps = prevDetect
 	}

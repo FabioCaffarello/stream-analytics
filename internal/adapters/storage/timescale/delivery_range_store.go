@@ -15,7 +15,7 @@ import (
 )
 
 // DeliveryRangeStore is an in-memory hot-path store used by delivery getrange.
-// TODO(m2): replace with real Timescale reads.
+// For Timescale-backed reads, use PgRangeStore (wired when storage.timescale.enabled=true).
 type DeliveryRangeStore struct {
 	mu            sync.RWMutex
 	maxPerSubject int

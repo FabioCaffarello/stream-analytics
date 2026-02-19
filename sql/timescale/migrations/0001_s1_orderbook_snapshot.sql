@@ -1,5 +1,5 @@
+-- +goose Up
 -- S1 orderbook snapshot hot-path schema.
--- Applied externally by deployment tooling (init container or manual).
 
 CREATE TABLE IF NOT EXISTS aggregation_orderbook_snapshot (
     venue       TEXT NOT NULL,

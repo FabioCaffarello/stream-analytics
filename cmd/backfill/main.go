@@ -14,7 +14,7 @@ import (
 func main() {
 	configPath := flag.String("config", "config.jsonc", "path to JSONC config file")
 	mode := flag.String("mode", "", "download|gaps")
-	exchange := flag.String("exchange", "", "exchange: binance|bybit")
+	exchange := flag.String("exchange", "", "exchange: binance|bybit|coinbase|hyperliquid")
 	symbol := flag.String("symbol", "", "trading symbol")
 	fromDate := flag.String("from", "", "start date YYYY-MM-DD")
 	toDate := flag.String("to", "", "end date YYYY-MM-DD")

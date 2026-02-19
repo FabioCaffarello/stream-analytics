@@ -3,6 +3,7 @@ go 1.25.6
 use (
 	./cmd/backfill
 	./cmd/consumer
+	./cmd/migrate
 	./cmd/processor
 	./cmd/server
 	./cmd/store
