@@ -1,55 +1,59 @@
 # Project Rules and Guidelines
 
-> Auto-generated from .context/docs on 2026-02-17T17:21:58.458Z
+> Source of truth: `.context/docs/` — this file is a curated summary, not auto-generated.
 
-## README
+## Hard Constraints
 
----
-type: doc
-name: README
-description: Documentation index and navigation for .context guides
-category: index
-generated: 2026-02-12
-status: filled
-docStatus: ACTIVE
-last_reviewed: "2026-02-17"
-scaffoldVersion: "2.0.0"
----
-
-# Documentation Index
-
-This folder is the operational knowledge base for contributors and AI agents working in Market Raccoon.
-
-## Core Guides
-- [Start Here](./00-START-HERE.md)
-- [Project Overview](./project-overview.md)
-- [Development Workflow](./development-workflow.md)
-- [Testing Strategy](./testing-strategy.md)
-- [Tooling & Productivity Guide](./tooling.md)
-
-## Architecture Sources (Primary)
-- [Architecture Overview](../../docs/architecture/README.md)
-- [System Invariants](../../docs/architecture/system-invariants.md)
-- [Event Bus Contract](../../docs/contracts/event-bus.md)
-- [Heatmap Architecture](../../docs/architecture/heatmap.md)
-- [ADRs](../../docs/adrs)
+- **`./zip/` is READ-ONLY reference.** Never create, edit, or delete files under `zip/`. It contains MarketMonkey source as architectural reference only. Read for analysis; write nothing.
+- **Errors are `*problem.Problem`**, never plain `error` in domain/app layers.
+- **Results are `result.Result[T]`** for use case returns.
+- **`replace` directives are required** in every go.mod, even with go.work.
+- **No implementation outside bounded context boundaries** — domain logic lives in `internal/core/*/domain`, orchestration in `internal/core/*/app`.
 
 ## Repository Snapshot
-- `cmd/` - Binary entrypoints (`consumer`, `processor`, `server`, `store`).
-- `internal/core/` - Domain and application use cases by bounded context.
-- `internal/actors/` - Actor runtime and subsystem orchestration.
-- `internal/adapters/` - Adapter implementations (bus, etc.).
-- `internal/interfaces/` - HTTP and boundary-facing interfaces.
-- `internal/shared/` - Shared primitives (`problem`, `result`, `envelope`, naming/ids).
-- `scripts/` - Workspace utility scripts used by Make targets.
 
-## How To Use This Folder
-1. Start with `project-overview.md` to understand architecture and entry points.
-2. Follow `development-workflow.md` for day-to-day coding and PR flow.
-3. Apply `testing-strategy.md` before requesting review.
-4. Use `tooling.md` for local setup, linting, reproducibility, and CI parity.
+- `cmd/` — Binary entrypoints (`consumer`, `processor`, `server`, `store`, `backfill`).
+- `internal/core/` — Domain and application use cases by bounded context.
+- `internal/actors/` — Actor runtime and subsystem orchestration.
+- `internal/adapters/` — Infrastructure adapters (bus, exchange parsers, storage drivers).
+- `internal/interfaces/` — HTTP and WebSocket boundary interfaces.
+- `internal/shared/` — Shared primitives (`problem`, `result`, `envelope`, `codec`, `config`, `naming`, `ids`).
+- `proto/` — Protobuf definitions (envelope, marketdata, aggregation, insights).
+- `scripts/` — Workspace utility scripts used by Make targets.
+- `docs/` — ADRs, RFCs, PRDs, architecture, contracts.
+- `sql/` — DDL migrations (TimescaleDB + ClickHouse).
 
-## Maintenance Rules
-- Keep documentation aligned with `Makefile`, `go.work`, and `.github/workflows/ci-*.yml`.
-- When adding/changing a subsystem, update both docs and agent playbooks.
-- Treat docs as versioned engineering assets, not optional notes.
+## Core Guides
+
+- [Start Here](.context/docs/00-START-HERE.md)
+- [Project Overview](.context/docs/project-overview.md)
+- [Development Workflow](.context/docs/development-workflow.md)
+- [Testing Strategy](.context/docs/testing-strategy.md)
+- [Tooling](.context/docs/tooling.md)
+
+## Architecture Sources
+
+- [Architecture Overview](docs/architecture/README.md)
+- [System Invariants](docs/architecture/system-invariants.md)
+- [Event Bus Contract](docs/contracts/event-bus.md)
+- [TRUTH-MAP](docs/architecture/TRUTH-MAP.md)
+- [ADRs](docs/adrs/) (19 decisions, ADR-0000 to ADR-0018)
+- [RFCs](docs/rfcs/) (12 proposals, RFC-0001 to RFC-0011)
+- [PRDs](docs/prds/)
+
+## Context Engineering
+
+- **Skills** (16 total): `.context/skills/` — 10 built-in + 6 custom (pareto-analysis, swot-analysis, write-prd, write-adr, write-rfc, milestone-plan)
+- **Agents** (15 total): `.context/agents/` — 14 built-in + 1 custom (strategic-planner)
+- **Codebase Map**: `.context/docs/codebase-map.json` — Go-first semantic map, 429 files, 13 modules, 4 BCs
+- **Workflow**: PREVC (Plan → Review → Execute → Validate → Complete)
+
+## Makefile Quick Reference
+
+- `make test` — all modules
+- `make test MODULE=./internal/shared` — single module
+- `make fmt` — format all
+- `make lint` — golangci-lint
+- `make ci` — full pipeline
+- `make tidy` — go mod tidy all modules
+- `make up-infra` — docker-compose (NATS, TimescaleDB, ClickHouse)

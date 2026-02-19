@@ -27,6 +27,17 @@ On-demand expertise for AI agents. Skills are task-specific procedures that get 
 | [Api Design](./api-design/SKILL.md) | Design RESTful APIs following best practices | P, R |
 | [Security Audit](./security-audit/SKILL.md) | Security review checklist for code and infrastructure | R, V |
 
+### Custom Skills
+
+| Skill | Description | Phases |
+|-------|-------------|--------|
+| [Milestone Plan](./milestone-plan/SKILL.md) | Break a PRD or RFC into gated milestones with deliverables and dependencies | P |
+| [Pareto Analysis](./pareto-analysis/SKILL.md) | 80/20 analysis to identify highest-impact items from a scoped list | P |
+| [SWOT Analysis](./swot-analysis/SKILL.md) | Structured strengths/weaknesses/opportunities/threats assessment | P |
+| [Write ADR](./write-adr/SKILL.md) | Create an Architecture Decision Record following project convention | P, R |
+| [Write PRD](./write-prd/SKILL.md) | Create a Product Requirements Document with milestones and success criteria | P |
+| [Write RFC](./write-rfc/SKILL.md) | Create a Request for Comments for cross-cutting design proposals | P |
+
 ## Creating Custom Skills
 
 Create a new skill by adding a directory with a `SKILL.md` file:
@@ -66,8 +77,8 @@ mode: false        # Optional: mode command?
 
 | Phase | Name | Skills |
 |-------|------|--------|
-| P | Planning | feature-breakdown, documentation, api-design |
-| R | Review | pr-review, code-review, api-design, security-audit |
+| P | Planning | feature-breakdown, documentation, api-design, pareto-analysis, swot-analysis, write-prd, write-adr, write-rfc, milestone-plan |
+| R | Review | pr-review, code-review, api-design, security-audit, write-adr |
 | E | Execution | commit-message, test-generation, refactoring, bug-investigation |
 | V | Validation | pr-review, code-review, test-generation, security-audit |
 | C | Confirmation | commit-message, documentation |

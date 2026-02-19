@@ -10,6 +10,7 @@ This directory contains operational playbooks for AI agents working in this repo
 - [Test Writer](./test-writer.md) — High-value deterministic unit/integration tests.
 - [Documentation Writer](./documentation-writer.md) — Docs maintenance anchored to canonical sources.
 - [Performance Optimizer](./performance-optimizer.md) — Measured hot-path optimization.
+- [Strategic Planner](./strategic-planner.md) — Pareto/SWOT analysis, PRDs, milestones, ADRs, RFCs.
 
 ## Standard Playbook Contract
 Every agent playbook follows the same sections:
