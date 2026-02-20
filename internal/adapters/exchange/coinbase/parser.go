@@ -144,7 +144,7 @@ func parseTrade(data []byte, recvAt time.Time, marketType string) (app.IngestReq
 	if p != nil {
 		return app.IngestRequest{}, true, p
 	}
-	tsExchange, p := parseExchangeTimeMillis(msg.Time, recvAt)
+	tsExchange, p := common.ParseTimestamp(msg.Time, 0, recvAt)
 	if p != nil {
 		return app.IngestRequest{}, true, p
 	}
@@ -256,7 +256,7 @@ func parseL2Update(data []byte, recvAt time.Time, marketType string) (app.Ingest
 		}
 	}
 
-	tsExchange, p := parseExchangeTimeMillis(msg.Time, recvAt)
+	tsExchange, p := common.ParseTimestamp(msg.Time, 0, recvAt)
 	if p != nil {
 		return app.IngestRequest{}, true, p
 	}
@@ -301,7 +301,7 @@ func parseTicker(data []byte, recvAt time.Time, marketType string) (app.IngestRe
 	if err != nil {
 		return app.IngestRequest{}, true, problem.Wrap(err, problem.ValidationFailed, "coinbase ticker: invalid price")
 	}
-	tsExchange, p := parseExchangeTimeMillis(msg.Time, recvAt)
+	tsExchange, p := common.ParseTimestamp(msg.Time, 0, recvAt)
 	if p != nil {
 		return app.IngestRequest{}, true, p
 	}
@@ -336,17 +336,7 @@ func instrumentFromProductID(productID string) (string, *problem.Problem) {
 	return instrument, nil
 }
 
-func parseExchangeTimeMillis(raw string, recvAt time.Time) (int64, *problem.Problem) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return recvAt.UnixMilli(), nil
-	}
-	ts, err := time.Parse(time.RFC3339Nano, raw)
-	if err != nil {
-		return 0, problem.Wrap(err, problem.ValidationFailed, "coinbase: invalid timestamp")
-	}
-	return ts.UnixMilli(), nil
-}
+// timestamp helper moved to common.ParseTimestamp
 
 func parseLevels(raw [][]string) ([]domain.PriceLevel, *problem.Problem) {
 	return common.ParseStringLevels(raw, "coinbase orderbook")

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	common "github.com/market-raccoon/internal/adapters/exchange/common"
 	marketdomain "github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/shared/codec"
 	"github.com/market-raccoon/internal/shared/contracts"
@@ -228,7 +229,7 @@ func restTradeToTick(rt restTrade) (marketdomain.TradeTickV1, *problem.Problem) 
 	if p != nil {
 		return marketdomain.TradeTickV1{}, p
 	}
-	ts, p := parseExchangeTimeMillis(rt.Time, time.Now())
+	ts, p := common.ParseTimestamp(rt.Time, 0, time.Now())
 	if p != nil {
 		return marketdomain.TradeTickV1{}, p
 	}
