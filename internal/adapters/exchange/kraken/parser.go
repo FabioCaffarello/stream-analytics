@@ -176,7 +176,7 @@ func parseTrade(data json.RawMessage, recvAt time.Time, marketType string) (app.
 		tradeID = identifierFromAny(entry.ID)
 	}
 	if tradeID == "" {
-		tradeID = strconv.FormatInt(tsExchange, 10)
+		tradeID = common.TradeIDStringFromAny(tsExchange)
 	}
 
 	return app.IngestRequest{

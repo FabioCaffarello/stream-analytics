@@ -134,7 +134,7 @@ func parseTrades(data json.RawMessage, recvAt time.Time, marketType string) (app
 	}
 	tradeID := strings.TrimSpace(entry.Hash)
 	if tradeID == "" || isZeroHash(tradeID) {
-		tradeID = strconv.FormatInt(entry.Tid, 10)
+		tradeID = common.TradeIDStringFromAny(entry.Tid)
 	}
 	if strings.TrimSpace(tradeID) == "" || tradeID == "0" {
 		return app.IngestRequest{}, true, problem.New(problem.ValidationFailed, "hyperliquid trades: trade id is empty")

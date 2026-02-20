@@ -293,7 +293,7 @@ func parseAggTrade(payload []byte, recvAt time.Time, marketType string) (app.Ing
 		side = "sell"
 	}
 
-	tradeID := strconv.FormatInt(m.AggTradeID, 10)
+	tradeID := common.TradeIDStringFromAny(m.AggTradeID)
 
 	return app.IngestRequest{
 		Venue:      VenueBinance,

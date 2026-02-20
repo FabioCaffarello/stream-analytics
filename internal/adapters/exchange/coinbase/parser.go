@@ -148,7 +148,7 @@ func parseTrade(data []byte, recvAt time.Time, marketType string) (app.IngestReq
 	if p != nil {
 		return app.IngestRequest{}, true, p
 	}
-	tradeID := strconv.FormatInt(msg.TradeID, 10)
+	tradeID := common.TradeIDStringFromAny(msg.TradeID)
 	if msg.TradeID <= 0 {
 		return app.IngestRequest{}, true, problem.New(problem.ValidationFailed, "coinbase match: trade_id must be > 0")
 	}

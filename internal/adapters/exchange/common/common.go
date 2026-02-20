@@ -133,6 +133,28 @@ func cloneMetadata(src map[string]string) map[string]string {
 	return cloned
 }
 
+// TradeIDStringFromAny converts various trade identifier representations into a
+// stable trimmed string. Use this helper in parsers to ensure the numeric -> string
+// conversion is done exactly once per message (avoids duplicated strconv calls).
+func TradeIDStringFromAny(value any) string {
+	switch v := value.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case int:
+		return strconv.FormatInt(int64(v), 10)
+	case float64:
+		// When float represents an integer value, format as integer to keep stable ids.
+		if v == float64(int64(v)) {
+			return strconv.FormatInt(int64(v), 10)
+		}
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	default:
+		return ""
+	}
+}
+
 // ParseStringLevels parses [][]string price levels (common across Binance, Bybit,
 // Coinbase). Each sub-slice must have at least 2 elements: [price, size].
 // exchangePrefix is used in error messages (e.g. "binance depthUpdate").

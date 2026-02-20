@@ -200,10 +200,10 @@ func parseTrade(data []byte, recvAt time.Time, marketType string) (app.IngestReq
 		tradeID = identifierFromAny(entry.TradeID)
 	}
 	if tradeID == "" && entry.Seq > 0 {
-		tradeID = strconv.FormatInt(entry.Seq, 10)
+		tradeID = common.TradeIDStringFromAny(entry.Seq)
 	}
 	if tradeID == "" {
-		tradeID = strconv.FormatInt(tsExchange, 10)
+		tradeID = common.TradeIDStringFromAny(tsExchange)
 	}
 
 	return app.IngestRequest{
