@@ -8,7 +8,17 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 RG="$(command -v rg || true)"
-GREP="$(command -v git || true)"
+GIT="$(command -v git || true)"
+
+match_regex() {
+    pattern="$1"
+    text="$2"
+    if [ -n "$RG" ]; then
+        printf '%s\n' "$text" | "$RG" -qi -- "$pattern"
+    else
+        printf '%s\n' "$text" | grep -qiE "$pattern"
+    fi
+}
 
 find_test_files() {
     if [ -n "$RG" ]; then
@@ -25,36 +35,45 @@ find_test_files() {
 
 printf "Scanning test files...\n\n"
 
-declare -A buckets
-buckets=( ["soak"]=0 ["integration"]=0 ["e2e"]=0 ["bench"]=0 ["unit"]=0 ["other"]=0 )
+soak_count=0
+integration_count=0
+e2e_count=0
+bench_count=0
+unit_count=0
+other_count=0
 
 while IFS= read -r f; do
     fname="$(basename "$f")"
     lower="$(echo "$fname" | tr '[:upper:]' '[:lower:]')"
-    if echo "$f" | rg -qi 'soak|vpvr|store-soak|soak_' >/dev/null 2>&1; then
+    if match_regex 'soak|vpvr|store-soak|soak_' "$f"; then
         echo "SOAK       : $f"
-        buckets[soak]=$((buckets[soak]+1))
-    elif echo "$f" | rg -qi 'integration|e2e|conformance|end2end' >/dev/null 2>&1; then
+        soak_count=$((soak_count+1))
+    elif match_regex 'integration|e2e|conformance|end2end' "$f"; then
         echo "INTEGRATION: $f"
-        buckets[integration]=$((buckets[integration]+1))
-    elif echo "$f" | rg -qi 'e2e|end2end' >/dev/null 2>&1; then
+        integration_count=$((integration_count+1))
+    elif match_regex 'e2e|end2end' "$f"; then
         echo "E2E        : $f"
-        buckets[e2e]=$((buckets[e2e]+1))
-    elif echo "$f" | rg -qi 'bench|benchmark|_bench' >/dev/null 2>&1; then
+        e2e_count=$((e2e_count+1))
+    elif match_regex 'bench|benchmark|_bench' "$f"; then
         echo "BENCH      : $f"
-        buckets[bench]=$((buckets[bench]+1))
-    elif echo "$f" | rg -qi 'test_|unit|_unit' >/dev/null 2>&1 || echo "$f" | rg -qi '^cmd/|internal/.*' >/dev/null 2>&1; then
+        bench_count=$((bench_count+1))
+    elif match_regex 'test_|unit|_unit' "$f" || match_regex '^cmd/|internal/.*' "$f"; then
         echo "UNIT       : $f"
-        buckets[unit]=$((buckets[unit]+1))
+        unit_count=$((unit_count+1))
     else
         echo "OTHER      : $f"
-        buckets[other]=$((buckets[other]+1))
+        other_count=$((other_count+1))
     fi
 done < <(find_test_files)
 
 printf "\nSummary:\n"
-for k in "${!buckets[@]}"; do
-    printf "  %10s: %d\n" "$k" "${buckets[$k]}"
-done
+printf "  %10s: %d\n" "soak" "$soak_count"
+printf "  %10s: %d\n" "integration" "$integration_count"
+printf "  %10s: %d\n" "e2e" "$e2e_count"
+printf "  %10s: %d\n" "bench" "$bench_count"
+printf "  %10s: %d\n" "unit" "$unit_count"
+printf "  %10s: %d\n" "other" "$other_count"
+
+exit 0
 
 exit 0
