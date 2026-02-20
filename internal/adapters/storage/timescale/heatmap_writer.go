@@ -2,13 +2,11 @@ package timescale
 
 import (
 	"context"
-	"strconv"
 	"strings"
 	"sync"
 
 	adapterstorage "github.com/market-raccoon/internal/adapters/storage"
 	insightsdomain "github.com/market-raccoon/internal/core/insights/domain"
-	sharedhash "github.com/market-raccoon/internal/shared/hash"
 	"github.com/market-raccoon/internal/shared/ids"
 	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/problem"
@@ -119,23 +117,10 @@ ON CONFLICT (
     source_idempotency_key
 ) DO NOTHING`
 
-	// Pre-compute artifact-level base key once (not per-cell) to reduce
-	// per-cell hash work from 8 fields to 4 fields.
-	baseKey := sharedhash.HashFieldsFast(
-		artifact.Venue,
-		artifact.Instrument,
-		artifact.Timeframe,
-		strconv.FormatInt(artifact.WindowStartTs, 10),
-		sourceIdempotencyKey,
-	)
+	baseKey := adapterstorage.HeatmapBaseIdempotencyKey(artifact.Venue, artifact.Instrument, artifact.Timeframe, artifact.WindowStartTs, sourceIdempotencyKey)
 
 	for _, cell := range artifact.Cells {
-		idempotencyKey := sharedhash.HashFieldsFast(
-			baseKey,
-			strconv.FormatFloat(cell.PriceBucketLow, 'f', -1, 64),
-			strconv.FormatFloat(cell.PriceBucketHigh, 'f', -1, 64),
-			strings.ToUpper(strings.TrimSpace(cell.SizeBucket)),
-		)
+		idempotencyKey := adapterstorage.HeatmapCellIdempotencyKey(baseKey, cell.PriceBucketLow, cell.PriceBucketHigh, cell.SizeBucket)
 		if _, p := w.exec.Exec(
 			ctx,
 			upsertSQL,

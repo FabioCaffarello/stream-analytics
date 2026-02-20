@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
+	common "github.com/market-raccoon/internal/adapters/exchange/common"
 	"github.com/market-raccoon/internal/core/marketdata/app"
 	"github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/shared/naming"
@@ -14,8 +14,6 @@ import (
 )
 
 const VenueKrakenF = "KRAKENF"
-
-var metadataCache sync.Map // map[string]map[string]string
 
 type topEnvelope struct {
 	Feed  string `json:"feed"`
@@ -71,14 +69,8 @@ type tickerMessage struct {
 	Timestamp      string `json:"timestamp"`
 }
 
-// ParseMeta carries parser diagnostics for observability.
-type ParseMeta struct {
-	EventType  string
-	SkipReason string
-	Problem    *problem.Problem
-	WSStream   string
-	Ticker     string
-}
+// ParseMeta is an alias for the shared parser diagnostics type.
+type ParseMeta = common.ParseMeta
 
 // ParseMessage parses Kraken Futures payload.
 func ParseMessage(data []byte, recvAt time.Time) (app.IngestRequest, bool, *problem.Problem) {
@@ -471,63 +463,31 @@ func identifierFromAny(value any) string {
 }
 
 func buildTradeIdempotencyKey(venue, instrument, tradeID string) string {
-	return "venue=" + venue + "|instrument=" + instrument + "|trade_id=" + tradeID
+	return common.BuildTradeIdempotencyKey(venue, instrument, tradeID)
 }
 
 func buildDepthIdempotencyKey(venue, instrument string, finalUpdateID int64) string {
-	return "venue=" + venue + "|instrument=" + instrument + "|final_update_id=" + strconv.FormatInt(finalUpdateID, 10)
+	return common.BuildDepthIdempotencyKey(venue, instrument, finalUpdateID)
 }
 
 func buildMarkPriceIdempotencyKey(venue, instrument string, sequence int64) string {
-	if sequence <= 0 {
-		return ""
-	}
-	return "venue=" + venue + "|instrument=" + instrument + "|sequence=" + strconv.FormatInt(sequence, 10)
+	return common.BuildMarkPriceIdempotencyKey(venue, instrument, sequence)
 }
 
 func buildInstrumentMetadata(venueSymbol, canonical, marketType string) map[string]string {
-	cacheKey := venueSymbol + "|" + canonical + "|" + marketType
-	if val, ok := metadataCache.Load(cacheKey); ok {
-		cachedMeta := val.(map[string]string)
-		// Return a clone to allow adding contextual info without modifying cached value
-		cloned := make(map[string]string, len(cachedMeta))
-		for k, v := range cachedMeta {
-			cloned[k] = v
+	return common.BuildInstrumentMetadata(venueSymbol, canonical, marketType, func(vs string) string {
+		s := strings.ToUpper(strings.TrimSpace(vs))
+		if s != "" {
+			return s
 		}
-		return cloned
-	}
-
-	symbol := strings.ToUpper(strings.TrimSpace(venueSymbol))
-	meta := map[string]string{
-		"instrument_venue_symbol": symbol,
-		"instrument_canonical":    canonical,
-		"instrument_market_type":  marketType,
-	}
-	if symbol != "" {
-		meta["instrument_pair"] = symbol
-	}
-
-	metadataCache.Store(cacheKey, meta)
-
-	// Return a clone so the caller can modify it safely
-	cloned := make(map[string]string, len(meta))
-	for k, v := range meta {
-		cloned[k] = v
-	}
-	return cloned
+		return ""
+	})
 }
 
 func skipReasonFromProblem(p *problem.Problem) string {
-	if p != nil {
-		return "parse_error"
-	}
-	return ""
+	return common.SkipReasonFromProblem(p)
 }
 
 func normalizeMarketType(raw string) string {
-	mt, p := domain.NewMarketType(raw)
-	if p != nil {
-		return domain.MarketTypeUSDMFutures.String()
-	}
-	return mt.String()
+	return common.NormalizeMarketTypeFutures(raw)
 }

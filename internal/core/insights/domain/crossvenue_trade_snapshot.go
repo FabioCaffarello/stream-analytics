@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/market-raccoon/internal/shared/naming"
 	"github.com/market-raccoon/internal/shared/problem"
 )
 
@@ -30,13 +31,13 @@ type JoinKey struct {
 
 // NewJoinKey normalizes and validates join identity fields.
 func NewJoinKey(instrument, marketType string) (JoinKey, *problem.Problem) {
-	inst := strings.ToUpper(strings.TrimSpace(instrument))
+	inst := naming.CanonicalInstrument(instrument)
 	if inst == "" {
 		return JoinKey{}, problem.New(problem.ValidationFailed, "instrument must not be empty")
 	}
 	return JoinKey{
 		Instrument: inst,
-		MarketType: strings.ToUpper(strings.TrimSpace(marketType)),
+		MarketType: naming.CanonicalVenue(marketType),
 	}, nil
 }
 
@@ -123,7 +124,7 @@ func validateSnapshotVenueRows(rows []SnapshotVenueTradeV1) *problem.Problem {
 	seen := make(map[string]struct{}, len(rows))
 	venues := make([]string, 0, len(rows))
 	for _, row := range rows {
-		v := strings.ToUpper(strings.TrimSpace(row.Venue))
+		v := naming.CanonicalVenue(row.Venue)
 		if v == "" {
 			return problem.New(problem.ValidationFailed, "snapshot venue must not be empty")
 		}

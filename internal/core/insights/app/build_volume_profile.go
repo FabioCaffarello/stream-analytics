@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"slices"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/market-raccoon/internal/core/insights/domain"
@@ -117,7 +116,7 @@ func (uc *BuildVolumeProfile) Snapshot(venue, instrument, timeframe string) (dom
 	nreq := vpvrNormalizedTrade{
 		venue:      naming.CanonicalVenue(venue),
 		instrument: naming.CanonicalInstrument(instrument),
-		timeframe:  strings.ToLower(strings.TrimSpace(timeframe)),
+		timeframe:  naming.NormalizeTimeframe(timeframe),
 	}
 	if _, ok := domain.VPVRTimeframes[nreq.timeframe]; !ok {
 		return domain.VolumeProfileSnapshotV1{}, problem.New(problem.ValidationFailed, "vpvr timeframe is unsupported")
@@ -176,7 +175,7 @@ func VolumeProfileIdempotencyKey(snapshot domain.VolumeProfileSnapshotV1, bucket
 	return hash.HashFieldsFast(
 		naming.CanonicalVenue(snapshot.Venue),
 		naming.CanonicalInstrument(snapshot.Instrument),
-		strings.ToLower(strings.TrimSpace(snapshot.Timeframe)),
+		naming.NormalizeTimeframe(snapshot.Timeframe),
 		strconv.FormatInt(snapshot.WindowStartTs, 10),
 		strconv.FormatInt(snapshot.WindowEndTs, 10),
 		formatVPVRFloat(bucketLow),
@@ -202,15 +201,15 @@ func normalizeAndValidateVPVRRequest(req BuildVolumeProfileRequest) (vpvrNormali
 		return vpvrNormalizedTrade{}, p
 	}
 
-	eventType := strings.ToLower(strings.TrimSpace(req.EventType))
+	eventType := naming.NormalizeEventType(req.EventType)
 	if eventType != vpvrTradeEventType {
 		return vpvrNormalizedTrade{}, problem.Newf(problem.ValidationFailed, "vpvr accepts only %s events, got %s", vpvrTradeEventType, eventType)
 	}
-	timeframe := strings.ToLower(strings.TrimSpace(req.Timeframe))
+	timeframe := naming.NormalizeTimeframe(req.Timeframe)
 	if _, ok := domain.VPVRTimeframes[timeframe]; !ok {
 		return vpvrNormalizedTrade{}, problem.New(problem.ValidationFailed, "vpvr timeframe is unsupported")
 	}
-	side := strings.ToLower(strings.TrimSpace(req.Side))
+	side := naming.NormalizeSide(req.Side)
 	if side != "buy" && side != "sell" {
 		return vpvrNormalizedTrade{}, problem.New(problem.ValidationFailed, "vpvr side must be buy or sell")
 	}
@@ -373,7 +372,7 @@ func buildDeltaFromSnapshot(snapshot domain.VolumeProfileSnapshotV1, changed *vp
 }
 
 func timeframeToVPVRWindowMs(tf string) int64 {
-	switch strings.ToLower(strings.TrimSpace(tf)) {
+	switch naming.NormalizeTimeframe(tf) {
 	case "1m":
 		return int64(time.Minute / time.Millisecond)
 	case "5m":

@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
+	common "github.com/market-raccoon/internal/adapters/exchange/common"
 	"github.com/market-raccoon/internal/core/marketdata/app"
 	"github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/shared/naming"
@@ -23,8 +23,6 @@ type streamEnvelope struct {
 	Stream string          `json:"stream"`
 	Data   json.RawMessage `json:"data"`
 }
-
-var metadataCache sync.Map // map[string]map[string]string
 
 type aggTrade struct {
 	Event        string `json:"e"`
@@ -71,14 +69,8 @@ type forceOrder struct {
 	TradeTime int64  `json:"T"`
 }
 
-// ParseMeta carries parser diagnostics for observability.
-type ParseMeta struct {
-	EventType  string
-	SkipReason string
-	Problem    *problem.Problem
-	WSStream   string
-	Ticker     string
-}
+// ParseMeta is an alias for the shared parser diagnostics type.
+type ParseMeta = common.ParseMeta
 
 // ParseMessage parses Binance WS payload and maps supported messages to app.IngestRequest.
 // Returns skip=true for unsupported/heartbeat/control messages.
@@ -378,51 +370,23 @@ func parseDepthUpdate(payload []byte, recvAt time.Time, marketType string) (app.
 }
 
 func buildTradeIdempotencyKey(venue, instrument, tradeID string) string {
-	return "venue=" + venue + "|instrument=" + instrument + "|trade_id=" + tradeID
+	return common.BuildTradeIdempotencyKey(venue, instrument, tradeID)
 }
 
 func buildDepthIdempotencyKey(venue, instrument string, finalUpdateID int64) string {
-	return "venue=" + venue + "|instrument=" + instrument + "|final_update_id=" + strconv.FormatInt(finalUpdateID, 10)
+	return common.BuildDepthIdempotencyKey(venue, instrument, finalUpdateID)
 }
 
 func parseLevels(raw [][]string) ([]domain.PriceLevel, *problem.Problem) {
-	if len(raw) == 0 {
-		return nil, nil
-	}
-	out := make([]domain.PriceLevel, 0, len(raw))
-	for _, pair := range raw {
-		if len(pair) < 2 {
-			return nil, problem.New(problem.ValidationFailed, "binance depthUpdate: invalid level pair")
-		}
-		price, err := strconv.ParseFloat(pair[0], 64)
-		if err != nil {
-			return nil, problem.Wrap(err, problem.ValidationFailed, "binance depthUpdate: invalid level price")
-		}
-		size, err := strconv.ParseFloat(pair[1], 64)
-		if err != nil {
-			return nil, problem.Wrap(err, problem.ValidationFailed, "binance depthUpdate: invalid level size")
-		}
-		out = append(out, domain.PriceLevel{Price: price, Size: size})
-	}
-	return out, nil
+	return common.ParseStringLevels(raw, "binance depthUpdate")
 }
 
 func normalizeSide(side string) (string, *problem.Problem) {
-	switch strings.ToLower(strings.TrimSpace(side)) {
-	case "buy":
-		return "buy", nil
-	case "sell":
-		return "sell", nil
-	default:
-		return "", problem.Newf(problem.ValidationFailed, "binance: unsupported side %q", side)
-	}
+	return common.NormalizeSide(side, "binance")
 }
 
 func skipReasonFromProblem(p *problem.Problem) string {
-	if p != nil {
-		return "parse_error"
-	}
-	return ""
+	return common.SkipReasonFromProblem(p)
 }
 
 func eventTypeFromStream(stream string) string {
@@ -452,61 +416,15 @@ func tickerFromStream(stream string) string {
 }
 
 func buildInstrumentMetadata(venueSymbol, canonical, marketType string) map[string]string {
-	cacheKey := venueSymbol + "|" + canonical + "|" + marketType
-	if val, ok := metadataCache.Load(cacheKey); ok {
-		cachedMeta := val.(map[string]string)
-		// Return a clone to allow adding stream info without modifying cached value
-		cloned := make(map[string]string, len(cachedMeta))
-		for k, v := range cachedMeta {
-			cloned[k] = v
-		}
-		return cloned
-	}
-
-	meta := map[string]string{
-		"instrument_venue_symbol": strings.ToUpper(strings.TrimSpace(venueSymbol)),
-		"instrument_canonical":    canonical,
-		"instrument_market_type":  marketType,
-	}
-	if cp := canonicalPairFromBinanceSymbol(venueSymbol); cp != "" {
-		meta["instrument_pair"] = cp
-		parts := strings.Split(cp, "-")
-		if len(parts) == 2 {
-			meta["instrument_base"] = parts[0]
-			meta["instrument_quote"] = parts[1]
-		}
-	}
-
-	metadataCache.Store(cacheKey, meta)
-
-	// Return a clone so the caller can modify it (e.g., adding ws_stream)
-	cloned := make(map[string]string, len(meta))
-	for k, v := range meta {
-		cloned[k] = v
-	}
-	return cloned
+	return common.BuildInstrumentMetadata(venueSymbol, canonical, marketType, canonicalPairFromBinanceSymbol)
 }
 
 func canonicalPairFromBinanceSymbol(symbol string) string {
-	s := naming.CanonicalInstrument(symbol)
-	if s == "" {
-		return ""
-	}
-	for _, quote := range []string{
+	return common.CanonicalPairFromSuffixList(symbol, []string{
 		"USDT", "USDC", "BUSD", "FDUSD", "TUSD", "BTC", "ETH", "BNB", "EUR", "USD",
-	} {
-		if strings.HasSuffix(s, quote) && len(s) > len(quote) {
-			base := strings.TrimSuffix(s, quote)
-			return base + "-" + quote
-		}
-	}
-	return ""
+	})
 }
 
 func normalizeMarketType(raw string) string {
-	mt, p := domain.NewMarketType(raw)
-	if p != nil {
-		return domain.MarketTypeSpot.String()
-	}
-	return mt.String()
+	return common.NormalizeMarketTypeSpot(raw)
 }

@@ -122,7 +122,7 @@ func (uc *BuildHeatmap) Snapshot(venue, instrument, timeframe string) (domain.He
 
 	key := naming.CanonicalVenue(venue) + "|" +
 		naming.CanonicalInstrument(instrument) + "|" +
-		strings.ToLower(strings.TrimSpace(timeframe))
+		naming.NormalizeTimeframe(timeframe)
 	ps, ok := uc.states[key]
 	if !ok || len(ps.order) == 0 {
 		return domain.HeatmapArtifactV1{}, problem.Newf(problem.NotFound, "heatmap snapshot not found for %s/%s/%s", venue, instrument, timeframe)
@@ -191,7 +191,7 @@ func HeatmapArtifactIdempotencyKey(a domain.HeatmapArtifactV1) string {
 	return hash.HashFieldsFast(
 		naming.CanonicalVenue(a.Venue),
 		naming.CanonicalInstrument(a.Instrument),
-		strings.ToLower(strings.TrimSpace(a.Timeframe)),
+		naming.NormalizeTimeframe(a.Timeframe),
 		strconv.FormatInt(a.WindowStartTs, 10),
 		formatFloat(last.PriceBucketLow),
 		formatFloat(last.PriceBucketHigh),
@@ -365,7 +365,7 @@ func toArtifact(req BuildHeatmapRequest, ws *windowState) domain.HeatmapArtifact
 	return domain.HeatmapArtifactV1{
 		Venue:         naming.CanonicalVenue(req.Venue),
 		Instrument:    naming.CanonicalInstrument(req.Instrument),
-		Timeframe:     strings.ToLower(strings.TrimSpace(req.Timeframe)),
+		Timeframe:     naming.NormalizeTimeframe(req.Timeframe),
 		WindowStartTs: ws.windowStartMs,
 		WindowEndTs:   ws.windowEndMs,
 		Cells:         cells,
@@ -414,7 +414,7 @@ func validateHeatmapRequest(req BuildHeatmapRequest) *problem.Problem {
 func partitionKey(req BuildHeatmapRequest) string {
 	return naming.CanonicalVenue(req.Venue) + "|" +
 		naming.CanonicalInstrument(req.Instrument) + "|" +
-		strings.ToLower(strings.TrimSpace(req.Timeframe))
+		naming.NormalizeTimeframe(req.Timeframe)
 }
 
 func bucketIndex(price, tick float64, mult int64) int64 {
@@ -466,8 +466,8 @@ func toSizeBucket(size float64) string {
 }
 
 func applyEventVolume(c *heatmapCellState, req BuildHeatmapRequest) {
-	eventType := strings.ToLower(strings.TrimSpace(req.EventType))
-	side := strings.ToLower(strings.TrimSpace(req.Side))
+	eventType := naming.NormalizeEventType(req.EventType)
+	side := naming.NormalizeSide(req.Side)
 	switch eventType {
 	case "marketdata.bookdelta":
 		if side == "buy" {
@@ -544,7 +544,7 @@ func pickTopNCells(cells []domain.HeatmapCellV1, n int) []domain.HeatmapCellV1 {
 }
 
 func timeframeToWindowMs(tf string) int64 {
-	tf = strings.ToLower(strings.TrimSpace(tf))
+	tf = naming.NormalizeTimeframe(tf)
 	switch tf {
 	case "1s":
 		return int64(time.Second / time.Millisecond)

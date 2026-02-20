@@ -84,6 +84,40 @@ func TestNormalizeEventType(t *testing.T) {
 	}
 }
 
+func TestNormalizeTimeframe(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"5M", "5m"},
+		{"  1H  ", "1h"},
+		{"1s", "1s"},
+		{"", ""},
+	}
+	for _, tc := range tests {
+		if got := naming.NormalizeTimeframe(tc.input); got != tc.want {
+			t.Errorf("NormalizeTimeframe(%q) = %q; want %q", tc.input, got, tc.want)
+		}
+	}
+}
+
+func TestNormalizeSide(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"BUY", "buy"},
+		{"  Sell  ", "sell"},
+		{"buy", "buy"},
+		{"", ""},
+	}
+	for _, tc := range tests {
+		if got := naming.NormalizeSide(tc.input); got != tc.want {
+			t.Errorf("NormalizeSide(%q) = %q; want %q", tc.input, got, tc.want)
+		}
+	}
+}
+
 func TestIsValidIdentifier(t *testing.T) {
 	tests := []struct {
 		input string

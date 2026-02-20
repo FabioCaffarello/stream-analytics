@@ -38,6 +38,18 @@ func NormalizeEventType(eventType string) string {
 	return strings.ToLower(strings.TrimSpace(eventType))
 }
 
+// NormalizeTimeframe lowercases and trims a timeframe string.
+// E.g. "  5M  " → "5m", "1H" → "1h".
+func NormalizeTimeframe(tf string) string {
+	return strings.ToLower(strings.TrimSpace(tf))
+}
+
+// NormalizeSide lowercases and trims a trade side string.
+// E.g. "  BUY  " → "buy", "Sell" → "sell".
+func NormalizeSide(side string) string {
+	return strings.ToLower(strings.TrimSpace(side))
+}
+
 // IsValidIdentifier reports whether s is a non-empty string containing only
 // alphanumeric characters, hyphens, underscores, and dots.
 // Useful for validating venue/instrument values before canonicalization.

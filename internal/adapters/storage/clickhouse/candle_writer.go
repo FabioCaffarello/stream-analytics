@@ -2,11 +2,10 @@ package clickhouse
 
 import (
 	"context"
-	"strconv"
 
+	adapterstorage "github.com/market-raccoon/internal/adapters/storage"
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
 	aggports "github.com/market-raccoon/internal/core/aggregation/ports"
-	sharedhash "github.com/market-raccoon/internal/shared/hash"
 	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/problem"
 )
@@ -54,12 +53,7 @@ INSERT INTO aggregation_candle_cold (
     idempotency_key
 )`
 
-	idempotencyKey := sharedhash.HashFieldsFast(
-		c.Venue,
-		c.Instrument,
-		c.Timeframe,
-		strconv.FormatInt(c.WindowStartTs, 10),
-	)
+	idempotencyKey := adapterstorage.WindowIdempotencyKey(c.Venue, c.Instrument, c.Timeframe, c.WindowStartTs)
 
 	batch, p := w.preparer.PrepareInsert(ctx, insertSQL)
 	if p != nil {

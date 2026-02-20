@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/market-raccoon/internal/core/insights/domain"
+	"github.com/market-raccoon/internal/shared/naming"
 	"github.com/market-raccoon/internal/shared/problem"
 )
 
@@ -34,7 +35,7 @@ func (u VolumeProfileBucketUpsert) Validate() *problem.Problem {
 	if strings.TrimSpace(u.Instrument) == "" {
 		return problem.New(problem.ValidationFailed, "volume profile upsert instrument must not be empty")
 	}
-	if _, ok := domain.VPVRTimeframes[strings.ToLower(strings.TrimSpace(u.Timeframe))]; !ok {
+	if _, ok := domain.VPVRTimeframes[naming.NormalizeTimeframe(u.Timeframe)]; !ok {
 		return problem.New(problem.ValidationFailed, "volume profile upsert timeframe is unsupported")
 	}
 	if u.WindowStartTs <= 0 {

@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
+	common "github.com/market-raccoon/internal/adapters/exchange/common"
 	"github.com/market-raccoon/internal/core/marketdata/app"
 	"github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/shared/naming"
@@ -14,8 +14,6 @@ import (
 )
 
 const VenueHyperLiquid = "HYPERLIQUID"
-
-var metadataCache sync.Map // map[string]map[string]string
 
 type wsResponse struct {
 	Channel string          `json:"channel"`
@@ -44,14 +42,8 @@ type bookLevel struct {
 	N  int    `json:"n"`
 }
 
-// ParseMeta carries parser diagnostics for observability.
-type ParseMeta struct {
-	EventType  string
-	SkipReason string
-	Problem    *problem.Problem
-	WSStream   string
-	Ticker     string
-}
+// ParseMeta is an alias for the shared parser diagnostics type.
+type ParseMeta = common.ParseMeta
 
 // ParseMessage parses HyperLiquid payload.
 func ParseMessage(data []byte, recvAt time.Time) (app.IngestRequest, bool, *problem.Problem) {
@@ -324,37 +316,25 @@ func normalizeSide(side string) (string, *problem.Problem) {
 }
 
 func buildTradeIdempotencyKey(venue, instrument, tradeID string) string {
-	return "venue=" + venue + "|instrument=" + instrument + "|trade_id=" + tradeID
+	return common.BuildTradeIdempotencyKey(venue, instrument, tradeID)
 }
 
 func buildDepthIdempotencyKey(venue, instrument string, finalUpdateID int64) string {
-	return "venue=" + venue + "|instrument=" + instrument + "|final_update_id=" + strconv.FormatInt(finalUpdateID, 10)
+	return common.BuildDepthIdempotencyKey(venue, instrument, finalUpdateID)
 }
 
 func buildInstrumentMetadata(venueSymbol, canonical, marketType string) map[string]string {
-	cacheKey := venueSymbol + "|" + canonical + "|" + marketType
-	if val, ok := metadataCache.Load(cacheKey); ok {
-		return val.(map[string]string)
-	}
-
-	meta := map[string]string{
-		"instrument_venue_symbol": strings.ToUpper(strings.TrimSpace(venueSymbol)),
-		"instrument_canonical":    canonical,
-		"instrument_market_type":  marketType,
-	}
-	if venueSymbol != "" {
-		meta["instrument_pair"] = strings.ToUpper(strings.TrimSpace(venueSymbol)) + "-USD"
-	}
-
-	metadataCache.Store(cacheKey, meta)
-	return meta
+	return common.BuildInstrumentMetadata(venueSymbol, canonical, marketType, func(vs string) string {
+		vs = strings.ToUpper(strings.TrimSpace(vs))
+		if vs != "" {
+			return vs + "-USD"
+		}
+		return ""
+	})
 }
 
 func skipReasonFromProblem(p *problem.Problem) string {
-	if p != nil {
-		return "parse_error"
-	}
-	return ""
+	return common.SkipReasonFromProblem(p)
 }
 
 func isZeroHash(s string) bool {
@@ -432,9 +412,5 @@ func ParseAllMids(subscribedCoins map[string]bool, marketType string) func(data 
 }
 
 func normalizeMarketType(raw string) string {
-	mt, p := domain.NewMarketType(raw)
-	if p != nil {
-		return domain.MarketTypeUSDMFutures.String()
-	}
-	return mt.String()
+	return common.NormalizeMarketTypeFutures(raw)
 }
