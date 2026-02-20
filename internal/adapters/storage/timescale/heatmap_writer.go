@@ -117,30 +117,12 @@ ON CONFLICT (
     source_idempotency_key
 ) DO NOTHING`
 
-	baseKey := adapterstorage.HeatmapBaseIdempotencyKey(artifact.Venue, artifact.Instrument, artifact.Timeframe, artifact.WindowStartTs, sourceIdempotencyKey)
-
-	for _, cell := range artifact.Cells {
-		idempotencyKey := adapterstorage.HeatmapCellIdempotencyKey(baseKey, cell.PriceBucketLow, cell.PriceBucketHigh, cell.SizeBucket)
-		if _, p := w.exec.Exec(
-			ctx,
-			upsertSQL,
-			artifact.Venue,
-			artifact.Instrument,
-			artifact.Timeframe,
-			artifact.WindowStartTs,
-			artifact.WindowEndTs,
-			cell.PriceBucketLow,
-			cell.PriceBucketHigh,
-			cell.SizeBucket,
-			cell.BidLiquidity,
-			cell.AskLiquidity,
-			cell.TradeVolume,
-			cell.SeqMin,
-			cell.SeqMax,
-			cell.Samples,
-			sourceIdempotencyKey,
-			idempotencyKey,
-		); p != nil {
+	rowsArgs, p := adapterstorage.MarshalHeatmapCells(ctx, artifact, sourceIdempotencyKey)
+	if p != nil {
+		return problem.Wrap(p, problem.Unavailable, "timescale heatmap marshal failed")
+	}
+	for _, args := range rowsArgs {
+		if _, p := w.exec.Exec(ctx, upsertSQL, args...); p != nil {
 			return problem.Wrap(p, problem.Unavailable, "timescale heatmap upsert failed")
 		}
 	}

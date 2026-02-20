@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
+	insightsdomain "github.com/market-raccoon/internal/core/insights/domain"
 	insightsports "github.com/market-raccoon/internal/core/insights/ports"
 	"github.com/market-raccoon/internal/shared/codec"
 	sharedhash "github.com/market-raccoon/internal/shared/hash"
@@ -115,6 +116,41 @@ func MarshalStats(_ context.Context, s aggdomain.StatsWindowV1) ([]any, string, 
 		idempotencyKey,
 	}
 	return args, idempotencyKey, nil
+}
+
+// MarshalHeatmapCells returns a slice of argument lists (one per cell) for heatmap writers.
+func MarshalHeatmapCells(_ context.Context, artifact insightsdomain.HeatmapArtifactV1, sourceIdempotencyKey string) ([][]any, *problem.Problem) {
+	if p := artifact.Validate(); p != nil {
+		return nil, p
+	}
+	if strings.TrimSpace(sourceIdempotencyKey) == "" {
+		return nil, problem.New(problem.ValidationFailed, "heatmap source idempotency key must not be empty")
+	}
+	baseKey := HeatmapBaseIdempotencyKey(artifact.Venue, artifact.Instrument, artifact.Timeframe, artifact.WindowStartTs, sourceIdempotencyKey)
+	out := make([][]any, 0, len(artifact.Cells))
+	for _, cell := range artifact.Cells {
+		idempotencyKey := HeatmapCellIdempotencyKey(baseKey, cell.PriceBucketLow, cell.PriceBucketHigh, cell.SizeBucket)
+		args := []any{
+			artifact.Venue,
+			artifact.Instrument,
+			artifact.Timeframe,
+			artifact.WindowStartTs,
+			artifact.WindowEndTs,
+			cell.PriceBucketLow,
+			cell.PriceBucketHigh,
+			cell.SizeBucket,
+			cell.BidLiquidity,
+			cell.AskLiquidity,
+			cell.TradeVolume,
+			cell.SeqMin,
+			cell.SeqMax,
+			cell.Samples,
+			sourceIdempotencyKey,
+			idempotencyKey,
+		}
+		out = append(out, args)
+	}
+	return out, nil
 }
 
 // UpsertVolumeProfileBucket performs dedup + upsert for a VolumeProfileBucketUpsert.

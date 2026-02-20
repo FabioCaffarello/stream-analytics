@@ -109,28 +109,12 @@ INSERT INTO aggregation_heatmap_cold (
 		_ = batch.Close()
 	}()
 
-	baseKey := adapterstorage.HeatmapBaseIdempotencyKey(artifact.Venue, artifact.Instrument, artifact.Timeframe, artifact.WindowStartTs, sourceIdempotencyKey)
-	for _, cell := range artifact.Cells {
-		idempotencyKey := adapterstorage.HeatmapCellIdempotencyKey(baseKey, cell.PriceBucketLow, cell.PriceBucketHigh, cell.SizeBucket)
-		if p := batch.AppendRow(
-			ctx,
-			artifact.Venue,
-			artifact.Instrument,
-			artifact.Timeframe,
-			artifact.WindowStartTs,
-			artifact.WindowEndTs,
-			cell.PriceBucketLow,
-			cell.PriceBucketHigh,
-			cell.SizeBucket,
-			cell.BidLiquidity,
-			cell.AskLiquidity,
-			cell.TradeVolume,
-			cell.SeqMin,
-			cell.SeqMax,
-			cell.Samples,
-			sourceIdempotencyKey,
-			idempotencyKey,
-		); p != nil {
+	rowsArgs, p := adapterstorage.MarshalHeatmapCells(ctx, artifact, sourceIdempotencyKey)
+	if p != nil {
+		return problem.Wrap(p, problem.Unavailable, "clickhouse heatmap marshal failed")
+	}
+	for _, args := range rowsArgs {
+		if p := batch.AppendRow(ctx, args...); p != nil {
 			return problem.Wrap(p, problem.Unavailable, "clickhouse heatmap append failed")
 		}
 	}
