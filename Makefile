@@ -522,6 +522,11 @@ build:
 		exit 1; \
 	fi
 
+
+.PHONY: list-tests
+list-tests:
+	@bash ./scripts/list-tests-by-category.sh
+
 run:
 	@$(GO) run $(APP_CMD)
 
