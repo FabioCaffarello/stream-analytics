@@ -2,14 +2,11 @@ package timescale
 
 import (
 	"context"
-	"math"
-	"strconv"
 	"sync"
 
 	adapterstorage "github.com/market-raccoon/internal/adapters/storage"
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
 	aggports "github.com/market-raccoon/internal/core/aggregation/ports"
-	sharedhash "github.com/market-raccoon/internal/shared/hash"
 	"github.com/market-raccoon/internal/shared/ids"
 	"github.com/market-raccoon/internal/shared/problem"
 )
@@ -83,26 +80,5 @@ func (w *PgWriter) Save(ctx context.Context, snap aggdomain.SnapshotProduced) *p
 }
 
 func snapshotFingerprint(snap aggdomain.SnapshotProduced) string {
-	// Pre-allocate: venue + instrument + seq + 3 fields per level (side + price + qty).
-	fields := make([]string, 0, 3+3*len(snap.Bids)+3*len(snap.Asks))
-	fields = append(fields,
-		snap.BookID.Venue,
-		snap.BookID.Instrument,
-		strconv.FormatInt(snap.Seq, 10),
-	)
-	for _, l := range snap.Bids {
-		fields = append(fields,
-			"b",
-			strconv.FormatUint(math.Float64bits(float64(l.Price)), 36),
-			strconv.FormatUint(math.Float64bits(float64(l.Quantity)), 36),
-		)
-	}
-	for _, l := range snap.Asks {
-		fields = append(fields,
-			"a",
-			strconv.FormatUint(math.Float64bits(float64(l.Price)), 36),
-			strconv.FormatUint(math.Float64bits(float64(l.Quantity)), 36),
-		)
-	}
-	return sharedhash.HashFieldsFast(fields...)
+	return adapterstorage.SnapshotFingerprint(snap)
 }

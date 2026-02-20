@@ -2,13 +2,11 @@ package clickhouse
 
 import (
 	"context"
-	"strconv"
 	"sync"
 
 	adapterstorage "github.com/market-raccoon/internal/adapters/storage"
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
 	aggports "github.com/market-raccoon/internal/core/aggregation/ports"
-	sharedhash "github.com/market-raccoon/internal/shared/hash"
 	"github.com/market-raccoon/internal/shared/ids"
 	"github.com/market-raccoon/internal/shared/problem"
 )
@@ -142,26 +140,5 @@ INSERT INTO aggregation_orderbook_snapshot_cold (
 }
 
 func snapshotFingerprint(snap aggdomain.SnapshotProduced) string {
-	// Pre-size: 3 base fields + 3 per bid ("b", price, qty) + 3 per ask ("a", price, qty).
-	fields := make([]string, 0, 3+3*len(snap.Bids)+3*len(snap.Asks))
-	fields = append(fields,
-		snap.BookID.Venue,
-		snap.BookID.Instrument,
-		strconv.FormatInt(snap.Seq, 10),
-	)
-	for _, l := range snap.Bids {
-		fields = append(fields,
-			"b",
-			strconv.FormatFloat(float64(l.Price), 'f', -1, 64),
-			strconv.FormatFloat(float64(l.Quantity), 'f', -1, 64),
-		)
-	}
-	for _, l := range snap.Asks {
-		fields = append(fields,
-			"a",
-			strconv.FormatFloat(float64(l.Price), 'f', -1, 64),
-			strconv.FormatFloat(float64(l.Quantity), 'f', -1, 64),
-		)
-	}
-	return sharedhash.HashFieldsFast(fields...)
+	return adapterstorage.SnapshotFingerprint(snap)
 }

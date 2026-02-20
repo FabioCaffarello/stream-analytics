@@ -2,6 +2,8 @@ package storage
 
 import (
 	"context"
+	"math"
+	"strconv"
 	"strings"
 
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
@@ -69,6 +71,34 @@ func MarshalAggregationSnapshot(_ context.Context, snap aggdomain.SnapshotProduc
 		return nil, nil, problem.Wrap(err, problem.Internal, "marshal asks failed")
 	}
 	return bidsJSON, asksJSON, nil
+}
+
+// SnapshotFingerprint returns a deterministic fingerprint for a SnapshotProduced.
+// It hashes venue, instrument, seq and the IEEE-754 bits of each level price/qty
+// to avoid float->string allocations on hot-paths.
+func SnapshotFingerprint(snap aggdomain.SnapshotProduced) string {
+	// Pre-size: 3 base fields + 3 per bid + 3 per ask.
+	fields := make([]string, 0, 3+3*len(snap.Bids)+3*len(snap.Asks))
+	fields = append(fields,
+		snap.BookID.Venue,
+		snap.BookID.Instrument,
+		strconv.FormatInt(snap.Seq, 10),
+	)
+	for _, l := range snap.Bids {
+		fields = append(fields,
+			"b",
+			strconv.FormatUint(math.Float64bits(float64(l.Price)), 10),
+			strconv.FormatUint(math.Float64bits(float64(l.Quantity)), 10),
+		)
+	}
+	for _, l := range snap.Asks {
+		fields = append(fields,
+			"a",
+			strconv.FormatUint(math.Float64bits(float64(l.Price)), 10),
+			strconv.FormatUint(math.Float64bits(float64(l.Quantity)), 10),
+		)
+	}
+	return sharedhash.HashFieldsFast(fields...)
 }
 
 // MarshalCandle builds argument list and idempotency key for candle writers.
