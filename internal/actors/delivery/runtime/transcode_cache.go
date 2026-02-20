@@ -1,6 +1,7 @@
 package deliveryruntime
 
 import (
+	"container/list"
 	"encoding/json"
 	"sync"
 	"sync/atomic"
@@ -16,7 +17,8 @@ const defaultTranscodeCacheSize = 1024
 // sessions. Thread-safe (sync.RWMutex) and bounded (eviction on overflow).
 type TranscodeCache struct {
 	mu      sync.RWMutex
-	entries map[uint64]transcodeCacheEntry
+	entries map[uint64]*list.Element
+	lru     *list.List // list of lruEntry, front = most recent
 	maxSize int
 	hits    atomic.Int64
 	misses  atomic.Int64
@@ -26,6 +28,11 @@ type transcodeCacheEntry struct {
 	json json.RawMessage
 }
 
+type lruEntry struct {
+	key   uint64
+	entry transcodeCacheEntry
+}
+
 // NewTranscodeCache creates a bounded proto→JSON cache.
 // maxSize controls the max number of cached entries. 0 uses default (1024).
 func NewTranscodeCache(maxSize int) *TranscodeCache {
@@ -33,7 +40,8 @@ func NewTranscodeCache(maxSize int) *TranscodeCache {
 		maxSize = defaultTranscodeCacheSize
 	}
 	return &TranscodeCache{
-		entries: make(map[uint64]transcodeCacheEntry, maxSize),
+		entries: make(map[uint64]*list.Element, maxSize),
+		lru:     list.New(),
 		maxSize: maxSize,
 	}
 }
@@ -50,12 +58,19 @@ func (c *TranscodeCache) TranscodeProtoToJSON(
 	key := c.computeKey(eventType, version, payload)
 
 	// Fast path: read lock.
+	// Fast path: read lock to check presence.
 	c.mu.RLock()
-	entry, ok := c.entries[key]
+	elem, ok := c.entries[key]
 	c.mu.RUnlock()
 	if ok {
 		c.hits.Add(1)
-		return entry.json, nil
+		// Move to front under write lock.
+		c.mu.Lock()
+		if e, still := c.entries[key]; still {
+			c.lru.MoveToFront(e)
+		}
+		c.mu.Unlock()
+		return elem.Value.(lruEntry).entry.json, nil
 	}
 
 	// Slow path: decode, marshal, store.
@@ -70,16 +85,27 @@ func (c *TranscodeCache) TranscodeProtoToJSON(
 	}
 
 	result := json.RawMessage(transcoded)
+	// Insert into LRU under write lock; evict least-recently-used if needed.
 	c.mu.Lock()
-	if len(c.entries) >= c.maxSize {
-		// Simple eviction: clear all. The working set of active event types
-		// is small and refills within milliseconds. This avoids LRU bookkeeping
-		// overhead on every hot-path access.
-		c.entries = make(map[uint64]transcodeCacheEntry, c.maxSize)
+	// If key already inserted by another goroutine, update and move to front.
+	if existingElem, exists := c.entries[key]; exists {
+		existingElem.Value = lruEntry{key: key, entry: transcodeCacheEntry{json: result}}
+		c.lru.MoveToFront(existingElem)
+		c.mu.Unlock()
+		return result, nil
 	}
-	c.entries[key] = transcodeCacheEntry{json: result}
+	// Evict oldest if at capacity.
+	if c.lru.Len() >= c.maxSize {
+		back := c.lru.Back()
+		if back != nil {
+			be := back.Value.(lruEntry)
+			delete(c.entries, be.key)
+			c.lru.Remove(back)
+		}
+	}
+	elem = c.lru.PushFront(lruEntry{key: key, entry: transcodeCacheEntry{json: result}})
+	c.entries[key] = elem
 	c.mu.Unlock()
-
 	return result, nil
 }
 
@@ -114,5 +140,5 @@ func (c *TranscodeCache) Stats() (hits, misses int64) {
 func (c *TranscodeCache) Len() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return len(c.entries)
+	return c.lru.Len()
 }
