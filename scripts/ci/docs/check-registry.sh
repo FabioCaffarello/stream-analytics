@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 registry="${ROOT_DIR}/docs/contracts/subject-registry.yaml"
 validation_src="${ROOT_DIR}/internal/adapters/jetstream/subject_validation.go"
 errors=0
