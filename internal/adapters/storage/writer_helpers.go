@@ -19,10 +19,21 @@ func UpsertAggregationSnapshot(ctx context.Context, exec SQLExecutor, snap aggdo
 		return problem.New(problem.ValidationFailed, "sql executor is nil")
 	}
 
-	bidsJSON, asksJSON, p := MarshalAggregationSnapshot(ctx, snap)
-	if p != nil {
+	// Use direct buffers to avoid an extra allocated copy where possible.
+	buf1 := codec.AcquireBuffer()
+	defer codec.ReleaseBuffer(buf1)
+	if p := codec.EncodeTo(buf1, snap.Bids); p != nil {
 		return p
 	}
+	// Trim potential trailing newline from Encoder.Encode.
+	bidsJSON := buf1.Bytes()
+
+	buf2 := codec.AcquireBuffer()
+	defer codec.ReleaseBuffer(buf2)
+	if p := codec.EncodeTo(buf2, snap.Asks); p != nil {
+		return p
+	}
+	asksJSON := buf2.Bytes()
 
 	const upsertSQL = `
 INSERT INTO aggregation_orderbook_snapshot (
