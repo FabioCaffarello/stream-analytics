@@ -28,7 +28,7 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 		{name: "shard.index", got: cfg.Shard.Index, want: 0},
 		{name: "shard.count", got: cfg.Shard.Count, want: 1},
 		{name: "bus.type", got: cfg.Bus.Type, want: "inmemory"},
-		{name: "bus.wire_format", got: cfg.Bus.WireFormat, want: "json"},
+		{name: "bus.wire_format", got: cfg.Bus.WireFormat, want: "proto"},
 		{name: "jetstream.stream_name", got: cfg.JetStream.StreamName, want: "MARKETDATA"},
 		{name: "jetstream.consumer_durable", got: cfg.JetStream.ConsumerDurable, want: "processor-v1"},
 		{name: "jetstream.ack_wait", got: cfg.JetStream.AckWait, want: "30s"},
@@ -47,7 +47,7 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 		{name: "consumer.max_streams_per_websocket", got: cfg.Consumer.MaxStreamsPerWebsocket, want: int64(200)},
 		{name: "consumer.max_websockets", got: cfg.Consumer.MaxWebsockets, want: int64(5)},
 		{name: "consumer.binance_ws_base_url non-empty", got: cfg.Consumer.BinanceWSBaseURL != "", want: true},
-		{name: "marketdata.publish_content_type", got: cfg.MarketData.PublishContentType, want: "application/json"},
+		{name: "marketdata.publish_content_type", got: cfg.MarketData.PublishContentType, want: "application/protobuf"},
 		{name: "marketdata.max_instruments", got: cfg.MarketData.MaxInstruments, want: 2048},
 		{name: "marketdata.record_path", got: cfg.MarketData.RecordPath, want: ""},
 		{name: "marketdata.replay_path", got: cfg.MarketData.ReplayPath, want: ""},
@@ -433,7 +433,7 @@ func TestValidate_DeliverySlowClientDropThresholdNonNegative(t *testing.T) {
 func TestValidate_ConsumerExchangeUnknownType(t *testing.T) {
 	cfg, _ := Load("")
 	cfg.Consumer.Exchanges = nil
-	cfg.Consumer.Exchange = "kraken"
+	cfg.Consumer.Exchange = "okx"
 	prob := cfg.Validate()
 	if prob == nil {
 		t.Fatal("expected validation error for unknown legacy exchange type")
@@ -583,10 +583,41 @@ func TestValidate_ConsumerExchangesEmptyTickers(t *testing.T) {
 func TestValidate_ConsumerExchangesUnknownType(t *testing.T) {
 	cfg, _ := Load("")
 	cfg.Consumer.Exchanges = []ConsumerExchangeConfig{
-		{Name: "x", Type: "kraken", BaseURL: "wss://example.invalid/ws", Tickers: []string{"BTC-USDT"}, MarketType: "SPOT"},
+		{Name: "x", Type: "okx", BaseURL: "wss://example.invalid/ws", Tickers: []string{"BTC-USDT"}, MarketType: "SPOT"},
 	}
 	if prob := cfg.Validate(); prob == nil {
 		t.Fatal("expected validation error for unknown exchange type")
+	}
+}
+
+func TestLoad_MultiExchangeNormalization_KrakenDefaults(t *testing.T) {
+	src := `{
+		"consumer": {
+			"exchanges": [
+				{"name":"kraken", "type":"kraken", "tickers":["BTC-USD"], "market_type":"spot"},
+				{"name":"krakenf", "type":"krakenf", "tickers":["BTC-USD"], "market_type":"usd_m_futures"}
+			]
+		}
+	}`
+	path := writeTempFile(t, src)
+	cfg, prob := Load(path)
+	if prob != nil {
+		t.Fatalf("Load failed: %v", prob)
+	}
+
+	byName := make(map[string]ConsumerExchangeConfig, len(cfg.Consumer.Exchanges))
+	for _, ex := range cfg.Consumer.Exchanges {
+		byName[ex.Name] = ex
+	}
+
+	if got := byName["kraken"].BaseURL; got != "wss://ws.kraken.com/v2" {
+		t.Fatalf("kraken base_url=%q want=%q", got, "wss://ws.kraken.com/v2")
+	}
+	if got := byName["krakenf"].BaseURL; got != "wss://futures.kraken.com/ws/v1" {
+		t.Fatalf("krakenf base_url=%q want=%q", got, "wss://futures.kraken.com/ws/v1")
+	}
+	if got := byName["krakenf"].MarketType; got != "USD_M_FUTURES" {
+		t.Fatalf("krakenf market_type=%q want=%q", got, "USD_M_FUTURES")
 	}
 }
 

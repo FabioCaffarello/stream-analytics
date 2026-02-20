@@ -86,7 +86,7 @@ Recommended partitioning:
 Envelope fields for persistence semantics (ADR-0002):
 - mandatory: `type`, `version`, `venue`, `instrument`, `ts_ingest`, `seq`, `idempotency_key`, `payload`
 - optional/advisory: `ts_exchange`, `meta`
-- codec discriminator: `content_type` (`application/json` current default, protobuf opt-in)
+- codec discriminator: `content_type` (`application/protobuf` operational default; `application/json` supported for compatibility/fallback)
 
 Subject examples (existing taxonomy):
 - `marketdata.trade.v1.binance.BTCUSDT`

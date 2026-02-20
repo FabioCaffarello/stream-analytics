@@ -41,7 +41,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := Run(context.Background(), cfg); err != nil {
+	if err := Run(context.Background(), cfg, *configPath); err != nil {
 		fmt.Fprintf(os.Stderr, "server: %v\n", err)
 		os.Exit(1)
 	}

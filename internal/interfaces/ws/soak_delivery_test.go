@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -68,6 +69,14 @@ func TestSoak_WSDelivery_SlowClients(t *testing.T) {
 	defer srv.Close()
 
 	conns := make([]*websocket.Conn, 0, totalClients)
+	var closeConnsOnce sync.Once
+	closeConns := func() {
+		closeConnsOnce.Do(func() {
+			for _, c := range conns {
+				_ = c.Close()
+			}
+		})
+	}
 	defer func() {
 		for _, c := range conns {
 			_ = c.Close()
@@ -148,7 +157,16 @@ func TestSoak_WSDelivery_SlowClients(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	close(done)
-	time.Sleep(500 * time.Millisecond)
+	closeConns()
+
+	drainDeadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(drainDeadline) {
+		runtime.GC()
+		if runtime.NumGoroutine()-beforeG <= 96 {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 
 	for i := 0; i < fastClients; i++ {
 		if got := fastRecv[i].Load(); got < int64(totalMessages/2) {

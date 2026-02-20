@@ -23,6 +23,8 @@ const (
 var (
 	protoFlagOnce  sync.Once
 	protoFlagCache map[string]bool
+	protoFlagMu    sync.RWMutex
+	protoFlagCfg   map[string]bool
 )
 
 // eventTypeToEnvVar maps each event type to its rollout environment variable.
@@ -62,8 +64,29 @@ func initProtoFlagCache() {
 // for a specific event type. Flags are read from environment variables once at
 // first call and cached for the lifetime of the process.
 func ProtoRolloutEnabledForEventType(eventType string) bool {
+	eventType = strings.ToLower(strings.TrimSpace(eventType))
+
+	protoFlagMu.RLock()
+	cfgFlags := protoFlagCfg
+	protoFlagMu.RUnlock()
+	if cfgFlags != nil {
+		return cfgFlags[eventType]
+	}
+
 	protoFlagOnce.Do(initProtoFlagCache)
 	return protoFlagCache[eventType]
+}
+
+// SetProtoRolloutConfig sets runtime rollout flags from validated config.
+// Calling this function switches rollout source from env vars to config.
+func SetProtoRolloutConfig(flags map[string]bool) {
+	next := make(map[string]bool, len(eventTypeToEnvVar))
+	for eventType := range eventTypeToEnvVar {
+		next[eventType] = flags[eventType]
+	}
+	protoFlagMu.Lock()
+	protoFlagCfg = next
+	protoFlagMu.Unlock()
 }
 
 // ResetProtoRolloutCache forces re-reading environment variables on the next
@@ -71,6 +94,9 @@ func ProtoRolloutEnabledForEventType(eventType string) bool {
 func ResetProtoRolloutCache() {
 	protoFlagOnce = sync.Once{}
 	protoFlagCache = nil
+	protoFlagMu.Lock()
+	protoFlagCfg = nil
+	protoFlagMu.Unlock()
 }
 
 func envBool(name string) bool {

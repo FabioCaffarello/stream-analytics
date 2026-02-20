@@ -38,6 +38,7 @@ SOAK_STORE_OUT_FILE ?= .context/evidence/s3-store-soak.txt
 SOAK_STORE_PATTERN ?= TestStoreSoak_
 SOAK_ROUNDTRIP_OUT_FILE ?= .context/evidence/c4-cold-roundtrip.txt
 SOAK_PIPELINE_OUT_FILE ?= .context/evidence/c4-pipeline-soak.txt
+SOAK_C4_OUT_FILE ?= .context/evidence/c4-production-soak.txt
 RUNTIME_GATE_REPORT_DIR ?= .context/evidence/runtime-gate
 VULN_REQUIRED ?= false
 MODULE ?=
@@ -56,7 +57,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules workspace-check tidy tidy-check go-tidy-check tidy-check-changed fmt fmt-check vet shell-script-check quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check legacy-check-staged legacy-check lint lint-changed smoke runtime-gate runtime-gate-full test test-root test-workspace test-workspace-race test-unit test-integration test-integration-changed test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store soak-roundtrip soak-pipeline soak-ws-delivery soak-full test-short test-short-changed bench-hotpath vuln build run clean docker-build up down up-infra up-core dev-scale-smoke ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci
+.PHONY: help install-tools tools modules workspace-check tidy tidy-check go-tidy-check tidy-check-changed fmt fmt-check vet shell-script-check quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check legacy-check-staged legacy-check lint lint-changed smoke runtime-gate runtime-gate-full test test-root test-workspace test-workspace-race test-unit test-integration test-integration-changed test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store soak-roundtrip soak-pipeline soak-ws-delivery soak-c4-production soak-full test-short test-short-changed bench-hotpath vuln build run clean docker-build up down up-infra up-core dev-scale-smoke ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci
 
 help:
 	@echo "Targets:"
@@ -105,6 +106,7 @@ help:
 	@echo "  make soak-roundtrip     - run cold-path candle/stats roundtrip + store write soaks"
 	@echo "  make soak-pipeline      - run 10M multi-exchange + pipeline/delivery soaks (MR_ENABLE_SOAK=1)"
 	@echo "  make soak-ws-delivery   - run full vertical + ws backpressure + guardian restart soaks"
+	@echo "  make soak-c4-production - run C4 production soak (10M/4 exchanges + WS slow clients 50)"
 	@echo "  make soak-full          - run all soak harnesses"
 	@echo "  make test-short         - run short tests"
 	@echo "  make test-short-changed - run short tests only in changed Go modules"
@@ -455,7 +457,13 @@ soak-ws-delivery: invariants-check
 		--out-file ".context/evidence/c4-ws-delivery-soak.txt" \
 		--go-cache "$(SOAK_GO_CACHE)"
 
-soak-full: soak-check soak-store soak-cold-path soak-roundtrip soak-pipeline soak-ws-delivery
+soak-c4-production: invariants-check
+	@chmod +x ./scripts/soak-c4-production.sh
+	@./scripts/soak-c4-production.sh \
+		--out-file "$(SOAK_C4_OUT_FILE)" \
+		--go-cache "$(SOAK_GO_CACHE)"
+
+soak-full: soak-check soak-store soak-cold-path soak-roundtrip soak-pipeline soak-ws-delivery soak-c4-production
 
 test-short:
 	$(call RUN_IN_MODULES,bash -lc 'pkgs="$$( $(GO) list ./... 2>/dev/null || true )"; if [ -n "$$pkgs" ]; then $(GO) test -short $$pkgs; else echo "no packages to test (skipping)"; fi')

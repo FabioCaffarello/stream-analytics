@@ -18,20 +18,21 @@ import (
 // AppConfig is the root config envelope.  All fields are optional; absent
 // fields receive safe defaults via applyDefaults.
 type AppConfig struct {
-	Log        LogConfig        `json:"log"`
-	HTTP       HTTPConfig       `json:"http"`
-	WS         WSConfig         `json:"ws"`
-	Delivery   DeliveryConfig   `json:"delivery"`
-	Bus        BusConfig        `json:"bus"`
-	Shard      ShardConfig      `json:"shard"`
-	JetStream  JetStreamConfig  `json:"jetstream"`
-	Consumer   ConsumerConfig   `json:"consumer"`
-	MarketData MarketDataConfig `json:"marketdata"`
-	Replay     ReplayConfig     `json:"replay"`
-	Processor  ProcessorConfig  `json:"processor"`
-	Store      StoreConfig      `json:"store"`
-	Storage    StorageConfig    `json:"storage"`
-	Backfill   BackfillConfig   `json:"backfill"`
+	Log          LogConfig          `json:"log"`
+	HTTP         HTTPConfig         `json:"http"`
+	WS           WSConfig           `json:"ws"`
+	Delivery     DeliveryConfig     `json:"delivery"`
+	Bus          BusConfig          `json:"bus"`
+	ProtoRollout ProtoRolloutConfig `json:"proto_rollout"`
+	Shard        ShardConfig        `json:"shard"`
+	JetStream    JetStreamConfig    `json:"jetstream"`
+	Consumer     ConsumerConfig     `json:"consumer"`
+	MarketData   MarketDataConfig   `json:"marketdata"`
+	Replay       ReplayConfig       `json:"replay"`
+	Processor    ProcessorConfig    `json:"processor"`
+	Store        StoreConfig        `json:"store"`
+	Storage      StorageConfig      `json:"storage"`
+	Backfill     BackfillConfig     `json:"backfill"`
 }
 
 // ShardConfig controls deterministic shard assignment for horizontal scaling.
@@ -70,8 +71,60 @@ type BusConfig struct {
 	// Allowed: "inmemory" (default) | "jetstream".
 	Type string `json:"type"`
 	// WireFormat selects runtime payload wire format for event envelopes.
-	// Allowed: "json" (default) | "proto".
+	// Allowed: "json" | "proto" (default).
 	WireFormat string `json:"wire_format"`
+}
+
+// ProtoRolloutConfig controls per-event-type protobuf rollout toggles.
+// All flags default to false (JSON delivery).
+type ProtoRolloutConfig struct {
+	MarketData  ProtoRolloutMarketDataConfig  `json:"marketdata"`
+	Aggregation ProtoRolloutAggregationConfig `json:"aggregation"`
+	Insights    ProtoRolloutInsightsConfig    `json:"insights"`
+}
+
+// ProtoRolloutMarketDataConfig controls marketdata.* event rollout.
+type ProtoRolloutMarketDataConfig struct {
+	Trade       bool `json:"trade"`
+	BookDelta   bool `json:"bookdelta"`
+	MarkPrice   bool `json:"markprice"`
+	Liquidation bool `json:"liquidation"`
+}
+
+// ProtoRolloutAggregationConfig controls aggregation.* event rollout.
+type ProtoRolloutAggregationConfig struct {
+	Candle   bool `json:"candle"`
+	Stats    bool `json:"stats"`
+	Snapshot bool `json:"snapshot"`
+}
+
+// ProtoRolloutInsightsConfig controls insights.* event rollout.
+type ProtoRolloutInsightsConfig struct {
+	VolumeProfile bool `json:"volume_profile"`
+	Heatmap       bool `json:"heatmap"`
+	CrossVenue    bool `json:"crossvenue"`
+}
+
+// EventTypeFlags returns proto rollout enablement keyed by canonical event type.
+func (c ProtoRolloutConfig) EventTypeFlags() map[string]bool {
+	flags := make(map[string]bool, 14)
+	flags["marketdata.trade"] = c.MarketData.Trade
+	flags["marketdata.bookdelta"] = c.MarketData.BookDelta
+	flags["marketdata.markprice"] = c.MarketData.MarkPrice
+	flags["marketdata.liquidation"] = c.MarketData.Liquidation
+
+	flags["aggregation.candle"] = c.Aggregation.Candle
+	flags["aggregation.stats"] = c.Aggregation.Stats
+	flags["aggregation.snapshot"] = c.Aggregation.Snapshot
+	flags["aggregation.orderbook_inconsistency"] = c.Aggregation.Snapshot
+
+	flags["insights.volume_profile_snapshot"] = c.Insights.VolumeProfile
+	flags["insights.volume_profile_delta"] = c.Insights.VolumeProfile
+	flags["insights.heatmap_snapshot"] = c.Insights.Heatmap
+	flags["insights.heatmap_delta"] = c.Insights.Heatmap
+	flags["insights.crossvenue.trade_snapshot"] = c.Insights.CrossVenue
+	flags["insights.crossvenue.spread_signal"] = c.Insights.CrossVenue
+	return flags
 }
 
 // JetStreamConfig controls JetStream connection and stream settings.
@@ -248,7 +301,8 @@ type ConsumerExchangeConfig struct {
 // MarketDataConfig controls marketdata publish encoding policy.
 type MarketDataConfig struct {
 	// PublishContentType controls the wire payload format for produced marketdata envelopes.
-	// Allowed: "application/json" (default) or "application/protobuf" (opt-in).
+	// Allowed: "application/json" or "application/protobuf".
+	// When omitted, defaults from bus.wire_format (proto => application/protobuf).
 	PublishContentType string `json:"publish_content_type"`
 	// MaxInstruments bounds in-memory instrument stream state for ingest.
 	MaxInstruments int `json:"max_instruments"`

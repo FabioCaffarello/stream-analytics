@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/anthdm/hollywood/actor"
@@ -20,6 +21,7 @@ import (
 	wsserver "github.com/market-raccoon/internal/interfaces/ws"
 	"github.com/market-raccoon/internal/shared/bootstrap"
 	"github.com/market-raccoon/internal/shared/config"
+	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/metrics"
 )
@@ -28,9 +30,10 @@ import (
 // the actor engine, HTTP server, and blocks until a signal or fatal error.
 //
 //nolint:gocyclo // composition root intentionally wires many runtime branches.
-func Run(ctx context.Context, cfg config.AppConfig) error {
+func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 	logger := bootstrap.BuildLogger(cfg.Log)
 	slog.SetDefault(logger)
+	contracts.SetProtoRolloutConfig(cfg.ProtoRollout.EventTypeFlags())
 	logger.Info("server starting", "addr", cfg.HTTP.Addr)
 	var tsPool *timescale.Pool
 	timescale.SetStubMode(timescale.AdapterModeStubMemory)
@@ -132,6 +135,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		cfg.HTTP.EnablePprof,
 		logger,
 		httpserver.WithTLS(cfg.HTTP.TLSCert, cfg.HTTP.TLSKey),
+		httpserver.WithReloadHook(protoRolloutReloadHook(configPath, logger)),
 	)
 	if cfg.Delivery.Enabled {
 		enableWSRoute(e, srv, routerPIDCh, subsystemPIDCh, logger, rangeStore, cfg)
@@ -245,4 +249,23 @@ func buildServerFactories(deliveryEnabled bool, deliveryFactory actor.Producer) 
 		factories[actorruntime.SubsystemDelivery] = deliveryFactory
 	}
 	return factories
+}
+
+func protoRolloutReloadHook(configPath string, logger *slog.Logger) func() error {
+	configPath = strings.TrimSpace(configPath)
+	if configPath == "" {
+		return nil
+	}
+	return func() error {
+		cfg, prob := config.Load(configPath)
+		if prob != nil {
+			return fmt.Errorf("reload config load failed: %v", prob)
+		}
+		if prob := cfg.Validate(); prob != nil {
+			return fmt.Errorf("reload config validation failed: %v", prob)
+		}
+		contracts.SetProtoRolloutConfig(cfg.ProtoRollout.EventTypeFlags())
+		logger.Info("server: proto rollout flags reloaded", "config", configPath)
+		return nil
+	}
 }

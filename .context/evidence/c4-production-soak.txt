@@ -1,0 +1,64 @@
+# C4 production soak harness 2026-02-20T00:49:27Z
+go_cache=/tmp/go-build
+Running pipeline soak (10M events, 4 exchanges)...
+=== RUN   TestSoak_MultiExchange_10M_Messages
+    soak_multi_exchange_test.go:268: multi-exchange soak: runtime=1m24.963863834s throughput=117697.10/s p50=7.084µs p95=13.334µs p99=56.041µs candles=33914 stats=10940
+--- PASS: TestSoak_MultiExchange_10M_Messages (84.96s)
+PASS
+ok  	github.com/market-raccoon/cmd/processor	85.137s
+Running WS delivery soak (50 clients)...
+=== RUN   TestSoak_WSDelivery_SlowClients
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49804: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49803: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49801: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49802: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49800: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49805: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49806: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49807: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49808: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49809: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49812: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49811: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49819: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49824: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49822: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49820: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49818: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49810: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49823: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49821: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49817: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49832: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49833: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49829: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49831: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49827: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49830: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49826: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49816: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49825: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49815: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49814: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49837: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49813: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49839: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49838: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49836: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49835: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49834: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49849: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49850: write: broken pipe"
+2026/02/19 21:50:55 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49848: write: broken pipe"
+2026/02/19 21:50:56 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49847: write: broken pipe"
+2026/02/19 21:50:56 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49845: write: broken pipe"
+2026/02/19 21:50:56 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49846: write: broken pipe"
+2026/02/19 21:50:56 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49842: write: broken pipe"
+2026/02/19 21:50:56 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49841: write: broken pipe"
+2026/02/19 21:50:56 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49843: write: broken pipe"
+2026/02/19 21:50:56 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49840: write: broken pipe"
+2026/02/19 21:50:56 WARN delivery session: write failed err="write tcp 127.0.0.1:49799->127.0.0.1:49844: write: broken pipe"
+--- PASS: TestSoak_WSDelivery_SlowClients (1.41s)
+PASS
+ok  	github.com/market-raccoon/internal/interfaces/ws	1.653s
+C4 production soak completed

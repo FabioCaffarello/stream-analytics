@@ -224,6 +224,66 @@ func TestBuildExchangeRuntimes_MarketTypePropagation(t *testing.T) {
 	}
 }
 
+func TestBuildExchangeRuntimes_KrakenAndKrakenF(t *testing.T) {
+	cfg, prob := config.Load("")
+	if prob != nil {
+		t.Fatalf("Load failed: %v", prob)
+	}
+	cfg.Consumer.Exchanges = []config.ConsumerExchangeConfig{
+		{
+			Name:       "kraken",
+			Type:       "kraken",
+			BaseURL:    "wss://ws.kraken.com/v2",
+			Tickers:    []string{"BTC-USD"},
+			MarketType: "SPOT",
+		},
+		{
+			Name:       "krakenf",
+			Type:       "krakenf",
+			BaseURL:    "wss://futures.kraken.com/ws/v1",
+			Tickers:    []string{"BTC-USD"},
+			MarketType: "USD_M_FUTURES",
+		},
+	}
+
+	runtimes, p := buildExchangeRuntimes(cfg, testLogger())
+	if p != nil {
+		t.Fatalf("buildExchangeRuntimes failed: %v", p)
+	}
+	if len(runtimes) != 2 {
+		t.Fatalf("runtimes len=%d want=2", len(runtimes))
+	}
+	if runtimes[0].Subsystem != "marketdata:kraken" || runtimes[1].Subsystem != "marketdata:krakenf" {
+		t.Fatalf("unexpected subsystems: %q, %q", runtimes[0].Subsystem, runtimes[1].Subsystem)
+	}
+
+	krakenMsg := &ws.WsMessage{
+		Exchange: "kraken",
+		Data:     []byte(`{"channel":"trade","type":"update","data":[{"symbol":"BTC/USD","trades":[{"price":"42000.5","qty":"0.2","side":"buy","timestamp":"2023-11-14T22:13:20.000000Z","trade_id":"abc123"}]}]}`),
+		RecvAt:   time.UnixMilli(1710000003000),
+	}
+	krakenReq, skip := runtimes[0].ParseV1(krakenMsg)
+	if skip {
+		t.Fatal("kraken parser unexpectedly skipped")
+	}
+	if krakenReq.EventType != "marketdata.trade" || krakenReq.MarketType != domain.MarketTypeSpot.String() {
+		t.Fatalf("unexpected kraken request: %#v", krakenReq)
+	}
+
+	krakenFMsg := &ws.WsMessage{
+		Exchange: "krakenf",
+		Data:     []byte(`{"feed":"trade","product_id":"PI_XBTUSD","trades":[{"price":"65000.5","qty":"0.01","side":"buy","time":"2023-11-14T22:13:20.000000Z","uid":"t-1"}]}`),
+		RecvAt:   time.UnixMilli(1710000003000),
+	}
+	krakenFReq, skip := runtimes[1].ParseV1(krakenFMsg)
+	if skip {
+		t.Fatal("krakenf parser unexpectedly skipped")
+	}
+	if krakenFReq.EventType != "marketdata.trade" || krakenFReq.MarketType != domain.MarketTypeUSDMFutures.String() {
+		t.Fatalf("unexpected krakenf request: %#v", krakenFReq)
+	}
+}
+
 func TestShutdown_SlowPublisherDoesNotStarveGuardian(t *testing.T) {
 	const (
 		publisherFlushTimeout   = 40 * time.Millisecond

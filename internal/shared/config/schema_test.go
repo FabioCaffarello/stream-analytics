@@ -66,3 +66,30 @@ func TestProcessorInsightsDefaultsAndDurationHelpers(t *testing.T) {
 		t.Fatalf("RoundingMode=%q want=half_even", cfg.Processor.Insights.RoundingMode)
 	}
 }
+
+func TestProtoRolloutEventTypeFlags(t *testing.T) {
+	flags := ProtoRolloutConfig{
+		MarketData: ProtoRolloutMarketDataConfig{
+			Trade: true,
+		},
+		Aggregation: ProtoRolloutAggregationConfig{
+			Snapshot: true,
+		},
+		Insights: ProtoRolloutInsightsConfig{
+			Heatmap: true,
+		},
+	}.EventTypeFlags()
+
+	if !flags["marketdata.trade"] {
+		t.Fatal("marketdata.trade should be enabled")
+	}
+	if !flags["aggregation.orderbook_inconsistency"] {
+		t.Fatal("aggregation.orderbook_inconsistency should follow aggregation.snapshot")
+	}
+	if !flags["insights.heatmap_delta"] {
+		t.Fatal("insights.heatmap_delta should follow insights.heatmap")
+	}
+	if flags["insights.crossvenue.trade_snapshot"] {
+		t.Fatal("insights.crossvenue.trade_snapshot should be disabled")
+	}
+}

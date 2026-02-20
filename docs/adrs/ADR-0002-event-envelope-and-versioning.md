@@ -44,8 +44,8 @@ Versioning rules:
 
 Envelope suporta multiplos formatos por `content_type`:
 
-- `application/json` (default atual)
-- `application/protobuf` (placeholder para W6)
+- `application/protobuf` (default operacional atual)
+- `application/json` (compatibilidade/fallback legado)
 
 A deteccao de codec deve respeitar `content_type` sem quebrar retrocompatibilidade.
 

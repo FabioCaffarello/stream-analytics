@@ -51,11 +51,14 @@ Examples:
 - `aggregation.stats/binance/BTCUSDT/raw`
 - `insights.heatmap_snapshot/binance/BTCUSDT/1m`
 
-Proto rollout (marketdata subjects only):
-- `PROTO_MARKETDATA_TRADE`
-- `PROTO_MARKETDATA_BOOKDELTA`
-- `PROTO_MARKETDATA_MARKPRICE`
-- default for all flags is disabled (`false`), keeping JSON output by default.
+Proto rollout is controlled by config (`proto_rollout.*`) and can be refreshed with `POST /runtime/reload`.
+- `proto_rollout.marketdata.trade`
+- `proto_rollout.marketdata.bookdelta`
+- `proto_rollout.marketdata.markprice`
+- `proto_rollout.marketdata.liquidation`
+- `proto_rollout.aggregation.candle|stats|snapshot`
+- `proto_rollout.insights.volume_profile|heatmap|crossvenue`
+- default for all flags is disabled (`false`), so rollout-controlled streams stay on JSON unless explicitly enabled.
 
 ## Contracts
 
@@ -221,7 +224,7 @@ Tests to create for parity completion:
 - N/N-1 compatibility by envelope event version.
 - New WS frame fields must remain optional.
 - Do not remove mandatory fields without new `frame_version`.
-- Default bus payload content type remains `application/json` with protobuf opt-in in ADR-0016.
+- Default bus payload content type is `application/protobuf`; JSON remains supported via rollout/fallback policy in ADR-0016.
 
 ## Evidence Hooks
 

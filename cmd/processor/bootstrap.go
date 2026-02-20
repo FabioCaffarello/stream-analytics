@@ -143,9 +143,10 @@ type envelopeSource struct {
 // envelope source, guardian, and blocks until a signal or error.
 //
 //nolint:gocyclo // composition root wires many runtime branches by design.
-func Run(ctx context.Context, cfg config.AppConfig) error {
+func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 	logger := bootstrap.BuildLogger(cfg.Log)
 	slog.SetDefault(logger)
+	contracts.SetProtoRolloutConfig(cfg.ProtoRollout.EventTypeFlags())
 	metrics.SetShardTopologyComplete(false)
 	metrics.SetShardLeaseAgeSeconds(0)
 
@@ -443,6 +444,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		cfg.HTTP.EnablePprof,
 		logger,
 		httpserver.WithTLS(cfg.HTTP.TLSCert, cfg.HTTP.TLSKey),
+		httpserver.WithReloadHook(protoRolloutReloadHook(configPath, logger)),
 	)
 
 	serverErr := make(chan error, 1)
@@ -951,6 +953,25 @@ func int32FromConfig(v int, field string) (int32, error) {
 
 func boolPtr(v bool) *bool {
 	return &v
+}
+
+func protoRolloutReloadHook(configPath string, logger *slog.Logger) func() error {
+	configPath = strings.TrimSpace(configPath)
+	if configPath == "" {
+		return nil
+	}
+	return func() error {
+		cfg, prob := config.Load(configPath)
+		if prob != nil {
+			return fmt.Errorf("reload config load failed: %v", prob)
+		}
+		if prob := cfg.Validate(); prob != nil {
+			return fmt.Errorf("reload config validation failed: %v", prob)
+		}
+		contracts.SetProtoRolloutConfig(cfg.ProtoRollout.EventTypeFlags())
+		logger.Info("processor: proto rollout flags reloaded", "config", configPath)
+		return nil
+	}
 }
 
 // ---------------------------------------------------------------------------

@@ -375,7 +375,7 @@ func ParseAllMids(subscribedCoins map[string]bool, marketType string) func(data 
 	return func(data []byte, recvAt time.Time) ([]app.IngestRequest, error) {
 		var msg wsResponse
 		if err := json.Unmarshal(data, &msg); err != nil {
-			return nil, fmt.Errorf("hyperliquid allMids: invalid JSON: %w", err)
+			return nil, problem.Wrap(err, problem.ValidationFailed, "hyperliquid allMids: invalid JSON")
 		}
 		if msg.Channel != "allMids" {
 			return nil, nil // not handled — fall through to single parser
@@ -383,7 +383,7 @@ func ParseAllMids(subscribedCoins map[string]bool, marketType string) func(data 
 
 		var payload allMidsData
 		if err := json.Unmarshal(msg.Data, &payload); err != nil {
-			return nil, fmt.Errorf("hyperliquid allMids: invalid data: %w", err)
+			return nil, problem.Wrap(err, problem.ValidationFailed, "hyperliquid allMids: invalid data")
 		}
 
 		tsExchange := recvAt.UnixMilli()

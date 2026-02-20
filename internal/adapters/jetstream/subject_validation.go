@@ -1,9 +1,10 @@
 package jetstream
 
 import (
-	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/market-raccoon/internal/shared/problem"
 )
 
 var (
@@ -29,20 +30,20 @@ func ValidateSubjectTaxonomy(subject string) error {
 	}
 
 	if !subjectEventPattern.MatchString(event) {
-		return fmt.Errorf("subject event %q is invalid", event)
+		return problem.Newf(problem.ValidationFailed, "subject event %q is invalid", event)
 	}
 	if !subjectVersionPattern.MatchString(version) {
-		return fmt.Errorf("subject version %q must be v{int}", version)
+		return problem.Newf(problem.ValidationFailed, "subject version %q must be v{int}", version)
 	}
 	if !subjectTokenPattern.MatchString(venue) {
-		return fmt.Errorf("subject venue %q is invalid", venue)
+		return problem.Newf(problem.ValidationFailed, "subject venue %q is invalid", venue)
 	}
 	if !subjectTokenPattern.MatchString(instrument) {
-		return fmt.Errorf("subject instrument %q is invalid", instrument)
+		return problem.Newf(problem.ValidationFailed, "subject instrument %q is invalid", instrument)
 	}
 	root := strings.Split(event, ".")[0]
 	if _, ok := allowedSubjectRoots[root]; !ok {
-		return fmt.Errorf("subject root %q is not allowed", root)
+		return problem.Newf(problem.ValidationFailed, "subject root %q is not allowed", root)
 	}
 	return nil
 }
@@ -51,24 +52,24 @@ func ValidateSubjectTaxonomy(subject string) error {
 func ValidateSubjectPattern(pattern string) error {
 	pattern = strings.TrimSpace(pattern)
 	if pattern == "" {
-		return fmt.Errorf("subject pattern must not be empty")
+		return problem.New(problem.ValidationFailed, "subject pattern must not be empty")
 	}
 	if strings.ContainsAny(pattern, " \t\r\n") {
-		return fmt.Errorf("subject pattern %q must not contain spaces", pattern)
+		return problem.Newf(problem.ValidationFailed, "subject pattern %q must not contain spaces", pattern)
 	}
 
 	tokens := strings.Split(pattern, ".")
 	if len(tokens) < 2 {
-		return fmt.Errorf("subject pattern %q must have at least 2 tokens", pattern)
+		return problem.Newf(problem.ValidationFailed, "subject pattern %q must have at least 2 tokens", pattern)
 	}
 	if _, ok := allowedSubjectRoots[tokens[0]]; !ok {
-		return fmt.Errorf("subject pattern root %q is not allowed", tokens[0])
+		return problem.Newf(problem.ValidationFailed, "subject pattern root %q is not allowed", tokens[0])
 	}
 
 	hasWildcard := false
 	for i, token := range tokens {
 		if token == "" {
-			return fmt.Errorf("subject pattern %q has an empty token", pattern)
+			return problem.Newf(problem.ValidationFailed, "subject pattern %q has an empty token", pattern)
 		}
 		switch token {
 		case "*":
@@ -77,15 +78,15 @@ func ValidateSubjectPattern(pattern string) error {
 		case ">":
 			hasWildcard = true
 			if i != len(tokens)-1 {
-				return fmt.Errorf("subject pattern %q has invalid > placement", pattern)
+				return problem.Newf(problem.ValidationFailed, "subject pattern %q has invalid > placement", pattern)
 			}
 			continue
 		}
 		if strings.ContainsAny(token, "*>") {
-			return fmt.Errorf("subject pattern %q has invalid wildcard token %q", pattern, token)
+			return problem.Newf(problem.ValidationFailed, "subject pattern %q has invalid wildcard token %q", pattern, token)
 		}
 		if !subjectTokenPattern.MatchString(token) {
-			return fmt.Errorf("subject pattern %q token %q is invalid", pattern, token)
+			return problem.Newf(problem.ValidationFailed, "subject pattern %q token %q is invalid", pattern, token)
 		}
 	}
 	if hasWildcard {
@@ -97,19 +98,19 @@ func ValidateSubjectPattern(pattern string) error {
 func splitSubjectTaxonomy(subject string) (event, version, venue, instrument string, err error) {
 	subject = strings.TrimSpace(subject)
 	if subject == "" {
-		return "", "", "", "", fmt.Errorf("subject must not be empty")
+		return "", "", "", "", problem.New(problem.ValidationFailed, "subject must not be empty")
 	}
 	if strings.ContainsAny(subject, " \t\r\n*>") {
-		return "", "", "", "", fmt.Errorf("subject %q must be concrete and without spaces", subject)
+		return "", "", "", "", problem.Newf(problem.ValidationFailed, "subject %q must be concrete and without spaces", subject)
 	}
 
 	tokens := strings.Split(subject, ".")
 	if len(tokens) < 4 {
-		return "", "", "", "", fmt.Errorf("subject %q must have at least 4 tokens", subject)
+		return "", "", "", "", problem.Newf(problem.ValidationFailed, "subject %q must have at least 4 tokens", subject)
 	}
 	for _, token := range tokens {
 		if strings.TrimSpace(token) == "" {
-			return "", "", "", "", fmt.Errorf("subject %q has empty token", subject)
+			return "", "", "", "", problem.Newf(problem.ValidationFailed, "subject %q has empty token", subject)
 		}
 	}
 	event = strings.Join(tokens[:len(tokens)-3], ".")

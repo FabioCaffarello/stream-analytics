@@ -50,7 +50,8 @@ type Server struct {
 	// returning false, the endpoint returns 503 without querying the
 	// Guardian.  Used by cmd/store to gate readiness on ClickHouse +
 	// consumer startup.
-	readyGate func() bool
+	readyGate  func() bool
+	reloadHook func() error
 
 	tlsCertFile string
 	tlsKeyFile  string
@@ -69,6 +70,14 @@ func WithTLS(certFile, keyFile string) Option {
 func WithWSHandler(handler http.HandlerFunc) Option {
 	return func(s *Server) {
 		s.wsHandler = handler
+	}
+}
+
+// WithReloadHook installs an optional callback executed before Guardian reload.
+// Returning an error aborts reload and returns HTTP 500.
+func WithReloadHook(hook func() error) Option {
+	return func(s *Server) {
+		s.reloadHook = hook
 	}
 }
 
@@ -276,6 +285,16 @@ func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
 	if !supportedRequestContentType(r.Header.Get("Content-Type")) {
 		http.Error(w, "unsupported media type", http.StatusUnsupportedMediaType)
 		return
+	}
+	if s.reloadHook != nil {
+		if err := s.reloadHook(); err != nil {
+			s.logger.Warn("runtime reload hook failed", "err", err)
+			writeResponse(w, r, http.StatusInternalServerError, "runtime.reload", map[string]any{
+				"accepted": false,
+				"error":    "reload hook failed",
+			})
+			return
+		}
 	}
 	s.engine.Send(s.guardianPID, runtime.ReloadConfig{})
 	writeResponse(w, r, http.StatusAccepted, "runtime.reload", map[string]bool{"accepted": true})

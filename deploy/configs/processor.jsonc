@@ -4,6 +4,24 @@
     "type": "jetstream",
     "wire_format": "proto"
   },
+  "proto_rollout": {
+    "marketdata": {
+      "trade": false,
+      "bookdelta": false,
+      "markprice": false,
+      "liquidation": false
+    },
+    "aggregation": {
+      "candle": false,
+      "stats": false,
+      "snapshot": false
+    },
+    "insights": {
+      "volume_profile": false,
+      "heatmap": false,
+      "crossvenue": false
+    }
+  },
   "jetstream": {
     "url": "nats://nats:4222",
     "stream_name": "MARKETDATA",

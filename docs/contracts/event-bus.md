@@ -34,7 +34,7 @@ Definir contrato canônico de envelope e subject para publicacao/consumo no bus,
   "ts_ingest": 1710000005,
   "seq": 9283749823,
   "idempotency_key": "binance-BTCUSDT-123456",
-  "content_type": "application/json",
+  "content_type": "application/protobuf",
   "payload": {}
 }
 ```
@@ -127,7 +127,7 @@ Proibido:
 
 | Payload | Current (default flags) | Planned / Opt-in |
 |---|---|---|
-| `insights.volume_profile_snapshot` | `application/json` path remains canonical/default | `application/protobuf` available via explicit feature flag (`enable_volume_profile_snapshot_proto`) |
+| `insights.volume_profile_snapshot` | `application/json` path when VPVR proto rollout flag is disabled (`enable_volume_profile_snapshot_proto=false`) | `application/protobuf` available via explicit feature flag (`enable_volume_profile_snapshot_proto=true`) |
 | Replay golden impact | unchanged with default flags OFF | separate VPVR proto golden tracked in contracts testdata |
 
 ### Aggregation Subjects (`aggregation.*`)

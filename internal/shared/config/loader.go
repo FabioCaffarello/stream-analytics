@@ -466,9 +466,9 @@ func validateConsumerExchanges(exchanges []ConsumerExchangeConfig) *problem.Prob
 
 		typ := strings.ToLower(strings.TrimSpace(ex.Type))
 		switch typ {
-		case "binance", "bybit", "coinbase", "hyperliquid":
+		case "binance", "bybit", "coinbase", "hyperliquid", "kraken", "krakenf":
 		default:
-			return problem.Newf(codeInvalid, "consumer.exchanges[%d].type must be binance|bybit|coinbase|hyperliquid, got %q", i, ex.Type)
+			return problem.Newf(codeInvalid, "consumer.exchanges[%d].type must be binance|bybit|coinbase|hyperliquid|kraken|krakenf, got %q", i, ex.Type)
 		}
 
 		if len(ex.Tickers) == 0 {
@@ -969,7 +969,7 @@ func applyDefaults(c *AppConfig) {
 		c.Bus.Type = "inmemory"
 	}
 	if c.Bus.WireFormat == "" {
-		c.Bus.WireFormat = "json"
+		c.Bus.WireFormat = "proto"
 	}
 	c.Bus.WireFormat = strings.ToLower(strings.TrimSpace(c.Bus.WireFormat))
 	if c.JetStream.URL == "" {
@@ -1352,6 +1352,10 @@ func defaultExchangeBaseURL(exchangeType, marketType, legacyBinanceBaseURL strin
 		return "wss://ws-feed.exchange.coinbase.com"
 	case "hyperliquid":
 		return "wss://api.hyperliquid.xyz/ws"
+	case "kraken":
+		return "wss://ws.kraken.com/v2"
+	case "krakenf":
+		return "wss://futures.kraken.com/ws/v1"
 	default:
 		return ""
 	}

@@ -1,3 +1,5 @@
+-- +goose NO TRANSACTION
+-- +goose Up
 -- M8 heatmap cold-path schema.
 
 CREATE TABLE IF NOT EXISTS aggregation_heatmap_cold
@@ -24,3 +26,6 @@ ENGINE = ReplacingMergeTree
 PARTITION BY toYYYYMM(created_at)
 ORDER BY (venue, instrument, timeframe, window_start, price_bucket_low, price_bucket_high, size_bucket, source_idempotency_key)
 TTL toDateTime(created_at) + INTERVAL 90 DAY;
+
+-- +goose Down
+DROP TABLE IF EXISTS aggregation_heatmap_cold;

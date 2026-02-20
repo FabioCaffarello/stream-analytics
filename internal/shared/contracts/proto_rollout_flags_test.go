@@ -83,3 +83,36 @@ func TestProtoRolloutEnabledForEventType_DefaultDisabled(t *testing.T) {
 		}
 	}
 }
+
+func TestProtoRolloutEnabledForEventType_ConfigOverridesEnv(t *testing.T) {
+	contracts.ResetProtoRolloutCache()
+	t.Cleanup(contracts.ResetProtoRolloutCache)
+
+	t.Setenv(contracts.EnvProtoMarketDataTrade, "1")
+	contracts.SetProtoRolloutConfig(map[string]bool{
+		"marketdata.trade": false,
+	})
+
+	if contracts.ProtoRolloutEnabledForEventType("marketdata.trade") {
+		t.Fatal("expected config override to disable marketdata.trade")
+	}
+}
+
+func TestProtoRolloutEnabledForEventType_ConfigSupportsHotReload(t *testing.T) {
+	contracts.ResetProtoRolloutCache()
+	t.Cleanup(contracts.ResetProtoRolloutCache)
+
+	contracts.SetProtoRolloutConfig(map[string]bool{
+		"marketdata.trade": false,
+	})
+	if contracts.ProtoRolloutEnabledForEventType("marketdata.trade") {
+		t.Fatal("expected initial config false")
+	}
+
+	contracts.SetProtoRolloutConfig(map[string]bool{
+		"marketdata.trade": true,
+	})
+	if !contracts.ProtoRolloutEnabledForEventType(" marketdata.trade ") {
+		t.Fatal("expected config hot-reload to enable marketdata.trade")
+	}
+}
