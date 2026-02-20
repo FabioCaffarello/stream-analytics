@@ -7,7 +7,7 @@ package hash
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -71,14 +71,39 @@ func HashFieldsFast(fields ...string) string {
 	return strconv.FormatUint(h, 16)
 }
 
-// HashFloat64Sequence returns a stable hash for a slice of float64 values.
-// Values are formatted with full precision to avoid representation ambiguity.
+// HashFloat64Sequence returns a stable FNV-1a-64 hash for a slice of float64 values.
+// It hashes the IEEE 754 bit representation of each float64 directly, avoiding
+// all intermediate allocations (no []string, no strconv.FormatFloat). Values
+// are separated by a null-byte sentinel to prevent collision between sequences
+// of different lengths.
 //
 //nolint:revive // API kept stable as HashFloat64Sequence.
 func HashFloat64Sequence(values []float64) string {
-	parts := make([]string, len(values))
+	h := uint64(fnv64aOffset)
 	for i, v := range values {
-		parts[i] = fmt.Sprintf("%.17g", v)
+		if i > 0 {
+			// Null-byte separator between elements (same pattern as HashFieldsFast).
+			h ^= 0x00
+			h *= fnv64aPrime
+		}
+		bits := math.Float64bits(v)
+		// Hash 8 bytes of the IEEE 754 representation, big-endian order.
+		h ^= (bits >> 56) & 0xff
+		h *= fnv64aPrime
+		h ^= (bits >> 48) & 0xff
+		h *= fnv64aPrime
+		h ^= (bits >> 40) & 0xff
+		h *= fnv64aPrime
+		h ^= (bits >> 32) & 0xff
+		h *= fnv64aPrime
+		h ^= (bits >> 24) & 0xff
+		h *= fnv64aPrime
+		h ^= (bits >> 16) & 0xff
+		h *= fnv64aPrime
+		h ^= (bits >> 8) & 0xff
+		h *= fnv64aPrime
+		h ^= bits & 0xff
+		h *= fnv64aPrime
 	}
-	return HashFields(parts...)
+	return strconv.FormatUint(h, 16)
 }

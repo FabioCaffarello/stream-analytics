@@ -217,12 +217,33 @@ type WSRateLimitConfig struct {
 
 // DeliveryConfig controls delivery subsystem runtime wiring in server binary.
 type DeliveryConfig struct {
-	Enabled                  bool               `json:"enabled"`
-	MaxSessions              int                `json:"max_sessions"`
-	SessionOutboundQueueSize int                `json:"session_outbound_queue_size"`
-	BackpressurePolicy       string             `json:"backpressure_policy"`
-	SlowClientDropThreshold  int                `json:"slow_client_drop_threshold"`
-	NATS                     DeliveryNATSConfig `json:"nats"`
+	Enabled                  bool   `json:"enabled"`
+	MaxSessions              int    `json:"max_sessions"`
+	SessionOutboundQueueSize int    `json:"session_outbound_queue_size"`
+	BackpressurePolicy       string `json:"backpressure_policy"`
+	SlowClientDropThreshold  int    `json:"slow_client_drop_threshold"`
+	// RouterReadyTimeout is the maximum time to wait for the delivery router PID.  Default: "2s".
+	RouterReadyTimeout string `json:"router_ready_timeout"`
+	// SubsystemReadyTimeout is the maximum time to wait for the delivery subsystem PID.  Default: "500ms".
+	SubsystemReadyTimeout string `json:"subsystem_ready_timeout"`
+	// SessionSpawnTimeout is the request timeout for spawning a new WS session.  Default: "2s".
+	SessionSpawnTimeout string             `json:"session_spawn_timeout"`
+	NATS                DeliveryNATSConfig `json:"nats"`
+}
+
+// RouterReadyTimeoutDuration parses and returns DeliveryConfig.RouterReadyTimeout.
+func (d DeliveryConfig) RouterReadyTimeoutDuration() time.Duration {
+	return mustParseDuration(d.RouterReadyTimeout)
+}
+
+// SubsystemReadyTimeoutDuration parses and returns DeliveryConfig.SubsystemReadyTimeout.
+func (d DeliveryConfig) SubsystemReadyTimeoutDuration() time.Duration {
+	return mustParseDuration(d.SubsystemReadyTimeout)
+}
+
+// SessionSpawnTimeoutDuration parses and returns DeliveryConfig.SessionSpawnTimeout.
+func (d DeliveryConfig) SessionSpawnTimeoutDuration() time.Duration {
+	return mustParseDuration(d.SessionSpawnTimeout)
 }
 
 // DeliveryNATSConfig controls delivery consumer behavior for NATS/JetStream.
@@ -457,6 +478,8 @@ type ProcessorConfig struct {
 	BusCapacity int `json:"bus_capacity"`
 	// MaxInstruments bounds in-memory order book state for aggregation.
 	MaxInstruments int `json:"max_instruments"`
+	// PublisherTimeout is the JetStream publish timeout per envelope.  Default: "5s".
+	PublisherTimeout string `json:"publisher_timeout"`
 	// Insights controls optional processor-side insight derivations.
 	Insights ProcessorInsightsConfig `json:"insights"`
 	// Candle controls candle aggregation runtime options.
@@ -465,6 +488,11 @@ type ProcessorConfig struct {
 	Stats ProcessorStatsConfig `json:"stats"`
 	// RTPublish controls timer-driven publishing intervals for real-time snapshots.
 	RTPublish ProcessorRTPublishConfig `json:"rt_publish"`
+}
+
+// PublisherTimeoutDuration parses and returns ProcessorConfig.PublisherTimeout.
+func (p ProcessorConfig) PublisherTimeoutDuration() time.Duration {
+	return mustParseDuration(p.PublisherTimeout)
 }
 
 // ProcessorCandleConfig controls candle aggregation options in processor runtime.

@@ -61,8 +61,16 @@ func initProtoFlagCache() {
 }
 
 // ProtoRolloutEnabledForEventType reports whether protobuf delivery is enabled
-// for a specific event type. Flags are read from environment variables once at
-// first call and cached for the lifetime of the process.
+// for a specific event type.
+//
+// Precedence (highest to lowest):
+//  1. Runtime config set via SetProtoRolloutConfig (from validated AppConfig).
+//  2. Environment variables (read once at first access, cached for process lifetime).
+//
+// In production, config always takes precedence because SetProtoRolloutConfig
+// is called during bootstrap after config validation.  Environment variables
+// serve as a fallback for local development and ad-hoc testing where JSONC
+// config files are not used.
 func ProtoRolloutEnabledForEventType(eventType string) bool {
 	eventType = strings.ToLower(strings.TrimSpace(eventType))
 

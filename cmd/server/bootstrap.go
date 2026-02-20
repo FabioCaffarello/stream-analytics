@@ -198,7 +198,7 @@ func enableWSRoute(
 		var subsystemPID *actor.PID
 		select {
 		case subsystemPID = <-subsystemPIDCh:
-		case <-time.After(500 * time.Millisecond):
+		case <-time.After(cfg.Delivery.SubsystemReadyTimeoutDuration()):
 		}
 		ws := wsserver.NewServer(
 			e,
@@ -215,7 +215,7 @@ func enableWSRoute(
 				if subsystemPID == nil {
 					return nil
 				}
-				resp := e.Request(subsystemPID, deliveryruntime.SpawnSession{Config: sessionCfg}, 2*time.Second)
+				resp := e.Request(subsystemPID, deliveryruntime.SpawnSession{Config: sessionCfg}, cfg.Delivery.SessionSpawnTimeoutDuration())
 				result, err := resp.Result()
 				if err != nil {
 					logger.Warn("delivery session spawn request failed", "err", err)
@@ -238,7 +238,7 @@ func enableWSRoute(
 		)
 		srv.HandleFunc("GET /ws", ws.HandleWS)
 		logger.Info("delivery websocket route enabled", "route", "GET /ws")
-	case <-time.After(2 * time.Second):
+	case <-time.After(cfg.Delivery.RouterReadyTimeoutDuration()):
 		logger.Warn("delivery router not ready in time; /ws route disabled")
 	}
 }

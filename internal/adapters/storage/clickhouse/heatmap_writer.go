@@ -110,16 +110,19 @@ INSERT INTO aggregation_heatmap_cold (
 		_ = batch.Close()
 	}()
 
+	baseKey := sharedhash.HashFieldsFast(
+		artifact.Venue,
+		artifact.Instrument,
+		artifact.Timeframe,
+		strconv.FormatInt(artifact.WindowStartTs, 10),
+		sourceIdempotencyKey,
+	)
 	for _, cell := range artifact.Cells {
 		idempotencyKey := sharedhash.HashFieldsFast(
-			artifact.Venue,
-			artifact.Instrument,
-			artifact.Timeframe,
-			strconv.FormatInt(artifact.WindowStartTs, 10),
+			baseKey,
 			strconv.FormatFloat(cell.PriceBucketLow, 'f', -1, 64),
 			strconv.FormatFloat(cell.PriceBucketHigh, 'f', -1, 64),
 			strings.ToUpper(strings.TrimSpace(cell.SizeBucket)),
-			sourceIdempotencyKey,
 		)
 		if p := batch.AppendRow(
 			ctx,

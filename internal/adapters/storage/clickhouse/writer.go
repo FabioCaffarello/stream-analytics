@@ -147,11 +147,13 @@ INSERT INTO aggregation_orderbook_snapshot_cold (
 }
 
 func snapshotFingerprint(snap aggdomain.SnapshotProduced) string {
-	fields := []string{
+	// Pre-size: 3 base fields + 3 per bid ("b", price, qty) + 3 per ask ("a", price, qty).
+	fields := make([]string, 0, 3+3*len(snap.Bids)+3*len(snap.Asks))
+	fields = append(fields,
 		snap.BookID.Venue,
 		snap.BookID.Instrument,
 		strconv.FormatInt(snap.Seq, 10),
-	}
+	)
 	for _, l := range snap.Bids {
 		fields = append(fields,
 			"b",

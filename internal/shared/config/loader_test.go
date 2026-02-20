@@ -1272,6 +1272,49 @@ func TestValidate_StorageClickHouseEnabled_EmptyAddrsFails(t *testing.T) {
 	}
 }
 
+func TestValidate_CrossField_BusCapacityLessThanSessionQueue_Fails(t *testing.T) {
+	cfg, prob := Load("")
+	if prob != nil {
+		t.Fatalf("Load: %v", prob)
+	}
+	cfg.Delivery.Enabled = true
+	cfg.Processor.BusCapacity = 256
+	cfg.Delivery.SessionOutboundQueueSize = 512
+	p := cfg.Validate()
+	if p == nil {
+		t.Fatal("expected validation failure when bus_capacity < session_outbound_queue_size")
+	}
+	if !strings.Contains(p.Message, "processor.bus_capacity") {
+		t.Fatalf("message=%q", p.Message)
+	}
+}
+
+func TestValidate_CrossField_BusCapacityEqualSessionQueue_Passes(t *testing.T) {
+	cfg, prob := Load("")
+	if prob != nil {
+		t.Fatalf("Load: %v", prob)
+	}
+	cfg.Delivery.Enabled = true
+	cfg.Processor.BusCapacity = 512
+	cfg.Delivery.SessionOutboundQueueSize = 512
+	if p := cfg.Validate(); p != nil {
+		t.Fatalf("unexpected validation failure: %v", p)
+	}
+}
+
+func TestValidate_CrossField_DeliveryDisabled_SkipsCheck(t *testing.T) {
+	cfg, prob := Load("")
+	if prob != nil {
+		t.Fatalf("Load: %v", prob)
+	}
+	cfg.Delivery.Enabled = false
+	cfg.Processor.BusCapacity = 1
+	cfg.Delivery.SessionOutboundQueueSize = 9999
+	if p := cfg.Validate(); p != nil {
+		t.Fatalf("unexpected validation failure when delivery disabled: %v", p)
+	}
+}
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 func testConsumerExchanges() []ConsumerExchangeConfig {

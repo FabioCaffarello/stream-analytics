@@ -251,7 +251,7 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 			DedupWindow:    cfg.JetStream.DedupWindowDuration(),
 			MaxAge:         cfg.JetStream.MaxAgeDuration(),
 			MaxBytes:       cfg.JetStream.MaxBytesInt64(),
-			PublishTimeout: 5 * time.Second,
+			PublishTimeout: cfg.Processor.PublisherTimeoutDuration(),
 		}, metrics.NewBusObserver())
 		if p != nil {
 			return fmt.Errorf("jetstream publisher init failed: %v", p)
@@ -865,7 +865,7 @@ func initReplayEnvelopeSource(path string, capacity int, logger *slog.Logger) en
 		logger.Info("processor: replay fixture loaded",
 			"replay_path", path,
 			"records", count,
-			"sha256", sharedhash.HashFields(hashes...),
+			"fingerprint", sharedhash.HashFieldsFast(hashes...),
 		)
 		errCh <- nil
 	}()
@@ -1009,7 +1009,7 @@ func maybeInjectJoinFixture(cfg config.AppConfig, e2e *e2eRuntime, pub aggruntim
 			TsExchange:     tsIngest - 10,
 			TsIngest:       tsIngest,
 			Seq:            seq,
-			IdempotencyKey: sharedhash.HashFields("e2e_join_fixture", venue, e2e.joinInstrument, side, tradeID),
+			IdempotencyKey: sharedhash.HashFieldsFast("e2e_join_fixture", venue, e2e.joinInstrument, side, tradeID),
 			ContentType:    envelope.ContentTypeJSON,
 			Meta: map[string]string{
 				"instrument_market_type": "SPOT",

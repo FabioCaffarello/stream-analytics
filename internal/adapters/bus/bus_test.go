@@ -228,6 +228,152 @@ func TestInMemoryBus_Publish_afterClose_isNoop(t *testing.T) {
 	}
 }
 
+func TestInMemoryBus_Close_idempotent(t *testing.T) {
+	b := newInMemoryBus(8)
+	_ = b.Subscribe()
+	_ = b.Subscribe()
+
+	// First Close closes all channels and sets subscribers to nil.
+	b.Close()
+	// Second Close iterates over nil slice — must not panic.
+	b.Close()
+
+	if b.Len() != 0 {
+		t.Fatalf("expected 0 subscribers after double Close, got %d", b.Len())
+	}
+}
+
+func TestInMemoryBus_Subscribe_afterClose(t *testing.T) {
+	b := newInMemoryBus(4)
+	ch1 := b.Subscribe()
+
+	b.Close()
+
+	// ch1 was closed by Close().
+	if _, ok := <-ch1; ok {
+		t.Fatal("ch1 should be closed after Close()")
+	}
+
+	// Subscribe after Close appends to the (now nil) slice — must not panic.
+	ch2 := b.Subscribe()
+	if b.Len() != 1 {
+		t.Fatalf("expected 1 subscriber after re-subscribe, got %d", b.Len())
+	}
+
+	// Publish should deliver to the new subscriber.
+	env := makeEnvelope("binance", "BTC-USDT", "marketdata.trade", 42)
+	if err := b.Publish(context.Background(), env); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got := <-ch2
+	if got.Seq != 42 {
+		t.Fatalf("expected seq 42, got %d", got.Seq)
+	}
+}
+
+func TestInMemoryBus_Publish_subscriberIsolation(t *testing.T) {
+	// One full subscriber must not block delivery to another subscriber
+	// with available capacity.
+	b := newInMemoryBus(1)
+	chSlow := b.Subscribe() // cap=1, will be filled first
+	chFast := b.Subscribe() // cap=1, will receive independently
+
+	// Fill the slow subscriber's buffer.
+	env1 := makeEnvelope("binance", "BTC-USDT", "marketdata.trade", 1)
+	if err := b.Publish(context.Background(), env1); err != nil {
+		t.Fatalf("unexpected error on first publish: %v", err)
+	}
+
+	// Drain fast subscriber so it has capacity again.
+	<-chFast
+
+	// Now publish a second message. Slow subscriber is full (cap=1, still
+	// holding env1), so the second envelope is dropped for it. Fast
+	// subscriber has capacity and must receive it.
+	env2 := makeEnvelope("binance", "ETH-USDT", "marketdata.trade", 2)
+	if err := b.Publish(context.Background(), env2); err != nil {
+		t.Fatalf("unexpected error on second publish: %v", err)
+	}
+
+	// Fast subscriber should have received env2.
+	got := <-chFast
+	if got.Seq != 2 {
+		t.Fatalf("fast subscriber expected seq 2, got %d", got.Seq)
+	}
+
+	// Slow subscriber should only have the original env1.
+	got = <-chSlow
+	if got.Seq != 1 {
+		t.Fatalf("slow subscriber expected seq 1, got %d", got.Seq)
+	}
+	select {
+	case extra := <-chSlow:
+		t.Fatalf("slow subscriber should have no more envelopes, got seq=%d", extra.Seq)
+	default:
+	}
+}
+
+func TestInMemoryBus_droppedTotal_accumulates(t *testing.T) {
+	// Use a NopBusObserver so we don't interfere with Prometheus global
+	// counters from other tests. The droppedTotal field is an atomic.Int64
+	// internal to each InMemoryBus instance. We verify accumulation
+	// indirectly through the Prometheus metric.
+
+	// Record current metric value before our test publishes.
+	beforeS0 := testutil.ToFloat64(metrics.BusDroppedTotal.WithLabelValues("s0"))
+
+	b := newInMemoryBus(1) // uses metrics observer
+	_ = b.Subscribe()      // subscriber index 0, label "s0"
+
+	// Fill the buffer.
+	env := makeEnvelope("binance", "BTC-USDT", "marketdata.trade", 1)
+	if err := b.Publish(context.Background(), env); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Publish 5 more — all should be dropped for subscriber 0.
+	const drops = 5
+	for i := 0; i < drops; i++ {
+		env := makeEnvelope("binance", "BTC-USDT", "marketdata.trade", int64(100+i))
+		if err := b.Publish(context.Background(), env); err != nil {
+			t.Fatalf("unexpected error on publish %d: %v", i, err)
+		}
+	}
+
+	afterS0 := testutil.ToFloat64(metrics.BusDroppedTotal.WithLabelValues("s0"))
+	delta := afterS0 - beforeS0
+	if delta < float64(drops) {
+		t.Fatalf("expected at least %d drops recorded in metric, got delta=%.0f", drops, delta)
+	}
+}
+
+func TestInMemoryBus_highFanout(t *testing.T) {
+	const numSubscribers = 100
+	b := newInMemoryBus(8)
+
+	channels := make([]<-chan envelope.Envelope, numSubscribers)
+	for i := 0; i < numSubscribers; i++ {
+		channels[i] = b.Subscribe()
+	}
+
+	if b.Len() != numSubscribers {
+		t.Fatalf("expected %d subscribers, got %d", numSubscribers, b.Len())
+	}
+
+	env := makeEnvelope("binance", "BTC-USDT", "marketdata.trade", 7)
+	if err := b.Publish(context.Background(), env); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for i, ch := range channels {
+		got := <-ch
+		if got.Seq != 7 {
+			t.Fatalf("subscriber %d: expected seq 7, got %d", i, got.Seq)
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Interface compliance — compile-time assertions
 // ---------------------------------------------------------------------------
