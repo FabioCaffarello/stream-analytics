@@ -2,7 +2,7 @@
 package validation
 
 import (
-	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/market-raccoon/internal/shared/problem"
@@ -159,4 +159,4 @@ func Combine(validators ...func() *problem.Problem) *problem.Problem {
 	return nil
 }
 
-func formatNum(v float64) string { return fmt.Sprintf("%g", v) }
+func formatNum(v float64) string { return strconv.FormatFloat(v, 'g', -1, 64) }

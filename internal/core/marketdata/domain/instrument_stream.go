@@ -90,6 +90,7 @@ func NewInstrumentStreamWithMarketType(
 		id:          StreamID{Venue: venue, Instrument: instrument, MarketType: marketType},
 		dedupWindow: dedupWindow,
 		seen:        make(map[uint64]struct{}, cap),
+		seenOrd:     make([]uint64, 0, cap),
 	}, nil
 }
 
