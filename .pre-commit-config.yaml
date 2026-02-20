@@ -64,3 +64,11 @@ repos:
         language: system
         entry: scripts/validate-commit-msg.sh
         stages: [commit-msg]
+
+      # Run govulncheck at pre-push (optional heavy check; can be gated via VULN_REQUIRED)
+      - id: govulncheck
+        name: govulncheck (pre-push)
+        language: system
+        entry: make vuln
+        pass_filenames: false
+        stages: [pre-push]
