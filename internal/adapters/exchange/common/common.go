@@ -4,6 +4,7 @@
 package common
 
 import (
+	"encoding/json"
 	"strconv"
 	"strings"
 	"sync"
@@ -153,6 +154,27 @@ func TradeIDStringFromAny(value any) string {
 	default:
 		return ""
 	}
+}
+
+// UnwrapCombinedStream detects Binance-like combined stream envelopes of the form
+// { "stream": "...", "data": ... } and returns the inner data and stream name.
+// If the input is not a wrapped envelope, payload is returned unchanged and wrapped=false.
+// If wrapped is true and emptyData is true it means the wrapper had no data but had a stream.
+func UnwrapCombinedStream(data []byte) (payload []byte, wsStream string, wrapped bool, emptyData bool) {
+	var wrappedEnv struct {
+		Stream string          `json:"stream"`
+		Data   json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(data, &wrappedEnv); err == nil {
+		wsStream = strings.TrimSpace(wrappedEnv.Stream)
+		if len(wrappedEnv.Data) > 0 {
+			return wrappedEnv.Data, wsStream, true, false
+		}
+		if wrappedEnv.Stream != "" {
+			return nil, wsStream, true, true
+		}
+	}
+	return data, "", false, false
 }
 
 // ParseStringLevels parses [][]string price levels (common across Binance, Bybit,

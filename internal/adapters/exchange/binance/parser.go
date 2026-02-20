@@ -19,11 +19,6 @@ const (
 	VenueBinance = "BINANCE"
 )
 
-type streamEnvelope struct {
-	Stream string          `json:"stream"`
-	Data   json.RawMessage `json:"data"`
-}
-
 type aggTrade struct {
 	Event        string `json:"e"`
 	EventTimeMs  int64  `json:"E"`
@@ -96,18 +91,16 @@ func ParseMessageWithMetaForMarketType(data []byte, recvAt time.Time, marketType
 	payload := data
 	meta := ParseMeta{}
 
-	// Binance combined stream wraps payload as {stream, data}.
-	var wrapped streamEnvelope
-	if err := json.Unmarshal(data, &wrapped); err == nil {
-		meta.WSStream = strings.TrimSpace(wrapped.Stream)
-		meta.EventType = eventTypeFromStream(wrapped.Stream)
-		meta.Ticker = tickerFromStream(wrapped.Stream)
-		if len(wrapped.Data) > 0 {
-			payload = wrapped.Data
-		} else if wrapped.Stream != "" {
+	// Binance combined stream wraps payload as {stream, data}. Use shared helper.
+	if p, ws, wrapped, empty := common.UnwrapCombinedStream(data); wrapped {
+		meta.WSStream = ws
+		meta.EventType = eventTypeFromStream(ws)
+		meta.Ticker = tickerFromStream(ws)
+		if empty {
 			meta.SkipReason = "envelope_empty_data"
 			return app.IngestRequest{}, true, meta
 		}
+		payload = p
 	}
 
 	var obj map[string]json.RawMessage
