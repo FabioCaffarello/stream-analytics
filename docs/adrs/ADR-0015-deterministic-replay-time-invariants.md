@@ -16,7 +16,7 @@ Changelog evidence:
 - Golden replay tests: `internal/shared/replay/golden_test.go` (`file:test TestGoldenReplay`, `file:test TestGoldenReplayByteStable50Runs`).
 - Sequencer monotonic replay checks: `internal/shared/replay/sequencer_test.go` (`file:test TestReplaySequencerMonotonicPerStreamDeterministic`).
 - Consumer replay golden test: `cmd/consumer/replay_test.go` (`file:test TestReplayIngestGolden1000`).
-- Core purity guard script (`time.Now` ban in `internal/core`): `scripts/check-domain-isolation.sh` (`file:symbol scan_time_now_with_rg`).
+-- Core purity guard script (`time.Now` ban in `internal/core`): `scripts/ci/check-domain-isolation.sh` (`file:symbol scan_time_now_with_rg`).
 
 ## Context
 

@@ -101,8 +101,8 @@ O drift identificado no W11 e de governanca: o texto misturava "fundacao entregu
 - `internal/shared/envelope/envelope_test.go:96`
 
 - Domain boundary guard:
-- `scripts/check-domain-isolation.sh:13`
-- `scripts/check-domain-isolation.sh:49`
+- `scripts/ci/check-domain-isolation.sh:13`
+- `scripts/ci/check-domain-isolation.sh:49`
 
 ## Changelog
 

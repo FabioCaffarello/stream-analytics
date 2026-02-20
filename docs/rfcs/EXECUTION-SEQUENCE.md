@@ -54,7 +54,7 @@ Gate authority (workspace atual):
 | W8 | Deterministic replay | Implemented | `internal/shared/replay/golden_test.go:1`, `cmd/consumer/replay_test.go:63` |
 | W9 | Multi-exchange readiness | Partially Implemented | `cmd/consumer/e2e_consumer_integration_test.go:24`, `docs/adrs/ADR-0017-multi-exchange-normalization.md` |
 | W10 | Insights hardening evidence | Implemented | `docs/rfcs/EXECUTION-SEQUENCE.md` (historico consolidado em Git) |
-| W12 | Operational maturity gate | Implemented | `Makefile:156`, `scripts/soak-test.sh` |
+| W12 | Operational maturity gate | Implemented | `Makefile:156`, `scripts/test/soak/soak-test.sh` |
 | W13 | Contract layer completion | Planned | `docs/adrs/ADR-0016-protobuf-contract-layer.md` |
 | W14 | Product parity: candle + stats aggregation | Planned | `docs/rfcs/RFC-0011-product-parity-marketmonkey.md` |
 
@@ -125,15 +125,15 @@ make test-workspace
 
 | Capability | Status | Reference |
 |---|---|---|
-| Documentation guardrails (headers, links, truth-map) | Implemented | `Makefile`, `scripts/check-doc-headers.sh`, `scripts/check-doc-links.sh`, `scripts/check-truth-map.sh` |
-| Domain isolation + determinism guards | Implemented | `Makefile:123`, `scripts/check-domain-isolation.sh:49`, `scripts/check-domain-isolation.sh:107` |
+| Documentation guardrails (headers, links, truth-map) | Implemented | `Makefile`, `scripts/ci/check-doc-headers.sh`, `scripts/ci/check-doc-links.sh`, `scripts/ci/check-truth-map.sh` |
+| Domain isolation + determinism guards | Implemented | `Makefile:123`, `scripts/ci/check-domain-isolation.sh:49`, `scripts/ci/check-domain-isolation.sh:107` |
 | Workspace-wide tests (`go test` all modules) | Implemented | `Makefile:136`, `Makefile:139` |
 | JetStream durability/restart | Implemented | `internal/adapters/jetstream/consumer_integration_test.go:21` |
 | JetStream dedup by `Msg-ID` | Implemented | `internal/adapters/jetstream/publisher_integration_test.go:41` |
 | Replay determinism golden | Implemented | `internal/shared/replay/golden_test.go:1` |
 | Multi-exchange process validation | Implemented | `cmd/consumer/e2e_consumer_integration_test.go:24` |
 | Protobuf schema authority/toolchain | Partially Implemented | `Makefile:217`, `Makefile:224`, `internal/shared/contracts/authority_test.go:268` |
-| Long-run soak evidence policy | Partially Implemented | `Makefile:156`, `scripts/soak-test.sh` |
+| Long-run soak evidence policy | Partially Implemented | `Makefile:156`, `scripts/test/soak/soak-test.sh` |
 | Contract-layer runtime completion (W13) | Planned | `docs/adrs/ADR-0016-protobuf-contract-layer.md` |
 | Candle aggregation OHLCV (W14) | Planned | `docs/architecture/candle-aggregation.md` |
 | Stats aggregation liq/funding/markprice (W14) | Planned | `docs/architecture/stats-aggregation.md` |

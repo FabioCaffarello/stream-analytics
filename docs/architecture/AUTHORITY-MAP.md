@@ -72,12 +72,12 @@ Rule: `slo.md` owns targets. `performance-budgets.md` owns measurement methodolo
 ## Validation Gate
 
 This map is validated by `make docs-check` which runs:
-- `scripts/check-doc-headers.sh`
-- `scripts/check-doc-links.sh`
-- `scripts/check-truth-map.sh`
-- `scripts/check-feature-pack-links.sh`
-- `scripts/check-pack-subjects-vs-event-bus.sh`
-- `scripts/check-registry.sh`
+- `scripts/ci/check-doc-headers.sh`
+- `scripts/ci/check-doc-links.sh`
+- `scripts/ci/check-truth-map.sh`
+- `scripts/ci/check-feature-pack-links.sh`
+- `scripts/ci/check-pack-subjects-vs-event-bus.sh`
+- `scripts/ci/check-registry.sh`
 
 ## Changelog
 

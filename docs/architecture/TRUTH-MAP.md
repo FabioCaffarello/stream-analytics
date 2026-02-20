@@ -109,7 +109,7 @@ Status anchors: `docs/rfcs/RFC-0001-robustness-roadmap.md:3`, `docs/rfcs/RFC-000
 
 | Theme | Authoritative doc | Code anchor | Test anchor | State |
 |---|---|---|---|---|
-| Runtime invariants | `docs/audits/AUDIT-PACK-W11-finalization.md:25` | `scripts/check-domain-isolation.sh:16`, `internal/actors/runtime/guardian.go:273` | `internal/shared/contracts/import_guard_test.go:15`, `internal/actors/runtime/guardian_test.go:57` | Accepted (operational evidence); INV-LAY-01..06 automated |
+| Runtime invariants | `docs/audits/AUDIT-PACK-W11-finalization.md:25` | `scripts/ci/check-domain-isolation.sh:16`, `internal/actors/runtime/guardian.go:273` | `internal/shared/contracts/import_guard_test.go:15`, `internal/actors/runtime/guardian_test.go:57` | Accepted (operational evidence); INV-LAY-01..06 automated |
 | Subject taxonomy | `docs/adrs/ADR-0014-stream-partitioning-strategy.md:33` | `internal/adapters/jetstream/subject_validation.go:24` | `internal/adapters/jetstream/subject_validation_test.go:5` | Accepted |
 | ACK semantics (ACK/NAK/TERM) | `docs/adrs/ADR-0004-bus-nats-jetstream.md:1`, `docs/rfcs/RFC-0008-W7-nats-jetstream-integration.md:1` | `internal/adapters/jetstream/consumer.go:279`, `internal/adapters/jetstream/ingest_policy.go:59` | `internal/adapters/jetstream/ingest_conformance_test.go:15` | Accepted in runtime; RFC remains Draft with explicit partial matrix |
 | Replay deterministico | `docs/adrs/ADR-0015-deterministic-replay-time-invariants.md:1`, `docs/rfcs/RFC-0009-W8-deterministic-replay-golden-tests.md:1` | `internal/shared/replay/player.go:45`, `internal/shared/replay/sequencer.go:56`, `internal/shared/replay/canon.go:284` | `internal/shared/replay/golden_test.go:18`, `cmd/consumer/replay_test.go:63` | Accepted |
@@ -123,7 +123,8 @@ Status anchors: `docs/rfcs/RFC-0001-robustness-roadmap.md:3`, `docs/rfcs/RFC-000
 | Stats aggregation (liq/funding/markprice per TF) | `docs/architecture/stats-aggregation.md:1` | `internal/core/aggregation/domain/stats.go:1`, `internal/core/aggregation/app/build_stats.go:1`, `internal/actors/aggregation/runtime/processor.go:819` | `internal/core/aggregation/app/build_stats_test.go:136`, `internal/actors/aggregation/runtime/processor_e2e_test.go:36`, `internal/interfaces/ws/candle_stats_delivery_contract_test.go:80` | Implemented (M7) with per-TF + cross-source + delivery coverage |
 | Liquidations and mark price e2e | `docs/architecture/liquidations-markprice.md:1` | `internal/shared/contracts/authority_manifest.go:80`, `internal/shared/contracts/authority_manifest.go:100` | `internal/shared/contracts/marketdata_registry_test.go:17`, `internal/shared/codec/payload_codec_test.go:28` | Draft (contracts exist, pipeline planned) |
 | Contract layer | `docs/adrs/ADR-0016-protobuf-contract-layer.md:3`, `docs/rfcs/RFC-0007-W6-protobuf-contract-layer.md:1` | `internal/shared/contracts/payload_registry.go:19`, `internal/shared/codec/proto_codec.go:25` | `internal/shared/contracts/import_guard_test.go:15`, `internal/shared/contracts/authority_test.go:284` | Accepted ADR + accepted W6 foundation |
-| Multi-exchange | `docs/adrs/ADR-0017-multi-exchange-normalization.md:1`, `docs/rfcs/RFC-0010-W9-multi-exchange-readiness.md:1` | `cmd/consumer/main.go:157`, `scripts/check-domain-isolation.sh:109` | `cmd/consumer/e2e_consumer_integration_test.go:24`, `internal/actors/runtime/guardian_test.go:99` | Runtime implemented; MEX-4 guard wired in `invariants-check` |
+| Multi-exchange | `docs/adrs/ADR-0017-multi-exchange-normalization.md:1`, `docs/rfcs/RFC-0010-W9-multi-exchange-readiness.md:1` | `cmd/consumer/main.go:157`, `scripts/ci/check-domain-isolation.sh:109` | `cmd/consumer/e2e_consumer_integration_test.go:24`, `internal/actors/runtime/guardian_test.go:99` | Runtime implemented; MEX-4 guard wired in `invariants-check` |
+| Multi-exchange | `docs/adrs/ADR-0017-multi-exchange-normalization.md:1`, `docs/rfcs/RFC-0010-W9-multi-exchange-readiness.md:1` | `cmd/consumer/main.go:157`, `scripts/ci/check-domain-isolation.sh:109` | `cmd/consumer/e2e_consumer_integration_test.go:24`, `internal/actors/runtime/guardian_test.go:99` | Runtime implemented; MEX-4 guard wired in `invariants-check` |
 
 ### Real Validation Gates (Workspace-Safe)
 
@@ -137,7 +138,7 @@ make test-workspace-race
 make soak-check
 ```
 
-Anchor: `Makefile`, `scripts/check-doc-headers.sh`, `scripts/check-doc-links.sh`, `scripts/check-truth-map.sh`, `scripts/check-feature-pack-links.sh`, `scripts/check-pack-subjects-vs-event-bus.sh`, `scripts/check-domain-isolation.sh`, `scripts/soak-test.sh`.
+Anchor: `Makefile`, `scripts/ci/check-doc-headers.sh`, `scripts/ci/check-doc-links.sh`, `scripts/ci/check-truth-map.sh`, `scripts/ci/check-feature-pack-links.sh`, `scripts/ci/check-pack-subjects-vs-event-bus.sh`, `scripts/ci/check-domain-isolation.sh`, `scripts/test/soak/soak-test.sh`.
 
 ## Acceptance
 
@@ -174,5 +175,5 @@ Anchor: `Makefile`, `scripts/check-doc-headers.sh`, `scripts/check-doc-links.sh`
   - added workspace-safe gate commands used by PREVC validation.
   - aligned gate set to include `make docs-check` + `check-pack-subjects-vs-event-bus` guard.
   - reconciled PRD/RFC W7/W9 summaries after governance normalization wave 2.
-  - added MEX-4 guard anchor (`scripts/check-domain-isolation.sh`) in multi-exchange authority row.
+  - added MEX-4 guard anchor (`scripts/ci/check-domain-isolation.sh`) in multi-exchange authority row.
   - added parity v1 document authority set (`storage`, `orderbook`, `heatmap`, `volume-profiles`, `liquidations-markprice`, `delivery-ws`, `RFC-0011`).

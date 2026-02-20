@@ -53,7 +53,7 @@ Implementation note (W11 partial follow-up):
 | `internal/actors/runtime/guardian.go` | ALTER | Add `restartRateLimiter` |
 | `internal/actors/runtime/guardian_test.go` | ALTER | Test rate limiter: 6th restart denied in window |
 | `internal/shared/ds/leaktest.go` | CREATE | `AssertNoGoroutineLeak(t, fn)` helper |
-| `scripts/soak-test.sh` | CREATE | Soak test runner with goroutine/heap assertions |
+| `scripts/test/soak/soak-test.sh` | CREATE | Soak test runner with goroutine/heap assertions |
 
 ## 5. API Changes
 
@@ -256,7 +256,7 @@ No migration needed. All changes are backward compatible:
 
 ## 10. Execution Evidence (2026-02-12)
 
-- Soak harness executed (`scripts/soak-test.sh`) with goroutine/heap leak checks and bounded-map stress pass (`.context/evidence/w5-soak.txt`).
+- Soak harness executed (`scripts/test/soak/soak-test.sh`) with goroutine/heap leak checks and bounded-map stress pass (`.context/evidence/w5-soak.txt`).
 - Full module matrix green (`go test` and `go test -race`) except `cmd/store` expected `no packages to test` (recorded in `.context/evidence/w5-full-test.txt` and `.context/evidence/w5-full-race.txt`).
 - Runtime hardening delivered in `internal/actors/marketdata/ws/consumer.go`, bounded state maps in core use-cases, and bounded order book depth in domain aggregate.
 
