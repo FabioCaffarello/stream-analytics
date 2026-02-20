@@ -1509,7 +1509,8 @@ func (p *ProcessorSubsystemActor) hbTopTypes(n int) []string {
 	}
 	out := make([]string, limit)
 	for i := 0; i < limit; i++ {
-		out[i] = fmt.Sprintf("%s:%d", entries[i].k, entries[i].v)
+		// Avoid fmt.Sprintf allocation on hot-path; use strconv for integer conversion.
+		out[i] = entries[i].k + ":" + strconv.FormatInt(entries[i].v, 10)
 	}
 	return out
 }
