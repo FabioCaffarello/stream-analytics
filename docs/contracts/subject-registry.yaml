@@ -1,3 +1,7 @@
+---
+# Subject registry
+# This is a minimal placeholder registry to satisfy local validation.
+# Replace entries below with the authoritative subject catalog before publishing.
 version: 1
 last_updated: 2026-02-18
 canonical_subject_format: "{event}.v{version}.{venue}.{instrument}"
