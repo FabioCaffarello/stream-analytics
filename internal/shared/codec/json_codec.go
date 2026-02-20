@@ -19,12 +19,19 @@ func (c JSONCodec[T]) Encode(v any) ([]byte, *problem.Problem) {
 			"payload_type", fmt.Sprintf("%T", v),
 		)
 	}
-
-	data, err := json.Marshal(typed)
-	if err != nil {
-		return nil, problem.Wrap(err, problem.Internal, "json codec: marshal failed")
+	// Use pooled buffer to reduce temporary allocations.
+	buf := AcquireBuffer()
+	defer ReleaseBuffer(buf)
+	if p := EncodeTo(buf, typed); p != nil {
+		return nil, problem.WithDetail(p, "payload_type", fmt.Sprintf("%T", v))
 	}
-	return data, nil
+	// copy out bytes since buffer will be returned to pool
+	b := append([]byte(nil), buf.Bytes()...)
+	// trim trailing newline if present
+	if len(b) > 0 && b[len(b)-1] == '\n' {
+		b = b[:len(b)-1]
+	}
+	return b, nil
 }
 
 func (c JSONCodec[T]) Decode(b []byte) (any, *problem.Problem) {

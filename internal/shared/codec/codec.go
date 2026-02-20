@@ -81,8 +81,10 @@ func Unmarshal(data []byte, out any) *problem.Problem {
 // MarshalPayload serializes a typed payload and attaches event_type/version
 // context to any error returned. This helper keeps JSON as default runtime path.
 func MarshalPayload(eventType string, version int, v any) ([]byte, *problem.Problem) {
-	data, p := Marshal(v)
-	if p != nil {
+	// Use buffer-backed encoding to reduce intermediate allocations.
+	buf := AcquireBuffer()
+	defer ReleaseBuffer(buf)
+	if p := EncodeTo(buf, v); p != nil {
 		return nil, problem.WithDetail(
 			problem.WithDetail(
 				problem.WithDetail(p, "event_type", eventType),
@@ -91,7 +93,13 @@ func MarshalPayload(eventType string, version int, v any) ([]byte, *problem.Prob
 			"payload_type", fmt.Sprintf("%T", v),
 		)
 	}
-	return data, nil
+	// copy out bytes since buffer will be returned to pool
+	b := append([]byte(nil), buf.Bytes()...)
+	// trim trailing newline from Encoder.Encode if present
+	if len(b) > 0 && b[len(b)-1] == '\n' {
+		b = b[:len(b)-1]
+	}
+	return b, nil
 }
 
 // UnmarshalPayload deserializes raw bytes and attaches event_type/version/size
