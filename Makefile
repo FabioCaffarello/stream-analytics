@@ -280,11 +280,11 @@ registry-check:
 	@./scripts/ci/check-registry.sh
 
 docs-fix:
-	@./scripts/check-doc-headers.sh --fix-hints
-	@./scripts/check-doc-links.sh --fix-hints
-	@./scripts/check-truth-map.sh --fix-hints
-	@./scripts/check-feature-pack-links.sh --fix-hints
-	@./scripts/check-pack-subjects-vs-event-bus.sh --fix-hints
+	@./scripts/ci/check-doc-headers.sh --fix-hints
+	@./scripts/ci/check-doc-links.sh --fix-hints
+	@./scripts/ci/check-truth-map.sh --fix-hints
+	@./scripts/ci/check-feature-pack-links.sh --fix-hints
+	@./scripts/ci/check-pack-subjects-vs-event-bus.sh --fix-hints
 
 invariants-check:
 	@./scripts/ci/check-domain-isolation.sh "$(CURDIR)"
