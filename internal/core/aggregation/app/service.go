@@ -25,14 +25,17 @@ type AggregationService struct {
 	UpdateBook *UpdateOrderBookFromEvents
 	Candle     *BuildCandleFromEvents
 	Stats      *BuildStatsFromEvents
+	Funding    *BuildFundingRateFromEvents
 }
 
 // NewAggregationService creates all aggregation use cases from a single config.
 func NewAggregationService(cfg AggregationServiceConfig) *AggregationService {
+	statsUC := NewBuildStatsFromEvents(cfg.Publisher, cfg.StatsStore, cfg.Stats)
 	return &AggregationService{
 		UpdateBook: NewUpdateOrderBookFromEventsWithConfig(cfg.Publisher, cfg.Store, cfg.Update),
 		Candle:     NewBuildCandleFromEvents(cfg.Publisher, cfg.CandleStore, cfg.Candle),
-		Stats:      NewBuildStatsFromEvents(cfg.Publisher, cfg.StatsStore, cfg.Stats),
+		Stats:      statsUC,
+		Funding:    NewBuildFundingRateFromEvents(statsUC),
 	}
 }
 

@@ -1,10 +1,88 @@
 package storage
 
 import (
+	"context"
 	"testing"
 
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
+	"github.com/market-raccoon/internal/shared/problem"
 )
+
+type fakeExec struct {
+	lastQuery string
+	lastArgs  []any
+	ret       *problem.Problem
+	calls     int
+}
+
+func (f *fakeExec) Exec(ctx context.Context, query string, args ...any) (int64, *problem.Problem) {
+	f.lastQuery = query
+	f.lastArgs = append([]any(nil), args...)
+	f.calls++
+	if f.ret != nil {
+		return 0, f.ret
+	}
+	return 1, nil
+}
+
+func (f *fakeExec) QueryRow(ctx context.Context, query string, args ...any) Row {
+	// Not used by the helper.
+	return nil
+}
+
+func TestUpsertAggregationSnapshot_Success(t *testing.T) {
+	ctx := context.Background()
+	exec := &fakeExec{}
+	snap := aggdomain.SnapshotProduced{
+		BookID: aggdomain.BookID{Venue: "binance", Instrument: "BTC-PERP"},
+		Seq:    1,
+		Bids:   []aggdomain.Level{{Price: 100.0, Quantity: 1.0}},
+		Asks:   []aggdomain.Level{{Price: 101.0, Quantity: 2.0}},
+	}
+
+	if p := UpsertAggregationSnapshot(ctx, exec, snap); p != nil {
+		t.Fatalf("unexpected error: %v", p)
+	}
+	if exec.calls != 1 {
+		t.Fatalf("expected exec.calls=1, got %d", exec.calls)
+	}
+	if len(exec.lastArgs) < 5 {
+		t.Fatalf("unexpected args length: %d", len(exec.lastArgs))
+	}
+	if got, ok := exec.lastArgs[0].(string); !ok || got != "binance" {
+		t.Fatalf("unexpected venue arg: %#v", exec.lastArgs[0])
+	}
+}
+
+func TestUpsertAggregationSnapshot_ExecError(t *testing.T) {
+	ctx := context.Background()
+	exec := &fakeExec{ret: problem.New(problem.Internal, "boom")}
+	snap := aggdomain.SnapshotProduced{
+		BookID: aggdomain.BookID{Venue: "binance", Instrument: "BTC-PERP"},
+		Seq:    2,
+	}
+	if p := UpsertAggregationSnapshot(ctx, exec, snap); p == nil {
+		t.Fatalf("expected error, got nil")
+	}
+}
+
+func BenchmarkUpsertAggregationSnapshot(b *testing.B) {
+	ctx := context.Background()
+	exec := &fakeExec{}
+	snap := aggdomain.SnapshotProduced{
+		BookID: aggdomain.BookID{Venue: "binance", Instrument: "BTC-PERP"},
+		Seq:    42,
+		Bids:   []aggdomain.Level{{Price: 100.0, Quantity: 1.0}},
+		Asks:   []aggdomain.Level{{Price: 101.0, Quantity: 2.0}},
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if p := UpsertAggregationSnapshot(ctx, exec, snap); p != nil {
+			b.Fatalf("unexpected error: %v", p)
+		}
+	}
+}
 
 func TestNullableMarkPrice_AllPositive(t *testing.T) {
 	s := aggdomain.StatsWindowV1{

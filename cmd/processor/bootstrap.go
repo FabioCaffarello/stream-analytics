@@ -8,6 +8,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -703,10 +704,10 @@ func (m *envelopeResultMailbox) wait() <-chan struct{} {
 
 func processedEnvelopeKey(env envelope.Envelope) string {
 	return strings.ToLower(strings.TrimSpace(env.Type)) + "|" +
-		fmt.Sprintf("%d", env.Version) + "|" +
+		strconv.Itoa(env.Version) + "|" +
 		strings.ToLower(strings.TrimSpace(env.Venue)) + "|" +
 		strings.ToLower(strings.TrimSpace(env.Instrument)) + "|" +
-		fmt.Sprintf("%d", env.Seq) + "|" +
+		strconv.FormatInt(env.Seq, 10) + "|" +
 		strings.TrimSpace(env.IdempotencyKey)
 }
 

@@ -926,19 +926,11 @@ func (p *ProcessorSubsystemActor) handleMarkPrice(env envelope.Envelope) *proble
 		}
 		return prob
 	}
-	if mark.FundingRate != 0 {
-		fundingReq := aggapp.BuildStatsRequest{
-			Venue:       env.Venue,
-			Instrument:  stateInstrumentKey(env),
-			Kind:        aggapp.StatsInputFundingRate,
-			Seq:         env.Seq,
-			TsIngest:    env.TsIngest,
-			FundingRate: mark.FundingRate,
-		}
-		resp, prob = p.cfg.Service.Stats.Execute(context.Background(), fundingReq)
+	if mark.FundingRate != 0 && p.cfg.Service != nil && p.cfg.Service.Funding != nil {
+		resp, prob = p.cfg.Service.Funding.Execute(context.Background(), env.Venue, stateInstrumentKey(env), env.Seq, env.TsIngest, mark)
 		if prob != nil {
 			if isBenignStreamOrderProblem(prob) {
-				p.logger.Debug("aggruntime: BuildStats ignored stale funding",
+				p.logger.Debug("aggruntime: BuildFunding ignored stale funding",
 					"venue", env.Venue,
 					"instrument", env.Instrument,
 					"market_type", envelopeMarketType(env),

@@ -1,12 +1,62 @@
-// Package storage provides shared helpers for Timescale and ClickHouse writers.
 package storage
 
 import (
+	"context"
 	"strings"
 
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
+	"github.com/market-raccoon/internal/shared/codec"
 	sharedhash "github.com/market-raccoon/internal/shared/hash"
+	"github.com/market-raccoon/internal/shared/problem"
 )
+
+// UpsertAggregationSnapshot writes a SnapshotProduced to Timescale via Exec.
+// It centralizes marshaling and common error wrapping used by Timescale/ClickHouse writers.
+func UpsertAggregationSnapshot(ctx context.Context, exec SQLExecutor, snap aggdomain.SnapshotProduced) *problem.Problem {
+	if exec == nil {
+		return problem.New(problem.ValidationFailed, "sql executor is nil")
+	}
+
+	bidsJSON, asksJSON, p := MarshalAggregationSnapshot(ctx, snap)
+	if p != nil {
+		return p
+	}
+
+	const upsertSQL = `
+INSERT INTO aggregation_orderbook_snapshot (
+    venue,
+    instrument,
+    seq,
+    bids_json,
+    asks_json,
+    created_at
+) VALUES ($1, $2, $3, $4, $5, NOW())
+ON CONFLICT (venue, instrument, seq) DO NOTHING`
+
+	if _, p := exec.Exec(ctx, upsertSQL,
+		snap.BookID.Venue,
+		snap.BookID.Instrument,
+		snap.Seq,
+		bidsJSON,
+		asksJSON,
+	); p != nil {
+		return p
+	}
+	return nil
+}
+
+// MarshalAggregationSnapshot marshals bids and asks into JSON bytes for storage writers.
+func MarshalAggregationSnapshot(_ context.Context, snap aggdomain.SnapshotProduced) ([]byte, []byte, *problem.Problem) {
+	bidsJSON, err := codec.Marshal(snap.Bids)
+	if err != nil {
+		return nil, nil, problem.Wrap(err, problem.Internal, "marshal bids failed")
+	}
+	asksJSON, err := codec.Marshal(snap.Asks)
+	if err != nil {
+		return nil, nil, problem.Wrap(err, problem.Internal, "marshal asks failed")
+	}
+	return bidsJSON, asksJSON, nil
+}
 
 // NullableMarkPrice returns nil for all four OHLC mark-price fields when any
 // value is non-positive, signalling the DB column should store NULL.

@@ -9,7 +9,6 @@ import (
 	adapterstorage "github.com/market-raccoon/internal/adapters/storage"
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
 	aggports "github.com/market-raccoon/internal/core/aggregation/ports"
-	"github.com/market-raccoon/internal/shared/codec"
 	sharedhash "github.com/market-raccoon/internal/shared/hash"
 	"github.com/market-raccoon/internal/shared/ids"
 	"github.com/market-raccoon/internal/shared/problem"
@@ -80,39 +79,7 @@ func (w *PgWriter) Save(ctx context.Context, snap aggdomain.SnapshotProduced) *p
 	if w == nil || w.exec == nil {
 		return problem.New(problem.ValidationFailed, "timescale pg writer is nil")
 	}
-
-	bidsJSON, err := codec.Marshal(snap.Bids)
-	if err != nil {
-		return problem.Wrap(err, problem.Internal, "marshal bids failed")
-	}
-	asksJSON, err := codec.Marshal(snap.Asks)
-	if err != nil {
-		return problem.Wrap(err, problem.Internal, "marshal asks failed")
-	}
-
-	const upsertSQL = `
-INSERT INTO aggregation_orderbook_snapshot (
-    venue,
-    instrument,
-    seq,
-    bids_json,
-    asks_json,
-    created_at
-) VALUES ($1, $2, $3, $4, $5, NOW())
-ON CONFLICT (venue, instrument, seq) DO NOTHING`
-
-	if _, p := w.exec.Exec(
-		ctx,
-		upsertSQL,
-		snap.BookID.Venue,
-		snap.BookID.Instrument,
-		snap.Seq,
-		bidsJSON,
-		asksJSON,
-	); p != nil {
-		return p
-	}
-	return nil
+	return adapterstorage.UpsertAggregationSnapshot(ctx, w.exec, snap)
 }
 
 func snapshotFingerprint(snap aggdomain.SnapshotProduced) string {

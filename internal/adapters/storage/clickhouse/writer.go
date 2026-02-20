@@ -8,7 +8,6 @@ import (
 	adapterstorage "github.com/market-raccoon/internal/adapters/storage"
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
 	aggports "github.com/market-raccoon/internal/core/aggregation/ports"
-	"github.com/market-raccoon/internal/shared/codec"
 	sharedhash "github.com/market-raccoon/internal/shared/hash"
 	"github.com/market-raccoon/internal/shared/ids"
 	"github.com/market-raccoon/internal/shared/problem"
@@ -102,13 +101,9 @@ func (w *ChWriter) SaveIdempotent(ctx context.Context, snap aggdomain.SnapshotPr
 		return problem.New(problem.ValidationFailed, "clickhouse writer is nil")
 	}
 
-	bidsJSON, err := codec.Marshal(snap.Bids)
-	if err != nil {
-		return problem.Wrap(err, problem.Internal, "marshal bids failed")
-	}
-	asksJSON, err := codec.Marshal(snap.Asks)
-	if err != nil {
-		return problem.Wrap(err, problem.Internal, "marshal asks failed")
+	bidsJSON, asksJSON, p := adapterstorage.MarshalAggregationSnapshot(ctx, snap)
+	if p != nil {
+		return p
 	}
 
 	const insertSQL = `

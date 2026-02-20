@@ -1,8 +1,8 @@
 package main
 
 import (
-	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -578,9 +578,9 @@ func enrichRequestMetadata(req *mdapp.IngestRequest, msg *ws.WsMessage, defaultM
 	}
 	req.Metadata["exchange"] = msg.Exchange
 	req.Metadata["endpoint"] = msg.Endpoint
-	req.Metadata["bucket_id"] = fmt.Sprintf("%d", msg.BucketID)
+	req.Metadata["bucket_id"] = strconv.FormatInt(msg.BucketID, 10)
 	req.Metadata["consumer_id"] = msg.ConsumerID
-	req.Metadata["recv_at"] = fmt.Sprintf("%d", msg.RecvAt.UnixMilli())
+	req.Metadata["recv_at"] = strconv.FormatInt(msg.RecvAt.UnixMilli(), 10)
 	if wsStream != "" {
 		req.Metadata["ws_stream"] = wsStream
 	}
