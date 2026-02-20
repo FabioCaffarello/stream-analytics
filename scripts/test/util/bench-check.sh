@@ -1,13 +1,9 @@
 #!/usr/bin/env bash
 # bench-check.sh — run hot-path benchmarks and compare against committed baseline.
-# Fails if benchstat detects a significant regression ≥ THRESHOLD (default 15%).
-#
-# Usage:  scripts/bench-check.sh
-#         BENCH_THRESHOLD=20 scripts/bench-check.sh   # custom threshold
-# Requires: go, benchstat (golang.org/x/perf/cmd/benchstat)
+# ...
 set -euo pipefail
 
-root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$root_dir"
 
 BASELINE=".benchmarks/baseline.txt"
@@ -20,7 +16,6 @@ if [[ ! -f "$BASELINE" ]]; then
   exit 1
 fi
 
-# ── locate benchstat ─────────────────────────────────────────────────────────
 BENCHSTAT="${BENCHSTAT:-}"
 if [[ -z "$BENCHSTAT" ]]; then
   BENCHSTAT="$(command -v benchstat 2>/dev/null || true)"
@@ -32,7 +27,6 @@ if [[ -z "$BENCHSTAT" ]]; then
   BENCHSTAT=/tmp/gobin/benchstat
 fi
 
-# ── run current benchmarks ───────────────────────────────────────────────────
 echo "bench-check: running hot-path benchmarks (count=5) …"
 go test -run='^$' -bench=HotPath -benchmem -count=5 \
   ./internal/shared/codec ./internal/shared/policykit ./internal/shared/hash \
@@ -53,15 +47,9 @@ go test -run='^$' -bench=BenchmarkSessionWrite -benchmem -count=5 \
   ./internal/interfaces/ws \
   >> "$CURRENT" 2>&1
 
-echo "bench-check: comparing against baseline …"
-echo ""
-
-# benchstat exits 0 even on regression; we parse for "+XX%" with significance.
 REPORT=$("$BENCHSTAT" "$BASELINE" "$CURRENT" 2>&1) || true
 echo "$REPORT"
-echo ""
 
-# Detect regressions: extract "+XX.YY% (p=0.0ZZ)" lines and fail if XX ≥ THRESHOLD.
 FAIL=0
 while IFS= read -r line; do
   pct=$(echo "$line" | grep -oE '\+([0-9]+)\.[0-9]+%' | head -1 | tr -d '+%')

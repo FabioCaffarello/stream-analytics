@@ -11,7 +11,7 @@
 
 ## Code Anchors
 - `Makefile` (`runtime-gate`, `runtime-gate-full`)
-- `scripts/runtime-reliability-gate.sh`
+- `scripts/test/util/runtime-reliability-gate.sh`
 - `.context/evidence/runtime-gate/20260219T202010Z/report.md`
 - `.context/evidence/runtime-gate/latest.md`
 

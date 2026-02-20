@@ -364,7 +364,7 @@ bench-hotpath: invariants-check
 	@$(GO) test -run=^$$ -bench=BenchmarkSessionWrite -benchmem ./internal/interfaces/ws
 
 bench-budget: invariants-check
-	@bash scripts/bench-budget.sh
+	@bash scripts/test/util/bench-budget.sh
 
 bench-baseline: invariants-check
 	@$(GO) test -run='^$$' -bench=HotPath -benchmem -count=5 ./internal/shared/codec ./internal/shared/policykit ./internal/shared/hash > .benchmarks/baseline.txt 2>&1
@@ -376,7 +376,7 @@ bench-baseline: invariants-check
 	@echo "bench-baseline: saved to .benchmarks/baseline.txt"
 
 bench-check: invariants-check
-	@bash scripts/bench-check.sh
+	@bash scripts/test/util/bench-check.sh
 
 test-race: invariants-check
 	@$(GO) test $(GO_TEST_RACE_FLAGS) $(TEST_RACE_PKGS)
@@ -563,16 +563,16 @@ up-core:
 		--scale processor=$$p_rep
 
 smoke: shell-script-check
-	@chmod +x ./scripts/smoke-compose.sh
-	@./scripts/smoke-compose.sh
+	@chmod +x ./scripts/test/util/smoke-compose.sh
+	@./scripts/test/util/smoke-compose.sh
 
 runtime-gate: shell-script-check
-	@chmod +x ./scripts/runtime-reliability-gate.sh
-	@./scripts/runtime-reliability-gate.sh --report-dir "$(RUNTIME_GATE_REPORT_DIR)"
+	@chmod +x ./scripts/test/util/runtime-reliability-gate.sh
+	@./scripts/test/util/runtime-reliability-gate.sh --report-dir "$(RUNTIME_GATE_REPORT_DIR)"
 
 runtime-gate-full: shell-script-check
-	@chmod +x ./scripts/runtime-reliability-gate.sh
-	@./scripts/runtime-reliability-gate.sh --report-dir "$(RUNTIME_GATE_REPORT_DIR)" --full
+	@chmod +x ./scripts/test/util/runtime-reliability-gate.sh
+	@./scripts/test/util/runtime-reliability-gate.sh --report-dir "$(RUNTIME_GATE_REPORT_DIR)" --full
 
 dev-scale-smoke:
 	@set -euo pipefail; \

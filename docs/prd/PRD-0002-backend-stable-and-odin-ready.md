@@ -53,7 +53,7 @@ Define the acceptance criteria for declaring the Market Raccoon backend **stable
 
 | ID | Requirement | Verification |
 |---|---|---|
-| FR-1.1 | `make up-core` brings all services to healthy within 60s | `scripts/smoke-compose.sh` + `make runtime-gate` evidence |
+| FR-1.1 | `make up-core` brings all services to healthy within 60s | `scripts/test/util/smoke-compose.sh` + `make runtime-gate` evidence |
 | FR-1.2 | `make down` stops all services and releases volumes cleanly | Manual + CI |
 | FR-1.3 | All binaries read config from mounted JSONC; no hardcoded defaults leak | Config loader tests |
 | FR-1.4 | Shard env vars (`SHARD_INDEX`, `SHARD_COUNT`) propagate correctly | E2E integration test |
@@ -124,7 +124,7 @@ Source of truth: `docs/perf/performance-budgets.md`. PRD-0001 is authoritative f
 | Goroutine drift (pipeline + delivery) | <= 48 | Soak assertion |
 | Active orderbooks cardinality | <= 4,096 | BoundedMap eviction |
 | Active instrument streams | <= 4,096 | Config `max_instruments` |
-| Compose full-stack boot | < 60 s | `scripts/smoke-compose.sh` + runtime gate report |
+| Compose full-stack boot | < 60 s | `scripts/test/util/smoke-compose.sh` + runtime gate report |
 
 ## Mandatory Tests
 
@@ -153,11 +153,11 @@ make soak-roundtrip           # cold-path write+read (C4)
 
 ```bash
 make up-core
-scripts/smoke-compose.sh      # waits for /readyz on all 4 binaries
+scripts/test/util/smoke-compose.sh      # waits for /readyz on all 4 binaries
 make down
 ```
 
-`scripts/smoke-compose.sh` is wired in `make smoke` and orchestrated by `make runtime-gate`.
+`scripts/test/util/smoke-compose.sh` is wired in `make smoke` and orchestrated by `make runtime-gate`.
 Runtime gate requirements: (1) `make up-core`; (2) `make smoke`; (3) `make soak-check`;
 and (4) emit versioned report under `.context/evidence/runtime-gate/`.
 
@@ -187,7 +187,7 @@ and (4) emit versioned report under `.context/evidence/runtime-gate/`.
 |---|---|---|---|---|
 | 1 | Gate 1 passes on `main` | CI | Done | `make ci` (`Makefile`) |
 | 2 | Gate 2 soak evidence committed to `.context/evidence/` | Dev | Done | `make soak-pipeline` (`Makefile`); evidence: `.context/evidence/c4-pipeline-soak.txt` |
-| 3 | Gate 3 compose smoke passes locally and in CI | Dev | Done | `scripts/smoke-compose.sh`; `make up-core` + `make smoke` (`Makefile`) |
+| 3 | Gate 3 compose smoke passes locally and in CI | Dev | Done | `scripts/test/util/smoke-compose.sh`; `make up-core` + `make smoke` (`Makefile`) |
 | 4 | Gate 4 delivery contract tests green | Dev | Done | `internal/actors/delivery/runtime/*_test.go`; `internal/interfaces/http/{auth,ratelimit}_test.go` |
 | 5 | Gate 5 all exchange parsers green | Dev | Done | `internal/adapters/exchange/{binance,bybit,coinbase,hyperliquid}/parser_test.go` |
 | 6 | `deploy/configs/*.jsonc` reviewed — no `CHANGE_ME` tokens | Dev | Done | `deploy/configs/server.jsonc` (no `CHANGE_ME` tokens) |
@@ -214,10 +214,10 @@ and (4) emit versioned report under `.context/evidence/runtime-gate/`.
 | Milestone | Scope | Depends On | Exit Criteria | Anchor |
 |---|---|---|---|---|
 | **M0 — CI Green on main** | All Gate 1 tests pass, no flaky failures | — | `make ci` green for 5 consecutive runs | `Makefile` (`ci` target) |
-| **M1 — Compose Smoke** | `make up-core` boots to healthy; smoke script passes | M0 | Gate 3 green | `Makefile` (`up-core`); `scripts/smoke-compose.sh` |
+| **M1 — Compose Smoke** | `make up-core` boots to healthy; smoke script passes | M0 | Gate 3 green | `Makefile` (`up-core`); `scripts/test/util/smoke-compose.sh` |
 | **M2 — Delivery Contract Hardened** | All Gate 4 tests pass; slow-client drop metrics wired | M0 | Gate 4 green + `ws_drops_total` metric exists | `internal/actors/delivery/runtime/`; `internal/interfaces/http/{auth,ratelimit}_test.go` |
 | **M3 — Cold-Path Operational (C3)** | Backfill binary + gap detector + cold-path read ports | M0 | FR-5.3, FR-5.4 green | `cmd/backfill/`; `internal/adapters/exchange/binance/backfill.go`; `.context/evidence/odin-m3-c3-tooling-2026-02-19.md` |
-| **M4 — Runtime Reliability Gate** | Smoke + soak gate contínuo com trilha de auditoria | M1, M2, M3 | `make runtime-gate` green com relatório versionado | `Makefile` (`runtime-gate`); `scripts/runtime-reliability-gate.sh`; `.context/evidence/runtime-gate/latest.md` |
+| **M4 — Runtime Reliability Gate** | Smoke + soak gate contínuo com trilha de auditoria | M1, M2, M3 | `make runtime-gate` green com relatório versionado | `Makefile` (`runtime-gate`); `scripts/test/util/runtime-reliability-gate.sh`; `.context/evidence/runtime-gate/latest.md` |
 | **M5 — Backend Stable** | All gates pass; release checklist complete | M1, M2, M3, M4 | Tag `v0.1.0-stable`; PRD-0002 status `Active` | Release Checklist (above) |
 | **M6 — Odin v0 Connected** | Odin client connects, subscribes to FR-4 subjects, renders live data | M5 | Manual acceptance by product owner | — |
 
@@ -278,7 +278,7 @@ and (4) emit versioned report under `.context/evidence/runtime-gate/`.
   - Added WS rate-limit token bucket test in `internal/interfaces/http/ratelimit_test.go`.
   - Gate 4 checklist item updated to `Done`; removed stale TODO anchors for auth/rate-limit test files.
 - 2026-02-19 (audit):
-  - Gate 3: marked `scripts/smoke-compose.sh` as TODO (file does not exist yet).
+  - Gate 3: marked `scripts/test/util/smoke-compose.sh` as TODO (file does not exist yet).
   - Gate 4: marked `auth_test.go` and `ratelimit_test.go` as TODO (files do not exist yet).
   - Performance Budgets: annotated smoke-compose row as TODO.
   - Release Checklist: added Anchor column with real paths; flagged `CHANGE_ME` in server.jsonc.

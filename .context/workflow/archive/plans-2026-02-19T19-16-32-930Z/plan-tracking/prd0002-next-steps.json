@@ -2,7 +2,7 @@
   "decisions": [
     {
       "title": "Baseline for remaining PRD-0002 gates",
-      "description": "G4/G5/G6 are already done. G3 has implementation present (scripts/smoke-compose.sh + make smoke), but PRD still marks it TODO. G7 is technically green via promtool check rules. Remaining execution focus: run compose smoke evidence (G3), validate fresh-db migrations (G8/G9), generate c4 pipeline soak evidence file (G2), run make ci (G1), then update PRD status fields (G10/G11 readiness).",
+      "description": "G4/G5/G6 are already done. G3 has implementation present (scripts/test/util/smoke-compose.sh + make smoke), but PRD still marks it TODO. G7 is technically green via promtool check rules. Remaining execution focus: run compose smoke evidence (G3), validate fresh-db migrations (G8/G9), generate c4 pipeline soak evidence file (G2), run make ci (G1), then update PRD status fields (G10/G11 readiness).",
       "phase": "P",
       "alternatives": [
         "Start directly with make ci before operational gates (rejected: would not produce missing gate-specific evidence)."
