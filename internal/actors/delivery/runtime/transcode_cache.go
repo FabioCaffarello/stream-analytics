@@ -10,18 +10,26 @@ import (
 	"github.com/market-raccoon/internal/shared/problem"
 )
 
-const defaultTranscodeCacheSize = 1024
+const (
+	defaultTranscodeCacheSize  = 1024
+	defaultTranscodeShardCount = 16
+)
 
-// TranscodeCache caches proto→JSON transcode results so that identical
-// proto payloads are only decoded+re-marshaled once across all delivery
-// sessions. Thread-safe (sync.RWMutex) and bounded (eviction on overflow).
+// TranscodeCache is a sharded LRU cache for proto→JSON transcode results.
+// The cache is sharded to reduce lock contention under high concurrency.
 type TranscodeCache struct {
+	shards     []*transcodeShard
+	shardCount uint64
+	maxSize    int // global max across all shards
+	hits       atomic.Int64
+	misses     atomic.Int64
+}
+
+type transcodeShard struct {
 	mu      sync.RWMutex
 	entries map[uint64]*list.Element
-	lru     *list.List // list of lruEntry, front = most recent
+	lru     *list.List
 	maxSize int
-	hits    atomic.Int64
-	misses  atomic.Int64
 }
 
 type transcodeCacheEntry struct {
@@ -33,16 +41,37 @@ type lruEntry struct {
 	entry transcodeCacheEntry
 }
 
+const maxIntUint64 = uint64(^uint(0) >> 1)
+
+// uint64ToIntSafe converts a small uint64 to int with overflow guard.
+func uint64ToIntSafe(u uint64) int {
+	if u > maxIntUint64 {
+		// This should never occur for shard indexes; fall back to shard 0.
+		return 0
+	}
+	return int(u)
+}
+
 // NewTranscodeCache creates a bounded proto→JSON cache.
-// maxSize controls the max number of cached entries. 0 uses default (1024).
+// maxSize controls the overall max number of cached entries (across shards). 0 uses default.
 func NewTranscodeCache(maxSize int) *TranscodeCache {
 	if maxSize <= 0 {
 		maxSize = defaultTranscodeCacheSize
 	}
+	shardCount := uint64(defaultTranscodeShardCount)
+	perShard := (maxSize + int(shardCount) - 1) / int(shardCount)
+	shards := make([]*transcodeShard, int(shardCount))
+	for i := 0; i < int(shardCount); i++ {
+		shards[i] = &transcodeShard{
+			entries: make(map[uint64]*list.Element, perShard),
+			lru:     list.New(),
+			maxSize: perShard,
+		}
+	}
 	return &TranscodeCache{
-		entries: make(map[uint64]*list.Element, maxSize),
-		lru:     list.New(),
-		maxSize: maxSize,
+		shards:     shards,
+		shardCount: shardCount,
+		maxSize:    maxSize,
 	}
 }
 
@@ -56,20 +85,29 @@ func (c *TranscodeCache) TranscodeProtoToJSON(
 	payload []byte,
 ) (json.RawMessage, *problem.Problem) {
 	key := c.computeKey(eventType, version, payload)
+	var shard *transcodeShard
+	// If shardCount is a power-of-two we can use a mask which avoids modulo
+	// and keeps the index conversion safe on all architectures.
+	if (c.shardCount & (c.shardCount - 1)) == 0 {
+		idx := uint64ToIntSafe(key & (c.shardCount - 1))
+		shard = c.shards[idx]
+	} else {
+		idx := uint64ToIntSafe(key % c.shardCount)
+		shard = c.shards[idx]
+	}
 
-	// Fast path: read lock.
-	// Fast path: read lock to check presence.
-	c.mu.RLock()
-	elem, ok := c.entries[key]
-	c.mu.RUnlock()
+	// Fast path: read lock on shard.
+	shard.mu.RLock()
+	elem, ok := shard.entries[key]
+	shard.mu.RUnlock()
 	if ok {
 		c.hits.Add(1)
 		// Move to front under write lock.
-		c.mu.Lock()
-		if e, still := c.entries[key]; still {
-			c.lru.MoveToFront(e)
+		shard.mu.Lock()
+		if e, still := shard.entries[key]; still {
+			shard.lru.MoveToFront(e)
 		}
-		c.mu.Unlock()
+		shard.mu.Unlock()
 		return elem.Value.(lruEntry).entry.json, nil
 	}
 
@@ -85,27 +123,28 @@ func (c *TranscodeCache) TranscodeProtoToJSON(
 	}
 
 	result := json.RawMessage(transcoded)
-	// Insert into LRU under write lock; evict least-recently-used if needed.
-	c.mu.Lock()
+
+	// Insert into shard under write lock; evict least-recently-used if needed.
+	shard.mu.Lock()
 	// If key already inserted by another goroutine, update and move to front.
-	if existingElem, exists := c.entries[key]; exists {
+	if existingElem, exists := shard.entries[key]; exists {
 		existingElem.Value = lruEntry{key: key, entry: transcodeCacheEntry{json: result}}
-		c.lru.MoveToFront(existingElem)
-		c.mu.Unlock()
+		shard.lru.MoveToFront(existingElem)
+		shard.mu.Unlock()
 		return result, nil
 	}
 	// Evict oldest if at capacity.
-	if c.lru.Len() >= c.maxSize {
-		back := c.lru.Back()
+	if shard.lru.Len() >= shard.maxSize {
+		back := shard.lru.Back()
 		if back != nil {
 			be := back.Value.(lruEntry)
-			delete(c.entries, be.key)
-			c.lru.Remove(back)
+			delete(shard.entries, be.key)
+			shard.lru.Remove(back)
 		}
 	}
-	elem = c.lru.PushFront(lruEntry{key: key, entry: transcodeCacheEntry{json: result}})
-	c.entries[key] = elem
-	c.mu.Unlock()
+	elem = shard.lru.PushFront(lruEntry{key: key, entry: transcodeCacheEntry{json: result}})
+	shard.entries[key] = elem
+	shard.mu.Unlock()
 	return result, nil
 }
 
@@ -138,7 +177,11 @@ func (c *TranscodeCache) Stats() (hits, misses int64) {
 
 // Len returns the current number of cached entries.
 func (c *TranscodeCache) Len() int {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.lru.Len()
+	total := 0
+	for _, s := range c.shards {
+		s.mu.RLock()
+		total += s.lru.Len()
+		s.mu.RUnlock()
+	}
+	return total
 }
