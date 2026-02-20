@@ -259,25 +259,25 @@ docs-check-full:
 	@$(MAKE) registry-check
 
 check-doc-headers:
-	@./scripts/check-doc-headers.sh
+	@./scripts/ci/check-doc-headers.sh
 
 check-doc-links:
-	@./scripts/check-doc-links.sh
+	@./scripts/ci/check-doc-links.sh
 
 check-doc-links-changed:
-	@./scripts/check-doc-links.sh --changed-only
+	@./scripts/ci/check-doc-links.sh --changed-only
 
 check-truth-map:
-	@./scripts/check-truth-map.sh
+	@./scripts/ci/check-truth-map.sh
 
 check-feature-pack-links:
-	@./scripts/check-feature-pack-links.sh
+	@./scripts/ci/check-feature-pack-links.sh
 
 check-pack-subjects-vs-event-bus:
-	@./scripts/check-pack-subjects-vs-event-bus.sh
+	@./scripts/ci/check-pack-subjects-vs-event-bus.sh
 
 registry-check:
-	@./scripts/check-registry.sh
+	@./scripts/ci/check-registry.sh
 
 docs-fix:
 	@./scripts/check-doc-headers.sh --fix-hints
@@ -287,7 +287,7 @@ docs-fix:
 	@./scripts/check-pack-subjects-vs-event-bus.sh --fix-hints
 
 invariants-check:
-	@./scripts/check-domain-isolation.sh "$(CURDIR)"
+	@./scripts/ci/check-domain-isolation.sh "$(CURDIR)"
 
 legacy-check-staged:
 	@./scripts/legacy-scan.sh --staged
@@ -411,59 +411,59 @@ test-soak:
 	@$(MAKE) soak-check
 
 soak-check: invariants-check
-	@./scripts/soak-test.sh \
+	@./scripts/test/soak/soak-test.sh \
 		--out-file "$(SOAK_OUT_FILE)" \
 		--go-cache "$(SOAK_GO_CACHE)" \
 		--ws-pattern "$(SOAK_WS_PATTERN)" \
 		--boundedmap-pattern "$(SOAK_BOUNDEDMAP_PATTERN)"
-	@./scripts/soak-vpvr.sh \
+	@./scripts/test/soak/soak-vpvr.sh \
 		--out-file "$(SOAK_VPVR_OUT_FILE)" \
 		--go-cache "$(SOAK_GO_CACHE)" \
 		--pattern "$(SOAK_VPVR_PATTERN)"
-	@./scripts/soak-roundtrip.sh \
+	@./scripts/test/soak/soak-roundtrip.sh \
 		--out-file "$(SOAK_ROUNDTRIP_OUT_FILE)" \
 		--go-cache "$(SOAK_GO_CACHE)"
 
 soak-vpvr: invariants-check
-	@./scripts/soak-vpvr.sh \
+	@./scripts/test/soak/soak-vpvr.sh \
 		--out-file "$(SOAK_VPVR_OUT_FILE)" \
 		--go-cache "$(SOAK_GO_CACHE)" \
 		--pattern "$(SOAK_VPVR_PATTERN)"
 
 soak-cold-path: invariants-check
-	@chmod +x ./scripts/soak-cold-path.sh
-	@./scripts/soak-cold-path.sh \
+	@chmod +x ./scripts/test/soak/soak-cold-path.sh
+	@./scripts/test/soak/soak-cold-path.sh \
 		--out-file ".context/evidence/w2-cold-path-soak.txt" \
 		--go-cache "$(SOAK_GO_CACHE)"
 
 soak-store: invariants-check
-	@chmod +x ./scripts/soak-store.sh
-	@./scripts/soak-store.sh \
+	@chmod +x ./scripts/test/soak/soak-store.sh
+	@./scripts/test/soak/soak-store.sh \
 		--out-file "$(SOAK_STORE_OUT_FILE)" \
 		--go-cache "$(SOAK_GO_CACHE)" \
 		--pattern "$(SOAK_STORE_PATTERN)"
 
 soak-roundtrip: invariants-check
-	@chmod +x ./scripts/soak-roundtrip.sh
-	@./scripts/soak-roundtrip.sh \
+	@chmod +x ./scripts/test/soak/soak-roundtrip.sh
+	@./scripts/test/soak/soak-roundtrip.sh \
 		--out-file "$(SOAK_ROUNDTRIP_OUT_FILE)" \
 		--go-cache "$(SOAK_GO_CACHE)"
 
 soak-pipeline: invariants-check
-	@chmod +x ./scripts/soak-pipeline.sh
-	@./scripts/soak-pipeline.sh \
+	@chmod +x ./scripts/test/soak/soak-pipeline.sh
+	@./scripts/test/soak/soak-pipeline.sh \
 		--out-file "$(SOAK_PIPELINE_OUT_FILE)" \
 		--go-cache "$(SOAK_GO_CACHE)"
 
 soak-ws-delivery: invariants-check
-	@chmod +x ./scripts/soak-ws-delivery.sh
-	@./scripts/soak-ws-delivery.sh \
+	@chmod +x ./scripts/test/soak/soak-ws-delivery.sh
+	@./scripts/test/soak/soak-ws-delivery.sh \
 		--out-file ".context/evidence/c4-ws-delivery-soak.txt" \
 		--go-cache "$(SOAK_GO_CACHE)"
 
 soak-c4-production: invariants-check
-	@chmod +x ./scripts/soak-c4-production.sh
-	@./scripts/soak-c4-production.sh \
+	@chmod +x ./scripts/test/soak/soak-c4-production.sh
+	@./scripts/test/soak/soak-c4-production.sh \
 		--out-file "$(SOAK_C4_OUT_FILE)" \
 		--go-cache "$(SOAK_GO_CACHE)"
 
@@ -525,7 +525,7 @@ build:
 
 .PHONY: list-tests
 list-tests:
-	@bash ./scripts/list-tests-by-category.sh
+	@bash ./scripts/util/list-tests-by-category.sh
 
 run:
 	@$(GO) run $(APP_CMD)
