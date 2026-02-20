@@ -43,19 +43,19 @@ func TestSessionActor_GetRangeRequest_WritesRangeResponse(t *testing.T) {
 	})
 
 	resp := <-conn.writeCh
-	msg, ok := resp.(map[string]any)
+	msg, ok := resp.(wsRangeFrame)
 	if !ok {
-		t.Fatalf("response type = %T, want map[string]any", resp)
+		t.Fatalf("response type = %T, want wsRangeFrame", resp)
 	}
-	if got, want := msg["type"], "range"; got != want {
+	if got, want := msg.Type, "range"; got != want {
 		t.Fatalf("type=%v want=%v", got, want)
 	}
-	if got, want := msg["request_id"], "req-1"; got != want {
+	if got, want := msg.RequestID, "req-1"; got != want {
 		t.Fatalf("request_id=%v want=%v", got, want)
 	}
-	items, ok := msg["items"].([]ports.RangeItem)
+	items, ok := msg.Items.([]ports.RangeItem)
 	if !ok {
-		t.Fatalf("items type = %T, want []ports.RangeItem", msg["items"])
+		t.Fatalf("items type = %T, want []ports.RangeItem", msg.Items)
 	}
 	if got, want := len(items), 2; got != want {
 		t.Fatalf("items len=%d want=%d", got, want)

@@ -46,7 +46,7 @@ Create one authoritative map of:
 
 ### Document Inventory
 
-#### ADRs (0000..0018)
+#### ADRs (0000..0019)
 
 - `docs/adrs/ADR-0000-foundation.md` (Accepted)
 - `docs/adrs/ADR-0001-bounded-contexts-and-boundaries.md` (Accepted)
@@ -67,6 +67,7 @@ Create one authoritative map of:
 - `docs/adrs/ADR-0016-protobuf-contract-layer.md` (Accepted; partial implementation)
 - `docs/adrs/ADR-0017-multi-exchange-normalization.md` (Accepted)
 - `docs/adrs/ADR-0018-actor-topology-supervision-model.md` (Accepted; partial implementation)
+- `docs/adrs/ADR-0019-dual-database-operational-strategy.md` (Accepted; fully implemented)
 
 Status anchors: `docs/adrs/ADR-0000-foundation.md:3`, `docs/adrs/ADR-0010-config-loading-startup-validation.md:3`, `docs/adrs/ADR-0016-protobuf-contract-layer.md:3`, `docs/adrs/ADR-0018-actor-topology-supervision-model.md:3`.
 
@@ -140,7 +141,7 @@ Anchor: `Makefile`, `scripts/check-doc-headers.sh`, `scripts/check-doc-links.sh`
 
 ## Acceptance
 
-- Inventory includes ADR-0000..0018 and RFC-0001..0011.
+- Inventory includes ADR-0000..0019 and RFC-0001..0011.
 - All requested topics have single-source mapping to doc + code/test anchors.
 - Any unresolved drift is explicitly marked as `TODO` or `OPEN QUESTION`.
 

@@ -124,15 +124,15 @@ func TestSession_parseSubscribeUnsubscribeGetRange(t *testing.T) {
 		t.Fatalf("subscribe subject = %q, want %q", got, want)
 	}
 	ack := <-conn.writeCh
-	ackMap, ok := ack.(map[string]any)
-	if !ok || ackMap["type"] != "ack" {
+	ackMsg, ok := ack.(wsAckFrame)
+	if !ok || ackMsg.Type != "ack" {
 		t.Fatalf("expected ack message, got %#v", ack)
 	}
 
 	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"getrange","subject":"marketdata.trade/binance/BTC-USDT/raw","request_id":"r2","params":{"from_ms":0,"to_ms":10,"limit":5}}`)}
 	rangeResp := <-conn.writeCh
-	rangeMap, ok := rangeResp.(map[string]any)
-	if !ok || rangeMap["type"] != "error" {
+	rangeMsg, ok := rangeResp.(wsErrorFrame)
+	if !ok || rangeMsg.Type != "error" {
 		t.Fatalf("expected error message for unavailable range store, got %#v", rangeResp)
 	}
 
@@ -198,16 +198,16 @@ func TestSession_getLastVPVRSnapshot(t *testing.T) {
 	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"getlast","subject":"insights.volume_profile_snapshot.v1/binance/BTC-USDT/1m","request_id":"r-last"}`)}
 
 	resp := <-conn.writeCh
-	msg, ok := resp.(map[string]any)
+	msg, ok := resp.(wsLastFrame)
 	if !ok {
-		t.Fatalf("response type = %T, want map[string]any", resp)
+		t.Fatalf("response type = %T, want wsLastFrame", resp)
 	}
-	if got, want := msg["type"], "last"; got != want {
+	if got, want := msg.Type, "last"; got != want {
 		t.Fatalf("type=%v want=%v", got, want)
 	}
-	item, ok := msg["item"].(ports.RangeItem)
+	item, ok := msg.Item.(ports.RangeItem)
 	if !ok {
-		t.Fatalf("item type = %T, want ports.RangeItem", msg["item"])
+		t.Fatalf("item type = %T, want ports.RangeItem", msg.Item)
 	}
 	if got, want := item.Seq, int64(101); got != want {
 		t.Fatalf("last seq=%d want=%d", got, want)
@@ -246,8 +246,8 @@ func TestSession_getLastVPVRSnapshot_unorderedStore(t *testing.T) {
 	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"getlast","subject":"insights.volume_profile_snapshot.v1/binance/BTC-USDT/1m","request_id":"r-last-u"}`)}
 
 	resp := <-conn.writeCh
-	msg := resp.(map[string]any)
-	item := msg["item"].(ports.RangeItem)
+	msg := resp.(wsLastFrame)
+	item := msg.Item.(ports.RangeItem)
 	if got, want := item.Seq, int64(12); got != want {
 		t.Fatalf("last seq=%d want=%d", got, want)
 	}
@@ -284,16 +284,16 @@ func TestSession_getRangeVPVRPagination(t *testing.T) {
 	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"getrange","subject":"insights.volume_profile_snapshot.v1/binance/BTC-USDT/1m","request_id":"r-range","params":{"from_ms":0,"to_ms":0,"limit":2,"page":2}}`)}
 
 	resp := <-conn.writeCh
-	msg, ok := resp.(map[string]any)
+	msg, ok := resp.(wsRangeFrame)
 	if !ok {
-		t.Fatalf("response type = %T, want map[string]any", resp)
+		t.Fatalf("response type = %T, want wsRangeFrame", resp)
 	}
-	if got, want := msg["type"], "range"; got != want {
+	if got, want := msg.Type, "range"; got != want {
 		t.Fatalf("type=%v want=%v", got, want)
 	}
-	items, ok := msg["items"].([]ports.RangeItem)
+	items, ok := msg.Items.([]ports.RangeItem)
 	if !ok {
-		t.Fatalf("items type = %T, want []ports.RangeItem", msg["items"])
+		t.Fatalf("items type = %T, want []ports.RangeItem", msg.Items)
 	}
 	if got, want := len(items), 2; got != want {
 		t.Fatalf("items len=%d want=%d", got, want)
@@ -337,8 +337,8 @@ func TestSession_getRangeVPVRPagination_unorderedStore_ordersBeforePaginate(t *t
 	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"getrange","subject":"insights.volume_profile_snapshot.v1/binance/BTC-USDT/1m","request_id":"r-range-u","params":{"from_ms":0,"to_ms":0,"limit":2,"page":2}}`)}
 
 	resp := <-conn.writeCh
-	msg := resp.(map[string]any)
-	items := msg["items"].([]ports.RangeItem)
+	msg := resp.(wsRangeFrame)
+	items := msg.Items.([]ports.RangeItem)
 	if got, want := items[0].Seq, int64(2); got != want {
 		t.Fatalf("items[0].seq=%d want=%d", got, want)
 	}
@@ -369,8 +369,8 @@ func TestSession_getRangeVPVRPagination_capsRejectExplosive(t *testing.T) {
 	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"getrange","subject":"insights.volume_profile_snapshot.v1/binance/BTC-USDT/1m","request_id":"r-cap","params":{"from_ms":0,"to_ms":0,"limit":1000,"page":100}}`)}
 
 	resp := <-conn.writeCh
-	msg := resp.(map[string]any)
-	if got, want := msg["type"], "error"; got != want {
+	msg := resp.(wsErrorFrame)
+	if got, want := msg.Type, "error"; got != want {
 		t.Fatalf("type=%v want=%v", got, want)
 	}
 	if store.calls != 0 {
@@ -410,15 +410,15 @@ func TestSession_RateLimit_RejectsSubscribeWhenBucketEmpty(t *testing.T) {
 	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
 	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"subscribe","subject":"marketdata.trade/binance/BTC-USDT/raw","request_id":"s1"}`)}
 	first := <-conn.writeCh
-	firstMsg, ok := first.(map[string]any)
-	if !ok || firstMsg["type"] != "ack" {
+	firstMsg, ok := first.(wsAckFrame)
+	if !ok || firstMsg.Type != "ack" {
 		t.Fatalf("expected first subscribe ack, got %#v", first)
 	}
 
 	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"subscribe","subject":"marketdata.trade/binance/BTC-USDT/raw","request_id":"s2"}`)}
 	second := <-conn.writeCh
-	secondMsg, ok := second.(map[string]any)
-	if !ok || secondMsg["type"] != "error" {
+	secondMsg, ok := second.(wsErrorFrame)
+	if !ok || secondMsg.Type != "error" {
 		t.Fatalf("expected second subscribe error, got %#v", second)
 	}
 
@@ -449,15 +449,12 @@ func TestSession_getLastVPVRSnapshot_empty_returnsNotFoundOrEmpty(t *testing.T) 
 	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"getlast","subject":"insights.volume_profile_snapshot.v1/binance/BTC-USDT/1m","request_id":"r-empty"}`)}
 
 	resp := <-conn.writeCh
-	msg := resp.(map[string]any)
-	if got, want := msg["type"], "last"; got != want {
+	msg := resp.(wsLastFrame)
+	if got, want := msg.Type, "last"; got != want {
 		t.Fatalf("type=%v want=%v", got, want)
 	}
-	if _, ok := msg["item"]; !ok {
-		t.Fatalf("expected item key in response")
-	}
-	if msg["item"] != nil {
-		t.Fatalf("item=%v want=nil", msg["item"])
+	if msg.Item != nil {
+		t.Fatalf("item=%v want=nil", msg.Item)
 	}
 }
 
@@ -570,11 +567,11 @@ func TestSession_deliveryEventDefaultJSONFrame(t *testing.T) {
 	})
 
 	msg := <-conn.writeCh
-	event, ok := msg.(map[string]any)
+	event, ok := msg.(wsEventFrame)
 	if !ok {
-		t.Fatalf("message type=%T want map[string]any", msg)
+		t.Fatalf("message type=%T want wsEventFrame", msg)
 	}
-	if got, want := event["type"], "event"; got != want {
+	if got, want := event.Type, "event"; got != want {
 		t.Fatalf("type=%v want=%v", got, want)
 	}
 }

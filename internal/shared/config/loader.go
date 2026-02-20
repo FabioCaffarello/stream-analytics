@@ -168,6 +168,12 @@ func validateShard(s ShardConfig) *problem.Problem {
 	if s.MaxLag < 0 {
 		return problem.Newf(codeInvalid, "shard.max_lag must be >= 0, got %d", s.MaxLag)
 	}
+	if s.Registry.Enabled {
+		d, err := time.ParseDuration(s.Registry.TopologyGrace)
+		if err != nil || d <= 0 {
+			return problem.Newf(codeInvalid, "shard.registry.topology_grace must be > 0 duration, got %q", s.Registry.TopologyGrace)
+		}
+	}
 	return nil
 }
 
@@ -954,6 +960,11 @@ func applyDefaults(c *AppConfig) {
 		c.Shard.Count = 1
 	}
 	// Shard.Index zero value (0) is the correct default.
+	// Shard.Registry.Enabled zero value (false) is the correct default.
+	// Shard.Registry.Strict zero value (false) is the correct default.
+	if c.Shard.Registry.TopologyGrace == "" {
+		c.Shard.Registry.TopologyGrace = "60s"
+	}
 	if c.Bus.Type == "" {
 		c.Bus.Type = "inmemory"
 	}

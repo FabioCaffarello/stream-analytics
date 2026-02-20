@@ -2,6 +2,7 @@ package timescale
 
 import (
 	"context"
+	"math"
 	"strconv"
 	"sync"
 
@@ -115,23 +116,25 @@ ON CONFLICT (venue, instrument, seq) DO NOTHING`
 }
 
 func snapshotFingerprint(snap aggdomain.SnapshotProduced) string {
-	fields := []string{
+	// Pre-allocate: venue + instrument + seq + 3 fields per level (side + price + qty).
+	fields := make([]string, 0, 3+3*len(snap.Bids)+3*len(snap.Asks))
+	fields = append(fields,
 		snap.BookID.Venue,
 		snap.BookID.Instrument,
 		strconv.FormatInt(snap.Seq, 10),
-	}
+	)
 	for _, l := range snap.Bids {
 		fields = append(fields,
 			"b",
-			strconv.FormatFloat(float64(l.Price), 'f', -1, 64),
-			strconv.FormatFloat(float64(l.Quantity), 'f', -1, 64),
+			strconv.FormatUint(math.Float64bits(float64(l.Price)), 36),
+			strconv.FormatUint(math.Float64bits(float64(l.Quantity)), 36),
 		)
 	}
 	for _, l := range snap.Asks {
 		fields = append(fields,
 			"a",
-			strconv.FormatFloat(float64(l.Price), 'f', -1, 64),
-			strconv.FormatFloat(float64(l.Quantity), 'f', -1, 64),
+			strconv.FormatUint(math.Float64bits(float64(l.Price)), 36),
+			strconv.FormatUint(math.Float64bits(float64(l.Quantity)), 36),
 		)
 	}
 	return sharedhash.HashFields(fields...)

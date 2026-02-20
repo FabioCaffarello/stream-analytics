@@ -154,14 +154,12 @@ func TestWSBackpressureDropOldest_EmitsNewestEvent(t *testing.T) {
 	e.Send(sessionPID, evt2)
 
 	msg := <-conn.writeCh
-	event, ok := msg.(map[string]any)
-	if !ok || event["type"] != "event" {
+	event, ok := msg.(wsEventFrame)
+	if !ok || event.Type != "event" {
 		t.Fatalf("expected event message, got %#v", msg)
 	}
-	if got, ok := event["seq"].(int64); ok {
-		if got != 2 {
-			t.Fatalf("seq=%d want=2", got)
-		}
+	if got := event.Seq; got != 2 {
+		t.Fatalf("seq=%d want=2", got)
 	}
 }
 
@@ -208,11 +206,11 @@ func TestWSBackpressurePriorityDrop_HighPriorityReplacesLow(t *testing.T) {
 	e.Send(sessionPID, high)
 
 	msg := <-conn.writeCh
-	event, ok := msg.(map[string]any)
-	if !ok || event["type"] != "event" {
+	event, ok := msg.(wsEventFrame)
+	if !ok || event.Type != "event" {
 		t.Fatalf("expected event message, got %#v", msg)
 	}
-	if got, ok := event["seq"].(int64); ok && got != 2 {
+	if got := event.Seq; got != 2 {
 		t.Fatalf("seq=%d want=2", got)
 	}
 }

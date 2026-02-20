@@ -43,6 +43,25 @@ type ShardConfig struct {
 	// MaxLag is the lag budget per shard.  When exceeded, a warning is logged.
 	// 0 means no budget enforcement (default).
 	MaxLag int `json:"max_lag"`
+	// Registry controls optional NATS KV shard registry for lease-based
+	// coordination.  When enabled, the processor acquires a shard lease
+	// and waits for topology completeness before processing.
+	Registry ShardRegistryConfig `json:"registry"`
+}
+
+// ShardRegistryConfig controls the optional shard registry (NATS KV lease coordination).
+type ShardRegistryConfig struct {
+	// Enabled toggles shard registry lease acquisition. Default: false.
+	Enabled bool `json:"enabled"`
+	// Strict fails startup if topology is incomplete after grace period. Default: false.
+	Strict bool `json:"strict"`
+	// TopologyGrace is the maximum time to wait for all shards to register. Default: "60s".
+	TopologyGrace string `json:"topology_grace"`
+}
+
+// TopologyGraceDuration parses and returns ShardRegistryConfig.TopologyGrace.
+func (s ShardRegistryConfig) TopologyGraceDuration() time.Duration {
+	return mustParseDuration(s.TopologyGrace)
 }
 
 // BusConfig controls runtime bus adapter selection.

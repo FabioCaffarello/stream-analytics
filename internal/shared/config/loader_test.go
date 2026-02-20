@@ -1002,6 +1002,15 @@ func TestLoad_ShardDefaults(t *testing.T) {
 	if cfg.Shard.Index != 0 {
 		t.Errorf("default Shard.Index = %d; want 0", cfg.Shard.Index)
 	}
+	if cfg.Shard.Registry.Enabled {
+		t.Error("default Shard.Registry.Enabled = true; want false")
+	}
+	if cfg.Shard.Registry.Strict {
+		t.Error("default Shard.Registry.Strict = true; want false")
+	}
+	if cfg.Shard.Registry.TopologyGrace != "60s" {
+		t.Errorf("default Shard.Registry.TopologyGrace = %q; want 60s", cfg.Shard.Registry.TopologyGrace)
+	}
 }
 
 func TestValidate_ShardCount_Zero_Fails(t *testing.T) {
@@ -1058,6 +1067,24 @@ func TestValidate_ShardIndex_ValidRange_Passes(t *testing.T) {
 				t.Errorf("count=%d index=%d should pass validation, got: %v", count, idx, prob)
 			}
 		}
+	}
+}
+
+func TestValidate_ShardRegistryEnabled_InvalidGraceFails(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Shard.Registry.Enabled = true
+	cfg.Shard.Registry.TopologyGrace = "not-a-duration"
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected shard.registry.topology_grace validation error")
+	}
+}
+
+func TestValidate_ShardRegistryEnabled_NonPositiveGraceFails(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Shard.Registry.Enabled = true
+	cfg.Shard.Registry.TopologyGrace = "0s"
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected shard.registry.topology_grace validation error for non-positive duration")
 	}
 }
 

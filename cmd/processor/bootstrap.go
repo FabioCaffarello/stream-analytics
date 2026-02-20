@@ -168,15 +168,10 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		leaseLostErr          error
 		leaseHeartbeatCancel  context.CancelFunc
 		leaseLostCh           = make(chan error, 1)
-		shardRegistryEnabled  = strings.EqualFold(strings.TrimSpace(os.Getenv("SHARD_REGISTRY_ENABLED")), "true")
-		shardRegistryStrict   = strings.EqualFold(strings.TrimSpace(os.Getenv("SHARD_REGISTRY_STRICT")), "true")
-		shardRegistryGraceDur = shardregistry.DefaultTopologyGrace
+		shardRegistryEnabled  = cfg.Shard.Registry.Enabled
+		shardRegistryStrict   = cfg.Shard.Registry.Strict
+		shardRegistryGraceDur = cfg.Shard.Registry.TopologyGraceDuration()
 	)
-	if rawGrace := strings.TrimSpace(os.Getenv("SHARD_REGISTRY_GRACE")); rawGrace != "" {
-		if parsed, err := time.ParseDuration(rawGrace); err == nil && parsed > 0 {
-			shardRegistryGraceDur = parsed
-		}
-	}
 	if shardRegistryEnabled {
 		logger.Info("processor: shard registry enabled",
 			"strict", shardRegistryStrict,

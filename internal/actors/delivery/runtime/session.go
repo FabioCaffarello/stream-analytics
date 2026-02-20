@@ -249,6 +249,60 @@ type clientCommand struct {
 	Params    json.RawMessage `json:"params,omitempty"`
 }
 
+// Pre-allocated typed structs for outbound JSON frames.
+// These eliminate map[string]any allocations on the delivery hot path.
+
+type wsAckFrame struct {
+	Type      string `json:"type"`
+	Op        string `json:"op"`
+	RequestID string `json:"request_id"`
+	Subject   string `json:"subject"`
+}
+
+type wsSnapshotFrame struct {
+	Type    string          `json:"type"`
+	Subject string          `json:"subject"`
+	Payload json.RawMessage `json:"payload"`
+}
+
+type wsLastFrame struct {
+	Type      string `json:"type"`
+	Op        string `json:"op"`
+	RequestID string `json:"request_id"`
+	Subject   string `json:"subject"`
+	Item      any    `json:"item"`
+}
+
+type wsRangeFrame struct {
+	Type      string `json:"type"`
+	Op        string `json:"op"`
+	RequestID string `json:"request_id"`
+	Subject   string `json:"subject"`
+	Page      int    `json:"page"`
+	Limit     int    `json:"limit"`
+	Items     any    `json:"items"`
+}
+
+type wsEventFrame struct {
+	Type     string          `json:"type"`
+	Subject  string          `json:"subject"`
+	Seq      int64           `json:"seq"`
+	TsIngest int64           `json:"ts_ingest"`
+	Payload  json.RawMessage `json:"payload"`
+}
+
+type wsErrorProblem struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+type wsErrorFrame struct {
+	Type      string         `json:"type"`
+	Op        string         `json:"op"`
+	RequestID string         `json:"request_id"`
+	Problem   wsErrorProblem `json:"problem"`
+}
+
 type getRangeParams struct {
 	FromMs int64 `json:"from_ms"`
 	ToMs   int64 `json:"to_ms"`
@@ -325,11 +379,11 @@ func (s *SessionActor) handleSubscribe(cmd clientCommand) {
 	if s.cfg.RouterPID != nil {
 		s.engine.Send(s.cfg.RouterPID, SubscribeSession{SessionID: s.session.ID(), Subject: subject})
 	}
-	s.writeJSON(map[string]any{
-		"type":       "ack",
-		"op":         cmd.Op,
-		"request_id": cmd.RequestID,
-		"subject":    subject.String(),
+	s.writeJSON(wsAckFrame{
+		Type:      "ack",
+		Op:        cmd.Op,
+		RequestID: cmd.RequestID,
+		Subject:   subject.String(),
 	})
 }
 
@@ -346,10 +400,10 @@ func (s *SessionActor) emitSnapshot(subject domain.Subject) {
 		s.logger.Warn("delivery session: invalid snapshot payload, skipping", "subject", subject.String())
 		return
 	}
-	s.writeJSON(map[string]any{
-		"type":    "snapshot",
-		"subject": subject.String(),
-		"payload": payload,
+	s.writeJSON(wsSnapshotFrame{
+		Type:    "snapshot",
+		Subject: subject.String(),
+		Payload: payload,
 	})
 	metrics.IncWSQuery("snapshot", wsQueryBucket(subject.StreamType))
 }
@@ -368,11 +422,11 @@ func (s *SessionActor) handleUnsubscribe(cmd clientCommand) {
 	if s.cfg.RouterPID != nil {
 		s.engine.Send(s.cfg.RouterPID, UnsubscribeSession{SessionID: s.session.ID(), Subject: subject})
 	}
-	s.writeJSON(map[string]any{
-		"type":       "ack",
-		"op":         cmd.Op,
-		"request_id": cmd.RequestID,
-		"subject":    subject.String(),
+	s.writeJSON(wsAckFrame{
+		Type:      "ack",
+		Op:        cmd.Op,
+		RequestID: cmd.RequestID,
+		Subject:   subject.String(),
 	})
 }
 
@@ -400,12 +454,12 @@ func (s *SessionActor) handleGetLast(cmd clientCommand) {
 		item = items[len(items)-1] // highest seq after defensive sort
 	}
 	metrics.IncWSQuery("getlast", wsQueryBucket(subject.StreamType))
-	s.writeJSON(map[string]any{
-		"type":       "last",
-		"op":         cmd.Op,
-		"request_id": cmd.RequestID,
-		"subject":    subject.String(),
-		"item":       item,
+	s.writeJSON(wsLastFrame{
+		Type:      "last",
+		Op:        cmd.Op,
+		RequestID: cmd.RequestID,
+		Subject:   subject.String(),
+		Item:      item,
 	})
 }
 
@@ -490,14 +544,14 @@ func (s *SessionActor) executeGetRange(op, requestID, subjectRaw string, params 
 		items = items[len(items)-maxResponseItems:]
 	}
 	metrics.IncWSQuery("getrange", wsQueryBucket(subject.StreamType))
-	s.writeJSON(map[string]any{
-		"type":       "range",
-		"op":         op,
-		"request_id": requestID,
-		"subject":    subject.String(),
-		"page":       page,
-		"limit":      limit,
-		"items":      items,
+	s.writeJSON(wsRangeFrame{
+		Type:      "range",
+		Op:        op,
+		RequestID: requestID,
+		Subject:   subject.String(),
+		Page:      page,
+		Limit:     limit,
+		Items:     items,
 	})
 }
 
@@ -680,12 +734,12 @@ func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) error {
 			payload = json.RawMessage(transcoded)
 		}
 	}
-	if err := s.writeJSONDirect(map[string]any{
-		"type":      "event",
-		"subject":   evt.Subject.String(),
-		"seq":       evt.Env.Seq,
-		"ts_ingest": evt.Env.TsIngest,
-		"payload":   payload,
+	if err := s.writeJSONDirect(wsEventFrame{
+		Type:     "event",
+		Subject:  evt.Subject.String(),
+		Seq:      evt.Env.Seq,
+		TsIngest: evt.Env.TsIngest,
+		Payload:  payload,
 	}); err != nil {
 		return err
 	}
@@ -697,13 +751,13 @@ func (s *SessionActor) writeProblem(op, requestID string, p *problem.Problem) {
 	if p == nil {
 		return
 	}
-	s.writeJSON(map[string]any{
-		"type":       "error",
-		"op":         op,
-		"request_id": requestID,
-		"problem": map[string]any{
-			"code":    p.Code,
-			"message": p.Message,
+	s.writeJSON(wsErrorFrame{
+		Type:      "error",
+		Op:        op,
+		RequestID: requestID,
+		Problem: wsErrorProblem{
+			Code:    string(p.Code),
+			Message: p.Message,
 		},
 	})
 }
