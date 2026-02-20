@@ -38,7 +38,7 @@ Fechar os gates remanescentes do PRD-0002 em sequência de risco controlado e de
 6. G10/G11 (status + tag) — fechamento formal de release.
 
 ## Success Criteria
-- `scripts/smoke-compose.sh` implementado e validado (G3).
+- `scripts/test/util/smoke-compose.sh` implementado e validado (G3).
 - `promtool check rules` verde para regras ativas (G7).
 - Migrations ClickHouse e Timescale executam sem erro em banco fresco (G8/G9).
 - Evidência de soak atualizada e versionada em `.context/evidence/` (G2).
@@ -62,7 +62,7 @@ Fechar os gates remanescentes do PRD-0002 em sequência de risco controlado e de
 Entregável: backlog ordenado por risco + critérios binários por gate.
 
 ### R — Review (Desenho Mínimo)
-1. Validar desenho mínimo de `scripts/smoke-compose.sh` (timeout, exit codes, health probes).
+1. Validar desenho mínimo de `scripts/test/util/smoke-compose.sh` (timeout, exit codes, health probes).
 2. Revisar se validações de migrations podem ser feitas sem alterar runtime.
 3. Definir estratégia de soak evidence (fonte, duração, formato, caminho).
 

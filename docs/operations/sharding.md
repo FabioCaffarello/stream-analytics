@@ -159,10 +159,21 @@ Durable names are shard-aware when count > 1: `processor-v4-s0`, `processor-v4-s
 ## Optional shard registry lease (feature-flagged)
 
 Processor startup supports an optional JetStream KV lease guard for shard
-ownership and topology completeness checks.
+ownership and topology completeness checks. Configure it in
+`deploy/configs/processor.jsonc` (or your runtime processor config):
 
-- `SHARD_REGISTRY_ENABLED=true` enables lease acquire/heartbeat/release (default: off).
-- `SHARD_REGISTRY_STRICT=true` fails startup if topology stays incomplete after grace.
-- `SHARD_REGISTRY_GRACE=60s` sets topology wait window (default: `60s`).
+```jsonc
+"shard": {
+  "registry": {
+    "enabled": true,
+    "strict": true,
+    "topology_grace": "60s"
+  }
+}
+```
+
+- `shard.registry.enabled=true` enables lease acquire/heartbeat/release (default: off).
+- `shard.registry.strict=true` fails startup if topology stays incomplete after grace.
+- `shard.registry.topology_grace=60s` sets topology wait window (default: `60s`).
 - Bucket: `MR_SHARD_REGISTRY`, key format: `shard/{index}`, TTL: `30s`, heartbeat: `10s`.
 - On lease loss, processor logs `shard lease lost`, triggers graceful shutdown, and exits non-zero.

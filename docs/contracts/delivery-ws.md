@@ -2,7 +2,7 @@
 
 **Status:** Active
 **Owner:** Product Architect
-**Last updated:** 2026-02-13
+**Last updated:** 2026-02-19
 **Relates to:** `docs/adrs/ADR-0002-event-envelope-and-versioning.md`, `docs/adrs/ADR-0007-delivery-ws-sessions.md`, `docs/adrs/ADR-0013-backpressure-overload-policies.md`, `docs/adrs/ADR-0014-stream-partitioning-strategy.md`, `docs/contracts/event-bus.md`, `docs/rfcs/RFC-0003-W2-DELIVERY-BC.md`
 
 ## Purpose
@@ -30,7 +30,9 @@ Accepted delivery router inputs:
 - `insights.crossvenue.trade_snapshot.v1.global.{instrument}`
 - `insights.crossvenue.spread_signal.v1.global.{instrument}`
 - `aggregation.snapshot.v1.{venue}.{instrument}`
-- planned: `insights.heatmap_snapshot.v1.{venue}.{instrument}`
+- `aggregation.candle.v1.{venue}.{instrument}`
+- `aggregation.stats.v1.{venue}.{instrument}`
+- `insights.heatmap_snapshot.v1.{venue}.{instrument}`
 - planned: `insights.heatmap_delta.v1.{venue}.{instrument}`
 - planned: `insights.volume_profile_snapshot.v1.{venue}.{instrument}`
 - planned: `insights.volume_profile_delta.v1.{venue}.{instrument}`
@@ -45,12 +47,18 @@ Examples:
 - `marketdata.markprice/bybit/BTCUSDT/raw`
 - `insights.crossvenue.trade_snapshot/global/BTCUSDT/raw`
 - `aggregation.snapshot/binance/BTCUSDT/raw`
+- `aggregation.candle/binance/BTCUSDT/raw`
+- `aggregation.stats/binance/BTCUSDT/raw`
+- `insights.heatmap_snapshot/binance/BTCUSDT/1m`
 
-Proto rollout (marketdata subjects only):
-- `PROTO_MARKETDATA_TRADE`
-- `PROTO_MARKETDATA_BOOKDELTA`
-- `PROTO_MARKETDATA_MARKPRICE`
-- default for all flags is disabled (`false`), keeping JSON output by default.
+Proto rollout is controlled by config (`proto_rollout.*`) and can be refreshed with `POST /runtime/reload`.
+- `proto_rollout.marketdata.trade`
+- `proto_rollout.marketdata.bookdelta`
+- `proto_rollout.marketdata.markprice`
+- `proto_rollout.marketdata.liquidation`
+- `proto_rollout.aggregation.candle|stats|snapshot`
+- `proto_rollout.insights.volume_profile|heatmap|crossvenue`
+- default for all flags is disabled (`false`), so rollout-controlled streams stay on JSON unless explicitly enabled.
 
 ## Contracts
 
@@ -143,12 +151,13 @@ Range:
 Current runtime behavior:
 1. session lifecycle isolation and cleanup are implemented;
 2. bounded per-session outbound queue is implemented;
-3. drop policy is `drop_newest` with reason `queue_full`;
-4. connection write failures close the session.
+3. drop policy is configurable (`drop_newest|drop_oldest|priority_drop`) with labeled drop reasons;
+4. slow clients are disconnected after `delivery.slow_client_drop_threshold` breached;
+5. connection write failures close the session.
 
 Planned parity policy:
 1. stream-priority policies (`keep-latest` vs `drop_newest`) per stream class;
-2. slow clients disconnected after threshold breach.
+2. per-stream dynamic thresholds by client tier/SLA.
 
 Required metrics:
 - `ws_queue_depth`
@@ -177,7 +186,7 @@ Required metrics:
 | Router broadcast only to subscribed sessions | Existing | `internal/actors/delivery/runtime/router.go` | `internal/actors/delivery/runtime/router_test.go:TestRouter_subscribeUnsubscribeAndBroadcast` |
 | Disconnect cleanup and unregister | Existing | `internal/actors/delivery/runtime/session.go` | `internal/actors/delivery/runtime/session_test.go:TestSession_disconnectTriggersUnregister` |
 | Deterministic range from durable store | Planned | `internal/core/delivery/ports/ports.go` | `internal/core/delivery/app/session_usecase_test.go:TestSessionService_GetRange_storeUnavailable` |
-| Slow-client backpressure policy | Existing (drop_newest baseline) | `internal/core/delivery/domain/backpressure_policy.go`, `internal/actors/delivery/runtime/session.go` | `internal/actors/delivery/runtime/session_backpressure_test.go:TestWSBackpressureSlowClientDropPolicy` |
+| Slow-client backpressure policy + threshold disconnect | Existing | `internal/core/delivery/domain/backpressure_policy.go`, `internal/actors/delivery/runtime/session.go`, `internal/shared/config/schema.go` | `internal/actors/delivery/runtime/session_backpressure_test.go:TestWSBackpressureSlowClientDropPolicy`, `internal/actors/delivery/runtime/session_backpressure_test.go:TestWSBackpressureSlowClientThresholdDisconnects` |
 
 ## Observability
 
@@ -205,6 +214,7 @@ Existing tests:
 - `internal/interfaces/ws/delivery_contract_e2e_test.go:TestWSRangeDeterminismReplay`
 - `internal/interfaces/ws/delivery_contract_e2e_test.go:TestWSRaceSubscribeUnsubscribeNoLeak`
 - `internal/interfaces/ws/delivery_contract_e2e_test.go:TestWSReconnectResubscribeIdempotent`
+- `internal/interfaces/ws/heatmap_delivery_contract_test.go:TestWSDelivery_HeatmapSnapshot_RoutedToSubscriber`
 
 Tests to create for parity completion:
 - None for current delivery WS baseline.
@@ -214,7 +224,7 @@ Tests to create for parity completion:
 - N/N-1 compatibility by envelope event version.
 - New WS frame fields must remain optional.
 - Do not remove mandatory fields without new `frame_version`.
-- Default bus payload content type remains `application/json` with protobuf opt-in in ADR-0016.
+- Default bus payload content type is `application/protobuf`; JSON remains supported via rollout/fallback policy in ADR-0016.
 
 ## Evidence Hooks
 
@@ -233,7 +243,7 @@ TODO hooks (skeleton):
 ## Failure Modes
 
 - Slow WS client accumulation without explicit drop policy:
-  - Mitigation: implement bounded outbound buffer and slow-client policy before parity close.
+  - Mitigation: bounded outbound queue + drop policy + threshold-based disconnect (`delivery.slow_client_drop_threshold`).
 - network jitter/intermittency:
   - Mitigation: keepalive + reconnect/resubscribe idempotency.
 - poison command frame:

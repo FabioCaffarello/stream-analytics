@@ -216,14 +216,11 @@ func TestE2EProcessorJetStream_ThreeShardsCrashRestart(t *testing.T) {
 	processes := make([]shardE2EProc, shardCount)
 	for shardIdx := 0; shardIdx < shardCount; shardIdx++ {
 		metricsAddr := reserveLocalAddr(t)
-		configPath := writeProcessorConfig(t, natsURL, durableName, metricsAddr)
+		configPath := writeProcessorConfigWithShardRegistry(t, natsURL, durableName, metricsAddr, true, true, "20s")
 		proc := startProcessorProcessWithEnv(t, ctx, repoRoot, processorBin, configPath, metricsAddr, map[string]string{
 			"MR_ENV":                   "dev",
 			"SHARD_COUNT":              strconv.Itoa(shardCount),
 			"SHARD_INDEX":              strconv.Itoa(shardIdx),
-			"SHARD_REGISTRY_ENABLED":   "true",
-			"SHARD_REGISTRY_STRICT":    "true",
-			"SHARD_REGISTRY_GRACE":     "20s",
 			"E2E_HTTP_ADDR":            reserveLocalAddr(t),
 			"E2E_TRANSIENT_INSTRUMENT": "E2E-TRANSIENT",
 		})
@@ -292,13 +289,10 @@ func TestE2EProcessorJetStream_ThreeShardsCrashRestart(t *testing.T) {
 		seq++
 	}
 	restarted := startProcessorProcessWithEnv(t, ctx, repoRoot, processorBin, crashed.configPath, crashed.metricsAddr, map[string]string{
-		"MR_ENV":                 "dev",
-		"SHARD_COUNT":            strconv.Itoa(shardCount),
-		"SHARD_INDEX":            "1",
-		"SHARD_REGISTRY_ENABLED": "true",
-		"SHARD_REGISTRY_STRICT":  "true",
-		"SHARD_REGISTRY_GRACE":   "20s",
-		"E2E_HTTP_ADDR":          reserveLocalAddr(t),
+		"MR_ENV":        "dev",
+		"SHARD_COUNT":   strconv.Itoa(shardCount),
+		"SHARD_INDEX":   "1",
+		"E2E_HTTP_ADDR": reserveLocalAddr(t),
 	})
 	processes[1].proc = restarted
 	defer restarted.forceStop()
@@ -683,10 +677,33 @@ func buildProcessorBinary(t *testing.T, ctx context.Context, repoRoot string) st
 
 func writeProcessorConfig(t *testing.T, natsURL, durable, httpAddr string) string {
 	t.Helper()
-	return writeProcessorConfigWithJoin(t, natsURL, durable, httpAddr, false)
+	return writeProcessorConfigWithJoinAndShardRegistry(t, natsURL, durable, httpAddr, false, false, false, "")
 }
 
 func writeProcessorConfigWithJoin(t *testing.T, natsURL, durable, httpAddr string, enableJoin bool) string {
+	t.Helper()
+	return writeProcessorConfigWithJoinAndShardRegistry(t, natsURL, durable, httpAddr, enableJoin, false, false, "")
+}
+
+func writeProcessorConfigWithShardRegistry(
+	t *testing.T,
+	natsURL, durable, httpAddr string,
+	enabled bool,
+	strict bool,
+	grace string,
+) string {
+	t.Helper()
+	return writeProcessorConfigWithJoinAndShardRegistry(t, natsURL, durable, httpAddr, false, enabled, strict, grace)
+}
+
+func writeProcessorConfigWithJoinAndShardRegistry(
+	t *testing.T,
+	natsURL, durable, httpAddr string,
+	enableJoin bool,
+	enableShardRegistry bool,
+	shardRegistryStrict bool,
+	shardRegistryGrace string,
+) string {
 	t.Helper()
 
 	insightsJSON := `"insights": {
@@ -715,11 +732,27 @@ func writeProcessorConfigWithJoin(t *testing.T, natsURL, durable, httpAddr strin
       "rounding_mode": "half_even",
       "sweep_every_n": 1024,
       "sweep_every": "30s"
-    }`
+	    }`
+	}
+
+	shardJSON := ``
+	if enableShardRegistry {
+		graceVal := shardRegistryGrace
+		if strings.TrimSpace(graceVal) == "" {
+			graceVal = "60s"
+		}
+		shardJSON = fmt.Sprintf(`,
+	  "shard": {
+	    "registry": {
+	      "enabled": true,
+	      "strict": %t,
+	      "topology_grace": %q
+	    }
+	  }`, shardRegistryStrict, graceVal)
 	}
 
 	cfg := fmt.Sprintf(`{
-  "bus": {"type": "jetstream"},
+	  "bus": {"type": "jetstream"},
   "jetstream": {
     "url": %q,
     "stream_name": "MARKETDATA",
@@ -740,12 +773,13 @@ func writeProcessorConfigWithJoin(t *testing.T, natsURL, durable, httpAddr strin
     "guardian_shutdown_timeout": "4s",
     "publisher_flush_timeout": "2s"
   },
-  "processor": {
-    "bus_capacity": 1024,
-    %s
-  }
-}
-`, natsURL, durable, httpAddr, insightsJSON)
+	  "processor": {
+	    "bus_capacity": 1024,
+	    %s
+	  }
+	  %s
+	}
+	`, natsURL, durable, httpAddr, insightsJSON, shardJSON)
 
 	path := filepath.Join(t.TempDir(), "processor-e2e.json")
 	if err := os.WriteFile(path, []byte(cfg), 0o600); err != nil {

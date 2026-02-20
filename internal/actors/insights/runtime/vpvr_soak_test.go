@@ -1,3 +1,6 @@
+//go:build soak
+// +build soak
+
 package insightsruntime
 
 import (
@@ -109,7 +112,7 @@ func runVPVRSoakBurst(t *testing.T) ([]time.Duration, []vpvrSoakEmission, string
 		appendVPVRSoakEmission(t, &emitted, &hashInput, req.Seq, "D", decision.EmitDelta, decision.Delta, i)
 	}
 
-	return latencies, emitted, sharedhash.HashFields(hashInput...)
+	return latencies, emitted, sharedhash.HashFieldsFast(hashInput...)
 }
 
 func sideByIndex(i int) string {

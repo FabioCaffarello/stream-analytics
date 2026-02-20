@@ -145,13 +145,21 @@ func writeCanonicalFloat(b *bytes.Buffer, v any) (bool, *problem.Problem) {
 		if math.IsNaN(x) || math.IsInf(x, 0) {
 			return true, problem.New(problem.ValidationFailed, "invalid float value for canonical json")
 		}
-		b.WriteString(strconv.FormatFloat(x, 'g', -1, 64))
+		if x == 0 {
+			b.WriteByte('0')
+		} else {
+			b.WriteString(strconv.FormatFloat(x, 'g', -1, 64))
+		}
 	case float32:
 		fx := float64(x)
 		if math.IsNaN(fx) || math.IsInf(fx, 0) {
 			return true, problem.New(problem.ValidationFailed, "invalid float value for canonical json")
 		}
-		b.WriteString(strconv.FormatFloat(fx, 'g', -1, 32))
+		if fx == 0 {
+			b.WriteByte('0')
+		} else {
+			b.WriteString(strconv.FormatFloat(fx, 'g', -1, 32))
+		}
 	default:
 		return false, nil
 	}
@@ -185,11 +193,11 @@ func writeCanonicalComposite(b *bytes.Buffer, v any) *problem.Problem {
 
 func writeCanonicalArray(b *bytes.Buffer, values []any) *problem.Problem {
 	b.WriteByte('[')
-	for i := range values {
+	for i, v := range values {
 		if i > 0 {
 			b.WriteByte(',')
 		}
-		if p := writeCanonicalValue(b, values[i]); p != nil {
+		if p := writeCanonicalValue(b, v); p != nil {
 			return p
 		}
 	}

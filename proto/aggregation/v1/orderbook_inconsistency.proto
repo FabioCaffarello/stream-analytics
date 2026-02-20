@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package aggregation.v1;
+
+option go_package = "github.com/market-raccoon/internal/shared/proto/gen/aggregation/v1";
+
+// OrderBookInconsistencyV1 signals that the order book has detected an inconsistency
+// (e.g. crossed book) and needs a snapshot refresh.
+message OrderBookInconsistencyV1 {
+  // Venue is the canonical venue identifier.
+  string venue = 1;
+  // Instrument is the canonical instrument identifier.
+  string instrument = 2;
+  // Seq is the sequence number at detection time.
+  int64 seq = 3;
+  // Reason describes the inconsistency (e.g. "crossed_book").
+  string reason = 4;
+
+  reserved 100 to 199;
+}

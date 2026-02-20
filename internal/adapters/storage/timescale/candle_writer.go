@@ -2,12 +2,10 @@ package timescale
 
 import (
 	"context"
-	"strconv"
 
 	adapterstorage "github.com/market-raccoon/internal/adapters/storage"
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
 	aggports "github.com/market-raccoon/internal/core/aggregation/ports"
-	sharedhash "github.com/market-raccoon/internal/shared/hash"
 	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/problem"
 )
@@ -56,33 +54,11 @@ INSERT INTO aggregation_candle (
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 ON CONFLICT (venue, instrument, timeframe, window_start) DO NOTHING`
 
-	idempotencyKey := sharedhash.HashFields(
-		c.Venue,
-		c.Instrument,
-		c.Timeframe,
-		strconv.FormatInt(c.WindowStartTs, 10),
-	)
-
-	if _, p := w.exec.Exec(
-		ctx,
-		upsertSQL,
-		c.Venue,
-		c.Instrument,
-		c.Timeframe,
-		c.WindowStartTs,
-		c.WindowEndTs,
-		c.Open,
-		c.High,
-		c.Low,
-		c.ClosePrice,
-		c.Volume,
-		c.BuyVolume,
-		c.SellVolume,
-		c.TradeCount,
-		c.SeqFirst,
-		c.SeqLast,
-		idempotencyKey,
-	); p != nil {
+	args, _, p := adapterstorage.MarshalCandle(ctx, c)
+	if p != nil {
+		return problem.Wrap(p, problem.Unavailable, "timescale candle marshal failed")
+	}
+	if _, p := w.exec.Exec(ctx, upsertSQL, args...); p != nil {
 		return problem.Wrap(p, problem.Unavailable, "timescale candle upsert failed")
 	}
 

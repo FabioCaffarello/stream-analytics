@@ -53,7 +53,7 @@ O objetivo deste patch e remover ambiguidade: separar claramente o que esta impl
 | Topologia multi-exchange no runtime | Implemented | `cmd/consumer/main.go:183`, `cmd/consumer/e2e_consumer_integration_test.go:24` |
 | Restart rate limiter global | Implemented | `internal/actors/runtime/guardian_test.go:315` |
 | Isolamento forte entre subsistemas sob falha | Partially Implemented | `internal/actors/runtime/guardian_test.go:99` |
-| Soak longo para estabilidade de restart (`TOP-4`) | Planned | `Makefile:142`, `scripts/soak-test.sh` |
+| Soak longo para estabilidade de restart (`TOP-4`) | Planned | `Makefile:142`, `scripts/test/soak/soak-test.sh` |
 | Evidencia completa de dedup em janela operacional (`TOP-5`) | Partially Implemented | `internal/adapters/jetstream/publisher_integration_test.go:41` |
 
 ## Evidence

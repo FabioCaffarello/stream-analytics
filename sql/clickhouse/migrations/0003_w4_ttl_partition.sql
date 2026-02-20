@@ -1,3 +1,5 @@
+-- +goose NO TRANSACTION
+-- +goose Up
 -- W4 cold-path TTL + monthly partitioning.
 -- Adds ts column for time-based partition and automatic expiry.
 -- TTL 90 days: snapshots older than 90 days are dropped automatically.
@@ -18,3 +20,6 @@ ENGINE = ReplacingMergeTree
 PARTITION BY toYYYYMM(ts)
 ORDER BY (subject, venue, instrument, seq, source_idempotency_key)
 TTL toDateTime(ts) + INTERVAL 90 DAY;
+
+-- +goose Down
+DROP TABLE IF EXISTS aggregation_snapshots_v3;

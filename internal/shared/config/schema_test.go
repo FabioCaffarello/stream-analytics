@@ -34,14 +34,12 @@ func TestJetStreamHelpers_Valid(t *testing.T) {
 	}
 }
 
-func TestMustParseDuration_PanicsOnInvalid(t *testing.T) {
-	defer func() {
-		if recover() == nil {
-			t.Fatal("expected panic for invalid duration")
-		}
-	}()
+func TestMustParseDuration_ReturnsZeroOnInvalid(t *testing.T) {
 	c := ConsumerConfig{MaxWebsocketLifetime: "invalid"}
-	_ = c.MaxWebsocketLifetimeDuration()
+	got := c.MaxWebsocketLifetimeDuration()
+	if got != 0 {
+		t.Fatalf("MaxWebsocketLifetimeDuration(%q) = %s, want 0", "invalid", got)
+	}
 }
 
 func TestProcessorInsightsSweepEveryDuration_EmptyIsZero(t *testing.T) {
@@ -64,5 +62,32 @@ func TestProcessorInsightsDefaultsAndDurationHelpers(t *testing.T) {
 	}
 	if cfg.Processor.Insights.RoundingMode != "half_even" {
 		t.Fatalf("RoundingMode=%q want=half_even", cfg.Processor.Insights.RoundingMode)
+	}
+}
+
+func TestProtoRolloutEventTypeFlags(t *testing.T) {
+	flags := ProtoRolloutConfig{
+		MarketData: ProtoRolloutMarketDataConfig{
+			Trade: true,
+		},
+		Aggregation: ProtoRolloutAggregationConfig{
+			Snapshot: true,
+		},
+		Insights: ProtoRolloutInsightsConfig{
+			Heatmap: true,
+		},
+	}.EventTypeFlags()
+
+	if !flags["marketdata.trade"] {
+		t.Fatal("marketdata.trade should be enabled")
+	}
+	if !flags["aggregation.orderbook_inconsistency"] {
+		t.Fatal("aggregation.orderbook_inconsistency should follow aggregation.snapshot")
+	}
+	if !flags["insights.heatmap_delta"] {
+		t.Fatal("insights.heatmap_delta should follow insights.heatmap")
+	}
+	if flags["insights.crossvenue.trade_snapshot"] {
+		t.Fatal("insights.crossvenue.trade_snapshot should be disabled")
 	}
 }

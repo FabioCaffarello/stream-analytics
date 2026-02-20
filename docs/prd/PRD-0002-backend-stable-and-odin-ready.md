@@ -23,9 +23,6 @@ Define the acceptance criteria for declaring the Market Raccoon backend **stable
 
 ## Non-Goals
 
-- **Candle aggregation (OHLCV).** W14 scope. Not required for Odin v0 — candle rendering can be client-side from trade stream until backend candle pipeline is ready.
-- **Stats aggregation (liq/funding/markprice per TF).** W14 scope. Same rationale.
-- **Heatmap delivery pipeline.** Domain model exists but heatmap writers, delivery wiring, and storage are deferred. Odin v0 does not render heatmaps.
 - **Timescale `getrange` durable source.** `getrange` uses in-memory buffer only. Historical range queries beyond the buffer window are out of scope.
 - **Funding rate standalone pipeline.** Funding rate is embedded in markprice/liquidation flow (GD-13). No standalone subject.
 - **Production TLS certificates.** TLS is implemented but ships with self-signed defaults. Certificate provisioning is an operator concern.
@@ -36,19 +33,19 @@ Define the acceptance criteria for declaring the Market Raccoon backend **stable
 | Capability | Status | Gap for Stable |
 |---|---|---|
 | 5-exchange consumer (Binance spot/futures, Bybit, Coinbase, HyperLiquid) | Implemented | None — parsers + endpoints tested |
-| WS delivery (subscribe/unsubscribe/getrange, JSON + proto opt-in) | Implemented | Slow-client disconnect threshold missing |
+| WS delivery (subscribe/unsubscribe/getrange, JSON + proto opt-in) | Implemented | None — threshold disconnect and drop metrics wired |
 | Auth (API key) + rate limiting (token bucket) | Implemented | None |
 | Orderbook aggregation + snapshot delivery | Implemented | None |
 | VPVR builder + snapshot/delta delivery | Implemented | None |
 | Cross-venue trade snapshot + spread signal | Implemented | None |
 | MarkPrice + liquidation ingestion + dedup | Implemented | None |
-| Cold-path writer (JetStream -> ClickHouse) | Implemented | Read ports (SELECT) missing |
-| Backfill binary (`cmd/backfill`) | Stub | No source code — C3 scope |
-| Gap detection tool | Missing | Depth gaps logged only — C3 scope |
-| Docker Compose (infra + core + obs profiles) | Implemented | Needs smoke-test gate |
-| Candle aggregation | Not started | Non-goal for Odin v0 |
-| Stats aggregation | Not started | Non-goal for Odin v0 |
-| Heatmap delivery pipeline | Not started | Non-goal for Odin v0 |
+| Cold-path writer (JetStream -> ClickHouse) | Implemented | None — cold-path readers (candle/stats/snapshot) wired and tested |
+| Backfill binary (`cmd/backfill`) | Implemented | None — Binance agg-trades download + JSONL fixture generation covered by tests |
+| Gap detection tool | Implemented | None — `gaps` mode exits non-zero on detected candle gaps |
+| Docker Compose (infra + core + obs profiles) | Implemented | None — runtime reliability gate (`runtime-gate`) with smoke + soak evidence is wired |
+| Candle aggregation | Implemented | None — OHLCV multi-timeframe pipeline active with runtime/storage/WS contract coverage |
+| Stats aggregation | Implemented | None — liq/markprice/funding per-timeframe pipeline active with cross-source consistency coverage |
+| Heatmap delivery pipeline | Implemented | None — snapshot pipeline wired end-to-end (runtime + storage + WS contract) |
 
 ## Functional Requirements
 
@@ -56,7 +53,7 @@ Define the acceptance criteria for declaring the Market Raccoon backend **stable
 
 | ID | Requirement | Verification |
 |---|---|---|
-| FR-1.1 | `make up-core` brings all services to healthy within 60s | **TODO:** `scripts/smoke-compose.sh` (does not exist yet — must be created before M1) |
+| FR-1.1 | `make up-core` brings all services to healthy within 60s | `scripts/test/util/smoke-compose.sh` + `make runtime-gate` evidence |
 | FR-1.2 | `make down` stops all services and releases volumes cleanly | Manual + CI |
 | FR-1.3 | All binaries read config from mounted JSONC; no hardcoded defaults leak | Config loader tests |
 | FR-1.4 | Shard env vars (`SHARD_INDEX`, `SHARD_COUNT`) propagate correctly | E2E integration test |
@@ -96,6 +93,8 @@ Stable subjects that Odin can subscribe to at launch:
 | `marketdata.markprice/{venue}/{symbol}/raw` | Consumer |
 | `marketdata.liquidation/{venue}/{symbol}/raw` | Consumer |
 | `aggregation.snapshot/{venue}/{symbol}/raw` | Processor |
+| `aggregation.candle/{venue}/{symbol}/raw` | Processor |
+| `aggregation.stats/{venue}/{symbol}/raw` | Processor |
 | `insights.crossvenue.trade_snapshot/global/{symbol}/raw` | Processor |
 | `insights.crossvenue.spread_signal/global/{symbol}/raw` | Processor |
 | `insights.volume_profile_snapshot/{venue}/{symbol}/raw` | Processor |
@@ -125,7 +124,7 @@ Source of truth: `docs/perf/performance-budgets.md`. PRD-0001 is authoritative f
 | Goroutine drift (pipeline + delivery) | <= 48 | Soak assertion |
 | Active orderbooks cardinality | <= 4,096 | BoundedMap eviction |
 | Active instrument streams | <= 4,096 | Config `max_instruments` |
-| Compose full-stack boot | < 60 s | **TODO:** `scripts/smoke-compose.sh` |
+| Compose full-stack boot | < 60 s | `scripts/test/util/smoke-compose.sh` + runtime gate report |
 
 ## Mandatory Tests
 
@@ -154,13 +153,13 @@ make soak-roundtrip           # cold-path write+read (C4)
 
 ```bash
 make up-core
-scripts/smoke-compose.sh      # waits for /readyz on all 4 binaries
+scripts/test/util/smoke-compose.sh      # waits for /readyz on all 4 binaries
 make down
 ```
 
-> **TODO:** `scripts/smoke-compose.sh` does not exist yet. Must be created before M1.
-> Script requirements: (1) wait up to 60 s for `/readyz` 200 on consumer, processor, server, store;
-> (2) exit 0 on all healthy, exit 1 on timeout; (3) wire into a `make smoke` target.
+`scripts/test/util/smoke-compose.sh` is wired in `make smoke` and orchestrated by `make runtime-gate`.
+Runtime gate requirements: (1) `make up-core`; (2) `make smoke`; (3) `make soak-check`;
+and (4) emit versioned report under `.context/evidence/runtime-gate/`.
 
 ### Gate 4: Delivery Contract
 
@@ -188,7 +187,7 @@ make down
 |---|---|---|---|---|
 | 1 | Gate 1 passes on `main` | CI | Done | `make ci` (`Makefile`) |
 | 2 | Gate 2 soak evidence committed to `.context/evidence/` | Dev | Done | `make soak-pipeline` (`Makefile`); evidence: `.context/evidence/c4-pipeline-soak.txt` |
-| 3 | Gate 3 compose smoke passes locally and in CI | Dev | Done | `scripts/smoke-compose.sh`; `make up-core` + `make smoke` (`Makefile`) |
+| 3 | Gate 3 compose smoke passes locally and in CI | Dev | Done | `scripts/test/util/smoke-compose.sh`; `make up-core` + `make smoke` (`Makefile`) |
 | 4 | Gate 4 delivery contract tests green | Dev | Done | `internal/actors/delivery/runtime/*_test.go`; `internal/interfaces/http/{auth,ratelimit}_test.go` |
 | 5 | Gate 5 all exchange parsers green | Dev | Done | `internal/adapters/exchange/{binance,bybit,coinbase,hyperliquid}/parser_test.go` |
 | 6 | `deploy/configs/*.jsonc` reviewed — no `CHANGE_ME` tokens | Dev | Done | `deploy/configs/server.jsonc` (no `CHANGE_ME` tokens) |
@@ -203,9 +202,9 @@ make down
 | ID | Risk | Impact | Likelihood | Mitigation |
 |---|---|---|---|---|
 | R-01 | `getrange` backed by in-memory buffer only — Odin cannot query historical data beyond buffer window | Medium | High | Document limitation in Odin client. Timescale durable range is deferred per `codebase-modernization-baseline.md`. |
-| R-02 | No candle/stats streams — Odin must render candles client-side from trade events | Medium | Certain | Odin v0 implements client-side OHLCV from trade stream. Backend candle pipeline (W14) is a fast-follow. |
-| R-03 | Slow-client disconnect threshold not implemented — misbehaving Odin instance accumulates drops silently | Low | Medium | `drop_newest` policy bounds memory. Add `ws_drops_total` alert. Implement disconnect-on-threshold as fast-follow. |
-| R-04 | Cold-path read ports missing — backfill/gap-detection blocked until C3 | Low | High | C3 is next execution wave. Does not block Odin WS delivery. |
+| R-02 | Heatmap delta stream still pending; Odin consumes snapshot stream only | Low | Medium | Keep Odin heatmap rendering on snapshot stream until delta stream is introduced. |
+| R-03 | Slow-client instance can force elevated drop rate under sustained overload | Low | Medium | `drop_newest|drop_oldest|priority_drop` + `delivery.slow_client_drop_threshold` disconnect + `ws_drops_total{reason}` alerting. |
+| R-04 | Gap detector atual cobre candles; verificação equivalente para stats/snapshot ainda depende das próximas waves de capability | Low | Medium | Expandir tooling em M7/M8 junto dos pipelines de stats/heatmap e manter semântica de exit-code consistente. |
 | R-05 | Proto delivery flags disabled by default — Odin must use JSON unless flags toggled | Low | Low | JSON is sufficient for Odin v0. Proto activation is an operator toggle, not a code change. |
 | R-06 | Single-shard consumer — scaling beyond 1 consumer requires `SHARD_COUNT` > 1 and multiple replicas | Low | Low | Shard infra implemented and tested. Default single-shard is sufficient for < 200 instruments. |
 | R-07 | `content_type` field not emitted in WS event frames | Low | Certain | Odin client infers type from subject. Field is a planned optional extension. |
@@ -215,10 +214,10 @@ make down
 | Milestone | Scope | Depends On | Exit Criteria | Anchor |
 |---|---|---|---|---|
 | **M0 — CI Green on main** | All Gate 1 tests pass, no flaky failures | — | `make ci` green for 5 consecutive runs | `Makefile` (`ci` target) |
-| **M1 — Compose Smoke** | `make up-core` boots to healthy; smoke script passes | M0 | Gate 3 green | `Makefile` (`up-core`); `scripts/smoke-compose.sh` |
+| **M1 — Compose Smoke** | `make up-core` boots to healthy; smoke script passes | M0 | Gate 3 green | `Makefile` (`up-core`); `scripts/test/util/smoke-compose.sh` |
 | **M2 — Delivery Contract Hardened** | All Gate 4 tests pass; slow-client drop metrics wired | M0 | Gate 4 green + `ws_drops_total` metric exists | `internal/actors/delivery/runtime/`; `internal/interfaces/http/{auth,ratelimit}_test.go` |
-| **M3 — Cold-Path Operational (C3)** | Backfill binary + gap detector + cold-path read ports | M0 | FR-5.3, FR-5.4 green | `cmd/backfill/` (stub); `.context/prompts/codex-prompt-C3-operational-tooling.md` |
-| **M4 — Multi-Exchange Soak (C4)** | 10M-event soak with 4 exchanges, budget assertions | M1, M2 | Gate 2 green; evidence in `.context/evidence/c4-pipeline-soak.txt` | `.context/prompts/codex-prompt-C4-production-soak.md` |
+| **M3 — Cold-Path Operational (C3)** | Backfill binary + gap detector + cold-path read ports | M0 | FR-5.3, FR-5.4 green | `cmd/backfill/`; `internal/adapters/exchange/binance/backfill.go`; `.context/evidence/odin-m3-c3-tooling-2026-02-19.md` |
+| **M4 — Runtime Reliability Gate** | Smoke + soak gate contínuo com trilha de auditoria | M1, M2, M3 | `make runtime-gate` green com relatório versionado | `Makefile` (`runtime-gate`); `scripts/test/util/runtime-reliability-gate.sh`; `.context/evidence/runtime-gate/latest.md` |
 | **M5 — Backend Stable** | All gates pass; release checklist complete | M1, M2, M3, M4 | Tag `v0.1.0-stable`; PRD-0002 status `Active` | Release Checklist (above) |
 | **M6 — Odin v0 Connected** | Odin client connects, subscribes to FR-4 subjects, renders live data | M5 | Manual acceptance by product owner | — |
 
@@ -236,8 +235,32 @@ make down
 
 ## Changelog
 
+- 2026-02-19 (m8-heatmap-delivery-production):
+  - Heatmap snapshot pipeline promoted from non-goal/deferred to implemented capability.
+  - FR-2/FR-4 contract surface updated with `insights.heatmap_snapshot`.
+  - R-02 narrowed to remaining delta-stream scope.
+- 2026-02-19 (m7-stats-aggregation-production):
+  - Stats aggregation promoted from non-goal/deferred to implemented capability.
+  - FR-4 stable subjects extended with `aggregation.stats/{venue}/{symbol}/raw`.
+  - R-02 adjusted to track heatmap-only residual maturity risk.
+- 2026-02-19 (m6-candle-aggregation-production):
+  - Candle aggregation promoted from non-goal/deferred to implemented capability.
+  - FR-4 stable subjects extended with `aggregation.candle/{venue}/{symbol}/raw`.
+  - R-02 adjusted to track stats-only residual maturity risk.
 - 2026-02-19 (release-closeout):
   - PRD changelog normalized after release completion; stale Gate 11 pending note removed.
+- 2026-02-19 (m4-runtime-reliability-gate):
+  - Current state updated: compose reliability gap moved to closed via `runtime-gate`.
+  - FR-1.1 and compose performance gate now reference active smoke/runtime-gate evidence flow.
+  - M4 milestone redefined as continuous+auditable runtime reliability gate with versioned evidence.
+- 2026-02-19 (m5-core-maturity-signoff):
+  - Core sign-off gates revalidated (`make ci`, explicit `make test-workspace-race`, `make docs-check`, `make operability-gates`).
+  - CI legacy-scan noise for missing tracked paths removed by filtering non-existent files in `scripts/legacy-scan.sh`.
+  - Evidence recorded in `.context/evidence/odin-m5-core-maturity-signoff-2026-02-19.md`.
+- 2026-02-19 (m3-c3-tooling):
+  - Current state updated: `cmd/backfill` and gap detector moved from pending to implemented.
+  - M3 anchor updated with concrete code + evidence references.
+  - R-04 revised from "pending tooling" to residual coverage scope (stats/snapshot extension deferred to later milestones).
 - 2026-02-19 (gate-11):
   - Gate 11 marked `Done` after creating tag `v0.1.0-stable` on `main`.
 - 2026-02-19 (gates-1-3-7-10):
@@ -255,7 +278,7 @@ make down
   - Added WS rate-limit token bucket test in `internal/interfaces/http/ratelimit_test.go`.
   - Gate 4 checklist item updated to `Done`; removed stale TODO anchors for auth/rate-limit test files.
 - 2026-02-19 (audit):
-  - Gate 3: marked `scripts/smoke-compose.sh` as TODO (file does not exist yet).
+  - Gate 3: marked `scripts/test/util/smoke-compose.sh` as TODO (file does not exist yet).
   - Gate 4: marked `auth_test.go` and `ratelimit_test.go` as TODO (files do not exist yet).
   - Performance Budgets: annotated smoke-compose row as TODO.
   - Release Checklist: added Anchor column with real paths; flagged `CHANGE_ME` in server.jsonc.

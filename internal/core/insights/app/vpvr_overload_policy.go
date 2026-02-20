@@ -3,7 +3,6 @@ package app
 import (
 	"math"
 	"slices"
-	"strings"
 	"sync"
 
 	"github.com/market-raccoon/internal/core/insights/domain"
@@ -150,7 +149,7 @@ func (p *VPVREmitPolicy) Apply(input VPVROverloadInput) VPVROverloadOutput {
 }
 
 func overloadPartitionKey(venue, instrument, timeframe string) string {
-	return naming.CanonicalVenue(venue) + "|" + naming.CanonicalInstrument(instrument) + "|" + strings.ToLower(strings.TrimSpace(timeframe))
+	return naming.CanonicalVenue(venue) + "|" + naming.CanonicalInstrument(instrument) + "|" + naming.NormalizeTimeframe(timeframe)
 }
 
 func compressSnapshotByLevel(snapshot domain.VolumeProfileSnapshotV1, level VPVROverloadLevel) (domain.VolumeProfileSnapshotV1, bool, float64) {

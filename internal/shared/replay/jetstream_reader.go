@@ -102,6 +102,6 @@ func RecordFromSource(ctx context.Context, src Source, outPath string, maxN int,
 		return SourceRecordSummary{}, problem.WithRetryable(problem.Wrap(err, problem.Unavailable, "close source failed"))
 	}
 
-	summary.OutputSHA = sharedhash.HashFields(hashes...)
+	summary.OutputSHA = sharedhash.HashFieldsFast(hashes...)
 	return summary, nil
 }

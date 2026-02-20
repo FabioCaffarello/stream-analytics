@@ -2,11 +2,11 @@ package coinbase
 
 import (
 	"encoding/json"
-	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
+	common "github.com/market-raccoon/internal/adapters/exchange/common"
 	"github.com/market-raccoon/internal/core/marketdata/app"
 	"github.com/market-raccoon/internal/core/marketdata/domain"
 	sharedhash "github.com/market-raccoon/internal/shared/hash"
@@ -54,14 +54,8 @@ type tickerMessage struct {
 	Sequence  int64  `json:"sequence"`
 }
 
-// ParseMeta carries parser diagnostics for observability.
-type ParseMeta struct {
-	EventType  string
-	SkipReason string
-	Problem    *problem.Problem
-	WSStream   string
-	Ticker     string
-}
+// ParseMeta is an alias for the shared parser diagnostics type.
+type ParseMeta = common.ParseMeta
 
 // ParseMessage parses Coinbase payload.
 func ParseMessage(data []byte, recvAt time.Time) (app.IngestRequest, bool, *problem.Problem) {
@@ -150,11 +144,11 @@ func parseTrade(data []byte, recvAt time.Time, marketType string) (app.IngestReq
 	if p != nil {
 		return app.IngestRequest{}, true, p
 	}
-	tsExchange, p := parseExchangeTimeMillis(msg.Time, recvAt)
+	tsExchange, p := common.ParseTimestamp(msg.Time, 0, recvAt)
 	if p != nil {
 		return app.IngestRequest{}, true, p
 	}
-	tradeID := fmt.Sprintf("%d", msg.TradeID)
+	tradeID := common.TradeIDStringFromAny(msg.TradeID)
 	if msg.TradeID <= 0 {
 		return app.IngestRequest{}, true, problem.New(problem.ValidationFailed, "coinbase match: trade_id must be > 0")
 	}
@@ -262,7 +256,7 @@ func parseL2Update(data []byte, recvAt time.Time, marketType string) (app.Ingest
 		}
 	}
 
-	tsExchange, p := parseExchangeTimeMillis(msg.Time, recvAt)
+	tsExchange, p := common.ParseTimestamp(msg.Time, 0, recvAt)
 	if p != nil {
 		return app.IngestRequest{}, true, p
 	}
@@ -307,7 +301,7 @@ func parseTicker(data []byte, recvAt time.Time, marketType string) (app.IngestRe
 	if err != nil {
 		return app.IngestRequest{}, true, problem.Wrap(err, problem.ValidationFailed, "coinbase ticker: invalid price")
 	}
-	tsExchange, p := parseExchangeTimeMillis(msg.Time, recvAt)
+	tsExchange, p := common.ParseTimestamp(msg.Time, 0, recvAt)
 	if p != nil {
 		return app.IngestRequest{}, true, p
 	}
@@ -342,102 +336,45 @@ func instrumentFromProductID(productID string) (string, *problem.Problem) {
 	return instrument, nil
 }
 
-func parseExchangeTimeMillis(raw string, recvAt time.Time) (int64, *problem.Problem) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return recvAt.UnixMilli(), nil
-	}
-	ts, err := time.Parse(time.RFC3339Nano, raw)
-	if err != nil {
-		return 0, problem.Wrap(err, problem.ValidationFailed, "coinbase: invalid timestamp")
-	}
-	return ts.UnixMilli(), nil
-}
+// timestamp helper moved to common.ParseTimestamp
 
 func parseLevels(raw [][]string) ([]domain.PriceLevel, *problem.Problem) {
-	if len(raw) == 0 {
-		return nil, nil
-	}
-	out := make([]domain.PriceLevel, 0, len(raw))
-	for _, pair := range raw {
-		if len(pair) < 2 {
-			return nil, problem.New(problem.ValidationFailed, "coinbase orderbook: invalid level pair")
-		}
-		price, err := strconv.ParseFloat(pair[0], 64)
-		if err != nil {
-			return nil, problem.Wrap(err, problem.ValidationFailed, "coinbase orderbook: invalid level price")
-		}
-		size, err := strconv.ParseFloat(pair[1], 64)
-		if err != nil {
-			return nil, problem.Wrap(err, problem.ValidationFailed, "coinbase orderbook: invalid level size")
-		}
-		out = append(out, domain.PriceLevel{Price: price, Size: size})
-	}
-	return out, nil
+	return common.ParseStringLevels(raw, "coinbase orderbook")
 }
 
 func normalizeSide(side string) (string, *problem.Problem) {
-	switch strings.ToLower(strings.TrimSpace(side)) {
-	case "buy":
-		return "buy", nil
-	case "sell":
-		return "sell", nil
-	default:
-		return "", problem.Newf(problem.ValidationFailed, "coinbase: unsupported side %q", side)
-	}
+	return common.NormalizeSide(side, "coinbase")
 }
 
 func buildTradeIdempotencyKey(venue, instrument, tradeID string) string {
-	return fmt.Sprintf("venue=%s|instrument=%s|trade_id=%s", venue, instrument, tradeID)
+	return common.BuildTradeIdempotencyKey(venue, instrument, tradeID)
 }
 
 func buildDepthIdempotencyKey(venue, instrument string, finalUpdateID int64) string {
-	return fmt.Sprintf("venue=%s|instrument=%s|final_update_id=%d", venue, instrument, finalUpdateID)
+	return common.BuildDepthIdempotencyKey(venue, instrument, finalUpdateID)
 }
 
 func buildDepthIdempotencyKeyFromSequenceOrPayload(venue, instrument string, sequence int64, payload []byte) string {
 	if sequence > 0 {
 		return buildDepthIdempotencyKey(venue, instrument, sequence)
 	}
-	return fmt.Sprintf(
-		"venue=%s|instrument=%s|payload_sha=%s",
-		venue,
-		instrument,
-		sharedhash.HashBytes(payload),
-	)
+	return "venue=" + venue + "|instrument=" + instrument + "|payload_sha=" + sharedhash.HashBytes(payload)
 }
 
 func buildMarkPriceIdempotencyKey(venue, instrument string, sequence int64) string {
-	if sequence <= 0 {
-		return ""
-	}
-	return fmt.Sprintf("venue=%s|instrument=%s|sequence=%d", venue, instrument, sequence)
+	return common.BuildMarkPriceIdempotencyKey(venue, instrument, sequence)
 }
 
 func buildInstrumentMetadata(venueSymbol, canonical, marketType string) map[string]string {
-	meta := map[string]string{
-		"instrument_venue_symbol": strings.ToUpper(strings.TrimSpace(venueSymbol)),
-		"instrument_canonical":    canonical,
-		"instrument_market_type":  marketType,
-	}
-	pair := normalizeProductID(venueSymbol)
-	if pair != "" {
-		meta["instrument_pair"] = pair
-	}
-	return meta
+	return common.BuildInstrumentMetadata(venueSymbol, canonical, marketType, func(vs string) string {
+		return normalizeProductID(vs)
+	})
 }
 
 func skipReasonFromProblem(p *problem.Problem) string {
-	if p != nil {
-		return "parse_error"
-	}
-	return ""
+	return common.SkipReasonFromProblem(p)
 }
 
 func normalizeMarketType(raw string) string {
-	mt, p := domain.NewMarketType(raw)
-	if p != nil {
-		return domain.MarketTypeSpot.String()
-	}
-	return mt.String()
+	return common.NormalizeMarketTypeSpot(raw)
 }

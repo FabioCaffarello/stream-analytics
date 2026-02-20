@@ -2,7 +2,6 @@ package clickhouse
 
 import (
 	"context"
-	"encoding/json"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -26,9 +25,15 @@ type batchItem struct {
 }
 
 // estimatePayloadSize returns a rough byte size for batch-size accounting.
+// Uses O(1) arithmetic instead of JSON marshaling to avoid hot-path allocations.
+// Each Level ≈ 40 bytes JSON (two float fields + formatting); base overhead
+// covers BookID strings, Seq, and JSON structure.
 func estimatePayloadSize(snap aggdomain.SnapshotProduced) int {
-	data, _ := json.Marshal(snap)
-	return len(data)
+	const (
+		baseOverhead  = 80 // BookID (venue+instrument) + seq + JSON structure
+		bytesPerLevel = 40 // {"price":12345.67,"quantity":0.123} ≈ 40 bytes
+	)
+	return baseOverhead + (len(snap.Bids)+len(snap.Asks))*bytesPerLevel
 }
 
 // BatchWriter accumulates snapshots and flushes them to the underlying writer

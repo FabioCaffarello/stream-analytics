@@ -1,5 +1,5 @@
+-- +goose Up
 -- S4 artifact storage schema (candle, stats, heatmap, volume profile).
--- Applied externally by deployment tooling (init container or manual).
 
 -- Candle OHLCV aggregation
 CREATE TABLE IF NOT EXISTS aggregation_candle (

@@ -1,3 +1,6 @@
+//go:build soak
+// +build soak
+
 package main
 
 import (
@@ -65,6 +68,7 @@ func TestStoreSoak_CandleColdWrite_10k(t *testing.T) {
 		batcher: testBatcher(clickhouse.NewWriter()),
 		candle:  candleWriter,
 		stats:   clickhouse.NewChStatsWriter(nil),
+		heatmap: clickhouse.NewChHeatmapWriter(nil),
 	}
 
 	const total = 10_000
@@ -75,6 +79,13 @@ func TestStoreSoak_CandleColdWrite_10k(t *testing.T) {
 		instrument := fmt.Sprintf("SOAK%02dUSDT", (i%10)+1)
 		windowStart := int64(i) * 60_000
 		windowEnd := windowStart + 60_000
+		// Ensure buy + sell equals total volume to satisfy domain invariants.
+		volume := 10 + float64(i%5)
+		buy := 6 + float64(i%3)
+		if buy > volume {
+			buy = volume
+		}
+		sell := volume - buy
 		dto := contracts.AggregationCandleClosedV1{
 			Candle: contracts.AggregationCandleV1{
 				Venue:         "BINANCE",
@@ -86,9 +97,9 @@ func TestStoreSoak_CandleColdWrite_10k(t *testing.T) {
 				High:          101 + float64(i%20),
 				Low:           99 + float64(i%20),
 				ClosePrice:    100.5 + float64(i%20),
-				Volume:        10 + float64(i%5),
-				BuyVolume:     6 + float64(i%3),
-				SellVolume:    4 + float64(i%2),
+				Volume:        volume,
+				BuyVolume:     buy,
+				SellVolume:    sell,
 				TradeCount:    int64((i % 9) + 1),
 				SeqFirst:      int64(i*10 + 1),
 				SeqLast:       int64(i*10 + 9),
@@ -142,6 +153,7 @@ func TestStoreSoak_StatsColdWrite_10k(t *testing.T) {
 		batcher: testBatcher(clickhouse.NewWriter()),
 		candle:  clickhouse.NewChCandleWriter(nil),
 		stats:   statsWriter,
+		heatmap: clickhouse.NewChHeatmapWriter(nil),
 	}
 
 	const total = 10_000

@@ -38,6 +38,8 @@ SOAK_STORE_OUT_FILE ?= .context/evidence/s3-store-soak.txt
 SOAK_STORE_PATTERN ?= TestStoreSoak_
 SOAK_ROUNDTRIP_OUT_FILE ?= .context/evidence/c4-cold-roundtrip.txt
 SOAK_PIPELINE_OUT_FILE ?= .context/evidence/c4-pipeline-soak.txt
+SOAK_C4_OUT_FILE ?= .context/evidence/c4-production-soak.txt
+RUNTIME_GATE_REPORT_DIR ?= .context/evidence/runtime-gate
 VULN_REQUIRED ?= false
 MODULE ?=
 MSG_FILE ?=
@@ -55,7 +57,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules workspace-check tidy tidy-check go-tidy-check tidy-check-changed fmt fmt-check vet shell-script-check quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check legacy-check-staged legacy-check lint lint-changed smoke test test-root test-workspace test-workspace-race test-unit test-integration test-integration-changed test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store soak-roundtrip soak-pipeline soak-ws-delivery soak-full test-short test-short-changed bench-hotpath vuln build run clean docker-build up down up-infra up-core dev-scale-smoke ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci
+.PHONY: help install-tools tools modules workspace-check tidy tidy-check go-tidy-check tidy-check-changed fmt fmt-check vet shell-script-check quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check legacy-check-staged legacy-check lint lint-changed smoke runtime-gate runtime-gate-full test test-root test-workspace test-workspace-race test-unit test-integration test-integration-changed test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store soak-roundtrip soak-pipeline soak-ws-delivery soak-c4-production soak-full test-short test-short-changed bench-hotpath bench-budget vuln build run clean docker-build up down up-infra up-core dev-scale-smoke ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci
 
 help:
 	@echo "Targets:"
@@ -96,6 +98,7 @@ help:
 	@echo "  make test-replay-golden-if-needed - run replay golden only when changed paths match trigger regex"
 	@echo "  make replay-trigger-self-check - validate replay trigger include/exclude paths"
 	@echo "  make bench-hotpath      - run benchmark harness for codec/policykit hot paths"
+	@echo "  make bench-budget      - enforce per-benchmark allocation budgets (<10 allocs/event target)"
 	@echo "  make test-soak          - alias for soak-check long-running validation"
 	@echo "  make soak-check         - run soak harness checks and emit evidence file"
 	@echo "  make soak-vpvr          - run deterministic VPVR burst soak checks"
@@ -104,6 +107,7 @@ help:
 	@echo "  make soak-roundtrip     - run cold-path candle/stats roundtrip + store write soaks"
 	@echo "  make soak-pipeline      - run 10M multi-exchange + pipeline/delivery soaks (MR_ENABLE_SOAK=1)"
 	@echo "  make soak-ws-delivery   - run full vertical + ws backpressure + guardian restart soaks"
+	@echo "  make soak-c4-production - run C4 production soak (10M/4 exchanges + WS slow clients 50)"
 	@echo "  make soak-full          - run all soak harnesses"
 	@echo "  make test-short         - run short tests"
 	@echo "  make test-short-changed - run short tests only in changed Go modules"
@@ -117,6 +121,8 @@ help:
 	@echo "  make up-infra           - start only infrastructure services (nats + timescale + clickhouse + prometheus + grafana)"
 	@echo "  make up-core            - start infra + core app services (no observability)"
 	@echo "  make smoke              - wait up to 60s for /readyz on core services via docker compose"
+	@echo "  make runtime-gate       - run up-core + smoke + soak-check with versioned evidence report"
+	@echo "  make runtime-gate-full  - run runtime-gate plus heavy C4 pipeline and ws-delivery soaks"
 	@echo "  make dev-scale-smoke    - start core with N processor replicas and print shard-resolution evidence"
 	@echo "                           vars: N or PROCESSOR_REPLICAS (default 3 for this target)"
 	@echo "  make ps                 - list compose service status"
@@ -253,35 +259,35 @@ docs-check-full:
 	@$(MAKE) registry-check
 
 check-doc-headers:
-	@./scripts/check-doc-headers.sh
+	@./scripts/ci/docs/check-doc-headers.sh
 
 check-doc-links:
-	@./scripts/check-doc-links.sh
+	@./scripts/ci/docs/check-doc-links.sh
 
 check-doc-links-changed:
-	@./scripts/check-doc-links.sh --changed-only
+	@./scripts/ci/docs/check-doc-links.sh --changed-only
 
 check-truth-map:
-	@./scripts/check-truth-map.sh
+	@./scripts/ci/docs/check-truth-map.sh
 
 check-feature-pack-links:
-	@./scripts/check-feature-pack-links.sh
+	@./scripts/ci/docs/check-feature-pack-links.sh
 
 check-pack-subjects-vs-event-bus:
-	@./scripts/check-pack-subjects-vs-event-bus.sh
+	@./scripts/check-pack-subjects.sh
 
 registry-check:
-	@./scripts/check-registry.sh
+	@./scripts/ci/docs/check-registry.sh
 
 docs-fix:
-	@./scripts/check-doc-headers.sh --fix-hints
-	@./scripts/check-doc-links.sh --fix-hints
-	@./scripts/check-truth-map.sh --fix-hints
-	@./scripts/check-feature-pack-links.sh --fix-hints
-	@./scripts/check-pack-subjects-vs-event-bus.sh --fix-hints
+	@./scripts/ci/docs/check-doc-headers.sh --fix-hints
+	@./scripts/ci/docs/check-doc-links.sh --fix-hints
+	@./scripts/ci/docs/check-truth-map.sh --fix-hints
+	@./scripts/ci/docs/check-feature-pack-links.sh --fix-hints
+	@./scripts/ci/docs/check-pack-subjects-vs-event-bus.sh --fix-hints
 
 invariants-check:
-	@./scripts/check-domain-isolation.sh "$(CURDIR)"
+	@./scripts/ci/guards/check-domain-isolation.sh "$(CURDIR)"
 
 legacy-check-staged:
 	@./scripts/legacy-scan.sh --staged
@@ -357,6 +363,9 @@ bench-hotpath: invariants-check
 	@$(GO) test -run=^$$ -bench=BenchmarkDeliveryFanOut -benchmem ./internal/actors/delivery/runtime
 	@$(GO) test -run=^$$ -bench=BenchmarkSessionWrite -benchmem ./internal/interfaces/ws
 
+bench-budget: invariants-check
+	@bash scripts/test/util/bench-budget.sh
+
 bench-baseline: invariants-check
 	@$(GO) test -run='^$$' -bench=HotPath -benchmem -count=5 ./internal/shared/codec ./internal/shared/policykit ./internal/shared/hash > .benchmarks/baseline.txt 2>&1
 	@$(GO) test -run='^$$' -bench=BenchmarkIngest -benchmem -count=5 ./internal/core/marketdata/app >> .benchmarks/baseline.txt 2>&1
@@ -367,7 +376,7 @@ bench-baseline: invariants-check
 	@echo "bench-baseline: saved to .benchmarks/baseline.txt"
 
 bench-check: invariants-check
-	@bash scripts/bench-check.sh
+	@bash scripts/test/util/bench-check.sh
 
 test-race: invariants-check
 	@$(GO) test $(GO_TEST_RACE_FLAGS) $(TEST_RACE_PKGS)
@@ -402,57 +411,63 @@ test-soak:
 	@$(MAKE) soak-check
 
 soak-check: invariants-check
-	@./scripts/soak-test.sh \
+	@./scripts/test/soak/soak-test.sh \
 		--out-file "$(SOAK_OUT_FILE)" \
 		--go-cache "$(SOAK_GO_CACHE)" \
 		--ws-pattern "$(SOAK_WS_PATTERN)" \
 		--boundedmap-pattern "$(SOAK_BOUNDEDMAP_PATTERN)"
-	@./scripts/soak-vpvr.sh \
+	@./scripts/test/soak/soak-vpvr.sh \
 		--out-file "$(SOAK_VPVR_OUT_FILE)" \
 		--go-cache "$(SOAK_GO_CACHE)" \
 		--pattern "$(SOAK_VPVR_PATTERN)"
-	@./scripts/soak-roundtrip.sh \
+	@./scripts/test/soak/soak-roundtrip.sh \
 		--out-file "$(SOAK_ROUNDTRIP_OUT_FILE)" \
 		--go-cache "$(SOAK_GO_CACHE)"
 
 soak-vpvr: invariants-check
-	@./scripts/soak-vpvr.sh \
+	@./scripts/test/soak/soak-vpvr.sh \
 		--out-file "$(SOAK_VPVR_OUT_FILE)" \
 		--go-cache "$(SOAK_GO_CACHE)" \
 		--pattern "$(SOAK_VPVR_PATTERN)"
 
 soak-cold-path: invariants-check
-	@chmod +x ./scripts/soak-cold-path.sh
-	@./scripts/soak-cold-path.sh \
+	@chmod +x ./scripts/test/soak/soak-cold-path.sh
+	@./scripts/test/soak/soak-cold-path.sh \
 		--out-file ".context/evidence/w2-cold-path-soak.txt" \
 		--go-cache "$(SOAK_GO_CACHE)"
 
 soak-store: invariants-check
-	@chmod +x ./scripts/soak-store.sh
-	@./scripts/soak-store.sh \
+	@chmod +x ./scripts/test/soak/soak-store.sh
+	@./scripts/test/soak/soak-store.sh \
 		--out-file "$(SOAK_STORE_OUT_FILE)" \
 		--go-cache "$(SOAK_GO_CACHE)" \
 		--pattern "$(SOAK_STORE_PATTERN)"
 
 soak-roundtrip: invariants-check
-	@chmod +x ./scripts/soak-roundtrip.sh
-	@./scripts/soak-roundtrip.sh \
+	@chmod +x ./scripts/test/soak/soak-roundtrip.sh
+	@./scripts/test/soak/soak-roundtrip.sh \
 		--out-file "$(SOAK_ROUNDTRIP_OUT_FILE)" \
 		--go-cache "$(SOAK_GO_CACHE)"
 
 soak-pipeline: invariants-check
-	@chmod +x ./scripts/soak-pipeline.sh
-	@./scripts/soak-pipeline.sh \
+	@chmod +x ./scripts/test/pipeline/soak-pipeline.sh
+	@./scripts/test/pipeline/soak-pipeline.sh \
 		--out-file "$(SOAK_PIPELINE_OUT_FILE)" \
 		--go-cache "$(SOAK_GO_CACHE)"
 
 soak-ws-delivery: invariants-check
-	@chmod +x ./scripts/soak-ws-delivery.sh
-	@./scripts/soak-ws-delivery.sh \
+	@chmod +x ./scripts/test/soak/soak-ws-delivery.sh
+	@./scripts/test/soak/soak-ws-delivery.sh \
 		--out-file ".context/evidence/c4-ws-delivery-soak.txt" \
 		--go-cache "$(SOAK_GO_CACHE)"
 
-soak-full: soak-check soak-store soak-cold-path soak-roundtrip soak-pipeline soak-ws-delivery
+soak-c4-production: invariants-check
+	@chmod +x ./scripts/test/pipeline/soak-c4-production.sh
+	@./scripts/test/pipeline/soak-c4-production.sh \
+		--out-file "$(SOAK_C4_OUT_FILE)" \
+		--go-cache "$(SOAK_GO_CACHE)"
+
+soak-full: soak-check soak-store soak-cold-path soak-roundtrip soak-pipeline soak-ws-delivery soak-c4-production
 
 test-short:
 	$(call RUN_IN_MODULES,bash -lc 'pkgs="$$( $(GO) list ./... 2>/dev/null || true )"; if [ -n "$$pkgs" ]; then $(GO) test -short $$pkgs; else echo "no packages to test (skipping)"; fi')
@@ -507,6 +522,11 @@ build:
 		exit 1; \
 	fi
 
+
+.PHONY: list-tests
+list-tests:
+	@bash ./scripts/util/list-tests-by-category.sh
+
 run:
 	@$(GO) run $(APP_CMD)
 
@@ -543,8 +563,16 @@ up-core:
 		--scale processor=$$p_rep
 
 smoke: shell-script-check
-	@chmod +x ./scripts/smoke-compose.sh
-	@./scripts/smoke-compose.sh
+	@chmod +x ./scripts/test/util/smoke-compose.sh
+	@./scripts/test/util/smoke-compose.sh
+
+runtime-gate: shell-script-check
+	@chmod +x ./scripts/runtime-reliability-gate.sh
+	@./scripts/runtime-reliability-gate.sh --report-dir "$(RUNTIME_GATE_REPORT_DIR)"
+
+runtime-gate-full: shell-script-check
+	@chmod +x ./scripts/test/util/runtime-reliability-gate.sh
+	@./scripts/test/util/runtime-reliability-gate.sh --report-dir "$(RUNTIME_GATE_REPORT_DIR)" --full
 
 dev-scale-smoke:
 	@set -euo pipefail; \
@@ -581,7 +609,11 @@ logs:
 	docker compose -f deploy/compose/docker-compose.yml --profile core --profile obs logs -f --tail=200
 
 pre-commit-install:
-	$(PRE_COMMIT) install --hook-type pre-commit --hook-type pre-push --hook-type commit-msg
+	$(PRE_COMMIT) install --install-hooks --hook-type pre-commit --hook-type pre-push --hook-type commit-msg
+
+.PHONY: pre-commit-install-all
+pre-commit-install-all: install-tools pre-commit-install
+	@echo "pre-commit hooks installed and toolchain verified"
 
 commit-msg-check:
 	@set -euo pipefail; \

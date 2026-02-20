@@ -1,3 +1,6 @@
+//go:build soak
+// +build soak
+
 package main
 
 import (

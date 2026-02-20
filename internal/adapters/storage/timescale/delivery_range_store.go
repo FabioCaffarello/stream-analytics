@@ -2,6 +2,7 @@ package timescale
 
 import (
 	"context"
+	"log/slog"
 	"sort"
 	"sync"
 
@@ -14,7 +15,7 @@ import (
 )
 
 // DeliveryRangeStore is an in-memory hot-path store used by delivery getrange.
-// TODO(m2): replace with real Timescale reads.
+// For Timescale-backed reads, use PgRangeStore (wired when storage.timescale.enabled=true).
 type DeliveryRangeStore struct {
 	mu            sync.RWMutex
 	maxPerSubject int
@@ -124,7 +125,9 @@ VALUES ($1, $2, $3, $4, NOW())
 ON CONFLICT (subject, seq) DO UPDATE
 SET ts_ingest = EXCLUDED.ts_ingest,
     payload = EXCLUDED.payload`
-	_, _ = s.pool.Exec(context.Background(), insertSQL, sub.String(), env.Seq, env.TsIngest, env.Payload)
+	if _, err := s.pool.Exec(context.Background(), insertSQL, sub.String(), env.Seq, env.TsIngest, env.Payload); err != nil {
+		slog.Warn("delivery range store: insert failed", "subject", sub.String(), "seq", env.Seq, "err", err)
+	}
 }
 
 func (s *PgRangeStore) GetRange(ctx context.Context, subject domain.Subject, fromMs, toMs int64, limit int) ([]ports.RangeItem, *problem.Problem) {

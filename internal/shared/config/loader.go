@@ -99,6 +99,9 @@ func (a AppConfig) Validate() *problem.Problem {
 	if prob := ValidateFeatureSubjects(a); prob != nil {
 		return prob
 	}
+	if prob := validateCrossField(a); prob != nil {
+		return prob
+	}
 	return nil
 }
 
@@ -167,6 +170,12 @@ func validateShard(s ShardConfig) *problem.Problem {
 	}
 	if s.MaxLag < 0 {
 		return problem.Newf(codeInvalid, "shard.max_lag must be >= 0, got %d", s.MaxLag)
+	}
+	if s.Registry.Enabled {
+		d, err := time.ParseDuration(s.Registry.TopologyGrace)
+		if err != nil || d <= 0 {
+			return problem.Newf(codeInvalid, "shard.registry.topology_grace must be > 0 duration, got %q", s.Registry.TopologyGrace)
+		}
 	}
 	return nil
 }
@@ -335,10 +344,28 @@ func validateDelivery(d DeliveryConfig) *problem.Problem {
 	if d.MaxSessions < 0 {
 		return problem.Newf(codeInvalid, "delivery.max_sessions must be >= 0, got %d", d.MaxSessions)
 	}
+	if d.SessionOutboundQueueSize <= 0 {
+		return problem.Newf(codeInvalid, "delivery.session_outbound_queue_size must be > 0, got %d", d.SessionOutboundQueueSize)
+	}
+	if d.SlowClientDropThreshold < 0 {
+		return problem.Newf(codeInvalid, "delivery.slow_client_drop_threshold must be >= 0, got %d", d.SlowClientDropThreshold)
+	}
 	switch strings.ToLower(strings.TrimSpace(d.BackpressurePolicy)) {
 	case "drop_newest", "drop_oldest", "priority_drop":
 	default:
 		return problem.Newf(codeInvalid, "delivery.backpressure_policy must be drop_newest|drop_oldest|priority_drop, got %q", d.BackpressurePolicy)
+	}
+	for _, field := range []struct {
+		name  string
+		value string
+	}{
+		{"delivery.router_ready_timeout", d.RouterReadyTimeout},
+		{"delivery.subsystem_ready_timeout", d.SubsystemReadyTimeout},
+		{"delivery.session_spawn_timeout", d.SessionSpawnTimeout},
+	} {
+		if _, err := time.ParseDuration(field.value); err != nil {
+			return problem.Newf(codeInvalid, "%s: invalid duration %q: %v", field.name, field.value, err)
+		}
 	}
 	if !d.Enabled {
 		return nil
@@ -454,9 +481,9 @@ func validateConsumerExchanges(exchanges []ConsumerExchangeConfig) *problem.Prob
 
 		typ := strings.ToLower(strings.TrimSpace(ex.Type))
 		switch typ {
-		case "binance", "bybit", "coinbase", "hyperliquid":
+		case "binance", "bybit", "coinbase", "hyperliquid", "kraken", "krakenf":
 		default:
-			return problem.Newf(codeInvalid, "consumer.exchanges[%d].type must be binance|bybit|coinbase|hyperliquid, got %q", i, ex.Type)
+			return problem.Newf(codeInvalid, "consumer.exchanges[%d].type must be binance|bybit|coinbase|hyperliquid|kraken|krakenf, got %q", i, ex.Type)
 		}
 
 		if len(ex.Tickers) == 0 {
@@ -554,6 +581,9 @@ func validateReplay(bus BusConfig, marketData MarketDataConfig, replay ReplayCon
 }
 
 func validateProcessor(p ProcessorConfig) *problem.Problem {
+	if d, err := time.ParseDuration(p.PublisherTimeout); err != nil || d <= 0 {
+		return problem.Newf(codeInvalid, "processor.publisher_timeout must be > 0 duration, got %q", p.PublisherTimeout)
+	}
 	if p.BusCapacity <= 0 {
 		return problem.Newf(codeInvalid, "processor.bus_capacity must be > 0, got %d", p.BusCapacity)
 	}
@@ -672,6 +702,9 @@ func validateStorage(s StorageConfig) *problem.Problem {
 		if s.ClickHouse.MaxIdleConns < 0 {
 			return problem.Newf(codeInvalid, "storage.clickhouse.max_idle_conns must be >= 0, got %d", s.ClickHouse.MaxIdleConns)
 		}
+		if s.ClickHouse.MaxIdleConns > s.ClickHouse.MaxOpenConns {
+			return problem.Newf(codeInvalid, "storage.clickhouse.max_idle_conns (%d) must be <= max_open_conns (%d)", s.ClickHouse.MaxIdleConns, s.ClickHouse.MaxOpenConns)
+		}
 		for _, field := range []struct {
 			name  string
 			value string
@@ -686,6 +719,18 @@ func validateStorage(s StorageConfig) *problem.Problem {
 		}
 	}
 
+	return nil
+}
+
+func validateCrossField(a AppConfig) *problem.Problem {
+	if a.Delivery.Enabled && a.Processor.BusCapacity < a.Delivery.SessionOutboundQueueSize {
+		return problem.Newf(
+			codeInvalid,
+			"processor.bus_capacity (%d) must be >= delivery.session_outbound_queue_size (%d) to avoid immediate drops",
+			a.Processor.BusCapacity,
+			a.Delivery.SessionOutboundQueueSize,
+		)
+	}
 	return nil
 }
 
@@ -929,8 +974,23 @@ func applyDefaults(c *AppConfig) {
 	if c.Delivery.MaxSessions == 0 {
 		c.Delivery.MaxSessions = 10000
 	}
+	if c.Delivery.SessionOutboundQueueSize == 0 {
+		c.Delivery.SessionOutboundQueueSize = 512
+	}
 	if strings.TrimSpace(c.Delivery.BackpressurePolicy) == "" {
 		c.Delivery.BackpressurePolicy = "drop_newest"
+	}
+	if c.Delivery.SlowClientDropThreshold == 0 {
+		c.Delivery.SlowClientDropThreshold = 1000
+	}
+	if c.Delivery.RouterReadyTimeout == "" {
+		c.Delivery.RouterReadyTimeout = "2s"
+	}
+	if c.Delivery.SubsystemReadyTimeout == "" {
+		c.Delivery.SubsystemReadyTimeout = "500ms"
+	}
+	if c.Delivery.SessionSpawnTimeout == "" {
+		c.Delivery.SessionSpawnTimeout = "2s"
 	}
 	if strings.TrimSpace(c.Delivery.NATS.ConsumerDurable) == "" {
 		c.Delivery.NATS.ConsumerDurable = "delivery-v1"
@@ -942,11 +1002,16 @@ func applyDefaults(c *AppConfig) {
 		c.Shard.Count = 1
 	}
 	// Shard.Index zero value (0) is the correct default.
+	// Shard.Registry.Enabled zero value (false) is the correct default.
+	// Shard.Registry.Strict zero value (false) is the correct default.
+	if c.Shard.Registry.TopologyGrace == "" {
+		c.Shard.Registry.TopologyGrace = "60s"
+	}
 	if c.Bus.Type == "" {
 		c.Bus.Type = "inmemory"
 	}
 	if c.Bus.WireFormat == "" {
-		c.Bus.WireFormat = "json"
+		c.Bus.WireFormat = "proto"
 	}
 	c.Bus.WireFormat = strings.ToLower(strings.TrimSpace(c.Bus.WireFormat))
 	if c.JetStream.URL == "" {
@@ -1074,6 +1139,9 @@ func applyDefaults(c *AppConfig) {
 	c.Replay.JetStream.Window = strings.TrimSpace(c.Replay.JetStream.Window)
 	c.Replay.JetStream.SubjectFilter = strings.TrimSpace(c.Replay.JetStream.SubjectFilter)
 	c.Replay.JetStream.DeliverPolicy = strings.TrimSpace(c.Replay.JetStream.DeliverPolicy)
+	if c.Processor.PublisherTimeout == "" {
+		c.Processor.PublisherTimeout = "5s"
+	}
 	if c.Processor.BusCapacity == 0 {
 		c.Processor.BusCapacity = 1024
 	}
@@ -1329,6 +1397,10 @@ func defaultExchangeBaseURL(exchangeType, marketType, legacyBinanceBaseURL strin
 		return "wss://ws-feed.exchange.coinbase.com"
 	case "hyperliquid":
 		return "wss://api.hyperliquid.xyz/ws"
+	case "kraken":
+		return "wss://ws.kraken.com/v2"
+	case "krakenf":
+		return "wss://futures.kraken.com/ws/v1"
 	default:
 		return ""
 	}

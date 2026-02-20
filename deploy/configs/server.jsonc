@@ -5,6 +5,24 @@
     "type": "inmemory",
     "wire_format": "proto"
   },
+  "proto_rollout": {
+    "marketdata": {
+      "trade": false,
+      "bookdelta": false,
+      "markprice": false,
+      "liquidation": false
+    },
+    "aggregation": {
+      "candle": false,
+      "stats": false,
+      "snapshot": false
+    },
+    "insights": {
+      "volume_profile": false,
+      "heatmap": false,
+      "crossvenue": false
+    }
+  },
   "log": {
     "level": "info",
     "format": "json"
@@ -36,7 +54,9 @@
   "delivery": {
     "enabled": true,
     "max_sessions": 10000,
+    "session_outbound_queue_size": 512,
     "backpressure_policy": "drop_newest",
+    "slow_client_drop_threshold": 1000,
     "nats": {
       "consumer_durable": "delivery-v2",
       "filter_subjects": ["marketdata.>", "aggregation.>", "insights.>"]

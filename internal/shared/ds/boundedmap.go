@@ -31,6 +31,7 @@ type BoundedMap[K comparable, V any] struct {
 	lru   *list.List
 
 	onEvict func(key K, value V, reason string)
+	onSweep func(removed int)
 
 	opCount          uint64
 	sweepEveryOps    uint64
@@ -65,6 +66,14 @@ func (m *BoundedMap[K, V]) SetOnEvict(fn func(key K, value V, reason string)) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.onEvict = fn
+}
+
+// SetOnSweep registers a callback that fires after each sweep with the number of
+// entries removed. The callback is invoked outside the lock.
+func (m *BoundedMap[K, V]) SetOnSweep(fn func(removed int)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.onSweep = fn
 }
 
 // SetSweepEveryOps configures opportunistic sweep cadence by operation count.
@@ -199,11 +208,15 @@ func (m *BoundedMap[K, V]) Len() int {
 func (m *BoundedMap[K, V]) Sweep() int {
 	m.mu.Lock()
 	onEvict := m.onEvict
+	onSweep := m.onSweep
 	now := m.clock.Now()
 	removed, evicted := m.sweepLocked(now)
 	m.lastSweep = now
 	m.mu.Unlock()
 	m.fireEvictions(onEvict, evicted)
+	if onSweep != nil {
+		onSweep(removed)
+	}
 	return removed
 }
 

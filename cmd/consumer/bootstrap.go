@@ -209,6 +209,7 @@ func buildGuardianFactories(
 			Service:                mdService,
 			ParseMessage:           runtimeCfg.ParseV1,
 			ParseMessageV2:         runtimeCfg.ParseV2,
+			ParseBatch:             runtimeCfg.ParseBatch,
 			ManagerConfig:          managerCfg,
 			OnStarted:              e2e.subsystemStartedHook(runtimeCfg.Exchange.Type, runtimeCfg.Exchange.Name),
 			BackpressureBufferSize: cfg.Consumer.BackpressureBufferSize,

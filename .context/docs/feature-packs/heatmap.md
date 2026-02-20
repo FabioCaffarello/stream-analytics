@@ -1,14 +1,14 @@
 # Feature Pack: Heatmap
 
-**STATUS:** ACTIVE | **last_reviewed:** 2026-02-18
+**STATUS:** ACTIVE | **last_reviewed:** 2026-02-19
 
 ## Purpose
 - Heatmap parity constraints only; authority: [heatmap](../../../docs/architecture/heatmap.md), [event-bus](../../../docs/contracts/event-bus.md), [ADR-0013](../../../docs/adrs/ADR-0013-backpressure-overload-policies.md).
 
 ## Inputs/Outputs
 - Inputs: `marketdata.bookdelta.v1.{venue}.{instrument}`, `marketdata.trade.v1.{venue}.{instrument}`.
-- Outputs (planned): `insights.heatmap_snapshot.v1.{venue}.{instrument}`, `insights.heatmap_delta.v1.{venue}.{instrument}`.
-- Planned WS: `insights.heatmap/{venue}/{symbol}/{timeframe}` ([delivery-ws](../../../docs/contracts/delivery-ws.md)).
+- Outputs: `insights.heatmap_snapshot.v1.{venue}.{instrument}` (stable), `insights.heatmap_delta.v1.{venue}.{instrument}` (planned).
+- WS stream available: `insights.heatmap_snapshot/{venue}/{symbol}/{timeframe}` ([delivery-ws](../../../docs/contracts/delivery-ws.md)).
 - Subject refs: [ADR-0014](../../../docs/adrs/ADR-0014-stream-partitioning-strategy.md).
 
 ## Invariants
@@ -36,12 +36,19 @@
 - `internal/core/insights/domain/heatmap_bucket.go:1` (bucket model — Existing)
 - `internal/core/insights/app/build_heatmap.go:1` (builder usecase — Existing)
 - `internal/core/insights/app/service.go:1` (InsightsService facade — Existing)
+- `internal/adapters/storage/timescale/heatmap_writer.go:1` (hot writer — Existing)
+- `internal/adapters/storage/clickhouse/heatmap_writer.go:1` (cold writer — Existing)
+- `cmd/store/bootstrap.go:264` (cold-path routing for `insights.heatmap_snapshot` — Existing)
+- `internal/interfaces/ws/heatmap_delivery_contract_test.go:1` (WS contract evidence — Existing)
 
 ## Acceptance Tests
 - `TestValidateSubjectTaxonomy_Valid` -> `internal/adapters/jetstream/subject_validation_test.go:5`
 - `TestSubsystem_WsMessage_nilParseFn_dropsMessage` -> `internal/actors/marketdata/runtime/subsystem_test.go:184`
 - `TestGoldenReplay` -> `internal/shared/replay/golden_test.go:18`
-- TODO: `TestHeatmapBucketDeterministic` -> `internal/core/insights/app/build_heatmap_test.go`
-- TODO: `TestHeatmapReplayRebuildEquivalence` -> `internal/core/insights/app/build_heatmap_test.go`
-- TODO: `TestHeatmapBoundedBucketsPerPartition` -> `internal/core/insights/app/build_heatmap_test.go`
-- TODO: `TestHeatmapPayloadSizeBudget` -> `internal/core/insights/app/build_heatmap_test.go`
+- `TestHeatmapBucketizationDeterministic` -> `internal/core/insights/app/build_heatmap_test.go`
+- `TestHeatmapReplayGoldenMatrixHash` -> `internal/core/insights/app/build_heatmap_test.go`
+- `TestHeatmapBoundedBucketsPerPartition` -> `internal/core/insights/app/build_heatmap_test.go`
+- `TestHeatmapPayloadBudgetHardCap` -> `internal/core/insights/app/build_heatmap_test.go`
+- `TestHeatmapStorageHotColdIdempotent` -> `internal/adapters/storage/heatmap_writer_test.go`
+- `TestChHeatmapWriter_Save_Success` -> `internal/adapters/storage/clickhouse/heatmap_writer_test.go`
+- `TestWSDelivery_HeatmapSnapshot_RoutedToSubscriber` -> `internal/interfaces/ws/heatmap_delivery_contract_test.go`

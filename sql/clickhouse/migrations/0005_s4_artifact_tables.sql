@@ -1,3 +1,5 @@
+-- +goose NO TRANSACTION
+-- +goose Up
 -- S4 artifact cold-path schema (candle, stats).
 
 -- Candle OHLCV cold storage
@@ -53,3 +55,7 @@ ENGINE = ReplacingMergeTree
 PARTITION BY toYYYYMM(created_at)
 ORDER BY (venue, instrument, timeframe, window_start, idempotency_key)
 TTL toDateTime(created_at) + INTERVAL 90 DAY;
+
+-- +goose Down
+DROP TABLE IF EXISTS aggregation_stats_cold;
+DROP TABLE IF EXISTS aggregation_candle_cold;

@@ -2,13 +2,11 @@ package timescale
 
 import (
 	"context"
-	"strconv"
 	"strings"
 	"sync"
 
 	adapterstorage "github.com/market-raccoon/internal/adapters/storage"
 	insightsdomain "github.com/market-raccoon/internal/core/insights/domain"
-	sharedhash "github.com/market-raccoon/internal/shared/hash"
 	"github.com/market-raccoon/internal/shared/ids"
 	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/problem"
@@ -31,6 +29,13 @@ func NewHeatmapWriter(pool ...*Pool) *HeatmapWriter {
 		w.exec = pool[0]
 	}
 	return w
+}
+
+func NewHeatmapWriterWithExecutor(exec adapterstorage.SQLExecutor) *HeatmapWriter {
+	return &HeatmapWriter{
+		exec:  exec,
+		byKey: make(map[string]insightsdomain.HeatmapArtifactV1),
+	}
 }
 
 func NewPgHeatmapWriter(pool *Pool) *HeatmapWriter {
@@ -112,37 +117,12 @@ ON CONFLICT (
     source_idempotency_key
 ) DO NOTHING`
 
-	for _, cell := range artifact.Cells {
-		idempotencyKey := sharedhash.HashFields(
-			artifact.Venue,
-			artifact.Instrument,
-			artifact.Timeframe,
-			strconv.FormatInt(artifact.WindowStartTs, 10),
-			strconv.FormatFloat(cell.PriceBucketLow, 'f', -1, 64),
-			strconv.FormatFloat(cell.PriceBucketHigh, 'f', -1, 64),
-			strings.ToUpper(strings.TrimSpace(cell.SizeBucket)),
-			sourceIdempotencyKey,
-		)
-		if _, p := w.exec.Exec(
-			ctx,
-			upsertSQL,
-			artifact.Venue,
-			artifact.Instrument,
-			artifact.Timeframe,
-			artifact.WindowStartTs,
-			artifact.WindowEndTs,
-			cell.PriceBucketLow,
-			cell.PriceBucketHigh,
-			cell.SizeBucket,
-			cell.BidLiquidity,
-			cell.AskLiquidity,
-			cell.TradeVolume,
-			cell.SeqMin,
-			cell.SeqMax,
-			cell.Samples,
-			sourceIdempotencyKey,
-			idempotencyKey,
-		); p != nil {
+	rowsArgs, p := adapterstorage.MarshalHeatmapCells(ctx, artifact, sourceIdempotencyKey)
+	if p != nil {
+		return problem.Wrap(p, problem.Unavailable, "timescale heatmap marshal failed")
+	}
+	for _, args := range rowsArgs {
+		if _, p := w.exec.Exec(ctx, upsertSQL, args...); p != nil {
 			return problem.Wrap(p, problem.Unavailable, "timescale heatmap upsert failed")
 		}
 	}

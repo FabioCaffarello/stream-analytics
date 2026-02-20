@@ -1,0 +1,286 @@
+// Package common provides shared primitives for exchange parser implementations.
+// Each exchange adapter (binance, bybit, coinbase, etc.) delegates to these
+// functions for boilerplate that is identical across all parsers.
+package common
+
+import (
+	"encoding/json"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/market-raccoon/internal/core/marketdata/domain"
+	"github.com/market-raccoon/internal/shared/naming"
+	"github.com/market-raccoon/internal/shared/problem"
+)
+
+// ParseMeta carries parser diagnostics for observability.
+type ParseMeta struct {
+	EventType  string
+	SkipReason string
+	Problem    *problem.Problem
+	WSStream   string
+	Ticker     string
+}
+
+// SkipReasonFromProblem returns "parse_error" if p is non-nil, otherwise "".
+func SkipReasonFromProblem(p *problem.Problem) string {
+	if p != nil {
+		return "parse_error"
+	}
+	return ""
+}
+
+// NormalizeSide maps raw side strings to canonical "buy"/"sell".
+// exchangePrefix is used in the error message (e.g. "binance", "coinbase").
+func NormalizeSide(side, exchangePrefix string) (string, *problem.Problem) {
+	switch strings.ToLower(strings.TrimSpace(side)) {
+	case "buy":
+		return "buy", nil
+	case "sell":
+		return "sell", nil
+	default:
+		return "", problem.Newf(problem.ValidationFailed, "%s: unsupported side %q", exchangePrefix, side)
+	}
+}
+
+// NormalizeMarketType validates and normalizes a market type string.
+// If raw is invalid, defaultType is returned.
+func NormalizeMarketType(raw string, defaultType domain.MarketType) string {
+	mt, p := domain.NewMarketType(raw)
+	if p != nil {
+		return defaultType.String()
+	}
+	return mt.String()
+}
+
+// NormalizeMarketTypeSpot normalizes a market type defaulting to Spot.
+func NormalizeMarketTypeSpot(raw string) string {
+	return NormalizeMarketType(raw, domain.MarketTypeSpot)
+}
+
+// NormalizeMarketTypeFutures normalizes a market type defaulting to USDMFutures.
+func NormalizeMarketTypeFutures(raw string) string {
+	return NormalizeMarketType(raw, domain.MarketTypeUSDMFutures)
+}
+
+// BuildTradeIdempotencyKey builds a deterministic idempotency key for trade events.
+func BuildTradeIdempotencyKey(venue, instrument, tradeID string) string {
+	return "venue=" + venue + "|instrument=" + instrument + "|trade_id=" + tradeID
+}
+
+// BuildDepthIdempotencyKey builds a deterministic idempotency key for depth events.
+func BuildDepthIdempotencyKey(venue, instrument string, finalUpdateID int64) string {
+	return "venue=" + venue + "|instrument=" + instrument + "|final_update_id=" + strconv.FormatInt(finalUpdateID, 10)
+}
+
+// BuildMarkPriceIdempotencyKey builds an idempotency key for mark price events.
+// Returns "" if sequence <= 0 (no reliable idempotency source).
+func BuildMarkPriceIdempotencyKey(venue, instrument string, sequence int64) string {
+	if sequence <= 0 {
+		return ""
+	}
+	return "venue=" + venue + "|instrument=" + instrument + "|sequence=" + strconv.FormatInt(sequence, 10)
+}
+
+// PairExtractor extracts a "BASE-QUOTE" pair from a venue-specific symbol.
+// Returns "" if the symbol cannot be split.
+type PairExtractor func(venueSymbol string) string
+
+// metadataPool is a per-exchange metadata cache keyed by "venueSymbol|canonical|marketType".
+type metadataPool struct {
+	cache sync.Map
+}
+
+var globalMetadataPool = &metadataPool{}
+
+// BuildInstrumentMetadata builds (and caches) standard instrument metadata.
+// extractPair is an optional exchange-specific pair extractor; pass nil to skip.
+func BuildInstrumentMetadata(venueSymbol, canonical, marketType string, extractPair PairExtractor) map[string]string {
+	return globalMetadataPool.build(venueSymbol, canonical, marketType, extractPair)
+}
+
+func (p *metadataPool) build(venueSymbol, canonical, marketType string, extractPair PairExtractor) map[string]string {
+	cacheKey := venueSymbol + "|" + canonical + "|" + marketType
+	if val, ok := p.cache.Load(cacheKey); ok {
+		return cloneMetadata(val.(map[string]string))
+	}
+
+	meta := map[string]string{
+		"instrument_venue_symbol": strings.ToUpper(strings.TrimSpace(venueSymbol)),
+		"instrument_canonical":    canonical,
+		"instrument_market_type":  marketType,
+	}
+	if extractPair != nil {
+		if pair := extractPair(venueSymbol); pair != "" {
+			meta["instrument_pair"] = pair
+			parts := strings.SplitN(pair, "-", 2)
+			if len(parts) == 2 {
+				meta["instrument_base"] = parts[0]
+				meta["instrument_quote"] = parts[1]
+			}
+		}
+	}
+
+	p.cache.Store(cacheKey, meta)
+	return cloneMetadata(meta)
+}
+
+func cloneMetadata(src map[string]string) map[string]string {
+	cloned := make(map[string]string, len(src))
+	for k, v := range src {
+		cloned[k] = v
+	}
+	return cloned
+}
+
+// TradeIDStringFromAny converts various trade identifier representations into a
+// stable trimmed string. Use this helper in parsers to ensure the numeric -> string
+// conversion is done exactly once per message (avoids duplicated strconv calls).
+func TradeIDStringFromAny(value any) string {
+	switch v := value.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case int:
+		return strconv.FormatInt(int64(v), 10)
+	case float64:
+		// When float represents an integer value, format as integer to keep stable ids.
+		if v == float64(int64(v)) {
+			return strconv.FormatInt(int64(v), 10)
+		}
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	default:
+		return ""
+	}
+}
+
+// UnwrapCombinedStream detects Binance-like combined stream envelopes of the form
+// { "stream": "...", "data": ... } and returns the inner data and stream name.
+// If the input is not a wrapped envelope, payload is returned unchanged and wrapped=false.
+// If wrapped is true and emptyData is true it means the wrapper had no data but had a stream.
+func UnwrapCombinedStream(data []byte) (payload []byte, wsStream string, wrapped bool, emptyData bool) {
+	var wrappedEnv struct {
+		Stream string          `json:"stream"`
+		Data   json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(data, &wrappedEnv); err == nil {
+		wsStream = strings.TrimSpace(wrappedEnv.Stream)
+		if len(wrappedEnv.Data) > 0 {
+			return wrappedEnv.Data, wsStream, true, false
+		}
+		if wrappedEnv.Stream != "" {
+			return nil, wsStream, true, true
+		}
+	}
+	return data, "", false, false
+}
+
+// ParseTimestamp parses RFC3339Nano or numeric timestamp strings (seconds or milliseconds)
+// returning unix milliseconds. If raw is empty, uses recvAt. If numeric parse succeeds
+// and value looks like seconds, it is multiplied by 1000.
+func ParseTimestamp(raw string, fallback float64, recvAt time.Time) (int64, *problem.Problem) {
+	raw = strings.TrimSpace(raw)
+	if raw != "" {
+		if ts, err := time.Parse(time.RFC3339Nano, raw); err == nil {
+			return ts.UnixMilli(), nil
+		}
+		f, err := strconv.ParseFloat(raw, 64)
+		if err != nil {
+			return 0, problem.Wrap(err, problem.ValidationFailed, "invalid timestamp")
+		}
+		// Normalize numeric timestamp to milliseconds.
+		if f >= 1e12 {
+			return int64(f), nil
+		}
+		if f >= 1e9 {
+			return int64(f * 1000), nil
+		}
+		return int64(f), nil
+	}
+	if fallback > 0 {
+		// fallback interpreted as seconds or ms already by caller; follow same rules.
+		if fallback >= 1e12 {
+			return int64(fallback), nil
+		}
+		if fallback >= 1e9 {
+			return int64(fallback * 1000), nil
+		}
+		return int64(fallback), nil
+	}
+	return recvAt.UnixMilli(), nil
+}
+
+// ParseTimestampStrings parses either an RFC3339Nano string or a numeric string
+// given as two candidate raw strings (first is preferred). Returns unix ms.
+func ParseTimestampStrings(rfc3339Raw, numericRaw string, recvAt time.Time) (int64, *problem.Problem) {
+	seenRaw := ""
+	for _, raw := range []string{rfc3339Raw, numericRaw} {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		seenRaw = raw
+		if ts, err := time.Parse(time.RFC3339Nano, raw); err == nil {
+			return ts.UnixMilli(), nil
+		}
+		if f, err := strconv.ParseFloat(raw, 64); err == nil {
+			// reuse ParseTimestamp semantics for numeric values
+			if f >= 1e12 {
+				return int64(f), nil
+			}
+			if f >= 1e9 {
+				return int64(f * 1000), nil
+			}
+			return int64(f), nil
+		}
+	}
+	if seenRaw != "" {
+		return 0, problem.Newf(problem.ValidationFailed, "invalid timestamp %q", seenRaw)
+	}
+	return recvAt.UnixMilli(), nil
+}
+
+// ParseStringLevels parses [][]string price levels (common across Binance, Bybit,
+// Coinbase). Each sub-slice must have at least 2 elements: [price, size].
+// exchangePrefix is used in error messages (e.g. "binance depthUpdate").
+func ParseStringLevels(raw [][]string, exchangePrefix string) ([]domain.PriceLevel, *problem.Problem) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	out := make([]domain.PriceLevel, 0, len(raw))
+	for _, pair := range raw {
+		if len(pair) < 2 {
+			return nil, problem.Newf(problem.ValidationFailed, "%s: invalid level pair", exchangePrefix)
+		}
+		price, err := strconv.ParseFloat(pair[0], 64)
+		if err != nil {
+			return nil, problem.Wrap(err, problem.ValidationFailed, exchangePrefix+": invalid level price")
+		}
+		size, err := strconv.ParseFloat(pair[1], 64)
+		if err != nil {
+			return nil, problem.Wrap(err, problem.ValidationFailed, exchangePrefix+": invalid level size")
+		}
+		out = append(out, domain.PriceLevel{Price: price, Size: size})
+	}
+	return out, nil
+}
+
+// CanonicalPairFromSuffixList tries to split a canonical instrument into "BASE-QUOTE"
+// by matching known quote suffixes. Returns "" if no match found.
+// This is the shared pattern used by Binance, Bybit, and Coinbase parsers.
+func CanonicalPairFromSuffixList(symbol string, quotes []string) string {
+	s := naming.CanonicalInstrument(symbol)
+	if s == "" {
+		return ""
+	}
+	for _, quote := range quotes {
+		if strings.HasSuffix(s, quote) && len(s) > len(quote) {
+			base := strings.TrimSuffix(s, quote)
+			return base + "-" + quote
+		}
+	}
+	return ""
+}

@@ -6,6 +6,7 @@ import (
 
 	marketdomain "github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/shared/codec"
+	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/problem"
 	aggregationv1 "github.com/market-raccoon/internal/shared/proto/gen/aggregation/v1"
 	marketdatav1 "github.com/market-raccoon/internal/shared/proto/gen/marketdata/v1"
@@ -18,12 +19,14 @@ var (
 )
 
 const (
-	marketDataEventTypeTrade     = "marketdata.trade"
-	marketDataEventTypeBookDelta = "marketdata.bookdelta"
-	marketDataEventTypeMarkPrice = "marketdata.markprice"
-	marketDataEventTypeLiq       = "marketdata.liquidation"
-	aggregationEventTypeCandle   = "aggregation.candle"
-	aggregationEventTypeStats    = "aggregation.stats"
+	marketDataEventTypeTrade          = "marketdata.trade"
+	marketDataEventTypeBookDelta      = "marketdata.bookdelta"
+	marketDataEventTypeMarkPrice      = "marketdata.markprice"
+	marketDataEventTypeLiq            = "marketdata.liquidation"
+	aggregationEventTypeCandle        = "aggregation.candle"
+	aggregationEventTypeStats         = "aggregation.stats"
+	aggregationEventTypeSnapshot      = "aggregation.snapshot"
+	aggregationEventTypeInconsistency = "aggregation.orderbook_inconsistency"
 )
 
 type PayloadRegistryOptions struct {
@@ -57,6 +60,9 @@ func BootstrapPayloadCodecRegistryWithOptions(opts PayloadRegistryOptions) *prob
 			return
 		}
 		payloadRegistryErr = codec.SetPayloadRegistry(reg)
+		if payloadRegistryErr == nil {
+			metrics.SetCodecRegistrySize(reg.Size())
+		}
 	})
 	return payloadRegistryErr
 }
@@ -145,6 +151,30 @@ func RegisterAggregationPayloadV1(reg *codec.Registry) *problem.Problem {
 			newProto: func() *aggregationv1.StatsWindowClosedV1 { return &aggregationv1.StatsWindowClosedV1{} },
 			toProto:  WireDTOToProtoStatsWindowClosedV1,
 			toDomain: ProtoToWireDTOStatsWindowClosedV1,
+		},
+	); p != nil {
+		return p
+	}
+	if p := registerPayloadDual(
+		reg,
+		aggregationEventTypeSnapshot,
+		codec.JSONCodec[AggregationSnapshotV1]{},
+		domainProtoPayloadCodec[AggregationSnapshotV1, *aggregationv1.OrderBookSnapshotV1]{
+			newProto: func() *aggregationv1.OrderBookSnapshotV1 { return &aggregationv1.OrderBookSnapshotV1{} },
+			toProto:  WireDTOToProtoSnapshotV1,
+			toDomain: ProtoToWireDTOSnapshotV1,
+		},
+	); p != nil {
+		return p
+	}
+	if p := registerPayloadDual(
+		reg,
+		aggregationEventTypeInconsistency,
+		codec.JSONCodec[AggregationOrderBookInconsistencyV1]{},
+		domainProtoPayloadCodec[AggregationOrderBookInconsistencyV1, *aggregationv1.OrderBookInconsistencyV1]{
+			newProto: func() *aggregationv1.OrderBookInconsistencyV1 { return &aggregationv1.OrderBookInconsistencyV1{} },
+			toProto:  WireDTOToProtoInconsistencyV1,
+			toDomain: ProtoToWireDTOInconsistencyV1,
 		},
 	); p != nil {
 		return p

@@ -14,8 +14,8 @@ import (
 	"github.com/market-raccoon/internal/shared/problem"
 )
 
-// VolumeProfileWriter is a hot-path Timescale writer skeleton for VPVR buckets.
-// TODO(sql/timescale/insights_volume_profile_hot.sql): create table and ON CONFLICT upsert.
+// VolumeProfileWriter is a hot-path Timescale writer for VPVR buckets.
+// DDL: sql/timescale/migrations/0002_s4_artifact_tables.sql (aggregation_volume_profile + oplog).
 // ACK boundary is external and must use CommitAndAck in adapter flow (VPVR-STO-4).
 type VolumeProfileWriter struct {
 	exec adapterstorage.SQLExecutor
@@ -79,7 +79,7 @@ func (w *VolumeProfileWriter) UpsertVolumeProfileBucket(ctx context.Context, ups
 	key := storageKeyFromUpsert(norm)
 	fp := operationFingerprint(norm)
 	if w.exec != nil {
-		return w.upsertSQL(ctx, norm, fp)
+		return adapterstorage.UpsertVolumeProfileBucket(ctx, w.exec, norm, fp)
 	}
 
 	w.mu.Lock()
@@ -104,93 +104,6 @@ func (w *VolumeProfileWriter) UpsertVolumeProfileBucket(ctx context.Context, ups
 	}
 	windowSeen[key][fp] = struct{}{}
 	w.commits++
-	metrics.IncVPVRWriterUpsertOps("ok")
-	metrics.ObserveVPVRWriterUpsertLatencyMilliseconds(0)
-	return nil
-}
-
-func (w *VolumeProfileWriter) upsertSQL(ctx context.Context, upsert insightsports.VolumeProfileBucketUpsert, operationID string) *problem.Problem {
-	const operationDedupSQL = `
-INSERT INTO aggregation_volume_profile_oplog (
-    operation_id,
-    venue,
-    instrument,
-    timeframe,
-    window_start_ts
-) VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT (operation_id) DO NOTHING`
-
-	rows, p := w.exec.Exec(
-		ctx,
-		operationDedupSQL,
-		operationID,
-		upsert.Venue,
-		upsert.Instrument,
-		upsert.Timeframe,
-		upsert.WindowStartTs,
-	)
-	if p != nil {
-		metrics.IncVPVRWriterWriteFail("storage")
-		metrics.IncVPVRWriterUpsertOps("failed")
-		metrics.ObserveVPVRWriterUpsertLatencyMilliseconds(0)
-		return problem.Wrap(p, problem.Unavailable, "timescale volume profile dedup failed")
-	}
-	if rows == 0 {
-		metrics.IncVPVRWriterUpsertDedup()
-		metrics.IncVPVRWriterUpsertOps("duplicate")
-		metrics.ObserveVPVRWriterUpsertLatencyMilliseconds(0)
-		return nil
-	}
-
-	const upsertSQL = `
-INSERT INTO aggregation_volume_profile (
-    venue,
-    instrument,
-    timeframe,
-    window_start_ts,
-    bucket_low,
-    bucket_high,
-    buy_volume,
-    sell_volume,
-    total_volume,
-    seq_min,
-    seq_max,
-    last_operation_id
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-ON CONFLICT (venue, instrument, timeframe, window_start_ts, bucket_low, bucket_high) DO UPDATE
-SET buy_volume = aggregation_volume_profile.buy_volume + EXCLUDED.buy_volume,
-    sell_volume = aggregation_volume_profile.sell_volume + EXCLUDED.sell_volume,
-    total_volume = aggregation_volume_profile.total_volume + EXCLUDED.total_volume,
-    seq_min = LEAST(aggregation_volume_profile.seq_min, EXCLUDED.seq_min),
-    seq_max = GREATEST(aggregation_volume_profile.seq_max, EXCLUDED.seq_max),
-    last_operation_id = EXCLUDED.last_operation_id,
-    updated_at = NOW()`
-
-	if _, p := w.exec.Exec(
-		ctx,
-		upsertSQL,
-		upsert.Venue,
-		upsert.Instrument,
-		upsert.Timeframe,
-		upsert.WindowStartTs,
-		upsert.BucketLow,
-		upsert.BucketHigh,
-		upsert.BuyVolume,
-		upsert.SellVolume,
-		upsert.TotalVolume,
-		upsert.SeqMin,
-		upsert.SeqMax,
-		operationID,
-	); p != nil {
-		metrics.IncVPVRWriterWriteFail("storage")
-		metrics.IncVPVRWriterUpsertOps("failed")
-		metrics.ObserveVPVRWriterUpsertLatencyMilliseconds(0)
-		return problem.Wrap(p, problem.Unavailable, "timescale volume profile upsert failed")
-	}
-
-	w.mu.Lock()
-	w.commits++
-	w.mu.Unlock()
 	metrics.IncVPVRWriterUpsertOps("ok")
 	metrics.ObserveVPVRWriterUpsertLatencyMilliseconds(0)
 	return nil
@@ -264,7 +177,7 @@ func storageKeyFromUpsert(in insightsports.VolumeProfileBucketUpsert) vpvrStorag
 }
 
 func operationFingerprint(in insightsports.VolumeProfileBucketUpsert) string {
-	return hash.HashFields(
+	return hash.HashFieldsFast(
 		strconv.FormatFloat(in.BuyVolume, 'f', -1, 64),
 		strconv.FormatFloat(in.SellVolume, 'f', -1, 64),
 		strconv.FormatFloat(in.TotalVolume, 'f', -1, 64),

@@ -2,9 +2,11 @@ package httpserver_test
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -546,6 +548,49 @@ func TestServer_Reload_ContentTypeUnsupportedReturns415(t *testing.T) {
 
 	if rec.Code != http.StatusUnsupportedMediaType {
 		t.Fatalf("expected 415, got %d", rec.Code)
+	}
+}
+
+func TestServer_Reload_ExecutesReloadHook(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	var calls atomic.Int32
+	srv := httpserver.NewServer(e, guardianPID, ":0", false, nil, httpserver.WithReloadHook(func() error {
+		calls.Add(1)
+		return nil
+	}))
+
+	rec := doRequest(t, srv, http.MethodPost, "/runtime/reload", "")
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", rec.Code)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("reload hook calls=%d want=1", got)
+	}
+}
+
+func TestServer_Reload_ReloadHookFailureReturns500(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := httpserver.NewServer(e, guardianPID, ":0", false, nil, httpserver.WithReloadHook(func() error {
+		return errors.New("boom")
+	}))
+
+	rec := doRequest(t, srv, http.MethodPost, "/runtime/reload", "")
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", rec.Code)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("response is not valid JSON: %v\nbody: %s", err, rec.Body.String())
+	}
+	if accepted, _ := body["accepted"].(bool); accepted {
+		t.Fatalf("expected accepted=false, got %v", body)
 	}
 }
 

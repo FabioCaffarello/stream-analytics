@@ -25,13 +25,16 @@ Establish protobuf contract foundations without changing runtime wire behavior:
 - Generated Go code into `internal/shared/proto/gen`.
 - Added Makefile targets: `proto-lint`, `proto-gen`, `proto-breaking`, `proto`.
 - Added CI gates for buf lint/breaking and generated-file drift detection.
-- Added lightweight schema registry (`proto/registry.json`) with `draft` status.
+- Added lightweight schema registry (`proto/registry.json`). All 9 schemas promoted from `draft` to `stable` after hot-path activation (2026-02-19).
 
-## 3. Explicit Non-Goals (Still Deferred)
+## 3. Former Non-Goals — Now Implemented
 
-- No runtime publish/consume migration to protobuf.
-- No envelope runtime codec switching by `content_type`.
-- No NATS JetStream/replay changes.
+The following items were originally deferred but are now implemented as part of the
+proto hot-path full rollout (2026-02-19):
+
+- ~~No runtime publish/consume migration to protobuf.~~ **Implemented:** Deploy configs set `bus.wire_format: "proto"` and `publish_content_type: "application/protobuf"`. All market data producers emit proto payloads. Processor decodes format-transparently via `envelope.ContentType`.
+- ~~No envelope runtime codec switching by `content_type`.~~ **Implemented:** `codec.EncodePayload()`/`DecodePayload()` dispatch by content type. WS delivery transcodes proto→JSON for JSON clients. Rollout flags gate proto per event type.
+- ~~No NATS JetStream/replay changes.~~ **Implemented:** JetStream artifact publisher uses `chooseArtifactContentType()` for candle/stats. Replay infrastructure works with both JSON and proto fixtures via content-type-aware codec.
 
 ## 4. Contracts Added
 
@@ -113,7 +116,7 @@ cd internal/core/delivery && go test ./...
 
 ### W6-2 checklist
 
-- [x] Envelope runtime has `content_type` with default fallback to `application/json`.
+- [x] Envelope runtime has `content_type` with legacy fallback to `application/json` when omitted.
 - [x] Envelope validation accepts empty `content_type` and rejects unsupported values.
 - [x] Typed codec registry added with `(type, version, format)` schema key.
 - [x] Generic JSON and protobuf codecs added (protobuf marshal deterministic).
@@ -127,9 +130,9 @@ cd internal/core/delivery && go test ./...
 ### Config flag
 
 - Added shared config flag: `marketdata.publish_content_type`.
-- Allowed values: `application/json` (default) and `application/protobuf` (opt-in).
-- Default remains `application/json`.
-- Deploy examples in `deploy/configs/*.jsonc` keep JSON default and show protobuf as a commented opt-in.
+- Allowed values: `application/json` and `application/protobuf`.
+- Runtime defaults are now `bus.wire_format=proto` and `marketdata.publish_content_type=application/protobuf`.
+- Deploy examples in `deploy/configs/*.jsonc` use protobuf as the operational default.
 
 ### Unit tests
 
@@ -141,13 +144,13 @@ cd internal/core/delivery && go test ./...
 - Added marketdata app tests in `internal/core/marketdata/app/ingest_test.go`:
   - `PublishContentType=application/json` produces envelope `content_type=application/json` and payload decodes through JSON codec path
   - `PublishContentType=application/protobuf` produces envelope `content_type=application/protobuf` and payload decodes through protobuf codec path
-  - default constructor path remains JSON
+  - default constructor path follows config defaults (currently protobuf)
 
 ### Runtime behavior statement
 
-- Runtime defaults remain unchanged: with no config override, producer envelopes are JSON.
+- Runtime defaults are protobuf: with no config override, producer envelopes use `content_type=application/protobuf`.
 - No actor topology, bus semantics, or routing behavior changed in W6-3.
-- Consumer path was intentionally not migrated in this step; publish/consume behavior only changes when producer config explicitly opts into protobuf.
+- Consumer path remains content-type aware; legacy envelopes without `content_type` still decode via JSON fallback.
 
 ## W6-4 Evidence
 

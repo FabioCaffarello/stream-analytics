@@ -23,10 +23,12 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 		{name: "http.guardian_shutdown_timeout", got: cfg.HTTP.GuardianShutdownTimeoutDuration(), want: 10 * time.Second},
 		{name: "ws.rate_limit.max_per_second", got: cfg.WS.RateLimit.MaxPerSecond, want: 100},
 		{name: "ws.rate_limit.burst_capacity", got: cfg.WS.RateLimit.BurstCapacity, want: 200},
+		{name: "delivery.session_outbound_queue_size", got: cfg.Delivery.SessionOutboundQueueSize, want: 512},
+		{name: "delivery.slow_client_drop_threshold", got: cfg.Delivery.SlowClientDropThreshold, want: 1000},
 		{name: "shard.index", got: cfg.Shard.Index, want: 0},
 		{name: "shard.count", got: cfg.Shard.Count, want: 1},
 		{name: "bus.type", got: cfg.Bus.Type, want: "inmemory"},
-		{name: "bus.wire_format", got: cfg.Bus.WireFormat, want: "json"},
+		{name: "bus.wire_format", got: cfg.Bus.WireFormat, want: "proto"},
 		{name: "jetstream.stream_name", got: cfg.JetStream.StreamName, want: "MARKETDATA"},
 		{name: "jetstream.consumer_durable", got: cfg.JetStream.ConsumerDurable, want: "processor-v1"},
 		{name: "jetstream.ack_wait", got: cfg.JetStream.AckWait, want: "30s"},
@@ -45,7 +47,7 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 		{name: "consumer.max_streams_per_websocket", got: cfg.Consumer.MaxStreamsPerWebsocket, want: int64(200)},
 		{name: "consumer.max_websockets", got: cfg.Consumer.MaxWebsockets, want: int64(5)},
 		{name: "consumer.binance_ws_base_url non-empty", got: cfg.Consumer.BinanceWSBaseURL != "", want: true},
-		{name: "marketdata.publish_content_type", got: cfg.MarketData.PublishContentType, want: "application/json"},
+		{name: "marketdata.publish_content_type", got: cfg.MarketData.PublishContentType, want: "application/protobuf"},
 		{name: "marketdata.max_instruments", got: cfg.MarketData.MaxInstruments, want: 2048},
 		{name: "marketdata.record_path", got: cfg.MarketData.RecordPath, want: ""},
 		{name: "marketdata.replay_path", got: cfg.MarketData.ReplayPath, want: ""},
@@ -415,10 +417,23 @@ func TestValidate_WSRateLimitEnabledRequiresPositive(t *testing.T) {
 	}
 }
 
+func TestValidate_DeliverySlowClientDropThresholdNonNegative(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Delivery.SlowClientDropThreshold = -1
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for delivery.slow_client_drop_threshold < 0")
+	}
+
+	cfg.Delivery.SlowClientDropThreshold = 100
+	if prob := cfg.Validate(); prob != nil {
+		t.Fatalf("expected delivery slow-client threshold config to pass validation, got: %v", prob)
+	}
+}
+
 func TestValidate_ConsumerExchangeUnknownType(t *testing.T) {
 	cfg, _ := Load("")
 	cfg.Consumer.Exchanges = nil
-	cfg.Consumer.Exchange = "kraken"
+	cfg.Consumer.Exchange = "okx"
 	prob := cfg.Validate()
 	if prob == nil {
 		t.Fatal("expected validation error for unknown legacy exchange type")
@@ -568,10 +583,41 @@ func TestValidate_ConsumerExchangesEmptyTickers(t *testing.T) {
 func TestValidate_ConsumerExchangesUnknownType(t *testing.T) {
 	cfg, _ := Load("")
 	cfg.Consumer.Exchanges = []ConsumerExchangeConfig{
-		{Name: "x", Type: "kraken", BaseURL: "wss://example.invalid/ws", Tickers: []string{"BTC-USDT"}, MarketType: "SPOT"},
+		{Name: "x", Type: "okx", BaseURL: "wss://example.invalid/ws", Tickers: []string{"BTC-USDT"}, MarketType: "SPOT"},
 	}
 	if prob := cfg.Validate(); prob == nil {
 		t.Fatal("expected validation error for unknown exchange type")
+	}
+}
+
+func TestLoad_MultiExchangeNormalization_KrakenDefaults(t *testing.T) {
+	src := `{
+		"consumer": {
+			"exchanges": [
+				{"name":"kraken", "type":"kraken", "tickers":["BTC-USD"], "market_type":"spot"},
+				{"name":"krakenf", "type":"krakenf", "tickers":["BTC-USD"], "market_type":"usd_m_futures"}
+			]
+		}
+	}`
+	path := writeTempFile(t, src)
+	cfg, prob := Load(path)
+	if prob != nil {
+		t.Fatalf("Load failed: %v", prob)
+	}
+
+	byName := make(map[string]ConsumerExchangeConfig, len(cfg.Consumer.Exchanges))
+	for _, ex := range cfg.Consumer.Exchanges {
+		byName[ex.Name] = ex
+	}
+
+	if got := byName["kraken"].BaseURL; got != "wss://ws.kraken.com/v2" {
+		t.Fatalf("kraken base_url=%q want=%q", got, "wss://ws.kraken.com/v2")
+	}
+	if got := byName["krakenf"].BaseURL; got != "wss://futures.kraken.com/ws/v1" {
+		t.Fatalf("krakenf base_url=%q want=%q", got, "wss://futures.kraken.com/ws/v1")
+	}
+	if got := byName["krakenf"].MarketType; got != "USD_M_FUTURES" {
+		t.Fatalf("krakenf market_type=%q want=%q", got, "USD_M_FUTURES")
 	}
 }
 
@@ -987,6 +1033,15 @@ func TestLoad_ShardDefaults(t *testing.T) {
 	if cfg.Shard.Index != 0 {
 		t.Errorf("default Shard.Index = %d; want 0", cfg.Shard.Index)
 	}
+	if cfg.Shard.Registry.Enabled {
+		t.Error("default Shard.Registry.Enabled = true; want false")
+	}
+	if cfg.Shard.Registry.Strict {
+		t.Error("default Shard.Registry.Strict = true; want false")
+	}
+	if cfg.Shard.Registry.TopologyGrace != "60s" {
+		t.Errorf("default Shard.Registry.TopologyGrace = %q; want 60s", cfg.Shard.Registry.TopologyGrace)
+	}
 }
 
 func TestValidate_ShardCount_Zero_Fails(t *testing.T) {
@@ -1043,6 +1098,24 @@ func TestValidate_ShardIndex_ValidRange_Passes(t *testing.T) {
 				t.Errorf("count=%d index=%d should pass validation, got: %v", count, idx, prob)
 			}
 		}
+	}
+}
+
+func TestValidate_ShardRegistryEnabled_InvalidGraceFails(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Shard.Registry.Enabled = true
+	cfg.Shard.Registry.TopologyGrace = "not-a-duration"
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected shard.registry.topology_grace validation error")
+	}
+}
+
+func TestValidate_ShardRegistryEnabled_NonPositiveGraceFails(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Shard.Registry.Enabled = true
+	cfg.Shard.Registry.TopologyGrace = "0s"
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected shard.registry.topology_grace validation error for non-positive duration")
 	}
 }
 
@@ -1196,6 +1269,49 @@ func TestValidate_StorageClickHouseEnabled_EmptyAddrsFails(t *testing.T) {
 	}
 	if !strings.Contains(p.Message, "storage.clickhouse.addrs") {
 		t.Fatalf("message=%q", p.Message)
+	}
+}
+
+func TestValidate_CrossField_BusCapacityLessThanSessionQueue_Fails(t *testing.T) {
+	cfg, prob := Load("")
+	if prob != nil {
+		t.Fatalf("Load: %v", prob)
+	}
+	cfg.Delivery.Enabled = true
+	cfg.Processor.BusCapacity = 256
+	cfg.Delivery.SessionOutboundQueueSize = 512
+	p := cfg.Validate()
+	if p == nil {
+		t.Fatal("expected validation failure when bus_capacity < session_outbound_queue_size")
+	}
+	if !strings.Contains(p.Message, "processor.bus_capacity") {
+		t.Fatalf("message=%q", p.Message)
+	}
+}
+
+func TestValidate_CrossField_BusCapacityEqualSessionQueue_Passes(t *testing.T) {
+	cfg, prob := Load("")
+	if prob != nil {
+		t.Fatalf("Load: %v", prob)
+	}
+	cfg.Delivery.Enabled = true
+	cfg.Processor.BusCapacity = 512
+	cfg.Delivery.SessionOutboundQueueSize = 512
+	if p := cfg.Validate(); p != nil {
+		t.Fatalf("unexpected validation failure: %v", p)
+	}
+}
+
+func TestValidate_CrossField_DeliveryDisabled_SkipsCheck(t *testing.T) {
+	cfg, prob := Load("")
+	if prob != nil {
+		t.Fatalf("Load: %v", prob)
+	}
+	cfg.Delivery.Enabled = false
+	cfg.Processor.BusCapacity = 1
+	cfg.Delivery.SessionOutboundQueueSize = 9999
+	if p := cfg.Validate(); p != nil {
+		t.Fatalf("unexpected validation failure when delivery disabled: %v", p)
 	}
 }
 

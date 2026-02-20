@@ -18,20 +18,21 @@ import (
 // AppConfig is the root config envelope.  All fields are optional; absent
 // fields receive safe defaults via applyDefaults.
 type AppConfig struct {
-	Log        LogConfig        `json:"log"`
-	HTTP       HTTPConfig       `json:"http"`
-	WS         WSConfig         `json:"ws"`
-	Delivery   DeliveryConfig   `json:"delivery"`
-	Bus        BusConfig        `json:"bus"`
-	Shard      ShardConfig      `json:"shard"`
-	JetStream  JetStreamConfig  `json:"jetstream"`
-	Consumer   ConsumerConfig   `json:"consumer"`
-	MarketData MarketDataConfig `json:"marketdata"`
-	Replay     ReplayConfig     `json:"replay"`
-	Processor  ProcessorConfig  `json:"processor"`
-	Store      StoreConfig      `json:"store"`
-	Storage    StorageConfig    `json:"storage"`
-	Backfill   BackfillConfig   `json:"backfill"`
+	Log          LogConfig          `json:"log"`
+	HTTP         HTTPConfig         `json:"http"`
+	WS           WSConfig           `json:"ws"`
+	Delivery     DeliveryConfig     `json:"delivery"`
+	Bus          BusConfig          `json:"bus"`
+	ProtoRollout ProtoRolloutConfig `json:"proto_rollout"`
+	Shard        ShardConfig        `json:"shard"`
+	JetStream    JetStreamConfig    `json:"jetstream"`
+	Consumer     ConsumerConfig     `json:"consumer"`
+	MarketData   MarketDataConfig   `json:"marketdata"`
+	Replay       ReplayConfig       `json:"replay"`
+	Processor    ProcessorConfig    `json:"processor"`
+	Store        StoreConfig        `json:"store"`
+	Storage      StorageConfig      `json:"storage"`
+	Backfill     BackfillConfig     `json:"backfill"`
 }
 
 // ShardConfig controls deterministic shard assignment for horizontal scaling.
@@ -43,6 +44,25 @@ type ShardConfig struct {
 	// MaxLag is the lag budget per shard.  When exceeded, a warning is logged.
 	// 0 means no budget enforcement (default).
 	MaxLag int `json:"max_lag"`
+	// Registry controls optional NATS KV shard registry for lease-based
+	// coordination.  When enabled, the processor acquires a shard lease
+	// and waits for topology completeness before processing.
+	Registry ShardRegistryConfig `json:"registry"`
+}
+
+// ShardRegistryConfig controls the optional shard registry (NATS KV lease coordination).
+type ShardRegistryConfig struct {
+	// Enabled toggles shard registry lease acquisition. Default: false.
+	Enabled bool `json:"enabled"`
+	// Strict fails startup if topology is incomplete after grace period. Default: false.
+	Strict bool `json:"strict"`
+	// TopologyGrace is the maximum time to wait for all shards to register. Default: "60s".
+	TopologyGrace string `json:"topology_grace"`
+}
+
+// TopologyGraceDuration parses and returns ShardRegistryConfig.TopologyGrace.
+func (s ShardRegistryConfig) TopologyGraceDuration() time.Duration {
+	return mustParseDuration(s.TopologyGrace)
 }
 
 // BusConfig controls runtime bus adapter selection.
@@ -51,8 +71,60 @@ type BusConfig struct {
 	// Allowed: "inmemory" (default) | "jetstream".
 	Type string `json:"type"`
 	// WireFormat selects runtime payload wire format for event envelopes.
-	// Allowed: "json" (default) | "proto".
+	// Allowed: "json" | "proto" (default).
 	WireFormat string `json:"wire_format"`
+}
+
+// ProtoRolloutConfig controls per-event-type protobuf rollout toggles.
+// All flags default to false (JSON delivery).
+type ProtoRolloutConfig struct {
+	MarketData  ProtoRolloutMarketDataConfig  `json:"marketdata"`
+	Aggregation ProtoRolloutAggregationConfig `json:"aggregation"`
+	Insights    ProtoRolloutInsightsConfig    `json:"insights"`
+}
+
+// ProtoRolloutMarketDataConfig controls marketdata.* event rollout.
+type ProtoRolloutMarketDataConfig struct {
+	Trade       bool `json:"trade"`
+	BookDelta   bool `json:"bookdelta"`
+	MarkPrice   bool `json:"markprice"`
+	Liquidation bool `json:"liquidation"`
+}
+
+// ProtoRolloutAggregationConfig controls aggregation.* event rollout.
+type ProtoRolloutAggregationConfig struct {
+	Candle   bool `json:"candle"`
+	Stats    bool `json:"stats"`
+	Snapshot bool `json:"snapshot"`
+}
+
+// ProtoRolloutInsightsConfig controls insights.* event rollout.
+type ProtoRolloutInsightsConfig struct {
+	VolumeProfile bool `json:"volume_profile"`
+	Heatmap       bool `json:"heatmap"`
+	CrossVenue    bool `json:"crossvenue"`
+}
+
+// EventTypeFlags returns proto rollout enablement keyed by canonical event type.
+func (c ProtoRolloutConfig) EventTypeFlags() map[string]bool {
+	flags := make(map[string]bool, 14)
+	flags["marketdata.trade"] = c.MarketData.Trade
+	flags["marketdata.bookdelta"] = c.MarketData.BookDelta
+	flags["marketdata.markprice"] = c.MarketData.MarkPrice
+	flags["marketdata.liquidation"] = c.MarketData.Liquidation
+
+	flags["aggregation.candle"] = c.Aggregation.Candle
+	flags["aggregation.stats"] = c.Aggregation.Stats
+	flags["aggregation.snapshot"] = c.Aggregation.Snapshot
+	flags["aggregation.orderbook_inconsistency"] = c.Aggregation.Snapshot
+
+	flags["insights.volume_profile_snapshot"] = c.Insights.VolumeProfile
+	flags["insights.volume_profile_delta"] = c.Insights.VolumeProfile
+	flags["insights.heatmap_snapshot"] = c.Insights.Heatmap
+	flags["insights.heatmap_delta"] = c.Insights.Heatmap
+	flags["insights.crossvenue.trade_snapshot"] = c.Insights.CrossVenue
+	flags["insights.crossvenue.spread_signal"] = c.Insights.CrossVenue
+	return flags
 }
 
 // JetStreamConfig controls JetStream connection and stream settings.
@@ -145,10 +217,33 @@ type WSRateLimitConfig struct {
 
 // DeliveryConfig controls delivery subsystem runtime wiring in server binary.
 type DeliveryConfig struct {
-	Enabled            bool               `json:"enabled"`
-	MaxSessions        int                `json:"max_sessions"`
-	BackpressurePolicy string             `json:"backpressure_policy"`
-	NATS               DeliveryNATSConfig `json:"nats"`
+	Enabled                  bool   `json:"enabled"`
+	MaxSessions              int    `json:"max_sessions"`
+	SessionOutboundQueueSize int    `json:"session_outbound_queue_size"`
+	BackpressurePolicy       string `json:"backpressure_policy"`
+	SlowClientDropThreshold  int    `json:"slow_client_drop_threshold"`
+	// RouterReadyTimeout is the maximum time to wait for the delivery router PID.  Default: "2s".
+	RouterReadyTimeout string `json:"router_ready_timeout"`
+	// SubsystemReadyTimeout is the maximum time to wait for the delivery subsystem PID.  Default: "500ms".
+	SubsystemReadyTimeout string `json:"subsystem_ready_timeout"`
+	// SessionSpawnTimeout is the request timeout for spawning a new WS session.  Default: "2s".
+	SessionSpawnTimeout string             `json:"session_spawn_timeout"`
+	NATS                DeliveryNATSConfig `json:"nats"`
+}
+
+// RouterReadyTimeoutDuration parses and returns DeliveryConfig.RouterReadyTimeout.
+func (d DeliveryConfig) RouterReadyTimeoutDuration() time.Duration {
+	return mustParseDuration(d.RouterReadyTimeout)
+}
+
+// SubsystemReadyTimeoutDuration parses and returns DeliveryConfig.SubsystemReadyTimeout.
+func (d DeliveryConfig) SubsystemReadyTimeoutDuration() time.Duration {
+	return mustParseDuration(d.SubsystemReadyTimeout)
+}
+
+// SessionSpawnTimeoutDuration parses and returns DeliveryConfig.SessionSpawnTimeout.
+func (d DeliveryConfig) SessionSpawnTimeoutDuration() time.Duration {
+	return mustParseDuration(d.SessionSpawnTimeout)
 }
 
 // DeliveryNATSConfig controls delivery consumer behavior for NATS/JetStream.
@@ -227,7 +322,8 @@ type ConsumerExchangeConfig struct {
 // MarketDataConfig controls marketdata publish encoding policy.
 type MarketDataConfig struct {
 	// PublishContentType controls the wire payload format for produced marketdata envelopes.
-	// Allowed: "application/json" (default) or "application/protobuf" (opt-in).
+	// Allowed: "application/json" or "application/protobuf".
+	// When omitted, defaults from bus.wire_format (proto => application/protobuf).
 	PublishContentType string `json:"publish_content_type"`
 	// MaxInstruments bounds in-memory instrument stream state for ingest.
 	MaxInstruments int `json:"max_instruments"`
@@ -382,6 +478,8 @@ type ProcessorConfig struct {
 	BusCapacity int `json:"bus_capacity"`
 	// MaxInstruments bounds in-memory order book state for aggregation.
 	MaxInstruments int `json:"max_instruments"`
+	// PublisherTimeout is the JetStream publish timeout per envelope.  Default: "5s".
+	PublisherTimeout string `json:"publisher_timeout"`
 	// Insights controls optional processor-side insight derivations.
 	Insights ProcessorInsightsConfig `json:"insights"`
 	// Candle controls candle aggregation runtime options.
@@ -390,6 +488,11 @@ type ProcessorConfig struct {
 	Stats ProcessorStatsConfig `json:"stats"`
 	// RTPublish controls timer-driven publishing intervals for real-time snapshots.
 	RTPublish ProcessorRTPublishConfig `json:"rt_publish"`
+}
+
+// PublisherTimeoutDuration parses and returns ProcessorConfig.PublisherTimeout.
+func (p ProcessorConfig) PublisherTimeoutDuration() time.Duration {
+	return mustParseDuration(p.PublisherTimeout)
 }
 
 // ProcessorCandleConfig controls candle aggregation options in processor runtime.
@@ -588,18 +691,23 @@ func (i ProcessorInsightsConfig) SweepEveryDuration() time.Duration {
 	return mustParseDuration(i.SweepEvery)
 }
 
+// mustParseDuration parses s as a Go duration. Returns 0 on invalid input
+// instead of panicking. Validate() catches invalid durations at startup; this
+// fallback only fires if Duration() is called without prior validation.
 func mustParseDuration(s string) time.Duration {
 	d, err := time.ParseDuration(s)
 	if err != nil {
-		panic(fmt.Sprintf("invalid duration %q: %v", s, err))
+		return 0
 	}
 	return d
 }
 
+// mustParseByteSize parses s as a byte size. Returns 0 on invalid input
+// instead of panicking.
 func mustParseByteSize(s string) int64 {
 	v, err := parseByteSize(s)
 	if err != nil {
-		panic(fmt.Sprintf("invalid byte size %q: %v", s, err))
+		return 0
 	}
 	return v
 }

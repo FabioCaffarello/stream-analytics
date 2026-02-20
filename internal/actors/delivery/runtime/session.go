@@ -16,7 +16,9 @@ import (
 	"github.com/market-raccoon/internal/core/delivery/domain"
 	"github.com/market-raccoon/internal/core/delivery/ports"
 	sharedclock "github.com/market-raccoon/internal/shared/clock"
+	"github.com/market-raccoon/internal/shared/codec"
 	"github.com/market-raccoon/internal/shared/contracts"
+	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/observability"
 	"github.com/market-raccoon/internal/shared/problem"
@@ -60,8 +62,15 @@ type SessionConfig struct {
 	PreferProto bool
 	// RateLimit enables per-session token bucket rate limiting for read commands.
 	RateLimit RateLimitConfig
+	// SlowClientDropThreshold disconnects a session after N dropped outbound
+	// events due to backpressure. 0 disables threshold-based disconnects.
+	SlowClientDropThreshold int
 	// Clock is optional; defaults to SystemClock.
 	Clock sharedclock.Clock
+	// TranscodeCache is an optional shared proto→JSON transcode cache.
+	// When set, proto payloads destined for JSON clients are cached to avoid
+	// redundant decode+marshal across sessions receiving the same event.
+	TranscodeCache *TranscodeCache
 }
 
 type HotSnapshotProvider interface {
@@ -81,12 +90,13 @@ type SessionActor struct {
 	readerCtx    context.Context
 	cancelReader context.CancelFunc
 	closed       bool
-	outbound     []DeliveryEvent
+	outbound     *deliveryRing
 	outboundCap  int
 	flushing     bool
 	policy       domain.BackpressurePolicy
 	priorities   map[string]int
 	rateLimiter  *RateLimiter
+	dropCount    int
 }
 
 func NewSessionActor(cfg SessionConfig) actor.Producer {
@@ -144,6 +154,9 @@ func (s *SessionActor) ensureDefaults(c *actor.Context) {
 		if s.outboundCap <= 0 {
 			s.outboundCap = 256
 		}
+	}
+	if s.outbound == nil {
+		s.outbound = newDeliveryRing(s.outboundCap)
 	}
 	if s.policy == "" {
 		s.policy = domain.NormalizeBackpressurePolicy(s.cfg.BackpressurePolicy)
@@ -236,6 +249,60 @@ type clientCommand struct {
 	Params    json.RawMessage `json:"params,omitempty"`
 }
 
+// Pre-allocated typed structs for outbound JSON frames.
+// These eliminate map[string]any allocations on the delivery hot path.
+
+type wsAckFrame struct {
+	Type      string `json:"type"`
+	Op        string `json:"op"`
+	RequestID string `json:"request_id"`
+	Subject   string `json:"subject"`
+}
+
+type wsSnapshotFrame struct {
+	Type    string          `json:"type"`
+	Subject string          `json:"subject"`
+	Payload json.RawMessage `json:"payload"`
+}
+
+type wsLastFrame struct {
+	Type      string `json:"type"`
+	Op        string `json:"op"`
+	RequestID string `json:"request_id"`
+	Subject   string `json:"subject"`
+	Item      any    `json:"item"`
+}
+
+type wsRangeFrame struct {
+	Type      string `json:"type"`
+	Op        string `json:"op"`
+	RequestID string `json:"request_id"`
+	Subject   string `json:"subject"`
+	Page      int    `json:"page"`
+	Limit     int    `json:"limit"`
+	Items     any    `json:"items"`
+}
+
+type wsEventFrame struct {
+	Type     string          `json:"type"`
+	Subject  string          `json:"subject"`
+	Seq      int64           `json:"seq"`
+	TsIngest int64           `json:"ts_ingest"`
+	Payload  json.RawMessage `json:"payload"`
+}
+
+type wsErrorProblem struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+type wsErrorFrame struct {
+	Type      string         `json:"type"`
+	Op        string         `json:"op"`
+	RequestID string         `json:"request_id"`
+	Problem   wsErrorProblem `json:"problem"`
+}
+
 type getRangeParams struct {
 	FromMs int64 `json:"from_ms"`
 	ToMs   int64 `json:"to_ms"`
@@ -312,11 +379,11 @@ func (s *SessionActor) handleSubscribe(cmd clientCommand) {
 	if s.cfg.RouterPID != nil {
 		s.engine.Send(s.cfg.RouterPID, SubscribeSession{SessionID: s.session.ID(), Subject: subject})
 	}
-	s.writeJSON(map[string]any{
-		"type":       "ack",
-		"op":         cmd.Op,
-		"request_id": cmd.RequestID,
-		"subject":    subject.String(),
+	s.writeJSON(wsAckFrame{
+		Type:      "ack",
+		Op:        cmd.Op,
+		RequestID: cmd.RequestID,
+		Subject:   subject.String(),
 	})
 }
 
@@ -333,10 +400,10 @@ func (s *SessionActor) emitSnapshot(subject domain.Subject) {
 		s.logger.Warn("delivery session: invalid snapshot payload, skipping", "subject", subject.String())
 		return
 	}
-	s.writeJSON(map[string]any{
-		"type":    "snapshot",
-		"subject": subject.String(),
-		"payload": payload,
+	s.writeJSON(wsSnapshotFrame{
+		Type:    "snapshot",
+		Subject: subject.String(),
+		Payload: payload,
 	})
 	metrics.IncWSQuery("snapshot", wsQueryBucket(subject.StreamType))
 }
@@ -355,11 +422,11 @@ func (s *SessionActor) handleUnsubscribe(cmd clientCommand) {
 	if s.cfg.RouterPID != nil {
 		s.engine.Send(s.cfg.RouterPID, UnsubscribeSession{SessionID: s.session.ID(), Subject: subject})
 	}
-	s.writeJSON(map[string]any{
-		"type":       "ack",
-		"op":         cmd.Op,
-		"request_id": cmd.RequestID,
-		"subject":    subject.String(),
+	s.writeJSON(wsAckFrame{
+		Type:      "ack",
+		Op:        cmd.Op,
+		RequestID: cmd.RequestID,
+		Subject:   subject.String(),
 	})
 }
 
@@ -387,12 +454,12 @@ func (s *SessionActor) handleGetLast(cmd clientCommand) {
 		item = items[len(items)-1] // highest seq after defensive sort
 	}
 	metrics.IncWSQuery("getlast", wsQueryBucket(subject.StreamType))
-	s.writeJSON(map[string]any{
-		"type":       "last",
-		"op":         cmd.Op,
-		"request_id": cmd.RequestID,
-		"subject":    subject.String(),
-		"item":       item,
+	s.writeJSON(wsLastFrame{
+		Type:      "last",
+		Op:        cmd.Op,
+		RequestID: cmd.RequestID,
+		Subject:   subject.String(),
+		Item:      item,
 	})
 }
 
@@ -477,14 +544,14 @@ func (s *SessionActor) executeGetRange(op, requestID, subjectRaw string, params 
 		items = items[len(items)-maxResponseItems:]
 	}
 	metrics.IncWSQuery("getrange", wsQueryBucket(subject.StreamType))
-	s.writeJSON(map[string]any{
-		"type":       "range",
-		"op":         op,
-		"request_id": requestID,
-		"subject":    subject.String(),
-		"page":       page,
-		"limit":      limit,
-		"items":      items,
+	s.writeJSON(wsRangeFrame{
+		Type:      "range",
+		Op:        op,
+		RequestID: requestID,
+		Subject:   subject.String(),
+		Page:      page,
+		Limit:     limit,
+		Items:     items,
 	})
 }
 
@@ -506,20 +573,29 @@ func (s *SessionActor) allowRateLimitedCommand(op, requestID string) bool {
 }
 
 func (s *SessionActor) enqueueDelivery(evt DeliveryEvent) {
-	if len(s.outbound) >= s.outboundCap {
+	if s.outbound.IsFull() {
 		switch s.policy {
 		case domain.BackpressureDropNewest:
-			metrics.IncWSDrops("queue_full")
-			return
-		case domain.BackpressureDropOldest:
-			s.outbound = s.outbound[1:]
-			metrics.IncWSDrops("drop_oldest")
-		case domain.BackpressurePriorityDrop:
-			if !s.priorityDrop(evt) {
-				metrics.IncWSDrops("priority_drop_self")
+			if s.onDrop("queue_full") {
 				return
 			}
-			metrics.SetWSQueueDepth(len(s.outbound))
+			return
+		case domain.BackpressureDropOldest:
+			s.outbound.DropFront()
+			if s.onDrop("drop_oldest") {
+				return
+			}
+		case domain.BackpressurePriorityDrop:
+			if !s.priorityDrop(evt) {
+				if s.onDrop("priority_drop_self") {
+					return
+				}
+				return
+			}
+			if s.onDrop("priority_drop") {
+				return
+			}
+			metrics.SetWSQueueDepth(s.outbound.Len())
 			if s.flushing {
 				return
 			}
@@ -527,12 +603,14 @@ func (s *SessionActor) enqueueDelivery(evt DeliveryEvent) {
 			s.engine.Send(s.self, sessionFlushOutbound{})
 			return
 		default:
-			metrics.IncWSDrops("queue_full")
+			if s.onDrop("queue_full") {
+				return
+			}
 			return
 		}
 	}
-	s.outbound = append(s.outbound, evt)
-	metrics.SetWSQueueDepth(len(s.outbound))
+	s.outbound.PushBack(evt)
+	metrics.SetWSQueueDepth(s.outbound.Len())
 	if s.flushing {
 		return
 	}
@@ -541,15 +619,15 @@ func (s *SessionActor) enqueueDelivery(evt DeliveryEvent) {
 }
 
 func (s *SessionActor) priorityDrop(evt DeliveryEvent) bool {
-	if len(s.outbound) < s.outboundCap {
-		s.outbound = append(s.outbound, evt)
+	if !s.outbound.IsFull() {
+		s.outbound.PushBack(evt)
 		return true
 	}
 	incomingPri := s.eventPriority(evt.Env.Type)
 	lowestIdx := -1
 	lowestPri := incomingPri
-	for i, queued := range s.outbound {
-		pri := s.eventPriority(queued.Env.Type)
+	for i := 0; i < s.outbound.Len(); i++ {
+		pri := s.eventPriority(s.outbound.At(i).Env.Type)
 		if pri < lowestPri {
 			lowestPri = pri
 			lowestIdx = i
@@ -558,9 +636,29 @@ func (s *SessionActor) priorityDrop(evt DeliveryEvent) bool {
 	if lowestIdx < 0 {
 		return false
 	}
-	s.outbound = append(s.outbound[:lowestIdx], s.outbound[lowestIdx+1:]...)
-	s.outbound = append(s.outbound, evt)
-	metrics.IncWSDrops("priority_drop")
+	s.outbound.RemoveAt(lowestIdx)
+	s.outbound.PushBack(evt)
+	return true
+}
+
+func (s *SessionActor) onDrop(reason string) bool {
+	metrics.IncWSDrops(reason)
+	s.dropCount++
+	threshold := s.cfg.SlowClientDropThreshold
+	if threshold <= 0 || s.dropCount < threshold {
+		return false
+	}
+
+	metrics.IncWSDrops("slow_client_disconnect")
+	s.logger.Warn(
+		"delivery session: slow client disconnected after drop threshold breach",
+		"client_id", s.cfg.ClientID,
+		"session_id", s.session.ID(),
+		"drops", s.dropCount,
+		"threshold", threshold,
+		"reason", reason,
+	)
+	s.closeSession()
 	return true
 }
 
@@ -568,7 +666,10 @@ func (s *SessionActor) eventPriority(eventType string) int {
 	if s.priorities == nil {
 		return 0
 	}
-	return s.priorities[strings.ToLower(strings.TrimSpace(eventType))]
+	// eventType arrives pre-normalized (lowercase, trimmed) from the ingest
+	// pipeline via envelope.Validate(). Priorities map keys are also lowercase
+	// (built in ensureDefaults). Direct lookup avoids per-event string allocs.
+	return s.priorities[eventType]
 }
 
 func (s *SessionActor) flushOutbound() {
@@ -576,14 +677,13 @@ func (s *SessionActor) flushOutbound() {
 		s.flushing = false
 		return
 	}
-	if len(s.outbound) == 0 {
+	evt, ok := s.outbound.PopFront()
+	if !ok {
 		s.flushing = false
 		metrics.SetWSQueueDepth(0)
 		return
 	}
-	evt := s.outbound[0]
-	s.outbound = s.outbound[1:]
-	metrics.SetWSQueueDepth(len(s.outbound))
+	metrics.SetWSQueueDepth(s.outbound.Len())
 
 	started := time.Now()
 	if err := s.writeDeliveryEvent(evt); err != nil {
@@ -593,33 +693,55 @@ func (s *SessionActor) flushOutbound() {
 	}
 	metrics.ObserveWSSendLatency(time.Since(started))
 
-	if len(s.outbound) > 0 {
+	if s.outbound.Len() > 0 {
 		s.engine.Send(s.self, sessionFlushOutbound{})
 		return
 	}
 	s.flushing = false
 }
 
-func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) error {
+func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) *problem.Problem {
 	if s.cfg.PreferProto && contracts.ProtoRolloutEnabledForEventType(evt.Env.Type) {
 		raw, p := contracts.MarshalEnvelopeV1FromDomain(evt.Env)
 		if p != nil {
 			return p
 		}
 		if err := s.writeProtoDirect(websocket.BinaryMessage, raw); err != nil {
-			return err
+			return problem.Wrap(err, problem.Internal, "proto write failed")
 		}
 		observability.IncDeliveryProto()
 		return nil
 	}
-	if err := s.writeJSONDirect(map[string]any{
-		"type":      "event",
-		"subject":   evt.Subject.String(),
-		"seq":       evt.Env.Seq,
-		"ts_ingest": evt.Env.TsIngest,
-		"payload":   evt.Env.Payload,
+	payload := evt.Env.Payload
+	if evt.Env.ContentType == envelope.ContentTypeProto {
+		if s.cfg.TranscodeCache != nil {
+			cached, p := s.cfg.TranscodeCache.TranscodeProtoToJSON(
+				evt.Env.Type, evt.Env.Version, evt.Env.ContentType, payload,
+			)
+			if p != nil {
+				return p
+			}
+			payload = cached
+		} else {
+			decoded, p := codec.DecodePayload(evt.Env.Type, evt.Env.Version, evt.Env.ContentType, payload)
+			if p != nil {
+				return p
+			}
+			transcoded, err := json.Marshal(decoded)
+			if err != nil {
+				return problem.Wrap(err, problem.Internal, "proto→json transcode failed")
+			}
+			payload = json.RawMessage(transcoded)
+		}
+	}
+	if err := s.writeJSONDirect(wsEventFrame{
+		Type:     "event",
+		Subject:  evt.Subject.String(),
+		Seq:      evt.Env.Seq,
+		TsIngest: evt.Env.TsIngest,
+		Payload:  payload,
 	}); err != nil {
-		return err
+		return problem.Wrap(err, problem.Internal, "json write failed")
 	}
 	observability.IncDeliveryJSON()
 	return nil
@@ -629,13 +751,13 @@ func (s *SessionActor) writeProblem(op, requestID string, p *problem.Problem) {
 	if p == nil {
 		return
 	}
-	s.writeJSON(map[string]any{
-		"type":       "error",
-		"op":         op,
-		"request_id": requestID,
-		"problem": map[string]any{
-			"code":    p.Code,
-			"message": p.Message,
+	s.writeJSON(wsErrorFrame{
+		Type:      "error",
+		Op:        op,
+		RequestID: requestID,
+		Problem: wsErrorProblem{
+			Code:    string(p.Code),
+			Message: p.Message,
 		},
 	})
 }

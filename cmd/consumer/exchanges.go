@@ -1,8 +1,8 @@
 package main
 
 import (
-	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,6 +13,8 @@ import (
 	"github.com/market-raccoon/internal/adapters/exchange/bybit"
 	"github.com/market-raccoon/internal/adapters/exchange/coinbase"
 	"github.com/market-raccoon/internal/adapters/exchange/hyperliquid"
+	"github.com/market-raccoon/internal/adapters/exchange/kraken"
+	"github.com/market-raccoon/internal/adapters/exchange/krakenf"
 	mdapp "github.com/market-raccoon/internal/core/marketdata/app"
 	"github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/shared/config"
@@ -24,6 +26,7 @@ type consumerExchangeRuntime struct {
 	Exchange   config.ConsumerExchangeConfig
 	ParseV1    mdruntime.ParseFunc
 	ParseV2    mdruntime.ParseFuncV2
+	ParseBatch mdruntime.ParseFuncBatch
 	ManagerCfg *ws.ManagerConfig
 }
 
@@ -99,6 +102,10 @@ func buildExchangeRuntime(
 		return buildCoinbaseRuntime(cfg, logger, ex, subsystem), nil
 	case "hyperliquid":
 		return buildHyperLiquidRuntime(cfg, logger, ex, subsystem), nil
+	case "kraken":
+		return buildKrakenRuntime(cfg, logger, ex, subsystem), nil
+	case "krakenf":
+		return buildKrakenFRuntime(cfg, logger, ex, subsystem), nil
 	default:
 		return consumerExchangeRuntime{}, problem.Newf(problem.ValidationFailed, "consumer: unsupported exchange type %q", ex.Type)
 	}
@@ -246,12 +253,35 @@ func buildHyperLiquidRuntime(
 		return endpoint
 	}
 	managerCfg.SubscriptionBuilder = func(bucket []string) [][]byte {
-		msgs, p := hyperliquid.BuildSubscriptions(bucket)
+		msgs, p := hyperliquid.BuildSubscriptionsWithMarkPrice(bucket)
 		if p != nil {
 			logger.Error("consumer: hyperliquid subscription build failed", "err", p, "exchange", ex.Name, "bucket", bucket)
 			return nil
 		}
 		return msgs
+	}
+
+	// Build subscribed coin set for allMids filtering.
+	subscribedCoins := make(map[string]bool, len(ex.Tickers))
+	for _, t := range ex.Tickers {
+		coin := hyperliquid.ToCoinName(t)
+		if coin != "" {
+			subscribedCoins[strings.ToUpper(coin)] = true
+		}
+	}
+	batchParser := hyperliquid.ParseAllMids(subscribedCoins, ex.MarketType)
+	parseBatch := func(msg *ws.WsMessage) ([]mdapp.IngestRequest, error) {
+		reqs, err := batchParser(msg.Data, msg.RecvAt)
+		if err != nil {
+			return nil, err
+		}
+		if reqs == nil {
+			return nil, nil
+		}
+		for i := range reqs {
+			enrichRequestMetadata(&reqs[i], msg, ex.MarketType, "allMids")
+		}
+		return reqs, nil
 	}
 
 	parseV1 := func(msg *ws.WsMessage) (mdapp.IngestRequest, bool) {
@@ -274,6 +304,129 @@ func buildHyperLiquidRuntime(
 		outMeta := toRuntimeParseMeta(meta.EventType, meta.SkipReason, meta.WSStream, meta.Ticker, meta.Problem)
 		if meta.Problem != nil {
 			logger.Warn("consumer: hyperliquid parse skipped message",
+				"code", meta.Problem.Code,
+				"message", meta.Problem.Message,
+				"exchange", msg.Exchange,
+				"endpoint", msg.Endpoint,
+				"bucket_id", msg.BucketID,
+			)
+			return req, true, outMeta
+		}
+		return req, skip, outMeta
+	}
+	return consumerExchangeRuntime{
+		Subsystem:  subsystem,
+		Exchange:   ex,
+		ParseV1:    parseV1,
+		ParseV2:    parseV2,
+		ParseBatch: parseBatch,
+		ManagerCfg: &managerCfg,
+	}
+}
+
+func buildKrakenRuntime(
+	cfg config.AppConfig,
+	logger *slog.Logger,
+	ex config.ConsumerExchangeConfig,
+	subsystem actorruntime.Subsystem,
+) consumerExchangeRuntime {
+	managerCfg := baseManagerConfig(cfg, ex)
+	managerCfg.StreamsPerTicker = 3
+	managerCfg.EndpointBuilder = func(bucket []string) string {
+		endpoint := kraken.BuildEndpoint(ex.BaseURL)
+		logger.Info("consumer: ws endpoint planned", "exchange", ex.Name, "endpoint", endpoint, "bucket", bucket)
+		return endpoint
+	}
+	managerCfg.SubscriptionBuilder = func(bucket []string) [][]byte {
+		msgs, p := kraken.BuildSubscriptions(bucket)
+		if p != nil {
+			logger.Error("consumer: kraken subscription build failed", "err", p, "exchange", ex.Name, "bucket", bucket)
+			return nil
+		}
+		return msgs
+	}
+
+	parseV1 := func(msg *ws.WsMessage) (mdapp.IngestRequest, bool) {
+		req, skip, p := kraken.ParseMessageForMarketType(msg.Data, msg.RecvAt, ex.MarketType)
+		enrichRequestMetadata(&req, msg, ex.MarketType, "")
+		if p != nil {
+			logger.Warn("consumer: kraken parse skipped message",
+				"code", p.Code,
+				"message", p.Message,
+				"exchange", msg.Exchange,
+				"endpoint", msg.Endpoint,
+				"bucket_id", msg.BucketID,
+			)
+		}
+		return req, skip || p != nil
+	}
+	parseV2 := func(msg *ws.WsMessage) (mdapp.IngestRequest, bool, mdruntime.ParseMeta) {
+		req, skip, meta := kraken.ParseMessageWithMetaForMarketType(msg.Data, msg.RecvAt, ex.MarketType)
+		enrichRequestMetadata(&req, msg, ex.MarketType, meta.WSStream)
+		outMeta := toRuntimeParseMeta(meta.EventType, meta.SkipReason, meta.WSStream, meta.Ticker, meta.Problem)
+		if meta.Problem != nil {
+			logger.Warn("consumer: kraken parse skipped message",
+				"code", meta.Problem.Code,
+				"message", meta.Problem.Message,
+				"exchange", msg.Exchange,
+				"endpoint", msg.Endpoint,
+				"bucket_id", msg.BucketID,
+			)
+			return req, true, outMeta
+		}
+		return req, skip, outMeta
+	}
+	return consumerExchangeRuntime{
+		Subsystem:  subsystem,
+		Exchange:   ex,
+		ParseV1:    parseV1,
+		ParseV2:    parseV2,
+		ManagerCfg: &managerCfg,
+	}
+}
+
+func buildKrakenFRuntime(
+	cfg config.AppConfig,
+	logger *slog.Logger,
+	ex config.ConsumerExchangeConfig,
+	subsystem actorruntime.Subsystem,
+) consumerExchangeRuntime {
+	managerCfg := baseManagerConfig(cfg, ex)
+	managerCfg.StreamsPerTicker = 3
+	managerCfg.EndpointBuilder = func(bucket []string) string {
+		endpoint := krakenf.BuildEndpoint(ex.BaseURL)
+		logger.Info("consumer: ws endpoint planned", "exchange", ex.Name, "endpoint", endpoint, "bucket", bucket)
+		return endpoint
+	}
+	managerCfg.SubscriptionBuilder = func(bucket []string) [][]byte {
+		msgs, p := krakenf.BuildSubscriptions(bucket)
+		if p != nil {
+			logger.Error("consumer: krakenf subscription build failed", "err", p, "exchange", ex.Name, "bucket", bucket)
+			return nil
+		}
+		return msgs
+	}
+
+	parseV1 := func(msg *ws.WsMessage) (mdapp.IngestRequest, bool) {
+		req, skip, p := krakenf.ParseMessageForMarketType(msg.Data, msg.RecvAt, ex.MarketType)
+		enrichRequestMetadata(&req, msg, ex.MarketType, "")
+		if p != nil {
+			logger.Warn("consumer: krakenf parse skipped message",
+				"code", p.Code,
+				"message", p.Message,
+				"exchange", msg.Exchange,
+				"endpoint", msg.Endpoint,
+				"bucket_id", msg.BucketID,
+			)
+		}
+		return req, skip || p != nil
+	}
+	parseV2 := func(msg *ws.WsMessage) (mdapp.IngestRequest, bool, mdruntime.ParseMeta) {
+		req, skip, meta := krakenf.ParseMessageWithMetaForMarketType(msg.Data, msg.RecvAt, ex.MarketType)
+		enrichRequestMetadata(&req, msg, ex.MarketType, meta.WSStream)
+		outMeta := toRuntimeParseMeta(meta.EventType, meta.SkipReason, meta.WSStream, meta.Ticker, meta.Problem)
+		if meta.Problem != nil {
+			logger.Warn("consumer: krakenf parse skipped message",
 				"code", meta.Problem.Code,
 				"message", meta.Problem.Message,
 				"exchange", msg.Exchange,
@@ -370,7 +523,7 @@ func buildBybitRuntime(
 
 func defaultMarketTypeForExchange(exchangeType string) string {
 	switch strings.ToLower(strings.TrimSpace(exchangeType)) {
-	case "hyperliquid":
+	case "hyperliquid", "krakenf":
 		return domain.MarketTypeUSDMFutures.String()
 	default:
 		return domain.MarketTypeSpot.String()
@@ -425,9 +578,9 @@ func enrichRequestMetadata(req *mdapp.IngestRequest, msg *ws.WsMessage, defaultM
 	}
 	req.Metadata["exchange"] = msg.Exchange
 	req.Metadata["endpoint"] = msg.Endpoint
-	req.Metadata["bucket_id"] = fmt.Sprintf("%d", msg.BucketID)
+	req.Metadata["bucket_id"] = strconv.FormatInt(msg.BucketID, 10)
 	req.Metadata["consumer_id"] = msg.ConsumerID
-	req.Metadata["recv_at"] = fmt.Sprintf("%d", msg.RecvAt.UnixMilli())
+	req.Metadata["recv_at"] = strconv.FormatInt(msg.RecvAt.UnixMilli(), 10)
 	if wsStream != "" {
 		req.Metadata["ws_stream"] = wsStream
 	}

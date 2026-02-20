@@ -27,7 +27,7 @@ services:
           cpus: "0.50"
 
   timescale:
-    image: timescale/timescaledb:latest-pg16
+    image: timescale/timescaledb:2.25.1-pg16
     container_name: market-raccoon-timescale
     ports:
       - "127.0.0.1:5432:5432"
@@ -135,9 +135,6 @@ services:
     environment:
       MR_ENV: ${MR_ENV:-dev}
       SHARD_COUNT: ${PROCESSOR_SHARD_COUNT:-1}
-      SHARD_REGISTRY_ENABLED: ${SHARD_REGISTRY_ENABLED:-false}
-      SHARD_REGISTRY_STRICT: ${SHARD_REGISTRY_STRICT:-false}
-      SHARD_REGISTRY_GRACE: ${SHARD_REGISTRY_GRACE:-60s}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ../configs/processor.jsonc:/etc/market-raccoon/processor.jsonc:ro

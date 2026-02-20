@@ -2,11 +2,11 @@ package hyperliquid
 
 import (
 	"encoding/json"
-	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
+	common "github.com/market-raccoon/internal/adapters/exchange/common"
 	"github.com/market-raccoon/internal/core/marketdata/app"
 	"github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/shared/naming"
@@ -42,14 +42,8 @@ type bookLevel struct {
 	N  int    `json:"n"`
 }
 
-// ParseMeta carries parser diagnostics for observability.
-type ParseMeta struct {
-	EventType  string
-	SkipReason string
-	Problem    *problem.Problem
-	WSStream   string
-	Ticker     string
-}
+// ParseMeta is an alias for the shared parser diagnostics type.
+type ParseMeta = common.ParseMeta
 
 // ParseMessage parses HyperLiquid payload.
 func ParseMessage(data []byte, recvAt time.Time) (app.IngestRequest, bool, *problem.Problem) {
@@ -140,7 +134,7 @@ func parseTrades(data json.RawMessage, recvAt time.Time, marketType string) (app
 	}
 	tradeID := strings.TrimSpace(entry.Hash)
 	if tradeID == "" || isZeroHash(tradeID) {
-		tradeID = fmt.Sprintf("%d", entry.Tid)
+		tradeID = common.TradeIDStringFromAny(entry.Tid)
 	}
 	if strings.TrimSpace(tradeID) == "" || tradeID == "0" {
 		return app.IngestRequest{}, true, problem.New(problem.ValidationFailed, "hyperliquid trades: trade id is empty")
@@ -322,30 +316,25 @@ func normalizeSide(side string) (string, *problem.Problem) {
 }
 
 func buildTradeIdempotencyKey(venue, instrument, tradeID string) string {
-	return fmt.Sprintf("venue=%s|instrument=%s|trade_id=%s", venue, instrument, tradeID)
+	return common.BuildTradeIdempotencyKey(venue, instrument, tradeID)
 }
 
 func buildDepthIdempotencyKey(venue, instrument string, finalUpdateID int64) string {
-	return fmt.Sprintf("venue=%s|instrument=%s|final_update_id=%d", venue, instrument, finalUpdateID)
+	return common.BuildDepthIdempotencyKey(venue, instrument, finalUpdateID)
 }
 
 func buildInstrumentMetadata(venueSymbol, canonical, marketType string) map[string]string {
-	meta := map[string]string{
-		"instrument_venue_symbol": strings.ToUpper(strings.TrimSpace(venueSymbol)),
-		"instrument_canonical":    canonical,
-		"instrument_market_type":  marketType,
-	}
-	if venueSymbol != "" {
-		meta["instrument_pair"] = strings.ToUpper(strings.TrimSpace(venueSymbol)) + "-USD"
-	}
-	return meta
+	return common.BuildInstrumentMetadata(venueSymbol, canonical, marketType, func(vs string) string {
+		vs = strings.ToUpper(strings.TrimSpace(vs))
+		if vs != "" {
+			return vs + "-USD"
+		}
+		return ""
+	})
 }
 
 func skipReasonFromProblem(p *problem.Problem) string {
-	if p != nil {
-		return "parse_error"
-	}
-	return ""
+	return common.SkipReasonFromProblem(p)
 }
 
 func isZeroHash(s string) bool {
@@ -362,10 +351,66 @@ func isZeroHash(s string) bool {
 	return true
 }
 
-func normalizeMarketType(raw string) string {
-	mt, p := domain.NewMarketType(raw)
-	if p != nil {
-		return domain.MarketTypeUSDMFutures.String()
+// allMidsData is the envelope for the allMids broadcast channel.
+type allMidsData struct {
+	Mids map[string]string `json:"mids"`
+}
+
+// ParseAllMids returns a batch parser for the HyperLiquid allMids broadcast.
+// The returned function produces one MarkPriceTickV1 IngestRequest per
+// subscribed coin. Messages for other channels return nil (not handled).
+func ParseAllMids(subscribedCoins map[string]bool, marketType string) func(data []byte, recvAt time.Time) ([]app.IngestRequest, error) {
+	marketType = normalizeMarketType(marketType)
+	return func(data []byte, recvAt time.Time) ([]app.IngestRequest, error) {
+		var msg wsResponse
+		if err := json.Unmarshal(data, &msg); err != nil {
+			return nil, problem.Wrap(err, problem.ValidationFailed, "hyperliquid allMids: invalid JSON")
+		}
+		if msg.Channel != "allMids" {
+			return nil, nil // not handled — fall through to single parser
+		}
+
+		var payload allMidsData
+		if err := json.Unmarshal(msg.Data, &payload); err != nil {
+			return nil, problem.Wrap(err, problem.ValidationFailed, "hyperliquid allMids: invalid data")
+		}
+
+		tsExchange := recvAt.UnixMilli()
+		reqs := make([]app.IngestRequest, 0, len(subscribedCoins))
+		for coin, midStr := range payload.Mids {
+			upperCoin := strings.ToUpper(strings.TrimSpace(coin))
+			if !subscribedCoins[upperCoin] {
+				continue
+			}
+			mid, err := strconv.ParseFloat(midStr, 64)
+			if err != nil {
+				continue // skip unparseable prices
+			}
+			instrument, p := instrumentFromCoin(upperCoin)
+			if p != nil {
+				continue
+			}
+			reqs = append(reqs, app.IngestRequest{
+				Venue:          VenueHyperLiquid,
+				Instrument:     instrument,
+				MarketType:     marketType,
+				EventType:      "marketdata.markprice",
+				Version:        1,
+				TsExchange:     tsExchange,
+				IdempotencyKey: "venue=" + VenueHyperLiquid + "|instrument=" + instrument + "|markprice|ts=" + strconv.FormatInt(tsExchange, 10),
+				Metadata:       buildInstrumentMetadata(upperCoin, instrument, marketType),
+				Payload: domain.MarkPriceTickV1{
+					MarkPrice:   mid,
+					IndexPrice:  0,
+					FundingRate: 0,
+					Timestamp:   tsExchange,
+				},
+			})
+		}
+		return reqs, nil
 	}
-	return mt.String()
+}
+
+func normalizeMarketType(raw string) string {
+	return common.NormalizeMarketTypeFutures(raw)
 }

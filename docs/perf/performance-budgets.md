@@ -6,7 +6,7 @@
 ## Pipeline Throughput
 
 - Target: >= 83,000 events/sec (10M events in < 120s)
-- Measured: Pending soak run evidence in `.context/evidence/c4-pipeline-soak.txt`
+- Measured: latest runtime reliability report in `.context/evidence/runtime-gate/latest.md` and long-run pipeline soak in `.context/evidence/c4-pipeline-soak.txt`
 
 ## Memory Budgets
 
@@ -32,6 +32,7 @@
 | Ingest (parse->envelope) | <= 500 us | < 10 ms | PRD-0001 (p99 < 10ms is the authoritative product target) |
 | E2E (ingest->orderbook snapshot) | <= 15 us/op | - | BenchmarkE2E_IngestToOrderbookSnapshot |
 | E2E (trade->candle) | <= 20 us/op | - | BenchmarkE2E_TradeToCandle |
+| E2E (markprice->stats) | <= 25 us/op | - | BenchmarkE2E_MarkPriceToStats |
 | Cold-path commit | <= 10 ms | <= 25 ms | TestStoreSoak_ColdPathLatencyBudgets |
 | VPVR policy decision | <= 2 ms | <= 5 ms | TestVPVROverloadSoakBurstDeterministicBudgets |
 

@@ -2,11 +2,10 @@ package clickhouse
 
 import (
 	"context"
-	"strconv"
 
+	adapterstorage "github.com/market-raccoon/internal/adapters/storage"
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
 	aggports "github.com/market-raccoon/internal/core/aggregation/ports"
-	sharedhash "github.com/market-raccoon/internal/shared/hash"
 	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/problem"
 )
@@ -56,15 +55,10 @@ INSERT INTO aggregation_stats_cold (
     idempotency_key
 )`
 
-	markOpen, markHigh, markLow, markClose := statsNullableMarkPrice(s)
-	fundingAvg, fundingLast := statsNullableFundingRate(s)
-
-	idempotencyKey := sharedhash.HashFields(
-		s.Venue,
-		s.Instrument,
-		s.Timeframe,
-		strconv.FormatInt(s.WindowStartTs, 10),
-	)
+	args, _, p := adapterstorage.MarshalStats(ctx, s)
+	if p != nil {
+		return problem.Wrap(p, problem.Unavailable, "clickhouse stats marshal failed")
+	}
 
 	batch, p := w.preparer.PrepareInsert(ctx, insertSQL)
 	if p != nil {
@@ -74,27 +68,7 @@ INSERT INTO aggregation_stats_cold (
 		_ = batch.Close()
 	}()
 
-	if p := batch.AppendRow(
-		ctx,
-		s.Venue,
-		s.Instrument,
-		s.Timeframe,
-		s.WindowStartTs,
-		s.WindowEndTs,
-		s.LiqBuyVolume,
-		s.LiqSellVolume,
-		s.LiqTotalVolume,
-		s.LiqCount,
-		markOpen,
-		markHigh,
-		markLow,
-		markClose,
-		fundingAvg,
-		fundingLast,
-		s.SeqFirst,
-		s.SeqLast,
-		idempotencyKey,
-	); p != nil {
+	if p := batch.AppendRow(ctx, args...); p != nil {
 		return problem.Wrap(p, problem.Unavailable, "clickhouse stats append failed")
 	}
 	if _, p := batch.Flush(ctx); p != nil {
@@ -103,18 +77,4 @@ INSERT INTO aggregation_stats_cold (
 
 	metrics.IncProcessorCommit("stats_cold")
 	return nil
-}
-
-func statsNullableMarkPrice(s aggdomain.StatsWindowV1) (any, any, any, any) {
-	if s.MarkPriceOpen <= 0 || s.MarkPriceHigh <= 0 || s.MarkPriceLow <= 0 || s.MarkPriceClose <= 0 {
-		return nil, nil, nil, nil
-	}
-	return s.MarkPriceOpen, s.MarkPriceHigh, s.MarkPriceLow, s.MarkPriceClose
-}
-
-func statsNullableFundingRate(s aggdomain.StatsWindowV1) (any, any) {
-	if s.FundingRateAvg == 0 && s.FundingRateLast == 0 {
-		return nil, nil
-	}
-	return s.FundingRateAvg, s.FundingRateLast
 }

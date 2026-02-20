@@ -9,6 +9,7 @@ import (
 
 	"github.com/anthdm/hollywood/actor"
 	"github.com/google/uuid"
+	"github.com/market-raccoon/internal/shared/problem"
 )
 
 // FillStrategy defines how tickers are distributed across websocket consumers.
@@ -65,19 +66,19 @@ type ManagerPlan struct {
 // Plan validates, defaults and computes a manager execution plan.
 func Plan(cfg ManagerConfig) (ManagerPlan, error) {
 	if cfg.SendTo == nil {
-		return ManagerPlan{}, fmt.Errorf("sendTo is required")
+		return ManagerPlan{}, problem.New(problem.ValidationFailed, "sendTo is required")
 	}
 	if cfg.Exchange == "" {
-		return ManagerPlan{}, fmt.Errorf("exchange is required")
+		return ManagerPlan{}, problem.New(problem.ValidationFailed, "exchange is required")
 	}
 	if len(cfg.Tickers) == 0 {
-		return ManagerPlan{}, fmt.Errorf("tickers are required")
+		return ManagerPlan{}, problem.New(problem.ValidationFailed, "tickers are required")
 	}
 	if cfg.StreamsPerTicker < 1 {
-		return ManagerPlan{}, fmt.Errorf("streams per ticker must be >= 1")
+		return ManagerPlan{}, problem.New(problem.ValidationFailed, "streams per ticker must be >= 1")
 	}
 	if cfg.EndpointBuilder == nil {
-		return ManagerPlan{}, fmt.Errorf("endpoint builder is required")
+		return ManagerPlan{}, problem.New(problem.ValidationFailed, "endpoint builder is required")
 	}
 
 	if cfg.MaxStreamsPerWebsocket == 0 {
@@ -110,12 +111,17 @@ func Plan(cfg ManagerConfig) (ManagerPlan, error) {
 		websocketCapacity = cfg.MaxWebsockets - 1
 	}
 	if websocketCapacity < 1 {
-		return ManagerPlan{}, fmt.Errorf("MaxWebsockets must be >= 1 without overlap and >= 2 with overlap")
+		return ManagerPlan{}, problem.New(problem.ValidationFailed, "MaxWebsockets must be >= 1 without overlap and >= 2 with overlap")
 	}
 
 	tickerCapacityPerWebsocket := cfg.MaxStreamsPerWebsocket / cfg.StreamsPerTicker
 	if tickerCapacityPerWebsocket < 1 {
-		return ManagerPlan{}, fmt.Errorf("MaxStreamsPerWebsocket must support at least one ticker: maxStreams=%d streamsPerTicker=%d", cfg.MaxStreamsPerWebsocket, cfg.StreamsPerTicker)
+		return ManagerPlan{}, problem.Newf(
+			problem.ValidationFailed,
+			"MaxStreamsPerWebsocket must support at least one ticker: maxStreams=%d streamsPerTicker=%d",
+			cfg.MaxStreamsPerWebsocket,
+			cfg.StreamsPerTicker,
+		)
 	}
 
 	totalTickers := int64(len(cfg.Tickers))
@@ -123,7 +129,7 @@ func Plan(cfg ManagerConfig) (ManagerPlan, error) {
 	if totalTickers > maxTickerCapacity {
 		totalStreams := totalTickers * cfg.StreamsPerTicker
 		maxTotalStreams := maxTickerCapacity * cfg.StreamsPerTicker
-		return ManagerPlan{}, fmt.Errorf("total streams (%d) exceed maximum capacity (%d)", totalStreams, maxTotalStreams)
+		return ManagerPlan{}, problem.Newf(problem.ValidationFailed, "total streams (%d) exceed maximum capacity (%d)", totalStreams, maxTotalStreams)
 	}
 
 	buckets, err := bucketTickers(cfg.Tickers, resolved, websocketCapacity, tickerCapacityPerWebsocket)
@@ -142,13 +148,13 @@ func Plan(cfg ManagerConfig) (ManagerPlan, error) {
 
 func bucketTickers(tickers []string, strategy FillStrategy, maxWebsockets int64, tickerCapacity int64) ([][]string, error) {
 	if len(tickers) == 0 {
-		return nil, fmt.Errorf("tickers are required")
+		return nil, problem.New(problem.ValidationFailed, "tickers are required")
 	}
 	if maxWebsockets < 1 {
-		return nil, fmt.Errorf("max websockets must be >= 1")
+		return nil, problem.New(problem.ValidationFailed, "max websockets must be >= 1")
 	}
 	if tickerCapacity < 1 {
-		return nil, fmt.Errorf("ticker capacity per websocket must be >= 1")
+		return nil, problem.New(problem.ValidationFailed, "ticker capacity per websocket must be >= 1")
 	}
 
 	tickersPerBucket := int(tickerCapacity)
@@ -172,7 +178,7 @@ func bucketTickers(tickers []string, strategy FillStrategy, maxWebsockets int64,
 		}
 
 		if len(remainingTickers) > 0 {
-			return nil, fmt.Errorf("not enough websocket capacity for first fill strategy")
+			return nil, problem.New(problem.ValidationFailed, "not enough websocket capacity for first fill strategy")
 		}
 		return buckets, nil
 
@@ -191,13 +197,13 @@ func bucketTickers(tickers []string, strategy FillStrategy, maxWebsockets int64,
 				continue
 			}
 			if len(bucket) > tickersPerBucket {
-				return nil, fmt.Errorf("bucket exceeds ticker capacity: %d > %d", len(bucket), tickersPerBucket)
+				return nil, problem.Newf(problem.ValidationFailed, "bucket exceeds ticker capacity: %d > %d", len(bucket), tickersPerBucket)
 			}
 			nonEmptyBuckets = append(nonEmptyBuckets, bucket)
 		}
 		return nonEmptyBuckets, nil
 	default:
-		return nil, fmt.Errorf("invalid fill strategy: %s", strategy)
+		return nil, problem.Newf(problem.ValidationFailed, "invalid fill strategy: %s", strategy)
 	}
 }
 
@@ -351,7 +357,7 @@ func (m *Manager) spawnInitialStream(c *actor.Context, index int, bucket []strin
 	}
 
 	if c == nil {
-		return nil, fmt.Errorf("actor context is nil")
+		return nil, problem.New(problem.ValidationFailed, "actor context is nil")
 	}
 
 	s.pid = c.SpawnChild(
@@ -386,7 +392,7 @@ func (m *Manager) createNewStream(c *actor.Context, oldStream *stream, index int
 	}
 
 	if c == nil {
-		return nil, fmt.Errorf("actor context is nil")
+		return nil, problem.New(problem.ValidationFailed, "actor context is nil")
 	}
 
 	newStream.pid = c.SpawnChild(

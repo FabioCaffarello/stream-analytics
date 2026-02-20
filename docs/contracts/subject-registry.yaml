@@ -1,3 +1,7 @@
+---
+# Subject registry
+# This is a minimal placeholder registry to satisfy local validation.
+# Replace entries below with the authoritative subject catalog before publishing.
 version: 1
 last_updated: 2026-02-18
 canonical_subject_format: "{event}.v{version}.{venue}.{instrument}"
@@ -105,10 +109,11 @@ subjects:
     producer_bc: aggregation
     schema_authority_bc: aggregation
     consumer_bcs: [storage]
-    status: draft
+    status: stable
     sources:
       - docs/contracts/event-bus.md
       - .context/docs/feature-packs/orderbook.md
+      - proto/aggregation/v1/snapshot.proto
   - id: aggregation.orderbook_inconsistency.v1
     pattern: aggregation.orderbook_inconsistency.v1.{venue}.{instrument}
     root: aggregation
@@ -116,10 +121,11 @@ subjects:
     producer_bc: aggregation
     schema_authority_bc: aggregation
     consumer_bcs: [storage]
-    status: draft
+    status: stable
     sources:
       - docs/contracts/event-bus.md
       - .context/docs/feature-packs/orderbook.md
+      - proto/aggregation/v1/orderbook_inconsistency.proto
   - id: aggregation.candle.v1
     pattern: aggregation.candle.v1.{venue}.{instrument}
     root: aggregation
@@ -127,7 +133,7 @@ subjects:
     producer_bc: aggregation
     schema_authority_bc: aggregation
     consumer_bcs: [delivery, storage]
-    status: draft
+    status: stable
     sources:
       - docs/contracts/event-bus.md
       - .context/docs/feature-packs/candle-aggregation.md
@@ -138,7 +144,7 @@ subjects:
     producer_bc: aggregation
     schema_authority_bc: aggregation
     consumer_bcs: [delivery, storage]
-    status: draft
+    status: stable
     sources:
       - docs/contracts/event-bus.md
       - .context/docs/feature-packs/stats-aggregation.md
@@ -146,10 +152,10 @@ subjects:
     pattern: insights.heatmap_snapshot.v1.{venue}.{instrument}
     root: insights
     owner_bc: insights
-    producer_bc: insights
-    schema_authority_bc: insights
+    producer_bc: aggregation
+    schema_authority_bc: aggregation
     consumer_bcs: [delivery, storage]
-    status: draft
+    status: stable
     sources:
       - .context/docs/feature-packs/heatmap.md
       - docs/contracts/event-bus.md

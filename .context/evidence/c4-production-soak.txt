@@ -1,0 +1,64 @@
+# C4 production soak harness 2026-02-20T21:11:22Z
+go_cache=/tmp/go-build
+Running pipeline soak (10M events, 4 exchanges)...
+=== RUN   TestSoak_MultiExchange_10M_Messages
+    soak_multi_exchange_test.go:268: multi-exchange soak: runtime=1m11.161305917s throughput=140525.81/s p50=6.125µs p95=10.792µs p99=46.667µs candles=33914 stats=10940
+--- PASS: TestSoak_MultiExchange_10M_Messages (71.16s)
+PASS
+ok  	github.com/market-raccoon/cmd/processor	71.332s
+Running WS delivery soak (50 clients)...
+=== RUN   TestSoak_WSDelivery_SlowClients
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58816: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58817: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58819: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58820: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58818: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58821: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58822: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58823: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58824: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58825: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58827: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58828: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58831: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58852: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58854: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58851: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58846: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58844: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58830: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58840: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58842: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58839: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58838: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58849: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58848: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58826: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58853: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58850: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58829: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58843: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58836: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58845: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58847: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58841: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58834: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58833: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58832: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58837: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58835: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58865: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58864: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58860: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58863: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58859: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58858: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58857: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58856: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58861: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58855: write: broken pipe"
+2026/02/20 18:12:37 WARN delivery session: write failed err="SYS_INTERNAL: json write failed: write tcp 127.0.0.1:58815->127.0.0.1:58862: write: broken pipe"
+--- PASS: TestSoak_WSDelivery_SlowClients (1.43s)
+PASS
+ok  	github.com/market-raccoon/internal/interfaces/ws	1.652s
+C4 production soak completed

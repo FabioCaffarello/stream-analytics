@@ -9,6 +9,11 @@ import (
 	"time"
 
 	"github.com/market-raccoon/internal/adapters/exchange/binance"
+	"github.com/market-raccoon/internal/adapters/exchange/bybit"
+	"github.com/market-raccoon/internal/adapters/exchange/coinbase"
+	"github.com/market-raccoon/internal/adapters/exchange/hyperliquid"
+	"github.com/market-raccoon/internal/adapters/exchange/kraken"
+	"github.com/market-raccoon/internal/adapters/exchange/krakenf"
 	"github.com/market-raccoon/internal/adapters/storage/clickhouse"
 	"github.com/market-raccoon/internal/core/aggregation/app"
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
@@ -28,6 +33,17 @@ type runConfig struct {
 	Timeframe  string
 }
 
+var (
+	runDownloadAggTrades         = binance.DownloadAggTrades
+	runDownloadBybitTrades       = bybit.DownloadTrades
+	runDownloadCoinbaseTrades    = coinbase.DownloadTrades
+	runDownloadHyperLiquidTrades = hyperliquid.DownloadTrades
+	runDownloadKrakenTrades      = kraken.DownloadTrades
+	runDownloadKrakenFTrades     = krakenf.DownloadTrades
+	runNewClickHousePool         = clickhouse.NewPool
+	runDetectCandleGaps          = app.DetectCandleGaps
+)
+
 //nolint:gocyclo // CLI mode branching is explicit to keep operational flow easy to audit.
 func Run(ctx context.Context, appCfg config.AppConfig, cfg runConfig) (int, error) {
 	mode := strings.ToLower(strings.TrimSpace(cfg.Mode))
@@ -41,9 +57,6 @@ func Run(ctx context.Context, appCfg config.AppConfig, cfg runConfig) (int, erro
 
 	switch mode {
 	case "download":
-		if exchange != "binance" {
-			return 1, fmt.Errorf("unsupported exchange %q", exchange)
-		}
 		from, err := parseDateRequired(cfg.From, "from")
 		if err != nil {
 			return 1, err
@@ -53,18 +66,105 @@ func Run(ctx context.Context, appCfg config.AppConfig, cfg runConfig) (int, erro
 			return 1, err
 		}
 
-		result, p := binance.DownloadAggTrades(ctx, binance.BackfillConfig{
-			Symbol:     cfg.Symbol,
-			From:       from,
-			To:         to,
-			OutputDir:  cfg.OutputDir,
-			MarketType: cfg.MarketType,
-		})
-		if p != nil {
-			return 1, fmt.Errorf("backfill download failed: %v", p)
+		var outputPath string
+		var datesDownloaded, datesSkipped int
+		var tradesParsed int64
+
+		switch exchange {
+		case "binance":
+			result, p := runDownloadAggTrades(ctx, binance.BackfillConfig{
+				Symbol:     cfg.Symbol,
+				From:       from,
+				To:         to,
+				OutputDir:  cfg.OutputDir,
+				MarketType: cfg.MarketType,
+			})
+			if p != nil {
+				return 1, fmt.Errorf("backfill download failed: %v", p)
+			}
+			outputPath = result.OutputPath
+			datesDownloaded = result.DatesDownloaded
+			datesSkipped = result.DatesSkipped
+			tradesParsed = result.TradesParsed
+		case "bybit":
+			result, p := runDownloadBybitTrades(ctx, bybit.BackfillConfig{
+				Symbol:     cfg.Symbol,
+				From:       from,
+				To:         to,
+				OutputDir:  cfg.OutputDir,
+				MarketType: cfg.MarketType,
+			})
+			if p != nil {
+				return 1, fmt.Errorf("backfill download failed: %v", p)
+			}
+			outputPath = result.OutputPath
+			datesDownloaded = result.DatesDownloaded
+			datesSkipped = result.DatesSkipped
+			tradesParsed = result.TradesParsed
+		case "coinbase":
+			result, p := runDownloadCoinbaseTrades(ctx, coinbase.BackfillConfig{
+				Symbol:     cfg.Symbol,
+				From:       from,
+				To:         to,
+				OutputDir:  cfg.OutputDir,
+				MarketType: cfg.MarketType,
+			})
+			if p != nil {
+				return 1, fmt.Errorf("backfill download failed: %v", p)
+			}
+			outputPath = result.OutputPath
+			datesDownloaded = result.DatesDownloaded
+			datesSkipped = result.DatesSkipped
+			tradesParsed = result.TradesParsed
+		case "hyperliquid":
+			result, p := runDownloadHyperLiquidTrades(ctx, hyperliquid.BackfillConfig{
+				Symbol:     cfg.Symbol,
+				From:       from,
+				To:         to,
+				OutputDir:  cfg.OutputDir,
+				MarketType: cfg.MarketType,
+			})
+			if p != nil {
+				return 1, fmt.Errorf("backfill download failed: %v", p)
+			}
+			outputPath = result.OutputPath
+			datesDownloaded = result.DatesDownloaded
+			datesSkipped = result.DatesSkipped
+			tradesParsed = result.TradesParsed
+		case "kraken":
+			result, p := runDownloadKrakenTrades(ctx, kraken.BackfillConfig{
+				Symbol:     cfg.Symbol,
+				From:       from,
+				To:         to,
+				OutputDir:  cfg.OutputDir,
+				MarketType: cfg.MarketType,
+			})
+			if p != nil {
+				return 1, fmt.Errorf("backfill download failed: %v", p)
+			}
+			outputPath = result.OutputPath
+			datesDownloaded = result.DatesDownloaded
+			datesSkipped = result.DatesSkipped
+			tradesParsed = result.TradesParsed
+		case "krakenf":
+			result, p := runDownloadKrakenFTrades(ctx, krakenf.BackfillConfig{
+				Symbol:     cfg.Symbol,
+				From:       from,
+				To:         to,
+				OutputDir:  cfg.OutputDir,
+				MarketType: cfg.MarketType,
+			})
+			if p != nil {
+				return 1, fmt.Errorf("backfill download failed: %v", p)
+			}
+			outputPath = result.OutputPath
+			datesDownloaded = result.DatesDownloaded
+			datesSkipped = result.DatesSkipped
+			tradesParsed = result.TradesParsed
+		default:
+			return 1, fmt.Errorf("unsupported exchange %q (allowed: binance|bybit|coinbase|hyperliquid|kraken|krakenf)", exchange)
 		}
 
-		outputPath := result.OutputPath
 		if strings.TrimSpace(cfg.Fixture) != "" {
 			target := strings.TrimSpace(cfg.Fixture)
 			if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
@@ -79,9 +179,9 @@ func Run(ctx context.Context, appCfg config.AppConfig, cfg runConfig) (int, erro
 		}
 
 		fmt.Printf("download complete: downloaded=%d skipped=%d trades=%d fixture=%s\n",
-			result.DatesDownloaded,
-			result.DatesSkipped,
-			result.TradesParsed,
+			datesDownloaded,
+			datesSkipped,
+			tradesParsed,
 			outputPath,
 		)
 		return 0, nil
@@ -98,7 +198,7 @@ func Run(ctx context.Context, appCfg config.AppConfig, cfg runConfig) (int, erro
 			return 1, fmt.Errorf("storage.clickhouse.enabled must be true for gaps mode")
 		}
 
-		pool, p := clickhouse.NewPool(ctx, clickhouse.PoolConfig{
+		pool, p := runNewClickHousePool(ctx, clickhouse.PoolConfig{
 			Addrs:           appCfg.Storage.ClickHouse.Addrs,
 			Database:        appCfg.Storage.ClickHouse.Database,
 			Username:        appCfg.Storage.ClickHouse.Username,
@@ -130,7 +230,7 @@ func Run(ctx context.Context, appCfg config.AppConfig, cfg runConfig) (int, erro
 			venue = naming.CanonicalVenue(binance.VenueBinance)
 		}
 
-		reports, p := app.DetectCandleGaps(ctx, clickhouse.NewChCandleReader(pool), app.GapDetectorConfig{
+		reports, p := runDetectCandleGaps(ctx, clickhouse.NewChCandleReader(pool), app.GapDetectorConfig{
 			Venue:          venue,
 			Instrument:     naming.CanonicalInstrument(cfg.Symbol),
 			Timeframe:      strings.TrimSpace(cfg.Timeframe),

@@ -1,0 +1,203 @@
+#1 [internal] load local bake definitions
+#1 reading from stdin 2.08kB done
+#1 DONE 0.0s
+
+#2 [server internal] load build definition from server.Dockerfile
+#2 transferring dockerfile: 581B done
+#2 DONE 0.0s
+
+#3 [store internal] load build definition from store.Dockerfile
+#3 transferring dockerfile: 570B done
+#3 DONE 0.0s
+
+#4 [processor internal] load build definition from processor.Dockerfile
+#4 transferring dockerfile: 594B done
+#4 DONE 0.0s
+
+#5 [consumer internal] load build definition from consumer.Dockerfile
+#5 transferring dockerfile: 588B done
+#5 DONE 0.0s
+
+#6 [consumer internal] load metadata for docker.io/library/alpine:3.20
+#6 DONE 1.1s
+
+#7 [store internal] load metadata for docker.io/library/golang:1.25-alpine
+#7 DONE 1.1s
+
+#8 [server internal] load .dockerignore
+#8 transferring context: 108B done
+#8 DONE 0.0s
+
+#9 [consumer builder 1/5] FROM docker.io/library/golang:1.25-alpine@sha256:f6751d823c26342f9506c03797d2527668d095b0a15f1862cddb4d927a7a4ced
+#9 resolve docker.io/library/golang:1.25-alpine@sha256:f6751d823c26342f9506c03797d2527668d095b0a15f1862cddb4d927a7a4ced 0.0s done
+#9 DONE 0.0s
+
+#10 [consumer stage-1 1/4] FROM docker.io/library/alpine:3.20@sha256:a4f4213abb84c497377b8544c81b3564f313746700372ec4fe84653e4fb03805
+#10 resolve docker.io/library/alpine:3.20@sha256:a4f4213abb84c497377b8544c81b3564f313746700372ec4fe84653e4fb03805 0.0s done
+#10 DONE 0.0s
+
+#11 [server internal] load build context
+#11 transferring context: 2.14MB 0.1s done
+#11 DONE 0.1s
+
+#12 [store builder 2/5] WORKDIR /src
+#12 CACHED
+
+#13 [store builder 3/5] RUN apk add --no-cache ca-certificates
+#13 CACHED
+
+#14 [store builder 4/5] COPY . .
+#14 DONE 0.9s
+
+#15 [server builder 5/5] RUN --mount=type=cache,target=/go/pkg/mod     --mount=type=cache,target=/root/.cache/go-build     CGO_ENABLED=0 GOOS=linux GOARCH=amd64     go build -trimpath -ldflags '-s -w' -o /out/server ./cmd/server
+#15 ...
+
+#16 [store builder 5/5] RUN --mount=type=cache,target=/go/pkg/mod     --mount=type=cache,target=/root/.cache/go-build     CGO_ENABLED=0 GOOS=linux GOARCH=amd64     go build -trimpath -ldflags '-s -w' -o /out/store ./cmd/store
+#16 DONE 4.5s
+
+#17 [consumer builder 5/5] RUN --mount=type=cache,target=/go/pkg/mod     --mount=type=cache,target=/root/.cache/go-build     CGO_ENABLED=0 GOOS=linux GOARCH=amd64     go build -trimpath -ldflags '-s -w' -o /out/consumer ./cmd/consumer
+#17 DONE 4.5s
+
+#15 [server builder 5/5] RUN --mount=type=cache,target=/go/pkg/mod     --mount=type=cache,target=/root/.cache/go-build     CGO_ENABLED=0 GOOS=linux GOARCH=amd64     go build -trimpath -ldflags '-s -w' -o /out/server ./cmd/server
+#15 DONE 4.5s
+
+#18 [processor builder 5/5] RUN --mount=type=cache,target=/go/pkg/mod     --mount=type=cache,target=/root/.cache/go-build     CGO_ENABLED=0 GOOS=linux GOARCH=amd64     go build -trimpath -ldflags '-s -w' -o /out/processor ./cmd/processor
+#18 DONE 4.5s
+
+#19 [consumer stage-1 2/4] RUN apk add --no-cache ca-certificates     && addgroup -S app && adduser -S -G app app
+#19 CACHED
+
+#20 [server stage-1 2/4] RUN apk add --no-cache ca-certificates wget     && addgroup -S app && adduser -S -G app app
+#20 CACHED
+
+#21 [consumer stage-1 3/4] COPY --from=builder /out/consumer /usr/local/bin/consumer
+#21 DONE 0.1s
+
+#22 [server stage-1 3/4] COPY --from=builder /out/server /usr/local/bin/server
+#22 DONE 0.1s
+
+#23 [store stage-1 3/4] COPY --from=builder /out/store /usr/local/bin/store
+#23 DONE 0.1s
+
+#24 [processor stage-1 3/4] COPY --from=builder /out/processor /usr/local/bin/processor
+#24 DONE 0.1s
+
+#25 [processor] exporting to image
+#25 exporting layers
+#25 ...
+
+#26 [consumer] exporting to image
+#26 exporting layers 0.4s done
+#26 exporting manifest sha256:3a3033734bc89c296866d2ed94e770e26c7c1b849a51a5abe57b4df43b370142 done
+#26 exporting config sha256:3bad657444c6839c8a768acf3ec8ab17a1668839741113d33ab082cf2e4b13d8 done
+#26 exporting attestation manifest sha256:9480de20e1b62cb29edf4cbe82ddca4524c952f076a6e329b5b74c513d21b8b9 0.0s done
+#26 exporting manifest list sha256:9dd94a267e25bfaedc547076d2f77573efeb0ee495435fd7c1dc730a4993ed92 done
+#26 naming to docker.io/market-raccoon/consumer:dev done
+#26 unpacking to docker.io/market-raccoon/consumer:dev 0.1s done
+#26 DONE 0.6s
+
+#25 [processor] exporting to image
+#25 exporting layers 0.5s done
+#25 exporting manifest sha256:cf11c3ab112df94b085def3e2672cc4997d10ad08e8fa2e1cf85599a489d9d05 0.0s done
+#25 exporting config sha256:7ccb8181b8720c8d92f5bbb36f366ce52ec99e3580cea46c94b3a825f8bf58d5 done
+#25 exporting attestation manifest sha256:8cf83dd5111d12966291a48e08272b829edc21e8de5ddae43830d051b389b6fe 0.0s done
+#25 exporting manifest list sha256:9d43708351275e7bd77605cce8836231b50db5467fe01451d3a657ae518f56d0 done
+#25 naming to docker.io/market-raccoon/processor:dev
+#25 ...
+
+#27 [server] exporting to image
+#27 exporting layers 0.4s done
+#27 exporting manifest sha256:039cc3319d6932d68936d2fb49c4d8cd68f0e4aafb20631d05ef076789e1f9b4 done
+#27 exporting config sha256:85abe6e621d09efeca6ed243ef5c56984f66f595c2a11c218bb7fb2de46a2db8 0.0s done
+#27 exporting attestation manifest sha256:7d18a2716aaa350160d7fe4a7910b214137cae32968d261374ba3f8ab87612cb 0.0s done
+#27 exporting manifest list sha256:b7d059a191071dd81adb63541a6e960d9d6a88cfc655c81505dfcc28d1c5bbdf 0.0s done
+#27 naming to docker.io/market-raccoon/server:dev done
+#27 unpacking to docker.io/market-raccoon/server:dev 0.1s done
+#27 DONE 0.6s
+
+#28 [store] exporting to image
+#28 exporting layers 0.5s done
+#28 exporting manifest sha256:d690095edda745ccc6bff7fa4b4d536603eb6407f02ae207873b6869077a25c3 done
+#28 exporting config sha256:4e274e8be738c8bca9a964d28b0e741cb41094c5ab9e35fb9521a5d36d6ba3a3 0.0s done
+#28 exporting attestation manifest sha256:761f122551e0b44113ec7969ae11b068196154b8c58ea89514fca7a050ddc6a5 0.0s done
+#28 exporting manifest list sha256:eaeefb54b499d5b7f882fc54f73ba4c399764ebb21b6e1da478bdcaab691dd04 0.0s done
+#28 naming to docker.io/market-raccoon/store:dev done
+#28 unpacking to docker.io/market-raccoon/store:dev 0.1s done
+#28 DONE 0.6s
+
+#25 [processor] exporting to image
+#25 naming to docker.io/market-raccoon/processor:dev done
+#25 unpacking to docker.io/market-raccoon/processor:dev 0.1s done
+#25 DONE 0.7s
+
+#29 [server] resolving provenance for metadata file
+#29 DONE 0.0s
+
+#30 [consumer] resolving provenance for metadata file
+#30 DONE 0.0s
+
+#31 [store] resolving provenance for metadata file
+#31 DONE 0.0s
+
+#32 [processor] resolving provenance for metadata file
+#32 DONE 0.0s
+ market-raccoon/consumer:dev  Built
+ market-raccoon/processor:dev  Built
+ market-raccoon/store:dev  Built
+ market-raccoon/server:dev  Built
+ Network market-raccoon-network  Creating
+ Network market-raccoon-network  Created
+ Volume market-raccoon-clickhouse-logs  Creating
+ Volume market-raccoon-clickhouse-logs  Created
+ Volume market-raccoon-timescale-data  Creating
+ Volume market-raccoon-timescale-data  Created
+ Volume market-raccoon-nats-data  Creating
+ Volume market-raccoon-nats-data  Created
+ Volume market-raccoon-clickhouse-data  Creating
+ Volume market-raccoon-clickhouse-data  Created
+ Container market-raccoon-nats  Creating
+ Container market-raccoon-clickhouse  Creating
+ Container market-raccoon-timescale  Creating
+ Container market-raccoon-nats  Created
+ Container market-raccoon-clickhouse  Created
+ Container market-raccoon-store  Creating
+ Container market-raccoon-timescale  Created
+ Container market-raccoon-server  Creating
+ Container market-raccoon-store  Created
+ Container market-raccoon-server  Created
+ Container compose-consumer-1  Creating
+ Container compose-processor-1  Creating
+ Container compose-consumer-1  Created
+ Container compose-processor-1  Created
+ Container market-raccoon-clickhouse  Starting
+ Container market-raccoon-nats  Starting
+ Container market-raccoon-timescale  Starting
+ Container market-raccoon-timescale  Started
+ Container market-raccoon-nats  Started
+ Container market-raccoon-clickhouse  Started
+ Container market-raccoon-timescale  Waiting
+ Container market-raccoon-clickhouse  Waiting
+ Container market-raccoon-nats  Waiting
+ Container market-raccoon-nats  Waiting
+ Container market-raccoon-clickhouse  Waiting
+ Container market-raccoon-nats  Healthy
+ Container market-raccoon-nats  Healthy
+ Container market-raccoon-timescale  Healthy
+ Container market-raccoon-clickhouse  Healthy
+ Container market-raccoon-server  Starting
+ Container market-raccoon-clickhouse  Healthy
+ Container market-raccoon-store  Starting
+ Container market-raccoon-store  Started
+ Container market-raccoon-server  Started
+ Container market-raccoon-nats  Waiting
+ Container market-raccoon-timescale  Waiting
+ Container market-raccoon-clickhouse  Waiting
+ Container market-raccoon-nats  Waiting
+ Container market-raccoon-timescale  Healthy
+ Container market-raccoon-nats  Healthy
+ Container compose-consumer-1  Starting
+ Container market-raccoon-clickhouse  Healthy
+ Container market-raccoon-nats  Healthy
+ Container compose-processor-1  Starting
+ Container compose-processor-1  Started
+ Container compose-consumer-1  Started

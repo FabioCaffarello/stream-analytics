@@ -3,12 +3,12 @@ package bybit
 
 import (
 	"encoding/json"
-	"fmt"
 	"math"
 	"strconv"
 	"strings"
 	"time"
 
+	common "github.com/market-raccoon/internal/adapters/exchange/common"
 	"github.com/market-raccoon/internal/core/marketdata/app"
 	"github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/shared/naming"
@@ -82,14 +82,8 @@ type liquidationData struct {
 	UpdatedTime int64  `json:"T"`
 }
 
-// ParseMeta carries parser diagnostics for observability.
-type ParseMeta struct {
-	EventType  string
-	SkipReason string
-	Problem    *problem.Problem
-	WSStream   string
-	Ticker     string
-}
+// ParseMeta is an alias for the shared parser diagnostics type.
+type ParseMeta = common.ParseMeta
 
 // ParseMessage parses Bybit WS payload and maps supported messages to app.IngestRequest.
 func ParseMessage(data []byte, recvAt time.Time) (app.IngestRequest, bool, *problem.Problem) {
@@ -497,47 +491,19 @@ func parseLiquidation(data []byte, recvAt time.Time, marketType string) (app.Ing
 }
 
 func buildTradeIdempotencyKey(venue, instrument, tradeID string) string {
-	return fmt.Sprintf("venue=%s|instrument=%s|trade_id=%s", venue, instrument, tradeID)
+	return common.BuildTradeIdempotencyKey(venue, instrument, tradeID)
 }
 
 func buildDepthIdempotencyKey(venue, instrument string, finalUpdateID int64) string {
-	return fmt.Sprintf("venue=%s|instrument=%s|final_update_id=%d", venue, instrument, finalUpdateID)
+	return common.BuildDepthIdempotencyKey(venue, instrument, finalUpdateID)
 }
 
 func parseLevels(raw [][]string) ([]domain.PriceLevel, *problem.Problem) {
-	if len(raw) == 0 {
-		return nil, nil
-	}
-	out := make([]domain.PriceLevel, 0, len(raw))
-	for _, pair := range raw {
-		if len(pair) < 2 {
-			return nil, problem.New(problem.ValidationFailed, "bybit orderbook: invalid level pair")
-		}
-		price, err := strconv.ParseFloat(pair[0], 64)
-		if err != nil {
-			return nil, problem.Wrap(err, problem.ValidationFailed, "bybit orderbook: invalid level price")
-		}
-		size, err := strconv.ParseFloat(pair[1], 64)
-		if err != nil {
-			return nil, problem.Wrap(err, problem.ValidationFailed, "bybit orderbook: invalid level size")
-		}
-		out = append(out, domain.PriceLevel{Price: price, Size: size})
-	}
-	return out, nil
+	return common.ParseStringLevels(raw, "bybit orderbook")
 }
 
 func normalizeSide(side string) (string, *problem.Problem) {
-	switch strings.ToLower(strings.TrimSpace(side)) {
-	case "buy":
-		return "buy", nil
-	case "sell":
-		return "sell", nil
-	default:
-		return "", problem.WithDetail(
-			problem.Newf(problem.ValidationFailed, "bybit trade: unsupported side %q", side),
-			"reason", "invalid_side",
-		)
-	}
+	return common.NormalizeSide(side, "bybit")
 }
 
 func unsupportedEventProblem(topic, msgType, op string) *problem.Problem {
@@ -556,10 +522,7 @@ func unsupportedEventProblem(topic, msgType, op string) *problem.Problem {
 }
 
 func skipReasonFromProblem(p *problem.Problem) string {
-	if p != nil {
-		return "parse_error"
-	}
-	return ""
+	return common.SkipReasonFromProblem(p)
 }
 
 func defaultSkipReason(topic string) string {
@@ -611,48 +574,17 @@ func symbolFromTopic(topic string) string {
 }
 
 func buildInstrumentMetadata(venueSymbol, canonical, marketType string) map[string]string {
-	meta := map[string]string{
-		"instrument_venue_symbol": strings.ToUpper(strings.TrimSpace(venueSymbol)),
-		"instrument_canonical":    canonical,
-		"instrument_market_type":  marketType,
-	}
-	canonicalPair := canonicalPairFromBybitSymbol(venueSymbol)
-	if canonicalPair == "" {
-		return meta
-	}
-	id, p := domain.NewInstrumentIdentity(canonicalPair, venueSymbol, marketType)
-	if p != nil {
-		return meta
-	}
-	meta["instrument_pair"] = id.Canonical
-	meta["instrument_base"] = id.Base
-	meta["instrument_quote"] = id.Quote
-	meta["instrument_market_type"] = id.MarketType.String()
-	return meta
+	return common.BuildInstrumentMetadata(venueSymbol, canonical, marketType, canonicalPairFromBybitSymbol)
 }
 
 func canonicalPairFromBybitSymbol(symbol string) string {
-	s := naming.CanonicalInstrument(symbol)
-	if s == "" {
-		return ""
-	}
-	for _, quote := range []string{
+	return common.CanonicalPairFromSuffixList(symbol, []string{
 		"USDT", "USDC", "USD", "BTC", "ETH", "EUR",
-	} {
-		if strings.HasSuffix(s, quote) && len(s) > len(quote) {
-			base := strings.TrimSuffix(s, quote)
-			return base + "-" + quote
-		}
-	}
-	return ""
+	})
 }
 
 func normalizeMarketType(raw string) string {
-	mt, p := domain.NewMarketType(raw)
-	if p != nil {
-		return domain.MarketTypeSpot.String()
-	}
-	return mt.String()
+	return common.NormalizeMarketTypeSpot(raw)
 }
 
 func rawString(obj map[string]json.RawMessage, key string) string {

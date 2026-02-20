@@ -5,8 +5,8 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/market-raccoon/internal/shared/envelope"
@@ -255,5 +255,5 @@ func annotateLine(p *problem.Problem, line int) *problem.Problem {
 	if p == nil {
 		return nil
 	}
-	return problem.WithDetail(p, "line", fmt.Sprintf("%d", line))
+	return problem.WithDetail(p, "line", strconv.Itoa(line))
 }

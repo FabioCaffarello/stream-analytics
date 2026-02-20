@@ -37,6 +37,12 @@ type SubsystemConfig struct {
 	// When provided, it takes precedence over ParseMessage.
 	ParseMessageV2 ParseFuncV2
 
+	// ParseBatch is an optional batch parser for broadcast channels.
+	// When set and returns a non-nil slice, the runtime processes each
+	// request individually. When it returns nil, the message falls through
+	// to ParseMessage/ParseMessageV2.
+	ParseBatch ParseFuncBatch
+
 	// ManagerConfig defines how the ws.Manager pools connections.
 	// When non-nil, the actor spawns a ws.Manager child on startup.
 	// When nil, no manager is spawned; the caller is responsible for feeding
@@ -224,6 +230,28 @@ func (s *SubsystemActor) runIngestWorker() {
 }
 
 func (s *SubsystemActor) processMessage(msg *ws.WsMessage) {
+	// Batch parsing path: broadcast channels (e.g., HyperLiquid allMids).
+	if s.cfg.ParseBatch != nil {
+		reqs, err := s.cfg.ParseBatch(msg)
+		if err != nil {
+			metrics.IncWSMessageReceived(msg.Exchange, "batch_parse_error")
+			s.logger.Warn("mdruntime: batch parse error",
+				"exchange", msg.Exchange,
+				"err", err,
+			)
+			s.logProgress()
+			return
+		}
+		if reqs != nil {
+			for i := range reqs {
+				s.ingestSingleRequest(msg, reqs[i])
+			}
+			s.logProgress()
+			return
+		}
+		// reqs == nil → not handled, fall through to single-message parse.
+	}
+
 	if s.cfg.ParseMessageV2 == nil && s.cfg.ParseMessage == nil {
 		metrics.IncWSMessageReceived(msg.Exchange, "unknown")
 		metrics.ObserveIngest(msg.Exchange, "UNKNOWN", "unknown", "validation_failed", 0)
@@ -348,6 +376,43 @@ func (s *SubsystemActor) processMessage(msg *ws.WsMessage) {
 		"seq", resp.Seq,
 		"exchange", msg.Exchange,
 	)
+}
+
+// ingestSingleRequest processes one IngestRequest from a batch parse result.
+func (s *SubsystemActor) ingestSingleRequest(msg *ws.WsMessage, req app.IngestRequest) {
+	req, duplicate := s.normalizeMarkPriceLiquidation(msg, req)
+	if duplicate {
+		metrics.IncWSMessageReceived(msg.Exchange, req.EventType)
+		metrics.ObserveIngest(msg.Exchange, req.Instrument, req.EventType, "duplicate", 0)
+		s.telemetry.recordSkip(msg.Exchange, req.EventType, "duplicate_normalized", string(problem.Duplicate), req.Instrument, req.Metadata["ws_stream"])
+		return
+	}
+
+	startedAt := time.Now()
+	res := s.cfg.Service.Ingest.Execute(context.Background(), req)
+	metrics.IngestStreamsActive.Set(float64(s.cfg.Service.Ingest.ActiveStreams()))
+	if res.IsFail() {
+		p := res.Problem()
+		status := "failed"
+		switch p.Code {
+		case problem.Duplicate:
+			status = "duplicate"
+		case problem.OutOfOrder:
+			status = "out_of_order"
+		case problem.ValidationFailed, problem.InvalidArgument:
+			status = "validation_failed"
+		}
+		metrics.IncWSMessageReceived(msg.Exchange, req.EventType)
+		metrics.ObserveIngest(msg.Exchange, req.Instrument, req.EventType, status, time.Since(startedAt))
+		return
+	}
+
+	metrics.IncWSMessageReceived(msg.Exchange, req.EventType)
+	metrics.ObserveIngest(msg.Exchange, req.Instrument, req.EventType, "ok", time.Since(startedAt))
+	s.telemetry.recordIngest(req.EventType, req.Instrument, req.Metadata["ws_stream"])
+	if s.engine != nil && s.selfPID != nil {
+		s.engine.Send(s.selfPID, publishTick{At: time.Now()})
+	}
 }
 
 func (s *SubsystemActor) normalizeMarkPriceLiquidation(msg *ws.WsMessage, req app.IngestRequest) (app.IngestRequest, bool) {

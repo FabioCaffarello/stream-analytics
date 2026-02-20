@@ -80,6 +80,73 @@ func TestConverterCompleteness_StatsWindowClosedV1_NilInput(t *testing.T) {
 	}
 }
 
+func TestConverterCompleteness_SnapshotV1(t *testing.T) {
+	t.Parallel()
+
+	in := &aggregationv1.OrderBookSnapshotV1{
+		Venue:      "binance",
+		Instrument: "BTC-USDT",
+		Seq:        42,
+		Bids: []*aggregationv1.OrderBookLevelV1{
+			{Price: 65000.5, Quantity: 1.25},
+			{Price: 64999.0, Quantity: 3.5},
+		},
+		Asks: []*aggregationv1.OrderBookLevelV1{
+			{Price: 65001.0, Quantity: 0.75},
+			{Price: 65002.5, Quantity: 2.0},
+		},
+	}
+
+	wireDTO := ProtoToWireDTOSnapshotV1(in)
+	roundtrip := WireDTOToProtoSnapshotV1(wireDTO)
+	assertAggregationProtoEqual(t, in, roundtrip)
+}
+
+func TestConverterCompleteness_SnapshotV1_NilInput(t *testing.T) {
+	t.Parallel()
+	wireDTO := ProtoToWireDTOSnapshotV1(nil)
+	if wireDTO.Venue != "" || wireDTO.Seq != 0 || len(wireDTO.Bids) != 0 {
+		t.Fatal("expected zero value from nil proto input")
+	}
+}
+
+func TestConverterCompleteness_SnapshotV1_EmptyLevels(t *testing.T) {
+	t.Parallel()
+
+	in := &aggregationv1.OrderBookSnapshotV1{
+		Venue:      "bybit",
+		Instrument: "ETH-USDT",
+		Seq:        1,
+	}
+
+	wireDTO := ProtoToWireDTOSnapshotV1(in)
+	roundtrip := WireDTOToProtoSnapshotV1(wireDTO)
+	assertAggregationProtoEqual(t, in, roundtrip)
+}
+
+func TestConverterCompleteness_InconsistencyV1(t *testing.T) {
+	t.Parallel()
+
+	in := &aggregationv1.OrderBookInconsistencyV1{
+		Venue:      "binance",
+		Instrument: "BTC-USDT",
+		Seq:        99,
+		Reason:     "crossed_book",
+	}
+
+	wireDTO := ProtoToWireDTOInconsistencyV1(in)
+	roundtrip := WireDTOToProtoInconsistencyV1(wireDTO)
+	assertAggregationProtoEqual(t, in, roundtrip)
+}
+
+func TestConverterCompleteness_InconsistencyV1_NilInput(t *testing.T) {
+	t.Parallel()
+	wireDTO := ProtoToWireDTOInconsistencyV1(nil)
+	if wireDTO.Venue != "" || wireDTO.Reason != "" {
+		t.Fatal("expected zero value from nil proto input")
+	}
+}
+
 func assertAggregationProtoEqual(t *testing.T, want, got proto.Message) {
 	t.Helper()
 	if proto.Equal(want, got) {

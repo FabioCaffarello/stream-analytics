@@ -1,8 +1,8 @@
 # Heatmap Architecture (Derivation + Persistence)
 
-**Status:** Draft
+**Status:** Active
 **Owner:** Product Architect
-**Last updated:** 2026-02-18
+**Last updated:** 2026-02-19
 **Relates to:** `docs/adrs/ADR-0002-event-envelope-and-versioning.md`, `docs/adrs/ADR-0006-storage-hot-vs-cold.md`, `docs/adrs/ADR-0013-backpressure-overload-policies.md`, `docs/adrs/ADR-0014-stream-partitioning-strategy.md`, `docs/adrs/ADR-0015-deterministic-replay-time-invariants.md`
 
 ## Purpose
@@ -27,9 +27,9 @@ Define liquidity/activity heatmap modeling by price-time buckets with determinis
 
 ### Outputs
 
-- Planned derived event: `insights.heatmap_snapshot.v1.{venue}.{instrument}`
+- Derived event: `insights.heatmap_snapshot.v1.{venue}.{instrument}`
 - Planned derived event: `insights.heatmap_delta.v1.{venue}.{instrument}`
-- Planned WS stream: `insights.heatmap/{venue}/{symbol}/{timeframe}`
+- WS stream: `insights.heatmap_snapshot/{venue}/{symbol}/{timeframe}`
 
 ### Storage
 
@@ -82,8 +82,8 @@ WS payload budget rules:
 | Deterministic replay foundation (`ts_ingest`, `seq`) | Existing | `internal/shared/replay/player.go`, `internal/shared/replay/sequencer.go` | `internal/shared/replay/golden_test.go:TestGoldenReplay` |
 | Bounded state/backpressure primitives | Existing | `internal/shared/ds/boundedmap.go`, `internal/actors/marketdata/runtime/backpressure_queue.go` | `internal/actors/marketdata/runtime/subsystem_test.go:TestSubsystem_WsMessage_nilParseFn_dropsMessage` |
 | Heatmap domain model and builder use case | Existing | `internal/core/insights/domain/heatmap_bucket.go`, `internal/core/insights/app/build_heatmap.go` | `internal/core/insights/app/build_heatmap_test.go` |
-| Heatmap hot/cold writers | TODO | `internal/adapters/storage/timescale/heatmap_writer.go` (TODO), `internal/adapters/storage/clickhouse/heatmap_writer.go` (TODO) | `internal/adapters/storage/heatmap_writer_test.go` (TODO) |
-| Heatmap WS delivery contract | TODO | `internal/interfaces/ws/heatmap_delivery.go` (TODO) | `internal/interfaces/ws/heatmap_delivery_test.go` (TODO) |
+| Heatmap hot/cold writers | Existing | `internal/adapters/storage/timescale/heatmap_writer.go`, `internal/adapters/storage/clickhouse/heatmap_writer.go`, `sql/clickhouse/migrations/0006_m8_heatmap_cold.sql` | `internal/adapters/storage/heatmap_writer_test.go`, `internal/adapters/storage/clickhouse/heatmap_writer_test.go` |
+| Heatmap WS delivery contract | Existing | `internal/core/delivery/domain/envelope_policy.go`, `internal/actors/delivery/runtime/router.go` | `internal/interfaces/ws/heatmap_delivery_contract_test.go` |
 
 ## Storage Strategy
 
@@ -121,12 +121,12 @@ Existing tests used as invariants baseline:
 - `internal/actors/marketdata/runtime/subsystem_test.go:TestSubsystem_WsMessage_nilParseFn_dropsMessage`
 
 Tests to create for heatmap feature parity:
-- `internal/core/insights/app/build_heatmap_test.go:TestHeatmapBucketizationDeterministic` (TODO)
-- `internal/core/insights/app/build_heatmap_test.go:TestHeatmapPayloadBudgetHardCap` (TODO)
-- `internal/core/insights/app/build_heatmap_test.go:TestHeatmapReplayGoldenMatrixHash` (TODO)
-- `internal/core/insights/app/build_heatmap_test.go:TestHeatmapBackpressureDegradesResolution` (TODO)
-- `internal/adapters/storage/heatmap_writer_test.go:TestHeatmapStorageHotColdIdempotent` (TODO)
-- `internal/interfaces/ws/heatmap_delivery_test.go:TestHeatmapSlowClientKeepLatestPolicy` (TODO)
+- `internal/core/insights/app/build_heatmap_test.go:TestHeatmapBucketizationDeterministic`
+- `internal/core/insights/app/build_heatmap_test.go:TestHeatmapPayloadBudgetHardCap`
+- `internal/core/insights/app/build_heatmap_test.go:TestHeatmapReplayGoldenMatrixHash`
+- `internal/adapters/storage/heatmap_writer_test.go:TestHeatmapStorageHotColdIdempotent`
+- `internal/adapters/storage/clickhouse/heatmap_writer_test.go:TestChHeatmapWriter_Save_Success`
+- `internal/interfaces/ws/heatmap_delivery_contract_test.go:TestWSDelivery_HeatmapSnapshot_RoutedToSubscriber`
 
 ## Evidence Hooks
 
@@ -142,9 +142,9 @@ Existing hooks:
 - `internal/core/insights/app/service.go` (Existing — InsightsService facade)
 
 TODO hooks (skeleton):
-- `internal/adapters/storage/timescale/heatmap_writer.go` (TODO)
-- `internal/adapters/storage/clickhouse/heatmap_writer.go` (TODO)
-- `internal/interfaces/ws/heatmap_delivery_test.go` (TODO)
+- `internal/adapters/storage/timescale/heatmap_writer.go`
+- `internal/adapters/storage/clickhouse/heatmap_writer.go`
+- `internal/interfaces/ws/heatmap_delivery_contract_test.go`
 
 ## Failure Modes
 

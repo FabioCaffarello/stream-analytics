@@ -145,7 +145,7 @@ func TestVPVROverloadPolicy_BurstDeterministic(t *testing.T) {
 				hashes = append(hashes, "d:"+sharedhash.HashBytes(raw))
 			}
 		}
-		return sharedhash.HashFields(hashes...)
+		return sharedhash.HashFieldsFast(hashes...)
 	}
 
 	h1 := run()

@@ -2,11 +2,10 @@ package clickhouse
 
 import (
 	"context"
-	"strconv"
 
+	adapterstorage "github.com/market-raccoon/internal/adapters/storage"
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
 	aggports "github.com/market-raccoon/internal/core/aggregation/ports"
-	sharedhash "github.com/market-raccoon/internal/shared/hash"
 	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/problem"
 )
@@ -54,13 +53,6 @@ INSERT INTO aggregation_candle_cold (
     idempotency_key
 )`
 
-	idempotencyKey := sharedhash.HashFields(
-		c.Venue,
-		c.Instrument,
-		c.Timeframe,
-		strconv.FormatInt(c.WindowStartTs, 10),
-	)
-
 	batch, p := w.preparer.PrepareInsert(ctx, insertSQL)
 	if p != nil {
 		return problem.Wrap(p, problem.Unavailable, "clickhouse candle prepare batch failed")
@@ -68,26 +60,11 @@ INSERT INTO aggregation_candle_cold (
 	defer func() {
 		_ = batch.Close()
 	}()
-
-	if p := batch.AppendRow(
-		ctx,
-		c.Venue,
-		c.Instrument,
-		c.Timeframe,
-		c.WindowStartTs,
-		c.WindowEndTs,
-		c.Open,
-		c.High,
-		c.Low,
-		c.ClosePrice,
-		c.Volume,
-		c.BuyVolume,
-		c.SellVolume,
-		c.TradeCount,
-		c.SeqFirst,
-		c.SeqLast,
-		idempotencyKey,
-	); p != nil {
+	args, _, p := adapterstorage.MarshalCandle(ctx, c)
+	if p != nil {
+		return problem.Wrap(p, problem.Unavailable, "clickhouse candle marshal failed")
+	}
+	if p := batch.AppendRow(ctx, args...); p != nil {
 		return problem.Wrap(p, problem.Unavailable, "clickhouse candle append failed")
 	}
 	if _, p := batch.Flush(ctx); p != nil {

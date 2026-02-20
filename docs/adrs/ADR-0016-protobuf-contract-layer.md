@@ -13,7 +13,7 @@
 
 ## Contexto
 
-O runtime em producao ainda opera com JSON como caminho padrao de payload, mas a camada de contratos protobuf ja foi parcialmente entregue (W6-1): schemas versionados, geracao de codigo e gates de compatibilidade.
+O runtime em producao opera com protobuf como caminho padrao de payload (`bus.wire_format=proto` e `marketdata.publish_content_type=application/protobuf`), com fallback/compatibilidade JSON ainda suportado. A camada de contratos protobuf foi entregue por etapas (W6-1+): schemas versionados, geracao de codigo e gates de compatibilidade.
 
 O drift identificado no W11 e de governanca: o texto misturava "fundacao entregue" com "migracao runtime completa", sem separar claramente o que e verdade hoje vs o que permanece planejado.
 
@@ -61,8 +61,8 @@ O drift identificado no W11 e de governanca: o texto misturava "fundacao entregu
 8. `package` e `go_package` sao estaveis por versao major.
 9. `type` + `version` em `proto/registry.json` sao autoridade canonica.
 10. Conversores `Domain<->Proto` devem preservar equivalencia semantica.
-11. `content_type=application/protobuf` continua opt-in.
-12. Caminho `application/json` permanece comportamento default.
+11. `content_type=application/protobuf` e o caminho operacional default.
+12. Caminho `application/json` permanece suportado para compatibilidade/fallback.
 13. Decoder deve rejeitar `content_type` desconhecido explicitamente.
 14. Unknown event type em proto deve falhar com erro de validacao.
 15. Unknown event type em json segue fallback policy configurada.
@@ -101,8 +101,8 @@ O drift identificado no W11 e de governanca: o texto misturava "fundacao entregu
 - `internal/shared/envelope/envelope_test.go:96`
 
 - Domain boundary guard:
-- `scripts/check-domain-isolation.sh:13`
-- `scripts/check-domain-isolation.sh:49`
+- `scripts/ci/guards/check-domain-isolation.sh:13`
+- `scripts/ci/guards/check-domain-isolation.sh:49`
 
 ## Changelog
 

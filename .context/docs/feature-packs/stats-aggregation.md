@@ -1,42 +1,48 @@
 # Feature Pack: Stats Aggregation
 
-**STATUS:** PLANNED | **last_reviewed:** 2026-02-18
+**STATUS:** IMPLEMENTED | **last_reviewed:** 2026-02-19
 
 ## Purpose
-- Per-timeframe stats combining liquidation volume, funding rate, and mark price; authority: [stats-aggregation](../../../docs/architecture/stats-aggregation.md), [event-bus](../../../docs/contracts/event-bus.md), [ADR-0017](../../../docs/adrs/ADR-0017-multi-exchange-normalization.md).
+- Per-timeframe stats combining liquidation volume, funding rate, and mark price.
+- Authority docs: [stats-aggregation](../../../docs/architecture/stats-aggregation.md), [event-bus](../../../docs/contracts/event-bus.md), [ADR-0015](../../../docs/adrs/ADR-0015-deterministic-replay-time-invariants.md).
 
 ## Inputs/Outputs
-- Inputs: `marketdata.liquidation.v1.{venue}.{instrument}`, `marketdata.markprice.v1.{venue}.{instrument}`, `marketdata.fundingrate.v1.{venue}.{instrument}` (planned, not in event-bus.md matrix).
+- Inputs: `marketdata.liquidation.v1.{venue}.{instrument}`, `marketdata.markprice.v1.{venue}.{instrument}`.
+- Optional direct input path (deferred as standalone): `marketdata.fundingrate.v1.{venue}.{instrument}` (planned, not in event-bus.md matrix).
 - Outputs: `aggregation.stats.v1.{venue}.{instrument}`.
-- Planned WS: `aggregation.stats/{venue}/{symbol}/{timeframe}` ([delivery-ws](../../../docs/contracts/delivery-ws.md)).
-- Subject refs: [ADR-0014](../../../docs/adrs/ADR-0014-stream-partitioning-strategy.md).
+- WS stream: `aggregation.stats/{venue}/{symbol}/{timeframe}` ([delivery-ws](../../../docs/contracts/delivery-ws.md)).
 
 ## Invariants
-- Non-negative additive volumes ([stats-aggregation](../../../docs/architecture/stats-aggregation.md) ST-1).
-- Closed window immutable after commit (ST-2).
-- Deterministic for same input sequence ([ADR-0015](../../../docs/adrs/ADR-0015-deterministic-replay-time-invariants.md) ST-3).
-- Replay of same fixture yields identical stats (ST-4).
-- Bounded open window state per (venue, instrument) — max one open window per timeframe (ST-5).
-- Missing input type produces partial stats, not failure (ST-6).
+- Non-negative additive liquidation volumes.
+- Closed window is immutable.
+- Deterministic output for identical input sequence.
+- Replay of same fixture yields equivalent closed windows.
+- Bounded open-window state by `(venue, instrument, timeframe)`.
+- Missing input type yields partial stats instead of failure.
 
 ## Backpressure
-- Bounded queue per instrument ([ADR-0013](../../../docs/adrs/ADR-0013-backpressure-overload-policies.md)).
-- Degrade: reduce update cadence -> prioritize close -> drop intermediate updates.
+- Bounded in-memory stats windows (`max_windows`).
+- Overload strategy preserves close events over intermediate updates.
 
 ## Replay
 - Deterministic replay authority: [ADR-0015](../../../docs/adrs/ADR-0015-deterministic-replay-time-invariants.md).
 - Golden baseline: [RFC-0009](../../../docs/rfcs/RFC-0009-W8-deterministic-replay-golden-tests.md).
 
 ## Evidence Hooks
-- `internal/adapters/jetstream/subject_validation.go:24` (ValidateSubjectTaxonomy — input subject gate)
-- `internal/core/marketdata/app/ingest.go:1` (liquidation/markprice ingestion — Existing)
-- TODO: `internal/core/aggregation/domain/stats.go` (stats aggregate model)
-- TODO: `internal/core/aggregation/app/build_stats.go` (builder usecase)
+- `internal/core/aggregation/domain/stats.go`
+- `internal/core/aggregation/app/build_stats.go`
+- `internal/adapters/storage/timescale/stats_writer.go`
+- `internal/adapters/storage/clickhouse/stats_writer.go`
+- `internal/actors/aggregation/runtime/processor.go`
+- `internal/interfaces/ws/candle_stats_delivery_contract_test.go`
+- `internal/core/aggregation/app/bench_e2e_pipeline_test.go`
 
 ## Acceptance Tests
-- `TestValidateSubjectTaxonomy_Valid` -> `internal/adapters/jetstream/subject_validation_test.go:5`
-- `TestGoldenReplay` -> `internal/shared/replay/golden_test.go:18`
-- TODO: `TestStatsDeterministicFromSameInputSequence` -> `internal/core/aggregation/app/build_stats_test.go`
-- TODO: `TestStatsClosedWindowImmutability` -> `internal/core/aggregation/app/build_stats_test.go`
-- TODO: `TestStatsPartialInputsProducePartialStats` -> `internal/core/aggregation/app/build_stats_test.go`
-- TODO: `TestStatsReplayGoldenValues` -> `internal/core/aggregation/app/build_stats_test.go`
+- `internal/core/aggregation/domain/stats_test.go:TestStatsWindowV1_ApplyLiquidation_ST1NonNegativeAdditive`
+- `internal/core/aggregation/domain/stats_test.go:TestStatsWindowV1_Close_Immutability`
+- `internal/core/aggregation/domain/stats_test.go:TestStatsWindowV1_PartialInputsAllowed_ST6`
+- `internal/core/aggregation/app/build_stats_test.go:TestBuildStats_MixedInputs_CloseAllTimeframes_CrossSourceConsistency`
+- `internal/core/aggregation/app/build_stats_test.go:TestBuildStats_Deterministic_SameInputSameOutput`
+- `internal/core/aggregation/app/build_stats_golden_test.go:TestBuildStats_GoldenDeterminism_MixedInputs`
+- `internal/actors/aggregation/runtime/processor_e2e_test.go:TestProcessorE2E_MarkPriceWithFunding_DualRouting`
+- `internal/interfaces/ws/candle_stats_delivery_contract_test.go:TestWSDelivery_StatsClosed_RoutedToSubscriber`

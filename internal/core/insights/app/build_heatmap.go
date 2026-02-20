@@ -2,10 +2,8 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"math"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -69,7 +67,7 @@ type windowState struct {
 	windowStartMs int64
 	windowEndMs   int64
 	priceMult     int64
-	cells         map[string]*heatmapCellState
+	cells         map[int64]*heatmapCellState
 }
 
 type heatmapCellState struct {
@@ -123,7 +121,7 @@ func (uc *BuildHeatmap) Snapshot(venue, instrument, timeframe string) (domain.He
 
 	key := naming.CanonicalVenue(venue) + "|" +
 		naming.CanonicalInstrument(instrument) + "|" +
-		strings.ToLower(strings.TrimSpace(timeframe))
+		naming.NormalizeTimeframe(timeframe)
 	ps, ok := uc.states[key]
 	if !ok || len(ps.order) == 0 {
 		return domain.HeatmapArtifactV1{}, problem.Newf(problem.NotFound, "heatmap snapshot not found for %s/%s/%s", venue, instrument, timeframe)
@@ -170,9 +168,8 @@ func (uc *BuildHeatmap) Execute(_ context.Context, req BuildHeatmapRequest) resu
 	if p := trimmed.Validate(); p != nil {
 		return result.FailProblem[BuildHeatmapResponse](p)
 	}
-	payload, _ := json.Marshal(trimmed)
 	metrics.SetHeatmapCells(trimmed.Venue, trimmed.Instrument, trimmed.Timeframe, len(trimmed.Cells))
-	metrics.ObserveHeatmapPayloadBytes(trimmed.Venue, trimmed.Instrument, trimmed.Timeframe, len(payload))
+	metrics.ObserveHeatmapPayloadBytes(trimmed.Venue, trimmed.Instrument, trimmed.Timeframe, estimateHeatmapPayloadSize(len(trimmed.Cells)))
 	metrics.SetHeatmapQueueDepth(trimmed.Venue, trimmed.Instrument, len(ws.cells))
 	metrics.ObserveHeatmapBuildLatency(trimmed.Venue, trimmed.Instrument, trimmed.Timeframe, 0)
 
@@ -190,16 +187,16 @@ func HeatmapArtifactIdempotencyKey(a domain.HeatmapArtifactV1) string {
 		return ""
 	}
 	last := a.Cells[len(a.Cells)-1]
-	return hash.HashFields(
-		naming.CanonicalVenue(a.Venue),
-		naming.CanonicalInstrument(a.Instrument),
-		strings.ToLower(strings.TrimSpace(a.Timeframe)),
-		strconv.FormatInt(a.WindowStartTs, 10),
-		formatFloat(last.PriceBucketLow),
-		formatFloat(last.PriceBucketHigh),
-		strings.ToUpper(strings.TrimSpace(last.SizeBucket)),
-		strconv.FormatInt(last.SeqMax, 10),
-	)
+	return hash.NewFieldHasher().
+		String(naming.CanonicalVenue(a.Venue)).
+		String(naming.CanonicalInstrument(a.Instrument)).
+		String(naming.NormalizeTimeframe(a.Timeframe)).
+		Int64(a.WindowStartTs).
+		Float64(last.PriceBucketLow).
+		Float64(last.PriceBucketHigh).
+		String(strings.ToUpper(strings.TrimSpace(last.SizeBucket))).
+		Int64(last.SeqMax).
+		Hex()
 }
 
 func (uc *BuildHeatmap) getPartition(key string) *partitionState {
@@ -225,7 +222,7 @@ func (uc *BuildHeatmap) getWindow(ps *partitionState, start, end int64) *windowS
 		windowStartMs: start,
 		windowEndMs:   end,
 		priceMult:     1,
-		cells:         make(map[string]*heatmapCellState),
+		cells:         make(map[int64]*heatmapCellState),
 	}
 	ps.windows[start] = ws
 	ps.order = append(ps.order, start)
@@ -284,7 +281,7 @@ func (uc *BuildHeatmap) coarsen(ws *windowState, tickSize float64) bool {
 		return false
 	}
 	ws.priceMult *= 2
-	next := make(map[string]*heatmapCellState, len(ws.cells))
+	next := make(map[int64]*heatmapCellState, len(ws.cells))
 	for _, c := range ws.cells {
 		priceIdx := bucketIndex(c.priceMid, tickSize, ws.priceMult)
 		low, high := priceBounds(priceIdx, tickSize, ws.priceMult)
@@ -316,24 +313,34 @@ func (uc *BuildHeatmap) coarsen(ws *windowState, tickSize float64) bool {
 	return true
 }
 
+// estimateHeatmapPayloadSize returns a rough byte count for the serialized
+// JSON artifact.  Uses O(1) arithmetic instead of json.Marshal to avoid
+// hot-path allocations.  Constants are intentionally conservative (over-
+// estimate) so that the budget is never exceeded.
+//
+// Each HeatmapCellV1 JSON object ≈ 280 bytes (9 key/value pairs including
+// float64 numbers up to ~15 chars, two int64 fields, one short string).
+// Artifact envelope (venue, instrument, timeframe, window bounds, cells array
+// wrapper) ≈ 200 bytes.
+func estimateHeatmapPayloadSize(cellCount int) int {
+	const (
+		overheadBytes = 200 // artifact envelope fields + JSON structure
+		cellBytes     = 280 // conservative upper bound per cell
+	)
+	return overheadBytes + cellCount*cellBytes
+}
+
 func (uc *BuildHeatmap) trimToPayloadBudget(a domain.HeatmapArtifactV1) domain.HeatmapArtifactV1 {
 	out := a
 	if len(out.Cells) == 0 {
 		return out
 	}
-	for len(out.Cells) > 1 {
-		raw, _ := json.Marshal(out)
-		if len(raw) <= uc.cfg.MaxPayloadBytes {
-			return out
-		}
-		limit := len(out.Cells) * 9 / 10
-		if limit == len(out.Cells) {
-			limit--
-		}
-		if limit < 1 {
-			limit = 1
-		}
-		out.Cells = pickTopNCells(out.Cells, limit)
+	maxCells := (uc.cfg.MaxPayloadBytes - 200) / 280
+	if maxCells < 1 {
+		maxCells = 1
+	}
+	if len(out.Cells) > maxCells {
+		out.Cells = pickTopNCells(out.Cells, maxCells)
 	}
 	return out
 }
@@ -357,7 +364,7 @@ func toArtifact(req BuildHeatmapRequest, ws *windowState) domain.HeatmapArtifact
 	return domain.HeatmapArtifactV1{
 		Venue:         naming.CanonicalVenue(req.Venue),
 		Instrument:    naming.CanonicalInstrument(req.Instrument),
-		Timeframe:     strings.ToLower(strings.TrimSpace(req.Timeframe)),
+		Timeframe:     naming.NormalizeTimeframe(req.Timeframe),
 		WindowStartTs: ws.windowStartMs,
 		WindowEndTs:   ws.windowEndMs,
 		Cells:         cells,
@@ -406,7 +413,7 @@ func validateHeatmapRequest(req BuildHeatmapRequest) *problem.Problem {
 func partitionKey(req BuildHeatmapRequest) string {
 	return naming.CanonicalVenue(req.Venue) + "|" +
 		naming.CanonicalInstrument(req.Instrument) + "|" +
-		strings.ToLower(strings.TrimSpace(req.Timeframe))
+		naming.NormalizeTimeframe(req.Timeframe)
 }
 
 func bucketIndex(price, tick float64, mult int64) int64 {
@@ -421,8 +428,25 @@ func priceBounds(bucketIdx int64, tick float64, mult int64) (float64, float64) {
 	return low, high
 }
 
-func makeCellKey(priceIdx int64, sizeBucket string) string {
-	return strconv.FormatInt(priceIdx, 10) + "|" + strings.ToUpper(strings.TrimSpace(sizeBucket))
+func makeCellKey(priceIdx int64, sizeBucket string) int64 {
+	return priceIdx<<4 | int64(sizeToOrdinal(sizeBucket))
+}
+
+func sizeToOrdinal(s string) int {
+	switch s {
+	case "XS":
+		return 0
+	case "S":
+		return 1
+	case "M":
+		return 2
+	case "L":
+		return 3
+	case "XL":
+		return 4
+	default:
+		return 5
+	}
 }
 
 func toSizeBucket(size float64) string {
@@ -441,8 +465,8 @@ func toSizeBucket(size float64) string {
 }
 
 func applyEventVolume(c *heatmapCellState, req BuildHeatmapRequest) {
-	eventType := strings.ToLower(strings.TrimSpace(req.EventType))
-	side := strings.ToLower(strings.TrimSpace(req.Side))
+	eventType := naming.NormalizeEventType(req.EventType)
+	side := naming.NormalizeSide(req.Side)
 	switch eventType {
 	case "marketdata.bookdelta":
 		if side == "buy" {
@@ -455,9 +479,9 @@ func applyEventVolume(c *heatmapCellState, req BuildHeatmapRequest) {
 	}
 }
 
-func keepTopCells(cells map[string]*heatmapCellState, n int) map[string]*heatmapCellState {
+func keepTopCells(cells map[int64]*heatmapCellState, n int) map[int64]*heatmapCellState {
 	type row struct {
-		key  string
+		key  int64
 		cell *heatmapCellState
 	}
 	list := make([]row, 0, len(cells))
@@ -490,7 +514,7 @@ func keepTopCells(cells map[string]*heatmapCellState, n int) map[string]*heatmap
 	if n > len(list) {
 		n = len(list)
 	}
-	out := make(map[string]*heatmapCellState, n)
+	out := make(map[int64]*heatmapCellState, n)
 	for _, r := range list[:n] {
 		out[r.key] = r.cell
 	}
@@ -519,7 +543,7 @@ func pickTopNCells(cells []domain.HeatmapCellV1, n int) []domain.HeatmapCellV1 {
 }
 
 func timeframeToWindowMs(tf string) int64 {
-	tf = strings.ToLower(strings.TrimSpace(tf))
+	tf = naming.NormalizeTimeframe(tf)
 	switch tf {
 	case "1s":
 		return int64(time.Second / time.Millisecond)
@@ -544,8 +568,4 @@ func (uc *BuildHeatmap) priceBucketCount(ws *windowState) int {
 		seen[c.low] = struct{}{}
 	}
 	return len(seen)
-}
-
-func formatFloat(v float64) string {
-	return strconv.FormatFloat(v, 'f', -1, 64)
 }

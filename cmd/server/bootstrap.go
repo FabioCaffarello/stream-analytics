@@ -7,12 +7,14 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/anthdm/hollywood/actor"
 	deliveryruntime "github.com/market-raccoon/internal/actors/delivery/runtime"
 	actorruntime "github.com/market-raccoon/internal/actors/runtime"
 	"github.com/market-raccoon/internal/adapters/bus"
+	"github.com/market-raccoon/internal/adapters/storage/clickhouse"
 	"github.com/market-raccoon/internal/adapters/storage/timescale"
 	deliverydomain "github.com/market-raccoon/internal/core/delivery/domain"
 	"github.com/market-raccoon/internal/core/delivery/ports"
@@ -20,6 +22,7 @@ import (
 	wsserver "github.com/market-raccoon/internal/interfaces/ws"
 	"github.com/market-raccoon/internal/shared/bootstrap"
 	"github.com/market-raccoon/internal/shared/config"
+	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/metrics"
 )
@@ -28,9 +31,10 @@ import (
 // the actor engine, HTTP server, and blocks until a signal or fatal error.
 //
 //nolint:gocyclo // composition root intentionally wires many runtime branches.
-func Run(ctx context.Context, cfg config.AppConfig) error {
+func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 	logger := bootstrap.BuildLogger(cfg.Log)
 	slog.SetDefault(logger)
+	contracts.SetProtoRolloutConfig(cfg.ProtoRollout.EventTypeFlags())
 	logger.Info("server starting", "addr", cfg.HTTP.Addr)
 	var tsPool *timescale.Pool
 	timescale.SetStubMode(timescale.AdapterModeStubMemory)
@@ -58,6 +62,37 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		defer tsPool.Close()
 		timescale.SetProductionReady(timescale.AdapterModePGX)
 		logger.Info("server: using Timescale pgx pool")
+	}
+
+	// ── ClickHouse cold readers ──────────────────────────────────────────
+	var coldOpt httpserver.Option
+	if cfg.Storage.ClickHouse.Enabled {
+		chPool, chP := clickhouse.NewPool(ctx, clickhouse.PoolConfig{
+			Addrs:           cfg.Storage.ClickHouse.Addrs,
+			Database:        cfg.Storage.ClickHouse.Database,
+			Username:        cfg.Storage.ClickHouse.Username,
+			Password:        cfg.Storage.ClickHouse.Password,
+			MaxOpenConns:    cfg.Storage.ClickHouse.MaxOpenConns,
+			MaxIdleConns:    cfg.Storage.ClickHouse.MaxIdleConns,
+			ConnMaxLifetime: cfg.Storage.ClickHouse.ConnMaxLifetimeDuration(),
+			DialTimeout:     cfg.Storage.ClickHouse.DialTimeoutDuration(),
+			ReadTimeout:     cfg.Storage.ClickHouse.ReadTimeoutDuration(),
+		})
+		if chP != nil {
+			logger.Warn("server: clickhouse pool init failed, cold reader APIs disabled", "err", chP)
+		} else {
+			defer func() {
+				if p := chPool.Close(); p != nil {
+					logger.Warn("server: clickhouse pool close failed", "err", p)
+				}
+			}()
+			coldOpt = httpserver.WithColdReaders(&httpserver.ColdReaders{
+				Candles:   clickhouse.NewChCandleReader(chPool),
+				Stats:     clickhouse.NewChStatsReader(chPool),
+				Snapshots: clickhouse.NewChSnapshotReader(chPool),
+			})
+			logger.Info("server: cold reader APIs enabled (ClickHouse)")
+		}
 	}
 	if !timescale.IsProductionReady() {
 		logger.Warn("server: timescale adapter running in non-production stub mode",
@@ -132,6 +167,8 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		cfg.HTTP.EnablePprof,
 		logger,
 		httpserver.WithTLS(cfg.HTTP.TLSCert, cfg.HTTP.TLSKey),
+		httpserver.WithReloadHook(protoRolloutReloadHook(configPath, logger)),
+		coldOpt,
 	)
 	if cfg.Delivery.Enabled {
 		enableWSRoute(e, srv, routerPIDCh, subsystemPIDCh, logger, rangeStore, cfg)
@@ -194,14 +231,14 @@ func enableWSRoute(
 		var subsystemPID *actor.PID
 		select {
 		case subsystemPID = <-subsystemPIDCh:
-		case <-time.After(500 * time.Millisecond):
+		case <-time.After(cfg.Delivery.SubsystemReadyTimeoutDuration()):
 		}
 		ws := wsserver.NewServer(
 			e,
 			routerPID,
 			logger,
 			rangeStore,
-			cfg.Delivery.MaxSessions,
+			cfg.Delivery.SessionOutboundQueueSize,
 			wsserver.WithAuthConfig(wsserver.AuthConfig{
 				Enabled: cfg.WS.Auth.Enabled,
 				APIKeys: cfg.WS.Auth.APIKeys,
@@ -211,7 +248,7 @@ func enableWSRoute(
 				if subsystemPID == nil {
 					return nil
 				}
-				resp := e.Request(subsystemPID, deliveryruntime.SpawnSession{Config: sessionCfg}, 2*time.Second)
+				resp := e.Request(subsystemPID, deliveryruntime.SpawnSession{Config: sessionCfg}, cfg.Delivery.SessionSpawnTimeoutDuration())
 				result, err := resp.Result()
 				if err != nil {
 					logger.Warn("delivery session spawn request failed", "err", err)
@@ -229,10 +266,12 @@ func enableWSRoute(
 				MaxPerSecond:  cfg.WS.RateLimit.MaxPerSecond,
 				BurstCapacity: cfg.WS.RateLimit.BurstCapacity,
 			}),
+			wsserver.WithSlowClientDropThreshold(cfg.Delivery.SlowClientDropThreshold),
+			wsserver.WithTranscodeCache(deliveryruntime.NewTranscodeCache(0)),
 		)
 		srv.HandleFunc("GET /ws", ws.HandleWS)
 		logger.Info("delivery websocket route enabled", "route", "GET /ws")
-	case <-time.After(2 * time.Second):
+	case <-time.After(cfg.Delivery.RouterReadyTimeoutDuration()):
 		logger.Warn("delivery router not ready in time; /ws route disabled")
 	}
 }
@@ -243,4 +282,23 @@ func buildServerFactories(deliveryEnabled bool, deliveryFactory actor.Producer) 
 		factories[actorruntime.SubsystemDelivery] = deliveryFactory
 	}
 	return factories
+}
+
+func protoRolloutReloadHook(configPath string, logger *slog.Logger) func() error {
+	configPath = strings.TrimSpace(configPath)
+	if configPath == "" {
+		return nil
+	}
+	return func() error {
+		cfg, prob := config.Load(configPath)
+		if prob != nil {
+			return fmt.Errorf("reload config load failed: %v", prob)
+		}
+		if prob := cfg.Validate(); prob != nil {
+			return fmt.Errorf("reload config validation failed: %v", prob)
+		}
+		contracts.SetProtoRolloutConfig(cfg.ProtoRollout.EventTypeFlags())
+		logger.Info("server: proto rollout flags reloaded", "config", configPath)
+		return nil
+	}
 }

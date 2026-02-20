@@ -8,6 +8,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -143,9 +144,10 @@ type envelopeSource struct {
 // envelope source, guardian, and blocks until a signal or error.
 //
 //nolint:gocyclo // composition root wires many runtime branches by design.
-func Run(ctx context.Context, cfg config.AppConfig) error {
+func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 	logger := bootstrap.BuildLogger(cfg.Log)
 	slog.SetDefault(logger)
+	contracts.SetProtoRolloutConfig(cfg.ProtoRollout.EventTypeFlags())
 	metrics.SetShardTopologyComplete(false)
 	metrics.SetShardLeaseAgeSeconds(0)
 
@@ -168,15 +170,10 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		leaseLostErr          error
 		leaseHeartbeatCancel  context.CancelFunc
 		leaseLostCh           = make(chan error, 1)
-		shardRegistryEnabled  = strings.EqualFold(strings.TrimSpace(os.Getenv("SHARD_REGISTRY_ENABLED")), "true")
-		shardRegistryStrict   = strings.EqualFold(strings.TrimSpace(os.Getenv("SHARD_REGISTRY_STRICT")), "true")
-		shardRegistryGraceDur = shardregistry.DefaultTopologyGrace
+		shardRegistryEnabled  = cfg.Shard.Registry.Enabled
+		shardRegistryStrict   = cfg.Shard.Registry.Strict
+		shardRegistryGraceDur = cfg.Shard.Registry.TopologyGraceDuration()
 	)
-	if rawGrace := strings.TrimSpace(os.Getenv("SHARD_REGISTRY_GRACE")); rawGrace != "" {
-		if parsed, err := time.ParseDuration(rawGrace); err == nil && parsed > 0 {
-			shardRegistryGraceDur = parsed
-		}
-	}
 	if shardRegistryEnabled {
 		logger.Info("processor: shard registry enabled",
 			"strict", shardRegistryStrict,
@@ -255,7 +252,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 			DedupWindow:    cfg.JetStream.DedupWindowDuration(),
 			MaxAge:         cfg.JetStream.MaxAgeDuration(),
 			MaxBytes:       cfg.JetStream.MaxBytesInt64(),
-			PublishTimeout: 5 * time.Second,
+			PublishTimeout: cfg.Processor.PublisherTimeoutDuration(),
 		}, metrics.NewBusObserver())
 		if p != nil {
 			return fmt.Errorf("jetstream publisher init failed: %v", p)
@@ -403,6 +400,8 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		Logger:                logger,
 		EnvelopeCh:            source.envelopeCh,
 		Service:               aggSvc,
+		CandleEnabled:         boolPtr(cfg.Processor.Candle.Enabled),
+		StatsEnabled:          boolPtr(cfg.Processor.Stats.Enabled),
 		Insights:              insightsSvc,
 		JoinTrades:            joinTrades,
 		PublishEnvelope:       publishEnvelope,
@@ -446,6 +445,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		cfg.HTTP.EnablePprof,
 		logger,
 		httpserver.WithTLS(cfg.HTTP.TLSCert, cfg.HTTP.TLSKey),
+		httpserver.WithReloadHook(protoRolloutReloadHook(configPath, logger)),
 	)
 
 	serverErr := make(chan error, 1)
@@ -704,10 +704,10 @@ func (m *envelopeResultMailbox) wait() <-chan struct{} {
 
 func processedEnvelopeKey(env envelope.Envelope) string {
 	return strings.ToLower(strings.TrimSpace(env.Type)) + "|" +
-		fmt.Sprintf("%d", env.Version) + "|" +
+		strconv.Itoa(env.Version) + "|" +
 		strings.ToLower(strings.TrimSpace(env.Venue)) + "|" +
 		strings.ToLower(strings.TrimSpace(env.Instrument)) + "|" +
-		fmt.Sprintf("%d", env.Seq) + "|" +
+		strconv.FormatInt(env.Seq, 10) + "|" +
 		strings.TrimSpace(env.IdempotencyKey)
 }
 
@@ -866,7 +866,7 @@ func initReplayEnvelopeSource(path string, capacity int, logger *slog.Logger) en
 		logger.Info("processor: replay fixture loaded",
 			"replay_path", path,
 			"records", count,
-			"sha256", sharedhash.HashFields(hashes...),
+			"fingerprint", sharedhash.HashFieldsFast(hashes...),
 		)
 		errCh <- nil
 	}()
@@ -952,6 +952,29 @@ func int32FromConfig(v int, field string) (int32, error) {
 	return int32(v), nil
 }
 
+func boolPtr(v bool) *bool {
+	return &v
+}
+
+func protoRolloutReloadHook(configPath string, logger *slog.Logger) func() error {
+	configPath = strings.TrimSpace(configPath)
+	if configPath == "" {
+		return nil
+	}
+	return func() error {
+		cfg, prob := config.Load(configPath)
+		if prob != nil {
+			return fmt.Errorf("reload config load failed: %v", prob)
+		}
+		if prob := cfg.Validate(); prob != nil {
+			return fmt.Errorf("reload config validation failed: %v", prob)
+		}
+		contracts.SetProtoRolloutConfig(cfg.ProtoRollout.EventTypeFlags())
+		logger.Info("processor: proto rollout flags reloaded", "config", configPath)
+		return nil
+	}
+}
+
 // ---------------------------------------------------------------------------
 // E2E join fixture injection
 // ---------------------------------------------------------------------------
@@ -987,7 +1010,7 @@ func maybeInjectJoinFixture(cfg config.AppConfig, e2e *e2eRuntime, pub aggruntim
 			TsExchange:     tsIngest - 10,
 			TsIngest:       tsIngest,
 			Seq:            seq,
-			IdempotencyKey: sharedhash.HashFields("e2e_join_fixture", venue, e2e.joinInstrument, side, tradeID),
+			IdempotencyKey: sharedhash.HashFieldsFast("e2e_join_fixture", venue, e2e.joinInstrument, side, tradeID),
 			ContentType:    envelope.ContentTypeJSON,
 			Meta: map[string]string{
 				"instrument_market_type": "SPOT",

@@ -3,9 +3,10 @@ package runtime
 import (
 	crand "crypto/rand"
 	"encoding/binary"
-	"fmt"
 	"math"
 	"time"
+
+	"github.com/market-raccoon/internal/shared/problem"
 )
 
 // Clock abstracts wall time for deterministic policy tests.
@@ -75,7 +76,7 @@ type restartState struct {
 }
 
 // NewSupervisorPolicy creates a policy with defaults suitable for runtime supervision.
-func NewSupervisorPolicy(cfg SupervisorConfig, clock Clock, rng RNG) (*SupervisorPolicy, error) {
+func NewSupervisorPolicy(cfg SupervisorConfig, clock Clock, rng RNG) (*SupervisorPolicy, *problem.Problem) {
 	if cfg.BaseBackoff <= 0 {
 		cfg.BaseBackoff = 250 * time.Millisecond
 	}
@@ -83,7 +84,7 @@ func NewSupervisorPolicy(cfg SupervisorConfig, clock Clock, rng RNG) (*Superviso
 		cfg.MaxBackoff = 5 * time.Second
 	}
 	if cfg.MaxBackoff < cfg.BaseBackoff {
-		return nil, fmt.Errorf("max backoff must be >= base backoff")
+		return nil, problem.New(problem.InvalidArgument, "max backoff must be >= base backoff")
 	}
 	if cfg.RestartWindow <= 0 {
 		cfg.RestartWindow = 30 * time.Second
@@ -95,7 +96,7 @@ func NewSupervisorPolicy(cfg SupervisorConfig, clock Clock, rng RNG) (*Superviso
 		cfg.Cooldown = 30 * time.Second
 	}
 	if cfg.Jitter < 0 || cfg.Jitter > 1 {
-		return nil, fmt.Errorf("jitter must be in [0,1]")
+		return nil, problem.New(problem.InvalidArgument, "jitter must be in [0,1]")
 	}
 
 	if clock == nil {
@@ -202,11 +203,18 @@ func cappedExponentialBackoff(base, capDelay time.Duration, attempt int) time.Du
 		attempt = 0
 	}
 	mult := math.Pow(2, float64(attempt))
-	raw := time.Duration(float64(base) * mult)
-	if raw > capDelay {
+	// Protect against astronomical attempt values that cause floating point
+	// overflow or result in values larger than int64 when converted to
+	// time.Duration. If the computed raw value is infinite or exceeds the cap,
+	// return capDelay.
+	if math.IsInf(mult, 0) {
 		return capDelay
 	}
-	return raw
+	rawFloat := float64(base) * mult
+	if math.IsInf(rawFloat, 0) || rawFloat <= 0 || rawFloat > float64(capDelay) {
+		return capDelay
+	}
+	return time.Duration(rawFloat)
 }
 
 func applyJitter(delay time.Duration, jitter float64, rng RNG) time.Duration {

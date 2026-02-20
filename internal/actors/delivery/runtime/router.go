@@ -7,6 +7,7 @@ import (
 	"github.com/anthdm/hollywood/actor"
 	"github.com/market-raccoon/internal/core/delivery/domain"
 	"github.com/market-raccoon/internal/shared/envelope"
+	"github.com/market-raccoon/internal/shared/metrics"
 )
 
 // RouterConfig configures the Delivery router actor.
@@ -30,6 +31,9 @@ type RouterActor struct {
 	sessionByPID    map[string]string
 	sessionSubjects map[string]map[domain.Subject]struct{}
 	subjectSessions map[domain.Subject]map[string]*actor.PID
+	// subjectPIDs is a pre-built slice cache for the hot fan-out path.
+	// Rebuilt from subjectSessions on subscribe/unsubscribe (cold path).
+	subjectPIDs map[domain.Subject][]*actor.PID
 
 	engine  *actor.Engine
 	selfPID *actor.PID
@@ -91,6 +95,9 @@ func (r *RouterActor) ensureDefaults(c *actor.Context) {
 	}
 	if r.subjectSessions == nil {
 		r.subjectSessions = make(map[domain.Subject]map[string]*actor.PID)
+	}
+	if r.subjectPIDs == nil {
+		r.subjectPIDs = make(map[domain.Subject][]*actor.PID)
 	}
 	if r.engine == nil && c != nil {
 		r.engine = c.Engine()
@@ -168,6 +175,8 @@ func (r *RouterActor) subscribe(msg SubscribeSession) {
 		r.subjectSessions[msg.Subject] = make(map[string]*actor.PID)
 	}
 	r.subjectSessions[msg.Subject][sessionID] = pid
+	r.rebuildSubjectPIDs(msg.Subject)
+	r.updateSubscriptionGauge()
 }
 
 func (r *RouterActor) unsubscribe(msg UnsubscribeSession) {
@@ -186,8 +195,38 @@ func (r *RouterActor) removeSessionFromSubject(sessionID string, subject domain.
 		delete(pids, sessionID)
 		if len(pids) == 0 {
 			delete(r.subjectSessions, subject)
+			delete(r.subjectPIDs, subject)
+		} else {
+			r.rebuildSubjectPIDs(subject)
 		}
 	}
+	r.updateSubscriptionGauge()
+}
+
+func (r *RouterActor) updateSubscriptionGauge() {
+	total := 0
+	for _, subs := range r.sessionSubjects {
+		total += len(subs)
+	}
+	metrics.SetDeliveryRouterSubscriptionsActive(total)
+}
+
+// rebuildSubjectPIDs rebuilds the fan-out slice cache for a subject
+// from the canonical subjectSessions map. Called on subscribe/unsubscribe
+// (cold path) to keep the hot-path slice current.
+func (r *RouterActor) rebuildSubjectPIDs(subject domain.Subject) {
+	inner, ok := r.subjectSessions[subject]
+	if !ok || len(inner) == 0 {
+		delete(r.subjectPIDs, subject)
+		return
+	}
+	pids := make([]*actor.PID, 0, len(inner))
+	for _, pid := range inner {
+		if pid != nil {
+			pids = append(pids, pid)
+		}
+	}
+	r.subjectPIDs[subject] = pids
 }
 
 func (r *RouterActor) handleEnvelope(env envelope.Envelope) {
@@ -195,6 +234,7 @@ func (r *RouterActor) handleEnvelope(env envelope.Envelope) {
 		return
 	}
 	if p := domain.ValidateEnvelopeForDelivery(env); p != nil {
+		metrics.IncDeliveryRouterEventsRejected("contract_policy")
 		r.logger.Warn("delivery router: envelope rejected by contract policy", "err", p)
 		return
 	}
@@ -202,21 +242,25 @@ func (r *RouterActor) handleEnvelope(env envelope.Envelope) {
 		r.cfg.EnvelopeStore.StoreEnvelope(env)
 	}
 	timeframe := r.cfg.Timeframe
+	if tf, ok := env.Meta["timeframe"]; ok && tf != "" {
+		timeframe = tf
+	}
 	if timeframe == "" {
 		timeframe = domain.DefaultTimeframe
 	}
 	subject, p := domain.SubjectFromEnvelope(env, timeframe)
 	if p != nil {
+		metrics.IncDeliveryRouterEventsRejected("invalid_subject")
 		r.logger.Warn("delivery router: invalid envelope subject", "err", p)
 		return
 	}
-	targets, ok := r.subjectSessions[subject]
-	if !ok {
+	targets := r.subjectPIDs[subject]
+	if len(targets) == 0 {
 		return
 	}
+	metrics.IncDeliveryRouterEventsRouted()
+	evt := DeliveryEvent{Subject: subject, Env: env}
 	for _, pid := range targets {
-		if pid != nil {
-			r.engine.Send(pid, DeliveryEvent{Subject: subject, Env: env})
-		}
+		r.engine.Send(pid, evt)
 	}
 }

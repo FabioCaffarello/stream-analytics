@@ -4,6 +4,24 @@
     "type": "jetstream",
     "wire_format": "proto"
   },
+  "proto_rollout": {
+    "marketdata": {
+      "trade": false,
+      "bookdelta": false,
+      "markprice": false,
+      "liquidation": false
+    },
+    "aggregation": {
+      "candle": false,
+      "stats": false,
+      "snapshot": false
+    },
+    "insights": {
+      "volume_profile": false,
+      "heatmap": false,
+      "crossvenue": false
+    }
+  },
   "jetstream": {
     "url": "nats://nats:4222",
     "stream_name": "MARKETDATA",
@@ -20,7 +38,12 @@
   "shard": {
     "index": 0,
     "count": 1,
-    "max_lag": 0
+    "max_lag": 0,
+    "registry": {
+      "enabled": false,
+      "strict": false,
+      "topology_grace": "60s"
+    }
   },
   "log": {
     "level": "info",

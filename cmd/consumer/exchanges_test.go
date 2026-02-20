@@ -9,6 +9,8 @@ import (
 	"github.com/market-raccoon/internal/actors/marketdata/ws"
 	actorruntime "github.com/market-raccoon/internal/actors/runtime"
 	"github.com/market-raccoon/internal/adapters/exchange/binance"
+	"github.com/market-raccoon/internal/adapters/exchange/kraken"
+	"github.com/market-raccoon/internal/adapters/exchange/krakenf"
 	"github.com/market-raccoon/internal/shared/config"
 )
 
@@ -176,5 +178,63 @@ func TestBuildBybitRuntime_SubscriptionToggle(t *testing.T) {
 	}
 	if got := string(hb.Message); got != `{"op":"ping"}` {
 		t.Fatalf("heartbeat message=%q want=%q", got, `{"op":"ping"}`)
+	}
+}
+
+func TestBuildKrakenRuntime_Subscriptions(t *testing.T) {
+	ex := config.ConsumerExchangeConfig{
+		Name:       "kraken",
+		Type:       "kraken",
+		BaseURL:    "wss://ws.kraken.com/v2",
+		Tickers:    []string{"BTC-USD"},
+		MarketType: "SPOT",
+	}
+
+	cfg, p := config.Load("")
+	if p != nil {
+		t.Fatalf("Load defaults: %v", p)
+	}
+	r := buildKrakenRuntime(cfg, slog.Default(), ex, actorruntime.SubsystemMarketData)
+	if r.ManagerCfg.StreamsPerTicker != 3 {
+		t.Fatalf("kraken streams_per_ticker=%d want=3", r.ManagerCfg.StreamsPerTicker)
+	}
+	if endpoint := r.ManagerCfg.EndpointBuilder([]string{"BTC-USD"}); endpoint != kraken.DefaultWSBaseURL {
+		t.Fatalf("endpoint=%q want=%q", endpoint, kraken.DefaultWSBaseURL)
+	}
+	msgs := r.ManagerCfg.SubscriptionBuilder([]string{"BTC-USD"})
+	if len(msgs) != 3 {
+		t.Fatalf("subscriptions len=%d want 3", len(msgs))
+	}
+	if !strings.Contains(string(msgs[0]), "\"channel\":\"trade\"") {
+		t.Fatalf("unexpected trade subscription payload: %s", string(msgs[0]))
+	}
+}
+
+func TestBuildKrakenFRuntime_Subscriptions(t *testing.T) {
+	ex := config.ConsumerExchangeConfig{
+		Name:       "krakenf",
+		Type:       "krakenf",
+		BaseURL:    "wss://futures.kraken.com/ws/v1",
+		Tickers:    []string{"BTC-USD"},
+		MarketType: "USD_M_FUTURES",
+	}
+
+	cfg, p := config.Load("")
+	if p != nil {
+		t.Fatalf("Load defaults: %v", p)
+	}
+	r := buildKrakenFRuntime(cfg, slog.Default(), ex, actorruntime.SubsystemMarketData)
+	if r.ManagerCfg.StreamsPerTicker != 3 {
+		t.Fatalf("krakenf streams_per_ticker=%d want=3", r.ManagerCfg.StreamsPerTicker)
+	}
+	if endpoint := r.ManagerCfg.EndpointBuilder([]string{"BTC-USD"}); endpoint != krakenf.DefaultWSBaseURL {
+		t.Fatalf("endpoint=%q want=%q", endpoint, krakenf.DefaultWSBaseURL)
+	}
+	msgs := r.ManagerCfg.SubscriptionBuilder([]string{"BTC-USD"})
+	if len(msgs) != 3 {
+		t.Fatalf("subscriptions len=%d want 3", len(msgs))
+	}
+	if !strings.Contains(string(msgs[0]), "\"feed\":\"trade\"") {
+		t.Fatalf("unexpected trade subscription payload: %s", string(msgs[0]))
 	}
 }

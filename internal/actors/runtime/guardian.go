@@ -9,6 +9,7 @@ import (
 
 	"github.com/anthdm/hollywood/actor"
 	"github.com/market-raccoon/internal/shared/metrics"
+	"github.com/market-raccoon/internal/shared/problem"
 )
 
 // GuardianConfig configures runtime orchestration behavior.
@@ -60,9 +61,13 @@ type Guardian struct {
 	// shuttingDown is true after a Stop message is received; prevents restarts.
 	shuttingDown bool
 
+	// cachedSnapshot holds the last built SnapshotState. Cleared on any state
+	// mutation so that the next Snapshot query triggers a rebuild.
+	cachedSnapshot *SnapshotState
+
 	started bool
 
-	spawnFn  func(c *actor.Context, subsystem Subsystem) (*actor.PID, error)
+	spawnFn  func(c *actor.Context, subsystem Subsystem) (*actor.PID, *problem.Problem)
 	poisonFn func(c *actor.Context, pid *actor.PID)
 	sendFn   func(c *actor.Context, pid *actor.PID, msg any)
 	emitFn   func(c *actor.Context, msg any)
@@ -164,9 +169,9 @@ func (g *Guardian) ensureDefaults(c *actor.Context) bool {
 		if g.cfg.Policy != nil {
 			g.policy = g.cfg.Policy
 		} else {
-			policy, err := NewSupervisorPolicy(SupervisorConfig{}, g.clock, nil)
-			if err != nil {
-				g.logger.Error("failed to create default supervisor policy", "err", err)
+			policy, p := NewSupervisorPolicy(SupervisorConfig{}, g.clock, nil)
+			if p != nil {
+				g.logger.Error("failed to create default supervisor policy", "err", p)
 				if c != nil {
 					c.Engine().Poison(c.PID())
 				}
@@ -310,14 +315,16 @@ func (g *Guardian) stopAll(c *actor.Context) {
 		metrics.SetGuardianSubsystemState(string(subsystem), 0)
 	}
 	g.started = false
+	g.invalidateSnapshot()
 }
 
 func (g *Guardian) startSubsystem(c *actor.Context, subsystem Subsystem) {
-	pid, err := g.spawnFn(c, subsystem)
-	if err != nil {
-		g.lastError[subsystem] = err.Error()
+	pid, p := g.spawnFn(c, subsystem)
+	if p != nil {
+		g.lastError[subsystem] = p.Error()
 		g.running[subsystem] = false
-		g.logger.Error("failed to spawn subsystem", "subsystem", subsystem, "err", err)
+		g.logger.Error("failed to spawn subsystem", "subsystem", subsystem, "err", p)
+		g.invalidateSnapshot()
 		return
 	}
 
@@ -326,6 +333,7 @@ func (g *Guardian) startSubsystem(c *actor.Context, subsystem Subsystem) {
 	g.lastError[subsystem] = ""
 	g.lastTransition[subsystem] = g.clock.Now()
 	g.readySystems[subsystem] = true // v1 optimistic: ready on first successful spawn
+	g.invalidateSnapshot()
 	metrics.SetGuardianSubsystemState(string(subsystem), 1)
 
 	if status := g.policy.Status(subsystem); status.Degraded {
@@ -395,6 +403,7 @@ func (g *Guardian) handleChildFailed(c *actor.Context, msg ChildFailed) {
 	if g.connected == nil {
 		g.connected = make(map[Subsystem]bool)
 	}
+	g.invalidateSnapshot()
 	if g.shuttingDown {
 		return // no restarts during controlled shutdown
 	}
@@ -532,9 +541,17 @@ func (g *Guardian) handleHeartbeat(msg SubsystemHeartbeat) {
 	if !msg.LastPublishAt.IsZero() {
 		g.lastPublishAt[msg.Subsystem] = msg.LastPublishAt
 	}
+	g.invalidateSnapshot()
+}
+
+func (g *Guardian) invalidateSnapshot() {
+	g.cachedSnapshot = nil
 }
 
 func (g *Guardian) buildSnapshot() SnapshotState {
+	if g.cachedSnapshot != nil {
+		return *g.cachedSnapshot
+	}
 	managed := g.managedSubsystems()
 	state := SnapshotState{
 		At:         g.clock.Now(),
@@ -560,12 +577,13 @@ func (g *Guardian) buildSnapshot() SnapshotState {
 		}
 		state.Subsystems[subsystem] = s
 	}
+	g.cachedSnapshot = &state
 	return state
 }
 
-func (g *Guardian) spawnSubsystem(c *actor.Context, subsystem Subsystem) (*actor.PID, error) {
+func (g *Guardian) spawnSubsystem(c *actor.Context, subsystem Subsystem) (*actor.PID, *problem.Problem) {
 	if c == nil {
-		return nil, fmt.Errorf("actor context is nil")
+		return nil, problem.New(problem.Internal, "actor context is nil")
 	}
 	producer := subsystemPlaceholder(subsystem)
 	if factory, ok := g.cfg.Factories[subsystem]; ok && factory != nil {

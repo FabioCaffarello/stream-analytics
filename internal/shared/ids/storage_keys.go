@@ -16,7 +16,7 @@ const (
 // DeterministicStorageWriteKey returns a stable key for storage write idempotency.
 // The key is canonicalized across venue/instrument casing and separator variants.
 func DeterministicStorageWriteKey(subject, venue, instrument string, seq int64, sourceIdempotencyKey string) string {
-	return hash.HashFields(
+	return hash.HashFieldsFast(
 		naming.NormalizeEventType(subject),
 		naming.CanonicalVenue(venue),
 		naming.CanonicalInstrument(instrument),
@@ -34,7 +34,7 @@ func AggregationSnapshotWriteKey(venue, instrument string, seq int64, sourceIdem
 // HeatmapArtifactWriteKey builds the deterministic idempotency key for
 // heatmap artifacts persisted in hot/cold paths.
 func HeatmapArtifactWriteKey(venue, instrument, timeframe string, windowStartTs int64, sourceIdempotencyKey string) string {
-	return hash.HashFields(
+	return hash.HashFieldsFast(
 		naming.NormalizeEventType(heatmapSnapshotSubject),
 		naming.CanonicalVenue(venue),
 		naming.CanonicalInstrument(instrument),

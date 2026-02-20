@@ -152,6 +152,10 @@ func newAggService(pub *spyArtifactPublisher) *aggapp.AggregationService {
 	})
 }
 
+func boolPtr(v bool) *bool {
+	return &v
+}
+
 func makeBookDeltaEnvelope(venue, instrument string, seq int64, bids, asks []mddomain.PriceLevel) envelope.Envelope {
 	delta := mddomain.BookDeltaV1{
 		Bids:      bids,
@@ -691,6 +695,53 @@ func TestProcessor_TradeEnvelopeWithoutJoin_ProcessesCandle(t *testing.T) {
 	<-e.Poison(pid).Done()
 }
 
+func TestProcessor_TradeEnvelopeWithoutJoin_CandleDisabled_SkipsCandle(t *testing.T) {
+	if p := contracts.BootstrapPayloadCodecRegistry(); p != nil {
+		t.Fatalf("BootstrapPayloadCodecRegistry: %v", p)
+	}
+
+	pub := &spyArtifactPublisher{}
+	aggSvc := newAggService(pub)
+
+	ch := make(chan envelope.Envelope, 8)
+	resultCh := make(chan aggruntime.EnvelopeProcessResult, 8)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh:    ch,
+		Service:       aggSvc,
+		CandleEnabled: boolPtr(false),
+		OnEnvelopeProcessed: func(res aggruntime.EnvelopeProcessResult) {
+			select {
+			case resultCh <- res:
+			default:
+			}
+		},
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+
+	ch <- makeTradeEnvelope("BINANCE", "BTCUSDT", 1, 1, 100.5, "buy", "trade-1")
+	ch <- makeTradeEnvelope("BINANCE", "BTCUSDT", 2, 60_001, 101.5, "sell", "trade-2")
+
+	for i := 0; i < 2; i++ {
+		select {
+		case res := <-resultCh:
+			if res.Problem != nil {
+				t.Fatalf("unexpected processing problem: %v", res.Problem)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("timeout waiting for callback result")
+		}
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	if got := pub.candleCount(); got != 0 {
+		t.Fatalf("candleCount=%d want=0 when candle route is disabled", got)
+	}
+
+	<-e.Poison(pid).Done()
+}
+
 func TestProcessor_LiquidationRoute_EmitsStatsClosed(t *testing.T) {
 	if p := contracts.BootstrapPayloadCodecRegistry(); p != nil {
 		t.Fatalf("BootstrapPayloadCodecRegistry: %v", p)
@@ -742,6 +793,53 @@ func TestProcessor_MarkPriceRoute_WithFunding_EmitsStatsClosed(t *testing.T) {
 	}
 	if closed.FundingRateLast == 0 {
 		t.Fatalf("expected non-zero funding_rate_last from dual routing, got %f", closed.FundingRateLast)
+	}
+
+	<-e.Poison(pid).Done()
+}
+
+func TestProcessor_StatsDisabled_SkipsLiquidationAndMarkPriceRoutes(t *testing.T) {
+	if p := contracts.BootstrapPayloadCodecRegistry(); p != nil {
+		t.Fatalf("BootstrapPayloadCodecRegistry: %v", p)
+	}
+
+	pub := &spyArtifactPublisher{}
+	aggSvc := newAggService(pub)
+
+	ch := make(chan envelope.Envelope, 8)
+	resultCh := make(chan aggruntime.EnvelopeProcessResult, 8)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh:   ch,
+		Service:      aggSvc,
+		StatsEnabled: boolPtr(false),
+		OnEnvelopeProcessed: func(res aggruntime.EnvelopeProcessResult) {
+			select {
+			case resultCh <- res:
+			default:
+			}
+		},
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+
+	ch <- makeLiquidationEnvelope("BINANCE", "BTCUSDT", 1, 1, 2.0, "buy")
+	ch <- makeMarkPriceEnvelope("BINANCE", "BTCUSDT", 2, 60_001, 101.0, 0.0003)
+
+	for i := 0; i < 2; i++ {
+		select {
+		case res := <-resultCh:
+			if res.Problem != nil {
+				t.Fatalf("unexpected processing problem: %v", res.Problem)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("timeout waiting for callback result")
+		}
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	if got := pub.statsCount(); got != 0 {
+		t.Fatalf("statsCount=%d want=0 when stats route is disabled", got)
 	}
 
 	<-e.Poison(pid).Done()

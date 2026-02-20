@@ -13,6 +13,7 @@ import (
 	"github.com/market-raccoon/internal/shared/clock"
 	"github.com/market-raccoon/internal/shared/ds"
 	"github.com/market-raccoon/internal/shared/metrics"
+	"github.com/market-raccoon/internal/shared/naming"
 	"github.com/market-raccoon/internal/shared/problem"
 	"github.com/market-raccoon/internal/shared/result"
 	"github.com/market-raccoon/internal/shared/validation"
@@ -169,12 +170,12 @@ func (uc *JoinCrossVenueTrades) Execute(_ context.Context, req JoinCrossVenueTra
 	}
 
 	state := uc.getOrCreateState(key)
-	venue := strings.ToUpper(strings.TrimSpace(req.Venue))
+	venue := naming.CanonicalVenue(req.Venue)
 	next := domain.LastTrade{
 		Venue:          venue,
 		Price:          req.Price,
 		Size:           req.Size,
-		Side:           strings.ToLower(strings.TrimSpace(req.Side)),
+		Side:           naming.NormalizeSide(req.Side),
 		TradeID:        strings.TrimSpace(req.TradeID),
 		TsExchange:     req.TsExchange,
 		TsIngest:       req.TsIngest,
@@ -371,7 +372,7 @@ func buildSpreadSignal(snapshot domain.CrossVenueTradeSnapshotV1) domain.CrossVe
 }
 
 func parseSpreadRoundingMode(raw string) spreadRoundingMode {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
+	switch naming.NormalizeSide(raw) {
 	case "floor":
 		return spreadRoundingFloor
 	case "half_even", "bankers", "":

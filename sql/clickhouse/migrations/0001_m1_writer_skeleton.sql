@@ -1,3 +1,5 @@
+-- +goose NO TRANSACTION
+-- +goose Up
 -- M1 cold-path schema contract for deterministic idempotent upsert key.
 -- Storage key invariant: (venue, instrument, seq).
 CREATE TABLE IF NOT EXISTS aggregation_snapshots_v1
@@ -10,3 +12,6 @@ CREATE TABLE IF NOT EXISTS aggregation_snapshots_v1
 )
 ENGINE = ReplacingMergeTree
 ORDER BY (venue, instrument, seq);
+
+-- +goose Down
+DROP TABLE IF EXISTS aggregation_snapshots_v1;

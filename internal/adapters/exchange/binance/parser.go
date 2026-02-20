@@ -3,11 +3,11 @@ package binance
 
 import (
 	"encoding/json"
-	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
+	common "github.com/market-raccoon/internal/adapters/exchange/common"
 	"github.com/market-raccoon/internal/core/marketdata/app"
 	"github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/shared/naming"
@@ -18,11 +18,6 @@ const (
 	// VenueBinance is the canonical venue identifier emitted for Binance events.
 	VenueBinance = "BINANCE"
 )
-
-type streamEnvelope struct {
-	Stream string          `json:"stream"`
-	Data   json.RawMessage `json:"data"`
-}
 
 type aggTrade struct {
 	Event        string `json:"e"`
@@ -69,14 +64,8 @@ type forceOrder struct {
 	TradeTime int64  `json:"T"`
 }
 
-// ParseMeta carries parser diagnostics for observability.
-type ParseMeta struct {
-	EventType  string
-	SkipReason string
-	Problem    *problem.Problem
-	WSStream   string
-	Ticker     string
-}
+// ParseMeta is an alias for the shared parser diagnostics type.
+type ParseMeta = common.ParseMeta
 
 // ParseMessage parses Binance WS payload and maps supported messages to app.IngestRequest.
 // Returns skip=true for unsupported/heartbeat/control messages.
@@ -102,18 +91,16 @@ func ParseMessageWithMetaForMarketType(data []byte, recvAt time.Time, marketType
 	payload := data
 	meta := ParseMeta{}
 
-	// Binance combined stream wraps payload as {stream, data}.
-	var wrapped streamEnvelope
-	if err := json.Unmarshal(data, &wrapped); err == nil {
-		meta.WSStream = strings.TrimSpace(wrapped.Stream)
-		meta.EventType = eventTypeFromStream(wrapped.Stream)
-		meta.Ticker = tickerFromStream(wrapped.Stream)
-		if len(wrapped.Data) > 0 {
-			payload = wrapped.Data
-		} else if wrapped.Stream != "" {
+	// Binance combined stream wraps payload as {stream, data}. Use shared helper.
+	if p, ws, wrapped, empty := common.UnwrapCombinedStream(data); wrapped {
+		meta.WSStream = ws
+		meta.EventType = eventTypeFromStream(ws)
+		meta.Ticker = tickerFromStream(ws)
+		if empty {
 			meta.SkipReason = "envelope_empty_data"
 			return app.IngestRequest{}, true, meta
 		}
+		payload = p
 	}
 
 	var obj map[string]json.RawMessage
@@ -299,6 +286,8 @@ func parseAggTrade(payload []byte, recvAt time.Time, marketType string) (app.Ing
 		side = "sell"
 	}
 
+	tradeID := common.TradeIDStringFromAny(m.AggTradeID)
+
 	return app.IngestRequest{
 		Venue:      VenueBinance,
 		Instrument: instrument,
@@ -309,14 +298,14 @@ func parseAggTrade(payload []byte, recvAt time.Time, marketType string) (app.Ing
 		IdempotencyKey: buildTradeIdempotencyKey(
 			VenueBinance,
 			instrument,
-			fmt.Sprintf("%d", m.AggTradeID),
+			tradeID,
 		),
 		Metadata: buildInstrumentMetadata(m.Symbol, instrument, marketType),
 		Payload: domain.TradeTickV1{
 			Price:     price,
 			Size:      size,
 			Side:      side,
-			TradeID:   fmt.Sprintf("%d", m.AggTradeID),
+			TradeID:   tradeID,
 			Timestamp: tsExchange,
 		},
 	}, false, nil
@@ -374,51 +363,23 @@ func parseDepthUpdate(payload []byte, recvAt time.Time, marketType string) (app.
 }
 
 func buildTradeIdempotencyKey(venue, instrument, tradeID string) string {
-	return fmt.Sprintf("venue=%s|instrument=%s|trade_id=%s", venue, instrument, tradeID)
+	return common.BuildTradeIdempotencyKey(venue, instrument, tradeID)
 }
 
 func buildDepthIdempotencyKey(venue, instrument string, finalUpdateID int64) string {
-	return fmt.Sprintf("venue=%s|instrument=%s|final_update_id=%d", venue, instrument, finalUpdateID)
+	return common.BuildDepthIdempotencyKey(venue, instrument, finalUpdateID)
 }
 
 func parseLevels(raw [][]string) ([]domain.PriceLevel, *problem.Problem) {
-	if len(raw) == 0 {
-		return nil, nil
-	}
-	out := make([]domain.PriceLevel, 0, len(raw))
-	for _, pair := range raw {
-		if len(pair) < 2 {
-			return nil, problem.New(problem.ValidationFailed, "binance depthUpdate: invalid level pair")
-		}
-		price, err := strconv.ParseFloat(pair[0], 64)
-		if err != nil {
-			return nil, problem.Wrap(err, problem.ValidationFailed, "binance depthUpdate: invalid level price")
-		}
-		size, err := strconv.ParseFloat(pair[1], 64)
-		if err != nil {
-			return nil, problem.Wrap(err, problem.ValidationFailed, "binance depthUpdate: invalid level size")
-		}
-		out = append(out, domain.PriceLevel{Price: price, Size: size})
-	}
-	return out, nil
+	return common.ParseStringLevels(raw, "binance depthUpdate")
 }
 
 func normalizeSide(side string) (string, *problem.Problem) {
-	switch strings.ToLower(strings.TrimSpace(side)) {
-	case "buy":
-		return "buy", nil
-	case "sell":
-		return "sell", nil
-	default:
-		return "", problem.Newf(problem.ValidationFailed, "binance: unsupported side %q", side)
-	}
+	return common.NormalizeSide(side, "binance")
 }
 
 func skipReasonFromProblem(p *problem.Problem) string {
-	if p != nil {
-		return "parse_error"
-	}
-	return ""
+	return common.SkipReasonFromProblem(p)
 }
 
 func eventTypeFromStream(stream string) string {
@@ -448,46 +409,15 @@ func tickerFromStream(stream string) string {
 }
 
 func buildInstrumentMetadata(venueSymbol, canonical, marketType string) map[string]string {
-	meta := map[string]string{
-		"instrument_venue_symbol": strings.ToUpper(strings.TrimSpace(venueSymbol)),
-		"instrument_canonical":    canonical,
-		"instrument_market_type":  marketType,
-	}
-	canonicalPair := canonicalPairFromBinanceSymbol(venueSymbol)
-	if canonicalPair == "" {
-		return meta
-	}
-	id, p := domain.NewInstrumentIdentity(canonicalPair, venueSymbol, marketType)
-	if p != nil {
-		return meta
-	}
-	meta["instrument_pair"] = id.Canonical
-	meta["instrument_base"] = id.Base
-	meta["instrument_quote"] = id.Quote
-	meta["instrument_market_type"] = id.MarketType.String()
-	return meta
+	return common.BuildInstrumentMetadata(venueSymbol, canonical, marketType, canonicalPairFromBinanceSymbol)
 }
 
 func canonicalPairFromBinanceSymbol(symbol string) string {
-	s := naming.CanonicalInstrument(symbol)
-	if s == "" {
-		return ""
-	}
-	for _, quote := range []string{
+	return common.CanonicalPairFromSuffixList(symbol, []string{
 		"USDT", "USDC", "BUSD", "FDUSD", "TUSD", "BTC", "ETH", "BNB", "EUR", "USD",
-	} {
-		if strings.HasSuffix(s, quote) && len(s) > len(quote) {
-			base := strings.TrimSuffix(s, quote)
-			return base + "-" + quote
-		}
-	}
-	return ""
+	})
 }
 
 func normalizeMarketType(raw string) string {
-	mt, p := domain.NewMarketType(raw)
-	if p != nil {
-		return domain.MarketTypeSpot.String()
-	}
-	return mt.String()
+	return common.NormalizeMarketTypeSpot(raw)
 }

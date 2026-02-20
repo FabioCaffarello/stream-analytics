@@ -73,6 +73,9 @@ func TestHandleWS_UpgradeSpawnsSessionWithValidAPIKey(t *testing.T) {
 			if cfg.ClientID != "client-a" {
 				t.Fatalf("client_id=%q want=client-a", cfg.ClientID)
 			}
+			if cfg.SlowClientDropThreshold != 7 {
+				t.Fatalf("slow_client_drop_threshold=%d want=7", cfg.SlowClientDropThreshold)
+			}
 			select {
 			case spawned <- struct{}{}:
 			default:
@@ -80,6 +83,7 @@ func TestHandleWS_UpgradeSpawnsSessionWithValidAPIKey(t *testing.T) {
 			_ = cfg.Conn.Close()
 			return &actor.PID{}
 		}),
+		WithSlowClientDropThreshold(7),
 	)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", srv.HandleUpgrade)

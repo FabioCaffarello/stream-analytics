@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/market-raccoon/internal/shared/naming"
 	"github.com/market-raccoon/internal/shared/problem"
 )
 
@@ -79,7 +80,7 @@ func validateVPVRSnapshotMetadata(s VolumeProfileSnapshotV1) *problem.Problem {
 	if strings.TrimSpace(s.Venue) == "" || strings.TrimSpace(s.Instrument) == "" {
 		return problem.New(problem.ValidationFailed, "vpvr venue/instrument must not be empty")
 	}
-	if _, ok := VPVRTimeframes[strings.ToLower(strings.TrimSpace(s.Timeframe))]; !ok {
+	if _, ok := VPVRTimeframes[naming.NormalizeTimeframe(s.Timeframe)]; !ok {
 		return problem.New(problem.ValidationFailed, "vpvr timeframe is unsupported")
 	}
 	if s.WindowStartTs <= 0 || s.WindowEndTs <= s.WindowStartTs {

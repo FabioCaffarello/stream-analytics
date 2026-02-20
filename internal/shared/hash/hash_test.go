@@ -51,6 +51,40 @@ func TestHashFields_separatorPreventsCollision(t *testing.T) {
 	}
 }
 
+func TestHashFieldsFast_stable(t *testing.T) {
+	h1 := hash.HashFieldsFast("binance", "BTC-PERP", "123456")
+	h2 := hash.HashFieldsFast("binance", "BTC-PERP", "123456")
+	if h1 != h2 {
+		t.Error("HashFieldsFast must be stable")
+	}
+}
+
+func TestHashFieldsFast_orderMatters(t *testing.T) {
+	h1 := hash.HashFieldsFast("a", "b")
+	h2 := hash.HashFieldsFast("b", "a")
+	if h1 == h2 {
+		t.Error("HashFieldsFast(a,b) must differ from HashFieldsFast(b,a)")
+	}
+}
+
+func TestHashFieldsFast_separatorPreventsCollision(t *testing.T) {
+	h1 := hash.HashFieldsFast("ab", "c")
+	h2 := hash.HashFieldsFast("a", "bc")
+	if h1 == h2 {
+		t.Error("HashFieldsFast must avoid concatenation collisions")
+	}
+}
+
+func TestHashFieldsFast_isHex(t *testing.T) {
+	got := hash.HashFieldsFast("test")
+	for _, c := range got {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			t.Errorf("HashFieldsFast output contains non-hex char %q in %q", string(c), got)
+			break
+		}
+	}
+}
+
 func TestHashFloat64Sequence_stable(t *testing.T) {
 	vals := []float64{1.0, 2.5, 3.14159}
 	h1 := hash.HashFloat64Sequence(vals)
@@ -65,5 +99,42 @@ func TestHashFloat64Sequence_orderMatters(t *testing.T) {
 	h2 := hash.HashFloat64Sequence([]float64{2.0, 1.0})
 	if h1 == h2 {
 		t.Error("order must matter for HashFloat64Sequence")
+	}
+}
+
+func TestHashFloat64Sequence_emptySlice(t *testing.T) {
+	h1 := hash.HashFloat64Sequence(nil)
+	h2 := hash.HashFloat64Sequence([]float64{})
+	if h1 != h2 {
+		t.Error("nil and empty slice must produce the same hash")
+	}
+}
+
+func TestHashFloat64Sequence_isHex(t *testing.T) {
+	got := hash.HashFloat64Sequence([]float64{3.14159, 2.71828})
+	for _, c := range got {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			t.Errorf("output contains non-hex char %q in %q", string(c), got)
+			break
+		}
+	}
+}
+
+func TestHashFloat64Sequence_lengthSensitive(t *testing.T) {
+	h1 := hash.HashFloat64Sequence([]float64{1.0})
+	h2 := hash.HashFloat64Sequence([]float64{1.0, 0.0})
+	if h1 == h2 {
+		t.Error("different-length slices must not collide")
+	}
+}
+
+func BenchmarkHashFloat64Sequence(b *testing.B) {
+	vals := make([]float64, 20)
+	for i := range vals {
+		vals[i] = float64(i) * 1.23456
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		hash.HashFloat64Sequence(vals)
 	}
 }

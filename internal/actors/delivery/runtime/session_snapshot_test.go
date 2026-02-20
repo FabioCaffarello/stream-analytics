@@ -45,13 +45,13 @@ func TestSession_SubscribeEmitsHotSnapshot(t *testing.T) {
 	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"subscribe","subject":"marketdata.trade/binance/BTC-USDT/raw","request_id":"s1"}`)}
 
 	first := <-conn.writeCh
-	snap, ok := first.(map[string]any)
-	if !ok || snap["type"] != "snapshot" {
+	snap, ok := first.(wsSnapshotFrame)
+	if !ok || snap.Type != "snapshot" {
 		t.Fatalf("expected snapshot first, got %#v", first)
 	}
 	second := <-conn.writeCh
-	ack, ok := second.(map[string]any)
-	if !ok || ack["type"] != "ack" {
+	ack, ok := second.(wsAckFrame)
+	if !ok || ack.Type != "ack" {
 		t.Fatalf("expected ack second, got %#v", second)
 	}
 }
@@ -78,8 +78,8 @@ func TestSession_SubscribeNoSnapshot_WhenEmpty(t *testing.T) {
 	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"subscribe","subject":"marketdata.trade/binance/BTC-USDT/raw","request_id":"s2"}`)}
 
 	msg := <-conn.writeCh
-	ack, ok := msg.(map[string]any)
-	if !ok || ack["type"] != "ack" {
+	ack, ok := msg.(wsAckFrame)
+	if !ok || ack.Type != "ack" {
 		t.Fatalf("expected ack when no snapshot, got %#v", msg)
 	}
 }
@@ -111,8 +111,8 @@ func TestSession_GetRange_ReturnsItems(t *testing.T) {
 
 	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"getrange","subject":"marketdata.trade/binance/BTC-USDT/raw","request_id":"r1","params":{"from_ms":0,"to_ms":0,"limit":2}}`)}
 	msg := <-conn.writeCh
-	resp, ok := msg.(map[string]any)
-	if !ok || resp["type"] != "range" {
+	resp, ok := msg.(wsRangeFrame)
+	if !ok || resp.Type != "range" {
 		t.Fatalf("expected range response, got %#v", msg)
 	}
 }
@@ -137,13 +137,13 @@ func TestSession_GetRange_EmptyRange(t *testing.T) {
 
 	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"getrange","subject":"marketdata.trade/binance/BTC-USDT/raw","request_id":"r2","params":{"from_ms":0,"to_ms":0,"limit":2}}`)}
 	msg := <-conn.writeCh
-	resp, ok := msg.(map[string]any)
-	if !ok || resp["type"] != "range" {
+	resp, ok := msg.(wsRangeFrame)
+	if !ok || resp.Type != "range" {
 		t.Fatalf("expected range response, got %#v", msg)
 	}
-	items, ok := resp["items"].([]ports.RangeItem)
+	items, ok := resp.Items.([]ports.RangeItem)
 	if !ok {
-		t.Fatalf("items type=%T", resp["items"])
+		t.Fatalf("items type=%T", resp.Items)
 	}
 	if len(items) != 0 {
 		t.Fatalf("expected empty items, got %d", len(items))
@@ -167,8 +167,8 @@ func TestSession_GetRange_LimitEnforced(t *testing.T) {
 
 	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"getrange","subject":"marketdata.trade/binance/BTC-USDT/raw","request_id":"r3","params":{"from_ms":0,"to_ms":0,"limit":1001}}`)}
 	msg := <-conn.writeCh
-	resp, ok := msg.(map[string]any)
-	if !ok || resp["type"] != "error" {
+	resp, ok := msg.(wsErrorFrame)
+	if !ok || resp.Type != "error" {
 		t.Fatalf("expected error response, got %#v", msg)
 	}
 }

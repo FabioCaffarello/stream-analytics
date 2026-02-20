@@ -48,6 +48,7 @@ func DefaultBackpressurePriorities() map[string]int {
 		"marketdata.bookdelta":                 90,
 		"aggregation.candle":                   70,
 		"aggregation.stats":                    60,
+		"insights.heatmap_snapshot":            55,
 		"marketdata.markprice":                 50,
 		"marketdata.liquidation":               40,
 		"insights.crossvenue.trade_snapshot":   30,

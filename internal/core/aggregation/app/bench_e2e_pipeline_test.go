@@ -1,3 +1,6 @@
+//go:build integration
+// +build integration
+
 package app_test
 
 import (
@@ -137,7 +140,7 @@ func BenchmarkE2E_IngestToOrderbookSnapshot(b *testing.B) {
 		}
 
 		snap := hotStore.last
-		e2eHashSink = sharedhash.HashFields(
+		e2eHashSink = sharedhash.HashFieldsFast(
 			snap.BookID.Venue,
 			snap.BookID.Instrument,
 			strconv.FormatInt(snap.Seq, 10),
@@ -222,13 +225,106 @@ func BenchmarkE2E_TradeToCandle(b *testing.B) {
 
 		if len(resp.Closed) > 0 {
 			closed := resp.Closed[0]
-			e2eHashSink = sharedhash.HashFields(
+			e2eHashSink = sharedhash.HashFieldsFast(
 				closed.Candle.Venue,
 				closed.Candle.Instrument,
 				closed.Candle.Timeframe,
 				strconv.FormatInt(closed.Candle.WindowStartTs, 10),
 			)
 			e2eSeqSink = closed.Candle.SeqLast
+		}
+	}
+}
+
+func BenchmarkE2E_MarkPriceToStats(b *testing.B) {
+	clk := clock.NewFakeClock(time.Unix(1_710_000_000, 0))
+	memBus := bus.NewInMemoryBus(4096)
+	stream := memBus.Subscribe()
+
+	ingest := mdapp.NewIngestMarketDataWithConfig(clk, &e2eSequencer{}, memBus, mdapp.IngestConfig{
+		MaxStreams:         256,
+		PublishContentType: envelope.ContentTypeJSON,
+	})
+	stats := aggapp.NewBuildStatsFromEvents(benchArtifactPublisher{}, nil, aggapp.BuildStatsConfig{
+		MaxWindows: 1_000,
+		WindowTTL:  time.Hour,
+		Clock:      clk,
+	})
+
+	reqs := make([]mdapp.IngestRequest, 1000)
+	for i := 0; i < len(reqs); i++ {
+		reqs[i] = mdapp.IngestRequest{
+			Venue:          "binance",
+			Instrument:     "BTC-USDT",
+			MarketType:     "USD_M_FUTURES",
+			EventType:      "marketdata.markprice",
+			Version:        1,
+			TsExchange:     1_710_000_000_000 + int64(i)*60_000,
+			IdempotencyKey: "e2e-markprice-" + strconv.Itoa(i),
+			Payload: mddomain.MarkPriceTickV1{
+				MarkPrice:   50_000 + float64(i%20),
+				IndexPrice:  49_999 + float64(i%10),
+				FundingRate: 0.0001 + float64(i%5)*0.00001,
+				Timestamp:   1_710_000_000_000 + int64(i)*60_000,
+			},
+		}
+	}
+
+	ctx := context.Background()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		req := reqs[i%len(reqs)]
+		req.IdempotencyKey = "e2e-markprice-bench-" + strconv.Itoa(i)
+		clk.Advance(time.Minute)
+		if res := ingest.Execute(ctx, req); res.IsFail() {
+			b.Fatalf("ingest.Execute: %v", res.Problem())
+		}
+
+		env := <-stream
+		decoded, p := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
+		if p != nil {
+			b.Fatalf("DecodePayload: %v", p)
+		}
+		mp, ok := decoded.(mddomain.MarkPriceTickV1)
+		if !ok {
+			b.Fatalf("decoded type=%T want=%T", decoded, mddomain.MarkPriceTickV1{})
+		}
+
+		resp, p := stats.Execute(ctx, aggapp.BuildStatsRequest{
+			Venue:      env.Venue,
+			Instrument: env.Instrument,
+			Kind:       aggapp.StatsInputMarkPrice,
+			Seq:        env.Seq,
+			TsIngest:   env.TsIngest,
+			MarkPrice:  mp.MarkPrice,
+		})
+		if p != nil {
+			b.Fatalf("stats.Execute(markprice): %v", p)
+		}
+		if mp.FundingRate != 0 {
+			resp, p = stats.Execute(ctx, aggapp.BuildStatsRequest{
+				Venue:       env.Venue,
+				Instrument:  env.Instrument,
+				Kind:        aggapp.StatsInputFundingRate,
+				Seq:         env.Seq,
+				TsIngest:    env.TsIngest,
+				FundingRate: mp.FundingRate,
+			})
+			if p != nil {
+				b.Fatalf("stats.Execute(funding): %v", p)
+			}
+		}
+
+		if len(resp.Closed) > 0 {
+			closed := resp.Closed[0]
+			e2eHashSink = sharedhash.HashFieldsFast(
+				closed.Stats.Venue,
+				closed.Stats.Instrument,
+				closed.Stats.Timeframe,
+				strconv.FormatInt(closed.Stats.WindowStartTs, 10),
+			)
+			e2eSeqSink = closed.Stats.SeqLast
 		}
 	}
 }

@@ -44,6 +44,7 @@ func bootstrapTestCodecRegistry(t *testing.T) {
 }
 
 func TestArtifactPublisher_PublishSnapshot(t *testing.T) {
+	bootstrapTestCodecRegistry(t)
 	mock := &mockPublisher{}
 	ap := newTestArtifactPublisher(mock)
 
@@ -90,6 +91,7 @@ func TestArtifactPublisher_PublishSnapshot(t *testing.T) {
 }
 
 func TestArtifactPublisher_PublishInconsistent(t *testing.T) {
+	bootstrapTestCodecRegistry(t)
 	mock := &mockPublisher{}
 	ap := newTestArtifactPublisher(mock)
 
@@ -211,6 +213,7 @@ func TestArtifactPublisher_PublishStatsClosed(t *testing.T) {
 }
 
 func TestArtifactPublisher_PublisherError(t *testing.T) {
+	bootstrapTestCodecRegistry(t)
 	mock := &mockPublisher{err: problem.New(problem.Unavailable, "nats down")}
 	ap := newTestArtifactPublisher(mock)
 
