@@ -23,10 +23,16 @@ make pre-commit-install-all
 - Heavy checks (vuln scans) run at pre-push and can be gated via `VULN_REQUIRED=true`.
 
 Scripts
-- Scripts live in `scripts/` and should be idempotent. Long-running soaks are invoked via `make soak-*` targets.
-- Use `scripts/list-tests-by-category.sh` to get a quick inventory of tests by category.
+- **Organization**
+- Scripts are organized under `scripts/` with categorized wrappers:
+  - `scripts/ci/` — lightweight CI/guard wrappers (called from `Makefile`).
+  - `scripts/test/` — test harness wrappers (e.g. `scripts/test/soak/*`).
+  - `scripts/util/` — utility helpers (e.g. `list-tests-by-category.sh` wrapper).
+
+- Long-running soaks are invoked via `make soak-*` targets which call the `scripts/test/soak/*` wrappers.
+- Use `make list-tests` (calls `scripts/util/list-tests-by-category.sh`) to get a quick inventory of tests by category.
 
 Next steps
 - Finalize naming conventions and decide whether to adopt build tags for integration/e2e.
 - Sweep test files and add build tags where appropriate.
-- Reorganize `scripts/` into `scripts/test/`, `scripts/ci/`, `scripts/util/` (follow-up task).
+- Keep the `scripts/legacy/` folder for a short freeze period while teams migrate to the wrapper locations; after validation we can delete or archive it permanently.
