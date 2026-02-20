@@ -56,10 +56,10 @@ func BuildLiquidationDedupKey(
 }
 
 func lmDedupBase(eventType string, version int, venue, instrument string) []string {
-	return []string{
-		eventType,
-		strconv.Itoa(version),
-		naming.CanonicalVenue(venue),
-		naming.CanonicalInstrument(instrument),
-	}
+	s := make([]string, 4, 10)
+	s[0] = eventType
+	s[1] = strconv.Itoa(version)
+	s[2] = naming.CanonicalVenue(venue)
+	s[3] = naming.CanonicalInstrument(instrument)
+	return s
 }

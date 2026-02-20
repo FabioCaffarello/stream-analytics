@@ -245,7 +245,7 @@ func hlEntryToTick(entry recentTradeEntry) (marketdomain.TradeTickV1, *problem.P
 	}
 	tradeID := strings.TrimSpace(entry.Hash)
 	if tradeID == "" || isZeroHash(tradeID) {
-		tradeID = fmt.Sprintf("%d", entry.Tid)
+		tradeID = strconv.FormatInt(entry.Tid, 10)
 	}
 	if tradeID == "" || tradeID == "0" {
 		return marketdomain.TradeTickV1{}, problem.New(problem.ValidationFailed, "hyperliquid backfill: trade id is empty")

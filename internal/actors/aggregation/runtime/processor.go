@@ -1356,7 +1356,7 @@ func buildSnapshotEnvelope(
 		Payload:     payload,
 		IdempotencyKey: sharedhash.HashFieldsFast(
 			insightsdomain.CrossVenueTradeSnapshotType,
-			fmt.Sprintf("%d", insightsdomain.CrossVenueTradeSnapshotVersion),
+			strconv.Itoa(insightsdomain.CrossVenueTradeSnapshotVersion),
 			strings.ToUpper(strings.TrimSpace(snapshot.Instrument)),
 			strings.ToUpper(strings.TrimSpace(snapshot.MarketType)),
 			strings.TrimSpace(trigger.IdempotencyKey),
@@ -1404,7 +1404,7 @@ func buildSpreadSignalEnvelope(
 		Payload:     payload,
 		IdempotencyKey: sharedhash.HashFieldsFast(
 			insightsdomain.CrossVenueSpreadSignalType,
-			fmt.Sprintf("%d", insightsdomain.CrossVenueSpreadSignalVersion),
+			strconv.Itoa(insightsdomain.CrossVenueSpreadSignalVersion),
 			strings.ToUpper(strings.TrimSpace(signal.Instrument)),
 			strings.ToUpper(strings.TrimSpace(signal.MarketType)),
 			strings.TrimSpace(trigger.IdempotencyKey),

@@ -301,6 +301,8 @@ func parseAggTrade(payload []byte, recvAt time.Time, marketType string) (app.Ing
 		side = "sell"
 	}
 
+	tradeID := strconv.FormatInt(m.AggTradeID, 10)
+
 	return app.IngestRequest{
 		Venue:      VenueBinance,
 		Instrument: instrument,
@@ -311,14 +313,14 @@ func parseAggTrade(payload []byte, recvAt time.Time, marketType string) (app.Ing
 		IdempotencyKey: buildTradeIdempotencyKey(
 			VenueBinance,
 			instrument,
-			strconv.FormatInt(m.AggTradeID, 10),
+			tradeID,
 		),
 		Metadata: buildInstrumentMetadata(m.Symbol, instrument, marketType),
 		Payload: domain.TradeTickV1{
 			Price:     price,
 			Size:      size,
 			Side:      side,
-			TradeID:   strconv.FormatInt(m.AggTradeID, 10),
+			TradeID:   tradeID,
 			Timestamp: tsExchange,
 		},
 	}, false, nil

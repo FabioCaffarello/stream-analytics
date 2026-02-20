@@ -155,7 +155,7 @@ func DownloadTrades(ctx context.Context, cfg BackfillConfig) (BackfillResult, *p
 //nolint:gocyclo // pagination loop with cursor management is intentionally explicit.
 func fetchKrakenDayTrades(ctx context.Context, baseURL, pair string, from, to time.Time) ([]marketdomain.TradeTickV1, *problem.Problem) {
 	var allTrades []marketdomain.TradeTickV1
-	since := fmt.Sprintf("%d", from.UnixNano())
+	since := strconv.FormatInt(from.UnixNano(), 10)
 
 	for {
 		if err := ctx.Err(); err != nil {

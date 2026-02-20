@@ -236,7 +236,7 @@ func restTradeToTick(rt restTrade) (marketdomain.TradeTickV1, *problem.Problem) 
 		Price:     price,
 		Size:      size,
 		Side:      side,
-		TradeID:   fmt.Sprintf("%d", rt.TradeID),
+		TradeID:   strconv.FormatInt(rt.TradeID, 10),
 		Timestamp: ts,
 	}, nil
 }
