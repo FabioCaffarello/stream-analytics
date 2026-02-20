@@ -12,6 +12,8 @@ import (
 	"github.com/market-raccoon/internal/adapters/exchange/bybit"
 	"github.com/market-raccoon/internal/adapters/exchange/coinbase"
 	"github.com/market-raccoon/internal/adapters/exchange/hyperliquid"
+	"github.com/market-raccoon/internal/adapters/exchange/kraken"
+	"github.com/market-raccoon/internal/adapters/exchange/krakenf"
 	"github.com/market-raccoon/internal/adapters/storage/clickhouse"
 	"github.com/market-raccoon/internal/core/aggregation/app"
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
@@ -36,6 +38,8 @@ var (
 	runDownloadBybitTrades       = bybit.DownloadTrades
 	runDownloadCoinbaseTrades    = coinbase.DownloadTrades
 	runDownloadHyperLiquidTrades = hyperliquid.DownloadTrades
+	runDownloadKrakenTrades      = kraken.DownloadTrades
+	runDownloadKrakenFTrades     = krakenf.DownloadTrades
 	runNewClickHousePool         = clickhouse.NewPool
 	runDetectCandleGaps          = app.DetectCandleGaps
 )
@@ -127,8 +131,38 @@ func Run(ctx context.Context, appCfg config.AppConfig, cfg runConfig) (int, erro
 			datesDownloaded = result.DatesDownloaded
 			datesSkipped = result.DatesSkipped
 			tradesParsed = result.TradesParsed
+		case "kraken":
+			result, p := runDownloadKrakenTrades(ctx, kraken.BackfillConfig{
+				Symbol:     cfg.Symbol,
+				From:       from,
+				To:         to,
+				OutputDir:  cfg.OutputDir,
+				MarketType: cfg.MarketType,
+			})
+			if p != nil {
+				return 1, fmt.Errorf("backfill download failed: %v", p)
+			}
+			outputPath = result.OutputPath
+			datesDownloaded = result.DatesDownloaded
+			datesSkipped = result.DatesSkipped
+			tradesParsed = result.TradesParsed
+		case "krakenf":
+			result, p := runDownloadKrakenFTrades(ctx, krakenf.BackfillConfig{
+				Symbol:     cfg.Symbol,
+				From:       from,
+				To:         to,
+				OutputDir:  cfg.OutputDir,
+				MarketType: cfg.MarketType,
+			})
+			if p != nil {
+				return 1, fmt.Errorf("backfill download failed: %v", p)
+			}
+			outputPath = result.OutputPath
+			datesDownloaded = result.DatesDownloaded
+			datesSkipped = result.DatesSkipped
+			tradesParsed = result.TradesParsed
 		default:
-			return 1, fmt.Errorf("unsupported exchange %q (allowed: binance|bybit|coinbase|hyperliquid)", exchange)
+			return 1, fmt.Errorf("unsupported exchange %q (allowed: binance|bybit|coinbase|hyperliquid|kraken|krakenf)", exchange)
 		}
 
 		if strings.TrimSpace(cfg.Fixture) != "" {

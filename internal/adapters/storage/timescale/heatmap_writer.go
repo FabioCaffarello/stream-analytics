@@ -33,6 +33,13 @@ func NewHeatmapWriter(pool ...*Pool) *HeatmapWriter {
 	return w
 }
 
+func NewHeatmapWriterWithExecutor(exec adapterstorage.SQLExecutor) *HeatmapWriter {
+	return &HeatmapWriter{
+		exec:  exec,
+		byKey: make(map[string]insightsdomain.HeatmapArtifactV1),
+	}
+}
+
 func NewPgHeatmapWriter(pool *Pool) *HeatmapWriter {
 	if pool == nil {
 		return &HeatmapWriter{byKey: make(map[string]insightsdomain.HeatmapArtifactV1)}

@@ -137,7 +137,7 @@ func BenchmarkE2E_IngestToOrderbookSnapshot(b *testing.B) {
 		}
 
 		snap := hotStore.last
-		e2eHashSink = sharedhash.HashFields(
+		e2eHashSink = sharedhash.HashFieldsFast(
 			snap.BookID.Venue,
 			snap.BookID.Instrument,
 			strconv.FormatInt(snap.Seq, 10),
@@ -222,7 +222,7 @@ func BenchmarkE2E_TradeToCandle(b *testing.B) {
 
 		if len(resp.Closed) > 0 {
 			closed := resp.Closed[0]
-			e2eHashSink = sharedhash.HashFields(
+			e2eHashSink = sharedhash.HashFieldsFast(
 				closed.Candle.Venue,
 				closed.Candle.Instrument,
 				closed.Candle.Timeframe,
@@ -315,7 +315,7 @@ func BenchmarkE2E_MarkPriceToStats(b *testing.B) {
 
 		if len(resp.Closed) > 0 {
 			closed := resp.Closed[0]
-			e2eHashSink = sharedhash.HashFields(
+			e2eHashSink = sharedhash.HashFieldsFast(
 				closed.Stats.Venue,
 				closed.Stats.Instrument,
 				closed.Stats.Timeframe,
