@@ -450,8 +450,8 @@ soak-roundtrip: invariants-check
 		--go-cache "$(SOAK_GO_CACHE)"
 
 soak-pipeline: invariants-check
-	@chmod +x ./scripts/test/soak/soak-pipeline.sh
-	@./scripts/test/soak/soak-pipeline.sh \
+	@chmod +x ./scripts/test/pipeline/soak-pipeline.sh
+	@./scripts/test/pipeline/soak-pipeline.sh \
 		--out-file "$(SOAK_PIPELINE_OUT_FILE)" \
 		--go-cache "$(SOAK_GO_CACHE)"
 
@@ -462,8 +462,8 @@ soak-ws-delivery: invariants-check
 		--go-cache "$(SOAK_GO_CACHE)"
 
 soak-c4-production: invariants-check
-	@chmod +x ./scripts/test/soak/soak-c4-production.sh
-	@./scripts/test/soak/soak-c4-production.sh \
+	@chmod +x ./scripts/test/pipeline/soak-c4-production.sh
+	@./scripts/test/pipeline/soak-c4-production.sh \
 		--out-file "$(SOAK_C4_OUT_FILE)" \
 		--go-cache "$(SOAK_GO_CACHE)"
 
