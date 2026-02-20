@@ -259,35 +259,35 @@ docs-check-full:
 	@$(MAKE) registry-check
 
 check-doc-headers:
-	@./scripts/ci/check-doc-headers.sh
+	@./scripts/ci/docs/check-doc-headers.sh
 
 check-doc-links:
-	@./scripts/ci/check-doc-links.sh
+	@./scripts/ci/docs/check-doc-links.sh
 
 check-doc-links-changed:
-	@./scripts/ci/check-doc-links.sh --changed-only
+	@./scripts/ci/docs/check-doc-links.sh --changed-only
 
 check-truth-map:
-	@./scripts/ci/check-truth-map.sh
+	@./scripts/ci/docs/check-truth-map.sh
 
 check-feature-pack-links:
-	@./scripts/ci/check-feature-pack-links.sh
+	@./scripts/ci/docs/check-feature-pack-links.sh
 
 check-pack-subjects-vs-event-bus:
-	@./scripts/ci/check-pack-subjects-vs-event-bus.sh
+	@./scripts/ci/docs/check-pack-subjects-vs-event-bus.sh
 
 registry-check:
-	@./scripts/ci/check-registry.sh
+	@./scripts/ci/docs/check-registry.sh
 
 docs-fix:
-	@./scripts/ci/check-doc-headers.sh --fix-hints
-	@./scripts/ci/check-doc-links.sh --fix-hints
-	@./scripts/ci/check-truth-map.sh --fix-hints
-	@./scripts/ci/check-feature-pack-links.sh --fix-hints
-	@./scripts/ci/check-pack-subjects-vs-event-bus.sh --fix-hints
+	@./scripts/ci/docs/check-doc-headers.sh --fix-hints
+	@./scripts/ci/docs/check-doc-links.sh --fix-hints
+	@./scripts/ci/docs/check-truth-map.sh --fix-hints
+	@./scripts/ci/docs/check-feature-pack-links.sh --fix-hints
+	@./scripts/ci/docs/check-pack-subjects-vs-event-bus.sh --fix-hints
 
 invariants-check:
-	@./scripts/ci/check-domain-isolation.sh "$(CURDIR)"
+	@./scripts/ci/guards/check-domain-isolation.sh "$(CURDIR)"
 
 legacy-check-staged:
 	@./scripts/legacy-scan.sh --staged

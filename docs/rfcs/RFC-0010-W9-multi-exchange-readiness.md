@@ -50,7 +50,7 @@ Validar readiness multi-exchange no mesmo processo, preservando isolamento de do
 | W9-1: bybit adapter + wiring multi-exchange | Implemented | `cmd/consumer/e2e_consumer_integration_test.go:24` |
 | W9-2: gate E2E consumer multi-exchange | Implemented | `cmd/consumer/e2e_consumer_integration_test.go:24` |
 | W9-3: validações de subject para features | Implemented | `internal/shared/config/loader_test.go:610` |
-| MEX-4 core purity guard em invariants-check | Implemented | `scripts/ci/check-domain-isolation.sh` |
+| MEX-4 core purity guard em invariants-check | Implemented | `scripts/ci/guards/check-domain-isolation.sh` |
 
 ## Test Plan
 
@@ -92,7 +92,7 @@ Validações mínimas:
 | Guardian expected subsystem readiness | Implemented | `internal/actors/runtime/guardian.go:28`, `internal/actors/runtime/guardian_test.go:99` |
 | Consumer E2E multi-exchange | Implemented | `cmd/consumer/e2e_consumer_integration_test.go:24` |
 | Feature-subject fail-fast validation | Implemented | `internal/shared/config/loader_test.go:610` |
-| MEX-4 core purity guard (`internal/core` sem literais exchange-specific) | Implemented | `scripts/ci/check-domain-isolation.sh` |
+| MEX-4 core purity guard (`internal/core` sem literais exchange-specific) | Implemented | `scripts/ci/guards/check-domain-isolation.sh` |
 
 ## Evidence
 
@@ -114,4 +114,4 @@ Validações mínimas:
 - Normalização para contrato RFC doc-first.
 - Marcador explícito de implementação parcial.
 - Remoção de expectativa implícita de target inexistente (`audit-core-purity`) como se já estivesse entregue.
-- Guard MEX-4 integrado ao `invariants-check` via `scripts/ci/check-domain-isolation.sh`.
+- Guard MEX-4 integrado ao `invariants-check` via `scripts/ci/guards/check-domain-isolation.sh`.

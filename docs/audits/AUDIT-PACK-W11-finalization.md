@@ -9,16 +9,16 @@
 - Arquitetura: boundary de contratos em `internal/shared/contracts/*`; geração proto em `internal/shared/proto/gen/*` como camada de borda.
 - Arquitetura: runtime multi-exchange por configuração em `cmd/consumer/main.go` (`configuredExchanges`, `buildExchangeRuntimes`, `buildBybitRuntime`).
 - Arquitetura: estado crítico bounded via `internal/shared/ds/boundedmap.go` aplicado em ingest/aggregation (`internal/core/marketdata/app/ingest.go`, `internal/core/aggregation/app/update_orderbook.go`).
--- Invariante hard (Domain Isolation): guard de imports protobuf fora de `internal/shared/*` em `scripts/ci/check-domain-isolation.sh` + `internal/shared/contracts/import_guard_test.go:TestImportGuard_ProtoImportsStayInSharedBoundary`.
+-- Invariante hard (Domain Isolation): guard de imports protobuf fora de `internal/shared/*` em `scripts/ci/guards/check-domain-isolation.sh` + `internal/shared/contracts/import_guard_test.go:TestImportGuard_ProtoImportsStayInSharedBoundary`.
 - Invariante hard (Determinismo): encoding canônico e byte-stable em `internal/shared/replay/canon.go` + `internal/shared/replay/replay_test.go:TestDeterministicEncodingStable`.
 - Invariante hard (Golden replay): comparação byte-for-byte em `internal/shared/replay/golden_test.go:TestGoldenReplay` e `TestGoldenReplayByteStable50Runs`.
 - Invariante hard (Taxonomia de subject): validação estrita em `internal/adapters/jetstream/subject_validation.go` + `internal/adapters/jetstream/subject_validation_test.go`.
 - Invariante hard (ACK/NAK/TERM): decisão e aplicação em `internal/adapters/jetstream/consumer.go:ackWithDisposition` + `internal/adapters/jetstream/ingest_conformance_test.go`.
 - Invariante hard (test hooks fail-closed): `cmd/consumer/e2e_testhook.go:newE2ERuntime` e `cmd/processor/e2e_testhook.go:newE2ERuntime` validados por `*_e2e_testhook_test.go`.
 - Guardrail CI: `Makefile:invariants-check` é pré-requisito de `lint`, `test-workspace`, `test-workspace-race`.
--- Guardrail CI: `scripts/ci/check-domain-isolation.sh` falha em `google.golang.org/protobuf`/`github.com/golang/protobuf` dentro de `internal/core|actors|interfaces`.
--- Guardrail CI: `scripts/ci/check-domain-isolation.sh` falha em `time.Now()` dentro de `internal/core` (exceto `_test.go`).
--- Guardrail CI: `scripts/ci/check-domain-isolation.sh` falha se `internal/shared/replay` importar `github.com/nats-io/nats.go`.
+-- Guardrail CI: `scripts/ci/guards/check-domain-isolation.sh` falha em `google.golang.org/protobuf`/`github.com/golang/protobuf` dentro de `internal/core|actors|interfaces`.
+-- Guardrail CI: `scripts/ci/guards/check-domain-isolation.sh` falha em `time.Now()` dentro de `internal/core` (exceto `_test.go`).
+-- Guardrail CI: `scripts/ci/guards/check-domain-isolation.sh` falha se `internal/shared/replay` importar `github.com/nats-io/nats.go`.
 - Guardrail de testes: `internal/shared/metrics/metrics_test.go` protege cardinalidade/labels (inclui assert de ausência de label `instrument` em métricas de outcome).
 - Guardrail operacional: `internal/interfaces/http/server.go` expõe `/debug/pprof/*` somente quando `enablePprof` e via `localhostOnly`; caso contrário rota não é registrada.
 
@@ -26,7 +26,7 @@
 
 | Invariant | Code anchor (file:symbol) | Test anchor (file:test) | Doc anchor (ADR/RFC/PRD) |
 |---|---|---|---|
-| Domain isolation (core/actors/interfaces protobuf-free) | `scripts/ci/check-domain-isolation.sh:scan_with_rg` | `internal/shared/contracts/import_guard_test.go:TestImportGuard_ProtoImportsStayInSharedBoundary` | `docs/adrs/ADR-0001-bounded-contexts-and-boundaries.md`, `docs/adrs/ADR-0016-protobuf-contract-layer.md`, `docs/prd/PRD-0001-extreme-runtime.md` |
+| Domain isolation (core/actors/interfaces protobuf-free) | `scripts/ci/guards/check-domain-isolation.sh:scan_with_rg` | `internal/shared/contracts/import_guard_test.go:TestImportGuard_ProtoImportsStayInSharedBoundary` | `docs/adrs/ADR-0001-bounded-contexts-and-boundaries.md`, `docs/adrs/ADR-0016-protobuf-contract-layer.md`, `docs/prd/PRD-0001-extreme-runtime.md` |
 | Determinism / byte-stable / golden | `internal/shared/replay/canon.go:canonicalLineBytes`; `internal/shared/replay/player.go:Replay` | `internal/shared/replay/replay_test.go:TestDeterministicEncodingStable`; `internal/shared/replay/golden_test.go:TestGoldenReplayByteStable50Runs` | `docs/adrs/ADR-0015-deterministic-replay-time-invariants.md`; `docs/rfcs/RFC-0009-W8-deterministic-replay-golden-tests.md` |
 | Subject taxonomy strict | `internal/adapters/jetstream/subject_validation.go:ValidateSubjectTaxonomy` | `internal/adapters/jetstream/subject_validation_test.go:TestValidateSubjectTaxonomy_Invalid`; `TestValidateSubjectPattern_InvalidRootFailsFast` | `docs/adrs/ADR-0014-stream-partitioning-strategy.md`; `docs/rfcs/RFC-0008-W7-nats-jetstream-integration.md` |
 | Stream partitioning key | `internal/core/marketdata/domain/instrument_stream.go:StreamID.SequencerInstrumentKey`; `internal/core/marketdata/app/ingest.go:Execute` | `internal/core/marketdata/domain/instrument_stream_test.go:TestInstrumentStream_withMarketType`; `internal/core/marketdata/app/ingest_test.go:TestIngest_StreamIdentityIncludesMarketType` | `docs/adrs/ADR-0014-stream-partitioning-strategy.md`; `docs/prd/PRD-0001-extreme-runtime.md` |
@@ -40,7 +40,7 @@
 | # | Sintoma sob escala | Root cause provável | Evidência no repo | Mitigação mínima (sem redesign) | Regressão a monitorar |
 |---|---|---|---|---|---|
 | 1 | Golden muda sem mudança funcional | Uso indevido de `-update-golden` fora de fluxo controlado | `internal/shared/replay/golden_test.go:shouldUpdateGolden`; `testdata/golden/*` | Rodar CI sem `-update-golden`; exigir diff explícito de `testdata/golden/*` | Divergência frequente em `testdata/golden/` |
-| 2 | Replay deixa de ser offline | Introdução de dependência NATS no pacote replay | `scripts/ci/check-domain-isolation.sh` (bloco `replay_nats_violations`) | Manter `invariants-check` obrigatório em `lint/test` | Falha do guardrail ou import novo em `internal/shared/replay/*` |
+| 2 | Replay deixa de ser offline | Introdução de dependência NATS no pacote replay | `scripts/ci/guards/check-domain-isolation.sh` (bloco `replay_nats_violations`) | Manter `invariants-check` obrigatório em `lint/test` | Falha do guardrail ou import novo em `internal/shared/replay/*` |
 | 3 | Crescimento de heap em cardinalidade alta | `max_instruments` configurado alto em runtime | `internal/shared/config/schema.go`; `internal/core/marketdata/app/ingest.go`; `internal/core/aggregation/app/update_orderbook.go` | Fixar limites por ambiente em config e monitorar evictions | `ingest_streams_active`/`aggregation_books_active` subindo sem estabilizar |
 | 4 | Cardinalidade de métricas explode | Alteração de labels para incluir IDs dinâmicos | `internal/shared/metrics/metrics.go`; `internal/shared/metrics/metrics_test.go` | Preservar testes de labels + sanitização | Crescimento de séries em `ingest_*`/`insights_*` |
 | 5 | pprof exposto indevidamente | `enablePprof=true` com rede/proxy mal configurados | `internal/interfaces/http/server.go:registerPprofRoutes/localhostOnly`; `server_test.go` | Manter default desabilitado e bind loopback | Requisições remotas em `/debug/pprof/*` retornando 200 |
