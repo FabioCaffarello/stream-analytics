@@ -55,9 +55,10 @@ INSERT INTO aggregation_stats_cold (
     idempotency_key
 )`
 
-	markOpen, markHigh, markLow, markClose := adapterstorage.NullableMarkPrice(s)
-	fundingAvg, fundingLast := adapterstorage.NullableFundingRate(s)
-	idempotencyKey := adapterstorage.WindowIdempotencyKey(s.Venue, s.Instrument, s.Timeframe, s.WindowStartTs)
+	args, _, p := adapterstorage.MarshalStats(ctx, s)
+	if p != nil {
+		return problem.Wrap(p, problem.Unavailable, "clickhouse stats marshal failed")
+	}
 
 	batch, p := w.preparer.PrepareInsert(ctx, insertSQL)
 	if p != nil {
@@ -67,27 +68,7 @@ INSERT INTO aggregation_stats_cold (
 		_ = batch.Close()
 	}()
 
-	if p := batch.AppendRow(
-		ctx,
-		s.Venue,
-		s.Instrument,
-		s.Timeframe,
-		s.WindowStartTs,
-		s.WindowEndTs,
-		s.LiqBuyVolume,
-		s.LiqSellVolume,
-		s.LiqTotalVolume,
-		s.LiqCount,
-		markOpen,
-		markHigh,
-		markLow,
-		markClose,
-		fundingAvg,
-		fundingLast,
-		s.SeqFirst,
-		s.SeqLast,
-		idempotencyKey,
-	); p != nil {
+	if p := batch.AppendRow(ctx, args...); p != nil {
 		return problem.Wrap(p, problem.Unavailable, "clickhouse stats append failed")
 	}
 	if _, p := batch.Flush(ctx); p != nil {

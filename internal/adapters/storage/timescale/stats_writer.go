@@ -56,32 +56,11 @@ INSERT INTO aggregation_stats (
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 ON CONFLICT (venue, instrument, timeframe, window_start) DO NOTHING`
 
-	markOpen, markHigh, markLow, markClose := adapterstorage.NullableMarkPrice(s)
-	fundingAvg, fundingLast := adapterstorage.NullableFundingRate(s)
-	idempotencyKey := adapterstorage.WindowIdempotencyKey(s.Venue, s.Instrument, s.Timeframe, s.WindowStartTs)
-
-	if _, p := w.exec.Exec(
-		ctx,
-		upsertSQL,
-		s.Venue,
-		s.Instrument,
-		s.Timeframe,
-		s.WindowStartTs,
-		s.WindowEndTs,
-		s.LiqBuyVolume,
-		s.LiqSellVolume,
-		s.LiqTotalVolume,
-		s.LiqCount,
-		markOpen,
-		markHigh,
-		markLow,
-		markClose,
-		fundingAvg,
-		fundingLast,
-		s.SeqFirst,
-		s.SeqLast,
-		idempotencyKey,
-	); p != nil {
+	args, _, p := adapterstorage.MarshalStats(ctx, s)
+	if p != nil {
+		return problem.Wrap(p, problem.Unavailable, "timescale stats marshal failed")
+	}
+	if _, p := w.exec.Exec(ctx, upsertSQL, args...); p != nil {
 		return problem.Wrap(p, problem.Unavailable, "timescale stats upsert failed")
 	}
 
