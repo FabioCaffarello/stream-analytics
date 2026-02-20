@@ -145,11 +145,12 @@ type WSRateLimitConfig struct {
 
 // DeliveryConfig controls delivery subsystem runtime wiring in server binary.
 type DeliveryConfig struct {
-	Enabled                 bool               `json:"enabled"`
-	MaxSessions             int                `json:"max_sessions"`
-	BackpressurePolicy      string             `json:"backpressure_policy"`
-	SlowClientDropThreshold int                `json:"slow_client_drop_threshold"`
-	NATS                    DeliveryNATSConfig `json:"nats"`
+	Enabled                  bool               `json:"enabled"`
+	MaxSessions              int                `json:"max_sessions"`
+	SessionOutboundQueueSize int                `json:"session_outbound_queue_size"`
+	BackpressurePolicy       string             `json:"backpressure_policy"`
+	SlowClientDropThreshold  int                `json:"slow_client_drop_threshold"`
+	NATS                     DeliveryNATSConfig `json:"nats"`
 }
 
 // DeliveryNATSConfig controls delivery consumer behavior for NATS/JetStream.

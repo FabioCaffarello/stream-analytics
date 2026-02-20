@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"math"
 	"slices"
 	"strconv"
@@ -170,9 +169,8 @@ func (uc *BuildHeatmap) Execute(_ context.Context, req BuildHeatmapRequest) resu
 	if p := trimmed.Validate(); p != nil {
 		return result.FailProblem[BuildHeatmapResponse](p)
 	}
-	payload, _ := json.Marshal(trimmed)
 	metrics.SetHeatmapCells(trimmed.Venue, trimmed.Instrument, trimmed.Timeframe, len(trimmed.Cells))
-	metrics.ObserveHeatmapPayloadBytes(trimmed.Venue, trimmed.Instrument, trimmed.Timeframe, len(payload))
+	metrics.ObserveHeatmapPayloadBytes(trimmed.Venue, trimmed.Instrument, trimmed.Timeframe, estimateHeatmapPayloadSize(len(trimmed.Cells)))
 	metrics.SetHeatmapQueueDepth(trimmed.Venue, trimmed.Instrument, len(ws.cells))
 	metrics.ObserveHeatmapBuildLatency(trimmed.Venue, trimmed.Instrument, trimmed.Timeframe, 0)
 
@@ -316,24 +314,34 @@ func (uc *BuildHeatmap) coarsen(ws *windowState, tickSize float64) bool {
 	return true
 }
 
+// estimateHeatmapPayloadSize returns a rough byte count for the serialized
+// JSON artifact.  Uses O(1) arithmetic instead of json.Marshal to avoid
+// hot-path allocations.  Constants are intentionally conservative (over-
+// estimate) so that the budget is never exceeded.
+//
+// Each HeatmapCellV1 JSON object ≈ 280 bytes (9 key/value pairs including
+// float64 numbers up to ~15 chars, two int64 fields, one short string).
+// Artifact envelope (venue, instrument, timeframe, window bounds, cells array
+// wrapper) ≈ 200 bytes.
+func estimateHeatmapPayloadSize(cellCount int) int {
+	const (
+		overheadBytes = 200 // artifact envelope fields + JSON structure
+		cellBytes     = 280 // conservative upper bound per cell
+	)
+	return overheadBytes + cellCount*cellBytes
+}
+
 func (uc *BuildHeatmap) trimToPayloadBudget(a domain.HeatmapArtifactV1) domain.HeatmapArtifactV1 {
 	out := a
 	if len(out.Cells) == 0 {
 		return out
 	}
-	for len(out.Cells) > 1 {
-		raw, _ := json.Marshal(out)
-		if len(raw) <= uc.cfg.MaxPayloadBytes {
-			return out
-		}
-		limit := len(out.Cells) * 9 / 10
-		if limit == len(out.Cells) {
-			limit--
-		}
-		if limit < 1 {
-			limit = 1
-		}
-		out.Cells = pickTopNCells(out.Cells, limit)
+	maxCells := (uc.cfg.MaxPayloadBytes - 200) / 280
+	if maxCells < 1 {
+		maxCells = 1
+	}
+	if len(out.Cells) > maxCells {
+		out.Cells = pickTopNCells(out.Cells, maxCells)
 	}
 	return out
 }

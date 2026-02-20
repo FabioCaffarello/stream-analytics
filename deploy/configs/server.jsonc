@@ -36,6 +36,7 @@
   "delivery": {
     "enabled": true,
     "max_sessions": 10000,
+    "session_outbound_queue_size": 512,
     "backpressure_policy": "drop_newest",
     "slow_client_drop_threshold": 1000,
     "nats": {

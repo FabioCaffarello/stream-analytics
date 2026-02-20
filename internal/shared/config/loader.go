@@ -335,6 +335,9 @@ func validateDelivery(d DeliveryConfig) *problem.Problem {
 	if d.MaxSessions < 0 {
 		return problem.Newf(codeInvalid, "delivery.max_sessions must be >= 0, got %d", d.MaxSessions)
 	}
+	if d.SessionOutboundQueueSize <= 0 {
+		return problem.Newf(codeInvalid, "delivery.session_outbound_queue_size must be > 0, got %d", d.SessionOutboundQueueSize)
+	}
 	if d.SlowClientDropThreshold < 0 {
 		return problem.Newf(codeInvalid, "delivery.slow_client_drop_threshold must be >= 0, got %d", d.SlowClientDropThreshold)
 	}
@@ -931,6 +934,9 @@ func applyDefaults(c *AppConfig) {
 	c.HTTP.TLSKey = strings.TrimSpace(c.HTTP.TLSKey)
 	if c.Delivery.MaxSessions == 0 {
 		c.Delivery.MaxSessions = 10000
+	}
+	if c.Delivery.SessionOutboundQueueSize == 0 {
+		c.Delivery.SessionOutboundQueueSize = 512
 	}
 	if strings.TrimSpace(c.Delivery.BackpressurePolicy) == "" {
 		c.Delivery.BackpressurePolicy = "drop_newest"

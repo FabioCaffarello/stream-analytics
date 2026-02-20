@@ -201,7 +201,7 @@ func enableWSRoute(
 			routerPID,
 			logger,
 			rangeStore,
-			cfg.Delivery.MaxSessions,
+			cfg.Delivery.SessionOutboundQueueSize,
 			wsserver.WithAuthConfig(wsserver.AuthConfig{
 				Enabled: cfg.WS.Auth.Enabled,
 				APIKeys: cfg.WS.Auth.APIKeys,
