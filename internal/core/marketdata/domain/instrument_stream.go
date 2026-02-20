@@ -182,9 +182,9 @@ func (s *InstrumentStream) BuildEnvelope(
 	return env, nil
 }
 
-// buildIdempotencyKey constructs a stable, deterministic idempotency key via SHA-256.
+// buildIdempotencyKey constructs a stable, deterministic idempotency key via FNV-1a.
 func buildIdempotencyKey(venue VenueID, instrument InstrumentID, eventType EventType, seq Sequence) IdempotencyKey {
-	raw := hash.HashFields(
+	raw := hash.HashFieldsFast(
 		venue.String(),
 		instrument.String(),
 		eventType.String(),

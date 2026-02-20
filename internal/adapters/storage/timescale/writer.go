@@ -137,5 +137,5 @@ func snapshotFingerprint(snap aggdomain.SnapshotProduced) string {
 			strconv.FormatUint(math.Float64bits(float64(l.Quantity)), 36),
 		)
 	}
-	return sharedhash.HashFields(fields...)
+	return sharedhash.HashFieldsFast(fields...)
 }

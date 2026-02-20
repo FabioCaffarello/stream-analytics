@@ -173,7 +173,7 @@ func (uc *BuildVolumeProfile) Execute(_ context.Context, req BuildVolumeProfileR
 }
 
 func VolumeProfileIdempotencyKey(snapshot domain.VolumeProfileSnapshotV1, bucketLow, bucketHigh float64, seqMax int64) string {
-	return hash.HashFields(
+	return hash.HashFieldsFast(
 		naming.CanonicalVenue(snapshot.Venue),
 		naming.CanonicalInstrument(snapshot.Instrument),
 		strings.ToLower(strings.TrimSpace(snapshot.Timeframe)),

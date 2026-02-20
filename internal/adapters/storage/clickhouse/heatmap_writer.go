@@ -111,7 +111,7 @@ INSERT INTO aggregation_heatmap_cold (
 	}()
 
 	for _, cell := range artifact.Cells {
-		idempotencyKey := sharedhash.HashFields(
+		idempotencyKey := sharedhash.HashFieldsFast(
 			artifact.Venue,
 			artifact.Instrument,
 			artifact.Timeframe,

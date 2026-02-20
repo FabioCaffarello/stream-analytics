@@ -113,7 +113,7 @@ ON CONFLICT (
 ) DO NOTHING`
 
 	for _, cell := range artifact.Cells {
-		idempotencyKey := sharedhash.HashFields(
+		idempotencyKey := sharedhash.HashFieldsFast(
 			artifact.Venue,
 			artifact.Instrument,
 			artifact.Timeframe,

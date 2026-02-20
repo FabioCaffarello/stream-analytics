@@ -264,7 +264,7 @@ func storageKeyFromUpsert(in insightsports.VolumeProfileBucketUpsert) vpvrStorag
 }
 
 func operationFingerprint(in insightsports.VolumeProfileBucketUpsert) string {
-	return hash.HashFields(
+	return hash.HashFieldsFast(
 		strconv.FormatFloat(in.BuyVolume, 'f', -1, 64),
 		strconv.FormatFloat(in.SellVolume, 'f', -1, 64),
 		strconv.FormatFloat(in.TotalVolume, 'f', -1, 64),

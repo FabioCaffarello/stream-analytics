@@ -663,18 +663,23 @@ func (i ProcessorInsightsConfig) SweepEveryDuration() time.Duration {
 	return mustParseDuration(i.SweepEvery)
 }
 
+// mustParseDuration parses s as a Go duration. Returns 0 on invalid input
+// instead of panicking. Validate() catches invalid durations at startup; this
+// fallback only fires if Duration() is called without prior validation.
 func mustParseDuration(s string) time.Duration {
 	d, err := time.ParseDuration(s)
 	if err != nil {
-		panic(fmt.Sprintf("invalid duration %q: %v", s, err))
+		return 0
 	}
 	return d
 }
 
+// mustParseByteSize parses s as a byte size. Returns 0 on invalid input
+// instead of panicking.
 func mustParseByteSize(s string) int64 {
 	v, err := parseByteSize(s)
 	if err != nil {
-		panic(fmt.Sprintf("invalid byte size %q: %v", s, err))
+		return 0
 	}
 	return v
 }

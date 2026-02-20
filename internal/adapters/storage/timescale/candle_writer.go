@@ -56,7 +56,7 @@ INSERT INTO aggregation_candle (
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 ON CONFLICT (venue, instrument, timeframe, window_start) DO NOTHING`
 
-	idempotencyKey := sharedhash.HashFields(
+	idempotencyKey := sharedhash.HashFieldsFast(
 		c.Venue,
 		c.Instrument,
 		c.Timeframe,

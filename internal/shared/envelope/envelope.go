@@ -4,7 +4,6 @@
 package envelope
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/market-raccoon/internal/shared/problem"
@@ -134,7 +133,7 @@ func (e *Envelope) TopicKey() string {
 	venue := strings.ToLower(strings.TrimSpace(e.Venue))
 	instrument := strings.ToLower(strings.TrimSpace(e.Instrument))
 	eventType := strings.ToLower(strings.TrimSpace(e.Type))
-	return fmt.Sprintf("%s.%s.%s", eventType, venue, instrument)
+	return eventType + "." + venue + "." + instrument
 }
 
 // WithMeta returns a new Envelope with the given metadata key-value added.

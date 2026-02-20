@@ -1198,7 +1198,7 @@ func buildOrderbookSnapshotEnvelope(snapshot aggdomain.SnapshotProduced, nowMs i
 		Seq:         snapshot.Seq,
 		ContentType: envelope.ContentTypeJSON,
 		Payload:     payload,
-		IdempotencyKey: sharedhash.HashFields(
+		IdempotencyKey: sharedhash.HashFieldsFast(
 			"aggregation.snapshot",
 			snapshot.BookID.Venue,
 			snapshot.BookID.Instrument,
@@ -1233,7 +1233,7 @@ func buildHeatmapSnapshotEnvelope(snapshot insightsdomain.HeatmapArtifactV1, now
 		ContentType: ct,
 		Meta:        map[string]string{metaKeyTimeframe: snapshot.Timeframe},
 		Payload:     payload,
-		IdempotencyKey: sharedhash.HashFields(
+		IdempotencyKey: sharedhash.HashFieldsFast(
 			insightsdomain.HeatmapSnapshotType,
 			snapshot.Venue,
 			snapshot.Instrument,
@@ -1269,7 +1269,7 @@ func buildVolumeSnapshotEnvelope(snapshot insightsdomain.VolumeProfileSnapshotV1
 		ContentType: ct,
 		Meta:        map[string]string{metaKeyTimeframe: snapshot.Timeframe},
 		Payload:     payload,
-		IdempotencyKey: sharedhash.HashFields(
+		IdempotencyKey: sharedhash.HashFieldsFast(
 			insightsdomain.VolumeProfileSnapshotType,
 			snapshot.Venue,
 			snapshot.Instrument,
@@ -1342,7 +1342,7 @@ func buildSnapshotEnvelope(
 		ContentType: ct,
 		Meta:        meta,
 		Payload:     payload,
-		IdempotencyKey: sharedhash.HashFields(
+		IdempotencyKey: sharedhash.HashFieldsFast(
 			insightsdomain.CrossVenueTradeSnapshotType,
 			fmt.Sprintf("%d", insightsdomain.CrossVenueTradeSnapshotVersion),
 			strings.ToUpper(strings.TrimSpace(snapshot.Instrument)),
@@ -1390,7 +1390,7 @@ func buildSpreadSignalEnvelope(
 		ContentType: ct,
 		Meta:        meta,
 		Payload:     payload,
-		IdempotencyKey: sharedhash.HashFields(
+		IdempotencyKey: sharedhash.HashFieldsFast(
 			insightsdomain.CrossVenueSpreadSignalType,
 			fmt.Sprintf("%d", insightsdomain.CrossVenueSpreadSignalVersion),
 			strings.ToUpper(strings.TrimSpace(signal.Instrument)),

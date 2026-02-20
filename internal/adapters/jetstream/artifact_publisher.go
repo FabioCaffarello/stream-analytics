@@ -54,7 +54,7 @@ func (a *ArtifactPublisher) PublishSnapshot(ctx context.Context, snap aggdomain.
 		Instrument: snap.BookID.Instrument,
 		TsIngest:   a.clock(),
 		Seq:        snap.Seq,
-		IdempotencyKey: sharedhash.HashFields(
+		IdempotencyKey: sharedhash.HashFieldsFast(
 			"aggregation.snapshot",
 			snap.BookID.Venue,
 			snap.BookID.Instrument,
@@ -84,7 +84,7 @@ func (a *ArtifactPublisher) PublishInconsistent(ctx context.Context, evt aggdoma
 		Instrument: evt.BookID.Instrument,
 		TsIngest:   a.clock(),
 		Seq:        evt.Seq,
-		IdempotencyKey: sharedhash.HashFields(
+		IdempotencyKey: sharedhash.HashFieldsFast(
 			"aggregation.orderbook_inconsistency",
 			evt.BookID.Venue,
 			evt.BookID.Instrument,
@@ -115,7 +115,7 @@ func (a *ArtifactPublisher) PublishCandleClosed(ctx context.Context, evt aggdoma
 		Instrument: evt.Candle.Instrument,
 		TsIngest:   a.clock(),
 		Seq:        evt.Candle.SeqLast,
-		IdempotencyKey: sharedhash.HashFields(
+		IdempotencyKey: sharedhash.HashFieldsFast(
 			"aggregation.candle",
 			evt.Candle.Venue,
 			evt.Candle.Instrument,
@@ -146,7 +146,7 @@ func (a *ArtifactPublisher) PublishStatsClosed(ctx context.Context, evt aggdomai
 		Instrument: evt.Stats.Instrument,
 		TsIngest:   a.clock(),
 		Seq:        evt.Stats.SeqLast,
-		IdempotencyKey: sharedhash.HashFields(
+		IdempotencyKey: sharedhash.HashFieldsFast(
 			"aggregation.stats",
 			evt.Stats.Venue,
 			evt.Stats.Instrument,

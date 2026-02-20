@@ -23,3 +23,18 @@ func BenchmarkHotPathHashFields5(b *testing.B) {
 		)
 	}
 }
+
+// BenchmarkHotPathHashFieldsFast5 measures the FNV-1a fast-path replacement.
+func BenchmarkHotPathHashFieldsFast5(b *testing.B) {
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		benchHashSink = hash.HashFieldsFast(
+			"marketdata.trade",
+			"1",
+			"BTCUSDT",
+			"SPOT",
+			"bench-key-00001",
+		)
+	}
+}

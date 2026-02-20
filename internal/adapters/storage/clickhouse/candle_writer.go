@@ -54,7 +54,7 @@ INSERT INTO aggregation_candle_cold (
     idempotency_key
 )`
 
-	idempotencyKey := sharedhash.HashFields(
+	idempotencyKey := sharedhash.HashFieldsFast(
 		c.Venue,
 		c.Instrument,
 		c.Timeframe,

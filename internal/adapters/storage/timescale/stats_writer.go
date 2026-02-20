@@ -61,7 +61,7 @@ ON CONFLICT (venue, instrument, timeframe, window_start) DO NOTHING`
 	markOpen, markHigh, markLow, markClose := nullableMarkPrice(s)
 	fundingAvg, fundingLast := nullableFundingRate(s)
 
-	idempotencyKey := sharedhash.HashFields(
+	idempotencyKey := sharedhash.HashFieldsFast(
 		s.Venue,
 		s.Instrument,
 		s.Timeframe,

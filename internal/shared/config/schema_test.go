@@ -34,14 +34,12 @@ func TestJetStreamHelpers_Valid(t *testing.T) {
 	}
 }
 
-func TestMustParseDuration_PanicsOnInvalid(t *testing.T) {
-	defer func() {
-		if recover() == nil {
-			t.Fatal("expected panic for invalid duration")
-		}
-	}()
+func TestMustParseDuration_ReturnsZeroOnInvalid(t *testing.T) {
 	c := ConsumerConfig{MaxWebsocketLifetime: "invalid"}
-	_ = c.MaxWebsocketLifetimeDuration()
+	got := c.MaxWebsocketLifetimeDuration()
+	if got != 0 {
+		t.Fatalf("MaxWebsocketLifetimeDuration(%q) = %s, want 0", "invalid", got)
+	}
 }
 
 func TestProcessorInsightsSweepEveryDuration_EmptyIsZero(t *testing.T) {

@@ -290,7 +290,7 @@ func buildQuarantineEnvelope(msg *nats.Msg, env envelope.Envelope, reasonCode st
 		TsExchange:     env.TsExchange,
 		TsIngest:       boundedPositiveTsIngest(env.TsIngest),
 		Seq:            boundedNonNegativeSeq(env.Seq),
-		IdempotencyKey: sharedhash.HashFields("quarantine", payload.ReasonCode, payload.Source.Subject, payload.Source.MsgID, payload.Source.IdempotencyKey, payload.Source.PayloadSHA256),
+		IdempotencyKey: sharedhash.HashFieldsFast("quarantine", payload.ReasonCode, payload.Source.Subject, payload.Source.MsgID, payload.Source.IdempotencyKey, payload.Source.PayloadSHA256),
 		ContentType:    envelope.ContentTypeJSON,
 		Payload:        payloadBytes,
 	}
@@ -310,7 +310,7 @@ func resolveQuarantineSource(msg *nats.Msg, env envelope.Envelope) quarantineSou
 
 	originalID := fallbackOrDefault(strings.TrimSpace(env.IdempotencyKey), msgID)
 	if originalID == "" {
-		originalID = sharedhash.HashFields(msg.Subject, payloadSHA)
+		originalID = sharedhash.HashFieldsFast(msg.Subject, payloadSHA)
 	}
 
 	return quarantineSource{

@@ -51,6 +51,40 @@ func TestHashFields_separatorPreventsCollision(t *testing.T) {
 	}
 }
 
+func TestHashFieldsFast_stable(t *testing.T) {
+	h1 := hash.HashFieldsFast("binance", "BTC-PERP", "123456")
+	h2 := hash.HashFieldsFast("binance", "BTC-PERP", "123456")
+	if h1 != h2 {
+		t.Error("HashFieldsFast must be stable")
+	}
+}
+
+func TestHashFieldsFast_orderMatters(t *testing.T) {
+	h1 := hash.HashFieldsFast("a", "b")
+	h2 := hash.HashFieldsFast("b", "a")
+	if h1 == h2 {
+		t.Error("HashFieldsFast(a,b) must differ from HashFieldsFast(b,a)")
+	}
+}
+
+func TestHashFieldsFast_separatorPreventsCollision(t *testing.T) {
+	h1 := hash.HashFieldsFast("ab", "c")
+	h2 := hash.HashFieldsFast("a", "bc")
+	if h1 == h2 {
+		t.Error("HashFieldsFast must avoid concatenation collisions")
+	}
+}
+
+func TestHashFieldsFast_isHex(t *testing.T) {
+	got := hash.HashFieldsFast("test")
+	for _, c := range got {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			t.Errorf("HashFieldsFast output contains non-hex char %q in %q", string(c), got)
+			break
+		}
+	}
+}
+
 func TestHashFloat64Sequence_stable(t *testing.T) {
 	vals := []float64{1.0, 2.5, 3.14159}
 	h1 := hash.HashFloat64Sequence(vals)

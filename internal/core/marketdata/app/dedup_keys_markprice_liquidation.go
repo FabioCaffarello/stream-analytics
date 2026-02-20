@@ -20,9 +20,9 @@ func BuildMarkPriceDedupKey(
 ) string {
 	base := lmDedupBase(markPriceEventType, version, venue, instrument)
 	if src := strings.TrimSpace(sourceIdempotency); src != "" {
-		return sharedhash.HashFields(append(base, src)...)
+		return sharedhash.HashFieldsFast(append(base, src)...)
 	}
-	return sharedhash.HashFields(append(base,
+	return sharedhash.HashFieldsFast(append(base,
 		strconv.FormatFloat(payload.MarkPrice, 'f', -1, 64),
 		strconv.FormatFloat(payload.IndexPrice, 'f', -1, 64),
 		strconv.FormatFloat(payload.FundingRate, 'f', -1, 64),
@@ -43,9 +43,9 @@ func BuildLiquidationDedupKey(
 ) string {
 	base := lmDedupBase(liquidationEventType, version, venue, instrument)
 	if src := strings.TrimSpace(sourceIdempotency); src != "" {
-		return sharedhash.HashFields(append(base, src)...)
+		return sharedhash.HashFieldsFast(append(base, src)...)
 	}
-	return sharedhash.HashFields(append(base,
+	return sharedhash.HashFieldsFast(append(base,
 		strings.ToLower(strings.TrimSpace(payload.Side)),
 		strconv.FormatFloat(payload.Price, 'f', -1, 64),
 		strconv.FormatFloat(payload.Size, 'f', -1, 64),

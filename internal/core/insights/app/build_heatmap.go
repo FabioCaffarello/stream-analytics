@@ -68,7 +68,7 @@ type windowState struct {
 	windowStartMs int64
 	windowEndMs   int64
 	priceMult     int64
-	cells         map[string]*heatmapCellState
+	cells         map[int64]*heatmapCellState
 }
 
 type heatmapCellState struct {
@@ -188,7 +188,7 @@ func HeatmapArtifactIdempotencyKey(a domain.HeatmapArtifactV1) string {
 		return ""
 	}
 	last := a.Cells[len(a.Cells)-1]
-	return hash.HashFields(
+	return hash.HashFieldsFast(
 		naming.CanonicalVenue(a.Venue),
 		naming.CanonicalInstrument(a.Instrument),
 		strings.ToLower(strings.TrimSpace(a.Timeframe)),
@@ -223,7 +223,7 @@ func (uc *BuildHeatmap) getWindow(ps *partitionState, start, end int64) *windowS
 		windowStartMs: start,
 		windowEndMs:   end,
 		priceMult:     1,
-		cells:         make(map[string]*heatmapCellState),
+		cells:         make(map[int64]*heatmapCellState),
 	}
 	ps.windows[start] = ws
 	ps.order = append(ps.order, start)
@@ -282,7 +282,7 @@ func (uc *BuildHeatmap) coarsen(ws *windowState, tickSize float64) bool {
 		return false
 	}
 	ws.priceMult *= 2
-	next := make(map[string]*heatmapCellState, len(ws.cells))
+	next := make(map[int64]*heatmapCellState, len(ws.cells))
 	for _, c := range ws.cells {
 		priceIdx := bucketIndex(c.priceMid, tickSize, ws.priceMult)
 		low, high := priceBounds(priceIdx, tickSize, ws.priceMult)
@@ -429,8 +429,25 @@ func priceBounds(bucketIdx int64, tick float64, mult int64) (float64, float64) {
 	return low, high
 }
 
-func makeCellKey(priceIdx int64, sizeBucket string) string {
-	return strconv.FormatInt(priceIdx, 10) + "|" + strings.ToUpper(strings.TrimSpace(sizeBucket))
+func makeCellKey(priceIdx int64, sizeBucket string) int64 {
+	return priceIdx<<4 | int64(sizeToOrdinal(sizeBucket))
+}
+
+func sizeToOrdinal(s string) int {
+	switch s {
+	case "XS":
+		return 0
+	case "S":
+		return 1
+	case "M":
+		return 2
+	case "L":
+		return 3
+	case "XL":
+		return 4
+	default:
+		return 5
+	}
 }
 
 func toSizeBucket(size float64) string {
@@ -463,9 +480,9 @@ func applyEventVolume(c *heatmapCellState, req BuildHeatmapRequest) {
 	}
 }
 
-func keepTopCells(cells map[string]*heatmapCellState, n int) map[string]*heatmapCellState {
+func keepTopCells(cells map[int64]*heatmapCellState, n int) map[int64]*heatmapCellState {
 	type row struct {
-		key  string
+		key  int64
 		cell *heatmapCellState
 	}
 	list := make([]row, 0, len(cells))
@@ -498,7 +515,7 @@ func keepTopCells(cells map[string]*heatmapCellState, n int) map[string]*heatmap
 	if n > len(list) {
 		n = len(list)
 	}
-	out := make(map[string]*heatmapCellState, n)
+	out := make(map[int64]*heatmapCellState, n)
 	for _, r := range list[:n] {
 		out[r.key] = r.cell
 	}

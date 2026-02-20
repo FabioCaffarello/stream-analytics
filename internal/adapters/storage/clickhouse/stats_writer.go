@@ -59,7 +59,7 @@ INSERT INTO aggregation_stats_cold (
 	markOpen, markHigh, markLow, markClose := statsNullableMarkPrice(s)
 	fundingAvg, fundingLast := statsNullableFundingRate(s)
 
-	idempotencyKey := sharedhash.HashFields(
+	idempotencyKey := sharedhash.HashFieldsFast(
 		s.Venue,
 		s.Instrument,
 		s.Timeframe,
