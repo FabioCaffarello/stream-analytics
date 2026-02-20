@@ -9,6 +9,7 @@ import (
 
 	"github.com/anthdm/hollywood/actor"
 	"github.com/market-raccoon/internal/shared/metrics"
+	"github.com/market-raccoon/internal/shared/problem"
 )
 
 // GuardianConfig configures runtime orchestration behavior.
@@ -66,7 +67,7 @@ type Guardian struct {
 
 	started bool
 
-	spawnFn  func(c *actor.Context, subsystem Subsystem) (*actor.PID, error)
+	spawnFn  func(c *actor.Context, subsystem Subsystem) (*actor.PID, *problem.Problem)
 	poisonFn func(c *actor.Context, pid *actor.PID)
 	sendFn   func(c *actor.Context, pid *actor.PID, msg any)
 	emitFn   func(c *actor.Context, msg any)
@@ -168,9 +169,9 @@ func (g *Guardian) ensureDefaults(c *actor.Context) bool {
 		if g.cfg.Policy != nil {
 			g.policy = g.cfg.Policy
 		} else {
-			policy, err := NewSupervisorPolicy(SupervisorConfig{}, g.clock, nil)
-			if err != nil {
-				g.logger.Error("failed to create default supervisor policy", "err", err)
+			policy, p := NewSupervisorPolicy(SupervisorConfig{}, g.clock, nil)
+			if p != nil {
+				g.logger.Error("failed to create default supervisor policy", "err", p)
 				if c != nil {
 					c.Engine().Poison(c.PID())
 				}
@@ -318,11 +319,11 @@ func (g *Guardian) stopAll(c *actor.Context) {
 }
 
 func (g *Guardian) startSubsystem(c *actor.Context, subsystem Subsystem) {
-	pid, err := g.spawnFn(c, subsystem)
-	if err != nil {
-		g.lastError[subsystem] = err.Error()
+	pid, p := g.spawnFn(c, subsystem)
+	if p != nil {
+		g.lastError[subsystem] = p.Error()
 		g.running[subsystem] = false
-		g.logger.Error("failed to spawn subsystem", "subsystem", subsystem, "err", err)
+		g.logger.Error("failed to spawn subsystem", "subsystem", subsystem, "err", p)
 		g.invalidateSnapshot()
 		return
 	}
@@ -580,9 +581,9 @@ func (g *Guardian) buildSnapshot() SnapshotState {
 	return state
 }
 
-func (g *Guardian) spawnSubsystem(c *actor.Context, subsystem Subsystem) (*actor.PID, error) {
+func (g *Guardian) spawnSubsystem(c *actor.Context, subsystem Subsystem) (*actor.PID, *problem.Problem) {
 	if c == nil {
-		return nil, fmt.Errorf("actor context is nil")
+		return nil, problem.New(problem.Internal, "actor context is nil")
 	}
 	producer := subsystemPlaceholder(subsystem)
 	if factory, ok := g.cfg.Factories[subsystem]; ok && factory != nil {

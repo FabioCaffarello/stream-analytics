@@ -1,7 +1,6 @@
 package mdruntime
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -72,7 +71,7 @@ func (t *parserTelemetry) recordSkip(exchange, eventType, reason, problemCode, t
 
 	t.byEvent[event]++
 	t.bySkipReason[skipReason]++
-	t.byExchangeEventAndSkip[fmt.Sprintf("%s|%s|%s", ex, event, skipReason)]++
+	t.byExchangeEventAndSkip[ex+"|"+event+"|"+skipReason]++
 	incCapped(t.byTicker, normalizeLabel(ticker, "unknown"), maxTelemetryKeys)
 	if bucket := normalizeWSStreamLabel(wsStream); bucket != "" {
 		t.byWSStream[bucket]++

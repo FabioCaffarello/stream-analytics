@@ -700,14 +700,14 @@ func (s *SessionActor) flushOutbound() {
 	s.flushing = false
 }
 
-func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) error {
+func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) *problem.Problem {
 	if s.cfg.PreferProto && contracts.ProtoRolloutEnabledForEventType(evt.Env.Type) {
 		raw, p := contracts.MarshalEnvelopeV1FromDomain(evt.Env)
 		if p != nil {
 			return p
 		}
 		if err := s.writeProtoDirect(websocket.BinaryMessage, raw); err != nil {
-			return err
+			return problem.Wrap(err, problem.Internal, "proto write failed")
 		}
 		observability.IncDeliveryProto()
 		return nil
@@ -729,7 +729,7 @@ func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) error {
 			}
 			transcoded, err := json.Marshal(decoded)
 			if err != nil {
-				return fmt.Errorf("proto→json transcode: %w", err)
+				return problem.Wrap(err, problem.Internal, "proto→json transcode failed")
 			}
 			payload = json.RawMessage(transcoded)
 		}
@@ -741,7 +741,7 @@ func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) error {
 		TsIngest: evt.Env.TsIngest,
 		Payload:  payload,
 	}); err != nil {
-		return err
+		return problem.Wrap(err, problem.Internal, "json write failed")
 	}
 	observability.IncDeliveryJSON()
 	return nil

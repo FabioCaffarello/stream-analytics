@@ -50,8 +50,8 @@ type InstrumentStream struct {
 	id              StreamID
 	dedupWindow     DedupWindow
 	lastSeq         Sequence
-	seen            map[IdempotencyKey]struct{}
-	seenOrd         []IdempotencyKey
+	seen            map[uint64]struct{}
+	seenOrd         []uint64
 	outOfOrderCount int
 	duplicateCount  int
 }
@@ -89,7 +89,7 @@ func NewInstrumentStreamWithMarketType(
 	return &InstrumentStream{
 		id:          StreamID{Venue: venue, Instrument: instrument, MarketType: marketType},
 		dedupWindow: dedupWindow,
-		seen:        make(map[IdempotencyKey]struct{}, cap),
+		seen:        make(map[uint64]struct{}, cap),
 	}, nil
 }
 
@@ -140,14 +140,18 @@ func (s *InstrumentStream) BuildEnvelope(
 		)
 	}
 
-	// 2. Resolve idempotency key (source-provided first, deterministic fallback).
-	ikey, p := resolveIdempotencyKey(s.id.Venue, s.id.Instrument, eventType, seq, sourceIdempotencyKey)
-	if p != nil {
-		return envelope.Envelope{}, p
+	// 3. Resolve and Check dedup.
+	var ikey IdempotencyKey
+	var ikeyHash uint64
+	if sourceIdempotencyKey != "" {
+		ikey = IdempotencyKey(sourceIdempotencyKey)
+		ikeyHash = hash.SumFieldsFast64(sourceIdempotencyKey)
+	} else {
+		ikey = buildIdempotencyKey(VenueID(s.id.Venue), InstrumentID(s.id.Instrument), eventType, seq)
+		ikeyHash = hash.SumIdempotencyKeyFast64(string(s.id.Venue), string(s.id.Instrument), string(eventType), int64(seq))
 	}
 
-	// 3. Check dedup.
-	if _, dup := s.seen[ikey]; dup {
+	if _, dup := s.seen[ikeyHash]; dup {
 		s.duplicateCount++
 		return envelope.Envelope{}, problem.WithDetail(
 			problem.Newf(problem.Duplicate,
@@ -177,60 +181,23 @@ func (s *InstrumentStream) BuildEnvelope(
 
 	// 6. Commit state (only after all checks pass).
 	s.lastSeq = seq
-	s.recordSeen(ikey)
+	s.recordSeen(ikeyHash)
 
 	return env, nil
 }
 
 // buildIdempotencyKey constructs a stable, deterministic idempotency key via FNV-1a.
 func buildIdempotencyKey(venue VenueID, instrument InstrumentID, eventType EventType, seq Sequence) IdempotencyKey {
-	raw := hash.HashFieldsFast(
+	return IdempotencyKey(hash.IdempotencyKeyFast(
 		venue.String(),
 		instrument.String(),
 		eventType.String(),
-		seqToString(seq),
-	)
-	return IdempotencyKey(raw)
+		seq.Int64(),
+	))
 }
 
-func resolveIdempotencyKey(
-	venue VenueID,
-	instrument InstrumentID,
-	eventType EventType,
-	seq Sequence,
-	source string,
-) (IdempotencyKey, *problem.Problem) {
-	if source == "" {
-		return buildIdempotencyKey(venue, instrument, eventType, seq), nil
-	}
-	return NewIdempotencyKey(source)
-}
-
-func seqToString(s Sequence) string {
-	n := s.Int64()
-	if n == 0 {
-		return "0"
-	}
-	buf := [20]byte{}
-	pos := len(buf)
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	for n > 0 {
-		pos--
-		buf[pos] = byte('0' + n%10)
-		n /= 10
-	}
-	if neg {
-		pos--
-		buf[pos] = '-'
-	}
-	return string(buf[pos:])
-}
-
-// recordSeen adds ikey to the dedup cache, evicting oldest entry if at capacity.
-func (s *InstrumentStream) recordSeen(ikey IdempotencyKey) {
+// recordSeen adds ikeyHash to the dedup cache, evicting oldest entry if at capacity.
+func (s *InstrumentStream) recordSeen(ikeyHash uint64) {
 	maxSize := s.dedupWindow.Size()
 	if len(s.seenOrd) >= maxSize {
 		oldest := s.seenOrd[0]
@@ -240,11 +207,11 @@ func (s *InstrumentStream) recordSeen(ikey IdempotencyKey) {
 		// Compact: when the backing array is more than 2x the live slice,
 		// copy into a fresh allocation to release the unused prefix.
 		if cap(s.seenOrd) > 2*len(s.seenOrd)+1 {
-			compacted := make([]IdempotencyKey, len(s.seenOrd), maxSize)
+			compacted := make([]uint64, len(s.seenOrd), maxSize)
 			copy(compacted, s.seenOrd)
 			s.seenOrd = compacted
 		}
 	}
-	s.seen[ikey] = struct{}{}
-	s.seenOrd = append(s.seenOrd, ikey)
+	s.seen[ikeyHash] = struct{}{}
+	s.seenOrd = append(s.seenOrd, ikeyHash)
 }

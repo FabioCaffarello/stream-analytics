@@ -54,6 +54,9 @@ type Envelope struct {
 
 	// Payload is the versioned, serialized domain event (e.g. CBOR-encoded TradeTickV1).
 	Payload []byte `json:"payload" cbor:"payload"`
+
+	// topicKey is a runtime cache for the routing subject.
+	topicKey string `json:"-" cbor:"-"`
 }
 
 // Validate checks that the envelope satisfies the invariants from ADR-0002.
@@ -130,10 +133,14 @@ func (e *Envelope) Validate() *problem.Problem {
 //
 // The returned key is stable for the same inputs and does NOT depend on runtime state.
 func (e *Envelope) TopicKey() string {
+	if e.topicKey != "" {
+		return e.topicKey
+	}
 	venue := strings.ToLower(strings.TrimSpace(e.Venue))
 	instrument := strings.ToLower(strings.TrimSpace(e.Instrument))
 	eventType := strings.ToLower(strings.TrimSpace(e.Type))
-	return eventType + "." + venue + "." + instrument
+	e.topicKey = eventType + "." + venue + "." + instrument
+	return e.topicKey
 }
 
 // WithMeta returns a new Envelope with the given metadata key-value added.

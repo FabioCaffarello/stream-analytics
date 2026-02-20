@@ -38,6 +38,9 @@ type StatsReader interface {
 	// GetStatsTimestamps returns only window_start timestamps for gap detection.
 	GetStatsTimestamps(ctx context.Context, venue, instrument, timeframe string, fromMs, toMs int64) ([]int64, *problem.Problem)
 
+	// GetStatsRange returns stats windows in [fromMs, toMs] ordered by window_start ASC.
+	GetStatsRange(ctx context.Context, venue, instrument, timeframe string, fromMs, toMs int64, limit int) ([]domain.StatsWindowV1, *problem.Problem)
+
 	// GetFirstStats returns the earliest stats window by window_start.
 	GetFirstStats(ctx context.Context, venue, instrument, timeframe string) (*domain.StatsWindowV1, *problem.Problem)
 

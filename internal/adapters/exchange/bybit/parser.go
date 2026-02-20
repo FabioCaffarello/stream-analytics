@@ -3,10 +3,10 @@ package bybit
 
 import (
 	"encoding/json"
-	"fmt"
 	"math"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/market-raccoon/internal/core/marketdata/app"
@@ -19,6 +19,8 @@ const (
 	// VenueBybit is the canonical venue identifier emitted for Bybit events.
 	VenueBybit = "BYBIT"
 )
+
+var metadataCache sync.Map // map[string]map[string]string
 
 type tradeEnvelope struct {
 	Topic string      `json:"topic"`
@@ -497,11 +499,11 @@ func parseLiquidation(data []byte, recvAt time.Time, marketType string) (app.Ing
 }
 
 func buildTradeIdempotencyKey(venue, instrument, tradeID string) string {
-	return fmt.Sprintf("venue=%s|instrument=%s|trade_id=%s", venue, instrument, tradeID)
+	return "venue=" + venue + "|instrument=" + instrument + "|trade_id=" + tradeID
 }
 
 func buildDepthIdempotencyKey(venue, instrument string, finalUpdateID int64) string {
-	return fmt.Sprintf("venue=%s|instrument=%s|final_update_id=%d", venue, instrument, finalUpdateID)
+	return "venue=" + venue + "|instrument=" + instrument + "|final_update_id=" + strconv.FormatInt(finalUpdateID, 10)
 }
 
 func parseLevels(raw [][]string) ([]domain.PriceLevel, *problem.Problem) {
@@ -611,24 +613,34 @@ func symbolFromTopic(topic string) string {
 }
 
 func buildInstrumentMetadata(venueSymbol, canonical, marketType string) map[string]string {
+	cacheKey := venueSymbol + "|" + canonical + "|" + marketType
+	if val, ok := metadataCache.Load(cacheKey); ok {
+		cachedMeta := val.(map[string]string)
+		// Return a clone to allow adding contextual info without modifying cached value
+		cloned := make(map[string]string, len(cachedMeta))
+		for k, v := range cachedMeta {
+			cloned[k] = v
+		}
+		return cloned
+	}
+
 	meta := map[string]string{
 		"instrument_venue_symbol": strings.ToUpper(strings.TrimSpace(venueSymbol)),
 		"instrument_canonical":    canonical,
 		"instrument_market_type":  marketType,
 	}
-	canonicalPair := canonicalPairFromBybitSymbol(venueSymbol)
-	if canonicalPair == "" {
-		return meta
+	if cp := canonicalPairFromBybitSymbol(venueSymbol); cp != "" {
+		meta["instrument_pair"] = cp
 	}
-	id, p := domain.NewInstrumentIdentity(canonicalPair, venueSymbol, marketType)
-	if p != nil {
-		return meta
+
+	metadataCache.Store(cacheKey, meta)
+
+	// Return a clone so the caller can modify it safely
+	cloned := make(map[string]string, len(meta))
+	for k, v := range meta {
+		cloned[k] = v
 	}
-	meta["instrument_pair"] = id.Canonical
-	meta["instrument_base"] = id.Base
-	meta["instrument_quote"] = id.Quote
-	meta["instrument_market_type"] = id.MarketType.String()
-	return meta
+	return cloned
 }
 
 func canonicalPairFromBybitSymbol(symbol string) string {

@@ -2,9 +2,9 @@ package hyperliquid
 
 import (
 	"encoding/json"
-	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/market-raccoon/internal/core/marketdata/app"
@@ -14,6 +14,8 @@ import (
 )
 
 const VenueHyperLiquid = "HYPERLIQUID"
+
+var metadataCache sync.Map // map[string]map[string]string
 
 type wsResponse struct {
 	Channel string          `json:"channel"`
@@ -140,7 +142,7 @@ func parseTrades(data json.RawMessage, recvAt time.Time, marketType string) (app
 	}
 	tradeID := strings.TrimSpace(entry.Hash)
 	if tradeID == "" || isZeroHash(tradeID) {
-		tradeID = fmt.Sprintf("%d", entry.Tid)
+		tradeID = strconv.FormatInt(entry.Tid, 10)
 	}
 	if strings.TrimSpace(tradeID) == "" || tradeID == "0" {
 		return app.IngestRequest{}, true, problem.New(problem.ValidationFailed, "hyperliquid trades: trade id is empty")
@@ -322,14 +324,19 @@ func normalizeSide(side string) (string, *problem.Problem) {
 }
 
 func buildTradeIdempotencyKey(venue, instrument, tradeID string) string {
-	return fmt.Sprintf("venue=%s|instrument=%s|trade_id=%s", venue, instrument, tradeID)
+	return "venue=" + venue + "|instrument=" + instrument + "|trade_id=" + tradeID
 }
 
 func buildDepthIdempotencyKey(venue, instrument string, finalUpdateID int64) string {
-	return fmt.Sprintf("venue=%s|instrument=%s|final_update_id=%d", venue, instrument, finalUpdateID)
+	return "venue=" + venue + "|instrument=" + instrument + "|final_update_id=" + strconv.FormatInt(finalUpdateID, 10)
 }
 
 func buildInstrumentMetadata(venueSymbol, canonical, marketType string) map[string]string {
+	cacheKey := venueSymbol + "|" + canonical + "|" + marketType
+	if val, ok := metadataCache.Load(cacheKey); ok {
+		return val.(map[string]string)
+	}
+
 	meta := map[string]string{
 		"instrument_venue_symbol": strings.ToUpper(strings.TrimSpace(venueSymbol)),
 		"instrument_canonical":    canonical,
@@ -338,6 +345,8 @@ func buildInstrumentMetadata(venueSymbol, canonical, marketType string) map[stri
 	if venueSymbol != "" {
 		meta["instrument_pair"] = strings.ToUpper(strings.TrimSpace(venueSymbol)) + "-USD"
 	}
+
+	metadataCache.Store(cacheKey, meta)
 	return meta
 }
 
@@ -402,15 +411,14 @@ func ParseAllMids(subscribedCoins map[string]bool, marketType string) func(data 
 				continue
 			}
 			reqs = append(reqs, app.IngestRequest{
-				Venue:      VenueHyperLiquid,
-				Instrument: instrument,
-				MarketType: marketType,
-				EventType:  "marketdata.markprice",
-				Version:    1,
-				TsExchange: tsExchange,
-				IdempotencyKey: fmt.Sprintf("venue=%s|instrument=%s|markprice|ts=%d",
-					VenueHyperLiquid, instrument, tsExchange),
-				Metadata: buildInstrumentMetadata(upperCoin, instrument, marketType),
+				Venue:          VenueHyperLiquid,
+				Instrument:     instrument,
+				MarketType:     marketType,
+				EventType:      "marketdata.markprice",
+				Version:        1,
+				TsExchange:     tsExchange,
+				IdempotencyKey: "venue=" + VenueHyperLiquid + "|instrument=" + instrument + "|markprice|ts=" + strconv.FormatInt(tsExchange, 10),
+				Metadata:       buildInstrumentMetadata(upperCoin, instrument, marketType),
 				Payload: domain.MarkPriceTickV1{
 					MarkPrice:   mid,
 					IndexPrice:  0,

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/anthdm/hollywood/actor"
+	"github.com/market-raccoon/internal/shared/problem"
 )
 
 type fakeClock struct {
@@ -24,7 +25,7 @@ func (f fixedRNG) Float64() float64 { return f.value }
 
 func newTestPolicy(t *testing.T, clock Clock) *SupervisorPolicy {
 	t.Helper()
-	policy, err := NewSupervisorPolicy(SupervisorConfig{
+	policy, prob := NewSupervisorPolicy(SupervisorConfig{
 		BaseBackoff:   time.Second,
 		MaxBackoff:    4 * time.Second,
 		Jitter:        0,
@@ -32,8 +33,8 @@ func newTestPolicy(t *testing.T, clock Clock) *SupervisorPolicy {
 		RestartLimit:  2,
 		Cooldown:      10 * time.Second,
 	}, clock, fixedRNG{value: 0.5})
-	if err != nil {
-		t.Fatalf("new policy: %v", err)
+	if prob != nil {
+		t.Fatalf("new policy: %v", prob)
 	}
 	return policy
 }
@@ -63,7 +64,7 @@ func TestGuardian_StartStopDeterministicOrder(t *testing.T) {
 	var stopped []Subsystem
 	pidToSubsystem := map[string]Subsystem{}
 
-	g.spawnFn = func(c *actor.Context, subsystem Subsystem) (*actor.PID, error) {
+	g.spawnFn = func(c *actor.Context, subsystem Subsystem) (*actor.PID, *problem.Problem) {
 		started = append(started, subsystem)
 		pid := actor.NewPID("local", fmt.Sprintf("%s-child", subsystem))
 		pidToSubsystem[pid.ID] = subsystem
@@ -108,7 +109,7 @@ func TestGuardian_StartOrder_DynamicMarketDataKeys(t *testing.T) {
 	}
 
 	var started []Subsystem
-	g.spawnFn = func(c *actor.Context, subsystem Subsystem) (*actor.PID, error) {
+	g.spawnFn = func(c *actor.Context, subsystem Subsystem) (*actor.PID, *problem.Problem) {
 		started = append(started, subsystem)
 		return actor.NewPID("local", fmt.Sprintf("%s-child", subsystem)), nil
 	}
@@ -155,7 +156,7 @@ func TestGuardian_ChildFailedBackoffAndDegrade(t *testing.T) {
 	g := newGuardianForTest(policy, clock)
 
 	spawnCount := 0
-	g.spawnFn = func(c *actor.Context, subsystem Subsystem) (*actor.PID, error) {
+	g.spawnFn = func(c *actor.Context, subsystem Subsystem) (*actor.PID, *problem.Problem) {
 		spawnCount++
 		return actor.NewPID("local", fmt.Sprintf("%s-%d", subsystem, spawnCount)), nil
 	}
@@ -275,7 +276,7 @@ func TestGuardian_ShuttingDown_IgnoresChildFailed(t *testing.T) {
 		return func() {}
 	}
 	g.emitFn = func(c *actor.Context, msg any) {}
-	g.spawnFn = func(c *actor.Context, subsystem Subsystem) (*actor.PID, error) {
+	g.spawnFn = func(c *actor.Context, subsystem Subsystem) (*actor.PID, *problem.Problem) {
 		return actor.NewPID("local", string(subsystem)), nil
 	}
 
@@ -295,7 +296,7 @@ func TestGuardian_ShuttingDown_RetrySubsystemIsNoop(t *testing.T) {
 	g := newGuardianForTest(policy, clock)
 
 	spawnCalled := false
-	g.spawnFn = func(c *actor.Context, subsystem Subsystem) (*actor.PID, error) {
+	g.spawnFn = func(c *actor.Context, subsystem Subsystem) (*actor.PID, *problem.Problem) {
 		spawnCalled = true
 		return actor.NewPID("local", string(subsystem)), nil
 	}
@@ -315,7 +316,7 @@ func TestGuardian_ShuttingDown_RetrySubsystemIsNoop(t *testing.T) {
 
 func TestGuardian_GlobalRestartRateLimit_DefersSixthRestart(t *testing.T) {
 	clock := &fakeClock{now: time.Unix(2000, 0)}
-	policy, err := NewSupervisorPolicy(SupervisorConfig{
+	policy, prob := NewSupervisorPolicy(SupervisorConfig{
 		BaseBackoff:   time.Millisecond,
 		MaxBackoff:    time.Second,
 		Jitter:        0,
@@ -323,14 +324,14 @@ func TestGuardian_GlobalRestartRateLimit_DefersSixthRestart(t *testing.T) {
 		RestartLimit:  100,
 		Cooldown:      time.Second,
 	}, clock, fixedRNG{value: 0.5})
-	if err != nil {
-		t.Fatalf("new policy: %v", err)
+	if prob != nil {
+		t.Fatalf("new policy: %v", prob)
 	}
 	g := newGuardianForTest(policy, clock)
 	g.globalRestartWindow = time.Minute
 	g.globalRestartLimit = 5
 	g.emitFn = func(c *actor.Context, msg any) {}
-	g.spawnFn = func(c *actor.Context, subsystem Subsystem) (*actor.PID, error) {
+	g.spawnFn = func(c *actor.Context, subsystem Subsystem) (*actor.PID, *problem.Problem) {
 		return actor.NewPID("local", string(subsystem)), nil
 	}
 	g.startSubsystem(nil, SubsystemMarketData)
@@ -393,7 +394,7 @@ func TestGuardian_Readiness_WithFactory_PendingUntilStarted(t *testing.T) {
 	}
 
 	// Simulate successful spawn.
-	g.spawnFn = func(c *actor.Context, subsystem Subsystem) (*actor.PID, error) {
+	g.spawnFn = func(c *actor.Context, subsystem Subsystem) (*actor.PID, *problem.Problem) {
 		return actor.NewPID("local", string(subsystem)), nil
 	}
 	g.emitFn = func(c *actor.Context, msg any) {}
@@ -498,7 +499,7 @@ func TestGuardian_SnapshotCache_HitAndInvalidation(t *testing.T) {
 	g.lastMessageAt = make(map[Subsystem]time.Time)
 	g.lastPublishAt = make(map[Subsystem]time.Time)
 
-	g.spawnFn = func(c *actor.Context, subsystem Subsystem) (*actor.PID, error) {
+	g.spawnFn = func(c *actor.Context, subsystem Subsystem) (*actor.PID, *problem.Problem) {
 		return actor.NewPID("local", fmt.Sprintf("%s-child", subsystem)), nil
 	}
 	g.poisonFn = func(c *actor.Context, pid *actor.PID) {}

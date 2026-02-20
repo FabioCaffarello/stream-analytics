@@ -2,9 +2,9 @@ package coinbase
 
 import (
 	"encoding/json"
-	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/market-raccoon/internal/core/marketdata/app"
@@ -15,6 +15,8 @@ import (
 )
 
 const VenueCoinbase = "COINBASE"
+
+var metadataCache sync.Map // map[string]map[string]string
 
 type wsMessage struct {
 	Type string `json:"type"`
@@ -154,7 +156,7 @@ func parseTrade(data []byte, recvAt time.Time, marketType string) (app.IngestReq
 	if p != nil {
 		return app.IngestRequest{}, true, p
 	}
-	tradeID := fmt.Sprintf("%d", msg.TradeID)
+	tradeID := strconv.FormatInt(msg.TradeID, 10)
 	if msg.TradeID <= 0 {
 		return app.IngestRequest{}, true, problem.New(problem.ValidationFailed, "coinbase match: trade_id must be > 0")
 	}
@@ -388,33 +390,39 @@ func normalizeSide(side string) (string, *problem.Problem) {
 }
 
 func buildTradeIdempotencyKey(venue, instrument, tradeID string) string {
-	return fmt.Sprintf("venue=%s|instrument=%s|trade_id=%s", venue, instrument, tradeID)
+	return "venue=" + venue + "|instrument=" + instrument + "|trade_id=" + tradeID
 }
 
 func buildDepthIdempotencyKey(venue, instrument string, finalUpdateID int64) string {
-	return fmt.Sprintf("venue=%s|instrument=%s|final_update_id=%d", venue, instrument, finalUpdateID)
+	return "venue=" + venue + "|instrument=" + instrument + "|final_update_id=" + strconv.FormatInt(finalUpdateID, 10)
 }
 
 func buildDepthIdempotencyKeyFromSequenceOrPayload(venue, instrument string, sequence int64, payload []byte) string {
 	if sequence > 0 {
 		return buildDepthIdempotencyKey(venue, instrument, sequence)
 	}
-	return fmt.Sprintf(
-		"venue=%s|instrument=%s|payload_sha=%s",
-		venue,
-		instrument,
-		sharedhash.HashBytes(payload),
-	)
+	return "venue=" + venue + "|instrument=" + instrument + "|payload_sha=" + sharedhash.HashBytes(payload)
 }
 
 func buildMarkPriceIdempotencyKey(venue, instrument string, sequence int64) string {
 	if sequence <= 0 {
 		return ""
 	}
-	return fmt.Sprintf("venue=%s|instrument=%s|sequence=%d", venue, instrument, sequence)
+	return "venue=" + venue + "|instrument=" + instrument + "|sequence=" + strconv.FormatInt(sequence, 10)
 }
 
 func buildInstrumentMetadata(venueSymbol, canonical, marketType string) map[string]string {
+	cacheKey := venueSymbol + "|" + canonical + "|" + marketType
+	if val, ok := metadataCache.Load(cacheKey); ok {
+		cachedMeta := val.(map[string]string)
+		// Return a clone to allow adding contextual info without modifying cached value
+		cloned := make(map[string]string, len(cachedMeta))
+		for k, v := range cachedMeta {
+			cloned[k] = v
+		}
+		return cloned
+	}
+
 	meta := map[string]string{
 		"instrument_venue_symbol": strings.ToUpper(strings.TrimSpace(venueSymbol)),
 		"instrument_canonical":    canonical,
@@ -424,7 +432,15 @@ func buildInstrumentMetadata(venueSymbol, canonical, marketType string) map[stri
 	if pair != "" {
 		meta["instrument_pair"] = pair
 	}
-	return meta
+
+	metadataCache.Store(cacheKey, meta)
+
+	// Return a clone so the caller can modify it safely
+	cloned := make(map[string]string, len(meta))
+	for k, v := range meta {
+		cloned[k] = v
+	}
+	return cloned
 }
 
 func skipReasonFromProblem(p *problem.Problem) string {

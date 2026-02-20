@@ -309,7 +309,7 @@ func buildKrakenTradeEnvelope(venue, symbol string, trade marketdomain.TradeTick
 		TsExchange:     trade.Timestamp,
 		TsIngest:       trade.Timestamp,
 		Seq:            seq,
-		IdempotencyKey: fmt.Sprintf("venue=%s|instrument=%s|trade_id=%s", venue, symbol, trade.TradeID),
+		IdempotencyKey: "venue=" + venue + "|instrument=" + symbol + "|trade_id=" + trade.TradeID,
 		Payload:        payload,
 		Meta: map[string]string{
 			"instrument_market_type": "SPOT",

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/anthdm/hollywood/actor"
+	"github.com/market-raccoon/internal/shared/problem"
 )
 
 func TestSoak_Guardian_CrashRestart_500(t *testing.T) {
@@ -19,7 +20,7 @@ func TestSoak_Guardian_CrashRestart_500(t *testing.T) {
 	}
 
 	clock := &fakeClock{now: time.Unix(2_000, 0)}
-	policy, err := NewSupervisorPolicy(SupervisorConfig{
+	policy, prob := NewSupervisorPolicy(SupervisorConfig{
 		BaseBackoff:   time.Millisecond,
 		MaxBackoff:    time.Millisecond,
 		Jitter:        0,
@@ -27,13 +28,13 @@ func TestSoak_Guardian_CrashRestart_500(t *testing.T) {
 		RestartLimit:  5_000,
 		Cooldown:      time.Millisecond,
 	}, clock, fixedRNG{value: 0.5})
-	if err != nil {
-		t.Fatalf("new policy: %v", err)
+	if prob != nil {
+		t.Fatalf("new policy: %v", prob)
 	}
 
 	g := newGuardianForTest(policy, clock)
 	spawnCount := 0
-	g.spawnFn = func(c *actor.Context, subsystem Subsystem) (*actor.PID, error) {
+	g.spawnFn = func(c *actor.Context, subsystem Subsystem) (*actor.PID, *problem.Problem) {
 		spawnCount++
 		return actor.NewPID("local", fmt.Sprintf("%s-%d", subsystem, spawnCount)), nil
 	}

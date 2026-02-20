@@ -14,6 +14,7 @@ import (
 	deliveryruntime "github.com/market-raccoon/internal/actors/delivery/runtime"
 	actorruntime "github.com/market-raccoon/internal/actors/runtime"
 	"github.com/market-raccoon/internal/adapters/bus"
+	"github.com/market-raccoon/internal/adapters/storage/clickhouse"
 	"github.com/market-raccoon/internal/adapters/storage/timescale"
 	deliverydomain "github.com/market-raccoon/internal/core/delivery/domain"
 	"github.com/market-raccoon/internal/core/delivery/ports"
@@ -61,6 +62,37 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 		defer tsPool.Close()
 		timescale.SetProductionReady(timescale.AdapterModePGX)
 		logger.Info("server: using Timescale pgx pool")
+	}
+
+	// ── ClickHouse cold readers ──────────────────────────────────────────
+	var coldOpt httpserver.Option
+	if cfg.Storage.ClickHouse.Enabled {
+		chPool, chP := clickhouse.NewPool(ctx, clickhouse.PoolConfig{
+			Addrs:           cfg.Storage.ClickHouse.Addrs,
+			Database:        cfg.Storage.ClickHouse.Database,
+			Username:        cfg.Storage.ClickHouse.Username,
+			Password:        cfg.Storage.ClickHouse.Password,
+			MaxOpenConns:    cfg.Storage.ClickHouse.MaxOpenConns,
+			MaxIdleConns:    cfg.Storage.ClickHouse.MaxIdleConns,
+			ConnMaxLifetime: cfg.Storage.ClickHouse.ConnMaxLifetimeDuration(),
+			DialTimeout:     cfg.Storage.ClickHouse.DialTimeoutDuration(),
+			ReadTimeout:     cfg.Storage.ClickHouse.ReadTimeoutDuration(),
+		})
+		if chP != nil {
+			logger.Warn("server: clickhouse pool init failed, cold reader APIs disabled", "err", chP)
+		} else {
+			defer func() {
+				if p := chPool.Close(); p != nil {
+					logger.Warn("server: clickhouse pool close failed", "err", p)
+				}
+			}()
+			coldOpt = httpserver.WithColdReaders(&httpserver.ColdReaders{
+				Candles:   clickhouse.NewChCandleReader(chPool),
+				Stats:     clickhouse.NewChStatsReader(chPool),
+				Snapshots: clickhouse.NewChSnapshotReader(chPool),
+			})
+			logger.Info("server: cold reader APIs enabled (ClickHouse)")
+		}
 	}
 	if !timescale.IsProductionReady() {
 		logger.Warn("server: timescale adapter running in non-production stub mode",
@@ -136,6 +168,7 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 		logger,
 		httpserver.WithTLS(cfg.HTTP.TLSCert, cfg.HTTP.TLSKey),
 		httpserver.WithReloadHook(protoRolloutReloadHook(configPath, logger)),
+		coldOpt,
 	)
 	if cfg.Delivery.Enabled {
 		enableWSRoute(e, srv, routerPIDCh, subsystemPIDCh, logger, rangeStore, cfg)

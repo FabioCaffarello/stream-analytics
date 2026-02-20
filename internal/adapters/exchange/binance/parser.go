@@ -3,9 +3,9 @@ package binance
 
 import (
 	"encoding/json"
-	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/market-raccoon/internal/core/marketdata/app"
@@ -23,6 +23,8 @@ type streamEnvelope struct {
 	Stream string          `json:"stream"`
 	Data   json.RawMessage `json:"data"`
 }
+
+var metadataCache sync.Map // map[string]map[string]string
 
 type aggTrade struct {
 	Event        string `json:"e"`
@@ -309,14 +311,14 @@ func parseAggTrade(payload []byte, recvAt time.Time, marketType string) (app.Ing
 		IdempotencyKey: buildTradeIdempotencyKey(
 			VenueBinance,
 			instrument,
-			fmt.Sprintf("%d", m.AggTradeID),
+			strconv.FormatInt(m.AggTradeID, 10),
 		),
 		Metadata: buildInstrumentMetadata(m.Symbol, instrument, marketType),
 		Payload: domain.TradeTickV1{
 			Price:     price,
 			Size:      size,
 			Side:      side,
-			TradeID:   fmt.Sprintf("%d", m.AggTradeID),
+			TradeID:   strconv.FormatInt(m.AggTradeID, 10),
 			Timestamp: tsExchange,
 		},
 	}, false, nil
@@ -374,11 +376,11 @@ func parseDepthUpdate(payload []byte, recvAt time.Time, marketType string) (app.
 }
 
 func buildTradeIdempotencyKey(venue, instrument, tradeID string) string {
-	return fmt.Sprintf("venue=%s|instrument=%s|trade_id=%s", venue, instrument, tradeID)
+	return "venue=" + venue + "|instrument=" + instrument + "|trade_id=" + tradeID
 }
 
 func buildDepthIdempotencyKey(venue, instrument string, finalUpdateID int64) string {
-	return fmt.Sprintf("venue=%s|instrument=%s|final_update_id=%d", venue, instrument, finalUpdateID)
+	return "venue=" + venue + "|instrument=" + instrument + "|final_update_id=" + strconv.FormatInt(finalUpdateID, 10)
 }
 
 func parseLevels(raw [][]string) ([]domain.PriceLevel, *problem.Problem) {
@@ -448,24 +450,39 @@ func tickerFromStream(stream string) string {
 }
 
 func buildInstrumentMetadata(venueSymbol, canonical, marketType string) map[string]string {
+	cacheKey := venueSymbol + "|" + canonical + "|" + marketType
+	if val, ok := metadataCache.Load(cacheKey); ok {
+		cachedMeta := val.(map[string]string)
+		// Return a clone to allow adding stream info without modifying cached value
+		cloned := make(map[string]string, len(cachedMeta))
+		for k, v := range cachedMeta {
+			cloned[k] = v
+		}
+		return cloned
+	}
+
 	meta := map[string]string{
 		"instrument_venue_symbol": strings.ToUpper(strings.TrimSpace(venueSymbol)),
 		"instrument_canonical":    canonical,
 		"instrument_market_type":  marketType,
 	}
-	canonicalPair := canonicalPairFromBinanceSymbol(venueSymbol)
-	if canonicalPair == "" {
-		return meta
+	if cp := canonicalPairFromBinanceSymbol(venueSymbol); cp != "" {
+		meta["instrument_pair"] = cp
+		parts := strings.Split(cp, "-")
+		if len(parts) == 2 {
+			meta["instrument_base"] = parts[0]
+			meta["instrument_quote"] = parts[1]
+		}
 	}
-	id, p := domain.NewInstrumentIdentity(canonicalPair, venueSymbol, marketType)
-	if p != nil {
-		return meta
+
+	metadataCache.Store(cacheKey, meta)
+
+	// Return a clone so the caller can modify it (e.g., adding ws_stream)
+	cloned := make(map[string]string, len(meta))
+	for k, v := range meta {
+		cloned[k] = v
 	}
-	meta["instrument_pair"] = id.Canonical
-	meta["instrument_base"] = id.Base
-	meta["instrument_quote"] = id.Quote
-	meta["instrument_market_type"] = id.MarketType.String()
-	return meta
+	return cloned
 }
 
 func canonicalPairFromBinanceSymbol(symbol string) string {

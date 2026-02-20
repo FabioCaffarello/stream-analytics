@@ -17,7 +17,7 @@ func newSupervisorPolicyForTest(t *testing.T, clock Clock, rng RNG) *SupervisorP
 	if rng == nil {
 		rng = fixedRNG{value: 0.5}
 	}
-	p, err := NewSupervisorPolicy(SupervisorConfig{
+	p, prob := NewSupervisorPolicy(SupervisorConfig{
 		BaseBackoff:   time.Second,
 		MaxBackoff:    8 * time.Second,
 		Jitter:        0,
@@ -25,8 +25,8 @@ func newSupervisorPolicyForTest(t *testing.T, clock Clock, rng RNG) *SupervisorP
 		RestartLimit:  3,
 		Cooldown:      30 * time.Second,
 	}, clock, rng)
-	if err != nil {
-		t.Fatalf("newSupervisorPolicyForTest: %v", err)
+	if prob != nil {
+		t.Fatalf("newSupervisorPolicyForTest: %v", prob)
 	}
 	return p
 }
@@ -36,9 +36,9 @@ func newSupervisorPolicyForTest(t *testing.T, clock Clock, rng RNG) *SupervisorP
 // ---------------------------------------------------------------------------
 
 func TestNewSupervisorPolicy_ZeroConfig_FillsDefaults(t *testing.T) {
-	p, err := NewSupervisorPolicy(SupervisorConfig{}, nil, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	p, prob := NewSupervisorPolicy(SupervisorConfig{}, nil, nil)
+	if prob != nil {
+		t.Fatalf("unexpected error: %v", prob)
 	}
 
 	// Verify via observable behavior: first failure should restart with
@@ -89,8 +89,8 @@ func TestNewSupervisorPolicy_Validation(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := NewSupervisorPolicy(tc.cfg, nil, nil)
-			if err == nil {
+			_, prob := NewSupervisorPolicy(tc.cfg, nil, nil)
+			if prob == nil {
 				t.Fatal("expected validation error, got nil")
 			}
 		})
@@ -142,7 +142,7 @@ func TestOnFailure_ExponentialBackoff(t *testing.T) {
 func TestOnFailure_BackoffCappedAtMax(t *testing.T) {
 	clock := &fakeClock{now: time.Unix(1000, 0)}
 	// Use config where cap is hit quickly: base=1s, max=2s, limit=10.
-	p, err := NewSupervisorPolicy(SupervisorConfig{
+	p, prob := NewSupervisorPolicy(SupervisorConfig{
 		BaseBackoff:   time.Second,
 		MaxBackoff:    2 * time.Second,
 		Jitter:        0,
@@ -150,8 +150,8 @@ func TestOnFailure_BackoffCappedAtMax(t *testing.T) {
 		RestartLimit:  10,
 		Cooldown:      30 * time.Second,
 	}, clock, fixedRNG{value: 0.5})
-	if err != nil {
-		t.Fatalf("new policy: %v", err)
+	if prob != nil {
+		t.Fatalf("new policy: %v", prob)
 	}
 
 	// Attempt 0 -> 1s (base)
@@ -218,7 +218,7 @@ func TestOnFailure_JitterBounds(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			clock := &fakeClock{now: time.Unix(1000, 0)}
-			p, err := NewSupervisorPolicy(SupervisorConfig{
+			p, prob := NewSupervisorPolicy(SupervisorConfig{
 				BaseBackoff:   time.Second,
 				MaxBackoff:    8 * time.Second,
 				Jitter:        0.5,
@@ -226,8 +226,8 @@ func TestOnFailure_JitterBounds(t *testing.T) {
 				RestartLimit:  5,
 				Cooldown:      30 * time.Second,
 			}, clock, fixedRNG{value: tc.rngValue})
-			if err != nil {
-				t.Fatalf("new policy: %v", err)
+			if prob != nil {
+				t.Fatalf("new policy: %v", prob)
 			}
 
 			d := p.OnFailure(SubsystemMarketData, clock.now)
@@ -247,7 +247,7 @@ func TestOnFailure_JitterBounds(t *testing.T) {
 
 func TestOnFailure_ZeroJitter_DelayUnchanged(t *testing.T) {
 	clock := &fakeClock{now: time.Unix(1000, 0)}
-	p, err := NewSupervisorPolicy(SupervisorConfig{
+	p, prob := NewSupervisorPolicy(SupervisorConfig{
 		BaseBackoff:   time.Second,
 		MaxBackoff:    8 * time.Second,
 		Jitter:        0,
@@ -255,8 +255,8 @@ func TestOnFailure_ZeroJitter_DelayUnchanged(t *testing.T) {
 		RestartLimit:  5,
 		Cooldown:      30 * time.Second,
 	}, clock, fixedRNG{value: 0.0}) // extreme rng value should not matter
-	if err != nil {
-		t.Fatalf("new policy: %v", err)
+	if prob != nil {
+		t.Fatalf("new policy: %v", prob)
 	}
 
 	d := p.OnFailure(SubsystemMarketData, clock.now)

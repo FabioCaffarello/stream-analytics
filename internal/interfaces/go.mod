@@ -6,6 +6,7 @@ require (
 	github.com/anthdm/hollywood v1.0.5
 	github.com/gorilla/websocket v1.5.3
 	github.com/market-raccoon/internal/actors v0.0.0
+	github.com/market-raccoon/internal/core/aggregation v0.0.0
 	github.com/market-raccoon/internal/core/delivery v0.0.0
 	github.com/market-raccoon/internal/core/insights v0.0.0
 	github.com/market-raccoon/internal/shared v0.0.0

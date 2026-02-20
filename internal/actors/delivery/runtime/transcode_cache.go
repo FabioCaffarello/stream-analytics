@@ -2,7 +2,6 @@ package deliveryruntime
 
 import (
 	"encoding/json"
-	"hash/fnv"
 	"sync"
 	"sync/atomic"
 
@@ -85,11 +84,25 @@ func (c *TranscodeCache) TranscodeProtoToJSON(
 }
 
 func (c *TranscodeCache) computeKey(eventType string, version int, payload []byte) uint64 {
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(eventType))
-	_, _ = h.Write([]byte{byte(version >> 8), byte(version)})
-	_, _ = h.Write(payload)
-	return h.Sum64()
+	// Inline FNV-1a-64 to avoid fnv.New64a() alloc + []byte(eventType) alloc.
+	const (
+		offset64 = 14695981039346656037
+		prime64  = 1099511628211
+	)
+	h := uint64(offset64)
+	for i := 0; i < len(eventType); i++ {
+		h ^= uint64(eventType[i])
+		h *= prime64
+	}
+	h ^= uint64(byte(version >> 8))
+	h *= prime64
+	h ^= uint64(byte(version))
+	h *= prime64
+	for _, b := range payload {
+		h ^= uint64(b)
+		h *= prime64
+	}
+	return h
 }
 
 // Stats returns cache hit/miss counters for observability.

@@ -56,6 +56,7 @@ type Server struct {
 	tlsCertFile string
 	tlsKeyFile  string
 	wsHandler   http.HandlerFunc
+	coldReaders *ColdReaders
 }
 
 type Option func(*Server)
@@ -78,6 +79,13 @@ func WithWSHandler(handler http.HandlerFunc) Option {
 func WithReloadHook(hook func() error) Option {
 	return func(s *Server) {
 		s.reloadHook = hook
+	}
+}
+
+// WithColdReaders configures optional ClickHouse-backed cold reader API routes.
+func WithColdReaders(readers *ColdReaders) Option {
+	return func(s *Server) {
+		s.coldReaders = readers
 	}
 }
 
@@ -121,6 +129,11 @@ func NewServer(
 	mux.Handle("GET /metrics", withProcessMetrics(metrics.Handler()))
 	if enablePprof {
 		s.registerPprofRoutes(mux)
+	}
+	if s.coldReaders != nil {
+		mux.HandleFunc("GET /api/v1/candles", s.handleGetCandles)
+		mux.HandleFunc("GET /api/v1/stats", s.handleGetStats)
+		mux.HandleFunc("GET /api/v1/snapshots", s.handleGetSnapshots)
 	}
 	s.mux = mux
 
