@@ -203,11 +203,18 @@ func cappedExponentialBackoff(base, capDelay time.Duration, attempt int) time.Du
 		attempt = 0
 	}
 	mult := math.Pow(2, float64(attempt))
-	raw := time.Duration(float64(base) * mult)
-	if raw > capDelay {
+	// Protect against astronomical attempt values that cause floating point
+	// overflow or result in values larger than int64 when converted to
+	// time.Duration. If the computed raw value is infinite or exceeds the cap,
+	// return capDelay.
+	if math.IsInf(mult, 0) {
 		return capDelay
 	}
-	return raw
+	rawFloat := float64(base) * mult
+	if math.IsInf(rawFloat, 0) || rawFloat <= 0 || rawFloat > float64(capDelay) {
+		return capDelay
+	}
+	return time.Duration(rawFloat)
 }
 
 func applyJitter(delay time.Duration, jitter float64, rng RNG) time.Duration {
