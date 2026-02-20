@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/shared/naming"
@@ -175,6 +176,71 @@ func UnwrapCombinedStream(data []byte) (payload []byte, wsStream string, wrapped
 		}
 	}
 	return data, "", false, false
+}
+
+// ParseTimestamp parses RFC3339Nano or numeric timestamp strings (seconds or milliseconds)
+// returning unix milliseconds. If raw is empty, uses recvAt. If numeric parse succeeds
+// and value looks like seconds, it is multiplied by 1000.
+func ParseTimestamp(raw string, fallback float64, recvAt time.Time) (int64, *problem.Problem) {
+	raw = strings.TrimSpace(raw)
+	if raw != "" {
+		if ts, err := time.Parse(time.RFC3339Nano, raw); err == nil {
+			return ts.UnixMilli(), nil
+		}
+		f, err := strconv.ParseFloat(raw, 64)
+		if err != nil {
+			return 0, problem.Wrap(err, problem.ValidationFailed, "invalid timestamp")
+		}
+		// Normalize numeric timestamp to milliseconds.
+		if f >= 1e12 {
+			return int64(f), nil
+		}
+		if f >= 1e9 {
+			return int64(f * 1000), nil
+		}
+		return int64(f), nil
+	}
+	if fallback > 0 {
+		// fallback interpreted as seconds or ms already by caller; follow same rules.
+		if fallback >= 1e12 {
+			return int64(fallback), nil
+		}
+		if fallback >= 1e9 {
+			return int64(fallback * 1000), nil
+		}
+		return int64(fallback), nil
+	}
+	return recvAt.UnixMilli(), nil
+}
+
+// ParseTimestampStrings parses either an RFC3339Nano string or a numeric string
+// given as two candidate raw strings (first is preferred). Returns unix ms.
+func ParseTimestampStrings(rfc3339Raw, numericRaw string, recvAt time.Time) (int64, *problem.Problem) {
+	seenRaw := ""
+	for _, raw := range []string{rfc3339Raw, numericRaw} {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		seenRaw = raw
+		if ts, err := time.Parse(time.RFC3339Nano, raw); err == nil {
+			return ts.UnixMilli(), nil
+		}
+		if f, err := strconv.ParseFloat(raw, 64); err == nil {
+			// reuse ParseTimestamp semantics for numeric values
+			if f >= 1e12 {
+				return int64(f), nil
+			}
+			if f >= 1e9 {
+				return int64(f * 1000), nil
+			}
+			return int64(f), nil
+		}
+	}
+	if seenRaw != "" {
+		return 0, problem.Newf(problem.ValidationFailed, "invalid timestamp %q", seenRaw)
+	}
+	return recvAt.UnixMilli(), nil
 }
 
 // ParseStringLevels parses [][]string price levels (common across Binance, Bybit,

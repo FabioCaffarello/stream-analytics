@@ -167,13 +167,13 @@ func parseTrade(data json.RawMessage, recvAt time.Time, marketType string) (app.
 	if p != nil {
 		return app.IngestRequest{}, true, p
 	}
-	tsExchange, p := parseTimestamp(entry.Timestamp, entry.TimeIn, recvAt)
+	tsExchange, p := common.ParseTimestamp(entry.Timestamp, entry.TimeIn, recvAt)
 	if p != nil {
 		return app.IngestRequest{}, true, p
 	}
-	tradeID := identifierFromAny(entry.TradeID)
+	tradeID := common.TradeIDStringFromAny(entry.TradeID)
 	if tradeID == "" {
-		tradeID = identifierFromAny(entry.ID)
+		tradeID = common.TradeIDStringFromAny(entry.ID)
 	}
 	if tradeID == "" {
 		tradeID = common.TradeIDStringFromAny(tsExchange)
@@ -224,7 +224,7 @@ func parseBook(data json.RawMessage, msgType string, recvAt time.Time, marketTyp
 	if p != nil {
 		return app.IngestRequest{}, true, p
 	}
-	tsExchange, p := parseTimestamp(row.Timestamp, 0, recvAt)
+	tsExchange, p := common.ParseTimestamp(row.Timestamp, 0, recvAt)
 	if p != nil {
 		return app.IngestRequest{}, true, p
 	}
@@ -298,7 +298,7 @@ func parseTicker(data json.RawMessage, recvAt time.Time, marketType string) (app
 	if p != nil {
 		return app.IngestRequest{}, true, p
 	}
-	tsExchange, p := parseTimestamp(row.Timestamp, 0, recvAt)
+	tsExchange, p := common.ParseTimestamp(row.Timestamp, 0, recvAt)
 	if p != nil {
 		return app.IngestRequest{}, true, p
 	}
@@ -340,34 +340,6 @@ func instrumentFromSymbol(raw string) (string, *problem.Problem) {
 		return "", problem.New(problem.ValidationFailed, "kraken: instrument is empty")
 	}
 	return instrument, nil
-}
-
-func parseTimestamp(raw string, fallback float64, recvAt time.Time) (int64, *problem.Problem) {
-	raw = strings.TrimSpace(raw)
-	if raw != "" {
-		if ts, err := time.Parse(time.RFC3339Nano, raw); err == nil {
-			return ts.UnixMilli(), nil
-		}
-		f, err := strconv.ParseFloat(raw, 64)
-		if err != nil {
-			return 0, problem.Wrap(err, problem.ValidationFailed, "kraken: invalid timestamp")
-		}
-		return millisFromFloat(f), nil
-	}
-	if fallback > 0 {
-		return millisFromFloat(fallback), nil
-	}
-	return recvAt.UnixMilli(), nil
-}
-
-func millisFromFloat(v float64) int64 {
-	if v >= 1e12 {
-		return int64(v)
-	}
-	if v >= 1e9 {
-		return int64(v * 1000)
-	}
-	return int64(v)
 }
 
 func parseBookLevels(raw []bookLevel) ([]domain.PriceLevel, *problem.Problem) {
@@ -424,23 +396,7 @@ func normalizeSide(side string) (string, *problem.Problem) {
 	}
 }
 
-func identifierFromAny(value any) string {
-	switch v := value.(type) {
-	case string:
-		return strings.TrimSpace(v)
-	case float64:
-		if v == float64(int64(v)) {
-			return strconv.FormatInt(int64(v), 10)
-		}
-		return strconv.FormatFloat(v, 'f', -1, 64)
-	case int64:
-		return strconv.FormatInt(v, 10)
-	case int:
-		return strconv.FormatInt(int64(v), 10)
-	default:
-		return ""
-	}
-}
+// timestamp/identifier helpers moved to common
 
 func buildTradeIdempotencyKey(venue, instrument, tradeID string) string {
 	return common.BuildTradeIdempotencyKey(venue, instrument, tradeID)

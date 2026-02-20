@@ -190,14 +190,14 @@ func parseTrade(data []byte, recvAt time.Time, marketType string) (app.IngestReq
 	if p != nil {
 		return app.IngestRequest{}, true, p
 	}
-	tsExchange, p := parseTimestamp(entry.Timestamp, entry.TimeRaw, recvAt)
+	tsExchange, p := common.ParseTimestampStrings(entry.Timestamp, entry.TimeRaw, recvAt)
 	if p != nil {
 		return app.IngestRequest{}, true, p
 	}
 
 	tradeID := strings.TrimSpace(entry.UID)
 	if tradeID == "" {
-		tradeID = identifierFromAny(entry.TradeID)
+		tradeID = common.TradeIDStringFromAny(entry.TradeID)
 	}
 	if tradeID == "" && entry.Seq > 0 {
 		tradeID = common.TradeIDStringFromAny(entry.Seq)
@@ -246,7 +246,7 @@ func parseBook(data []byte, feed string, recvAt time.Time, marketType string) (a
 	if p != nil {
 		return app.IngestRequest{}, true, p
 	}
-	tsExchange, p := parseTimestamp(msg.Timestamp, msg.TimeRaw, recvAt)
+	tsExchange, p := common.ParseTimestampStrings(msg.Timestamp, msg.TimeRaw, recvAt)
 	if p != nil {
 		return app.IngestRequest{}, true, p
 	}
@@ -313,7 +313,7 @@ func parseTicker(data []byte, recvAt time.Time, marketType string) (app.IngestRe
 	if p != nil {
 		return app.IngestRequest{}, true, p
 	}
-	tsExchange, p := parseTimestamp(msg.Timestamp, msg.TimeRaw, recvAt)
+	tsExchange, p := common.ParseTimestampStrings(msg.Timestamp, msg.TimeRaw, recvAt)
 	if p != nil {
 		return app.IngestRequest{}, true, p
 	}
@@ -382,37 +382,6 @@ func parseTupleLevels(raw [][]string) ([]domain.PriceLevel, *problem.Problem) {
 	return out, nil
 }
 
-func parseTimestamp(rfc3339Raw, numericRaw string, recvAt time.Time) (int64, *problem.Problem) {
-	seenRaw := ""
-	for _, raw := range []string{rfc3339Raw, numericRaw} {
-		raw = strings.TrimSpace(raw)
-		if raw == "" {
-			continue
-		}
-		seenRaw = raw
-		if ts, err := time.Parse(time.RFC3339Nano, raw); err == nil {
-			return ts.UnixMilli(), nil
-		}
-		if f, err := strconv.ParseFloat(raw, 64); err == nil {
-			return millisFromFloat(f), nil
-		}
-	}
-	if seenRaw != "" {
-		return 0, problem.Newf(problem.ValidationFailed, "krakenf: invalid timestamp %q", seenRaw)
-	}
-	return recvAt.UnixMilli(), nil
-}
-
-func millisFromFloat(v float64) int64 {
-	if v >= 1e12 {
-		return int64(v)
-	}
-	if v >= 1e9 {
-		return int64(v * 1000)
-	}
-	return int64(v)
-}
-
 func parseRequiredFloat(raw, msg string) (float64, *problem.Problem) {
 	value, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
 	if err != nil {
@@ -444,23 +413,7 @@ func normalizeSide(side string) (string, *problem.Problem) {
 	}
 }
 
-func identifierFromAny(value any) string {
-	switch v := value.(type) {
-	case string:
-		return strings.TrimSpace(v)
-	case float64:
-		if v == float64(int64(v)) {
-			return strconv.FormatInt(int64(v), 10)
-		}
-		return strconv.FormatFloat(v, 'f', -1, 64)
-	case int64:
-		return strconv.FormatInt(v, 10)
-	case int:
-		return strconv.FormatInt(int64(v), 10)
-	default:
-		return ""
-	}
-}
+// identifier helpers moved to common package
 
 func buildTradeIdempotencyKey(venue, instrument, tradeID string) string {
 	return common.BuildTradeIdempotencyKey(venue, instrument, tradeID)
