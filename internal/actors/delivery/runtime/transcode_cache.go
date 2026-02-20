@@ -102,13 +102,18 @@ func (c *TranscodeCache) TranscodeProtoToJSON(
 	shard.mu.RUnlock()
 	if ok {
 		c.hits.Add(1)
-		// Move to front under write lock.
+		// Move to front and read value under write lock to avoid concurrent mutation.
 		shard.mu.Lock()
 		if e, still := shard.entries[key]; still {
 			shard.lru.MoveToFront(e)
+			val := e.Value.(lruEntry).entry.json
+			shard.mu.Unlock()
+			return val, nil
 		}
+		// Fallback: if the entry vanished between locks, use previously read elem safely.
+		val := elem.Value.(lruEntry).entry.json
 		shard.mu.Unlock()
-		return elem.Value.(lruEntry).entry.json, nil
+		return val, nil
 	}
 
 	// Slow path: decode, marshal, store.
