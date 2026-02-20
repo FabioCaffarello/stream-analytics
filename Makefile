@@ -274,7 +274,7 @@ check-feature-pack-links:
 	@./scripts/ci/docs/check-feature-pack-links.sh
 
 check-pack-subjects-vs-event-bus:
-	@./scripts/ci/docs/check-pack-subjects-vs-event-bus.sh
+	@./scripts/check-pack-subjects.sh
 
 registry-check:
 	@./scripts/ci/docs/check-registry.sh
@@ -567,8 +567,8 @@ smoke: shell-script-check
 	@./scripts/test/util/smoke-compose.sh
 
 runtime-gate: shell-script-check
-	@chmod +x ./scripts/test/util/runtime-reliability-gate.sh
-	@./scripts/test/util/runtime-reliability-gate.sh --report-dir "$(RUNTIME_GATE_REPORT_DIR)"
+	@chmod +x ./scripts/runtime-reliability-gate.sh
+	@./scripts/runtime-reliability-gate.sh --report-dir "$(RUNTIME_GATE_REPORT_DIR)"
 
 runtime-gate-full: shell-script-check
 	@chmod +x ./scripts/test/util/runtime-reliability-gate.sh

@@ -6,8 +6,8 @@ if [[ "${1:-}" == "--fix-hints" ]]; then
   mode="fix-hints"
 fi
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-packs_dir="${repo_root}/.context/docs/feature-packs"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+packs_dir="${ROOT_DIR}/.context/docs/feature-packs"
 errors=0
 
 report_issue() {
@@ -41,7 +41,7 @@ normalize_link_target() {
 
 check_pack() {
   local file="$1"
-  local rel_file="${file#"${repo_root}/"}"
+  local rel_file="${file#"${ROOT_DIR}/"}"
   local line_no=0
   local in_code_block=0
   local link_count=0
@@ -104,7 +104,7 @@ check_pack() {
 
       local canonical
       canonical="$(cd "$(dirname "$resolved")" && pwd -P)/$(basename "$resolved")"
-      if [[ "$canonical" != "${repo_root}/docs/"* ]]; then
+      if [[ "$canonical" != "${ROOT_DIR}/docs/"* ]]; then
         report_issue "$rel_file" "$line_no" "$raw_link" "link outside docs/**" "use only relative links targeting docs/** files."
       fi
 
@@ -127,13 +127,13 @@ while IFS= read -r pack; do
 done < <(find "$packs_dir" -type f -name '*.md' | sort)
 
 subject_guard_status=0
-if [[ -x "${repo_root}/scripts/ci/check-pack-subjects-vs-event-bus.sh" ]]; then
+if [[ -x "${ROOT_DIR}/scripts/ci/check-pack-subjects-vs-event-bus.sh" ]]; then
   if [[ "$mode" == "check" ]]; then
-    if ! "${repo_root}/scripts/ci/check-pack-subjects-vs-event-bus.sh"; then
+    if ! "${ROOT_DIR}/scripts/ci/check-pack-subjects-vs-event-bus.sh"; then
       subject_guard_status=1
     fi
   else
-    "${repo_root}/scripts/ci/check-pack-subjects-vs-event-bus.sh" --fix-hints || true
+    "${ROOT_DIR}/scripts/ci/check-pack-subjects-vs-event-bus.sh" --fix-hints || true
   fi
 else
   report_issue "scripts/ci/check-pack-subjects-vs-event-bus.sh" "1" "(missing)" "pack subject checker not executable" "chmod +x scripts/ci/check-pack-subjects-vs-event-bus.sh."

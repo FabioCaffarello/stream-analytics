@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-registry="${repo_root}/docs/contracts/subject-registry.yaml"
-validation_src="${repo_root}/internal/adapters/jetstream/subject_validation.go"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+registry="${ROOT_DIR}/docs/contracts/subject-registry.yaml"
+validation_src="${ROOT_DIR}/internal/adapters/jetstream/subject_validation.go"
 errors=0
 
 fail() {
