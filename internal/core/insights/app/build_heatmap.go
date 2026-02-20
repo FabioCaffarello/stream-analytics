@@ -4,7 +4,6 @@ import (
 	"context"
 	"math"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -188,16 +187,16 @@ func HeatmapArtifactIdempotencyKey(a domain.HeatmapArtifactV1) string {
 		return ""
 	}
 	last := a.Cells[len(a.Cells)-1]
-	return hash.HashFieldsFast(
-		naming.CanonicalVenue(a.Venue),
-		naming.CanonicalInstrument(a.Instrument),
-		naming.NormalizeTimeframe(a.Timeframe),
-		strconv.FormatInt(a.WindowStartTs, 10),
-		formatFloat(last.PriceBucketLow),
-		formatFloat(last.PriceBucketHigh),
-		strings.ToUpper(strings.TrimSpace(last.SizeBucket)),
-		strconv.FormatInt(last.SeqMax, 10),
-	)
+	return hash.NewFieldHasher().
+		String(naming.CanonicalVenue(a.Venue)).
+		String(naming.CanonicalInstrument(a.Instrument)).
+		String(naming.NormalizeTimeframe(a.Timeframe)).
+		Int64(a.WindowStartTs).
+		Float64(last.PriceBucketLow).
+		Float64(last.PriceBucketHigh).
+		String(strings.ToUpper(strings.TrimSpace(last.SizeBucket))).
+		Int64(last.SeqMax).
+		Hex()
 }
 
 func (uc *BuildHeatmap) getPartition(key string) *partitionState {
@@ -569,8 +568,4 @@ func (uc *BuildHeatmap) priceBucketCount(ws *windowState) int {
 		seen[c.low] = struct{}{}
 	}
 	return len(seen)
-}
-
-func formatFloat(v float64) string {
-	return strconv.FormatFloat(v, 'f', -1, 64)
 }

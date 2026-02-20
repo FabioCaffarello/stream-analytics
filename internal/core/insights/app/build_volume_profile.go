@@ -172,17 +172,17 @@ func (uc *BuildVolumeProfile) Execute(_ context.Context, req BuildVolumeProfileR
 }
 
 func VolumeProfileIdempotencyKey(snapshot domain.VolumeProfileSnapshotV1, bucketLow, bucketHigh float64, seqMax int64) string {
-	return hash.HashFieldsFast(
-		naming.CanonicalVenue(snapshot.Venue),
-		naming.CanonicalInstrument(snapshot.Instrument),
-		naming.NormalizeTimeframe(snapshot.Timeframe),
-		strconv.FormatInt(snapshot.WindowStartTs, 10),
-		strconv.FormatInt(snapshot.WindowEndTs, 10),
-		formatVPVRFloat(bucketLow),
-		formatVPVRFloat(bucketHigh),
-		strconv.Itoa(domain.VolumeProfileSnapshotVersion),
-		strconv.FormatInt(seqMax, 10),
-	)
+	return hash.NewFieldHasher().
+		String(naming.CanonicalVenue(snapshot.Venue)).
+		String(naming.CanonicalInstrument(snapshot.Instrument)).
+		String(naming.NormalizeTimeframe(snapshot.Timeframe)).
+		Int64(snapshot.WindowStartTs).
+		Int64(snapshot.WindowEndTs).
+		Float64(bucketLow).
+		Float64(bucketHigh).
+		Int(domain.VolumeProfileSnapshotVersion).
+		Int64(seqMax).
+		Hex()
 }
 
 func normalizeAndValidateVPVRRequest(req BuildVolumeProfileRequest) (vpvrNormalizedTrade, *problem.Problem) {

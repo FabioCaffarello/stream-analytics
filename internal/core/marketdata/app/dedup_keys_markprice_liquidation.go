@@ -1,7 +1,6 @@
 package app
 
 import (
-	"strconv"
 	"strings"
 
 	"github.com/market-raccoon/internal/core/marketdata/domain"
@@ -18,18 +17,18 @@ func BuildMarkPriceDedupKey(
 	payload domain.MarkPriceTickV1,
 	sourceIdempotency string,
 ) string {
-	base := lmDedupBase(markPriceEventType, version, venue, instrument)
+	base := lmDedupBaseHasher(markPriceEventType, version, venue, instrument)
 	if src := strings.TrimSpace(sourceIdempotency); src != "" {
-		return sharedhash.HashFieldsFast(append(base, src)...)
+		return base.String(src).Hex()
 	}
-	return sharedhash.HashFieldsFast(append(base,
-		strconv.FormatFloat(payload.MarkPrice, 'f', -1, 64),
-		strconv.FormatFloat(payload.IndexPrice, 'f', -1, 64),
-		strconv.FormatFloat(payload.FundingRate, 'f', -1, 64),
-		strconv.FormatInt(payload.Timestamp, 10),
-		strconv.FormatInt(tsExchange, 10),
-		strconv.FormatInt(tsIngest, 10),
-	)...)
+	return base.
+		Float64(payload.MarkPrice).
+		Float64(payload.IndexPrice).
+		Float64(payload.FundingRate).
+		Int64(payload.Timestamp).
+		Int64(tsExchange).
+		Int64(tsIngest).
+		Hex()
 }
 
 func BuildLiquidationDedupKey(
@@ -41,25 +40,24 @@ func BuildLiquidationDedupKey(
 	payload domain.LiquidationTickV1,
 	sourceIdempotency string,
 ) string {
-	base := lmDedupBase(liquidationEventType, version, venue, instrument)
+	base := lmDedupBaseHasher(liquidationEventType, version, venue, instrument)
 	if src := strings.TrimSpace(sourceIdempotency); src != "" {
-		return sharedhash.HashFieldsFast(append(base, src)...)
+		return base.String(src).Hex()
 	}
-	return sharedhash.HashFieldsFast(append(base,
-		strings.ToLower(strings.TrimSpace(payload.Side)),
-		strconv.FormatFloat(payload.Price, 'f', -1, 64),
-		strconv.FormatFloat(payload.Size, 'f', -1, 64),
-		strconv.FormatInt(payload.Timestamp, 10),
-		strconv.FormatInt(tsExchange, 10),
-		strconv.FormatInt(tsIngest, 10),
-	)...)
+	return base.
+		String(strings.ToLower(strings.TrimSpace(payload.Side))).
+		Float64(payload.Price).
+		Float64(payload.Size).
+		Int64(payload.Timestamp).
+		Int64(tsExchange).
+		Int64(tsIngest).
+		Hex()
 }
 
-func lmDedupBase(eventType string, version int, venue, instrument string) []string {
-	s := make([]string, 4, 10)
-	s[0] = eventType
-	s[1] = strconv.Itoa(version)
-	s[2] = naming.CanonicalVenue(venue)
-	s[3] = naming.CanonicalInstrument(instrument)
-	return s
+func lmDedupBaseHasher(eventType string, version int, venue, instrument string) sharedhash.FieldHasher {
+	return sharedhash.NewFieldHasher().
+		String(eventType).
+		Int(version).
+		String(naming.CanonicalVenue(venue)).
+		String(naming.CanonicalInstrument(instrument))
 }

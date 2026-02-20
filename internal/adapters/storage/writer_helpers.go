@@ -2,7 +2,6 @@
 package storage
 
 import (
-	"strconv"
 	"strings"
 
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
@@ -31,33 +30,33 @@ func NullableFundingRate(s aggdomain.StatsWindowV1) (avg, last any) {
 // window keyed by venue, instrument, timeframe and window start timestamp.
 // Used by candle and stats writers across both backends.
 func WindowIdempotencyKey(venue, instrument, timeframe string, windowStartTs int64) string {
-	return sharedhash.HashFieldsFast(
-		venue,
-		instrument,
-		timeframe,
-		strconv.FormatInt(windowStartTs, 10),
-	)
+	return sharedhash.NewFieldHasher().
+		String(venue).
+		String(instrument).
+		String(timeframe).
+		Int64(windowStartTs).
+		Hex()
 }
 
 // HeatmapBaseIdempotencyKey builds the artifact-level portion of a heatmap
 // idempotency key. Per-cell keys are derived from this base.
 func HeatmapBaseIdempotencyKey(venue, instrument, timeframe string, windowStartTs int64, sourceIdempotencyKey string) string {
-	return sharedhash.HashFieldsFast(
-		venue,
-		instrument,
-		timeframe,
-		strconv.FormatInt(windowStartTs, 10),
-		sourceIdempotencyKey,
-	)
+	return sharedhash.NewFieldHasher().
+		String(venue).
+		String(instrument).
+		String(timeframe).
+		Int64(windowStartTs).
+		String(sourceIdempotencyKey).
+		Hex()
 }
 
 // HeatmapCellIdempotencyKey builds a per-cell idempotency key from the
 // artifact base key and cell coordinates.
 func HeatmapCellIdempotencyKey(baseKey string, priceLow, priceHigh float64, sizeBucket string) string {
-	return sharedhash.HashFieldsFast(
-		baseKey,
-		strconv.FormatFloat(priceLow, 'f', -1, 64),
-		strconv.FormatFloat(priceHigh, 'f', -1, 64),
-		strings.ToUpper(strings.TrimSpace(sizeBucket)),
-	)
+	return sharedhash.NewFieldHasher().
+		String(baseKey).
+		Float64(priceLow).
+		Float64(priceHigh).
+		String(strings.ToUpper(strings.TrimSpace(sizeBucket))).
+		Hex()
 }
