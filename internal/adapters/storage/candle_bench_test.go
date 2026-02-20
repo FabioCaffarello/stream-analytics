@@ -14,6 +14,7 @@ func BenchmarkMarshalCandle(b *testing.B) {
 		Timeframe:     "1m",
 		WindowStartTs: 1,
 		WindowEndTs:   60,
+		IsClosed:      true,
 		Open:          100.0,
 		High:          101.0,
 		Low:           99.0,
