@@ -57,7 +57,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules workspace-check tidy tidy-check go-tidy-check tidy-check-changed fmt fmt-check vet shell-script-check quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check legacy-check-staged legacy-check lint lint-changed smoke runtime-gate runtime-gate-full test test-root test-workspace test-workspace-race test-unit test-integration test-integration-changed test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store soak-roundtrip soak-pipeline soak-ws-delivery soak-c4-production soak-full test-short test-short-changed bench-hotpath vuln build run clean docker-build up down up-infra up-core dev-scale-smoke ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci
+.PHONY: help install-tools tools modules workspace-check tidy tidy-check go-tidy-check tidy-check-changed fmt fmt-check vet shell-script-check quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check legacy-check-staged legacy-check lint lint-changed smoke runtime-gate runtime-gate-full test test-root test-workspace test-workspace-race test-unit test-integration test-integration-changed test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store soak-roundtrip soak-pipeline soak-ws-delivery soak-c4-production soak-full test-short test-short-changed bench-hotpath bench-budget vuln build run clean docker-build up down up-infra up-core dev-scale-smoke ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci
 
 help:
 	@echo "Targets:"
@@ -98,6 +98,7 @@ help:
 	@echo "  make test-replay-golden-if-needed - run replay golden only when changed paths match trigger regex"
 	@echo "  make replay-trigger-self-check - validate replay trigger include/exclude paths"
 	@echo "  make bench-hotpath      - run benchmark harness for codec/policykit hot paths"
+	@echo "  make bench-budget      - enforce per-benchmark allocation budgets (<10 allocs/event target)"
 	@echo "  make test-soak          - alias for soak-check long-running validation"
 	@echo "  make soak-check         - run soak harness checks and emit evidence file"
 	@echo "  make soak-vpvr          - run deterministic VPVR burst soak checks"
@@ -361,6 +362,9 @@ bench-hotpath: invariants-check
 	@$(GO) test -run=^$$ -bench=BenchmarkE2E -benchmem ./internal/core/aggregation/app
 	@$(GO) test -run=^$$ -bench=BenchmarkDeliveryFanOut -benchmem ./internal/actors/delivery/runtime
 	@$(GO) test -run=^$$ -bench=BenchmarkSessionWrite -benchmem ./internal/interfaces/ws
+
+bench-budget: invariants-check
+	@bash scripts/bench-budget.sh
 
 bench-baseline: invariants-check
 	@$(GO) test -run='^$$' -bench=HotPath -benchmem -count=5 ./internal/shared/codec ./internal/shared/policykit ./internal/shared/hash > .benchmarks/baseline.txt 2>&1
