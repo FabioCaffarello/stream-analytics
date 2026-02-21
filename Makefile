@@ -708,3 +708,21 @@ restore-timescaledb:
 restore-clickhouse:
 	@if [ -z "$(DIR)" ]; then echo "Usage: make restore-clickhouse DIR=backups/clickhouse/timestamp" >&2; exit 1; fi
 	@./scripts/ops/restore-clickhouse.sh "$(DIR)"
+
+# ── Terraform (local) ───────────────────────────────────────────
+TF_LOCAL_DIR := deploy/infra/terraform/envs/local
+
+tf-init:
+	terraform -chdir=$(TF_LOCAL_DIR) init
+
+tf-plan:
+	terraform -chdir=$(TF_LOCAL_DIR) plan
+
+tf-apply:
+	terraform -chdir=$(TF_LOCAL_DIR) apply
+
+tf-destroy:
+	terraform -chdir=$(TF_LOCAL_DIR) destroy
+
+tf-fmt:
+	terraform fmt -recursive deploy/infra/terraform
