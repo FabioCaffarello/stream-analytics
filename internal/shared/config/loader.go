@@ -274,6 +274,9 @@ func validateHTTP(h HTTPConfig) *problem.Problem {
 	if (tlsCert == "") != (tlsKey == "") {
 		return problem.New(codeInvalid, "http.tls_cert and http.tls_key must be configured together")
 	}
+	if h.TLSRequired && tlsCert == "" {
+		return problem.New(codeInvalid, "http.tls_required is true but http.tls_cert and http.tls_key are not configured")
+	}
 	var publisherFlushTimeout time.Duration
 	var guardianShutdownTimeout time.Duration
 	for _, field := range []struct {

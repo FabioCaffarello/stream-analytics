@@ -193,6 +193,9 @@ type HTTPConfig struct {
 	TLSCert string `json:"tls_cert"`
 	// TLSKey is the optional filesystem path to the TLS private key.
 	TLSKey string `json:"tls_key"`
+	// TLSRequired when true causes startup to fail if tls_cert and tls_key are empty.
+	// Use this in production to prevent accidental plaintext deployments. Default: false.
+	TLSRequired bool `json:"tls_required"`
 }
 
 // WSConfig controls websocket auth and per-session read-path rate limiting.

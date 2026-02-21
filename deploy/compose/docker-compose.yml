@@ -31,14 +31,16 @@ services:
     container_name: market-raccoon-timescale
     ports:
       - "127.0.0.1:5432:5432"
+    env_file:
+      - ../envs/local.env
     environment:
-      POSTGRES_USER: raccoon
-      POSTGRES_PASSWORD: raccoon
-      POSTGRES_DB: raccoon
+      POSTGRES_USER: ${TIMESCALE_USER:?Set TIMESCALE_USER in env file}
+      POSTGRES_PASSWORD: ${TIMESCALE_PASSWORD:?Set TIMESCALE_PASSWORD in env file}
+      POSTGRES_DB: ${TIMESCALE_DB:-raccoon}
     volumes:
       - timescale_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U raccoon -d raccoon"]
+      test: ["CMD-SHELL", "pg_isready -U ${TIMESCALE_USER:-raccoon} -d ${TIMESCALE_DB:-raccoon}"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -227,7 +229,7 @@ services:
     env_file:
       - ../envs/local.env
     healthcheck:
-      test: ["CMD-SHELL", "clickhouse-client --port 9000 --user default --password password --query 'SELECT 1' >/dev/null 2>&1"]
+      test: ["CMD-SHELL", "clickhouse-client --port 9000 --user ${CLICKHOUSE_USER:-default} --password ${CLICKHOUSE_PASSWORD:?Set CLICKHOUSE_PASSWORD in env file} --query 'SELECT 1' >/dev/null 2>&1"]
       interval: 10s
       timeout: 3s
       retries: 20
@@ -245,9 +247,11 @@ services:
       dockerfile: deploy/docker/migrate.Dockerfile
     image: market-raccoon/migrate:dev
     container_name: market-raccoon-migrate
+    env_file:
+      - ../envs/local.env
     environment:
-      DATABASE_URL: "postgres://raccoon:raccoon@timescale:5432/raccoon?sslmode=disable"
-      CLICKHOUSE_DSN: "clickhouse://default:password@clickhouse:9000/default"
+      DATABASE_URL: "postgres://${TIMESCALE_USER:?err}:${TIMESCALE_PASSWORD:?err}@timescale:5432/${TIMESCALE_DB:-raccoon}?sslmode=disable"
+      CLICKHOUSE_DSN: "clickhouse://${CLICKHOUSE_USER:-default}:${CLICKHOUSE_PASSWORD:?err}@clickhouse:9000/${CLICKHOUSE_DB:-default}"
     depends_on:
       timescale:
         condition: service_healthy
