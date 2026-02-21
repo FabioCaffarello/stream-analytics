@@ -57,7 +57,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules workspace-check tidy tidy-check go-tidy-check tidy-check-changed fmt fmt-check vet shell-script-check quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check legacy-check-staged legacy-check lint lint-changed smoke runtime-gate runtime-gate-full test test-root test-workspace test-workspace-race test-unit test-integration test-integration-changed test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store soak-roundtrip soak-pipeline soak-ws-delivery soak-c4-production soak-full test-short test-short-changed bench-hotpath bench-budget vuln build run clean docker-build up down up-infra up-core dev-scale-smoke ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci
+.PHONY: help install-tools tools modules workspace-check tidy tidy-check go-tidy-check tidy-check-changed fmt fmt-check vet shell-script-check quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check legacy-check-staged legacy-check lint lint-changed smoke runtime-gate runtime-gate-full test test-root test-workspace test-workspace-race test-unit test-integration test-integration-changed test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store soak-roundtrip soak-pipeline soak-ws-delivery soak-c4-production soak-full test-short test-short-changed bench-hotpath bench-budget vuln build run clean docker-build up down down-clean up-infra up-core migrate dev-scale-smoke ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci
 
 help:
 	@echo "Targets:"
@@ -114,12 +114,14 @@ help:
 	@echo "  make vuln               - run govulncheck"
 	@echo "  make build              - build all binaries under cmd/* (package main)"
 	@echo "  make run                - run selected app (default: server)"
-	@echo "  make down               - stop full stack"
+	@echo "  make down               - stop full stack (preserve data volumes)"
+	@echo "  make down-clean         - stop full stack and remove all data volumes"
 	@echo "  make up                 - start full stack (nats + timescale + clickhouse + app services + observability)"
 	@echo "                           vars: PROCESSOR_REPLICAS=N, PROCESSOR_SHARD_COUNT (defaults to N; consumer fixed at 1 replica)"
 	@echo "                           dev/local: SHARD_INDEX is auto-derived from replica hostname when unset"
 	@echo "  make up-infra           - start only infrastructure services (nats + timescale + clickhouse + prometheus + grafana)"
 	@echo "  make up-core            - start infra + core app services (no observability)"
+	@echo "  make migrate            - run database migrations (starts infra if needed)"
 	@echo "  make smoke              - wait up to 60s for /readyz on core services via docker compose"
 	@echo "  make runtime-gate       - run up-core + smoke + soak-check with versioned evidence report"
 	@echo "  make runtime-gate-full  - run runtime-gate plus heavy C4 pipeline and ws-delivery soaks"
@@ -547,10 +549,16 @@ up:
 		--scale processor=$$p_rep
 
 down:
+	docker compose -f deploy/compose/docker-compose.yml --profile core --profile obs down --remove-orphans
+
+down-clean:
 	docker compose -f deploy/compose/docker-compose.yml --profile core --profile obs down -v --remove-orphans
 
 up-infra:
-	docker compose -f deploy/compose/docker-compose.yml --profile obs up -d nats timescale clickhouse prometheus grafana
+	docker compose -f deploy/compose/docker-compose.yml --profile obs up -d nats timescale clickhouse migrate prometheus grafana
+
+migrate:
+	docker compose -f deploy/compose/docker-compose.yml run --rm migrate
 
 up-core:
 	@set -euo pipefail; \

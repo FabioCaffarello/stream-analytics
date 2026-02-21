@@ -37,7 +37,6 @@ services:
       POSTGRES_DB: raccoon
     volumes:
       - timescale_data:/var/lib/postgresql/data
-      - ../../sql/timescale/migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U raccoon -d raccoon"]
       interval: 5s
@@ -71,6 +70,8 @@ services:
         condition: service_healthy
       clickhouse:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/readyz"]
       interval: 10s
@@ -107,6 +108,8 @@ services:
         condition: service_healthy
       server:
         condition: service_started
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/readyz"]
       interval: 10s
@@ -147,6 +150,8 @@ services:
         condition: service_healthy
       clickhouse:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       server:
         condition: service_started
     healthcheck:
@@ -184,6 +189,8 @@ services:
         condition: service_healthy
       clickhouse:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8083/readyz"]
       interval: 10s
@@ -213,7 +220,6 @@ services:
       - clickhouse_logs:/var/log/clickhouse-server/
       - ../clickhouse/config/listen.xml:/etc/clickhouse-server/config.d/listen.xml:ro
       - ../clickhouse/users/raccoon-user.xml:/etc/clickhouse-server/users.d/raccoon-user.xml:ro
-      - ../../sql/clickhouse/migrations:/docker-entrypoint-initdb.d:ro
     cap_add:
       - SYS_NICE
     networks:
@@ -232,6 +238,36 @@ services:
         limits:
           memory: 2G
           cpus: "2.00"
+
+  migrate:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/migrate.Dockerfile
+    image: market-raccoon/migrate:dev
+    container_name: market-raccoon-migrate
+    environment:
+      DATABASE_URL: "postgres://raccoon:raccoon@timescale:5432/raccoon?sslmode=disable"
+      CLICKHOUSE_DSN: "clickhouse://default:password@clickhouse:9000/default"
+    depends_on:
+      timescale:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        /usr/local/bin/migrate -target timescale up &&
+        /usr/local/bin/migrate -target clickhouse up
+    networks:
+      - market-raccoon-network
+    restart: "no"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.25"
 
   prometheus:
     image: prom/prometheus:v2.54.1
