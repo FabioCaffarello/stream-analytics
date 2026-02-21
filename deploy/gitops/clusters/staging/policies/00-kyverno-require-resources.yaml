@@ -1,0 +1,26 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-deployment-resources
+spec:
+  validationFailureAction: enforce
+  rules:
+    - name: require-resources-on-deployments
+      match:
+        resources:
+          kinds:
+            - Deployment
+      validate:
+        message: "All containers must set resources.requests.cpu, resources.requests.memory, resources.limits.cpu and resources.limits.memory"
+        pattern:
+          spec:
+            template:
+              spec:
+                containers:
+                  - resources:
+                      requests:
+                        cpu: "?*"
+                        memory: "?*"
+                      limits:
+                        cpu: "?*"
+                        memory: "?*"

@@ -382,6 +382,43 @@ func TestValidate_HTTP_TLSPairRequired(t *testing.T) {
 	}
 }
 
+func TestValidate_HTTP_TLSRequiredFailsWithoutCerts(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.HTTP.TLSRequired = true
+	cfg.HTTP.TLSCert = ""
+	cfg.HTTP.TLSKey = ""
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("expected validation error when tls_required=true but no certs configured")
+	}
+	if prob.Code != codeInvalid {
+		t.Errorf("problem code = %q, want %q", prob.Code, codeInvalid)
+	}
+	if !strings.Contains(prob.Message, "tls_required") {
+		t.Errorf("expected tls_required in message, got %q", prob.Message)
+	}
+}
+
+func TestValidate_HTTP_TLSRequiredPassesWithCerts(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.HTTP.TLSRequired = true
+	cfg.HTTP.TLSCert = "/tmp/cert.pem"
+	cfg.HTTP.TLSKey = "/tmp/key.pem"
+	if prob := cfg.Validate(); prob != nil {
+		t.Fatalf("expected tls_required=true with certs to pass validation, got: %v", prob)
+	}
+}
+
+func TestValidate_HTTP_TLSNotRequiredPassesWithoutCerts(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.HTTP.TLSRequired = false
+	cfg.HTTP.TLSCert = ""
+	cfg.HTTP.TLSKey = ""
+	if prob := cfg.Validate(); prob != nil {
+		t.Fatalf("expected tls_required=false without certs to pass validation, got: %v", prob)
+	}
+}
+
 func TestValidate_WSAuthEnabledRequiresKeys(t *testing.T) {
 	cfg, _ := Load("")
 	cfg.WS.Auth.Enabled = true

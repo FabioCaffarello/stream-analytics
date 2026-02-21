@@ -1,0 +1,20 @@
+---
+# SOPS creation rules — one age keypair per environment.
+# Public keys listed here; private keys stored in:
+#   - Local: terraform.tfvars (gitignored) → K8s Secret in argocd namespace
+#   - CI: GitHub Secrets (SOPS_AGE_KEY_LOCAL, SOPS_AGE_KEY_STAGING, SOPS_AGE_KEY_PROD)
+#
+# Generate keypairs: age-keygen -o <env>.key
+# Place the public key below, the private key in the appropriate store.
+#
+# Usage:
+#   sops --encrypt --in-place clusters/<env>/<ns>/secrets/secrets.enc.yaml
+#   sops --decrypt clusters/<env>/<ns>/secrets/secrets.enc.yaml
+
+creation_rules:
+  - path_regex: clusters/local/.*\.enc\.yaml$
+    age: "<LOCAL_AGE_PUBLIC_KEY>"
+  - path_regex: clusters/staging/.*\.enc\.yaml$
+    age: "<STAGING_AGE_PUBLIC_KEY>"
+  - path_regex: clusters/prod/.*\.enc\.yaml$
+    age: "<PROD_AGE_PUBLIC_KEY>"

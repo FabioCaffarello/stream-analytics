@@ -117,12 +117,12 @@ func NewServer(
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("GET /readyz", s.handleReadyz)
-	mux.HandleFunc("GET /runtime/snapshot", s.handleSnapshot)
-	mux.HandleFunc("GET /runtime/overload", s.handleRuntimeOverload)
-	mux.HandleFunc("GET /runtime/storage", s.handleRuntimeStorage)
-	mux.HandleFunc("GET /runtime/ws", s.handleRuntimeWS)
-	mux.HandleFunc("GET /shardz", s.handleShardz)
-	mux.HandleFunc("POST /runtime/reload", s.handleReload)
+	mux.Handle("GET /runtime/snapshot", localhostOnly(http.HandlerFunc(s.handleSnapshot)))
+	mux.Handle("GET /runtime/overload", localhostOnly(http.HandlerFunc(s.handleRuntimeOverload)))
+	mux.Handle("GET /runtime/storage", localhostOnly(http.HandlerFunc(s.handleRuntimeStorage)))
+	mux.Handle("GET /runtime/ws", localhostOnly(http.HandlerFunc(s.handleRuntimeWS)))
+	mux.Handle("GET /shardz", localhostOnly(http.HandlerFunc(s.handleShardz)))
+	mux.Handle("POST /runtime/reload", localhostOnly(http.HandlerFunc(s.handleReload)))
 	if s.wsHandler != nil {
 		mux.HandleFunc("GET /ws", s.wsHandler)
 	}

@@ -1,0 +1,53 @@
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: raccoon-migrate
+  namespace: raccoon-system
+  labels:
+    app.kubernetes.io/name: raccoon-migrate
+    app.kubernetes.io/component: migrate
+    app.kubernetes.io/part-of: market-raccoon
+    app.kubernetes.io/managed-by: argocd
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: HookSucceeded
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: raccoon-migrate
+        app.kubernetes.io/name: raccoon-migrate
+        app.kubernetes.io/component: migrate
+        app.kubernetes.io/part-of: market-raccoon
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migrate
+          image: ghcr.io/market-raccoon/raccoon-migrate:latest
+          command:
+            - /bin/sh
+            - -c
+            - >-
+              /usr/local/bin/migrate -target timescale up &&
+              /usr/local/bin/migrate -target clickhouse up
+          envFrom:
+            - secretRef:
+                name: raccoon-app-secrets
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "100m"
+            limits:
+              memory: "128Mi"
+              cpu: "250m"
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault

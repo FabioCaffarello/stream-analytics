@@ -1,0 +1,13 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: gitops-root
+  namespace: argocd
+spec:
+  description: "Root AppProject for GitOps root applications"
+  sourceRepos:
+    - https://github.com/market-raccoon/market-raccoon.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: "*"

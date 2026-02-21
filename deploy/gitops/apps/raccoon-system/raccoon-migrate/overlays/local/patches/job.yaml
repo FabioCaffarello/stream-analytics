@@ -1,0 +1,18 @@
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: raccoon-migrate
+  namespace: raccoon-system
+spec:
+  template:
+    spec:
+      containers:
+        - name: migrate
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "50m"
+            limits:
+              memory: "64Mi"
+              cpu: "125m"

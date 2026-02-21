@@ -93,7 +93,7 @@ func (p *Pool) Exec(ctx context.Context, query string, args ...any) (int64, *pro
 	}
 	tag, err := p.pool.Exec(ctx, query, args...)
 	if err != nil {
-		return 0, problem.Wrap(err, problem.Unavailable, "timescale exec failed")
+		return 0, problem.Wrap(err, problem.Unavailable, "timescale exec failed: "+err.Error())
 	}
 	return tag.RowsAffected(), nil
 }

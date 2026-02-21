@@ -53,6 +53,7 @@ func newTestServer(e *actor.Engine, guardianPID *actor.PID) *httpserver.Server {
 }
 
 // doRequest issues an HTTP request against the server's Handler (no real TCP).
+// Uses loopback RemoteAddr so protected endpoints are accessible.
 func doRequest(t *testing.T, srv *httpserver.Server, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	var reqBody *strings.Reader
@@ -62,6 +63,7 @@ func doRequest(t *testing.T, srv *httpserver.Server, method, path, body string) 
 		reqBody = strings.NewReader("")
 	}
 	req := httptest.NewRequest(method, path, reqBody)
+	req.RemoteAddr = "127.0.0.1:12345"
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
 	return rec
@@ -70,6 +72,7 @@ func doRequest(t *testing.T, srv *httpserver.Server, method, path, body string) 
 func doRequestWithHeaders(t *testing.T, srv *httpserver.Server, method, path, body string, headers map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req.RemoteAddr = "127.0.0.1:12345"
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
@@ -940,6 +943,76 @@ func TestServer_Pprof_EnabledRemoteForbidden(t *testing.T) {
 
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d", rec.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// localhostOnly protection for runtime/shardz endpoints
+// ---------------------------------------------------------------------------
+
+func TestServer_RuntimeSnapshot_LocalhostAllowed(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+	req := httptest.NewRequest(http.MethodGet, "/runtime/snapshot", strings.NewReader(""))
+	req.RemoteAddr = "127.0.0.1:12345"
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for localhost, got %d", rec.Code)
+	}
+}
+
+func TestServer_RuntimeSnapshot_RemoteForbidden(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+	req := httptest.NewRequest(http.MethodGet, "/runtime/snapshot", strings.NewReader(""))
+	req.RemoteAddr = "203.0.113.10:12345"
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for remote addr, got %d", rec.Code)
+	}
+}
+
+func TestServer_RuntimeReload_RemoteForbidden(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+	req := httptest.NewRequest(http.MethodPost, "/runtime/reload", strings.NewReader(""))
+	req.RemoteAddr = "203.0.113.10:12345"
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for remote addr, got %d", rec.Code)
+	}
+}
+
+func TestServer_Shardz_RemoteForbidden(t *testing.T) {
+	observability.SetShardTopology(0, 2, 0)
+
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+	req := httptest.NewRequest(http.MethodGet, "/shardz", strings.NewReader(""))
+	req.RemoteAddr = "203.0.113.10:12345"
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for remote addr, got %d", rec.Code)
 	}
 }
 

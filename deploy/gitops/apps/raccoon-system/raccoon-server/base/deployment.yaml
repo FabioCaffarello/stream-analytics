@@ -1,0 +1,82 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: raccoon-server
+  namespace: raccoon-system
+  labels:
+    app.kubernetes.io/name: raccoon-server
+    app.kubernetes.io/component: server
+    app.kubernetes.io/part-of: market-raccoon
+    app.kubernetes.io/managed-by: argocd
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: raccoon-server
+  template:
+    metadata:
+      labels:
+        app: raccoon-server
+        app.kubernetes.io/name: raccoon-server
+        app.kubernetes.io/component: server
+        app.kubernetes.io/part-of: market-raccoon
+    spec:
+      terminationGracePeriodSeconds: 45
+      containers:
+        - name: app
+          image: ghcr.io/market-raccoon/raccoon-server:latest
+          command: ["-config", "/etc/market-raccoon/server.jsonc"]
+          ports:
+            - name: service
+              containerPort: 8080
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: raccoon-app-secrets
+          volumeMounts:
+            - name: config
+              mountPath: /etc/market-raccoon
+              readOnly: true
+          startupProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5"]
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "1000m"
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: config
+          configMap:
+            name: raccoon-server-config

@@ -1,5 +1,4 @@
 //go:build soak
-// +build soak
 
 package wsserver
 

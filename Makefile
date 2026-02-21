@@ -57,7 +57,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules workspace-check tidy tidy-check go-tidy-check tidy-check-changed fmt fmt-check vet shell-script-check quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check legacy-check-staged legacy-check lint lint-changed smoke runtime-gate runtime-gate-full test test-root test-workspace test-workspace-race test-unit test-integration test-integration-changed test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store soak-roundtrip soak-pipeline soak-ws-delivery soak-c4-production soak-full test-short test-short-changed bench-hotpath bench-budget vuln build run clean docker-build up down up-infra up-core dev-scale-smoke ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci
+.PHONY: help install-tools tools modules workspace-check tidy tidy-check go-tidy-check tidy-check-changed fmt fmt-check vet shell-script-check quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check legacy-check-staged legacy-check lint lint-changed smoke runtime-gate runtime-gate-full test test-root test-workspace test-workspace-race test-unit test-integration test-integration-changed test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store soak-roundtrip soak-pipeline soak-ws-delivery soak-c4-production soak-full test-short test-short-changed bench-hotpath bench-budget vuln build run clean docker-build up down down-clean up-infra up-core migrate dev-scale-smoke ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci backup backup-timescaledb backup-clickhouse restore-timescaledb restore-clickhouse
 
 help:
 	@echo "Targets:"
@@ -114,12 +114,14 @@ help:
 	@echo "  make vuln               - run govulncheck"
 	@echo "  make build              - build all binaries under cmd/* (package main)"
 	@echo "  make run                - run selected app (default: server)"
-	@echo "  make down               - stop full stack"
+	@echo "  make down               - stop full stack (preserve data volumes)"
+	@echo "  make down-clean         - stop full stack and remove all data volumes"
 	@echo "  make up                 - start full stack (nats + timescale + clickhouse + app services + observability)"
 	@echo "                           vars: PROCESSOR_REPLICAS=N, PROCESSOR_SHARD_COUNT (defaults to N; consumer fixed at 1 replica)"
 	@echo "                           dev/local: SHARD_INDEX is auto-derived from replica hostname when unset"
 	@echo "  make up-infra           - start only infrastructure services (nats + timescale + clickhouse + prometheus + grafana)"
 	@echo "  make up-core            - start infra + core app services (no observability)"
+	@echo "  make migrate            - run database migrations (starts infra if needed)"
 	@echo "  make smoke              - wait up to 60s for /readyz on core services via docker compose"
 	@echo "  make runtime-gate       - run up-core + smoke + soak-check with versioned evidence report"
 	@echo "  make runtime-gate-full  - run runtime-gate plus heavy C4 pipeline and ws-delivery soaks"
@@ -138,6 +140,11 @@ help:
 	@echo "  make proto-check        - lint + breaking + gen and fail if proto outputs are dirty"
 	@echo "  make proto              - run proto-lint + proto-gen"
 	@echo "  make ci                 - tidy-check + fmt-check + lint + test + vuln + build"
+	@echo "  make backup             - backup both TimescaleDB and ClickHouse"
+	@echo "  make backup-timescaledb - backup TimescaleDB (pg_dump, gzipped)"
+	@echo "  make backup-clickhouse  - backup ClickHouse (native format, gzipped)"
+	@echo "  make restore-timescaledb - restore TimescaleDB (FILE=path/to/backup.sql.gz)"
+	@echo "  make restore-clickhouse  - restore ClickHouse (DIR=path/to/backup/dir)"
 	@echo ""
 	@echo "Optional: MODULE=./pkg/hello-lib to target a single module"
 
@@ -547,10 +554,16 @@ up:
 		--scale processor=$$p_rep
 
 down:
+	docker compose -f deploy/compose/docker-compose.yml --profile core --profile obs down --remove-orphans
+
+down-clean:
 	docker compose -f deploy/compose/docker-compose.yml --profile core --profile obs down -v --remove-orphans
 
 up-infra:
-	docker compose -f deploy/compose/docker-compose.yml --profile obs up -d nats timescale clickhouse prometheus grafana
+	docker compose -f deploy/compose/docker-compose.yml --profile obs up -d nats timescale clickhouse migrate prometheus grafana
+
+migrate:
+	docker compose -f deploy/compose/docker-compose.yml run --rm migrate
 
 up-core:
 	@set -euo pipefail; \
@@ -675,3 +688,41 @@ proto-check: proto-lint proto-breaking proto-gen-if-needed
 proto: proto-lint proto-gen
 
 ci: legacy-check tidy-check fmt-check lint test-workspace-race vuln build
+
+# ── Backup / Restore ──────────────────────────────────────────────
+FILE ?=
+DIR ?=
+
+backup: backup-timescaledb backup-clickhouse
+
+backup-timescaledb:
+	@./scripts/ops/backup-timescaledb.sh
+
+backup-clickhouse:
+	@./scripts/ops/backup-clickhouse.sh
+
+restore-timescaledb:
+	@if [ -z "$(FILE)" ]; then echo "Usage: make restore-timescaledb FILE=backups/timescaledb/file.sql.gz" >&2; exit 1; fi
+	@./scripts/ops/restore-timescaledb.sh "$(FILE)"
+
+restore-clickhouse:
+	@if [ -z "$(DIR)" ]; then echo "Usage: make restore-clickhouse DIR=backups/clickhouse/timestamp" >&2; exit 1; fi
+	@./scripts/ops/restore-clickhouse.sh "$(DIR)"
+
+# ── Terraform (local) ───────────────────────────────────────────
+TF_LOCAL_DIR := deploy/infra/terraform/envs/local
+
+tf-init:
+	terraform -chdir=$(TF_LOCAL_DIR) init
+
+tf-plan:
+	terraform -chdir=$(TF_LOCAL_DIR) plan
+
+tf-apply:
+	terraform -chdir=$(TF_LOCAL_DIR) apply
+
+tf-destroy:
+	terraform -chdir=$(TF_LOCAL_DIR) destroy
+
+tf-fmt:
+	terraform fmt -recursive deploy/infra/terraform

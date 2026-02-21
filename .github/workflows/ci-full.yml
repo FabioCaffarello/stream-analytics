@@ -69,6 +69,20 @@ jobs:
       - name: Benchmark regression check
         run: BENCH_THRESHOLD=20 make bench-check
 
+  # ── Allocation budget gate ────────────────────────────────────────
+  bench-budget:
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      github.event.inputs.skip_bench != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      - uses: ./.github/actions/setup-go-workspace
+      - name: Allocation budget check
+        run: make bench-budget
+
   # ── JetStream integration (testcontainers — needs Docker) ──────────
   integration-jetstream:
     if: >-

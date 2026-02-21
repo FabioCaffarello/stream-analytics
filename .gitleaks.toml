@@ -1,0 +1,12 @@
+title = "gitleaks config"
+
+# Use gitleaks built-in rules (extended ruleset) by NOT redefining [[rules]].
+# Custom [[rules]] blocks REPLACE the defaults — we want the defaults.
+
+# Paths that should never be scanned
+[allowlist]
+paths = [
+  '''\.sops\.yaml$''',
+  '''\.enc\.yaml$''',
+  '''zip/''',
+]

@@ -1,0 +1,275 @@
+name: infra-gates
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'deploy/infra/**'
+      - 'deploy/gitops/**'
+      - 'scripts/ci/**'
+      - '.pre-commit-config.yaml'
+      - '.yamllint.yaml'
+      - '.gitleaks.toml'
+  pull_request:
+    paths:
+      - 'deploy/infra/**'
+      - 'deploy/gitops/**'
+      - 'scripts/ci/**'
+      - '.pre-commit-config.yaml'
+      - '.yamllint.yaml'
+      - '.gitleaks.toml'
+
+concurrency:
+  group: infra-gates-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  terraform:
+    name: Terraform checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd  # v3.1.2
+        with:
+          terraform_version: '1.6.0'
+
+      - name: Install tflint and tfsec
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/bin
+
+          # tflint — pinned version with release checksum verification
+          TFLINT_VERSION="0.53.0"
+          curl -sSLfo /tmp/tflint.zip "https://github.com/terraform-linters/tflint/releases/download/v${TFLINT_VERSION}/tflint_linux_amd64.zip"
+          curl -sSLfo /tmp/tflint_checksums.txt "https://github.com/terraform-linters/tflint/releases/download/v${TFLINT_VERSION}/checksums.txt"
+          TFLINT_EXPECTED=$(grep "tflint_linux_amd64.zip" /tmp/tflint_checksums.txt | awk '{print $1}')
+          echo "${TFLINT_EXPECTED}  /tmp/tflint.zip" | sha256sum -c -
+          unzip -o /tmp/tflint.zip -d /tmp/bin
+          sudo mv /tmp/bin/tflint /usr/local/bin/
+
+          # tfsec — pinned version
+          TFSEC_VERSION="1.28.11"
+          curl -sSLfo /tmp/tfsec "https://github.com/aquasecurity/tfsec/releases/download/v${TFSEC_VERSION}/tfsec-linux-amd64"
+          curl -sSLfo /tmp/tfsec_checksums.txt "https://github.com/aquasecurity/tfsec/releases/download/v${TFSEC_VERSION}/tfsec_checksums.txt"
+          TFSEC_EXPECTED=$(grep "tfsec-linux-amd64$" /tmp/tfsec_checksums.txt | awk '{print $1}')
+          echo "${TFSEC_EXPECTED}  /tmp/tfsec" | sha256sum -c -
+          chmod +x /tmp/tfsec
+          sudo mv /tmp/tfsec /usr/local/bin/
+
+      - name: Run terraform validations
+        run: bash scripts/ci/terraform-validate.sh
+
+  k8s:
+    name: Kubernetes checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+
+      - name: Install kubectl and kubeconform
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ca-certificates curl jq unzip
+
+          # kubectl — pinned version with official checksum verification
+          KUBECTL_VERSION="v1.31.4"
+          curl -sSLfo kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+          curl -sSLfo kubectl.sha256 "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl.sha256"
+          echo "$(cat kubectl.sha256)  kubectl" | sha256sum -c -
+          sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+
+          # kubeconform — pinned version with release checksum verification
+          KUBECONFORM_VERSION="0.6.7"
+          curl -sSLfo /tmp/kc.tar.gz "https://github.com/yannh/kubeconform/releases/download/v${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          curl -sSLfo /tmp/kc_checksums.txt "https://github.com/yannh/kubeconform/releases/download/v${KUBECONFORM_VERSION}/CHECKSUMS"
+          KC_EXPECTED=$(grep "kubeconform-linux-amd64.tar.gz" /tmp/kc_checksums.txt | awk '{print $1}')
+          echo "${KC_EXPECTED}  /tmp/kc.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/kc.tar.gz -C /tmp
+          sudo mv /tmp/kubeconform /usr/local/bin/kubeconform
+
+      - name: Run k8s validations
+        run: bash scripts/ci/k8s-validate.sh
+
+  security:
+    name: Security checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+
+      - name: Install gitleaks
+        run: |
+          set -euxo pipefail
+          # gitleaks — pinned version with release checksum verification
+          GITLEAKS_VERSION="8.18.0"
+          curl -sSLfo /tmp/gitleaks.tar.gz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSLfo /tmp/gitleaks_checksums.txt "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+          GITLEAKS_EXPECTED=$(grep "gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" /tmp/gitleaks_checksums.txt | awk '{print $1}')
+          echo "${GITLEAKS_EXPECTED}  /tmp/gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp
+          sudo mv /tmp/gitleaks /usr/local/bin/gitleaks
+          chmod +x /usr/local/bin/gitleaks
+
+      - name: Run yamllint
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y python3-pip
+          pip3 install yamllint
+          yamllint -c .yamllint.yaml deploy/gitops
+
+      - name: Prevent plaintext secrets
+        run: bash scripts/ci/ensure-no-plain-secrets.sh
+
+      - name: Run gitleaks scan
+        run: |
+          set -euxo pipefail
+          gitleaks detect --source . --config .gitleaks.toml
+
+  sops-validation:
+    name: SOPS encryption checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+
+      - name: Install SOPS
+        run: |
+          SOPS_VERSION="3.9.4"
+          curl -sSLfo sops "https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.amd64"
+          curl -sSLfo /tmp/sops_checksums.txt "https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.checksums.txt"
+          SOPS_EXPECTED=$(grep "sops-v${SOPS_VERSION}.linux.amd64$" /tmp/sops_checksums.txt | awk '{print $1}')
+          echo "${SOPS_EXPECTED}  sops" | sha256sum -c -
+          chmod +x sops
+          sudo mv sops /usr/local/bin/sops
+          sops --version
+
+      - name: Check for unencrypted YAML in secrets directories
+        run: |
+          EXIT_CODE=0
+          # Find all YAML files in secrets/ directories that are NOT .enc.yaml
+          while IFS= read -r f; do
+            echo "::error file=${f}::Unencrypted YAML found in secrets directory. Only *.enc.yaml files are allowed."
+            EXIT_CODE=1
+          done < <(find deploy/gitops/clusters -path '*/secrets/*.yaml' ! -name '*.enc.yaml' ! -name 'ksops-generator.yaml' 2>/dev/null)
+
+          if [ "$EXIT_CODE" -ne 0 ]; then
+            echo "::error::Plaintext secret files detected. Encrypt with: sops --encrypt --in-place <file>"
+            exit 1
+          fi
+          echo "No unencrypted YAML files found in secrets directories."
+
+      - name: Validate .enc.yaml files are actually encrypted
+        run: |
+          EXIT_CODE=0
+          while IFS= read -r f; do
+            # Skip scaffold placeholders (not yet encrypted)
+            if head -1 "$f" | grep -q '# PLACEHOLDER'; then
+              echo "::warning file=${f}::Scaffold placeholder — encrypt before deploying"
+              continue
+            fi
+            # SOPS-encrypted files contain a "sops" metadata key
+            if ! grep -q '"sops"\|sops:' "$f"; then
+              echo "::error file=${f}::File appears to be unencrypted (no SOPS metadata found)."
+              EXIT_CODE=1
+            fi
+          done < <(find deploy/gitops/clusters -name '*.enc.yaml' 2>/dev/null)
+
+          if [ "$EXIT_CODE" -ne 0 ]; then
+            echo "::error::Some .enc.yaml files are not encrypted. Run: sops --encrypt --in-place <file>"
+            exit 1
+          fi
+          echo "All .enc.yaml files validated."
+
+      - name: Validate SOPS config
+        run: |
+          if [ ! -f deploy/gitops/.sops.yaml ]; then
+            echo "::error::deploy/gitops/.sops.yaml not found"
+            exit 1
+          fi
+          echo "SOPS config file exists."
+
+          # Validate YAML syntax
+          python3 -c "
+          import yaml, sys
+          try:
+              with open('deploy/gitops/.sops.yaml') as f:
+                  data = yaml.safe_load(f)
+              if 'creation_rules' not in data:
+                  print('::error::Missing creation_rules in .sops.yaml')
+                  sys.exit(1)
+              print(f'Found {len(data[\"creation_rules\"])} creation rules.')
+          except Exception as e:
+              print(f'::error::Invalid SOPS config: {e}')
+              sys.exit(1)
+          "
+
+  decrypt-test:
+    name: SOPS decrypt test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    if: true
+    strategy:
+      matrix:
+        env: [local]
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+
+      - name: Install SOPS and age
+        run: |
+          SOPS_VERSION="3.9.4"
+          curl -sSLfo sops "https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.amd64"
+          curl -sSLfo /tmp/sops_checksums.txt "https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.checksums.txt"
+          SOPS_EXPECTED=$(grep "sops-v${SOPS_VERSION}.linux.amd64$" /tmp/sops_checksums.txt | awk '{print $1}')
+          echo "${SOPS_EXPECTED}  sops" | sha256sum -c -
+          chmod +x sops
+          sudo mv sops /usr/local/bin/sops
+
+          # age uses Sigstore .proof attestations; no SHA256SUMS file available
+          AGE_VERSION="1.3.1"
+          curl -sSLfo age.tar.gz "https://github.com/FiloSottile/age/releases/download/v${AGE_VERSION}/age-v${AGE_VERSION}-linux-amd64.tar.gz"
+          tar xzf age.tar.gz
+          sudo mv age/age /usr/local/bin/age
+          sudo mv age/age-keygen /usr/local/bin/age-keygen
+          rm -rf age age.tar.gz
+
+      - name: Decrypt test (${{ matrix.env }})
+        env:
+          SOPS_AGE_KEY: ${{ secrets[format('SOPS_AGE_KEY_{0}', matrix.env)] }}
+        run: |
+          if [ -z "$SOPS_AGE_KEY" ]; then
+            echo "::warning::SOPS_AGE_KEY_${{ matrix.env }} not set — skipping decrypt test"
+            exit 0
+          fi
+
+          export SOPS_AGE_KEY
+          EXIT_CODE=0
+          while IFS= read -r f; do
+            # Skip scaffold placeholders (not yet encrypted)
+            if head -1 "$f" | grep -q '# PLACEHOLDER'; then
+              echo "::warning file=${f}::Scaffold placeholder — skipping decrypt"
+              continue
+            fi
+            echo "Decrypting: $f"
+            if ! sops --decrypt "$f" > /dev/null 2>&1; then
+              echo "::error file=${f}::Failed to decrypt with SOPS_AGE_KEY_${{ matrix.env }}"
+              EXIT_CODE=1
+            fi
+          done < <(find "deploy/gitops/clusters/${{ matrix.env }}" -name '*.enc.yaml' 2>/dev/null)
+
+          if [ "$EXIT_CODE" -ne 0 ]; then
+            echo "::error::Some secrets failed decryption. Check age key and re-encrypt."
+            exit 1
+          fi
+          echo "All secrets for ${{ matrix.env }} decrypted successfully."

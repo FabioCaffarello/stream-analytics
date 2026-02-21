@@ -1,0 +1,51 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: data-management
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: market-raccoon
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - matrix:
+        generators:
+          - list:
+              elements:
+                - env: local
+                  cluster: https://kubernetes.default.svc
+                - env: staging
+                  cluster: https://kubernetes.default.svc
+                - env: prod
+                  cluster: https://kubernetes.default.svc
+          - git:
+              repoURL: https://github.com/market-raccoon/market-raccoon.git
+              revision: main
+              directories:
+                - path: deploy/gitops/apps/data-management/*
+  template:
+    metadata:
+      name: "data-management-{{ .path.basename }}-{{ .env }}"
+      labels:
+        app.kubernetes.io/part-of: market-raccoon
+        app.kubernetes.io/component: "{{ .path.basename }}"
+        environment: "{{ .env }}"
+    spec:
+      project: data-management
+      source:
+        repoURL: https://github.com/market-raccoon/market-raccoon.git
+        targetRevision: main
+        path: "{{ .path.path }}/overlays/{{ .env }}"
+      destination:
+        server: "{{ .cluster }}"
+        namespace: data-management
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - ApplyOutOfSyncOnly=true

@@ -11,7 +11,7 @@ import (
 const statsFundingFixedScale int64 = 1_000_000_000
 
 // AllowedStatsTimeframes defines the fixed stats timeframe set in v1.
-var AllowedStatsTimeframes = []string{"1m", "5m", "15m", "30m", "1h"}
+var AllowedStatsTimeframes = []string{"1m", "5m", "15m", "30m", "1h", "4h", "1d"}
 
 // StatsKey identifies one open stats window state.
 type StatsKey struct {

@@ -20,6 +20,11 @@ services:
     restart: unless-stopped
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     deploy:
       resources:
         limits:
@@ -31,15 +36,16 @@ services:
     container_name: market-raccoon-timescale
     ports:
       - "127.0.0.1:5432:5432"
+    env_file:
+      - ../envs/local.env
     environment:
-      POSTGRES_USER: raccoon
-      POSTGRES_PASSWORD: raccoon
-      POSTGRES_DB: raccoon
+      POSTGRES_USER: ${TIMESCALE_USER:?Set TIMESCALE_USER in env file}
+      POSTGRES_PASSWORD: ${TIMESCALE_PASSWORD:?Set TIMESCALE_PASSWORD in env file}
+      POSTGRES_DB: ${TIMESCALE_DB:-raccoon}
     volumes:
       - timescale_data:/var/lib/postgresql/data
-      - ../../sql/timescale/migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U raccoon -d raccoon"]
+      test: ["CMD-SHELL", "pg_isready -U ${TIMESCALE_USER:-raccoon} -d ${TIMESCALE_DB:-raccoon}"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -47,6 +53,11 @@ services:
     networks:
       - market-raccoon-network
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     deploy:
       resources:
         limits:
@@ -71,6 +82,8 @@ services:
         condition: service_healthy
       clickhouse:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/readyz"]
       interval: 10s
@@ -83,6 +96,11 @@ services:
     profiles: ["core"]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     deploy:
       resources:
         limits:
@@ -107,6 +125,8 @@ services:
         condition: service_healthy
       server:
         condition: service_started
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/readyz"]
       interval: 10s
@@ -119,6 +139,11 @@ services:
     profiles: ["core"]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     deploy:
       resources:
         limits:
@@ -147,6 +172,8 @@ services:
         condition: service_healthy
       clickhouse:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       server:
         condition: service_started
     healthcheck:
@@ -161,6 +188,11 @@ services:
     profiles: ["core"]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     deploy:
       resources:
         limits:
@@ -184,6 +216,8 @@ services:
         condition: service_healthy
       clickhouse:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8083/readyz"]
       interval: 10s
@@ -196,6 +230,11 @@ services:
     profiles: ["core"]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     deploy:
       resources:
         limits:
@@ -213,7 +252,6 @@ services:
       - clickhouse_logs:/var/log/clickhouse-server/
       - ../clickhouse/config/listen.xml:/etc/clickhouse-server/config.d/listen.xml:ro
       - ../clickhouse/users/raccoon-user.xml:/etc/clickhouse-server/users.d/raccoon-user.xml:ro
-      - ../../sql/clickhouse/migrations:/docker-entrypoint-initdb.d:ro
     cap_add:
       - SYS_NICE
     networks:
@@ -221,17 +259,59 @@ services:
     env_file:
       - ../envs/local.env
     healthcheck:
-      test: ["CMD-SHELL", "clickhouse-client --port 9000 --user default --password password --query 'SELECT 1' >/dev/null 2>&1"]
+      test: ["CMD-SHELL", "clickhouse-client --port 9000 --user ${CLICKHOUSE_USER:-default} --password ${CLICKHOUSE_PASSWORD:?Set CLICKHOUSE_PASSWORD in env file} --query 'SELECT 1' >/dev/null 2>&1"]
       interval: 10s
       timeout: 3s
       retries: 20
       start_period: 30s
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     deploy:
       resources:
         limits:
           memory: 2G
           cpus: "2.00"
+
+  migrate:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/migrate.Dockerfile
+    image: market-raccoon/migrate:dev
+    container_name: market-raccoon-migrate
+    env_file:
+      - ../envs/local.env
+    environment:
+      DATABASE_URL: "postgres://${TIMESCALE_USER:?err}:${TIMESCALE_PASSWORD:?err}@timescale:5432/${TIMESCALE_DB:-raccoon}?sslmode=disable"
+      CLICKHOUSE_DSN: "clickhouse://${CLICKHOUSE_USER:-default}:${CLICKHOUSE_PASSWORD:?err}@clickhouse:9000/${CLICKHOUSE_DB:-default}"
+    depends_on:
+      timescale:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        /usr/local/bin/migrate -target timescale up &&
+        /usr/local/bin/migrate -target clickhouse up
+    networks:
+      - market-raccoon-network
+    restart: "no"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.25"
 
   prometheus:
     image: prom/prometheus:v2.54.1
@@ -256,6 +336,11 @@ services:
     profiles: ["obs"]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     deploy:
       resources:
         limits:
@@ -288,6 +373,11 @@ services:
     profiles: ["obs"]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     deploy:
       resources:
         limits:
