@@ -114,6 +114,13 @@ const imports = {
             ctx.font = `${size}px monospace`;
             ctx.fillText(text, x, y);
         },
+
+        canvas_measure_text(ptr, len, size) {
+            if (!ctx) return 0;
+            const text = loadStringRaw(wasm.memory.buffer, ptr, len);
+            ctx.font = `${size}px monospace`;
+            return ctx.measureText(text).width;
+        },
     },
 };
 

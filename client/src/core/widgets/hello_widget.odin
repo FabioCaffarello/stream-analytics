@@ -1,12 +1,8 @@
 package widgets
 
+import "mr:ports"
 import "mr:ui"
 
-hello :: proc(buf: ^ui.Command_Buffer) {
-	ui.push(buf, ui.Cmd_Text{
-		pos   = {20, 40},
-		text  = "Hello, Market Raccoon!",
-		color = ui.COL_WHITE,
-		size  = ui.FONT_SIZE_XL,
-	})
+hello :: proc(buf: ^ui.Command_Buffer, text: ports.Text_Port) {
+	ui.push_text(buf, {20, 40}, "Hello, Market Raccoon!", ui.COL_WHITE, ui.FONT_SIZE_XL)
 }

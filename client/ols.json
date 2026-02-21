@@ -5,13 +5,15 @@
     "profiles": [
         {
             "name": "native",
-            "checker_path": ["src/platform/native"]
+            "checker_path": ["src/platform/native"],
+            "checker_args": "-collection:mr=src/core -collection:deps=deps"
         },
         {
             "name": "wasm",
             "os": "js",
             "arch": "wasm32",
-            "checker_path": ["src/platform/web"]
+            "checker_path": ["src/platform/web"],
+            "checker_args": "-target:js_wasm32 -collection:mr=src/core"
         }
     ],
     "enable_semantic_tokens": true,

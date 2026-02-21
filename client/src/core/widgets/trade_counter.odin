@@ -5,6 +5,7 @@ package widgets
 
 import "core:math"
 import "mr:model"
+import "mr:ports"
 import "mr:ui"
 
 Trade_Counter_Data :: struct {
@@ -14,6 +15,7 @@ Trade_Counter_Data :: struct {
 	x_min:         f64, // visible range min (unix seconds, f64)
 	x_max:         f64, // visible range max
 	bar_width_pct: f64, // bar width as fraction of timeframe (e.g. 0.4)
+	text:          ports.Text_Port,
 }
 
 trade_counter :: proc(buf: ^ui.Command_Buffer, data: Trade_Counter_Data) {
@@ -40,13 +42,11 @@ trade_counter :: proc(buf: ^ui.Command_Buffer, data: Trade_Counter_Data) {
 	// Clip to viewport.
 	ui.push(buf, ui.Cmd_Clip_Push{rect = vp})
 
-	// Label.
-	ui.push(buf, ui.Cmd_Text{
-		pos   = {vp.pos.x + 4, vp.pos.y + 14},
-		text  = "Trade Counter",
-		color = ui.with_alpha(ui.COL_WHITE, 0.6),
-		size  = ui.FONT_SIZE_BASE,
-	})
+	// Label — positioned using text measurement.
+	label :: "Trade Counter"
+	label_size := data.text.measure(ui.FONT_SIZE_BASE, label)
+	ui.push_text(buf, {vp.pos.x + 4, vp.pos.y + label_size.y}, label,
+		ui.with_alpha(ui.COL_WHITE, 0.6), ui.FONT_SIZE_BASE)
 
 	// Center line.
 	ui.push(buf, ui.Cmd_Line{

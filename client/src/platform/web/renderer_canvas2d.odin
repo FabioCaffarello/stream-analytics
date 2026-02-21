@@ -25,8 +25,9 @@ render_commands :: proc(buf: ^ui.Command_Buffer) {
 				c.color.r, c.color.g, c.color.b, c.color.a,
 			)
 		case ui.Cmd_Text:
+			ptr, tlen := ui.resolve_text(buf, c)
 			canvas_fill_text(
-				raw_data(c.text), i32(len(c.text)),
+				ptr, tlen,
 				c.pos.x, c.pos.y, c.size,
 				c.color.r, c.color.g, c.color.b, c.color.a,
 			)

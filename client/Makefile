@@ -10,19 +10,21 @@ WASM_OUT := $(BUILD_DIR)/app.wasm
 NATIVE_OUT := $(BUILD_DIR)/app
 
 COLLECTION_CORE := -collection:mr=src/core
+COLLECTION_DEPS := -collection:deps=deps
 
 ODIN_OPT ?= size
 SERVE_PORT ?= 8080
 
-CORE_PKGS := app model ui widgets math util
+CORE_PKGS := app model ui widgets math util ports services
 
-.PHONY: help build-native build-wasm build clean serve check-wasm check-core check-core-imports
+.PHONY: help build-native build-wasm build clean run serve check-wasm check-core check-core-imports
 
 help:
 	@echo "Client targets:"
 	@echo "  make build-native       - build native binary  → build/app"
 	@echo "  make build-wasm         - build wasm + copy    → build/app.wasm + web/app.wasm"
 	@echo "  make build              - build both native and wasm"
+	@echo "  make run                - build + run native   → opens GLFW window"
 	@echo "  make clean              - remove build artifacts"
 	@echo "  make serve              - build wasm + serve web/ on :$(SERVE_PORT)"
 	@echo "  make check-wasm         - verify web/app.wasm serves HTTP 200"
@@ -34,12 +36,12 @@ help:
 	@echo "  SERVE_PORT=N             (default: 8080)"
 	@echo ""
 	@echo "OLS profiles (edit ols.json to switch):"
-	@echo "  native  - host OS/arch  (set checker_args: -collection:mr=src/core)"
+	@echo "  native  - host OS/arch  (set checker_args: -collection:mr=src/core -collection:deps=deps)"
 	@echo "  wasm    - js/wasm32     (set checker_args: -target:js_wasm32 -collection:mr=src/core)"
 
 build-native:
 	@mkdir -p $(BUILD_DIR)
-	$(ODIN) build $(SRC_NATIVE) $(COLLECTION_CORE) -out:$(NATIVE_OUT)
+	$(ODIN) build $(SRC_NATIVE) $(COLLECTION_CORE) $(COLLECTION_DEPS) -out:$(NATIVE_OUT)
 	@echo "Built → $(NATIVE_OUT)"
 	@ls -lh $(NATIVE_OUT)
 
@@ -52,6 +54,9 @@ build-wasm:
 	@ls -lh $(WASM_OUT)
 
 build: build-native build-wasm
+
+run: build-native
+	./$(NATIVE_OUT)
 
 clean:
 	rm -rf $(BUILD_DIR)
