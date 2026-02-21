@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Market Raccoon</title>
+    <!--
+        Preload the WASM binary so the browser begins fetching it before
+        the ES module graph resolves.  crossorigin is required for
+        WebAssembly.instantiateStreaming to work with the fetch cache.
+    -->
+    <link
+        rel="preload"
+        href="app.wasm"
+        as="fetch"
+        type="application/wasm"
+        crossorigin="anonymous"
+    />
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { width: 100%; height: 100%; background: #0a0a0a; color: #e0e0e0; font-family: system-ui, sans-serif; }
+        #app { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+        #output { white-space: pre-wrap; font-family: monospace; font-size: 14px; padding: 2rem; max-width: 80ch; }
+        .error { color: #f44; }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <pre id="output">Loading WASM...</pre>
+    </div>
+
+    <!--
+        type="module" gives us ESM semantics: strict mode, top-level await,
+        import/export, and deferred execution (equivalent to defer).
+        The Odin js_wasm32 target produces a standard WebAssembly module
+        that requires a JS host to provide the "odin_env" and "env" import
+        namespaces.
+    -->
+    <script type="module" src="odin.js"></script>
+</body>
+</html>

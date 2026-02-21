@@ -1,0 +1,20 @@
+{
+    "$schema": "https://raw.githubusercontent.com/DanielGavin/ols/master/misc/ols.schema.json",
+    "profile": "wasm",
+    "checker_args": "-target:js_wasm32 -collection:mr=src/core",
+    "profiles": [
+        {
+            "name": "native",
+            "checker_path": ["src/platform/native"]
+        },
+        {
+            "name": "wasm",
+            "os": "js",
+            "arch": "wasm32",
+            "checker_path": ["src/platform/web"]
+        }
+    ],
+    "enable_semantic_tokens": true,
+    "enable_hover": true,
+    "enable_snippets": true
+}
