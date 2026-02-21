@@ -57,7 +57,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules workspace-check tidy tidy-check go-tidy-check tidy-check-changed fmt fmt-check vet shell-script-check quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check legacy-check-staged legacy-check lint lint-changed smoke runtime-gate runtime-gate-full test test-root test-workspace test-workspace-race test-unit test-integration test-integration-changed test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store soak-roundtrip soak-pipeline soak-ws-delivery soak-c4-production soak-full test-short test-short-changed bench-hotpath bench-budget vuln build run clean docker-build up down down-clean up-infra up-core migrate dev-scale-smoke ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci
+.PHONY: help install-tools tools modules workspace-check tidy tidy-check go-tidy-check tidy-check-changed fmt fmt-check vet shell-script-check quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check legacy-check-staged legacy-check lint lint-changed smoke runtime-gate runtime-gate-full test test-root test-workspace test-workspace-race test-unit test-integration test-integration-changed test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store soak-roundtrip soak-pipeline soak-ws-delivery soak-c4-production soak-full test-short test-short-changed bench-hotpath bench-budget vuln build run clean docker-build up down down-clean up-infra up-core migrate dev-scale-smoke ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci backup backup-timescaledb backup-clickhouse restore-timescaledb restore-clickhouse
 
 help:
 	@echo "Targets:"
@@ -140,6 +140,11 @@ help:
 	@echo "  make proto-check        - lint + breaking + gen and fail if proto outputs are dirty"
 	@echo "  make proto              - run proto-lint + proto-gen"
 	@echo "  make ci                 - tidy-check + fmt-check + lint + test + vuln + build"
+	@echo "  make backup             - backup both TimescaleDB and ClickHouse"
+	@echo "  make backup-timescaledb - backup TimescaleDB (pg_dump, gzipped)"
+	@echo "  make backup-clickhouse  - backup ClickHouse (native format, gzipped)"
+	@echo "  make restore-timescaledb - restore TimescaleDB (FILE=path/to/backup.sql.gz)"
+	@echo "  make restore-clickhouse  - restore ClickHouse (DIR=path/to/backup/dir)"
 	@echo ""
 	@echo "Optional: MODULE=./pkg/hello-lib to target a single module"
 
@@ -683,3 +688,23 @@ proto-check: proto-lint proto-breaking proto-gen-if-needed
 proto: proto-lint proto-gen
 
 ci: legacy-check tidy-check fmt-check lint test-workspace-race vuln build
+
+# ── Backup / Restore ──────────────────────────────────────────────
+FILE ?=
+DIR ?=
+
+backup: backup-timescaledb backup-clickhouse
+
+backup-timescaledb:
+	@./scripts/ops/backup-timescaledb.sh
+
+backup-clickhouse:
+	@./scripts/ops/backup-clickhouse.sh
+
+restore-timescaledb:
+	@if [ -z "$(FILE)" ]; then echo "Usage: make restore-timescaledb FILE=backups/timescaledb/file.sql.gz" >&2; exit 1; fi
+	@./scripts/ops/restore-timescaledb.sh "$(FILE)"
+
+restore-clickhouse:
+	@if [ -z "$(DIR)" ]; then echo "Usage: make restore-clickhouse DIR=backups/clickhouse/timestamp" >&2; exit 1; fi
+	@./scripts/ops/restore-clickhouse.sh "$(DIR)"
