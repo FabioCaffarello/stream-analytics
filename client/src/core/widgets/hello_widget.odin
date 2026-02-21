@@ -1,4 +1,12 @@
 package widgets
 
-// First widget (pure). Writes commands to RCL, never calls ImGui/Canvas.
-// Fase 1: hello_widget emits Text("Hello") into CommandBuffer.
+import "mr:ui"
+
+hello :: proc(buf: ^ui.Command_Buffer) {
+	ui.push(buf, ui.Cmd_Text{
+		pos   = {20, 40},
+		text  = "Hello, Market Raccoon!",
+		color = {0.88, 0.88, 0.88, 1.0},
+		size  = 24,
+	})
+}
