@@ -1,6 +1,6 @@
 # PRD-0003 — MarketMonkey Backend Parity
 
-**Status:** Draft
+**Status:** Implemented — functional milestones M1–M5 validated (2026-02-20). Remaining NF benchmarks pending (soak/benchmem).
 **Date:** 2026-02-20
 **Owner:** Chief Architect
 **Relates to:** `docs/prd/PRD-0002-backend-stable-and-odin-ready.md`, `docs/rfcs/RFC-0011-product-parity-marketmonkey.md`, `.context/evidence/swot-market-raccoon-v7-2026-02-20.md`, `docs/architecture/TRUTH-MAP.md`
@@ -252,3 +252,19 @@ go test -benchmem ./internal/adapters/storage/...  # NF-5: zero new allocs
 - [ADR-0013 — Backpressure Overload Policies](docs/adrs/ADR-0013-backpressure-overload-policies.md)
 - [Architecture TRUTH-MAP](docs/architecture/TRUTH-MAP.md)
 - [MarketMonkey Audit Pack](zip/01-marketmonkey-files/marketmonkey/docs/architecture/MARKETMONKEY-AUDIT-PACK.md)
+
+---
+
+## Validation
+
+Validation evidence for PRD-0003 implementation is recorded in `.context/evidence/prd0003-validation-report.md` (2026-02-20). Summary:
+
+- **M2 (Multi‑TF stats + funding + liquidation):** IMPLEMENTED and validated (unit, golden, storage roundtrip, WS delivery).
+- **M4 (Liquidation E2E + GetRange):** IMPLEMENTED and validated (parser → aggregation → storage → delivery; `PgRangeStore` + `executeGetRange`).
+- **M5 (Writer helpers + Hardening):** IMPLEMENTED and validated (`writer_helpers.go` refactor used by all writers; ingest policy tests added; TimescaleDB image pinned).
+
+Remaining validation actions (non-blocking):
+
+- Run soak/bench workloads to confirm NF targets (NF-1, NF-2, NF-4, NF-5). See validation report for command list.
+
+See `.context/evidence/prd0003-validation-report.md` for full test outputs, benchmarks and E2E logs.

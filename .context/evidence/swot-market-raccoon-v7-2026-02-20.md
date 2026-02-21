@@ -10,6 +10,8 @@
 
 Market Raccoon achieved **SWOT v5 score 4.8/5** and has since resolved ALL remaining v5 P0–P1 performance issues. The codebase is architecturally excellent (DDD+Hexagonal+Actor, zero boundary violations, zero concurrency bugs). However, **critical feature gaps remain vs MarketMonkey** in multi-timeframe candle/stats aggregation, funding rate pipeline, and volume/heatmap binning alignment. This v7 analysis provides a definitive gap matrix and prioritized remediation plan for achieving full backend parity.
 
+Update 2026-02-20: Validation performed and documented — milestones M2 (Multi‑TF stats + funding + liquidation), M4 (Liquidation E2E + GetRange) and M5 (Writer helpers + Hardening) have been implemented and validated. See `.context/evidence/prd0003-validation-report.md` for detailed test outputs, E2E traces and bench guidance. Remaining actions are benchmark/soak validations (NF-1, NF-2, NF-4, NF-5) described in the validation report.
+
 **Key deltas vs v5:**
 - v5 W1–W3 (hot-path allocs) → ALL RESOLVED (zero `fmt.Sprintf`/`fmt.Errorf` in core/actors)
 - v5 W5 (TranscodeCache full-clear) → RESOLVED (sharded LRU with per-shard eviction)
@@ -364,3 +366,7 @@ The v5 score of 4.8 did NOT account for MarketMonkey feature gaps. This v7 score
 ## Recommended Next Artifact
 
 **PRD-0003: MarketMonkey Backend Parity** — Product Requirements Document covering GAP-1 through GAP-7, with milestones for multi-TF pipeline, funding rate, binning alignment, and GetRange integration. Feed into `milestone-plan` for gated execution.
+
+---
+
+> **SUPERSEDED:** This v7 analysis has been superseded by [SWOT v8](.context/evidence/swot-market-raccoon-v8-2026-02-20.md) (2026-02-20), which reflects all PRD-0003 milestones implemented and shifts focus to production hardening.
