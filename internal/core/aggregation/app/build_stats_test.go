@@ -159,12 +159,12 @@ func TestBuildStats_MixedInputs_CloseAllTimeframes_CrossSourceConsistency(t *tes
 			FundingRate: 0.0002,
 		},
 		{
-			// Rolls all open windows (1m/5m/15m/30m/1h).
+			// Rolls all open windows (1m/5m/15m/30m/1h/4h/1d).
 			Venue:      "binance",
 			Instrument: "BTCUSDT",
 			Kind:       app.StatsInputMarkPrice,
 			Seq:        4,
-			TsIngest:   3_600_001,
+			TsIngest:   86_400_001,
 			MarkPrice:  101.0,
 		},
 	}

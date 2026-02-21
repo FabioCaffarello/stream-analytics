@@ -55,7 +55,7 @@ func AssignVPVRBucket(price, tickSize float64) (float64, float64, *problem.Probl
 	if !isFiniteFloat(price) || !isFiniteFloat(tickSize) || tickSize <= 0 {
 		return 0, 0, problem.New(problem.ValidationFailed, "vpvr bucket assignment requires finite positive tick_size and price")
 	}
-	step := tickSize
+	step := CalculateVolumeBinSize(price, tickSize)
 	ticks := int64(math.Floor(price / step))
 	low := float64(ticks) * step
 	high := low + step

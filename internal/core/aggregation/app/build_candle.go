@@ -79,7 +79,7 @@ func NewBuildCandleFromEvents(
 		store:      store,
 		candles:    candles,
 		windowMs:   windowMs,
-		timeframes: []string{"1m", "5m", "15m", "30m", "1h"},
+		timeframes: []string{"1m", "5m", "15m", "30m", "1h", "4h", "1d"},
 	}
 }
 
@@ -263,6 +263,8 @@ func resolveWindowDurations(
 		"15m": 15 * time.Minute,
 		"30m": 30 * time.Minute,
 		"1h":  time.Hour,
+		"4h":  4 * time.Hour,
+		"1d":  24 * time.Hour,
 	}
 	out := make(map[string]int64, len(allowed))
 	for _, timeframe := range allowed {

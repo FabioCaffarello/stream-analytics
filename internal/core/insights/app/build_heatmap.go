@@ -232,9 +232,10 @@ func (uc *BuildHeatmap) getWindow(ps *partitionState, start, end int64) *windowS
 
 func (uc *BuildHeatmap) apply(ws *windowState, req BuildHeatmapRequest) string {
 	dropReason := ""
+	binSize := domain.CalculateHeatmapBinSize(req.Price, req.TickSize)
 	for {
-		priceIdx := bucketIndex(req.Price, req.TickSize, ws.priceMult)
-		low, high := priceBounds(priceIdx, req.TickSize, ws.priceMult)
+		priceIdx := bucketIndex(req.Price, binSize, ws.priceMult)
+		low, high := priceBounds(priceIdx, binSize, ws.priceMult)
 		sizeBucket := toSizeBucket(req.Size)
 		cellKey := makeCellKey(priceIdx, sizeBucket)
 		if _, exists := ws.cells[cellKey]; !exists {
@@ -283,8 +284,9 @@ func (uc *BuildHeatmap) coarsen(ws *windowState, tickSize float64) bool {
 	ws.priceMult *= 2
 	next := make(map[int64]*heatmapCellState, len(ws.cells))
 	for _, c := range ws.cells {
-		priceIdx := bucketIndex(c.priceMid, tickSize, ws.priceMult)
-		low, high := priceBounds(priceIdx, tickSize, ws.priceMult)
+		cellBin := domain.CalculateHeatmapBinSize(c.priceMid, tickSize)
+		priceIdx := bucketIndex(c.priceMid, cellBin, ws.priceMult)
+		low, high := priceBounds(priceIdx, cellBin, ws.priceMult)
 		key := makeCellKey(priceIdx, c.size)
 		dst := next[key]
 		if dst == nil {
@@ -416,13 +418,13 @@ func partitionKey(req BuildHeatmapRequest) string {
 		naming.NormalizeTimeframe(req.Timeframe)
 }
 
-func bucketIndex(price, tick float64, mult int64) int64 {
-	step := tick * float64(mult)
+func bucketIndex(price, binSize float64, mult int64) int64 {
+	step := binSize * float64(mult)
 	return int64(math.Floor(price / step))
 }
 
-func priceBounds(bucketIdx int64, tick float64, mult int64) (float64, float64) {
-	step := tick * float64(mult)
+func priceBounds(bucketIdx int64, binSize float64, mult int64) (float64, float64) {
+	step := binSize * float64(mult)
 	low := float64(bucketIdx) * step
 	high := low + step
 	return low, high
