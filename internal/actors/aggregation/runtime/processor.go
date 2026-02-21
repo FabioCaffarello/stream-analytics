@@ -562,6 +562,8 @@ func (p *ProcessorSubsystemActor) handleBookDelta(env envelope.Envelope) *proble
 			"seq", req.Seq,
 			"code", prob.Code,
 			"retryable", prob.Retryable,
+			"message", prob.Message,
+			"cause", prob.Cause,
 		)
 		return prob
 	}
