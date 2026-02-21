@@ -3,10 +3,6 @@ name: ci-fast
 on:
   workflow_call:
   pull_request:
-  push:
-    branches:
-      - main
-
 concurrency:
   group: ci-fast-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

@@ -1,15 +1,6 @@
 name: infra-gates
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'deploy/infra/**'
-      - 'deploy/gitops/**'
-      - 'scripts/ci/**'
-      - '.pre-commit-config.yaml'
-      - '.yamllint.yaml'
-      - '.gitleaks.toml'
   pull_request:
     paths:
       - 'deploy/infra/**'
