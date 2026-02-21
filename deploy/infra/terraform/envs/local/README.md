@@ -1,6 +1,6 @@
 # Terraform — Local Environment (minikube)
 
-Provisions a local Kubernetes cluster via minikube and bootstraps ArgoCD + Kubernetes Dashboard.
+Provisions a local Kubernetes cluster via minikube and bootstraps ArgoCD.
 
 ## Prerequisites
 
@@ -38,11 +38,10 @@ cpus   = 8
 
 ## What Gets Installed
 
-| Component              | Namespace              | Access                 |
-|-----------------------|------------------------|------------------------|
-| ArgoCD                | argocd                 | http://localhost:30080  |
-| Kubernetes Dashboard  | kubernetes-dashboard   | `kubectl proxy`        |
-| metrics-server        | kube-system (addon)    | Built-in               |
+| Component        | Namespace   | Access                 |
+|-----------------|-------------|------------------------|
+| ArgoCD          | argocd      | http://localhost:30080  |
+| metrics-server  | kube-system | Built-in addon         |
 
 ## ArgoCD Access
 
@@ -52,12 +51,4 @@ Get the initial admin password:
 
 ```bash
 kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
-```
-
-## Dashboard Access
-
-```bash
-kubectl -n kubernetes-dashboard create token admin-user
-kubectl proxy
-# Open: http://localhost:8001/api/v1/namespaces/kubernetes-dashboard/services/https:kubernetes-dashboard-kong-proxy:443/proxy/
 ```

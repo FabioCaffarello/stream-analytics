@@ -13,14 +13,3 @@ module "argocd" {
 
   namespace = local.argocd_namespace
 }
-
-module "dashboard" {
-  source = "../../modules/k8s-bootstrap/k8s-dashboard"
-
-  namespace = local.dashboard_namespace
-
-  providers = {
-    kubernetes = kubernetes
-    helm       = helm
-  }
-}
