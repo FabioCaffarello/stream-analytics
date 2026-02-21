@@ -1,0 +1,17 @@
+{
+    "appName": "raccoon-consumer",
+    "Owner": "raccoon-system",
+    "Team": "raccoon-system",
+    "syncOptions": {
+        "ApplyOutOfSyncOnly": true,
+        "RespectIgnoreDifferences": true,
+        "ServerSideApply": true
+    },
+    "ImageUpdater": {
+        "raccoon-consumer": {
+            "Image": "raccoon-consumer",
+            "UpdateStrategy": "newest-build",
+            "TagRegex": "latest"
+        }
+    }
+}
