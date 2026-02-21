@@ -1,0 +1,13 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: observability-stack
+  namespace: argocd
+spec:
+  description: "Project for observability-stack"
+  sourceRepos:
+    - https://github.com/market-raccoon/market-raccoon.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: observability-stack

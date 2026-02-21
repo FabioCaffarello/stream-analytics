@@ -5,6 +5,10 @@ on:
     tags:
       - 'v*.*.*'
 
+concurrency:
+  group: cd-release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions: {}
 
 jobs:
@@ -26,7 +30,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        binary: [server, consumer, processor, store]
+        binary: [server, consumer, processor, store, migrate]
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
 
@@ -61,6 +65,14 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.binary }}
           cache-to: type=gha,mode=max,scope=${{ matrix.binary }}
+
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@6c175e9c4083a92bbca2f9724c8a5e33bc2d97a4  # v0.30.0
+        with:
+          image-ref: ghcr.io/${{ github.repository }}/${{ matrix.binary }}@${{ steps.push.outputs.digest }}
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
+          format: 'table'
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be  # v2.4.0

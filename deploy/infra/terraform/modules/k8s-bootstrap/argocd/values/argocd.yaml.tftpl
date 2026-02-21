@@ -1,0 +1,94 @@
+server:
+  insecure: true
+  service:
+    type: NodePort
+    nodePortHttp: 30080
+    nodePortHttps: 30443
+
+repoServer:
+  volumes:
+    - name: sops-age-key
+      secret:
+        secretName: sops-age-key
+    - name: cmp-plugin
+      configMap:
+        name: argocd-cmp-ksops
+    - name: cmp-tmp
+      emptyDir: {}
+
+  extraContainers:
+    - name: cmp-ksops
+      image: viaductoss/ksops:v4.3.2
+      command: ["/var/run/argocd/argocd-cmp-server"]
+      env:
+        - name: SOPS_AGE_KEY_FILE
+          value: /sops-age-key/keys.txt
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        readOnlyRootFilesystem: true
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
+        seccompProfile:
+          type: RuntimeDefault
+      volumeMounts:
+        - name: var-files
+          mountPath: /var/run/argocd
+        - name: plugins
+          mountPath: /home/argocd/cmp-server/plugins
+        - name: cmp-plugin
+          mountPath: /home/argocd/cmp-server/config/plugin.yaml
+          subPath: plugin.yaml
+        - name: cmp-tmp
+          mountPath: /tmp
+        - name: sops-age-key
+          mountPath: /sops-age-key
+          readOnly: true
+
+extraObjects:
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: argocd-cmp-ksops
+    data:
+      plugin.yaml: |
+        apiVersion: argoproj.io/v1alpha1
+        kind: ConfigManagementPlugin
+        metadata:
+          name: ksops
+        spec:
+          version: v1.0
+          generate:
+            command: ["sh", "-c"]
+            args: ["kustomize build --enable-alpha-plugins --enable-exec ."]
+          discover:
+            find:
+              glob: "**/ksops-generator.yaml"
+%{ if deploy_root_app }
+  - apiVersion: argoproj.io/v1alpha1
+    kind: Application
+    metadata:
+      name: root-${environment}
+      namespace: ${namespace}
+    spec:
+      project: ${argocd_root_project}
+      source:
+        repoURL: ${git_repo_url}
+        targetRevision: ${git_target_revision}
+        path: deploy/gitops/applicationsets
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: ${namespace}
+%{ if environment != "prod" }
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+%{ else }
+      syncPolicy: {}
+%{ endif }
+%{ endif }

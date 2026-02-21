@@ -1,0 +1,20 @@
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: deny-argocd-default-project
+spec:
+  validationFailureAction: enforce
+  rules:
+    - name: deny-application-using-default-project
+      match:
+        resources:
+          apiGroups:
+            - argoproj.io
+          kinds:
+            - Application
+      validate:
+        message: "Usage of AppProject 'default' is prohibited. Use environment-specific AppProjects."
+        pattern:
+          spec:
+            project: "!default"

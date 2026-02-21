@@ -1,4 +1,25 @@
 repos:
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.73.0
+    hooks:
+      - id: terraform_fmt
+
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.27.0
+    hooks:
+      - id: yamllint
+        files: ^deploy/gitops/
+        args: ["-c", ".yamllint.yaml"]
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.0
+    hooks:
+      - id: gitleaks
+        name: gitleaks
+        entry: gitleaks detect --source . --config .gitleaks.toml
+        language: system
+        files: ''
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
@@ -9,6 +30,19 @@ repos:
 
   - repo: local
     hooks:
+      - id: ensure-no-plain-secrets
+        name: Prevent plaintext Kubernetes Secret manifests outside SOPS/ExternalSecret
+        entry: bash scripts/ci/ensure-no-plain-secrets.sh
+        language: system
+        files: ^deploy/gitops/
+
+      - id: k8s-validate
+        name: Kustomize build + kubeconform (local)
+        entry: bash scripts/ci/k8s-validate.sh
+        language: system
+        files: ^deploy/gitops/
+        pass_filenames: false
+
       - id: metrics-unstaged-guard
         name: metrics unstaged guard
         language: system

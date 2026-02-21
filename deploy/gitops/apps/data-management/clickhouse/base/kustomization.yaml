@@ -1,0 +1,11 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: data-management
+resources:
+  - statefulset.yaml
+  - service.yaml
+  - configmap.yaml
+  - pdb.yaml
+components:
+  - ../../../../lib/labels

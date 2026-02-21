@@ -1,0 +1,14 @@
+title = "gitleaks config"
+[[rules]]
+description = "AWS Access Key"
+id = "AWSAccessKey"
+regex = '''(?i)AKIA[0-9A-Z]{16}'''
+[[rules]]
+description = "Private RSA key"
+id = "PrivateRSAKey"
+regex = '''-----BEGIN RSA PRIVATE KEY-----'''
+[[rules]]
+description = "Sops key"
+id = "SopsKey"
+regex = '''sops'''
+# no allowlist configured for this rule

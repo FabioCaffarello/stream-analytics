@@ -1,0 +1,20 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nats-config
+  namespace: data-management
+  labels:
+    app.kubernetes.io/name: nats
+    app.kubernetes.io/component: messaging
+    app.kubernetes.io/part-of: market-raccoon
+    app.kubernetes.io/managed-by: argocd
+data:
+  nats-server.conf: |
+    port: 4222
+    http_port: 8222
+    max_payload: 10MB
+
+    jetstream {
+      store_dir: "/data"
+    }

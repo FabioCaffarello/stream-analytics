@@ -1,0 +1,27 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: deny-latest-image-tag
+spec:
+  validationFailureAction: enforce
+  rules:
+    - name: deny-latest-or-untagged
+      match:
+        resources:
+          kinds:
+            - Deployment
+            - StatefulSet
+            - Job
+      validate:
+        message: "Images must use a pinned tag, not ':latest' or untagged."
+        foreach:
+          - list: "request.object.spec.template.spec.containers"
+            deny:
+              conditions:
+                any:
+                  - key: "{{ regex_match('.*:latest$', element.image) }}"
+                    operator: Equals
+                    value: true
+                  - key: "{{ contains(element.image, ':') }}"
+                    operator: Equals
+                    value: false

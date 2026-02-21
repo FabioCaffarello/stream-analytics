@@ -27,3 +27,10 @@ variable "disk_size" {
   type        = string
   default     = "40g"
 }
+
+variable "sops_age_private_key" {
+  description = "Age private key for SOPS decryption (generate with: age-keygen)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}

@@ -1,0 +1,13 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: raccoon-system
+  namespace: argocd
+spec:
+  description: "Project for raccoon-system"
+  sourceRepos:
+    - https://github.com/market-raccoon/market-raccoon.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: raccoon-system

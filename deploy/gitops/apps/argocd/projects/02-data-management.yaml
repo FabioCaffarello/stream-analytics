@@ -1,0 +1,13 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: data-management
+  namespace: argocd
+spec:
+  description: "Project for data-management"
+  sourceRepos:
+    - https://github.com/market-raccoon/market-raccoon.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: data-management

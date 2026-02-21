@@ -1,0 +1,100 @@
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: clickhouse
+  namespace: data-management
+  labels:
+    app.kubernetes.io/name: clickhouse
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: market-raccoon
+    app.kubernetes.io/managed-by: argocd
+spec:
+  serviceName: clickhouse
+  replicas: 1
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: clickhouse
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: clickhouse
+        app.kubernetes.io/component: database
+        app.kubernetes.io/part-of: market-raccoon
+        app.kubernetes.io/managed-by: argocd
+    spec:
+      securityContext:
+        runAsUser: 101
+        fsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: clickhouse
+          image: clickhouse/clickhouse-server:24.8.8
+          ports:
+            - containerPort: 8123
+              name: http
+              protocol: TCP
+            - containerPort: 9000
+              name: native
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: data-management-secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - SYS_NICE
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "2"
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/clickhouse
+            - name: config
+              mountPath: /etc/clickhouse-server/config.d/listen.xml
+              subPath: listen.xml
+              readOnly: true
+            - name: config
+              mountPath: /etc/clickhouse-server/users.d/raccoon-user.xml
+              subPath: raccoon-user.xml
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: clickhouse-config
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 20Gi
