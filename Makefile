@@ -57,7 +57,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules workspace-check tidy tidy-check go-tidy-check tidy-check-changed fmt fmt-check vet shell-script-check quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check legacy-check-staged legacy-check lint lint-changed smoke runtime-gate runtime-gate-full test test-root test-workspace test-workspace-race test-unit test-integration test-integration-changed test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store soak-roundtrip soak-pipeline soak-ws-delivery soak-c4-production soak-full test-short test-short-changed bench-hotpath bench-budget vuln build run clean docker-build up down down-clean up-infra up-core migrate dev-scale-smoke ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci backup backup-timescaledb backup-clickhouse restore-timescaledb restore-clickhouse
+.PHONY: help install-tools tools modules workspace-check tidy tidy-check go-tidy-check tidy-check-changed fmt fmt-check vet shell-script-check quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check legacy-check-staged legacy-check lint lint-changed smoke runtime-gate runtime-gate-full test test-root test-workspace test-workspace-race test-unit test-integration test-integration-changed test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store soak-roundtrip soak-pipeline soak-ws-delivery soak-c4-production soak-full test-short test-short-changed bench-hotpath bench-budget vuln build run clean docker-build client-docker-build client-docker-run client-docker-stop up down down-clean up-infra up-core migrate dev-scale-smoke ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci backup backup-timescaledb backup-clickhouse restore-timescaledb restore-clickhouse
 
 help:
 	@echo "Targets:"
@@ -114,6 +114,9 @@ help:
 	@echo "  make vuln               - run govulncheck"
 	@echo "  make build              - build all binaries under cmd/* (package main)"
 	@echo "  make run                - run selected app (default: server)"
+	@echo "  make client-docker-build - build Odin WASM client Docker image"
+	@echo "  make client-docker-run   - build + run client container on :$(CLIENT_PORT)"
+	@echo "  make client-docker-stop  - stop client container"
 	@echo "  make down               - stop full stack (preserve data volumes)"
 	@echo "  make down-clean         - stop full stack and remove all data volumes"
 	@echo "  make up                 - start full stack (nats + timescale + clickhouse + app services + observability)"
@@ -541,7 +544,23 @@ clean:
 	@rm -rf ./bin ./dist ./.cache
 
 docker-build:
-	docker compose -f deploy/compose/docker-compose.yml --profile core build
+	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile core build
+
+# ── Client (Odin WASM) ──────────────────────────────────────────
+CLIENT_PORT ?= 8090
+
+.PHONY: client-docker-build client-docker-run client-docker-stop
+
+client-docker-build:
+	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile client build client
+
+client-docker-run: client-docker-build
+	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile client up -d client
+	@echo "Client running at http://localhost:$(CLIENT_PORT)"
+	@echo "Health: http://localhost:$(CLIENT_PORT)/healthz"
+
+client-docker-stop:
+	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile client stop client
 
 up:
 	@set -euo pipefail; \
@@ -550,20 +569,20 @@ up:
 		echo "PROCESSOR_REPLICAS must be >= 1 (got $$p_rep)"; exit 1; \
 	fi; \
 	PROCESSOR_SHARD_COUNT=$(PROCESSOR_SHARD_COUNT) \
-	docker compose -f deploy/compose/docker-compose.yml --profile core --profile obs up --build -d \
+	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile core --profile obs --profile client up --build -d \
 		--scale processor=$$p_rep
 
 down:
-	docker compose -f deploy/compose/docker-compose.yml --profile core --profile obs down --remove-orphans
+	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile core --profile obs --profile client down --remove-orphans
 
 down-clean:
-	docker compose -f deploy/compose/docker-compose.yml --profile core --profile obs down -v --remove-orphans
+	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile core --profile obs --profile client down -v --remove-orphans
 
 up-infra:
-	docker compose -f deploy/compose/docker-compose.yml --profile obs up -d nats timescale clickhouse migrate prometheus grafana
+	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile obs up -d nats timescale clickhouse migrate prometheus grafana
 
 migrate:
-	docker compose -f deploy/compose/docker-compose.yml run --rm migrate
+	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env run --rm migrate
 
 up-core:
 	@set -euo pipefail; \
@@ -572,7 +591,7 @@ up-core:
 		echo "PROCESSOR_REPLICAS must be >= 1 (got $$p_rep)"; exit 1; \
 	fi; \
 	PROCESSOR_SHARD_COUNT=$(PROCESSOR_SHARD_COUNT) \
-	docker compose -f deploy/compose/docker-compose.yml --profile core up --build -d \
+	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile core up --build -d \
 		--scale processor=$$p_rep
 
 smoke: shell-script-check
@@ -597,29 +616,29 @@ dev-scale-smoke:
 	echo "[dev-scale-smoke] down previous stack"; \
 	$(MAKE) down >/dev/null; \
 	echo "[dev-scale-smoke] up core with PROCESSOR_REPLICAS=$$p_rep PROCESSOR_SHARD_COUNT=$$p_shards"; \
-	PROCESSOR_SHARD_COUNT="$$p_shards" docker compose -f deploy/compose/docker-compose.yml --profile core up --build -d --scale processor="$$p_rep"; \
+	PROCESSOR_SHARD_COUNT="$$p_shards" docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile core up --build -d --scale processor="$$p_rep"; \
 	echo "[dev-scale-smoke] waiting for processor replicas to become healthy"; \
 	for i in $$(seq 1 90); do \
-		healthy="$$(docker compose -f deploy/compose/docker-compose.yml --profile core ps | awk '/compose-processor-[0-9]+/ && /healthy/ {c++} END {print c+0}')"; \
+		healthy="$$(docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile core ps | awk '/compose-processor-[0-9]+/ && /healthy/ {c++} END {print c+0}')"; \
 		if [ "$$healthy" -ge "$$p_rep" ]; then break; fi; \
 		sleep 2; \
 	done; \
 	echo ""; \
 	echo "=== docker compose ps (core) ==="; \
-	docker compose -f deploy/compose/docker-compose.yml --profile core ps; \
+	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile core ps; \
 	echo ""; \
 	echo "=== shard resolution evidence ==="; \
-	logs="$$(docker compose -f deploy/compose/docker-compose.yml --profile core logs --since=10m --tail=500 processor)"; \
+	logs="$$(docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile core logs --since=10m --tail=500 processor)"; \
 	for idx in $$(seq 1 "$$p_rep"); do \
 		echo "--- processor-$$idx ---"; \
 		printf '%s\n' "$$logs" | rg "^processor-$$idx  \\| .*shard resolution applied|^processor-$$idx  \\| .*processor starting" | head -n 4 || true; \
 	done
 
 ps:
-	docker compose -f deploy/compose/docker-compose.yml --profile core --profile obs ps
+	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile core --profile obs ps
 
 logs:
-	docker compose -f deploy/compose/docker-compose.yml --profile core --profile obs logs -f --tail=200
+	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile core --profile obs logs -f --tail=200
 
 pre-commit-install:
 	$(PRE_COMMIT) install --install-hooks --hook-type pre-commit --hook-type pre-push --hook-type commit-msg

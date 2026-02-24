@@ -64,6 +64,41 @@ services:
           memory: 1G
           cpus: "1.00"
 
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8.8
+    container_name: market-raccoon-clickhouse
+    ports:
+      - "127.0.0.1:8123:8123"
+      - "127.0.0.1:9000:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse/
+      - clickhouse_logs:/var/log/clickhouse-server/
+      - ../clickhouse/config/listen.xml:/etc/clickhouse-server/config.d/listen.xml:ro
+      - ../clickhouse/users/raccoon-user.xml:/etc/clickhouse-server/users.d/raccoon-user.xml:ro
+    cap_add:
+      - SYS_NICE
+    networks:
+      - market-raccoon-network
+    env_file:
+      - ../envs/local.env
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --port 9000 --user ${CLICKHOUSE_USER:-default} --password ${CLICKHOUSE_PASSWORD:?Set CLICKHOUSE_PASSWORD in env file} --query 'SELECT 1' >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: "2.00"
+
   server:
     build:
       context: ../..
@@ -241,41 +276,6 @@ services:
           memory: 512M
           cpus: "1.00"
 
-  clickhouse:
-    image: clickhouse/clickhouse-server:24.8.8
-    container_name: market-raccoon-clickhouse
-    ports:
-      - "127.0.0.1:8123:8123"
-      - "127.0.0.1:9000:9000"
-    volumes:
-      - clickhouse_data:/var/lib/clickhouse/
-      - clickhouse_logs:/var/log/clickhouse-server/
-      - ../clickhouse/config/listen.xml:/etc/clickhouse-server/config.d/listen.xml:ro
-      - ../clickhouse/users/raccoon-user.xml:/etc/clickhouse-server/users.d/raccoon-user.xml:ro
-    cap_add:
-      - SYS_NICE
-    networks:
-      - market-raccoon-network
-    env_file:
-      - ../envs/local.env
-    healthcheck:
-      test: ["CMD-SHELL", "clickhouse-client --port 9000 --user ${CLICKHOUSE_USER:-default} --password ${CLICKHOUSE_PASSWORD:?Set CLICKHOUSE_PASSWORD in env file} --query 'SELECT 1' >/dev/null 2>&1"]
-      interval: 10s
-      timeout: 3s
-      retries: 20
-      start_period: 30s
-    restart: unless-stopped
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "5"
-    deploy:
-      resources:
-        limits:
-          memory: 2G
-          cpus: "2.00"
-
   migrate:
     build:
       context: ../..
@@ -311,6 +311,48 @@ services:
       resources:
         limits:
           memory: 128M
+          cpus: "0.25"
+
+  client:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/client.Dockerfile
+      args:
+        ODIN_VERSION: dev-2026-02
+    image: market-raccoon/client:dev
+    container_name: market-raccoon-client
+    ports:
+      - "127.0.0.1:8090:8090"
+    env_file:
+      - ../envs/local.env
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8090/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - market-raccoon-network
+    depends_on:
+      consumer:
+        condition: service_started
+      processor:
+        condition: service_started
+      store:
+        condition: service_started
+    restart: unless-stopped
+    profiles: ["client"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 64M
           cpus: "0.25"
 
   prometheus:
