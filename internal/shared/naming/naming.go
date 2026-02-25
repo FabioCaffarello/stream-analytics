@@ -50,6 +50,20 @@ func NormalizeSide(side string) string {
 	return strings.ToLower(strings.TrimSpace(side))
 }
 
+// StripMarketType removes the colon-separated market type suffix from an
+// instrument key. The processor's stateInstrumentKey appends ":SPOT" or
+// ":USDMFUTURES" for internal disambiguation; published envelopes should use
+// the plain instrument for routing parity with raw marketdata subjects.
+//
+// E.g. "BTCUSDT:USDMFUTURES" → "BTCUSDT", "BTCUSDT:SPOT" → "BTCUSDT",
+// "BTCUSDT" → "BTCUSDT" (no-op).
+func StripMarketType(instrument string) string {
+	if idx := strings.Index(instrument, ":"); idx >= 0 {
+		return instrument[:idx]
+	}
+	return instrument
+}
+
 // IsValidIdentifier reports whether s is a non-empty string containing only
 // alphanumeric characters, hyphens, underscores, and dots.
 // Useful for validating venue/instrument values before canonicalization.

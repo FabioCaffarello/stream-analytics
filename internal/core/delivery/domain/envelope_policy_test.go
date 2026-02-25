@@ -18,7 +18,12 @@ func TestValidateEnvelopeForDelivery_AllowsAggregationSnapshot(t *testing.T) {
 }
 
 func TestValidateEnvelopeForDelivery_AllowsAggregationCandleAndStats(t *testing.T) {
-	for _, eventType := range []string{"aggregation.candle", "aggregation.stats", "insights.heatmap_snapshot"} {
+	for _, eventType := range []string{
+		"aggregation.candle",
+		"aggregation.stats",
+		"aggregation.orderbook_inconsistency",
+		"insights.heatmap_snapshot",
+	} {
 		p := domain.ValidateEnvelopeForDelivery(envelope.Envelope{
 			Type:    eventType,
 			Version: 1,

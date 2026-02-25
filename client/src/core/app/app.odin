@@ -17,6 +17,7 @@ App_State :: struct {
 	orderbook_store: services.Orderbook_Store,
 	heatmap_store:   services.Heatmap_Store,
 	vpvr_store:      services.VPVR_Store,
+	stats_store:     services.Stats_Store,
 	settings:        services.Settings_Store,
 	scroll_y:        f32,
 	ob_scroll_y:     f32,
@@ -29,15 +30,21 @@ init :: proc(
 	md: ports.Marketdata_Port,
 	fonts: ports.Font_Port = {},
 	settings_port: ports.Settings_Port = {},
+	offline: bool = true,
 ) {
 	state.cmd_buf = ui.make_buffer()
 	state.text = text
 	state.fonts = fonts
 	state.marketdata = md
-	services.fill_demo_trades(&state.trades_store)
-	services.fill_demo_orderbook(&state.orderbook_store)
-	services.fill_demo_heatmaps(&state.heatmap_store)
-	services.fill_demo_vpvr(&state.vpvr_store)
+
+	// Only fill demo data in offline mode; real data overwrites stores when live.
+	if offline {
+		services.fill_demo_trades(&state.trades_store)
+		services.fill_demo_orderbook(&state.orderbook_store)
+		services.fill_demo_heatmaps(&state.heatmap_store)
+		services.fill_demo_vpvr(&state.vpvr_store)
+		services.fill_demo_stats(&state.stats_store)
+	}
 
 	// Initialize settings store.
 	if settings_port.load != nil {
@@ -77,7 +84,14 @@ update :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buffe
 					ob.last_price, ob.unix,
 				)
 			case .Stats:
-				// Future: wire to stats store.
+				st := evt.data.stats
+				services.push_stats(&state.stats_store, services.Stats_Entry{
+					mark_price = st.mark_price,
+					funding    = st.funding,
+					liq_buy    = f64(st.tbuy),
+					liq_sell   = f64(st.tsell),
+					unix       = st.unix,
+				})
 			case .Heatmap:
 				hm := evt.data.heatmap
 				snap: services.Heatmap_Snapshot
@@ -112,23 +126,35 @@ update :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buffe
 	// Connection status indicator (top-right).
 	draw_conn_indicator(state)
 
-	// Trade counter bar chart (hardcoded stats for demo).
-	sample_stats := [?]model.Stat{
-		{unix = 1000, tbuy = 42, tsell = 18},
-		{unix = 1060, tbuy = 15, tsell = 55},
-		{unix = 1120, tbuy = 70, tsell = 30},
-		{unix = 1180, tbuy = 25, tsell = 60},
-		{unix = 1240, tbuy = 50, tsell = 50},
-		{unix = 1300, tbuy = 80, tsell = 10},
-		{unix = 1360, tbuy = 12, tsell = 75},
-		{unix = 1420, tbuy = 45, tsell = 35},
+	// Trade counter bar chart (live stats from store).
+	stats_buf: [services.STATS_CAP]model.Stat
+	sc := 0
+	for i in 0 ..< state.stats_store.count {
+		e := services.get_stats(&state.stats_store, i)
+		stats_buf[sc] = model.Stat{
+			unix       = e.unix,
+			tbuy       = i64(e.liq_buy),
+			tsell      = i64(e.liq_sell),
+			mark_price = e.mark_price,
+			funding    = e.funding,
+		}
+		sc += 1
 	}
+
+	x_min, x_max: f64
+	if sc > 0 {
+		oldest := stats_buf[sc - 1].unix
+		newest := stats_buf[0].unix
+		x_min = f64(oldest) - 60
+		x_max = f64(newest) + 60
+	}
+
 	widgets.trade_counter(&state.cmd_buf, widgets.Trade_Counter_Data{
-		stats         = sample_stats[:],
+		stats         = stats_buf[:sc],
 		viewport      = {pos = {20, 80}, size = {760, 200}},
 		timeframe     = 60,
-		x_min         = 950,
-		x_max         = 1470,
+		x_min         = x_min,
+		x_max         = x_max,
 		bar_width_pct = CANDLE_WIDTH_PCT,
 		text          = state.text,
 	})

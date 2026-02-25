@@ -55,7 +55,9 @@ COPY --from=builder /src/client/web/odin.js    /usr/share/nginx/html/
 COPY --from=builder /src/client/web/app.wasm   /usr/share/nginx/html/
 
 RUN chown -R nginx:nginx /usr/share/nginx/html \
-    && sed -i 's|pid\s*/run/nginx.pid;|pid /tmp/nginx/nginx.pid;|' /etc/nginx/nginx.conf
+    && rm -f /docker-entrypoint.d/10-listen-on-ipv6-by-default.sh \
+    && sed -i 's|pid\s*/run/nginx.pid;|pid /tmp/nginx/nginx.pid;|' /etc/nginx/nginx.conf \
+    && sed -i 's|^user .*;|# user directive removed for non-root runtime;|' /etc/nginx/nginx.conf
 
 USER nginx
 

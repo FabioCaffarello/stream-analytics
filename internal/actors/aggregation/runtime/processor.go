@@ -35,6 +35,7 @@ import (
 	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 	sharedhash "github.com/market-raccoon/internal/shared/hash"
+	"github.com/market-raccoon/internal/shared/naming"
 	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/observability"
 	"github.com/market-raccoon/internal/shared/policykit"
@@ -1199,7 +1200,7 @@ func buildOrderbookSnapshotEnvelope(snapshot aggdomain.SnapshotProduced, nowMs i
 		Type:        "aggregation.snapshot",
 		Version:     1,
 		Venue:       snapshot.BookID.Venue,
-		Instrument:  snapshot.BookID.Instrument,
+		Instrument:  naming.StripMarketType(snapshot.BookID.Instrument),
 		TsIngest:    nowMs,
 		Seq:         snapshot.Seq,
 		ContentType: envelope.ContentTypeJSON,
@@ -1233,7 +1234,7 @@ func buildHeatmapSnapshotEnvelope(snapshot insightsdomain.HeatmapArtifactV1, now
 		Type:        insightsdomain.HeatmapSnapshotType,
 		Version:     insightsdomain.HeatmapSnapshotVersion,
 		Venue:       snapshot.Venue,
-		Instrument:  snapshot.Instrument,
+		Instrument:  naming.StripMarketType(snapshot.Instrument),
 		TsIngest:    nowMs,
 		Seq:         heatmapSeq(snapshot),
 		ContentType: ct,
@@ -1269,7 +1270,7 @@ func buildVolumeSnapshotEnvelope(snapshot insightsdomain.VolumeProfileSnapshotV1
 		Type:        insightsdomain.VolumeProfileSnapshotType,
 		Version:     insightsdomain.VolumeProfileSnapshotVersion,
 		Venue:       snapshot.Venue,
-		Instrument:  snapshot.Instrument,
+		Instrument:  naming.StripMarketType(snapshot.Instrument),
 		TsIngest:    nowMs,
 		Seq:         volumeSeq(snapshot),
 		ContentType: ct,

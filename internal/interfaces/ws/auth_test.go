@@ -43,6 +43,35 @@ func TestAuthConfig_Authenticate_HeaderOnly(t *testing.T) {
 	}
 }
 
+func TestAuthConfig_Authenticate_QueryParam(t *testing.T) {
+	req := httptest.NewRequest("GET", "/ws?api_key=k1", nil)
+	clientID, p := (AuthConfig{
+		Enabled: true,
+		APIKeys: map[string]string{"k1": "client-a"},
+	}).Authenticate(req)
+	if p != nil {
+		t.Fatalf("expected nil problem, got %v", p)
+	}
+	if clientID != "client-a" {
+		t.Fatalf("clientID=%q want client-a", clientID)
+	}
+}
+
+func TestAuthConfig_Authenticate_HeaderTakesPrecedence(t *testing.T) {
+	req := httptest.NewRequest("GET", "/ws?api_key=k2", nil)
+	req.Header.Set("X-API-Key", "k1")
+	clientID, p := (AuthConfig{
+		Enabled: true,
+		APIKeys: map[string]string{"k1": "client-a", "k2": "client-b"},
+	}).Authenticate(req)
+	if p != nil {
+		t.Fatalf("expected nil problem, got %v", p)
+	}
+	if clientID != "client-a" {
+		t.Fatalf("clientID=%q want client-a (header takes precedence)", clientID)
+	}
+}
+
 func TestAuthConfig_Authenticate_MissingOrInvalid(t *testing.T) {
 	req := httptest.NewRequest("GET", "/ws", nil)
 	_, p := (AuthConfig{Enabled: true, APIKeys: map[string]string{"k1": "client-a"}}).Authenticate(req)

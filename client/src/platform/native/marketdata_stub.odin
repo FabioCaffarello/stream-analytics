@@ -15,12 +15,12 @@ stub_marketdata_port :: proc() -> ports.Marketdata_Port {
 }
 
 @(private = "file")
-stub_subscribe :: proc(symbol: string, channel: ports.MD_Channel) -> bool {
+stub_subscribe :: proc(venue: string, symbol: string, channel: ports.MD_Channel) -> bool {
 	return false
 }
 
 @(private = "file")
-stub_unsubscribe :: proc(symbol: string, channel: ports.MD_Channel) {}
+stub_unsubscribe :: proc(venue: string, symbol: string, channel: ports.MD_Channel) {}
 
 @(private = "file")
 stub_poll :: proc(events_buf: []ports.MD_Event) -> int {

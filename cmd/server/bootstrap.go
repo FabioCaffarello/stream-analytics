@@ -14,6 +14,7 @@ import (
 	deliveryruntime "github.com/market-raccoon/internal/actors/delivery/runtime"
 	actorruntime "github.com/market-raccoon/internal/actors/runtime"
 	"github.com/market-raccoon/internal/adapters/bus"
+	adapterjs "github.com/market-raccoon/internal/adapters/jetstream"
 	"github.com/market-raccoon/internal/adapters/storage/clickhouse"
 	"github.com/market-raccoon/internal/adapters/storage/timescale"
 	deliverydomain "github.com/market-raccoon/internal/core/delivery/domain"
@@ -25,6 +26,7 @@ import (
 	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/metrics"
+	"github.com/market-raccoon/internal/shared/problem"
 )
 
 // Run is the server composition root.  It wires all dependencies, starts
@@ -35,6 +37,9 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 	logger := bootstrap.BuildLogger(cfg.Log)
 	slog.SetDefault(logger)
 	contracts.SetProtoRolloutConfig(cfg.ProtoRollout.EventTypeFlags())
+	if p := contracts.BootstrapPayloadCodecRegistry(); p != nil {
+		return fmt.Errorf("payload codec registry bootstrap: %v", p)
+	}
 	logger.Info("server starting", "addr", cfg.HTTP.Addr)
 	var tsPool *timescale.Pool
 	timescale.SetStubMode(timescale.AdapterModeStubMemory)
@@ -121,9 +126,53 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 		rangeStore = timescale.NewDeliveryRangeStore(4096)
 	}
 
+	// ── JetStream → InMemoryBus bridge ───────────────────────────────────
+	var shutdownJSConsumer func(context.Context)
+
 	var deliveryFactory actor.Producer
 	if cfg.Delivery.Enabled {
 		eventBus = bus.NewInMemoryBus(cfg.Processor.BusCapacity, metrics.NewBusObserver())
+
+		if strings.EqualFold(strings.TrimSpace(cfg.Bus.Type), "jetstream") {
+			jsConsumer, p := adapterjs.NewConsumer(ctx, adapterjs.ConsumerConfig{
+				URL:             cfg.JetStream.URL,
+				StreamName:      cfg.JetStream.StreamName,
+				DedupWindow:     cfg.JetStream.DedupWindowDuration(),
+				MaxAge:          cfg.JetStream.MaxAgeDuration(),
+				MaxBytes:        cfg.JetStream.MaxBytesInt64(),
+				ConsumerDurable: cfg.JetStream.ConsumerDurable,
+				FilterSubjects:  cfg.JetStream.FilterSubjects,
+				AckWait:         cfg.JetStream.AckWaitDuration(),
+				MaxAckPending:   cfg.JetStream.MaxAckPending,
+				MaxDeliver:      cfg.JetStream.MaxDeliver,
+				DeliverPolicy:   cfg.JetStream.DeliverPolicy,
+			}, metrics.NewBusObserver())
+			if p != nil {
+				return fmt.Errorf("server: jetstream consumer init failed: %v", p)
+			}
+			consumeCtx, cancelConsume := context.WithCancel(ctx)
+			go func() {
+				if p := jsConsumer.Consume(consumeCtx, func(_ context.Context, env envelope.Envelope) *problem.Problem {
+					rangeStore.StoreEnvelope(env)
+					return eventBus.Publish(ctx, env)
+				}); p != nil {
+					logger.Error("server: jetstream consume loop failed", "err", p)
+				}
+			}()
+			shutdownJSConsumer = func(shutCtx context.Context) {
+				cancelConsume()
+				if p := jsConsumer.Close(shutCtx); p != nil {
+					logger.Warn("server: jetstream consumer close failed", "err", p)
+				}
+			}
+			logger.Info("server: subscribed to jetstream consumer",
+				"url", cfg.JetStream.URL,
+				"stream", cfg.JetStream.StreamName,
+				"durable", cfg.JetStream.ConsumerDurable,
+				"filters", cfg.JetStream.FilterSubjects,
+			)
+		}
+
 		deliveryCfg := deliveryruntime.SubsystemConfig{
 			Logger:       logger,
 			EnvelopeCh:   eventBus.Subscribe(),
@@ -194,11 +243,15 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 
 	// ── shutdown ─────────────────────────────────────────────────────────
 	logger.Info("server: shutting down")
+
+	shutCtx, cancel := context.WithTimeout(context.Background(), cfg.HTTP.ShutdownTimeoutDuration())
+
+	if shutdownJSConsumer != nil {
+		shutdownJSConsumer(shutCtx)
+	}
 	if eventBus != nil {
 		eventBus.Close()
 	}
-
-	shutCtx, cancel := context.WithTimeout(context.Background(), cfg.HTTP.ShutdownTimeoutDuration())
 	defer cancel()
 
 	if err := srv.Shutdown(shutCtx); err != nil {

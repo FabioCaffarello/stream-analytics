@@ -44,6 +44,30 @@ func TestIsInstrumentSymbolEquivalent(t *testing.T) {
 	}
 }
 
+func TestTimeframeFromEnvelopeMeta(t *testing.T) {
+	tests := []struct {
+		name     string
+		meta     map[string]string
+		fallback string
+		want     string
+	}{
+		{"meta present", map[string]string{"timeframe": "5m"}, "raw", "5m"},
+		{"meta empty string", map[string]string{"timeframe": ""}, "raw", "raw"},
+		{"meta nil", nil, "raw", "raw"},
+		{"meta no timeframe key", map[string]string{"other": "val"}, "raw", "raw"},
+		{"meta whitespace", map[string]string{"timeframe": "  1h  "}, "raw", "1h"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := envelope.Envelope{Meta: tt.meta}
+			got := domain.TimeframeFromEnvelopeMeta(env, tt.fallback)
+			if got != tt.want {
+				t.Fatalf("TimeframeFromEnvelopeMeta() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestSnapshotSubject(t *testing.T) {
 	sub, p := domain.SnapshotSubject("binance", "BTC-USDT", "raw")
 	if p != nil {

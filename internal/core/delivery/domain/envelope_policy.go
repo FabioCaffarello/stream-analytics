@@ -15,17 +15,18 @@ type deliveryContract struct {
 }
 
 var deliveryContracts = map[string]deliveryContract{
-	"marketdata.trade":                   {version: 1, ownerBC: "marketdata", producerBC: "marketdata", schemaAuthority: "marketdata"},
-	"marketdata.bookdelta":               {version: 1, ownerBC: "marketdata", producerBC: "marketdata", schemaAuthority: "marketdata"},
-	"marketdata.markprice":               {version: 1, ownerBC: "marketdata", producerBC: "marketdata", schemaAuthority: "marketdata"},
-	"marketdata.liquidation":             {version: 1, ownerBC: "marketdata", producerBC: "marketdata", schemaAuthority: "marketdata"},
-	"insights.crossvenue.trade_snapshot": {version: 1, ownerBC: "insights", producerBC: "aggregation", schemaAuthority: "aggregation"},
-	"insights.crossvenue.spread_signal":  {version: 1, ownerBC: "insights", producerBC: "aggregation", schemaAuthority: "aggregation"},
-	"aggregation.snapshot":               {version: 1, ownerBC: "aggregation", producerBC: "aggregation", schemaAuthority: "aggregation"},
-	"aggregation.candle":                 {version: 1, ownerBC: "aggregation", producerBC: "aggregation", schemaAuthority: "aggregation"},
-	"aggregation.stats":                  {version: 1, ownerBC: "aggregation", producerBC: "aggregation", schemaAuthority: "aggregation"},
-	"insights.heatmap_snapshot":          {version: 1, ownerBC: "insights", producerBC: "aggregation", schemaAuthority: "aggregation"},
-	"insights.volume_profile_snapshot":   {version: 1, ownerBC: "insights", producerBC: "aggregation", schemaAuthority: "aggregation"},
+	"marketdata.trade":                    {version: 1, ownerBC: "marketdata", producerBC: "marketdata", schemaAuthority: "marketdata"},
+	"marketdata.bookdelta":                {version: 1, ownerBC: "marketdata", producerBC: "marketdata", schemaAuthority: "marketdata"},
+	"marketdata.markprice":                {version: 1, ownerBC: "marketdata", producerBC: "marketdata", schemaAuthority: "marketdata"},
+	"marketdata.liquidation":              {version: 1, ownerBC: "marketdata", producerBC: "marketdata", schemaAuthority: "marketdata"},
+	"insights.crossvenue.trade_snapshot":  {version: 1, ownerBC: "insights", producerBC: "aggregation", schemaAuthority: "aggregation"},
+	"insights.crossvenue.spread_signal":   {version: 1, ownerBC: "insights", producerBC: "aggregation", schemaAuthority: "aggregation"},
+	"aggregation.snapshot":                {version: 1, ownerBC: "aggregation", producerBC: "aggregation", schemaAuthority: "aggregation"},
+	"aggregation.orderbook_inconsistency": {version: 1, ownerBC: "aggregation", producerBC: "aggregation", schemaAuthority: "aggregation"},
+	"aggregation.candle":                  {version: 1, ownerBC: "aggregation", producerBC: "aggregation", schemaAuthority: "aggregation"},
+	"aggregation.stats":                   {version: 1, ownerBC: "aggregation", producerBC: "aggregation", schemaAuthority: "aggregation"},
+	"insights.heatmap_snapshot":           {version: 1, ownerBC: "insights", producerBC: "aggregation", schemaAuthority: "aggregation"},
+	"insights.volume_profile_snapshot":    {version: 1, ownerBC: "insights", producerBC: "aggregation", schemaAuthority: "aggregation"},
 }
 
 // ValidateEnvelopeForDelivery enforces allowed delivery stream types and

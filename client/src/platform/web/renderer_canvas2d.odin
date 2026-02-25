@@ -1,7 +1,6 @@
 package main
 
-// Fase 1: Canvas2D renderer via foreign procs mapped to JS.
-// Fase 3+: replace with full odin-wasm Canvas2D bindings.
+// Canvas2D renderer via foreign procs mapped to JS.
 
 import "mr:ui"
 
@@ -12,6 +11,9 @@ foreign odin_env {
 	canvas_clear     :: proc(r, g, b, a: f32) ---
 	canvas_fill_rect :: proc(x, y, w, h, r, g, b, a: f32) ---
 	canvas_fill_text :: proc(ptr: [^]u8, text_len: i32, x, y, size, r, g, b, a: f32) ---
+	canvas_line      :: proc(x1, y1, x2, y2, r, g, b, a, thickness: f32) ---
+	canvas_clip_push :: proc(x, y, w, h: f32) ---
+	canvas_clip_pop  :: proc() ---
 }
 
 render_commands :: proc(buf: ^ui.Command_Buffer) {
@@ -32,11 +34,14 @@ render_commands :: proc(buf: ^ui.Command_Buffer) {
 				c.color.r, c.color.g, c.color.b, c.color.a,
 			)
 		case ui.Cmd_Line:
-			// Fase 3+
+			canvas_line(
+				c.from.x, c.from.y, c.to.x, c.to.y,
+				c.color.r, c.color.g, c.color.b, c.color.a, c.thickness,
+			)
 		case ui.Cmd_Clip_Push:
-			// Fase 3+
+			canvas_clip_push(c.rect.pos.x, c.rect.pos.y, c.rect.size.x, c.rect.size.y)
 		case ui.Cmd_Clip_Pop:
-			// Fase 3+
+			canvas_clip_pop()
 		}
 	}
 }

@@ -20,6 +20,11 @@ func (cfg AuthConfig) Authenticate(r *http.Request) (string, *problem.Problem) {
 	key := ""
 	if r != nil {
 		key = strings.TrimSpace(r.Header.Get("X-API-Key"))
+		// Fallback: browser WebSocket API cannot set custom headers,
+		// so accept api_key as a query parameter.
+		if key == "" {
+			key = strings.TrimSpace(r.URL.Query().Get("api_key"))
+		}
 	}
 	if key == "" {
 		return "", problem.New(problem.ValidationFailed, "missing API key")

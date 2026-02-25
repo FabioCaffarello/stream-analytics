@@ -76,6 +76,17 @@ func SubjectFromEnvelope(env envelope.Envelope, timeframe string) (Subject, *pro
 	return NewSubject(env.Type, env.Venue, env.Instrument, timeframe)
 }
 
+// TimeframeFromEnvelopeMeta returns the timeframe from env.Meta["timeframe"]
+// if present, otherwise returns the provided fallback.
+func TimeframeFromEnvelopeMeta(env envelope.Envelope, fallback string) string {
+	if len(env.Meta) > 0 {
+		if tf := strings.TrimSpace(env.Meta["timeframe"]); tf != "" {
+			return tf
+		}
+	}
+	return fallback
+}
+
 func (s Subject) String() string {
 	return s.StreamType + "/" + s.Venue + "/" + s.Symbol + "/" + s.Timeframe
 }

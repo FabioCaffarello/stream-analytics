@@ -12,6 +12,7 @@ import (
 	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 	sharedhash "github.com/market-raccoon/internal/shared/hash"
+	"github.com/market-raccoon/internal/shared/naming"
 	"github.com/market-raccoon/internal/shared/problem"
 )
 
@@ -51,7 +52,7 @@ func (a *ArtifactPublisher) PublishSnapshot(ctx context.Context, snap aggdomain.
 		Type:       "aggregation.snapshot",
 		Version:    1,
 		Venue:      snap.BookID.Venue,
-		Instrument: snap.BookID.Instrument,
+		Instrument: naming.StripMarketType(snap.BookID.Instrument),
 		TsIngest:   a.clock(),
 		Seq:        snap.Seq,
 		IdempotencyKey: sharedhash.HashFieldsFast(
@@ -81,7 +82,7 @@ func (a *ArtifactPublisher) PublishInconsistent(ctx context.Context, evt aggdoma
 		Type:       "aggregation.orderbook_inconsistency",
 		Version:    1,
 		Venue:      evt.BookID.Venue,
-		Instrument: evt.BookID.Instrument,
+		Instrument: naming.StripMarketType(evt.BookID.Instrument),
 		TsIngest:   a.clock(),
 		Seq:        evt.Seq,
 		IdempotencyKey: sharedhash.HashFieldsFast(
@@ -112,7 +113,7 @@ func (a *ArtifactPublisher) PublishCandleClosed(ctx context.Context, evt aggdoma
 		Type:       "aggregation.candle",
 		Version:    1,
 		Venue:      evt.Candle.Venue,
-		Instrument: evt.Candle.Instrument,
+		Instrument: naming.StripMarketType(evt.Candle.Instrument),
 		TsIngest:   a.clock(),
 		Seq:        evt.Candle.SeqLast,
 		IdempotencyKey: sharedhash.HashFieldsFast(
@@ -143,7 +144,7 @@ func (a *ArtifactPublisher) PublishStatsClosed(ctx context.Context, evt aggdomai
 		Type:       "aggregation.stats",
 		Version:    1,
 		Venue:      evt.Stats.Venue,
-		Instrument: evt.Stats.Instrument,
+		Instrument: naming.StripMarketType(evt.Stats.Instrument),
 		TsIngest:   a.clock(),
 		Seq:        evt.Stats.SeqLast,
 		IdempotencyKey: sharedhash.HashFieldsFast(

@@ -91,8 +91,8 @@ MD_Event :: struct {
 }
 
 Marketdata_Port :: struct {
-	subscribe:   proc(symbol: string, channel: MD_Channel) -> bool,
-	unsubscribe: proc(symbol: string, channel: MD_Channel),
+	subscribe:   proc(venue: string, symbol: string, channel: MD_Channel) -> bool,
+	unsubscribe: proc(venue: string, symbol: string, channel: MD_Channel),
 	poll:        proc(events_buf: []MD_Event) -> int,
 	now_ms:      proc() -> i64,
 	conn_status: proc() -> MD_Conn_Status,

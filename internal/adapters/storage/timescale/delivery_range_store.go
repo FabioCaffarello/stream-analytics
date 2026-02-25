@@ -33,7 +33,8 @@ func NewDeliveryRangeStore(maxPerSubject int) *DeliveryRangeStore {
 }
 
 func (s *DeliveryRangeStore) StoreEnvelope(env envelope.Envelope) {
-	sub, p := domain.SubjectFromEnvelope(env, domain.DefaultTimeframe)
+	tf := domain.TimeframeFromEnvelopeMeta(env, domain.DefaultTimeframe)
+	sub, p := domain.SubjectFromEnvelope(env, tf)
 	if p != nil {
 		return
 	}
@@ -115,7 +116,8 @@ func (s *PgRangeStore) StoreEnvelope(env envelope.Envelope) {
 	if s == nil || s.pool == nil {
 		return
 	}
-	sub, p := domain.SubjectFromEnvelope(env, domain.DefaultTimeframe)
+	tf := domain.TimeframeFromEnvelopeMeta(env, domain.DefaultTimeframe)
+	sub, p := domain.SubjectFromEnvelope(env, tf)
 	if p != nil {
 		return
 	}

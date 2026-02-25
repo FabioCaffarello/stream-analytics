@@ -1,9 +1,22 @@
 {
   // Runtime config mounted in container at /etc/market-raccoon/server.jsonc
-  // The server binary serves WebSocket delivery; no JetStream consumer needed.
+  // JetStream bridges NATS envelopes into the delivery subsystem.
   "bus": {
-    "type": "inmemory",
+    "type": "jetstream",
     "wire_format": "proto"
+  },
+  "jetstream": {
+    "url": "nats://nats:4222",
+    "stream_name": "MARKETDATA",
+    "consumer_durable": "delivery-v2",
+    "ack_wait": "30s",
+    "max_ack_pending": 1024,
+    "max_deliver": 5,
+    "deliver_policy": "new",
+    "filter_subjects": ["marketdata.>", "aggregation.>", "insights.>"],
+    "dedup_window": "5m",
+    "max_age": "24h",
+    "max_bytes": "10GB"
   },
   "proto_rollout": {
     "marketdata": {

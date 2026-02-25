@@ -2,6 +2,7 @@ package deliveryruntime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync/atomic"
 	"testing"
@@ -9,9 +10,11 @@ import (
 
 	"github.com/anthdm/hollywood/actor"
 	"github.com/gorilla/websocket"
+	mddomain "github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/core/delivery/domain"
 	"github.com/market-raccoon/internal/core/delivery/ports"
 	sharedclock "github.com/market-raccoon/internal/shared/clock"
+	"github.com/market-raccoon/internal/shared/codec"
 	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/metrics"
@@ -628,4 +631,189 @@ func TestSession_deliveryEventProtoFrameWhenEnabled(t *testing.T) {
 	if gotEnv.Type != wantEnv.Type || gotEnv.Seq != wantEnv.Seq || gotEnv.ContentType != wantEnv.ContentType {
 		t.Fatalf("decoded envelope mismatch got=%+v want=%+v", gotEnv, wantEnv)
 	}
+}
+
+func TestSession_deliveryEventProtoJSONTranscode_TradeUsesPascalCase(t *testing.T) {
+	if p := contracts.BootstrapPayloadCodecRegistry(); p != nil {
+		t.Fatalf("bootstrap codec registry: %v", p)
+	}
+	payload, p := codec.EncodePayload("marketdata.trade", 1, envelope.ContentTypeProto, mddomain.TradeTickV1{
+		Price:     123.45,
+		Size:      0.25,
+		Side:      "buy",
+		TradeID:   "t-1",
+		Timestamp: 1_710_000_000_123,
+	})
+	if p != nil {
+		t.Fatalf("encode trade proto payload: %v", p)
+	}
+
+	event := captureJSONDeliveryEventFrame(t, "marketdata.trade/binance/BTCUSDT/raw", envelope.Envelope{
+		Type:        "marketdata.trade",
+		Version:     1,
+		Venue:       "binance",
+		Instrument:  "BTC-USDT",
+		Seq:         1,
+		TsIngest:    1_710_000_000_200,
+		ContentType: envelope.ContentTypeProto,
+		Payload:     payload,
+	})
+
+	var got map[string]any
+	if err := json.Unmarshal(event.Payload, &got); err != nil {
+		t.Fatalf("unmarshal trade payload: %v", err)
+	}
+	for _, k := range []string{"Price", "Size", "Side", "TradeID", "Timestamp"} {
+		if _, ok := got[k]; !ok {
+			t.Fatalf("missing PascalCase key %q in payload=%s", k, string(event.Payload))
+		}
+	}
+	if _, ok := got["price"]; ok {
+		t.Fatalf("unexpected lowercase key in payload=%s", string(event.Payload))
+	}
+}
+
+func TestSession_deliveryEventProtoJSONTranscode_BookDeltaUsesPascalCase(t *testing.T) {
+	if p := contracts.BootstrapPayloadCodecRegistry(); p != nil {
+		t.Fatalf("bootstrap codec registry: %v", p)
+	}
+	payload, p := codec.EncodePayload("marketdata.bookdelta", 1, envelope.ContentTypeProto, mddomain.BookDeltaV1{
+		Bids:       []mddomain.PriceLevel{{Price: 100, Size: 2}},
+		Asks:       []mddomain.PriceLevel{{Price: 101, Size: 3}},
+		FirstID:    10,
+		FinalID:    12,
+		PrevFinal:  9,
+		Timestamp:  1_710_000_000_300,
+		IsSnapshot: true,
+	})
+	if p != nil {
+		t.Fatalf("encode bookdelta proto payload: %v", p)
+	}
+
+	event := captureJSONDeliveryEventFrame(t, "marketdata.bookdelta/binance/BTCUSDT/raw", envelope.Envelope{
+		Type:        "marketdata.bookdelta",
+		Version:     1,
+		Venue:       "binance",
+		Instrument:  "BTC-USDT",
+		Seq:         2,
+		TsIngest:    1_710_000_000_400,
+		ContentType: envelope.ContentTypeProto,
+		Payload:     payload,
+	})
+
+	var got map[string]any
+	if err := json.Unmarshal(event.Payload, &got); err != nil {
+		t.Fatalf("unmarshal bookdelta payload: %v", err)
+	}
+	for _, k := range []string{"Bids", "Asks", "FirstID", "FinalID", "PrevFinal", "Timestamp", "IsSnapshot"} {
+		if _, ok := got[k]; !ok {
+			t.Fatalf("missing PascalCase key %q in payload=%s", k, string(event.Payload))
+		}
+	}
+	bids, ok := got["Bids"].([]any)
+	if !ok || len(bids) == 0 {
+		t.Fatalf("Bids type/len invalid: %T payload=%s", got["Bids"], string(event.Payload))
+	}
+	firstBid, ok := bids[0].(map[string]any)
+	if !ok {
+		t.Fatalf("first bid type=%T", bids[0])
+	}
+	for _, k := range []string{"Price", "Size"} {
+		if _, ok := firstBid[k]; !ok {
+			t.Fatalf("missing nested PascalCase key %q in payload=%s", k, string(event.Payload))
+		}
+	}
+	if _, ok := got["bids"]; ok {
+		t.Fatalf("unexpected lowercase key in payload=%s", string(event.Payload))
+	}
+}
+
+func TestSession_deliveryEventProtoJSONTranscode_AggregationStatsKeepsWrapper(t *testing.T) {
+	if p := contracts.BootstrapPayloadCodecRegistry(); p != nil {
+		t.Fatalf("bootstrap codec registry: %v", p)
+	}
+	payload, p := codec.EncodePayload("aggregation.stats", 1, envelope.ContentTypeProto, contracts.AggregationStatsWindowClosedV1{
+		Stats: contracts.AggregationStatsWindowV1{
+			Venue:           "binance",
+			Instrument:      "BTCUSDT",
+			Timeframe:       "1m",
+			WindowStartTs:   1_710_000_000_000,
+			WindowEndTs:     1_710_000_060_000,
+			LiqBuyVolume:    10,
+			LiqSellVolume:   20,
+			LiqTotalVolume:  30,
+			MarkPriceClose:  123.45,
+			FundingRateLast: 0.0001,
+			IsClosed:        true,
+		},
+	})
+	if p != nil {
+		t.Fatalf("encode stats proto payload: %v", p)
+	}
+
+	event := captureJSONDeliveryEventFrame(t, "aggregation.stats/binance/BTCUSDT/1m", envelope.Envelope{
+		Type:        "aggregation.stats",
+		Version:     1,
+		Venue:       "binance",
+		Instrument:  "BTC-USDT",
+		Seq:         3,
+		TsIngest:    1_710_000_060_100,
+		ContentType: envelope.ContentTypeProto,
+		Payload:     payload,
+	})
+
+	var got map[string]any
+	if err := json.Unmarshal(event.Payload, &got); err != nil {
+		t.Fatalf("unmarshal stats payload: %v", err)
+	}
+	statsAny, ok := got["Stats"]
+	if !ok {
+		t.Fatalf("missing Stats wrapper in payload=%s", string(event.Payload))
+	}
+	if _, ok := got["stats"]; ok {
+		t.Fatalf("unexpected lowercase stats wrapper in payload=%s", string(event.Payload))
+	}
+	stats, ok := statsAny.(map[string]any)
+	if !ok {
+		t.Fatalf("Stats wrapper type=%T", statsAny)
+	}
+	for _, k := range []string{"WindowEndTs", "LiqBuyVolume", "LiqSellVolume", "MarkPriceClose", "FundingRateLast"} {
+		if _, ok := stats[k]; !ok {
+			t.Fatalf("missing inner stats key %q in payload=%s", k, string(event.Payload))
+		}
+	}
+}
+
+func captureJSONDeliveryEventFrame(t *testing.T, subjectRaw string, env envelope.Envelope) wsEventFrame {
+	t.Helper()
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-capture-json-transcode")
+	defer e.Poison(routerPID)
+
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{
+		RouterPID: routerPID,
+		Conn:      conn,
+	}), "ws-session-json-transcode")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	e.Send(sessionPID, DeliveryEvent{
+		Subject: mustParseSubjectForSession(t, subjectRaw),
+		Env:     env,
+	})
+
+	msg := <-conn.writeCh
+	event, ok := msg.(wsEventFrame)
+	if !ok {
+		t.Fatalf("message type=%T want wsEventFrame", msg)
+	}
+	if got, want := event.Type, "event"; got != want {
+		t.Fatalf("type=%v want=%v", got, want)
+	}
+	return event
 }

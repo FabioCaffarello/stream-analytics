@@ -37,7 +37,7 @@ WS_Connection :: struct {
 
 // --- Public API ---
 
-ws_dial :: proc(url: string) -> (WS_Connection, WS_Error) {
+ws_dial :: proc(url: string, extra_headers: string = "") -> (WS_Connection, WS_Error) {
 	if !strings.has_prefix(url, "ws://") {
 		return {}, .Invalid_Url
 	}
@@ -81,8 +81,9 @@ ws_dial :: proc(url: string) -> (WS_Connection, WS_Error) {
 		"Connection: Upgrade\r\n" +
 		"Sec-WebSocket-Key: %s\r\n" +
 		"Sec-WebSocket-Version: 13\r\n" +
+		"%s" +
 		"\r\n",
-		path, host_port, key,
+		path, host_port, key, extra_headers,
 	)
 	net.send_tcp(conn, transmute([]u8)handshake)
 
