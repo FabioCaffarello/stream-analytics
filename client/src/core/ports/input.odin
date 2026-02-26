@@ -34,6 +34,7 @@ Keys :: struct {
 }
 
 Input_State :: struct {
-	mouse: Mouse,
-	keys:  Keys,
+	mouse:         Mouse,
+	keys:          Keys,
+	viewport_size: ui.Vec2, // render surface size in pixels (canvas/framebuffer)
 }

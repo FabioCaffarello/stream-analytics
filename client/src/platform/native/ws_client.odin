@@ -11,8 +11,10 @@ import "core:math/rand"
 import "core:net"
 import "core:strings"
 import "core:strconv"
+import "core:time"
 
 WS_GUID :: "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+WS_HANDSHAKE_TIMEOUT :: 1500 * time.Millisecond
 
 WS_Error :: enum {
 	None,
@@ -33,6 +35,38 @@ WS_Error :: enum {
 
 WS_Connection :: struct {
 	socket: net.TCP_Socket,
+}
+
+@(private = "file")
+tcp_recv_exact :: proc(socket: net.TCP_Socket, buf: []u8) -> (int, net.TCP_Recv_Error) {
+	total := 0
+	for total < len(buf) {
+		n, err := net.recv_tcp(socket, buf[total:])
+		if err != nil {
+			return total, err
+		}
+		if n <= 0 {
+			return total, nil
+		}
+		total += n
+	}
+	return total, nil
+}
+
+@(private = "file")
+tcp_send_all :: proc(socket: net.TCP_Socket, buf: []u8) -> (int, net.TCP_Send_Error) {
+	total := 0
+	for total < len(buf) {
+		n, err := net.send_tcp(socket, buf[total:])
+		if err != nil {
+			return total, err
+		}
+		if n <= 0 {
+			return total, nil
+		}
+		total += n
+	}
+	return total, nil
 }
 
 // --- Public API ---
@@ -71,6 +105,9 @@ ws_dial :: proc(url: string, extra_headers: string = "") -> (WS_Connection, WS_E
 	if dial_err != nil {
 		return {socket = conn}, .Dial_Error
 	}
+	// Bound the handshake phase so reconnect cannot stay in .Connecting indefinitely.
+	_ = net.set_option(conn, .Receive_Timeout, WS_HANDSHAKE_TIMEOUT)
+	_ = net.set_option(conn, .Send_Timeout, WS_HANDSHAKE_TIMEOUT)
 
 	// WebSocket handshake.
 	key := ws_generate_key()
@@ -85,21 +122,26 @@ ws_dial :: proc(url: string, extra_headers: string = "") -> (WS_Connection, WS_E
 		"\r\n",
 		path, host_port, key, extra_headers,
 	)
-	net.send_tcp(conn, transmute([]u8)handshake)
+	if _, err := tcp_send_all(conn, transmute([]u8)handshake); err != nil {
+		return {socket = conn}, .Handshake_Error
+	}
 
 	response_builder := strings.builder_make()
 	defer strings.builder_destroy(&response_builder)
 	buf: [512]u8
 	for {
 		n, err := net.recv_tcp(conn, buf[:])
-		if err != nil {
+		if err != nil || n <= 0 {
 			return {socket = conn}, .Handshake_Error
 		}
 		strings.write_bytes(&response_builder, buf[:n])
-		if strings.contains(string(buf[:n]), "\r\n\r\n") {
+		if strings.contains(strings.to_string(response_builder), "\r\n\r\n") {
 			break
 		}
 	}
+	// Restore blocking behavior for the long-lived WS read loop after handshake completes.
+	_ = net.set_option(conn, .Receive_Timeout, time.Duration(0))
+	_ = net.set_option(conn, .Send_Timeout, time.Duration(0))
 
 	response_str := strings.to_string(response_builder)
 	expected_accept := ws_compute_accept_key(key)
@@ -132,7 +174,7 @@ ws_read_message :: proc(
 
 	for {
 		header: [2]u8
-		n, recv_err := net.recv_tcp(conn.socket, header[:])
+		n, recv_err := tcp_recv_exact(conn.socket, header[:])
 		if recv_err != nil || n != 2 {
 			return 0, nil, .Failed_Header_Read
 		}
@@ -144,7 +186,7 @@ ws_read_message :: proc(
 
 		if payload_len == 126 {
 			ext_len: [2]u8
-			n, recv_err = net.recv_tcp(conn.socket, ext_len[:])
+			n, recv_err = tcp_recv_exact(conn.socket, ext_len[:])
 			if recv_err != nil || n != 2 {
 				return 0, nil, .Failed_Payload_Read_16
 			}
@@ -152,7 +194,7 @@ ws_read_message :: proc(
 			payload_len = u64(len16)
 		} else if payload_len == 127 {
 			ext_len: [8]u8
-			n, recv_err = net.recv_tcp(conn.socket, ext_len[:])
+			n, recv_err = tcp_recv_exact(conn.socket, ext_len[:])
 			if recv_err != nil || n != 8 {
 				return 0, nil, .Failed_Payload_Read_64
 			}
@@ -223,7 +265,7 @@ ws_read_frame_payload :: proc(
 ) -> ([]u8, WS_Error) {
 	mask: [4]u8
 	if is_masked {
-		n, err := net.recv_tcp(socket, mask[:])
+		n, err := tcp_recv_exact(socket, mask[:])
 		if err != nil || n != 4 {
 			return nil, .Failed_Mask_Read
 		}
@@ -278,14 +320,14 @@ ws_write_frame :: proc(socket: net.TCP_Socket, opcode: u8, payload: []u8) -> WS_
 		endian.put_u64(header[2:10], .Big, u64(payload_len))
 		copy(header[10:], mask[:])
 	}
-	if _, err := net.send_tcp(socket, header); err != nil {
+	if n, err := tcp_send_all(socket, header); err != nil || n != len(header) {
 		return .Send_Error
 	}
 	masked_payload := make([]u8, payload_len, context.temp_allocator)
 	for i := 0; i < payload_len; i += 1 {
 		masked_payload[i] = payload[i] ~ mask[i % 4]
 	}
-	if _, err := net.send_tcp(socket, masked_payload); err != nil {
+	if n, err := tcp_send_all(socket, masked_payload); err != nil || n != len(masked_payload) {
 		return .Send_Error
 	}
 	return nil

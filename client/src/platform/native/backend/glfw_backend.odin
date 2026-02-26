@@ -139,9 +139,11 @@ glfw_scroll_callback :: proc "c" (window: glfw.WindowHandle, xoff, yoff: f64) {
 @(private = "file")
 glfw_collect_input :: proc() -> ports.Input_State {
 	mx, my := glfw.GetCursorPos(g_window)
+	fbw, fbh := glfw.GetFramebufferSize(g_window)
 	input: ports.Input_State
 
 	input.mouse.pos = {f32(mx), f32(my)}
+	input.viewport_size = {f32(fbw), f32(fbh)}
 	input.mouse.buttons[.Left]   = glfw.GetMouseButton(g_window, glfw.MOUSE_BUTTON_LEFT) == glfw.PRESS
 	input.mouse.buttons[.Right]  = glfw.GetMouseButton(g_window, glfw.MOUSE_BUTTON_RIGHT) == glfw.PRESS
 	input.mouse.buttons[.Middle] = glfw.GetMouseButton(g_window, glfw.MOUSE_BUTTON_MIDDLE) == glfw.PRESS

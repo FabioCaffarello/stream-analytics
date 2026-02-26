@@ -608,6 +608,9 @@ func validateProcessor(p ProcessorConfig) *problem.Problem {
 	if p.RTPublish.VolumeIntervalMs < 0 {
 		return problem.Newf(codeInvalid, "processor.rt_publish.volume_interval_ms must be >= 0, got %d", p.RTPublish.VolumeIntervalMs)
 	}
+	if p.CatchUpSkipBookDeltaSkewMs < 0 {
+		return problem.Newf(codeInvalid, "processor.catchup_skip_bookdelta_skew_ms must be >= 0, got %d", p.CatchUpSkipBookDeltaSkewMs)
+	}
 
 	insights := p.Insights
 	if strings.TrimSpace(insights.JoinTradesSubject) == "" {

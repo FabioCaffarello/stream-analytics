@@ -71,10 +71,15 @@
       "max_windows": 100000
     },
     "rt_publish": {
-      "orderbook_interval_ms": 200,
-      "heatmap_interval_ms": 200,
-      "volume_interval_ms": 250
+      // Local compose tuning: slightly slower snapshot cadence reduces hot-path
+      // snapshot/persist churn and helps processor replicas keep up in dev.
+      "orderbook_interval_ms": 750,
+      "heatmap_interval_ms": 750,
+      "volume_interval_ms": 1000
     },
+    // Local compose catch-up tuning: while far behind wall clock, skip stale
+    // bookdelta processing so trades/markprice/liquidations catch up sooner.
+    "catchup_skip_bookdelta_skew_ms": 10000,
     "insights": {
       "enable_crossvenue_join": true,
       "enable_volume_profile_snapshot_proto": true,

@@ -98,6 +98,31 @@ MR_VPVR :: struct {
 	window_end_ts:   i64              `json:"window_end_ts"`,
 }
 
+// Candle payload — matches Go AggregationCandleV1 (PascalCase, no json tags).
+MR_Candle_Payload :: struct {
+	Venue:         string `json:"Venue"`,
+	Instrument:    string `json:"Instrument"`,
+	Timeframe:     string `json:"Timeframe"`,
+	WindowStartTs: i64    `json:"WindowStartTs"`,
+	WindowEndTs:   i64    `json:"WindowEndTs"`,
+	Open:          f64    `json:"Open"`,
+	High:          f64    `json:"High"`,
+	Low:           f64    `json:"Low"`,
+	ClosePrice:    f64    `json:"ClosePrice"`,
+	Volume:        f64    `json:"Volume"`,
+	BuyVolume:     f64    `json:"BuyVolume"`,
+	SellVolume:    f64    `json:"SellVolume"`,
+	TradeCount:    i64    `json:"TradeCount"`,
+	SeqFirst:      i64    `json:"SeqFirst"`,
+	SeqLast:       i64    `json:"SeqLast"`,
+	IsClosed:      bool   `json:"IsClosed"`,
+}
+
+// Backend wraps candle in {"Candle": {...}}.
+MR_Candle_Wrapped :: struct {
+	candle: MR_Candle_Payload `json:"Candle"`,
+}
+
 // --- Second-pass typed frame structs (only the payload field matters) ---
 
 MR_Trade_Frame :: struct {
@@ -122,6 +147,15 @@ MR_Heatmap_Frame :: struct {
 
 MR_VPVR_Frame :: struct {
 	payload: MR_VPVR `json:"payload"`,
+}
+
+MR_Candle_Frame :: struct {
+	payload: MR_Candle_Wrapped `json:"payload"`,
+}
+
+// Flat candle frame for payloads not wrapped in {"Candle": {...}}.
+MR_Candle_Frame_Flat :: struct {
+	payload: MR_Candle_Payload `json:"payload"`,
 }
 
 // --- Parse helpers ---

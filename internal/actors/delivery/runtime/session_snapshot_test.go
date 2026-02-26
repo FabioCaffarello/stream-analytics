@@ -49,6 +49,9 @@ func TestSession_SubscribeEmitsHotSnapshot(t *testing.T) {
 	if !ok || snap.Type != "snapshot" {
 		t.Fatalf("expected snapshot first, got %#v", first)
 	}
+	if got, want := snap.SnapshotSource, "hot_snapshot_fallback"; got != want {
+		t.Fatalf("snapshot_source=%q want=%q", got, want)
+	}
 	second := <-conn.writeCh
 	ack, ok := second.(wsAckFrame)
 	if !ok || ack.Type != "ack" {
@@ -147,6 +150,133 @@ func TestSession_GetRange_EmptyRange(t *testing.T) {
 	}
 	if len(items) != 0 {
 		t.Fatalf("expected empty items, got %d", len(items))
+	}
+}
+
+func TestSession_GetLast_FallsBackToHotSnapshot_WhenRangeEmpty(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-capture-last-fallback")
+	defer e.Poison(routerPID)
+
+	sub := mustParseSubjectForSession(t, "aggregation.candle/binance/BTCUSDT:SPOT/raw")
+	store := &stubRangeStore{bySubject: map[string][]ports.RangeItem{sub.String(): {}}}
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{
+		RouterPID:           routerPID,
+		Conn:                conn,
+		RangeStore:          store,
+		HotSnapshotProvider: stubSnapshotProvider{bySubject: map[string][]byte{sub.String(): []byte(`{"bootstrap":true}`)}},
+	}), "ws-session-last-fallback")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"getlast","subject":"aggregation.candle/binance/BTC-USDT:SPOT/raw","request_id":"r-last-fallback"}`)}
+	msg := <-conn.writeCh
+	resp, ok := msg.(wsLastFrame)
+	if !ok || resp.Type != "last" {
+		t.Fatalf("expected last response, got %#v", msg)
+	}
+	item, ok := resp.Item.(ports.RangeItem)
+	if !ok {
+		t.Fatalf("item type=%T want ports.RangeItem", resp.Item)
+	}
+	if got, want := resp.SnapshotSource, "hot_snapshot_fallback"; got != want {
+		t.Fatalf("snapshot_source=%q want=%q", got, want)
+	}
+	if got, want := string(item.Payload), `{"bootstrap":true}`; got != want {
+		t.Fatalf("payload=%s want=%s", got, want)
+	}
+}
+
+func TestSession_GetRange_FallsBackToHotSnapshot_WhenUnboundedFirstPageAndRangeEmpty(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-capture-range-fallback")
+	defer e.Poison(routerPID)
+
+	sub := mustParseSubjectForSession(t, "aggregation.candle/binance/BTCUSDT:SPOT/raw")
+	store := &stubRangeStore{bySubject: map[string][]ports.RangeItem{sub.String(): {}}}
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{
+		RouterPID:           routerPID,
+		Conn:                conn,
+		RangeStore:          store,
+		HotSnapshotProvider: stubSnapshotProvider{bySubject: map[string][]byte{sub.String(): []byte(`{"bootstrap":true}`)}},
+	}), "ws-session-range-fallback")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"getrange","subject":"aggregation.candle/binance/BTC-USDT:SPOT/raw","request_id":"r-range-fallback","params":{"limit":2}}`)}
+	msg := <-conn.writeCh
+	resp, ok := msg.(wsRangeFrame)
+	if !ok || resp.Type != "range" {
+		t.Fatalf("expected range response, got %#v", msg)
+	}
+	items, ok := resp.Items.([]ports.RangeItem)
+	if !ok {
+		t.Fatalf("items type=%T", resp.Items)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item fallback, got %d", len(items))
+	}
+	if got, want := resp.SnapshotSource, "hot_snapshot_fallback"; got != want {
+		t.Fatalf("snapshot_source=%q want=%q", got, want)
+	}
+	if got, want := string(items[0].Payload), `{"bootstrap":true}`; got != want {
+		t.Fatalf("payload=%s want=%s", got, want)
+	}
+}
+
+func TestSession_GetRange_FallbackSnapshot_PopulatesSyntheticMetadataFromAggregatePayload(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-capture-range-fallback-meta")
+	defer e.Poison(routerPID)
+
+	sub := mustParseSubjectForSession(t, "aggregation.stats/binance/SOLUSDT:USDMFUTURES/raw")
+	store := &stubRangeStore{bySubject: map[string][]ports.RangeItem{sub.String(): {}}}
+	payload := []byte(`{"WindowEndTs":1234567890000,"SeqLast":98765,"IsClosed":true}`)
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{
+		RouterPID:           routerPID,
+		Conn:                conn,
+		RangeStore:          store,
+		HotSnapshotProvider: stubSnapshotProvider{bySubject: map[string][]byte{sub.String(): payload}},
+	}), "ws-session-range-fallback-meta")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"getrange","subject":"aggregation.stats/binance/SOLUSDT:USDMFUTURES/raw","request_id":"r-range-fallback-meta","params":{"limit":1}}`)}
+	msg := <-conn.writeCh
+	resp, ok := msg.(wsRangeFrame)
+	if !ok || resp.Type != "range" {
+		t.Fatalf("expected range response, got %#v", msg)
+	}
+	items, ok := resp.Items.([]ports.RangeItem)
+	if !ok || len(items) != 1 {
+		t.Fatalf("items=%#v", resp.Items)
+	}
+	if got, want := resp.SnapshotSource, "hot_snapshot_fallback"; got != want {
+		t.Fatalf("snapshot_source=%q want=%q", got, want)
+	}
+	if items[0].Seq != 98765 {
+		t.Fatalf("seq=%d want=98765", items[0].Seq)
+	}
+	if items[0].TsIngest != 1234567890000 {
+		t.Fatalf("ts_ingest=%d want=1234567890000", items[0].TsIngest)
 	}
 }
 

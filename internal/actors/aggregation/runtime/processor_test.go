@@ -1158,6 +1158,94 @@ func TestProcessor_TickerWiring_PublishesPeriodicOrderbookSnapshot(t *testing.T)
 	<-e.Poison(pid).Done()
 }
 
+func TestProcessor_TickerWiring_DefersPeriodicOrderbookSnapshotWhenIngestIsStale(t *testing.T) {
+	pub := &spyArtifactPublisher{}
+	outPublisher := &spyEnvelopePublisher{}
+	aggSvc := newAggService(pub)
+
+	ch := make(chan envelope.Envelope, 8)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh:      ch,
+		Service:         aggSvc,
+		PublishEnvelope: outPublisher,
+		RTPublish: aggruntime.ProcessorRTPublishConfig{
+			OrderbookInterval: 10 * time.Millisecond,
+		},
+		TickerProducer: func() actor.Receiver {
+			return &delayedTickActor{
+				delay: 40 * time.Millisecond,
+				kind:  aggruntime.SnapshotTickOrderBook,
+			}
+		},
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+
+	env := makeBookDeltaEnvelope(
+		"BINANCE", "BTC-USDT", 1,
+		[]mddomain.PriceLevel{{Price: 42000, Size: 1.5}},
+		[]mddomain.PriceLevel{{Price: 42001, Size: 2.0}},
+	)
+	env.TsIngest = time.Now().Add(-2 * time.Minute).UnixMilli()
+	ch <- env
+
+	// Wait past delayed tick. Snapshot should be deferred because hbLastTsIngest is stale.
+	time.Sleep(120 * time.Millisecond)
+	if got := outPublisher.count(); got != 0 {
+		t.Fatalf("expected no periodic snapshot while stale, got=%d", got)
+	}
+
+	<-e.Poison(pid).Done()
+}
+
+func TestProcessor_CatchUpSkipBookDeltaSkipsStaleBookDeltaWhenConfigured(t *testing.T) {
+	pub := &spyArtifactPublisher{}
+	aggSvc := newAggService(pub)
+
+	ch := make(chan envelope.Envelope, 8)
+	resultCh := make(chan aggruntime.EnvelopeProcessResult, 2)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh:               ch,
+		Service:                  aggSvc,
+		CatchUpSkipBookDeltaSkew: 5 * time.Second,
+		OnEnvelopeProcessed: func(res aggruntime.EnvelopeProcessResult) {
+			resultCh <- res
+		},
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+
+	stale := makeBookDeltaEnvelope(
+		"BINANCE", "BTC-USDT", 1,
+		[]mddomain.PriceLevel{{Price: 42000, Size: 1.5}},
+		[]mddomain.PriceLevel{{Price: 42001, Size: 2.0}},
+	)
+	stale.TsIngest = time.Now().Add(-2 * time.Minute).UnixMilli()
+	ch <- stale
+
+	select {
+	case <-resultCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for stale bookdelta to be processed")
+	}
+	if got := pub.count(); got != 0 {
+		t.Fatalf("expected stale bookdelta to be skipped, snapshot_count=%d", got)
+	}
+
+	fresh := makeBookDeltaEnvelope(
+		"BINANCE", "BTC-USDT", 2,
+		[]mddomain.PriceLevel{{Price: 42000, Size: 2.5}},
+		[]mddomain.PriceLevel{{Price: 42001, Size: 3.0}},
+	)
+	fresh.TsIngest = time.Now().UnixMilli()
+	ch <- fresh
+
+	waitFor(t, 2*time.Second, func() bool { return pub.count() == 1 })
+	<-e.Poison(pid).Done()
+}
+
 func TestProcessor_NoPublishAfterShutdownBegins(t *testing.T) {
 	pub := &spyArtifactPublisher{}
 	outPublisher := &spyEnvelopePublisher{}

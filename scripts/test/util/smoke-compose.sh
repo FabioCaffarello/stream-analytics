@@ -6,7 +6,8 @@ cd "$ROOT_DIR"
 
 TIMEOUT_SECONDS="${SMOKE_TIMEOUT_SECONDS:-60}"
 COMPOSE_FILE="deploy/compose/docker-compose.yml"
-COMPOSE=(docker compose -f "$COMPOSE_FILE" --profile core)
+ENV_FILE="deploy/envs/local.env"
+COMPOSE=(docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" --profile core)
 
 services=(consumer processor server store)
 ports=(8081 8082 8080 8083)

@@ -24,6 +24,10 @@ Settings_Store :: struct {
 SETTING_SYMBOL       :: "symbol"
 SETTING_THEME        :: "theme"
 SETTING_OB_PRICE_GRP :: "ob_price_group"
+SETTING_ACTIVE_STREAM_SUBJECT_ID :: "active_stream_subject_id"
+SETTING_ACTIVE_STREAM_VENUE      :: "active_stream_venue"
+SETTING_ACTIVE_STREAM_SYMBOL     :: "active_stream_symbol"
+SETTING_ACTIVE_STREAM_CHANNEL    :: "active_stream_channel"
 
 // Initialize store, loading known keys from port.
 settings_init :: proc(store: ^Settings_Store, port: ports.Settings_Port) {
@@ -31,7 +35,11 @@ settings_init :: proc(store: ^Settings_Store, port: ports.Settings_Port) {
 	if port.load == nil do return
 
 	// Pre-load known keys.
-	known_keys := [?]string{SETTING_SYMBOL, SETTING_THEME, SETTING_OB_PRICE_GRP}
+	known_keys := [?]string{
+		SETTING_SYMBOL, SETTING_THEME, SETTING_OB_PRICE_GRP,
+		SETTING_ACTIVE_STREAM_SUBJECT_ID,
+		SETTING_ACTIVE_STREAM_VENUE, SETTING_ACTIVE_STREAM_SYMBOL, SETTING_ACTIVE_STREAM_CHANNEL,
+	}
 	for key in known_keys {
 		value, ok := port.load(key)
 		if ok {

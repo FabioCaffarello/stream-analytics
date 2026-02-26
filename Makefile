@@ -13,6 +13,7 @@ PROMTOOL_VERSION ?= 3.9.1
 BENCHSTAT_VERSION ?= v0.0.0-20260211190930-8161c38c6cdc
 PROCESSOR_REPLICAS ?= 1
 PROCESSOR_SHARD_COUNT ?= $(PROCESSOR_REPLICAS)
+PROCESSOR_DURABLE_BASE ?= processor-v4
 
 APP_NAME ?= server
 APP_CMD ?= ./cmd/server
@@ -57,7 +58,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules workspace-check tidy tidy-check go-tidy-check tidy-check-changed fmt fmt-check vet shell-script-check quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check legacy-check-staged legacy-check lint lint-changed smoke runtime-gate runtime-gate-full test test-root test-workspace test-workspace-race test-unit test-integration test-integration-changed test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store soak-roundtrip soak-pipeline soak-ws-delivery soak-c4-production soak-full test-short test-short-changed bench-hotpath bench-budget vuln build run clean docker-build client-docker-build client-docker-run client-docker-stop up down down-clean up-infra up-core migrate dev-scale-smoke ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci backup backup-timescaledb backup-clickhouse restore-timescaledb restore-clickhouse
+.PHONY: help install-tools tools modules workspace-check tidy tidy-check go-tidy-check tidy-check-changed fmt fmt-check vet shell-script-check quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check legacy-check-staged legacy-check lint lint-changed smoke runtime-gate runtime-gate-full test test-root test-workspace test-workspace-race test-unit test-integration test-integration-changed test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store soak-roundtrip soak-pipeline soak-ws-delivery soak-c4-production soak-full test-short test-short-changed bench-hotpath bench-budget vuln build run clean docker-build client-docker-build client-docker-run client-docker-stop up up-fresh down down-clean up-infra up-core migrate processor-reset-durables dev-scale-smoke ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci backup backup-timescaledb backup-clickhouse restore-timescaledb restore-clickhouse
 
 help:
 	@echo "Targets:"
@@ -122,10 +123,14 @@ help:
 	@echo "  make up                 - start full stack (nats + timescale + clickhouse + app services + observability)"
 	@echo "                           vars: PROCESSOR_REPLICAS=N, PROCESSOR_SHARD_COUNT (defaults to N; consumer fixed at 1 replica)"
 	@echo "                           dev/local: SHARD_INDEX is auto-derived from replica hostname when unset"
+	@echo "  make up-fresh           - local clean startup: down -> up-infra -> reset processor durables -> up"
+	@echo "                           vars: PROCESSOR_REPLICAS=N, PROCESSOR_SHARD_COUNT (defaults to N), PROCESSOR_DURABLE_BASE"
 	@echo "  make up-infra           - start only infrastructure services (nats + timescale + clickhouse + prometheus + grafana)"
 	@echo "  make up-core            - start infra + core app services (no observability)"
 	@echo "  make migrate            - run database migrations (starts infra if needed)"
 	@echo "  make smoke              - wait up to 60s for /readyz on core services via docker compose"
+	@echo "  make processor-reset-durables - delete local JetStream processor durables (processor-v4[-sN])"
+	@echo "                           vars: PROCESSOR_SHARD_COUNT, PROCESSOR_DURABLE_BASE, NATS_URL"
 	@echo "  make runtime-gate       - run up-core + smoke + soak-check with versioned evidence report"
 	@echo "  make runtime-gate-full  - run runtime-gate plus heavy C4 pipeline and ws-delivery soaks"
 	@echo "  make dev-scale-smoke    - start core with N processor replicas and print shard-resolution evidence"
@@ -572,6 +577,34 @@ up:
 	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile core --profile obs --profile client up --build -d \
 		--scale processor=$$p_rep
 
+up-fresh:
+	@set -euo pipefail; \
+	p_rep="$(PROCESSOR_REPLICAS)"; \
+	p_shards="$(PROCESSOR_SHARD_COUNT)"; \
+	if [ "$$p_rep" -lt 1 ]; then \
+		echo "PROCESSOR_REPLICAS must be >= 1 (got $$p_rep)"; exit 1; \
+	fi; \
+	if [ "$$p_shards" -lt 1 ]; then \
+		echo "PROCESSOR_SHARD_COUNT must be >= 1 (got $$p_shards)"; exit 1; \
+	fi; \
+	echo "[up-fresh] stopping previous stack (preserving volumes)"; \
+	$(MAKE) down >/dev/null || true; \
+	echo "[up-fresh] starting infra"; \
+	$(MAKE) up-infra >/dev/null; \
+	echo "[up-fresh] waiting for NATS health"; \
+	for i in $$(seq 1 60); do \
+		status="$$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}unknown{{end}}' market-raccoon-nats 2>/dev/null || true)"; \
+		if [ "$$status" = "healthy" ]; then break; fi; \
+		if [ "$$i" -eq 60 ]; then \
+			echo "[up-fresh] NATS did not become healthy in time"; exit 1; \
+		fi; \
+		sleep 1; \
+	done; \
+	echo "[up-fresh] resetting processor durables (base=$(PROCESSOR_DURABLE_BASE), shards=$$p_shards)"; \
+	$(MAKE) processor-reset-durables PROCESSOR_SHARD_COUNT="$$p_shards"; \
+	echo "[up-fresh] starting full stack with PROCESSOR_REPLICAS=$$p_rep PROCESSOR_SHARD_COUNT=$$p_shards"; \
+	$(MAKE) up PROCESSOR_REPLICAS="$$p_rep" PROCESSOR_SHARD_COUNT="$$p_shards"
+
 down:
 	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile core --profile obs --profile client down --remove-orphans
 
@@ -583,6 +616,12 @@ up-infra:
 
 migrate:
 	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env run --rm migrate
+
+processor-reset-durables:
+	@chmod +x ./scripts/ops/reset-processor-durables.sh
+	@./scripts/ops/reset-processor-durables.sh \
+		--base "$(PROCESSOR_DURABLE_BASE)" \
+		--shards "$(PROCESSOR_SHARD_COUNT)"
 
 up-core:
 	@set -euo pipefail; \

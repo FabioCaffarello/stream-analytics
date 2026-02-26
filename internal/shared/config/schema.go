@@ -491,6 +491,9 @@ type ProcessorConfig struct {
 	Stats ProcessorStatsConfig `json:"stats"`
 	// RTPublish controls timer-driven publishing intervals for real-time snapshots.
 	RTPublish ProcessorRTPublishConfig `json:"rt_publish"`
+	// CatchUpSkipBookDeltaSkewMs skips stale bookdelta envelopes while the
+	// processor is catching up. 0 disables this behavior (default).
+	CatchUpSkipBookDeltaSkewMs int `json:"catchup_skip_bookdelta_skew_ms"`
 }
 
 // PublisherTimeoutDuration parses and returns ProcessorConfig.PublisherTimeout.

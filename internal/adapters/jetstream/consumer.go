@@ -216,6 +216,9 @@ func (c *Consumer) Consume(ctx context.Context, handler ConsumeHandler) *problem
 
 		for _, msg := range msgs {
 			if p := c.consumeOne(ctx, msg, handler); p != nil {
+				if shouldContinueAfterConsumeError(p) {
+					continue
+				}
 				return p
 			}
 		}
@@ -226,6 +229,17 @@ func (c *Consumer) Consume(ctx context.Context, handler ConsumeHandler) *problem
 		default:
 		}
 	}
+}
+
+func shouldContinueAfterConsumeError(p *problem.Problem) bool {
+	if p == nil {
+		return false
+	}
+	if !p.Retryable || p.Code != problem.Unavailable {
+		return false
+	}
+	kind, _ := p.Details["kind"].(string)
+	return kind == "ack_failed"
 }
 
 func (c *Consumer) fetchBatchSize() int {

@@ -3,6 +3,7 @@ package deliveryruntime
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/anthdm/hollywood/actor"
 	"github.com/market-raccoon/internal/core/delivery/domain"
@@ -39,6 +40,8 @@ type RouterActor struct {
 	selfPID *actor.PID
 	stopped bool
 }
+
+const routerInstrumentMarketTypeMetaKey = "instrument_market_type"
 
 func NewRouterActor(cfg RouterConfig) actor.Producer {
 	return func() actor.Receiver {
@@ -241,26 +244,87 @@ func (r *RouterActor) handleEnvelope(env envelope.Envelope) {
 	if r.cfg.EnvelopeStore != nil {
 		r.cfg.EnvelopeStore.StoreEnvelope(env)
 	}
-	timeframe := r.cfg.Timeframe
-	if tf, ok := env.Meta["timeframe"]; ok && tf != "" {
-		timeframe = tf
-	}
-	if timeframe == "" {
-		timeframe = domain.DefaultTimeframe
-	}
+	timeframe := routingTimeframeForEnvelope(r.cfg.Timeframe, env)
 	subject, p := domain.SubjectFromEnvelope(env, timeframe)
 	if p != nil {
 		metrics.IncDeliveryRouterEventsRejected("invalid_subject")
 		r.logger.Warn("delivery router: invalid envelope subject", "err", p)
 		return
 	}
+	aliasSubject, hasAlias := routingMarketTypeAliasSubject(subject, env)
 	targets := r.subjectPIDs[subject]
-	if len(targets) == 0 {
+	aliasTargets := []*actor.PID(nil)
+	if hasAlias {
+		aliasTargets = r.subjectPIDs[aliasSubject]
+	}
+	if len(targets) == 0 && len(aliasTargets) == 0 {
 		return
 	}
 	metrics.IncDeliveryRouterEventsRouted()
-	evt := DeliveryEvent{Subject: subject, Env: env}
-	for _, pid := range targets {
-		r.engine.Send(pid, evt)
+	sent := map[string]struct{}(nil)
+	if len(targets) > 0 && len(aliasTargets) > 0 {
+		sent = make(map[string]struct{}, len(targets))
 	}
+	for _, pid := range targets {
+		if sent != nil && pid != nil {
+			sent[pid.String()] = struct{}{}
+		}
+		r.engine.Send(pid, DeliveryEvent{Subject: subject, Env: env})
+	}
+	for _, pid := range aliasTargets {
+		if pid == nil {
+			continue
+		}
+		if sent != nil {
+			if _, exists := sent[pid.String()]; exists {
+				continue
+			}
+		}
+		r.engine.Send(pid, DeliveryEvent{Subject: aliasSubject, Env: env})
+	}
+}
+
+func routingTimeframeForEnvelope(defaultTimeframe string, env envelope.Envelope) string {
+	timeframe := strings.TrimSpace(defaultTimeframe)
+	if timeframe == "" {
+		timeframe = domain.DefaultTimeframe
+	}
+	if !allowEnvelopeTimeframeOverride(env.Type) {
+		return timeframe
+	}
+	if len(env.Meta) == 0 {
+		return timeframe
+	}
+	if tf := strings.TrimSpace(env.Meta["timeframe"]); tf != "" {
+		return strings.ToLower(tf)
+	}
+	return timeframe
+}
+
+func allowEnvelopeTimeframeOverride(eventType string) bool {
+	// WS contract for marketdata and aggregation candle/stats routes on `/raw`.
+	// Insights streams are timeframe-routed and should honor envelope metadata.
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(eventType)), "insights.")
+}
+
+func routingMarketTypeAliasSubject(primary domain.Subject, env envelope.Envelope) (domain.Subject, bool) {
+	if len(env.Meta) == 0 {
+		return domain.Subject{}, false
+	}
+	marketType := strings.ToUpper(strings.TrimSpace(env.Meta[routerInstrumentMarketTypeMetaKey]))
+	if marketType == "" {
+		return domain.Subject{}, false
+	}
+	symbol := strings.TrimSpace(env.Instrument)
+	if symbol == "" {
+		return domain.Subject{}, false
+	}
+	if !strings.Contains(symbol, ":") {
+		symbol = symbol + ":" + marketType
+	}
+	alias, p := domain.NewSubject(primary.StreamType, primary.Venue, symbol, primary.Timeframe)
+	if p != nil || alias == primary {
+		return domain.Subject{}, false
+	}
+	return alias, true
 }

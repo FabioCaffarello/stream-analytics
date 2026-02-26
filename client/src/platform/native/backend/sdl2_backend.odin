@@ -166,9 +166,11 @@ sdl2_time_now :: proc() -> f64 {
 sdl2_collect_input :: proc() -> ports.Input_State {
 	mx, my: c.int
 	buttons := sdl.GetMouseState(&mx, &my)
+	fbw, fbh := sdl2_framebuffer_size()
 	input: ports.Input_State
 
 	input.mouse.pos = {f32(mx), f32(my)}
+	input.viewport_size = {f32(fbw), f32(fbh)}
 	input.mouse.buttons[.Left]   = (buttons & sdl.BUTTON_LMASK) != 0
 	input.mouse.buttons[.Right]  = (buttons & sdl.BUTTON_RMASK) != 0
 	input.mouse.buttons[.Middle] = (buttons & sdl.BUTTON_MMASK) != 0

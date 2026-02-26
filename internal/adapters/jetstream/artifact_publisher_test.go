@@ -168,6 +168,53 @@ func TestArtifactPublisher_PublishCandleClosed(t *testing.T) {
 	if env.ContentType != envelope.ContentTypeJSON {
 		t.Fatalf("content_type=%q want %q", env.ContentType, envelope.ContentTypeJSON)
 	}
+	if env.Meta == nil || env.Meta["timeframe"] != "1m" {
+		t.Fatalf("meta[timeframe]=%q want %q", env.Meta["timeframe"], "1m")
+	}
+}
+
+func TestArtifactPublisher_PublishCandleClosed_PropagatesMarketTypeMeta(t *testing.T) {
+	bootstrapTestCodecRegistry(t)
+	mock := &mockPublisher{}
+	ap := newTestArtifactPublisher(mock)
+
+	evt := aggdomain.CandleClosed{
+		Candle: aggdomain.CandleV1{
+			Venue:         "binance",
+			Instrument:    "SOLUSDT:SPOT",
+			Timeframe:     "1m",
+			WindowStartTs: 1_710_000_000_000,
+			WindowEndTs:   1_710_000_060_000,
+			Open:          100,
+			High:          101,
+			Low:           99,
+			ClosePrice:    100.5,
+			Volume:        1,
+			BuyVolume:     0.5,
+			SellVolume:    0.5,
+			TradeCount:    1,
+			SeqFirst:      10,
+			SeqLast:       20,
+			IsClosed:      true,
+		},
+	}
+
+	if p := ap.PublishCandleClosed(context.Background(), evt); p != nil {
+		t.Fatalf("PublishCandleClosed: %v", p)
+	}
+	if len(mock.published) != 1 {
+		t.Fatalf("expected 1 published, got %d", len(mock.published))
+	}
+	env := mock.published[0]
+	if got, want := env.Instrument, "SOLUSDT"; got != want {
+		t.Fatalf("instrument=%q want %q", got, want)
+	}
+	if env.Meta == nil || env.Meta["instrument_market_type"] != "SPOT" {
+		t.Fatalf("meta[instrument_market_type]=%q want SPOT", env.Meta["instrument_market_type"])
+	}
+	if env.Meta["timeframe"] != "1m" {
+		t.Fatalf("meta[timeframe]=%q want 1m", env.Meta["timeframe"])
+	}
 }
 
 func TestArtifactPublisher_PublishStatsClosed(t *testing.T) {
@@ -209,6 +256,39 @@ func TestArtifactPublisher_PublishStatsClosed(t *testing.T) {
 	}
 	if env.Seq != 50 {
 		t.Fatalf("seq=%d want 50", env.Seq)
+	}
+}
+
+func TestArtifactPublisher_PublishStatsClosed_PropagatesMarketTypeMeta(t *testing.T) {
+	bootstrapTestCodecRegistry(t)
+	mock := &mockPublisher{}
+	ap := newTestArtifactPublisher(mock)
+
+	evt := aggdomain.StatsWindowClosed{
+		Stats: aggdomain.StatsWindowV1{
+			Venue:         "binance",
+			Instrument:    "SOLUSDT:USDMFUTURES",
+			Timeframe:     "1m",
+			WindowStartTs: 1000,
+			WindowEndTs:   2000,
+			SeqFirst:      1,
+			SeqLast:       2,
+			IsClosed:      true,
+		},
+	}
+
+	if p := ap.PublishStatsClosed(context.Background(), evt); p != nil {
+		t.Fatalf("PublishStatsClosed: %v", p)
+	}
+	if len(mock.published) != 1 {
+		t.Fatalf("expected 1 published, got %d", len(mock.published))
+	}
+	env := mock.published[0]
+	if got, want := env.Instrument, "SOLUSDT"; got != want {
+		t.Fatalf("instrument=%q want %q", got, want)
+	}
+	if env.Meta == nil || env.Meta["instrument_market_type"] != "USDMFUTURES" {
+		t.Fatalf("meta[instrument_market_type]=%q want USDMFUTURES", env.Meta["instrument_market_type"])
 	}
 }
 

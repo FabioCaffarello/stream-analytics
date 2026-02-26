@@ -17,7 +17,7 @@ TRADE_RING_CAP :: 1024
 OB_STAGING_DEPTH :: 50
 HEATMAP_STAGING_CAP :: 512
 VPVR_STAGING_CAP :: 256
-MAX_SUBS :: 64
+MAX_SUBS :: 128
 
 // --- Reconnection constants ---
 
@@ -50,6 +50,7 @@ OB_Staging :: struct {
 	bid_count:  int,
 	last_price: f64,
 	unix:       i64,
+	subject_id: u64,
 }
 
 Stats_Staging :: struct {
@@ -58,6 +59,7 @@ Stats_Staging :: struct {
 	tbuy:       i64,
 	tsell:      i64,
 	unix:       i64,
+	subject_id: u64,
 }
 
 Heatmap_Staging :: struct {
@@ -69,6 +71,7 @@ Heatmap_Staging :: struct {
 	max_price:   f64,
 	max_size:    f64,
 	unix:        i64,
+	subject_id:  u64,
 }
 
 VPVR_Staging :: struct {
@@ -80,9 +83,26 @@ VPVR_Staging :: struct {
 	min_price:   f64,
 	max_price:   f64,
 	unix:        i64,
+	subject_id:  u64,
+}
+
+Candle_Staging :: struct {
+	open:            f64,
+	high:            f64,
+	low:             f64,
+	close:           f64,
+	volume:          f64,
+	buy_vol:         f64,
+	sell_vol:        f64,
+	trade_count:     i64,
+	window_start_ts: i64,
+	window_end_ts:   i64,
+	is_closed:       bool,
+	subject_id:      u64,
 }
 
 Sub_Entry :: struct {
+	subject_id: u64,
 	venue:   string,
 	symbol:  string,
 	channel: ports.MD_Channel,
@@ -91,9 +111,10 @@ Sub_Entry :: struct {
 
 MD_Native_State :: struct {
 	// Trade ring buffer (SPSC: writer=background, reader=main).
-	trade_ring:  [TRADE_RING_CAP]ports.MD_Trade_Event,
-	trade_write: int,
-	trade_count: int,
+	trade_ring:            [TRADE_RING_CAP]ports.MD_Trade_Event,
+	trade_ring_subject_id: [TRADE_RING_CAP]u64,
+	trade_write:           int,
+	trade_count:           int,
 
 	// Orderbook snapshot (latest-wins, single-slot).
 	ob_staging: OB_Staging,
@@ -111,12 +132,17 @@ MD_Native_State :: struct {
 	vpvr_staging: VPVR_Staging,
 	vpvr_dirty:   bool,
 
+	// Candle staging (latest-wins single candle).
+	candle_staging: Candle_Staging,
+	candle_dirty:   bool,
+
 	// Connection.
 	conn:        WS_Connection,
 	conn_state:  Conn_State,
 	ws_url:      string,
 	api_key:     string,
 	should_stop: bool,
+	reader_thread: ^thread.Thread,
 	mu:          sync.Mutex,
 	drop_count:  int,
 
@@ -149,6 +175,9 @@ g_md_state: ^MD_Native_State
 // --- Public API ---
 
 make_marketdata_native :: proc(url: string, api_key: string = "") -> ports.Marketdata_Port {
+	if g_md_state != nil {
+		native_shutdown()
+	}
 	state := new(MD_Native_State)
 	state.ws_url = url
 	state.api_key = api_key
@@ -178,6 +207,7 @@ make_marketdata_native :: proc(url: string, api_key: string = "") -> ports.Marke
 	t := thread.create(reader_thread_proc)
 	if t != nil {
 		t.data = rawptr(state)
+		state.reader_thread = t
 		thread.start(t)
 	}
 
@@ -187,10 +217,51 @@ make_marketdata_native :: proc(url: string, api_key: string = "") -> ports.Marke
 		poll        = native_poll,
 		now_ms      = native_now_ms,
 		conn_status = native_conn_status,
+		metrics     = native_metrics,
+		describe_stream = native_describe_stream,
+		shutdown    = native_shutdown,
 	}
 }
 
 // --- Port implementation ---
+
+@(private = "file")
+find_sub_by_subject :: proc(state: ^MD_Native_State, subject: string) -> int {
+	for i in 0 ..< state.active_count {
+		if state.active_subs[i].subject == subject do return i
+	}
+	return -1
+}
+
+@(private = "file")
+find_sub_by_subject_id :: proc(state: ^MD_Native_State, subject_id: u64) -> int {
+	for i in 0 ..< state.active_count {
+		if state.active_subs[i].subject_id == subject_id do return i
+	}
+	return -1
+}
+
+@(private = "file")
+native_shutdown :: proc() {
+	state := g_md_state
+	if state == nil do return
+
+	reader: ^thread.Thread
+	sync.lock(&state.mu)
+	state.should_stop = true
+	reader = state.reader_thread
+	state.reader_thread = nil
+	state.active_count = 0
+	state.conn_state = .Disconnected
+	ws_close(&state.conn)
+	sync.unlock(&state.mu)
+
+	if reader != nil {
+		thread.join(reader)
+		thread.destroy(reader)
+	}
+	g_md_state = nil
+}
 
 @(private = "file")
 native_subscribe :: proc(venue: string, symbol: string, channel: ports.MD_Channel) -> bool {
@@ -198,13 +269,15 @@ native_subscribe :: proc(venue: string, symbol: string, channel: ports.MD_Channe
 	if state == nil do return false
 
 	subject := util.build_subject(venue, symbol, channel)
+	subject_id := util.subject_id64(subject)
 
 	sync.lock(&state.mu)
 	defer sync.unlock(&state.mu)
 
-	// Track subscription for reconnect re-subscribe.
-	if state.active_count < MAX_SUBS {
+	// Track subscription for reconnect re-subscribe (dedup by subject).
+	if find_sub_by_subject(state, subject) == -1 && state.active_count < MAX_SUBS {
 		state.active_subs[state.active_count] = Sub_Entry{
+			subject_id = subject_id,
 			venue   = venue,
 			symbol  = symbol,
 			channel = channel,
@@ -219,6 +292,52 @@ native_subscribe :: proc(venue: string, symbol: string, channel: ports.MD_Channe
 }
 
 @(private = "file")
+native_describe_stream :: proc(subject_id: u64, out: ^ports.MD_Stream_Info) -> bool {
+	state := g_md_state
+	if state == nil || out == nil do return false
+	if subject_id == 0 do return false
+
+	sync.lock(&state.mu)
+	defer sync.unlock(&state.mu)
+
+	idx := find_sub_by_subject_id(state, subject_id)
+	if idx < 0 do return false
+	sub := state.active_subs[idx]
+	out^ = ports.MD_Stream_Info{
+		subject_id = sub.subject_id,
+		channel    = sub.channel,
+		venue      = sub.venue,
+		symbol     = sub.symbol,
+		timeframe  = util.subject_timeframe(sub.subject),
+		subject    = sub.subject,
+	}
+	return true
+}
+
+@(private = "file")
+native_metrics :: proc(out: ^ports.MD_Runtime_Metrics) -> bool {
+	state := g_md_state
+	if state == nil || out == nil do return false
+
+	sync.lock(&state.mu)
+	latest_pending := 0
+	if state.ob_dirty do latest_pending += 1
+	if state.stats_dirty do latest_pending += 1
+	if state.heatmap_dirty do latest_pending += 1
+	if state.vpvr_dirty do latest_pending += 1
+	if state.candle_dirty do latest_pending += 1
+	out^ = ports.MD_Runtime_Metrics{
+		active_subs     = state.active_count,
+		trade_backlog   = state.trade_count,
+		drop_count      = state.drop_count,
+		reconnect_count = state.reconnect_count,
+		latest_pending  = latest_pending,
+	}
+	sync.unlock(&state.mu)
+	return true
+}
+
+@(private = "file")
 native_unsubscribe :: proc(venue: string, symbol: string, channel: ports.MD_Channel) {
 	state := g_md_state
 	if state == nil do return
@@ -229,12 +348,9 @@ native_unsubscribe :: proc(venue: string, symbol: string, channel: ports.MD_Chan
 	defer sync.unlock(&state.mu)
 
 	// Remove from active subs.
-	for i in 0 ..< state.active_count {
-		if state.active_subs[i].subject == subject {
-			state.active_subs[i] = state.active_subs[state.active_count - 1]
-			state.active_count -= 1
-			break
-		}
+	if idx := find_sub_by_subject(state, subject); idx >= 0 {
+		state.active_subs[idx] = state.active_subs[state.active_count - 1]
+		state.active_count -= 1
 	}
 
 	if state.conn_state != .Connected do return
@@ -287,6 +403,8 @@ native_poll :: proc(events_buf: []ports.MD_Event) -> int {
 	// Drain trade events.
 	for n < len(events_buf) && state.trade_count > 0 {
 		oldest := (state.trade_write - state.trade_count + TRADE_RING_CAP) % TRADE_RING_CAP
+		events_buf[n].source.subject_id = state.trade_ring_subject_id[oldest]
+		events_buf[n].source.channel = .Trades
 		events_buf[n].kind = .Trade
 		events_buf[n].unix = state.trade_ring[oldest].unix
 		events_buf[n].data.trade = state.trade_ring[oldest]
@@ -307,6 +425,8 @@ native_poll :: proc(events_buf: []ports.MD_Event) -> int {
 			state.poll_bid_sizes[i]  = ob.bid_sizes[i]
 		}
 
+		events_buf[n].source.subject_id = ob.subject_id
+		events_buf[n].source.channel = .Orderbook
 		events_buf[n].kind = .Orderbook_Snapshot
 		events_buf[n].unix = ob.unix
 		events_buf[n].data.ob = ports.MD_Orderbook_Event{
@@ -326,6 +446,8 @@ native_poll :: proc(events_buf: []ports.MD_Event) -> int {
 	// Emit latest stats if dirty.
 	if state.stats_dirty && n < len(events_buf) {
 		st := state.stats_staging
+		events_buf[n].source.subject_id = st.subject_id
+		events_buf[n].source.channel = .Stats
 		events_buf[n].kind = .Stats
 		events_buf[n].unix = st.unix
 		events_buf[n].data.stats = ports.MD_Stats_Event{
@@ -349,6 +471,8 @@ native_poll :: proc(events_buf: []ports.MD_Event) -> int {
 			state.poll_hm_sizes[i]  = hm.sizes[i]
 		}
 
+		events_buf[n].source.subject_id = hm.subject_id
+		events_buf[n].source.channel = .Heatmaps
 		events_buf[n].kind = .Heatmap
 		events_buf[n].unix = hm.unix
 		events_buf[n].data.heatmap = ports.MD_Heatmap_Event{
@@ -376,6 +500,8 @@ native_poll :: proc(events_buf: []ports.MD_Event) -> int {
 			state.poll_vpvr_sells[i]  = vp.sells[i]
 		}
 
+		events_buf[n].source.subject_id = vp.subject_id
+		events_buf[n].source.channel = .VPVR
 		events_buf[n].kind = .VPVR
 		events_buf[n].unix = vp.unix
 		events_buf[n].data.vpvr = ports.MD_VPVR_Event{
@@ -389,6 +515,30 @@ native_poll :: proc(events_buf: []ports.MD_Event) -> int {
 			unix        = vp.unix,
 		}
 		state.vpvr_dirty = false
+		n += 1
+	}
+
+	// Emit latest candle if dirty.
+	if state.candle_dirty && n < len(events_buf) {
+		cs := state.candle_staging
+		events_buf[n].source.subject_id = cs.subject_id
+		events_buf[n].source.channel = .Candles
+		events_buf[n].kind = .Candle
+		events_buf[n].unix = normalize_unix_seconds(cs.window_end_ts)
+		events_buf[n].data.candle = ports.MD_Candle_Event{
+			open            = cs.open,
+			high            = cs.high,
+			low             = cs.low,
+			close           = cs.close,
+			volume          = cs.volume,
+			buy_vol         = cs.buy_vol,
+			sell_vol        = cs.sell_vol,
+			trade_count     = cs.trade_count,
+			window_start_ts = cs.window_start_ts,
+			window_end_ts   = cs.window_end_ts,
+			is_closed       = cs.is_closed,
+		}
+		state.candle_dirty = false
 		n += 1
 	}
 
@@ -540,23 +690,26 @@ parse_mr_message :: proc(state: ^MD_Native_State, raw: []u8) {
 
 	// Pass 2: re-parse same bytes into typed frame struct.
 	stream := util.subject_stream_type(env.subject)
+	subject_id := util.subject_id64(env.subject)
 
 	switch stream {
 	case "marketdata.trade":
-		handle_trade(state, raw, env.ts_ingest)
+		handle_trade(state, raw, env.ts_ingest, subject_id)
 	case "marketdata.bookdelta":
-		handle_book_delta(state, raw, env.ts_ingest)
+		handle_book_delta(state, raw, env.ts_ingest, subject_id)
 	case "aggregation.stats":
-		handle_stats(state, raw, env.ts_ingest)
+		handle_stats(state, raw, env.ts_ingest, subject_id)
 	case "insights.heatmap_snapshot":
-		handle_heatmap(state, raw, env.ts_ingest)
+		handle_heatmap(state, raw, env.ts_ingest, subject_id)
 	case "insights.volume_profile_snapshot":
-		handle_vpvr(state, raw, env.ts_ingest)
+		handle_vpvr(state, raw, env.ts_ingest, subject_id)
+	case "aggregation.candle":
+		handle_candle(state, raw, env.ts_ingest, subject_id)
 	}
 }
 
 @(private = "file")
-handle_trade :: proc(state: ^MD_Native_State, raw: []u8, ts: i64) {
+handle_trade :: proc(state: ^MD_Native_State, raw: []u8, ts: i64, subject_id: u64) {
 	frame: util.MR_Trade_Frame
 	if json.unmarshal(raw, &frame) != nil do return
 	trade := frame.payload
@@ -565,6 +718,7 @@ handle_trade :: proc(state: ^MD_Native_State, raw: []u8, ts: i64) {
 
 	sync.lock(&state.mu)
 	if state.trade_count < TRADE_RING_CAP {
+		state.trade_ring_subject_id[state.trade_write] = subject_id
 		state.trade_ring[state.trade_write] = ports.MD_Trade_Event{
 			price  = trade.price,
 			qty    = trade.size,
@@ -584,7 +738,7 @@ handle_trade :: proc(state: ^MD_Native_State, raw: []u8, ts: i64) {
 }
 
 @(private = "file")
-handle_book_delta :: proc(state: ^MD_Native_State, raw: []u8, ts: i64) {
+handle_book_delta :: proc(state: ^MD_Native_State, raw: []u8, ts: i64, subject_id: u64) {
 	frame: util.MR_Book_Delta_Frame
 	if json.unmarshal(raw, &frame) != nil do return
 	bd := frame.payload
@@ -597,6 +751,7 @@ handle_book_delta :: proc(state: ^MD_Native_State, raw: []u8, ts: i64) {
 	state.ob_staging.ask_count = ac
 	state.ob_staging.bid_count = bc
 	state.ob_staging.unix = unix
+	state.ob_staging.subject_id = subject_id
 
 	if ac > 0 && bc > 0 {
 		state.ob_staging.last_price = (bd.asks[0].price + bd.bids[0].price) / 2.0
@@ -615,7 +770,7 @@ handle_book_delta :: proc(state: ^MD_Native_State, raw: []u8, ts: i64) {
 }
 
 @(private = "file")
-handle_stats :: proc(state: ^MD_Native_State, raw: []u8, ts: i64) {
+handle_stats :: proc(state: ^MD_Native_State, raw: []u8, ts: i64, subject_id: u64) {
 	frame: util.MR_Stats_Frame
 	if json.unmarshal(raw, &frame) != nil do return
 	s := frame.payload
@@ -635,13 +790,14 @@ handle_stats :: proc(state: ^MD_Native_State, raw: []u8, ts: i64) {
 		tbuy       = i64(s.liq_buy_volume),
 		tsell      = i64(s.liq_sell_volume),
 		unix       = unix,
+		subject_id = subject_id,
 	}
 	state.stats_dirty = true
 	sync.unlock(&state.mu)
 }
 
 @(private = "file")
-handle_heatmap :: proc(state: ^MD_Native_State, raw: []u8, ts: i64) {
+handle_heatmap :: proc(state: ^MD_Native_State, raw: []u8, ts: i64, subject_id: u64) {
 	frame: util.MR_Heatmap_Frame
 	if json.unmarshal(raw, &frame) != nil do return
 	hm := frame.payload
@@ -674,6 +830,7 @@ handle_heatmap :: proc(state: ^MD_Native_State, raw: []u8, ts: i64) {
 	state.heatmap_staging.max_price = max_p
 	state.heatmap_staging.max_size = max_s
 	state.heatmap_staging.unix = unix
+	state.heatmap_staging.subject_id = subject_id
 	for i in 0 ..< lc {
 		c := hm.cells[i]
 		state.heatmap_staging.prices[i] = (c.price_bucket_low + c.price_bucket_high) / 2.0
@@ -684,7 +841,7 @@ handle_heatmap :: proc(state: ^MD_Native_State, raw: []u8, ts: i64) {
 }
 
 @(private = "file")
-handle_vpvr :: proc(state: ^MD_Native_State, raw: []u8, ts: i64) {
+handle_vpvr :: proc(state: ^MD_Native_State, raw: []u8, ts: i64, subject_id: u64) {
 	frame: util.MR_VPVR_Frame
 	if json.unmarshal(raw, &frame) != nil do return
 	vp := frame.payload
@@ -712,6 +869,7 @@ handle_vpvr :: proc(state: ^MD_Native_State, raw: []u8, ts: i64) {
 	state.vpvr_staging.min_price = min_p if lc > 0 else 0
 	state.vpvr_staging.max_price = max_p
 	state.vpvr_staging.unix = unix
+	state.vpvr_staging.subject_id = subject_id
 	for i in 0 ..< lc {
 		b := vp.buckets[i]
 		state.vpvr_staging.prices[i] = (b.price_low + b.price_high) / 2.0
@@ -719,5 +877,45 @@ handle_vpvr :: proc(state: ^MD_Native_State, raw: []u8, ts: i64) {
 		state.vpvr_staging.sells[i]  = b.sell_volume
 	}
 	state.vpvr_dirty = true
+	sync.unlock(&state.mu)
+}
+
+@(private = "file")
+handle_candle :: proc(state: ^MD_Native_State, raw: []u8, ts: i64, subject_id: u64) {
+	// Try wrapped format first: {"payload": {"Candle": {...}}}
+	frame: util.MR_Candle_Frame
+	if json.unmarshal(raw, &frame) != nil do return
+	c := frame.payload.candle
+	// If wrapped parse yields zero fields, try flat format.
+	if c.WindowStartTs == 0 && c.WindowEndTs == 0 {
+		flat: util.MR_Candle_Frame_Flat
+		if json.unmarshal(raw, &flat) == nil {
+			c = flat.payload
+		}
+	}
+	if c.WindowStartTs == 0 do return
+	// WS delivery currently uses /raw for candles; keep the chart on 1m only.
+	if c.Timeframe != "" && c.Timeframe != "1m" do return
+
+	fmt.printf("[marketdata] Candle: %s %s TF=%s O=%.2f H=%.2f L=%.2f C=%.2f V=%.2f closed=%v\n",
+		c.Venue, c.Instrument, c.Timeframe,
+		c.Open, c.High, c.Low, c.ClosePrice, c.Volume, c.IsClosed)
+
+	sync.lock(&state.mu)
+	state.candle_staging = Candle_Staging{
+		open            = c.Open,
+		high            = c.High,
+		low             = c.Low,
+		close           = c.ClosePrice,
+		volume          = c.Volume,
+		buy_vol         = c.BuyVolume,
+		sell_vol        = c.SellVolume,
+		trade_count     = c.TradeCount,
+		window_start_ts = c.WindowStartTs,
+		window_end_ts   = c.WindowEndTs,
+		is_closed       = c.IsClosed,
+		subject_id      = subject_id,
+	}
+	state.candle_dirty = true
 	sync.unlock(&state.mu)
 }

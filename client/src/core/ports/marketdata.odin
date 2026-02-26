@@ -18,6 +18,7 @@ MD_Event_Kind :: enum u8 {
 	Stats,
 	Heatmap,
 	VPVR,
+	Candle,
 }
 
 MD_Channel :: enum u8 {
@@ -26,6 +27,7 @@ MD_Channel :: enum u8 {
 	Stats,
 	Heatmaps,
 	VPVR,
+	Candles,
 }
 
 MD_Trade_Event :: struct {
@@ -76,15 +78,53 @@ MD_VPVR_Event :: struct {
 	unix:        i64,
 }
 
+MD_Candle_Event :: struct {
+	open:            f64,
+	high:            f64,
+	low:             f64,
+	close:           f64,
+	volume:          f64,
+	buy_vol:         f64,
+	sell_vol:        f64,
+	trade_count:     i64,
+	window_start_ts: i64,
+	window_end_ts:   i64,
+	is_closed:       bool,
+}
+
 MD_Event_Data :: struct #raw_union {
 	trade:   MD_Trade_Event,
 	ob:      MD_Orderbook_Event,
 	stats:   MD_Stats_Event,
 	heatmap: MD_Heatmap_Event,
 	vpvr:    MD_VPVR_Event,
+	candle:  MD_Candle_Event,
+}
+
+MD_Event_Source :: struct {
+	subject_id: u64,
+	channel:    MD_Channel,
+}
+
+MD_Stream_Info :: struct {
+	subject_id: u64,
+	channel:    MD_Channel,
+	venue:      string,
+	symbol:     string,
+	timeframe:  string,
+	subject:    string,
+}
+
+MD_Runtime_Metrics :: struct {
+	active_subs:       int,
+	trade_backlog:     int,
+	drop_count:        int,
+	reconnect_count:   int,
+	latest_pending:    int,
 }
 
 MD_Event :: struct {
+	source: MD_Event_Source,
 	kind: MD_Event_Kind,
 	unix: i64,
 	data: MD_Event_Data,
@@ -96,4 +136,7 @@ Marketdata_Port :: struct {
 	poll:        proc(events_buf: []MD_Event) -> int,
 	now_ms:      proc() -> i64,
 	conn_status: proc() -> MD_Conn_Status,
+	metrics:     proc(out: ^MD_Runtime_Metrics) -> bool,
+	describe_stream: proc(subject_id: u64, out: ^MD_Stream_Info) -> bool,
+	shutdown:    proc(),
 }

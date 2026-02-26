@@ -212,6 +212,41 @@ func TestUpdateOrderBook_saveFailureDoesNotPublishSnapshot(t *testing.T) {
 	}
 }
 
+func TestUpdateOrderBook_snapshotPublishMinIntervalThrottlesPublishOnly(t *testing.T) {
+	pub := &fakePublisher{}
+	store := &fakeStore{}
+	clk := clock.NewFakeClock(time.UnixMilli(1_700_000_000_000))
+	uc := app.NewUpdateOrderBookFromEventsWithConfig(pub, store, app.UpdateConfig{
+		MaxBooks:                  8,
+		BookTTL:                   time.Hour,
+		MaxLevels:                 128,
+		Clock:                     clk,
+		SnapshotPublishMinInterval: 200 * time.Millisecond,
+	})
+
+	applyDelta(t, uc, 1,
+		[]domain.Level{{Price: 100, Quantity: 1}},
+		[]domain.Level{{Price: 101, Quantity: 1}},
+	)
+	clk.Advance(50 * time.Millisecond)
+	applyDelta(t, uc, 2,
+		[]domain.Level{{Price: 100, Quantity: 2}},
+		[]domain.Level{{Price: 101, Quantity: 2}},
+	)
+	clk.Advance(250 * time.Millisecond)
+	applyDelta(t, uc, 3,
+		[]domain.Level{{Price: 100, Quantity: 3}},
+		[]domain.Level{{Price: 101, Quantity: 3}},
+	)
+
+	if got, want := len(store.saved), 3; got != want {
+		t.Fatalf("persisted snapshots=%d want=%d", got, want)
+	}
+	if got, want := len(pub.snaps), 2; got != want {
+		t.Fatalf("published snapshots=%d want=%d", got, want)
+	}
+}
+
 func TestUpdateOrderBook_boundedBooksEvictsOldest(t *testing.T) {
 	pub := &fakePublisher{}
 	store := &fakeStore{}

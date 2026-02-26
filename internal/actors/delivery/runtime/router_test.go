@@ -104,6 +104,210 @@ func TestRouter_subscribeUnsubscribeAndBroadcast(t *testing.T) {
 	}
 }
 
+func TestRouter_preservesRawRoutingForAggregationCandleWithTimeframeMeta(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	routerPID := e.Spawn(NewRouterActor(RouterConfig{Timeframe: "raw"}), "router")
+	defer e.Poison(routerPID)
+
+	ch := make(chan any, 16)
+	s := e.Spawn(func() actor.Receiver { return &captureActor{ch: ch} }, "session-capture")
+	defer e.Poison(s)
+
+	id := ids.NewSessionID()
+	subject := mustParseSubject(t, "aggregation.candle/binance/BTC-USDT/raw")
+
+	e.Send(routerPID, RegisterSession{SessionID: id, PID: s})
+	e.Send(routerPID, SubscribeSession{SessionID: id, Subject: subject})
+
+	e.Send(routerPID, DeliverEnvelope{Envelope: envelope.Envelope{
+		Type:       "aggregation.candle",
+		Version:    1,
+		Venue:      "binance",
+		Instrument: "BTC-USDT",
+		Seq:        42,
+		TsIngest:   time.Now().UnixMilli(),
+		Payload:    []byte(`{}`),
+		Meta:       map[string]string{"timeframe": "1m"},
+	}})
+
+	msg := waitForMessage[DeliveryEvent](t, ch, time.Second)
+	if got, want := msg.Subject.String(), "aggregation.candle/binance/BTCUSDT/raw"; got != want {
+		t.Fatalf("subject=%q want=%q", got, want)
+	}
+}
+
+func TestRouter_routesMarketTypeAliasWhenEnvelopeMetaPresent(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	routerPID := e.Spawn(NewRouterActor(RouterConfig{Timeframe: "raw"}), "router")
+	defer e.Poison(routerPID)
+
+	ch := make(chan any, 16)
+	s := e.Spawn(func() actor.Receiver { return &captureActor{ch: ch} }, "session-capture")
+	defer e.Poison(s)
+
+	id := ids.NewSessionID()
+	subject := mustParseSubject(t, "aggregation.candle/binance/SOLUSDT:SPOT/raw")
+
+	e.Send(routerPID, RegisterSession{SessionID: id, PID: s})
+	e.Send(routerPID, SubscribeSession{SessionID: id, Subject: subject})
+
+	e.Send(routerPID, DeliverEnvelope{Envelope: envelope.Envelope{
+		Type:       "aggregation.candle",
+		Version:    1,
+		Venue:      "binance",
+		Instrument: "SOLUSDT",
+		Seq:        77,
+		TsIngest:   time.Now().UnixMilli(),
+		Payload:    []byte(`{}`),
+		Meta: map[string]string{
+			"timeframe":              "1m",
+			"instrument_market_type": "SPOT",
+		},
+	}})
+
+	msg := waitForMessage[DeliveryEvent](t, ch, time.Second)
+	if got, want := msg.Subject.String(), "aggregation.candle/binance/SOLUSDT:SPOT/raw"; got != want {
+		t.Fatalf("subject=%q want=%q", got, want)
+	}
+}
+
+func TestRouter_routesLegacyAndMarketTypeSubscriptions(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	routerPID := e.Spawn(NewRouterActor(RouterConfig{Timeframe: "raw"}), "router")
+	defer e.Poison(routerPID)
+
+	legacyCh := make(chan any, 16)
+	aliasCh := make(chan any, 16)
+	legacyPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: legacyCh} }, "legacy-session")
+	aliasPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: aliasCh} }, "alias-session")
+	defer e.Poison(legacyPID)
+	defer e.Poison(aliasPID)
+
+	legacyID := ids.NewSessionID()
+	aliasID := ids.NewSessionID()
+	legacySub := mustParseSubject(t, "marketdata.trade/binance/SOLUSDT/raw")
+	aliasSub := mustParseSubject(t, "marketdata.trade/binance/SOLUSDT:SPOT/raw")
+
+	e.Send(routerPID, RegisterSession{SessionID: legacyID, PID: legacyPID})
+	e.Send(routerPID, RegisterSession{SessionID: aliasID, PID: aliasPID})
+	e.Send(routerPID, SubscribeSession{SessionID: legacyID, Subject: legacySub})
+	e.Send(routerPID, SubscribeSession{SessionID: aliasID, Subject: aliasSub})
+
+	e.Send(routerPID, DeliverEnvelope{Envelope: envelope.Envelope{
+		Type:       "marketdata.trade",
+		Version:    1,
+		Venue:      "binance",
+		Instrument: "SOLUSDT",
+		Seq:        1,
+		TsIngest:   time.Now().UnixMilli(),
+		Payload:    []byte(`{}`),
+		Meta:       map[string]string{"instrument_market_type": "SPOT"},
+	}})
+
+	if got, want := waitForMessage[DeliveryEvent](t, legacyCh, time.Second).Subject.String(), "marketdata.trade/binance/SOLUSDT/raw"; got != want {
+		t.Fatalf("legacy subject=%q want=%q", got, want)
+	}
+	if got, want := waitForMessage[DeliveryEvent](t, aliasCh, time.Second).Subject.String(), "marketdata.trade/binance/SOLUSDT:SPOT/raw"; got != want {
+		t.Fatalf("alias subject=%q want=%q", got, want)
+	}
+}
+
+func TestRouter_doesNotDuplicateWhenSameSessionSubscribesLegacyAndAlias(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	routerPID := e.Spawn(NewRouterActor(RouterConfig{Timeframe: "raw"}), "router")
+	defer e.Poison(routerPID)
+
+	ch := make(chan any, 16)
+	sessionPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: ch} }, "session-capture")
+	defer e.Poison(sessionPID)
+
+	id := ids.NewSessionID()
+	legacySub := mustParseSubject(t, "aggregation.candle/binance/SOLUSDT/raw")
+	aliasSub := mustParseSubject(t, "aggregation.candle/binance/SOLUSDT:SPOT/raw")
+
+	e.Send(routerPID, RegisterSession{SessionID: id, PID: sessionPID})
+	e.Send(routerPID, SubscribeSession{SessionID: id, Subject: legacySub})
+	e.Send(routerPID, SubscribeSession{SessionID: id, Subject: aliasSub})
+
+	e.Send(routerPID, DeliverEnvelope{Envelope: envelope.Envelope{
+		Type:       "aggregation.candle",
+		Version:    1,
+		Venue:      "binance",
+		Instrument: "SOLUSDT",
+		Seq:        9,
+		TsIngest:   time.Now().UnixMilli(),
+		Payload:    []byte(`{}`),
+		Meta: map[string]string{
+			"timeframe":              "1m",
+			"instrument_market_type": "SPOT",
+		},
+	}})
+
+	msg := waitForMessage[DeliveryEvent](t, ch, time.Second)
+	if got, want := msg.Subject.String(), "aggregation.candle/binance/SOLUSDT/raw"; got != want {
+		t.Fatalf("subject=%q want=%q", got, want)
+	}
+	select {
+	case raw := <-ch:
+		if _, ok := raw.(DeliveryEvent); ok {
+			t.Fatal("expected single delivery event when same session subscribes to legacy+alias")
+		}
+	case <-time.After(150 * time.Millisecond):
+	}
+}
+
+func TestRouter_usesTimeframeMetaForInsightsStreams(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	routerPID := e.Spawn(NewRouterActor(RouterConfig{Timeframe: "raw"}), "router")
+	defer e.Poison(routerPID)
+
+	ch := make(chan any, 16)
+	s := e.Spawn(func() actor.Receiver { return &captureActor{ch: ch} }, "session-capture")
+	defer e.Poison(s)
+
+	id := ids.NewSessionID()
+	subject := mustParseSubject(t, "insights.heatmap_snapshot/binance/BTC-USDT/5m")
+
+	e.Send(routerPID, RegisterSession{SessionID: id, PID: s})
+	e.Send(routerPID, SubscribeSession{SessionID: id, Subject: subject})
+
+	e.Send(routerPID, DeliverEnvelope{Envelope: envelope.Envelope{
+		Type:       "insights.heatmap_snapshot",
+		Version:    1,
+		Venue:      "binance",
+		Instrument: "BTC-USDT",
+		Seq:        7,
+		TsIngest:   time.Now().UnixMilli(),
+		Payload:    []byte(`{}`),
+		Meta:       map[string]string{"timeframe": "5m"},
+	}})
+
+	msg := waitForMessage[DeliveryEvent](t, ch, time.Second)
+	if got, want := msg.Subject.String(), "insights.heatmap_snapshot/binance/BTCUSDT/5m"; got != want {
+		t.Fatalf("subject=%q want=%q", got, want)
+	}
+}
+
 func TestRouter_routesAggregationSnapshot(t *testing.T) {
 	e, err := actor.NewEngine(actor.NewEngineConfig())
 	if err != nil {

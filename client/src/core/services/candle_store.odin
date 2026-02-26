@@ -1,0 +1,94 @@
+package services
+
+// Ring-buffer candle store. Fixed capacity, zero allocation after init.
+// Stores candles in chronological order (oldest at tail, newest at head-1).
+// Ring semantics: when full, oldest candle is evicted.
+
+CANDLE_CAP :: 750
+
+Candle_Entry :: struct {
+	open:            f64,
+	high:            f64,
+	low:             f64,
+	close:           f64,
+	volume:          f64,
+	buy_vol:         f64,
+	sell_vol:        f64,
+	trade_count:     i64,
+	window_start_ts: i64,  // Unix ms
+	window_end_ts:   i64,  // Unix ms
+	is_closed:       bool,
+}
+
+Candle_Store :: struct {
+	candles: [CANDLE_CAP]Candle_Entry,
+	head:    int,  // next write position
+	count:   int,  // valid entries (≤ CANDLE_CAP)
+}
+
+// Push a candle into the store. If the latest candle has the same window_start_ts,
+// it is updated in-place (open candle replaced by closed). Otherwise appended.
+push_candle :: proc(store: ^Candle_Store, entry: Candle_Entry) {
+	// Check if we should update the last candle (same window start = same bar).
+	if store.count > 0 {
+		last_idx := (store.head - 1 + CANDLE_CAP) % CANDLE_CAP
+		if store.candles[last_idx].window_start_ts == entry.window_start_ts {
+			store.candles[last_idx] = entry
+			return
+		}
+	}
+	store.candles[store.head] = entry
+	store.head = (store.head + 1) % CANDLE_CAP
+	if store.count < CANDLE_CAP {
+		store.count += 1
+	}
+}
+
+// Get candle at logical index i (0 = oldest visible candle).
+get_candle :: proc(store: ^Candle_Store, i: int) -> Candle_Entry {
+	if i < 0 || i >= store.count do return {}
+	// Oldest entry is at (head - count) wrapped.
+	idx := (store.head - store.count + i + CANDLE_CAP) % CANDLE_CAP
+	return store.candles[idx]
+}
+
+// Get candle at logical index i (0 = most recent).
+get_candle_newest :: proc(store: ^Candle_Store, i: int) -> Candle_Entry {
+	if i < 0 || i >= store.count do return {}
+	idx := (store.head - 1 - i + CANDLE_CAP) % CANDLE_CAP
+	return store.candles[idx]
+}
+
+// Fill store with deterministic demo candles for offline mode.
+fill_demo_candles :: proc(store: ^Candle_Store) {
+	base_price := f64(65000)
+	base_ts := i64(1710000000) // unix seconds
+
+	offsets := [?]f64{
+		0, 50, -30, 80, -20, 100, -50, 120, -10, 60,
+		-40, 90, 30, -70, 110, -80, 150, -30, 70, -20,
+	}
+
+	for i in 0 ..< len(offsets) {
+		open := base_price + offsets[i]
+		delta := offsets[(i + 3) % len(offsets)] * 0.5
+		close := open + delta
+		high := max(open, close) + 30
+		low := min(open, close) - 25
+		ts := base_ts + i64(i) * 60
+
+		push_candle(store, Candle_Entry{
+			open            = open,
+			high            = high,
+			low             = low,
+			close           = close,
+			volume          = 10.5 + f64(i % 5) * 2.0,
+			buy_vol         = 6.0 + f64(i % 3),
+			sell_vol        = 4.5 + f64(i % 4),
+			trade_count     = i64(80 + i * 5),
+			window_start_ts = ts * 1000,
+			window_end_ts   = (ts + 60) * 1000,
+			is_closed       = true,
+		})
+	}
+}

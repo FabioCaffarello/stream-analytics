@@ -344,7 +344,10 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 		committer: adapterstorage.NewSnapshotCommitter(hotWriter, coldWriter),
 	}
 	aggSvc := aggapp.NewAggregationService(aggapp.AggregationServiceConfig{
-		Update:      aggapp.UpdateConfig{MaxBooks: cfg.Processor.MaxInstruments},
+		Update: aggapp.UpdateConfig{
+			MaxBooks:                   cfg.Processor.MaxInstruments,
+			SnapshotPublishMinInterval: time.Duration(cfg.Processor.RTPublish.OrderbookIntervalMs) * time.Millisecond,
+		},
 		Candle:      aggapp.BuildCandleConfig{MaxCandles: cfg.Processor.Candle.MaxCandles},
 		Stats:       aggapp.BuildStatsConfig{MaxWindows: cfg.Processor.Stats.MaxWindows},
 		Publisher:   artifactPub,
@@ -413,7 +416,8 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 			HeatmapInterval:   time.Duration(cfg.Processor.RTPublish.HeatmapIntervalMs) * time.Millisecond,
 			VolumeInterval:    time.Duration(cfg.Processor.RTPublish.VolumeIntervalMs) * time.Millisecond,
 		},
-		OnEnvelopeProcessed: source.onResult,
+		CatchUpSkipBookDeltaSkew: time.Duration(cfg.Processor.CatchUpSkipBookDeltaSkewMs) * time.Millisecond,
+		OnEnvelopeProcessed:      source.onResult,
 	}
 
 	// ── engine ──────────────────────────────────────────────────────────

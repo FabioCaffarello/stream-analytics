@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
@@ -17,6 +18,8 @@ import (
 )
 
 var _ aggports.ArtifactPublisher = (*ArtifactPublisher)(nil)
+
+const instrumentMarketTypeMetaKey = "instrument_market_type"
 
 // envelopePublisher is the minimal interface for publishing envelopes.
 type envelopePublisher interface {
@@ -63,6 +66,7 @@ func (a *ArtifactPublisher) PublishSnapshot(ctx context.Context, snap aggdomain.
 		),
 		ContentType: contentType,
 		Payload:     payload,
+		Meta:        artifactMetaForInstrument(snap.BookID.Instrument, nil),
 	}
 	if p := env.Validate(); p != nil {
 		return p
@@ -94,6 +98,7 @@ func (a *ArtifactPublisher) PublishInconsistent(ctx context.Context, evt aggdoma
 		),
 		ContentType: contentType,
 		Payload:     payload,
+		Meta:        artifactMetaForInstrument(evt.BookID.Instrument, nil),
 	}
 	if p := env.Validate(); p != nil {
 		return p
@@ -125,6 +130,10 @@ func (a *ArtifactPublisher) PublishCandleClosed(ctx context.Context, evt aggdoma
 		),
 		ContentType: contentType,
 		Payload:     payload,
+		Meta: artifactMetaForInstrument(
+			evt.Candle.Instrument,
+			map[string]string{"timeframe": evt.Candle.Timeframe},
+		),
 	}
 	if p := env.Validate(); p != nil {
 		return p
@@ -156,6 +165,7 @@ func (a *ArtifactPublisher) PublishStatsClosed(ctx context.Context, evt aggdomai
 		),
 		ContentType: contentType,
 		Payload:     payload,
+		Meta:        artifactMetaForInstrument(evt.Stats.Instrument, nil),
 	}
 	if p := env.Validate(); p != nil {
 		return p
@@ -169,6 +179,30 @@ func chooseArtifactContentType(eventType string) string {
 		return envelope.ContentTypeProto
 	}
 	return envelope.ContentTypeJSON
+}
+
+func artifactMetaForInstrument(instrument string, base map[string]string) map[string]string {
+	marketType := marketTypeFromInstrument(instrument)
+	if marketType == "" {
+		return base
+	}
+	if base == nil {
+		base = make(map[string]string, 1)
+	}
+	base[instrumentMarketTypeMetaKey] = marketType
+	return base
+}
+
+func marketTypeFromInstrument(instrument string) string {
+	idx := strings.IndexByte(strings.TrimSpace(instrument), ':')
+	if idx < 0 {
+		return ""
+	}
+	mt := strings.ToUpper(strings.TrimSpace(instrument[idx+1:]))
+	if mt == "" {
+		return ""
+	}
+	return mt
 }
 
 // domainCandleToWireDTO converts a domain CandleClosed to the shared wire DTO.

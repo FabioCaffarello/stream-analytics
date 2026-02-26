@@ -35,8 +35,8 @@ import (
 	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 	sharedhash "github.com/market-raccoon/internal/shared/hash"
-	"github.com/market-raccoon/internal/shared/naming"
 	"github.com/market-raccoon/internal/shared/metrics"
+	"github.com/market-raccoon/internal/shared/naming"
 	"github.com/market-raccoon/internal/shared/observability"
 	"github.com/market-raccoon/internal/shared/policykit"
 	"github.com/market-raccoon/internal/shared/problem"
@@ -128,6 +128,10 @@ type ProcessorConfig struct {
 
 	// RTPublish controls timer-driven snapshot publishing.
 	RTPublish ProcessorRTPublishConfig
+	// CatchUpSkipBookDeltaSkew, when > 0, skips stale marketdata.bookdelta
+	// envelopes while the processor is catching up (based on env.TsIngest skew).
+	// This is intended for local/dev throughput relief and is disabled by default.
+	CatchUpSkipBookDeltaSkew time.Duration
 	// TickerProducer overrides ticker actor creation (tests only).
 	TickerProducer actor.Producer
 
@@ -160,6 +164,10 @@ const (
 	heartbeatTickInterval = 10 * time.Second
 	// heartbeatLogInterval bounds timer-driven heartbeat emission frequency.
 	heartbeatLogInterval = 20 * time.Second
+	// When processor ingest is far behind wall clock, periodic snapshots become stale
+	// and expensive; defer them temporarily so the actor can catch up on envelopes.
+	snapshotTickDeferSkewThreshold = 30 * time.Second
+	snapshotTickDeferLogInterval   = 20 * time.Second
 )
 
 // ProcessorSubsystemActor consumes envelopes from a channel and dispatches
@@ -188,12 +196,14 @@ type ProcessorSubsystemActor struct {
 	activeVolumes    map[insightsapp.VolumeProfileSnapshotKey]struct{}
 
 	// heartbeat state — pure runtime counters, not persisted.
-	hbTotal         int64
-	hbByType        map[string]int64
-	hbLastSubject   string
-	hbLastStreamSeq int64
-	hbLastTsIngest  int64
-	hbLastEmitAt    time.Time
+	hbTotal                       int64
+	hbByType                      map[string]int64
+	hbLastSubject                 string
+	hbLastStreamSeq               int64
+	hbLastTsIngest                int64
+	hbLastEmitAt                  time.Time
+	snapshotTickDeferLastLogAt    time.Time
+	bookDeltaCatchUpSkipLastLogAt time.Time
 }
 
 // NewProcessorSubsystemActor returns a hollywood actor.Producer for the
@@ -368,6 +378,9 @@ func (p *ProcessorSubsystemActor) handleEnvelope(_ *actor.Context, env envelope.
 	case typeBookDelta:
 		if env.Version != 1 {
 			return unsupportedVersionProblem(env.Type, env.Version)
+		}
+		if p.shouldSkipBookDeltaForCatchUp(time.Now(), env) {
+			return nil
 		}
 		return p.handleBookDelta(env)
 	case typeTrade:
@@ -1065,6 +1078,9 @@ func (p *ProcessorSubsystemActor) handleSnapshotTick(msg SnapshotTick) {
 	if p.shuttingDown || p.cfg.PublishEnvelope == nil {
 		return
 	}
+	if p.shouldDeferSnapshotTick(time.Now(), msg.Kind) {
+		return
+	}
 
 	switch msg.Kind {
 	case SnapshotTickOrderBook:
@@ -1074,6 +1090,61 @@ func (p *ProcessorSubsystemActor) handleSnapshotTick(msg SnapshotTick) {
 	case SnapshotTickVolume:
 		p.publishVolumeSnapshots()
 	}
+}
+
+func (p *ProcessorSubsystemActor) shouldDeferSnapshotTick(now time.Time, kind SnapshotTickKind) bool {
+	if p.hbLastTsIngest <= 0 {
+		return false
+	}
+	nowMs := now.UnixMilli()
+	if nowMs <= p.hbLastTsIngest {
+		return false
+	}
+	skew := time.Duration(nowMs-p.hbLastTsIngest) * time.Millisecond
+	if skew <= snapshotTickDeferSkewThreshold {
+		return false
+	}
+	if shouldEmitHeartbeat(now, p.snapshotTickDeferLastLogAt, false, snapshotTickDeferLogInterval) {
+		p.snapshotTickDeferLastLogAt = now
+		p.logger.Info("aggruntime: deferring periodic snapshot tick while processor catches up",
+			"kind", msgKindString(kind),
+			"ingest_skew", skew.String(),
+			"last_ts_ingest", p.hbLastTsIngest,
+		)
+	}
+	return true
+}
+
+func (p *ProcessorSubsystemActor) shouldSkipBookDeltaForCatchUp(now time.Time, env envelope.Envelope) bool {
+	if p.cfg.CatchUpSkipBookDeltaSkew <= 0 || env.TsIngest <= 0 {
+		return false
+	}
+	nowMs := now.UnixMilli()
+	if nowMs <= env.TsIngest {
+		return false
+	}
+	skew := time.Duration(nowMs-env.TsIngest) * time.Millisecond
+	if skew <= p.cfg.CatchUpSkipBookDeltaSkew {
+		return false
+	}
+	if shouldEmitHeartbeat(now, p.bookDeltaCatchUpSkipLastLogAt, false, snapshotTickDeferLogInterval) {
+		p.bookDeltaCatchUpSkipLastLogAt = now
+		p.logger.Info("aggruntime: skipping stale bookdelta while processor catches up",
+			"ingest_skew", skew.String(),
+			"threshold", p.cfg.CatchUpSkipBookDeltaSkew.String(),
+			"venue", env.Venue,
+			"instrument", env.Instrument,
+			"seq", env.Seq,
+		)
+	}
+	return true
+}
+
+func msgKindString(kind SnapshotTickKind) string {
+	if kind == "" {
+		return "unknown"
+	}
+	return string(kind)
 }
 
 func (p *ProcessorSubsystemActor) publishOrderBookSnapshots() {

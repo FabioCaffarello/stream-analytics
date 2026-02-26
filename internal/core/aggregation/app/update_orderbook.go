@@ -44,13 +44,17 @@ type UpdateOrderBookFromEvents struct {
 	store     ports.HotReadModelStore
 	books     *ds.BoundedMap[domain.BookID, *domain.OrderBook]
 	maxLevels int
+	clock                     clock.Clock
+	snapshotPublishMinInterval time.Duration
+	lastSnapshotPublishedAt    map[domain.BookID]time.Time
 }
 
 type UpdateConfig struct {
-	MaxBooks  int
-	BookTTL   time.Duration
-	MaxLevels int
-	Clock     clock.Clock
+	MaxBooks                  int
+	BookTTL                   time.Duration
+	MaxLevels                 int
+	Clock                     clock.Clock
+	SnapshotPublishMinInterval time.Duration
 }
 
 // NewUpdateOrderBookFromEvents constructs the use case.
@@ -91,10 +95,13 @@ func NewUpdateOrderBookFromEventsWithConfig(
 		metrics.IncBooksEvicted(reason)
 	})
 	return &UpdateOrderBookFromEvents{
-		publisher: pub,
-		store:     store,
-		books:     books,
-		maxLevels: cfg.MaxLevels,
+		publisher:                 pub,
+		store:                     store,
+		books:                     books,
+		maxLevels:                 cfg.MaxLevels,
+		clock:                     cfg.Clock,
+		snapshotPublishMinInterval: cfg.SnapshotPublishMinInterval,
+		lastSnapshotPublishedAt:    make(map[domain.BookID]time.Time),
 	}
 }
 
@@ -144,9 +151,16 @@ func (uc *UpdateOrderBookFromEvents) Execute(ctx context.Context, req UpdateRequ
 	}
 
 	// 5. Publish snapshot.
+	if !uc.shouldPublishSnapshot(book.ID()) {
+		return result.Ok(UpdateResponse{
+			Seq:    book.LastSeq(),
+			Spread: book.Spread(),
+		})
+	}
 	if p := uc.publisher.PublishSnapshot(ctx, snap); p != nil {
 		return result.FailProblem[UpdateResponse](p)
 	}
+	uc.recordSnapshotPublished(book.ID())
 
 	return result.Ok(UpdateResponse{
 		Seq:    book.LastSeq(),
@@ -172,6 +186,24 @@ func (uc *UpdateOrderBookFromEvents) getOrCreateBook(venue, instrument string) (
 
 func (uc *UpdateOrderBookFromEvents) ActiveBooks() int {
 	return uc.books.Len()
+}
+
+func (uc *UpdateOrderBookFromEvents) shouldPublishSnapshot(id domain.BookID) bool {
+	if uc == nil || uc.snapshotPublishMinInterval <= 0 || uc.clock == nil {
+		return true
+	}
+	last, ok := uc.lastSnapshotPublishedAt[id]
+	if !ok || last.IsZero() {
+		return true
+	}
+	return uc.clock.Now().Sub(last) >= uc.snapshotPublishMinInterval
+}
+
+func (uc *UpdateOrderBookFromEvents) recordSnapshotPublished(id domain.BookID) {
+	if uc == nil || uc.snapshotPublishMinInterval <= 0 || uc.clock == nil {
+		return
+	}
+	uc.lastSnapshotPublishedAt[id] = uc.clock.Now()
 }
 
 // Snapshot returns the current in-memory snapshot for a book key.

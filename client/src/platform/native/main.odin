@@ -7,34 +7,66 @@ package main
 // To switch backends: change make_glfw_backend() to make_sdl2_backend().
 
 import "core:os"
+import "core:fmt"
+import "core:strconv"
 import "core:strings"
+import "core:time"
 import "backend"
 import "mr:app"
+import "mr:ports"
 
 Venue_Symbol :: struct {
 	venue, symbol: string,
 }
 
-// All venues MR supports, BTC + ETH per venue.
+// Current UI has a single set of stores/widgets (one book, one trades list, one candle chart).
+// Subscribe to a single instrument to avoid mixing markets in the same store and to keep
+// delivery load below slow-client thresholds until multi-symbol partitioning is implemented.
 DEFAULT_SUBS :: []Venue_Symbol{
-	{"binance",     "BTCUSDT"}, {"binance",     "ETHUSDT"},
-	{"bybit",       "BTCUSDT"}, {"bybit",       "ETHUSDT"},
-	{"coinbase",    "BTCUSD"},  {"coinbase",    "ETHUSD"},
-	{"hyperliquid", "BTC"},     {"hyperliquid", "ETH"},
-	{"kraken",      "BTCUSD"},  {"kraken",      "ETHUSD"},
-	{"krakenf",     "BTCUSDT"}, {"krakenf",     "ETHUSDT"},
+	{"binance", "BTCUSDT"},
+}
+
+SOAK_MULTI_SUBS :: []Venue_Symbol{
+	{"binance", "BTCUSDT"},
+	{"bybit", "BTCUSDT"},
+	{"okx", "BTCUSDT"},
+}
+
+@(private = "file")
+parse_positive_int_flag :: proc(arg: string, prefix: string, fallback: int) -> int {
+	if !strings.has_prefix(arg, prefix) do return fallback
+	v, ok := strconv.parse_int(arg[len(prefix):])
+	if !ok do return fallback
+	if v <= 0 do return fallback
+	return int(v)
+}
+
+@(private = "file")
+subscribe_default_channels :: proc(md_port: ports.Marketdata_Port, subs: []Venue_Symbol) {
+	for vs in subs {
+		md_port.subscribe(vs.venue, vs.symbol, .Trades)
+		md_port.subscribe(vs.venue, vs.symbol, .Orderbook)
+		md_port.subscribe(vs.venue, vs.symbol, .Stats)
+		md_port.subscribe(vs.venue, vs.symbol, .Candles)
+	}
 }
 
 main :: proc() {
 	// 1. Parse flags.
 	use_sdl2 := false
 	offline := false
+	soak_multi := false
 	ws_url := "ws://127.0.0.1:8080/ws"
 	api_key := "prod_key_1"
+	soak_seconds := 0
+	soak_log_ms := 0
 	for i in 0 ..< len(os.args) {
 		arg := os.args[i]
 		if arg == "--sdl2"    do use_sdl2 = true
 		if arg == "--offline" do offline = true
+		if arg == "--soak-multi" do soak_multi = true
+		soak_seconds = parse_positive_int_flag(arg, "--soak-seconds=", soak_seconds)
+		soak_log_ms = parse_positive_int_flag(arg, "--soak-log-ms=", soak_log_ms)
 		if strings.has_prefix(arg, "--ws-url=") {
 			ws_url = arg[len("--ws-url="):]
 		}
@@ -56,12 +88,11 @@ main :: proc() {
 
 	// 4. Subscribe to all venues/channels when connected.
 	if !offline {
-		for vs in DEFAULT_SUBS {
-			md_port.subscribe(vs.venue, vs.symbol, .Trades)
-			md_port.subscribe(vs.venue, vs.symbol, .Orderbook)
-			md_port.subscribe(vs.venue, vs.symbol, .Stats)
-			md_port.subscribe(vs.venue, vs.symbol, .Heatmaps)
-			md_port.subscribe(vs.venue, vs.symbol, .VPVR)
+		subs := soak_multi ? SOAK_MULTI_SUBS : DEFAULT_SUBS
+		subscribe_default_channels(md_port, subs)
+		if soak_seconds > 0 || soak_log_ms > 0 {
+			fmt.printf("[soak] subscriptions=%d mode=%s log_ms=%d duration_s=%d\n",
+				len(subs) * 4, soak_multi ? "multi" : "default", soak_log_ms, soak_seconds)
 		}
 	}
 
@@ -69,6 +100,10 @@ main :: proc() {
 	state: app.App_State
 	app.init(&state, text_port, md_port, font_port, settings_port, offline)
 	defer app.shutdown(&state)
+
+	start_tick := time.tick_now()
+	last_soak_log_tick: time.Tick
+	has_last_soak_log_tick := false
 
 	// 6. Main loop (backend-agnostic).
 	for !be.should_close() {
@@ -82,6 +117,45 @@ main :: proc() {
 
 		be.end_frame()
 		be.swap()
+
+		if soak_log_ms > 0 || soak_seconds > 0 {
+			now_tick := time.tick_now()
+
+			if soak_log_ms > 0 {
+				should_log := !has_last_soak_log_tick
+				if !should_log {
+					should_log = time.tick_since(last_soak_log_tick) >= time.Duration(soak_log_ms) * time.Millisecond
+				}
+				if should_log {
+					last_soak_log_tick = now_tick
+					has_last_soak_log_tick = true
+					probe := app.runtime_probe(&state)
+					if probe.has_md_metrics {
+						fmt.printf("[soak] t_ms=%d frame=%d conn=%v health=%v streams=%d active=%x ev=%d fix=%d pend_restore=%v subs=%d q=%d qmax=%d drop=%d d+%d p=%d rc=%d rc+%d\n",
+							i64(time.tick_since(start_tick)/time.Millisecond),
+							probe.frame, probe.conn_status, probe.candle_health,
+							probe.stream_count, probe.active_subject_id,
+							probe.stream_evictions, probe.stream_repairs, probe.pending_restore,
+							probe.md_metrics.active_subs, probe.md_metrics.trade_backlog, probe.md_qmax_recent,
+							probe.md_metrics.drop_count, probe.md_drop_delta_recent,
+							probe.md_metrics.latest_pending, probe.md_metrics.reconnect_count, probe.md_rc_delta_recent,
+						)
+					} else {
+						fmt.printf("[soak] t_ms=%d frame=%d conn=%v health=%v streams=%d active=%x ev=%d fix=%d pend_restore=%v\n",
+							i64(time.tick_since(start_tick)/time.Millisecond),
+							probe.frame, probe.conn_status, probe.candle_health,
+							probe.stream_count, probe.active_subject_id,
+							probe.stream_evictions, probe.stream_repairs, probe.pending_restore,
+						)
+					}
+				}
+			}
+
+			if soak_seconds > 0 && time.tick_since(start_tick) >= time.Duration(soak_seconds) * time.Second {
+				fmt.printf("[soak] done duration_s=%d\n", soak_seconds)
+				break
+			}
+		}
 
 		free_all(context.temp_allocator)
 	}

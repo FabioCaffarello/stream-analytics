@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"math"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -17,6 +20,7 @@ import (
 	adapterjs "github.com/market-raccoon/internal/adapters/jetstream"
 	"github.com/market-raccoon/internal/adapters/storage/clickhouse"
 	"github.com/market-raccoon/internal/adapters/storage/timescale"
+	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
 	deliverydomain "github.com/market-raccoon/internal/core/delivery/domain"
 	"github.com/market-raccoon/internal/core/delivery/ports"
 	httpserver "github.com/market-raccoon/internal/interfaces/http"
@@ -220,7 +224,7 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 		coldOpt,
 	)
 	if cfg.Delivery.Enabled {
-		enableWSRoute(e, srv, routerPIDCh, subsystemPIDCh, logger, rangeStore, cfg)
+		enableWSRoute(e, srv, routerPIDCh, subsystemPIDCh, logger, rangeStore, tsPool, cfg)
 	}
 
 	serverErr := make(chan error, 1)
@@ -277,8 +281,10 @@ func enableWSRoute(
 	subsystemPIDCh <-chan *actor.PID,
 	logger *slog.Logger,
 	rangeStore ports.RangeStore,
+	tsPool *timescale.Pool,
 	cfg config.AppConfig,
 ) {
+	hotSnapshotProvider := newWSHotSnapshotProvider(rangeStore, tsPool)
 	select {
 	case routerPID := <-routerPIDCh:
 		var subsystemPID *actor.PID
@@ -298,6 +304,7 @@ func enableWSRoute(
 			}),
 			wsserver.WithSessionSpawner(func(sessionCfg deliveryruntime.SessionConfig) *actor.PID {
 				sessionCfg.BackpressurePolicy = deliverydomain.BackpressurePolicy(cfg.Delivery.BackpressurePolicy)
+				sessionCfg.HotSnapshotProvider = hotSnapshotProvider
 				if subsystemPID == nil {
 					return nil
 				}
@@ -327,6 +334,240 @@ func enableWSRoute(
 	case <-time.After(cfg.Delivery.RouterReadyTimeoutDuration()):
 		logger.Warn("delivery router not ready in time; /ws route disabled")
 	}
+}
+
+const wsHotSnapshotRecentWindow = 24 * time.Hour
+
+type rangeStoreHotSnapshotProvider struct {
+	rangeStore ports.RangeStore
+}
+
+func newRangeStoreHotSnapshotProvider(rangeStore ports.RangeStore) deliveryruntime.HotSnapshotProvider {
+	if rangeStore == nil {
+		return nil
+	}
+	return rangeStoreHotSnapshotProvider{rangeStore: rangeStore}
+}
+
+type wsHotSnapshotProvider struct {
+	live  deliveryruntime.HotSnapshotProvider
+	hotTS deliveryruntime.HotSnapshotProvider
+}
+
+func newWSHotSnapshotProvider(rangeStore ports.RangeStore, tsPool *timescale.Pool) deliveryruntime.HotSnapshotProvider {
+	p := wsHotSnapshotProvider{
+		live:  newRangeStoreHotSnapshotProvider(rangeStore),
+		hotTS: newTimescaleAggregateHotSnapshotProvider(tsPool),
+	}
+	if p.live == nil && p.hotTS == nil {
+		return nil
+	}
+	return p
+}
+
+func (p wsHotSnapshotProvider) GetLatest(subject deliverydomain.Subject) ([]byte, bool) {
+	if p.live != nil {
+		if raw, ok := p.live.GetLatest(subject); ok {
+			return raw, true
+		}
+	}
+	if p.hotTS != nil {
+		return p.hotTS.GetLatest(subject)
+	}
+	return nil, false
+}
+
+func (p rangeStoreHotSnapshotProvider) GetLatest(subject deliverydomain.Subject) ([]byte, bool) {
+	if p.rangeStore == nil {
+		return nil, false
+	}
+	// Keep this focused on low-frequency aggregated streams to avoid expensive
+	// scans or stale results from capped range queries on high-frequency streams.
+	switch subject.StreamType {
+	case "aggregation.candle", "aggregation.stats":
+	default:
+		return nil, false
+	}
+
+	if payload, ok := p.getLatestForSubject(subject); ok {
+		return payload, true
+	}
+	// Compatibility: range store is keyed by canonical envelope instrument (no
+	// :MARKET_TYPE suffix) while WS clients may subscribe to alias subjects.
+	if i := strings.IndexByte(subject.Symbol, ':'); i > 0 {
+		fallback := subject
+		fallback.Symbol = subject.Symbol[:i]
+		return p.getLatestForSubject(fallback)
+	}
+	return nil, false
+}
+
+func (p rangeStoreHotSnapshotProvider) getLatestForSubject(subject deliverydomain.Subject) ([]byte, bool) {
+	nowMs := time.Now().UnixMilli()
+	fromMs := nowMs - wsHotSnapshotRecentWindow.Milliseconds()
+	items, prob := p.rangeStore.GetRange(context.Background(), subject, fromMs, 0, 4096)
+	if prob != nil || len(items) == 0 {
+		return nil, false
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].TsIngest == items[j].TsIngest {
+			return items[i].Seq < items[j].Seq
+		}
+		return items[i].TsIngest < items[j].TsIngest
+	})
+	payload := items[len(items)-1].Payload
+	if len(payload) == 0 {
+		return nil, false
+	}
+	return append([]byte(nil), payload...), true
+}
+
+type timescaleAggregateHotSnapshotProvider struct {
+	pool *timescale.Pool
+}
+
+func newTimescaleAggregateHotSnapshotProvider(pool *timescale.Pool) deliveryruntime.HotSnapshotProvider {
+	if pool == nil || pool.Raw() == nil {
+		return nil
+	}
+	return timescaleAggregateHotSnapshotProvider{pool: pool}
+}
+
+func (p timescaleAggregateHotSnapshotProvider) GetLatest(subject deliverydomain.Subject) ([]byte, bool) {
+	if p.pool == nil || p.pool.Raw() == nil {
+		return nil, false
+	}
+	switch subject.StreamType {
+	case "aggregation.candle":
+		return p.getLatestCandle(subject)
+	case "aggregation.stats":
+		return p.getLatestStats(subject)
+	default:
+		return nil, false
+	}
+}
+
+func (p timescaleAggregateHotSnapshotProvider) getLatestCandle(subject deliverydomain.Subject) ([]byte, bool) {
+	tf := strings.TrimSpace(subject.Timeframe)
+	if tf == "" || strings.EqualFold(tf, "raw") {
+		tf = "1m"
+	}
+	venue := strings.ToUpper(strings.TrimSpace(subject.Venue))
+	symbols := snapshotSymbolCandidates(subject.Symbol)
+	for _, instrument := range symbols {
+		var c aggdomain.CandleV1
+		err := p.pool.Raw().QueryRow(context.Background(), `
+SELECT venue, instrument, timeframe, window_start, window_end,
+       open_price, high_price, low_price, close_price,
+       volume, buy_volume, sell_volume, trade_count, seq_first, seq_last
+FROM aggregation_candle
+WHERE venue = $1 AND instrument = $2 AND timeframe = $3
+ORDER BY window_end DESC
+LIMIT 1
+`, venue, instrument, tf).Scan(
+			&c.Venue,
+			&c.Instrument,
+			&c.Timeframe,
+			&c.WindowStartTs,
+			&c.WindowEndTs,
+			&c.Open,
+			&c.High,
+			&c.Low,
+			&c.ClosePrice,
+			&c.Volume,
+			&c.BuyVolume,
+			&c.SellVolume,
+			&c.TradeCount,
+			&c.SeqFirst,
+			&c.SeqLast,
+		)
+		if err != nil {
+			continue
+		}
+		c.IsClosed = true
+		raw, err := json.Marshal(c)
+		if err != nil || len(raw) == 0 {
+			return nil, false
+		}
+		return raw, true
+	}
+	return nil, false
+}
+
+func (p timescaleAggregateHotSnapshotProvider) getLatestStats(subject deliverydomain.Subject) ([]byte, bool) {
+	tf := strings.TrimSpace(subject.Timeframe)
+	if tf == "" || strings.EqualFold(tf, "raw") {
+		tf = "1m"
+	}
+	venue := strings.ToUpper(strings.TrimSpace(subject.Venue))
+	symbols := snapshotSymbolCandidates(subject.Symbol)
+	for _, instrument := range symbols {
+		var (
+			s               aggdomain.StatsWindowV1
+			markPriceOpen   sql.NullFloat64
+			markPriceHigh   sql.NullFloat64
+			markPriceLow    sql.NullFloat64
+			markPriceClose  sql.NullFloat64
+			fundingRateAvg  sql.NullFloat64
+			fundingRateLast sql.NullFloat64
+		)
+		err := p.pool.Raw().QueryRow(context.Background(), `
+SELECT venue, instrument, timeframe, window_start, window_end,
+       liq_buy_volume, liq_sell_volume, liq_total_volume, liq_count,
+       markprice_open, markprice_high, markprice_low, markprice_close,
+       funding_rate_avg, funding_rate_last, seq_first, seq_last
+FROM aggregation_stats
+WHERE venue = $1 AND instrument = $2 AND timeframe = $3
+ORDER BY window_end DESC
+LIMIT 1
+`, venue, instrument, tf).Scan(
+			&s.Venue,
+			&s.Instrument,
+			&s.Timeframe,
+			&s.WindowStartTs,
+			&s.WindowEndTs,
+			&s.LiqBuyVolume,
+			&s.LiqSellVolume,
+			&s.LiqTotalVolume,
+			&s.LiqCount,
+			&markPriceOpen,
+			&markPriceHigh,
+			&markPriceLow,
+			&markPriceClose,
+			&fundingRateAvg,
+			&fundingRateLast,
+			&s.SeqFirst,
+			&s.SeqLast,
+		)
+		if err != nil {
+			continue
+		}
+		s.MarkPriceOpen = markPriceOpen.Float64
+		s.MarkPriceHigh = markPriceHigh.Float64
+		s.MarkPriceLow = markPriceLow.Float64
+		s.MarkPriceClose = markPriceClose.Float64
+		s.FundingRateAvg = fundingRateAvg.Float64
+		s.FundingRateLast = fundingRateLast.Float64
+		s.IsClosed = true
+		raw, err := json.Marshal(s)
+		if err != nil || len(raw) == 0 {
+			return nil, false
+		}
+		return raw, true
+	}
+	return nil, false
+}
+
+func snapshotSymbolCandidates(symbol string) []string {
+	symbol = strings.TrimSpace(symbol)
+	if symbol == "" {
+		return nil
+	}
+	out := []string{strings.ToUpper(symbol)}
+	if i := strings.IndexByte(symbol, ':'); i > 0 {
+		out = append(out, strings.ToUpper(symbol[:i]))
+	}
+	return out
 }
 
 func buildServerFactories(deliveryEnabled bool, deliveryFactory actor.Producer) map[actorruntime.Subsystem]actor.Producer {

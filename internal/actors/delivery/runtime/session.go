@@ -25,6 +25,7 @@ import (
 )
 
 const readLimitBytes = 64 * 1024
+const wsKeepalivePingInterval = 20 * time.Second
 
 const (
 	defaultRangeLimit = 100
@@ -99,6 +100,8 @@ type SessionActor struct {
 	dropCount    int
 }
 
+type sessionKeepaliveTick struct{}
+
 func NewSessionActor(cfg SessionConfig) actor.Producer {
 	return func() actor.Receiver {
 		return &SessionActor{cfg: cfg}
@@ -118,6 +121,8 @@ func (s *SessionActor) Receive(c *actor.Context) {
 		s.attachConn(msg.Conn)
 	case sessionInboundText:
 		s.handleInboundText(msg.Data)
+	case sessionKeepaliveTick:
+		s.handleKeepaliveTick()
 	case GetRangeRequest:
 		s.handleGetRangeRequest(msg)
 	case sessionDisconnected:
@@ -216,11 +221,27 @@ func (s *SessionActor) attachConn(conn wsConn) {
 	s.cfg.Conn.SetPongHandler(func(string) error {
 		return s.cfg.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	})
+	go s.keepaliveLoop(s.readerCtx)
 	go s.readLoop()
 }
 
 func (s *SessionActor) onStopped() {
 	s.closeSession()
+}
+
+func (s *SessionActor) keepaliveLoop(ctx context.Context) {
+	ticker := time.NewTicker(wsKeepalivePingInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if s.engine != nil && s.self != nil {
+				s.engine.Send(s.self, sessionKeepaliveTick{})
+			}
+		}
+	}
 }
 
 func (s *SessionActor) readLoop() {
@@ -239,6 +260,17 @@ func (s *SessionActor) readLoop() {
 			}
 			s.engine.Send(s.self, sessionInboundText{Data: data})
 		}
+	}
+}
+
+func (s *SessionActor) handleKeepaliveTick() {
+	if s.closed || s.cfg.Conn == nil {
+		return
+	}
+	// Server drives ping/pong keepalive so browser/native clients don't expire
+	// on the 60s read deadline while passively subscribed.
+	if err := s.cfg.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+		s.engine.Send(s.self, sessionDisconnected{})
 	}
 }
 
@@ -263,6 +295,9 @@ type wsSnapshotFrame struct {
 	Type    string          `json:"type"`
 	Subject string          `json:"subject"`
 	Payload json.RawMessage `json:"payload"`
+	// SnapshotSource identifies server-side bootstrap source for subscribe
+	// snapshot frames when synthesized from the hot snapshot provider.
+	SnapshotSource string `json:"snapshot_source,omitempty"`
 }
 
 type wsLastFrame struct {
@@ -271,6 +306,9 @@ type wsLastFrame struct {
 	RequestID string `json:"request_id"`
 	Subject   string `json:"subject"`
 	Item      any    `json:"item"`
+	// SnapshotSource is present when the response item was synthesized from the
+	// hot snapshot fallback rather than the session range store.
+	SnapshotSource string `json:"snapshot_source,omitempty"`
 }
 
 type wsRangeFrame struct {
@@ -281,6 +319,9 @@ type wsRangeFrame struct {
 	Page      int    `json:"page"`
 	Limit     int    `json:"limit"`
 	Items     any    `json:"items"`
+	// SnapshotSource is present when items were synthesized from the hot
+	// snapshot fallback because the requested range returned empty.
+	SnapshotSource string `json:"snapshot_source,omitempty"`
 }
 
 type wsEventFrame struct {
@@ -401,9 +442,10 @@ func (s *SessionActor) emitSnapshot(subject domain.Subject) {
 		return
 	}
 	s.writeJSON(wsSnapshotFrame{
-		Type:    "snapshot",
-		Subject: subject.String(),
-		Payload: payload,
+		Type:           "snapshot",
+		Subject:        subject.String(),
+		Payload:        payload,
+		SnapshotSource: "hot_snapshot_fallback",
 	})
 	metrics.IncWSQuery("snapshot", wsQueryBucket(subject.StreamType))
 }
@@ -448,18 +490,25 @@ func (s *SessionActor) handleGetLast(cmd clientCommand) {
 		return
 	}
 	var item any
+	var snapshotSource string
 	items := append([]ports.RangeItem(nil), res.Value()...)
 	sortRangeItems(items)
 	if len(items) > 0 {
 		item = items[len(items)-1] // highest seq after defensive sort
+	} else if s.cfg.HotSnapshotProvider != nil {
+		if raw, ok := s.cfg.HotSnapshotProvider.GetLatest(subject); ok && len(raw) > 0 {
+			item = hotSnapshotRangeItem(raw)
+			snapshotSource = "hot_snapshot_fallback"
+		}
 	}
 	metrics.IncWSQuery("getlast", wsQueryBucket(subject.StreamType))
 	s.writeJSON(wsLastFrame{
-		Type:      "last",
-		Op:        cmd.Op,
-		RequestID: cmd.RequestID,
-		Subject:   subject.String(),
-		Item:      item,
+		Type:           "last",
+		Op:             cmd.Op,
+		RequestID:      cmd.RequestID,
+		Subject:        subject.String(),
+		Item:           item,
+		SnapshotSource: snapshotSource,
 	})
 }
 
@@ -538,21 +587,49 @@ func (s *SessionActor) executeGetRange(op, requestID, subjectRaw string, params 
 		return
 	}
 	items := append([]ports.RangeItem(nil), res.Value()...)
+	var snapshotSource string
 	sortRangeItems(items)
+	if len(items) == 0 && page == 1 && params.FromMs == 0 && params.ToMs == 0 && s.cfg.HotSnapshotProvider != nil {
+		if raw, ok := s.cfg.HotSnapshotProvider.GetLatest(subject); ok && len(raw) > 0 {
+			items = []ports.RangeItem{hotSnapshotRangeItem(raw)}
+			snapshotSource = "hot_snapshot_fallback"
+		}
+	}
 	items = paginateTail(items, page, limit)
 	if len(items) > maxResponseItems {
 		items = items[len(items)-maxResponseItems:]
 	}
 	metrics.IncWSQuery("getrange", wsQueryBucket(subject.StreamType))
 	s.writeJSON(wsRangeFrame{
-		Type:      "range",
-		Op:        op,
-		RequestID: requestID,
-		Subject:   subject.String(),
-		Page:      page,
-		Limit:     limit,
-		Items:     items,
+		Type:           "range",
+		Op:             op,
+		RequestID:      requestID,
+		Subject:        subject.String(),
+		Page:           page,
+		Limit:          limit,
+		Items:          items,
+		SnapshotSource: snapshotSource,
 	})
+}
+
+func hotSnapshotRangeItem(raw []byte) ports.RangeItem {
+	item := ports.RangeItem{Payload: append([]byte(nil), raw...)}
+	// Best-effort metadata so fallback results sort and inspect more like normal
+	// range items. Aggregates payloads carry SeqLast/WindowEndTs in JSON.
+	var meta struct {
+		SeqLast     int64 `json:"SeqLast"`
+		WindowEndTs int64 `json:"WindowEndTs"`
+	}
+	if err := json.Unmarshal(raw, &meta); err != nil {
+		return item
+	}
+	if meta.SeqLast > 0 {
+		item.Seq = meta.SeqLast
+	}
+	if meta.WindowEndTs > 0 {
+		item.TsIngest = meta.WindowEndTs
+	}
+	return item
 }
 
 func (s *SessionActor) allowRateLimitedCommand(op, requestID string) bool {

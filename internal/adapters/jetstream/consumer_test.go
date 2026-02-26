@@ -84,6 +84,26 @@ func TestAckWithDisposition_AckUsesAckSyncWhenAvailable(t *testing.T) {
 	}
 }
 
+func TestShouldContinueAfterConsumeError_AckFailedRetryableOnly(t *testing.T) {
+	retryableAckFailed := problem.WithRetryable(problem.WithDetail(
+		problem.New(problem.Unavailable, "jetstream ack operation failed"),
+		"kind", "ack_failed",
+	))
+	if !shouldContinueAfterConsumeError(retryableAckFailed) {
+		t.Fatal("expected retryable ack_failed to continue consume loop")
+	}
+
+	nonRetryable := problem.WithDetail(problem.New(problem.Unavailable, "jetstream ack operation failed"), "kind", "ack_failed")
+	if shouldContinueAfterConsumeError(nonRetryable) {
+		t.Fatal("expected non-retryable ack_failed to remain fatal")
+	}
+
+	otherKind := problem.WithRetryable(problem.WithDetail(problem.New(problem.Unavailable, "fetch failed"), "kind", "fetch_failed"))
+	if shouldContinueAfterConsumeError(otherKind) {
+		t.Fatal("expected non-ack transport failures to remain fatal")
+	}
+}
+
 type fakeAckSyncMessage struct {
 	ackCalls     int
 	ackSyncCalls int

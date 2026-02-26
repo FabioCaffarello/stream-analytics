@@ -14,6 +14,12 @@ foreign odin_env {
 	canvas_line      :: proc(x1, y1, x2, y2, r, g, b, a, thickness: f32) ---
 	canvas_clip_push :: proc(x, y, w, h: f32) ---
 	canvas_clip_pop  :: proc() ---
+	canvas_width     :: proc() -> i32 ---
+	canvas_height    :: proc() -> i32 ---
+}
+
+canvas_viewport_size :: proc() -> ui.Vec2 {
+	return {f32(canvas_width()), f32(canvas_height())}
 }
 
 render_commands :: proc(buf: ^ui.Command_Buffer) {
