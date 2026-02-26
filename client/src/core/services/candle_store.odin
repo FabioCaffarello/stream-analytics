@@ -52,6 +52,16 @@ get_candle :: proc(store: ^Candle_Store, i: int) -> Candle_Entry {
 	return store.candles[idx]
 }
 
+// Bulk-load historical candles (oldest first). Clears existing data.
+// Used for GetRange responses before live streaming resumes.
+bulk_load_candles :: proc(store: ^Candle_Store, entries: []Candle_Entry) {
+	store.head = 0
+	store.count = 0
+	for e in entries {
+		push_candle(store, e)
+	}
+}
+
 // Get candle at logical index i (0 = most recent).
 get_candle_newest :: proc(store: ^Candle_Store, i: int) -> Candle_Entry {
 	if i < 0 || i >= store.count do return {}

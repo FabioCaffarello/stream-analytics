@@ -140,6 +140,36 @@ function syncCanvasSize(force = false) {
 // WebSocket bridge  (message queue drained by WASM poll loop)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Keyboard bridge  (bitmask polled by WASM, matches ports.Key enum ordinals)
+// ---------------------------------------------------------------------------
+
+// Key enum ordinals: Up=0 Down=1 Left=2 Right=3 Enter=4 Escape=5 Tab=6 Space=7
+//                    Num_1=8 Num_2=9 Num_3=10 Num_4=11 Num_5=12 Num_6=13
+let keyBits = 0;
+
+const KEY_MAP = {
+    "ArrowUp": 0, "ArrowDown": 1, "ArrowLeft": 2, "ArrowRight": 3,
+    "Enter": 4, "Escape": 5, "Tab": 6, " ": 7,
+    "1": 8, "2": 9, "3": 10, "4": 11, "5": 12, "6": 13,
+};
+
+document.addEventListener("keydown", (ev) => {
+    const bit = KEY_MAP[ev.key];
+    if (bit !== undefined) {
+        keyBits |= (1 << bit);
+        // Prevent Tab from changing focus.
+        if (ev.key === "Tab") ev.preventDefault();
+    }
+}, { passive: false });
+
+document.addEventListener("keyup", (ev) => {
+    const bit = KEY_MAP[ev.key];
+    if (bit !== undefined) {
+        keyBits &= ~(1 << bit);
+    }
+});
+
 let ws = null;
 let wsState = 0; // 0=closed, 1=connecting, 2=open, 3=closing
 const wsMsgQueue = [];
@@ -481,6 +511,10 @@ const imports = {
             // Return negative length when message was truncated so Odin can count.
             if (encoded.length > buf_len) return -copyLen;
             return copyLen;
+        },
+
+        key_state() {
+            return keyBits;
         },
 
         url_query_param(name_ptr, name_len, out_ptr, out_cap) {

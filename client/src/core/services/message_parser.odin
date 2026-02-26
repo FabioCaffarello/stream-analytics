@@ -91,6 +91,14 @@ Parsed_Ack :: struct {
 
 // --- Parse result discriminated union ---
 
+RANGE_CANDLE_PARSE_MAX :: 16
+
+Parsed_Range_Candles :: struct {
+	candles: [RANGE_CANDLE_PARSE_MAX]Parsed_Candle,
+	count:   int,
+	is_last: bool,
+}
+
 Parse_Result_Kind :: enum u8 {
 	None,
 	Trade,
@@ -99,18 +107,20 @@ Parse_Result_Kind :: enum u8 {
 	Heatmap,
 	VPVR,
 	Candle,
+	Range_Candle,
 	Ack,
 	Error,
 }
 
 Parse_Result_Data :: struct #raw_union {
-	trade:   Parsed_Trade,
-	ob:      Parsed_OB,
-	stats:   Parsed_Stats,
-	heatmap: Parsed_Heatmap,
-	vpvr:    Parsed_VPVR,
-	candle:  Parsed_Candle,
-	ack:     Parsed_Ack,
+	trade:         Parsed_Trade,
+	ob:            Parsed_OB,
+	stats:         Parsed_Stats,
+	heatmap:       Parsed_Heatmap,
+	vpvr:          Parsed_VPVR,
+	candle:        Parsed_Candle,
+	range_candles: Parsed_Range_Candles,
+	ack:           Parsed_Ack,
 }
 
 Parse_Result :: struct {
@@ -151,7 +161,15 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry, candle_tf_filte
 	case .Error:
 		result.kind = .Error
 		return result
-	case .Range, .Last, .Unknown:
+	case .Range:
+		if r, ok := parse_range_candles(raw, env.subject); ok {
+			result.kind = .Range_Candle
+			result.data.range_candles = r
+		} else if telemetry != nil {
+			telemetry.parse_errors += 1
+		}
+		return result
+	case .Last, .Unknown:
 		return result
 	case .Event, .Snapshot:
 		// Fall through to payload parsing.
@@ -367,6 +385,40 @@ parse_vpvr :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_VPVR, bool) {
 		result.sells[i]  = b.sell_volume
 	}
 	return result, true
+}
+
+@(private = "file")
+parse_range_candles :: proc(raw: []u8, subject: string) -> (Parsed_Range_Candles, bool) {
+	frame: util.MR_Range_Frame
+	if json.unmarshal(raw, &frame) != nil do return {}, false
+
+	subject_id := util.subject_id64(subject)
+	result: Parsed_Range_Candles
+	count := min(len(frame.items), RANGE_CANDLE_PARSE_MAX)
+	result.count = count
+	result.is_last = true // single-page response from server
+
+	for i in 0 ..< count {
+		item := frame.items[i]
+		c := item.payload.candle
+		// If wrapped parse yields zero, the item may not be a candle.
+		if c.WindowStartTs == 0 do continue
+		result.candles[i] = Parsed_Candle{
+			open            = c.Open,
+			high            = c.High,
+			low             = c.Low,
+			close           = c.ClosePrice,
+			volume          = c.Volume,
+			buy_vol         = c.BuyVolume,
+			sell_vol        = c.SellVolume,
+			trade_count     = c.TradeCount,
+			window_start_ts = c.WindowStartTs,
+			window_end_ts   = c.WindowEndTs,
+			is_closed       = c.IsClosed,
+			subject_id      = subject_id,
+		}
+	}
+	return result, count > 0
 }
 
 @(private = "file")

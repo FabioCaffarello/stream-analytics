@@ -19,6 +19,7 @@ MD_Event_Kind :: enum u8 {
 	Heatmap,
 	VPVR,
 	Candle,
+	Range_Candle_Batch,
 }
 
 MD_Channel :: enum u8 {
@@ -92,13 +93,22 @@ MD_Candle_Event :: struct {
 	is_closed:       bool,
 }
 
+RANGE_CANDLE_MAX :: 16
+
+MD_Range_Candle_Batch :: struct {
+	candles: [RANGE_CANDLE_MAX]MD_Candle_Event,
+	count:   int,
+	is_last: bool,
+}
+
 MD_Event_Data :: struct #raw_union {
-	trade:   MD_Trade_Event,
-	ob:      MD_Orderbook_Event,
-	stats:   MD_Stats_Event,
-	heatmap: MD_Heatmap_Event,
-	vpvr:    MD_VPVR_Event,
-	candle:  MD_Candle_Event,
+	trade:          MD_Trade_Event,
+	ob:             MD_Orderbook_Event,
+	stats:          MD_Stats_Event,
+	heatmap:        MD_Heatmap_Event,
+	vpvr:           MD_VPVR_Event,
+	candle:         MD_Candle_Event,
+	range_candles:  MD_Range_Candle_Batch,
 }
 
 MD_Event_Source :: struct {
@@ -132,12 +142,14 @@ MD_Event :: struct {
 }
 
 Marketdata_Port :: struct {
-	subscribe:   proc(venue: string, symbol: string, channel: MD_Channel) -> bool,
-	unsubscribe: proc(venue: string, symbol: string, channel: MD_Channel),
-	poll:        proc(events_buf: []MD_Event) -> int,
-	now_ms:      proc() -> i64,
-	conn_status: proc() -> MD_Conn_Status,
-	metrics:     proc(out: ^MD_Runtime_Metrics) -> bool,
+	subscribe:      proc(venue: string, symbol: string, channel: MD_Channel) -> bool,
+	unsubscribe:    proc(venue: string, symbol: string, channel: MD_Channel),
+	poll:           proc(events_buf: []MD_Event) -> int,
+	now_ms:         proc() -> i64,
+	conn_status:    proc() -> MD_Conn_Status,
+	metrics:        proc(out: ^MD_Runtime_Metrics) -> bool,
 	describe_stream: proc(subject_id: u64, out: ^MD_Stream_Info) -> bool,
-	shutdown:    proc(),
+	set_candle_tf:  proc(tf: string),
+	send_getrange:  proc(subject: string, limit: int),
+	shutdown:       proc(),
 }

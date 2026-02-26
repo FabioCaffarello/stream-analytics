@@ -158,6 +158,25 @@ MR_Candle_Frame_Flat :: struct {
 	payload: MR_Candle_Payload `json:"payload"`,
 }
 
+// --- Range response frame (getrange) ---
+// Server sends: {"type":"range","op":"getrange","request_id":"...","subject":"...","items":[...]}
+// Each item has Seq, TsIngest, and Payload (inline JSON after Go-side fix to json.RawMessage).
+
+MR_Range_Item :: struct {
+	seq:       i64 `json:"Seq"`,
+	ts_ingest: i64 `json:"TsIngest"`,
+	// Payload is inline JSON (candle payload) after RangeItem.Payload -> json.RawMessage fix.
+	payload:   MR_Candle_Wrapped `json:"Payload"`,
+}
+
+MR_Range_Frame :: struct {
+	type_str:   string           `json:"type"`,
+	op:         string           `json:"op"`,
+	request_id: string           `json:"request_id"`,
+	subject:    string           `json:"subject"`,
+	items:      []MR_Range_Item  `json:"items"`,
+}
+
 // --- Parse helpers ---
 
 parse_frame_type :: proc(s: string) -> MR_Frame_Type {

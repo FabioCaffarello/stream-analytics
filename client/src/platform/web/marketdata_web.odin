@@ -6,6 +6,7 @@ package main
 
 import "core:fmt"
 import "core:strconv"
+import "core:strings"
 import "core:time"
 import "mr:ports"
 import "mr:services"
@@ -20,6 +21,7 @@ foreign odin_env {
 	ws_close    :: proc() ---
 	ws_state    :: proc() -> i32 ---
 	ws_poll_msg :: proc(buf_ptr: [^]u8, buf_len: i32) -> i32 ---
+	key_state   :: proc() -> u32 ---
 	url_query_param :: proc(name_ptr: [^]u8, name_len: i32, out_ptr: [^]u8, out_cap: i32) -> i32 ---
 }
 
@@ -36,8 +38,8 @@ WEB_BACKOFF_INITIAL_S :: 0.5
 WEB_BACKOFF_MAX_S     :: 30.0
 WEB_BACKOFF_MULTIPLIER :: 2.0
 
-// Candle timeframe filter: delivery routes /raw candles, show only this TF on chart.
-CANDLE_TF_FILTER :: "1m"
+// Default candle timeframe filter.
+CANDLE_TF_DEFAULT :: "1m"
 
 // --- State ---
 
@@ -67,6 +69,13 @@ MD_Web_State :: struct {
 	vpvr_dirty:      bool,
 	candle_staging:  services.Parsed_Candle,
 	candle_dirty:    bool,
+
+	// Range candle staging (getrange response batch).
+	range_candle_staging: services.Parsed_Range_Candles,
+	range_candle_dirty:   bool,
+
+	// Candle timeframe filter (mutable, heap-allocated).
+	candle_tf_filter: string,
 
 	// Connection.
 	ws_url:  string,
@@ -129,6 +138,7 @@ make_marketdata_web :: proc(url: string, api_key: string = "") -> ports.Marketda
 	state := new(MD_Web_State)
 	state.ws_url = url
 	state.api_key = api_key
+	state.candle_tf_filter = strings.clone(CANDLE_TF_DEFAULT)
 	state.parse_max_msgs_per_poll = WEB_PARSE_MAX_MSGS_PER_POLL
 	state.parse_time_budget = WEB_PARSE_TIME_BUDGET
 	state.parse_max_msgs_per_poll = clamp_positive_int(
@@ -155,14 +165,16 @@ make_marketdata_web :: proc(url: string, api_key: string = "") -> ports.Marketda
 	ws_connect(url_raw, i32(len(url)), hdr_raw, i32(len(hdr)))
 
 	return ports.Marketdata_Port{
-		subscribe   = web_subscribe,
-		unsubscribe = web_unsubscribe,
-		poll        = web_poll,
-		now_ms      = web_now_ms,
-		conn_status = web_conn_status,
-		metrics     = web_metrics,
+		subscribe       = web_subscribe,
+		unsubscribe     = web_unsubscribe,
+		poll            = web_poll,
+		now_ms          = web_now_ms,
+		conn_status     = web_conn_status,
+		metrics         = web_metrics,
 		describe_stream = web_describe_stream,
-		shutdown    = web_shutdown,
+		set_candle_tf   = web_set_candle_tf,
+		send_getrange   = web_send_getrange,
+		shutdown        = web_shutdown,
 	}
 }
 
@@ -563,6 +575,36 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 		out += 1
 	}
 
+	// Range candle batch.
+	if state.range_candle_dirty && out < len(events_buf) {
+		rc := state.range_candle_staging
+		batch: ports.MD_Range_Candle_Batch
+		batch.count = min(rc.count, ports.RANGE_CANDLE_MAX)
+		batch.is_last = rc.is_last
+		for i in 0 ..< batch.count {
+			c := rc.candles[i]
+			batch.candles[i] = ports.MD_Candle_Event{
+				open            = c.open,
+				high            = c.high,
+				low             = c.low,
+				close           = c.close,
+				volume          = c.volume,
+				buy_vol         = c.buy_vol,
+				sell_vol        = c.sell_vol,
+				trade_count     = c.trade_count,
+				window_start_ts = c.window_start_ts,
+				window_end_ts   = c.window_end_ts,
+				is_closed       = c.is_closed,
+			}
+		}
+		events_buf[out].source.subject_id = rc.candles[0].subject_id if rc.count > 0 else 0
+		events_buf[out].source.channel = .Candles
+		events_buf[out].kind = .Range_Candle_Batch
+		events_buf[out].data.range_candles = batch
+		state.range_candle_dirty = false
+		out += 1
+	}
+
 	return out
 }
 
@@ -623,7 +665,7 @@ web_conn_status :: proc() -> ports.MD_Conn_Status {
 @(private = "file")
 web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 	telemetry: services.Parse_Telemetry
-	result := services.parse_mr_message(raw, &telemetry, CANDLE_TF_FILTER)
+	result := services.parse_mr_message(raw, &telemetry, state.candle_tf_filter)
 
 	if telemetry.parse_errors > 0 {
 		state.parse_error_count += telemetry.parse_errors
@@ -670,7 +712,45 @@ web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 	case .Candle:
 		state.candle_staging = result.data.candle
 		state.candle_dirty = true
+	case .Range_Candle:
+		state.range_candle_staging = result.data.range_candles
+		state.range_candle_dirty = true
 	case .None:
-		// Ignored (range, last, unknown frame types).
+		// Ignored (last, unknown frame types).
 	}
+}
+
+@(private = "file")
+web_set_candle_tf :: proc(tf: string) {
+	state := g_web_state
+	if state == nil do return
+	old := state.candle_tf_filter
+	state.candle_tf_filter = strings.clone(tf)
+	delete(old)
+}
+
+@(private = "file")
+web_send_getrange :: proc(subject: string, limit: int) {
+	state := g_web_state
+	if state == nil do return
+	if ws_state() != 2 do return
+
+	state.rid_counter += 1
+	buf: [512]u8
+	n := 0
+	prefix :: `{"op":"getrange","subject":"`
+	for c in prefix { buf[n] = u8(c); n += 1 }
+	for c in subject { buf[n] = u8(c); n += 1 }
+	mid :: `","params":{"limit":`
+	for c in mid { buf[n] = u8(c); n += 1 }
+	limit_str := fmt.tprintf("%d", limit)
+	for c in limit_str { buf[n] = u8(c); n += 1 }
+	mid2 :: `},"request_id":"gr`
+	for c in mid2 { buf[n] = u8(c); n += 1 }
+	rid_str := fmt.tprintf("%d", state.rid_counter)
+	for c in rid_str { buf[n] = u8(c); n += 1 }
+	suffix :: `"}`
+	for c in suffix { buf[n] = u8(c); n += 1 }
+
+	ws_send(raw_data(buf[:n]), i32(n))
 }

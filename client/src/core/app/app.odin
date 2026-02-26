@@ -10,6 +10,8 @@ import "mr:widgets"
 
 MD_POLL_CAP :: 64
 
+TF_OPTIONS :: [6]string{"1m", "5m", "15m", "1h", "4h", "1d"}
+
 CANDLE_TF_MS                 :: i64(60_000)
 CANDLE_LAG_WARN_CLOSED_MS    :: i64(120_000)
 CANDLE_LAG_STALE_CLOSED_MS   :: i64(180_000)
@@ -106,6 +108,9 @@ App_State :: struct {
 
 	candle_last_recv_local_ms: i64,
 	candle_health:             Candle_Health,
+
+	active_tf_idx:    int,      // index into TF_OPTIONS
+	getrange_pending: bool,     // true while waiting for range response
 }
 
 init :: proc(
@@ -198,6 +203,7 @@ runtime_probe :: proc(state: ^App_State) -> Runtime_Probe {
 
 		_ = drain_marketdata(state)
 		_ = handle_stream_hotkeys(state, input)
+		_ = handle_tf_hotkeys(state, input)
 		sample_marketdata_metrics(state)
 		observe_candle_health(state)
 		cache_render_observations(state, input)
@@ -208,6 +214,7 @@ runtime_probe :: proc(state: ^App_State) -> Runtime_Probe {
 			state.frame += 1
 			events_processed := drain_marketdata(state)
 			stream_switched := handle_stream_hotkeys(state, input)
+			tf_switched := handle_tf_hotkeys(state, input)
 			sample_marketdata_metrics(state)
 
 			conn := current_conn_status(state)
@@ -227,6 +234,9 @@ runtime_probe :: proc(state: ^App_State) -> Runtime_Probe {
 		}
 		if !needs_render {
 			needs_render = stream_switched
+		}
+		if !needs_render {
+			needs_render = tf_switched
 		}
 		if !needs_render {
 			return &state.cmd_buf, false
@@ -616,6 +626,62 @@ handle_stream_hotkeys :: proc(state: ^App_State, input: ports.Input_State) -> bo
 }
 
 @(private = "file")
+tf_key_index :: proc(input: ports.Input_State, last_keys: bit_set[ports.Key]) -> int {
+	// Detect edge (key-down this frame but not last frame).
+	if .Num_1 in input.keys.pressed && !(.Num_1 in last_keys) do return 0
+	if .Num_2 in input.keys.pressed && !(.Num_2 in last_keys) do return 1
+	if .Num_3 in input.keys.pressed && !(.Num_3 in last_keys) do return 2
+	if .Num_4 in input.keys.pressed && !(.Num_4 in last_keys) do return 3
+	if .Num_5 in input.keys.pressed && !(.Num_5 in last_keys) do return 4
+	if .Num_6 in input.keys.pressed && !(.Num_6 in last_keys) do return 5
+	return -1
+}
+
+@(private = "file")
+handle_tf_hotkeys :: proc(state: ^App_State, input: ports.Input_State) -> bool {
+	idx := tf_key_index(input, state.last_keys_pressed)
+	if idx < 0 || idx >= len(TF_OPTIONS) do return false
+	if idx == state.active_tf_idx do return false
+
+	state.active_tf_idx = idx
+	opts := TF_OPTIONS
+	tf := opts[idx]
+
+	// Update TF filter in the adapter.
+	if state.marketdata.set_candle_tf != nil {
+		state.marketdata.set_candle_tf(tf)
+	}
+
+	// Clear candle store for new TF data.
+	state.candle_store.head = 0
+	state.candle_store.count = 0
+
+	// Also clear candle store in the active stream view slot.
+	if slot := stream_view_active_slot(state.stream_views); slot != nil {
+		slot.candle_store.head = 0
+		slot.candle_store.count = 0
+	}
+
+	// Request historical data for the new TF.
+	state.getrange_pending = true
+	if state.marketdata.send_getrange != nil {
+		// Build candle subject for active venue/symbol.
+		if reg := state.stream_views; reg != nil && reg.has_active {
+			if state.marketdata.describe_stream != nil {
+				info: ports.MD_Stream_Info
+				if state.marketdata.describe_stream(reg.active_subject_id, &info) {
+					candle_subject := util.build_subject(info.venue, info.symbol, .Candles)
+					state.marketdata.send_getrange(candle_subject, services.CANDLE_CAP)
+					delete(candle_subject)
+				}
+			}
+		}
+	}
+
+	return true
+}
+
+@(private = "file")
 channel_short_label :: proc(ch: ports.MD_Channel) -> string {
 	switch ch {
 	case .Trades:
@@ -836,6 +902,20 @@ drain_marketdata :: proc(state: ^App_State) -> int {
 					if is_active_stream {
 						apply_candle_to_store(&state.candle_store, cd)
 					}
+				case .Range_Candle_Batch:
+					batch := evt.data.range_candles
+					for ci in 0 ..< batch.count {
+						cd := batch.candles[ci]
+						if slot != nil {
+							apply_candle_to_store(&slot.candle_store, cd)
+						}
+						if is_active_stream {
+							apply_candle_to_store(&state.candle_store, cd)
+						}
+					}
+					if batch.is_last {
+						state.getrange_pending = false
+					}
 				}
 			}
 		}
@@ -919,6 +999,7 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 
 	// --- Candlestick chart (hero widget) ---
 	candle_health_label, candle_health_detail, candle_health_color := build_candle_health_ui(state)
+	tf_opts := TF_OPTIONS
 	widgets.candle_widget(&state.cmd_buf, widgets.Candle_Widget_Data{
 		store         = &state.candle_store,
 		viewport      = chart_vp,
@@ -929,6 +1010,7 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 		health_label  = candle_health_label,
 		health_detail = candle_health_detail,
 		health_color  = candle_health_color,
+		tf_label      = tf_opts[state.active_tf_idx],
 	})
 
 	// --- Stats / Liquidation bar chart ---

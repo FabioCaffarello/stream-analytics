@@ -21,6 +21,12 @@ Key :: enum u8 {
 	Escape,
 	Tab,
 	Space,
+	Num_1,
+	Num_2,
+	Num_3,
+	Num_4,
+	Num_5,
+	Num_6,
 }
 
 Mouse :: struct {

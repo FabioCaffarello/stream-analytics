@@ -33,6 +33,7 @@ Candle_Widget_Data :: struct {
 	health_label:  string,
 	health_detail: string,
 	health_color:  ui.Color,
+	tf_label:      string,  // e.g. "1m", "5m", "1h" — defaults to "1m" if empty
 }
 
 // --- Main draw procedure ---
@@ -44,7 +45,10 @@ candle_widget :: proc(buf: ^ui.Command_Buffer, data: Candle_Widget_Data) {
 	// Always draw background + title.
 	ui.push(buf, ui.Cmd_Clip_Push{rect = vp})
 	ui.push(buf, ui.Cmd_Rect_Filled{rect = vp, color = ui.COL_PANEL_BG})
-	ui.push_text(buf, {vp.pos.x + 4, vp.pos.y + 14}, "Candles (1m)",
+	title_buf: [32]u8
+	tf := data.tf_label if len(data.tf_label) > 0 else "1m"
+	title := fmt.bprintf(title_buf[:], "Candles (%s) [1-6]", tf)
+	ui.push_text(buf, {vp.pos.x + 4, vp.pos.y + 14}, title,
 		ui.with_alpha(ui.COL_WHITE, 0.6), ui.FONT_SIZE_SM)
 	if len(data.health_label) > 0 {
 		ui.push_text(buf, {vp.pos.x + 120, vp.pos.y + 14}, data.health_label,

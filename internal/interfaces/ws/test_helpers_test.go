@@ -2,6 +2,7 @@ package wsserver
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -191,11 +192,18 @@ func extractRangeSignature(t *testing.T, msg map[string]any) []string {
 		if !ok {
 			t.Fatalf("ts type=%T", tsVal)
 		}
-		payload, ok := payloadVal.(string)
-		if !ok {
+		var payloadStr string
+		switch pv := payloadVal.(type) {
+		case string:
+			payloadStr = pv
+		case map[string]any:
+			// json.RawMessage payloads are inlined as JSON objects.
+			b, _ := json.Marshal(pv)
+			payloadStr = string(b)
+		default:
 			t.Fatalf("payload type=%T", payloadVal)
 		}
-		out = append(out, strconv.FormatInt(int64(seq), 10)+"|"+strconv.FormatInt(int64(ts), 10)+"|"+payload)
+		out = append(out, strconv.FormatInt(int64(seq), 10)+"|"+strconv.FormatInt(int64(ts), 10)+"|"+payloadStr)
 	}
 	return out
 }

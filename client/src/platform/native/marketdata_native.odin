@@ -5,6 +5,7 @@ package main
 // Automatic reconnection with exponential backoff + re-subscribe on reconnect.
 
 import "core:fmt"
+import "core:strings"
 import "core:sync"
 import "core:thread"
 import "core:time"
@@ -21,8 +22,8 @@ BACKOFF_INITIAL_MS :: 500
 BACKOFF_MAX_MS     :: 30_000
 BACKOFF_MULTIPLIER :: 2
 
-// Candle timeframe filter: delivery routes /raw candles, show only this TF on chart.
-CANDLE_TF_FILTER :: "1m"
+// Default candle timeframe filter.
+CANDLE_TF_DEFAULT :: "1m"
 
 // --- Internal state (package-level singleton) ---
 
@@ -67,6 +68,13 @@ MD_Native_State :: struct {
 	// Candle staging (latest-wins single candle).
 	candle_staging: services.Parsed_Candle,
 	candle_dirty:   bool,
+
+	// Range candle staging (getrange response batch).
+	range_candle_staging: services.Parsed_Range_Candles,
+	range_candle_dirty:   bool,
+
+	// Candle timeframe filter (mutable, heap-allocated).
+	candle_tf_filter: string,
 
 	// Connection.
 	conn:        WS_Connection,
@@ -115,6 +123,7 @@ make_marketdata_native :: proc(url: string, api_key: string = "") -> ports.Marke
 	state.ws_url = url
 	state.api_key = api_key
 	state.backoff_ms = BACKOFF_INITIAL_MS
+	state.candle_tf_filter = strings.clone(CANDLE_TF_DEFAULT)
 	g_md_state = state
 
 	// Build auth header string.
@@ -145,14 +154,16 @@ make_marketdata_native :: proc(url: string, api_key: string = "") -> ports.Marke
 	}
 
 	return ports.Marketdata_Port{
-		subscribe   = native_subscribe,
-		unsubscribe = native_unsubscribe,
-		poll        = native_poll,
-		now_ms      = native_now_ms,
-		conn_status = native_conn_status,
-		metrics     = native_metrics,
+		subscribe       = native_subscribe,
+		unsubscribe     = native_unsubscribe,
+		poll            = native_poll,
+		now_ms          = native_now_ms,
+		conn_status     = native_conn_status,
+		metrics         = native_metrics,
 		describe_stream = native_describe_stream,
-		shutdown    = native_shutdown,
+		set_candle_tf   = native_set_candle_tf,
+		send_getrange   = native_send_getrange,
+		shutdown        = native_shutdown,
 	}
 }
 
@@ -476,6 +487,36 @@ native_poll :: proc(events_buf: []ports.MD_Event) -> int {
 		n += 1
 	}
 
+	// Emit range candle batch if dirty.
+	if state.range_candle_dirty && n < len(events_buf) {
+		rc := state.range_candle_staging
+		batch: ports.MD_Range_Candle_Batch
+		batch.count = min(rc.count, ports.RANGE_CANDLE_MAX)
+		batch.is_last = rc.is_last
+		for i in 0 ..< batch.count {
+			c := rc.candles[i]
+			batch.candles[i] = ports.MD_Candle_Event{
+				open            = c.open,
+				high            = c.high,
+				low             = c.low,
+				close           = c.close,
+				volume          = c.volume,
+				buy_vol         = c.buy_vol,
+				sell_vol        = c.sell_vol,
+				trade_count     = c.trade_count,
+				window_start_ts = c.window_start_ts,
+				window_end_ts   = c.window_end_ts,
+				is_closed       = c.is_closed,
+			}
+		}
+		events_buf[n].source.subject_id = rc.candles[0].subject_id if rc.count > 0 else 0
+		events_buf[n].source.channel = .Candles
+		events_buf[n].kind = .Range_Candle_Batch
+		events_buf[n].data.range_candles = batch
+		state.range_candle_dirty = false
+		n += 1
+	}
+
 	return n
 }
 
@@ -602,8 +643,12 @@ attempt_reconnect :: proc(state: ^MD_Native_State) {
 
 @(private = "file")
 apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
+	sync.lock(&state.mu)
+	tf := state.candle_tf_filter
+	sync.unlock(&state.mu)
+
 	telemetry: services.Parse_Telemetry
-	result := services.parse_mr_message(raw, &telemetry, CANDLE_TF_FILTER)
+	result := services.parse_mr_message(raw, &telemetry, tf)
 
 	// Accumulate telemetry under lock.
 	if telemetry.parse_errors > 0 {
@@ -666,7 +711,53 @@ apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 		state.candle_staging = result.data.candle
 		state.candle_dirty = true
 		sync.unlock(&state.mu)
+	case .Range_Candle:
+		sync.lock(&state.mu)
+		state.range_candle_staging = result.data.range_candles
+		state.range_candle_dirty = true
+		sync.unlock(&state.mu)
 	case .None:
-		// Ignored (range, last, unknown frame types).
+		// Ignored (last, unknown frame types).
 	}
+}
+
+@(private = "file")
+native_set_candle_tf :: proc(tf: string) {
+	state := g_md_state
+	if state == nil do return
+	new_tf := strings.clone(tf)
+	sync.lock(&state.mu)
+	old := state.candle_tf_filter
+	state.candle_tf_filter = new_tf
+	sync.unlock(&state.mu)
+	delete(old)
+}
+
+@(private = "file")
+native_send_getrange :: proc(subject: string, limit: int) {
+	state := g_md_state
+	if state == nil do return
+
+	sync.lock(&state.mu)
+	defer sync.unlock(&state.mu)
+	if state.conn_state != .Connected do return
+
+	state.rid_counter += 1
+	buf: [512]u8
+	n := 0
+	prefix :: `{"op":"getrange","subject":"`
+	for c in prefix { buf[n] = u8(c); n += 1 }
+	for c in subject { buf[n] = u8(c); n += 1 }
+	mid :: `","params":{"limit":`
+	for c in mid { buf[n] = u8(c); n += 1 }
+	limit_str := fmt.tprintf("%d", limit)
+	for c in limit_str { buf[n] = u8(c); n += 1 }
+	mid2 :: `},"request_id":"gr`
+	for c in mid2 { buf[n] = u8(c); n += 1 }
+	rid_str := fmt.tprintf("%d", state.rid_counter)
+	for c in rid_str { buf[n] = u8(c); n += 1 }
+	suffix :: `"}`
+	for c in suffix { buf[n] = u8(c); n += 1 }
+
+	ws_write_text(state.conn, string(buf[:n]))
 }

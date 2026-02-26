@@ -158,6 +158,12 @@ glfw_collect_input :: proc() -> ports.Input_State {
 	if glfw.GetKey(g_window, glfw.KEY_ESCAPE) == glfw.PRESS do input.keys.pressed += {.Escape}
 	if glfw.GetKey(g_window, glfw.KEY_TAB)    == glfw.PRESS do input.keys.pressed += {.Tab}
 	if glfw.GetKey(g_window, glfw.KEY_SPACE)  == glfw.PRESS do input.keys.pressed += {.Space}
+	if glfw.GetKey(g_window, glfw.KEY_1)     == glfw.PRESS do input.keys.pressed += {.Num_1}
+	if glfw.GetKey(g_window, glfw.KEY_2)     == glfw.PRESS do input.keys.pressed += {.Num_2}
+	if glfw.GetKey(g_window, glfw.KEY_3)     == glfw.PRESS do input.keys.pressed += {.Num_3}
+	if glfw.GetKey(g_window, glfw.KEY_4)     == glfw.PRESS do input.keys.pressed += {.Num_4}
+	if glfw.GetKey(g_window, glfw.KEY_5)     == glfw.PRESS do input.keys.pressed += {.Num_5}
+	if glfw.GetKey(g_window, glfw.KEY_6)     == glfw.PRESS do input.keys.pressed += {.Num_6}
 
 	return input
 }
