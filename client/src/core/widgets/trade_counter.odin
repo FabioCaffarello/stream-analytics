@@ -35,8 +35,8 @@ trade_counter :: proc(buf: ^ui.Command_Buffer, data: Trade_Counter_Data) {
 	for s in data.stats {
 		fx := f64(s.unix)
 		if fx < data.x_min || fx > data.x_max do continue
-		limit = math.max(limit, f64(s.tbuy))
-		limit = math.max(limit, f64(s.tsell))
+		limit = math.max(limit, s.tbuy)
+		limit = math.max(limit, s.tsell)
 	}
 
 	// Clip to viewport.
@@ -65,7 +65,7 @@ trade_counter :: proc(buf: ^ui.Command_Buffer, data: Trade_Counter_Data) {
 		cx := vp.pos.x + t * vp.size.x - bar_w * 0.5
 
 		// Buy bar (green, grows upward from center).
-		buy_h := f32(f64(s.tbuy) / limit) * half_h
+		buy_h := f32(s.tbuy / limit) * half_h
 		if buy_h > 0.5 {
 			ui.push(buf, ui.Cmd_Rect_Filled{
 				rect  = {pos = {cx, center_y - buy_h}, size = {bar_w, buy_h}},
@@ -74,7 +74,7 @@ trade_counter :: proc(buf: ^ui.Command_Buffer, data: Trade_Counter_Data) {
 		}
 
 		// Sell bar (red, grows downward from center).
-		sell_h := f32(f64(s.tsell) / limit) * half_h
+		sell_h := f32(s.tsell / limit) * half_h
 		if sell_h > 0.5 {
 			ui.push(buf, ui.Cmd_Rect_Filled{
 				rect  = {pos = {cx, center_y}, size = {bar_w, sell_h}},

@@ -14,64 +14,36 @@ subject_hash_append :: proc(h: ^u64, s: string) {
 	}
 }
 
+// Maps a channel enum to the canonical (stream_type, timeframe) parts
+// used in MR WS subject strings.
+channel_to_stream_parts :: proc(channel: ports.MD_Channel) -> (stream_type: string, timeframe: string) {
+	switch channel {
+	case .Trades:
+		return "marketdata.trade", "raw"
+	case .Orderbook:
+		return "marketdata.bookdelta", "raw"
+	case .Stats:
+		return "aggregation.stats", "raw"
+	case .Heatmaps:
+		return "insights.heatmap_snapshot", "1m"
+	case .VPVR:
+		return "insights.volume_profile_snapshot", "1m"
+	case .Candles:
+		return "aggregation.candle", "raw"
+	}
+	return "", ""
+}
+
 // Builds a subject string allocated on the heap (context.allocator).
 // Caller owns the returned string; it survives temp_allocator resets.
 build_subject :: proc(venue, symbol: string, channel: ports.MD_Channel) -> string {
-	stream_type: string
-	timeframe: string
-
-	switch channel {
-	case .Trades:
-		stream_type = "marketdata.trade"
-		timeframe = "raw"
-	case .Orderbook:
-		stream_type = "marketdata.bookdelta"
-		timeframe = "raw"
-	case .Stats:
-		stream_type = "aggregation.stats"
-		// Delivery route uses raw; window/timeframe is carried inside payload.
-		timeframe = "raw"
-	case .Heatmaps:
-		stream_type = "insights.heatmap_snapshot"
-		timeframe = "1m"
-	case .VPVR:
-		stream_type = "insights.volume_profile_snapshot"
-		timeframe = "1m"
-	case .Candles:
-		stream_type = "aggregation.candle"
-		// Current WS contract routes aggregation candles on raw subjects.
-		// The concrete candle timeframe is carried in payload.Timeframe.
-		timeframe = "raw"
-	}
-
+	stream_type, timeframe := channel_to_stream_parts(channel)
 	return strings.concatenate({stream_type, "/", venue, "/", symbol, "/", timeframe})
 }
 
 // Stable subject hash built from canonical stream parts without allocating a subject string.
 subject_id64_for_stream :: proc(venue, symbol: string, channel: ports.MD_Channel) -> u64 {
-	stream_type: string
-	timeframe: string
-
-	switch channel {
-	case .Trades:
-		stream_type = "marketdata.trade"
-		timeframe = "raw"
-	case .Orderbook:
-		stream_type = "marketdata.bookdelta"
-		timeframe = "raw"
-	case .Stats:
-		stream_type = "aggregation.stats"
-		timeframe = "raw"
-	case .Heatmaps:
-		stream_type = "insights.heatmap_snapshot"
-		timeframe = "1m"
-	case .VPVR:
-		stream_type = "insights.volume_profile_snapshot"
-		timeframe = "1m"
-	case .Candles:
-		stream_type = "aggregation.candle"
-		timeframe = "raw"
-	}
+	stream_type, timeframe := channel_to_stream_parts(channel)
 
 	h := u64(14695981039346656037)
 	subject_hash_append(&h, stream_type)

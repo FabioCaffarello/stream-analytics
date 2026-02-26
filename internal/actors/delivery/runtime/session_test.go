@@ -10,9 +10,9 @@ import (
 
 	"github.com/anthdm/hollywood/actor"
 	"github.com/gorilla/websocket"
-	mddomain "github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/core/delivery/domain"
 	"github.com/market-raccoon/internal/core/delivery/ports"
+	mddomain "github.com/market-raccoon/internal/core/marketdata/domain"
 	sharedclock "github.com/market-raccoon/internal/shared/clock"
 	"github.com/market-raccoon/internal/shared/codec"
 	"github.com/market-raccoon/internal/shared/contracts"

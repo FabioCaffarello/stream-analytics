@@ -40,20 +40,20 @@ type UpdateResponse struct {
 //  4. Persist snapshot in hot read model
 //  5. Publish updated snapshot via ArtifactPublisher
 type UpdateOrderBookFromEvents struct {
-	publisher ports.ArtifactPublisher
-	store     ports.HotReadModelStore
-	books     *ds.BoundedMap[domain.BookID, *domain.OrderBook]
-	maxLevels int
-	clock                     clock.Clock
+	publisher                  ports.ArtifactPublisher
+	store                      ports.HotReadModelStore
+	books                      *ds.BoundedMap[domain.BookID, *domain.OrderBook]
+	maxLevels                  int
+	clock                      clock.Clock
 	snapshotPublishMinInterval time.Duration
 	lastSnapshotPublishedAt    map[domain.BookID]time.Time
 }
 
 type UpdateConfig struct {
-	MaxBooks                  int
-	BookTTL                   time.Duration
-	MaxLevels                 int
-	Clock                     clock.Clock
+	MaxBooks                   int
+	BookTTL                    time.Duration
+	MaxLevels                  int
+	Clock                      clock.Clock
 	SnapshotPublishMinInterval time.Duration
 }
 
@@ -95,11 +95,11 @@ func NewUpdateOrderBookFromEventsWithConfig(
 		metrics.IncBooksEvicted(reason)
 	})
 	return &UpdateOrderBookFromEvents{
-		publisher:                 pub,
-		store:                     store,
-		books:                     books,
-		maxLevels:                 cfg.MaxLevels,
-		clock:                     cfg.Clock,
+		publisher:                  pub,
+		store:                      store,
+		books:                      books,
+		maxLevels:                  cfg.MaxLevels,
+		clock:                      cfg.Clock,
 		snapshotPublishMinInterval: cfg.SnapshotPublishMinInterval,
 		lastSnapshotPublishedAt:    make(map[domain.BookID]time.Time),
 	}

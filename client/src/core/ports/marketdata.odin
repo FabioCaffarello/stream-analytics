@@ -51,8 +51,8 @@ MD_Orderbook_Event :: struct {
 MD_Stats_Event :: struct {
 	mark_price: f64,
 	funding:    f64,
-	tbuy:       i64,
-	tsell:      i64,
+	tbuy:       f64,
+	tsell:      f64,
 	unix:       i64,
 }
 
@@ -116,11 +116,12 @@ MD_Stream_Info :: struct {
 }
 
 MD_Runtime_Metrics :: struct {
-	active_subs:       int,
-	trade_backlog:     int,
-	drop_count:        int,
-	reconnect_count:   int,
-	latest_pending:    int,
+	active_subs:        int,
+	trade_backlog:      int,
+	drop_count:         int,
+	reconnect_count:    int,
+	latest_pending:     int,
+	parse_error_count:  int,
 }
 
 MD_Event :: struct {

@@ -28,7 +28,21 @@ Orderbook_Widget_Data :: struct {
 
 orderbook_widget :: proc(buf: ^ui.Command_Buffer, data: Orderbook_Widget_Data) {
 	store := data.store
-	if store == nil || (store.ask_count == 0 && store.bid_count == 0) do return
+	if store == nil || (store.ask_count == 0 && store.bid_count == 0) {
+		vp := data.viewport
+		ui.push(buf, ui.Cmd_Rect_Filled{rect = vp, color = ui.COL_PANEL_BG})
+		_ = ui.panel(buf, vp, ui.Panel_Config{
+			title        = "Orderbook",
+			title_height = data.text.line_height(ui.FONT_SIZE_SM),
+			bg_color     = ui.COL_PANEL_BG,
+			pad          = 4,
+		}, data.text.measure, ui.FONT_SIZE_SM)
+		msg :: "Waiting for orderbook..."
+		ui.push_text(buf,
+			{vp.pos.x + vp.size.x * 0.5 - 80, vp.pos.y + vp.size.y * 0.5},
+			msg, ui.with_alpha(ui.COL_WHITE, 0.3), ui.FONT_SIZE_SM)
+		return
+	}
 
 	row_h := data.text.line_height(ui.FONT_SIZE_SM) + 2
 	price_group := data.price_group > 0 ? data.price_group : 10.0

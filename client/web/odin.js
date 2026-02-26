@@ -478,6 +478,8 @@ const imports = {
             new Uint8Array(wasm.memory.buffer, buf_ptr, copyLen).set(
                 encoded.subarray(0, copyLen),
             );
+            // Return negative length when message was truncated so Odin can count.
+            if (encoded.length > buf_len) return -copyLen;
             return copyLen;
         },
 

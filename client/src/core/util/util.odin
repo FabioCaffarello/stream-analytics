@@ -1,10 +1,19 @@
 package util
 
-// Formatting utilities migrated from MarketMonkey (pure).
+// Formatting and timestamp utilities.
 
 import "core:fmt"
 import "core:math"
 import "core:strings"
+
+// Backend envelopes/payloads use unix milliseconds; core widgets use unix seconds.
+// Timestamps above this threshold are assumed to be milliseconds.
+UNIX_MS_THRESHOLD :: i64(10_000_000_000)
+
+normalize_unix_seconds :: proc(ts: i64) -> i64 {
+	if ts > UNIX_MS_THRESHOLD do return ts / 1000
+	return ts
+}
 
 format_price :: proc(price: f64, tick_size: f64) -> string {
 	decimal_places := -math.floor(math.log10(tick_size))

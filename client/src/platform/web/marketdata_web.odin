@@ -4,12 +4,11 @@ package main
 // Polls messages from a JS-side queue via ws_poll_msg foreign proc.
 // Same staging pattern as native (ring + latest-wins), but no mutex needed.
 
-import "core:encoding/json"
 import "core:fmt"
-import "core:math"
 import "core:strconv"
 import "core:time"
 import "mr:ports"
+import "mr:services"
 import "mr:util"
 
 foreign import odin_env "odin_env"
@@ -27,82 +26,20 @@ foreign odin_env {
 // --- Constants ---
 
 WEB_TRADE_RING_CAP   :: 1024
-WEB_OB_DEPTH         :: 50
-WEB_HEATMAP_CAP      :: 512
-WEB_VPVR_CAP         :: 256
 WEB_MAX_SUBS         :: 128
-WEB_RECV_BUF_SIZE    :: 32 * 1024 // 32 KB per message max
+WEB_RECV_BUF_SIZE    :: 128 * 1024 // 128 KB per message max
 WEB_PARSE_MAX_MSGS_PER_POLL :: 64
 WEB_PARSE_TIME_BUDGET       :: 2 * time.Millisecond
 
-// Backend envelopes/payloads use unix milliseconds; core widgets use unix seconds
-// (same convention used in the MarketMonkey-derived layers).
-normalize_unix_seconds :: proc(ts: i64) -> i64 {
-	if ts > 10_000_000_000 do return ts / 1000
-	return ts
-}
+// Reconnection backoff.
+WEB_BACKOFF_INITIAL_S :: 0.5
+WEB_BACKOFF_MAX_S     :: 30.0
+WEB_BACKOFF_MULTIPLIER :: 2.0
+
+// Candle timeframe filter: delivery routes /raw candles, show only this TF on chart.
+CANDLE_TF_FILTER :: "1m"
 
 // --- State ---
-
-Web_OB_Staging :: struct {
-	ask_prices: [WEB_OB_DEPTH]f64,
-	ask_sizes:  [WEB_OB_DEPTH]f64,
-	bid_prices: [WEB_OB_DEPTH]f64,
-	bid_sizes:  [WEB_OB_DEPTH]f64,
-	ask_count:  int,
-	bid_count:  int,
-	last_price: f64,
-	unix:       i64,
-	subject_id: u64,
-}
-
-Web_Stats_Staging :: struct {
-	mark_price: f64,
-	funding:    f64,
-	tbuy:       i64,
-	tsell:      i64,
-	unix:       i64,
-	subject_id: u64,
-}
-
-Web_Heatmap_Staging :: struct {
-	prices:      [WEB_HEATMAP_CAP]f64,
-	sizes:       [WEB_HEATMAP_CAP]f64,
-	level_count: int,
-	price_group: f64,
-	min_price:   f64,
-	max_price:   f64,
-	max_size:    f64,
-	unix:        i64,
-	subject_id:  u64,
-}
-
-Web_VPVR_Staging :: struct {
-	prices:      [WEB_VPVR_CAP]f64,
-	buys:        [WEB_VPVR_CAP]f64,
-	sells:       [WEB_VPVR_CAP]f64,
-	level_count: int,
-	price_group: f64,
-	min_price:   f64,
-	max_price:   f64,
-	unix:        i64,
-	subject_id:  u64,
-}
-
-Web_Candle_Staging :: struct {
-	open:            f64,
-	high:            f64,
-	low:             f64,
-	close:           f64,
-	volume:          f64,
-	buy_vol:         f64,
-	sell_vol:        f64,
-	trade_count:     i64,
-	window_start_ts: i64,
-	window_end_ts:   i64,
-	is_closed:       bool,
-	subject_id:      u64,
-}
 
 Web_Sub_Entry :: struct {
 	subject_id: u64,
@@ -120,15 +57,15 @@ MD_Web_State :: struct {
 	trade_count:           int,
 
 	// Latest-wins staging.
-	ob_staging:      Web_OB_Staging,
+	ob_staging:      services.Parsed_OB,
 	ob_dirty:        bool,
-	stats_staging:   Web_Stats_Staging,
+	stats_staging:   services.Parsed_Stats,
 	stats_dirty:     bool,
-	heatmap_staging: Web_Heatmap_Staging,
+	heatmap_staging: services.Parsed_Heatmap,
 	heatmap_dirty:   bool,
-	vpvr_staging:    Web_VPVR_Staging,
+	vpvr_staging:    services.Parsed_VPVR,
 	vpvr_dirty:      bool,
-	candle_staging:  Web_Candle_Staging,
+	candle_staging:  services.Parsed_Candle,
 	candle_dirty:    bool,
 
 	// Connection.
@@ -138,23 +75,24 @@ MD_Web_State :: struct {
 	// Subscription tracking for reconnect re-subscribe.
 	active_subs:  [WEB_MAX_SUBS]Web_Sub_Entry,
 	active_count: int,
-	rid_counter:  u32,
-	drop_count:   int,
-	reconnect_count: int,
+	rid_counter:       u32,
+	drop_count:        int,
+	reconnect_count:   int,
+	parse_error_count: int,
 
 	// Receive buffer (reused each poll).
 	recv_buf: [WEB_RECV_BUF_SIZE]u8,
 
 	// Temp arrays for poll output (avoids aliasing staging).
-	poll_ask_prices:  [WEB_OB_DEPTH]f64,
-	poll_ask_sizes:   [WEB_OB_DEPTH]f64,
-	poll_bid_prices:  [WEB_OB_DEPTH]f64,
-	poll_bid_sizes:   [WEB_OB_DEPTH]f64,
-	poll_hm_prices:   [WEB_HEATMAP_CAP]f64,
-	poll_hm_sizes:    [WEB_HEATMAP_CAP]f64,
-	poll_vpvr_prices: [WEB_VPVR_CAP]f64,
-	poll_vpvr_buys:   [WEB_VPVR_CAP]f64,
-	poll_vpvr_sells:  [WEB_VPVR_CAP]f64,
+	poll_ask_prices:  [services.OB_STAGING_DEPTH]f64,
+	poll_ask_sizes:   [services.OB_STAGING_DEPTH]f64,
+	poll_bid_prices:  [services.OB_STAGING_DEPTH]f64,
+	poll_bid_sizes:   [services.OB_STAGING_DEPTH]f64,
+	poll_hm_prices:   [services.HEATMAP_STAGING_CAP]f64,
+	poll_hm_sizes:    [services.HEATMAP_STAGING_CAP]f64,
+	poll_vpvr_prices: [services.VPVR_STAGING_CAP]f64,
+	poll_vpvr_buys:   [services.VPVR_STAGING_CAP]f64,
+	poll_vpvr_sells:  [services.VPVR_STAGING_CAP]f64,
 
 	// Reconnection tracking.
 	was_connected:   bool,
@@ -333,11 +271,12 @@ web_metrics :: proc(out: ^ports.MD_Runtime_Metrics) -> bool {
 	if state.vpvr_dirty do latest_pending += 1
 	if state.candle_dirty do latest_pending += 1
 	out^ = ports.MD_Runtime_Metrics{
-		active_subs     = state.active_count,
-		trade_backlog   = state.trade_count,
-		drop_count      = state.drop_count,
-		reconnect_count = state.reconnect_count,
-		latest_pending  = latest_pending,
+		active_subs       = state.active_count,
+		trade_backlog     = state.trade_count,
+		drop_count        = state.drop_count,
+		reconnect_count   = state.reconnect_count,
+		latest_pending    = latest_pending,
+		parse_error_count = state.parse_error_count,
 	}
 	return true
 }
@@ -416,7 +355,7 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 
 	if !is_open && state.was_connected {
 		// Just disconnected — start backoff.
-		state.backoff_s = 0.5
+		state.backoff_s = WEB_BACKOFF_INITIAL_S
 		state.reconnect_timer = state.backoff_s
 		state.was_connected = false
 	}
@@ -433,14 +372,14 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 				hdr_raw := raw_data(transmute([]u8)hdr)
 				state.reconnect_count += 1
 				ws_connect(url_raw, i32(len(state.ws_url)), hdr_raw, i32(len(hdr)))
-				state.backoff_s = min(state.backoff_s * 2.0, 30.0)
+				state.backoff_s = min(state.backoff_s * WEB_BACKOFF_MULTIPLIER, WEB_BACKOFF_MAX_S)
 				state.reconnect_timer = state.backoff_s
 		}
 	}
 
 	// If just connected, re-subscribe all active subs.
 	if is_open && !state.was_connected {
-		state.backoff_s = 0.5
+		state.backoff_s = WEB_BACKOFF_INITIAL_S
 		for i in 0 ..< state.active_count {
 			sub := state.active_subs[i]
 			if len(sub.subject) > 0 {
@@ -458,7 +397,12 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 	for drained_msgs < state.parse_max_msgs_per_poll {
 		n := ws_poll_msg(raw_data(state.recv_buf[:]), i32(WEB_RECV_BUF_SIZE))
 		if n <= 0 do break
-		web_parse_message(state, state.recv_buf[:n])
+		if n < 0 {
+			// Negative = truncation signal from JS bridge.
+			state.parse_error_count += 1
+			continue
+		}
+		web_apply_parse_result(state, state.recv_buf[:n])
 		drained_msgs += 1
 		if state.parse_time_budget > 0 && time.tick_since(drain_start) >= state.parse_time_budget {
 			hit_time_budget = true
@@ -545,7 +489,7 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 	// Heatmap.
 	if state.heatmap_dirty && out < len(events_buf) {
 		hm := state.heatmap_staging
-		lc := min(hm.level_count, WEB_HEATMAP_CAP)
+		lc := min(hm.level_count, services.HEATMAP_STAGING_CAP)
 		for i in 0 ..< lc {
 			state.poll_hm_prices[i] = hm.prices[i]
 			state.poll_hm_sizes[i]  = hm.sizes[i]
@@ -571,7 +515,7 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 	// VPVR.
 	if state.vpvr_dirty && out < len(events_buf) {
 		vp := state.vpvr_staging
-		lc := min(vp.level_count, WEB_VPVR_CAP)
+		lc := min(vp.level_count, services.VPVR_STAGING_CAP)
 		for i in 0 ..< lc {
 			state.poll_vpvr_prices[i] = vp.prices[i]
 			state.poll_vpvr_buys[i]   = vp.buys[i]
@@ -601,7 +545,7 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 		events_buf[out].source.subject_id = cs.subject_id
 		events_buf[out].source.channel = .Candles
 		events_buf[out].kind = .Candle
-		events_buf[out].unix = normalize_unix_seconds(cs.window_end_ts)
+		events_buf[out].unix = util.normalize_unix_seconds(cs.window_end_ts)
 		events_buf[out].data.candle = ports.MD_Candle_Event{
 			open            = cs.open,
 			high            = cs.high,
@@ -672,237 +616,61 @@ web_conn_status :: proc() -> ports.MD_Conn_Status {
 	return .Offline
 }
 
-// --- Message parsing (mirrors native parse_mr_message) ---
+// --- Message parsing ---
+// Delegates to shared services.parse_mr_message, then writes results to staging.
+// Single-threaded (WASM) so no mutex needed.
 
 @(private = "file")
-web_parse_message :: proc(state: ^MD_Web_State, raw: []u8) {
-	env: util.MR_Envelope
-	if json.unmarshal(raw, &env) != nil do return
+web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
+	telemetry: services.Parse_Telemetry
+	result := services.parse_mr_message(raw, &telemetry, CANDLE_TF_FILTER)
 
-	ft := util.parse_frame_type(env.type_str)
+	if telemetry.parse_errors > 0 {
+		state.parse_error_count += telemetry.parse_errors
+		if state.parse_error_count <= 3 || state.parse_error_count % 50 == 0 {
+			preview_len := min(len(raw), 120)
+			fmt.printf("[ws] Parse error #%d: %s\n", state.parse_error_count, string(raw[:preview_len]))
+		}
+	}
 
-	switch ft {
+	switch result.kind {
 	case .Ack:
-		fmt.printf("[ws] Ack: op=%s subject=%s\n", env.op, env.subject)
-		return
+		ack := result.data.ack
+		fmt.printf("[ws] Ack: op=%s subject=%s\n", ack.op, ack.subject)
 	case .Error:
 		preview_len := min(len(raw), 200)
 		fmt.printf("[ws] Error: %s\n", string(raw[:preview_len]))
-		return
-	case .Range, .Last, .Unknown:
-		return
-	case .Event, .Snapshot:
-		// Fall through to payload parsing.
-	}
-
-	stream := util.subject_stream_type(env.subject)
-	subject_id := util.subject_id64(env.subject)
-
-	switch stream {
-	case "marketdata.trade":
-		web_handle_trade(state, raw, env.ts_ingest, subject_id)
-	case "marketdata.bookdelta":
-		web_handle_book_delta(state, raw, env.ts_ingest, subject_id)
-	case "aggregation.stats":
-		web_handle_stats(state, raw, env.ts_ingest, subject_id)
-	case "insights.heatmap_snapshot":
-		web_handle_heatmap(state, raw, env.ts_ingest, subject_id)
-	case "insights.volume_profile_snapshot":
-		web_handle_vpvr(state, raw, env.ts_ingest, subject_id)
-	case "aggregation.candle":
-		web_handle_candle(state, raw, env.ts_ingest, subject_id)
-	}
-}
-
-@(private = "file")
-web_handle_trade :: proc(state: ^MD_Web_State, raw: []u8, ts: i64, subject_id: u64) {
-	frame: util.MR_Trade_Frame
-	if json.unmarshal(raw, &frame) != nil do return
-	trade := frame.payload
-
-	unix := normalize_unix_seconds(trade.timestamp_ms if trade.timestamp_ms != 0 else ts)
-
-	if state.trade_count < WEB_TRADE_RING_CAP {
-		state.trade_count += 1
-	} else {
-		state.drop_count += 1
-	}
-	// Latest-wins ring semantics: when full, overwrite the oldest entry and keep count at cap.
-	state.trade_ring_subject_id[state.trade_write] = subject_id
-	state.trade_ring[state.trade_write] = ports.MD_Trade_Event{
-		price  = trade.price,
-		qty    = trade.size,
-		is_buy = trade.side == "buy",
-		unix   = unix,
-	}
-	state.trade_write = (state.trade_write + 1) % WEB_TRADE_RING_CAP
-}
-
-@(private = "file")
-web_handle_book_delta :: proc(state: ^MD_Web_State, raw: []u8, ts: i64, subject_id: u64) {
-	frame: util.MR_Book_Delta_Frame
-	if json.unmarshal(raw, &frame) != nil do return
-	bd := frame.payload
-
-	unix := normalize_unix_seconds(bd.timestamp_ms if bd.timestamp_ms != 0 else ts)
-
-	ac := min(len(bd.asks), WEB_OB_DEPTH)
-	bc := min(len(bd.bids), WEB_OB_DEPTH)
-	state.ob_staging.ask_count = ac
-	state.ob_staging.bid_count = bc
-	state.ob_staging.unix = unix
-	state.ob_staging.subject_id = subject_id
-
-	if ac > 0 && bc > 0 {
-		state.ob_staging.last_price = (bd.asks[0].price + bd.bids[0].price) / 2.0
-	}
-
-	for i in 0 ..< ac {
-		state.ob_staging.ask_prices[i] = bd.asks[i].price
-		state.ob_staging.ask_sizes[i]  = bd.asks[i].size
-	}
-	for i in 0 ..< bc {
-		state.ob_staging.bid_prices[i] = bd.bids[i].price
-		state.ob_staging.bid_sizes[i]  = bd.bids[i].size
-	}
-	state.ob_dirty = true
-}
-
-@(private = "file")
-web_handle_stats :: proc(state: ^MD_Web_State, raw: []u8, ts: i64, subject_id: u64) {
-	frame: util.MR_Stats_Frame
-	if json.unmarshal(raw, &frame) != nil do return
-	s := frame.payload
-	if s.window_start_ts == 0 && s.window_end_ts == 0 {
-		wrapped: util.MR_Stats_Frame_Wrapped
-		if json.unmarshal(raw, &wrapped) == nil {
-			s = wrapped.payload.stats
+	case .Trade:
+		t := result.data.trade
+		if state.trade_count < WEB_TRADE_RING_CAP {
+			state.trade_count += 1
+		} else {
+			state.drop_count += 1
 		}
-	}
-
-	unix := normalize_unix_seconds(s.window_end_ts if s.window_end_ts != 0 else ts)
-
-	state.stats_staging = Web_Stats_Staging{
-		mark_price = s.mark_price_close,
-		funding    = s.funding_rate_last,
-		tbuy       = i64(s.liq_buy_volume),
-		tsell      = i64(s.liq_sell_volume),
-		unix       = unix,
-		subject_id = subject_id,
-	}
-	state.stats_dirty = true
-}
-
-@(private = "file")
-web_handle_heatmap :: proc(state: ^MD_Web_State, raw: []u8, ts: i64, subject_id: u64) {
-	frame: util.MR_Heatmap_Frame
-	if json.unmarshal(raw, &frame) != nil do return
-	hm := frame.payload
-
-	unix := normalize_unix_seconds(hm.window_end_ts if hm.window_end_ts != 0 else ts)
-	lc := min(len(hm.cells), WEB_HEATMAP_CAP)
-
-	min_p := math.F64_MAX
-	max_p := f64(0)
-	max_s := f64(0)
-	price_group := f64(0)
-
-	for i in 0 ..< lc {
-		c := hm.cells[i]
-		mid := (c.price_bucket_low + c.price_bucket_high) / 2.0
-		total := c.bid_liquidity + c.ask_liquidity + c.trade_volume
-
-		if i == 0 {
-			price_group = c.price_bucket_high - c.price_bucket_low
+		state.trade_ring_subject_id[state.trade_write] = t.subject_id
+		state.trade_ring[state.trade_write] = ports.MD_Trade_Event{
+			price  = t.price,
+			qty    = t.qty,
+			is_buy = t.is_buy,
+			unix   = t.unix,
 		}
-		if mid < min_p do min_p = mid
-		if mid > max_p do max_p = mid
-		if total > max_s do max_s = total
+		state.trade_write = (state.trade_write + 1) % WEB_TRADE_RING_CAP
+	case .Orderbook:
+		state.ob_staging = result.data.ob
+		state.ob_dirty = true
+	case .Stats:
+		state.stats_staging = result.data.stats
+		state.stats_dirty = true
+	case .Heatmap:
+		state.heatmap_staging = result.data.heatmap
+		state.heatmap_dirty = true
+	case .VPVR:
+		state.vpvr_staging = result.data.vpvr
+		state.vpvr_dirty = true
+	case .Candle:
+		state.candle_staging = result.data.candle
+		state.candle_dirty = true
+	case .None:
+		// Ignored (range, last, unknown frame types).
 	}
-
-	state.heatmap_staging.level_count = lc
-	state.heatmap_staging.price_group = price_group
-	state.heatmap_staging.min_price = min_p if lc > 0 else 0
-	state.heatmap_staging.max_price = max_p
-	state.heatmap_staging.max_size = max_s
-	state.heatmap_staging.unix = unix
-	state.heatmap_staging.subject_id = subject_id
-	for i in 0 ..< lc {
-		c := hm.cells[i]
-		state.heatmap_staging.prices[i] = (c.price_bucket_low + c.price_bucket_high) / 2.0
-		state.heatmap_staging.sizes[i]  = c.bid_liquidity + c.ask_liquidity + c.trade_volume
-	}
-	state.heatmap_dirty = true
-}
-
-@(private = "file")
-web_handle_vpvr :: proc(state: ^MD_Web_State, raw: []u8, ts: i64, subject_id: u64) {
-	frame: util.MR_VPVR_Frame
-	if json.unmarshal(raw, &frame) != nil do return
-	vp := frame.payload
-
-	unix := normalize_unix_seconds(vp.window_end_ts if vp.window_end_ts != 0 else ts)
-	lc := min(len(vp.buckets), WEB_VPVR_CAP)
-
-	min_p := math.F64_MAX
-	max_p := f64(0)
-	price_group := f64(0)
-
-	for i in 0 ..< lc {
-		b := vp.buckets[i]
-		mid := (b.price_low + b.price_high) / 2.0
-		if i == 0 {
-			price_group = b.price_high - b.price_low
-		}
-		if mid < min_p do min_p = mid
-		if mid > max_p do max_p = mid
-	}
-
-	state.vpvr_staging.level_count = lc
-	state.vpvr_staging.price_group = price_group
-	state.vpvr_staging.min_price = min_p if lc > 0 else 0
-	state.vpvr_staging.max_price = max_p
-	state.vpvr_staging.unix = unix
-	state.vpvr_staging.subject_id = subject_id
-	for i in 0 ..< lc {
-		b := vp.buckets[i]
-		state.vpvr_staging.prices[i] = (b.price_low + b.price_high) / 2.0
-		state.vpvr_staging.buys[i]   = b.buy_volume
-		state.vpvr_staging.sells[i]  = b.sell_volume
-	}
-	state.vpvr_dirty = true
-}
-
-@(private = "file")
-web_handle_candle :: proc(state: ^MD_Web_State, raw: []u8, ts: i64, subject_id: u64) {
-	// Try wrapped format first: {"payload": {"Candle": {...}}}
-	frame: util.MR_Candle_Frame
-	if json.unmarshal(raw, &frame) != nil do return
-	c := frame.payload.candle
-	// If wrapped parse yields zero fields, try flat format.
-	if c.WindowStartTs == 0 && c.WindowEndTs == 0 {
-		flat: util.MR_Candle_Frame_Flat
-		if json.unmarshal(raw, &flat) == nil {
-			c = flat.payload
-		}
-	}
-	if c.WindowStartTs == 0 do return
-	// WS delivery currently uses /raw for candles; keep the chart on 1m only.
-	if c.Timeframe != "" && c.Timeframe != "1m" do return
-
-	state.candle_staging = Web_Candle_Staging{
-		open            = c.Open,
-		high            = c.High,
-		low             = c.Low,
-		close           = c.ClosePrice,
-		volume          = c.Volume,
-		buy_vol         = c.BuyVolume,
-		sell_vol        = c.SellVolume,
-		trade_count     = c.TradeCount,
-		window_start_ts = c.WindowStartTs,
-		window_end_ts   = c.WindowEndTs,
-		is_closed       = c.IsClosed,
-		subject_id      = subject_id,
-	}
-	state.candle_dirty = true
 }

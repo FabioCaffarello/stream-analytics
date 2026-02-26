@@ -199,6 +199,7 @@ runtime_probe :: proc(state: ^App_State) -> Runtime_Probe {
 		_ = drain_marketdata(state)
 		_ = handle_stream_hotkeys(state, input)
 		sample_marketdata_metrics(state)
+		observe_candle_health(state)
 		cache_render_observations(state, input)
 		return build_ui(state, input)
 	}
@@ -585,6 +586,25 @@ handle_stream_hotkeys :: proc(state: ^App_State, input: ports.Input_State) -> bo
 
 	if !(tab_down && !tab_was_down) do return false
 	_ = stream_view_repair_invariants(state.stream_views)
+
+	is_offline := current_conn_status(state) == .Offline
+	if is_offline {
+		// In offline mode with no stream views, re-populate demo data.
+		state.trades_store = {}
+		state.orderbook_store = {}
+		state.heatmap_store = {}
+		state.vpvr_store = {}
+		state.stats_store = {}
+		state.candle_store = {}
+		services.fill_demo_trades(&state.trades_store)
+		services.fill_demo_orderbook(&state.orderbook_store)
+		services.fill_demo_heatmaps(&state.heatmap_store)
+		services.fill_demo_vpvr(&state.vpvr_store)
+		services.fill_demo_stats(&state.stats_store)
+		services.fill_demo_candles(&state.candle_store)
+		return true
+	}
+
 	if !stream_view_cycle_active(state.stream_views) do return false
 
 	sync_active_stream_view_to_global_stores(state)
@@ -677,8 +697,8 @@ apply_stats_to_store :: proc(store: ^services.Stats_Store, st: ports.MD_Stats_Ev
 	services.push_stats(store, services.Stats_Entry{
 		mark_price = st.mark_price,
 		funding    = st.funding,
-		liq_buy    = f64(st.tbuy),
-		liq_sell   = f64(st.tsell),
+		liq_buy    = st.tbuy,
+		liq_sell   = st.tsell,
 		unix       = st.unix,
 	})
 }
@@ -918,8 +938,8 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 		e := services.get_stats(&state.stats_store, i)
 		stats_buf[sc] = model.Stat{
 			unix       = e.unix,
-			tbuy       = i64(e.liq_buy),
-			tsell      = i64(e.liq_sell),
+			tbuy       = e.liq_buy,
+			tsell      = e.liq_sell,
 			mark_price = e.mark_price,
 			funding    = e.funding,
 		}

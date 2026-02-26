@@ -217,10 +217,10 @@ func TestUpdateOrderBook_snapshotPublishMinIntervalThrottlesPublishOnly(t *testi
 	store := &fakeStore{}
 	clk := clock.NewFakeClock(time.UnixMilli(1_700_000_000_000))
 	uc := app.NewUpdateOrderBookFromEventsWithConfig(pub, store, app.UpdateConfig{
-		MaxBooks:                  8,
-		BookTTL:                   time.Hour,
-		MaxLevels:                 128,
-		Clock:                     clk,
+		MaxBooks:                   8,
+		BookTTL:                    time.Hour,
+		MaxLevels:                  128,
+		Clock:                      clk,
 		SnapshotPublishMinInterval: 200 * time.Millisecond,
 	})
 

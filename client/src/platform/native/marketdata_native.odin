@@ -4,19 +4,15 @@ package main
 // Ring buffer for trades, single-slot latest-wins for orderbook/stats/heatmap/vpvr.
 // Automatic reconnection with exponential backoff + re-subscribe on reconnect.
 
-import "core:encoding/json"
 import "core:fmt"
-import "core:math"
 import "core:sync"
 import "core:thread"
 import "core:time"
 import "mr:ports"
+import "mr:services"
 import "mr:util"
 
 TRADE_RING_CAP :: 1024
-OB_STAGING_DEPTH :: 50
-HEATMAP_STAGING_CAP :: 512
-VPVR_STAGING_CAP :: 256
 MAX_SUBS :: 128
 
 // --- Reconnection constants ---
@@ -25,12 +21,8 @@ BACKOFF_INITIAL_MS :: 500
 BACKOFF_MAX_MS     :: 30_000
 BACKOFF_MULTIPLIER :: 2
 
-// Backend envelopes/payloads use unix milliseconds; core widgets use unix seconds
-// (same convention used in the MarketMonkey-derived layers).
-normalize_unix_seconds :: proc(ts: i64) -> i64 {
-	if ts > 10_000_000_000 do return ts / 1000
-	return ts
-}
+// Candle timeframe filter: delivery routes /raw candles, show only this TF on chart.
+CANDLE_TF_FILTER :: "1m"
 
 // --- Internal state (package-level singleton) ---
 
@@ -39,66 +31,6 @@ Conn_State :: enum u8 {
 	Connecting,
 	Connected,
 	Backoff_Wait,
-}
-
-OB_Staging :: struct {
-	ask_prices: [OB_STAGING_DEPTH]f64,
-	ask_sizes:  [OB_STAGING_DEPTH]f64,
-	bid_prices: [OB_STAGING_DEPTH]f64,
-	bid_sizes:  [OB_STAGING_DEPTH]f64,
-	ask_count:  int,
-	bid_count:  int,
-	last_price: f64,
-	unix:       i64,
-	subject_id: u64,
-}
-
-Stats_Staging :: struct {
-	mark_price: f64,
-	funding:    f64,
-	tbuy:       i64,
-	tsell:      i64,
-	unix:       i64,
-	subject_id: u64,
-}
-
-Heatmap_Staging :: struct {
-	prices:      [HEATMAP_STAGING_CAP]f64,
-	sizes:       [HEATMAP_STAGING_CAP]f64,
-	level_count: int,
-	price_group: f64,
-	min_price:   f64,
-	max_price:   f64,
-	max_size:    f64,
-	unix:        i64,
-	subject_id:  u64,
-}
-
-VPVR_Staging :: struct {
-	prices: [VPVR_STAGING_CAP]f64,
-	buys:   [VPVR_STAGING_CAP]f64,
-	sells:  [VPVR_STAGING_CAP]f64,
-	level_count: int,
-	price_group: f64,
-	min_price:   f64,
-	max_price:   f64,
-	unix:        i64,
-	subject_id:  u64,
-}
-
-Candle_Staging :: struct {
-	open:            f64,
-	high:            f64,
-	low:             f64,
-	close:           f64,
-	volume:          f64,
-	buy_vol:         f64,
-	sell_vol:        f64,
-	trade_count:     i64,
-	window_start_ts: i64,
-	window_end_ts:   i64,
-	is_closed:       bool,
-	subject_id:      u64,
 }
 
 Sub_Entry :: struct {
@@ -117,23 +49,23 @@ MD_Native_State :: struct {
 	trade_count:           int,
 
 	// Orderbook snapshot (latest-wins, single-slot).
-	ob_staging: OB_Staging,
+	ob_staging: services.Parsed_OB,
 	ob_dirty:   bool,
 
 	// Stats staging (latest-wins).
-	stats_staging: Stats_Staging,
+	stats_staging: services.Parsed_Stats,
 	stats_dirty:   bool,
 
 	// Heatmap staging (latest-wins).
-	heatmap_staging: Heatmap_Staging,
+	heatmap_staging: services.Parsed_Heatmap,
 	heatmap_dirty:   bool,
 
 	// VPVR staging (latest-wins).
-	vpvr_staging: VPVR_Staging,
+	vpvr_staging: services.Parsed_VPVR,
 	vpvr_dirty:   bool,
 
 	// Candle staging (latest-wins single candle).
-	candle_staging: Candle_Staging,
+	candle_staging: services.Parsed_Candle,
 	candle_dirty:   bool,
 
 	// Connection.
@@ -149,6 +81,7 @@ MD_Native_State :: struct {
 	// Reconnection.
 	backoff_ms:      int,
 	reconnect_count: int,
+	parse_error_count: int,
 
 	// Subscription tracking for reconnect re-subscribe.
 	active_subs:  [MAX_SUBS]Sub_Entry,
@@ -158,15 +91,15 @@ MD_Native_State :: struct {
 	rid_counter: u32,
 
 	// Temp arrays for poll() — main thread only.
-	poll_ask_prices:    [OB_STAGING_DEPTH]f64,
-	poll_ask_sizes:     [OB_STAGING_DEPTH]f64,
-	poll_bid_prices:    [OB_STAGING_DEPTH]f64,
-	poll_bid_sizes:     [OB_STAGING_DEPTH]f64,
-	poll_hm_prices:     [HEATMAP_STAGING_CAP]f64,
-	poll_hm_sizes:      [HEATMAP_STAGING_CAP]f64,
-	poll_vpvr_prices:   [VPVR_STAGING_CAP]f64,
-	poll_vpvr_buys:     [VPVR_STAGING_CAP]f64,
-	poll_vpvr_sells:    [VPVR_STAGING_CAP]f64,
+	poll_ask_prices:    [services.OB_STAGING_DEPTH]f64,
+	poll_ask_sizes:     [services.OB_STAGING_DEPTH]f64,
+	poll_bid_prices:    [services.OB_STAGING_DEPTH]f64,
+	poll_bid_sizes:     [services.OB_STAGING_DEPTH]f64,
+	poll_hm_prices:     [services.HEATMAP_STAGING_CAP]f64,
+	poll_hm_sizes:      [services.HEATMAP_STAGING_CAP]f64,
+	poll_vpvr_prices:   [services.VPVR_STAGING_CAP]f64,
+	poll_vpvr_buys:     [services.VPVR_STAGING_CAP]f64,
+	poll_vpvr_sells:    [services.VPVR_STAGING_CAP]f64,
 }
 
 @(private = "file")
@@ -327,11 +260,12 @@ native_metrics :: proc(out: ^ports.MD_Runtime_Metrics) -> bool {
 	if state.vpvr_dirty do latest_pending += 1
 	if state.candle_dirty do latest_pending += 1
 	out^ = ports.MD_Runtime_Metrics{
-		active_subs     = state.active_count,
-		trade_backlog   = state.trade_count,
-		drop_count      = state.drop_count,
-		reconnect_count = state.reconnect_count,
-		latest_pending  = latest_pending,
+		active_subs       = state.active_count,
+		trade_backlog     = state.trade_count,
+		drop_count        = state.drop_count,
+		reconnect_count   = state.reconnect_count,
+		latest_pending    = latest_pending,
+		parse_error_count = state.parse_error_count,
 	}
 	sync.unlock(&state.mu)
 	return true
@@ -464,7 +398,7 @@ native_poll :: proc(events_buf: []ports.MD_Event) -> int {
 	// Emit latest heatmap if dirty.
 	if state.heatmap_dirty && n < len(events_buf) {
 		hm := state.heatmap_staging
-		lc := min(hm.level_count, HEATMAP_STAGING_CAP)
+		lc := min(hm.level_count, services.HEATMAP_STAGING_CAP)
 
 		for i in 0 ..< lc {
 			state.poll_hm_prices[i] = hm.prices[i]
@@ -492,7 +426,7 @@ native_poll :: proc(events_buf: []ports.MD_Event) -> int {
 	// Emit latest VPVR if dirty.
 	if state.vpvr_dirty && n < len(events_buf) {
 		vp := state.vpvr_staging
-		lc := min(vp.level_count, VPVR_STAGING_CAP)
+		lc := min(vp.level_count, services.VPVR_STAGING_CAP)
 
 		for i in 0 ..< lc {
 			state.poll_vpvr_prices[i] = vp.prices[i]
@@ -524,7 +458,7 @@ native_poll :: proc(events_buf: []ports.MD_Event) -> int {
 		events_buf[n].source.subject_id = cs.subject_id
 		events_buf[n].source.channel = .Candles
 		events_buf[n].kind = .Candle
-		events_buf[n].unix = normalize_unix_seconds(cs.window_end_ts)
+		events_buf[n].unix = util.normalize_unix_seconds(cs.window_end_ts)
 		events_buf[n].data.candle = ports.MD_Candle_Event{
 			open            = cs.open,
 			high            = cs.high,
@@ -601,7 +535,7 @@ reader_thread_proc :: proc(t: ^thread.Thread) {
 
 		if opcode != 0x1 do continue // Only handle text frames.
 
-		parse_mr_message(state, payload)
+		apply_parse_result(state, payload)
 		free_all(context.temp_allocator)
 	}
 }
@@ -663,259 +597,76 @@ attempt_reconnect :: proc(state: ^MD_Native_State) {
 }
 
 // --- MR protocol JSON parsing ---
-// Two-pass: (1) unmarshal envelope for type+subject, (2) unmarshal same raw
-// bytes into typed frame struct (json.unmarshal ignores unknown fields).
+// Delegates to shared services.parse_mr_message, then writes results to staging
+// under mutex protection (background thread → main thread handoff).
 
 @(private = "file")
-parse_mr_message :: proc(state: ^MD_Native_State, raw: []u8) {
-	// Pass 1: envelope only.
-	env: util.MR_Envelope
-	if json.unmarshal(raw, &env) != nil do return
+apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
+	telemetry: services.Parse_Telemetry
+	result := services.parse_mr_message(raw, &telemetry, CANDLE_TF_FILTER)
 
-	ft := util.parse_frame_type(env.type_str)
+	// Accumulate telemetry under lock.
+	if telemetry.parse_errors > 0 {
+		sync.lock(&state.mu)
+		state.parse_error_count += telemetry.parse_errors
+		ec := state.parse_error_count
+		sync.unlock(&state.mu)
+		if ec <= 3 || ec % 50 == 0 {
+			preview_len := min(len(raw), 120)
+			fmt.printf("[marketdata] Parse error #%d: %s\n", ec, string(raw[:preview_len]))
+		}
+	}
 
-	switch ft {
+	switch result.kind {
 	case .Ack:
-		fmt.printf("[marketdata] Ack: op=%s subject=%s\n", env.op, env.subject)
-		return
+		ack := result.data.ack
+		fmt.printf("[marketdata] Ack: op=%s subject=%s\n", ack.op, ack.subject)
 	case .Error:
 		preview_len := min(len(raw), 200)
 		fmt.printf("[marketdata] Error: %s\n", string(raw[:preview_len]))
-		return
-	case .Range, .Last, .Unknown:
-		return
-	case .Event, .Snapshot:
-		// Fall through to payload parsing.
-	}
-
-	// Pass 2: re-parse same bytes into typed frame struct.
-	stream := util.subject_stream_type(env.subject)
-	subject_id := util.subject_id64(env.subject)
-
-	switch stream {
-	case "marketdata.trade":
-		handle_trade(state, raw, env.ts_ingest, subject_id)
-	case "marketdata.bookdelta":
-		handle_book_delta(state, raw, env.ts_ingest, subject_id)
-	case "aggregation.stats":
-		handle_stats(state, raw, env.ts_ingest, subject_id)
-	case "insights.heatmap_snapshot":
-		handle_heatmap(state, raw, env.ts_ingest, subject_id)
-	case "insights.volume_profile_snapshot":
-		handle_vpvr(state, raw, env.ts_ingest, subject_id)
-	case "aggregation.candle":
-		handle_candle(state, raw, env.ts_ingest, subject_id)
-	}
-}
-
-@(private = "file")
-handle_trade :: proc(state: ^MD_Native_State, raw: []u8, ts: i64, subject_id: u64) {
-	frame: util.MR_Trade_Frame
-	if json.unmarshal(raw, &frame) != nil do return
-	trade := frame.payload
-
-	unix := normalize_unix_seconds(trade.timestamp_ms if trade.timestamp_ms != 0 else ts)
-
-	sync.lock(&state.mu)
-	if state.trade_count < TRADE_RING_CAP {
-		state.trade_ring_subject_id[state.trade_write] = subject_id
-		state.trade_ring[state.trade_write] = ports.MD_Trade_Event{
-			price  = trade.price,
-			qty    = trade.size,
-			is_buy = trade.side == "buy",
-			unix   = unix,
+	case .Trade:
+		t := result.data.trade
+		sync.lock(&state.mu)
+		if state.trade_count < TRADE_RING_CAP {
+			state.trade_ring_subject_id[state.trade_write] = t.subject_id
+			state.trade_ring[state.trade_write] = ports.MD_Trade_Event{
+				price  = t.price,
+				qty    = t.qty,
+				is_buy = t.is_buy,
+				unix   = t.unix,
+			}
+			state.trade_write = (state.trade_write + 1) % TRADE_RING_CAP
+			state.trade_count += 1
+		} else {
+			state.drop_count += 1
 		}
-		state.trade_write = (state.trade_write + 1) % TRADE_RING_CAP
-		state.trade_count += 1
-	} else {
-		state.drop_count += 1
+		sync.unlock(&state.mu)
+	case .Orderbook:
+		sync.lock(&state.mu)
+		state.ob_staging = result.data.ob
+		state.ob_dirty = true
+		sync.unlock(&state.mu)
+	case .Stats:
+		sync.lock(&state.mu)
+		state.stats_staging = result.data.stats
+		state.stats_dirty = true
+		sync.unlock(&state.mu)
+	case .Heatmap:
+		sync.lock(&state.mu)
+		state.heatmap_staging = result.data.heatmap
+		state.heatmap_dirty = true
+		sync.unlock(&state.mu)
+	case .VPVR:
+		sync.lock(&state.mu)
+		state.vpvr_staging = result.data.vpvr
+		state.vpvr_dirty = true
+		sync.unlock(&state.mu)
+	case .Candle:
+		sync.lock(&state.mu)
+		state.candle_staging = result.data.candle
+		state.candle_dirty = true
+		sync.unlock(&state.mu)
+	case .None:
+		// Ignored (range, last, unknown frame types).
 	}
-	sync.unlock(&state.mu)
-
-	if state.drop_count > 0 && state.drop_count % 100 == 0 {
-		fmt.printf("[marketdata] Dropped %d events (ring full)\n", state.drop_count)
-	}
-}
-
-@(private = "file")
-handle_book_delta :: proc(state: ^MD_Native_State, raw: []u8, ts: i64, subject_id: u64) {
-	frame: util.MR_Book_Delta_Frame
-	if json.unmarshal(raw, &frame) != nil do return
-	bd := frame.payload
-
-	unix := normalize_unix_seconds(bd.timestamp_ms if bd.timestamp_ms != 0 else ts)
-
-	sync.lock(&state.mu)
-	ac := min(len(bd.asks), OB_STAGING_DEPTH)
-	bc := min(len(bd.bids), OB_STAGING_DEPTH)
-	state.ob_staging.ask_count = ac
-	state.ob_staging.bid_count = bc
-	state.ob_staging.unix = unix
-	state.ob_staging.subject_id = subject_id
-
-	if ac > 0 && bc > 0 {
-		state.ob_staging.last_price = (bd.asks[0].price + bd.bids[0].price) / 2.0
-	}
-
-	for i in 0 ..< ac {
-		state.ob_staging.ask_prices[i] = bd.asks[i].price
-		state.ob_staging.ask_sizes[i]  = bd.asks[i].size
-	}
-	for i in 0 ..< bc {
-		state.ob_staging.bid_prices[i] = bd.bids[i].price
-		state.ob_staging.bid_sizes[i]  = bd.bids[i].size
-	}
-	state.ob_dirty = true
-	sync.unlock(&state.mu)
-}
-
-@(private = "file")
-handle_stats :: proc(state: ^MD_Native_State, raw: []u8, ts: i64, subject_id: u64) {
-	frame: util.MR_Stats_Frame
-	if json.unmarshal(raw, &frame) != nil do return
-	s := frame.payload
-	if s.window_start_ts == 0 && s.window_end_ts == 0 {
-		wrapped: util.MR_Stats_Frame_Wrapped
-		if json.unmarshal(raw, &wrapped) == nil {
-			s = wrapped.payload.stats
-		}
-	}
-
-	unix := normalize_unix_seconds(s.window_end_ts if s.window_end_ts != 0 else ts)
-
-	sync.lock(&state.mu)
-	state.stats_staging = Stats_Staging{
-		mark_price = s.mark_price_close,
-		funding    = s.funding_rate_last,
-		tbuy       = i64(s.liq_buy_volume),
-		tsell      = i64(s.liq_sell_volume),
-		unix       = unix,
-		subject_id = subject_id,
-	}
-	state.stats_dirty = true
-	sync.unlock(&state.mu)
-}
-
-@(private = "file")
-handle_heatmap :: proc(state: ^MD_Native_State, raw: []u8, ts: i64, subject_id: u64) {
-	frame: util.MR_Heatmap_Frame
-	if json.unmarshal(raw, &frame) != nil do return
-	hm := frame.payload
-
-	unix := normalize_unix_seconds(hm.window_end_ts if hm.window_end_ts != 0 else ts)
-	lc := min(len(hm.cells), HEATMAP_STAGING_CAP)
-
-	min_p := math.F64_MAX
-	max_p := f64(0)
-	max_s := f64(0)
-	price_group := f64(0)
-
-	for i in 0 ..< lc {
-		c := hm.cells[i]
-		mid := (c.price_bucket_low + c.price_bucket_high) / 2.0
-		total := c.bid_liquidity + c.ask_liquidity + c.trade_volume
-
-		if i == 0 {
-			price_group = c.price_bucket_high - c.price_bucket_low
-		}
-		if mid < min_p do min_p = mid
-		if mid > max_p do max_p = mid
-		if total > max_s do max_s = total
-	}
-
-	sync.lock(&state.mu)
-	state.heatmap_staging.level_count = lc
-	state.heatmap_staging.price_group = price_group
-	state.heatmap_staging.min_price = min_p if lc > 0 else 0
-	state.heatmap_staging.max_price = max_p
-	state.heatmap_staging.max_size = max_s
-	state.heatmap_staging.unix = unix
-	state.heatmap_staging.subject_id = subject_id
-	for i in 0 ..< lc {
-		c := hm.cells[i]
-		state.heatmap_staging.prices[i] = (c.price_bucket_low + c.price_bucket_high) / 2.0
-		state.heatmap_staging.sizes[i]  = c.bid_liquidity + c.ask_liquidity + c.trade_volume
-	}
-	state.heatmap_dirty = true
-	sync.unlock(&state.mu)
-}
-
-@(private = "file")
-handle_vpvr :: proc(state: ^MD_Native_State, raw: []u8, ts: i64, subject_id: u64) {
-	frame: util.MR_VPVR_Frame
-	if json.unmarshal(raw, &frame) != nil do return
-	vp := frame.payload
-
-	unix := normalize_unix_seconds(vp.window_end_ts if vp.window_end_ts != 0 else ts)
-	lc := min(len(vp.buckets), VPVR_STAGING_CAP)
-
-	min_p := math.F64_MAX
-	max_p := f64(0)
-	price_group := f64(0)
-
-	for i in 0 ..< lc {
-		b := vp.buckets[i]
-		mid := (b.price_low + b.price_high) / 2.0
-		if i == 0 {
-			price_group = b.price_high - b.price_low
-		}
-		if mid < min_p do min_p = mid
-		if mid > max_p do max_p = mid
-	}
-
-	sync.lock(&state.mu)
-	state.vpvr_staging.level_count = lc
-	state.vpvr_staging.price_group = price_group
-	state.vpvr_staging.min_price = min_p if lc > 0 else 0
-	state.vpvr_staging.max_price = max_p
-	state.vpvr_staging.unix = unix
-	state.vpvr_staging.subject_id = subject_id
-	for i in 0 ..< lc {
-		b := vp.buckets[i]
-		state.vpvr_staging.prices[i] = (b.price_low + b.price_high) / 2.0
-		state.vpvr_staging.buys[i]   = b.buy_volume
-		state.vpvr_staging.sells[i]  = b.sell_volume
-	}
-	state.vpvr_dirty = true
-	sync.unlock(&state.mu)
-}
-
-@(private = "file")
-handle_candle :: proc(state: ^MD_Native_State, raw: []u8, ts: i64, subject_id: u64) {
-	// Try wrapped format first: {"payload": {"Candle": {...}}}
-	frame: util.MR_Candle_Frame
-	if json.unmarshal(raw, &frame) != nil do return
-	c := frame.payload.candle
-	// If wrapped parse yields zero fields, try flat format.
-	if c.WindowStartTs == 0 && c.WindowEndTs == 0 {
-		flat: util.MR_Candle_Frame_Flat
-		if json.unmarshal(raw, &flat) == nil {
-			c = flat.payload
-		}
-	}
-	if c.WindowStartTs == 0 do return
-	// WS delivery currently uses /raw for candles; keep the chart on 1m only.
-	if c.Timeframe != "" && c.Timeframe != "1m" do return
-
-	fmt.printf("[marketdata] Candle: %s %s TF=%s O=%.2f H=%.2f L=%.2f C=%.2f V=%.2f closed=%v\n",
-		c.Venue, c.Instrument, c.Timeframe,
-		c.Open, c.High, c.Low, c.ClosePrice, c.Volume, c.IsClosed)
-
-	sync.lock(&state.mu)
-	state.candle_staging = Candle_Staging{
-		open            = c.Open,
-		high            = c.High,
-		low             = c.Low,
-		close           = c.ClosePrice,
-		volume          = c.Volume,
-		buy_vol         = c.BuyVolume,
-		sell_vol        = c.SellVolume,
-		trade_count     = c.TradeCount,
-		window_start_ts = c.WindowStartTs,
-		window_end_ts   = c.WindowEndTs,
-		is_closed       = c.IsClosed,
-		subject_id      = subject_id,
-	}
-	state.candle_dirty = true
-	sync.unlock(&state.mu)
 }
