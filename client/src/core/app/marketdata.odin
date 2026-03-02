@@ -283,13 +283,13 @@ drain_marketdata :: proc(state: ^App_State) -> int {
 						stream_ids_same_market(state, state.stream_views.active_subject_id, subject_id)
 					is_active_getrange_subject := state.getrange_subject_id != 0 && subject_id == state.getrange_subject_id
 					is_active_range_batch := is_active_stream || is_active_getrange_subject
-					record_stream_event(state, slot, evt.kind, evt.unix, evt.source.seq, is_active_stream)
-				switch evt.kind {
-				case .Trade:
-					t := evt.data.trade
-					if slot != nil {
-						apply_trade_to_store(&slot.trades_store, t)
-					}
+					switch evt.kind {
+					case .Trade:
+						t := evt.data.trade
+						record_stream_event(state, slot, evt.kind, evt.unix, 0, false, is_active_stream)
+						if slot != nil {
+							apply_trade_to_store(&slot.trades_store, t)
+						}
 					if is_active_stream {
 						apply_trade_to_store(&state.trades_store, t)
 						// DOM fill tracking.
@@ -328,9 +328,9 @@ drain_marketdata :: proc(state: ^App_State) -> int {
 							}
 						}
 					}
-				case .Orderbook_Snapshot:
-					ob := evt.data.ob
-					has_snapshot_gap := false
+					case .Orderbook_Snapshot:
+						ob := evt.data.ob
+						has_snapshot_gap := false
 					if slot != nil {
 						if ob.is_snapshot {
 							slot.orderbook_snapshot_seen = true
@@ -340,20 +340,21 @@ drain_marketdata :: proc(state: ^App_State) -> int {
 					} else if !ob.is_snapshot {
 						has_snapshot_gap = true
 					}
-					if has_snapshot_gap {
-						if is_active_stream {
-							if active := streams.registry_active(&state.stream_registry); active != nil {
+						if has_snapshot_gap {
+							if is_active_stream {
+								if active := streams.registry_active(&state.stream_registry); active != nil {
 								streams.controller_mark_desync(&active.status, .Snapshot_Gap)
 							}
 							state.active_stream_state = .Desync
 							state.active_stream_desync_reason = .Snapshot_Gap
 							state.prev_subs_count = 0
 							reconcile_subscriptions(state)
+							}
+							continue
 						}
-						continue
-					}
-					if slot != nil {
-						apply_orderbook_to_store(&slot.orderbook_store, ob)
+						record_stream_event(state, slot, evt.kind, evt.unix, evt.source.seq, ob.is_snapshot, is_active_stream)
+						if slot != nil {
+							apply_orderbook_to_store(&slot.orderbook_store, ob)
 						if !slot.has_heatmap_snapshot {
 							synth_group := synthetic_heatmap_price_group(ob.last_price)
 							snap := build_synthetic_heatmap_snapshot_from_orderbook(ob, synth_group)
@@ -364,9 +365,9 @@ drain_marketdata :: proc(state: ^App_State) -> int {
 								services.push_heatmap_snapshot(&slot.heatmap_store, snap)
 							}
 						}
-					}
-					if is_active_stream {
-						if now_ms := current_now_ms(state); now_ms > 0 {
+						}
+						if is_active_stream {
+							if now_ms := current_now_ms(state); now_ms > 0 {
 							state.active_stream_last_orderbook_ts_ms = now_ms
 						}
 						apply_orderbook_to_store(&state.orderbook_store, ob)
@@ -384,16 +385,17 @@ drain_marketdata :: proc(state: ^App_State) -> int {
 								state.synth_heatmap_last_window = window
 							}
 						}
-						if !state.active_has_live_vpvr {
-							group := orderbook_auto_price_group(ob.last_price)
-							apply_synthetic_vpvr_from_orderbook(&state.vpvr_store, ob, group)
+							if !state.active_has_live_vpvr {
+								group := orderbook_auto_price_group(ob.last_price)
+								apply_synthetic_vpvr_from_orderbook(&state.vpvr_store, ob, group)
+							}
 						}
-					}
-					case .Stats:
-						st := evt.data.stats
-						if slot != nil {
-							apply_stats_to_store(&slot.stats_store, st)
-					}
+						case .Stats:
+							st := evt.data.stats
+							record_stream_event(state, slot, evt.kind, evt.unix, 0, false, is_active_stream)
+							if slot != nil {
+								apply_stats_to_store(&slot.stats_store, st)
+						}
 					if is_active_stream {
 						if now_ms := current_now_ms(state); now_ms > 0 {
 							state.active_stream_last_stats_ts_ms = now_ms
@@ -401,9 +403,10 @@ drain_marketdata :: proc(state: ^App_State) -> int {
 						state.active_has_live_stats = true
 						apply_stats_to_store(&state.stats_store, st)
 					}
-				case .Heatmap:
-					hm := evt.data.heatmap
-					snap := build_heatmap_snapshot(hm)
+					case .Heatmap:
+						hm := evt.data.heatmap
+						record_stream_event(state, slot, evt.kind, evt.unix, 0, false, is_active_stream)
+						snap := build_heatmap_snapshot(hm)
 					if slot != nil {
 						// First live snapshot replaces synthetic warmup samples for this slot.
 						if !slot.has_heatmap_snapshot {
@@ -421,18 +424,20 @@ drain_marketdata :: proc(state: ^App_State) -> int {
 						state.active_has_live_heatmap = true
 						services.push_heatmap_snapshot(&state.heatmap_store, snap)
 					}
-				case .VPVR:
-					vpvr := evt.data.vpvr
-					if slot != nil {
-						apply_vpvr_to_store(&slot.vpvr_store, vpvr)
+					case .VPVR:
+						vpvr := evt.data.vpvr
+						record_stream_event(state, slot, evt.kind, evt.unix, 0, false, is_active_stream)
+						if slot != nil {
+							apply_vpvr_to_store(&slot.vpvr_store, vpvr)
 					}
 					if is_active_stream {
 						state.active_has_live_vpvr = true
 						apply_vpvr_to_store(&state.vpvr_store, vpvr)
 					}
-					case .Candle:
-						cd := evt.data.candle
-						if slot != nil {
+						case .Candle:
+							cd := evt.data.candle
+							record_stream_event(state, slot, evt.kind, evt.unix, 0, false, is_active_stream)
+							if slot != nil {
 							tf_ms := cd.window_end_ts - cd.window_start_ts
 							if tf_ms > 0 {
 								slot.has_timeframe_ms = true
@@ -451,9 +456,10 @@ drain_marketdata :: proc(state: ^App_State) -> int {
 								request_active_stream_candle_range(state)
 							}
 						}
-				case .Range_Candle_Batch:
-					batch := evt.data.range_candles
-					oldest_before := state.getrange_oldest_ts
+					case .Range_Candle_Batch:
+						batch := evt.data.range_candles
+						record_stream_event(state, slot, evt.kind, evt.unix, 0, false, is_active_range_batch)
+						oldest_before := state.getrange_oldest_ts
 					batch_slot_idx := stream_view_find_slot(state.stream_views, subject_id)
 					// Guard: only apply to global candle store if subject matches current active candle subject.
 					// This prevents stale getrange batches (from old TF/stream) from polluting the store.
@@ -623,7 +629,15 @@ event_unix_to_ms :: proc(unix: i64) -> i64 {
 }
 
 @(private = "file")
-record_stream_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, kind: ports.MD_Event_Kind, unix: i64, seq: i64, is_active_stream: bool) {
+record_stream_event :: proc(
+	state: ^App_State,
+	slot: ^Stream_View_Slot,
+	kind: ports.MD_Event_Kind,
+	unix: i64,
+	seq: i64,
+	is_snapshot: bool,
+	is_active_stream: bool,
+) {
 	if state == nil || slot == nil do return
 	if !slot.has_stream_info {
 		refresh_stream_info_for_slot(state, slot)
@@ -644,13 +658,23 @@ record_stream_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, kind: po
 	local_ms := current_now_ms(state)
 	server_ms := event_unix_to_ms(unix)
 	if local_ms <= 0 do local_ms = server_ms
-	is_snapshot := kind == .Orderbook_Snapshot || kind == .Heatmap || kind == .VPVR || kind == .Range_Candle_Batch
 	if is_active_stream && handle.status.desync_reason == .Manual {
 		streams.controller_clear_desync(&handle.status)
 	}
 	streams.controller_mark_message(&handle.status, local_ms, server_ms, seq, is_snapshot)
+	if is_active_stream {
+		if kind == .Stats && handle.status.desync_reason == .Snapshot_Stale {
+			streams.controller_clear_desync(&handle.status)
+		}
+		if kind == .Orderbook_Snapshot && is_snapshot &&
+			(handle.status.desync_reason == .Snapshot_Gap || handle.status.desync_reason == .Snapshot_Stale) {
+			streams.controller_clear_desync(&handle.status)
+		}
+	}
 	streams.controller_mark_connected(&handle.status, current_conn_status(state) == .Connected)
 	if is_active_stream {
 		streams.registry_set_active(&state.stream_registry, stream_id)
+		state.active_stream_state = handle.status.state
+		state.active_stream_desync_reason = handle.status.desync_reason
 	}
 }
