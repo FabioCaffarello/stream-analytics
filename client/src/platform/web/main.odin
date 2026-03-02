@@ -4,6 +4,7 @@ package main
 // The odin.js animation loop calls step(dt, odin_ctx) on every frame.
 
 import "base:runtime"
+import "core:fmt"
 import "core:strings"
 import "mr:app"
 import "mr:ports"
@@ -11,7 +12,7 @@ import "mr:services"
 
 // Default connection config.
 WS_URL  :: "ws://127.0.0.1:8080/ws"
-API_KEY :: "prod_key_1"
+API_KEY :: ""
 DEFAULT_VENUE  :: "binance"
 DEFAULT_SYMBOL :: "BTCUSDT:SPOT"
 
@@ -42,35 +43,17 @@ main :: proc() {
 	text_port := make_text_port()
 	font_port := stub_font_port()
 	settings_port := stub_settings_port()
-	has_saved_layout := web_has_any_saved_layout(settings_port)
 	offline := query_flag("offline")
-	ws_url_buf: [512]u8
-	ws_alias_buf: [512]u8
-	api_key_buf: [128]u8
-	api_key_alias_buf: [128]u8
-	ws_url := query_param_or_into("ws_url", WS_URL, ws_url_buf[:])
-	ws_url = query_param_or_into("ws", ws_url, ws_alias_buf[:])
-	api_key := query_param_or_into("api_key", API_KEY, api_key_buf[:])
-	api_key = query_param_or_into("key", api_key, api_key_alias_buf[:])
+	log_deprecated_connection_query_params()
 	md_port: ports.Marketdata_Port
 	if offline {
 		md_port = stub_marketdata_port()
 	} else {
-		md_port = make_marketdata_web(ws_url, api_key)
-	}
-
-	venue_buf: [32]u8
-	symbol_buf: [64]u8
-	market_type_buf: [32]u8
-	venue := query_param_or_into("venue", DEFAULT_VENUE, venue_buf[:])
-	symbol := query_param_or_into("symbol", DEFAULT_SYMBOL, symbol_buf[:])
-	market_type := query_param_or_into("market_type", "", market_type_buf[:])
-	if len(market_type) > 0 && !strings.contains(symbol, ":") {
-		symbol = strings.concatenate({symbol, ":", market_type})
+		md_port = make_marketdata_web(WS_URL, API_KEY)
 	}
 
 	app.init(&g_state, text_port, md_port, font_port, settings_port, offline)
-	apply_query_default_binding(&g_state, venue, symbol, offline, has_saved_layout)
+	app.set_runtime_connection_defaults(&g_state, WS_URL, API_KEY)
 }
 
 @(private = "file")
@@ -86,6 +69,8 @@ web_has_any_saved_layout :: proc(settings_port: ports.Settings_Port) -> bool {
 	return has_v1
 }
 
+// DEPRECATED remove-by=2026-12-31: URL-based boot binding is kept only for temporary compatibility.
+// New runtime flow uses Profile Store + Connection Manager commands.
 @(private = "file")
 apply_query_default_binding :: proc(state: ^app.App_State, venue: string, symbol: string, offline: bool, has_saved_layout: bool) {
 	if state == nil || state.cell_count <= 0 do return
@@ -97,6 +82,21 @@ apply_query_default_binding :: proc(state: ^app.App_State, venue: string, symbol
 	app.persist_layout_v4(state)
 	if !offline {
 		app.reconcile_subscriptions(state)
+	}
+}
+
+@(private = "file")
+log_deprecated_connection_query_params :: proc() {
+	keys := [?]string{"ws_url", "ws", "venue", "symbol", "market_type", "api_key", "key"}
+	buf: [512]u8
+	for k in keys {
+		n := url_query_param(
+			raw_data(transmute([]u8)k), i32(len(k)),
+			raw_data(buf[:]), i32(len(buf)),
+		)
+		if n > 0 {
+			fmt.printf("[web] DEPRECATED URL param ignored: %s\n", k)
+		}
 	}
 }
 

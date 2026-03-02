@@ -95,10 +95,17 @@ MD_Native_State :: struct {
 	reconnect_count: int, // cumulative reconnect attempts (monotonic)
 	reconnect_streak: int, // current consecutive reconnect attempts
 	parse_error_count: int,
+	subscribe_ack_count: int,
+	last_msg_ts_ms:     i64,
+	last_server_ts_ms:  i64,
+	last_rtt_ms:        i64,
+	last_lag_ms:        i64,
+	desync:             bool,
 
 	// Subscription tracking for reconnect re-subscribe.
 	active_subs:  [MAX_SUBS]Sub_Entry,
 	active_count: int,
+	last_seq_by_sub: [MAX_SUBS]i64,
 
 	// Request ID counter.
 	rid_counter: u32,
@@ -148,6 +155,7 @@ make_marketdata_native :: proc(url: string, api_key: string = "") -> ports.Marke
 		state.conn = conn
 		state.conn_state = .Connected
 		state.backoff_ms = BACKOFF_INITIAL_MS
+		state.desync = false
 	}
 
 	// Start background reader thread (handles reconnection).
@@ -169,6 +177,8 @@ make_marketdata_native :: proc(url: string, api_key: string = "") -> ports.Marke
 		describe_stream = native_describe_stream,
 		set_candle_tf   = native_set_candle_tf,
 		send_getrange   = native_send_getrange,
+		reconnect_transport = native_reconnect_transport,
+		disconnect_transport = native_disconnect_transport,
 		shutdown        = native_shutdown,
 		fetch_markets   = native_fetch_markets,
 	}
@@ -240,6 +250,7 @@ native_shutdown :: proc() {
 	state.reader_thread = nil
 	for i in 0 ..< state.active_count {
 		native_free_sub_entry(&state.active_subs[i])
+		state.last_seq_by_sub[i] = 0
 	}
 	state.active_count = 0
 	if len(state.candle_tf_filter) > 0 {
@@ -263,6 +274,39 @@ native_shutdown :: proc() {
 		thread.destroy(reader)
 	}
 	g_md_state = nil
+}
+
+@(private = "file")
+native_disconnect_transport :: proc() -> bool {
+	state := g_md_state
+	if state == nil do return false
+	sync.lock(&state.mu)
+	defer sync.unlock(&state.mu)
+	ws_close(&state.conn)
+	state.conn_state = .Disconnected
+	state.desync = false
+	return true
+}
+
+@(private = "file")
+native_reconnect_transport :: proc(ws_url: string, api_key: string) -> bool {
+	state := g_md_state
+	if state == nil do return false
+	sync.lock(&state.mu)
+	defer sync.unlock(&state.mu)
+	if len(ws_url) > 0 && ws_url != state.ws_url {
+		if len(state.ws_url) > 0 do delete(state.ws_url)
+		state.ws_url = strings.clone(ws_url)
+	}
+	if api_key != state.api_key {
+		if len(state.api_key) > 0 do delete(state.api_key)
+		state.api_key = strings.clone(api_key)
+	}
+	ws_close(&state.conn)
+	state.conn_state = .Disconnected
+	state.backoff_ms = BACKOFF_INITIAL_MS
+	state.desync = false
+	return true
 }
 
 @(private = "file")
@@ -294,6 +338,7 @@ native_subscribe :: proc(venue: string, symbol: string, channel: ports.MD_Channe
 		channel = channel,
 		subject = subject,
 	}
+	state.last_seq_by_sub[state.active_count] = 0
 	state.active_count += 1
 
 	if state.conn_state != .Connected do return false // tracked; reconnect path will subscribe later
@@ -329,6 +374,7 @@ native_subscribe_tf :: proc(venue: string, symbol: string, channel: ports.MD_Cha
 		channel = channel,
 		subject = subject,
 	}
+	state.last_seq_by_sub[state.active_count] = 0
 	state.active_count += 1
 
 	if state.conn_state != .Connected do return false // tracked; reconnect path will subscribe later
@@ -377,6 +423,11 @@ native_metrics :: proc(out: ^ports.MD_Runtime_Metrics) -> bool {
 		reconnect_count   = state.reconnect_count,
 		latest_pending    = latest_pending,
 		parse_error_count = state.parse_error_count,
+		subscribe_ack_count = state.subscribe_ack_count,
+		last_msg_ts_ms   = state.last_msg_ts_ms,
+		rtt_ms           = state.last_rtt_ms,
+		lag_ms           = state.last_lag_ms,
+		desync           = state.desync,
 	}
 	sync.unlock(&state.mu)
 	return true
@@ -405,8 +456,10 @@ native_unsubscribe :: proc(venue: string, symbol: string, channel: ports.MD_Chan
 		native_free_sub_entry(&state.active_subs[idx])
 		if idx != last {
 			state.active_subs[idx] = state.active_subs[last]
+			state.last_seq_by_sub[idx] = state.last_seq_by_sub[last]
 		}
 		state.active_subs[last] = {}
+		state.last_seq_by_sub[last] = 0
 		state.active_count -= 1
 	}
 
@@ -772,6 +825,7 @@ attempt_reconnect :: proc(state: ^MD_Native_State) {
 	state.conn_state = .Connected
 	state.backoff_ms = BACKOFF_INITIAL_MS
 	state.reconnect_streak = 0
+	state.desync = false
 
 	// Snapshot active subscriptions before re-subscribing to avoid races with
 	// concurrent subscribe/unsubscribe while we iterate.
@@ -817,10 +871,43 @@ apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 		}
 	}
 
+	if result.kind != .None {
+		now_ms := time.now()._nsec / 1_000_000
+		sync.lock(&state.mu)
+		state.last_msg_ts_ms = now_ms
+		if result.meta.server_ts_ms > 0 {
+			state.last_server_ts_ms = result.meta.server_ts_ms
+			if now_ms >= result.meta.server_ts_ms {
+				state.last_lag_ms = now_ms - result.meta.server_ts_ms
+			}
+		}
+		if result.meta.subject_id != 0 && result.meta.seq > 0 {
+			if si := find_sub_by_subject_id(state, result.meta.subject_id); si >= 0 {
+				prev_seq := state.last_seq_by_sub[si]
+				if prev_seq > 0 && result.meta.seq > prev_seq + 1 {
+					state.desync = true
+				}
+				state.last_seq_by_sub[si] = result.meta.seq
+			}
+		}
+		sync.unlock(&state.mu)
+	}
+
 	switch result.kind {
 	case .Ack:
 		ack := result.data.ack
+		sync.lock(&state.mu)
+		state.subscribe_ack_count += 1
+		sync.unlock(&state.mu)
 		fmt.printf("[marketdata] Ack: op=%s subject=%s\n", ack.op, ack.subject)
+	case .Hello:
+		// HELLO frame is accepted for protocol compatibility and telemetry.
+	case .Heartbeat, .Health:
+		ctrl := result.data.control
+		sync.lock(&state.mu)
+		if ctrl.rtt_ms > 0 do state.last_rtt_ms = ctrl.rtt_ms
+		if ctrl.dropped > 0 && ctrl.dropped > state.drop_count do state.drop_count = ctrl.dropped
+		sync.unlock(&state.mu)
 	case .Error:
 		preview_len := min(len(raw), 200)
 		fmt.printf("[marketdata] Error: %s\n", string(raw[:preview_len]))

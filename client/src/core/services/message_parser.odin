@@ -89,6 +89,13 @@ Parsed_Ack :: struct {
 	subject: string,
 }
 
+Parsed_Control :: struct {
+	rtt_ms:    i64,
+	backlog:   int,
+	dropped:   int,
+	server_ts: i64,
+}
+
 // --- Parse result discriminated union ---
 
 RANGE_CANDLE_PARSE_MAX :: 32
@@ -109,6 +116,9 @@ Parse_Result_Kind :: enum u8 {
 	Candle,
 	Range_Candle,
 	Ack,
+	Hello,
+	Heartbeat,
+	Health,
 	Error,
 }
 
@@ -121,11 +131,20 @@ Parse_Result_Data :: struct #raw_union {
 	candle:        Parsed_Candle,
 	range_candles: Parsed_Range_Candles,
 	ack:           Parsed_Ack,
+	control:       Parsed_Control,
+}
+
+Parse_Result_Meta :: struct {
+	seq:          i64,
+	server_ts_ms: i64,
+	subject_id:   u64,
+	is_snapshot:  bool,
 }
 
 Parse_Result :: struct {
 	kind: Parse_Result_Kind,
 	data: Parse_Result_Data,
+	meta: Parse_Result_Meta,
 }
 
 // --- Telemetry counters (caller accumulates into their own state) ---
@@ -149,8 +168,12 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 		if telemetry != nil do telemetry.parse_errors += 1
 		return result
 	}
+	result.meta.seq = env.seq
+	result.meta.server_ts_ms = env.ts_ingest
+	result.meta.subject_id = util.subject_id64(env.subject)
 
 	ft := util.parse_frame_type(env.type_str)
+	result.meta.is_snapshot = ft == .Snapshot
 
 	switch ft {
 	case .Ack:
@@ -169,6 +192,22 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 		}
 		return result
 	case .Last, .Unknown:
+		if env.type_str == "hello" {
+			result.kind = .Hello
+			if c, ok := parse_control(raw, env.ts_ingest); ok {
+				result.data.control = c
+			}
+		} else if env.type_str == "heartbeat" {
+			result.kind = .Heartbeat
+			if c, ok := parse_control(raw, env.ts_ingest); ok {
+				result.data.control = c
+			}
+		} else if env.type_str == "health" {
+			result.kind = .Health
+			if c, ok := parse_control(raw, env.ts_ingest); ok {
+				result.data.control = c
+			}
+		}
 		return result
 	case .Event, .Snapshot:
 		// Fall through to payload parsing.
@@ -223,6 +262,17 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 		}
 	case:
 		if telemetry != nil do telemetry.unknown_streams += 1
+		if stream == "system.health" || stream == "session.health" {
+			result.kind = .Health
+			if c, ok := parse_control(raw, env.ts_ingest); ok {
+				result.data.control = c
+			}
+		} else if stream == "session.heartbeat" || stream == "system.heartbeat" {
+			result.kind = .Heartbeat
+			if c, ok := parse_control(raw, env.ts_ingest); ok {
+				result.data.control = c
+			}
+		}
 	}
 
 	return result
@@ -382,6 +432,30 @@ parse_vpvr :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_VPVR, bool) {
 		result.sells[i]  = b.sell_volume
 	}
 	return result, true
+}
+
+@(private = "file")
+Control_Payload :: struct {
+	rtt_ms:  i64 `json:"rtt_ms"`,
+	backlog: int `json:"backlog"`,
+	dropped: int `json:"dropped"`,
+}
+
+@(private = "file")
+Control_Frame :: struct {
+	payload: Control_Payload `json:"payload"`,
+}
+
+@(private = "file")
+parse_control :: proc(raw: []u8, ts: i64) -> (Parsed_Control, bool) {
+	frame: Control_Frame
+	if json.unmarshal(raw, &frame) != nil do return {}, false
+	return Parsed_Control{
+		rtt_ms    = frame.payload.rtt_ms,
+		backlog   = frame.payload.backlog,
+		dropped   = frame.payload.dropped,
+		server_ts = ts,
+	}, true
 }
 
 @(private = "file")

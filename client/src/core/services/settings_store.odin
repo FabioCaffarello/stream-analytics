@@ -67,6 +67,20 @@ SETTING_COL_WEIGHTS              :: "col_weights"
 SETTING_LAYOUT_V3                :: "layout_v3"
 SETTING_LAYOUT_V4                :: "layout_v4"
 SETTING_LAYOUT_MODE              :: "layout_mode"
+SETTING_CONNECTION_PROFILE_COUNT :: "connection_profile_count"
+SETTING_CONNECTION_PROFILE_ACTIVE :: "connection_profile_active"
+SETTING_CONNECTION_PROFILE_0     :: "connection_profile_0"
+SETTING_CONNECTION_PROFILE_1     :: "connection_profile_1"
+SETTING_CONNECTION_PROFILE_2     :: "connection_profile_2"
+SETTING_CONNECTION_PROFILE_3     :: "connection_profile_3"
+SETTING_CONNECTION_PROFILE_4     :: "connection_profile_4"
+SETTING_CONNECTION_PROFILE_5     :: "connection_profile_5"
+SETTING_CONNECTION_PROFILE_6     :: "connection_profile_6"
+SETTING_CONNECTION_PROFILE_7     :: "connection_profile_7"
+SETTING_CONNECTION_PROFILE_8     :: "connection_profile_8"
+SETTING_CONNECTION_PROFILE_9     :: "connection_profile_9"
+SETTING_CONNECTION_PROFILE_10    :: "connection_profile_10"
+SETTING_CONNECTION_PROFILE_11    :: "connection_profile_11"
 
 // Initialize store, loading known keys from port.
 settings_init :: proc(store: ^Settings_Store, port: ports.Settings_Port) {
@@ -90,6 +104,13 @@ settings_init :: proc(store: ^Settings_Store, port: ports.Settings_Port) {
 				SETTING_SHOW_TRADE_COUNTER, SETTING_DRAW_TOOLS,
 				SETTING_ROW_WEIGHTS, SETTING_COL_WEIGHTS,
 				SETTING_LAYOUT_V3, SETTING_LAYOUT_V4, SETTING_LAYOUT_MODE,
+				SETTING_CONNECTION_PROFILE_COUNT, SETTING_CONNECTION_PROFILE_ACTIVE,
+				SETTING_CONNECTION_PROFILE_0, SETTING_CONNECTION_PROFILE_1,
+				SETTING_CONNECTION_PROFILE_2, SETTING_CONNECTION_PROFILE_3,
+				SETTING_CONNECTION_PROFILE_4, SETTING_CONNECTION_PROFILE_5,
+				SETTING_CONNECTION_PROFILE_6, SETTING_CONNECTION_PROFILE_7,
+				SETTING_CONNECTION_PROFILE_8, SETTING_CONNECTION_PROFILE_9,
+				SETTING_CONNECTION_PROFILE_10, SETTING_CONNECTION_PROFILE_11,
 			}
 	for key in known_keys {
 		value, ok := port.load(key)

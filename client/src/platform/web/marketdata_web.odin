@@ -107,6 +107,13 @@ MD_Web_State :: struct {
 	drop_count:        int,
 	reconnect_count:   int,
 	parse_error_count: int,
+	subscribe_ack_count: int,
+	last_msg_ts_ms:     i64,
+	last_server_ts_ms:  i64,
+	last_rtt_ms:        i64,
+	last_lag_ms:        i64,
+	desync:             bool,
+	last_seq_by_sub:    [WEB_MAX_SUBS]i64,
 
 	// Receive buffer (reused each poll).
 	recv_buf: [WEB_RECV_BUF_SIZE]u8,
@@ -198,6 +205,8 @@ make_marketdata_web :: proc(url: string, api_key: string = "") -> ports.Marketda
 		describe_stream = web_describe_stream,
 		set_candle_tf   = web_set_candle_tf,
 		send_getrange   = web_send_getrange,
+		reconnect_transport = web_reconnect_transport,
+		disconnect_transport = web_disconnect_transport,
 		shutdown        = web_shutdown,
 		fetch_markets   = web_fetch_markets,
 	}
@@ -276,6 +285,7 @@ web_shutdown :: proc() {
 	ws_close()
 	for i in 0 ..< state.active_count {
 		web_free_sub_entry(&state.active_subs[i])
+		state.last_seq_by_sub[i] = 0
 	}
 	state.active_count = 0
 	if len(state.candle_tf_filter) > 0 {
@@ -300,6 +310,35 @@ web_shutdown :: proc() {
 	state.was_connected = false
 	state.reconnect_timer = 0
 	g_web_state = nil
+}
+
+@(private = "file")
+web_disconnect_transport :: proc() -> bool {
+	state := g_web_state
+	if state == nil do return false
+	ws_close()
+	state.was_connected = false
+	state.desync = false
+	return true
+}
+
+@(private = "file")
+web_reconnect_transport :: proc(ws_url: string, api_key: string) -> bool {
+	state := g_web_state
+	if state == nil do return false
+	if len(ws_url) > 0 && ws_url != state.ws_url {
+		if len(state.ws_url) > 0 do delete(state.ws_url)
+		state.ws_url = strings.clone(ws_url)
+	}
+	if api_key != state.api_key {
+		if len(state.api_key) > 0 do delete(state.api_key)
+		state.api_key = strings.clone(api_key)
+	}
+	ws_close()
+	state.was_connected = false
+	state.reconnect_timer = 0
+	state.desync = false
+	return true
 }
 
 @(private = "file")
@@ -328,6 +367,7 @@ web_subscribe :: proc(venue: string, symbol: string, channel: ports.MD_Channel) 
 		channel = channel,
 		subject = subject,
 	}
+	state.last_seq_by_sub[state.active_count] = 0
 	state.active_count += 1
 
 	if ws_state() != 2 do return false // tracked; reconnect path will subscribe later
@@ -361,6 +401,7 @@ web_subscribe_tf :: proc(venue: string, symbol: string, channel: ports.MD_Channe
 		subject        = subject,
 		is_explicit_tf = true,
 	}
+	state.last_seq_by_sub[state.active_count] = 0
 	state.active_count += 1
 
 	if ws_state() != 2 do return false // tracked; reconnect path will subscribe later
@@ -406,6 +447,11 @@ web_metrics :: proc(out: ^ports.MD_Runtime_Metrics) -> bool {
 		reconnect_count   = state.reconnect_count,
 		latest_pending    = latest_pending,
 		parse_error_count = state.parse_error_count,
+		subscribe_ack_count = state.subscribe_ack_count,
+		last_msg_ts_ms   = state.last_msg_ts_ms,
+		rtt_ms           = state.last_rtt_ms,
+		lag_ms           = state.last_lag_ms,
+		desync           = state.desync,
 	}
 	return true
 }
@@ -430,8 +476,10 @@ web_unsubscribe :: proc(venue: string, symbol: string, channel: ports.MD_Channel
 		web_free_sub_entry(&state.active_subs[idx])
 		if idx != last {
 			state.active_subs[idx] = state.active_subs[last]
+			state.last_seq_by_sub[idx] = state.last_seq_by_sub[last]
 		}
 		state.active_subs[last] = {}
+		state.last_seq_by_sub[last] = 0
 		state.active_count -= 1
 	}
 
@@ -621,6 +669,7 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 	// If just connected, re-subscribe all active subs.
 	if is_open && !state.was_connected {
 		state.backoff_s = WEB_BACKOFF_INITIAL_S
+		state.desync = false
 		for i in 0 ..< state.active_count {
 			sub := state.active_subs[i]
 			if len(sub.subject) > 0 {
@@ -906,10 +955,37 @@ web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 		}
 	}
 
+	if result.kind != .None {
+		now_ms := time.now()._nsec / 1_000_000
+		state.last_msg_ts_ms = now_ms
+		if result.meta.server_ts_ms > 0 {
+			state.last_server_ts_ms = result.meta.server_ts_ms
+			if now_ms >= result.meta.server_ts_ms {
+				state.last_lag_ms = now_ms - result.meta.server_ts_ms
+			}
+		}
+		if result.meta.subject_id != 0 && result.meta.seq > 0 {
+			if si := find_web_sub_by_subject_id(state, result.meta.subject_id); si >= 0 {
+				prev_seq := state.last_seq_by_sub[si]
+				if prev_seq > 0 && result.meta.seq > prev_seq + 1 {
+					state.desync = true
+				}
+				state.last_seq_by_sub[si] = result.meta.seq
+			}
+		}
+	}
+
 	switch result.kind {
 	case .Ack:
 		ack := result.data.ack
+		state.subscribe_ack_count += 1
 		fmt.printf("[ws] Ack: op=%s subject=%s\n", ack.op, ack.subject)
+	case .Hello:
+		// HELLO frame accepted for protocol compatibility.
+	case .Heartbeat, .Health:
+		ctrl := result.data.control
+		if ctrl.rtt_ms > 0 do state.last_rtt_ms = ctrl.rtt_ms
+		if ctrl.dropped > 0 && ctrl.dropped > state.drop_count do state.drop_count = ctrl.dropped
 	case .Error:
 		preview_len := min(len(raw), 200)
 		fmt.printf("[ws] Error: %s\n", string(raw[:preview_len]))

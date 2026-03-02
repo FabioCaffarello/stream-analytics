@@ -134,6 +134,11 @@ MD_Runtime_Metrics :: struct {
 	reconnect_count:    int,
 	latest_pending:     int,
 	parse_error_count:  int,
+	subscribe_ack_count: int,
+	last_msg_ts_ms:     i64,
+	rtt_ms:             i64,
+	lag_ms:             i64,
+	desync:             bool,
 }
 
 MD_Event :: struct {
@@ -154,6 +159,8 @@ Marketdata_Port :: struct {
 	describe_stream: proc(subject_id: u64, out: ^MD_Stream_Info) -> bool,
 	set_candle_tf:   proc(tf: string),
 	send_getrange:   proc(subject: string, limit: int, end_ts: i64),
+	reconnect_transport: proc(ws_url: string, api_key: string) -> bool,
+	disconnect_transport: proc() -> bool,
 	shutdown:        proc(),
 	fetch_markets:   proc(buf: [^]u8, cap: i32) -> i32,  // HTTP GET /api/v1/markets; returns bytes written, 0 on failure
 	on_reconnect:    proc(),  // Called by app layer when reconnect detected; triggers reconcile
