@@ -135,6 +135,7 @@ if [[ ! -f "$PROC_CSV" ]]; then
 fi
 
 stats="$(awk -F, -v window_sec="$SUSTAINED_WINDOW_SEC" '
+  BEGIN { n=0 }
   NR==1 { next }
   {
     ts[n]=$1

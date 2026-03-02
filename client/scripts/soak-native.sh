@@ -239,6 +239,11 @@ while kill -0 "${app_pid}" >/dev/null 2>&1; do
   threads="$(get_thread_count "${app_pid}")"
   rss_kb="${rss_kb:-0}"
   threads="${threads:-0}"
+  # Process samplers may briefly report 0 RSS during startup; skip invalid baselines.
+  if [[ "${rss_kb}" -le 0 ]]; then
+    sleep "${SAMPLE_SEC}"
+    continue
+  fi
   echo "${now_s},${rss_kb},${threads}" >> "${PROC_CSV}"
   sleep "${SAMPLE_SEC}"
 done
