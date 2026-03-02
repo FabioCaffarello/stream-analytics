@@ -136,7 +136,9 @@ app_args=("--soak-seconds=${DURATION_SEC}" "--soak-log-ms=${SOAK_LOG_MS}")
 if [[ "${SOAK_MULTI}" == "1" ]]; then
   app_args+=("--soak-multi")
 fi
-app_args+=("${FORWARD_ARGS[@]}")
+if [[ ${#FORWARD_ARGS[@]} -gt 0 ]]; then
+  app_args+=("${FORWARD_ARGS[@]}")
+fi
 
 {
   echo "started_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
@@ -303,7 +305,7 @@ RECONNECT_LINES="$(grep -c '^\[marketdata\] Reconnecting in ' "${APP_LOG}" || tr
 RECONNECT_FAILS="$(grep -c '^\[marketdata\] Reconnect failed ' "${APP_LOG}" || true)"
 RECONNECT_SUCCESSES="$(grep -c '^\[marketdata\] Reconnected to ' "${APP_LOG}" || true)"
 FAULT_RESTARTS="$(grep -c '^\[fault\].*restarting compose server' "${FAULT_LOG}" 2>/dev/null || true)"
-ACK_COUNT="$(grep -c '^\[marketdata\] Ack: op=subscribe ' "${APP_LOG}" || true)"
+ACK_COUNT="$(grep -E -c '^\[marketdata\] Ack: op=subscribe |^\[md-lifecycle\] ack_recv op=subscribe ' "${APP_LOG}" || true)"
 LAST_SOAK_LINE="$(grep '^\[soak\] t_ms=' "${APP_LOG}" | tail -n 1 || true)"
 
 if [[ "${SOAK_DONE_COUNT}" -eq 0 ]]; then

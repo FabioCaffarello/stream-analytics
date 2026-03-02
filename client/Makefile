@@ -20,7 +20,7 @@ NATIVE_FLAGS ?=
 
 CORE_PKGS := app model ui widgets math util ports services
 
-.PHONY: help build-native build-wasm build clean run run-native-compose run-native-offline serve check-wasm check-core check-core-imports check-widgets check-widgets-functional check-widgets-online
+.PHONY: help build-native build-wasm build clean run run-native-compose run-native-offline serve check-wasm check-core check-core-imports check-widgets check-widgets-functional check-widgets-online soak-mem-native
 
 help:
 	@echo "Client targets:"
@@ -38,6 +38,7 @@ help:
 	@echo "  make check-widgets      - gate: offline soak asserts all widgets receive data"
 	@echo "  make check-widgets-functional - alias of check-widgets (offline functional soak)"
 	@echo "  make check-widgets-online - gate: online soak asserts all widgets receive live data"
+	@echo "  make soak-mem-native    - run native soak with RSS memory contract"
 	@echo ""
 	@echo "Options:"
 	@echo "  ODIN_OPT=size|speed|none  (default: size)"
@@ -114,3 +115,6 @@ check-widgets-functional: check-widgets
 
 check-widgets-online:
 	@./scripts/check-widgets-online.sh
+
+soak-mem-native:
+	@./scripts/soak-mem-native.sh --build
