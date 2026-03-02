@@ -5,6 +5,8 @@ import "mr:ports"
 import "mr:services"
 import "mr:ui"
 
+// DEPRECATED remove-by=2026-12-31: legacy inline connection settings were removed.
+// Connection now routes through Connection Manager + profiles.
 VENUE_DROPDOWN_MAX :: 16
 
 draw_venue_dropdown :: proc(state: ^App_State, pointer: ui.Pointer_Input, viewport_w: f32) {

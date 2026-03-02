@@ -7,6 +7,7 @@ import "core:fmt"
 import "core:math"
 import "mr:ports"
 import "mr:services"
+import "mr:streams"
 import "mr:ui"
 
 OB_MAX_ROWS :: 25
@@ -28,6 +29,8 @@ Orderbook_Widget_Data :: struct {
 	group_options:  []string,     // formatted grouping labels (e.g. "0.1", "1", "10")
 	group_idx:      ^int,         // pointer to selected grouping index in app state
 	pointer:        ui.Pointer_Input,
+	stream_id:      string,
+	stream_state:   streams.Stream_State,
 }
 
 orderbook_widget :: proc(buf: ^ui.Command_Buffer, data: Orderbook_Widget_Data) {

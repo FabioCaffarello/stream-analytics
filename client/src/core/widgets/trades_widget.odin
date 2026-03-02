@@ -7,6 +7,7 @@ import "core:fmt"
 import "core:math"
 import "mr:ports"
 import "mr:services"
+import "mr:streams"
 import "mr:ui"
 
 TRADE_FILTER_OPTIONS :: [4]string{"All", ">0.1", ">1", ">10"}
@@ -21,6 +22,8 @@ Trades_Widget_Data :: struct {
 	filter_idx: ^int,
 	pointer:    ui.Pointer_Input,
 	now_ms:     i64,             // current wall-clock ms for elapsed time
+	stream_id:  string,
+	stream_state: streams.Stream_State,
 }
 
 trades_widget :: proc(buf: ^ui.Command_Buffer, data: Trades_Widget_Data) {

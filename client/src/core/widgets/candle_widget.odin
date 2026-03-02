@@ -8,6 +8,7 @@ import "core:fmt"
 import "core:math"
 import "mr:ports"
 import "mr:services"
+import "mr:streams"
 import "mr:ui"
 
 // --- Configuration ---
@@ -87,6 +88,8 @@ Candle_Widget_Data :: struct {
 	health_detail: string,
 	health_color:  ui.Color,
 	tf_label:      string,
+	stream_id:     string,
+	stream_state:  streams.Stream_State,
 	heatmap_live:  bool,
 	heatmap_synth: bool,
 	vpvr_live:     bool,
@@ -219,9 +222,12 @@ candle_widget :: proc(buf: ^ui.Command_Buffer, data: Candle_Widget_Data) {
 	vp := data.viewport
 
 	// Panel header with layer controls.
-	title_buf: [32]u8
+	title_buf: [96]u8
 	tf := data.tf_label if len(data.tf_label) > 0 else "1m"
 	title := fmt.bprintf(title_buf[:], "Candles (%s)", tf)
+	if len(data.stream_id) > 0 {
+		title = fmt.bprintf(title_buf[:], "Candles (%s) %s", tf, data.stream_id)
+	}
 
 	inner, ctrl_rect := ui.panel_v2(buf, vp, ui.Panel_V2_Config{
 		title        = title,

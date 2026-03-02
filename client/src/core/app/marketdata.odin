@@ -2,6 +2,7 @@ package app
 
 import "mr:ports"
 import "mr:services"
+import "mr:streams"
 
 apply_trade_to_store :: proc(store: ^services.Trades_Store, t: ports.MD_Trade_Event) {
 	services.push_trade(store, services.Trade_Entry{
@@ -276,6 +277,7 @@ drain_marketdata :: proc(state: ^App_State) -> int {
 						stream_ids_same_market(state, state.stream_views.active_subject_id, subject_id)
 					is_active_getrange_subject := state.getrange_subject_id != 0 && subject_id == state.getrange_subject_id
 					is_active_range_batch := is_active_stream || is_active_getrange_subject
+					record_stream_event(state, slot, evt.kind, evt.unix, is_active_stream)
 				switch evt.kind {
 				case .Trade:
 					t := evt.data.trade
@@ -336,6 +338,9 @@ drain_marketdata :: proc(state: ^App_State) -> int {
 						}
 					}
 					if is_active_stream {
+						if now_ms := current_now_ms(state); now_ms > 0 {
+							state.active_stream_last_orderbook_ts_ms = now_ms
+						}
 						apply_orderbook_to_store(&state.orderbook_store, ob)
 						if !state.active_has_live_heatmap {
 							tf_s := active_timeframe_ms(state) / 1000
@@ -362,6 +367,9 @@ drain_marketdata :: proc(state: ^App_State) -> int {
 							apply_stats_to_store(&slot.stats_store, st)
 					}
 					if is_active_stream {
+						if now_ms := current_now_ms(state); now_ms > 0 {
+							state.active_stream_last_stats_ts_ms = now_ms
+						}
 						state.active_has_live_stats = true
 						apply_stats_to_store(&state.stats_store, st)
 					}
@@ -576,5 +584,42 @@ check_lazy_candle_loading :: proc(state: ^App_State) {
 			pending_count += 1
 			if pending_count >= MAX_CONCURRENT_GETRANGE do return
 		}
+	}
+}
+
+@(private = "file")
+event_unix_to_ms :: proc(unix: i64) -> i64 {
+	if unix <= 0 do return 0
+	if unix >= 1_000_000_000_000 do return unix
+	return unix * 1000
+}
+
+@(private = "file")
+record_stream_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, kind: ports.MD_Event_Kind, unix: i64, is_active_stream: bool) {
+	if state == nil || slot == nil do return
+	if !slot.has_stream_info {
+		refresh_stream_info_for_slot(state, slot)
+	}
+	if !slot.has_stream_info do return
+
+	stream_id_buf: [streams.STREAM_ID_CAP]u8
+	stream_id := build_stream_id_from_market_into(stream_id_buf[:], slot.stream_info.venue, slot.stream_info.symbol)
+	_, market_type := streams.split_symbol_market_type(slot.stream_info.symbol)
+	handle := streams.registry_get_or_create(
+		&state.stream_registry,
+		stream_id,
+		normalized_venue(slot.stream_info.venue),
+		slot.stream_info.symbol,
+		market_type,
+	)
+	if handle == nil do return
+	local_ms := current_now_ms(state)
+	server_ms := event_unix_to_ms(unix)
+	if local_ms <= 0 do local_ms = server_ms
+	is_snapshot := kind == .Orderbook_Snapshot || kind == .Heatmap || kind == .VPVR || kind == .Range_Candle_Batch
+	streams.controller_mark_message(&handle.status, local_ms, server_ms, 0, is_snapshot)
+	streams.controller_mark_connected(&handle.status, current_conn_status(state) == .Connected)
+	if is_active_stream {
+		streams.registry_set_active(&state.stream_registry, stream_id)
 	}
 }

@@ -3,6 +3,7 @@ package app
 import "mr:model"
 import "mr:ports"
 import "mr:services"
+import "mr:streams"
 import "mr:ui"
 import "mr:util"
 import "mr:widgets"
@@ -144,6 +145,13 @@ UI_Action_Kind :: enum u8 {
 	Close_Cell_Stream_Picker,
 	Toggle_Zen_Mode,
 	Set_Cell_Timeframe,
+	Resync_Active_Stream,
+	Select_Profile,
+	Add_Profile,
+	Remove_Profile,
+	Apply_Profile,
+	Connect_Profile,
+	Disconnect_Profile,
 }
 
 UI_Action :: struct {
@@ -153,6 +161,7 @@ UI_Action :: struct {
 	route:          Route,
 	layout_preset:  int,
 	cell_idx:       int,
+	profile_idx:    int,
 	widget_kind:    Widget_Kind,
 	stream_idx:     int,
 	subject_id:     u64,        // for Pick_Stream
@@ -266,7 +275,15 @@ App_State :: struct {
 	footprint_store:  services.Footprint_Store,
 	markets_store:    services.Markets_Store,
 	stream_views:    ^Stream_View_Registry,
+	stream_registry: streams.Stream_Registry,
+	stream_controller: streams.Stream_Controller,
 	settings:        services.Settings_Store,
+	profiles:        services.Profile_Store,
+	connection_manager_selected_profile: int,
+	runtime_ws_url:  [256]u8,
+	runtime_ws_url_len: u16,
+	runtime_api_key_ref: [64]u8,
+	runtime_api_key_ref_len: u8,
 	scroll_y:        f32,
 	ob_scroll_y:     f32,
 	candle_scroll_x: f32,
@@ -306,6 +323,16 @@ App_State :: struct {
 	active_has_live_heatmap: bool,
 	active_has_live_vpvr:    bool,
 	active_has_live_candle:  bool,
+	active_stream_state:             streams.Stream_State,
+	active_stream_desync_reason:     streams.Stream_Desync_Reason,
+	active_stream_rtt_ms:            i64,
+	active_stream_lag_ms:            i64,
+	active_stream_last_msg_ts_ms:    i64,
+	active_stream_last_stats_ts_ms:  i64,
+	active_stream_last_orderbook_ts_ms: i64,
+	active_stream_drop_count:        int,
+	active_stream_reconnect_count:   int,
+	active_stream_subscribe_acks:    int,
 
 	// Synthetic heatmap throttle (1-per-TF-window).
 	synth_heatmap_last_window: i64,
@@ -464,6 +491,9 @@ init :: proc(
 	state.fonts = fonts
 	state.marketdata = md
 	state.stream_views = new(Stream_View_Registry)
+	streams.registry_init(&state.stream_registry, true)
+	streams.controller_init(&state.stream_controller)
+	state.active_stream_state = .Offline
 	state.show_candle_vol = true
 	state.show_candle_heatmap = true
 	state.show_candle_vpvr = true
@@ -532,6 +562,16 @@ init :: proc(
 	// Initialize settings store.
 	if settings_port.load != nil {
 		services.settings_init(&state.settings, settings_port)
+		services.profile_store_ensure_default(
+			&state.profiles,
+			&state.settings,
+			"Default",
+			"ws://127.0.0.1:8080/ws",
+			"binance",
+			"BTCUSDT:SPOT",
+			"SPOT",
+		)
+		state.connection_manager_selected_profile = state.profiles.active_idx
 		if v, ok := services.settings_get(&state.settings, services.SETTING_ACTIVE_STREAM_SUBJECT_ID); ok {
 			if subject_id, ok := parse_subject_id_hex(v); ok && subject_id != 0 {
 				state.has_pending_active_subject = true
@@ -701,6 +741,42 @@ shutdown :: proc(state: ^App_State) {
 	}
 	services.settings_flush(&state.settings)
 	ui.destroy_buffer(&state.cmd_buf)
+}
+
+set_runtime_connection_defaults :: proc(state: ^App_State, ws_url: string, api_key_ref: string = "") {
+	if state == nil do return
+	wsn := min(len(ws_url), len(state.runtime_ws_url))
+	for i in 0 ..< wsn {
+		state.runtime_ws_url[i] = ws_url[i]
+	}
+	state.runtime_ws_url_len = u16(wsn)
+
+	apin := min(len(api_key_ref), len(state.runtime_api_key_ref))
+	for i in 0 ..< apin {
+		state.runtime_api_key_ref[i] = api_key_ref[i]
+	}
+	state.runtime_api_key_ref_len = u8(apin)
+
+	// Keep profile store bootstrapped with runtime defaults when the app starts.
+	if state.settings.port.load != nil {
+		active := services.profile_store_active(&state.profiles)
+		if active != nil && len(services.profile_ws_url(active)) == 0 {
+			default_name := services.profile_name(active)
+			if len(default_name) == 0 do default_name = "Default"
+			profile := services.profile_make(
+				default_name,
+				ws_url,
+				services.profile_venue(active),
+				services.profile_symbol(active),
+				services.profile_market_type(active),
+				api_key_ref,
+				true,
+			)
+			_ = services.profile_store_upsert(&state.profiles, profile)
+			services.profile_store_save(&state.profiles, &state.settings)
+			services.settings_flush(&state.settings)
+		}
+	}
 }
 
 runtime_probe :: proc(state: ^App_State) -> Runtime_Probe {

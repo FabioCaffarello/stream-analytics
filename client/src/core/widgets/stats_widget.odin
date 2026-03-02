@@ -7,12 +7,15 @@ package widgets
 import "core:fmt"
 import "mr:ports"
 import "mr:services"
+import "mr:streams"
 import "mr:ui"
 
 Stats_Widget_Data :: struct {
 	store:    ^services.Stats_Store,
 	viewport: ui.Rect,
 	text:     ports.Text_Port,
+	stream_id: string,
+	stream_state: streams.Stream_State,
 }
 
 stats_widget :: proc(buf: ^ui.Command_Buffer, data: Stats_Widget_Data) {

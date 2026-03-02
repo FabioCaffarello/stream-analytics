@@ -1,8 +1,10 @@
 package app
 
 import "core:fmt"
+import "core:strings"
 import "mr:ports"
 import "mr:services"
+import "mr:streams"
 import "mr:ui"
 import "mr:util"
 
@@ -231,6 +233,11 @@ sync_active_stream_view_to_global_stores :: proc(state: ^App_State) {
 	if !reg.has_active do return
 	if idx := stream_view_find_slot(reg, reg.active_subject_id); idx >= 0 {
 		slot := reg.slots[idx]
+		if slot.has_stream_info {
+			stream_id_buf: [streams.STREAM_ID_CAP]u8
+			stream_id := build_stream_id_from_market_into(stream_id_buf[:], slot.stream_info.venue, slot.stream_info.symbol)
+			streams.registry_set_active(&state.stream_registry, stream_id)
+		}
 		state.trades_store = slot.trades_store
 		state.orderbook_store = slot.orderbook_store
 		state.heatmap_store = slot.heatmap_store
@@ -279,6 +286,8 @@ apply_cycle_stream_action :: proc(state: ^App_State, forward: bool) -> bool {
 	state.active_has_live_heatmap = false
 	state.active_has_live_vpvr = false
 	state.active_has_live_candle = false
+	state.active_stream_last_stats_ts_ms = 0
+	state.active_stream_last_orderbook_ts_ms = 0
 	state.synth_heatmap_last_window = 0
 	state.getrange_pending = false
 	state.getrange_seeded = false
@@ -392,6 +401,8 @@ apply_set_timeframe_action :: proc(state: ^App_State, idx: int) -> bool {
 	state.active_has_live_heatmap = false
 	state.active_has_live_vpvr = false
 	state.active_has_live_candle = false
+	state.active_stream_last_stats_ts_ms = 0
+	state.active_stream_last_orderbook_ts_ms = 0
 	state.synth_heatmap_last_window = 0
 	state.getrange_pending = false
 	state.getrange_seeded = false
@@ -686,7 +697,9 @@ slot_referenced_by_cell :: proc(state: ^App_State, slot_idx: int) -> bool {
 		// PRD-0009: also protect slots matching a cell's venue/symbol binding.
 		if cell_has_binding(cell) && reg != nil && slot_idx >= 0 && slot_idx < STREAM_VIEW_CAP && reg.slots[slot_idx].used {
 			slot := &reg.slots[slot_idx]
-			if slot.has_stream_info && slot.stream_info.venue == cell_bound_venue(cell) && slot.stream_info.symbol == cell_bound_symbol(cell) {
+			if slot.has_stream_info &&
+				normalized_venue(slot.stream_info.venue) == normalized_venue(cell_bound_venue(cell)) &&
+				normalized_symbol(slot.stream_info.symbol) == normalized_symbol(cell_bound_symbol(cell)) {
 				return true
 			}
 		}
@@ -728,6 +741,8 @@ find_market_channel_slot :: proc(
 
 	best_idx := -1
 	best_seen := u64(0)
+	want_venue := normalized_venue(venue)
+	want_symbol := normalized_symbol(symbol)
 	for si in 0 ..< STREAM_VIEW_CAP {
 		if !reg.slots[si].used do continue
 		slot := &reg.slots[si]
@@ -735,7 +750,7 @@ find_market_channel_slot :: proc(
 			refresh_stream_info_for_slot(state, slot)
 		}
 		if !slot_market_key_known(slot) do continue
-		if slot.stream_info.venue != venue || slot.stream_info.symbol != symbol do continue
+		if normalized_venue(slot.stream_info.venue) != want_venue || normalized_symbol(slot.stream_info.symbol) != want_symbol do continue
 
 		slot_ch := slot.channel
 		if !slot.has_channel {
@@ -785,7 +800,7 @@ resolve_stores_for_cell :: proc(state: ^App_State, cell: ^Cell_Assignment, cell_
 				slot := &reg.slots[si]
 				if !slot_market_key_known(slot) { refresh_stream_info_for_slot(state, slot) }
 				if !slot_market_key_known(slot) do continue
-				if slot.stream_info.venue != bv || slot.stream_info.symbol != bs do continue
+				if normalized_venue(slot.stream_info.venue) != normalized_venue(bv) || normalized_symbol(slot.stream_info.symbol) != normalized_symbol(bs) do continue
 				priority := 0
 				slot_ch := slot.channel
 				if !slot.has_channel { slot_ch = slot.stream_info.channel }
@@ -825,8 +840,8 @@ resolve_stores_for_cell :: proc(state: ^App_State, cell: ^Cell_Assignment, cell_
 	if active := stream_view_active_slot(reg); active != nil {
 		if !active.has_stream_info { refresh_stream_info_for_slot(state, active) }
 		if active.has_stream_info &&
-			active.stream_info.venue == venue &&
-			active.stream_info.symbol == symbol {
+			normalized_venue(active.stream_info.venue) == normalized_venue(venue) &&
+			normalized_symbol(active.stream_info.symbol) == normalized_symbol(symbol) {
 			return stores
 		}
 	}
@@ -1753,7 +1768,9 @@ restore_layout_v2 :: proc(state: ^App_State) -> bool {
 				if !slot.has_stream_info {
 					refresh_stream_info_for_slot(state, slot)
 				}
-				if slot.has_stream_info && slot.stream_info.venue == venue && slot.stream_info.symbol == symbol {
+				if slot.has_stream_info &&
+					normalized_venue(slot.stream_info.venue) == normalized_venue(venue) &&
+					normalized_symbol(slot.stream_info.symbol) == normalized_symbol(symbol) {
 					state.cell_assignments[i].stream_idx = si
 					break
 				}
@@ -1824,8 +1841,46 @@ stream_ids_same_market :: proc(state: ^App_State, a_subject_id, b_subject_id: u6
 	if !slot_market_key_known(b_slot) do refresh_stream_info_for_slot(state, b_slot)
 	if !slot_market_key_known(a_slot) || !slot_market_key_known(b_slot) do return false
 
-	return a_slot.stream_info.venue == b_slot.stream_info.venue &&
-		a_slot.stream_info.symbol == b_slot.stream_info.symbol
+	return normalized_venue(a_slot.stream_info.venue) == normalized_venue(b_slot.stream_info.venue) &&
+		normalized_symbol(a_slot.stream_info.symbol) == normalized_symbol(b_slot.stream_info.symbol)
+}
+
+normalized_venue :: proc(v: string) -> string {
+	if len(v) == 0 do return ""
+	if has_prefix_ci(v, "binance") do return "binance"
+	if has_prefix_ci(v, "kraken") do return "kraken"
+	if has_prefix_ci(v, "coinbase") do return "coinbase"
+	if has_prefix_ci(v, "bybit") do return "bybit"
+	if has_prefix_ci(v, "hyperliquid") do return "hyperliquid"
+	if dash := strings.index(v, "-"); dash > 0 {
+		return v[:dash]
+	}
+	return v
+}
+
+@(private = "file")
+has_prefix_ci :: proc(s: string, prefix: string) -> bool {
+	if len(prefix) > len(s) do return false
+	for i in 0 ..< len(prefix) {
+		a := s[i]
+		b := prefix[i]
+		if a >= 'A' && a <= 'Z' do a += 32
+		if b >= 'A' && b <= 'Z' do b += 32
+		if a != b do return false
+	}
+	return true
+}
+
+normalized_symbol :: proc(s: string) -> string {
+	if len(s) == 0 do return ""
+	if sep := strings.index(s, ":"); sep > 0 {
+		return s[:sep]
+	}
+	return s
+}
+
+build_stream_id_from_market_into :: proc(buf: []u8, venue: string, symbol: string) -> string {
+	return streams.format_stream_id_into(buf, normalized_venue(venue), symbol, "")
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -2025,6 +2080,30 @@ reconcile_subscriptions :: proc(state: ^App_State) {
 			}
 		}
 	}
+
+	// Sync stream registry wiring + refcount ownership from the wanted set.
+	streams.registry_reset_ref_counts(&state.stream_registry)
+	conn := current_conn_status(state)
+	for wi in 0 ..< wanted_count {
+		w := wanted[wi]
+		stream_id_buf: [streams.STREAM_ID_CAP]u8
+		stream_id := build_stream_id_from_market_into(stream_id_buf[:], w.venue, w.symbol)
+		_, market_type := streams.split_symbol_market_type(w.symbol)
+		if handle := streams.registry_acquire(&state.stream_registry, stream_id, normalized_venue(w.venue), w.symbol, market_type); handle != nil {
+			streams.controller_mark_connected(&handle.status, conn == .Connected)
+		}
+	}
+	if active_slot := stream_view_active_slot(reg); active_slot != nil {
+		if !active_slot.has_stream_info {
+			refresh_stream_info_for_slot(state, active_slot)
+		}
+		if active_slot.has_stream_info {
+			stream_id_buf: [streams.STREAM_ID_CAP]u8
+			stream_id := build_stream_id_from_market_into(stream_id_buf[:], active_slot.stream_info.venue, active_slot.stream_info.symbol)
+			streams.registry_set_active(&state.stream_registry, stream_id)
+		}
+	}
+	streams.registry_prune_unused(&state.stream_registry)
 
 	// Subscribe to wanted channels (skip channels already in prev_subs to avoid duplicates).
 	for wi in 0 ..< wanted_count {

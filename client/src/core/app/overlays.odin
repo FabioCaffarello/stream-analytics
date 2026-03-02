@@ -1,6 +1,7 @@
 package app
 
 import "core:fmt"
+import "core:strings"
 import "mr:ports"
 import "mr:services"
 import "mr:ui"
@@ -32,6 +33,7 @@ draw_help_overlay :: proc(state: ^App_State, viewport_w, viewport_h: f32) {
 	// Shortcut entries.
 	Help_Entry :: struct { key, desc: string }
 	entries := [?]Help_Entry{
+		{"Ctrl+K", "Connection manager"},
 		{"Tab / Shift+Tab", "Cycle stream"},
 		{"1-9", "Timeframe"},
 		{"S", "Toggle detail panel"},
@@ -69,24 +71,19 @@ draw_help_overlay :: proc(state: ^App_State, viewport_w, viewport_h: f32) {
 		hint, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
 }
 
-// PRD-0009: Connection Status diagnostics view (replaces Exchange Manager subscribe/unsubscribe panel).
 draw_exchange_manager :: proc(state: ^App_State, viewport_w, viewport_h: f32, pointer: ui.Pointer_Input) {
-	// Semi-transparent backdrop.
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
 		rect  = {pos = {0, 0}, size = {viewport_w, viewport_h}},
 		color = {0, 0, 0, 0.75},
 	})
 
-	// Panel dimensions.
-	panel_w := f32(320)
-	panel_h := f32(360)
+	panel_w := f32(460)
+	panel_h := f32(420)
 	if panel_w > viewport_w - 20 do panel_w = viewport_w - 20
 	if panel_h > viewport_h - 20 do panel_h = viewport_h - 20
 	px := (viewport_w - panel_w) * 0.5
 	py := (viewport_h - panel_h) * 0.5
 	panel_rect := ui.Rect{pos = {px, py}, size = {panel_w, panel_h}}
-
-	// Click-outside to close.
 	if pointer.left_pressed && !ui.rect_contains(panel_rect, pointer.pos) {
 		queue_ui_action(state, UI_Action{kind = .Toggle_Connection_Modal})
 	}
@@ -94,137 +91,115 @@ draw_exchange_manager :: proc(state: ^App_State, viewport_w, viewport_h: f32, po
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = panel_rect, color = ui.COL_SURFACE_1})
 	ui.draw_rect_stroke(&state.cmd_buf, panel_rect, ui.COL_BORDER_STRONG)
 
-	// --- Header: Title + WS status badge ---
-	y := py + 20
-	ui.push_text(&state.cmd_buf, {px + 16, y}, "Connection Status",
-		ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_MD, .Bold)
+	y := py + 18
+	ui.push_text(&state.cmd_buf, {px + 16, y}, "Connection Manager", ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_MD, .Bold)
 
-	conn_status: ports.MD_Conn_Status = .Offline
-	if state.marketdata.conn_status != nil {
-		conn_status = state.marketdata.conn_status()
-	}
-	conn_label: string
-	conn_dot_color: ui.Color
-	conn_text_color: ui.Color
+	conn_status := current_conn_status(state)
+	conn_label := "OFFLINE"
+	conn_dot_color := ui.with_alpha(ui.COL_WHITE, 0.35)
+	conn_text_color := ui.COL_TEXT_MUTED
 	switch conn_status {
-	case .Connected:    conn_label = "LIVE";         conn_dot_color = ui.COL_GREEN;          conn_text_color = ui.COL_GREEN
-	case .Connecting:   conn_label = "CONNECTING";   conn_dot_color = ui.COL_YELLOW_ACCENT;  conn_text_color = ui.COL_YELLOW_ACCENT
-	case .Reconnecting: conn_label = "RECONNECTING"; conn_dot_color = ui.COL_YELLOW_ACCENT;  conn_text_color = ui.COL_YELLOW_ACCENT
-	case .Offline:      conn_label = "OFFLINE";      conn_dot_color = ui.with_alpha(ui.COL_WHITE, 0.35); conn_text_color = ui.COL_TEXT_MUTED
+	case .Connected:
+		conn_label = "LIVE"
+		conn_dot_color = ui.COL_GREEN
+		conn_text_color = ui.COL_GREEN
+	case .Connecting:
+		conn_label = "CONNECTING"
+		conn_dot_color = ui.COL_YELLOW_ACCENT
+		conn_text_color = ui.COL_YELLOW_ACCENT
+	case .Reconnecting:
+		conn_label = "RECONNECTING"
+		conn_dot_color = ui.COL_WARNING
+		conn_text_color = ui.COL_WARNING
+	case .Offline:
 	}
-
 	badge_w := ui.status_badge_width(conn_label, state.text.measure, ui.FONT_SIZE_XS)
-	badge_x := px + panel_w - badge_w - 16
-	ui.status_badge(&state.cmd_buf,
-		ui.rect_xywh(badge_x, y - 6, badge_w, f32(18)),
+	ui.status_badge(&state.cmd_buf, ui.rect_xywh(px + panel_w - badge_w - 14, y - 6, badge_w, 18),
 		conn_label, conn_dot_color, conn_text_color, state.text.measure, ui.FONT_SIZE_XS)
-	y += 28
+	y += 26
 
-	// Divider.
 	ui.push(&state.cmd_buf, ui.Cmd_Line{
 		from = {px + 12, y}, to = {px + panel_w - 12, y},
 		color = ui.COL_DIVIDER, thickness = 1,
 	})
 	y += 10
 
-	reg := state.stream_views
+	ui.push_text(&state.cmd_buf, {px + 16, y}, "Profiles", ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Bold)
+	y += 16
 
-	// --- Stream slot usage ---
-	stream_count := 0
-	if reg != nil { stream_count = reg.count }
-	slots_buf: [32]u8
-	slots_str := fmt.bprintf(slots_buf[:], "%d/%d stream slots", stream_count, STREAM_VIEW_CAP)
-	ui.push_text(&state.cmd_buf, {px + 16, y}, slots_str, ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS, .Mono)
-	y += 20
+	list_h := panel_h - 130
+	item_h := f32(24)
+	selected_idx := clamp(state.connection_manager_selected_profile, 0, max(state.profiles.count - 1, 0))
 
-	// --- Active subscriptions per venue ---
-	content_bottom := py + panel_h - 44
-	item_h := f32(20)
-
-	ui.push_text(&state.cmd_buf, {px + 16, y}, "Active Subscriptions",
-		ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Bold)
-	y += 18
-
-	if reg != nil {
-		for si in 0 ..< STREAM_VIEW_CAP {
-			if y + item_h > content_bottom do break
-			if !reg.slots[si].used do continue
-			slot := &reg.slots[si]
-			if !slot.has_stream_info { refresh_stream_info_for_slot(state, slot) }
-			if !slot.has_stream_info do continue
-
-			// Green dot.
-			ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
-				rect = {pos = {px + 20, y + item_h * 0.5 - 2}, size = {4, 4}},
-				color = ui.COL_GREEN,
-			})
-
-			sl_buf: [48]u8
-			label := fmt.bprintf(sl_buf[:], "%s:%s", slot.stream_info.venue, slot.stream_info.symbol)
-			ui.push_text(&state.cmd_buf, {px + 30, y + item_h * 0.5 + ui.FONT_SIZE_XS * 0.35},
-				label, ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_XS, .Mono)
-
-			// Channel indicator.
-			ch_label := "---"
-			if slot.has_channel {
-				switch slot.channel {
-				case .Trades:    ch_label = "T"
-				case .Orderbook: ch_label = "OB"
-				case .Stats:     ch_label = "S"
-				case .Heatmaps:  ch_label = "HM"
-				case .VPVR:      ch_label = "VP"
-				case .Candles:   ch_label = "C"
-				}
-			}
-			ui.push_text(&state.cmd_buf, {px + panel_w - 40, y + item_h * 0.5 + ui.FONT_SIZE_XS * 0.35},
-				ch_label, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
-			y += item_h
+	for pi in 0 ..< state.profiles.count {
+		if y + item_h > py + 20 + list_h do break
+		p := &state.profiles.profiles[pi]
+		name := services.profile_name(p)
+		vs_buf: [96]u8
+		vs := fmt.bprintf(vs_buf[:], "%s:%s", services.profile_venue(p), services.profile_symbol(p))
+		item_rect := ui.rect_xywh(px + 12, y, panel_w - 24, item_h)
+		hovered := ui.rect_contains(item_rect, pointer.pos)
+		selected := pi == selected_idx
+		if selected {
+			ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = item_rect, color = ui.with_alpha(ui.COL_BLUE, 0.18)})
+		} else if hovered {
+			ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = item_rect, color = ui.with_alpha(ui.COL_WHITE, 0.05)})
 		}
-	}
-
-	if stream_count == 0 {
-		ui.push_text(&state.cmd_buf, {px + 16, y}, "No active subscriptions",
-			ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+		if hovered && pointer.left_pressed {
+			queue_ui_action(state, UI_Action{kind = .Select_Profile, profile_idx = pi})
+		}
+		ui.push_text(&state.cmd_buf, {item_rect.pos.x + 6, y + item_h * 0.5 + ui.FONT_SIZE_XS * 0.35},
+			name, ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_XS, .Bold)
+		ui.push_text(&state.cmd_buf, {item_rect.pos.x + 110, y + item_h * 0.5 + ui.FONT_SIZE_XS * 0.35},
+			vs, ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS, .Mono)
 		y += item_h
 	}
-
-	// --- Cell bindings summary ---
-	y += 8
-	ui.push_text(&state.cmd_buf, {px + 16, y}, "Cell Bindings",
-		ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Bold)
-	y += 18
-
-	for ci in 0 ..< state.cell_count {
-		if y + item_h > content_bottom do break
-		cell := &state.cell_assignments[ci]
-		cb_buf: [48]u8
-		label: string
-		if cell_has_binding(cell) {
-			label = fmt.bprintf(cb_buf[:], "[%d] %s/%s", ci, cell_bound_venue(cell), cell_bound_symbol(cell))
-		} else {
-			label = fmt.bprintf(cb_buf[:], "[%d] Follow Active", ci)
-		}
-		color := cell_has_binding(cell) ? ui.COL_TEXT_SECONDARY : ui.COL_TEXT_MUTED
-		ui.push_text(&state.cmd_buf, {px + 20, y + item_h * 0.5 + ui.FONT_SIZE_XS * 0.35},
-			label, color, ui.FONT_SIZE_XS, .Mono)
-		y += item_h
+	if state.profiles.count <= 0 {
+		ui.push_text(&state.cmd_buf, {px + 16, y + 10}, "No profiles saved", ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
 	}
 
-	// --- Footer: Close ---
-	footer_y := py + panel_h - 36
+	footer_y := py + panel_h - 56
 	ui.push(&state.cmd_buf, ui.Cmd_Line{
 		from = {px + 12, footer_y}, to = {px + panel_w - 12, footer_y},
 		color = ui.COL_DIVIDER, thickness = 1,
 	})
-	footer_y += 8
+	footer_y += 10
 
-	close_w := f32(50)
-	close_h := f32(20)
-	close_x := px + panel_w - close_w - 16
-	close_res := ui.button(&state.cmd_buf,
-		ui.rect_xywh(close_x, footer_y + 2, close_w, close_h),
-		"Close", pointer, state.text.measure, ui.FONT_SIZE_XS)
-	if close_res.clicked {
+	btn_h := f32(20)
+	btn_x := px + 12
+	add_btn := ui.button(&state.cmd_buf, ui.rect_xywh(btn_x, footer_y, 68, btn_h),
+		"Add", pointer, state.text.measure, ui.FONT_SIZE_XS, .Mono)
+	if add_btn.clicked {
+		queue_ui_action(state, UI_Action{kind = .Add_Profile})
+	}
+	btn_x += 72
+	apply_btn := ui.button(&state.cmd_buf, ui.rect_xywh(btn_x, footer_y, 68, btn_h),
+		"Apply", pointer, state.text.measure, ui.FONT_SIZE_XS, .Mono)
+	if apply_btn.clicked {
+		queue_ui_action(state, UI_Action{kind = .Apply_Profile, profile_idx = selected_idx})
+	}
+	btn_x += 72
+	connect_btn := ui.button(&state.cmd_buf, ui.rect_xywh(btn_x, footer_y, 72, btn_h),
+		"Connect", pointer, state.text.measure, ui.FONT_SIZE_XS, .Mono)
+	if connect_btn.clicked {
+		queue_ui_action(state, UI_Action{kind = .Connect_Profile, profile_idx = selected_idx})
+	}
+	btn_x += 76
+	disconnect_btn := ui.button(&state.cmd_buf, ui.rect_xywh(btn_x, footer_y, 84, btn_h),
+		"Disconnect", pointer, state.text.measure, ui.FONT_SIZE_XS, .Mono)
+	if disconnect_btn.clicked {
+		queue_ui_action(state, UI_Action{kind = .Disconnect_Profile})
+	}
+	btn_x += 88
+	del_btn := ui.button(&state.cmd_buf, ui.rect_xywh(btn_x, footer_y, 58, btn_h),
+		"Delete", pointer, state.text.measure, ui.FONT_SIZE_XS, .Mono)
+	if del_btn.clicked {
+		queue_ui_action(state, UI_Action{kind = .Remove_Profile, profile_idx = selected_idx})
+	}
+
+	close_btn := ui.button(&state.cmd_buf, ui.rect_xywh(px + panel_w - 58, py + 8, 44, 18),
+		"Close", pointer, state.text.measure, ui.FONT_SIZE_XS, .Mono)
+	if close_btn.clicked {
 		queue_ui_action(state, UI_Action{kind = .Toggle_Connection_Modal})
 	}
 }
@@ -453,9 +428,15 @@ draw_cell_stream_picker :: proc(state: ^App_State, anchor: ui.Vec2, cell_idx: in
 	for mi in 0 ..< market_count {
 		if y + item_h > py + panel_h do break
 		entry := state.markets_store.entries[mi]
+		entry_venue := normalized_venue(entry.venue)
+		entry_symbol := entry.ticker
+		entry_symbol_buf: [80]u8
+		if len(entry.market_type) > 0 && !strings.contains(entry_symbol, ":") {
+			entry_symbol = fmt.bprintf(entry_symbol_buf[:], "%s:%s", entry_symbol, entry.market_type)
+		}
 
-		is_selected := has_binding && bound_venue == entry.venue && bound_symbol == entry.ticker
-		is_sub := markets_is_subscribed(state, entry.venue, entry.ticker)
+		is_selected := has_binding && bound_venue == entry_venue && bound_symbol == entry_symbol
+		is_sub := markets_is_subscribed(state, entry_venue, entry_symbol)
 		item_rect := ui.Rect{pos = {px + 4, y}, size = {panel_w - 8, item_h}}
 		hovered := ui.rect_contains(item_rect, pointer.pos)
 		if is_selected {
@@ -473,14 +454,14 @@ draw_cell_stream_picker :: proc(state: ^App_State, anchor: ui.Vec2, cell_idx: in
 		}
 
 		sl_buf: [40]u8
-		label := fmt.bprintf(sl_buf[:], "%s:%s", entry.venue, entry.ticker)
+		label := fmt.bprintf(sl_buf[:], "%s:%s", entry_venue, entry_symbol)
 		ui.push_text(&state.cmd_buf, {item_rect.pos.x + 10, y + item_h * 0.5 + ui.FONT_SIZE_XS * 0.35},
 			label, is_selected ? ui.COL_TEXT_PRIMARY : ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS, .Mono)
 
 		if hovered && pointer.left_pressed {
 			queue_ui_action(state, UI_Action{
 				kind = .Set_Cell_Stream, cell_idx = cell_idx,
-				bind_venue = entry.venue, bind_symbol = entry.ticker,
+				bind_venue = entry_venue, bind_symbol = entry_symbol,
 			})
 			state.cell_stream_picker_open = -1
 		}
@@ -603,7 +584,13 @@ draw_widget_catalog :: proc(state: ^App_State, viewport_w, viewport_h: f32, poin
 		for mi in 0 ..< state.markets_store.count {
 			if y + item_h > py + panel_h - 40 do break
 			entry := state.markets_store.entries[mi]
-			is_sub := markets_is_subscribed(state, entry.venue, entry.ticker)
+			entry_venue := normalized_venue(entry.venue)
+			entry_symbol := entry.ticker
+			entry_symbol_buf: [80]u8
+			if len(entry.market_type) > 0 && !strings.contains(entry_symbol, ":") {
+				entry_symbol = fmt.bprintf(entry_symbol_buf[:], "%s:%s", entry_symbol, entry.market_type)
+			}
+			is_sub := markets_is_subscribed(state, entry_venue, entry_symbol)
 
 			sr := ui.Rect{pos = {px + 8, y}, size = {panel_w - 16, item_h}}
 			sr_hov := ui.rect_contains(sr, pointer.pos)
@@ -617,15 +604,15 @@ draw_widget_catalog :: proc(state: ^App_State, viewport_w, viewport_h: f32, poin
 				})
 			}
 			sl_buf: [40]u8
-			label := fmt.bprintf(sl_buf[:], "%s:%s", entry.venue, entry.ticker)
+			label := fmt.bprintf(sl_buf[:], "%s:%s", entry_venue, entry_symbol)
 			ui.push_text(&state.cmd_buf, {sr.pos.x + 10, y + item_h * 0.5 + ui.FONT_SIZE_XS * 0.35},
 				label, sr_hov ? ui.COL_TEXT_PRIMARY : ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS, .Mono)
 			if sr_hov && pointer.left_pressed {
 				queue_ui_action(state, UI_Action{
 					kind = .Add_Cell,
 					widget_kind = state.catalog_selected_widget,
-					bind_venue = entry.venue,
-					bind_symbol = entry.ticker,
+					bind_venue = entry_venue,
+					bind_symbol = entry_symbol,
 				})
 				state.show_widget_catalog = false
 			}

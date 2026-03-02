@@ -121,9 +121,10 @@ main :: proc() {
 	}
 
 	// 5. App init.
-	state: app.App_State
-	app.init(&state, text_port, md_port, font_port, settings_port, offline)
-	defer app.shutdown(&state)
+	state := new(app.App_State)
+	app.init(state, text_port, md_port, font_port, settings_port, offline)
+	app.set_runtime_connection_defaults(state, ws_url, api_key)
+	defer app.shutdown(state)
 
 	start_tick := time.tick_now()
 	last_soak_log_tick: time.Tick
@@ -135,7 +136,7 @@ main :: proc() {
 		be.begin_frame()
 
 		input := be.collect_input()
-		buf := app.update(&state, input)
+		buf := app.update(state, input)
 		w, h := be.framebuffer_size()
 		render_commands(buf, f32(w), f32(h))
 
@@ -153,7 +154,7 @@ main :: proc() {
 				if should_log {
 					last_soak_log_tick = now_tick
 					has_last_soak_log_tick = true
-					probe := app.runtime_probe(&state)
+					probe := app.runtime_probe(state)
 					if probe.has_md_metrics {
 						fmt.printf("[soak] t_ms=%d frame=%d conn=%v health=%v streams=%d active=%x ev=%d fix=%d pend_restore=%v subs=%d q=%d qmax=%d drop=%d d+%d p=%d rc=%d rc+%d w[t=%d ob=%d/%d st=%d hm=%d vp=%d c=%d]\n",
 							i64(time.tick_since(start_tick)/time.Millisecond),

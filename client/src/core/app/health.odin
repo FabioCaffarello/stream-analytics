@@ -3,6 +3,7 @@ package app
 import "core:fmt"
 import "mr:ports"
 import "mr:services"
+import "mr:streams"
 import "mr:ui"
 
 @(private = "file")
@@ -115,6 +116,58 @@ sample_marketdata_metrics :: proc(state: ^App_State) {
 	state.md_metrics_head = (state.md_metrics_head + 1) % MD_METRICS_HISTORY_CAP
 	if state.md_metrics_count < MD_METRICS_HISTORY_CAP {
 		state.md_metrics_count += 1
+	}
+	refresh_active_stream_health(state, m)
+}
+
+refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtime_Metrics) {
+	if state == nil do return
+	active := streams.registry_active(&state.stream_registry)
+	if active == nil {
+		state.active_stream_state = current_conn_status(state) == .Connected ? .Lag : .Offline
+		state.active_stream_desync_reason = .None
+		state.active_stream_rtt_ms = metrics.rtt_ms
+		state.active_stream_lag_ms = metrics.lag_ms
+		state.active_stream_last_msg_ts_ms = metrics.last_msg_ts_ms
+		state.active_stream_drop_count = metrics.drop_count
+		state.active_stream_reconnect_count = metrics.reconnect_count
+		state.active_stream_subscribe_acks = metrics.subscribe_ack_count
+		return
+	}
+
+	streams.controller_mark_connected(&active.status, current_conn_status(state) == .Connected)
+	streams.controller_mark_transport_metrics(&active.status, metrics.drop_count, metrics.reconnect_count, metrics.rtt_ms)
+	if metrics.desync {
+		streams.controller_mark_desync(&active.status, .Sequence_Gap)
+	}
+	now_ms := current_now_ms(state)
+	if now_ms <= 0 do now_ms = metrics.last_msg_ts_ms
+	state.active_stream_state = streams.controller_update_health(&state.stream_controller, &active.status, now_ms)
+	state.active_stream_desync_reason = active.status.desync_reason
+	state.active_stream_rtt_ms = active.status.rtt_ms
+	state.active_stream_lag_ms = active.status.lag_ms
+	state.active_stream_last_msg_ts_ms = active.status.last_local_ts_ms
+	state.active_stream_drop_count = active.status.drop_count
+	state.active_stream_reconnect_count = active.status.reconnect_count
+	state.active_stream_subscribe_acks = active.status.subscribe_acks
+
+	// Additional client-side DESYNC detection for visible "Waiting for stats/orderbook" regressions.
+	if now_ms > 0 && current_conn_status(state) == .Connected {
+		stats_age := i64(0)
+		if state.active_stream_last_stats_ts_ms > 0 {
+			stats_age = now_ms - state.active_stream_last_stats_ts_ms
+		}
+		ob_age := i64(0)
+		if state.active_stream_last_orderbook_ts_ms > 0 {
+			ob_age = now_ms - state.active_stream_last_orderbook_ts_ms
+		}
+		if (state.active_stream_last_stats_ts_ms == 0 || stats_age > 12_000) &&
+			(state.active_stream_last_orderbook_ts_ms == 0 || ob_age > 12_000) &&
+			state.active_stream_state != .Offline {
+			streams.controller_mark_desync(&active.status, .Snapshot_Stale)
+			state.active_stream_state = .Desync
+			state.active_stream_desync_reason = .Snapshot_Stale
+		}
 	}
 }
 

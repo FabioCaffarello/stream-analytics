@@ -149,13 +149,17 @@ show_toast :: proc(state: ^App_State, msg: string) {
 markets_is_subscribed :: proc(state: ^App_State, venue, ticker: string) -> bool {
 	reg := state.stream_views
 	if reg == nil do return false
+	want_venue := normalized_venue(venue)
+	want_symbol := normalized_symbol(ticker)
 	for i in 0 ..< STREAM_VIEW_CAP {
 		if !reg.slots[i].used do continue
 		slot := &reg.slots[i]
 		if !slot.has_stream_info {
 			refresh_stream_info_for_slot(state, slot)
 		}
-		if slot.has_stream_info && slot.stream_info.venue == venue && slot.stream_info.symbol == ticker {
+		if slot.has_stream_info &&
+			normalized_venue(slot.stream_info.venue) == want_venue &&
+			normalized_symbol(slot.stream_info.symbol) == want_symbol {
 			return true
 		}
 	}

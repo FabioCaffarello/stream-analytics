@@ -4,6 +4,7 @@ import "core:fmt"
 import "mr:model"
 import "mr:ports"
 import "mr:services"
+import "mr:streams"
 import "mr:ui"
 import "mr:widgets"
 
@@ -591,6 +592,21 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 					wlabel, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
 
 				stores := resolve_stores_for_cell(state, cell, ci)
+				cell_stream_id_buf: [streams.STREAM_ID_CAP]u8
+				cell_stream_id := streams.registry_active_stream_id(&state.stream_registry)
+				cell_stream_state := state.active_stream_state
+				if cell.stream_idx >= 0 && cell.stream_idx < STREAM_VIEW_CAP {
+					if reg := state.stream_views; reg != nil && reg.slots[cell.stream_idx].used {
+						slot := &reg.slots[cell.stream_idx]
+						if !slot.has_stream_info { refresh_stream_info_for_slot(state, slot) }
+						if slot.has_stream_info {
+							cell_stream_id = build_stream_id_from_market_into(cell_stream_id_buf[:], slot.stream_info.venue, slot.stream_info.symbol)
+							if h := streams.registry_get(&state.stream_registry, cell_stream_id); h != nil {
+								cell_stream_state = h.status.state
+							}
+						}
+					}
+				}
 
 				switch cell.widget {
 				case .Candle:
@@ -622,6 +638,8 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 						health_detail         = candle_health_detail,
 						health_color          = candle_health_color,
 						tf_label              = tf_opts[cell_effective_tf_idx(state, cell)],
+						stream_id             = cell_stream_id,
+						stream_state          = cell_stream_state,
 						heatmap_live          = is_active && state.active_has_live_heatmap,
 						heatmap_synth         = is_active && !state.active_has_live_heatmap && stores.heatmap != nil && stores.heatmap.count > 0,
 						vpvr_live             = is_active && state.active_has_live_vpvr,
@@ -698,6 +716,8 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 						store    = stores.stats,
 						viewport = cell_vp,
 						text     = state.text,
+						stream_id = cell_stream_id,
+						stream_state = cell_stream_state,
 					})
 
 				case .Counter:
@@ -759,6 +779,8 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 						filter_idx = &cell.trade_filter_idx,
 						pointer    = pointer,
 						now_ms     = current_now_ms(state),
+						stream_id  = cell_stream_id,
+						stream_state = cell_stream_state,
 					})
 
 				case .Orderbook:
@@ -800,6 +822,8 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 						group_options = ob_label_strs[:state.ob_group_count],
 						group_idx     = &cell.ob_group_idx,
 						pointer       = pointer,
+						stream_id     = cell_stream_id,
+						stream_state  = cell_stream_state,
 					})
 
 				case .DOM:
@@ -1092,6 +1116,70 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 		sx := f32(8)
 		sy := bar_y + STATUS_BAR_H * 0.5 + ui.FONT_SIZE_XS * 0.35
 
+		// Strong stream health status (LIVE / LAG / DESYNC).
+		health_label := "OFFLINE"
+		health_color := ui.COL_TEXT_MUTED
+		switch state.active_stream_state {
+		case .Live:
+			health_label = "LIVE"
+			health_color = ui.COL_GREEN
+		case .Lag:
+			health_label = "LAG"
+			health_color = ui.COL_WARNING
+		case .Desync:
+			health_label = "DESYNC"
+			health_color = ui.COL_RED
+		case .Offline:
+		}
+		ui.push_text(&state.cmd_buf, {sx, sy}, health_label, health_color, ui.FONT_SIZE_XS, .Bold)
+		sx += state.text.measure(ui.FONT_SIZE_XS, health_label).x + 10
+		if state.active_stream_state == .Desync {
+			rs_rect := ui.rect_xywh(sx, bar_y + 1, 48, STATUS_BAR_H - 2)
+			rs_btn := ui.button(&state.cmd_buf, rs_rect, "Resync", pointer, state.text.measure, ui.FONT_SIZE_XS, .Mono)
+			if rs_btn.clicked {
+				queue_ui_action(state, UI_Action{kind = .Resync_Active_Stream})
+			}
+			sx += rs_rect.size.x + 8
+		}
+
+		rtt_buf: [24]u8
+		rtt_str := fmt.bprintf(rtt_buf[:], "RTT:%dms", max(state.active_stream_rtt_ms, 0))
+		ui.push_text(&state.cmd_buf, {sx, sy}, rtt_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+		sx += state.text.measure(ui.FONT_SIZE_XS, rtt_str).x + 8
+
+		lag_buf: [24]u8
+		lag_str := fmt.bprintf(lag_buf[:], "LAG:%dms", max(state.active_stream_lag_ms, 0))
+		lag_color := state.active_stream_lag_ms > 4_000 ? ui.COL_WARNING : ui.COL_TEXT_MUTED
+		ui.push_text(&state.cmd_buf, {sx, sy}, lag_str, lag_color, ui.FONT_SIZE_XS, .Mono)
+		sx += state.text.measure(ui.FONT_SIZE_XS, lag_str).x + 8
+
+		last_age_ms := i64(0)
+		if now_ms := current_now_ms(state); now_ms > 0 && state.active_stream_last_msg_ts_ms > 0 {
+			last_age_ms = max(now_ms - state.active_stream_last_msg_ts_ms, 0)
+		}
+		last_buf: [24]u8
+		last_str := fmt.bprintf(last_buf[:], "LAST:%dms", last_age_ms)
+		last_color := last_age_ms > 8_000 ? ui.COL_WARNING : ui.COL_TEXT_MUTED
+		ui.push_text(&state.cmd_buf, {sx, sy}, last_str, last_color, ui.FONT_SIZE_XS, .Mono)
+		sx += state.text.measure(ui.FONT_SIZE_XS, last_str).x + 8
+
+		ack_buf: [20]u8
+		ack_str := fmt.bprintf(ack_buf[:], "ACK:%d", max(state.active_stream_subscribe_acks, 0))
+		ui.push_text(&state.cmd_buf, {sx, sy}, ack_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+		sx += state.text.measure(ui.FONT_SIZE_XS, ack_str).x + 8
+
+		dr_buf: [24]u8
+		dr_str := fmt.bprintf(dr_buf[:], "DROP:%d", max(state.active_stream_drop_count, 0))
+		dr_color := state.active_stream_drop_count > 0 ? ui.COL_RED : ui.COL_TEXT_MUTED
+		ui.push_text(&state.cmd_buf, {sx, sy}, dr_str, dr_color, ui.FONT_SIZE_XS, .Mono)
+		sx += state.text.measure(ui.FONT_SIZE_XS, dr_str).x + 8
+
+		rc_buf: [24]u8
+		rc_str := fmt.bprintf(rc_buf[:], "RC:%d", max(state.active_stream_reconnect_count, 0))
+		rc_color := state.active_stream_reconnect_count > 0 ? ui.COL_WARNING : ui.COL_TEXT_MUTED
+		ui.push_text(&state.cmd_buf, {sx, sy}, rc_str, rc_color, ui.FONT_SIZE_XS, .Mono)
+		sx += state.text.measure(ui.FONT_SIZE_XS, rc_str).x + 8
+
 		// Queue fill + drops + reconnects from metrics history.
 		if ok, qmax, drop_delta, rc_delta := metrics_history_summary(state); ok {
 			q_buf: [32]u8
@@ -1163,7 +1251,7 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 			ui.push_text(&state.cmd_buf, {sx, sy}, w_str, whale_color, ui.FONT_SIZE_XS, .Bold)
 		}
 
-		// Right-aligned: active venue:symbol + TF.
+		// Right-aligned: active stream_id + TF.
 		right_x := viewport_w - 8
 		tf_opts := TF_OPTIONS
 		tf_str := tf_opts[state.active_tf_idx]
@@ -1172,17 +1260,11 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 		ui.push_text(&state.cmd_buf, {right_x, sy}, tf_str, ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS, .Mono)
 		right_x -= 8
 
-		if reg := state.stream_views; reg != nil && reg.has_active {
-			if slot := stream_view_active_slot(reg); slot != nil && slot.has_stream_info {
-				info := slot.stream_info
-				if len(info.venue) > 0 && len(info.symbol) > 0 {
-					vs_buf: [64]u8
-					vs_str := fmt.bprintf(vs_buf[:], "%s:%s", info.venue, info.symbol)
-					vs_w := state.text.measure(ui.FONT_SIZE_XS, vs_str).x
-					right_x -= vs_w
-					ui.push_text(&state.cmd_buf, {right_x, sy}, vs_str, ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS, .Mono)
-				}
-			}
+		active_stream_id := streams.registry_active_stream_id(&state.stream_registry)
+		if len(active_stream_id) > 0 {
+			id_w := state.text.measure(ui.FONT_SIZE_XS, active_stream_id).x
+			right_x -= id_w
+			ui.push_text(&state.cmd_buf, {right_x, sy}, active_stream_id, ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS, .Mono)
 		}
 	}
 

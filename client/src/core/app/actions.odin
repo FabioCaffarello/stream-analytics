@@ -1,8 +1,10 @@
 package app
 
 import "core:fmt"
+import "core:strings"
 import "mr:ports"
 import "mr:services"
+import "mr:streams"
 import "mr:ui"
 import "mr:widgets"
 
@@ -18,6 +20,20 @@ queue_ui_action :: proc(state: ^App_State, action: UI_Action) {
 
 queue_ui_actions_from_input :: proc(state: ^App_State, input: ports.Input_State) {
 	pressed := input.keys.just_pressed
+	switch ui.global_command_from_keys(
+		input.modifiers.ctrl,
+		.K in pressed,
+		.G in pressed,
+		.R in pressed,
+	) {
+	case .Open_Connection_Manager:
+		queue_ui_action(state, UI_Action{kind = .Toggle_Connection_Modal})
+	case .Toggle_Stream_Picker:
+		queue_ui_action(state, UI_Action{kind = .Toggle_Stream_Picker})
+	case .Resync_Active_Stream:
+		queue_ui_action(state, UI_Action{kind = .Resync_Active_Stream})
+	case .None:
+	}
 
 	// Escape: close picker, exit focus mode, compare mode, close modals, or close help overlay.
 	if .Escape in pressed {
@@ -87,9 +103,7 @@ queue_ui_actions_from_input :: proc(state: ^App_State, input: ports.Input_State)
 	if .F in pressed {
 		queue_ui_action(state, UI_Action{kind = .Toggle_Focus_Mode})
 	}
-	if .G in pressed {
-		queue_ui_action(state, UI_Action{kind = .Toggle_Stream_Picker})
-	}
+	// G handled by ui.command_from_input.
 	if .M in pressed {
 		queue_ui_action(state, UI_Action{kind = .Toggle_MA})
 	}
@@ -100,7 +114,7 @@ queue_ui_actions_from_input :: proc(state: ^App_State, input: ports.Input_State)
 		queue_ui_action(state, UI_Action{kind = .Toggle_VWAP})
 	}
 	if .R in pressed {
-		queue_ui_action(state, UI_Action{kind = .Toggle_RSI})
+		if !input.modifiers.ctrl do queue_ui_action(state, UI_Action{kind = .Toggle_RSI})
 	}
 	if .I in pressed {
 		queue_ui_action(state, UI_Action{kind = .Toggle_MACD})
@@ -112,7 +126,7 @@ queue_ui_actions_from_input :: proc(state: ^App_State, input: ports.Input_State)
 		queue_ui_action(state, UI_Action{kind = .Toggle_Liq})
 	}
 	if .K in pressed {
-		queue_ui_action(state, UI_Action{kind = .Toggle_Trade_Counter})
+		if !input.modifiers.ctrl do queue_ui_action(state, UI_Action{kind = .Toggle_Trade_Counter})
 	}
 	if .Z in pressed {
 		queue_ui_action(state, UI_Action{kind = .Toggle_Zen_Mode})
@@ -217,6 +231,94 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 			persist_layout_v4(state)
 		case .Toggle_Connection_Modal:
 			state.show_exchange_manager = !state.show_exchange_manager
+		case .Select_Profile:
+			if services.profile_store_set_active(&state.profiles, action.profile_idx) {
+				state.connection_manager_selected_profile = action.profile_idx
+				services.profile_store_save(&state.profiles, &state.settings)
+				services.settings_flush(&state.settings)
+			}
+		case .Add_Profile:
+			if active_slot := stream_view_active_slot(state.stream_views); active_slot != nil {
+				if !active_slot.has_stream_info {
+					refresh_stream_info_for_slot(state, active_slot)
+				}
+				if active_slot.has_stream_info {
+					name_buf: [32]u8
+					pname := fmt.bprintf(name_buf[:], "P%d", state.profiles.count + 1)
+					ws_url := ""
+					if state.runtime_ws_url_len > 0 {
+						ws_url = string(state.runtime_ws_url[:int(state.runtime_ws_url_len)])
+					}
+					_, market_type := streams.split_symbol_market_type(active_slot.stream_info.symbol)
+					profile := services.profile_make(
+						pname,
+						ws_url,
+						active_slot.stream_info.venue,
+						active_slot.stream_info.symbol,
+						market_type,
+						"",
+						true,
+					)
+					if services.profile_store_upsert(&state.profiles, profile) {
+						state.connection_manager_selected_profile = state.profiles.count - 1
+						services.profile_store_save(&state.profiles, &state.settings)
+						services.settings_flush(&state.settings)
+						show_toast(state, "Profile saved")
+					}
+				}
+			}
+		case .Remove_Profile:
+			if services.profile_store_remove(&state.profiles, action.profile_idx) {
+				state.connection_manager_selected_profile = clamp(state.connection_manager_selected_profile, 0, max(state.profiles.count - 1, 0))
+				services.profile_store_save(&state.profiles, &state.settings)
+				services.settings_flush(&state.settings)
+			}
+		case .Apply_Profile:
+			if services.profile_store_set_active(&state.profiles, action.profile_idx) {
+				state.connection_manager_selected_profile = action.profile_idx
+				if profile := services.profile_store_active(&state.profiles); profile != nil {
+					if state.cell_count > 0 {
+						cell_set_binding(&state.cell_assignments[0], services.profile_venue(profile), services.profile_symbol(profile))
+						state.cell_assignments[0].stream_idx = -1
+					}
+					services.profile_store_save(&state.profiles, &state.settings)
+					services.settings_flush(&state.settings)
+					reconcile_subscriptions(state)
+					request_active_stream_candle_range(state)
+					show_toast(state, "Profile applied")
+				}
+			}
+		case .Connect_Profile:
+			if services.profile_store_set_active(&state.profiles, action.profile_idx) {
+				if profile := services.profile_store_active(&state.profiles); profile != nil {
+					ws_url := services.profile_ws_url(profile)
+					api_key := services.profile_api_key_ref(profile)
+					if state.marketdata.reconnect_transport != nil {
+						_ = state.marketdata.reconnect_transport(ws_url, api_key)
+					}
+					state.connection_manager_selected_profile = action.profile_idx
+					if state.cell_count > 0 {
+						cell_set_binding(&state.cell_assignments[0], services.profile_venue(profile), services.profile_symbol(profile))
+						state.cell_assignments[0].stream_idx = -1
+					}
+					services.profile_store_save(&state.profiles, &state.settings)
+					services.settings_flush(&state.settings)
+					reconcile_subscriptions(state)
+					request_active_stream_candle_range(state)
+					show_toast(state, "Connecting...")
+				}
+			}
+		case .Disconnect_Profile:
+			if state.marketdata.disconnect_transport != nil {
+				_ = state.marketdata.disconnect_transport()
+			}
+			state.active_has_live_stats = false
+			state.active_has_live_heatmap = false
+			state.active_has_live_vpvr = false
+			state.active_has_live_candle = false
+			state.active_stream_last_stats_ts_ms = 0
+			state.active_stream_last_orderbook_ts_ms = 0
+			show_toast(state, "Disconnected")
 		case .Set_Cell_Widget:
 			ci := action.cell_idx
 			if ci >= 0 && ci < state.cell_count {
@@ -299,6 +401,8 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 					state.active_has_live_heatmap = false
 					state.active_has_live_vpvr = false
 					state.active_has_live_candle = false
+					state.active_stream_last_stats_ts_ms = 0
+					state.active_stream_last_orderbook_ts_ms = 0
 					state.getrange_pending = false
 					state.getrange_seeded = false
 					state.getrange_subject_id = 0
@@ -337,32 +441,44 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 			mi := action.market_entry_idx
 			if mi >= 0 && mi < state.markets_store.count {
 				entry := state.markets_store.entries[mi]
+				venue := normalized_venue(entry.venue)
+				symbol := entry.ticker
+				symbol_buf: [80]u8
+				if len(entry.market_type) > 0 && !strings.contains(symbol, ":") {
+					symbol = fmt.bprintf(symbol_buf[:], "%s:%s", symbol, entry.market_type)
+				}
 				if state.marketdata.subscribe != nil {
-					state.marketdata.subscribe(entry.venue, entry.ticker, .Trades)
-					state.marketdata.subscribe(entry.venue, entry.ticker, .Orderbook)
-					state.marketdata.subscribe(entry.venue, entry.ticker, .Candles)
-					state.marketdata.subscribe(entry.venue, entry.ticker, .Stats)
-					state.marketdata.subscribe(entry.venue, entry.ticker, .Heatmaps)
-					state.marketdata.subscribe(entry.venue, entry.ticker, .VPVR)
+					state.marketdata.subscribe(venue, symbol, .Trades)
+					state.marketdata.subscribe(venue, symbol, .Orderbook)
+					state.marketdata.subscribe(venue, symbol, .Candles)
+					state.marketdata.subscribe(venue, symbol, .Stats)
+					state.marketdata.subscribe(venue, symbol, .Heatmaps)
+					state.marketdata.subscribe(venue, symbol, .VPVR)
 				}
 				sub_buf: [64]u8
-				show_toast(state, fmt.bprintf(sub_buf[:], "%s:%s", entry.venue, entry.ticker))
+				show_toast(state, fmt.bprintf(sub_buf[:], "%s:%s", venue, symbol))
 			}
 			state.show_stream_picker = false
 		case .Unsubscribe_Market:
 			mi := action.market_entry_idx
 			if mi >= 0 && mi < state.markets_store.count {
 				entry := state.markets_store.entries[mi]
+				venue := normalized_venue(entry.venue)
+				symbol := entry.ticker
+				symbol_buf: [80]u8
+				if len(entry.market_type) > 0 && !strings.contains(symbol, ":") {
+					symbol = fmt.bprintf(symbol_buf[:], "%s:%s", symbol, entry.market_type)
+				}
 				if state.marketdata.unsubscribe != nil {
-					state.marketdata.unsubscribe(entry.venue, entry.ticker, .Trades)
-					state.marketdata.unsubscribe(entry.venue, entry.ticker, .Orderbook)
-					state.marketdata.unsubscribe(entry.venue, entry.ticker, .Candles)
-					state.marketdata.unsubscribe(entry.venue, entry.ticker, .Stats)
-					state.marketdata.unsubscribe(entry.venue, entry.ticker, .Heatmaps)
-					state.marketdata.unsubscribe(entry.venue, entry.ticker, .VPVR)
+					state.marketdata.unsubscribe(venue, symbol, .Trades)
+					state.marketdata.unsubscribe(venue, symbol, .Orderbook)
+					state.marketdata.unsubscribe(venue, symbol, .Candles)
+					state.marketdata.unsubscribe(venue, symbol, .Stats)
+					state.marketdata.unsubscribe(venue, symbol, .Heatmaps)
+					state.marketdata.unsubscribe(venue, symbol, .VPVR)
 				}
 				sub_buf: [64]u8
-				show_toast(state, fmt.bprintf(sub_buf[:], "Unsub %s:%s", entry.venue, entry.ticker))
+				show_toast(state, fmt.bprintf(sub_buf[:], "Unsub %s:%s", venue, symbol))
 			}
 		case .Toggle_Widget_Catalog:
 			state.show_widget_catalog = !state.show_widget_catalog
@@ -389,6 +505,13 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 					show_toast(state, tf_opts[cell_tf])
 				}
 			}
+		case .Resync_Active_Stream:
+			if active := streams.registry_active(&state.stream_registry); active != nil {
+				streams.controller_clear_desync(&active.status)
+			}
+			reconcile_subscriptions(state)
+			request_active_stream_candle_range(state)
+			show_toast(state, "Resync")
 		}
 	}
 	state.ui_action_count = 0
