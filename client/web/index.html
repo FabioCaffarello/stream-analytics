@@ -31,16 +31,121 @@
             width: 100%;
             min-width: 0;
             min-height: 100dvh;
-            padding: 12px;
-            gap: 0.75rem;
+            padding: 0;
+            gap: 0;
+        }
+        .panel {
+            width: calc(100vw - 24px);
+            max-width: 1100px;
+            border: 1px solid #243241;
+            border-radius: 10px;
+            background: linear-gradient(180deg, rgba(8, 18, 26, 0.9), rgba(7, 14, 20, 0.78));
+            padding: 10px;
+        }
+        .panel-title {
+            color: #8fd2ff;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 12px;
+            margin-bottom: 8px;
+            letter-spacing: 0.04em;
+            cursor: pointer;
+            user-select: none;
+        }
+        .panel-title::after {
+            content: ' ▾';
+            font-size: 10px;
+            opacity: 0.5;
+        }
+        .panel.collapsed .panel-title::after {
+            content: ' ▸';
+        }
+        .panel.collapsed #conn-form,
+        .panel.collapsed #conn-hint {
+            display: none;
+        }
+        .panel.collapsed {
+            padding: 6px 10px;
+        }
+        #conn-form {
+            display: grid;
+            grid-template-columns: repeat(12, minmax(0, 1fr));
+            gap: 8px;
+            align-items: end;
+        }
+        .field {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .field > span {
+            color: #9fb1bf;
+            font-size: 11px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        }
+        .field input {
+            height: 30px;
+            border: 1px solid #2b3f50;
+            border-radius: 6px;
+            background: rgba(6, 12, 18, 0.9);
+            color: #e6f3ff;
+            padding: 6px 8px;
+            outline: none;
+            font-size: 12px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        }
+        .field input:focus {
+            border-color: #4fa8ff;
+            box-shadow: 0 0 0 2px rgba(79, 168, 255, 0.2);
+        }
+        .conn-ws { grid-column: span 6; }
+        .conn-key { grid-column: span 3; }
+        .conn-venue { grid-column: span 1; }
+        .conn-symbol { grid-column: span 2; }
+        .conn-market { grid-column: span 1; }
+        .conn-offline {
+            grid-column: span 1;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            min-height: 30px;
+            margin-top: 20px;
+            color: #9fb1bf;
+            font-size: 11px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        }
+        .conn-actions {
+            grid-column: span 3;
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+        }
+        .conn-actions button {
+            height: 30px;
+            border: 1px solid #315167;
+            border-radius: 7px;
+            background: rgba(11, 24, 34, 0.9);
+            color: #d9ecff;
+            font-size: 12px;
+            padding: 0 12px;
+            cursor: pointer;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        }
+        .conn-actions button:hover {
+            border-color: #4fa8ff;
+            background: rgba(18, 36, 49, 0.95);
+        }
+        #conn-hint {
+            margin-top: 8px;
+            color: #7f93a2;
+            font-size: 11px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
         }
         canvas {
             display: block;
-            border: 1px solid #333;
-            width: calc(100vw - 24px);
-            height: min(74dvh, 680px);
-            aspect-ratio: auto;
-            max-width: 1100px;
+            border: none;
+            width: 100vw;
+            height: 100dvh;
+            max-width: none;
             min-width: 0;
             image-rendering: crisp-edges;
         }
@@ -49,8 +154,8 @@
             font-family: monospace;
             font-size: 12px;
             line-height: 1.35;
-            width: calc(100vw - 24px);
-            max-width: 1100px;
+            width: 100vw;
+            max-width: none;
             color: #888;
             text-align: center;
         }
@@ -58,21 +163,27 @@
 
         @media (min-width: 900px) {
             #app {
-                justify-content: center;
-                padding: 16px;
+                justify-content: flex-start;
+                padding: 0;
+            }
+            .panel {
+                width: calc(100vw - 32px);
             }
             canvas,
             #output {
-                width: calc(100vw - 32px);
-                max-width: 1100px;
-            }
-            canvas {
-                height: auto;
-                aspect-ratio: 4 / 3;
+                width: 100vw;
+                max-width: none;
             }
         }
 
         @media (max-width: 899px) {
+            .conn-ws { grid-column: span 12; }
+            .conn-key { grid-column: span 6; }
+            .conn-venue { grid-column: span 3; }
+            .conn-symbol { grid-column: span 6; }
+            .conn-market { grid-column: span 3; }
+            .conn-offline { grid-column: span 3; margin-top: 0; }
+            .conn-actions { grid-column: span 12; justify-content: flex-start; }
             #output {
                 font-size: 11px;
             }
@@ -81,6 +192,41 @@
 </head>
 <body>
     <div id="app">
+        <section class="panel" id="conn-panel">
+            <div class="panel-title">Connection Settings</div>
+            <form id="conn-form" autocomplete="off">
+                <label class="field conn-ws">
+                    <span>WS URL</span>
+                    <input id="cfg-ws-url" type="text" />
+                </label>
+                <label class="field conn-key">
+                    <span>API Key</span>
+                    <input id="cfg-api-key" type="text" />
+                </label>
+                <label class="field conn-venue">
+                    <span>Venue</span>
+                    <input id="cfg-venue" type="text" />
+                </label>
+                <label class="field conn-symbol">
+                    <span>Symbol</span>
+                    <input id="cfg-symbol" type="text" />
+                </label>
+                <label class="field conn-market">
+                    <span>Market Type</span>
+                    <input id="cfg-market-type" type="text" />
+                </label>
+                <label class="conn-offline">
+                    <input id="cfg-offline" type="checkbox" />
+                    <span>offline</span>
+                </label>
+                <div class="conn-actions">
+                    <button type="button" id="cfg-defaults">Defaults</button>
+                    <button type="button" id="cfg-apply-live">Apply Live</button>
+                    <button type="submit" id="cfg-apply">Apply + Reload</button>
+                </div>
+            </form>
+            <div id="conn-hint"></div>
+        </section>
         <canvas id="canvas" width="800" height="600"></canvas>
         <pre id="output">Loading WASM...</pre>
     </div>

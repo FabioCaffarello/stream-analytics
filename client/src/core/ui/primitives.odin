@@ -49,6 +49,85 @@ panel :: proc(
 	return inner
 }
 
+// --- Panel V2: header bar with title + optional inline controls area ---
+
+Panel_V2_Config :: struct {
+	title:        string,
+	title_height: f32,
+	bg_color:     Color,
+	pad:          f32,
+	header_h:     f32,   // total header height (0 = auto from title_height)
+}
+
+// Draw a panel with a proper header bar. Returns (inner content rect, header control rect).
+// The control_rect is the area to the right of the title within the header — caller can
+// render segmented_control, toggle, etc. into it.
+panel_v2 :: proc(
+	buf: ^Command_Buffer,
+	rect: Rect,
+	cfg: Panel_V2_Config,
+	measure_proc: proc(size: f32, text: string) -> Vec2,
+	font_size: f32,
+) -> (inner: Rect, control_rect: Rect) {
+	push(buf, Cmd_Rect_Filled{rect = rect, color = cfg.bg_color})
+
+	// Panel border (4 edges).
+	push(buf, Cmd_Line{from = {rect.pos.x, rect.pos.y}, to = {rect_right(rect), rect.pos.y}, color = COL_BORDER_SUBTLE, thickness = 1})
+	push(buf, Cmd_Line{from = {rect_right(rect), rect.pos.y}, to = {rect_right(rect), rect_bottom(rect)}, color = COL_BORDER_SUBTLE, thickness = 1})
+	push(buf, Cmd_Line{from = {rect_right(rect), rect_bottom(rect)}, to = {rect.pos.x, rect_bottom(rect)}, color = COL_BORDER_SUBTLE, thickness = 1})
+	push(buf, Cmd_Line{from = {rect.pos.x, rect_bottom(rect)}, to = {rect.pos.x, rect.pos.y}, color = COL_BORDER_SUBTLE, thickness = 1})
+
+	padded := rect_pad(rect, cfg.pad)
+
+	hdr_h := cfg.header_h
+	if hdr_h <= 0 {
+		hdr_h = max(cfg.title_height + 8, 26) // 26px min header height
+	}
+
+	if len(cfg.title) > 0 {
+		// Header background (elevated surface).
+		hdr_rect := Rect{pos = padded.pos, size = {padded.size.x, hdr_h}}
+		push(buf, Cmd_Rect_Filled{rect = hdr_rect, color = with_alpha(COL_WHITE, 0.03)})
+
+		// Top accent line (2px, blue at 0.3 alpha).
+		push(buf, Cmd_Rect_Filled{
+			rect  = {pos = {padded.pos.x, padded.pos.y}, size = {padded.size.x, 2}},
+			color = with_alpha(COL_BLUE, 0.3),
+		})
+
+		// Title with 8px left padding.
+		title_y := padded.pos.y + cfg.title_height + 2
+		push_text(buf, {padded.pos.x + SPACING_MD, title_y}, cfg.title,
+			COL_TEXT_SECONDARY, font_size, .Mono)
+
+		// Separator line below header.
+		sep_y := padded.pos.y + hdr_h
+		push(buf, Cmd_Line{
+			from      = {padded.pos.x, sep_y},
+			to        = {rect_right(padded), sep_y},
+			color     = COL_DIVIDER,
+			thickness = 1,
+		})
+
+		// Control area: right side of header, leaving title space.
+		title_w := measure_proc(font_size, cfg.title).x + 16
+		control_rect = Rect{
+			pos  = {padded.pos.x + title_w, padded.pos.y + 1},
+			size = {padded.size.x - title_w - 4, hdr_h - 2},
+		}
+
+		inner = Rect{
+			pos  = {padded.pos.x, sep_y + 2},
+			size = {padded.size.x, padded.size.y - hdr_h - 2},
+		}
+	} else {
+		inner = padded
+		control_rect = {}
+	}
+
+	return
+}
+
 // --- Scroll Area ---
 
 Scroll_State :: struct {

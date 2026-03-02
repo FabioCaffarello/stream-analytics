@@ -20,7 +20,7 @@ NATIVE_FLAGS ?=
 
 CORE_PKGS := app model ui widgets math util ports services
 
-.PHONY: help build-native build-wasm build clean run run-native-compose run-native-offline serve check-wasm check-core check-core-imports
+.PHONY: help build-native build-wasm build clean run run-native-compose run-native-offline serve check-wasm check-core check-core-imports check-widgets check-widgets-functional check-widgets-online
 
 help:
 	@echo "Client targets:"
@@ -35,6 +35,9 @@ help:
 	@echo "  make check-wasm         - verify web/app.wasm serves HTTP 200"
 	@echo "  make check-core         - odin check all core packages"
 	@echo "  make check-core-imports - gate: fail if core imports platform or deps"
+	@echo "  make check-widgets      - gate: offline soak asserts all widgets receive data"
+	@echo "  make check-widgets-functional - alias of check-widgets (offline functional soak)"
+	@echo "  make check-widgets-online - gate: online soak asserts all widgets receive live data"
 	@echo ""
 	@echo "Options:"
 	@echo "  ODIN_OPT=size|speed|none  (default: size)"
@@ -103,3 +106,11 @@ check-core:
 
 check-core-imports:
 	@./scripts/check-core-imports.sh
+
+check-widgets:
+	@./scripts/check-widgets-functional.sh
+
+check-widgets-functional: check-widgets
+
+check-widgets-online:
+	@./scripts/check-widgets-online.sh

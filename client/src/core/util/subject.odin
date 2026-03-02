@@ -14,31 +14,59 @@ subject_hash_append :: proc(h: ^u64, s: string) {
 	}
 }
 
+@(private = "file")
+channel_to_stream_type :: proc(channel: ports.MD_Channel) -> string {
+	switch channel {
+	case .Trades:
+		return "marketdata.trade"
+	case .Orderbook:
+		return "marketdata.bookdelta"
+	case .Stats:
+		return "aggregation.stats"
+	case .Heatmaps:
+		return "insights.heatmap_snapshot"
+	case .VPVR:
+		return "insights.volume_profile_snapshot"
+	case .Candles:
+		return "aggregation.candle"
+	}
+	return ""
+}
+
+@(private = "file")
+timeframe_for_channel :: proc(channel: ports.MD_Channel, timeframe: string) -> string {
+	switch channel {
+	case .Heatmaps, .VPVR, .Candles:
+		// Timeframe-aware streams follow the active candle timeframe.
+		if len(timeframe) > 0 do return timeframe
+		return "1m"
+	case .Trades, .Orderbook, .Stats:
+		return "raw"
+	}
+	return ""
+}
+
 // Maps a channel enum to the canonical (stream_type, timeframe) parts
 // used in MR WS subject strings.
 channel_to_stream_parts :: proc(channel: ports.MD_Channel) -> (stream_type: string, timeframe: string) {
-	switch channel {
-	case .Trades:
-		return "marketdata.trade", "raw"
-	case .Orderbook:
-		return "marketdata.bookdelta", "raw"
-	case .Stats:
-		return "aggregation.stats", "raw"
-	case .Heatmaps:
-		return "insights.heatmap_snapshot", "1m"
-	case .VPVR:
-		return "insights.volume_profile_snapshot", "1m"
-	case .Candles:
-		return "aggregation.candle", "raw"
-	}
-	return "", ""
+	return channel_to_stream_parts_with_timeframe(channel, "")
+}
+
+// Variant that allows overriding timeframe for timeframe-aware channels.
+channel_to_stream_parts_with_timeframe :: proc(channel: ports.MD_Channel, timeframe: string) -> (stream_type: string, out_timeframe: string) {
+	return channel_to_stream_type(channel), timeframe_for_channel(channel, timeframe)
 }
 
 // Builds a subject string allocated on the heap (context.allocator).
 // Caller owns the returned string; it survives temp_allocator resets.
 build_subject :: proc(venue, symbol: string, channel: ports.MD_Channel) -> string {
-	stream_type, timeframe := channel_to_stream_parts(channel)
-	return strings.concatenate({stream_type, "/", venue, "/", symbol, "/", timeframe})
+	return build_subject_with_timeframe(venue, symbol, channel, "")
+}
+
+// Build subject variant that allows timeframe override for heatmap/VPVR streams.
+build_subject_with_timeframe :: proc(venue, symbol: string, channel: ports.MD_Channel, timeframe: string) -> string {
+	stream_type, tf := channel_to_stream_parts_with_timeframe(channel, timeframe)
+	return strings.concatenate({stream_type, "/", venue, "/", symbol, "/", tf})
 }
 
 // Stable subject hash built from canonical stream parts without allocating a subject string.

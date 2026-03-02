@@ -1,0 +1,8 @@
+[subminute-gate] run directory: .context/evidence/subminute-rollout-gate/20260227T122458Z
+[subminute-gate] START processor-rollout-tests: go test ./cmd/processor -run TestSubMinuteRolloutGate_ScopedMatching|TestSubMinuteFilteringPublisher_BlocksSubMinuteAndCountsDrop|TestSubMinuteFilteringStores_BlockSubMinuteOnly
+[subminute-gate] PASS processor-rollout-tests (0s)
+[subminute-gate] START server-rollout-tests: go test ./cmd/server -run TestSubMinuteFilteringRangeStore_BlocksSubMinuteAndAllowsHigherTF|TestSubMinuteFilteringRangeStore_ScopedAllowlistByVenueAndInstrument|TestSubMinuteFilteringCandleReader_BlocksSubMinuteRange|TestSubMinuteFilteringStatsReader_BlocksSubMinuteRange
+[subminute-gate] PASS server-rollout-tests (0s)
+[subminute-gate] START runtime-catchup-tests: go test ./internal/actors/aggregation/runtime -run TestProcessor_CatchUpSkipBookDeltaSkipsStaleBookDeltaWhenConfigured|TestProcessor_CatchUpSkipTradeSkipsStaleTradeWhenConfigured|TestProcessor_CatchUpSkipStatsSkipsStaleLiquidationWhenConfigured
+[subminute-gate] PASS runtime-catchup-tests (1s)
+[subminute-gate] PASS report=.context/evidence/subminute-rollout-gate/20260227T122458Z/report.md

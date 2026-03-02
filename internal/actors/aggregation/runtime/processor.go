@@ -132,6 +132,15 @@ type ProcessorConfig struct {
 	// envelopes while the processor is catching up (based on env.TsIngest skew).
 	// This is intended for local/dev throughput relief and is disabled by default.
 	CatchUpSkipBookDeltaSkew time.Duration
+	// CatchUpSkipTradeSkew, when > 0, skips stale marketdata.trade envelopes
+	// while the processor is catching up (based on env.TsIngest skew).
+	// This is intended for local/dev throughput relief and is disabled by default.
+	CatchUpSkipTradeSkew time.Duration
+	// CatchUpSkipStatsSkew, when > 0, skips stale marketdata.liquidation and
+	// marketdata.markprice envelopes while the processor is catching up
+	// (based on env.TsIngest skew). This is intended for local/dev throughput
+	// relief and is disabled by default.
+	CatchUpSkipStatsSkew time.Duration
 	// TickerProducer overrides ticker actor creation (tests only).
 	TickerProducer actor.Producer
 
@@ -204,6 +213,9 @@ type ProcessorSubsystemActor struct {
 	hbLastEmitAt                  time.Time
 	snapshotTickDeferLastLogAt    time.Time
 	bookDeltaCatchUpSkipLastLogAt time.Time
+	tradeCatchUpSkipLastLogAt     time.Time
+	liquidationCatchUpSkipLogAt   time.Time
+	markPriceCatchUpSkipLogAt     time.Time
 }
 
 // NewProcessorSubsystemActor returns a hollywood actor.Producer for the
@@ -387,6 +399,9 @@ func (p *ProcessorSubsystemActor) handleEnvelope(_ *actor.Context, env envelope.
 		if env.Version != 1 {
 			return unsupportedVersionProblem(env.Type, env.Version)
 		}
+		if p.shouldSkipTradeForCatchUp(time.Now(), env) {
+			return nil
+		}
 		if p.candleEnabled() && p.cfg.Service != nil && p.cfg.Service.Candle != nil {
 			if prob := p.handleTradeForCandle(env); prob != nil {
 				if isBenignStreamOrderProblem(prob) {
@@ -409,6 +424,10 @@ func (p *ProcessorSubsystemActor) handleEnvelope(_ *actor.Context, env envelope.
 					)
 				}
 			}
+		} else if !p.candleEnabled() {
+			metrics.IncIngestDrop("candle_route_disabled")
+		} else {
+			metrics.IncIngestDrop("candle_route_unconfigured")
 		}
 		if prob := p.handleTradeForRealtimeInsights(env); prob != nil {
 			p.logger.Warn("aggruntime: realtime insights trade handling failed",
@@ -426,10 +445,16 @@ func (p *ProcessorSubsystemActor) handleEnvelope(_ *actor.Context, env envelope.
 		if env.Version != 1 {
 			return unsupportedVersionProblem(env.Type, env.Version)
 		}
+		if p.shouldSkipLiquidationForCatchUp(time.Now(), env) {
+			return nil
+		}
 		return p.handleLiquidation(env)
 	case typeMarkPrice:
 		if env.Version != 1 {
 			return unsupportedVersionProblem(env.Type, env.Version)
+		}
+		if p.shouldSkipMarkPriceForCatchUp(time.Now(), env) {
+			return nil
 		}
 		return p.handleMarkPrice(env)
 	case typeRaw:
@@ -521,6 +546,7 @@ func activeThresholdsForLevel(level policykit.Level) (policykit.Threshold, polic
 func (p *ProcessorSubsystemActor) handleBookDelta(env envelope.Envelope) *problem.Problem {
 	if p.cfg.Service == nil || p.cfg.Service.UpdateBook == nil {
 		p.logger.Warn("aggruntime: no UpdateBook use case configured — dropping bookdelta")
+		metrics.IncIngestDrop("orderbook_route_unconfigured")
 		return problem.New(problem.ValidationFailed, "aggregation UpdateBook use case is not configured")
 	}
 
@@ -847,10 +873,12 @@ func (p *ProcessorSubsystemActor) handleTradeForCandle(env envelope.Envelope) *p
 
 func (p *ProcessorSubsystemActor) handleLiquidation(env envelope.Envelope) *problem.Problem {
 	if !p.statsEnabled() {
+		metrics.IncIngestDrop("stats_route_disabled")
 		return nil
 	}
 	if p.cfg.Service == nil || p.cfg.Service.Stats == nil {
 		p.logger.Warn("aggruntime: no Stats use case configured — dropping liquidation")
+		metrics.IncIngestDrop("stats_route_unconfigured")
 		return nil
 	}
 
@@ -901,10 +929,12 @@ func (p *ProcessorSubsystemActor) handleLiquidation(env envelope.Envelope) *prob
 
 func (p *ProcessorSubsystemActor) handleMarkPrice(env envelope.Envelope) *problem.Problem {
 	if !p.statsEnabled() {
+		metrics.IncIngestDrop("stats_route_disabled")
 		return nil
 	}
 	if p.cfg.Service == nil || p.cfg.Service.Stats == nil {
 		p.logger.Warn("aggruntime: no Stats use case configured — dropping markprice")
+		metrics.IncIngestDrop("stats_route_unconfigured")
 		return nil
 	}
 
@@ -1137,6 +1167,85 @@ func (p *ProcessorSubsystemActor) shouldSkipBookDeltaForCatchUp(now time.Time, e
 			"seq", env.Seq,
 		)
 	}
+	metrics.IncIngestDrop("bookdelta_catchup_skip")
+	return true
+}
+
+func (p *ProcessorSubsystemActor) shouldSkipTradeForCatchUp(now time.Time, env envelope.Envelope) bool {
+	if p.cfg.CatchUpSkipTradeSkew <= 0 || env.TsIngest <= 0 {
+		return false
+	}
+	nowMs := now.UnixMilli()
+	if nowMs <= env.TsIngest {
+		return false
+	}
+	skew := time.Duration(nowMs-env.TsIngest) * time.Millisecond
+	if skew <= p.cfg.CatchUpSkipTradeSkew {
+		return false
+	}
+	if shouldEmitHeartbeat(now, p.tradeCatchUpSkipLastLogAt, false, snapshotTickDeferLogInterval) {
+		p.tradeCatchUpSkipLastLogAt = now
+		p.logger.Info("aggruntime: skipping stale trade while processor catches up",
+			"ingest_skew", skew.String(),
+			"threshold", p.cfg.CatchUpSkipTradeSkew.String(),
+			"venue", env.Venue,
+			"instrument", env.Instrument,
+			"seq", env.Seq,
+		)
+	}
+	metrics.IncIngestDrop("trade_catchup_skip")
+	return true
+}
+
+func (p *ProcessorSubsystemActor) shouldSkipLiquidationForCatchUp(now time.Time, env envelope.Envelope) bool {
+	if p.cfg.CatchUpSkipStatsSkew <= 0 || env.TsIngest <= 0 {
+		return false
+	}
+	nowMs := now.UnixMilli()
+	if nowMs <= env.TsIngest {
+		return false
+	}
+	skew := time.Duration(nowMs-env.TsIngest) * time.Millisecond
+	if skew <= p.cfg.CatchUpSkipStatsSkew {
+		return false
+	}
+	if shouldEmitHeartbeat(now, p.liquidationCatchUpSkipLogAt, false, snapshotTickDeferLogInterval) {
+		p.liquidationCatchUpSkipLogAt = now
+		p.logger.Info("aggruntime: skipping stale liquidation while processor catches up",
+			"ingest_skew", skew.String(),
+			"threshold", p.cfg.CatchUpSkipStatsSkew.String(),
+			"venue", env.Venue,
+			"instrument", env.Instrument,
+			"seq", env.Seq,
+		)
+	}
+	metrics.IncIngestDrop("liquidation_catchup_skip")
+	return true
+}
+
+func (p *ProcessorSubsystemActor) shouldSkipMarkPriceForCatchUp(now time.Time, env envelope.Envelope) bool {
+	if p.cfg.CatchUpSkipStatsSkew <= 0 || env.TsIngest <= 0 {
+		return false
+	}
+	nowMs := now.UnixMilli()
+	if nowMs <= env.TsIngest {
+		return false
+	}
+	skew := time.Duration(nowMs-env.TsIngest) * time.Millisecond
+	if skew <= p.cfg.CatchUpSkipStatsSkew {
+		return false
+	}
+	if shouldEmitHeartbeat(now, p.markPriceCatchUpSkipLogAt, false, snapshotTickDeferLogInterval) {
+		p.markPriceCatchUpSkipLogAt = now
+		p.logger.Info("aggruntime: skipping stale markprice while processor catches up",
+			"ingest_skew", skew.String(),
+			"threshold", p.cfg.CatchUpSkipStatsSkew.String(),
+			"venue", env.Venue,
+			"instrument", env.Instrument,
+			"seq", env.Seq,
+		)
+	}
+	metrics.IncIngestDrop("markprice_catchup_skip")
 	return true
 }
 

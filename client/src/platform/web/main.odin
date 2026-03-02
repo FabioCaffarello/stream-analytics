@@ -7,23 +7,17 @@ import "base:runtime"
 import "core:strings"
 import "mr:app"
 import "mr:ports"
-
-Venue_Symbol :: struct {
-	venue, symbol: string,
-}
-
-// Current UI has a single set of stores/widgets (one book, one trades list, one candle chart).
-// Subscribe to a single instrument to avoid mixing markets in the same store and to keep
-// delivery load below slow-client thresholds until multi-symbol partitioning is implemented.
-DEFAULT_SUBS :: []Venue_Symbol{
-	{"binance", "BTCUSDT:SPOT"},
-}
+import "mr:services"
 
 // Default connection config.
 WS_URL  :: "ws://127.0.0.1:8080/ws"
 API_KEY :: "prod_key_1"
+DEFAULT_VENUE  :: "binance"
+DEFAULT_SYMBOL :: "BTCUSDT:SPOT"
 
 g_state: app.App_State
+g_prev_mouse_pos: [2]f32
+g_has_prev_mouse_pos: bool
 
 query_param_or_into :: proc(name: string, fallback: string, backing: []u8) -> string {
 	if len(backing) == 0 do return fallback
@@ -38,49 +32,156 @@ query_param_or_into :: proc(name: string, fallback: string, backing: []u8) -> st
 	return val
 }
 
+query_flag :: proc(name: string) -> bool {
+	buf: [8]u8
+	v := query_param_or_into(name, "0", buf[:])
+	return v == "1" || v == "true" || v == "TRUE" || v == "yes" || v == "YES"
+}
+
 main :: proc() {
 	text_port := make_text_port()
 	font_port := stub_font_port()
 	settings_port := stub_settings_port()
-	md_port := make_marketdata_web(WS_URL, API_KEY)
+	has_saved_layout := web_has_any_saved_layout(settings_port)
+	offline := query_flag("offline")
+	ws_url_buf: [512]u8
+	ws_alias_buf: [512]u8
+	api_key_buf: [128]u8
+	api_key_alias_buf: [128]u8
+	ws_url := query_param_or_into("ws_url", WS_URL, ws_url_buf[:])
+	ws_url = query_param_or_into("ws", ws_url, ws_alias_buf[:])
+	api_key := query_param_or_into("api_key", API_KEY, api_key_buf[:])
+	api_key = query_param_or_into("key", api_key, api_key_alias_buf[:])
+	md_port: ports.Marketdata_Port
+	if offline {
+		md_port = stub_marketdata_port()
+	} else {
+		md_port = make_marketdata_web(ws_url, api_key)
+	}
 
 	venue_buf: [32]u8
 	symbol_buf: [64]u8
 	market_type_buf: [32]u8
-	venue := query_param_or_into("venue", DEFAULT_SUBS[0].venue, venue_buf[:])
-	symbol := query_param_or_into("symbol", DEFAULT_SUBS[0].symbol, symbol_buf[:])
+	venue := query_param_or_into("venue", DEFAULT_VENUE, venue_buf[:])
+	symbol := query_param_or_into("symbol", DEFAULT_SYMBOL, symbol_buf[:])
 	market_type := query_param_or_into("market_type", "", market_type_buf[:])
 	if len(market_type) > 0 && !strings.contains(symbol, ":") {
 		symbol = strings.concatenate({symbol, ":", market_type})
 	}
 
-	// Single-symbol subscription (query params: ?venue=binance&symbol=SOLUSDT&market_type=SPOT).
-	md_port.subscribe(venue, symbol, .Trades)
-	md_port.subscribe(venue, symbol, .Orderbook)
-	md_port.subscribe(venue, symbol, .Stats)
-	md_port.subscribe(venue, symbol, .Candles)
-
-	app.init(&g_state, text_port, md_port, font_port, settings_port, false)
+	app.init(&g_state, text_port, md_port, font_port, settings_port, offline)
+	apply_query_default_binding(&g_state, venue, symbol, offline, has_saved_layout)
 }
 
 @(private = "file")
-decode_key_state :: proc(input: ^ports.Input_State) {
+web_has_any_saved_layout :: proc(settings_port: ports.Settings_Port) -> bool {
+	if settings_port.load == nil do return false
+	_, has_v4 := settings_port.load("layout_v4")
+	if has_v4 do return true
+	_, has_v3 := settings_port.load("layout_v3")
+	if has_v3 do return true
+	_, has_v2 := settings_port.load("layout_v2")
+	if has_v2 do return true
+	_, has_v1 := settings_port.load("layout")
+	return has_v1
+}
+
+@(private = "file")
+apply_query_default_binding :: proc(state: ^app.App_State, venue: string, symbol: string, offline: bool, has_saved_layout: bool) {
+	if state == nil || state.cell_count <= 0 do return
+	if len(venue) == 0 || len(symbol) == 0 do return
+	if has_saved_layout do return
+
+	// PRD-0009: URL params provide first-start binding for web when no persisted layout exists.
+	app.cell_set_binding(&state.cell_assignments[0], venue, symbol)
+	app.persist_layout_v4(state)
+	if !offline {
+		app.reconcile_subscriptions(state)
+	}
+}
+
+@(private = "file")
+mark_key_state :: proc(input: ^ports.Input_State, bits, pressed_bits, released_bits: u32, bit: u32, key: ports.Key) {
+	mask := u32(1) << bit
+	down := bits & mask != 0
+	if down do input.keys.pressed += {key}
+	if pressed_bits & mask != 0 do input.keys.just_pressed += {key}
+	if released_bits & mask != 0 do input.keys.just_released += {key}
+}
+
+@(private = "file")
+decode_input_state :: proc(input: ^ports.Input_State, dt: f32) {
+	input.delta_time = dt
+
+	input.mouse.pos = {mouse_x(), mouse_y()}
+	if g_has_prev_mouse_pos {
+		input.mouse.delta = {
+			input.mouse.pos.x - g_prev_mouse_pos.x,
+			input.mouse.pos.y - g_prev_mouse_pos.y,
+		}
+	}
+	g_prev_mouse_pos = input.mouse.pos
+	g_has_prev_mouse_pos = true
+
+	mouse_bits := mouse_buttons()
+	mouse_pressed_bits := mouse_pressed_buttons()
+	mouse_released_bits := mouse_released_buttons()
+	left_down := mouse_bits & (1 << 0) != 0
+	right_down := mouse_bits & (1 << 1) != 0
+	middle_down := mouse_bits & (1 << 2) != 0
+	input.mouse.buttons[.Left] = left_down
+	input.mouse.buttons[.Right] = right_down
+	input.mouse.buttons[.Middle] = middle_down
+	input.mouse.pressed[.Left] = mouse_pressed_bits & (1 << 0) != 0
+	input.mouse.pressed[.Right] = mouse_pressed_bits & (1 << 1) != 0
+	input.mouse.pressed[.Middle] = mouse_pressed_bits & (1 << 2) != 0
+	input.mouse.released[.Left] = mouse_released_bits & (1 << 0) != 0
+	input.mouse.released[.Right] = mouse_released_bits & (1 << 1) != 0
+	input.mouse.released[.Middle] = mouse_released_bits & (1 << 2) != 0
+
+	input.mouse.scroll = {mouse_scroll_x(), mouse_scroll_y()}
+
+	mod_bits := modifier_state()
+	input.modifiers.shift = mod_bits & (1 << 0) != 0
+	input.modifiers.ctrl = mod_bits & (1 << 1) != 0
+	input.modifiers.alt = mod_bits & (1 << 2) != 0
+	input.modifiers.super = mod_bits & (1 << 3) != 0
+
 	bits := key_state()
-	if bits == 0 do return
-	if bits & (1 << 0) != 0 do input.keys.pressed += {.Up}
-	if bits & (1 << 1) != 0 do input.keys.pressed += {.Down}
-	if bits & (1 << 2) != 0 do input.keys.pressed += {.Left}
-	if bits & (1 << 3) != 0 do input.keys.pressed += {.Right}
-	if bits & (1 << 4) != 0 do input.keys.pressed += {.Enter}
-	if bits & (1 << 5) != 0 do input.keys.pressed += {.Escape}
-	if bits & (1 << 6) != 0 do input.keys.pressed += {.Tab}
-	if bits & (1 << 7) != 0 do input.keys.pressed += {.Space}
-	if bits & (1 << 8) != 0 do input.keys.pressed += {.Num_1}
-	if bits & (1 << 9) != 0 do input.keys.pressed += {.Num_2}
-	if bits & (1 << 10) != 0 do input.keys.pressed += {.Num_3}
-	if bits & (1 << 11) != 0 do input.keys.pressed += {.Num_4}
-	if bits & (1 << 12) != 0 do input.keys.pressed += {.Num_5}
-	if bits & (1 << 13) != 0 do input.keys.pressed += {.Num_6}
+	key_pressed_bits := key_pressed_state()
+	key_released_bits := key_released_state()
+	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 0, .Up)
+	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 1, .Down)
+	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 2, .Left)
+	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 3, .Right)
+	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 4, .Enter)
+	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 5, .Escape)
+	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 6, .Tab)
+	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 7, .Space)
+	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 8, .Num_1)
+	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 9, .Num_2)
+	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 10, .Num_3)
+	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 11, .Num_4)
+	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 12, .Num_5)
+	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 13, .Num_6)
+	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 14, .Num_7)
+	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 15, .Num_8)
+	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 16, .Num_9)
+	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 17, .S)
+	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 18, .Slash)
+	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 19, .C)
+	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 20, .G)
+	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 21, .F)
+	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 22, .M)
+	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 23, .B)
+	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 24, .V)
+	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 25, .R)
+	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 26, .I)
+	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 27, .H)
+	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 28, .J)
+	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 29, .K)
+	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 30, .Z)
+	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 31, .Delete)
 }
 
 @(export)
@@ -88,8 +189,9 @@ step :: proc "c" (dt: f32, odin_ctx: rawptr) -> bool {
 	context = (^runtime.Context)(odin_ctx)^
 
 	input: ports.Input_State
+	input.delta_time = dt
 	input.viewport_size = canvas_viewport_size()
-	decode_key_state(&input)
+	decode_input_state(&input, dt)
 	buf, should_render := app.update_web(&g_state, input)
 	if should_render {
 		render_commands(buf)
@@ -97,4 +199,269 @@ step :: proc "c" (dt: f32, odin_ctx: rawptr) -> bool {
 
 	free_all(context.temp_allocator)
 	return true // continue animation loop
+}
+
+@(export)
+probe_widget_trades_count :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_trades_count)
+}
+
+@(export)
+probe_widget_orderbook_asks :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_orderbook_asks)
+}
+
+@(export)
+probe_widget_orderbook_bids :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_orderbook_bids)
+}
+
+@(export)
+probe_widget_stats_count :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_stats_count)
+}
+
+@(export)
+probe_widget_heatmap_snaps :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_heatmap_snaps)
+}
+
+@(export)
+probe_widget_vpvr_levels :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_vpvr_levels)
+}
+
+@(export)
+probe_widget_candle_count :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_candle_count)
+}
+
+@(export)
+probe_widget_candle_latest_close :: proc "c" () -> f64 {
+	context = runtime.default_context()
+	if g_state.candle_store.count <= 0 do return 0
+	c := services.get_candle_newest(&g_state.candle_store, 0)
+	return c.close
+}
+
+@(export)
+probe_widget_candle_latest_end_ts :: proc "c" () -> f64 {
+	context = runtime.default_context()
+	if g_state.candle_store.count <= 0 do return 0
+	c := services.get_candle_newest(&g_state.candle_store, 0)
+	return f64(c.window_end_ts)
+}
+
+@(export)
+probe_active_tf_index :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.active_tf_idx)
+}
+
+@(export)
+probe_ui_actions_enqueued_total :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.ui_actions_enqueued_total)
+}
+
+@(export)
+probe_stream_count :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.stream_count)
+}
+
+@(export)
+probe_has_active_stream :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	if p.has_active_stream do return 1
+	return 0
+}
+
+@(export)
+probe_active_subject_lo32 :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.active_subject_id & u64(0xffff_ffff))
+}
+
+@(export)
+probe_stream_switches_total :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.stream_switches_total)
+}
+
+@(export)
+probe_timeframe_switches_total :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.timeframe_switches_total)
+}
+
+@(export)
+probe_active_live_stats :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	if p.active_live_stats do return 1
+	return 0
+}
+
+@(export)
+probe_active_live_heatmap :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	if p.active_live_heatmap do return 1
+	return 0
+}
+
+@(export)
+probe_active_live_vpvr :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	if p.active_live_vpvr do return 1
+	return 0
+}
+
+@(export)
+probe_active_synth_heatmap :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	if p.active_synth_heatmap do return 1
+	return 0
+}
+
+@(export)
+probe_active_synth_vpvr :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	if p.active_synth_vpvr do return 1
+	return 0
+}
+
+@(export)
+probe_active_live_candle :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	if p.active_live_candle do return 1
+	return 0
+}
+
+@(export)
+probe_compare_mode :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	if p.compare_mode do return 1
+	return 0
+}
+
+@(export)
+probe_compare_widget_idx :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.compare_widget_idx)
+}
+
+@(export)
+probe_compare_count :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.compare_count)
+}
+
+@(export)
+probe_indicator_rsi_enabled :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	if p.ind_rsi_enabled do return 1
+	return 0
+}
+
+@(export)
+probe_indicator_macd_enabled :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	if p.ind_macd_enabled do return 1
+	return 0
+}
+
+@(export)
+probe_indicator_funding_enabled :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	if p.ind_funding_enabled do return 1
+	return 0
+}
+
+@(export)
+probe_indicator_liq_enabled :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	if p.ind_liq_enabled do return 1
+	return 0
+}
+
+@(export)
+probe_indicator_trade_counter_enabled :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	if p.ind_trade_counter_enabled do return 1
+	return 0
+}
+
+@(export)
+probe_indicator_rsi_rendered :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	if p.ind_rsi_rendered do return 1
+	return 0
+}
+
+@(export)
+probe_indicator_macd_rendered :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	if p.ind_macd_rendered do return 1
+	return 0
+}
+
+@(export)
+probe_indicator_funding_rendered :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	if p.ind_funding_rendered do return 1
+	return 0
+}
+
+@(export)
+probe_indicator_liq_rendered :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	if p.ind_liq_rendered do return 1
+	return 0
+}
+
+@(export)
+probe_indicator_trade_counter_rendered :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	if p.ind_trade_counter_rendered do return 1
+	return 0
 }

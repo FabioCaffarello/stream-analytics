@@ -1,27 +1,51 @@
 package main
 
-// Stub settings port for WASM/web.
-// Future: bridge to localStorage via foreign procs in odin.js.
+// Web settings port backed by localStorage via odin.js bridge.
 
+import "core:strings"
 import "mr:ports"
+
+foreign import odin_env "odin_env"
+
+@(default_calling_convention = "contextless")
+foreign odin_env {
+	web_settings_load :: proc(key_ptr: [^]u8, key_len: i32, out_ptr: [^]u8, out_cap: i32) -> i32 ---
+	web_settings_save :: proc(key_ptr: [^]u8, key_len: i32, value_ptr: [^]u8, value_len: i32) -> bool ---
+}
+
+WEB_SETTINGS_VAL_CAP :: 8192
 
 stub_settings_port :: proc() -> ports.Settings_Port {
 	return {
-		load  = stub_settings_load,
-		save  = stub_settings_save,
-		flush = stub_settings_flush,
+		load  = web_settings_load_value,
+		save  = web_settings_save_value,
+		flush = web_settings_flush,
 	}
 }
 
 @(private = "file")
-stub_settings_load :: proc(key: string) -> (value: string, ok: bool) {
-	return "", false
+web_settings_load_value :: proc(key: string) -> (value: string, ok: bool) {
+	if len(key) == 0 do return "", false
+	buf: [WEB_SETTINGS_VAL_CAP]u8
+	n := web_settings_load(
+		raw_data(transmute([]u8)key), i32(len(key)),
+		raw_data(buf[:]), i32(len(buf)),
+	)
+	if n <= 0 do return "", false
+	if n > i32(len(buf)) do n = i32(len(buf))
+	return strings.clone(string(buf[:int(n)])), true
 }
 
 @(private = "file")
-stub_settings_save :: proc(key: string, value: string) -> bool {
-	return true
+web_settings_save_value :: proc(key: string, value: string) -> bool {
+	if len(key) == 0 do return false
+	return web_settings_save(
+		raw_data(transmute([]u8)key), i32(len(key)),
+		raw_data(transmute([]u8)value), i32(len(value)),
+	)
 }
 
 @(private = "file")
-stub_settings_flush :: proc() {}
+web_settings_flush :: proc() {
+	// localStorage writes are immediate.
+}

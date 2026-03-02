@@ -52,6 +52,11 @@ get_candle :: proc(store: ^Candle_Store, i: int) -> Candle_Entry {
 	return store.candles[idx]
 }
 
+@(private = "file")
+logical_to_raw_idx :: proc(store: ^Candle_Store, i: int) -> int {
+	return (store.head - store.count + i + CANDLE_CAP) % CANDLE_CAP
+}
+
 // Bulk-load historical candles (oldest first). Clears existing data.
 // Used for GetRange responses before live streaming resumes.
 bulk_load_candles :: proc(store: ^Candle_Store, entries: []Candle_Entry) {
@@ -67,6 +72,68 @@ get_candle_newest :: proc(store: ^Candle_Store, i: int) -> Candle_Entry {
 	if i < 0 || i >= store.count do return {}
 	idx := (store.head - 1 - i + CANDLE_CAP) % CANDLE_CAP
 	return store.candles[idx]
+}
+
+// Upsert a candle while preserving chronological order by window_start_ts.
+// Used for historical range batches that can contain older candles.
+// If store is full, older-than-oldest inserts are ignored and newer-than-newest
+// inserts evict the oldest candle, matching ring semantics.
+upsert_candle_chrono :: proc(store: ^Candle_Store, entry: Candle_Entry) {
+	if entry.window_start_ts <= 0 do return
+	if entry.window_end_ts <= entry.window_start_ts do return
+
+	// Fast path for empty store.
+	if store.count <= 0 {
+		push_candle(store, entry)
+		return
+	}
+
+	n := store.count
+	insert_idx := n
+	for i in 0 ..< n {
+		c := get_candle(store, i)
+		if c.window_start_ts == entry.window_start_ts {
+			raw := logical_to_raw_idx(store, i)
+			store.candles[raw] = entry
+			return
+		}
+		if c.window_start_ts > entry.window_start_ts {
+			insert_idx = i
+			break
+		}
+	}
+
+	// Simple append for newer candles while capacity remains.
+	if insert_idx == n && n < CANDLE_CAP {
+		push_candle(store, entry)
+		return
+	}
+
+	scratch: [CANDLE_CAP]Candle_Entry
+	for i in 0 ..< n {
+		scratch[i] = get_candle(store, i)
+	}
+
+	// Full-store policy:
+	// - newer-than-newest: drop oldest and append
+	// - older-than-oldest or mid-window missing gap: ignore
+	if n >= CANDLE_CAP {
+		if insert_idx == n {
+			for i in 1 ..< n {
+				scratch[i - 1] = scratch[i]
+			}
+			scratch[n - 1] = entry
+			bulk_load_candles(store, scratch[:n])
+		}
+		return
+	}
+
+	// Insert into non-full store at computed sorted position.
+	for i := n; i > insert_idx; i -= 1 {
+		scratch[i] = scratch[i - 1]
+	}
+	scratch[insert_idx] = entry
+	bulk_load_candles(store, scratch[:n + 1])
 }
 
 // Fill store with deterministic demo candles for offline mode.

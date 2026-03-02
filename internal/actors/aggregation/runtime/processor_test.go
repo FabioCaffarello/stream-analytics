@@ -719,6 +719,7 @@ func TestProcessor_TradeEnvelopeWithoutJoin_CandleDisabled_SkipsCandle(t *testin
 
 	e := newEngine(t)
 	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+	beforeDrops := testutil.ToFloat64(metrics.IngestDropTotal.WithLabelValues("candle_route_disabled"))
 
 	ch <- makeTradeEnvelope("BINANCE", "BTCUSDT", 1, 1, 100.5, "buy", "trade-1")
 	ch <- makeTradeEnvelope("BINANCE", "BTCUSDT", 2, 60_001, 101.5, "sell", "trade-2")
@@ -737,6 +738,10 @@ func TestProcessor_TradeEnvelopeWithoutJoin_CandleDisabled_SkipsCandle(t *testin
 	time.Sleep(100 * time.Millisecond)
 	if got := pub.candleCount(); got != 0 {
 		t.Fatalf("candleCount=%d want=0 when candle route is disabled", got)
+	}
+	afterDrops := testutil.ToFloat64(metrics.IngestDropTotal.WithLabelValues("candle_route_disabled"))
+	if diff := afterDrops - beforeDrops; diff != 2 {
+		t.Fatalf("candle_route_disabled drops delta=%f want=2", diff)
 	}
 
 	<-e.Poison(pid).Done()
@@ -822,6 +827,7 @@ func TestProcessor_StatsDisabled_SkipsLiquidationAndMarkPriceRoutes(t *testing.T
 
 	e := newEngine(t)
 	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+	beforeDrops := testutil.ToFloat64(metrics.IngestDropTotal.WithLabelValues("stats_route_disabled"))
 
 	ch <- makeLiquidationEnvelope("BINANCE", "BTCUSDT", 1, 1, 2.0, "buy")
 	ch <- makeMarkPriceEnvelope("BINANCE", "BTCUSDT", 2, 60_001, 101.0, 0.0003)
@@ -840,6 +846,10 @@ func TestProcessor_StatsDisabled_SkipsLiquidationAndMarkPriceRoutes(t *testing.T
 	time.Sleep(100 * time.Millisecond)
 	if got := pub.statsCount(); got != 0 {
 		t.Fatalf("statsCount=%d want=0 when stats route is disabled", got)
+	}
+	afterDrops := testutil.ToFloat64(metrics.IngestDropTotal.WithLabelValues("stats_route_disabled"))
+	if diff := afterDrops - beforeDrops; diff != 2 {
+		t.Fatalf("stats_route_disabled drops delta=%f want=2", diff)
 	}
 
 	<-e.Poison(pid).Done()
@@ -1216,6 +1226,7 @@ func TestProcessor_CatchUpSkipBookDeltaSkipsStaleBookDeltaWhenConfigured(t *test
 
 	e := newEngine(t)
 	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+	beforeDrops := testutil.ToFloat64(metrics.IngestDropTotal.WithLabelValues("bookdelta_catchup_skip"))
 
 	stale := makeBookDeltaEnvelope(
 		"BINANCE", "BTC-USDT", 1,
@@ -1233,6 +1244,10 @@ func TestProcessor_CatchUpSkipBookDeltaSkipsStaleBookDeltaWhenConfigured(t *test
 	if got := pub.count(); got != 0 {
 		t.Fatalf("expected stale bookdelta to be skipped, snapshot_count=%d", got)
 	}
+	afterDrops := testutil.ToFloat64(metrics.IngestDropTotal.WithLabelValues("bookdelta_catchup_skip"))
+	if diff := afterDrops - beforeDrops; diff != 1 {
+		t.Fatalf("bookdelta_catchup_skip drops delta=%f want=1", diff)
+	}
 
 	fresh := makeBookDeltaEnvelope(
 		"BINANCE", "BTC-USDT", 2,
@@ -1243,6 +1258,102 @@ func TestProcessor_CatchUpSkipBookDeltaSkipsStaleBookDeltaWhenConfigured(t *test
 	ch <- fresh
 
 	waitFor(t, 2*time.Second, func() bool { return pub.count() == 1 })
+	<-e.Poison(pid).Done()
+}
+
+func TestProcessor_CatchUpSkipTradeSkipsStaleTradeWhenConfigured(t *testing.T) {
+	if p := contracts.BootstrapPayloadCodecRegistry(); p != nil {
+		t.Fatalf("BootstrapPayloadCodecRegistry: %v", p)
+	}
+
+	pub := &spyArtifactPublisher{}
+	aggSvc := newAggService(pub)
+
+	ch := make(chan envelope.Envelope, 8)
+	resultCh := make(chan aggruntime.EnvelopeProcessResult, 4)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh:           ch,
+		Service:              aggSvc,
+		CatchUpSkipTradeSkew: 5 * time.Second,
+		OnEnvelopeProcessed: func(res aggruntime.EnvelopeProcessResult) {
+			resultCh <- res
+		},
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+	beforeDrops := testutil.ToFloat64(metrics.IngestDropTotal.WithLabelValues("trade_catchup_skip"))
+
+	staleTs := time.Now().Add(-2 * time.Minute).UnixMilli()
+	freshTs := time.Now().UnixMilli()
+	ch <- makeTradeEnvelope("BINANCE", "BTCUSDT", 1, staleTs, 100.5, "buy", "trade-stale")
+	ch <- makeTradeEnvelope("BINANCE", "BTCUSDT", 2, freshTs, 101.5, "sell", "trade-fresh")
+
+	for i := 0; i < 2; i++ {
+		select {
+		case <-resultCh:
+		case <-time.After(2 * time.Second):
+			t.Fatal("timeout waiting for trade processing result")
+		}
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	if got := pub.candleCount(); got != 0 {
+		t.Fatalf("expected stale trade to be skipped, candle_count=%d", got)
+	}
+	afterDrops := testutil.ToFloat64(metrics.IngestDropTotal.WithLabelValues("trade_catchup_skip"))
+	if diff := afterDrops - beforeDrops; diff != 1 {
+		t.Fatalf("trade_catchup_skip drops delta=%f want=1", diff)
+	}
+
+	<-e.Poison(pid).Done()
+}
+
+func TestProcessor_CatchUpSkipStatsSkipsStaleLiquidationWhenConfigured(t *testing.T) {
+	if p := contracts.BootstrapPayloadCodecRegistry(); p != nil {
+		t.Fatalf("BootstrapPayloadCodecRegistry: %v", p)
+	}
+
+	pub := &spyArtifactPublisher{}
+	aggSvc := newAggService(pub)
+
+	ch := make(chan envelope.Envelope, 8)
+	resultCh := make(chan aggruntime.EnvelopeProcessResult, 4)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh:           ch,
+		Service:              aggSvc,
+		CatchUpSkipStatsSkew: 5 * time.Second,
+		OnEnvelopeProcessed: func(res aggruntime.EnvelopeProcessResult) {
+			resultCh <- res
+		},
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+	beforeDrops := testutil.ToFloat64(metrics.IngestDropTotal.WithLabelValues("liquidation_catchup_skip"))
+
+	staleTs := time.Now().Add(-2 * time.Minute).UnixMilli()
+	freshTs := time.Now().UnixMilli()
+	ch <- makeLiquidationEnvelope("BINANCE", "BTCUSDT", 1, staleTs, 2.0, "buy")
+	ch <- makeLiquidationEnvelope("BINANCE", "BTCUSDT", 2, freshTs, 1.0, "sell")
+
+	for i := 0; i < 2; i++ {
+		select {
+		case <-resultCh:
+		case <-time.After(2 * time.Second):
+			t.Fatal("timeout waiting for liquidation processing result")
+		}
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	if got := pub.statsCount(); got != 0 {
+		t.Fatalf("expected stale liquidation to be skipped, stats_count=%d", got)
+	}
+	afterDrops := testutil.ToFloat64(metrics.IngestDropTotal.WithLabelValues("liquidation_catchup_skip"))
+	if diff := afterDrops - beforeDrops; diff != 1 {
+		t.Fatalf("liquidation_catchup_skip drops delta=%f want=1", diff)
+	}
+
 	<-e.Poison(pid).Done()
 }
 

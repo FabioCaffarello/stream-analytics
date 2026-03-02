@@ -9,10 +9,14 @@ import (
 
 	"github.com/anthdm/hollywood/actor"
 	actorruntime "github.com/market-raccoon/internal/actors/runtime"
+	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
 	deliverydomain "github.com/market-raccoon/internal/core/delivery/domain"
 	deliveryports "github.com/market-raccoon/internal/core/delivery/ports"
 	"github.com/market-raccoon/internal/shared/config"
+	"github.com/market-raccoon/internal/shared/envelope"
+	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 func TestBuildServerFactories_DeliveryEnabledIncludesFactory(t *testing.T) {
@@ -71,6 +75,8 @@ type stubRangeStore struct {
 func (s stubRangeStore) GetRange(_ context.Context, _ deliverydomain.Subject, _, _ int64, _ int) ([]deliveryports.RangeItem, *problem.Problem) {
 	return append([]deliveryports.RangeItem(nil), s.items...), nil
 }
+
+func (s stubRangeStore) StoreEnvelope(_ envelope.Envelope) {}
 
 func TestRangeStoreHotSnapshotProvider_GetLatest_CandleNewest(t *testing.T) {
 	subject, p := deliverydomain.ParseSubject("aggregation.candle/binance/BTCUSDT:SPOT/raw")
@@ -139,4 +145,207 @@ type aliasAwareStubRangeStore struct {
 func (s aliasAwareStubRangeStore) GetRange(_ context.Context, subject deliverydomain.Subject, _, _ int64, _ int) ([]deliveryports.RangeItem, *problem.Problem) {
 	items := s.bySubject[subject.String()]
 	return append([]deliveryports.RangeItem(nil), items...), nil
+}
+
+func (s aliasAwareStubRangeStore) StoreEnvelope(_ envelope.Envelope) {}
+
+type spyCandleReader struct {
+	rangeCalls int
+}
+
+func (s *spyCandleReader) GetCandleRange(context.Context, string, string, string, int64, int64, int) ([]aggdomain.CandleV1, *problem.Problem) {
+	s.rangeCalls++
+	return []aggdomain.CandleV1{{Timeframe: "1m"}}, nil
+}
+
+func (s *spyCandleReader) GetCandleTimestamps(context.Context, string, string, string, int64, int64) ([]int64, *problem.Problem) {
+	return []int64{1}, nil
+}
+
+func (s *spyCandleReader) GetFirstCandle(context.Context, string, string, string) (*aggdomain.CandleV1, *problem.Problem) {
+	c := &aggdomain.CandleV1{Timeframe: "1m"}
+	return c, nil
+}
+
+func (s *spyCandleReader) GetLastCandle(context.Context, string, string, string) (*aggdomain.CandleV1, *problem.Problem) {
+	c := &aggdomain.CandleV1{Timeframe: "1m"}
+	return c, nil
+}
+
+type spyStatsReader struct {
+	rangeCalls int
+}
+
+func (s *spyStatsReader) GetStatsTimestamps(context.Context, string, string, string, int64, int64) ([]int64, *problem.Problem) {
+	return []int64{1}, nil
+}
+
+func (s *spyStatsReader) GetStatsRange(context.Context, string, string, string, int64, int64, int) ([]aggdomain.StatsWindowV1, *problem.Problem) {
+	s.rangeCalls++
+	return []aggdomain.StatsWindowV1{{Timeframe: "1m"}}, nil
+}
+
+func (s *spyStatsReader) GetFirstStats(context.Context, string, string, string) (*aggdomain.StatsWindowV1, *problem.Problem) {
+	st := &aggdomain.StatsWindowV1{Timeframe: "1m"}
+	return st, nil
+}
+
+func (s *spyStatsReader) GetLastStats(context.Context, string, string, string) (*aggdomain.StatsWindowV1, *problem.Problem) {
+	st := &aggdomain.StatsWindowV1{Timeframe: "1m"}
+	return st, nil
+}
+
+func TestSubMinuteFilteringRangeStore_BlocksSubMinuteAndAllowsHigherTF(t *testing.T) {
+	sub1s, p := deliverydomain.ParseSubject("aggregation.candle/binance/BTCUSDT/1s")
+	if p != nil {
+		t.Fatalf("parse 1s subject: %v", p)
+	}
+	sub1m, p := deliverydomain.ParseSubject("aggregation.candle/binance/BTCUSDT/1m")
+	if p != nil {
+		t.Fatalf("parse 1m subject: %v", p)
+	}
+
+	next := stubRangeStore{
+		items: []deliveryports.RangeItem{{Seq: 1, TsIngest: 1, Payload: []byte(`{"ok":true}`)}},
+	}
+	store := subMinuteFilteringRangeStore{
+		next: next,
+		gate: newSubMinuteRolloutGate(config.ProcessorSubMinuteRolloutConfig{
+			Enabled: false,
+		}),
+	}
+
+	before := testutil.ToFloat64(metrics.WSQueryRejectedTotal.WithLabelValues("subminute_rollout_blocked"))
+	items, p := store.GetRange(context.Background(), sub1s, 0, 0, 10)
+	if p != nil {
+		t.Fatalf("blocked 1s should not fail query path: %v", p)
+	}
+	if len(items) != 0 {
+		t.Fatalf("blocked 1s items=%d want=0", len(items))
+	}
+	after := testutil.ToFloat64(metrics.WSQueryRejectedTotal.WithLabelValues("subminute_rollout_blocked"))
+	if diff := after - before; diff != 1 {
+		t.Fatalf("ws_query_rejected{subminute_rollout_blocked} delta=%f want=1", diff)
+	}
+
+	items, p = store.GetRange(context.Background(), sub1m, 0, 0, 10)
+	if p != nil {
+		t.Fatalf("1m query failed: %v", p)
+	}
+	if len(items) != 1 {
+		t.Fatalf("1m items=%d want=1", len(items))
+	}
+}
+
+func TestSubMinuteFilteringRangeStore_ScopedAllowlistByVenueAndInstrument(t *testing.T) {
+	subAllowed, p := deliverydomain.ParseSubject("aggregation.candle/binance/BTCUSDT:SPOT/1s")
+	if p != nil {
+		t.Fatalf("parse allowed subject: %v", p)
+	}
+	subWrongVenue, p := deliverydomain.ParseSubject("aggregation.candle/bybit/BTCUSDT:SPOT/1s")
+	if p != nil {
+		t.Fatalf("parse wrong-venue subject: %v", p)
+	}
+	subWrongInstrument, p := deliverydomain.ParseSubject("aggregation.candle/binance/ETHUSDT:SPOT/1s")
+	if p != nil {
+		t.Fatalf("parse wrong-instrument subject: %v", p)
+	}
+
+	next := stubRangeStore{
+		items: []deliveryports.RangeItem{{Seq: 1, TsIngest: 1, Payload: []byte(`{"ok":true}`)}},
+	}
+	store := subMinuteFilteringRangeStore{
+		next: next,
+		gate: newSubMinuteRolloutGate(config.ProcessorSubMinuteRolloutConfig{
+			Enabled:     true,
+			Venues:      []string{"binance"},
+			Instruments: []string{"BTCUSDT"},
+		}),
+	}
+
+	items, p := store.GetRange(context.Background(), subAllowed, 0, 0, 10)
+	if p != nil {
+		t.Fatalf("allowed 1s query failed: %v", p)
+	}
+	if len(items) != 1 {
+		t.Fatalf("allowed 1s items=%d want=1", len(items))
+	}
+
+	items, p = store.GetRange(context.Background(), subWrongVenue, 0, 0, 10)
+	if p != nil {
+		t.Fatalf("wrong-venue 1s query should not fail: %v", p)
+	}
+	if len(items) != 0 {
+		t.Fatalf("wrong-venue 1s items=%d want=0", len(items))
+	}
+
+	items, p = store.GetRange(context.Background(), subWrongInstrument, 0, 0, 10)
+	if p != nil {
+		t.Fatalf("wrong-instrument 1s query should not fail: %v", p)
+	}
+	if len(items) != 0 {
+		t.Fatalf("wrong-instrument 1s items=%d want=0", len(items))
+	}
+}
+
+func TestSubMinuteFilteringCandleReader_BlocksSubMinuteRange(t *testing.T) {
+	next := &spyCandleReader{}
+	reader := subMinuteFilteringCandleReader{
+		next: next,
+		gate: newSubMinuteRolloutGate(config.ProcessorSubMinuteRolloutConfig{
+			Enabled: false,
+		}),
+	}
+	items, p := reader.GetCandleRange(context.Background(), "binance", "BTCUSDT", "1s", 0, 10, 100)
+	if p != nil {
+		t.Fatalf("blocked 1s query should not fail: %v", p)
+	}
+	if len(items) != 0 {
+		t.Fatalf("blocked 1s items=%d want=0", len(items))
+	}
+	if next.rangeCalls != 0 {
+		t.Fatalf("next candle reader calls=%d want=0 for blocked 1s", next.rangeCalls)
+	}
+
+	items, p = reader.GetCandleRange(context.Background(), "binance", "BTCUSDT", "1m", 0, 10, 100)
+	if p != nil {
+		t.Fatalf("1m query should pass: %v", p)
+	}
+	if len(items) != 1 {
+		t.Fatalf("1m items=%d want=1", len(items))
+	}
+	if next.rangeCalls != 1 {
+		t.Fatalf("next candle reader calls=%d want=1 for 1m", next.rangeCalls)
+	}
+}
+
+func TestSubMinuteFilteringStatsReader_BlocksSubMinuteRange(t *testing.T) {
+	next := &spyStatsReader{}
+	reader := subMinuteFilteringStatsReader{
+		next: next,
+		gate: newSubMinuteRolloutGate(config.ProcessorSubMinuteRolloutConfig{
+			Enabled: false,
+		}),
+	}
+	items, p := reader.GetStatsRange(context.Background(), "binance", "BTCUSDT", "5s", 0, 10, 100)
+	if p != nil {
+		t.Fatalf("blocked 5s query should not fail: %v", p)
+	}
+	if len(items) != 0 {
+		t.Fatalf("blocked 5s items=%d want=0", len(items))
+	}
+	if next.rangeCalls != 0 {
+		t.Fatalf("next stats reader calls=%d want=0 for blocked 5s", next.rangeCalls)
+	}
+
+	items, p = reader.GetStatsRange(context.Background(), "binance", "BTCUSDT", "1m", 0, 10, 100)
+	if p != nil {
+		t.Fatalf("1m query should pass: %v", p)
+	}
+	if len(items) != 1 {
+		t.Fatalf("1m items=%d want=1", len(items))
+	}
+	if next.rangeCalls != 1 {
+		t.Fatalf("next stats reader calls=%d want=1 for 1m", next.rangeCalls)
+	}
 }

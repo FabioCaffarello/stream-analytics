@@ -2,7 +2,7 @@
 
 **Status:** Active
 **Owner:** Product Architect
-**Last updated:** 2026-02-19
+**Last updated:** 2026-02-27
 **Relates to:** `docs/adrs/ADR-0002-event-envelope-and-versioning.md`, `docs/adrs/ADR-0006-storage-hot-vs-cold.md`, `docs/adrs/ADR-0013-backpressure-overload-policies.md`, `docs/adrs/ADR-0014-stream-partitioning-strategy.md`, `docs/adrs/ADR-0015-deterministic-replay-time-invariants.md`, `docs/adrs/ADR-0017-multi-exchange-normalization.md`
 
 ## Purpose
@@ -13,7 +13,7 @@ Define per-timeframe stats aggregation combining liquidation volume, funding rat
 
 - `instrument`: canonical envelope identity key.
 - `subject`: bus routing key with version segment.
-- `timeframe`: aggregation window boundary (1m, 5m, 15m, 30m, 1h).
+- `timeframe`: aggregation window boundary (1s, 5s, 1m, 5m, 15m, 30m, 1h, 4h, 1d).
 - `envelope`: ordering/idempotency carrier (ADR-0002).
 - `payload`: aggregated stats body per window.
 
@@ -61,6 +61,7 @@ Stats payload v1:
 - `ST-4`: replay of same fixture yields identical stats values.
 - `ST-5`: bounded open window state per `(venue, instrument)` — max one open window per timeframe.
 - `ST-6`: missing input type (e.g., no funding rate) produces partial stats, not failure.
+- `ST-7`: window closes are event-driven; empty windows are not synthesized retroactively.
 
 ## Backpressure
 
@@ -86,14 +87,16 @@ Stats payload v1:
 
 - Timescale: recent stats windows for low-latency query.
 - ClickHouse: long-term historical stats for analytics/trends.
-- Suggested retention:
-  - hot: 30-90 days
-  - cold: 365+ days
+- Current operational retention:
+  - hot: operator-scheduled cleanup via `cleanup_aggregation_hot_retention` (`1s`,`5s` 14 days; others 90 days).
+  - cold (default): 90 days.
+  - cold (`1s`,`5s`): 14 days (cost guardrail for sub-minute).
 
 ## Replay Strategy
 
 - Rebuild from liquidation + markprice + funding events in deterministic order.
 - Golden tests compare per-window stats values.
+- Under gaps with no input events, closes are emitted only when a later input advances the window.
 
 ## Observability
 
@@ -115,6 +118,7 @@ Primary acceptance tests:
 - `internal/core/aggregation/domain/stats_test.go:TestStatsWindowV1_PartialInputsAllowed_ST6`
 - `internal/core/aggregation/app/build_stats_test.go:TestBuildStats_MixedInputs_CloseAllTimeframes_CrossSourceConsistency`
 - `internal/core/aggregation/app/build_stats_test.go:TestBuildStats_Deterministic_SameInputSameOutput`
+- `internal/core/aggregation/app/build_stats_test.go:TestBuildStats_GapEventDriven_NoSyntheticWindowClosures`
 - `internal/core/aggregation/app/build_stats_golden_test.go:TestBuildStats_GoldenDeterminism_MixedInputs`
 - `internal/actors/aggregation/runtime/processor_e2e_test.go:TestProcessorE2E_MarkPriceWithFunding_DualRouting`
 - `internal/interfaces/ws/candle_stats_delivery_contract_test.go:TestWSDelivery_StatsClosed_RoutedToSubscriber`
@@ -135,6 +139,6 @@ Current related evidence:
 - Missing input stream (e.g., no funding rate for venue):
   - Mitigation: produce partial stats with explicit null/zero markers; ST-6 invariant.
 - Input stream lag between liquidation and markprice:
-  - Mitigation: window closes on time boundary regardless of input completeness.
+  - Mitigation: event-driven close on next input that advances window; consumers must not assume timer-driven synthetic closes.
 - Cardinality from many instruments:
   - Mitigation: bounded map per instrument; shed low-activity instruments under overload.

@@ -40,15 +40,17 @@ push_heatmap_snapshot :: proc(store: ^Heatmap_Store, snap: Heatmap_Snapshot) {
 		store.count += 1
 	}
 
-	// Update global bounds.
-	if store.count == 1 {
-		store.global_min_price = snap.min_price
-		store.global_max_price = snap.max_price
-		store.global_max_size  = snap.max_size
-	} else {
-		store.global_min_price = math.min(store.global_min_price, snap.min_price)
-		store.global_max_price = math.max(store.global_max_price, snap.max_price)
-		store.global_max_size  = math.max(store.global_max_size, snap.max_size)
+	// Recompute global bounds from all current snapshots.
+	// Prevents monotonic drift when old snapshots wrap out of the ring buffer.
+	store.global_min_price = snap.min_price
+	store.global_max_price = snap.max_price
+	store.global_max_size  = snap.max_size
+	for i in 0 ..< store.count {
+		s := get_heatmap_snapshot(store, i)
+		if s == nil do continue
+		store.global_min_price = math.min(store.global_min_price, s.min_price)
+		store.global_max_price = math.max(store.global_max_price, s.max_price)
+		store.global_max_size  = math.max(store.global_max_size, s.max_size)
 	}
 }
 

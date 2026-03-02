@@ -26,6 +26,7 @@ import (
 
 	"github.com/anthdm/hollywood/actor"
 	"github.com/market-raccoon/internal/actors/runtime"
+	"github.com/market-raccoon/internal/shared/config"
 	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/observability"
@@ -57,6 +58,7 @@ type Server struct {
 	tlsKeyFile  string
 	wsHandler   http.HandlerFunc
 	coldReaders *ColdReaders
+	markets     *config.MarketsConfig
 }
 
 type Option func(*Server)
@@ -86,6 +88,13 @@ func WithReloadHook(hook func() error) Option {
 func WithColdReaders(readers *ColdReaders) Option {
 	return func(s *Server) {
 		s.coldReaders = readers
+	}
+}
+
+// WithMarkets configures the markets discovery endpoint.
+func WithMarkets(markets *config.MarketsConfig) Option {
+	return func(s *Server) {
+		s.markets = markets
 	}
 }
 
@@ -134,6 +143,9 @@ func NewServer(
 		mux.HandleFunc("GET /api/v1/candles", s.handleGetCandles)
 		mux.HandleFunc("GET /api/v1/stats", s.handleGetStats)
 		mux.HandleFunc("GET /api/v1/snapshots", s.handleGetSnapshots)
+	}
+	if s.markets != nil {
+		mux.HandleFunc("GET /api/v1/markets", s.handleGetMarkets)
 	}
 	s.mux = mux
 

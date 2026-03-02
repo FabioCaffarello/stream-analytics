@@ -33,6 +33,25 @@ type AppConfig struct {
 	Store        StoreConfig        `json:"store"`
 	Storage      StorageConfig      `json:"storage"`
 	Backfill     BackfillConfig     `json:"backfill"`
+	Markets      MarketsConfig      `json:"markets"`
+}
+
+// MarketsConfig declares available exchanges and symbols for client discovery.
+type MarketsConfig struct {
+	Exchanges []MarketsExchangeConfig `json:"exchanges"`
+}
+
+// MarketsExchangeConfig describes one exchange with its available symbols.
+type MarketsExchangeConfig struct {
+	Name    string                `json:"name"`
+	Symbols []MarketsSymbolConfig `json:"symbols"`
+}
+
+// MarketsSymbolConfig describes one tradable symbol on an exchange.
+type MarketsSymbolConfig struct {
+	Ticker     string  `json:"ticker"`
+	TickSize   float64 `json:"tick_size"`
+	MarketType string  `json:"market_type"`
 }
 
 // ShardConfig controls deterministic shard assignment for horizontal scaling.
@@ -489,11 +508,19 @@ type ProcessorConfig struct {
 	Candle ProcessorCandleConfig `json:"candle"`
 	// Stats controls stats aggregation runtime options.
 	Stats ProcessorStatsConfig `json:"stats"`
+	// SubMinuteRollout controls canary/rollback for 1s and 5s outputs.
+	SubMinuteRollout ProcessorSubMinuteRolloutConfig `json:"subminute_rollout"`
 	// RTPublish controls timer-driven publishing intervals for real-time snapshots.
 	RTPublish ProcessorRTPublishConfig `json:"rt_publish"`
 	// CatchUpSkipBookDeltaSkewMs skips stale bookdelta envelopes while the
 	// processor is catching up. 0 disables this behavior (default).
 	CatchUpSkipBookDeltaSkewMs int `json:"catchup_skip_bookdelta_skew_ms"`
+	// CatchUpSkipTradeSkewMs skips stale trade envelopes while the processor
+	// is catching up. 0 disables this behavior (default).
+	CatchUpSkipTradeSkewMs int `json:"catchup_skip_trade_skew_ms"`
+	// CatchUpSkipStatsSkewMs skips stale liquidation/markprice envelopes while
+	// the processor is catching up. 0 disables this behavior (default).
+	CatchUpSkipStatsSkewMs int `json:"catchup_skip_stats_skew_ms"`
 }
 
 // PublisherTimeoutDuration parses and returns ProcessorConfig.PublisherTimeout.
@@ -515,6 +542,45 @@ type ProcessorStatsConfig struct {
 	Enabled bool `json:"enabled"`
 	// MaxWindows bounds active stats windows in memory.
 	MaxWindows int `json:"max_windows"`
+}
+
+// ProcessorSubMinuteRolloutConfig controls rollout for sub-minute outputs.
+type ProcessorSubMinuteRolloutConfig struct {
+	// Enabled toggles sub-minute (`1s`,`5s`) output publish/persist.
+	// Default: true.
+	Enabled bool `json:"enabled"`
+	// Venues optionally limits sub-minute outputs to a venue allow-list.
+	// Empty means all venues.
+	Venues []string `json:"venues"`
+	// Instruments optionally limits sub-minute outputs to an instrument allow-list.
+	// Empty means all instruments.
+	Instruments []string `json:"instruments"`
+
+	enabledSet bool `json:"-"`
+}
+
+func (c *ProcessorSubMinuteRolloutConfig) UnmarshalJSON(data []byte) error {
+	type Alias ProcessorSubMinuteRolloutConfig
+	aux := struct {
+		*Alias
+	}{
+		Alias: (*Alias)(c),
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if _, ok := raw["enabled"]; ok {
+		c.enabledSet = true
+	}
+	return nil
+}
+
+func (c ProcessorSubMinuteRolloutConfig) enabledConfigured() bool {
+	return c.enabledSet
 }
 
 // ProcessorRTPublishConfig controls timer-driven publish intervals in milliseconds.

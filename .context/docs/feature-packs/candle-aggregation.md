@@ -1,6 +1,6 @@
 # Feature Pack: Candle Aggregation
 
-**STATUS:** IMPLEMENTED | **last_reviewed:** 2026-02-19
+**STATUS:** IMPLEMENTED | **last_reviewed:** 2026-03-01
 
 ## Purpose
 - Multi-timeframe OHLCV candle aggregation from trade events.
@@ -10,6 +10,8 @@
 - Inputs: `marketdata.trade.v1.{venue}.{instrument}`.
 - Outputs: `aggregation.candle.v1.{venue}.{instrument}`.
 - WS stream: `aggregation.candle/{venue}/{symbol}/{timeframe}` ([delivery-ws](../../../docs/contracts/delivery-ws.md)).
+- `getrange` compatibility: `to_ms` is canonical; `end_ts` remains accepted for backward compatibility.
+- Symbol compatibility: `SYMBOL:MARKET_TYPE` aliases are resolved to canonical `SYMBOL` in delivery range fallback.
 
 ## Invariants
 - Deterministic OHLCV for identical input sequence.

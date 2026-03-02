@@ -25,6 +25,18 @@ func TestCandleV1_NewValidation(t *testing.T) {
 	}
 }
 
+func TestCandleV1_SubMinuteTimeframes(t *testing.T) {
+	for _, tf := range []string{"1s", "5s"} {
+		c, p := domain.NewCandleV1("BINANCE", "BTCUSDT", tf, 1_000)
+		if p != nil {
+			t.Fatalf("NewCandleV1(%s): %v", tf, p)
+		}
+		if c.Timeframe != tf {
+			t.Fatalf("timeframe=%s want=%s", c.Timeframe, tf)
+		}
+	}
+}
+
 func TestCandleV1_ApplyTrade_OHLCV(t *testing.T) {
 	c := newCandle(t)
 	if p := c.ApplyTrade(100, 2, true, 1); p != nil {

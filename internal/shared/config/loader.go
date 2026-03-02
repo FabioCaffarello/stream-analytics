@@ -611,6 +611,22 @@ func validateProcessor(p ProcessorConfig) *problem.Problem {
 	if p.CatchUpSkipBookDeltaSkewMs < 0 {
 		return problem.Newf(codeInvalid, "processor.catchup_skip_bookdelta_skew_ms must be >= 0, got %d", p.CatchUpSkipBookDeltaSkewMs)
 	}
+	if p.CatchUpSkipTradeSkewMs < 0 {
+		return problem.Newf(codeInvalid, "processor.catchup_skip_trade_skew_ms must be >= 0, got %d", p.CatchUpSkipTradeSkewMs)
+	}
+	if p.CatchUpSkipStatsSkewMs < 0 {
+		return problem.Newf(codeInvalid, "processor.catchup_skip_stats_skew_ms must be >= 0, got %d", p.CatchUpSkipStatsSkewMs)
+	}
+	for i, venue := range p.SubMinuteRollout.Venues {
+		if strings.TrimSpace(venue) == "" {
+			return problem.Newf(codeInvalid, "processor.subminute_rollout.venues[%d] must not be empty", i)
+		}
+	}
+	for i, instrument := range p.SubMinuteRollout.Instruments {
+		if strings.TrimSpace(instrument) == "" {
+			return problem.Newf(codeInvalid, "processor.subminute_rollout.instruments[%d] must not be empty", i)
+		}
+	}
 
 	insights := p.Insights
 	if strings.TrimSpace(insights.JoinTradesSubject) == "" {
@@ -1190,6 +1206,11 @@ func applyDefaults(c *AppConfig) {
 	if c.Processor.Insights.RoundingMode == "" {
 		c.Processor.Insights.RoundingMode = "half_even"
 	}
+	if !c.Processor.SubMinuteRollout.enabledConfigured() {
+		c.Processor.SubMinuteRollout.Enabled = true
+	}
+	c.Processor.SubMinuteRollout.Venues = dedupeStrings(c.Processor.SubMinuteRollout.Venues)
+	c.Processor.SubMinuteRollout.Instruments = dedupeStrings(c.Processor.SubMinuteRollout.Instruments)
 	if c.Store.ClickHouse.DSN == "" {
 		c.Store.ClickHouse.DSN = "clickhouse://default:password@localhost:9000/default"
 	}

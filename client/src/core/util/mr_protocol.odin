@@ -169,12 +169,28 @@ MR_Range_Item :: struct {
 	payload:   MR_Candle_Wrapped `json:"Payload"`,
 }
 
+// Flat payload variant used by some range responses:
+// {"Payload": {"Venue":"...", "WindowStartTs":...}}
+MR_Range_Item_Flat :: struct {
+	seq:       i64               `json:"Seq"`,
+	ts_ingest: i64               `json:"TsIngest"`,
+	payload:   MR_Candle_Payload `json:"Payload"`,
+}
+
 MR_Range_Frame :: struct {
 	type_str:   string           `json:"type"`,
 	op:         string           `json:"op"`,
 	request_id: string           `json:"request_id"`,
 	subject:    string           `json:"subject"`,
 	items:      []MR_Range_Item  `json:"items"`,
+}
+
+MR_Range_Frame_Flat :: struct {
+	type_str:   string                `json:"type"`,
+	op:         string                `json:"op"`,
+	request_id: string                `json:"request_id"`,
+	subject:    string                `json:"subject"`,
+	items:      []MR_Range_Item_Flat  `json:"items"`,
 }
 
 // --- Parse helpers ---

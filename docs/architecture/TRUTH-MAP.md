@@ -2,7 +2,7 @@
 
 **Status:** Active
 **Date:** 2026-02-13
-**last_reviewed:** 2026-02-18
+**last_reviewed:** 2026-02-27
 **Scope:** `docs/prd/PRD-0001-extreme-runtime.md`, `docs/prd/PRD-0002-backend-stable-and-odin-ready.md`, `docs/audits/AUDIT-PACK-W11-finalization.md`, `docs/rfcs/EXECUTION-SEQUENCE.md`, `docs/rfcs/archive/ADR-REVISIONS-patch-plan.md`, `docs/rfcs/RFC-0011-product-parity-marketmonkey.md`
 
 ## Purpose
@@ -46,7 +46,7 @@ Create one authoritative map of:
 
 ### Document Inventory
 
-#### ADRs (0000..0019)
+#### ADRs (0000..0020)
 
 - `docs/adrs/ADR-0000-foundation.md` (Accepted)
 - `docs/adrs/ADR-0001-bounded-contexts-and-boundaries.md` (Accepted)
@@ -68,6 +68,7 @@ Create one authoritative map of:
 - `docs/adrs/ADR-0017-multi-exchange-normalization.md` (Accepted)
 - `docs/adrs/ADR-0018-actor-topology-supervision-model.md` (Accepted; partial implementation)
 - `docs/adrs/ADR-0019-dual-database-operational-strategy.md` (Accepted; fully implemented)
+- `docs/adrs/ADR-0020-gitops-secrets-management.md` (Accepted; in progress)
 
 Status anchors: `docs/adrs/ADR-0000-foundation.md:3`, `docs/adrs/ADR-0010-config-loading-startup-validation.md:3`, `docs/adrs/ADR-0016-protobuf-contract-layer.md:3`, `docs/adrs/ADR-0018-actor-topology-supervision-model.md:3`.
 
@@ -89,6 +90,10 @@ Status anchors: `docs/rfcs/RFC-0001-robustness-roadmap.md:3`, `docs/rfcs/RFC-000
 #### RFCs (0011+)
 
 - `docs/rfcs/RFC-0011-product-parity-marketmonkey.md` (Draft)
+- `docs/rfcs/RFC-0012-client-multi-exchange-evolution.md` (Draft)
+- `docs/rfcs/RFC-0013-client-hardening-blueprint-marketmonkey-parity.md` (Draft)
+- `docs/rfcs/RFC-0014-client-ui-interaction-architecture-marketmonkey-reference.md` (Draft)
+- `docs/rfcs/RFC-0015-backend-subminute-hardening-rollout.md` (Draft)
 
 #### Architecture and Contracts
 
@@ -138,11 +143,11 @@ make test-workspace-race
 make soak-check
 ```
 
-Anchor: `Makefile`, `scripts/ci/check-doc-headers.sh`, `scripts/ci/check-doc-links.sh`, `scripts/ci/check-truth-map.sh`, `scripts/ci/check-feature-pack-links.sh`, `scripts/ci/check-pack-subjects-vs-event-bus.sh`, `scripts/ci/guards/check-domain-isolation.sh`, `scripts/test/soak/soak-test.sh`.
+Anchor: `Makefile`, `scripts/ci/docs/check-doc-headers.sh`, `scripts/ci/docs/check-doc-links.sh`, `scripts/ci/docs/check-truth-map.sh`, `scripts/ci/docs/check-feature-pack-links.sh`, `scripts/check-pack-subjects.sh`, `scripts/ci/guards/check-domain-isolation.sh`, `scripts/test/soak/soak-test.sh`.
 
 ## Acceptance
 
-- Inventory includes ADR-0000..0019 and RFC-0001..0011.
+- Inventory includes ADR-0000..0020 and RFC-0001..0015.
 - All requested topics have single-source mapping to doc + code/test anchors.
 - Any unresolved drift is explicitly marked as `TODO` or `OPEN QUESTION`.
 

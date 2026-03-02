@@ -21,6 +21,7 @@ import (
 	"github.com/market-raccoon/internal/adapters/storage/clickhouse"
 	"github.com/market-raccoon/internal/adapters/storage/timescale"
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
+	aggports "github.com/market-raccoon/internal/core/aggregation/ports"
 	deliverydomain "github.com/market-raccoon/internal/core/delivery/domain"
 	"github.com/market-raccoon/internal/core/delivery/ports"
 	httpserver "github.com/market-raccoon/internal/interfaces/http"
@@ -32,6 +33,223 @@ import (
 	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/problem"
 )
+
+type subMinuteRolloutGate struct {
+	enabled     bool
+	venues      map[string]struct{}
+	instruments map[string]struct{}
+}
+
+func newSubMinuteRolloutGate(cfg config.ProcessorSubMinuteRolloutConfig) *subMinuteRolloutGate {
+	gate := &subMinuteRolloutGate{
+		enabled:     cfg.Enabled,
+		venues:      make(map[string]struct{}, len(cfg.Venues)),
+		instruments: make(map[string]struct{}, len(cfg.Instruments)),
+	}
+	for _, venue := range cfg.Venues {
+		if v := strings.ToUpper(strings.TrimSpace(venue)); v != "" {
+			gate.venues[v] = struct{}{}
+		}
+	}
+	for _, instrument := range cfg.Instruments {
+		if inst := strings.ToUpper(strings.TrimSpace(instrument)); inst != "" {
+			gate.instruments[inst] = struct{}{}
+		}
+	}
+	return gate
+}
+
+func (g *subMinuteRolloutGate) allows(venue, instrument, timeframe string) bool {
+	if g == nil || !isSubMinuteTimeframe(timeframe) {
+		return true
+	}
+	if !g.enabled {
+		return false
+	}
+	if len(g.venues) > 0 {
+		if _, ok := g.venues[strings.ToUpper(strings.TrimSpace(venue))]; !ok {
+			return false
+		}
+	}
+	if len(g.instruments) > 0 {
+		raw := strings.ToUpper(strings.TrimSpace(instrument))
+		if _, ok := g.instruments[raw]; ok {
+			return true
+		}
+		base := raw
+		if idx := strings.Index(base, ":"); idx > 0 {
+			base = base[:idx]
+		}
+		if _, ok := g.instruments[base]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func isSubMinuteTimeframe(timeframe string) bool {
+	switch strings.ToLower(strings.TrimSpace(timeframe)) {
+	case "1s", "5s":
+		return true
+	default:
+		return false
+	}
+}
+
+type deliveryEnvelopeRangeStore interface {
+	ports.RangeStore
+	StoreEnvelope(env envelope.Envelope)
+}
+
+type subMinuteFilteringRangeStore struct {
+	next deliveryEnvelopeRangeStore
+	gate *subMinuteRolloutGate
+}
+
+func (s subMinuteFilteringRangeStore) StoreEnvelope(env envelope.Envelope) {
+	if s.next == nil {
+		return
+	}
+	s.next.StoreEnvelope(env)
+}
+
+func (s subMinuteFilteringRangeStore) GetRange(
+	ctx context.Context,
+	subject deliverydomain.Subject,
+	fromMs, toMs int64,
+	limit int,
+) ([]ports.RangeItem, *problem.Problem) {
+	if s.next == nil {
+		return nil, nil
+	}
+	if subject.StreamType == "aggregation.candle" || subject.StreamType == "aggregation.stats" {
+		if s.gate != nil && !s.gate.allows(subject.Venue, subject.Symbol, subject.Timeframe) {
+			metrics.IncWSQueryRejected("subminute_rollout_blocked")
+			return nil, nil
+		}
+	}
+	return s.next.GetRange(ctx, subject, fromMs, toMs, limit)
+}
+
+type subMinuteFilteringCandleReader struct {
+	next aggports.CandleReader
+	gate *subMinuteRolloutGate
+}
+
+func (r subMinuteFilteringCandleReader) GetCandleRange(
+	ctx context.Context,
+	venue, instrument, timeframe string,
+	fromMs, toMs int64,
+	limit int,
+) ([]aggdomain.CandleV1, *problem.Problem) {
+	if r.next == nil {
+		return nil, nil
+	}
+	if r.gate != nil && !r.gate.allows(venue, instrument, timeframe) {
+		return nil, nil
+	}
+	return r.next.GetCandleRange(ctx, venue, instrument, timeframe, fromMs, toMs, limit)
+}
+
+func (r subMinuteFilteringCandleReader) GetCandleTimestamps(
+	ctx context.Context,
+	venue, instrument, timeframe string,
+	fromMs, toMs int64,
+) ([]int64, *problem.Problem) {
+	if r.next == nil {
+		return nil, nil
+	}
+	if r.gate != nil && !r.gate.allows(venue, instrument, timeframe) {
+		return nil, nil
+	}
+	return r.next.GetCandleTimestamps(ctx, venue, instrument, timeframe, fromMs, toMs)
+}
+
+func (r subMinuteFilteringCandleReader) GetFirstCandle(
+	ctx context.Context,
+	venue, instrument, timeframe string,
+) (*aggdomain.CandleV1, *problem.Problem) {
+	if r.next == nil {
+		return nil, nil
+	}
+	if r.gate != nil && !r.gate.allows(venue, instrument, timeframe) {
+		return nil, nil
+	}
+	return r.next.GetFirstCandle(ctx, venue, instrument, timeframe)
+}
+
+func (r subMinuteFilteringCandleReader) GetLastCandle(
+	ctx context.Context,
+	venue, instrument, timeframe string,
+) (*aggdomain.CandleV1, *problem.Problem) {
+	if r.next == nil {
+		return nil, nil
+	}
+	if r.gate != nil && !r.gate.allows(venue, instrument, timeframe) {
+		return nil, nil
+	}
+	return r.next.GetLastCandle(ctx, venue, instrument, timeframe)
+}
+
+type subMinuteFilteringStatsReader struct {
+	next aggports.StatsReader
+	gate *subMinuteRolloutGate
+}
+
+func (r subMinuteFilteringStatsReader) GetStatsTimestamps(
+	ctx context.Context,
+	venue, instrument, timeframe string,
+	fromMs, toMs int64,
+) ([]int64, *problem.Problem) {
+	if r.next == nil {
+		return nil, nil
+	}
+	if r.gate != nil && !r.gate.allows(venue, instrument, timeframe) {
+		return nil, nil
+	}
+	return r.next.GetStatsTimestamps(ctx, venue, instrument, timeframe, fromMs, toMs)
+}
+
+func (r subMinuteFilteringStatsReader) GetStatsRange(
+	ctx context.Context,
+	venue, instrument, timeframe string,
+	fromMs, toMs int64,
+	limit int,
+) ([]aggdomain.StatsWindowV1, *problem.Problem) {
+	if r.next == nil {
+		return nil, nil
+	}
+	if r.gate != nil && !r.gate.allows(venue, instrument, timeframe) {
+		return nil, nil
+	}
+	return r.next.GetStatsRange(ctx, venue, instrument, timeframe, fromMs, toMs, limit)
+}
+
+func (r subMinuteFilteringStatsReader) GetFirstStats(
+	ctx context.Context,
+	venue, instrument, timeframe string,
+) (*aggdomain.StatsWindowV1, *problem.Problem) {
+	if r.next == nil {
+		return nil, nil
+	}
+	if r.gate != nil && !r.gate.allows(venue, instrument, timeframe) {
+		return nil, nil
+	}
+	return r.next.GetFirstStats(ctx, venue, instrument, timeframe)
+}
+
+func (r subMinuteFilteringStatsReader) GetLastStats(
+	ctx context.Context,
+	venue, instrument, timeframe string,
+) (*aggdomain.StatsWindowV1, *problem.Problem) {
+	if r.next == nil {
+		return nil, nil
+	}
+	if r.gate != nil && !r.gate.allows(venue, instrument, timeframe) {
+		return nil, nil
+	}
+	return r.next.GetLastStats(ctx, venue, instrument, timeframe)
+}
 
 // Run is the server composition root.  It wires all dependencies, starts
 // the actor engine, HTTP server, and blocks until a signal or fatal error.
@@ -45,6 +263,12 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 		return fmt.Errorf("payload codec registry bootstrap: %v", p)
 	}
 	logger.Info("server starting", "addr", cfg.HTTP.Addr)
+	subMinuteGate := newSubMinuteRolloutGate(cfg.Processor.SubMinuteRollout)
+	logger.Info("server: sub-minute rollout gate configured",
+		"enabled", subMinuteGate.enabled,
+		"venue_allowlist", len(subMinuteGate.venues),
+		"instrument_allowlist", len(subMinuteGate.instruments),
+	)
 	var tsPool *timescale.Pool
 	timescale.SetStubMode(timescale.AdapterModeStubMemory)
 	if cfg.Storage.Timescale.Enabled {
@@ -96,8 +320,14 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 				}
 			}()
 			coldOpt = httpserver.WithColdReaders(&httpserver.ColdReaders{
-				Candles:   clickhouse.NewChCandleReader(chPool),
-				Stats:     clickhouse.NewChStatsReader(chPool),
+				Candles: subMinuteFilteringCandleReader{
+					next: clickhouse.NewChCandleReader(chPool),
+					gate: subMinuteGate,
+				},
+				Stats: subMinuteFilteringStatsReader{
+					next: clickhouse.NewChStatsReader(chPool),
+					gate: subMinuteGate,
+				},
 				Snapshots: clickhouse.NewChSnapshotReader(chPool),
 			})
 			logger.Info("server: cold reader APIs enabled (ClickHouse)")
@@ -119,15 +349,18 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 	routerPIDCh := make(chan *actor.PID, 1)
 	subsystemPIDCh := make(chan *actor.PID, 1)
 	var eventBus *bus.InMemoryBus
-	var rangeStore interface {
-		ports.RangeStore
-		StoreEnvelope(env envelope.Envelope)
-	}
+	var rangeStore deliveryEnvelopeRangeStore
 	if tsPool != nil {
-		rangeStore = timescale.NewPgRangeStore(tsPool, 4096)
+		rangeStore = subMinuteFilteringRangeStore{
+			next: timescale.NewPgRangeStore(tsPool, 4096),
+			gate: subMinuteGate,
+		}
 		logger.Info("server: using Timescale range store")
 	} else {
-		rangeStore = timescale.NewDeliveryRangeStore(4096)
+		rangeStore = subMinuteFilteringRangeStore{
+			next: timescale.NewDeliveryRangeStore(4096),
+			gate: subMinuteGate,
+		}
 	}
 
 	// ── JetStream → InMemoryBus bridge ───────────────────────────────────
@@ -213,6 +446,11 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 	logger.Info("guardian spawned", "pid", guardianPID.String())
 
 	// ── HTTP server ──────────────────────────────────────────────────────
+	var marketsOpt httpserver.Option
+	if len(cfg.Markets.Exchanges) > 0 {
+		marketsOpt = httpserver.WithMarkets(&cfg.Markets)
+		logger.Info("server: markets discovery enabled", "exchanges", len(cfg.Markets.Exchanges))
+	}
 	srv := httpserver.NewServer(
 		e,
 		guardianPID,
@@ -222,9 +460,10 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 		httpserver.WithTLS(cfg.HTTP.TLSCert, cfg.HTTP.TLSKey),
 		httpserver.WithReloadHook(protoRolloutReloadHook(configPath, logger)),
 		coldOpt,
+		marketsOpt,
 	)
 	if cfg.Delivery.Enabled {
-		enableWSRoute(e, srv, routerPIDCh, subsystemPIDCh, logger, rangeStore, tsPool, cfg)
+		enableWSRoute(e, srv, routerPIDCh, subsystemPIDCh, logger, rangeStore, tsPool, subMinuteGate, cfg)
 	}
 
 	serverErr := make(chan error, 1)
@@ -282,9 +521,10 @@ func enableWSRoute(
 	logger *slog.Logger,
 	rangeStore ports.RangeStore,
 	tsPool *timescale.Pool,
+	subMinuteGate *subMinuteRolloutGate,
 	cfg config.AppConfig,
 ) {
-	hotSnapshotProvider := newWSHotSnapshotProvider(rangeStore, tsPool)
+	hotSnapshotProvider := newWSHotSnapshotProvider(rangeStore, tsPool, subMinuteGate)
 	select {
 	case routerPID := <-routerPIDCh:
 		var subsystemPID *actor.PID
@@ -354,10 +594,14 @@ type wsHotSnapshotProvider struct {
 	hotTS deliveryruntime.HotSnapshotProvider
 }
 
-func newWSHotSnapshotProvider(rangeStore ports.RangeStore, tsPool *timescale.Pool) deliveryruntime.HotSnapshotProvider {
+func newWSHotSnapshotProvider(
+	rangeStore ports.RangeStore,
+	tsPool *timescale.Pool,
+	subMinuteGate *subMinuteRolloutGate,
+) deliveryruntime.HotSnapshotProvider {
 	p := wsHotSnapshotProvider{
 		live:  newRangeStoreHotSnapshotProvider(rangeStore),
-		hotTS: newTimescaleAggregateHotSnapshotProvider(tsPool),
+		hotTS: newTimescaleAggregateHotSnapshotProvider(tsPool, subMinuteGate),
 	}
 	if p.live == nil && p.hotTS == nil {
 		return nil
@@ -424,13 +668,17 @@ func (p rangeStoreHotSnapshotProvider) getLatestForSubject(subject deliverydomai
 
 type timescaleAggregateHotSnapshotProvider struct {
 	pool *timescale.Pool
+	gate *subMinuteRolloutGate
 }
 
-func newTimescaleAggregateHotSnapshotProvider(pool *timescale.Pool) deliveryruntime.HotSnapshotProvider {
+func newTimescaleAggregateHotSnapshotProvider(
+	pool *timescale.Pool,
+	gate *subMinuteRolloutGate,
+) deliveryruntime.HotSnapshotProvider {
 	if pool == nil || pool.Raw() == nil {
 		return nil
 	}
-	return timescaleAggregateHotSnapshotProvider{pool: pool}
+	return timescaleAggregateHotSnapshotProvider{pool: pool, gate: gate}
 }
 
 func (p timescaleAggregateHotSnapshotProvider) GetLatest(subject deliverydomain.Subject) ([]byte, bool) {
@@ -451,6 +699,9 @@ func (p timescaleAggregateHotSnapshotProvider) getLatestCandle(subject deliveryd
 	tf := strings.TrimSpace(subject.Timeframe)
 	if tf == "" || strings.EqualFold(tf, "raw") {
 		tf = "1m"
+	}
+	if p.gate != nil && !p.gate.allows(subject.Venue, subject.Symbol, tf) {
+		return nil, false
 	}
 	venue := strings.ToUpper(strings.TrimSpace(subject.Venue))
 	symbols := snapshotSymbolCandidates(subject.Symbol)
@@ -498,6 +749,9 @@ func (p timescaleAggregateHotSnapshotProvider) getLatestStats(subject deliverydo
 	tf := strings.TrimSpace(subject.Timeframe)
 	if tf == "" || strings.EqualFold(tf, "raw") {
 		tf = "1m"
+	}
+	if p.gate != nil && !p.gate.allows(subject.Venue, subject.Symbol, tf) {
+		return nil, false
 	}
 	venue := strings.ToUpper(strings.TrimSpace(subject.Venue))
 	symbols := snapshotSymbolCandidates(subject.Symbol)

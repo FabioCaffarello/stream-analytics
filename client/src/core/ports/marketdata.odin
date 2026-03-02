@@ -93,7 +93,9 @@ MD_Candle_Event :: struct {
 	is_closed:       bool,
 }
 
-RANGE_CANDLE_MAX :: 16
+// Keep range batches compact enough for per-frame polling, while still allowing
+// a meaningful historical seed for candle UI.
+RANGE_CANDLE_MAX :: 32
 
 MD_Range_Candle_Batch :: struct {
 	candles: [RANGE_CANDLE_MAX]MD_Candle_Event,
@@ -142,14 +144,17 @@ MD_Event :: struct {
 }
 
 Marketdata_Port :: struct {
-	subscribe:      proc(venue: string, symbol: string, channel: MD_Channel) -> bool,
-	unsubscribe:    proc(venue: string, symbol: string, channel: MD_Channel),
-	poll:           proc(events_buf: []MD_Event) -> int,
-	now_ms:         proc() -> i64,
-	conn_status:    proc() -> MD_Conn_Status,
-	metrics:        proc(out: ^MD_Runtime_Metrics) -> bool,
+	subscribe:       proc(venue: string, symbol: string, channel: MD_Channel) -> bool,
+	subscribe_tf:    proc(venue: string, symbol: string, channel: MD_Channel, tf: string) -> bool,  // subscribe with explicit TF
+	unsubscribe:     proc(venue: string, symbol: string, channel: MD_Channel),
+	poll:            proc(events_buf: []MD_Event) -> int,
+	now_ms:          proc() -> i64,
+	conn_status:     proc() -> MD_Conn_Status,
+	metrics:         proc(out: ^MD_Runtime_Metrics) -> bool,
 	describe_stream: proc(subject_id: u64, out: ^MD_Stream_Info) -> bool,
-	set_candle_tf:  proc(tf: string),
-	send_getrange:  proc(subject: string, limit: int),
-	shutdown:       proc(),
+	set_candle_tf:   proc(tf: string),
+	send_getrange:   proc(subject: string, limit: int, end_ts: i64),
+	shutdown:        proc(),
+	fetch_markets:   proc(buf: [^]u8, cap: i32) -> i32,  // HTTP GET /api/v1/markets; returns bytes written, 0 on failure
+	on_reconnect:    proc(),  // Called by app layer when reconnect detected; triggers reconcile
 }

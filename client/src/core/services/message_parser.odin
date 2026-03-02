@@ -91,7 +91,7 @@ Parsed_Ack :: struct {
 
 // --- Parse result discriminated union ---
 
-RANGE_CANDLE_PARSE_MAX :: 16
+RANGE_CANDLE_PARSE_MAX :: 32
 
 Parsed_Range_Candles :: struct {
 	candles: [RANGE_CANDLE_PARSE_MAX]Parsed_Candle,
@@ -134,14 +134,13 @@ Parse_Telemetry :: struct {
 	parse_errors:    int,
 	envelope_errors: int,
 	unknown_streams: int,
-	tf_filtered:     int,
 }
 
 // --- Main parse entry point ---
 // Pure function: works on temp_allocator, results are stack-copied to staging.
-// candle_tf_filter: only emit candles matching this timeframe (e.g. "1m"), empty = all.
+// TF gating is handled by WS subject routing — parser accepts all candle events.
 
-parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry, candle_tf_filter: string = "") -> Parse_Result {
+parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result {
 	result: Parse_Result
 
 	// Pass 1: envelope only.
@@ -216,13 +215,11 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry, candle_tf_filte
 			telemetry.parse_errors += 1
 		}
 	case "aggregation.candle":
-		if r, ok := parse_candle(raw, env.ts_ingest, subject_id, candle_tf_filter); ok {
+		if r, ok := parse_candle(raw, env.ts_ingest, subject_id); ok {
 			result.kind = .Candle
 			result.data.candle = r
 		} else if telemetry != nil {
-			// Only count as error if not just a TF filter skip.
-			// (parse_candle returns false for both parse errors and TF skips;
-			//  tf_filtered is incremented inside parse_candle for the skip case.)
+			telemetry.parse_errors += 1
 		}
 	case:
 		if telemetry != nil do telemetry.unknown_streams += 1
@@ -389,21 +386,44 @@ parse_vpvr :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_VPVR, bool) {
 
 @(private = "file")
 parse_range_candles :: proc(raw: []u8, subject: string) -> (Parsed_Range_Candles, bool) {
-	frame: util.MR_Range_Frame
-	if json.unmarshal(raw, &frame) != nil do return {}, false
+	frame_wrapped: util.MR_Range_Frame
+	if json.unmarshal(raw, &frame_wrapped) != nil do return {}, false
+
+	// Some servers return range item payloads as flat candle payloads instead of
+	// {"Candle": {...}}. Parse both and accept whichever is valid.
+	frame_flat: util.MR_Range_Frame_Flat
+	_ = json.unmarshal(raw, &frame_flat)
 
 	subject_id := util.subject_id64(subject)
 	result: Parsed_Range_Candles
-	count := min(len(frame.items), RANGE_CANDLE_PARSE_MAX)
-	result.count = count
-	result.is_last = true // single-page response from server
+	result.is_last = true // current backend emits one frame per getrange request
 
-	for i in 0 ..< count {
-		item := frame.items[i]
-		c := item.payload.candle
-		// If wrapped parse yields zero, the item may not be a candle.
-		if c.WindowStartTs == 0 do continue
-		result.candles[i] = Parsed_Candle{
+	item_count := len(frame_wrapped.items)
+	if len(frame_flat.items) > item_count {
+		item_count = len(frame_flat.items)
+	}
+	if item_count <= 0 {
+		result.count = 0
+		return result, true
+	}
+
+	start := max(item_count - RANGE_CANDLE_PARSE_MAX, 0)
+	out := 0
+	for i in start ..< item_count {
+		c: util.MR_Candle_Payload
+		if i < len(frame_wrapped.items) {
+			wrapped := frame_wrapped.items[i].payload.candle
+			if wrapped.WindowStartTs > 0 {
+				c = wrapped
+			}
+		}
+		if c.WindowStartTs <= 0 && i < len(frame_flat.items) {
+			c = frame_flat.items[i].payload
+		}
+		if c.WindowStartTs <= 0 do continue
+		if c.WindowEndTs <= c.WindowStartTs do continue
+
+		result.candles[out] = Parsed_Candle{
 			open            = c.Open,
 			high            = c.High,
 			low             = c.Low,
@@ -417,12 +437,15 @@ parse_range_candles :: proc(raw: []u8, subject: string) -> (Parsed_Range_Candles
 			is_closed       = c.IsClosed,
 			subject_id      = subject_id,
 		}
+		out += 1
+		if out >= RANGE_CANDLE_PARSE_MAX do break
 	}
-	return result, count > 0
+	result.count = out
+	return result, true
 }
 
 @(private = "file")
-parse_candle :: proc(raw: []u8, ts: i64, subject_id: u64, tf_filter: string) -> (Parsed_Candle, bool) {
+parse_candle :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Candle, bool) {
 	// Try wrapped format first: {"payload": {"Candle": {...}}}
 	frame: util.MR_Candle_Frame
 	if json.unmarshal(raw, &frame) != nil do return {}, false
@@ -435,11 +458,6 @@ parse_candle :: proc(raw: []u8, ts: i64, subject_id: u64, tf_filter: string) -> 
 		}
 	}
 	if c.WindowStartTs == 0 do return {}, false
-
-	// Apply timeframe filter.
-	if len(tf_filter) > 0 && c.Timeframe != "" && c.Timeframe != tf_filter {
-		return {}, false
-	}
 
 	return Parsed_Candle{
 		open            = c.Open,

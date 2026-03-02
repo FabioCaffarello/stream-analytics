@@ -126,6 +126,7 @@ func TestMetricsNamesPresent(t *testing.T) {
 	ObserveHeatmapPayloadBytes("binance", "BTC-USDT", "1m", 2048)
 	IncHeatmapDrop("queue_full")
 	SetHeatmapQueueDepth("binance", "BTC-USDT", 7)
+	IncDeliveryRangeAliasFallback("hit")
 
 	mfs, err := Registry().Gather()
 	if err != nil {
@@ -178,6 +179,7 @@ func TestMetricsNamesPresent(t *testing.T) {
 		"heatmap_queue_depth",
 		"guardian_rate_limited_total",
 		"process_heap_alloc_bytes",
+		"delivery_range_alias_fallback_total",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("expected metric %s in registry", want)

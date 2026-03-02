@@ -24,6 +24,8 @@ This directory contains plans for coordinating work across documentation and pla
 19. [Subject Taxonomy Stabilization](./subject-taxonomy-stabilization.md)
 20. [W0 Build Acceleration](./w0-build-acceleration.md)
 21. [W1 Consumer Hotspot Dedup](./w1-consumer-hotspot-dedup.md)
+22. [Client Multi Exchange Hardening Execution](./client-multi-exchange-hardening-execution.md)
+23. [Backend Subminute Hardening Execution](./backend-subminute-hardening-execution.md)
 
 ## How To Create Or Update Plans
 - Run "ai-context plan <name>" to scaffold a new plan template.

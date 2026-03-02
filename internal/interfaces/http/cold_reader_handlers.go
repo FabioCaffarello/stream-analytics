@@ -7,6 +7,16 @@ import (
 	aggports "github.com/market-raccoon/internal/core/aggregation/ports"
 )
 
+// handleGetMarkets serves GET /api/v1/markets and returns all configured
+// exchanges and symbols for client market discovery.
+func (s *Server) handleGetMarkets(w http.ResponseWriter, _ *http.Request) {
+	if s.markets == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "markets not configured"})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.markets)
+}
+
 // ColdReaders holds optional ClickHouse-backed readers for cold data APIs.
 // Each field may be nil if the corresponding reader is not wired.
 type ColdReaders struct {

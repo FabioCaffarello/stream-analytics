@@ -125,7 +125,7 @@ make test-workspace
 
 | Capability | Status | Reference |
 |---|---|---|
-| Documentation guardrails (headers, links, truth-map) | Implemented | `Makefile`, `scripts/ci/check-doc-headers.sh`, `scripts/ci/check-doc-links.sh`, `scripts/ci/check-truth-map.sh` |
+| Documentation guardrails (headers, links, truth-map) | Implemented | `Makefile`, `scripts/ci/docs/check-doc-headers.sh`, `scripts/ci/docs/check-doc-links.sh`, `scripts/ci/docs/check-truth-map.sh` |
 | Domain isolation + determinism guards | Implemented | `Makefile:123`, `scripts/ci/guards/check-domain-isolation.sh:49`, `scripts/ci/guards/check-domain-isolation.sh:107` |
 | Workspace-wide tests (`go test` all modules) | Implemented | `Makefile:136`, `Makefile:139` |
 | JetStream durability/restart | Implemented | `internal/adapters/jetstream/consumer_integration_test.go:21` |

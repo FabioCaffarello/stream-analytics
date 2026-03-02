@@ -5,6 +5,8 @@ package main
 // Automatic reconnection with exponential backoff + re-subscribe on reconnect.
 
 import "core:fmt"
+import "core:net"
+import "core:strconv"
 import "core:strings"
 import "core:sync"
 import "core:thread"
@@ -13,7 +15,8 @@ import "mr:ports"
 import "mr:services"
 import "mr:util"
 
-TRADE_RING_CAP :: 1024
+TRADE_RING_CAP  :: 1024
+CANDLE_RING_CAP :: 8
 MAX_SUBS :: 128
 
 // --- Reconnection constants ---
@@ -65,9 +68,10 @@ MD_Native_State :: struct {
 	vpvr_staging: services.Parsed_VPVR,
 	vpvr_dirty:   bool,
 
-	// Candle staging (latest-wins single candle).
-	candle_staging: services.Parsed_Candle,
-	candle_dirty:   bool,
+	// Candle ring buffer (SPSC: writer=background, reader=main).
+	candle_ring:       [CANDLE_RING_CAP]services.Parsed_Candle,
+	candle_ring_write: int,
+	candle_ring_count: int,
 
 	// Range candle staging (getrange response batch).
 	range_candle_staging: services.Parsed_Range_Candles,
@@ -88,7 +92,8 @@ MD_Native_State :: struct {
 
 	// Reconnection.
 	backoff_ms:      int,
-	reconnect_count: int,
+	reconnect_count: int, // cumulative reconnect attempts (monotonic)
+	reconnect_streak: int, // current consecutive reconnect attempts
 	parse_error_count: int,
 
 	// Subscription tracking for reconnect re-subscribe.
@@ -120,8 +125,8 @@ make_marketdata_native :: proc(url: string, api_key: string = "") -> ports.Marke
 		native_shutdown()
 	}
 	state := new(MD_Native_State)
-	state.ws_url = url
-	state.api_key = api_key
+	state.ws_url = strings.clone(url)
+	state.api_key = strings.clone(api_key)
 	state.backoff_ms = BACKOFF_INITIAL_MS
 	state.candle_tf_filter = strings.clone(CANDLE_TF_DEFAULT)
 	g_md_state = state
@@ -155,6 +160,7 @@ make_marketdata_native :: proc(url: string, api_key: string = "") -> ports.Marke
 
 	return ports.Marketdata_Port{
 		subscribe       = native_subscribe,
+		subscribe_tf    = native_subscribe_tf,
 		unsubscribe     = native_unsubscribe,
 		poll            = native_poll,
 		now_ms          = native_now_ms,
@@ -164,6 +170,7 @@ make_marketdata_native :: proc(url: string, api_key: string = "") -> ports.Marke
 		set_candle_tf   = native_set_candle_tf,
 		send_getrange   = native_send_getrange,
 		shutdown        = native_shutdown,
+		fetch_markets   = native_fetch_markets,
 	}
 }
 
@@ -178,11 +185,47 @@ find_sub_by_subject :: proc(state: ^MD_Native_State, subject: string) -> int {
 }
 
 @(private = "file")
+find_sub_by_key :: proc(state: ^MD_Native_State, venue: string, symbol: string, channel: ports.MD_Channel) -> int {
+	for i in 0 ..< state.active_count {
+		sub := state.active_subs[i]
+		if sub.channel == channel && sub.venue == venue && sub.symbol == symbol do return i
+	}
+	return -1
+}
+
+@(private = "file")
 find_sub_by_subject_id :: proc(state: ^MD_Native_State, subject_id: u64) -> int {
 	for i in 0 ..< state.active_count {
 		if state.active_subs[i].subject_id == subject_id do return i
 	}
 	return -1
+}
+
+@(private = "file")
+native_subject_for_channel :: proc(state: ^MD_Native_State, venue: string, symbol: string, channel: ports.MD_Channel) -> string {
+	tf := ""
+	if channel == .Heatmaps || channel == .VPVR || channel == .Candles {
+		tf = state.candle_tf_filter
+	}
+	return util.build_subject_with_timeframe(venue, symbol, channel, tf)
+}
+
+@(private = "file")
+native_free_sub_entry :: proc(entry: ^Sub_Entry) {
+	if entry == nil do return
+	if len(entry.venue) > 0 do delete(entry.venue)
+	if len(entry.symbol) > 0 do delete(entry.symbol)
+	if len(entry.subject) > 0 do delete(entry.subject)
+	entry^ = {}
+}
+
+@(private = "file")
+native_should_stop :: proc(state: ^MD_Native_State) -> bool {
+	if state == nil do return true
+	sync.lock(&state.mu)
+	stop := state.should_stop
+	sync.unlock(&state.mu)
+	return stop
 }
 
 @(private = "file")
@@ -195,7 +238,22 @@ native_shutdown :: proc() {
 	state.should_stop = true
 	reader = state.reader_thread
 	state.reader_thread = nil
+	for i in 0 ..< state.active_count {
+		native_free_sub_entry(&state.active_subs[i])
+	}
 	state.active_count = 0
+	if len(state.candle_tf_filter) > 0 {
+		delete(state.candle_tf_filter)
+		state.candle_tf_filter = ""
+	}
+	if len(state.ws_url) > 0 {
+		delete(state.ws_url)
+		state.ws_url = ""
+	}
+	if len(state.api_key) > 0 {
+		delete(state.api_key)
+		state.api_key = ""
+	}
 	state.conn_state = .Disconnected
 	ws_close(&state.conn)
 	sync.unlock(&state.mu)
@@ -212,26 +270,68 @@ native_subscribe :: proc(venue: string, symbol: string, channel: ports.MD_Channe
 	state := g_md_state
 	if state == nil do return false
 
-	subject := util.build_subject(venue, symbol, channel)
+	subject := native_subject_for_channel(state, venue, symbol, channel)
 	subject_id := util.subject_id64(subject)
 
 	sync.lock(&state.mu)
 	defer sync.unlock(&state.mu)
 
-	// Track subscription for reconnect re-subscribe (dedup by subject).
-	if find_sub_by_subject(state, subject) == -1 && state.active_count < MAX_SUBS {
-		state.active_subs[state.active_count] = Sub_Entry{
-			subject_id = subject_id,
-			venue   = venue,
-			symbol  = symbol,
-			channel = channel,
-			subject = subject,
-		}
-		state.active_count += 1
+	// Idempotent subscribe: do not re-send for already tracked subjects.
+	if find_sub_by_subject(state, subject) != -1 {
+		delete(subject)
+		return true
+	}
+	if state.active_count >= MAX_SUBS {
+		delete(subject)
+		return false
 	}
 
-	if state.conn_state != .Connected do return false
+	// Track subscription for reconnect re-subscribe.
+	state.active_subs[state.active_count] = Sub_Entry{
+		subject_id = subject_id,
+		venue   = strings.clone(venue),
+		symbol  = strings.clone(symbol),
+		channel = channel,
+		subject = subject,
+	}
+	state.active_count += 1
 
+	if state.conn_state != .Connected do return false // tracked; reconnect path will subscribe later
+	return send_subscribe(state, subject)
+}
+
+// Subscribe with an explicit timeframe (for per-cell TF support).
+@(private = "file")
+native_subscribe_tf :: proc(venue: string, symbol: string, channel: ports.MD_Channel, tf: string) -> bool {
+	state := g_md_state
+	if state == nil do return false
+
+	subject := util.build_subject_with_timeframe(venue, symbol, channel, tf)
+	subject_id := util.subject_id64(subject)
+
+	sync.lock(&state.mu)
+	defer sync.unlock(&state.mu)
+
+	// Idempotent subscribe: do not re-send for already tracked subjects.
+	if find_sub_by_subject(state, subject) != -1 {
+		delete(subject)
+		return true
+	}
+	if state.active_count >= MAX_SUBS {
+		delete(subject)
+		return false
+	}
+
+	state.active_subs[state.active_count] = Sub_Entry{
+		subject_id = subject_id,
+		venue   = strings.clone(venue),
+		symbol  = strings.clone(symbol),
+		channel = channel,
+		subject = subject,
+	}
+	state.active_count += 1
+
+	if state.conn_state != .Connected do return false // tracked; reconnect path will subscribe later
 	return send_subscribe(state, subject)
 }
 
@@ -269,7 +369,7 @@ native_metrics :: proc(out: ^ports.MD_Runtime_Metrics) -> bool {
 	if state.stats_dirty do latest_pending += 1
 	if state.heatmap_dirty do latest_pending += 1
 	if state.vpvr_dirty do latest_pending += 1
-	if state.candle_dirty do latest_pending += 1
+	if state.candle_ring_count > 0 do latest_pending += 1
 	out^ = ports.MD_Runtime_Metrics{
 		active_subs       = state.active_count,
 		trade_backlog     = state.trade_count,
@@ -287,19 +387,35 @@ native_unsubscribe :: proc(venue: string, symbol: string, channel: ports.MD_Chan
 	state := g_md_state
 	if state == nil do return
 
-	subject := util.build_subject(venue, symbol, channel)
+	subject := ""
 
 	sync.lock(&state.mu)
 	defer sync.unlock(&state.mu)
 
+	if idx := find_sub_by_key(state, venue, symbol, channel); idx >= 0 {
+		subject = strings.clone(state.active_subs[idx].subject)
+	} else {
+		subject = native_subject_for_channel(state, venue, symbol, channel)
+	}
+	defer delete(subject)
+
 	// Remove from active subs.
-	if idx := find_sub_by_subject(state, subject); idx >= 0 {
-		state.active_subs[idx] = state.active_subs[state.active_count - 1]
+	if idx := find_sub_by_key(state, venue, symbol, channel); idx >= 0 {
+		last := state.active_count - 1
+		native_free_sub_entry(&state.active_subs[idx])
+		if idx != last {
+			state.active_subs[idx] = state.active_subs[last]
+		}
+		state.active_subs[last] = {}
 		state.active_count -= 1
 	}
 
 	if state.conn_state != .Connected do return
+	send_unsubscribe(state, subject)
+}
 
+@(private = "file")
+send_unsubscribe :: proc(state: ^MD_Native_State, subject: string) -> bool {
 	state.rid_counter += 1
 	unsub_buf: [256]u8
 	un := 0
@@ -312,7 +428,7 @@ native_unsubscribe :: proc(venue: string, symbol: string, channel: ports.MD_Chan
 	for c in unsub_rid { unsub_buf[un] = u8(c); un += 1 }
 	unsub_suffix :: `"}`
 	for c in unsub_suffix { unsub_buf[un] = u8(c); un += 1 }
-	ws_write_text(state.conn, string(unsub_buf[:un]))
+	return ws_write_text(state.conn, string(unsub_buf[:un])) == nil
 }
 
 @(private = "file")
@@ -333,6 +449,31 @@ send_subscribe :: proc(state: ^MD_Native_State, subject: string) -> bool {
 	msg := string(buf[:n])
 	err := ws_write_text(state.conn, msg)
 	return err == nil
+}
+
+@(private = "file")
+native_resubscribe_timeframe_channels :: proc(state: ^MD_Native_State) {
+	if state == nil do return
+	is_connected := state.conn_state == .Connected
+
+	for i in 0 ..< state.active_count {
+		entry := &state.active_subs[i]
+		if entry.channel != .Heatmaps && entry.channel != .VPVR && entry.channel != .Candles do continue
+
+		new_subject := util.build_subject_with_timeframe(entry.venue, entry.symbol, entry.channel, state.candle_tf_filter)
+		if new_subject == entry.subject {
+			delete(new_subject)
+			continue
+		}
+
+		if is_connected {
+			send_unsubscribe(state, entry.subject)
+			send_subscribe(state, new_subject)
+		}
+		delete(entry.subject)
+		entry.subject = new_subject
+		entry.subject_id = util.subject_id64(new_subject)
+	}
 }
 
 @(private = "file")
@@ -463,9 +604,10 @@ native_poll :: proc(events_buf: []ports.MD_Event) -> int {
 		n += 1
 	}
 
-	// Emit latest candle if dirty.
-	if state.candle_dirty && n < len(events_buf) {
-		cs := state.candle_staging
+	// Drain candle ring buffer.
+	for n < len(events_buf) && state.candle_ring_count > 0 {
+		oldest := (state.candle_ring_write - state.candle_ring_count + CANDLE_RING_CAP) % CANDLE_RING_CAP
+		cs := state.candle_ring[oldest]
 		events_buf[n].source.subject_id = cs.subject_id
 		events_buf[n].source.channel = .Candles
 		events_buf[n].kind = .Candle
@@ -483,7 +625,7 @@ native_poll :: proc(events_buf: []ports.MD_Event) -> int {
 			window_end_ts   = cs.window_end_ts,
 			is_closed       = cs.is_closed,
 		}
-		state.candle_dirty = false
+		state.candle_ring_count -= 1
 		n += 1
 	}
 
@@ -549,7 +691,9 @@ native_conn_status :: proc() -> ports.MD_Conn_Status {
 reader_thread_proc :: proc(t: ^thread.Thread) {
 	state := cast(^MD_Native_State)t.data
 
-	for !state.should_stop {
+	for {
+		if native_should_stop(state) do break
+
 		sync.lock(&state.mu)
 		cs := state.conn_state
 		sync.unlock(&state.mu)
@@ -561,12 +705,19 @@ reader_thread_proc :: proc(t: ^thread.Thread) {
 
 		opcode, payload, err := ws_read_message(state.conn)
 		if err != nil {
-			if err == .Read_Conn_Closed {
-				fmt.println("[marketdata] Connection closed by server")
-			} else {
-				fmt.printf("[marketdata] Read error: %v\n", err)
+			stop_now := native_should_stop(state)
+			if !stop_now {
+				if err == .Read_Conn_Closed {
+					fmt.println("[marketdata] Connection closed by server")
+				} else {
+					fmt.printf("[marketdata] Read error: %v\n", err)
+				}
 			}
 			sync.lock(&state.mu)
+			if state.should_stop {
+				sync.unlock(&state.mu)
+				break
+			}
 			state.conn_state = .Disconnected
 			state.backoff_ms = BACKOFF_INITIAL_MS
 			sync.unlock(&state.mu)
@@ -587,13 +738,14 @@ attempt_reconnect :: proc(state: ^MD_Native_State) {
 	state.conn_state = .Backoff_Wait
 	backoff := state.backoff_ms
 	state.reconnect_count += 1
-	count := state.reconnect_count
+	state.reconnect_streak += 1
+	count := state.reconnect_streak
 	sync.unlock(&state.mu)
 
 	fmt.printf("[marketdata] Reconnecting in %dms (attempt %d)\n", backoff, count)
 	time.sleep(time.Duration(backoff) * time.Millisecond)
 
-	if state.should_stop do return
+	if native_should_stop(state) do return
 
 	extra_hdr := ""
 	if len(state.api_key) > 0 {
@@ -619,19 +771,26 @@ attempt_reconnect :: proc(state: ^MD_Native_State) {
 	state.conn = conn
 	state.conn_state = .Connected
 	state.backoff_ms = BACKOFF_INITIAL_MS
-	state.reconnect_count = 0
+	state.reconnect_streak = 0
 
-	// Re-subscribe all active subscriptions.
-	sub_count := state.active_count
+	// Snapshot active subscriptions before re-subscribing to avoid races with
+	// concurrent subscribe/unsubscribe while we iterate.
+	subjects: [MAX_SUBS]string
+	sub_count := 0
+	for i in 0 ..< state.active_count {
+		if sub_count >= MAX_SUBS do break
+		subjects[sub_count] = state.active_subs[i].subject
+		sub_count += 1
+	}
 	sync.unlock(&state.mu)
 
 	for i in 0 ..< sub_count {
-		sync.lock(&state.mu)
-		subject := state.active_subs[i].subject
-		sync.unlock(&state.mu)
+		subject := subjects[i]
 		if len(subject) > 0 {
 			sync.lock(&state.mu)
-			send_subscribe(state, subject)
+			if state.conn_state == .Connected {
+				send_subscribe(state, subject)
+			}
 			sync.unlock(&state.mu)
 		}
 	}
@@ -643,12 +802,8 @@ attempt_reconnect :: proc(state: ^MD_Native_State) {
 
 @(private = "file")
 apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
-	sync.lock(&state.mu)
-	tf := state.candle_tf_filter
-	sync.unlock(&state.mu)
-
 	telemetry: services.Parse_Telemetry
-	result := services.parse_mr_message(raw, &telemetry, tf)
+	result := services.parse_mr_message(raw, &telemetry)
 
 	// Accumulate telemetry under lock.
 	if telemetry.parse_errors > 0 {
@@ -708,8 +863,15 @@ apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 		sync.unlock(&state.mu)
 	case .Candle:
 		sync.lock(&state.mu)
-		state.candle_staging = result.data.candle
-		state.candle_dirty = true
+		if state.candle_ring_count < CANDLE_RING_CAP {
+			state.candle_ring[state.candle_ring_write] = result.data.candle
+			state.candle_ring_write = (state.candle_ring_write + 1) % CANDLE_RING_CAP
+			state.candle_ring_count += 1
+		} else {
+			// Ring full — overwrite oldest.
+			state.candle_ring[state.candle_ring_write] = result.data.candle
+			state.candle_ring_write = (state.candle_ring_write + 1) % CANDLE_RING_CAP
+		}
 		sync.unlock(&state.mu)
 	case .Range_Candle:
 		sync.lock(&state.mu)
@@ -727,14 +889,20 @@ native_set_candle_tf :: proc(tf: string) {
 	if state == nil do return
 	new_tf := strings.clone(tf)
 	sync.lock(&state.mu)
+	if state.candle_tf_filter == tf {
+		sync.unlock(&state.mu)
+		delete(new_tf)
+		return
+	}
 	old := state.candle_tf_filter
 	state.candle_tf_filter = new_tf
+	native_resubscribe_timeframe_channels(state)
 	sync.unlock(&state.mu)
 	delete(old)
 }
 
 @(private = "file")
-native_send_getrange :: proc(subject: string, limit: int) {
+native_send_getrange :: proc(subject: string, limit: int, end_ts: i64) {
 	state := g_md_state
 	if state == nil do return
 
@@ -752,6 +920,16 @@ native_send_getrange :: proc(subject: string, limit: int) {
 	for c in mid { buf[n] = u8(c); n += 1 }
 	limit_str := fmt.tprintf("%d", limit)
 	for c in limit_str { buf[n] = u8(c); n += 1 }
+	// Include to_ms if specified (server range contract), and end_ts for compat.
+	if end_ts > 0 {
+		end_mid :: `,"to_ms":`
+		for c in end_mid { buf[n] = u8(c); n += 1 }
+		end_str := fmt.tprintf("%d", end_ts)
+		for c in end_str { buf[n] = u8(c); n += 1 }
+		end_mid_compat :: `,"end_ts":`
+		for c in end_mid_compat { buf[n] = u8(c); n += 1 }
+		for c in end_str { buf[n] = u8(c); n += 1 }
+	}
 	mid2 :: `},"request_id":"gr`
 	for c in mid2 { buf[n] = u8(c); n += 1 }
 	rid_str := fmt.tprintf("%d", state.rid_counter)
@@ -760,4 +938,96 @@ native_send_getrange :: proc(subject: string, limit: int) {
 	for c in suffix { buf[n] = u8(c); n += 1 }
 
 	ws_write_text(state.conn, string(buf[:n]))
+}
+
+// --- HTTP GET for market discovery ---
+
+@(private = "file")
+native_fetch_markets :: proc(out_buf: [^]u8, out_cap: i32) -> i32 {
+	state := g_md_state
+	if state == nil do return 0
+	if out_cap <= 0 do return 0
+
+	// Derive HTTP base URL from WS URL: "ws://host:port/ws" -> "host:port"
+	ws_url := state.ws_url
+	if !strings.has_prefix(ws_url, "ws://") do return 0
+	url_no_scheme := ws_url[5:]
+	host_port := url_no_scheme
+	if idx := strings.index(url_no_scheme, "/"); idx != -1 {
+		host_port = url_no_scheme[:idx]
+	}
+	host_str, port_str := host_port, "80"
+	if colon_idx := strings.index(host_port, ":"); colon_idx != -1 {
+		host_str = host_port[:colon_idx]
+		port_str = host_port[colon_idx + 1:]
+	}
+
+	ip, ok := net.parse_ip4_address(host_str)
+	if !ok {
+		if host_str == "localhost" {
+			ip = net.IP4_Address{127, 0, 0, 1}
+		} else {
+			return 0
+		}
+	}
+	port, port_ok := strconv.parse_int(port_str)
+	if !port_ok || port < 0 || port > 65535 do return 0
+
+	endpoint := net.Endpoint{address = ip, port = port}
+	conn, dial_err := net.dial_tcp(endpoint)
+	if dial_err != nil do return 0
+	defer net.close(conn)
+
+	timeout := 3 * time.Second
+	_ = net.set_option(conn, .Receive_Timeout, timeout)
+	_ = net.set_option(conn, .Send_Timeout, timeout)
+
+	// Send HTTP/1.0 GET (1.0 means no chunked encoding).
+	req := fmt.tprintf(
+		"GET /api/v1/markets HTTP/1.0\r\n" +
+		"Host: %s\r\n" +
+		"Accept: application/json\r\n" +
+		"Connection: close\r\n" +
+		"\r\n",
+		host_port)
+
+	req_bytes := transmute([]u8)req
+	{
+		total_sent := 0
+		for total_sent < len(req_bytes) {
+			sent, send_err := net.send_tcp(conn, req_bytes[total_sent:])
+			if send_err != nil do return 0
+			if sent <= 0 do return 0
+			total_sent += sent
+		}
+	}
+
+	// Read entire response into a temporary buffer.
+	HTTP_BUF_CAP :: 32 * 1024
+	resp_buf: [HTTP_BUF_CAP]u8
+	total_read := 0
+	for total_read < HTTP_BUF_CAP {
+		received, recv_err := net.recv_tcp(conn, resp_buf[total_read:])
+		if received > 0 do total_read += received
+		if recv_err != nil || received <= 0 do break
+	}
+	if total_read == 0 do return 0
+
+	// Find body after \r\n\r\n header separator.
+	resp := string(resp_buf[:total_read])
+	body_start := strings.index(resp, "\r\n\r\n")
+	if body_start < 0 do return 0
+	body := resp[body_start + 4:]
+	if len(body) == 0 do return 0
+
+	// Check for HTTP 200.
+	if !strings.has_prefix(resp, "HTTP/1.0 200") && !strings.has_prefix(resp, "HTTP/1.1 200") {
+		return 0
+	}
+
+	copy_len := min(i32(len(body)), out_cap)
+	for i in 0 ..< int(copy_len) {
+		out_buf[i] = body[i]
+	}
+	return copy_len
 }

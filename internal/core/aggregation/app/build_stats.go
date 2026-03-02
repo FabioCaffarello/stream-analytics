@@ -89,7 +89,7 @@ func NewBuildStatsFromEvents(
 		store:      store,
 		windows:    windows,
 		windowMs:   windowMs,
-		timeframes: []string{"1m", "5m", "15m", "30m", "1h", "4h", "1d"},
+		timeframes: []string{"1s", "5s", "1m", "5m", "15m", "30m", "1h", "4h", "1d"},
 	}
 }
 

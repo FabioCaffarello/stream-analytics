@@ -68,6 +68,196 @@ const IDLE_QUIET_MS = (() => {
     return Math.max(0, Math.round(raw));
 })();
 
+function defaultWsUrlForCurrentOrigin() {
+    const proto = window.location.protocol === "https:" ? "wss" : "ws";
+    const host = window.location.host || "127.0.0.1:8090";
+    return `${proto}://${host}/ws`;
+}
+
+const DEFAULT_RUNTIME_CONFIG = Object.freeze({
+    ws_url: defaultWsUrlForCurrentOrigin(),
+    api_key: "prod_key_1",
+    venue: "binance",
+    symbol: "BTCUSDT:SPOT",
+    market_type: "",
+    offline: false,
+});
+
+const SETTINGS_STORAGE_PREFIX = "mr.settings.";
+
+function settingsStorageKey(key) {
+    return `${SETTINGS_STORAGE_PREFIX}${key}`;
+}
+
+function getParamAlias(params, keys, fallback = "") {
+    for (const key of keys) {
+        const val = params.get(key);
+        if (typeof val === "string" && val.length > 0) return val;
+    }
+    return fallback;
+}
+
+function readRuntimeConfig(params = new URLSearchParams(window.location.search)) {
+    return {
+        ws_url: getParamAlias(params, ["ws_url", "ws"], DEFAULT_RUNTIME_CONFIG.ws_url),
+        api_key: getParamAlias(params, ["api_key", "key"], DEFAULT_RUNTIME_CONFIG.api_key),
+        venue: getParamAlias(params, ["venue"], DEFAULT_RUNTIME_CONFIG.venue),
+        symbol: getParamAlias(params, ["symbol"], DEFAULT_RUNTIME_CONFIG.symbol),
+        market_type: getParamAlias(params, ["market_type"], DEFAULT_RUNTIME_CONFIG.market_type),
+        offline: params.get("offline") === "1" || params.get("offline") === "true",
+    };
+}
+
+function setOrDeleteParam(params, key, value, aliases = []) {
+    const hasValue = typeof value === "string" ? value.length > 0 : Boolean(value);
+    if (hasValue) {
+        params.set(key, String(value));
+    } else {
+        params.delete(key);
+    }
+    for (const alias of aliases) params.delete(alias);
+}
+
+function buildRuntimeSearchParams(config = {}, baseSearch = window.location.search) {
+    const next = new URLSearchParams(baseSearch);
+    if (config.ws_url !== undefined || config.ws !== undefined) {
+        const wsUrl = config.ws_url ?? config.ws ?? "";
+        setOrDeleteParam(next, "ws_url", wsUrl, ["ws"]);
+    }
+    if (config.api_key !== undefined || config.key !== undefined) {
+        const apiKey = config.api_key ?? config.key ?? "";
+        setOrDeleteParam(next, "api_key", apiKey, ["key"]);
+    }
+    if (config.venue !== undefined) setOrDeleteParam(next, "venue", config.venue);
+    if (config.symbol !== undefined) setOrDeleteParam(next, "symbol", config.symbol);
+    if (config.market_type !== undefined) setOrDeleteParam(next, "market_type", config.market_type);
+    if (config.offline !== undefined) {
+        if (config.offline) next.set("offline", "1");
+        else next.delete("offline");
+    }
+    return next;
+}
+
+function applyRuntimeConfigAndReload(config = {}) {
+    const next = buildRuntimeSearchParams(config);
+    const q = next.toString();
+    window.location.search = q.length > 0 ? `?${q}` : "";
+}
+
+function applyRuntimeConfigWithoutReload(config = {}) {
+    const next = buildRuntimeSearchParams(config);
+    const q = next.toString();
+    const target = q.length > 0 ? `${window.location.pathname}?${q}` : window.location.pathname;
+    window.history.replaceState(null, "", target);
+    return readRuntimeConfig();
+}
+
+function ensureRuntimeWsUrlInQuery() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("ws_url") || params.has("ws")) return;
+    applyRuntimeConfigWithoutReload({ ws_url: DEFAULT_RUNTIME_CONFIG.ws_url });
+}
+
+// Keep WASM and JS runtime defaults aligned (main.odin reads ws_url from query params).
+ensureRuntimeWsUrlInQuery();
+
+// Runtime helpers for endpoint/market overrides.
+window.__mr_get_runtime_config = () => readRuntimeConfig();
+window.__mr_set_runtime_config = (config = {}) => applyRuntimeConfigAndReload(config);
+window.__mr_set_runtime_config_live = (config = {}) => applyRuntimeConfigWithoutReload(config);
+window.__mr_set_ws_endpoint = (wsUrl, apiKey, options = {}) => {
+    if (options && options.live) {
+        return window.__mr_switch_ws_runtime(wsUrl, apiKey, options);
+    }
+    return applyRuntimeConfigAndReload({ ws_url: wsUrl, api_key: apiKey });
+};
+
+function mountRuntimeConfigPanel() {
+    const form = document.getElementById("conn-form");
+    if (!form) return;
+
+    // Click panel title to toggle collapsed state.
+    const panelTitle = document.querySelector("#conn-panel .panel-title");
+    if (panelTitle) {
+        panelTitle.addEventListener("click", () => {
+            const panel = document.getElementById("conn-panel");
+            if (panel) panel.classList.toggle("collapsed");
+        });
+    }
+
+    const wsInput = document.getElementById("cfg-ws-url");
+    const apiKeyInput = document.getElementById("cfg-api-key");
+    const venueInput = document.getElementById("cfg-venue");
+    const symbolInput = document.getElementById("cfg-symbol");
+    const marketTypeInput = document.getElementById("cfg-market-type");
+    const offlineInput = document.getElementById("cfg-offline");
+    const defaultsBtn = document.getElementById("cfg-defaults");
+    const applyLiveBtn = document.getElementById("cfg-apply-live");
+    const hint = document.getElementById("conn-hint");
+
+    if (!wsInput || !apiKeyInput || !venueInput || !symbolInput || !marketTypeInput || !offlineInput) {
+        return;
+    }
+
+    const syncFormWithConfig = () => {
+        const cfg = readRuntimeConfig();
+        wsInput.value = cfg.ws_url;
+        apiKeyInput.value = cfg.api_key;
+        venueInput.value = cfg.venue;
+        symbolInput.value = cfg.symbol;
+        marketTypeInput.value = cfg.market_type;
+        offlineInput.checked = cfg.offline;
+    };
+    const updateHint = (msg = "") => {
+        if (!hint) return;
+        const cfg = readRuntimeConfig();
+        const override = wsRuntimeOverride.ws_url || wsRuntimeOverride.api_key ? "runtime-override" : "url-config";
+        const suffix = msg ? ` | ${msg}` : "";
+        hint.textContent = `mode=${override} ws=${cfg.ws_url} venue=${cfg.venue} symbol=${cfg.symbol}${suffix}`;
+    };
+    syncFormWithConfig();
+    updateHint();
+
+    form.addEventListener("submit", (ev) => {
+        ev.preventDefault();
+        applyRuntimeConfigAndReload({
+            ws_url: wsInput.value.trim(),
+            api_key: apiKeyInput.value.trim(),
+            venue: venueInput.value.trim(),
+            symbol: symbolInput.value.trim(),
+            market_type: marketTypeInput.value.trim(),
+            offline: offlineInput.checked,
+        });
+    });
+
+    if (defaultsBtn) {
+        defaultsBtn.addEventListener("click", () => {
+            wsInput.value = DEFAULT_RUNTIME_CONFIG.ws_url;
+            apiKeyInput.value = DEFAULT_RUNTIME_CONFIG.api_key;
+            venueInput.value = DEFAULT_RUNTIME_CONFIG.venue;
+            symbolInput.value = DEFAULT_RUNTIME_CONFIG.symbol;
+            marketTypeInput.value = DEFAULT_RUNTIME_CONFIG.market_type;
+            offlineInput.checked = DEFAULT_RUNTIME_CONFIG.offline;
+            updateHint("defaults loaded");
+        });
+    }
+
+    if (applyLiveBtn) {
+        applyLiveBtn.addEventListener("click", () => {
+            const wsUrl = wsInput.value.trim();
+            const apiKey = apiKeyInput.value.trim();
+            window.__mr_switch_ws_runtime(wsUrl, apiKey, { persist: true });
+            applyRuntimeConfigWithoutReload({
+                venue: venueInput.value.trim(),
+                symbol: symbolInput.value.trim(),
+                market_type: marketTypeInput.value.trim(),
+                offline: offlineInput.checked,
+            });
+            updateHint("runtime switch requested; reconnecting");
+        });
+    }
+}
+
 const TEXT_MEASURE_CACHE_CAP = 2048;
 const textMeasureCache = new Map();
 let canvasFontKey = "";
@@ -141,34 +331,140 @@ function syncCanvasSize(force = false) {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// Keyboard bridge  (bitmask polled by WASM, matches ports.Key enum ordinals)
+// Input bridge (keyboard + mouse) polled by WASM
 // ---------------------------------------------------------------------------
 
 // Key enum ordinals: Up=0 Down=1 Left=2 Right=3 Enter=4 Escape=5 Tab=6 Space=7
 //                    Num_1=8 Num_2=9 Num_3=10 Num_4=11 Num_5=12 Num_6=13
+//                    Num_7=14 Num_8=15 Num_9=16 S=17 Slash=18 C=19 G=20 F=21
+//                    M=22 B=23 V=24 R=25 I=26 H=27 J=28 K=29 Z=30 Delete=31
 let keyBits = 0;
+let keyPressedBits = 0;
+let keyReleasedBits = 0;
+let modifierBits = 0; // shift=1 ctrl=2 alt=4 super/meta=8
+let mouseX = 0;
+let mouseY = 0;
+let mouseButtons = 0; // left=bit0 right=bit1 middle=bit2
+let mousePressedBits = 0;
+let mouseReleasedBits = 0;
+let mouseScrollX = 0;
+let mouseScrollY = 0;
 
 const KEY_MAP = {
     "ArrowUp": 0, "ArrowDown": 1, "ArrowLeft": 2, "ArrowRight": 3,
     "Enter": 4, "Escape": 5, "Tab": 6, " ": 7,
-    "1": 8, "2": 9, "3": 10, "4": 11, "5": 12, "6": 13,
+    "1": 8, "2": 9, "3": 10, "4": 11, "5": 12, "6": 13, "7": 14, "8": 15, "9": 16,
+    "s": 17, "S": 17, "/": 18, "?": 18, "c": 19, "C": 19, "g": 20, "G": 20,
+    "f": 21, "F": 21, "m": 22, "M": 22, "b": 23, "B": 23, "v": 24, "V": 24,
+    "r": 25, "R": 25, "i": 26, "I": 26,
+    "h": 27, "H": 27, "j": 28, "J": 28,
+    "k": 29, "K": 29,
+    "z": 30, "Z": 30,
+    "Delete": 31, "Backspace": 31,
 };
 
+function updateModifierBits(ev) {
+    if (!ev) return;
+    let bits = 0;
+    if (ev.shiftKey) bits |= (1 << 0);
+    if (ev.ctrlKey) bits |= (1 << 1);
+    if (ev.altKey) bits |= (1 << 2);
+    if (ev.metaKey) bits |= (1 << 3);
+    modifierBits = bits;
+}
+
+function updateMousePosition(ev) {
+    if (!ev) return;
+    if (!canvas) {
+        mouseX = ev.clientX || 0;
+        mouseY = ev.clientY || 0;
+        return;
+    }
+    const rect = canvas.getBoundingClientRect();
+    mouseX = (ev.clientX || 0) - rect.left;
+    mouseY = (ev.clientY || 0) - rect.top;
+}
+
 document.addEventListener("keydown", (ev) => {
+    updateModifierBits(ev);
     const bit = KEY_MAP[ev.key];
     if (bit !== undefined) {
-        keyBits |= (1 << bit);
+        const mask = (1 << bit);
+        if ((keyBits & mask) === 0) keyPressedBits |= mask;
+        keyBits |= mask;
         // Prevent Tab from changing focus.
         if (ev.key === "Tab") ev.preventDefault();
     }
 }, { passive: false });
 
 document.addEventListener("keyup", (ev) => {
+    updateModifierBits(ev);
     const bit = KEY_MAP[ev.key];
     if (bit !== undefined) {
-        keyBits &= ~(1 << bit);
+        const mask = (1 << bit);
+        if ((keyBits & mask) !== 0) keyReleasedBits |= mask;
+        keyBits &= ~mask;
     }
 });
+
+const MOUSE_WHEEL_SCALE = 1 / 100;
+const mouseEventTarget = canvas || document;
+
+mouseEventTarget.addEventListener("mousemove", (ev) => {
+    updateMousePosition(ev);
+    updateModifierBits(ev);
+}, { passive: true });
+
+mouseEventTarget.addEventListener("mousedown", (ev) => {
+    updateMousePosition(ev);
+    updateModifierBits(ev);
+    if (ev.button === 0) {
+        if ((mouseButtons & (1 << 0)) === 0) mousePressedBits |= (1 << 0);
+        mouseButtons |= (1 << 0);
+    } else if (ev.button === 2) {
+        if ((mouseButtons & (1 << 1)) === 0) mousePressedBits |= (1 << 1);
+        mouseButtons |= (1 << 1);
+    } else if (ev.button === 1) {
+        if ((mouseButtons & (1 << 2)) === 0) mousePressedBits |= (1 << 2);
+        mouseButtons |= (1 << 2);
+    }
+}, { passive: true });
+
+document.addEventListener("mouseup", (ev) => {
+    updateMousePosition(ev);
+    updateModifierBits(ev);
+    if (ev.button === 0) {
+        if ((mouseButtons & (1 << 0)) !== 0) mouseReleasedBits |= (1 << 0);
+        mouseButtons &= ~(1 << 0);
+    } else if (ev.button === 2) {
+        if ((mouseButtons & (1 << 1)) !== 0) mouseReleasedBits |= (1 << 1);
+        mouseButtons &= ~(1 << 1);
+    } else if (ev.button === 1) {
+        if ((mouseButtons & (1 << 2)) !== 0) mouseReleasedBits |= (1 << 2);
+        mouseButtons &= ~(1 << 2);
+    }
+}, { passive: true });
+
+mouseEventTarget.addEventListener("wheel", (ev) => {
+    updateMousePosition(ev);
+    updateModifierBits(ev);
+    // Match native semantics: positive Y = wheel up.
+    mouseScrollX += -ev.deltaX * MOUSE_WHEEL_SCALE;
+    mouseScrollY += -ev.deltaY * MOUSE_WHEEL_SCALE;
+    ev.preventDefault();
+}, { passive: false });
+
+window.addEventListener("blur", () => {
+    keyBits = 0;
+    keyPressedBits = 0;
+    keyReleasedBits = 0;
+    modifierBits = 0;
+    mouseButtons = 0;
+    mousePressedBits = 0;
+    mouseReleasedBits = 0;
+    mouseScrollX = 0;
+    mouseScrollY = 0;
+}, { passive: true });
 
 let ws = null;
 let wsState = 0; // 0=closed, 1=connecting, 2=open, 3=closing
@@ -177,6 +473,136 @@ let lastWsMsgTs = 0;
 let wsMsgDropCount = 0;
 let wsEpoch = 0;
 const WS_MSG_QUEUE_CAP = 4096;
+const wsRuntimeOverride = {
+    ws_url: "",
+    api_key: "",
+};
+
+function parseApiKeyFromHeaderString(hdrs) {
+    if (!hdrs || typeof hdrs !== "string") return "";
+    const match = hdrs.match(/X-API-Key:\s*(\S+)/i);
+    return match && typeof match[1] === "string" ? match[1].trim() : "";
+}
+
+function buildWsUrlWithApiKey(baseUrl, apiKey) {
+    if (!baseUrl) return "";
+    if (!apiKey) return baseUrl;
+    const sep = baseUrl.includes("?") ? "&" : "?";
+    return `${baseUrl}${sep}api_key=${encodeURIComponent(apiKey)}`;
+}
+
+function resolveWsConfigFromBridge(url, hdrs) {
+    const baseUrl = (wsRuntimeOverride.ws_url || url || "").trim();
+    const apiKey = (wsRuntimeOverride.api_key || parseApiKeyFromHeaderString(hdrs)).trim();
+    return {
+        base_url: baseUrl,
+        api_key: apiKey,
+        ws_url: buildWsUrlWithApiKey(baseUrl, apiKey),
+        override_active: wsRuntimeOverride.ws_url.length > 0 || wsRuntimeOverride.api_key.length > 0,
+    };
+}
+
+function closeActiveSocket(markClosing = false) {
+    if (!ws) return;
+    if (markClosing) wsState = 3; // closing
+    try {
+        ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
+        ws.close();
+    } catch (_) {}
+    ws = null;
+}
+
+function connectSocketUrl(wsUrl) {
+    if (!wsUrl || typeof wsUrl !== "string") {
+        wsState = 0;
+        console.error("[ws] invalid url");
+        return false;
+    }
+
+    closeActiveSocket(false);
+    wsState = 1; // connecting
+    wsMsgQueue.length = 0;
+
+    try {
+        ws = new WebSocket(wsUrl);
+    } catch (e) {
+        console.error("[ws] connect error:", e);
+        wsState = 0;
+        return false;
+    }
+
+    const wsLocal = ws;
+    const epoch = ++wsEpoch;
+    ws.onopen = () => {
+        if (ws !== wsLocal || wsEpoch !== epoch) return;
+        wsState = 2; // open
+        console.log("[ws] connected to", wsUrl);
+        // Auto-collapse connection panel after successful WS connect.
+        const cp = document.getElementById("conn-panel");
+        if (cp && !cp.classList.contains("collapsed")) cp.classList.add("collapsed");
+    };
+    ws.onmessage = (ev) => {
+        if (ws !== wsLocal || wsEpoch !== epoch) return;
+        if (typeof ev.data === "string") {
+            if (wsMsgQueue.length >= WS_MSG_QUEUE_CAP) {
+                wsMsgQueue.shift(); // Prefer freshest data under pressure.
+                wsMsgDropCount += 1;
+            }
+            wsMsgQueue.push(ev.data);
+            lastWsMsgTs = performance.now();
+        }
+    };
+    ws.onclose = (ev) => {
+        if (ws !== wsLocal || wsEpoch !== epoch) return;
+        wsState = 0;
+        console.log("[ws] closed code=" + ev.code);
+    };
+    ws.onerror = () => {
+        if (ws !== wsLocal || wsEpoch !== epoch) return;
+        wsState = 0;
+        console.error("[ws] error");
+    };
+
+    return true;
+}
+
+function switchWsRuntime(wsUrl, apiKey, options = {}) {
+    if (typeof wsUrl === "string") wsRuntimeOverride.ws_url = wsUrl.trim();
+    if (typeof apiKey === "string") wsRuntimeOverride.api_key = apiKey.trim();
+
+    const persist = !options || options.persist !== false;
+    const cfgPatch = {};
+    if (typeof wsUrl === "string") cfgPatch.ws_url = wsRuntimeOverride.ws_url;
+    if (typeof apiKey === "string") cfgPatch.api_key = wsRuntimeOverride.api_key;
+    if (persist && Object.keys(cfgPatch).length > 0) {
+        applyRuntimeConfigWithoutReload(cfgPatch);
+    }
+
+    // Force Odin reconnection flow. Adapter will reconnect and re-subscribe with the overridden endpoint.
+    closeActiveSocket(false);
+    wsState = 0;
+    wsMsgQueue.length = 0;
+    lastWsMsgTs = 0;
+
+    return {
+        mode: wsRuntimeOverride.ws_url || wsRuntimeOverride.api_key ? "runtime-override" : "url-config",
+        ws_url: wsRuntimeOverride.ws_url,
+        api_key: wsRuntimeOverride.api_key,
+    };
+}
+
+window.__mr_switch_ws_runtime = switchWsRuntime;
+window.__mr_clear_ws_runtime_override = () => {
+    wsRuntimeOverride.ws_url = "";
+    wsRuntimeOverride.api_key = "";
+    return {
+        mode: "url-config",
+        ws_url: "",
+        api_key: "",
+    };
+};
+
+mountRuntimeConfigPanel();
 
 // ---------------------------------------------------------------------------
 // Perf HUD (optional, debug-only)
@@ -416,67 +842,12 @@ const imports = {
 
         // --- WebSocket foreign procs ---
         ws_connect(url_ptr, url_len, hdr_ptr, hdr_len) {
-            if (ws) {
-                try {
-                    // Detach handlers first so stale close/error events cannot mutate global wsState.
-                    ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
-                    ws.close();
-                } catch(_) {}
-            }
             const url = loadStringRaw(wasm.memory.buffer, url_ptr, url_len);
             const hdrs = hdr_len > 0
                 ? loadStringRaw(wasm.memory.buffer, hdr_ptr, hdr_len)
                 : "";
-
-            wsState = 1; // connecting
-            wsMsgQueue.length = 0;
-
-            // Browser WebSocket does not support custom headers.
-            // Pass API key as query param so the server can auth.
-            let wsUrl = url;
-            if (hdrs) {
-                const match = hdrs.match(/X-API-Key:\s*(\S+)/i);
-                if (match) {
-                    const sep = url.includes("?") ? "&" : "?";
-                    wsUrl = url + sep + "api_key=" + encodeURIComponent(match[1]);
-                }
-            }
-
-            try {
-                ws = new WebSocket(wsUrl);
-            } catch (e) {
-                console.error("[ws] connect error:", e);
-                wsState = 0;
-                return;
-            }
-            const wsLocal = ws;
-            const epoch = ++wsEpoch;
-            ws.onopen = () => {
-                if (ws !== wsLocal || wsEpoch !== epoch) return;
-                wsState = 2; // open
-                console.log("[ws] connected to", wsUrl);
-            };
-            ws.onmessage = (ev) => {
-                if (ws !== wsLocal || wsEpoch !== epoch) return;
-                if (typeof ev.data === "string") {
-                    if (wsMsgQueue.length >= WS_MSG_QUEUE_CAP) {
-                        wsMsgQueue.shift(); // Prefer freshest data under pressure.
-                        wsMsgDropCount += 1;
-                    }
-                    wsMsgQueue.push(ev.data);
-                    lastWsMsgTs = performance.now();
-                }
-            };
-            ws.onclose = (ev) => {
-                if (ws !== wsLocal || wsEpoch !== epoch) return;
-                wsState = 0;
-                console.log("[ws] closed code=" + ev.code);
-            };
-            ws.onerror = () => {
-                if (ws !== wsLocal || wsEpoch !== epoch) return;
-                wsState = 0;
-                console.error("[ws] error");
-            };
+            const resolved = resolveWsConfigFromBridge(url, hdrs);
+            connectSocketUrl(resolved.ws_url);
         },
 
         ws_send(ptr, len) {
@@ -486,18 +857,15 @@ const imports = {
         },
 
         ws_close() {
-            if (ws) {
-                wsState = 3; // closing
-                try {
-                    ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
-                    ws.close();
-                } catch (_) {}
-                ws = null;
-            }
+            closeActiveSocket(true);
         },
 
         ws_state() {
             return wsState;
+        },
+
+        ws_drop_count() {
+            return wsMsgDropCount >>> 0;
         },
 
         ws_poll_msg(buf_ptr, buf_len) {
@@ -517,6 +885,58 @@ const imports = {
             return keyBits;
         },
 
+        key_pressed_state() {
+            const v = keyPressedBits >>> 0;
+            keyPressedBits = 0;
+            return v;
+        },
+
+        key_released_state() {
+            const v = keyReleasedBits >>> 0;
+            keyReleasedBits = 0;
+            return v;
+        },
+
+        mouse_x() {
+            return mouseX;
+        },
+
+        mouse_y() {
+            return mouseY;
+        },
+
+        mouse_buttons() {
+            return mouseButtons >>> 0;
+        },
+
+        mouse_pressed_buttons() {
+            const v = mousePressedBits >>> 0;
+            mousePressedBits = 0;
+            return v;
+        },
+
+        mouse_released_buttons() {
+            const v = mouseReleasedBits >>> 0;
+            mouseReleasedBits = 0;
+            return v;
+        },
+
+        mouse_scroll_x() {
+            const v = mouseScrollX;
+            mouseScrollX = 0;
+            return v;
+        },
+
+        mouse_scroll_y() {
+            const v = mouseScrollY;
+            mouseScrollY = 0;
+            return v;
+        },
+
+        modifier_state() {
+            return modifierBits >>> 0;
+        },
+
         url_query_param(name_ptr, name_len, out_ptr, out_cap) {
             if (!wasm.memory || out_cap <= 0) return 0;
             const key = loadStringRaw(wasm.memory.buffer, name_ptr, name_len);
@@ -528,6 +948,61 @@ const imports = {
                 encoded.subarray(0, copyLen),
             );
             return copyLen;
+        },
+
+        web_settings_load(key_ptr, key_len, out_ptr, out_cap) {
+            if (!wasm.memory || out_cap <= 0) return 0;
+            const key = loadStringRaw(wasm.memory.buffer, key_ptr, key_len);
+            if (!key) return 0;
+            try {
+                const value = window.localStorage.getItem(settingsStorageKey(key));
+                if (typeof value !== "string" || value.length === 0) return 0;
+                const encoded = TEXT_ENCODER.encode(value);
+                const copyLen = Math.min(encoded.length, out_cap);
+                new Uint8Array(wasm.memory.buffer, out_ptr, copyLen).set(
+                    encoded.subarray(0, copyLen),
+                );
+                return copyLen;
+            } catch (_) {
+                return 0;
+            }
+        },
+
+        web_settings_save(key_ptr, key_len, value_ptr, value_len) {
+            if (!wasm.memory) return 0;
+            const key = loadStringRaw(wasm.memory.buffer, key_ptr, key_len);
+            if (!key) return 0;
+            const value = value_len > 0
+                ? loadStringRaw(wasm.memory.buffer, value_ptr, value_len)
+                : "";
+            try {
+                window.localStorage.setItem(settingsStorageKey(key), value);
+                return 1;
+            } catch (_) {
+                return 0;
+            }
+        },
+
+        http_get_sync(url_ptr, url_len, out_ptr, out_cap) {
+            if (!wasm.memory || out_cap <= 0) return 0;
+            const url = loadStringRaw(wasm.memory.buffer, url_ptr, url_len);
+            try {
+                const xhr = new XMLHttpRequest();
+                xhr.open("GET", url, false); // synchronous
+                xhr.setRequestHeader("Accept", "application/json");
+                xhr.send(null);
+                if (xhr.status !== 200) return 0;
+                const body = xhr.responseText || "";
+                if (!body) return 0;
+                const encoded = TEXT_ENCODER.encode(body);
+                const copyLen = Math.min(encoded.length, out_cap);
+                new Uint8Array(wasm.memory.buffer, out_ptr, copyLen).set(
+                    encoded.subarray(0, copyLen),
+                );
+                return copyLen;
+            } catch (_) {
+                return 0;
+            }
         },
     },
 };
@@ -548,6 +1023,45 @@ try {
 
     wasm.exports = source.instance.exports;
     wasm.memory  = wasm.exports.memory;
+    // Expose lightweight runtime probe hooks for Playwright/web gates.
+    window.__mr_wasm_exports = wasm.exports;
+    window.__mr_widget_probe = () => ({
+        t:  typeof wasm.exports.probe_widget_trades_count === "function" ? wasm.exports.probe_widget_trades_count() : -1,
+        obA: typeof wasm.exports.probe_widget_orderbook_asks === "function" ? wasm.exports.probe_widget_orderbook_asks() : -1,
+        obB: typeof wasm.exports.probe_widget_orderbook_bids === "function" ? wasm.exports.probe_widget_orderbook_bids() : -1,
+        st: typeof wasm.exports.probe_widget_stats_count === "function" ? wasm.exports.probe_widget_stats_count() : -1,
+        hm: typeof wasm.exports.probe_widget_heatmap_snaps === "function" ? wasm.exports.probe_widget_heatmap_snaps() : -1,
+        vp: typeof wasm.exports.probe_widget_vpvr_levels === "function" ? wasm.exports.probe_widget_vpvr_levels() : -1,
+        c:  typeof wasm.exports.probe_widget_candle_count === "function" ? wasm.exports.probe_widget_candle_count() : -1,
+        cClose: typeof wasm.exports.probe_widget_candle_latest_close === "function" ? wasm.exports.probe_widget_candle_latest_close() : -1,
+        cEndTs: typeof wasm.exports.probe_widget_candle_latest_end_ts === "function" ? wasm.exports.probe_widget_candle_latest_end_ts() : -1,
+        tf: typeof wasm.exports.probe_active_tf_index === "function" ? wasm.exports.probe_active_tf_index() : -1,
+        uaq: typeof wasm.exports.probe_ui_actions_enqueued_total === "function" ? wasm.exports.probe_ui_actions_enqueued_total() : -1,
+        sc: typeof wasm.exports.probe_stream_count === "function" ? wasm.exports.probe_stream_count() : -1,
+        hasStream: typeof wasm.exports.probe_has_active_stream === "function" ? wasm.exports.probe_has_active_stream() : -1,
+        sid32: typeof wasm.exports.probe_active_subject_lo32 === "function" ? wasm.exports.probe_active_subject_lo32() : -1,
+        ssw: typeof wasm.exports.probe_stream_switches_total === "function" ? wasm.exports.probe_stream_switches_total() : -1,
+        tfw: typeof wasm.exports.probe_timeframe_switches_total === "function" ? wasm.exports.probe_timeframe_switches_total() : -1,
+        lSt: typeof wasm.exports.probe_active_live_stats === "function" ? wasm.exports.probe_active_live_stats() : -1,
+        lHm: typeof wasm.exports.probe_active_live_heatmap === "function" ? wasm.exports.probe_active_live_heatmap() : -1,
+        lVp: typeof wasm.exports.probe_active_live_vpvr === "function" ? wasm.exports.probe_active_live_vpvr() : -1,
+        sHm: typeof wasm.exports.probe_active_synth_heatmap === "function" ? wasm.exports.probe_active_synth_heatmap() : -1,
+        sVp: typeof wasm.exports.probe_active_synth_vpvr === "function" ? wasm.exports.probe_active_synth_vpvr() : -1,
+        lC: typeof wasm.exports.probe_active_live_candle === "function" ? wasm.exports.probe_active_live_candle() : -1,
+        cm: typeof wasm.exports.probe_compare_mode === "function" ? wasm.exports.probe_compare_mode() : -1,
+        cwi: typeof wasm.exports.probe_compare_widget_idx === "function" ? wasm.exports.probe_compare_widget_idx() : -1,
+        cc: typeof wasm.exports.probe_compare_count === "function" ? wasm.exports.probe_compare_count() : -1,
+        rsiEn: typeof wasm.exports.probe_indicator_rsi_enabled === "function" ? wasm.exports.probe_indicator_rsi_enabled() : -1,
+        macdEn: typeof wasm.exports.probe_indicator_macd_enabled === "function" ? wasm.exports.probe_indicator_macd_enabled() : -1,
+        fundingEn: typeof wasm.exports.probe_indicator_funding_enabled === "function" ? wasm.exports.probe_indicator_funding_enabled() : -1,
+        liqEn: typeof wasm.exports.probe_indicator_liq_enabled === "function" ? wasm.exports.probe_indicator_liq_enabled() : -1,
+        tcEn: typeof wasm.exports.probe_indicator_trade_counter_enabled === "function" ? wasm.exports.probe_indicator_trade_counter_enabled() : -1,
+        rsiOk: typeof wasm.exports.probe_indicator_rsi_rendered === "function" ? wasm.exports.probe_indicator_rsi_rendered() : -1,
+        macdOk: typeof wasm.exports.probe_indicator_macd_rendered === "function" ? wasm.exports.probe_indicator_macd_rendered() : -1,
+        fundingOk: typeof wasm.exports.probe_indicator_funding_rendered === "function" ? wasm.exports.probe_indicator_funding_rendered() : -1,
+        liqOk: typeof wasm.exports.probe_indicator_liq_rendered === "function" ? wasm.exports.probe_indicator_liq_rendered() : -1,
+        tcOk: typeof wasm.exports.probe_indicator_trade_counter_rendered === "function" ? wasm.exports.probe_indicator_trade_counter_rendered() : -1,
+    });
 
     wasm.exports._start();
 
@@ -559,12 +1073,20 @@ try {
         function frame(now) {
             syncCanvasSize();
             perfHudOnFrame(now);
+            const hasPendingInput =
+                keyPressedBits !== 0 ||
+                keyReleasedBits !== 0 ||
+                mousePressedBits !== 0 ||
+                mouseReleasedBits !== 0 ||
+                mouseScrollX !== 0 ||
+                mouseScrollY !== 0;
             const idleThrottleActive =
                 IDLE_STEP_INTERVAL_MS > 0 &&
                 wsState === 2 &&
                 wsMsgQueue.length === 0 &&
                 (lastWsMsgTs <= 0 || (now - lastWsMsgTs) >= IDLE_QUIET_MS) &&
-                !canvasSizeDirty;
+                !canvasSizeDirty &&
+                !hasPendingInput;
             if (idleThrottleActive && lastStepNow > 0 && (now - lastStepNow) < IDLE_STEP_INTERVAL_MS) {
                 if (PERF_HUD_ENABLED) perfHudState.idleSkipsWindow += 1;
                 requestAnimationFrame(frame);
@@ -591,7 +1113,8 @@ try {
     }
 
     if (outputEl) {
-        outputEl.textContent = "WASM loaded. Check canvas and browser console.";
+        const cfg = window.__mr_get_runtime_config();
+        outputEl.textContent = `WASM loaded. ws=${cfg.ws_url} market=${cfg.venue}/${cfg.symbol}`;
     }
 } catch (err) {
     console.error("Failed to load WASM:", err);

@@ -20,14 +20,27 @@ foreign odin_env {
 	ws_send     :: proc(ptr: [^]u8, len: i32) ---
 	ws_close    :: proc() ---
 	ws_state    :: proc() -> i32 ---
+	ws_drop_count :: proc() -> u32 ---
 	ws_poll_msg :: proc(buf_ptr: [^]u8, buf_len: i32) -> i32 ---
 	key_state   :: proc() -> u32 ---
+	key_pressed_state :: proc() -> u32 ---
+	key_released_state :: proc() -> u32 ---
+	mouse_x     :: proc() -> f32 ---
+	mouse_y     :: proc() -> f32 ---
+	mouse_buttons :: proc() -> u32 ---
+	mouse_pressed_buttons :: proc() -> u32 ---
+	mouse_released_buttons :: proc() -> u32 ---
+	mouse_scroll_x :: proc() -> f32 ---
+	mouse_scroll_y :: proc() -> f32 ---
+	modifier_state :: proc() -> u32 ---
 	url_query_param :: proc(name_ptr: [^]u8, name_len: i32, out_ptr: [^]u8, out_cap: i32) -> i32 ---
+	http_get_sync   :: proc(url_ptr: [^]u8, url_len: i32, out_ptr: [^]u8, out_cap: i32) -> i32 ---
 }
 
 // --- Constants ---
 
 WEB_TRADE_RING_CAP   :: 1024
+WEB_CANDLE_RING_CAP  :: 8
 WEB_MAX_SUBS         :: 128
 WEB_RECV_BUF_SIZE    :: 128 * 1024 // 128 KB per message max
 WEB_PARSE_MAX_MSGS_PER_POLL :: 64
@@ -44,11 +57,12 @@ CANDLE_TF_DEFAULT :: "1m"
 // --- State ---
 
 Web_Sub_Entry :: struct {
-	subject_id: u64,
-	venue:   string,
-	symbol:  string,
-	channel: ports.MD_Channel,
-	subject: string,
+	subject_id:     u64,
+	venue:          string,
+	symbol:         string,
+	channel:        ports.MD_Channel,
+	subject:        string,
+	is_explicit_tf: bool, // true = per-cell TF sub; skip in global TF resubscribe
 }
 
 MD_Web_State :: struct {
@@ -67,8 +81,9 @@ MD_Web_State :: struct {
 	heatmap_dirty:   bool,
 	vpvr_staging:    services.Parsed_VPVR,
 	vpvr_dirty:      bool,
-	candle_staging:  services.Parsed_Candle,
-	candle_dirty:    bool,
+	candle_ring:       [WEB_CANDLE_RING_CAP]services.Parsed_Candle,
+	candle_ring_write: int,
+	candle_ring_count: int,
 
 	// Range candle staging (getrange response batch).
 	range_candle_staging: services.Parsed_Range_Candles,
@@ -84,6 +99,10 @@ MD_Web_State :: struct {
 	// Subscription tracking for reconnect re-subscribe.
 	active_subs:  [WEB_MAX_SUBS]Web_Sub_Entry,
 	active_count: int,
+	pending_getrange_subject: string,
+	pending_getrange_limit:   int,
+	pending_getrange_end_ts:  i64,
+	pending_getrange_queued:  bool,
 	rid_counter:       u32,
 	drop_count:        int,
 	reconnect_count:   int,
@@ -136,8 +155,8 @@ make_marketdata_web :: proc(url: string, api_key: string = "") -> ports.Marketda
 		web_shutdown()
 	}
 	state := new(MD_Web_State)
-	state.ws_url = url
-	state.api_key = api_key
+	state.ws_url = strings.clone(url)
+	state.api_key = strings.clone(api_key)
 	state.candle_tf_filter = strings.clone(CANDLE_TF_DEFAULT)
 	state.parse_max_msgs_per_poll = WEB_PARSE_MAX_MSGS_PER_POLL
 	state.parse_time_budget = WEB_PARSE_TIME_BUDGET
@@ -156,16 +175,21 @@ make_marketdata_web :: proc(url: string, api_key: string = "") -> ports.Marketda
 	g_web_state = state
 
 	// Initiate connection via JS bridge.
-	hdr := ""
+	hdr_buf: [128]u8
+	hdr_len := 0
 	if len(api_key) > 0 {
-		hdr = fmt.tprintf("X-API-Key: %s\r\n", api_key)
+		prefix :: "X-API-Key: "
+		for c in prefix { hdr_buf[hdr_len] = u8(c); hdr_len += 1 }
+		for c in api_key { if hdr_len < len(hdr_buf) - 2 { hdr_buf[hdr_len] = u8(c); hdr_len += 1 } }
+		hdr_buf[hdr_len] = '\r'; hdr_len += 1
+		hdr_buf[hdr_len] = '\n'; hdr_len += 1
 	}
 	url_raw := raw_data(transmute([]u8)url)
-	hdr_raw := raw_data(transmute([]u8)hdr)
-	ws_connect(url_raw, i32(len(url)), hdr_raw, i32(len(hdr)))
+	ws_connect(url_raw, i32(len(url)), raw_data(hdr_buf[:hdr_len]), i32(hdr_len))
 
 	return ports.Marketdata_Port{
 		subscribe       = web_subscribe,
+		subscribe_tf    = web_subscribe_tf,
 		unsubscribe     = web_unsubscribe,
 		poll            = web_poll,
 		now_ms          = web_now_ms,
@@ -175,6 +199,7 @@ make_marketdata_web :: proc(url: string, api_key: string = "") -> ports.Marketda
 		set_candle_tf   = web_set_candle_tf,
 		send_getrange   = web_send_getrange,
 		shutdown        = web_shutdown,
+		fetch_markets   = web_fetch_markets,
 	}
 }
 
@@ -210,6 +235,15 @@ find_web_sub_by_subject :: proc(state: ^MD_Web_State, subject: string) -> int {
 }
 
 @(private = "file")
+find_web_sub_by_key :: proc(state: ^MD_Web_State, venue: string, symbol: string, channel: ports.MD_Channel) -> int {
+	for i in 0 ..< state.active_count {
+		sub := state.active_subs[i]
+		if sub.channel == channel && sub.venue == venue && sub.symbol == symbol do return i
+	}
+	return -1
+}
+
+@(private = "file")
 find_web_sub_by_subject_id :: proc(state: ^MD_Web_State, subject_id: u64) -> int {
 	for i in 0 ..< state.active_count {
 		if state.active_subs[i].subject_id == subject_id do return i
@@ -218,11 +252,51 @@ find_web_sub_by_subject_id :: proc(state: ^MD_Web_State, subject_id: u64) -> int
 }
 
 @(private = "file")
+web_subject_for_channel :: proc(state: ^MD_Web_State, venue: string, symbol: string, channel: ports.MD_Channel) -> string {
+	tf := ""
+	if channel == .Heatmaps || channel == .VPVR || channel == .Candles {
+		tf = state.candle_tf_filter
+	}
+	return util.build_subject_with_timeframe(venue, symbol, channel, tf)
+}
+
+@(private = "file")
+web_free_sub_entry :: proc(entry: ^Web_Sub_Entry) {
+	if entry == nil do return
+	if len(entry.venue) > 0 do delete(entry.venue)
+	if len(entry.symbol) > 0 do delete(entry.symbol)
+	if len(entry.subject) > 0 do delete(entry.subject)
+	entry^ = {}
+}
+
+@(private = "file")
 web_shutdown :: proc() {
 	state := g_web_state
 	if state == nil do return
 	ws_close()
+	for i in 0 ..< state.active_count {
+		web_free_sub_entry(&state.active_subs[i])
+	}
 	state.active_count = 0
+	if len(state.candle_tf_filter) > 0 {
+		delete(state.candle_tf_filter)
+		state.candle_tf_filter = ""
+	}
+	if len(state.ws_url) > 0 {
+		delete(state.ws_url)
+		state.ws_url = ""
+	}
+	if len(state.api_key) > 0 {
+		delete(state.api_key)
+		state.api_key = ""
+	}
+	if len(state.pending_getrange_subject) > 0 {
+		delete(state.pending_getrange_subject)
+		state.pending_getrange_subject = ""
+	}
+	state.pending_getrange_limit = 0
+	state.pending_getrange_end_ts = 0
+	state.pending_getrange_queued = false
 	state.was_connected = false
 	state.reconnect_timer = 0
 	g_web_state = nil
@@ -233,22 +307,63 @@ web_subscribe :: proc(venue: string, symbol: string, channel: ports.MD_Channel) 
 	state := g_web_state
 	if state == nil do return false
 
-	subject := util.build_subject(venue, symbol, channel)
+	subject := web_subject_for_channel(state, venue, symbol, channel)
 	subject_id := util.subject_id64(subject)
 
-	// Track for reconnect (dedup by subject).
-	if find_web_sub_by_subject(state, subject) == -1 && state.active_count < WEB_MAX_SUBS {
-		state.active_subs[state.active_count] = Web_Sub_Entry{
-			subject_id = subject_id,
-			venue   = venue,
-			symbol  = symbol,
-			channel = channel,
-			subject = subject,
-		}
-		state.active_count += 1
+	// Idempotent subscribe: do not re-send for already tracked subjects.
+	if find_web_sub_by_subject(state, subject) != -1 {
+		delete(subject)
+		return true
+	}
+	if state.active_count >= WEB_MAX_SUBS {
+		delete(subject)
+		return false
 	}
 
-	if ws_state() != 2 do return false // not open
+	// Track for reconnect.
+	state.active_subs[state.active_count] = Web_Sub_Entry{
+		subject_id = subject_id,
+		venue   = strings.clone(venue),
+		symbol  = strings.clone(symbol),
+		channel = channel,
+		subject = subject,
+	}
+	state.active_count += 1
+
+	if ws_state() != 2 do return false // tracked; reconnect path will subscribe later
+	return web_send_subscribe(state, subject)
+}
+
+// Subscribe with an explicit timeframe (for per-cell TF support).
+@(private = "file")
+web_subscribe_tf :: proc(venue: string, symbol: string, channel: ports.MD_Channel, tf: string) -> bool {
+	state := g_web_state
+	if state == nil do return false
+
+	subject := util.build_subject_with_timeframe(venue, symbol, channel, tf)
+	subject_id := util.subject_id64(subject)
+
+	// Idempotent subscribe: do not re-send for already tracked subjects.
+	if find_web_sub_by_subject(state, subject) != -1 {
+		delete(subject)
+		return true
+	}
+	if state.active_count >= WEB_MAX_SUBS {
+		delete(subject)
+		return false
+	}
+
+	state.active_subs[state.active_count] = Web_Sub_Entry{
+		subject_id     = subject_id,
+		venue          = strings.clone(venue),
+		symbol         = strings.clone(symbol),
+		channel        = channel,
+		subject        = subject,
+		is_explicit_tf = true,
+	}
+	state.active_count += 1
+
+	if ws_state() != 2 do return false // tracked; reconnect path will subscribe later
 	return web_send_subscribe(state, subject)
 }
 
@@ -276,16 +391,18 @@ web_describe_stream :: proc(subject_id: u64, out: ^ports.MD_Stream_Info) -> bool
 web_metrics :: proc(out: ^ports.MD_Runtime_Metrics) -> bool {
 	state := g_web_state
 	if state == nil || out == nil do return false
+	queue_drop_count := int(ws_drop_count())
 	latest_pending := 0
 	if state.ob_dirty do latest_pending += 1
 	if state.stats_dirty do latest_pending += 1
 	if state.heatmap_dirty do latest_pending += 1
 	if state.vpvr_dirty do latest_pending += 1
-	if state.candle_dirty do latest_pending += 1
+	if state.candle_ring_count > 0 do latest_pending += 1
 	out^ = ports.MD_Runtime_Metrics{
 		active_subs       = state.active_count,
 		trade_backlog     = state.trade_count,
-		drop_count        = state.drop_count,
+		// Include JS bridge queue drops so metrics reflect end-to-end pressure.
+		drop_count        = state.drop_count + queue_drop_count,
 		reconnect_count   = state.reconnect_count,
 		latest_pending    = latest_pending,
 		parse_error_count = state.parse_error_count,
@@ -298,16 +415,32 @@ web_unsubscribe :: proc(venue: string, symbol: string, channel: ports.MD_Channel
 	state := g_web_state
 	if state == nil do return
 
-	subject := util.build_subject(venue, symbol, channel)
+	subject := ""
+	idx := find_web_sub_by_key(state, venue, symbol, channel)
+	if idx >= 0 {
+		subject = strings.clone(state.active_subs[idx].subject)
+	} else {
+		subject = web_subject_for_channel(state, venue, symbol, channel)
+	}
+	defer delete(subject)
 
 	// Remove from active subs.
-	if idx := find_web_sub_by_subject(state, subject); idx >= 0 {
-		state.active_subs[idx] = state.active_subs[state.active_count - 1]
+	if idx >= 0 {
+		last := state.active_count - 1
+		web_free_sub_entry(&state.active_subs[idx])
+		if idx != last {
+			state.active_subs[idx] = state.active_subs[last]
+		}
+		state.active_subs[last] = {}
 		state.active_count -= 1
 	}
 
 	if ws_state() != 2 do return
+	web_send_unsubscribe(state, subject)
+}
 
+@(private = "file")
+web_send_unsubscribe :: proc(state: ^MD_Web_State, subject: string) -> bool {
 	state.rid_counter += 1
 	buf: [256]u8
 	n := 0
@@ -321,6 +454,7 @@ web_unsubscribe :: proc(venue: string, symbol: string, channel: ports.MD_Channel
 	suffix :: `"}`
 	for c in suffix { buf[n] = u8(c); n += 1 }
 	ws_send(raw_data(buf[:n]), i32(n))
+	return true
 }
 
 @(private = "file")
@@ -339,6 +473,97 @@ web_send_subscribe :: proc(state: ^MD_Web_State, subject: string) -> bool {
 	for c in suffix { buf[n] = u8(c); n += 1 }
 	ws_send(raw_data(buf[:n]), i32(n))
 	return true
+}
+
+@(private = "file")
+web_resubscribe_timeframe_channels :: proc(state: ^MD_Web_State) {
+	if state == nil do return
+	is_open := ws_state() == 2
+
+	for i in 0 ..< state.active_count {
+		entry := &state.active_subs[i]
+		if entry.channel != .Heatmaps && entry.channel != .VPVR && entry.channel != .Candles do continue
+		if entry.is_explicit_tf do continue // per-cell TF sub — don't clobber
+
+		new_subject := util.build_subject_with_timeframe(entry.venue, entry.symbol, entry.channel, state.candle_tf_filter)
+		if new_subject == entry.subject {
+			delete(new_subject)
+			continue
+		}
+
+		if is_open {
+			web_send_unsubscribe(state, entry.subject)
+			web_send_subscribe(state, new_subject)
+		}
+		delete(entry.subject)
+		entry.subject = new_subject
+		entry.subject_id = util.subject_id64(new_subject)
+	}
+}
+
+@(private = "file")
+web_queue_getrange :: proc(state: ^MD_Web_State, subject: string, limit: int, end_ts: i64) {
+	if state == nil do return
+	if len(state.pending_getrange_subject) > 0 {
+		delete(state.pending_getrange_subject)
+		state.pending_getrange_subject = ""
+	}
+	state.pending_getrange_subject = strings.clone(subject)
+	state.pending_getrange_limit = limit
+	state.pending_getrange_end_ts = end_ts
+	state.pending_getrange_queued = true
+}
+
+@(private = "file")
+web_send_getrange_now :: proc(state: ^MD_Web_State, subject: string, limit: int, end_ts: i64) -> bool {
+	if state == nil do return false
+	if ws_state() != 2 do return false
+	if len(subject) == 0 do return false
+
+	state.rid_counter += 1
+	buf: [512]u8
+	n := 0
+	prefix :: `{"op":"getrange","subject":"`
+	for c in prefix { buf[n] = u8(c); n += 1 }
+	for c in subject { buf[n] = u8(c); n += 1 }
+	mid :: `","params":{"limit":`
+	for c in mid { buf[n] = u8(c); n += 1 }
+	limit_str := fmt.tprintf("%d", limit)
+	for c in limit_str { buf[n] = u8(c); n += 1 }
+	if end_ts > 0 {
+		// WS server range contract expects to_ms; keep end_ts for backward compatibility.
+		end_mid :: `,"to_ms":`
+		for c in end_mid { buf[n] = u8(c); n += 1 }
+		end_str := fmt.tprintf("%d", end_ts)
+		for c in end_str { buf[n] = u8(c); n += 1 }
+		end_mid_compat :: `,"end_ts":`
+		for c in end_mid_compat { buf[n] = u8(c); n += 1 }
+		for c in end_str { buf[n] = u8(c); n += 1 }
+	}
+	mid2 :: `},"request_id":"gr`
+	for c in mid2 { buf[n] = u8(c); n += 1 }
+	rid_str := fmt.tprintf("%d", state.rid_counter)
+	for c in rid_str { buf[n] = u8(c); n += 1 }
+	suffix :: `"}`
+	for c in suffix { buf[n] = u8(c); n += 1 }
+
+	ws_send(raw_data(buf[:n]), i32(n))
+	return true
+}
+
+@(private = "file")
+web_flush_pending_getrange :: proc(state: ^MD_Web_State) {
+	if state == nil do return
+	if !state.pending_getrange_queued do return
+	if !web_send_getrange_now(state, state.pending_getrange_subject, state.pending_getrange_limit, state.pending_getrange_end_ts) do return
+
+	if len(state.pending_getrange_subject) > 0 {
+		delete(state.pending_getrange_subject)
+		state.pending_getrange_subject = ""
+	}
+	state.pending_getrange_limit = 0
+	state.pending_getrange_end_ts = 0
+	state.pending_getrange_queued = false
 }
 
 @(private = "file")
@@ -376,16 +601,20 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 		// Tick down reconnect timer using real elapsed poll time (works with idle-throttled RAF).
 		state.reconnect_timer -= poll_dt_s
 		if state.reconnect_timer <= 0 {
-			hdr := ""
+			rc_hdr_buf: [128]u8
+			rc_hdr_len := 0
 			if len(state.api_key) > 0 {
-				hdr = fmt.tprintf("X-API-Key: %s\r\n", state.api_key)
+				rc_prefix :: "X-API-Key: "
+				for c in rc_prefix { rc_hdr_buf[rc_hdr_len] = u8(c); rc_hdr_len += 1 }
+				for c in state.api_key { if rc_hdr_len < len(rc_hdr_buf) - 2 { rc_hdr_buf[rc_hdr_len] = u8(c); rc_hdr_len += 1 } }
+				rc_hdr_buf[rc_hdr_len] = '\r'; rc_hdr_len += 1
+				rc_hdr_buf[rc_hdr_len] = '\n'; rc_hdr_len += 1
 			}
-				url_raw := raw_data(transmute([]u8)state.ws_url)
-				hdr_raw := raw_data(transmute([]u8)hdr)
-				state.reconnect_count += 1
-				ws_connect(url_raw, i32(len(state.ws_url)), hdr_raw, i32(len(hdr)))
-				state.backoff_s = min(state.backoff_s * WEB_BACKOFF_MULTIPLIER, WEB_BACKOFF_MAX_S)
-				state.reconnect_timer = state.backoff_s
+			url_raw := raw_data(transmute([]u8)state.ws_url)
+			state.reconnect_count += 1
+			ws_connect(url_raw, i32(len(state.ws_url)), raw_data(rc_hdr_buf[:rc_hdr_len]), i32(rc_hdr_len))
+			state.backoff_s = min(state.backoff_s * WEB_BACKOFF_MULTIPLIER, WEB_BACKOFF_MAX_S)
+			state.reconnect_timer = state.backoff_s
 		}
 	}
 
@@ -398,6 +627,7 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 				web_send_subscribe(state, sub.subject)
 			}
 		}
+		web_flush_pending_getrange(state)
 	}
 	state.was_connected = is_open
 
@@ -435,7 +665,7 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 	if state.stats_dirty   do non_trade_pending += 1
 	if state.heatmap_dirty do non_trade_pending += 1
 	if state.vpvr_dirty    do non_trade_pending += 1
-	if state.candle_dirty  do non_trade_pending += 1
+	non_trade_pending += min(state.candle_ring_count, WEB_CANDLE_RING_CAP)
 	trade_emit_limit := len(events_buf) - non_trade_pending
 	if trade_emit_limit < 0 do trade_emit_limit = 0
 
@@ -551,9 +781,10 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 		out += 1
 	}
 
-	// Candle.
-	if state.candle_dirty && out < len(events_buf) {
-		cs := state.candle_staging
+	// Candle ring — drain all buffered candle events.
+	for out < len(events_buf) && state.candle_ring_count > 0 {
+		oldest := (state.candle_ring_write - state.candle_ring_count + WEB_CANDLE_RING_CAP) % WEB_CANDLE_RING_CAP
+		cs := state.candle_ring[oldest]
 		events_buf[out].source.subject_id = cs.subject_id
 		events_buf[out].source.channel = .Candles
 		events_buf[out].kind = .Candle
@@ -571,7 +802,7 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 			window_end_ts   = cs.window_end_ts,
 			is_closed       = cs.is_closed,
 		}
-		state.candle_dirty = false
+		state.candle_ring_count -= 1
 		out += 1
 	}
 
@@ -665,7 +896,7 @@ web_conn_status :: proc() -> ports.MD_Conn_Status {
 @(private = "file")
 web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 	telemetry: services.Parse_Telemetry
-	result := services.parse_mr_message(raw, &telemetry, state.candle_tf_filter)
+	result := services.parse_mr_message(raw, &telemetry)
 
 	if telemetry.parse_errors > 0 {
 		state.parse_error_count += telemetry.parse_errors
@@ -685,18 +916,18 @@ web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 	case .Trade:
 		t := result.data.trade
 		if state.trade_count < WEB_TRADE_RING_CAP {
+			state.trade_ring_subject_id[state.trade_write] = t.subject_id
+			state.trade_ring[state.trade_write] = ports.MD_Trade_Event{
+				price  = t.price,
+				qty    = t.qty,
+				is_buy = t.is_buy,
+				unix   = t.unix,
+			}
+			state.trade_write = (state.trade_write + 1) % WEB_TRADE_RING_CAP
 			state.trade_count += 1
 		} else {
 			state.drop_count += 1
 		}
-		state.trade_ring_subject_id[state.trade_write] = t.subject_id
-		state.trade_ring[state.trade_write] = ports.MD_Trade_Event{
-			price  = t.price,
-			qty    = t.qty,
-			is_buy = t.is_buy,
-			unix   = t.unix,
-		}
-		state.trade_write = (state.trade_write + 1) % WEB_TRADE_RING_CAP
 	case .Orderbook:
 		state.ob_staging = result.data.ob
 		state.ob_dirty = true
@@ -710,8 +941,15 @@ web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 		state.vpvr_staging = result.data.vpvr
 		state.vpvr_dirty = true
 	case .Candle:
-		state.candle_staging = result.data.candle
-		state.candle_dirty = true
+		if state.candle_ring_count < WEB_CANDLE_RING_CAP {
+			state.candle_ring[state.candle_ring_write] = result.data.candle
+			state.candle_ring_write = (state.candle_ring_write + 1) % WEB_CANDLE_RING_CAP
+			state.candle_ring_count += 1
+		} else {
+			// Ring full — overwrite oldest (advance read pointer implicitly).
+			state.candle_ring[state.candle_ring_write] = result.data.candle
+			state.candle_ring_write = (state.candle_ring_write + 1) % WEB_CANDLE_RING_CAP
+		}
 	case .Range_Candle:
 		state.range_candle_staging = result.data.range_candles
 		state.range_candle_dirty = true
@@ -724,33 +962,69 @@ web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 web_set_candle_tf :: proc(tf: string) {
 	state := g_web_state
 	if state == nil do return
+	if state.candle_tf_filter == tf do return
 	old := state.candle_tf_filter
 	state.candle_tf_filter = strings.clone(tf)
+	web_resubscribe_timeframe_channels(state)
 	delete(old)
 }
 
 @(private = "file")
-web_send_getrange :: proc(subject: string, limit: int) {
+web_send_getrange :: proc(subject: string, limit: int, end_ts: i64) {
 	state := g_web_state
 	if state == nil do return
-	if ws_state() != 2 do return
+	if !web_send_getrange_now(state, subject, limit, end_ts) {
+		web_queue_getrange(state, subject, limit, end_ts)
+	}
+}
 
-	state.rid_counter += 1
-	buf: [512]u8
-	n := 0
-	prefix :: `{"op":"getrange","subject":"`
-	for c in prefix { buf[n] = u8(c); n += 1 }
-	for c in subject { buf[n] = u8(c); n += 1 }
-	mid :: `","params":{"limit":`
-	for c in mid { buf[n] = u8(c); n += 1 }
-	limit_str := fmt.tprintf("%d", limit)
-	for c in limit_str { buf[n] = u8(c); n += 1 }
-	mid2 :: `},"request_id":"gr`
-	for c in mid2 { buf[n] = u8(c); n += 1 }
-	rid_str := fmt.tprintf("%d", state.rid_counter)
-	for c in rid_str { buf[n] = u8(c); n += 1 }
-	suffix :: `"}`
-	for c in suffix { buf[n] = u8(c); n += 1 }
+@(private = "file")
+web_fetch_markets :: proc(out_buf: [^]u8, out_cap: i32) -> i32 {
+	state := g_web_state
+	if state == nil do return 0
+	if out_cap <= 0 do return 0
 
-	ws_send(raw_data(buf[:n]), i32(n))
+	// Derive markets endpoint from WS URL.
+	// Examples:
+	// - ws://host:8080/ws  -> http://host:8080/api/v1/markets
+	// - /ws                -> /api/v1/markets (same-origin)
+	// - http://host/ws     -> http://host/api/v1/markets
+	ws_url := strings.trim_space(state.ws_url)
+	if len(ws_url) == 0 do return 0
+
+	http_base := ""
+	delete_http_base := false
+	if strings.has_prefix(ws_url, "wss://") {
+		http_base = strings.concatenate({"https://", ws_url[6:]})
+		delete_http_base = true
+	} else if strings.has_prefix(ws_url, "ws://") {
+		http_base = strings.concatenate({"http://", ws_url[5:]})
+		delete_http_base = true
+	} else if strings.has_prefix(ws_url, "https://") || strings.has_prefix(ws_url, "http://") {
+		http_base = ws_url
+	} else if strings.has_prefix(ws_url, "/") {
+		http_base = ws_url
+	} else {
+		return 0
+	}
+	if delete_http_base {
+		defer delete(http_base)
+	}
+
+	base_no_ws := http_base
+	if strings.has_suffix(base_no_ws, "/ws") {
+		base_no_ws = base_no_ws[:len(base_no_ws) - 3]
+	}
+
+	url := strings.concatenate({"/api/v1/markets"})
+	if len(base_no_ws) == 0 || base_no_ws == "/" {
+		// Same-origin fallback endpoint.
+	} else {
+		delete(url)
+		url = strings.concatenate({base_no_ws, "/api/v1/markets"})
+	}
+	defer delete(url)
+
+	url_raw := raw_data(transmute([]u8)url)
+	return http_get_sync(url_raw, i32(len(url)), out_buf, out_cap)
 }

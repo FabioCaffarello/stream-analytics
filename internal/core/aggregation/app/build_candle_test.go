@@ -66,7 +66,7 @@ func TestBuildCandle_WindowClose_EmitsCandleClosed(t *testing.T) {
 		t.Fatalf("Execute #1: %v", p)
 	}
 	resp, p := uc.Execute(context.Background(), app.BuildCandleRequest{
-		Venue: "binance", Instrument: "BTCUSDT", Price: 101, Quantity: 1, IsBuy: false, Seq: 2, TsIngest: 60_001,
+		Venue: "binance", Instrument: "BTCUSDT", Price: 101, Quantity: 1, IsBuy: false, Seq: 2, TsIngest: 1_001,
 	})
 	if p != nil {
 		t.Fatalf("Execute #2: %v", p)
@@ -75,8 +75,8 @@ func TestBuildCandle_WindowClose_EmitsCandleClosed(t *testing.T) {
 		t.Fatal("expected at least one closed candle event")
 	}
 	first := resp.Closed[0].Candle
-	if first.Timeframe != "1m" {
-		t.Fatalf("closed timeframe=%s want=1m", first.Timeframe)
+	if first.Timeframe != "1s" {
+		t.Fatalf("closed timeframe=%s want=1s", first.Timeframe)
 	}
 	if !first.IsClosed {
 		t.Fatal("closed candle must have is_closed=true")
@@ -86,7 +86,7 @@ func TestBuildCandle_WindowClose_EmitsCandleClosed(t *testing.T) {
 	}
 }
 
-func TestBuildCandle_MultiTimeframe_1mCascades(t *testing.T) {
+func TestBuildCandle_MultiTimeframe_BaseCascades(t *testing.T) {
 	uc, _, _ := newCandleUC(1_000)
 	var allClosed []domain.CandleClosed
 	for i := 0; i < 7; i++ {
@@ -113,7 +113,7 @@ func TestBuildCandle_MultiTimeframe_1mCascades(t *testing.T) {
 		}
 	}
 	if closed5m == nil {
-		t.Fatal("expected one 5m closed candle from 1m cascade")
+		t.Fatal("expected one 5m closed candle from base cascade")
 	}
 	if closed5m.Candle.TradeCount != 5 {
 		t.Fatalf("5m candle trade_count=%d want=5", closed5m.Candle.TradeCount)
@@ -172,4 +172,37 @@ func TestBuildCandle_BoundedMap_EvictsOldest(t *testing.T) {
 	}); p != nil {
 		t.Fatalf("expected BTC seq=1 accepted after eviction, got=%v", p)
 	}
+}
+
+func TestBuildCandle_GapEventDriven_NoSyntheticBaseClosures(t *testing.T) {
+	uc, _, _ := newCandleUC(1_000)
+	if _, p := uc.Execute(context.Background(), app.BuildCandleRequest{
+		Venue: "binance", Instrument: "BTCUSDT", Price: 100, Quantity: 1, IsBuy: true, Seq: 1, TsIngest: 1,
+	}); p != nil {
+		t.Fatalf("Execute #1: %v", p)
+	}
+
+	resp, p := uc.Execute(context.Background(), app.BuildCandleRequest{
+		Venue: "binance", Instrument: "BTCUSDT", Price: 101, Quantity: 1, IsBuy: true, Seq: 2, TsIngest: 60_001,
+	})
+	if p != nil {
+		t.Fatalf("Execute #2: %v", p)
+	}
+
+	if got := countClosedCandlesByTimeframe(resp.Closed, "1s"); got != 1 {
+		t.Fatalf("1s close count=%d want=1 (event-driven, no synthetic empty-window closes)", got)
+	}
+	if got := countClosedCandlesByTimeframe(resp.Closed, "1m"); got != 0 {
+		t.Fatalf("1m close count=%d want=0 (first 1m close occurs only after a second base close)", got)
+	}
+}
+
+func countClosedCandlesByTimeframe(closed []domain.CandleClosed, timeframe string) int {
+	count := 0
+	for i := range closed {
+		if closed[i].Candle.Timeframe == timeframe {
+			count++
+		}
+	}
+	return count
 }

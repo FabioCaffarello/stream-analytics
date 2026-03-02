@@ -27,20 +27,52 @@ Key :: enum u8 {
 	Num_4,
 	Num_5,
 	Num_6,
+	Num_7,
+	Num_8,
+	Num_9,
+	S,
+	Slash,
+	C,
+	G,
+	F,
+	M,
+	B,
+	V,
+	R,
+	I,
+	H,
+	J,
+	K,
+	Z,
+	Delete,
 }
 
 Mouse :: struct {
-	pos:     ui.Vec2,
-	buttons: [Mouse_Button]bool,
-	scroll:  ui.Vec2, // x = horizontal, y = vertical (positive = up)
+	pos:      ui.Vec2,
+	delta:    ui.Vec2,
+	buttons:  [Mouse_Button]bool, // down
+	pressed:  [Mouse_Button]bool, // edge: down this frame
+	released: [Mouse_Button]bool, // edge: up this frame
+	scroll:   ui.Vec2, // x = horizontal, y = vertical (positive = up)
 }
 
 Keys :: struct {
-	pressed: bit_set[Key],
+	pressed:       bit_set[Key], // down
+	just_pressed:  bit_set[Key], // edge: down this frame
+	just_released: bit_set[Key], // edge: up this frame
+}
+
+Modifiers :: struct {
+	shift: bool,
+	ctrl:  bool,
+	alt:   bool,
+	super: bool,
 }
 
 Input_State :: struct {
 	mouse:         Mouse,
 	keys:          Keys,
+	modifiers:     Modifiers,
+	delta_time:    f32, // seconds since previous frame
 	viewport_size: ui.Vec2, // render surface size in pixels (canvas/framebuffer)
 }

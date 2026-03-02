@@ -11,7 +11,7 @@ import (
 const candleFixedScale int64 = 100_000_000
 
 // AllowedCandleTimeframes defines the fixed candle timeframe set in v1.
-var AllowedCandleTimeframes = []string{"1m", "5m", "15m", "30m", "1h", "4h", "1d"}
+var AllowedCandleTimeframes = []string{"1s", "5s", "1m", "5m", "15m", "30m", "1h", "4h", "1d"}
 
 // CandleKey identifies one open candle state.
 type CandleKey struct {

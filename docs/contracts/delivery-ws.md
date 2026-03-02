@@ -2,7 +2,7 @@
 
 **Status:** Active
 **Owner:** Product Architect
-**Last updated:** 2026-02-19
+**Last updated:** 2026-03-01
 **Relates to:** `docs/adrs/ADR-0002-event-envelope-and-versioning.md`, `docs/adrs/ADR-0007-delivery-ws-sessions.md`, `docs/adrs/ADR-0013-backpressure-overload-policies.md`, `docs/adrs/ADR-0014-stream-partitioning-strategy.md`, `docs/contracts/event-bus.md`, `docs/rfcs/RFC-0003-W2-DELIVERY-BC.md`
 
 ## Purpose
@@ -15,6 +15,7 @@ Define WS delivery contract for marketdata/aggregation/insights streams with exp
 - `subject` (bus): `{event}.v{version}.{venue}.{instrument}`.
 - `stream_type`: namespaced event token (for example `marketdata.trade`).
 - `symbol`: client-facing token in WS subject; canonicalized from `instrument` (`BTC-USDT` -> `BTCUSDT`).
+- `symbol alias`: market-type suffix variant used by some clients (`BTCUSDT:SPOT`).
 - `envelope`: canonical bus wrapper from ADR-0002.
 - `frame`: WS JSON message emitted by the session actor.
 
@@ -47,7 +48,7 @@ Examples:
 - `marketdata.markprice/bybit/BTCUSDT/raw`
 - `insights.crossvenue.trade_snapshot/global/BTCUSDT/raw`
 - `aggregation.snapshot/binance/BTCUSDT/raw`
-- `aggregation.candle/binance/BTCUSDT/raw`
+- `aggregation.candle/binance/BTCUSDT/1m`
 - `aggregation.stats/binance/BTCUSDT/raw`
 - `insights.heatmap_snapshot/binance/BTCUSDT/1m`
 
@@ -72,10 +73,16 @@ Proto rollout is controlled by config (`proto_rollout.*`) and can be refreshed w
   "params": {
     "from_ms": 0,
     "to_ms": 0,
+    "end_ts": 0,
     "limit": 100
   }
 }
 ```
+
+GetRange range params:
+- `to_ms` is the authoritative upper-bound parameter for range queries.
+- `end_ts` is accepted only for backward compatibility and is mapped to `to_ms`.
+- clients should send `to_ms`; server keeps `end_ts` compatibility for older clients.
 
 ### Server -> Client Frames
 
@@ -145,6 +152,7 @@ Range:
 - `WS-3`: per-subject ordering by `seq` is preserved inside one session.
 - `WS-4`: no unbounded per-session queue in parity target design.
 - `WS-5`: unsubscribe/remove session must release routing state and memory.
+- `WS-6`: when `getrange` is requested with symbol alias (`SYMBOL:MARKET_TYPE`) and no direct rows exist, delivery may perform one deterministic fallback lookup using canonical `SYMBOL`.
 
 ## Backpressure
 
@@ -164,6 +172,7 @@ Required metrics:
 - `ws_drops_total{reason}`
 - `ws_send_latency_ms`
 - `ws_clients_connected`
+- `delivery_range_alias_fallback_total{outcome}`
 
 ## Storage Strategy
 
@@ -186,6 +195,7 @@ Required metrics:
 | Router broadcast only to subscribed sessions | Existing | `internal/actors/delivery/runtime/router.go` | `internal/actors/delivery/runtime/router_test.go:TestRouter_subscribeUnsubscribeAndBroadcast` |
 | Disconnect cleanup and unregister | Existing | `internal/actors/delivery/runtime/session.go` | `internal/actors/delivery/runtime/session_test.go:TestSession_disconnectTriggersUnregister` |
 | Deterministic range from durable store | Planned | `internal/core/delivery/ports/ports.go` | `internal/core/delivery/app/session_usecase_test.go:TestSessionService_GetRange_storeUnavailable` |
+| Alias fallback for candle getrange (`SYMBOL:MARKET_TYPE` -> `SYMBOL`) | Existing | `internal/core/delivery/app/session_usecase.go` | `internal/core/delivery/app/session_usecase_test.go:TestSessionService_GetRange_marketTypeAliasFallback` |
 | Slow-client backpressure policy + threshold disconnect | Existing | `internal/core/delivery/domain/backpressure_policy.go`, `internal/actors/delivery/runtime/session.go`, `internal/shared/config/schema.go` | `internal/actors/delivery/runtime/session_backpressure_test.go:TestWSBackpressureSlowClientDropPolicy`, `internal/actors/delivery/runtime/session_backpressure_test.go:TestWSBackpressureSlowClientThresholdDisconnects` |
 
 ## Observability
@@ -196,6 +206,7 @@ Required metrics:
 - `delivery_ws_drop_total`
 - `delivery_ws_frame_latency_ms`
 - `delivery_ws_range_latency_ms`
+- `delivery_range_alias_fallback_total{outcome}`
 
 Minimum:
 - lag
@@ -225,6 +236,7 @@ Tests to create for parity completion:
 - New WS frame fields must remain optional.
 - Do not remove mandatory fields without new `frame_version`.
 - Default bus payload content type is `application/protobuf`; JSON remains supported via rollout/fallback policy in ADR-0016.
+- `getrange` keeps backward compatibility with `end_ts`; `to_ms` is the canonical parameter.
 
 ## Evidence Hooks
 
@@ -234,6 +246,7 @@ Current evidence:
 - `internal/actors/delivery/runtime/session.go`
 - `internal/actors/delivery/runtime/session_test.go`
 - `internal/actors/delivery/runtime/router_test.go`
+- `internal/shared/metrics/metrics.go`
 - `internal/core/delivery/app/session_usecase_test.go`
 - `docs/rfcs/RFC-0003-W2-DELIVERY-BC.md`
 

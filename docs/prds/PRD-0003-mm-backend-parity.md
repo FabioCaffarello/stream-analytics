@@ -244,14 +244,14 @@ go test -benchmem ./internal/adapters/storage/...  # NF-5: zero new allocs
 
 ## References
 
-- [SWOT v7 Analysis](.context/evidence/swot-market-raccoon-v7-2026-02-20.md)
-- [RFC-0011 — Product Parity v1](docs/rfcs/RFC-0011-product-parity-marketmonkey.md)
-- [PRD-0002 — Backend Stable & Odin-Ready](docs/prd/PRD-0002-backend-stable-and-odin-ready.md)
-- [ADR-0006 — Storage Hot vs Cold](docs/adrs/ADR-0006-storage-hot-vs-cold.md)
-- [ADR-0002 — Event Envelope and Versioning](docs/adrs/ADR-0002-event-envelope-and-versioning.md)
-- [ADR-0013 — Backpressure Overload Policies](docs/adrs/ADR-0013-backpressure-overload-policies.md)
-- [Architecture TRUTH-MAP](docs/architecture/TRUTH-MAP.md)
-- [MarketMonkey Audit Pack](zip/01-marketmonkey-files/marketmonkey/docs/architecture/MARKETMONKEY-AUDIT-PACK.md)
+- [SWOT v7 Analysis](../../.context/evidence/swot-market-raccoon-v7-2026-02-20.md)
+- [RFC-0011 — Product Parity v1](../rfcs/RFC-0011-product-parity-marketmonkey.md)
+- [PRD-0002 — Backend Stable & Odin-Ready](../prd/PRD-0002-backend-stable-and-odin-ready.md)
+- [ADR-0006 — Storage Hot vs Cold](../adrs/ADR-0006-storage-hot-vs-cold.md)
+- [ADR-0002 — Event Envelope and Versioning](../adrs/ADR-0002-event-envelope-and-versioning.md)
+- [ADR-0013 — Backpressure Overload Policies](../adrs/ADR-0013-backpressure-overload-policies.md)
+- [Architecture TRUTH-MAP](../architecture/TRUTH-MAP.md)
+- [MarketMonkey Audit Pack](../../zip/01-marketmonkey-files/marketmonkey/docs/architecture/MARKETMONKEY-AUDIT-PACK.md)
 
 ---
 

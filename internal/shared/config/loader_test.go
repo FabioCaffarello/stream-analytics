@@ -57,6 +57,12 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 		{name: "processor.candle.max_candles", got: cfg.Processor.Candle.MaxCandles, want: 50_000},
 		{name: "processor.stats.enabled", got: cfg.Processor.Stats.Enabled, want: false},
 		{name: "processor.stats.max_windows", got: cfg.Processor.Stats.MaxWindows, want: 50_000},
+		{name: "processor.subminute_rollout.enabled", got: cfg.Processor.SubMinuteRollout.Enabled, want: true},
+		{name: "processor.subminute_rollout.venues", got: cfg.Processor.SubMinuteRollout.Venues, want: []string{}},
+		{name: "processor.subminute_rollout.instruments", got: cfg.Processor.SubMinuteRollout.Instruments, want: []string{}},
+		{name: "processor.catchup_skip_bookdelta_skew_ms", got: cfg.Processor.CatchUpSkipBookDeltaSkewMs, want: 0},
+		{name: "processor.catchup_skip_trade_skew_ms", got: cfg.Processor.CatchUpSkipTradeSkewMs, want: 0},
+		{name: "processor.catchup_skip_stats_skew_ms", got: cfg.Processor.CatchUpSkipStatsSkewMs, want: 0},
 		{name: "processor.rt_publish.orderbook_interval_ms", got: cfg.Processor.RTPublish.OrderbookIntervalMs, want: 200},
 		{name: "processor.rt_publish.heatmap_interval_ms", got: cfg.Processor.RTPublish.HeatmapIntervalMs, want: 200},
 		{name: "processor.rt_publish.volume_interval_ms", got: cfg.Processor.RTPublish.VolumeIntervalMs, want: 250},
@@ -142,11 +148,19 @@ func TestLoad_ValidJSONC_ParsesFields(t *testing.T) {
 				"enabled": true,
 				"max_windows": 70000
 			},
+			"subminute_rollout": {
+				"enabled": true,
+				"venues": ["binance"],
+				"instruments": ["BTCUSDT"]
+			},
 			"rt_publish": {
 				"orderbook_interval_ms": 150,
 				"heatmap_interval_ms": 0,
 				"volume_interval_ms": 300
 			},
+			"catchup_skip_bookdelta_skew_ms": 10000,
+			"catchup_skip_trade_skew_ms": 8000,
+			"catchup_skip_stats_skew_ms": 12000,
 			"insights": {
 				"enable_crossvenue_join": true,
 				"enable_volume_profile_snapshot_proto": true,
@@ -201,6 +215,12 @@ func TestLoad_ValidJSONC_ParsesFields(t *testing.T) {
 		{name: "processor.candle.max_candles", got: cfg.Processor.Candle.MaxCandles, want: 60000},
 		{name: "processor.stats.enabled", got: cfg.Processor.Stats.Enabled, want: true},
 		{name: "processor.stats.max_windows", got: cfg.Processor.Stats.MaxWindows, want: 70000},
+		{name: "processor.subminute_rollout.enabled", got: cfg.Processor.SubMinuteRollout.Enabled, want: true},
+		{name: "processor.subminute_rollout.venues", got: cfg.Processor.SubMinuteRollout.Venues, want: []string{"binance"}},
+		{name: "processor.subminute_rollout.instruments", got: cfg.Processor.SubMinuteRollout.Instruments, want: []string{"BTCUSDT"}},
+		{name: "processor.catchup_skip_bookdelta_skew_ms", got: cfg.Processor.CatchUpSkipBookDeltaSkewMs, want: 10000},
+		{name: "processor.catchup_skip_trade_skew_ms", got: cfg.Processor.CatchUpSkipTradeSkewMs, want: 8000},
+		{name: "processor.catchup_skip_stats_skew_ms", got: cfg.Processor.CatchUpSkipStatsSkewMs, want: 12000},
 		{name: "processor.rt_publish.orderbook_interval_ms", got: cfg.Processor.RTPublish.OrderbookIntervalMs, want: 150},
 		{name: "processor.rt_publish.heatmap_interval_ms", got: cfg.Processor.RTPublish.HeatmapIntervalMs, want: 0},
 		{name: "processor.rt_publish.volume_interval_ms", got: cfg.Processor.RTPublish.VolumeIntervalMs, want: 300},
@@ -257,6 +277,23 @@ func TestLoad_PartialFile_FillsRemainingDefaults(t *testing.T) {
 	// Unspecified field should be defaulted.
 	if cfg.HTTP.Addr != ":8080" {
 		t.Errorf("http.addr = %q, want :8080 (default)", cfg.HTTP.Addr)
+	}
+}
+
+func TestLoad_ProcessorSubMinuteRolloutExplicitDisabled_Preserved(t *testing.T) {
+	path := writeTempFile(t, `{
+		"processor": {
+			"subminute_rollout": {
+				"enabled": false
+			}
+		}
+	}`)
+	cfg, prob := Load(path)
+	if prob != nil {
+		t.Fatalf("Load failed: %v", prob)
+	}
+	if cfg.Processor.SubMinuteRollout.Enabled {
+		t.Fatal("expected processor.subminute_rollout.enabled=false when explicitly configured")
 	}
 }
 
@@ -892,6 +929,56 @@ func TestValidate_ProcessorRTPublishIntervals_MustBeNonNegative(t *testing.T) {
 				t.Fatalf("expected validation error for invalid processor.rt_publish.%s", tc.name)
 			}
 		})
+	}
+}
+
+func TestValidate_ProcessorCatchUpSkews_MustBeNonNegative(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*AppConfig)
+	}{
+		{
+			name: "bookdelta_skew_ms",
+			mutate: func(cfg *AppConfig) {
+				cfg.Processor.CatchUpSkipBookDeltaSkewMs = -1
+			},
+		},
+		{
+			name: "trade_skew_ms",
+			mutate: func(cfg *AppConfig) {
+				cfg.Processor.CatchUpSkipTradeSkewMs = -1
+			},
+		},
+		{
+			name: "stats_skew_ms",
+			mutate: func(cfg *AppConfig) {
+				cfg.Processor.CatchUpSkipStatsSkewMs = -1
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, _ := Load("")
+			tc.mutate(&cfg)
+			if prob := cfg.Validate(); prob == nil {
+				t.Fatalf("expected validation error for invalid processor catch-up %s", tc.name)
+			}
+		})
+	}
+}
+
+func TestValidate_ProcessorSubMinuteRolloutLists_MustNotContainEmptyEntries(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Processor.SubMinuteRollout.Venues = []string{"binance", " "}
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for empty processor.subminute_rollout.venues entry")
+	}
+
+	cfg, _ = Load("")
+	cfg.Processor.SubMinuteRollout.Instruments = []string{"BTCUSDT", ""}
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for empty processor.subminute_rollout.instruments entry")
 	}
 }
 

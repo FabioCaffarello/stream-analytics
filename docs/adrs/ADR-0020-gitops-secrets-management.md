@@ -103,3 +103,21 @@ When an external secret store (HashiCorp Vault, AWS Secrets Manager, etc.) is av
 - `deploy/infra/terraform/modules/k8s-bootstrap/sops/` — Terraform module creating `sops-age-key` K8s Secret.
 - `deploy/infra/terraform/modules/k8s-bootstrap/argocd/values/argocd.yaml` — CMP sidecar configuration for ksops decryption.
 - `.github/workflows/ci-secrets.yml` — CI gate validating encryption.
+
+## Evidence
+
+- Docs check gate confirms ADR header sections:
+  - `make docs-check`
+- Configuration and bootstrap anchors:
+  - `deploy/gitops/.sops.yaml`
+  - `deploy/infra/terraform/modules/k8s-bootstrap/sops/`
+  - `deploy/infra/terraform/modules/k8s-bootstrap/argocd/values/argocd.yaml`
+- CI guardrail:
+  - `.github/workflows/ci-secrets.yml`
+
+## Changelog
+
+- 2026-02-27:
+  - Added mandatory ADR sections `Evidence` and `Changelog` to satisfy documentation gates.
+- 2026-02-21:
+  - ADR created and accepted with phased strategy (`SOPS+ksops` now, `ESO+Vault` later).

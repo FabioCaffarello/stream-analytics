@@ -737,6 +737,13 @@ var (
 		},
 		[]string{"reason"},
 	)
+	DeliveryRangeAliasFallbackTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "delivery_range_alias_fallback_total",
+			Help: "Total delivery getrange alias fallback attempts by outcome.",
+		},
+		[]string{"outcome"},
+	)
 )
 
 var (
@@ -883,6 +890,7 @@ func registerAll() {
 			DeliveryRouterSubscriptionsActive,
 			DeliveryRouterEventsRoutedTotal,
 			DeliveryRouterEventsRejectedTotal,
+			DeliveryRangeAliasFallbackTotal,
 		)
 
 		// Pre-create one series for vector metrics so /metrics exposition is stable
@@ -973,6 +981,9 @@ func registerAll() {
 		BoundedMapSweepsTotal.WithLabelValues("unknown")
 		DeliveryRouterEventsRejectedTotal.WithLabelValues("contract_policy")
 		DeliveryRouterEventsRejectedTotal.WithLabelValues("invalid_subject")
+		DeliveryRangeAliasFallbackTotal.WithLabelValues("hit")
+		DeliveryRangeAliasFallbackTotal.WithLabelValues("miss")
+		DeliveryRangeAliasFallbackTotal.WithLabelValues("error")
 	})
 }
 
@@ -1855,4 +1866,9 @@ func IncDeliveryRouterEventsRouted() {
 // IncDeliveryRouterEventsRejected increments the rejected events counter.
 func IncDeliveryRouterEventsRejected(reason string) {
 	DeliveryRouterEventsRejectedTotal.WithLabelValues(sanitizeKind(reason)).Inc()
+}
+
+// IncDeliveryRangeAliasFallback increments getrange alias fallback attempts by outcome.
+func IncDeliveryRangeAliasFallback(outcome string) {
+	DeliveryRangeAliasFallbackTotal.WithLabelValues(sanitizeKind(outcome)).Inc()
 }

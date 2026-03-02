@@ -125,6 +125,139 @@ func (s *logStatsHotStore) SaveStats(_ context.Context, evt aggdomain.StatsWindo
 	return nil
 }
 
+type subMinuteRolloutGate struct {
+	enabled     bool
+	venues      map[string]struct{}
+	instruments map[string]struct{}
+}
+
+func newSubMinuteRolloutGate(cfg config.ProcessorSubMinuteRolloutConfig) *subMinuteRolloutGate {
+	gate := &subMinuteRolloutGate{
+		enabled:     cfg.Enabled,
+		venues:      make(map[string]struct{}, len(cfg.Venues)),
+		instruments: make(map[string]struct{}, len(cfg.Instruments)),
+	}
+	for _, venue := range cfg.Venues {
+		if v := strings.ToUpper(strings.TrimSpace(venue)); v != "" {
+			gate.venues[v] = struct{}{}
+		}
+	}
+	for _, instrument := range cfg.Instruments {
+		if inst := strings.ToUpper(strings.TrimSpace(instrument)); inst != "" {
+			gate.instruments[inst] = struct{}{}
+		}
+	}
+	return gate
+}
+
+func (g *subMinuteRolloutGate) allows(venue, instrument, timeframe string) bool {
+	if g == nil || !isSubMinuteTimeframe(timeframe) {
+		return true
+	}
+	if !g.enabled {
+		return false
+	}
+	if len(g.venues) > 0 {
+		if _, ok := g.venues[strings.ToUpper(strings.TrimSpace(venue))]; !ok {
+			return false
+		}
+	}
+	if len(g.instruments) > 0 {
+		raw := strings.ToUpper(strings.TrimSpace(instrument))
+		if _, ok := g.instruments[raw]; ok {
+			return true
+		}
+		base := raw
+		if idx := strings.Index(base, ":"); idx > 0 {
+			base = base[:idx]
+		}
+		if _, ok := g.instruments[base]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func isSubMinuteTimeframe(timeframe string) bool {
+	switch strings.ToLower(strings.TrimSpace(timeframe)) {
+	case "1s", "5s":
+		return true
+	default:
+		return false
+	}
+}
+
+type subMinuteFilteringArtifactPublisher struct {
+	next aggports.ArtifactPublisher
+	gate *subMinuteRolloutGate
+}
+
+func (p *subMinuteFilteringArtifactPublisher) PublishSnapshot(ctx context.Context, snap aggdomain.SnapshotProduced) *problem.Problem {
+	if p == nil || p.next == nil {
+		return nil
+	}
+	return p.next.PublishSnapshot(ctx, snap)
+}
+
+func (p *subMinuteFilteringArtifactPublisher) PublishInconsistent(ctx context.Context, evt aggdomain.OrderBookInconsistentDetected) *problem.Problem {
+	if p == nil || p.next == nil {
+		return nil
+	}
+	return p.next.PublishInconsistent(ctx, evt)
+}
+
+func (p *subMinuteFilteringArtifactPublisher) PublishCandleClosed(ctx context.Context, evt aggdomain.CandleClosed) *problem.Problem {
+	if p == nil || p.next == nil {
+		return nil
+	}
+	if p.gate != nil && !p.gate.allows(evt.Candle.Venue, evt.Candle.Instrument, evt.Candle.Timeframe) {
+		metrics.IncIngestDrop("subminute_rollout_blocked")
+		return nil
+	}
+	return p.next.PublishCandleClosed(ctx, evt)
+}
+
+func (p *subMinuteFilteringArtifactPublisher) PublishStatsClosed(ctx context.Context, evt aggdomain.StatsWindowClosed) *problem.Problem {
+	if p == nil || p.next == nil {
+		return nil
+	}
+	if p.gate != nil && !p.gate.allows(evt.Stats.Venue, evt.Stats.Instrument, evt.Stats.Timeframe) {
+		metrics.IncIngestDrop("subminute_rollout_blocked")
+		return nil
+	}
+	return p.next.PublishStatsClosed(ctx, evt)
+}
+
+type subMinuteFilteringCandleStore struct {
+	next aggports.CandleHotReadModelStore
+	gate *subMinuteRolloutGate
+}
+
+func (s *subMinuteFilteringCandleStore) SaveCandle(ctx context.Context, evt aggdomain.CandleClosed) *problem.Problem {
+	if s == nil || s.next == nil {
+		return nil
+	}
+	if s.gate != nil && !s.gate.allows(evt.Candle.Venue, evt.Candle.Instrument, evt.Candle.Timeframe) {
+		return nil
+	}
+	return s.next.SaveCandle(ctx, evt)
+}
+
+type subMinuteFilteringStatsStore struct {
+	next aggports.StatsHotReadModelStore
+	gate *subMinuteRolloutGate
+}
+
+func (s *subMinuteFilteringStatsStore) SaveStats(ctx context.Context, evt aggdomain.StatsWindowClosed) *problem.Problem {
+	if s == nil || s.next == nil {
+		return nil
+	}
+	if s.gate != nil && !s.gate.allows(evt.Stats.Venue, evt.Stats.Instrument, evt.Stats.Timeframe) {
+		return nil
+	}
+	return s.next.SaveStats(ctx, evt)
+}
+
 // ---------------------------------------------------------------------------
 // envelope source abstraction
 // ---------------------------------------------------------------------------
@@ -343,6 +476,24 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 	hotStore := &committedHotStore{
 		committer: adapterstorage.NewSnapshotCommitter(hotWriter, coldWriter),
 	}
+	subMinuteGate := newSubMinuteRolloutGate(cfg.Processor.SubMinuteRollout)
+	artifactPub = &subMinuteFilteringArtifactPublisher{
+		next: artifactPub,
+		gate: subMinuteGate,
+	}
+	candleStore = &subMinuteFilteringCandleStore{
+		next: candleStore,
+		gate: subMinuteGate,
+	}
+	statsStore = &subMinuteFilteringStatsStore{
+		next: statsStore,
+		gate: subMinuteGate,
+	}
+	logger.Info("processor: sub-minute rollout gate configured",
+		"enabled", subMinuteGate.enabled,
+		"venue_allowlist", len(subMinuteGate.venues),
+		"instrument_allowlist", len(subMinuteGate.instruments),
+	)
 	aggSvc := aggapp.NewAggregationService(aggapp.AggregationServiceConfig{
 		Update: aggapp.UpdateConfig{
 			MaxBooks:                   cfg.Processor.MaxInstruments,
@@ -417,6 +568,8 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 			VolumeInterval:    time.Duration(cfg.Processor.RTPublish.VolumeIntervalMs) * time.Millisecond,
 		},
 		CatchUpSkipBookDeltaSkew: time.Duration(cfg.Processor.CatchUpSkipBookDeltaSkewMs) * time.Millisecond,
+		CatchUpSkipTradeSkew:     time.Duration(cfg.Processor.CatchUpSkipTradeSkewMs) * time.Millisecond,
+		CatchUpSkipStatsSkew:     time.Duration(cfg.Processor.CatchUpSkipStatsSkewMs) * time.Millisecond,
 		OnEnvelopeProcessed:      source.onResult,
 	}
 

@@ -97,5 +97,74 @@
       "dial_timeout": "5s",
       "read_timeout": "30s"
     }
+  },
+  "processor": {
+    "subminute_rollout": {
+      // Server-side read/query gate for 1s/5s (getrange + cold APIs + hot fallback).
+      // enabled=false => rollback sub-minute reads immediately.
+      "enabled": true,
+      "venues": [],
+      "instruments": []
+    }
+  },
+  "markets": {
+    "exchanges": [
+      {
+        "name": "binance-spot",
+        "symbols": [
+          {"ticker": "BTCUSDT", "tick_size": 0.01, "market_type": "SPOT"},
+          {"ticker": "ETHUSDT", "tick_size": 0.01, "market_type": "SPOT"},
+          {"ticker": "SOLUSDT", "tick_size": 0.01, "market_type": "SPOT"},
+          {"ticker": "BNBUSDT", "tick_size": 0.01, "market_type": "SPOT"}
+        ]
+      },
+      {
+        "name": "binance-futures",
+        "symbols": [
+          {"ticker": "BTCUSDT", "tick_size": 0.01, "market_type": "USD_M_FUTURES"},
+          {"ticker": "ETHUSDT", "tick_size": 0.01, "market_type": "USD_M_FUTURES"},
+          {"ticker": "SOLUSDT", "tick_size": 0.01, "market_type": "USD_M_FUTURES"},
+          {"ticker": "BNBUSDT", "tick_size": 0.01, "market_type": "USD_M_FUTURES"}
+        ]
+      },
+      {
+        "name": "bybit",
+        "symbols": [
+          {"ticker": "BTCUSDT", "tick_size": 0.01, "market_type": "USD_M_FUTURES"},
+          {"ticker": "ETHUSDT", "tick_size": 0.01, "market_type": "USD_M_FUTURES"},
+          {"ticker": "SOLUSDT", "tick_size": 0.01, "market_type": "USD_M_FUTURES"}
+        ]
+      },
+      {
+        "name": "coinbase",
+        "symbols": [
+          {"ticker": "BTC-USD", "tick_size": 0.01, "market_type": "SPOT"},
+          {"ticker": "ETH-USD", "tick_size": 0.01, "market_type": "SPOT"},
+          {"ticker": "SOL-USD", "tick_size": 0.01, "market_type": "SPOT"}
+        ]
+      },
+      {
+        "name": "hyperliquid",
+        "symbols": [
+          {"ticker": "BTC", "tick_size": 0.1, "market_type": "USD_M_FUTURES"},
+          {"ticker": "ETH", "tick_size": 0.01, "market_type": "USD_M_FUTURES"},
+          {"ticker": "SOL", "tick_size": 0.001, "market_type": "USD_M_FUTURES"}
+        ]
+      },
+      {
+        "name": "kraken-spot",
+        "symbols": [
+          {"ticker": "XBT/USD", "tick_size": 0.1, "market_type": "SPOT"},
+          {"ticker": "ETH/USD", "tick_size": 0.01, "market_type": "SPOT"}
+        ]
+      },
+      {
+        "name": "kraken-futures",
+        "symbols": [
+          {"ticker": "PF_XBTUSD", "tick_size": 0.5, "market_type": "USD_M_FUTURES"},
+          {"ticker": "PF_ETHUSD", "tick_size": 0.01, "market_type": "USD_M_FUTURES"}
+        ]
+      }
+    ]
   }
 }

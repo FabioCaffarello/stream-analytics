@@ -82,11 +82,14 @@ func TestBuildCandle_GoldenCascade_5mFrom1m(t *testing.T) {
 		t.Fatalf("non-deterministic output:\nleft=%+v\nright=%+v", left, right)
 	}
 
+	count1s := 0
 	count1m := 0
 	count5m := 0
 	var closed5m domain.CandleClosed
 	for i := range left {
 		switch left[i].Candle.Timeframe {
+		case "1s":
+			count1s++
 		case "1m":
 			count1m++
 		case "5m":
@@ -97,8 +100,11 @@ func TestBuildCandle_GoldenCascade_5mFrom1m(t *testing.T) {
 	if count5m != 1 {
 		t.Fatalf("5m close count=%d want=1", count5m)
 	}
-	if count1m != 6 {
-		t.Fatalf("1m close count=%d want=6", count1m)
+	if count1m != 5 {
+		t.Fatalf("1m close count=%d want=5", count1m)
+	}
+	if count1s != 6 {
+		t.Fatalf("1s close count=%d want=6", count1s)
 	}
 	if closed5m.Candle.Open != 100 || closed5m.Candle.ClosePrice != 104 {
 		t.Fatalf("5m o/c mismatch: open=%f close=%f", closed5m.Candle.Open, closed5m.Candle.ClosePrice)
