@@ -1133,6 +1133,13 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 		}
 		ui.push_text(&state.cmd_buf, {sx, sy}, health_label, health_color, ui.FONT_SIZE_XS, .Bold)
 		sx += state.text.measure(ui.FONT_SIZE_XS, health_label).x + 10
+		hud_label := state.telemetry_hud_enabled ? "HUD*" : "HUD"
+		hud_rect := ui.rect_xywh(sx, bar_y + 1, 38, STATUS_BAR_H - 2)
+		hud_btn := ui.button(&state.cmd_buf, hud_rect, hud_label, pointer, state.text.measure, ui.FONT_SIZE_XS, .Mono)
+		if hud_btn.clicked {
+			queue_ui_action(state, UI_Action{kind = .Toggle_Telemetry_HUD})
+		}
+		sx += hud_rect.size.x + 8
 		if state.active_stream_state == .Desync {
 			rs_rect := ui.rect_xywh(sx, bar_y + 1, 48, STATUS_BAR_H - 2)
 			rs_btn := ui.button(&state.cmd_buf, rs_rect, "Resync", pointer, state.text.measure, ui.FONT_SIZE_XS, .Mono)
@@ -1199,6 +1206,45 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 			r_color := rc_delta > 0 ? ui.COL_WARNING : ui.COL_TEXT_MUTED
 			ui.push_text(&state.cmd_buf, {sx, sy}, r_str, r_color, ui.FONT_SIZE_XS, .Mono)
 			sx += state.text.measure(ui.FONT_SIZE_XS, r_str).x + 10
+		}
+		if state.telemetry_hud_enabled {
+			mps_buf: [32]u8
+			mps_str := fmt.bprintf(mps_buf[:], "MPS:%.1f", state.active_stream_msg_rate)
+			ui.push_text(&state.cmd_buf, {sx, sy}, mps_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+			sx += state.text.measure(ui.FONT_SIZE_XS, mps_str).x + 8
+
+			bytes_per_sec := i64(state.active_stream_bytes_rate)
+			bps_buf: [32]u8
+			bps_str := ""
+			if bytes_per_sec >= 1024 * 1024 {
+				bps_str = fmt.bprintf(bps_buf[:], "BPS:%dMB/s", bytes_per_sec / (1024 * 1024))
+			} else {
+				bps_str = fmt.bprintf(bps_buf[:], "BPS:%dKB/s", bytes_per_sec / 1024)
+			}
+			ui.push_text(&state.cmd_buf, {sx, sy}, bps_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+			sx += state.text.measure(ui.FONT_SIZE_XS, bps_str).x + 8
+
+			cb_buf: [20]u8
+			cb_str := fmt.bprintf(cb_buf[:], "CB:%d", max(state.active_stream_candle_backlog, 0))
+			cb_color := state.active_stream_candle_backlog > 0 ? ui.COL_WARNING : ui.COL_TEXT_MUTED
+			ui.push_text(&state.cmd_buf, {sx, sy}, cb_str, cb_color, ui.FONT_SIZE_XS, .Mono)
+			sx += state.text.measure(ui.FONT_SIZE_XS, cb_str).x + 8
+
+			arena_buf: [40]u8
+			arena_str := fmt.bprintf(arena_buf[:], "Arena:%d/%d", len(state.cmd_buf.text_arena), cap(state.cmd_buf.text_arena))
+			ui.push_text(&state.cmd_buf, {sx, sy}, arena_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+			sx += state.text.measure(ui.FONT_SIZE_XS, arena_str).x + 8
+
+			pm_buf: [32]u8
+			pm_str := fmt.bprintf(pm_buf[:], "PM:%d", state.active_stream_parsed_msgs_total)
+			ui.push_text(&state.cmd_buf, {sx, sy}, pm_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+			sx += state.text.measure(ui.FONT_SIZE_XS, pm_str).x + 8
+
+			pb_buf: [32]u8
+			pb_mb := i64(state.active_stream_parsed_bytes_total / u64(1024 * 1024))
+			pb_str := fmt.bprintf(pb_buf[:], "PB:%dMB", pb_mb)
+			ui.push_text(&state.cmd_buf, {sx, sy}, pb_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+			sx += state.text.measure(ui.FONT_SIZE_XS, pb_str).x + 8
 		}
 
 		// Frame time p50.

@@ -34,6 +34,7 @@ draw_help_overlay :: proc(state: ^App_State, viewport_w, viewport_h: f32) {
 	Help_Entry :: struct { key, desc: string }
 	entries := [?]Help_Entry{
 		{"Ctrl+K", "Connection manager"},
+		{"Ctrl+H", "Telemetry HUD"},
 		{"Tab / Shift+Tab", "Cycle stream"},
 		{"1-9", "Timeframe"},
 		{"S", "Toggle detail panel"},

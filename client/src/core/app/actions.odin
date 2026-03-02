@@ -25,6 +25,7 @@ queue_ui_actions_from_input :: proc(state: ^App_State, input: ports.Input_State)
 		.K in pressed,
 		.G in pressed,
 		.R in pressed,
+		.H in pressed,
 	) {
 	case .Open_Connection_Manager:
 		queue_ui_action(state, UI_Action{kind = .Toggle_Connection_Modal})
@@ -32,6 +33,8 @@ queue_ui_actions_from_input :: proc(state: ^App_State, input: ports.Input_State)
 		queue_ui_action(state, UI_Action{kind = .Toggle_Stream_Picker})
 	case .Resync_Active_Stream:
 		queue_ui_action(state, UI_Action{kind = .Resync_Active_Stream})
+	case .Toggle_Telemetry_HUD:
+		queue_ui_action(state, UI_Action{kind = .Toggle_Telemetry_HUD})
 	case .None:
 	}
 
@@ -120,7 +123,7 @@ queue_ui_actions_from_input :: proc(state: ^App_State, input: ports.Input_State)
 		queue_ui_action(state, UI_Action{kind = .Toggle_MACD})
 	}
 	if .H in pressed {
-		queue_ui_action(state, UI_Action{kind = .Toggle_Funding})
+		if !input.modifiers.ctrl do queue_ui_action(state, UI_Action{kind = .Toggle_Funding})
 	}
 	if .J in pressed {
 		queue_ui_action(state, UI_Action{kind = .Toggle_Liq})
@@ -191,6 +194,9 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 			}
 		case .Toggle_Help:
 			state.show_help_overlay = !state.show_help_overlay
+		case .Toggle_Telemetry_HUD:
+			state.telemetry_hud_enabled = !state.telemetry_hud_enabled
+			show_toast(state, state.telemetry_hud_enabled ? "Telemetry HUD: ON" : "Telemetry HUD: OFF")
 		case .Toggle_Compare:
 			if state.compare_mode {
 				state.compare_mode = false
