@@ -129,17 +129,22 @@ Adding new topic:
 4. Snapshot-before-delta invariants are enforced for orderbook.
 5. StreamController/StreamRegistry is single source of truth for connect/subscribe/resync/health.
 6. URL query params are not an operational config source.
+7. Native runtime flags are not an operational config source (`--ws-url/--api-key/--venue/--symbol` removed).
 
 ## Operational Defaults
 
 - connection profile is persisted via settings/profile store.
 - API key defaults to session-only handling.
 - no runtime operational toggle via URL params.
+- no runtime operational toggle via native CLI connection flags.
+- Connection Manager is the only UI control surface for profile connect/disconnect and "Add Stream" fan-out.
 
 ## Verification Hooks
 
 - `make -C client build-wasm`
 - `make -C client build-native`
+- `cd client && odin test src/core/services -collection:mr=src/core`
+- `cd client && odin test src/core/streams -collection:mr=src/core`
 - `go test ./internal/actors/delivery/runtime -count=1`
 - soak scripts:
   - `client/scripts/soak-native.sh`
