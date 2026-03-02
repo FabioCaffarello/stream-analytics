@@ -43,10 +43,7 @@ func TestWSDelivery_CandleClosed_RoutedToSubscriber(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("subscribe write: %v", err)
 	}
-	var ack map[string]any
-	if err := conn.ReadJSON(&ack); err != nil {
-		t.Fatalf("subscribe read: %v", err)
-	}
+	ack := readFrameSkipHello(t, conn, 2*time.Second)
 	if got, want := ack["type"], "ack"; got != want {
 		t.Fatalf("ack type=%v want=%v", got, want)
 	}
@@ -61,11 +58,7 @@ func TestWSDelivery_CandleClosed_RoutedToSubscriber(t *testing.T) {
 		Payload:    []byte(`{"candle":"closed"}`),
 	}})
 
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	var evt map[string]any
-	if err := conn.ReadJSON(&evt); err != nil {
-		t.Fatalf("event read: %v", err)
-	}
+	evt := readFrameSkipHello(t, conn, 2*time.Second)
 	if got, want := evt["type"], "event"; got != want {
 		t.Fatalf("event type=%v want=%v", got, want)
 	}
@@ -108,10 +101,7 @@ func TestWSDelivery_StatsClosed_RoutedToSubscriber(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("subscribe write: %v", err)
 	}
-	var ack map[string]any
-	if err := conn.ReadJSON(&ack); err != nil {
-		t.Fatalf("subscribe read: %v", err)
-	}
+	ack := readFrameSkipHello(t, conn, 2*time.Second)
 	if got, want := ack["type"], "ack"; got != want {
 		t.Fatalf("ack type=%v want=%v", got, want)
 	}
@@ -126,11 +116,7 @@ func TestWSDelivery_StatsClosed_RoutedToSubscriber(t *testing.T) {
 		Payload:    []byte(`{"stats":"closed"}`),
 	}})
 
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	var evt map[string]any
-	if err := conn.ReadJSON(&evt); err != nil {
-		t.Fatalf("event read: %v", err)
-	}
+	evt := readFrameSkipHello(t, conn, 2*time.Second)
 	if got, want := evt["type"], "event"; got != want {
 		t.Fatalf("event type=%v want=%v", got, want)
 	}
@@ -178,10 +164,7 @@ func TestWSDelivery_CandleClosed_MultiInstrumentSubscriptions(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("subscribe[%d] write: %v", i, err)
 		}
-		var ack map[string]any
-		if err := conn.ReadJSON(&ack); err != nil {
-			t.Fatalf("subscribe[%d] read: %v", i, err)
-		}
+		ack := readFrameSkipHello(t, conn, 2*time.Second)
 		if got, want := ack["type"], "ack"; got != want {
 			t.Fatalf("ack[%d] type=%v want=%v", i, got, want)
 		}
@@ -206,15 +189,8 @@ func TestWSDelivery_CandleClosed_MultiInstrumentSubscriptions(t *testing.T) {
 		Payload:    []byte(`{"venue":"bybit"}`),
 	}})
 
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	var first map[string]any
-	if err := conn.ReadJSON(&first); err != nil {
-		t.Fatalf("first event read: %v", err)
-	}
-	var second map[string]any
-	if err := conn.ReadJSON(&second); err != nil {
-		t.Fatalf("second event read: %v", err)
-	}
+	first := readFrameSkipHello(t, conn, 2*time.Second)
+	second := readFrameSkipHello(t, conn, 2*time.Second)
 
 	gotSubjects := map[string]bool{
 		first["subject"].(string):  true,

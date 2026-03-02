@@ -101,10 +101,7 @@ func TestWSRangeDeterminismReplay(t *testing.T) {
 	if err := conn.WriteJSON(req); err != nil {
 		t.Fatalf("write req1: %v", err)
 	}
-	var resp1 map[string]any
-	if err := conn.ReadJSON(&resp1); err != nil {
-		t.Fatalf("read resp1: %v", err)
-	}
+	resp1 := readFrameSkipHello(t, conn, 2*time.Second)
 	if got, want := resp1["type"], "range"; got != want {
 		t.Fatalf("type=%v want=%v", got, want)
 	}
@@ -112,10 +109,7 @@ func TestWSRangeDeterminismReplay(t *testing.T) {
 	if err := conn.WriteJSON(req); err != nil {
 		t.Fatalf("write req2: %v", err)
 	}
-	var resp2 map[string]any
-	if err := conn.ReadJSON(&resp2); err != nil {
-		t.Fatalf("read resp2: %v", err)
-	}
+	resp2 := readFrameSkipHello(t, conn, 2*time.Second)
 	sig1 := extractRangeSignature(t, resp1)
 	sig2 := extractRangeSignature(t, resp2)
 	if len(sig1) != len(sig2) {
@@ -206,4 +200,20 @@ func extractRangeSignature(t *testing.T, msg map[string]any) []string {
 		out = append(out, strconv.FormatInt(int64(seq), 10)+"|"+strconv.FormatInt(int64(ts), 10)+"|"+payloadStr)
 	}
 	return out
+}
+
+func readFrameSkipHello(t *testing.T, conn *websocket.Conn, timeout time.Duration) map[string]any {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		_ = conn.SetReadDeadline(deadline)
+		var msg map[string]any
+		if err := conn.ReadJSON(&msg); err != nil {
+			t.Fatalf("read frame: %v", err)
+		}
+		if typ, _ := msg["type"].(string); typ == "hello" {
+			continue
+		}
+		return msg
+	}
 }

@@ -42,10 +42,7 @@ func TestWSDelivery_HeatmapSnapshot_RoutedToSubscriber(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("subscribe write: %v", err)
 	}
-	var ack map[string]any
-	if err := conn.ReadJSON(&ack); err != nil {
-		t.Fatalf("subscribe read: %v", err)
-	}
+	ack := readFrameSkipHello(t, conn, 2*time.Second)
 	if got, want := ack["type"], "ack"; got != want {
 		t.Fatalf("ack type=%v want=%v", got, want)
 	}
@@ -61,11 +58,7 @@ func TestWSDelivery_HeatmapSnapshot_RoutedToSubscriber(t *testing.T) {
 		Payload:    []byte(`{"cells":[]}`),
 	}})
 
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	var evt map[string]any
-	if err := conn.ReadJSON(&evt); err != nil {
-		t.Fatalf("event read: %v", err)
-	}
+	evt := readFrameSkipHello(t, conn, 2*time.Second)
 	if got, want := evt["type"], "event"; got != want {
 		t.Fatalf("event type=%v want=%v", got, want)
 	}
@@ -106,10 +99,7 @@ func TestWSDelivery_VolumeProfileSnapshot_RoutedToSubscriber(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("subscribe write: %v", err)
 	}
-	var ack map[string]any
-	if err := conn.ReadJSON(&ack); err != nil {
-		t.Fatalf("subscribe read: %v", err)
-	}
+	ack := readFrameSkipHello(t, conn, 2*time.Second)
 	if got, want := ack["type"], "ack"; got != want {
 		t.Fatalf("ack type=%v want=%v", got, want)
 	}
@@ -125,11 +115,7 @@ func TestWSDelivery_VolumeProfileSnapshot_RoutedToSubscriber(t *testing.T) {
 		Payload:    []byte(`{"buckets":[]}`),
 	}})
 
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	var evt map[string]any
-	if err := conn.ReadJSON(&evt); err != nil {
-		t.Fatalf("event read: %v", err)
-	}
+	evt := readFrameSkipHello(t, conn, 2*time.Second)
 	if got, want := evt["type"], "event"; got != want {
 		t.Fatalf("event type=%v want=%v", got, want)
 	}
