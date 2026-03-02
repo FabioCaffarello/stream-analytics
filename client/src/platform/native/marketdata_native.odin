@@ -821,7 +821,7 @@ reader_thread_proc :: proc(t: ^thread.Thread) {
 			continue
 		}
 
-		opcode, payload, err := ws_read_message(state.conn)
+		opcode, payload, err := ws_read_message(&state.conn)
 		if err != nil {
 			stop_now := native_should_stop(state)
 			if !stop_now {

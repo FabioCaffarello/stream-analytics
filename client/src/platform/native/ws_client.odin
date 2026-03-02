@@ -34,7 +34,9 @@ WS_Error :: enum {
 }
 
 WS_Connection :: struct {
-	socket: net.TCP_Socket,
+	socket:       net.TCP_Socket,
+	prefetch:     [dynamic]u8,
+	prefetch_pos: int,
 }
 
 @(private = "file")
@@ -144,16 +146,30 @@ ws_dial :: proc(url: string, extra_headers: string = "") -> (WS_Connection, WS_E
 	_ = net.set_option(conn, .Send_Timeout, time.Duration(0))
 
 	response_str := strings.to_string(response_builder)
+	header_end := strings.index(response_str, "\r\n\r\n")
+	if header_end == -1 {
+		return {socket = conn}, .Handshake_Error
+	}
 	expected_accept := ws_compute_accept_key(key)
 	if !strings.has_prefix(response_str, "HTTP/1.1 101") ||
 	   !strings.contains(response_str, fmt.tprintf("Sec-WebSocket-Accept: %s", expected_accept)) {
 		return {socket = conn}, .Handshake_Error
 	}
-
-	return {socket = conn}, nil
+	result := WS_Connection{socket = conn}
+	body_start := header_end + len("\r\n\r\n")
+	if body_start < len(response_str) {
+		append(&result.prefetch, ..transmute([]u8)response_str[body_start:])
+		result.prefetch_pos = 0
+	}
+	return result, nil
 }
 
 ws_close :: proc(conn: ^WS_Connection) {
+	if len(conn.prefetch) > 0 {
+		delete(conn.prefetch)
+	}
+	conn.prefetch = nil
+	conn.prefetch_pos = 0
 	if conn.socket != {} {
 		net.close(conn.socket)
 		conn.socket = {}
@@ -165,7 +181,7 @@ ws_is_connected :: proc(conn: WS_Connection) -> bool {
 }
 
 ws_read_message :: proc(
-	conn: WS_Connection,
+	conn: ^WS_Connection,
 	allocator := context.temp_allocator,
 ) -> (opcode: u8, payload: []u8, err: WS_Error) {
 	in_message := false
@@ -174,7 +190,7 @@ ws_read_message :: proc(
 
 	for {
 		header: [2]u8
-		n, recv_err := tcp_recv_exact(conn.socket, header[:])
+		n, recv_err := tcp_recv_exact_ws(conn, header[:])
 		if recv_err != nil || n != 2 {
 			return 0, nil, .Failed_Header_Read
 		}
@@ -186,7 +202,7 @@ ws_read_message :: proc(
 
 		if payload_len == 126 {
 			ext_len: [2]u8
-			n, recv_err = tcp_recv_exact(conn.socket, ext_len[:])
+			n, recv_err = tcp_recv_exact_ws(conn, ext_len[:])
 			if recv_err != nil || n != 2 {
 				return 0, nil, .Failed_Payload_Read_16
 			}
@@ -194,14 +210,14 @@ ws_read_message :: proc(
 			payload_len = u64(len16)
 		} else if payload_len == 127 {
 			ext_len: [8]u8
-			n, recv_err = tcp_recv_exact(conn.socket, ext_len[:])
+			n, recv_err = tcp_recv_exact_ws(conn, ext_len[:])
 			if recv_err != nil || n != 8 {
 				return 0, nil, .Failed_Payload_Read_64
 			}
 			payload_len, _ = endian.get_u64(ext_len[:], .Big)
 		}
 
-		frame_payload := ws_read_frame_payload(conn.socket, payload_len, is_masked, allocator) or_return
+		frame_payload := ws_read_frame_payload(conn, payload_len, is_masked, allocator) or_return
 
 		// Control frames.
 		if frame_opcode >= 0x8 {
@@ -237,6 +253,34 @@ ws_write_text :: proc(conn: WS_Connection, msg: string) -> WS_Error {
 // --- Internal helpers ---
 
 @(private = "file")
+tcp_recv_exact_ws :: proc(conn: ^WS_Connection, buf: []u8) -> (int, net.TCP_Recv_Error) {
+	total := 0
+	if conn != nil && conn.prefetch_pos < len(conn.prefetch) {
+		avail := len(conn.prefetch) - conn.prefetch_pos
+		ncopy := min(len(buf), avail)
+		copy(buf[:ncopy], conn.prefetch[conn.prefetch_pos:conn.prefetch_pos + ncopy])
+		conn.prefetch_pos += ncopy
+		total += ncopy
+		if conn.prefetch_pos >= len(conn.prefetch) {
+			delete(conn.prefetch)
+			conn.prefetch = nil
+			conn.prefetch_pos = 0
+		}
+	}
+	for total < len(buf) {
+		n, err := net.recv_tcp(conn.socket, buf[total:])
+		if err != nil {
+			return total, err
+		}
+		if n <= 0 {
+			return total, nil
+		}
+		total += n
+	}
+	return total, nil
+}
+
+@(private = "file")
 ws_generate_key :: proc() -> string {
 	key := make([]u8, 16, context.temp_allocator)
 	for i in 0 ..< 16 {
@@ -258,29 +302,25 @@ ws_compute_accept_key :: proc(key: string) -> string {
 
 @(private = "file")
 ws_read_frame_payload :: proc(
-	socket: net.TCP_Socket,
+	conn: ^WS_Connection,
 	payload_len: u64,
 	is_masked: bool,
 	allocator := context.temp_allocator,
 ) -> ([]u8, WS_Error) {
 	mask: [4]u8
 	if is_masked {
-		n, err := tcp_recv_exact(socket, mask[:])
+		n, err := tcp_recv_exact_ws(conn, mask[:])
 		if err != nil || n != 4 {
 			return nil, .Failed_Mask_Read
 		}
 	}
 	payload := make([]u8, payload_len, allocator)
-	total_received := 0
-	for total_received < int(payload_len) {
-		n, err := net.recv_tcp(socket, payload[total_received:])
-		if err != nil {
-			return nil, .Failed_Payload_Read
-		}
-		if n == 0 {
-			return nil, .Read_Conn_Closed
-		}
-		total_received += n
+	n, err := tcp_recv_exact_ws(conn, payload)
+	if err != nil {
+		return nil, .Failed_Payload_Read
+	}
+	if n != int(payload_len) {
+		return nil, .Read_Conn_Closed
 	}
 	if is_masked {
 		for i in 0 ..< int(payload_len) {
