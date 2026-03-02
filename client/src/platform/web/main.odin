@@ -4,8 +4,6 @@ package main
 // The odin.js animation loop calls step(dt, odin_ctx) on every frame.
 
 import "base:runtime"
-import "core:fmt"
-import "core:strings"
 import "mr:app"
 import "mr:ports"
 import "mr:services"
@@ -13,91 +11,19 @@ import "mr:services"
 // Default connection config.
 WS_URL  :: "ws://127.0.0.1:8080/ws"
 API_KEY :: ""
-DEFAULT_VENUE  :: "binance"
-DEFAULT_SYMBOL :: "BTCUSDT:SPOT"
 
 g_state: app.App_State
 g_prev_mouse_pos: [2]f32
 g_has_prev_mouse_pos: bool
 
-query_param_or_into :: proc(name: string, fallback: string, backing: []u8) -> string {
-	if len(backing) == 0 do return fallback
-	n := url_query_param(
-		raw_data(transmute([]u8)name), i32(len(name)),
-		raw_data(backing), i32(len(backing)),
-	)
-	if n <= 0 do return fallback
-	if n > i32(len(backing)) do n = i32(len(backing))
-	val := strings.trim_space(string(backing[:int(n)]))
-	if len(val) == 0 do return fallback
-	return val
-}
-
-query_flag :: proc(name: string) -> bool {
-	buf: [8]u8
-	v := query_param_or_into(name, "0", buf[:])
-	return v == "1" || v == "true" || v == "TRUE" || v == "yes" || v == "YES"
-}
-
 main :: proc() {
 	text_port := make_text_port()
 	font_port := stub_font_port()
 	settings_port := stub_settings_port()
-	offline := query_flag("offline")
-	log_deprecated_connection_query_params()
-	md_port: ports.Marketdata_Port
-	if offline {
-		md_port = stub_marketdata_port()
-	} else {
-		md_port = make_marketdata_web(WS_URL, API_KEY)
-	}
+	md_port := make_marketdata_web(WS_URL, API_KEY)
 
-	app.init(&g_state, text_port, md_port, font_port, settings_port, offline)
+	app.init(&g_state, text_port, md_port, font_port, settings_port, false)
 	app.set_runtime_connection_defaults(&g_state, WS_URL, API_KEY)
-}
-
-@(private = "file")
-web_has_any_saved_layout :: proc(settings_port: ports.Settings_Port) -> bool {
-	if settings_port.load == nil do return false
-	_, has_v4 := settings_port.load("layout_v4")
-	if has_v4 do return true
-	_, has_v3 := settings_port.load("layout_v3")
-	if has_v3 do return true
-	_, has_v2 := settings_port.load("layout_v2")
-	if has_v2 do return true
-	_, has_v1 := settings_port.load("layout")
-	return has_v1
-}
-
-// DEPRECATED remove-by=2026-12-31: URL-based boot binding is kept only for temporary compatibility.
-// New runtime flow uses Profile Store + Connection Manager commands.
-@(private = "file")
-apply_query_default_binding :: proc(state: ^app.App_State, venue: string, symbol: string, offline: bool, has_saved_layout: bool) {
-	if state == nil || state.cell_count <= 0 do return
-	if len(venue) == 0 || len(symbol) == 0 do return
-	if has_saved_layout do return
-
-	// PRD-0009: URL params provide first-start binding for web when no persisted layout exists.
-	app.cell_set_binding(&state.cell_assignments[0], venue, symbol)
-	app.persist_layout_v4(state)
-	if !offline {
-		app.reconcile_subscriptions(state)
-	}
-}
-
-@(private = "file")
-log_deprecated_connection_query_params :: proc() {
-	keys := [?]string{"ws_url", "ws", "venue", "symbol", "market_type", "api_key", "key"}
-	buf: [512]u8
-	for k in keys {
-		n := url_query_param(
-			raw_data(transmute([]u8)k), i32(len(k)),
-			raw_data(buf[:]), i32(len(buf)),
-		)
-		if n > 0 {
-			fmt.printf("[web] DEPRECATED URL param ignored: %s\n", k)
-		}
-	}
 }
 
 @(private = "file")

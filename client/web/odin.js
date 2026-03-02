@@ -74,188 +74,10 @@ function defaultWsUrlForCurrentOrigin() {
     return `${proto}://${host}/ws`;
 }
 
-const DEFAULT_RUNTIME_CONFIG = Object.freeze({
-    ws_url: defaultWsUrlForCurrentOrigin(),
-    api_key: "prod_key_1",
-    venue: "binance",
-    symbol: "BTCUSDT:SPOT",
-    market_type: "",
-    offline: false,
-});
-
 const SETTINGS_STORAGE_PREFIX = "mr.settings.";
 
 function settingsStorageKey(key) {
     return `${SETTINGS_STORAGE_PREFIX}${key}`;
-}
-
-function getParamAlias(params, keys, fallback = "") {
-    for (const key of keys) {
-        const val = params.get(key);
-        if (typeof val === "string" && val.length > 0) return val;
-    }
-    return fallback;
-}
-
-function readRuntimeConfig(params = new URLSearchParams(window.location.search)) {
-    return {
-        ws_url: getParamAlias(params, ["ws_url", "ws"], DEFAULT_RUNTIME_CONFIG.ws_url),
-        api_key: getParamAlias(params, ["api_key", "key"], DEFAULT_RUNTIME_CONFIG.api_key),
-        venue: getParamAlias(params, ["venue"], DEFAULT_RUNTIME_CONFIG.venue),
-        symbol: getParamAlias(params, ["symbol"], DEFAULT_RUNTIME_CONFIG.symbol),
-        market_type: getParamAlias(params, ["market_type"], DEFAULT_RUNTIME_CONFIG.market_type),
-        offline: params.get("offline") === "1" || params.get("offline") === "true",
-    };
-}
-
-function setOrDeleteParam(params, key, value, aliases = []) {
-    const hasValue = typeof value === "string" ? value.length > 0 : Boolean(value);
-    if (hasValue) {
-        params.set(key, String(value));
-    } else {
-        params.delete(key);
-    }
-    for (const alias of aliases) params.delete(alias);
-}
-
-function buildRuntimeSearchParams(config = {}, baseSearch = window.location.search) {
-    const next = new URLSearchParams(baseSearch);
-    if (config.ws_url !== undefined || config.ws !== undefined) {
-        const wsUrl = config.ws_url ?? config.ws ?? "";
-        setOrDeleteParam(next, "ws_url", wsUrl, ["ws"]);
-    }
-    if (config.api_key !== undefined || config.key !== undefined) {
-        const apiKey = config.api_key ?? config.key ?? "";
-        setOrDeleteParam(next, "api_key", apiKey, ["key"]);
-    }
-    if (config.venue !== undefined) setOrDeleteParam(next, "venue", config.venue);
-    if (config.symbol !== undefined) setOrDeleteParam(next, "symbol", config.symbol);
-    if (config.market_type !== undefined) setOrDeleteParam(next, "market_type", config.market_type);
-    if (config.offline !== undefined) {
-        if (config.offline) next.set("offline", "1");
-        else next.delete("offline");
-    }
-    return next;
-}
-
-function applyRuntimeConfigAndReload(config = {}) {
-    const next = buildRuntimeSearchParams(config);
-    const q = next.toString();
-    window.location.search = q.length > 0 ? `?${q}` : "";
-}
-
-function applyRuntimeConfigWithoutReload(config = {}) {
-    const next = buildRuntimeSearchParams(config);
-    const q = next.toString();
-    const target = q.length > 0 ? `${window.location.pathname}?${q}` : window.location.pathname;
-    window.history.replaceState(null, "", target);
-    return readRuntimeConfig();
-}
-
-function ensureRuntimeWsUrlInQuery() {
-    const params = new URLSearchParams(window.location.search);
-    if (params.has("ws_url") || params.has("ws")) return;
-    applyRuntimeConfigWithoutReload({ ws_url: DEFAULT_RUNTIME_CONFIG.ws_url });
-}
-
-// Keep WASM and JS runtime defaults aligned (main.odin reads ws_url from query params).
-ensureRuntimeWsUrlInQuery();
-
-// Runtime helpers for endpoint/market overrides.
-window.__mr_get_runtime_config = () => readRuntimeConfig();
-window.__mr_set_runtime_config = (config = {}) => applyRuntimeConfigAndReload(config);
-window.__mr_set_runtime_config_live = (config = {}) => applyRuntimeConfigWithoutReload(config);
-window.__mr_set_ws_endpoint = (wsUrl, apiKey, options = {}) => {
-    if (options && options.live) {
-        return window.__mr_switch_ws_runtime(wsUrl, apiKey, options);
-    }
-    return applyRuntimeConfigAndReload({ ws_url: wsUrl, api_key: apiKey });
-};
-
-function mountRuntimeConfigPanel() {
-    const form = document.getElementById("conn-form");
-    if (!form) return;
-
-    // Click panel title to toggle collapsed state.
-    const panelTitle = document.querySelector("#conn-panel .panel-title");
-    if (panelTitle) {
-        panelTitle.addEventListener("click", () => {
-            const panel = document.getElementById("conn-panel");
-            if (panel) panel.classList.toggle("collapsed");
-        });
-    }
-
-    const wsInput = document.getElementById("cfg-ws-url");
-    const apiKeyInput = document.getElementById("cfg-api-key");
-    const venueInput = document.getElementById("cfg-venue");
-    const symbolInput = document.getElementById("cfg-symbol");
-    const marketTypeInput = document.getElementById("cfg-market-type");
-    const offlineInput = document.getElementById("cfg-offline");
-    const defaultsBtn = document.getElementById("cfg-defaults");
-    const applyLiveBtn = document.getElementById("cfg-apply-live");
-    const hint = document.getElementById("conn-hint");
-
-    if (!wsInput || !apiKeyInput || !venueInput || !symbolInput || !marketTypeInput || !offlineInput) {
-        return;
-    }
-
-    const syncFormWithConfig = () => {
-        const cfg = readRuntimeConfig();
-        wsInput.value = cfg.ws_url;
-        apiKeyInput.value = cfg.api_key;
-        venueInput.value = cfg.venue;
-        symbolInput.value = cfg.symbol;
-        marketTypeInput.value = cfg.market_type;
-        offlineInput.checked = cfg.offline;
-    };
-    const updateHint = (msg = "") => {
-        if (!hint) return;
-        const cfg = readRuntimeConfig();
-        const override = wsRuntimeOverride.ws_url || wsRuntimeOverride.api_key ? "runtime-override" : "url-config";
-        const suffix = msg ? ` | ${msg}` : "";
-        hint.textContent = `mode=${override} ws=${cfg.ws_url} venue=${cfg.venue} symbol=${cfg.symbol}${suffix}`;
-    };
-    syncFormWithConfig();
-    updateHint();
-
-    form.addEventListener("submit", (ev) => {
-        ev.preventDefault();
-        applyRuntimeConfigAndReload({
-            ws_url: wsInput.value.trim(),
-            api_key: apiKeyInput.value.trim(),
-            venue: venueInput.value.trim(),
-            symbol: symbolInput.value.trim(),
-            market_type: marketTypeInput.value.trim(),
-            offline: offlineInput.checked,
-        });
-    });
-
-    if (defaultsBtn) {
-        defaultsBtn.addEventListener("click", () => {
-            wsInput.value = DEFAULT_RUNTIME_CONFIG.ws_url;
-            apiKeyInput.value = DEFAULT_RUNTIME_CONFIG.api_key;
-            venueInput.value = DEFAULT_RUNTIME_CONFIG.venue;
-            symbolInput.value = DEFAULT_RUNTIME_CONFIG.symbol;
-            marketTypeInput.value = DEFAULT_RUNTIME_CONFIG.market_type;
-            offlineInput.checked = DEFAULT_RUNTIME_CONFIG.offline;
-            updateHint("defaults loaded");
-        });
-    }
-
-    if (applyLiveBtn) {
-        applyLiveBtn.addEventListener("click", () => {
-            const wsUrl = wsInput.value.trim();
-            const apiKey = apiKeyInput.value.trim();
-            window.__mr_switch_ws_runtime(wsUrl, apiKey, { persist: true });
-            applyRuntimeConfigWithoutReload({
-                venue: venueInput.value.trim(),
-                symbol: symbolInput.value.trim(),
-                market_type: marketTypeInput.value.trim(),
-                offline: offlineInput.checked,
-            });
-            updateHint("runtime switch requested; reconnecting");
-        });
-    }
 }
 
 const TEXT_MEASURE_CACHE_CAP = 2048;
@@ -537,9 +359,6 @@ function connectSocketUrl(wsUrl) {
         if (ws !== wsLocal || wsEpoch !== epoch) return;
         wsState = 2; // open
         console.log("[ws] connected to", wsUrl);
-        // Auto-collapse connection panel after successful WS connect.
-        const cp = document.getElementById("conn-panel");
-        if (cp && !cp.classList.contains("collapsed")) cp.classList.add("collapsed");
     };
     ws.onmessage = (ev) => {
         if (ws !== wsLocal || wsEpoch !== epoch) return;
@@ -569,13 +388,9 @@ function connectSocketUrl(wsUrl) {
 function switchWsRuntime(wsUrl, apiKey, options = {}) {
     if (typeof wsUrl === "string") wsRuntimeOverride.ws_url = wsUrl.trim();
     if (typeof apiKey === "string") wsRuntimeOverride.api_key = apiKey.trim();
-
-    const persist = !options || options.persist !== false;
-    const cfgPatch = {};
-    if (typeof wsUrl === "string") cfgPatch.ws_url = wsRuntimeOverride.ws_url;
-    if (typeof apiKey === "string") cfgPatch.api_key = wsRuntimeOverride.api_key;
-    if (persist && Object.keys(cfgPatch).length > 0) {
-        applyRuntimeConfigWithoutReload(cfgPatch);
+    const live = !options || options.live !== false;
+    if (!live) {
+        return runtimeConfigSnapshot();
     }
 
     // Force Odin reconnection flow. Adapter will reconnect and re-subscribe with the overridden endpoint.
@@ -584,25 +399,35 @@ function switchWsRuntime(wsUrl, apiKey, options = {}) {
     wsMsgQueue.length = 0;
     lastWsMsgTs = 0;
 
+    return runtimeConfigSnapshot();
+}
+
+function runtimeConfigSnapshot() {
     return {
-        mode: wsRuntimeOverride.ws_url || wsRuntimeOverride.api_key ? "runtime-override" : "url-config",
+        mode: wsRuntimeOverride.ws_url || wsRuntimeOverride.api_key ? "runtime-override" : "default",
         ws_url: wsRuntimeOverride.ws_url,
         api_key: wsRuntimeOverride.api_key,
+        default_ws_url: defaultWsUrlForCurrentOrigin(),
     };
 }
 
+window.__mr_get_runtime_config = () => runtimeConfigSnapshot();
+window.__mr_set_runtime_config = (config = {}) => switchWsRuntime(config.ws_url, config.api_key, { live: true });
+window.__mr_set_runtime_config_live = (config = {}) => switchWsRuntime(config.ws_url, config.api_key, { live: true });
+window.__mr_set_ws_endpoint = (wsUrl, apiKey, options = {}) => switchWsRuntime(wsUrl, apiKey, options);
 window.__mr_switch_ws_runtime = switchWsRuntime;
-window.__mr_clear_ws_runtime_override = () => {
+window.__mr_clear_ws_runtime_override = (options = {}) => {
     wsRuntimeOverride.ws_url = "";
     wsRuntimeOverride.api_key = "";
-    return {
-        mode: "url-config",
-        ws_url: "",
-        api_key: "",
-    };
+    const live = !options || options.live !== false;
+    if (live) {
+        closeActiveSocket(false);
+        wsState = 0;
+        wsMsgQueue.length = 0;
+        lastWsMsgTs = 0;
+    }
+    return runtimeConfigSnapshot();
 };
-
-mountRuntimeConfigPanel();
 
 // ---------------------------------------------------------------------------
 // Perf HUD (optional, debug-only)
@@ -1114,7 +939,8 @@ try {
 
     if (outputEl) {
         const cfg = window.__mr_get_runtime_config();
-        outputEl.textContent = `WASM loaded. ws=${cfg.ws_url} market=${cfg.venue}/${cfg.symbol}`;
+        const wsUrl = cfg.ws_url || cfg.default_ws_url;
+        outputEl.textContent = `WASM loaded. ws=${wsUrl}`;
     }
 } catch (err) {
     console.error("Failed to load WASM:", err);
