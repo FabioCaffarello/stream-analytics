@@ -29,13 +29,14 @@ type fakeRead struct {
 }
 
 type fakeConn struct {
-	readCh  chan fakeRead
-	writeCh chan any
-	closed  atomic.Bool
+	readCh    chan fakeRead
+	writeCh   chan any
+	dropHello bool
+	closed    atomic.Bool
 }
 
 func newFakeConn() *fakeConn {
-	return &fakeConn{readCh: make(chan fakeRead, 16), writeCh: make(chan any, 16)}
+	return &fakeConn{readCh: make(chan fakeRead, 16), writeCh: make(chan any, 16), dropHello: true}
 }
 
 func (f *fakeConn) ReadMessage() (int, []byte, error) {
@@ -44,6 +45,11 @@ func (f *fakeConn) ReadMessage() (int, []byte, error) {
 }
 
 func (f *fakeConn) WriteJSON(v any) error {
+	if f.dropHello {
+		if _, ok := v.(wsHelloFrame); ok {
+			return nil
+		}
+	}
 	f.writeCh <- v
 	return nil
 }
@@ -169,6 +175,44 @@ func TestSession_attachConnStartsReadLoop(t *testing.T) {
 	sub := waitForMessage[SubscribeSession](t, routerCh, time.Second)
 	if got, want := sub.Subject.String(), "marketdata.trade/binance/BTCUSDT/raw"; got != want {
 		t.Fatalf("subscribe subject = %q, want %q", got, want)
+	}
+}
+
+func TestSession_emitsHelloOnAttach(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-capture-hello")
+	defer e.Poison(routerPID)
+
+	conn := newFakeConn()
+	conn.dropHello = false
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{RouterPID: routerPID, Conn: conn}), "ws-session-hello")
+	defer e.Poison(sessionPID)
+
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+	msg := <-conn.writeCh
+	hello, ok := msg.(wsHelloFrame)
+	if !ok {
+		t.Fatalf("message type=%T want wsHelloFrame", msg)
+	}
+	if got, want := hello.Type, "hello"; got != want {
+		t.Fatalf("type=%q want=%q", got, want)
+	}
+	if got, want := hello.Payload.ProtoVer, wsProtocolVersion; got != want {
+		t.Fatalf("proto_ver=%d want=%d", got, want)
+	}
+	if hello.Payload.ServerTime <= 0 {
+		t.Fatalf("server_time=%d want > 0", hello.Payload.ServerTime)
+	}
+	if len(hello.Payload.Capabilities.Topics) == 0 {
+		t.Fatal("expected non-empty capabilities.topics")
+	}
+	if len(hello.Payload.Capabilities.Venues) == 0 {
+		t.Fatal("expected non-empty capabilities.venues")
 	}
 }
 

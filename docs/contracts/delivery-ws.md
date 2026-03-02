@@ -2,7 +2,7 @@
 
 **Status:** Active
 **Owner:** Product Architect
-**Last updated:** 2026-03-01
+**Last updated:** 2026-03-02
 **Relates to:** `docs/adrs/ADR-0002-event-envelope-and-versioning.md`, `docs/adrs/ADR-0007-delivery-ws-sessions.md`, `docs/adrs/ADR-0013-backpressure-overload-policies.md`, `docs/adrs/ADR-0014-stream-partitioning-strategy.md`, `docs/contracts/event-bus.md`, `docs/rfcs/RFC-0003-W2-DELIVERY-BC.md`
 
 ## Purpose
@@ -86,6 +86,34 @@ GetRange range params:
 
 ### Server -> Client Frames
 
+Hello (mandatory first control frame):
+```json
+{
+  "type": "hello",
+  "payload": {
+    "proto_ver": 1,
+    "server_time": 1710000000000,
+    "capabilities": {
+      "topics": [
+        "marketdata.trade",
+        "marketdata.bookdelta",
+        "aggregation.candle",
+        "aggregation.stats"
+      ],
+      "venues": ["binance", "bybit"]
+    }
+  }
+}
+```
+
+Hello contract:
+- `hello` MUST be delivered before data frames.
+- `payload.proto_ver` MUST match client supported version.
+- `payload.server_time` is required and must be unix epoch in milliseconds.
+- `payload.capabilities.topics` is required and non-empty.
+- on validation failure or version mismatch, client must enter `DESYNC(reason)` and request resync/reconnect.
+- silent fallback on unknown/unsupported protocol versions is forbidden.
+
 Ack:
 ```json
 {
@@ -153,6 +181,8 @@ Range:
 - `WS-4`: no unbounded per-session queue in parity target design.
 - `WS-5`: unsubscribe/remove session must release routing state and memory.
 - `WS-6`: when `getrange` is requested with symbol alias (`SYMBOL:MARKET_TYPE`) and no direct rows exist, delivery may perform one deterministic fallback lookup using canonical `SYMBOL`.
+- `WS-7`: orderbook deltas require snapshot-first on the client side; snapshot gap must trigger desync and resubscribe.
+- `WS-8`: protocol gate is mandatory (`hello` + `proto_ver` + required capabilities fields).
 
 ## Backpressure
 
@@ -192,6 +222,7 @@ Required metrics:
 |---|---|---|---|
 | Subject parser and 4-segment validation | Existing | `internal/core/delivery/domain/subject.go` | `internal/core/delivery/domain/subject_test.go:TestParseSubject`, `internal/core/delivery/domain/subject_test.go:TestParseSubject_invalid` |
 | Session command handling (`subscribe`, `unsubscribe`, `getrange`) | Existing | `internal/actors/delivery/runtime/session.go` | `internal/actors/delivery/runtime/session_test.go:TestSession_parseSubscribeUnsubscribeGetRange` |
+| Session emits protocol hello on attach | Existing | `internal/actors/delivery/runtime/session.go` | `internal/actors/delivery/runtime/session_test.go:TestSession_emitsHelloOnAttach` |
 | Router broadcast only to subscribed sessions | Existing | `internal/actors/delivery/runtime/router.go` | `internal/actors/delivery/runtime/router_test.go:TestRouter_subscribeUnsubscribeAndBroadcast` |
 | Disconnect cleanup and unregister | Existing | `internal/actors/delivery/runtime/session.go` | `internal/actors/delivery/runtime/session_test.go:TestSession_disconnectTriggersUnregister` |
 | Deterministic range from durable store | Planned | `internal/core/delivery/ports/ports.go` | `internal/core/delivery/app/session_usecase_test.go:TestSessionService_GetRange_storeUnavailable` |

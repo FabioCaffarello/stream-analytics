@@ -26,6 +26,7 @@ import (
 
 const readLimitBytes = 64 * 1024
 const wsKeepalivePingInterval = 20 * time.Second
+const wsProtocolVersion = 1
 
 const (
 	defaultRangeLimit = 100
@@ -213,6 +214,7 @@ func (s *SessionActor) attachConn(conn wsConn) {
 	if s.cfg.Conn == nil {
 		return
 	}
+	s.emitHello()
 	s.readerCtx, s.cancelReader = context.WithCancel(context.Background())
 	s.cfg.Conn.SetReadLimit(readLimitBytes)
 	if err := s.cfg.Conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
@@ -223,6 +225,40 @@ func (s *SessionActor) attachConn(conn wsConn) {
 	})
 	go s.keepaliveLoop(s.readerCtx)
 	go s.readLoop()
+}
+
+func (s *SessionActor) emitHello() {
+	if s.cfg.Conn == nil {
+		return
+	}
+	nowMs := time.Now().UnixMilli()
+	if s.cfg.Clock != nil {
+		nowMs = s.cfg.Clock.Now().UnixMilli()
+	}
+	s.writeJSON(wsHelloFrame{
+		Type: "hello",
+		Payload: wsHelloPayload{
+			ProtoVer:   wsProtocolVersion,
+			ServerTime: nowMs,
+			Capabilities: wsHelloCapabilities{
+				Topics: []string{
+					"marketdata.trade",
+					"marketdata.bookdelta",
+					"aggregation.stats",
+					"aggregation.candle",
+					"insights.heatmap_snapshot",
+					"insights.volume_profile_snapshot",
+				},
+				Venues: []string{
+					"binance",
+					"bybit",
+					"coinbase",
+					"kraken",
+					"hyperliquid",
+				},
+			},
+		},
+	})
 }
 
 func (s *SessionActor) onStopped() {
@@ -289,6 +325,23 @@ type wsAckFrame struct {
 	Op        string `json:"op"`
 	RequestID string `json:"request_id"`
 	Subject   string `json:"subject"`
+}
+
+type wsHelloCapabilities struct {
+	Topics  []string `json:"topics"`
+	Venues  []string `json:"venues"`
+	Symbols []string `json:"symbols,omitempty"`
+}
+
+type wsHelloPayload struct {
+	ProtoVer     int                 `json:"proto_ver"`
+	ServerTime   int64               `json:"server_time"`
+	Capabilities wsHelloCapabilities `json:"capabilities"`
+}
+
+type wsHelloFrame struct {
+	Type    string         `json:"type"`
+	Payload wsHelloPayload `json:"payload"`
 }
 
 type wsSnapshotFrame struct {
