@@ -360,6 +360,7 @@ App_State :: struct {
 	active_stream_drop_count:        int,
 	active_stream_reconnect_count:   int,
 	active_stream_subscribe_acks:    int,
+	active_stream_last_ack_metric:   int,
 	active_stream_candle_backlog:    int,
 	active_stream_msg_rate:          f64,
 	active_stream_bytes_rate:        f64,

@@ -96,6 +96,106 @@ refresh_telemetry_hud_cache :: proc(state: ^App_State) {
 	))
 }
 
+@(private = "file")
+desync_reason_short :: proc(reason: streams.Stream_Desync_Reason) -> string {
+	switch reason {
+	case .Sequence_Gap:
+		return "seq gap"
+	case .Snapshot_Stale:
+		return "snapshot stale"
+	case .Clock_Drift:
+		return "clock drift"
+	case .Manual:
+		return "manual"
+	case .None:
+	}
+	return ""
+}
+
+@(private = "file")
+desync_wait_message :: proc(reason: streams.Stream_Desync_Reason) -> string {
+	switch reason {
+	case .Sequence_Gap:
+		return "DESYNC: sequence gap (Resync)"
+	case .Snapshot_Stale:
+		return "DESYNC: snapshot stale (Resync)"
+	case .Clock_Drift:
+		return "DESYNC: clock drift (Resync)"
+	case .Manual:
+		return "DESYNC: manual resync in progress"
+	case .None:
+	}
+	return "DESYNC (Resync)"
+}
+
+@(private = "file")
+active_stream_waiting_primary_data :: proc(state: ^App_State) -> bool {
+	if state == nil do return false
+	if current_conn_status(state) != .Connected do return false
+	if state.active_stream_state == .Offline do return false
+	return state.active_stream_last_stats_ts_ms <= 0 && state.active_stream_last_orderbook_ts_ms <= 0
+}
+
+@(private = "file")
+active_stream_reason_short :: proc(state: ^App_State) -> string {
+	if state == nil do return ""
+	if state.active_stream_state == .Desync {
+		return desync_reason_short(state.active_stream_desync_reason)
+	}
+	if state.active_stream_subscribe_acks <= 0 do return "sub not acked"
+
+	snapshot_ts_ms := i64(0)
+	if active := streams.registry_active(&state.stream_registry); active != nil {
+		snapshot_ts_ms = active.status.last_snapshot_ts_ms
+	}
+	if snapshot_ts_ms <= 0 do return "snapshot pending"
+	if state.active_stream_last_stats_ts_ms <= 0 do return "stats pending"
+	if state.active_stream_state == .Lag do return "lagging"
+	return ""
+}
+
+@(private = "file")
+stats_wait_message :: proc(
+	stream_state: streams.Stream_State,
+	desync_reason: streams.Stream_Desync_Reason,
+	subscribe_acks: int,
+	stats_last_ts_ms: i64,
+) -> string {
+	switch stream_state {
+	case .Offline:
+		return "OFFLINE"
+	case .Desync:
+		return desync_wait_message(desync_reason)
+	case .Lag, .Live:
+		if subscribe_acks <= 0 do return "Waiting ACK (stats)..."
+		if stats_last_ts_ms <= 0 do return "LIVE (no data): stats pending"
+		if stream_state == .Lag do return "LAG (stats delayed)..."
+	}
+	return "Waiting for stats..."
+}
+
+@(private = "file")
+orderbook_wait_message :: proc(
+	stream_state: streams.Stream_State,
+	desync_reason: streams.Stream_Desync_Reason,
+	subscribe_acks: int,
+	snapshot_ts_ms: i64,
+	orderbook_last_ts_ms: i64,
+) -> string {
+	switch stream_state {
+	case .Offline:
+		return "OFFLINE"
+	case .Desync:
+		return desync_wait_message(desync_reason)
+	case .Lag, .Live:
+		if subscribe_acks <= 0 do return "Waiting ACK (orderbook)..."
+		if snapshot_ts_ms <= 0 do return "LIVE (no data): snapshot pending"
+		if orderbook_last_ts_ms <= 0 do return "LIVE (no data): orderbook pending"
+		if stream_state == .Lag do return "LAG (orderbook delayed)..."
+	}
+	return "Waiting for orderbook..."
+}
+
 build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buffer {
 	ui.reset(&state.cmd_buf)
 	state.last_indicator_probe = {}
@@ -328,17 +428,32 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 		for i in 0 ..< state.ob_group_count {
 			ob_label_strs[i] = string(state.ob_group_labels[i][:cstring_len(&state.ob_group_labels[i])])
 		}
+		active_snapshot_ts_ms := i64(0)
+		if active := streams.registry_active(&state.stream_registry); active != nil {
+			active_snapshot_ts_ms = active.status.last_snapshot_ts_ms
+		}
+		active_orderbook_empty_reason := orderbook_wait_message(
+			state.active_stream_state,
+			state.active_stream_desync_reason,
+			state.active_stream_subscribe_acks,
+			active_snapshot_ts_ms,
+			state.active_stream_last_orderbook_ts_ms,
+		)
 		widgets.orderbook_widget(&state.cmd_buf, widgets.Orderbook_Widget_Data{
-			store         = &state.orderbook_store,
-			viewport      = ob_rect,
-			text          = state.text,
-			scroll_y      = &state.ob_scroll_y,
-			input         = input,
-			price_group   = ob_price_group,
-			max_rows      = ob_max_rows,
-			group_options = ob_label_strs[:state.ob_group_count],
-			group_idx     = &state.ob_group_idx,
-			pointer       = pointer,
+			store                = &state.orderbook_store,
+			viewport             = ob_rect,
+			text                 = state.text,
+			scroll_y             = &state.ob_scroll_y,
+			input                = input,
+			price_group          = ob_price_group,
+			max_rows             = ob_max_rows,
+			group_options        = ob_label_strs[:state.ob_group_count],
+			group_idx            = &state.ob_group_idx,
+			pointer              = pointer,
+			stream_id            = streams.registry_active_stream_id(&state.stream_registry),
+			stream_state         = state.active_stream_state,
+			stream_desync_reason = state.active_stream_desync_reason,
+			empty_reason         = active_orderbook_empty_reason,
 		})
 
 		// Focus mode label.
@@ -425,16 +540,42 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 				}
 				ob_max := 16
 				if cell_rect.size.y < 170 do ob_max = 10
+				cmp_stream_id_buf: [streams.STREAM_ID_CAP]u8
+				cmp_stream_id := ""
+				cmp_stream_state := streams.Stream_State.Live
+				cmp_desync_reason := streams.Stream_Desync_Reason.None
+				cmp_subscribe_acks := 0
+				cmp_snapshot_ts_ms := i64(0)
+				if slot.has_stream_info {
+					cmp_stream_id = build_stream_id_from_market_into(cmp_stream_id_buf[:], slot.stream_info.venue, slot.stream_info.symbol)
+					if h := streams.registry_get(&state.stream_registry, cmp_stream_id); h != nil {
+						cmp_stream_state = h.status.state
+						cmp_desync_reason = h.status.desync_reason
+						cmp_subscribe_acks = h.status.subscribe_acks
+						cmp_snapshot_ts_ms = h.status.last_snapshot_ts_ms
+					}
+				}
+				cmp_orderbook_empty_reason := orderbook_wait_message(
+					cmp_stream_state,
+					cmp_desync_reason,
+					cmp_subscribe_acks,
+					cmp_snapshot_ts_ms,
+					0,
+				)
 				widgets.orderbook_widget(&state.cmd_buf, widgets.Orderbook_Widget_Data{
-					store       = &slot.orderbook_store,
-					viewport    = cell_rect,
-					text        = state.text,
-					scroll_y    = &state.compare_ob_scroll[ci],
-					input       = input,
-					price_group = ob_pg,
-					max_rows    = ob_max,
-					group_idx   = &state.compare_ob_grp_idx[ci],
-					pointer     = pointer,
+					store                = &slot.orderbook_store,
+					viewport             = cell_rect,
+					text                 = state.text,
+					scroll_y             = &state.compare_ob_scroll[ci],
+					input                = input,
+					price_group          = ob_pg,
+					max_rows             = ob_max,
+					group_idx            = &state.compare_ob_grp_idx[ci],
+					pointer              = pointer,
+					stream_id            = cmp_stream_id,
+					stream_state         = cmp_stream_state,
+					stream_desync_reason = cmp_desync_reason,
+					empty_reason         = cmp_orderbook_empty_reason,
 				})
 			case 1: // Trades
 				widgets.trades_widget(&state.cmd_buf, widgets.Trades_Widget_Data{
@@ -647,7 +788,20 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 				stores := resolve_stores_for_cell(state, cell, ci)
 				cell_stream_id_buf: [streams.STREAM_ID_CAP]u8
 				cell_stream_id := streams.registry_active_stream_id(&state.stream_registry)
+				active_stream_id := cell_stream_id
 				cell_stream_state := state.active_stream_state
+				cell_stream_desync_reason := state.active_stream_desync_reason
+				cell_stream_subscribe_acks := state.active_stream_subscribe_acks
+				cell_stream_last_snapshot_ts_ms := i64(0)
+				cell_stream_last_msg_ts_ms := state.active_stream_last_msg_ts_ms
+				if active := streams.registry_active(&state.stream_registry); active != nil {
+					cell_stream_last_snapshot_ts_ms = active.status.last_snapshot_ts_ms
+					if cell_stream_last_msg_ts_ms <= 0 {
+						cell_stream_last_msg_ts_ms = active.status.last_local_ts_ms
+					}
+				}
+				cell_stats_last_ts_ms := state.active_stream_last_stats_ts_ms
+				cell_orderbook_last_ts_ms := state.active_stream_last_orderbook_ts_ms
 				if cell.stream_idx >= 0 && cell.stream_idx < STREAM_VIEW_CAP {
 					if reg := state.stream_views; reg != nil && reg.slots[cell.stream_idx].used {
 						slot := &reg.slots[cell.stream_idx]
@@ -656,10 +810,31 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 							cell_stream_id = build_stream_id_from_market_into(cell_stream_id_buf[:], slot.stream_info.venue, slot.stream_info.symbol)
 							if h := streams.registry_get(&state.stream_registry, cell_stream_id); h != nil {
 								cell_stream_state = h.status.state
+								cell_stream_desync_reason = h.status.desync_reason
+								cell_stream_subscribe_acks = h.status.subscribe_acks
+								cell_stream_last_snapshot_ts_ms = h.status.last_snapshot_ts_ms
+								cell_stream_last_msg_ts_ms = h.status.last_local_ts_ms
 							}
 						}
 					}
 				}
+				if cell_stream_id != active_stream_id {
+					cell_stats_last_ts_ms = 0
+					cell_orderbook_last_ts_ms = 0
+				}
+				stats_empty_reason := stats_wait_message(
+					cell_stream_state,
+					cell_stream_desync_reason,
+					cell_stream_subscribe_acks,
+					cell_stats_last_ts_ms,
+				)
+				orderbook_empty_reason := orderbook_wait_message(
+					cell_stream_state,
+					cell_stream_desync_reason,
+					cell_stream_subscribe_acks,
+					cell_stream_last_snapshot_ts_ms,
+					cell_orderbook_last_ts_ms,
+				)
 
 				switch cell.widget {
 				case .Candle:
@@ -766,11 +941,13 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 
 				case .Stats:
 					widgets.stats_widget(&state.cmd_buf, widgets.Stats_Widget_Data{
-						store    = stores.stats,
-						viewport = cell_vp,
-						text     = state.text,
-						stream_id = cell_stream_id,
-						stream_state = cell_stream_state,
+						store                = stores.stats,
+						viewport             = cell_vp,
+						text                 = state.text,
+						stream_id            = cell_stream_id,
+						stream_state         = cell_stream_state,
+						stream_desync_reason = cell_stream_desync_reason,
+						empty_reason         = stats_empty_reason,
 					})
 
 				case .Counter:
@@ -865,18 +1042,20 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 						ob_label_strs[i] = string(state.ob_group_labels[i][:cstring_len(&state.ob_group_labels[i])])
 					}
 					widgets.orderbook_widget(&state.cmd_buf, widgets.Orderbook_Widget_Data{
-						store         = stores.orderbook,
-						viewport      = cell_vp,
-						text          = state.text,
-						scroll_y      = &cell.ob_scroll_y,
-						input         = input,
-						price_group   = ob_price_group,
-						max_rows      = ob_max_rows,
-						group_options = ob_label_strs[:state.ob_group_count],
-						group_idx     = &cell.ob_group_idx,
-						pointer       = pointer,
-						stream_id     = cell_stream_id,
-						stream_state  = cell_stream_state,
+						store                = stores.orderbook,
+						viewport             = cell_vp,
+						text                 = state.text,
+						scroll_y             = &cell.ob_scroll_y,
+						input                = input,
+						price_group          = ob_price_group,
+						max_rows             = ob_max_rows,
+						group_options        = ob_label_strs[:state.ob_group_count],
+						group_idx            = &cell.ob_group_idx,
+						pointer              = pointer,
+						stream_id            = cell_stream_id,
+						stream_state         = cell_stream_state,
+						stream_desync_reason = cell_stream_desync_reason,
+						empty_reason         = orderbook_empty_reason,
 					})
 
 				case .DOM:
@@ -902,15 +1081,19 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 						dom_label_strs[i] = string(state.ob_group_labels[i][:cstring_len(&state.ob_group_labels[i])])
 					}
 					widgets.dom_widget(&state.cmd_buf, widgets.DOM_Widget_Data{
-						orderbook     = stores.orderbook,
-						dom           = &state.dom_store,
-						viewport      = cell_vp,
-						text          = state.text,
-						input         = input,
-						pointer       = pointer,
-						group_options = dom_label_strs[:state.ob_group_count],
-						group_idx     = &cell.dom_group_idx,
-						price_group   = dom_price_group,
+						orderbook            = stores.orderbook,
+						dom                  = &state.dom_store,
+						viewport             = cell_vp,
+						text                 = state.text,
+						input                = input,
+						pointer              = pointer,
+						group_options        = dom_label_strs[:state.ob_group_count],
+						group_idx            = &cell.dom_group_idx,
+						price_group          = dom_price_group,
+						stream_id            = cell_stream_id,
+						stream_state         = cell_stream_state,
+						stream_desync_reason = cell_stream_desync_reason,
+						empty_reason         = orderbook_empty_reason,
 					})
 
 				case .Empty:
@@ -1172,10 +1355,16 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 		// Strong stream health status (LIVE / LAG / DESYNC).
 		health_label := "OFFLINE"
 		health_color := ui.COL_TEXT_MUTED
+		waiting_primary := active_stream_waiting_primary_data(state)
 		switch state.active_stream_state {
 		case .Live:
-			health_label = "LIVE"
-			health_color = ui.COL_GREEN
+			if waiting_primary {
+				health_label = "LIVE (no data)"
+				health_color = ui.COL_WARNING
+			} else {
+				health_label = "LIVE"
+				health_color = ui.COL_GREEN
+			}
 		case .Lag:
 			health_label = "LAG"
 			health_color = ui.COL_WARNING
@@ -1186,6 +1375,14 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 		}
 		ui.push_text(&state.cmd_buf, {sx, sy}, health_label, health_color, ui.FONT_SIZE_XS, .Bold)
 		sx += state.text.measure(ui.FONT_SIZE_XS, health_label).x + 10
+		reason_short := active_stream_reason_short(state)
+		if len(reason_short) > 0 {
+			reason_color := state.active_stream_state == .Desync ? ui.COL_RED : ui.COL_TEXT_MUTED
+			reason_buf: [48]u8
+			reason_str := fmt.bprintf(reason_buf[:], "[%s]", reason_short)
+			ui.push_text(&state.cmd_buf, {sx, sy}, reason_str, reason_color, ui.FONT_SIZE_XS, .Mono)
+			sx += state.text.measure(ui.FONT_SIZE_XS, reason_str).x + 8
+		}
 		hud_label := state.telemetry_hud_enabled ? "HUD*" : "HUD"
 		hud_rect := ui.rect_xywh(sx, bar_y + 1, 38, STATUS_BAR_H - 2)
 		hud_btn := ui.button(&state.cmd_buf, hud_rect, hud_label, pointer, state.text.measure, ui.FONT_SIZE_XS, .Mono)
@@ -1193,7 +1390,7 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 			queue_ui_action(state, UI_Action{kind = .Toggle_Telemetry_HUD})
 		}
 		sx += hud_rect.size.x + 8
-		if state.active_stream_state == .Desync {
+		if state.active_stream_state == .Desync || waiting_primary {
 			rs_rect := ui.rect_xywh(sx, bar_y + 1, 48, STATUS_BAR_H - 2)
 			rs_btn := ui.button(&state.cmd_buf, rs_rect, "Resync", pointer, state.text.measure, ui.FONT_SIZE_XS, .Mono)
 			if rs_btn.clicked {
@@ -1324,6 +1521,13 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 		cd_color := cd_live ? ui.COL_GREEN : ui.COL_TEXT_MUTED
 		ui.push_text(&state.cmd_buf, {sx, sy}, cd_label, cd_color, ui.FONT_SIZE_XS, .Mono)
 		sx += state.text.measure(ui.FONT_SIZE_XS, cd_label).x + 12
+		if len(reason_short) > 0 {
+			rsn_buf: [64]u8
+			rsn_label := fmt.bprintf(rsn_buf[:], "RSN:%s", reason_short)
+			rsn_color := state.active_stream_state == .Desync ? ui.COL_RED : ui.COL_WARNING
+			ui.push_text(&state.cmd_buf, {sx, sy}, rsn_label, rsn_color, ui.FONT_SIZE_XS, .Mono)
+			sx += state.text.measure(ui.FONT_SIZE_XS, rsn_label).x + 8
+		}
 
 		// Whale alert flash (visible for ~2 sec = 120 frames at 60fps).
 		if state.whale_alert_frame > 0 && state.frame > 0 && state.frame - state.whale_alert_frame < 120 {

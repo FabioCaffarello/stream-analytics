@@ -617,6 +617,9 @@ record_stream_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, kind: po
 	server_ms := event_unix_to_ms(unix)
 	if local_ms <= 0 do local_ms = server_ms
 	is_snapshot := kind == .Orderbook_Snapshot || kind == .Heatmap || kind == .VPVR || kind == .Range_Candle_Batch
+	if is_active_stream && handle.status.desync_reason == .Manual {
+		streams.controller_clear_desync(&handle.status)
+	}
 	streams.controller_mark_message(&handle.status, local_ms, server_ms, 0, is_snapshot)
 	streams.controller_mark_connected(&handle.status, current_conn_status(state) == .Connected)
 	if is_active_stream {

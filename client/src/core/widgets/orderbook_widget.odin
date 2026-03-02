@@ -18,19 +18,21 @@ Aggregated_Level :: struct {
 }
 
 Orderbook_Widget_Data :: struct {
-	store:       ^services.Orderbook_Store,
-	viewport:    ui.Rect,
-	text:        ports.Text_Port,
-	scroll_y:    ^f32,
-	input:       ports.Input_State,
-	price_group: f64,
-	max_rows:    int,
+	store:                ^services.Orderbook_Store,
+	viewport:             ui.Rect,
+	text:                 ports.Text_Port,
+	scroll_y:             ^f32,
+	input:                ports.Input_State,
+	price_group:          f64,
+	max_rows:             int,
 	// Panel v2 controls.
-	group_options:  []string,     // formatted grouping labels (e.g. "0.1", "1", "10")
-	group_idx:      ^int,         // pointer to selected grouping index in app state
-	pointer:        ui.Pointer_Input,
-	stream_id:      string,
-	stream_state:   streams.Stream_State,
+	group_options:        []string, // formatted grouping labels (e.g. "0.1", "1", "10")
+	group_idx:            ^int,     // pointer to selected grouping index in app state
+	pointer:              ui.Pointer_Input,
+	stream_id:            string,
+	stream_state:         streams.Stream_State,
+	stream_desync_reason: streams.Stream_Desync_Reason,
+	empty_reason:         string,
 }
 
 orderbook_widget :: proc(buf: ^ui.Command_Buffer, data: Orderbook_Widget_Data) {
@@ -43,7 +45,8 @@ orderbook_widget :: proc(buf: ^ui.Command_Buffer, data: Orderbook_Widget_Data) {
 			bg_color     = ui.COL_PANEL_BG,
 			pad          = 4,
 		}, data.text.measure, ui.FONT_SIZE_SM)
-		msg :: "Waiting for orderbook..."
+		msg := data.empty_reason
+		if len(msg) == 0 do msg = "Waiting for orderbook..."
 		ui.push_text(buf,
 			{inner.pos.x + inner.size.x * 0.5 - 80, inner.pos.y + inner.size.y * 0.5},
 			msg, ui.with_alpha(ui.COL_WHITE, 0.3), ui.FONT_SIZE_SM)

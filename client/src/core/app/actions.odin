@@ -512,12 +512,45 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 				}
 			}
 		case .Resync_Active_Stream:
-			if active := streams.registry_active(&state.stream_registry); active != nil {
-				streams.controller_clear_desync(&active.status)
+			current_ack_metric := 0
+			if state.marketdata.metrics != nil {
+				metrics: ports.MD_Runtime_Metrics
+				if state.marketdata.metrics(&metrics) {
+					current_ack_metric = max(metrics.subscribe_ack_count, 0)
+				}
 			}
+			state.active_stream_last_ack_metric = current_ack_metric
+			state.active_stream_subscribe_acks = 0
+			state.active_has_live_stats = false
+			state.active_has_live_heatmap = false
+			state.active_has_live_vpvr = false
+			state.active_has_live_candle = false
+			state.active_stream_last_stats_ts_ms = 0
+			state.active_stream_last_orderbook_ts_ms = 0
+			state.synth_heatmap_last_window = 0
+			state.getrange_pending = false
+			state.getrange_seeded = false
+			state.getrange_subject_id = 0
+			state.getrange_oldest_ts = 0
+			state.active_candle_subject_id = 0
+			if now_ms := current_now_ms(state); now_ms > 0 {
+				state.candle_last_recv_local_ms = now_ms
+			}
+			if active := streams.registry_active(&state.stream_registry); active != nil {
+				streams.controller_mark_desync(&active.status, .Manual)
+				active.status.last_snapshot_ts_ms = 0
+				active.status.last_local_ts_ms = 0
+				active.status.last_server_ts_ms = 0
+				active.status.last_message_age_ms = 0
+				active.status.last_seq = 0
+				active.status.subscribe_acks = 0
+			}
+			state.active_stream_state = .Desync
+			state.active_stream_desync_reason = .Manual
+			state.prev_subs_count = 0 // force full re-subscribe path
 			reconcile_subscriptions(state)
 			request_active_stream_candle_range(state)
-			show_toast(state, "Resync")
+			show_toast(state, "Resync requested")
 		}
 	}
 	state.ui_action_count = 0

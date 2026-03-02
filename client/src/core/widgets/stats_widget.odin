@@ -11,11 +11,13 @@ import "mr:streams"
 import "mr:ui"
 
 Stats_Widget_Data :: struct {
-	store:    ^services.Stats_Store,
-	viewport: ui.Rect,
-	text:     ports.Text_Port,
-	stream_id: string,
-	stream_state: streams.Stream_State,
+	store:                ^services.Stats_Store,
+	viewport:             ui.Rect,
+	text:                 ports.Text_Port,
+	stream_id:            string,
+	stream_state:         streams.Stream_State,
+	stream_desync_reason: streams.Stream_Desync_Reason,
+	empty_reason:         string,
 }
 
 stats_widget :: proc(buf: ^ui.Command_Buffer, data: Stats_Widget_Data) {
@@ -30,7 +32,8 @@ stats_widget :: proc(buf: ^ui.Command_Buffer, data: Stats_Widget_Data) {
 	}, data.text.measure, ui.FONT_SIZE_SM)
 
 	if store == nil || store.count == 0 {
-		msg :: "Waiting for stats..."
+		msg := data.empty_reason
+		if len(msg) == 0 do msg = "Waiting for stats..."
 		ui.push_text(buf,
 			{vp.pos.x + vp.size.x * 0.5 - 60, vp.pos.y + vp.size.y * 0.5},
 			msg, ui.with_alpha(ui.COL_WHITE, 0.3), ui.FONT_SIZE_SM)

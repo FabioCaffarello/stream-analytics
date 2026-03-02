@@ -122,6 +122,13 @@ sample_marketdata_metrics :: proc(state: ^App_State) {
 
 refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtime_Metrics) {
 	if state == nil do return
+	raw_subscribe_acks := max(metrics.subscribe_ack_count, 0)
+	prev_ack_metric := state.active_stream_last_ack_metric
+	ack_metric_reset := raw_subscribe_acks < prev_ack_metric
+	ack_delta := raw_subscribe_acks - prev_ack_metric
+	if ack_delta < 0 do ack_delta = raw_subscribe_acks
+	state.active_stream_last_ack_metric = raw_subscribe_acks
+
 	active := streams.registry_active(&state.stream_registry)
 	if active == nil {
 		state.active_stream_state = current_conn_status(state) == .Connected ? .Lag : .Offline
@@ -131,7 +138,7 @@ refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtim
 		state.active_stream_last_msg_ts_ms = metrics.last_msg_ts_ms
 		state.active_stream_drop_count = metrics.drop_count
 		state.active_stream_reconnect_count = metrics.reconnect_count
-		state.active_stream_subscribe_acks = metrics.subscribe_ack_count
+		state.active_stream_subscribe_acks = raw_subscribe_acks
 		state.active_stream_candle_backlog = metrics.candle_backlog
 		state.active_stream_msg_rate = metrics.msg_rate
 		state.active_stream_bytes_rate = metrics.bytes_rate
@@ -143,6 +150,12 @@ refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtim
 
 	streams.controller_mark_connected(&active.status, current_conn_status(state) == .Connected)
 	streams.controller_mark_transport_metrics(&active.status, metrics.drop_count, metrics.reconnect_count, metrics.rtt_ms)
+	if ack_metric_reset {
+		active.status.subscribe_acks = 0
+	}
+	if ack_delta > 0 {
+		active.status.subscribe_acks += ack_delta
+	}
 	if metrics.desync {
 		streams.controller_mark_desync(&active.status, .Sequence_Gap)
 	}
