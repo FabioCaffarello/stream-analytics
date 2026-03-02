@@ -412,8 +412,6 @@ App_State :: struct {
 	compare_ob_grp_idx:      [4]int,
 	compare_trade_scroll:    [4]f32,
 	compare_trade_filter:    [4]int,
-	venue_dropdown:     ui.Dropdown_State,
-
 	// Route + detail panel.
 	active_route:          Route,    // zero = .Dashboard
 	detail_panel_expanded: bool,

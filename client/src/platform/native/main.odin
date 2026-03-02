@@ -60,9 +60,6 @@ main :: proc() {
 	soak_multi := false
 	ws_url := "ws://127.0.0.1:8080/ws"
 	api_key := "prod_key_1"
-	venue := DEFAULT_SUBS[0].venue
-	symbol := DEFAULT_SUBS[0].symbol
-	market_type := ""
 	soak_seconds := 0
 	soak_log_ms := 0
 	for i in 0 ..< len(os.args) {
@@ -72,21 +69,6 @@ main :: proc() {
 		if arg == "--soak-multi" do soak_multi = true
 		soak_seconds = parse_positive_int_flag(arg, "--soak-seconds=", soak_seconds)
 		soak_log_ms = parse_positive_int_flag(arg, "--soak-log-ms=", soak_log_ms)
-		if strings.has_prefix(arg, "--ws-url=") {
-			ws_url = arg[len("--ws-url="):]
-		}
-		if strings.has_prefix(arg, "--api-key=") {
-			api_key = arg[len("--api-key="):]
-		}
-		if strings.has_prefix(arg, "--venue=") {
-			venue = arg[len("--venue="):]
-		}
-		if strings.has_prefix(arg, "--symbol=") {
-			symbol = arg[len("--symbol="):]
-		}
-		if strings.has_prefix(arg, "--market-type=") {
-			market_type = arg[len("--market-type="):]
-		}
 	}
 
 	// 2. Backend init.
@@ -104,15 +86,6 @@ main :: proc() {
 	// Only soak mode still uses explicit subscribe_default_channels for testing.
 	if !offline && (soak_multi || soak_seconds > 0) {
 		subs := soak_multi ? SOAK_MULTI_SUBS : DEFAULT_SUBS
-		if !soak_multi {
-			symbol_with_type := symbol
-			if len(market_type) > 0 && !strings.contains(symbol_with_type, ":") {
-				symbol_with_type = strings.concatenate({symbol_with_type, ":", market_type})
-			}
-			single_sub: [1]Venue_Symbol
-			single_sub[0] = Venue_Symbol{venue = venue, symbol = symbol_with_type}
-			subs = single_sub[:]
-		}
 		subscribe_default_channels(md_port, subs)
 		if soak_seconds > 0 || soak_log_ms > 0 {
 			fmt.printf("[soak] subscriptions=%d mode=%s log_ms=%d duration_s=%d\n",

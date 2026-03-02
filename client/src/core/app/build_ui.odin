@@ -1342,11 +1342,6 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 			}
 		}
 
-		// --- Venue dropdown (rendered after widgets for z-order) ---
-		if !state.compare_mode {
-			draw_venue_dropdown(state, pointer, viewport_w)
-		}
-
 	case .Markets:
 		build_markets_page(state, workspace, pointer)
 

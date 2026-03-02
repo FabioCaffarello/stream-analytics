@@ -14,8 +14,6 @@ COLLECTION_DEPS := -collection:deps=deps
 
 ODIN_OPT ?= size
 SERVE_PORT ?= 8080
-NATIVE_WS_URL ?= ws://127.0.0.1:8080/ws
-NATIVE_API_KEY ?= prod_key_1
 NATIVE_FLAGS ?=
 
 CORE_PKGS := app model ui widgets math util ports services
@@ -28,7 +26,7 @@ help:
 	@echo "  make build-wasm         - build wasm + copy    → build/app.wasm + web/app.wasm"
 	@echo "  make build              - build both native and wasm"
 	@echo "  make run                - build + run native   → opens GLFW window"
-	@echo "  make run-native-compose - build + run native connected to local compose WS"
+	@echo "  make run-native-compose - build + run native (compose defaults)"
 	@echo "  make run-native-offline - build + run native in offline/stub mode"
 	@echo "  make clean              - remove build artifacts"
 	@echo "  make serve              - build wasm + serve web/ on :$(SERVE_PORT)"
@@ -43,8 +41,6 @@ help:
 	@echo "Options:"
 	@echo "  ODIN_OPT=size|speed|none  (default: size)"
 	@echo "  SERVE_PORT=N             (default: 8080)"
-	@echo "  NATIVE_WS_URL=ws://...   (default: $(NATIVE_WS_URL))"
-	@echo "  NATIVE_API_KEY=...       (default: $(NATIVE_API_KEY))"
 	@echo "  NATIVE_FLAGS='--sdl2'    (optional extra native flags)"
 	@echo ""
 	@echo "OLS profiles (edit ols.json to switch):"
@@ -71,7 +67,7 @@ run: build-native
 	./$(NATIVE_OUT)
 
 run-native-compose: build-native
-	./$(NATIVE_OUT) --ws-url="$(NATIVE_WS_URL)" --api-key="$(NATIVE_API_KEY)" $(NATIVE_FLAGS)
+	./$(NATIVE_OUT) $(NATIVE_FLAGS)
 
 run-native-offline: build-native
 	./$(NATIVE_OUT) --offline $(NATIVE_FLAGS)

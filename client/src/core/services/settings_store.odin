@@ -21,8 +21,6 @@ Settings_Store :: struct {
 }
 
 // Known settings keys.
-SETTING_SYMBOL       :: "symbol"
-SETTING_THEME        :: "theme"
 SETTING_ACTIVE_TF_IDX             :: "active_tf_idx"
 SETTING_OB_PRICE_GRP :: "ob_price_group"
 SETTING_ACTIVE_STREAM_SUBJECT_ID :: "active_stream_subject_id"
@@ -89,7 +87,7 @@ settings_init :: proc(store: ^Settings_Store, port: ports.Settings_Port) {
 
 	// Pre-load known keys.
 	known_keys := [?]string{
-		SETTING_SYMBOL, SETTING_THEME, SETTING_ACTIVE_TF_IDX, SETTING_OB_PRICE_GRP,
+		SETTING_ACTIVE_TF_IDX, SETTING_OB_PRICE_GRP,
 			SETTING_ACTIVE_STREAM_SUBJECT_ID,
 			SETTING_ACTIVE_STREAM_VENUE, SETTING_ACTIVE_STREAM_SYMBOL, SETTING_ACTIVE_STREAM_CHANNEL,
 				SETTING_SIDEBAR_EXPANDED, SETTING_OB_GROUP_IDX, SETTING_TRADE_FILTER_IDX, SETTING_SHOW_CANDLE_VOL,

@@ -166,33 +166,66 @@ draw_exchange_manager :: proc(state: ^App_State, viewport_w, viewport_h: f32, po
 	})
 	footer_y += 10
 
+	selected_market_idx := -1
+	if selected_idx >= 0 && selected_idx < state.profiles.count {
+		p := &state.profiles.profiles[selected_idx]
+		profile_venue := normalized_venue(services.profile_venue(p))
+		profile_symbol := services.profile_symbol(p)
+		profile_market_type := services.profile_market_type(p)
+		symbol_base := profile_symbol
+		if sep := strings.last_index(profile_symbol, ":"); sep > 0 {
+			symbol_base = profile_symbol[:sep]
+			if len(profile_market_type) == 0 && sep < len(profile_symbol) - 1 {
+				profile_market_type = profile_symbol[sep + 1:]
+			}
+		}
+		for mi in 0 ..< state.markets_store.count {
+			entry := state.markets_store.entries[mi]
+			if normalized_venue(entry.venue) != profile_venue do continue
+			if entry.ticker != symbol_base do continue
+			if len(profile_market_type) > 0 && len(entry.market_type) > 0 && entry.market_type != profile_market_type do continue
+			selected_market_idx = mi
+			break
+		}
+	}
+
 	btn_h := f32(20)
 	btn_x := px + 12
-	add_btn := ui.button(&state.cmd_buf, ui.rect_xywh(btn_x, footer_y, 68, btn_h),
+	add_btn := ui.button(&state.cmd_buf, ui.rect_xywh(btn_x, footer_y, 52, btn_h),
 		"Add", pointer, state.text.measure, ui.FONT_SIZE_XS, .Mono)
 	if add_btn.clicked {
 		queue_ui_action(state, UI_Action{kind = .Add_Profile})
 	}
-	btn_x += 72
-	apply_btn := ui.button(&state.cmd_buf, ui.rect_xywh(btn_x, footer_y, 68, btn_h),
+	btn_x += 56
+	apply_btn := ui.button(&state.cmd_buf, ui.rect_xywh(btn_x, footer_y, 52, btn_h),
 		"Apply", pointer, state.text.measure, ui.FONT_SIZE_XS, .Mono)
 	if apply_btn.clicked {
 		queue_ui_action(state, UI_Action{kind = .Apply_Profile, profile_idx = selected_idx})
 	}
-	btn_x += 72
-	connect_btn := ui.button(&state.cmd_buf, ui.rect_xywh(btn_x, footer_y, 72, btn_h),
+	btn_x += 56
+	connect_btn := ui.button(&state.cmd_buf, ui.rect_xywh(btn_x, footer_y, 62, btn_h),
 		"Connect", pointer, state.text.measure, ui.FONT_SIZE_XS, .Mono)
 	if connect_btn.clicked {
 		queue_ui_action(state, UI_Action{kind = .Connect_Profile, profile_idx = selected_idx})
 	}
-	btn_x += 76
-	disconnect_btn := ui.button(&state.cmd_buf, ui.rect_xywh(btn_x, footer_y, 84, btn_h),
+	btn_x += 66
+	add_stream_btn := ui.button(&state.cmd_buf, ui.rect_xywh(btn_x, footer_y, 76, btn_h),
+		"+ Stream", pointer, state.text.measure, ui.FONT_SIZE_XS, .Mono)
+	if add_stream_btn.clicked {
+		if selected_market_idx >= 0 {
+			queue_ui_action(state, UI_Action{kind = .Subscribe_Market, market_entry_idx = selected_market_idx})
+		} else {
+			show_toast(state, "Profile market unavailable")
+		}
+	}
+	btn_x += 80
+	disconnect_btn := ui.button(&state.cmd_buf, ui.rect_xywh(btn_x, footer_y, 66, btn_h),
 		"Disconnect", pointer, state.text.measure, ui.FONT_SIZE_XS, .Mono)
 	if disconnect_btn.clicked {
 		queue_ui_action(state, UI_Action{kind = .Disconnect_Profile})
 	}
-	btn_x += 88
-	del_btn := ui.button(&state.cmd_buf, ui.rect_xywh(btn_x, footer_y, 58, btn_h),
+	btn_x += 70
+	del_btn := ui.button(&state.cmd_buf, ui.rect_xywh(btn_x, footer_y, 52, btn_h),
 		"Delete", pointer, state.text.measure, ui.FONT_SIZE_XS, .Mono)
 	if del_btn.clicked {
 		queue_ui_action(state, UI_Action{kind = .Remove_Profile, profile_idx = selected_idx})

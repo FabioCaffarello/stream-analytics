@@ -5,13 +5,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLIENT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 LOG_FILE="${CLIENT_DIR}/build/check-widgets-online.log"
-WS_URL="${WS_URL:-ws://127.0.0.1:8080/ws}"
-API_KEY="${API_KEY:-prod_key_1}"
 SOAK_SECONDS="${SOAK_SECONDS:-10}"
 SOAK_LOG_MS="${SOAK_LOG_MS:-1000}"
-ONLINE_VENUE="${ONLINE_VENUE:-binance}"
-ONLINE_SYMBOL="${ONLINE_SYMBOL:-BTCUSDT}"
-ONLINE_MARKET_TYPE="${ONLINE_MARKET_TYPE:-SPOT}"
+SOAK_MULTI="${SOAK_MULTI:-0}"
 MIN_WIDGET_COUNT="${MIN_WIDGET_COUNT:-1}"
 MIN_TRADES_COUNT="${MIN_TRADES_COUNT:-${MIN_WIDGET_COUNT}}"
 MIN_ORDERBOOK_ASK_COUNT="${MIN_ORDERBOOK_ASK_COUNT:-${MIN_WIDGET_COUNT}}"
@@ -26,14 +22,14 @@ echo "check-widgets-online: building native client"
 make -C "${CLIENT_DIR}" build-native >/dev/null
 
 echo "check-widgets-online: running online soak probe"
-"${CLIENT_DIR}/build/app" \
-  --ws-url="${WS_URL}" \
-  --api-key="${API_KEY}" \
-  --venue="${ONLINE_VENUE}" \
-  --symbol="${ONLINE_SYMBOL}" \
-  --market-type="${ONLINE_MARKET_TYPE}" \
-  --soak-seconds="${SOAK_SECONDS}" \
-  --soak-log-ms="${SOAK_LOG_MS}" >"${LOG_FILE}" 2>&1
+app_args=(
+  "--soak-seconds=${SOAK_SECONDS}"
+  "--soak-log-ms=${SOAK_LOG_MS}"
+)
+if [[ "${SOAK_MULTI}" == "1" ]]; then
+  app_args+=("--soak-multi")
+fi
+"${CLIENT_DIR}/build/app" "${app_args[@]}" >"${LOG_FILE}" 2>&1
 
 if grep -Eiq "${RUNTIME_ERR_RE}" "${LOG_FILE}"; then
   echo "check-widgets-online: FAIL - runtime error markers found in log"

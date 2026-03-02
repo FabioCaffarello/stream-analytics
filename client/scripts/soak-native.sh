@@ -37,7 +37,7 @@ Options:
 Examples:
   client/scripts/soak-native.sh --duration-sec 900 --sample-sec 2 --build
   client/scripts/soak-native.sh --duration-sec 300 --restart-server-every-sec 30 --restart-server-max-count 3
-  client/scripts/soak-native.sh --duration-sec 600 -- --ws-url=ws://127.0.0.1:8080/ws --api-key=prod_key_1
+  client/scripts/soak-native.sh --duration-sec 600 -- --sdl2
 EOF
 }
 
