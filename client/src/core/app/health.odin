@@ -132,6 +132,11 @@ refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtim
 		state.active_stream_drop_count = metrics.drop_count
 		state.active_stream_reconnect_count = metrics.reconnect_count
 		state.active_stream_subscribe_acks = metrics.subscribe_ack_count
+		state.active_stream_candle_backlog = metrics.candle_backlog
+		state.active_stream_msg_rate = metrics.msg_rate
+		state.active_stream_bytes_rate = metrics.bytes_rate
+		state.active_stream_parsed_msgs_total = metrics.parsed_msgs_total
+		state.active_stream_parsed_bytes_total = metrics.parsed_bytes_total
 		return
 	}
 
@@ -150,6 +155,11 @@ refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtim
 	state.active_stream_drop_count = active.status.drop_count
 	state.active_stream_reconnect_count = active.status.reconnect_count
 	state.active_stream_subscribe_acks = active.status.subscribe_acks
+	state.active_stream_candle_backlog = metrics.candle_backlog
+	state.active_stream_msg_rate = metrics.msg_rate
+	state.active_stream_bytes_rate = metrics.bytes_rate
+	state.active_stream_parsed_msgs_total = metrics.parsed_msgs_total
+	state.active_stream_parsed_bytes_total = metrics.parsed_bytes_total
 
 	// Additional client-side DESYNC detection for visible "Waiting for stats/orderbook" regressions.
 	if now_ms > 0 && current_conn_status(state) == .Connected {

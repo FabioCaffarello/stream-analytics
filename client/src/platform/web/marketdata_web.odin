@@ -108,12 +108,22 @@ MD_Web_State :: struct {
 	reconnect_count:   int,
 	parse_error_count: int,
 	subscribe_ack_count: int,
+	parsed_msgs_total:   u64,
+	parsed_bytes_total:  u64,
+	msg_rate:            f64,
+	bytes_rate:          f64,
+	rate_window_msgs:    u64,
+	rate_window_bytes:   u64,
+	rate_window_start_ms: i64,
 	last_msg_ts_ms:     i64,
 	last_server_ts_ms:  i64,
 	last_rtt_ms:        i64,
 	last_lag_ms:        i64,
 	desync:             bool,
+	connect_started_ms: i64,
+	first_data_logged:  bool,
 	last_seq_by_sub:    [WEB_MAX_SUBS]i64,
+	snapshot_logged_by_sub: [WEB_MAX_SUBS]bool,
 
 	// Receive buffer (reused each poll).
 	recv_buf: [WEB_RECV_BUF_SIZE]u8,
@@ -192,6 +202,9 @@ make_marketdata_web :: proc(url: string, api_key: string = "") -> ports.Marketda
 		hdr_buf[hdr_len] = '\n'; hdr_len += 1
 	}
 	url_raw := raw_data(transmute([]u8)url)
+	state.connect_started_ms = time.now()._nsec / 1_000_000
+	state.first_data_logged = false
+	fmt.printf("[md-lifecycle] connect url=%s\n", url)
 	ws_connect(url_raw, i32(len(url)), raw_data(hdr_buf[:hdr_len]), i32(hdr_len))
 
 	return ports.Marketdata_Port{
@@ -286,6 +299,7 @@ web_shutdown :: proc() {
 	for i in 0 ..< state.active_count {
 		web_free_sub_entry(&state.active_subs[i])
 		state.last_seq_by_sub[i] = 0
+		state.snapshot_logged_by_sub[i] = false
 	}
 	state.active_count = 0
 	if len(state.candle_tf_filter) > 0 {
@@ -316,9 +330,12 @@ web_shutdown :: proc() {
 web_disconnect_transport :: proc() -> bool {
 	state := g_web_state
 	if state == nil do return false
+	fmt.println("[md-lifecycle] disconnect requested=manual")
 	ws_close()
 	state.was_connected = false
 	state.desync = false
+	state.connect_started_ms = 0
+	state.first_data_logged = false
 	return true
 }
 
@@ -338,6 +355,9 @@ web_reconnect_transport :: proc(ws_url: string, api_key: string) -> bool {
 	state.was_connected = false
 	state.reconnect_timer = 0
 	state.desync = false
+	state.connect_started_ms = 0
+	state.first_data_logged = false
+	fmt.printf("[md-lifecycle] reconnect_requested url=%s\n", state.ws_url)
 	return true
 }
 
@@ -368,6 +388,7 @@ web_subscribe :: proc(venue: string, symbol: string, channel: ports.MD_Channel) 
 		subject = subject,
 	}
 	state.last_seq_by_sub[state.active_count] = 0
+	state.snapshot_logged_by_sub[state.active_count] = false
 	state.active_count += 1
 
 	if ws_state() != 2 do return false // tracked; reconnect path will subscribe later
@@ -402,6 +423,7 @@ web_subscribe_tf :: proc(venue: string, symbol: string, channel: ports.MD_Channe
 		is_explicit_tf = true,
 	}
 	state.last_seq_by_sub[state.active_count] = 0
+	state.snapshot_logged_by_sub[state.active_count] = false
 	state.active_count += 1
 
 	if ws_state() != 2 do return false // tracked; reconnect path will subscribe later
@@ -442,12 +464,17 @@ web_metrics :: proc(out: ^ports.MD_Runtime_Metrics) -> bool {
 	out^ = ports.MD_Runtime_Metrics{
 		active_subs       = state.active_count,
 		trade_backlog     = state.trade_count,
+		candle_backlog    = state.candle_ring_count,
 		// Include JS bridge queue drops so metrics reflect end-to-end pressure.
 		drop_count        = state.drop_count + queue_drop_count,
 		reconnect_count   = state.reconnect_count,
 		latest_pending    = latest_pending,
 		parse_error_count = state.parse_error_count,
 		subscribe_ack_count = state.subscribe_ack_count,
+		parsed_msgs_total = state.parsed_msgs_total,
+		parsed_bytes_total = state.parsed_bytes_total,
+		msg_rate          = state.msg_rate,
+		bytes_rate        = state.bytes_rate,
 		last_msg_ts_ms   = state.last_msg_ts_ms,
 		rtt_ms           = state.last_rtt_ms,
 		lag_ms           = state.last_lag_ms,
@@ -477,9 +504,11 @@ web_unsubscribe :: proc(venue: string, symbol: string, channel: ports.MD_Channel
 		if idx != last {
 			state.active_subs[idx] = state.active_subs[last]
 			state.last_seq_by_sub[idx] = state.last_seq_by_sub[last]
+			state.snapshot_logged_by_sub[idx] = state.snapshot_logged_by_sub[last]
 		}
 		state.active_subs[last] = {}
 		state.last_seq_by_sub[last] = 0
+		state.snapshot_logged_by_sub[last] = false
 		state.active_count -= 1
 	}
 
@@ -502,6 +531,7 @@ web_send_unsubscribe :: proc(state: ^MD_Web_State, subject: string) -> bool {
 	suffix :: `"}`
 	for c in suffix { buf[n] = u8(c); n += 1 }
 	ws_send(raw_data(buf[:n]), i32(n))
+	fmt.printf("[md-lifecycle] unsubscribe_sent subject=%s rid=r%s\n", subject, rid_str)
 	return true
 }
 
@@ -520,6 +550,7 @@ web_send_subscribe :: proc(state: ^MD_Web_State, subject: string) -> bool {
 	suffix :: `"}`
 	for c in suffix { buf[n] = u8(c); n += 1 }
 	ws_send(raw_data(buf[:n]), i32(n))
+	fmt.printf("[md-lifecycle] subscribe_sent subject=%s rid=r%s\n", subject, rid_str)
 	return true
 }
 
@@ -643,6 +674,9 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 		state.backoff_s = WEB_BACKOFF_INITIAL_S
 		state.reconnect_timer = state.backoff_s
 		state.was_connected = false
+		state.connect_started_ms = 0
+		state.first_data_logged = false
+		fmt.println("[md-lifecycle] disconnect reason=transport_closed")
 	}
 
 	if !is_open && current_ws == 0 && state.active_count > 0 {
@@ -660,6 +694,7 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 			}
 			url_raw := raw_data(transmute([]u8)state.ws_url)
 			state.reconnect_count += 1
+			fmt.printf("[md-lifecycle] reconnect_attempt count=%d url=%s\n", state.reconnect_count, state.ws_url)
 			ws_connect(url_raw, i32(len(state.ws_url)), raw_data(rc_hdr_buf[:rc_hdr_len]), i32(rc_hdr_len))
 			state.backoff_s = min(state.backoff_s * WEB_BACKOFF_MULTIPLIER, WEB_BACKOFF_MAX_S)
 			state.reconnect_timer = state.backoff_s
@@ -670,6 +705,12 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 	if is_open && !state.was_connected {
 		state.backoff_s = WEB_BACKOFF_INITIAL_S
 		state.desync = false
+		state.connect_started_ms = time.now()._nsec / 1_000_000
+		state.first_data_logged = false
+		for i in 0 ..< state.active_count {
+			state.snapshot_logged_by_sub[i] = false
+		}
+		fmt.printf("[md-lifecycle] connect url=%s\n", state.ws_url)
 		for i in 0 ..< state.active_count {
 			sub := state.active_subs[i]
 			if len(sub.subject) > 0 {
@@ -943,9 +984,54 @@ web_conn_status :: proc() -> ports.MD_Conn_Status {
 // Single-threaded (WASM) so no mutex needed.
 
 @(private = "file")
+web_update_parse_rates :: proc(state: ^MD_Web_State, now_ms: i64, bytes: int) {
+	if state == nil do return
+	safe_bytes := bytes
+	if safe_bytes < 0 do safe_bytes = 0
+	state.parsed_msgs_total += 1
+	state.parsed_bytes_total += u64(safe_bytes)
+	state.rate_window_msgs += 1
+	state.rate_window_bytes += u64(safe_bytes)
+	if state.rate_window_start_ms <= 0 {
+		state.rate_window_start_ms = now_ms
+		return
+	}
+	elapsed_ms := now_ms - state.rate_window_start_ms
+	if elapsed_ms < 1 do return
+	if elapsed_ms >= 1000 {
+		secs := f64(elapsed_ms) / 1000.0
+		state.msg_rate = f64(state.rate_window_msgs) / secs
+		state.bytes_rate = f64(state.rate_window_bytes) / secs
+		state.rate_window_msgs = 0
+		state.rate_window_bytes = 0
+		state.rate_window_start_ms = now_ms
+	}
+}
+
+@(private = "file")
+web_parse_result_has_data :: proc(kind: services.Parse_Result_Kind) -> bool {
+	switch kind {
+	case .Trade, .Orderbook, .Stats, .Heatmap, .VPVR, .Candle, .Range_Candle:
+		return true
+	case .None, .Ack, .Hello, .Heartbeat, .Health, .Error:
+		return false
+	}
+	return false
+}
+
+@(private = "file")
 web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 	telemetry: services.Parse_Telemetry
 	result := services.parse_mr_message(raw, &telemetry)
+	parsed_now_ms := time.now()._nsec / 1_000_000
+	should_log_snapshot := false
+	snapshot_subject := ""
+	snapshot_seq := i64(0)
+	snapshot_sid := u64(0)
+	should_log_first_data := false
+	first_data_delta_ms := i64(0)
+
+	web_update_parse_rates(state, parsed_now_ms, len(raw))
 
 	if telemetry.parse_errors > 0 {
 		state.parse_error_count += telemetry.parse_errors
@@ -956,12 +1042,11 @@ web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 	}
 
 	if result.kind != .None {
-		now_ms := time.now()._nsec / 1_000_000
-		state.last_msg_ts_ms = now_ms
+		state.last_msg_ts_ms = parsed_now_ms
 		if result.meta.server_ts_ms > 0 {
 			state.last_server_ts_ms = result.meta.server_ts_ms
-			if now_ms >= result.meta.server_ts_ms {
-				state.last_lag_ms = now_ms - result.meta.server_ts_ms
+			if parsed_now_ms >= result.meta.server_ts_ms {
+				state.last_lag_ms = parsed_now_ms - result.meta.server_ts_ms
 			}
 		}
 		if result.meta.subject_id != 0 && result.meta.seq > 0 {
@@ -971,15 +1056,34 @@ web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 					state.desync = true
 				}
 				state.last_seq_by_sub[si] = result.meta.seq
+				if result.meta.is_snapshot && !state.snapshot_logged_by_sub[si] {
+					state.snapshot_logged_by_sub[si] = true
+					snapshot_subject = strings.clone(state.active_subs[si].subject)
+					snapshot_seq = result.meta.seq
+					snapshot_sid = result.meta.subject_id
+					should_log_snapshot = true
+				}
 			}
 		}
+		if web_parse_result_has_data(result.kind) && state.connect_started_ms > 0 && !state.first_data_logged {
+			first_data_delta_ms = max(parsed_now_ms - state.connect_started_ms, 0)
+			state.first_data_logged = true
+			should_log_first_data = true
+		}
+	}
+	if should_log_snapshot {
+		fmt.printf("[md-lifecycle] snapshot_recv subject=%s sid=%x seq=%d\n", snapshot_subject, snapshot_sid, snapshot_seq)
+		delete(snapshot_subject)
+	}
+	if should_log_first_data {
+		fmt.printf("[md-lifecycle] first_data_after_connect_ms=%d kind=%v sid=%x\n", first_data_delta_ms, result.kind, result.meta.subject_id)
 	}
 
 	switch result.kind {
 	case .Ack:
 		ack := result.data.ack
 		state.subscribe_ack_count += 1
-		fmt.printf("[ws] Ack: op=%s subject=%s\n", ack.op, ack.subject)
+		fmt.printf("[md-lifecycle] ack_recv op=%s subject=%s\n", ack.op, ack.subject)
 	case .Hello:
 		// HELLO frame accepted for protocol compatibility.
 	case .Heartbeat, .Health:

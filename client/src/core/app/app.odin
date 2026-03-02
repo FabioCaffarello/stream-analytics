@@ -115,6 +115,7 @@ UI_Action_Kind :: enum u8 {
 	Toggle_Sidebar,
 	Toggle_Panel,
 	Toggle_Help,
+	Toggle_Telemetry_HUD,
 	Toggle_Compare,
 	Add_Compare_Stream,
 	Exit_Compare,
@@ -221,6 +222,11 @@ Runtime_Probe :: struct {
 	md_qmax_recent:        int,
 	md_drop_delta_recent:  int,
 	md_rc_delta_recent:    int,
+	md_candle_backlog_recent: int,
+	md_msg_rate:          f64,
+	md_bytes_rate:        f64,
+	md_parsed_msgs_total: u64,
+	md_parsed_bytes_total: u64,
 	ui_actions_enqueued_total: u64,
 	ui_action_drops:       u64,
 	stream_switches_total: u64,
@@ -256,6 +262,8 @@ Runtime_Probe :: struct {
 	frame_time_p95_us:     i64,
 	frame_time_p99_us:     i64,
 	cmd_buf_count:         int,
+	cmd_text_arena_bytes:  int,
+	cmd_text_arena_capacity: int,
 	cell_count:            int,
 	cell_tf_idxs:          [CELL_MAX]int,  // per-cell tf_idx (-1 = global)
 }
@@ -333,6 +341,13 @@ App_State :: struct {
 	active_stream_drop_count:        int,
 	active_stream_reconnect_count:   int,
 	active_stream_subscribe_acks:    int,
+	active_stream_candle_backlog:    int,
+	active_stream_msg_rate:          f64,
+	active_stream_bytes_rate:        f64,
+	active_stream_parsed_msgs_total: u64,
+	active_stream_parsed_bytes_total: u64,
+
+	telemetry_hud_enabled: bool,
 
 	// Synthetic heatmap throttle (1-per-TF-window).
 	synth_heatmap_last_window: i64,
@@ -805,6 +820,11 @@ runtime_probe :: proc(state: ^App_State) -> Runtime_Probe {
 		p.md_drop_delta_recent = drop_delta
 		p.md_rc_delta_recent = rc_delta
 	}
+	p.md_candle_backlog_recent = state.active_stream_candle_backlog
+	p.md_msg_rate = state.active_stream_msg_rate
+	p.md_bytes_rate = state.active_stream_bytes_rate
+	p.md_parsed_msgs_total = state.active_stream_parsed_msgs_total
+	p.md_parsed_bytes_total = state.active_stream_parsed_bytes_total
 	p.ui_action_drops = state.ui_action_drops
 	p.ui_actions_enqueued_total = state.ui_actions_enqueued_total
 	p.stream_switches_total = state.stream_switches_total
@@ -838,6 +858,8 @@ runtime_probe :: proc(state: ^App_State) -> Runtime_Probe {
 
 	// Performance metrics.
 	p.cmd_buf_count = len(state.cmd_buf.commands)
+	p.cmd_text_arena_bytes = len(state.cmd_buf.text_arena)
+	p.cmd_text_arena_capacity = cap(state.cmd_buf.text_arena)
 	p.cell_count = state.cell_count
 	for ci in 0 ..< state.cell_count {
 		p.cell_tf_idxs[ci] = state.cell_assignments[ci].tf_idx

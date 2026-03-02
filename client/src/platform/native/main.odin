@@ -156,14 +156,22 @@ main :: proc() {
 					has_last_soak_log_tick = true
 					probe := app.runtime_probe(state)
 					if probe.has_md_metrics {
-						fmt.printf("[soak] t_ms=%d frame=%d conn=%v health=%v streams=%d active=%x ev=%d fix=%d pend_restore=%v subs=%d q=%d qmax=%d drop=%d d+%d p=%d rc=%d rc+%d w[t=%d ob=%d/%d st=%d hm=%d vp=%d c=%d]\n",
+						now_ms := time.now()._nsec / 1_000_000
+						last_age_ms := i64(0)
+						if probe.md_metrics.last_msg_ts_ms > 0 {
+							last_age_ms = max(now_ms - probe.md_metrics.last_msg_ts_ms, 0)
+						}
+						fmt.printf("[soak] t_ms=%d frame=%d conn=%v health=%v streams=%d active=%x ev=%d fix=%d pend_restore=%v subs=%d q=%d qmax=%d cb=%d drop=%d d+%d p=%d rc=%d rc+%d mps=%.1f bps=%d rtt=%d lag=%d last=%d pm=%d pb=%d w[t=%d ob=%d/%d st=%d hm=%d vp=%d c=%d]\n",
 							i64(time.tick_since(start_tick)/time.Millisecond),
 							probe.frame, probe.conn_status, probe.candle_health,
 							probe.stream_count, probe.active_subject_id,
 							probe.stream_evictions, probe.stream_repairs, probe.pending_restore,
 							probe.md_metrics.active_subs, probe.md_metrics.trade_backlog, probe.md_qmax_recent,
+							probe.md_metrics.candle_backlog,
 							probe.md_metrics.drop_count, probe.md_drop_delta_recent,
 							probe.md_metrics.latest_pending, probe.md_metrics.reconnect_count, probe.md_rc_delta_recent,
+							probe.md_metrics.msg_rate, i64(probe.md_metrics.bytes_rate), probe.md_metrics.rtt_ms, probe.md_metrics.lag_ms, last_age_ms,
+							probe.md_metrics.parsed_msgs_total, probe.md_metrics.parsed_bytes_total,
 							probe.w_trades_count, probe.w_orderbook_asks, probe.w_orderbook_bids,
 							probe.w_stats_count, probe.w_heatmap_snaps, probe.w_vpvr_levels, probe.w_candle_count,
 						)
