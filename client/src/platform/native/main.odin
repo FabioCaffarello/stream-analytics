@@ -161,7 +161,7 @@ main :: proc() {
 						if probe.md_metrics.last_msg_ts_ms > 0 {
 							last_age_ms = max(now_ms - probe.md_metrics.last_msg_ts_ms, 0)
 						}
-						fmt.printf("[soak] t_ms=%d frame=%d conn=%v health=%v streams=%d active=%x ev=%d fix=%d pend_restore=%v subs=%d q=%d qmax=%d cb=%d drop=%d d+%d p=%d rc=%d rc+%d mps=%.1f bps=%d rtt=%d lag=%d last=%d pm=%d pb=%d w[t=%d ob=%d/%d st=%d hm=%d vp=%d c=%d]\n",
+						fmt.printf("[soak] t_ms=%d frame=%d conn=%v health=%v streams=%d active=%x ev=%d fix=%d pend_restore=%v subs=%d q=%d qmax=%d cb=%d drop=%d d+%d p=%d rc=%d rc+%d mps=%.1f bps=%d rtt=%d lag=%d last=%d pm=%d pr=%d pb=%d w[t=%d ob=%d/%d st=%d hm=%d vp=%d c=%d]\n",
 							i64(time.tick_since(start_tick)/time.Millisecond),
 							probe.frame, probe.conn_status, probe.candle_health,
 							probe.stream_count, probe.active_subject_id,
@@ -171,7 +171,7 @@ main :: proc() {
 							probe.md_metrics.drop_count, probe.md_drop_delta_recent,
 							probe.md_metrics.latest_pending, probe.md_metrics.reconnect_count, probe.md_rc_delta_recent,
 							probe.md_metrics.msg_rate, i64(probe.md_metrics.bytes_rate), probe.md_metrics.rtt_ms, probe.md_metrics.lag_ms, last_age_ms,
-							probe.md_metrics.parsed_msgs_total, probe.md_metrics.parsed_bytes_total,
+							probe.md_metrics.parsed_msgs_total, probe.md_metrics.parse_arena_resets, probe.md_metrics.parsed_bytes_total,
 							probe.w_trades_count, probe.w_orderbook_asks, probe.w_orderbook_bids,
 							probe.w_stats_count, probe.w_heatmap_snaps, probe.w_vpvr_levels, probe.w_candle_count,
 						)

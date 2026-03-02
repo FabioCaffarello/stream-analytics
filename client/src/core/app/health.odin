@@ -137,6 +137,7 @@ refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtim
 		state.active_stream_bytes_rate = metrics.bytes_rate
 		state.active_stream_parsed_msgs_total = metrics.parsed_msgs_total
 		state.active_stream_parsed_bytes_total = metrics.parsed_bytes_total
+		state.active_stream_parse_arena_resets_total = metrics.parse_arena_resets
 		return
 	}
 
@@ -160,6 +161,7 @@ refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtim
 	state.active_stream_bytes_rate = metrics.bytes_rate
 	state.active_stream_parsed_msgs_total = metrics.parsed_msgs_total
 	state.active_stream_parsed_bytes_total = metrics.parsed_bytes_total
+	state.active_stream_parse_arena_resets_total = metrics.parse_arena_resets
 
 	// Additional client-side DESYNC detection for visible "Waiting for stats/orderbook" regressions.
 	if now_ms > 0 && current_conn_status(state) == .Connected {

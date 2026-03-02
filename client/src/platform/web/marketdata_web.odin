@@ -106,6 +106,7 @@ MD_Web_State :: struct {
 	rid_counter:       u32,
 	drop_count:        int,
 	reconnect_count:   int,
+	parse_arena:       services.Parse_Arena,
 	parse_error_count: int,
 	subscribe_ack_count: int,
 	parsed_msgs_total:   u64,
@@ -473,6 +474,7 @@ web_metrics :: proc(out: ^ports.MD_Runtime_Metrics) -> bool {
 		subscribe_ack_count = state.subscribe_ack_count,
 		parsed_msgs_total = state.parsed_msgs_total,
 		parsed_bytes_total = state.parsed_bytes_total,
+		parse_arena_resets = state.parse_arena.message_resets,
 		msg_rate          = state.msg_rate,
 		bytes_rate        = state.bytes_rate,
 		last_msg_ts_ms   = state.last_msg_ts_ms,
@@ -1021,8 +1023,10 @@ web_parse_result_has_data :: proc(kind: services.Parse_Result_Kind) -> bool {
 
 @(private = "file")
 web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
+	defer services.parse_arena_reset_message(&state.parse_arena)
+
 	telemetry: services.Parse_Telemetry
-	result := services.parse_mr_message(raw, &telemetry)
+	result := services.parse_mr_message_with_arena(&state.parse_arena, raw, &telemetry)
 	parsed_now_ms := time.now()._nsec / 1_000_000
 	should_log_snapshot := false
 	snapshot_subject := ""

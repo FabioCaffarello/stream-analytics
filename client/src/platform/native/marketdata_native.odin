@@ -94,6 +94,7 @@ MD_Native_State :: struct {
 	backoff_ms:      int,
 	reconnect_count: int, // cumulative reconnect attempts (monotonic)
 	reconnect_streak: int, // current consecutive reconnect attempts
+	parse_arena: services.Parse_Arena,
 	parse_error_count: int,
 	subscribe_ack_count: int,
 	parsed_msgs_total:   u64,
@@ -448,6 +449,7 @@ native_metrics :: proc(out: ^ports.MD_Runtime_Metrics) -> bool {
 		subscribe_ack_count = state.subscribe_ack_count,
 		parsed_msgs_total = state.parsed_msgs_total,
 		parsed_bytes_total = state.parsed_bytes_total,
+		parse_arena_resets = state.parse_arena.message_resets,
 		msg_rate          = state.msg_rate,
 		bytes_rate        = state.bytes_rate,
 		last_msg_ts_ms   = state.last_msg_ts_ms,
@@ -819,7 +821,6 @@ reader_thread_proc :: proc(t: ^thread.Thread) {
 		if opcode != 0x1 do continue // Only handle text frames.
 
 		apply_parse_result(state, payload)
-		free_all(context.temp_allocator)
 	}
 }
 
@@ -936,8 +937,10 @@ native_parse_result_has_data :: proc(kind: services.Parse_Result_Kind) -> bool {
 
 @(private = "file")
 apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
+	defer services.parse_arena_reset_message(&state.parse_arena)
+
 	telemetry: services.Parse_Telemetry
-	result := services.parse_mr_message(raw, &telemetry)
+	result := services.parse_mr_message_with_arena(&state.parse_arena, raw, &telemetry)
 	parsed_now_ms := time.now()._nsec / 1_000_000
 	snapshot_subject := ""
 	should_log_snapshot := false

@@ -138,6 +138,7 @@ MD_Runtime_Metrics :: struct {
 	subscribe_ack_count: int,
 	parsed_msgs_total:  u64,
 	parsed_bytes_total: u64,
+	parse_arena_resets: u64,
 	msg_rate:           f64,
 	bytes_rate:         f64,
 	last_msg_ts_ms:     i64,

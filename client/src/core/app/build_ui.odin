@@ -1240,6 +1240,11 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 			ui.push_text(&state.cmd_buf, {sx, sy}, pm_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
 			sx += state.text.measure(ui.FONT_SIZE_XS, pm_str).x + 8
 
+			pr_buf: [32]u8
+			pr_str := fmt.bprintf(pr_buf[:], "PR:%d", state.active_stream_parse_arena_resets_total)
+			ui.push_text(&state.cmd_buf, {sx, sy}, pr_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+			sx += state.text.measure(ui.FONT_SIZE_XS, pr_str).x + 8
+
 			pb_buf: [32]u8
 			pb_mb := i64(state.active_stream_parsed_bytes_total / u64(1024 * 1024))
 			pb_str := fmt.bprintf(pb_buf[:], "PB:%dMB", pb_mb)

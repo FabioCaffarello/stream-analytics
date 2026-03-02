@@ -227,6 +227,7 @@ Runtime_Probe :: struct {
 	md_bytes_rate:        f64,
 	md_parsed_msgs_total: u64,
 	md_parsed_bytes_total: u64,
+	md_parse_arena_resets_total: u64,
 	ui_actions_enqueued_total: u64,
 	ui_action_drops:       u64,
 	stream_switches_total: u64,
@@ -346,6 +347,7 @@ App_State :: struct {
 	active_stream_bytes_rate:        f64,
 	active_stream_parsed_msgs_total: u64,
 	active_stream_parsed_bytes_total: u64,
+	active_stream_parse_arena_resets_total: u64,
 
 	telemetry_hud_enabled: bool,
 
@@ -825,6 +827,7 @@ runtime_probe :: proc(state: ^App_State) -> Runtime_Probe {
 	p.md_bytes_rate = state.active_stream_bytes_rate
 	p.md_parsed_msgs_total = state.active_stream_parsed_msgs_total
 	p.md_parsed_bytes_total = state.active_stream_parsed_bytes_total
+	p.md_parse_arena_resets_total = state.active_stream_parse_arena_resets_total
 	p.ui_action_drops = state.ui_action_drops
 	p.ui_actions_enqueued_total = state.ui_actions_enqueued_total
 	p.stream_switches_total = state.stream_switches_total
