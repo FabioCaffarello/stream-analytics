@@ -304,7 +304,7 @@ function buildWsUrlWithApiKey(baseUrl, apiKey) {
 }
 
 function resolveWsConfigFromBridge(url, hdrs) {
-    const baseUrl = (wsRuntimeOverride.ws_url || url || "").trim();
+    const baseUrl = (wsRuntimeOverride.ws_url || defaultWsUrlForCurrentOrigin() || url || "").trim();
     const apiKey = (wsRuntimeOverride.api_key || parseApiKeyFromHeaderString(hdrs)).trim();
     return {
         base_url: baseUrl,
