@@ -18,7 +18,12 @@ MR_Frame_Type :: enum u8 {
 	Error,
 	Range,
 	Last,
+	Hello,
+	Heartbeat,
+	Health,
 }
+
+MR_PROTO_VER :: 1
 
 // First-pass: envelope fields only (payload is ignored by unmarshal).
 MR_Envelope :: struct {
@@ -158,6 +163,22 @@ MR_Candle_Frame_Flat :: struct {
 	payload: MR_Candle_Payload `json:"payload"`,
 }
 
+MR_Hello_Capabilities :: struct {
+	topics:  []string `json:"topics"`,
+	venues:  []string `json:"venues"`,
+	symbols: []string `json:"symbols"`,
+}
+
+MR_Hello_Payload :: struct {
+	proto_ver:    int                   `json:"proto_ver"`,
+	server_time:  i64                   `json:"server_time"`,
+	capabilities: MR_Hello_Capabilities `json:"capabilities"`,
+}
+
+MR_Hello_Frame :: struct {
+	payload: MR_Hello_Payload `json:"payload"`,
+}
+
 // --- Range response frame (getrange) ---
 // Server sends: {"type":"range","op":"getrange","request_id":"...","subject":"...","items":[...]}
 // Each item has Seq, TsIngest, and Payload (inline JSON after Go-side fix to json.RawMessage).
@@ -203,6 +224,9 @@ parse_frame_type :: proc(s: string) -> MR_Frame_Type {
 	case "error":    return .Error
 	case "range":    return .Range
 	case "last":     return .Last
+	case "hello":    return .Hello
+	case "heartbeat": return .Heartbeat
+	case "health":   return .Health
 	}
 	return .Unknown
 }

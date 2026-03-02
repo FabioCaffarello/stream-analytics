@@ -236,6 +236,12 @@ drain_marketdata :: proc(state: ^App_State) -> int {
 		for ci in 0 ..< state.cell_count {
 			state.cell_assignments[ci].getrange_pending = false
 		}
+		if state.stream_views != nil {
+			for si in 0 ..< STREAM_VIEW_CAP {
+				if !state.stream_views.slots[si].used do continue
+				state.stream_views.slots[si].orderbook_snapshot_seen = false
+			}
+		}
 	}
 	state.prev_conn_for_reconcile = conn
 
@@ -324,6 +330,28 @@ drain_marketdata :: proc(state: ^App_State) -> int {
 					}
 				case .Orderbook_Snapshot:
 					ob := evt.data.ob
+					has_snapshot_gap := false
+					if slot != nil {
+						if ob.is_snapshot {
+							slot.orderbook_snapshot_seen = true
+						} else if !slot.orderbook_snapshot_seen {
+							has_snapshot_gap = true
+						}
+					} else if !ob.is_snapshot {
+						has_snapshot_gap = true
+					}
+					if has_snapshot_gap {
+						if is_active_stream {
+							if active := streams.registry_active(&state.stream_registry); active != nil {
+								streams.controller_mark_desync(&active.status, .Snapshot_Gap)
+							}
+							state.active_stream_state = .Desync
+							state.active_stream_desync_reason = .Snapshot_Gap
+							state.prev_subs_count = 0
+							reconcile_subscriptions(state)
+						}
+						continue
+					}
 					if slot != nil {
 						apply_orderbook_to_store(&slot.orderbook_store, ob)
 						if !slot.has_heatmap_snapshot {
@@ -540,7 +568,7 @@ drain_marketdata :: proc(state: ^App_State) -> int {
 
 // Trigger a GetRange request for older candles when the user scrolls near the left edge.
 check_lazy_candle_loading :: proc(state: ^App_State) {
-	// Global active stream lazy loading (backward compat).
+	// Global active stream lazy loading.
 	if !state.getrange_pending && state.getrange_seeded && state.candle_store.count > 0 &&
 	   state.candle_store.count < services.CANDLE_CAP && state.getrange_oldest_ts > 0 {
 		visible := state.candle_zoom > 0 ? max(int(state.candle_zoom), 1) : max(state.candle_store.count, 1)

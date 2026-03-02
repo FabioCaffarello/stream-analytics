@@ -31,6 +31,15 @@ MD_Channel :: enum u8 {
 	Candles,
 }
 
+MD_Desync_Reason :: enum u8 {
+	None,
+	Sequence_Gap,
+	Snapshot_Gap,
+	Protocol_Version,
+	Protocol_Invalid,
+	Missing_Hello,
+}
+
 MD_Trade_Event :: struct {
 	price:  f64,
 	qty:    f64,
@@ -45,6 +54,7 @@ MD_Orderbook_Event :: struct {
 	bid_sizes:  [^]f64,
 	ask_count:  int,
 	bid_count:  int,
+	is_snapshot: bool,
 	last_price: f64,
 	unix:       i64,
 }
@@ -145,7 +155,10 @@ MD_Runtime_Metrics :: struct {
 	last_msg_ts_ms:     i64,
 	rtt_ms:             i64,
 	lag_ms:             i64,
+	protocol_version:   int,
+	hello_received:     bool,
 	desync:             bool,
+	desync_reason:      MD_Desync_Reason,
 }
 
 MD_Event :: struct {

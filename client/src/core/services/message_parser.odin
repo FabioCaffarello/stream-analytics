@@ -23,6 +23,7 @@ Parsed_OB :: struct {
 	bid_sizes:  [OB_STAGING_DEPTH]f64,
 	ask_count:  int,
 	bid_count:  int,
+	is_snapshot: bool,
 	last_price: f64,
 	unix:       i64,
 	subject_id: u64,
@@ -102,6 +103,24 @@ Parsed_Control :: struct {
 	server_ts: i64,
 }
 
+Hello_Reject_Reason :: enum u8 {
+	None,
+	Missing_Proto_Version,
+	Unsupported_Proto_Version,
+	Missing_Server_Time,
+	Missing_Capabilities,
+}
+
+Parsed_Hello :: struct {
+	proto_ver:   int,
+	server_time: i64,
+	topic_count: int,
+	venue_count: int,
+	symbol_count: int,
+	valid:       bool,
+	reject:      Hello_Reject_Reason,
+}
+
 // --- Parse result discriminated union ---
 
 RANGE_CANDLE_PARSE_MAX :: 32
@@ -139,6 +158,7 @@ Parse_Result_Data :: struct #raw_union {
 	range_candles: Parsed_Range_Candles,
 	ack:           Parsed_Ack,
 	control:       Parsed_Control,
+	hello:         Parsed_Hello,
 }
 
 Parse_Result_Meta :: struct {
@@ -187,6 +207,27 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 		result.kind = .Ack
 		result.data.ack = Parsed_Ack{op = env.op, subject = env.subject}
 		return result
+	case .Hello:
+		result.kind = .Hello
+		if h, ok := parse_hello(raw); ok {
+			result.data.hello = h
+		} else {
+			result.data.hello = Parsed_Hello{valid = false, reject = .Missing_Proto_Version}
+			if telemetry != nil do telemetry.parse_errors += 1
+		}
+		return result
+	case .Heartbeat:
+		result.kind = .Heartbeat
+		if c, ok := parse_control(raw, env.ts_ingest); ok {
+			result.data.control = c
+		}
+		return result
+	case .Health:
+		result.kind = .Health
+		if c, ok := parse_control(raw, env.ts_ingest); ok {
+			result.data.control = c
+		}
+		return result
 	case .Error:
 		result.kind = .Error
 		return result
@@ -200,22 +241,6 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 		}
 		return result
 	case .Last, .Unknown:
-		if env.type_str == "hello" {
-			result.kind = .Hello
-			if c, ok := parse_control(raw, env.ts_ingest); ok {
-				result.data.control = c
-			}
-		} else if env.type_str == "heartbeat" {
-			result.kind = .Heartbeat
-			if c, ok := parse_control(raw, env.ts_ingest); ok {
-				result.data.control = c
-			}
-		} else if env.type_str == "health" {
-			result.kind = .Health
-			if c, ok := parse_control(raw, env.ts_ingest); ok {
-				result.data.control = c
-			}
-		}
 		return result
 	case .Event, .Snapshot:
 		// Fall through to payload parsing.
@@ -324,6 +349,7 @@ parse_book_delta :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_OB, boo
 	bc := min(len(bd.bids), OB_STAGING_DEPTH)
 	result.ask_count = ac
 	result.bid_count = bc
+	result.is_snapshot = bd.is_snapshot
 	result.unix = unix
 	result.subject_id = subject_id
 
@@ -458,6 +484,44 @@ Control_Payload :: struct {
 @(private = "file")
 Control_Frame :: struct {
 	payload: Control_Payload `json:"payload"`,
+}
+
+@(private = "file")
+parse_hello :: proc(raw: []u8) -> (Parsed_Hello, bool) {
+	frame: util.MR_Hello_Frame
+	if json.unmarshal(raw, &frame) != nil do return {}, false
+
+	h := Parsed_Hello{
+		proto_ver    = frame.payload.proto_ver,
+		server_time  = frame.payload.server_time,
+		topic_count  = len(frame.payload.capabilities.topics),
+		venue_count  = len(frame.payload.capabilities.venues),
+		symbol_count = len(frame.payload.capabilities.symbols),
+		valid        = true,
+		reject       = .None,
+	}
+
+	if h.proto_ver <= 0 {
+		h.valid = false
+		h.reject = .Missing_Proto_Version
+		return h, true
+	}
+	if h.proto_ver != util.MR_PROTO_VER {
+		h.valid = false
+		h.reject = .Unsupported_Proto_Version
+		return h, true
+	}
+	if h.server_time <= 0 {
+		h.valid = false
+		h.reject = .Missing_Server_Time
+		return h, true
+	}
+	if h.topic_count <= 0 {
+		h.valid = false
+		h.reject = .Missing_Capabilities
+		return h, true
+	}
+	return h, true
 }
 
 @(private = "file")

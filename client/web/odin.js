@@ -53,20 +53,10 @@ function writeToConsole(fd, str) {
 const canvas = document.getElementById("canvas");
 const ctx = canvas ? canvas.getContext("2d") : null;
 let canvasSizeDirty = true;
-const URL_PARAMS = new URLSearchParams(window.location.search);
-const PERF_HUD_ENABLED = URL_PARAMS.get("perf_hud") === "1";
-const IDLE_STEP_FPS = (() => {
-    const raw = Number(URL_PARAMS.get("idle_step_fps") || "15");
-    if (!Number.isFinite(raw)) return 15;
-    if (raw <= 0) return 0;
-    return Math.min(60, Math.max(1, Math.round(raw)));
-})();
+const PERF_HUD_ENABLED = false;
+const IDLE_STEP_FPS = 15;
 const IDLE_STEP_INTERVAL_MS = IDLE_STEP_FPS > 0 ? (1000 / IDLE_STEP_FPS) : 0;
-const IDLE_QUIET_MS = (() => {
-    const raw = Number(URL_PARAMS.get("idle_quiet_ms") || "250");
-    if (!Number.isFinite(raw)) return 250;
-    return Math.max(0, Math.round(raw));
-})();
+const IDLE_QUIET_MS = 250;
 
 function defaultWsUrlForCurrentOrigin() {
     const proto = window.location.protocol === "https:" ? "wss" : "ws";
@@ -517,7 +507,7 @@ function perfHudOnFrame(now) {
         lines.push(`ws-perf age_ms: ${wsPerfAgeMs}`);
         lines.push(perfHudState.lastWsPerfLine);
     } else {
-        lines.push("ws-perf: enable ws_perf_debug=1");
+        lines.push("ws-perf: waiting telemetry");
     }
     if (perfHudEl) perfHudEl.textContent = lines.join("\n");
 }
@@ -762,19 +752,6 @@ const imports = {
             return modifierBits >>> 0;
         },
 
-        url_query_param(name_ptr, name_len, out_ptr, out_cap) {
-            if (!wasm.memory || out_cap <= 0) return 0;
-            const key = loadStringRaw(wasm.memory.buffer, name_ptr, name_len);
-            const value = new URLSearchParams(window.location.search).get(key) ?? "";
-            if (!value) return 0;
-            const encoded = TEXT_ENCODER.encode(value);
-            const copyLen = Math.min(encoded.length, out_cap);
-            new Uint8Array(wasm.memory.buffer, out_ptr, copyLen).set(
-                encoded.subarray(0, copyLen),
-            );
-            return copyLen;
-        },
-
         web_settings_load(key_ptr, key_len, out_ptr, out_cap) {
             if (!wasm.memory || out_cap <= 0) return 0;
             const key = loadStringRaw(wasm.memory.buffer, key_ptr, key_len);
@@ -839,7 +816,7 @@ const imports = {
 const outputEl = document.getElementById("output");
 
 try {
-    const wasmUrl = "app.wasm" + window.location.search;
+    const wasmUrl = "app.wasm";
     const source = typeof WebAssembly.instantiateStreaming === "function"
         ? await WebAssembly.instantiateStreaming(fetch(wasmUrl), imports)
         : await fetch(wasmUrl)

@@ -109,7 +109,11 @@ MD_Native_State :: struct {
 	last_server_ts_ms:  i64,
 	last_rtt_ms:        i64,
 	last_lag_ms:        i64,
+	protocol_version:   int,
+	hello_received:     bool,
+	hello_valid:        bool,
 	desync:             bool,
+	desync_reason:      ports.MD_Desync_Reason,
 	connect_started_ms: i64,
 	first_data_logged:  bool,
 
@@ -169,6 +173,10 @@ make_marketdata_native :: proc(url: string, api_key: string = "") -> ports.Marke
 		state.conn_state = .Connected
 		state.backoff_ms = BACKOFF_INITIAL_MS
 		state.desync = false
+		state.desync_reason = .None
+		state.protocol_version = 0
+		state.hello_received = false
+		state.hello_valid = false
 		state.connect_started_ms = time.now()._nsec / 1_000_000
 		state.first_data_logged = false
 	}
@@ -301,6 +309,10 @@ native_disconnect_transport :: proc() -> bool {
 	ws_close(&state.conn)
 	state.conn_state = .Disconnected
 	state.desync = false
+	state.desync_reason = .None
+	state.protocol_version = 0
+	state.hello_received = false
+	state.hello_valid = false
 	state.connect_started_ms = 0
 	state.first_data_logged = false
 	return true
@@ -324,6 +336,10 @@ native_reconnect_transport :: proc(ws_url: string, api_key: string) -> bool {
 	state.conn_state = .Disconnected
 	state.backoff_ms = BACKOFF_INITIAL_MS
 	state.desync = false
+	state.desync_reason = .None
+	state.protocol_version = 0
+	state.hello_received = false
+	state.hello_valid = false
 	state.connect_started_ms = 0
 	state.first_data_logged = false
 	fmt.printf("[md-lifecycle] reconnect_requested url=%s\n", state.ws_url)
@@ -456,7 +472,10 @@ native_metrics :: proc(out: ^ports.MD_Runtime_Metrics) -> bool {
 		last_msg_ts_ms   = state.last_msg_ts_ms,
 		rtt_ms           = state.last_rtt_ms,
 		lag_ms           = state.last_lag_ms,
+		protocol_version = state.protocol_version,
+		hello_received   = state.hello_received,
 		desync           = state.desync,
+		desync_reason    = state.desync_reason,
 	}
 	sync.unlock(&state.mu)
 	return true
@@ -615,6 +634,7 @@ native_poll :: proc(events_buf: []ports.MD_Event) -> int {
 			bid_sizes  = raw_data(state.poll_bid_sizes[:ob.bid_count]),
 			ask_count  = ob.ask_count,
 			bid_count  = ob.bid_count,
+			is_snapshot = ob.is_snapshot,
 			last_price = ob.last_price,
 			unix       = ob.unix,
 		}
@@ -818,6 +838,10 @@ reader_thread_proc :: proc(t: ^thread.Thread) {
 			}
 			state.conn_state = .Disconnected
 			state.backoff_ms = BACKOFF_INITIAL_MS
+			state.desync_reason = .None
+			state.protocol_version = 0
+			state.hello_received = false
+			state.hello_valid = false
 			state.connect_started_ms = 0
 			state.first_data_logged = false
 			sync.unlock(&state.mu)
@@ -874,6 +898,10 @@ attempt_reconnect :: proc(state: ^MD_Native_State) {
 	state.backoff_ms = BACKOFF_INITIAL_MS
 	state.reconnect_streak = 0
 	state.desync = false
+	state.desync_reason = .None
+	state.protocol_version = 0
+	state.hello_received = false
+	state.hello_valid = false
 	state.connect_started_ms = time.now()._nsec / 1_000_000
 	state.first_data_logged = false
 	for i in 0 ..< state.active_count {
@@ -944,6 +972,18 @@ native_parse_result_has_data :: proc(kind: services.Parse_Result_Kind) -> bool {
 }
 
 @(private = "file")
+native_desync_reason_from_hello_reject :: proc(reject: services.Hello_Reject_Reason) -> ports.MD_Desync_Reason {
+	switch reject {
+	case .Unsupported_Proto_Version:
+		return .Protocol_Version
+	case .Missing_Proto_Version, .Missing_Server_Time, .Missing_Capabilities:
+		return .Protocol_Invalid
+	case .None:
+	}
+	return .Protocol_Invalid
+}
+
+@(private = "file")
 apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 	defer services.parse_arena_reset_message(&state.parse_arena)
 
@@ -983,12 +1023,13 @@ apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 			}
 		}
 		if result.meta.subject_id != 0 && result.meta.seq > 0 {
-			if si := find_sub_by_subject_id(state, result.meta.subject_id); si >= 0 {
-				prev_seq := state.last_seq_by_sub[si]
-				if prev_seq > 0 && result.meta.seq > prev_seq + 1 {
-					state.desync = true
-				}
-				state.last_seq_by_sub[si] = result.meta.seq
+				if si := find_sub_by_subject_id(state, result.meta.subject_id); si >= 0 {
+					prev_seq := state.last_seq_by_sub[si]
+					if prev_seq > 0 && result.meta.seq > prev_seq + 1 {
+						state.desync = true
+						state.desync_reason = .Sequence_Gap
+					}
+					state.last_seq_by_sub[si] = result.meta.seq
 				if result.meta.is_snapshot && !state.snapshot_logged_by_sub[si] {
 					state.snapshot_logged_by_sub[si] = true
 					snapshot_subject = strings.clone(state.active_subs[si].subject)
@@ -1012,6 +1053,26 @@ apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 	if should_log_first_data {
 		fmt.printf("[md-lifecycle] first_data_after_connect_ms=%d kind=%v sid=%x\n", first_data_delta_ms, result.kind, result.meta.subject_id)
 	}
+	if native_parse_result_has_data(result.kind) {
+		sync.lock(&state.mu)
+		hello_received := state.hello_received
+		hello_valid := state.hello_valid
+		prev_reason := state.desync_reason
+		if !hello_received {
+			state.desync = true
+			state.desync_reason = .Missing_Hello
+		}
+		sync.unlock(&state.mu)
+		if !hello_received {
+			if prev_reason != .Missing_Hello {
+				fmt.printf("[md-lifecycle] desync reason=missing_hello kind=%v sid=%x\n", result.kind, result.meta.subject_id)
+			}
+			return
+		}
+		if !hello_valid {
+			return
+		}
+	}
 
 	switch result.kind {
 	case .Ack:
@@ -1021,7 +1082,30 @@ apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 		sync.unlock(&state.mu)
 		fmt.printf("[md-lifecycle] ack_recv op=%s subject=%s\n", ack.op, ack.subject)
 	case .Hello:
-		// HELLO frame is accepted for protocol compatibility and telemetry.
+		h := result.data.hello
+		sync.lock(&state.mu)
+		state.hello_received = true
+		state.protocol_version = h.proto_ver
+		state.hello_valid = h.valid
+		if !h.valid {
+			state.desync = true
+			state.desync_reason = native_desync_reason_from_hello_reject(h.reject)
+		} else {
+			state.desync = false
+			state.desync_reason = .None
+		}
+		sync.unlock(&state.mu)
+		if !h.valid {
+			fmt.printf(
+				"[md-lifecycle] hello_rejected proto_ver=%d reject=%v topics=%d venues=%d symbols=%d\n",
+				h.proto_ver, h.reject, h.topic_count, h.venue_count, h.symbol_count,
+			)
+			return
+		}
+		fmt.printf(
+			"[md-lifecycle] hello_ok proto_ver=%d topics=%d venues=%d symbols=%d\n",
+			h.proto_ver, h.topic_count, h.venue_count, h.symbol_count,
+		)
 	case .Heartbeat, .Health:
 		ctrl := result.data.control
 		sync.lock(&state.mu)
@@ -1128,14 +1212,10 @@ native_send_getrange :: proc(subject: string, limit: int, end_ts: i64) {
 	for c in mid { buf[n] = u8(c); n += 1 }
 	limit_str := fmt.tprintf("%d", limit)
 	for c in limit_str { buf[n] = u8(c); n += 1 }
-	// Include to_ms if specified (server range contract), and end_ts for compat.
 	if end_ts > 0 {
 		end_mid :: `,"to_ms":`
 		for c in end_mid { buf[n] = u8(c); n += 1 }
 		end_str := fmt.tprintf("%d", end_ts)
-		for c in end_str { buf[n] = u8(c); n += 1 }
-		end_mid_compat :: `,"end_ts":`
-		for c in end_mid_compat { buf[n] = u8(c); n += 1 }
 		for c in end_str { buf[n] = u8(c); n += 1 }
 	}
 	mid2 :: `},"request_id":"gr`

@@ -18,8 +18,12 @@ Stream_State :: enum u8 {
 Stream_Desync_Reason :: enum u8 {
 	None,
 	Sequence_Gap,
+	Snapshot_Gap,
 	Snapshot_Stale,
 	Clock_Drift,
+	Protocol_Version,
+	Protocol_Invalid,
+	Missing_Hello,
 	Manual,
 }
 

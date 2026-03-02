@@ -101,10 +101,18 @@ desync_reason_short :: proc(reason: streams.Stream_Desync_Reason) -> string {
 	switch reason {
 	case .Sequence_Gap:
 		return "seq gap"
+	case .Snapshot_Gap:
+		return "snapshot gap"
 	case .Snapshot_Stale:
 		return "snapshot stale"
 	case .Clock_Drift:
 		return "clock drift"
+	case .Protocol_Version:
+		return "proto ver"
+	case .Protocol_Invalid:
+		return "proto invalid"
+	case .Missing_Hello:
+		return "hello missing"
 	case .Manual:
 		return "manual"
 	case .None:
@@ -117,10 +125,18 @@ desync_wait_message :: proc(reason: streams.Stream_Desync_Reason) -> string {
 	switch reason {
 	case .Sequence_Gap:
 		return "DESYNC: sequence gap (Resync)"
+	case .Snapshot_Gap:
+		return "DESYNC: snapshot gap (Resync)"
 	case .Snapshot_Stale:
 		return "DESYNC: snapshot stale (Resync)"
 	case .Clock_Drift:
 		return "DESYNC: clock drift (Resync)"
+	case .Protocol_Version:
+		return "DESYNC: protocol version mismatch"
+	case .Protocol_Invalid:
+		return "DESYNC: invalid protocol hello"
+	case .Missing_Hello:
+		return "DESYNC: hello handshake missing"
 	case .Manual:
 		return "DESYNC: manual resync in progress"
 	case .None:

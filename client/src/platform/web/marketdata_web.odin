@@ -5,7 +5,6 @@ package main
 // Same staging pattern as native (ring + latest-wins), but no mutex needed.
 
 import "core:fmt"
-import "core:strconv"
 import "core:strings"
 import "core:time"
 import "mr:ports"
@@ -33,7 +32,6 @@ foreign odin_env {
 	mouse_scroll_x :: proc() -> f32 ---
 	mouse_scroll_y :: proc() -> f32 ---
 	modifier_state :: proc() -> u32 ---
-	url_query_param :: proc(name_ptr: [^]u8, name_len: i32, out_ptr: [^]u8, out_cap: i32) -> i32 ---
 	http_get_sync   :: proc(url_ptr: [^]u8, url_len: i32, out_ptr: [^]u8, out_cap: i32) -> i32 ---
 }
 
@@ -121,7 +119,11 @@ MD_Web_State :: struct {
 	last_server_ts_ms:  i64,
 	last_rtt_ms:        i64,
 	last_lag_ms:        i64,
+	protocol_version:   int,
+	hello_received:     bool,
+	hello_valid:        bool,
 	desync:             bool,
+	desync_reason:      ports.MD_Desync_Reason,
 	connect_started_ms: i64,
 	first_data_logged:  bool,
 	last_seq_by_sub:    [WEB_MAX_SUBS]i64,
@@ -148,7 +150,7 @@ MD_Web_State :: struct {
 	last_poll_tick:     time.Tick,
 	has_last_poll_tick: bool,
 
-	// Parse budget tuning (configurable via URL query params).
+	// Parse budget tuning defaults.
 	parse_max_msgs_per_poll: int,
 	parse_time_budget:       time.Duration,
 
@@ -179,18 +181,7 @@ make_marketdata_web :: proc(url: string, api_key: string = "") -> ports.Marketda
 	state.candle_tf_filter = strings.clone(CANDLE_TF_DEFAULT)
 	state.parse_max_msgs_per_poll = WEB_PARSE_MAX_MSGS_PER_POLL
 	state.parse_time_budget = WEB_PARSE_TIME_BUDGET
-	state.parse_max_msgs_per_poll = clamp_positive_int(
-		web_query_param_int("ws_parse_max_msgs", state.parse_max_msgs_per_poll),
-		1, 1024,
-		state.parse_max_msgs_per_poll,
-	)
-	parse_budget_ms := clamp_positive_int(
-		web_query_param_int("ws_parse_budget_ms", int(state.parse_time_budget / time.Millisecond)),
-		0, 50,
-		int(state.parse_time_budget / time.Millisecond),
-	)
-	state.parse_time_budget = time.Duration(parse_budget_ms) * time.Millisecond
-	state.perf_debug = web_query_param_int("ws_perf_debug", 0) > 0
+	state.perf_debug = false
 	g_web_state = state
 
 	// Initiate connection via JS bridge.
@@ -225,27 +216,6 @@ make_marketdata_web :: proc(url: string, api_key: string = "") -> ports.Marketda
 		shutdown        = web_shutdown,
 		fetch_markets   = web_fetch_markets,
 	}
-}
-
-@(private = "file")
-clamp_positive_int :: proc(v: int, lo: int, hi: int, fallback: int) -> int {
-	if hi < lo do return fallback
-	if v < lo || v > hi do return fallback
-	return v
-}
-
-@(private = "file")
-web_query_param_int :: proc(name: string, fallback: int) -> int {
-	buf: [32]u8
-	n := url_query_param(
-		raw_data(transmute([]u8)name), i32(len(name)),
-		raw_data(buf[:]), i32(len(buf)),
-	)
-	if n <= 0 do return fallback
-	if n > i32(len(buf)) do n = i32(len(buf))
-	v, ok := strconv.parse_int(string(buf[:int(n)]))
-	if !ok do return fallback
-	return int(v)
 }
 
 // --- Port implementation ---
@@ -336,6 +306,10 @@ web_disconnect_transport :: proc() -> bool {
 	ws_close()
 	state.was_connected = false
 	state.desync = false
+	state.desync_reason = .None
+	state.protocol_version = 0
+	state.hello_received = false
+	state.hello_valid = false
 	state.connect_started_ms = 0
 	state.first_data_logged = false
 	return true
@@ -357,6 +331,10 @@ web_reconnect_transport :: proc(ws_url: string, api_key: string) -> bool {
 	state.was_connected = false
 	state.reconnect_timer = 0
 	state.desync = false
+	state.desync_reason = .None
+	state.protocol_version = 0
+	state.hello_received = false
+	state.hello_valid = false
 	state.connect_started_ms = 0
 	state.first_data_logged = false
 	fmt.printf("[md-lifecycle] reconnect_requested url=%s\n", state.ws_url)
@@ -481,7 +459,10 @@ web_metrics :: proc(out: ^ports.MD_Runtime_Metrics) -> bool {
 		last_msg_ts_ms   = state.last_msg_ts_ms,
 		rtt_ms           = state.last_rtt_ms,
 		lag_ms           = state.last_lag_ms,
+		protocol_version = state.protocol_version,
+		hello_received   = state.hello_received,
 		desync           = state.desync,
+		desync_reason    = state.desync_reason,
 	}
 	return true
 }
@@ -613,13 +594,9 @@ web_send_getrange_now :: proc(state: ^MD_Web_State, subject: string, limit: int,
 	limit_str := fmt.tprintf("%d", limit)
 	for c in limit_str { buf[n] = u8(c); n += 1 }
 	if end_ts > 0 {
-		// WS server range contract expects to_ms; keep end_ts for backward compatibility.
 		end_mid :: `,"to_ms":`
 		for c in end_mid { buf[n] = u8(c); n += 1 }
 		end_str := fmt.tprintf("%d", end_ts)
-		for c in end_str { buf[n] = u8(c); n += 1 }
-		end_mid_compat :: `,"end_ts":`
-		for c in end_mid_compat { buf[n] = u8(c); n += 1 }
 		for c in end_str { buf[n] = u8(c); n += 1 }
 	}
 	mid2 :: `},"request_id":"gr`
@@ -708,6 +685,10 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 	if is_open && !state.was_connected {
 		state.backoff_s = WEB_BACKOFF_INITIAL_S
 		state.desync = false
+		state.desync_reason = .None
+		state.protocol_version = 0
+		state.hello_received = false
+		state.hello_valid = false
 		state.connect_started_ms = time.now()._nsec / 1_000_000
 		state.first_data_logged = false
 		for i in 0 ..< state.active_count {
@@ -798,6 +779,7 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 			bid_sizes  = raw_data(state.poll_bid_sizes[:ob.bid_count]),
 			ask_count  = ob.ask_count,
 			bid_count  = ob.bid_count,
+			is_snapshot = ob.is_snapshot,
 			last_price = ob.last_price,
 			unix       = ob.unix,
 		}
@@ -1030,6 +1012,18 @@ web_parse_result_has_data :: proc(kind: services.Parse_Result_Kind) -> bool {
 }
 
 @(private = "file")
+web_desync_reason_from_hello_reject :: proc(reject: services.Hello_Reject_Reason) -> ports.MD_Desync_Reason {
+	switch reject {
+	case .Unsupported_Proto_Version:
+		return .Protocol_Version
+	case .Missing_Proto_Version, .Missing_Server_Time, .Missing_Capabilities:
+		return .Protocol_Invalid
+	case .None:
+	}
+	return .Protocol_Invalid
+}
+
+@(private = "file")
 web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 	defer services.parse_arena_reset_message(&state.parse_arena)
 
@@ -1061,15 +1055,16 @@ web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 				state.last_lag_ms = parsed_now_ms - result.meta.server_ts_ms
 			}
 		}
-		if result.meta.subject_id != 0 && result.meta.seq > 0 {
-			if si := find_web_sub_by_subject_id(state, result.meta.subject_id); si >= 0 {
-				prev_seq := state.last_seq_by_sub[si]
-				if prev_seq > 0 && result.meta.seq > prev_seq + 1 {
-					state.desync = true
-				}
-				state.last_seq_by_sub[si] = result.meta.seq
-				if result.meta.is_snapshot && !state.snapshot_logged_by_sub[si] {
-					state.snapshot_logged_by_sub[si] = true
+			if result.meta.subject_id != 0 && result.meta.seq > 0 {
+				if si := find_web_sub_by_subject_id(state, result.meta.subject_id); si >= 0 {
+					prev_seq := state.last_seq_by_sub[si]
+					if prev_seq > 0 && result.meta.seq > prev_seq + 1 {
+						state.desync = true
+						state.desync_reason = .Sequence_Gap
+					}
+					state.last_seq_by_sub[si] = result.meta.seq
+					if result.meta.is_snapshot && !state.snapshot_logged_by_sub[si] {
+						state.snapshot_logged_by_sub[si] = true
 					snapshot_subject = strings.clone(state.active_subs[si].subject)
 					snapshot_seq = result.meta.seq
 					snapshot_sid = result.meta.subject_id
@@ -1090,6 +1085,19 @@ web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 	if should_log_first_data {
 		fmt.printf("[md-lifecycle] first_data_after_connect_ms=%d kind=%v sid=%x\n", first_data_delta_ms, result.kind, result.meta.subject_id)
 	}
+	if web_parse_result_has_data(result.kind) {
+		if !state.hello_received {
+			if state.desync_reason != .Missing_Hello {
+				fmt.printf("[md-lifecycle] desync reason=missing_hello kind=%v sid=%x\n", result.kind, result.meta.subject_id)
+			}
+			state.desync = true
+			state.desync_reason = .Missing_Hello
+			return
+		}
+		if !state.hello_valid {
+			return
+		}
+	}
 
 	switch result.kind {
 	case .Ack:
@@ -1097,7 +1105,25 @@ web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 		state.subscribe_ack_count += 1
 		fmt.printf("[md-lifecycle] ack_recv op=%s subject=%s\n", ack.op, ack.subject)
 	case .Hello:
-		// HELLO frame accepted for protocol compatibility.
+		h := result.data.hello
+		state.hello_received = true
+		state.protocol_version = h.proto_ver
+		state.hello_valid = h.valid
+		if !h.valid {
+			state.desync = true
+			state.desync_reason = web_desync_reason_from_hello_reject(h.reject)
+			fmt.printf(
+				"[md-lifecycle] hello_rejected proto_ver=%d reject=%v topics=%d venues=%d symbols=%d\n",
+				h.proto_ver, h.reject, h.topic_count, h.venue_count, h.symbol_count,
+			)
+			return
+		}
+		state.desync = false
+		state.desync_reason = .None
+		fmt.printf(
+			"[md-lifecycle] hello_ok proto_ver=%d topics=%d venues=%d symbols=%d\n",
+			h.proto_ver, h.topic_count, h.venue_count, h.symbol_count,
+		)
 	case .Heartbeat, .Health:
 		ctrl := result.data.control
 		if ctrl.rtt_ms > 0 do state.last_rtt_ms = ctrl.rtt_ms

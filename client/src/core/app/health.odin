@@ -12,6 +12,24 @@ clamp_nonneg_i64 :: proc(v: i64) -> i64 {
 	return v
 }
 
+@(private = "file")
+md_desync_reason_to_stream :: proc(reason: ports.MD_Desync_Reason) -> streams.Stream_Desync_Reason {
+	switch reason {
+	case .Sequence_Gap:
+		return .Sequence_Gap
+	case .Snapshot_Gap:
+		return .Snapshot_Gap
+	case .Protocol_Version:
+		return .Protocol_Version
+	case .Protocol_Invalid:
+		return .Protocol_Invalid
+	case .Missing_Hello:
+		return .Missing_Hello
+	case .None:
+	}
+	return .Sequence_Gap
+}
+
 compute_candle_health :: proc(state: ^App_State) -> Candle_Health {
 	if state.candle_store.count <= 0 do return .No_Data
 
@@ -157,7 +175,7 @@ refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtim
 		active.status.subscribe_acks += ack_delta
 	}
 	if metrics.desync {
-		streams.controller_mark_desync(&active.status, .Sequence_Gap)
+		streams.controller_mark_desync(&active.status, md_desync_reason_to_stream(metrics.desync_reason))
 	}
 	now_ms := current_now_ms(state)
 	if now_ms <= 0 do now_ms = metrics.last_msg_ts_ms
