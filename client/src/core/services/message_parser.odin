@@ -26,6 +26,7 @@ Parsed_OB :: struct {
 	last_price: f64,
 	unix:       i64,
 	subject_id: u64,
+	seq:        i64,
 }
 
 Parsed_Stats :: struct {
@@ -35,6 +36,7 @@ Parsed_Stats :: struct {
 	tsell:      f64,
 	unix:       i64,
 	subject_id: u64,
+	seq:        i64,
 }
 
 Parsed_Heatmap :: struct {
@@ -47,6 +49,7 @@ Parsed_Heatmap :: struct {
 	max_size:    f64,
 	unix:        i64,
 	subject_id:  u64,
+	seq:         i64,
 }
 
 Parsed_VPVR :: struct {
@@ -59,6 +62,7 @@ Parsed_VPVR :: struct {
 	max_price:   f64,
 	unix:        i64,
 	subject_id:  u64,
+	seq:         i64,
 }
 
 Parsed_Candle :: struct {
@@ -74,6 +78,7 @@ Parsed_Candle :: struct {
 	window_end_ts:   i64,
 	is_closed:       bool,
 	subject_id:      u64,
+	seq:             i64,
 }
 
 Parsed_Trade :: struct {
@@ -82,6 +87,7 @@ Parsed_Trade :: struct {
 	is_buy:     bool,
 	unix:       i64,
 	subject_id: u64,
+	seq:        i64,
 }
 
 Parsed_Ack :: struct {
@@ -104,6 +110,7 @@ Parsed_Range_Candles :: struct {
 	candles: [RANGE_CANDLE_PARSE_MAX]Parsed_Candle,
 	count:   int,
 	is_last: bool,
+	seq:     i64,
 }
 
 Parse_Result_Kind :: enum u8 {
@@ -185,6 +192,7 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 		return result
 	case .Range:
 		if r, ok := parse_range_candles(raw, env.subject); ok {
+			r.seq = result.meta.seq
 			result.kind = .Range_Candle
 			result.data.range_candles = r
 		} else if telemetry != nil {
@@ -220,6 +228,7 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 	switch stream {
 	case "marketdata.trade":
 		if r, ok := parse_trade(raw, env.ts_ingest, subject_id); ok {
+			r.seq = result.meta.seq
 			result.kind = .Trade
 			result.data.trade = r
 		} else if telemetry != nil {
@@ -227,6 +236,7 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 		}
 	case "marketdata.bookdelta":
 		if r, ok := parse_book_delta(raw, env.ts_ingest, subject_id); ok {
+			r.seq = result.meta.seq
 			result.kind = .Orderbook
 			result.data.ob = r
 		} else if telemetry != nil {
@@ -234,6 +244,7 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 		}
 	case "aggregation.stats":
 		if r, ok := parse_stats(raw, env.ts_ingest, subject_id); ok {
+			r.seq = result.meta.seq
 			result.kind = .Stats
 			result.data.stats = r
 		} else if telemetry != nil {
@@ -241,6 +252,7 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 		}
 	case "insights.heatmap_snapshot":
 		if r, ok := parse_heatmap(raw, env.ts_ingest, subject_id); ok {
+			r.seq = result.meta.seq
 			result.kind = .Heatmap
 			result.data.heatmap = r
 		} else if telemetry != nil {
@@ -248,6 +260,7 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 		}
 	case "insights.volume_profile_snapshot":
 		if r, ok := parse_vpvr(raw, env.ts_ingest, subject_id); ok {
+			r.seq = result.meta.seq
 			result.kind = .VPVR
 			result.data.vpvr = r
 		} else if telemetry != nil {
@@ -255,6 +268,7 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 		}
 	case "aggregation.candle":
 		if r, ok := parse_candle(raw, env.ts_ingest, subject_id); ok {
+			r.seq = result.meta.seq
 			result.kind = .Candle
 			result.data.candle = r
 		} else if telemetry != nil {

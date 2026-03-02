@@ -49,6 +49,7 @@ MD_Native_State :: struct {
 	// Trade ring buffer (SPSC: writer=background, reader=main).
 	trade_ring:            [TRADE_RING_CAP]ports.MD_Trade_Event,
 	trade_ring_subject_id: [TRADE_RING_CAP]u64,
+	trade_ring_seq:        [TRADE_RING_CAP]i64,
 	trade_write:           int,
 	trade_count:           int,
 
@@ -581,6 +582,7 @@ native_poll :: proc(events_buf: []ports.MD_Event) -> int {
 		oldest := (state.trade_write - state.trade_count + TRADE_RING_CAP) % TRADE_RING_CAP
 		events_buf[n].source.subject_id = state.trade_ring_subject_id[oldest]
 		events_buf[n].source.channel = .Trades
+		events_buf[n].source.seq = state.trade_ring_seq[oldest]
 		events_buf[n].kind = .Trade
 		events_buf[n].unix = state.trade_ring[oldest].unix
 		events_buf[n].data.trade = state.trade_ring[oldest]
@@ -603,6 +605,7 @@ native_poll :: proc(events_buf: []ports.MD_Event) -> int {
 
 		events_buf[n].source.subject_id = ob.subject_id
 		events_buf[n].source.channel = .Orderbook
+		events_buf[n].source.seq = ob.seq
 		events_buf[n].kind = .Orderbook_Snapshot
 		events_buf[n].unix = ob.unix
 		events_buf[n].data.ob = ports.MD_Orderbook_Event{
@@ -624,6 +627,7 @@ native_poll :: proc(events_buf: []ports.MD_Event) -> int {
 		st := state.stats_staging
 		events_buf[n].source.subject_id = st.subject_id
 		events_buf[n].source.channel = .Stats
+		events_buf[n].source.seq = st.seq
 		events_buf[n].kind = .Stats
 		events_buf[n].unix = st.unix
 		events_buf[n].data.stats = ports.MD_Stats_Event{
@@ -649,6 +653,7 @@ native_poll :: proc(events_buf: []ports.MD_Event) -> int {
 
 		events_buf[n].source.subject_id = hm.subject_id
 		events_buf[n].source.channel = .Heatmaps
+		events_buf[n].source.seq = hm.seq
 		events_buf[n].kind = .Heatmap
 		events_buf[n].unix = hm.unix
 		events_buf[n].data.heatmap = ports.MD_Heatmap_Event{
@@ -678,6 +683,7 @@ native_poll :: proc(events_buf: []ports.MD_Event) -> int {
 
 		events_buf[n].source.subject_id = vp.subject_id
 		events_buf[n].source.channel = .VPVR
+		events_buf[n].source.seq = vp.seq
 		events_buf[n].kind = .VPVR
 		events_buf[n].unix = vp.unix
 		events_buf[n].data.vpvr = ports.MD_VPVR_Event{
@@ -700,6 +706,7 @@ native_poll :: proc(events_buf: []ports.MD_Event) -> int {
 		cs := state.candle_ring[oldest]
 		events_buf[n].source.subject_id = cs.subject_id
 		events_buf[n].source.channel = .Candles
+		events_buf[n].source.seq = cs.seq
 		events_buf[n].kind = .Candle
 		events_buf[n].unix = util.normalize_unix_seconds(cs.window_end_ts)
 		events_buf[n].data.candle = ports.MD_Candle_Event{
@@ -743,6 +750,7 @@ native_poll :: proc(events_buf: []ports.MD_Event) -> int {
 		}
 		events_buf[n].source.subject_id = rc.candles[0].subject_id if rc.count > 0 else 0
 		events_buf[n].source.channel = .Candles
+		events_buf[n].source.seq = rc.seq
 		events_buf[n].kind = .Range_Candle_Batch
 		events_buf[n].data.range_candles = batch
 		state.range_candle_dirty = false
@@ -1028,6 +1036,7 @@ apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 		sync.lock(&state.mu)
 		if state.trade_count < TRADE_RING_CAP {
 			state.trade_ring_subject_id[state.trade_write] = t.subject_id
+			state.trade_ring_seq[state.trade_write] = t.seq
 			state.trade_ring[state.trade_write] = ports.MD_Trade_Event{
 				price  = t.price,
 				qty    = t.qty,

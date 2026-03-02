@@ -277,7 +277,7 @@ drain_marketdata :: proc(state: ^App_State) -> int {
 						stream_ids_same_market(state, state.stream_views.active_subject_id, subject_id)
 					is_active_getrange_subject := state.getrange_subject_id != 0 && subject_id == state.getrange_subject_id
 					is_active_range_batch := is_active_stream || is_active_getrange_subject
-					record_stream_event(state, slot, evt.kind, evt.unix, is_active_stream)
+					record_stream_event(state, slot, evt.kind, evt.unix, evt.source.seq, is_active_stream)
 				switch evt.kind {
 				case .Trade:
 					t := evt.data.trade
@@ -595,7 +595,7 @@ event_unix_to_ms :: proc(unix: i64) -> i64 {
 }
 
 @(private = "file")
-record_stream_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, kind: ports.MD_Event_Kind, unix: i64, is_active_stream: bool) {
+record_stream_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, kind: ports.MD_Event_Kind, unix: i64, seq: i64, is_active_stream: bool) {
 	if state == nil || slot == nil do return
 	if !slot.has_stream_info {
 		refresh_stream_info_for_slot(state, slot)
@@ -620,7 +620,7 @@ record_stream_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, kind: po
 	if is_active_stream && handle.status.desync_reason == .Manual {
 		streams.controller_clear_desync(&handle.status)
 	}
-	streams.controller_mark_message(&handle.status, local_ms, server_ms, 0, is_snapshot)
+	streams.controller_mark_message(&handle.status, local_ms, server_ms, seq, is_snapshot)
 	streams.controller_mark_connected(&handle.status, current_conn_status(state) == .Connected)
 	if is_active_stream {
 		streams.registry_set_active(&state.stream_registry, stream_id)

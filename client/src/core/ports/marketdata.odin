@@ -116,6 +116,7 @@ MD_Event_Data :: struct #raw_union {
 MD_Event_Source :: struct {
 	subject_id: u64,
 	channel:    MD_Channel,
+	seq:        i64,
 }
 
 MD_Stream_Info :: struct {
