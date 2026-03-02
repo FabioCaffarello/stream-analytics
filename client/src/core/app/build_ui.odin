@@ -1231,7 +1231,7 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 			sx += state.text.measure(ui.FONT_SIZE_XS, cb_str).x + 8
 
 			arena_buf: [40]u8
-			arena_str := fmt.bprintf(arena_buf[:], "Arena:%d/%d", len(state.cmd_buf.text_arena), cap(state.cmd_buf.text_arena))
+			arena_str := fmt.bprintf(arena_buf[:], "Arena:%d/%d", ui.frame_arena_usage(&state.cmd_buf), ui.frame_arena_capacity(&state.cmd_buf))
 			ui.push_text(&state.cmd_buf, {sx, sy}, arena_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
 			sx += state.text.measure(ui.FONT_SIZE_XS, arena_str).x + 8
 

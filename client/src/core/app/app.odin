@@ -261,9 +261,9 @@ Runtime_Probe :: struct {
 	frame_time_p50_us:     i64,
 	frame_time_p95_us:     i64,
 	frame_time_p99_us:     i64,
-	cmd_buf_count:         int,
-	cmd_text_arena_bytes:  int,
-	cmd_text_arena_capacity: int,
+	cmd_buf_count:           int,
+	cmd_frame_arena_bytes:   int,
+	cmd_frame_arena_capacity: int,
 	cell_count:            int,
 	cell_tf_idxs:          [CELL_MAX]int,  // per-cell tf_idx (-1 = global)
 }
@@ -858,8 +858,8 @@ runtime_probe :: proc(state: ^App_State) -> Runtime_Probe {
 
 	// Performance metrics.
 	p.cmd_buf_count = len(state.cmd_buf.commands)
-	p.cmd_text_arena_bytes = len(state.cmd_buf.text_arena)
-	p.cmd_text_arena_capacity = cap(state.cmd_buf.text_arena)
+	p.cmd_frame_arena_bytes = ui.frame_arena_usage(&state.cmd_buf)
+	p.cmd_frame_arena_capacity = ui.frame_arena_capacity(&state.cmd_buf)
 	p.cell_count = state.cell_count
 	for ci in 0 ..< state.cell_count {
 		p.cell_tf_idxs[ci] = state.cell_assignments[ci].tf_idx
