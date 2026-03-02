@@ -43,6 +43,59 @@ grid_rect_for_panel :: proc(
 	return grid.rects[cell_idx], true
 }
 
+@(private = "file")
+cache_string :: proc(buf: []u8, n: int) -> string {
+	m := n
+	if m <= 0 do return ""
+	if m > len(buf) do m = len(buf)
+	return string(buf[:m])
+}
+
+@(private = "file")
+refresh_telemetry_hud_cache :: proc(state: ^App_State) {
+	if state == nil do return
+
+	now_ms := current_now_ms(state)
+	if now_ms <= 0 do return
+	if state.telemetry_hud_cache.last_update_ms > 0 &&
+		now_ms - state.telemetry_hud_cache.last_update_ms < 250 {
+		return
+	}
+	state.telemetry_hud_cache.last_update_ms = now_ms
+
+	state.telemetry_hud_cache.mps_len = len(fmt.bprintf(
+		state.telemetry_hud_cache.mps_buf[:], "MPS:%.1f", state.active_stream_msg_rate,
+	))
+
+	bytes_per_sec := i64(state.active_stream_bytes_rate)
+	if bytes_per_sec >= 1024 * 1024 {
+		state.telemetry_hud_cache.bps_len = len(fmt.bprintf(
+			state.telemetry_hud_cache.bps_buf[:], "BPS:%dMB/s", bytes_per_sec / (1024 * 1024),
+		))
+	} else {
+		state.telemetry_hud_cache.bps_len = len(fmt.bprintf(
+			state.telemetry_hud_cache.bps_buf[:], "BPS:%dKB/s", bytes_per_sec / 1024,
+		))
+	}
+
+	state.telemetry_hud_cache.cb_len = len(fmt.bprintf(
+		state.telemetry_hud_cache.cb_buf[:], "CB:%d", max(state.active_stream_candle_backlog, 0),
+	))
+	state.telemetry_hud_cache.arena_len = len(fmt.bprintf(
+		state.telemetry_hud_cache.arena_buf[:], "Arena:%d/%d", ui.frame_arena_usage(&state.cmd_buf), ui.frame_arena_capacity(&state.cmd_buf),
+	))
+	state.telemetry_hud_cache.pm_len = len(fmt.bprintf(
+		state.telemetry_hud_cache.pm_buf[:], "PM:%d", state.active_stream_parsed_msgs_total,
+	))
+	state.telemetry_hud_cache.pr_len = len(fmt.bprintf(
+		state.telemetry_hud_cache.pr_buf[:], "PR:%d", state.active_stream_parse_arena_resets_total,
+	))
+	pb_mb := i64(state.active_stream_parsed_bytes_total / u64(1024 * 1024))
+	state.telemetry_hud_cache.pb_len = len(fmt.bprintf(
+		state.telemetry_hud_cache.pb_buf[:], "PB:%dMB", pb_mb,
+	))
+}
+
 build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buffer {
 	ui.reset(&state.cmd_buf)
 	state.last_indicator_probe = {}
@@ -1208,46 +1261,34 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 			sx += state.text.measure(ui.FONT_SIZE_XS, r_str).x + 10
 		}
 		if state.telemetry_hud_enabled {
-			mps_buf: [32]u8
-			mps_str := fmt.bprintf(mps_buf[:], "MPS:%.1f", state.active_stream_msg_rate)
+			refresh_telemetry_hud_cache(state)
+
+			mps_str := cache_string(state.telemetry_hud_cache.mps_buf[:], state.telemetry_hud_cache.mps_len)
 			ui.push_text(&state.cmd_buf, {sx, sy}, mps_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
 			sx += state.text.measure(ui.FONT_SIZE_XS, mps_str).x + 8
 
-			bytes_per_sec := i64(state.active_stream_bytes_rate)
-			bps_buf: [32]u8
-			bps_str := ""
-			if bytes_per_sec >= 1024 * 1024 {
-				bps_str = fmt.bprintf(bps_buf[:], "BPS:%dMB/s", bytes_per_sec / (1024 * 1024))
-			} else {
-				bps_str = fmt.bprintf(bps_buf[:], "BPS:%dKB/s", bytes_per_sec / 1024)
-			}
+			bps_str := cache_string(state.telemetry_hud_cache.bps_buf[:], state.telemetry_hud_cache.bps_len)
 			ui.push_text(&state.cmd_buf, {sx, sy}, bps_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
 			sx += state.text.measure(ui.FONT_SIZE_XS, bps_str).x + 8
 
-			cb_buf: [20]u8
-			cb_str := fmt.bprintf(cb_buf[:], "CB:%d", max(state.active_stream_candle_backlog, 0))
+			cb_str := cache_string(state.telemetry_hud_cache.cb_buf[:], state.telemetry_hud_cache.cb_len)
 			cb_color := state.active_stream_candle_backlog > 0 ? ui.COL_WARNING : ui.COL_TEXT_MUTED
 			ui.push_text(&state.cmd_buf, {sx, sy}, cb_str, cb_color, ui.FONT_SIZE_XS, .Mono)
 			sx += state.text.measure(ui.FONT_SIZE_XS, cb_str).x + 8
 
-			arena_buf: [40]u8
-			arena_str := fmt.bprintf(arena_buf[:], "Arena:%d/%d", ui.frame_arena_usage(&state.cmd_buf), ui.frame_arena_capacity(&state.cmd_buf))
+			arena_str := cache_string(state.telemetry_hud_cache.arena_buf[:], state.telemetry_hud_cache.arena_len)
 			ui.push_text(&state.cmd_buf, {sx, sy}, arena_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
 			sx += state.text.measure(ui.FONT_SIZE_XS, arena_str).x + 8
 
-			pm_buf: [32]u8
-			pm_str := fmt.bprintf(pm_buf[:], "PM:%d", state.active_stream_parsed_msgs_total)
+			pm_str := cache_string(state.telemetry_hud_cache.pm_buf[:], state.telemetry_hud_cache.pm_len)
 			ui.push_text(&state.cmd_buf, {sx, sy}, pm_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
 			sx += state.text.measure(ui.FONT_SIZE_XS, pm_str).x + 8
 
-			pr_buf: [32]u8
-			pr_str := fmt.bprintf(pr_buf[:], "PR:%d", state.active_stream_parse_arena_resets_total)
+			pr_str := cache_string(state.telemetry_hud_cache.pr_buf[:], state.telemetry_hud_cache.pr_len)
 			ui.push_text(&state.cmd_buf, {sx, sy}, pr_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
 			sx += state.text.measure(ui.FONT_SIZE_XS, pr_str).x + 8
 
-			pb_buf: [32]u8
-			pb_mb := i64(state.active_stream_parsed_bytes_total / u64(1024 * 1024))
-			pb_str := fmt.bprintf(pb_buf[:], "PB:%dMB", pb_mb)
+			pb_str := cache_string(state.telemetry_hud_cache.pb_buf[:], state.telemetry_hud_cache.pb_len)
 			ui.push_text(&state.cmd_buf, {sx, sy}, pb_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
 			sx += state.text.measure(ui.FONT_SIZE_XS, pb_str).x + 8
 		}

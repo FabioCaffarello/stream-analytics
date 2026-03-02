@@ -269,6 +269,24 @@ Runtime_Probe :: struct {
 	cell_tf_idxs:          [CELL_MAX]int,  // per-cell tf_idx (-1 = global)
 }
 
+Telemetry_HUD_Cache :: struct {
+	last_update_ms: i64,
+	mps_buf: [32]u8,
+	mps_len: int,
+	bps_buf: [32]u8,
+	bps_len: int,
+	cb_buf: [24]u8,
+	cb_len: int,
+	arena_buf: [40]u8,
+	arena_len: int,
+	pm_buf: [32]u8,
+	pm_len: int,
+	pr_buf: [32]u8,
+	pr_len: int,
+	pb_buf: [32]u8,
+	pb_len: int,
+}
+
 App_State :: struct {
 	cmd_buf:         ui.Command_Buffer,
 	text:            ports.Text_Port,
@@ -350,6 +368,7 @@ App_State :: struct {
 	active_stream_parse_arena_resets_total: u64,
 
 	telemetry_hud_enabled: bool,
+	telemetry_hud_cache:   Telemetry_HUD_Cache,
 
 	// Synthetic heatmap throttle (1-per-TF-window).
 	synth_heatmap_last_window: i64,
