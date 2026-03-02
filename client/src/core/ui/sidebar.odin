@@ -1,11 +1,10 @@
 package ui
 
 // Two-zone sidebar: nav rail (always visible, ~44px) + collapsible detail panel (~200px).
-// Also retains old draw_sidebar for backward compat in detail panel content.
 
 NAV_RAIL_W          :: f32(44)
 DETAIL_PANEL_W      :: f32(200)
-SIDEBAR_EXPANDED_W  :: f32(140)  // kept for old draw_sidebar compat
+SIDEBAR_EXPANDED_W  :: f32(140)  // width for expanded detail panel content
 SIDEBAR_COLLAPSED_W :: f32(0)
 
 // --- Nav Rail ---

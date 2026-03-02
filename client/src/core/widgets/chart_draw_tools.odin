@@ -279,7 +279,7 @@ remove_selected_tool :: proc(state: ^Draw_Tools_State) {
 
 // --- Serialization (hlines only, rects are session-only) ---
 
-// Serialize hlines to a settings-compatible string.
+// Serialize hlines to a settings string.
 // Format: "h:<palette_idx>:<price>;h:<palette_idx>:<price>;..."
 draw_tools_serialize :: proc(state: ^Draw_Tools_State, buf: []u8) -> string {
 	if state == nil do return ""

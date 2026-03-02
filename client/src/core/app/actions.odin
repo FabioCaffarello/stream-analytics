@@ -186,7 +186,7 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 				}
 				state.panel_visible[idx] = !state.panel_visible[idx]
 				ui.sync_sidebar_visibility(&state.sidebar, state.panel_visible)
-				layout_from_legacy(state)
+				layout_from_panels(state)
 				mask_buf: [ui.PANEL_COUNT]u8
 				services.settings_set(&state.settings, services.SETTING_PANEL_VISIBLE_MASK,
 					panel_visibility_mask_encode_into(mask_buf[:], state.panel_visible))
@@ -226,7 +226,7 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 			state.custom_grid_def = grid_def
 			state.panel_visible = vis
 			ui.sync_sidebar_visibility(&state.sidebar, state.panel_visible)
-			layout_from_legacy(state)
+			layout_from_panels(state)
 			// Reset per-cell TF overrides so all cells follow global TF in new layout.
 			for ci in 0 ..< state.cell_count {
 				state.cell_assignments[ci].tf_idx = -1

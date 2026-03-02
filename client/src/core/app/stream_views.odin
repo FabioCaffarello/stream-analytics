@@ -662,8 +662,8 @@ cell_clear_binding :: proc(cell: ^Cell_Assignment) {
 	cell.bound_symbol_len = 0
 }
 
-// Initialize cell_assignments from legacy 7-panel layout.
-layout_from_legacy :: proc(state: ^App_State) {
+// Initialize cell_assignments from panel visibility defaults.
+layout_from_panels :: proc(state: ^App_State) {
 	PANEL_WIDGET_MAP :: [ui.PANEL_COUNT]Widget_Kind{
 		.Candle, .Stats, .Counter, .Heatmap, .VPVR, .Trades, .Orderbook,
 	}
@@ -1046,7 +1046,7 @@ persist_layout_v2 :: proc(state: ^App_State) {
 	}
 
 	services.settings_set(&state.settings, services.SETTING_LAYOUT_V2, string(buf[:off]))
-	// Also persist V1 for backwards compatibility.
+	// Also export V1 layout for rollback tooling.
 	persist_layout(state)
 }
 
@@ -1150,7 +1150,7 @@ persist_layout_v4 :: proc(state: ^App_State) {
 	services.settings_set(&state.settings, services.SETTING_LAYOUT_V4, string(buf[:off]))
 	services.settings_set(&state.settings, services.SETTING_LAYOUT_MODE,
 		state.layout_mode == .Custom ? "C" : "P")
-	// Also persist V3, V2, V1 for backwards compatibility.
+	// Also export V3/V2/V1 layouts for rollback tooling.
 	persist_layout_v3(state)
 }
 
@@ -1251,7 +1251,7 @@ persist_layout_v3 :: proc(state: ^App_State) {
 	services.settings_set(&state.settings, services.SETTING_LAYOUT_V3, string(buf[:off]))
 	services.settings_set(&state.settings, services.SETTING_LAYOUT_MODE,
 		state.layout_mode == .Custom ? "C" : "P")
-	// Also persist V2 and V1 for backwards compatibility.
+	// Also export V2/V1 layouts for rollback tooling.
 	persist_layout_v2(state)
 }
 
@@ -1846,16 +1846,7 @@ stream_ids_same_market :: proc(state: ^App_State, a_subject_id, b_subject_id: u6
 }
 
 normalized_venue :: proc(v: string) -> string {
-	if len(v) == 0 do return ""
-	if has_prefix_ci(v, "binance") do return "binance"
-	if has_prefix_ci(v, "kraken") do return "kraken"
-	if has_prefix_ci(v, "coinbase") do return "coinbase"
-	if has_prefix_ci(v, "bybit") do return "bybit"
-	if has_prefix_ci(v, "hyperliquid") do return "hyperliquid"
-	if dash := strings.index(v, "-"); dash > 0 {
-		return v[:dash]
-	}
-	return v
+	return streams.endpoint_normalize_venue(v)
 }
 
 @(private = "file")
@@ -1880,7 +1871,7 @@ normalized_symbol :: proc(s: string) -> string {
 }
 
 build_stream_id_from_market_into :: proc(buf: []u8, venue: string, symbol: string) -> string {
-	return streams.format_stream_id_into(buf, normalized_venue(venue), symbol, "")
+	return streams.endpoint_build_stream_id_into(buf, venue, symbol)
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -2108,9 +2099,11 @@ reconcile_subscriptions :: proc(state: ^App_State) {
 	// Subscribe to wanted channels (skip channels already in prev_subs to avoid duplicates).
 	for wi in 0 ..< wanted_count {
 		w := wanted[wi]
+		endpoint := streams.endpoint_for_venue(w.venue)
 		for chi in 0 ..< CHANNEL_COUNT {
 			if (w.channels & (1 << u8(chi))) == 0 do continue
 			ch := ports.MD_Channel(chi)
+			if !streams.endpoint_supports_channel(endpoint, ch) do continue
 			is_tf_ch := ((1 << u8(chi)) & CH_TF_SENSITIVE) != 0
 			eff_tf := is_tf_ch ? w.tf : ""
 			seed_stream_slot_for_subject(state, w.venue, w.symbol, ch, eff_tf)

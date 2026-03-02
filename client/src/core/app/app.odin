@@ -180,6 +180,7 @@ Stream_View_Slot :: struct {
 	stream_info:     ports.MD_Stream_Info,
 	has_channel:     bool,
 	channel:         ports.MD_Channel,
+	orderbook_snapshot_seen: bool,
 	has_timeframe_ms: bool,
 	timeframe_ms:     i64,
 	has_heatmap_snapshot: bool,
@@ -559,8 +560,8 @@ init :: proc(
 	state.grid_row_resize = -1
 	state.cell_stream_picker_open = -1
 
-	// Initialize cell assignments from default panel layout.
-	layout_from_legacy(state)
+	// Initialize cell assignments from default panel visibility.
+	layout_from_panels(state)
 
 	// Sidebar sections: panels expanded by default, others collapsed.
 	state.section_streams = {expanded = false}
@@ -716,8 +717,8 @@ init :: proc(
 				state.panel_visible = vis
 				ui.sync_sidebar_visibility(&state.sidebar, state.panel_visible)
 			}
-			// Restore cell layout (V4 → V3 → V2 → V1 fallback chain).
-			layout_from_legacy(state) // rebuild from panel_visible
+			// Restore cell layout (V4 -> V3 -> V2 -> V1 chain).
+			layout_from_panels(state) // rebuild from panel_visible
 			if !restore_layout_v4(state) {
 				if !restore_layout_v3(state) {
 					if !restore_layout_v2(state) {
