@@ -136,6 +136,18 @@ segmented_control :: proc(
 	seg_w := (rect.size.x - total_gap) / f32(count)
 	if seg_w <= 0 do return out
 
+	clicked_idx := -1
+	if pointer.left_pressed && rect_contains(rect, pointer.pos) {
+		for i in 0 ..< count {
+			x := rect.pos.x + f32(i) * (seg_w + seg_gap)
+			seg := Rect{pos = {x, rect.pos.y}, size = {seg_w, rect.size.y}}
+			if rect_contains(seg, pointer.pos) {
+				clicked_idx = i
+				break
+			}
+		}
+	}
+
 	for i in 0 ..< count {
 		x := rect.pos.x + f32(i) * (seg_w + seg_gap)
 		seg := Rect{pos = {x, rect.pos.y}, size = {seg_w, rect.size.y}}
@@ -145,18 +157,22 @@ segmented_control :: proc(
 
 		bg := with_alpha(COL_PRIMARY_DIMMED, 0.92)
 		fg := with_alpha(COL_WHITE, 0.72)
+		border_alpha := f32(0.15)
 		if selected {
-			bg = with_alpha(COL_BLUE, 0.40)
+			bg = with_alpha(COL_BLUE, 0.60)
 			fg = with_alpha(COL_WHITE, 0.96)
+			border_alpha = 0.30
 		}
 		if pressed {
-			bg = adjust_brightness(bg, 0.82)
+			bg = adjust_brightness(bg, 0.70)
+			border_alpha += 0.12
 		} else if hovered {
-			bg = adjust_brightness(bg, 1.12)
+			bg = adjust_brightness(bg, 1.20)
+			border_alpha += 0.06
 		}
 
 		push(buf, Cmd_Rect_Filled{rect = seg, color = bg})
-		draw_rect_stroke(buf, seg, with_alpha(COL_WHITE, selected ? 0.30 : 0.15))
+		draw_rect_stroke(buf, seg, with_alpha(COL_WHITE, border_alpha))
 
 		label := options[i]
 		label_size := measure_proc(font_size, label)
@@ -164,11 +180,9 @@ segmented_control :: proc(
 		label_pos.y += font_size * 0.35
 		push_text(buf, label_pos, label, fg, font_size, font_id)
 
-		if hovered && pointer.left_pressed {
-			if i != selected_idx {
-				out.index = i
-				out.changed = true
-			}
+		if i == clicked_idx && i != selected_idx {
+			out.index = i
+			out.changed = true
 		}
 	}
 
@@ -357,6 +371,10 @@ draw_tooltip :: proc(
 ) -> Rect {
 	if data.count <= 0 do return {}
 
+	prev_z := buf.current_z_layer
+	buf.current_z_layer = Z_TOOLTIP
+	defer { buf.current_z_layer = prev_z }
+
 	pad_x := f32(8)
 	pad_y := f32(6)
 	line_h := measure_proc(font_size, "X").y + 3
@@ -452,8 +470,11 @@ dropdown :: proc(
 		state.open = !state.open
 	}
 
-	// Overlay list when open.
+	// Overlay list when open (rendered at Z_OVERLAY for correct stacking).
 	if state.open {
+		prev_z := buf.current_z_layer
+		buf.current_z_layer = Z_OVERLAY
+		defer { buf.current_z_layer = prev_z }
 		item_h := measure_proc(font_size, "X").y + 8
 		list_h := item_h * f32(len(options))
 		list_rect := Rect{
@@ -535,6 +556,10 @@ context_menu :: proc(
 ) -> Context_Menu_Result {
 	result := Context_Menu_Result{clicked_idx = -1}
 	if !state.open || len(items) == 0 do return result
+
+	prev_z := buf.current_z_layer
+	buf.current_z_layer = Z_OVERLAY
+	defer { buf.current_z_layer = prev_z }
 
 	pad_x := f32(6)
 	pad_y := f32(4)
@@ -648,7 +673,7 @@ stepper :: proc(
 	plus_hov := rect_contains(plus_rect, pointer.pos)
 	plus_bg := plus_hov ? with_alpha(COL_WHITE, 0.12) : with_alpha(COL_WHITE, 0.05)
 	push(buf, Cmd_Rect_Filled{rect = plus_rect, color = plus_bg})
-	push_text(buf, {plus_rect.pos.x + 4, plus_rect.pos.y + h * 0.72}, "+",
+	push_text(buf, {plus_rect.pos.x + 4, plus_rect.pos.y + h * 0.5 + font_size * 0.35}, "+",
 		with_alpha(COL_WHITE, 0.7), font_size, .Mono)
 	if plus_hov && pointer.left_pressed && value < hi {
 		result.value = value + 1
@@ -660,7 +685,7 @@ stepper :: proc(
 	minus_hov := rect_contains(minus_rect, pointer.pos)
 	minus_bg := minus_hov ? with_alpha(COL_WHITE, 0.12) : with_alpha(COL_WHITE, 0.05)
 	push(buf, Cmd_Rect_Filled{rect = minus_rect, color = minus_bg})
-	push_text(buf, {minus_rect.pos.x + 4, minus_rect.pos.y + h * 0.72}, "-",
+	push_text(buf, {minus_rect.pos.x + 4, minus_rect.pos.y + h * 0.5 + font_size * 0.35}, "-",
 		with_alpha(COL_WHITE, 0.7), font_size, .Mono)
 	if minus_hov && pointer.left_pressed && value > lo {
 		result.value = value - 1
@@ -672,11 +697,11 @@ stepper :: proc(
 	val_str := fmt.bprintf(val_buf[:], "%d", value)
 	val_w := measure_proc(font_size, val_str).x
 	val_x := minus_rect.pos.x - val_w - 4
-	push_text(buf, {val_x, rect.pos.y + h * 0.72}, val_str,
+	push_text(buf, {val_x, rect.pos.y + h * 0.5 + font_size * 0.35}, val_str,
 		with_alpha(COL_WHITE, 0.8), font_size, .Mono)
 
 	// Label on the left.
-	push_text(buf, {rect.pos.x + 2, rect.pos.y + h * 0.72}, label,
+	push_text(buf, {rect.pos.x + 2, rect.pos.y + h * 0.5 + font_size * 0.35}, label,
 		COL_TEXT_SECONDARY, font_size, .Mono)
 
 	return result
@@ -709,7 +734,7 @@ stepper_float :: proc(
 	plus_hov := rect_contains(plus_rect, pointer.pos)
 	plus_bg := plus_hov ? with_alpha(COL_WHITE, 0.12) : with_alpha(COL_WHITE, 0.05)
 	push(buf, Cmd_Rect_Filled{rect = plus_rect, color = plus_bg})
-	push_text(buf, {plus_rect.pos.x + 4, plus_rect.pos.y + h * 0.72}, "+",
+	push_text(buf, {plus_rect.pos.x + 4, plus_rect.pos.y + h * 0.5 + font_size * 0.35}, "+",
 		with_alpha(COL_WHITE, 0.7), font_size, .Mono)
 	if plus_hov && pointer.left_pressed && value + step <= hi + 0.001 {
 		result.value = value + step
@@ -720,7 +745,7 @@ stepper_float :: proc(
 	minus_hov := rect_contains(minus_rect, pointer.pos)
 	minus_bg := minus_hov ? with_alpha(COL_WHITE, 0.12) : with_alpha(COL_WHITE, 0.05)
 	push(buf, Cmd_Rect_Filled{rect = minus_rect, color = minus_bg})
-	push_text(buf, {minus_rect.pos.x + 4, minus_rect.pos.y + h * 0.72}, "-",
+	push_text(buf, {minus_rect.pos.x + 4, minus_rect.pos.y + h * 0.5 + font_size * 0.35}, "-",
 		with_alpha(COL_WHITE, 0.7), font_size, .Mono)
 	if minus_hov && pointer.left_pressed && value - step >= lo - 0.001 {
 		result.value = value - step
@@ -731,10 +756,10 @@ stepper_float :: proc(
 	val_str := fmt.bprintf(val_buf[:], "%.1f", value)
 	val_w := measure_proc(font_size, val_str).x
 	val_x := minus_rect.pos.x - val_w - 4
-	push_text(buf, {val_x, rect.pos.y + h * 0.72}, val_str,
+	push_text(buf, {val_x, rect.pos.y + h * 0.5 + font_size * 0.35}, val_str,
 		with_alpha(COL_WHITE, 0.8), font_size, .Mono)
 
-	push_text(buf, {rect.pos.x + 2, rect.pos.y + h * 0.72}, label,
+	push_text(buf, {rect.pos.x + 2, rect.pos.y + h * 0.5 + font_size * 0.35}, label,
 		COL_TEXT_SECONDARY, font_size, .Mono)
 
 	return result

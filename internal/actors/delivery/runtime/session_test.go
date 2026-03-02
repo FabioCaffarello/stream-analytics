@@ -861,3 +861,123 @@ func captureJSONDeliveryEventFrame(t *testing.T, subjectRaw string, env envelope
 	}
 	return event
 }
+
+func TestSession_PingReturnsPong(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-capture-ping")
+	defer e.Poison(routerPID)
+
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{RouterPID: routerPID, Conn: conn}), "ws-session-ping")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"type":"ping","request_id":"p1","ts_client":123}`)}
+	msg := <-conn.writeCh
+	out, ok := msg.(map[string]any)
+	if !ok {
+		t.Fatalf("message type=%T want map[string]any", msg)
+	}
+	if got, want := out["type"], "pong"; got != want {
+		t.Fatalf("type=%v want=%v", got, want)
+	}
+	if got, want := out["request_id"], "p1"; got != want {
+		t.Fatalf("request_id=%v want=%v", got, want)
+	}
+}
+
+func TestSession_SubscribeFromStreamFields(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-capture-stream-fields")
+	defer e.Poison(routerPID)
+
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{RouterPID: routerPID, Conn: conn}), "ws-session-stream-fields")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"type":"subscribe","request_id":"s-fields","venue":"binance","symbol":"BTC-USDT","channel":"marketdata.trade"}`)}
+	sub := waitForMessage[SubscribeSession](t, routerCh, time.Second)
+	if got, want := sub.Subject.String(), "marketdata.trade/binance/BTCUSDT/raw"; got != want {
+		t.Fatalf("subject=%q want=%q", got, want)
+	}
+}
+
+func TestSession_SubscribeRespectsMaxSubscriptions(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-capture-max-subs")
+	defer e.Poison(routerPID)
+
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{
+		RouterPID:               routerPID,
+		Conn:                    conn,
+		MaxSubscriptions:        1,
+		MaxSymbolsPerConnection: 10,
+	}), "ws-session-max-subs")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"subscribe","subject":"marketdata.trade/binance/BTC-USDT/raw","request_id":"s1"}`)}
+	<-conn.writeCh
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"subscribe","subject":"marketdata.trade/binance/ETH-USDT/raw","request_id":"s2"}`)}
+	msg := <-conn.writeCh
+	errFrame, ok := msg.(wsErrorFrame)
+	if !ok {
+		t.Fatalf("message type=%T want wsErrorFrame", msg)
+	}
+	if got, want := errFrame.Type, "error"; got != want {
+		t.Fatalf("type=%q want=%q", got, want)
+	}
+}
+
+func TestSession_ResyncEmitsSnapshotAndAck(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-capture-resync")
+	defer e.Poison(routerPID)
+
+	subject := mustParseSubjectForSession(t, "marketdata.trade/binance/BTC-USDT/raw")
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{
+		RouterPID:           routerPID,
+		Conn:                conn,
+		HotSnapshotProvider: stubSnapshotProvider{bySubject: map[string][]byte{subject.String(): []byte(`{"seq":101}`)}},
+	}), "ws-session-resync")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"subscribe","subject":"marketdata.trade/binance/BTC-USDT/raw","request_id":"sub"}`)}
+	<-conn.writeCh // snapshot
+	<-conn.writeCh // ack
+
+	before := testutil.ToFloat64(metrics.WSResyncTotal)
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"type":"resync","stream_id":"marketdata.trade/binance/BTC-USDT/raw","request_id":"re1","last_seq":100}`)}
+	snapshot := <-conn.writeCh
+	if out, ok := snapshot.(wsSnapshotFrame); !ok || out.Type != "snapshot" {
+		t.Fatalf("expected snapshot frame, got %#v", snapshot)
+	}
+	ack := <-conn.writeCh
+	if out, ok := ack.(wsAckFrame); !ok || out.Op != "resync" {
+		t.Fatalf("expected resync ack, got %#v", ack)
+	}
+	after := testutil.ToFloat64(metrics.WSResyncTotal)
+	if after < before+1 {
+		t.Fatalf("expected resync metric increment, before=%f after=%f", before, after)
+	}
+}

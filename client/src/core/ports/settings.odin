@@ -10,4 +10,5 @@ Settings_Port :: struct {
 	load:  proc(key: string) -> (value: string, ok: bool),
 	save:  proc(key: string, value: string) -> bool,
 	flush: proc(), // Force write to disk (native) or localStorage (web).
+	clipboard_write: proc(text: string) -> bool, // Copy text to system clipboard (nil = unsupported).
 }

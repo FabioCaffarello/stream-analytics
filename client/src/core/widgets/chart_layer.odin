@@ -17,6 +17,7 @@ Chart_Layer_Vtable :: struct {
 Chart_Layer :: struct {
 	using vtable: Chart_Layer_Vtable,
 	display_name: string,
+	kind:         Chart_Layer_Kind,
 	visible:      bool,
 	is_overlay:   bool,    // true = price-space overlay, false = sub-plot
 	data:         rawptr,

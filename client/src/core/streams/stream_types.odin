@@ -24,6 +24,7 @@ Stream_Desync_Reason :: enum u8 {
 	Protocol_Version,
 	Protocol_Invalid,
 	Missing_Hello,
+	Resync_Required,
 	Manual,
 }
 

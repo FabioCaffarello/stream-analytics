@@ -10,6 +10,11 @@ package ui
 // Text is interned into a per-frame byte arena. Widgets call push_text()
 // which copies text + NUL into the arena and stores an offset in Cmd_Text.
 // Renderers resolve offsets via resolve_cstr / resolve_text before reset().
+//
+// Z-layer: each command is tagged with a z_layer (u8). Renderers call
+// sort_commands_by_z_layer() before iterating to ensure correct stacking.
+
+import "core:slice"
 
 Color :: [4]f32
 Vec2  :: [2]f32
@@ -19,6 +24,20 @@ Rect :: struct {
 	size: Vec2,
 }
 
+// --- Z-Layer constants ---
+
+Z_BASE    :: u8(0)  // backgrounds, grid
+Z_WIDGET  :: u8(1)  // chart, orderbook, trades content
+Z_PANEL   :: u8(2)  // sidebar, detail panel
+Z_OVERLAY :: u8(3)  // dropdown lists, cell pickers
+Z_MODAL   :: u8(4)  // help overlay, exchange manager, widget catalog
+Z_TOOLTIP :: u8(5)  // crosshair tooltips, hover info
+
+// Sentinel: when passed to push/push_text, use buf.current_z_layer instead.
+Z_CURRENT :: u8(255)
+
+// --- Commands ---
+
 Command :: union {
 	Cmd_Clear,
 	Cmd_Rect_Filled,
@@ -26,6 +45,11 @@ Command :: union {
 	Cmd_Text,
 	Cmd_Clip_Push,
 	Cmd_Clip_Pop,
+}
+
+Render_Command :: struct {
+	z_layer: u8,
+	cmd:     Command,
 }
 
 Cmd_Clear :: struct {
@@ -69,8 +93,9 @@ Frame_Arena :: struct {
 }
 
 Command_Buffer :: struct {
-	commands:    [dynamic]Command,
-	frame_arena: Frame_Arena,
+	commands:        [dynamic]Render_Command,
+	frame_arena:     Frame_Arena,
+	current_z_layer: u8,  // default z_layer for push/push_text (init = Z_WIDGET)
 }
 
 make_frame_arena :: proc(allocator := context.allocator) -> Frame_Arena {
@@ -105,8 +130,9 @@ frame_arena_capacity :: proc(buf: ^Command_Buffer) -> int {
 
 make_buffer :: proc(allocator := context.allocator) -> Command_Buffer {
 	return {
-		commands    = make([dynamic]Command, allocator),
-		frame_arena = make_frame_arena(allocator),
+		commands        = make([dynamic]Render_Command, allocator),
+		frame_arena     = make_frame_arena(allocator),
+		current_z_layer = Z_WIDGET,
 	}
 }
 
@@ -120,14 +146,15 @@ reset :: proc(buf: ^Command_Buffer) {
 	reset_frame_arena(&buf.frame_arena)
 }
 
-push :: proc(buf: ^Command_Buffer, cmd: Command) {
-	append(&buf.commands, cmd)
+push :: proc(buf: ^Command_Buffer, cmd: Command, z_layer: u8 = Z_CURRENT) {
+	layer := z_layer == Z_CURRENT ? buf.current_z_layer : z_layer
+	append(&buf.commands, Render_Command{z_layer = layer, cmd = cmd})
 }
 
 // Intern text into the per-frame arena and push a Cmd_Text command.
 push_text :: proc(
 	buf: ^Command_Buffer, pos: Vec2, text: string, color: Color, size: f32,
-	font_id: Font_Id = .Default,
+	font_id: Font_Id = .Default, z_layer: u8 = Z_CURRENT,
 ) {
 	off := u32(len(buf.frame_arena.bytes))
 	text_bytes := transmute([]u8)text
@@ -147,6 +174,15 @@ push_text :: proc(
 		color    = color,
 		size     = size,
 		font_id  = font_id,
+	}, z_layer)
+}
+
+// Stable sort commands by z_layer. Call before rendering.
+// Preserves insertion order within the same z_layer.
+sort_commands_by_z_layer :: proc(buf: ^Command_Buffer) {
+	if len(buf.commands) <= 1 do return
+	slice.stable_sort_by(buf.commands[:], proc(a, b: Render_Command) -> bool {
+		return a.z_layer < b.z_layer
 	})
 }
 

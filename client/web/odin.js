@@ -53,6 +53,7 @@ function writeToConsole(fd, str) {
 const canvas = document.getElementById("canvas");
 const ctx = canvas ? canvas.getContext("2d") : null;
 let canvasSizeDirty = true;
+let dpr = window.devicePixelRatio || 1;
 const PERF_HUD_ENABLED = false;
 const IDLE_STEP_FPS = 15;
 const IDLE_STEP_INTERVAL_MS = IDLE_STEP_FPS > 0 ? (1000 / IDLE_STEP_FPS) : 0;
@@ -61,7 +62,7 @@ const IDLE_QUIET_MS = 250;
 function defaultWsUrlForCurrentOrigin() {
     const proto = window.location.protocol === "https:" ? "wss" : "ws";
     const host = window.location.host || "127.0.0.1:8090";
-    return `${proto}://${host}/ws`;
+    return `${proto}://${host}/ws/marketdata`;
 }
 
 const SETTINGS_STORAGE_PREFIX = "mr.settings.";
@@ -127,13 +128,29 @@ if (canvas) {
 
 function syncCanvasSize(force = false) {
     if (!canvas) return;
+    // Detect DPR changes (e.g., window moved between monitors).
+    const newDpr = window.devicePixelRatio || 1;
+    if (newDpr !== dpr) {
+        dpr = newDpr;
+        canvasSizeDirty = true;
+    }
     if (!force && !canvasSizeDirty) return;
     const rect = canvas.getBoundingClientRect();
-    const w = Math.max(1, Math.round(rect.width));
-    const h = Math.max(1, Math.round(rect.height));
+    const w = Math.max(1, Math.round(rect.width * dpr));
+    const h = Math.max(1, Math.round(rect.height * dpr));
     if (canvas.width !== w || canvas.height !== h) {
         canvas.width = w;
         canvas.height = h;
+        // Apply DPR scale so all drawing uses CSS-pixel coordinates.
+        if (ctx) {
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        }
+        // Resize resets Canvas2D state — invalidate cached keys.
+        canvasFontKey = "";
+        fillStyleKey = "";
+        strokeStyleKey = "";
+        lineWidthValue = -1;
+        textMeasureCache.clear();
     }
     canvasSizeDirty = false;
 }
@@ -290,26 +307,88 @@ const wsRuntimeOverride = {
     api_key: "",
 };
 
-function parseApiKeyFromHeaderString(hdrs) {
-    if (!hdrs || typeof hdrs !== "string") return "";
-    const match = hdrs.match(/X-API-Key:\s*(\S+)/i);
-    return match && typeof match[1] === "string" ? match[1].trim() : "";
+function parseAuthFromHeaderString(hdrs) {
+    if (!hdrs || typeof hdrs !== "string") return { api_key: "", jwt_token: "" };
+    const jwtMatch = hdrs.match(/Authorization:\s*Bearer\s+(\S+)/i);
+    if (jwtMatch && typeof jwtMatch[1] === "string") {
+        return { api_key: "", jwt_token: jwtMatch[1].trim() };
+    }
+    const apiMatch = hdrs.match(/X-API-Key:\s*(\S+)/i);
+    return {
+        api_key: apiMatch && typeof apiMatch[1] === "string" ? apiMatch[1].trim() : "",
+        jwt_token: "",
+    };
 }
 
-function buildWsUrlWithApiKey(baseUrl, apiKey) {
+function buildWsUrlWithAuth(baseUrl, apiKey, jwtToken) {
     if (!baseUrl) return "";
+    // JWT auth: browser WebSocket doesn't support custom headers, pass as query param.
+    if (jwtToken) {
+        const sep = baseUrl.includes("?") ? "&" : "?";
+        return `${baseUrl}${sep}token=${encodeURIComponent(jwtToken)}`;
+    }
     if (!apiKey) return baseUrl;
     const sep = baseUrl.includes("?") ? "&" : "?";
     return `${baseUrl}${sep}api_key=${encodeURIComponent(apiKey)}`;
 }
 
+function sanitizeWsUrlForLog(wsUrl) {
+    if (!wsUrl || typeof wsUrl !== "string") return wsUrl || "";
+    try {
+        const u = new URL(wsUrl, window.location.href);
+        if (u.searchParams.has("api_key")) u.searchParams.set("api_key", "***");
+        if (u.searchParams.has("token")) u.searchParams.set("token", "***");
+        if (u.searchParams.has("jwt")) u.searchParams.set("jwt", "***");
+        return u.toString();
+    } catch (_) {
+        return wsUrl
+            .replace(/([?&]api_key=)[^&]*/gi, "$1***")
+            .replace(/([?&]token=)[^&]*/gi, "$1***")
+            .replace(/([?&]jwt=)[^&]*/gi, "$1***");
+    }
+}
+
+function parseBooleanFlag(raw, fallback) {
+    if (raw === undefined || raw === null) return fallback;
+    const text = String(raw).trim().toLowerCase();
+    if (text.length === 0) return fallback;
+    if (text === "1" || text === "true" || text === "on" || text === "yes") return true;
+    if (text === "0" || text === "false" || text === "off" || text === "no") return false;
+    return fallback;
+}
+
+function readAllowLegacyWsOverride() {
+    let allowLegacy = true; // one release default
+    try {
+        const params = new URLSearchParams(window.location.search || "");
+        if (params.has("allow_legacy_ws")) {
+            allowLegacy = parseBooleanFlag(params.get("allow_legacy_ws"), allowLegacy);
+        }
+    } catch (_) {}
+    try {
+        const stored = window.localStorage ? window.localStorage.getItem("mr.allow_legacy_ws") : null;
+        if (stored !== null) {
+            allowLegacy = parseBooleanFlag(stored, allowLegacy);
+        }
+    } catch (_) {}
+    try {
+        if (typeof window.__MR_ALLOW_LEGACY_WS__ !== "undefined") {
+            allowLegacy = parseBooleanFlag(window.__MR_ALLOW_LEGACY_WS__, allowLegacy);
+        }
+    } catch (_) {}
+    return allowLegacy ? 1 : 0;
+}
+
 function resolveWsConfigFromBridge(url, hdrs) {
     const baseUrl = (wsRuntimeOverride.ws_url || defaultWsUrlForCurrentOrigin() || url || "").trim();
-    const apiKey = (wsRuntimeOverride.api_key || parseApiKeyFromHeaderString(hdrs)).trim();
+    const parsed = parseAuthFromHeaderString(hdrs);
+    const apiKey = (wsRuntimeOverride.api_key || parsed.api_key).trim();
+    const jwtToken = parsed.jwt_token;
     return {
         base_url: baseUrl,
         api_key: apiKey,
-        ws_url: buildWsUrlWithApiKey(baseUrl, apiKey),
+        jwt_token: jwtToken,
+        ws_url: buildWsUrlWithAuth(baseUrl, apiKey, jwtToken),
         override_active: wsRuntimeOverride.ws_url.length > 0 || wsRuntimeOverride.api_key.length > 0,
     };
 }
@@ -348,7 +427,7 @@ function connectSocketUrl(wsUrl) {
     ws.onopen = () => {
         if (ws !== wsLocal || wsEpoch !== epoch) return;
         wsState = 2; // open
-        console.log("[ws] connected to", wsUrl);
+        console.log("[ws] connected to", sanitizeWsUrlForLog(wsUrl));
     };
     ws.onmessage = (ev) => {
         if (ws !== wsLocal || wsEpoch !== epoch) return;
@@ -589,8 +668,12 @@ const imports = {
         // --- Canvas2D foreign procs (RCL renderer) ---
         canvas_clear(r, g, b, a) {
             if (!ctx) return;
+            // Clear at physical resolution, then restore DPR transform.
+            ctx.save();
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
             setFillStyle(r, g, b, a);
             ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.restore();
         },
 
         canvas_fill_rect(x, y, w, h, r, g, b, a) {
@@ -649,10 +732,11 @@ const imports = {
             ctx.restore();
         },
         canvas_width() {
-            return canvas ? canvas.width : 0;
+            // Return CSS pixels (Odin UI works in CSS coordinate space).
+            return canvas ? Math.round(canvas.width / dpr) : 0;
         },
         canvas_height() {
-            return canvas ? canvas.height : 0;
+            return canvas ? Math.round(canvas.height / dpr) : 0;
         },
 
         // --- WebSocket foreign procs ---
@@ -681,6 +765,10 @@ const imports = {
 
         ws_drop_count() {
             return wsMsgDropCount >>> 0;
+        },
+
+        ws_allow_legacy_ws() {
+            return readAllowLegacyWsOverride();
         },
 
         ws_poll_msg(buf_ptr, buf_len) {
@@ -779,6 +867,18 @@ const imports = {
                 : "";
             try {
                 window.localStorage.setItem(settingsStorageKey(key), value);
+                return 1;
+            } catch (_) {
+                return 0;
+            }
+        },
+
+        web_clipboard_write(text_ptr, text_len) {
+            if (!wasm.memory || text_len <= 0) return 0;
+            const text = loadStringRaw(wasm.memory.buffer, text_ptr, text_len);
+            if (!text) return 0;
+            try {
+                navigator.clipboard.writeText(text).catch(() => {});
                 return 1;
             } catch (_) {
                 return 0;

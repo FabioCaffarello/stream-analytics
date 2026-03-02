@@ -504,6 +504,29 @@ func TestValidate_DeliverySlowClientDropThresholdNonNegative(t *testing.T) {
 	}
 }
 
+func TestValidate_WSLimitsNonNegative(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.WS.Limits.MaxConnectionsPerIP = -1
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for ws.limits.max_connections_per_ip < 0")
+	}
+	cfg.WS.Limits.MaxConnectionsPerIP = 1
+	cfg.WS.Limits.MaxConnectionsPerKey = -1
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for ws.limits.max_connections_per_key < 0")
+	}
+	cfg.WS.Limits.MaxConnectionsPerKey = 1
+	cfg.WS.Limits.MaxSubsPerConnection = -1
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for ws.limits.max_subs_per_connection < 0")
+	}
+	cfg.WS.Limits.MaxSubsPerConnection = 1
+	cfg.WS.Limits.MaxSymbolsPerConn = -1
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for ws.limits.max_symbols_per_connection < 0")
+	}
+}
+
 func TestValidate_ConsumerExchangeUnknownType(t *testing.T) {
 	cfg, _ := Load("")
 	cfg.Consumer.Exchanges = nil

@@ -1,0 +1,341 @@
+package md_common
+
+// Shared marketdata helpers used by both native and web platform implementations.
+// Eliminates ~200 LOC of byte-for-byte duplication between the two backends.
+
+import "core:fmt"
+import "core:time"
+import "mr:ports"
+import "mr:services"
+import "mr:util"
+
+// --- JSON message builders ---
+// Build WS protocol messages into a caller-supplied buffer.
+// Return (message_string, ok). ok=false on buffer overflow.
+
+@(private = "package")
+subject_is_json_safe :: proc(subject: string) -> bool {
+	if len(subject) == 0 do return false
+	for c in subject {
+		ch := u8(c)
+		if ch < 0x20 do return false
+		if ch == '"' || ch == '\\' do return false
+	}
+	return true
+}
+
+build_subscribe_msg :: proc(buf: []u8, subject: string, rid: u32) -> (string, bool) {
+	if !subject_is_json_safe(subject) do return "", false
+	n := 0
+	prefix :: `{"op":"subscribe","subject":"`
+	for c in prefix { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	for c in subject { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	mid :: `","request_id":"r`
+	for c in mid { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	rid_buf: [16]u8
+	rid_str := fmt.bprintf(rid_buf[:], "%d", rid)
+	for c in rid_str { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	suffix :: `"}`
+	for c in suffix { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	return string(buf[:n]), true
+}
+
+build_unsubscribe_msg :: proc(buf: []u8, subject: string, rid: u32) -> (string, bool) {
+	if !subject_is_json_safe(subject) do return "", false
+	n := 0
+	prefix :: `{"op":"unsubscribe","subject":"`
+	for c in prefix { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	for c in subject { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	mid :: `","request_id":"r`
+	for c in mid { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	rid_buf: [16]u8
+	rid_str := fmt.bprintf(rid_buf[:], "%d", rid)
+	for c in rid_str { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	suffix :: `"}`
+	for c in suffix { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	return string(buf[:n]), true
+}
+
+build_getrange_msg :: proc(buf: []u8, subject: string, limit: int, end_ts: i64, rid: u32) -> (string, bool) {
+	if !subject_is_json_safe(subject) do return "", false
+	n := 0
+	prefix :: `{"op":"getrange","subject":"`
+	for c in prefix { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	for c in subject { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	mid :: `","params":{"limit":`
+	for c in mid { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	limit_buf: [16]u8
+	limit_str := fmt.bprintf(limit_buf[:], "%d", limit)
+	for c in limit_str { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	if end_ts > 0 {
+		end_mid :: `,"to_ms":`
+		for c in end_mid { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+		end_buf: [24]u8
+		end_str := fmt.bprintf(end_buf[:], "%d", end_ts)
+		for c in end_str { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	}
+	mid2 :: `},"request_id":"gr`
+	for c in mid2 { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	rid_buf: [16]u8
+	rid_str := fmt.bprintf(rid_buf[:], "%d", rid)
+	for c in rid_str { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	suffix :: `"}`
+	for c in suffix { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	return string(buf[:n]), true
+}
+
+// Terminal_V1 subscribe: includes component fields alongside subject for richer server-side routing.
+build_subscribe_msg_v2 :: proc(buf: []u8, subject: string, venue: string, symbol: string, channel: string, aggregation: string, rid: u32) -> (string, bool) {
+	if !subject_is_json_safe(subject) do return "", false
+	n := 0
+	p1 :: `{"op":"subscribe","subject":"`
+	for c in p1 { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	for c in subject { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	p2 :: `","venue":"`
+	for c in p2 { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	for c in venue { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	p3 :: `","symbol":"`
+	for c in p3 { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	for c in symbol { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	p4 :: `","channel":"`
+	for c in p4 { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	for c in channel { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	p5 :: `","aggregation":"`
+	for c in p5 { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	for c in aggregation { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	mid :: `","request_id":"r`
+	for c in mid { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	rid_buf: [16]u8
+	rid_str := fmt.bprintf(rid_buf[:], "%d", rid)
+	for c in rid_str { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	suffix :: `"}`
+	for c in suffix { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	return string(buf[:n]), true
+}
+
+// Terminal_V1 unsubscribe: uses stream_id when available (from ACK).
+build_unsubscribe_msg_v2 :: proc(buf: []u8, stream_id: string, rid: u32) -> (string, bool) {
+	if !subject_is_json_safe(stream_id) do return "", false
+	n := 0
+	prefix :: `{"op":"unsubscribe","stream_id":"`
+	for c in prefix { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	for c in stream_id { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	mid :: `","request_id":"r`
+	for c in mid { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	rid_buf: [16]u8
+	rid_str := fmt.bprintf(rid_buf[:], "%d", rid)
+	for c in rid_str { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	suffix :: `"}`
+	for c in suffix { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	return string(buf[:n]), true
+}
+
+// Extract subject components (venue, symbol, channel, aggregation) from a subject string.
+// Subject format: "marketdata.<channel>/<venue>/<symbol>/<aggregation>"
+parse_subject_components :: proc(subject: string) -> (venue: string, symbol: string, channel: string, aggregation: string) {
+	// Find first '/' — everything before it is the channel prefix (e.g. "marketdata.trade")
+	first_slash := -1
+	for i in 0 ..< len(subject) {
+		if subject[i] == '/' { first_slash = i; break }
+	}
+	if first_slash < 0 do return "", "", "", ""
+	channel = subject[:first_slash]
+
+	rest := subject[first_slash + 1:]
+	// Find second '/' — venue
+	second_slash := -1
+	for i in 0 ..< len(rest) {
+		if rest[i] == '/' { second_slash = i; break }
+	}
+	if second_slash < 0 {
+		venue = rest
+		return venue, "", channel, ""
+	}
+	venue = rest[:second_slash]
+
+	rest2 := rest[second_slash + 1:]
+	// Find third '/' — symbol
+	third_slash := -1
+	for i in 0 ..< len(rest2) {
+		if rest2[i] == '/' { third_slash = i; break }
+	}
+	if third_slash < 0 {
+		symbol = rest2
+		return venue, symbol, channel, ""
+	}
+	symbol = rest2[:third_slash]
+	aggregation = rest2[third_slash + 1:]
+	return venue, symbol, channel, aggregation
+}
+
+build_hello_msg :: proc(buf: []u8, rid: u32) -> (string, bool) {
+	n := 0
+	prefix :: `{"op":"hello","type":"hello","request_id":"h`
+	for c in prefix { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	rid_buf: [16]u8
+	rid_str := fmt.bprintf(rid_buf[:], "%d", rid)
+	for c in rid_str { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	suffix :: `"}`
+	for c in suffix { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	return string(buf[:n]), true
+}
+
+build_ping_msg :: proc(buf: []u8, ts_client: i64, rid: u32) -> (string, bool) {
+	n := 0
+	prefix :: `{"op":"ping","type":"ping","ts_client":`
+	for c in prefix { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	ts_buf: [24]u8
+	ts_str := fmt.bprintf(ts_buf[:], "%d", ts_client)
+	for c in ts_str { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	mid :: `,"request_id":"p`
+	for c in mid { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	rid_buf: [16]u8
+	rid_str := fmt.bprintf(rid_buf[:], "%d", rid)
+	for c in rid_str { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	suffix :: `"}`
+	for c in suffix { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	return string(buf[:n]), true
+}
+
+build_resync_msg :: proc(buf: []u8, stream_id: string, last_seq: i64, rid: u32) -> (string, bool) {
+	if !subject_is_json_safe(stream_id) do return "", false
+	n := 0
+	prefix :: `{"op":"resync","stream_id":"`
+	for c in prefix { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	for c in stream_id { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	mid :: `","last_seq":`
+	for c in mid { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	seq_buf: [24]u8
+	seq_str := fmt.bprintf(seq_buf[:], "%d", last_seq)
+	for c in seq_str { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	mid2 :: `,"request_id":"rs`
+	for c in mid2 { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	rid_buf: [16]u8
+	rid_str := fmt.bprintf(rid_buf[:], "%d", rid)
+	for c in rid_str { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	suffix :: `"}`
+	for c in suffix { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	return string(buf[:n]), true
+}
+
+// --- Parse rate tracking ---
+
+Rate_State :: struct {
+	parsed_msgs_total:    u64,
+	parsed_bytes_total:   u64,
+	rate_window_msgs:     u64,
+	rate_window_bytes:    u64,
+	rate_window_start_ms: i64,
+	msg_rate:             f64,
+	bytes_rate:           f64,
+}
+
+update_parse_rates :: proc(rs: ^Rate_State, now_ms: i64, bytes: int) {
+	if rs == nil do return
+	safe_bytes := bytes
+	if safe_bytes < 0 do safe_bytes = 0
+	rs.parsed_msgs_total += 1
+	rs.parsed_bytes_total += u64(safe_bytes)
+	rs.rate_window_msgs += 1
+	rs.rate_window_bytes += u64(safe_bytes)
+	if rs.rate_window_start_ms <= 0 {
+		rs.rate_window_start_ms = now_ms
+		return
+	}
+	elapsed_ms := now_ms - rs.rate_window_start_ms
+	if elapsed_ms < 1 do return
+	if elapsed_ms >= 1000 {
+		secs := f64(elapsed_ms) / 1000.0
+		rs.msg_rate = f64(rs.rate_window_msgs) / secs
+		rs.bytes_rate = f64(rs.rate_window_bytes) / secs
+		rs.rate_window_msgs = 0
+		rs.rate_window_bytes = 0
+		rs.rate_window_start_ms = now_ms
+	}
+}
+
+// --- Parse result classification ---
+
+parse_result_has_data :: proc(kind: services.Parse_Result_Kind) -> bool {
+	switch kind {
+	case .Trade, .Orderbook, .Stats, .Heatmap, .VPVR, .Candle, .Range_Candle:
+		return true
+	case .None, .Ack, .Hello, .Heartbeat, .Health, .Error, .Pong, .Metrics:
+		return false
+	}
+	return false
+}
+
+// --- Hello rejection → desync reason ---
+
+desync_reason_from_hello_reject :: proc(reject: services.Hello_Reject_Reason) -> ports.MD_Desync_Reason {
+	switch reject {
+	case .Unsupported_Proto_Version:
+		return .Protocol_Version
+	case .Missing_Proto_Version, .Missing_Server_Time, .Missing_Capabilities:
+		return .Protocol_Invalid
+	case .None:
+	}
+	return .Protocol_Invalid
+}
+
+// --- Time helpers ---
+
+now_ms :: proc() -> i64 {
+	return time.now()._nsec / 1_000_000
+}
+
+// --- Subject builder for timeframe-qualified channels ---
+
+subject_for_channel :: proc(venue, symbol, tf_filter: string, channel: ports.MD_Channel) -> string {
+	tf := ""
+	if channel == .Heatmaps || channel == .VPVR || channel == .Candles {
+		tf = tf_filter
+	}
+	return util.build_subject_with_timeframe(venue, symbol, channel, tf)
+}
+
+// --- Sub_Tracker: generic subscription entry lookup ---
+// Works with any struct that has subject: string, subject_id: u64,
+// venue: string, symbol: string, channel: ports.MD_Channel.
+
+find_sub_by_subject :: proc(subs: []$T, subject: string) -> int {
+	for i in 0 ..< len(subs) {
+		if subs[i].subject == subject do return i
+	}
+	return -1
+}
+
+find_sub_by_key :: proc(subs: []$T, venue: string, symbol: string, channel: ports.MD_Channel) -> int {
+	for i in 0 ..< len(subs) {
+		sub := subs[i]
+		if sub.channel == channel && sub.venue == venue && sub.symbol == symbol do return i
+	}
+	return -1
+}
+
+find_sub_by_subject_id :: proc(subs: []$T, subject_id: u64) -> int {
+	for i in 0 ..< len(subs) {
+		if subs[i].subject_id == subject_id do return i
+	}
+	return -1
+}
+
+// --- Backoff with jitter ---
+// Returns a value in [75%, 100%] of base_ms using a simple LCG PRNG.
+// Avoids thundering herd when multiple clients reconnect simultaneously.
+
+backoff_with_jitter :: proc(base_ms: int, seed: ^u32) -> int {
+	if base_ms <= 0 do return 0
+	seed^ = seed^ * 1664525 + 1013904223
+	jitter_frac := f32(seed^ & 0xFF) / 1024.0  // 0..~0.25
+	return base_ms - int(f32(base_ms) * jitter_frac)
+}
+
+free_sub_entry :: proc(entry: ^$T) {
+	if entry == nil do return
+	if len(entry.venue) > 0 do delete(entry.venue)
+	if len(entry.symbol) > 0 do delete(entry.symbol)
+	if len(entry.subject) > 0 do delete(entry.subject)
+	entry^ = {}
+}

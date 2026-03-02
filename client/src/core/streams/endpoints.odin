@@ -2,6 +2,7 @@ package streams
 
 import "core:strings"
 import "mr:ports"
+import "mr:util"
 
 Endpoint_ID :: enum u8 {
 	Unknown,
@@ -32,26 +33,13 @@ ENDPOINT_ALL_CHANNELS :: u8(
 	(1 << u8(ports.MD_Channel.Candles))
 )
 
-@(private = "file")
-has_prefix_ci :: proc(s: string, prefix: string) -> bool {
-	if len(prefix) > len(s) do return false
-	for i in 0 ..< len(prefix) {
-		a := s[i]
-		b := prefix[i]
-		if a >= 'A' && a <= 'Z' do a += 32
-		if b >= 'A' && b <= 'Z' do b += 32
-		if a != b do return false
-	}
-	return true
-}
-
 endpoint_normalize_venue :: proc(v: string) -> string {
 	if len(v) == 0 do return ""
-	if has_prefix_ci(v, "binance") do return "binance"
-	if has_prefix_ci(v, "bybit") do return "bybit"
-	if has_prefix_ci(v, "coinbase") do return "coinbase"
-	if has_prefix_ci(v, "kraken") do return "kraken"
-	if has_prefix_ci(v, "hyperliquid") do return "hyperliquid"
+	if util.has_prefix_ci(v, "binance") do return "binance"
+	if util.has_prefix_ci(v, "bybit") do return "bybit"
+	if util.has_prefix_ci(v, "coinbase") do return "coinbase"
+	if util.has_prefix_ci(v, "kraken") do return "kraken"
+	if util.has_prefix_ci(v, "hyperliquid") do return "hyperliquid"
 	if dash := strings.index(v, "-"); dash > 0 {
 		return v[:dash]
 	}

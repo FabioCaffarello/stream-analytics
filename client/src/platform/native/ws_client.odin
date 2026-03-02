@@ -15,6 +15,7 @@ import "core:time"
 
 WS_GUID :: "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 WS_HANDSHAKE_TIMEOUT :: 1500 * time.Millisecond
+WS_MAX_PAYLOAD_BYTES :: 256 * 1024
 
 WS_Error :: enum {
 	None,
@@ -24,6 +25,7 @@ WS_Error :: enum {
 	Failed_Payload_Read,
 	Read_Conn_Closed,
 	Failed_Mask_Read,
+	Payload_Too_Large,
 	Invalid_Url,
 	Invalid_Port,
 	Dial_Error,
@@ -217,6 +219,10 @@ ws_read_message :: proc(
 			payload_len, _ = endian.get_u64(ext_len[:], .Big)
 		}
 
+		if payload_len > WS_MAX_PAYLOAD_BYTES {
+			return 0, nil, .Payload_Too_Large
+		}
+
 		frame_payload := ws_read_frame_payload(conn, payload_len, is_masked, allocator) or_return
 
 		// Control frames.
@@ -239,6 +245,9 @@ ws_read_message :: proc(
 				if frame_opcode != 0x0 do return 0, nil, .Invalid_Frame_Sequence
 			}
 			append(&payload_accumulator, ..frame_payload)
+			if len(payload_accumulator) > WS_MAX_PAYLOAD_BYTES {
+				return 0, nil, .Payload_Too_Large
+			}
 			if fin {
 				return message_opcode, payload_accumulator[:], nil
 			}
@@ -248,6 +257,12 @@ ws_read_message :: proc(
 
 ws_write_text :: proc(conn: WS_Connection, msg: string) -> WS_Error {
 	return ws_write_frame(conn.socket, 0x1, transmute([]u8)msg)
+}
+
+// Send a WS ping frame (opcode 0x9) with empty payload.
+ws_write_ping :: proc(conn: WS_Connection) -> WS_Error {
+	empty: [0]u8
+	return ws_write_frame(conn.socket, 0x9, empty[:])
 }
 
 // --- Internal helpers ---

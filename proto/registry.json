@@ -88,6 +88,22 @@
       "message": "aggregation.v1.OrderBookInconsistencyV1",
       "status": "stable",
       "introduced_at": "2026-02-19"
+    },
+    {
+      "type": "delivery.client_frame",
+      "version": 1,
+      "proto_file": "delivery/v1/terminal.proto",
+      "message": "delivery.v1.ClientFrame",
+      "status": "stable",
+      "introduced_at": "2026-03-02"
+    },
+    {
+      "type": "delivery.server_frame",
+      "version": 1,
+      "proto_file": "delivery/v1/terminal.proto",
+      "message": "delivery.v1.ServerFrame",
+      "status": "stable",
+      "introduced_at": "2026-03-02"
     }
   ]
 }

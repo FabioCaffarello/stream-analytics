@@ -6,6 +6,19 @@ import "core:fmt"
 import "core:math"
 import "core:strings"
 
+// Case-insensitive prefix check (ASCII only).
+has_prefix_ci :: proc(s: string, prefix: string) -> bool {
+	if len(prefix) > len(s) do return false
+	for i in 0 ..< len(prefix) {
+		a := s[i]
+		b := prefix[i]
+		if a >= 'A' && a <= 'Z' do a += 32
+		if b >= 'A' && b <= 'Z' do b += 32
+		if a != b do return false
+	}
+	return true
+}
+
 // Backend envelopes/payloads use unix milliseconds; core widgets use unix seconds.
 // Timestamps above this threshold are assumed to be milliseconds.
 UNIX_MS_THRESHOLD :: i64(10_000_000_000)
@@ -15,6 +28,7 @@ normalize_unix_seconds :: proc(ts: i64) -> i64 {
 	return ts
 }
 
+// SAFETY: returns temp_allocator string, valid until free_all(context.temp_allocator).
 format_price :: proc(price: f64, tick_size: f64) -> string {
 	decimal_places := -math.floor(math.log10(tick_size))
 	switch decimal_places {
@@ -29,6 +43,8 @@ format_price :: proc(price: f64, tick_size: f64) -> string {
 	return fmt.tprintf("%.0f", price)
 }
 
+// SAFETY: returns temp_allocator string by default, valid until free_all(context.temp_allocator).
+// The allocator parameter only affects the final trimmed clone path.
 format_value :: proc(value: f64, allocator := context.temp_allocator) -> string {
 	if value == 0 {
 		return "0"
@@ -44,6 +60,7 @@ format_value :: proc(value: f64, allocator := context.temp_allocator) -> string 
 	return strings.clone(trimmed, allocator)
 }
 
+// SAFETY: returns temp_allocator string, valid until free_all(context.temp_allocator).
 format_size :: proc(size: f64) -> string {
 	is_integer :: proc(n: f64) -> bool {
 		return math.abs(n - math.floor(n)) < 0.000001

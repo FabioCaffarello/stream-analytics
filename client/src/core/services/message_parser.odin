@@ -92,8 +92,9 @@ Parsed_Trade :: struct {
 }
 
 Parsed_Ack :: struct {
-	op:      string,
-	subject: string,
+	op:        string,
+	subject:   string,
+	stream_id: string,
 }
 
 Parsed_Control :: struct {
@@ -112,13 +113,39 @@ Hello_Reject_Reason :: enum u8 {
 }
 
 Parsed_Hello :: struct {
-	proto_ver:   int,
-	server_time: i64,
-	topic_count: int,
-	venue_count: int,
-	symbol_count: int,
-	valid:       bool,
-	reject:      Hello_Reject_Reason,
+	proto_ver:          int,
+	server_time:        i64,
+	server_instance_id: string,
+	topic_count:        int,
+	venue_count:        int,
+	symbol_count:       int,
+	valid:              bool,
+	reject:             Hello_Reject_Reason,
+}
+
+Parsed_Pong :: struct {
+	ts_client:  i64,
+	ts_server:  i64,
+	rtt_ms:     i64,
+	request_id: string,
+}
+
+Parsed_Metrics :: struct {
+	ws_dropped_total:              i64,
+	ws_queue_len:                  int,
+	ws_lag_ms:                     i64,
+	publish_to_deliver_latency_ms: i64,
+	serialize_errors_total:        i64,
+	resync_total:                  i64,
+	active_subscriptions:          int,
+	messages_out_total:            i64,
+}
+
+Parsed_Error :: struct {
+	op:         string,
+	request_id: string,
+	code:       string,
+	message:    string,
 }
 
 // --- Parse result discriminated union ---
@@ -146,19 +173,24 @@ Parse_Result_Kind :: enum u8 {
 	Heartbeat,
 	Health,
 	Error,
+	Pong,
+	Metrics,
 }
 
 Parse_Result_Data :: struct #raw_union {
-	trade:         Parsed_Trade,
-	ob:            Parsed_OB,
-	stats:         Parsed_Stats,
-	heatmap:       Parsed_Heatmap,
-	vpvr:          Parsed_VPVR,
-	candle:        Parsed_Candle,
-	range_candles: Parsed_Range_Candles,
-	ack:           Parsed_Ack,
-	control:       Parsed_Control,
-	hello:         Parsed_Hello,
+	trade:          Parsed_Trade,
+	ob:             Parsed_OB,
+	stats:          Parsed_Stats,
+	heatmap:        Parsed_Heatmap,
+	vpvr:           Parsed_VPVR,
+	candle:         Parsed_Candle,
+	range_candles:  Parsed_Range_Candles,
+	ack:            Parsed_Ack,
+	control:        Parsed_Control,
+	hello:          Parsed_Hello,
+	pong:           Parsed_Pong,
+	server_metrics: Parsed_Metrics,
+	error_detail:   Parsed_Error,
 }
 
 Parse_Result_Meta :: struct {
@@ -196,7 +228,8 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 		return result
 	}
 	result.meta.seq = env.seq
-	result.meta.server_ts_ms = env.ts_ingest
+	// Prefer ts_server (Terminal_V1) over ts_ingest (legacy).
+	result.meta.server_ts_ms = env.ts_server if env.ts_server > 0 else env.ts_ingest
 	result.meta.subject_id = util.subject_id64(env.subject)
 
 	ft := util.parse_frame_type(env.type_str)
@@ -205,7 +238,19 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 	switch ft {
 	case .Ack:
 		result.kind = .Ack
-		result.data.ack = Parsed_Ack{op = env.op, subject = env.subject}
+		result.data.ack = Parsed_Ack{op = env.op, subject = env.subject, stream_id = env.stream_id}
+		return result
+	case .Pong:
+		result.kind = .Pong
+		if p, ok := parse_pong(raw); ok {
+			result.data.pong = p
+		}
+		return result
+	case .Metrics:
+		result.kind = .Metrics
+		if m, ok := parse_metrics(raw); ok {
+			result.data.server_metrics = m
+		}
 		return result
 	case .Hello:
 		result.kind = .Hello
@@ -230,6 +275,9 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 		return result
 	case .Error:
 		result.kind = .Error
+		if e, ok := parse_error(raw); ok {
+			result.data.error_detail = e
+		}
 		return result
 	case .Range:
 		if r, ok := parse_range_candles(raw, env.subject); ok {
@@ -317,6 +365,13 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 	return result
 }
 
+// --- Validation helper ---
+
+@(private = "package")
+f64_valid :: proc(v: f64) -> bool {
+	return !math.is_nan(v) && !math.is_inf(v, 0)
+}
+
 // --- Individual payload parsers ---
 
 @(private = "file")
@@ -324,6 +379,9 @@ parse_trade :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Trade, bool)
 	frame: util.MR_Trade_Frame
 	if json.unmarshal(raw, &frame) != nil do return {}, false
 	trade := frame.payload
+
+	if !f64_valid(trade.price) || !f64_valid(trade.size) do return {}, false
+	if trade.price < 0 || trade.size < 0 do return {}, false
 
 	unix := util.normalize_unix_seconds(trade.timestamp_ms if trade.timestamp_ms != 0 else ts)
 
@@ -357,14 +415,27 @@ parse_book_delta :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_OB, boo
 		result.last_price = (bd.asks[0].price + bd.bids[0].price) / 2.0
 	}
 
+	out_ac := 0
 	for i in 0 ..< ac {
-		result.ask_prices[i] = bd.asks[i].price
-		result.ask_sizes[i]  = bd.asks[i].size
+		p := bd.asks[i].price
+		s := bd.asks[i].size
+		if !f64_valid(p) || !f64_valid(s) || p < 0 || s < 0 do continue
+		result.ask_prices[out_ac] = p
+		result.ask_sizes[out_ac]  = s
+		out_ac += 1
 	}
+	result.ask_count = out_ac
+
+	out_bc := 0
 	for i in 0 ..< bc {
-		result.bid_prices[i] = bd.bids[i].price
-		result.bid_sizes[i]  = bd.bids[i].size
+		p := bd.bids[i].price
+		s := bd.bids[i].size
+		if !f64_valid(p) || !f64_valid(s) || p < 0 || s < 0 do continue
+		result.bid_prices[out_bc] = p
+		result.bid_sizes[out_bc]  = s
+		out_bc += 1
 	}
+	result.bid_count = out_bc
 	return result, true
 }
 
@@ -380,13 +451,15 @@ parse_stats :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Stats, bool)
 		}
 	}
 
+	if !f64_valid(s.mark_price_close) do return {}, false
+
 	unix := util.normalize_unix_seconds(s.window_end_ts if s.window_end_ts != 0 else ts)
 
 	return Parsed_Stats{
 		mark_price = s.mark_price_close,
-		funding    = s.funding_rate_last,
-		tbuy       = s.liq_buy_volume,
-		tsell      = s.liq_sell_volume,
+		funding    = f64_valid(s.funding_rate_last) ? s.funding_rate_last : 0,
+		tbuy       = f64_valid(s.liq_buy_volume) ? s.liq_buy_volume : 0,
+		tsell      = f64_valid(s.liq_sell_volume) ? s.liq_sell_volume : 0,
 		unix       = unix,
 		subject_id = subject_id,
 	}, true
@@ -406,32 +479,32 @@ parse_heatmap :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Heatmap, b
 	max_s := f64(0)
 	price_group := f64(0)
 
+	result: Parsed_Heatmap
+	out := 0
 	for i in 0 ..< lc {
 		c := hm.cells[i]
 		mid := (c.price_bucket_low + c.price_bucket_high) / 2.0
 		total := c.bid_liquidity + c.ask_liquidity + c.trade_volume
+		if !f64_valid(mid) || !f64_valid(total) do continue
 
-		if i == 0 {
+		if out == 0 {
 			price_group = c.price_bucket_high - c.price_bucket_low
 		}
 		if mid < min_p do min_p = mid
 		if mid > max_p do max_p = mid
 		if total > max_s do max_s = total
+		result.prices[out] = mid
+		result.sizes[out]  = total
+		out += 1
 	}
 
-	result: Parsed_Heatmap
-	result.level_count = lc
+	result.level_count = out
 	result.price_group = price_group
-	result.min_price = min_p if lc > 0 else 0
-	result.max_price = max_p if lc > 0 else 0
+	result.min_price = min_p if out > 0 else 0
+	result.max_price = max_p if out > 0 else 0
 	result.max_size = max_s
 	result.unix = unix
 	result.subject_id = subject_id
-	for i in 0 ..< lc {
-		c := hm.cells[i]
-		result.prices[i] = (c.price_bucket_low + c.price_bucket_high) / 2.0
-		result.sizes[i]  = c.bid_liquidity + c.ask_liquidity + c.trade_volume
-	}
 	return result, true
 }
 
@@ -448,29 +521,30 @@ parse_vpvr :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_VPVR, bool) {
 	max_p := -math.F64_MAX
 	price_group := f64(0)
 
+	result: Parsed_VPVR
+	out := 0
 	for i in 0 ..< lc {
 		b := vp.buckets[i]
 		mid := (b.price_low + b.price_high) / 2.0
-		if i == 0 {
+		if !f64_valid(mid) || !f64_valid(b.buy_volume) || !f64_valid(b.sell_volume) do continue
+
+		if out == 0 {
 			price_group = b.price_high - b.price_low
 		}
 		if mid < min_p do min_p = mid
 		if mid > max_p do max_p = mid
+		result.prices[out] = mid
+		result.buys[out]   = b.buy_volume
+		result.sells[out]  = b.sell_volume
+		out += 1
 	}
 
-	result: Parsed_VPVR
-	result.level_count = lc
+	result.level_count = out
 	result.price_group = price_group
-	result.min_price = min_p if lc > 0 else 0
-	result.max_price = max_p if lc > 0 else 0
+	result.min_price = min_p if out > 0 else 0
+	result.max_price = max_p if out > 0 else 0
 	result.unix = unix
 	result.subject_id = subject_id
-	for i in 0 ..< lc {
-		b := vp.buckets[i]
-		result.prices[i] = (b.price_low + b.price_high) / 2.0
-		result.buys[i]   = b.buy_volume
-		result.sells[i]  = b.sell_volume
-	}
 	return result, true
 }
 
@@ -491,14 +565,19 @@ parse_hello :: proc(raw: []u8) -> (Parsed_Hello, bool) {
 	frame: util.MR_Hello_Frame
 	if json.unmarshal(raw, &frame) != nil do return {}, false
 
+	// Backend may send proto_ver (legacy) or protocol_version (Terminal_V1).
+	pv := frame.payload.proto_ver
+	if pv <= 0 do pv = frame.payload.protocol_version
+
 	h := Parsed_Hello{
-		proto_ver    = frame.payload.proto_ver,
-		server_time  = frame.payload.server_time,
-		topic_count  = len(frame.payload.capabilities.topics),
-		venue_count  = len(frame.payload.capabilities.venues),
-		symbol_count = len(frame.payload.capabilities.symbols),
-		valid        = true,
-		reject       = .None,
+		proto_ver          = pv,
+		server_time        = frame.payload.server_time,
+		server_instance_id = frame.payload.server_instance_id,
+		topic_count        = len(frame.payload.capabilities.topics),
+		venue_count        = len(frame.payload.capabilities.venues),
+		symbol_count       = len(frame.payload.capabilities.symbols),
+		valid              = true,
+		reject             = .None,
 	}
 
 	if h.proto_ver <= 0 {
@@ -574,6 +653,7 @@ parse_range_candles :: proc(raw: []u8, subject: string) -> (Parsed_Range_Candles
 		}
 		if c.WindowStartTs <= 0 do continue
 		if c.WindowEndTs <= c.WindowStartTs do continue
+		if !f64_valid(c.Open) || !f64_valid(c.High) || !f64_valid(c.Low) || !f64_valid(c.ClosePrice) || !f64_valid(c.Volume) do continue
 
 		result.candles[out] = Parsed_Candle{
 			open            = c.Open,
@@ -597,6 +677,52 @@ parse_range_candles :: proc(raw: []u8, subject: string) -> (Parsed_Range_Candles
 }
 
 @(private = "file")
+parse_pong :: proc(raw: []u8) -> (Parsed_Pong, bool) {
+	frame: util.MR_Pong_Frame
+	if json.unmarshal(raw, &frame) != nil do return {}, false
+	rtt := i64(0)
+	if frame.ts_client > 0 && frame.ts_server > 0 {
+		rtt = frame.ts_server - frame.ts_client
+		if rtt < 0 do rtt = 0
+	}
+	return Parsed_Pong{
+		ts_client  = frame.ts_client,
+		ts_server  = frame.ts_server,
+		rtt_ms     = rtt,
+		request_id = frame.request_id,
+	}, true
+}
+
+@(private = "file")
+parse_metrics :: proc(raw: []u8) -> (Parsed_Metrics, bool) {
+	frame: util.MR_Metrics_Frame
+	if json.unmarshal(raw, &frame) != nil do return {}, false
+	p := frame.payload
+	return Parsed_Metrics{
+		ws_dropped_total              = p.ws_dropped_total,
+		ws_queue_len                  = p.ws_queue_len,
+		ws_lag_ms                     = p.ws_lag_ms,
+		publish_to_deliver_latency_ms = p.publish_to_deliver_latency_ms,
+		serialize_errors_total        = p.serialize_errors_total,
+		resync_total                  = p.resync_total,
+		active_subscriptions          = p.active_subscriptions,
+		messages_out_total            = p.messages_out_total,
+	}, true
+}
+
+@(private = "file")
+parse_error :: proc(raw: []u8) -> (Parsed_Error, bool) {
+	frame: util.MR_Error_Frame
+	if json.unmarshal(raw, &frame) != nil do return {}, false
+	return Parsed_Error{
+		op         = frame.op,
+		request_id = frame.request_id,
+		code       = frame.problem.code,
+		message    = frame.problem.message,
+	}, true
+}
+
+@(private = "file")
 parse_candle :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Candle, bool) {
 	// Try wrapped format first: {"payload": {"Candle": {...}}}
 	frame: util.MR_Candle_Frame
@@ -610,6 +736,9 @@ parse_candle :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Candle, boo
 		}
 	}
 	if c.WindowStartTs == 0 do return {}, false
+	if !f64_valid(c.Open) || !f64_valid(c.High) || !f64_valid(c.Low) || !f64_valid(c.ClosePrice) || !f64_valid(c.Volume) {
+		return {}, false
+	}
 
 	return Parsed_Candle{
 		open            = c.Open,
@@ -617,8 +746,8 @@ parse_candle :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Candle, boo
 		low             = c.Low,
 		close           = c.ClosePrice,
 		volume          = c.Volume,
-		buy_vol         = c.BuyVolume,
-		sell_vol        = c.SellVolume,
+		buy_vol         = f64_valid(c.BuyVolume) ? c.BuyVolume : 0,
+		sell_vol        = f64_valid(c.SellVolume) ? c.SellVolume : 0,
 		trade_count     = c.TradeCount,
 		window_start_ts = c.WindowStartTs,
 		window_end_ts   = c.WindowEndTs,

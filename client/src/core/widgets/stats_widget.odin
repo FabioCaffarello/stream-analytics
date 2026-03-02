@@ -106,7 +106,7 @@ stats_widget :: proc(buf: ^ui.Command_Buffer, data: Stats_Widget_Data) {
 		y += row_h + 2
 	}
 
-	// 24h High / Low (from available stats data) — side-by-side when wide.
+	// Session High / Low (from available stats data) — side-by-side when wide.
 	if store.count >= 2 && y + row_h * 2 < ui.rect_bottom(inner) {
 		hi := latest.mark_price
 		lo := latest.mark_price

@@ -4,12 +4,22 @@ package widgets
 // Pure RCL: no implot, no platform imports. Emits Cmd_Rect_Filled bars.
 
 import "core:math"
-import "mr:model"
 import "mr:ports"
 import "mr:ui"
 
+// Stats snapshot for trade counter bars (inlined from model/types.odin).
+Stat :: struct {
+	unix:       i64,
+	mark_price: f64,
+	funding:    f64,
+	tbuy:       f64,
+	tsell:      f64,
+}
+
+CANDLE_WIDTH_PCT :: 0.4
+
 Trade_Counter_Data :: struct {
-	stats:         []model.Stat,
+	stats:         []Stat,
 	viewport:      ui.Rect,
 	timeframe:     i64,
 	x_min:         f64, // visible range min (unix seconds, f64)

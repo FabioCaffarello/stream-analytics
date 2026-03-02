@@ -15,8 +15,10 @@ color_to_u32 :: proc(c: ui.Color) -> u32 {
 render_commands :: proc(buf: ^ui.Command_Buffer, display_w, display_h: f32) {
 	dl := imgui.GetBackgroundDrawList()
 
-	for cmd in buf.commands {
-		switch c in cmd {
+	ui.sort_commands_by_z_layer(buf)
+
+	for rc in buf.commands {
+		switch c in rc.cmd {
 		case ui.Cmd_Clear:
 			imgui.DrawList_AddRectFilled(dl, {0, 0}, {display_w, display_h}, color_to_u32(c.color))
 

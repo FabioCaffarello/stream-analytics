@@ -12,6 +12,32 @@ MD_Conn_Status :: enum u8 {
 	Reconnecting,  // Backoff + retry in progress
 }
 
+MD_Transport_State :: enum u8 {
+	Connected,    // Socket connected, protocol state not finalized yet
+	Hello_Pending,
+	Running,
+	Desync,
+	Backoff,
+}
+
+MD_WS_Error_Category :: enum u8 {
+	None,
+	AuthDenied,
+	HandshakeFailed,
+	ServerClosed,
+	ProtocolError,
+	Timeout,
+	BackpressureDrop,
+}
+
+MD_WS_Error_Action :: enum u8 {
+	None,
+	Retry,
+	Downgrade,
+	Resync,
+	Stop,
+}
+
 MD_Event_Kind :: enum u8 {
 	Trade,
 	Orderbook_Snapshot,
@@ -38,6 +64,7 @@ MD_Desync_Reason :: enum u8 {
 	Protocol_Version,
 	Protocol_Invalid,
 	Missing_Hello,
+	Resync_Required,
 }
 
 MD_Trade_Event :: struct {
@@ -139,26 +166,60 @@ MD_Stream_Info :: struct {
 }
 
 MD_Runtime_Metrics :: struct {
-	active_subs:        int,
-	trade_backlog:      int,
-	candle_backlog:     int,
-	drop_count:         int,
-	reconnect_count:    int,
-	latest_pending:     int,
-	parse_error_count:  int,
-	subscribe_ack_count: int,
-	parsed_msgs_total:  u64,
-	parsed_bytes_total: u64,
-	parse_arena_resets: u64,
-	msg_rate:           f64,
-	bytes_rate:         f64,
-	last_msg_ts_ms:     i64,
-	rtt_ms:             i64,
-	lag_ms:             i64,
-	protocol_version:   int,
-	hello_received:     bool,
-	desync:             bool,
-	desync_reason:      MD_Desync_Reason,
+	active_subs:            int,
+	trade_backlog:          int,
+	candle_backlog:         int,
+	drop_count:             int,
+	drop_trade_ring:        int,
+	drop_candle_ring:       int,
+	drop_ws_queue:          int,
+	drop_payload_oversize:  int,
+	reconnect_count:        int,
+	latest_pending:         int,
+	parse_error_count:      int,
+	subscribe_ack_count:    int,
+	seq_gap_count:          int,
+	resync_count:           int,
+	parsed_msgs_total:      u64,
+	parsed_bytes_total:     u64,
+	parse_arena_resets:     u64,
+	alloc_estimate_total:   u64,
+	msg_rate:               f64,
+	bytes_rate:             f64,
+	last_msg_ts_ms:         i64,
+	last_server_ts_ms:      i64,
+	rtt_ms:                 i64,
+	lag_ms:                 i64,
+	parse_time_p95_us:      i64,
+	apply_time_p95_us:      i64,
+	protocol_version:       int,
+	hello_received:         bool,
+	desync:                 bool,
+	desync_reason:          MD_Desync_Reason,
+	transport_state:        MD_Transport_State,
+	ws_error_category:      MD_WS_Error_Category,
+	ws_error_action:        MD_WS_Error_Action,
+	backend_gap_no_metrics:        int,
+	backend_gap_pong_timeout:      int,
+	backend_gap_resync_ack_timeout: int,
+	backend_gap_missing_ts_server: int,
+	backend_gap_seq_gap_recurring: int,
+	backend_gap_frequent_drops:    int,
+	// Terminal_V1 transport fields.
+	transport_mode:         u8,   // 0=Terminal_V1, 1=Legacy_JSON
+	server_instance_id:     [32]u8,
+	server_instance_id_len: u8,
+	server_instance_id_hash: u64,
+	auth_mode:              u8,   // 0=none, 1=apikey, 2=jwt
+	hello_timeout_count:    int,
+	pong_rtt_ms:            i64,
+	// Server-pushed metrics (from METRICS frame).
+	server_ws_dropped:      i64,
+	server_ws_queue_len:    int,
+	server_ws_lag_ms:       i64,
+	server_serialize_errors: i64,
+	server_resync_total:    i64,
+	server_pub_deliver_ms:  i64,
 }
 
 MD_Event :: struct {
@@ -179,7 +240,7 @@ Marketdata_Port :: struct {
 	describe_stream: proc(subject_id: u64, out: ^MD_Stream_Info) -> bool,
 	set_candle_tf:   proc(tf: string),
 	send_getrange:   proc(subject: string, limit: int, end_ts: i64),
-	reconnect_transport: proc(ws_url: string, api_key: string) -> bool,
+	reconnect_transport: proc(ws_url: string, api_key: string, jwt_token: string = "") -> bool,
 	disconnect_transport: proc() -> bool,
 	shutdown:        proc(),
 	fetch_markets:   proc(buf: [^]u8, cap: i32) -> i32,  // HTTP GET /api/v1/markets; returns bytes written, 0 on failure

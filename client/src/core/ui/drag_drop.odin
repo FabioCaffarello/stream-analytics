@@ -123,7 +123,7 @@ update_drag :: proc(
 			if dist_x < 0 do dist_x = -dist_x
 			if dist_y < 0 do dist_y = -dist_y
 			dist := dist_x + dist_y
-			if elapsed >= state.hold_threshold_ms || dist >= DRAG_MIN_DISTANCE {
+			if elapsed >= state.hold_threshold_ms {
 				state.phase = .Dragging
 				state.current_pos = pointer.pos
 				state.drag_offset = {pointer.pos.x - state.start_pos.x, pointer.pos.y - state.start_pos.y}

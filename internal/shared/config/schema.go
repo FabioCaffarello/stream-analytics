@@ -221,12 +221,23 @@ type HTTPConfig struct {
 type WSConfig struct {
 	Auth      WSAuthConfig      `json:"auth"`
 	RateLimit WSRateLimitConfig `json:"rate_limit"`
+	Limits    WSLimitsConfig    `json:"limits"`
 }
 
 // WSAuthConfig controls API-key authentication for websocket connections.
 type WSAuthConfig struct {
-	Enabled bool              `json:"enabled"`
-	APIKeys map[string]string `json:"api_keys"`
+	Enabled      bool                `json:"enabled"`
+	APIKeys      map[string]string   `json:"api_keys"`
+	APIKeyScopes map[string][]string `json:"api_key_scopes"`
+	JWT          WSJWTAuthConfig     `json:"jwt"`
+}
+
+// WSJWTAuthConfig controls optional HMAC JWT authentication.
+type WSJWTAuthConfig struct {
+	Enabled     bool   `json:"enabled"`
+	HS256Secret string `json:"hs256_secret"`
+	Issuer      string `json:"issuer"`
+	Audience    string `json:"audience"`
 }
 
 // WSRateLimitConfig controls per-session token bucket settings for websocket
@@ -235,6 +246,14 @@ type WSRateLimitConfig struct {
 	Enabled       bool `json:"enabled"`
 	MaxPerSecond  int  `json:"max_per_second"`
 	BurstCapacity int  `json:"burst_capacity"`
+}
+
+// WSLimitsConfig controls connection and subscription hard-limits.
+type WSLimitsConfig struct {
+	MaxConnectionsPerIP  int `json:"max_connections_per_ip"`
+	MaxConnectionsPerKey int `json:"max_connections_per_key"`
+	MaxSubsPerConnection int `json:"max_subs_per_connection"`
+	MaxSymbolsPerConn    int `json:"max_symbols_per_connection"`
 }
 
 // DeliveryConfig controls delivery subsystem runtime wiring in server binary.

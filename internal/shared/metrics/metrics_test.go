@@ -91,6 +91,14 @@ func TestMetricsNamesPresent(t *testing.T) {
 	SetWSConnectionsActive("binance", 1)
 	SetWSQueueDepth(2)
 	IncWSDrops("queue_full")
+	IncWSDropped("queue_full", "trade")
+	IncWSMessagesOut("trade")
+	AddWSBytesOut("trade", 128)
+	SetWSLag("trade", 42)
+	ObserveWSPublishToDeliverLatency("trade", 5*time.Millisecond)
+	IncWSSerializeErrors()
+	IncWSAuthFail()
+	IncWSResync()
 	ObserveWSSendLatency(5 * time.Millisecond)
 	IncWSClientsConnected()
 	DecWSClientsConnected()
@@ -141,9 +149,19 @@ func TestMetricsNamesPresent(t *testing.T) {
 		"ingest_latency_seconds",
 		"ws_connections_active",
 		"ws_queue_depth",
+		"ws_queue_len",
 		"ws_drops_total",
+		"ws_dropped_total",
+		"ws_messages_out_total",
+		"ws_bytes_out_total",
+		"ws_lag_ms",
+		"ws_publish_to_deliver_latency_ms",
 		"ws_send_latency_ms",
 		"ws_clients_connected",
+		"ws_subscriptions_active",
+		"serialize_errors_total",
+		"auth_fail_total",
+		"resync_total",
 		"bus_dropped_total",
 		"bus_publish_errors_total",
 		"bus_publish_latency_seconds",
@@ -207,6 +225,15 @@ func TestPolicyKitMetrics_StableLabelsOnly(t *testing.T) {
 	assertMetricLabelNames(t, "policykit_overload_level", []string{"stream", "venue"})
 	assertMetricLabelNames(t, "policykit_drop_total", []string{"stream", "venue"})
 	assertMetricLabelNames(t, "policykit_degrade_total", []string{"stream", "venue"})
+}
+
+func TestWSExtendedMetrics_StableLabelsOnly(t *testing.T) {
+	t.Parallel()
+	assertMetricLabelNames(t, "ws_dropped_total", []string{"reason", "channel"})
+	assertMetricLabelNames(t, "ws_messages_out_total", []string{"channel"})
+	assertMetricLabelNames(t, "ws_bytes_out_total", []string{"channel"})
+	assertMetricLabelNames(t, "ws_lag_ms", []string{"channel"})
+	assertMetricLabelNames(t, "ws_publish_to_deliver_latency_ms", []string{"channel"})
 }
 
 func TestVPVRAndHeatmapMetrics_BoundedLabelsOnly(t *testing.T) {

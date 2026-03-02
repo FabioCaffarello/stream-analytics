@@ -15,6 +15,69 @@ subject_hash_append :: proc(h: ^u64, s: string) {
 }
 
 @(private = "file")
+normalize_subject_venue_into :: proc(buf: []u8, venue: string) -> string {
+	if len(venue) == 0 do return ""
+	if has_prefix_ci(venue, "binance") do return "binance"
+	if has_prefix_ci(venue, "bybit") do return "bybit"
+	if has_prefix_ci(venue, "coinbase") do return "coinbase"
+	if has_prefix_ci(venue, "kraken") do return "kraken"
+	if has_prefix_ci(venue, "hyperliquid") do return "hyperliquid"
+	base := venue
+	if dash := strings.index(base, "-"); dash > 0 {
+		base = base[:dash]
+	}
+	out := 0
+	for c in base {
+		ch := c
+		if ch >= 'A' && ch <= 'Z' {
+			ch += 32
+		}
+		is_alnum := (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9')
+		is_allowed_punct := ch == '-' || ch == '_' || ch == '.'
+		if !is_alnum && !is_allowed_punct do break
+		if out >= len(buf) do break
+		buf[out] = u8(ch)
+		out += 1
+	}
+	if out <= 0 do return ""
+	return string(buf[:out])
+}
+
+@(private = "file")
+normalize_subject_symbol_into :: proc(buf: []u8, symbol: string) -> string {
+	if len(symbol) == 0 do return ""
+	base := symbol
+	if sep := strings.index(base, ":"); sep > 0 {
+		base = base[:sep]
+	}
+	out := 0
+	started := false
+	for c in base {
+		ch := c
+		if ch >= 'a' && ch <= 'z' {
+			ch -= 32
+		}
+		is_alnum := (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')
+		if is_alnum {
+			if out >= len(buf) do break
+			buf[out] = u8(ch)
+			out += 1
+			started = true
+			continue
+		}
+		// Keep common separators out of canonical symbol while preserving valid tails.
+		if ch == '-' || ch == '_' || ch == '.' {
+			if !started do continue
+			continue
+		}
+		// Any other byte (control, slash, etc.) terminates canonicalization.
+		break
+	}
+	if out <= 0 do return ""
+	return string(buf[:out])
+}
+
+@(private = "file")
 channel_to_stream_type :: proc(channel: ports.MD_Channel) -> string {
 	switch channel {
 	case .Trades:
@@ -66,19 +129,31 @@ build_subject :: proc(venue, symbol: string, channel: ports.MD_Channel) -> strin
 // Build subject variant that allows timeframe override for heatmap/VPVR streams.
 build_subject_with_timeframe :: proc(venue, symbol: string, channel: ports.MD_Channel, timeframe: string) -> string {
 	stream_type, tf := channel_to_stream_parts_with_timeframe(channel, timeframe)
-	return strings.concatenate({stream_type, "/", venue, "/", symbol, "/", tf})
+	if len(stream_type) == 0 || len(tf) == 0 do return ""
+	venue_buf: [32]u8
+	norm_venue := normalize_subject_venue_into(venue_buf[:], venue)
+	sym_buf: [64]u8
+	norm_symbol := normalize_subject_symbol_into(sym_buf[:], symbol)
+	if len(norm_venue) == 0 || len(norm_symbol) == 0 do return ""
+	return strings.concatenate({stream_type, "/", norm_venue, "/", norm_symbol, "/", tf})
 }
 
 // Stable subject hash built from canonical stream parts without allocating a subject string.
 subject_id64_for_stream :: proc(venue, symbol: string, channel: ports.MD_Channel) -> u64 {
 	stream_type, timeframe := channel_to_stream_parts(channel)
+	if len(stream_type) == 0 || len(timeframe) == 0 do return 0
+	venue_buf: [32]u8
+	norm_venue := normalize_subject_venue_into(venue_buf[:], venue)
+	sym_buf: [64]u8
+	norm_symbol := normalize_subject_symbol_into(sym_buf[:], symbol)
+	if len(norm_venue) == 0 || len(norm_symbol) == 0 do return 0
 
 	h := u64(14695981039346656037)
 	subject_hash_append(&h, stream_type)
 	subject_hash_append(&h, "/")
-	subject_hash_append(&h, venue)
+	subject_hash_append(&h, norm_venue)
 	subject_hash_append(&h, "/")
-	subject_hash_append(&h, symbol)
+	subject_hash_append(&h, norm_symbol)
 	subject_hash_append(&h, "/")
 	subject_hash_append(&h, timeframe)
 	return h

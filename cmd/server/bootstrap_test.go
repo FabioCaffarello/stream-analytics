@@ -138,6 +138,67 @@ func TestRangeStoreHotSnapshotProvider_GetLatest_AliasFallsBackToCanonicalSymbol
 	}
 }
 
+type fixedSnapshotProvider struct {
+	bySubject map[string][]byte
+	calls     int
+}
+
+func (p *fixedSnapshotProvider) GetLatest(subject deliverydomain.Subject) ([]byte, bool) {
+	p.calls++
+	raw, ok := p.bySubject[subject.String()]
+	if !ok {
+		return nil, false
+	}
+	return append([]byte(nil), raw...), true
+}
+
+func TestBoundedSnapshotCacheProvider_UsesTTLAndSizeBounds(t *testing.T) {
+	subA, p := deliverydomain.ParseSubject("aggregation.candle/binance/BTCUSDT/raw")
+	if p != nil {
+		t.Fatalf("parse subject A: %v", p)
+	}
+	subB, p := deliverydomain.ParseSubject("aggregation.candle/binance/ETHUSDT/raw")
+	if p != nil {
+		t.Fatalf("parse subject B: %v", p)
+	}
+	subC, p := deliverydomain.ParseSubject("aggregation.candle/binance/SOLUSDT/raw")
+	if p != nil {
+		t.Fatalf("parse subject C: %v", p)
+	}
+
+	now := time.Unix(1000, 0)
+	base := &fixedSnapshotProvider{bySubject: map[string][]byte{
+		subA.String(): []byte(`{"v":"a"}`),
+		subB.String(): []byte(`{"v":"b"}`),
+		subC.String(): []byte(`{"v":"c"}`),
+	}}
+	cache := newBoundedSnapshotCacheProvider(base, time.Second, 2)
+	cached, ok := cache.(*boundedSnapshotCacheProvider)
+	if !ok {
+		t.Fatalf("provider type=%T want *boundedSnapshotCacheProvider", cache)
+	}
+	cached.clock = func() time.Time { return now }
+
+	_, _ = cached.GetLatest(subA)
+	_, _ = cached.GetLatest(subA) // hit from cache
+	if got, want := base.calls, 1; got != want {
+		t.Fatalf("base calls after cache hit=%d want=%d", got, want)
+	}
+
+	_, _ = cached.GetLatest(subB)
+	_, _ = cached.GetLatest(subC) // max entries=2, should evict oldest
+	_, _ = cached.GetLatest(subA) // re-fetch after eviction
+	if got, want := base.calls, 4; got != want {
+		t.Fatalf("base calls after eviction=%d want=%d", got, want)
+	}
+
+	now = now.Add(2 * time.Second) // TTL expiry
+	_, _ = cached.GetLatest(subB)
+	if got, want := base.calls, 5; got != want {
+		t.Fatalf("base calls after ttl expiry=%d want=%d", got, want)
+	}
+}
+
 type aliasAwareStubRangeStore struct {
 	bySubject map[string][]deliveryports.RangeItem
 }

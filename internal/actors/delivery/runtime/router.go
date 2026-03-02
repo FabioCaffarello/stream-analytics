@@ -1,6 +1,7 @@
 package deliveryruntime
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -9,6 +10,9 @@ import (
 	"github.com/market-raccoon/internal/core/delivery/domain"
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/metrics"
+	"github.com/market-raccoon/internal/shared/observability"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // RouterConfig configures the Delivery router actor.
@@ -35,6 +39,7 @@ type RouterActor struct {
 	// subjectPIDs is a pre-built slice cache for the hot fan-out path.
 	// Rebuilt from subjectSessions on subscribe/unsubscribe (cold path).
 	subjectPIDs map[domain.Subject][]*actor.PID
+	streamSeq   map[string]int64
 
 	engine  *actor.Engine
 	selfPID *actor.PID
@@ -101,6 +106,9 @@ func (r *RouterActor) ensureDefaults(c *actor.Context) {
 	}
 	if r.subjectPIDs == nil {
 		r.subjectPIDs = make(map[domain.Subject][]*actor.PID)
+	}
+	if r.streamSeq == nil {
+		r.streamSeq = make(map[string]int64)
 	}
 	if r.engine == nil && c != nil {
 		r.engine = c.Engine()
@@ -199,6 +207,7 @@ func (r *RouterActor) removeSessionFromSubject(sessionID string, subject domain.
 		if len(pids) == 0 {
 			delete(r.subjectSessions, subject)
 			delete(r.subjectPIDs, subject)
+			delete(r.streamSeq, subject.String())
 		} else {
 			r.rebuildSubjectPIDs(subject)
 		}
@@ -212,6 +221,7 @@ func (r *RouterActor) updateSubscriptionGauge() {
 		total += len(subs)
 	}
 	metrics.SetDeliveryRouterSubscriptionsActive(total)
+	observability.SetTerminalWSSubscriptionsActive(int64(total))
 }
 
 // rebuildSubjectPIDs rebuilds the fan-out slice cache for a subject
@@ -236,9 +246,18 @@ func (r *RouterActor) handleEnvelope(env envelope.Envelope) {
 	if r.stopped {
 		return
 	}
+	_, span := otel.Tracer("market-raccoon.delivery.router").Start(context.Background(), "router.handle_envelope")
+	span.SetAttributes(
+		attribute.String("event.type", env.Type),
+		attribute.String("event.venue", env.Venue),
+		attribute.String("event.instrument", env.Instrument),
+		attribute.Int64("event.seq", env.Seq),
+	)
+	defer span.End()
 	if p := domain.ValidateEnvelopeForDelivery(env); p != nil {
 		metrics.IncDeliveryRouterEventsRejected("contract_policy")
 		r.logger.Warn("delivery router: envelope rejected by contract policy", "err", p)
+		span.SetAttributes(attribute.Bool("event.rejected", true))
 		return
 	}
 	if r.cfg.EnvelopeStore != nil {
@@ -252,6 +271,14 @@ func (r *RouterActor) handleEnvelope(env envelope.Envelope) {
 		return
 	}
 	aliasSubject, hasAlias := routingMarketTypeAliasSubject(subject, env)
+	if !r.acceptStreamSeq(subject.String(), env.Seq) {
+		metrics.IncDeliveryRouterEventsRejected("seq_non_monotonic")
+		return
+	}
+	if hasAlias && !r.acceptStreamSeq(aliasSubject.String(), env.Seq) {
+		metrics.IncDeliveryRouterEventsRejected("seq_non_monotonic")
+		return
+	}
 	targets := r.subjectPIDs[subject]
 	aliasTargets := []*actor.PID(nil)
 	if hasAlias {
@@ -282,6 +309,18 @@ func (r *RouterActor) handleEnvelope(env envelope.Envelope) {
 		}
 		r.engine.Send(pid, DeliveryEvent{Subject: aliasSubject, Env: env})
 	}
+}
+
+func (r *RouterActor) acceptStreamSeq(streamID string, seq int64) bool {
+	if seq <= 0 {
+		return true
+	}
+	last, ok := r.streamSeq[streamID]
+	if !ok || seq > last {
+		r.streamSeq[streamID] = seq
+		return true
+	}
+	return false
 }
 
 func routingTimeframeForEnvelope(defaultTimeframe string, env envelope.Envelope) string {

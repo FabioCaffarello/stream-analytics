@@ -22,6 +22,9 @@ import (
 	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/observability"
 	"github.com/market-raccoon/internal/shared/problem"
+	deliveryv1 "github.com/market-raccoon/internal/shared/proto/gen/delivery/v1"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 const readLimitBytes = 64 * 1024
@@ -51,7 +54,10 @@ type SessionConfig struct {
 	RouterPID  *actor.PID
 	Conn       wsConn
 	ClientID   string
+	TenantID   string
 	RangeStore ports.RangeStore
+	// ServerInstanceID identifies the running server process in protocol frames.
+	ServerInstanceID string
 	// HotSnapshotProvider returns latest snapshot bytes for a subject.
 	HotSnapshotProvider HotSnapshotProvider
 	// OutboundQueueSize bounds queued delivery events per session.
@@ -67,12 +73,20 @@ type SessionConfig struct {
 	// SlowClientDropThreshold disconnects a session after N dropped outbound
 	// events due to backpressure. 0 disables threshold-based disconnects.
 	SlowClientDropThreshold int
+	// MaxSubscriptions bounds active subscriptions per websocket session.
+	// 0 disables the limit.
+	MaxSubscriptions int
+	// MaxSymbolsPerConnection bounds active unique symbols per session.
+	// 0 disables the limit.
+	MaxSymbolsPerConnection int
 	// Clock is optional; defaults to SystemClock.
 	Clock sharedclock.Clock
 	// TranscodeCache is an optional shared proto→JSON transcode cache.
 	// When set, proto payloads destined for JSON clients are cached to avoid
 	// redundant decode+marshal across sessions receiving the same event.
 	TranscodeCache *TranscodeCache
+	// OnClosed is invoked once when session is closed.
+	OnClosed func()
 }
 
 type HotSnapshotProvider interface {
@@ -99,6 +113,7 @@ type SessionActor struct {
 	priorities   map[string]int
 	rateLimiter  *RateLimiter
 	dropCount    int
+	helloSeen    bool
 }
 
 type sessionKeepaliveTick struct{}
@@ -151,6 +166,11 @@ func (s *SessionActor) ensureDefaults(c *actor.Context) {
 	}
 	if s.session == nil {
 		s.session = domain.NewSession()
+		s.logger = s.logger.With(
+			"connection_id", s.session.ID().String(),
+			"user_id", strings.TrimSpace(s.cfg.ClientID),
+			"tenant_id", strings.TrimSpace(s.cfg.TenantID),
+		)
 	}
 	if s.service == nil {
 		s.service = app.NewSessionService(s.cfg.RangeStore)
@@ -175,6 +195,9 @@ func (s *SessionActor) ensureDefaults(c *actor.Context) {
 	}
 	if s.cfg.Clock == nil {
 		s.cfg.Clock = sharedclock.NewSystemClock()
+	}
+	if strings.TrimSpace(s.cfg.ServerInstanceID) == "" {
+		s.cfg.ServerInstanceID = "unknown"
 	}
 	if s.rateLimiter == nil && s.cfg.RateLimit.Enabled {
 		burst := s.cfg.RateLimit.BurstCapacity
@@ -238,12 +261,15 @@ func (s *SessionActor) emitHello() {
 	s.writeJSON(wsHelloFrame{
 		Type: "hello",
 		Payload: wsHelloPayload{
-			ProtoVer:   wsProtocolVersion,
-			ServerTime: nowMs,
+			ProtoVer:        wsProtocolVersion,
+			ProtocolVersion: wsProtocolVersion,
+			ServerTime:      nowMs,
+			ServerInstance:  s.cfg.ServerInstanceID,
 			Capabilities: wsHelloCapabilities{
 				Topics: []string{
 					"marketdata.trade",
 					"marketdata.bookdelta",
+					"aggregation.snapshot",
 					"aggregation.stats",
 					"aggregation.candle",
 					"insights.heatmap_snapshot",
@@ -256,6 +282,8 @@ func (s *SessionActor) emitHello() {
 					"kraken",
 					"hyperliquid",
 				},
+				MaxSubscriptionsPerConn: s.cfg.MaxSubscriptions,
+				MaxSymbolsPerConnection: s.cfg.MaxSymbolsPerConnection,
 			},
 		},
 	})
@@ -311,10 +339,19 @@ func (s *SessionActor) handleKeepaliveTick() {
 }
 
 type clientCommand struct {
-	Op        string          `json:"op"`
-	Subject   string          `json:"subject"`
-	RequestID string          `json:"request_id,omitempty"`
-	Params    json.RawMessage `json:"params,omitempty"`
+	Type        string          `json:"type,omitempty"`
+	Op          string          `json:"op,omitempty"`
+	Subject     string          `json:"subject,omitempty"`
+	StreamID    string          `json:"stream_id,omitempty"`
+	RequestID   string          `json:"request_id,omitempty"`
+	Venue       string          `json:"venue,omitempty"`
+	Symbol      string          `json:"symbol,omitempty"`
+	Channel     string          `json:"channel,omitempty"`
+	Depth       uint32          `json:"depth,omitempty"`
+	Aggregation string          `json:"aggregation,omitempty"`
+	LastSeq     int64           `json:"last_seq,omitempty"`
+	TsClient    int64           `json:"ts_client,omitempty"`
+	Params      json.RawMessage `json:"params,omitempty"`
 }
 
 // Pre-allocated typed structs for outbound JSON frames.
@@ -328,15 +365,19 @@ type wsAckFrame struct {
 }
 
 type wsHelloCapabilities struct {
-	Topics  []string `json:"topics"`
-	Venues  []string `json:"venues"`
-	Symbols []string `json:"symbols,omitempty"`
+	Topics                  []string `json:"topics"`
+	Venues                  []string `json:"venues"`
+	Symbols                 []string `json:"symbols,omitempty"`
+	MaxSubscriptionsPerConn int      `json:"max_subscriptions_per_connection,omitempty"`
+	MaxSymbolsPerConnection int      `json:"max_symbols_per_connection,omitempty"`
 }
 
 type wsHelloPayload struct {
-	ProtoVer     int                 `json:"proto_ver"`
-	ServerTime   int64               `json:"server_time"`
-	Capabilities wsHelloCapabilities `json:"capabilities"`
+	ProtoVer        int                 `json:"proto_ver"`
+	ProtocolVersion int                 `json:"protocol_version"`
+	ServerTime      int64               `json:"server_time"`
+	ServerInstance  string              `json:"server_instance_id"`
+	Capabilities    wsHelloCapabilities `json:"capabilities"`
 }
 
 type wsHelloFrame struct {
@@ -345,9 +386,17 @@ type wsHelloFrame struct {
 }
 
 type wsSnapshotFrame struct {
-	Type    string          `json:"type"`
-	Subject string          `json:"subject"`
-	Payload json.RawMessage `json:"payload"`
+	Type             string          `json:"type"`
+	Subject          string          `json:"subject"`
+	StreamID         string          `json:"stream_id,omitempty"`
+	ProtocolVersion  int             `json:"protocol_version,omitempty"`
+	ServerInstanceID string          `json:"server_instance_id,omitempty"`
+	Seq              int64           `json:"seq,omitempty"`
+	TsServer         int64           `json:"ts_server,omitempty"`
+	Venue            string          `json:"venue,omitempty"`
+	Symbol           string          `json:"symbol,omitempty"`
+	Channel          string          `json:"channel,omitempty"`
+	Payload          json.RawMessage `json:"payload"`
 	// SnapshotSource identifies server-side bootstrap source for subscribe
 	// snapshot frames when synthesized from the hot snapshot provider.
 	SnapshotSource string `json:"snapshot_source,omitempty"`
@@ -378,16 +427,24 @@ type wsRangeFrame struct {
 }
 
 type wsEventFrame struct {
-	Type     string          `json:"type"`
-	Subject  string          `json:"subject"`
-	Seq      int64           `json:"seq"`
-	TsIngest int64           `json:"ts_ingest"`
-	Payload  json.RawMessage `json:"payload"`
+	Type             string          `json:"type"`
+	Subject          string          `json:"subject"`
+	StreamID         string          `json:"stream_id"`
+	ProtocolVersion  int             `json:"protocol_version"`
+	ServerInstanceID string          `json:"server_instance_id"`
+	Seq              int64           `json:"seq"`
+	TsIngest         int64           `json:"ts_ingest"`
+	TsServer         int64           `json:"ts_server"`
+	Venue            string          `json:"venue"`
+	Symbol           string          `json:"symbol"`
+	Channel          string          `json:"channel"`
+	Payload          json.RawMessage `json:"payload"`
 }
 
 type wsErrorProblem struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
+	Code      string `json:"code"`
+	ErrorCode string `json:"error_code,omitempty"`
+	Message   string `json:"message"`
 }
 
 type wsErrorFrame struct {
@@ -410,18 +467,78 @@ func (s *SessionActor) handleInboundText(data []byte) {
 		s.writeProblem(cmd.Op, cmd.RequestID, problem.Wrap(err, problem.ValidationFailed, "invalid JSON payload"))
 		return
 	}
-	switch cmd.Op {
+	op := strings.ToLower(strings.TrimSpace(cmd.Op))
+	if op == "" {
+		op = strings.ToLower(strings.TrimSpace(cmd.Type))
+	}
+	switch op {
+	case "hello":
+		s.handleClientHello(cmd)
 	case "subscribe":
 		s.handleSubscribe(cmd)
 	case "unsubscribe":
 		s.handleUnsubscribe(cmd)
+	case "ping":
+		s.handlePing(cmd)
+	case "resync":
+		s.handleResync(cmd)
 	case "getlast":
 		s.handleGetLast(cmd)
 	case "getrange":
 		s.handleGetRange(cmd)
 	default:
-		s.writeProblem(cmd.Op, cmd.RequestID, problem.Newf(problem.ValidationFailed, "unsupported op %q", cmd.Op))
+		s.writeProblem(op, cmd.RequestID, problem.Newf(problem.ValidationFailed, "unsupported op %q", op))
 	}
+}
+
+func (s *SessionActor) handleClientHello(cmd clientCommand) {
+	s.helloSeen = true
+	s.writeJSON(wsAckFrame{
+		Type:      "ack",
+		Op:        "hello",
+		RequestID: cmd.RequestID,
+	})
+}
+
+func (s *SessionActor) handlePing(cmd clientCommand) {
+	nowMs := time.Now().UnixMilli()
+	if s.cfg.Clock != nil {
+		nowMs = s.cfg.Clock.Now().UnixMilli()
+	}
+	s.writeJSON(map[string]any{
+		"type":       "pong",
+		"op":         "ping",
+		"request_id": strings.TrimSpace(cmd.RequestID),
+		"ts_client":  cmd.TsClient,
+		"ts_server":  nowMs,
+	})
+}
+
+func (s *SessionActor) handleResync(cmd clientCommand) {
+	if !s.allowRateLimitedCommand("resync", cmd.RequestID) {
+		return
+	}
+	subject, p := s.resolveCommandSubject(cmd, "resync")
+	if p != nil {
+		s.writeProblem("resync", cmd.RequestID, p)
+		return
+	}
+	if !s.session.IsSubscribed(subject) {
+		s.writeProblem("resync", cmd.RequestID, problem.Newf(problem.NotFound, "not subscribed to stream %q", subject.String()))
+		return
+	}
+	if !s.emitSnapshot(subject) {
+		s.writeProblem("resync", cmd.RequestID, problem.New(problem.NotFound, "snapshot unavailable for requested stream"))
+		return
+	}
+	metrics.IncWSResync()
+	observability.IncTerminalWSResync(subject.String())
+	s.writeJSON(wsAckFrame{
+		Type:      "ack",
+		Op:        "resync",
+		RequestID: cmd.RequestID,
+		Subject:   subject.String(),
+	})
 }
 
 func paginateTail(items []ports.RangeItem, page, limit int) []ports.RangeItem {
@@ -455,16 +572,73 @@ func sortRangeItems(items []ports.RangeItem) {
 	})
 }
 
+func (s *SessionActor) resolveCommandSubject(cmd clientCommand, op string) (domain.Subject, *problem.Problem) {
+	if raw := strings.TrimSpace(cmd.Subject); raw != "" {
+		subRes := s.service.ParseSubject(raw)
+		if subRes.IsFail() {
+			return domain.Subject{}, subRes.Problem()
+		}
+		return subRes.Value(), nil
+	}
+	if raw := strings.TrimSpace(cmd.StreamID); raw != "" {
+		subRes := s.service.ParseSubject(raw)
+		if subRes.IsFail() {
+			return domain.Subject{}, subRes.Problem()
+		}
+		return subRes.Value(), nil
+	}
+	if strings.TrimSpace(cmd.Venue) == "" || strings.TrimSpace(cmd.Symbol) == "" || strings.TrimSpace(cmd.Channel) == "" {
+		return domain.Subject{}, problem.Newf(problem.ValidationFailed, "%s requires stream_id or (venue,symbol,channel)", op)
+	}
+	channel := strings.ToLower(strings.TrimSpace(cmd.Channel))
+	timeframe := "raw"
+	if agg := strings.TrimSpace(cmd.Aggregation); agg != "" {
+		timeframe = strings.ToLower(agg)
+	}
+	subject, p := domain.NewSubject(channel, cmd.Venue, cmd.Symbol, timeframe)
+	if p != nil {
+		return domain.Subject{}, p
+	}
+	return subject, nil
+}
+
+func (s *SessionActor) enforceSubscriptionLimits(subject domain.Subject) *problem.Problem {
+	if s.cfg.MaxSubscriptions > 0 {
+		current := len(s.session.Subscriptions())
+		if !s.session.IsSubscribed(subject) && current >= s.cfg.MaxSubscriptions {
+			return problem.Newf(problem.ValidationFailed, "max subscriptions per connection exceeded (%d)", s.cfg.MaxSubscriptions)
+		}
+	}
+	if s.cfg.MaxSymbolsPerConnection <= 0 {
+		return nil
+	}
+	if s.session.IsSubscribed(subject) {
+		return nil
+	}
+	symbols := map[string]struct{}{}
+	for _, sub := range s.session.Subscriptions() {
+		symbols[sub.Subject.Symbol] = struct{}{}
+	}
+	symbols[subject.Symbol] = struct{}{}
+	if len(symbols) > s.cfg.MaxSymbolsPerConnection {
+		return problem.Newf(problem.ValidationFailed, "max symbols per connection exceeded (%d)", s.cfg.MaxSymbolsPerConnection)
+	}
+	return nil
+}
+
 func (s *SessionActor) handleSubscribe(cmd clientCommand) {
-	if !s.allowRateLimitedCommand(cmd.Op, cmd.RequestID) {
+	if !s.allowRateLimitedCommand("subscribe", cmd.RequestID) {
 		return
 	}
-	subRes := s.service.ParseSubject(cmd.Subject)
-	if subRes.IsFail() {
-		s.writeProblem(cmd.Op, cmd.RequestID, subRes.Problem())
+	subject, p := s.resolveCommandSubject(cmd, "subscribe")
+	if p != nil {
+		s.writeProblem("subscribe", cmd.RequestID, p)
 		return
 	}
-	subject := subRes.Value()
+	if p := s.enforceSubscriptionLimits(subject); p != nil {
+		s.writeProblem("subscribe", cmd.RequestID, p)
+		return
+	}
 	if p := s.session.Subscribe(subject, domain.Filter{}); p != nil {
 		s.writeProblem(cmd.Op, cmd.RequestID, p)
 		return
@@ -481,35 +655,44 @@ func (s *SessionActor) handleSubscribe(cmd clientCommand) {
 	})
 }
 
-func (s *SessionActor) emitSnapshot(subject domain.Subject) {
+func (s *SessionActor) emitSnapshot(subject domain.Subject) bool {
 	if s.cfg.HotSnapshotProvider == nil {
-		return
+		return false
 	}
 	raw, ok := s.cfg.HotSnapshotProvider.GetLatest(subject)
 	if !ok || len(raw) == 0 {
-		return
+		return false
 	}
 	payload := json.RawMessage(raw)
 	if !json.Valid(payload) {
 		s.logger.Warn("delivery session: invalid snapshot payload, skipping", "subject", subject.String())
-		return
+		return false
 	}
+	meta := s.buildStreamMeta(subject, hotSnapshotRangeItem(raw))
 	s.writeJSON(wsSnapshotFrame{
-		Type:           "snapshot",
-		Subject:        subject.String(),
-		Payload:        payload,
-		SnapshotSource: "hot_snapshot_fallback",
+		Type:             "snapshot",
+		Subject:          subject.String(),
+		StreamID:         subject.String(),
+		ProtocolVersion:  wsProtocolVersion,
+		ServerInstanceID: s.cfg.ServerInstanceID,
+		Seq:              meta.Seq,
+		TsServer:         meta.TsServer,
+		Venue:            meta.Venue,
+		Symbol:           meta.Symbol,
+		Channel:          channelName(meta.Channel, subject.StreamType),
+		Payload:          payload,
+		SnapshotSource:   "hot_snapshot_fallback",
 	})
 	metrics.IncWSQuery("snapshot", wsQueryBucket(subject.StreamType))
+	return true
 }
 
 func (s *SessionActor) handleUnsubscribe(cmd clientCommand) {
-	subRes := s.service.ParseSubject(cmd.Subject)
-	if subRes.IsFail() {
-		s.writeProblem(cmd.Op, cmd.RequestID, subRes.Problem())
+	subject, p := s.resolveCommandSubject(cmd, "unsubscribe")
+	if p != nil {
+		s.writeProblem("unsubscribe", cmd.RequestID, p)
 		return
 	}
-	subject := subRes.Value()
 	if p := s.session.Unsubscribe(subject); p != nil {
 		s.writeProblem(cmd.Op, cmd.RequestID, p)
 		return
@@ -526,13 +709,12 @@ func (s *SessionActor) handleUnsubscribe(cmd clientCommand) {
 }
 
 func (s *SessionActor) handleGetLast(cmd clientCommand) {
-	subRes := s.service.ParseSubject(cmd.Subject)
-	if subRes.IsFail() {
+	subject, p := s.resolveCommandSubject(cmd, "getlast")
+	if p != nil {
 		metrics.IncWSQueryRejected("subject_invalid")
-		s.writeProblem(cmd.Op, cmd.RequestID, subRes.Problem())
+		s.writeProblem(cmd.Op, cmd.RequestID, p)
 		return
 	}
-	subject := subRes.Value()
 	res := s.service.GetRange(context.Background(), app.GetRangeRequest{
 		SubjectRaw: subject.String(),
 		Limit:      maxQueryLimit,
@@ -566,7 +748,7 @@ func (s *SessionActor) handleGetLast(cmd clientCommand) {
 }
 
 func (s *SessionActor) handleGetRange(cmd clientCommand) {
-	if !s.allowRateLimitedCommand(cmd.Op, cmd.RequestID) {
+	if !s.allowRateLimitedCommand("getrange", cmd.RequestID) {
 		return
 	}
 	var params getRangeParams
@@ -577,7 +759,13 @@ func (s *SessionActor) handleGetRange(cmd clientCommand) {
 			return
 		}
 	}
-	s.executeGetRange(cmd.Op, cmd.RequestID, cmd.Subject, params)
+	subject, p := s.resolveCommandSubject(cmd, "getrange")
+	if p != nil {
+		metrics.IncWSQueryRejected("subject_invalid")
+		s.writeProblem(cmd.Op, cmd.RequestID, p)
+		return
+	}
+	s.executeGetRange(cmd.Op, cmd.RequestID, subject.String(), params)
 }
 
 func (s *SessionActor) handleGetRangeRequest(req GetRangeRequest) {
@@ -685,9 +873,83 @@ func hotSnapshotRangeItem(raw []byte) ports.RangeItem {
 	return item
 }
 
+func (s *SessionActor) buildStreamMeta(subject domain.Subject, item ports.RangeItem) *deliveryv1.StreamMeta {
+	nowMs := time.Now().UnixMilli()
+	if s.cfg.Clock != nil {
+		nowMs = s.cfg.Clock.Now().UnixMilli()
+	}
+	return &deliveryv1.StreamMeta{
+		ProtocolVersion:  deliveryv1.WireProtocolVersion_WIRE_PROTOCOL_VERSION_V1,
+		ServerInstanceId: s.cfg.ServerInstanceID,
+		StreamId:         subject.String(),
+		Seq:              item.Seq,
+		TsServer:         nowMs,
+		Venue:            subject.Venue,
+		Symbol:           subject.Symbol,
+		Channel:          channelEnumFromStreamType(subject.StreamType),
+	}
+}
+
+func channelEnumFromStreamType(streamType string) deliveryv1.Channel {
+	switch strings.ToLower(strings.TrimSpace(streamType)) {
+	case "marketdata.trade":
+		return deliveryv1.Channel_CHANNEL_TRADE
+	case "marketdata.bookdelta":
+		return deliveryv1.Channel_CHANNEL_BOOK_DELTA
+	case "aggregation.snapshot":
+		return deliveryv1.Channel_CHANNEL_BOOK_SNAPSHOT
+	case "marketdata.markprice":
+		return deliveryv1.Channel_CHANNEL_TICKER
+	case "aggregation.stats":
+		return deliveryv1.Channel_CHANNEL_STATS
+	case "aggregation.candle":
+		return deliveryv1.Channel_CHANNEL_CANDLE
+	case "marketdata.liquidation":
+		return deliveryv1.Channel_CHANNEL_LIQUIDATION
+	case "insights.heatmap_snapshot":
+		return deliveryv1.Channel_CHANNEL_HEATMAP_SNAPSHOT
+	case "insights.volume_profile_snapshot":
+		return deliveryv1.Channel_CHANNEL_VOLUME_PROFILE_SNAPSHOT
+	default:
+		return deliveryv1.Channel_CHANNEL_UNSPECIFIED
+	}
+}
+
+func channelName(ch deliveryv1.Channel, fallback string) string {
+	switch ch {
+	case deliveryv1.Channel_CHANNEL_TRADE:
+		return "trade"
+	case deliveryv1.Channel_CHANNEL_BOOK_DELTA:
+		return "book_delta"
+	case deliveryv1.Channel_CHANNEL_BOOK_SNAPSHOT:
+		return "book_snapshot"
+	case deliveryv1.Channel_CHANNEL_TICKER:
+		return "ticker"
+	case deliveryv1.Channel_CHANNEL_FUNDING:
+		return "funding"
+	case deliveryv1.Channel_CHANNEL_OPEN_INTEREST:
+		return "open_interest"
+	case deliveryv1.Channel_CHANNEL_LIQUIDATION:
+		return "liquidation"
+	case deliveryv1.Channel_CHANNEL_STATS:
+		return "stats"
+	case deliveryv1.Channel_CHANNEL_CANDLE:
+		return "candle"
+	case deliveryv1.Channel_CHANNEL_HEATMAP_SNAPSHOT:
+		return "heatmap_snapshot"
+	case deliveryv1.Channel_CHANNEL_VOLUME_PROFILE_SNAPSHOT:
+		return "volume_profile_snapshot"
+	default:
+		if strings.TrimSpace(fallback) == "" {
+			return "unknown"
+		}
+		return strings.ToLower(strings.TrimSpace(fallback))
+	}
+}
+
 func (s *SessionActor) allowRateLimitedCommand(op, requestID string) bool {
 	switch op {
-	case "subscribe", "getrange":
+	case "subscribe", "getrange", "resync", "ping":
 	default:
 		return true
 	}
@@ -706,23 +968,23 @@ func (s *SessionActor) enqueueDelivery(evt DeliveryEvent) {
 	if s.outbound.IsFull() {
 		switch s.policy {
 		case domain.BackpressureDropNewest:
-			if s.onDrop("queue_full") {
+			if s.onDrop("queue_full", &evt) {
 				return
 			}
 			return
 		case domain.BackpressureDropOldest:
 			s.outbound.DropFront()
-			if s.onDrop("drop_oldest") {
+			if s.onDrop("drop_oldest", &evt) {
 				return
 			}
 		case domain.BackpressurePriorityDrop:
 			if !s.priorityDrop(evt) {
-				if s.onDrop("priority_drop_self") {
+				if s.onDrop("priority_drop_self", &evt) {
 					return
 				}
 				return
 			}
-			if s.onDrop("priority_drop") {
+			if s.onDrop("priority_drop", &evt) {
 				return
 			}
 			metrics.SetWSQueueDepth(s.outbound.Len())
@@ -733,7 +995,7 @@ func (s *SessionActor) enqueueDelivery(evt DeliveryEvent) {
 			s.engine.Send(s.self, sessionFlushOutbound{})
 			return
 		default:
-			if s.onDrop("queue_full") {
+			if s.onDrop("queue_full", &evt) {
 				return
 			}
 			return
@@ -771,8 +1033,20 @@ func (s *SessionActor) priorityDrop(evt DeliveryEvent) bool {
 	return true
 }
 
-func (s *SessionActor) onDrop(reason string) bool {
+func (s *SessionActor) onDrop(reason string, evt *DeliveryEvent) bool {
 	metrics.IncWSDrops(reason)
+	channel := "unknown"
+	streamID := "unknown"
+	venue := "unknown"
+	symbol := "unknown"
+	if evt != nil {
+		streamID = evt.Subject.String()
+		venue = evt.Subject.Venue
+		symbol = evt.Subject.Symbol
+		channel = channelName(channelEnumFromStreamType(evt.Subject.StreamType), evt.Subject.StreamType)
+	}
+	metrics.IncWSDropped(reason, channel)
+	observability.RecordTerminalWSDrop(streamID, venue, symbol, channel, reason)
 	s.dropCount++
 	threshold := s.cfg.SlowClientDropThreshold
 	if threshold <= 0 || s.dropCount < threshold {
@@ -831,15 +1105,58 @@ func (s *SessionActor) flushOutbound() {
 }
 
 func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) *problem.Problem {
+	_, span := otel.Tracer("market-raccoon.delivery.session").Start(context.Background(), "session.write_delivery_event")
+	span.SetAttributes(
+		attribute.String("stream.id", evt.Subject.String()),
+		attribute.String("stream.type", evt.Subject.StreamType),
+		attribute.String("stream.venue", evt.Subject.Venue),
+		attribute.String("stream.symbol", evt.Subject.Symbol),
+		attribute.Int64("event.seq", evt.Env.Seq),
+	)
+	defer span.End()
+
+	meta := s.buildStreamMeta(evt.Subject, ports.RangeItem{
+		Seq:      evt.Env.Seq,
+		TsIngest: evt.Env.TsIngest,
+	})
+	channel := channelName(meta.GetChannel(), evt.Subject.StreamType)
 	if s.cfg.PreferProto && contracts.ProtoRolloutEnabledForEventType(evt.Env.Type) {
-		raw, p := contracts.MarshalEnvelopeV1FromDomain(evt.Env)
+		env := evt.Env
+		if env.Meta == nil {
+			env.Meta = map[string]string{}
+		}
+		env.Meta["protocol_version"] = fmt.Sprintf("%d", wsProtocolVersion)
+		env.Meta["server_instance_id"] = s.cfg.ServerInstanceID
+		env.Meta["stream_id"] = meta.GetStreamId()
+		env.Meta["channel"] = channel
+		env.Meta["ts_server"] = fmt.Sprintf("%d", meta.GetTsServer())
+		raw, p := contracts.MarshalEnvelopeV1FromDomain(env)
 		if p != nil {
+			metrics.IncWSSerializeErrors()
+			observability.IncTerminalWSSerializeError()
+			span.RecordError(p)
 			return p
 		}
 		if err := s.writeProtoDirect(websocket.BinaryMessage, raw); err != nil {
+			span.RecordError(err)
 			return problem.Wrap(err, problem.Internal, "proto write failed")
 		}
+		metrics.IncWSMessagesOut(channel)
+		metrics.AddWSBytesOut(channel, len(raw))
 		observability.IncDeliveryProto()
+		lag := meta.GetTsServer() - evt.Env.TsIngest
+		metrics.SetWSLag(channel, lag)
+		metrics.ObserveWSPublishToDeliverLatency(channel, time.Duration(maxInt64(0, lag))*time.Millisecond)
+		observability.RecordTerminalWSDelivery(
+			meta.GetStreamId(),
+			meta.GetVenue(),
+			meta.GetSymbol(),
+			channel,
+			meta.GetSeq(),
+			evt.Env.TsIngest,
+			meta.GetTsServer(),
+			lag,
+		)
 		return nil
 	}
 	payload := evt.Env.Payload
@@ -849,30 +1166,63 @@ func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) *problem.Problem {
 				evt.Env.Type, evt.Env.Version, evt.Env.ContentType, payload,
 			)
 			if p != nil {
+				metrics.IncWSSerializeErrors()
+				observability.IncTerminalWSSerializeError()
+				span.RecordError(p)
 				return p
 			}
 			payload = cached
 		} else {
 			decoded, p := codec.DecodePayload(evt.Env.Type, evt.Env.Version, evt.Env.ContentType, payload)
 			if p != nil {
+				metrics.IncWSSerializeErrors()
+				observability.IncTerminalWSSerializeError()
+				span.RecordError(p)
 				return p
 			}
 			transcoded, err := json.Marshal(decoded)
 			if err != nil {
+				metrics.IncWSSerializeErrors()
+				observability.IncTerminalWSSerializeError()
+				span.RecordError(err)
 				return problem.Wrap(err, problem.Internal, "proto→json transcode failed")
 			}
 			payload = json.RawMessage(transcoded)
 		}
 	}
-	if err := s.writeJSONDirect(wsEventFrame{
-		Type:     "event",
-		Subject:  evt.Subject.String(),
-		Seq:      evt.Env.Seq,
-		TsIngest: evt.Env.TsIngest,
-		Payload:  payload,
-	}); err != nil {
+	frame := wsEventFrame{
+		Type:             "event",
+		Subject:          evt.Subject.String(),
+		StreamID:         meta.GetStreamId(),
+		ProtocolVersion:  wsProtocolVersion,
+		ServerInstanceID: s.cfg.ServerInstanceID,
+		Seq:              evt.Env.Seq,
+		TsIngest:         evt.Env.TsIngest,
+		TsServer:         meta.GetTsServer(),
+		Venue:            evt.Subject.Venue,
+		Symbol:           evt.Subject.Symbol,
+		Channel:          channel,
+		Payload:          payload,
+	}
+	if err := s.writeJSONDirect(frame); err != nil {
+		span.RecordError(err)
 		return problem.Wrap(err, problem.Internal, "json write failed")
 	}
+	metrics.IncWSMessagesOut(channel)
+	metrics.AddWSBytesOut(channel, len(payload))
+	lag := frame.TsServer - evt.Env.TsIngest
+	metrics.SetWSLag(channel, lag)
+	metrics.ObserveWSPublishToDeliverLatency(channel, time.Duration(maxInt64(0, lag))*time.Millisecond)
+	observability.RecordTerminalWSDelivery(
+		frame.StreamID,
+		frame.Venue,
+		frame.Symbol,
+		channel,
+		frame.Seq,
+		frame.TsIngest,
+		frame.TsServer,
+		lag,
+	)
 	observability.IncDeliveryJSON()
 	return nil
 }
@@ -886,10 +1236,27 @@ func (s *SessionActor) writeProblem(op, requestID string, p *problem.Problem) {
 		Op:        op,
 		RequestID: requestID,
 		Problem: wsErrorProblem{
-			Code:    string(p.Code),
-			Message: p.Message,
+			Code:      string(p.Code),
+			ErrorCode: wsErrorCodeFromProblem(p),
+			Message:   p.Message,
 		},
 	})
+}
+
+func wsErrorCodeFromProblem(p *problem.Problem) string {
+	if p == nil {
+		return deliveryv1.ErrorCode_ERROR_CODE_UNSPECIFIED.String()
+	}
+	switch p.Code {
+	case problem.ValidationFailed, problem.InvalidArgument:
+		return deliveryv1.ErrorCode_ERROR_CODE_VALIDATION.String()
+	case problem.NotFound:
+		return deliveryv1.ErrorCode_ERROR_CODE_NOT_FOUND.String()
+	case problem.Unavailable:
+		return deliveryv1.ErrorCode_ERROR_CODE_RATE_LIMITED.String()
+	default:
+		return deliveryv1.ErrorCode_ERROR_CODE_INTERNAL.String()
+	}
 }
 
 func (s *SessionActor) writeJSON(v any) {
@@ -926,6 +1293,13 @@ func wsQueryBucket(streamType string) string {
 	}
 }
 
+func maxInt64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
 func (s *SessionActor) closeSession() {
 	if s.closed {
 		return
@@ -955,5 +1329,8 @@ func (s *SessionActor) closeSession() {
 	}
 	if s.cfg.Conn != nil {
 		_ = s.cfg.Conn.Close()
+	}
+	if s.cfg.OnClosed != nil {
+		s.cfg.OnClosed()
 	}
 }

@@ -162,12 +162,14 @@ orderbook_widget :: proc(buf: ^ui.Command_Buffer, data: Orderbook_Widget_Data) {
 	ba := services.best_ask(store)
 	bb := services.best_bid(store)
 	if ba > 0 && bb > 0 {
-		ba_str := ob_format_price(tbuf[:], ba, price_decimals)
+		ba_buf: [32]u8
+		bb_buf: [32]u8
+		ba_str := ob_format_price(ba_buf[:], ba, price_decimals)
 		ba_label_w := data.text.measure(ui.FONT_SIZE_XS, ba_str).x
 		ask_label_y := center_y + center_h - data.text.line_height(ui.FONT_SIZE_XS) - 5
 		ui.push_text(buf, {ui.rect_right(inner) - ba_label_w - 4, ask_label_y}, ba_str,
 			ui.with_alpha(ui.COL_RED, 0.65), ui.FONT_SIZE_XS, .Mono)
-		bb_str := ob_format_price(tbuf[:], bb, price_decimals)
+		bb_str := ob_format_price(bb_buf[:], bb, price_decimals)
 		ui.push_text(buf, {inner.pos.x + 4, ask_label_y}, bb_str,
 			ui.with_alpha(ui.COL_GREEN, 0.65), ui.FONT_SIZE_XS, .Mono)
 	}

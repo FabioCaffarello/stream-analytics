@@ -320,8 +320,8 @@ func validateWS(w WSConfig) *problem.Problem {
 		return problem.Newf(codeInvalid, "ws.rate_limit.burst_capacity must be >= 0, got %d", w.RateLimit.BurstCapacity)
 	}
 	if w.Auth.Enabled {
-		if len(w.Auth.APIKeys) == 0 {
-			return problem.New(codeInvalid, "ws.auth.api_keys must not be empty when ws.auth.enabled=true")
+		if len(w.Auth.APIKeys) == 0 && !w.Auth.JWT.Enabled {
+			return problem.New(codeInvalid, "ws.auth requires api_keys or jwt when ws.auth.enabled=true")
 		}
 		for key, clientID := range w.Auth.APIKeys {
 			if strings.TrimSpace(key) == "" {
@@ -331,6 +331,9 @@ func validateWS(w WSConfig) *problem.Problem {
 				return problem.Newf(codeInvalid, "ws.auth.api_keys[%q] client_id must not be empty", key)
 			}
 		}
+		if w.Auth.JWT.Enabled && strings.TrimSpace(w.Auth.JWT.HS256Secret) == "" {
+			return problem.New(codeInvalid, "ws.auth.jwt.hs256_secret must not be empty when ws.auth.jwt.enabled=true")
+		}
 	}
 	if w.RateLimit.Enabled {
 		if w.RateLimit.MaxPerSecond <= 0 {
@@ -339,6 +342,18 @@ func validateWS(w WSConfig) *problem.Problem {
 		if w.RateLimit.BurstCapacity <= 0 {
 			return problem.Newf(codeInvalid, "ws.rate_limit.burst_capacity must be > 0 when ws.rate_limit.enabled=true, got %d", w.RateLimit.BurstCapacity)
 		}
+	}
+	if w.Limits.MaxConnectionsPerIP < 0 {
+		return problem.Newf(codeInvalid, "ws.limits.max_connections_per_ip must be >= 0, got %d", w.Limits.MaxConnectionsPerIP)
+	}
+	if w.Limits.MaxConnectionsPerKey < 0 {
+		return problem.Newf(codeInvalid, "ws.limits.max_connections_per_key must be >= 0, got %d", w.Limits.MaxConnectionsPerKey)
+	}
+	if w.Limits.MaxSubsPerConnection < 0 {
+		return problem.Newf(codeInvalid, "ws.limits.max_subs_per_connection must be >= 0, got %d", w.Limits.MaxSubsPerConnection)
+	}
+	if w.Limits.MaxSymbolsPerConn < 0 {
+		return problem.Newf(codeInvalid, "ws.limits.max_symbols_per_connection must be >= 0, got %d", w.Limits.MaxSymbolsPerConn)
 	}
 	return nil
 }
@@ -1265,6 +1280,18 @@ func applyDefaults(c *AppConfig) {
 	if c.WS.RateLimit.BurstCapacity <= 0 {
 		c.WS.RateLimit.BurstCapacity = 200
 	}
+	if c.WS.Limits.MaxConnectionsPerIP <= 0 {
+		c.WS.Limits.MaxConnectionsPerIP = 200
+	}
+	if c.WS.Limits.MaxConnectionsPerKey <= 0 {
+		c.WS.Limits.MaxConnectionsPerKey = 20
+	}
+	if c.WS.Limits.MaxSubsPerConnection <= 0 {
+		c.WS.Limits.MaxSubsPerConnection = 256
+	}
+	if c.WS.Limits.MaxSymbolsPerConn <= 0 {
+		c.WS.Limits.MaxSymbolsPerConn = 128
+	}
 	if len(c.WS.Auth.APIKeys) > 0 {
 		normalized := make(map[string]string, len(c.WS.Auth.APIKeys))
 		for key, clientID := range c.WS.Auth.APIKeys {
@@ -1277,6 +1304,28 @@ func applyDefaults(c *AppConfig) {
 		}
 		c.WS.Auth.APIKeys = normalized
 	}
+	if len(c.WS.Auth.APIKeyScopes) > 0 {
+		normalized := make(map[string][]string, len(c.WS.Auth.APIKeyScopes))
+		for key, scopes := range c.WS.Auth.APIKeyScopes {
+			k := strings.TrimSpace(key)
+			if k == "" {
+				continue
+			}
+			cleanScopes := make([]string, 0, len(scopes))
+			for _, scope := range scopes {
+				s := strings.ToLower(strings.TrimSpace(scope))
+				if s == "" {
+					continue
+				}
+				cleanScopes = append(cleanScopes, s)
+			}
+			normalized[k] = dedupeStrings(cleanScopes)
+		}
+		c.WS.Auth.APIKeyScopes = normalized
+	}
+	c.WS.Auth.JWT.HS256Secret = strings.TrimSpace(c.WS.Auth.JWT.HS256Secret)
+	c.WS.Auth.JWT.Issuer = strings.TrimSpace(c.WS.Auth.JWT.Issuer)
+	c.WS.Auth.JWT.Audience = strings.TrimSpace(c.WS.Auth.JWT.Audience)
 	c.Processor.Insights.JoinTradesSubject = strings.TrimSpace(c.Processor.Insights.JoinTradesSubject)
 	c.Processor.Insights.SnapshotSubjectPrefix = strings.TrimSpace(c.Processor.Insights.SnapshotSubjectPrefix)
 	c.Processor.Insights.TTL = strings.TrimSpace(c.Processor.Insights.TTL)

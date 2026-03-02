@@ -7,6 +7,7 @@ package main
 import "core:fmt"
 import "core:strings"
 import "core:time"
+import "mr:md_common"
 import "mr:ports"
 import "mr:services"
 import "mr:util"
@@ -20,6 +21,7 @@ foreign odin_env {
 	ws_close    :: proc() ---
 	ws_state    :: proc() -> i32 ---
 	ws_drop_count :: proc() -> u32 ---
+	ws_allow_legacy_ws :: proc() -> i32 ---
 	ws_poll_msg :: proc(buf_ptr: [^]u8, buf_len: i32) -> i32 ---
 	key_state   :: proc() -> u32 ---
 	key_pressed_state :: proc() -> u32 ---
@@ -38,7 +40,7 @@ foreign odin_env {
 // --- Constants ---
 
 WEB_TRADE_RING_CAP   :: 1024
-WEB_CANDLE_RING_CAP  :: 8
+WEB_CANDLE_RING_CAP  :: 32
 WEB_MAX_SUBS         :: 128
 WEB_RECV_BUF_SIZE    :: 128 * 1024 // 128 KB per message max
 WEB_PARSE_MAX_MSGS_PER_POLL :: 64
@@ -48,6 +50,11 @@ WEB_PARSE_TIME_BUDGET       :: 2 * time.Millisecond
 WEB_BACKOFF_INITIAL_S :: 0.5
 WEB_BACKOFF_MAX_S     :: 30.0
 WEB_BACKOFF_MULTIPLIER :: 2.0
+WEB_HELLO_TIMEOUT_MS  :: 10_000
+WEB_PONG_TIMEOUT_MS   :: 15_000
+WEB_METRICS_STALE_MS  :: 20_000
+WEB_FREQUENT_DROP_THRESHOLD :: 16
+WEB_PERF_SAMPLE_CAP   :: 120
 
 // Default candle timeframe filter.
 CANDLE_TF_DEFAULT :: "1m"
@@ -60,6 +67,8 @@ Web_Sub_Entry :: struct {
 	symbol:         string,
 	channel:        ports.MD_Channel,
 	subject:        string,
+	stream_id:      [128]u8,
+	stream_id_len:  u8,
 	is_explicit_tf: bool, // true = per-cell TF sub; skip in global TF resubscribe
 }
 
@@ -92,8 +101,25 @@ MD_Web_State :: struct {
 	candle_tf_filter: string,
 
 	// Connection.
-	ws_url:  string,
-	api_key: string,
+	ws_url:    string,
+	api_key:   string,
+	jwt_token: string,
+	reconnect_blocked: bool,
+	// Terminal_V1 transport state.
+	transport_state: ports.MD_Transport_State,
+	transport_mode: util.Transport_Mode,
+	auth_mode:      u8, // 0=none, 1=apikey, 2=jwt
+	allow_legacy_ws: bool,
+	ws_error_category: ports.MD_WS_Error_Category,
+	ws_error_action:   ports.MD_WS_Error_Action,
+	server_instance_id: [32]u8,
+	server_instance_id_len: u8,
+	hello_timeout_count: int,
+	pong_rtt_ms: i64,
+	last_ping_sent_ms: i64,
+	// Server-pushed metrics (from METRICS frame).
+	server_metrics: services.Parsed_Metrics,
+	server_metrics_received: bool,
 
 	// Subscription tracking for reconnect re-subscribe.
 	active_subs:  [WEB_MAX_SUBS]Web_Sub_Entry,
@@ -104,30 +130,44 @@ MD_Web_State :: struct {
 	pending_getrange_queued:  bool,
 	rid_counter:       u32,
 	drop_count:        int,
+	drop_trade_ring:   int,
+	drop_candle_ring:  int,
+	drop_ws_queue:     int,
+	drop_payload_oversize: int,
 	reconnect_count:   int,
+	seq_gap_count:     int,
+	resync_count:      int,
+	seq_gap_streak:    int,
 	parse_arena:       services.Parse_Arena,
 	parse_error_count: int,
 	subscribe_ack_count: int,
-	parsed_msgs_total:   u64,
-	parsed_bytes_total:  u64,
-	msg_rate:            f64,
-	bytes_rate:          f64,
-	rate_window_msgs:    u64,
-	rate_window_bytes:   u64,
-	rate_window_start_ms: i64,
+	rates: md_common.Rate_State,
 	last_msg_ts_ms:     i64,
 	last_server_ts_ms:  i64,
 	last_rtt_ms:        i64,
 	last_lag_ms:        i64,
+	last_metrics_ts_ms: i64,
+	last_pong_ts_ms:    i64,
 	protocol_version:   int,
 	hello_received:     bool,
 	hello_valid:        bool,
 	desync:             bool,
 	desync_reason:      ports.MD_Desync_Reason,
+	backend_gap_no_metrics: int,
+	backend_gap_pong_timeout: int,
+	backend_gap_resync_ack_timeout: int,
+	backend_gap_missing_ts_server: int,
+	backend_gap_seq_gap_recurring: int,
+	backend_gap_frequent_drops: int,
 	connect_started_ms: i64,
 	first_data_logged:  bool,
 	last_seq_by_sub:    [WEB_MAX_SUBS]i64,
+	last_server_ts_by_sub: [WEB_MAX_SUBS]i64,
 	snapshot_logged_by_sub: [WEB_MAX_SUBS]bool,
+	desync_resub_subject_id: u64, // 0 = none pending
+	// RESYNC tracking (Terminal_V1): pending resync for a subject.
+	resync_pending_subject_id: u64,  // 0 = none pending
+	resync_sent_ms: i64,             // timestamp when RESYNC was sent
 
 	// Receive buffer (reused each poll).
 	recv_buf: [WEB_RECV_BUF_SIZE]u8,
@@ -147,6 +187,7 @@ MD_Web_State :: struct {
 	was_connected:   bool,
 	reconnect_timer: f64, // seconds until next reconnect attempt
 	backoff_s:       f64, // current backoff in seconds
+	jitter_seed:     u32,
 	last_poll_tick:     time.Tick,
 	has_last_poll_tick: bool,
 
@@ -164,10 +205,101 @@ MD_Web_State :: struct {
 	perf_max_drained:       int,
 	perf_last_log_tick:     time.Tick,
 	perf_has_last_log_tick: bool,
+	parse_samples_us:       [WEB_PERF_SAMPLE_CAP]i64,
+	parse_sample_head:      int,
+	parse_sample_count:     int,
+	apply_samples_us:       [WEB_PERF_SAMPLE_CAP]i64,
+	apply_sample_head:      int,
+	apply_sample_count:     int,
+}
+
+// File-private singleton: Odin procs are bare function pointers (no closures),
+// so Marketdata_Port callbacks access state through this global. Only one
+// instance exists per process; @(private="file") prevents external access.
+@(private = "file")
+g_web_state: ^MD_Web_State
+
+@(private = "file")
+read_allow_legacy_ws_web :: proc() -> bool {
+	v := ws_allow_legacy_ws()
+	if v == 0 do return false
+	if v > 0 do return true
+	return md_common.ALLOW_LEGACY_WS_DEFAULT
 }
 
 @(private = "file")
-g_web_state: ^MD_Web_State
+web_log_safe_url :: proc(url: string) -> string {
+	if q := strings.index(url, "?"); q >= 0 {
+		return url[:q]
+	}
+	return url
+}
+
+@(private = "file")
+set_web_transport_state :: proc(state: ^MD_Web_State, next: ports.MD_Transport_State) {
+	if state == nil do return
+	state.transport_state = next
+}
+
+@(private = "file")
+web_record_perf_sample :: proc(samples: ^[WEB_PERF_SAMPLE_CAP]i64, head: ^int, count: ^int, v: i64) {
+	if samples == nil || head == nil || count == nil do return
+	samples[head^] = max(v, 0)
+	head^ = (head^ + 1) % WEB_PERF_SAMPLE_CAP
+	if count^ < WEB_PERF_SAMPLE_CAP do count^ += 1
+}
+
+@(private = "file")
+web_sample_p95_us :: proc(samples: [WEB_PERF_SAMPLE_CAP]i64, head: int, count: int) -> i64 {
+	n := count
+	if n <= 0 do return 0
+	if n > WEB_PERF_SAMPLE_CAP do n = WEB_PERF_SAMPLE_CAP
+	start := (head - n + WEB_PERF_SAMPLE_CAP) % WEB_PERF_SAMPLE_CAP
+	sorted: [WEB_PERF_SAMPLE_CAP]i64
+	for i in 0 ..< n {
+		sorted[i] = samples[(start + i) % WEB_PERF_SAMPLE_CAP]
+	}
+	for i in 1 ..< n {
+		key := sorted[i]
+		j := i - 1
+		for j >= 0 && sorted[j] > key {
+			sorted[j + 1] = sorted[j]
+			j -= 1
+		}
+		sorted[j + 1] = key
+	}
+	return sorted[min((n * 95) / 100, n - 1)]
+}
+
+@(private = "file")
+apply_web_fault :: proc(state: ^MD_Web_State, category: ports.MD_WS_Error_Category) {
+	if state == nil do return
+	action := md_common.ws_fault_action(category, state.allow_legacy_ws)
+	state.ws_error_category = category
+	state.ws_error_action = action
+	switch action {
+	case .Retry:
+		set_web_transport_state(state, .Backoff)
+	case .Downgrade:
+		state.transport_mode = .Legacy_JSON
+		state.hello_timeout_count += 1
+		state.hello_received = true
+		state.hello_valid = true
+		state.desync = false
+		state.desync_reason = .None
+		set_web_transport_state(state, .Running)
+	case .Resync:
+		state.desync = true
+		if state.desync_reason == .None do state.desync_reason = .Sequence_Gap
+		set_web_transport_state(state, .Desync)
+	case .Stop:
+		state.reconnect_blocked = true
+		state.desync = true
+		state.desync_reason = .Protocol_Invalid
+		set_web_transport_state(state, .Desync)
+	case .None:
+	}
+}
 
 // --- Public API ---
 
@@ -182,22 +314,19 @@ make_marketdata_web :: proc(url: string, api_key: string = "") -> ports.Marketda
 	state.parse_max_msgs_per_poll = WEB_PARSE_MAX_MSGS_PER_POLL
 	state.parse_time_budget = WEB_PARSE_TIME_BUDGET
 	state.perf_debug = false
+	state.jitter_seed = u32(time.now()._nsec & 0xFFFFFFFF)
+	state.transport_mode = .Terminal_V1
+	state.allow_legacy_ws = read_allow_legacy_ws_web()
+	set_web_transport_state(state, .Hello_Pending)
 	g_web_state = state
 
 	// Initiate connection via JS bridge.
-	hdr_buf: [128]u8
-	hdr_len := 0
-	if len(api_key) > 0 {
-		prefix :: "X-API-Key: "
-		for c in prefix { hdr_buf[hdr_len] = u8(c); hdr_len += 1 }
-		for c in api_key { if hdr_len < len(hdr_buf) - 2 { hdr_buf[hdr_len] = u8(c); hdr_len += 1 } }
-		hdr_buf[hdr_len] = '\r'; hdr_len += 1
-		hdr_buf[hdr_len] = '\n'; hdr_len += 1
-	}
+	hdr_buf: [256]u8
+	hdr_len := web_build_auth_header(state, hdr_buf[:])
 	url_raw := raw_data(transmute([]u8)url)
 	state.connect_started_ms = time.now()._nsec / 1_000_000
 	state.first_data_logged = false
-	fmt.printf("[md-lifecycle] connect url=%s\n", url)
+	fmt.printf("[md-lifecycle] connect url=%s\n", web_log_safe_url(url))
 	ws_connect(url_raw, i32(len(url)), raw_data(hdr_buf[:hdr_len]), i32(hdr_len))
 
 	return ports.Marketdata_Port{
@@ -222,45 +351,27 @@ make_marketdata_web :: proc(url: string, api_key: string = "") -> ports.Marketda
 
 @(private = "file")
 find_web_sub_by_subject :: proc(state: ^MD_Web_State, subject: string) -> int {
-	for i in 0 ..< state.active_count {
-		if state.active_subs[i].subject == subject do return i
-	}
-	return -1
+	return md_common.find_sub_by_subject(state.active_subs[:state.active_count], subject)
 }
 
 @(private = "file")
 find_web_sub_by_key :: proc(state: ^MD_Web_State, venue: string, symbol: string, channel: ports.MD_Channel) -> int {
-	for i in 0 ..< state.active_count {
-		sub := state.active_subs[i]
-		if sub.channel == channel && sub.venue == venue && sub.symbol == symbol do return i
-	}
-	return -1
+	return md_common.find_sub_by_key(state.active_subs[:state.active_count], venue, symbol, channel)
 }
 
 @(private = "file")
 find_web_sub_by_subject_id :: proc(state: ^MD_Web_State, subject_id: u64) -> int {
-	for i in 0 ..< state.active_count {
-		if state.active_subs[i].subject_id == subject_id do return i
-	}
-	return -1
+	return md_common.find_sub_by_subject_id(state.active_subs[:state.active_count], subject_id)
 }
 
 @(private = "file")
 web_subject_for_channel :: proc(state: ^MD_Web_State, venue: string, symbol: string, channel: ports.MD_Channel) -> string {
-	tf := ""
-	if channel == .Heatmaps || channel == .VPVR || channel == .Candles {
-		tf = state.candle_tf_filter
-	}
-	return util.build_subject_with_timeframe(venue, symbol, channel, tf)
+	return md_common.subject_for_channel(venue, symbol, state.candle_tf_filter, channel)
 }
 
 @(private = "file")
 web_free_sub_entry :: proc(entry: ^Web_Sub_Entry) {
-	if entry == nil do return
-	if len(entry.venue) > 0 do delete(entry.venue)
-	if len(entry.symbol) > 0 do delete(entry.symbol)
-	if len(entry.subject) > 0 do delete(entry.subject)
-	entry^ = {}
+	md_common.free_sub_entry(entry)
 }
 
 @(private = "file")
@@ -271,6 +382,7 @@ web_shutdown :: proc() {
 	for i in 0 ..< state.active_count {
 		web_free_sub_entry(&state.active_subs[i])
 		state.last_seq_by_sub[i] = 0
+		state.last_server_ts_by_sub[i] = 0
 		state.snapshot_logged_by_sub[i] = false
 	}
 	state.active_count = 0
@@ -285,6 +397,10 @@ web_shutdown :: proc() {
 	if len(state.api_key) > 0 {
 		delete(state.api_key)
 		state.api_key = ""
+	}
+	if len(state.jwt_token) > 0 {
+		delete(state.jwt_token)
+		state.jwt_token = ""
 	}
 	if len(state.pending_getrange_subject) > 0 {
 		delete(state.pending_getrange_subject)
@@ -307,16 +423,21 @@ web_disconnect_transport :: proc() -> bool {
 	state.was_connected = false
 	state.desync = false
 	state.desync_reason = .None
+	state.resync_pending_subject_id = 0
+	state.resync_sent_ms = 0
 	state.protocol_version = 0
 	state.hello_received = false
 	state.hello_valid = false
+	state.last_metrics_ts_ms = 0
+	state.last_pong_ts_ms = 0
+	set_web_transport_state(state, .Backoff)
 	state.connect_started_ms = 0
 	state.first_data_logged = false
 	return true
 }
 
 @(private = "file")
-web_reconnect_transport :: proc(ws_url: string, api_key: string) -> bool {
+web_reconnect_transport :: proc(ws_url: string, api_key: string, jwt_token: string = "") -> bool {
 	state := g_web_state
 	if state == nil do return false
 	if len(ws_url) > 0 && ws_url != state.ws_url {
@@ -327,17 +448,40 @@ web_reconnect_transport :: proc(ws_url: string, api_key: string) -> bool {
 		if len(state.api_key) > 0 do delete(state.api_key)
 		state.api_key = strings.clone(api_key)
 	}
+	if jwt_token != state.jwt_token {
+		if len(state.jwt_token) > 0 do delete(state.jwt_token)
+		state.jwt_token = strings.clone(jwt_token)
+	}
+	// Derive auth mode.
+	if len(jwt_token) > 0 {
+		state.auth_mode = 2
+	} else if len(api_key) > 0 {
+		state.auth_mode = 1
+	} else {
+		state.auth_mode = 0
+	}
 	ws_close()
 	state.was_connected = false
 	state.reconnect_timer = 0
+	state.reconnect_blocked = false
 	state.desync = false
 	state.desync_reason = .None
+	state.resync_pending_subject_id = 0
+	state.resync_sent_ms = 0
 	state.protocol_version = 0
 	state.hello_received = false
 	state.hello_valid = false
+	state.transport_mode = .Terminal_V1
+	state.allow_legacy_ws = read_allow_legacy_ws_web()
+	state.ws_error_category = .None
+	state.ws_error_action = .None
+	set_web_transport_state(state, .Backoff)
+	state.server_metrics_received = false
+	state.last_metrics_ts_ms = 0
+	state.last_pong_ts_ms = 0
 	state.connect_started_ms = 0
 	state.first_data_logged = false
-	fmt.printf("[md-lifecycle] reconnect_requested url=%s\n", state.ws_url)
+	fmt.printf("[md-lifecycle] reconnect_requested url=%s\n", web_log_safe_url(state.ws_url))
 	return true
 }
 
@@ -347,6 +491,7 @@ web_subscribe :: proc(venue: string, symbol: string, channel: ports.MD_Channel) 
 	if state == nil do return false
 
 	subject := web_subject_for_channel(state, venue, symbol, channel)
+	if len(subject) == 0 do return false
 	subject_id := util.subject_id64(subject)
 
 	// Idempotent subscribe: do not re-send for already tracked subjects.
@@ -368,6 +513,7 @@ web_subscribe :: proc(venue: string, symbol: string, channel: ports.MD_Channel) 
 		subject = subject,
 	}
 	state.last_seq_by_sub[state.active_count] = 0
+	state.last_server_ts_by_sub[state.active_count] = 0
 	state.snapshot_logged_by_sub[state.active_count] = false
 	state.active_count += 1
 
@@ -382,6 +528,7 @@ web_subscribe_tf :: proc(venue: string, symbol: string, channel: ports.MD_Channe
 	if state == nil do return false
 
 	subject := util.build_subject_with_timeframe(venue, symbol, channel, tf)
+	if len(subject) == 0 do return false
 	subject_id := util.subject_id64(subject)
 
 	// Idempotent subscribe: do not re-send for already tracked subjects.
@@ -403,6 +550,7 @@ web_subscribe_tf :: proc(venue: string, symbol: string, channel: ports.MD_Channe
 		is_explicit_tf = true,
 	}
 	state.last_seq_by_sub[state.active_count] = 0
+	state.last_server_ts_by_sub[state.active_count] = 0
 	state.snapshot_logged_by_sub[state.active_count] = false
 	state.active_count += 1
 
@@ -441,28 +589,63 @@ web_metrics :: proc(out: ^ports.MD_Runtime_Metrics) -> bool {
 	if state.heatmap_dirty do latest_pending += 1
 	if state.vpvr_dirty do latest_pending += 1
 	if state.candle_ring_count > 0 do latest_pending += 1
+	sm := state.server_metrics
 	out^ = ports.MD_Runtime_Metrics{
 		active_subs       = state.active_count,
 		trade_backlog     = state.trade_count,
 		candle_backlog    = state.candle_ring_count,
 		// Include JS bridge queue drops so metrics reflect end-to-end pressure.
 		drop_count        = state.drop_count + queue_drop_count,
+		drop_trade_ring   = state.drop_trade_ring,
+		drop_candle_ring  = state.drop_candle_ring,
+		drop_ws_queue     = state.drop_ws_queue + queue_drop_count,
+		drop_payload_oversize = state.drop_payload_oversize,
 		reconnect_count   = state.reconnect_count,
 		latest_pending    = latest_pending,
 		parse_error_count = state.parse_error_count,
 		subscribe_ack_count = state.subscribe_ack_count,
-		parsed_msgs_total = state.parsed_msgs_total,
-		parsed_bytes_total = state.parsed_bytes_total,
+		seq_gap_count     = state.seq_gap_count,
+		resync_count      = state.resync_count,
+		parsed_msgs_total = state.rates.parsed_msgs_total,
+		parsed_bytes_total = state.rates.parsed_bytes_total,
 		parse_arena_resets = state.parse_arena.message_resets,
-		msg_rate          = state.msg_rate,
-		bytes_rate        = state.bytes_rate,
+		alloc_estimate_total = state.parse_arena.message_resets,
+		msg_rate          = state.rates.msg_rate,
+		bytes_rate        = state.rates.bytes_rate,
 		last_msg_ts_ms   = state.last_msg_ts_ms,
+		last_server_ts_ms = state.last_server_ts_ms,
 		rtt_ms           = state.last_rtt_ms,
 		lag_ms           = state.last_lag_ms,
+		parse_time_p95_us = web_sample_p95_us(state.parse_samples_us, state.parse_sample_head, state.parse_sample_count),
+		apply_time_p95_us = web_sample_p95_us(state.apply_samples_us, state.apply_sample_head, state.apply_sample_count),
 		protocol_version = state.protocol_version,
 		hello_received   = state.hello_received,
 		desync           = state.desync,
 		desync_reason    = state.desync_reason,
+		transport_state  = state.transport_state,
+		ws_error_category = state.ws_error_category,
+		ws_error_action   = state.ws_error_action,
+		backend_gap_no_metrics = state.backend_gap_no_metrics,
+		backend_gap_pong_timeout = state.backend_gap_pong_timeout,
+		backend_gap_resync_ack_timeout = state.backend_gap_resync_ack_timeout,
+		backend_gap_missing_ts_server = state.backend_gap_missing_ts_server,
+		backend_gap_seq_gap_recurring = state.backend_gap_seq_gap_recurring,
+		backend_gap_frequent_drops = state.backend_gap_frequent_drops,
+		// Terminal_V1 transport fields.
+		transport_mode          = u8(state.transport_mode),
+		server_instance_id      = state.server_instance_id,
+		server_instance_id_len  = state.server_instance_id_len,
+		server_instance_id_hash = util.subject_id64(string(state.server_instance_id[:int(state.server_instance_id_len)])),
+		auth_mode               = state.auth_mode,
+		hello_timeout_count     = state.hello_timeout_count,
+		pong_rtt_ms             = state.pong_rtt_ms,
+		// Server-pushed metrics.
+		server_ws_dropped       = sm.ws_dropped_total,
+		server_ws_queue_len     = sm.ws_queue_len,
+		server_ws_lag_ms        = sm.ws_lag_ms,
+		server_serialize_errors = sm.serialize_errors_total,
+		server_resync_total     = sm.resync_total,
+		server_pub_deliver_ms   = sm.publish_to_deliver_latency_ms,
 	}
 	return true
 }
@@ -478,6 +661,7 @@ web_unsubscribe :: proc(venue: string, symbol: string, channel: ports.MD_Channel
 		subject = strings.clone(state.active_subs[idx].subject)
 	} else {
 		subject = web_subject_for_channel(state, venue, symbol, channel)
+		if len(subject) == 0 do return
 	}
 	defer delete(subject)
 
@@ -488,10 +672,12 @@ web_unsubscribe :: proc(venue: string, symbol: string, channel: ports.MD_Channel
 		if idx != last {
 			state.active_subs[idx] = state.active_subs[last]
 			state.last_seq_by_sub[idx] = state.last_seq_by_sub[last]
+			state.last_server_ts_by_sub[idx] = state.last_server_ts_by_sub[last]
 			state.snapshot_logged_by_sub[idx] = state.snapshot_logged_by_sub[last]
 		}
 		state.active_subs[last] = {}
 		state.last_seq_by_sub[last] = 0
+		state.last_server_ts_by_sub[last] = 0
 		state.snapshot_logged_by_sub[last] = false
 		state.active_count -= 1
 	}
@@ -503,38 +689,41 @@ web_unsubscribe :: proc(venue: string, symbol: string, channel: ports.MD_Channel
 @(private = "file")
 web_send_unsubscribe :: proc(state: ^MD_Web_State, subject: string) -> bool {
 	state.rid_counter += 1
-	buf: [256]u8
-	n := 0
-	prefix :: `{"op":"unsubscribe","subject":"`
-	for c in prefix { buf[n] = u8(c); n += 1 }
-	for c in subject { buf[n] = u8(c); n += 1 }
-	mid :: `","request_id":"r`
-	for c in mid { buf[n] = u8(c); n += 1 }
-	rid_str := fmt.tprintf("%d", state.rid_counter)
-	for c in rid_str { buf[n] = u8(c); n += 1 }
-	suffix :: `"}`
-	for c in suffix { buf[n] = u8(c); n += 1 }
-	ws_send(raw_data(buf[:n]), i32(n))
-	fmt.printf("[md-lifecycle] unsubscribe_sent subject=%s rid=r%s\n", subject, rid_str)
+	buf: [512]u8
+	msg: string
+	ok: bool
+	// In Terminal_V1: prefer stream_id from ACK when available.
+	if state.transport_mode == .Terminal_V1 {
+		sid := util.subject_id64(subject)
+		if si := find_web_sub_by_subject_id(state, sid); si >= 0 && state.active_subs[si].stream_id_len > 0 {
+			stored_sid := string(state.active_subs[si].stream_id[:int(state.active_subs[si].stream_id_len)])
+			msg, ok = md_common.build_unsubscribe_msg_v2(buf[:], stored_sid, state.rid_counter)
+		}
+	}
+	if !ok {
+		msg, ok = md_common.build_unsubscribe_msg(buf[:], subject, state.rid_counter)
+	}
+	if !ok do return false
+	ws_send(raw_data(buf[:len(msg)]), i32(len(msg)))
+	fmt.printf("[md-lifecycle] unsubscribe_sent subject=%s rid=r%d\n", subject, state.rid_counter)
 	return true
 }
 
 @(private = "file")
 web_send_subscribe :: proc(state: ^MD_Web_State, subject: string) -> bool {
 	state.rid_counter += 1
-	buf: [256]u8
-	n := 0
-	prefix :: `{"op":"subscribe","subject":"`
-	for c in prefix { buf[n] = u8(c); n += 1 }
-	for c in subject { buf[n] = u8(c); n += 1 }
-	mid :: `","request_id":"r`
-	for c in mid { buf[n] = u8(c); n += 1 }
-	rid_str := fmt.tprintf("%d", state.rid_counter)
-	for c in rid_str { buf[n] = u8(c); n += 1 }
-	suffix :: `"}`
-	for c in suffix { buf[n] = u8(c); n += 1 }
-	ws_send(raw_data(buf[:n]), i32(n))
-	fmt.printf("[md-lifecycle] subscribe_sent subject=%s rid=r%s\n", subject, rid_str)
+	buf: [768]u8
+	msg: string
+	ok: bool
+	if state.transport_mode == .Terminal_V1 {
+		venue, symbol, channel, aggregation := md_common.parse_subject_components(subject)
+		msg, ok = md_common.build_subscribe_msg_v2(buf[:], subject, venue, symbol, channel, aggregation, state.rid_counter)
+	} else {
+		msg, ok = md_common.build_subscribe_msg(buf[:], subject, state.rid_counter)
+	}
+	if !ok do return false
+	ws_send(raw_data(buf[:len(msg)]), i32(len(msg)))
+	fmt.printf("[md-lifecycle] subscribe_sent subject=%s rid=r%d\n", subject, state.rid_counter)
 	return true
 }
 
@@ -582,31 +771,11 @@ web_send_getrange_now :: proc(state: ^MD_Web_State, subject: string, limit: int,
 	if state == nil do return false
 	if ws_state() != 2 do return false
 	if len(subject) == 0 do return false
-
 	state.rid_counter += 1
 	buf: [512]u8
-	n := 0
-	prefix :: `{"op":"getrange","subject":"`
-	for c in prefix { buf[n] = u8(c); n += 1 }
-	for c in subject { buf[n] = u8(c); n += 1 }
-	mid :: `","params":{"limit":`
-	for c in mid { buf[n] = u8(c); n += 1 }
-	limit_str := fmt.tprintf("%d", limit)
-	for c in limit_str { buf[n] = u8(c); n += 1 }
-	if end_ts > 0 {
-		end_mid :: `,"to_ms":`
-		for c in end_mid { buf[n] = u8(c); n += 1 }
-		end_str := fmt.tprintf("%d", end_ts)
-		for c in end_str { buf[n] = u8(c); n += 1 }
-	}
-	mid2 :: `},"request_id":"gr`
-	for c in mid2 { buf[n] = u8(c); n += 1 }
-	rid_str := fmt.tprintf("%d", state.rid_counter)
-	for c in rid_str { buf[n] = u8(c); n += 1 }
-	suffix :: `"}`
-	for c in suffix { buf[n] = u8(c); n += 1 }
-
-	ws_send(raw_data(buf[:n]), i32(n))
+	msg, ok := md_common.build_getrange_msg(buf[:], subject, limit, end_ts, state.rid_counter)
+	if !ok do return false
+	ws_send(raw_data(buf[:len(msg)]), i32(len(msg)))
 	return true
 }
 
@@ -623,6 +792,68 @@ web_flush_pending_getrange :: proc(state: ^MD_Web_State) {
 	state.pending_getrange_limit = 0
 	state.pending_getrange_end_ts = 0
 	state.pending_getrange_queued = false
+}
+
+@(private = "file")
+web_send_hello :: proc(state: ^MD_Web_State) {
+	state.rid_counter += 1
+	buf: [256]u8
+	msg, ok := md_common.build_hello_msg(buf[:], state.rid_counter)
+	if !ok do return
+	ws_send(raw_data(buf[:len(msg)]), i32(len(msg)))
+	fmt.printf("[md-lifecycle] hello_sent rid=h%d\n", state.rid_counter)
+}
+
+@(private = "file")
+web_send_ping :: proc(state: ^MD_Web_State) {
+	state.rid_counter += 1
+	ts := time.now()._nsec / 1_000_000
+	buf: [256]u8
+	msg, ok := md_common.build_ping_msg(buf[:], ts, state.rid_counter)
+	if !ok do return
+	ws_send(raw_data(buf[:len(msg)]), i32(len(msg)))
+	state.last_ping_sent_ms = ts
+}
+
+// Build auth header for WS handshake: JWT takes priority over API key.
+@(private = "file")
+web_build_auth_header :: proc(state: ^MD_Web_State, buf: []u8) -> int {
+	n := 0
+	if len(state.jwt_token) > 0 {
+		prefix :: "Authorization: Bearer "
+		for c in prefix { if n < len(buf) - 2 { buf[n] = u8(c); n += 1 } }
+		for c in state.jwt_token { if n < len(buf) - 2 { buf[n] = u8(c); n += 1 } }
+		buf[n] = '\r'; n += 1
+		buf[n] = '\n'; n += 1
+	} else if len(state.api_key) > 0 {
+		prefix :: "X-API-Key: "
+		for c in prefix { if n < len(buf) - 2 { buf[n] = u8(c); n += 1 } }
+		for c in state.api_key { if n < len(buf) - 2 { buf[n] = u8(c); n += 1 } }
+		buf[n] = '\r'; n += 1
+		buf[n] = '\n'; n += 1
+	}
+	return n
+}
+
+WEB_PING_INTERVAL_MS :: 20_000
+WEB_RESYNC_TIMEOUT_MS :: 5_000
+
+@(private = "file")
+web_send_resync :: proc(state: ^MD_Web_State, subject: string, last_seq: i64) -> bool {
+	// Prefer stored stream_id; fall back to subject.
+	stream_id := subject
+	sid := util.subject_id64(subject)
+	if si := find_web_sub_by_subject_id(state, sid); si >= 0 && state.active_subs[si].stream_id_len > 0 {
+		stream_id = string(state.active_subs[si].stream_id[:int(state.active_subs[si].stream_id_len)])
+	}
+	state.rid_counter += 1
+	buf: [512]u8
+	msg, ok := md_common.build_resync_msg(buf[:], stream_id, last_seq, state.rid_counter)
+	if !ok do return false
+	ws_send(raw_data(buf[:len(msg)]), i32(len(msg)))
+	state.resync_count += 1
+	fmt.printf("[md-lifecycle] resync_sent stream_id=%s last_seq=%d rid=rs%d\n", stream_id, last_seq, state.rid_counter)
+	return true
 }
 
 @(private = "file")
@@ -654,47 +885,57 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 		state.backoff_s = WEB_BACKOFF_INITIAL_S
 		state.reconnect_timer = state.backoff_s
 		state.was_connected = false
+		set_web_transport_state(state, .Backoff)
+		apply_web_fault(state, .ServerClosed)
 		state.connect_started_ms = 0
 		state.first_data_logged = false
 		fmt.println("[md-lifecycle] disconnect reason=transport_closed")
 	}
 
-	if !is_open && current_ws == 0 && state.active_count > 0 {
+	if !is_open && current_ws == 0 && state.active_count > 0 && !state.reconnect_blocked {
 		// Tick down reconnect timer using real elapsed poll time (works with idle-throttled RAF).
 		state.reconnect_timer -= poll_dt_s
 		if state.reconnect_timer <= 0 {
-			rc_hdr_buf: [128]u8
-			rc_hdr_len := 0
-			if len(state.api_key) > 0 {
-				rc_prefix :: "X-API-Key: "
-				for c in rc_prefix { rc_hdr_buf[rc_hdr_len] = u8(c); rc_hdr_len += 1 }
-				for c in state.api_key { if rc_hdr_len < len(rc_hdr_buf) - 2 { rc_hdr_buf[rc_hdr_len] = u8(c); rc_hdr_len += 1 } }
-				rc_hdr_buf[rc_hdr_len] = '\r'; rc_hdr_len += 1
-				rc_hdr_buf[rc_hdr_len] = '\n'; rc_hdr_len += 1
-			}
+			rc_hdr_buf: [256]u8
+			rc_hdr_len := web_build_auth_header(state, rc_hdr_buf[:])
 			url_raw := raw_data(transmute([]u8)state.ws_url)
 			state.reconnect_count += 1
-			fmt.printf("[md-lifecycle] reconnect_attempt count=%d url=%s\n", state.reconnect_count, state.ws_url)
+			fmt.printf("[md-lifecycle] reconnect_attempt count=%d url=%s\n", state.reconnect_count, web_log_safe_url(state.ws_url))
 			ws_connect(url_raw, i32(len(state.ws_url)), raw_data(rc_hdr_buf[:rc_hdr_len]), i32(rc_hdr_len))
 			state.backoff_s = min(state.backoff_s * WEB_BACKOFF_MULTIPLIER, WEB_BACKOFF_MAX_S)
-			state.reconnect_timer = state.backoff_s
+			jittered_ms := md_common.backoff_with_jitter(int(state.backoff_s * 1000), &state.jitter_seed)
+			state.reconnect_timer = f64(jittered_ms) / 1000.0
 		}
 	}
 
-	// If just connected, re-subscribe all active subs.
+	// If just connected, send HELLO and re-subscribe all active subs.
 	if is_open && !state.was_connected {
 		state.backoff_s = WEB_BACKOFF_INITIAL_S
+		state.allow_legacy_ws = read_allow_legacy_ws_web()
+		state.ws_error_category = .None
+		state.ws_error_action = .None
 		state.desync = false
 		state.desync_reason = .None
+		state.resync_pending_subject_id = 0
+		state.resync_sent_ms = 0
 		state.protocol_version = 0
 		state.hello_received = false
 		state.hello_valid = false
+		state.transport_mode = .Terminal_V1
+		set_web_transport_state(state, .Hello_Pending)
+		state.server_metrics_received = false
+		state.last_metrics_ts_ms = 0
+		state.last_pong_ts_ms = 0
 		state.connect_started_ms = time.now()._nsec / 1_000_000
 		state.first_data_logged = false
 		for i in 0 ..< state.active_count {
+			state.last_seq_by_sub[i] = 0
+			state.last_server_ts_by_sub[i] = 0
 			state.snapshot_logged_by_sub[i] = false
 		}
-		fmt.printf("[md-lifecycle] connect url=%s\n", state.ws_url)
+		fmt.printf("[md-lifecycle] connect url=%s\n", web_log_safe_url(state.ws_url))
+		// Terminal_V1: send HELLO immediately.
+		web_send_hello(state)
 		for i in 0 ..< state.active_count {
 			sub := state.active_subs[i]
 			if len(sub.subject) > 0 {
@@ -705,6 +946,30 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 	}
 	state.was_connected = is_open
 
+	// Hello timeout: if connected but no hello within WEB_HELLO_TIMEOUT_MS,
+	// downgrade to Legacy_JSON (server doesn't support Terminal_V1).
+	if is_open && !state.hello_received && state.connect_started_ms > 0 && state.transport_mode == .Terminal_V1 {
+		now_check := time.now()._nsec / 1_000_000
+		if now_check - state.connect_started_ms > WEB_HELLO_TIMEOUT_MS {
+			apply_web_fault(state, .Timeout)
+			if state.ws_error_action == .Stop {
+				fmt.println("[md-lifecycle] hello_timeout — downgrade blocked (ALLOW_LEGACY_WS=OFF)")
+				ws_close()
+				state.was_connected = false
+				return 0
+			}
+			fmt.println("[md-lifecycle] hello_timeout — downgrade to Legacy_JSON")
+		}
+	}
+
+	// MR protocol PING: send periodic ping for RTT measurement.
+	if is_open && state.hello_received && state.transport_mode == .Terminal_V1 {
+		now_ping := time.now()._nsec / 1_000_000
+		if state.last_ping_sent_ms == 0 || (now_ping - state.last_ping_sent_ms) > WEB_PING_INTERVAL_MS {
+			web_send_ping(state)
+		}
+	}
+
 	// Drain messages from JS queue with a frame budget to avoid parse spikes.
 	drain_start := time.tick_now()
 	drained_msgs := 0
@@ -712,12 +977,15 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 	hit_time_budget := false
 	for drained_msgs < state.parse_max_msgs_per_poll {
 		n := ws_poll_msg(raw_data(state.recv_buf[:]), i32(WEB_RECV_BUF_SIZE))
-		if n <= 0 do break
 		if n < 0 {
 			// Negative = truncation signal from JS bridge.
 			state.parse_error_count += 1
+			state.drop_payload_oversize += 1
+			state.drop_count += 1
+			apply_web_fault(state, .BackpressureDrop)
 			continue
 		}
+		if n == 0 do break
 		web_apply_parse_result(state, state.recv_buf[:n])
 		drained_msgs += 1
 		if state.parse_time_budget > 0 && time.tick_since(drain_start) >= state.parse_time_budget {
@@ -729,6 +997,67 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 		hit_msg_budget = true
 	}
 	web_perf_record_poll(state, drained_msgs, hit_msg_budget, hit_time_budget)
+	state.drop_ws_queue = int(ws_drop_count())
+
+	// Backend gap detectors.
+	now_gap := time.now()._nsec / 1_000_000
+	if state.hello_received && state.transport_mode == .Terminal_V1 {
+		if state.last_metrics_ts_ms > 0 && now_gap - state.last_metrics_ts_ms > WEB_METRICS_STALE_MS {
+			state.backend_gap_no_metrics += 1
+			state.last_metrics_ts_ms = now_gap
+		}
+		if state.last_ping_sent_ms > 0 && state.last_pong_ts_ms < state.last_ping_sent_ms &&
+			now_gap - state.last_ping_sent_ms > WEB_PONG_TIMEOUT_MS {
+			state.backend_gap_pong_timeout += 1
+			state.last_pong_ts_ms = now_gap
+		}
+	}
+	if state.drop_count > 0 && state.drop_count % WEB_FREQUENT_DROP_THRESHOLD == 0 {
+		state.backend_gap_frequent_drops += 1
+	}
+
+	// RESYNC timeout: if pending and expired, fall back to unsub+resub.
+	if state.resync_pending_subject_id != 0 && state.resync_sent_ms > 0 && is_open {
+		now_resync := time.now()._nsec / 1_000_000
+		if now_resync - state.resync_sent_ms > WEB_RESYNC_TIMEOUT_MS {
+			fmt.printf("[md-lifecycle] resync_timeout sid=%x — fallback to unsub+resub\n", state.resync_pending_subject_id)
+			state.backend_gap_resync_ack_timeout += 1
+			// Queue for legacy resub.
+			state.desync_resub_subject_id = state.resync_pending_subject_id
+			state.resync_pending_subject_id = 0
+			state.resync_sent_ms = 0
+		}
+	}
+
+	// Desync recovery: targeted re-subscribe for the desynced subject.
+	if state.desync_resub_subject_id != 0 && is_open {
+		resub_sid := state.desync_resub_subject_id
+		state.desync_resub_subject_id = 0
+		resub_subject := ""
+		resub_last_seq := i64(0)
+		if si := find_web_sub_by_subject_id(state, resub_sid); si >= 0 {
+			resub_subject = state.active_subs[si].subject
+			resub_last_seq = state.last_seq_by_sub[si]
+		}
+		if len(resub_subject) > 0 {
+			if state.transport_mode == .Terminal_V1 && state.resync_pending_subject_id == 0 {
+				// Send RESYNC and wait for snapshot response.
+				fmt.printf("[md-lifecycle] desync_recovery resync subject=%s last_seq=%d\n", resub_subject, resub_last_seq)
+				web_send_resync(state, resub_subject, resub_last_seq)
+				state.resync_pending_subject_id = resub_sid
+				state.resync_sent_ms = time.now()._nsec / 1_000_000
+			} else {
+				// Legacy mode or RESYNC already pending: unsub+resub.
+				fmt.printf("[md-lifecycle] desync_recovery resub subject=%s\n", resub_subject)
+				web_send_unsubscribe(state, resub_subject)
+				web_send_subscribe(state, resub_subject)
+				state.desync = false
+				state.desync_reason = .None
+				state.resync_pending_subject_id = 0
+				state.resync_sent_ms = 0
+			}
+		}
+	}
 
 	// Copy staging to events_buf (same as native_poll).
 	out := 0
@@ -957,11 +1286,15 @@ web_perf_record_poll :: proc(state: ^MD_Web_State, drained_msgs: int, hit_msg_bu
 
 @(private = "file")
 web_now_ms :: proc() -> i64 {
-	return time.now()._nsec / 1_000_000
+	return md_common.now_ms()
 }
 
 @(private = "file")
 web_conn_status :: proc() -> ports.MD_Conn_Status {
+	state := g_web_state
+	if state != nil && state.reconnect_blocked {
+		return .Offline
+	}
 	switch ws_state() {
 	case 2: return .Connected
 	case 1: return .Connecting
@@ -976,59 +1309,20 @@ web_conn_status :: proc() -> ports.MD_Conn_Status {
 // Single-threaded (WASM) so no mutex needed.
 
 @(private = "file")
-web_update_parse_rates :: proc(state: ^MD_Web_State, now_ms: i64, bytes: int) {
-	if state == nil do return
-	safe_bytes := bytes
-	if safe_bytes < 0 do safe_bytes = 0
-	state.parsed_msgs_total += 1
-	state.parsed_bytes_total += u64(safe_bytes)
-	state.rate_window_msgs += 1
-	state.rate_window_bytes += u64(safe_bytes)
-	if state.rate_window_start_ms <= 0 {
-		state.rate_window_start_ms = now_ms
-		return
-	}
-	elapsed_ms := now_ms - state.rate_window_start_ms
-	if elapsed_ms < 1 do return
-	if elapsed_ms >= 1000 {
-		secs := f64(elapsed_ms) / 1000.0
-		state.msg_rate = f64(state.rate_window_msgs) / secs
-		state.bytes_rate = f64(state.rate_window_bytes) / secs
-		state.rate_window_msgs = 0
-		state.rate_window_bytes = 0
-		state.rate_window_start_ms = now_ms
-	}
-}
-
-@(private = "file")
-web_parse_result_has_data :: proc(kind: services.Parse_Result_Kind) -> bool {
-	switch kind {
-	case .Trade, .Orderbook, .Stats, .Heatmap, .VPVR, .Candle, .Range_Candle:
-		return true
-	case .None, .Ack, .Hello, .Heartbeat, .Health, .Error:
-		return false
-	}
-	return false
-}
-
-@(private = "file")
-web_desync_reason_from_hello_reject :: proc(reject: services.Hello_Reject_Reason) -> ports.MD_Desync_Reason {
-	switch reject {
-	case .Unsupported_Proto_Version:
-		return .Protocol_Version
-	case .Missing_Proto_Version, .Missing_Server_Time, .Missing_Capabilities:
-		return .Protocol_Invalid
-	case .None:
-	}
-	return .Protocol_Invalid
-}
-
-@(private = "file")
 web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 	defer services.parse_arena_reset_message(&state.parse_arena)
+	parse_start_tick := time.tick_now()
 
 	telemetry: services.Parse_Telemetry
 	result := services.parse_mr_message_with_arena(&state.parse_arena, raw, &telemetry)
+	parse_end_tick := time.tick_now()
+	parse_us := i64(time.duration_microseconds(time.tick_diff(parse_start_tick, parse_end_tick)))
+	defer {
+		apply_end_tick := time.tick_now()
+		apply_us := i64(time.duration_microseconds(time.tick_diff(parse_end_tick, apply_end_tick)))
+		web_record_perf_sample(&state.parse_samples_us, &state.parse_sample_head, &state.parse_sample_count, parse_us)
+		web_record_perf_sample(&state.apply_samples_us, &state.apply_sample_head, &state.apply_sample_count, apply_us)
+	}
 	parsed_now_ms := time.now()._nsec / 1_000_000
 	should_log_snapshot := false
 	snapshot_subject := ""
@@ -1037,13 +1331,12 @@ web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 	should_log_first_data := false
 	first_data_delta_ms := i64(0)
 
-	web_update_parse_rates(state, parsed_now_ms, len(raw))
+	md_common.update_parse_rates(&state.rates, parsed_now_ms, len(raw))
 
 	if telemetry.parse_errors > 0 {
 		state.parse_error_count += telemetry.parse_errors
 		if state.parse_error_count <= 3 || state.parse_error_count % 50 == 0 {
-			preview_len := min(len(raw), 120)
-			fmt.printf("[ws] Parse error #%d: %s\n", state.parse_error_count, string(raw[:preview_len]))
+			fmt.printf("[ws] Parse error #%d (frame_len=%d)\n", state.parse_error_count, len(raw))
 		}
 	}
 
@@ -1054,28 +1347,65 @@ web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 			if parsed_now_ms >= result.meta.server_ts_ms {
 				state.last_lag_ms = parsed_now_ms - result.meta.server_ts_ms
 			}
+		} else if md_common.parse_result_has_data(result.kind) {
+			state.backend_gap_missing_ts_server += 1
 		}
-			if result.meta.subject_id != 0 && result.meta.seq > 0 {
-				if si := find_web_sub_by_subject_id(state, result.meta.subject_id); si >= 0 {
-					prev_seq := state.last_seq_by_sub[si]
-					if prev_seq > 0 && result.meta.seq > prev_seq + 1 {
-						state.desync = true
-						state.desync_reason = .Sequence_Gap
+		if result.meta.subject_id != 0 && result.meta.seq > 0 {
+			if si := find_web_sub_by_subject_id(state, result.meta.subject_id); si >= 0 {
+				prev_seq := state.last_seq_by_sub[si]
+				if prev_seq > 0 && (result.meta.seq > prev_seq + 1 || result.meta.seq < prev_seq) {
+					state.desync = true
+					state.desync_reason = .Sequence_Gap
+					state.seq_gap_count += 1
+					state.seq_gap_streak += 1
+					if state.seq_gap_streak >= 3 {
+						state.backend_gap_seq_gap_recurring += 1
+						state.seq_gap_streak = 0
 					}
-					state.last_seq_by_sub[si] = result.meta.seq
-					if result.meta.is_snapshot && !state.snapshot_logged_by_sub[si] {
-						state.snapshot_logged_by_sub[si] = true
+					set_web_transport_state(state, .Desync)
+					if state.desync_resub_subject_id == 0 {
+						state.desync_resub_subject_id = result.meta.subject_id
+					}
+				} else {
+					state.seq_gap_streak = 0
+				}
+				state.last_seq_by_sub[si] = result.meta.seq
+				if result.meta.server_ts_ms > 0 {
+					prev_server_ts := state.last_server_ts_by_sub[si]
+					if prev_server_ts > 0 && result.meta.server_ts_ms < prev_server_ts {
+						state.desync = true
+						state.desync_reason = .Protocol_Invalid
+						set_web_transport_state(state, .Desync)
+						if state.desync_resub_subject_id == 0 {
+							state.desync_resub_subject_id = result.meta.subject_id
+						}
+					}
+					state.last_server_ts_by_sub[si] = result.meta.server_ts_ms
+				}
+				if result.meta.is_snapshot && !state.snapshot_logged_by_sub[si] {
+					state.snapshot_logged_by_sub[si] = true
 					snapshot_subject = strings.clone(state.active_subs[si].subject)
 					snapshot_seq = result.meta.seq
 					snapshot_sid = result.meta.subject_id
 					should_log_snapshot = true
 				}
+				// RESYNC success: snapshot arrived for the pending resync subject.
+				if result.meta.is_snapshot && state.resync_pending_subject_id == result.meta.subject_id {
+					state.resync_pending_subject_id = 0
+					state.resync_sent_ms = 0
+					state.desync = false
+					state.desync_reason = .None
+					set_web_transport_state(state, .Running)
+				}
 			}
 		}
-		if web_parse_result_has_data(result.kind) && state.connect_started_ms > 0 && !state.first_data_logged {
+		if md_common.parse_result_has_data(result.kind) && state.connect_started_ms > 0 && !state.first_data_logged {
 			first_data_delta_ms = max(parsed_now_ms - state.connect_started_ms, 0)
 			state.first_data_logged = true
 			should_log_first_data = true
+			if state.desync_reason == .None && state.hello_received && state.hello_valid {
+				set_web_transport_state(state, .Running)
+			}
 		}
 	}
 	if should_log_snapshot {
@@ -1085,13 +1415,14 @@ web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 	if should_log_first_data {
 		fmt.printf("[md-lifecycle] first_data_after_connect_ms=%d kind=%v sid=%x\n", first_data_delta_ms, result.kind, result.meta.subject_id)
 	}
-	if web_parse_result_has_data(result.kind) {
+	if md_common.parse_result_has_data(result.kind) {
 		if !state.hello_received {
 			if state.desync_reason != .Missing_Hello {
 				fmt.printf("[md-lifecycle] desync reason=missing_hello kind=%v sid=%x\n", result.kind, result.meta.subject_id)
 			}
 			state.desync = true
 			state.desync_reason = .Missing_Hello
+			set_web_transport_state(state, .Desync)
 			return
 		}
 		if !state.hello_valid {
@@ -1103,15 +1434,36 @@ web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 	case .Ack:
 		ack := result.data.ack
 		state.subscribe_ack_count += 1
-		fmt.printf("[md-lifecycle] ack_recv op=%s subject=%s\n", ack.op, ack.subject)
+		// Store stream_id from ACK into the matching sub entry.
+		if len(ack.stream_id) > 0 && len(ack.subject) > 0 {
+			sid := util.subject_id64(ack.subject)
+			if si := find_web_sub_by_subject_id(state, sid); si >= 0 {
+				n := min(len(ack.stream_id), len(state.active_subs[si].stream_id))
+				for i in 0 ..< n { state.active_subs[si].stream_id[i] = ack.stream_id[i] }
+				state.active_subs[si].stream_id_len = u8(n)
+			}
+		}
+		if len(ack.stream_id) > 0 {
+			fmt.printf("[md-lifecycle] ack_recv op=%s subject=%s stream_id=%s\n", ack.op, ack.subject, ack.stream_id)
+		} else {
+			fmt.printf("[md-lifecycle] ack_recv op=%s subject=%s\n", ack.op, ack.subject)
+		}
 	case .Hello:
 		h := result.data.hello
 		state.hello_received = true
 		state.protocol_version = h.proto_ver
 		state.hello_valid = h.valid
+		state.transport_mode = .Terminal_V1
+		set_web_transport_state(state, .Hello_Pending)
+		// Store server_instance_id (truncate to fixed buffer).
+		sid := h.server_instance_id
+		sid_len := min(len(sid), len(state.server_instance_id))
+		for i in 0 ..< sid_len { state.server_instance_id[i] = sid[i] }
+		state.server_instance_id_len = u8(sid_len)
 		if !h.valid {
 			state.desync = true
-			state.desync_reason = web_desync_reason_from_hello_reject(h.reject)
+			state.desync_reason = md_common.desync_reason_from_hello_reject(h.reject)
+			set_web_transport_state(state, .Desync)
 			fmt.printf(
 				"[md-lifecycle] hello_rejected proto_ver=%d reject=%v topics=%d venues=%d symbols=%d\n",
 				h.proto_ver, h.reject, h.topic_count, h.venue_count, h.symbol_count,
@@ -1120,17 +1472,42 @@ web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 		}
 		state.desync = false
 		state.desync_reason = .None
+		set_web_transport_state(state, .Running)
 		fmt.printf(
-			"[md-lifecycle] hello_ok proto_ver=%d topics=%d venues=%d symbols=%d\n",
-			h.proto_ver, h.topic_count, h.venue_count, h.symbol_count,
+			"[md-lifecycle] hello_ok proto_ver=%d server_id=%s topics=%d venues=%d symbols=%d\n",
+			h.proto_ver, h.server_instance_id, h.topic_count, h.venue_count, h.symbol_count,
 		)
 	case .Heartbeat, .Health:
 		ctrl := result.data.control
 		if ctrl.rtt_ms > 0 do state.last_rtt_ms = ctrl.rtt_ms
 		if ctrl.dropped > 0 && ctrl.dropped > state.drop_count do state.drop_count = ctrl.dropped
+	case .Pong:
+		p := result.data.pong
+		state.pong_rtt_ms = p.rtt_ms
+		if p.rtt_ms > 0 do state.last_rtt_ms = p.rtt_ms
+		state.last_pong_ts_ms = parsed_now_ms
+	case .Metrics:
+		m := result.data.server_metrics
+		state.server_metrics = m
+		state.server_metrics_received = true
+		state.last_metrics_ts_ms = parsed_now_ms
 	case .Error:
-		preview_len := min(len(raw), 200)
-		fmt.printf("[ws] Error: %s\n", string(raw[:preview_len]))
+		ed := result.data.error_detail
+		if len(ed.code) > 0 {
+			fmt.printf("[ws] Error: code=%s msg=%s op=%s rid=%s\n",
+				ed.code, ed.message, ed.op, ed.request_id)
+			if strings.contains(ed.code, "AUTH") || strings.contains(ed.code, "UNAUTHORIZED") || strings.contains(ed.code, "TOKEN") {
+				apply_web_fault(state, .AuthDenied)
+			}
+			// Detect RESYNC_REQUIRED error → trigger desync.
+			if ed.code == "ERROR_CODE_RESYNC_REQUIRED" {
+				state.desync = true
+				state.desync_reason = .Resync_Required
+				set_web_transport_state(state, .Desync)
+			}
+		} else {
+			fmt.printf("[ws] Error frame without code (frame_len=%d)\n", len(raw))
+		}
 	case .Trade:
 		t := result.data.trade
 		if state.trade_count < WEB_TRADE_RING_CAP {
@@ -1146,6 +1523,8 @@ web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 			state.trade_count += 1
 		} else {
 			state.drop_count += 1
+			state.drop_trade_ring += 1
+			apply_web_fault(state, .BackpressureDrop)
 		}
 	case .Orderbook:
 		state.ob_staging = result.data.ob
@@ -1160,14 +1539,16 @@ web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 		state.vpvr_staging = result.data.vpvr
 		state.vpvr_dirty = true
 	case .Candle:
+		// Unified ring write: always write at write ptr, cap count at capacity.
+		if state.candle_ring_count >= WEB_CANDLE_RING_CAP {
+			state.drop_count += 1
+			state.drop_candle_ring += 1
+			apply_web_fault(state, .BackpressureDrop)
+		}
+		state.candle_ring[state.candle_ring_write] = result.data.candle
+		state.candle_ring_write = (state.candle_ring_write + 1) % WEB_CANDLE_RING_CAP
 		if state.candle_ring_count < WEB_CANDLE_RING_CAP {
-			state.candle_ring[state.candle_ring_write] = result.data.candle
-			state.candle_ring_write = (state.candle_ring_write + 1) % WEB_CANDLE_RING_CAP
 			state.candle_ring_count += 1
-		} else {
-			// Ring full — overwrite oldest (advance read pointer implicitly).
-			state.candle_ring[state.candle_ring_write] = result.data.candle
-			state.candle_ring_write = (state.candle_ring_write + 1) % WEB_CANDLE_RING_CAP
 		}
 	case .Range_Candle:
 		state.range_candle_staging = result.data.range_candles

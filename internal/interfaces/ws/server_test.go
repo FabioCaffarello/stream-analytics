@@ -2,6 +2,7 @@ package wsserver
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -113,5 +114,83 @@ func TestHandleWS_UpgradeSpawnsSessionWithValidAPIKey(t *testing.T) {
 	case <-spawned:
 	case <-time.After(time.Second):
 		t.Fatal("expected session spawner to be called")
+	}
+}
+
+func TestHandleIntrospection_ReturnsSnapshot(t *testing.T) {
+	srv := NewServer(nil, &actor.PID{}, nil, nil, 256)
+	req := httptest.NewRequest(http.MethodGet, "/introspection", nil)
+	rec := httptest.NewRecorder()
+	srv.HandleIntrospection(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d want=%d", rec.Code, http.StatusOK)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if _, ok := body["server_instance_id"]; !ok {
+		t.Fatalf("missing server_instance_id in %v", body)
+	}
+	if _, ok := body["ws"]; !ok {
+		t.Fatalf("missing ws introspection payload in %v", body)
+	}
+}
+
+func TestHandleWS_ConnectionLimitPerKey(t *testing.T) {
+	srv := NewServer(
+		nil,
+		&actor.PID{},
+		nil,
+		nil,
+		256,
+		WithAuthConfig(AuthConfig{
+			Enabled: true,
+			APIKeys: map[string]string{"k1": "client-a"},
+		}),
+		WithConnectionLimits(ConnectionLimits{
+			MaxConnectionsPerIP:  100,
+			MaxConnectionsPerKey: 1,
+			MaxSubsPerConnection: 64,
+			MaxSymbolsPerConn:    64,
+		}),
+		WithSessionSpawner(func(cfg deliveryruntime.SessionConfig) *actor.PID {
+			return &actor.PID{}
+		}),
+	)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", srv.HandleUpgrade)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("loopback listener unavailable in this environment: %v", err)
+		return
+	}
+	httpSrv := &http.Server{Handler: mux, ReadHeaderTimeout: 2 * time.Second}
+	go func() { _ = httpSrv.Serve(ln) }()
+	defer func() { _ = httpSrv.Shutdown(context.Background()) }()
+
+	header := http.Header{}
+	header.Set("X-API-Key", "k1")
+	conn1, resp1, err := websocket.DefaultDialer.Dial(wsURLFromHTTP("http://"+ln.Addr().String())+"/ws", header)
+	if err != nil {
+		t.Fatalf("first dial failed: %v", err)
+	}
+	defer func() { _ = conn1.Close() }()
+	if resp1 == nil || resp1.StatusCode != http.StatusSwitchingProtocols {
+		t.Fatalf("first status=%v want=%d", resp1.StatusCode, http.StatusSwitchingProtocols)
+	}
+
+	conn2, resp2, err := websocket.DefaultDialer.Dial(wsURLFromHTTP("http://"+ln.Addr().String())+"/ws", header)
+	if err == nil {
+		_ = conn2.Close()
+		t.Fatalf("expected second dial to fail due connection limit")
+	}
+	if resp2 == nil || resp2.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("second status=%v want=%d", func() int {
+			if resp2 == nil {
+				return 0
+			}
+			return resp2.StatusCode
+		}(), http.StatusTooManyRequests)
 	}
 }

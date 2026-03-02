@@ -3,14 +3,24 @@ package main
 // Native marketdata port — WebSocket client with background reader thread.
 // Ring buffer for trades, single-slot latest-wins for orderbook/stats/heatmap/vpvr.
 // Automatic reconnection with exponential backoff + re-subscribe on reconnect.
+//
+// Threading model:
+// - Background reader thread: writes to ring buffers + staging under mutex.
+// - Main thread: reads via poll() under same mutex.
+// - SPSC guarantee: exactly 1 producer (reader), exactly 1 consumer (main poll).
+// - dirty flags: set by writer, read+cleared by reader, both under mutex.
+// - ws_url / api_key: heap strings mutated by main thread (reconnect_transport),
+//   copied to stack buffers by reader thread (attempt_reconnect) under lock.
 
 import "core:fmt"
 import "core:net"
+import "core:os"
 import "core:strconv"
 import "core:strings"
 import "core:sync"
 import "core:thread"
 import "core:time"
+import "mr:md_common"
 import "mr:ports"
 import "mr:services"
 import "mr:util"
@@ -24,6 +34,12 @@ MAX_SUBS :: 128
 BACKOFF_INITIAL_MS :: 500
 BACKOFF_MAX_MS     :: 30_000
 BACKOFF_MULTIPLIER :: 2
+HELLO_TIMEOUT_MS   :: 10_000
+PING_INTERVAL_MS      :: 20_000
+PONG_TIMEOUT_MS       :: 15_000
+METRICS_STALE_MS      :: 20_000
+FREQUENT_DROP_THRESHOLD :: 16
+PERF_SAMPLE_CAP       :: 120
 
 // Default candle timeframe filter.
 CANDLE_TF_DEFAULT :: "1m"
@@ -38,11 +54,14 @@ Conn_State :: enum u8 {
 }
 
 Sub_Entry :: struct {
-	subject_id: u64,
-	venue:   string,
-	symbol:  string,
-	channel: ports.MD_Channel,
-	subject: string,
+	subject_id:     u64,
+	venue:          string,
+	symbol:         string,
+	channel:        ports.MD_Channel,
+	subject:        string,
+	stream_id:      [128]u8,
+	stream_id_len:  u8,
+	is_explicit_tf: bool,
 }
 
 MD_Native_State :: struct {
@@ -86,25 +105,58 @@ MD_Native_State :: struct {
 	conn_state:  Conn_State,
 	ws_url:      string,
 	api_key:     string,
+	jwt_token:   string,
 	should_stop: bool,
+	reconnect_blocked: bool,
+	// Terminal_V1 transport state.
+	transport_state: ports.MD_Transport_State,
+	transport_mode: util.Transport_Mode,
+	auth_mode:      u8, // 0=none, 1=apikey, 2=jwt
+	allow_legacy_ws: bool,
+	ws_error_category: ports.MD_WS_Error_Category,
+	ws_error_action:   ports.MD_WS_Error_Action,
+	server_instance_id: [32]u8,
+	server_instance_id_len: u8,
+	hello_timeout_count: int,
+	pong_rtt_ms: i64,
+	// Server-pushed metrics (from METRICS frame).
+	server_metrics: services.Parsed_Metrics,
+	server_metrics_received: bool,
 	reader_thread: ^thread.Thread,
 	mu:          sync.Mutex,
 	drop_count:  int,
+	drop_trade_ring: int,
+	drop_candle_ring: int,
+	drop_ws_queue: int,
+	drop_payload_oversize: int,
+	seq_gap_count: int,
+	resync_count: int,
+	seq_gap_streak: int,
+	last_metrics_ts_ms: i64,
+	last_pong_ts_ms: i64,
+	backend_gap_no_metrics: int,
+	backend_gap_pong_timeout: int,
+	backend_gap_resync_ack_timeout: int,
+	backend_gap_missing_ts_server: int,
+	backend_gap_seq_gap_recurring: int,
+	backend_gap_frequent_drops: int,
+	last_server_ts_by_sub: [MAX_SUBS]i64,
+	parse_samples_us: [PERF_SAMPLE_CAP]i64,
+	parse_sample_head: int,
+	parse_sample_count: int,
+	apply_samples_us: [PERF_SAMPLE_CAP]i64,
+	apply_sample_head: int,
+	apply_sample_count: int,
 
 	// Reconnection.
 	backoff_ms:      int,
 	reconnect_count: int, // cumulative reconnect attempts (monotonic)
 	reconnect_streak: int, // current consecutive reconnect attempts
+	jitter_seed:     u32,
 	parse_arena: services.Parse_Arena,
 	parse_error_count: int,
 	subscribe_ack_count: int,
-	parsed_msgs_total:   u64,
-	parsed_bytes_total:  u64,
-	msg_rate:            f64,
-	bytes_rate:          f64,
-	rate_window_msgs:    u64,
-	rate_window_bytes:   u64,
-	rate_window_start_ms: i64,
+	rates: md_common.Rate_State,
 	last_msg_ts_ms:     i64,
 	last_server_ts_ms:  i64,
 	last_rtt_ms:        i64,
@@ -116,12 +168,19 @@ MD_Native_State :: struct {
 	desync_reason:      ports.MD_Desync_Reason,
 	connect_started_ms: i64,
 	first_data_logged:  bool,
+	last_ping_sent_ms:  i64,
 
 	// Subscription tracking for reconnect re-subscribe.
 	active_subs:  [MAX_SUBS]Sub_Entry,
 	active_count: int,
 	last_seq_by_sub: [MAX_SUBS]i64,
 	snapshot_logged_by_sub: [MAX_SUBS]bool,
+
+	// Desync recovery: targeted re-subscribe for a single subject.
+	desync_resub_subject_id: u64, // 0 = none pending
+	// RESYNC tracking (Terminal_V1): pending resync for a subject.
+	resync_pending_subject_id: u64,  // 0 = none pending
+	resync_sent_ms: i64,             // timestamp when RESYNC was sent
 
 	// Request ID counter.
 	rid_counter: u32,
@@ -138,8 +197,153 @@ MD_Native_State :: struct {
 	poll_vpvr_sells:    [services.VPVR_STAGING_CAP]f64,
 }
 
+// File-private singleton: Odin procs are bare function pointers (no closures),
+// so Marketdata_Port callbacks access state through this global. Only one
+// instance exists per process; @(private="file") prevents external access.
 @(private = "file")
 g_md_state: ^MD_Native_State
+
+@(private = "file")
+read_allow_legacy_ws_native :: proc() -> bool {
+	raw := os.get_env("ALLOW_LEGACY_WS", context.temp_allocator)
+	return md_common.legacy_switch_from_text(raw)
+}
+
+@(private = "file")
+set_transport_state :: proc(state: ^MD_Native_State, next: ports.MD_Transport_State) {
+	if state == nil do return
+	state.transport_state = next
+}
+
+@(private = "file")
+record_perf_sample :: proc(samples: ^[PERF_SAMPLE_CAP]i64, head: ^int, count: ^int, v: i64) {
+	if samples == nil || head == nil || count == nil do return
+	samples[head^] = max(v, 0)
+	head^ = (head^ + 1) % PERF_SAMPLE_CAP
+	if count^ < PERF_SAMPLE_CAP do count^ += 1
+}
+
+@(private = "file")
+sample_p95_us :: proc(samples: [PERF_SAMPLE_CAP]i64, head: int, count: int) -> i64 {
+	n := count
+	if n <= 0 do return 0
+	if n > PERF_SAMPLE_CAP do n = PERF_SAMPLE_CAP
+	start := (head - n + PERF_SAMPLE_CAP) % PERF_SAMPLE_CAP
+	sorted: [PERF_SAMPLE_CAP]i64
+	for i in 0 ..< n {
+		sorted[i] = samples[(start + i) % PERF_SAMPLE_CAP]
+	}
+	for i in 1 ..< n {
+		key := sorted[i]
+		j := i - 1
+		for j >= 0 && sorted[j] > key {
+			sorted[j + 1] = sorted[j]
+			j -= 1
+		}
+		sorted[j + 1] = key
+	}
+	return sorted[min((n * 95) / 100, n - 1)]
+}
+
+@(private = "file")
+classify_ws_error :: proc(err: WS_Error) -> ports.MD_WS_Error_Category {
+	switch err {
+	case .Read_Conn_Closed:
+		return .ServerClosed
+	case .Payload_Too_Large:
+		return .BackpressureDrop
+	case .Handshake_Error, .Dial_Error:
+		return .HandshakeFailed
+	case .Failed_Header_Read, .Failed_Payload_Read_16, .Failed_Payload_Read_64, .Failed_Payload_Read, .Failed_Mask_Read:
+		return .Timeout
+	case .Invalid_Frame_Sequence, .Invalid_Control_Frame, .Invalid_Url, .Invalid_Port:
+		return .ProtocolError
+	case .Send_Error:
+		return .ServerClosed
+	case .None:
+	}
+	return .ProtocolError
+}
+
+@(private = "file")
+apply_ws_fault :: proc(state: ^MD_Native_State, category: ports.MD_WS_Error_Category) {
+	if state == nil do return
+	action := md_common.ws_fault_action(category, state.allow_legacy_ws)
+	state.ws_error_category = category
+	state.ws_error_action = action
+	switch action {
+	case .Retry:
+		// Keep reconnect path active.
+		set_transport_state(state, .Backoff)
+	case .Downgrade:
+		state.transport_mode = .Legacy_JSON
+		state.hello_timeout_count += 1
+		state.hello_received = true
+		state.hello_valid = true
+		state.desync = false
+		state.desync_reason = .None
+		set_transport_state(state, .Running)
+	case .Resync:
+		state.desync = true
+		if state.desync_reason == .None do state.desync_reason = .Sequence_Gap
+		set_transport_state(state, .Desync)
+	case .Stop:
+		state.desync = true
+		state.desync_reason = .Protocol_Invalid
+		state.reconnect_blocked = true
+		set_transport_state(state, .Desync)
+	case .None:
+	}
+}
+
+// --- Auth header helper ---
+// Builds "Authorization: Bearer <jwt>\r\n" or "X-API-Key: <key>\r\n" into buf.
+// Returns (header_string, auth_mode) where auth_mode: 0=none, 1=apikey, 2=jwt.
+@(private = "file")
+build_auth_header :: proc(buf: []u8, api_key: string, jwt_token: string) -> (string, u8) {
+	if len(jwt_token) > 0 {
+		return fmt.bprintf(buf[:], "Authorization: Bearer %s\r\n", jwt_token), 2
+	}
+	if len(api_key) > 0 {
+		return fmt.bprintf(buf[:], "X-API-Key: %s\r\n", api_key), 1
+	}
+	return "", 0
+}
+
+@(private = "file")
+log_safe_url :: proc(url: string) -> string {
+	if q := strings.index(url, "?"); q >= 0 {
+		return url[:q]
+	}
+	return url
+}
+
+// Send HELLO frame on initial connect (Terminal_V1 handshake).
+@(private = "file")
+send_hello :: proc(state: ^MD_Native_State) {
+	state.rid_counter += 1
+	buf: [256]u8
+	msg, ok := md_common.build_hello_msg(buf[:], state.rid_counter)
+	if !ok do return
+	err := ws_write_text(state.conn, msg)
+	if err == nil {
+		fmt.printf("[md-lifecycle] hello_sent rid=h%d\n", state.rid_counter)
+	}
+}
+
+// Send MR protocol PING with ts_client for RTT measurement.
+@(private = "file")
+send_ping :: proc(state: ^MD_Native_State) {
+	state.rid_counter += 1
+	ts := time.now()._nsec / 1_000_000
+	buf: [256]u8
+	msg, ok := md_common.build_ping_msg(buf[:], ts, state.rid_counter)
+	if !ok do return
+	err := ws_write_text(state.conn, msg)
+	if err == nil {
+		state.last_ping_sent_ms = ts
+	}
+}
 
 // --- Public API ---
 
@@ -151,14 +355,17 @@ make_marketdata_native :: proc(url: string, api_key: string = "") -> ports.Marke
 	state.ws_url = strings.clone(url)
 	state.api_key = strings.clone(api_key)
 	state.backoff_ms = BACKOFF_INITIAL_MS
+	state.jitter_seed = u32(time.now()._nsec & 0xFFFFFFFF)
 	state.candle_tf_filter = strings.clone(CANDLE_TF_DEFAULT)
+	state.transport_mode = .Terminal_V1  // Assume Terminal_V1 until hello timeout.
+	state.allow_legacy_ws = read_allow_legacy_ws_native()
+	set_transport_state(state, .Backoff)
 	g_md_state = state
 
-	// Build auth header string.
-	extra_hdr := ""
-	if len(api_key) > 0 {
-		extra_hdr = fmt.tprintf("X-API-Key: %s\r\n", api_key)
-	}
+	// Build auth header string (stack buffer — no temp allocator).
+	hdr_buf: [384]u8
+	extra_hdr, auth_mode := build_auth_header(hdr_buf[:], api_key, "")
+	state.auth_mode = auth_mode
 
 	// Attempt initial connection.
 	state.conn_state = .Connecting
@@ -166,9 +373,11 @@ make_marketdata_native :: proc(url: string, api_key: string = "") -> ports.Marke
 	if err != nil {
 		fmt.printf("[marketdata] WS connect failed (err=%v), will retry in background\n", err)
 		state.conn_state = .Disconnected
+		apply_ws_fault(state, classify_ws_error(err))
 	} else {
-		fmt.printf("[marketdata] Connected to %s\n", url)
-		fmt.printf("[md-lifecycle] connect url=%s\n", url)
+		safe_url := log_safe_url(url)
+		fmt.printf("[marketdata] Connected to %s\n", safe_url)
+		fmt.printf("[md-lifecycle] connect url=%s\n", safe_url)
 		state.conn = conn
 		state.conn_state = .Connected
 		state.backoff_ms = BACKOFF_INITIAL_MS
@@ -177,8 +386,13 @@ make_marketdata_native :: proc(url: string, api_key: string = "") -> ports.Marke
 		state.protocol_version = 0
 		state.hello_received = false
 		state.hello_valid = false
+		state.last_metrics_ts_ms = 0
+		state.last_pong_ts_ms = 0
 		state.connect_started_ms = time.now()._nsec / 1_000_000
 		state.first_data_logged = false
+		set_transport_state(state, .Hello_Pending)
+		// Terminal_V1: send HELLO immediately.
+		send_hello(state)
 	}
 
 	// Start background reader thread (handles reconnection).
@@ -211,45 +425,27 @@ make_marketdata_native :: proc(url: string, api_key: string = "") -> ports.Marke
 
 @(private = "file")
 find_sub_by_subject :: proc(state: ^MD_Native_State, subject: string) -> int {
-	for i in 0 ..< state.active_count {
-		if state.active_subs[i].subject == subject do return i
-	}
-	return -1
+	return md_common.find_sub_by_subject(state.active_subs[:state.active_count], subject)
 }
 
 @(private = "file")
 find_sub_by_key :: proc(state: ^MD_Native_State, venue: string, symbol: string, channel: ports.MD_Channel) -> int {
-	for i in 0 ..< state.active_count {
-		sub := state.active_subs[i]
-		if sub.channel == channel && sub.venue == venue && sub.symbol == symbol do return i
-	}
-	return -1
+	return md_common.find_sub_by_key(state.active_subs[:state.active_count], venue, symbol, channel)
 }
 
 @(private = "file")
 find_sub_by_subject_id :: proc(state: ^MD_Native_State, subject_id: u64) -> int {
-	for i in 0 ..< state.active_count {
-		if state.active_subs[i].subject_id == subject_id do return i
-	}
-	return -1
+	return md_common.find_sub_by_subject_id(state.active_subs[:state.active_count], subject_id)
 }
 
 @(private = "file")
 native_subject_for_channel :: proc(state: ^MD_Native_State, venue: string, symbol: string, channel: ports.MD_Channel) -> string {
-	tf := ""
-	if channel == .Heatmaps || channel == .VPVR || channel == .Candles {
-		tf = state.candle_tf_filter
-	}
-	return util.build_subject_with_timeframe(venue, symbol, channel, tf)
+	return md_common.subject_for_channel(venue, symbol, state.candle_tf_filter, channel)
 }
 
 @(private = "file")
 native_free_sub_entry :: proc(entry: ^Sub_Entry) {
-	if entry == nil do return
-	if len(entry.venue) > 0 do delete(entry.venue)
-	if len(entry.symbol) > 0 do delete(entry.symbol)
-	if len(entry.subject) > 0 do delete(entry.subject)
-	entry^ = {}
+	md_common.free_sub_entry(entry)
 }
 
 @(private = "file")
@@ -274,6 +470,7 @@ native_shutdown :: proc() {
 	for i in 0 ..< state.active_count {
 		native_free_sub_entry(&state.active_subs[i])
 		state.last_seq_by_sub[i] = 0
+		state.last_server_ts_by_sub[i] = 0
 	}
 	state.active_count = 0
 	if len(state.candle_tf_filter) > 0 {
@@ -287,6 +484,10 @@ native_shutdown :: proc() {
 	if len(state.api_key) > 0 {
 		delete(state.api_key)
 		state.api_key = ""
+	}
+	if len(state.jwt_token) > 0 {
+		delete(state.jwt_token)
+		state.jwt_token = ""
 	}
 	state.conn_state = .Disconnected
 	ws_close(&state.conn)
@@ -308,18 +509,21 @@ native_disconnect_transport :: proc() -> bool {
 	defer sync.unlock(&state.mu)
 	ws_close(&state.conn)
 	state.conn_state = .Disconnected
+	set_transport_state(state, .Backoff)
 	state.desync = false
 	state.desync_reason = .None
 	state.protocol_version = 0
 	state.hello_received = false
 	state.hello_valid = false
+	state.last_metrics_ts_ms = 0
+	state.last_pong_ts_ms = 0
 	state.connect_started_ms = 0
 	state.first_data_logged = false
 	return true
 }
 
 @(private = "file")
-native_reconnect_transport :: proc(ws_url: string, api_key: string) -> bool {
+native_reconnect_transport :: proc(ws_url: string, api_key: string, jwt_token: string = "") -> bool {
 	state := g_md_state
 	if state == nil do return false
 	sync.lock(&state.mu)
@@ -332,17 +536,38 @@ native_reconnect_transport :: proc(ws_url: string, api_key: string) -> bool {
 		if len(state.api_key) > 0 do delete(state.api_key)
 		state.api_key = strings.clone(api_key)
 	}
+	if jwt_token != state.jwt_token {
+		if len(state.jwt_token) > 0 do delete(state.jwt_token)
+		state.jwt_token = strings.clone(jwt_token)
+	}
+	// Derive auth mode from new credentials.
+	if len(jwt_token) > 0 {
+		state.auth_mode = 2
+	} else if len(api_key) > 0 {
+		state.auth_mode = 1
+	} else {
+		state.auth_mode = 0
+	}
 	ws_close(&state.conn)
 	state.conn_state = .Disconnected
 	state.backoff_ms = BACKOFF_INITIAL_MS
+	state.reconnect_blocked = false
+	state.allow_legacy_ws = read_allow_legacy_ws_native()
+	state.ws_error_category = .None
+	state.ws_error_action = .None
 	state.desync = false
 	state.desync_reason = .None
 	state.protocol_version = 0
 	state.hello_received = false
 	state.hello_valid = false
+	state.transport_mode = .Terminal_V1
+	set_transport_state(state, .Backoff)
+	state.last_metrics_ts_ms = 0
+	state.last_pong_ts_ms = 0
 	state.connect_started_ms = 0
 	state.first_data_logged = false
-	fmt.printf("[md-lifecycle] reconnect_requested url=%s\n", state.ws_url)
+	state.server_metrics_received = false
+	fmt.printf("[md-lifecycle] reconnect_requested url=%s\n", log_safe_url(state.ws_url))
 	return true
 }
 
@@ -352,6 +577,7 @@ native_subscribe :: proc(venue: string, symbol: string, channel: ports.MD_Channe
 	if state == nil do return false
 
 	subject := native_subject_for_channel(state, venue, symbol, channel)
+	if len(subject) == 0 do return false
 	subject_id := util.subject_id64(subject)
 
 	sync.lock(&state.mu)
@@ -376,6 +602,7 @@ native_subscribe :: proc(venue: string, symbol: string, channel: ports.MD_Channe
 		subject = subject,
 	}
 	state.last_seq_by_sub[state.active_count] = 0
+	state.last_server_ts_by_sub[state.active_count] = 0
 	state.snapshot_logged_by_sub[state.active_count] = false
 	state.active_count += 1
 
@@ -390,6 +617,7 @@ native_subscribe_tf :: proc(venue: string, symbol: string, channel: ports.MD_Cha
 	if state == nil do return false
 
 	subject := util.build_subject_with_timeframe(venue, symbol, channel, tf)
+	if len(subject) == 0 do return false
 	subject_id := util.subject_id64(subject)
 
 	sync.lock(&state.mu)
@@ -413,6 +641,7 @@ native_subscribe_tf :: proc(venue: string, symbol: string, channel: ports.MD_Cha
 		subject = subject,
 	}
 	state.last_seq_by_sub[state.active_count] = 0
+	state.last_server_ts_by_sub[state.active_count] = 0
 	state.snapshot_logged_by_sub[state.active_count] = false
 	state.active_count += 1
 
@@ -455,27 +684,62 @@ native_metrics :: proc(out: ^ports.MD_Runtime_Metrics) -> bool {
 	if state.heatmap_dirty do latest_pending += 1
 	if state.vpvr_dirty do latest_pending += 1
 	if state.candle_ring_count > 0 do latest_pending += 1
+	sm := state.server_metrics
 	out^ = ports.MD_Runtime_Metrics{
 		active_subs       = state.active_count,
 		trade_backlog     = state.trade_count,
 		candle_backlog    = state.candle_ring_count,
 		drop_count        = state.drop_count,
+		drop_trade_ring   = state.drop_trade_ring,
+		drop_candle_ring  = state.drop_candle_ring,
+		drop_ws_queue     = state.drop_ws_queue,
+		drop_payload_oversize = state.drop_payload_oversize,
 		reconnect_count   = state.reconnect_count,
 		latest_pending    = latest_pending,
 		parse_error_count = state.parse_error_count,
 		subscribe_ack_count = state.subscribe_ack_count,
-		parsed_msgs_total = state.parsed_msgs_total,
-		parsed_bytes_total = state.parsed_bytes_total,
+		seq_gap_count     = state.seq_gap_count,
+		resync_count      = state.resync_count,
+		parsed_msgs_total = state.rates.parsed_msgs_total,
+		parsed_bytes_total = state.rates.parsed_bytes_total,
 		parse_arena_resets = state.parse_arena.message_resets,
-		msg_rate          = state.msg_rate,
-		bytes_rate        = state.bytes_rate,
+		alloc_estimate_total = state.parse_arena.message_resets,
+		msg_rate          = state.rates.msg_rate,
+		bytes_rate        = state.rates.bytes_rate,
 		last_msg_ts_ms   = state.last_msg_ts_ms,
+		last_server_ts_ms = state.last_server_ts_ms,
 		rtt_ms           = state.last_rtt_ms,
 		lag_ms           = state.last_lag_ms,
+		parse_time_p95_us = sample_p95_us(state.parse_samples_us, state.parse_sample_head, state.parse_sample_count),
+		apply_time_p95_us = sample_p95_us(state.apply_samples_us, state.apply_sample_head, state.apply_sample_count),
 		protocol_version = state.protocol_version,
 		hello_received   = state.hello_received,
 		desync           = state.desync,
 		desync_reason    = state.desync_reason,
+		transport_state  = state.transport_state,
+		ws_error_category = state.ws_error_category,
+		ws_error_action   = state.ws_error_action,
+		backend_gap_no_metrics = state.backend_gap_no_metrics,
+		backend_gap_pong_timeout = state.backend_gap_pong_timeout,
+		backend_gap_resync_ack_timeout = state.backend_gap_resync_ack_timeout,
+		backend_gap_missing_ts_server = state.backend_gap_missing_ts_server,
+		backend_gap_seq_gap_recurring = state.backend_gap_seq_gap_recurring,
+		backend_gap_frequent_drops = state.backend_gap_frequent_drops,
+		// Terminal_V1 transport fields.
+		transport_mode          = u8(state.transport_mode),
+		server_instance_id      = state.server_instance_id,
+		server_instance_id_len  = state.server_instance_id_len,
+		server_instance_id_hash = util.subject_id64(string(state.server_instance_id[:int(state.server_instance_id_len)])),
+		auth_mode               = state.auth_mode,
+		hello_timeout_count     = state.hello_timeout_count,
+		pong_rtt_ms             = state.pong_rtt_ms,
+		// Server-pushed metrics.
+		server_ws_dropped       = sm.ws_dropped_total,
+		server_ws_queue_len     = sm.ws_queue_len,
+		server_ws_lag_ms        = sm.ws_lag_ms,
+		server_serialize_errors = sm.serialize_errors_total,
+		server_resync_total     = sm.resync_total,
+		server_pub_deliver_ms   = sm.publish_to_deliver_latency_ms,
 	}
 	sync.unlock(&state.mu)
 	return true
@@ -495,6 +759,7 @@ native_unsubscribe :: proc(venue: string, symbol: string, channel: ports.MD_Chan
 		subject = strings.clone(state.active_subs[idx].subject)
 	} else {
 		subject = native_subject_for_channel(state, venue, symbol, channel)
+		if len(subject) == 0 do return
 	}
 	defer delete(subject)
 
@@ -505,10 +770,12 @@ native_unsubscribe :: proc(venue: string, symbol: string, channel: ports.MD_Chan
 		if idx != last {
 			state.active_subs[idx] = state.active_subs[last]
 			state.last_seq_by_sub[idx] = state.last_seq_by_sub[last]
+			state.last_server_ts_by_sub[idx] = state.last_server_ts_by_sub[last]
 			state.snapshot_logged_by_sub[idx] = state.snapshot_logged_by_sub[last]
 		}
 		state.active_subs[last] = {}
 		state.last_seq_by_sub[last] = 0
+		state.last_server_ts_by_sub[last] = 0
 		state.snapshot_logged_by_sub[last] = false
 		state.active_count -= 1
 	}
@@ -520,20 +787,25 @@ native_unsubscribe :: proc(venue: string, symbol: string, channel: ports.MD_Chan
 @(private = "file")
 send_unsubscribe :: proc(state: ^MD_Native_State, subject: string) -> bool {
 	state.rid_counter += 1
-	unsub_buf: [256]u8
-	un := 0
-	unsub_prefix :: `{"op":"unsubscribe","subject":"`
-	for c in unsub_prefix { unsub_buf[un] = u8(c); un += 1 }
-	for c in subject { unsub_buf[un] = u8(c); un += 1 }
-	unsub_mid :: `","request_id":"r`
-	for c in unsub_mid { unsub_buf[un] = u8(c); un += 1 }
-	unsub_rid := fmt.tprintf("%d", state.rid_counter)
-	for c in unsub_rid { unsub_buf[un] = u8(c); un += 1 }
-	unsub_suffix :: `"}`
-	for c in unsub_suffix { unsub_buf[un] = u8(c); un += 1 }
-	err := ws_write_text(state.conn, string(unsub_buf[:un]))
+	buf: [512]u8
+	msg: string
+	ok: bool
+	// In Terminal_V1: prefer stream_id from ACK when available.
+	if state.transport_mode == .Terminal_V1 {
+		sid := util.subject_id64(subject)
+		if si := find_sub_by_subject_id(state, sid); si >= 0 && state.active_subs[si].stream_id_len > 0 {
+			stored_sid := string(state.active_subs[si].stream_id[:int(state.active_subs[si].stream_id_len)])
+			msg, ok = md_common.build_unsubscribe_msg_v2(buf[:], stored_sid, state.rid_counter)
+		}
+	}
+	if !ok {
+		msg, ok = md_common.build_unsubscribe_msg(buf[:], subject, state.rid_counter)
+	}
+	if !ok do return false
+	err := ws_write_text(state.conn, string(msg))
 	if err == nil {
-		fmt.printf("[md-lifecycle] unsubscribe_sent subject=%s rid=r%s\n", subject, unsub_rid)
+		rid_buf: [16]u8
+		fmt.printf("[md-lifecycle] unsubscribe_sent subject=%s rid=r%s\n", subject, fmt.bprintf(rid_buf[:], "%d", state.rid_counter))
 	}
 	return err == nil
 }
@@ -541,22 +813,42 @@ send_unsubscribe :: proc(state: ^MD_Native_State, subject: string) -> bool {
 @(private = "file")
 send_subscribe :: proc(state: ^MD_Native_State, subject: string) -> bool {
 	state.rid_counter += 1
-	buf: [256]u8
-	n := 0
-	prefix :: `{"op":"subscribe","subject":"`
-	for c in prefix { buf[n] = u8(c); n += 1 }
-	for c in subject { buf[n] = u8(c); n += 1 }
-	mid :: `","request_id":"r`
-	for c in mid { buf[n] = u8(c); n += 1 }
-	rid_str := fmt.tprintf("%d", state.rid_counter)
-	for c in rid_str { buf[n] = u8(c); n += 1 }
-	suffix :: `"}`
-	for c in suffix { buf[n] = u8(c); n += 1 }
-
-	msg := string(buf[:n])
+	buf: [768]u8
+	msg: string
+	ok: bool
+	if state.transport_mode == .Terminal_V1 {
+		venue, symbol, channel, aggregation := md_common.parse_subject_components(subject)
+		msg, ok = md_common.build_subscribe_msg_v2(buf[:], subject, venue, symbol, channel, aggregation, state.rid_counter)
+	} else {
+		msg, ok = md_common.build_subscribe_msg(buf[:], subject, state.rid_counter)
+	}
+	if !ok do return false
 	err := ws_write_text(state.conn, msg)
 	if err == nil {
-		fmt.printf("[md-lifecycle] subscribe_sent subject=%s rid=r%s\n", subject, rid_str)
+		rid_buf: [16]u8
+		fmt.printf("[md-lifecycle] subscribe_sent subject=%s rid=r%s\n", subject, fmt.bprintf(rid_buf[:], "%d", state.rid_counter))
+	}
+	return err == nil
+}
+
+RESYNC_TIMEOUT_MS :: 5_000
+
+@(private = "file")
+send_resync :: proc(state: ^MD_Native_State, subject: string, last_seq: i64) -> bool {
+	// Prefer stored stream_id; fall back to subject.
+	stream_id := subject
+	sid := util.subject_id64(subject)
+	if si := find_sub_by_subject_id(state, sid); si >= 0 && state.active_subs[si].stream_id_len > 0 {
+		stream_id = string(state.active_subs[si].stream_id[:int(state.active_subs[si].stream_id_len)])
+	}
+	state.rid_counter += 1
+	buf: [512]u8
+	msg, ok := md_common.build_resync_msg(buf[:], stream_id, last_seq, state.rid_counter)
+	if !ok do return false
+	err := ws_write_text(state.conn, msg)
+	if err == nil {
+		state.resync_count += 1
+		fmt.printf("[md-lifecycle] resync_sent stream_id=%s last_seq=%d\n", stream_id, last_seq)
 	}
 	return err == nil
 }
@@ -782,7 +1074,7 @@ native_poll :: proc(events_buf: []ports.MD_Event) -> int {
 
 @(private = "file")
 native_now_ms :: proc() -> i64 {
-	return time.now()._nsec / 1_000_000
+	return md_common.now_ms()
 }
 
 @(private = "file")
@@ -792,7 +1084,9 @@ native_conn_status :: proc() -> ports.MD_Conn_Status {
 
 	sync.lock(&state.mu)
 	cs := state.conn_state
+	blocked := state.reconnect_blocked
 	sync.unlock(&state.mu)
+	if blocked do return .Offline
 
 	switch cs {
 	case .Connected:    return .Connected
@@ -821,8 +1115,97 @@ reader_thread_proc :: proc(t: ^thread.Thread) {
 			continue
 		}
 
+		// Hello timeout: deterministic action from ws_fault_action().
+		{
+			sync.lock(&state.mu)
+			hello_ok := state.hello_received
+			started := state.connect_started_ms
+			mode := state.transport_mode
+			allow_legacy_ws := state.allow_legacy_ws
+			sync.unlock(&state.mu)
+
+			if !hello_ok && started > 0 && mode == .Terminal_V1 {
+				now := time.now()._nsec / 1_000_000
+				if now - started > HELLO_TIMEOUT_MS {
+					sync.lock(&state.mu)
+					apply_ws_fault(state, .Timeout)
+					if state.ws_error_action == .Stop {
+						state.conn_state = .Disconnected
+						state.backoff_ms = BACKOFF_INITIAL_MS
+						state.hello_received = false
+						state.hello_valid = false
+						state.desync = true
+						state.desync_reason = .Protocol_Version
+					}
+					sync.unlock(&state.mu)
+					if allow_legacy_ws {
+						fmt.println("[md-lifecycle] hello_timeout — downgrade to Legacy_JSON")
+					} else {
+						fmt.println("[md-lifecycle] hello_timeout — downgrade blocked (ALLOW_LEGACY_WS=OFF)")
+						ws_close(&state.conn)
+						continue
+					}
+				}
+			}
+		}
+
+		// MR protocol PING: send periodic ping with ts_client for RTT measurement.
+		// In Terminal_V1 mode, uses MR PING. In Legacy_JSON, falls back to WS-level ping.
+		{
+			sync.lock(&state.mu)
+			hello_ok := state.hello_received
+			mode := state.transport_mode
+			sync.unlock(&state.mu)
+
+			if hello_ok {
+				now := time.now()._nsec / 1_000_000
+				if state.last_ping_sent_ms == 0 || (now - state.last_ping_sent_ms) > PING_INTERVAL_MS {
+					if mode == .Terminal_V1 {
+						sync.lock(&state.mu)
+						send_ping(state)
+						sync.unlock(&state.mu)
+					} else {
+						ping_err := ws_write_ping(state.conn)
+						if ping_err != nil {
+							fmt.printf("[md-lifecycle] ping_failed err=%v\n", ping_err)
+							sync.lock(&state.mu)
+							state.conn_state = .Disconnected
+							state.backoff_ms = BACKOFF_INITIAL_MS
+							apply_ws_fault(state, .ServerClosed)
+							sync.unlock(&state.mu)
+							ws_close(&state.conn)
+							continue
+						}
+						state.last_ping_sent_ms = now
+					}
+				}
+			}
+		}
+
+		// Backend gap detectors.
+		{
+			now := time.now()._nsec / 1_000_000
+			sync.lock(&state.mu)
+			if state.hello_received && state.transport_mode == .Terminal_V1 {
+				if state.last_metrics_ts_ms > 0 && now - state.last_metrics_ts_ms > METRICS_STALE_MS {
+					state.backend_gap_no_metrics += 1
+					state.last_metrics_ts_ms = now
+				}
+				if state.last_ping_sent_ms > 0 && state.last_pong_ts_ms < state.last_ping_sent_ms &&
+					now - state.last_ping_sent_ms > PONG_TIMEOUT_MS {
+					state.backend_gap_pong_timeout += 1
+					state.last_pong_ts_ms = now
+				}
+			}
+			if state.drop_count > 0 && state.drop_count % FREQUENT_DROP_THRESHOLD == 0 {
+				state.backend_gap_frequent_drops += 1
+			}
+			sync.unlock(&state.mu)
+		}
+
 		opcode, payload, err := ws_read_message(&state.conn)
 		if err != nil {
+			category := classify_ws_error(err)
 			stop_now := native_should_stop(state)
 			if !stop_now {
 				if err == .Read_Conn_Closed {
@@ -838,12 +1221,22 @@ reader_thread_proc :: proc(t: ^thread.Thread) {
 			}
 			state.conn_state = .Disconnected
 			state.backoff_ms = BACKOFF_INITIAL_MS
+			apply_ws_fault(state, category)
+			if category == .BackpressureDrop {
+				state.drop_payload_oversize += 1
+				state.drop_count += 1
+			}
 			state.desync_reason = .None
 			state.protocol_version = 0
 			state.hello_received = false
 			state.hello_valid = false
+			state.last_metrics_ts_ms = 0
+			state.last_pong_ts_ms = 0
 			state.connect_started_ms = 0
 			state.first_data_logged = false
+			if state.ws_error_action == .Stop {
+				state.reconnect_blocked = true
+			}
 			sync.unlock(&state.mu)
 			fmt.printf("[md-lifecycle] disconnect reason=%v\n", err)
 			ws_close(&state.conn)
@@ -853,45 +1246,131 @@ reader_thread_proc :: proc(t: ^thread.Thread) {
 		if opcode != 0x1 do continue // Only handle text frames.
 
 		apply_parse_result(state, payload)
+
+		// Desync recovery: send RESYNC in Terminal_V1, fallback to unsub+resub.
+		sync.lock(&state.mu)
+		resub_sid := state.desync_resub_subject_id
+		resub_subject := ""
+		resub_last_seq := i64(0)
+		transport := state.transport_mode
+		resync_pending := state.resync_pending_subject_id
+		resync_ts := state.resync_sent_ms
+		if resub_sid != 0 {
+			if si := find_sub_by_subject_id(state, resub_sid); si >= 0 {
+				resub_subject = state.active_subs[si].subject
+				resub_last_seq = state.last_seq_by_sub[si]
+			}
+			state.desync_resub_subject_id = 0
+		}
+		sync.unlock(&state.mu)
+
+		// Check RESYNC timeout: if pending and expired, fall back to unsub+resub.
+		if resync_pending != 0 && resync_ts > 0 {
+			now_resync := time.now()._nsec / 1_000_000
+			if now_resync - resync_ts > RESYNC_TIMEOUT_MS {
+				fmt.printf("[md-lifecycle] resync_timeout sid=%x — fallback to unsub+resub\n", resync_pending)
+				sync.lock(&state.mu)
+				state.backend_gap_resync_ack_timeout += 1
+				state.resync_pending_subject_id = 0
+				state.resync_sent_ms = 0
+				// Queue the subject for legacy resub.
+				state.desync_resub_subject_id = resync_pending
+				sync.unlock(&state.mu)
+			}
+		}
+
+		if len(resub_subject) > 0 {
+			sync.lock(&state.mu)
+			is_connected := state.conn_state == .Connected
+			sync.unlock(&state.mu)
+			if is_connected {
+				if transport == .Terminal_V1 && resync_pending == 0 {
+					// Send RESYNC and wait for snapshot response.
+					fmt.printf("[md-lifecycle] desync_recovery resync subject=%s last_seq=%d\n", resub_subject, resub_last_seq)
+					sync.lock(&state.mu)
+					send_resync(state, resub_subject, resub_last_seq)
+					state.resync_pending_subject_id = resub_sid
+					state.resync_sent_ms = time.now()._nsec / 1_000_000
+					sync.unlock(&state.mu)
+				} else {
+					// Legacy mode or RESYNC already pending: fall back to unsub+resub.
+					fmt.printf("[md-lifecycle] desync_recovery resub subject=%s\n", resub_subject)
+					sync.lock(&state.mu)
+					send_unsubscribe(state, resub_subject)
+					send_subscribe(state, resub_subject)
+					state.desync = false
+					state.desync_reason = .None
+					state.resync_pending_subject_id = 0
+					state.resync_sent_ms = 0
+					sync.unlock(&state.mu)
+				}
+			}
+		}
 	}
 }
 
 @(private = "file")
 attempt_reconnect :: proc(state: ^MD_Native_State) {
+	// Copy URL, API key, and JWT to stack buffers under lock to avoid data races
+	// (main thread may call reconnect_transport concurrently).
+	url_stack: [256]u8
+	url_stack_len := 0
+	key_stack: [128]u8
+	key_stack_len := 0
+	jwt_stack: [256]u8
+	jwt_stack_len := 0
+
 	sync.lock(&state.mu)
+	if state.reconnect_blocked {
+		sync.unlock(&state.mu)
+		time.sleep(1 * time.Second)
+		return
+	}
 	state.conn_state = .Backoff_Wait
+	set_transport_state(state, .Backoff)
 	backoff := state.backoff_ms
 	state.reconnect_count += 1
 	state.reconnect_streak += 1
 	count := state.reconnect_streak
+	url_stack_len = min(len(state.ws_url), len(url_stack))
+	for i in 0 ..< url_stack_len { url_stack[i] = state.ws_url[i] }
+	key_stack_len = min(len(state.api_key), len(key_stack))
+	for i in 0 ..< key_stack_len { key_stack[i] = state.api_key[i] }
+	jwt_stack_len = min(len(state.jwt_token), len(jwt_stack))
+	for i in 0 ..< jwt_stack_len { jwt_stack[i] = state.jwt_token[i] }
 	sync.unlock(&state.mu)
 
-	fmt.printf("[marketdata] Reconnecting in %dms (attempt %d)\n", backoff, count)
-	time.sleep(time.Duration(backoff) * time.Millisecond)
+	local_url := string(url_stack[:url_stack_len])
+	local_key := string(key_stack[:key_stack_len])
+	local_jwt := string(jwt_stack[:jwt_stack_len])
+
+	jittered := md_common.backoff_with_jitter(backoff, &state.jitter_seed)
+	fmt.printf("[marketdata] Reconnecting in %dms (attempt %d)\n", jittered, count)
+	time.sleep(time.Duration(jittered) * time.Millisecond)
 
 	if native_should_stop(state) do return
 
-	extra_hdr := ""
-	if len(state.api_key) > 0 {
-		extra_hdr = fmt.tprintf("X-API-Key: %s\r\n", state.api_key)
-	}
+	hdr_buf: [384]u8
+	extra_hdr, _ := build_auth_header(hdr_buf[:], local_key, local_jwt)
 
 	sync.lock(&state.mu)
 	state.conn_state = .Connecting
 	sync.unlock(&state.mu)
 
-	conn, err := ws_dial(state.ws_url, extra_hdr)
+	conn, err := ws_dial(local_url, extra_hdr)
 	if err != nil {
 		fmt.printf("[marketdata] Reconnect failed (err=%v)\n", err)
 		sync.lock(&state.mu)
 		state.conn_state = .Disconnected
 		state.backoff_ms = min(backoff * BACKOFF_MULTIPLIER, BACKOFF_MAX_MS)
+		apply_ws_fault(state, classify_ws_error(err))
 		sync.unlock(&state.mu)
 		return
 	}
 
-	fmt.printf("[marketdata] Reconnected to %s\n", state.ws_url)
-	fmt.printf("[md-lifecycle] connect url=%s\n", state.ws_url)
+	safe_url := log_safe_url(local_url)
+	fmt.printf("[marketdata] Reconnected to %s\n", safe_url)
+	fmt.printf("[md-lifecycle] connect url=%s\n", safe_url)
 	sync.lock(&state.mu)
 	state.conn = conn
 	state.conn_state = .Connected
@@ -902,11 +1381,23 @@ attempt_reconnect :: proc(state: ^MD_Native_State) {
 	state.protocol_version = 0
 	state.hello_received = false
 	state.hello_valid = false
+	state.transport_mode = .Terminal_V1 // Assume Terminal_V1 until hello timeout.
+	state.allow_legacy_ws = read_allow_legacy_ws_native()
+	state.ws_error_category = .None
+	state.ws_error_action = .None
+	state.server_metrics_received = false
+	state.last_metrics_ts_ms = 0
+	state.last_pong_ts_ms = 0
 	state.connect_started_ms = time.now()._nsec / 1_000_000
 	state.first_data_logged = false
+	set_transport_state(state, .Hello_Pending)
 	for i in 0 ..< state.active_count {
+		state.last_seq_by_sub[i] = 0
+		state.last_server_ts_by_sub[i] = 0
 		state.snapshot_logged_by_sub[i] = false
 	}
+	// Terminal_V1: send HELLO immediately on reconnect.
+	send_hello(state)
 
 	// Snapshot active subscriptions before re-subscribing to avoid races with
 	// concurrent subscribe/unsubscribe while we iterate.
@@ -935,60 +1426,25 @@ attempt_reconnect :: proc(state: ^MD_Native_State) {
 // Delegates to shared services.parse_mr_message, then writes results to staging
 // under mutex protection (background thread → main thread handoff).
 
-@(private = "file")
-native_update_parse_rates :: proc(state: ^MD_Native_State, now_ms: i64, bytes: int) {
-	if state == nil do return
-	safe_bytes := bytes
-	if safe_bytes < 0 do safe_bytes = 0
-	state.parsed_msgs_total += 1
-	state.parsed_bytes_total += u64(safe_bytes)
-	state.rate_window_msgs += 1
-	state.rate_window_bytes += u64(safe_bytes)
-	if state.rate_window_start_ms <= 0 {
-		state.rate_window_start_ms = now_ms
-		return
-	}
-	elapsed_ms := now_ms - state.rate_window_start_ms
-	if elapsed_ms < 1 do return
-	if elapsed_ms >= 1000 {
-		secs := f64(elapsed_ms) / 1000.0
-		state.msg_rate = f64(state.rate_window_msgs) / secs
-		state.bytes_rate = f64(state.rate_window_bytes) / secs
-		state.rate_window_msgs = 0
-		state.rate_window_bytes = 0
-		state.rate_window_start_ms = now_ms
-	}
-}
 
-@(private = "file")
-native_parse_result_has_data :: proc(kind: services.Parse_Result_Kind) -> bool {
-	switch kind {
-	case .Trade, .Orderbook, .Stats, .Heatmap, .VPVR, .Candle, .Range_Candle:
-		return true
-	case .None, .Ack, .Hello, .Heartbeat, .Health, .Error:
-		return false
-	}
-	return false
-}
-
-@(private = "file")
-native_desync_reason_from_hello_reject :: proc(reject: services.Hello_Reject_Reason) -> ports.MD_Desync_Reason {
-	switch reject {
-	case .Unsupported_Proto_Version:
-		return .Protocol_Version
-	case .Missing_Proto_Version, .Missing_Server_Time, .Missing_Capabilities:
-		return .Protocol_Invalid
-	case .None:
-	}
-	return .Protocol_Invalid
-}
 
 @(private = "file")
 apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 	defer services.parse_arena_reset_message(&state.parse_arena)
+	parse_start_tick := time.tick_now()
 
 	telemetry: services.Parse_Telemetry
 	result := services.parse_mr_message_with_arena(&state.parse_arena, raw, &telemetry)
+	parse_end_tick := time.tick_now()
+	parse_us := i64(time.duration_microseconds(time.tick_diff(parse_start_tick, parse_end_tick)))
+	defer {
+		apply_end_tick := time.tick_now()
+		apply_us := i64(time.duration_microseconds(time.tick_diff(parse_end_tick, apply_end_tick)))
+		sync.lock(&state.mu)
+		record_perf_sample(&state.parse_samples_us, &state.parse_sample_head, &state.parse_sample_count, parse_us)
+		record_perf_sample(&state.apply_samples_us, &state.apply_sample_head, &state.apply_sample_count, apply_us)
+		sync.unlock(&state.mu)
+	}
 	parsed_now_ms := time.now()._nsec / 1_000_000
 	snapshot_subject := ""
 	should_log_snapshot := false
@@ -998,7 +1454,7 @@ apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 	first_data_delta_ms := i64(0)
 
 	sync.lock(&state.mu)
-	native_update_parse_rates(state, parsed_now_ms, len(raw))
+	md_common.update_parse_rates(&state.rates, parsed_now_ms, len(raw))
 	sync.unlock(&state.mu)
 
 	// Accumulate telemetry under lock.
@@ -1008,8 +1464,7 @@ apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 		ec := state.parse_error_count
 		sync.unlock(&state.mu)
 		if ec <= 3 || ec % 50 == 0 {
-			preview_len := min(len(raw), 120)
-			fmt.printf("[marketdata] Parse error #%d: %s\n", ec, string(raw[:preview_len]))
+			fmt.printf("[marketdata] Parse error #%d (frame_len=%d)\n", ec, len(raw))
 		}
 	}
 
@@ -1021,15 +1476,41 @@ apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 			if parsed_now_ms >= result.meta.server_ts_ms {
 				state.last_lag_ms = parsed_now_ms - result.meta.server_ts_ms
 			}
+		} else if md_common.parse_result_has_data(result.kind) {
+			state.backend_gap_missing_ts_server += 1
 		}
 		if result.meta.subject_id != 0 && result.meta.seq > 0 {
-				if si := find_sub_by_subject_id(state, result.meta.subject_id); si >= 0 {
-					prev_seq := state.last_seq_by_sub[si]
-					if prev_seq > 0 && result.meta.seq > prev_seq + 1 {
-						state.desync = true
-						state.desync_reason = .Sequence_Gap
+			if si := find_sub_by_subject_id(state, result.meta.subject_id); si >= 0 {
+				prev_seq := state.last_seq_by_sub[si]
+				if prev_seq > 0 && (result.meta.seq > prev_seq + 1 || result.meta.seq < prev_seq) {
+					state.desync = true
+					state.desync_reason = .Sequence_Gap
+					state.seq_gap_count += 1
+					state.seq_gap_streak += 1
+					if state.seq_gap_streak >= 3 {
+						state.backend_gap_seq_gap_recurring += 1
+						state.seq_gap_streak = 0
 					}
-					state.last_seq_by_sub[si] = result.meta.seq
+					set_transport_state(state, .Desync)
+					if state.desync_resub_subject_id == 0 {
+						state.desync_resub_subject_id = result.meta.subject_id
+					}
+				} else {
+					state.seq_gap_streak = 0
+				}
+				state.last_seq_by_sub[si] = result.meta.seq
+				if result.meta.server_ts_ms > 0 {
+					prev_server_ts := state.last_server_ts_by_sub[si]
+					if prev_server_ts > 0 && result.meta.server_ts_ms < prev_server_ts {
+						state.desync = true
+						state.desync_reason = .Protocol_Invalid
+						set_transport_state(state, .Desync)
+						if state.desync_resub_subject_id == 0 {
+							state.desync_resub_subject_id = result.meta.subject_id
+						}
+					}
+					state.last_server_ts_by_sub[si] = result.meta.server_ts_ms
+				}
 				if result.meta.is_snapshot && !state.snapshot_logged_by_sub[si] {
 					state.snapshot_logged_by_sub[si] = true
 					snapshot_subject = strings.clone(state.active_subs[si].subject)
@@ -1037,12 +1518,23 @@ apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 					snapshot_sid = result.meta.subject_id
 					should_log_snapshot = true
 				}
+				// RESYNC success: snapshot arrived for the pending resync subject.
+				if result.meta.is_snapshot && state.resync_pending_subject_id == result.meta.subject_id {
+					state.resync_pending_subject_id = 0
+					state.resync_sent_ms = 0
+					state.desync = false
+					state.desync_reason = .None
+					set_transport_state(state, .Running)
+				}
 			}
 		}
-		if native_parse_result_has_data(result.kind) && state.connect_started_ms > 0 && !state.first_data_logged {
+		if md_common.parse_result_has_data(result.kind) && state.connect_started_ms > 0 && !state.first_data_logged {
 			first_data_delta_ms = max(parsed_now_ms - state.connect_started_ms, 0)
 			state.first_data_logged = true
 			should_log_first_data = true
+			if state.desync_reason == .None && state.hello_received && state.hello_valid {
+				set_transport_state(state, .Running)
+			}
 		}
 		sync.unlock(&state.mu)
 	}
@@ -1053,7 +1545,7 @@ apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 	if should_log_first_data {
 		fmt.printf("[md-lifecycle] first_data_after_connect_ms=%d kind=%v sid=%x\n", first_data_delta_ms, result.kind, result.meta.subject_id)
 	}
-	if native_parse_result_has_data(result.kind) {
+	if md_common.parse_result_has_data(result.kind) {
 		sync.lock(&state.mu)
 		hello_received := state.hello_received
 		hello_valid := state.hello_valid
@@ -1061,6 +1553,7 @@ apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 		if !hello_received {
 			state.desync = true
 			state.desync_reason = .Missing_Hello
+			set_transport_state(state, .Desync)
 		}
 		sync.unlock(&state.mu)
 		if !hello_received {
@@ -1079,20 +1572,42 @@ apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 		ack := result.data.ack
 		sync.lock(&state.mu)
 		state.subscribe_ack_count += 1
+		// Store stream_id from ACK into the matching sub entry.
+		if len(ack.stream_id) > 0 && len(ack.subject) > 0 {
+			sid := util.subject_id64(ack.subject)
+			if si := find_sub_by_subject_id(state, sid); si >= 0 {
+				n := min(len(ack.stream_id), len(state.active_subs[si].stream_id))
+				for i in 0 ..< n { state.active_subs[si].stream_id[i] = ack.stream_id[i] }
+				state.active_subs[si].stream_id_len = u8(n)
+			}
+		}
 		sync.unlock(&state.mu)
-		fmt.printf("[md-lifecycle] ack_recv op=%s subject=%s\n", ack.op, ack.subject)
+		if len(ack.stream_id) > 0 {
+			fmt.printf("[md-lifecycle] ack_recv op=%s subject=%s stream_id=%s\n", ack.op, ack.subject, ack.stream_id)
+		} else {
+			fmt.printf("[md-lifecycle] ack_recv op=%s subject=%s\n", ack.op, ack.subject)
+		}
 	case .Hello:
 		h := result.data.hello
 		sync.lock(&state.mu)
 		state.hello_received = true
 		state.protocol_version = h.proto_ver
 		state.hello_valid = h.valid
+		state.transport_mode = .Terminal_V1
+		set_transport_state(state, .Hello_Pending)
+		// Store server_instance_id (truncate to fixed buffer).
+		sid := h.server_instance_id
+		sid_len := min(len(sid), len(state.server_instance_id))
+		for i in 0 ..< sid_len { state.server_instance_id[i] = sid[i] }
+		state.server_instance_id_len = u8(sid_len)
 		if !h.valid {
 			state.desync = true
-			state.desync_reason = native_desync_reason_from_hello_reject(h.reject)
+			state.desync_reason = md_common.desync_reason_from_hello_reject(h.reject)
+			set_transport_state(state, .Desync)
 		} else {
 			state.desync = false
 			state.desync_reason = .None
+			set_transport_state(state, .Running)
 		}
 		sync.unlock(&state.mu)
 		if !h.valid {
@@ -1103,8 +1618,8 @@ apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 			return
 		}
 		fmt.printf(
-			"[md-lifecycle] hello_ok proto_ver=%d topics=%d venues=%d symbols=%d\n",
-			h.proto_ver, h.topic_count, h.venue_count, h.symbol_count,
+			"[md-lifecycle] hello_ok proto_ver=%d server_id=%s topics=%d venues=%d symbols=%d\n",
+			h.proto_ver, h.server_instance_id, h.topic_count, h.venue_count, h.symbol_count,
 		)
 	case .Heartbeat, .Health:
 		ctrl := result.data.control
@@ -1112,9 +1627,41 @@ apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 		if ctrl.rtt_ms > 0 do state.last_rtt_ms = ctrl.rtt_ms
 		if ctrl.dropped > 0 && ctrl.dropped > state.drop_count do state.drop_count = ctrl.dropped
 		sync.unlock(&state.mu)
+	case .Pong:
+		p := result.data.pong
+		sync.lock(&state.mu)
+		state.pong_rtt_ms = p.rtt_ms
+		if p.rtt_ms > 0 do state.last_rtt_ms = p.rtt_ms
+		state.last_pong_ts_ms = parsed_now_ms
+		sync.unlock(&state.mu)
+	case .Metrics:
+		m := result.data.server_metrics
+		sync.lock(&state.mu)
+		state.server_metrics = m
+		state.server_metrics_received = true
+		state.last_metrics_ts_ms = parsed_now_ms
+		sync.unlock(&state.mu)
 	case .Error:
-		preview_len := min(len(raw), 200)
-		fmt.printf("[marketdata] Error: %s\n", string(raw[:preview_len]))
+		ed := result.data.error_detail
+		if len(ed.code) > 0 {
+			fmt.printf("[marketdata] Error: code=%s msg=%s op=%s rid=%s\n",
+				ed.code, ed.message, ed.op, ed.request_id)
+			if strings.contains(ed.code, "AUTH") || strings.contains(ed.code, "UNAUTHORIZED") || strings.contains(ed.code, "TOKEN") {
+				sync.lock(&state.mu)
+				apply_ws_fault(state, .AuthDenied)
+				sync.unlock(&state.mu)
+			}
+			// Detect RESYNC_REQUIRED error → trigger desync.
+			if ed.code == "ERROR_CODE_RESYNC_REQUIRED" {
+				sync.lock(&state.mu)
+				state.desync = true
+				state.desync_reason = .Resync_Required
+				set_transport_state(state, .Desync)
+				sync.unlock(&state.mu)
+			}
+		} else {
+			fmt.printf("[marketdata] Error frame without code (frame_len=%d)\n", len(raw))
+		}
 	case .Trade:
 		t := result.data.trade
 		sync.lock(&state.mu)
@@ -1131,6 +1678,8 @@ apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 			state.trade_count += 1
 		} else {
 			state.drop_count += 1
+			state.drop_trade_ring += 1
+			apply_ws_fault(state, .BackpressureDrop)
 		}
 		sync.unlock(&state.mu)
 	case .Orderbook:
@@ -1161,6 +1710,9 @@ apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 			state.candle_ring_count += 1
 		} else {
 			// Ring full — overwrite oldest.
+			state.drop_count += 1
+			state.drop_candle_ring += 1
+			apply_ws_fault(state, .BackpressureDrop)
 			state.candle_ring[state.candle_ring_write] = result.data.candle
 			state.candle_ring_write = (state.candle_ring_write + 1) % CANDLE_RING_CAP
 		}
@@ -1204,28 +1756,9 @@ native_send_getrange :: proc(subject: string, limit: int, end_ts: i64) {
 
 	state.rid_counter += 1
 	buf: [512]u8
-	n := 0
-	prefix :: `{"op":"getrange","subject":"`
-	for c in prefix { buf[n] = u8(c); n += 1 }
-	for c in subject { buf[n] = u8(c); n += 1 }
-	mid :: `","params":{"limit":`
-	for c in mid { buf[n] = u8(c); n += 1 }
-	limit_str := fmt.tprintf("%d", limit)
-	for c in limit_str { buf[n] = u8(c); n += 1 }
-	if end_ts > 0 {
-		end_mid :: `,"to_ms":`
-		for c in end_mid { buf[n] = u8(c); n += 1 }
-		end_str := fmt.tprintf("%d", end_ts)
-		for c in end_str { buf[n] = u8(c); n += 1 }
-	}
-	mid2 :: `},"request_id":"gr`
-	for c in mid2 { buf[n] = u8(c); n += 1 }
-	rid_str := fmt.tprintf("%d", state.rid_counter)
-	for c in rid_str { buf[n] = u8(c); n += 1 }
-	suffix :: `"}`
-	for c in suffix { buf[n] = u8(c); n += 1 }
-
-	ws_write_text(state.conn, string(buf[:n]))
+	msg, ok := md_common.build_getrange_msg(buf[:], subject, limit, end_ts, state.rid_counter)
+	if !ok do return
+	ws_write_text(state.conn, msg)
 }
 
 // --- HTTP GET for market discovery ---
@@ -1270,8 +1803,9 @@ native_fetch_markets :: proc(out_buf: [^]u8, out_cap: i32) -> i32 {
 	_ = net.set_option(conn, .Receive_Timeout, timeout)
 	_ = net.set_option(conn, .Send_Timeout, timeout)
 
-	// Send HTTP/1.0 GET (1.0 means no chunked encoding).
-	req := fmt.tprintf(
+	// Send HTTP/1.0 GET (stack buffer — no temp allocator).
+	req_buf: [512]u8
+	req := fmt.bprintf(req_buf[:],
 		"GET /api/v1/markets HTTP/1.0\r\n" +
 		"Host: %s\r\n" +
 		"Accept: application/json\r\n" +

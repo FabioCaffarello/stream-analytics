@@ -63,6 +63,30 @@ Proto rollout is controlled by config (`proto_rollout.*`) and can be refreshed w
 
 ## Contracts
 
+### Terminal Protocol v1 (institutional)
+
+The terminal integration now supports explicit operations:
+- `hello`
+- `subscribe`
+- `unsubscribe`
+- `ping`
+- `resync`
+
+All stream frames (`event` and `snapshot`) include:
+- `protocol_version`
+- `server_instance_id`
+- `stream_id`
+- `seq`
+- `ts_server`
+- `venue`
+- `symbol`
+- `channel`
+
+Resync semantics:
+1. client detects gap/stale state and sends `resync` with `stream_id` and `last_seq`;
+2. server emits deterministic `snapshot` (bounded cache, TTL);
+3. server emits `ack` and resumes live stream.
+
 ### Client -> Server Commands
 
 ```json

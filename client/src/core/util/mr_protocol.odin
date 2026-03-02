@@ -8,6 +8,13 @@ package util
 //   2. Typed frame struct (same raw bytes) → get payload
 
 
+// --- Transport mode ---
+
+Transport_Mode :: enum u8 {
+	Terminal_V1,  // New protocol with HELLO, PING/PONG, RESYNC, METRICS
+	Legacy_JSON,  // Old protocol without handshake (auto-downgrade)
+}
+
 // --- Server → Client frame types ---
 
 MR_Frame_Type :: enum u8 {
@@ -21,18 +28,29 @@ MR_Frame_Type :: enum u8 {
 	Hello,
 	Heartbeat,
 	Health,
+	Pong,
+	Metrics,
 }
 
 MR_PROTO_VER :: 1
 
 // First-pass: envelope fields only (payload is ignored by unmarshal).
+// Terminal_V1 adds stream_id, ts_server, venue, symbol, channel, protocol_version, server_instance_id.
 MR_Envelope :: struct {
-	type_str:   string `json:"type"`,
-	subject:    string `json:"subject"`,
-	seq:        i64    `json:"seq"`,
-	ts_ingest:  i64    `json:"ts_ingest"`,
-	op:         string `json:"op"`,
-	request_id: string `json:"request_id"`,
+	type_str:           string `json:"type"`,
+	subject:            string `json:"subject"`,
+	seq:                i64    `json:"seq"`,
+	ts_ingest:          i64    `json:"ts_ingest"`,
+	op:                 string `json:"op"`,
+	request_id:         string `json:"request_id"`,
+	// Terminal_V1 extended fields (absent in Legacy_JSON mode).
+	stream_id:          string `json:"stream_id"`,
+	protocol_version:   int    `json:"protocol_version"`,
+	server_instance_id: string `json:"server_instance_id"`,
+	ts_server:          i64    `json:"ts_server"`,
+	venue:              string `json:"venue"`,
+	symbol:             string `json:"symbol"`,
+	channel:            string `json:"channel"`,
 }
 
 // --- Payload structs per stream type ---
@@ -170,13 +188,72 @@ MR_Hello_Capabilities :: struct {
 }
 
 MR_Hello_Payload :: struct {
-	proto_ver:    int                   `json:"proto_ver"`,
-	server_time:  i64                   `json:"server_time"`,
-	capabilities: MR_Hello_Capabilities `json:"capabilities"`,
+	proto_ver:          int                   `json:"proto_ver"`,
+	protocol_version:   int                   `json:"protocol_version"`,
+	server_time:        i64                   `json:"server_time"`,
+	server_instance_id: string                `json:"server_instance_id"`,
+	capabilities:       MR_Hello_Capabilities `json:"capabilities"`,
 }
 
 MR_Hello_Frame :: struct {
 	payload: MR_Hello_Payload `json:"payload"`,
+}
+
+// --- Pong frame (Terminal_V1) ---
+
+MR_Pong_Payload :: struct {
+	ts_client:  i64    `json:"ts_client"`,
+	ts_server:  i64    `json:"ts_server"`,
+	request_id: string `json:"request_id"`,
+}
+
+MR_Pong_Frame :: struct {
+	type_str:   string          `json:"type"`,
+	ts_client:  i64             `json:"ts_client"`,
+	ts_server:  i64             `json:"ts_server"`,
+	request_id: string          `json:"request_id"`,
+}
+
+// --- Metrics frame (Terminal_V1, server-pushed telemetry) ---
+
+MR_Metrics_Payload :: struct {
+	ws_dropped_total:                i64 `json:"ws_dropped_total"`,
+	ws_queue_len:                    int `json:"ws_queue_len"`,
+	ws_lag_ms:                       i64 `json:"ws_lag_ms"`,
+	publish_to_deliver_latency_ms:   i64 `json:"publish_to_deliver_latency_ms"`,
+	serialize_errors_total:          i64 `json:"serialize_errors_total"`,
+	resync_total:                    i64 `json:"resync_total"`,
+	active_subscriptions:            int `json:"active_subscriptions"`,
+	messages_out_total:              i64 `json:"messages_out_total"`,
+}
+
+MR_Metrics_Frame :: struct {
+	type_str: string             `json:"type"`,
+	payload:  MR_Metrics_Payload `json:"payload"`,
+}
+
+// --- Error frame with problem sub-struct (Terminal_V1) ---
+
+MR_Problem :: struct {
+	code:    string `json:"code"`,
+	message: string `json:"message"`,
+}
+
+MR_Error_Frame :: struct {
+	type_str:   string     `json:"type"`,
+	op:         string     `json:"op"`,
+	request_id: string     `json:"request_id"`,
+	problem:    MR_Problem `json:"problem"`,
+}
+
+// --- ACK frame with stream_id (Terminal_V1) ---
+
+MR_Ack_Frame :: struct {
+	type_str:   string `json:"type"`,
+	op:         string `json:"op"`,
+	request_id: string `json:"request_id"`,
+	subject:    string `json:"subject"`,
+	stream_id:  string `json:"stream_id"`,
 }
 
 // --- Range response frame (getrange) ---
@@ -218,15 +295,17 @@ MR_Range_Frame_Flat :: struct {
 
 parse_frame_type :: proc(s: string) -> MR_Frame_Type {
 	switch s {
-	case "event":    return .Event
-	case "snapshot": return .Snapshot
-	case "ack":      return .Ack
-	case "error":    return .Error
-	case "range":    return .Range
-	case "last":     return .Last
-	case "hello":    return .Hello
+	case "event":     return .Event
+	case "snapshot":  return .Snapshot
+	case "ack":       return .Ack
+	case "error":     return .Error
+	case "range":     return .Range
+	case "last":      return .Last
+	case "hello":     return .Hello
 	case "heartbeat": return .Heartbeat
-	case "health":   return .Health
+	case "health":    return .Health
+	case "pong":      return .Pong
+	case "metrics":   return .Metrics
 	}
 	return .Unknown
 }

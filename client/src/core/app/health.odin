@@ -25,27 +25,29 @@ md_desync_reason_to_stream :: proc(reason: ports.MD_Desync_Reason) -> streams.St
 		return .Protocol_Invalid
 	case .Missing_Hello:
 		return .Missing_Hello
+	case .Resync_Required:
+		return .Resync_Required
 	case .None:
 	}
 	return .Sequence_Gap
 }
 
-compute_candle_health :: proc(state: ^App_State) -> Candle_Health {
-	if state.candle_store.count <= 0 do return .No_Data
-
-	now_ms := current_now_ms(state)
+// Parameterized candle health computation — accepts store pointer and timing params
+// so it can be used for any cell's store, not just the global active store.
+compute_candle_health_for_store :: proc(
+	store: ^services.Candle_Store,
+	last_recv_ms: i64,
+	tf_ms: i64,
+	now_ms: i64,
+) -> Candle_Health {
+	if store == nil || store.count <= 0 do return .No_Data
 	if now_ms <= 0 do return .OK
 
-	latest := services.get_candle_newest(&state.candle_store, 0)
+	latest := services.get_candle_newest(store, 0)
 	end_lag_ms := clamp_nonneg_i64(now_ms - latest.window_end_ts)
-	recv_age_ms := clamp_nonneg_i64(now_ms - state.candle_last_recv_local_ms)
+	recv_age_ms := clamp_nonneg_i64(now_ms - last_recv_ms)
 
-	// TF-adaptive thresholds: scale by active timeframe instead of fixed 1m constants.
-	tf_options := TF_OPTION_MS
-	tf_ms: i64 = 60_000
-	if state.active_tf_idx >= 0 && state.active_tf_idx < len(tf_options) {
-		tf_ms = tf_options[state.active_tf_idx]
-	}
+	// TF-adaptive thresholds.
 	lag_warn_closed  := max(2 * tf_ms, 5_000)
 	lag_stale_closed := max(3 * tf_ms, 10_000)
 	lag_warn_open    := max(tf_ms + tf_ms / 2, 5_000)
@@ -54,9 +56,6 @@ compute_candle_health :: proc(state: ^App_State) -> Candle_Health {
 	silence_stale    := max(tf_ms, 10_000)
 
 	if latest.is_closed {
-		// Require both end_lag AND recv_age to exceed thresholds — prevents false
-		// STALE/LAG when GetRange delivers historical candles with old window_end_ts
-		// but trades are still flowing (keeping recv_age fresh).
 		if end_lag_ms >= lag_stale_closed && recv_age_ms >= silence_stale do return .Stale
 		if end_lag_ms >= lag_warn_closed && recv_age_ms >= silence_warn do return .Lagging
 		return .OK
@@ -65,6 +64,21 @@ compute_candle_health :: proc(state: ^App_State) -> Candle_Health {
 	if recv_age_ms >= silence_stale || end_lag_ms >= lag_stale_open do return .Stale
 	if recv_age_ms >= silence_warn || end_lag_ms >= lag_warn_open do return .Lagging
 	return .OK
+}
+
+// Global convenience: delegates to parameterized version using active stream state.
+compute_candle_health :: proc(state: ^App_State) -> Candle_Health {
+	tf_options := TF_OPTION_MS
+	tf_ms: i64 = 60_000
+	if state.active_tf_idx >= 0 && state.active_tf_idx < len(tf_options) {
+		tf_ms = tf_options[state.active_tf_idx]
+	}
+	return compute_candle_health_for_store(
+		&state.stores.candle,
+		state.candle_last_recv_local_ms,
+		tf_ms,
+		current_now_ms(state),
+	)
 }
 
 observe_candle_health :: proc(state: ^App_State) -> bool {
@@ -85,21 +99,27 @@ format_ms_short_into :: proc(buf: []u8, ms: i64) -> string {
 	return fmt.bprintf(buf, "%dm%02ds", mins, secs)
 }
 
-build_candle_health_ui :: proc(state: ^App_State) -> (label: string, detail: string, color: ui.Color) {
-	if state.candle_store.count <= 0 {
+// Parameterized candle health UI — accepts any store + timing params.
+build_candle_health_ui_for_store :: proc(
+	store: ^services.Candle_Store,
+	last_recv_ms: i64,
+	tf_ms: i64,
+	now_ms: i64,
+) -> (label: string, detail: string, color: ui.Color) {
+	if store == nil || store.count <= 0 {
 		return "NO DATA", "waiting for first candle", ui.with_alpha(ui.COL_WHITE, 0.6)
 	}
-	now_ms := current_now_ms(state)
-	latest := services.get_candle_newest(&state.candle_store, 0)
+	health := compute_candle_health_for_store(store, last_recv_ms, tf_ms, now_ms)
+	latest := services.get_candle_newest(store, 0)
 	end_lag_ms := i64(0)
 	recv_age_ms := i64(0)
 	if now_ms > 0 {
 		end_lag_ms = clamp_nonneg_i64(now_ms - latest.window_end_ts)
-		recv_age_ms = clamp_nonneg_i64(now_ms - state.candle_last_recv_local_ms)
+		recv_age_ms = clamp_nonneg_i64(now_ms - last_recv_ms)
 	}
 	status_str := "OK"
 	status_color := ui.COL_GREEN
-	switch state.candle_health {
+	switch health {
 	case .Lagging:
 		status_str = "LAG"
 		status_color = ui.COL_YELLOW_ACCENT
@@ -122,18 +142,33 @@ build_candle_health_ui :: proc(state: ^App_State) -> (label: string, detail: str
 		status_color
 }
 
+// Global convenience: delegates to parameterized version using active stream state.
+build_candle_health_ui :: proc(state: ^App_State) -> (label: string, detail: string, color: ui.Color) {
+	tf_options := TF_OPTION_MS
+	tf_ms: i64 = 60_000
+	if state.active_tf_idx >= 0 && state.active_tf_idx < len(tf_options) {
+		tf_ms = tf_options[state.active_tf_idx]
+	}
+	return build_candle_health_ui_for_store(
+		&state.stores.candle,
+		state.candle_last_recv_local_ms,
+		tf_ms,
+		current_now_ms(state),
+	)
+}
+
 sample_marketdata_metrics :: proc(state: ^App_State) {
 	if state == nil do return
 	if state.marketdata.metrics == nil do return
 	m: ports.MD_Runtime_Metrics
 	if !state.marketdata.metrics(&m) do return
-	state.md_metrics_history[state.md_metrics_head] = MD_Metrics_History_Sample{
+	state.telemetry.metrics_history[state.telemetry.metrics_head] = MD_Metrics_History_Sample{
 		frame    = state.frame,
 		metrics  = m,
 	}
-	state.md_metrics_head = (state.md_metrics_head + 1) % MD_METRICS_HISTORY_CAP
-	if state.md_metrics_count < MD_METRICS_HISTORY_CAP {
-		state.md_metrics_count += 1
+	state.telemetry.metrics_head = (state.telemetry.metrics_head + 1) % MD_METRICS_HISTORY_CAP
+	if state.telemetry.metrics_count < MD_METRICS_HISTORY_CAP {
+		state.telemetry.metrics_count += 1
 	}
 	refresh_active_stream_health(state, m)
 }
@@ -141,28 +176,64 @@ sample_marketdata_metrics :: proc(state: ^App_State) {
 refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtime_Metrics) {
 	if state == nil do return
 	raw_subscribe_acks := max(metrics.subscribe_ack_count, 0)
-	prev_ack_metric := state.active_stream_last_ack_metric
+	prev_ack_metric := state.active_metrics.last_ack_metric
 	ack_metric_reset := raw_subscribe_acks < prev_ack_metric
 	ack_delta := raw_subscribe_acks - prev_ack_metric
 	if ack_delta < 0 do ack_delta = raw_subscribe_acks
-	state.active_stream_last_ack_metric = raw_subscribe_acks
+	state.active_metrics.last_ack_metric = raw_subscribe_acks
+
+	// Copy Terminal_V1 protocol + server-pushed metrics (independent of active stream).
+	state.active_metrics.transport_mode = metrics.transport_mode
+	state.active_metrics.auth_mode = metrics.auth_mode
+	state.active_metrics.protocol_version = metrics.protocol_version
+	state.active_metrics.server_instance_id = metrics.server_instance_id
+	state.active_metrics.server_instance_id_len = metrics.server_instance_id_len
+	state.active_metrics.server_instance_id_hash = metrics.server_instance_id_hash
+	state.active_metrics.hello_timeout_count = metrics.hello_timeout_count
+	state.active_metrics.pong_rtt_ms = metrics.pong_rtt_ms
+	state.active_metrics.active_subs = metrics.active_subs
+	state.active_metrics.transport_state = metrics.transport_state
+	state.active_metrics.ws_error_category = metrics.ws_error_category
+	state.active_metrics.ws_error_action = metrics.ws_error_action
+	state.active_metrics.last_server_ts_ms = metrics.last_server_ts_ms
+	state.active_metrics.seq_gap_count = metrics.seq_gap_count
+	state.active_metrics.resync_count = metrics.resync_count
+	state.active_metrics.server_ws_dropped = metrics.server_ws_dropped
+	state.active_metrics.server_ws_queue_len = metrics.server_ws_queue_len
+	state.active_metrics.server_ws_lag_ms = metrics.server_ws_lag_ms
+	state.active_metrics.server_serialize_errors = metrics.server_serialize_errors
+	state.active_metrics.server_resync_total = metrics.server_resync_total
+	state.active_metrics.server_pub_deliver_ms = metrics.server_pub_deliver_ms
+	state.active_metrics.drop_trade_ring = metrics.drop_trade_ring
+	state.active_metrics.drop_candle_ring = metrics.drop_candle_ring
+	state.active_metrics.drop_ws_queue = metrics.drop_ws_queue
+	state.active_metrics.drop_payload_oversize = metrics.drop_payload_oversize
+	state.active_metrics.alloc_estimate_total = metrics.alloc_estimate_total
+	state.active_metrics.parse_time_p95_us = metrics.parse_time_p95_us
+	state.active_metrics.apply_time_p95_us = metrics.apply_time_p95_us
+	state.active_metrics.backend_gap_no_metrics = metrics.backend_gap_no_metrics
+	state.active_metrics.backend_gap_pong_timeout = metrics.backend_gap_pong_timeout
+	state.active_metrics.backend_gap_resync_ack_timeout = metrics.backend_gap_resync_ack_timeout
+	state.active_metrics.backend_gap_missing_ts_server = metrics.backend_gap_missing_ts_server
+	state.active_metrics.backend_gap_seq_gap_recurring = metrics.backend_gap_seq_gap_recurring
+	state.active_metrics.backend_gap_frequent_drops = metrics.backend_gap_frequent_drops
 
 	active := streams.registry_active(&state.stream_registry)
 	if active == nil {
-		state.active_stream_state = current_conn_status(state) == .Connected ? .Lag : .Offline
-		state.active_stream_desync_reason = .None
-		state.active_stream_rtt_ms = metrics.rtt_ms
-		state.active_stream_lag_ms = metrics.lag_ms
-		state.active_stream_last_msg_ts_ms = metrics.last_msg_ts_ms
-		state.active_stream_drop_count = metrics.drop_count
-		state.active_stream_reconnect_count = metrics.reconnect_count
-		state.active_stream_subscribe_acks = raw_subscribe_acks
-		state.active_stream_candle_backlog = metrics.candle_backlog
-		state.active_stream_msg_rate = metrics.msg_rate
-		state.active_stream_bytes_rate = metrics.bytes_rate
-		state.active_stream_parsed_msgs_total = metrics.parsed_msgs_total
-		state.active_stream_parsed_bytes_total = metrics.parsed_bytes_total
-		state.active_stream_parse_arena_resets_total = metrics.parse_arena_resets
+		state.active_metrics.state = current_conn_status(state) == .Connected ? .Lag : .Offline
+		state.active_metrics.desync_reason = .None
+		state.active_metrics.rtt_ms = metrics.rtt_ms
+		state.active_metrics.lag_ms = metrics.lag_ms
+		state.active_metrics.last_msg_ts_ms = metrics.last_msg_ts_ms
+		state.active_metrics.drop_count = metrics.drop_count
+		state.active_metrics.reconnect_count = metrics.reconnect_count
+		state.active_metrics.subscribe_acks = raw_subscribe_acks
+		state.active_metrics.candle_backlog = metrics.candle_backlog
+		state.active_metrics.msg_rate = metrics.msg_rate
+		state.active_metrics.bytes_rate = metrics.bytes_rate
+		state.active_metrics.parsed_msgs_total = metrics.parsed_msgs_total
+		state.active_metrics.parsed_bytes_total = metrics.parsed_bytes_total
+		state.active_metrics.parse_arena_resets = metrics.parse_arena_resets
 		return
 	}
 
@@ -179,54 +250,55 @@ refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtim
 	}
 	now_ms := current_now_ms(state)
 	if now_ms <= 0 do now_ms = metrics.last_msg_ts_ms
-	state.active_stream_state = streams.controller_update_health(&state.stream_controller, &active.status, now_ms)
-	state.active_stream_desync_reason = active.status.desync_reason
-	state.active_stream_rtt_ms = active.status.rtt_ms
-	state.active_stream_lag_ms = active.status.lag_ms
-	state.active_stream_last_msg_ts_ms = active.status.last_local_ts_ms
-	state.active_stream_drop_count = active.status.drop_count
-	state.active_stream_reconnect_count = active.status.reconnect_count
-	state.active_stream_subscribe_acks = active.status.subscribe_acks
-	state.active_stream_candle_backlog = metrics.candle_backlog
-	state.active_stream_msg_rate = metrics.msg_rate
-	state.active_stream_bytes_rate = metrics.bytes_rate
-	state.active_stream_parsed_msgs_total = metrics.parsed_msgs_total
-	state.active_stream_parsed_bytes_total = metrics.parsed_bytes_total
-	state.active_stream_parse_arena_resets_total = metrics.parse_arena_resets
+	state.active_metrics.state = streams.controller_update_health(&state.stream_controller, &active.status, now_ms)
+	state.active_metrics.desync_reason = active.status.desync_reason
+	state.active_metrics.rtt_ms = active.status.rtt_ms
+	state.active_metrics.lag_ms = active.status.lag_ms
+	state.active_metrics.last_msg_ts_ms = active.status.last_local_ts_ms
+	state.active_metrics.drop_count = active.status.drop_count
+	state.active_metrics.reconnect_count = active.status.reconnect_count
+	state.active_metrics.subscribe_acks = active.status.subscribe_acks
+	state.active_metrics.candle_backlog = metrics.candle_backlog
+	state.active_metrics.msg_rate = metrics.msg_rate
+	state.active_metrics.bytes_rate = metrics.bytes_rate
+	state.active_metrics.parsed_msgs_total = metrics.parsed_msgs_total
+	state.active_metrics.parsed_bytes_total = metrics.parsed_bytes_total
+	state.active_metrics.parse_arena_resets = metrics.parse_arena_resets
 
 	// Additional client-side DESYNC detection for visible "Waiting for stats/orderbook" regressions.
 	if now_ms > 0 && current_conn_status(state) == .Connected {
 		stats_age := i64(0)
-		if state.active_stream_last_stats_ts_ms > 0 {
-			stats_age = now_ms - state.active_stream_last_stats_ts_ms
+		if state.active_metrics.last_stats_ts_ms > 0 {
+			stats_age = now_ms - state.active_metrics.last_stats_ts_ms
 		}
 		ob_age := i64(0)
-		if state.active_stream_last_orderbook_ts_ms > 0 {
-			ob_age = now_ms - state.active_stream_last_orderbook_ts_ms
+		if state.active_metrics.last_orderbook_ts_ms > 0 {
+			ob_age = now_ms - state.active_metrics.last_orderbook_ts_ms
 		}
-		if (state.active_stream_last_stats_ts_ms == 0 || stats_age > 12_000) &&
-			(state.active_stream_last_orderbook_ts_ms == 0 || ob_age > 12_000) &&
-			state.active_stream_state != .Offline {
+		if (state.active_metrics.last_stats_ts_ms == 0 || stats_age > 12_000) &&
+			(state.active_metrics.last_orderbook_ts_ms == 0 || ob_age > 12_000) &&
+			state.active_metrics.state != .Offline {
 			streams.controller_mark_desync(&active.status, .Snapshot_Stale)
-			state.active_stream_state = .Desync
-			state.active_stream_desync_reason = .Snapshot_Stale
+			state.active_metrics.state = .Desync
+			state.active_metrics.desync_reason = .Snapshot_Stale
+			record_error(state, .Connection, "DESYNC: snapshot stale")
 		}
 	}
 }
 
 metrics_history_summary :: proc(state: ^App_State) -> (ok: bool, qmax: int, drop_delta: int, rc_delta: int) {
 	if state == nil do return false, 0, 0, 0
-	if state.md_metrics_count <= 0 do return false, 0, 0, 0
+	if state.telemetry.metrics_count <= 0 do return false, 0, 0, 0
 
-	oldest_idx := (state.md_metrics_head - state.md_metrics_count + MD_METRICS_HISTORY_CAP) % MD_METRICS_HISTORY_CAP
-	newest_idx := (state.md_metrics_head - 1 + MD_METRICS_HISTORY_CAP) % MD_METRICS_HISTORY_CAP
-	oldest := state.md_metrics_history[oldest_idx].metrics
-	newest := state.md_metrics_history[newest_idx].metrics
+	oldest_idx := (state.telemetry.metrics_head - state.telemetry.metrics_count + MD_METRICS_HISTORY_CAP) % MD_METRICS_HISTORY_CAP
+	newest_idx := (state.telemetry.metrics_head - 1 + MD_METRICS_HISTORY_CAP) % MD_METRICS_HISTORY_CAP
+	oldest := state.telemetry.metrics_history[oldest_idx].metrics
+	newest := state.telemetry.metrics_history[newest_idx].metrics
 
 	qmax = 0
-	for i in 0 ..< state.md_metrics_count {
+	for i in 0 ..< state.telemetry.metrics_count {
 		idx := (oldest_idx + i) % MD_METRICS_HISTORY_CAP
-		qmax = max(qmax, state.md_metrics_history[idx].metrics.trade_backlog)
+		qmax = max(qmax, state.telemetry.metrics_history[idx].metrics.trade_backlog)
 	}
 	drop_delta = newest.drop_count - oldest.drop_count
 	rc_delta = newest.reconnect_count - oldest.reconnect_count

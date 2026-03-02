@@ -83,7 +83,7 @@ vpvr_widget :: proc(buf: ^ui.Command_Buffer, data: VPVR_Widget_Data) {
 		// Draw sell bar first (leftmost), then buy bar.
 		// Delta coloring: bars are tinted by buy vs sell dominance.
 		bar_x := bar_area.pos.x + bar_area.size.x - total_w
-		buy_dom := clamp(f32(bucket.buy_volume / total), 0, 1)
+		buy_dom := total > 0 ? clamp(f32(bucket.buy_volume / total), 0, 1) : f32(0.5)
 		sell_alpha := f32(0.5) + (1 - buy_dom) * f32(0.35) // brighter when sell-dominant
 		buy_alpha := f32(0.5) + buy_dom * f32(0.35)        // brighter when buy-dominant
 
@@ -122,8 +122,11 @@ vpvr_widget :: proc(buf: ^ui.Command_Buffer, data: VPVR_Widget_Data) {
 	if vah_idx >= 0 && val_idx >= 0 && vah_idx < store.count && val_idx < store.count {
 		vah_row := store.count - 1 - vah_idx
 		val_row := store.count - 1 - val_idx
-		shade_top := bar_area.pos.y + f32(vah_row) * row_h
-		shade_bot := bar_area.pos.y + f32(val_row) * row_h + row_h
+		shade_y0 := bar_area.pos.y + f32(vah_row) * row_h
+		shade_y1 := bar_area.pos.y + f32(val_row) * row_h + row_h
+		// Normalize in case VAH/VAL index ordering is inverted.
+		shade_top := min(shade_y0, shade_y1)
+		shade_bot := max(shade_y0, shade_y1)
 		if shade_bot > shade_top {
 			ui.push(buf, ui.Cmd_Rect_Filled{
 				rect  = {pos = {bar_area.pos.x, shade_top}, size = {bar_area.size.x, shade_bot - shade_top}},

@@ -57,14 +57,20 @@ controller_mark_message :: proc(
 	if status == nil do return
 	status.connected = true
 	if seq > 0 {
-		if status.last_seq > 0 && seq > status.last_seq + 1 {
+		if status.last_seq > 0 && (seq > status.last_seq + 1 || seq < status.last_seq) {
 			status.desync_reason = .Sequence_Gap
 			status.state = .Desync
 		}
 		status.last_seq = seq
 	}
 	if local_ts_ms > 0 do status.last_local_ts_ms = local_ts_ms
-	if server_ts_ms > 0 do status.last_server_ts_ms = server_ts_ms
+	if server_ts_ms > 0 {
+		if status.last_server_ts_ms > 0 && server_ts_ms < status.last_server_ts_ms {
+			status.desync_reason = .Protocol_Invalid
+			status.state = .Desync
+		}
+		status.last_server_ts_ms = server_ts_ms
+	}
 	if is_snapshot && local_ts_ms > 0 {
 		status.last_snapshot_ts_ms = local_ts_ms
 	}

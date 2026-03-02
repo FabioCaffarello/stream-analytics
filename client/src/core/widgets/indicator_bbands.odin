@@ -41,28 +41,44 @@ render_bbands :: proc(
 	prev_upper_y, prev_lower_y: f32
 	has_prev := false
 
+	// Running sum and sum-of-squares for O(n) BBands computation.
+	run_sum := f64(0)
+	run_sq  := f64(0)
+	period_f := f64(cfg.period)
+
+	// Seed the running window with the first (period-1) values.
+	seed_end := min(lookback_start + cfg.period - 1, lookback_start + data_count)
+	for si in lookback_start ..< seed_end {
+		if si >= ctx.candles.count do break
+		c := services.get_candle(ctx.candles, si).close
+		run_sum += c
+		run_sq  += c * c
+	}
+
 	for i in lookback_start ..< lookback_start + data_count {
 		if i >= ctx.candles.count do break
 		age := i - lookback_start
+
 		if age < cfg.period - 1 do continue
 
-		// Compute SMA and standard deviation over the period.
-		sum := f64(0)
-		for j in i - cfg.period + 1 ..= i {
-			if j >= 0 && j < ctx.candles.count {
-				sum += services.get_candle(ctx.candles, j).close
-			}
+		// Add the newest value to the running window.
+		new_val := services.get_candle(ctx.candles, i).close
+		if age == cfg.period - 1 {
+			// First full window — the seed loop covered [lookback_start, i-1],
+			// now add i itself.
+			run_sum += new_val
+			run_sq  += new_val * new_val
+		} else {
+			// Slide: add new, remove oldest.
+			old_val := services.get_candle(ctx.candles, i - cfg.period).close
+			run_sum += new_val - old_val
+			run_sq  += new_val * new_val - old_val * old_val
 		}
-		sma := sum / f64(cfg.period)
 
-		var_sum := f64(0)
-		for j in i - cfg.period + 1 ..= i {
-			if j >= 0 && j < ctx.candles.count {
-				diff := services.get_candle(ctx.candles, j).close - sma
-				var_sum += diff * diff
-			}
-		}
-		std_dev := math.sqrt(var_sum / f64(cfg.period))
+		sma := run_sum / period_f
+		variance := run_sq / period_f - sma * sma
+		if variance < 0 do variance = 0 // guard against floating-point drift
+		std_dev := math.sqrt(variance)
 		upper := sma + cfg.std_mult * std_dev
 		lower := sma - cfg.std_mult * std_dev
 

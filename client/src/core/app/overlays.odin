@@ -2,11 +2,13 @@ package app
 
 import "core:fmt"
 import "core:strings"
-import "mr:ports"
 import "mr:services"
 import "mr:ui"
 
 draw_help_overlay :: proc(state: ^App_State, viewport_w, viewport_h: f32) {
+	prev_z := state.cmd_buf.current_z_layer
+	state.cmd_buf.current_z_layer = ui.Z_MODAL
+	defer { state.cmd_buf.current_z_layer = prev_z }
 	// Semi-transparent backdrop.
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
 		rect  = {pos = {0, 0}, size = {viewport_w, viewport_h}},
@@ -73,11 +75,7 @@ draw_help_overlay :: proc(state: ^App_State, viewport_w, viewport_h: f32) {
 }
 
 draw_exchange_manager :: proc(state: ^App_State, viewport_w, viewport_h: f32, pointer: ui.Pointer_Input) {
-	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
-		rect  = {pos = {0, 0}, size = {viewport_w, viewport_h}},
-		color = {0, 0, 0, 0.75},
-	})
-
+	// BUG-13: Click-outside check at START to consume the click event and avoid triggering underlying UI.
 	panel_w := f32(460)
 	panel_h := f32(420)
 	if panel_w > viewport_w - 20 do panel_w = viewport_w - 20
@@ -87,7 +85,16 @@ draw_exchange_manager :: proc(state: ^App_State, viewport_w, viewport_h: f32, po
 	panel_rect := ui.Rect{pos = {px, py}, size = {panel_w, panel_h}}
 	if pointer.left_pressed && !ui.rect_contains(panel_rect, pointer.pos) {
 		queue_ui_action(state, UI_Action{kind = .Toggle_Connection_Modal})
+		return
 	}
+
+	prev_z := state.cmd_buf.current_z_layer
+	state.cmd_buf.current_z_layer = ui.Z_MODAL
+	defer { state.cmd_buf.current_z_layer = prev_z }
+	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
+		rect  = {pos = {0, 0}, size = {viewport_w, viewport_h}},
+		color = {0, 0, 0, 0.75},
+	})
 
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = panel_rect, color = ui.COL_SURFACE_1})
 	ui.draw_rect_stroke(&state.cmd_buf, panel_rect, ui.COL_BORDER_STRONG)
@@ -179,8 +186,8 @@ draw_exchange_manager :: proc(state: ^App_State, viewport_w, viewport_h: f32, po
 				profile_market_type = profile_symbol[sep + 1:]
 			}
 		}
-		for mi in 0 ..< state.markets_store.count {
-			entry := state.markets_store.entries[mi]
+		for mi in 0 ..< state.stores.markets.count {
+			entry := state.stores.markets.entries[mi]
 			if normalized_venue(entry.venue) != profile_venue do continue
 			if entry.ticker != symbol_base do continue
 			if len(profile_market_type) > 0 && len(entry.market_type) > 0 && entry.market_type != profile_market_type do continue
@@ -236,9 +243,13 @@ draw_exchange_manager :: proc(state: ^App_State, viewport_w, viewport_h: f32, po
 	if close_btn.clicked {
 		queue_ui_action(state, UI_Action{kind = .Toggle_Connection_Modal})
 	}
+
 }
 
 draw_stream_picker :: proc(state: ^App_State, viewport_w, viewport_h: f32, pointer: ui.Pointer_Input) {
+	prev_z := state.cmd_buf.current_z_layer
+	state.cmd_buf.current_z_layer = ui.Z_MODAL
+	defer { state.cmd_buf.current_z_layer = prev_z }
 	// Semi-transparent backdrop.
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
 		rect  = {pos = {0, 0}, size = {viewport_w, viewport_h}},
@@ -256,8 +267,8 @@ draw_stream_picker :: proc(state: ^App_State, viewport_w, viewport_h: f32, point
 	// Count available (not yet connected) markets from discovery store.
 	available_count := 0
 	available_indices: [services.MARKET_CAP]int
-	for mi in 0 ..< state.markets_store.count {
-		entry := state.markets_store.entries[mi]
+	for mi in 0 ..< state.stores.markets.count {
+		entry := state.stores.markets.entries[mi]
 		already_connected := false
 		if reg != nil {
 			for si in 0 ..< STREAM_VIEW_CAP {
@@ -380,7 +391,7 @@ draw_stream_picker :: proc(state: ^App_State, viewport_w, viewport_h: f32, point
 		for ai in 0 ..< available_count {
 			if y + item_h > py + panel_h - 20 do break
 			mi := available_indices[ai]
-			entry := state.markets_store.entries[mi]
+			entry := state.stores.markets.entries[mi]
 
 			item_rect := ui.Rect{pos = {px + 8, y}, size = {panel_w - 16, item_h}}
 			hovered := ui.rect_contains(item_rect, pointer.pos)
@@ -414,10 +425,13 @@ draw_stream_picker :: proc(state: ^App_State, viewport_w, viewport_h: f32, point
 // Shows ALL available markets from discovery, not just connected streams.
 draw_cell_stream_picker :: proc(state: ^App_State, anchor: ui.Vec2, cell_idx: int,
 	viewport_w, viewport_h: f32, pointer: ui.Pointer_Input) {
+	prev_z := state.cmd_buf.current_z_layer
+	state.cmd_buf.current_z_layer = ui.Z_OVERLAY
+	defer { state.cmd_buf.current_z_layer = prev_z }
 	item_h := f32(22)
 	panel_w := f32(200)
 	// Items: "Follow Active" + all markets from discovery store.
-	market_count := state.markets_store.count
+	market_count := state.stores.markets.count
 	panel_h := f32(market_count + 1) * item_h + 8
 	if panel_h > 300 do panel_h = 300
 
@@ -428,7 +442,7 @@ draw_cell_stream_picker :: proc(state: ^App_State, anchor: ui.Vec2, cell_idx: in
 
 	// Click-outside to close.
 	if pointer.left_pressed && !ui.rect_contains(panel_rect, pointer.pos) {
-		state.cell_stream_picker_open = -1
+		state.overlays.cell_stream_picker_open = -1
 		return
 	}
 
@@ -436,11 +450,11 @@ draw_cell_stream_picker :: proc(state: ^App_State, anchor: ui.Vec2, cell_idx: in
 	ui.draw_rect_stroke(&state.cmd_buf, panel_rect, ui.COL_BORDER_STRONG)
 
 	y := py + 4
-	cell := &state.cell_assignments[cell_idx] if cell_idx >= 0 && cell_idx < state.cell_count else nil
-	has_binding := cell != nil && cell_has_binding(cell)
+	bind := &state.world.bindings[cell_idx] if cell_idx >= 0 && cell_idx < state.world.count else nil
+	has_binding := binding_has(bind)
 
 	// "Follow Active" option.
-	fa_active := cell != nil && !has_binding && cell.stream_idx < 0
+	fa_active := bind != nil && !has_binding && bind.stream_idx < 0
 	fa_rect := ui.Rect{pos = {px + 4, y}, size = {panel_w - 8, item_h}}
 	fa_hovered := ui.rect_contains(fa_rect, pointer.pos)
 	if fa_active {
@@ -452,16 +466,16 @@ draw_cell_stream_picker :: proc(state: ^App_State, anchor: ui.Vec2, cell_idx: in
 		"Follow Active", fa_active ? ui.COL_TEXT_PRIMARY : ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS, .Mono)
 	if fa_hovered && pointer.left_pressed {
 		queue_ui_action(state, UI_Action{kind = .Set_Cell_Stream, cell_idx = cell_idx, stream_idx = -1})
-		state.cell_stream_picker_open = -1
+		state.overlays.cell_stream_picker_open = -1
 	}
 	y += item_h
 
 	// All available markets from discovery store.
-	bound_venue := cell_bound_venue(cell) if cell != nil else ""
-	bound_symbol := cell_bound_symbol(cell) if cell != nil else ""
+	bound_venue := binding_venue(bind) if bind != nil else ""
+	bound_symbol := binding_symbol(bind) if bind != nil else ""
 	for mi in 0 ..< market_count {
 		if y + item_h > py + panel_h do break
-		entry := state.markets_store.entries[mi]
+		entry := state.stores.markets.entries[mi]
 		entry_venue := normalized_venue(entry.venue)
 		entry_symbol := entry.ticker
 		entry_symbol_buf: [80]u8
@@ -497,7 +511,7 @@ draw_cell_stream_picker :: proc(state: ^App_State, anchor: ui.Vec2, cell_idx: in
 				kind = .Set_Cell_Stream, cell_idx = cell_idx,
 				bind_venue = entry_venue, bind_symbol = entry_symbol,
 			})
-			state.cell_stream_picker_open = -1
+			state.overlays.cell_stream_picker_open = -1
 		}
 		y += item_h
 	}
@@ -508,12 +522,7 @@ draw_cell_stream_picker :: proc(state: ^App_State, anchor: ui.Vec2, cell_idx: in
 // ═══════════════════════════════════════════════════════════════
 
 draw_widget_catalog :: proc(state: ^App_State, viewport_w, viewport_h: f32, pointer: ui.Pointer_Input) {
-	// Backdrop.
-	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
-		rect  = {pos = {0, 0}, size = {viewport_w, viewport_h}},
-		color = {0, 0, 0, 0.6},
-	})
-
+	// BUG-14: Click-outside check at START to consume the click.
 	panel_w := f32(260)
 	panel_h := f32(320)
 	if panel_w > viewport_w - 20 do panel_w = viewport_w - 20
@@ -521,11 +530,25 @@ draw_widget_catalog :: proc(state: ^App_State, viewport_w, viewport_h: f32, poin
 	px := (viewport_w - panel_w) * 0.5
 	py := (viewport_h - panel_h) * 0.5
 	panel_rect := ui.Rect{pos = {px, py}, size = {panel_w, panel_h}}
+	if pointer.left_pressed && !ui.rect_contains(panel_rect, pointer.pos) {
+		state.overlays.show_widget_catalog = false
+		return
+	}
+
+	prev_z := state.cmd_buf.current_z_layer
+	state.cmd_buf.current_z_layer = ui.Z_MODAL
+	defer { state.cmd_buf.current_z_layer = prev_z }
+	// Backdrop.
+	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
+		rect  = {pos = {0, 0}, size = {viewport_w, viewport_h}},
+		color = {0, 0, 0, 0.6},
+	})
+
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = panel_rect, color = ui.COL_SURFACE_1})
 
 	y := py + 20
 
-	if state.catalog_step == 0 {
+	if state.overlays.catalog_step == 0 {
 		// --- Step 1: Widget type grid ---
 		ui.push_text(&state.cmd_buf, {px + 16, y}, "Add Widget",
 			ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_MD, .Bold)
@@ -569,8 +592,8 @@ draw_widget_catalog :: proc(state: ^App_State, viewport_w, viewport_h: f32, poin
 				ui.FONT_SIZE_XS, .Mono)
 
 			if hovered && pointer.left_pressed {
-				state.catalog_selected_widget = entries[ei].kind
-				state.catalog_step = 1
+				state.overlays.catalog_selected = entries[ei].kind
+				state.overlays.catalog_step = 1
 			}
 		}
 
@@ -590,7 +613,8 @@ draw_widget_catalog :: proc(state: ^App_State, viewport_w, viewport_h: f32, poin
 		ui.push_text(&state.cmd_buf, {back_rect.pos.x + 4, y + 10 + ui.FONT_SIZE_XS * 0.35},
 			"< Back", back_hov ? ui.COL_TEXT_PRIMARY : ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
 		if back_hov && pointer.left_pressed {
-			state.catalog_step = 0
+			state.overlays.catalog_step = 0
+			state.overlays.catalog_selected = .Empty
 		}
 		y += 28
 
@@ -607,17 +631,17 @@ draw_widget_catalog :: proc(state: ^App_State, viewport_w, viewport_h: f32, poin
 		if fa_hov && pointer.left_pressed {
 			queue_ui_action(state, UI_Action{
 				kind = .Add_Cell,
-				widget_kind = state.catalog_selected_widget,
+				widget_kind = state.overlays.catalog_selected,
 				stream_idx = -1,
 			})
-			state.show_widget_catalog = false
+			state.overlays.show_widget_catalog = false
 		}
 		y += item_h
 
 		// All available markets from discovery store.
-		for mi in 0 ..< state.markets_store.count {
+		for mi in 0 ..< state.stores.markets.count {
 			if y + item_h > py + panel_h - 40 do break
-			entry := state.markets_store.entries[mi]
+			entry := state.stores.markets.entries[mi]
 			entry_venue := normalized_venue(entry.venue)
 			entry_symbol := entry.ticker
 			entry_symbol_buf: [80]u8
@@ -644,11 +668,11 @@ draw_widget_catalog :: proc(state: ^App_State, viewport_w, viewport_h: f32, poin
 			if sr_hov && pointer.left_pressed {
 				queue_ui_action(state, UI_Action{
 					kind = .Add_Cell,
-					widget_kind = state.catalog_selected_widget,
+					widget_kind = state.overlays.catalog_selected,
 					bind_venue = entry_venue,
 					bind_symbol = entry_symbol,
 				})
-				state.show_widget_catalog = false
+				state.overlays.show_widget_catalog = false
 			}
 			y += item_h
 		}
@@ -663,11 +687,7 @@ draw_widget_catalog :: proc(state: ^App_State, viewport_w, viewport_h: f32, poin
 	ui.push_text(&state.cmd_buf, {close_rect.pos.x + 14, close_y + 11 + ui.FONT_SIZE_XS * 0.35},
 		"Close", close_hov ? ui.COL_TEXT_PRIMARY : ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
 	if close_hov && pointer.left_pressed {
-		state.show_widget_catalog = false
+		state.overlays.show_widget_catalog = false
 	}
 
-	// Click outside panel closes.
-	if pointer.left_pressed && !ui.rect_contains(panel_rect, pointer.pos) {
-		state.show_widget_catalog = false
-	}
 }

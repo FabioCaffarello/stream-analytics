@@ -23,8 +23,10 @@ canvas_viewport_size :: proc() -> ui.Vec2 {
 }
 
 render_commands :: proc(buf: ^ui.Command_Buffer) {
-	for cmd in buf.commands {
-		switch c in cmd {
+	ui.sort_commands_by_z_layer(buf)
+
+	for rc in buf.commands {
+		switch c in rc.cmd {
 		case ui.Cmd_Clear:
 			canvas_clear(c.color.r, c.color.g, c.color.b, c.color.a)
 		case ui.Cmd_Rect_Filled:

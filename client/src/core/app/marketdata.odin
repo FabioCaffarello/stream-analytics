@@ -219,22 +219,282 @@ apply_synthetic_vpvr_from_orderbook :: proc(store: ^services.VPVR_Store, ob: por
 	services.update_vpvr(store, raw_data(prices[:n]), raw_data(buys[:n]), raw_data(sells[:n]), n, price_group)
 }
 
+// ---------------------------------------------------------------------------
+// Per-event-type handlers (extracted from drain_marketdata for readability).
+// ---------------------------------------------------------------------------
+
+handle_trade_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, t: ports.MD_Trade_Event, unix: i64, is_active_stream: bool) {
+	record_stream_event(state, slot, .Trade, unix, 0, false, is_active_stream)
+	if slot != nil {
+		apply_trade_to_store(&slot.trades_store, t)
+	}
+	if is_active_stream {
+		apply_trade_to_store(&state.stores.trades, t)
+		// DOM fill tracking.
+		dom_group := state.stores.dom.price_group
+		if dom_group <= 0 && state.stores.orderbook.last_price > 0 {
+			dom_group = orderbook_auto_price_group(state.stores.orderbook.last_price)
+		}
+		services.dom_store_push_trade(&state.stores.dom, t.price, t.qty, t.is_buy, t.unix, dom_group)
+		// Footprint accumulation: bucket trade into per-candle price bins.
+		fp_tf := active_timeframe_ms(state)
+		fp_group := dom_group > 0 ? dom_group : 1.0
+		services.footprint_store_push_trade(&state.stores.footprint, t.price, t.qty, t.is_buy, t.unix * 1000, fp_tf, fp_group)
+		if !state.active_metrics.has_live_stats {
+			apply_synthetic_stats_from_trade(&state.stores.stats, t)
+		}
+		if !state.active_metrics.has_live_candle {
+			apply_synthetic_candle_from_trade(&state.stores.candle, t, active_timeframe_ms(state), current_now_ms(state))
+		}
+		// Trades on active stream prove the feed is alive for candle health tracking.
+		if now_ms := current_now_ms(state); now_ms > 0 {
+			state.candle_last_recv_local_ms = now_ms
+		}
+		// Whale alert: EMA of trade qty, fire on >3x average.
+		if t.qty > 0 {
+			if state.whale.avg_qty <= 0 {
+				state.whale.avg_qty = t.qty
+			} else {
+				state.whale.avg_qty = state.whale.avg_qty * 0.95 + t.qty * 0.05
+			}
+			if t.qty > state.whale.avg_qty * 3 && state.whale.avg_qty > 0 {
+				state.whale.price = t.price
+				state.whale.qty = t.qty
+				state.whale.buy = t.is_buy
+				state.whale.frame = state.frame
+			}
+		}
+	}
+}
+
+// Returns true when the caller should `continue` the event loop (snapshot gap triggers resync).
+handle_orderbook_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, ob: ports.MD_Orderbook_Event, unix: i64, seq: i64, is_active_stream: bool) -> (skip: bool) {
+	has_snapshot_gap := false
+	if slot != nil {
+		if ob.is_snapshot {
+			slot.orderbook_snapshot_seen = true
+		} else if !slot.orderbook_snapshot_seen {
+			has_snapshot_gap = true
+		}
+	} else if !ob.is_snapshot {
+		has_snapshot_gap = true
+	}
+	if has_snapshot_gap {
+		if is_active_stream {
+			if active := streams.registry_active(&state.stream_registry); active != nil {
+				streams.controller_mark_desync(&active.status, .Snapshot_Gap)
+			}
+			state.active_metrics.state = .Desync
+			state.active_metrics.desync_reason = .Snapshot_Gap
+			state.prev_subs_count = 0
+			reconcile_subscriptions(state)
+			record_error(state, .Connection, "DESYNC: snapshot gap")
+		}
+		return true
+	}
+	record_stream_event(state, slot, .Orderbook_Snapshot, unix, seq, ob.is_snapshot, is_active_stream)
+	if slot != nil {
+		apply_orderbook_to_store(&slot.orderbook_store, ob)
+		if !slot.has_heatmap_snapshot {
+			synth_group := synthetic_heatmap_price_group(ob.last_price)
+			snap := build_synthetic_heatmap_snapshot_from_orderbook(ob, synth_group)
+			if snap.level_count > 0 {
+				tf_s := active_timeframe_ms(state) / 1000
+				if tf_s <= 0 do tf_s = 60
+				snap.unix = ((ob.unix / tf_s) * tf_s) + tf_s
+				services.push_heatmap_snapshot(&slot.heatmap_store, snap)
+			}
+		}
+	}
+	if is_active_stream {
+		if now_ms := current_now_ms(state); now_ms > 0 {
+			state.active_metrics.last_orderbook_ts_ms = now_ms
+		}
+		apply_orderbook_to_store(&state.stores.orderbook, ob)
+		if !state.active_metrics.has_live_heatmap {
+			tf_s := active_timeframe_ms(state) / 1000
+			if tf_s <= 0 do tf_s = 60
+			window := (ob.unix / tf_s) * tf_s
+			if window != state.synth_heatmap_last_window {
+				synth_group := synthetic_heatmap_price_group(ob.last_price)
+				snap := build_synthetic_heatmap_snapshot_from_orderbook(ob, synth_group)
+				if snap.level_count > 0 {
+					snap.unix = window + tf_s
+					services.push_heatmap_snapshot(&state.stores.heatmap, snap)
+				}
+				state.synth_heatmap_last_window = window
+			}
+		}
+		if !state.active_metrics.has_live_vpvr {
+			group := orderbook_auto_price_group(ob.last_price)
+			apply_synthetic_vpvr_from_orderbook(&state.stores.vpvr, ob, group)
+		}
+	}
+	return false
+}
+
+handle_stats_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, st: ports.MD_Stats_Event, unix: i64, is_active_stream: bool) {
+	record_stream_event(state, slot, .Stats, unix, 0, false, is_active_stream)
+	if slot != nil {
+		apply_stats_to_store(&slot.stats_store, st)
+	}
+	if is_active_stream {
+		if now_ms := current_now_ms(state); now_ms > 0 {
+			state.active_metrics.last_stats_ts_ms = now_ms
+		}
+		state.active_metrics.has_live_stats = true
+		apply_stats_to_store(&state.stores.stats, st)
+	}
+}
+
+handle_heatmap_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, hm: ports.MD_Heatmap_Event, unix: i64, is_active_stream: bool) {
+	record_stream_event(state, slot, .Heatmap, unix, 0, false, is_active_stream)
+	snap := build_heatmap_snapshot(hm)
+	if slot != nil {
+		// First live snapshot replaces synthetic warmup samples for this slot.
+		if !slot.has_heatmap_snapshot {
+			slot.heatmap_store = {}
+		}
+		slot.has_heatmap_snapshot = true
+		slot.heatmap_snapshot = snap
+		services.push_heatmap_snapshot(&slot.heatmap_store, snap)
+	}
+	if is_active_stream {
+		// First live snapshot replaces synthetic warmup samples for active chart.
+		if !state.active_metrics.has_live_heatmap {
+			state.stores.heatmap = {}
+		}
+		state.active_metrics.has_live_heatmap = true
+		services.push_heatmap_snapshot(&state.stores.heatmap, snap)
+	}
+}
+
+handle_vpvr_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, vpvr: ports.MD_VPVR_Event, unix: i64, is_active_stream: bool) {
+	record_stream_event(state, slot, .VPVR, unix, 0, false, is_active_stream)
+	if slot != nil {
+		apply_vpvr_to_store(&slot.vpvr_store, vpvr)
+	}
+	if is_active_stream {
+		state.active_metrics.has_live_vpvr = true
+		apply_vpvr_to_store(&state.stores.vpvr, vpvr)
+	}
+}
+
+handle_candle_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, cd: ports.MD_Candle_Event, unix: i64, subject_id: u64, is_active_stream: bool) {
+	record_stream_event(state, slot, .Candle, unix, 0, false, is_active_stream)
+	if slot != nil {
+		tf_ms := cd.window_end_ts - cd.window_start_ts
+		if tf_ms > 0 {
+			slot.has_timeframe_ms = true
+			slot.timeframe_ms = tf_ms
+		}
+		apply_candle_to_store(&slot.candle_store, cd)
+	}
+	now_ms := current_now_ms(state)
+	if is_active_stream && now_ms > 0 {
+		state.candle_last_recv_local_ms = now_ms
+	}
+	// TF guard: only write to global store if subject matches the active candle TF.
+	if is_active_stream && (state.getrange.active_candle_subject_id == 0 || subject_id == state.getrange.active_candle_subject_id) {
+		state.active_metrics.has_live_candle = true
+		apply_candle_to_store(&state.stores.candle, cd)
+		if !state.getrange.seeded {
+			request_active_stream_candle_range(state)
+		}
+	}
+}
+
+handle_range_candle_batch :: proc(
+	state: ^App_State,
+	slot: ^Stream_View_Slot,
+	batch: ports.MD_Range_Candle_Batch,
+	unix: i64,
+	subject_id: u64,
+	is_active_stream: bool,
+	is_active_range_batch: bool,
+	is_active_getrange_subject: bool,
+) {
+	record_stream_event(state, slot, .Range_Candle_Batch, unix, 0, false, is_active_range_batch)
+	oldest_before := state.getrange.oldest_ts
+	batch_slot_idx := stream_view_find_slot(state.stream_views, subject_id)
+	// Guard: only apply to global candle store if subject matches current active candle subject.
+	is_valid_range_batch := (state.getrange.active_candle_subject_id != 0 && subject_id == state.getrange.active_candle_subject_id) ||
+		is_active_getrange_subject
+	for bci in 0 ..< batch.count {
+		cd := batch.candles[bci]
+		if cd.window_start_ts <= 0 do continue
+		if cd.window_end_ts <= cd.window_start_ts do continue
+		if slot != nil {
+			apply_historical_candle_to_store(&slot.candle_store, cd)
+		}
+		if is_valid_range_batch {
+			apply_historical_candle_to_store(&state.stores.candle, cd)
+			if state.getrange.oldest_ts <= 0 || cd.window_start_ts < state.getrange.oldest_ts {
+				state.getrange.oldest_ts = cd.window_start_ts
+			}
+		}
+		// Per-cell: update oldest_ts for cells referencing this slot.
+		for cell_ci in 0 ..< state.world.count {
+			gr := &state.world.getranges[cell_ci]
+			bind := &state.world.bindings[cell_ci]
+			if !gr.pending || !gr.seeded do continue
+			if bind.stream_idx < 0 do continue
+			if bind.stream_idx != batch_slot_idx do continue
+			if gr.oldest_ts <= 0 || cd.window_start_ts < gr.oldest_ts {
+				gr.oldest_ts = cd.window_start_ts
+			}
+		}
+	}
+	// GetRange data counts as "received" for health tracking.
+	if is_valid_range_batch && batch.count > 0 {
+		if now_ms := current_now_ms(state); now_ms > 0 {
+			state.candle_last_recv_local_ms = now_ms
+		}
+	}
+	if batch.is_last {
+		if is_active_getrange_subject || (state.getrange.subject_id == 0 && is_active_stream) {
+			state.getrange.pending = false
+			state.getrange.subject_id = 0
+			target := min(FETCH_CANDLES_RANGE_LEN, services.CANDLE_CAP)
+			if target <= 0 do target = services.CANDLE_CAP
+			oldest_advanced := state.getrange.oldest_ts > 0 &&
+				(oldest_before <= 0 || state.getrange.oldest_ts < oldest_before)
+			if oldest_advanced && state.stores.candle.count < target {
+				request_older_candles(state)
+			}
+		}
+		// Clear per-cell getrange_pending for cells referencing this slot.
+		for cell_ci in 0 ..< state.world.count {
+			gr := &state.world.getranges[cell_ci]
+			if !gr.pending do continue
+			bind := &state.world.bindings[cell_ci]
+			if bind.stream_idx >= 0 && bind.stream_idx == batch_slot_idx {
+				gr.pending = false
+			}
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Main event drain — polls and dispatches to per-event-type handlers above.
+// ---------------------------------------------------------------------------
+
 drain_marketdata :: proc(state: ^App_State) -> int {
 	processed := 0
 
 	// G3 fix: detect reconnection by watching connection status transitions.
 	conn := current_conn_status(state)
-	if conn == .Connected && state.prev_conn_for_reconcile != .Connected {
-		state.needs_reconcile = true
+	if conn == .Connected && state.conn.prev_conn_for_reconcile != .Connected {
+		state.conn.needs_reconcile = true
 		// Clear prev_subs so reconcile re-subscribes everything (server lost subscriptions).
 		state.prev_subs_count = 0
 		// Clear in-flight getrange state — server has no memory of requests after reconnect.
-		if state.getrange_pending {
-			state.getrange_pending = false
-			state.getrange_subject_id = 0
+		if state.getrange.pending {
+			state.getrange.pending = false
+			state.getrange.subject_id = 0
 		}
-		for ci in 0 ..< state.cell_count {
-			state.cell_assignments[ci].getrange_pending = false
+		for ci in 0 ..< state.world.count {
+			state.world.getranges[ci].pending = false
 		}
 		if state.stream_views != nil {
 			for si in 0 ..< STREAM_VIEW_CAP {
@@ -243,343 +503,132 @@ drain_marketdata :: proc(state: ^App_State) -> int {
 			}
 		}
 	}
-	state.prev_conn_for_reconcile = conn
+	state.conn.prev_conn_for_reconcile = conn
 
 	// Drain marketdata events (non-blocking).
-		if state.marketdata.poll != nil {
+	if state.marketdata.poll != nil {
 		events: [MD_POLL_CAP]ports.MD_Event
 		n := state.marketdata.poll(events[:])
-			processed = n
-			for i in 0 ..< n {
-				evt := events[i]
-				subject_id := evt.source.subject_id
-				slot := stream_view_get_or_alloc_slot(state.stream_views, subject_id, state.frame, state)
-					if slot != nil {
-						slot.last_seen_frame = state.frame
-						slot.has_channel = true
-						slot.channel = evt.source.channel
-						if !slot.has_stream_info {
-							refresh_stream_info_for_slot(state, slot)
-						}
-					}
-					if state.has_pending_active_subject && subject_id != 0 && subject_id == state.pending_active_subject_id {
-						if state.stream_views != nil {
-							state.stream_views.has_active = true
-							state.stream_views.active_subject_id = subject_id
-							sync_active_stream_view_to_global_stores(state)
-							persist_active_stream_subject(state)
-							state.active_has_live_stats = false
-							state.active_has_live_heatmap = false
-							state.active_has_live_vpvr = false
-							state.active_has_live_candle = false
-							if state.candle_store.count <= 0 {
-								request_active_stream_candle_range(state)
-							}
-						}
-						state.has_pending_active_subject = false
-						state.pending_active_subject_id = 0
-					}
-					is_active_stream := subject_id == 0 || state.stream_views == nil || !state.stream_views.has_active ||
-						stream_ids_same_market(state, state.stream_views.active_subject_id, subject_id)
-					is_active_getrange_subject := state.getrange_subject_id != 0 && subject_id == state.getrange_subject_id
-					is_active_range_batch := is_active_stream || is_active_getrange_subject
-					switch evt.kind {
-					case .Trade:
-						t := evt.data.trade
-						record_stream_event(state, slot, evt.kind, evt.unix, 0, false, is_active_stream)
-						if slot != nil {
-							apply_trade_to_store(&slot.trades_store, t)
-						}
-					if is_active_stream {
-						apply_trade_to_store(&state.trades_store, t)
-						// DOM fill tracking.
-						dom_group := state.dom_store.price_group
-						if dom_group <= 0 && state.orderbook_store.last_price > 0 {
-							dom_group = orderbook_auto_price_group(state.orderbook_store.last_price)
-						}
-						services.dom_store_push_trade(&state.dom_store, t.price, t.qty, t.is_buy, t.unix, dom_group)
-						// Footprint accumulation: bucket trade into per-candle price bins.
-						fp_tf := active_timeframe_ms(state)
-						fp_group := dom_group > 0 ? dom_group : 1.0
-						services.footprint_store_push_trade(&state.footprint_store, t.price, t.qty, t.is_buy, t.unix * 1000, fp_tf, fp_group)
-						if !state.active_has_live_stats {
-							apply_synthetic_stats_from_trade(&state.stats_store, t)
-						}
-						if !state.active_has_live_candle {
-							apply_synthetic_candle_from_trade(&state.candle_store, t, active_timeframe_ms(state), current_now_ms(state))
-						}
-						// Trades on active stream prove the feed is alive for candle health tracking,
-						// regardless of whether live candle events arrive from the backend.
-						if now_ms := current_now_ms(state); now_ms > 0 {
-							state.candle_last_recv_local_ms = now_ms
-						}
-						// Whale alert: EMA of trade qty, fire on >3x average.
-						if t.qty > 0 {
-							if state.whale_avg_qty <= 0 {
-								state.whale_avg_qty = t.qty
-							} else {
-								state.whale_avg_qty = state.whale_avg_qty * 0.95 + t.qty * 0.05
-							}
-							if t.qty > state.whale_avg_qty * 3 && state.whale_avg_qty > 0 {
-								state.whale_alert_price = t.price
-								state.whale_alert_qty = t.qty
-								state.whale_alert_buy = t.is_buy
-								state.whale_alert_frame = state.frame
-							}
-						}
-					}
-					case .Orderbook_Snapshot:
-						ob := evt.data.ob
-						has_snapshot_gap := false
-					if slot != nil {
-						if ob.is_snapshot {
-							slot.orderbook_snapshot_seen = true
-						} else if !slot.orderbook_snapshot_seen {
-							has_snapshot_gap = true
-						}
-					} else if !ob.is_snapshot {
-						has_snapshot_gap = true
-					}
-						if has_snapshot_gap {
-							if is_active_stream {
-								if active := streams.registry_active(&state.stream_registry); active != nil {
-								streams.controller_mark_desync(&active.status, .Snapshot_Gap)
-							}
-							state.active_stream_state = .Desync
-							state.active_stream_desync_reason = .Snapshot_Gap
-							state.prev_subs_count = 0
-							reconcile_subscriptions(state)
-							}
-							continue
-						}
-						record_stream_event(state, slot, evt.kind, evt.unix, evt.source.seq, ob.is_snapshot, is_active_stream)
-						if slot != nil {
-							apply_orderbook_to_store(&slot.orderbook_store, ob)
-						if !slot.has_heatmap_snapshot {
-							synth_group := synthetic_heatmap_price_group(ob.last_price)
-							snap := build_synthetic_heatmap_snapshot_from_orderbook(ob, synth_group)
-							if snap.level_count > 0 {
-								tf_s := active_timeframe_ms(state) / 1000
-								if tf_s <= 0 do tf_s = 60
-								snap.unix = ((ob.unix / tf_s) * tf_s) + tf_s
-								services.push_heatmap_snapshot(&slot.heatmap_store, snap)
-							}
-						}
-						}
-						if is_active_stream {
-							if now_ms := current_now_ms(state); now_ms > 0 {
-							state.active_stream_last_orderbook_ts_ms = now_ms
-						}
-						apply_orderbook_to_store(&state.orderbook_store, ob)
-						if !state.active_has_live_heatmap {
-							tf_s := active_timeframe_ms(state) / 1000
-							if tf_s <= 0 do tf_s = 60
-							window := (ob.unix / tf_s) * tf_s
-							if window != state.synth_heatmap_last_window {
-								synth_group := synthetic_heatmap_price_group(ob.last_price)
-								snap := build_synthetic_heatmap_snapshot_from_orderbook(ob, synth_group)
-								if snap.level_count > 0 {
-									snap.unix = window + tf_s
-									services.push_heatmap_snapshot(&state.heatmap_store, snap)
-								}
-								state.synth_heatmap_last_window = window
-							}
-						}
-							if !state.active_has_live_vpvr {
-								group := orderbook_auto_price_group(ob.last_price)
-								apply_synthetic_vpvr_from_orderbook(&state.vpvr_store, ob, group)
-							}
-						}
-						case .Stats:
-							st := evt.data.stats
-							record_stream_event(state, slot, evt.kind, evt.unix, 0, false, is_active_stream)
-							if slot != nil {
-								apply_stats_to_store(&slot.stats_store, st)
-						}
-					if is_active_stream {
-						if now_ms := current_now_ms(state); now_ms > 0 {
-							state.active_stream_last_stats_ts_ms = now_ms
-						}
-						state.active_has_live_stats = true
-						apply_stats_to_store(&state.stats_store, st)
-					}
-					case .Heatmap:
-						hm := evt.data.heatmap
-						record_stream_event(state, slot, evt.kind, evt.unix, 0, false, is_active_stream)
-						snap := build_heatmap_snapshot(hm)
-					if slot != nil {
-						// First live snapshot replaces synthetic warmup samples for this slot.
-						if !slot.has_heatmap_snapshot {
-							slot.heatmap_store = {}
-						}
-						slot.has_heatmap_snapshot = true
-						slot.heatmap_snapshot = snap
-						services.push_heatmap_snapshot(&slot.heatmap_store, snap)
-					}
-					if is_active_stream {
-						// First live snapshot replaces synthetic warmup samples for active chart.
-						if !state.active_has_live_heatmap {
-							state.heatmap_store = {}
-						}
-						state.active_has_live_heatmap = true
-						services.push_heatmap_snapshot(&state.heatmap_store, snap)
-					}
-					case .VPVR:
-						vpvr := evt.data.vpvr
-						record_stream_event(state, slot, evt.kind, evt.unix, 0, false, is_active_stream)
-						if slot != nil {
-							apply_vpvr_to_store(&slot.vpvr_store, vpvr)
-					}
-					if is_active_stream {
-						state.active_has_live_vpvr = true
-						apply_vpvr_to_store(&state.vpvr_store, vpvr)
-					}
-						case .Candle:
-							cd := evt.data.candle
-							record_stream_event(state, slot, evt.kind, evt.unix, 0, false, is_active_stream)
-							if slot != nil {
-							tf_ms := cd.window_end_ts - cd.window_start_ts
-							if tf_ms > 0 {
-								slot.has_timeframe_ms = true
-								slot.timeframe_ms = tf_ms
-							}
-							apply_candle_to_store(&slot.candle_store, cd)
-						}
-						now_ms := current_now_ms(state)
-						if is_active_stream && now_ms > 0 {
-							state.candle_last_recv_local_ms = now_ms
-						}
-						if is_active_stream {
-							state.active_has_live_candle = true
-							apply_candle_to_store(&state.candle_store, cd)
-							if !state.getrange_seeded {
-								request_active_stream_candle_range(state)
-							}
-						}
-					case .Range_Candle_Batch:
-						batch := evt.data.range_candles
-						record_stream_event(state, slot, evt.kind, evt.unix, 0, false, is_active_range_batch)
-						oldest_before := state.getrange_oldest_ts
-					batch_slot_idx := stream_view_find_slot(state.stream_views, subject_id)
-					// Guard: only apply to global candle store if subject matches current active candle subject.
-					// This prevents stale getrange batches (from old TF/stream) from polluting the store.
-					is_valid_range_batch := (state.active_candle_subject_id != 0 && subject_id == state.active_candle_subject_id) ||
-						is_active_getrange_subject
-					for bci in 0 ..< batch.count {
-						cd := batch.candles[bci]
-						if cd.window_start_ts <= 0 do continue
-						if cd.window_end_ts <= cd.window_start_ts do continue
-						if slot != nil {
-							apply_historical_candle_to_store(&slot.candle_store, cd)
-						}
-						if is_valid_range_batch {
-							apply_historical_candle_to_store(&state.candle_store, cd)
-							if state.getrange_oldest_ts <= 0 || cd.window_start_ts < state.getrange_oldest_ts {
-								state.getrange_oldest_ts = cd.window_start_ts
-							}
-						}
-						// Per-cell: update oldest_ts for cells referencing this slot.
-						for cell_ci in 0 ..< state.cell_count {
-							cell_ref := &state.cell_assignments[cell_ci]
-							if !cell_ref.getrange_pending || !cell_ref.getrange_seeded do continue
-							if cell_ref.stream_idx < 0 do continue
-							if cell_ref.stream_idx != batch_slot_idx do continue
-							if cell_ref.getrange_oldest_ts <= 0 || cd.window_start_ts < cell_ref.getrange_oldest_ts {
-								cell_ref.getrange_oldest_ts = cd.window_start_ts
-							}
-						}
-					}
-					// GetRange data counts as "received" for health tracking.
-					if is_valid_range_batch && batch.count > 0 {
-						if now_ms := current_now_ms(state); now_ms > 0 {
-							state.candle_last_recv_local_ms = now_ms
-						}
-					}
-					if batch.is_last {
-						if is_active_getrange_subject || (state.getrange_subject_id == 0 && is_active_stream) {
-							state.getrange_pending = false
-							state.getrange_subject_id = 0
-							target := min(FETCH_CANDLES_RANGE_LEN, services.CANDLE_CAP)
-							if target <= 0 do target = services.CANDLE_CAP
-							oldest_advanced := state.getrange_oldest_ts > 0 &&
-								(oldest_before <= 0 || state.getrange_oldest_ts < oldest_before)
-							if oldest_advanced && state.candle_store.count < target {
-								request_older_candles(state)
-							}
-						}
-						// Clear per-cell getrange_pending for cells referencing this slot.
-						for cell_ci in 0 ..< state.cell_count {
-							cell_ref := &state.cell_assignments[cell_ci]
-							if !cell_ref.getrange_pending do continue
-							if cell_ref.stream_idx >= 0 && cell_ref.stream_idx == batch_slot_idx {
-								cell_ref.getrange_pending = false
-							}
-						}
-					}
+		processed = n
+		for i in 0 ..< n {
+			evt := events[i]
+			subject_id := evt.source.subject_id
+			slot := stream_view_get_or_alloc_slot(state.stream_views, subject_id, state.frame, state)
+			if slot != nil {
+				slot.last_seen_frame = state.frame
+				slot.has_channel = true
+				slot.channel = evt.source.channel
+				if !slot.has_stream_info {
+					refresh_stream_info_for_slot(state, slot)
 				}
 			}
-		}
-		if state.stream_views != nil && processed > 0 {
-			if stream_view_repair_invariants(state.stream_views) {
-				sync_active_stream_view_to_global_stores(state)
-			}
-			if state.stream_views.has_active && state.candle_store.count <= 0 {
-				request_active_stream_candle_range(state)
-			}
-		}
-		// G3 fix: reconcile after reconnect so per-cell bindings get re-subscribed.
-		if state.needs_reconcile {
-			state.needs_reconcile = false
-			reconcile_subscriptions(state)
-		}
-
-		// PRD-0009: lazy re-resolution — after events, try to resolve cells with unresolved bindings.
-		if processed > 0 && state.stream_views != nil {
-			for ci in 0 ..< state.cell_count {
-				cell := &state.cell_assignments[ci]
-				if cell.stream_idx >= 0 do continue
-				if !cell_has_binding(cell) do continue
-				bv := cell_bound_venue(cell)
-				bs := cell_bound_symbol(cell)
-				for si in 0 ..< STREAM_VIEW_CAP {
-					if !state.stream_views.slots[si].used do continue
-					slot := &state.stream_views.slots[si]
-					if !slot.has_stream_info { refresh_stream_info_for_slot(state, slot) }
-					if slot.has_stream_info && slot.stream_info.venue == bv && slot.stream_info.symbol == bs {
-						cell.stream_idx = si
-						break
+			if state.has_pending_active_subject && subject_id != 0 && subject_id == state.pending_active_subject_id {
+				if state.stream_views != nil {
+					state.stream_views.has_active = true
+					state.stream_views.active_subject_id = subject_id
+					sync_active_stream_view_to_global_stores(state)
+					persist_active_stream_subject(state)
+					state.active_metrics.has_live_stats = false
+					state.active_metrics.has_live_heatmap = false
+					state.active_metrics.has_live_vpvr = false
+					state.active_metrics.has_live_candle = false
+					if state.stores.candle.count <= 0 {
+						request_active_stream_candle_range(state)
 					}
 				}
+				state.has_pending_active_subject = false
+				state.pending_active_subject_id = 0
+			}
+			is_active_stream := subject_id == 0 || state.stream_views == nil || !state.stream_views.has_active ||
+				stream_ids_same_market(state, state.stream_views.active_subject_id, subject_id)
+			is_active_getrange_subject := state.getrange.subject_id != 0 && subject_id == state.getrange.subject_id
+			is_active_range_batch := is_active_stream || is_active_getrange_subject
+			switch evt.kind {
+			case .Trade:
+				handle_trade_event(state, slot, evt.data.trade, evt.unix, is_active_stream)
+			case .Orderbook_Snapshot:
+				if handle_orderbook_event(state, slot, evt.data.ob, evt.unix, evt.source.seq, is_active_stream) {
+					continue
+				}
+			case .Stats:
+				handle_stats_event(state, slot, evt.data.stats, evt.unix, is_active_stream)
+			case .Heatmap:
+				handle_heatmap_event(state, slot, evt.data.heatmap, evt.unix, is_active_stream)
+			case .VPVR:
+				handle_vpvr_event(state, slot, evt.data.vpvr, evt.unix, is_active_stream)
+			case .Candle:
+				handle_candle_event(state, slot, evt.data.candle, evt.unix, subject_id, is_active_stream)
+			case .Range_Candle_Batch:
+				handle_range_candle_batch(state, slot, evt.data.range_candles, evt.unix, subject_id, is_active_stream, is_active_range_batch, is_active_getrange_subject)
 			}
 		}
-
-		// GetRange timeout: clear stuck pending state after ~5 seconds (300 frames at 60fps).
-		GETRANGE_TIMEOUT_FRAMES :: u64(300)
-		if state.getrange_pending && state.frame > state.getrange_sent_frame + GETRANGE_TIMEOUT_FRAMES {
-			state.getrange_pending = false
-			state.getrange_subject_id = 0
-		}
-		for ci in 0 ..< state.cell_count {
-			cell := &state.cell_assignments[ci]
-			if cell.getrange_pending && state.frame > cell.getrange_sent_frame + GETRANGE_TIMEOUT_FRAMES {
-				cell.getrange_pending = false
-			}
-		}
-
-		// Lazy loading: check if user has scrolled near the oldest loaded data.
-		check_lazy_candle_loading(state)
-
-		return processed
 	}
+	if state.stream_views != nil && processed > 0 {
+		if stream_view_repair_invariants(state.stream_views) {
+			sync_active_stream_view_to_global_stores(state)
+		}
+		if state.stream_views.has_active && state.stores.candle.count <= 0 {
+			request_active_stream_candle_range(state)
+		}
+	}
+	// G3 fix: reconcile after reconnect so per-cell bindings get re-subscribed.
+	if state.conn.needs_reconcile {
+		state.conn.needs_reconcile = false
+		reconcile_subscriptions(state)
+	}
+
+	// PRD-0009: lazy re-resolution — after events, try to resolve cells with unresolved bindings.
+	if processed > 0 && state.stream_views != nil {
+		for ci in 0 ..< state.world.count {
+			bind := &state.world.bindings[ci]
+			if bind.stream_idx >= 0 do continue
+			if !binding_has(bind) do continue
+			bv := binding_venue(bind)
+			bs := binding_symbol(bind)
+			for si in 0 ..< STREAM_VIEW_CAP {
+				if !state.stream_views.slots[si].used do continue
+				slot := &state.stream_views.slots[si]
+				if !slot.has_stream_info { refresh_stream_info_for_slot(state, slot) }
+				if slot.has_stream_info && slot.stream_info.venue == bv && slot.stream_info.symbol == bs {
+					bind.stream_idx = si
+					break
+				}
+			}
+		}
+	}
+
+	// GetRange timeout: clear stuck pending state after ~5 seconds (300 frames at 60fps).
+	GETRANGE_TIMEOUT_FRAMES :: u64(300)
+	if state.getrange.pending && state.frame > state.getrange.sent_frame + GETRANGE_TIMEOUT_FRAMES {
+		state.getrange.pending = false
+		state.getrange.subject_id = 0
+		record_error(state, .GetRange_Timeout, "GetRange timeout (global)")
+	}
+	for ci in 0 ..< state.world.count {
+		gr := &state.world.getranges[ci]
+		if gr.pending && state.frame > gr.sent_frame + GETRANGE_TIMEOUT_FRAMES {
+			gr.pending = false
+			record_error(state, .GetRange_Timeout, "GetRange timeout (cell)")
+		}
+	}
+
+	// Lazy loading: check if user has scrolled near the oldest loaded data.
+	check_lazy_candle_loading(state)
+
+	return processed
+}
 
 // Trigger a GetRange request for older candles when the user scrolls near the left edge.
 check_lazy_candle_loading :: proc(state: ^App_State) {
-	// Global active stream lazy loading.
-	if !state.getrange_pending && state.getrange_seeded && state.candle_store.count > 0 &&
-	   state.candle_store.count < services.CANDLE_CAP && state.getrange_oldest_ts > 0 {
-		visible := state.candle_zoom > 0 ? max(int(state.candle_zoom), 1) : max(state.candle_store.count, 1)
-		scroll := int(state.candle_scroll_x)
-		end_idx := state.candle_store.count - scroll
+	// Global active stream lazy loading — use focused candle cell's view state.
+	if !state.getrange.pending && state.getrange.seeded && state.stores.candle.count > 0 &&
+	   state.stores.candle.count < services.CANDLE_CAP && state.getrange.oldest_ts > 0 {
+		fci := max(state.world.focused, 0)
+		if fci >= state.world.count do fci = 0
+		fvw := &state.world.views[fci]
+		visible := fvw.candle_zoom > 0 ? max(int(fvw.candle_zoom), 1) : max(state.stores.candle.count, 1)
+		scroll := int(fvw.candle_scroll_x)
+		end_idx := state.stores.candle.count - scroll
 		start_idx := max(end_idx - visible, 0)
 		LAZY_LOAD_THRESHOLD :: 10
 		if start_idx < LAZY_LOAD_THRESHOLD {
@@ -589,28 +638,30 @@ check_lazy_candle_loading :: proc(state: ^App_State) {
 
 	// Per-cell lazy loading: throttle to max 2 concurrent getrange globally.
 	pending_count := 0
-	if state.getrange_pending do pending_count += 1
-	for ci in 0 ..< state.cell_count {
-		if state.cell_assignments[ci].getrange_pending do pending_count += 1
+	if state.getrange.pending do pending_count += 1
+	for ci in 0 ..< state.world.count {
+		if state.world.getranges[ci].pending do pending_count += 1
 	}
 	MAX_CONCURRENT_GETRANGE :: 2
 	if pending_count >= MAX_CONCURRENT_GETRANGE do return
 
-	for ci in 0 ..< state.cell_count {
-		cell := &state.cell_assignments[ci]
-		if cell.widget != .Candle do continue
-		if cell.getrange_pending do continue
-		if !cell.getrange_seeded do continue
-		if cell.getrange_oldest_ts <= 0 do continue
+	for ci in 0 ..< state.world.count {
+		wid := &state.world.widgets[ci]
+		gr := &state.world.getranges[ci]
+		vw := &state.world.views[ci]
+		if wid.kind != .Candle do continue
+		if gr.pending do continue
+		if !gr.seeded do continue
+		if gr.oldest_ts <= 0 do continue
 
 		// Resolve the candle store for this cell.
-		stores := resolve_stores_for_cell(state, cell, ci)
+		stores := resolve_stores_for_cell(state, ci)
 		if stores.candle == nil do continue
 		if stores.candle.count <= 0 do continue
 		if stores.candle.count >= services.CANDLE_CAP do continue
 
-		visible := cell.candle_zoom > 0 ? max(int(cell.candle_zoom), 1) : max(stores.candle.count, 1)
-		scroll := int(cell.candle_scroll_x)
+		visible := vw.candle_zoom > 0 ? max(int(vw.candle_zoom), 1) : max(stores.candle.count, 1)
+		scroll := int(vw.candle_scroll_x)
 		end_idx := stores.candle.count - scroll
 		start_idx := max(end_idx - visible, 0)
 		if start_idx < 10 {
@@ -674,7 +725,7 @@ record_stream_event :: proc(
 	streams.controller_mark_connected(&handle.status, current_conn_status(state) == .Connected)
 	if is_active_stream {
 		streams.registry_set_active(&state.stream_registry, stream_id)
-		state.active_stream_state = handle.status.state
-		state.active_stream_desync_reason = handle.status.desync_reason
+		state.active_metrics.state = handle.status.state
+		state.active_metrics.desync_reason = handle.status.desync_reason
 	}
 }

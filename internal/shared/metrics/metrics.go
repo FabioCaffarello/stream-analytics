@@ -209,12 +209,39 @@ var (
 			Help: "Current outbound websocket queue depth across delivery sessions.",
 		},
 	)
+	WSQueueLen = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "ws_queue_len",
+			Help: "Current outbound websocket queue length across delivery sessions.",
+		},
+	)
 	WSDropsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "ws_drops_total",
 			Help: "Total dropped websocket outbound events by reason.",
 		},
 		[]string{"reason"},
+	)
+	WSDroppedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ws_dropped_total",
+			Help: "Total dropped websocket outbound events by reason and channel.",
+		},
+		[]string{"reason", "channel"},
+	)
+	WSMessagesOutTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ws_messages_out_total",
+			Help: "Total websocket outbound messages by channel.",
+		},
+		[]string{"channel"},
+	)
+	WSBytesOutTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ws_bytes_out_total",
+			Help: "Total websocket outbound bytes by channel.",
+		},
+		[]string{"channel"},
 	)
 	WSSendLatencyMilliseconds = prometheus.NewHistogram(
 		prometheus.HistogramOpts{
@@ -223,10 +250,31 @@ var (
 			Buckets: []float64{0.1, 0.5, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000},
 		},
 	)
+	WSPublishToDeliverLatencyMilliseconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "ws_publish_to_deliver_latency_ms",
+			Help:    "Latency in milliseconds from event publish(ts_ingest) to websocket delivery.",
+			Buckets: []float64{0.5, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2000, 5000},
+		},
+		[]string{"channel"},
+	)
+	WSLagMilliseconds = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "ws_lag_ms",
+			Help: "Current websocket delivery lag in milliseconds by channel.",
+		},
+		[]string{"channel"},
+	)
 	WSClientsConnected = prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "ws_clients_connected",
 			Help: "Connected websocket delivery clients.",
+		},
+	)
+	WSSubscriptionsActive = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "ws_subscriptions_active",
+			Help: "Active websocket subscriptions across all sessions.",
 		},
 	)
 	WSQueryTotal = prometheus.NewCounterVec(
@@ -242,6 +290,24 @@ var (
 			Help: "Total rejected websocket read-path queries by reason.",
 		},
 		[]string{"reason"},
+	)
+	WSSerializeErrorsTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "serialize_errors_total",
+			Help: "Total websocket serialization/transcoding errors.",
+		},
+	)
+	WSAuthFailTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "auth_fail_total",
+			Help: "Total websocket authentication/authorization failures.",
+		},
+	)
+	WSResyncTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "resync_total",
+			Help: "Total websocket resync requests handled.",
+		},
 	)
 
 	GuardianRestartsTotal = prometheus.NewCounterVec(
@@ -817,11 +883,21 @@ func registerAll() {
 			WSMessagesReceivedTotal,
 			WSErrorsTotal,
 			WSQueueDepth,
+			WSQueueLen,
 			WSDropsTotal,
+			WSDroppedTotal,
+			WSMessagesOutTotal,
+			WSBytesOutTotal,
 			WSSendLatencyMilliseconds,
+			WSPublishToDeliverLatencyMilliseconds,
+			WSLagMilliseconds,
 			WSClientsConnected,
+			WSSubscriptionsActive,
 			WSQueryTotal,
 			WSQueryRejectedTotal,
+			WSSerializeErrorsTotal,
+			WSAuthFailTotal,
+			WSResyncTotal,
 			GuardianRestartsTotal,
 			GuardianDegradedTotal,
 			GuardianSubsystemState,
@@ -920,6 +996,11 @@ func registerAll() {
 		WSMessagesReceivedTotal.WithLabelValues("unknown", "unknown")
 		WSErrorsTotal.WithLabelValues("unknown", "unknown")
 		WSDropsTotal.WithLabelValues("unknown")
+		WSDroppedTotal.WithLabelValues("unknown", "unknown")
+		WSMessagesOutTotal.WithLabelValues("unknown")
+		WSBytesOutTotal.WithLabelValues("unknown")
+		WSLagMilliseconds.WithLabelValues("unknown")
+		WSPublishToDeliverLatencyMilliseconds.WithLabelValues("unknown")
 		WSQueryTotal.WithLabelValues("unknown", "unknown")
 		WSQueryRejectedTotal.WithLabelValues("unknown")
 		GuardianRestartsTotal.WithLabelValues("unknown", "unknown")
@@ -1102,10 +1183,33 @@ func IncWSError(venue, status string) {
 
 func SetWSQueueDepth(depth int) {
 	WSQueueDepth.Set(float64(max(depth, 0)))
+	WSQueueLen.Set(float64(max(depth, 0)))
 }
 
 func IncWSDrops(reason string) {
 	WSDropsTotal.WithLabelValues(sanitizeKind(reason)).Inc()
+}
+
+func IncWSDropped(reason, channel string) {
+	WSDroppedTotal.WithLabelValues(sanitizeKind(reason), sanitizeEventType(channel)).Inc()
+}
+
+func IncWSMessagesOut(channel string) {
+	WSMessagesOutTotal.WithLabelValues(sanitizeEventType(channel)).Inc()
+}
+
+func AddWSBytesOut(channel string, n int) {
+	if n <= 0 {
+		return
+	}
+	WSBytesOutTotal.WithLabelValues(sanitizeEventType(channel)).Add(float64(n))
+}
+
+func SetWSLag(channel string, lagMs int64) {
+	if lagMs < 0 {
+		lagMs = 0
+	}
+	WSLagMilliseconds.WithLabelValues(sanitizeEventType(channel)).Set(float64(lagMs))
 }
 
 func ObserveWSSendLatency(latency time.Duration) {
@@ -1113,6 +1217,14 @@ func ObserveWSSendLatency(latency time.Duration) {
 		latency = 0
 	}
 	WSSendLatencyMilliseconds.Observe(float64(latency) / float64(time.Millisecond))
+}
+
+func ObserveWSPublishToDeliverLatency(channel string, latency time.Duration) {
+	if latency < 0 {
+		latency = 0
+	}
+	WSPublishToDeliverLatencyMilliseconds.WithLabelValues(sanitizeEventType(channel)).
+		Observe(float64(latency) / float64(time.Millisecond))
 }
 
 func IncWSClientsConnected() {
@@ -1129,6 +1241,22 @@ func IncWSQuery(op, boundedCategory string) {
 
 func IncWSQueryRejected(reason string) {
 	WSQueryRejectedTotal.WithLabelValues(sanitizeKind(reason)).Inc()
+}
+
+func SetWSSubscriptionsActive(count int) {
+	WSSubscriptionsActive.Set(float64(max(count, 0)))
+}
+
+func IncWSSerializeErrors() {
+	WSSerializeErrorsTotal.Inc()
+}
+
+func IncWSAuthFail() {
+	WSAuthFailTotal.Inc()
+}
+
+func IncWSResync() {
+	WSResyncTotal.Inc()
 }
 
 func IncGuardianRestart(subsystem, status string) {
@@ -1856,6 +1984,7 @@ func sanitizeBoundedMapName(v string) string {
 // SetDeliveryRouterSubscriptionsActive sets the active subscriptions gauge.
 func SetDeliveryRouterSubscriptionsActive(count int) {
 	DeliveryRouterSubscriptionsActive.Set(float64(max(count, 0)))
+	SetWSSubscriptionsActive(count)
 }
 
 // IncDeliveryRouterEventsRouted increments the routed events counter.

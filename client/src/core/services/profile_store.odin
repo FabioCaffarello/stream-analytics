@@ -24,6 +24,8 @@ Connection_Profile :: struct {
 	api_key_ref: [64]u8,
 	api_key_ref_len: u8,
 	session_only: bool,
+	jwt_token:   [256]u8,
+	jwt_token_len: u16,
 }
 
 Profile_Store :: struct {
@@ -90,7 +92,12 @@ profile_api_key_ref :: proc(p: ^Connection_Profile) -> string {
 	return fixed_string(p.api_key_ref[:], int(p.api_key_ref_len))
 }
 
-profile_make :: proc(name: string, ws_url: string, venue: string, symbol: string, market_type: string = "", api_key_ref: string = "", session_only: bool = true) -> Connection_Profile {
+profile_jwt_token :: proc(p: ^Connection_Profile) -> string {
+	if p == nil do return ""
+	return fixed_string(p.jwt_token[:], int(p.jwt_token_len))
+}
+
+profile_make :: proc(name: string, ws_url: string, venue: string, symbol: string, market_type: string = "", api_key_ref: string = "", session_only: bool = true, jwt_token: string = "") -> Connection_Profile {
 	p: Connection_Profile
 	set_fixed_string(p.name[:], &p.name_len, name)
 	set_fixed_string_u16(p.ws_url[:], &p.ws_url_len, ws_url)
@@ -99,6 +106,7 @@ profile_make :: proc(name: string, ws_url: string, venue: string, symbol: string
 	set_fixed_string(p.market_type[:], &p.market_type_len, market_type)
 	set_fixed_string(p.api_key_ref[:], &p.api_key_ref_len, api_key_ref)
 	p.session_only = session_only
+	set_fixed_string_u16(p.jwt_token[:], &p.jwt_token_len, jwt_token)
 	return p
 }
 
@@ -179,7 +187,8 @@ profile_serialize_into :: proc(buf: []u8, p: ^Connection_Profile) -> string {
 		profile_symbol(p), "|",
 		profile_market_type(p), "|",
 		profile_api_key_ref(p), "|",
-		session_only,
+		session_only, "|",
+		profile_jwt_token(p),
 	})
 	defer delete(out)
 	n := min(len(buf), len(out))
@@ -191,7 +200,7 @@ profile_serialize_into :: proc(buf: []u8, p: ^Connection_Profile) -> string {
 
 @(private = "file")
 profile_deserialize :: proc(raw: string) -> (Connection_Profile, bool) {
-	parts: [7]string
+	parts: [8]string
 	part_idx := 0
 	start := 0
 	for i in 0 ..< len(raw) {
@@ -207,7 +216,8 @@ profile_deserialize :: proc(raw: string) -> (Connection_Profile, bool) {
 		part_idx += 1
 	}
 	if part_idx < 7 do return {}, false
-	profile := profile_make(parts[0], parts[1], parts[2], parts[3], parts[4], parts[5], parts[6] != "0")
+	jwt := parts[7] if part_idx >= 8 else ""
+	profile := profile_make(parts[0], parts[1], parts[2], parts[3], parts[4], parts[5], parts[6] != "0", jwt)
 	return profile, len(profile_name(&profile)) > 0
 }
 

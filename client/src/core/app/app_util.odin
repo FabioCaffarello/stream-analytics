@@ -6,15 +6,6 @@ import "mr:ports"
 import "mr:services"
 import "mr:ui"
 
-// Parse a single-digit int from string, clamped to [lo, hi]. Returns lo on failure.
-parse_small_int :: proc(s: string, lo, hi: int) -> int {
-	if len(s) == 0 do return lo
-	d := int(s[0]) - '0'
-	if d < lo do return lo
-	if d > hi do return hi
-	return d
-}
-
 // Parse a multi-digit int from string, clamped to [lo, hi]. Returns fallback on failure.
 parse_int_clamped :: proc(s: string, lo, hi, fallback: int) -> int {
 	if len(s) == 0 do return fallback
@@ -126,23 +117,14 @@ parse_channel_short_label :: proc(s: string) -> (ports.MD_Channel, bool) {
 	return {}, false
 }
 
-format_timeframe_short_into :: proc(buf: []u8, tf_ms: i64) -> string {
-	if tf_ms <= 0 do return ""
-	if tf_ms % 86_400_000 == 0 do return fmt.bprintf(buf, "%dd", tf_ms / 86_400_000)
-	if tf_ms % 3_600_000 == 0 do return fmt.bprintf(buf, "%dh", tf_ms / 3_600_000)
-	if tf_ms % 60_000 == 0 do return fmt.bprintf(buf, "%dm", tf_ms / 60_000)
-	if tf_ms % 1000 == 0 do return fmt.bprintf(buf, "%ds", tf_ms / 1000)
-	return fmt.bprintf(buf, "%dms", tf_ms)
-}
-
 // Set a toast message for brief on-screen feedback (~90 frames / 1.5s).
 show_toast :: proc(state: ^App_State, msg: string) {
-	n := min(len(msg), len(state.toast_text))
+	n := min(len(msg), len(state.toast.text))
 	for i in 0 ..< n {
-		state.toast_text[i] = msg[i]
+		state.toast.text[i] = msg[i]
 	}
-	state.toast_len = n
-	state.toast_frame = state.frame
+	state.toast.len = n
+	state.toast.frame = state.frame
 }
 
 // Check if a market (venue + ticker) has a matching connected stream view slot.
@@ -176,10 +158,10 @@ sync_layer_to_global :: proc(state: ^App_State, idx: int, value: bool) {
 		services.SETTING_SHOW_LIQ, services.SETTING_SHOW_TRADE_COUNTER,
 	}
 	global_ptrs := [11]^bool{
-		&state.show_candle_vol, &state.show_candle_heatmap, &state.show_candle_vpvr,
-		&state.show_ma, &state.show_bbands, &state.show_vwap,
-		&state.show_rsi, &state.show_macd, &state.show_funding,
-		&state.show_liq, &state.show_trade_counter,
+		&state.chart_display.show_vol, &state.chart_display.show_heatmap, &state.chart_display.show_vpvr,
+		&state.indicators.show_ma, &state.indicators.show_bbands, &state.indicators.show_vwap,
+		&state.indicators.show_rsi, &state.indicators.show_macd, &state.indicators.show_funding,
+		&state.indicators.show_liq, &state.indicators.show_trade_counter,
 	}
 	if idx < 0 || idx >= 11 do return
 	global_ptrs[idx]^ = value
@@ -235,7 +217,9 @@ restore_col_weights :: proc(state: ^App_State) -> bool {
 		c := v[i]
 		if c == ',' {
 			if has_val && ci < ui.GRID_MAX_COLS {
-				state.custom_grid_def.col_weights[ci] = f32(val) / 100.0
+				w := f32(val) / 100.0
+				if w < 0.05 do w = 0.05
+				state.custom_grid_def.col_weights[ci] = w
 				ci += 1
 			}
 			val = 0
@@ -246,7 +230,9 @@ restore_col_weights :: proc(state: ^App_State) -> bool {
 		}
 	}
 	if has_val && ci < ui.GRID_MAX_COLS {
-		state.custom_grid_def.col_weights[ci] = f32(val) / 100.0
+		w := f32(val) / 100.0
+		if w < 0.05 do w = 0.05
+		state.custom_grid_def.col_weights[ci] = w
 		ci += 1
 	}
 	return ci > 0
@@ -280,7 +266,9 @@ restore_row_weights :: proc(state: ^App_State) -> bool {
 		c := v[i]
 		if c == ',' {
 			if has_val && ri < ui.GRID_MAX_ROWS {
-				state.custom_grid_def.row_weights[ri] = f32(val) / 100.0
+				w := f32(val) / 100.0
+				if w < 0.05 do w = 0.05
+				state.custom_grid_def.row_weights[ri] = w
 				ri += 1
 			}
 			val = 0
@@ -291,7 +279,9 @@ restore_row_weights :: proc(state: ^App_State) -> bool {
 		}
 	}
 	if has_val && ri < ui.GRID_MAX_ROWS {
-		state.custom_grid_def.row_weights[ri] = f32(val) / 100.0
+		w := f32(val) / 100.0
+		if w < 0.05 do w = 0.05
+		state.custom_grid_def.row_weights[ri] = w
 		ri += 1
 	}
 	return ri > 0

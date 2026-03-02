@@ -79,6 +79,9 @@ SETTING_CONNECTION_PROFILE_8     :: "connection_profile_8"
 SETTING_CONNECTION_PROFILE_9     :: "connection_profile_9"
 SETTING_CONNECTION_PROFILE_10    :: "connection_profile_10"
 SETTING_CONNECTION_PROFILE_11    :: "connection_profile_11"
+SETTING_AUTO_CONNECT             :: "auto_connect"
+SETTING_TF_DEFAULT               :: "tf_default"
+SETTING_SETTINGS_VERSION         :: "settings_version"
 
 // Initialize store, loading known keys from port.
 settings_init :: proc(store: ^Settings_Store, port: ports.Settings_Port) {
@@ -109,6 +112,7 @@ settings_init :: proc(store: ^Settings_Store, port: ports.Settings_Port) {
 				SETTING_CONNECTION_PROFILE_6, SETTING_CONNECTION_PROFILE_7,
 				SETTING_CONNECTION_PROFILE_8, SETTING_CONNECTION_PROFILE_9,
 				SETTING_CONNECTION_PROFILE_10, SETTING_CONNECTION_PROFILE_11,
+				SETTING_AUTO_CONNECT, SETTING_TF_DEFAULT, SETTING_SETTINGS_VERSION,
 			}
 	for key in known_keys {
 		value, ok := port.load(key)
@@ -147,6 +151,12 @@ settings_flush :: proc(store: ^Settings_Store) {
 		store.port.flush()
 	}
 	store.dirty = false
+}
+
+// Copy text to the system clipboard via platform port.
+settings_clipboard_write :: proc(store: ^Settings_Store, text: string) -> bool {
+	if store.port.clipboard_write == nil do return false
+	return store.port.clipboard_write(text)
 }
 
 // --- Internal ---

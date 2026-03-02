@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/anthdm/hollywood/actor"
@@ -30,6 +31,7 @@ import (
 	"github.com/market-raccoon/internal/shared/config"
 	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
+	"github.com/market-raccoon/internal/shared/ids"
 	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/problem"
 )
@@ -525,6 +527,7 @@ func enableWSRoute(
 	cfg config.AppConfig,
 ) {
 	hotSnapshotProvider := newWSHotSnapshotProvider(rangeStore, tsPool, subMinuteGate)
+	hotSnapshotProvider = newBoundedSnapshotCacheProvider(hotSnapshotProvider, wsSnapshotCacheTTL, wsSnapshotCacheMaxEntries)
 	select {
 	case routerPID := <-routerPIDCh:
 		var subsystemPID *actor.PID
@@ -539,8 +542,15 @@ func enableWSRoute(
 			rangeStore,
 			cfg.Delivery.SessionOutboundQueueSize,
 			wsserver.WithAuthConfig(wsserver.AuthConfig{
-				Enabled: cfg.WS.Auth.Enabled,
-				APIKeys: cfg.WS.Auth.APIKeys,
+				Enabled:      cfg.WS.Auth.Enabled,
+				APIKeys:      cfg.WS.Auth.APIKeys,
+				APIKeyScopes: cfg.WS.Auth.APIKeyScopes,
+				JWT: wsserver.JWTAuthConfig{
+					Enabled:     cfg.WS.Auth.JWT.Enabled,
+					HS256Secret: cfg.WS.Auth.JWT.HS256Secret,
+					Issuer:      cfg.WS.Auth.JWT.Issuer,
+					Audience:    cfg.WS.Auth.JWT.Audience,
+				},
 			}),
 			wsserver.WithSessionSpawner(func(sessionCfg deliveryruntime.SessionConfig) *actor.PID {
 				sessionCfg.BackpressurePolicy = deliverydomain.BackpressurePolicy(cfg.Delivery.BackpressurePolicy)
@@ -566,17 +576,33 @@ func enableWSRoute(
 				MaxPerSecond:  cfg.WS.RateLimit.MaxPerSecond,
 				BurstCapacity: cfg.WS.RateLimit.BurstCapacity,
 			}),
+			wsserver.WithIPRateLimit(deliveryruntime.RateLimitConfig{
+				Enabled:       cfg.WS.RateLimit.Enabled,
+				MaxPerSecond:  cfg.WS.RateLimit.MaxPerSecond,
+				BurstCapacity: cfg.WS.RateLimit.BurstCapacity,
+			}),
+			wsserver.WithConnectionLimits(wsserver.ConnectionLimits{
+				MaxConnectionsPerIP:  cfg.WS.Limits.MaxConnectionsPerIP,
+				MaxConnectionsPerKey: cfg.WS.Limits.MaxConnectionsPerKey,
+				MaxSubsPerConnection: cfg.WS.Limits.MaxSubsPerConnection,
+				MaxSymbolsPerConn:    cfg.WS.Limits.MaxSymbolsPerConn,
+			}),
+			wsserver.WithServerInstanceID(ids.NewSessionID().String()),
 			wsserver.WithSlowClientDropThreshold(cfg.Delivery.SlowClientDropThreshold),
 			wsserver.WithTranscodeCache(deliveryruntime.NewTranscodeCache(0)),
 		)
 		srv.HandleFunc("GET /ws", ws.HandleWS)
-		logger.Info("delivery websocket route enabled", "route", "GET /ws")
+		srv.HandleFunc("GET /ws/marketdata", ws.HandleWS)
+		srv.HandleFunc("GET /introspection", ws.HandleIntrospection)
+		logger.Info("delivery websocket route enabled", "route", "GET /ws|/ws/marketdata")
 	case <-time.After(cfg.Delivery.RouterReadyTimeoutDuration()):
 		logger.Warn("delivery router not ready in time; /ws route disabled")
 	}
 }
 
 const wsHotSnapshotRecentWindow = 24 * time.Hour
+const wsSnapshotCacheTTL = 3 * time.Second
+const wsSnapshotCacheMaxEntries = 1024
 
 type rangeStoreHotSnapshotProvider struct {
 	rangeStore ports.RangeStore
@@ -594,6 +620,22 @@ type wsHotSnapshotProvider struct {
 	hotTS deliveryruntime.HotSnapshotProvider
 }
 
+type snapshotCacheEntry struct {
+	payload  []byte
+	cachedAt time.Time
+}
+
+type boundedSnapshotCacheProvider struct {
+	next       deliveryruntime.HotSnapshotProvider
+	ttl        time.Duration
+	maxEntries int
+	clock      func() time.Time
+
+	mu    sync.Mutex
+	cache map[string]snapshotCacheEntry
+	order []string
+}
+
 func newWSHotSnapshotProvider(
 	rangeStore ports.RangeStore,
 	tsPool *timescale.Pool,
@@ -609,6 +651,30 @@ func newWSHotSnapshotProvider(
 	return p
 }
 
+func newBoundedSnapshotCacheProvider(
+	next deliveryruntime.HotSnapshotProvider,
+	ttl time.Duration,
+	maxEntries int,
+) deliveryruntime.HotSnapshotProvider {
+	if next == nil {
+		return nil
+	}
+	if ttl <= 0 {
+		ttl = wsSnapshotCacheTTL
+	}
+	if maxEntries <= 0 {
+		maxEntries = wsSnapshotCacheMaxEntries
+	}
+	return &boundedSnapshotCacheProvider{
+		next:       next,
+		ttl:        ttl,
+		maxEntries: maxEntries,
+		clock:      time.Now,
+		cache:      make(map[string]snapshotCacheEntry, maxEntries),
+		order:      make([]string, 0, maxEntries),
+	}
+}
+
 func (p wsHotSnapshotProvider) GetLatest(subject deliverydomain.Subject) ([]byte, bool) {
 	if p.live != nil {
 		if raw, ok := p.live.GetLatest(subject); ok {
@@ -619,6 +685,52 @@ func (p wsHotSnapshotProvider) GetLatest(subject deliverydomain.Subject) ([]byte
 		return p.hotTS.GetLatest(subject)
 	}
 	return nil, false
+}
+
+func (p *boundedSnapshotCacheProvider) GetLatest(subject deliverydomain.Subject) ([]byte, bool) {
+	if p == nil || p.next == nil {
+		return nil, false
+	}
+	key := strings.TrimSpace(subject.String())
+	if key == "" {
+		return p.next.GetLatest(subject)
+	}
+	now := time.Now()
+	if p.clock != nil {
+		now = p.clock()
+	}
+
+	p.mu.Lock()
+	if entry, ok := p.cache[key]; ok {
+		if now.Sub(entry.cachedAt) <= p.ttl {
+			payload := append([]byte(nil), entry.payload...)
+			p.mu.Unlock()
+			return payload, true
+		}
+		delete(p.cache, key)
+	}
+	p.mu.Unlock()
+
+	payload, ok := p.next.GetLatest(subject)
+	if !ok || len(payload) == 0 {
+		return payload, ok
+	}
+	copied := append([]byte(nil), payload...)
+	p.mu.Lock()
+	if _, exists := p.cache[key]; !exists {
+		p.order = append(p.order, key)
+	}
+	p.cache[key] = snapshotCacheEntry{payload: copied, cachedAt: now}
+	for len(p.cache) > p.maxEntries && len(p.order) > 0 {
+		evict := p.order[0]
+		p.order = p.order[1:]
+		if evict == key {
+			continue
+		}
+		delete(p.cache, evict)
+	}
+	p.mu.Unlock()
+	return copied, true
 }
 
 func (p rangeStoreHotSnapshotProvider) GetLatest(subject deliverydomain.Subject) ([]byte, bool) {

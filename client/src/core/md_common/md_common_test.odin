@@ -1,0 +1,191 @@
+package md_common
+
+import "core:strings"
+import "core:testing"
+import "mr:ports"
+
+@(test)
+test_backoff_with_jitter_range :: proc(t: ^testing.T) {
+	seed := u32(12345)
+	base := 1000
+	for _ in 0 ..< 100 {
+		result := backoff_with_jitter(base, &seed)
+		testing.expect(t, result >= 750, "jittered value below 75% of base")
+		testing.expect(t, result <= 1000, "jittered value above 100% of base")
+	}
+}
+
+@(test)
+test_backoff_with_jitter_deterministic :: proc(t: ^testing.T) {
+	seed1 := u32(42)
+	seed2 := u32(42)
+	r1 := backoff_with_jitter(2000, &seed1)
+	r2 := backoff_with_jitter(2000, &seed2)
+	testing.expect_value(t, r1, r2)
+}
+
+@(test)
+test_backoff_with_jitter_zero_base :: proc(t: ^testing.T) {
+	seed := u32(99)
+	result := backoff_with_jitter(0, &seed)
+	testing.expect_value(t, result, 0)
+}
+
+@(test)
+test_build_subscribe_msg_overflow :: proc(t: ^testing.T) {
+	buf: [10]u8 // too small
+	_, ok := build_subscribe_msg(buf[:], "some/subject", 1)
+	testing.expect_value(t, ok, false)
+}
+
+@(test)
+test_build_subscribe_msg_valid :: proc(t: ^testing.T) {
+	buf: [256]u8
+	msg, ok := build_subscribe_msg(buf[:], "marketdata.trade/binance/BTCUSDT", 42)
+	testing.expect_value(t, ok, true)
+	testing.expect(t, len(msg) > 0, "expected non-empty message")
+}
+
+@(test)
+test_subject_is_json_safe_rejects_quotes :: proc(t: ^testing.T) {
+	testing.expect_value(t, subject_is_json_safe(`has"quote`), false)
+	testing.expect_value(t, subject_is_json_safe(`has\slash`), false)
+	testing.expect_value(t, subject_is_json_safe(""), false)
+	testing.expect_value(t, subject_is_json_safe("marketdata.trade/binance/BTCUSDT"), true)
+}
+
+@(test)
+test_update_parse_rates_window_rollover :: proc(t: ^testing.T) {
+	rs: Rate_State
+	// First call initializes the window.
+	update_parse_rates(&rs, 1000, 100)
+	testing.expect_value(t, rs.parsed_msgs_total, u64(1))
+	testing.expect_value(t, rs.parsed_bytes_total, u64(100))
+
+	// Calls within 1s accumulate.
+	update_parse_rates(&rs, 1500, 200)
+	testing.expect_value(t, rs.parsed_msgs_total, u64(2))
+
+	// After 1s, rates are computed and window is reset.
+	update_parse_rates(&rs, 2100, 300)
+	testing.expect(t, rs.msg_rate > 0, "expected non-zero msg_rate after 1s window")
+	testing.expect(t, rs.bytes_rate > 0, "expected non-zero bytes_rate after 1s window")
+}
+
+@(test)
+test_build_unsubscribe_msg_valid :: proc(t: ^testing.T) {
+	buf: [256]u8
+	msg, ok := build_unsubscribe_msg(buf[:], "marketdata.trade/binance/BTCUSDT", 7)
+	testing.expect_value(t, ok, true)
+	testing.expect(t, len(msg) > 0, "expected non-empty unsubscribe message")
+}
+
+@(test)
+test_build_subscribe_msg_unsafe_subject :: proc(t: ^testing.T) {
+	buf: [256]u8
+	// Quotes in subject should be rejected.
+	_, ok := build_subscribe_msg(buf[:], `inject"quote`, 1)
+	testing.expect_value(t, ok, false)
+}
+
+@(test)
+test_backoff_with_jitter_negative_base :: proc(t: ^testing.T) {
+	seed := u32(1)
+	result := backoff_with_jitter(-100, &seed)
+	testing.expect_value(t, result, 0)
+}
+
+// --- Terminal_V1 builder tests ---
+
+@(test)
+test_build_hello_msg :: proc(t: ^testing.T) {
+	buf: [256]u8
+	msg, ok := build_hello_msg(buf[:], 1)
+	testing.expect_value(t, ok, true)
+	testing.expect(t, len(msg) > 0, "expected non-empty hello message")
+	// Must contain op and type fields.
+	testing.expect(t, strings.contains(msg, `"op":"hello"`), "expected op:hello")
+	testing.expect(t, strings.contains(msg, `"type":"hello"`), "expected type:hello")
+	testing.expect(t, strings.contains(msg, `"request_id":"h1"`), "expected request_id h1")
+}
+
+@(test)
+test_build_ping_msg :: proc(t: ^testing.T) {
+	buf: [256]u8
+	msg, ok := build_ping_msg(buf[:], 1700000000000, 5)
+	testing.expect_value(t, ok, true)
+	testing.expect(t, len(msg) > 0, "expected non-empty ping message")
+	testing.expect(t, strings.contains(msg, `"op":"ping"`), "expected op:ping")
+	testing.expect(t, strings.contains(msg, `"ts_client":1700000000000`), "expected ts_client")
+}
+
+@(test)
+test_build_resync_msg :: proc(t: ^testing.T) {
+	buf: [512]u8
+	msg, ok := build_resync_msg(buf[:], "marketdata.trade/binance/BTCUSDT/raw", 12345, 3)
+	testing.expect_value(t, ok, true)
+	testing.expect(t, len(msg) > 0, "expected non-empty resync message")
+	testing.expect(t, strings.contains(msg, `"op":"resync"`), "expected op:resync")
+	testing.expect(t, strings.contains(msg, `"stream_id":"marketdata.trade/binance/BTCUSDT/raw"`), "expected stream_id")
+	testing.expect(t, strings.contains(msg, `"last_seq":12345`), "expected last_seq")
+}
+
+@(test)
+test_build_subscribe_v2_component_fields :: proc(t: ^testing.T) {
+	buf: [768]u8
+	msg, ok := build_subscribe_msg_v2(buf[:], "marketdata.trade/binance/BTCUSDT/raw", "binance", "BTCUSDT", "marketdata.trade", "raw", 10)
+	testing.expect_value(t, ok, true)
+	testing.expect(t, len(msg) > 0, "expected non-empty v2 subscribe message")
+	testing.expect(t, strings.contains(msg, `"op":"subscribe"`), "expected op:subscribe")
+	testing.expect(t, strings.contains(msg, `"venue":"binance"`), "expected venue field")
+	testing.expect(t, strings.contains(msg, `"symbol":"BTCUSDT"`), "expected symbol field")
+	testing.expect(t, strings.contains(msg, `"channel":"marketdata.trade"`), "expected channel field")
+	testing.expect(t, strings.contains(msg, `"aggregation":"raw"`), "expected aggregation field")
+}
+
+@(test)
+test_build_unsubscribe_v2_stream_id :: proc(t: ^testing.T) {
+	buf: [512]u8
+	msg, ok := build_unsubscribe_msg_v2(buf[:], "marketdata.trade/binance/BTCUSDT/raw", 7)
+	testing.expect_value(t, ok, true)
+	testing.expect(t, len(msg) > 0, "expected non-empty v2 unsubscribe message")
+	testing.expect(t, strings.contains(msg, `"op":"unsubscribe"`), "expected op:unsubscribe")
+	testing.expect(t, strings.contains(msg, `"stream_id":"marketdata.trade/binance/BTCUSDT/raw"`), "expected stream_id")
+}
+
+@(test)
+test_parse_subject_components :: proc(t: ^testing.T) {
+	venue, symbol, channel, aggregation := parse_subject_components("marketdata.trade/binance/BTCUSDT/raw")
+	testing.expect_value(t, channel, "marketdata.trade")
+	testing.expect_value(t, venue, "binance")
+	testing.expect_value(t, symbol, "BTCUSDT")
+	testing.expect_value(t, aggregation, "raw")
+}
+
+@(test)
+test_parse_subject_components_no_aggregation :: proc(t: ^testing.T) {
+	venue, symbol, channel, aggregation := parse_subject_components("marketdata.bookdelta/coinbase/ETHUSDT")
+	testing.expect_value(t, channel, "marketdata.bookdelta")
+	testing.expect_value(t, venue, "coinbase")
+	testing.expect_value(t, symbol, "ETHUSDT")
+	testing.expect_value(t, aggregation, "")
+}
+
+@(test)
+test_ws_fault_action_matrix :: proc(t: ^testing.T) {
+	testing.expect_value(t, ws_fault_action(.AuthDenied, true), ports.MD_WS_Error_Action.Stop)
+	testing.expect_value(t, ws_fault_action(.HandshakeFailed, true), ports.MD_WS_Error_Action.Retry)
+	testing.expect_value(t, ws_fault_action(.ServerClosed, true), ports.MD_WS_Error_Action.Retry)
+	testing.expect_value(t, ws_fault_action(.ProtocolError, true), ports.MD_WS_Error_Action.Resync)
+	testing.expect_value(t, ws_fault_action(.BackpressureDrop, true), ports.MD_WS_Error_Action.Resync)
+	testing.expect_value(t, ws_fault_action(.Timeout, true), ports.MD_WS_Error_Action.Downgrade)
+	testing.expect_value(t, ws_fault_action(.Timeout, false), ports.MD_WS_Error_Action.Stop)
+}
+
+@(test)
+test_legacy_switch_from_text :: proc(t: ^testing.T) {
+	testing.expect_value(t, legacy_switch_from_text("on"), true)
+	testing.expect_value(t, legacy_switch_from_text("true"), true)
+	testing.expect_value(t, legacy_switch_from_text("OFF"), false)
+	testing.expect_value(t, legacy_switch_from_text("0"), false)
+}
