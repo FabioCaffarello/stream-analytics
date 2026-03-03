@@ -226,6 +226,9 @@ g_md_state: ^MD_Native_State
 
 @(private = "file")
 read_allow_legacy_ws_native :: proc() -> bool {
+	if v, ok := native_settings_lookup(services.SETTING_ALLOW_LEGACY_WS); ok {
+		return md_common.legacy_switch_from_text(v)
+	}
 	raw := os.get_env("ALLOW_LEGACY_WS", context.temp_allocator)
 	return md_common.legacy_switch_from_text(raw)
 }
@@ -366,6 +369,45 @@ server_has_feature :: proc(state: ^MD_Native_State, name: string) -> bool {
 	return false
 }
 
+@(private = "file")
+negotiated_has_feature :: proc(state: ^MD_Native_State, name: string) -> bool {
+	for i in 0 ..< state.negotiated_feature_count {
+		slot := state.negotiated_features[i]
+		if int(slot.len) != len(name) do continue
+		match := true
+		for j in 0 ..< int(slot.len) {
+			if slot.name[j] != name[j] {
+				match = false
+				break
+			}
+		}
+		if match do return true
+	}
+	return false
+}
+
+@(private = "file")
+feature_setting_value :: proc(key: string) -> string {
+	if v, ok := native_settings_lookup(key); ok && len(v) > 0 {
+		return v
+	}
+	return "auto"
+}
+
+@(private = "file")
+frame_within_limit :: proc(state: ^MD_Native_State, frame_len: int) -> bool {
+	if state == nil do return false
+	if frame_len < 0 do return false
+	if state.server_max_frame_bytes > 0 && frame_len > state.server_max_frame_bytes {
+		state.drop_payload_oversize += 1
+		state.drop_count += 1
+		fmt.printf("[md-lifecycle] frame_rejected max_frame_bytes=%d len=%d\n", state.server_max_frame_bytes, frame_len)
+		apply_ws_fault(state, .BackpressureDrop)
+		return false
+	}
+	return true
+}
+
 // Send HELLO frame on initial connect (Terminal_V1 handshake).
 // Uses build_hello_msg_v2 with requested_features when available,
 // falls back to build_hello_msg for zero-feature case.
@@ -383,7 +425,9 @@ send_hello :: proc(state: ^MD_Native_State) {
 		server_has_feature(state, "batching"),
 		server_has_feature(state, "snapshot_hash"),
 		server_has_feature(state, "prev_seq"),
-		"auto", "auto", "auto",  // TODO: read from settings when wired
+		feature_setting_value(services.SETTING_FEATURE_BATCHING),
+		feature_setting_value(services.SETTING_FEATURE_SNAPSHOT_HASH),
+		feature_setting_value(services.SETTING_FEATURE_PREV_SEQ),
 		&features, &feature_lens,
 	)
 	msg, ok := md_common.build_hello_msg_v2(buf[:], state.rid_counter, &features, &feature_lens, fc)
@@ -392,6 +436,7 @@ send_hello :: proc(state: ^MD_Native_State) {
 		msg, ok = md_common.build_hello_msg(buf[:], state.rid_counter)
 	}
 	if !ok do return
+	if !frame_within_limit(state, len(msg)) do return
 	err := ws_write_text(state.conn, msg)
 	if err == nil {
 		fmt.printf("[md-lifecycle] hello_sent rid=h%d features=%d\n", state.rid_counter, fc)
@@ -406,6 +451,7 @@ send_ping :: proc(state: ^MD_Native_State) {
 	buf: [256]u8
 	msg, ok := md_common.build_ping_msg(buf[:], ts, state.rid_counter)
 	if !ok do return
+	if !frame_within_limit(state, len(msg)) do return
 	err := ws_write_text(state.conn, msg)
 	if err == nil {
 		state.last_ping_sent_ms = ts
@@ -905,6 +951,7 @@ send_unsubscribe :: proc(state: ^MD_Native_State, subject: string) -> bool {
 		msg, ok = md_common.build_unsubscribe_msg(buf[:], subject, state.rid_counter)
 	}
 	if !ok do return false
+	if !frame_within_limit(state, len(msg)) do return false
 	err := ws_write_text(state.conn, string(msg))
 	if err == nil {
 		rid_buf: [16]u8
@@ -926,6 +973,7 @@ send_subscribe :: proc(state: ^MD_Native_State, subject: string) -> bool {
 		msg, ok = md_common.build_subscribe_msg(buf[:], subject, state.rid_counter)
 	}
 	if !ok do return false
+	if !frame_within_limit(state, len(msg)) do return false
 	err := ws_write_text(state.conn, msg)
 	if err == nil {
 		rid_buf: [16]u8
@@ -948,6 +996,7 @@ send_resync :: proc(state: ^MD_Native_State, subject: string, last_seq: i64) -> 
 	buf: [512]u8
 	msg, ok := md_common.build_resync_msg(buf[:], stream_id, last_seq, state.rid_counter)
 	if !ok do return false
+	if !frame_within_limit(state, len(msg)) do return false
 	err := ws_write_text(state.conn, msg)
 	if err == nil {
 		state.resync_count += 1
@@ -1613,7 +1662,7 @@ apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 						state.prev_seq_violations += 1
 					}
 				}
-				// Snapshot integrity: validate snapshot_seq monotonicity + hash format.
+				// Snapshot integrity: validate monotonicity/consistency + hash format.
 				if result.meta.is_snapshot {
 					if result.meta.snapshot_seq > 0 {
 						if md_common.validate_snapshot_seq_monotonic(result.meta.snapshot_seq, state.last_snapshot_seq_by_sub[si]) {
@@ -1621,12 +1670,18 @@ apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 						}
 						state.last_snapshot_seq_by_sub[si] = result.meta.snapshot_seq
 					}
+					if md_common.validate_snapshot_integrity_consistency(result.meta.seq, result.meta.snapshot_seq, result.meta.watermark_seq) {
+						state.snapshot_seq_violations += 1
+					}
 					if result.meta.snapshot_hash_len > 0 {
-						if md_common.validate_snapshot_hash_format(result.meta.snapshot_hash, result.meta.snapshot_hash_len) {
-							// Hash format valid; skip byte-perfect comparison (noncanonical input).
-							state.hash_validation_skipped += 1
+						if !md_common.validate_snapshot_hash_format(result.meta.snapshot_hash, result.meta.snapshot_hash_len) {
+							state.snapshot_hash_mismatches += 1
 						} else {
-							state.snapshot_hash_mismatches += 1  // invalid format counts as mismatch
+							// Hash is format-valid. Only track "skipped" when feature negotiated.
+							if negotiated_has_feature(state, "snapshot_hash") {
+								state.hash_validation_skipped += 1
+								fmt.printf("[md-lifecycle] snapshot_hash_skipped sid=%x seq=%d reason=noncanonical_input\n", result.meta.subject_id, result.meta.seq)
+							}
 						}
 					}
 				}
@@ -1933,6 +1988,7 @@ native_send_getrange :: proc(subject: string, limit: int, end_ts: i64) {
 	buf: [512]u8
 	msg, ok := md_common.build_getrange_msg(buf[:], subject, limit, end_ts, state.rid_counter)
 	if !ok do return
+	if !frame_within_limit(state, len(msg)) do return
 	ws_write_text(state.conn, msg)
 }
 

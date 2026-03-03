@@ -30,6 +30,12 @@ make_settings_port :: proc() -> ports.Settings_Port {
 	}
 }
 
+// Read a persisted setting directly from native storage.
+// Used by platform services that are not wired through core Settings_Store.
+native_settings_lookup :: proc(key: string) -> (value: string, ok: bool) {
+	return native_settings_load(key)
+}
+
 // --- Port implementation ---
 
 @(private = "file")
