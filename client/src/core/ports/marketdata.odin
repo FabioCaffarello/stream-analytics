@@ -46,6 +46,7 @@ MD_Event_Kind :: enum u8 {
 	VPVR,
 	Candle,
 	Range_Candle_Batch,
+	Evidence,
 }
 
 MD_Channel :: enum u8 {
@@ -130,6 +131,17 @@ MD_Candle_Event :: struct {
 	is_closed:       bool,
 }
 
+MD_Evidence_Event :: struct {
+	kind:          [24]u8,
+	kind_len:      u8,
+	confidence:    f64,
+	reason:        [96]u8,
+	reason_len:    u8,
+	feature_tags:  [4][24]u8,
+	feature_count: int,
+	unix:          i64,
+}
+
 // Keep range batches compact enough for per-frame polling, while still allowing
 // a meaningful historical seed for candle UI.
 RANGE_CANDLE_MAX :: 32
@@ -148,6 +160,7 @@ MD_Event_Data :: struct #raw_union {
 	vpvr:           MD_VPVR_Event,
 	candle:         MD_Candle_Event,
 	range_candles:  MD_Range_Candle_Batch,
+	evidence:       MD_Evidence_Event,
 }
 
 MD_Event_Source :: struct {

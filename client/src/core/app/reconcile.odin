@@ -134,6 +134,13 @@ reconcile_subscriptions :: proc(state: ^App_State) {
 	for ci in 0 ..< state.world.count {
 		ch_mask := channels_for_widget(state.world.widgets[ci].kind)
 		if ch_mask == 0 do continue
+		if state.bp_assist.degrade_heatmap {
+			ch_mask &= ~u8(1 << u8(ports.MD_Channel.Heatmaps))
+		}
+		if state.bp_assist.degrade_vpvr {
+			ch_mask &= ~u8(1 << u8(ports.MD_Channel.VPVR))
+		}
+		if ch_mask == 0 do continue
 
 		// Resolve venue/symbol for this cell -- PRD-0009: prefer bound fields.
 		venue, symbol: string

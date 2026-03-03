@@ -326,6 +326,7 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 			state.active_metrics.has_live_heatmap = false
 			state.active_metrics.has_live_vpvr = false
 			state.active_metrics.has_live_candle = false
+			state.active_metrics.context_stage = .Empty
 			state.active_metrics.last_stats_ts_ms = 0
 			state.active_metrics.last_orderbook_ts_ms = 0
 			services.settings_set(&state.settings, services.SETTING_AUTO_CONNECT, "0")
@@ -434,11 +435,12 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 					reg.has_active = true
 					sync_active_stream_view_to_global_stores(state)
 					persist_active_stream_subject(state)
-					state.active_metrics.has_live_stats = false
-					state.active_metrics.has_live_heatmap = false
-					state.active_metrics.has_live_vpvr = false
-					state.active_metrics.has_live_candle = false
-					state.active_metrics.last_stats_ts_ms = 0
+						state.active_metrics.has_live_stats = false
+						state.active_metrics.has_live_heatmap = false
+						state.active_metrics.has_live_vpvr = false
+						state.active_metrics.has_live_candle = false
+						state.active_metrics.context_stage = .Empty
+						state.active_metrics.last_stats_ts_ms = 0
 					state.active_metrics.last_orderbook_ts_ms = 0
 					state.getrange.pending = false
 					state.getrange.seeded = false
@@ -555,6 +557,7 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 			state.active_metrics.has_live_heatmap = false
 			state.active_metrics.has_live_vpvr = false
 			state.active_metrics.has_live_candle = false
+			state.active_metrics.context_stage = .Empty
 			state.active_metrics.last_stats_ts_ms = 0
 			state.active_metrics.last_orderbook_ts_ms = 0
 			state.synth_heatmap_last_window = 0

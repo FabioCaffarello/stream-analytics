@@ -259,7 +259,9 @@ App_State :: struct {
 	toast:          Toast_State,
 	error_state:    Error_State,
 	log_state:      Log_State,
+	evidence:       Evidence_State,
 	active_metrics: Active_Stream_Metrics,
+	bp_assist:      Backpressure_Assist_State,
 
 	stores:          Global_Stores,
 	stream_views:    ^Stream_View_Registry,
@@ -335,6 +337,7 @@ init :: proc(
 	streams.registry_init(&state.stream_registry, true)
 	streams.controller_init(&state.stream_controller)
 	state.active_metrics.state = .Offline
+	state.bp_assist.getrange_divisor = 1
 	state.chart_display.show_vol = true
 	state.chart_display.show_heatmap = true
 	state.chart_display.show_vpvr = true

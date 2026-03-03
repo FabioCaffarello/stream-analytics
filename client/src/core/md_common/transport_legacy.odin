@@ -1,6 +1,7 @@
 package md_common
 
-ALLOW_LEGACY_WS_DEFAULT :: #config(ALLOW_LEGACY_WS, true)
+// Keep Terminal_V1 as default path; legacy fallback is opt-in.
+ALLOW_LEGACY_WS_DEFAULT :: #config(ALLOW_LEGACY_WS, false)
 
 legacy_switch_from_text :: proc(raw: string) -> bool {
 	if len(raw) == 0 do return ALLOW_LEGACY_WS_DEFAULT

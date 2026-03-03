@@ -356,6 +356,34 @@ build_health_panel :: proc(state: ^App_State, viewport_w, viewport_h: f32, point
 	ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, pf_str, ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS, .Mono)
 	y += ROW_H + SECTION_GAP
 
+	if state.active_metrics.transport_mode != 0 || state.active_metrics.legacy_downgrade_count > 0 {
+		legacy_buf: [128]u8
+		legacy_str := fmt.bprintf(
+			legacy_buf[:],
+			"LEGACY fallback active (downgrade:%d) - migrate to /ws and set allow_legacy_ws=OFF",
+			max(state.active_metrics.legacy_downgrade_count, 0),
+		)
+		ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, legacy_str, ui.COL_WARNING, ui.FONT_SIZE_XS, .Mono)
+		y += ROW_H + SECTION_GAP
+	}
+	if state.active_metrics.assist_enabled {
+		assist_reason := "auto"
+		if state.active_metrics.assist_reason_len > 0 {
+			assist_reason = string(state.active_metrics.assist_reason[:int(state.active_metrics.assist_reason_len)])
+		}
+		assist_buf: [128]u8
+		assist_str := fmt.bprintf(
+			assist_buf[:],
+			"ASSIST ON heatmap:%s vpvr:%s getrange:/%d reason:%s",
+			state.active_metrics.assist_degrade_heatmap ? "off" : "on",
+			state.active_metrics.assist_degrade_vpvr ? "off" : "on",
+			max(state.active_metrics.assist_getrange_divisor, 1),
+			assist_reason,
+		)
+		ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, assist_str, ui.COL_YELLOW_ACCENT, ui.FONT_SIZE_XS, .Mono)
+		y += ROW_H + SECTION_GAP
+	}
+
 	// === SERVER section (server-pushed metrics from METRICS frame) ===
 	sm := state.active_metrics
 	if sm.server_ws_queue_len > 0 || sm.server_ws_dropped > 0 || sm.server_ws_lag_ms > 0 ||
@@ -407,10 +435,49 @@ build_health_panel :: proc(state: ^App_State, viewport_w, viewport_h: f32, point
 			y += ROW_H
 		}
 		y += SECTION_GAP
-	}
+		}
 
-	// === LOG section ===
-	ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, "LOG", ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_XS, .Bold)
+		// === EVIDENCE section ===
+		ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, "EVIDENCE", ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_XS, .Bold)
+		y += ROW_H + 2
+		ev_visible := min(state.evidence.count, 8)
+		if ev_visible <= 0 {
+			ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, "(no evidence yet)", ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+			y += ROW_H
+		} else {
+			for ei in 0 ..< ev_visible {
+				idx := (state.evidence.head - 1 - ei + EVIDENCE_HISTORY_CAP) % EVIDENCE_HISTORY_CAP
+				ev := state.evidence.entries[idx]
+				kind := "EV"
+				if ev.kind_len > 0 {
+					kind = string(ev.kind[:int(ev.kind_len)])
+				}
+				reason := "-"
+				if ev.reason_len > 0 {
+					reason = string(ev.reason[:int(ev.reason_len)])
+				}
+				tag0 := ""
+				if ev.feature_count > 0 {
+					tag_len := 0
+					for i in 0 ..< len(ev.feature_tags[0]) {
+						if ev.feature_tags[0][i] == 0 do break
+						tag_len += 1
+					}
+					if tag_len > 0 {
+						tag0 = string(ev.feature_tags[0][:tag_len])
+					}
+				}
+				ev_buf: [196]u8
+				ev_str := fmt.bprintf(ev_buf[:], "%s c=%.2f tag=%s reason=%s", kind, ev.confidence, tag0, reason)
+				ev_color := ev.confidence >= 0.75 ? ui.COL_WARNING : ui.COL_TEXT_SECONDARY
+				ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, ev_str, ev_color, ui.FONT_SIZE_XS, .Mono)
+				y += ROW_H
+			}
+		}
+		y += SECTION_GAP
+
+		// === LOG section ===
+		ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, "LOG", ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_XS, .Bold)
 	y += ROW_H + 2
 
 	log_count := services.log_count(&state.log_state.buf)
@@ -584,6 +651,30 @@ copy_diagnostics_to_clipboard :: proc(state: ^App_State) {
 	p5_len := len(fmt.bprintf(p5[:], "  rtt=%dms lag=%dms pong_rtt=%dms reconnects=%d",
 		max(am.rtt_ms, 0), max(am.lag_ms, 0), max(am.pong_rtt_ms, 0), max(am.reconnect_count, 0)))
 	append_line(buf[:], &n, p5[:], p5_len)
+	if am.transport_mode != 0 || am.legacy_downgrade_count > 0 {
+		p6: [160]u8
+		p6_len := len(fmt.bprintf(
+			p6[:],
+			"  recommendation: disable legacy fallback in profile (allow_legacy_ws=off), downgrades=%d",
+			max(am.legacy_downgrade_count, 0),
+		))
+		append_line(buf[:], &n, p6[:], p6_len)
+	}
+	if am.assist_enabled {
+		assist_reason := "auto"
+		if am.assist_reason_len > 0 {
+			assist_reason = string(am.assist_reason[:int(am.assist_reason_len)])
+		}
+		hm := am.assist_degrade_heatmap ? "off" : "on"
+		vp := am.assist_degrade_vpvr ? "off" : "on"
+		p7: [160]u8
+		p7_len := len(fmt.bprintf(
+			p7[:],
+			"  assist: enabled heatmap=%s vpvr=%s getrange_div=%d reason=%s",
+			hm, vp, max(am.assist_getrange_divisor, 1), assist_reason,
+		))
+		append_line(buf[:], &n, p7[:], p7_len)
+	}
 
 	// Server metrics
 	if am.server_ws_queue_len > 0 || am.server_ws_dropped > 0 || am.server_ws_lag_ms > 0 ||

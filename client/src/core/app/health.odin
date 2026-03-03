@@ -170,7 +170,66 @@ sample_marketdata_metrics :: proc(state: ^App_State) {
 	if state.telemetry.metrics_count < MD_METRICS_HISTORY_CAP {
 		state.telemetry.metrics_count += 1
 	}
+	apply_backpressure_assist(state, m)
 	refresh_active_stream_health(state, m)
+}
+
+@(private = "file")
+apply_backpressure_assist :: proc(state: ^App_State, metrics: ports.MD_Runtime_Metrics) {
+	if state == nil do return
+	prev := state.bp_assist
+	level := metrics.server_backpressure_level
+
+	next_enabled := prev.enabled
+	next_degrade_heatmap := prev.degrade_heatmap
+	next_degrade_vpvr := prev.degrade_vpvr
+	next_divisor := prev.getrange_divisor
+	if next_divisor <= 0 do next_divisor = 1
+
+	if level >= 2 {
+		next_enabled = true
+		next_degrade_heatmap = true
+		next_degrade_vpvr = level >= 3
+		next_divisor = level >= 3 ? 4 : 2
+		state.bp_assist.cooldown_frames = 120
+	} else if state.bp_assist.cooldown_frames > 0 {
+		state.bp_assist.cooldown_frames -= 1
+	} else {
+		next_enabled = false
+		next_degrade_heatmap = false
+		next_degrade_vpvr = false
+		next_divisor = 1
+	}
+
+	changed := next_enabled != prev.enabled ||
+		next_degrade_heatmap != prev.degrade_heatmap ||
+		next_degrade_vpvr != prev.degrade_vpvr ||
+		next_divisor != prev.getrange_divisor
+
+	state.bp_assist.enabled = next_enabled
+	state.bp_assist.degrade_heatmap = next_degrade_heatmap
+	state.bp_assist.degrade_vpvr = next_degrade_vpvr
+	state.bp_assist.getrange_divisor = next_divisor
+
+	reason := "none"
+	if metrics.server_recommended_action_len > 0 {
+		action := metrics.server_recommended_action
+		reason = string(action[:int(metrics.server_recommended_action_len)])
+	} else if level >= 3 {
+		reason = "reconnect"
+	} else if level >= 2 {
+		reason = "reduce_subscriptions"
+	}
+	rn := min(len(reason), len(state.bp_assist.reason))
+	for i in 0 ..< rn {
+		state.bp_assist.reason[i] = reason[i]
+	}
+	state.bp_assist.reason_len = u8(rn)
+
+	if changed {
+		reconcile_subscriptions(state)
+		show_toast(state, next_enabled ? "Assist: backpressure protection ON" : "Assist: backpressure protection OFF")
+	}
 }
 
 refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtime_Metrics) {
@@ -235,6 +294,12 @@ refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtim
 	state.active_metrics.hash_validation_skipped = metrics.hash_validation_skipped
 	state.active_metrics.legacy_downgrade_count = metrics.legacy_downgrade_count
 	state.active_metrics.legacy_connected_since_ms = metrics.legacy_connected_since_ms
+	state.active_metrics.assist_enabled = state.bp_assist.enabled
+	state.active_metrics.assist_degrade_heatmap = state.bp_assist.degrade_heatmap
+	state.active_metrics.assist_degrade_vpvr = state.bp_assist.degrade_vpvr
+	state.active_metrics.assist_getrange_divisor = max(state.bp_assist.getrange_divisor, 1)
+	state.active_metrics.assist_reason = state.bp_assist.reason
+	state.active_metrics.assist_reason_len = state.bp_assist.reason_len
 
 	active := streams.registry_active(&state.stream_registry)
 	if active == nil {

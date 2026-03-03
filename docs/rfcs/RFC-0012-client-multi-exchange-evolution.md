@@ -1,9 +1,9 @@
 # RFC-0012 - Client Multi-Exchange Evolution (MarketMonkey-Inspired, Raccoon-Native)
 
-**Status:** Draft  
-**Owner:** Client/UX Architect  
-**Date:** 2026-02-26  
-**Last updated:** 2026-02-26  
+**Status:** Draft
+**Owner:** Client/UX Architect
+**Date:** 2026-02-26
+**Last updated:** 2026-02-26
 **Relates to:** `docs/rfcs/RFC-0010-W9-multi-exchange-readiness.md`, `docs/rfcs/RFC-0011-product-parity-marketmonkey.md`, `docs/adrs/ADR-0012-lifecycle-invariants-leak-prevention.md`, `docs/perf/performance-budgets.md`
 
 ---

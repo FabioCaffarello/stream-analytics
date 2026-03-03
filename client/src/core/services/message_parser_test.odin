@@ -441,3 +441,15 @@ test_parse_event_with_prev_seq :: proc(t: ^testing.T) {
 	testing.expect_value(t, result.meta.seq, i64(5))
 	free_all(context.temp_allocator)
 }
+
+@(test)
+test_parse_microstructure_evidence :: proc(t: ^testing.T) {
+	raw := `{"type":"event","subject":"insights.microstructure_evidence/binance/BTCUSDT/raw","seq":42,"ts_ingest":1700000000001,"payload":{"kind":"SPREAD_EXPLOSION","confidence":0.82,"features":["spread_bps","mid_price"],"feature_values":[25.1,50000.0],"reason":"spread expanded","ts_ingest":1700000000001,"seq":42}}`
+	result := parse_mr_message(transmute([]u8)raw, nil)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Evidence)
+	ev := result.data.evidence
+	testing.expect_value(t, string(ev.kind[:ev.kind_len]), "SPREAD_EXPLOSION")
+	testing.expect_value(t, ev.feature_count, 2)
+	testing.expect_value(t, ev.confidence > 0.8, true)
+	free_all(context.temp_allocator)
+}

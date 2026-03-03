@@ -122,6 +122,16 @@ MR_VPVR :: struct {
 	window_end_ts:   i64              `json:"window_end_ts"`,
 }
 
+MR_Microstructure_Evidence_Payload :: struct {
+	kind:           string    `json:"kind"`,
+	confidence:     f64       `json:"confidence"`,
+	features:       []string  `json:"features"`,
+	feature_values: []f64     `json:"feature_values"`,
+	reason:         string    `json:"reason"`,
+	ts_ingest:      i64       `json:"ts_ingest"`,
+	seq:            i64       `json:"seq"`,
+}
+
 // Candle payload — matches Go AggregationCandleV1 (PascalCase, no json tags).
 MR_Candle_Payload :: struct {
 	Venue:         string `json:"Venue"`,
@@ -171,6 +181,10 @@ MR_Heatmap_Frame :: struct {
 
 MR_VPVR_Frame :: struct {
 	payload: MR_VPVR `json:"payload"`,
+}
+
+MR_Microstructure_Evidence_Frame :: struct {
+	payload: MR_Microstructure_Evidence_Payload `json:"payload"`,
 }
 
 MR_Candle_Frame :: struct {

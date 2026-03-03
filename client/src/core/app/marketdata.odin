@@ -397,11 +397,35 @@ handle_candle_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, cd: port
 	// TF guard: only write to global store if subject matches the active candle TF.
 	if is_active_stream && (state.getrange.active_candle_subject_id == 0 || subject_id == state.getrange.active_candle_subject_id) {
 		state.active_metrics.has_live_candle = true
+		state.active_metrics.context_stage = .Live
 		apply_candle_to_store(&state.stores.candle, cd)
 		if !state.getrange.seeded {
 			request_active_stream_candle_range(state)
 		}
 	}
+}
+
+push_evidence :: proc(state: ^App_State, evt: ports.MD_Evidence_Event, subject_id: u64) {
+	if state == nil do return
+	idx := state.evidence.head
+	state.evidence.entries[idx] = Evidence_Entry{
+		kind          = evt.kind,
+		kind_len      = evt.kind_len,
+		confidence    = evt.confidence,
+		reason        = evt.reason,
+		reason_len    = evt.reason_len,
+		feature_tags  = evt.feature_tags,
+		feature_count = evt.feature_count,
+		unix          = evt.unix,
+		subject_id    = subject_id,
+	}
+	state.evidence.head = (state.evidence.head + 1) % EVIDENCE_HISTORY_CAP
+	if state.evidence.count < EVIDENCE_HISTORY_CAP do state.evidence.count += 1
+}
+
+handle_evidence_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, ev: ports.MD_Evidence_Event, unix: i64, subject_id: u64, is_active_stream: bool) {
+	record_stream_event(state, slot, .Evidence, unix, 0, false, is_active_stream)
+	push_evidence(state, ev, subject_id)
 }
 
 handle_range_candle_batch :: proc(
@@ -449,6 +473,9 @@ handle_range_candle_batch :: proc(
 	if is_valid_range_batch && batch.count > 0 {
 		if now_ms := current_now_ms(state); now_ms > 0 {
 			state.candle_last_recv_local_ms = now_ms
+		}
+		if state.active_metrics.context_stage == .Empty {
+			state.active_metrics.context_stage = .Backfilled
 		}
 	}
 	if batch.is_last {
@@ -532,6 +559,7 @@ drain_marketdata :: proc(state: ^App_State) -> int {
 					state.active_metrics.has_live_heatmap = false
 					state.active_metrics.has_live_vpvr = false
 					state.active_metrics.has_live_candle = false
+					state.active_metrics.context_stage = .Empty
 					if state.stores.candle.count <= 0 {
 						request_active_stream_candle_range(state)
 					}
@@ -560,6 +588,8 @@ drain_marketdata :: proc(state: ^App_State) -> int {
 				handle_candle_event(state, slot, evt.data.candle, evt.unix, subject_id, is_active_stream)
 			case .Range_Candle_Batch:
 				handle_range_candle_batch(state, slot, evt.data.range_candles, evt.unix, subject_id, is_active_stream, is_active_range_batch, is_active_getrange_subject)
+			case .Evidence:
+				handle_evidence_event(state, slot, evt.data.evidence, evt.unix, subject_id, is_active_stream)
 			}
 		}
 	}

@@ -670,10 +670,23 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 
 		cd_live := state.active_metrics.has_live_candle
 		cd_label := cd_live ? "CD:LIVE" : "CD:--"
-		cd_color := cd_live ? ui.COL_GREEN : ui.COL_TEXT_MUTED
-		ui.push_text(&state.cmd_buf, {sx, sy}, cd_label, cd_color, ui.FONT_SIZE_XS, .Mono)
-		sx += state.text.measure(ui.FONT_SIZE_XS, cd_label).x + 12
-		if len(reason_short) > 0 {
+			cd_color := cd_live ? ui.COL_GREEN : ui.COL_TEXT_MUTED
+			ui.push_text(&state.cmd_buf, {sx, sy}, cd_label, cd_color, ui.FONT_SIZE_XS, .Mono)
+			sx += state.text.measure(ui.FONT_SIZE_XS, cd_label).x + 12
+			ctx_label := "CTX:EMPTY"
+			ctx_color := ui.COL_TEXT_MUTED
+			switch state.active_metrics.context_stage {
+			case .Backfilled:
+				ctx_label = "CTX:BACKFILLED"
+				ctx_color = ui.COL_WARNING
+			case .Live:
+				ctx_label = "CTX:LIVE"
+				ctx_color = ui.COL_GREEN
+			case .Empty:
+			}
+			ui.push_text(&state.cmd_buf, {sx, sy}, ctx_label, ctx_color, ui.FONT_SIZE_XS, .Mono)
+			sx += state.text.measure(ui.FONT_SIZE_XS, ctx_label).x + 12
+			if len(reason_short) > 0 {
 			rsn_buf: [64]u8
 			rsn_label := fmt.bprintf(rsn_buf[:], "RSN:%s", reason_short)
 			rsn_color := state.active_metrics.state == .Desync ? ui.COL_RED : ui.COL_WARNING

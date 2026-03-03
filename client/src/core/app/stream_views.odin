@@ -27,6 +27,18 @@ current_now_ms :: proc(state: ^App_State) -> i64 {
 	return 0
 }
 
+@(private = "file")
+adaptive_getrange_limit :: proc(state: ^App_State) -> int {
+	limit := min(FETCH_CANDLES_RANGE_LEN, services.RANGE_CANDLE_PARSE_MAX)
+	if limit <= 0 do limit = services.RANGE_CANDLE_PARSE_MAX
+	if limit <= 0 do limit = 1
+	if state == nil do return limit
+	divisor := max(state.bp_assist.getrange_divisor, 1)
+	adapted := limit / divisor
+	if adapted <= 0 do adapted = 1
+	return adapted
+}
+
 parse_subject_id_hex :: proc(s: string) -> (u64, bool) {
 	if len(s) == 0 do return 0, false
 	v := u64(0)
@@ -168,12 +180,13 @@ apply_cycle_stream_action :: proc(state: ^App_State, forward: bool) -> bool {
 		services.fill_demo_vpvr(&state.stores.vpvr)
 		services.fill_demo_stats(&state.stores.stats)
 		services.fill_demo_candles(&state.stores.candle)
-		state.active_metrics.has_live_stats = false
-		state.active_metrics.has_live_heatmap = false
-		state.active_metrics.has_live_vpvr = false
-		state.active_metrics.has_live_candle = false
-		return true
-	}
+			state.active_metrics.has_live_stats = false
+			state.active_metrics.has_live_heatmap = false
+			state.active_metrics.has_live_vpvr = false
+			state.active_metrics.has_live_candle = false
+			state.active_metrics.context_stage = .Empty
+			return true
+		}
 
 	if !stream_view_cycle_active(state.stream_views, forward) do return false
 
@@ -191,6 +204,7 @@ apply_cycle_stream_action :: proc(state: ^App_State, forward: bool) -> bool {
 	state.active_metrics.has_live_heatmap = false
 	state.active_metrics.has_live_vpvr = false
 	state.active_metrics.has_live_candle = false
+	state.active_metrics.context_stage = .Empty
 	state.active_metrics.last_stats_ts_ms = 0
 	state.active_metrics.last_orderbook_ts_ms = 0
 	state.synth_heatmap_last_window = 0
@@ -224,9 +238,7 @@ request_active_stream_candle_range :: proc(state: ^App_State) {
 	info := slot.stream_info
 	if len(info.venue) == 0 || len(info.symbol) == 0 do return
 
-	limit := min(FETCH_CANDLES_RANGE_LEN, services.RANGE_CANDLE_PARSE_MAX)
-	if limit <= 0 do limit = services.RANGE_CANDLE_PARSE_MAX
-	if limit <= 0 do limit = 1
+	limit := adaptive_getrange_limit(state)
 
 	tf_opts := TF_OPTIONS
 	tf := tf_opts[0]
@@ -259,9 +271,7 @@ request_older_candles :: proc(state: ^App_State) {
 	info := slot.stream_info
 	if len(info.venue) == 0 || len(info.symbol) == 0 do return
 
-	limit := min(FETCH_CANDLES_RANGE_LEN, services.RANGE_CANDLE_PARSE_MAX)
-	if limit <= 0 do limit = services.RANGE_CANDLE_PARSE_MAX
-	if limit <= 0 do limit = 1
+	limit := adaptive_getrange_limit(state)
 
 	tf_opts := TF_OPTIONS
 	tf := tf_opts[0]
@@ -326,6 +336,7 @@ apply_set_timeframe_action :: proc(state: ^App_State, idx: int) -> bool {
 	state.active_metrics.has_live_heatmap = false
 	state.active_metrics.has_live_vpvr = false
 	state.active_metrics.has_live_candle = false
+	state.active_metrics.context_stage = .Empty
 	state.active_metrics.last_stats_ts_ms = 0
 	state.active_metrics.last_orderbook_ts_ms = 0
 	state.synth_heatmap_last_window = 0
@@ -418,9 +429,7 @@ request_cell_candle_range :: proc(state: ^App_State, cell_idx: int) {
 	}
 	if len(venue) == 0 || len(symbol) == 0 do return
 
-	limit := min(FETCH_CANDLES_RANGE_LEN, services.RANGE_CANDLE_PARSE_MAX)
-	if limit <= 0 do limit = services.RANGE_CANDLE_PARSE_MAX
-	if limit <= 0 do limit = 1
+	limit := adaptive_getrange_limit(state)
 
 	tf := cell_effective_tf_string(state, cell_idx)
 
@@ -463,9 +472,7 @@ request_cell_older_candles :: proc(state: ^App_State, cell_idx: int) {
 	}
 	if len(venue) == 0 || len(symbol) == 0 do return
 
-	limit := min(FETCH_CANDLES_RANGE_LEN, services.RANGE_CANDLE_PARSE_MAX)
-	if limit <= 0 do limit = services.RANGE_CANDLE_PARSE_MAX
-	if limit <= 0 do limit = 1
+	limit := adaptive_getrange_limit(state)
 
 	tf := cell_effective_tf_string(state, cell_idx)
 
@@ -507,10 +514,11 @@ apply_set_cell_timeframe_action :: proc(state: ^App_State, cell_idx: int, tf_idx
 	} else {
 		// BUG-17: Follow-active cell — only clear candle store (TF-sensitive).
 		// Do NOT clear global heatmap/vpvr stores; they serve other cells.
-		state.stores.candle.head = 0
-		state.stores.candle.count = 0
-		state.active_metrics.has_live_candle = false
-	}
+			state.stores.candle.head = 0
+			state.stores.candle.count = 0
+			state.active_metrics.has_live_candle = false
+			state.active_metrics.context_stage = .Empty
+		}
 
 	// BUG-16: Reset candle health so stale badge doesn't persist across TF changes.
 	state.candle_health = .No_Data

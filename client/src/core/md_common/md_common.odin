@@ -386,7 +386,7 @@ update_parse_rates :: proc(rs: ^Rate_State, now_ms: i64, bytes: int) {
 
 parse_result_has_data :: proc(kind: services.Parse_Result_Kind) -> bool {
 	switch kind {
-	case .Trade, .Orderbook, .Stats, .Heatmap, .VPVR, .Candle, .Range_Candle:
+	case .Trade, .Orderbook, .Stats, .Heatmap, .VPVR, .Candle, .Evidence, .Range_Candle:
 		return true
 	case .None, .Ack, .Hello, .Hello_Ack, .Heartbeat, .Health, .Error, .Pong, .Metrics:
 		return false
@@ -396,7 +396,7 @@ parse_result_has_data :: proc(kind: services.Parse_Result_Kind) -> bool {
 
 parse_result_requires_ts_server :: proc(kind: services.Parse_Result_Kind) -> bool {
 	switch kind {
-	case .Trade, .Orderbook, .Stats, .Heatmap, .VPVR, .Candle:
+	case .Trade, .Orderbook, .Stats, .Heatmap, .VPVR, .Candle, .Evidence:
 		return true
 	case .None, .Range_Candle, .Ack, .Hello, .Hello_Ack, .Heartbeat, .Health, .Error, .Pong, .Metrics:
 		return false

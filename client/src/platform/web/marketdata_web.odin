@@ -96,6 +96,8 @@ MD_Web_State :: struct {
 	// Range candle staging (getrange response batch).
 	range_candle_staging: services.Parsed_Range_Candles,
 	range_candle_dirty:   bool,
+	evidence_staging:     services.Parsed_Evidence,
+	evidence_dirty:       bool,
 
 	// Candle timeframe filter (mutable, heap-allocated).
 	candle_tf_filter: string,
@@ -1399,6 +1401,26 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 		state.range_candle_dirty = false
 		out += 1
 	}
+	if state.evidence_dirty && out < len(events_buf) {
+		ev := state.evidence_staging
+		events_buf[out].source.subject_id = ev.subject_id
+		events_buf[out].source.channel = .Stats
+		events_buf[out].source.seq = ev.seq
+		events_buf[out].kind = .Evidence
+		events_buf[out].unix = util.normalize_unix_seconds(ev.unix)
+		events_buf[out].data.evidence = ports.MD_Evidence_Event{
+			kind          = ev.kind,
+			kind_len      = ev.kind_len,
+			confidence    = ev.confidence,
+			reason        = ev.reason,
+			reason_len    = ev.reason_len,
+			feature_tags  = ev.feature_tags,
+			feature_count = ev.feature_count,
+			unix          = ev.unix,
+		}
+		state.evidence_dirty = false
+		out += 1
+	}
 
 	return out
 }
@@ -1766,6 +1788,9 @@ web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 	case .Range_Candle:
 		state.range_candle_staging = result.data.range_candles
 		state.range_candle_dirty = true
+	case .Evidence:
+		state.evidence_staging = result.data.evidence
+		state.evidence_dirty = true
 	case .None:
 		// Ignored (last, unknown frame types).
 	}

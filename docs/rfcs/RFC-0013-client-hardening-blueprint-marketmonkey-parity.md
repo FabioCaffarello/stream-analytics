@@ -1,9 +1,9 @@
 # RFC-0013 - Client Hardening Blueprint (MarketMonkey Parity-Informed, Raccoon-Native)
 
-**Status:** Draft  
-**Owner:** Client Runtime / Platform  
-**Date:** 2026-02-26  
-**Last updated:** 2026-02-26  
+**Status:** Draft
+**Owner:** Client Runtime / Platform
+**Date:** 2026-02-26
+**Last updated:** 2026-02-26
 **Relates to:** `docs/rfcs/RFC-0011-product-parity-marketmonkey.md`, `docs/rfcs/RFC-0012-client-multi-exchange-evolution.md`, `docs/adrs/ADR-0012-lifecycle-invariants-leak-prevention.md`
 
 ---

@@ -82,6 +82,19 @@ Parsed_Candle :: struct {
 	seq:             i64,
 }
 
+Parsed_Evidence :: struct {
+	kind:          [24]u8,
+	kind_len:      u8,
+	confidence:    f64,
+	reason:        [96]u8,
+	reason_len:    u8,
+	feature_tags:  [4][24]u8,
+	feature_count: int,
+	unix:          i64,
+	subject_id:    u64,
+	seq:           i64,
+}
+
 Parsed_Trade :: struct {
 	price:      f64,
 	qty:        f64,
@@ -202,6 +215,7 @@ Parse_Result_Kind :: enum u8 {
 	Heatmap,
 	VPVR,
 	Candle,
+	Evidence,
 	Range_Candle,
 	Ack,
 	Hello,
@@ -220,6 +234,7 @@ Parse_Result_Data :: struct #raw_union {
 	heatmap:        Parsed_Heatmap,
 	vpvr:           Parsed_VPVR,
 	candle:         Parsed_Candle,
+	evidence:       Parsed_Evidence,
 	range_candles:  Parsed_Range_Candles,
 	ack:            Parsed_Ack,
 	control:        Parsed_Control,
@@ -415,6 +430,14 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 		} else if telemetry != nil {
 			telemetry.parse_errors += 1
 		}
+	case "insights.microstructure_evidence":
+		if r, ok := parse_microstructure_evidence(raw, env.ts_ingest, subject_id); ok {
+			r.seq = result.meta.seq
+			result.kind = .Evidence
+			result.data.evidence = r
+		} else if telemetry != nil {
+			telemetry.parse_errors += 1
+		}
 	case:
 		if telemetry != nil do telemetry.unknown_streams += 1
 		if stream == "system.health" || stream == "session.health" {
@@ -431,6 +454,39 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 	}
 
 	return result
+}
+
+parse_microstructure_evidence :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Evidence, bool) {
+	frame: util.MR_Microstructure_Evidence_Frame
+	if json.unmarshal(raw, &frame) != nil do return {}, false
+	p := frame.payload
+	out: Parsed_Evidence
+	out.confidence = p.confidence
+	out.unix = p.ts_ingest if p.ts_ingest > 0 else ts
+	out.subject_id = subject_id
+	out.seq = p.seq
+
+	nk := min(len(p.kind), len(out.kind))
+	for i in 0 ..< nk {
+		out.kind[i] = p.kind[i]
+	}
+	out.kind_len = u8(nk)
+
+	nr := min(len(p.reason), len(out.reason))
+	for i in 0 ..< nr {
+		out.reason[i] = p.reason[i]
+	}
+	out.reason_len = u8(nr)
+
+	fc := min(len(p.features), len(out.feature_tags))
+	for fi in 0 ..< fc {
+		tn := min(len(p.features[fi]), len(out.feature_tags[fi]))
+		for tj in 0 ..< tn {
+			out.feature_tags[fi][tj] = p.features[fi][tj]
+		}
+	}
+	out.feature_count = fc
+	return out, true
 }
 
 // --- Validation helper ---

@@ -96,6 +96,8 @@ MD_Native_State :: struct {
 	// Range candle staging (getrange response batch).
 	range_candle_staging: services.Parsed_Range_Candles,
 	range_candle_dirty:   bool,
+	evidence_staging:     services.Parsed_Evidence,
+	evidence_dirty:       bool,
 
 	// Candle timeframe filter (mutable, heap-allocated).
 	candle_tf_filter: string,
@@ -1220,6 +1222,26 @@ native_poll :: proc(events_buf: []ports.MD_Event) -> int {
 		state.range_candle_dirty = false
 		n += 1
 	}
+	if state.evidence_dirty && n < len(events_buf) {
+		ev := state.evidence_staging
+		events_buf[n].source.subject_id = ev.subject_id
+		events_buf[n].source.channel = .Stats
+		events_buf[n].source.seq = ev.seq
+		events_buf[n].kind = .Evidence
+		events_buf[n].unix = util.normalize_unix_seconds(ev.unix)
+		events_buf[n].data.evidence = ports.MD_Evidence_Event{
+			kind          = ev.kind,
+			kind_len      = ev.kind_len,
+			confidence    = ev.confidence,
+			reason        = ev.reason,
+			reason_len    = ev.reason_len,
+			feature_tags  = ev.feature_tags,
+			feature_count = ev.feature_count,
+			unix          = ev.unix,
+		}
+		state.evidence_dirty = false
+		n += 1
+	}
 
 	return n
 }
@@ -1951,6 +1973,11 @@ apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 		sync.lock(&state.mu)
 		state.range_candle_staging = result.data.range_candles
 		state.range_candle_dirty = true
+		sync.unlock(&state.mu)
+	case .Evidence:
+		sync.lock(&state.mu)
+		state.evidence_staging = result.data.evidence
+		state.evidence_dirty = true
 		sync.unlock(&state.mu)
 	case .None:
 		// Ignored (last, unknown frame types).

@@ -153,6 +153,26 @@ Log_State :: struct {
 	buf: services.Log_Buffer,
 }
 
+Evidence_Entry :: struct {
+	kind:          [24]u8,
+	kind_len:      u8,
+	confidence:    f64,
+	reason:        [96]u8,
+	reason_len:    u8,
+	feature_tags:  [4][24]u8,
+	feature_count: int,
+	unix:          i64,
+	subject_id:    u64,
+}
+
+EVIDENCE_HISTORY_CAP :: 64
+
+Evidence_State :: struct {
+	entries: [EVIDENCE_HISTORY_CAP]Evidence_Entry,
+	head:    int,
+	count:   int,
+}
+
 Error_Kind :: enum u8 {
 	None,
 	Parse_Failure,
@@ -309,6 +329,7 @@ Active_Stream_Metrics :: struct {
 	has_live_heatmap:     bool,
 	has_live_vpvr:        bool,
 	has_live_candle:      bool,
+	context_stage:        Context_Stage,
 	transport_state:       ports.MD_Transport_State,
 	ws_error_category:     ports.MD_WS_Error_Category,
 	ws_error_action:       ports.MD_WS_Error_Action,
@@ -357,4 +378,27 @@ Active_Stream_Metrics :: struct {
 	// Legacy tracking.
 	legacy_downgrade_count:       int,
 	legacy_connected_since_ms:    i64,
+	// Assisted backpressure tuning.
+	assist_enabled:               bool,
+	assist_degrade_heatmap:       bool,
+	assist_degrade_vpvr:          bool,
+	assist_getrange_divisor:      int,
+	assist_reason:                [32]u8,
+	assist_reason_len:            u8,
+}
+
+Backpressure_Assist_State :: struct {
+	enabled:          bool,
+	degrade_heatmap:  bool,
+	degrade_vpvr:     bool,
+	getrange_divisor: int,
+	reason:           [32]u8,
+	reason_len:       u8,
+	cooldown_frames:  int,
+}
+
+Context_Stage :: enum u8 {
+	Empty,
+	Backfilled,
+	Live,
 }
