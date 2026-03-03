@@ -146,6 +146,34 @@ Configure tenant-specific overrides in `ws.tenant_limits`:
 
 When a tenant has configured limits, they override the global `max_subs_per_connection` and `rate_limit` for all sessions authenticated under that tenant. Unconfigured tenants use global defaults.
 
+## Legacy Route Deprecation
+
+The `/ws/marketdata` route is the legacy entry point. New clients should use `/ws` exclusively. The deprecation follows a 3-phase timeline controlled by `ws.allow_legacy_ws` in config:
+
+| Phase | Config | Behavior |
+|-------|--------|----------|
+| 1. Both active (current) | `allow_legacy_ws: true` (default) | Both `/ws` and `/ws/marketdata` served; legacy requests counted via `ws_legacy_requests_total{status=accepted}` |
+| 2. Legacy disabled | `allow_legacy_ws: false` | `/ws/marketdata` returns **410 Gone**; counter increments `{status=rejected}` |
+| 3. Route removed | (code change) | `/ws/marketdata` handler removed entirely |
+
+Config example:
+```json
+{
+  "ws": {
+    "allow_legacy_ws": false
+  }
+}
+```
+
+Monitoring (Phase 1 → 2 transition):
+```promql
+# Legacy clients still active (should trend to zero before Phase 2)
+rate(ws_legacy_requests_total{status="accepted"}[5m])
+
+# Rejected legacy requests after flag-off
+rate(ws_legacy_requests_total{status="rejected"}[5m])
+```
+
 ## Troubleshooting
 - `401 unauthorized`: invalid/missing API key or bearer token.
 - `403 missing read scope`: auth succeeded but token/key scope is insufficient.
