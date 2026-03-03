@@ -30,6 +30,7 @@ Server frames:
 - `error`
 - `snapshot`
 - `event`
+- `batch`
 
 All `event`/`snapshot` frames include:
 - `protocol_version`
@@ -73,9 +74,15 @@ Behavior:
   - max symbols per connection
 
 ## Perf Tuning
-- Publish→deliver batching: session flush writes in bounded batches to reduce actor mailbox churn (`batching` feature remains backward compatible).
-- Compression: WebSocket permessage-deflate is enabled by default; keep enabled for WAN/browser clients unless CPU is the bottleneck.
-- Frame guard: `delivery.max_frame_bytes` is enforced on both JSON and proto paths; oversized frames are dropped with `frame_too_large`.
+- Batching (`hello.requested_features` includes `batching`):
+  - Server emits compact `batch` frames with one header (`stream_id`, `base_seq`, `count`, `ts_server_base`) and per-item deltas.
+  - Batch writer is size-guarded by `delivery.max_frame_bytes`; oversized batches are split automatically (or downgraded to single-event writes).
+  - Use batching when stream fanout is bursty (book/trade bursts) and client parser supports Terminal V1 batch frames.
+- Compression (`hello.requested_features` includes `compress`):
+  - Server-driven, negotiated at hello.
+  - Compression is applied only above payload threshold (default `1KB`) to avoid CPU regression on small frames.
+  - `max_frame_bytes` is checked against final wire size (post-compression estimate), not only raw JSON size.
+- Frame guard: `delivery.max_frame_bytes` is enforced on JSON/proto/batch paths; oversized frames are dropped with `frame_too_large`.
 - Session cadence knobs:
   - `delivery.metrics_cadence_ms` controls `metrics` frame interval per session.
   - `delivery.keepalive_interval_ms` controls ping interval per session.
@@ -88,13 +95,18 @@ Recommended defaults:
   - `delivery.max_frame_bytes`: `65536`
   - `delivery.metrics_cadence_ms`: `5000`
   - `delivery.keepalive_interval_ms`: `20000`
-  - compression: enabled
+  - features: `batching=on`, `compress=on`, `snapshot_hash=on`, `prev_seq=on`
 - Native clients (LAN or colocated):
   - `delivery.session_outbound_queue_size`: `512-1024`
   - `delivery.max_frame_bytes`: `131072` (if payloads justify it)
   - `delivery.metrics_cadence_ms`: `2000-5000`
   - `delivery.keepalive_interval_ms`: `10000-20000`
-  - compression: enabled by default; disable only after CPU profiling
+  - features: `batching=on`, `compress=auto` (enable on WAN; disable on low-latency LAN if CPU is limiting)
+
+CPU vs bandwidth tradeoff:
+- Higher batching + compression lowers outbound bytes and serialization pressure on busy streams.
+- Compression helps most on repetitive JSON payloads (`bookdelta`, dense snapshots) and hurts on tiny/control frames.
+- For CPU-constrained environments, keep batching enabled first and tune compression threshold/feature flag second.
 
 ## Observability
 Key metrics:
@@ -105,10 +117,18 @@ Key metrics:
 - `ws_control_frames_total{type}`
 - `ws_messages_out_total{channel}`
 - `ws_bytes_out_total{channel}`
-- `ws_dropped_total{reason,channel}`
+- `ws_dropped_total{reason,channel,priority}`
+- `ws_batch_frames_total`
+- `ws_batch_events_total`
+- `ws_compress_applied_total`
+- `ws_compress_bytes_in_total`
+- `ws_compress_bytes_out_total`
 - `ws_queue_len`
-- `ws_lag_ms{channel}`
-- `ws_publish_to_deliver_latency_ms{channel}`
+- `ws_queue_capacity`
+- `ws_lag_seconds{channel}` (also deprecated `ws_lag_ms`)
+- `ws_publish_to_deliver_latency_seconds{channel}` (also deprecated `ws_publish_to_deliver_latency_ms`)
+- `ws_send_latency_seconds` (also deprecated `ws_send_latency_ms`)
+- `delivery_router_sessions_active`
 - `serialize_errors_total`
 - `auth_fail_total`
 - `resync_total`
@@ -234,7 +254,7 @@ Error on unknown feature:
 {"type":"error","op":"hello","request_id":"h-1","code":"validation_failed","message":"unsupported features: cbor"}
 ```
 
-Supported features: `batching`, `prev_seq`, `snapshot_hash`. Unknown features are rejected entirely (no partial accept).
+Supported features: `batching`, `compress`, `prev_seq`, `snapshot_hash`. Unknown features are rejected entirely (no partial accept).
 
 ## Error Code Reference
 
@@ -254,7 +274,7 @@ Supported features: `batching`, `prev_seq`, `snapshot_hash`. Unknown features ar
 | Symptom | Metric | Action |
 |---------|--------|--------|
 | Clients dropping messages | `rate(ws_dropped_total[5m]) > 0` | Reduce subscriptions, increase client consume rate, or tune `backpressure_policy` |
-| High delivery latency | `ws_publish_to_deliver_latency_ms{quantile="0.99"} > 100` | Check queue depth (`ws_queue_len`), consider reducing subscriptions |
+| High delivery latency | `ws_publish_to_deliver_latency_seconds{quantile="0.99"} > 0.1` | Check queue utilization (`ws_queue_len / ws_queue_capacity`), consider reducing subscriptions |
 | Transcode cache misses | `rate(transcode_cache_misses[5m])` trending up | Increase cache size or check for high event-type cardinality |
 | Snapshot cache misses | `rate(delivery_ws_snapshot_cache_misses_total[5m])` trending up | Increase cache TTL or max entries |
 | Auth failures | `rate(auth_fail_total[5m]) > 0` | Check API key rotation, JWT signing key, token expiry |
