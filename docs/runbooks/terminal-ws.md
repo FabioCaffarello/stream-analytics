@@ -2,7 +2,7 @@
 
 ## Endpoints
 - `GET /ws`
-- `GET /ws/marketdata` (alias)
+- `GET /ws/marketdata` (legacy compatibility route)
 - `GET /healthz`
 - `GET /readyz`
 - `GET /metrics`
@@ -25,6 +25,7 @@ Server frames:
 - `hello`
 - `ack`
 - `pong`
+- `metrics`
 - `error`
 - `snapshot`
 - `event`
@@ -53,6 +54,12 @@ Behavior:
 2. Server emits `ack` for `resync`.
 3. Live stream resumes in monotonic `seq` order.
 
+## Stream Coherence (replicas=2)
+- Strategy: `sticky_session`.
+- Each WebSocket session is pinned to one router instance for the lifetime of the connection.
+- Router enforces monotonic source `seq` per stream (`seq_invalid`/`seq_non_monotonic` are rejected).
+- Delivered `seq` is contiguous per stream inside each session to keep client-side gap detection deterministic.
+
 ## Backpressure and Limits
 - Outbound queue is bounded per connection.
 - Policy: `drop_newest | drop_oldest | priority_drop`.
@@ -66,7 +73,9 @@ Behavior:
 ## Observability
 Key metrics:
 - `ws_clients_connected`
+- `ws_clients_connected_by_mode{mode}`
 - `ws_subscriptions_active`
+- `ws_control_frames_total{type}`
 - `ws_messages_out_total{channel}`
 - `ws_bytes_out_total{channel}`
 - `ws_dropped_total{reason,channel}`
@@ -76,6 +85,9 @@ Key metrics:
 - `serialize_errors_total`
 - `auth_fail_total`
 - `resync_total`
+- `ws_resync_rejected_total{reason}`
+- `ws_contract_violations_total{reason}`
+- `delivery_router_coherence_mode{mode}`
 
 Introspection:
 - `GET /introspection` returns stream-level status with seq/lag/drop counters.
