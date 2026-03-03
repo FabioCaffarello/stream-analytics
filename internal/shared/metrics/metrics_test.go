@@ -91,7 +91,12 @@ func TestMetricsNamesPresent(t *testing.T) {
 	SetWSConnectionsActive("binance", 1)
 	SetWSQueueDepth(2)
 	IncWSDrops("queue_full")
-	IncWSDropped("queue_full", "trade")
+	IncWSDropped("queue_full", "trade", "high_volume")
+	IncWSCompressApplied()
+	AddWSCompressBytesIn(2048)
+	AddWSCompressBytesOut(512)
+	IncWSBatchFrames()
+	AddWSBatchEvents(4)
 	IncWSMessagesOut("trade")
 	AddWSBytesOut("trade", 128)
 	SetWSLag("trade", 42)
@@ -144,6 +149,9 @@ func TestMetricsNamesPresent(t *testing.T) {
 	SetDeliveryRouterCoherenceMode("sticky_session")
 	IncDeliveryRouterCoherenceViolation("seq_non_monotonic")
 	IncDeliveryRouterCoherenceViolation("seq_invalid")
+	SetDeliveryRouterStreamStateEntries(5)
+	AddDeliveryRouterStreamStateEvicted(2)
+	SetDeliveryRouterStreamStateActive(3)
 	IncWSResyncRejected("snapshot_unavailable")
 	IncWSContractViolation("missing_ts_server")
 
@@ -163,6 +171,11 @@ func TestMetricsNamesPresent(t *testing.T) {
 		"ws_queue_len",
 		"ws_drops_total",
 		"ws_dropped_total",
+		"ws_compress_applied_total",
+		"ws_compress_bytes_in_total",
+		"ws_compress_bytes_out_total",
+		"ws_batch_frames_total",
+		"ws_batch_events_total",
 		"ws_messages_out_total",
 		"ws_bytes_out_total",
 		"ws_lag_ms",
@@ -178,6 +191,8 @@ func TestMetricsNamesPresent(t *testing.T) {
 		"resync_total",
 		"ws_resync_rejected_total",
 		"ws_contract_violations_total",
+		"ws_limit_rejections_total",
+		"ws_effective_limits",
 		"bus_dropped_total",
 		"bus_publish_errors_total",
 		"bus_publish_latency_seconds",
@@ -219,6 +234,9 @@ func TestMetricsNamesPresent(t *testing.T) {
 		"delivery_ws_snapshot_cache_misses_total",
 		"delivery_router_coherence_mode",
 		"delivery_router_coherence_violations_total",
+		"router_stream_state_entries",
+		"router_stream_state_evicted_total",
+		"router_stream_state_active_total",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("expected metric %s in registry", want)
@@ -250,7 +268,7 @@ func TestPolicyKitMetrics_StableLabelsOnly(t *testing.T) {
 
 func TestWSExtendedMetrics_StableLabelsOnly(t *testing.T) {
 	t.Parallel()
-	assertMetricLabelNames(t, "ws_dropped_total", []string{"reason", "channel"})
+	assertMetricLabelNames(t, "ws_dropped_total", []string{"reason", "channel", "priority"})
 	assertMetricLabelNames(t, "ws_messages_out_total", []string{"channel"})
 	assertMetricLabelNames(t, "ws_bytes_out_total", []string{"channel"})
 	assertMetricLabelNames(t, "ws_lag_ms", []string{"channel"})
@@ -260,6 +278,8 @@ func TestWSExtendedMetrics_StableLabelsOnly(t *testing.T) {
 	assertMetricLabelNames(t, "ws_control_frames_total", []string{"type"})
 	assertMetricLabelNames(t, "ws_resync_rejected_total", []string{"reason"})
 	assertMetricLabelNames(t, "ws_contract_violations_total", []string{"reason"})
+	assertMetricLabelNames(t, "ws_limit_rejections_total", []string{"type"})
+	assertMetricLabelNames(t, "ws_effective_limits", []string{"limit_name"})
 }
 
 func TestWSTenantMetrics_LabelPolicy_WhitelistAndFallbackUnknown(t *testing.T) {

@@ -227,9 +227,39 @@ var (
 	WSDroppedTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "ws_dropped_total",
-			Help: "Total dropped websocket outbound events by reason and channel.",
+			Help: "Total dropped websocket outbound events by reason, channel, and priority.",
 		},
-		[]string{"reason", "channel"},
+		[]string{"reason", "channel", "priority"},
+	)
+	WSCompressAppliedTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "ws_compress_applied_total",
+			Help: "Total websocket outbound frames where compression was applied.",
+		},
+	)
+	WSCompressBytesInTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "ws_compress_bytes_in_total",
+			Help: "Total uncompressed websocket outbound bytes considered for compression.",
+		},
+	)
+	WSCompressBytesOutTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "ws_compress_bytes_out_total",
+			Help: "Total compressed websocket outbound bytes after compression.",
+		},
+	)
+	WSBatchFramesTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "ws_batch_frames_total",
+			Help: "Total websocket batched frames emitted.",
+		},
+	)
+	WSBatchEventsTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "ws_batch_events_total",
+			Help: "Total websocket events emitted inside batched frames.",
+		},
 	)
 	WSMessagesOutTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -248,22 +278,44 @@ var (
 	WSSendLatencyMilliseconds = prometheus.NewHistogram(
 		prometheus.HistogramOpts{
 			Name:    "ws_send_latency_ms",
-			Help:    "Latency in milliseconds for websocket event frame writes.",
+			Help:    "(DEPRECATED; remove-by=2026-06-30: use ws_send_latency_seconds) Latency in milliseconds for websocket event frame writes.",
 			Buckets: []float64{0.1, 0.5, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000},
+		},
+	)
+	WSSendLatencySeconds = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "ws_send_latency_seconds",
+			Help:    "Latency in seconds for websocket event frame writes.",
+			Buckets: []float64{0.0001, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1},
 		},
 	)
 	WSPublishToDeliverLatencyMilliseconds = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "ws_publish_to_deliver_latency_ms",
-			Help:    "Latency in milliseconds from event publish(ts_ingest) to websocket delivery.",
+			Help:    "(DEPRECATED; remove-by=2026-06-30: use ws_publish_to_deliver_latency_seconds) Latency in milliseconds from event publish(ts_ingest) to websocket delivery.",
 			Buckets: []float64{0.5, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2000, 5000},
+		},
+		[]string{"channel"},
+	)
+	WSPublishToDeliverLatencySeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "ws_publish_to_deliver_latency_seconds",
+			Help:    "Latency in seconds from event publish(ts_ingest) to websocket delivery.",
+			Buckets: []float64{0.0005, 0.001, 0.002, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5},
 		},
 		[]string{"channel"},
 	)
 	WSLagMilliseconds = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "ws_lag_ms",
-			Help: "Current websocket delivery lag in milliseconds by channel.",
+			Help: "(DEPRECATED; remove-by=2026-06-30: use ws_lag_seconds) Current websocket delivery lag in milliseconds by channel.",
+		},
+		[]string{"channel"},
+	)
+	WSLagSeconds = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "ws_lag_seconds",
+			Help: "Current websocket delivery lag in seconds by channel.",
 		},
 		[]string{"channel"},
 	)
@@ -313,6 +365,20 @@ var (
 			Help: "Total rejected websocket read-path queries by reason.",
 		},
 		[]string{"reason"},
+	)
+	WSLimitRejectionsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ws_limit_rejections_total",
+			Help: "Total websocket rejections caused by explicit session limits.",
+		},
+		[]string{"type"},
+	)
+	WSEffectiveLimits = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "ws_effective_limits",
+			Help: "Effective websocket session limits after tenant/global resolution.",
+		},
+		[]string{"limit_name"},
 	)
 	WSSerializeErrorsTotal = prometheus.NewCounter(
 		prometheus.CounterOpts{
@@ -916,6 +982,48 @@ var (
 		},
 		[]string{"type"},
 	)
+	DeliveryRouterStreamStateEntries = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "router_stream_state_entries",
+			Help: "Current number of delivery router stream-state entries.",
+		},
+	)
+	DeliveryRouterStreamStateEvictedTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "delivery_router_stream_state_evicted_total",
+			Help: "Total delivery router stream-state entries evicted by TTL sweeps or hard-cap eviction.",
+		},
+	)
+	DeliveryRouterStreamStateEvictedTotalDeprecated = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "router_stream_state_evicted_total",
+			Help: "(DEPRECATED; remove-by=2026-06-30: use delivery_router_stream_state_evicted_total) Total delivery router stream-state entries evicted by TTL sweeps.",
+		},
+	)
+	DeliveryRouterStreamStateActiveTotal = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "router_stream_state_active_total",
+			Help: "Current number of active delivery router stream states observed during sweep.",
+		},
+	)
+	DeliveryRouterSessionsActive = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "delivery_router_sessions_active",
+			Help: "Current number of active sessions registered with the delivery router.",
+		},
+	)
+	DeliveryRouterSessionsRejectedTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "delivery_router_sessions_rejected_total",
+			Help: "Total sessions rejected by MaxActiveSessions cap.",
+		},
+	)
+	WSQueueCapacity = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "ws_queue_capacity",
+			Help: "Configured outbound websocket queue capacity per session.",
+		},
+	)
 	DeliveryRangeAliasFallbackTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "delivery_range_alias_fallback_total",
@@ -1042,11 +1150,19 @@ func registerAll() {
 			WSQueueLen,
 			WSDropsTotal,
 			WSDroppedTotal,
+			WSCompressAppliedTotal,
+			WSCompressBytesInTotal,
+			WSCompressBytesOutTotal,
+			WSBatchFramesTotal,
+			WSBatchEventsTotal,
 			WSMessagesOutTotal,
 			WSBytesOutTotal,
 			WSSendLatencyMilliseconds,
+			WSSendLatencySeconds,
 			WSPublishToDeliverLatencyMilliseconds,
+			WSPublishToDeliverLatencySeconds,
 			WSLagMilliseconds,
+			WSLagSeconds,
 			WSClientsConnected,
 			WSClientsConnectedByMode,
 			WSClientsTotal,
@@ -1054,6 +1170,8 @@ func registerAll() {
 			WSControlFramesTotal,
 			WSQueryTotal,
 			WSQueryRejectedTotal,
+			WSLimitRejectionsTotal,
+			WSEffectiveLimits,
 			WSSerializeErrorsTotal,
 			WSAuthFailTotal,
 			WSResyncTotal,
@@ -1138,6 +1256,13 @@ func registerAll() {
 			DeliveryRouterEventsRejectedTotal,
 			DeliveryRouterCoherenceMode,
 			DeliveryRouterCoherenceViolationsTotal,
+			DeliveryRouterStreamStateEntries,
+			DeliveryRouterStreamStateEvictedTotal,
+			DeliveryRouterStreamStateEvictedTotalDeprecated,
+			DeliveryRouterStreamStateActiveTotal,
+			DeliveryRouterSessionsActive,
+			DeliveryRouterSessionsRejectedTotal,
+			WSQueueCapacity,
 			DeliveryRangeAliasFallbackTotal,
 			TranscodeCacheEntries,
 			TranscodeCacheHits,
@@ -1172,11 +1297,13 @@ func registerAll() {
 		WSMessagesReceivedTotal.WithLabelValues("unknown", "unknown")
 		WSErrorsTotal.WithLabelValues("unknown", "unknown")
 		WSDropsTotal.WithLabelValues("unknown")
-		WSDroppedTotal.WithLabelValues("unknown", "unknown")
+		WSDroppedTotal.WithLabelValues("unknown", "unknown", "unknown")
 		WSMessagesOutTotal.WithLabelValues("unknown")
 		WSBytesOutTotal.WithLabelValues("unknown")
 		WSLagMilliseconds.WithLabelValues("unknown")
+		WSLagSeconds.WithLabelValues("unknown")
 		WSPublishToDeliverLatencyMilliseconds.WithLabelValues("unknown")
+		WSPublishToDeliverLatencySeconds.WithLabelValues("unknown")
 		WSClientsConnectedByMode.WithLabelValues("v1")
 		WSClientsConnectedByMode.WithLabelValues("legacy")
 		WSClientsConnectedByMode.WithLabelValues("unknown")
@@ -1189,6 +1316,16 @@ func registerAll() {
 		WSControlFramesTotal.WithLabelValues("ack_resync")
 		WSQueryTotal.WithLabelValues("unknown", "unknown")
 		WSQueryRejectedTotal.WithLabelValues("unknown")
+		WSLimitRejectionsTotal.WithLabelValues("max_subscriptions_per_connection")
+		WSLimitRejectionsTotal.WithLabelValues("max_symbols_per_connection")
+		WSLimitRejectionsTotal.WithLabelValues("max_frame_bytes")
+		WSLimitRejectionsTotal.WithLabelValues("outbound_queue_size")
+		WSLimitRejectionsTotal.WithLabelValues("rate_limit")
+		WSEffectiveLimits.WithLabelValues("max_subscriptions_per_connection").Set(0)
+		WSEffectiveLimits.WithLabelValues("max_symbols_per_connection").Set(0)
+		WSEffectiveLimits.WithLabelValues("max_frame_bytes").Set(0)
+		WSEffectiveLimits.WithLabelValues("outbound_queue_size").Set(0)
+		WSEffectiveLimits.WithLabelValues("rate_limit").Set(0)
 		WSResyncRejectedTotal.WithLabelValues("subject_invalid")
 		WSResyncRejectedTotal.WithLabelValues("not_subscribed")
 		WSResyncRejectedTotal.WithLabelValues("snapshot_unavailable")
@@ -1390,8 +1527,41 @@ func IncWSDrops(reason string) {
 	WSDropsTotal.WithLabelValues(sanitizeKind(reason)).Inc()
 }
 
-func IncWSDropped(reason, channel string) {
-	WSDroppedTotal.WithLabelValues(sanitizeKind(reason), sanitizeEventType(channel)).Inc()
+func IncWSDropped(reason, channel, priority string) {
+	WSDroppedTotal.WithLabelValues(
+		sanitizeKind(reason),
+		sanitizeEventType(channel),
+		sanitizeKind(priority),
+	).Inc()
+}
+
+func IncWSCompressApplied() {
+	WSCompressAppliedTotal.Inc()
+}
+
+func AddWSCompressBytesIn(n int) {
+	if n <= 0 {
+		return
+	}
+	WSCompressBytesInTotal.Add(float64(n))
+}
+
+func AddWSCompressBytesOut(n int) {
+	if n <= 0 {
+		return
+	}
+	WSCompressBytesOutTotal.Add(float64(n))
+}
+
+func IncWSBatchFrames() {
+	WSBatchFramesTotal.Inc()
+}
+
+func AddWSBatchEvents(n int) {
+	if n <= 0 {
+		return
+	}
+	WSBatchEventsTotal.Add(float64(n))
 }
 
 func IncWSMessagesOut(channel string) {
@@ -1409,7 +1579,9 @@ func SetWSLag(channel string, lagMs int64) {
 	if lagMs < 0 {
 		lagMs = 0
 	}
-	WSLagMilliseconds.WithLabelValues(sanitizeEventType(channel)).Set(float64(lagMs))
+	ch := sanitizeEventType(channel)
+	WSLagMilliseconds.WithLabelValues(ch).Set(float64(lagMs))
+	WSLagSeconds.WithLabelValues(ch).Set(float64(lagMs) / 1000)
 }
 
 func ObserveWSSendLatency(latency time.Duration) {
@@ -1417,14 +1589,18 @@ func ObserveWSSendLatency(latency time.Duration) {
 		latency = 0
 	}
 	WSSendLatencyMilliseconds.Observe(float64(latency) / float64(time.Millisecond))
+	WSSendLatencySeconds.Observe(latency.Seconds())
 }
 
 func ObserveWSPublishToDeliverLatency(channel string, latency time.Duration) {
 	if latency < 0 {
 		latency = 0
 	}
-	WSPublishToDeliverLatencyMilliseconds.WithLabelValues(sanitizeEventType(channel)).
+	ch := sanitizeEventType(channel)
+	WSPublishToDeliverLatencyMilliseconds.WithLabelValues(ch).
 		Observe(float64(latency) / float64(time.Millisecond))
+	WSPublishToDeliverLatencySeconds.WithLabelValues(ch).
+		Observe(latency.Seconds())
 }
 
 func IncWSClientsConnected() {
@@ -1451,6 +1627,17 @@ func IncWSQuery(op, boundedCategory string) {
 
 func IncWSQueryRejected(reason string) {
 	WSQueryRejectedTotal.WithLabelValues(sanitizeKind(reason)).Inc()
+}
+
+func IncWSLimitRejection(limitType string) {
+	WSLimitRejectionsTotal.WithLabelValues(sanitizeKind(limitType)).Inc()
+}
+
+func SetWSEffectiveLimit(limitName string, value int) {
+	if value < 0 {
+		value = 0
+	}
+	WSEffectiveLimits.WithLabelValues(sanitizeKind(limitName)).Set(float64(value))
 }
 
 func SetWSSubscriptionsActive(count int) {
@@ -2410,6 +2597,40 @@ func IncDeliveryRouterCoherenceViolation(violationType string) {
 		label = violationType
 	}
 	DeliveryRouterCoherenceViolationsTotal.WithLabelValues(label).Inc()
+}
+
+// SetDeliveryRouterStreamStateEntries sets the current stream-state entry count.
+func SetDeliveryRouterStreamStateEntries(count int) {
+	DeliveryRouterStreamStateEntries.Set(float64(max(count, 0)))
+}
+
+// AddDeliveryRouterStreamStateEvicted increments stream-state evictions by n.
+func AddDeliveryRouterStreamStateEvicted(n int) {
+	if n <= 0 {
+		return
+	}
+	DeliveryRouterStreamStateEvictedTotal.Add(float64(n))
+	DeliveryRouterStreamStateEvictedTotalDeprecated.Add(float64(n))
+}
+
+// SetDeliveryRouterStreamStateActive sets the active stream-state count from the latest sweep.
+func SetDeliveryRouterStreamStateActive(count int) {
+	DeliveryRouterStreamStateActiveTotal.Set(float64(max(count, 0)))
+}
+
+// SetDeliveryRouterSessionsActive sets the active sessions gauge for the delivery router.
+func SetDeliveryRouterSessionsActive(count int) {
+	DeliveryRouterSessionsActive.Set(float64(max(count, 0)))
+}
+
+// IncDeliveryRouterSessionsRejected increments the sessions-rejected counter.
+func IncDeliveryRouterSessionsRejected() {
+	DeliveryRouterSessionsRejectedTotal.Inc()
+}
+
+// SetWSQueueCapacity sets the per-session outbound queue capacity gauge.
+func SetWSQueueCapacity(capacity int) {
+	WSQueueCapacity.Set(float64(max(capacity, 0)))
 }
 
 // IncDeliveryRangeAliasFallback increments getrange alias fallback attempts by outcome.

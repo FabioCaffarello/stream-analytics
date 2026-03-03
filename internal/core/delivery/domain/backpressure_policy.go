@@ -45,9 +45,9 @@ func ShouldDropOnBackpressure(policy BackpressurePolicy, queueLen, queueCap int)
 func DefaultBackpressurePriorities() map[string]int {
 	return map[string]int{
 		"marketdata.trade":                     100,
-		"marketdata.bookdelta":                 90,
-		"aggregation.candle":                   70,
-		"aggregation.stats":                    60,
+		"aggregation.candle":                   90,
+		"aggregation.stats":                    80,
+		"marketdata.bookdelta":                 20,
 		"insights.heatmap_snapshot":            55,
 		"marketdata.markprice":                 50,
 		"marketdata.liquidation":               40,
