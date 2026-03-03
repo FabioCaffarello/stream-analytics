@@ -1701,21 +1701,45 @@ apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 		sync.unlock(&state.mu)
 	case .Error:
 		ed := result.data.error_detail
-		if len(ed.code) > 0 {
-			fmt.printf("[marketdata] Error: code=%s msg=%s op=%s rid=%s\n",
-				ed.code, ed.message, ed.op, ed.request_id)
-			if strings.contains(ed.code, "AUTH") || strings.contains(ed.code, "UNAUTHORIZED") || strings.contains(ed.code, "TOKEN") {
+		if len(ed.code) > 0 || len(ed.error_code) > 0 {
+			fmt.printf("[marketdata] Error: code=%s error_code=%s action_hint=%s msg=%s op=%s rid=%s\n",
+				ed.code, ed.error_code, ed.action_hint, ed.message, ed.op, ed.request_id)
+			// V1 path: use action_hint for deterministic routing when available.
+			hint := util.parse_action_hint(ed.action_hint)
+			action, meaningful := md_common.action_hint_to_ws_fault(hint)
+			if meaningful && hint != .Unspecified {
 				sync.lock(&state.mu)
-				apply_ws_fault(state, .AuthDenied)
+				state.ws_error_action = action
+				switch action {
+				case .Retry:
+					set_transport_state(state, .Backoff)
+				case .Resync:
+					state.desync = true
+					state.desync_reason = .Resync_Required
+					set_transport_state(state, .Desync)
+				case .Stop:
+					state.desync = true
+					state.desync_reason = .Protocol_Invalid
+					state.reconnect_blocked = true
+					set_transport_state(state, .Desync)
+				case .Downgrade, .None:
+					// No action needed.
+				}
 				sync.unlock(&state.mu)
-			}
-			// Detect RESYNC_REQUIRED error → trigger desync.
-			if ed.code == "ERROR_CODE_RESYNC_REQUIRED" {
-				sync.lock(&state.mu)
-				state.desync = true
-				state.desync_reason = .Resync_Required
-				set_transport_state(state, .Desync)
-				sync.unlock(&state.mu)
+			} else {
+				// Legacy fallback: heuristic string matching for pre-V1 servers.
+				if strings.contains(ed.code, "AUTH") || strings.contains(ed.code, "UNAUTHORIZED") || strings.contains(ed.code, "TOKEN") {
+					sync.lock(&state.mu)
+					apply_ws_fault(state, .AuthDenied)
+					sync.unlock(&state.mu)
+				}
+				if ed.code == "ERROR_CODE_RESYNC_REQUIRED" {
+					sync.lock(&state.mu)
+					state.desync = true
+					state.desync_reason = .Resync_Required
+					set_transport_state(state, .Desync)
+					sync.unlock(&state.mu)
+				}
 			}
 		} else {
 			fmt.printf("[marketdata] Error frame without code (frame_len=%d)\n", len(raw))
