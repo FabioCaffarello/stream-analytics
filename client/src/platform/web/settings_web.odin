@@ -25,6 +25,12 @@ stub_settings_port :: proc() -> ports.Settings_Port {
 	}
 }
 
+// Read a persisted setting directly from web localStorage bridge.
+// Used by platform services that are not wired through core Settings_Store.
+web_settings_lookup :: proc(key: string) -> (value: string, ok: bool) {
+	return web_settings_load_value(key)
+}
+
 @(private = "file")
 web_settings_load_value :: proc(key: string) -> (value: string, ok: bool) {
 	if len(key) == 0 do return "", false

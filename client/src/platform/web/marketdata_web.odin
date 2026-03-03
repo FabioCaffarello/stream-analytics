@@ -120,6 +120,18 @@ MD_Web_State :: struct {
 	// Server-pushed metrics (from METRICS frame).
 	server_metrics: services.Parsed_Metrics,
 	server_metrics_received: bool,
+	// Server capability limits (from HELLO).
+	server_max_subscriptions:    int,
+	server_max_frame_bytes:      int,
+	server_metrics_cadence_ms:   int,
+	server_keepalive_interval_ms: int,
+	server_rate_limit_enabled:   bool,
+	// Server-advertised supported features (from HELLO).
+	server_supported_features: [services.MAX_FEATURE_SLOTS]services.Parsed_Feature_Slot,
+	server_supported_feature_count: int,
+	// Negotiated features (from Hello ACK).
+	negotiated_features: [services.MAX_FEATURE_SLOTS]services.Parsed_Feature_Slot,
+	negotiated_feature_count: int,
 
 	// Subscription tracking for reconnect re-subscribe.
 	active_subs:  [WEB_MAX_SUBS]Web_Sub_Entry,
@@ -162,8 +174,17 @@ MD_Web_State :: struct {
 	connect_started_ms: i64,
 	first_data_logged:  bool,
 	last_seq_by_sub:    [WEB_MAX_SUBS]i64,
+	last_snapshot_seq_by_sub: [WEB_MAX_SUBS]i64,
 	last_server_ts_by_sub: [WEB_MAX_SUBS]i64,
 	snapshot_logged_by_sub: [WEB_MAX_SUBS]bool,
+	// Integrity counters.
+	snapshot_hash_mismatches: int,
+	snapshot_seq_violations:  int,
+	prev_seq_violations:      int,
+	hash_validation_skipped:  int,
+	// Legacy tracking.
+	legacy_downgrade_count:    int,
+	legacy_connected_since_ms: i64,
 	desync_resub_subject_id: u64, // 0 = none pending
 	// RESYNC tracking (Terminal_V1): pending resync for a subject.
 	resync_pending_subject_id: u64,  // 0 = none pending
@@ -221,6 +242,9 @@ g_web_state: ^MD_Web_State
 
 @(private = "file")
 read_allow_legacy_ws_web :: proc() -> bool {
+	if v, ok := web_settings_lookup(services.SETTING_ALLOW_LEGACY_WS); ok {
+		return md_common.legacy_switch_from_text(v)
+	}
 	v := ws_allow_legacy_ws()
 	if v == 0 do return false
 	if v > 0 do return true
@@ -281,6 +305,9 @@ apply_web_fault :: proc(state: ^MD_Web_State, category: ports.MD_WS_Error_Catego
 	case .Retry:
 		set_web_transport_state(state, .Backoff)
 	case .Downgrade:
+		state.legacy_downgrade_count += 1
+		state.legacy_connected_since_ms = time.now()._nsec / 1_000_000
+		fmt.printf("[md-lifecycle] WARN legacy_downgrade count=%d allow=%v\n", state.legacy_downgrade_count, state.allow_legacy_ws)
 		state.transport_mode = .Legacy_JSON
 		state.hello_timeout_count += 1
 		state.hello_received = true
@@ -299,6 +326,62 @@ apply_web_fault :: proc(state: ^MD_Web_State, category: ports.MD_WS_Error_Catego
 		set_web_transport_state(state, .Desync)
 	case .None:
 	}
+}
+
+@(private = "file")
+web_server_has_feature :: proc(state: ^MD_Web_State, name: string) -> bool {
+	for i in 0 ..< state.server_supported_feature_count {
+		slot := state.server_supported_features[i]
+		if int(slot.len) != len(name) do continue
+		match := true
+		for j in 0 ..< int(slot.len) {
+			if slot.name[j] != name[j] {
+				match = false
+				break
+			}
+		}
+		if match do return true
+	}
+	return false
+}
+
+@(private = "file")
+web_negotiated_has_feature :: proc(state: ^MD_Web_State, name: string) -> bool {
+	for i in 0 ..< state.negotiated_feature_count {
+		slot := state.negotiated_features[i]
+		if int(slot.len) != len(name) do continue
+		match := true
+		for j in 0 ..< int(slot.len) {
+			if slot.name[j] != name[j] {
+				match = false
+				break
+			}
+		}
+		if match do return true
+	}
+	return false
+}
+
+@(private = "file")
+web_feature_setting_value :: proc(key: string) -> string {
+	if v, ok := web_settings_lookup(key); ok && len(v) > 0 {
+		return v
+	}
+	return "auto"
+}
+
+@(private = "file")
+web_frame_within_limit :: proc(state: ^MD_Web_State, frame_len: int) -> bool {
+	if state == nil do return false
+	if frame_len < 0 do return false
+	if state.server_max_frame_bytes > 0 && frame_len > state.server_max_frame_bytes {
+		state.drop_payload_oversize += 1
+		state.drop_count += 1
+		fmt.printf("[md-lifecycle] frame_rejected max_frame_bytes=%d len=%d\n", state.server_max_frame_bytes, frame_len)
+		apply_web_fault(state, .BackpressureDrop)
+		return false
+	}
+	return true
 }
 
 // --- Public API ---
@@ -382,6 +465,7 @@ web_shutdown :: proc() {
 	for i in 0 ..< state.active_count {
 		web_free_sub_entry(&state.active_subs[i])
 		state.last_seq_by_sub[i] = 0
+		state.last_snapshot_seq_by_sub[i] = 0
 		state.last_server_ts_by_sub[i] = 0
 		state.snapshot_logged_by_sub[i] = false
 	}
@@ -477,6 +561,8 @@ web_reconnect_transport :: proc(ws_url: string, api_key: string, jwt_token: stri
 	state.ws_error_action = .None
 	set_web_transport_state(state, .Backoff)
 	state.server_metrics_received = false
+	state.server_supported_feature_count = 0
+	state.negotiated_feature_count = 0
 	state.last_metrics_ts_ms = 0
 	state.last_pong_ts_ms = 0
 	state.connect_started_ms = 0
@@ -499,7 +585,10 @@ web_subscribe :: proc(venue: string, symbol: string, channel: ports.MD_Channel) 
 		delete(subject)
 		return true
 	}
-	if state.active_count >= WEB_MAX_SUBS {
+	sub_limit := state.server_max_subscriptions
+	if sub_limit <= 0 do sub_limit = WEB_MAX_SUBS
+	if state.active_count >= min(sub_limit, WEB_MAX_SUBS) {
+		fmt.printf("[md-lifecycle] subscribe_rejected limit=%d active=%d\n", sub_limit, state.active_count)
 		delete(subject)
 		return false
 	}
@@ -513,6 +602,7 @@ web_subscribe :: proc(venue: string, symbol: string, channel: ports.MD_Channel) 
 		subject = subject,
 	}
 	state.last_seq_by_sub[state.active_count] = 0
+	state.last_snapshot_seq_by_sub[state.active_count] = 0
 	state.last_server_ts_by_sub[state.active_count] = 0
 	state.snapshot_logged_by_sub[state.active_count] = false
 	state.active_count += 1
@@ -536,7 +626,10 @@ web_subscribe_tf :: proc(venue: string, symbol: string, channel: ports.MD_Channe
 		delete(subject)
 		return true
 	}
-	if state.active_count >= WEB_MAX_SUBS {
+	sub_limit := state.server_max_subscriptions
+	if sub_limit <= 0 do sub_limit = WEB_MAX_SUBS
+	if state.active_count >= min(sub_limit, WEB_MAX_SUBS) {
+		fmt.printf("[md-lifecycle] subscribe_tf_rejected limit=%d active=%d\n", sub_limit, state.active_count)
 		delete(subject)
 		return false
 	}
@@ -550,6 +643,7 @@ web_subscribe_tf :: proc(venue: string, symbol: string, channel: ports.MD_Channe
 		is_explicit_tf = true,
 	}
 	state.last_seq_by_sub[state.active_count] = 0
+	state.last_snapshot_seq_by_sub[state.active_count] = 0
 	state.last_server_ts_by_sub[state.active_count] = 0
 	state.snapshot_logged_by_sub[state.active_count] = false
 	state.active_count += 1
@@ -646,7 +740,32 @@ web_metrics :: proc(out: ^ports.MD_Runtime_Metrics) -> bool {
 		server_serialize_errors = sm.serialize_errors_total,
 		server_resync_total     = sm.resync_total,
 		server_pub_deliver_ms   = sm.publish_to_deliver_latency_ms,
+		// Server capability limits.
+		server_max_subscriptions     = state.server_max_subscriptions,
+		server_max_frame_bytes       = state.server_max_frame_bytes,
+		server_metrics_cadence_ms    = state.server_metrics_cadence_ms,
+		server_keepalive_interval_ms = state.server_keepalive_interval_ms,
+		server_rate_limit_enabled    = state.server_rate_limit_enabled,
+		// Backpressure.
+		server_backpressure_level    = sm.backpressure_level,
+		server_queue_capacity        = sm.queue_capacity,
+		server_queue_high_watermark  = sm.queue_high_watermark,
+		// Feature negotiation.
+		negotiated_feature_count     = state.negotiated_feature_count,
+		// Integrity counters.
+		snapshot_hash_mismatches     = state.snapshot_hash_mismatches,
+		snapshot_seq_violations      = state.snapshot_seq_violations,
+		prev_seq_violations          = state.prev_seq_violations,
+		hash_validation_skipped      = state.hash_validation_skipped,
+		// Legacy tracking.
+		legacy_downgrade_count       = state.legacy_downgrade_count,
+		legacy_connected_since_ms    = state.legacy_connected_since_ms,
 	}
+	ra_n := min(int(sm.recommended_action_len), len(out.server_recommended_action))
+	for i in 0 ..< ra_n {
+		out.server_recommended_action[i] = sm.recommended_action_buf[i]
+	}
+	out.server_recommended_action_len = u8(ra_n)
 	return true
 }
 
@@ -672,11 +791,13 @@ web_unsubscribe :: proc(venue: string, symbol: string, channel: ports.MD_Channel
 		if idx != last {
 			state.active_subs[idx] = state.active_subs[last]
 			state.last_seq_by_sub[idx] = state.last_seq_by_sub[last]
+			state.last_snapshot_seq_by_sub[idx] = state.last_snapshot_seq_by_sub[last]
 			state.last_server_ts_by_sub[idx] = state.last_server_ts_by_sub[last]
 			state.snapshot_logged_by_sub[idx] = state.snapshot_logged_by_sub[last]
 		}
 		state.active_subs[last] = {}
 		state.last_seq_by_sub[last] = 0
+		state.last_snapshot_seq_by_sub[last] = 0
 		state.last_server_ts_by_sub[last] = 0
 		state.snapshot_logged_by_sub[last] = false
 		state.active_count -= 1
@@ -704,6 +825,7 @@ web_send_unsubscribe :: proc(state: ^MD_Web_State, subject: string) -> bool {
 		msg, ok = md_common.build_unsubscribe_msg(buf[:], subject, state.rid_counter)
 	}
 	if !ok do return false
+	if !web_frame_within_limit(state, len(msg)) do return false
 	ws_send(raw_data(buf[:len(msg)]), i32(len(msg)))
 	fmt.printf("[md-lifecycle] unsubscribe_sent subject=%s rid=r%d\n", subject, state.rid_counter)
 	return true
@@ -722,6 +844,7 @@ web_send_subscribe :: proc(state: ^MD_Web_State, subject: string) -> bool {
 		msg, ok = md_common.build_subscribe_msg(buf[:], subject, state.rid_counter)
 	}
 	if !ok do return false
+	if !web_frame_within_limit(state, len(msg)) do return false
 	ws_send(raw_data(buf[:len(msg)]), i32(len(msg)))
 	fmt.printf("[md-lifecycle] subscribe_sent subject=%s rid=r%d\n", subject, state.rid_counter)
 	return true
@@ -775,6 +898,7 @@ web_send_getrange_now :: proc(state: ^MD_Web_State, subject: string, limit: int,
 	buf: [512]u8
 	msg, ok := md_common.build_getrange_msg(buf[:], subject, limit, end_ts, state.rid_counter)
 	if !ok do return false
+	if !web_frame_within_limit(state, len(msg)) do return false
 	ws_send(raw_data(buf[:len(msg)]), i32(len(msg)))
 	return true
 }
@@ -797,11 +921,30 @@ web_flush_pending_getrange :: proc(state: ^MD_Web_State) {
 @(private = "file")
 web_send_hello :: proc(state: ^MD_Web_State) {
 	state.rid_counter += 1
-	buf: [256]u8
-	msg, ok := md_common.build_hello_msg(buf[:], state.rid_counter)
+	buf: [512]u8
+	features: [md_common.MAX_REQUESTED_FEATURES][24]u8
+	feature_lens: [md_common.MAX_REQUESTED_FEATURES]u8
+	server_known := state.server_supported_feature_count > 0
+	fc := md_common.resolve_requested_features(
+		state.transport_mode,
+		.WASM,
+		server_known,
+		web_server_has_feature(state, "batching"),
+		web_server_has_feature(state, "snapshot_hash"),
+		web_server_has_feature(state, "prev_seq"),
+		web_feature_setting_value(services.SETTING_FEATURE_BATCHING),
+		web_feature_setting_value(services.SETTING_FEATURE_SNAPSHOT_HASH),
+		web_feature_setting_value(services.SETTING_FEATURE_PREV_SEQ),
+		&features, &feature_lens,
+	)
+	msg, ok := md_common.build_hello_msg_v2(buf[:], state.rid_counter, &features, &feature_lens, fc)
+	if !ok {
+		msg, ok = md_common.build_hello_msg(buf[:], state.rid_counter)
+	}
 	if !ok do return
+	if !web_frame_within_limit(state, len(msg)) do return
 	ws_send(raw_data(buf[:len(msg)]), i32(len(msg)))
-	fmt.printf("[md-lifecycle] hello_sent rid=h%d\n", state.rid_counter)
+	fmt.printf("[md-lifecycle] hello_sent rid=h%d features=%d\n", state.rid_counter, fc)
 }
 
 @(private = "file")
@@ -811,6 +954,7 @@ web_send_ping :: proc(state: ^MD_Web_State) {
 	buf: [256]u8
 	msg, ok := md_common.build_ping_msg(buf[:], ts, state.rid_counter)
 	if !ok do return
+	if !web_frame_within_limit(state, len(msg)) do return
 	ws_send(raw_data(buf[:len(msg)]), i32(len(msg)))
 	state.last_ping_sent_ms = ts
 }
@@ -850,6 +994,7 @@ web_send_resync :: proc(state: ^MD_Web_State, subject: string, last_seq: i64) ->
 	buf: [512]u8
 	msg, ok := md_common.build_resync_msg(buf[:], stream_id, last_seq, state.rid_counter)
 	if !ok do return false
+	if !web_frame_within_limit(state, len(msg)) do return false
 	ws_send(raw_data(buf[:len(msg)]), i32(len(msg)))
 	state.resync_count += 1
 	fmt.printf("[md-lifecycle] resync_sent stream_id=%s last_seq=%d rid=rs%d\n", stream_id, last_seq, state.rid_counter)
@@ -930,6 +1075,7 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 		state.first_data_logged = false
 		for i in 0 ..< state.active_count {
 			state.last_seq_by_sub[i] = 0
+			state.last_snapshot_seq_by_sub[i] = 0
 			state.last_server_ts_by_sub[i] = 0
 			state.snapshot_logged_by_sub[i] = false
 		}
@@ -1378,6 +1524,30 @@ web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 					state.seq_gap_streak = next_streak
 				}
 				state.last_seq_by_sub[si] = result.meta.seq
+				if result.meta.prev_seq > 0 {
+					if md_common.validate_prev_seq(result.meta.prev_seq, prev_seq) {
+						state.prev_seq_violations += 1
+					}
+				}
+				if result.meta.is_snapshot {
+					if result.meta.snapshot_seq > 0 {
+						if md_common.validate_snapshot_seq_monotonic(result.meta.snapshot_seq, state.last_snapshot_seq_by_sub[si]) {
+							state.snapshot_seq_violations += 1
+						}
+						state.last_snapshot_seq_by_sub[si] = result.meta.snapshot_seq
+					}
+					if md_common.validate_snapshot_integrity_consistency(result.meta.seq, result.meta.snapshot_seq, result.meta.watermark_seq) {
+						state.snapshot_seq_violations += 1
+					}
+					if result.meta.snapshot_hash_len > 0 {
+						if !md_common.validate_snapshot_hash_format(result.meta.snapshot_hash, result.meta.snapshot_hash_len) {
+							state.snapshot_hash_mismatches += 1
+						} else if web_negotiated_has_feature(state, "snapshot_hash") {
+							state.hash_validation_skipped += 1
+							fmt.printf("[md-lifecycle] snapshot_hash_skipped sid=%x seq=%d reason=noncanonical_input\n", result.meta.subject_id, result.meta.seq)
+						}
+					}
+				}
 				if result.meta.server_ts_ms > 0 {
 					prev_server_ts := state.last_server_ts_by_sub[si]
 					if prev_server_ts > 0 && result.meta.server_ts_ms < prev_server_ts {
@@ -1468,6 +1638,15 @@ web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 		sid_len := min(len(sid), len(state.server_instance_id))
 		for i in 0 ..< sid_len { state.server_instance_id[i] = sid[i] }
 		state.server_instance_id_len = u8(sid_len)
+		state.server_max_subscriptions = h.max_subscriptions
+		state.server_max_frame_bytes = h.max_frame_bytes
+		state.server_metrics_cadence_ms = h.metrics_cadence_ms
+		state.server_keepalive_interval_ms = h.keepalive_interval_ms
+		state.server_rate_limit_enabled = h.rate_limit_enabled
+		state.server_supported_feature_count = h.supported_feature_count
+		for i in 0 ..< h.supported_feature_count {
+			state.server_supported_features[i] = h.supported_features[i]
+		}
 		if !h.valid {
 			state.desync = true
 			state.desync_reason = md_common.desync_reason_from_hello_reject(h.reject)
@@ -1486,8 +1665,11 @@ web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 			h.proto_ver, h.server_instance_id, h.topic_count, h.venue_count, h.symbol_count,
 		)
 	case .Hello_Ack:
-		// Web platform: log negotiated features, no further action needed.
 		ha := result.data.hello_ack
+		state.negotiated_feature_count = ha.negotiated_feature_count
+		for i in 0 ..< ha.negotiated_feature_count {
+			state.negotiated_features[i] = ha.negotiated_features[i]
+		}
 		fmt.printf("[md-lifecycle] hello_ack_recv negotiated_features=%d\n", ha.negotiated_feature_count)
 	case .Heartbeat, .Health:
 		ctrl := result.data.control
@@ -1505,17 +1687,36 @@ web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 		state.last_metrics_ts_ms = parsed_now_ms
 	case .Error:
 		ed := result.data.error_detail
-		if len(ed.code) > 0 {
-			fmt.printf("[ws] Error: code=%s msg=%s op=%s rid=%s\n",
-				ed.code, ed.message, ed.op, ed.request_id)
-			if strings.contains(ed.code, "AUTH") || strings.contains(ed.code, "UNAUTHORIZED") || strings.contains(ed.code, "TOKEN") {
-				apply_web_fault(state, .AuthDenied)
-			}
-			// Detect RESYNC_REQUIRED error → trigger desync.
-			if ed.code == "ERROR_CODE_RESYNC_REQUIRED" {
-				state.desync = true
-				state.desync_reason = .Resync_Required
-				set_web_transport_state(state, .Desync)
+		if len(ed.code) > 0 || len(ed.error_code) > 0 {
+			fmt.printf("[ws] Error: code=%s error_code=%s action_hint=%s msg=%s op=%s rid=%s\n",
+				ed.code, ed.error_code, ed.action_hint, ed.message, ed.op, ed.request_id)
+			hint := util.parse_action_hint(ed.action_hint)
+			action, meaningful := md_common.action_hint_to_ws_fault(hint)
+			if meaningful && hint != .Unspecified {
+				state.ws_error_action = action
+				switch action {
+				case .Retry:
+					set_web_transport_state(state, .Backoff)
+				case .Resync:
+					state.desync = true
+					state.desync_reason = .Resync_Required
+					set_web_transport_state(state, .Desync)
+				case .Stop:
+					state.reconnect_blocked = true
+					state.desync = true
+					state.desync_reason = .Protocol_Invalid
+					set_web_transport_state(state, .Desync)
+				case .Downgrade, .None:
+				}
+			} else {
+				if strings.contains(ed.code, "AUTH") || strings.contains(ed.code, "UNAUTHORIZED") || strings.contains(ed.code, "TOKEN") {
+					apply_web_fault(state, .AuthDenied)
+				}
+				if ed.code == "ERROR_CODE_RESYNC_REQUIRED" {
+					state.desync = true
+					state.desync_reason = .Resync_Required
+					set_web_transport_state(state, .Desync)
+				}
 			}
 		} else {
 			fmt.printf("[ws] Error frame without code (frame_len=%d)\n", len(raw))
