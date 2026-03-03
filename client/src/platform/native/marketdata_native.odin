@@ -137,6 +137,8 @@ MD_Native_State :: struct {
 	// Integrity counters.
 	snapshot_hash_mismatches: int,
 	snapshot_seq_violations:  int,
+	prev_seq_violations:     int,
+	hash_validation_skipped: int,  // skipped hash byte-verify (noncanonical)
 	// Legacy tracking.
 	legacy_downgrade_count:    int,
 	legacy_connected_since_ms: i64,
@@ -192,6 +194,7 @@ MD_Native_State :: struct {
 	active_subs:  [MAX_SUBS]Sub_Entry,
 	active_count: int,
 	last_seq_by_sub: [MAX_SUBS]i64,
+	last_snapshot_seq_by_sub: [MAX_SUBS]i64,
 	snapshot_logged_by_sub: [MAX_SUBS]bool,
 
 	// Desync recovery: targeted re-subscribe for a single subject.
@@ -523,6 +526,7 @@ native_shutdown :: proc() {
 	for i in 0 ..< state.active_count {
 		native_free_sub_entry(&state.active_subs[i])
 		state.last_seq_by_sub[i] = 0
+		state.last_snapshot_seq_by_sub[i] = 0
 		state.last_server_ts_by_sub[i] = 0
 	}
 	state.active_count = 0
@@ -655,6 +659,7 @@ native_subscribe :: proc(venue: string, symbol: string, channel: ports.MD_Channe
 		subject = subject,
 	}
 	state.last_seq_by_sub[state.active_count] = 0
+	state.last_snapshot_seq_by_sub[state.active_count] = 0
 	state.last_server_ts_by_sub[state.active_count] = 0
 	state.snapshot_logged_by_sub[state.active_count] = false
 	state.active_count += 1
@@ -694,6 +699,7 @@ native_subscribe_tf :: proc(venue: string, symbol: string, channel: ports.MD_Cha
 		subject = subject,
 	}
 	state.last_seq_by_sub[state.active_count] = 0
+	state.last_snapshot_seq_by_sub[state.active_count] = 0
 	state.last_server_ts_by_sub[state.active_count] = 0
 	state.snapshot_logged_by_sub[state.active_count] = false
 	state.active_count += 1
@@ -808,6 +814,8 @@ native_metrics :: proc(out: ^ports.MD_Runtime_Metrics) -> bool {
 		// Integrity counters.
 		snapshot_hash_mismatches     = state.snapshot_hash_mismatches,
 		snapshot_seq_violations      = state.snapshot_seq_violations,
+		prev_seq_violations          = state.prev_seq_violations,
+		hash_validation_skipped      = state.hash_validation_skipped,
 		// Legacy tracking.
 		legacy_downgrade_count       = state.legacy_downgrade_count,
 		legacy_connected_since_ms    = state.legacy_connected_since_ms,
@@ -847,11 +855,13 @@ native_unsubscribe :: proc(venue: string, symbol: string, channel: ports.MD_Chan
 		if idx != last {
 			state.active_subs[idx] = state.active_subs[last]
 			state.last_seq_by_sub[idx] = state.last_seq_by_sub[last]
+			state.last_snapshot_seq_by_sub[idx] = state.last_snapshot_seq_by_sub[last]
 			state.last_server_ts_by_sub[idx] = state.last_server_ts_by_sub[last]
 			state.snapshot_logged_by_sub[idx] = state.snapshot_logged_by_sub[last]
 		}
 		state.active_subs[last] = {}
 		state.last_seq_by_sub[last] = 0
+		state.last_snapshot_seq_by_sub[last] = 0
 		state.last_server_ts_by_sub[last] = 0
 		state.snapshot_logged_by_sub[last] = false
 		state.active_count -= 1
@@ -1473,6 +1483,7 @@ attempt_reconnect :: proc(state: ^MD_Native_State) {
 	set_transport_state(state, .Hello_Pending)
 	for i in 0 ..< state.active_count {
 		state.last_seq_by_sub[i] = 0
+		state.last_snapshot_seq_by_sub[i] = 0
 		state.last_server_ts_by_sub[i] = 0
 		state.snapshot_logged_by_sub[i] = false
 	}
@@ -1580,6 +1591,29 @@ apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 					state.seq_gap_streak = next_streak
 				}
 				state.last_seq_by_sub[si] = result.meta.seq
+				// prev_seq chaining: validate if server sent prev_seq.
+				if result.meta.prev_seq > 0 {
+					if md_common.validate_prev_seq(result.meta.prev_seq, prev_seq) {
+						state.prev_seq_violations += 1
+					}
+				}
+				// Snapshot integrity: validate snapshot_seq monotonicity + hash format.
+				if result.meta.is_snapshot {
+					if result.meta.snapshot_seq > 0 {
+						if md_common.validate_snapshot_seq_monotonic(result.meta.snapshot_seq, state.last_snapshot_seq_by_sub[si]) {
+							state.snapshot_seq_violations += 1
+						}
+						state.last_snapshot_seq_by_sub[si] = result.meta.snapshot_seq
+					}
+					if result.meta.snapshot_hash_len > 0 {
+						if md_common.validate_snapshot_hash_format(result.meta.snapshot_hash, result.meta.snapshot_hash_len) {
+							// Hash format valid; skip byte-perfect comparison (noncanonical input).
+							state.hash_validation_skipped += 1
+						} else {
+							state.snapshot_hash_mismatches += 1  // invalid format counts as mismatch
+						}
+					}
+				}
 				if result.meta.server_ts_ms > 0 {
 					prev_server_ts := state.last_server_ts_by_sub[si]
 					if prev_server_ts > 0 && result.meta.server_ts_ms < prev_server_ts {

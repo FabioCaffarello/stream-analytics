@@ -361,6 +361,60 @@ test_action_hint_to_ws_fault :: proc(t: ^testing.T) {
 	testing.expect_value(t, m6, false)
 }
 
+// --- Snapshot integrity tests ---
+
+@(test)
+test_validate_prev_seq_zero_is_valid :: proc(t: ^testing.T) {
+	// prev_seq=0 is first-after-subscribe, never a mismatch.
+	testing.expect_value(t, validate_prev_seq(0, 10), false)
+	testing.expect_value(t, validate_prev_seq(0, 0), false)
+}
+
+@(test)
+test_validate_prev_seq_match :: proc(t: ^testing.T) {
+	// prev_seq matches last delivered → no mismatch.
+	testing.expect_value(t, validate_prev_seq(10, 10), false)
+}
+
+@(test)
+test_validate_prev_seq_gap :: proc(t: ^testing.T) {
+	// prev_seq differs from last delivered → mismatch.
+	testing.expect_value(t, validate_prev_seq(8, 10), true)
+	testing.expect_value(t, validate_prev_seq(12, 10), true)
+}
+
+@(test)
+test_validate_snapshot_hash_format_valid :: proc(t: ^testing.T) {
+	hash: [16]u8
+	s := "a1b2c3d4e5f6a7b8"
+	for i in 0 ..< 16 { hash[i] = s[i] }
+	testing.expect_value(t, validate_snapshot_hash_format(hash, 16), true)
+}
+
+@(test)
+test_validate_snapshot_hash_format_invalid :: proc(t: ^testing.T) {
+	// Wrong length.
+	hash: [16]u8
+	testing.expect_value(t, validate_snapshot_hash_format(hash, 0), false)
+	testing.expect_value(t, validate_snapshot_hash_format(hash, 8), false)
+	// Non-hex character.
+	s := "a1b2c3d4e5f6a7gx"
+	for i in 0 ..< 16 { hash[i] = s[i] }
+	testing.expect_value(t, validate_snapshot_hash_format(hash, 16), false)
+}
+
+@(test)
+test_validate_snapshot_seq_monotonic :: proc(t: ^testing.T) {
+	// snapshot_seq > last → no violation.
+	testing.expect_value(t, validate_snapshot_seq_monotonic(11, 10), false)
+	// snapshot_seq == last → violation.
+	testing.expect_value(t, validate_snapshot_seq_monotonic(10, 10), true)
+	// snapshot_seq < last → violation.
+	testing.expect_value(t, validate_snapshot_seq_monotonic(9, 10), true)
+	// First snapshot (last=0) → no violation.
+	testing.expect_value(t, validate_snapshot_seq_monotonic(5, 0), false)
+}
+
 @(test)
 test_missing_ts_server_gap_terminal_v1_only :: proc(t: ^testing.T) {
 	testing.expect_value(t, missing_ts_server_gap(false, services.Parse_Result_Kind.Trade, util.Transport_Mode.Terminal_V1), true)

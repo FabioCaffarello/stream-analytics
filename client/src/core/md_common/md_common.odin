@@ -433,6 +433,36 @@ seq_gap_transition :: proc(prev_seq, next_seq: i64, streak, recurring_threshold:
 	return false, 0, false
 }
 
+// --- Snapshot integrity validation ---
+
+// Validate prev_seq chaining: if prev_seq > 0, it must match the last delivered seq.
+// prev_seq=0 is valid (first message after subscribe/resync).
+// Returns: (mismatch: bool).
+validate_prev_seq :: proc(prev_seq: i64, last_delivered_seq: i64) -> bool {
+	if prev_seq <= 0 do return false
+	if last_delivered_seq <= 0 do return false
+	return prev_seq != last_delivered_seq
+}
+
+// Check if a snapshot_hash is well-formed: exactly 16 hex characters.
+// Returns true if valid format.
+validate_snapshot_hash_format :: proc(hash: [16]u8, hash_len: u8) -> bool {
+	if hash_len != 16 do return false
+	for i in 0 ..< 16 {
+		c := hash[i]
+		is_hex := (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+		if !is_hex do return false
+	}
+	return true
+}
+
+// Validate snapshot_seq monotonicity: must be > last_snapshot_seq (when both > 0).
+// Returns true if violation detected.
+validate_snapshot_seq_monotonic :: proc(snapshot_seq: i64, last_snapshot_seq: i64) -> bool {
+	if snapshot_seq <= 0 || last_snapshot_seq <= 0 do return false
+	return snapshot_seq <= last_snapshot_seq
+}
+
 // --- Hello rejection → desync reason ---
 
 desync_reason_from_hello_reject :: proc(reject: services.Hello_Reject_Reason) -> ports.MD_Desync_Reason {

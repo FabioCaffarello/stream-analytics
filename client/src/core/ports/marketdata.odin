@@ -237,6 +237,8 @@ MD_Runtime_Metrics :: struct {
 	// Integrity counters.
 	snapshot_hash_mismatches:     int,
 	snapshot_seq_violations:      int,
+	prev_seq_violations:         int,
+	hash_validation_skipped:     int,  // skipped byte-perfect hash verify (noncanonical)
 	// Legacy tracking.
 	legacy_downgrade_count:       int,
 	legacy_connected_since_ms:    i64,
