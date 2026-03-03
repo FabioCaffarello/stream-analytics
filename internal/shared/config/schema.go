@@ -219,9 +219,17 @@ type HTTPConfig struct {
 
 // WSConfig controls websocket auth and per-session read-path rate limiting.
 type WSConfig struct {
-	Auth      WSAuthConfig      `json:"auth"`
-	RateLimit WSRateLimitConfig `json:"rate_limit"`
-	Limits    WSLimitsConfig    `json:"limits"`
+	Auth         WSAuthConfig                   `json:"auth"`
+	RateLimit    WSRateLimitConfig              `json:"rate_limit"`
+	Limits       WSLimitsConfig                 `json:"limits"`
+	TenantLimits map[string]WSTenantLimitConfig `json:"tenant_limits,omitempty"`
+}
+
+// WSTenantLimitConfig defines per-tenant connection and rate limit overrides.
+type WSTenantLimitConfig struct {
+	MaxConnectionsPerKey int               `json:"max_connections_per_key"`
+	MaxSubsPerConnection int               `json:"max_subs_per_connection"`
+	RateLimit            WSRateLimitConfig `json:"rate_limit"`
 }
 
 // WSAuthConfig controls API-key authentication for websocket connections.
@@ -263,6 +271,9 @@ type DeliveryConfig struct {
 	SessionOutboundQueueSize int    `json:"session_outbound_queue_size"`
 	BackpressurePolicy       string `json:"backpressure_policy"`
 	SlowClientDropThreshold  int    `json:"slow_client_drop_threshold"`
+	// MaxFrameBytes is the maximum outbound frame size in bytes.
+	// 0 defaults to readLimitBytes (64KB).
+	MaxFrameBytes int `json:"max_frame_bytes,omitempty"`
 	// RouterReadyTimeout is the maximum time to wait for the delivery router PID.  Default: "2s".
 	RouterReadyTimeout string `json:"router_ready_timeout"`
 	// SubsystemReadyTimeout is the maximum time to wait for the delivery subsystem PID.  Default: "500ms".

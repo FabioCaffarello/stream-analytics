@@ -130,6 +130,7 @@ func NewServer(
 	mux.Handle("GET /runtime/overload", localhostOnly(http.HandlerFunc(s.handleRuntimeOverload)))
 	mux.Handle("GET /runtime/storage", localhostOnly(http.HandlerFunc(s.handleRuntimeStorage)))
 	mux.Handle("GET /runtime/ws", localhostOnly(http.HandlerFunc(s.handleRuntimeWS)))
+	mux.Handle("GET /runtime/terminal", localhostOnly(http.HandlerFunc(s.handleRuntimeTerminal)))
 	mux.Handle("GET /shardz", localhostOnly(http.HandlerFunc(s.handleShardz)))
 	mux.Handle("POST /runtime/reload", localhostOnly(http.HandlerFunc(s.handleReload)))
 	if s.wsHandler != nil {
@@ -186,7 +187,7 @@ func (s *Server) Handler() http.Handler {
 // It must be called before ListenAndServe.
 func (s *Server) HandleFunc(pattern string, handler http.HandlerFunc) {
 	switch pattern {
-	case "GET /healthz", "GET /readyz", "GET /runtime/snapshot", "GET /runtime/overload", "GET /runtime/storage", "GET /runtime/ws", "GET /shardz", "POST /runtime/reload", "GET /metrics":
+	case "GET /healthz", "GET /readyz", "GET /runtime/snapshot", "GET /runtime/overload", "GET /runtime/storage", "GET /runtime/ws", "GET /runtime/terminal", "GET /shardz", "POST /runtime/reload", "GET /metrics":
 		s.logger.Warn("httpserver: refusing to override critical route", "pattern", pattern)
 		return
 	}
@@ -338,6 +339,11 @@ func (s *Server) handleRuntimeStorage(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRuntimeWS(w http.ResponseWriter, r *http.Request) {
 	snapshot := buildWSStateSnapshot()
 	writeResponse(w, r, http.StatusOK, "runtime.ws", snapshot)
+}
+
+func (s *Server) handleRuntimeTerminal(w http.ResponseWriter, r *http.Request) {
+	snapshot := observability.SnapshotTerminalWSState(100)
+	writeResponse(w, r, http.StatusOK, "runtime.terminal", snapshot)
 }
 
 // handleShardz returns live shard topology, lag, and budget status as JSON.

@@ -15,6 +15,7 @@ import (
 	deliveryruntime "github.com/market-raccoon/internal/actors/delivery/runtime"
 	"github.com/market-raccoon/internal/core/delivery/ports"
 	sharedclock "github.com/market-raccoon/internal/shared/clock"
+	"github.com/market-raccoon/internal/shared/config"
 	"github.com/market-raccoon/internal/shared/ids"
 	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/observability"
@@ -47,6 +48,8 @@ type Server struct {
 	serverInstanceID        string
 	connRegistry            *connectionRegistry
 	ipLimiter               *ipRateLimiter
+	tenantLimits            map[string]config.WSTenantLimitConfig
+	maxFrameBytes           int
 }
 
 type connectionRegistry struct {
@@ -114,6 +117,18 @@ func WithSlowClientDropThreshold(threshold int) Option {
 func WithTranscodeCache(cache *deliveryruntime.TranscodeCache) Option {
 	return func(s *Server) {
 		s.transcodeCache = cache
+	}
+}
+
+func WithTenantLimits(limits map[string]config.WSTenantLimitConfig) Option {
+	return func(s *Server) {
+		s.tenantLimits = limits
+	}
+}
+
+func WithMaxFrameBytes(maxFrameBytes int) Option {
+	return func(s *Server) {
+		s.maxFrameBytes = maxFrameBytes
 	}
 }
 
@@ -234,6 +249,22 @@ func (s *Server) handleUpgradeWithMode(w http.ResponseWriter, r *http.Request, m
 		syncConnectionIntrospection(s.connRegistry)
 	}
 
+	sessionRateLimit := s.rateLimit
+	maxSubs := s.limits.MaxSubsPerConnection
+	maxSymbols := s.limits.MaxSymbolsPerConn
+	maxFrameBytes := s.maxFrameBytes
+	if tl, ok := s.tenantLimits[principal.TenantID]; ok {
+		if tl.MaxSubsPerConnection > 0 {
+			maxSubs = tl.MaxSubsPerConnection
+		}
+		if tl.RateLimit.Enabled {
+			sessionRateLimit = deliveryruntime.RateLimitConfig{
+				Enabled:       tl.RateLimit.Enabled,
+				MaxPerSecond:  tl.RateLimit.MaxPerSecond,
+				BurstCapacity: tl.RateLimit.BurstCapacity,
+			}
+		}
+	}
 	pid := s.spawnSession(deliveryruntime.SessionConfig{
 		Logger:                  s.logger,
 		RouterPID:               s.routerPID,
@@ -244,11 +275,12 @@ func (s *Server) handleUpgradeWithMode(w http.ResponseWriter, r *http.Request, m
 		OutboundQueueSize:       s.outboundQueueSize,
 		SlowClientDropThreshold: s.slowClientDropThreshold,
 		PreferProto:             sessionWantsProto(r),
-		RateLimit:               s.rateLimit,
+		RateLimit:               sessionRateLimit,
 		TranscodeCache:          s.transcodeCache,
 		ServerInstanceID:        s.serverInstanceID,
-		MaxSubscriptions:        s.limits.MaxSubsPerConnection,
-		MaxSymbolsPerConnection: s.limits.MaxSymbolsPerConn,
+		MaxSubscriptions:        maxSubs,
+		MaxSymbolsPerConnection: maxSymbols,
+		MaxFrameBytes:           maxFrameBytes,
 		OnClosed:                onClosed,
 	})
 	if pid == nil {

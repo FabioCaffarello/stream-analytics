@@ -338,6 +338,50 @@ var (
 		[]string{"reason"},
 	)
 
+	// F5: backpressure introspection gauges.
+	WSBackpressureLevel = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "ws_backpressure_level",
+			Help: "Current session backpressure level (0=ok, 1=elevated, 2=high, 3=critical).",
+		},
+	)
+	WSQueueHighWatermark = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "ws_queue_high_watermark",
+			Help: "Peak queue depth since last metrics emission.",
+		},
+	)
+
+	// F6: tenant-labeled metrics.
+	WSTenantDropsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ws_tenant_drops_total",
+			Help: "Total dropped messages by tenant and reason.",
+		},
+		[]string{"tenant_id", "reason"},
+	)
+	WSTenantQueueDepth = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "ws_tenant_queue_depth",
+			Help: "Current queue depth by tenant.",
+		},
+		[]string{"tenant_id"},
+	)
+	WSTenantConnectionsActive = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "ws_tenant_connections_active",
+			Help: "Active connections by tenant.",
+		},
+		[]string{"tenant_id"},
+	)
+	WSTenantMessagesOutTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ws_tenant_messages_out_total",
+			Help: "Total outbound messages by tenant and channel.",
+		},
+		[]string{"tenant_id", "channel"},
+	)
+
 	GuardianRestartsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "guardian_restarts_total",
@@ -943,6 +987,12 @@ func registerAll() {
 			WSResyncTotal,
 			WSResyncRejectedTotal,
 			WSContractViolationsTotal,
+			WSBackpressureLevel,
+			WSQueueHighWatermark,
+			WSTenantDropsTotal,
+			WSTenantQueueDepth,
+			WSTenantConnectionsActive,
+			WSTenantMessagesOutTotal,
 			GuardianRestartsTotal,
 			GuardianDegradedTotal,
 			GuardianSubsystemState,
@@ -1340,6 +1390,55 @@ func IncWSResyncRejected(reason string) {
 
 func IncWSContractViolation(reason string) {
 	WSContractViolationsTotal.WithLabelValues(sanitizeWSContractViolationReason(reason)).Inc()
+}
+
+// F5: backpressure introspection helpers.
+
+func SetWSBackpressureLevel(level int) {
+	if level < 0 {
+		level = 0
+	}
+	WSBackpressureLevel.Set(float64(level))
+}
+
+func SetWSQueueHighWatermark(watermark int) {
+	if watermark < 0 {
+		watermark = 0
+	}
+	WSQueueHighWatermark.Set(float64(watermark))
+}
+
+// F6: tenant-labeled metric helpers.
+
+func sanitizeTenantID(tenantID string) string {
+	id := strings.TrimSpace(tenantID)
+	if id == "" {
+		return "default"
+	}
+	return id
+}
+
+func IncWSTenantDrop(tenantID, reason string) {
+	WSTenantDropsTotal.WithLabelValues(sanitizeTenantID(tenantID), sanitizeKind(reason)).Inc()
+}
+
+func SetWSTenantQueueDepth(tenantID string, depth int) {
+	if depth < 0 {
+		depth = 0
+	}
+	WSTenantQueueDepth.WithLabelValues(sanitizeTenantID(tenantID)).Set(float64(depth))
+}
+
+func IncWSTenantConnectionsActive(tenantID string) {
+	WSTenantConnectionsActive.WithLabelValues(sanitizeTenantID(tenantID)).Inc()
+}
+
+func DecWSTenantConnectionsActive(tenantID string) {
+	WSTenantConnectionsActive.WithLabelValues(sanitizeTenantID(tenantID)).Dec()
+}
+
+func IncWSTenantMessagesOut(tenantID, channel string) {
+	WSTenantMessagesOutTotal.WithLabelValues(sanitizeTenantID(tenantID), sanitizeEventType(channel)).Inc()
 }
 
 func IncGuardianRestart(subsystem, status string) {

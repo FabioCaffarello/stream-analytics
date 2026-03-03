@@ -3,8 +3,10 @@ package deliveryruntime
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
 	"sort"
 	"strings"
@@ -80,6 +82,9 @@ type SessionConfig struct {
 	// MaxSymbolsPerConnection bounds active unique symbols per session.
 	// 0 disables the limit.
 	MaxSymbolsPerConnection int
+	// MaxFrameBytes is the maximum outbound frame size in bytes.
+	// 0 defaults to readLimitBytes.
+	MaxFrameBytes int
 	// Clock is optional; defaults to SystemClock.
 	Clock sharedclock.Clock
 	// TranscodeCache is an optional shared proto→JSON transcode cache.
@@ -118,6 +123,19 @@ type SessionActor struct {
 	lastLagMs    int64
 	messagesOut  int64
 	lastSnapshot map[string]sessionSnapshotEntry
+
+	// F3: per-subject snapshot counter (1-indexed, incremented on each snapshot emit).
+	snapshotSeq map[string]int64
+	// F3: per-subject last delivered event seq for prev_seq chaining.
+	lastDeliveredSeq map[string]int64
+
+	// F4: client-advertised requested features from ClientHello.
+	clientFeatures []string
+	// F4: resolved max frame bytes for proto frame size guard.
+	maxFrameBytes int
+
+	// F5: peak queue depth since last metrics emission (reset after each emission).
+	queueHighWatermark int
 }
 
 type sessionKeepaliveTick struct{}
@@ -229,6 +247,18 @@ func (s *SessionActor) ensureDefaults(c *actor.Context) {
 	if s.lastSnapshot == nil {
 		s.lastSnapshot = make(map[string]sessionSnapshotEntry)
 	}
+	if s.snapshotSeq == nil {
+		s.snapshotSeq = make(map[string]int64)
+	}
+	if s.lastDeliveredSeq == nil {
+		s.lastDeliveredSeq = make(map[string]int64)
+	}
+	if s.maxFrameBytes <= 0 {
+		s.maxFrameBytes = s.cfg.MaxFrameBytes
+		if s.maxFrameBytes <= 0 {
+			s.maxFrameBytes = readLimitBytes
+		}
+	}
 }
 
 func (s *SessionActor) onStarted() {
@@ -236,6 +266,7 @@ func (s *SessionActor) onStarted() {
 		s.engine.Send(s.cfg.RouterPID, RegisterSession{SessionID: s.session.ID(), PID: s.self})
 	}
 	metrics.IncWSClientsConnected()
+	metrics.IncWSTenantConnectionsActive(s.cfg.TenantID)
 	observability.IncSessionsActive()
 	if s.cfg.PreferProto {
 		observability.IncPreferProtoSessions()
@@ -277,6 +308,22 @@ func (s *SessionActor) emitHello() {
 	if s.cfg.Clock != nil {
 		nowMs = s.cfg.Clock.Now().UnixMilli()
 	}
+	var rl *wsHelloRateLimit
+	if s.cfg.RateLimit.Enabled {
+		rl = &wsHelloRateLimit{
+			Enabled:       true,
+			MaxPerSecond:  s.cfg.RateLimit.MaxPerSecond,
+			BurstCapacity: s.cfg.RateLimit.BurstCapacity,
+		}
+	}
+	queueSize := s.outboundCap
+	if queueSize <= 0 {
+		queueSize = 256
+	}
+	maxFrameBytes := s.cfg.MaxFrameBytes
+	if maxFrameBytes <= 0 {
+		maxFrameBytes = readLimitBytes
+	}
 	metrics.IncWSControlFrame("hello")
 	s.writeJSON(wsHelloFrame{
 		Type: "hello",
@@ -304,6 +351,12 @@ func (s *SessionActor) emitHello() {
 				},
 				MaxSubscriptionsPerConn: s.cfg.MaxSubscriptions,
 				MaxSymbolsPerConnection: s.cfg.MaxSymbolsPerConnection,
+				MaxFrameBytes:           maxFrameBytes,
+				OutboundQueueSize:       queueSize,
+				MetricsCadenceMs:        int(wsMetricsCadence.Milliseconds()),
+				KeepaliveIntervalMs:     int(wsKeepalivePingInterval.Milliseconds()),
+				RateLimit:               rl,
+				SupportedFeatures:       []string{"batching", "snapshot_hash", "prev_seq"},
 			},
 		},
 	})
@@ -385,6 +438,9 @@ func (s *SessionActor) handleMetricsTick() {
 	if lag < 0 {
 		lag = 0
 	}
+	bpLevel, bpAction := s.computeBackpressureLevel()
+	hwm := s.queueHighWatermark
+	s.queueHighWatermark = 0 // reset after emission
 	metrics.IncWSControlFrame("metrics")
 	s.writeJSON(wsMetricsFrame{
 		Type: "metrics",
@@ -397,24 +453,46 @@ func (s *SessionActor) handleMetricsTick() {
 			ResyncTotal:               resyncTotal,
 			ActiveSubscriptions:       len(s.session.Subscriptions()),
 			MessagesOutTotal:          msgOut,
+			BackpressureLevel:         bpLevel,
+			RecommendedAction:         bpAction,
+			QueueCapacity:             s.outboundCap,
+			QueueHighWatermark:        hwm,
 		},
 	})
 }
 
+func (s *SessionActor) computeBackpressureLevel() (level int, action string) {
+	if s.outboundCap <= 0 {
+		return 0, "none"
+	}
+	ratio := float64(s.outbound.Len()) / float64(s.outboundCap)
+	switch {
+	case ratio >= 0.95:
+		return 3, "reconnect"
+	case ratio >= 0.75:
+		return 2, "reduce_subscriptions"
+	case ratio >= 0.50:
+		return 1, "none"
+	default:
+		return 0, "none"
+	}
+}
+
 type clientCommand struct {
-	Type        string          `json:"type,omitempty"`
-	Op          string          `json:"op,omitempty"`
-	Subject     string          `json:"subject,omitempty"`
-	StreamID    string          `json:"stream_id,omitempty"`
-	RequestID   string          `json:"request_id,omitempty"`
-	Venue       string          `json:"venue,omitempty"`
-	Symbol      string          `json:"symbol,omitempty"`
-	Channel     string          `json:"channel,omitempty"`
-	Depth       uint32          `json:"depth,omitempty"`
-	Aggregation string          `json:"aggregation,omitempty"`
-	LastSeq     int64           `json:"last_seq,omitempty"`
-	TsClient    int64           `json:"ts_client,omitempty"`
-	Params      json.RawMessage `json:"params,omitempty"`
+	Type              string          `json:"type,omitempty"`
+	Op                string          `json:"op,omitempty"`
+	Subject           string          `json:"subject,omitempty"`
+	StreamID          string          `json:"stream_id,omitempty"`
+	RequestID         string          `json:"request_id,omitempty"`
+	Venue             string          `json:"venue,omitempty"`
+	Symbol            string          `json:"symbol,omitempty"`
+	Channel           string          `json:"channel,omitempty"`
+	Depth             uint32          `json:"depth,omitempty"`
+	Aggregation       string          `json:"aggregation,omitempty"`
+	LastSeq           int64           `json:"last_seq,omitempty"`
+	TsClient          int64           `json:"ts_client,omitempty"`
+	Params            json.RawMessage `json:"params,omitempty"`
+	RequestedFeatures []string        `json:"requested_features,omitempty"`
 }
 
 // Pre-allocated typed structs for outbound JSON frames.
@@ -427,12 +505,24 @@ type wsAckFrame struct {
 	Subject   string `json:"subject"`
 }
 
+type wsHelloRateLimit struct {
+	Enabled       bool `json:"enabled"`
+	MaxPerSecond  int  `json:"max_per_second,omitempty"`
+	BurstCapacity int  `json:"burst_capacity,omitempty"`
+}
+
 type wsHelloCapabilities struct {
-	Topics                  []string `json:"topics"`
-	Venues                  []string `json:"venues"`
-	Symbols                 []string `json:"symbols,omitempty"`
-	MaxSubscriptionsPerConn int      `json:"max_subscriptions_per_connection,omitempty"`
-	MaxSymbolsPerConnection int      `json:"max_symbols_per_connection,omitempty"`
+	Topics                  []string          `json:"topics"`
+	Venues                  []string          `json:"venues"`
+	Symbols                 []string          `json:"symbols,omitempty"`
+	MaxSubscriptionsPerConn int               `json:"max_subscriptions_per_connection,omitempty"`
+	MaxSymbolsPerConnection int               `json:"max_symbols_per_connection,omitempty"`
+	MaxFrameBytes           int               `json:"max_frame_bytes,omitempty"`
+	OutboundQueueSize       int               `json:"outbound_queue_size,omitempty"`
+	MetricsCadenceMs        int               `json:"metrics_cadence_ms,omitempty"`
+	KeepaliveIntervalMs     int               `json:"keepalive_interval_ms,omitempty"`
+	RateLimit               *wsHelloRateLimit `json:"rate_limit,omitempty"`
+	SupportedFeatures       []string          `json:"supported_features,omitempty"`
 }
 
 type wsHelloPayload struct {
@@ -463,17 +553,27 @@ type wsSnapshotFrame struct {
 	// SnapshotSource identifies server-side bootstrap source for subscribe
 	// snapshot frames when synthesized from the hot snapshot provider.
 	SnapshotSource string `json:"snapshot_source,omitempty"`
+	// SnapshotSeq is per-session per-subject snapshot counter (1-indexed).
+	SnapshotSeq int64 `json:"snapshot_seq,omitempty"`
+	// WatermarkSeq is the highest confirmed upstream seq at snapshot time.
+	WatermarkSeq int64 `json:"watermark_seq,omitempty"`
+	// SnapshotHash is FNV-1a hex digest of payload for integrity checking.
+	SnapshotHash string `json:"snapshot_hash,omitempty"`
 }
 
 type wsMetricsPayload struct {
-	WSDroppedTotal            int64 `json:"ws_dropped_total"`
-	WSQueueLen                int   `json:"ws_queue_len"`
-	WSLagMs                   int64 `json:"ws_lag_ms"`
-	PublishToDeliverLatencyMs int64 `json:"publish_to_deliver_latency_ms"`
-	SerializeErrorsTotal      int64 `json:"serialize_errors_total"`
-	ResyncTotal               int64 `json:"resync_total"`
-	ActiveSubscriptions       int   `json:"active_subscriptions"`
-	MessagesOutTotal          int64 `json:"messages_out_total"`
+	WSDroppedTotal            int64  `json:"ws_dropped_total"`
+	WSQueueLen                int    `json:"ws_queue_len"`
+	WSLagMs                   int64  `json:"ws_lag_ms"`
+	PublishToDeliverLatencyMs int64  `json:"publish_to_deliver_latency_ms"`
+	SerializeErrorsTotal      int64  `json:"serialize_errors_total"`
+	ResyncTotal               int64  `json:"resync_total"`
+	ActiveSubscriptions       int    `json:"active_subscriptions"`
+	MessagesOutTotal          int64  `json:"messages_out_total"`
+	BackpressureLevel         int    `json:"backpressure_level,omitempty"`
+	RecommendedAction         string `json:"recommended_action,omitempty"`
+	QueueCapacity             int    `json:"queue_capacity,omitempty"`
+	QueueHighWatermark        int    `json:"queue_high_watermark,omitempty"`
 }
 
 type wsMetricsFrame struct {
@@ -520,6 +620,7 @@ type wsEventFrame struct {
 	ProtocolVersion  int             `json:"protocol_version"`
 	ServerInstanceID string          `json:"server_instance_id"`
 	Seq              int64           `json:"seq"`
+	PrevSeq          int64           `json:"prev_seq,omitempty"`
 	TsIngest         int64           `json:"ts_ingest"`
 	TsServer         int64           `json:"ts_server"`
 	Venue            string          `json:"venue"`
@@ -529,9 +630,10 @@ type wsEventFrame struct {
 }
 
 type wsErrorProblem struct {
-	Code      string `json:"code"`
-	ErrorCode string `json:"error_code,omitempty"`
-	Message   string `json:"message"`
+	Code       string `json:"code"`
+	ErrorCode  string `json:"error_code,omitempty"`
+	ActionHint string `json:"action_hint,omitempty"`
+	Message    string `json:"message"`
 }
 
 type wsErrorFrame struct {
@@ -580,6 +682,9 @@ func (s *SessionActor) handleInboundText(data []byte) {
 
 func (s *SessionActor) handleClientHello(cmd clientCommand) {
 	s.helloSeen = true
+	if len(cmd.RequestedFeatures) > 0 {
+		s.clientFeatures = cmd.RequestedFeatures
+	}
 	s.writeJSON(wsAckFrame{
 		Type:      "ack",
 		Op:        "hello",
@@ -748,18 +853,20 @@ func (s *SessionActor) handleSubscribe(cmd clientCommand) {
 }
 
 func (s *SessionActor) emitSnapshot(subject domain.Subject) bool {
+	subjectKey := subject.String()
 	if s.cfg.HotSnapshotProvider != nil {
 		raw, ok := s.cfg.HotSnapshotProvider.GetLatest(subject)
 		if ok && len(raw) > 0 {
 			payload := json.RawMessage(raw)
 			if !json.Valid(payload) {
-				s.logger.Warn("delivery session: invalid snapshot payload, skipping", "subject", subject.String())
+				s.logger.Warn("delivery session: invalid snapshot payload, skipping", "subject", subjectKey)
 			} else {
 				meta := s.buildStreamMeta(subject, hotSnapshotRangeItem(raw))
+				s.snapshotSeq[subjectKey]++
 				s.writeJSON(wsSnapshotFrame{
 					Type:             "snapshot",
-					Subject:          subject.String(),
-					StreamID:         subject.String(),
+					Subject:          subjectKey,
+					StreamID:         subjectKey,
 					ProtocolVersion:  wsProtocolVersion,
 					ServerInstanceID: s.cfg.ServerInstanceID,
 					Seq:              meta.Seq,
@@ -769,21 +876,26 @@ func (s *SessionActor) emitSnapshot(subject domain.Subject) bool {
 					Channel:          channelName(meta.Channel, subject.StreamType),
 					Payload:          payload,
 					SnapshotSource:   "hot_snapshot_fallback",
+					SnapshotSeq:      s.snapshotSeq[subjectKey],
+					WatermarkSeq:     meta.Seq,
+					SnapshotHash:     fnvHexHash(payload),
 				})
 				metrics.IncWSQuery("snapshot", wsQueryBucket(subject.StreamType))
 				return true
 			}
 		}
 	}
-	entry, ok := s.lastSnapshot[subject.String()]
+	entry, ok := s.lastSnapshot[subjectKey]
 	if !ok || len(entry.Payload) == 0 || !json.Valid(entry.Payload) {
 		return false
 	}
 	tsServer := s.normalizeServerTS(entry.TsServer)
+	payloadCopy := append(json.RawMessage(nil), entry.Payload...)
+	s.snapshotSeq[subjectKey]++
 	s.writeJSON(wsSnapshotFrame{
 		Type:             "snapshot",
-		Subject:          subject.String(),
-		StreamID:         subject.String(),
+		Subject:          subjectKey,
+		StreamID:         subjectKey,
 		ProtocolVersion:  wsProtocolVersion,
 		ServerInstanceID: s.cfg.ServerInstanceID,
 		Seq:              entry.Seq,
@@ -791,11 +903,22 @@ func (s *SessionActor) emitSnapshot(subject domain.Subject) bool {
 		Venue:            entry.Venue,
 		Symbol:           entry.Symbol,
 		Channel:          entry.Channel,
-		Payload:          append(json.RawMessage(nil), entry.Payload...),
+		Payload:          payloadCopy,
 		SnapshotSource:   "session_last_event",
+		SnapshotSeq:      s.snapshotSeq[subjectKey],
+		WatermarkSeq:     entry.Seq,
+		SnapshotHash:     fnvHexHash(payloadCopy),
 	})
 	metrics.IncWSQuery("snapshot", wsQueryBucket(subject.StreamType))
 	return true
+}
+
+func fnvHexHash(data []byte) string {
+	h := fnv.New64a()
+	_, _ = h.Write(data)
+	var buf [8]byte
+	b := h.Sum(buf[:0])
+	return hex.EncodeToString(b)
 }
 
 func (s *SessionActor) handleUnsubscribe(cmd clientCommand) {
@@ -808,7 +931,10 @@ func (s *SessionActor) handleUnsubscribe(cmd clientCommand) {
 		s.writeProblem(cmd.Op, cmd.RequestID, p)
 		return
 	}
-	delete(s.lastSnapshot, subject.String())
+	subjectKey := subject.String()
+	delete(s.lastSnapshot, subjectKey)
+	delete(s.snapshotSeq, subjectKey)
+	delete(s.lastDeliveredSeq, subjectKey)
 	if s.cfg.RouterPID != nil {
 		s.engine.Send(s.cfg.RouterPID, UnsubscribeSession{SessionID: s.session.ID(), Subject: subject})
 	}
@@ -1114,7 +1240,12 @@ func (s *SessionActor) enqueueDelivery(evt DeliveryEvent) {
 		}
 	}
 	s.outbound.PushBack(evt)
-	metrics.SetWSQueueDepth(s.outbound.Len())
+	qLen := s.outbound.Len()
+	metrics.SetWSQueueDepth(qLen)
+	metrics.SetWSTenantQueueDepth(s.cfg.TenantID, qLen)
+	if qLen > s.queueHighWatermark {
+		s.queueHighWatermark = qLen
+	}
 	if s.flushing {
 		return
 	}
@@ -1147,6 +1278,7 @@ func (s *SessionActor) priorityDrop(evt DeliveryEvent) bool {
 
 func (s *SessionActor) onDrop(reason string, evt *DeliveryEvent) bool {
 	metrics.IncWSDrops(reason)
+	metrics.IncWSTenantDrop(s.cfg.TenantID, reason)
 	channel := "unknown"
 	streamID := "unknown"
 	venue := "unknown"
@@ -1231,7 +1363,9 @@ func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) *problem.Problem {
 		Seq:      evt.Env.Seq,
 		TsIngest: evt.Env.TsIngest,
 	})
+	subjectKey := evt.Subject.String()
 	channel := channelName(meta.GetChannel(), evt.Subject.StreamType)
+	prevSeq := s.lastDeliveredSeq[subjectKey]
 	if s.cfg.PreferProto && contracts.ProtoRolloutEnabledForEventType(evt.Env.Type) {
 		env := evt.Env
 		if env.Meta == nil {
@@ -1242,6 +1376,9 @@ func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) *problem.Problem {
 		env.Meta["stream_id"] = meta.GetStreamId()
 		env.Meta["channel"] = channel
 		env.Meta["ts_server"] = fmt.Sprintf("%d", meta.GetTsServer())
+		if prevSeq > 0 {
+			env.Meta["prev_seq"] = fmt.Sprintf("%d", prevSeq)
+		}
 		raw, p := contracts.MarshalEnvelopeV1FromDomain(env)
 		if p != nil {
 			metrics.IncWSSerializeErrors()
@@ -1249,11 +1386,18 @@ func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) *problem.Problem {
 			span.RecordError(p)
 			return p
 		}
+		// F4: frame size guard for proto path.
+		if s.maxFrameBytes > 0 && len(raw) > s.maxFrameBytes {
+			metrics.IncWSDrops("frame_too_large")
+			return nil
+		}
 		if err := s.writeProtoDirect(websocket.BinaryMessage, raw); err != nil {
 			span.RecordError(err)
 			return problem.Wrap(err, problem.Internal, "proto write failed")
 		}
+		s.lastDeliveredSeq[subjectKey] = evt.Env.Seq
 		metrics.IncWSMessagesOut(channel)
+		metrics.IncWSTenantMessagesOut(s.cfg.TenantID, channel)
 		metrics.AddWSBytesOut(channel, len(raw))
 		s.messagesOut++
 		observability.IncDeliveryProto()
@@ -1306,11 +1450,12 @@ func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) *problem.Problem {
 	}
 	frame := wsEventFrame{
 		Type:             "event",
-		Subject:          evt.Subject.String(),
+		Subject:          subjectKey,
 		StreamID:         meta.GetStreamId(),
 		ProtocolVersion:  wsProtocolVersion,
 		ServerInstanceID: s.cfg.ServerInstanceID,
 		Seq:              evt.Env.Seq,
+		PrevSeq:          prevSeq,
 		TsIngest:         evt.Env.TsIngest,
 		TsServer:         meta.GetTsServer(),
 		Venue:            evt.Subject.Venue,
@@ -1322,7 +1467,9 @@ func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) *problem.Problem {
 		span.RecordError(err)
 		return problem.Wrap(err, problem.Internal, "json write failed")
 	}
+	s.lastDeliveredSeq[subjectKey] = evt.Env.Seq
 	metrics.IncWSMessagesOut(channel)
+	metrics.IncWSTenantMessagesOut(s.cfg.TenantID, channel)
 	metrics.AddWSBytesOut(channel, len(payload))
 	s.messagesOut++
 	lag := frame.TsServer - evt.Env.TsIngest
@@ -1330,7 +1477,7 @@ func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) *problem.Problem {
 	metrics.SetWSLag(channel, lag)
 	metrics.ObserveWSPublishToDeliverLatency(channel, time.Duration(maxInt64(0, lag))*time.Millisecond)
 	if json.Valid(payload) {
-		s.lastSnapshot[evt.Subject.String()] = sessionSnapshotEntry{
+		s.lastSnapshot[subjectKey] = sessionSnapshotEntry{
 			Seq:      frame.Seq,
 			TsServer: frame.TsServer,
 			Venue:    frame.Venue,
@@ -1357,31 +1504,43 @@ func (s *SessionActor) writeProblem(op, requestID string, p *problem.Problem) {
 	if p == nil {
 		return
 	}
+	errorCode, actionHint := wsErrorMappingFromProblem(p)
 	s.writeJSON(wsErrorFrame{
 		Type:      "error",
 		Op:        op,
 		RequestID: requestID,
 		Problem: wsErrorProblem{
-			Code:      string(p.Code),
-			ErrorCode: wsErrorCodeFromProblem(p),
-			Message:   p.Message,
+			Code:       string(p.Code),
+			ErrorCode:  errorCode,
+			ActionHint: actionHint,
+			Message:    p.Message,
 		},
 	})
 }
 
-func wsErrorCodeFromProblem(p *problem.Problem) string {
+func wsErrorMappingFromProblem(p *problem.Problem) (errorCode string, actionHint string) {
 	if p == nil {
-		return deliveryv1.ErrorCode_ERROR_CODE_UNSPECIFIED.String()
+		return deliveryv1.ErrorCode_ERROR_CODE_UNSPECIFIED.String(), deliveryv1.ActionHint_ACTION_HINT_UNSPECIFIED.String()
 	}
 	switch p.Code {
 	case problem.ValidationFailed, problem.InvalidArgument:
-		return deliveryv1.ErrorCode_ERROR_CODE_VALIDATION.String()
+		return deliveryv1.ErrorCode_ERROR_CODE_VALIDATION.String(), deliveryv1.ActionHint_ACTION_HINT_NONE.String()
 	case problem.NotFound:
-		return deliveryv1.ErrorCode_ERROR_CODE_NOT_FOUND.String()
+		hint := deliveryv1.ActionHint_ACTION_HINT_NONE.String()
+		if p.Retryable {
+			hint = deliveryv1.ActionHint_ACTION_HINT_RETRY.String()
+		}
+		return deliveryv1.ErrorCode_ERROR_CODE_NOT_FOUND.String(), hint
 	case problem.Unavailable:
-		return deliveryv1.ErrorCode_ERROR_CODE_RATE_LIMITED.String()
+		return deliveryv1.ErrorCode_ERROR_CODE_RATE_LIMITED.String(), deliveryv1.ActionHint_ACTION_HINT_RETRY.String()
+	case problem.Conflict:
+		return deliveryv1.ErrorCode_ERROR_CODE_RESYNC_REQUIRED.String(), deliveryv1.ActionHint_ACTION_HINT_RESYNC.String()
+	case problem.IntegrityViolation:
+		return deliveryv1.ErrorCode_ERROR_CODE_RESYNC_REQUIRED.String(), deliveryv1.ActionHint_ACTION_HINT_RESUBSCRIBE.String()
+	case problem.Internal:
+		return deliveryv1.ErrorCode_ERROR_CODE_INTERNAL.String(), deliveryv1.ActionHint_ACTION_HINT_RECONNECT.String()
 	default:
-		return deliveryv1.ErrorCode_ERROR_CODE_INTERNAL.String()
+		return deliveryv1.ErrorCode_ERROR_CODE_INTERNAL.String(), deliveryv1.ActionHint_ACTION_HINT_RECONNECT.String()
 	}
 }
 
@@ -1458,6 +1617,7 @@ func (s *SessionActor) closeSession() {
 		s.cancelReader()
 	}
 	metrics.DecWSClientsConnected()
+	metrics.DecWSTenantConnectionsActive(s.cfg.TenantID)
 	observability.DecSessionsActive()
 	if s.cfg.PreferProto {
 		observability.DecPreferProtoSessions()
@@ -1483,4 +1643,6 @@ func (s *SessionActor) closeSession() {
 		s.cfg.OnClosed()
 	}
 	s.lastSnapshot = nil
+	s.snapshotSeq = nil
+	s.lastDeliveredSeq = nil
 }
