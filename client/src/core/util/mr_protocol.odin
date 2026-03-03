@@ -35,7 +35,7 @@ MR_Frame_Type :: enum u8 {
 MR_PROTO_VER :: 1
 
 // First-pass: envelope fields only (payload is ignored by unmarshal).
-// Terminal_V1 adds stream_id, ts_server, venue, symbol, channel, protocol_version, server_instance_id.
+// Terminal_V1 adds stream_id, ts_server, venue, symbol, channel, protocol_version, server_instance_id, prev_seq.
 MR_Envelope :: struct {
 	type_str:           string `json:"type"`,
 	subject:            string `json:"subject"`,
@@ -51,6 +51,7 @@ MR_Envelope :: struct {
 	venue:              string `json:"venue"`,
 	symbol:             string `json:"symbol"`,
 	channel:            string `json:"channel"`,
+	prev_seq:           i64    `json:"prev_seq"`,
 }
 
 // --- Payload structs per stream type ---
@@ -181,10 +182,24 @@ MR_Candle_Frame_Flat :: struct {
 	payload: MR_Candle_Payload `json:"payload"`,
 }
 
+MR_Hello_Rate_Limit :: struct {
+	enabled:        bool `json:"enabled"`,
+	max_per_second: int  `json:"max_per_second"`,
+	burst_capacity: int  `json:"burst_capacity"`,
+}
+
 MR_Hello_Capabilities :: struct {
-	topics:  []string `json:"topics"`,
-	venues:  []string `json:"venues"`,
-	symbols: []string `json:"symbols"`,
+	topics:                          []string             `json:"topics"`,
+	venues:                          []string             `json:"venues"`,
+	symbols:                         []string             `json:"symbols"`,
+	max_subscriptions_per_connection: int                 `json:"max_subscriptions_per_connection"`,
+	max_symbols_per_connection:       int                 `json:"max_symbols_per_connection"`,
+	max_frame_bytes:                  int                 `json:"max_frame_bytes"`,
+	outbound_queue_size:              int                 `json:"outbound_queue_size"`,
+	metrics_cadence_ms:               int                 `json:"metrics_cadence_ms"`,
+	keepalive_interval_ms:            int                 `json:"keepalive_interval_ms"`,
+	supported_features:               []string            `json:"supported_features"`,
+	rate_limit:                       MR_Hello_Rate_Limit `json:"rate_limit"`,
 }
 
 MR_Hello_Payload :: struct {
@@ -217,14 +232,18 @@ MR_Pong_Frame :: struct {
 // --- Metrics frame (Terminal_V1, server-pushed telemetry) ---
 
 MR_Metrics_Payload :: struct {
-	ws_dropped_total:                i64 `json:"ws_dropped_total"`,
-	ws_queue_len:                    int `json:"ws_queue_len"`,
-	ws_lag_ms:                       i64 `json:"ws_lag_ms"`,
-	publish_to_deliver_latency_ms:   i64 `json:"publish_to_deliver_latency_ms"`,
-	serialize_errors_total:          i64 `json:"serialize_errors_total"`,
-	resync_total:                    i64 `json:"resync_total"`,
-	active_subscriptions:            int `json:"active_subscriptions"`,
-	messages_out_total:              i64 `json:"messages_out_total"`,
+	ws_dropped_total:                i64    `json:"ws_dropped_total"`,
+	ws_queue_len:                    int    `json:"ws_queue_len"`,
+	ws_lag_ms:                       i64    `json:"ws_lag_ms"`,
+	publish_to_deliver_latency_ms:   i64    `json:"publish_to_deliver_latency_ms"`,
+	serialize_errors_total:          i64    `json:"serialize_errors_total"`,
+	resync_total:                    i64    `json:"resync_total"`,
+	active_subscriptions:            int    `json:"active_subscriptions"`,
+	messages_out_total:              i64    `json:"messages_out_total"`,
+	backpressure_level:              int    `json:"backpressure_level"`,
+	recommended_action:              string `json:"recommended_action"`,
+	queue_capacity:                  int    `json:"queue_capacity"`,
+	queue_high_watermark:            int    `json:"queue_high_watermark"`,
 }
 
 MR_Metrics_Frame :: struct {
@@ -235,8 +254,10 @@ MR_Metrics_Frame :: struct {
 // --- Error frame with problem sub-struct (Terminal_V1) ---
 
 MR_Problem :: struct {
-	code:    string `json:"code"`,
-	message: string `json:"message"`,
+	code:        string `json:"code"`,
+	message:     string `json:"message"`,
+	error_code:  string `json:"error_code"`,
+	action_hint: string `json:"action_hint"`,
 }
 
 MR_Error_Frame :: struct {
@@ -289,6 +310,43 @@ MR_Range_Frame_Flat :: struct {
 	request_id: string                `json:"request_id"`,
 	subject:    string                `json:"subject"`,
 	items:      []MR_Range_Item_Flat  `json:"items"`,
+}
+
+// --- Snapshot integrity frame (Terminal_V1) ---
+
+MR_Snapshot_Frame :: struct {
+	snapshot_seq:    i64    `json:"snapshot_seq"`,
+	watermark_seq:   i64    `json:"watermark_seq"`,
+	snapshot_hash:   string `json:"snapshot_hash"`,
+	snapshot_source: string `json:"snapshot_source"`,
+}
+
+// --- Hello ACK frame with negotiated features (Terminal_V1) ---
+
+MR_Hello_Ack_Frame :: struct {
+	negotiated_features: []string `json:"negotiated_features"`,
+}
+
+// --- Action hint enum (Terminal_V1 error guidance) ---
+
+MR_Action_Hint :: enum u8 {
+	Unspecified,
+	None,
+	Retry,
+	Reconnect,
+	Resubscribe,
+	Resync,
+}
+
+parse_action_hint :: proc(s: string) -> MR_Action_Hint {
+	switch s {
+	case "none":        return .None
+	case "retry":       return .Retry
+	case "reconnect":   return .Reconnect
+	case "resubscribe": return .Resubscribe
+	case "resync":      return .Resync
+	}
+	return .Unspecified
 }
 
 // --- Parse helpers ---
