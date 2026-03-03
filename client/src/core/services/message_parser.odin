@@ -97,6 +97,11 @@ Parsed_Ack :: struct {
 	stream_id: string,
 }
 
+Parsed_Hello_Ack :: struct {
+	negotiated_features:       [MAX_FEATURE_SLOTS]Parsed_Feature_Slot,
+	negotiated_feature_count:  int,
+}
+
 Parsed_Control :: struct {
 	rtt_ms:    i64,
 	backlog:   int,
@@ -112,15 +117,37 @@ Hello_Reject_Reason :: enum u8 {
 	Missing_Capabilities,
 }
 
+// Fixed-size feature slot for zero-alloc feature storage.
+Parsed_Feature_Slot :: struct {
+	name: [24]u8,
+	len:  u8,
+}
+
+MAX_FEATURE_SLOTS :: 8
+
 Parsed_Hello :: struct {
-	proto_ver:          int,
-	server_time:        i64,
-	server_instance_id: string,
-	topic_count:        int,
-	venue_count:        int,
-	symbol_count:       int,
-	valid:              bool,
-	reject:             Hello_Reject_Reason,
+	proto_ver:              int,
+	server_time:            i64,
+	server_instance_id:     string,
+	topic_count:            int,
+	venue_count:            int,
+	symbol_count:           int,
+	valid:                  bool,
+	reject:                 Hello_Reject_Reason,
+	// Capability limits (Terminal_V1).
+	max_subscriptions:      int,
+	max_symbols:            int,
+	max_frame_bytes:        int,
+	outbound_queue_size:    int,
+	metrics_cadence_ms:     int,
+	keepalive_interval_ms:  int,
+	// Rate limit sub-object.
+	rate_limit_enabled:     bool,
+	rate_limit_max_per_sec: int,
+	rate_limit_burst:       int,
+	// Supported features.
+	supported_features:       [MAX_FEATURE_SLOTS]Parsed_Feature_Slot,
+	supported_feature_count:  int,
 }
 
 Parsed_Pong :: struct {
@@ -139,13 +166,21 @@ Parsed_Metrics :: struct {
 	resync_total:                  i64,
 	active_subscriptions:          int,
 	messages_out_total:            i64,
+	// Backpressure fields (Terminal_V1).
+	backpressure_level:            int,
+	recommended_action_buf:        [32]u8,
+	recommended_action_len:        u8,
+	queue_capacity:                int,
+	queue_high_watermark:          int,
 }
 
 Parsed_Error :: struct {
-	op:         string,
-	request_id: string,
-	code:       string,
-	message:    string,
+	op:          string,
+	request_id:  string,
+	code:        string,
+	message:     string,
+	error_code:  string,
+	action_hint: string,
 }
 
 // --- Parse result discriminated union ---
@@ -170,6 +205,7 @@ Parse_Result_Kind :: enum u8 {
 	Range_Candle,
 	Ack,
 	Hello,
+	Hello_Ack,
 	Heartbeat,
 	Health,
 	Error,
@@ -188,17 +224,24 @@ Parse_Result_Data :: struct #raw_union {
 	ack:            Parsed_Ack,
 	control:        Parsed_Control,
 	hello:          Parsed_Hello,
+	hello_ack:      Parsed_Hello_Ack,
 	pong:           Parsed_Pong,
 	server_metrics: Parsed_Metrics,
 	error_detail:   Parsed_Error,
 }
 
 Parse_Result_Meta :: struct {
-	seq:          i64,
-	server_ts_ms: i64,
-	has_ts_server: bool,
-	subject_id:   u64,
-	is_snapshot:  bool,
+	seq:              i64,
+	server_ts_ms:     i64,
+	has_ts_server:    bool,
+	subject_id:       u64,
+	is_snapshot:      bool,
+	// Terminal_V1 integrity fields.
+	prev_seq:         i64,
+	snapshot_seq:     i64,
+	watermark_seq:    i64,
+	snapshot_hash:    [16]u8,
+	snapshot_hash_len: u8,
 }
 
 Parse_Result :: struct {

@@ -260,7 +260,7 @@ parse_result_has_data :: proc(kind: services.Parse_Result_Kind) -> bool {
 	switch kind {
 	case .Trade, .Orderbook, .Stats, .Heatmap, .VPVR, .Candle, .Range_Candle:
 		return true
-	case .None, .Ack, .Hello, .Heartbeat, .Health, .Error, .Pong, .Metrics:
+	case .None, .Ack, .Hello, .Hello_Ack, .Heartbeat, .Health, .Error, .Pong, .Metrics:
 		return false
 	}
 	return false
@@ -270,7 +270,7 @@ parse_result_requires_ts_server :: proc(kind: services.Parse_Result_Kind) -> boo
 	switch kind {
 	case .Trade, .Orderbook, .Stats, .Heatmap, .VPVR, .Candle:
 		return true
-	case .None, .Range_Candle, .Ack, .Hello, .Heartbeat, .Health, .Error, .Pong, .Metrics:
+	case .None, .Range_Candle, .Ack, .Hello, .Hello_Ack, .Heartbeat, .Health, .Error, .Pong, .Metrics:
 		return false
 	}
 	return false
