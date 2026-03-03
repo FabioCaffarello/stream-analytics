@@ -174,6 +174,53 @@ rate(ws_legacy_requests_total{status="accepted"}[5m])
 rate(ws_legacy_requests_total{status="rejected"}[5m])
 ```
 
+## HELLO Negotiation
+
+Clients may send a `hello` frame to negotiate protocol features. The server validates `requested_features` against the supported set and responds with the intersection.
+
+Client hello:
+```json
+{"type":"hello","request_id":"h-1","requested_features":["batching","prev_seq","snapshot_hash"]}
+```
+
+Successful ack:
+```json
+{"type":"ack","op":"hello","request_id":"h-1","negotiated_features":["batching","prev_seq","snapshot_hash"]}
+```
+
+Error on unknown feature:
+```json
+{"type":"error","op":"hello","request_id":"h-1","code":"validation_failed","message":"unsupported features: cbor"}
+```
+
+Supported features: `batching`, `prev_seq`, `snapshot_hash`. Unknown features are rejected entirely (no partial accept).
+
+## Error Code Reference
+
+| Code | Meaning | Action Hint | When |
+|------|---------|-------------|------|
+| `validation_failed` | Request payload failed schema/field validation | Fix request and retry | Invalid subscribe fields, unknown features in hello |
+| `unknown_channel` | Requested channel is not governed | Use a valid channel name | Subscribe with unrecognized channel |
+| `max_subscriptions` | Subscription limit reached for this connection | Unsubscribe unused streams first | Subscribe exceeds `max_subs_per_connection` |
+| `rate_limited` | Command rate limit exceeded | Back off and retry | Too many control frames per second |
+| `internal` | Unexpected server-side error | Retry or reconnect | Serialization failure, store error |
+| `snapshot_unavailable` | No cached snapshot for resync | Wait for live data | Resync for stream with no recent snapshot |
+| `seq_invalid` | Source sequence <= 0 | Bug in upstream producer | Envelope with non-positive seq |
+| `seq_non_monotonic` | Source sequence not strictly increasing | Duplicate or reordered upstream event | Envelope seq <= last accepted |
+
+## Metric-Based Troubleshooting
+
+| Symptom | Metric | Action |
+|---------|--------|--------|
+| Clients dropping messages | `rate(ws_dropped_total[5m]) > 0` | Reduce subscriptions, increase client consume rate, or tune `backpressure_policy` |
+| High delivery latency | `ws_publish_to_deliver_latency_ms{quantile="0.99"} > 100` | Check queue depth (`ws_queue_len`), consider reducing subscriptions |
+| Transcode cache misses | `rate(transcode_cache_misses[5m])` trending up | Increase cache size or check for high event-type cardinality |
+| Snapshot cache misses | `rate(delivery_ws_snapshot_cache_misses_total[5m])` trending up | Increase cache TTL or max entries |
+| Auth failures | `rate(auth_fail_total[5m]) > 0` | Check API key rotation, JWT signing key, token expiry |
+| Legacy clients active | `rate(ws_legacy_requests_total{status="accepted"}[5m]) > 0` | Migrate clients to `/ws` before disabling legacy route |
+| Coherence violations | `rate(delivery_router_coherence_violations_total[5m]) > 0` | Investigate upstream producer ordering; check for duplicate publishers |
+| Feature negotiation errors | `rate(ws_contract_violations_total{reason="unknown_feature"}[5m]) > 0` | Client requesting unsupported features; update client SDK |
+
 ## Troubleshooting
 - `401 unauthorized`: invalid/missing API key or bearer token.
 - `403 missing read scope`: auth succeeded but token/key scope is insufficient.
