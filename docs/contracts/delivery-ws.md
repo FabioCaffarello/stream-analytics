@@ -30,6 +30,7 @@ Accepted delivery router inputs:
 - `marketdata.liquidation.v1.{venue}.{instrument}`
 - `insights.crossvenue.trade_snapshot.v1.global.{instrument}`
 - `insights.crossvenue.spread_signal.v1.global.{instrument}`
+- `insights.microstructure_evidence.v1.{venue}.{instrument}`
 - `aggregation.snapshot.v1.{venue}.{instrument}`
 - `aggregation.candle.v1.{venue}.{instrument}`
 - `aggregation.stats.v1.{venue}.{instrument}`

@@ -128,6 +128,9 @@ type ProcessorConfig struct {
 
 	// RTPublish controls timer-driven snapshot publishing.
 	RTPublish ProcessorRTPublishConfig
+	// EnableMicrostructureEvidence enables publishing derived microstructure evidence
+	// envelopes from normalized orderbook deltas.
+	EnableMicrostructureEvidence bool
 	// CatchUpSkipBookDeltaSkew, when > 0, skips stale marketdata.bookdelta
 	// envelopes while the processor is catching up (based on env.TsIngest skew).
 	// This is intended for local/dev throughput relief and is disabled by default.
@@ -611,6 +614,22 @@ func (p *ProcessorSubsystemActor) handleBookDelta(env envelope.Envelope) *proble
 	resp := res.Value()
 	p.markOrderBookActive(env.Venue, orderBookInstrumentKey(env))
 	p.handleBookDeltaForInsights(env, delta)
+	if p.cfg.EnableMicrostructureEvidence && p.cfg.PublishEnvelope != nil {
+		for _, ev := range detectMicrostructureEvidence(req, resp) {
+			ev.TsIngest = env.TsIngest
+			outEnv, ep := buildMicrostructureEvidenceEnvelope(env, ev)
+			if ep != nil {
+				p.logger.Warn("aggruntime: build microstructure evidence envelope failed",
+					"venue", env.Venue, "instrument", env.Instrument, "seq", env.Seq, "code", ep.Code)
+				continue
+			}
+			if ep := p.cfg.PublishEnvelope.Publish(context.Background(), outEnv); ep != nil {
+				p.logger.Warn("aggruntime: publish microstructure evidence failed",
+					"venue", env.Venue, "instrument", env.Instrument, "seq", env.Seq, "code", ep.Code)
+				continue
+			}
+		}
+	}
 	p.logger.Debug("aggruntime: order book updated",
 		"venue", env.Venue,
 		"instrument", env.Instrument,
