@@ -272,6 +272,44 @@ test_parse_envelope_prev_seq :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_parse_snapshot_integrity_fields :: proc(t: ^testing.T) {
+	raw := `{"type":"snapshot","subject":"marketdata.bookdelta/binance/BTCUSDT","seq":100,"ts_ingest":1700000000000,"snapshot_seq":99,"watermark_seq":95,"snapshot_hash":"a1b2c3d4e5f60718","payload":{"Bids":[],"Asks":[],"IsSnapshot":true,"Timestamp":1700000000000}}`
+	result := parse_mr_message(transmute([]u8)raw, nil)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Orderbook)
+	testing.expect_value(t, result.meta.is_snapshot, true)
+	testing.expect_value(t, result.meta.snapshot_seq, i64(99))
+	testing.expect_value(t, result.meta.watermark_seq, i64(95))
+	testing.expect_value(t, result.meta.snapshot_hash_len, u8(16))
+	testing.expect_value(t, string(result.meta.snapshot_hash[:16]), "a1b2c3d4e5f60718")
+	free_all(context.temp_allocator)
+}
+
+@(test)
+test_parse_snapshot_no_integrity_fields :: proc(t: ^testing.T) {
+	raw := `{"type":"snapshot","subject":"marketdata.bookdelta/binance/BTCUSDT","seq":50,"ts_ingest":1700000000000,"payload":{"Bids":[],"Asks":[],"IsSnapshot":true,"Timestamp":1700000000000}}`
+	result := parse_mr_message(transmute([]u8)raw, nil)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Orderbook)
+	testing.expect_value(t, result.meta.is_snapshot, true)
+	testing.expect_value(t, result.meta.snapshot_seq, i64(0))
+	testing.expect_value(t, result.meta.watermark_seq, i64(0))
+	testing.expect_value(t, result.meta.snapshot_hash_len, u8(0))
+	free_all(context.temp_allocator)
+}
+
+@(test)
+test_parse_metrics_backpressure :: proc(t: ^testing.T) {
+	raw := `{"type":"metrics","payload":{"ws_dropped_total":5,"ws_queue_len":42,"ws_lag_ms":15,"publish_to_deliver_latency_ms":8,"serialize_errors_total":1,"resync_total":2,"active_subscriptions":24,"messages_out_total":10000,"backpressure_level":2,"recommended_action":"reduce_subs","queue_capacity":1024,"queue_high_watermark":768}}`
+	result := parse_mr_message(transmute([]u8)raw, nil)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Metrics)
+	m := result.data.server_metrics
+	testing.expect_value(t, m.backpressure_level, 2)
+	testing.expect_value(t, m.queue_capacity, 1024)
+	testing.expect_value(t, m.queue_high_watermark, 768)
+	testing.expect_value(t, string(m.recommended_action_buf[:m.recommended_action_len]), "reduce_subs")
+	free_all(context.temp_allocator)
+}
+
+@(test)
 test_parse_error_action_hint :: proc(t: ^testing.T) {
 	raw := `{"type":"error","op":"subscribe","request_id":"r5","problem":{"code":"ERROR_CODE_RESYNC_REQUIRED","message":"stream requires resync","error_code":"RESYNC_REQUIRED","action_hint":"resync"}}`
 	result := parse_mr_message(transmute([]u8)raw, nil)

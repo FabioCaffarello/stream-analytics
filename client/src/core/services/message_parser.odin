@@ -345,6 +345,20 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 	case .Last, .Unknown:
 		return result
 	case .Event, .Snapshot:
+		// For snapshot frames: parse integrity fields if present.
+		if ft == .Snapshot {
+			snap: util.MR_Snapshot_Frame
+			if json.unmarshal(raw, &snap) == nil {
+				result.meta.snapshot_seq = snap.snapshot_seq
+				result.meta.watermark_seq = snap.watermark_seq
+				// Copy snapshot hash (up to 16 hex chars).
+				hash_n := min(len(snap.snapshot_hash), len(result.meta.snapshot_hash))
+				for i in 0 ..< hash_n {
+					result.meta.snapshot_hash[i] = snap.snapshot_hash[i]
+				}
+				result.meta.snapshot_hash_len = u8(hash_n)
+			}
+		}
 		// Fall through to payload parsing.
 	}
 
@@ -773,7 +787,7 @@ parse_metrics :: proc(raw: []u8) -> (Parsed_Metrics, bool) {
 	frame: util.MR_Metrics_Frame
 	if json.unmarshal(raw, &frame) != nil do return {}, false
 	p := frame.payload
-	return Parsed_Metrics{
+	m := Parsed_Metrics{
 		ws_dropped_total              = p.ws_dropped_total,
 		ws_queue_len                  = p.ws_queue_len,
 		ws_lag_ms                     = p.ws_lag_ms,
@@ -782,7 +796,17 @@ parse_metrics :: proc(raw: []u8) -> (Parsed_Metrics, bool) {
 		resync_total                  = p.resync_total,
 		active_subscriptions          = p.active_subscriptions,
 		messages_out_total            = p.messages_out_total,
-	}, true
+		backpressure_level            = p.backpressure_level,
+		queue_capacity                = p.queue_capacity,
+		queue_high_watermark          = p.queue_high_watermark,
+	}
+	// Copy recommended_action into fixed buffer.
+	ra_n := min(len(p.recommended_action), len(m.recommended_action_buf))
+	for i in 0 ..< ra_n {
+		m.recommended_action_buf[i] = p.recommended_action[i]
+	}
+	m.recommended_action_len = u8(ra_n)
+	return m, true
 }
 
 @(private = "file")
