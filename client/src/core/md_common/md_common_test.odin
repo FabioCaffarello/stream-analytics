@@ -428,6 +428,14 @@ test_validate_snapshot_seq_monotonic :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_validate_snapshot_integrity_consistency :: proc(t: ^testing.T) {
+	testing.expect_value(t, validate_snapshot_integrity_consistency(100, 99, 95), false)
+	testing.expect_value(t, validate_snapshot_integrity_consistency(100, 99, 100), true)
+	testing.expect_value(t, validate_snapshot_integrity_consistency(100, 101, 90), true)
+	testing.expect_value(t, validate_snapshot_integrity_consistency(100, 0, 0), false)
+}
+
+@(test)
 test_missing_ts_server_gap_terminal_v1_only :: proc(t: ^testing.T) {
 	testing.expect_value(t, missing_ts_server_gap(false, services.Parse_Result_Kind.Trade, util.Transport_Mode.Terminal_V1), true)
 	testing.expect_value(t, missing_ts_server_gap(true, services.Parse_Result_Kind.Trade, util.Transport_Mode.Terminal_V1), false)

@@ -479,6 +479,16 @@ validate_snapshot_seq_monotonic :: proc(snapshot_seq: i64, last_snapshot_seq: i6
 	return snapshot_seq <= last_snapshot_seq
 }
 
+// Validate per-frame snapshot integrity consistency:
+// - watermark_seq cannot be greater than snapshot_seq
+// - snapshot_seq cannot be greater than envelope seq when both are present
+// Returns true when a consistency violation is detected.
+validate_snapshot_integrity_consistency :: proc(seq: i64, snapshot_seq: i64, watermark_seq: i64) -> bool {
+	if snapshot_seq > 0 && watermark_seq > snapshot_seq do return true
+	if seq > 0 && snapshot_seq > 0 && snapshot_seq > seq do return true
+	return false
+}
+
 // --- Hello rejection → desync reason ---
 
 desync_reason_from_hello_reject :: proc(reject: services.Hello_Reject_Reason) -> ports.MD_Desync_Reason {
