@@ -180,6 +180,118 @@ build_hello_msg :: proc(buf: []u8, rid: u32) -> (string, bool) {
 	return string(buf[:n]), true
 }
 
+// Maximum number of requested features we can encode.
+MAX_REQUESTED_FEATURES :: 8
+
+Platform_Kind :: enum u8 {
+	Native,
+	WASM,
+}
+
+// Determine if a feature should be requested based on setting + server state.
+// setting: "auto" (or "") / "on"/"1"/"true" / "off"/"0"/"false"
+// server_known: true if we received a HELLO with supported_features list.
+// server_has: true if the server advertised this feature.
+feature_should_request :: proc(setting: string, server_known: bool, server_has: bool) -> bool {
+	// Explicit override always wins.
+	if setting == "off" || setting == "0" || setting == "false" do return false
+	if setting == "on" || setting == "1" || setting == "true" do return true
+	// Auto: request if server unknown (optimistic first-connect) or server supports it.
+	return !server_known || server_has
+}
+
+// Resolve requested features deterministically from mode, platform, server state, and settings.
+// mode: Legacy_JSON never requests features.
+// platform: reserved for future WASM-vs-native priority differentiation.
+// server_known: true after first HELLO received (enables filtering to server-supported only).
+// server_has_*: per-feature server support flags.
+// *_setting: per-feature user override ("auto"/"on"/"off").
+// Returns count of features written to the out arrays.
+resolve_requested_features :: proc(
+	mode: util.Transport_Mode,
+	platform: Platform_Kind,
+	server_known: bool,
+	server_has_batching: bool,
+	server_has_snapshot_hash: bool,
+	server_has_prev_seq: bool,
+	batching_setting: string,
+	snapshot_hash_setting: string,
+	prev_seq_setting: string,
+	out: ^[MAX_REQUESTED_FEATURES][24]u8,
+	out_lens: ^[MAX_REQUESTED_FEATURES]u8,
+) -> int {
+	// Legacy mode doesn't support feature negotiation.
+	if mode == .Legacy_JSON do return 0
+
+	count := 0
+	if feature_should_request(batching_setting, server_known, server_has_batching) {
+		f := "batching"
+		for i in 0 ..< len(f) { out[count][i] = f[i] }
+		out_lens[count] = u8(len(f))
+		count += 1
+	}
+	if feature_should_request(snapshot_hash_setting, server_known, server_has_snapshot_hash) {
+		f := "snapshot_hash"
+		for i in 0 ..< len(f) { out[count][i] = f[i] }
+		out_lens[count] = u8(len(f))
+		count += 1
+	}
+	if feature_should_request(prev_seq_setting, server_known, server_has_prev_seq) {
+		f := "prev_seq"
+		for i in 0 ..< len(f) { out[count][i] = f[i] }
+		out_lens[count] = u8(len(f))
+		count += 1
+	}
+	return count
+}
+
+// Build hello with requested_features array.
+// Manual byte-by-byte JSON builder (no fmt.tprintf with braces).
+build_hello_msg_v2 :: proc(
+	buf: []u8,
+	rid: u32,
+	features: ^[MAX_REQUESTED_FEATURES][24]u8,
+	feature_lens: ^[MAX_REQUESTED_FEATURES]u8,
+	feature_count: int,
+) -> (string, bool) {
+	n := 0
+	// Helper: append string literal.
+	append_lit :: proc(buf: []u8, n: ^int, s: string) -> bool {
+		for c in s {
+			if n^ >= len(buf) - 1 do return false
+			buf[n^] = u8(c)
+			n^ += 1
+		}
+		return true
+	}
+
+	if !append_lit(buf, &n, `{"op":"hello","type":"hello","request_id":"h`) do return "", false
+	rid_buf: [16]u8
+	rid_str := fmt.bprintf(rid_buf[:], "%d", rid)
+	if !append_lit(buf, &n, rid_str) do return "", false
+	if !append_lit(buf, &n, `"`) do return "", false
+
+	if feature_count > 0 {
+		if !append_lit(buf, &n, `,"requested_features":[`) do return "", false
+		for i in 0 ..< feature_count {
+			if i > 0 {
+				if !append_lit(buf, &n, `,`) do return "", false
+			}
+			if !append_lit(buf, &n, `"`) do return "", false
+			flen := int(feature_lens[i])
+			for j in 0 ..< flen {
+				if n >= len(buf) - 1 do return "", false
+				buf[n] = features[i][j]
+				n += 1
+			}
+			if !append_lit(buf, &n, `"`) do return "", false
+		}
+		if !append_lit(buf, &n, `]`) do return "", false
+	}
+	if !append_lit(buf, &n, `}`) do return "", false
+	return string(buf[:n]), true
+}
+
 build_ping_msg :: proc(buf: []u8, ts_client: i64, rid: u32) -> (string, bool) {
 	n := 0
 	prefix :: `{"op":"ping","type":"ping","ts_client":`

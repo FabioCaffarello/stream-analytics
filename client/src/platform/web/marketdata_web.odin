@@ -1485,6 +1485,10 @@ web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 			"[md-lifecycle] hello_ok proto_ver=%d server_id=%s topics=%d venues=%d symbols=%d\n",
 			h.proto_ver, h.server_instance_id, h.topic_count, h.venue_count, h.symbol_count,
 		)
+	case .Hello_Ack:
+		// Web platform: log negotiated features, no further action needed.
+		ha := result.data.hello_ack
+		fmt.printf("[md-lifecycle] hello_ack_recv negotiated_features=%d\n", ha.negotiated_feature_count)
 	case .Heartbeat, .Health:
 		ctrl := result.data.control
 		if ctrl.rtt_ms > 0 do state.last_rtt_ms = ctrl.rtt_ms

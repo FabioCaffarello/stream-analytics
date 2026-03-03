@@ -239,6 +239,102 @@ test_seq_gap_transition_recurring_threshold :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_build_hello_msg_v2_with_features :: proc(t: ^testing.T) {
+	buf: [512]u8
+	features: [MAX_REQUESTED_FEATURES][24]u8
+	feature_lens: [MAX_REQUESTED_FEATURES]u8
+	// First connect (server_known=false) with auto settings → request all.
+	fc := resolve_requested_features(.Terminal_V1, .Native, false, false, false, false, "auto", "auto", "auto", &features, &feature_lens)
+	msg, ok := build_hello_msg_v2(buf[:], 1, &features, &feature_lens, fc)
+	testing.expect_value(t, ok, true)
+	testing.expect(t, len(msg) > 0, "expected non-empty hello v2 message")
+	testing.expect(t, strings.contains(msg, `"op":"hello"`), "expected op:hello")
+	testing.expect(t, strings.contains(msg, `"requested_features":[`), "expected requested_features array")
+	testing.expect(t, strings.contains(msg, `"batching"`), "expected batching feature")
+	testing.expect(t, strings.contains(msg, `"snapshot_hash"`), "expected snapshot_hash feature")
+	testing.expect(t, strings.contains(msg, `"prev_seq"`), "expected prev_seq feature")
+}
+
+@(test)
+test_build_hello_msg_v2_no_features :: proc(t: ^testing.T) {
+	buf: [512]u8
+	features: [MAX_REQUESTED_FEATURES][24]u8
+	feature_lens: [MAX_REQUESTED_FEATURES]u8
+	msg, ok := build_hello_msg_v2(buf[:], 2, &features, &feature_lens, 0)
+	testing.expect_value(t, ok, true)
+	testing.expect(t, strings.contains(msg, `"op":"hello"`), "expected op:hello")
+	testing.expect(t, !strings.contains(msg, `"requested_features"`), "no features when count=0")
+}
+
+@(test)
+test_resolve_requested_features_first_connect :: proc(t: ^testing.T) {
+	// First connect: server_known=false → auto requests all optimistically.
+	features: [MAX_REQUESTED_FEATURES][24]u8
+	feature_lens: [MAX_REQUESTED_FEATURES]u8
+	fc := resolve_requested_features(.Terminal_V1, .Native, false, false, false, false, "auto", "auto", "auto", &features, &feature_lens)
+	testing.expect_value(t, fc, 3)
+	testing.expect_value(t, string(features[0][:feature_lens[0]]), "batching")
+	testing.expect_value(t, string(features[1][:feature_lens[1]]), "snapshot_hash")
+	testing.expect_value(t, string(features[2][:feature_lens[2]]), "prev_seq")
+}
+
+@(test)
+test_resolve_requested_features_server_known :: proc(t: ^testing.T) {
+	// Reconnect: server_known=true, only batching supported → request only batching.
+	features: [MAX_REQUESTED_FEATURES][24]u8
+	feature_lens: [MAX_REQUESTED_FEATURES]u8
+	fc := resolve_requested_features(.Terminal_V1, .Native, true, true, false, false, "auto", "auto", "auto", &features, &feature_lens)
+	testing.expect_value(t, fc, 1)
+	testing.expect_value(t, string(features[0][:feature_lens[0]]), "batching")
+}
+
+@(test)
+test_resolve_requested_features_selective :: proc(t: ^testing.T) {
+	// Explicit off overrides even server support.
+	features: [MAX_REQUESTED_FEATURES][24]u8
+	feature_lens: [MAX_REQUESTED_FEATURES]u8
+	fc := resolve_requested_features(.Terminal_V1, .Native, true, true, true, true, "off", "auto", "off", &features, &feature_lens)
+	testing.expect_value(t, fc, 1)
+	testing.expect_value(t, string(features[0][:feature_lens[0]]), "snapshot_hash")
+}
+
+@(test)
+test_resolve_requested_features_legacy_mode :: proc(t: ^testing.T) {
+	// Legacy mode → no features regardless of settings.
+	features: [MAX_REQUESTED_FEATURES][24]u8
+	feature_lens: [MAX_REQUESTED_FEATURES]u8
+	fc := resolve_requested_features(.Legacy_JSON, .Native, false, false, false, false, "auto", "auto", "auto", &features, &feature_lens)
+	testing.expect_value(t, fc, 0)
+}
+
+@(test)
+test_resolve_requested_features_explicit_on :: proc(t: ^testing.T) {
+	// Explicit "on" overrides server_known=true + server_has=false.
+	features: [MAX_REQUESTED_FEATURES][24]u8
+	feature_lens: [MAX_REQUESTED_FEATURES]u8
+	fc := resolve_requested_features(.Terminal_V1, .Native, true, false, false, false, "on", "on", "on", &features, &feature_lens)
+	testing.expect_value(t, fc, 3)
+}
+
+@(test)
+test_feature_should_request_variants :: proc(t: ^testing.T) {
+	// Explicit overrides.
+	testing.expect_value(t, feature_should_request("on", false, false), true)
+	testing.expect_value(t, feature_should_request("1", false, false), true)
+	testing.expect_value(t, feature_should_request("true", false, false), true)
+	testing.expect_value(t, feature_should_request("off", true, true), false)
+	testing.expect_value(t, feature_should_request("0", true, true), false)
+	testing.expect_value(t, feature_should_request("false", true, true), false)
+	// Auto: server unknown → request.
+	testing.expect_value(t, feature_should_request("auto", false, false), true)
+	testing.expect_value(t, feature_should_request("", false, false), true)
+	// Auto: server known + supported → request.
+	testing.expect_value(t, feature_should_request("auto", true, true), true)
+	// Auto: server known + not supported → skip.
+	testing.expect_value(t, feature_should_request("auto", true, false), false)
+}
+
+@(test)
 test_action_hint_to_ws_fault :: proc(t: ^testing.T) {
 	action, meaningful := action_hint_to_ws_fault(util.MR_Action_Hint.Retry)
 	testing.expect_value(t, action, ports.MD_WS_Error_Action.Retry)

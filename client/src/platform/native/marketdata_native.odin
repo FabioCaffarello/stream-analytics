@@ -128,6 +128,9 @@ MD_Native_State :: struct {
 	server_metrics_cadence_ms:   int,
 	server_keepalive_interval_ms: int,
 	server_rate_limit_enabled:   bool,
+	// Server-advertised supported features (from HELLO).
+	server_supported_features: [services.MAX_FEATURE_SLOTS]services.Parsed_Feature_Slot,
+	server_supported_feature_count: int,
 	// Negotiated features (from Hello ACK).
 	negotiated_features: [services.MAX_FEATURE_SLOTS]services.Parsed_Feature_Slot,
 	negotiated_feature_count: int,
@@ -333,16 +336,51 @@ log_safe_url :: proc(url: string) -> string {
 	return url
 }
 
+// Check if a feature name is in the server's supported feature list.
+@(private = "file")
+server_has_feature :: proc(state: ^MD_Native_State, name: string) -> bool {
+	for i in 0 ..< state.server_supported_feature_count {
+		slot := state.server_supported_features[i]
+		if int(slot.len) == len(name) {
+			match := true
+			for j in 0 ..< int(slot.len) {
+				if slot.name[j] != name[j] { match = false; break }
+			}
+			if match do return true
+		}
+	}
+	return false
+}
+
 // Send HELLO frame on initial connect (Terminal_V1 handshake).
+// Uses build_hello_msg_v2 with requested_features when available,
+// falls back to build_hello_msg for zero-feature case.
 @(private = "file")
 send_hello :: proc(state: ^MD_Native_State) {
 	state.rid_counter += 1
-	buf: [256]u8
-	msg, ok := md_common.build_hello_msg(buf[:], state.rid_counter)
+	buf: [512]u8
+	features: [md_common.MAX_REQUESTED_FEATURES][24]u8
+	feature_lens: [md_common.MAX_REQUESTED_FEATURES]u8
+	server_known := state.server_supported_feature_count > 0
+	fc := md_common.resolve_requested_features(
+		state.transport_mode,
+		.Native,
+		server_known,
+		server_has_feature(state, "batching"),
+		server_has_feature(state, "snapshot_hash"),
+		server_has_feature(state, "prev_seq"),
+		"auto", "auto", "auto",  // TODO: read from settings when wired
+		&features, &feature_lens,
+	)
+	msg, ok := md_common.build_hello_msg_v2(buf[:], state.rid_counter, &features, &feature_lens, fc)
+	if !ok {
+		// Fallback to basic hello.
+		msg, ok = md_common.build_hello_msg(buf[:], state.rid_counter)
+	}
 	if !ok do return
 	err := ws_write_text(state.conn, msg)
 	if err == nil {
-		fmt.printf("[md-lifecycle] hello_sent rid=h%d\n", state.rid_counter)
+		fmt.printf("[md-lifecycle] hello_sent rid=h%d features=%d\n", state.rid_counter, fc)
 	}
 }
 
@@ -1658,6 +1696,11 @@ apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 		state.server_metrics_cadence_ms = h.metrics_cadence_ms
 		state.server_keepalive_interval_ms = h.keepalive_interval_ms
 		state.server_rate_limit_enabled = h.rate_limit_enabled
+		// Store server-supported features for deterministic feature negotiation on reconnect.
+		state.server_supported_feature_count = h.supported_feature_count
+		for i in 0 ..< h.supported_feature_count {
+			state.server_supported_features[i] = h.supported_features[i]
+		}
 		if !h.valid {
 			state.desync = true
 			state.desync_reason = md_common.desync_reason_from_hello_reject(h.reject)
