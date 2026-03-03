@@ -531,3 +531,29 @@ func TestTranscodeCacheMetrics_Registered(t *testing.T) {
 		t.Fatalf("misses=%f want=5", got)
 	}
 }
+
+func TestSanitizeTenantID(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "valid", input: "acme", want: "acme"},
+		{name: "empty", input: "", want: "default"},
+		{name: "whitespace", input: "  ", want: "default"},
+		{name: "dash_underscore", input: "my-tenant_01", want: "my-tenant_01"},
+		{name: "invalid_chars", input: "tenant;drop table", want: "invalid"},
+		{name: "special_chars", input: "foo@bar.com", want: "invalid"},
+		{name: "truncated_valid", input: "aaaaaaaaaa" + "aaaaaaaaaa" + "aaaaaaaaaa" + "aaaaaaaaaa" + "aaaaaaaaaa" + "aaaaaaaaaa" + "aaaaa", want: "aaaaaaaaaa" + "aaaaaaaaaa" + "aaaaaaaaaa" + "aaaaaaaaaa" + "aaaaaaaaaa" + "aaaaaaaaaa" + "aaaa"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := sanitizeTenantID(tc.input)
+			if got != tc.want {
+				t.Fatalf("sanitizeTenantID(%q)=%q want=%q", tc.input, got, tc.want)
+			}
+		})
+	}
+}

@@ -1472,10 +1472,20 @@ func SetWSQueueHighWatermark(watermark int) {
 
 // F6: tenant-labeled metric helpers.
 
+var tenantIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
+const maxTenantIDLen = 64
+
 func sanitizeTenantID(tenantID string) string {
 	id := strings.TrimSpace(tenantID)
 	if id == "" {
 		return "default"
+	}
+	if len(id) > maxTenantIDLen {
+		id = id[:maxTenantIDLen]
+	}
+	if !tenantIDPattern.MatchString(id) {
+		return "invalid"
 	}
 	return id
 }
