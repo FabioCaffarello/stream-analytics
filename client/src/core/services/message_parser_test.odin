@@ -219,6 +219,59 @@ test_parse_legacy_envelope_no_ts_server :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_parse_hello_capabilities :: proc(t: ^testing.T) {
+	raw := `{"type":"hello","payload":{"proto_ver":1,"server_time":1700000000001,"server_instance_id":"node-1","capabilities":{"topics":["marketdata.trade"],"venues":["binance"],"symbols":["BTCUSDT"],"max_subscriptions_per_connection":64,"max_symbols_per_connection":32,"max_frame_bytes":65536,"outbound_queue_size":1024,"metrics_cadence_ms":5000,"keepalive_interval_ms":30000,"supported_features":["batching","snapshot_hash","prev_seq"],"rate_limit":{"enabled":true,"max_per_second":100,"burst_capacity":200}}}}`
+	result := parse_mr_message(transmute([]u8)raw, nil)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Hello)
+	h := result.data.hello
+	testing.expect_value(t, h.valid, true)
+	testing.expect_value(t, h.max_subscriptions, 64)
+	testing.expect_value(t, h.max_symbols, 32)
+	testing.expect_value(t, h.max_frame_bytes, 65536)
+	testing.expect_value(t, h.outbound_queue_size, 1024)
+	testing.expect_value(t, h.metrics_cadence_ms, 5000)
+	testing.expect_value(t, h.keepalive_interval_ms, 30000)
+	testing.expect_value(t, h.rate_limit_enabled, true)
+	testing.expect_value(t, h.rate_limit_max_per_sec, 100)
+	testing.expect_value(t, h.rate_limit_burst, 200)
+	testing.expect_value(t, h.supported_feature_count, 3)
+	testing.expect_value(t, string(h.supported_features[0].name[:h.supported_features[0].len]), "batching")
+	testing.expect_value(t, string(h.supported_features[1].name[:h.supported_features[1].len]), "snapshot_hash")
+	testing.expect_value(t, string(h.supported_features[2].name[:h.supported_features[2].len]), "prev_seq")
+	free_all(context.temp_allocator)
+}
+
+@(test)
+test_parse_hello_ack_negotiated_features :: proc(t: ^testing.T) {
+	raw := `{"type":"ack","op":"hello","request_id":"h1","payload":{"negotiated_features":["batching","prev_seq"]}}`
+	result := parse_mr_message(transmute([]u8)raw, nil)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Hello_Ack)
+	ha := result.data.hello_ack
+	testing.expect_value(t, ha.negotiated_feature_count, 2)
+	testing.expect_value(t, string(ha.negotiated_features[0].name[:ha.negotiated_features[0].len]), "batching")
+	testing.expect_value(t, string(ha.negotiated_features[1].name[:ha.negotiated_features[1].len]), "prev_seq")
+	free_all(context.temp_allocator)
+}
+
+@(test)
+test_parse_hello_ack_empty_features :: proc(t: ^testing.T) {
+	raw := `{"type":"ack","op":"hello","request_id":"h1","payload":{"negotiated_features":[]}}`
+	result := parse_mr_message(transmute([]u8)raw, nil)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Hello_Ack)
+	testing.expect_value(t, result.data.hello_ack.negotiated_feature_count, 0)
+	free_all(context.temp_allocator)
+}
+
+@(test)
+test_parse_envelope_prev_seq :: proc(t: ^testing.T) {
+	raw := `{"type":"event","subject":"marketdata.trade/binance/BTCUSDT","seq":42,"prev_seq":41,"ts_ingest":1700000000000,"payload":{"Price":50000.0,"Size":1.0,"Side":"buy","TradeID":"t1","Timestamp":1700000000000}}`
+	result := parse_mr_message(transmute([]u8)raw, nil)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Trade)
+	testing.expect_value(t, result.meta.prev_seq, i64(41))
+	free_all(context.temp_allocator)
+}
+
+@(test)
 test_parse_ack_missing_subject_stream_id :: proc(t: ^testing.T) {
 	raw := `{"type":"ack","op":"subscribe","request_id":"a1"}`
 	result := parse_mr_message(transmute([]u8)raw, nil)

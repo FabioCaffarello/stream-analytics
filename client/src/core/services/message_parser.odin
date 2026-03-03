@@ -272,6 +272,7 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 		return result
 	}
 	result.meta.seq = env.seq
+	result.meta.prev_seq = env.prev_seq
 	// Prefer ts_server (Terminal_V1) over ts_ingest (legacy).
 	result.meta.server_ts_ms = env.ts_server if env.ts_server > 0 else env.ts_ingest
 	result.meta.has_ts_server = env.ts_server > 0
@@ -282,6 +283,14 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 
 	switch ft {
 	case .Ack:
+		// Hello ACK: op="hello" ack frame carries negotiated_features.
+		if env.op == "hello" {
+			result.kind = .Hello_Ack
+			if ha, ok := parse_hello_ack(raw); ok {
+				result.data.hello_ack = ha
+			}
+			return result
+		}
 		result.kind = .Ack
 		result.data.ack = Parsed_Ack{op = env.op, subject = env.subject, stream_id = env.stream_id}
 		return result
@@ -614,15 +623,36 @@ parse_hello :: proc(raw: []u8) -> (Parsed_Hello, bool) {
 	pv := frame.payload.proto_ver
 	if pv <= 0 do pv = frame.payload.protocol_version
 
+	caps := frame.payload.capabilities
 	h := Parsed_Hello{
-		proto_ver          = pv,
-		server_time        = frame.payload.server_time,
-		server_instance_id = frame.payload.server_instance_id,
-		topic_count        = len(frame.payload.capabilities.topics),
-		venue_count        = len(frame.payload.capabilities.venues),
-		symbol_count       = len(frame.payload.capabilities.symbols),
-		valid              = true,
-		reject             = .None,
+		proto_ver             = pv,
+		server_time           = frame.payload.server_time,
+		server_instance_id    = frame.payload.server_instance_id,
+		topic_count           = len(caps.topics),
+		venue_count           = len(caps.venues),
+		symbol_count          = len(caps.symbols),
+		valid                 = true,
+		reject                = .None,
+		max_subscriptions     = caps.max_subscriptions_per_connection,
+		max_symbols           = caps.max_symbols_per_connection,
+		max_frame_bytes       = caps.max_frame_bytes,
+		outbound_queue_size   = caps.outbound_queue_size,
+		metrics_cadence_ms    = caps.metrics_cadence_ms,
+		keepalive_interval_ms = caps.keepalive_interval_ms,
+		rate_limit_enabled    = caps.rate_limit.enabled,
+		rate_limit_max_per_sec = caps.rate_limit.max_per_second,
+		rate_limit_burst      = caps.rate_limit.burst_capacity,
+	}
+	// Copy supported features into fixed slots.
+	fc := min(len(caps.supported_features), MAX_FEATURE_SLOTS)
+	h.supported_feature_count = fc
+	for i in 0 ..< fc {
+		f := caps.supported_features[i]
+		n := min(len(f), len(h.supported_features[i].name))
+		for j in 0 ..< n {
+			h.supported_features[i].name[j] = f[j]
+		}
+		h.supported_features[i].len = u8(n)
 	}
 
 	if h.proto_ver <= 0 {
@@ -765,6 +795,29 @@ parse_error :: proc(raw: []u8) -> (Parsed_Error, bool) {
 		code       = frame.problem.code,
 		message    = frame.problem.message,
 	}, true
+}
+
+@(private = "file")
+MR_Hello_Ack_Envelope :: struct {
+	payload: util.MR_Hello_Ack_Frame `json:"payload"`,
+}
+
+@(private = "file")
+parse_hello_ack :: proc(raw: []u8) -> (Parsed_Hello_Ack, bool) {
+	frame: MR_Hello_Ack_Envelope
+	if json.unmarshal(raw, &frame) != nil do return {}, false
+	result: Parsed_Hello_Ack
+	fc := min(len(frame.payload.negotiated_features), MAX_FEATURE_SLOTS)
+	result.negotiated_feature_count = fc
+	for i in 0 ..< fc {
+		f := frame.payload.negotiated_features[i]
+		n := min(len(f), len(result.negotiated_features[i].name))
+		for j in 0 ..< n {
+			result.negotiated_features[i].name[j] = f[j]
+		}
+		result.negotiated_features[i].len = u8(n)
+	}
+	return result, true
 }
 
 @(private = "file")
