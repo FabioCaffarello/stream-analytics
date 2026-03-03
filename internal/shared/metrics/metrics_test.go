@@ -468,3 +468,37 @@ func policyKitLatencySampleCount(t *testing.T, stream string) uint64 {
 	}
 	return 0
 }
+
+// ── ws_legacy_requests_total ─────────────────────────────────────────────────
+
+func TestIncWSLegacyRequest_AcceptedAndRejected(t *testing.T) {
+	before := testutil.ToFloat64(WSLegacyRequestsTotal.WithLabelValues("accepted"))
+	IncWSLegacyRequest("accepted")
+	after := testutil.ToFloat64(WSLegacyRequestsTotal.WithLabelValues("accepted"))
+	if after-before != 1 {
+		t.Fatalf("accepted: delta=%f want=1", after-before)
+	}
+
+	beforeR := testutil.ToFloat64(WSLegacyRequestsTotal.WithLabelValues("rejected"))
+	IncWSLegacyRequest("rejected")
+	afterR := testutil.ToFloat64(WSLegacyRequestsTotal.WithLabelValues("rejected"))
+	if afterR-beforeR != 1 {
+		t.Fatalf("rejected: delta=%f want=1", afterR-beforeR)
+	}
+}
+
+func TestIncWSLegacyRequest_UnknownDefaultsToRejected(t *testing.T) {
+	before := testutil.ToFloat64(WSLegacyRequestsTotal.WithLabelValues("rejected"))
+	IncWSLegacyRequest("bogus")
+	after := testutil.ToFloat64(WSLegacyRequestsTotal.WithLabelValues("rejected"))
+	if after-before != 1 {
+		t.Fatalf("bogus→rejected: delta=%f want=1", after-before)
+	}
+}
+
+func TestWSLegacyRequestsTotal_Registered(t *testing.T) {
+	count := testutil.CollectAndCount(WSLegacyRequestsTotal)
+	if count == 0 {
+		t.Fatal("WSLegacyRequestsTotal not registered or has no series")
+	}
+}

@@ -895,6 +895,16 @@ var (
 		},
 		[]string{"outcome"},
 	)
+
+	// ── Legacy strangler metrics ─────────────────────────────────────────
+
+	WSLegacyRequestsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ws_legacy_requests_total",
+			Help: "Total /ws/marketdata legacy route requests by status (accepted/rejected).",
+		},
+		[]string{"status"},
+	)
 )
 
 var (
@@ -1064,6 +1074,7 @@ func registerAll() {
 			DeliveryRouterEventsRejectedTotal,
 			DeliveryRouterCoherenceMode,
 			DeliveryRangeAliasFallbackTotal,
+			WSLegacyRequestsTotal,
 		)
 
 		// Pre-create one series for vector metrics so /metrics exposition is stable
@@ -1178,6 +1189,8 @@ func registerAll() {
 		DeliveryRangeAliasFallbackTotal.WithLabelValues("hit")
 		DeliveryRangeAliasFallbackTotal.WithLabelValues("miss")
 		DeliveryRangeAliasFallbackTotal.WithLabelValues("error")
+		WSLegacyRequestsTotal.WithLabelValues("accepted")
+		WSLegacyRequestsTotal.WithLabelValues("rejected")
 	})
 }
 
@@ -2232,6 +2245,17 @@ func SetDeliveryRouterCoherenceMode(mode string) {
 // IncDeliveryRangeAliasFallback increments getrange alias fallback attempts by outcome.
 func IncDeliveryRangeAliasFallback(outcome string) {
 	DeliveryRangeAliasFallbackTotal.WithLabelValues(sanitizeKind(outcome)).Inc()
+}
+
+// IncWSLegacyRequest increments the legacy route request counter.
+func IncWSLegacyRequest(status string) {
+	s := strings.ToLower(strings.TrimSpace(status))
+	switch s {
+	case "accepted", "rejected":
+	default:
+		s = "rejected"
+	}
+	WSLegacyRequestsTotal.WithLabelValues(s).Inc()
 }
 
 func sanitizeDeliveryRouterCoherenceMode(v string) string {
