@@ -50,6 +50,7 @@ type Server struct {
 	ipLimiter               *ipRateLimiter
 	tenantLimits            map[string]config.WSTenantLimitConfig
 	maxFrameBytes           int
+	allowLegacy             bool
 }
 
 type connectionRegistry struct {
@@ -132,6 +133,12 @@ func WithMaxFrameBytes(maxFrameBytes int) Option {
 	}
 }
 
+func WithAllowLegacy(allow bool) Option {
+	return func(s *Server) {
+		s.allowLegacy = allow
+	}
+}
+
 func WithSessionSpawner(spawn func(cfg deliveryruntime.SessionConfig) *actor.PID) Option {
 	return func(s *Server) {
 		s.spawnSession = spawn
@@ -148,6 +155,7 @@ func NewServer(engine *actor.Engine, routerPID *actor.PID, logger *slog.Logger, 
 		logger:            logger,
 		rangeStore:        rangeStore,
 		outboundQueueSize: outboundQueueSize,
+		allowLegacy:       true,
 		limits: ConnectionLimits{
 			MaxConnectionsPerIP:  200,
 			MaxConnectionsPerKey: 20,
@@ -298,6 +306,12 @@ func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 // HandleLegacyWS keeps backward-compatible route handling isolated from
 // Terminal V1 route handling and instrumentation.
 func (s *Server) HandleLegacyWS(w http.ResponseWriter, r *http.Request) {
+	if !s.allowLegacy {
+		metrics.IncWSLegacyRequest("rejected")
+		http.Error(w, "legacy route deprecated; use /ws", http.StatusGone)
+		return
+	}
+	metrics.IncWSLegacyRequest("accepted")
 	s.handleUpgradeWithMode(w, r, wsClientModeLegacy)
 }
 

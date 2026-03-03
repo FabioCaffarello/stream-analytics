@@ -214,3 +214,54 @@ func TestHandleWS_ConnectionLimitPerKey(t *testing.T) {
 		}(), http.StatusTooManyRequests)
 	}
 }
+
+// ── Legacy gate ──────────────────────────────────────────────────────────────
+
+func TestHandleLegacyWS_Returns410WhenDisabled(t *testing.T) {
+	srv := NewServer(
+		nil,
+		&actor.PID{},
+		nil,
+		nil,
+		256,
+		WithAllowLegacy(false),
+	)
+	req := httptest.NewRequest("GET", "/ws/marketdata", nil)
+	rec := httptest.NewRecorder()
+	srv.HandleLegacyWS(rec, req)
+
+	if rec.Code != http.StatusGone {
+		t.Fatalf("status=%d want=%d", rec.Code, http.StatusGone)
+	}
+}
+
+func TestHandleLegacyWS_ProceedsWhenEnabled(t *testing.T) {
+	srv := NewServer(
+		nil,
+		&actor.PID{},
+		nil,
+		nil,
+		256,
+		WithAllowLegacy(true),
+		WithAuthConfig(AuthConfig{
+			Enabled: true,
+			APIKeys: map[string]string{"k1": "client-a"},
+		}),
+	)
+	// Request without auth key should reach auth check (not 410).
+	req := httptest.NewRequest("GET", "/ws/marketdata", nil)
+	rec := httptest.NewRecorder()
+	srv.HandleLegacyWS(rec, req)
+
+	// Should get 401 (auth failure), not 410 (gone).
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status=%d want=%d (auth check should be reached)", rec.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestNewServer_DefaultAllowLegacyTrue(t *testing.T) {
+	srv := NewServer(nil, &actor.PID{}, nil, nil, 256)
+	if !srv.allowLegacy {
+		t.Fatal("allowLegacy should default to true")
+	}
+}

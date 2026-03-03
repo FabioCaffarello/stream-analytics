@@ -591,6 +591,7 @@ func enableWSRoute(
 			wsserver.WithServerInstanceID(ids.NewSessionID().String()),
 			wsserver.WithSlowClientDropThreshold(cfg.Delivery.SlowClientDropThreshold),
 			wsserver.WithTranscodeCache(deliveryruntime.NewTranscodeCache(0)),
+			wsserver.WithAllowLegacy(cfg.WS.IsLegacyAllowed()),
 		)
 		srv.HandleFunc("GET /ws", ws.HandleWS)
 		srv.HandleFunc("GET /ws/marketdata", ws.HandleLegacyWS)
