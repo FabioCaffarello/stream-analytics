@@ -420,9 +420,10 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 			NATSDurable:  cfg.Delivery.NATS.ConsumerDurable,
 			NATSSubjects: append([]string(nil), cfg.Delivery.NATS.FilterSubjects...),
 			Router: deliveryruntime.RouterConfig{
-				Logger:        logger,
-				Timeframe:     "raw",
-				EnvelopeStore: rangeStore,
+				Logger:              logger,
+				Timeframe:           "raw",
+				EnvelopeStore:       rangeStore,
+				StreamCoherenceMode: "sticky_session",
 			},
 			OnRouterReady: func(pid *actor.PID) {
 				select {
@@ -592,9 +593,9 @@ func enableWSRoute(
 			wsserver.WithTranscodeCache(deliveryruntime.NewTranscodeCache(0)),
 		)
 		srv.HandleFunc("GET /ws", ws.HandleWS)
-		srv.HandleFunc("GET /ws/marketdata", ws.HandleWS)
+		srv.HandleFunc("GET /ws/marketdata", ws.HandleLegacyWS)
 		srv.HandleFunc("GET /introspection", ws.HandleIntrospection)
-		logger.Info("delivery websocket route enabled", "route", "GET /ws|/ws/marketdata")
+		logger.Info("delivery websocket route enabled", "route", "GET /ws (v1), GET /ws/marketdata (legacy)")
 	case <-time.After(cfg.Delivery.RouterReadyTimeoutDuration()):
 		logger.Warn("delivery router not ready in time; /ws route disabled")
 	}
@@ -665,7 +666,7 @@ func newBoundedSnapshotCacheProvider(
 	if maxEntries <= 0 {
 		maxEntries = wsSnapshotCacheMaxEntries
 	}
-	return &boundedSnapshotCacheProvider{
+	provider := &boundedSnapshotCacheProvider{
 		next:       next,
 		ttl:        ttl,
 		maxEntries: maxEntries,
@@ -673,6 +674,8 @@ func newBoundedSnapshotCacheProvider(
 		cache:      make(map[string]snapshotCacheEntry, maxEntries),
 		order:      make([]string, 0, maxEntries),
 	}
+	metrics.SetDeliveryWSSnapshotCacheEntries(0)
+	return provider
 }
 
 func (p wsHotSnapshotProvider) GetLatest(subject deliverydomain.Subject) ([]byte, bool) {
@@ -708,6 +711,7 @@ func (p *boundedSnapshotCacheProvider) GetLatest(subject deliverydomain.Subject)
 			return payload, true
 		}
 		delete(p.cache, key)
+		metrics.SetDeliveryWSSnapshotCacheEntries(len(p.cache))
 	}
 	p.mu.Unlock()
 
@@ -729,6 +733,7 @@ func (p *boundedSnapshotCacheProvider) GetLatest(subject deliverydomain.Subject)
 		}
 		delete(p.cache, evict)
 	}
+	metrics.SetDeliveryWSSnapshotCacheEntries(len(p.cache))
 	p.mu.Unlock()
 	return copied, true
 }

@@ -65,7 +65,7 @@ func TestWSDelivery_HeatmapSnapshot_RoutedToSubscriber(t *testing.T) {
 	if got, want := evt["subject"], "insights.heatmap_snapshot/binance/BTCUSDT/1m"; got != want {
 		t.Fatalf("subject=%v want=%v", got, want)
 	}
-	if got, want := int64(evt["seq"].(float64)), int64(7); got != want {
+	if got, want := int64(evt["seq"].(float64)), int64(1); got != want {
 		t.Fatalf("seq=%d want=%d", got, want)
 	}
 }
@@ -122,7 +122,7 @@ func TestWSDelivery_VolumeProfileSnapshot_RoutedToSubscriber(t *testing.T) {
 	if got, want := evt["subject"], "insights.volume_profile_snapshot/binance/BTCUSDT/5m"; got != want {
 		t.Fatalf("subject=%v want=%v", got, want)
 	}
-	if got, want := int64(evt["seq"].(float64)), int64(3); got != want {
+	if got, want := int64(evt["seq"].(float64)), int64(1); got != want {
 		t.Fatalf("seq=%d want=%d", got, want)
 	}
 }

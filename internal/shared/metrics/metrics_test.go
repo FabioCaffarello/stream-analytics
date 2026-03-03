@@ -102,6 +102,9 @@ func TestMetricsNamesPresent(t *testing.T) {
 	ObserveWSSendLatency(5 * time.Millisecond)
 	IncWSClientsConnected()
 	DecWSClientsConnected()
+	IncWSClientsConnectedByMode("v1")
+	DecWSClientsConnectedByMode("v1")
+	IncWSControlFrame("metrics")
 	IncBusPublishError("timeout")
 	ObserveBusPublishLatency("jetstream", 2*time.Millisecond)
 	IncBusConsumed("jetstream", "ok")
@@ -135,6 +138,10 @@ func TestMetricsNamesPresent(t *testing.T) {
 	IncHeatmapDrop("queue_full")
 	SetHeatmapQueueDepth("binance", "BTC-USDT", 7)
 	IncDeliveryRangeAliasFallback("hit")
+	SetDeliveryWSSnapshotCacheEntries(3)
+	SetDeliveryRouterCoherenceMode("sticky_session")
+	IncWSResyncRejected("snapshot_unavailable")
+	IncWSContractViolation("missing_ts_server")
 
 	mfs, err := Registry().Gather()
 	if err != nil {
@@ -158,10 +165,14 @@ func TestMetricsNamesPresent(t *testing.T) {
 		"ws_publish_to_deliver_latency_ms",
 		"ws_send_latency_ms",
 		"ws_clients_connected",
+		"ws_clients_connected_by_mode",
 		"ws_subscriptions_active",
+		"ws_control_frames_total",
 		"serialize_errors_total",
 		"auth_fail_total",
 		"resync_total",
+		"ws_resync_rejected_total",
+		"ws_contract_violations_total",
 		"bus_dropped_total",
 		"bus_publish_errors_total",
 		"bus_publish_latency_seconds",
@@ -198,6 +209,8 @@ func TestMetricsNamesPresent(t *testing.T) {
 		"guardian_rate_limited_total",
 		"process_heap_alloc_bytes",
 		"delivery_range_alias_fallback_total",
+		"delivery_ws_snapshot_cache_entries",
+		"delivery_router_coherence_mode",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("expected metric %s in registry", want)
@@ -234,6 +247,10 @@ func TestWSExtendedMetrics_StableLabelsOnly(t *testing.T) {
 	assertMetricLabelNames(t, "ws_bytes_out_total", []string{"channel"})
 	assertMetricLabelNames(t, "ws_lag_ms", []string{"channel"})
 	assertMetricLabelNames(t, "ws_publish_to_deliver_latency_ms", []string{"channel"})
+	assertMetricLabelNames(t, "ws_clients_connected_by_mode", []string{"mode"})
+	assertMetricLabelNames(t, "ws_control_frames_total", []string{"type"})
+	assertMetricLabelNames(t, "ws_resync_rejected_total", []string{"reason"})
+	assertMetricLabelNames(t, "ws_contract_violations_total", []string{"reason"})
 }
 
 func TestVPVRAndHeatmapMetrics_BoundedLabelsOnly(t *testing.T) {

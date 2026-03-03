@@ -17,9 +17,10 @@ import (
 
 // RouterConfig configures the Delivery router actor.
 type RouterConfig struct {
-	Logger        *slog.Logger
-	Timeframe     string
-	EnvelopeStore envelopeStore
+	Logger              *slog.Logger
+	Timeframe           string
+	EnvelopeStore       envelopeStore
+	StreamCoherenceMode string
 }
 
 type envelopeStore interface {
@@ -38,8 +39,10 @@ type RouterActor struct {
 	subjectSessions map[domain.Subject]map[string]*actor.PID
 	// subjectPIDs is a pre-built slice cache for the hot fan-out path.
 	// Rebuilt from subjectSessions on subscribe/unsubscribe (cold path).
-	subjectPIDs map[domain.Subject][]*actor.PID
-	streamSeq   map[string]int64
+	subjectPIDs   map[domain.Subject][]*actor.PID
+	streamSeq     map[string]int64
+	deliverySeq   map[string]int64
+	coherenceMode string
 
 	engine  *actor.Engine
 	selfPID *actor.PID
@@ -47,6 +50,11 @@ type RouterActor struct {
 }
 
 const routerInstrumentMarketTypeMetaKey = "instrument_market_type"
+
+const (
+	streamCoherenceModeStickySession     = "sticky_session"
+	streamCoherenceModeUpstreamSequencer = "upstream_sequencer"
+)
 
 func NewRouterActor(cfg RouterConfig) actor.Producer {
 	return func() actor.Receiver {
@@ -109,6 +117,13 @@ func (r *RouterActor) ensureDefaults(c *actor.Context) {
 	}
 	if r.streamSeq == nil {
 		r.streamSeq = make(map[string]int64)
+	}
+	if r.deliverySeq == nil {
+		r.deliverySeq = make(map[string]int64)
+	}
+	if r.coherenceMode == "" {
+		r.coherenceMode = normalizeStreamCoherenceMode(r.cfg.StreamCoherenceMode)
+		metrics.SetDeliveryRouterCoherenceMode(r.coherenceMode)
 	}
 	if r.engine == nil && c != nil {
 		r.engine = c.Engine()
@@ -208,6 +223,7 @@ func (r *RouterActor) removeSessionFromSubject(sessionID string, subject domain.
 			delete(r.subjectSessions, subject)
 			delete(r.subjectPIDs, subject)
 			delete(r.streamSeq, subject.String())
+			delete(r.deliverySeq, subject.String())
 		} else {
 			r.rebuildSubjectPIDs(subject)
 		}
@@ -271,14 +287,6 @@ func (r *RouterActor) handleEnvelope(env envelope.Envelope) {
 		return
 	}
 	aliasSubject, hasAlias := routingMarketTypeAliasSubject(subject, env)
-	if !r.acceptStreamSeq(subject.String(), env.Seq) {
-		metrics.IncDeliveryRouterEventsRejected("seq_non_monotonic")
-		return
-	}
-	if hasAlias && !r.acceptStreamSeq(aliasSubject.String(), env.Seq) {
-		metrics.IncDeliveryRouterEventsRejected("seq_non_monotonic")
-		return
-	}
 	targets := r.subjectPIDs[subject]
 	aliasTargets := []*actor.PID(nil)
 	if hasAlias {
@@ -287,17 +295,33 @@ func (r *RouterActor) handleEnvelope(env envelope.Envelope) {
 	if len(targets) == 0 && len(aliasTargets) == 0 {
 		return
 	}
+	if len(targets) > 0 {
+		if ok, reason := r.acceptStreamSeq(subject.String(), env.Seq); !ok {
+			metrics.IncDeliveryRouterEventsRejected(reason)
+			return
+		}
+	}
+	if len(aliasTargets) > 0 {
+		if ok, reason := r.acceptStreamSeq(aliasSubject.String(), env.Seq); !ok {
+			metrics.IncDeliveryRouterEventsRejected(reason)
+			return
+		}
+	}
 	metrics.IncDeliveryRouterEventsRouted()
 	sent := map[string]struct{}(nil)
 	if len(targets) > 0 && len(aliasTargets) > 0 {
 		sent = make(map[string]struct{}, len(targets))
 	}
+	primaryEnv := env
+	primaryEnv.Seq = r.nextDeliverySeq(subject.String())
 	for _, pid := range targets {
 		if sent != nil && pid != nil {
 			sent[pid.String()] = struct{}{}
 		}
-		r.engine.Send(pid, DeliveryEvent{Subject: subject, Env: env})
+		r.engine.Send(pid, DeliveryEvent{Subject: subject, Env: primaryEnv})
 	}
+	aliasEnv := env
+	aliasSeqAssigned := false
 	for _, pid := range aliasTargets {
 		if pid == nil {
 			continue
@@ -307,20 +331,37 @@ func (r *RouterActor) handleEnvelope(env envelope.Envelope) {
 				continue
 			}
 		}
-		r.engine.Send(pid, DeliveryEvent{Subject: aliasSubject, Env: env})
+		if !aliasSeqAssigned {
+			aliasEnv.Seq = r.nextDeliverySeq(aliasSubject.String())
+			aliasSeqAssigned = true
+		}
+		r.engine.Send(pid, DeliveryEvent{Subject: aliasSubject, Env: aliasEnv})
 	}
 }
 
-func (r *RouterActor) acceptStreamSeq(streamID string, seq int64) bool {
+func (r *RouterActor) acceptStreamSeq(streamID string, seq int64) (bool, string) {
 	if seq <= 0 {
-		return true
+		return false, "seq_invalid"
 	}
 	last, ok := r.streamSeq[streamID]
 	if !ok || seq > last {
 		r.streamSeq[streamID] = seq
-		return true
+		return true, ""
 	}
-	return false
+	return false, "seq_non_monotonic"
+}
+
+func (r *RouterActor) nextDeliverySeq(streamID string) int64 {
+	streamID = strings.TrimSpace(streamID)
+	if streamID == "" {
+		return 0
+	}
+	next := r.deliverySeq[streamID] + 1
+	if next <= 0 {
+		next = 1
+	}
+	r.deliverySeq[streamID] = next
+	return next
 }
 
 func routingTimeframeForEnvelope(defaultTimeframe string, env envelope.Envelope) string {
@@ -366,4 +407,16 @@ func routingMarketTypeAliasSubject(primary domain.Subject, env envelope.Envelope
 		return domain.Subject{}, false
 	}
 	return alias, true
+}
+
+func normalizeStreamCoherenceMode(raw string) string {
+	mode := strings.ToLower(strings.TrimSpace(raw))
+	switch mode {
+	case "", streamCoherenceModeStickySession:
+		return streamCoherenceModeStickySession
+	case streamCoherenceModeUpstreamSequencer:
+		return streamCoherenceModeUpstreamSequencer
+	default:
+		return "unknown"
+	}
 }

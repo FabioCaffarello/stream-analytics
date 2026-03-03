@@ -123,7 +123,7 @@ func TestWSDelivery_StatsClosed_RoutedToSubscriber(t *testing.T) {
 	if got, want := evt["subject"], "aggregation.stats/binance/BTCUSDT/raw"; got != want {
 		t.Fatalf("subject=%v want=%v", got, want)
 	}
-	if got, want := int64(evt["seq"].(float64)), int64(2); got != want {
+	if got, want := int64(evt["seq"].(float64)), int64(1); got != want {
 		t.Fatalf("seq=%d want=%d", got, want)
 	}
 }

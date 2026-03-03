@@ -8,6 +8,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/market-raccoon/internal/core/delivery/domain"
 	"github.com/market-raccoon/internal/core/delivery/ports"
+	"github.com/market-raccoon/internal/shared/envelope"
 )
 
 type stubSnapshotProvider struct {
@@ -300,5 +301,64 @@ func TestSession_GetRange_LimitEnforced(t *testing.T) {
 	resp, ok := msg.(wsErrorFrame)
 	if !ok || resp.Type != "error" {
 		t.Fatalf("expected error response, got %#v", msg)
+	}
+}
+
+func TestSession_ResyncFallsBackToLastDeliveredEventSnapshot(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-capture-resync-fallback")
+	defer e.Poison(routerPID)
+
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{
+		RouterPID:           routerPID,
+		Conn:                conn,
+		HotSnapshotProvider: stubSnapshotProvider{},
+	}), "ws-session-resync-fallback")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"subscribe","subject":"marketdata.trade/binance/BTC-USDT/raw","request_id":"s1"}`)}
+	subAck := <-conn.writeCh
+	if ack, ok := subAck.(wsAckFrame); !ok || ack.Op != "subscribe" {
+		t.Fatalf("expected subscribe ack, got %#v", subAck)
+	}
+
+	subject := mustParseSubjectForSession(t, "marketdata.trade/binance/BTC-USDT/raw")
+	e.Send(sessionPID, DeliveryEvent{
+		Subject: subject,
+		Env: envelope.Envelope{
+			Type:     "marketdata.trade",
+			Version:  1,
+			Seq:      10,
+			TsIngest: time.Now().UnixMilli(),
+			Payload:  []byte(`{"Price":50000,"Size":1.0,"Side":"buy","TradeID":"t1","Timestamp":1700000000000}`),
+		},
+	})
+	if evt, ok := (<-conn.writeCh).(wsEventFrame); !ok || evt.Type != "event" {
+		t.Fatalf("expected event frame before resync, got %#v", evt)
+	}
+
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"resync","subject":"marketdata.trade/binance/BTC-USDT/raw","request_id":"r1","last_seq":10}`)}
+	snapMsg := <-conn.writeCh
+	snap, ok := snapMsg.(wsSnapshotFrame)
+	if !ok || snap.Type != "snapshot" {
+		t.Fatalf("expected snapshot first on resync, got %#v", snapMsg)
+	}
+	if got, want := snap.SnapshotSource, "session_last_event"; got != want {
+		t.Fatalf("snapshot_source=%q want=%q", got, want)
+	}
+	if snap.Seq <= 0 {
+		t.Fatalf("snapshot seq=%d want > 0", snap.Seq)
+	}
+	ackMsg := <-conn.writeCh
+	ack, ok := ackMsg.(wsAckFrame)
+	if !ok || ack.Op != "resync" {
+		t.Fatalf("expected resync ack second, got %#v", ackMsg)
 	}
 }

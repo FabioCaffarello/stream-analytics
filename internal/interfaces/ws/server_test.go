@@ -36,6 +36,26 @@ func TestSessionWantsProto_DefaultJSON(t *testing.T) {
 	}
 }
 
+func TestWSClientModeFromRequestPath(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want wsClientMode
+	}{
+		{name: "v1 route", path: "/ws", want: wsClientModeV1},
+		{name: "legacy route", path: "/ws/marketdata", want: wsClientModeLegacy},
+		{name: "unknown defaults to v1", path: "/ws/custom", want: wsClientModeV1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", tc.path, nil)
+			if got := wsClientModeFromRequestPath(req); got != tc.want {
+				t.Fatalf("mode=%q want=%q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestHandleWS_AuthRejectsUnauthorized(t *testing.T) {
 	srv := NewServer(
 		nil,

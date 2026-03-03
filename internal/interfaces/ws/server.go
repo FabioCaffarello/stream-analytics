@@ -63,6 +63,13 @@ type ipRateLimiter struct {
 	buckets map[string]*deliveryruntime.RateLimiter
 }
 
+type wsClientMode string
+
+const (
+	wsClientModeV1     wsClientMode = "v1"
+	wsClientModeLegacy wsClientMode = "legacy"
+)
+
 type Option func(*Server)
 
 func WithAuthConfig(cfg AuthConfig) Option {
@@ -172,6 +179,10 @@ func NewServer(engine *actor.Engine, routerPID *actor.PID, logger *slog.Logger, 
 }
 
 func (s *Server) HandleUpgrade(w http.ResponseWriter, r *http.Request) {
+	s.handleUpgradeWithMode(w, r, wsClientModeFromRequestPath(r))
+}
+
+func (s *Server) handleUpgradeWithMode(w http.ResponseWriter, r *http.Request, mode wsClientMode) {
 	if s.routerPID == nil {
 		http.Error(w, "delivery router unavailable", http.StatusServiceUnavailable)
 		return
@@ -216,6 +227,13 @@ func (s *Server) HandleUpgrade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	metrics.IncWSClientsConnectedByMode(string(mode))
+	onClosed := func() {
+		metrics.DecWSClientsConnectedByMode(string(mode))
+		s.connRegistry.Release(clientIP, keyID)
+		syncConnectionIntrospection(s.connRegistry)
+	}
+
 	pid := s.spawnSession(deliveryruntime.SessionConfig{
 		Logger:                  s.logger,
 		RouterPID:               s.routerPID,
@@ -231,14 +249,10 @@ func (s *Server) HandleUpgrade(w http.ResponseWriter, r *http.Request) {
 		ServerInstanceID:        s.serverInstanceID,
 		MaxSubscriptions:        s.limits.MaxSubsPerConnection,
 		MaxSymbolsPerConnection: s.limits.MaxSymbolsPerConn,
-		OnClosed: func() {
-			s.connRegistry.Release(clientIP, keyID)
-			syncConnectionIntrospection(s.connRegistry)
-		},
+		OnClosed:                onClosed,
 	})
 	if pid == nil {
-		s.connRegistry.Release(clientIP, keyID)
-		syncConnectionIntrospection(s.connRegistry)
+		onClosed()
 		_ = conn.Close()
 		http.Error(w, "session spawn failed", http.StatusServiceUnavailable)
 		return
@@ -246,7 +260,13 @@ func (s *Server) HandleUpgrade(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
-	s.HandleUpgrade(w, r)
+	s.handleUpgradeWithMode(w, r, wsClientModeV1)
+}
+
+// HandleLegacyWS keeps backward-compatible route handling isolated from
+// Terminal V1 route handling and instrumentation.
+func (s *Server) HandleLegacyWS(w http.ResponseWriter, r *http.Request) {
+	s.handleUpgradeWithMode(w, r, wsClientModeLegacy)
 }
 
 func (s *Server) HandleIntrospection(w http.ResponseWriter, _ *http.Request) {
@@ -404,4 +424,16 @@ func sessionWantsProto(r *http.Request) bool {
 		}
 	}
 	return false
+}
+
+func wsClientModeFromRequestPath(r *http.Request) wsClientMode {
+	if r == nil {
+		return wsClientModeV1
+	}
+	switch strings.ToLower(strings.TrimSpace(r.URL.Path)) {
+	case "/ws/marketdata":
+		return wsClientModeLegacy
+	default:
+		return wsClientModeV1
+	}
 }

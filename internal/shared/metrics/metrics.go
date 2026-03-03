@@ -271,11 +271,25 @@ var (
 			Help: "Connected websocket delivery clients.",
 		},
 	)
+	WSClientsConnectedByMode = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "ws_clients_connected_by_mode",
+			Help: "Connected websocket delivery clients by route compatibility mode.",
+		},
+		[]string{"mode"},
+	)
 	WSSubscriptionsActive = prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "ws_subscriptions_active",
 			Help: "Active websocket subscriptions across all sessions.",
 		},
+	)
+	WSControlFramesTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ws_control_frames_total",
+			Help: "Total websocket control frames sent by frame type.",
+		},
+		[]string{"type"},
 	)
 	WSQueryTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -308,6 +322,20 @@ var (
 			Name: "resync_total",
 			Help: "Total websocket resync requests handled.",
 		},
+	)
+	WSResyncRejectedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ws_resync_rejected_total",
+			Help: "Total websocket resync requests rejected by reason.",
+		},
+		[]string{"reason"},
+	)
+	WSContractViolationsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ws_contract_violations_total",
+			Help: "Total websocket contract violations fixed/rejected by reason.",
+		},
+		[]string{"reason"},
 	)
 
 	GuardianRestartsTotal = prometheus.NewCounterVec(
@@ -790,6 +818,12 @@ var (
 			Help: "Total active subject subscriptions across all delivery sessions.",
 		},
 	)
+	DeliveryWSSnapshotCacheEntries = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "delivery_ws_snapshot_cache_entries",
+			Help: "Total entries currently stored in bounded websocket snapshot cache.",
+		},
+	)
 	DeliveryRouterEventsRoutedTotal = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "delivery_router_events_routed_total",
@@ -802,6 +836,13 @@ var (
 			Help: "Total events rejected by the delivery router by reason.",
 		},
 		[]string{"reason"},
+	)
+	DeliveryRouterCoherenceMode = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "delivery_router_coherence_mode",
+			Help: "Active delivery router stream coherence mode. Value is always 1 for active mode.",
+		},
+		[]string{"mode"},
 	)
 	DeliveryRangeAliasFallbackTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -892,12 +933,16 @@ func registerAll() {
 			WSPublishToDeliverLatencyMilliseconds,
 			WSLagMilliseconds,
 			WSClientsConnected,
+			WSClientsConnectedByMode,
 			WSSubscriptionsActive,
+			WSControlFramesTotal,
 			WSQueryTotal,
 			WSQueryRejectedTotal,
 			WSSerializeErrorsTotal,
 			WSAuthFailTotal,
 			WSResyncTotal,
+			WSResyncRejectedTotal,
+			WSContractViolationsTotal,
 			GuardianRestartsTotal,
 			GuardianDegradedTotal,
 			GuardianSubsystemState,
@@ -964,8 +1009,10 @@ func registerAll() {
 			BoundedMapEvictionsTotal,
 			BoundedMapSweepsTotal,
 			DeliveryRouterSubscriptionsActive,
+			DeliveryWSSnapshotCacheEntries,
 			DeliveryRouterEventsRoutedTotal,
 			DeliveryRouterEventsRejectedTotal,
+			DeliveryRouterCoherenceMode,
 			DeliveryRangeAliasFallbackTotal,
 		)
 
@@ -1001,8 +1048,19 @@ func registerAll() {
 		WSBytesOutTotal.WithLabelValues("unknown")
 		WSLagMilliseconds.WithLabelValues("unknown")
 		WSPublishToDeliverLatencyMilliseconds.WithLabelValues("unknown")
+		WSClientsConnectedByMode.WithLabelValues("v1")
+		WSClientsConnectedByMode.WithLabelValues("legacy")
+		WSClientsConnectedByMode.WithLabelValues("unknown")
+		WSControlFramesTotal.WithLabelValues("hello")
+		WSControlFramesTotal.WithLabelValues("pong")
+		WSControlFramesTotal.WithLabelValues("metrics")
+		WSControlFramesTotal.WithLabelValues("ack_resync")
 		WSQueryTotal.WithLabelValues("unknown", "unknown")
 		WSQueryRejectedTotal.WithLabelValues("unknown")
+		WSResyncRejectedTotal.WithLabelValues("subject_invalid")
+		WSResyncRejectedTotal.WithLabelValues("not_subscribed")
+		WSResyncRejectedTotal.WithLabelValues("snapshot_unavailable")
+		WSContractViolationsTotal.WithLabelValues("missing_ts_server")
 		GuardianRestartsTotal.WithLabelValues("unknown", "unknown")
 		GuardianDegradedTotal.WithLabelValues("unknown")
 		GuardianSubsystemState.WithLabelValues("unknown")
@@ -1062,6 +1120,11 @@ func registerAll() {
 		BoundedMapSweepsTotal.WithLabelValues("unknown")
 		DeliveryRouterEventsRejectedTotal.WithLabelValues("contract_policy")
 		DeliveryRouterEventsRejectedTotal.WithLabelValues("invalid_subject")
+		DeliveryRouterEventsRejectedTotal.WithLabelValues("seq_non_monotonic")
+		DeliveryRouterEventsRejectedTotal.WithLabelValues("seq_invalid")
+		DeliveryRouterCoherenceMode.WithLabelValues("sticky_session")
+		DeliveryRouterCoherenceMode.WithLabelValues("upstream_sequencer")
+		DeliveryRouterCoherenceMode.WithLabelValues("unknown")
 		DeliveryRangeAliasFallbackTotal.WithLabelValues("hit")
 		DeliveryRangeAliasFallbackTotal.WithLabelValues("miss")
 		DeliveryRangeAliasFallbackTotal.WithLabelValues("error")
@@ -1235,6 +1298,14 @@ func DecWSClientsConnected() {
 	WSClientsConnected.Dec()
 }
 
+func IncWSClientsConnectedByMode(mode string) {
+	WSClientsConnectedByMode.WithLabelValues(sanitizeWSClientMode(mode)).Inc()
+}
+
+func DecWSClientsConnectedByMode(mode string) {
+	WSClientsConnectedByMode.WithLabelValues(sanitizeWSClientMode(mode)).Dec()
+}
+
 func IncWSQuery(op, boundedCategory string) {
 	WSQueryTotal.WithLabelValues(sanitizeWSQueryOp(op), sanitizeWSQueryCategory(boundedCategory)).Inc()
 }
@@ -1247,6 +1318,10 @@ func SetWSSubscriptionsActive(count int) {
 	WSSubscriptionsActive.Set(float64(max(count, 0)))
 }
 
+func IncWSControlFrame(frameType string) {
+	WSControlFramesTotal.WithLabelValues(sanitizeWSControlFrameType(frameType)).Inc()
+}
+
 func IncWSSerializeErrors() {
 	WSSerializeErrorsTotal.Inc()
 }
@@ -1257,6 +1332,14 @@ func IncWSAuthFail() {
 
 func IncWSResync() {
 	WSResyncTotal.Inc()
+}
+
+func IncWSResyncRejected(reason string) {
+	WSResyncRejectedTotal.WithLabelValues(sanitizeWSResyncRejectReason(reason)).Inc()
+}
+
+func IncWSContractViolation(reason string) {
+	WSContractViolationsTotal.WithLabelValues(sanitizeWSContractViolationReason(reason)).Inc()
 }
 
 func IncGuardianRestart(subsystem, status string) {
@@ -1920,6 +2003,46 @@ func sanitizeWSQueryCategory(v string) string {
 	}
 }
 
+func sanitizeWSClientMode(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	switch v {
+	case "v1", "legacy":
+		return v
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeWSControlFrameType(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	switch v {
+	case "hello", "pong", "metrics", "ack_resync":
+		return v
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeWSResyncRejectReason(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	switch v {
+	case "subject_invalid", "not_subscribed", "snapshot_unavailable":
+		return v
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeWSContractViolationReason(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	switch v {
+	case "missing_ts_server":
+		return v
+	default:
+		return "unknown"
+	}
+}
+
 func bucketVenueCount(venueCount int) string {
 	switch {
 	case venueCount <= 2:
@@ -1987,6 +2110,11 @@ func SetDeliveryRouterSubscriptionsActive(count int) {
 	SetWSSubscriptionsActive(count)
 }
 
+// SetDeliveryWSSnapshotCacheEntries sets the bounded ws snapshot cache size gauge.
+func SetDeliveryWSSnapshotCacheEntries(count int) {
+	DeliveryWSSnapshotCacheEntries.Set(float64(max(count, 0)))
+}
+
 // IncDeliveryRouterEventsRouted increments the routed events counter.
 func IncDeliveryRouterEventsRouted() {
 	DeliveryRouterEventsRoutedTotal.Inc()
@@ -1997,7 +2125,22 @@ func IncDeliveryRouterEventsRejected(reason string) {
 	DeliveryRouterEventsRejectedTotal.WithLabelValues(sanitizeKind(reason)).Inc()
 }
 
+// SetDeliveryRouterCoherenceMode sets the active delivery stream coherence mode info gauge.
+func SetDeliveryRouterCoherenceMode(mode string) {
+	DeliveryRouterCoherenceMode.WithLabelValues(sanitizeDeliveryRouterCoherenceMode(mode)).Set(1)
+}
+
 // IncDeliveryRangeAliasFallback increments getrange alias fallback attempts by outcome.
 func IncDeliveryRangeAliasFallback(outcome string) {
 	DeliveryRangeAliasFallbackTotal.WithLabelValues(sanitizeKind(outcome)).Inc()
+}
+
+func sanitizeDeliveryRouterCoherenceMode(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	switch v {
+	case "sticky_session", "upstream_sequencer":
+		return v
+	default:
+		return "unknown"
+	}
 }

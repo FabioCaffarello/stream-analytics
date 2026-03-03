@@ -216,6 +216,39 @@ func TestSession_emitsHelloOnAttach(t *testing.T) {
 	}
 }
 
+func TestSession_EmitsPeriodicMetricsFrame(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-capture-metrics")
+	defer e.Poison(routerPID)
+
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{RouterPID: routerPID, Conn: conn}), "ws-session-metrics")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	before := testutil.ToFloat64(metrics.WSControlFramesTotal.WithLabelValues("metrics"))
+	e.Send(sessionPID, sessionMetricsTick{})
+	msg := <-conn.writeCh
+	frame, ok := msg.(wsMetricsFrame)
+	if !ok || frame.Type != "metrics" {
+		t.Fatalf("expected metrics frame, got %#v", msg)
+	}
+	if frame.Payload.ActiveSubscriptions != 0 {
+		t.Fatalf("active_subscriptions=%d want=0", frame.Payload.ActiveSubscriptions)
+	}
+	if frame.Payload.WSQueueLen < 0 {
+		t.Fatalf("ws_queue_len=%d want >= 0", frame.Payload.WSQueueLen)
+	}
+	if after := testutil.ToFloat64(metrics.WSControlFramesTotal.WithLabelValues("metrics")); after < before+1 {
+		t.Fatalf("expected metrics control frame counter increment, before=%f after=%f", before, after)
+	}
+}
+
 func TestSession_getLastVPVRSnapshot(t *testing.T) {
 	e, err := actor.NewEngine(actor.NewEngineConfig())
 	if err != nil {
@@ -876,17 +909,24 @@ func TestSession_PingReturnsPong(t *testing.T) {
 	defer e.Poison(sessionPID)
 	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
 
+	before := testutil.ToFloat64(metrics.WSControlFramesTotal.WithLabelValues("pong"))
 	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"type":"ping","request_id":"p1","ts_client":123}`)}
 	msg := <-conn.writeCh
-	out, ok := msg.(map[string]any)
+	out, ok := msg.(wsPongFrame)
 	if !ok {
-		t.Fatalf("message type=%T want map[string]any", msg)
+		t.Fatalf("message type=%T want wsPongFrame", msg)
 	}
-	if got, want := out["type"], "pong"; got != want {
+	if got, want := out.Type, "pong"; got != want {
 		t.Fatalf("type=%v want=%v", got, want)
 	}
-	if got, want := out["request_id"], "p1"; got != want {
+	if got, want := out.RequestID, "p1"; got != want {
 		t.Fatalf("request_id=%v want=%v", got, want)
+	}
+	if out.TsServer <= 0 {
+		t.Fatalf("ts_server=%d want > 0", out.TsServer)
+	}
+	if after := testutil.ToFloat64(metrics.WSControlFramesTotal.WithLabelValues("pong")); after < before+1 {
+		t.Fatalf("expected pong control frame counter increment, before=%f after=%f", before, after)
 	}
 }
 
@@ -979,5 +1019,85 @@ func TestSession_ResyncEmitsSnapshotAndAck(t *testing.T) {
 	after := testutil.ToFloat64(metrics.WSResyncTotal)
 	if after < before+1 {
 		t.Fatalf("expected resync metric increment, before=%f after=%f", before, after)
+	}
+}
+
+func TestSession_ResyncSnapshotUnavailable_IncrementsRejectedMetric(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-capture-resync-rejected")
+	defer e.Poison(routerPID)
+
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{
+		RouterPID:           routerPID,
+		Conn:                conn,
+		HotSnapshotProvider: stubSnapshotProvider{},
+	}), "ws-session-resync-rejected")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"subscribe","subject":"marketdata.trade/binance/BTC-USDT/raw","request_id":"sub-r"}`)}
+	<-conn.writeCh // subscribe ack
+
+	before := testutil.ToFloat64(metrics.WSResyncRejectedTotal.WithLabelValues("snapshot_unavailable"))
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"type":"resync","subject":"marketdata.trade/binance/BTC-USDT/raw","request_id":"re-miss","last_seq":10}`)}
+	resp := <-conn.writeCh
+	if out, ok := resp.(wsErrorFrame); !ok || out.Type != "error" {
+		t.Fatalf("expected resync error, got %#v", resp)
+	}
+	after := testutil.ToFloat64(metrics.WSResyncRejectedTotal.WithLabelValues("snapshot_unavailable"))
+	if after < before+1 {
+		t.Fatalf("expected resync rejected metric increment, before=%f after=%f", before, after)
+	}
+}
+
+func TestSession_DeliveryEventNormalizesMissingTsServer(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-capture-ts-server")
+	defer e.Poison(routerPID)
+
+	clk := sharedclock.NewFakeClock(time.Unix(0, 0))
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{
+		RouterPID: routerPID,
+		Conn:      conn,
+		Clock:     clk,
+	}), "ws-session-ts-server")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	before := testutil.ToFloat64(metrics.WSContractViolationsTotal.WithLabelValues("missing_ts_server"))
+	e.Send(sessionPID, DeliveryEvent{
+		Subject: mustParseSubjectForSession(t, "marketdata.trade/binance/BTCUSDT/raw"),
+		Env: envelope.Envelope{
+			Type:        "marketdata.trade",
+			Version:     1,
+			Venue:       "binance",
+			Instrument:  "BTC-USDT",
+			Seq:         1,
+			TsIngest:    100,
+			ContentType: envelope.ContentTypeJSON,
+			Payload:     []byte(`{"price":1}`),
+		},
+	})
+	msg := <-conn.writeCh
+	event, ok := msg.(wsEventFrame)
+	if !ok {
+		t.Fatalf("message type=%T want wsEventFrame", msg)
+	}
+	if event.TsServer <= 0 {
+		t.Fatalf("ts_server=%d want > 0", event.TsServer)
+	}
+	after := testutil.ToFloat64(metrics.WSContractViolationsTotal.WithLabelValues("missing_ts_server"))
+	if after < before+1 {
+		t.Fatalf("expected contract violation counter increment, before=%f after=%f", before, after)
 	}
 }

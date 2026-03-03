@@ -29,6 +29,7 @@ import (
 
 const readLimitBytes = 64 * 1024
 const wsKeepalivePingInterval = 20 * time.Second
+const wsMetricsCadence = 5 * time.Second
 const wsProtocolVersion = 1
 
 const (
@@ -114,9 +115,22 @@ type SessionActor struct {
 	rateLimiter  *RateLimiter
 	dropCount    int
 	helloSeen    bool
+	lastLagMs    int64
+	messagesOut  int64
+	lastSnapshot map[string]sessionSnapshotEntry
 }
 
 type sessionKeepaliveTick struct{}
+type sessionMetricsTick struct{}
+
+type sessionSnapshotEntry struct {
+	Seq      int64
+	TsServer int64
+	Venue    string
+	Symbol   string
+	Channel  string
+	Payload  json.RawMessage
+}
 
 func NewSessionActor(cfg SessionConfig) actor.Producer {
 	return func() actor.Receiver {
@@ -139,6 +153,8 @@ func (s *SessionActor) Receive(c *actor.Context) {
 		s.handleInboundText(msg.Data)
 	case sessionKeepaliveTick:
 		s.handleKeepaliveTick()
+	case sessionMetricsTick:
+		s.handleMetricsTick()
 	case GetRangeRequest:
 		s.handleGetRangeRequest(msg)
 	case sessionDisconnected:
@@ -210,6 +226,9 @@ func (s *SessionActor) ensureDefaults(c *actor.Context) {
 		}
 		s.rateLimiter = NewRateLimiter(burst, rate, s.cfg.Clock)
 	}
+	if s.lastSnapshot == nil {
+		s.lastSnapshot = make(map[string]sessionSnapshotEntry)
+	}
 }
 
 func (s *SessionActor) onStarted() {
@@ -258,6 +277,7 @@ func (s *SessionActor) emitHello() {
 	if s.cfg.Clock != nil {
 		nowMs = s.cfg.Clock.Now().UnixMilli()
 	}
+	metrics.IncWSControlFrame("hello")
 	s.writeJSON(wsHelloFrame{
 		Type: "hello",
 		Payload: wsHelloPayload{
@@ -294,15 +314,21 @@ func (s *SessionActor) onStopped() {
 }
 
 func (s *SessionActor) keepaliveLoop(ctx context.Context) {
-	ticker := time.NewTicker(wsKeepalivePingInterval)
-	defer ticker.Stop()
+	pingTicker := time.NewTicker(wsKeepalivePingInterval)
+	metricsTicker := time.NewTicker(wsMetricsCadence)
+	defer pingTicker.Stop()
+	defer metricsTicker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-pingTicker.C:
 			if s.engine != nil && s.self != nil {
 				s.engine.Send(s.self, sessionKeepaliveTick{})
+			}
+		case <-metricsTicker.C:
+			if s.engine != nil && s.self != nil {
+				s.engine.Send(s.self, sessionMetricsTick{})
 			}
 		}
 	}
@@ -336,6 +362,43 @@ func (s *SessionActor) handleKeepaliveTick() {
 	if err := s.cfg.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 		s.engine.Send(s.self, sessionDisconnected{})
 	}
+}
+
+func (s *SessionActor) handleMetricsTick() {
+	if s.closed || s.cfg.Conn == nil || s.session == nil {
+		return
+	}
+	snapshot := observability.SnapshotTerminalWSState(1)
+	serializeErrors := saturatingUint64ToInt64(snapshot.SerializeErrorsTotal)
+	if serializeErrors < 0 {
+		serializeErrors = 0
+	}
+	resyncTotal := saturatingUint64ToInt64(snapshot.ResyncTotal)
+	if resyncTotal < 0 {
+		resyncTotal = 0
+	}
+	msgOut := s.messagesOut
+	if msgOut < 0 {
+		msgOut = 0
+	}
+	lag := s.lastLagMs
+	if lag < 0 {
+		lag = 0
+	}
+	metrics.IncWSControlFrame("metrics")
+	s.writeJSON(wsMetricsFrame{
+		Type: "metrics",
+		Payload: wsMetricsPayload{
+			WSDroppedTotal:            int64(s.dropCount),
+			WSQueueLen:                s.outbound.Len(),
+			WSLagMs:                   lag,
+			PublishToDeliverLatencyMs: lag,
+			SerializeErrorsTotal:      serializeErrors,
+			ResyncTotal:               resyncTotal,
+			ActiveSubscriptions:       len(s.session.Subscriptions()),
+			MessagesOutTotal:          msgOut,
+		},
+	})
 }
 
 type clientCommand struct {
@@ -400,6 +463,30 @@ type wsSnapshotFrame struct {
 	// SnapshotSource identifies server-side bootstrap source for subscribe
 	// snapshot frames when synthesized from the hot snapshot provider.
 	SnapshotSource string `json:"snapshot_source,omitempty"`
+}
+
+type wsMetricsPayload struct {
+	WSDroppedTotal            int64 `json:"ws_dropped_total"`
+	WSQueueLen                int   `json:"ws_queue_len"`
+	WSLagMs                   int64 `json:"ws_lag_ms"`
+	PublishToDeliverLatencyMs int64 `json:"publish_to_deliver_latency_ms"`
+	SerializeErrorsTotal      int64 `json:"serialize_errors_total"`
+	ResyncTotal               int64 `json:"resync_total"`
+	ActiveSubscriptions       int   `json:"active_subscriptions"`
+	MessagesOutTotal          int64 `json:"messages_out_total"`
+}
+
+type wsMetricsFrame struct {
+	Type    string           `json:"type"`
+	Payload wsMetricsPayload `json:"payload"`
+}
+
+type wsPongFrame struct {
+	Type      string `json:"type"`
+	Op        string `json:"op"`
+	RequestID string `json:"request_id"`
+	TsClient  int64  `json:"ts_client"`
+	TsServer  int64  `json:"ts_server"`
 }
 
 type wsLastFrame struct {
@@ -505,12 +592,13 @@ func (s *SessionActor) handlePing(cmd clientCommand) {
 	if s.cfg.Clock != nil {
 		nowMs = s.cfg.Clock.Now().UnixMilli()
 	}
-	s.writeJSON(map[string]any{
-		"type":       "pong",
-		"op":         "ping",
-		"request_id": strings.TrimSpace(cmd.RequestID),
-		"ts_client":  cmd.TsClient,
-		"ts_server":  nowMs,
+	metrics.IncWSControlFrame("pong")
+	s.writeJSON(wsPongFrame{
+		Type:      "pong",
+		Op:        "ping",
+		RequestID: strings.TrimSpace(cmd.RequestID),
+		TsClient:  cmd.TsClient,
+		TsServer:  s.normalizeServerTS(nowMs),
 	})
 }
 
@@ -520,19 +608,23 @@ func (s *SessionActor) handleResync(cmd clientCommand) {
 	}
 	subject, p := s.resolveCommandSubject(cmd, "resync")
 	if p != nil {
+		metrics.IncWSResyncRejected("subject_invalid")
 		s.writeProblem("resync", cmd.RequestID, p)
 		return
 	}
 	if !s.session.IsSubscribed(subject) {
+		metrics.IncWSResyncRejected("not_subscribed")
 		s.writeProblem("resync", cmd.RequestID, problem.Newf(problem.NotFound, "not subscribed to stream %q", subject.String()))
 		return
 	}
 	if !s.emitSnapshot(subject) {
+		metrics.IncWSResyncRejected("snapshot_unavailable")
 		s.writeProblem("resync", cmd.RequestID, problem.New(problem.NotFound, "snapshot unavailable for requested stream"))
 		return
 	}
 	metrics.IncWSResync()
 	observability.IncTerminalWSResync(subject.String())
+	metrics.IncWSControlFrame("ack_resync")
 	s.writeJSON(wsAckFrame{
 		Type:      "ack",
 		Op:        "resync",
@@ -656,32 +748,51 @@ func (s *SessionActor) handleSubscribe(cmd clientCommand) {
 }
 
 func (s *SessionActor) emitSnapshot(subject domain.Subject) bool {
-	if s.cfg.HotSnapshotProvider == nil {
+	if s.cfg.HotSnapshotProvider != nil {
+		raw, ok := s.cfg.HotSnapshotProvider.GetLatest(subject)
+		if ok && len(raw) > 0 {
+			payload := json.RawMessage(raw)
+			if !json.Valid(payload) {
+				s.logger.Warn("delivery session: invalid snapshot payload, skipping", "subject", subject.String())
+			} else {
+				meta := s.buildStreamMeta(subject, hotSnapshotRangeItem(raw))
+				s.writeJSON(wsSnapshotFrame{
+					Type:             "snapshot",
+					Subject:          subject.String(),
+					StreamID:         subject.String(),
+					ProtocolVersion:  wsProtocolVersion,
+					ServerInstanceID: s.cfg.ServerInstanceID,
+					Seq:              meta.Seq,
+					TsServer:         meta.TsServer,
+					Venue:            meta.Venue,
+					Symbol:           meta.Symbol,
+					Channel:          channelName(meta.Channel, subject.StreamType),
+					Payload:          payload,
+					SnapshotSource:   "hot_snapshot_fallback",
+				})
+				metrics.IncWSQuery("snapshot", wsQueryBucket(subject.StreamType))
+				return true
+			}
+		}
+	}
+	entry, ok := s.lastSnapshot[subject.String()]
+	if !ok || len(entry.Payload) == 0 || !json.Valid(entry.Payload) {
 		return false
 	}
-	raw, ok := s.cfg.HotSnapshotProvider.GetLatest(subject)
-	if !ok || len(raw) == 0 {
-		return false
-	}
-	payload := json.RawMessage(raw)
-	if !json.Valid(payload) {
-		s.logger.Warn("delivery session: invalid snapshot payload, skipping", "subject", subject.String())
-		return false
-	}
-	meta := s.buildStreamMeta(subject, hotSnapshotRangeItem(raw))
+	tsServer := s.normalizeServerTS(entry.TsServer)
 	s.writeJSON(wsSnapshotFrame{
 		Type:             "snapshot",
 		Subject:          subject.String(),
 		StreamID:         subject.String(),
 		ProtocolVersion:  wsProtocolVersion,
 		ServerInstanceID: s.cfg.ServerInstanceID,
-		Seq:              meta.Seq,
-		TsServer:         meta.TsServer,
-		Venue:            meta.Venue,
-		Symbol:           meta.Symbol,
-		Channel:          channelName(meta.Channel, subject.StreamType),
-		Payload:          payload,
-		SnapshotSource:   "hot_snapshot_fallback",
+		Seq:              entry.Seq,
+		TsServer:         tsServer,
+		Venue:            entry.Venue,
+		Symbol:           entry.Symbol,
+		Channel:          entry.Channel,
+		Payload:          append(json.RawMessage(nil), entry.Payload...),
+		SnapshotSource:   "session_last_event",
 	})
 	metrics.IncWSQuery("snapshot", wsQueryBucket(subject.StreamType))
 	return true
@@ -697,6 +808,7 @@ func (s *SessionActor) handleUnsubscribe(cmd clientCommand) {
 		s.writeProblem(cmd.Op, cmd.RequestID, p)
 		return
 	}
+	delete(s.lastSnapshot, subject.String())
 	if s.cfg.RouterPID != nil {
 		s.engine.Send(s.cfg.RouterPID, UnsubscribeSession{SessionID: s.session.ID(), Subject: subject})
 	}
@@ -883,7 +995,7 @@ func (s *SessionActor) buildStreamMeta(subject domain.Subject, item ports.RangeI
 		ServerInstanceId: s.cfg.ServerInstanceID,
 		StreamId:         subject.String(),
 		Seq:              item.Seq,
-		TsServer:         nowMs,
+		TsServer:         s.normalizeServerTS(nowMs),
 		Venue:            subject.Venue,
 		Symbol:           subject.Symbol,
 		Channel:          channelEnumFromStreamType(subject.StreamType),
@@ -1143,8 +1255,10 @@ func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) *problem.Problem {
 		}
 		metrics.IncWSMessagesOut(channel)
 		metrics.AddWSBytesOut(channel, len(raw))
+		s.messagesOut++
 		observability.IncDeliveryProto()
 		lag := meta.GetTsServer() - evt.Env.TsIngest
+		s.lastLagMs = lag
 		metrics.SetWSLag(channel, lag)
 		metrics.ObserveWSPublishToDeliverLatency(channel, time.Duration(maxInt64(0, lag))*time.Millisecond)
 		observability.RecordTerminalWSDelivery(
@@ -1210,9 +1324,21 @@ func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) *problem.Problem {
 	}
 	metrics.IncWSMessagesOut(channel)
 	metrics.AddWSBytesOut(channel, len(payload))
+	s.messagesOut++
 	lag := frame.TsServer - evt.Env.TsIngest
+	s.lastLagMs = lag
 	metrics.SetWSLag(channel, lag)
 	metrics.ObserveWSPublishToDeliverLatency(channel, time.Duration(maxInt64(0, lag))*time.Millisecond)
+	if json.Valid(payload) {
+		s.lastSnapshot[evt.Subject.String()] = sessionSnapshotEntry{
+			Seq:      frame.Seq,
+			TsServer: frame.TsServer,
+			Venue:    frame.Venue,
+			Symbol:   frame.Symbol,
+			Channel:  frame.Channel,
+			Payload:  append(json.RawMessage(nil), payload...),
+		}
+	}
 	observability.RecordTerminalWSDelivery(
 		frame.StreamID,
 		frame.Venue,
@@ -1300,6 +1426,29 @@ func maxInt64(a, b int64) int64 {
 	return b
 }
 
+func saturatingUint64ToInt64(v uint64) int64 {
+	max := uint64(^uint64(0) >> 1)
+	if v > max {
+		return int64(max)
+	}
+	return int64(v)
+}
+
+func (s *SessionActor) normalizeServerTS(ts int64) int64 {
+	if ts > 0 {
+		return ts
+	}
+	metrics.IncWSContractViolation("missing_ts_server")
+	nowMs := time.Now().UnixMilli()
+	if s != nil && s.cfg.Clock != nil {
+		nowMs = s.cfg.Clock.Now().UnixMilli()
+	}
+	if nowMs <= 0 {
+		nowMs = 1
+	}
+	return nowMs
+}
+
 func (s *SessionActor) closeSession() {
 	if s.closed {
 		return
@@ -1333,4 +1482,5 @@ func (s *SessionActor) closeSession() {
 	if s.cfg.OnClosed != nil {
 		s.cfg.OnClosed()
 	}
+	s.lastSnapshot = nil
 }

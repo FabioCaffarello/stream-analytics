@@ -104,6 +104,171 @@ func TestRouter_subscribeUnsubscribeAndBroadcast(t *testing.T) {
 	}
 }
 
+func TestRouter_AssignsContinuousDeliverySeqPerStream(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	routerPID := e.Spawn(NewRouterActor(RouterConfig{Timeframe: "raw"}), "router-contiguous-seq")
+	defer e.Poison(routerPID)
+
+	ch := make(chan any, 32)
+	sessionPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: ch} }, "session-seq-capture")
+	defer e.Poison(sessionPID)
+
+	id := ids.NewSessionID()
+	subject := mustParseSubject(t, "marketdata.trade/binance/BTC-USDT/raw")
+	e.Send(routerPID, RegisterSession{SessionID: id, PID: sessionPID})
+	e.Send(routerPID, SubscribeSession{SessionID: id, Subject: subject})
+
+	emit := func(srcSeq int64, payload string) {
+		e.Send(routerPID, DeliverEnvelope{Envelope: envelope.Envelope{
+			Type:       "marketdata.trade",
+			Version:    1,
+			Venue:      "binance",
+			Instrument: "BTC-USDT",
+			Seq:        srcSeq,
+			TsIngest:   time.Now().UnixMilli(),
+			Payload:    []byte(payload),
+		}})
+	}
+
+	emit(100, `{"n":1}`)
+	emit(105, `{"n":2}`)
+	emit(220, `{"n":3}`)
+
+	ev1 := waitForMessage[DeliveryEvent](t, ch, time.Second)
+	ev2 := waitForMessage[DeliveryEvent](t, ch, time.Second)
+	ev3 := waitForMessage[DeliveryEvent](t, ch, time.Second)
+	if ev1.Env.Seq != 1 || ev2.Env.Seq != 2 || ev3.Env.Seq != 3 {
+		t.Fatalf("expected contiguous delivery seq [1,2,3], got [%d,%d,%d]", ev1.Env.Seq, ev2.Env.Seq, ev3.Env.Seq)
+	}
+}
+
+func TestRouter_RejectsInvalidOrNonMonotonicSourceSeq(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	routerPID := e.Spawn(NewRouterActor(RouterConfig{Timeframe: "raw"}), "router-seq-guards")
+	defer e.Poison(routerPID)
+
+	ch := make(chan any, 16)
+	sessionPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: ch} }, "session-seq-guards")
+	defer e.Poison(sessionPID)
+
+	id := ids.NewSessionID()
+	subject := mustParseSubject(t, "marketdata.trade/binance/BTC-USDT/raw")
+	e.Send(routerPID, RegisterSession{SessionID: id, PID: sessionPID})
+	e.Send(routerPID, SubscribeSession{SessionID: id, Subject: subject})
+
+	emit := func(srcSeq int64) {
+		e.Send(routerPID, DeliverEnvelope{Envelope: envelope.Envelope{
+			Type:       "marketdata.trade",
+			Version:    1,
+			Venue:      "binance",
+			Instrument: "BTC-USDT",
+			Seq:        srcSeq,
+			TsIngest:   time.Now().UnixMilli(),
+			Payload:    []byte(`{}`),
+		}})
+	}
+
+	emit(10)
+	emit(0)  // invalid
+	emit(9)  // non-monotonic
+	emit(11) // valid
+
+	ev1 := waitForMessage[DeliveryEvent](t, ch, time.Second)
+	ev2 := waitForMessage[DeliveryEvent](t, ch, time.Second)
+	if got, want := ev1.Env.Seq, int64(1); got != want {
+		t.Fatalf("first delivered seq=%d want=%d", got, want)
+	}
+	if got, want := ev2.Env.Seq, int64(2); got != want {
+		t.Fatalf("second delivered seq=%d want=%d", got, want)
+	}
+	select {
+	case raw := <-ch:
+		if _, ok := raw.(DeliveryEvent); ok {
+			t.Fatal("unexpected extra delivery event")
+		}
+	case <-time.After(120 * time.Millisecond):
+	}
+}
+
+func TestRouter_StreamMonotonicityIsReplicaScopedDeterministic(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	spawnReplica := func(name string) (*actor.PID, chan any) {
+		routerPID := e.Spawn(NewRouterActor(RouterConfig{
+			Timeframe:           "raw",
+			StreamCoherenceMode: "sticky_session",
+		}), "router-"+name)
+		ch := make(chan any, 16)
+		sessionPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: ch} }, "session-"+name)
+		id := ids.NewSessionID()
+		subject := mustParseSubject(t, "marketdata.trade/binance/BTC-USDT/raw")
+		e.Send(routerPID, RegisterSession{SessionID: id, PID: sessionPID})
+		e.Send(routerPID, SubscribeSession{SessionID: id, Subject: subject})
+		t.Cleanup(func() { e.Poison(sessionPID) })
+		t.Cleanup(func() { e.Poison(routerPID) })
+		return routerPID, ch
+	}
+
+	replicaA, chA := spawnReplica("replica-a")
+	replicaB, chB := spawnReplica("replica-b")
+
+	emitBoth := func(srcSeq int64) {
+		msg := DeliverEnvelope{Envelope: envelope.Envelope{
+			Type:       "marketdata.trade",
+			Version:    1,
+			Venue:      "binance",
+			Instrument: "BTC-USDT",
+			Seq:        srcSeq,
+			TsIngest:   time.Now().UnixMilli(),
+			Payload:    []byte(`{}`),
+		}}
+		e.Send(replicaA, msg)
+		e.Send(replicaB, msg)
+	}
+
+	emitBoth(100)
+	emitBoth(101)
+
+	a1 := waitForMessage[DeliveryEvent](t, chA, time.Second)
+	a2 := waitForMessage[DeliveryEvent](t, chA, time.Second)
+	b1 := waitForMessage[DeliveryEvent](t, chB, time.Second)
+	b2 := waitForMessage[DeliveryEvent](t, chB, time.Second)
+	if a1.Env.Seq != 1 || a2.Env.Seq != 2 {
+		t.Fatalf("replica A seqs=%d,%d want 1,2", a1.Env.Seq, a2.Env.Seq)
+	}
+	if b1.Env.Seq != 1 || b2.Env.Seq != 2 {
+		t.Fatalf("replica B seqs=%d,%d want 1,2", b1.Env.Seq, b2.Env.Seq)
+	}
+}
+
+func TestNormalizeStreamCoherenceMode(t *testing.T) {
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{in: "", want: "sticky_session"},
+		{in: "sticky_session", want: "sticky_session"},
+		{in: "upstream_sequencer", want: "upstream_sequencer"},
+		{in: "invalid", want: "unknown"},
+	}
+	for _, tc := range tests {
+		if got := normalizeStreamCoherenceMode(tc.in); got != tc.want {
+			t.Fatalf("mode=%q want=%q", got, tc.want)
+		}
+	}
+}
+
 func TestRouter_preservesRawRoutingForAggregationCandleWithTimeframeMeta(t *testing.T) {
 	e, err := actor.NewEngine(actor.NewEngineConfig())
 	if err != nil {
