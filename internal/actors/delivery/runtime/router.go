@@ -341,6 +341,7 @@ func (r *RouterActor) handleEnvelope(env envelope.Envelope) {
 
 func (r *RouterActor) acceptStreamSeq(streamID string, seq int64) (bool, string) {
 	if seq <= 0 {
+		metrics.IncDeliveryRouterCoherenceViolation("seq_invalid")
 		return false, "seq_invalid"
 	}
 	last, ok := r.streamSeq[streamID]
@@ -348,6 +349,7 @@ func (r *RouterActor) acceptStreamSeq(streamID string, seq int64) (bool, string)
 		r.streamSeq[streamID] = seq
 		return true, ""
 	}
+	metrics.IncDeliveryRouterCoherenceViolation("seq_non_monotonic")
 	return false, "seq_non_monotonic"
 }
 

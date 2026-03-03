@@ -900,6 +900,13 @@ var (
 		},
 		[]string{"mode"},
 	)
+	DeliveryRouterCoherenceViolationsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "delivery_router_coherence_violations_total",
+			Help: "Total stream coherence violations detected by the delivery router.",
+		},
+		[]string{"type"},
+	)
 	DeliveryRangeAliasFallbackTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "delivery_range_alias_fallback_total",
@@ -1108,6 +1115,7 @@ func registerAll() {
 			DeliveryRouterEventsRoutedTotal,
 			DeliveryRouterEventsRejectedTotal,
 			DeliveryRouterCoherenceMode,
+			DeliveryRouterCoherenceViolationsTotal,
 			DeliveryRangeAliasFallbackTotal,
 			TranscodeCacheEntries,
 			TranscodeCacheHits,
@@ -1225,6 +1233,8 @@ func registerAll() {
 		DeliveryRouterCoherenceMode.WithLabelValues("sticky_session")
 		DeliveryRouterCoherenceMode.WithLabelValues("upstream_sequencer")
 		DeliveryRouterCoherenceMode.WithLabelValues("unknown")
+		DeliveryRouterCoherenceViolationsTotal.WithLabelValues("seq_non_monotonic")
+		DeliveryRouterCoherenceViolationsTotal.WithLabelValues("seq_invalid")
 		DeliveryRangeAliasFallbackTotal.WithLabelValues("hit")
 		DeliveryRangeAliasFallbackTotal.WithLabelValues("miss")
 		DeliveryRangeAliasFallbackTotal.WithLabelValues("error")
@@ -2289,6 +2299,16 @@ func IncDeliveryRouterEventsRejected(reason string) {
 // SetDeliveryRouterCoherenceMode sets the active delivery stream coherence mode info gauge.
 func SetDeliveryRouterCoherenceMode(mode string) {
 	DeliveryRouterCoherenceMode.WithLabelValues(sanitizeDeliveryRouterCoherenceMode(mode)).Set(1)
+}
+
+// IncDeliveryRouterCoherenceViolation increments the coherence violation counter.
+func IncDeliveryRouterCoherenceViolation(violationType string) {
+	label := "seq_non_monotonic"
+	switch violationType {
+	case "seq_non_monotonic", "seq_invalid":
+		label = violationType
+	}
+	DeliveryRouterCoherenceViolationsTotal.WithLabelValues(label).Inc()
 }
 
 // IncDeliveryRangeAliasFallback increments getrange alias fallback attempts by outcome.

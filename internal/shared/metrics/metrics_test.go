@@ -142,6 +142,8 @@ func TestMetricsNamesPresent(t *testing.T) {
 	IncDeliveryWSSnapshotCacheHit()
 	IncDeliveryWSSnapshotCacheMiss()
 	SetDeliveryRouterCoherenceMode("sticky_session")
+	IncDeliveryRouterCoherenceViolation("seq_non_monotonic")
+	IncDeliveryRouterCoherenceViolation("seq_invalid")
 	IncWSResyncRejected("snapshot_unavailable")
 	IncWSContractViolation("missing_ts_server")
 
@@ -215,6 +217,7 @@ func TestMetricsNamesPresent(t *testing.T) {
 		"delivery_ws_snapshot_cache_hits_total",
 		"delivery_ws_snapshot_cache_misses_total",
 		"delivery_router_coherence_mode",
+		"delivery_router_coherence_violations_total",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("expected metric %s in registry", want)
