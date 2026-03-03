@@ -297,6 +297,17 @@ apply_ws_fault :: proc(state: ^MD_Native_State, category: ports.MD_WS_Error_Cate
 		// Keep reconnect path active.
 		set_transport_state(state, .Backoff)
 	case .Downgrade:
+		state.legacy_downgrade_count += 1
+		state.legacy_connected_since_ms = time.now()._nsec / 1_000_000
+		fmt.printf("[md-lifecycle] WARN legacy_downgrade count=%d allow=%v\n", state.legacy_downgrade_count, state.allow_legacy_ws)
+		if !state.allow_legacy_ws {
+			// Legacy disallowed by settings — treat as stop.
+			state.desync = true
+			state.desync_reason = .Protocol_Invalid
+			state.reconnect_blocked = true
+			set_transport_state(state, .Desync)
+			return
+		}
 		state.transport_mode = .Legacy_JSON
 		state.hello_timeout_count += 1
 		state.hello_received = true
