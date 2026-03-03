@@ -335,4 +335,26 @@ Active_Stream_Metrics :: struct {
 	server_serialize_errors: i64,
 	server_resync_total:    i64,
 	server_pub_deliver_ms:  i64,
+	// Server capability limits (from HELLO).
+	server_max_subscriptions:    int,
+	server_max_frame_bytes:      int,
+	server_metrics_cadence_ms:   int,
+	server_keepalive_interval_ms: int,
+	server_rate_limit_enabled:   bool,
+	// Backpressure (from METRICS).
+	server_backpressure_level:    int,
+	server_queue_capacity:        int,
+	server_queue_high_watermark:  int,
+	server_recommended_action:    [32]u8,
+	server_recommended_action_len: u8,
+	// Feature negotiation.
+	negotiated_feature_count:     int,
+	// Integrity counters.
+	snapshot_hash_mismatches:     int,
+	snapshot_seq_violations:      int,
+	prev_seq_violations:         int,
+	hash_validation_skipped:     int,
+	// Legacy tracking.
+	legacy_downgrade_count:       int,
+	legacy_connected_since_ms:    i64,
 }

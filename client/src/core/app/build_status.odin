@@ -1,6 +1,7 @@
 package app
 
 import "core:fmt"
+import "mr:md_common"
 import "mr:services"
 import "mr:streams"
 import "mr:ui"
@@ -358,7 +359,8 @@ build_health_panel :: proc(state: ^App_State, viewport_w, viewport_h: f32, point
 	// === SERVER section (server-pushed metrics from METRICS frame) ===
 	sm := state.active_metrics
 	if sm.server_ws_queue_len > 0 || sm.server_ws_dropped > 0 || sm.server_ws_lag_ms > 0 ||
-		sm.server_serialize_errors > 0 || sm.server_resync_total > 0 || sm.server_pub_deliver_ms > 0 {
+		sm.server_serialize_errors > 0 || sm.server_resync_total > 0 || sm.server_pub_deliver_ms > 0 ||
+		sm.server_backpressure_level > 0 {
 		ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, "SERVER", ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_XS, .Bold)
 		y += ROW_H + 2
 
@@ -377,7 +379,34 @@ build_health_panel :: proc(state: ^App_State, viewport_w, viewport_h: f32, point
 			max(sm.server_pub_deliver_ms, 0), max(sm.server_serialize_errors, 0), max(sm.server_resync_total, 0))
 		sv2_color := sm.server_serialize_errors > 0 ? ui.COL_WARNING : ui.COL_TEXT_SECONDARY
 		ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, sv2_str, sv2_color, ui.FONT_SIZE_XS, .Mono)
-		y += ROW_H + SECTION_GAP
+		y += ROW_H
+
+		// Row 3: backpressure level + queue capacity
+		if sm.server_backpressure_level > 0 || sm.server_queue_capacity > 0 {
+			bp_state := md_common.backpressure_state_from_level(sm.server_backpressure_level)
+			bp_label := "Normal"
+			bp_color := ui.COL_TEXT_SECONDARY
+			switch bp_state {
+			case .Normal:
+			case .Elevated:
+				bp_label = "Elevated"
+				bp_color = ui.COL_YELLOW_ACCENT
+			case .High:
+				bp_label = "High"
+				bp_color = ui.COL_WARNING
+			case .Critical:
+				bp_label = "Critical"
+				bp_color = ui.COL_RED
+			}
+			bp_buf: [80]u8
+			bp_str := fmt.bprintf(bp_buf[:], "BP:%d(%s) Q:%d/%d HW:%d",
+				max(sm.server_backpressure_level, 0), bp_label,
+				max(sm.server_ws_queue_len, 0), max(sm.server_queue_capacity, 0),
+				max(sm.server_queue_high_watermark, 0))
+			ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, bp_str, bp_color, ui.FONT_SIZE_XS, .Mono)
+			y += ROW_H
+		}
+		y += SECTION_GAP
 	}
 
 	// === LOG section ===
@@ -566,6 +595,17 @@ copy_diagnostics_to_clipboard :: proc(state: ^App_State) {
 			max(am.server_ws_lag_ms, 0), max(am.server_pub_deliver_ms, 0),
 			max(am.server_serialize_errors, 0), max(am.server_resync_total, 0)))
 		append_line(buf[:], &n, s1[:], s1_len)
+	}
+
+	// Backpressure
+	if am.server_backpressure_level > 0 || am.server_queue_capacity > 0 {
+		append_str(buf[:], &n, "\nBACKPRESSURE:\n")
+		bp: [96]u8
+		bp_len := len(fmt.bprintf(bp[:], "  level=%d queue=%d/%d high_watermark=%d",
+			max(am.server_backpressure_level, 0),
+			max(am.server_ws_queue_len, 0), max(am.server_queue_capacity, 0),
+			max(am.server_queue_high_watermark, 0)))
+		append_line(buf[:], &n, bp[:], bp_len)
 	}
 
 	append_str(buf[:], &n, "\nBACKEND GAPS DETECTED:\n")

@@ -217,6 +217,24 @@ refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtim
 	state.active_metrics.backend_gap_missing_ts_server = metrics.backend_gap_missing_ts_server
 	state.active_metrics.backend_gap_seq_gap_recurring = metrics.backend_gap_seq_gap_recurring
 	state.active_metrics.backend_gap_frequent_drops = metrics.backend_gap_frequent_drops
+	// Capability + backpressure + integrity fields.
+	state.active_metrics.server_max_subscriptions = metrics.server_max_subscriptions
+	state.active_metrics.server_max_frame_bytes = metrics.server_max_frame_bytes
+	state.active_metrics.server_metrics_cadence_ms = metrics.server_metrics_cadence_ms
+	state.active_metrics.server_keepalive_interval_ms = metrics.server_keepalive_interval_ms
+	state.active_metrics.server_rate_limit_enabled = metrics.server_rate_limit_enabled
+	state.active_metrics.server_backpressure_level = metrics.server_backpressure_level
+	state.active_metrics.server_queue_capacity = metrics.server_queue_capacity
+	state.active_metrics.server_queue_high_watermark = metrics.server_queue_high_watermark
+	state.active_metrics.server_recommended_action = metrics.server_recommended_action
+	state.active_metrics.server_recommended_action_len = metrics.server_recommended_action_len
+	state.active_metrics.negotiated_feature_count = metrics.negotiated_feature_count
+	state.active_metrics.snapshot_hash_mismatches = metrics.snapshot_hash_mismatches
+	state.active_metrics.snapshot_seq_violations = metrics.snapshot_seq_violations
+	state.active_metrics.prev_seq_violations = metrics.prev_seq_violations
+	state.active_metrics.hash_validation_skipped = metrics.hash_validation_skipped
+	state.active_metrics.legacy_downgrade_count = metrics.legacy_downgrade_count
+	state.active_metrics.legacy_connected_since_ms = metrics.legacy_connected_since_ms
 
 	active := streams.registry_active(&state.stream_registry)
 	if active == nil {

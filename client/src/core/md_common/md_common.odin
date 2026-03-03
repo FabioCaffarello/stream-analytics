@@ -180,6 +180,22 @@ build_hello_msg :: proc(buf: []u8, rid: u32) -> (string, bool) {
 	return string(buf[:n]), true
 }
 
+// --- Backpressure state derivation ---
+
+Backpressure_State :: enum u8 {
+	Normal,    // level 0
+	Elevated,  // level 1
+	High,      // level 2
+	Critical,  // level 3+
+}
+
+backpressure_state_from_level :: proc(level: int) -> Backpressure_State {
+	if level <= 0 do return .Normal
+	if level == 1 do return .Elevated
+	if level == 2 do return .High
+	return .Critical
+}
+
 // Maximum number of requested features we can encode.
 MAX_REQUESTED_FEATURES :: 8
 

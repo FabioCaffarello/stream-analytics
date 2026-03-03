@@ -361,6 +361,18 @@ test_action_hint_to_ws_fault :: proc(t: ^testing.T) {
 	testing.expect_value(t, m6, false)
 }
 
+// --- Backpressure state tests ---
+
+@(test)
+test_backpressure_state_derivation :: proc(t: ^testing.T) {
+	testing.expect_value(t, backpressure_state_from_level(0), Backpressure_State.Normal)
+	testing.expect_value(t, backpressure_state_from_level(-1), Backpressure_State.Normal)
+	testing.expect_value(t, backpressure_state_from_level(1), Backpressure_State.Elevated)
+	testing.expect_value(t, backpressure_state_from_level(2), Backpressure_State.High)
+	testing.expect_value(t, backpressure_state_from_level(3), Backpressure_State.Critical)
+	testing.expect_value(t, backpressure_state_from_level(5), Backpressure_State.Critical)
+}
+
 // --- Snapshot integrity tests ---
 
 @(test)
