@@ -255,10 +255,7 @@ read_allow_legacy_ws_web :: proc() -> bool {
 
 @(private = "file")
 web_log_safe_url :: proc(url: string) -> string {
-	if q := strings.index(url, "?"); q >= 0 {
-		return url[:q]
-	}
-	return url
+	return md_common.sanitize_url_for_log(url)
 }
 
 @(private = "file")
@@ -780,8 +777,17 @@ web_unsubscribe :: proc(venue: string, symbol: string, channel: ports.MD_Channel
 	if idx >= 0 {
 		subject = strings.clone(state.active_subs[idx].subject)
 	} else {
-		subject = web_subject_for_channel(state, venue, symbol, channel)
-		if len(subject) == 0 do return
+		derived_subject := web_subject_for_channel(state, venue, symbol, channel)
+		if len(derived_subject) == 0 do return
+		// subscribe() deduplicates by subject (multiple channels can collapse into one
+		// subject). For unsubscribe(), only send if we still track that subject.
+		idx = find_web_sub_by_subject(state, derived_subject)
+		if idx < 0 {
+			delete(derived_subject)
+			return
+		}
+		subject = strings.clone(state.active_subs[idx].subject)
+		delete(derived_subject)
 	}
 	defer delete(subject)
 
