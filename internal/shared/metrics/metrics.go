@@ -625,11 +625,11 @@ var (
 			Help: "Total VPVR writer deduplicated upsert operations.",
 		},
 	)
-	VPVRWriterUpsertLatencyMilliseconds = prometheus.NewHistogram(
+	VPVRWriterUpsertLatencySeconds = prometheus.NewHistogram(
 		prometheus.HistogramOpts{
-			Name:    "vpvr_writer_upsert_latency_ms",
-			Help:    "Latency in milliseconds for VPVR writer upsert operations.",
-			Buckets: []float64{0, 0.1, 0.5, 1, 2, 5, 10, 25, 50, 100, 250, 500},
+			Name:    "vpvr_writer_upsert_latency_seconds",
+			Help:    "Latency in seconds for VPVR writer upsert operations.",
+			Buckets: []float64{0, 0.0001, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5},
 		},
 	)
 	VPVRWriterWriteFailTotal = prometheus.NewCounterVec(
@@ -667,11 +667,11 @@ var (
 			Buckets: []float64{0, 0.1, 0.2, 0.25, 0.33, 0.5, 0.66, 0.75, 0.9, 1.0},
 		},
 	)
-	VPVRProcessingLatencyMilliseconds = prometheus.NewHistogram(
+	VPVRProcessingLatencySeconds = prometheus.NewHistogram(
 		prometheus.HistogramOpts{
-			Name:    "vpvr_processing_latency_ms",
-			Help:    "Latency in milliseconds observed for VPVR processing in emit path.",
-			Buckets: []float64{0, 0.1, 0.5, 1, 2, 5, 10, 25, 50, 100, 250, 500},
+			Name:    "vpvr_processing_latency_seconds",
+			Help:    "Latency in seconds observed for VPVR processing in emit path.",
+			Buckets: []float64{0, 0.0001, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5},
 		},
 	)
 	PolicyKitOverloadLevel = prometheus.NewGaugeVec(
@@ -702,19 +702,19 @@ var (
 		},
 		[]string{"stream"},
 	)
-	PolicyKitLatencyMilliseconds = prometheus.NewHistogramVec(
+	PolicyKitLatencySeconds = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "policykit_latency_ms",
-			Help:    "Latency in milliseconds for PolicyKit decision+apply path.",
-			Buckets: []float64{0, 0.05, 0.1, 0.5, 1, 2, 5, 10, 25, 50, 100, 250},
+			Name:    "policykit_latency_seconds",
+			Help:    "Latency in seconds for PolicyKit decision+apply path.",
+			Buckets: []float64{0, 0.00005, 0.0001, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25},
 		},
 		[]string{"stream"},
 	)
-	HeatmapBuildLatencyMilliseconds = prometheus.NewHistogramVec(
+	HeatmapBuildLatencySeconds = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "heatmap_build_latency_ms",
-			Help:    "Latency in milliseconds to build one heatmap artifact window.",
-			Buckets: []float64{0.1, 0.5, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000},
+			Name:    "heatmap_build_latency_seconds",
+			Help:    "Latency in seconds to build one heatmap artifact window.",
+			Buckets: []float64{0.0001, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1},
 		},
 		[]string{"venue", "instrument_bucket", "timeframe_bucket"},
 	)
@@ -1241,19 +1241,19 @@ func registerAll() {
 			VPVRBuilderReplayMismatchTotal,
 			VPVRWriterUpsertOpsTotal,
 			VPVRWriterUpsertDedupTotal,
-			VPVRWriterUpsertLatencyMilliseconds,
+			VPVRWriterUpsertLatencySeconds,
 			VPVRWriterWriteFailTotal,
 			VPVROverloadLevel,
 			VPVRDropTotal,
 			VPVRDegradeTotal,
 			VPVRCompressRatio,
-			VPVRProcessingLatencyMilliseconds,
+			VPVRProcessingLatencySeconds,
 			PolicyKitOverloadLevel,
 			PolicyKitDropTotal,
 			PolicyKitDegradeTotal,
 			PolicyKitCompressTotal,
-			PolicyKitLatencyMilliseconds,
-			HeatmapBuildLatencyMilliseconds,
+			PolicyKitLatencySeconds,
+			HeatmapBuildLatencySeconds,
 			HeatmapCellsTotal,
 			HeatmapPayloadBytes,
 			HeatmapDropTotal,
@@ -1402,8 +1402,8 @@ func registerAll() {
 		PolicyKitDropTotal.WithLabelValues("unknown", "unknown")
 		PolicyKitDegradeTotal.WithLabelValues("unknown", "unknown")
 		PolicyKitCompressTotal.WithLabelValues("unknown")
-		PolicyKitLatencyMilliseconds.WithLabelValues("unknown")
-		HeatmapBuildLatencyMilliseconds.WithLabelValues("unknown", "unknown", "unknown")
+		PolicyKitLatencySeconds.WithLabelValues("unknown")
+		HeatmapBuildLatencySeconds.WithLabelValues("unknown", "unknown", "unknown")
 		HeatmapCellsTotal.WithLabelValues("unknown", "unknown", "unknown")
 		HeatmapPayloadBytes.WithLabelValues("unknown", "unknown", "unknown")
 		HeatmapDropTotal.WithLabelValues("unknown")
@@ -1950,11 +1950,11 @@ func IncVPVRWriterUpsertDedup() {
 	VPVRWriterUpsertDedupTotal.Inc()
 }
 
-func ObserveVPVRWriterUpsertLatencyMilliseconds(latencyMs float64) {
-	if latencyMs < 0 {
-		latencyMs = 0
+func ObserveVPVRWriterUpsertLatencySeconds(latencySeconds float64) {
+	if latencySeconds < 0 {
+		latencySeconds = 0
 	}
-	VPVRWriterUpsertLatencyMilliseconds.Observe(latencyMs)
+	VPVRWriterUpsertLatencySeconds.Observe(latencySeconds)
 }
 
 func IncVPVRWriterWriteFail(reason string) {
@@ -1993,11 +1993,11 @@ func ObserveVPVRCompressRatio(ratio float64) {
 	VPVRCompressRatio.Observe(ratio)
 }
 
-func ObserveVPVRProcessingLatencyMilliseconds(latencyMs float64) {
-	if latencyMs < 0 {
-		latencyMs = 0
+func ObserveVPVRProcessingLatencySeconds(latencySeconds float64) {
+	if latencySeconds < 0 {
+		latencySeconds = 0
 	}
-	VPVRProcessingLatencyMilliseconds.Observe(latencyMs)
+	VPVRProcessingLatencySeconds.Observe(latencySeconds)
 }
 
 func SetPolicyKitOverloadLevel(stream, venue, instrument string, level int) {
@@ -2032,9 +2032,9 @@ func IncPolicyKitCompress(stream string) {
 	PolicyKitCompressTotal.WithLabelValues(sanitizeEventType(stream)).Inc()
 }
 
-func ObservePolicyKitLatencyMilliseconds(stream string, latencyMs float64, args ...string) {
-	if latencyMs < 0 {
-		latencyMs = 0
+func ObservePolicyKitLatencySeconds(stream string, latencySeconds float64, args ...string) {
+	if latencySeconds < 0 {
+		latencySeconds = 0
 	}
 	venue := policyKitVenueFromArgs(args...)
 	if !shouldSampleDeterministically(
@@ -2043,7 +2043,8 @@ func ObservePolicyKitLatencyMilliseconds(stream string, latencyMs float64, args 
 	) {
 		return
 	}
-	PolicyKitLatencyMilliseconds.WithLabelValues(sanitizeEventType(stream)).Observe(latencyMs)
+	sanitizedStream := sanitizeEventType(stream)
+	PolicyKitLatencySeconds.WithLabelValues(sanitizedStream).Observe(latencySeconds)
 }
 
 func policyKitVenueFromArgs(args ...string) string {
@@ -2073,11 +2074,14 @@ func ObserveHeatmapBuildLatency(venue, instrument, timeframe string, latency tim
 	if latency < 0 {
 		latency = 0
 	}
-	HeatmapBuildLatencyMilliseconds.WithLabelValues(
-		sanitizeVenue(venue),
-		bucketInstrument(instrument),
-		bucketTimeframe(timeframe),
-	).Observe(float64(latency) / float64(time.Millisecond))
+	sanitizedVenue := sanitizeVenue(venue)
+	sanitizedInstrument := bucketInstrument(instrument)
+	sanitizedTimeframe := bucketTimeframe(timeframe)
+	HeatmapBuildLatencySeconds.WithLabelValues(
+		sanitizedVenue,
+		sanitizedInstrument,
+		sanitizedTimeframe,
+	).Observe(latency.Seconds())
 }
 
 func SetHeatmapCells(venue, instrument, timeframe string, cells int) {

@@ -525,7 +525,7 @@ func (p *ProcessorSubsystemActor) applyPolicyKit(env envelope.Envelope) (envelop
 	}
 
 	applied, keep := p.policyApplier.ApplySingle(decision, env, policykit.ApplyHooks{})
-	metrics.ObservePolicyKitLatencyMilliseconds(env.Type, float64(time.Since(started))/float64(time.Millisecond))
+	metrics.ObservePolicyKitLatencySeconds(env.Type, time.Since(started).Seconds())
 	if !keep {
 		metrics.IncPolicyKitDrop(env.Type, "policy_drop")
 		return env, true

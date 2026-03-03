@@ -131,12 +131,12 @@ func TestMetricsNamesPresent(t *testing.T) {
 	IncVPVRDrop("delta_l3")
 	IncVPVRDegrade("compress")
 	ObserveVPVRCompressRatio(0.5)
-	ObserveVPVRProcessingLatencyMilliseconds(4)
+	ObserveVPVRProcessingLatencySeconds(0.004)
 	SetPolicyKitOverloadLevel("marketdata.bookdelta", "binance", "BTC-USDT", 2)
 	IncPolicyKitDrop("marketdata.bookdelta", "binance", "delta_l3")
 	IncPolicyKitDegrade("marketdata.bookdelta", "binance", "stride_2")
 	IncPolicyKitCompress("insights.volume_profile_snapshot")
-	ObservePolicyKitLatencyMilliseconds("marketdata.bookdelta", 1.5)
+	ObservePolicyKitLatencySeconds("marketdata.bookdelta", 0.0015)
 	ObserveHeatmapBuildLatency("binance", "BTC-USDT", "1m", 3*time.Millisecond)
 	SetHeatmapCells("binance", "BTC-USDT", "1m", 42)
 	ObserveHeatmapPayloadBytes("binance", "BTC-USDT", "1m", 2048)
@@ -179,8 +179,11 @@ func TestMetricsNamesPresent(t *testing.T) {
 		"ws_messages_out_total",
 		"ws_bytes_out_total",
 		"ws_lag_ms",
+		"ws_lag_seconds",
 		"ws_publish_to_deliver_latency_ms",
+		"ws_publish_to_deliver_latency_seconds",
 		"ws_send_latency_ms",
+		"ws_send_latency_seconds",
 		"ws_clients_connected",
 		"ws_clients_connected_by_mode",
 		"ws_clients_total",
@@ -215,13 +218,13 @@ func TestMetricsNamesPresent(t *testing.T) {
 		"vpvr_drop_total",
 		"vpvr_degrade_total",
 		"vpvr_compress_ratio",
-		"vpvr_processing_latency_ms",
+		"vpvr_processing_latency_seconds",
 		"policykit_overload_level",
 		"policykit_drop_total",
 		"policykit_degrade_total",
 		"policykit_compress_total",
-		"policykit_latency_ms",
-		"heatmap_build_latency_ms",
+		"policykit_latency_seconds",
+		"heatmap_build_latency_seconds",
 		"heatmap_cells_total",
 		"heatmap_payload_bytes",
 		"heatmap_drop_total",
@@ -272,7 +275,9 @@ func TestWSExtendedMetrics_StableLabelsOnly(t *testing.T) {
 	assertMetricLabelNames(t, "ws_messages_out_total", []string{"channel"})
 	assertMetricLabelNames(t, "ws_bytes_out_total", []string{"channel"})
 	assertMetricLabelNames(t, "ws_lag_ms", []string{"channel"})
+	assertMetricLabelNames(t, "ws_lag_seconds", []string{"channel"})
 	assertMetricLabelNames(t, "ws_publish_to_deliver_latency_ms", []string{"channel"})
+	assertMetricLabelNames(t, "ws_publish_to_deliver_latency_seconds", []string{"channel"})
 	assertMetricLabelNames(t, "ws_clients_connected_by_mode", []string{"mode"})
 	assertMetricLabelNames(t, "ws_clients_total", []string{"mode"})
 	assertMetricLabelNames(t, "ws_control_frames_total", []string{"type"})
@@ -340,7 +345,7 @@ func TestVPVRAndHeatmapMetrics_BoundedLabelsOnly(t *testing.T) {
 		"vpvr_builder_bucket_count",
 		"vpvr_builder_windows_open",
 		"vpvr_overload_level",
-		"heatmap_build_latency_ms",
+		"heatmap_build_latency_seconds",
 		"heatmap_cells_total",
 		"heatmap_payload_bytes",
 	} {
@@ -355,13 +360,13 @@ func TestPolicyKitLatencyDeterministicSampling(t *testing.T) {
 
 	stream := "marketdata.bookdelta_sampling"
 	venue := "binance"
-	before := policyKitLatencySampleCount(t, sanitizeEventType(stream))
+	beforeSeconds := policyKitLatencySampleCount(t, "policykit_latency_seconds", sanitizeEventType(stream))
 	for i := 0; i < int(policyKitLatencyEveryN*2); i++ {
-		ObservePolicyKitLatencyMilliseconds(stream, 1.5, venue)
+		ObservePolicyKitLatencySeconds(stream, 0.0015, venue)
 	}
-	after := policyKitLatencySampleCount(t, sanitizeEventType(stream))
-	if got := after - before; got != 2 {
-		t.Fatalf("expected deterministic sampling count delta=2, got %d", got)
+	afterSeconds := policyKitLatencySampleCount(t, "policykit_latency_seconds", sanitizeEventType(stream))
+	if got := afterSeconds - beforeSeconds; got != 2 {
+		t.Fatalf("expected deterministic sampling count delta=2 on seconds metric, got %d", got)
 	}
 }
 
@@ -516,7 +521,7 @@ func assertMetricLabelNames(t *testing.T, metricName string, want []string) {
 	t.Fatalf("metric family %s not found", metricName)
 }
 
-func policyKitLatencySampleCount(t *testing.T, stream string) uint64 {
+func policyKitLatencySampleCount(t *testing.T, metricName, stream string) uint64 {
 	t.Helper()
 
 	mfs, err := Registry().Gather()
@@ -524,7 +529,7 @@ func policyKitLatencySampleCount(t *testing.T, stream string) uint64 {
 		t.Fatalf("gather metrics: %v", err)
 	}
 	for _, mf := range mfs {
-		if mf.GetName() != "policykit_latency_ms" {
+		if mf.GetName() != metricName {
 			continue
 		}
 		for _, metric := range mf.GetMetric() {

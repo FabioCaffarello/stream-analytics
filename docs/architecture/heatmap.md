@@ -101,7 +101,7 @@ WS payload budget rules:
 
 ## Observability
 
-- `heatmap_build_latency_ms{venue,instrument,timeframe}`
+- `heatmap_build_latency_seconds{venue,instrument,timeframe}`
 - `heatmap_cells_total{venue,instrument,timeframe}`
 - `heatmap_payload_bytes{venue,instrument,timeframe}`
 - `heatmap_drop_total{reason}`

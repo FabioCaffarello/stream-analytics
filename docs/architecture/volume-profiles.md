@@ -132,7 +132,7 @@ Emit/delivery actions:
 - `vpvr_drop_total{reason}`
 - `vpvr_degrade_total{action}`
 - `vpvr_compress_ratio`
-- `vpvr_processing_latency_ms`
+- `vpvr_processing_latency_seconds`
 
 Minimum:
 - lag

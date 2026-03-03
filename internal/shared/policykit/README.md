@@ -21,7 +21,7 @@
 - `policykit_drop_total{stream,venue}`
 - `policykit_degrade_total{stream,venue}`
 - `policykit_compress_total{stream}`
-- `policykit_latency_ms{stream}`
+- `policykit_latency_seconds{stream}`
 
 ## Streams já migrados
 - VPVR emit path (`insights.volume_profile`)
