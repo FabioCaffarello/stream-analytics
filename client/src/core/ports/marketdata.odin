@@ -56,6 +56,7 @@ MD_Channel :: enum u8 {
 	Heatmaps,
 	VPVR,
 	Candles,
+	Evidence,
 }
 
 MD_Desync_Reason :: enum u8 {
@@ -138,6 +139,7 @@ MD_Evidence_Event :: struct {
 	reason:        [96]u8,
 	reason_len:    u8,
 	feature_tags:  [4][24]u8,
+	feature_vals:  [4]f64,
 	feature_count: int,
 	unix:          i64,
 }
@@ -205,6 +207,7 @@ MD_Runtime_Metrics :: struct {
 	lag_ms:                 i64,
 	parse_time_p95_us:      i64,
 	apply_time_p95_us:      i64,
+	batched_decode_time_p95_us: i64,
 	protocol_version:       int,
 	hello_received:         bool,
 	desync:                 bool,
@@ -247,6 +250,10 @@ MD_Runtime_Metrics :: struct {
 	server_recommended_action_len: u8,
 	// Feature negotiation.
 	negotiated_feature_count:     int,
+	negotiated_feature_names:     [8][24]u8,
+	negotiated_feature_name_lens: [8]u8,
+	batched_frames_received:      u64,
+	batched_events_received:      u64,
 	// Integrity counters.
 	snapshot_hash_mismatches:     int,
 	snapshot_seq_violations:      int,

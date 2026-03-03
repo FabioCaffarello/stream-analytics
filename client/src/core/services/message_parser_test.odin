@@ -1,6 +1,8 @@
 package services
 
 import "core:math"
+import "core:fmt"
+import "core:strings"
 import "core:testing"
 
 @(test)
@@ -452,4 +454,75 @@ test_parse_microstructure_evidence :: proc(t: ^testing.T) {
 	testing.expect_value(t, ev.feature_count, 2)
 	testing.expect_value(t, ev.confidence > 0.8, true)
 	free_all(context.temp_allocator)
+}
+
+@(test)
+test_parse_batched_frame_two_events :: proc(t: ^testing.T) {
+	raw := `{"type":"batch","stream_id":"marketdata.trade/binance/BTCUSDT/raw","base_seq":100,"count":2,"ts_server_base":1700000000000,"ts_ingest_base":1700000000000,"events":[{"dseq":0,"dprev":0,"dts":0,"dti":0,"p":{"Price":50000.0,"Size":1.5,"Side":"buy","Timestamp":1700000000000}},{"dseq":1,"dprev":1,"dts":2,"dti":2,"p":{"Price":50001.0,"Size":0.8,"Side":"sell","Timestamp":1700000000002}}]}`
+	seg: Parsed_Batched_Frame
+	ok := parse_batched_frame(transmute([]u8)raw, &seg)
+	testing.expect_value(t, ok, true)
+	testing.expect_value(t, seg.count, 2)
+	testing.expect_value(t, seg.total_events, 2)
+	testing.expect_value(t, seg.event_count, 2)
+	testing.expect_value(t, string(seg.stream_id_buf[:int(seg.stream_id_len)]), "marketdata.trade/binance/BTCUSDT/raw")
+	testing.expect(t, seg.events[0].payload_end > seg.events[0].payload_start, "first payload range should be valid")
+}
+
+@(test)
+test_parse_batched_frame_seq_assignment :: proc(t: ^testing.T) {
+	raw := `{"type":"batch","stream_id":"marketdata.trade/binance/BTCUSDT/raw","base_seq":700,"count":2,"ts_server_base":1700000000000,"ts_ingest_base":1700000000000,"events":[{"dseq":0,"dprev":0,"dts":0,"dti":0,"p":{"Price":1}},{"dseq":1,"dprev":1,"dts":1,"dti":1,"p":{"Price":2}}]}`
+	seg: Parsed_Batched_Frame
+	ok := parse_batched_frame(transmute([]u8)raw, &seg)
+	testing.expect_value(t, ok, true)
+	testing.expect_value(t, seg.event_count, 2)
+	seq0 := seg.base_seq + i64(seg.events[0].event_index)
+	seq1 := seg.base_seq + i64(seg.events[1].event_index)
+	testing.expect_value(t, seq0, i64(700))
+	testing.expect_value(t, seq1, i64(701))
+}
+
+@(test)
+test_parse_batched_frame_split_behavior :: proc(t: ^testing.T) {
+	write_int := proc(b: ^strings.Builder, v: int) {
+		buf: [24]u8
+		strings.write_string(b, fmt.bprintf(buf[:], "%d", v))
+	}
+
+	total := BATCH_EVENT_VIEW_CAP + 3
+	b := strings.builder_make()
+	defer strings.builder_destroy(&b)
+
+	strings.write_string(&b, `{"type":"batch","stream_id":"marketdata.trade/binance/BTCUSDT/raw","base_seq":1,"count":`)
+	write_int(&b, total)
+	strings.write_string(&b, `,"ts_server_base":1700000000000,"ts_ingest_base":1700000000000,"events":[`)
+	for i in 0 ..< total {
+		if i > 0 do strings.write_string(&b, ",")
+		strings.write_string(&b, `{"dseq":`)
+		write_int(&b, i)
+		strings.write_string(&b, `,"dprev":`)
+		write_int(&b, i)
+		strings.write_string(&b, `,"dts":`)
+		write_int(&b, i)
+		strings.write_string(&b, `,"dti":`)
+		write_int(&b, i)
+		strings.write_string(&b, `,"p":{"Price":`)
+		write_int(&b, 50000+i)
+		strings.write_string(&b, `,"Size":1,"Side":"buy","Timestamp":1700000000000}}`)
+	}
+	strings.write_string(&b, "]}")
+
+	raw := strings.to_string(b)
+	seg0: Parsed_Batched_Frame
+	ok0 := parse_batched_frame(transmute([]u8)raw, &seg0)
+	testing.expect_value(t, ok0, true)
+	testing.expect_value(t, seg0.event_count, BATCH_EVENT_VIEW_CAP)
+	testing.expect_value(t, seg0.total_events, total)
+	testing.expect_value(t, seg0.has_more, true)
+
+	seg1: Parsed_Batched_Frame
+	ok1 := parse_batched_frame(transmute([]u8)raw, &seg1, seg0.event_count)
+	testing.expect_value(t, ok1, true)
+	testing.expect_value(t, seg1.event_count, total - BATCH_EVENT_VIEW_CAP)
+	testing.expect_value(t, seg1.has_more, false)
 }

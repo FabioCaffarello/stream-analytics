@@ -59,6 +59,10 @@ WEB_PERF_SAMPLE_CAP   :: 120
 // Default candle timeframe filter.
 CANDLE_TF_DEFAULT :: "1m"
 
+// Subscription/metrics limit helpers delegated to md_common.
+// (web_effective_sub_limit, web_can_add_subscription, web_metrics_stale_timeout_ms
+//  removed — use md_common.effective_sub_limit / can_add_subscription / metrics_stale_timeout_ms)
+
 // --- State ---
 
 Web_Sub_Entry :: struct {
@@ -114,23 +118,14 @@ MD_Web_State :: struct {
 	allow_legacy_ws: bool,
 	ws_error_category: ports.MD_WS_Error_Category,
 	ws_error_action:   ports.MD_WS_Error_Action,
-	server_instance_id: [32]u8,
-	server_instance_id_len: u8,
 	hello_timeout_count: int,
 	pong_rtt_ms: i64,
 	last_ping_sent_ms: i64,
 	// Server-pushed metrics (from METRICS frame).
 	server_metrics: services.Parsed_Metrics,
 	server_metrics_received: bool,
-	// Server capability limits (from HELLO).
-	server_max_subscriptions:    int,
-	server_max_frame_bytes:      int,
-	server_metrics_cadence_ms:   int,
-	server_keepalive_interval_ms: int,
-	server_rate_limit_enabled:   bool,
-	// Server-advertised supported features (from HELLO).
-	server_supported_features: [services.MAX_FEATURE_SLOTS]services.Parsed_Feature_Slot,
-	server_supported_feature_count: int,
+	// Server capabilities (from HELLO) — consolidated struct.
+	caps: md_common.Server_Capabilities,
 	// Negotiated features (from Hello ACK).
 	negotiated_features: [services.MAX_FEATURE_SLOTS]services.Parsed_Feature_Slot,
 	negotiated_feature_count: int,
@@ -234,6 +229,11 @@ MD_Web_State :: struct {
 	apply_samples_us:       [WEB_PERF_SAMPLE_CAP]i64,
 	apply_sample_head:      int,
 	apply_sample_count:     int,
+	batch_decode_samples_us: [WEB_PERF_SAMPLE_CAP]i64,
+	batch_decode_sample_head: int,
+	batch_decode_sample_count: int,
+	batched_frames_received: u64,
+	batched_events_received: u64,
 }
 
 // File-private singleton: Odin procs are bare function pointers (no closures),
@@ -330,38 +330,15 @@ apply_web_fault :: proc(state: ^MD_Web_State, category: ports.MD_WS_Error_Catego
 	}
 }
 
+// Feature lookup — delegates to md_common.feature_slot_has_name.
 @(private = "file")
 web_server_has_feature :: proc(state: ^MD_Web_State, name: string) -> bool {
-	for i in 0 ..< state.server_supported_feature_count {
-		slot := state.server_supported_features[i]
-		if int(slot.len) != len(name) do continue
-		match := true
-		for j in 0 ..< int(slot.len) {
-			if slot.name[j] != name[j] {
-				match = false
-				break
-			}
-		}
-		if match do return true
-	}
-	return false
+	return md_common.feature_slot_has_name(state.caps.supported_features, state.caps.supported_feature_count, name)
 }
 
 @(private = "file")
 web_negotiated_has_feature :: proc(state: ^MD_Web_State, name: string) -> bool {
-	for i in 0 ..< state.negotiated_feature_count {
-		slot := state.negotiated_features[i]
-		if int(slot.len) != len(name) do continue
-		match := true
-		for j in 0 ..< int(slot.len) {
-			if slot.name[j] != name[j] {
-				match = false
-				break
-			}
-		}
-		if match do return true
-	}
-	return false
+	return md_common.feature_slot_has_name(state.negotiated_features, state.negotiated_feature_count, name)
 }
 
 @(private = "file")
@@ -373,13 +350,19 @@ web_feature_setting_value :: proc(key: string) -> string {
 }
 
 @(private = "file")
+web_supports_decompress :: proc() -> bool {
+	// Browser bridge currently drains UTF-8 text frames only.
+	return false
+}
+
+@(private = "file")
 web_frame_within_limit :: proc(state: ^MD_Web_State, frame_len: int) -> bool {
 	if state == nil do return false
 	if frame_len < 0 do return false
-	if state.server_max_frame_bytes > 0 && frame_len > state.server_max_frame_bytes {
+	if md_common.frame_exceeds_limit(state.caps.max_frame_bytes, frame_len) {
 		state.drop_payload_oversize += 1
 		state.drop_count += 1
-		fmt.printf("[md-lifecycle] frame_rejected max_frame_bytes=%d len=%d\n", state.server_max_frame_bytes, frame_len)
+		fmt.printf("[md-lifecycle] frame_rejected max_frame_bytes=%d len=%d\n", state.caps.max_frame_bytes, frame_len)
 		apply_web_fault(state, .BackpressureDrop)
 		return false
 	}
@@ -519,6 +502,14 @@ web_disconnect_transport :: proc() -> bool {
 	set_web_transport_state(state, .Backoff)
 	state.connect_started_ms = 0
 	state.first_data_logged = false
+	// Clear pending getrange — stale after manual disconnect.
+	if len(state.pending_getrange_subject) > 0 {
+		delete(state.pending_getrange_subject)
+		state.pending_getrange_subject = ""
+	}
+	state.pending_getrange_queued = false
+	// Reset caps so next HELLO repopulates cleanly.
+	state.caps.received = false
 	return true
 }
 
@@ -563,7 +554,8 @@ web_reconnect_transport :: proc(ws_url: string, api_key: string, jwt_token: stri
 	state.ws_error_action = .None
 	set_web_transport_state(state, .Backoff)
 	state.server_metrics_received = false
-	state.server_supported_feature_count = 0
+	state.caps.received = false
+	state.caps.supported_feature_count = 0
 	state.negotiated_feature_count = 0
 	state.last_metrics_ts_ms = 0
 	state.last_pong_ts_ms = 0
@@ -587,9 +579,8 @@ web_subscribe :: proc(venue: string, symbol: string, channel: ports.MD_Channel) 
 		delete(subject)
 		return true
 	}
-	sub_limit := state.server_max_subscriptions
-	if sub_limit <= 0 do sub_limit = WEB_MAX_SUBS
-	if state.active_count >= min(sub_limit, WEB_MAX_SUBS) {
+	sub_limit := md_common.effective_sub_limit(state.caps.max_subscriptions, WEB_MAX_SUBS)
+	if !md_common.can_add_subscription(state.active_count, state.caps.max_subscriptions, WEB_MAX_SUBS) {
 		fmt.printf("[md-lifecycle] subscribe_rejected limit=%d active=%d\n", sub_limit, state.active_count)
 		delete(subject)
 		return false
@@ -628,9 +619,8 @@ web_subscribe_tf :: proc(venue: string, symbol: string, channel: ports.MD_Channe
 		delete(subject)
 		return true
 	}
-	sub_limit := state.server_max_subscriptions
-	if sub_limit <= 0 do sub_limit = WEB_MAX_SUBS
-	if state.active_count >= min(sub_limit, WEB_MAX_SUBS) {
+	sub_limit := md_common.effective_sub_limit(state.caps.max_subscriptions, WEB_MAX_SUBS)
+	if !md_common.can_add_subscription(state.active_count, state.caps.max_subscriptions, WEB_MAX_SUBS) {
 		fmt.printf("[md-lifecycle] subscribe_tf_rejected limit=%d active=%d\n", sub_limit, state.active_count)
 		delete(subject)
 		return false
@@ -714,6 +704,7 @@ web_metrics :: proc(out: ^ports.MD_Runtime_Metrics) -> bool {
 		lag_ms           = state.last_lag_ms,
 		parse_time_p95_us = web_sample_p95_us(state.parse_samples_us, state.parse_sample_head, state.parse_sample_count),
 		apply_time_p95_us = web_sample_p95_us(state.apply_samples_us, state.apply_sample_head, state.apply_sample_count),
+		batched_decode_time_p95_us = web_sample_p95_us(state.batch_decode_samples_us, state.batch_decode_sample_head, state.batch_decode_sample_count),
 		protocol_version = state.protocol_version,
 		hello_received   = state.hello_received,
 		desync           = state.desync,
@@ -729,9 +720,9 @@ web_metrics :: proc(out: ^ports.MD_Runtime_Metrics) -> bool {
 		backend_gap_frequent_drops = state.backend_gap_frequent_drops,
 		// Terminal_V1 transport fields.
 		transport_mode          = u8(state.transport_mode),
-		server_instance_id      = state.server_instance_id,
-		server_instance_id_len  = state.server_instance_id_len,
-		server_instance_id_hash = util.subject_id64(string(state.server_instance_id[:int(state.server_instance_id_len)])),
+		server_instance_id      = state.caps.server_instance_id,
+		server_instance_id_len  = state.caps.server_instance_id_len,
+		server_instance_id_hash = util.subject_id64(string(state.caps.server_instance_id[:int(state.caps.server_instance_id_len)])),
 		auth_mode               = state.auth_mode,
 		hello_timeout_count     = state.hello_timeout_count,
 		pong_rtt_ms             = state.pong_rtt_ms,
@@ -743,17 +734,19 @@ web_metrics :: proc(out: ^ports.MD_Runtime_Metrics) -> bool {
 		server_resync_total     = sm.resync_total,
 		server_pub_deliver_ms   = sm.publish_to_deliver_latency_ms,
 		// Server capability limits.
-		server_max_subscriptions     = state.server_max_subscriptions,
-		server_max_frame_bytes       = state.server_max_frame_bytes,
-		server_metrics_cadence_ms    = state.server_metrics_cadence_ms,
-		server_keepalive_interval_ms = state.server_keepalive_interval_ms,
-		server_rate_limit_enabled    = state.server_rate_limit_enabled,
+		server_max_subscriptions     = state.caps.max_subscriptions,
+		server_max_frame_bytes       = state.caps.max_frame_bytes,
+		server_metrics_cadence_ms    = state.caps.metrics_cadence_ms,
+		server_keepalive_interval_ms = state.caps.keepalive_interval_ms,
+		server_rate_limit_enabled    = state.caps.rate_limit_enabled,
 		// Backpressure.
 		server_backpressure_level    = sm.backpressure_level,
 		server_queue_capacity        = sm.queue_capacity,
 		server_queue_high_watermark  = sm.queue_high_watermark,
 		// Feature negotiation.
 		negotiated_feature_count     = state.negotiated_feature_count,
+		batched_frames_received      = state.batched_frames_received,
+		batched_events_received      = state.batched_events_received,
 		// Integrity counters.
 		snapshot_hash_mismatches     = state.snapshot_hash_mismatches,
 		snapshot_seq_violations      = state.snapshot_seq_violations,
@@ -768,6 +761,12 @@ web_metrics :: proc(out: ^ports.MD_Runtime_Metrics) -> bool {
 		out.server_recommended_action[i] = sm.recommended_action_buf[i]
 	}
 	out.server_recommended_action_len = u8(ra_n)
+	// Copy negotiated feature names for diagnostics display.
+	nfc := min(state.negotiated_feature_count, len(out.negotiated_feature_names))
+	for i in 0 ..< nfc {
+		out.negotiated_feature_names[i] = state.negotiated_features[i].name
+		out.negotiated_feature_name_lens[i] = state.negotiated_features[i].len
+	}
 	return true
 }
 
@@ -926,7 +925,7 @@ web_send_hello :: proc(state: ^MD_Web_State) {
 	buf: [512]u8
 	features: [md_common.MAX_REQUESTED_FEATURES][24]u8
 	feature_lens: [md_common.MAX_REQUESTED_FEATURES]u8
-	server_known := state.server_supported_feature_count > 0
+	server_known := state.caps.supported_feature_count > 0
 	fc := md_common.resolve_requested_features(
 		state.transport_mode,
 		.WASM,
@@ -938,9 +937,13 @@ web_send_hello :: proc(state: ^MD_Web_State) {
 		web_feature_setting_value(services.SETTING_FEATURE_SNAPSHOT_HASH),
 		web_feature_setting_value(services.SETTING_FEATURE_PREV_SEQ),
 		&features, &feature_lens,
+		web_server_has_feature(state, "compress"),
+		web_feature_setting_value(services.SETTING_FEATURE_COMPRESS),
+		web_supports_decompress(),
 	)
 	msg, ok := md_common.build_hello_msg_v2(buf[:], state.rid_counter, &features, &feature_lens, fc)
 	if !ok {
+		fmt.printf("[md-lifecycle] WARN hello_v2_buffer_overflow features=%d falling_back_to_basic\n", fc)
 		msg, ok = md_common.build_hello_msg(buf[:], state.rid_counter)
 	}
 	if !ok do return
@@ -1075,11 +1078,15 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 		state.last_pong_ts_ms = 0
 		state.connect_started_ms = time.now()._nsec / 1_000_000
 		state.first_data_logged = false
+		state.caps.received = false
+		state.caps.supported_feature_count = 0
+		state.negotiated_feature_count = 0
 		for i in 0 ..< state.active_count {
 			state.last_seq_by_sub[i] = 0
 			state.last_snapshot_seq_by_sub[i] = 0
 			state.last_server_ts_by_sub[i] = 0
 			state.snapshot_logged_by_sub[i] = false
+			state.active_subs[i].stream_id_len = 0 // Clear stale stream_id from previous connection.
 		}
 		fmt.printf("[md-lifecycle] connect url=%s\n", web_log_safe_url(state.ws_url))
 		// Terminal_V1: send HELLO immediately.
@@ -1151,7 +1158,9 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 	now_gap := time.now()._nsec / 1_000_000
 	if state.hello_received && state.transport_mode == .Terminal_V1 {
 		no_metrics_gap, next_metrics_ts := md_common.detect_no_metrics_gap(
-			state.last_metrics_ts_ms, now_gap, WEB_METRICS_STALE_MS,
+			state.last_metrics_ts_ms,
+			now_gap,
+			md_common.metrics_stale_timeout_ms(state.caps.metrics_cadence_ms, WEB_METRICS_STALE_MS),
 		)
 		if no_metrics_gap {
 			state.backend_gap_no_metrics += 1
@@ -1403,26 +1412,33 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 	}
 	if state.evidence_dirty && out < len(events_buf) {
 		ev := state.evidence_staging
-		events_buf[out].source.subject_id = ev.subject_id
-		events_buf[out].source.channel = .Stats
-		events_buf[out].source.seq = ev.seq
-		events_buf[out].kind = .Evidence
-		events_buf[out].unix = util.normalize_unix_seconds(ev.unix)
-		events_buf[out].data.evidence = ports.MD_Evidence_Event{
-			kind          = ev.kind,
-			kind_len      = ev.kind_len,
-			confidence    = ev.confidence,
-			reason        = ev.reason,
-			reason_len    = ev.reason_len,
-			feature_tags  = ev.feature_tags,
-			feature_count = ev.feature_count,
-			unix          = ev.unix,
-		}
+		web_fill_evidence_event(&events_buf[out], ev)
 		state.evidence_dirty = false
 		out += 1
 	}
 
 	return out
+}
+
+@(private = "file")
+web_fill_evidence_event :: proc(dst: ^ports.MD_Event, ev: services.Parsed_Evidence) {
+	if dst == nil do return
+	dst.source.subject_id = ev.subject_id
+	dst.source.channel = .Evidence
+	dst.source.seq = ev.seq
+	dst.kind = .Evidence
+	dst.unix = util.normalize_unix_seconds(ev.unix)
+	dst.data.evidence = ports.MD_Evidence_Event{
+		kind          = ev.kind,
+		kind_len      = ev.kind_len,
+		confidence    = ev.confidence,
+		reason        = ev.reason,
+		reason_len    = ev.reason_len,
+		feature_tags  = ev.feature_tags,
+		feature_vals  = ev.feature_vals,
+		feature_count = ev.feature_count,
+		unix          = ev.unix,
+	}
 }
 
 @(private = "file")
@@ -1483,8 +1499,109 @@ web_conn_status :: proc() -> ports.MD_Conn_Status {
 // Delegates to shared services.parse_mr_message, then writes results to staging.
 // Single-threaded (WASM) so no mutex needed.
 
+WEB_BATCH_SYNTH_FRAME_CAP :: 96 * 1024
+
+@(private = "file")
+web_append_ascii :: proc(buf: []u8, n: ^int, s: string) -> bool {
+	for c in s {
+		if n^ >= len(buf) do return false
+		buf[n^] = u8(c)
+		n^ += 1
+	}
+	return true
+}
+
+@(private = "file")
+web_append_i64_ascii :: proc(buf: []u8, n: ^int, v: i64) -> bool {
+	tmp: [24]u8
+	num := fmt.bprintf(tmp[:], "%d", v)
+	return web_append_ascii(buf, n, num)
+}
+
+@(private = "file")
+web_build_batched_event_frame :: proc(
+	dst: []u8,
+	seg: ^services.Parsed_Batched_Frame,
+	ev: services.Parsed_Batch_Event_View,
+	src_raw: []u8,
+) -> ([]u8, bool) {
+	if seg == nil do return nil, false
+	if ev.payload_start < 0 || ev.payload_end <= ev.payload_start || ev.payload_end > len(src_raw) do return nil, false
+
+	n := 0
+	if !web_append_ascii(dst, &n, `{"type":"event","subject":"`) do return nil, false
+	if seg.stream_id_len > 0 {
+		if !web_append_ascii(dst, &n, string(seg.stream_id_buf[:int(seg.stream_id_len)])) do return nil, false
+	} else {
+		if seg.channel_len == 0 || seg.venue_len == 0 || seg.symbol_len == 0 do return nil, false
+		if !web_append_ascii(dst, &n, string(seg.channel_buf[:int(seg.channel_len)])) do return nil, false
+		if !web_append_ascii(dst, &n, "/") do return nil, false
+		if !web_append_ascii(dst, &n, string(seg.venue_buf[:int(seg.venue_len)])) do return nil, false
+		if !web_append_ascii(dst, &n, "/") do return nil, false
+		if !web_append_ascii(dst, &n, string(seg.symbol_buf[:int(seg.symbol_len)])) do return nil, false
+		if !web_append_ascii(dst, &n, "/raw") do return nil, false
+	}
+	if !web_append_ascii(dst, &n, `","seq":`) do return nil, false
+	seq := seg.base_seq + i64(ev.event_index)
+	if !web_append_i64_ascii(dst, &n, seq) do return nil, false
+	if !web_append_ascii(dst, &n, `,"ts_server":`) do return nil, false
+	if !web_append_i64_ascii(dst, &n, seg.ts_server_base + ev.dts) do return nil, false
+	if !web_append_ascii(dst, &n, `,"ts_ingest":`) do return nil, false
+	if !web_append_i64_ascii(dst, &n, seg.ts_ingest_base + ev.dti) do return nil, false
+	if !web_append_ascii(dst, &n, `,"payload":`) do return nil, false
+	payload := src_raw[ev.payload_start:ev.payload_end]
+	if n + len(payload) + 1 > len(dst) do return nil, false
+	copy(dst[n:n + len(payload)], payload)
+	n += len(payload)
+	if !web_append_ascii(dst, &n, "}") do return nil, false
+	return dst[:n], true
+}
+
+@(private = "file")
+web_process_batched_frame :: proc(state: ^MD_Web_State, raw: []u8) -> bool {
+	head: services.Parsed_Batched_Frame
+	if !services.parse_batched_frame(raw, &head) {
+		return false
+	}
+	decode_start := time.tick_now()
+	total_events := head.total_events
+	if head.count > total_events do total_events = head.count
+	if total_events < 0 do total_events = 0
+
+	state.batched_frames_received += 1
+	state.batched_events_received += u64(total_events)
+
+	skip := 0
+	frame_buf: [WEB_BATCH_SYNTH_FRAME_CAP]u8
+	for {
+		seg: services.Parsed_Batched_Frame
+		if !services.parse_batched_frame(raw, &seg, skip) {
+			state.parse_error_count += 1
+			break
+		}
+		if seg.event_count <= 0 do break
+		for i in 0 ..< seg.event_count {
+			ev := seg.events[i]
+			synth, ok := web_build_batched_event_frame(frame_buf[:], &seg, ev, raw)
+			if !ok {
+				state.parse_error_count += 1
+				continue
+			}
+			web_apply_parse_result(state, synth)
+		}
+		skip += seg.event_count
+		if !seg.has_more do break
+	}
+	decode_us := i64(time.duration_microseconds(time.tick_since(decode_start)))
+	web_record_perf_sample(&state.batch_decode_samples_us, &state.batch_decode_sample_head, &state.batch_decode_sample_count, decode_us)
+	return true
+}
+
 @(private = "file")
 web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
+	if web_process_batched_frame(state, raw) {
+		return
+	}
 	defer services.parse_arena_reset_message(&state.parse_arena)
 	parse_start_tick := time.tick_now()
 
@@ -1655,20 +1772,7 @@ web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 		state.hello_valid = h.valid
 		state.transport_mode = .Terminal_V1
 		set_web_transport_state(state, .Hello_Pending)
-		// Store server_instance_id (truncate to fixed buffer).
-		sid := h.server_instance_id
-		sid_len := min(len(sid), len(state.server_instance_id))
-		for i in 0 ..< sid_len { state.server_instance_id[i] = sid[i] }
-		state.server_instance_id_len = u8(sid_len)
-		state.server_max_subscriptions = h.max_subscriptions
-		state.server_max_frame_bytes = h.max_frame_bytes
-		state.server_metrics_cadence_ms = h.metrics_cadence_ms
-		state.server_keepalive_interval_ms = h.keepalive_interval_ms
-		state.server_rate_limit_enabled = h.rate_limit_enabled
-		state.server_supported_feature_count = h.supported_feature_count
-		for i in 0 ..< h.supported_feature_count {
-			state.server_supported_features[i] = h.supported_features[i]
-		}
+		md_common.apply_hello_to_capabilities(&state.caps, h)
 		if !h.valid {
 			state.desync = true
 			state.desync_reason = md_common.desync_reason_from_hello_reject(h.reject)

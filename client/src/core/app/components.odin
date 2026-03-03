@@ -160,6 +160,7 @@ Evidence_Entry :: struct {
 	reason:        [96]u8,
 	reason_len:    u8,
 	feature_tags:  [4][24]u8,
+	feature_vals:  [4]f64,
 	feature_count: int,
 	unix:          i64,
 	subject_id:    u64,
@@ -325,6 +326,7 @@ Active_Stream_Metrics :: struct {
 	alloc_estimate_total: u64,
 	parse_time_p95_us:    i64,
 	apply_time_p95_us:    i64,
+	batched_decode_time_p95_us: i64,
 	has_live_stats:       bool,
 	has_live_heatmap:     bool,
 	has_live_vpvr:        bool,
@@ -370,6 +372,10 @@ Active_Stream_Metrics :: struct {
 	server_recommended_action_len: u8,
 	// Feature negotiation.
 	negotiated_feature_count:     int,
+	negotiated_feature_names:     [8][24]u8,
+	negotiated_feature_name_lens: [8]u8,
+	batched_frames_received:      u64,
+	batched_events_received:      u64,
 	// Integrity counters.
 	snapshot_hash_mismatches:     int,
 	snapshot_seq_violations:      int,
@@ -385,10 +391,13 @@ Active_Stream_Metrics :: struct {
 	assist_getrange_divisor:      int,
 	assist_reason:                [32]u8,
 	assist_reason_len:            u8,
+	assist_user_enabled:          bool,
 }
 
 Backpressure_Assist_State :: struct {
 	enabled:          bool,
+	user_enabled:     bool,
+	recommended_action_pending: bool,
 	degrade_heatmap:  bool,
 	degrade_vpvr:     bool,
 	getrange_divisor: int,

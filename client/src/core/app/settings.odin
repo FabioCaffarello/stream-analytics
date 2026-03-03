@@ -107,6 +107,24 @@ build_settings_page :: proc(state: ^App_State, workspace: ui.Rect, pointer: ui.P
 	}
 	y += toggle_h + 6
 
+	assist_res := ui.toggle(&state.cmd_buf,
+		ui.rect_xywh(x, y, toggle_w, toggle_h),
+		"  Assist mode (BP)", state.bp_assist.user_enabled,
+		pointer, state.text.measure, ui.FONT_SIZE_XS)
+	if assist_res.changed {
+		state.bp_assist.user_enabled = assist_res.value
+		if !state.bp_assist.user_enabled {
+			state.bp_assist.enabled = false
+			state.bp_assist.degrade_heatmap = false
+			state.bp_assist.degrade_vpvr = false
+			state.bp_assist.getrange_divisor = 1
+			reconcile_subscriptions(state)
+		}
+		services.settings_set(&state.settings, services.SETTING_ASSIST_MODE, assist_res.value ? "1" : "0")
+		services.settings_flush(&state.settings)
+	}
+	y += toggle_h + 6
+
 	// Connect / Disconnect button.
 	btn_w := f32(100)
 	btn_h := f32(22)

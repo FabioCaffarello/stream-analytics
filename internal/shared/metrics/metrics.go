@@ -545,6 +545,39 @@ var (
 		},
 		[]string{"reason"},
 	)
+	EvidenceEmittedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "evidence_emitted_total",
+			Help: "Total evidence events emitted by kind and severity.",
+		},
+		[]string{"kind", "severity"},
+	)
+	EvidenceStateEntries = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "evidence_state_entries",
+			Help: "Number of active per-stream state entries per rule.",
+		},
+		[]string{"rule"},
+	)
+	EvidenceStateEntriesTotal = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "evidence_state_entries_total",
+			Help: "Total active per-stream state entries across all rules.",
+		},
+	)
+	EvidenceStateEvictedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "evidence_state_evicted_total",
+			Help: "Total per-stream state evictions by rule.",
+		},
+		[]string{"rule"},
+	)
+	EvidenceEngineEventsTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "evidence_engine_events_total",
+			Help: "Total events processed by the evidence engine.",
+		},
+	)
 	VPVRBuilderBucketCount = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "vpvr_builder_bucket_count",
@@ -1196,6 +1229,11 @@ func registerAll() {
 			InsightsSnapshotsTotal,
 			InsightsStateInstrumentsActive,
 			InsightsStateEvictionsTotal,
+			EvidenceEmittedTotal,
+			EvidenceStateEntries,
+			EvidenceStateEntriesTotal,
+			EvidenceStateEvictedTotal,
+			EvidenceEngineEventsTotal,
 			VPVRBuilderBucketCount,
 			VPVRBuilderWindowsOpen,
 			VPVRBuilderOverloadActionsTotal,
@@ -1339,6 +1377,18 @@ func registerAll() {
 		InsightsSnapshotsTotal.WithLabelValues("5_8")
 		InsightsSnapshotsTotal.WithLabelValues("9_plus")
 		InsightsStateEvictionsTotal.WithLabelValues("unknown")
+		EvidenceEmittedTotal.WithLabelValues("spread_explosion", "medium")
+		EvidenceEmittedTotal.WithLabelValues("liquidity_thinning", "medium")
+		EvidenceEmittedTotal.WithLabelValues("persistent_imbalance", "medium")
+		EvidenceEmittedTotal.WithLabelValues("absorption", "medium")
+		EvidenceStateEntries.WithLabelValues("spread_explosion")
+		EvidenceStateEntries.WithLabelValues("liquidity_thinning")
+		EvidenceStateEntries.WithLabelValues("persistent_imbalance")
+		EvidenceStateEntries.WithLabelValues("absorption")
+		EvidenceStateEvictedTotal.WithLabelValues("spread_explosion")
+		EvidenceStateEvictedTotal.WithLabelValues("liquidity_thinning")
+		EvidenceStateEvictedTotal.WithLabelValues("persistent_imbalance")
+		EvidenceStateEvictedTotal.WithLabelValues("absorption")
 		VPVRBuilderBucketCount.WithLabelValues("unknown", "unknown", "unknown")
 		VPVRBuilderWindowsOpen.WithLabelValues("unknown", "unknown", "unknown")
 		VPVRBuilderOverloadActionsTotal.WithLabelValues("unknown")
@@ -1830,6 +1880,32 @@ func SetInsightsStateInstrumentsActive(active float64) {
 
 func IncInsightsStateEvictions(reason string) {
 	InsightsStateEvictionsTotal.WithLabelValues(sanitizeReason(reason)).Inc()
+}
+
+func IncEvidenceEmitted(kind, severity string) {
+	EvidenceEmittedTotal.WithLabelValues(kind, severity).Inc()
+}
+
+func SetEvidenceStateEntries(rule string, count int) {
+	if count < 0 {
+		count = 0
+	}
+	EvidenceStateEntries.WithLabelValues(rule).Set(float64(count))
+}
+
+func SetEvidenceStateEntriesTotal(count int) {
+	if count < 0 {
+		count = 0
+	}
+	EvidenceStateEntriesTotal.Set(float64(count))
+}
+
+func IncEvidenceStateEvicted(rule string) {
+	EvidenceStateEvictedTotal.WithLabelValues(rule).Inc()
+}
+
+func IncEvidenceEngineEvents() {
+	EvidenceEngineEventsTotal.Inc()
 }
 
 func SetVPVRBuilderBucketCount(venue, instrument, timeframe string, count int) {

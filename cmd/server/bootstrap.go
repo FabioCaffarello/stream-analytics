@@ -16,6 +16,7 @@ import (
 
 	"github.com/anthdm/hollywood/actor"
 	deliveryruntime "github.com/market-raccoon/internal/actors/delivery/runtime"
+	evidenceruntime "github.com/market-raccoon/internal/actors/evidence/runtime"
 	actorruntime "github.com/market-raccoon/internal/actors/runtime"
 	"github.com/market-raccoon/internal/adapters/bus"
 	adapterjs "github.com/market-raccoon/internal/adapters/jetstream"
@@ -25,6 +26,7 @@ import (
 	aggports "github.com/market-raccoon/internal/core/aggregation/ports"
 	deliverydomain "github.com/market-raccoon/internal/core/delivery/domain"
 	"github.com/market-raccoon/internal/core/delivery/ports"
+	evidenceapp "github.com/market-raccoon/internal/core/evidence/app"
 	httpserver "github.com/market-raccoon/internal/interfaces/http"
 	wsserver "github.com/market-raccoon/internal/interfaces/ws"
 	"github.com/market-raccoon/internal/shared/bootstrap"
@@ -442,10 +444,27 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 		deliveryFactory = deliveryruntime.NewSubsystemActor(deliveryCfg)
 	}
 
+	// ── evidence engine ──────────────────────────────────────────────────
+	var evidenceFactory actor.Producer
+	if cfg.Delivery.Enabled {
+		ruleCfg := evidenceapp.DefaultRuleConfig()
+		engineCfg := evidenceapp.DefaultEngineConfig()
+		evidenceEngine := evidenceapp.NewEvidenceEngine(engineCfg,
+			evidenceapp.NewSpreadExplosionRule(ruleCfg),
+			evidenceapp.NewLiquidityThinningRule(ruleCfg),
+			evidenceapp.NewPersistentImbalanceRule(ruleCfg),
+			evidenceapp.NewAbsorptionRule(ruleCfg),
+		)
+		evidenceFactory = evidenceruntime.NewSubsystemActor(evidenceruntime.SubsystemConfig{
+			Logger: logger.With("subsystem", "evidence"),
+			Engine: evidenceEngine,
+		})
+	}
+
 	// ── guardian ──────────────────────────────────────────────────────────
 	guardianPID := actorruntime.SpawnGuardian(e, actorruntime.GuardianConfig{
 		Logger:    logger,
-		Factories: buildServerFactories(cfg.Delivery.Enabled, deliveryFactory),
+		Factories: buildServerFactories(cfg.Delivery.Enabled, deliveryFactory, evidenceFactory),
 	})
 	logger.Info("guardian spawned", "pid", guardianPID.String())
 
@@ -971,10 +990,13 @@ func snapshotSymbolCandidates(symbol string) []string {
 	return out
 }
 
-func buildServerFactories(deliveryEnabled bool, deliveryFactory actor.Producer) map[actorruntime.Subsystem]actor.Producer {
+func buildServerFactories(deliveryEnabled bool, deliveryFactory, evidenceFactory actor.Producer) map[actorruntime.Subsystem]actor.Producer {
 	factories := make(map[actorruntime.Subsystem]actor.Producer)
 	if deliveryEnabled && deliveryFactory != nil {
 		factories[actorruntime.SubsystemDelivery] = deliveryFactory
+	}
+	if deliveryEnabled && evidenceFactory != nil {
+		factories[actorruntime.SubsystemEvidence] = evidenceFactory
 	}
 	return factories
 }

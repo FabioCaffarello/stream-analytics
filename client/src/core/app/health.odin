@@ -1,6 +1,7 @@
 package app
 
 import "core:fmt"
+import "mr:md_common"
 import "mr:ports"
 import "mr:services"
 import "mr:streams"
@@ -177,39 +178,24 @@ sample_marketdata_metrics :: proc(state: ^App_State) {
 @(private = "file")
 apply_backpressure_assist :: proc(state: ^App_State, metrics: ports.MD_Runtime_Metrics) {
 	if state == nil do return
-	prev := state.bp_assist
 	level := metrics.server_backpressure_level
 
-	next_enabled := prev.enabled
-	next_degrade_heatmap := prev.degrade_heatmap
-	next_degrade_vpvr := prev.degrade_vpvr
-	next_divisor := prev.getrange_divisor
-	if next_divisor <= 0 do next_divisor = 1
+	decision := md_common.compute_bp_assist_decision(md_common.BP_Assist_Input{
+		prev_enabled          = state.bp_assist.enabled,
+		prev_degrade_heatmap  = state.bp_assist.degrade_heatmap,
+		prev_degrade_vpvr     = state.bp_assist.degrade_vpvr,
+		prev_getrange_divisor = state.bp_assist.getrange_divisor,
+		user_enabled          = state.bp_assist.user_enabled,
+		cooldown_frames       = state.bp_assist.cooldown_frames,
+		level                 = level,
+	})
 
-	if level >= 2 {
-		next_enabled = true
-		next_degrade_heatmap = true
-		next_degrade_vpvr = level >= 3
-		next_divisor = level >= 3 ? 4 : 2
-		state.bp_assist.cooldown_frames = 120
-	} else if state.bp_assist.cooldown_frames > 0 {
-		state.bp_assist.cooldown_frames -= 1
-	} else {
-		next_enabled = false
-		next_degrade_heatmap = false
-		next_degrade_vpvr = false
-		next_divisor = 1
-	}
-
-	changed := next_enabled != prev.enabled ||
-		next_degrade_heatmap != prev.degrade_heatmap ||
-		next_degrade_vpvr != prev.degrade_vpvr ||
-		next_divisor != prev.getrange_divisor
-
-	state.bp_assist.enabled = next_enabled
-	state.bp_assist.degrade_heatmap = next_degrade_heatmap
-	state.bp_assist.degrade_vpvr = next_degrade_vpvr
-	state.bp_assist.getrange_divisor = next_divisor
+	state.bp_assist.enabled = decision.enabled
+	state.bp_assist.degrade_heatmap = decision.degrade_heatmap
+	state.bp_assist.degrade_vpvr = decision.degrade_vpvr
+	state.bp_assist.getrange_divisor = decision.getrange_divisor
+	state.bp_assist.cooldown_frames = decision.cooldown_frames
+	state.bp_assist.recommended_action_pending = level >= 2 && !state.bp_assist.user_enabled
 
 	reason := "none"
 	if metrics.server_recommended_action_len > 0 {
@@ -226,10 +212,37 @@ apply_backpressure_assist :: proc(state: ^App_State, metrics: ports.MD_Runtime_M
 	}
 	state.bp_assist.reason_len = u8(rn)
 
-	if changed {
-		reconcile_subscriptions(state)
-		show_toast(state, next_enabled ? "Assist: backpressure protection ON" : "Assist: backpressure protection OFF")
+	if decision.auto_activated {
+		fmt.printf("[md-assist] auto_activate level=%d reason=%s\n", level, reason)
 	}
+	if decision.changed {
+		fmt.printf("[md-assist] transition enabled=%v heatmap=%v vpvr=%v div=%d level=%d reason=%s\n",
+			decision.enabled, decision.degrade_heatmap, decision.degrade_vpvr,
+			decision.getrange_divisor, level, reason)
+		reconcile_subscriptions(state)
+		show_toast(state, decision.enabled ? "Assist: backpressure protection ON" : "Assist: backpressure protection OFF")
+	}
+}
+
+@(private = "package")
+apply_backpressure_recommendation :: proc(state: ^App_State) {
+	if state == nil do return
+	level := state.active_metrics.server_backpressure_level
+	if level < 2 {
+		state.bp_assist.recommended_action_pending = false
+		return
+	}
+	state.bp_assist.user_enabled = true
+	state.bp_assist.enabled = true
+	state.bp_assist.degrade_heatmap = true
+	state.bp_assist.degrade_vpvr = level >= 3
+	state.bp_assist.getrange_divisor = level >= 3 ? 4 : 2
+	state.bp_assist.recommended_action_pending = false
+	state.bp_assist.cooldown_frames = 120
+	reconcile_subscriptions(state)
+	services.settings_set(&state.settings, services.SETTING_ASSIST_MODE, "1")
+	services.settings_flush(&state.settings)
+	show_toast(state, "Assist: recommendation applied")
 }
 
 refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtime_Metrics) {
@@ -270,6 +283,7 @@ refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtim
 	state.active_metrics.alloc_estimate_total = metrics.alloc_estimate_total
 	state.active_metrics.parse_time_p95_us = metrics.parse_time_p95_us
 	state.active_metrics.apply_time_p95_us = metrics.apply_time_p95_us
+	state.active_metrics.batched_decode_time_p95_us = metrics.batched_decode_time_p95_us
 	state.active_metrics.backend_gap_no_metrics = metrics.backend_gap_no_metrics
 	state.active_metrics.backend_gap_pong_timeout = metrics.backend_gap_pong_timeout
 	state.active_metrics.backend_gap_resync_ack_timeout = metrics.backend_gap_resync_ack_timeout
@@ -288,6 +302,10 @@ refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtim
 	state.active_metrics.server_recommended_action = metrics.server_recommended_action
 	state.active_metrics.server_recommended_action_len = metrics.server_recommended_action_len
 	state.active_metrics.negotiated_feature_count = metrics.negotiated_feature_count
+	state.active_metrics.negotiated_feature_names = metrics.negotiated_feature_names
+	state.active_metrics.negotiated_feature_name_lens = metrics.negotiated_feature_name_lens
+	state.active_metrics.batched_frames_received = metrics.batched_frames_received
+	state.active_metrics.batched_events_received = metrics.batched_events_received
 	state.active_metrics.snapshot_hash_mismatches = metrics.snapshot_hash_mismatches
 	state.active_metrics.snapshot_seq_violations = metrics.snapshot_seq_violations
 	state.active_metrics.prev_seq_violations = metrics.prev_seq_violations
@@ -300,6 +318,7 @@ refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtim
 	state.active_metrics.assist_getrange_divisor = max(state.bp_assist.getrange_divisor, 1)
 	state.active_metrics.assist_reason = state.bp_assist.reason
 	state.active_metrics.assist_reason_len = state.bp_assist.reason_len
+	state.active_metrics.assist_user_enabled = state.bp_assist.user_enabled
 
 	active := streams.registry_active(&state.stream_registry)
 	if active == nil {

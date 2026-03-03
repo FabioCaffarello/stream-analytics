@@ -11,6 +11,7 @@ use (
 	./internal/adapters
 	./internal/core/aggregation
 	./internal/core/delivery
+	./internal/core/evidence
 	./internal/core/insights
 	./internal/core/marketdata
 	./internal/interfaces

@@ -415,6 +415,7 @@ push_evidence :: proc(state: ^App_State, evt: ports.MD_Evidence_Event, subject_i
 		reason        = evt.reason,
 		reason_len    = evt.reason_len,
 		feature_tags  = evt.feature_tags,
+		feature_vals  = evt.feature_vals,
 		feature_count = evt.feature_count,
 		unix          = evt.unix,
 		subject_id    = subject_id,

@@ -21,6 +21,7 @@ require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
+	github.com/market-raccoon/internal/core/evidence v0.0.0 // indirect
 	github.com/paulmach/orb v0.12.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.22 // indirect
 	github.com/segmentio/asm v1.2.0 // indirect
@@ -99,6 +100,7 @@ require (
 )
 
 replace (
+	github.com/market-raccoon/internal/core/evidence => ../core/evidence
 	github.com/market-raccoon/internal/core/insights => ../core/insights
 	github.com/market-raccoon/internal/shared => ../shared
 )

@@ -21,7 +21,7 @@ import (
 
 func TestBuildServerFactories_DeliveryEnabledIncludesFactory(t *testing.T) {
 	factory := func() actor.Receiver { return nil }
-	factories := buildServerFactories(true, factory)
+	factories := buildServerFactories(true, factory, nil)
 	if _, ok := factories[actorruntime.SubsystemDelivery]; !ok {
 		t.Fatal("expected SubsystemDelivery factory when delivery is enabled")
 	}
@@ -29,7 +29,7 @@ func TestBuildServerFactories_DeliveryEnabledIncludesFactory(t *testing.T) {
 
 func TestBuildServerFactories_DeliveryDisabledExcludesFactory(t *testing.T) {
 	factory := func() actor.Receiver { return nil }
-	factories := buildServerFactories(false, factory)
+	factories := buildServerFactories(false, factory, nil)
 	if _, ok := factories[actorruntime.SubsystemDelivery]; ok {
 		t.Fatal("did not expect SubsystemDelivery factory when delivery is disabled")
 	}

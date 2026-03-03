@@ -201,6 +201,8 @@ When a tenant has configured limits, they override the global `max_subs_per_conn
 
 The `/ws/marketdata` route is the legacy entry point. New clients should use `/ws` exclusively. The deprecation follows a 3-phase timeline controlled by `ws.allow_legacy_ws` in config:
 
+Web client note: the browser client-side fallback switch (`allow_legacy_ws`) is now OFF by default and requires explicit opt-in.
+
 | Phase | Config | Behavior |
 |-------|--------|----------|
 | 1. Both active (current) | `allow_legacy_ws: true` (default) | Both `/ws` and `/ws/marketdata` served; legacy requests counted via `ws_legacy_requests_total{status=accepted}` |

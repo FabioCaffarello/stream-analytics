@@ -295,7 +295,7 @@ This PRD addresses the security and operational gaps identified in the competiti
 - [RFC-0015 — Backend Sub-Minute Hardening](../rfcs/RFC-0015-backend-subminute-hardening-rollout.md)
 - [Architecture TRUTH-MAP](../architecture/TRUTH-MAP.md)
 - [System Invariants](../architecture/system-invariants.md)
-- [MarketMonkey Audit Pack](../../zip/01-marketmonkey-files/marketmonkey/docs/architecture/MARKETMONKEY-AUDIT-PACK.md)
+- [MarketMonkey Audit Pack](../audits/AUDIT-PACK-W11-finalization.md)
 
 ---
 

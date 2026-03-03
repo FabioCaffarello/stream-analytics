@@ -92,6 +92,8 @@ channel_to_stream_type :: proc(channel: ports.MD_Channel) -> string {
 		return "insights.volume_profile_snapshot"
 	case .Candles:
 		return "aggregation.candle"
+	case .Evidence:
+		return "insights.microstructure_evidence"
 	}
 	return ""
 }
@@ -103,7 +105,7 @@ timeframe_for_channel :: proc(channel: ports.MD_Channel, timeframe: string) -> s
 		// Timeframe-aware streams follow the active candle timeframe.
 		if len(timeframe) > 0 do return timeframe
 		return "1m"
-	case .Trades, .Orderbook, .Stats:
+	case .Trades, .Orderbook, .Stats, .Evidence:
 		return "raw"
 	}
 	return ""

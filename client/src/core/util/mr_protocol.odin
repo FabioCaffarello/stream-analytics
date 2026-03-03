@@ -21,6 +21,7 @@ MR_Frame_Type :: enum u8 {
 	Unknown,
 	Event,
 	Snapshot,
+	Batch,
 	Ack,
 	Error,
 	Range,
@@ -369,6 +370,7 @@ parse_frame_type :: proc(s: string) -> MR_Frame_Type {
 	switch s {
 	case "event":     return .Event
 	case "snapshot":  return .Snapshot
+	case "batch":     return .Batch
 	case "ack":       return .Ack
 	case "error":     return .Error
 	case "range":     return .Range

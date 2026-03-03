@@ -95,6 +95,8 @@ channel_short_label :: proc(ch: ports.MD_Channel) -> string {
 		return "vpvr"
 	case .Candles:
 		return "candles"
+	case .Evidence:
+		return "evidence"
 	}
 	return "?"
 }

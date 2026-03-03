@@ -22,6 +22,7 @@ require (
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
+	github.com/market-raccoon/internal/core/evidence v0.0.0 // indirect
 	github.com/market-raccoon/internal/core/marketdata v0.0.0 // indirect
 	github.com/matttproud/golang_protobuf_extensions/v2 v2.0.0 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
@@ -41,6 +42,7 @@ replace (
 	github.com/market-raccoon/internal/actors => ../actors
 	github.com/market-raccoon/internal/core/aggregation => ../core/aggregation
 	github.com/market-raccoon/internal/core/delivery => ../core/delivery
+	github.com/market-raccoon/internal/core/evidence => ../core/evidence
 	github.com/market-raccoon/internal/core/insights => ../core/insights
 	github.com/market-raccoon/internal/core/marketdata => ../core/marketdata
 	github.com/market-raccoon/internal/shared => ../shared

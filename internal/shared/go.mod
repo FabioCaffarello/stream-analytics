@@ -3,6 +3,7 @@ module github.com/market-raccoon/internal/shared
 go 1.25.6
 
 require (
+	github.com/market-raccoon/internal/core/evidence v0.0.0
 	github.com/market-raccoon/internal/core/insights v0.0.0
 	github.com/market-raccoon/internal/core/marketdata v0.0.0
 	github.com/nats-io/nats.go v1.48.0
@@ -26,6 +27,7 @@ require (
 )
 
 replace (
+	github.com/market-raccoon/internal/core/evidence => ../core/evidence
 	github.com/market-raccoon/internal/core/insights => ../core/insights
 	github.com/market-raccoon/internal/core/marketdata => ../core/marketdata
 )

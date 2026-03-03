@@ -9,6 +9,7 @@ require (
 	github.com/market-raccoon/internal/adapters v0.0.0
 	github.com/market-raccoon/internal/core/aggregation v0.0.0
 	github.com/market-raccoon/internal/core/delivery v0.0.0
+	github.com/market-raccoon/internal/core/evidence v0.0.0
 	github.com/market-raccoon/internal/interfaces v0.0.0
 	github.com/market-raccoon/internal/shared v0.0.0
 	github.com/prometheus/client_golang v1.18.0
@@ -65,6 +66,7 @@ replace (
 	github.com/market-raccoon/internal/adapters => ../../internal/adapters
 	github.com/market-raccoon/internal/core/aggregation => ../../internal/core/aggregation
 	github.com/market-raccoon/internal/core/delivery => ../../internal/core/delivery
+	github.com/market-raccoon/internal/core/evidence => ../../internal/core/evidence
 	github.com/market-raccoon/internal/core/insights => ../../internal/core/insights
 	github.com/market-raccoon/internal/core/marketdata => ../../internal/core/marketdata
 	github.com/market-raccoon/internal/interfaces => ../../internal/interfaces

@@ -338,6 +338,7 @@ init :: proc(
 	streams.controller_init(&state.stream_controller)
 	state.active_metrics.state = .Offline
 	state.bp_assist.getrange_divisor = 1
+	state.bp_assist.user_enabled = false
 	state.chart_display.show_vol = true
 	state.chart_display.show_heatmap = true
 	state.chart_display.show_vpvr = true
@@ -508,6 +509,9 @@ init :: proc(
 				if panel_visibility_mask_decode(v, &state.chrome.panel_visible) {
 					ui.sync_sidebar_visibility(&state.chrome.sidebar, state.chrome.panel_visible)
 				}
+			}
+			if v, ok := services.settings_get(&state.settings, services.SETTING_ASSIST_MODE); ok {
+				state.bp_assist.user_enabled = v == "1"
 			}
 			// Restore layout preset.
 			if v, ok := services.settings_get(&state.settings, services.SETTING_LAYOUT_PRESET); ok {

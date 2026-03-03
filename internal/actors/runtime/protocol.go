@@ -14,6 +14,7 @@ const (
 	SubsystemAggregation Subsystem = "aggregation"
 	SubsystemDelivery    Subsystem = "delivery"
 	SubsystemInsights    Subsystem = "insights"
+	SubsystemEvidence    Subsystem = "evidence"
 	SubsystemStorage     Subsystem = "storage"
 )
 
@@ -22,6 +23,7 @@ var orderedSubsystems = []Subsystem{
 	SubsystemAggregation,
 	SubsystemDelivery,
 	SubsystemInsights,
+	SubsystemEvidence,
 	SubsystemStorage,
 }
 

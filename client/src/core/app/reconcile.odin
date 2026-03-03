@@ -15,7 +15,7 @@ import "mr:util"
 // Subscribe only to channels cells actually need.
 // ===============================================================
 
-CHANNEL_COUNT :: 6
+CHANNEL_COUNT :: 7
 
 // Returns a bitmask of channels a widget type needs.
 channels_for_widget :: proc(kind: Widget_Kind) -> u8 {
@@ -25,9 +25,10 @@ channels_for_widget :: proc(kind: Widget_Kind) -> u8 {
 	CH_HEATMAPS  :: u8(1 << u8(ports.MD_Channel.Heatmaps))
 	CH_VPVR      :: u8(1 << u8(ports.MD_Channel.VPVR))
 	CH_CANDLES   :: u8(1 << u8(ports.MD_Channel.Candles))
+	CH_EVIDENCE  :: u8(1 << u8(ports.MD_Channel.Evidence))
 
 	switch kind {
-	case .Candle:    return CH_CANDLES | CH_STATS | CH_HEATMAPS | CH_VPVR
+	case .Candle:    return CH_CANDLES | CH_STATS | CH_HEATMAPS | CH_VPVR | CH_EVIDENCE
 	case .Orderbook: return CH_ORDERBOOK
 	case .DOM:       return CH_ORDERBOOK | CH_TRADES
 	case .Trades:    return CH_TRADES

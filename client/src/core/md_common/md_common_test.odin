@@ -317,6 +317,32 @@ test_resolve_requested_features_explicit_on :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_requested_features_disables_compress_when_unsupported :: proc(t: ^testing.T) {
+	features: [MAX_REQUESTED_FEATURES][24]u8
+	feature_lens: [MAX_REQUESTED_FEATURES]u8
+	fc := resolve_requested_features(
+		.Terminal_V1,
+		.WASM,
+		true,
+		true,
+		true,
+		true,
+		"auto",
+		"auto",
+		"auto",
+		&features,
+		&feature_lens,
+		true,
+		"on",
+		false,
+	)
+	testing.expect_value(t, fc, 3)
+	for i in 0 ..< fc {
+		testing.expect(t, string(features[i][:feature_lens[i]]) != "compress", "compress must be removed when decompress is unsupported")
+	}
+}
+
+@(test)
 test_feature_should_request_variants :: proc(t: ^testing.T) {
 	// Explicit overrides.
 	testing.expect_value(t, feature_should_request("on", false, false), true)
@@ -433,6 +459,286 @@ test_validate_snapshot_integrity_consistency :: proc(t: ^testing.T) {
 	testing.expect_value(t, validate_snapshot_integrity_consistency(100, 99, 100), true)
 	testing.expect_value(t, validate_snapshot_integrity_consistency(100, 101, 90), true)
 	testing.expect_value(t, validate_snapshot_integrity_consistency(100, 0, 0), false)
+}
+
+// --- Centralized limit/capability tests ---
+
+@(test)
+test_effective_sub_limit_server_overrides_local :: proc(t: ^testing.T) {
+	// Server says 50, local is 128 → use 50.
+	testing.expect_value(t, effective_sub_limit(50, 128), 50)
+}
+
+@(test)
+test_effective_sub_limit_no_server_uses_local :: proc(t: ^testing.T) {
+	// Server=0 → use local.
+	testing.expect_value(t, effective_sub_limit(0, 128), 128)
+	testing.expect_value(t, effective_sub_limit(-1, 128), 128)
+}
+
+@(test)
+test_effective_sub_limit_zero_local_returns_zero :: proc(t: ^testing.T) {
+	testing.expect_value(t, effective_sub_limit(50, 0), 0)
+	testing.expect_value(t, effective_sub_limit(0, 0), 0)
+}
+
+@(test)
+test_can_add_subscription_at_limit :: proc(t: ^testing.T) {
+	testing.expect_value(t, can_add_subscription(50, 50, 128), false)
+	testing.expect_value(t, can_add_subscription(128, 0, 128), false)
+}
+
+@(test)
+test_can_add_subscription_below_limit :: proc(t: ^testing.T) {
+	testing.expect_value(t, can_add_subscription(49, 50, 128), true)
+	testing.expect_value(t, can_add_subscription(0, 0, 128), true)
+}
+
+@(test)
+test_metrics_stale_timeout_server_cadence :: proc(t: ^testing.T) {
+	// 5s cadence → 15s stale timeout.
+	testing.expect_value(t, metrics_stale_timeout_ms(5000, 20_000), i64(15_000))
+}
+
+@(test)
+test_metrics_stale_timeout_no_server_uses_fallback :: proc(t: ^testing.T) {
+	testing.expect_value(t, metrics_stale_timeout_ms(0, 20_000), i64(20_000))
+	testing.expect_value(t, metrics_stale_timeout_ms(-1, 15_000), i64(15_000))
+}
+
+@(test)
+test_metrics_stale_timeout_min_3s :: proc(t: ^testing.T) {
+	// 500ms cadence → 1500ms, but clamped to 3000.
+	testing.expect_value(t, metrics_stale_timeout_ms(500, 20_000), i64(3000))
+}
+
+@(test)
+test_feature_slot_has_name_match :: proc(t: ^testing.T) {
+	slots: [services.MAX_FEATURE_SLOTS]services.Parsed_Feature_Slot
+	f := "batching"
+	for i in 0 ..< len(f) { slots[0].name[i] = f[i] }
+	slots[0].len = u8(len(f))
+	testing.expect_value(t, feature_slot_has_name(slots, 1, "batching"), true)
+}
+
+@(test)
+test_feature_slot_has_name_no_match :: proc(t: ^testing.T) {
+	slots: [services.MAX_FEATURE_SLOTS]services.Parsed_Feature_Slot
+	f := "batching"
+	for i in 0 ..< len(f) { slots[0].name[i] = f[i] }
+	slots[0].len = u8(len(f))
+	testing.expect_value(t, feature_slot_has_name(slots, 1, "compress"), false)
+}
+
+@(test)
+test_feature_slot_has_name_empty :: proc(t: ^testing.T) {
+	slots: [services.MAX_FEATURE_SLOTS]services.Parsed_Feature_Slot
+	testing.expect_value(t, feature_slot_has_name(slots, 0, "batching"), false)
+}
+
+@(test)
+test_frame_exceeds_limit_within_bounds :: proc(t: ^testing.T) {
+	testing.expect_value(t, frame_exceeds_limit(65536, 1024), false)
+	testing.expect_value(t, frame_exceeds_limit(65536, 65536), false)
+}
+
+@(test)
+test_frame_exceeds_limit_exceeds :: proc(t: ^testing.T) {
+	testing.expect_value(t, frame_exceeds_limit(65536, 65537), true)
+}
+
+@(test)
+test_frame_exceeds_limit_no_server_limit :: proc(t: ^testing.T) {
+	// server_max=0 → no limit, never exceeds.
+	testing.expect_value(t, frame_exceeds_limit(0, 999999), false)
+}
+
+// --- Server_Capabilities tests ---
+
+@(test)
+test_apply_hello_valid_copies_all_fields :: proc(t: ^testing.T) {
+	caps: Server_Capabilities
+	h := services.Parsed_Hello{
+		proto_ver = 2,
+		max_subscriptions = 100,
+		max_frame_bytes = 65536,
+		metrics_cadence_ms = 5000,
+		keepalive_interval_ms = 20000,
+		rate_limit_enabled = true,
+		server_instance_id = "test-server-1",
+	}
+	apply_hello_to_capabilities(&caps, h)
+	testing.expect_value(t, caps.proto_ver, 2)
+	testing.expect_value(t, caps.max_subscriptions, 100)
+	testing.expect_value(t, caps.max_frame_bytes, 65536)
+	testing.expect_value(t, caps.metrics_cadence_ms, 5000)
+	testing.expect_value(t, caps.keepalive_interval_ms, 20000)
+	testing.expect_value(t, caps.rate_limit_enabled, true)
+	testing.expect_value(t, caps.received, true)
+}
+
+@(test)
+test_apply_hello_copies_supported_features :: proc(t: ^testing.T) {
+	caps: Server_Capabilities
+	h: services.Parsed_Hello
+	h.supported_feature_count = 2
+	f1 := "batching"
+	for i in 0 ..< len(f1) { h.supported_features[0].name[i] = f1[i] }
+	h.supported_features[0].len = u8(len(f1))
+	f2 := "compress"
+	for i in 0 ..< len(f2) { h.supported_features[1].name[i] = f2[i] }
+	h.supported_features[1].len = u8(len(f2))
+	apply_hello_to_capabilities(&caps, h)
+	testing.expect_value(t, caps.supported_feature_count, 2)
+	testing.expect_value(t, feature_slot_has_name(caps.supported_features, caps.supported_feature_count, "batching"), true)
+	testing.expect_value(t, feature_slot_has_name(caps.supported_features, caps.supported_feature_count, "compress"), true)
+}
+
+@(test)
+test_apply_hello_truncates_long_server_id :: proc(t: ^testing.T) {
+	caps: Server_Capabilities
+	h: services.Parsed_Hello
+	h.server_instance_id = "abcdefghijklmnopqrstuvwxyz0123456789" // > 32 chars
+	apply_hello_to_capabilities(&caps, h)
+	testing.expect_value(t, int(caps.server_instance_id_len), 32)
+}
+
+@(test)
+test_apply_hello_received_flag_set :: proc(t: ^testing.T) {
+	caps: Server_Capabilities
+	testing.expect_value(t, caps.received, false)
+	h: services.Parsed_Hello
+	apply_hello_to_capabilities(&caps, h)
+	testing.expect_value(t, caps.received, true)
+}
+
+// --- BP assist decision tests ---
+
+@(test)
+test_bp_assist_auto_at_level_2 :: proc(t: ^testing.T) {
+	d := compute_bp_assist_decision(BP_Assist_Input{
+		user_enabled = true,
+		level = 2,
+	})
+	testing.expect_value(t, d.enabled, true)
+	testing.expect_value(t, d.degrade_heatmap, true)
+	testing.expect_value(t, d.degrade_vpvr, false)
+	testing.expect_value(t, d.getrange_divisor, 2)
+	testing.expect_value(t, d.cooldown_frames, 120)
+	testing.expect_value(t, d.changed, true)
+	testing.expect_value(t, d.auto_activated, true)
+}
+
+@(test)
+test_bp_assist_critical_at_level_3 :: proc(t: ^testing.T) {
+	d := compute_bp_assist_decision(BP_Assist_Input{
+		user_enabled = true,
+		level = 3,
+	})
+	testing.expect_value(t, d.enabled, true)
+	testing.expect_value(t, d.degrade_heatmap, true)
+	testing.expect_value(t, d.degrade_vpvr, true)
+	testing.expect_value(t, d.getrange_divisor, 4)
+}
+
+@(test)
+test_bp_assist_cooldown_prevents_premature_disable :: proc(t: ^testing.T) {
+	d := compute_bp_assist_decision(BP_Assist_Input{
+		prev_enabled = true,
+		prev_degrade_heatmap = true,
+		prev_getrange_divisor = 2,
+		cooldown_frames = 5,
+		level = 0,
+	})
+	testing.expect_value(t, d.enabled, true)
+	testing.expect_value(t, d.cooldown_frames, 4)
+	testing.expect_value(t, d.changed, false)
+}
+
+@(test)
+test_bp_assist_level_0_after_cooldown_disables :: proc(t: ^testing.T) {
+	d := compute_bp_assist_decision(BP_Assist_Input{
+		prev_enabled = true,
+		prev_degrade_heatmap = true,
+		prev_getrange_divisor = 2,
+		cooldown_frames = 0,
+		level = 0,
+	})
+	testing.expect_value(t, d.enabled, false)
+	testing.expect_value(t, d.degrade_heatmap, false)
+	testing.expect_value(t, d.degrade_vpvr, false)
+	testing.expect_value(t, d.getrange_divisor, 1)
+	testing.expect_value(t, d.changed, true)
+}
+
+@(test)
+test_bp_assist_user_disabled_no_auto :: proc(t: ^testing.T) {
+	d := compute_bp_assist_decision(BP_Assist_Input{
+		user_enabled = false,
+		level = 2,
+	})
+	// user_enabled=false, level=2 → no auto_assist, stays disabled.
+	testing.expect_value(t, d.enabled, false)
+	testing.expect_value(t, d.auto_activated, false)
+}
+
+@(test)
+test_bp_assist_no_change_returns_unchanged :: proc(t: ^testing.T) {
+	d := compute_bp_assist_decision(BP_Assist_Input{
+		prev_enabled = true,
+		prev_degrade_heatmap = true,
+		prev_degrade_vpvr = false,
+		prev_getrange_divisor = 2,
+		user_enabled = true,
+		cooldown_frames = 50,
+		level = 2,
+	})
+	testing.expect_value(t, d.changed, false)
+}
+
+@(test)
+test_bp_assist_auto_activated_flag :: proc(t: ^testing.T) {
+	// First activation: false→true.
+	d1 := compute_bp_assist_decision(BP_Assist_Input{
+		prev_enabled = false,
+		user_enabled = true,
+		level = 2,
+	})
+	testing.expect_value(t, d1.auto_activated, true)
+	// Already enabled: true→true.
+	d2 := compute_bp_assist_decision(BP_Assist_Input{
+		prev_enabled = true,
+		user_enabled = true,
+		level = 2,
+	})
+	testing.expect_value(t, d2.auto_activated, false)
+}
+
+// --- free_sub_entry test ---
+
+@(private = "file")
+Test_Sub_Entry :: struct {
+	subject_id: u64,
+	venue:      string,
+	symbol:     string,
+	subject:    string,
+	channel:    ports.MD_Channel,
+}
+
+@(test)
+test_free_sub_entry_clears_all_fields :: proc(t: ^testing.T) {
+	entry := Test_Sub_Entry{
+		subject_id = 0xABCD,
+		venue      = strings.clone("binance"),
+		symbol     = strings.clone("BTCUSDT"),
+		subject    = strings.clone("marketdata.trade/binance/BTCUSDT"),
+		channel    = .Trades,
+	}
+	free_sub_entry(&entry)
+	testing.expect_value(t, entry.subject_id, u64(0))
+	testing.expect_value(t, len(entry.venue), 0)
+	testing.expect_value(t, len(entry.symbol), 0)
+	testing.expect_value(t, len(entry.subject), 0)
 }
 
 @(test)

@@ -55,10 +55,11 @@ refresh_telemetry_hud_cache :: proc(state: ^App_State) {
 	}
 	// Perf timing: frame p95 + parser/apply p95 + alloc estimate + phase timings.
 	state.telemetry.hud_cache.phase_len = len(fmt.bprintf(
-		state.telemetry.hud_cache.phase_buf[:], "F95:%dus PR:%dus AP:%dus AL:%d D:%dus U:%dus R:%dus",
+		state.telemetry.hud_cache.phase_buf[:], "F95:%dus PR:%dus AP:%dus BD:%dus AL:%d D:%dus U:%dus R:%dus",
 		max(frame_p95_us, 0),
 		max(state.active_metrics.parse_time_p95_us, 0),
 		max(state.active_metrics.apply_time_p95_us, 0),
+		max(state.active_metrics.batched_decode_time_p95_us, 0),
 		state.active_metrics.alloc_estimate_total,
 		max(state.telemetry.drain_us, 0),
 		max(state.telemetry.actions_us, 0),
@@ -339,19 +340,22 @@ build_health_panel :: proc(state: ^App_State, viewport_w, viewport_h: f32, point
 	y += ROW_H
 
 	// Row 2: parsed totals
-	pt_buf: [64]u8
-	pt_str := fmt.bprintf(pt_buf[:], "msgs:%d  bytes:%dMB  resets:%d",
+	pt_buf: [96]u8
+	pt_str := fmt.bprintf(pt_buf[:], "msgs:%d  bytes:%dMB  resets:%d  batch:%d/%d",
 		state.active_metrics.parsed_msgs_total,
 		state.active_metrics.parsed_bytes_total / u64(1024 * 1024),
-		state.active_metrics.parse_arena_resets)
+		state.active_metrics.parse_arena_resets,
+		state.active_metrics.batched_frames_received,
+		state.active_metrics.batched_events_received)
 	ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, pt_str, ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS, .Mono)
 	y += ROW_H
 
-	// Row 3: parser/apply p95 + alloc estimate.
-	pf_buf: [96]u8
-	pf_str := fmt.bprintf(pf_buf[:], "parse_p95:%dus  apply_p95:%dus  alloc:%d",
+	// Row 3: parser/apply/batched decode p95 + alloc estimate.
+	pf_buf: [120]u8
+	pf_str := fmt.bprintf(pf_buf[:], "parse_p95:%dus  apply_p95:%dus  batch_p95:%dus  alloc:%d",
 		max(state.active_metrics.parse_time_p95_us, 0),
 		max(state.active_metrics.apply_time_p95_us, 0),
+		max(state.active_metrics.batched_decode_time_p95_us, 0),
 		state.active_metrics.alloc_estimate_total)
 	ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, pf_str, ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS, .Mono)
 	y += ROW_H + SECTION_GAP
@@ -371,10 +375,11 @@ build_health_panel :: proc(state: ^App_State, viewport_w, viewport_h: f32, point
 		if state.active_metrics.assist_reason_len > 0 {
 			assist_reason = string(state.active_metrics.assist_reason[:int(state.active_metrics.assist_reason_len)])
 		}
-		assist_buf: [128]u8
+		assist_buf: [156]u8
 		assist_str := fmt.bprintf(
 			assist_buf[:],
-			"ASSIST ON heatmap:%s vpvr:%s getrange:/%d reason:%s",
+			"ASSIST ON (%s) heatmap:%s vpvr:%s getrange:/%d reason:%s",
+			state.active_metrics.assist_user_enabled ? "auto" : "manual",
 			state.active_metrics.assist_degrade_heatmap ? "off" : "on",
 			state.active_metrics.assist_degrade_vpvr ? "off" : "on",
 			max(state.active_metrics.assist_getrange_divisor, 1),
@@ -383,6 +388,39 @@ build_health_panel :: proc(state: ^App_State, viewport_w, viewport_h: f32, point
 		ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, assist_str, ui.COL_YELLOW_ACCENT, ui.FONT_SIZE_XS, .Mono)
 		y += ROW_H + SECTION_GAP
 	}
+
+	// === SERVER LIMITS section (from HELLO capabilities) ===
+	ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, "Server Limits:", ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_XS, .Bold)
+	y += ROW_H + 2
+	limits_subs := "n/a"
+	if state.active_metrics.server_max_subscriptions > 0 {
+		limits_subs_buf: [16]u8
+		limits_subs = fmt.bprintf(limits_subs_buf[:], "%d", state.active_metrics.server_max_subscriptions)
+	}
+	limits_frame := "n/a"
+	if state.active_metrics.server_max_frame_bytes > 0 {
+		limits_frame_buf: [24]u8
+		limits_frame = fmt.bprintf(
+			limits_frame_buf[:],
+			"%dKB",
+			max(state.active_metrics.server_max_frame_bytes, 0) / 1024,
+		)
+	}
+	limits_cadence := "n/a"
+	if state.active_metrics.server_metrics_cadence_ms > 0 {
+		limits_cadence_buf: [24]u8
+		limits_cadence = fmt.bprintf(limits_cadence_buf[:], "%dms", state.active_metrics.server_metrics_cadence_ms)
+	}
+	limits_line_buf: [128]u8
+	limits_line := fmt.bprintf(
+		limits_line_buf[:],
+		"Subs:%s  Frame:%s  Metrics cadence:%s",
+		limits_subs,
+		limits_frame,
+		limits_cadence,
+	)
+	ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, limits_line, ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS, .Mono)
+	y += ROW_H + SECTION_GAP
 
 	// === SERVER section (server-pushed metrics from METRICS frame) ===
 	sm := state.active_metrics
@@ -434,6 +472,25 @@ build_health_panel :: proc(state: ^App_State, viewport_w, viewport_h: f32, point
 			ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, bp_str, bp_color, ui.FONT_SIZE_XS, .Mono)
 			y += ROW_H
 		}
+		if sm.server_backpressure_level >= 2 && !state.active_metrics.assist_user_enabled {
+			action := "reduce_subscriptions"
+			if sm.server_recommended_action_len > 0 {
+				action = string(sm.server_recommended_action[:int(sm.server_recommended_action_len)])
+			}
+			act_buf: [128]u8
+			act_str := fmt.bprintf(act_buf[:], "recommended_action:%s", action)
+			ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, act_str, ui.COL_WARNING, ui.FONT_SIZE_XS, .Mono)
+			apply_btn := ui.button(
+				&state.cmd_buf,
+				ui.rect_xywh(lx + 220, y, 60, ROW_H + 2),
+				"Apply",
+				pointer, state.text.measure, ui.FONT_SIZE_XS, .Mono,
+			)
+			if apply_btn.clicked {
+				apply_backpressure_recommendation(state)
+			}
+			y += ROW_H
+		}
 		y += SECTION_GAP
 		}
 
@@ -441,6 +498,7 @@ build_health_panel :: proc(state: ^App_State, viewport_w, viewport_h: f32, point
 		ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, "EVIDENCE", ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_XS, .Bold)
 		y += ROW_H + 2
 		ev_visible := min(state.evidence.count, 8)
+		ev_now_ms := current_now_ms(state)
 		if ev_visible <= 0 {
 			ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, "(no evidence yet)", ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
 			y += ROW_H
@@ -452,24 +510,53 @@ build_health_panel :: proc(state: ^App_State, viewport_w, viewport_h: f32, point
 				if ev.kind_len > 0 {
 					kind = string(ev.kind[:int(ev.kind_len)])
 				}
-				reason := "-"
-				if ev.reason_len > 0 {
-					reason = string(ev.reason[:int(ev.reason_len)])
+				// Severity color from confidence: <0.5=gray, <0.7=yellow, <0.85=orange, >=0.85=red.
+				ev_color := ui.COL_TEXT_MUTED
+				sev_label := "LOW"
+				if ev.confidence >= 0.85 {
+					ev_color = ui.COL_RED
+					sev_label = "CRIT"
+				} else if ev.confidence >= 0.7 {
+					ev_color = ui.COL_ACCENT_ORANGE
+					sev_label = "HIGH"
+				} else if ev.confidence >= 0.5 {
+					ev_color = ui.COL_WARNING
+					sev_label = "MED"
 				}
-				tag0 := ""
-				if ev.feature_count > 0 {
+				// Timestamp age.
+				age_str := ""
+				age_buf: [16]u8
+				if ev_now_ms > 0 && ev.unix > 0 {
+					age_s := max(ev_now_ms - ev.unix, 0) / 1000
+					if age_s < 60 {
+						age_str = fmt.bprintf(age_buf[:], "%ds", age_s)
+					} else {
+						age_str = fmt.bprintf(age_buf[:], "%dm%ds", age_s / 60, age_s % 60)
+					}
+				}
+				// Build feature values inline: tag=val pairs.
+				feat_buf: [96]u8
+				feat_n := 0
+				fc := min(ev.feature_count, len(ev.feature_tags))
+				for fi in 0 ..< fc {
 					tag_len := 0
-					for i in 0 ..< len(ev.feature_tags[0]) {
-						if ev.feature_tags[0][i] == 0 do break
+					for ti in 0 ..< len(ev.feature_tags[fi]) {
+						if ev.feature_tags[fi][ti] == 0 do break
 						tag_len += 1
 					}
-					if tag_len > 0 {
-						tag0 = string(ev.feature_tags[0][:tag_len])
+					if tag_len <= 0 do continue
+					tag := string(ev.feature_tags[fi][:tag_len])
+					pair_buf: [48]u8
+					pair := fmt.bprintf(pair_buf[:], " %s=%.1f", tag, ev.feature_vals[fi])
+					for c in pair {
+						if feat_n >= len(feat_buf) do break
+						feat_buf[feat_n] = u8(c)
+						feat_n += 1
 					}
 				}
-				ev_buf: [196]u8
-				ev_str := fmt.bprintf(ev_buf[:], "%s c=%.2f tag=%s reason=%s", kind, ev.confidence, tag0, reason)
-				ev_color := ev.confidence >= 0.75 ? ui.COL_WARNING : ui.COL_TEXT_SECONDARY
+				feat_str := string(feat_buf[:feat_n])
+				ev_line: [196]u8
+				ev_str := fmt.bprintf(ev_line[:], "[%s] %s c=%.2f%s %s", sev_label, kind, ev.confidence, feat_str, age_str)
 				ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, ev_str, ev_color, ui.FONT_SIZE_XS, .Mono)
 				y += ROW_H
 			}
@@ -522,6 +609,10 @@ build_health_panel :: proc(state: ^App_State, viewport_w, viewport_h: f32, point
 }
 
 // Build diagnostics string and copy to clipboard.
+// SECURITY: Output is user-visible (Copy Diagnostics clipboard).
+// NEVER include api_key, jwt_token, or credential material.
+// Allowed: transport_mode, protocol_version, server_instance_id,
+// limits, cadences, negotiated_features, counters.
 @(private = "file")
 copy_diagnostics_to_clipboard :: proc(state: ^App_State) {
 	if state == nil do return
@@ -575,13 +666,29 @@ copy_diagnostics_to_clipboard :: proc(state: ^App_State) {
 
 	// Transport
 	append_str(buf[:], &n, "\nTRANSPORT:\n")
-	t1: [96]u8
-	t1_len := len(fmt.bprintf(t1[:], "  msg/s=%.1f bytes/s=%.0f msgs=%d bytes=%dMB resets=%d",
+	frame_p95_us := i64(0)
+	if state.telemetry.frame_time_count > 0 {
+		_, frame_p95_us, _ = frame_time_percentiles(state)
+	}
+	t1: [128]u8
+	t1_len := len(fmt.bprintf(t1[:], "  msg/s=%.1f bytes/s=%.0f msgs=%d bytes=%dMB resets=%d batch=%d/%d",
 		state.active_metrics.msg_rate, state.active_metrics.bytes_rate,
 		state.active_metrics.parsed_msgs_total,
 		state.active_metrics.parsed_bytes_total / u64(1024 * 1024),
-		state.active_metrics.parse_arena_resets))
+		state.active_metrics.parse_arena_resets,
+		state.active_metrics.batched_frames_received,
+		state.active_metrics.batched_events_received))
 	append_line(buf[:], &n, t1[:], t1_len)
+	t1b: [128]u8
+	t1b_len := len(fmt.bprintf(
+		t1b[:],
+		"  frame_p95=%dus parse_p95=%dus apply_p95=%dus batch_p95=%dus",
+		max(frame_p95_us, 0),
+		max(state.active_metrics.parse_time_p95_us, 0),
+		max(state.active_metrics.apply_time_p95_us, 0),
+		max(state.active_metrics.batched_decode_time_p95_us, 0),
+	))
+	append_line(buf[:], &n, t1b[:], t1b_len)
 
 	// Protocol
 	append_str(buf[:], &n, "\nPROTOCOL:\n")
@@ -670,11 +777,53 @@ copy_diagnostics_to_clipboard :: proc(state: ^App_State) {
 		p7: [160]u8
 		p7_len := len(fmt.bprintf(
 			p7[:],
-			"  assist: enabled heatmap=%s vpvr=%s getrange_div=%d reason=%s",
+			"  assist: enabled mode=%s heatmap=%s vpvr=%s getrange_div=%d reason=%s",
+			am.assist_user_enabled ? "auto" : "manual",
 			hm, vp, max(am.assist_getrange_divisor, 1), assist_reason,
 		))
 		append_line(buf[:], &n, p7[:], p7_len)
 	}
+
+	// Negotiated features.
+	if am.negotiated_feature_count > 0 {
+		append_str(buf[:], &n, "\nNEGOTIATED FEATURES:\n")
+		nf: [128]u8
+		nf_n := 0
+		nf_n += len(fmt.bprintf(nf[nf_n:], "  count=%d", am.negotiated_feature_count))
+		nfc := min(am.negotiated_feature_count, len(am.negotiated_feature_names))
+		for i in 0 ..< nfc {
+			fl := int(am.negotiated_feature_name_lens[i])
+			if fl <= 0 || fl > len(am.negotiated_feature_names[i]) do continue
+			if nf_n < len(nf) { nf[nf_n] = ' '; nf_n += 1 }
+			fname := string(am.negotiated_feature_names[i][:fl])
+			for c in fname {
+				if nf_n >= len(nf) do break
+				nf[nf_n] = u8(c)
+				nf_n += 1
+			}
+		}
+		append_line(buf[:], &n, nf[:], nf_n)
+	}
+
+	append_str(buf[:], &n, "\nSERVER LIMITS:\n")
+	lsub := "n/a"
+	if am.server_max_subscriptions > 0 {
+		lsub_buf: [16]u8
+		lsub = fmt.bprintf(lsub_buf[:], "%d", am.server_max_subscriptions)
+	}
+	lframe := "n/a"
+	if am.server_max_frame_bytes > 0 {
+		lframe_buf: [24]u8
+		lframe = fmt.bprintf(lframe_buf[:], "%dKB", max(am.server_max_frame_bytes, 0) / 1024)
+	}
+	lcadence := "n/a"
+	if am.server_metrics_cadence_ms > 0 {
+		lcadence_buf: [24]u8
+		lcadence = fmt.bprintf(lcadence_buf[:], "%dms", am.server_metrics_cadence_ms)
+	}
+	sl: [128]u8
+	sl_len := len(fmt.bprintf(sl[:], "  subs=%s frame=%s metrics_cadence=%s", lsub, lframe, lcadence))
+	append_line(buf[:], &n, sl[:], sl_len)
 
 	// Server metrics
 	if am.server_ws_queue_len > 0 || am.server_ws_dropped > 0 || am.server_ws_lag_ms > 0 ||
@@ -697,6 +846,46 @@ copy_diagnostics_to_clipboard :: proc(state: ^App_State) {
 			max(am.server_ws_queue_len, 0), max(am.server_queue_capacity, 0),
 			max(am.server_queue_high_watermark, 0)))
 		append_line(buf[:], &n, bp[:], bp_len)
+		if am.server_recommended_action_len > 0 {
+			bpa: [96]u8
+			bpa_len := len(fmt.bprintf(
+				bpa[:],
+				"  recommended_action=%s",
+				string(am.server_recommended_action[:int(am.server_recommended_action_len)]),
+			))
+			append_line(buf[:], &n, bpa[:], bpa_len)
+		}
+	}
+
+	// Evidence entries (last 16).
+	if state.evidence.count > 0 {
+		append_str(buf[:], &n, "\nEVIDENCE (recent):\n")
+		ev_show := min(state.evidence.count, 16)
+		for ei in 0 ..< ev_show {
+			ev_idx := (state.evidence.head - 1 - ei + EVIDENCE_HISTORY_CAP) % EVIDENCE_HISTORY_CAP
+			ev := state.evidence.entries[ev_idx]
+			ev_kind := "?"
+			if ev.kind_len > 0 {
+				ev_kind = string(ev.kind[:int(ev.kind_len)])
+			}
+			el: [160]u8
+			fc := min(ev.feature_count, len(ev.feature_tags))
+			if fc > 0 {
+				// Include first feature tag=val pair.
+				tl := 0
+				for ti in 0 ..< len(ev.feature_tags[0]) {
+					if ev.feature_tags[0][ti] == 0 do break
+					tl += 1
+				}
+				tag := ""
+				if tl > 0 do tag = string(ev.feature_tags[0][:tl])
+				el_len := len(fmt.bprintf(el[:], "  %s c=%.2f %s=%.1f ts=%d", ev_kind, ev.confidence, tag, ev.feature_vals[0], ev.unix))
+				append_line(buf[:], &n, el[:], el_len)
+			} else {
+				el_len := len(fmt.bprintf(el[:], "  %s c=%.2f ts=%d", ev_kind, ev.confidence, ev.unix))
+				append_line(buf[:], &n, el[:], el_len)
+			}
+		}
 	}
 
 	append_str(buf[:], &n, "\nBACKEND GAPS DETECTED:\n")

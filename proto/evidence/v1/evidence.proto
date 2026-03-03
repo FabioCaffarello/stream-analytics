@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package evidence.v1;
+
+option go_package = "github.com/market-raccoon/internal/shared/proto/gen/evidence/v1";
+
+// Severity classifies the urgency of a microstructure evidence event.
+enum Severity {
+  // Default zero value when severity is not explicitly set.
+  SEVERITY_UNSPECIFIED = 0;
+  // Low urgency evidence; informational signal only.
+  SEVERITY_LOW = 1;
+  // Medium urgency evidence requiring operator awareness.
+  SEVERITY_MEDIUM = 2;
+  // High urgency evidence indicating elevated market stress.
+  SEVERITY_HIGH = 3;
+  // Critical urgency evidence requiring immediate attention.
+  SEVERITY_CRITICAL = 4;
+}
+
+// EvidenceFeature is a single named numeric observation supporting the evidence.
+message EvidenceFeature {
+  // Name is the feature tag (e.g. "spread_bps", "depth_drop_pct").
+  string name = 1;
+  // Value is the numeric observation.
+  double value = 2;
+}
+
+// MicrostructureEvidenceV1 models one deterministic microstructure observation.
+message MicrostructureEvidenceV1 {
+  // Kind is the evidence class (e.g. "spread_explosion").
+  string kind = 1;
+  // TsServer is the deterministic server timestamp in Unix milliseconds.
+  int64 ts_server = 2;
+  // Venue is the canonical venue identifier.
+  string venue = 3;
+  // Symbol is the canonical instrument identifier.
+  string symbol = 4;
+  // Severity classifies urgency.
+  Severity severity = 5;
+  // Confidence is a value in [0,1].
+  double confidence = 6;
+  // Features carries parallel named numeric observations.
+  repeated EvidenceFeature features = 7;
+  // Reason is a human-readable explanation of the detection.
+  string reason = 8;
+  // SeqTrigger is the envelope sequence that triggered the emission.
+  int64 seq_trigger = 9;
+
+  reserved 100 to 199;
+}

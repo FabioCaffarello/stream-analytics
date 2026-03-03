@@ -18,6 +18,7 @@ require (
 	github.com/go-faster/errors v0.7.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/klauspost/compress v1.18.3 // indirect
+	github.com/market-raccoon/internal/core/evidence v0.0.0 // indirect
 	github.com/market-raccoon/internal/core/insights v0.0.0 // indirect
 	github.com/market-raccoon/internal/core/marketdata v0.0.0 // indirect
 	github.com/matttproud/golang_protobuf_extensions/v2 v2.0.0 // indirect
@@ -41,6 +42,7 @@ replace (
 	github.com/market-raccoon/internal/adapters => ../../internal/adapters
 	github.com/market-raccoon/internal/core/aggregation => ../../internal/core/aggregation
 	github.com/market-raccoon/internal/core/delivery => ../../internal/core/delivery
+	github.com/market-raccoon/internal/core/evidence => ../../internal/core/evidence
 	github.com/market-raccoon/internal/core/insights => ../../internal/core/insights
 	github.com/market-raccoon/internal/core/marketdata => ../../internal/core/marketdata
 	github.com/market-raccoon/internal/shared => ../../internal/shared

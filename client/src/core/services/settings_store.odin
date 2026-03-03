@@ -85,6 +85,8 @@ SETTING_SETTINGS_VERSION         :: "settings_version"
 SETTING_FEATURE_BATCHING         :: "feature_batching"
 SETTING_FEATURE_SNAPSHOT_HASH    :: "feature_snapshot_hash"
 SETTING_FEATURE_PREV_SEQ         :: "feature_prev_seq"
+SETTING_FEATURE_COMPRESS         :: "feature_compress"
+SETTING_ASSIST_MODE              :: "assist_mode"
 SETTING_ALLOW_LEGACY_WS          :: "allow_legacy_ws"
 
 // Initialize store, loading known keys from port.
@@ -118,6 +120,7 @@ settings_init :: proc(store: ^Settings_Store, port: ports.Settings_Port) {
 				SETTING_CONNECTION_PROFILE_10, SETTING_CONNECTION_PROFILE_11,
 				SETTING_AUTO_CONNECT, SETTING_TF_DEFAULT, SETTING_SETTINGS_VERSION,
 				SETTING_FEATURE_BATCHING, SETTING_FEATURE_SNAPSHOT_HASH, SETTING_FEATURE_PREV_SEQ,
+				SETTING_FEATURE_COMPRESS, SETTING_ASSIST_MODE,
 				SETTING_ALLOW_LEGACY_WS,
 			}
 	for key in known_keys {

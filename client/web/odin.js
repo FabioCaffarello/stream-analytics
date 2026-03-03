@@ -358,7 +358,7 @@ function parseBooleanFlag(raw, fallback) {
 }
 
 function readAllowLegacyWsOverride() {
-    let allowLegacy = true; // one release default
+    let allowLegacy = false; // Terminal_V1-only by default; explicit opt-in required.
     try {
         const params = new URLSearchParams(window.location.search || "");
         if (params.has("allow_legacy_ws")) {

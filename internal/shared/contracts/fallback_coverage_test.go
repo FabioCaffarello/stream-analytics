@@ -30,6 +30,9 @@ func TestPayloadRegistryCoverage_SubjectRegistryStableDraft(t *testing.T) {
 	if p := RegisterAggregationPayloadV1(reg); p != nil {
 		t.Fatalf("RegisterAggregationPayloadV1: %v", p)
 	}
+	if p := RegisterEvidencePayloadV1(reg); p != nil {
+		t.Fatalf("RegisterEvidencePayloadV1: %v", p)
+	}
 
 	// Aggregation subjects that use non-standard payload schemas (not candle/stats).
 	aggregationSkip := map[string]bool{
@@ -39,14 +42,7 @@ func TestPayloadRegistryCoverage_SubjectRegistryStableDraft(t *testing.T) {
 
 	subjects := readSubjectRegistry(t)
 	for _, subject := range subjects {
-		if subject.Status != "stable" && subject.Status != "draft" {
-			continue
-		}
-		if subject.Root != "marketdata" && subject.Root != "insights" && subject.Root != "aggregation" {
-			continue
-		}
-		// Delta payloads are not typed contracts yet in this phase.
-		if strings.Contains(subject.ID, ".heatmap_delta.") || strings.Contains(subject.ID, ".volume_profile_delta.") {
+		if !subjectNeedsCodec(subject) {
 			continue
 		}
 
@@ -61,6 +57,29 @@ func TestPayloadRegistryCoverage_SubjectRegistryStableDraft(t *testing.T) {
 			t.Fatalf("forgot to register codec for subject %s", subject.ID)
 		}
 	}
+}
+
+func subjectNeedsCodec(subject subjectRegistryEntry) bool {
+	if !isStableOrDraft(subject.Status) {
+		return false
+	}
+	if !isCodecManagedRoot(subject.Root) {
+		return false
+	}
+	return !isUntypedDeltaSubject(subject.ID)
+}
+
+func isStableOrDraft(status string) bool {
+	return status == "stable" || status == "draft"
+}
+
+func isCodecManagedRoot(root string) bool {
+	return root == "marketdata" || root == "insights" || root == "aggregation"
+}
+
+func isUntypedDeltaSubject(id string) bool {
+	// Delta payloads are not typed contracts yet in this phase.
+	return strings.Contains(id, ".heatmap_delta.") || strings.Contains(id, ".volume_profile_delta.")
 }
 
 func hasRegisteredCodec(reg *codec.Registry, eventType string, version int32) bool {

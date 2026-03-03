@@ -214,6 +214,17 @@ subjects:
     sources:
       - .context/docs/feature-packs/volume-profiles.md
       - docs/contracts/event-bus.md
+  - id: insights.microstructure_evidence.v1
+    pattern: insights.microstructure_evidence.v1.{venue}.{instrument}
+    root: insights
+    owner_bc: insights
+    producer_bc: insights
+    schema_authority_bc: insights
+    consumer_bcs: [delivery]
+    status: stable
+    sources:
+      - proto/evidence/v1/evidence.proto
+      - internal/core/evidence/domain/evidence.go
   - id: insights.markprice_liquidation_snapshot.v1
     pattern: insights.markprice_liquidation_snapshot.v1.{venue}.{instrument}
     root: insights

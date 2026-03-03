@@ -235,6 +235,9 @@ resolve_requested_features :: proc(
 	prev_seq_setting: string,
 	out: ^[MAX_REQUESTED_FEATURES][24]u8,
 	out_lens: ^[MAX_REQUESTED_FEATURES]u8,
+	server_has_compress: bool = false,
+	compress_setting: string = "auto",
+	client_supports_decompress: bool = false,
 ) -> int {
 	// Legacy mode doesn't support feature negotiation.
 	if mode == .Legacy_JSON do return 0
@@ -254,6 +257,13 @@ resolve_requested_features :: proc(
 	}
 	if feature_should_request(prev_seq_setting, server_known, server_has_prev_seq) {
 		f := "prev_seq"
+		for i in 0 ..< len(f) { out[count][i] = f[i] }
+		out_lens[count] = u8(len(f))
+		count += 1
+	}
+	if client_supports_decompress &&
+		feature_should_request(compress_setting, server_known, server_has_compress) {
+		f := "compress"
 		for i in 0 ..< len(f) { out[count][i] = f[i] }
 		out_lens[count] = u8(len(f))
 		count += 1
@@ -555,10 +565,174 @@ backoff_with_jitter :: proc(base_ms: int, seed: ^u32) -> int {
 	return base_ms - int(f32(base_ms) * jitter_frac)
 }
 
+// --- Backpressure assist decision ---
+// Pure function: computes next BP assist state from current state + metrics level.
+// No side effects — caller applies the result and logs transitions.
+
+BP_Assist_Input :: struct {
+	prev_enabled:          bool,
+	prev_degrade_heatmap:  bool,
+	prev_degrade_vpvr:     bool,
+	prev_getrange_divisor: int,
+	user_enabled:          bool,
+	cooldown_frames:       int,
+	level:                 int,
+}
+
+BP_Assist_Decision :: struct {
+	enabled:          bool,
+	degrade_heatmap:  bool,
+	degrade_vpvr:     bool,
+	getrange_divisor: int,
+	cooldown_frames:  int,
+	changed:          bool,
+	auto_activated:   bool,  // true when auto_assist flips enabled from false→true
+}
+
+compute_bp_assist_decision :: proc(input: BP_Assist_Input) -> BP_Assist_Decision {
+	prev_divisor := input.prev_getrange_divisor
+	if prev_divisor <= 0 do prev_divisor = 1
+	next_enabled := input.prev_enabled
+	next_degrade_heatmap := input.prev_degrade_heatmap
+	next_degrade_vpvr := input.prev_degrade_vpvr
+	next_divisor := prev_divisor
+	next_cooldown := input.cooldown_frames
+	auto_assist := input.user_enabled && input.level >= 2
+
+	if auto_assist {
+		next_enabled = true
+		next_degrade_heatmap = true
+		next_degrade_vpvr = input.level >= 3
+		next_divisor = input.level >= 3 ? 4 : 2
+		next_cooldown = 120
+	} else if input.level >= 2 {
+		// Keep current policy until user explicitly applies recommendation.
+	} else if next_cooldown > 0 {
+		next_cooldown -= 1
+	} else {
+		next_enabled = false
+		next_degrade_heatmap = false
+		next_degrade_vpvr = false
+		next_divisor = 1
+	}
+
+	changed := next_enabled != input.prev_enabled ||
+		next_degrade_heatmap != input.prev_degrade_heatmap ||
+		next_degrade_vpvr != input.prev_degrade_vpvr ||
+		next_divisor != prev_divisor
+
+	auto_activated := auto_assist && !input.prev_enabled
+
+	return BP_Assist_Decision{
+		enabled          = next_enabled,
+		degrade_heatmap  = next_degrade_heatmap,
+		degrade_vpvr     = next_degrade_vpvr,
+		getrange_divisor = next_divisor,
+		cooldown_frames  = next_cooldown,
+		changed          = changed,
+		auto_activated   = auto_activated,
+	}
+}
+
 free_sub_entry :: proc(entry: ^$T) {
 	if entry == nil do return
 	if len(entry.venue) > 0 do delete(entry.venue)
 	if len(entry.symbol) > 0 do delete(entry.symbol)
 	if len(entry.subject) > 0 do delete(entry.subject)
 	entry^ = {}
+}
+
+// --- Server capabilities struct ---
+// Consolidates flat capability fields from Parsed_Hello into a single struct.
+// Both native and web embed this as `caps: Server_Capabilities` in their state.
+
+Server_Capabilities :: struct {
+	max_subscriptions:       int,
+	max_frame_bytes:         int,
+	metrics_cadence_ms:      int,
+	keepalive_interval_ms:   int,
+	rate_limit_enabled:      bool,
+	supported_features:      [services.MAX_FEATURE_SLOTS]services.Parsed_Feature_Slot,
+	supported_feature_count: int,
+	proto_ver:               int,
+	server_instance_id:      [32]u8,
+	server_instance_id_len:  u8,
+	received:                bool,
+}
+
+// Copy all capability fields from a Parsed_Hello into Server_Capabilities.
+// Platform HELLO handlers call this, then handle transport state transitions locally.
+apply_hello_to_capabilities :: proc(caps: ^Server_Capabilities, h: services.Parsed_Hello) {
+	if caps == nil do return
+	caps.proto_ver = h.proto_ver
+	caps.max_subscriptions = h.max_subscriptions
+	caps.max_frame_bytes = h.max_frame_bytes
+	caps.metrics_cadence_ms = h.metrics_cadence_ms
+	caps.keepalive_interval_ms = h.keepalive_interval_ms
+	caps.rate_limit_enabled = h.rate_limit_enabled
+	caps.supported_feature_count = h.supported_feature_count
+	for i in 0 ..< h.supported_feature_count {
+		caps.supported_features[i] = h.supported_features[i]
+	}
+	// Store server_instance_id (truncate to fixed buffer).
+	sid := h.server_instance_id
+	sid_len := min(len(sid), len(caps.server_instance_id))
+	for i in 0 ..< sid_len { caps.server_instance_id[i] = sid[i] }
+	caps.server_instance_id_len = u8(sid_len)
+	caps.received = true
+}
+
+// --- Centralized limit/capability helpers ---
+// Pure functions used by both native and web platforms.
+
+// Effective subscription limit: min(server, local), server=0 means "use local".
+effective_sub_limit :: proc(server_max: int, local_cap: int) -> int {
+	if local_cap <= 0 do return 0
+	if server_max <= 0 do return local_cap
+	return min(server_max, local_cap)
+}
+
+// Whether a new subscription can be added given current count and limits.
+can_add_subscription :: proc(active_count: int, server_max: int, local_cap: int) -> bool {
+	limit := effective_sub_limit(server_max, local_cap)
+	if limit <= 0 do return false
+	return active_count < limit
+}
+
+// Derive metrics staleness timeout from server cadence. 3× cadence, minimum 3s.
+metrics_stale_timeout_ms :: proc(server_cadence_ms: int, fallback_ms: i64) -> i64 {
+	fallback := fallback_ms
+	if fallback <= 0 do fallback = 20_000
+	if server_cadence_ms <= 0 do return fallback
+	cadence_ms := i64(server_cadence_ms)
+	return max(cadence_ms * 3, i64(3000))
+}
+
+// Check if a feature name exists in a fixed-size slot array.
+feature_slot_has_name :: proc(
+	slots: [services.MAX_FEATURE_SLOTS]services.Parsed_Feature_Slot,
+	count: int,
+	name: string,
+) -> bool {
+	for i in 0 ..< count {
+		slot := slots[i]
+		if int(slot.len) != len(name) do continue
+		match := true
+		for j in 0 ..< int(slot.len) {
+			if slot.name[j] != name[j] {
+				match = false
+				break
+			}
+		}
+		if match do return true
+	}
+	return false
+}
+
+// Pure check: does the frame exceed the server's max_frame_bytes limit?
+// Returns true if the frame should be dropped. server_max=0 means no limit.
+frame_exceeds_limit :: proc(server_max_frame_bytes: int, frame_len: int) -> bool {
+	if server_max_frame_bytes <= 0 do return false
+	if frame_len < 0 do return false
+	return frame_len > server_max_frame_bytes
 }

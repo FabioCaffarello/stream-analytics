@@ -251,7 +251,7 @@ go test -benchmem ./internal/adapters/storage/...  # NF-5: zero new allocs
 - [ADR-0002 — Event Envelope and Versioning](../adrs/ADR-0002-event-envelope-and-versioning.md)
 - [ADR-0013 — Backpressure Overload Policies](../adrs/ADR-0013-backpressure-overload-policies.md)
 - [Architecture TRUTH-MAP](../architecture/TRUTH-MAP.md)
-- [MarketMonkey Audit Pack](../../zip/01-marketmonkey-files/marketmonkey/docs/architecture/MARKETMONKEY-AUDIT-PACK.md)
+- [MarketMonkey Audit Pack](../audits/AUDIT-PACK-W11-finalization.md)
 
 ---
 
