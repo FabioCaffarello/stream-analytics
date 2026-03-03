@@ -7,6 +7,7 @@
 - `GET /readyz`
 - `GET /metrics`
 - `GET /introspection`
+- `GET /runtime/terminal` (localhost-only)
 
 ## Authentication
 - API key: `X-API-Key: <key>` or `?api_key=<key>`.
@@ -91,6 +92,59 @@ Key metrics:
 
 Introspection:
 - `GET /introspection` returns stream-level status with seq/lag/drop counters.
+- `GET /runtime/terminal` (localhost-only) returns terminal WS state snapshot:
+  ```bash
+  curl -s http://localhost:8080/runtime/terminal | jq
+  ```
+  Returns JSON with active connections, per-stream metrics, and queue state. Limited to 100 entries.
+
+Tenant metrics (Grafana examples):
+```promql
+# Drops by tenant
+sum by (tenant_id, reason) (rate(ws_tenant_drops_total[5m]))
+
+# Queue depth by tenant
+ws_tenant_queue_depth{tenant_id="acme"}
+
+# Active connections by tenant
+ws_tenant_connections_active
+
+# Messages delivered by tenant and channel
+sum by (tenant_id, channel) (rate(ws_tenant_messages_out_total[5m]))
+```
+
+Backpressure metrics:
+```promql
+# Current backpressure level (0=normal, 3=critical)
+ws_backpressure_level
+
+# Queue high watermark (peak between metrics emissions)
+ws_queue_high_watermark
+```
+
+## Per-Tenant Limits
+
+Configure tenant-specific overrides in `ws.tenant_limits`:
+
+```json
+{
+  "ws": {
+    "tenant_limits": {
+      "acme": {
+        "max_connections_per_key": 50,
+        "max_subs_per_connection": 512,
+        "rate_limit": {
+          "enabled": true,
+          "max_per_second": 100,
+          "burst_capacity": 200
+        }
+      }
+    }
+  }
+}
+```
+
+When a tenant has configured limits, they override the global `max_subs_per_connection` and `rate_limit` for all sessions authenticated under that tenant. Unconfigured tenants use global defaults.
 
 ## Troubleshooting
 - `401 unauthorized`: invalid/missing API key or bearer token.

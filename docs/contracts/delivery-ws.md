@@ -138,6 +138,48 @@ Hello contract:
 - on validation failure or version mismatch, client must enter `DESYNC(reason)` and request resync/reconnect.
 - silent fallback on unknown/unsupported protocol versions is forbidden.
 
+#### Extended Capabilities
+
+The `capabilities` object in the `hello` frame includes additional fields for client self-tuning:
+
+```json
+{
+  "type": "hello",
+  "payload": {
+    "proto_ver": 1,
+    "server_time": 1710000000000,
+    "capabilities": {
+      "topics": ["marketdata.trade", "marketdata.bookdelta"],
+      "venues": ["binance", "bybit"],
+      "max_subscriptions": 256,
+      "max_symbols_per_connection": 128,
+      "max_frame_bytes": 65536,
+      "outbound_queue_size": 1024,
+      "metrics_cadence_ms": 5000,
+      "keepalive_interval_ms": 30000,
+      "rate_limit": {
+        "enabled": true,
+        "max_per_second": 50,
+        "burst_capacity": 100
+      },
+      "supported_features": ["batching", "snapshot_hash", "prev_seq"]
+    }
+  }
+}
+```
+
+Field semantics:
+- `max_subscriptions`: hard cap on active subscriptions per session.
+- `max_symbols_per_connection`: hard cap on distinct symbols per session.
+- `max_frame_bytes`: maximum serialized frame size; oversized proto frames are silently dropped.
+- `outbound_queue_size`: bounded outbound queue capacity (for backpressure awareness).
+- `metrics_cadence_ms`: interval between server `metrics` frames.
+- `keepalive_interval_ms`: server keepalive/ping interval.
+- `rate_limit`: session-level command rate limiting config. Absent when disabled.
+- `supported_features`: list of optional protocol features the server supports.
+
+All new fields are `omitempty`/zero-value. Clients that predate this extension see the original `topics`+`venues` only.
+
 Ack:
 ```json
 {
@@ -181,7 +223,8 @@ Error:
   "request_id": "r1",
   "problem": {
     "code": "VAL_VALIDATION_FAILED",
-    "message": "subject must have 4 segments"
+    "message": "subject must have 4 segments",
+    "action_hint": "ACTION_HINT_NONE"
   }
 }
 ```
@@ -197,6 +240,162 @@ Range:
 }
 ```
 
+### Error Taxonomy
+
+Every `error` frame includes an `action_hint` field guiding client recovery:
+
+| Problem Code | Error Code | Action Hint | Client Behavior |
+|---|---|---|---|
+| `ValidationFailed`, `InvalidArgument` | `VALIDATION` | `ACTION_HINT_NONE` | Fix request and retry |
+| `NotFound` | `NOT_FOUND` | `ACTION_HINT_NONE` | Subject does not exist |
+| `Unavailable` | `RATE_LIMITED` | `ACTION_HINT_RETRY` | Back off and retry |
+| `Conflict` | `RESYNC_REQUIRED` | `ACTION_HINT_RESYNC` | Send `resync` for the stream |
+| `IntegrityViolation` | `RESYNC_REQUIRED` | `ACTION_HINT_RESUBSCRIBE` | Unsubscribe and resubscribe |
+| `Internal` | `INTERNAL` | `ACTION_HINT_RECONNECT` | Close and reconnect |
+| (other) | `INTERNAL` | `ACTION_HINT_RECONNECT` | Close and reconnect |
+
+`action_hint` values:
+- `ACTION_HINT_UNSPECIFIED` / empty — pre-taxonomy server or unclassified error.
+- `ACTION_HINT_NONE` — no recovery action needed; fix the request.
+- `ACTION_HINT_RETRY` — retry the same operation after a brief delay.
+- `ACTION_HINT_RECONNECT` — close the connection and open a new session.
+- `ACTION_HINT_RESUBSCRIBE` — unsubscribe and resubscribe to the affected stream.
+- `ACTION_HINT_RESYNC` — send a `resync` command for the affected stream.
+
+Backward compatibility: `action_hint` is `omitempty`. Clients that do not recognize the field continue with existing error handling.
+
+### Snapshot Sequencing
+
+Snapshot frames include additional integrity fields:
+
+```json
+{
+  "type": "snapshot",
+  "subject": "aggregation.snapshot/binance/BTCUSDT/raw",
+  "snapshot_seq": 2,
+  "watermark_seq": 456,
+  "snapshot_hash": "a1b2c3d4e5f67890",
+  "payload": {}
+}
+```
+
+- `snapshot_seq`: per-session per-subject counter, incremented on every snapshot emission (subscribe and resync). Allows clients to detect duplicate or reordered snapshots.
+- `watermark_seq`: highest confirmed upstream sequence at the time of snapshot capture. Clients can use this to know what seq range the snapshot covers.
+- `snapshot_hash`: FNV-64a hex hash of the snapshot payload bytes. Clients can verify payload integrity or detect cache staleness.
+
+All fields are `omitempty`. `snapshot_seq == 0` means legacy snapshot (pre-F3).
+
+### Client Gap Detection via prev_seq
+
+Event frames include a `prev_seq` field for client-side gap detection:
+
+```json
+{
+  "type": "event",
+  "subject": "marketdata.trade/binance/BTCUSDT/raw",
+  "seq": 124,
+  "prev_seq": 123,
+  "ts_ingest": 1710000005000,
+  "payload": {}
+}
+```
+
+- `prev_seq`: the `seq` value of the immediately preceding event for the same subject within this session.
+- `prev_seq == 0`: first event after subscribe/resync, or legacy server (pre-F3).
+- Gap detection: if `event.prev_seq != 0 && event.prev_seq != last_received_seq`, the client has a gap and should send `resync`.
+
+`prev_seq` is tracked independently per subject within a session.
+
+### Feature Negotiation
+
+Clients can declare requested features via `ClientHello`:
+
+```json
+{
+  "op": "hello",
+  "requested_features": ["batching", "snapshot_hash"]
+}
+```
+
+The server advertises `supported_features` in its `hello` frame (see Extended Capabilities). Feature activation requires both client request and server support. Unknown features are silently ignored.
+
+Currently supported features:
+- `batching` — reserved for future batched frame delivery.
+- `snapshot_hash` — FNV-64a integrity hash on snapshot frames.
+- `prev_seq` — previous sequence tracking on event frames.
+
+### BatchedFrame (reserved)
+
+The `BatchedFrame` message type is defined in proto but reserved for future use. When activated, it allows the server to bundle multiple `ServerFrame` items into a single WebSocket message with `first_seq` and `last_seq` bounds. This is not yet emitted by the server.
+
+### Backpressure Hints
+
+The periodic `metrics` frame includes backpressure awareness fields:
+
+```json
+{
+  "type": "metrics",
+  "payload": {
+    "queue_len": 512,
+    "queue_capacity": 1024,
+    "queue_high_watermark": 768,
+    "backpressure_level": 2,
+    "recommended_action": "reduce_subscriptions",
+    "subscriptions": 10,
+    "total_delivered": 50000,
+    "total_dropped": 5
+  }
+}
+```
+
+Backpressure levels:
+| Level | Name | Queue Ratio | Recommended Action |
+|---|---|---|---|
+| 0 | Normal | < 50% | `none` |
+| 1 | Elevated | >= 50% | `none` |
+| 2 | High | >= 75% | `reduce_subscriptions` |
+| 3 | Critical | >= 95% | `reconnect` |
+
+- `queue_capacity`: total outbound queue size.
+- `queue_high_watermark`: peak queue depth since last metrics emission, then reset.
+- `backpressure_level`: 0–3 severity indicator.
+- `recommended_action`: suggested client recovery action.
+
+All fields are `omitempty`/zero-value. `backpressure_level == 0` means normal (pre-F5 behavior).
+
+### Multi-tenant Observability
+
+When `tenant_id` is present in the authenticated principal, all session metrics are additionally emitted with tenant-scoped Prometheus labels:
+
+- `ws_tenant_drops_total{tenant_id, reason}` — drops per tenant.
+- `ws_tenant_queue_depth{tenant_id}` — current queue depth per tenant.
+- `ws_tenant_connections_active{tenant_id}` — active connections per tenant.
+- `ws_tenant_messages_out_total{tenant_id, channel}` — messages delivered per tenant.
+
+Empty `tenant_id` is normalized to `"default"`. These metrics are additive to existing unlabeled metrics for backward compatibility.
+
+Per-tenant limit overrides can be configured in `ws.tenant_limits`:
+
+```json
+{
+  "ws": {
+    "tenant_limits": {
+      "acme": {
+        "max_connections_per_key": 50,
+        "max_subs_per_connection": 512,
+        "rate_limit": {
+          "enabled": true,
+          "max_per_second": 100,
+          "burst_capacity": 200
+        }
+      }
+    }
+  }
+}
+```
+
+When a tenant has a configured override, its limits take precedence over global defaults for `max_subs_per_connection` and `rate_limit`.
+
 ## Invariants
 
 - `WS-1`: session is an isolated actor; one session failure cannot cascade.
@@ -207,6 +406,8 @@ Range:
 - `WS-6`: when `getrange` is requested with symbol alias (`SYMBOL:MARKET_TYPE`) and no direct rows exist, delivery may perform one deterministic fallback lookup using canonical `SYMBOL`.
 - `WS-7`: orderbook deltas require snapshot-first on the client side; snapshot gap must trigger desync and resubscribe.
 - `WS-8`: protocol gate is mandatory (`hello` + `proto_ver` + required capabilities fields).
+- `WS-9`: `snapshot_seq(N) < snapshot_seq(N+1)` within a session for the same subject.
+- `WS-10`: `prev_seq(event[N]) == seq(event[N-1])` for the same subject within a session.
 
 ## Backpressure
 
