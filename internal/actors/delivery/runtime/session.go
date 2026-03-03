@@ -1507,6 +1507,21 @@ func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) *problem.Problem {
 		Channel:          channel,
 		Payload:          payload,
 	}
+	// F4: frame size guard for JSON path (mirrors proto path guard above).
+	if s.maxFrameBytes > 0 {
+		raw, marshalErr := json.Marshal(frame)
+		if marshalErr != nil {
+			metrics.IncWSSerializeErrors()
+			observability.IncTerminalWSSerializeError()
+			span.RecordError(marshalErr)
+			return problem.Wrap(marshalErr, problem.Internal, "json marshal failed")
+		}
+		if len(raw) > s.maxFrameBytes {
+			metrics.IncWSDrops("frame_too_large")
+			metrics.IncWSDropped("frame_too_large", channel)
+			return nil
+		}
+	}
 	if err := s.writeJSONDirect(frame); err != nil {
 		span.RecordError(err)
 		return problem.Wrap(err, problem.Internal, "json write failed")

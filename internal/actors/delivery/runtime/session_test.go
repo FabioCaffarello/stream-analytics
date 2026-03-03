@@ -1530,6 +1530,98 @@ func TestSession_MaxFrameBytes_DropsOversizedProtoFrame(t *testing.T) {
 	}
 }
 
+func TestSession_MaxFrameBytes_DropsOversizedJSONFrame(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-json-frame-sz")
+	defer e.Poison(routerPID)
+
+	conn := newFakeConn()
+	before := testutil.ToFloat64(metrics.WSDropsTotal.WithLabelValues("frame_too_large"))
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{
+		RouterPID:     routerPID,
+		Conn:          conn,
+		PreferProto:   false, // JSON mode
+		MaxFrameBytes: 10,    // tiny limit
+	}), "ws-session-json-frame-sz")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"subscribe","subject":"marketdata.trade/binance/BTC-USDT/raw","request_id":"s1"}`)}
+	<-conn.writeCh // ack
+
+	tradeJSON := []byte(`{"Price":100.5,"Size":1.0,"Side":"buy","TradeID":"t1","Timestamp":1000}`)
+	e.Send(sessionPID, DeliveryEvent{
+		Subject: mustParseSubjectForSession(t, "marketdata.trade/binance/BTCUSDT/raw"),
+		Env: envelope.Envelope{
+			Type:        "marketdata.trade",
+			Version:     1,
+			Venue:       "binance",
+			Instrument:  "BTC-USDT",
+			Seq:         1,
+			TsIngest:    1000,
+			ContentType: envelope.ContentTypeJSON,
+			Payload:     tradeJSON,
+		},
+	})
+
+	time.Sleep(100 * time.Millisecond)
+	after := testutil.ToFloat64(metrics.WSDropsTotal.WithLabelValues("frame_too_large"))
+	if after <= before {
+		t.Fatalf("expected JSON frame_too_large drop, before=%f after=%f", before, after)
+	}
+}
+
+func TestSession_MaxFrameBytes_JSONPassesUnderLimit(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-json-frame-pass")
+	defer e.Poison(routerPID)
+
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{
+		RouterPID:     routerPID,
+		Conn:          conn,
+		PreferProto:   false,
+		MaxFrameBytes: 100_000, // generous limit
+	}), "ws-session-json-frame-pass")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"subscribe","subject":"marketdata.trade/binance/BTC-USDT/raw","request_id":"s1"}`)}
+	<-conn.writeCh // ack
+
+	tradeJSON := []byte(`{"Price":100.5,"Size":1.0,"Side":"buy","TradeID":"t1","Timestamp":1000}`)
+	e.Send(sessionPID, DeliveryEvent{
+		Subject: mustParseSubjectForSession(t, "marketdata.trade/binance/BTCUSDT/raw"),
+		Env: envelope.Envelope{
+			Type:        "marketdata.trade",
+			Version:     1,
+			Venue:       "binance",
+			Instrument:  "BTC-USDT",
+			Seq:         1,
+			TsIngest:    1000,
+			ContentType: envelope.ContentTypeJSON,
+			Payload:     tradeJSON,
+		},
+	})
+
+	select {
+	case msg := <-conn.writeCh:
+		if _, ok := msg.(wsEventFrame); !ok {
+			t.Fatalf("expected wsEventFrame, got %T", msg)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected event frame to be written, timeout")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // F5: Backpressure Hints
 // ---------------------------------------------------------------------------
