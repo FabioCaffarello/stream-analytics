@@ -868,6 +868,18 @@ var (
 			Help: "Total entries currently stored in bounded websocket snapshot cache.",
 		},
 	)
+	DeliveryWSSnapshotCacheHits = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "delivery_ws_snapshot_cache_hits_total",
+			Help: "Total cache hits in bounded websocket snapshot cache.",
+		},
+	)
+	DeliveryWSSnapshotCacheMisses = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "delivery_ws_snapshot_cache_misses_total",
+			Help: "Total cache misses in bounded websocket snapshot cache.",
+		},
+	)
 	DeliveryRouterEventsRoutedTotal = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "delivery_router_events_routed_total",
@@ -1091,6 +1103,8 @@ func registerAll() {
 			BoundedMapSweepsTotal,
 			DeliveryRouterSubscriptionsActive,
 			DeliveryWSSnapshotCacheEntries,
+			DeliveryWSSnapshotCacheHits,
+			DeliveryWSSnapshotCacheMisses,
 			DeliveryRouterEventsRoutedTotal,
 			DeliveryRouterEventsRejectedTotal,
 			DeliveryRouterCoherenceMode,
@@ -2250,6 +2264,16 @@ func SetDeliveryRouterSubscriptionsActive(count int) {
 // SetDeliveryWSSnapshotCacheEntries sets the bounded ws snapshot cache size gauge.
 func SetDeliveryWSSnapshotCacheEntries(count int) {
 	DeliveryWSSnapshotCacheEntries.Set(float64(max(count, 0)))
+}
+
+// IncDeliveryWSSnapshotCacheHit increments the snapshot cache hit counter.
+func IncDeliveryWSSnapshotCacheHit() {
+	DeliveryWSSnapshotCacheHits.Inc()
+}
+
+// IncDeliveryWSSnapshotCacheMiss increments the snapshot cache miss counter.
+func IncDeliveryWSSnapshotCacheMiss() {
+	DeliveryWSSnapshotCacheMisses.Inc()
 }
 
 // IncDeliveryRouterEventsRouted increments the routed events counter.

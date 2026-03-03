@@ -139,6 +139,8 @@ func TestMetricsNamesPresent(t *testing.T) {
 	SetHeatmapQueueDepth("binance", "BTC-USDT", 7)
 	IncDeliveryRangeAliasFallback("hit")
 	SetDeliveryWSSnapshotCacheEntries(3)
+	IncDeliveryWSSnapshotCacheHit()
+	IncDeliveryWSSnapshotCacheMiss()
 	SetDeliveryRouterCoherenceMode("sticky_session")
 	IncWSResyncRejected("snapshot_unavailable")
 	IncWSContractViolation("missing_ts_server")
@@ -210,6 +212,8 @@ func TestMetricsNamesPresent(t *testing.T) {
 		"process_heap_alloc_bytes",
 		"delivery_range_alias_fallback_total",
 		"delivery_ws_snapshot_cache_entries",
+		"delivery_ws_snapshot_cache_hits_total",
+		"delivery_ws_snapshot_cache_misses_total",
 		"delivery_router_coherence_mode",
 	} {
 		if !strings.Contains(joined, want) {

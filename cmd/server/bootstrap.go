@@ -709,6 +709,7 @@ func (p *boundedSnapshotCacheProvider) GetLatest(subject deliverydomain.Subject)
 		if now.Sub(entry.cachedAt) <= p.ttl {
 			payload := append([]byte(nil), entry.payload...)
 			p.mu.Unlock()
+			metrics.IncDeliveryWSSnapshotCacheHit()
 			return payload, true
 		}
 		delete(p.cache, key)
@@ -716,6 +717,7 @@ func (p *boundedSnapshotCacheProvider) GetLatest(subject deliverydomain.Subject)
 	}
 	p.mu.Unlock()
 
+	metrics.IncDeliveryWSSnapshotCacheMiss()
 	payload, ok := p.next.GetLatest(subject)
 	if !ok || len(payload) == 0 {
 		return payload, ok
