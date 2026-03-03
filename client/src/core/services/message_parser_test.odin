@@ -342,3 +342,102 @@ test_parse_ack_missing_subject_stream_id :: proc(t: ^testing.T) {
 	testing.expect_value(t, result.data.ack.stream_id, "")
 	free_all(context.temp_allocator)
 }
+
+// --- Comprehensive V1 protocol tests (C13) ---
+
+@(test)
+test_parse_hello_rate_limit :: proc(t: ^testing.T) {
+	raw := `{"type":"hello","payload":{"server_time":1700000000000,"protocol_version":1,"capabilities":{"topics":["trade"],"venues":["binance"],"symbols":["BTCUSDT"],"rate_limit":{"enabled":true,"max_per_second":100,"burst_capacity":200}}}}`
+	result := parse_mr_message(transmute([]u8)raw, nil)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Hello)
+	h := result.data.hello
+	testing.expect_value(t, h.valid, true)
+	testing.expect_value(t, h.rate_limit_enabled, true)
+	testing.expect_value(t, h.rate_limit_max_per_sec, 100)
+	testing.expect_value(t, h.rate_limit_burst, 200)
+	free_all(context.temp_allocator)
+}
+
+@(test)
+test_parse_hello_ack_features_roundtrip :: proc(t: ^testing.T) {
+	// Verify all MAX_FEATURE_SLOTS slots can be populated.
+	raw := `{"type":"ack","op":"hello","payload":{"negotiated_features":["batching","snapshot_hash","prev_seq","compress","delta","multiplex","priority","stream_resume"]}}`
+	result := parse_mr_message(transmute([]u8)raw, nil)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Hello_Ack)
+	ha := result.data.hello_ack
+	testing.expect_value(t, ha.negotiated_feature_count, MAX_FEATURE_SLOTS)
+	testing.expect_value(t, string(ha.negotiated_features[0].name[:ha.negotiated_features[0].len]), "batching")
+	testing.expect_value(t, string(ha.negotiated_features[7].name[:ha.negotiated_features[7].len]), "stream_resume")
+	free_all(context.temp_allocator)
+}
+
+@(test)
+test_parse_error_action_hint_resync :: proc(t: ^testing.T) {
+	raw := `{"type":"error","op":"subscribe","request_id":"r10","problem":{"code":"STALE_STATE","message":"Stale state","error_code":"STALE","action_hint":"resync"}}`
+	result := parse_mr_message(transmute([]u8)raw, nil)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Error)
+	ed := result.data.error_detail
+	testing.expect_value(t, ed.action_hint, "resync")
+	testing.expect_value(t, ed.error_code, "STALE")
+	free_all(context.temp_allocator)
+}
+
+@(test)
+test_parse_error_action_hint_reconnect :: proc(t: ^testing.T) {
+	raw := `{"type":"error","op":"subscribe","request_id":"r11","problem":{"code":"SERVER_RESTART","message":"Server restart","error_code":"RESTART","action_hint":"reconnect"}}`
+	result := parse_mr_message(transmute([]u8)raw, nil)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Error)
+	ed := result.data.error_detail
+	testing.expect_value(t, ed.action_hint, "reconnect")
+	testing.expect_value(t, ed.error_code, "RESTART")
+	free_all(context.temp_allocator)
+}
+
+@(test)
+test_parse_metrics_backpressure_zero :: proc(t: ^testing.T) {
+	raw := `{"type":"metrics","payload":{"ws_dropped":0,"ws_queue_len":10,"ws_lag_ms":5,"backpressure_level":0,"queue_capacity":1024}}`
+	result := parse_mr_message(transmute([]u8)raw, nil)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Metrics)
+	m := result.data.server_metrics
+	testing.expect_value(t, m.backpressure_level, 0)
+	testing.expect_value(t, m.queue_capacity, 1024)
+	free_all(context.temp_allocator)
+}
+
+@(test)
+test_parse_hello_capabilities_all_limits :: proc(t: ^testing.T) {
+	raw := `{"type":"hello","payload":{"server_time":1700000000000,"protocol_version":1,"capabilities":{"topics":["trade"],"venues":["binance"],"symbols":["BTCUSDT"],"max_subscriptions_per_connection":50,"max_symbols_per_connection":100,"max_frame_bytes":65536,"outbound_queue_size":2048,"metrics_cadence_ms":5000,"keepalive_interval_ms":30000,"supported_features":["batching","snapshot_hash"]}}}`
+	result := parse_mr_message(transmute([]u8)raw, nil)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Hello)
+	h := result.data.hello
+	testing.expect_value(t, h.valid, true)
+	testing.expect_value(t, h.max_subscriptions, 50)
+	testing.expect_value(t, h.max_frame_bytes, 65536)
+	testing.expect_value(t, h.metrics_cadence_ms, 5000)
+	testing.expect_value(t, h.keepalive_interval_ms, 30000)
+	testing.expect_value(t, h.supported_feature_count, 2)
+	testing.expect_value(t, string(h.supported_features[0].name[:h.supported_features[0].len]), "batching")
+	testing.expect_value(t, string(h.supported_features[1].name[:h.supported_features[1].len]), "snapshot_hash")
+	free_all(context.temp_allocator)
+}
+
+@(test)
+test_parse_snapshot_with_hash_and_seq :: proc(t: ^testing.T) {
+	raw := `{"type":"snapshot","subject":"marketdata.bookdelta/binance/BTCUSDT/raw","seq":42,"payload":{"ask_prices":[],"ask_sizes":[],"bid_prices":[],"bid_sizes":[],"is_snapshot":true},"snapshot_seq":10,"watermark_seq":8,"snapshot_hash":"a1b2c3d4e5f6a7b8"}`
+	result := parse_mr_message(transmute([]u8)raw, nil)
+	testing.expect_value(t, result.meta.snapshot_seq, i64(10))
+	testing.expect_value(t, result.meta.watermark_seq, i64(8))
+	testing.expect_value(t, result.meta.snapshot_hash_len, u8(16))
+	hash_str := string(result.meta.snapshot_hash[:result.meta.snapshot_hash_len])
+	testing.expect_value(t, hash_str, "a1b2c3d4e5f6a7b8")
+	free_all(context.temp_allocator)
+}
+
+@(test)
+test_parse_event_with_prev_seq :: proc(t: ^testing.T) {
+	raw := `{"type":"event","subject":"marketdata.trade/binance/BTCUSDT/raw","seq":5,"prev_seq":4,"ts_ingest":1700000000000,"payload":{"Price":50000.0,"Qty":1.5,"IsBuy":true,"UnixMs":1700000000000}}`
+	result := parse_mr_message(transmute([]u8)raw, nil)
+	testing.expect_value(t, result.meta.prev_seq, i64(4))
+	testing.expect_value(t, result.meta.seq, i64(5))
+	free_all(context.temp_allocator)
+}
