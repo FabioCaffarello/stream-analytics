@@ -4,6 +4,7 @@ package md_common
 // Eliminates ~200 LOC of byte-for-byte duplication between the two backends.
 
 import "core:fmt"
+import "core:strings"
 import "core:time"
 import "mr:ports"
 import "mr:services"
@@ -166,6 +167,87 @@ parse_subject_components :: proc(subject: string) -> (venue: string, symbol: str
 	symbol = rest2[:third_slash]
 	aggregation = rest2[third_slash + 1:]
 	return venue, symbol, channel, aggregation
+}
+
+@(private = "package")
+url_ascii_lower :: proc(ch: u8) -> u8 {
+	if ch >= 'A' && ch <= 'Z' do return ch + 32
+	return ch
+}
+
+@(private = "package")
+url_segment_contains_fold :: proc(segment: string, needle: string) -> bool {
+	if len(needle) == 0 || len(segment) < len(needle) do return false
+	last := len(segment) - len(needle)
+	for i in 0 ..< last + 1 {
+		match := true
+		for j in 0 ..< len(needle) {
+			if url_ascii_lower(segment[i + j]) != needle[j] {
+				match = false
+				break
+			}
+		}
+		if match do return true
+	}
+	return false
+}
+
+@(private = "package")
+url_segment_has_sensitive_keyword :: proc(segment: string) -> bool {
+	if len(segment) == 0 do return false
+	return url_segment_contains_fold(segment, "token") ||
+		url_segment_contains_fold(segment, "secret") ||
+		url_segment_contains_fold(segment, "apikey") ||
+		url_segment_contains_fold(segment, "api_key") ||
+		url_segment_contains_fold(segment, "api-key") ||
+		url_segment_contains_fold(segment, "password") ||
+		url_segment_contains_fold(segment, "passwd") ||
+		url_segment_contains_fold(segment, "signature") ||
+		url_segment_contains_fold(segment, "access_key") ||
+		url_segment_contains_fold(segment, "private_key") ||
+		url_segment_contains_fold(segment, "bearer") ||
+		url_segment_contains_fold(segment, "jwt")
+}
+
+// sanitize_url_for_log removes query/fragment, redacts userinfo and hides
+// path segments likely to carry credentials.
+sanitize_url_for_log :: proc(url: string) -> string {
+	if len(url) == 0 do return ""
+	sanitized := url
+	if fragment_idx := strings.index(sanitized, "#"); fragment_idx >= 0 {
+		sanitized = sanitized[:fragment_idx]
+	}
+	if query_idx := strings.index(sanitized, "?"); query_idx >= 0 {
+		sanitized = sanitized[:query_idx]
+	}
+	scheme_idx := strings.index(sanitized, "://")
+	if scheme_idx < 0 do return sanitized
+	authority_start := scheme_idx + 3
+	if authority_start >= len(sanitized) do return sanitized
+	authority_end := len(sanitized)
+	if rel_path_idx := strings.index(sanitized[authority_start:], "/"); rel_path_idx >= 0 {
+		authority_end = authority_start + rel_path_idx
+	}
+	authority := sanitized[authority_start:authority_end]
+	if at_idx := strings.last_index(authority, "@"); at_idx >= 0 {
+		host := authority[at_idx + 1:]
+		sanitized = strings.concatenate(
+			{sanitized[:authority_start], "<redacted>@", host, sanitized[authority_end:]},
+			context.temp_allocator,
+		)
+		authority_end = authority_start + len("<redacted>@") + len(host)
+	}
+	if authority_end >= len(sanitized) || sanitized[authority_end] != '/' do return sanitized
+	segment_start := authority_end + 1
+	for i := segment_start; i <= len(sanitized); i += 1 {
+		if i < len(sanitized) && sanitized[i] != '/' do continue
+		segment := sanitized[segment_start:i]
+		if url_segment_has_sensitive_keyword(segment) {
+			return strings.concatenate({sanitized[:segment_start], "<redacted>"}, context.temp_allocator)
+		}
+		segment_start = i + 1
+	}
+	return sanitized
 }
 
 build_hello_msg :: proc(buf: []u8, rid: u32) -> (string, bool) {

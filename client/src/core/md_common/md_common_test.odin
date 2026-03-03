@@ -174,6 +174,30 @@ test_parse_subject_components_no_aggregation :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_sanitize_url_for_log_removes_query_and_fragment :: proc(t: ^testing.T) {
+	raw := "wss://example.com/stream/v1?token=abc123#frag"
+	testing.expect_value(t, sanitize_url_for_log(raw), "wss://example.com/stream/v1")
+}
+
+@(test)
+test_sanitize_url_for_log_redacts_userinfo :: proc(t: ^testing.T) {
+	raw := "wss://user:pass@example.com/stream"
+	testing.expect_value(t, sanitize_url_for_log(raw), "wss://<redacted>@example.com/stream")
+}
+
+@(test)
+test_sanitize_url_for_log_redacts_sensitive_path_segment :: proc(t: ^testing.T) {
+	raw := "wss://example.com/api/session_token/abc123"
+	testing.expect_value(t, sanitize_url_for_log(raw), "wss://example.com/api/<redacted>")
+}
+
+@(test)
+test_sanitize_url_for_log_keeps_regular_path :: proc(t: ^testing.T) {
+	raw := "wss://example.com/health/live"
+	testing.expect_value(t, sanitize_url_for_log(raw), "wss://example.com/health/live")
+}
+
+@(test)
 test_ws_fault_action_matrix :: proc(t: ^testing.T) {
 	testing.expect_value(t, ws_fault_action(.AuthDenied, true), ports.MD_WS_Error_Action.Stop)
 	testing.expect_value(t, ws_fault_action(.HandshakeFailed, true), ports.MD_WS_Error_Action.Retry)

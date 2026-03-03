@@ -351,10 +351,7 @@ build_auth_header :: proc(buf: []u8, api_key: string, jwt_token: string) -> (str
 
 @(private = "file")
 log_safe_url :: proc(url: string) -> string {
-	if q := strings.index(url, "?"); q >= 0 {
-		return url[:q]
-	}
-	return url
+	return md_common.sanitize_url_for_log(url)
 }
 
 // Feature lookup — delegates to md_common.feature_slot_has_name.
