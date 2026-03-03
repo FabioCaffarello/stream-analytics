@@ -149,11 +149,19 @@ func TestHandleIntrospection_ReturnsSnapshot(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}
-	if _, ok := body["server_instance_id"]; !ok {
-		t.Fatalf("missing server_instance_id in %v", body)
-	}
-	if _, ok := body["ws"]; !ok {
-		t.Fatalf("missing ws introspection payload in %v", body)
+	for _, key := range []string{
+		"server_instance_id",
+		"sessions_active",
+		"subscriptions_active",
+		"drops_total",
+		"serialize_errors",
+		"resync_total",
+		"auth_fail_total",
+		"streams",
+	} {
+		if _, ok := body[key]; !ok {
+			t.Fatalf("missing %q in introspection response %v", key, body)
+		}
 	}
 }
 

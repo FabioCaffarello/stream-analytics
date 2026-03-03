@@ -317,9 +317,16 @@ func (s *Server) HandleLegacyWS(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) HandleIntrospection(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	snap := observability.SnapshotTerminalWSState(256)
 	resp := map[string]any{
-		"server_instance_id": s.serverInstanceID,
-		"ws":                 observability.SnapshotTerminalWSState(256),
+		"server_instance_id":   s.serverInstanceID,
+		"sessions_active":      snap.ConnectionsActive,
+		"subscriptions_active": snap.SubscriptionsActive,
+		"drops_total":          snap.DropsTotal,
+		"serialize_errors":     snap.SerializeErrorsTotal,
+		"resync_total":         snap.ResyncTotal,
+		"auth_fail_total":      snap.AuthFailTotal,
+		"streams":              snap.Streams,
 	}
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		http.Error(w, "failed to encode introspection", http.StatusInternalServerError)
