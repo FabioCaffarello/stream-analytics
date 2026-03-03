@@ -1101,3 +1101,587 @@ func TestSession_DeliveryEventNormalizesMissingTsServer(t *testing.T) {
 		t.Fatalf("expected contract violation counter increment, before=%f after=%f", before, after)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// F1: Extended Capability Negotiation
+// ---------------------------------------------------------------------------
+
+func TestSession_HelloIncludesExtendedCapabilities(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-cap")
+	defer e.Poison(routerPID)
+
+	conn := newFakeConn()
+	conn.dropHello = false
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{
+		RouterPID:               routerPID,
+		Conn:                    conn,
+		MaxSubscriptions:        100,
+		MaxSymbolsPerConnection: 64,
+		OutboundQueueSize:       512,
+		RateLimit:               RateLimitConfig{Enabled: true, MaxPerSecond: 50, BurstCapacity: 200},
+	}), "ws-session-cap")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	msg := <-conn.writeCh
+	hello, ok := msg.(wsHelloFrame)
+	if !ok {
+		t.Fatalf("type=%T want wsHelloFrame", msg)
+	}
+	caps := hello.Payload.Capabilities
+	if caps.MaxSymbolsPerConnection != 64 {
+		t.Fatalf("max_symbols_per_connection=%d want=64", caps.MaxSymbolsPerConnection)
+	}
+	if caps.OutboundQueueSize != 512 {
+		t.Fatalf("outbound_queue_size=%d want=512", caps.OutboundQueueSize)
+	}
+	if caps.MetricsCadenceMs <= 0 {
+		t.Fatalf("metrics_cadence_ms=%d want>0", caps.MetricsCadenceMs)
+	}
+	if caps.KeepaliveIntervalMs <= 0 {
+		t.Fatalf("keepalive_interval_ms=%d want>0", caps.KeepaliveIntervalMs)
+	}
+	if caps.MaxFrameBytes <= 0 {
+		t.Fatalf("max_frame_bytes=%d want>0", caps.MaxFrameBytes)
+	}
+	if caps.RateLimit == nil {
+		t.Fatal("rate_limit should be non-nil when enabled")
+	}
+	if !caps.RateLimit.Enabled {
+		t.Fatal("rate_limit.enabled=false want=true")
+	}
+	if caps.RateLimit.MaxPerSecond != 50 {
+		t.Fatalf("rate_limit.max_per_second=%d want=50", caps.RateLimit.MaxPerSecond)
+	}
+	if len(caps.SupportedFeatures) == 0 {
+		t.Fatal("supported_features should be non-empty")
+	}
+}
+
+func TestSession_HelloOmitsRateLimitWhenDisabled(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-cap-no-rl")
+	defer e.Poison(routerPID)
+
+	conn := newFakeConn()
+	conn.dropHello = false
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{
+		RouterPID: routerPID,
+		Conn:      conn,
+	}), "ws-session-cap-no-rl")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	msg := <-conn.writeCh
+	hello := msg.(wsHelloFrame)
+	if hello.Payload.Capabilities.RateLimit != nil {
+		t.Fatal("rate_limit should be nil when disabled")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// F2: Error Taxonomy with action_hint
+// ---------------------------------------------------------------------------
+
+func TestWsErrorMapping_AllCodes(t *testing.T) {
+	tests := []struct {
+		code      problem.ProblemCode
+		retryable bool
+		wantCode  string
+		wantHint  string
+	}{
+		{problem.ValidationFailed, false, "ERROR_CODE_VALIDATION", "ACTION_HINT_NONE"},
+		{problem.InvalidArgument, false, "ERROR_CODE_VALIDATION", "ACTION_HINT_NONE"},
+		{problem.NotFound, false, "ERROR_CODE_NOT_FOUND", "ACTION_HINT_NONE"},
+		{problem.NotFound, true, "ERROR_CODE_NOT_FOUND", "ACTION_HINT_RETRY"},
+		{problem.Unavailable, false, "ERROR_CODE_RATE_LIMITED", "ACTION_HINT_RETRY"},
+		{problem.Conflict, false, "ERROR_CODE_RESYNC_REQUIRED", "ACTION_HINT_RESYNC"},
+		{problem.IntegrityViolation, false, "ERROR_CODE_RESYNC_REQUIRED", "ACTION_HINT_RESUBSCRIBE"},
+		{problem.Internal, false, "ERROR_CODE_INTERNAL", "ACTION_HINT_RECONNECT"},
+	}
+	for _, tt := range tests {
+		p := problem.New(tt.code, "test")
+		p.Retryable = tt.retryable
+		gotCode, gotHint := wsErrorMappingFromProblem(p)
+		if gotCode != tt.wantCode {
+			t.Errorf("code=%s retryable=%v: errorCode=%q want=%q", tt.code, tt.retryable, gotCode, tt.wantCode)
+		}
+		if gotHint != tt.wantHint {
+			t.Errorf("code=%s retryable=%v: actionHint=%q want=%q", tt.code, tt.retryable, gotHint, tt.wantHint)
+		}
+	}
+}
+
+func TestSession_ErrorTaxonomy_ValidationError_HintNone(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-err-tax")
+	defer e.Poison(routerPID)
+
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{RouterPID: routerPID, Conn: conn}), "ws-session-err-tax")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"subscribe","request_id":"r-bad"}`)}
+	msg := <-conn.writeCh
+	errFrame, ok := msg.(wsErrorFrame)
+	if !ok {
+		t.Fatalf("type=%T want wsErrorFrame", msg)
+	}
+	if errFrame.Problem.ActionHint != "ACTION_HINT_NONE" {
+		t.Fatalf("action_hint=%q want=ACTION_HINT_NONE", errFrame.Problem.ActionHint)
+	}
+}
+
+func TestSession_ErrorTaxonomy_RateLimited_HintRetry(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-err-rl")
+	defer e.Poison(routerPID)
+
+	clk := sharedclock.NewFakeClock(time.Now())
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{
+		RouterPID: routerPID,
+		Conn:      conn,
+		Clock:     clk,
+		RateLimit: RateLimitConfig{Enabled: true, MaxPerSecond: 1, BurstCapacity: 1},
+	}), "ws-session-err-rl")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	// First subscribe exhausts the burst.
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"subscribe","subject":"marketdata.trade/binance/BTC-USDT/raw","request_id":"r1"}`)}
+	<-conn.writeCh // snapshot or ack
+	<-conn.writeCh // ack
+
+	// Second subscribe should be rate-limited.
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"subscribe","subject":"marketdata.trade/bybit/BTC-USDT/raw","request_id":"r2"}`)}
+	msg := <-conn.writeCh
+	errFrame, ok := msg.(wsErrorFrame)
+	if !ok {
+		t.Fatalf("type=%T want wsErrorFrame", msg)
+	}
+	if errFrame.Problem.ActionHint != "ACTION_HINT_RETRY" {
+		t.Fatalf("action_hint=%q want=ACTION_HINT_RETRY", errFrame.Problem.ActionHint)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// F3: Snapshot Sequencing and prev_seq
+// ---------------------------------------------------------------------------
+
+func TestSession_SnapshotSeq_IncrementsPerSubject(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-snap-seq")
+	defer e.Poison(routerPID)
+
+	subject := mustParseSubjectForSession(t, "marketdata.trade/binance/BTCUSDT/raw")
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{
+		RouterPID:           routerPID,
+		Conn:                conn,
+		HotSnapshotProvider: stubSnapshotProvider{bySubject: map[string][]byte{subject.String(): []byte(`{"price":100}`)}},
+	}), "ws-session-snap-seq")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	// Subscribe → snapshot_seq=1
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"subscribe","subject":"marketdata.trade/binance/BTC-USDT/raw","request_id":"s1"}`)}
+	snap1 := (<-conn.writeCh).(wsSnapshotFrame)
+	<-conn.writeCh // ack
+	if snap1.SnapshotSeq != 1 {
+		t.Fatalf("snapshot_seq=%d want=1", snap1.SnapshotSeq)
+	}
+	if snap1.SnapshotHash == "" {
+		t.Fatal("snapshot_hash should be non-empty")
+	}
+
+	// Resync → snapshot_seq=2
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"resync","subject":"marketdata.trade/binance/BTC-USDT/raw","request_id":"r1"}`)}
+	snap2 := (<-conn.writeCh).(wsSnapshotFrame)
+	<-conn.writeCh // ack
+	if snap2.SnapshotSeq != 2 {
+		t.Fatalf("snapshot_seq=%d want=2", snap2.SnapshotSeq)
+	}
+	if snap2.SnapshotHash != snap1.SnapshotHash {
+		t.Fatalf("snapshot_hash changed for same payload: %q vs %q", snap1.SnapshotHash, snap2.SnapshotHash)
+	}
+}
+
+func TestSession_EventFrame_PrevSeq_ChainedCorrectly(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-prevseq")
+	defer e.Poison(routerPID)
+
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{RouterPID: routerPID, Conn: conn}), "ws-session-prevseq")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	subject := mustParseSubjectForSession(t, "marketdata.trade/binance/BTCUSDT/raw")
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"subscribe","subject":"marketdata.trade/binance/BTC-USDT/raw","request_id":"s1"}`)}
+	<-conn.writeCh // ack
+
+	// Deliver 3 events.
+	for _, seq := range []int64{10, 20, 30} {
+		e.Send(sessionPID, DeliveryEvent{
+			Subject: subject,
+			Env: envelope.Envelope{
+				Type:        "marketdata.trade",
+				Version:     1,
+				Venue:       "binance",
+				Instrument:  "BTC-USDT",
+				Seq:         seq,
+				TsIngest:    1000 + seq,
+				ContentType: envelope.ContentTypeJSON,
+				Payload:     []byte(`{"p":1}`),
+			},
+		})
+	}
+
+	evt1 := (<-conn.writeCh).(wsEventFrame)
+	evt2 := (<-conn.writeCh).(wsEventFrame)
+	evt3 := (<-conn.writeCh).(wsEventFrame)
+
+	if evt1.PrevSeq != 0 {
+		t.Fatalf("evt1.prev_seq=%d want=0 (first event)", evt1.PrevSeq)
+	}
+	if evt2.PrevSeq != 10 {
+		t.Fatalf("evt2.prev_seq=%d want=10", evt2.PrevSeq)
+	}
+	if evt3.PrevSeq != 20 {
+		t.Fatalf("evt3.prev_seq=%d want=20", evt3.PrevSeq)
+	}
+}
+
+func TestSession_PrevSeq_IndependentPerSubject(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-prevseq-multi")
+	defer e.Poison(routerPID)
+
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{RouterPID: routerPID, Conn: conn}), "ws-session-prevseq-multi")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	subA := mustParseSubjectForSession(t, "marketdata.trade/binance/BTCUSDT/raw")
+	subB := mustParseSubjectForSession(t, "aggregation.candle/binance/BTCUSDT/1m")
+
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"subscribe","subject":"marketdata.trade/binance/BTC-USDT/raw","request_id":"s1"}`)}
+	<-conn.writeCh
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"subscribe","subject":"aggregation.candle/binance/BTC-USDT/1m","request_id":"s2"}`)}
+	<-conn.writeCh
+
+	// Interleave: A(seq=1), B(seq=5), A(seq=2)
+	e.Send(sessionPID, DeliveryEvent{Subject: subA, Env: envelope.Envelope{Type: "marketdata.trade", Version: 1, Venue: "binance", Instrument: "BTC-USDT", Seq: 1, TsIngest: 1001, ContentType: envelope.ContentTypeJSON, Payload: []byte(`{}`)}})
+	e.Send(sessionPID, DeliveryEvent{Subject: subB, Env: envelope.Envelope{Type: "aggregation.candle", Version: 1, Venue: "binance", Instrument: "BTC-USDT", Seq: 5, TsIngest: 1005, ContentType: envelope.ContentTypeJSON, Payload: []byte(`{}`)}})
+	e.Send(sessionPID, DeliveryEvent{Subject: subA, Env: envelope.Envelope{Type: "marketdata.trade", Version: 1, Venue: "binance", Instrument: "BTC-USDT", Seq: 2, TsIngest: 1002, ContentType: envelope.ContentTypeJSON, Payload: []byte(`{}`)}})
+
+	evtA1 := (<-conn.writeCh).(wsEventFrame)
+	evtB1 := (<-conn.writeCh).(wsEventFrame)
+	evtA2 := (<-conn.writeCh).(wsEventFrame)
+
+	if evtA1.PrevSeq != 0 {
+		t.Fatalf("A1 prev_seq=%d want=0", evtA1.PrevSeq)
+	}
+	if evtB1.PrevSeq != 0 {
+		t.Fatalf("B1 prev_seq=%d want=0", evtB1.PrevSeq)
+	}
+	if evtA2.PrevSeq != 1 {
+		t.Fatalf("A2 prev_seq=%d want=1", evtA2.PrevSeq)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// F4: Feature Negotiation + Frame Size Guard
+// ---------------------------------------------------------------------------
+
+func TestSession_HelloAdvertisesSupportedFeatures(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-feat")
+	defer e.Poison(routerPID)
+
+	conn := newFakeConn()
+	conn.dropHello = false
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{RouterPID: routerPID, Conn: conn}), "ws-session-feat")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	hello := (<-conn.writeCh).(wsHelloFrame)
+	feats := hello.Payload.Capabilities.SupportedFeatures
+	if len(feats) == 0 {
+		t.Fatal("supported_features should be non-empty")
+	}
+	found := map[string]bool{}
+	for _, f := range feats {
+		found[f] = true
+	}
+	for _, want := range []string{"batching", "snapshot_hash", "prev_seq"} {
+		if !found[want] {
+			t.Fatalf("missing supported_feature %q", want)
+		}
+	}
+}
+
+func TestSession_ClientHello_StoresRequestedFeatures(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-cli-feat")
+	defer e.Poison(routerPID)
+
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{RouterPID: routerPID, Conn: conn}), "ws-session-cli-feat")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"hello","request_id":"h1","requested_features":["batching","prev_seq"]}`)}
+	ack := (<-conn.writeCh).(wsAckFrame)
+	if ack.Op != "hello" {
+		t.Fatalf("ack op=%q want=hello", ack.Op)
+	}
+}
+
+func TestSession_MaxFrameBytes_DropsOversizedProtoFrame(t *testing.T) {
+	_ = contracts.BootstrapPayloadCodecRegistry()
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-frame-sz")
+	defer e.Poison(routerPID)
+
+	conn := newFakeConn()
+	before := testutil.ToFloat64(metrics.WSDropsTotal.WithLabelValues("frame_too_large"))
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{
+		RouterPID:     routerPID,
+		Conn:          conn,
+		PreferProto:   true,
+		MaxFrameBytes: 10, // tiny limit
+	}), "ws-session-frame-sz")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	subject := mustParseSubjectForSession(t, "marketdata.trade/binance/BTCUSDT/raw")
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"subscribe","subject":"marketdata.trade/binance/BTC-USDT/raw","request_id":"s1"}`)}
+	<-conn.writeCh // ack
+
+	// Build a trade payload that is larger than 10 bytes when encoded as proto envelope.
+	tradeJSON := []byte(`{"Price":100.5,"Size":1.0,"Side":"buy","TradeID":"t1","Timestamp":1000}`)
+	e.Send(sessionPID, DeliveryEvent{
+		Subject: subject,
+		Env: envelope.Envelope{
+			Type:        "marketdata.trade",
+			Version:     1,
+			Venue:       "binance",
+			Instrument:  "BTC-USDT",
+			Seq:         1,
+			TsIngest:    1000,
+			ContentType: envelope.ContentTypeJSON,
+			Payload:     tradeJSON,
+		},
+	})
+
+	// The frame should be dropped, not written. Give a short window for the
+	// drop metric to increment.
+	time.Sleep(100 * time.Millisecond)
+	after := testutil.ToFloat64(metrics.WSDropsTotal.WithLabelValues("frame_too_large"))
+	if after <= before {
+		t.Fatalf("expected frame_too_large drop increment, before=%f after=%f", before, after)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// F5: Backpressure Hints
+// ---------------------------------------------------------------------------
+
+func TestSession_MetricsFrame_IncludesBackpressureHints(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-bp-hints")
+	defer e.Poison(routerPID)
+
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{
+		RouterPID:         routerPID,
+		Conn:              conn,
+		OutboundQueueSize: 4,
+	}), "ws-session-bp-hints")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	e.Send(sessionPID, sessionMetricsTick{})
+	msg := (<-conn.writeCh).(wsMetricsFrame)
+	if msg.Payload.BackpressureLevel != 0 {
+		t.Fatalf("level=%d want=0 (empty queue)", msg.Payload.BackpressureLevel)
+	}
+	if msg.Payload.RecommendedAction != "none" {
+		t.Fatalf("action=%q want=none", msg.Payload.RecommendedAction)
+	}
+	if msg.Payload.QueueCapacity != 4 {
+		t.Fatalf("queue_capacity=%d want=4", msg.Payload.QueueCapacity)
+	}
+}
+
+func TestSession_BackpressureLevel_Critical(t *testing.T) {
+	sa := &SessionActor{}
+	sa.outboundCap = 100
+	sa.outbound = newDeliveryRing(100)
+	// Fill to 96% = critical
+	for i := 0; i < 96; i++ {
+		sa.outbound.PushBack(DeliveryEvent{})
+	}
+	level, action := sa.computeBackpressureLevel()
+	if level != 3 {
+		t.Fatalf("level=%d want=3 (critical)", level)
+	}
+	if action != "reconnect" {
+		t.Fatalf("action=%q want=reconnect", action)
+	}
+}
+
+func TestSession_BackpressureLevel_Normal(t *testing.T) {
+	sa := &SessionActor{}
+	sa.outboundCap = 100
+	sa.outbound = newDeliveryRing(100)
+	level, action := sa.computeBackpressureLevel()
+	if level != 0 {
+		t.Fatalf("level=%d want=0", level)
+	}
+	if action != "none" {
+		t.Fatalf("action=%q want=none", action)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// F6: Tenant Metrics
+// ---------------------------------------------------------------------------
+
+func TestSession_TenantMetrics_DropsLabeledByTenant(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-tenant-drop")
+	defer e.Poison(routerPID)
+
+	conn := newFakeConn()
+	before := testutil.ToFloat64(metrics.WSTenantDropsTotal.WithLabelValues("acme", "queue_full"))
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{
+		RouterPID:         routerPID,
+		Conn:              conn,
+		TenantID:          "acme",
+		OutboundQueueSize: 1,
+	}), "ws-session-tenant-drop")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	subject := mustParseSubjectForSession(t, "marketdata.trade/binance/BTCUSDT/raw")
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"subscribe","subject":"marketdata.trade/binance/BTC-USDT/raw","request_id":"s1"}`)}
+	<-conn.writeCh // ack
+
+	// Fill queue to capacity=1, then enqueue another to trigger drop.
+	e.Send(sessionPID, DeliveryEvent{Subject: subject, Env: envelope.Envelope{Type: "marketdata.trade", Version: 1, Venue: "binance", Instrument: "BTC-USDT", Seq: 1, TsIngest: 1000, ContentType: envelope.ContentTypeJSON, Payload: []byte(`{}`)}})
+	e.Send(sessionPID, DeliveryEvent{Subject: subject, Env: envelope.Envelope{Type: "marketdata.trade", Version: 1, Venue: "binance", Instrument: "BTC-USDT", Seq: 2, TsIngest: 1001, ContentType: envelope.ContentTypeJSON, Payload: []byte(`{}`)}})
+	e.Send(sessionPID, DeliveryEvent{Subject: subject, Env: envelope.Envelope{Type: "marketdata.trade", Version: 1, Venue: "binance", Instrument: "BTC-USDT", Seq: 3, TsIngest: 1002, ContentType: envelope.ContentTypeJSON, Payload: []byte(`{}`)}})
+
+	time.Sleep(200 * time.Millisecond)
+	after := testutil.ToFloat64(metrics.WSTenantDropsTotal.WithLabelValues("acme", "queue_full"))
+	if after <= before {
+		t.Fatalf("expected tenant drop increment for acme, before=%f after=%f", before, after)
+	}
+}
+
+func TestSession_TenantMetrics_ConnectionsActive(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-tenant-conn")
+	defer e.Poison(routerPID)
+
+	before := testutil.ToFloat64(metrics.WSTenantConnectionsActive.WithLabelValues("acme"))
+
+	conn1 := newFakeConn()
+	s1 := e.Spawn(NewSessionActor(SessionConfig{RouterPID: routerPID, Conn: conn1, TenantID: "acme"}), "ws-session-t1")
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	conn2 := newFakeConn()
+	s2 := e.Spawn(NewSessionActor(SessionConfig{RouterPID: routerPID, Conn: conn2, TenantID: "acme"}), "ws-session-t2")
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	afterSpawn := testutil.ToFloat64(metrics.WSTenantConnectionsActive.WithLabelValues("acme"))
+	if afterSpawn < before+2 {
+		t.Fatalf("expected +2 connections for acme, before=%f after=%f", before, afterSpawn)
+	}
+
+	<-e.Poison(s1).Done()
+	time.Sleep(50 * time.Millisecond)
+	afterPoison := testutil.ToFloat64(metrics.WSTenantConnectionsActive.WithLabelValues("acme"))
+	if afterPoison > afterSpawn-1+0.01 {
+		t.Fatalf("expected decrement after poison, afterSpawn=%f afterPoison=%f", afterSpawn, afterPoison)
+	}
+	<-e.Poison(s2).Done()
+}
+
+func TestSession_TenantMetrics_DefaultTenantWhenEmpty(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-tenant-def")
+	defer e.Poison(routerPID)
+
+	before := testutil.ToFloat64(metrics.WSTenantConnectionsActive.WithLabelValues("default"))
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{RouterPID: routerPID, Conn: conn, TenantID: ""}), "ws-session-tenant-def")
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+	defer e.Poison(sessionPID)
+
+	after := testutil.ToFloat64(metrics.WSTenantConnectionsActive.WithLabelValues("default"))
+	if after < before+1 {
+		t.Fatalf("expected default tenant connection, before=%f after=%f", before, after)
+	}
+}

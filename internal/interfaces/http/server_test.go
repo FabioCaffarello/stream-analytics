@@ -1125,3 +1125,19 @@ func assertNumberOrUnknown(t *testing.T, body map[string]any, field string) {
 		t.Fatalf("%s should be number or unknown string, got %#v", field, v)
 	}
 }
+
+func TestRuntimeTerminal_ReturnsJSON(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+	rec := doRequest(t, srv, http.MethodGet, "/runtime/terminal", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d\nbody: %s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("response is not valid JSON: %v\nbody: %s", err, rec.Body.String())
+	}
+}
