@@ -355,6 +355,12 @@ func validateWS(w WSConfig) *problem.Problem {
 	if w.Limits.MaxSymbolsPerConn < 0 {
 		return problem.Newf(codeInvalid, "ws.limits.max_symbols_per_connection must be >= 0, got %d", w.Limits.MaxSymbolsPerConn)
 	}
+	fallback := strings.ToLower(strings.TrimSpace(w.TenantMetrics.Fallback))
+	switch fallback {
+	case "", "unknown", "hash_bucket":
+	default:
+		return problem.Newf(codeInvalid, "ws.tenant_metrics.fallback must be unknown|hash_bucket, got %q", w.TenantMetrics.Fallback)
+	}
 	return nil
 }
 
@@ -367,6 +373,12 @@ func validateDelivery(d DeliveryConfig) *problem.Problem {
 	}
 	if d.SlowClientDropThreshold < 0 {
 		return problem.Newf(codeInvalid, "delivery.slow_client_drop_threshold must be >= 0, got %d", d.SlowClientDropThreshold)
+	}
+	if d.MetricsCadenceMs < 0 {
+		return problem.Newf(codeInvalid, "delivery.metrics_cadence_ms must be >= 0, got %d", d.MetricsCadenceMs)
+	}
+	if d.KeepaliveIntervalMs < 0 {
+		return problem.Newf(codeInvalid, "delivery.keepalive_interval_ms must be >= 0, got %d", d.KeepaliveIntervalMs)
 	}
 	switch strings.ToLower(strings.TrimSpace(d.BackpressurePolicy)) {
 	case "drop_newest", "drop_oldest", "priority_drop":
@@ -1020,6 +1032,12 @@ func applyDefaults(c *AppConfig) {
 	if c.Delivery.SlowClientDropThreshold == 0 {
 		c.Delivery.SlowClientDropThreshold = 1000
 	}
+	if c.Delivery.MetricsCadenceMs == 0 {
+		c.Delivery.MetricsCadenceMs = 5000
+	}
+	if c.Delivery.KeepaliveIntervalMs == 0 {
+		c.Delivery.KeepaliveIntervalMs = 20000
+	}
 	if c.Delivery.RouterReadyTimeout == "" {
 		c.Delivery.RouterReadyTimeout = "2s"
 	}
@@ -1028,6 +1046,24 @@ func applyDefaults(c *AppConfig) {
 	}
 	if c.Delivery.SessionSpawnTimeout == "" {
 		c.Delivery.SessionSpawnTimeout = "2s"
+	}
+	if !c.WS.TenantMetrics.IncludeTenantLabel &&
+		strings.TrimSpace(c.WS.TenantMetrics.Fallback) == "" &&
+		len(c.WS.TenantMetrics.TenantWhitelist) == 0 {
+		c.WS.TenantMetrics.IncludeTenantLabel = true
+	}
+	if strings.TrimSpace(c.WS.TenantMetrics.Fallback) == "" {
+		c.WS.TenantMetrics.Fallback = "unknown"
+	}
+	if len(c.WS.TenantMetrics.TenantWhitelist) > 0 {
+		out := make([]string, 0, len(c.WS.TenantMetrics.TenantWhitelist))
+		for _, tenant := range c.WS.TenantMetrics.TenantWhitelist {
+			trimmed := strings.TrimSpace(tenant)
+			if trimmed != "" {
+				out = append(out, trimmed)
+			}
+		}
+		c.WS.TenantMetrics.TenantWhitelist = out
 	}
 	if strings.TrimSpace(c.Delivery.NATS.ConsumerDurable) == "" {
 		c.Delivery.NATS.ConsumerDurable = "delivery-v1"

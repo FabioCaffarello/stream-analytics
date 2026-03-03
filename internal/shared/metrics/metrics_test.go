@@ -170,6 +170,7 @@ func TestMetricsNamesPresent(t *testing.T) {
 		"ws_send_latency_ms",
 		"ws_clients_connected",
 		"ws_clients_connected_by_mode",
+		"ws_clients_total",
 		"ws_subscriptions_active",
 		"ws_control_frames_total",
 		"serialize_errors_total",
@@ -255,9 +256,53 @@ func TestWSExtendedMetrics_StableLabelsOnly(t *testing.T) {
 	assertMetricLabelNames(t, "ws_lag_ms", []string{"channel"})
 	assertMetricLabelNames(t, "ws_publish_to_deliver_latency_ms", []string{"channel"})
 	assertMetricLabelNames(t, "ws_clients_connected_by_mode", []string{"mode"})
+	assertMetricLabelNames(t, "ws_clients_total", []string{"mode"})
 	assertMetricLabelNames(t, "ws_control_frames_total", []string{"type"})
 	assertMetricLabelNames(t, "ws_resync_rejected_total", []string{"reason"})
 	assertMetricLabelNames(t, "ws_contract_violations_total", []string{"reason"})
+}
+
+func TestWSTenantMetrics_LabelPolicy_WhitelistAndFallbackUnknown(t *testing.T) {
+	ConfigureWSTenantLabelPolicy(true, []string{"acme"}, "unknown")
+	defer ConfigureWSTenantLabelPolicy(true, nil, "unknown")
+
+	IncWSTenantDrop("acme", "queue_full")
+	IncWSTenantDrop("globex", "queue_full")
+
+	if got := testutil.ToFloat64(WSTenantDropsTotal.WithLabelValues("acme", "queue_full")); got < 1 {
+		t.Fatalf("expected whitelisted tenant series increment, got=%f", got)
+	}
+	if got := testutil.ToFloat64(WSTenantDropsTotal.WithLabelValues("unknown", "queue_full")); got < 1 {
+		t.Fatalf("expected unknown fallback series increment, got=%f", got)
+	}
+}
+
+func TestWSTenantMetrics_LabelPolicy_HashBucketBoundsCardinality(t *testing.T) {
+	ConfigureWSTenantLabelPolicy(true, []string{"acme"}, "hash_bucket")
+	defer ConfigureWSTenantLabelPolicy(true, nil, "unknown")
+	before := tenantDropsSeriesCount(t)
+	for i := 0; i < 1024; i++ {
+		IncWSTenantDrop("tenant-"+strings.Repeat("x", i%8)+string(rune('a'+(i%26))), "queue_full")
+	}
+	after := tenantDropsSeriesCount(t)
+	if growth := after - before; growth > 70 {
+		t.Fatalf("ws_tenant_drops_total cardinality growth=%d want<=70", growth)
+	}
+}
+
+func tenantDropsSeriesCount(t *testing.T) int {
+	t.Helper()
+	mfs, err := Registry().Gather()
+	if err != nil {
+		t.Fatalf("gather metrics: %v", err)
+	}
+	for _, mf := range mfs {
+		if mf.GetName() == "ws_tenant_drops_total" {
+			return len(mf.GetMetric())
+		}
+	}
+	t.Fatal("ws_tenant_drops_total metric family not found")
+	return 0
 }
 
 func TestVPVRAndHeatmapMetrics_BoundedLabelsOnly(t *testing.T) {

@@ -51,6 +51,7 @@ type Server struct {
 	tenantLimits            map[string]config.WSTenantLimitConfig
 	maxFrameBytes           int
 	allowLegacy             bool
+	enableCompression       bool
 }
 
 type connectionRegistry struct {
@@ -139,6 +140,12 @@ func WithAllowLegacy(allow bool) Option {
 	}
 }
 
+func WithCompressionEnabled(enabled bool) Option {
+	return func(s *Server) {
+		s.enableCompression = enabled
+	}
+}
+
 func WithSessionSpawner(spawn func(cfg deliveryruntime.SessionConfig) *actor.PID) Option {
 	return func(s *Server) {
 		s.spawnSession = spawn
@@ -156,6 +163,7 @@ func NewServer(engine *actor.Engine, routerPID *actor.PID, logger *slog.Logger, 
 		rangeStore:        rangeStore,
 		outboundQueueSize: outboundQueueSize,
 		allowLegacy:       true,
+		enableCompression: true,
 		limits: ConnectionLimits{
 			MaxConnectionsPerIP:  200,
 			MaxConnectionsPerKey: 20,
@@ -168,8 +176,9 @@ func NewServer(engine *actor.Engine, routerPID *actor.PID, logger *slog.Logger, 
 			byKey: map[string]int{},
 		},
 		upgrader: websocket.Upgrader{
-			ReadBufferSize:  4096,
-			WriteBufferSize: 4096,
+			ReadBufferSize:    4096,
+			WriteBufferSize:   4096,
+			EnableCompression: true,
 			CheckOrigin: func(r *http.Request) bool {
 				return true
 			},
@@ -180,6 +189,7 @@ func NewServer(engine *actor.Engine, routerPID *actor.PID, logger *slog.Logger, 
 			opt(srv)
 		}
 	}
+	srv.upgrader.EnableCompression = srv.enableCompression
 	if srv.spawnSession == nil {
 		srv.spawnSession = func(cfg deliveryruntime.SessionConfig) *actor.PID {
 			if srv.engine == nil {
@@ -301,18 +311,6 @@ func (s *Server) handleUpgradeWithMode(w http.ResponseWriter, r *http.Request, m
 
 func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 	s.handleUpgradeWithMode(w, r, wsClientModeV1)
-}
-
-// HandleLegacyWS keeps backward-compatible route handling isolated from
-// Terminal V1 route handling and instrumentation.
-func (s *Server) HandleLegacyWS(w http.ResponseWriter, r *http.Request) {
-	if !s.allowLegacy {
-		metrics.IncWSLegacyRequest("rejected")
-		http.Error(w, "legacy route deprecated; use /ws", http.StatusGone)
-		return
-	}
-	metrics.IncWSLegacyRequest("accepted")
-	s.handleUpgradeWithMode(w, r, wsClientModeLegacy)
 }
 
 func (s *Server) HandleIntrospection(w http.ResponseWriter, _ *http.Request) {

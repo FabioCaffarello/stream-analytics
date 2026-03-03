@@ -65,16 +65,42 @@ Behavior:
 - Outbound queue is bounded per connection.
 - Policy: `drop_newest | drop_oldest | priority_drop`.
 - Slow client disconnect after `delivery.slow_client_drop_threshold` drops.
+- Explicit drop reasons include queue and frame guard paths (for example `queue_full`, `drop_oldest`, `priority_drop_self`, `frame_too_large`).
 - Hard limits:
   - max connections per IP
   - max connections per key
   - max subscriptions per connection
   - max symbols per connection
 
+## Perf Tuning
+- Publish→deliver batching: session flush writes in bounded batches to reduce actor mailbox churn (`batching` feature remains backward compatible).
+- Compression: WebSocket permessage-deflate is enabled by default; keep enabled for WAN/browser clients unless CPU is the bottleneck.
+- Frame guard: `delivery.max_frame_bytes` is enforced on both JSON and proto paths; oversized frames are dropped with `frame_too_large`.
+- Session cadence knobs:
+  - `delivery.metrics_cadence_ms` controls `metrics` frame interval per session.
+  - `delivery.keepalive_interval_ms` controls ping interval per session.
+- Queue sizing: keep `processor.bus_capacity >= delivery.session_outbound_queue_size` (enforced by config validation) to avoid immediate pressure at session ingress.
+- Context bootstrap: on `subscribe` to candle streams, server emits a bounded `range` backfill (`op=backfill`) before live flow to avoid empty-start charts; `watermark_seq` in the range frame indicates the highest seq included.
+
+Recommended defaults:
+- WASM/browser clients:
+  - `delivery.session_outbound_queue_size`: `256-512`
+  - `delivery.max_frame_bytes`: `65536`
+  - `delivery.metrics_cadence_ms`: `5000`
+  - `delivery.keepalive_interval_ms`: `20000`
+  - compression: enabled
+- Native clients (LAN or colocated):
+  - `delivery.session_outbound_queue_size`: `512-1024`
+  - `delivery.max_frame_bytes`: `131072` (if payloads justify it)
+  - `delivery.metrics_cadence_ms`: `2000-5000`
+  - `delivery.keepalive_interval_ms`: `10000-20000`
+  - compression: enabled by default; disable only after CPU profiling
+
 ## Observability
 Key metrics:
 - `ws_clients_connected`
 - `ws_clients_connected_by_mode{mode}`
+- `ws_clients_total{mode}`
 - `ws_subscriptions_active`
 - `ws_control_frames_total{type}`
 - `ws_messages_out_total{channel}`
@@ -112,6 +138,11 @@ ws_tenant_connections_active
 # Messages delivered by tenant and channel
 sum by (tenant_id, channel) (rate(ws_tenant_messages_out_total[5m]))
 ```
+
+Tenant label cardinality control:
+- `ws.tenant_metrics.include_tenant_label`: include real tenant labels (`true` default for compatibility).
+- `ws.tenant_metrics.tenant_whitelist`: optional allowlist of tenants with explicit label series.
+- `ws.tenant_metrics.fallback`: `unknown` or `hash_bucket` for non-whitelisted tenants.
 
 Backpressure metrics:
 ```promql
@@ -156,6 +187,13 @@ The `/ws/marketdata` route is the legacy entry point. New clients should use `/w
 | 2. Legacy disabled | `allow_legacy_ws: false` | `/ws/marketdata` returns **410 Gone**; counter increments `{status=rejected}` |
 | 3. Route removed | (code change) | `/ws/marketdata` handler removed entirely |
 
+Target shutdown window:
+- Earliest disable date: **June 30, 2026**.
+- Disable criteria:
+  - `rate(ws_clients_total{mode="legacy"}[7d]) == 0`
+  - no customer profile explicitly requiring legacy fallback
+  - zero `ws_legacy_requests_total{status="accepted"}` in staged canary window
+
 Config example:
 ```json
 {
@@ -169,6 +207,9 @@ Monitoring (Phase 1 → 2 transition):
 ```promql
 # Legacy clients still active (should trend to zero before Phase 2)
 rate(ws_legacy_requests_total{status="accepted"}[5m])
+
+# Legacy vs v1 connection mix
+sum by (mode) (rate(ws_clients_total[15m]))
 
 # Rejected legacy requests after flag-off
 rate(ws_legacy_requests_total{status="rejected"}[5m])

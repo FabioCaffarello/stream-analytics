@@ -62,14 +62,22 @@
       "enabled": true,
       "max_per_second": 100,
       "burst_capacity": 200
+    },
+    "tenant_metrics": {
+      "include_tenant_label": true,
+      "tenant_whitelist": [],
+      "fallback": "unknown"
     }
   },
   "delivery": {
     "enabled": true,
     "max_sessions": 10000,
     "session_outbound_queue_size": 512,
+    "metrics_cadence_ms": 5000,
+    "keepalive_interval_ms": 20000,
     "backpressure_policy": "drop_newest",
     "slow_client_drop_threshold": 1000,
+    "max_frame_bytes": 65536,
     "nats": {
       "consumer_durable": "delivery-v2",
       "filter_subjects": ["marketdata.>", "aggregation.>", "insights.>"]

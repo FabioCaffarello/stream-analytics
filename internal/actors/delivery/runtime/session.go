@@ -32,14 +32,16 @@ import (
 const readLimitBytes = 64 * 1024
 const wsKeepalivePingInterval = 20 * time.Second
 const wsMetricsCadence = 5 * time.Second
+const wsFlushBatchSize = 32
 const wsProtocolVersion = 1
 
 const (
-	defaultRangeLimit = 100
-	maxLimit          = 1000
-	maxPage           = 100
-	maxQueryLimit     = 20000
-	maxResponseItems  = 1000
+	defaultRangeLimit      = 100
+	maxLimit               = 1000
+	maxPage                = 100
+	maxQueryLimit          = 20000
+	maxResponseItems       = 1000
+	subscribeBackfillLimit = 64
 )
 
 type wsConn interface {
@@ -85,6 +87,12 @@ type SessionConfig struct {
 	// MaxFrameBytes is the maximum outbound frame size in bytes.
 	// 0 defaults to readLimitBytes.
 	MaxFrameBytes int
+	// KeepaliveInterval controls periodic websocket pings.
+	// 0 defaults to wsKeepalivePingInterval.
+	KeepaliveInterval time.Duration
+	// MetricsCadence controls periodic metrics frame emission.
+	// 0 defaults to wsMetricsCadence.
+	MetricsCadence time.Duration
 	// Clock is optional; defaults to SystemClock.
 	Clock sharedclock.Clock
 	// TranscodeCache is an optional shared proto→JSON transcode cache.
@@ -133,6 +141,9 @@ type SessionActor struct {
 	clientFeatures []string
 	// F4: resolved max frame bytes for proto frame size guard.
 	maxFrameBytes int
+	// Resolved per-session intervals (defaulted in ensureDefaults).
+	keepaliveInterval time.Duration
+	metricsCadence    time.Duration
 
 	// F5: peak queue depth since last metrics emission (reset after each emission).
 	queueHighWatermark int
@@ -259,6 +270,18 @@ func (s *SessionActor) ensureDefaults(c *actor.Context) {
 			s.maxFrameBytes = readLimitBytes
 		}
 	}
+	if s.keepaliveInterval <= 0 {
+		s.keepaliveInterval = s.cfg.KeepaliveInterval
+		if s.keepaliveInterval <= 0 {
+			s.keepaliveInterval = wsKeepalivePingInterval
+		}
+	}
+	if s.metricsCadence <= 0 {
+		s.metricsCadence = s.cfg.MetricsCadence
+		if s.metricsCadence <= 0 {
+			s.metricsCadence = wsMetricsCadence
+		}
+	}
 }
 
 func (s *SessionActor) onStarted() {
@@ -353,8 +376,8 @@ func (s *SessionActor) emitHello() {
 				MaxSymbolsPerConnection: s.cfg.MaxSymbolsPerConnection,
 				MaxFrameBytes:           maxFrameBytes,
 				OutboundQueueSize:       queueSize,
-				MetricsCadenceMs:        int(wsMetricsCadence.Milliseconds()),
-				KeepaliveIntervalMs:     int(wsKeepalivePingInterval.Milliseconds()),
+				MetricsCadenceMs:        int(s.metricsCadence.Milliseconds()),
+				KeepaliveIntervalMs:     int(s.keepaliveInterval.Milliseconds()),
 				RateLimit:               rl,
 				SupportedFeatures:       []string{"batching", "snapshot_hash", "prev_seq"},
 			},
@@ -367,8 +390,8 @@ func (s *SessionActor) onStopped() {
 }
 
 func (s *SessionActor) keepaliveLoop(ctx context.Context) {
-	pingTicker := time.NewTicker(wsKeepalivePingInterval)
-	metricsTicker := time.NewTicker(wsMetricsCadence)
+	pingTicker := time.NewTicker(s.keepaliveInterval)
+	metricsTicker := time.NewTicker(s.metricsCadence)
 	defer pingTicker.Stop()
 	defer metricsTicker.Stop()
 	for {
@@ -618,6 +641,8 @@ type wsRangeFrame struct {
 	// SnapshotSource is present when items were synthesized from the hot
 	// snapshot fallback because the requested range returned empty.
 	SnapshotSource string `json:"snapshot_source,omitempty"`
+	// WatermarkSeq is the highest seq observed in this range response.
+	WatermarkSeq int64 `json:"watermark_seq,omitempty"`
 }
 
 type wsEventFrame struct {
@@ -901,6 +926,43 @@ func (s *SessionActor) handleSubscribe(cmd clientCommand) {
 		RequestID: cmd.RequestID,
 		Subject:   subject.String(),
 	})
+	s.emitSubscribeBackfill(subject)
+}
+
+func (s *SessionActor) emitSubscribeBackfill(subject domain.Subject) {
+	if !s.supportsSubscribeBackfill() {
+		return
+	}
+	if !strings.EqualFold(strings.TrimSpace(subject.StreamType), "aggregation.candle") {
+		return
+	}
+	s.emitRangeFrame(
+		"backfill",
+		"",
+		subject,
+		getRangeParams{Limit: subscribeBackfillLimit, Page: 1},
+		true, // best-effort only for subscribe bootstrap
+	)
+}
+
+func (s *SessionActor) supportsSubscribeBackfill() bool {
+	// Preserve legacy behavior: backfill-on-subscribe is only enabled for
+	// clients that performed Terminal_V1 hello negotiation and requested
+	// at least the batching feature set.
+	return s.helloSeen && s.clientHasFeature("batching")
+}
+
+func (s *SessionActor) clientHasFeature(name string) bool {
+	want := strings.ToLower(strings.TrimSpace(name))
+	if want == "" {
+		return false
+	}
+	for _, f := range s.clientFeatures {
+		if strings.EqualFold(strings.TrimSpace(f), want) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *SessionActor) emitSnapshot(subject domain.Subject) bool {
@@ -1105,6 +1167,18 @@ func (s *SessionActor) executeGetRange(op, requestID, subjectRaw string, params 
 
 	// Defensive window: fetch bounded superset, then sort/paginate in-memory.
 	// This avoids relying on implicit store ordering semantics.
+	s.emitRangeFrame(op, requestID, subject, params, false)
+}
+
+func (s *SessionActor) emitRangeFrame(op, requestID string, subject domain.Subject, params getRangeParams, bestEffort bool) {
+	page := params.Page
+	if page <= 0 {
+		page = 1
+	}
+	limit := params.Limit
+	if limit <= 0 {
+		limit = defaultRangeLimit
+	}
 	res := s.service.GetRange(context.Background(), app.GetRangeRequest{
 		SubjectRaw: subject.String(),
 		FromMs:     params.FromMs,
@@ -1112,6 +1186,9 @@ func (s *SessionActor) executeGetRange(op, requestID, subjectRaw string, params 
 		Limit:      maxQueryLimit,
 	})
 	if res.IsFail() {
+		if bestEffort {
+			return
+		}
 		metrics.IncWSQueryRejected("range_failed")
 		s.writeProblem(op, requestID, res.Problem())
 		return
@@ -1129,16 +1206,27 @@ func (s *SessionActor) executeGetRange(op, requestID, subjectRaw string, params 
 	if len(items) > maxResponseItems {
 		items = items[len(items)-maxResponseItems:]
 	}
-	metrics.IncWSQuery("getrange", wsQueryBucket(subject.StreamType))
+	var watermarkSeq int64
+	for _, it := range items {
+		if it.Seq > watermarkSeq {
+			watermarkSeq = it.Seq
+		}
+	}
+	queryOp := op
+	if strings.TrimSpace(queryOp) == "" {
+		queryOp = "backfill"
+	}
+	metrics.IncWSQuery(queryOp, wsQueryBucket(subject.StreamType))
 	s.writeJSON(wsRangeFrame{
 		Type:           "range",
-		Op:             op,
+		Op:             queryOp,
 		RequestID:      requestID,
 		Subject:        subject.String(),
 		Page:           page,
 		Limit:          limit,
 		Items:          items,
 		SnapshotSource: snapshotSource,
+		WatermarkSeq:   watermarkSeq,
 	})
 }
 
@@ -1376,22 +1464,25 @@ func (s *SessionActor) flushOutbound() {
 		s.flushing = false
 		return
 	}
-	evt, ok := s.outbound.PopFront()
-	if !ok {
-		s.flushing = false
-		metrics.SetWSQueueDepth(0)
-		return
-	}
-	metrics.SetWSQueueDepth(s.outbound.Len())
+	for i := 0; i < wsFlushBatchSize; i++ {
+		evt, ok := s.outbound.PopFront()
+		if !ok {
+			s.flushing = false
+			metrics.SetWSQueueDepth(0)
+			metrics.SetWSTenantQueueDepth(s.cfg.TenantID, 0)
+			return
+		}
+		metrics.SetWSQueueDepth(s.outbound.Len())
+		metrics.SetWSTenantQueueDepth(s.cfg.TenantID, s.outbound.Len())
 
-	started := time.Now()
-	if err := s.writeDeliveryEvent(evt); err != nil {
-		s.logger.Warn("delivery session: write failed", "err", err)
-		s.closeSession()
-		return
+		started := time.Now()
+		if err := s.writeDeliveryEvent(evt); err != nil {
+			s.logger.Warn("delivery session: write failed", "err", err)
+			s.closeSession()
+			return
+		}
+		metrics.ObserveWSSendLatency(time.Since(started))
 	}
-	metrics.ObserveWSSendLatency(time.Since(started))
-
 	if s.outbound.Len() > 0 {
 		s.engine.Send(s.self, sessionFlushOutbound{})
 		return
@@ -1439,7 +1530,7 @@ func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) *problem.Problem {
 		}
 		// F4: frame size guard for proto path.
 		if s.maxFrameBytes > 0 && len(raw) > s.maxFrameBytes {
-			metrics.IncWSDrops("frame_too_large")
+			s.onDrop("frame_too_large", &evt)
 			return nil
 		}
 		if err := s.writeProtoDirect(websocket.BinaryMessage, raw); err != nil {
@@ -1524,8 +1615,7 @@ func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) *problem.Problem {
 			return problem.Wrap(marshalErr, problem.Internal, "json marshal failed")
 		}
 		if len(raw) > s.maxFrameBytes {
-			metrics.IncWSDrops("frame_too_large")
-			metrics.IncWSDropped("frame_too_large", channel)
+			s.onDrop("frame_too_large", &evt)
 			return nil
 		}
 	}
@@ -1689,6 +1779,7 @@ func (s *SessionActor) closeSession() {
 		observability.DecPreferProtoSessions()
 	}
 	metrics.SetWSQueueDepth(0)
+	metrics.SetWSTenantQueueDepth(s.cfg.TenantID, 0)
 	// Explicitly emit unsubscribe for each tracked subject before unregister.
 	// Unregister remains the idempotent safety net.
 	for _, sub := range s.session.Subscriptions() {

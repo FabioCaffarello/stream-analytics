@@ -219,13 +219,27 @@ type HTTPConfig struct {
 
 // WSConfig controls websocket auth and per-session read-path rate limiting.
 type WSConfig struct {
-	Auth         WSAuthConfig                   `json:"auth"`
-	RateLimit    WSRateLimitConfig              `json:"rate_limit"`
-	Limits       WSLimitsConfig                 `json:"limits"`
-	TenantLimits map[string]WSTenantLimitConfig `json:"tenant_limits,omitempty"`
+	Auth          WSAuthConfig                   `json:"auth"`
+	RateLimit     WSRateLimitConfig              `json:"rate_limit"`
+	Limits        WSLimitsConfig                 `json:"limits"`
+	TenantLimits  map[string]WSTenantLimitConfig `json:"tenant_limits,omitempty"`
+	TenantMetrics WSTenantMetricsConfig          `json:"tenant_metrics,omitempty"`
 	// AllowLegacy controls whether the /ws/marketdata legacy route is served.
 	// nil defaults to true (legacy allowed). Explicit false returns 410 Gone.
 	AllowLegacy *bool `json:"allow_legacy_ws,omitempty"`
+}
+
+// WSTenantMetricsConfig controls tenant label behavior for ws_tenant_* metrics.
+type WSTenantMetricsConfig struct {
+	// IncludeTenantLabel toggles tenant_id label cardinality.
+	// Default true for backward compatibility.
+	IncludeTenantLabel bool `json:"include_tenant_label"`
+	// TenantWhitelist optionally restricts explicit tenant labels.
+	// When non-empty, unknown tenants use Fallback.
+	TenantWhitelist []string `json:"tenant_whitelist,omitempty"`
+	// Fallback controls non-whitelisted tenant mapping.
+	// Allowed: "unknown" (default) | "hash_bucket".
+	Fallback string `json:"fallback,omitempty"`
 }
 
 // IsLegacyAllowed returns whether the legacy /ws/marketdata route is enabled.
@@ -283,6 +297,12 @@ type DeliveryConfig struct {
 	// MaxFrameBytes is the maximum outbound frame size in bytes.
 	// 0 defaults to readLimitBytes (64KB).
 	MaxFrameBytes int `json:"max_frame_bytes,omitempty"`
+	// MetricsCadenceMs controls session metrics frame interval in milliseconds.
+	// 0 defaults to 5000.
+	MetricsCadenceMs int `json:"metrics_cadence_ms,omitempty"`
+	// KeepaliveIntervalMs controls ping keepalive interval in milliseconds.
+	// 0 defaults to 20000.
+	KeepaliveIntervalMs int `json:"keepalive_interval_ms,omitempty"`
 	// RouterReadyTimeout is the maximum time to wait for the delivery router PID.  Default: "2s".
 	RouterReadyTimeout string `json:"router_ready_timeout"`
 	// SubsystemReadyTimeout is the maximum time to wait for the delivery subsystem PID.  Default: "500ms".

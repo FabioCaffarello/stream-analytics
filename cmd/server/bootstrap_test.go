@@ -187,6 +187,9 @@ func TestBoundedSnapshotCacheProvider_UsesTTLAndSizeBounds(t *testing.T) {
 
 	_, _ = cached.GetLatest(subB)
 	_, _ = cached.GetLatest(subC) // max entries=2, should evict oldest
+	if got := testutil.ToFloat64(metrics.DeliveryWSSnapshotCacheEntries); got != 2 {
+		t.Fatalf("snapshot cache entries gauge=%f want=2", got)
+	}
 	_, _ = cached.GetLatest(subA) // re-fetch after eviction
 	if got, want := base.calls, 4; got != want {
 		t.Fatalf("base calls after eviction=%d want=%d", got, want)

@@ -529,6 +529,11 @@ func enableWSRoute(
 ) {
 	hotSnapshotProvider := newWSHotSnapshotProvider(rangeStore, tsPool, subMinuteGate)
 	hotSnapshotProvider = newBoundedSnapshotCacheProvider(hotSnapshotProvider, wsSnapshotCacheTTL, wsSnapshotCacheMaxEntries)
+	metrics.ConfigureWSTenantLabelPolicy(
+		cfg.WS.TenantMetrics.IncludeTenantLabel,
+		cfg.WS.TenantMetrics.TenantWhitelist,
+		cfg.WS.TenantMetrics.Fallback,
+	)
 	select {
 	case routerPID := <-routerPIDCh:
 		var subsystemPID *actor.PID
@@ -556,6 +561,9 @@ func enableWSRoute(
 			wsserver.WithSessionSpawner(func(sessionCfg deliveryruntime.SessionConfig) *actor.PID {
 				sessionCfg.BackpressurePolicy = deliverydomain.BackpressurePolicy(cfg.Delivery.BackpressurePolicy)
 				sessionCfg.HotSnapshotProvider = hotSnapshotProvider
+				sessionCfg.MetricsCadence = time.Duration(cfg.Delivery.MetricsCadenceMs) * time.Millisecond
+				sessionCfg.KeepaliveInterval = time.Duration(cfg.Delivery.KeepaliveIntervalMs) * time.Millisecond
+				sessionCfg.MaxFrameBytes = cfg.Delivery.MaxFrameBytes
 				if subsystemPID == nil {
 					return nil
 				}
@@ -591,6 +599,7 @@ func enableWSRoute(
 			wsserver.WithServerInstanceID(ids.NewSessionID().String()),
 			wsserver.WithSlowClientDropThreshold(cfg.Delivery.SlowClientDropThreshold),
 			wsserver.WithTranscodeCache(deliveryruntime.NewTranscodeCache(0)),
+			wsserver.WithMaxFrameBytes(cfg.Delivery.MaxFrameBytes),
 			wsserver.WithAllowLegacy(cfg.WS.IsLegacyAllowed()),
 		)
 		srv.HandleFunc("GET /ws", ws.HandleWS)
@@ -713,6 +722,7 @@ func (p *boundedSnapshotCacheProvider) GetLatest(subject deliverydomain.Subject)
 			return payload, true
 		}
 		delete(p.cache, key)
+		p.removeOrderKey(key)
 		metrics.SetDeliveryWSSnapshotCacheEntries(len(p.cache))
 	}
 	p.mu.Unlock()
@@ -739,6 +749,19 @@ func (p *boundedSnapshotCacheProvider) GetLatest(subject deliverydomain.Subject)
 	metrics.SetDeliveryWSSnapshotCacheEntries(len(p.cache))
 	p.mu.Unlock()
 	return copied, true
+}
+
+func (p *boundedSnapshotCacheProvider) removeOrderKey(key string) {
+	if p == nil || len(p.order) == 0 || key == "" {
+		return
+	}
+	dst := p.order[:0]
+	for _, current := range p.order {
+		if current != key {
+			dst = append(dst, current)
+		}
+	}
+	p.order = dst
 }
 
 func (p rangeStoreHotSnapshotProvider) GetLatest(subject deliverydomain.Subject) ([]byte, bool) {

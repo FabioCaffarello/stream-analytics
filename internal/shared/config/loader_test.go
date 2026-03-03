@@ -26,6 +26,10 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 		{name: "ws.rate_limit.burst_capacity", got: cfg.WS.RateLimit.BurstCapacity, want: 200},
 		{name: "delivery.session_outbound_queue_size", got: cfg.Delivery.SessionOutboundQueueSize, want: 512},
 		{name: "delivery.slow_client_drop_threshold", got: cfg.Delivery.SlowClientDropThreshold, want: 1000},
+		{name: "delivery.metrics_cadence_ms", got: cfg.Delivery.MetricsCadenceMs, want: 5000},
+		{name: "delivery.keepalive_interval_ms", got: cfg.Delivery.KeepaliveIntervalMs, want: 20000},
+		{name: "ws.tenant_metrics.include_tenant_label", got: cfg.WS.TenantMetrics.IncludeTenantLabel, want: true},
+		{name: "ws.tenant_metrics.fallback", got: cfg.WS.TenantMetrics.Fallback, want: "unknown"},
 		{name: "shard.index", got: cfg.Shard.Index, want: 0},
 		{name: "shard.count", got: cfg.Shard.Count, want: 1},
 		{name: "bus.type", got: cfg.Bus.Type, want: "inmemory"},
@@ -1460,6 +1464,37 @@ func TestValidate_CrossField_DeliveryDisabled_SkipsCheck(t *testing.T) {
 	cfg.Delivery.SessionOutboundQueueSize = 9999
 	if p := cfg.Validate(); p != nil {
 		t.Fatalf("unexpected validation failure when delivery disabled: %v", p)
+	}
+}
+
+func TestValidate_DeliveryCadenceAndKeepalive_MustBeNonNegative(t *testing.T) {
+	cfg, prob := Load("")
+	if prob != nil {
+		t.Fatalf("Load: %v", prob)
+	}
+	cfg.Delivery.MetricsCadenceMs = -1
+	if p := cfg.Validate(); p == nil || !strings.Contains(p.Message, "delivery.metrics_cadence_ms") {
+		t.Fatalf("expected metrics cadence validation error, got=%v", p)
+	}
+
+	cfg, prob = Load("")
+	if prob != nil {
+		t.Fatalf("Load: %v", prob)
+	}
+	cfg.Delivery.KeepaliveIntervalMs = -1
+	if p := cfg.Validate(); p == nil || !strings.Contains(p.Message, "delivery.keepalive_interval_ms") {
+		t.Fatalf("expected keepalive validation error, got=%v", p)
+	}
+}
+
+func TestValidate_WSTenantMetricsFallback_RejectsUnknownValue(t *testing.T) {
+	cfg, prob := Load("")
+	if prob != nil {
+		t.Fatalf("Load: %v", prob)
+	}
+	cfg.WS.TenantMetrics.Fallback = "bad"
+	if p := cfg.Validate(); p == nil || !strings.Contains(p.Message, "ws.tenant_metrics.fallback") {
+		t.Fatalf("expected tenant fallback validation error, got=%v", p)
 	}
 }
 

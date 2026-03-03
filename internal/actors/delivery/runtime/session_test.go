@@ -249,6 +249,57 @@ func TestSession_EmitsPeriodicMetricsFrame(t *testing.T) {
 	}
 }
 
+func TestSession_ConfigurableCadenceAndKeepalive_Applied(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-capture-cadence")
+	defer e.Poison(routerPID)
+
+	conn := newFakeConn()
+	conn.dropHello = false
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{
+		RouterPID:         routerPID,
+		Conn:              conn,
+		MetricsCadence:    15 * time.Millisecond,
+		KeepaliveInterval: 10 * time.Millisecond,
+	}), "ws-session-cadence")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	hello := (<-conn.writeCh).(wsHelloFrame)
+	if got, want := hello.Payload.Capabilities.MetricsCadenceMs, 15; got != want {
+		t.Fatalf("hello metrics_cadence_ms=%d want=%d", got, want)
+	}
+	if got, want := hello.Payload.Capabilities.KeepaliveIntervalMs, 10; got != want {
+		t.Fatalf("hello keepalive_interval_ms=%d want=%d", got, want)
+	}
+
+	deadline := time.After(200 * time.Millisecond)
+	gotMetrics := false
+	gotPing := false
+	for !gotMetrics || !gotPing {
+		select {
+		case msg := <-conn.writeCh:
+			switch frame := msg.(type) {
+			case wsMetricsFrame:
+				if frame.Type == "metrics" {
+					gotMetrics = true
+				}
+			case fakeBinaryWrite:
+				if frame.messageType == websocket.PingMessage {
+					gotPing = true
+				}
+			}
+		case <-deadline:
+			t.Fatalf("did not observe periodic cadence events (metrics=%v ping=%v)", gotMetrics, gotPing)
+		}
+	}
+}
+
 func TestSession_getLastVPVRSnapshot(t *testing.T) {
 	e, err := actor.NewEngine(actor.NewEngineConfig())
 	if err != nil {
@@ -458,6 +509,103 @@ func TestSession_getRangeVPVRPagination_capsRejectExplosive(t *testing.T) {
 	}
 	if got := testutil.ToFloat64(metrics.WSQueryRejectedTotal.WithLabelValues("query_cap")); got < beforeRejected+1 {
 		t.Fatalf("expected ws_query_rejected_total query_cap increment, got=%f before=%f", got, beforeRejected)
+	}
+}
+
+func TestSession_subscribeCandleEmitsDeterministicBackfillWithWatermark(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-capture-backfill")
+	defer e.Poison(routerPID)
+
+	sub := mustParseSubjectForSession(t, "aggregation.candle/binance/BTCUSDT/1m")
+	store := &stubRangeStore{
+		bySubject: map[string][]ports.RangeItem{
+			sub.String(): {
+				{Seq: 11, TsIngest: 1700000000011, Payload: []byte(`{"seq":11}`)},
+				{Seq: 10, TsIngest: 1700000000010, Payload: []byte(`{"seq":10}`)},
+				{Seq: 12, TsIngest: 1700000000012, Payload: []byte(`{"seq":12}`)},
+			},
+		},
+	}
+
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{RouterPID: routerPID, Conn: conn, RangeStore: store}), "ws-session-backfill")
+	defer e.Poison(sessionPID)
+
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"hello","request_id":"h1","requested_features":["batching"]}`)}
+	helloAck := <-conn.writeCh
+	if ack, ok := helloAck.(wsHelloAckFrame); !ok || ack.Op != "hello" {
+		t.Fatalf("expected hello ack, got %#v", helloAck)
+	}
+
+	readBackfill := func(requestID string) wsRangeFrame {
+		conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"subscribe","subject":"aggregation.candle/binance/BTC-USDT/1m","request_id":"` + requestID + `"}`)}
+		msg1 := <-conn.writeCh
+		msg2 := <-conn.writeCh
+
+		var backfill wsRangeFrame
+		var ack wsAckFrame
+		switch v := msg1.(type) {
+		case wsRangeFrame:
+			backfill = v
+		case wsAckFrame:
+			ack = v
+		default:
+			t.Fatalf("unexpected message type %T", msg1)
+		}
+		switch v := msg2.(type) {
+		case wsRangeFrame:
+			backfill = v
+		case wsAckFrame:
+			ack = v
+		default:
+			t.Fatalf("unexpected message type %T", msg2)
+		}
+		if ack.Type != "ack" || ack.Op != "subscribe" {
+			t.Fatalf("ack=%+v want subscribe ack", ack)
+		}
+		if got, want := backfill.Op, "backfill"; got != want {
+			t.Fatalf("range op=%q want=%q", got, want)
+		}
+		if got, want := backfill.WatermarkSeq, int64(12); got != want {
+			t.Fatalf("watermark_seq=%d want=%d", got, want)
+		}
+		return backfill
+	}
+
+	first := readBackfill("b1")
+	items1, ok := first.Items.([]ports.RangeItem)
+	if !ok {
+		t.Fatalf("items type=%T want []ports.RangeItem", first.Items)
+	}
+	if got, want := len(items1), 3; got != want {
+		t.Fatalf("items len=%d want=%d", got, want)
+	}
+	if items1[0].Seq != 10 || items1[1].Seq != 11 || items1[2].Seq != 12 {
+		got := []int64{items1[0].Seq, items1[1].Seq, items1[2].Seq}
+		want := []int64{10, 11, 12}
+		t.Fatalf("ordered seq=%v want=%v", got, want)
+	}
+
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"unsubscribe","subject":"aggregation.candle/binance/BTC-USDT/1m","request_id":"u1"}`)}
+	<-conn.writeCh
+	_ = waitForMessage[UnsubscribeSession](t, routerCh, time.Second)
+
+	second := readBackfill("b2")
+	items2 := second.Items.([]ports.RangeItem)
+	if len(items2) != len(items1) {
+		t.Fatalf("items len mismatch=%d want=%d", len(items2), len(items1))
+	}
+	for i := range items1 {
+		if items1[i].Seq != items2[i].Seq || items1[i].TsIngest != items2[i].TsIngest || string(items1[i].Payload) != string(items2[i].Payload) {
+			t.Fatalf("non-idempotent backfill at idx=%d first=%+v second=%+v", i, items1[i], items2[i])
+		}
 	}
 }
 

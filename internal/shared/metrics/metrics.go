@@ -1,6 +1,8 @@
 package metrics
 
 import (
+	"fmt"
+	"hash/fnv"
 	"regexp"
 	"runtime"
 	"strings"
@@ -275,6 +277,13 @@ var (
 		prometheus.GaugeOpts{
 			Name: "ws_clients_connected_by_mode",
 			Help: "Connected websocket delivery clients by route compatibility mode.",
+		},
+		[]string{"mode"},
+	)
+	WSClientsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ws_clients_total",
+			Help: "Total websocket client connections accepted by route compatibility mode.",
 		},
 		[]string{"mode"},
 	)
@@ -983,6 +992,18 @@ var (
 		"4h":  {},
 		"1d":  {},
 	}
+	tenantLabelPolicy = struct {
+		mu                    sync.RWMutex
+		includeTenantLabel    bool
+		whitelist             map[string]struct{}
+		fallback              string
+		hashBucketCardinality uint32
+	}{
+		includeTenantLabel:    true,
+		whitelist:             nil,
+		fallback:              "unknown",
+		hashBucketCardinality: 64,
+	}
 )
 
 func init() {
@@ -1028,6 +1049,7 @@ func registerAll() {
 			WSLagMilliseconds,
 			WSClientsConnected,
 			WSClientsConnectedByMode,
+			WSClientsTotal,
 			WSSubscriptionsActive,
 			WSControlFramesTotal,
 			WSQueryTotal,
@@ -1158,6 +1180,9 @@ func registerAll() {
 		WSClientsConnectedByMode.WithLabelValues("v1")
 		WSClientsConnectedByMode.WithLabelValues("legacy")
 		WSClientsConnectedByMode.WithLabelValues("unknown")
+		WSClientsTotal.WithLabelValues("v1")
+		WSClientsTotal.WithLabelValues("legacy")
+		WSClientsTotal.WithLabelValues("unknown")
 		WSControlFramesTotal.WithLabelValues("hello")
 		WSControlFramesTotal.WithLabelValues("pong")
 		WSControlFramesTotal.WithLabelValues("metrics")
@@ -1411,7 +1436,9 @@ func DecWSClientsConnected() {
 }
 
 func IncWSClientsConnectedByMode(mode string) {
-	WSClientsConnectedByMode.WithLabelValues(sanitizeWSClientMode(mode)).Inc()
+	m := sanitizeWSClientMode(mode)
+	WSClientsConnectedByMode.WithLabelValues(m).Inc()
+	WSClientsTotal.WithLabelValues(m).Inc()
 }
 
 func DecWSClientsConnectedByMode(mode string) {
@@ -1476,18 +1503,82 @@ var tenantIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 const maxTenantIDLen = 64
 
+// ConfigureWSTenantLabelPolicy controls ws_tenant_* metric tenant label behavior.
+func ConfigureWSTenantLabelPolicy(include bool, whitelist []string, fallback string) {
+	policyFallback := strings.ToLower(strings.TrimSpace(fallback))
+	switch policyFallback {
+	case "", "unknown", "hash_bucket":
+	default:
+		policyFallback = "unknown"
+	}
+	wl := make(map[string]struct{}, len(whitelist))
+	for _, tenant := range whitelist {
+		id := strings.TrimSpace(tenant)
+		if id == "" {
+			continue
+		}
+		if len(id) > maxTenantIDLen {
+			id = id[:maxTenantIDLen]
+		}
+		if !tenantIDPattern.MatchString(id) {
+			continue
+		}
+		wl[id] = struct{}{}
+	}
+	tenantLabelPolicy.mu.Lock()
+	tenantLabelPolicy.includeTenantLabel = include
+	if len(wl) == 0 {
+		tenantLabelPolicy.whitelist = nil
+	} else {
+		tenantLabelPolicy.whitelist = wl
+	}
+	tenantLabelPolicy.fallback = policyFallback
+	tenantLabelPolicy.mu.Unlock()
+}
+
 func sanitizeTenantID(tenantID string) string {
 	id := strings.TrimSpace(tenantID)
+	tenantLabelPolicy.mu.RLock()
+	include := tenantLabelPolicy.includeTenantLabel
+	whitelist := tenantLabelPolicy.whitelist
+	fallback := tenantLabelPolicy.fallback
+	buckets := tenantLabelPolicy.hashBucketCardinality
+	tenantLabelPolicy.mu.RUnlock()
+
+	if !include {
+		return "unknown"
+	}
 	if id == "" {
-		return "default"
+		if len(whitelist) == 0 {
+			return "default"
+		}
+		return "unknown"
 	}
 	if len(id) > maxTenantIDLen {
 		id = id[:maxTenantIDLen]
 	}
-	if !tenantIDPattern.MatchString(id) {
-		return "invalid"
+	if tenantIDPattern.MatchString(id) {
+		if len(whitelist) == 0 {
+			return id
+		}
+		if _, ok := whitelist[id]; ok {
+			return id
+		}
+	} else {
+		if len(whitelist) == 0 {
+			return "invalid"
+		}
+		id = strings.TrimSpace(tenantID)
+		if id == "" {
+			id = "unknown"
+		}
 	}
-	return id
+	if fallback == "hash_bucket" && buckets > 0 {
+		h := fnv.New32a()
+		_, _ = h.Write([]byte(id))
+		return fmt.Sprintf("tenant_bucket_%02d", h.Sum32()%buckets)
+	}
+	return "unknown"
 }
 
 func IncWSTenantDrop(tenantID, reason string) {
