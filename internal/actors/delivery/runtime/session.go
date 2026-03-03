@@ -976,7 +976,7 @@ func (s *SessionActor) emitSnapshot(subject domain.Subject) bool {
 			} else {
 				meta := s.buildStreamMeta(subject, hotSnapshotRangeItem(raw))
 				s.snapshotSeq[subjectKey]++
-				s.writeJSON(wsSnapshotFrame{
+				frame := wsSnapshotFrame{
 					Type:             "snapshot",
 					Subject:          subjectKey,
 					StreamID:         subjectKey,
@@ -992,7 +992,12 @@ func (s *SessionActor) emitSnapshot(subject domain.Subject) bool {
 					SnapshotSeq:      s.snapshotSeq[subjectKey],
 					WatermarkSeq:     meta.Seq,
 					SnapshotHash:     fnvHexHash(payload),
-				})
+				}
+				if !s.frameFitsMaxBytes(frame) {
+					s.onDrop("frame_too_large", nil)
+					return false
+				}
+				s.writeJSON(frame)
 				metrics.IncWSQuery("snapshot", wsQueryBucket(subject.StreamType))
 				return true
 			}
@@ -1005,7 +1010,7 @@ func (s *SessionActor) emitSnapshot(subject domain.Subject) bool {
 	tsServer := s.normalizeServerTS(entry.TsServer)
 	payloadCopy := append(json.RawMessage(nil), entry.Payload...)
 	s.snapshotSeq[subjectKey]++
-	s.writeJSON(wsSnapshotFrame{
+	frame := wsSnapshotFrame{
 		Type:             "snapshot",
 		Subject:          subjectKey,
 		StreamID:         subjectKey,
@@ -1021,7 +1026,12 @@ func (s *SessionActor) emitSnapshot(subject domain.Subject) bool {
 		SnapshotSeq:      s.snapshotSeq[subjectKey],
 		WatermarkSeq:     entry.Seq,
 		SnapshotHash:     fnvHexHash(payloadCopy),
-	})
+	}
+	if !s.frameFitsMaxBytes(frame) {
+		s.onDrop("frame_too_large", nil)
+		return false
+	}
+	s.writeJSON(frame)
 	metrics.IncWSQuery("snapshot", wsQueryBucket(subject.StreamType))
 	return true
 }
@@ -1088,14 +1098,20 @@ func (s *SessionActor) handleGetLast(cmd clientCommand) {
 		}
 	}
 	metrics.IncWSQuery("getlast", wsQueryBucket(subject.StreamType))
-	s.writeJSON(wsLastFrame{
+	frame := wsLastFrame{
 		Type:           "last",
 		Op:             cmd.Op,
 		RequestID:      cmd.RequestID,
 		Subject:        subject.String(),
 		Item:           item,
 		SnapshotSource: snapshotSource,
-	})
+	}
+	if !s.frameFitsMaxBytes(frame) {
+		metrics.IncWSQueryRejected("frame_too_large")
+		s.writeProblem(cmd.Op, cmd.RequestID, problem.Newf(problem.ValidationFailed, "response exceeds max_frame_bytes (%d)", s.maxFrameBytes))
+		return
+	}
+	s.writeJSON(frame)
 }
 
 func (s *SessionActor) handleGetRange(cmd clientCommand) {
@@ -1217,7 +1233,7 @@ func (s *SessionActor) emitRangeFrame(op, requestID string, subject domain.Subje
 		queryOp = "backfill"
 	}
 	metrics.IncWSQuery(queryOp, wsQueryBucket(subject.StreamType))
-	s.writeJSON(wsRangeFrame{
+	frame := wsRangeFrame{
 		Type:           "range",
 		Op:             queryOp,
 		RequestID:      requestID,
@@ -1227,7 +1243,16 @@ func (s *SessionActor) emitRangeFrame(op, requestID string, subject domain.Subje
 		Items:          items,
 		SnapshotSource: snapshotSource,
 		WatermarkSeq:   watermarkSeq,
-	})
+	}
+	if !s.frameFitsMaxBytes(frame) {
+		if bestEffort {
+			return
+		}
+		metrics.IncWSQueryRejected("frame_too_large")
+		s.writeProblem(op, requestID, problem.Newf(problem.ValidationFailed, "response exceeds max_frame_bytes (%d)", s.maxFrameBytes))
+		return
+	}
+	s.writeJSON(frame)
 }
 
 func hotSnapshotRangeItem(raw []byte) ports.RangeItem {
@@ -1705,6 +1730,18 @@ func (s *SessionActor) writeJSON(v any) {
 		s.logger.Warn("delivery session: write failed", "err", err)
 		s.closeSession()
 	}
+}
+
+func (s *SessionActor) frameFitsMaxBytes(v any) bool {
+	if s.maxFrameBytes <= 0 {
+		return true
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		s.logger.Warn("delivery session: marshal frame size check failed", "err", err)
+		return false
+	}
+	return len(raw) <= s.maxFrameBytes
 }
 
 func (s *SessionActor) writeJSONDirect(v any) error {

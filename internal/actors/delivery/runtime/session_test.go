@@ -1723,6 +1723,98 @@ func TestSession_MaxFrameBytes_DropsOversizedJSONFrame(t *testing.T) {
 	}
 }
 
+func TestSession_MaxFrameBytes_GetRangeRejectsOversizedResponse(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-range-frame-cap")
+	defer e.Poison(routerPID)
+
+	sub := mustParseSubjectForSession(t, "aggregation.candle/binance/BTCUSDT/1m")
+	store := &stubRangeStore{
+		bySubject: map[string][]ports.RangeItem{
+			sub.String(): {
+				{
+					Seq:      10,
+					TsIngest: 1700000000000,
+					Payload:  []byte(`{"blob":"` + "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" + `"}`),
+				},
+			},
+		},
+	}
+
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{
+		RouterPID:     routerPID,
+		Conn:          conn,
+		RangeStore:    store,
+		MaxFrameBytes: 200,
+	}), "ws-session-range-frame-cap")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"getrange","subject":"aggregation.candle/binance/BTC-USDT/1m","request_id":"r-cap","params":{"from_ms":0,"to_ms":0,"limit":1,"page":1}}`)}
+	msg := <-conn.writeCh
+	errFrame, ok := msg.(wsErrorFrame)
+	if !ok {
+		t.Fatalf("expected wsErrorFrame, got %T", msg)
+	}
+	if errFrame.Op != "getrange" {
+		t.Fatalf("op=%q want=getrange", errFrame.Op)
+	}
+	if errFrame.Problem.Code != string(problem.ValidationFailed) {
+		t.Fatalf("problem.code=%q want=%q", errFrame.Problem.Code, problem.ValidationFailed)
+	}
+}
+
+func TestSession_MaxFrameBytes_GetLastRejectsOversizedResponse(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-last-frame-cap")
+	defer e.Poison(routerPID)
+
+	sub := mustParseSubjectForSession(t, "aggregation.candle/binance/BTCUSDT/1m")
+	store := &stubRangeStore{
+		bySubject: map[string][]ports.RangeItem{
+			sub.String(): {
+				{
+					Seq:      10,
+					TsIngest: 1700000000000,
+					Payload:  []byte(`{"blob":"` + "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy" + `"}`),
+				},
+			},
+		},
+	}
+
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{
+		RouterPID:     routerPID,
+		Conn:          conn,
+		RangeStore:    store,
+		MaxFrameBytes: 200,
+	}), "ws-session-last-frame-cap")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"getlast","subject":"aggregation.candle/binance/BTC-USDT/1m","request_id":"r-last-cap"}`)}
+	msg := <-conn.writeCh
+	errFrame, ok := msg.(wsErrorFrame)
+	if !ok {
+		t.Fatalf("expected wsErrorFrame, got %T", msg)
+	}
+	if errFrame.Op != "getlast" {
+		t.Fatalf("op=%q want=getlast", errFrame.Op)
+	}
+	if errFrame.Problem.Code != string(problem.ValidationFailed) {
+		t.Fatalf("problem.code=%q want=%q", errFrame.Problem.Code, problem.ValidationFailed)
+	}
+}
+
 func TestSession_MaxFrameBytes_JSONPassesUnderLimit(t *testing.T) {
 	e, err := actor.NewEngine(actor.NewEngineConfig())
 	if err != nil {

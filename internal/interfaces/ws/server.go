@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/anthdm/hollywood/actor"
 	"github.com/gorilla/websocket"
@@ -65,7 +66,17 @@ type ipRateLimiter struct {
 	mu      sync.Mutex
 	clock   sharedclock.Clock
 	cfg     deliveryruntime.RateLimitConfig
-	buckets map[string]*deliveryruntime.RateLimiter
+	buckets map[string]ipRateLimiterBucket
+
+	maxEntries int
+	idleTTL    time.Duration
+	sweepEvery int
+	calls      int
+}
+
+type ipRateLimiterBucket struct {
+	limiter  *deliveryruntime.RateLimiter
+	lastSeen time.Time
 }
 
 type wsClientMode string
@@ -73,6 +84,10 @@ type wsClientMode string
 const (
 	wsClientModeV1     wsClientMode = "v1"
 	wsClientModeLegacy wsClientMode = "legacy"
+
+	defaultIPRateLimiterMaxEntries = 8192
+	defaultIPRateLimiterIdleTTL    = 15 * time.Minute
+	defaultIPRateLimiterSweepEvery = 256
 )
 
 type Option func(*Server)
@@ -203,9 +218,12 @@ func NewServer(engine *actor.Engine, routerPID *actor.PID, logger *slog.Logger, 
 	}
 	if srv.ipRateLimit.Enabled {
 		srv.ipLimiter = &ipRateLimiter{
-			clock:   sharedclock.NewSystemClock(),
-			cfg:     srv.ipRateLimit,
-			buckets: map[string]*deliveryruntime.RateLimiter{},
+			clock:      sharedclock.NewSystemClock(),
+			cfg:        srv.ipRateLimit,
+			buckets:    map[string]ipRateLimiterBucket{},
+			maxEntries: defaultIPRateLimiterMaxEntries,
+			idleTTL:    defaultIPRateLimiterIdleTTL,
+			sweepEvery: defaultIPRateLimiterSweepEvery,
 		}
 	}
 	return srv
@@ -450,12 +468,71 @@ func (l *ipRateLimiter) Allow(ip string) bool {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	limiter, ok := l.buckets[ip]
-	if !ok || limiter == nil {
-		limiter = deliveryruntime.NewRateLimiter(l.cfg.BurstCapacity, l.cfg.MaxPerSecond, l.clock)
-		l.buckets[ip] = limiter
+	now := l.clock.Now()
+	l.calls++
+	if l.sweepEvery > 0 && l.calls%l.sweepEvery == 0 {
+		l.evictExpiredLocked(now)
 	}
-	return limiter.Allow()
+
+	bucket, ok := l.buckets[ip]
+	if !ok || bucket.limiter == nil {
+		if l.maxEntries > 0 && len(l.buckets) >= l.maxEntries {
+			l.evictExpiredLocked(now)
+			for len(l.buckets) >= l.maxEntries {
+				if !l.evictOldestLocked() {
+					break
+				}
+			}
+		}
+		bucket = ipRateLimiterBucket{
+			limiter:  deliveryruntime.NewRateLimiter(l.cfg.BurstCapacity, l.cfg.MaxPerSecond, l.clock),
+			lastSeen: now,
+		}
+	} else {
+		bucket.lastSeen = now
+	}
+	allow := bucket.limiter.Allow()
+	bucket.lastSeen = now
+	l.buckets[ip] = bucket
+	return allow
+}
+
+func (l *ipRateLimiter) evictExpiredLocked(now time.Time) {
+	if l == nil || l.idleTTL <= 0 {
+		return
+	}
+	for ip, bucket := range l.buckets {
+		if bucket.lastSeen.IsZero() {
+			delete(l.buckets, ip)
+			continue
+		}
+		if now.Sub(bucket.lastSeen) > l.idleTTL {
+			delete(l.buckets, ip)
+		}
+	}
+}
+
+func (l *ipRateLimiter) evictOldestLocked() bool {
+	if l == nil || len(l.buckets) == 0 {
+		return false
+	}
+	var (
+		oldestIP string
+		oldestTS time.Time
+		found    bool
+	)
+	for ip, bucket := range l.buckets {
+		if !found || bucket.lastSeen.Before(oldestTS) {
+			oldestIP = ip
+			oldestTS = bucket.lastSeen
+			found = true
+		}
+	}
+	if !found {
+		return false
+	}
+	delete(l.buckets, oldestIP)
+	return true
 }
 
 func sessionWantsProto(r *http.Request) bool {

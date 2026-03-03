@@ -3,6 +3,7 @@ package wsserver
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"github.com/anthdm/hollywood/actor"
 	"github.com/gorilla/websocket"
 	deliveryruntime "github.com/market-raccoon/internal/actors/delivery/runtime"
+	sharedclock "github.com/market-raccoon/internal/shared/clock"
 )
 
 func TestSessionWantsProto_QueryFormat(t *testing.T) {
@@ -271,5 +273,59 @@ func TestNewServer_DefaultAllowLegacyTrue(t *testing.T) {
 	srv := NewServer(nil, &actor.PID{}, nil, nil, 256)
 	if !srv.allowLegacy {
 		t.Fatal("allowLegacy should default to true")
+	}
+}
+
+func TestIPRateLimiter_EvictsIdleBuckets(t *testing.T) {
+	fc := sharedclock.NewFakeClock(time.Unix(1_700_000_000, 0))
+	limiter := &ipRateLimiter{
+		clock:      fc,
+		cfg:        deliveryruntime.RateLimitConfig{Enabled: true, MaxPerSecond: 10, BurstCapacity: 10},
+		buckets:    map[string]ipRateLimiterBucket{},
+		maxEntries: 100,
+		idleTTL:    time.Minute,
+		sweepEvery: 1,
+	}
+
+	if !limiter.Allow("10.0.0.1") {
+		t.Fatal("expected first allow to pass")
+	}
+	if got := len(limiter.buckets); got != 1 {
+		t.Fatalf("bucket_count=%d want=1", got)
+	}
+
+	fc.Advance(2 * time.Minute)
+	if !limiter.Allow("10.0.0.2") {
+		t.Fatal("expected second allow to pass")
+	}
+	if got := len(limiter.buckets); got != 1 {
+		t.Fatalf("bucket_count=%d want=1 after idle eviction", got)
+	}
+	if _, ok := limiter.buckets["10.0.0.1"]; ok {
+		t.Fatal("expected idle bucket to be evicted")
+	}
+}
+
+func TestIPRateLimiter_BoundsBucketCardinality(t *testing.T) {
+	fc := sharedclock.NewFakeClock(time.Unix(1_700_000_000, 0))
+	limiter := &ipRateLimiter{
+		clock:      fc,
+		cfg:        deliveryruntime.RateLimitConfig{Enabled: true, MaxPerSecond: 10, BurstCapacity: 10},
+		buckets:    map[string]ipRateLimiterBucket{},
+		maxEntries: 3,
+		idleTTL:    10 * time.Minute,
+		sweepEvery: 1024, // force eviction via maxEntries path, not periodic sweep.
+	}
+
+	for i := 1; i <= 5; i++ {
+		ip := fmt.Sprintf("10.0.0.%d", i)
+		if !limiter.Allow(ip) {
+			t.Fatalf("allow(%s)=false want=true", ip)
+		}
+		fc.Advance(time.Second)
+	}
+
+	if got := len(limiter.buckets); got > limiter.maxEntries {
+		t.Fatalf("bucket_count=%d exceeded max_entries=%d", got, limiter.maxEntries)
 	}
 }
