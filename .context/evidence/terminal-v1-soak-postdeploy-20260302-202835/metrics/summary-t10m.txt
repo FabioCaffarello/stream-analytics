@@ -1,0 +1,27 @@
+# snapshot t10m
+# HELP delivery_ws_snapshot_cache_entries Total entries currently stored in bounded websocket snapshot cache.
+# TYPE delivery_ws_snapshot_cache_entries gauge
+delivery_ws_snapshot_cache_entries 0
+# HELP process_heap_alloc_bytes Current heap allocations in bytes.
+# TYPE process_heap_alloc_bytes gauge
+process_heap_alloc_bytes 1.1327192e+07
+# HELP resync_total Total websocket resync requests handled.
+# TYPE resync_total counter
+resync_total 0
+# HELP ws_clients_connected Connected websocket delivery clients.
+# TYPE ws_clients_connected gauge
+ws_clients_connected 2
+# HELP ws_clients_connected_by_mode Connected websocket delivery clients by route compatibility mode.
+# TYPE ws_clients_connected_by_mode gauge
+ws_clients_connected_by_mode{mode="legacy"} 0
+ws_clients_connected_by_mode{mode="unknown"} 0
+ws_clients_connected_by_mode{mode="v1"} 2
+# HELP ws_drops_total Total dropped websocket outbound events by reason.
+# TYPE ws_drops_total counter
+ws_drops_total{reason="unknown"} 0
+# HELP ws_queue_depth Current outbound websocket queue depth across delivery sessions.
+# TYPE ws_queue_depth gauge
+ws_queue_depth 0
+# HELP ws_subscriptions_active Active websocket subscriptions across all sessions.
+# TYPE ws_subscriptions_active gauge
+ws_subscriptions_active 24

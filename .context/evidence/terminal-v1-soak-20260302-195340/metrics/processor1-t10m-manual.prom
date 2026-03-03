@@ -1,0 +1,989 @@
+# HELP aggregation_books_active Number of active order books held in memory.
+# TYPE aggregation_books_active gauge
+aggregation_books_active 10
+# HELP auth_fail_total Total websocket authentication/authorization failures.
+# TYPE auth_fail_total counter
+auth_fail_total 0
+# HELP backpressure_drops_total Total dropped messages in backpressure queue.
+# TYPE backpressure_drops_total counter
+backpressure_drops_total{policy="unknown"} 0
+# HELP backpressure_queue_depth Current backpressure queue depth.
+# TYPE backpressure_queue_depth gauge
+backpressure_queue_depth{venue="unknown"} 0
+# HELP bounded_map_evictions_total Total BoundedMap evictions by instance and reason.
+# TYPE bounded_map_evictions_total counter
+bounded_map_evictions_total{name="unknown",reason="size"} 0
+bounded_map_evictions_total{name="unknown",reason="ttl"} 0
+# HELP bounded_map_size Current number of entries in a BoundedMap instance.
+# TYPE bounded_map_size gauge
+bounded_map_size{name="unknown"} 0
+# HELP bounded_map_sweeps_total Total BoundedMap sweep operations by instance.
+# TYPE bounded_map_sweeps_total counter
+bounded_map_sweeps_total{name="unknown"} 0
+# HELP bus_ack_latency_seconds Time between processing start and Ack/Nak/Term operation.
+# TYPE bus_ack_latency_seconds histogram
+bus_ack_latency_seconds_bucket{bus_type="jetstream",le="0.0001"} 53679
+bus_ack_latency_seconds_bucket{bus_type="jetstream",le="0.0005"} 100929
+bus_ack_latency_seconds_bucket{bus_type="jetstream",le="0.001"} 104105
+bus_ack_latency_seconds_bucket{bus_type="jetstream",le="0.005"} 106774
+bus_ack_latency_seconds_bucket{bus_type="jetstream",le="0.01"} 107979
+bus_ack_latency_seconds_bucket{bus_type="jetstream",le="0.05"} 120003
+bus_ack_latency_seconds_bucket{bus_type="jetstream",le="0.1"} 120670
+bus_ack_latency_seconds_bucket{bus_type="jetstream",le="0.5"} 120996
+bus_ack_latency_seconds_bucket{bus_type="jetstream",le="1"} 120999
+bus_ack_latency_seconds_bucket{bus_type="jetstream",le="2"} 120999
+bus_ack_latency_seconds_bucket{bus_type="jetstream",le="5"} 120999
+bus_ack_latency_seconds_bucket{bus_type="jetstream",le="+Inf"} 120999
+bus_ack_latency_seconds_sum{bus_type="jetstream"} 394.04755329499824
+bus_ack_latency_seconds_count{bus_type="jetstream"} 120999
+bus_ack_latency_seconds_bucket{bus_type="unknown",le="0.0001"} 0
+bus_ack_latency_seconds_bucket{bus_type="unknown",le="0.0005"} 0
+bus_ack_latency_seconds_bucket{bus_type="unknown",le="0.001"} 0
+bus_ack_latency_seconds_bucket{bus_type="unknown",le="0.005"} 0
+bus_ack_latency_seconds_bucket{bus_type="unknown",le="0.01"} 0
+bus_ack_latency_seconds_bucket{bus_type="unknown",le="0.05"} 0
+bus_ack_latency_seconds_bucket{bus_type="unknown",le="0.1"} 0
+bus_ack_latency_seconds_bucket{bus_type="unknown",le="0.5"} 0
+bus_ack_latency_seconds_bucket{bus_type="unknown",le="1"} 0
+bus_ack_latency_seconds_bucket{bus_type="unknown",le="2"} 0
+bus_ack_latency_seconds_bucket{bus_type="unknown",le="5"} 0
+bus_ack_latency_seconds_bucket{bus_type="unknown",le="+Inf"} 0
+bus_ack_latency_seconds_sum{bus_type="unknown"} 0
+bus_ack_latency_seconds_count{bus_type="unknown"} 0
+# HELP bus_consumed_total Total consumed bus messages by status.
+# TYPE bus_consumed_total counter
+bus_consumed_total{bus_type="jetstream",status="ok"} 120999
+bus_consumed_total{bus_type="jetstream",status="shard_skip"} 49212
+bus_consumed_total{bus_type="unknown",status="unknown"} 0
+# HELP bus_consumer_lag Estimated JetStream consumer lag (NumPending).
+# TYPE bus_consumer_lag gauge
+bus_consumer_lag{bus_type="jetstream"} 3448
+bus_consumer_lag{bus_type="unknown"} 0
+# HELP bus_dropped_total Total dropped bus fanout messages per subscriber.
+# TYPE bus_dropped_total counter
+bus_dropped_total{subscriber_id="s256_plus"} 0
+# HELP bus_publish_errors_total Total bus publish errors by error kind.
+# TYPE bus_publish_errors_total counter
+bus_publish_errors_total{kind="unknown"} 0
+# HELP bus_publish_latency_seconds Latency of publish calls to the configured bus backend.
+# TYPE bus_publish_latency_seconds histogram
+bus_publish_latency_seconds_bucket{bus_type="jetstream",le="0.0001"} 8743
+bus_publish_latency_seconds_bucket{bus_type="jetstream",le="0.0005"} 28928
+bus_publish_latency_seconds_bucket{bus_type="jetstream",le="0.001"} 29564
+bus_publish_latency_seconds_bucket{bus_type="jetstream",le="0.005"} 29731
+bus_publish_latency_seconds_bucket{bus_type="jetstream",le="0.01"} 29750
+bus_publish_latency_seconds_bucket{bus_type="jetstream",le="0.05"} 29759
+bus_publish_latency_seconds_bucket{bus_type="jetstream",le="0.1"} 29759
+bus_publish_latency_seconds_bucket{bus_type="jetstream",le="0.5"} 29759
+bus_publish_latency_seconds_bucket{bus_type="jetstream",le="1"} 29759
+bus_publish_latency_seconds_bucket{bus_type="jetstream",le="+Inf"} 29759
+bus_publish_latency_seconds_sum{bus_type="jetstream"} 5.750088512000001
+bus_publish_latency_seconds_count{bus_type="jetstream"} 29759
+bus_publish_latency_seconds_bucket{bus_type="unknown",le="0.0001"} 0
+bus_publish_latency_seconds_bucket{bus_type="unknown",le="0.0005"} 0
+bus_publish_latency_seconds_bucket{bus_type="unknown",le="0.001"} 0
+bus_publish_latency_seconds_bucket{bus_type="unknown",le="0.005"} 0
+bus_publish_latency_seconds_bucket{bus_type="unknown",le="0.01"} 0
+bus_publish_latency_seconds_bucket{bus_type="unknown",le="0.05"} 0
+bus_publish_latency_seconds_bucket{bus_type="unknown",le="0.1"} 0
+bus_publish_latency_seconds_bucket{bus_type="unknown",le="0.5"} 0
+bus_publish_latency_seconds_bucket{bus_type="unknown",le="1"} 0
+bus_publish_latency_seconds_bucket{bus_type="unknown",le="+Inf"} 0
+bus_publish_latency_seconds_sum{bus_type="unknown"} 0
+bus_publish_latency_seconds_count{bus_type="unknown"} 0
+# HELP bus_published_total Total messages published successfully to the configured bus.
+# TYPE bus_published_total counter
+bus_published_total{event_type="aggregation.candle",venue="binance"} 1313
+bus_published_total{event_type="aggregation.candle",venue="bybit"} 547
+bus_published_total{event_type="aggregation.candle",venue="coinbase"} 505
+bus_published_total{event_type="aggregation.candle",venue="hyperliquid"} 409
+bus_published_total{event_type="aggregation.orderbook_inconsistency",venue="binance"} 479
+bus_published_total{event_type="aggregation.orderbook_inconsistency",venue="bybit"} 503
+bus_published_total{event_type="aggregation.orderbook_inconsistency",venue="coinbase"} 351
+bus_published_total{event_type="aggregation.snapshot",venue="binance"} 3198
+bus_published_total{event_type="aggregation.snapshot",venue="bybit"} 1981
+bus_published_total{event_type="aggregation.snapshot",venue="coinbase"} 1835
+bus_published_total{event_type="aggregation.snapshot",venue="hyperliquid"} 1232
+bus_published_total{event_type="aggregation.stats",venue="binance"} 100
+bus_published_total{event_type="aggregation.stats",venue="bybit"} 248
+bus_published_total{event_type="aggregation.stats",venue="coinbase"} 504
+bus_published_total{event_type="aggregation.stats",venue="hyperliquid"} 247
+bus_published_total{event_type="insights.crossvenue.spread_signal",venue="global"} 3516
+bus_published_total{event_type="insights.crossvenue.trade_snapshot",venue="global"} 3516
+bus_published_total{event_type="insights.heatmap_snapshot",venue="binance"} 2128
+bus_published_total{event_type="insights.heatmap_snapshot",venue="bybit"} 1064
+bus_published_total{event_type="insights.heatmap_snapshot",venue="coinbase"} 1064
+bus_published_total{event_type="insights.heatmap_snapshot",venue="hyperliquid"} 1058
+bus_published_total{event_type="insights.volume_profile_snapshot",venue="binance"} 1594
+bus_published_total{event_type="insights.volume_profile_snapshot",venue="bybit"} 797
+bus_published_total{event_type="insights.volume_profile_snapshot",venue="coinbase"} 795
+bus_published_total{event_type="insights.volume_profile_snapshot",venue="hyperliquid"} 775
+bus_published_total{event_type="unknown",venue="unknown"} 0
+# HELP bus_redelivered_total Total redelivered bus messages.
+# TYPE bus_redelivered_total counter
+bus_redelivered_total{bus_type="jetstream"} 41
+bus_redelivered_total{bus_type="unknown"} 0
+# HELP codec_registry_size Number of registered encoder entries in the payload codec registry.
+# TYPE codec_registry_size gauge
+codec_registry_size 23
+# HELP codec_unknown_events_total Total unknown event type lookups in the payload codec by format.
+# TYPE codec_unknown_events_total counter
+codec_unknown_events_total{format="json"} 0
+codec_unknown_events_total{format="proto"} 0
+# HELP delivery_range_alias_fallback_total Total delivery getrange alias fallback attempts by outcome.
+# TYPE delivery_range_alias_fallback_total counter
+delivery_range_alias_fallback_total{outcome="error"} 0
+delivery_range_alias_fallback_total{outcome="hit"} 0
+delivery_range_alias_fallback_total{outcome="miss"} 0
+# HELP delivery_router_events_rejected_total Total events rejected by the delivery router by reason.
+# TYPE delivery_router_events_rejected_total counter
+delivery_router_events_rejected_total{reason="contract_policy"} 0
+delivery_router_events_rejected_total{reason="invalid_subject"} 0
+# HELP delivery_router_events_routed_total Total events successfully routed to at least one delivery session.
+# TYPE delivery_router_events_routed_total counter
+delivery_router_events_routed_total 0
+# HELP delivery_router_subscriptions_active Total active subject subscriptions across all delivery sessions.
+# TYPE delivery_router_subscriptions_active gauge
+delivery_router_subscriptions_active 0
+# HELP delivery_ws_snapshot_cache_entries Total entries currently stored in bounded websocket snapshot cache.
+# TYPE delivery_ws_snapshot_cache_entries gauge
+delivery_ws_snapshot_cache_entries 0
+# HELP guardian_degraded_total Total guardian degraded transitions.
+# TYPE guardian_degraded_total counter
+guardian_degraded_total{subsystem="unknown"} 0
+# HELP guardian_rate_limited_total Total guardian restart attempts deferred by global limiter.
+# TYPE guardian_rate_limited_total counter
+guardian_rate_limited_total 0
+# HELP guardian_restarts_total Total guardian restarts by subsystem.
+# TYPE guardian_restarts_total counter
+guardian_restarts_total{status="unknown",subsystem="unknown"} 0
+# HELP guardian_subsystem_state Current subsystem state (0=stopped,1=running,2=degraded).
+# TYPE guardian_subsystem_state gauge
+guardian_subsystem_state{subsystem="aggregation"} 1
+guardian_subsystem_state{subsystem="delivery"} 1
+guardian_subsystem_state{subsystem="insights"} 1
+guardian_subsystem_state{subsystem="marketdata"} 1
+guardian_subsystem_state{subsystem="unknown"} 1
+# HELP heatmap_build_latency_ms Latency in milliseconds to build one heatmap artifact window.
+# TYPE heatmap_build_latency_ms histogram
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="binance",le="0.1"} 2452
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="binance",le="0.5"} 2452
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="binance",le="1"} 2452
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="binance",le="2"} 2452
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="binance",le="5"} 2452
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="binance",le="10"} 2452
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="binance",le="25"} 2452
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="binance",le="50"} 2452
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="binance",le="100"} 2452
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="binance",le="250"} 2452
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="binance",le="500"} 2452
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="binance",le="1000"} 2452
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="binance",le="+Inf"} 2452
+heatmap_build_latency_ms_sum{instrument_bucket="btc",timeframe_bucket="1m",venue="binance"} 0
+heatmap_build_latency_ms_count{instrument_bucket="btc",timeframe_bucket="1m",venue="binance"} 2452
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="bybit",le="0.1"} 2726
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="bybit",le="0.5"} 2726
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="bybit",le="1"} 2726
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="bybit",le="2"} 2726
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="bybit",le="5"} 2726
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="bybit",le="10"} 2726
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="bybit",le="25"} 2726
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="bybit",le="50"} 2726
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="bybit",le="100"} 2726
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="bybit",le="250"} 2726
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="bybit",le="500"} 2726
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="bybit",le="1000"} 2726
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="bybit",le="+Inf"} 2726
+heatmap_build_latency_ms_sum{instrument_bucket="btc",timeframe_bucket="1m",venue="bybit"} 0
+heatmap_build_latency_ms_count{instrument_bucket="btc",timeframe_bucket="1m",venue="bybit"} 2726
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="coinbase",le="0.1"} 2087
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="coinbase",le="0.5"} 2087
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="coinbase",le="1"} 2087
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="coinbase",le="2"} 2087
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="coinbase",le="5"} 2087
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="coinbase",le="10"} 2087
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="coinbase",le="25"} 2087
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="coinbase",le="50"} 2087
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="coinbase",le="100"} 2087
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="coinbase",le="250"} 2087
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="coinbase",le="500"} 2087
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="coinbase",le="1000"} 2087
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="coinbase",le="+Inf"} 2087
+heatmap_build_latency_ms_sum{instrument_bucket="btc",timeframe_bucket="1m",venue="coinbase"} 0
+heatmap_build_latency_ms_count{instrument_bucket="btc",timeframe_bucket="1m",venue="coinbase"} 2087
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="hyperliquid",le="0.1"} 587
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="hyperliquid",le="0.5"} 587
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="hyperliquid",le="1"} 587
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="hyperliquid",le="2"} 587
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="hyperliquid",le="5"} 587
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="hyperliquid",le="10"} 587
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="hyperliquid",le="25"} 587
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="hyperliquid",le="50"} 587
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="hyperliquid",le="100"} 587
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="hyperliquid",le="250"} 587
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="hyperliquid",le="500"} 587
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="hyperliquid",le="1000"} 587
+heatmap_build_latency_ms_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="hyperliquid",le="+Inf"} 587
+heatmap_build_latency_ms_sum{instrument_bucket="btc",timeframe_bucket="1m",venue="hyperliquid"} 0
+heatmap_build_latency_ms_count{instrument_bucket="btc",timeframe_bucket="1m",venue="hyperliquid"} 587
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="binance",le="0.1"} 2348
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="binance",le="0.5"} 2348
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="binance",le="1"} 2348
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="binance",le="2"} 2348
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="binance",le="5"} 2348
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="binance",le="10"} 2348
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="binance",le="25"} 2348
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="binance",le="50"} 2348
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="binance",le="100"} 2348
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="binance",le="250"} 2348
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="binance",le="500"} 2348
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="binance",le="1000"} 2348
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="binance",le="+Inf"} 2348
+heatmap_build_latency_ms_sum{instrument_bucket="eth",timeframe_bucket="1m",venue="binance"} 0
+heatmap_build_latency_ms_count{instrument_bucket="eth",timeframe_bucket="1m",venue="binance"} 2348
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="bybit",le="0.1"} 4330
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="bybit",le="0.5"} 4330
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="bybit",le="1"} 4330
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="bybit",le="2"} 4330
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="bybit",le="5"} 4330
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="bybit",le="10"} 4330
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="bybit",le="25"} 4330
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="bybit",le="50"} 4330
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="bybit",le="100"} 4330
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="bybit",le="250"} 4330
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="bybit",le="500"} 4330
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="bybit",le="1000"} 4330
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="bybit",le="+Inf"} 4330
+heatmap_build_latency_ms_sum{instrument_bucket="eth",timeframe_bucket="1m",venue="bybit"} 0
+heatmap_build_latency_ms_count{instrument_bucket="eth",timeframe_bucket="1m",venue="bybit"} 4330
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="coinbase",le="0.1"} 2058
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="coinbase",le="0.5"} 2058
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="coinbase",le="1"} 2058
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="coinbase",le="2"} 2058
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="coinbase",le="5"} 2058
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="coinbase",le="10"} 2058
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="coinbase",le="25"} 2058
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="coinbase",le="50"} 2058
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="coinbase",le="100"} 2058
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="coinbase",le="250"} 2058
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="coinbase",le="500"} 2058
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="coinbase",le="1000"} 2058
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="coinbase",le="+Inf"} 2058
+heatmap_build_latency_ms_sum{instrument_bucket="eth",timeframe_bucket="1m",venue="coinbase"} 0
+heatmap_build_latency_ms_count{instrument_bucket="eth",timeframe_bucket="1m",venue="coinbase"} 2058
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="hyperliquid",le="0.1"} 155
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="hyperliquid",le="0.5"} 155
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="hyperliquid",le="1"} 155
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="hyperliquid",le="2"} 155
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="hyperliquid",le="5"} 155
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="hyperliquid",le="10"} 155
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="hyperliquid",le="25"} 155
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="hyperliquid",le="50"} 155
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="hyperliquid",le="100"} 155
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="hyperliquid",le="250"} 155
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="hyperliquid",le="500"} 155
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="hyperliquid",le="1000"} 155
+heatmap_build_latency_ms_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="hyperliquid",le="+Inf"} 155
+heatmap_build_latency_ms_sum{instrument_bucket="eth",timeframe_bucket="1m",venue="hyperliquid"} 0
+heatmap_build_latency_ms_count{instrument_bucket="eth",timeframe_bucket="1m",venue="hyperliquid"} 155
+heatmap_build_latency_ms_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="binance",le="0.1"} 3925
+heatmap_build_latency_ms_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="binance",le="0.5"} 3925
+heatmap_build_latency_ms_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="binance",le="1"} 3925
+heatmap_build_latency_ms_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="binance",le="2"} 3925
+heatmap_build_latency_ms_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="binance",le="5"} 3925
+heatmap_build_latency_ms_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="binance",le="10"} 3925
+heatmap_build_latency_ms_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="binance",le="25"} 3925
+heatmap_build_latency_ms_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="binance",le="50"} 3925
+heatmap_build_latency_ms_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="binance",le="100"} 3925
+heatmap_build_latency_ms_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="binance",le="250"} 3925
+heatmap_build_latency_ms_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="binance",le="500"} 3925
+heatmap_build_latency_ms_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="binance",le="1000"} 3925
+heatmap_build_latency_ms_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="binance",le="+Inf"} 3925
+heatmap_build_latency_ms_sum{instrument_bucket="stable",timeframe_bucket="1m",venue="binance"} 0
+heatmap_build_latency_ms_count{instrument_bucket="stable",timeframe_bucket="1m",venue="binance"} 3925
+heatmap_build_latency_ms_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="bybit",le="0.1"} 5338
+heatmap_build_latency_ms_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="bybit",le="0.5"} 5338
+heatmap_build_latency_ms_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="bybit",le="1"} 5338
+heatmap_build_latency_ms_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="bybit",le="2"} 5338
+heatmap_build_latency_ms_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="bybit",le="5"} 5338
+heatmap_build_latency_ms_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="bybit",le="10"} 5338
+heatmap_build_latency_ms_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="bybit",le="25"} 5338
+heatmap_build_latency_ms_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="bybit",le="50"} 5338
+heatmap_build_latency_ms_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="bybit",le="100"} 5338
+heatmap_build_latency_ms_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="bybit",le="250"} 5338
+heatmap_build_latency_ms_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="bybit",le="500"} 5338
+heatmap_build_latency_ms_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="bybit",le="1000"} 5338
+heatmap_build_latency_ms_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="bybit",le="+Inf"} 5338
+heatmap_build_latency_ms_sum{instrument_bucket="stable",timeframe_bucket="1m",venue="bybit"} 0
+heatmap_build_latency_ms_count{instrument_bucket="stable",timeframe_bucket="1m",venue="bybit"} 5338
+heatmap_build_latency_ms_bucket{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown",le="0.1"} 0
+heatmap_build_latency_ms_bucket{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown",le="0.5"} 0
+heatmap_build_latency_ms_bucket{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown",le="1"} 0
+heatmap_build_latency_ms_bucket{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown",le="2"} 0
+heatmap_build_latency_ms_bucket{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown",le="5"} 0
+heatmap_build_latency_ms_bucket{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown",le="10"} 0
+heatmap_build_latency_ms_bucket{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown",le="25"} 0
+heatmap_build_latency_ms_bucket{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown",le="50"} 0
+heatmap_build_latency_ms_bucket{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown",le="100"} 0
+heatmap_build_latency_ms_bucket{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown",le="250"} 0
+heatmap_build_latency_ms_bucket{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown",le="500"} 0
+heatmap_build_latency_ms_bucket{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown",le="1000"} 0
+heatmap_build_latency_ms_bucket{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown",le="+Inf"} 0
+heatmap_build_latency_ms_sum{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown"} 0
+heatmap_build_latency_ms_count{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown"} 0
+# HELP heatmap_cells_total Current emitted heatmap cell count by partition.
+# TYPE heatmap_cells_total gauge
+heatmap_cells_total{instrument_bucket="btc",timeframe_bucket="1m",venue="binance"} 27
+heatmap_cells_total{instrument_bucket="btc",timeframe_bucket="1m",venue="bybit"} 29
+heatmap_cells_total{instrument_bucket="btc",timeframe_bucket="1m",venue="coinbase"} 57
+heatmap_cells_total{instrument_bucket="btc",timeframe_bucket="1m",venue="hyperliquid"} 17
+heatmap_cells_total{instrument_bucket="eth",timeframe_bucket="1m",venue="binance"} 34
+heatmap_cells_total{instrument_bucket="eth",timeframe_bucket="1m",venue="bybit"} 34
+heatmap_cells_total{instrument_bucket="eth",timeframe_bucket="1m",venue="coinbase"} 65
+heatmap_cells_total{instrument_bucket="eth",timeframe_bucket="1m",venue="hyperliquid"} 3
+heatmap_cells_total{instrument_bucket="stable",timeframe_bucket="1m",venue="binance"} 27
+heatmap_cells_total{instrument_bucket="stable",timeframe_bucket="1m",venue="bybit"} 34
+heatmap_cells_total{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown"} 0
+# HELP heatmap_drop_total Total heatmap drops/degradations by reason.
+# TYPE heatmap_drop_total counter
+heatmap_drop_total{reason="unknown"} 0
+# HELP heatmap_payload_bytes Size in bytes of emitted heatmap payloads.
+# TYPE heatmap_payload_bytes histogram
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="binance",le="64"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="binance",le="128"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="binance",le="256"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="binance",le="512"} 12
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="binance",le="1024"} 37
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="binance",le="2048"} 233
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="binance",le="4096"} 707
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="binance",le="8192"} 1852
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="binance",le="16384"} 2435
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="binance",le="32768"} 2435
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="binance",le="65536"} 2435
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="binance",le="131072"} 2435
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="binance",le="262144"} 2435
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="binance",le="+Inf"} 2435
+heatmap_payload_bytes_sum{instrument_bucket="btc",timeframe_bucket="1m",venue="binance"} 1.45332e+07
+heatmap_payload_bytes_count{instrument_bucket="btc",timeframe_bucket="1m",venue="binance"} 2435
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="bybit",le="64"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="bybit",le="128"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="bybit",le="256"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="bybit",le="512"} 8
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="bybit",le="1024"} 13
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="bybit",le="2048"} 98
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="bybit",le="4096"} 728
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="bybit",le="8192"} 1835
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="bybit",le="16384"} 2689
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="bybit",le="32768"} 2750
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="bybit",le="65536"} 2750
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="bybit",le="131072"} 2750
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="bybit",le="262144"} 2750
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="bybit",le="+Inf"} 2750
+heatmap_payload_bytes_sum{instrument_bucket="btc",timeframe_bucket="1m",venue="bybit"} 1.866572e+07
+heatmap_payload_bytes_count{instrument_bucket="btc",timeframe_bucket="1m",venue="bybit"} 2750
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="coinbase",le="64"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="coinbase",le="128"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="coinbase",le="256"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="coinbase",le="512"} 10
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="coinbase",le="1024"} 23
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="coinbase",le="2048"} 76
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="coinbase",le="4096"} 188
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="coinbase",le="8192"} 517
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="coinbase",le="16384"} 1404
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="coinbase",le="32768"} 2087
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="coinbase",le="65536"} 2087
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="coinbase",le="131072"} 2087
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="coinbase",le="262144"} 2087
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="coinbase",le="+Inf"} 2087
+heatmap_payload_bytes_sum{instrument_bucket="btc",timeframe_bucket="1m",venue="coinbase"} 2.78574e+07
+heatmap_payload_bytes_count{instrument_bucket="btc",timeframe_bucket="1m",venue="coinbase"} 2087
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="hyperliquid",le="64"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="hyperliquid",le="128"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="hyperliquid",le="256"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="hyperliquid",le="512"} 10
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="hyperliquid",le="1024"} 32
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="hyperliquid",le="2048"} 170
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="hyperliquid",le="4096"} 334
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="hyperliquid",le="8192"} 553
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="hyperliquid",le="16384"} 587
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="hyperliquid",le="32768"} 587
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="hyperliquid",le="65536"} 587
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="hyperliquid",le="131072"} 587
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="hyperliquid",le="262144"} 587
+heatmap_payload_bytes_bucket{instrument_bucket="btc",timeframe_bucket="1m",venue="hyperliquid",le="+Inf"} 587
+heatmap_payload_bytes_sum{instrument_bucket="btc",timeframe_bucket="1m",venue="hyperliquid"} 2.3182e+06
+heatmap_payload_bytes_count{instrument_bucket="btc",timeframe_bucket="1m",venue="hyperliquid"} 587
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="binance",le="64"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="binance",le="128"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="binance",le="256"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="binance",le="512"} 18
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="binance",le="1024"} 28
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="binance",le="2048"} 148
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="binance",le="4096"} 471
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="binance",le="8192"} 1049
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="binance",le="16384"} 1986
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="binance",le="32768"} 2312
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="binance",le="65536"} 2312
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="binance",le="131072"} 2312
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="binance",le="262144"} 2312
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="binance",le="+Inf"} 2312
+heatmap_payload_bytes_sum{instrument_bucket="eth",timeframe_bucket="1m",venue="binance"} 2.2322e+07
+heatmap_payload_bytes_count{instrument_bucket="eth",timeframe_bucket="1m",venue="binance"} 2312
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="bybit",le="64"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="bybit",le="128"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="bybit",le="256"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="bybit",le="512"} 4
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="bybit",le="1024"} 8
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="bybit",le="2048"} 61
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="bybit",le="4096"} 283
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="bybit",le="8192"} 1468
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="bybit",le="16384"} 3809
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="bybit",le="32768"} 4292
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="bybit",le="65536"} 4292
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="bybit",le="131072"} 4292
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="bybit",le="262144"} 4292
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="bybit",le="+Inf"} 4292
+heatmap_payload_bytes_sum{instrument_bucket="eth",timeframe_bucket="1m",venue="bybit"} 4.31496e+07
+heatmap_payload_bytes_count{instrument_bucket="eth",timeframe_bucket="1m",venue="bybit"} 4292
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="coinbase",le="64"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="coinbase",le="128"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="coinbase",le="256"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="coinbase",le="512"} 8
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="coinbase",le="1024"} 19
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="coinbase",le="2048"} 61
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="coinbase",le="4096"} 131
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="coinbase",le="8192"} 307
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="coinbase",le="16384"} 886
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="coinbase",le="32768"} 2058
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="coinbase",le="65536"} 2058
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="coinbase",le="131072"} 2058
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="coinbase",le="262144"} 2058
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="coinbase",le="+Inf"} 2058
+heatmap_payload_bytes_sum{instrument_bucket="eth",timeframe_bucket="1m",venue="coinbase"} 3.417932e+07
+heatmap_payload_bytes_count{instrument_bucket="eth",timeframe_bucket="1m",venue="coinbase"} 2058
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="hyperliquid",le="64"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="hyperliquid",le="128"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="hyperliquid",le="256"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="hyperliquid",le="512"} 17
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="hyperliquid",le="1024"} 29
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="hyperliquid",le="2048"} 66
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="hyperliquid",le="4096"} 134
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="hyperliquid",le="8192"} 155
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="hyperliquid",le="16384"} 155
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="hyperliquid",le="32768"} 155
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="hyperliquid",le="65536"} 155
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="hyperliquid",le="131072"} 155
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="hyperliquid",le="262144"} 155
+heatmap_payload_bytes_bucket{instrument_bucket="eth",timeframe_bucket="1m",venue="hyperliquid",le="+Inf"} 155
+heatmap_payload_bytes_sum{instrument_bucket="eth",timeframe_bucket="1m",venue="hyperliquid"} 365040
+heatmap_payload_bytes_count{instrument_bucket="eth",timeframe_bucket="1m",venue="hyperliquid"} 155
+heatmap_payload_bytes_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="binance",le="64"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="binance",le="128"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="binance",le="256"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="binance",le="512"} 19
+heatmap_payload_bytes_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="binance",le="1024"} 60
+heatmap_payload_bytes_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="binance",le="2048"} 310
+heatmap_payload_bytes_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="binance",le="4096"} 1040
+heatmap_payload_bytes_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="binance",le="8192"} 2531
+heatmap_payload_bytes_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="binance",le="16384"} 3763
+heatmap_payload_bytes_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="binance",le="32768"} 3978
+heatmap_payload_bytes_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="binance",le="65536"} 3978
+heatmap_payload_bytes_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="binance",le="131072"} 3978
+heatmap_payload_bytes_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="binance",le="262144"} 3978
+heatmap_payload_bytes_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="binance",le="+Inf"} 3978
+heatmap_payload_bytes_sum{instrument_bucket="stable",timeframe_bucket="1m",venue="binance"} 2.943652e+07
+heatmap_payload_bytes_count{instrument_bucket="stable",timeframe_bucket="1m",venue="binance"} 3978
+heatmap_payload_bytes_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="bybit",le="64"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="bybit",le="128"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="bybit",le="256"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="bybit",le="512"} 11
+heatmap_payload_bytes_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="bybit",le="1024"} 23
+heatmap_payload_bytes_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="bybit",le="2048"} 145
+heatmap_payload_bytes_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="bybit",le="4096"} 923
+heatmap_payload_bytes_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="bybit",le="8192"} 2761
+heatmap_payload_bytes_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="bybit",le="16384"} 5034
+heatmap_payload_bytes_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="bybit",le="32768"} 5352
+heatmap_payload_bytes_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="bybit",le="65536"} 5352
+heatmap_payload_bytes_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="bybit",le="131072"} 5352
+heatmap_payload_bytes_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="bybit",le="262144"} 5352
+heatmap_payload_bytes_bucket{instrument_bucket="stable",timeframe_bucket="1m",venue="bybit",le="+Inf"} 5352
+heatmap_payload_bytes_sum{instrument_bucket="stable",timeframe_bucket="1m",venue="bybit"} 4.446312e+07
+heatmap_payload_bytes_count{instrument_bucket="stable",timeframe_bucket="1m",venue="bybit"} 5352
+heatmap_payload_bytes_bucket{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown",le="64"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown",le="128"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown",le="256"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown",le="512"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown",le="1024"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown",le="2048"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown",le="4096"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown",le="8192"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown",le="16384"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown",le="32768"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown",le="65536"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown",le="131072"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown",le="262144"} 0
+heatmap_payload_bytes_bucket{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown",le="+Inf"} 0
+heatmap_payload_bytes_sum{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown"} 0
+heatmap_payload_bytes_count{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown"} 0
+# HELP heatmap_queue_depth Current heatmap pipeline queue depth by partition.
+# TYPE heatmap_queue_depth gauge
+heatmap_queue_depth{instrument_bucket="btc",venue="binance"} 27
+heatmap_queue_depth{instrument_bucket="btc",venue="bybit"} 29
+heatmap_queue_depth{instrument_bucket="btc",venue="coinbase"} 57
+heatmap_queue_depth{instrument_bucket="btc",venue="hyperliquid"} 17
+heatmap_queue_depth{instrument_bucket="eth",venue="binance"} 34
+heatmap_queue_depth{instrument_bucket="eth",venue="bybit"} 34
+heatmap_queue_depth{instrument_bucket="eth",venue="coinbase"} 65
+heatmap_queue_depth{instrument_bucket="eth",venue="hyperliquid"} 3
+heatmap_queue_depth{instrument_bucket="stable",venue="binance"} 27
+heatmap_queue_depth{instrument_bucket="stable",venue="bybit"} 34
+heatmap_queue_depth{instrument_bucket="unknown",venue="unknown"} 0
+# HELP ingest_bounded_map_evictions_total Total ingest bounded map evictions by reason.
+# TYPE ingest_bounded_map_evictions_total counter
+ingest_bounded_map_evictions_total{reason="unknown"} 0
+# HELP ingest_drop_total Total explicitly dropped ingest envelopes by reason.
+# TYPE ingest_drop_total counter
+ingest_drop_total{reason="bookdelta_catchup_skip"} 45876
+ingest_drop_total{reason="liquidation_catchup_skip"} 10
+ingest_drop_total{reason="markprice_catchup_skip"} 7090
+ingest_drop_total{reason="trade_catchup_skip"} 45330
+ingest_drop_total{reason="unknown"} 0
+# HELP ingest_latency_seconds Ingest pipeline latency in seconds.
+# TYPE ingest_latency_seconds histogram
+ingest_latency_seconds_bucket{event_type="unknown",venue="unknown",le="0.0001"} 0
+ingest_latency_seconds_bucket{event_type="unknown",venue="unknown",le="0.0005"} 0
+ingest_latency_seconds_bucket{event_type="unknown",venue="unknown",le="0.001"} 0
+ingest_latency_seconds_bucket{event_type="unknown",venue="unknown",le="0.005"} 0
+ingest_latency_seconds_bucket{event_type="unknown",venue="unknown",le="0.01"} 0
+ingest_latency_seconds_bucket{event_type="unknown",venue="unknown",le="0.05"} 0
+ingest_latency_seconds_bucket{event_type="unknown",venue="unknown",le="+Inf"} 0
+ingest_latency_seconds_sum{event_type="unknown",venue="unknown"} 0
+ingest_latency_seconds_count{event_type="unknown",venue="unknown"} 0
+# HELP ingest_messages_total Total ingest messages processed by status.
+# TYPE ingest_messages_total counter
+ingest_messages_total{event_type="unknown",status="unknown",venue="unknown"} 0
+# HELP ingest_nak_total Total ingest envelopes NAKed by reason.
+# TYPE ingest_nak_total counter
+ingest_nak_total{reason="unknown"} 0
+# HELP ingest_quarantine_total Total poison envelopes routed to quarantine by reason.
+# TYPE ingest_quarantine_total counter
+ingest_quarantine_total{reason="unknown"} 0
+# HELP ingest_streams_active Number of active ingest streams held in memory.
+# TYPE ingest_streams_active gauge
+ingest_streams_active 0
+# HELP ingest_term_total Total ingest envelopes TERMed by reason.
+# TYPE ingest_term_total counter
+ingest_term_total{reason="unknown"} 0
+# HELP insights_snapshots_total Total cross-venue insight snapshots emitted by bounded venue-count bucket.
+# TYPE insights_snapshots_total counter
+insights_snapshots_total{venue_count_bucket="2"} 3516
+insights_snapshots_total{venue_count_bucket="3_4"} 0
+insights_snapshots_total{venue_count_bucket="5_8"} 0
+insights_snapshots_total{venue_count_bucket="9_plus"} 0
+# HELP insights_state_evictions_total Total cross-venue join cache evictions by reason.
+# TYPE insights_state_evictions_total counter
+insights_state_evictions_total{reason="unknown"} 0
+# HELP insights_state_instruments_active Number of active instrument states in cross-venue join cache.
+# TYPE insights_state_instruments_active gauge
+insights_state_instruments_active 8
+# HELP jetstream_shard_ack_latency_seconds Time between processing start and Ack/Nak/Term per shard group.
+# TYPE jetstream_shard_ack_latency_seconds histogram
+jetstream_shard_ack_latency_seconds_bucket{group_id="0",le="0.0001"} 53679
+jetstream_shard_ack_latency_seconds_bucket{group_id="0",le="0.0005"} 100929
+jetstream_shard_ack_latency_seconds_bucket{group_id="0",le="0.001"} 104105
+jetstream_shard_ack_latency_seconds_bucket{group_id="0",le="0.005"} 106774
+jetstream_shard_ack_latency_seconds_bucket{group_id="0",le="0.01"} 107979
+jetstream_shard_ack_latency_seconds_bucket{group_id="0",le="0.05"} 120003
+jetstream_shard_ack_latency_seconds_bucket{group_id="0",le="0.1"} 120670
+jetstream_shard_ack_latency_seconds_bucket{group_id="0",le="0.5"} 120996
+jetstream_shard_ack_latency_seconds_bucket{group_id="0",le="1"} 120999
+jetstream_shard_ack_latency_seconds_bucket{group_id="0",le="2"} 120999
+jetstream_shard_ack_latency_seconds_bucket{group_id="0",le="5"} 120999
+jetstream_shard_ack_latency_seconds_bucket{group_id="0",le="+Inf"} 120999
+jetstream_shard_ack_latency_seconds_sum{group_id="0"} 394.04755329499824
+jetstream_shard_ack_latency_seconds_count{group_id="0"} 120999
+# HELP jetstream_shard_consumer_lag Estimated JetStream consumer lag (NumPending) per shard group.
+# TYPE jetstream_shard_consumer_lag gauge
+jetstream_shard_consumer_lag{group_id="0"} 3448
+# HELP jetstream_shard_events_total Total events successfully processed per shard group.
+# TYPE jetstream_shard_events_total counter
+jetstream_shard_events_total{group_id="0"} 120999
+# HELP jetstream_shard_info Static info labels for shard topology. Value is always 1.
+# TYPE jetstream_shard_info gauge
+jetstream_shard_info{shard_count="2",shard_index="0"} 1
+# HELP jetstream_shard_lag_budget Configured maximum acceptable lag per shard group. 0 means no budget.
+# TYPE jetstream_shard_lag_budget gauge
+jetstream_shard_lag_budget{group_id="0"} 0
+# HELP jetstream_shard_redelivered_total Total redelivered messages per shard group.
+# TYPE jetstream_shard_redelivered_total counter
+jetstream_shard_redelivered_total{group_id="0"} 41
+# HELP jetstream_shard_skip_total Total messages skipped (belong to a different shard group).
+# TYPE jetstream_shard_skip_total counter
+jetstream_shard_skip_total{group_id="0"} 49212
+# HELP policykit_compress_total Total PolicyKit compress actions by stream.
+# TYPE policykit_compress_total counter
+policykit_compress_total{stream="unknown"} 0
+# HELP policykit_degrade_total Total PolicyKit degradations by stream and venue.
+# TYPE policykit_degrade_total counter
+policykit_degrade_total{stream="unknown",venue="unknown"} 0
+# HELP policykit_drop_total Total PolicyKit drops by stream and venue.
+# TYPE policykit_drop_total counter
+policykit_drop_total{stream="unknown",venue="unknown"} 0
+# HELP policykit_latency_ms Latency in milliseconds for PolicyKit decision+apply path.
+# TYPE policykit_latency_ms histogram
+policykit_latency_ms_bucket{stream="unknown",le="0"} 0
+policykit_latency_ms_bucket{stream="unknown",le="0.05"} 0
+policykit_latency_ms_bucket{stream="unknown",le="0.1"} 0
+policykit_latency_ms_bucket{stream="unknown",le="0.5"} 0
+policykit_latency_ms_bucket{stream="unknown",le="1"} 0
+policykit_latency_ms_bucket{stream="unknown",le="2"} 0
+policykit_latency_ms_bucket{stream="unknown",le="5"} 0
+policykit_latency_ms_bucket{stream="unknown",le="10"} 0
+policykit_latency_ms_bucket{stream="unknown",le="25"} 0
+policykit_latency_ms_bucket{stream="unknown",le="50"} 0
+policykit_latency_ms_bucket{stream="unknown",le="100"} 0
+policykit_latency_ms_bucket{stream="unknown",le="250"} 0
+policykit_latency_ms_bucket{stream="unknown",le="+Inf"} 0
+policykit_latency_ms_sum{stream="unknown"} 0
+policykit_latency_ms_count{stream="unknown"} 0
+# HELP policykit_overload_level Current PolicyKit overload level per stream partition.
+# TYPE policykit_overload_level gauge
+policykit_overload_level{stream="unknown",venue="unknown"} 0
+# HELP process_gc_pause_seconds Go GC pause durations in seconds.
+# TYPE process_gc_pause_seconds histogram
+process_gc_pause_seconds_bucket{le="5e-05"} 39
+process_gc_pause_seconds_bucket{le="0.0001"} 77
+process_gc_pause_seconds_bucket{le="0.0005"} 132
+process_gc_pause_seconds_bucket{le="0.001"} 175
+process_gc_pause_seconds_bucket{le="0.005"} 188
+process_gc_pause_seconds_bucket{le="0.01"} 188
+process_gc_pause_seconds_bucket{le="0.05"} 188
+process_gc_pause_seconds_bucket{le="+Inf"} 188
+process_gc_pause_seconds_sum 0.06645354600000002
+process_gc_pause_seconds_count 188
+# HELP process_goroutines Current goroutine count.
+# TYPE process_goroutines gauge
+process_goroutines 26
+# HELP process_heap_alloc_bytes Current heap allocations in bytes.
+# TYPE process_heap_alloc_bytes gauge
+process_heap_alloc_bytes 2.4727032e+07
+# HELP processor_ack_after_commit_total Total processor ack decisions after commit boundary by status.
+# TYPE processor_ack_after_commit_total counter
+processor_ack_after_commit_total{status="failed"} 0
+processor_ack_after_commit_total{status="ok"} 120999
+# HELP processor_commit_latency_seconds Snapshot commit latency (hot+cold dual-write) in seconds.
+# TYPE processor_commit_latency_seconds histogram
+processor_commit_latency_seconds_bucket{le="0.0001"} 0
+processor_commit_latency_seconds_bucket{le="0.0005"} 0
+processor_commit_latency_seconds_bucket{le="0.001"} 0
+processor_commit_latency_seconds_bucket{le="0.005"} 328
+processor_commit_latency_seconds_bucket{le="0.01"} 1516
+processor_commit_latency_seconds_bucket{le="0.05"} 13111
+processor_commit_latency_seconds_bucket{le="0.1"} 13577
+processor_commit_latency_seconds_bucket{le="0.5"} 13599
+processor_commit_latency_seconds_bucket{le="1"} 13599
+processor_commit_latency_seconds_bucket{le="2"} 13599
+processor_commit_latency_seconds_bucket{le="5"} 13599
+processor_commit_latency_seconds_bucket{le="+Inf"} 13599
+processor_commit_latency_seconds_sum 289.09220273300014
+processor_commit_latency_seconds_count 13599
+# HELP processor_commit_total Total snapshot commit operations by status.
+# TYPE processor_commit_total counter
+processor_commit_total{status="failed"} 0
+processor_commit_total{status="ok"} 13599
+processor_commit_total{status="unknown"} 9187
+# HELP processor_processed_total Total envelopes processed by the aggregation processor actor.
+# TYPE processor_processed_total counter
+processor_processed_total{event_type="marketdata.bookdelta",status="ok"} 60808
+processor_processed_total{event_type="marketdata.liquidation",status="ok"} 12
+processor_processed_total{event_type="marketdata.markprice",status="ok"} 8315
+processor_processed_total{event_type="marketdata.trade",status="ok"} 51864
+processor_processed_total{event_type="unknown",status="failed"} 0
+processor_processed_total{event_type="unknown",status="ok"} 0
+# HELP replay_latency_seconds Replay processing latency from envelope ts_ingest.
+# TYPE replay_latency_seconds histogram
+replay_latency_seconds_bucket{mode="unknown",le="0.0001"} 0
+replay_latency_seconds_bucket{mode="unknown",le="0.001"} 0
+replay_latency_seconds_bucket{mode="unknown",le="0.01"} 0
+replay_latency_seconds_bucket{mode="unknown",le="0.1"} 0
+replay_latency_seconds_bucket{mode="unknown",le="1"} 0
+replay_latency_seconds_bucket{mode="unknown",le="5"} 0
+replay_latency_seconds_bucket{mode="unknown",le="15"} 0
+replay_latency_seconds_bucket{mode="unknown",le="30"} 0
+replay_latency_seconds_bucket{mode="unknown",le="60"} 0
+replay_latency_seconds_bucket{mode="unknown",le="+Inf"} 0
+replay_latency_seconds_sum{mode="unknown"} 0
+replay_latency_seconds_count{mode="unknown"} 0
+# HELP replay_messages_total Total replay messages by mode and status.
+# TYPE replay_messages_total counter
+replay_messages_total{mode="unknown",status="unknown"} 0
+# HELP replay_redeliveries_total Total replay redelivered messages.
+# TYPE replay_redeliveries_total counter
+replay_redeliveries_total{mode="unknown"} 0
+# HELP resync_total Total websocket resync requests handled.
+# TYPE resync_total counter
+resync_total 0
+# HELP serialize_errors_total Total websocket serialization/transcoding errors.
+# TYPE serialize_errors_total counter
+serialize_errors_total 0
+# HELP shard_lease_age_seconds Age in seconds since the current process lease last heartbeat update.
+# TYPE shard_lease_age_seconds gauge
+shard_lease_age_seconds 0
+# HELP shard_lease_lost_total Total shard lease lost events that triggered processor shutdown.
+# TYPE shard_lease_lost_total counter
+shard_lease_lost_total 0
+# HELP shard_owner_conflicts_total Total shard owner conflict detections (dual-owner or lease-lost).
+# TYPE shard_owner_conflicts_total counter
+shard_owner_conflicts_total 0
+# HELP shard_registry_errors_total Total shard registry operation errors by operation.
+# TYPE shard_registry_errors_total counter
+shard_registry_errors_total{op="unknown"} 0
+# HELP shard_topology_complete Shard topology completeness state. 1=all shard owners present, 0=incomplete.
+# TYPE shard_topology_complete gauge
+shard_topology_complete 0
+# HELP store_batch_size Number of rows per flushed batch in the store pipeline.
+# TYPE store_batch_size histogram
+store_batch_size_bucket{le="1"} 0
+store_batch_size_bucket{le="2"} 0
+store_batch_size_bucket{le="5"} 0
+store_batch_size_bucket{le="10"} 0
+store_batch_size_bucket{le="25"} 0
+store_batch_size_bucket{le="50"} 0
+store_batch_size_bucket{le="100"} 0
+store_batch_size_bucket{le="250"} 0
+store_batch_size_bucket{le="500"} 0
+store_batch_size_bucket{le="1000"} 0
+store_batch_size_bucket{le="+Inf"} 0
+store_batch_size_sum 0
+store_batch_size_count 0
+# HELP store_commit_latency_seconds ClickHouse commit latency in the store pipeline in seconds.
+# TYPE store_commit_latency_seconds histogram
+store_commit_latency_seconds_bucket{le="0.0005"} 0
+store_commit_latency_seconds_bucket{le="0.001"} 0
+store_commit_latency_seconds_bucket{le="0.005"} 0
+store_commit_latency_seconds_bucket{le="0.01"} 0
+store_commit_latency_seconds_bucket{le="0.05"} 0
+store_commit_latency_seconds_bucket{le="0.1"} 0
+store_commit_latency_seconds_bucket{le="0.5"} 0
+store_commit_latency_seconds_bucket{le="1"} 0
+store_commit_latency_seconds_bucket{le="2"} 0
+store_commit_latency_seconds_bucket{le="5"} 0
+store_commit_latency_seconds_bucket{le="10"} 0
+store_commit_latency_seconds_bucket{le="+Inf"} 0
+store_commit_latency_seconds_sum 0
+store_commit_latency_seconds_count 0
+# HELP store_commit_total Total ClickHouse commit operations in the store by status.
+# TYPE store_commit_total counter
+store_commit_total{status="failed"} 0
+store_commit_total{status="ok"} 0
+# HELP store_consumed_total Total envelopes consumed by the store pipeline by status and reason.
+# TYPE store_consumed_total counter
+store_consumed_total{reason="commit",status="failed"} 0
+store_consumed_total{reason="decode",status="failed"} 0
+store_consumed_total{reason="skipped",status="ok"} 0
+store_consumed_total{reason="snapshot",status="ok"} 0
+# HELP store_flush_latency_seconds Store batch flush latency in seconds.
+# TYPE store_flush_latency_seconds histogram
+store_flush_latency_seconds_bucket{le="0.0005"} 0
+store_flush_latency_seconds_bucket{le="0.001"} 0
+store_flush_latency_seconds_bucket{le="0.005"} 0
+store_flush_latency_seconds_bucket{le="0.01"} 0
+store_flush_latency_seconds_bucket{le="0.05"} 0
+store_flush_latency_seconds_bucket{le="0.1"} 0
+store_flush_latency_seconds_bucket{le="0.5"} 0
+store_flush_latency_seconds_bucket{le="1"} 0
+store_flush_latency_seconds_bucket{le="2"} 0
+store_flush_latency_seconds_bucket{le="5"} 0
+store_flush_latency_seconds_bucket{le="10"} 0
+store_flush_latency_seconds_bucket{le="+Inf"} 0
+store_flush_latency_seconds_sum 0
+store_flush_latency_seconds_count 0
+# HELP store_flush_total Total batch flush operations in the store by status.
+# TYPE store_flush_total counter
+store_flush_total{status="failed"} 0
+store_flush_total{status="ok"} 0
+# HELP store_quarantine_total Total store envelopes quarantined by reason.
+# TYPE store_quarantine_total counter
+store_quarantine_total{reason="unknown"} 0
+# HELP vpvr_builder_bucket_count Current VPVR bucket count per active partition window.
+# TYPE vpvr_builder_bucket_count gauge
+vpvr_builder_bucket_count{instrument_bucket="btc",timeframe_bucket="1m",venue="binance"} 23
+vpvr_builder_bucket_count{instrument_bucket="btc",timeframe_bucket="1m",venue="bybit"} 19
+vpvr_builder_bucket_count{instrument_bucket="btc",timeframe_bucket="1m",venue="coinbase"} 17
+vpvr_builder_bucket_count{instrument_bucket="btc",timeframe_bucket="1m",venue="hyperliquid"} 10
+vpvr_builder_bucket_count{instrument_bucket="eth",timeframe_bucket="1m",venue="binance"} 6
+vpvr_builder_bucket_count{instrument_bucket="eth",timeframe_bucket="1m",venue="bybit"} 6
+vpvr_builder_bucket_count{instrument_bucket="eth",timeframe_bucket="1m",venue="coinbase"} 6
+vpvr_builder_bucket_count{instrument_bucket="eth",timeframe_bucket="1m",venue="hyperliquid"} 2
+vpvr_builder_bucket_count{instrument_bucket="stable",timeframe_bucket="1m",venue="binance"} 23
+vpvr_builder_bucket_count{instrument_bucket="stable",timeframe_bucket="1m",venue="bybit"} 19
+vpvr_builder_bucket_count{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown"} 0
+# HELP vpvr_builder_drop_total Total VPVR builder dropped trades by reason.
+# TYPE vpvr_builder_drop_total counter
+vpvr_builder_drop_total{reason="unknown"} 0
+# HELP vpvr_builder_overload_actions_total Total VPVR builder overload actions by type.
+# TYPE vpvr_builder_overload_actions_total counter
+vpvr_builder_overload_actions_total{action="unknown"} 0
+# HELP vpvr_builder_replay_mismatch_total Total VPVR builder replay/out-of-order mismatches observed while updating buckets.
+# TYPE vpvr_builder_replay_mismatch_total counter
+vpvr_builder_replay_mismatch_total 0
+# HELP vpvr_builder_windows_open Current VPVR open windows per partition.
+# TYPE vpvr_builder_windows_open gauge
+vpvr_builder_windows_open{instrument_bucket="btc",timeframe_bucket="1m",venue="binance"} 8
+vpvr_builder_windows_open{instrument_bucket="btc",timeframe_bucket="1m",venue="bybit"} 8
+vpvr_builder_windows_open{instrument_bucket="btc",timeframe_bucket="1m",venue="coinbase"} 8
+vpvr_builder_windows_open{instrument_bucket="btc",timeframe_bucket="1m",venue="hyperliquid"} 7
+vpvr_builder_windows_open{instrument_bucket="eth",timeframe_bucket="1m",venue="binance"} 8
+vpvr_builder_windows_open{instrument_bucket="eth",timeframe_bucket="1m",venue="bybit"} 8
+vpvr_builder_windows_open{instrument_bucket="eth",timeframe_bucket="1m",venue="coinbase"} 8
+vpvr_builder_windows_open{instrument_bucket="eth",timeframe_bucket="1m",venue="hyperliquid"} 7
+vpvr_builder_windows_open{instrument_bucket="stable",timeframe_bucket="1m",venue="binance"} 8
+vpvr_builder_windows_open{instrument_bucket="stable",timeframe_bucket="1m",venue="bybit"} 8
+vpvr_builder_windows_open{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown"} 0
+# HELP vpvr_compress_ratio VPVR snapshot compression ratio (compressed buckets / original buckets).
+# TYPE vpvr_compress_ratio histogram
+vpvr_compress_ratio_bucket{le="0"} 0
+vpvr_compress_ratio_bucket{le="0.1"} 0
+vpvr_compress_ratio_bucket{le="0.2"} 0
+vpvr_compress_ratio_bucket{le="0.25"} 0
+vpvr_compress_ratio_bucket{le="0.33"} 0
+vpvr_compress_ratio_bucket{le="0.5"} 0
+vpvr_compress_ratio_bucket{le="0.66"} 0
+vpvr_compress_ratio_bucket{le="0.75"} 0
+vpvr_compress_ratio_bucket{le="0.9"} 0
+vpvr_compress_ratio_bucket{le="1"} 0
+vpvr_compress_ratio_bucket{le="+Inf"} 0
+vpvr_compress_ratio_sum 0
+vpvr_compress_ratio_count 0
+# HELP vpvr_degrade_total Total VPVR emit-path degradations by action.
+# TYPE vpvr_degrade_total counter
+vpvr_degrade_total{action="unknown"} 0
+# HELP vpvr_drop_total Total VPVR emit-path drops by reason.
+# TYPE vpvr_drop_total counter
+vpvr_drop_total{reason="unknown"} 0
+# HELP vpvr_overload_level Current VPVR overload level per partition.
+# TYPE vpvr_overload_level gauge
+vpvr_overload_level{instrument_bucket="unknown",timeframe_bucket="unknown",venue="unknown"} 0
+# HELP vpvr_processing_latency_ms Latency in milliseconds observed for VPVR processing in emit path.
+# TYPE vpvr_processing_latency_ms histogram
+vpvr_processing_latency_ms_bucket{le="0"} 0
+vpvr_processing_latency_ms_bucket{le="0.1"} 0
+vpvr_processing_latency_ms_bucket{le="0.5"} 0
+vpvr_processing_latency_ms_bucket{le="1"} 0
+vpvr_processing_latency_ms_bucket{le="2"} 0
+vpvr_processing_latency_ms_bucket{le="5"} 0
+vpvr_processing_latency_ms_bucket{le="10"} 0
+vpvr_processing_latency_ms_bucket{le="25"} 0
+vpvr_processing_latency_ms_bucket{le="50"} 0
+vpvr_processing_latency_ms_bucket{le="100"} 0
+vpvr_processing_latency_ms_bucket{le="250"} 0
+vpvr_processing_latency_ms_bucket{le="500"} 0
+vpvr_processing_latency_ms_bucket{le="+Inf"} 0
+vpvr_processing_latency_ms_sum 0
+vpvr_processing_latency_ms_count 0
+# HELP vpvr_writer_upsert_dedup_total Total VPVR writer deduplicated upsert operations.
+# TYPE vpvr_writer_upsert_dedup_total counter
+vpvr_writer_upsert_dedup_total 0
+# HELP vpvr_writer_upsert_latency_ms Latency in milliseconds for VPVR writer upsert operations.
+# TYPE vpvr_writer_upsert_latency_ms histogram
+vpvr_writer_upsert_latency_ms_bucket{le="0"} 0
+vpvr_writer_upsert_latency_ms_bucket{le="0.1"} 0
+vpvr_writer_upsert_latency_ms_bucket{le="0.5"} 0
+vpvr_writer_upsert_latency_ms_bucket{le="1"} 0
+vpvr_writer_upsert_latency_ms_bucket{le="2"} 0
+vpvr_writer_upsert_latency_ms_bucket{le="5"} 0
+vpvr_writer_upsert_latency_ms_bucket{le="10"} 0
+vpvr_writer_upsert_latency_ms_bucket{le="25"} 0
+vpvr_writer_upsert_latency_ms_bucket{le="50"} 0
+vpvr_writer_upsert_latency_ms_bucket{le="100"} 0
+vpvr_writer_upsert_latency_ms_bucket{le="250"} 0
+vpvr_writer_upsert_latency_ms_bucket{le="500"} 0
+vpvr_writer_upsert_latency_ms_bucket{le="+Inf"} 0
+vpvr_writer_upsert_latency_ms_sum 0
+vpvr_writer_upsert_latency_ms_count 0
+# HELP vpvr_writer_upsert_ops_total Total VPVR writer upsert operations by status.
+# TYPE vpvr_writer_upsert_ops_total counter
+vpvr_writer_upsert_ops_total{status="unknown"} 0
+# HELP vpvr_writer_write_fail_total Total VPVR writer failures by reason.
+# TYPE vpvr_writer_write_fail_total counter
+vpvr_writer_write_fail_total{reason="unknown"} 0
+# HELP ws_bytes_out_total Total websocket outbound bytes by channel.
+# TYPE ws_bytes_out_total counter
+ws_bytes_out_total{channel="unknown"} 0
+# HELP ws_clients_connected Connected websocket delivery clients.
+# TYPE ws_clients_connected gauge
+ws_clients_connected 0
+# HELP ws_connections_active Active websocket connections.
+# TYPE ws_connections_active gauge
+ws_connections_active{venue="unknown"} 0
+# HELP ws_dropped_total Total dropped websocket outbound events by reason and channel.
+# TYPE ws_dropped_total counter
+ws_dropped_total{channel="unknown",reason="unknown"} 0
+# HELP ws_drops_total Total dropped websocket outbound events by reason.
+# TYPE ws_drops_total counter
+ws_drops_total{reason="unknown"} 0
+# HELP ws_errors_total Total websocket errors.
+# TYPE ws_errors_total counter
+ws_errors_total{status="unknown",venue="unknown"} 0
+# HELP ws_lag_ms Current websocket delivery lag in milliseconds by channel.
+# TYPE ws_lag_ms gauge
+ws_lag_ms{channel="unknown"} 0
+# HELP ws_messages_out_total Total websocket outbound messages by channel.
+# TYPE ws_messages_out_total counter
+ws_messages_out_total{channel="unknown"} 0
+# HELP ws_messages_received_total Total websocket messages received.
+# TYPE ws_messages_received_total counter
+ws_messages_received_total{event_type="unknown",venue="unknown"} 0
+# HELP ws_publish_to_deliver_latency_ms Latency in milliseconds from event publish(ts_ingest) to websocket delivery.
+# TYPE ws_publish_to_deliver_latency_ms histogram
+ws_publish_to_deliver_latency_ms_bucket{channel="unknown",le="0.5"} 0
+ws_publish_to_deliver_latency_ms_bucket{channel="unknown",le="1"} 0
+ws_publish_to_deliver_latency_ms_bucket{channel="unknown",le="2"} 0
+ws_publish_to_deliver_latency_ms_bucket{channel="unknown",le="5"} 0
+ws_publish_to_deliver_latency_ms_bucket{channel="unknown",le="10"} 0
+ws_publish_to_deliver_latency_ms_bucket{channel="unknown",le="25"} 0
+ws_publish_to_deliver_latency_ms_bucket{channel="unknown",le="50"} 0
+ws_publish_to_deliver_latency_ms_bucket{channel="unknown",le="100"} 0
+ws_publish_to_deliver_latency_ms_bucket{channel="unknown",le="250"} 0
+ws_publish_to_deliver_latency_ms_bucket{channel="unknown",le="500"} 0
+ws_publish_to_deliver_latency_ms_bucket{channel="unknown",le="1000"} 0
+ws_publish_to_deliver_latency_ms_bucket{channel="unknown",le="2000"} 0
+ws_publish_to_deliver_latency_ms_bucket{channel="unknown",le="5000"} 0
+ws_publish_to_deliver_latency_ms_bucket{channel="unknown",le="+Inf"} 0
+ws_publish_to_deliver_latency_ms_sum{channel="unknown"} 0
+ws_publish_to_deliver_latency_ms_count{channel="unknown"} 0
+# HELP ws_query_rejected_total Total rejected websocket read-path queries by reason.
+# TYPE ws_query_rejected_total counter
+ws_query_rejected_total{reason="unknown"} 0
+# HELP ws_query_total Total websocket read-path queries by operation and bounded category.
+# TYPE ws_query_total counter
+ws_query_total{bc="unknown",op="unknown"} 0
+# HELP ws_queue_depth Current outbound websocket queue depth across delivery sessions.
+# TYPE ws_queue_depth gauge
+ws_queue_depth 0
+# HELP ws_queue_len Current outbound websocket queue length across delivery sessions.
+# TYPE ws_queue_len gauge
+ws_queue_len 0
+# HELP ws_reconnects_total Total websocket reconnects.
+# TYPE ws_reconnects_total counter
+ws_reconnects_total{status="unknown",venue="unknown"} 0
+# HELP ws_send_latency_ms Latency in milliseconds for websocket event frame writes.
+# TYPE ws_send_latency_ms histogram
+ws_send_latency_ms_bucket{le="0.1"} 0
+ws_send_latency_ms_bucket{le="0.5"} 0
+ws_send_latency_ms_bucket{le="1"} 0
+ws_send_latency_ms_bucket{le="2"} 0
+ws_send_latency_ms_bucket{le="5"} 0
+ws_send_latency_ms_bucket{le="10"} 0
+ws_send_latency_ms_bucket{le="25"} 0
+ws_send_latency_ms_bucket{le="50"} 0
+ws_send_latency_ms_bucket{le="100"} 0
+ws_send_latency_ms_bucket{le="250"} 0
+ws_send_latency_ms_bucket{le="500"} 0
+ws_send_latency_ms_bucket{le="1000"} 0
+ws_send_latency_ms_bucket{le="+Inf"} 0
+ws_send_latency_ms_sum 0
+ws_send_latency_ms_count 0
+# HELP ws_subscriptions_active Active websocket subscriptions across all sessions.
+# TYPE ws_subscriptions_active gauge
+ws_subscriptions_active 0

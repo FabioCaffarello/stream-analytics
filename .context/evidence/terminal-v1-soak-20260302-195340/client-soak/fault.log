@@ -1,0 +1,6 @@
+[fault] 2026-03-02T22:55:41Z restarting compose server (count=1)
+[fault] 2026-03-02T22:57:42Z restarting compose server (count=2)
+[fault] 2026-03-02T22:59:44Z restarting compose server (count=3)
+[fault] 2026-03-02T23:01:46Z restarting compose server (count=4)
+[fault] 2026-03-02T23:03:47Z restarting compose server (count=5)
+[fault] 2026-03-02T23:05:49Z restarting compose server (count=6)

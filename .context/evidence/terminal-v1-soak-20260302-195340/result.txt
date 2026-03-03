@@ -1,0 +1,2 @@
+soak_exit=0
+out_dir=.context/evidence/terminal-v1-soak-20260302-195340

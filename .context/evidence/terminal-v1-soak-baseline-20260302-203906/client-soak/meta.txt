@@ -1,0 +1,14 @@
+started_at=2026-03-02T23:39:07Z
+repo_dir=/Volumes/OWC Express 1M2/Develop/market-raccoon
+client_dir=/Volumes/OWC Express 1M2/Develop/market-raccoon/client
+app_bin=/Volumes/OWC Express 1M2/Develop/market-raccoon/client/build/app
+duration_sec=1800
+sample_sec=5
+soak_log_ms=5000
+soak_multi=1
+restart_server_every_sec=0
+restart_server_max_count=0
+max_rss_growth_kb=0
+max_threads_growth=0
+app_args=--soak-seconds=1800 --soak-log-ms=5000 --soak-multi
+app_pid=12913

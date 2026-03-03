@@ -1,0 +1,303 @@
+goroutine 251683 [running]:
+runtime/pprof.writeGoroutineStacks({0xf4dd80, 0xc000385680})
+	runtime/pprof/pprof.go:756 +0x6b
+runtime/pprof.writeGoroutine({0xf4dd80?, 0xc000385680?}, 0x3f?)
+	runtime/pprof/pprof.go:745 +0x25
+runtime/pprof.(*Profile).WriteTo(0x152aba0?, {0xf4dd80?, 0xc000385680?}, 0xc?)
+	runtime/pprof/pprof.go:371 +0x14b
+net/http/pprof.handler.ServeHTTP({0xdb7ae6, 0x9}, {0xf55d98, 0xc000385680}, 0xc000252780)
+	net/http/pprof/pprof.go:272 +0x52a
+github.com/market-raccoon/internal/interfaces/http.(*Server).registerPprofRoutes.localhostOnly.func8({0xf55d98, 0xc000385680}, 0xc000252780)
+	github.com/market-raccoon/internal/interfaces/http/server.go:591 +0xa3
+net/http.HandlerFunc.ServeHTTP(0xc0000f0000?, {0xf55d98?, 0xc000385680?}, 0x6bd4f6?)
+	net/http/server.go:2322 +0x29
+net/http.(*ServeMux).ServeHTTP(0x479379?, {0xf55d98, 0xc000385680}, 0xc000252780)
+	net/http/server.go:2861 +0x1c7
+net/http.serverHandler.ServeHTTP({0xc0009dac40?}, {0xf55d98?, 0xc000385680?}, 0x1?)
+	net/http/server.go:3340 +0x8e
+net/http.(*conn).serve(0xc0001dd170, {0xf573c0, 0xc000436d80})
+	net/http/server.go:2109 +0x665
+created by net/http.(*Server).Serve in goroutine 189
+	net/http/server.go:3493 +0x485
+
+goroutine 1 [select, 1 minutes]:
+main.Run({_, _}, {{{0xc0002eab34, 0x4}, {0xc0002eab38, 0x4}}, {{0xc0002eab40, 0x5}, 0x1, {0xc0002eab45, ...}, ...}, ...}, ...)
+	github.com/market-raccoon/cmd/server/bootstrap.go:480 +0x233c
+main.main()
+	github.com/market-raccoon/cmd/server/main.go:44 +0x26e
+
+goroutine 127 [select]:
+github.com/jackc/pgx/v5/pgxpool.(*Pool).backgroundHealthCheck(0xc000000a80)
+	github.com/jackc/pgx/v5@v5.8.0/pgxpool/pool.go:495 +0xc7
+github.com/jackc/pgx/v5/pgxpool.NewWithConfig.func5()
+	github.com/jackc/pgx/v5@v5.8.0/pgxpool/pool.go:338 +0x3d
+created by github.com/jackc/pgx/v5/pgxpool.NewWithConfig in goroutine 1
+	github.com/jackc/pgx/v5@v5.8.0/pgxpool/pool.go:335 +0x43e
+
+goroutine 154 [select, 1 minutes]:
+github.com/ClickHouse/clickhouse-go/v2.(*clickhouse).startAutoCloseIdleConnections(0xc00020fbf0)
+	github.com/ClickHouse/clickhouse-go/v2@v2.34.0/clickhouse.go:313 +0xb7
+created by github.com/ClickHouse/clickhouse-go/v2.Open in goroutine 1
+	github.com/ClickHouse/clickhouse-go/v2@v2.34.0/clickhouse.go:92 +0x1be
+
+goroutine 184 [select]:
+github.com/market-raccoon/internal/actors/delivery/runtime.(*SubsystemActor).consumeLoop(0xc0000b5a00)
+	github.com/market-raccoon/internal/actors/delivery/runtime/delivery_subsystem.go:119 +0x166
+created by github.com/market-raccoon/internal/actors/delivery/runtime.(*SubsystemActor).onStarted in goroutine 1
+	github.com/market-raccoon/internal/actors/delivery/runtime/delivery_subsystem.go:107 +0x245
+
+goroutine 160 [sync.Cond.Wait, 1 minutes]:
+sync.runtime_notifyListWait(0xc0002722d0, 0x0)
+	runtime/sema.go:606 +0x159
+sync.(*Cond).Wait(0x0?)
+	sync/cond.go:71 +0x73
+github.com/nats-io/nats%2ego.(*asyncCallbacksHandler).asyncCBDispatcher(0xc00020cf80)
+	github.com/nats-io/nats.go@v1.48.0/nats.go:3185 +0xdc
+created by github.com/nats-io/nats%2ego.Options.Connect in goroutine 1
+	github.com/nats-io/nats.go@v1.48.0/nats.go:1725 +0x36e
+
+goroutine 143 [chan receive]:
+github.com/nats-io/nats%2ego.(*Conn).flusher(0xc0000d5108)
+	github.com/nats-io/nats.go@v1.48.0/nats.go:3702 +0xe9
+created by github.com/nats-io/nats%2ego.(*Conn).processConnectInit in goroutine 1
+	github.com/nats-io/nats.go@v1.48.0/nats.go:2557 +0x2f9
+
+goroutine 142 [IO wait]:
+internal/poll.runtime_pollWait(0x7fffb8cfa000, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0xc0002ca580?, 0xc00043a000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0xc0002ca580, {0xc00043a000, 0x8000, 0x8000})
+	internal/poll/fd_unix.go:165 +0x279
+net.(*netFD).Read(0xc0002ca580, {0xc00043a000?, 0xa00000000000001?, 0x4fa?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0xc000058888, {0xc00043a000?, 0xc00023540c?, 0xc000235308?})
+	net/net.go:196 +0x45
+github.com/nats-io/nats%2ego.(*natsReader).Read(0xc000272300)
+	github.com/nats-io/nats.go@v1.48.0/nats.go:2121 +0x89
+github.com/nats-io/nats%2ego.(*Conn).readLoop(0xc0000d5108)
+	github.com/nats-io/nats.go@v1.48.0/nats.go:3260 +0xef
+created by github.com/nats-io/nats%2ego.(*Conn).processConnectInit in goroutine 1
+	github.com/nats-io/nats.go@v1.48.0/nats.go:2556 +0x2b3
+
+goroutine 179 [runnable]:
+internal/poll.runtime_pollWait(0x7fffb8cf9200, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0xc0002ca400?, 0xc00037c000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0xc0002ca400, {0xc00037c000, 0x2000, 0x2000})
+	internal/poll/fd_unix.go:165 +0x279
+net.(*netFD).Read(0xc0002ca400, {0xc00037c000?, 0xb?, 0xc000685800?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0xc000058830, {0xc00037c000?, 0x47e700?, 0xc000b87158?})
+	net/net.go:196 +0x45
+github.com/jackc/pgx/v5/pgconn/internal/bgreader.(*BGReader).Read(0xc0002c13c0, {0xc00037c000, 0x2000, 0x2000})
+	github.com/jackc/pgx/v5@v5.8.0/pgconn/internal/bgreader/bgreader.go:100 +0xcb
+io.ReadAtLeast({0xf4f400, 0xc0002c13c0}, {0xc00037c000, 0x2000, 0x2000}, 0x5)
+	io/io.go:335 +0x8e
+github.com/jackc/pgx/v5/pgproto3.(*chunkReader).Next(0xc000302e70, 0x5)
+	github.com/jackc/pgx/v5@v5.8.0/pgproto3/chunkreader.go:80 +0x291
+github.com/jackc/pgx/v5/pgproto3.(*Frontend).Receive(0xc00037a488)
+	github.com/jackc/pgx/v5@v5.8.0/pgproto3/frontend.go:308 +0x39
+github.com/jackc/pgx/v5/pgconn.(*PgConn).peekMessage(0xc0000b6d88)
+	github.com/jackc/pgx/v5@v5.8.0/pgconn/pgconn.go:566 +0x145
+github.com/jackc/pgx/v5/pgconn.(*ResultReader).readUntilRowDescription(0xc0000b6e20)
+	github.com/jackc/pgx/v5@v5.8.0/pgconn/pgconn.go:1669 +0x2a
+github.com/jackc/pgx/v5/pgconn.(*PgConn).execExtendedSuffix(0xc0000b6d88, 0xc0000b6e20)
+	github.com/jackc/pgx/v5@v5.8.0/pgconn/pgconn.go:1247 +0x179
+github.com/jackc/pgx/v5/pgconn.(*PgConn).ExecPrepared(0xc0000b6d88, {0xf57350?, 0x156e3a0?}, {0xc00009fac0, 0x3a}, {0xc0003c3980, 0x4, 0x4}, {0xc000853118, 0x4, ...}, ...)
+	github.com/jackc/pgx/v5@v5.8.0/pgconn/pgconn.go:1192 +0x165
+github.com/jackc/pgx/v5.(*Conn).execPrepared(0xc00011be00, {0xf57350, 0x156e3a0}, 0xc000728910, {0xc0009dac00?, 0x47ceef?, 0xc000b874a0?})
+	github.com/jackc/pgx/v5@v5.8.0/conn.go:611 +0xf4
+github.com/jackc/pgx/v5.(*Conn).exec(0xc00011be00, {0xf57350, 0x156e3a0}, {0xdede5e, 0xd2}, {0xc0009dac00?, 0xf57350?, 0xc000b87640?})
+	github.com/jackc/pgx/v5@v5.8.0/conn.go:548 +0x467
+github.com/jackc/pgx/v5.(*Conn).Exec(0xc00011be00, {0xf57350?, 0x156e3a0?}, {0xdede5e, 0xd2}, {0xc0009dac00, 0x4, 0x4})
+	github.com/jackc/pgx/v5@v5.8.0/conn.go:479 +0x114
+github.com/jackc/pgx/v5/pgxpool.(*Conn).Exec(0xc000000a80?, {0xf57350?, 0x156e3a0?}, {0xdede5e?, 0xc000010a68?}, {0xc0009dac00?, 0x479e45?, 0x18?})
+	github.com/jackc/pgx/v5@v5.8.0/pgxpool/conn.go:87 +0x3c
+github.com/jackc/pgx/v5/pgxpool.(*Pool).Exec(0xc00079f100?, {0xf57350, 0x156e3a0}, {0xdede5e, 0xd2}, {0xc0009dac00, 0x4, 0x4})
+	github.com/jackc/pgx/v5@v5.8.0/pgxpool/pool.go:724 +0xf7
+github.com/market-raccoon/internal/adapters/storage/timescale.(*PgRangeStore).StoreEnvelope(0xc0000cdc80, {{0xc000654570, 0x14}, 0x1, {0xc00022c368, 0x5}, {0xc00022c380, 0x7}, 0x19cb0cb0768, 0x19cb0cb0811, ...})
+	github.com/market-raccoon/internal/adapters/storage/timescale/delivery_range_store.go:130 +0x41b
+main.subMinuteFilteringRangeStore.StoreEnvelope(...)
+	github.com/market-raccoon/cmd/server/bootstrap.go:115
+main.Run.func2.1({0xc000865052?, 0x356?}, {{0xc000654570, 0x14}, 0x1, {0xc00022c368, 0x5}, {0xc00022c380, 0x7}, 0x19cb0cb0768, ...})
+	github.com/market-raccoon/cmd/server/bootstrap.go:395 +0x75
+github.com/market-raccoon/internal/adapters/jetstream.(*Consumer).consumeOne(0xc0000e4300, {0xf573f8, 0xc0000fe280}, 0xc00012a150, 0xc000b87fa0)
+	github.com/market-raccoon/internal/adapters/jetstream/consumer.go:306 +0x6c6
+github.com/market-raccoon/internal/adapters/jetstream.(*Consumer).Consume(0xc0000e4300, {0xf573f8, 0xc0000fe280}, 0xc000b87fa0)
+	github.com/market-raccoon/internal/adapters/jetstream/consumer.go:218 +0x417
+main.Run.func2()
+	github.com/market-raccoon/cmd/server/bootstrap.go:394 +0x7e
+created by main.Run in goroutine 1
+	github.com/market-raccoon/cmd/server/bootstrap.go:393 +0x1796
+
+goroutine 144 [sync.Cond.Wait]:
+sync.runtime_notifyListWait(0xc0002c1990, 0x11956)
+	runtime/sema.go:606 +0x159
+sync.(*Cond).Wait(0xc0002c80e0?)
+	sync/cond.go:71 +0x73
+github.com/nats-io/nats%2ego.(*Conn).waitForMsgs(0xc0000d5108, 0xc0001a6e10)
+	github.com/nats-io/nats.go@v1.48.0/nats.go:3304 +0xc9
+created by github.com/nats-io/nats%2ego.(*Conn).subscribeLocked in goroutine 1
+	github.com/nats-io/nats.go@v1.48.0/nats.go:4663 +0x419
+
+goroutine 189 [IO wait]:
+internal/poll.runtime_pollWait(0x7fffb8cf9a00, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0xc000116300?, 0x900000036?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Accept(0xc000116300)
+	internal/poll/fd_unix.go:613 +0x28c
+net.(*netFD).accept(0xc000116300)
+	net/fd_unix.go:161 +0x29
+net.(*TCPListener).accept(0xc000272040)
+	net/tcpsock_posix.go:159 +0x1b
+net.(*TCPListener).Accept(0xc000272040)
+	net/tcpsock.go:380 +0x30
+net/http.(*Server).Serve(0xc0000e4600, {0xf55f18, 0xc000272040})
+	net/http/server.go:3463 +0x30c
+net/http.(*Server).ListenAndServe(0xc0000e4600)
+	net/http/server.go:3389 +0x72
+github.com/market-raccoon/internal/interfaces/http.(*Server).ListenAndServe(0xc000116100)
+	github.com/market-raccoon/internal/interfaces/http/server.go:172 +0xda
+main.Run.func6()
+	github.com/market-raccoon/cmd/server/bootstrap.go:473 +0x25
+created by main.Run in goroutine 1
+	github.com/market-raccoon/cmd/server/bootstrap.go:472 +0x2229
+
+goroutine 191 [syscall, 1 minutes]:
+os/signal.signal_recv()
+	runtime/sigqueue.go:152 +0x29
+os/signal.loop()
+	os/signal/signal_unix.go:23 +0x13
+created by os/signal.Notify.func1.1 in goroutine 1
+	os/signal/signal.go:152 +0x1f
+
+goroutine 9388 [IO wait]:
+internal/poll.runtime_pollWait(0x7fffb8cf9e00, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0xc0006f8080?, 0xc000378000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0xc0006f8080, {0xc000378000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x279
+net.(*netFD).Read(0xc0006f8080, {0xc000378000?, 0x0?, 0xc000539ac8?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0xc0000a8700, {0xc000378000?, 0x0?, 0x0?})
+	net/net.go:196 +0x45
+net/http.(*connReader).Read(0xc0005d1d00, {0xc000378000, 0x1000, 0x1000})
+	net/http/server.go:812 +0x154
+bufio.(*Reader).fill(0xc0003c3c80)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0xc0003c3c80, 0x4)
+	bufio/bufio.go:152 +0x53
+net/http.(*conn).serve(0xc0001dd290, {0xf573c0, 0xc000436d80})
+	net/http/server.go:2145 +0x7c5
+created by net/http.(*Server).Serve in goroutine 189
+	net/http/server.go:3493 +0x485
+
+goroutine 251684 [runnable]:
+syscall.Syscall(0x0, 0x14, 0xc0009dac61, 0x1)
+	syscall/syscall_linux.go:74 +0x25
+syscall.read(0xc000a05200?, {0xc0009dac61?, 0xc0001dc000?, 0x978e98?})
+	syscall/zsyscall_linux_amd64.go:736 +0x38
+syscall.Read(...)
+	syscall/syscall_unix.go:183
+internal/poll.ignoringEINTRIO(...)
+	internal/poll/fd_unix.go:738
+internal/poll.(*FD).Read(0xc000a05200, {0xc0009dac61, 0x1, 0x1})
+	internal/poll/fd_unix.go:161 +0x2ae
+net.(*netFD).Read(0xc000a05200, {0xc0009dac61?, 0xc000978fd0?, 0x887a8b?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0xc0000a8698, {0xc0009dac61?, 0xc0000d5108?, 0xc0009ec780?})
+	net/net.go:196 +0x45
+net/http.(*connReader).backgroundRead(0xc0009dac40)
+	net/http/server.go:702 +0x33
+created by net/http.(*connReader).startBackgroundRead in goroutine 251683
+	net/http/server.go:698 +0xb6
+
+goroutine 5192 [select]:
+github.com/market-raccoon/internal/actors/delivery/runtime.(*SessionActor).keepaliveLoop(0xc000152b60, {0xf573f8, 0xc0006bd1d0})
+	github.com/market-raccoon/internal/actors/delivery/runtime/session.go:321 +0x127
+created by github.com/market-raccoon/internal/actors/delivery/runtime.(*SessionActor).attachConn in goroutine 5189
+	github.com/market-raccoon/internal/actors/delivery/runtime/session.go:268 +0x278
+
+goroutine 54732 [select]:
+github.com/market-raccoon/internal/actors/delivery/runtime.(*SessionActor).keepaliveLoop(0xc0002f5860, {0xf573f8, 0xc00019a320})
+	github.com/market-raccoon/internal/actors/delivery/runtime/session.go:321 +0x127
+created by github.com/market-raccoon/internal/actors/delivery/runtime.(*SessionActor).attachConn in goroutine 54729
+	github.com/market-raccoon/internal/actors/delivery/runtime/session.go:268 +0x278
+
+goroutine 5193 [IO wait]:
+internal/poll.runtime_pollWait(0x7fffb8cf9c00, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0xc000116480?, 0xc000233000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0xc000116480, {0xc000233000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x279
+net.(*netFD).Read(0xc000116480, {0xc000233000?, 0x1549360?, 0x4eba40?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0xc0000a8600, {0xc000233000?, 0x1549360?, 0x72?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0xc0003c3800)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0xc0003c3800, 0x2)
+	bufio/bufio.go:152 +0x53
+github.com/gorilla/websocket.(*Conn).read(0xc00023a160, 0xc0007a5ba0?)
+	github.com/gorilla/websocket@v1.5.3/conn.go:371 +0x25
+github.com/gorilla/websocket.(*Conn).advanceFrame(0xc00023a160)
+	github.com/gorilla/websocket@v1.5.3/conn.go:809 +0x70
+github.com/gorilla/websocket.(*Conn).NextReader(0xc00023a160)
+	github.com/gorilla/websocket@v1.5.3/conn.go:1009 +0xad
+github.com/gorilla/websocket.(*Conn).ReadMessage(0xc00020ff20?)
+	github.com/gorilla/websocket@v1.5.3/conn.go:1093 +0x13
+github.com/market-raccoon/internal/actors/delivery/runtime.(*SessionActor).readLoop(0xc000152b60)
+	github.com/market-raccoon/internal/actors/delivery/runtime/session.go:342 +0x5b
+created by github.com/market-raccoon/internal/actors/delivery/runtime.(*SessionActor).attachConn in goroutine 5189
+	github.com/market-raccoon/internal/actors/delivery/runtime/session.go:269 +0x2bb
+
+goroutine 54733 [IO wait]:
+internal/poll.runtime_pollWait(0x7fffb8d1a800, 0x72)
+	runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0xc000a05300?, 0xc000afa000?, 0x0)
+	internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitRead(...)
+	internal/poll/fd_poll_runtime.go:89
+internal/poll.(*FD).Read(0xc000a05300, {0xc000afa000, 0x1000, 0x1000})
+	internal/poll/fd_unix.go:165 +0x279
+net.(*netFD).Read(0xc000a05300, {0xc000afa000?, 0x1549360?, 0x4eba40?})
+	net/fd_posix.go:68 +0x25
+net.(*conn).Read(0xc000058248, {0xc000afa000?, 0x1549360?, 0x72?})
+	net/net.go:196 +0x45
+bufio.(*Reader).fill(0xc000708420)
+	bufio/bufio.go:113 +0x103
+bufio.(*Reader).Peek(0xc000708420, 0x2)
+	bufio/bufio.go:152 +0x53
+github.com/gorilla/websocket.(*Conn).read(0xc0000209a0, 0xc000277500?)
+	github.com/gorilla/websocket@v1.5.3/conn.go:371 +0x25
+github.com/gorilla/websocket.(*Conn).advanceFrame(0xc0000209a0)
+	github.com/gorilla/websocket@v1.5.3/conn.go:809 +0x70
+github.com/gorilla/websocket.(*Conn).NextReader(0xc0000209a0)
+	github.com/gorilla/websocket@v1.5.3/conn.go:1009 +0xad
+github.com/gorilla/websocket.(*Conn).ReadMessage(0xc00020ff20?)
+	github.com/gorilla/websocket@v1.5.3/conn.go:1093 +0x13
+github.com/market-raccoon/internal/actors/delivery/runtime.(*SessionActor).readLoop(0xc0002f5860)
+	github.com/market-raccoon/internal/actors/delivery/runtime/session.go:342 +0x5b
+created by github.com/market-raccoon/internal/actors/delivery/runtime.(*SessionActor).attachConn in goroutine 54729
+	github.com/market-raccoon/internal/actors/delivery/runtime/session.go:269 +0x2bb
+
+goroutine 251682 [select]:
+github.com/market-raccoon/internal/adapters/jetstream.startAckHeartbeat.func2()
+	github.com/market-raccoon/internal/adapters/jetstream/consumer.go:340 +0xff
+created by github.com/market-raccoon/internal/adapters/jetstream.startAckHeartbeat in goroutine 179
+	github.com/market-raccoon/internal/adapters/jetstream/consumer.go:336 +0x149

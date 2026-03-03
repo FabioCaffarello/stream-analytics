@@ -1,0 +1,747 @@
+[marketdata] Connected to ws://127.0.0.1:8080/ws
+[md-lifecycle] connect url=ws://127.0.0.1:8080/ws
+[md-lifecycle] hello_sent rid=h1
+[md-lifecycle] subscribe_sent subject=marketdata.trade/binance/BTCUSDT/raw rid=r2
+[md-lifecycle] subscribe_sent subject=marketdata.bookdelta/binance/BTCUSDT/raw rid=r3
+[md-lifecycle] subscribe_sent subject=aggregation.stats/binance/BTCUSDT/raw rid=r4
+[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1m rid=r5
+[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m rid=r6
+[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/1m rid=r7
+[md-lifecycle] subscribe_sent subject=marketdata.trade/binance/ETHUSDT/raw rid=r8
+[md-lifecycle] subscribe_sent subject=marketdata.bookdelta/binance/ETHUSDT/raw rid=r9
+[md-lifecycle] subscribe_sent subject=aggregation.stats/binance/ETHUSDT/raw rid=r10
+[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/ETHUSDT/1m rid=r11
+[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/ETHUSDT/1m rid=r12
+[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/ETHUSDT/1m rid=r13
+[md-lifecycle] subscribe_sent subject=marketdata.trade/binance/SOLUSDT/raw rid=r14
+[md-lifecycle] subscribe_sent subject=marketdata.bookdelta/binance/SOLUSDT/raw rid=r15
+[md-lifecycle] subscribe_sent subject=aggregation.stats/binance/SOLUSDT/raw rid=r16
+[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/SOLUSDT/1m rid=r17
+[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/SOLUSDT/1m rid=r18
+[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/SOLUSDT/1m rid=r19
+[soak] subscriptions=18 mode=multi log_ms=5000 duration_s=1800
+[md-lifecycle] hello_ok proto_ver=1 server_id=e0a4800d-3571-4e31-9c7f-9b97046e7cd1 topics=7 venues=5 symbols=0
+[md-lifecycle] ack_recv op=hello subject=
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.trade/binance/BTCUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.bookdelta/binance/BTCUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.stats/binance/BTCUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.trade/binance/ETHUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.bookdelta/binance/ETHUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.stats/binance/ETHUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/ETHUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/ETHUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/ETHUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.trade/binance/SOLUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.bookdelta/binance/SOLUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.stats/binance/SOLUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/SOLUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/SOLUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/SOLUSDT/1m
+[soak] t_ms=36 frame=1 conn=Connected health=No_Data streams=6 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=0 rc+0 mps=0.0 bps=0 rtt=49 lag=14 last=12 pm=21 pr=21 pb=2521 w[t=0 ob=0/0 st=0 hm=0 vp=0 c=0]
+[md-lifecycle] first_data_after_connect_ms=602 kind=Range_Candle sid=6af6786668ce2458
+[soak] t_ms=5038 frame=1083 conn=Connected health=OK streams=14 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=0 rc+0 mps=45.9 bps=80560 rtt=49 lag=14 last=51 pm=265 pr=265 pb=376303 w[t=32 ob=0/0 st=32 hm=7 vp=9 c=17]
+[soak] t_ms=10038 frame=1683 conn=Connected health=OK streams=14 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=0 rc+0 mps=46.9 bps=63948 rtt=49 lag=17 last=15 pm=583 pr=583 pb=908527 w[t=109 ob=0/0 st=64 hm=18 vp=9 c=17]
+[soak] t_ms=15040 frame=2284 conn=Connected health=OK streams=15 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=0 rc+0 mps=46.1 bps=66608 rtt=49 lag=3 last=0 pm=808 pr=808 pb=1302851 w[t=127 ob=0/0 st=64 hm=26 vp=9 c=17]
+[soak] t_ms=20040 frame=2884 conn=Connected health=OK streams=15 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=0 rc+0 mps=43.6 bps=108016 rtt=49 lag=1 last=30 pm=1035 pr=1035 pb=1729235 w[t=146 ob=0/0 st=64 hm=32 vp=9 c=18]
+[soak] t_ms=25040 frame=3484 conn=Connected health=OK streams=15 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=0 rc+0 mps=45.3 bps=91131 rtt=49 lag=9 last=10 pm=1277 pr=1277 pb=2238045 w[t=162 ob=0/0 st=64 hm=39 vp=9 c=18]
+[soak] t_ms=30040 frame=4084 conn=Connected health=OK streams=15 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=0 rc=0 rc+0 mps=42.4 bps=73729 rtt=49 lag=2 last=5 pm=1754 pr=1754 pb=2892170 w[t=256 ob=0/0 st=64 hm=46 vp=1 c=18]
+[soak] t_ms=35044 frame=4684 conn=Connected health=OK streams=15 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=0 rc+0 mps=56.0 bps=94222 rtt=49 lag=2 last=6 pm=2077 pr=2077 pb=3452120 w[t=256 ob=0/0 st=64 hm=52 vp=1 c=18]
+[soak] t_ms=40048 frame=4996 conn=Connected health=OK streams=15 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=0 rc+0 mps=112.5 bps=176088 rtt=49 lag=0 last=32 pm=2399 pr=2399 pb=3990113 w[t=256 ob=0/0 st=64 hm=59 vp=2 c=18]
+[soak] t_ms=45064 frame=5297 conn=Connected health=OK streams=15 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=0 rc+0 mps=46.4 bps=88016 rtt=49 lag=1 last=59 pm=2722 pr=2722 pb=4607483 w[t=256 ob=0/0 st=64 hm=64 vp=7 c=18]
+[soak] t_ms=50065 frame=5597 conn=Connected health=OK streams=15 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=0 rc+0 mps=47.0 bps=72572 rtt=49 lag=1 last=51 pm=2947 pr=2947 pb=4964333 w[t=256 ob=0/0 st=64 hm=71 vp=8 c=18]
+[soak] t_ms=55081 frame=5898 conn=Connected health=OK streams=15 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=0 rc+0 mps=60.3 bps=116617 rtt=49 lag=1 last=27 pm=3363 pr=3363 pb=5705881 w[t=256 ob=0/0 st=64 hm=77 vp=11 c=18]
+[soak] t_ms=60082 frame=6198 conn=Connected health=OK streams=15 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=0 rc+0 mps=141.9 bps=250722 rtt=1 lag=1 last=52 pm=3826 pr=3826 pb=6677579 w[t=256 ob=0/0 st=64 hm=83 vp=11 c=18]
+[soak] t_ms=65098 frame=6499 conn=Connected health=OK streams=15 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=2 qmax=0 cb=0 drop=0 d+0 p=0 rc=0 rc+0 mps=52.9 bps=119642 rtt=1 lag=1 last=13 pm=4096 pr=4096 pb=7250484 w[t=256 ob=0/0 st=64 hm=90 vp=13 c=18]
+[soak] t_ms=70114 frame=6800 conn=Connected health=OK streams=15 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=0 rc=0 rc+0 mps=45.1 bps=119945 rtt=1 lag=1 last=30 pm=4453 pr=4453 pb=7929638 w[t=256 ob=0/0 st=64 hm=97 vp=22 c=18]
+[soak] t_ms=75131 frame=7101 conn=Connected health=OK streams=15 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=15 qmax=1 cb=0 drop=0 d+0 p=0 rc=0 rc+0 mps=141.0 bps=316188 rtt=1 lag=0 last=1 pm=5541 pr=5541 pb=9388973 w[t=256 ob=0/0 st=64 hm=102 vp=23 c=18]
+[soak] t_ms=80131 frame=7401 conn=Connected health=OK streams=15 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=0 rc+0 mps=69.1 bps=168962 rtt=1 lag=1 last=38 pm=5919 pr=5919 pb=10237357 w[t=256 ob=0/0 st=64 hm=107 vp=24 c=19]
+[soak] t_ms=85139 frame=7794 conn=Connected health=OK streams=15 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=1 cb=0 drop=0 d+0 p=1 rc=0 rc+0 mps=83.8 bps=174449 rtt=1 lag=1 last=3 pm=6325 pr=6325 pb=11084623 w[t=256 ob=0/0 st=64 hm=113 vp=25 c=19]
+[soak] t_ms=90139 frame=8394 conn=Connected health=OK streams=15 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=0 cb=0 drop=0 d+0 p=0 rc=0 rc+0 mps=79.4 bps=165478 rtt=1 lag=0 last=7 pm=6790 pr=6790 pb=12079026 w[t=256 ob=0/0 st=64 hm=120 vp=1 c=19]
+[soak] t_ms=95139 frame=8994 conn=Connected health=OK streams=15 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=0 rc=0 rc+0 mps=68.3 bps=129446 rtt=1 lag=1 last=80 pm=7171 pr=7171 pb=12749075 w[t=256 ob=0/0 st=64 hm=126 vp=5 c=19]
+[soak] t_ms=100139 frame=9594 conn=Connected health=OK streams=15 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=0 rc+0 mps=76.6 bps=157547 rtt=1 lag=4 last=78 pm=7558 pr=7558 pb=13384245 w[t=256 ob=0/0 st=64 hm=128 vp=8 c=19]
+[soak] t_ms=105139 frame=10194 conn=Connected health=OK streams=15 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=0 rc=0 rc+0 mps=61.8 bps=113956 rtt=1 lag=1 last=18 pm=7893 pr=7893 pb=14034298 w[t=256 ob=0/0 st=64 hm=128 vp=9 c=19]
+[soak] t_ms=110148 frame=10641 conn=Connected health=OK streams=15 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=0 cb=0 drop=0 d+0 p=0 rc=0 rc+0 mps=65.8 bps=100108 rtt=1 lag=1 last=5 pm=8195 pr=8195 pb=14556960 w[t=256 ob=0/0 st=64 hm=128 vp=10 c=19]
+[soak] t_ms=115148 frame=10941 conn=Connected health=OK streams=15 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=0 cb=0 drop=0 d+0 p=0 rc=0 rc+0 mps=44.7 bps=89908 rtt=1 lag=1 last=10 pm=8479 pr=8479 pb=15097248 w[t=256 ob=0/0 st=64 hm=128 vp=11 c=19]
+[marketdata] Read error: Failed_Header_Read
+[md-lifecycle] disconnect reason=Failed_Header_Read
+[marketdata] Reconnecting in 481ms (attempt 1)
+[soak] t_ms=120164 frame=11242 conn=Reconnecting health=OK streams=15 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=1 rc+1 mps=48.7 bps=86141 rtt=1 lag=1 last=139 pm=8714 pr=8714 pb=15556142 w[t=256 ob=0/0 st=64 hm=128 vp=12 c=19]
+[marketdata] Reconnect failed (err=Handshake_Error)
+[marketdata] Reconnecting in 913ms (attempt 2)
+[marketdata] Reconnect failed (err=Handshake_Error)
+[marketdata] Reconnecting in 1530ms (attempt 3)
+[marketdata] Reconnected to ws://127.0.0.1:8080/ws
+[md-lifecycle] connect url=ws://127.0.0.1:8080/ws
+[md-lifecycle] hello_sent rid=h63
+[md-lifecycle] subscribe_sent subject=marketdata.trade/binance/BTCUSDT/raw rid=r64
+[md-lifecycle] subscribe_sent subject=marketdata.bookdelta/binance/BTCUSDT/raw rid=r65
+[md-lifecycle] subscribe_sent subject=aggregation.stats/binance/BTCUSDT/raw rid=r66
+[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1m rid=r67
+[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m rid=r68
+[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/1m rid=r69
+[md-lifecycle] subscribe_sent subject=marketdata.trade/binance/ETHUSDT/raw rid=r70
+[md-lifecycle] subscribe_sent subject=marketdata.bookdelta/binance/ETHUSDT/raw rid=r71
+[md-lifecycle] subscribe_sent subject=aggregation.stats/binance/ETHUSDT/raw rid=r72
+[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/ETHUSDT/1m rid=r73
+[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/ETHUSDT/1m rid=r74
+[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/ETHUSDT/1m rid=r75
+[md-lifecycle] subscribe_sent subject=marketdata.trade/binance/SOLUSDT/raw rid=r76
+[md-lifecycle] subscribe_sent subject=marketdata.bookdelta/binance/SOLUSDT/raw rid=r77
+[md-lifecycle] subscribe_sent subject=aggregation.stats/binance/SOLUSDT/raw rid=r78
+[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/SOLUSDT/1m rid=r79
+[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/SOLUSDT/1m rid=r80
+[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/SOLUSDT/1m rid=r81
+[md-lifecycle] hello_ok proto_ver=1 server_id=82f546eb-9e0d-4ecc-a1d9-d4fa49a6d899 topics=7 venues=5 symbols=0
+[md-lifecycle] ack_recv op=hello subject=
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.trade/binance/BTCUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.bookdelta/binance/BTCUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.stats/binance/BTCUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.trade/binance/ETHUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.bookdelta/binance/ETHUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.stats/binance/ETHUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/ETHUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/ETHUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/ETHUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.trade/binance/SOLUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.bookdelta/binance/SOLUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.stats/binance/SOLUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/SOLUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/SOLUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/SOLUSDT/1m
+[md-lifecycle] first_data_after_connect_ms=19 kind=Range_Candle sid=6af6786668ce2458
+[soak] t_ms=125165 frame=11542 conn=Connected health=OK streams=15 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=3 rc+0 mps=59.4 bps=115723 rtt=16 lag=3 last=16 pm=8879 pr=8879 pb=15830007 w[t=256 ob=0/0 st=64 hm=128 vp=16 c=19]
+[soak] t_ms=130182 frame=11843 conn=Connected health=OK streams=15 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=3 rc+0 mps=36.2 bps=76822 rtt=16 lag=1 last=26 pm=9120 pr=9120 pb=16374532 w[t=256 ob=0/0 st=64 hm=128 vp=15 c=19]
+[soak] t_ms=135198 frame=12144 conn=Connected health=OK streams=15 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=3 rc+0 mps=50.1 bps=111533 rtt=16 lag=2 last=25 pm=9541 pr=9541 pb=17165293 w[t=256 ob=0/0 st=64 hm=128 vp=16 c=19]
+[soak] t_ms=140198 frame=12444 conn=Connected health=OK streams=15 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=3 rc+0 mps=60.3 bps=140462 rtt=16 lag=2 last=7 pm=9867 pr=9867 pb=17888307 w[t=256 ob=0/0 st=64 hm=128 vp=16 c=20]
+[soak] t_ms=145214 frame=12745 conn=Connected health=OK streams=15 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=1 rc=3 rc+0 mps=101.4 bps=189263 rtt=16 lag=1 last=6 pm=10182 pr=10182 pb=18536556 w[t=256 ob=0/0 st=64 hm=128 vp=18 c=20]
+[soak] t_ms=150215 frame=13045 conn=Connected health=OK streams=15 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=3 rc+0 mps=40.4 bps=74641 rtt=16 lag=3 last=65 pm=10467 pr=10467 pb=19078988 w[t=256 ob=0/0 st=64 hm=128 vp=2 c=20]
+[soak] t_ms=155231 frame=13346 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=0 cb=0 drop=0 d+0 p=1 rc=3 rc+0 mps=43.9 bps=85772 rtt=16 lag=2 last=4 pm=10705 pr=10705 pb=19493805 w[t=256 ob=0/0 st=64 hm=128 vp=4 c=20]
+[soak] t_ms=160232 frame=13646 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=2 qmax=0 cb=0 drop=0 d+0 p=1 rc=3 rc+0 mps=40.8 bps=116510 rtt=16 lag=1 last=2 pm=11123 pr=11123 pb=20113370 w[t=256 ob=0/0 st=64 hm=128 vp=7 c=20]
+[soak] t_ms=165247 frame=13947 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=3 rc+0 mps=39.0 bps=66284 rtt=16 lag=3 last=17 pm=11471 pr=11471 pb=20672253 w[t=256 ob=0/0 st=64 hm=128 vp=8 c=20]
+[soak] t_ms=170248 frame=14247 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=3 rc+0 mps=79.6 bps=117366 rtt=16 lag=1 last=13 pm=11769 pr=11769 pb=21148706 w[t=256 ob=0/0 st=64 hm=128 vp=10 c=20]
+[soak] t_ms=175265 frame=14548 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=3 rc+0 mps=40.9 bps=69563 rtt=16 lag=1 last=17 pm=12011 pr=12011 pb=21559104 w[t=256 ob=0/0 st=64 hm=128 vp=14 c=20]
+[soak] t_ms=180280 frame=14849 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=3 rc+0 mps=46.0 bps=78706 rtt=16 lag=1 last=41 pm=12231 pr=12231 pb=21915172 w[t=256 ob=0/0 st=64 hm=128 vp=14 c=20]
+[soak] t_ms=185282 frame=15149 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=3 rc+0 mps=58.8 bps=91168 rtt=16 lag=1 last=16 pm=12507 pr=12507 pb=22380155 w[t=256 ob=0/0 st=64 hm=128 vp=14 c=20]
+[soak] t_ms=190298 frame=15450 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=3 rc+0 mps=90.0 bps=152564 rtt=16 lag=2 last=46 pm=12787 pr=12787 pb=22888146 w[t=256 ob=0/0 st=64 hm=128 vp=14 c=20]
+[soak] t_ms=195298 frame=15750 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=3 rc+0 mps=41.7 bps=92076 rtt=16 lag=7 last=6 pm=13031 pr=13031 pb=23358360 w[t=256 ob=0/0 st=64 hm=128 vp=14 c=20]
+[soak] t_ms=200315 frame=16051 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=1 rc=3 rc+0 mps=80.7 bps=108449 rtt=16 lag=1 last=17 pm=13294 pr=13294 pb=23846490 w[t=256 ob=0/0 st=64 hm=128 vp=15 c=21]
+[soak] t_ms=205332 frame=16352 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=3 rc+0 mps=40.5 bps=71923 rtt=16 lag=2 last=27 pm=13562 pr=13562 pb=24354618 w[t=256 ob=0/0 st=64 hm=128 vp=16 c=21]
+[soak] t_ms=210332 frame=16652 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=3 rc+0 mps=47.7 bps=94249 rtt=16 lag=2 last=9 pm=13813 pr=13813 pb=24855026 w[t=256 ob=0/0 st=64 hm=128 vp=1 c=21]
+[soak] t_ms=215347 frame=16953 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=0 cb=0 drop=0 d+0 p=1 rc=3 rc+0 mps=135.1 bps=244158 rtt=16 lag=1 last=1 pm=14277 pr=14277 pb=25716407 w[t=256 ob=0/0 st=64 hm=128 vp=3 c=21]
+[soak] t_ms=220347 frame=17253 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=3 rc+0 mps=56.0 bps=124967 rtt=16 lag=3 last=51 pm=14670 pr=14670 pb=26504795 w[t=256 ob=0/0 st=64 hm=128 vp=3 c=21]
+[soak] t_ms=225357 frame=17806 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=3 rc+0 mps=46.5 bps=79875 rtt=16 lag=0 last=23 pm=14914 pr=14914 pb=26978661 w[t=256 ob=0/0 st=64 hm=128 vp=9 c=21]
+[soak] t_ms=230357 frame=18406 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=3 rc+0 mps=42.3 bps=80157 rtt=16 lag=2 last=173 pm=15113 pr=15113 pb=27322529 w[t=256 ob=0/0 st=64 hm=128 vp=15 c=21]
+[soak] t_ms=235365 frame=18910 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=0 cb=0 drop=0 d+0 p=0 rc=3 rc+0 mps=50.8 bps=106103 rtt=16 lag=1 last=12 pm=15344 pr=15344 pb=27765014 w[t=256 ob=0/0 st=64 hm=128 vp=19 c=21]
+[soak] t_ms=240382 frame=19211 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=3 rc+0 mps=42.3 bps=133216 rtt=16 lag=2 last=59 pm=15628 pr=15628 pb=28319648 w[t=256 ob=0/0 st=64 hm=128 vp=19 c=21]
+[marketdata] Read error: Failed_Header_Read
+[md-lifecycle] disconnect reason=Failed_Header_Read
+[marketdata] Reconnecting in 424ms (attempt 1)
+[marketdata] Reconnect failed (err=Handshake_Error)
+[marketdata] Reconnecting in 927ms (attempt 2)
+[marketdata] Reconnect failed (err=Handshake_Error)
+[marketdata] Reconnecting in 1911ms (attempt 3)
+[marketdata] Reconnected to ws://127.0.0.1:8080/ws
+[md-lifecycle] connect url=ws://127.0.0.1:8080/ws
+[md-lifecycle] hello_sent rid=h115
+[md-lifecycle] subscribe_sent subject=marketdata.trade/binance/BTCUSDT/raw rid=r116
+[md-lifecycle] subscribe_sent subject=marketdata.bookdelta/binance/BTCUSDT/raw rid=r117
+[md-lifecycle] subscribe_sent subject=aggregation.stats/binance/BTCUSDT/raw rid=r118
+[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1m rid=r119
+[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m rid=r120
+[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/1m rid=r121
+[md-lifecycle] subscribe_sent subject=marketdata.trade/binance/ETHUSDT/raw rid=r122
+[md-lifecycle] subscribe_sent subject=marketdata.bookdelta/binance/ETHUSDT/raw rid=r123
+[md-lifecycle] subscribe_sent subject=aggregation.stats/binance/ETHUSDT/raw rid=r124
+[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/ETHUSDT/1m rid=r125
+[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/ETHUSDT/1m rid=r126
+[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/ETHUSDT/1m rid=r127
+[md-lifecycle] subscribe_sent subject=marketdata.trade/binance/SOLUSDT/raw rid=r128
+[md-lifecycle] subscribe_sent subject=marketdata.bookdelta/binance/SOLUSDT/raw rid=r129
+[md-lifecycle] subscribe_sent subject=aggregation.stats/binance/SOLUSDT/raw rid=r130
+[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/SOLUSDT/1m rid=r131
+[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/SOLUSDT/1m rid=r132
+[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/SOLUSDT/1m rid=r133
+[md-lifecycle] hello_ok proto_ver=1 server_id=3332185f-3ed2-4c58-99e7-e25d23fcdfa5 topics=7 venues=5 symbols=0
+[md-lifecycle] ack_recv op=hello subject=
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.trade/binance/BTCUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.bookdelta/binance/BTCUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.stats/binance/BTCUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.trade/binance/ETHUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.bookdelta/binance/ETHUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.stats/binance/ETHUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/ETHUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/ETHUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/ETHUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.trade/binance/SOLUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.bookdelta/binance/SOLUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.stats/binance/SOLUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/SOLUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/SOLUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/SOLUSDT/1m
+[md-lifecycle] first_data_after_connect_ms=27 kind=Range_Candle sid=6af6786668ce2458
+[soak] t_ms=245397 frame=19512 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=6 rc+0 mps=8.6 bps=13299 rtt=24 lag=3 last=24 pm=15735 pr=15735 pb=28487258 w[t=256 ob=0/0 st=64 hm=128 vp=19 c=21]
+[soak] t_ms=250398 frame=19812 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=10 qmax=0 cb=0 drop=0 d+0 p=0 rc=6 rc+0 mps=31.8 bps=56092 rtt=24 lag=1 last=0 pm=16012 pr=16012 pb=28955239 w[t=256 ob=0/0 st=64 hm=128 vp=19 c=21]
+[marketdata] Read error: Failed_Header_Read
+[md-lifecycle] disconnect reason=Failed_Header_Read
+[marketdata] Reconnecting in 412ms (attempt 1)
+[marketdata] Reconnect failed (err=Handshake_Error)
+[marketdata] Reconnecting in 860ms (attempt 2)
+[marketdata] Reconnect failed (err=Handshake_Error)
+[marketdata] Reconnecting in 1659ms (attempt 3)
+[soak] t_ms=255414 frame=20113 conn=Reconnecting health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=9 rc+1 mps=52.7 bps=99649 rtt=24 lag=1 last=2641 pm=16163 pr=16163 pb=29179102 w[t=256 ob=0/0 st=64 hm=128 vp=19 c=21]
+[marketdata] Reconnect failed (err=Dial_Error)
+[marketdata] Reconnecting in 3743ms (attempt 4)
+[marketdata] Reconnected to ws://127.0.0.1:8080/ws
+[md-lifecycle] connect url=ws://127.0.0.1:8080/ws
+[md-lifecycle] hello_sent rid=h137
+[md-lifecycle] subscribe_sent subject=marketdata.trade/binance/BTCUSDT/raw rid=r138
+[md-lifecycle] subscribe_sent subject=marketdata.bookdelta/binance/BTCUSDT/raw rid=r139
+[md-lifecycle] subscribe_sent subject=aggregation.stats/binance/BTCUSDT/raw rid=r140
+[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1m rid=r141
+[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m rid=r142
+[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/1m rid=r143
+[md-lifecycle] subscribe_sent subject=marketdata.trade/binance/ETHUSDT/raw rid=r144
+[md-lifecycle] subscribe_sent subject=marketdata.bookdelta/binance/ETHUSDT/raw rid=r145
+[md-lifecycle] subscribe_sent subject=aggregation.stats/binance/ETHUSDT/raw rid=r146
+[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/ETHUSDT/1m rid=r147
+[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/ETHUSDT/1m rid=r148
+[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/ETHUSDT/1m rid=r149
+[md-lifecycle] subscribe_sent subject=marketdata.trade/binance/SOLUSDT/raw rid=r150
+[md-lifecycle] subscribe_sent subject=marketdata.bookdelta/binance/SOLUSDT/raw rid=r151
+[md-lifecycle] subscribe_sent subject=aggregation.stats/binance/SOLUSDT/raw rid=r152
+[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/SOLUSDT/1m rid=r153
+[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/SOLUSDT/1m rid=r154
+[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/SOLUSDT/1m rid=r155
+[md-lifecycle] hello_ok proto_ver=1 server_id=da16a6e2-c67b-41cf-b136-569150661077 topics=7 venues=5 symbols=0
+[md-lifecycle] ack_recv op=hello subject=
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.trade/binance/BTCUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.bookdelta/binance/BTCUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.stats/binance/BTCUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.trade/binance/ETHUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.bookdelta/binance/ETHUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.stats/binance/ETHUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/ETHUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/ETHUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/ETHUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.trade/binance/SOLUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.bookdelta/binance/SOLUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.stats/binance/SOLUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/SOLUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/SOLUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/SOLUSDT/1m
+[md-lifecycle] first_data_after_connect_ms=45 kind=Range_Candle sid=6af6786668ce2458
+[soak] t_ms=260415 frame=20413 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=10 rc+0 mps=7.3 bps=8428 rtt=24 lag=3 last=12 pm=16299 pr=16299 pb=29364379 w[t=256 ob=0/0 st=64 hm=128 vp=19 c=21]
+[soak] t_ms=265432 frame=20714 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=0 cb=0 drop=0 d+0 p=0 rc=10 rc+0 mps=50.0 bps=62663 rtt=24 lag=11 last=3 pm=16538 pr=16538 pb=29688327 w[t=256 ob=0/0 st=64 hm=128 vp=1 c=22]
+[soak] t_ms=270447 frame=21015 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=10 rc+0 mps=58.1 bps=98373 rtt=24 lag=7 last=53 pm=16781 pr=16781 pb=30068115 w[t=256 ob=0/0 st=64 hm=128 vp=1 c=22]
+[soak] t_ms=275464 frame=21316 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=10 rc+0 mps=48.6 bps=68131 rtt=24 lag=1 last=40 pm=17003 pr=17003 pb=30416970 w[t=256 ob=0/0 st=64 hm=128 vp=1 c=22]
+[soak] t_ms=280465 frame=21616 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=10 rc+0 mps=66.7 bps=106526 rtt=24 lag=8 last=19 pm=17234 pr=17234 pb=30799014 w[t=256 ob=0/0 st=64 hm=128 vp=1 c=22]
+[soak] t_ms=285481 frame=21917 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=10 rc+0 mps=40.4 bps=74981 rtt=9 lag=11 last=28 pm=17447 pr=17447 pb=31149904 w[t=256 ob=0/0 st=64 hm=128 vp=1 c=22]
+[soak] t_ms=290497 frame=22218 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=10 rc+0 mps=53.1 bps=94047 rtt=9 lag=19 last=11 pm=17662 pr=17662 pb=31507651 w[t=256 ob=0/0 st=64 hm=128 vp=1 c=22]
+[soak] t_ms=295498 frame=22518 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=10 rc+0 mps=109.8 bps=173193 rtt=9 lag=14 last=21 pm=17968 pr=17968 pb=32012506 w[t=256 ob=0/0 st=64 hm=128 vp=1 c=22]
+[soak] t_ms=300514 frame=22819 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=1 rc=10 rc+0 mps=50.1 bps=72123 rtt=9 lag=11 last=14 pm=18207 pr=18207 pb=32387080 w[t=256 ob=0/0 st=64 hm=128 vp=1 c=22]
+[soak] t_ms=305515 frame=23119 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=10 rc+0 mps=47.6 bps=76836 rtt=10 lag=4 last=12 pm=18443 pr=18443 pb=32762099 w[t=256 ob=0/0 st=64 hm=128 vp=2 c=22]
+[soak] t_ms=310515 frame=23419 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=10 rc+0 mps=76.9 bps=142466 rtt=10 lag=3 last=31 pm=18703 pr=18703 pb=33201906 w[t=256 ob=0/0 st=64 hm=128 vp=3 c=22]
+[soak] t_ms=315531 frame=23720 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=10 rc+0 mps=88.5 bps=146502 rtt=10 lag=4 last=17 pm=19048 pr=19048 pb=33822003 w[t=256 ob=0/0 st=64 hm=128 vp=4 c=22]
+[soak] t_ms=320532 frame=24020 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=0 rc=10 rc+0 mps=193.4 bps=281239 rtt=10 lag=6 last=34 pm=19599 pr=19599 pb=34651255 w[t=256 ob=0/0 st=64 hm=128 vp=4 c=23]
+[soak] t_ms=325547 frame=24321 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=10 rc+0 mps=48.9 bps=82465 rtt=10 lag=3 last=25 pm=20075 pr=20075 pb=35484304 w[t=256 ob=0/0 st=64 hm=128 vp=6 c=23]
+[soak] t_ms=330547 frame=24621 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=10 rc+0 mps=88.4 bps=199093 rtt=10 lag=8 last=3 pm=20590 pr=20590 pb=36320918 w[t=256 ob=0/0 st=64 hm=128 vp=3 c=23]
+[soak] t_ms=335548 frame=24921 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=0 rc=10 rc+0 mps=69.7 bps=150865 rtt=10 lag=2 last=32 pm=20972 pr=20972 pb=37045851 w[t=256 ob=0/0 st=64 hm=128 vp=8 c=23]
+[soak] t_ms=340548 frame=25221 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=10 rc+0 mps=69.7 bps=121615 rtt=10 lag=3 last=57 pm=21405 pr=21405 pb=37871122 w[t=256 ob=0/0 st=64 hm=128 vp=11 c=23]
+[soak] t_ms=345548 frame=25521 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=0 rc=10 rc+0 mps=73.2 bps=90171 rtt=10 lag=12 last=47 pm=22012 pr=22012 pb=38880669 w[t=256 ob=0/0 st=64 hm=128 vp=14 c=23]
+[soak] t_ms=350564 frame=25822 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=10 rc+0 mps=37.3 bps=58004 rtt=10 lag=2 last=72 pm=22225 pr=22225 pb=39304528 w[t=256 ob=0/0 st=64 hm=128 vp=21 c=23]
+[soak] t_ms=355564 frame=26122 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=10 rc+0 mps=41.5 bps=79867 rtt=10 lag=2 last=24 pm=22598 pr=22598 pb=39999357 w[t=256 ob=0/0 st=64 hm=128 vp=25 c=23]
+[soak] t_ms=360565 frame=26422 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=0 cb=0 drop=0 d+0 p=0 rc=10 rc+0 mps=48.6 bps=110646 rtt=10 lag=1 last=11 pm=22819 pr=22819 pb=40436377 w[t=256 ob=0/0 st=64 hm=128 vp=25 c=23]
+[marketdata] Read error: Failed_Header_Read
+[md-lifecycle] disconnect reason=Failed_Header_Read
+[marketdata] Reconnecting in 410ms (attempt 1)
+[marketdata] Reconnect failed (err=Handshake_Error)
+[marketdata] Reconnecting in 809ms (attempt 2)
+[marketdata] Reconnect failed (err=Dial_Error)
+[marketdata] Reconnecting in 1838ms (attempt 3)
+[soak] t_ms=365581 frame=26723 conn=Reconnecting health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=13 rc+1 mps=168.0 bps=236004 rtt=10 lag=1 last=2517 pm=23049 pr=23049 pb=40792651 w[t=256 ob=0/0 st=64 hm=128 vp=27 c=23]
+[marketdata] Reconnected to ws://127.0.0.1:8080/ws
+[md-lifecycle] connect url=ws://127.0.0.1:8080/ws
+[md-lifecycle] hello_sent rid=h182
+[md-lifecycle] subscribe_sent subject=marketdata.trade/binance/BTCUSDT/raw rid=r183
+[md-lifecycle] subscribe_sent subject=marketdata.bookdelta/binance/BTCUSDT/raw rid=r184
+[md-lifecycle] subscribe_sent subject=aggregation.stats/binance/BTCUSDT/raw rid=r185
+[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1m rid=r186
+[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m rid=r187
+[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/1m rid=r188
+[md-lifecycle] subscribe_sent subject=marketdata.trade/binance/ETHUSDT/raw rid=r189
+[md-lifecycle] subscribe_sent subject=marketdata.bookdelta/binance/ETHUSDT/raw rid=r190
+[md-lifecycle] subscribe_sent subject=aggregation.stats/binance/ETHUSDT/raw rid=r191
+[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/ETHUSDT/1m rid=r192
+[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/ETHUSDT/1m rid=r193
+[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/ETHUSDT/1m rid=r194
+[md-lifecycle] subscribe_sent subject=marketdata.trade/binance/SOLUSDT/raw rid=r195
+[md-lifecycle] subscribe_sent subject=marketdata.bookdelta/binance/SOLUSDT/raw rid=r196
+[md-lifecycle] subscribe_sent subject=aggregation.stats/binance/SOLUSDT/raw rid=r197
+[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/SOLUSDT/1m rid=r198
+[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/SOLUSDT/1m rid=r199
+[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/SOLUSDT/1m rid=r200
+[md-lifecycle] hello_ok proto_ver=1 server_id=9d198d70-aefd-4728-ba5b-f681b2b7f36c topics=7 venues=5 symbols=0
+[md-lifecycle] ack_recv op=hello subject=
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.trade/binance/BTCUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.bookdelta/binance/BTCUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.stats/binance/BTCUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.trade/binance/ETHUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.bookdelta/binance/ETHUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.stats/binance/ETHUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/ETHUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/ETHUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/ETHUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.trade/binance/SOLUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.bookdelta/binance/SOLUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.stats/binance/SOLUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/SOLUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/SOLUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/SOLUSDT/1m
+[md-lifecycle] first_data_after_connect_ms=18 kind=Heatmap sid=70c0ed14fa71e3e2
+[soak] t_ms=370581 frame=27023 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=11 qmax=1 cb=0 drop=0 d+0 p=0 rc=13 rc+0 mps=39.3 bps=98958 rtt=7 lag=1 last=0 pm=23373 pr=23373 pb=41438572 w[t=256 ob=0/0 st=64 hm=128 vp=28 c=23]
+[soak] t_ms=375582 frame=27323 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=1 cb=0 drop=0 d+0 p=1 rc=13 rc+0 mps=88.9 bps=180088 rtt=7 lag=5 last=9 pm=24755 pr=24755 pb=43081508 w[t=256 ob=0/0 st=64 hm=128 vp=28 c=23]
+[soak] t_ms=380597 frame=27624 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=9 qmax=1 cb=0 drop=0 d+0 p=0 rc=13 rc+0 mps=150.8 bps=323959 rtt=7 lag=1 last=2 pm=25803 pr=25803 pb=44587111 w[t=256 ob=0/0 st=64 hm=128 vp=31 c=24]
+[soak] t_ms=385598 frame=27924 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=0 cb=0 drop=0 d+0 p=0 rc=13 rc+0 mps=116.8 bps=162825 rtt=7 lag=0 last=15 pm=26481 pr=26481 pb=45761704 w[t=256 ob=0/0 st=64 hm=128 vp=34 c=24]
+[soak] t_ms=390614 frame=28225 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=13 rc+0 mps=123.0 bps=208782 rtt=7 lag=9 last=12 pm=27034 pr=27034 pb=46898864 w[t=256 ob=0/0 st=64 hm=128 vp=1 c=24]
+[soak] t_ms=395615 frame=28525 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=13 rc+0 mps=69.0 bps=179648 rtt=7 lag=1 last=26 pm=27393 pr=27393 pb=47596051 w[t=256 ob=0/0 st=64 hm=128 vp=13 c=24]
+[soak] t_ms=400615 frame=28825 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=2 rc=13 rc+0 mps=49.0 bps=122541 rtt=7 lag=4 last=2 pm=27771 pr=27771 pb=48352124 w[t=256 ob=0/0 st=64 hm=128 vp=13 c=24]
+[soak] t_ms=405615 frame=29125 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=13 rc+0 mps=53.6 bps=108774 rtt=7 lag=3 last=7 pm=28150 pr=28150 pb=49002019 w[t=256 ob=0/0 st=64 hm=128 vp=20 c=24]
+[soak] t_ms=410632 frame=29426 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=0 cb=0 drop=0 d+0 p=1 rc=13 rc+0 mps=47.5 bps=108010 rtt=7 lag=2 last=8 pm=28439 pr=28439 pb=49567568 w[t=256 ob=0/0 st=64 hm=128 vp=24 c=24]
+[soak] t_ms=415647 frame=29727 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=13 rc+0 mps=47.8 bps=90152 rtt=7 lag=1 last=32 pm=28723 pr=28723 pb=50071073 w[t=256 ob=0/0 st=64 hm=128 vp=26 c=24]
+[soak] t_ms=420647 frame=30027 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=13 rc+0 mps=402.9 bps=467012 rtt=7 lag=2 last=10 pm=29412 pr=29412 pb=51151110 w[t=256 ob=0/0 st=64 hm=128 vp=27 c=24]
+[soak] t_ms=425648 frame=30327 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=0 rc=13 rc+0 mps=493.4 bps=511586 rtt=7 lag=1 last=21 pm=30278 pr=30278 pb=52345338 w[t=256 ob=0/0 st=64 hm=128 vp=29 c=24]
+[soak] t_ms=430665 frame=30628 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=13 rc+0 mps=48.8 bps=100572 rtt=1 lag=4 last=39 pm=30689 pr=30689 pb=53159263 w[t=256 ob=0/0 st=64 hm=128 vp=30 c=24]
+[soak] t_ms=435682 frame=30929 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=13 rc+0 mps=72.7 bps=158581 rtt=1 lag=2 last=26 pm=31002 pr=31002 pb=53773552 w[t=256 ob=0/0 st=64 hm=128 vp=31 c=24]
+[soak] t_ms=440698 frame=31230 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=13 rc+0 mps=58.0 bps=133622 rtt=1 lag=1 last=19 pm=31418 pr=31418 pb=54621115 w[t=256 ob=0/0 st=64 hm=128 vp=32 c=25]
+[soak] t_ms=445714 frame=31531 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=13 rc+0 mps=42.9 bps=94298 rtt=1 lag=1 last=5 pm=31673 pr=31673 pb=55190579 w[t=256 ob=0/0 st=64 hm=128 vp=34 c=25]
+[soak] t_ms=450715 frame=31831 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=1 rc=13 rc+0 mps=156.9 bps=328412 rtt=1 lag=5 last=10 pm=32064 pr=32064 pb=55979158 w[t=256 ob=0/0 st=64 hm=128 vp=1 c=25]
+[soak] t_ms=455732 frame=32132 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=13 rc+0 mps=44.2 bps=131578 rtt=1 lag=3 last=11 pm=32481 pr=32481 pb=56836167 w[t=256 ob=0/0 st=64 hm=128 vp=2 c=25]
+[soak] t_ms=460747 frame=32433 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=13 rc+0 mps=52.0 bps=113228 rtt=1 lag=1 last=4 pm=32804 pr=32804 pb=57484743 w[t=256 ob=0/0 st=64 hm=128 vp=3 c=25]
+[soak] t_ms=465747 frame=32733 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=13 rc+0 mps=56.0 bps=90785 rtt=1 lag=2 last=20 pm=33182 pr=33182 pb=58153336 w[t=256 ob=0/0 st=64 hm=128 vp=6 c=25]
+[soak] t_ms=470764 frame=33034 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=13 rc+0 mps=44.8 bps=82012 rtt=1 lag=2 last=25 pm=33476 pr=33476 pb=58708834 w[t=256 ob=0/0 st=64 hm=128 vp=7 c=25]
+[soak] t_ms=475765 frame=33334 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=13 rc+0 mps=79.5 bps=127802 rtt=1 lag=1 last=21 pm=33819 pr=33819 pb=59252943 w[t=256 ob=0/0 st=64 hm=128 vp=8 c=25]
+[soak] t_ms=480781 frame=33635 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=13 rc+0 mps=45.9 bps=85261 rtt=1 lag=1 last=33 pm=34049 pr=34049 pb=59637371 w[t=256 ob=0/0 st=64 hm=128 vp=8 c=25]
+[marketdata] Read error: Failed_Header_Read
+[md-lifecycle] disconnect reason=Failed_Header_Read
+[marketdata] Reconnecting in 427ms (attempt 1)
+[marketdata] Reconnect failed (err=Handshake_Error)
+[marketdata] Reconnecting in 753ms (attempt 2)
+[marketdata] Reconnect failed (err=Dial_Error)
+[marketdata] Reconnecting in 1891ms (attempt 3)
+[soak] t_ms=485797 frame=33936 conn=Reconnecting health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=16 rc+3 mps=63.4 bps=154017 rtt=1 lag=2 last=1274 pm=34329 pr=34329 pb=60228693 w[t=256 ob=0/0 st=64 hm=128 vp=8 c=25]
+[marketdata] Reconnected to ws://127.0.0.1:8080/ws
+[md-lifecycle] connect url=ws://127.0.0.1:8080/ws
+[md-lifecycle] hello_sent rid=h231
+[md-lifecycle] subscribe_sent subject=marketdata.trade/binance/BTCUSDT/raw rid=r232
+[md-lifecycle] subscribe_sent subject=marketdata.bookdelta/binance/BTCUSDT/raw rid=r233
+[md-lifecycle] subscribe_sent subject=aggregation.stats/binance/BTCUSDT/raw rid=r234
+[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1m rid=r235
+[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m rid=r236
+[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/1m rid=r237
+[md-lifecycle] subscribe_sent subject=marketdata.trade/binance/ETHUSDT/raw rid=r238
+[md-lifecycle] subscribe_sent subject=marketdata.bookdelta/binance/ETHUSDT/raw rid=r239
+[md-lifecycle] subscribe_sent subject=aggregation.stats/binance/ETHUSDT/raw rid=r240
+[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/ETHUSDT/1m rid=r241
+[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/ETHUSDT/1m rid=r242
+[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/ETHUSDT/1m rid=r243
+[md-lifecycle] subscribe_sent subject=marketdata.trade/binance/SOLUSDT/raw rid=r244
+[md-lifecycle] subscribe_sent subject=marketdata.bookdelta/binance/SOLUSDT/raw rid=r245
+[md-lifecycle] subscribe_sent subject=aggregation.stats/binance/SOLUSDT/raw rid=r246
+[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/SOLUSDT/1m rid=r247
+[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/SOLUSDT/1m rid=r248
+[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/SOLUSDT/1m rid=r249
+[md-lifecycle] hello_ok proto_ver=1 server_id=a0cce278-a17e-4909-bb29-58503181dc69 topics=7 venues=5 symbols=0
+[md-lifecycle] ack_recv op=hello subject=
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.trade/binance/BTCUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.bookdelta/binance/BTCUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.stats/binance/BTCUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.trade/binance/ETHUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.bookdelta/binance/ETHUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.stats/binance/ETHUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/ETHUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/ETHUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/ETHUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.trade/binance/SOLUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.bookdelta/binance/SOLUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.stats/binance/SOLUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/SOLUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/SOLUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/SOLUSDT/1m
+[md-lifecycle] first_data_after_connect_ms=18 kind=Range_Candle sid=6af6786668ce2458
+[soak] t_ms=490798 frame=34236 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=16 rc+0 mps=47.1 bps=108501 rtt=14 lag=4 last=109 pm=34525 pr=34525 pb=60615946 w[t=256 ob=0/0 st=64 hm=128 vp=8 c=25]
+[soak] t_ms=495814 frame=34537 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=16 rc+0 mps=68.2 bps=115959 rtt=14 lag=1 last=17 pm=34812 pr=34812 pb=61161898 w[t=256 ob=0/0 st=64 hm=128 vp=9 c=25]
+[soak] t_ms=500815 frame=34837 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=5 qmax=1 cb=0 drop=0 d+0 p=1 rc=16 rc+0 mps=126.4 bps=185817 rtt=14 lag=2 last=8 pm=35328 pr=35328 pb=62200299 w[t=256 ob=0/0 st=64 hm=128 vp=11 c=26]
+[soak] t_ms=505831 frame=35138 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=0 rc=16 rc+0 mps=93.9 bps=239247 rtt=14 lag=2 last=20 pm=35737 pr=35737 pb=63229248 w[t=256 ob=0/0 st=64 hm=128 vp=12 c=26]
+[soak] t_ms=510848 frame=35439 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=16 rc+0 mps=120.0 bps=257188 rtt=14 lag=2 last=5 pm=36351 pr=36351 pb=64368816 w[t=256 ob=0/0 st=64 hm=128 vp=5 c=26]
+[soak] t_ms=515865 frame=35740 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=16 rc+0 mps=43.2 bps=69409 rtt=14 lag=2 last=16 pm=36589 pr=36589 pb=64780057 w[t=256 ob=0/0 st=64 hm=128 vp=10 c=26]
+[soak] t_ms=520865 frame=36040 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=1 rc=16 rc+0 mps=99.4 bps=210489 rtt=14 lag=10 last=13 pm=36933 pr=36933 pb=65538089 w[t=256 ob=0/0 st=64 hm=128 vp=14 c=26]
+[soak] t_ms=525881 frame=36341 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=6 qmax=0 cb=0 drop=0 d+0 p=2 rc=16 rc+0 mps=61.1 bps=98998 rtt=14 lag=0 last=1 pm=37557 pr=37557 pb=66762524 w[t=256 ob=0/0 st=64 hm=128 vp=15 c=26]
+[soak] t_ms=530881 frame=36641 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=16 rc+0 mps=107.4 bps=216598 rtt=14 lag=1 last=36 pm=37969 pr=37969 pb=67493590 w[t=256 ob=0/0 st=64 hm=128 vp=17 c=26]
+[soak] t_ms=535882 frame=36941 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=0 rc=16 rc+0 mps=117.6 bps=248713 rtt=14 lag=2 last=29 pm=38247 pr=38247 pb=68084293 w[t=256 ob=0/0 st=64 hm=128 vp=24 c=26]
+[soak] t_ms=540898 frame=37242 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=12 qmax=1 cb=0 drop=0 d+0 p=0 rc=16 rc+0 mps=172.8 bps=271218 rtt=14 lag=1 last=1 pm=38978 pr=38978 pb=69100802 w[t=256 ob=0/0 st=64 hm=128 vp=24 c=26]
+[soak] t_ms=545914 frame=37543 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=3 qmax=0 cb=0 drop=0 d+0 p=0 rc=16 rc+0 mps=62.2 bps=162419 rtt=14 lag=0 last=3 pm=39719 pr=39719 pb=70563201 w[t=256 ob=0/0 st=64 hm=128 vp=24 c=26]
+[soak] t_ms=550914 frame=37843 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=10 qmax=0 cb=0 drop=0 d+0 p=0 rc=16 rc+0 mps=51.7 bps=153226 rtt=14 lag=1 last=0 pm=40070 pr=40070 pb=71349318 w[t=256 ob=0/0 st=64 hm=128 vp=24 c=26]
+[soak] t_ms=555915 frame=38143 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=0 rc=16 rc+0 mps=136.8 bps=259664 rtt=14 lag=3 last=37 pm=40621 pr=40621 pb=72349072 w[t=256 ob=0/0 st=64 hm=128 vp=26 c=26]
+[soak] t_ms=560931 frame=38444 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=16 rc+0 mps=80.6 bps=210157 rtt=14 lag=1 last=23 pm=41321 pr=41321 pb=73668629 w[t=256 ob=0/0 st=64 hm=128 vp=30 c=27]
+[soak] t_ms=565931 frame=38744 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=0 rc=16 rc+0 mps=192.8 bps=335481 rtt=14 lag=3 last=44 pm=41877 pr=41877 pb=74864343 w[t=256 ob=0/0 st=64 hm=128 vp=36 c=27]
+[soak] t_ms=570949 frame=39045 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=0 rc=16 rc+0 mps=85.8 bps=214964 rtt=14 lag=3 last=40 pm=42523 pr=42523 pb=76084370 w[t=256 ob=0/0 st=64 hm=128 vp=3 c=27]
+[soak] t_ms=575965 frame=39346 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=0 rc=16 rc+0 mps=141.2 bps=291444 rtt=14 lag=4 last=51 pm=43096 pr=43096 pb=77101967 w[t=256 ob=0/0 st=64 hm=128 vp=8 c=27]
+[soak] t_ms=580981 frame=39647 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=16 rc+0 mps=46.4 bps=106801 rtt=14 lag=5 last=3 pm=43535 pr=43535 pb=78007056 w[t=256 ob=0/0 st=64 hm=128 vp=18 c=27]
+[soak] t_ms=585981 frame=39947 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=2 rc=16 rc+0 mps=58.4 bps=127316 rtt=14 lag=5 last=3 pm=44061 pr=44061 pb=79069773 w[t=256 ob=0/0 st=64 hm=128 vp=20 c=27]
+[soak] t_ms=590997 frame=40248 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=13 qmax=1 cb=0 drop=0 d+0 p=0 rc=16 rc+0 mps=584.8 bps=696070 rtt=14 lag=3 last=1 pm=45172 pr=45172 pb=80527418 w[t=256 ob=0/0 st=64 hm=128 vp=22 c=27]
+[soak] t_ms=595998 frame=40548 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=16 rc+0 mps=55.8 bps=134889 rtt=14 lag=4 last=4 pm=45948 pr=45948 pb=81992850 w[t=256 ob=0/0 st=64 hm=128 vp=24 c=27]
+[soak] t_ms=601014 frame=40849 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=0 cb=0 drop=0 d+0 p=0 rc=16 rc+0 mps=90.5 bps=161630 rtt=14 lag=3 last=1 pm=46513 pr=46513 pb=82950291 w[t=256 ob=0/0 st=64 hm=128 vp=33 c=27]
+[soak] t_ms=606014 frame=41149 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=0 rc=16 rc+0 mps=85.7 bps=319324 rtt=14 lag=1 last=26 pm=47037 pr=47037 pb=83954848 w[t=256 ob=0/0 st=64 hm=128 vp=36 c=27]
+[marketdata] Read error: Failed_Header_Read
+[md-lifecycle] disconnect reason=Failed_Header_Read
+[marketdata] Reconnecting in 474ms (attempt 1)
+[marketdata] Reconnect failed (err=Handshake_Error)
+[marketdata] Reconnecting in 959ms (attempt 2)
+[marketdata] Reconnected to ws://127.0.0.1:8080/ws
+[md-lifecycle] connect url=ws://127.0.0.1:8080/ws
+[md-lifecycle] hello_sent rid=h280
+[md-lifecycle] subscribe_sent subject=marketdata.trade/binance/BTCUSDT/raw rid=r281
+[md-lifecycle] subscribe_sent subject=marketdata.bookdelta/binance/BTCUSDT/raw rid=r282
+[md-lifecycle] subscribe_sent subject=aggregation.stats/binance/BTCUSDT/raw rid=r283
+[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1m rid=r284
+[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m rid=r285
+[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/1m rid=r286
+[md-lifecycle] subscribe_sent subject=marketdata.trade/binance/ETHUSDT/raw rid=r287
+[md-lifecycle] subscribe_sent subject=marketdata.bookdelta/binance/ETHUSDT/raw rid=r288
+[md-lifecycle] subscribe_sent subject=aggregation.stats/binance/ETHUSDT/raw rid=r289
+[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/ETHUSDT/1m rid=r290
+[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/ETHUSDT/1m rid=r291
+[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/ETHUSDT/1m rid=r292
+[md-lifecycle] subscribe_sent subject=marketdata.trade/binance/SOLUSDT/raw rid=r293
+[md-lifecycle] subscribe_sent subject=marketdata.bookdelta/binance/SOLUSDT/raw rid=r294
+[md-lifecycle] subscribe_sent subject=aggregation.stats/binance/SOLUSDT/raw rid=r295
+[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/SOLUSDT/1m rid=r296
+[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/SOLUSDT/1m rid=r297
+[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/SOLUSDT/1m rid=r298
+[md-lifecycle] hello_ok proto_ver=1 server_id=fbec16e1-29be-4943-9fa5-172ed3d31ebd topics=7 venues=5 symbols=0
+[md-lifecycle] ack_recv op=hello subject=
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.trade/binance/BTCUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.bookdelta/binance/BTCUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.stats/binance/BTCUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.trade/binance/ETHUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.bookdelta/binance/ETHUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.stats/binance/ETHUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/ETHUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/ETHUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/ETHUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.trade/binance/SOLUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.bookdelta/binance/SOLUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.stats/binance/SOLUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/SOLUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/SOLUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/SOLUSDT/1m
+[md-lifecycle] first_data_after_connect_ms=25 kind=Range_Candle sid=6af6786668ce2458
+[soak] t_ms=611032 frame=41450 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=18 rc+0 mps=86.9 bps=170901 rtt=14 lag=1 last=40 pm=47388 pr=47388 pb=84625106 w[t=256 ob=0/0 st=64 hm=128 vp=38 c=27]
+[soak] t_ms=616048 frame=41751 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=18 rc+0 mps=101.0 bps=152729 rtt=14 lag=10 last=21 pm=48001 pr=48001 pb=85685959 w[t=256 ob=0/0 st=64 hm=128 vp=42 c=27]
+[soak] t_ms=621048 frame=42051 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=0 rc=18 rc+0 mps=167.0 bps=421177 rtt=14 lag=7 last=41 pm=48752 pr=48752 pb=87177960 w[t=256 ob=0/0 st=64 hm=128 vp=43 c=28]
+[soak] t_ms=626064 frame=42352 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=0 cb=0 drop=0 d+0 p=0 rc=18 rc+0 mps=257.3 bps=469292 rtt=14 lag=3 last=14 pm=49296 pr=49296 pb=88233796 w[t=256 ob=0/0 st=64 hm=128 vp=43 c=28]
+[soak] t_ms=631081 frame=42653 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=18 rc+0 mps=42.3 bps=88868 rtt=5 lag=1 last=53 pm=49666 pr=49666 pb=89099244 w[t=256 ob=0/0 st=64 hm=128 vp=3 c=28]
+[soak] t_ms=636097 frame=42954 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=8 qmax=0 cb=0 drop=0 d+0 p=1 rc=18 rc+0 mps=40.3 bps=81159 rtt=5 lag=0 last=4 pm=50041 pr=50041 pb=89704500 w[t=256 ob=0/0 st=64 hm=128 vp=10 c=28]
+[soak] t_ms=641098 frame=43254 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=18 rc+0 mps=48.6 bps=158544 rtt=5 lag=5 last=8 pm=50639 pr=50639 pb=90881424 w[t=256 ob=0/0 st=64 hm=128 vp=13 c=28]
+[soak] t_ms=646114 frame=43555 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=10 qmax=0 cb=0 drop=0 d+0 p=0 rc=18 rc+0 mps=47.8 bps=106157 rtt=5 lag=0 last=0 pm=51025 pr=51025 pb=91482702 w[t=256 ob=0/0 st=64 hm=128 vp=13 c=28]
+[soak] t_ms=651131 frame=43856 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=18 rc+0 mps=100.7 bps=154296 rtt=1 lag=0 last=92 pm=51396 pr=51396 pb=92226867 w[t=256 ob=0/0 st=64 hm=128 vp=20 c=28]
+[soak] t_ms=656132 frame=44156 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=0 cb=0 drop=0 d+0 p=1 rc=18 rc+0 mps=76.9 bps=127913 rtt=1 lag=0 last=15 pm=51778 pr=51778 pb=92987013 w[t=256 ob=0/0 st=64 hm=128 vp=21 c=28]
+[soak] t_ms=661148 frame=44457 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=18 rc+0 mps=40.9 bps=78380 rtt=1 lag=0 last=7 pm=52029 pr=52029 pb=93450907 w[t=256 ob=0/0 st=64 hm=128 vp=22 c=28]
+[soak] t_ms=666164 frame=44758 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=1 rc=18 rc+0 mps=135.0 bps=184250 rtt=1 lag=6 last=9 pm=52814 pr=52814 pb=94537317 w[t=256 ob=0/0 st=64 hm=128 vp=23 c=28]
+[soak] t_ms=671164 frame=45058 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=0 cb=0 drop=0 d+0 p=1 rc=18 rc+0 mps=72.0 bps=79840 rtt=1 lag=2 last=3 pm=53249 pr=53249 pb=95241514 w[t=256 ob=0/0 st=64 hm=128 vp=24 c=28]
+[soak] t_ms=676165 frame=45358 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=18 rc+0 mps=41.6 bps=91106 rtt=1 lag=0 last=17 pm=53661 pr=53661 pb=96052133 w[t=256 ob=0/0 st=64 hm=128 vp=27 c=28]
+[soak] t_ms=681165 frame=45658 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=5 qmax=0 cb=0 drop=0 d+0 p=0 rc=18 rc+0 mps=119.3 bps=154013 rtt=1 lag=1 last=6 pm=54000 pr=54000 pb=96665538 w[t=256 ob=0/0 st=64 hm=128 vp=28 c=29]
+[soak] t_ms=686182 frame=45959 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=0 cb=0 drop=0 d+0 p=1 rc=18 rc+0 mps=48.6 bps=104013 rtt=1 lag=0 last=11 pm=54400 pr=54400 pb=97602477 w[t=256 ob=0/0 st=64 hm=128 vp=30 c=29]
+[soak] t_ms=691198 frame=46260 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=18 rc+0 mps=73.9 bps=208346 rtt=1 lag=2 last=21 pm=54989 pr=54989 pb=98565252 w[t=256 ob=0/0 st=64 hm=128 vp=1 c=29]
+[soak] t_ms=696198 frame=46560 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=18 rc+0 mps=46.9 bps=62448 rtt=1 lag=3 last=11 pm=55335 pr=55335 pb=99182327 w[t=256 ob=0/0 st=64 hm=128 vp=8 c=29]
+[soak] t_ms=701198 frame=46860 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=10 qmax=0 cb=0 drop=0 d+0 p=1 rc=18 rc+0 mps=53.8 bps=78487 rtt=1 lag=1 last=4 pm=55718 pr=55718 pb=99780435 w[t=256 ob=0/0 st=64 hm=128 vp=12 c=29]
+[soak] t_ms=706198 frame=47160 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=18 rc+0 mps=43.8 bps=73952 rtt=1 lag=3 last=63 pm=56246 pr=56246 pb=100872442 w[t=256 ob=0/0 st=64 hm=128 vp=14 c=29]
+[soak] t_ms=711215 frame=47461 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=18 rc+0 mps=174.3 bps=228912 rtt=1 lag=6 last=17 pm=56627 pr=56627 pb=101485338 w[t=256 ob=0/0 st=64 hm=128 vp=18 c=29]
+[soak] t_ms=716232 frame=47762 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=18 rc+0 mps=47.6 bps=86733 rtt=1 lag=1 last=80 pm=56922 pr=56922 pb=101990173 w[t=256 ob=0/0 st=64 hm=128 vp=22 c=29]
+[soak] t_ms=721248 frame=48063 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=18 rc+0 mps=77.9 bps=144766 rtt=1 lag=2 last=7 pm=57248 pr=57248 pb=102545160 w[t=256 ob=0/0 st=64 hm=128 vp=24 c=29]
+[soak] t_ms=726265 frame=48364 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=18 rc+0 mps=43.1 bps=69825 rtt=1 lag=1 last=2 pm=57622 pr=57622 pb=103278614 w[t=256 ob=0/0 st=64 hm=128 vp=24 c=29]
+[marketdata] Read error: Failed_Header_Read
+[md-lifecycle] disconnect reason=Failed_Header_Read
+[marketdata] Reconnecting in 438ms (attempt 1)
+[marketdata] Reconnect failed (err=Handshake_Error)
+[marketdata] Reconnecting in 770ms (attempt 2)
+[marketdata] Reconnect failed (err=Dial_Error)
+[marketdata] Reconnecting in 1823ms (attempt 3)
+[marketdata] Reconnected to ws://127.0.0.1:8080/ws
+[md-lifecycle] connect url=ws://127.0.0.1:8080/ws
+[md-lifecycle] hello_sent rid=h329
+[md-lifecycle] subscribe_sent subject=marketdata.trade/binance/BTCUSDT/raw rid=r330
+[md-lifecycle] subscribe_sent subject=marketdata.bookdelta/binance/BTCUSDT/raw rid=r331
+[md-lifecycle] subscribe_sent subject=aggregation.stats/binance/BTCUSDT/raw rid=r332
+[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1m rid=r333
+[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m rid=r334
+[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/1m rid=r335
+[md-lifecycle] subscribe_sent subject=marketdata.trade/binance/ETHUSDT/raw rid=r336
+[md-lifecycle] subscribe_sent subject=marketdata.bookdelta/binance/ETHUSDT/raw rid=r337
+[md-lifecycle] subscribe_sent subject=aggregation.stats/binance/ETHUSDT/raw rid=r338
+[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/ETHUSDT/1m rid=r339
+[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/ETHUSDT/1m rid=r340
+[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/ETHUSDT/1m rid=r341
+[md-lifecycle] subscribe_sent subject=marketdata.trade/binance/SOLUSDT/raw rid=r342
+[md-lifecycle] subscribe_sent subject=marketdata.bookdelta/binance/SOLUSDT/raw rid=r343
+[md-lifecycle] subscribe_sent subject=aggregation.stats/binance/SOLUSDT/raw rid=r344
+[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/SOLUSDT/1m rid=r345
+[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/SOLUSDT/1m rid=r346
+[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/SOLUSDT/1m rid=r347
+[md-lifecycle] hello_ok proto_ver=1 server_id=c6277042-e549-4ae4-bc6e-bb3a7c36eaf4 topics=7 venues=5 symbols=0
+[md-lifecycle] ack_recv op=hello subject=
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.trade/binance/BTCUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.bookdelta/binance/BTCUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.stats/binance/BTCUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.trade/binance/ETHUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.bookdelta/binance/ETHUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.stats/binance/ETHUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/ETHUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/ETHUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/ETHUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.trade/binance/SOLUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=marketdata.bookdelta/binance/SOLUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.stats/binance/SOLUSDT/raw
+[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/SOLUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/SOLUSDT/1m
+[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/SOLUSDT/1m
+[md-lifecycle] first_data_after_connect_ms=24 kind=Range_Candle sid=6af6786668ce2458
+[soak] t_ms=731282 frame=48665 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=19.9 bps=29966 rtt=19 lag=4 last=24 pm=57856 pr=57856 pb=103626180 w[t=256 ob=0/0 st=64 hm=128 vp=24 c=29]
+[soak] t_ms=736298 frame=48966 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=136.7 bps=256052 rtt=19 lag=1 last=1 pm=58243 pr=58243 pb=104411719 w[t=256 ob=0/0 st=64 hm=128 vp=24 c=29]
+[soak] t_ms=741298 frame=49266 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=1 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=101.6 bps=216027 rtt=19 lag=1 last=4 pm=58598 pr=58598 pb=105237660 w[t=256 ob=0/0 st=64 hm=128 vp=24 c=30]
+[soak] t_ms=746299 frame=49566 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=74.6 bps=194268 rtt=19 lag=3 last=33 pm=59300 pr=59300 pb=106396265 w[t=256 ob=0/0 st=64 hm=128 vp=25 c=30]
+[soak] t_ms=751315 frame=49867 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=51.9 bps=100003 rtt=19 lag=0 last=12 pm=59661 pr=59661 pb=107210342 w[t=256 ob=0/0 st=64 hm=128 vp=2 c=30]
+[soak] t_ms=756332 frame=50168 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=60.0 bps=126887 rtt=19 lag=2 last=4 pm=59971 pr=59971 pb=107834044 w[t=256 ob=0/0 st=64 hm=128 vp=8 c=30]
+[soak] t_ms=761332 frame=50468 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=105.0 bps=166627 rtt=19 lag=2 last=2 pm=60431 pr=60431 pb=108629080 w[t=256 ob=0/0 st=64 hm=128 vp=9 c=30]
+[soak] t_ms=766332 frame=50766 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=83.7 bps=125829 rtt=19 lag=2 last=10 pm=60858 pr=60858 pb=109400344 w[t=256 ob=0/0 st=64 hm=128 vp=9 c=30]
+[soak] t_ms=771332 frame=51066 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=2 rc=21 rc+0 mps=47.7 bps=135444 rtt=2 lag=2 last=1 pm=61189 pr=61189 pb=109990813 w[t=256 ob=0/0 st=64 hm=128 vp=12 c=30]
+[soak] t_ms=776348 frame=51367 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=40.0 bps=72789 rtt=2 lag=1 last=95 pm=61407 pr=61407 pb=110357018 w[t=256 ob=0/0 st=64 hm=128 vp=14 c=30]
+[soak] t_ms=781365 frame=51668 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=65.2 bps=75349 rtt=2 lag=2 last=40 pm=61825 pr=61825 pb=110961974 w[t=256 ob=0/0 st=64 hm=128 vp=15 c=30]
+[soak] t_ms=786382 frame=51969 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=45.0 bps=93979 rtt=2 lag=1 last=40 pm=62153 pr=62153 pb=111541032 w[t=256 ob=0/0 st=64 hm=128 vp=15 c=30]
+[soak] t_ms=791383 frame=52269 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=41.9 bps=89600 rtt=2 lag=2 last=15 pm=62445 pr=62445 pb=112038126 w[t=256 ob=0/0 st=64 hm=128 vp=15 c=30]
+[soak] t_ms=796399 frame=52570 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=179.3 bps=351491 rtt=2 lag=6 last=9 pm=63005 pr=63005 pb=113048580 w[t=256 ob=0/0 st=64 hm=128 vp=15 c=30]
+[soak] t_ms=801414 frame=52868 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=40 qmax=1 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=111.4 bps=225488 rtt=2 lag=1 last=2 pm=63411 pr=63411 pb=113833655 w[t=256 ob=0/0 st=64 hm=128 vp=15 c=31]
+[soak] t_ms=806416 frame=53157 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=2 rc=21 rc+0 mps=32.0 bps=75758 rtt=2 lag=6 last=3 pm=64136 pr=64136 pb=114950917 w[t=256 ob=0/0 st=64 hm=128 vp=18 c=31]
+[soak] t_ms=811417 frame=53445 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=36.9 bps=51900 rtt=2 lag=1 last=3 pm=64391 pr=64391 pb=115444763 w[t=256 ob=0/0 st=64 hm=128 vp=5 c=31]
+[soak] t_ms=816433 frame=53725 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=5 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=38.0 bps=59163 rtt=2 lag=3 last=0 pm=64679 pr=64679 pb=115891367 w[t=256 ob=0/0 st=64 hm=128 vp=9 c=31]
+[soak] t_ms=821449 frame=53998 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=43.5 bps=103541 rtt=2 lag=8 last=21 pm=65066 pr=65066 pb=116592752 w[t=256 ob=0/0 st=64 hm=128 vp=9 c=31]
+[soak] t_ms=826466 frame=54270 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=41.6 bps=69944 rtt=2 lag=6 last=37 pm=65275 pr=65275 pb=116962918 w[t=256 ob=0/0 st=64 hm=128 vp=10 c=31]
+[soak] t_ms=831482 frame=54535 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=42.3 bps=78386 rtt=2 lag=5 last=22 pm=65901 pr=65901 pb=117909810 w[t=256 ob=0/0 st=64 hm=128 vp=14 c=31]
+[soak] t_ms=836483 frame=54800 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=263.2 bps=301546 rtt=2 lag=8 last=22 pm=66383 pr=66383 pb=118612265 w[t=256 ob=0/0 st=64 hm=128 vp=14 c=31]
+[soak] t_ms=841499 frame=55076 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=65.9 bps=137908 rtt=2 lag=14 last=67 pm=66705 pr=66705 pb=119186120 w[t=256 ob=0/0 st=64 hm=128 vp=17 c=31]
+[soak] t_ms=846499 frame=55333 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=45.7 bps=98567 rtt=2 lag=1 last=75 pm=67003 pr=67003 pb=119810876 w[t=256 ob=0/0 st=64 hm=128 vp=19 c=31]
+[soak] t_ms=851514 frame=55597 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=62.8 bps=102004 rtt=2 lag=0 last=20 pm=67247 pr=67247 pb=120274842 w[t=256 ob=0/0 st=64 hm=128 vp=21 c=31]
+[soak] t_ms=856514 frame=55848 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=79.1 bps=130942 rtt=2 lag=2 last=29 pm=67552 pr=67552 pb=120873616 w[t=256 ob=0/0 st=64 hm=128 vp=23 c=31]
+[soak] t_ms=861515 frame=56099 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=200.6 bps=340250 rtt=2 lag=4 last=57 pm=67996 pr=67996 pb=121693071 w[t=256 ob=0/0 st=64 hm=128 vp=23 c=32]
+[soak] t_ms=866516 frame=56391 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=49.0 bps=85356 rtt=2 lag=0 last=2 pm=68240 pr=68240 pb=122118199 w[t=256 ob=0/0 st=64 hm=128 vp=23 c=32]
+[soak] t_ms=871517 frame=56673 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=45.9 bps=79867 rtt=1 lag=1 last=21 pm=68593 pr=68593 pb=122746615 w[t=256 ob=0/0 st=64 hm=128 vp=4 c=32]
+[soak] t_ms=876517 frame=56931 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=27.6 bps=39972 rtt=1 lag=1 last=19 pm=68844 pr=68844 pb=123205181 w[t=256 ob=0/0 st=64 hm=128 vp=4 c=32]
+[soak] t_ms=881533 frame=57232 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=46.7 bps=75731 rtt=1 lag=1 last=5 pm=69066 pr=69066 pb=123599817 w[t=256 ob=0/0 st=64 hm=128 vp=8 c=32]
+[soak] t_ms=886533 frame=57532 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=85.8 bps=172320 rtt=1 lag=1 last=35 pm=69705 pr=69705 pb=124659844 w[t=256 ob=0/0 st=64 hm=128 vp=8 c=32]
+[soak] t_ms=891547 frame=57833 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=48.8 bps=91265 rtt=1 lag=2 last=73 pm=70051 pr=70051 pb=125345173 w[t=256 ob=0/0 st=64 hm=128 vp=8 c=32]
+[soak] t_ms=896548 frame=58133 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=59.7 bps=149660 rtt=1 lag=3 last=62 pm=70362 pr=70362 pb=125974867 w[t=256 ob=0/0 st=64 hm=128 vp=11 c=32]
+[soak] t_ms=901565 frame=58434 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=65.6 bps=126548 rtt=1 lag=3 last=56 pm=70933 pr=70933 pb=126856616 w[t=256 ob=0/0 st=64 hm=128 vp=15 c=32]
+[soak] t_ms=906582 frame=58735 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=50.8 bps=71835 rtt=1 lag=3 last=12 pm=71223 pr=71223 pb=127381943 w[t=256 ob=0/0 st=64 hm=128 vp=16 c=32]
+[soak] t_ms=911598 frame=59036 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=46.2 bps=80002 rtt=1 lag=8 last=19 pm=71703 pr=71703 pb=128233035 w[t=256 ob=0/0 st=64 hm=128 vp=18 c=32]
+[soak] t_ms=916615 frame=59337 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=43.1 bps=78495 rtt=1 lag=4 last=17 pm=71939 pr=71939 pb=128611436 w[t=256 ob=0/0 st=64 hm=128 vp=18 c=32]
+[soak] t_ms=921632 frame=59637 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=114.0 bps=221101 rtt=1 lag=4 last=24 pm=72447 pr=72447 pb=129647021 w[t=256 ob=0/0 st=64 hm=128 vp=19 c=33]
+[soak] t_ms=926632 frame=59915 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=125.2 bps=147752 rtt=1 lag=4 last=12 pm=73052 pr=73052 pb=130555325 w[t=256 ob=0/0 st=64 hm=128 vp=19 c=33]
+[soak] t_ms=931647 frame=60165 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=2 rc=21 rc+0 mps=55.4 bps=113857 rtt=13 lag=1 last=10 pm=73662 pr=73662 pb=131538612 w[t=256 ob=0/0 st=64 hm=128 vp=2 c=33]
+[soak] t_ms=936647 frame=60465 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=48.7 bps=82155 rtt=13 lag=1 last=7 pm=73890 pr=73890 pb=131869206 w[t=256 ob=0/0 st=64 hm=128 vp=8 c=33]
+[soak] t_ms=941648 frame=60765 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=180.5 bps=275460 rtt=13 lag=1 last=27 pm=74330 pr=74330 pb=132642301 w[t=256 ob=0/0 st=64 hm=128 vp=9 c=33]
+[soak] t_ms=946665 frame=61066 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=51.4 bps=98693 rtt=13 lag=6 last=10 pm=74592 pr=74592 pb=133156030 w[t=256 ob=0/0 st=64 hm=128 vp=9 c=33]
+[soak] t_ms=951682 frame=61367 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=50.2 bps=87434 rtt=13 lag=1 last=31 pm=74912 pr=74912 pb=133709524 w[t=256 ob=0/0 st=64 hm=128 vp=12 c=33]
+[soak] t_ms=956698 frame=61668 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=54.8 bps=90059 rtt=13 lag=3 last=15 pm=75179 pr=75179 pb=134172869 w[t=256 ob=0/0 st=64 hm=128 vp=13 c=33]
+[soak] t_ms=961715 frame=61969 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=1 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=98.1 bps=155247 rtt=13 lag=0 last=2 pm=75568 pr=75568 pb=134830412 w[t=256 ob=0/0 st=64 hm=128 vp=14 c=33]
+[soak] t_ms=966731 frame=62270 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=46.2 bps=83394 rtt=13 lag=1 last=4 pm=75843 pr=75843 pb=135310702 w[t=256 ob=0/0 st=64 hm=128 vp=14 c=33]
+[soak] t_ms=971748 frame=62571 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=40.7 bps=78498 rtt=13 lag=1 last=12 pm=76099 pr=76099 pb=135771602 w[t=256 ob=0/0 st=64 hm=128 vp=16 c=33]
+[soak] t_ms=976764 frame=62872 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=55.3 bps=122683 rtt=13 lag=2 last=26 pm=76503 pr=76503 pb=136502375 w[t=256 ob=0/0 st=64 hm=128 vp=16 c=33]
+[soak] t_ms=981765 frame=63172 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=111.3 bps=233822 rtt=13 lag=2 last=15 pm=76994 pr=76994 pb=137515294 w[t=256 ob=0/0 st=64 hm=128 vp=16 c=34]
+[soak] t_ms=986781 frame=63473 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=48.7 bps=92263 rtt=13 lag=2 last=20 pm=77274 pr=77274 pb=138047639 w[t=256 ob=0/0 st=64 hm=128 vp=16 c=34]
+[soak] t_ms=991782 frame=63773 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=5 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=46.8 bps=74704 rtt=13 lag=1 last=9 pm=77875 pr=77875 pb=139062597 w[t=256 ob=0/0 st=64 hm=128 vp=4 c=34]
+[soak] t_ms=996798 frame=64074 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=114.5 bps=217045 rtt=13 lag=3 last=18 pm=78234 pr=78234 pb=139689289 w[t=256 ob=0/0 st=64 hm=128 vp=5 c=34]
+[soak] t_ms=1001798 frame=64374 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=1 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=101.0 bps=160651 rtt=13 lag=4 last=3 pm=78657 pr=78657 pb=140437150 w[t=256 ob=0/0 st=64 hm=128 vp=10 c=34]
+[soak] t_ms=1006798 frame=64674 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=68.9 bps=138699 rtt=13 lag=1 last=2 pm=78991 pr=78991 pb=141080299 w[t=256 ob=0/0 st=64 hm=128 vp=11 c=34]
+[soak] t_ms=1011814 frame=64975 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=5 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=83.0 bps=114741 rtt=13 lag=1 last=9 pm=79280 pr=79280 pb=141508061 w[t=256 ob=0/0 st=64 hm=128 vp=11 c=34]
+[soak] t_ms=1016815 frame=65275 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=16 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=77.1 bps=100510 rtt=13 lag=0 last=1 pm=79733 pr=79733 pb=142326903 w[t=256 ob=0/0 st=64 hm=128 vp=13 c=34]
+[soak] t_ms=1021831 frame=65576 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=45.7 bps=101854 rtt=13 lag=3 last=10 pm=80114 pr=80114 pb=143151276 w[t=256 ob=0/0 st=64 hm=128 vp=13 c=34]
+[soak] t_ms=1026832 frame=65876 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=50.1 bps=94519 rtt=13 lag=2 last=6 pm=80408 pr=80408 pb=143683993 w[t=256 ob=0/0 st=64 hm=128 vp=16 c=34]
+[soak] t_ms=1031847 frame=66177 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=37.1 bps=75020 rtt=13 lag=2 last=18 pm=80683 pr=80683 pb=144225607 w[t=256 ob=0/0 st=64 hm=128 vp=21 c=34]
+[soak] t_ms=1036848 frame=66477 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=56.6 bps=96546 rtt=13 lag=3 last=15 pm=80964 pr=80964 pb=144755124 w[t=256 ob=0/0 st=64 hm=128 vp=23 c=34]
+[soak] t_ms=1041864 frame=66778 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=45.6 bps=105385 rtt=13 lag=0 last=16 pm=81180 pr=81180 pb=145204688 w[t=256 ob=0/0 st=64 hm=128 vp=23 c=35]
+[soak] t_ms=1046881 frame=67079 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=84.9 bps=221901 rtt=13 lag=3 last=25 pm=81855 pr=81855 pb=146710056 w[t=256 ob=0/0 st=64 hm=128 vp=23 c=35]
+[soak] t_ms=1051881 frame=67379 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=6 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=62.0 bps=103930 rtt=1 lag=0 last=1 pm=82324 pr=82324 pb=147571007 w[t=256 ob=0/0 st=64 hm=128 vp=1 c=35]
+[soak] t_ms=1056898 frame=67680 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=41.5 bps=60746 rtt=1 lag=1 last=16 pm=82690 pr=82690 pb=148209679 w[t=256 ob=0/0 st=64 hm=128 vp=9 c=35]
+[soak] t_ms=1061898 frame=67980 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=147.9 bps=204202 rtt=1 lag=1 last=9 pm=83102 pr=83102 pb=148902854 w[t=256 ob=0/0 st=64 hm=128 vp=13 c=35]
+[soak] t_ms=1066915 frame=68281 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=39.1 bps=74844 rtt=1 lag=1 last=54 pm=83366 pr=83366 pb=149472826 w[t=256 ob=0/0 st=64 hm=128 vp=16 c=35]
+[soak] t_ms=1071931 frame=68582 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=44.5 bps=87212 rtt=1 lag=1 last=51 pm=83715 pr=83715 pb=150141421 w[t=256 ob=0/0 st=64 hm=128 vp=16 c=35]
+[soak] t_ms=1076931 frame=68882 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=119.9 bps=197465 rtt=1 lag=1 last=46 pm=84013 pr=84013 pb=150671431 w[t=256 ob=0/0 st=64 hm=128 vp=16 c=35]
+[soak] t_ms=1081947 frame=69183 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=44.3 bps=74386 rtt=1 lag=1 last=2 pm=84294 pr=84294 pb=151185508 w[t=256 ob=0/0 st=64 hm=128 vp=18 c=35]
+[soak] t_ms=1086948 frame=69483 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=55.0 bps=80939 rtt=1 lag=1 last=8 pm=84541 pr=84541 pb=151609458 w[t=256 ob=0/0 st=64 hm=128 vp=20 c=35]
+[soak] t_ms=1091964 frame=69784 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=49.9 bps=94041 rtt=1 lag=0 last=10 pm=84949 pr=84949 pb=152354725 w[t=256 ob=0/0 st=64 hm=128 vp=21 c=35]
+[soak] t_ms=1096964 frame=70084 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=50.0 bps=98498 rtt=1 lag=1 last=4 pm=85169 pr=85169 pb=152768518 w[t=256 ob=0/0 st=64 hm=128 vp=21 c=35]
+[soak] t_ms=1101965 frame=70384 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=46.0 bps=110252 rtt=1 lag=5 last=48 pm=85484 pr=85484 pb=153464600 w[t=256 ob=0/0 st=64 hm=128 vp=23 c=36]
+[soak] t_ms=1106965 frame=70684 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=121.4 bps=265400 rtt=1 lag=0 last=10 pm=85996 pr=85996 pb=154487479 w[t=256 ob=0/0 st=64 hm=128 vp=23 c=36]
+[soak] t_ms=1111965 frame=70984 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=85.8 bps=148785 rtt=1 lag=1 last=12 pm=86385 pr=86385 pb=155209444 w[t=256 ob=0/0 st=64 hm=128 vp=3 c=36]
+[soak] t_ms=1116982 frame=71285 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=68.8 bps=129138 rtt=1 lag=2 last=25 pm=86692 pr=86692 pb=155703642 w[t=256 ob=0/0 st=64 hm=128 vp=10 c=36]
+[soak] t_ms=1121998 frame=71586 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=43.6 bps=91942 rtt=1 lag=1 last=12 pm=86945 pr=86945 pb=156167452 w[t=256 ob=0/0 st=64 hm=128 vp=10 c=36]
+[soak] t_ms=1127014 frame=71887 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=44.6 bps=76578 rtt=1 lag=3 last=54 pm=87359 pr=87359 pb=157029023 w[t=256 ob=0/0 st=64 hm=128 vp=11 c=36]
+[soak] t_ms=1132015 frame=72187 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=129.4 bps=219200 rtt=1 lag=1 last=13 pm=87755 pr=87755 pb=157796678 w[t=256 ob=0/0 st=64 hm=128 vp=12 c=36]
+[soak] t_ms=1137031 frame=72488 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=203.9 bps=192005 rtt=1 lag=1 last=23 pm=88252 pr=88252 pb=158548478 w[t=256 ob=0/0 st=64 hm=128 vp=15 c=36]
+[soak] t_ms=1142032 frame=72788 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=48.4 bps=92606 rtt=1 lag=2 last=24 pm=88526 pr=88526 pb=159045231 w[t=256 ob=0/0 st=64 hm=128 vp=18 c=36]
+[soak] t_ms=1147048 frame=73089 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=45.1 bps=75451 rtt=1 lag=1 last=22 pm=88870 pr=88870 pb=159568906 w[t=256 ob=0/0 st=64 hm=128 vp=18 c=36]
+[soak] t_ms=1152064 frame=73390 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=135.7 bps=189381 rtt=1 lag=8 last=14 pm=89329 pr=89329 pb=160367902 w[t=256 ob=0/0 st=64 hm=128 vp=18 c=36]
+[soak] t_ms=1157064 frame=73690 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=52.1 bps=110022 rtt=1 lag=3 last=16 pm=89743 pr=89743 pb=161092418 w[t=256 ob=0/0 st=64 hm=128 vp=18 c=36]
+[soak] t_ms=1162065 frame=73990 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=73.6 bps=169758 rtt=1 lag=6 last=65 pm=89995 pr=89995 pb=161668852 w[t=256 ob=0/0 st=64 hm=128 vp=18 c=37]
+[soak] t_ms=1167065 frame=74290 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=46.9 bps=73894 rtt=1 lag=1 last=9 pm=90302 pr=90302 pb=162290913 w[t=256 ob=0/0 st=64 hm=128 vp=18 c=37]
+[soak] t_ms=1172082 frame=74591 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=106.2 bps=224132 rtt=1 lag=1 last=28 pm=90609 pr=90609 pb=162896565 w[t=256 ob=0/0 st=64 hm=128 vp=1 c=37]
+[soak] t_ms=1177097 frame=74892 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=71.9 bps=113836 rtt=1 lag=3 last=3 pm=90996 pr=90996 pb=163575086 w[t=256 ob=0/0 st=64 hm=128 vp=1 c=37]
+[soak] t_ms=1182097 frame=75192 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=58.4 bps=99600 rtt=1 lag=3 last=0 pm=91271 pr=91271 pb=164094445 w[t=256 ob=0/0 st=64 hm=128 vp=5 c=37]
+[soak] t_ms=1187115 frame=75493 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=40.6 bps=83248 rtt=1 lag=1 last=66 pm=91530 pr=91530 pb=164550615 w[t=256 ob=0/0 st=64 hm=128 vp=8 c=37]
+[soak] t_ms=1192115 frame=75793 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=84.7 bps=120162 rtt=1 lag=1 last=58 pm=91885 pr=91885 pb=165136899 w[t=256 ob=0/0 st=64 hm=128 vp=8 c=37]
+[soak] t_ms=1197131 frame=76094 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=43.4 bps=54894 rtt=1 lag=1 last=5 pm=92181 pr=92181 pb=165569665 w[t=256 ob=0/0 st=64 hm=128 vp=8 c=37]
+[soak] t_ms=1202131 frame=76394 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=2 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=47.5 bps=83450 rtt=1 lag=0 last=15 pm=92645 pr=92645 pb=166344669 w[t=256 ob=0/0 st=64 hm=128 vp=8 c=37]
+[soak] t_ms=1207148 frame=76695 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=2 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=43.6 bps=70777 rtt=1 lag=4 last=2 pm=92998 pr=92998 pb=167042327 w[t=256 ob=0/0 st=64 hm=128 vp=8 c=37]
+[soak] t_ms=1212165 frame=76996 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=42.5 bps=60443 rtt=1 lag=1 last=8 pm=93296 pr=93296 pb=167567611 w[t=256 ob=0/0 st=64 hm=128 vp=9 c=37]
+[soak] t_ms=1217182 frame=77297 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=46.8 bps=90943 rtt=1 lag=1 last=12 pm=93596 pr=93596 pb=168072562 w[t=256 ob=0/0 st=64 hm=128 vp=12 c=37]
+[soak] t_ms=1222198 frame=77598 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=44.2 bps=108559 rtt=1 lag=2 last=1 pm=93858 pr=93858 pb=168677575 w[t=256 ob=0/0 st=64 hm=128 vp=14 c=38]
+[soak] t_ms=1227198 frame=77898 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=2 rc=21 rc+0 mps=45.8 bps=97118 rtt=1 lag=7 last=1 pm=94331 pr=94331 pb=169424307 w[t=256 ob=0/0 st=64 hm=128 vp=16 c=38]
+[soak] t_ms=1232198 frame=78198 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=43.7 bps=77888 rtt=1 lag=1 last=17 pm=94591 pr=94591 pb=169894805 w[t=256 ob=0/0 st=64 hm=128 vp=1 c=38]
+[soak] t_ms=1237215 frame=78499 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=162.3 bps=274187 rtt=1 lag=1 last=21 pm=95132 pr=95132 pb=170779760 w[t=256 ob=0/0 st=64 hm=128 vp=5 c=38]
+[soak] t_ms=1242231 frame=78800 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=43.5 bps=72895 rtt=1 lag=5 last=43 pm=95397 pr=95397 pb=171243156 w[t=256 ob=0/0 st=64 hm=128 vp=7 c=38]
+[soak] t_ms=1247248 frame=79101 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=46.1 bps=73890 rtt=1 lag=4 last=12 pm=95626 pr=95626 pb=171650337 w[t=256 ob=0/0 st=64 hm=128 vp=10 c=38]
+[soak] t_ms=1252265 frame=79402 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=47.9 bps=75883 rtt=1 lag=2 last=22 pm=95871 pr=95871 pb=172085614 w[t=256 ob=0/0 st=64 hm=128 vp=10 c=38]
+[soak] t_ms=1257282 frame=79703 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=43.7 bps=85726 rtt=1 lag=2 last=3 pm=96211 pr=96211 pb=172685705 w[t=256 ob=0/0 st=64 hm=128 vp=10 c=38]
+[soak] t_ms=1262297 frame=80004 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=11 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=294.7 bps=489791 rtt=1 lag=1 last=1 pm=96883 pr=96883 pb=173587475 w[t=256 ob=0/0 st=64 hm=128 vp=10 c=38]
+[soak] t_ms=1267298 frame=80304 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=201.0 bps=342353 rtt=1 lag=1 last=11 pm=97648 pr=97648 pb=174903388 w[t=256 ob=0/0 st=64 hm=128 vp=10 c=38]
+[soak] t_ms=1272315 frame=80605 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=91.9 bps=177421 rtt=1 lag=4 last=42 pm=98290 pr=98290 pb=175984303 w[t=256 ob=0/0 st=64 hm=128 vp=12 c=38]
+[soak] t_ms=1277332 frame=80906 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=85.9 bps=150201 rtt=1 lag=4 last=1 pm=98793 pr=98793 pb=176808005 w[t=256 ob=0/0 st=64 hm=128 vp=20 c=38]
+[soak] t_ms=1282332 frame=81206 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=181.5 bps=374088 rtt=1 lag=2 last=6 pm=99437 pr=99437 pb=177971581 w[t=256 ob=0/0 st=64 hm=128 vp=23 c=39]
+[soak] t_ms=1287348 frame=81507 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=53.2 bps=104247 rtt=1 lag=1 last=9 pm=99782 pr=99782 pb=178659184 w[t=256 ob=0/0 st=64 hm=128 vp=23 c=39]
+[soak] t_ms=1292365 frame=81808 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=71.7 bps=139841 rtt=1 lag=3 last=17 pm=100139 pr=100139 pb=179328247 w[t=256 ob=0/0 st=64 hm=128 vp=5 c=39]
+[soak] t_ms=1297381 frame=82109 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=57.5 bps=77102 rtt=1 lag=2 last=4 pm=100570 pr=100570 pb=180009262 w[t=256 ob=0/0 st=64 hm=128 vp=8 c=39]
+[soak] t_ms=1302397 frame=82410 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=47.2 bps=97791 rtt=1 lag=1 last=27 pm=100927 pr=100927 pb=180620482 w[t=256 ob=0/0 st=64 hm=128 vp=9 c=39]
+[soak] t_ms=1307398 frame=82710 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=2 rc=21 rc+0 mps=41.4 bps=60659 rtt=1 lag=1 last=5 pm=101175 pr=101175 pb=181047054 w[t=256 ob=0/0 st=64 hm=128 vp=9 c=39]
+[soak] t_ms=1312399 frame=83010 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=1 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=107.5 bps=121696 rtt=1 lag=2 last=3 pm=101625 pr=101625 pb=181695009 w[t=256 ob=0/0 st=64 hm=128 vp=9 c=39]
+[soak] t_ms=1317415 frame=83311 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=138.0 bps=235633 rtt=1 lag=1 last=14 pm=102104 pr=102104 pb=182519974 w[t=256 ob=0/0 st=64 hm=128 vp=10 c=39]
+[soak] t_ms=1322431 frame=83612 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=51.0 bps=76672 rtt=1 lag=5 last=11 pm=102492 pr=102492 pb=183158689 w[t=256 ob=0/0 st=64 hm=128 vp=10 c=39]
+[soak] t_ms=1327431 frame=83912 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=97.7 bps=184146 rtt=1 lag=1 last=29 pm=103037 pr=103037 pb=184119218 w[t=256 ob=0/0 st=64 hm=128 vp=12 c=39]
+[soak] t_ms=1332432 frame=84212 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=98.4 bps=225596 rtt=1 lag=3 last=13 pm=103697 pr=103697 pb=185315258 w[t=256 ob=0/0 st=64 hm=128 vp=14 c=39]
+[soak] t_ms=1337447 frame=84513 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=0 cb=0 drop=0 d+0 p=2 rc=21 rc+0 mps=71.8 bps=144955 rtt=1 lag=2 last=4 pm=104245 pr=104245 pb=186215985 w[t=256 ob=0/0 st=64 hm=128 vp=18 c=39]
+[soak] t_ms=1342448 frame=84813 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=50.7 bps=128874 rtt=1 lag=2 last=36 pm=105035 pr=105035 pb=187537442 w[t=256 ob=0/0 st=64 hm=128 vp=21 c=40]
+[soak] t_ms=1347448 frame=85113 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=2 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=47.0 bps=103748 rtt=1 lag=1 last=7 pm=105316 pr=105316 pb=188146273 w[t=256 ob=0/0 st=64 hm=128 vp=25 c=40]
+[soak] t_ms=1352465 frame=85414 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=44.9 bps=70658 rtt=1 lag=1 last=38 pm=105561 pr=105561 pb=188561681 w[t=256 ob=0/0 st=64 hm=128 vp=2 c=40]
+[soak] t_ms=1357481 frame=85715 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=6 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=112.0 bps=183035 rtt=1 lag=1 last=4 pm=105857 pr=105857 pb=189061127 w[t=256 ob=0/0 st=64 hm=128 vp=2 c=40]
+[soak] t_ms=1362498 frame=86016 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=108.3 bps=231895 rtt=1 lag=1 last=5 pm=106482 pr=106482 pb=190210693 w[t=256 ob=0/0 st=64 hm=128 vp=2 c=40]
+[soak] t_ms=1367515 frame=86317 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=47.3 bps=75922 rtt=1 lag=2 last=11 pm=106864 pr=106864 pb=190889223 w[t=256 ob=0/0 st=64 hm=128 vp=4 c=40]
+[soak] t_ms=1372515 frame=86617 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=49.6 bps=86820 rtt=1 lag=1 last=72 pm=107108 pr=107108 pb=191287956 w[t=256 ob=0/0 st=64 hm=128 vp=9 c=40]
+[soak] t_ms=1377532 frame=86918 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=1 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=229.1 bps=368435 rtt=1 lag=1 last=6 pm=107725 pr=107725 pb=192398336 w[t=256 ob=0/0 st=64 hm=128 vp=10 c=40]
+[soak] t_ms=1382548 frame=87219 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=93.6 bps=172898 rtt=1 lag=4 last=7 pm=108182 pr=108182 pb=193253644 w[t=256 ob=0/0 st=64 hm=128 vp=10 c=40]
+[soak] t_ms=1387565 frame=87520 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=89.7 bps=130608 rtt=1 lag=4 last=21 pm=108590 pr=108590 pb=193843628 w[t=256 ob=0/0 st=64 hm=128 vp=12 c=40]
+[soak] t_ms=1392581 frame=87821 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=52.3 bps=149018 rtt=1 lag=1 last=19 pm=108998 pr=108998 pb=194545877 w[t=256 ob=0/0 st=64 hm=128 vp=17 c=40]
+[soak] t_ms=1397582 frame=88121 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=46.4 bps=92401 rtt=1 lag=1 last=34 pm=109406 pr=109406 pb=195302449 w[t=256 ob=0/0 st=64 hm=128 vp=18 c=40]
+[soak] t_ms=1402597 frame=88422 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=78.7 bps=169804 rtt=1 lag=1 last=0 pm=109734 pr=109734 pb=195985438 w[t=256 ob=0/0 st=64 hm=128 vp=20 c=41]
+[soak] t_ms=1407614 frame=88723 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=98.9 bps=126004 rtt=1 lag=1 last=7 pm=110302 pr=110302 pb=196970094 w[t=256 ob=0/0 st=64 hm=128 vp=21 c=41]
+[soak] t_ms=1412615 frame=89023 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=101.5 bps=277102 rtt=1 lag=5 last=16 pm=110812 pr=110812 pb=197914236 w[t=256 ob=0/0 st=64 hm=128 vp=1 c=41]
+[soak] t_ms=1417631 frame=89324 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=0 cb=0 drop=0 d+0 p=2 rc=21 rc+0 mps=154.2 bps=187201 rtt=1 lag=2 last=6 pm=111252 pr=111252 pb=198607366 w[t=256 ob=0/0 st=64 hm=128 vp=5 c=41]
+[soak] t_ms=1422648 frame=89625 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=41.0 bps=75519 rtt=1 lag=5 last=22 pm=111577 pr=111577 pb=199260368 w[t=256 ob=0/0 st=64 hm=128 vp=8 c=41]
+[soak] t_ms=1427648 frame=89925 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=50.9 bps=81657 rtt=1 lag=1 last=56 pm=111878 pr=111878 pb=199802811 w[t=256 ob=0/0 st=64 hm=128 vp=13 c=41]
+[soak] t_ms=1432648 frame=90225 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=38.6 bps=71471 rtt=1 lag=1 last=277 pm=112186 pr=112186 pb=200387999 w[t=256 ob=0/0 st=64 hm=128 vp=14 c=41]
+[soak] t_ms=1437665 frame=90526 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=41.6 bps=70734 rtt=1 lag=1 last=46 pm=112538 pr=112538 pb=201034919 w[t=256 ob=0/0 st=64 hm=128 vp=15 c=41]
+[soak] t_ms=1442665 frame=90826 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=48.3 bps=111112 rtt=1 lag=1 last=42 pm=112758 pr=112758 pb=201454946 w[t=256 ob=0/0 st=64 hm=128 vp=15 c=41]
+[soak] t_ms=1447665 frame=91126 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=45.9 bps=85562 rtt=1 lag=2 last=5 pm=112977 pr=112977 pb=201859016 w[t=256 ob=0/0 st=64 hm=128 vp=15 c=41]
+[soak] t_ms=1452682 frame=91427 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=45.8 bps=83304 rtt=1 lag=2 last=6 pm=113211 pr=113211 pb=202282969 w[t=256 ob=0/0 st=64 hm=128 vp=15 c=41]
+[soak] t_ms=1457697 frame=91728 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=45.6 bps=88641 rtt=1 lag=1 last=11 pm=113458 pr=113458 pb=202756073 w[t=256 ob=0/0 st=64 hm=128 vp=15 c=41]
+[soak] t_ms=1462698 frame=92028 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=40.7 bps=83825 rtt=1 lag=0 last=79 pm=113940 pr=113940 pb=203733389 w[t=256 ob=0/0 st=64 hm=128 vp=15 c=42]
+[soak] t_ms=1467715 frame=92329 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=50.7 bps=77234 rtt=1 lag=2 last=4 pm=114232 pr=114232 pb=204329184 w[t=256 ob=0/0 st=64 hm=128 vp=15 c=42]
+[soak] t_ms=1472715 frame=92629 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=48.0 bps=90257 rtt=1 lag=4 last=25 pm=114447 pr=114447 pb=204696139 w[t=256 ob=0/0 st=64 hm=128 vp=1 c=42]
+[soak] t_ms=1477732 frame=92930 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=48.8 bps=73012 rtt=1 lag=3 last=46 pm=114786 pr=114786 pb=205287804 w[t=256 ob=0/0 st=64 hm=128 vp=3 c=42]
+[soak] t_ms=1482732 frame=93230 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=36.1 bps=62708 rtt=1 lag=0 last=44 pm=115044 pr=115044 pb=205747330 w[t=256 ob=0/0 st=64 hm=128 vp=3 c=42]
+[soak] t_ms=1487748 frame=93531 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=43.6 bps=73198 rtt=1 lag=1 last=17 pm=115274 pr=115274 pb=206142342 w[t=256 ob=0/0 st=64 hm=128 vp=6 c=42]
+[soak] t_ms=1492765 frame=93832 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=45.1 bps=82357 rtt=1 lag=1 last=5 pm=115502 pr=115502 pb=206546892 w[t=256 ob=0/0 st=64 hm=128 vp=6 c=42]
+[soak] t_ms=1497781 frame=94133 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=9 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=96.7 bps=149804 rtt=1 lag=0 last=8 pm=116310 pr=116310 pb=207796917 w[t=256 ob=0/0 st=64 hm=128 vp=7 c=42]
+[soak] t_ms=1502797 frame=94434 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=12 qmax=1 cb=0 drop=0 d+0 p=3 rc=21 rc+0 mps=56.0 bps=102194 rtt=1 lag=3 last=2 pm=117006 pr=117006 pb=208663005 w[t=256 ob=0/0 st=64 hm=128 vp=7 c=42]
+[soak] t_ms=1507799 frame=94734 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=120.6 bps=203418 rtt=1 lag=1 last=25 pm=117656 pr=117656 pb=209817341 w[t=256 ob=0/0 st=64 hm=128 vp=14 c=42]
+[soak] t_ms=1512798 frame=95034 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=76.6 bps=131493 rtt=1 lag=5 last=3 pm=118014 pr=118014 pb=210498000 w[t=256 ob=0/0 st=64 hm=128 vp=17 c=42]
+[soak] t_ms=1517814 frame=95335 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=79.2 bps=167183 rtt=1 lag=1 last=6 pm=118311 pr=118311 pb=211064071 w[t=256 ob=0/0 st=64 hm=128 vp=19 c=42]
+[soak] t_ms=1522815 frame=95635 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=2 rc=21 rc+0 mps=88.6 bps=159827 rtt=1 lag=4 last=10 pm=118700 pr=118700 pb=211877008 w[t=256 ob=0/0 st=64 hm=128 vp=19 c=43]
+[soak] t_ms=1527832 frame=95936 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=74.6 bps=143451 rtt=1 lag=2 last=23 pm=119056 pr=119056 pb=212491428 w[t=256 ob=0/0 st=64 hm=128 vp=19 c=43]
+[soak] t_ms=1532847 frame=96237 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=78.4 bps=145617 rtt=1 lag=1 last=61 pm=119427 pr=119427 pb=213133951 w[t=256 ob=0/0 st=64 hm=128 vp=5 c=43]
+[soak] t_ms=1537848 frame=96537 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=99.2 bps=154139 rtt=1 lag=1 last=2 pm=119801 pr=119801 pb=213804703 w[t=256 ob=0/0 st=64 hm=128 vp=6 c=43]
+[soak] t_ms=1542848 frame=96837 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=48.0 bps=91828 rtt=1 lag=2 last=45 pm=120280 pr=120280 pb=214707344 w[t=256 ob=0/0 st=64 hm=128 vp=6 c=43]
+[soak] t_ms=1547865 frame=97138 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=77.5 bps=143751 rtt=1 lag=1 last=22 pm=120708 pr=120708 pb=215429801 w[t=256 ob=0/0 st=64 hm=128 vp=10 c=43]
+[soak] t_ms=1552881 frame=97439 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=99.9 bps=188559 rtt=1 lag=1 last=7 pm=121228 pr=121228 pb=216299790 w[t=256 ob=0/0 st=64 hm=128 vp=14 c=43]
+[soak] t_ms=1557899 frame=97740 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=38.6 bps=63106 rtt=1 lag=4 last=10 pm=121487 pr=121487 pb=216764548 w[t=256 ob=0/0 st=64 hm=128 vp=15 c=43]
+[soak] t_ms=1562915 frame=98041 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=120.3 bps=223329 rtt=1 lag=1 last=42 pm=121971 pr=121971 pb=217581909 w[t=256 ob=0/0 st=64 hm=128 vp=16 c=43]
+[soak] t_ms=1567931 frame=98342 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=79.7 bps=163069 rtt=1 lag=1 last=9 pm=122472 pr=122472 pb=218431393 w[t=256 ob=0/0 st=64 hm=128 vp=16 c=43]
+[soak] t_ms=1572948 frame=98643 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=49.0 bps=105021 rtt=1 lag=1 last=4 pm=123045 pr=123045 pb=219245098 w[t=256 ob=0/0 st=64 hm=128 vp=17 c=43]
+[soak] t_ms=1577964 frame=98944 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=60.8 bps=103743 rtt=1 lag=2 last=31 pm=123289 pr=123289 pb=219658250 w[t=256 ob=0/0 st=64 hm=128 vp=17 c=43]
+[soak] t_ms=1582965 frame=99244 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=6 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=69.0 bps=136119 rtt=1 lag=1 last=10 pm=123661 pr=123661 pb=220384651 w[t=256 ob=0/0 st=64 hm=128 vp=17 c=44]
+[soak] t_ms=1587982 frame=99545 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=49.7 bps=95477 rtt=1 lag=3 last=7 pm=123947 pr=123947 pb=221003137 w[t=256 ob=0/0 st=64 hm=128 vp=18 c=44]
+[soak] t_ms=1592997 frame=99846 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=46.1 bps=86343 rtt=1 lag=1 last=41 pm=124258 pr=124258 pb=221611585 w[t=256 ob=0/0 st=64 hm=128 vp=5 c=44]
+[soak] t_ms=1597998 frame=100146 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=154.8 bps=278488 rtt=1 lag=3 last=28 pm=124618 pr=124618 pb=222244959 w[t=256 ob=0/0 st=64 hm=128 vp=8 c=44]
+[soak] t_ms=1602998 frame=100446 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=84.6 bps=140129 rtt=1 lag=0 last=616 pm=125074 pr=125074 pb=223078125 w[t=256 ob=0/0 st=64 hm=128 vp=11 c=44]
+[soak] t_ms=1608015 frame=100747 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=49.3 bps=97312 rtt=1 lag=2 last=7 pm=125378 pr=125378 pb=223624623 w[t=256 ob=0/0 st=64 hm=128 vp=12 c=44]
+[soak] t_ms=1613031 frame=101048 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=8 qmax=1 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=69.0 bps=113320 rtt=1 lag=2 last=1 pm=125757 pr=125757 pb=224215116 w[t=256 ob=0/0 st=64 hm=128 vp=14 c=44]
+[soak] t_ms=1618048 frame=101349 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=235.6 bps=355550 rtt=1 lag=2 last=19 pm=126260 pr=126260 pb=225110392 w[t=256 ob=0/0 st=64 hm=128 vp=14 c=44]
+[soak] t_ms=1623048 frame=101649 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=47.8 bps=94943 rtt=1 lag=1 last=159 pm=126546 pr=126546 pb=225673060 w[t=256 ob=0/0 st=64 hm=128 vp=16 c=44]
+[soak] t_ms=1628065 frame=101950 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=68.3 bps=165017 rtt=1 lag=4 last=4 pm=127061 pr=127061 pb=226598973 w[t=256 ob=0/0 st=64 hm=128 vp=16 c=44]
+[soak] t_ms=1633081 frame=102251 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=89.4 bps=183333 rtt=3 lag=5 last=3 pm=127398 pr=127398 pb=227234901 w[t=256 ob=0/0 st=64 hm=128 vp=17 c=44]
+[soak] t_ms=1638081 frame=102551 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=65.0 bps=109759 rtt=3 lag=1 last=16 pm=127666 pr=127666 pb=227765249 w[t=256 ob=0/0 st=64 hm=128 vp=17 c=44]
+[soak] t_ms=1643082 frame=102851 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=43.6 bps=91695 rtt=3 lag=4 last=16 pm=128019 pr=128019 pb=228521533 w[t=256 ob=0/0 st=64 hm=128 vp=17 c=45]
+[soak] t_ms=1648098 frame=103152 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=44.7 bps=95875 rtt=3 lag=2 last=15 pm=128439 pr=128439 pb=229334354 w[t=256 ob=0/0 st=64 hm=128 vp=17 c=45]
+[soak] t_ms=1653115 frame=103453 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=163.3 bps=268285 rtt=3 lag=3 last=40 pm=128930 pr=128930 pb=230262611 w[t=256 ob=0/0 st=64 hm=128 vp=6 c=45]
+[soak] t_ms=1658115 frame=103753 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=66.3 bps=100081 rtt=3 lag=3 last=81 pm=129185 pr=129185 pb=230729878 w[t=256 ob=0/0 st=64 hm=128 vp=10 c=45]
+[soak] t_ms=1663132 frame=104054 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=49.9 bps=93286 rtt=3 lag=1 last=2 pm=129426 pr=129426 pb=231224156 w[t=256 ob=0/0 st=64 hm=128 vp=11 c=45]
+[soak] t_ms=1668148 frame=104355 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=41.5 bps=96907 rtt=3 lag=8 last=12 pm=129668 pr=129668 pb=231689829 w[t=256 ob=0/0 st=64 hm=128 vp=12 c=45]
+[soak] t_ms=1673148 frame=104655 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=49.4 bps=93567 rtt=3 lag=2 last=73 pm=130025 pr=130025 pb=232361099 w[t=256 ob=0/0 st=64 hm=128 vp=12 c=45]
+[soak] t_ms=1678165 frame=104956 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=36.8 bps=51180 rtt=3 lag=1 last=31 pm=130269 pr=130269 pb=232786789 w[t=256 ob=0/0 st=64 hm=128 vp=12 c=45]
+[soak] t_ms=1683181 frame=105257 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=60.9 bps=76939 rtt=3 lag=3 last=10 pm=130549 pr=130549 pb=233228036 w[t=256 ob=0/0 st=64 hm=128 vp=16 c=45]
+[soak] t_ms=1688197 frame=105558 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=38.0 bps=62595 rtt=3 lag=6 last=50 pm=130773 pr=130773 pb=233621435 w[t=256 ob=0/0 st=64 hm=128 vp=18 c=45]
+[soak] t_ms=1693215 frame=105859 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=116.2 bps=296861 rtt=3 lag=4 last=52 pm=131158 pr=131158 pb=234305643 w[t=256 ob=0/0 st=64 hm=128 vp=18 c=45]
+[soak] t_ms=1698231 frame=106160 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=128.6 bps=151262 rtt=3 lag=1 last=10 pm=131600 pr=131600 pb=235029392 w[t=256 ob=0/0 st=64 hm=128 vp=18 c=45]
+[soak] t_ms=1703232 frame=106460 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=45.9 bps=86533 rtt=3 lag=2 last=5 pm=131930 pr=131930 pb=235696492 w[t=256 ob=0/0 st=64 hm=128 vp=20 c=46]
+[soak] t_ms=1708248 frame=106761 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=53.8 bps=181106 rtt=3 lag=1 last=18 pm=132440 pr=132440 pb=236689936 w[t=256 ob=0/0 st=64 hm=128 vp=22 c=46]
+[soak] t_ms=1713265 frame=107062 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=44.1 bps=73812 rtt=3 lag=2 last=22 pm=132715 pr=132715 pb=237186400 w[t=256 ob=0/0 st=64 hm=128 vp=5 c=46]
+[soak] t_ms=1718281 frame=107363 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=79.9 bps=125772 rtt=3 lag=1 last=26 pm=133134 pr=133134 pb=237879995 w[t=256 ob=0/0 st=64 hm=128 vp=10 c=46]
+[soak] t_ms=1723282 frame=107663 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=66.9 bps=115078 rtt=3 lag=2 last=10 pm=133604 pr=133604 pb=238764469 w[t=256 ob=0/0 st=64 hm=128 vp=10 c=46]
+[soak] t_ms=1728297 frame=107964 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=1 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=45.9 bps=78315 rtt=3 lag=1 last=12 pm=133870 pr=133870 pb=239240187 w[t=256 ob=0/0 st=64 hm=128 vp=11 c=46]
+[soak] t_ms=1733298 frame=108264 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=48.6 bps=97204 rtt=1 lag=1 last=58 pm=134120 pr=134120 pb=239744089 w[t=256 ob=0/0 st=64 hm=128 vp=13 c=46]
+[soak] t_ms=1738314 frame=108565 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=57.0 bps=147559 rtt=1 lag=1 last=60 pm=134475 pr=134475 pb=240419406 w[t=256 ob=0/0 st=64 hm=128 vp=13 c=46]
+[soak] t_ms=1743315 frame=108865 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=44.9 bps=72563 rtt=1 lag=2 last=24 pm=134897 pr=134897 pb=241199516 w[t=256 ob=0/0 st=64 hm=128 vp=13 c=46]
+[soak] t_ms=1748331 frame=109166 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=43.9 bps=74310 rtt=1 lag=4 last=2 pm=135247 pr=135247 pb=241802530 w[t=256 ob=0/0 st=64 hm=128 vp=14 c=46]
+[soak] t_ms=1753332 frame=109466 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=94.3 bps=202366 rtt=1 lag=3 last=51 pm=135526 pr=135526 pb=242341626 w[t=256 ob=0/0 st=64 hm=128 vp=15 c=46]
+[soak] t_ms=1758347 frame=109767 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=37.4 bps=89742 rtt=1 lag=2 last=20 pm=135805 pr=135805 pb=242888205 w[t=256 ob=0/0 st=64 hm=128 vp=15 c=46]
+[soak] t_ms=1763365 frame=110068 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=675.0 bps=717768 rtt=1 lag=1 last=35 pm=138301 pr=138301 pb=244658046 w[t=256 ob=0/0 st=64 hm=128 vp=15 c=47]
+[soak] t_ms=1768381 frame=110369 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=11 qmax=1 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=461.6 bps=666043 rtt=1 lag=1 last=0 pm=140230 pr=140230 pb=247279416 w[t=256 ob=0/0 st=64 hm=128 vp=15 c=47]
+[soak] t_ms=1773381 frame=110669 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=11 qmax=1 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=426.1 bps=656050 rtt=1 lag=1 last=4 pm=142838 pr=142838 pb=249856155 w[t=256 ob=0/0 st=64 hm=128 vp=16 c=47]
+[soak] t_ms=1778397 frame=110970 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=289.7 bps=362194 rtt=1 lag=4 last=37 pm=144170 pr=144170 pb=251851006 w[t=256 ob=0/0 st=64 hm=128 vp=15 c=47]
+[soak] t_ms=1783398 frame=111270 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=0 rc=21 rc+0 mps=83.3 bps=158920 rtt=1 lag=2 last=24 pm=144644 pr=144644 pb=252800777 w[t=256 ob=0/0 st=64 hm=128 vp=22 c=47]
+[soak] t_ms=1788415 frame=111571 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=65.8 bps=102228 rtt=1 lag=1 last=10 pm=145172 pr=145172 pb=253654039 w[t=256 ob=0/0 st=64 hm=128 vp=22 c=47]
+[soak] t_ms=1793431 frame=111872 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=1 rc=21 rc+0 mps=151.2 bps=237722 rtt=1 lag=2 last=3 pm=145849 pr=145849 pb=254699597 w[t=256 ob=0/0 st=64 hm=128 vp=22 c=47]
+[soak] t_ms=1798447 frame=112173 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=1 cb=0 drop=0 d+0 p=2 rc=21 rc+0 mps=414.2 bps=528942 rtt=1 lag=4 last=4 pm=146496 pr=146496 pb=255692444 w[t=256 ob=0/0 st=64 hm=128 vp=22 c=47]
+[soak] done duration_s=1800

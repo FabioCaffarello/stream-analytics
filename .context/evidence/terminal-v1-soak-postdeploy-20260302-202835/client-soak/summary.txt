@@ -1,0 +1,20 @@
+result=PASS
+finished_at=2026-03-02T23:38:38Z
+out_dir=.context/evidence/terminal-v1-soak-postdeploy-20260302-202835/client-soak
+samples=120
+rss_first_kb=1392
+rss_last_kb=1392
+rss_min_kb=1392
+rss_max_kb=1392
+rss_growth_kb=0
+threads_first=0
+threads_last=0
+threads_min=0
+threads_max=0
+threads_growth=0
+fault_restarts=
+reconnect_attempt_logs=0
+reconnect_fail_logs=0
+reconnect_success_logs=0
+subscribe_ack_logs=18
+last_soak_line=[soak] t_ms=595694 frame=55906 conn=Connected health=OK streams=16 active=de887c091c3bfef4 ev=0 fix=0 pend_restore=false subs=18 q=0 qmax=0 cb=0 drop=0 d+0 p=1 rc=0 rc+0 mps=46.3 bps=97688 rtt=1 lag=1 last=10 pm=60699 pr=60699 pb=100334377 w[t=256 ob=0/0 st=64 hm=128 vp=16 c=29]

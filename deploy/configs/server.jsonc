@@ -48,7 +48,7 @@
     "shutdown_timeout": "10s",
     "publisher_flush_timeout": "3s",
     "guardian_shutdown_timeout": "10s",
-    "enable_pprof": false
+    "enable_pprof": true
   },
   "ws": {
     "auth": {

@@ -1,0 +1,27 @@
+# ws+proc snapshot t0
+144:# HELP delivery_router_subscriptions_active Total active subject subscriptions across all delivery sessions.
+145:# TYPE delivery_router_subscriptions_active gauge
+146:delivery_router_subscriptions_active 0
+147:# HELP delivery_ws_snapshot_cache_entries Total entries currently stored in bounded websocket snapshot cache.
+148:# TYPE delivery_ws_snapshot_cache_entries gauge
+149:delivery_ws_snapshot_cache_entries 0
+329:# HELP process_heap_alloc_bytes Current heap allocations in bytes.
+330:# TYPE process_heap_alloc_bytes gauge
+331:process_heap_alloc_bytes 5.157712e+06
+380:# HELP resync_total Total websocket resync requests handled.
+381:# TYPE resync_total counter
+382:resync_total 0
+550:# HELP ws_clients_connected Connected websocket delivery clients.
+551:# TYPE ws_clients_connected gauge
+552:ws_clients_connected 0
+559:# HELP ws_drops_total Total dropped websocket outbound events by reason.
+560:# TYPE ws_drops_total counter
+561:ws_drops_total{reason="unknown"} 0
+598:# HELP ws_queue_depth Current outbound websocket queue depth across delivery sessions.
+599:# TYPE ws_queue_depth gauge
+600:ws_queue_depth 0
+624:# HELP ws_subscriptions_active Active websocket subscriptions across all sessions.
+625:# TYPE ws_subscriptions_active gauge
+626:ws_subscriptions_active 0
+---
+---

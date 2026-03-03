@@ -1,0 +1,57 @@
+# pprof progress summary
+goroutines_t0=15
+goroutines_t10m=19
+goroutines_t20m=17
+goroutines_t24m-manual=19
+goroutines_t30m=17
+
+# heap top alloc objects (first 8 lines each)
+## t0
+File: server
+Build ID: 0a038accb30baae961567bc33812475b18506ae3
+Type: inuse_space
+Time: 2026-03-02 19:53:41 -03
+Showing nodes accounting for 2070.53kB, 100% of 2070.53kB total
+      flat  flat%   sum%        cum   cum%
+  525.43kB 25.38% 25.38%   525.43kB 25.38%  github.com/ClickHouse/ch-go/proto.init
+  521.05kB 25.17% 50.54%   521.05kB 25.17%  main.newBoundedSnapshotCacheProvider
+
+## t10m
+File: server
+Build ID: 0a038accb30baae961567bc33812475b18506ae3
+Type: inuse_space
+Time: 2026-03-02 20:03:41 -03
+Showing nodes accounting for 4424.75kB, 100% of 4424.75kB total
+      flat  flat%   sum%        cum   cum%
+ 1549.42kB 35.02% 35.02%  1549.42kB 35.02%  encoding/json.Marshal
+  809.97kB 18.31% 53.32%   809.97kB 18.31%  github.com/nats-io/nats%2ego.(*js).PullSubscribe
+
+## t20m
+File: server
+Build ID: 0a038accb30baae961567bc33812475b18506ae3
+Type: inuse_space
+Time: 2026-03-02 20:13:42 -03
+Showing nodes accounting for 6781.42kB, 100% of 6781.42kB total
+      flat  flat%   sum%        cum   cum%
+ 1050.86kB 15.50% 15.50%  1050.86kB 15.50%  github.com/anthdm/hollywood/ringbuffer.New[go.shape.struct { Msg interface {}; Sender *github.com/anthdm/hollywood/actor.PID }] (inline)
+ 1025.75kB 15.13% 30.62%  1025.75kB 15.13%  encoding/json.Marshal
+
+## t24m-manual
+File: server
+Build ID: 0a038accb30baae961567bc33812475b18506ae3
+Type: inuse_space
+Time: 2026-03-02 20:19:43 -03
+Showing nodes accounting for 7297.93kB, 100% of 7297.93kB total
+      flat  flat%   sum%        cum   cum%
+ 1050.86kB 14.40% 14.40%  1050.86kB 14.40%  github.com/anthdm/hollywood/ringbuffer.New[go.shape.struct { Msg interface {}; Sender *github.com/anthdm/hollywood/actor.PID }] (inline)
+ 1029.13kB 14.10% 28.50%  1029.13kB 14.10%  encoding/json.Marshal
+
+## t30m
+File: server
+Build ID: 0a038accb30baae961567bc33812475b18506ae3
+Type: inuse_space
+Time: 2026-03-02 20:23:42 -03
+Showing nodes accounting for 6805.19kB, 100% of 6805.19kB total
+      flat  flat%   sum%        cum   cum%
+ 1050.86kB 15.44% 15.44%  1050.86kB 15.44%  github.com/anthdm/hollywood/ringbuffer.New[go.shape.struct { Msg interface {}; Sender *github.com/anthdm/hollywood/actor.PID }] (inline)
+ 1049.52kB 15.42% 30.86%  1049.52kB 15.42%  encoding/json.Marshal
