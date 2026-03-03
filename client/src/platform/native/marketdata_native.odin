@@ -1187,14 +1187,19 @@ reader_thread_proc :: proc(t: ^thread.Thread) {
 			now := time.now()._nsec / 1_000_000
 			sync.lock(&state.mu)
 			if state.hello_received && state.transport_mode == .Terminal_V1 {
-				if state.last_metrics_ts_ms > 0 && now - state.last_metrics_ts_ms > METRICS_STALE_MS {
+				no_metrics_gap, next_metrics_ts := md_common.detect_no_metrics_gap(
+					state.last_metrics_ts_ms, now, METRICS_STALE_MS,
+				)
+				if no_metrics_gap {
 					state.backend_gap_no_metrics += 1
-					state.last_metrics_ts_ms = now
+					state.last_metrics_ts_ms = next_metrics_ts
 				}
-				if state.last_ping_sent_ms > 0 && state.last_pong_ts_ms < state.last_ping_sent_ms &&
-					now - state.last_ping_sent_ms > PONG_TIMEOUT_MS {
+				pong_timeout_gap, next_pong_ts := md_common.detect_pong_timeout_gap(
+					state.last_ping_sent_ms, state.last_pong_ts_ms, now, PONG_TIMEOUT_MS,
+				)
+				if pong_timeout_gap {
 					state.backend_gap_pong_timeout += 1
-					state.last_pong_ts_ms = now
+					state.last_pong_ts_ms = next_pong_ts
 				}
 			}
 			if state.drop_count > 0 && state.drop_count % FREQUENT_DROP_THRESHOLD == 0 {
@@ -1265,18 +1270,16 @@ reader_thread_proc :: proc(t: ^thread.Thread) {
 		sync.unlock(&state.mu)
 
 		// Check RESYNC timeout: if pending and expired, fall back to unsub+resub.
-		if resync_pending != 0 && resync_ts > 0 {
-			now_resync := time.now()._nsec / 1_000_000
-			if now_resync - resync_ts > RESYNC_TIMEOUT_MS {
-				fmt.printf("[md-lifecycle] resync_timeout sid=%x — fallback to unsub+resub\n", resync_pending)
-				sync.lock(&state.mu)
-				state.backend_gap_resync_ack_timeout += 1
-				state.resync_pending_subject_id = 0
-				state.resync_sent_ms = 0
-				// Queue the subject for legacy resub.
-				state.desync_resub_subject_id = resync_pending
-				sync.unlock(&state.mu)
-			}
+		now_resync := time.now()._nsec / 1_000_000
+		if md_common.detect_resync_ack_timeout(resync_pending, resync_ts, now_resync, RESYNC_TIMEOUT_MS) {
+			fmt.printf("[md-lifecycle] resync_timeout sid=%x — fallback to unsub+resub\n", resync_pending)
+			sync.lock(&state.mu)
+			state.backend_gap_resync_ack_timeout += 1
+			state.resync_pending_subject_id = 0
+			state.resync_sent_ms = 0
+			// Queue the subject for legacy resub.
+			state.desync_resub_subject_id = resync_pending
+			sync.unlock(&state.mu)
 		}
 
 		if len(resub_subject) > 0 {
@@ -1476,27 +1479,28 @@ apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 			if parsed_now_ms >= result.meta.server_ts_ms {
 				state.last_lag_ms = parsed_now_ms - result.meta.server_ts_ms
 			}
-		} else if md_common.parse_result_has_data(result.kind) {
+		}
+		if md_common.missing_ts_server_gap(result.meta.has_ts_server, result.kind, state.transport_mode) {
 			state.backend_gap_missing_ts_server += 1
 		}
 		if result.meta.subject_id != 0 && result.meta.seq > 0 {
 			if si := find_sub_by_subject_id(state, result.meta.subject_id); si >= 0 {
 				prev_seq := state.last_seq_by_sub[si]
-				if prev_seq > 0 && (result.meta.seq > prev_seq + 1 || result.meta.seq < prev_seq) {
+				gap, next_streak, recurring := md_common.seq_gap_transition(prev_seq, result.meta.seq, state.seq_gap_streak, 3)
+				if gap {
 					state.desync = true
 					state.desync_reason = .Sequence_Gap
 					state.seq_gap_count += 1
-					state.seq_gap_streak += 1
-					if state.seq_gap_streak >= 3 {
+					state.seq_gap_streak = next_streak
+					if recurring {
 						state.backend_gap_seq_gap_recurring += 1
-						state.seq_gap_streak = 0
 					}
 					set_transport_state(state, .Desync)
 					if state.desync_resub_subject_id == 0 {
 						state.desync_resub_subject_id = result.meta.subject_id
 					}
 				} else {
-					state.seq_gap_streak = 0
+					state.seq_gap_streak = next_streak
 				}
 				state.last_seq_by_sub[si] = result.meta.seq
 				if result.meta.server_ts_ms > 0 {

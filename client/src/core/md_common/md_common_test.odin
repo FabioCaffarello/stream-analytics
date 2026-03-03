@@ -3,6 +3,8 @@ package md_common
 import "core:strings"
 import "core:testing"
 import "mr:ports"
+import "mr:services"
+import "mr:util"
 
 @(test)
 test_backoff_with_jitter_range :: proc(t: ^testing.T) {
@@ -188,4 +190,58 @@ test_legacy_switch_from_text :: proc(t: ^testing.T) {
 	testing.expect_value(t, legacy_switch_from_text("true"), true)
 	testing.expect_value(t, legacy_switch_from_text("OFF"), false)
 	testing.expect_value(t, legacy_switch_from_text("0"), false)
+}
+
+@(test)
+test_detect_no_metrics_gap :: proc(t: ^testing.T) {
+	triggered, next := detect_no_metrics_gap(1_000, 22_000, 20_000)
+	testing.expect_value(t, triggered, true)
+	testing.expect_value(t, next, i64(22_000))
+
+	triggered2, next2 := detect_no_metrics_gap(5_000, 10_000, 20_000)
+	testing.expect_value(t, triggered2, false)
+	testing.expect_value(t, next2, i64(5_000))
+}
+
+@(test)
+test_detect_pong_timeout_gap :: proc(t: ^testing.T) {
+	triggered, next := detect_pong_timeout_gap(10_000, 9_000, 26_000, 15_000)
+	testing.expect_value(t, triggered, true)
+	testing.expect_value(t, next, i64(26_000))
+
+	triggered2, _ := detect_pong_timeout_gap(10_000, 10_500, 26_000, 15_000)
+	testing.expect_value(t, triggered2, false)
+}
+
+@(test)
+test_detect_resync_ack_timeout :: proc(t: ^testing.T) {
+	testing.expect_value(t, detect_resync_ack_timeout(0, 1_000, 10_000, 5_000), false)
+	testing.expect_value(t, detect_resync_ack_timeout(0xAA, 1_000, 10_000, 5_000), true)
+	testing.expect_value(t, detect_resync_ack_timeout(0xAA, 7_000, 10_000, 5_000), false)
+}
+
+@(test)
+test_seq_gap_transition_recurring_threshold :: proc(t: ^testing.T) {
+	gap1, streak1, recurring1 := seq_gap_transition(10, 13, 0, 3)
+	testing.expect_value(t, gap1, true)
+	testing.expect_value(t, streak1, 1)
+	testing.expect_value(t, recurring1, false)
+
+	gap2, streak2, recurring2 := seq_gap_transition(13, 16, streak1, 3)
+	testing.expect_value(t, gap2, true)
+	testing.expect_value(t, streak2, 2)
+	testing.expect_value(t, recurring2, false)
+
+	gap3, streak3, recurring3 := seq_gap_transition(16, 20, streak2, 3)
+	testing.expect_value(t, gap3, true)
+	testing.expect_value(t, streak3, 0)
+	testing.expect_value(t, recurring3, true)
+}
+
+@(test)
+test_missing_ts_server_gap_terminal_v1_only :: proc(t: ^testing.T) {
+	testing.expect_value(t, missing_ts_server_gap(false, services.Parse_Result_Kind.Trade, util.Transport_Mode.Terminal_V1), true)
+	testing.expect_value(t, missing_ts_server_gap(true, services.Parse_Result_Kind.Trade, util.Transport_Mode.Terminal_V1), false)
+	testing.expect_value(t, missing_ts_server_gap(false, services.Parse_Result_Kind.Range_Candle, util.Transport_Mode.Terminal_V1), false)
+	testing.expect_value(t, missing_ts_server_gap(false, services.Parse_Result_Kind.Trade, util.Transport_Mode.Legacy_JSON), false)
 }

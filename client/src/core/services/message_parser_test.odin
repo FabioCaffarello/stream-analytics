@@ -134,6 +134,16 @@ test_parse_pong :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_parse_pong_missing_ts_server :: proc(t: ^testing.T) {
+	raw := `{"type":"pong","ts_client":1700000000000,"request_id":"p6"}`
+	result := parse_mr_message(transmute([]u8)raw, nil)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Pong)
+	testing.expect_value(t, result.data.pong.ts_server, i64(0))
+	testing.expect_value(t, result.data.pong.rtt_ms, i64(0))
+	free_all(context.temp_allocator)
+}
+
+@(test)
 test_parse_metrics :: proc(t: ^testing.T) {
 	raw := `{"type":"metrics","payload":{"ws_dropped_total":5,"ws_queue_len":42,"ws_lag_ms":15,"publish_to_deliver_latency_ms":8,"serialize_errors_total":1,"resync_total":2,"active_subscriptions":24,"messages_out_total":10000}}`
 	result := parse_mr_message(transmute([]u8)raw, nil)
@@ -147,6 +157,17 @@ test_parse_metrics :: proc(t: ^testing.T) {
 	testing.expect_value(t, m.resync_total, i64(2))
 	testing.expect_value(t, m.active_subscriptions, 24)
 	testing.expect_value(t, m.messages_out_total, i64(10000))
+	free_all(context.temp_allocator)
+}
+
+@(test)
+test_parse_metrics_missing_payload :: proc(t: ^testing.T) {
+	raw := `{"type":"metrics"}`
+	result := parse_mr_message(transmute([]u8)raw, nil)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Metrics)
+	m := result.data.server_metrics
+	testing.expect_value(t, m.ws_queue_len, 0)
+	testing.expect_value(t, m.messages_out_total, i64(0))
 	free_all(context.temp_allocator)
 }
 
@@ -171,6 +192,7 @@ test_parse_event_v2_envelope_ts_server :: proc(t: ^testing.T) {
 	testing.expect_value(t, result.kind, Parse_Result_Kind.Trade)
 	// ts_server should be preferred.
 	testing.expect_value(t, result.meta.server_ts_ms, i64(1700000000050))
+	testing.expect_value(t, result.meta.has_ts_server, true)
 	testing.expect_value(t, result.meta.seq, i64(42))
 	free_all(context.temp_allocator)
 }
@@ -192,5 +214,17 @@ test_parse_legacy_envelope_no_ts_server :: proc(t: ^testing.T) {
 	result := parse_mr_message(transmute([]u8)raw, nil)
 	testing.expect_value(t, result.kind, Parse_Result_Kind.Trade)
 	testing.expect_value(t, result.meta.server_ts_ms, i64(1700000000000))
+	testing.expect_value(t, result.meta.has_ts_server, false)
+	free_all(context.temp_allocator)
+}
+
+@(test)
+test_parse_ack_missing_subject_stream_id :: proc(t: ^testing.T) {
+	raw := `{"type":"ack","op":"subscribe","request_id":"a1"}`
+	result := parse_mr_message(transmute([]u8)raw, nil)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Ack)
+	testing.expect_value(t, result.data.ack.op, "subscribe")
+	testing.expect_value(t, result.data.ack.subject, "")
+	testing.expect_value(t, result.data.ack.stream_id, "")
 	free_all(context.temp_allocator)
 }

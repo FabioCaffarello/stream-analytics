@@ -62,7 +62,7 @@ const IDLE_QUIET_MS = 250;
 function defaultWsUrlForCurrentOrigin() {
     const proto = window.location.protocol === "https:" ? "wss" : "ws";
     const host = window.location.host || "127.0.0.1:8090";
-    return `${proto}://${host}/ws/marketdata`;
+    return `${proto}://${host}/ws`;
 }
 
 const SETTINGS_STORAGE_PREFIX = "mr.settings.";

@@ -266,6 +266,61 @@ parse_result_has_data :: proc(kind: services.Parse_Result_Kind) -> bool {
 	return false
 }
 
+parse_result_requires_ts_server :: proc(kind: services.Parse_Result_Kind) -> bool {
+	switch kind {
+	case .Trade, .Orderbook, .Stats, .Heatmap, .VPVR, .Candle:
+		return true
+	case .None, .Range_Candle, .Ack, .Hello, .Heartbeat, .Health, .Error, .Pong, .Metrics:
+		return false
+	}
+	return false
+}
+
+missing_ts_server_gap :: proc(
+	has_ts_server: bool,
+	kind: services.Parse_Result_Kind,
+	mode: util.Transport_Mode,
+) -> bool {
+	if mode != .Terminal_V1 do return false
+	if !parse_result_requires_ts_server(kind) do return false
+	return !has_ts_server
+}
+
+detect_no_metrics_gap :: proc(last_metrics_ts_ms, now_ms, stale_ms: i64) -> (bool, i64) {
+	if last_metrics_ts_ms <= 0 || stale_ms <= 0 do return false, last_metrics_ts_ms
+	if now_ms-last_metrics_ts_ms <= stale_ms do return false, last_metrics_ts_ms
+	return true, now_ms
+}
+
+detect_pong_timeout_gap :: proc(last_ping_sent_ms, last_pong_ts_ms, now_ms, timeout_ms: i64) -> (bool, i64) {
+	if last_ping_sent_ms <= 0 || timeout_ms <= 0 do return false, last_pong_ts_ms
+	if last_pong_ts_ms >= last_ping_sent_ms do return false, last_pong_ts_ms
+	if now_ms-last_ping_sent_ms <= timeout_ms do return false, last_pong_ts_ms
+	return true, now_ms
+}
+
+detect_resync_ack_timeout :: proc(
+	resync_pending_subject_id: u64,
+	resync_sent_ms, now_ms, timeout_ms: i64,
+) -> bool {
+	if resync_pending_subject_id == 0 do return false
+	if resync_sent_ms <= 0 || timeout_ms <= 0 do return false
+	return now_ms-resync_sent_ms > timeout_ms
+}
+
+seq_gap_transition :: proc(prev_seq, next_seq: i64, streak, recurring_threshold: int) -> (bool, int, bool) {
+	if prev_seq <= 0 || next_seq <= 0 do return false, 0, false
+	if next_seq == prev_seq+1 do return false, 0, false
+	if next_seq > prev_seq+1 || next_seq < prev_seq {
+		next_streak := streak + 1
+		if recurring_threshold > 0 && next_streak >= recurring_threshold {
+			return true, 0, true
+		}
+		return true, next_streak, false
+	}
+	return false, 0, false
+}
+
 // --- Hello rejection → desync reason ---
 
 desync_reason_from_hello_reject :: proc(reject: services.Hello_Reject_Reason) -> ports.MD_Desync_Reason {

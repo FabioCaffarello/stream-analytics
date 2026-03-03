@@ -196,6 +196,7 @@ Parse_Result_Data :: struct #raw_union {
 Parse_Result_Meta :: struct {
 	seq:          i64,
 	server_ts_ms: i64,
+	has_ts_server: bool,
 	subject_id:   u64,
 	is_snapshot:  bool,
 }
@@ -230,6 +231,7 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 	result.meta.seq = env.seq
 	// Prefer ts_server (Terminal_V1) over ts_ingest (legacy).
 	result.meta.server_ts_ms = env.ts_server if env.ts_server > 0 else env.ts_ingest
+	result.meta.has_ts_server = env.ts_server > 0
 	result.meta.subject_id = util.subject_id64(env.subject)
 
 	ft := util.parse_frame_type(env.type_str)
