@@ -66,6 +66,24 @@ enum ErrorCode {
   reserved 100 to 199;
 }
 
+// ActionHint suggests client recovery behavior for error conditions.
+enum ActionHint {
+  // ACTION_HINT_UNSPECIFIED indicates no recovery guidance.
+  ACTION_HINT_UNSPECIFIED = 0;
+  // ACTION_HINT_NONE indicates no action is needed.
+  ACTION_HINT_NONE = 1;
+  // ACTION_HINT_RETRY indicates the client should retry the operation.
+  ACTION_HINT_RETRY = 2;
+  // ACTION_HINT_RECONNECT indicates the client should reconnect.
+  ACTION_HINT_RECONNECT = 3;
+  // ACTION_HINT_RESUBSCRIBE indicates the client should resubscribe to the affected stream.
+  ACTION_HINT_RESUBSCRIBE = 4;
+  // ACTION_HINT_RESYNC indicates the client should send a resync request.
+  ACTION_HINT_RESYNC = 5;
+
+  reserved 100 to 199;
+}
+
 // StreamMeta is attached to every outbound stream event and snapshot.
 message StreamMeta {
   // protocol_version identifies wire protocol version.
@@ -98,6 +116,8 @@ message ClientHello {
   string client_version = 3;
   // request_id is optional correlation id.
   string request_id = 4;
+  // requested_features lists optional protocol features the client wants to enable.
+  repeated string requested_features = 5;
 
   reserved 100 to 199;
 }
@@ -173,6 +193,18 @@ message ClientFrame {
   reserved 100 to 199;
 }
 
+// OperationRateLimit describes per-session command rate limiting parameters.
+message OperationRateLimit {
+  // enabled indicates whether rate limiting is active.
+  bool enabled = 1;
+  // max_per_second is the sustained token refill rate.
+  uint32 max_per_second = 2;
+  // burst_capacity is the maximum burst token count.
+  uint32 burst_capacity = 3;
+
+  reserved 100 to 199;
+}
+
 // CapabilitySnapshot describes advertised server capabilities.
 message CapabilitySnapshot {
   // venues is the list of supported venues.
@@ -181,6 +213,20 @@ message CapabilitySnapshot {
   repeated Channel channels = 2;
   // max_subscriptions_per_connection is server-side hard cap.
   uint32 max_subscriptions_per_connection = 3;
+  // max_symbols_per_connection bounds unique symbols per session.
+  uint32 max_symbols_per_connection = 4;
+  // max_frame_bytes is the maximum outbound frame size in bytes.
+  uint32 max_frame_bytes = 5;
+  // outbound_queue_size is the bounded outbound delivery queue capacity.
+  uint32 outbound_queue_size = 6;
+  // metrics_cadence_ms is the server metrics emission interval in milliseconds.
+  uint32 metrics_cadence_ms = 7;
+  // keepalive_interval_ms is the server ping/pong keepalive interval in milliseconds.
+  uint32 keepalive_interval_ms = 8;
+  // rate_limit describes per-session command rate limiting parameters.
+  OperationRateLimit rate_limit = 9;
+  // supported_features lists optional protocol features the server supports.
+  repeated string supported_features = 10;
 
   reserved 100 to 199;
 }
@@ -233,6 +279,8 @@ message ServerError {
   ErrorCode code = 3;
   // message is human-readable error detail.
   string message = 4;
+  // action_hint suggests client recovery behavior.
+  ActionHint action_hint = 5;
 
   reserved 100 to 199;
 }
@@ -243,6 +291,9 @@ message MarketEvent {
   StreamMeta meta = 1;
   // payload_json is JSON payload bytes.
   bytes payload_json = 2;
+  // prev_seq is the previous event seq for the same subject within this session.
+  // 0 means first event or legacy (no previous).
+  int64 prev_seq = 3;
 
   reserved 100 to 199;
 }
@@ -253,6 +304,12 @@ message SnapshotEvent {
   StreamMeta meta = 1;
   // payload_json is JSON payload bytes.
   bytes payload_json = 2;
+  // snapshot_seq is a per-session per-subject snapshot counter (1-indexed).
+  int64 snapshot_seq = 3;
+  // watermark_seq is the highest confirmed upstream seq at snapshot time.
+  int64 watermark_seq = 4;
+  // snapshot_hash is FNV-1a hex digest of the payload (optional integrity check).
+  string snapshot_hash = 5;
 
   reserved 100 to 199;
 }
@@ -269,6 +326,27 @@ message StreamMetrics {
   uint64 drop_count = 4;
   // reconnect_hint is optional reconnect guidance.
   string reconnect_hint = 5;
+  // backpressure_level indicates queue pressure: 0=ok, 1=elevated, 2=high, 3=critical.
+  uint32 backpressure_level = 6;
+  // recommended_action suggests client behavior: "none", "reduce_subscriptions", "reconnect".
+  string recommended_action = 7;
+  // queue_capacity is the outbound queue capacity for the session.
+  uint32 queue_capacity = 8;
+  // queue_high_watermark is the peak queue depth since last metrics emission.
+  uint32 queue_high_watermark = 9;
+
+  reserved 100 to 199;
+}
+
+// BatchedFrame wraps multiple server frames for coalesced delivery.
+// Reserved for future use; documented as part of feature negotiation.
+message BatchedFrame {
+  // items is the list of server frames in this batch.
+  repeated ServerFrame items = 1;
+  // first_seq is the lowest event seq in the batch.
+  int64 first_seq = 2;
+  // last_seq is the highest event seq in the batch.
+  int64 last_seq = 3;
 
   reserved 100 to 199;
 }
@@ -291,6 +369,8 @@ message ServerFrame {
     SnapshotEvent snapshot = 6;
     // metrics carries stream QoS sample.
     StreamMetrics metrics = 7;
+    // batch carries coalesced server frames.
+    BatchedFrame batch = 8;
   }
 
   reserved 100 to 199;

@@ -236,6 +236,71 @@ func (ErrorCode) EnumDescriptor() ([]byte, []int) {
 	return file_delivery_v1_terminal_proto_rawDescGZIP(), []int{2}
 }
 
+// ActionHint suggests client recovery behavior for error conditions.
+type ActionHint int32
+
+const (
+	// ACTION_HINT_UNSPECIFIED indicates no recovery guidance.
+	ActionHint_ACTION_HINT_UNSPECIFIED ActionHint = 0
+	// ACTION_HINT_NONE indicates no action is needed.
+	ActionHint_ACTION_HINT_NONE ActionHint = 1
+	// ACTION_HINT_RETRY indicates the client should retry the operation.
+	ActionHint_ACTION_HINT_RETRY ActionHint = 2
+	// ACTION_HINT_RECONNECT indicates the client should reconnect.
+	ActionHint_ACTION_HINT_RECONNECT ActionHint = 3
+	// ACTION_HINT_RESUBSCRIBE indicates the client should resubscribe to the affected stream.
+	ActionHint_ACTION_HINT_RESUBSCRIBE ActionHint = 4
+	// ACTION_HINT_RESYNC indicates the client should send a resync request.
+	ActionHint_ACTION_HINT_RESYNC ActionHint = 5
+)
+
+// Enum value maps for ActionHint.
+var (
+	ActionHint_name = map[int32]string{
+		0: "ACTION_HINT_UNSPECIFIED",
+		1: "ACTION_HINT_NONE",
+		2: "ACTION_HINT_RETRY",
+		3: "ACTION_HINT_RECONNECT",
+		4: "ACTION_HINT_RESUBSCRIBE",
+		5: "ACTION_HINT_RESYNC",
+	}
+	ActionHint_value = map[string]int32{
+		"ACTION_HINT_UNSPECIFIED": 0,
+		"ACTION_HINT_NONE":        1,
+		"ACTION_HINT_RETRY":       2,
+		"ACTION_HINT_RECONNECT":   3,
+		"ACTION_HINT_RESUBSCRIBE": 4,
+		"ACTION_HINT_RESYNC":      5,
+	}
+)
+
+func (x ActionHint) Enum() *ActionHint {
+	p := new(ActionHint)
+	*p = x
+	return p
+}
+
+func (x ActionHint) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ActionHint) Descriptor() protoreflect.EnumDescriptor {
+	return file_delivery_v1_terminal_proto_enumTypes[3].Descriptor()
+}
+
+func (ActionHint) Type() protoreflect.EnumType {
+	return &file_delivery_v1_terminal_proto_enumTypes[3]
+}
+
+func (x ActionHint) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ActionHint.Descriptor instead.
+func (ActionHint) EnumDescriptor() ([]byte, []int) {
+	return file_delivery_v1_terminal_proto_rawDescGZIP(), []int{3}
+}
+
 // StreamMeta is attached to every outbound stream event and snapshot.
 type StreamMeta struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -355,9 +420,11 @@ type ClientHello struct {
 	// client_version is optional terminal version.
 	ClientVersion string `protobuf:"bytes,3,opt,name=client_version,json=clientVersion,proto3" json:"client_version,omitempty"`
 	// request_id is optional correlation id.
-	RequestId     string `protobuf:"bytes,4,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	RequestId string `protobuf:"bytes,4,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	// requested_features lists optional protocol features the client wants to enable.
+	RequestedFeatures []string `protobuf:"bytes,5,rep,name=requested_features,json=requestedFeatures,proto3" json:"requested_features,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *ClientHello) Reset() {
@@ -416,6 +483,13 @@ func (x *ClientHello) GetRequestId() string {
 		return x.RequestId
 	}
 	return ""
+}
+
+func (x *ClientHello) GetRequestedFeatures() []string {
+	if x != nil {
+		return x.RequestedFeatures
+	}
+	return nil
 }
 
 // ClientSubscribe subscribes to one filtered stream.
@@ -830,6 +904,70 @@ func (*ClientFrame_Ping) isClientFrame_Frame() {}
 
 func (*ClientFrame_Resync) isClientFrame_Frame() {}
 
+// OperationRateLimit describes per-session command rate limiting parameters.
+type OperationRateLimit struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// enabled indicates whether rate limiting is active.
+	Enabled bool `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	// max_per_second is the sustained token refill rate.
+	MaxPerSecond uint32 `protobuf:"varint,2,opt,name=max_per_second,json=maxPerSecond,proto3" json:"max_per_second,omitempty"`
+	// burst_capacity is the maximum burst token count.
+	BurstCapacity uint32 `protobuf:"varint,3,opt,name=burst_capacity,json=burstCapacity,proto3" json:"burst_capacity,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OperationRateLimit) Reset() {
+	*x = OperationRateLimit{}
+	mi := &file_delivery_v1_terminal_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OperationRateLimit) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OperationRateLimit) ProtoMessage() {}
+
+func (x *OperationRateLimit) ProtoReflect() protoreflect.Message {
+	mi := &file_delivery_v1_terminal_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OperationRateLimit.ProtoReflect.Descriptor instead.
+func (*OperationRateLimit) Descriptor() ([]byte, []int) {
+	return file_delivery_v1_terminal_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *OperationRateLimit) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+func (x *OperationRateLimit) GetMaxPerSecond() uint32 {
+	if x != nil {
+		return x.MaxPerSecond
+	}
+	return 0
+}
+
+func (x *OperationRateLimit) GetBurstCapacity() uint32 {
+	if x != nil {
+		return x.BurstCapacity
+	}
+	return 0
+}
+
 // CapabilitySnapshot describes advertised server capabilities.
 type CapabilitySnapshot struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -839,13 +977,27 @@ type CapabilitySnapshot struct {
 	Channels []Channel `protobuf:"varint,2,rep,packed,name=channels,proto3,enum=delivery.v1.Channel" json:"channels,omitempty"`
 	// max_subscriptions_per_connection is server-side hard cap.
 	MaxSubscriptionsPerConnection uint32 `protobuf:"varint,3,opt,name=max_subscriptions_per_connection,json=maxSubscriptionsPerConnection,proto3" json:"max_subscriptions_per_connection,omitempty"`
-	unknownFields                 protoimpl.UnknownFields
-	sizeCache                     protoimpl.SizeCache
+	// max_symbols_per_connection bounds unique symbols per session.
+	MaxSymbolsPerConnection uint32 `protobuf:"varint,4,opt,name=max_symbols_per_connection,json=maxSymbolsPerConnection,proto3" json:"max_symbols_per_connection,omitempty"`
+	// max_frame_bytes is the maximum outbound frame size in bytes.
+	MaxFrameBytes uint32 `protobuf:"varint,5,opt,name=max_frame_bytes,json=maxFrameBytes,proto3" json:"max_frame_bytes,omitempty"`
+	// outbound_queue_size is the bounded outbound delivery queue capacity.
+	OutboundQueueSize uint32 `protobuf:"varint,6,opt,name=outbound_queue_size,json=outboundQueueSize,proto3" json:"outbound_queue_size,omitempty"`
+	// metrics_cadence_ms is the server metrics emission interval in milliseconds.
+	MetricsCadenceMs uint32 `protobuf:"varint,7,opt,name=metrics_cadence_ms,json=metricsCadenceMs,proto3" json:"metrics_cadence_ms,omitempty"`
+	// keepalive_interval_ms is the server ping/pong keepalive interval in milliseconds.
+	KeepaliveIntervalMs uint32 `protobuf:"varint,8,opt,name=keepalive_interval_ms,json=keepaliveIntervalMs,proto3" json:"keepalive_interval_ms,omitempty"`
+	// rate_limit describes per-session command rate limiting parameters.
+	RateLimit *OperationRateLimit `protobuf:"bytes,9,opt,name=rate_limit,json=rateLimit,proto3" json:"rate_limit,omitempty"`
+	// supported_features lists optional protocol features the server supports.
+	SupportedFeatures []string `protobuf:"bytes,10,rep,name=supported_features,json=supportedFeatures,proto3" json:"supported_features,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *CapabilitySnapshot) Reset() {
 	*x = CapabilitySnapshot{}
-	mi := &file_delivery_v1_terminal_proto_msgTypes[7]
+	mi := &file_delivery_v1_terminal_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -857,7 +1009,7 @@ func (x *CapabilitySnapshot) String() string {
 func (*CapabilitySnapshot) ProtoMessage() {}
 
 func (x *CapabilitySnapshot) ProtoReflect() protoreflect.Message {
-	mi := &file_delivery_v1_terminal_proto_msgTypes[7]
+	mi := &file_delivery_v1_terminal_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -870,7 +1022,7 @@ func (x *CapabilitySnapshot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CapabilitySnapshot.ProtoReflect.Descriptor instead.
 func (*CapabilitySnapshot) Descriptor() ([]byte, []int) {
-	return file_delivery_v1_terminal_proto_rawDescGZIP(), []int{7}
+	return file_delivery_v1_terminal_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *CapabilitySnapshot) GetVenues() []string {
@@ -894,6 +1046,55 @@ func (x *CapabilitySnapshot) GetMaxSubscriptionsPerConnection() uint32 {
 	return 0
 }
 
+func (x *CapabilitySnapshot) GetMaxSymbolsPerConnection() uint32 {
+	if x != nil {
+		return x.MaxSymbolsPerConnection
+	}
+	return 0
+}
+
+func (x *CapabilitySnapshot) GetMaxFrameBytes() uint32 {
+	if x != nil {
+		return x.MaxFrameBytes
+	}
+	return 0
+}
+
+func (x *CapabilitySnapshot) GetOutboundQueueSize() uint32 {
+	if x != nil {
+		return x.OutboundQueueSize
+	}
+	return 0
+}
+
+func (x *CapabilitySnapshot) GetMetricsCadenceMs() uint32 {
+	if x != nil {
+		return x.MetricsCadenceMs
+	}
+	return 0
+}
+
+func (x *CapabilitySnapshot) GetKeepaliveIntervalMs() uint32 {
+	if x != nil {
+		return x.KeepaliveIntervalMs
+	}
+	return 0
+}
+
+func (x *CapabilitySnapshot) GetRateLimit() *OperationRateLimit {
+	if x != nil {
+		return x.RateLimit
+	}
+	return nil
+}
+
+func (x *CapabilitySnapshot) GetSupportedFeatures() []string {
+	if x != nil {
+		return x.SupportedFeatures
+	}
+	return nil
+}
+
 // ServerHello confirms protocol and server identity.
 type ServerHello struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -911,7 +1112,7 @@ type ServerHello struct {
 
 func (x *ServerHello) Reset() {
 	*x = ServerHello{}
-	mi := &file_delivery_v1_terminal_proto_msgTypes[8]
+	mi := &file_delivery_v1_terminal_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -923,7 +1124,7 @@ func (x *ServerHello) String() string {
 func (*ServerHello) ProtoMessage() {}
 
 func (x *ServerHello) ProtoReflect() protoreflect.Message {
-	mi := &file_delivery_v1_terminal_proto_msgTypes[8]
+	mi := &file_delivery_v1_terminal_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -936,7 +1137,7 @@ func (x *ServerHello) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerHello.ProtoReflect.Descriptor instead.
 func (*ServerHello) Descriptor() ([]byte, []int) {
-	return file_delivery_v1_terminal_proto_rawDescGZIP(), []int{8}
+	return file_delivery_v1_terminal_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ServerHello) GetProtocolVersion() WireProtocolVersion {
@@ -982,7 +1183,7 @@ type ServerPong struct {
 
 func (x *ServerPong) Reset() {
 	*x = ServerPong{}
-	mi := &file_delivery_v1_terminal_proto_msgTypes[9]
+	mi := &file_delivery_v1_terminal_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -994,7 +1195,7 @@ func (x *ServerPong) String() string {
 func (*ServerPong) ProtoMessage() {}
 
 func (x *ServerPong) ProtoReflect() protoreflect.Message {
-	mi := &file_delivery_v1_terminal_proto_msgTypes[9]
+	mi := &file_delivery_v1_terminal_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1007,7 +1208,7 @@ func (x *ServerPong) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerPong.ProtoReflect.Descriptor instead.
 func (*ServerPong) Descriptor() ([]byte, []int) {
-	return file_delivery_v1_terminal_proto_rawDescGZIP(), []int{9}
+	return file_delivery_v1_terminal_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ServerPong) GetRequestId() string {
@@ -1046,7 +1247,7 @@ type ServerAck struct {
 
 func (x *ServerAck) Reset() {
 	*x = ServerAck{}
-	mi := &file_delivery_v1_terminal_proto_msgTypes[10]
+	mi := &file_delivery_v1_terminal_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1058,7 +1259,7 @@ func (x *ServerAck) String() string {
 func (*ServerAck) ProtoMessage() {}
 
 func (x *ServerAck) ProtoReflect() protoreflect.Message {
-	mi := &file_delivery_v1_terminal_proto_msgTypes[10]
+	mi := &file_delivery_v1_terminal_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1071,7 +1272,7 @@ func (x *ServerAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerAck.ProtoReflect.Descriptor instead.
 func (*ServerAck) Descriptor() ([]byte, []int) {
-	return file_delivery_v1_terminal_proto_rawDescGZIP(), []int{10}
+	return file_delivery_v1_terminal_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ServerAck) GetRequestId() string {
@@ -1105,14 +1306,16 @@ type ServerError struct {
 	// code is stable machine-readable error code.
 	Code ErrorCode `protobuf:"varint,3,opt,name=code,proto3,enum=delivery.v1.ErrorCode" json:"code,omitempty"`
 	// message is human-readable error detail.
-	Message       string `protobuf:"bytes,4,opt,name=message,proto3" json:"message,omitempty"`
+	Message string `protobuf:"bytes,4,opt,name=message,proto3" json:"message,omitempty"`
+	// action_hint suggests client recovery behavior.
+	ActionHint    ActionHint `protobuf:"varint,5,opt,name=action_hint,json=actionHint,proto3,enum=delivery.v1.ActionHint" json:"action_hint,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ServerError) Reset() {
 	*x = ServerError{}
-	mi := &file_delivery_v1_terminal_proto_msgTypes[11]
+	mi := &file_delivery_v1_terminal_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1124,7 +1327,7 @@ func (x *ServerError) String() string {
 func (*ServerError) ProtoMessage() {}
 
 func (x *ServerError) ProtoReflect() protoreflect.Message {
-	mi := &file_delivery_v1_terminal_proto_msgTypes[11]
+	mi := &file_delivery_v1_terminal_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1137,7 +1340,7 @@ func (x *ServerError) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerError.ProtoReflect.Descriptor instead.
 func (*ServerError) Descriptor() ([]byte, []int) {
-	return file_delivery_v1_terminal_proto_rawDescGZIP(), []int{11}
+	return file_delivery_v1_terminal_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ServerError) GetRequestId() string {
@@ -1168,20 +1371,30 @@ func (x *ServerError) GetMessage() string {
 	return ""
 }
 
+func (x *ServerError) GetActionHint() ActionHint {
+	if x != nil {
+		return x.ActionHint
+	}
+	return ActionHint_ACTION_HINT_UNSPECIFIED
+}
+
 // MarketEvent carries normalized payload bytes plus stream metadata.
 type MarketEvent struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// meta carries deterministic stream metadata.
 	Meta *StreamMeta `protobuf:"bytes,1,opt,name=meta,proto3" json:"meta,omitempty"`
 	// payload_json is JSON payload bytes.
-	PayloadJson   []byte `protobuf:"bytes,2,opt,name=payload_json,json=payloadJson,proto3" json:"payload_json,omitempty"`
+	PayloadJson []byte `protobuf:"bytes,2,opt,name=payload_json,json=payloadJson,proto3" json:"payload_json,omitempty"`
+	// prev_seq is the previous event seq for the same subject within this session.
+	// 0 means first event or legacy (no previous).
+	PrevSeq       int64 `protobuf:"varint,3,opt,name=prev_seq,json=prevSeq,proto3" json:"prev_seq,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *MarketEvent) Reset() {
 	*x = MarketEvent{}
-	mi := &file_delivery_v1_terminal_proto_msgTypes[12]
+	mi := &file_delivery_v1_terminal_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1193,7 +1406,7 @@ func (x *MarketEvent) String() string {
 func (*MarketEvent) ProtoMessage() {}
 
 func (x *MarketEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_delivery_v1_terminal_proto_msgTypes[12]
+	mi := &file_delivery_v1_terminal_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1206,7 +1419,7 @@ func (x *MarketEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MarketEvent.ProtoReflect.Descriptor instead.
 func (*MarketEvent) Descriptor() ([]byte, []int) {
-	return file_delivery_v1_terminal_proto_rawDescGZIP(), []int{12}
+	return file_delivery_v1_terminal_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *MarketEvent) GetMeta() *StreamMeta {
@@ -1223,20 +1436,33 @@ func (x *MarketEvent) GetPayloadJson() []byte {
 	return nil
 }
 
+func (x *MarketEvent) GetPrevSeq() int64 {
+	if x != nil {
+		return x.PrevSeq
+	}
+	return 0
+}
+
 // SnapshotEvent is used for subscribe/resync deterministic bootstrap.
 type SnapshotEvent struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// meta carries deterministic stream metadata.
 	Meta *StreamMeta `protobuf:"bytes,1,opt,name=meta,proto3" json:"meta,omitempty"`
 	// payload_json is JSON payload bytes.
-	PayloadJson   []byte `protobuf:"bytes,2,opt,name=payload_json,json=payloadJson,proto3" json:"payload_json,omitempty"`
+	PayloadJson []byte `protobuf:"bytes,2,opt,name=payload_json,json=payloadJson,proto3" json:"payload_json,omitempty"`
+	// snapshot_seq is a per-session per-subject snapshot counter (1-indexed).
+	SnapshotSeq int64 `protobuf:"varint,3,opt,name=snapshot_seq,json=snapshotSeq,proto3" json:"snapshot_seq,omitempty"`
+	// watermark_seq is the highest confirmed upstream seq at snapshot time.
+	WatermarkSeq int64 `protobuf:"varint,4,opt,name=watermark_seq,json=watermarkSeq,proto3" json:"watermark_seq,omitempty"`
+	// snapshot_hash is FNV-1a hex digest of the payload (optional integrity check).
+	SnapshotHash  string `protobuf:"bytes,5,opt,name=snapshot_hash,json=snapshotHash,proto3" json:"snapshot_hash,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SnapshotEvent) Reset() {
 	*x = SnapshotEvent{}
-	mi := &file_delivery_v1_terminal_proto_msgTypes[13]
+	mi := &file_delivery_v1_terminal_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1248,7 +1474,7 @@ func (x *SnapshotEvent) String() string {
 func (*SnapshotEvent) ProtoMessage() {}
 
 func (x *SnapshotEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_delivery_v1_terminal_proto_msgTypes[13]
+	mi := &file_delivery_v1_terminal_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1261,7 +1487,7 @@ func (x *SnapshotEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SnapshotEvent.ProtoReflect.Descriptor instead.
 func (*SnapshotEvent) Descriptor() ([]byte, []int) {
-	return file_delivery_v1_terminal_proto_rawDescGZIP(), []int{13}
+	return file_delivery_v1_terminal_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *SnapshotEvent) GetMeta() *StreamMeta {
@@ -1278,6 +1504,27 @@ func (x *SnapshotEvent) GetPayloadJson() []byte {
 	return nil
 }
 
+func (x *SnapshotEvent) GetSnapshotSeq() int64 {
+	if x != nil {
+		return x.SnapshotSeq
+	}
+	return 0
+}
+
+func (x *SnapshotEvent) GetWatermarkSeq() int64 {
+	if x != nil {
+		return x.WatermarkSeq
+	}
+	return 0
+}
+
+func (x *SnapshotEvent) GetSnapshotHash() string {
+	if x != nil {
+		return x.SnapshotHash
+	}
+	return ""
+}
+
 // StreamMetrics exposes per-stream quality metrics to clients.
 type StreamMetrics struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1291,13 +1538,21 @@ type StreamMetrics struct {
 	DropCount uint64 `protobuf:"varint,4,opt,name=drop_count,json=dropCount,proto3" json:"drop_count,omitempty"`
 	// reconnect_hint is optional reconnect guidance.
 	ReconnectHint string `protobuf:"bytes,5,opt,name=reconnect_hint,json=reconnectHint,proto3" json:"reconnect_hint,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// backpressure_level indicates queue pressure: 0=ok, 1=elevated, 2=high, 3=critical.
+	BackpressureLevel uint32 `protobuf:"varint,6,opt,name=backpressure_level,json=backpressureLevel,proto3" json:"backpressure_level,omitempty"`
+	// recommended_action suggests client behavior: "none", "reduce_subscriptions", "reconnect".
+	RecommendedAction string `protobuf:"bytes,7,opt,name=recommended_action,json=recommendedAction,proto3" json:"recommended_action,omitempty"`
+	// queue_capacity is the outbound queue capacity for the session.
+	QueueCapacity uint32 `protobuf:"varint,8,opt,name=queue_capacity,json=queueCapacity,proto3" json:"queue_capacity,omitempty"`
+	// queue_high_watermark is the peak queue depth since last metrics emission.
+	QueueHighWatermark uint32 `protobuf:"varint,9,opt,name=queue_high_watermark,json=queueHighWatermark,proto3" json:"queue_high_watermark,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *StreamMetrics) Reset() {
 	*x = StreamMetrics{}
-	mi := &file_delivery_v1_terminal_proto_msgTypes[14]
+	mi := &file_delivery_v1_terminal_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1309,7 +1564,7 @@ func (x *StreamMetrics) String() string {
 func (*StreamMetrics) ProtoMessage() {}
 
 func (x *StreamMetrics) ProtoReflect() protoreflect.Message {
-	mi := &file_delivery_v1_terminal_proto_msgTypes[14]
+	mi := &file_delivery_v1_terminal_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1322,7 +1577,7 @@ func (x *StreamMetrics) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamMetrics.ProtoReflect.Descriptor instead.
 func (*StreamMetrics) Descriptor() ([]byte, []int) {
-	return file_delivery_v1_terminal_proto_rawDescGZIP(), []int{14}
+	return file_delivery_v1_terminal_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *StreamMetrics) GetMeta() *StreamMeta {
@@ -1360,6 +1615,99 @@ func (x *StreamMetrics) GetReconnectHint() string {
 	return ""
 }
 
+func (x *StreamMetrics) GetBackpressureLevel() uint32 {
+	if x != nil {
+		return x.BackpressureLevel
+	}
+	return 0
+}
+
+func (x *StreamMetrics) GetRecommendedAction() string {
+	if x != nil {
+		return x.RecommendedAction
+	}
+	return ""
+}
+
+func (x *StreamMetrics) GetQueueCapacity() uint32 {
+	if x != nil {
+		return x.QueueCapacity
+	}
+	return 0
+}
+
+func (x *StreamMetrics) GetQueueHighWatermark() uint32 {
+	if x != nil {
+		return x.QueueHighWatermark
+	}
+	return 0
+}
+
+// BatchedFrame wraps multiple server frames for coalesced delivery.
+// Reserved for future use; documented as part of feature negotiation.
+type BatchedFrame struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// items is the list of server frames in this batch.
+	Items []*ServerFrame `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	// first_seq is the lowest event seq in the batch.
+	FirstSeq int64 `protobuf:"varint,2,opt,name=first_seq,json=firstSeq,proto3" json:"first_seq,omitempty"`
+	// last_seq is the highest event seq in the batch.
+	LastSeq       int64 `protobuf:"varint,3,opt,name=last_seq,json=lastSeq,proto3" json:"last_seq,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BatchedFrame) Reset() {
+	*x = BatchedFrame{}
+	mi := &file_delivery_v1_terminal_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BatchedFrame) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BatchedFrame) ProtoMessage() {}
+
+func (x *BatchedFrame) ProtoReflect() protoreflect.Message {
+	mi := &file_delivery_v1_terminal_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BatchedFrame.ProtoReflect.Descriptor instead.
+func (*BatchedFrame) Descriptor() ([]byte, []int) {
+	return file_delivery_v1_terminal_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *BatchedFrame) GetItems() []*ServerFrame {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+func (x *BatchedFrame) GetFirstSeq() int64 {
+	if x != nil {
+		return x.FirstSeq
+	}
+	return 0
+}
+
+func (x *BatchedFrame) GetLastSeq() int64 {
+	if x != nil {
+		return x.LastSeq
+	}
+	return 0
+}
+
 // ServerFrame wraps all server->client operations.
 type ServerFrame struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1374,6 +1722,7 @@ type ServerFrame struct {
 	//	*ServerFrame_Event
 	//	*ServerFrame_Snapshot
 	//	*ServerFrame_Metrics
+	//	*ServerFrame_Batch
 	Frame         isServerFrame_Frame `protobuf_oneof:"frame"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1381,7 +1730,7 @@ type ServerFrame struct {
 
 func (x *ServerFrame) Reset() {
 	*x = ServerFrame{}
-	mi := &file_delivery_v1_terminal_proto_msgTypes[15]
+	mi := &file_delivery_v1_terminal_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1393,7 +1742,7 @@ func (x *ServerFrame) String() string {
 func (*ServerFrame) ProtoMessage() {}
 
 func (x *ServerFrame) ProtoReflect() protoreflect.Message {
-	mi := &file_delivery_v1_terminal_proto_msgTypes[15]
+	mi := &file_delivery_v1_terminal_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1406,7 +1755,7 @@ func (x *ServerFrame) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerFrame.ProtoReflect.Descriptor instead.
 func (*ServerFrame) Descriptor() ([]byte, []int) {
-	return file_delivery_v1_terminal_proto_rawDescGZIP(), []int{15}
+	return file_delivery_v1_terminal_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ServerFrame) GetFrame() isServerFrame_Frame {
@@ -1479,6 +1828,15 @@ func (x *ServerFrame) GetMetrics() *StreamMetrics {
 	return nil
 }
 
+func (x *ServerFrame) GetBatch() *BatchedFrame {
+	if x != nil {
+		if x, ok := x.Frame.(*ServerFrame_Batch); ok {
+			return x.Batch
+		}
+	}
+	return nil
+}
+
 type isServerFrame_Frame interface {
 	isServerFrame_Frame()
 }
@@ -1518,6 +1876,11 @@ type ServerFrame_Metrics struct {
 	Metrics *StreamMetrics `protobuf:"bytes,7,opt,name=metrics,proto3,oneof"`
 }
 
+type ServerFrame_Batch struct {
+	// batch carries coalesced server frames.
+	Batch *BatchedFrame `protobuf:"bytes,8,opt,name=batch,proto3,oneof"`
+}
+
 func (*ServerFrame_Hello) isServerFrame_Frame() {}
 
 func (*ServerFrame_Ack) isServerFrame_Frame() {}
@@ -1531,6 +1894,8 @@ func (*ServerFrame_Event) isServerFrame_Frame() {}
 func (*ServerFrame_Snapshot) isServerFrame_Frame() {}
 
 func (*ServerFrame_Metrics) isServerFrame_Frame() {}
+
+func (*ServerFrame_Batch) isServerFrame_Frame() {}
 
 var File_delivery_v1_terminal_proto protoreflect.FileDescriptor
 
@@ -1546,14 +1911,15 @@ const file_delivery_v1_terminal_proto_rawDesc = "" +
 	"\tts_server\x18\x05 \x01(\x03R\btsServer\x12\x14\n" +
 	"\x05venue\x18\x06 \x01(\tR\x05venue\x12\x16\n" +
 	"\x06symbol\x18\a \x01(\tR\x06symbol\x12.\n" +
-	"\achannel\x18\b \x01(\x0e2\x14.delivery.v1.ChannelR\achannelJ\x05\bd\x10\xc8\x01\"\xc8\x01\n" +
+	"\achannel\x18\b \x01(\x0e2\x14.delivery.v1.ChannelR\achannelJ\x05\bd\x10\xc8\x01\"\xf7\x01\n" +
 	"\vClientHello\x12K\n" +
 	"\x10protocol_version\x18\x01 \x01(\x0e2 .delivery.v1.WireProtocolVersionR\x0fprotocolVersion\x12\x1f\n" +
 	"\vclient_name\x18\x02 \x01(\tR\n" +
 	"clientName\x12%\n" +
 	"\x0eclient_version\x18\x03 \x01(\tR\rclientVersion\x12\x1d\n" +
 	"\n" +
-	"request_id\x18\x04 \x01(\tR\trequestIdJ\x05\bd\x10\xc8\x01\"\xea\x01\n" +
+	"request_id\x18\x04 \x01(\tR\trequestId\x12-\n" +
+	"\x12requested_features\x18\x05 \x03(\tR\x11requestedFeaturesJ\x05\bd\x10\xc8\x01\"\xea\x01\n" +
 	"\x0fClientSubscribe\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x1b\n" +
@@ -1583,11 +1949,24 @@ const file_delivery_v1_terminal_proto_rawDesc = "" +
 	"\vunsubscribe\x18\x03 \x01(\v2\x1e.delivery.v1.ClientUnsubscribeH\x00R\vunsubscribe\x12-\n" +
 	"\x04ping\x18\x04 \x01(\v2\x17.delivery.v1.ClientPingH\x00R\x04ping\x123\n" +
 	"\x06resync\x18\x05 \x01(\v2\x19.delivery.v1.ClientResyncH\x00R\x06resyncB\a\n" +
-	"\x05frameJ\x05\bd\x10\xc8\x01\"\xae\x01\n" +
+	"\x05frameJ\x05\bd\x10\xc8\x01\"\x82\x01\n" +
+	"\x12OperationRateLimit\x12\x18\n" +
+	"\aenabled\x18\x01 \x01(\bR\aenabled\x12$\n" +
+	"\x0emax_per_second\x18\x02 \x01(\rR\fmaxPerSecond\x12%\n" +
+	"\x0eburst_capacity\x18\x03 \x01(\rR\rburstCapacityJ\x05\bd\x10\xc8\x01\"\x94\x04\n" +
 	"\x12CapabilitySnapshot\x12\x16\n" +
 	"\x06venues\x18\x01 \x03(\tR\x06venues\x120\n" +
 	"\bchannels\x18\x02 \x03(\x0e2\x14.delivery.v1.ChannelR\bchannels\x12G\n" +
-	" max_subscriptions_per_connection\x18\x03 \x01(\rR\x1dmaxSubscriptionsPerConnectionJ\x05\bd\x10\xc8\x01\"\xf1\x01\n" +
+	" max_subscriptions_per_connection\x18\x03 \x01(\rR\x1dmaxSubscriptionsPerConnection\x12;\n" +
+	"\x1amax_symbols_per_connection\x18\x04 \x01(\rR\x17maxSymbolsPerConnection\x12&\n" +
+	"\x0fmax_frame_bytes\x18\x05 \x01(\rR\rmaxFrameBytes\x12.\n" +
+	"\x13outbound_queue_size\x18\x06 \x01(\rR\x11outboundQueueSize\x12,\n" +
+	"\x12metrics_cadence_ms\x18\a \x01(\rR\x10metricsCadenceMs\x122\n" +
+	"\x15keepalive_interval_ms\x18\b \x01(\rR\x13keepaliveIntervalMs\x12>\n" +
+	"\n" +
+	"rate_limit\x18\t \x01(\v2\x1f.delivery.v1.OperationRateLimitR\trateLimit\x12-\n" +
+	"\x12supported_features\x18\n" +
+	" \x03(\tR\x11supportedFeaturesJ\x05\bd\x10\xc8\x01\"\xf1\x01\n" +
 	"\vServerHello\x12K\n" +
 	"\x10protocol_version\x18\x01 \x01(\x0e2 .delivery.v1.WireProtocolVersionR\x0fprotocolVersion\x12,\n" +
 	"\x12server_instance_id\x18\x02 \x01(\tR\x10serverInstanceId\x12\x1b\n" +
@@ -1603,26 +1982,40 @@ const file_delivery_v1_terminal_proto_rawDesc = "" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x0e\n" +
 	"\x02op\x18\x02 \x01(\tR\x02op\x12\x1b\n" +
-	"\tstream_id\x18\x03 \x01(\tR\bstreamIdJ\x05\bd\x10\xc8\x01\"\x89\x01\n" +
+	"\tstream_id\x18\x03 \x01(\tR\bstreamIdJ\x05\bd\x10\xc8\x01\"\xc3\x01\n" +
 	"\vServerError\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x0e\n" +
 	"\x02op\x18\x02 \x01(\tR\x02op\x12*\n" +
 	"\x04code\x18\x03 \x01(\x0e2\x16.delivery.v1.ErrorCodeR\x04code\x12\x18\n" +
-	"\amessage\x18\x04 \x01(\tR\amessageJ\x05\bd\x10\xc8\x01\"d\n" +
+	"\amessage\x18\x04 \x01(\tR\amessage\x128\n" +
+	"\vaction_hint\x18\x05 \x01(\x0e2\x17.delivery.v1.ActionHintR\n" +
+	"actionHintJ\x05\bd\x10\xc8\x01\"\x7f\n" +
 	"\vMarketEvent\x12+\n" +
 	"\x04meta\x18\x01 \x01(\v2\x17.delivery.v1.StreamMetaR\x04meta\x12!\n" +
-	"\fpayload_json\x18\x02 \x01(\fR\vpayloadJsonJ\x05\bd\x10\xc8\x01\"f\n" +
+	"\fpayload_json\x18\x02 \x01(\fR\vpayloadJson\x12\x19\n" +
+	"\bprev_seq\x18\x03 \x01(\x03R\aprevSeqJ\x05\bd\x10\xc8\x01\"\xd3\x01\n" +
 	"\rSnapshotEvent\x12+\n" +
 	"\x04meta\x18\x01 \x01(\v2\x17.delivery.v1.StreamMetaR\x04meta\x12!\n" +
-	"\fpayload_json\x18\x02 \x01(\fR\vpayloadJsonJ\x05\bd\x10\xc8\x01\"\xc7\x01\n" +
+	"\fpayload_json\x18\x02 \x01(\fR\vpayloadJson\x12!\n" +
+	"\fsnapshot_seq\x18\x03 \x01(\x03R\vsnapshotSeq\x12#\n" +
+	"\rwatermark_seq\x18\x04 \x01(\x03R\fwatermarkSeq\x12#\n" +
+	"\rsnapshot_hash\x18\x05 \x01(\tR\fsnapshotHashJ\x05\bd\x10\xc8\x01\"\xfe\x02\n" +
 	"\rStreamMetrics\x12+\n" +
 	"\x04meta\x18\x01 \x01(\v2\x17.delivery.v1.StreamMetaR\x04meta\x12\x15\n" +
 	"\x06rtt_ms\x18\x02 \x01(\x03R\x05rttMs\x12%\n" +
 	"\x0flast_msg_age_ms\x18\x03 \x01(\x03R\flastMsgAgeMs\x12\x1d\n" +
 	"\n" +
 	"drop_count\x18\x04 \x01(\x04R\tdropCount\x12%\n" +
-	"\x0ereconnect_hint\x18\x05 \x01(\tR\rreconnectHintJ\x05\bd\x10\xc8\x01\"\x80\x03\n" +
+	"\x0ereconnect_hint\x18\x05 \x01(\tR\rreconnectHint\x12-\n" +
+	"\x12backpressure_level\x18\x06 \x01(\rR\x11backpressureLevel\x12-\n" +
+	"\x12recommended_action\x18\a \x01(\tR\x11recommendedAction\x12%\n" +
+	"\x0equeue_capacity\x18\b \x01(\rR\rqueueCapacity\x120\n" +
+	"\x14queue_high_watermark\x18\t \x01(\rR\x12queueHighWatermarkJ\x05\bd\x10\xc8\x01\"}\n" +
+	"\fBatchedFrame\x12.\n" +
+	"\x05items\x18\x01 \x03(\v2\x18.delivery.v1.ServerFrameR\x05items\x12\x1b\n" +
+	"\tfirst_seq\x18\x02 \x01(\x03R\bfirstSeq\x12\x19\n" +
+	"\blast_seq\x18\x03 \x01(\x03R\alastSeqJ\x05\bd\x10\xc8\x01\"\xb3\x03\n" +
 	"\vServerFrame\x120\n" +
 	"\x05hello\x18\x01 \x01(\v2\x18.delivery.v1.ServerHelloH\x00R\x05hello\x12*\n" +
 	"\x03ack\x18\x02 \x01(\v2\x16.delivery.v1.ServerAckH\x00R\x03ack\x12-\n" +
@@ -1630,7 +2023,8 @@ const file_delivery_v1_terminal_proto_rawDesc = "" +
 	"\x05error\x18\x04 \x01(\v2\x18.delivery.v1.ServerErrorH\x00R\x05error\x120\n" +
 	"\x05event\x18\x05 \x01(\v2\x18.delivery.v1.MarketEventH\x00R\x05event\x128\n" +
 	"\bsnapshot\x18\x06 \x01(\v2\x1a.delivery.v1.SnapshotEventH\x00R\bsnapshot\x126\n" +
-	"\ametrics\x18\a \x01(\v2\x1a.delivery.v1.StreamMetricsH\x00R\ametricsB\a\n" +
+	"\ametrics\x18\a \x01(\v2\x1a.delivery.v1.StreamMetricsH\x00R\ametrics\x121\n" +
+	"\x05batch\x18\b \x01(\v2\x19.delivery.v1.BatchedFrameH\x00R\x05batchB\a\n" +
 	"\x05frameJ\x05\bd\x10\xc8\x01*Z\n" +
 	"\x13WireProtocolVersion\x12%\n" +
 	"!WIRE_PROTOCOL_VERSION_UNSPECIFIED\x10\x00\x12\x1c\n" +
@@ -1658,7 +2052,15 @@ const file_delivery_v1_terminal_proto_rawDesc = "" +
 	"\x14ERROR_CODE_NOT_FOUND\x10\x05\x12\x1e\n" +
 	"\x1aERROR_CODE_RESYNC_REQUIRED\x10\x06\x12\x1b\n" +
 	"\x17ERROR_CODE_BACKPRESSURE\x10\a\x12\x17\n" +
-	"\x13ERROR_CODE_INTERNAL\x10\b\"\x05\bd\x10\xc7\x01BAZ?github.com/market-raccoon/internal/shared/proto/gen/delivery/v1b\x06proto3"
+	"\x13ERROR_CODE_INTERNAL\x10\b\"\x05\bd\x10\xc7\x01*\xad\x01\n" +
+	"\n" +
+	"ActionHint\x12\x1b\n" +
+	"\x17ACTION_HINT_UNSPECIFIED\x10\x00\x12\x14\n" +
+	"\x10ACTION_HINT_NONE\x10\x01\x12\x15\n" +
+	"\x11ACTION_HINT_RETRY\x10\x02\x12\x19\n" +
+	"\x15ACTION_HINT_RECONNECT\x10\x03\x12\x1b\n" +
+	"\x17ACTION_HINT_RESUBSCRIBE\x10\x04\x12\x16\n" +
+	"\x12ACTION_HINT_RESYNC\x10\x05\"\x05\bd\x10\xc7\x01BAZ?github.com/market-raccoon/internal/shared/proto/gen/delivery/v1b\x06proto3"
 
 var (
 	file_delivery_v1_terminal_proto_rawDescOnce sync.Once
@@ -1672,58 +2074,65 @@ func file_delivery_v1_terminal_proto_rawDescGZIP() []byte {
 	return file_delivery_v1_terminal_proto_rawDescData
 }
 
-var file_delivery_v1_terminal_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_delivery_v1_terminal_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_delivery_v1_terminal_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
+var file_delivery_v1_terminal_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_delivery_v1_terminal_proto_goTypes = []any{
 	(WireProtocolVersion)(0),   // 0: delivery.v1.WireProtocolVersion
 	(Channel)(0),               // 1: delivery.v1.Channel
 	(ErrorCode)(0),             // 2: delivery.v1.ErrorCode
-	(*StreamMeta)(nil),         // 3: delivery.v1.StreamMeta
-	(*ClientHello)(nil),        // 4: delivery.v1.ClientHello
-	(*ClientSubscribe)(nil),    // 5: delivery.v1.ClientSubscribe
-	(*ClientUnsubscribe)(nil),  // 6: delivery.v1.ClientUnsubscribe
-	(*ClientPing)(nil),         // 7: delivery.v1.ClientPing
-	(*ClientResync)(nil),       // 8: delivery.v1.ClientResync
-	(*ClientFrame)(nil),        // 9: delivery.v1.ClientFrame
-	(*CapabilitySnapshot)(nil), // 10: delivery.v1.CapabilitySnapshot
-	(*ServerHello)(nil),        // 11: delivery.v1.ServerHello
-	(*ServerPong)(nil),         // 12: delivery.v1.ServerPong
-	(*ServerAck)(nil),          // 13: delivery.v1.ServerAck
-	(*ServerError)(nil),        // 14: delivery.v1.ServerError
-	(*MarketEvent)(nil),        // 15: delivery.v1.MarketEvent
-	(*SnapshotEvent)(nil),      // 16: delivery.v1.SnapshotEvent
-	(*StreamMetrics)(nil),      // 17: delivery.v1.StreamMetrics
-	(*ServerFrame)(nil),        // 18: delivery.v1.ServerFrame
+	(ActionHint)(0),            // 3: delivery.v1.ActionHint
+	(*StreamMeta)(nil),         // 4: delivery.v1.StreamMeta
+	(*ClientHello)(nil),        // 5: delivery.v1.ClientHello
+	(*ClientSubscribe)(nil),    // 6: delivery.v1.ClientSubscribe
+	(*ClientUnsubscribe)(nil),  // 7: delivery.v1.ClientUnsubscribe
+	(*ClientPing)(nil),         // 8: delivery.v1.ClientPing
+	(*ClientResync)(nil),       // 9: delivery.v1.ClientResync
+	(*ClientFrame)(nil),        // 10: delivery.v1.ClientFrame
+	(*OperationRateLimit)(nil), // 11: delivery.v1.OperationRateLimit
+	(*CapabilitySnapshot)(nil), // 12: delivery.v1.CapabilitySnapshot
+	(*ServerHello)(nil),        // 13: delivery.v1.ServerHello
+	(*ServerPong)(nil),         // 14: delivery.v1.ServerPong
+	(*ServerAck)(nil),          // 15: delivery.v1.ServerAck
+	(*ServerError)(nil),        // 16: delivery.v1.ServerError
+	(*MarketEvent)(nil),        // 17: delivery.v1.MarketEvent
+	(*SnapshotEvent)(nil),      // 18: delivery.v1.SnapshotEvent
+	(*StreamMetrics)(nil),      // 19: delivery.v1.StreamMetrics
+	(*BatchedFrame)(nil),       // 20: delivery.v1.BatchedFrame
+	(*ServerFrame)(nil),        // 21: delivery.v1.ServerFrame
 }
 var file_delivery_v1_terminal_proto_depIdxs = []int32{
 	0,  // 0: delivery.v1.StreamMeta.protocol_version:type_name -> delivery.v1.WireProtocolVersion
 	1,  // 1: delivery.v1.StreamMeta.channel:type_name -> delivery.v1.Channel
 	0,  // 2: delivery.v1.ClientHello.protocol_version:type_name -> delivery.v1.WireProtocolVersion
 	1,  // 3: delivery.v1.ClientSubscribe.channel:type_name -> delivery.v1.Channel
-	4,  // 4: delivery.v1.ClientFrame.hello:type_name -> delivery.v1.ClientHello
-	5,  // 5: delivery.v1.ClientFrame.subscribe:type_name -> delivery.v1.ClientSubscribe
-	6,  // 6: delivery.v1.ClientFrame.unsubscribe:type_name -> delivery.v1.ClientUnsubscribe
-	7,  // 7: delivery.v1.ClientFrame.ping:type_name -> delivery.v1.ClientPing
-	8,  // 8: delivery.v1.ClientFrame.resync:type_name -> delivery.v1.ClientResync
+	5,  // 4: delivery.v1.ClientFrame.hello:type_name -> delivery.v1.ClientHello
+	6,  // 5: delivery.v1.ClientFrame.subscribe:type_name -> delivery.v1.ClientSubscribe
+	7,  // 6: delivery.v1.ClientFrame.unsubscribe:type_name -> delivery.v1.ClientUnsubscribe
+	8,  // 7: delivery.v1.ClientFrame.ping:type_name -> delivery.v1.ClientPing
+	9,  // 8: delivery.v1.ClientFrame.resync:type_name -> delivery.v1.ClientResync
 	1,  // 9: delivery.v1.CapabilitySnapshot.channels:type_name -> delivery.v1.Channel
-	0,  // 10: delivery.v1.ServerHello.protocol_version:type_name -> delivery.v1.WireProtocolVersion
-	10, // 11: delivery.v1.ServerHello.capabilities:type_name -> delivery.v1.CapabilitySnapshot
-	2,  // 12: delivery.v1.ServerError.code:type_name -> delivery.v1.ErrorCode
-	3,  // 13: delivery.v1.MarketEvent.meta:type_name -> delivery.v1.StreamMeta
-	3,  // 14: delivery.v1.SnapshotEvent.meta:type_name -> delivery.v1.StreamMeta
-	3,  // 15: delivery.v1.StreamMetrics.meta:type_name -> delivery.v1.StreamMeta
-	11, // 16: delivery.v1.ServerFrame.hello:type_name -> delivery.v1.ServerHello
-	13, // 17: delivery.v1.ServerFrame.ack:type_name -> delivery.v1.ServerAck
-	12, // 18: delivery.v1.ServerFrame.pong:type_name -> delivery.v1.ServerPong
-	14, // 19: delivery.v1.ServerFrame.error:type_name -> delivery.v1.ServerError
-	15, // 20: delivery.v1.ServerFrame.event:type_name -> delivery.v1.MarketEvent
-	16, // 21: delivery.v1.ServerFrame.snapshot:type_name -> delivery.v1.SnapshotEvent
-	17, // 22: delivery.v1.ServerFrame.metrics:type_name -> delivery.v1.StreamMetrics
-	23, // [23:23] is the sub-list for method output_type
-	23, // [23:23] is the sub-list for method input_type
-	23, // [23:23] is the sub-list for extension type_name
-	23, // [23:23] is the sub-list for extension extendee
-	0,  // [0:23] is the sub-list for field type_name
+	11, // 10: delivery.v1.CapabilitySnapshot.rate_limit:type_name -> delivery.v1.OperationRateLimit
+	0,  // 11: delivery.v1.ServerHello.protocol_version:type_name -> delivery.v1.WireProtocolVersion
+	12, // 12: delivery.v1.ServerHello.capabilities:type_name -> delivery.v1.CapabilitySnapshot
+	2,  // 13: delivery.v1.ServerError.code:type_name -> delivery.v1.ErrorCode
+	3,  // 14: delivery.v1.ServerError.action_hint:type_name -> delivery.v1.ActionHint
+	4,  // 15: delivery.v1.MarketEvent.meta:type_name -> delivery.v1.StreamMeta
+	4,  // 16: delivery.v1.SnapshotEvent.meta:type_name -> delivery.v1.StreamMeta
+	4,  // 17: delivery.v1.StreamMetrics.meta:type_name -> delivery.v1.StreamMeta
+	21, // 18: delivery.v1.BatchedFrame.items:type_name -> delivery.v1.ServerFrame
+	13, // 19: delivery.v1.ServerFrame.hello:type_name -> delivery.v1.ServerHello
+	15, // 20: delivery.v1.ServerFrame.ack:type_name -> delivery.v1.ServerAck
+	14, // 21: delivery.v1.ServerFrame.pong:type_name -> delivery.v1.ServerPong
+	16, // 22: delivery.v1.ServerFrame.error:type_name -> delivery.v1.ServerError
+	17, // 23: delivery.v1.ServerFrame.event:type_name -> delivery.v1.MarketEvent
+	18, // 24: delivery.v1.ServerFrame.snapshot:type_name -> delivery.v1.SnapshotEvent
+	19, // 25: delivery.v1.ServerFrame.metrics:type_name -> delivery.v1.StreamMetrics
+	20, // 26: delivery.v1.ServerFrame.batch:type_name -> delivery.v1.BatchedFrame
+	27, // [27:27] is the sub-list for method output_type
+	27, // [27:27] is the sub-list for method input_type
+	27, // [27:27] is the sub-list for extension type_name
+	27, // [27:27] is the sub-list for extension extendee
+	0,  // [0:27] is the sub-list for field type_name
 }
 
 func init() { file_delivery_v1_terminal_proto_init() }
@@ -1738,7 +2147,7 @@ func file_delivery_v1_terminal_proto_init() {
 		(*ClientFrame_Ping)(nil),
 		(*ClientFrame_Resync)(nil),
 	}
-	file_delivery_v1_terminal_proto_msgTypes[15].OneofWrappers = []any{
+	file_delivery_v1_terminal_proto_msgTypes[17].OneofWrappers = []any{
 		(*ServerFrame_Hello)(nil),
 		(*ServerFrame_Ack)(nil),
 		(*ServerFrame_Pong)(nil),
@@ -1746,14 +2155,15 @@ func file_delivery_v1_terminal_proto_init() {
 		(*ServerFrame_Event)(nil),
 		(*ServerFrame_Snapshot)(nil),
 		(*ServerFrame_Metrics)(nil),
+		(*ServerFrame_Batch)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_delivery_v1_terminal_proto_rawDesc), len(file_delivery_v1_terminal_proto_rawDesc)),
-			NumEnums:      3,
-			NumMessages:   16,
+			NumEnums:      4,
+			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
