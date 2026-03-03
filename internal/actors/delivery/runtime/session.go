@@ -680,16 +680,60 @@ func (s *SessionActor) handleInboundText(data []byte) {
 	}
 }
 
+// supportedFeatures is the canonical set of features the server can negotiate.
+var supportedFeatures = map[string]struct{}{
+	"batching":      {},
+	"snapshot_hash": {},
+	"prev_seq":      {},
+}
+
+// validateRequestedFeatures partitions requested features into valid and unknown,
+// deduplicating and normalizing to lowercase.
+func validateRequestedFeatures(requested []string) (valid, unknown []string) {
+	seen := make(map[string]struct{}, len(requested))
+	for _, raw := range requested {
+		f := strings.ToLower(strings.TrimSpace(raw))
+		if f == "" {
+			continue
+		}
+		if _, dup := seen[f]; dup {
+			continue
+		}
+		seen[f] = struct{}{}
+		if _, ok := supportedFeatures[f]; ok {
+			valid = append(valid, f)
+		} else {
+			unknown = append(unknown, f)
+		}
+	}
+	return valid, unknown
+}
+
 func (s *SessionActor) handleClientHello(cmd clientCommand) {
 	s.helloSeen = true
 	if len(cmd.RequestedFeatures) > 0 {
-		s.clientFeatures = cmd.RequestedFeatures
+		valid, unknown := validateRequestedFeatures(cmd.RequestedFeatures)
+		if len(unknown) > 0 {
+			metrics.IncWSContractViolation("unknown_feature")
+			s.writeProblem("hello", cmd.RequestID,
+				problem.Newf(problem.ValidationFailed, "unsupported features: %s", strings.Join(unknown, ", ")))
+			return
+		}
+		s.clientFeatures = valid
 	}
-	s.writeJSON(wsAckFrame{
-		Type:      "ack",
-		Op:        "hello",
-		RequestID: cmd.RequestID,
+	s.writeJSON(wsHelloAckFrame{
+		Type:               "ack",
+		Op:                 "hello",
+		RequestID:          cmd.RequestID,
+		NegotiatedFeatures: s.clientFeatures,
 	})
+}
+
+type wsHelloAckFrame struct {
+	Type               string   `json:"type"`
+	Op                 string   `json:"op"`
+	RequestID          string   `json:"request_id"`
+	NegotiatedFeatures []string `json:"negotiated_features,omitempty"`
 }
 
 func (s *SessionActor) handlePing(cmd clientCommand) {

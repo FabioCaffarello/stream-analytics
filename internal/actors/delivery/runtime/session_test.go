@@ -1471,9 +1471,12 @@ func TestSession_ClientHello_StoresRequestedFeatures(t *testing.T) {
 	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
 
 	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"hello","request_id":"h1","requested_features":["batching","prev_seq"]}`)}
-	ack := (<-conn.writeCh).(wsAckFrame)
+	ack := (<-conn.writeCh).(wsHelloAckFrame)
 	if ack.Op != "hello" {
 		t.Fatalf("ack op=%q want=hello", ack.Op)
+	}
+	if len(ack.NegotiatedFeatures) != 2 {
+		t.Fatalf("negotiated_features len=%d want=2", len(ack.NegotiatedFeatures))
 	}
 }
 

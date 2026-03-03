@@ -1122,6 +1122,7 @@ func registerAll() {
 		WSResyncRejectedTotal.WithLabelValues("not_subscribed")
 		WSResyncRejectedTotal.WithLabelValues("snapshot_unavailable")
 		WSContractViolationsTotal.WithLabelValues("missing_ts_server")
+		WSContractViolationsTotal.WithLabelValues("unknown_feature")
 		GuardianRestartsTotal.WithLabelValues("unknown", "unknown")
 		GuardianDegradedTotal.WithLabelValues("unknown")
 		GuardianSubsystemState.WithLabelValues("unknown")
@@ -2148,7 +2149,7 @@ func sanitizeWSResyncRejectReason(v string) string {
 func sanitizeWSContractViolationReason(v string) string {
 	v = strings.ToLower(strings.TrimSpace(v))
 	switch v {
-	case "missing_ts_server":
+	case "missing_ts_server", "unknown_feature":
 		return v
 	default:
 		return "unknown"
