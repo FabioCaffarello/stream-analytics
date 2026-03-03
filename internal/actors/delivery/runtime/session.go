@@ -438,6 +438,13 @@ func (s *SessionActor) handleMetricsTick() {
 	if lag < 0 {
 		lag = 0
 	}
+	// Transcode cache observability piggyback on 5s metrics cadence.
+	if s.cfg.TranscodeCache != nil {
+		metrics.SetTranscodeCacheEntries(s.cfg.TranscodeCache.Len())
+		hits, misses := s.cfg.TranscodeCache.Stats()
+		metrics.SetTranscodeCacheHits(hits)
+		metrics.SetTranscodeCacheMisses(misses)
+	}
 	bpLevel, bpAction := s.computeBackpressureLevel()
 	hwm := s.queueHighWatermark
 	s.queueHighWatermark = 0 // reset after emission

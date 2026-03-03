@@ -502,3 +502,25 @@ func TestWSLegacyRequestsTotal_Registered(t *testing.T) {
 		t.Fatal("WSLegacyRequestsTotal not registered or has no series")
 	}
 }
+
+// ── Transcode cache metrics ──────────────────────────────────────────────────
+
+func TestTranscodeCacheMetrics_Registered(t *testing.T) {
+	if testutil.ToFloat64(TranscodeCacheEntries) < 0 {
+		t.Fatal("TranscodeCacheEntries should be >= 0")
+	}
+	SetTranscodeCacheEntries(42)
+	if got := testutil.ToFloat64(TranscodeCacheEntries); got != 42 {
+		t.Fatalf("entries=%f want=42", got)
+	}
+
+	SetTranscodeCacheHits(100)
+	if got := testutil.ToFloat64(TranscodeCacheHits); got != 100 {
+		t.Fatalf("hits=%f want=100", got)
+	}
+
+	SetTranscodeCacheMisses(5)
+	if got := testutil.ToFloat64(TranscodeCacheMisses); got != 5 {
+		t.Fatalf("misses=%f want=5", got)
+	}
+}

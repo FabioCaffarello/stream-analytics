@@ -898,6 +898,27 @@ var (
 
 	// ── Legacy strangler metrics ─────────────────────────────────────────
 
+	// ── Transcode cache observability ────────────────────────────────────
+
+	TranscodeCacheEntries = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "transcode_cache_entries",
+			Help: "Current entries in the proto-to-JSON transcode cache.",
+		},
+	)
+	TranscodeCacheHits = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "transcode_cache_hits",
+			Help: "Cumulative transcode cache hits.",
+		},
+	)
+	TranscodeCacheMisses = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "transcode_cache_misses",
+			Help: "Cumulative transcode cache misses.",
+		},
+	)
+
 	WSLegacyRequestsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "ws_legacy_requests_total",
@@ -1074,6 +1095,9 @@ func registerAll() {
 			DeliveryRouterEventsRejectedTotal,
 			DeliveryRouterCoherenceMode,
 			DeliveryRangeAliasFallbackTotal,
+			TranscodeCacheEntries,
+			TranscodeCacheHits,
+			TranscodeCacheMisses,
 			WSLegacyRequestsTotal,
 		)
 
@@ -2246,6 +2270,27 @@ func SetDeliveryRouterCoherenceMode(mode string) {
 // IncDeliveryRangeAliasFallback increments getrange alias fallback attempts by outcome.
 func IncDeliveryRangeAliasFallback(outcome string) {
 	DeliveryRangeAliasFallbackTotal.WithLabelValues(sanitizeKind(outcome)).Inc()
+}
+
+// SetTranscodeCacheEntries sets the current transcode cache size gauge.
+func SetTranscodeCacheEntries(n int) {
+	TranscodeCacheEntries.Set(float64(max(n, 0)))
+}
+
+// SetTranscodeCacheHits sets the cumulative hit gauge.
+func SetTranscodeCacheHits(n int64) {
+	if n < 0 {
+		n = 0
+	}
+	TranscodeCacheHits.Set(float64(n))
+}
+
+// SetTranscodeCacheMisses sets the cumulative miss gauge.
+func SetTranscodeCacheMisses(n int64) {
+	if n < 0 {
+		n = 0
+	}
+	TranscodeCacheMisses.Set(float64(n))
 }
 
 // IncWSLegacyRequest increments the legacy route request counter.
