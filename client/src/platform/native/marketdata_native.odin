@@ -645,7 +645,10 @@ native_subscribe :: proc(venue: string, symbol: string, channel: ports.MD_Channe
 		delete(subject)
 		return true
 	}
-	if state.active_count >= MAX_SUBS {
+	// Enforce subscription limit: server-advertised or fallback to MAX_SUBS.
+	sub_limit := state.server_max_subscriptions > 0 ? state.server_max_subscriptions : MAX_SUBS
+	if state.active_count >= min(sub_limit, MAX_SUBS) {
+		fmt.printf("[md-lifecycle] subscribe_rejected limit=%d active=%d\n", sub_limit, state.active_count)
 		delete(subject)
 		return false
 	}
@@ -686,7 +689,9 @@ native_subscribe_tf :: proc(venue: string, symbol: string, channel: ports.MD_Cha
 		delete(subject)
 		return true
 	}
-	if state.active_count >= MAX_SUBS {
+	sub_limit := state.server_max_subscriptions > 0 ? state.server_max_subscriptions : MAX_SUBS
+	if state.active_count >= min(sub_limit, MAX_SUBS) {
+		fmt.printf("[md-lifecycle] subscribe_tf_rejected limit=%d active=%d\n", sub_limit, state.active_count)
 		delete(subject)
 		return false
 	}
