@@ -272,6 +272,29 @@ test_parse_envelope_prev_seq :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_parse_error_action_hint :: proc(t: ^testing.T) {
+	raw := `{"type":"error","op":"subscribe","request_id":"r5","problem":{"code":"ERROR_CODE_RESYNC_REQUIRED","message":"stream requires resync","error_code":"RESYNC_REQUIRED","action_hint":"resync"}}`
+	result := parse_mr_message(transmute([]u8)raw, nil)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Error)
+	ed := result.data.error_detail
+	testing.expect_value(t, ed.error_code, "RESYNC_REQUIRED")
+	testing.expect_value(t, ed.action_hint, "resync")
+	testing.expect_value(t, ed.code, "ERROR_CODE_RESYNC_REQUIRED")
+	free_all(context.temp_allocator)
+}
+
+@(test)
+test_parse_error_no_action_hint :: proc(t: ^testing.T) {
+	raw := `{"type":"error","op":"subscribe","request_id":"r6","problem":{"code":"GENERIC","message":"something failed"}}`
+	result := parse_mr_message(transmute([]u8)raw, nil)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Error)
+	ed := result.data.error_detail
+	testing.expect_value(t, ed.action_hint, "")
+	testing.expect_value(t, ed.error_code, "")
+	free_all(context.temp_allocator)
+}
+
+@(test)
 test_parse_ack_missing_subject_stream_id :: proc(t: ^testing.T) {
 	raw := `{"type":"ack","op":"subscribe","request_id":"a1"}`
 	result := parse_mr_message(transmute([]u8)raw, nil)

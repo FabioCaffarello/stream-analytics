@@ -239,6 +239,33 @@ test_seq_gap_transition_recurring_threshold :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_action_hint_to_ws_fault :: proc(t: ^testing.T) {
+	action, meaningful := action_hint_to_ws_fault(util.MR_Action_Hint.Retry)
+	testing.expect_value(t, action, ports.MD_WS_Error_Action.Retry)
+	testing.expect_value(t, meaningful, true)
+
+	action2, m2 := action_hint_to_ws_fault(util.MR_Action_Hint.Reconnect)
+	testing.expect_value(t, action2, ports.MD_WS_Error_Action.Retry)
+	testing.expect_value(t, m2, true)
+
+	action3, m3 := action_hint_to_ws_fault(util.MR_Action_Hint.Resubscribe)
+	testing.expect_value(t, action3, ports.MD_WS_Error_Action.Resync)
+	testing.expect_value(t, m3, true)
+
+	action4, m4 := action_hint_to_ws_fault(util.MR_Action_Hint.Resync)
+	testing.expect_value(t, action4, ports.MD_WS_Error_Action.Resync)
+	testing.expect_value(t, m4, true)
+
+	action5, m5 := action_hint_to_ws_fault(util.MR_Action_Hint.None)
+	testing.expect_value(t, action5, ports.MD_WS_Error_Action.None)
+	testing.expect_value(t, m5, true)
+
+	action6, m6 := action_hint_to_ws_fault(util.MR_Action_Hint.Unspecified)
+	testing.expect_value(t, action6, ports.MD_WS_Error_Action.None)
+	testing.expect_value(t, m6, false)
+}
+
+@(test)
 test_missing_ts_server_gap_terminal_v1_only :: proc(t: ^testing.T) {
 	testing.expect_value(t, missing_ts_server_gap(false, services.Parse_Result_Kind.Trade, util.Transport_Mode.Terminal_V1), true)
 	testing.expect_value(t, missing_ts_server_gap(true, services.Parse_Result_Kind.Trade, util.Transport_Mode.Terminal_V1), false)

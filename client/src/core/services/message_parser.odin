@@ -790,10 +790,12 @@ parse_error :: proc(raw: []u8) -> (Parsed_Error, bool) {
 	frame: util.MR_Error_Frame
 	if json.unmarshal(raw, &frame) != nil do return {}, false
 	return Parsed_Error{
-		op         = frame.op,
-		request_id = frame.request_id,
-		code       = frame.problem.code,
-		message    = frame.problem.message,
+		op          = frame.op,
+		request_id  = frame.request_id,
+		code        = frame.problem.code,
+		message     = frame.problem.message,
+		error_code  = frame.problem.error_code,
+		action_hint = frame.problem.action_hint,
 	}, true
 }
 
