@@ -28,6 +28,7 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 		{name: "delivery.slow_client_drop_threshold", got: cfg.Delivery.SlowClientDropThreshold, want: 1000},
 		{name: "delivery.metrics_cadence_ms", got: cfg.Delivery.MetricsCadenceMs, want: 5000},
 		{name: "delivery.keepalive_interval_ms", got: cfg.Delivery.KeepaliveIntervalMs, want: 20000},
+		{name: "delivery.router_stream_state_ttl", got: cfg.Delivery.RouterStreamStateTTL, want: "30m"},
 		{name: "ws.tenant_metrics.include_tenant_label", got: cfg.WS.TenantMetrics.IncludeTenantLabel, want: true},
 		{name: "ws.tenant_metrics.fallback", got: cfg.WS.TenantMetrics.Fallback, want: "unknown"},
 		{name: "shard.index", got: cfg.Shard.Index, want: 0},
@@ -1484,6 +1485,22 @@ func TestValidate_DeliveryCadenceAndKeepalive_MustBeNonNegative(t *testing.T) {
 	cfg.Delivery.KeepaliveIntervalMs = -1
 	if p := cfg.Validate(); p == nil || !strings.Contains(p.Message, "delivery.keepalive_interval_ms") {
 		t.Fatalf("expected keepalive validation error, got=%v", p)
+	}
+}
+
+func TestValidate_DeliveryRouterStreamStateTTL_MustBePositiveDuration(t *testing.T) {
+	cfg, prob := Load("")
+	if prob != nil {
+		t.Fatalf("Load: %v", prob)
+	}
+	cfg.Delivery.RouterStreamStateTTL = "0s"
+	if p := cfg.Validate(); p == nil || !strings.Contains(p.Message, "delivery.router_stream_state_ttl") {
+		t.Fatalf("expected router stream state ttl validation error, got=%v", p)
+	}
+
+	cfg.Delivery.RouterStreamStateTTL = "15m"
+	if p := cfg.Validate(); p != nil {
+		t.Fatalf("expected positive router stream state ttl to pass validation, got=%v", p)
 	}
 }
 

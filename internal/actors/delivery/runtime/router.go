@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/anthdm/hollywood/actor"
 	"github.com/market-raccoon/internal/core/delivery/domain"
@@ -21,6 +22,22 @@ type RouterConfig struct {
 	Timeframe           string
 	EnvelopeStore       envelopeStore
 	StreamCoherenceMode string
+	// StreamStateTTL bounds per-stream sequence state retention.
+	// Zero or negative values default to 30m.
+	StreamStateTTL time.Duration
+	// StreamStateSweepEvery controls inactive stream-state eviction cadence.
+	// Zero or negative values default to 1m.
+	StreamStateSweepEvery time.Duration
+	// MaxActiveSessions bounds concurrent registered sessions.
+	// 0 disables the limit.
+	MaxActiveSessions int
+	// MaxStreamStateEntries bounds stream-state map entries.
+	// When exceeded, a forced sweep runs and oldest entries are evicted.
+	// 0 defaults to 50000.
+	MaxStreamStateEntries int
+	// Now overrides wall-clock access for deterministic tests.
+	// Nil defaults to time.Now.
+	Now func() time.Time
 }
 
 type envelopeStore interface {
@@ -39,21 +56,36 @@ type RouterActor struct {
 	subjectSessions map[domain.Subject]map[string]*actor.PID
 	// subjectPIDs is a pre-built slice cache for the hot fan-out path.
 	// Rebuilt from subjectSessions on subscribe/unsubscribe (cold path).
-	subjectPIDs   map[domain.Subject][]*actor.PID
-	streamSeq     map[string]int64
-	deliverySeq   map[string]int64
-	coherenceMode string
+	subjectPIDs           map[domain.Subject][]*actor.PID
+	streamState           map[string]*streamState
+	streamStateTTL        time.Duration
+	maxStreamStateEntries int
+	now                   func() time.Time
+	streamSweepEvery      time.Duration
+	streamSweepRepeater   *actor.SendRepeater
+	coherenceMode         string
 
 	engine  *actor.Engine
 	selfPID *actor.PID
 	stopped bool
 }
 
+type streamState struct {
+	lastOriginSeq   int64
+	lastDeliverySeq int64
+	lastSeenAt      time.Time
+}
+
+type routerSweepStreamState struct{}
+
 const routerInstrumentMarketTypeMetaKey = "instrument_market_type"
 
 const (
 	streamCoherenceModeStickySession     = "sticky_session"
 	streamCoherenceModeUpstreamSequencer = "upstream_sequencer"
+	defaultRouterStreamStateTTL          = 30 * time.Minute
+	defaultRouterStreamStateSweepEvery   = time.Minute
+	defaultMaxStreamStateEntries         = 50000
 )
 
 func NewRouterActor(cfg RouterConfig) actor.Producer {
@@ -87,6 +119,8 @@ func (r *RouterActor) Receive(c *actor.Context) {
 		r.handleEnvelope(msg.Envelope)
 	case busEnvelopeMsg:
 		r.handleEnvelope(msg.Env)
+	case routerSweepStreamState:
+		r.sweepStreamState()
 	default:
 		r.logger.Warn("delivery router: unknown message", "type", fmt.Sprintf("%T", msg))
 	}
@@ -115,11 +149,35 @@ func (r *RouterActor) ensureDefaults(c *actor.Context) {
 	if r.subjectPIDs == nil {
 		r.subjectPIDs = make(map[domain.Subject][]*actor.PID)
 	}
-	if r.streamSeq == nil {
-		r.streamSeq = make(map[string]int64)
+	if r.streamState == nil {
+		r.streamState = make(map[string]*streamState)
+		metrics.SetDeliveryRouterStreamStateEntries(0)
+		metrics.SetDeliveryRouterStreamStateActive(0)
 	}
-	if r.deliverySeq == nil {
-		r.deliverySeq = make(map[string]int64)
+	if r.streamStateTTL <= 0 {
+		r.streamStateTTL = r.cfg.StreamStateTTL
+		if r.streamStateTTL <= 0 {
+			r.streamStateTTL = defaultRouterStreamStateTTL
+		}
+	}
+	if r.streamSweepEvery <= 0 {
+		r.streamSweepEvery = r.cfg.StreamStateSweepEvery
+		if r.streamSweepEvery <= 0 {
+			r.streamSweepEvery = defaultRouterStreamStateSweepEvery
+		}
+	}
+	if r.maxStreamStateEntries <= 0 {
+		r.maxStreamStateEntries = r.cfg.MaxStreamStateEntries
+		if r.maxStreamStateEntries <= 0 {
+			r.maxStreamStateEntries = defaultMaxStreamStateEntries
+		}
+	}
+	if r.now == nil {
+		if r.cfg.Now != nil {
+			r.now = r.cfg.Now
+		} else {
+			r.now = time.Now
+		}
 	}
 	if r.coherenceMode == "" {
 		r.coherenceMode = normalizeStreamCoherenceMode(r.cfg.StreamCoherenceMode)
@@ -134,14 +192,33 @@ func (r *RouterActor) ensureDefaults(c *actor.Context) {
 func (r *RouterActor) onStarted() {
 	if r.engine != nil && r.selfPID != nil {
 		r.engine.Subscribe(r.selfPID)
+		r.startStreamStateSweep()
+		r.sweepStreamState()
 	}
 }
 
 func (r *RouterActor) onStopped() {
 	r.stopped = true
+	r.stopStreamStateSweep()
 	if r.engine != nil && r.selfPID != nil {
 		r.engine.Unsubscribe(r.selfPID)
 	}
+}
+
+func (r *RouterActor) startStreamStateSweep() {
+	if r.streamSweepRepeater != nil || r.engine == nil || r.selfPID == nil || r.streamSweepEvery <= 0 {
+		return
+	}
+	repeater := r.engine.SendRepeat(r.selfPID, routerSweepStreamState{}, r.streamSweepEvery)
+	r.streamSweepRepeater = &repeater
+}
+
+func (r *RouterActor) stopStreamStateSweep() {
+	if r.streamSweepRepeater == nil {
+		return
+	}
+	r.streamSweepRepeater.Stop()
+	r.streamSweepRepeater = nil
 }
 
 func (r *RouterActor) onActorStopped(evt actor.ActorStoppedEvent) {
@@ -160,6 +237,15 @@ func (r *RouterActor) register(msg RegisterSession) {
 	if id == "" || msg.PID == nil {
 		return
 	}
+	// Enforce MaxActiveSessions when registering a new (not re-registering) session.
+	if _, exists := r.sessions[id]; !exists {
+		if r.cfg.MaxActiveSessions > 0 && len(r.sessions) >= r.cfg.MaxActiveSessions {
+			metrics.IncDeliveryRouterSessionsRejected()
+			r.logger.Warn("delivery router: max active sessions reached, rejecting",
+				"max", r.cfg.MaxActiveSessions, "current", len(r.sessions))
+			return
+		}
+	}
 	if previousPID, exists := r.sessions[id]; exists && previousPID != nil {
 		delete(r.sessionByPID, previousPID.String())
 	}
@@ -168,6 +254,7 @@ func (r *RouterActor) register(msg RegisterSession) {
 	if _, ok := r.sessionSubjects[id]; !ok {
 		r.sessionSubjects[id] = make(map[domain.Subject]struct{})
 	}
+	metrics.SetDeliveryRouterSessionsActive(len(r.sessions))
 }
 
 func (r *RouterActor) unregister(sessionID string) {
@@ -182,6 +269,7 @@ func (r *RouterActor) unregister(sessionID string) {
 		delete(r.sessionByPID, pid.String())
 	}
 	delete(r.sessions, sessionID)
+	metrics.SetDeliveryRouterSessionsActive(len(r.sessions))
 }
 
 func (r *RouterActor) subscribe(msg SubscribeSession) {
@@ -222,8 +310,8 @@ func (r *RouterActor) removeSessionFromSubject(sessionID string, subject domain.
 		if len(pids) == 0 {
 			delete(r.subjectSessions, subject)
 			delete(r.subjectPIDs, subject)
-			delete(r.streamSeq, subject.String())
-			delete(r.deliverySeq, subject.String())
+			delete(r.streamState, subject.String())
+			metrics.SetDeliveryRouterStreamStateEntries(len(r.streamState))
 		} else {
 			r.rebuildSubjectPIDs(subject)
 		}
@@ -340,13 +428,31 @@ func (r *RouterActor) handleEnvelope(env envelope.Envelope) {
 }
 
 func (r *RouterActor) acceptStreamSeq(streamID string, seq int64) (bool, string) {
+	streamID = strings.TrimSpace(streamID)
+	if streamID == "" {
+		metrics.IncDeliveryRouterCoherenceViolation("seq_invalid")
+		return false, "seq_invalid"
+	}
 	if seq <= 0 {
 		metrics.IncDeliveryRouterCoherenceViolation("seq_invalid")
 		return false, "seq_invalid"
 	}
-	last, ok := r.streamSeq[streamID]
-	if !ok || seq > last {
-		r.streamSeq[streamID] = seq
+	now := r.now()
+	state, ok := r.streamState[streamID]
+	if !ok || state == nil {
+		if len(r.streamState) >= r.maxStreamStateEntries {
+			r.sweepStreamState()
+			if len(r.streamState) >= r.maxStreamStateEntries {
+				r.evictOldestStreamState()
+			}
+		}
+		state = &streamState{}
+		r.streamState[streamID] = state
+		metrics.SetDeliveryRouterStreamStateEntries(len(r.streamState))
+	}
+	state.lastSeenAt = now
+	if seq > state.lastOriginSeq {
+		state.lastOriginSeq = seq
 		return true, ""
 	}
 	metrics.IncDeliveryRouterCoherenceViolation("seq_non_monotonic")
@@ -358,12 +464,65 @@ func (r *RouterActor) nextDeliverySeq(streamID string) int64 {
 	if streamID == "" {
 		return 0
 	}
-	next := r.deliverySeq[streamID] + 1
+	now := r.now()
+	state, ok := r.streamState[streamID]
+	if !ok || state == nil {
+		state = &streamState{}
+		r.streamState[streamID] = state
+	}
+	next := state.lastDeliverySeq + 1
 	if next <= 0 {
 		next = 1
 	}
-	r.deliverySeq[streamID] = next
+	state.lastDeliverySeq = next
+	state.lastSeenAt = now
 	return next
+}
+
+func (r *RouterActor) sweepStreamState() {
+	if len(r.streamState) == 0 {
+		metrics.SetDeliveryRouterStreamStateEntries(0)
+		metrics.SetDeliveryRouterStreamStateActive(0)
+		return
+	}
+	now := r.now()
+	active := 0
+	evicted := 0
+	for streamID, state := range r.streamState {
+		if state == nil || state.lastSeenAt.IsZero() || now.Sub(state.lastSeenAt) > r.streamStateTTL {
+			delete(r.streamState, streamID)
+			evicted++
+			continue
+		}
+		active++
+	}
+	metrics.SetDeliveryRouterStreamStateEntries(len(r.streamState))
+	metrics.SetDeliveryRouterStreamStateActive(active)
+	if evicted > 0 {
+		metrics.AddDeliveryRouterStreamStateEvicted(evicted)
+	}
+}
+
+func (r *RouterActor) evictOldestStreamState() {
+	var oldestID string
+	var oldestTime time.Time
+	for id, state := range r.streamState {
+		if state == nil {
+			delete(r.streamState, id)
+			metrics.AddDeliveryRouterStreamStateEvicted(1)
+			metrics.SetDeliveryRouterStreamStateEntries(len(r.streamState))
+			return
+		}
+		if oldestID == "" || state.lastSeenAt.Before(oldestTime) {
+			oldestID = id
+			oldestTime = state.lastSeenAt
+		}
+	}
+	if oldestID != "" {
+		delete(r.streamState, oldestID)
+		metrics.AddDeliveryRouterStreamStateEvicted(1)
+		metrics.SetDeliveryRouterStreamStateEntries(len(r.streamState))
+	}
 }
 
 func routingTimeframeForEnvelope(defaultTimeframe string, env envelope.Envelope) string {

@@ -77,6 +77,7 @@
     "keepalive_interval_ms": 20000,
     "backpressure_policy": "drop_newest",
     "slow_client_drop_threshold": 1000,
+    "router_stream_state_ttl": "30m",
     "max_frame_bytes": 65536,
     "nats": {
       "consumer_durable": "delivery-v2",

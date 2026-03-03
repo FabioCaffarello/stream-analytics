@@ -23,8 +23,8 @@ import (
 	"github.com/market-raccoon/internal/shared/problem"
 )
 
-// ConnectionLimits controls hard caps for websocket sessions and subscriptions.
-type ConnectionLimits struct {
+// ServerConnectionLimits controls hard caps for websocket sessions and subscriptions.
+type ServerConnectionLimits struct {
 	MaxConnectionsPerIP  int
 	MaxConnectionsPerKey int
 	MaxSubsPerConnection int
@@ -44,8 +44,9 @@ type Server struct {
 	rateLimit               deliveryruntime.RateLimitConfig
 	ipRateLimit             deliveryruntime.RateLimitConfig
 	transcodeCache          *deliveryruntime.TranscodeCache
+	snapshotWireCache       *deliveryruntime.SnapshotWireCache
 	spawnSession            func(cfg deliveryruntime.SessionConfig) *actor.PID
-	limits                  ConnectionLimits
+	limits                  ServerConnectionLimits
 	serverInstanceID        string
 	connRegistry            *connectionRegistry
 	ipLimiter               *ipRateLimiter
@@ -110,7 +111,7 @@ func WithIPRateLimit(cfg deliveryruntime.RateLimitConfig) Option {
 	}
 }
 
-func WithConnectionLimits(limits ConnectionLimits) Option {
+func WithConnectionLimits(limits ServerConnectionLimits) Option {
 	return func(s *Server) {
 		s.limits = limits
 	}
@@ -179,7 +180,7 @@ func NewServer(engine *actor.Engine, routerPID *actor.PID, logger *slog.Logger, 
 		outboundQueueSize: outboundQueueSize,
 		allowLegacy:       true,
 		enableCompression: true,
-		limits: ConnectionLimits{
+		limits: ServerConnectionLimits{
 			MaxConnectionsPerIP:  200,
 			MaxConnectionsPerKey: 20,
 			MaxSubsPerConnection: 256,
@@ -225,6 +226,9 @@ func NewServer(engine *actor.Engine, routerPID *actor.PID, logger *slog.Logger, 
 			idleTTL:    defaultIPRateLimiterIdleTTL,
 			sweepEvery: defaultIPRateLimiterSweepEvery,
 		}
+	}
+	if srv.snapshotWireCache == nil {
+		srv.snapshotWireCache = deliveryruntime.NewSnapshotWireCache(0, 0)
 	}
 	return srv
 }
@@ -289,11 +293,21 @@ func (s *Server) handleUpgradeWithMode(w http.ResponseWriter, r *http.Request, m
 	maxSubs := s.limits.MaxSubsPerConnection
 	maxSymbols := s.limits.MaxSymbolsPerConn
 	maxFrameBytes := s.maxFrameBytes
+	outboundQueueSize := s.outboundQueueSize
 	if tl, ok := s.tenantLimits[principal.TenantID]; ok {
 		if tl.MaxSubsPerConnection > 0 {
 			maxSubs = tl.MaxSubsPerConnection
 		}
-		if tl.RateLimit.Enabled {
+		if tl.MaxSymbolsPerConn > 0 {
+			maxSymbols = tl.MaxSymbolsPerConn
+		}
+		if tl.MaxFrameBytes > 0 {
+			maxFrameBytes = tl.MaxFrameBytes
+		}
+		if tl.OutboundQueueSize > 0 {
+			outboundQueueSize = tl.OutboundQueueSize
+		}
+		if hasRateLimitOverride(tl.RateLimit) {
 			sessionRateLimit = deliveryruntime.RateLimitConfig{
 				Enabled:       tl.RateLimit.Enabled,
 				MaxPerSecond:  tl.RateLimit.MaxPerSecond,
@@ -301,6 +315,7 @@ func (s *Server) handleUpgradeWithMode(w http.ResponseWriter, r *http.Request, m
 			}
 		}
 	}
+	sessionRateLimit = normalizeRateLimit(sessionRateLimit, s.rateLimit)
 	pid := s.spawnSession(deliveryruntime.SessionConfig{
 		Logger:                  s.logger,
 		RouterPID:               s.routerPID,
@@ -308,11 +323,13 @@ func (s *Server) handleUpgradeWithMode(w http.ResponseWriter, r *http.Request, m
 		ClientID:                principal.ClientID,
 		TenantID:                principal.TenantID,
 		RangeStore:              s.rangeStore,
-		OutboundQueueSize:       s.outboundQueueSize,
+		OutboundQueueSize:       outboundQueueSize,
 		SlowClientDropThreshold: s.slowClientDropThreshold,
 		PreferProto:             sessionWantsProto(r),
 		RateLimit:               sessionRateLimit,
 		TranscodeCache:          s.transcodeCache,
+		SnapshotWireCache:       s.snapshotWireCache,
+		CompressionEnabled:      s.enableCompression,
 		ServerInstanceID:        s.serverInstanceID,
 		MaxSubscriptions:        maxSubs,
 		MaxSymbolsPerConnection: maxSymbols,
@@ -399,7 +416,33 @@ func syncConnectionIntrospection(reg *connectionRegistry) {
 	observability.SetTerminalWSConnectionsActive(int64(reg.Total()))
 }
 
-func (r *connectionRegistry) Acquire(ip, key string, limits ConnectionLimits) *problem.Problem {
+func hasRateLimitOverride(cfg config.WSRateLimitConfig) bool {
+	return cfg.Enabled || cfg.MaxPerSecond > 0 || cfg.BurstCapacity > 0
+}
+
+func normalizeRateLimit(override, fallback deliveryruntime.RateLimitConfig) deliveryruntime.RateLimitConfig {
+	out := override
+	if !out.Enabled {
+		return out
+	}
+	if out.MaxPerSecond <= 0 {
+		if fallback.MaxPerSecond > 0 {
+			out.MaxPerSecond = fallback.MaxPerSecond
+		} else {
+			out.MaxPerSecond = 100
+		}
+	}
+	if out.BurstCapacity <= 0 {
+		if fallback.BurstCapacity > 0 {
+			out.BurstCapacity = fallback.BurstCapacity
+		} else {
+			out.BurstCapacity = 200
+		}
+	}
+	return out
+}
+
+func (r *connectionRegistry) Acquire(ip, key string, limits ServerConnectionLimits) *problem.Problem {
 	if r == nil {
 		return nil
 	}

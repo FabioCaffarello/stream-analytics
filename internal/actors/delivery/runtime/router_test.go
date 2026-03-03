@@ -6,8 +6,11 @@ import (
 
 	"github.com/anthdm/hollywood/actor"
 	"github.com/market-raccoon/internal/core/delivery/domain"
+	sharedclock "github.com/market-raccoon/internal/shared/clock"
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/ids"
+	sharedmetrics "github.com/market-raccoon/internal/shared/metrics"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 type captureActor struct{ ch chan any }
@@ -44,6 +47,42 @@ func waitForMessage[T any](t *testing.T, ch <-chan any, timeout time.Duration) T
 		case <-deadline:
 			var zero T
 			t.Fatalf("timeout waiting for %T", zero)
+		}
+	}
+}
+
+func waitForMetricEqual(t *testing.T, name string, read func() float64, want float64, timeout time.Duration) {
+	t.Helper()
+	deadline := time.After(timeout)
+	tick := time.NewTicker(10 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		got := read()
+		if got == want {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("%s=%f want=%f", name, got, want)
+		case <-tick.C:
+		}
+	}
+}
+
+func waitForMetricAtLeast(t *testing.T, name string, read func() float64, want float64, timeout time.Duration) {
+	t.Helper()
+	deadline := time.After(timeout)
+	tick := time.NewTicker(10 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		got := read()
+		if got >= want {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("%s=%f want>=%f", name, got, want)
+		case <-tick.C:
 		}
 	}
 }
@@ -102,6 +141,62 @@ func TestRouter_subscribeUnsubscribeAndBroadcast(t *testing.T) {
 		}
 	case <-time.After(150 * time.Millisecond):
 	}
+}
+
+func TestRouter_MaxSessionsEnforced(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	rejectedBefore := testutil.ToFloat64(sharedmetrics.DeliveryRouterSessionsRejectedTotal)
+	routerPID := e.Spawn(NewRouterActor(RouterConfig{
+		Timeframe:         "raw",
+		MaxActiveSessions: 1,
+	}), "router-max-sessions")
+	defer e.Poison(routerPID)
+
+	ch1 := make(chan any, 16)
+	ch2 := make(chan any, 16)
+	s1 := e.Spawn(func() actor.Receiver { return &captureActor{ch: ch1} }, "session-max-sessions-1")
+	s2 := e.Spawn(func() actor.Receiver { return &captureActor{ch: ch2} }, "session-max-sessions-2")
+	defer e.Poison(s1)
+	defer e.Poison(s2)
+
+	id1 := ids.NewSessionID()
+	id2 := ids.NewSessionID()
+	subject := mustParseSubject(t, "marketdata.trade/binance/BTC-USDT/raw")
+
+	e.Send(routerPID, RegisterSession{SessionID: id1, PID: s1})
+	e.Send(routerPID, RegisterSession{SessionID: id2, PID: s2})
+	e.Send(routerPID, SubscribeSession{SessionID: id1, Subject: subject})
+	e.Send(routerPID, SubscribeSession{SessionID: id2, Subject: subject})
+
+	e.Send(routerPID, DeliverEnvelope{Envelope: envelope.Envelope{
+		Type:       "marketdata.trade",
+		Version:    1,
+		Venue:      "binance",
+		Instrument: "BTC-USDT",
+		Seq:        1,
+		TsIngest:   time.Now().UnixMilli(),
+		Payload:    []byte(`{}`),
+	}})
+
+	_ = waitForMessage[DeliveryEvent](t, ch1, time.Second)
+	select {
+	case raw := <-ch2:
+		if _, ok := raw.(DeliveryEvent); ok {
+			t.Fatal("rejected session should not receive delivery events")
+		}
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	waitForMetricEqual(t, "delivery_router_sessions_active", func() float64 {
+		return testutil.ToFloat64(sharedmetrics.DeliveryRouterSessionsActive)
+	}, 1, time.Second)
+	waitForMetricAtLeast(t, "delivery_router_sessions_rejected_total", func() float64 {
+		return testutil.ToFloat64(sharedmetrics.DeliveryRouterSessionsRejectedTotal)
+	}, rejectedBefore+1, time.Second)
 }
 
 func TestRouter_AssignsContinuousDeliverySeqPerStream(t *testing.T) {
@@ -717,6 +812,223 @@ func TestRouter_DeliverySeqContiguityAfterReject(t *testing.T) {
 	}
 }
 
+func TestRouterStreamStateTTLExpiresInactive(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	fakeClock := sharedclock.NewFakeClock(time.Unix(1_700_000_000, 0).UTC())
+	routerPID := e.Spawn(NewRouterActor(RouterConfig{
+		Timeframe:             "raw",
+		StreamStateTTL:        30 * time.Minute,
+		StreamStateSweepEvery: 24 * time.Hour,
+		Now:                   fakeClock.Now,
+	}), "router-stream-state-ttl-expires")
+	defer e.Poison(routerPID)
+
+	ch := make(chan any, 16)
+	sessionPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: ch} }, "session-stream-state-ttl-expires")
+	defer e.Poison(sessionPID)
+
+	id := ids.NewSessionID()
+	subject := mustParseSubject(t, "marketdata.trade/binance/BTC-USDT/raw")
+	e.Send(routerPID, RegisterSession{SessionID: id, PID: sessionPID})
+	e.Send(routerPID, SubscribeSession{SessionID: id, Subject: subject})
+
+	emit := func(srcSeq int64) {
+		e.Send(routerPID, DeliverEnvelope{Envelope: envelope.Envelope{
+			Type:       "marketdata.trade",
+			Version:    1,
+			Venue:      "binance",
+			Instrument: "BTC-USDT",
+			Seq:        srcSeq,
+			TsIngest:   fakeClock.NowUnixMilli(),
+			Payload:    []byte(`{}`),
+		}})
+	}
+
+	emit(10)
+	if got := waitForMessage[DeliveryEvent](t, ch, time.Second).Env.Seq; got != 1 {
+		t.Fatalf("first delivery seq=%d want=1", got)
+	}
+
+	fakeClock.Advance(31 * time.Minute)
+	e.Send(routerPID, routerSweepStreamState{})
+
+	emit(9)
+	if got := waitForMessage[DeliveryEvent](t, ch, time.Second).Env.Seq; got != 1 {
+		t.Fatalf("delivery seq after ttl eviction=%d want=1", got)
+	}
+}
+
+func TestRouterStreamStateDoesNotExpireActive(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	fakeClock := sharedclock.NewFakeClock(time.Unix(1_700_000_000, 0).UTC())
+	routerPID := e.Spawn(NewRouterActor(RouterConfig{
+		Timeframe:             "raw",
+		StreamStateTTL:        30 * time.Minute,
+		StreamStateSweepEvery: 24 * time.Hour,
+		Now:                   fakeClock.Now,
+	}), "router-stream-state-ttl-active")
+	defer e.Poison(routerPID)
+
+	ch := make(chan any, 16)
+	sessionPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: ch} }, "session-stream-state-ttl-active")
+	defer e.Poison(sessionPID)
+
+	id := ids.NewSessionID()
+	subject := mustParseSubject(t, "marketdata.trade/binance/BTC-USDT/raw")
+	e.Send(routerPID, RegisterSession{SessionID: id, PID: sessionPID})
+	e.Send(routerPID, SubscribeSession{SessionID: id, Subject: subject})
+
+	emit := func(srcSeq int64) {
+		e.Send(routerPID, DeliverEnvelope{Envelope: envelope.Envelope{
+			Type:       "marketdata.trade",
+			Version:    1,
+			Venue:      "binance",
+			Instrument: "BTC-USDT",
+			Seq:        srcSeq,
+			TsIngest:   fakeClock.NowUnixMilli(),
+			Payload:    []byte(`{}`),
+		}})
+	}
+
+	emit(10)
+	if got := waitForMessage[DeliveryEvent](t, ch, time.Second).Env.Seq; got != 1 {
+		t.Fatalf("first delivery seq=%d want=1", got)
+	}
+
+	fakeClock.Advance(20 * time.Minute)
+	e.Send(routerPID, routerSweepStreamState{})
+	emit(11)
+	if got := waitForMessage[DeliveryEvent](t, ch, time.Second).Env.Seq; got != 2 {
+		t.Fatalf("second delivery seq=%d want=2", got)
+	}
+
+	fakeClock.Advance(20 * time.Minute)
+	e.Send(routerPID, routerSweepStreamState{})
+	emit(12)
+	if got := waitForMessage[DeliveryEvent](t, ch, time.Second).Env.Seq; got != 3 {
+		t.Fatalf("third delivery seq=%d want=3", got)
+	}
+}
+
+func TestRouterStreamStateGaugeUpdates(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	fakeClock := sharedclock.NewFakeClock(time.Unix(1_700_000_000, 0).UTC())
+	evictedBefore := testutil.ToFloat64(sharedmetrics.DeliveryRouterStreamStateEvictedTotal)
+
+	routerPID := e.Spawn(NewRouterActor(RouterConfig{
+		Timeframe:             "raw",
+		StreamStateTTL:        30 * time.Minute,
+		StreamStateSweepEvery: 24 * time.Hour,
+		Now:                   fakeClock.Now,
+	}), "router-stream-state-gauge")
+	defer e.Poison(routerPID)
+
+	ch := make(chan any, 16)
+	sessionPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: ch} }, "session-stream-state-gauge")
+	defer e.Poison(sessionPID)
+
+	id := ids.NewSessionID()
+	subject := mustParseSubject(t, "marketdata.trade/binance/BTC-USDT/raw")
+	e.Send(routerPID, RegisterSession{SessionID: id, PID: sessionPID})
+	e.Send(routerPID, SubscribeSession{SessionID: id, Subject: subject})
+	e.Send(routerPID, DeliverEnvelope{Envelope: envelope.Envelope{
+		Type:       "marketdata.trade",
+		Version:    1,
+		Venue:      "binance",
+		Instrument: "BTC-USDT",
+		Seq:        10,
+		TsIngest:   fakeClock.NowUnixMilli(),
+		Payload:    []byte(`{}`),
+	}})
+	_ = waitForMessage[DeliveryEvent](t, ch, time.Second)
+
+	e.Send(routerPID, routerSweepStreamState{})
+	waitForMetricEqual(t, "router_stream_state_entries", func() float64 {
+		return testutil.ToFloat64(sharedmetrics.DeliveryRouterStreamStateEntries)
+	}, 1, time.Second)
+	waitForMetricEqual(t, "router_stream_state_active_total", func() float64 {
+		return testutil.ToFloat64(sharedmetrics.DeliveryRouterStreamStateActiveTotal)
+	}, 1, time.Second)
+
+	fakeClock.Advance(31 * time.Minute)
+	e.Send(routerPID, routerSweepStreamState{})
+	waitForMetricEqual(t, "router_stream_state_entries", func() float64 {
+		return testutil.ToFloat64(sharedmetrics.DeliveryRouterStreamStateEntries)
+	}, 0, time.Second)
+	waitForMetricEqual(t, "router_stream_state_active_total", func() float64 {
+		return testutil.ToFloat64(sharedmetrics.DeliveryRouterStreamStateActiveTotal)
+	}, 0, time.Second)
+	waitForMetricAtLeast(t, "router_stream_state_evicted_total", func() float64 {
+		return testutil.ToFloat64(sharedmetrics.DeliveryRouterStreamStateEvictedTotal)
+	}, evictedBefore+1, time.Second)
+}
+
+func TestRouterSeqContinuityStillHoldsAfterEviction(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	fakeClock := sharedclock.NewFakeClock(time.Unix(1_700_000_000, 0).UTC())
+	routerPID := e.Spawn(NewRouterActor(RouterConfig{
+		Timeframe:             "raw",
+		StreamStateTTL:        30 * time.Minute,
+		StreamStateSweepEvery: 24 * time.Hour,
+		Now:                   fakeClock.Now,
+	}), "router-stream-state-seq-after-eviction")
+	defer e.Poison(routerPID)
+
+	ch := make(chan any, 16)
+	sessionPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: ch} }, "session-stream-state-seq-after-eviction")
+	defer e.Poison(sessionPID)
+
+	id := ids.NewSessionID()
+	subject := mustParseSubject(t, "marketdata.trade/binance/BTC-USDT/raw")
+	e.Send(routerPID, RegisterSession{SessionID: id, PID: sessionPID})
+	e.Send(routerPID, SubscribeSession{SessionID: id, Subject: subject})
+
+	emit := func(srcSeq int64) {
+		e.Send(routerPID, DeliverEnvelope{Envelope: envelope.Envelope{
+			Type:       "marketdata.trade",
+			Version:    1,
+			Venue:      "binance",
+			Instrument: "BTC-USDT",
+			Seq:        srcSeq,
+			TsIngest:   fakeClock.NowUnixMilli(),
+			Payload:    []byte(`{}`),
+		}})
+	}
+
+	emit(100)
+	if got := waitForMessage[DeliveryEvent](t, ch, time.Second).Env.Seq; got != 1 {
+		t.Fatalf("first delivery seq=%d want=1", got)
+	}
+
+	fakeClock.Advance(31 * time.Minute)
+	e.Send(routerPID, routerSweepStreamState{})
+
+	emit(50)
+	emit(51)
+
+	ev2 := waitForMessage[DeliveryEvent](t, ch, time.Second)
+	ev3 := waitForMessage[DeliveryEvent](t, ch, time.Second)
+	if ev2.Env.Seq != 1 || ev3.Env.Seq != 2 {
+		t.Fatalf("expected contiguous delivery seq after eviction [1,2], got [%d,%d]", ev2.Env.Seq, ev3.Env.Seq)
+	}
+}
+
 func TestRouter_cleansUpStoppedSession(t *testing.T) {
 	e, err := actor.NewEngine(actor.NewEngineConfig())
 	if err != nil {
@@ -734,9 +1046,9 @@ func TestRouter_cleansUpStoppedSession(t *testing.T) {
 	e.Send(routerPID, RegisterSession{SessionID: id, PID: sessionPID})
 	e.Send(routerPID, SubscribeSession{SessionID: id, Subject: subject})
 	<-e.Poison(sessionPID).Done()
-
-	// Give router time to process ActorStoppedEvent from Hollywood event stream.
-	time.Sleep(50 * time.Millisecond)
+	waitForMetricEqual(t, "delivery_router_sessions_active", func() float64 {
+		return testutil.ToFloat64(sharedmetrics.DeliveryRouterSessionsActive)
+	}, 0, time.Second)
 
 	e.Send(routerPID, DeliverEnvelope{Envelope: envelope.Envelope{
 		Type:       "marketdata.trade",

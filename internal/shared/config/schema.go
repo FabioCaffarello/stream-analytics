@@ -252,6 +252,9 @@ func (w WSConfig) IsLegacyAllowed() bool {
 type WSTenantLimitConfig struct {
 	MaxConnectionsPerKey int               `json:"max_connections_per_key"`
 	MaxSubsPerConnection int               `json:"max_subs_per_connection"`
+	MaxSymbolsPerConn    int               `json:"max_symbols_per_connection"`
+	MaxFrameBytes        int               `json:"max_frame_bytes"`
+	OutboundQueueSize    int               `json:"outbound_queue_size"`
 	RateLimit            WSRateLimitConfig `json:"rate_limit"`
 }
 
@@ -308,8 +311,10 @@ type DeliveryConfig struct {
 	// SubsystemReadyTimeout is the maximum time to wait for the delivery subsystem PID.  Default: "500ms".
 	SubsystemReadyTimeout string `json:"subsystem_ready_timeout"`
 	// SessionSpawnTimeout is the request timeout for spawning a new WS session.  Default: "2s".
-	SessionSpawnTimeout string             `json:"session_spawn_timeout"`
-	NATS                DeliveryNATSConfig `json:"nats"`
+	SessionSpawnTimeout string `json:"session_spawn_timeout"`
+	// RouterStreamStateTTL bounds delivery router stream-state retention. Default: "30m".
+	RouterStreamStateTTL string             `json:"router_stream_state_ttl"`
+	NATS                 DeliveryNATSConfig `json:"nats"`
 }
 
 // RouterReadyTimeoutDuration parses and returns DeliveryConfig.RouterReadyTimeout.
@@ -325,6 +330,11 @@ func (d DeliveryConfig) SubsystemReadyTimeoutDuration() time.Duration {
 // SessionSpawnTimeoutDuration parses and returns DeliveryConfig.SessionSpawnTimeout.
 func (d DeliveryConfig) SessionSpawnTimeoutDuration() time.Duration {
 	return mustParseDuration(d.SessionSpawnTimeout)
+}
+
+// RouterStreamStateTTLDuration parses and returns DeliveryConfig.RouterStreamStateTTL.
+func (d DeliveryConfig) RouterStreamStateTTLDuration() time.Duration {
+	return mustParseDuration(d.RouterStreamStateTTL)
 }
 
 // DeliveryNATSConfig controls delivery consumer behavior for NATS/JetStream.

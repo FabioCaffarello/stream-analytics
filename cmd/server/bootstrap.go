@@ -424,6 +424,7 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 				Timeframe:           "raw",
 				EnvelopeStore:       rangeStore,
 				StreamCoherenceMode: "sticky_session",
+				StreamStateTTL:      cfg.Delivery.RouterStreamStateTTLDuration(),
 			},
 			OnRouterReady: func(pid *actor.PID) {
 				select {
@@ -563,7 +564,9 @@ func enableWSRoute(
 				sessionCfg.HotSnapshotProvider = hotSnapshotProvider
 				sessionCfg.MetricsCadence = time.Duration(cfg.Delivery.MetricsCadenceMs) * time.Millisecond
 				sessionCfg.KeepaliveInterval = time.Duration(cfg.Delivery.KeepaliveIntervalMs) * time.Millisecond
-				sessionCfg.MaxFrameBytes = cfg.Delivery.MaxFrameBytes
+				if sessionCfg.MaxFrameBytes <= 0 {
+					sessionCfg.MaxFrameBytes = cfg.Delivery.MaxFrameBytes
+				}
 				if subsystemPID == nil {
 					return nil
 				}
@@ -590,12 +593,13 @@ func enableWSRoute(
 				MaxPerSecond:  cfg.WS.RateLimit.MaxPerSecond,
 				BurstCapacity: cfg.WS.RateLimit.BurstCapacity,
 			}),
-			wsserver.WithConnectionLimits(wsserver.ConnectionLimits{
+			wsserver.WithConnectionLimits(wsserver.ServerConnectionLimits{
 				MaxConnectionsPerIP:  cfg.WS.Limits.MaxConnectionsPerIP,
 				MaxConnectionsPerKey: cfg.WS.Limits.MaxConnectionsPerKey,
 				MaxSubsPerConnection: cfg.WS.Limits.MaxSubsPerConnection,
 				MaxSymbolsPerConn:    cfg.WS.Limits.MaxSymbolsPerConn,
 			}),
+			wsserver.WithTenantLimits(cfg.WS.TenantLimits),
 			wsserver.WithServerInstanceID(ids.NewSessionID().String()),
 			wsserver.WithSlowClientDropThreshold(cfg.Delivery.SlowClientDropThreshold),
 			wsserver.WithTranscodeCache(deliveryruntime.NewTranscodeCache(0)),

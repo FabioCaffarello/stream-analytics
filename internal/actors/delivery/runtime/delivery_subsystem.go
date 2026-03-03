@@ -91,9 +91,13 @@ func (s *SubsystemActor) ensureDefaults(c *actor.Context) {
 }
 
 func (s *SubsystemActor) onStarted(c *actor.Context) {
+	routerCfg := s.cfg.Router
+	if s.cfg.MaxSessions > 0 && routerCfg.MaxActiveSessions <= 0 {
+		routerCfg.MaxActiveSessions = s.cfg.MaxSessions
+	}
 	routerProducer := s.cfg.RouterProducer
 	if routerProducer == nil {
-		routerProducer = NewRouterActor(s.cfg.Router)
+		routerProducer = NewRouterActor(routerCfg)
 	}
 	s.routerPID = c.SpawnChild(routerProducer, "delivery-router", actor.WithID("delivery-router"))
 	if s.cfg.OnRouterReady != nil {

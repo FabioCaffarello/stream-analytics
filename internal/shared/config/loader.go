@@ -355,6 +355,40 @@ func validateWS(w WSConfig) *problem.Problem {
 	if w.Limits.MaxSymbolsPerConn < 0 {
 		return problem.Newf(codeInvalid, "ws.limits.max_symbols_per_connection must be >= 0, got %d", w.Limits.MaxSymbolsPerConn)
 	}
+	for tenantID, tl := range w.TenantLimits {
+		if strings.TrimSpace(tenantID) == "" {
+			return problem.New(codeInvalid, "ws.tenant_limits keys must not be empty")
+		}
+		if tl.MaxConnectionsPerKey < 0 {
+			return problem.Newf(codeInvalid, "ws.tenant_limits[%q].max_connections_per_key must be >= 0, got %d", tenantID, tl.MaxConnectionsPerKey)
+		}
+		if tl.MaxSubsPerConnection < 0 {
+			return problem.Newf(codeInvalid, "ws.tenant_limits[%q].max_subs_per_connection must be >= 0, got %d", tenantID, tl.MaxSubsPerConnection)
+		}
+		if tl.MaxSymbolsPerConn < 0 {
+			return problem.Newf(codeInvalid, "ws.tenant_limits[%q].max_symbols_per_connection must be >= 0, got %d", tenantID, tl.MaxSymbolsPerConn)
+		}
+		if tl.MaxFrameBytes < 0 {
+			return problem.Newf(codeInvalid, "ws.tenant_limits[%q].max_frame_bytes must be >= 0, got %d", tenantID, tl.MaxFrameBytes)
+		}
+		if tl.OutboundQueueSize < 0 {
+			return problem.Newf(codeInvalid, "ws.tenant_limits[%q].outbound_queue_size must be >= 0, got %d", tenantID, tl.OutboundQueueSize)
+		}
+		if tl.RateLimit.MaxPerSecond < 0 {
+			return problem.Newf(codeInvalid, "ws.tenant_limits[%q].rate_limit.max_per_second must be >= 0, got %d", tenantID, tl.RateLimit.MaxPerSecond)
+		}
+		if tl.RateLimit.BurstCapacity < 0 {
+			return problem.Newf(codeInvalid, "ws.tenant_limits[%q].rate_limit.burst_capacity must be >= 0, got %d", tenantID, tl.RateLimit.BurstCapacity)
+		}
+		if tl.RateLimit.Enabled {
+			if tl.RateLimit.MaxPerSecond <= 0 {
+				return problem.Newf(codeInvalid, "ws.tenant_limits[%q].rate_limit.max_per_second must be > 0 when enabled, got %d", tenantID, tl.RateLimit.MaxPerSecond)
+			}
+			if tl.RateLimit.BurstCapacity <= 0 {
+				return problem.Newf(codeInvalid, "ws.tenant_limits[%q].rate_limit.burst_capacity must be > 0 when enabled, got %d", tenantID, tl.RateLimit.BurstCapacity)
+			}
+		}
+	}
 	fallback := strings.ToLower(strings.TrimSpace(w.TenantMetrics.Fallback))
 	switch fallback {
 	case "", "unknown", "hash_bucket":
@@ -392,9 +426,14 @@ func validateDelivery(d DeliveryConfig) *problem.Problem {
 		{"delivery.router_ready_timeout", d.RouterReadyTimeout},
 		{"delivery.subsystem_ready_timeout", d.SubsystemReadyTimeout},
 		{"delivery.session_spawn_timeout", d.SessionSpawnTimeout},
+		{"delivery.router_stream_state_ttl", d.RouterStreamStateTTL},
 	} {
-		if _, err := time.ParseDuration(field.value); err != nil {
+		parsed, err := time.ParseDuration(field.value)
+		if err != nil {
 			return problem.Newf(codeInvalid, "%s: invalid duration %q: %v", field.name, field.value, err)
+		}
+		if field.name == "delivery.router_stream_state_ttl" && parsed <= 0 {
+			return problem.Newf(codeInvalid, "%s must be > 0 duration, got %q", field.name, field.value)
 		}
 	}
 	if !d.Enabled {
@@ -1046,6 +1085,9 @@ func applyDefaults(c *AppConfig) {
 	}
 	if c.Delivery.SessionSpawnTimeout == "" {
 		c.Delivery.SessionSpawnTimeout = "2s"
+	}
+	if c.Delivery.RouterStreamStateTTL == "" {
+		c.Delivery.RouterStreamStateTTL = "30m"
 	}
 	if !c.WS.TenantMetrics.IncludeTenantLabel &&
 		strings.TrimSpace(c.WS.TenantMetrics.Fallback) == "" &&
