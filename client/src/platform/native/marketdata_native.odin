@@ -122,6 +122,21 @@ MD_Native_State :: struct {
 	// Server-pushed metrics (from METRICS frame).
 	server_metrics: services.Parsed_Metrics,
 	server_metrics_received: bool,
+	// Server capability limits (from HELLO).
+	server_max_subscriptions:    int,
+	server_max_frame_bytes:      int,
+	server_metrics_cadence_ms:   int,
+	server_keepalive_interval_ms: int,
+	server_rate_limit_enabled:   bool,
+	// Negotiated features (from Hello ACK).
+	negotiated_features: [services.MAX_FEATURE_SLOTS]services.Parsed_Feature_Slot,
+	negotiated_feature_count: int,
+	// Integrity counters.
+	snapshot_hash_mismatches: int,
+	snapshot_seq_violations:  int,
+	// Legacy tracking.
+	legacy_downgrade_count:    int,
+	legacy_connected_since_ms: i64,
 	reader_thread: ^thread.Thread,
 	mu:          sync.Mutex,
 	drop_count:  int,
@@ -740,7 +755,31 @@ native_metrics :: proc(out: ^ports.MD_Runtime_Metrics) -> bool {
 		server_serialize_errors = sm.serialize_errors_total,
 		server_resync_total     = sm.resync_total,
 		server_pub_deliver_ms   = sm.publish_to_deliver_latency_ms,
+		// Server capability limits.
+		server_max_subscriptions     = state.server_max_subscriptions,
+		server_max_frame_bytes       = state.server_max_frame_bytes,
+		server_metrics_cadence_ms    = state.server_metrics_cadence_ms,
+		server_keepalive_interval_ms = state.server_keepalive_interval_ms,
+		server_rate_limit_enabled    = state.server_rate_limit_enabled,
+		// Backpressure.
+		server_backpressure_level    = sm.backpressure_level,
+		server_queue_capacity        = sm.queue_capacity,
+		server_queue_high_watermark  = sm.queue_high_watermark,
+		// Feature negotiation.
+		negotiated_feature_count     = state.negotiated_feature_count,
+		// Integrity counters.
+		snapshot_hash_mismatches     = state.snapshot_hash_mismatches,
+		snapshot_seq_violations      = state.snapshot_seq_violations,
+		// Legacy tracking.
+		legacy_downgrade_count       = state.legacy_downgrade_count,
+		legacy_connected_since_ms    = state.legacy_connected_since_ms,
 	}
+	// Copy recommended_action from server metrics.
+	ra_n := min(int(sm.recommended_action_len), len(out.server_recommended_action))
+	for i in 0 ..< ra_n {
+		out.server_recommended_action[i] = sm.recommended_action_buf[i]
+	}
+	out.server_recommended_action_len = u8(ra_n)
 	sync.unlock(&state.mu)
 	return true
 }
@@ -1591,6 +1630,15 @@ apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 		} else {
 			fmt.printf("[md-lifecycle] ack_recv op=%s subject=%s\n", ack.op, ack.subject)
 		}
+	case .Hello_Ack:
+		ha := result.data.hello_ack
+		sync.lock(&state.mu)
+		state.negotiated_feature_count = ha.negotiated_feature_count
+		for i in 0 ..< ha.negotiated_feature_count {
+			state.negotiated_features[i] = ha.negotiated_features[i]
+		}
+		sync.unlock(&state.mu)
+		fmt.printf("[md-lifecycle] hello_ack_recv negotiated_features=%d\n", ha.negotiated_feature_count)
 	case .Hello:
 		h := result.data.hello
 		sync.lock(&state.mu)
@@ -1604,6 +1652,12 @@ apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 		sid_len := min(len(sid), len(state.server_instance_id))
 		for i in 0 ..< sid_len { state.server_instance_id[i] = sid[i] }
 		state.server_instance_id_len = u8(sid_len)
+		// Store capability limits.
+		state.server_max_subscriptions = h.max_subscriptions
+		state.server_max_frame_bytes = h.max_frame_bytes
+		state.server_metrics_cadence_ms = h.metrics_cadence_ms
+		state.server_keepalive_interval_ms = h.keepalive_interval_ms
+		state.server_rate_limit_enabled = h.rate_limit_enabled
 		if !h.valid {
 			state.desync = true
 			state.desync_reason = md_common.desync_reason_from_hello_reject(h.reject)
