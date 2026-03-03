@@ -1688,3 +1688,151 @@ func TestSession_TenantMetrics_DefaultTenantWhenEmpty(t *testing.T) {
 		t.Fatalf("expected default tenant connection, before=%f after=%f", before, after)
 	}
 }
+
+// ── Feature negotiation edge cases ───────────────────────────────────────────
+
+func TestValidateRequestedFeatures_AllValid(t *testing.T) {
+	valid, unknown := validateRequestedFeatures([]string{"batching", "prev_seq", "snapshot_hash"})
+	if len(unknown) != 0 {
+		t.Fatalf("unknown=%v want empty", unknown)
+	}
+	if len(valid) != 3 {
+		t.Fatalf("valid len=%d want=3", len(valid))
+	}
+}
+
+func TestValidateRequestedFeatures_UnknownRejected(t *testing.T) {
+	valid, unknown := validateRequestedFeatures([]string{"batching", "foo_bar"})
+	if len(unknown) != 1 || unknown[0] != "foo_bar" {
+		t.Fatalf("unknown=%v want=[foo_bar]", unknown)
+	}
+	if len(valid) != 1 || valid[0] != "batching" {
+		t.Fatalf("valid=%v want=[batching]", valid)
+	}
+}
+
+func TestValidateRequestedFeatures_EmptyAndWhitespace(t *testing.T) {
+	valid, unknown := validateRequestedFeatures([]string{"", "  ", " batching "})
+	if len(unknown) != 0 {
+		t.Fatalf("unknown=%v want empty", unknown)
+	}
+	if len(valid) != 1 || valid[0] != "batching" {
+		t.Fatalf("valid=%v want=[batching]", valid)
+	}
+}
+
+func TestValidateRequestedFeatures_DuplicateFeatures(t *testing.T) {
+	valid, unknown := validateRequestedFeatures([]string{"batching", "BATCHING", "Batching"})
+	if len(unknown) != 0 {
+		t.Fatalf("unknown=%v want empty", unknown)
+	}
+	if len(valid) != 1 || valid[0] != "batching" {
+		t.Fatalf("valid=%v want=[batching] (deduplicated)", valid)
+	}
+}
+
+func TestValidateRequestedFeatures_CaseInsensitive(t *testing.T) {
+	valid, unknown := validateRequestedFeatures([]string{"PREV_SEQ", "Snapshot_Hash"})
+	if len(unknown) != 0 {
+		t.Fatalf("unknown=%v want empty", unknown)
+	}
+	if len(valid) != 2 {
+		t.Fatalf("valid=%v want 2 elements", valid)
+	}
+}
+
+func TestHandleClientHello_RejectsUnknownFeature(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-feat-rej")
+	defer e.Poison(routerPID)
+
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{RouterPID: routerPID, Conn: conn}), "ws-session-feat-rej")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"hello","request_id":"h1","requested_features":["batching","unknown_feature"]}`)}
+	resp := <-conn.writeCh
+	errMsg, ok := resp.(wsErrorFrame)
+	if !ok {
+		t.Fatalf("expected wsErrorFrame, got %T: %#v", resp, resp)
+	}
+	if errMsg.Type != "error" || errMsg.Op != "hello" {
+		t.Fatalf("type=%q op=%q want type=error op=hello", errMsg.Type, errMsg.Op)
+	}
+}
+
+func TestHandleClientHello_MixedValidInvalid_NoPartialAccept(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-feat-mixed")
+	defer e.Poison(routerPID)
+
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{RouterPID: routerPID, Conn: conn}), "ws-session-feat-mixed")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"hello","request_id":"h2","requested_features":["batching","bogus"]}`)}
+	resp := <-conn.writeCh
+	if _, ok := resp.(wsErrorFrame); !ok {
+		t.Fatalf("expected error (no partial accept), got %T", resp)
+	}
+}
+
+func TestHandleClientHello_NoFeaturesOmitsField(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-feat-empty")
+	defer e.Poison(routerPID)
+
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{RouterPID: routerPID, Conn: conn}), "ws-session-feat-empty")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"hello","request_id":"h3"}`)}
+	resp := <-conn.writeCh
+	ack, ok := resp.(wsHelloAckFrame)
+	if !ok {
+		t.Fatalf("expected wsHelloAckFrame, got %T: %#v", resp, resp)
+	}
+	if len(ack.NegotiatedFeatures) != 0 {
+		t.Fatalf("negotiated_features=%v want empty (omitempty)", ack.NegotiatedFeatures)
+	}
+}
+
+func TestHandleClientHello_AllThreeSupported(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-feat-all3")
+	defer e.Poison(routerPID)
+
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{RouterPID: routerPID, Conn: conn}), "ws-session-feat-all3")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"hello","request_id":"h4","requested_features":["batching","snapshot_hash","prev_seq"]}`)}
+	resp := <-conn.writeCh
+	ack, ok := resp.(wsHelloAckFrame)
+	if !ok {
+		t.Fatalf("expected wsHelloAckFrame, got %T", resp)
+	}
+	if len(ack.NegotiatedFeatures) != 3 {
+		t.Fatalf("negotiated_features=%v want 3 features", ack.NegotiatedFeatures)
+	}
+}
