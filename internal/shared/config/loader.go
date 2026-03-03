@@ -1274,6 +1274,8 @@ func applyDefaults(c *AppConfig) {
 	if strings.TrimSpace(c.Storage.ClickHouse.ReadTimeout) == "" {
 		c.Storage.ClickHouse.ReadTimeout = "5s"
 	}
+	// WS.AllowLegacy defaults to true via *bool nil semantics (IsLegacyAllowed).
+	// No explicit assignment needed: nil → true.
 	if c.WS.RateLimit.MaxPerSecond <= 0 {
 		c.WS.RateLimit.MaxPerSecond = 100
 	}

@@ -21,6 +21,7 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 		{name: "http.addr", got: cfg.HTTP.Addr, want: ":8080"},
 		{name: "http.publisher_flush_timeout", got: cfg.HTTP.PublisherFlushTimeoutDuration(), want: 3 * time.Second},
 		{name: "http.guardian_shutdown_timeout", got: cfg.HTTP.GuardianShutdownTimeoutDuration(), want: 10 * time.Second},
+		{name: "ws.allow_legacy_ws default", got: cfg.WS.IsLegacyAllowed(), want: true},
 		{name: "ws.rate_limit.max_per_second", got: cfg.WS.RateLimit.MaxPerSecond, want: 100},
 		{name: "ws.rate_limit.burst_capacity", got: cfg.WS.RateLimit.BurstCapacity, want: 200},
 		{name: "delivery.session_outbound_queue_size", got: cfg.Delivery.SessionOutboundQueueSize, want: 512},
@@ -1496,4 +1497,49 @@ func writeTempFile(t *testing.T, content string) string {
 		t.Fatalf("close temp file: %v", err)
 	}
 	return filepath.Clean(f.Name())
+}
+
+// ── AllowLegacy ──────────────────────────────────────────────────────────────
+
+func TestApplyDefaults_AllowLegacyDefaultTrue(t *testing.T) {
+	cfg, prob := Load("")
+	if prob != nil {
+		t.Fatalf("Load(\"\") unexpectedly failed: %v", prob)
+	}
+	if !cfg.WS.IsLegacyAllowed() {
+		t.Fatal("IsLegacyAllowed() should default to true when AllowLegacy is nil")
+	}
+	if cfg.WS.AllowLegacy != nil {
+		t.Fatal("AllowLegacy should remain nil by default")
+	}
+}
+
+func TestWSConfig_AllowLegacyExplicitFalse(t *testing.T) {
+	src := `{"ws":{"allow_legacy_ws":false}}`
+	path := writeTempFile(t, src)
+	cfg, prob := Load(path)
+	if prob != nil {
+		t.Fatalf("Load() unexpectedly failed: %v", prob)
+	}
+	if cfg.WS.AllowLegacy == nil {
+		t.Fatal("AllowLegacy should not be nil after explicit false")
+	}
+	if cfg.WS.IsLegacyAllowed() {
+		t.Fatal("IsLegacyAllowed() should return false after explicit false")
+	}
+}
+
+func TestWSConfig_AllowLegacyExplicitTrue(t *testing.T) {
+	src := `{"ws":{"allow_legacy_ws":true}}`
+	path := writeTempFile(t, src)
+	cfg, prob := Load(path)
+	if prob != nil {
+		t.Fatalf("Load() unexpectedly failed: %v", prob)
+	}
+	if cfg.WS.AllowLegacy == nil {
+		t.Fatal("AllowLegacy should not be nil after explicit true")
+	}
+	if !cfg.WS.IsLegacyAllowed() {
+		t.Fatal("IsLegacyAllowed() should return true after explicit true")
+	}
 }

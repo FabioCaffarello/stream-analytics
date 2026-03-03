@@ -223,6 +223,15 @@ type WSConfig struct {
 	RateLimit    WSRateLimitConfig              `json:"rate_limit"`
 	Limits       WSLimitsConfig                 `json:"limits"`
 	TenantLimits map[string]WSTenantLimitConfig `json:"tenant_limits,omitempty"`
+	// AllowLegacy controls whether the /ws/marketdata legacy route is served.
+	// nil defaults to true (legacy allowed). Explicit false returns 410 Gone.
+	AllowLegacy *bool `json:"allow_legacy_ws,omitempty"`
+}
+
+// IsLegacyAllowed returns whether the legacy /ws/marketdata route is enabled.
+// Default is true when AllowLegacy is nil (not specified in config).
+func (w WSConfig) IsLegacyAllowed() bool {
+	return w.AllowLegacy == nil || *w.AllowLegacy
 }
 
 // WSTenantLimitConfig defines per-tenant connection and rate limit overrides.
