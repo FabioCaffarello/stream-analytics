@@ -10,6 +10,9 @@ import (
 	"github.com/anthdm/hollywood/actor"
 	"github.com/gorilla/websocket"
 	deliveryruntime "github.com/market-raccoon/internal/actors/delivery/runtime"
+	marketmodel "github.com/market-raccoon/internal/core/marketmodel"
+	"github.com/market-raccoon/internal/shared/codec"
+	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 )
 
@@ -152,6 +155,108 @@ func TestWSDelivery_SignalPayload_NoExecutionFields(t *testing.T) {
 	if hasForbiddenSignalPayloadKey(payload, forbidden) {
 		raw, _ := json.Marshal(payload)
 		t.Fatalf("payload contains forbidden execution key: %s", string(raw))
+	}
+}
+
+func TestWSDelivery_SignalEventFrame_RoutedToSubscriber(t *testing.T) {
+	requireLoopbackListener(t)
+	if p := contracts.BootstrapPayloadCodecRegistry(); p != nil {
+		t.Fatalf("bootstrap codec registry: %v", p)
+	}
+
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerPID := e.Spawn(deliveryruntime.NewRouterActor(deliveryruntime.RouterConfig{}), "delivery-router-signal-event")
+	defer e.Poison(routerPID)
+
+	ws := NewServer(e, routerPID, nil, &staticRangeStore{}, 256)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", ws.HandleWS)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	conn, _, err := websocket.DefaultDialer.Dial(wsURLFromHTTP(srv.URL)+"/ws", nil)
+	if err != nil {
+		t.Fatalf("dial ws: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	if err := conn.WriteJSON(map[string]any{
+		"op":         "subscribe",
+		"subject":    "signal/regime_change/binance/BTC-USDT/raw",
+		"request_id": "sub-signal-event-1",
+	}); err != nil {
+		t.Fatalf("subscribe write: %v", err)
+	}
+	ack := readFrameSkipHello(t, conn, 2*time.Second)
+	if got, want := ack["type"], "ack"; got != want {
+		t.Fatalf("ack type=%v want=%v", got, want)
+	}
+
+	payload, p := codec.EncodePayload(
+		"signal.event",
+		int(marketmodel.SignalVersion),
+		envelope.ContentTypeJSON,
+		marketmodel.SignalEvent{
+			Type:       "regime_change",
+			TsServer:   1710000000123,
+			Scope:      marketmodel.SignalScopeStream,
+			Venue:      "BINANCE",
+			Symbol:     "BTCUSDT",
+			Severity:   "high",
+			Confidence: 0.89,
+			Features: []marketmodel.SignalFeature{
+				{Key: "burst_count", Value: 3},
+				{Key: "mean_confidence", Value: 0.85},
+			},
+			Explanation: "evidence burst indicates regime transition pressure",
+			RuleVersion: "v1",
+			InputWatermark: []marketmodel.SignalInputSeqRange{{
+				Venue:    "BINANCE",
+				Symbol:   "BTCUSDT",
+				SeqStart: 1,
+				SeqEnd:   3,
+			}},
+			CorrelationID: "cid-1",
+		},
+	)
+	if p != nil {
+		t.Fatalf("encode signal payload: %v", p)
+	}
+
+	e.Send(routerPID, deliveryruntime.DeliverEnvelope{Envelope: envelope.Envelope{
+		Type:        "signal.event",
+		Version:     int(marketmodel.SignalVersion),
+		Venue:       "binance",
+		Instrument:  "BTCUSDT",
+		Seq:         9,
+		TsIngest:    1710000000123,
+		ContentType: envelope.ContentTypeJSON,
+		Payload:     payload,
+		Meta: map[string]string{
+			"timeframe": "raw",
+			"kind":      "regime_change",
+		},
+	}})
+
+	frame := readFrameSkipHello(t, conn, 2*time.Second)
+	if got, want := frame["type"], "signal"; got != want {
+		t.Fatalf("frame type=%v want=%v", got, want)
+	}
+	if got, want := frame["subject"], "signal/regime_change/binance/BTCUSDT/raw"; got != want {
+		t.Fatalf("subject=%v want=%v", got, want)
+	}
+	payloadMap, ok := frame["payload"].(map[string]any)
+	if !ok {
+		t.Fatalf("payload type=%T want map[string]any", frame["payload"])
+	}
+	if got, want := payloadMap["kind"], "regime_change"; got != want {
+		t.Fatalf("payload.kind=%v want=%v", got, want)
+	}
+	if got, want := payloadMap["severity"], "high"; got != want {
+		t.Fatalf("payload.severity=%v want=%v", got, want)
 	}
 }
 
