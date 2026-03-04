@@ -143,16 +143,16 @@ type ProcessorConfig struct {
 	// RTPublish controls timer-driven snapshot publishing.
 	RTPublish ProcessorRTPublishConfig
 	// CatchUpSkipBookDeltaSkew, when > 0, skips stale marketdata.bookdelta
-	// envelopes while the processor is catching up (based on env.TsIngest skew).
+	// envelopes while the processor is catching up (based on ingest watermark skew).
 	// This is intended for local/dev throughput relief and is disabled by default.
 	CatchUpSkipBookDeltaSkew time.Duration
 	// CatchUpSkipTradeSkew, when > 0, skips stale marketdata.trade envelopes
-	// while the processor is catching up (based on env.TsIngest skew).
+	// while the processor is catching up (based on ingest watermark skew).
 	// This is intended for local/dev throughput relief and is disabled by default.
 	CatchUpSkipTradeSkew time.Duration
 	// CatchUpSkipStatsSkew, when > 0, skips stale marketdata.liquidation and
 	// marketdata.markprice envelopes while the processor is catching up
-	// (based on env.TsIngest skew). This is intended for local/dev throughput
+	// (based on ingest watermark skew). This is intended for local/dev throughput
 	// relief and is disabled by default.
 	CatchUpSkipStatsSkew time.Duration
 	// InsightsTimeframes lists TFs for heatmap/VPVR generation. Default: ["1m"].
@@ -172,6 +172,10 @@ type ProcessorConfig struct {
 	PolicyKitBacklogCapacity int
 	// PolicyKitResolver customizes subject category mapping.
 	PolicyKitResolver policykit.CategoryResolver
+
+	// Now is an optional clock source for runtime decisions/log throttling.
+	// When nil, time.Now is used.
+	Now func() time.Time
 }
 
 // ProcessorCrossVenueConfig controls deterministic cross-venue snapshot behavior.
@@ -448,7 +452,7 @@ func (p *ProcessorSubsystemActor) handleEnvelope(_ *actor.Context, env envelope.
 		if env.Version != 1 {
 			return unsupportedVersionProblem(env.Type, env.Version)
 		}
-		if p.shouldSkipBookDeltaForCatchUp(time.Now(), env) {
+		if p.shouldSkipBookDeltaForCatchUp(env) {
 			return nil
 		}
 		return p.handleBookDelta(env)
@@ -456,7 +460,7 @@ func (p *ProcessorSubsystemActor) handleEnvelope(_ *actor.Context, env envelope.
 		if env.Version != 1 {
 			return unsupportedVersionProblem(env.Type, env.Version)
 		}
-		if p.shouldSkipTradeForCatchUp(time.Now(), env) {
+		if p.shouldSkipTradeForCatchUp(env) {
 			return nil
 		}
 		if p.candleEnabled() && p.cfg.Service != nil && p.cfg.Service.Candle != nil {
@@ -502,7 +506,7 @@ func (p *ProcessorSubsystemActor) handleEnvelope(_ *actor.Context, env envelope.
 		if env.Version != 1 {
 			return unsupportedVersionProblem(env.Type, env.Version)
 		}
-		if p.shouldSkipLiquidationForCatchUp(time.Now(), env) {
+		if p.shouldSkipLiquidationForCatchUp(env) {
 			return nil
 		}
 		return p.handleLiquidation(env)
@@ -510,7 +514,7 @@ func (p *ProcessorSubsystemActor) handleEnvelope(_ *actor.Context, env envelope.
 		if env.Version != 1 {
 			return unsupportedVersionProblem(env.Type, env.Version)
 		}
-		if p.shouldSkipMarkPriceForCatchUp(time.Now(), env) {
+		if p.shouldSkipMarkPriceForCatchUp(env) {
 			return nil
 		}
 		return p.handleMarkPrice(env)
@@ -1451,7 +1455,7 @@ func (p *ProcessorSubsystemActor) handleSnapshotTick(msg SnapshotTick) {
 	if p.shuttingDown || p.cfg.PublishEnvelope == nil {
 		return
 	}
-	if p.shouldDeferSnapshotTick(time.Now(), msg.Kind) {
+	if p.shouldDeferSnapshotTick(p.clockNow(), msg.Kind) {
 		return
 	}
 
@@ -1488,23 +1492,25 @@ func (p *ProcessorSubsystemActor) shouldDeferSnapshotTick(now time.Time, kind Sn
 	return true
 }
 
-func (p *ProcessorSubsystemActor) shouldSkipBookDeltaForCatchUp(now time.Time, env envelope.Envelope) bool {
-	if p.cfg.CatchUpSkipBookDeltaSkew <= 0 || env.TsIngest <= 0 {
+func (p *ProcessorSubsystemActor) shouldSkipBookDeltaForCatchUp(env envelope.Envelope) bool {
+	if p.cfg.CatchUpSkipBookDeltaSkew <= 0 || env.TsIngest <= 0 || p.hbLastTsIngest <= 0 {
 		return false
 	}
-	nowMs := now.UnixMilli()
-	if nowMs <= env.TsIngest {
+	if p.hbLastTsIngest <= env.TsIngest {
 		return false
 	}
-	skew := time.Duration(nowMs-env.TsIngest) * time.Millisecond
+	skew := time.Duration(p.hbLastTsIngest-env.TsIngest) * time.Millisecond
 	if skew <= p.cfg.CatchUpSkipBookDeltaSkew {
 		return false
 	}
+	now := p.clockNow()
 	if shouldEmitHeartbeat(now, p.bookDeltaCatchUpSkipLastLogAt, false, snapshotTickDeferLogInterval) {
 		p.bookDeltaCatchUpSkipLastLogAt = now
 		p.logger.Info("aggruntime: skipping stale bookdelta while processor catches up",
 			"ingest_skew", skew.String(),
 			"threshold", p.cfg.CatchUpSkipBookDeltaSkew.String(),
+			"watermark_ts_ingest", p.hbLastTsIngest,
+			"envelope_ts_ingest", env.TsIngest,
 			"venue", env.Venue,
 			"instrument", env.Instrument,
 			"seq", env.Seq,
@@ -1514,23 +1520,25 @@ func (p *ProcessorSubsystemActor) shouldSkipBookDeltaForCatchUp(now time.Time, e
 	return true
 }
 
-func (p *ProcessorSubsystemActor) shouldSkipTradeForCatchUp(now time.Time, env envelope.Envelope) bool {
-	if p.cfg.CatchUpSkipTradeSkew <= 0 || env.TsIngest <= 0 {
+func (p *ProcessorSubsystemActor) shouldSkipTradeForCatchUp(env envelope.Envelope) bool {
+	if p.cfg.CatchUpSkipTradeSkew <= 0 || env.TsIngest <= 0 || p.hbLastTsIngest <= 0 {
 		return false
 	}
-	nowMs := now.UnixMilli()
-	if nowMs <= env.TsIngest {
+	if p.hbLastTsIngest <= env.TsIngest {
 		return false
 	}
-	skew := time.Duration(nowMs-env.TsIngest) * time.Millisecond
+	skew := time.Duration(p.hbLastTsIngest-env.TsIngest) * time.Millisecond
 	if skew <= p.cfg.CatchUpSkipTradeSkew {
 		return false
 	}
+	now := p.clockNow()
 	if shouldEmitHeartbeat(now, p.tradeCatchUpSkipLastLogAt, false, snapshotTickDeferLogInterval) {
 		p.tradeCatchUpSkipLastLogAt = now
 		p.logger.Info("aggruntime: skipping stale trade while processor catches up",
 			"ingest_skew", skew.String(),
 			"threshold", p.cfg.CatchUpSkipTradeSkew.String(),
+			"watermark_ts_ingest", p.hbLastTsIngest,
+			"envelope_ts_ingest", env.TsIngest,
 			"venue", env.Venue,
 			"instrument", env.Instrument,
 			"seq", env.Seq,
@@ -1540,23 +1548,25 @@ func (p *ProcessorSubsystemActor) shouldSkipTradeForCatchUp(now time.Time, env e
 	return true
 }
 
-func (p *ProcessorSubsystemActor) shouldSkipLiquidationForCatchUp(now time.Time, env envelope.Envelope) bool {
-	if p.cfg.CatchUpSkipStatsSkew <= 0 || env.TsIngest <= 0 {
+func (p *ProcessorSubsystemActor) shouldSkipLiquidationForCatchUp(env envelope.Envelope) bool {
+	if p.cfg.CatchUpSkipStatsSkew <= 0 || env.TsIngest <= 0 || p.hbLastTsIngest <= 0 {
 		return false
 	}
-	nowMs := now.UnixMilli()
-	if nowMs <= env.TsIngest {
+	if p.hbLastTsIngest <= env.TsIngest {
 		return false
 	}
-	skew := time.Duration(nowMs-env.TsIngest) * time.Millisecond
+	skew := time.Duration(p.hbLastTsIngest-env.TsIngest) * time.Millisecond
 	if skew <= p.cfg.CatchUpSkipStatsSkew {
 		return false
 	}
+	now := p.clockNow()
 	if shouldEmitHeartbeat(now, p.liquidationCatchUpSkipLogAt, false, snapshotTickDeferLogInterval) {
 		p.liquidationCatchUpSkipLogAt = now
 		p.logger.Info("aggruntime: skipping stale liquidation while processor catches up",
 			"ingest_skew", skew.String(),
 			"threshold", p.cfg.CatchUpSkipStatsSkew.String(),
+			"watermark_ts_ingest", p.hbLastTsIngest,
+			"envelope_ts_ingest", env.TsIngest,
 			"venue", env.Venue,
 			"instrument", env.Instrument,
 			"seq", env.Seq,
@@ -1566,23 +1576,25 @@ func (p *ProcessorSubsystemActor) shouldSkipLiquidationForCatchUp(now time.Time,
 	return true
 }
 
-func (p *ProcessorSubsystemActor) shouldSkipMarkPriceForCatchUp(now time.Time, env envelope.Envelope) bool {
-	if p.cfg.CatchUpSkipStatsSkew <= 0 || env.TsIngest <= 0 {
+func (p *ProcessorSubsystemActor) shouldSkipMarkPriceForCatchUp(env envelope.Envelope) bool {
+	if p.cfg.CatchUpSkipStatsSkew <= 0 || env.TsIngest <= 0 || p.hbLastTsIngest <= 0 {
 		return false
 	}
-	nowMs := now.UnixMilli()
-	if nowMs <= env.TsIngest {
+	if p.hbLastTsIngest <= env.TsIngest {
 		return false
 	}
-	skew := time.Duration(nowMs-env.TsIngest) * time.Millisecond
+	skew := time.Duration(p.hbLastTsIngest-env.TsIngest) * time.Millisecond
 	if skew <= p.cfg.CatchUpSkipStatsSkew {
 		return false
 	}
+	now := p.clockNow()
 	if shouldEmitHeartbeat(now, p.markPriceCatchUpSkipLogAt, false, snapshotTickDeferLogInterval) {
 		p.markPriceCatchUpSkipLogAt = now
 		p.logger.Info("aggruntime: skipping stale markprice while processor catches up",
 			"ingest_skew", skew.String(),
 			"threshold", p.cfg.CatchUpSkipStatsSkew.String(),
+			"watermark_ts_ingest", p.hbLastTsIngest,
+			"envelope_ts_ingest", env.TsIngest,
 			"venue", env.Venue,
 			"instrument", env.Instrument,
 			"seq", env.Seq,
@@ -1608,7 +1620,7 @@ func (p *ProcessorSubsystemActor) publishOrderBookSnapshots() {
 		if res.IsFail() {
 			continue
 		}
-		env, prob := buildOrderbookSnapshotEnvelope(res.Value(), time.Now().UnixMilli())
+		env, prob := buildOrderbookSnapshotEnvelope(res.Value(), p.publishTimestampMs())
 		if prob != nil {
 			continue
 		}
@@ -1631,7 +1643,7 @@ func (p *ProcessorSubsystemActor) publishHeatmapSnapshots() {
 		if res.IsFail() {
 			continue
 		}
-		env, prob := buildHeatmapSnapshotEnvelope(res.Value(), time.Now().UnixMilli())
+		env, prob := buildHeatmapSnapshotEnvelope(res.Value(), p.publishTimestampMs())
 		if prob != nil {
 			continue
 		}
@@ -1665,7 +1677,7 @@ func (p *ProcessorSubsystemActor) publishVolumeSnapshots() {
 		if res.IsFail() {
 			continue
 		}
-		env, prob := buildVolumeSnapshotEnvelope(res.Value(), time.Now().UnixMilli())
+		env, prob := buildVolumeSnapshotEnvelope(res.Value(), p.publishTimestampMs())
 		if prob != nil {
 			continue
 		}
@@ -2036,7 +2048,7 @@ func (p *ProcessorSubsystemActor) recordHeartbeat(env envelope.Envelope) {
 }
 
 func (p *ProcessorSubsystemActor) emitHeartbeat(force bool, trigger string) {
-	now := time.Now()
+	now := p.clockNow()
 	if !shouldEmitHeartbeat(now, p.hbLastEmitAt, force, heartbeatLogInterval) {
 		return
 	}
@@ -2062,6 +2074,23 @@ func shouldEmitHeartbeat(now, last time.Time, force bool, interval time.Duration
 		return true
 	}
 	return now.Sub(last) >= interval
+}
+
+func (p *ProcessorSubsystemActor) clockNow() time.Time {
+	if p.cfg.Now != nil {
+		return p.cfg.Now()
+	}
+	return time.Now()
+}
+
+// publishTimestampMs returns a deterministic publish timestamp for timer-driven
+// snapshots. Using the latest observed ingest watermark keeps replay output
+// byte-identical without depending on wall clock.
+func (p *ProcessorSubsystemActor) publishTimestampMs() int64 {
+	if p.hbLastTsIngest > 0 {
+		return p.hbLastTsIngest
+	}
+	return 1
 }
 
 // hbTopTypes returns the top-N event types by count as a compact string slice

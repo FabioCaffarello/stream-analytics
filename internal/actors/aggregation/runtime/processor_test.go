@@ -1286,6 +1286,50 @@ func TestProcessor_TickerWiring_PublishesPeriodicOrderbookSnapshot(t *testing.T)
 	<-e.Poison(pid).Done()
 }
 
+func TestProcessor_TickerWiring_UsesIngestWatermarkTimestampForPeriodicSnapshot(t *testing.T) {
+	pub := &spyArtifactPublisher{}
+	outPublisher := &spyEnvelopePublisher{}
+	aggSvc := newAggService(pub)
+
+	ch := make(chan envelope.Envelope, 8)
+	fixedNow := time.UnixMilli(1710000005000)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh:      ch,
+		Service:         aggSvc,
+		PublishEnvelope: outPublisher,
+		Now: func() time.Time {
+			return fixedNow
+		},
+		RTPublish: aggruntime.ProcessorRTPublishConfig{
+			OrderbookInterval: 10 * time.Millisecond,
+		},
+		TickerProducer: func() actor.Receiver {
+			return &delayedTickActor{
+				delay: 40 * time.Millisecond,
+				kind:  aggruntime.SnapshotTickOrderBook,
+			}
+		},
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+
+	const tsIngest int64 = 1710000004000
+	ch <- makeBookDeltaEnvelopeAt(
+		"BINANCE", "BTC-USDT", 1, tsIngest,
+		[]mddomain.PriceLevel{{Price: 42000, Size: 1.5}},
+		[]mddomain.PriceLevel{{Price: 42001, Size: 2.0}},
+	)
+
+	waitFor(t, 2*time.Second, func() bool { return outPublisher.count() >= 1 })
+	last := outPublisher.last()
+	if got, want := last.TsIngest, tsIngest; got != want {
+		t.Fatalf("periodic snapshot ts_ingest=%d want=%d", got, want)
+	}
+
+	<-e.Poison(pid).Done()
+}
+
 func TestProcessor_TickerWiring_DefersPeriodicOrderbookSnapshotWhenIngestIsStale(t *testing.T) {
 	pub := &spyArtifactPublisher{}
 	outPublisher := &spyEnvelopePublisher{}
@@ -1346,36 +1390,88 @@ func TestProcessor_CatchUpSkipBookDeltaSkipsStaleBookDeltaWhenConfigured(t *test
 	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
 	beforeDrops := testutil.ToFloat64(metrics.IngestDropTotal.WithLabelValues("bookdelta_catchup_skip"))
 
-	stale := makeBookDeltaEnvelope(
+	fresh := makeBookDeltaEnvelope(
 		"BINANCE", "BTC-USDT", 1,
 		[]mddomain.PriceLevel{{Price: 42000, Size: 1.5}},
 		[]mddomain.PriceLevel{{Price: 42001, Size: 2.0}},
 	)
-	stale.TsIngest = time.Now().Add(-2 * time.Minute).UnixMilli()
+	fresh.TsIngest = time.Now().UnixMilli()
+	ch <- fresh
+
+	waitFor(t, 2*time.Second, func() bool { return pub.count() == 1 })
+
+	stale := makeBookDeltaEnvelope(
+		"BINANCE", "BTC-USDT", 2,
+		[]mddomain.PriceLevel{{Price: 42000, Size: 2.5}},
+		[]mddomain.PriceLevel{{Price: 42001, Size: 3.0}},
+	)
+	stale.TsIngest = fresh.TsIngest - int64((2*time.Minute)/time.Millisecond)
 	ch <- stale
 
-	select {
-	case <-resultCh:
-	case <-time.After(2 * time.Second):
-		t.Fatal("timeout waiting for stale bookdelta to be processed")
+	for i := 0; i < 2; i++ {
+		select {
+		case <-resultCh:
+		case <-time.After(2 * time.Second):
+			t.Fatal("timeout waiting for bookdelta processing result")
+		}
 	}
-	if got := pub.count(); got != 0 {
+	if got := pub.count(); got != 1 {
 		t.Fatalf("expected stale bookdelta to be skipped, snapshot_count=%d", got)
 	}
 	afterDrops := testutil.ToFloat64(metrics.IngestDropTotal.WithLabelValues("bookdelta_catchup_skip"))
 	if diff := afterDrops - beforeDrops; diff != 1 {
 		t.Fatalf("bookdelta_catchup_skip drops delta=%f want=1", diff)
 	}
+	<-e.Poison(pid).Done()
+}
 
-	fresh := makeBookDeltaEnvelope(
-		"BINANCE", "BTC-USDT", 2,
+func TestProcessor_CatchUpSkipBookDeltaDoesNotDropMonotonicStreamWithOldWallclockTs(t *testing.T) {
+	pub := &spyArtifactPublisher{}
+	aggSvc := newAggService(pub)
+
+	ch := make(chan envelope.Envelope, 8)
+	resultCh := make(chan aggruntime.EnvelopeProcessResult, 2)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh:               ch,
+		Service:                  aggSvc,
+		CatchUpSkipBookDeltaSkew: 5 * time.Second,
+		OnEnvelopeProcessed: func(res aggruntime.EnvelopeProcessResult) {
+			resultCh <- res
+		},
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+	beforeDrops := testutil.ToFloat64(metrics.IngestDropTotal.WithLabelValues("bookdelta_catchup_skip"))
+
+	const baseTs int64 = 1700000000000
+	ch <- makeBookDeltaEnvelopeAt(
+		"BINANCE", "BTC-USDT", 1, baseTs,
+		[]mddomain.PriceLevel{{Price: 42000, Size: 1.5}},
+		[]mddomain.PriceLevel{{Price: 42001, Size: 2.0}},
+	)
+	ch <- makeBookDeltaEnvelopeAt(
+		"BINANCE", "BTC-USDT", 2, baseTs+1000,
 		[]mddomain.PriceLevel{{Price: 42000, Size: 2.5}},
 		[]mddomain.PriceLevel{{Price: 42001, Size: 3.0}},
 	)
-	fresh.TsIngest = time.Now().UnixMilli()
-	ch <- fresh
 
-	waitFor(t, 2*time.Second, func() bool { return pub.count() == 1 })
+	for i := 0; i < 2; i++ {
+		select {
+		case <-resultCh:
+		case <-time.After(2 * time.Second):
+			t.Fatal("timeout waiting for monotonic bookdelta processing result")
+		}
+	}
+
+	if got := pub.count(); got != 2 {
+		t.Fatalf("expected monotonic bookdelta stream to be processed, snapshot_count=%d", got)
+	}
+	afterDrops := testutil.ToFloat64(metrics.IngestDropTotal.WithLabelValues("bookdelta_catchup_skip"))
+	if diff := afterDrops - beforeDrops; diff != 0 {
+		t.Fatalf("bookdelta_catchup_skip drops delta=%f want=0", diff)
+	}
+
 	<-e.Poison(pid).Done()
 }
 
@@ -1402,10 +1498,10 @@ func TestProcessor_CatchUpSkipTradeSkipsStaleTradeWhenConfigured(t *testing.T) {
 	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
 	beforeDrops := testutil.ToFloat64(metrics.IngestDropTotal.WithLabelValues("trade_catchup_skip"))
 
-	staleTs := time.Now().Add(-2 * time.Minute).UnixMilli()
 	freshTs := time.Now().UnixMilli()
-	ch <- makeTradeEnvelope("BINANCE", "BTCUSDT", 1, staleTs, 100.5, "buy", "trade-stale")
-	ch <- makeTradeEnvelope("BINANCE", "BTCUSDT", 2, freshTs, 101.5, "sell", "trade-fresh")
+	staleTs := freshTs - int64((2*time.Minute)/time.Millisecond)
+	ch <- makeTradeEnvelope("BINANCE", "BTCUSDT", 1, freshTs, 101.5, "sell", "trade-fresh")
+	ch <- makeTradeEnvelope("BINANCE", "BTCUSDT", 2, staleTs, 100.5, "buy", "trade-stale")
 
 	for i := 0; i < 2; i++ {
 		select {
@@ -1450,10 +1546,10 @@ func TestProcessor_CatchUpSkipStatsSkipsStaleLiquidationWhenConfigured(t *testin
 	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
 	beforeDrops := testutil.ToFloat64(metrics.IngestDropTotal.WithLabelValues("liquidation_catchup_skip"))
 
-	staleTs := time.Now().Add(-2 * time.Minute).UnixMilli()
 	freshTs := time.Now().UnixMilli()
-	ch <- makeLiquidationEnvelope("BINANCE", "BTCUSDT", 1, staleTs, 2.0, "buy")
-	ch <- makeLiquidationEnvelope("BINANCE", "BTCUSDT", 2, freshTs, 1.0, "sell")
+	staleTs := freshTs - int64((2*time.Minute)/time.Millisecond)
+	ch <- makeLiquidationEnvelope("BINANCE", "BTCUSDT", 1, freshTs, 1.0, "sell")
+	ch <- makeLiquidationEnvelope("BINANCE", "BTCUSDT", 2, staleTs, 2.0, "buy")
 
 	for i := 0; i < 2; i++ {
 		select {
