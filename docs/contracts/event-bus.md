@@ -2,8 +2,8 @@
 
 **Status:** Active
 **Owner:** Governance Doc-First Maintainer
-**Last updated:** 2026-02-19
-**Relates to:** `docs/adrs/ADR-0002-event-envelope-and-versioning.md`, `docs/adrs/ADR-0014-stream-partitioning-strategy.md`, `docs/adrs/ADR-0016-protobuf-contract-layer.md`, `docs/contracts/subject-registry.yaml`
+**Last updated:** 2026-03-04
+**Relates to:** `docs/adrs/ADR-0002-event-envelope-and-versioning.md`, `docs/adrs/ADR-0014-stream-partitioning-strategy.md`, `docs/adrs/ADR-0016-protobuf-contract-layer.md`, `docs/contracts/subject-registry.yaml`, `docs/contracts/canonical-market-model.md`
 
 ---
 
@@ -41,6 +41,11 @@ Definir contrato canônico de envelope e subject para publicacao/consumo no bus,
 
 Campos obrigatórios:
 - `type`, `version`, `venue`, `instrument`, `seq`, `idempotency_key`, `payload`.
+
+### CMM Envelope Contract
+
+- CMM is the only model in the hot path.
+- Typed canonical payload envelope is available as `marketmodel.v1.MarketEvent` in `proto/marketmodel/v1/market_event.proto`.
 
 ## Subject Taxonomy
 

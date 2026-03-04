@@ -21,10 +21,13 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Feature is one named evidence feature contributing to a composed signal.
 type Feature struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Label         string                 `protobuf:"bytes,1,opt,name=label,proto3" json:"label,omitempty"`
-	Value         string                 `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// label is the stable feature name.
+	Label string `protobuf:"bytes,1,opt,name=label,proto3" json:"label,omitempty"`
+	// value is the feature value encoded as string for transport parity.
+	Value         string `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -73,23 +76,37 @@ func (x *Feature) GetValue() string {
 	return ""
 }
 
+// CompositeSignalV1 is one deterministic composed signal payload.
 type CompositeSignalV1 struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	Kind           string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
-	Venue          string                 `protobuf:"bytes,2,opt,name=venue,proto3" json:"venue,omitempty"`
-	Instrument     string                 `protobuf:"bytes,3,opt,name=instrument,proto3" json:"instrument,omitempty"`
-	Timeframe      string                 `protobuf:"bytes,4,opt,name=timeframe,proto3" json:"timeframe,omitempty"`
-	TsServerMs     int64                  `protobuf:"varint,5,opt,name=ts_server_ms,json=tsServerMs,proto3" json:"ts_server_ms,omitempty"`
-	Severity       string                 `protobuf:"bytes,6,opt,name=severity,proto3" json:"severity,omitempty"`
-	Confidence     float64                `protobuf:"fixed64,7,opt,name=confidence,proto3" json:"confidence,omitempty"`
-	Evidence       []*Feature             `protobuf:"bytes,8,rep,name=evidence,proto3" json:"evidence,omitempty"`
-	RegimeKind     string                 `protobuf:"bytes,9,opt,name=regime_kind,json=regimeKind,proto3" json:"regime_kind,omitempty"`
-	RegimeStrength float64                `protobuf:"fixed64,10,opt,name=regime_strength,json=regimeStrength,proto3" json:"regime_strength,omitempty"`
-	Reason         string                 `protobuf:"bytes,11,opt,name=reason,proto3" json:"reason,omitempty"`
-	Seq            int64                  `protobuf:"varint,12,opt,name=seq,proto3" json:"seq,omitempty"`
-	SourceKinds    []string               `protobuf:"bytes,13,rep,name=source_kinds,json=sourceKinds,proto3" json:"source_kinds,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// kind is the signal kind identifier.
+	Kind string `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	// venue is the canonical venue identifier.
+	Venue string `protobuf:"bytes,2,opt,name=venue,proto3" json:"venue,omitempty"`
+	// instrument is the canonical instrument identifier.
+	Instrument string `protobuf:"bytes,3,opt,name=instrument,proto3" json:"instrument,omitempty"`
+	// timeframe is the signal timeframe token.
+	Timeframe string `protobuf:"bytes,4,opt,name=timeframe,proto3" json:"timeframe,omitempty"`
+	// ts_server_ms is the server emission timestamp in Unix milliseconds.
+	TsServerMs int64 `protobuf:"varint,5,opt,name=ts_server_ms,json=tsServerMs,proto3" json:"ts_server_ms,omitempty"`
+	// severity is the normalized severity label.
+	Severity string `protobuf:"bytes,6,opt,name=severity,proto3" json:"severity,omitempty"`
+	// confidence is the normalized confidence score in [0,1].
+	Confidence float64 `protobuf:"fixed64,7,opt,name=confidence,proto3" json:"confidence,omitempty"`
+	// evidence carries contributing evidence features.
+	Evidence []*Feature `protobuf:"bytes,8,rep,name=evidence,proto3" json:"evidence,omitempty"`
+	// regime_kind is the detected market regime kind.
+	RegimeKind string `protobuf:"bytes,9,opt,name=regime_kind,json=regimeKind,proto3" json:"regime_kind,omitempty"`
+	// regime_strength is the normalized regime strength in [0,1].
+	RegimeStrength float64 `protobuf:"fixed64,10,opt,name=regime_strength,json=regimeStrength,proto3" json:"regime_strength,omitempty"`
+	// reason is the human-readable reason summary.
+	Reason string `protobuf:"bytes,11,opt,name=reason,proto3" json:"reason,omitempty"`
+	// seq is the monotonic stream sequence.
+	Seq int64 `protobuf:"varint,12,opt,name=seq,proto3" json:"seq,omitempty"`
+	// source_kinds lists upstream source signal kinds used in composition.
+	SourceKinds   []string `protobuf:"bytes,13,rep,name=source_kinds,json=sourceKinds,proto3" json:"source_kinds,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CompositeSignalV1) Reset() {

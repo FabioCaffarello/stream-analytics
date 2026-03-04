@@ -21,11 +21,15 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// VenueLevel is one venue-contributed price/size level in fixed-point form.
 type VenueLevel struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Venue         string                 `protobuf:"bytes,1,opt,name=venue,proto3" json:"venue,omitempty"`
-	PriceFp       int64                  `protobuf:"varint,2,opt,name=price_fp,json=priceFp,proto3" json:"price_fp,omitempty"`
-	SizeFp        int64                  `protobuf:"varint,3,opt,name=size_fp,json=sizeFp,proto3" json:"size_fp,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// venue is the canonical venue identifier.
+	Venue string `protobuf:"bytes,1,opt,name=venue,proto3" json:"venue,omitempty"`
+	// price_fp is the fixed-point encoded price.
+	PriceFp int64 `protobuf:"varint,2,opt,name=price_fp,json=priceFp,proto3" json:"price_fp,omitempty"`
+	// size_fp is the fixed-point encoded size.
+	SizeFp        int64 `protobuf:"varint,3,opt,name=size_fp,json=sizeFp,proto3" json:"size_fp,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -81,14 +85,21 @@ func (x *VenueLevel) GetSizeFp() int64 {
 	return 0
 }
 
+// CrossVenueBookSnapshotV1 is a deterministic merged top-of-book snapshot.
 type CrossVenueBookSnapshotV1 struct {
-	state              protoimpl.MessageState `protogen:"open.v1"`
-	Instrument         string                 `protobuf:"bytes,1,opt,name=instrument,proto3" json:"instrument,omitempty"`
-	TsServerMs         int64                  `protobuf:"varint,2,opt,name=ts_server_ms,json=tsServerMs,proto3" json:"ts_server_ms,omitempty"`
-	BestBids           []*VenueLevel          `protobuf:"bytes,3,rep,name=best_bids,json=bestBids,proto3" json:"best_bids,omitempty"`
-	BestAsks           []*VenueLevel          `protobuf:"bytes,4,rep,name=best_asks,json=bestAsks,proto3" json:"best_asks,omitempty"`
-	GlobalSpreadBps    float64                `protobuf:"fixed64,5,opt,name=global_spread_bps,json=globalSpreadBps,proto3" json:"global_spread_bps,omitempty"`
-	VenueDivergenceBps float64                `protobuf:"fixed64,6,opt,name=venue_divergence_bps,json=venueDivergenceBps,proto3" json:"venue_divergence_bps,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// instrument is the canonical instrument identifier.
+	Instrument string `protobuf:"bytes,1,opt,name=instrument,proto3" json:"instrument,omitempty"`
+	// ts_server_ms is the server emission timestamp in Unix milliseconds.
+	TsServerMs int64 `protobuf:"varint,2,opt,name=ts_server_ms,json=tsServerMs,proto3" json:"ts_server_ms,omitempty"`
+	// best_bids carries one best-bid level per active venue.
+	BestBids []*VenueLevel `protobuf:"bytes,3,rep,name=best_bids,json=bestBids,proto3" json:"best_bids,omitempty"`
+	// best_asks carries one best-ask level per active venue.
+	BestAsks []*VenueLevel `protobuf:"bytes,4,rep,name=best_asks,json=bestAsks,proto3" json:"best_asks,omitempty"`
+	// global_spread_bps is the global best spread in basis points.
+	GlobalSpreadBps float64 `protobuf:"fixed64,5,opt,name=global_spread_bps,json=globalSpreadBps,proto3" json:"global_spread_bps,omitempty"`
+	// venue_divergence_bps is spread divergence across contributing venues in basis points.
+	VenueDivergenceBps float64 `protobuf:"fixed64,6,opt,name=venue_divergence_bps,json=venueDivergenceBps,proto3" json:"venue_divergence_bps,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }

@@ -10,6 +10,14 @@
       "introduced_at": "2026-02-12"
     },
     {
+      "type": "marketmodel.event",
+      "version": 1,
+      "proto_file": "marketmodel/v1/market_event.proto",
+      "message": "marketmodel.v1.MarketEvent",
+      "status": "stable",
+      "introduced_at": "2026-03-04"
+    },
+    {
       "type": "marketdata.trade",
       "version": 1,
       "proto_file": "marketdata/v1/trade.proto",

@@ -1,0 +1,223 @@
+syntax = "proto3";
+
+package marketmodel.v1;
+
+option go_package = "github.com/market-raccoon/internal/shared/proto/gen/marketmodel/v1";
+
+import "evidence/v1/evidence.proto";
+
+// Side identifies the aggressor or order side for market events.
+enum Side {
+  // SIDE_UNSPECIFIED indicates an unknown side.
+  SIDE_UNSPECIFIED = 0;
+  // SIDE_BUY indicates buy side.
+  SIDE_BUY = 1;
+  // SIDE_SELL indicates sell side.
+  SIDE_SELL = 2;
+}
+
+// Channel identifies canonical market stream families.
+enum Channel {
+  // CHANNEL_UNSPECIFIED indicates an unknown channel.
+  CHANNEL_UNSPECIFIED = 0;
+  // CHANNEL_TRADE carries trade events.
+  CHANNEL_TRADE = 1;
+  // CHANNEL_BOOK_SNAPSHOT carries full order-book snapshots.
+  CHANNEL_BOOK_SNAPSHOT = 2;
+  // CHANNEL_BOOK_DELTA carries incremental order-book deltas.
+  CHANNEL_BOOK_DELTA = 3;
+  // CHANNEL_CANDLE carries candle window events.
+  CHANNEL_CANDLE = 4;
+  // CHANNEL_STATS carries statistics window events.
+  CHANNEL_STATS = 5;
+  // CHANNEL_EVIDENCE carries evidence events.
+  CHANNEL_EVIDENCE = 6;
+}
+
+// StreamKey is the deterministic stream identity used by canonical events.
+message StreamKey {
+  // venue is the canonical venue identifier.
+  string venue = 1;
+  // symbol is the canonical symbol identifier.
+  string symbol = 2;
+  // channel identifies stream family.
+  Channel channel = 3;
+
+  reserved 100 to 199;
+}
+
+// EventMeta carries deterministic metadata for all canonical events.
+message EventMeta {
+  // schema_version is the canonical schema version.
+  uint32 schema_version = 1;
+  // key is the deterministic stream identity.
+  StreamKey key = 2;
+  // seq is the monotonic stream sequence.
+  int64 seq = 3;
+  // server_ts_ms is the normalized server timestamp in Unix milliseconds.
+  int64 server_ts_ms = 4;
+
+  reserved 100 to 199;
+}
+
+// PriceLevel carries one order-book level.
+message PriceLevel {
+  // price is the normalized level price.
+  double price = 1;
+  // size is the normalized level size.
+  double size = 2;
+
+  reserved 100 to 199;
+}
+
+// Trade is one canonical trade event payload.
+message Trade {
+  // price is the normalized trade price.
+  double price = 1;
+  // size is the normalized trade size.
+  double size = 2;
+  // side is the canonical trade side.
+  Side side = 3;
+  // trade_id is the venue trade identifier.
+  string trade_id = 4;
+  // timestamp_ms is the normalized exchange/server timestamp in Unix milliseconds.
+  int64 timestamp_ms = 5;
+
+  reserved 100 to 199;
+}
+
+// BookSnapshot is one canonical full-book snapshot payload.
+message BookSnapshot {
+  // bids carries sorted bid levels in descending price order.
+  repeated PriceLevel bids = 1;
+  // asks carries sorted ask levels in ascending price order.
+  repeated PriceLevel asks = 2;
+  // timestamp_ms is the snapshot timestamp in Unix milliseconds.
+  int64 timestamp_ms = 3;
+
+  reserved 100 to 199;
+}
+
+// BookDelta is one canonical incremental order-book delta payload.
+message BookDelta {
+  // bids carries sorted bid updates in descending price order.
+  repeated PriceLevel bids = 1;
+  // asks carries sorted ask updates in ascending price order.
+  repeated PriceLevel asks = 2;
+  // first_id is the first venue update id represented by this delta.
+  int64 first_id = 3;
+  // final_id is the final venue update id represented by this delta.
+  int64 final_id = 4;
+  // prev_final is the previous final update id when available.
+  int64 prev_final = 5;
+  // timestamp_ms is the delta timestamp in Unix milliseconds.
+  int64 timestamp_ms = 6;
+  // is_snapshot indicates this delta payload represents a full snapshot.
+  bool is_snapshot = 7;
+
+  reserved 100 to 199;
+}
+
+// Candle is one canonical candle payload.
+message Candle {
+  // venue is the canonical venue identifier.
+  string venue = 1;
+  // instrument is the canonical instrument identifier.
+  string instrument = 2;
+  // timeframe is the candle timeframe token.
+  string timeframe = 3;
+  // window_start_ts is the inclusive window start timestamp in Unix milliseconds.
+  int64 window_start_ts = 4;
+  // window_end_ts is the exclusive window end timestamp in Unix milliseconds.
+  int64 window_end_ts = 5;
+  // open is the opening price.
+  double open = 6;
+  // high is the maximum price.
+  double high = 7;
+  // low is the minimum price.
+  double low = 8;
+  // close_price is the close price.
+  double close_price = 9;
+  // volume is the total traded volume.
+  double volume = 10;
+  // buy_volume is the buy-side traded volume.
+  double buy_volume = 11;
+  // sell_volume is the sell-side traded volume.
+  double sell_volume = 12;
+  // trade_count is the number of trades in the window.
+  int64 trade_count = 13;
+  // seq_first is the first event sequence in the window.
+  int64 seq_first = 14;
+  // seq_last is the last event sequence in the window.
+  int64 seq_last = 15;
+  // is_closed indicates if the window is closed.
+  bool is_closed = 16;
+
+  reserved 100 to 199;
+}
+
+// Stats is one canonical statistics-window payload.
+message Stats {
+  // venue is the canonical venue identifier.
+  string venue = 1;
+  // instrument is the canonical instrument identifier.
+  string instrument = 2;
+  // timeframe is the stats timeframe token.
+  string timeframe = 3;
+  // window_start_ts is the inclusive window start timestamp in Unix milliseconds.
+  int64 window_start_ts = 4;
+  // window_end_ts is the exclusive window end timestamp in Unix milliseconds.
+  int64 window_end_ts = 5;
+  // liq_buy_volume is liquidation buy volume.
+  double liq_buy_volume = 6;
+  // liq_sell_volume is liquidation sell volume.
+  double liq_sell_volume = 7;
+  // liq_total_volume is total liquidation volume.
+  double liq_total_volume = 8;
+  // liq_count is liquidation event count.
+  int64 liq_count = 9;
+  // mark_price_open is mark price at window open.
+  double mark_price_open = 10;
+  // mark_price_high is maximum mark price.
+  double mark_price_high = 11;
+  // mark_price_low is minimum mark price.
+  double mark_price_low = 12;
+  // mark_price_close is mark price at window close.
+  double mark_price_close = 13;
+  // funding_rate_avg is average funding rate.
+  double funding_rate_avg = 14;
+  // funding_rate_last is last funding rate in the window.
+  double funding_rate_last = 15;
+  // seq_first is the first event sequence in the window.
+  int64 seq_first = 16;
+  // seq_last is the last event sequence in the window.
+  int64 seq_last = 17;
+  // is_closed indicates if the window is closed.
+  bool is_closed = 18;
+
+  reserved 100 to 199;
+}
+
+// MarketEvent is a typed canonical market event envelope.
+message MarketEvent {
+  // meta carries deterministic stream metadata.
+  EventMeta meta = 1;
+
+  // payload carries one canonical payload type.
+  oneof payload {
+    // trade carries canonical trade payload.
+    Trade trade = 2;
+    // book_snapshot carries canonical snapshot payload.
+    BookSnapshot book_snapshot = 3;
+    // book_delta carries canonical delta payload.
+    BookDelta book_delta = 4;
+    // candle carries canonical candle payload.
+    Candle candle = 5;
+    // stats carries canonical stats payload.
+    Stats stats = 6;
+    // evidence carries canonical evidence payload.
+    evidence.v1.MicrostructureEvidenceV1 evidence = 7;
+  }
+
+  reserved 100 to 199;
+}
