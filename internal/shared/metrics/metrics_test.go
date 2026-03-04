@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	dto "github.com/prometheus/client_model/go"
 )
 
 func TestRegistryAndMetricsInitialized(t *testing.T) {
@@ -16,6 +17,44 @@ func TestRegistryAndMetricsInitialized(t *testing.T) {
 	}
 	if Handler() == nil {
 		t.Fatal("handler must not be nil")
+	}
+}
+
+func TestOrderBookV2MetricsExposedWithoutRuntimeEvents(t *testing.T) {
+	mfs, err := Registry().Gather()
+	if err != nil {
+		t.Fatalf("gather metrics: %v", err)
+	}
+
+	var wireFamily *dto.MetricFamily
+	var checksumFamily *dto.MetricFamily
+	for _, mf := range mfs {
+		switch mf.GetName() {
+		case "mr_orderbook_wire_bytes":
+			wireFamily = mf
+		case "mr_orderbook_checksum_mismatch_total":
+			checksumFamily = mf
+		}
+	}
+
+	if wireFamily == nil {
+		t.Fatal("mr_orderbook_wire_bytes metric family not found")
+	}
+	if wireFamily.GetType() != dto.MetricType_HISTOGRAM {
+		t.Fatalf("mr_orderbook_wire_bytes type=%v want=%v", wireFamily.GetType(), dto.MetricType_HISTOGRAM)
+	}
+	if len(wireFamily.GetMetric()) == 0 {
+		t.Fatal("mr_orderbook_wire_bytes has no exposed series")
+	}
+
+	if checksumFamily == nil {
+		t.Fatal("mr_orderbook_checksum_mismatch_total metric family not found")
+	}
+	if checksumFamily.GetType() != dto.MetricType_COUNTER {
+		t.Fatalf("mr_orderbook_checksum_mismatch_total type=%v want=%v", checksumFamily.GetType(), dto.MetricType_COUNTER)
+	}
+	if len(checksumFamily.GetMetric()) == 0 {
+		t.Fatal("mr_orderbook_checksum_mismatch_total has no exposed series")
 	}
 }
 

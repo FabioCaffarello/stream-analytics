@@ -1764,6 +1764,10 @@ func registerAll() {
 		GuardianRestartsTotal.WithLabelValues("unknown", "unknown")
 		GuardianDegradedTotal.WithLabelValues("unknown")
 		GuardianSubsystemState.WithLabelValues("unknown")
+		// Keep V2 orderbook quality series visible on /metrics even when a
+		// process only exposes metrics (e.g. server) and does not produce OB events.
+		MROrderBookWireBytes.WithLabelValues("unknown")
+		MROrderBookChecksumMismatchTotal.WithLabelValues("unknown", "unknown")
 		InsightsSnapshotsTotal.WithLabelValues("2")
 		InsightsSnapshotsTotal.WithLabelValues("3_4")
 		InsightsSnapshotsTotal.WithLabelValues("5_8")
