@@ -49,8 +49,29 @@ func TestParseMessage_BookDelta(t *testing.T) {
 	if len(payload.Bids) != 1 || len(payload.Asks) != 1 {
 		t.Fatalf("unexpected depth payload: %#v", payload)
 	}
-	if payload.FirstID != 101 || payload.FinalID != 105 || payload.PrevFinal != 104 {
+	if payload.FirstID != 105 || payload.FinalID != 105 || payload.PrevFinal != 104 {
 		t.Fatalf("unexpected depth update ids: %#v", payload)
+	}
+	if payload.IsSnapshot {
+		t.Fatalf("expected delta payload, got snapshot=true: %#v", payload)
+	}
+}
+
+func TestParseMessage_BookSnapshot_UsesDeterministicWindow(t *testing.T) {
+	msg := []byte(`{"topic":"orderbook.50.ETHUSDT","type":"snapshot","ts":1710000010000,"data":{"s":"ETHUSDT","b":[["2500.1","1.2"]],"a":[["2500.2","2.3"]],"u":105,"seq":910105,"cts":1710000010001}}`)
+	req, skip, p := bybit.ParseMessage(msg, time.UnixMilli(1710000011000))
+	if p != nil || skip {
+		t.Fatalf("ParseMessage failed: skip=%v problem=%v", skip, p)
+	}
+	payload, ok := req.Payload.(domain.BookDeltaV1)
+	if !ok {
+		t.Fatalf("unexpected payload type: %T", req.Payload)
+	}
+	if !payload.IsSnapshot {
+		t.Fatalf("expected snapshot payload, got %#v", payload)
+	}
+	if payload.FirstID != 105 || payload.FinalID != 105 {
+		t.Fatalf("unexpected snapshot ids: %#v", payload)
 	}
 }
 
@@ -72,19 +93,26 @@ func TestParseMessage_MarkPrice(t *testing.T) {
 	}
 }
 
-func TestParseMessage_MarkPriceMissingSkipsWithoutProblem(t *testing.T) {
+func TestParseMessage_MarkPriceMissingFallsBackToIndexPrice(t *testing.T) {
 	msg := []byte(`{"topic":"tickers.BTCUSDT","type":"delta","ts":1710000020000,"data":{"symbol":"BTCUSDT","markPrice":"","indexPrice":"65005.1","fundingRate":"0.0001"}}`)
-	_, skip, p := bybit.ParseMessage(msg, time.UnixMilli(1710000021000))
-	if !skip {
-		t.Fatal("expected skip")
+	req, skip, p := bybit.ParseMessage(msg, time.UnixMilli(1710000021000))
+	if skip {
+		t.Fatal("expected fallback publish, got skip=true")
 	}
 	if p != nil {
 		t.Fatalf("unexpected problem: %v", p)
 	}
+	payload, ok := req.Payload.(domain.MarkPriceTickV1)
+	if !ok {
+		t.Fatalf("unexpected payload type: %T", req.Payload)
+	}
+	if payload.MarkPrice != 65005.1 {
+		t.Fatalf("mark price = %v, want 65005.1", payload.MarkPrice)
+	}
 }
 
 func TestParseMessageWithMeta_MarkPriceMissingUsesExplicitSkipReason(t *testing.T) {
-	msg := []byte(`{"topic":"tickers.BTCUSDT","type":"delta","ts":1710000020000,"data":{"symbol":"BTCUSDT","markPrice":"","indexPrice":"65005.1","fundingRate":"0.0001"}}`)
+	msg := []byte(`{"topic":"tickers.BTCUSDT","type":"delta","ts":1710000020000,"data":{"symbol":"BTCUSDT","markPrice":"","indexPrice":"","fundingRate":"0.0001"}}`)
 	_, skip, meta := bybit.ParseMessageWithMeta(msg, time.UnixMilli(1710000021000))
 	if !skip {
 		t.Fatal("expected skip")
