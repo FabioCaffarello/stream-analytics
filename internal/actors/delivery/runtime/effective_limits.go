@@ -91,7 +91,7 @@ func (el EffectiveLimits) ToHelloCapabilities(serverInstanceID string, compressi
 			"aggregation.stats",
 			"aggregation.candle",
 			"aggregation.tape",
-			"insights.microstructure_evidence",
+			"liquidity.evidence",
 			"insights.heatmap_snapshot",
 			"insights.volume_profile_snapshot",
 			"signal",

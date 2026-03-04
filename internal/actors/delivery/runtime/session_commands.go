@@ -599,8 +599,8 @@ func canonicalStreamTypeForCommandChannel(channel string) string {
 		return "insights.heatmap_snapshot"
 	case "volume_profile_snapshot", "insights.volume_profile_snapshot":
 		return "insights.volume_profile_snapshot"
-	case "evidence", "insights.microstructure_evidence":
-		return "insights.microstructure_evidence"
+	case "evidence", "liquidity.evidence", "insights.microstructure_evidence":
+		return "liquidity.evidence"
 	case "signal", "signal.event":
 		return "signal"
 	default:

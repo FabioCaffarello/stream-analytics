@@ -466,17 +466,28 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 			evidenceapp.NewAbsorptionRule(ruleCfg),
 			evidenceapp.NewSweepRule(ruleCfg),
 		)
+		lelEngine := evidenceapp.NewLELEngine(
+			evidenceapp.DefaultLELEngineConfig(),
+			evidenceapp.NewLELBookImbalanceRule(ruleCfg),
+			evidenceapp.NewLELAbsorptionRule(ruleCfg),
+			evidenceapp.NewLELSweepRule(ruleCfg),
+			evidenceapp.NewLELThinningRule(ruleCfg),
+			evidenceapp.NewLELSpreadRegimeRule(ruleCfg),
+		)
 		evidenceFactory = evidenceruntime.NewSubsystemActor(evidenceruntime.SubsystemConfig{
 			Logger:      logger.With("subsystem", "evidence"),
 			EnvelopeCh:  eventBus.Subscribe(),
 			Engine:      evidenceEngine,
+			LELEngine:   lelEngine,
 			RegimeStore: evidencedomain.NewRegimeStore(regimePolicy),
 			RegimeDetectors: []evidenceapp.RegimeDetector{
 				evidenceapp.NewBreakoutRegimeDetector(evidenceapp.DefaultBreakoutPolicy()),
 				evidenceapp.NewTrendRegimeDetector(evidenceapp.DefaultTrendPolicy()),
 				evidenceapp.NewVolatilityRegimeDetector(evidenceapp.DefaultVolatilityPolicy()),
 			},
-			Publisher: eventBus,
+			Publisher:    eventBus,
+			ReplicaID:    cfg.Shard.Index,
+			ReplicaCount: cfg.Shard.Count,
 		})
 		if cfg.Signals.UseComposer {
 			composePolicy := signalsapp.DefaultComposePolicy()

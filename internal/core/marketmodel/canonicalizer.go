@@ -116,7 +116,7 @@ func ChannelFromEventType(eventType string) Channel {
 		return ChannelCandle
 	case "aggregation.stats":
 		return ChannelStats
-	case "insights.microstructure_evidence", "insights.regime_evidence", "evidence.microstructure_evidence":
+	case "insights.microstructure_evidence", "insights.regime_evidence", "evidence.microstructure_evidence", "liquidity.evidence":
 		return ChannelEvidence
 	case "signal.event", "signal.composite":
 		return ChannelSignal

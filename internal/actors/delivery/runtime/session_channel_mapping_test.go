@@ -7,7 +7,7 @@ import (
 )
 
 func TestChannelEnumFromStreamTypeEvidence(t *testing.T) {
-	got := channelEnumFromStreamType("insights.microstructure_evidence")
+	got := channelEnumFromStreamType("liquidity.evidence")
 	if got != deliveryv1.Channel_CHANNEL_EVIDENCE {
 		t.Fatalf("channel enum = %v, want %v", got, deliveryv1.Channel_CHANNEL_EVIDENCE)
 	}
@@ -17,11 +17,14 @@ func TestChannelEnumFromStreamTypeEvidence(t *testing.T) {
 }
 
 func TestCanonicalStreamTypeForCommandChannelEvidence(t *testing.T) {
-	if got := canonicalStreamTypeForCommandChannel("evidence"); got != "insights.microstructure_evidence" {
-		t.Fatalf("stream type = %q, want insights.microstructure_evidence", got)
+	if got := canonicalStreamTypeForCommandChannel("evidence"); got != "liquidity.evidence" {
+		t.Fatalf("stream type = %q, want liquidity.evidence", got)
 	}
-	if got := canonicalStreamTypeForCommandChannel("insights.microstructure_evidence"); got != "insights.microstructure_evidence" {
-		t.Fatalf("stream type passthrough = %q, want insights.microstructure_evidence", got)
+	if got := canonicalStreamTypeForCommandChannel("liquidity.evidence"); got != "liquidity.evidence" {
+		t.Fatalf("stream type passthrough = %q, want liquidity.evidence", got)
+	}
+	if got := canonicalStreamTypeForCommandChannel("insights.microstructure_evidence"); got != "liquidity.evidence" {
+		t.Fatalf("legacy passthrough = %q, want liquidity.evidence", got)
 	}
 }
 

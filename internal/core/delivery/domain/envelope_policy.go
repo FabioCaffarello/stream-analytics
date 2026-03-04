@@ -22,6 +22,7 @@ var deliveryContracts = map[string]deliveryContract{
 	"insights.crossvenue.trade_snapshot":  {version: 1, ownerBC: "insights", producerBC: "aggregation", schemaAuthority: "aggregation"},
 	"insights.crossvenue.spread_signal":   {version: 1, ownerBC: "insights", producerBC: "aggregation", schemaAuthority: "aggregation"},
 	"insights.microstructure_evidence":    {version: 1, ownerBC: "insights", producerBC: "evidence", schemaAuthority: "evidence"},
+	"liquidity.evidence":                  {version: 1, ownerBC: "liquidity", producerBC: "evidence", schemaAuthority: "evidence"},
 	"insights.regime_evidence":            {version: 1, ownerBC: "insights", producerBC: "evidence", schemaAuthority: "evidence"},
 	"signal.composite":                    {version: 1, ownerBC: "signals", producerBC: "signals", schemaAuthority: "signals"},
 	"signal.event":                        {version: 1, ownerBC: "signals", producerBC: "signals", schemaAuthority: "signals"},

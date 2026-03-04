@@ -3,6 +3,8 @@ package evidenceruntime_test
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +16,8 @@ import (
 	"github.com/market-raccoon/internal/shared/codec"
 	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
+	sharedhash "github.com/market-raccoon/internal/shared/hash"
+	"github.com/market-raccoon/internal/shared/naming"
 	"github.com/market-raccoon/internal/shared/problem"
 )
 
@@ -240,4 +244,209 @@ func TestEvidenceSubsystem_CandlePublishesRegimeEnvelope(t *testing.T) {
 	}
 
 	<-e.Poison(pid).Done()
+}
+
+type lelSnapshotRule struct{}
+
+func (lelSnapshotRule) Name() string         { return "lel_snapshot_rule" }
+func (lelSnapshotRule) StreamCount() int     { return 0 }
+func (lelSnapshotRule) Reset()               {}
+func (lelSnapshotRule) EvictStream(_ string) {}
+func (lelSnapshotRule) OnEvent(ev domain.LELEvent) []domain.LiquidityEvidence {
+	if ev.Kind != domain.LELEventKindSnapshot {
+		return nil
+	}
+	return []domain.LiquidityEvidence{{
+		EvidenceType: domain.LiquidityEvidenceTypeSweep,
+		TsIngestMs:   ev.TsServer,
+		Venue:        ev.Venue,
+		Symbol:       ev.Symbol,
+		WindowMs:     1000,
+		Severity:     domain.LiquidityEvidenceSeverityHigh,
+		Confidence:   0.9,
+		Metrics:      []domain.LiquidityEvidenceMetric{{Key: "x", Value: 1}},
+		Explain:      []string{"snapshot evidence"},
+		Version:      domain.LiquidityEvidenceVersion,
+		StreamID:     ev.StreamID,
+		Seq:          ev.Seq,
+		Watermark: domain.LiquidityInputWatermark{
+			SeqStart: ev.Seq,
+			SeqEnd:   ev.Seq,
+		},
+	}}
+}
+
+func TestEvidenceSubsystem_SnapshotPublishesLiquidityEvidenceEnvelope(t *testing.T) {
+	envCh := make(chan envelope.Envelope, 1)
+	publishedCh := make(chan envelope.Envelope, 1)
+
+	lel := evidenceapp.NewLELEngine(evidenceapp.DefaultLELEngineConfig(), lelSnapshotRule{})
+
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	pid := e.Spawn(evidenceruntime.NewSubsystemActor(evidenceruntime.SubsystemConfig{
+		EnvelopeCh: envCh,
+		LELEngine:  lel,
+		Publisher:  &spyPublisher{ch: publishedCh},
+	}), "evidence-lel", actor.WithID("evidence-lel"))
+
+	payload, p := codec.EncodePayload("aggregation.snapshot", 1, envelope.ContentTypeJSON, contracts.AggregationSnapshotV2{
+		Venue:        "binance",
+		Instrument:   "BTCUSDT",
+		Seq:          12,
+		BestBidPrice: 100.0,
+		BestAskPrice: 100.5,
+		SpreadBPS:    5.0,
+		Bids: []contracts.AggregationOrderBookLevelV1{
+			{Price: 100, Quantity: 10},
+		},
+		Asks: []contracts.AggregationOrderBookLevelV1{
+			{Price: 100.5, Quantity: 8},
+		},
+		TsIngestMs: 12_000,
+	})
+	if p != nil {
+		t.Fatalf("encode snapshot payload: %v", p)
+	}
+	envCh <- envelope.Envelope{
+		Type:        "aggregation.snapshot",
+		Version:     1,
+		Venue:       "binance",
+		Instrument:  "BTCUSDT",
+		Seq:         12,
+		TsIngest:    12_000,
+		ContentType: envelope.ContentTypeJSON,
+		Payload:     payload,
+	}
+
+	select {
+	case out := <-publishedCh:
+		if out.Type != domain.LiquidityEvidenceEventType {
+			t.Fatalf("published type=%q want=%q", out.Type, domain.LiquidityEvidenceEventType)
+		}
+		decoded, p := codec.DecodePayload(out.Type, out.Version, out.ContentType, out.Payload)
+		if p != nil {
+			t.Fatalf("decode payload: %v", p)
+		}
+		ev, ok := decoded.(contracts.LiquidityEvidenceV1)
+		if !ok {
+			t.Fatalf("decoded type=%T want contracts.LiquidityEvidenceV1", decoded)
+		}
+		if ev.EvidenceType != "SWEEP" {
+			t.Fatalf("evidence_type=%q want SWEEP", ev.EvidenceType)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for liquidity evidence envelope publish")
+	}
+
+	<-e.Poison(pid).Done()
+}
+
+func TestEvidenceSubsystem_ReplicaPartitioningDisjoint(t *testing.T) {
+	if err := os.Setenv("PROCESSOR_REPLICAS", "2"); err != nil {
+		t.Fatalf("set PROCESSOR_REPLICAS: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Unsetenv("PROCESSOR_REPLICAS") })
+
+	ownerSymbol := func(owner uint64) string {
+		for i := 1; i <= 1000; i++ {
+			s := fmt.Sprintf("PAIR-%d", i)
+			partition := sharedhash.SumFieldsFast64("binance", strings.ToLower(s)) % uint64(2)
+			if partition == owner {
+				return s
+			}
+		}
+		t.Fatalf("failed to find symbol for owner %d", owner)
+		return ""
+	}
+	sym0 := ownerSymbol(uint64(0))
+	sym1 := ownerSymbol(uint64(1))
+	sym0Out := naming.CanonicalInstrument(sym0)
+	sym1Out := naming.CanonicalInstrument(sym1)
+
+	makeActor := func(id string, replicaID int) (chan envelope.Envelope, chan envelope.Envelope, *actor.Engine, *actor.PID) {
+		envCh := make(chan envelope.Envelope, 8)
+		pubCh := make(chan envelope.Envelope, 8)
+		e, err := actor.NewEngine(actor.NewEngineConfig())
+		if err != nil {
+			t.Fatalf("new engine: %v", err)
+		}
+		pid := e.Spawn(evidenceruntime.NewSubsystemActor(evidenceruntime.SubsystemConfig{
+			EnvelopeCh:   envCh,
+			LELEngine:    evidenceapp.NewLELEngine(evidenceapp.DefaultLELEngineConfig(), lelSnapshotRule{}),
+			Publisher:    &spyPublisher{ch: pubCh},
+			ReplicaID:    replicaID,
+			ReplicaCount: 2,
+		}), id, actor.WithID(id))
+		return envCh, pubCh, e, pid
+	}
+
+	envCh0, pub0, e0, pid0 := makeActor("evidence-replica-0", 0)
+	envCh1, pub1, e1, pid1 := makeActor("evidence-replica-1", 1)
+	defer func() {
+		<-e0.Poison(pid0).Done()
+		<-e1.Poison(pid1).Done()
+	}()
+
+	makeEnv := func(symbol string, seq int64) envelope.Envelope {
+		payload, p := codec.EncodePayload("aggregation.snapshot", 1, envelope.ContentTypeJSON, contracts.AggregationSnapshotV2{
+			Venue:        "binance",
+			Instrument:   symbol,
+			Seq:          seq,
+			BestBidPrice: 100,
+			BestAskPrice: 101,
+			SpreadBPS:    10,
+			Bids:         []contracts.AggregationOrderBookLevelV1{{Price: 100, Quantity: 5}},
+			Asks:         []contracts.AggregationOrderBookLevelV1{{Price: 101, Quantity: 5}},
+			TsIngestMs:   seq * 1000,
+		})
+		if p != nil {
+			t.Fatalf("encode snapshot payload: %v", p)
+		}
+		return envelope.Envelope{
+			Type:        "aggregation.snapshot",
+			Version:     1,
+			Venue:       "binance",
+			Instrument:  symbol,
+			Seq:         seq,
+			TsIngest:    seq * 1000,
+			ContentType: envelope.ContentTypeJSON,
+			Payload:     payload,
+		}
+	}
+
+	for _, env := range []envelope.Envelope{makeEnv(sym0, 1), makeEnv(sym1, 2)} {
+		envCh0 <- env
+		envCh1 <- env
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	drainCounts := func(ch chan envelope.Envelope) map[string]int {
+		out := make(map[string]int)
+		for {
+			select {
+			case evt := <-ch:
+				out[evt.Instrument]++
+			default:
+				return out
+			}
+		}
+	}
+
+	count0 := drainCounts(pub0)
+	count1 := drainCounts(pub1)
+
+	rep0Sym0 := count0[sym0Out]
+	rep1Sym0 := count1[sym0Out]
+	if rep0Sym0+rep1Sym0 != 1 {
+		t.Fatalf("symbol %s emitted %d times across replicas, want 1", sym0, rep0Sym0+rep1Sym0)
+	}
+	rep0Sym1 := count0[sym1Out]
+	rep1Sym1 := count1[sym1Out]
+	if rep0Sym1+rep1Sym1 != 1 {
+		t.Fatalf("symbol %s emitted %d times across replicas, want 1", sym1, rep0Sym1+rep1Sym1)
+	}
 }

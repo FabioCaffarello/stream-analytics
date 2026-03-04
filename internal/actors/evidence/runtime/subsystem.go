@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +18,7 @@ import (
 	"github.com/market-raccoon/internal/shared/codec"
 	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
+	sharedhash "github.com/market-raccoon/internal/shared/hash"
 	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/problem"
 )
@@ -24,6 +27,8 @@ const (
 	envelopeTypeTrade     = "marketdata.trade"
 	envelopeTypeBookDelta = "marketdata.bookdelta"
 	envelopeTypeCandle    = "aggregation.candle"
+	envelopeTypeTape      = "aggregation.tape"
+	envelopeTypeSnapshot  = "aggregation.snapshot"
 
 	defaultRegimeMaxStreams = 1024
 	defaultRegimeHistoryCap = 20
@@ -43,10 +48,13 @@ type SubsystemConfig struct {
 	Logger          *slog.Logger
 	EnvelopeCh      <-chan envelope.Envelope
 	Engine          *evidenceapp.EvidenceEngine
+	LELEngine       *evidenceapp.LELEngine
 	RegimeStore     *domain.RegimeStore
 	RegimeDetectors []evidenceapp.RegimeDetector
 	RouterPID       *actor.PID // delivery router to publish evidence envelopes
 	Publisher       EventPublisher
+	ReplicaID       int
+	ReplicaCount    int
 }
 
 // SubsystemActor owns the evidence engine lifecycle.
@@ -57,6 +65,9 @@ type SubsystemActor struct {
 	selfPID         *actor.PID
 	regimeStore     *domain.RegimeStore
 	regimeDetectors []evidenceapp.RegimeDetector
+	lelEngine       *evidenceapp.LELEngine
+	replicaID       int
+	replicaCount    int
 	consumeCtx      context.Context
 	cancel          context.CancelFunc
 }
@@ -118,10 +129,38 @@ func (s *SubsystemActor) ensureDefaults(c *actor.Context) {
 			}
 		}
 	}
+	if s.lelEngine == nil {
+		s.lelEngine = s.cfg.LELEngine
+	}
+	if s.replicaCount <= 0 {
+		s.replicaCount = s.cfg.ReplicaCount
+		if envCount := strings.TrimSpace(os.Getenv("PROCESSOR_REPLICAS")); envCount != "" {
+			if parsed, err := strconv.Atoi(envCount); err == nil && parsed > 0 {
+				s.replicaCount = parsed
+			}
+		}
+		if s.replicaCount <= 0 {
+			s.replicaCount = 1
+		}
+	}
+	if s.replicaID < 0 {
+		s.replicaID = 0
+	}
+	if s.replicaID == 0 {
+		s.replicaID = s.cfg.ReplicaID
+		if envID := strings.TrimSpace(os.Getenv("PROCESSOR_REPLICA_ID")); envID != "" {
+			if parsed, err := strconv.Atoi(envID); err == nil && parsed >= 0 {
+				s.replicaID = parsed
+			}
+		}
+	}
+	if s.replicaID < 0 || s.replicaID >= s.replicaCount {
+		s.replicaID = 0
+	}
 }
 
 func (s *SubsystemActor) onStarted(_ *actor.Context) {
-	s.logger.Info("evidence subsystem started")
+	s.logger.Info("evidence subsystem started", "replica_id", s.replicaID, "replica_count", s.replicaCount)
 	if s.cfg.EnvelopeCh != nil && s.engine != nil && s.selfPID != nil {
 		s.consumeCtx, s.cancel = context.WithCancel(context.Background())
 		go s.consumeLoop()
@@ -150,6 +189,10 @@ func (s *SubsystemActor) consumeLoop() {
 }
 
 func (s *SubsystemActor) processEnvelope(env envelope.Envelope) {
+	if s.processLELEnvelope(env) {
+		return
+	}
+
 	ruleEvent, ok := s.toRuleEvent(env)
 	if !ok {
 		return
@@ -168,6 +211,53 @@ func (s *SubsystemActor) processEnvelope(env envelope.Envelope) {
 	for i := range evidenceEvents {
 		s.emitEvidence(env, evidenceEvents[i])
 	}
+}
+
+func (s *SubsystemActor) processLELEnvelope(env envelope.Envelope) bool {
+	if s.lelEngine == nil {
+		return false
+	}
+	var (
+		in domain.LELEvent
+		ok bool
+	)
+	switch env.Type {
+	case envelopeTypeSnapshot:
+		decoded, p := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
+		if p != nil {
+			return true
+		}
+		snapshot, castOK := decoded.(contracts.AggregationSnapshotV2)
+		if !castOK {
+			return true
+		}
+		in = buildLELSnapshotEvent(env, snapshot)
+		ok = true
+	case envelopeTypeTape:
+		decoded, p := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
+		if p != nil {
+			return true
+		}
+		tape, castOK := decoded.(contracts.AggregationTapeV1)
+		if !castOK {
+			return true
+		}
+		in = buildLELTapeEvent(env, tape)
+		ok = true
+	default:
+		return false
+	}
+	if !ok {
+		return true
+	}
+	if !s.isLELOwner(in.Venue, in.Symbol) {
+		return true
+	}
+	out := s.lelEngine.OnEvent(in)
+	for i := range out {
+		s.emitLiquidityEvidence(env, out[i])
+	}
+	return true
 }
 
 func (s *SubsystemActor) toRuleEvent(env envelope.Envelope) (domain.RuleEvent, bool) {
@@ -367,6 +457,60 @@ func (s *SubsystemActor) emitEvidence(triggerEnv envelope.Envelope, ev domain.Ev
 	}
 }
 
+func (s *SubsystemActor) emitLiquidityEvidence(_ envelope.Envelope, ev domain.LiquidityEvidence) {
+	payloadDTO := contracts.LiquidityEvidenceV1{
+		EvidenceType: string(ev.EvidenceType),
+		TsIngestMs:   ev.TsIngestMs,
+		Venue:        ev.Venue,
+		Symbol:       ev.Symbol,
+		WindowMs:     ev.WindowMs,
+		Severity:     string(ev.Severity),
+		Confidence:   ev.Confidence,
+		Explain:      append([]string(nil), ev.Explain...),
+		Version:      ev.Version,
+		StreamID:     ev.StreamID,
+		Seq:          ev.Seq,
+		Watermark: contracts.LiquidityInputWatermark{
+			SeqStart: ev.Watermark.SeqStart,
+			SeqEnd:   ev.Watermark.SeqEnd,
+		},
+	}
+	if len(ev.Metrics) > 0 {
+		payloadDTO.Metrics = make([]contracts.LiquidityEvidenceMetric, len(ev.Metrics))
+		for i := range ev.Metrics {
+			payloadDTO.Metrics[i] = contracts.LiquidityEvidenceMetric{Key: ev.Metrics[i].Key, Value: ev.Metrics[i].Value}
+		}
+	}
+
+	payload, p := codec.EncodePayload(domain.LiquidityEvidenceEventType, int(domain.LiquidityEvidenceVersion), envelope.ContentTypeJSON, payloadDTO)
+	if p != nil {
+		s.logger.Warn("evidence: failed to encode liquidity evidence payload", "err", p.Message)
+		metrics.IncLELEvidenceDropped("invalid_evidence")
+		return
+	}
+	metrics.ObserveLELWireBudget(string(ev.EvidenceType), len(payload))
+
+	out := envelope.Envelope{
+		Type:        domain.LiquidityEvidenceEventType,
+		Version:     int(domain.LiquidityEvidenceVersion),
+		Venue:       ev.Venue,
+		Instrument:  ev.Symbol,
+		TsIngest:    ev.TsIngestMs,
+		Seq:         ev.Seq,
+		ContentType: envelope.ContentTypeJSON,
+		Payload:     payload,
+	}
+	if s.cfg.Publisher != nil {
+		if p := s.cfg.Publisher.Publish(context.Background(), out); p != nil {
+			s.logger.Warn("evidence: failed to publish liquidity evidence envelope", "code", p.Code, "message", p.Message)
+		}
+		return
+	}
+	if s.cfg.RouterPID != nil && s.engine != nil {
+		s.engine.Send(s.cfg.RouterPID, deliveryruntime.DeliverEnvelope{Envelope: out})
+	}
+}
+
 func channelFromEnvelopeType(eventType string) marketmodel.Channel {
 	switch strings.ToLower(strings.TrimSpace(eventType)) {
 	case envelopeTypeTrade:
@@ -378,6 +522,86 @@ func channelFromEnvelopeType(eventType string) marketmodel.Channel {
 	default:
 		return marketmodel.ChannelTrade
 	}
+}
+
+func buildLELSnapshotEvent(env envelope.Envelope, snapshot contracts.AggregationSnapshotV2) domain.LELEvent {
+	ts := env.TsIngest
+	if snapshot.TsIngestMs > 0 {
+		ts = snapshot.TsIngestMs
+	}
+	seq := env.Seq
+	if snapshot.Seq > 0 {
+		seq = snapshot.Seq
+	}
+	return domain.LELEvent{
+		Kind:      domain.LELEventKindSnapshot,
+		Venue:     pickFirst(snapshot.Venue, env.Venue),
+		Symbol:    pickFirst(snapshot.Instrument, env.Instrument),
+		StreamID:  env.Venue + "|" + env.Instrument,
+		TsServer:  ts,
+		Seq:       seq,
+		BestBid:   snapshot.BestBidPrice,
+		BestAsk:   snapshot.BestAskPrice,
+		SpreadBPS: snapshot.SpreadBPS,
+		BidDepth:  sumSnapshotDepth(snapshot.Bids),
+		AskDepth:  sumSnapshotDepth(snapshot.Asks),
+		BidLevels: len(snapshot.Bids),
+		AskLevels: len(snapshot.Asks),
+	}
+}
+
+func buildLELTapeEvent(env envelope.Envelope, tape contracts.AggregationTapeV1) domain.LELEvent {
+	ts := env.TsIngest
+	if tape.TsIngestMs > 0 {
+		ts = tape.TsIngestMs
+	}
+	seq := env.Seq
+	if tape.Seq > 0 {
+		seq = tape.Seq
+	}
+	return domain.LELEvent{
+		Kind:          domain.LELEventKindTape,
+		Venue:         pickFirst(tape.Venue, env.Venue),
+		Symbol:        pickFirst(tape.Instrument, env.Instrument),
+		StreamID:      env.Venue + "|" + env.Instrument,
+		TsServer:      ts,
+		Seq:           seq,
+		TradeCount:    tape.TradeCount,
+		BuyVolume:     tape.BuyVolume,
+		SellVolume:    tape.SellVolume,
+		TotalVolume:   tape.TotalVolume,
+		VwapPrice:     tape.VwapPrice,
+		MaxPrice:      tape.MaxPrice,
+		MinPrice:      tape.MinPrice,
+		Rate:          tape.Rate,
+		Imbalance:     tape.Imbalance,
+		IsBurst:       tape.IsBurst,
+		WindowStartTs: tape.WindowStartTs,
+		WindowEndTs:   tape.WindowEndTs,
+	}
+}
+
+func sumSnapshotDepth(levels []contracts.AggregationOrderBookLevelV1) float64 {
+	total := 0.0
+	for i := range levels {
+		total += levels[i].Quantity
+	}
+	return total
+}
+
+func pickFirst(primary, fallback string) string {
+	if strings.TrimSpace(primary) != "" {
+		return primary
+	}
+	return fallback
+}
+
+func (s *SubsystemActor) isLELOwner(venue, symbol string) bool {
+	if s.replicaCount <= 1 {
+		return true
+	}
+	owner := sharedhash.SumFieldsFast64(strings.ToLower(strings.TrimSpace(venue)), strings.ToLower(strings.TrimSpace(symbol))) % uint64(s.replicaCount)
+	return owner == uint64(s.replicaID) //nolint:gosec // replicaID is bounded by replicaCount at startup.
 }
 
 func (s *SubsystemActor) emitRegime(triggerEnv envelope.Envelope, signal domain.RegimeSignal) {
