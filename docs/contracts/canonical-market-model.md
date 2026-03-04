@@ -1,7 +1,7 @@
 # Canonical Market Model (CMM)
 
-**Status:** Active  
-**Owner:** Market Data + Delivery  
+**Status:** Active
+**Owner:** Market Data + Delivery
 **Last updated:** 2026-03-04
 
 ## Decision
