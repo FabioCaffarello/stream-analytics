@@ -2,7 +2,7 @@
 
 Status: active
 Owner: client/core
-Last updated: 2026-03-02
+Last updated: 2026-03-04
 
 ## Goal
 
@@ -139,8 +139,27 @@ Adding new topic:
 - no runtime operational toggle via native CLI connection flags.
 - Connection Manager is the only UI control surface for profile connect/disconnect and "Add Stream" fan-out.
 
+## Toolchain Guardrail (WASM/Odin)
+
+- Pinned Odin version for client builds: `dev-2026-02` (`client/tools/odin.version`).
+- Optional workspace-level mirror pin: `tools/odin.version`.
+- Bootstrap command (idempotent, no sudo): `client/scripts/bootstrap_odin.sh`.
+- Diagnostics command: `make -C client doctor`.
+
+`doctor` behavior:
+
+1. prints `odin version` and resolved Odin path;
+2. prints `node --version` and `python3 --version`;
+3. compares detected Odin tag with the pin and fails on mismatch with a fix command.
+
+Why this guardrail exists:
+
+- The historical incident `src/check_type.cpp(579): tuple != nullptr Chan(...)` was not reproducible on the pinned environment.
+- A nearby newer compiler (`dev-2026-03`) showed stdlib/core incompatibility on WASM in this repo state (unrelated to `Chan(...)`), proving toolchain drift can break builds even when app code is unchanged.
+
 ## Verification Hooks
 
+- `make -C client doctor`
 - `make -C client build-wasm`
 - `make -C client build-native`
 - `cd client && odin test src/core/services -collection:mr=src/core`

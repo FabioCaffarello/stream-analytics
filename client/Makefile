@@ -80,7 +80,7 @@ doctor:
 	else \
 		echo "python3 version: not found"; \
 	fi; \
-	if [ "$$odin_tag" != "$$pin" ]; then \
+	if [ "$$odin_tag" != "$$pin" ] && [ "$$odin_tag" != "$$pin-nightly" ]; then \
 		echo "doctor: pinned odin version mismatch (expected $$pin, got $$odin_tag)"; \
 		echo "doctor: fix with ./scripts/bootstrap_odin.sh"; \
 		exit 1; \
