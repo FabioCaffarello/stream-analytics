@@ -1,7 +1,7 @@
 {
   "name": "market-raccoon",
   "version": "1.0.0",
-  "description": "[![ci-fast](https://github.com/market-raccoon/market-raccoon/actions/workflows/ci-fast.yml/badge.svg)](https://github.com/market-raccoon/market-raccoon/actions/workflows/ci-fast.yml)",
+  "description": "market-raccoon is a trading platform for the crypto market",
   "main": "index.js",
   "directories": {
     "doc": "docs",
