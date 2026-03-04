@@ -1,6 +1,7 @@
 package app
 
 import "core:fmt"
+import "mr:layers"
 import "mr:md_common"
 import "mr:services"
 import "mr:streams"
@@ -341,12 +342,14 @@ build_health_panel :: proc(state: ^App_State, viewport_w, viewport_h: f32, point
 
 	// Row 2: parsed totals
 	pt_buf: [96]u8
-	pt_str := fmt.bprintf(pt_buf[:], "msgs:%d  bytes:%dMB  resets:%d  batch:%d/%d",
+	pt_str := fmt.bprintf(pt_buf[:], "msgs:%d  bytes:%dMB  resets:%d  batch:%d/%d fp:%d fb:%d",
 		state.active_metrics.parsed_msgs_total,
 		state.active_metrics.parsed_bytes_total / u64(1024 * 1024),
 		state.active_metrics.parse_arena_resets,
 		state.active_metrics.batched_frames_received,
-		state.active_metrics.batched_events_received)
+		state.active_metrics.batched_events_received,
+		state.active_metrics.batched_fastpath_events,
+		state.active_metrics.batched_fallback_events)
 	ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, pt_str, ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS, .Mono)
 	y += ROW_H
 
@@ -664,6 +667,31 @@ copy_diagnostics_to_clipboard :: proc(state: ^App_State) {
 		append_line(buf[:], &n, line[:], line_len)
 	}
 
+	append_str(buf[:], &n, "\nLAYERS:\n")
+	layer_diags: [layers.LAYER_REGISTRY_CAP]layers.Layer_Diagnostics
+	layer_count := layers.layer_registry_collect_diagnostics(&state.layer_registry, &state.layer_store, layer_diags[:])
+	for i in 0 ..< layer_count {
+		diag := layer_diags[i]
+		layer_name := "unknown"
+		switch diag.id {
+		case .Price_Candles: layer_name = "Price/Candles"
+		case .Trades_Tape: layer_name = "Trades Tape"
+		case .OrderBook_DOM: layer_name = "OrderBook/DOM"
+		case .VPVR_Heatmap: layer_name = "VPVR/Heatmap"
+		case .Evidence: layer_name = "Evidence"
+		case .Signal: layer_name = "Signal"
+		}
+		lstate := diag.enabled ? "on" : "off"
+		data_state := diag.has_data ? "data" : "empty"
+		line: [128]u8
+		line_len := len(fmt.bprintf(
+			line[:],
+			"  %s %s %s renders=%d dropped=%d",
+			layer_name, lstate, data_state, diag.render_invocations, diag.dropped_outputs,
+		))
+		append_line(buf[:], &n, line[:], line_len)
+	}
+
 	// Transport
 	append_str(buf[:], &n, "\nTRANSPORT:\n")
 	frame_p95_us := i64(0)
@@ -671,13 +699,15 @@ copy_diagnostics_to_clipboard :: proc(state: ^App_State) {
 		_, frame_p95_us, _ = frame_time_percentiles(state)
 	}
 	t1: [128]u8
-	t1_len := len(fmt.bprintf(t1[:], "  msg/s=%.1f bytes/s=%.0f msgs=%d bytes=%dMB resets=%d batch=%d/%d",
+	t1_len := len(fmt.bprintf(t1[:], "  msg/s=%.1f bytes/s=%.0f msgs=%d bytes=%dMB resets=%d batch=%d/%d fp=%d fb=%d",
 		state.active_metrics.msg_rate, state.active_metrics.bytes_rate,
 		state.active_metrics.parsed_msgs_total,
 		state.active_metrics.parsed_bytes_total / u64(1024 * 1024),
 		state.active_metrics.parse_arena_resets,
 		state.active_metrics.batched_frames_received,
-		state.active_metrics.batched_events_received))
+		state.active_metrics.batched_events_received,
+		state.active_metrics.batched_fastpath_events,
+		state.active_metrics.batched_fallback_events))
 	append_line(buf[:], &n, t1[:], t1_len)
 	t1b: [128]u8
 	t1b_len := len(fmt.bprintf(
