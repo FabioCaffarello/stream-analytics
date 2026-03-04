@@ -86,6 +86,26 @@ func TestBatchingBaseSeqAndCountCorrect(t *testing.T) {
 	}
 }
 
+func TestBatchingFallbackMetricIncrementsWhenBatchCannotFit(t *testing.T) {
+	s, _ := newPerfSession(t, SessionConfig{
+		MaxFrameBytes: 1,
+	})
+	s.helloSeen = true
+	s.features, _, _ = NegotiateFeatures([]string{"batching"}, false)
+
+	subject := mustParseSubjectForSession(t, "marketdata.trade/binance/BTC-USDT/raw")
+	s.outbound.PushBack(makePerfEvent(subject, "marketdata.trade", 10, 1700000000010, 8))
+	s.outbound.PushBack(makePerfEvent(subject, "marketdata.trade", 11, 1700000000011, 8))
+
+	before := testutil.ToFloat64(metrics.WSBatchFallbackEventsTotal)
+	s.flushing = true
+	s.flushOutbound()
+	after := testutil.ToFloat64(metrics.WSBatchFallbackEventsTotal)
+	if got, want := after-before, float64(2); got != want {
+		t.Fatalf("fallback events delta=%f want=%f", got, want)
+	}
+}
+
 func TestCompressionNegotiationHonored(t *testing.T) {
 	s, conn := newPerfSession(t, SessionConfig{
 		CompressionEnabled: true,

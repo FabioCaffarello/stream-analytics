@@ -134,19 +134,23 @@ func (s *SignalStateStore) ObserveMarket(obs MarketObservation) ([]EvictionReaso
 	return evictions, nil
 }
 
-func (s *SignalStateStore) ObserveEvidence(key marketmodel.StreamKey, tenant string, ev evidencedomain.EvidenceEvent) (StreamSnapshot, []EvictionReason, *problem.Problem) {
+func (s *SignalStateStore) ObserveEvidence(key marketmodel.StreamKey, tenant string, ev evidencedomain.EvidenceEvent) (StreamSnapshot, bool, []EvictionReason, *problem.Problem) {
 	if s == nil {
-		return StreamSnapshot{}, nil, problem.New(problem.ValidationFailed, "signal state store is nil")
+		return StreamSnapshot{}, false, nil, problem.New(problem.ValidationFailed, "signal state store is nil")
 	}
 	if p := ev.Validate(); p != nil {
-		return StreamSnapshot{}, nil, p
+		return StreamSnapshot{}, false, nil, p
 	}
 	state, evictions := s.getOrCreate(key, normalizedTenant(tenant), ev.TsServer)
+	if state.LastSeq > 0 && ev.Seq <= state.LastSeq {
+		// Replay/resync duplicates must not perturb state nor re-trigger rules.
+		return streamSnapshot(state), false, evictions, nil
+	}
 	state.LastSeenTs = ev.TsServer
 	state.LastSeq = ev.Seq
 	state.SeqRing.Push(ev.Seq)
 	state.EvidenceRing.Push(ev)
-	return streamSnapshot(state), evictions, nil
+	return streamSnapshot(state), true, evictions, nil
 }
 
 func (s *SignalStateStore) NextSignalSeq(key marketmodel.StreamKey, tenant string) int64 {

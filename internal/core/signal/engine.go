@@ -68,17 +68,14 @@ func (e *SignalEngine) OnEvidenceEvent(key marketmodel.StreamKey, tenant string,
 	if e == nil || e.store == nil {
 		return nil, nil, nil, 0, problem.New(problem.ValidationFailed, "signal engine is nil")
 	}
-	snapshot, evictions, p := e.store.ObserveEvidence(key, tenant, event)
+	snapshot, accepted, evictions, p := e.store.ObserveEvidence(key, tenant, event)
 	if p != nil {
 		return nil, evictions, nil, 0, p
 	}
-	evalSpan := int64(0)
-	if len(snapshot.EvidenceHistory) > 0 {
-		evalSpan = event.TsServer - snapshot.EvidenceHistory[0].TsServer
-		if evalSpan < 0 {
-			evalSpan = -evalSpan
-		}
+	if !accepted {
+		return nil, evictions, nil, 0, nil
 	}
+	evalSpan := evidenceEvalSpan(event, snapshot)
 
 	emissions := make([]Emission, 0, len(e.rules))
 	dedupTypes := make([]string, 0, len(e.rules))
@@ -190,4 +187,15 @@ func signalFingerprint(ev marketmodel.SignalEvent) string {
 		)
 	}
 	return sharedhash.HashFieldsFast(parts...)
+}
+
+func evidenceEvalSpan(event evidencedomain.EvidenceEvent, snapshot StreamSnapshot) int64 {
+	if len(snapshot.EvidenceHistory) == 0 {
+		return 0
+	}
+	evalSpan := event.TsServer - snapshot.EvidenceHistory[0].TsServer
+	if evalSpan < 0 {
+		return -evalSpan
+	}
+	return evalSpan
 }

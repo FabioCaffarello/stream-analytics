@@ -31,6 +31,7 @@ ENDPOINT_ALL_CHANNELS :: u8(
 	(1 << u8(ports.MD_Channel.Heatmaps)) |
 	(1 << u8(ports.MD_Channel.VPVR)) |
 	(1 << u8(ports.MD_Channel.Candles)) |
+	(1 << u8(ports.MD_Channel.Evidence)) |
 	(1 << u8(ports.MD_Channel.Signals))
 )
 

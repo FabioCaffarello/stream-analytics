@@ -153,6 +153,19 @@ controller_update_health :: proc(ctrl: ^Stream_Controller, status: ^Stream_Statu
 				status.state = .Desync
 				return status.state
 			}
+		case .Manual:
+			// Manual resync: unlatch once fresh data is flowing (subscribe acks
+			// confirm the server accepted re-subscriptions AND recent events prove
+			// liveness). Without this, manual desync is permanent.
+			event_age := now_ms - status.last_local_ts_ms
+			if now_ms > 0 && status.last_local_ts_ms > 0 &&
+				status.subscribe_acks > 0 && event_age <= ctrl.desync_stale_ms {
+				status.desync_reason = .None
+				// Fall through to normal health checks.
+			} else {
+				status.state = .Desync
+				return status.state
+			}
 		case:
 			status.state = .Desync
 			return status.state

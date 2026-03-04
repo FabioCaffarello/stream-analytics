@@ -1,6 +1,8 @@
 package app
 
+import "core:fmt"
 import "core:time"
+import "mr:layers"
 import "mr:ports"
 import "mr:services"
 import "mr:streams"
@@ -269,6 +271,11 @@ App_State :: struct {
 	stream_registry: streams.Stream_Registry,
 	stream_controller: streams.Stream_Controller,
 	settings:        services.Settings_Store,
+	layer_store:     layers.Market_Store,
+	layer_registry:  layers.Layer_Registry,
+	layer_datasource: layers.Data_Source,
+	layer_outputs:   layers.Layer_Outputs,
+	layer_hard_cutover: bool,
 	profiles:        services.Profile_Store,
 	connection_manager_selected_profile: int,
 	frame:           u64,
@@ -317,6 +324,9 @@ App_State :: struct {
 	// Layout mode (PRD-0007 M2).
 	layout_mode: Layout_Mode,
 
+	// Manual resync counter (app-side, not overwritten by transport metrics).
+	manual_resync_count: int,
+
 	// Subscription reconcile: previous wanted set for diff-aware unsubscribe (BUG-1 fix).
 	prev_subs:       [SUB_WANT_CAP]Prev_Sub_Entry,
 	prev_subs_count: int,
@@ -337,6 +347,9 @@ init :: proc(
 	state.stream_views = new(Stream_View_Registry)
 	streams.registry_init(&state.stream_registry, true)
 	streams.controller_init(&state.stream_controller)
+	layers.market_store_reset(&state.layer_store)
+	layers.layer_registry_init(&state.layer_registry, &state.layer_store)
+	state.layer_hard_cutover = true
 	state.active_metrics.state = .Offline
 	state.bp_assist.getrange_divisor = 1
 	state.bp_assist.user_enabled = false
@@ -393,6 +406,7 @@ init :: proc(
 		services.fill_demo_vpvr(&state.stores.vpvr)
 		services.fill_demo_stats(&state.stores.stats)
 		services.fill_demo_candles(&state.stores.candle)
+		layers.market_store_seed_demo(&state.layer_store, 1)
 	}
 
 	// Load market discovery (defaults + HTTP fetch from backend).
@@ -426,11 +440,11 @@ init :: proc(
 		}
 		venue, ok_venue := services.settings_get(&state.settings, services.SETTING_ACTIVE_STREAM_VENUE)
 		symbol, ok_symbol := services.settings_get(&state.settings, services.SETTING_ACTIVE_STREAM_SYMBOL)
-		ch_s, ok_channel := services.settings_get(&state.settings, services.SETTING_ACTIVE_STREAM_CHANNEL)
-		if ok_venue && ok_symbol && ok_channel {
-			if ch, ok := parse_channel_short_label(ch_s); ok {
+		if ok_venue && ok_symbol {
+			mid := util.market_id64(venue, symbol)
+			if mid != 0 {
 				state.has_pending_active_subject = true
-				state.pending_active_subject_id = util.subject_id64_for_stream(venue, symbol, ch)
+				state.pending_active_subject_id = mid
 			}
 		}
 
@@ -514,6 +528,7 @@ init :: proc(
 			if v, ok := services.settings_get(&state.settings, services.SETTING_ASSIST_MODE); ok {
 				state.bp_assist.user_enabled = v == "1"
 			}
+			layers.layer_registry_load_settings(&state.layer_registry, &state.settings)
 			// Restore layout preset.
 			if v, ok := services.settings_get(&state.settings, services.SETTING_LAYOUT_PRESET); ok {
 				state.layout_preset = parse_int_clamped(v, 0, ui.LAYOUT_PRESET_COUNT - 1, 0)
@@ -605,6 +620,12 @@ shutdown :: proc(state: ^App_State) {
 
 set_runtime_connection_defaults :: proc(state: ^App_State, ws_url: string, api_key_ref: string = "") {
 	if state == nil do return
+
+	prev_url := string(state.conn.runtime_ws_url[:int(state.conn.runtime_ws_url_len)])
+	prev_key := string(state.conn.runtime_api_key_ref[:int(state.conn.runtime_api_key_ref_len)])
+	url_changed := ws_url != prev_url
+	key_changed := api_key_ref != prev_key
+
 	wsn := min(len(ws_url), len(state.conn.runtime_ws_url))
 	for i in 0 ..< wsn {
 		state.conn.runtime_ws_url[i] = ws_url[i]
@@ -636,6 +657,14 @@ set_runtime_connection_defaults :: proc(state: ^App_State, ws_url: string, api_k
 			services.profile_store_save(&state.profiles, &state.settings)
 			services.settings_flush(&state.settings)
 		}
+	}
+
+	// Sync effective URL/auth into transport so diagnostics and lifecycle logs
+	// reflect the runtime override, not the stale compile-time defaults.
+	// Only trigger on subsequent calls (prev_url non-empty = not initial bootstrap).
+	if len(prev_url) > 0 && (url_changed || key_changed) && state.marketdata.reconnect_transport != nil {
+		_ = state.marketdata.reconnect_transport(ws_url, api_key_ref)
+		fmt.printf("[md-lifecycle] runtime_override url_changed=%v auth_changed=%v\n", url_changed, key_changed)
 	}
 }
 
@@ -758,7 +787,7 @@ update :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buffe
 	state.frame += 1
 
 	t0 := time.tick_now()
-	_ = drain_marketdata(state)
+	_ = drain_layer_marketdata(state)
 	t1 := time.tick_now()
 
 	queue_ui_actions_from_input(state, input)
@@ -788,7 +817,7 @@ update_web :: proc(state: ^App_State, input: ports.Input_State) -> (buf: ^ui.Com
 	input_interaction := has_input_interaction(input)
 
 	t0 := time.tick_now()
-	events_processed := drain_marketdata(state)
+	events_processed := drain_layer_marketdata(state)
 	t1 := time.tick_now()
 
 	queue_ui_actions_from_input(state, input)

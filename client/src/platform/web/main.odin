@@ -20,7 +20,7 @@ main :: proc() {
 	text_port := make_text_port()
 	font_port := stub_font_port()
 	settings_port := stub_settings_port()
-	md_port := make_marketdata_web(WS_URL, API_KEY)
+	md_port := make_marketdata_web(WS_URL, API_KEY, false) // deferred: OFFLINE until user/auto_connect
 
 	app.init(&g_state, text_port, md_port, font_port, settings_port, false)
 	app.set_runtime_connection_defaults(&g_state, WS_URL, API_KEY)
@@ -390,4 +390,82 @@ probe_indicator_trade_counter_rendered :: proc "c" () -> i32 {
 	p := app.runtime_probe(&g_state)
 	if p.ind_trade_counter_rendered do return 1
 	return 0
+}
+
+@(export)
+probe_md_hello_received :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	if p.md_metrics.hello_received do return 1
+	return 0
+}
+
+@(export)
+probe_md_subscribe_ack_count :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.md_metrics.subscribe_ack_count)
+}
+
+@(export)
+probe_md_seq_gap_count :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.md_metrics.seq_gap_count)
+}
+
+@(export)
+probe_md_prev_seq_violations :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.md_metrics.prev_seq_violations)
+}
+
+@(export)
+probe_md_backend_gap_missing_ts_server :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.md_metrics.backend_gap_missing_ts_server)
+}
+
+@(export)
+probe_md_backend_gap_no_metrics :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.md_metrics.backend_gap_no_metrics)
+}
+
+@(export)
+probe_md_backend_gap_seq_gap_recurring :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.md_metrics.backend_gap_seq_gap_recurring)
+}
+
+@(export)
+probe_md_server_metrics_cadence_ms :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.md_metrics.server_metrics_cadence_ms)
+}
+
+@(export)
+probe_md_resync_count :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.md_metrics.resync_count)
+}
+
+@(export)
+probe_md_transport_mode :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.md_metrics.transport_mode)
+}
+
+@(export)
+probe_md_legacy_downgrade_count :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.md_metrics.legacy_downgrade_count)
 }

@@ -77,6 +77,7 @@ Behavior:
 - Batching (`hello.requested_features` includes `batching`):
   - Server emits compact `batch` frames with one header (`stream_id`, `base_seq`, `count`, `ts_server_base`) and per-item deltas.
   - Batch writer is size-guarded by `delivery.max_frame_bytes`; oversized batches are split automatically (or downgraded to single-event writes).
+  - Strangler counter: `ws_batch_fallback_events_total` counts events that were batch candidates but downgraded to single-event writes.
   - Use batching when stream fanout is bursty (book/trade bursts) and client parser supports Terminal V1 batch frames.
 - Compression (`hello.requested_features` includes `compress`):
   - Server-driven, negotiated at hello.
@@ -120,6 +121,7 @@ Key metrics:
 - `ws_dropped_total{reason,channel,priority}`
 - `ws_batch_frames_total`
 - `ws_batch_events_total`
+- `ws_batch_fallback_events_total`
 - `ws_compress_applied_total`
 - `ws_compress_bytes_in_total`
 - `ws_compress_bytes_out_total`
@@ -172,6 +174,11 @@ ws_backpressure_level
 # Queue high watermark (peak between metrics emissions)
 ws_queue_high_watermark
 ```
+
+Batch fast-path strangler removal criteria:
+- Removal gate: `ws_batch_fallback_events_total == 0` for **5 consecutive IQ runs**.
+- IQ gate: `scripts/iq/analyze_iq_run.mjs` fails when fallback events are non-zero.
+- Temporary override (explicit only): `IQ_ALLOW_BATCHED_FALLBACK=1`.
 
 ## Per-Tenant Limits
 

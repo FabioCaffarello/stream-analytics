@@ -26,7 +26,7 @@ func (p *capturePublisher) Publish(_ context.Context, env envelope.Envelope) *pr
 	return nil
 }
 
-func TestSignalSubsystem_OwnerOnlyEmitsAcrossReplicas(t *testing.T) {
+func TestSignalSubsystem_OwnerOnlyEmitsAcrossReplicas_WithReplayDuplicates(t *testing.T) {
 	if p := contracts.BootstrapPayloadCodecRegistry(); p != nil {
 		t.Fatalf("bootstrap codec registry: %v", p)
 	}
@@ -68,22 +68,34 @@ func TestSignalSubsystem_OwnerOnlyEmitsAcrossReplicas(t *testing.T) {
 	inputB <- evidenceA
 	inputA <- evidenceB
 	inputB <- evidenceB
+	// Simulate reconnect/resync replay: both replicas receive identical evidence again.
+	inputA <- evidenceA
+	inputB <- evidenceA
+	inputA <- evidenceB
+	inputB <- evidenceB
 
 	total := 0
-	deadline := time.After(750 * time.Millisecond)
+	pubACount := 0
+	pubBCount := 0
+	deadline := time.After(1 * time.Second)
 collect:
 	for {
 		select {
 		case <-pubA.ch:
 			total++
+			pubACount++
 		case <-pubB.ch:
 			total++
+			pubBCount++
 		case <-deadline:
 			break collect
 		}
 	}
 	if total != 1 {
 		t.Fatalf("total emissions=%d want=1", total)
+	}
+	if pubACount > 0 && pubBCount > 0 {
+		t.Fatalf("owner-only violated: both replicas emitted (A=%d B=%d)", pubACount, pubBCount)
 	}
 
 	close(inputA)

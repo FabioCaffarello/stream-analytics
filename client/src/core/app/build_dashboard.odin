@@ -1,6 +1,7 @@
 package app
 
 import "core:fmt"
+import "mr:layers"
 import "mr:ports"
 import "mr:services"
 import "mr:ui"
@@ -152,149 +153,28 @@ draw_dashboard_detail :: proc(state: ^App_State, rect: ui.Rect, pointer: ui.Poin
 			toggle_w := rect.size.x - 8
 			toggle_h := f32(20)
 			tx := rect.pos.x + 4
-
-			LAYER_TOGGLES :: [11]struct{label: string, field_offset: int}{
-				{label = "  Volume",    field_offset = 0},
-				{label = "  Heatmap",   field_offset = 1},
-				{label = "  VPVR",      field_offset = 2},
-				{label = "  EMA/SMA",   field_offset = 3},
-				{label = "  Bollinger", field_offset = 4},
-				{label = "  VWAP",      field_offset = 5},
-				{label = "  RSI",       field_offset = 6},
-				{label = "  MACD",      field_offset = 7},
-				{label = "  Funding",   field_offset = 8},
-				{label = "  Liq Vol",   field_offset = 9},
-				{label = "  Trade Cnt", field_offset = 10},
+			layer_items := [6]struct{id: layers.Layer_ID, label: string}{
+				{id = .Price_Candles, label = " Price/Candles"},
+				{id = .Trades_Tape, label = " Trades Tape"},
+				{id = .OrderBook_DOM, label = " OrderBook/DOM"},
+				{id = .VPVR_Heatmap, label = " VPVR/Heatmap"},
+				{id = .Evidence, label = " Evidence"},
+				{id = .Signal, label = " Signal"},
 			}
-			// Point toggles at focused candle cell when available, else global.
-			fci := state.world.focused
-			has_focus := fci >= 0 && fci < state.world.count && state.world.widgets[fci].kind == .Candle
-			layer_ptrs: [11]^bool
-			if has_focus {
-				fc_ch := &state.world.charts[fci]
-				fc_ind := &state.world.indicators[fci]
-				layer_ptrs = {
-					&fc_ch.show_vol, &fc_ch.show_heatmap, &fc_ch.show_vpvr,
-					&fc_ind.show_ma, &fc_ind.show_bbands, &fc_ind.show_vwap,
-					&fc_ind.show_rsi, &fc_ind.show_macd, &fc_ind.show_funding,
-					&fc_ind.show_liq, &fc_ind.show_trade_counter,
-				}
-			} else {
-				layer_ptrs = {
-					&state.chart_display.show_vol, &state.chart_display.show_heatmap, &state.chart_display.show_vpvr,
-					&state.indicators.show_ma, &state.indicators.show_bbands, &state.indicators.show_vwap,
-					&state.indicators.show_rsi, &state.indicators.show_macd, &state.indicators.show_funding,
-					&state.indicators.show_liq, &state.indicators.show_trade_counter,
-				}
-			}
-			layer_labels := LAYER_TOGGLES
-			step_h := f32(16)
-			for li in 0 ..< 11 {
+			for li in 0 ..< len(layer_items) {
 				if y + toggle_h > rect.pos.y + rect.size.y do break
+				item := layer_items[li]
+				value := layers.layer_registry_is_enabled(&state.layer_registry, item.id)
 				tr := ui.toggle(&state.cmd_buf,
 					ui.rect_xywh(tx, y, toggle_w, toggle_h),
-					layer_labels[li].label, layer_ptrs[li]^,
-					pointer, state.text.measure, ui.FONT_SIZE_XS)
+					item.label, value, pointer, state.text.measure, ui.FONT_SIZE_XS)
 				if tr.changed {
-					layer_ptrs[li]^ = tr.value
-					// Sync to global defaults for persistence.
-					sync_layer_to_global(state, li, tr.value)
-					// Sync indicator state to focused candle cell (li 3-10 → indicator 0-7).
-					if li >= 3 && fci >= 0 && fci < state.world.count && state.world.widgets[fci].kind == .Candle {
-						set_indicator_on_cell(&state.world.indicators[fci], li - 3, tr.value)
-					}
+					layers.layer_registry_set_enabled(&state.layer_registry, item.id, tr.value)
+					layers.layer_registry_save_settings(&state.layer_registry, &state.settings)
+					services.settings_flush(&state.settings)
 				}
 				y += toggle_h + 2
-
-				// Inline settings when layer is active.
-				if !layer_ptrs[li]^ do continue
-				sx := tx + 14
-				sw := toggle_w - 18
-
-				// Get parameter pointers (focused cell or global).
-				fc_indp := &state.world.ind_params[fci]
-				ma_per := has_focus ? &fc_indp.ma_periods : &state.indicators.ma_periods
-				bb_per := has_focus ? &fc_indp.bb_period  : &state.indicators.bb_period
-				bb_sig := has_focus ? &fc_indp.bb_sigma   : &state.indicators.bb_sigma
-				rsi_per := has_focus ? &fc_indp.rsi_period : &state.indicators.rsi_period
-				macd_f := has_focus ? &fc_indp.macd_fast   : &state.indicators.macd_fast
-				macd_s := has_focus ? &fc_indp.macd_slow   : &state.indicators.macd_slow
-				macd_sig := has_focus ? &fc_indp.macd_signal : &state.indicators.macd_signal
-
-				switch li {
-				case 3: // EMA/SMA
-					ma_keys := [3]string{services.SETTING_MA_PERIOD_0, services.SETTING_MA_PERIOD_1, services.SETTING_MA_PERIOD_2}
-					ma_labels := [3]string{"MA1", "MA2", "MA3"}
-					for mi in 0 ..< 3 {
-						if y + step_h > rect.pos.y + rect.size.y do break
-						sr := ui.stepper(&state.cmd_buf, ui.rect_xywh(sx, y, sw, step_h),
-							ma_labels[mi], ma_per[mi], 2, 200,
-							pointer, state.text.measure)
-						if sr.changed {
-							ma_per[mi] = sr.value
-							state.indicators.ma_periods[mi] = sr.value
-							buf: [4]u8
-							services.settings_set(&state.settings, ma_keys[mi], fmt.bprintf(buf[:], "%d", sr.value))
-						}
-						y += step_h + 1
-					}
-				case 4: // Bollinger
-					if y + step_h > rect.pos.y + rect.size.y do continue
-					sr := ui.stepper(&state.cmd_buf, ui.rect_xywh(sx, y, sw, step_h),
-						"Per", bb_per^, 2, 200,
-						pointer, state.text.measure)
-					if sr.changed {
-						bb_per^ = sr.value
-						state.indicators.bb_period = sr.value
-						buf: [4]u8
-						services.settings_set(&state.settings, services.SETTING_BB_PERIOD, fmt.bprintf(buf[:], "%d", sr.value))
-					}
-					y += step_h + 1
-					if y + step_h > rect.pos.y + rect.size.y do continue
-					sf := ui.stepper_float(&state.cmd_buf, ui.rect_xywh(sx, y, sw, step_h),
-						"Sig", bb_sig^, 0.5, 5.0, 0.5,
-						pointer, state.text.measure)
-					if sf.changed {
-						bb_sig^ = sf.value
-						state.indicators.bb_sigma = sf.value
-						buf: [4]u8
-						services.settings_set(&state.settings, services.SETTING_BB_SIGMA, fmt.bprintf(buf[:], "%.1f", sf.value))
-					}
-					y += step_h + 1
-				case 6: // RSI
-					if y + step_h > rect.pos.y + rect.size.y do continue
-					sr := ui.stepper(&state.cmd_buf, ui.rect_xywh(sx, y, sw, step_h),
-						"Per", rsi_per^, 2, 100,
-						pointer, state.text.measure)
-					if sr.changed {
-						rsi_per^ = sr.value
-						state.indicators.rsi_period = sr.value
-						buf: [4]u8
-						services.settings_set(&state.settings, services.SETTING_RSI_PERIOD, fmt.bprintf(buf[:], "%d", sr.value))
-					}
-					y += step_h + 1
-				case 7: // MACD
-					macd_params := [3]struct{label: string, ptr: ^int, global_ptr: ^int, key: string, lo, hi: int}{
-						{"Fst", macd_f, &state.indicators.macd_fast, services.SETTING_MACD_FAST, 2, 100},
-						{"Slw", macd_s, &state.indicators.macd_slow, services.SETTING_MACD_SLOW, 2, 200},
-						{"Sig", macd_sig, &state.indicators.macd_signal, services.SETTING_MACD_SIGNAL, 2, 100},
-					}
-					for &mp in macd_params {
-						if y + step_h > rect.pos.y + rect.size.y do break
-						sr := ui.stepper(&state.cmd_buf, ui.rect_xywh(sx, y, sw, step_h),
-							mp.label, mp.ptr^, mp.lo, mp.hi,
-							pointer, state.text.measure)
-						if sr.changed {
-							mp.ptr^ = sr.value
-							mp.global_ptr^ = sr.value
-							buf: [4]u8
-							services.settings_set(&state.settings, mp.key, fmt.bprintf(buf[:], "%d", sr.value))
-						}
-						y += step_h + 1
-					}
-				}
 			}
-			y += 4
 		}
 	}
 

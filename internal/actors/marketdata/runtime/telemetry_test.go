@@ -38,6 +38,31 @@ func TestParserTelemetry_RecordSkipByReason(t *testing.T) {
 	}
 }
 
+func TestParserTelemetry_RecordSkip_ExpectedMarkpriceUnavailable(t *testing.T) {
+	tel := newParserTelemetry()
+
+	tel.recordSkip("bybit", "ticker", "markprice_unavailable", "", "BTCUSDT", "tickers.BTCUSDT")
+
+	if got, want := tel.skipped, uint64(1); got != want {
+		t.Fatalf("skipped = %d, want %d", got, want)
+	}
+	if got, want := tel.expectedSkipTotal, uint64(1); got != want {
+		t.Fatalf("expectedSkipTotal = %d, want %d", got, want)
+	}
+	if got, want := tel.unexpectedSkipTotal, uint64(0); got != want {
+		t.Fatalf("unexpectedSkipTotal = %d, want %d", got, want)
+	}
+	if got, want := tel.byExpectedSkipReason["markprice_unavailable"], uint64(1); got != want {
+		t.Fatalf("expected markprice_unavailable count = %d, want %d", got, want)
+	}
+	if got := tel.byUnexpectedSkipReason["markprice_unavailable"]; got != 0 {
+		t.Fatalf("unexpected markprice_unavailable count = %d, want 0", got)
+	}
+	if got := tel.byExchangeEventAndSkip["bybit|ticker|markprice_unavailable"]; got != 0 {
+		t.Fatalf("expected no exchange_event_and_skip entry for expected skip, got %d", got)
+	}
+}
+
 func TestParserTelemetry_ShouldSampleRateLimited(t *testing.T) {
 	tel := newParserTelemetry()
 	now := time.Now()

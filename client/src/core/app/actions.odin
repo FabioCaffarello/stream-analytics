@@ -548,6 +548,7 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 				}
 			}
 		case .Resync_Active_Stream:
+			state.manual_resync_count += 1
 			current_ack_metric := 0
 			if state.marketdata.metrics != nil {
 				metrics: ports.MD_Runtime_Metrics

@@ -74,7 +74,7 @@ func TestSignalStateStore_PerStreamRingFixed(t *testing.T) {
 	k := mustStreamKey(t, "binance", "BTC-USDT", marketmodel.ChannelEvidence)
 
 	for i := int64(1); i <= 3; i++ {
-		snapshot, _, p := store.ObserveEvidence(k, "tenant-a", evidencedomain.EvidenceEvent{
+		snapshot, accepted, _, p := store.ObserveEvidence(k, "tenant-a", evidencedomain.EvidenceEvent{
 			Type:           evidencedomain.SpreadExplosion,
 			TsServer:       i * 10,
 			Venue:          "binance",
@@ -91,6 +91,9 @@ func TestSignalStateStore_PerStreamRingFixed(t *testing.T) {
 		if p != nil {
 			t.Fatalf("ObserveEvidence failed: %v", p)
 		}
+		if !accepted {
+			t.Fatal("expected accepted=true for monotonic evidence")
+		}
 		if i == 3 {
 			if got := len(snapshot.EvidenceHistory); got != 2 {
 				t.Fatalf("history len=%d want=2", got)
@@ -99,6 +102,61 @@ func TestSignalStateStore_PerStreamRingFixed(t *testing.T) {
 				t.Fatalf("unexpected ring content: %+v", snapshot.EvidenceHistory)
 			}
 		}
+	}
+}
+
+func TestSignalStateStore_ObserveEvidence_IgnoresReplayBySeq(t *testing.T) {
+	t.Parallel()
+	store := NewSignalStateStore(StateStoreConfig{
+		PerStreamWindow:    4,
+		PerTenantStreamCap: 4,
+		GlobalStreamCap:    4,
+		TTLMillis:          1000,
+		DedupWindowMillis:  100,
+	})
+	k := mustStreamKey(t, "binance", "BTC-USDT", marketmodel.ChannelEvidence)
+	base := evidencedomain.EvidenceEvent{
+		Type:           evidencedomain.SpreadExplosion,
+		Venue:          "binance",
+		Symbol:         "BTC-USDT",
+		StreamID:       "binance/BTC-USDT/evidence",
+		Severity:       evidencedomain.SeverityHigh,
+		Confidence:     0.8,
+		Features:       []evidencedomain.EvidenceFeature{{Key: "f", Value: 1}},
+		Explanation:    "x",
+		RuleVersion:    "v0",
+		InputWatermark: evidencedomain.InputWatermark{SeqStart: 1, SeqEnd: 1},
+	}
+
+	first := base
+	first.TsServer = 100
+	first.Seq = 10
+	snapshot, accepted, _, p := store.ObserveEvidence(k, "tenant-a", first)
+	if p != nil {
+		t.Fatalf("first ObserveEvidence failed: %v", p)
+	}
+	if !accepted {
+		t.Fatal("expected first evidence accepted")
+	}
+	if got := len(snapshot.EvidenceHistory); got != 1 {
+		t.Fatalf("history len=%d want=1", got)
+	}
+
+	replay := base
+	replay.TsServer = 120
+	replay.Seq = 10
+	snapshot2, accepted2, _, p := store.ObserveEvidence(k, "tenant-a", replay)
+	if p != nil {
+		t.Fatalf("replay ObserveEvidence failed: %v", p)
+	}
+	if accepted2 {
+		t.Fatal("expected replay evidence to be ignored")
+	}
+	if got := len(snapshot2.EvidenceHistory); got != 1 {
+		t.Fatalf("history len after replay=%d want=1", got)
+	}
+	if got, want := snapshot2.LastSeq, int64(10); got != want {
+		t.Fatalf("last seq=%d want=%d", got, want)
 	}
 }
 

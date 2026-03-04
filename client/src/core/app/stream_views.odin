@@ -117,7 +117,7 @@ sync_active_stream_view_to_global_stores :: proc(state: ^App_State) {
 	if reg == nil do return
 	if !reg.has_active do return
 	if idx := stream_view_find_slot(reg, reg.active_subject_id); idx >= 0 {
-		slot := reg.slots[idx]
+		slot := &reg.slots[idx]
 		if slot.has_stream_info {
 			stream_id_buf: [streams.STREAM_ID_CAP]u8
 			stream_id := build_stream_id_from_market_into(stream_id_buf[:], slot.stream_info.venue, slot.stream_info.symbol)
@@ -573,6 +573,7 @@ binding_symbol :: proc(b: ^Stream_Binding) -> string {
 
 binding_set :: proc(b: ^Stream_Binding, venue: string, symbol: string) {
 	if b == nil do return
+	b.stream_idx = -1 // follow active by default
 	for i in 0 ..< len(b.bound_venue) { b.bound_venue[i] = 0 }
 	for i in 0 ..< len(b.bound_symbol) { b.bound_symbol[i] = 0 }
 	vn := min(len(venue), len(b.bound_venue))

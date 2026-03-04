@@ -196,3 +196,19 @@ subject_id64 :: proc(subject: string) -> u64 {
 	}
 	return h
 }
+
+// Market-level hash: aggregates ALL channels for the same venue+symbol into
+// one identity.  Used by MarketStore so candle/stats/trade/heatmap/etc events
+// for the same market converge into a single Market_Stream.
+market_id64 :: proc(venue, symbol: string) -> u64 {
+	venue_buf: [32]u8
+	norm_venue := normalize_subject_venue_into(venue_buf[:], venue)
+	sym_buf: [64]u8
+	norm_symbol := normalize_subject_symbol_into(sym_buf[:], symbol)
+	if len(norm_venue) == 0 || len(norm_symbol) == 0 do return 0
+	h := u64(14695981039346656037)
+	subject_hash_append(&h, norm_venue)
+	subject_hash_append(&h, "/")
+	subject_hash_append(&h, norm_symbol)
+	return h
+}

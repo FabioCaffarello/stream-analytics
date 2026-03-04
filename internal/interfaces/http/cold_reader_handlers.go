@@ -2,9 +2,12 @@ package httpserver
 
 import (
 	"net/http"
+	"sort"
 	"strconv"
+	"strings"
 
 	aggports "github.com/market-raccoon/internal/core/aggregation/ports"
+	"github.com/market-raccoon/internal/shared/config"
 )
 
 // handleGetMarkets serves GET /api/v1/markets and returns all configured
@@ -14,7 +17,81 @@ func (s *Server) handleGetMarkets(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "markets not configured"})
 		return
 	}
-	writeJSON(w, http.StatusOK, s.markets)
+	writeJSON(w, http.StatusOK, normalizeMarketsConfig(s.markets))
+}
+
+func normalizeMarketsConfig(in *config.MarketsConfig) config.MarketsConfig {
+	if in == nil {
+		return config.MarketsConfig{}
+	}
+	type exchangeAccumulator struct {
+		name    string
+		symbols map[string]config.MarketsSymbolConfig
+	}
+
+	byExchange := make(map[string]*exchangeAccumulator, len(in.Exchanges))
+	for _, ex := range in.Exchanges {
+		name := strings.ToLower(strings.TrimSpace(ex.Name))
+		if name == "" {
+			continue
+		}
+		acc, ok := byExchange[name]
+		if !ok {
+			acc = &exchangeAccumulator{
+				name:    name,
+				symbols: make(map[string]config.MarketsSymbolConfig, len(ex.Symbols)),
+			}
+			byExchange[name] = acc
+		}
+		for _, sym := range ex.Symbols {
+			ticker := strings.ToUpper(strings.TrimSpace(sym.Ticker))
+			if ticker == "" {
+				continue
+			}
+			marketType := strings.ToUpper(strings.TrimSpace(sym.MarketType))
+			tickSize := sym.TickSize
+			if tickSize < 0 {
+				tickSize = 0
+			}
+			key := ticker + "|" + marketType
+			if _, exists := acc.symbols[key]; exists {
+				continue
+			}
+			acc.symbols[key] = config.MarketsSymbolConfig{
+				Ticker:     ticker,
+				TickSize:   tickSize,
+				MarketType: marketType,
+			}
+		}
+	}
+
+	out := config.MarketsConfig{
+		Exchanges: make([]config.MarketsExchangeConfig, 0, len(byExchange)),
+	}
+	exchangeNames := make([]string, 0, len(byExchange))
+	for name := range byExchange {
+		exchangeNames = append(exchangeNames, name)
+	}
+	sort.Strings(exchangeNames)
+
+	for _, name := range exchangeNames {
+		acc := byExchange[name]
+		symbols := make([]config.MarketsSymbolConfig, 0, len(acc.symbols))
+		for _, sym := range acc.symbols {
+			symbols = append(symbols, sym)
+		}
+		sort.Slice(symbols, func(i, j int) bool {
+			if symbols[i].Ticker == symbols[j].Ticker {
+				return symbols[i].MarketType < symbols[j].MarketType
+			}
+			return symbols[i].Ticker < symbols[j].Ticker
+		})
+		out.Exchanges = append(out.Exchanges, config.MarketsExchangeConfig{
+			Name:    acc.name,
+			Symbols: symbols,
+		})
+	}
+	return out
 }
 
 // ColdReaders holds optional ClickHouse-backed readers for cold data APIs.

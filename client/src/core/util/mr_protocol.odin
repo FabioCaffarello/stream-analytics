@@ -134,6 +134,23 @@ MR_Microstructure_Evidence_Payload :: struct {
 	seq:            i64       `json:"seq"`,
 }
 
+MR_Microstructure_Evidence_Feature :: struct {
+	key:   string `json:"key"`,
+	value: f64    `json:"value"`,
+}
+
+MR_Microstructure_Evidence_Payload_V2 :: struct {
+	type_str:    string                              `json:"type"`,
+	kind:        string                              `json:"kind"`,
+	confidence:  f64                                 `json:"confidence"`,
+	features:    []MR_Microstructure_Evidence_Feature `json:"features"`,
+	explanation: string                              `json:"explanation"`,
+	reason:      string                              `json:"reason"`,
+	ts_server:   i64                                 `json:"ts_server"`,
+	ts_ingest:   i64                                 `json:"ts_ingest"`,
+	seq:         i64                                 `json:"seq"`,
+}
+
 MR_Signal_Feature :: struct {
 	label: string `json:"label"`,
 	value: string `json:"value"`,
@@ -205,6 +222,10 @@ MR_VPVR_Frame :: struct {
 
 MR_Microstructure_Evidence_Frame :: struct {
 	payload: MR_Microstructure_Evidence_Payload `json:"payload"`,
+}
+
+MR_Microstructure_Evidence_Frame_V2 :: struct {
+	payload: MR_Microstructure_Evidence_Payload_V2 `json:"payload"`,
 }
 
 MR_Signal_Frame :: struct {

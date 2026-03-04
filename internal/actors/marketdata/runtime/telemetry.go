@@ -15,9 +15,16 @@ type parserTelemetry struct {
 	total    uint64
 	ingested uint64
 	skipped  uint64
+	// expectedSkipTotal tracks skips that are expected by exchange protocol
+	// semantics (for example Bybit delta ticker messages without markPrice).
+	expectedSkipTotal uint64
+	// unexpectedSkipTotal tracks skips that warrant closer inspection.
+	unexpectedSkipTotal uint64
 
 	byEvent                  map[string]uint64
 	bySkipReason             map[string]uint64
+	byExpectedSkipReason     map[string]uint64
+	byUnexpectedSkipReason   map[string]uint64
 	byExchangeEventAndSkip   map[string]uint64
 	parseErrorsByProblemCode map[string]uint64
 	byWSStream               map[string]uint64
@@ -38,6 +45,8 @@ func newParserTelemetry() *parserTelemetry {
 	return &parserTelemetry{
 		byEvent:                  make(map[string]uint64),
 		bySkipReason:             make(map[string]uint64),
+		byExpectedSkipReason:     make(map[string]uint64),
+		byUnexpectedSkipReason:   make(map[string]uint64),
 		byExchangeEventAndSkip:   make(map[string]uint64),
 		parseErrorsByProblemCode: make(map[string]uint64),
 		byWSStream:               make(map[string]uint64),
@@ -71,7 +80,14 @@ func (t *parserTelemetry) recordSkip(exchange, eventType, reason, problemCode, t
 
 	t.byEvent[event]++
 	t.bySkipReason[skipReason]++
-	t.byExchangeEventAndSkip[ex+"|"+event+"|"+skipReason]++
+	if isExpectedSkipReason(event, skipReason, wsStream) {
+		t.expectedSkipTotal++
+		incCapped(t.byExpectedSkipReason, skipReason, maxTelemetryKeys)
+	} else {
+		t.unexpectedSkipTotal++
+		incCapped(t.byUnexpectedSkipReason, skipReason, maxTelemetryKeys)
+		t.byExchangeEventAndSkip[ex+"|"+event+"|"+skipReason]++
+	}
 	incCapped(t.byTicker, normalizeLabel(ticker, "unknown"), maxTelemetryKeys)
 	if bucket := normalizeWSStreamLabel(wsStream); bucket != "" {
 		t.byWSStream[bucket]++
@@ -204,6 +220,38 @@ func normalizeWSStreamLabel(raw string) string {
 	default:
 		return "other"
 	}
+}
+
+func isExpectedSkipReason(eventType, skipReason, wsStream string) bool {
+	switch strings.ToLower(strings.TrimSpace(skipReason)) {
+	case "control_event":
+		return true
+	case "markprice_unavailable":
+		event := strings.ToLower(strings.TrimSpace(eventType))
+		if event == "ticker" || event == "marketdata.markprice" {
+			return true
+		}
+		stream := normalizeWSStreamLabel(wsStream)
+		return stream == "ticker" || stream == "markprice"
+	default:
+		return false
+	}
+}
+
+func (t *parserTelemetry) topSkipReasons(n int) map[string]uint64 {
+	return topCounts(t.bySkipReason, n)
+}
+
+func (t *parserTelemetry) topExpectedSkipReasons(n int) map[string]uint64 {
+	return topCounts(t.byExpectedSkipReason, n)
+}
+
+func (t *parserTelemetry) topUnexpectedSkipReasons(n int) map[string]uint64 {
+	return topCounts(t.byUnexpectedSkipReason, n)
+}
+
+func (t *parserTelemetry) topExchangeEventSkips(n int) map[string]uint64 {
+	return topCounts(t.byExchangeEventAndSkip, n)
 }
 
 func (t *parserTelemetry) topWSStreams(n int) map[string]uint64 {

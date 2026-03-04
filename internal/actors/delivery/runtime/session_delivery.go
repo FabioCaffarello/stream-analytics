@@ -200,7 +200,7 @@ func (s *SessionActor) flushOutbound() {
 	for drained < wsFlushBatchSize {
 		if s.features.HasBatching() && !s.cfg.PreferProto {
 			started := time.Now()
-			sent, err := s.writeDeliveryBatchFromQueue(wsFlushBatchSize - drained)
+			sent, fallbackCandidates, err := s.writeDeliveryBatchFromQueue(wsFlushBatchSize - drained)
 			if err != nil {
 				s.logger.Warn("delivery session: batched write failed", "err", err)
 				s.closeSession()
@@ -210,6 +210,9 @@ func (s *SessionActor) flushOutbound() {
 				drained += sent
 				metrics.ObserveWSSendLatency(time.Since(started))
 				continue
+			}
+			if fallbackCandidates > 0 {
+				metrics.AddWSBatchFallbackEvents(fallbackCandidates)
 			}
 		}
 
@@ -239,9 +242,9 @@ func (s *SessionActor) flushOutbound() {
 	s.flushing = false
 }
 
-func (s *SessionActor) writeDeliveryBatchFromQueue(maxItems int) (int, *problem.Problem) {
+func (s *SessionActor) writeDeliveryBatchFromQueue(maxItems int) (int, int, *problem.Problem) {
 	if maxItems < 2 || s.outbound == nil || s.outbound.Len() < 2 {
-		return 0, nil
+		return 0, 0, nil
 	}
 	if maxItems > wsFlushBatchSize {
 		maxItems = wsFlushBatchSize
@@ -250,7 +253,7 @@ func (s *SessionActor) writeDeliveryBatchFromQueue(maxItems int) (int, *problem.
 		maxItems = s.outbound.Len()
 	}
 	if maxItems < 2 {
-		return 0, nil
+		return 0, 0, nil
 	}
 
 	first := s.outbound.At(0)
@@ -266,7 +269,7 @@ func (s *SessionActor) writeDeliveryBatchFromQueue(maxItems int) (int, *problem.
 		candidateCount++
 	}
 	if candidateCount < 2 {
-		return 0, nil
+		return 0, 0, nil
 	}
 
 	basePrev := s.lastDeliveredSeq[subjectKey]
@@ -280,7 +283,7 @@ func (s *SessionActor) writeDeliveryBatchFromQueue(maxItems int) (int, *problem.
 		if p != nil {
 			metrics.IncWSSerializeErrors()
 			observability.IncTerminalWSSerializeError()
-			return 0, p
+			return 0, 0, p
 		}
 		prevSeq := basePrev
 		if i > 0 {
@@ -330,14 +333,14 @@ func (s *SessionActor) writeDeliveryBatchFromQueue(maxItems int) (int, *problem.
 		}
 		raw, err := json.Marshal(frame)
 		if err != nil {
-			return 0, problem.Wrap(err, problem.Internal, "batch marshal failed")
+			return 0, 0, problem.Wrap(err, problem.Internal, "batch marshal failed")
 		}
 		applyCompression, wireSize := s.planWireCompression(raw)
 		if s.limits.MaxFrameBytes > 0 && wireSize > s.limits.MaxFrameBytes {
 			continue
 		}
 		if err := s.writeJSONRaw(raw, applyCompression, wireSize); err != nil {
-			return 0, problem.Wrap(err, problem.Internal, "batch write failed")
+			return 0, 0, problem.Wrap(err, problem.Internal, "batch write failed")
 		}
 
 		for i := 0; i < count; i++ {
@@ -379,9 +382,9 @@ func (s *SessionActor) writeDeliveryBatchFromQueue(maxItems int) (int, *problem.
 		metrics.AddWSBatchEvents(count)
 		metrics.SetWSQueueDepth(s.outbound.Len())
 		metrics.SetWSTenantQueueDepth(s.cfg.TenantID, s.outbound.Len())
-		return count, nil
+		return count, 0, nil
 	}
-	return 0, nil
+	return 0, candidateCount, nil
 }
 
 func (s *SessionActor) prepareJSONPayload(env envelope.Envelope) (json.RawMessage, *problem.Problem) {

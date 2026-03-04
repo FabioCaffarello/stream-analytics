@@ -13,6 +13,7 @@ import (
 	"github.com/anthdm/hollywood/actor"
 	actorruntime "github.com/market-raccoon/internal/actors/runtime"
 	httpserver "github.com/market-raccoon/internal/interfaces/http"
+	"github.com/market-raccoon/internal/shared/config"
 	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/observability"
 )
@@ -147,6 +148,95 @@ func TestServer_Healthz_returnsJSON(t *testing.T) {
 	}
 	if _, ok := body["last_publish_age_ms"]; !ok {
 		t.Fatalf("expected last_publish_age_ms field, got %#v", body)
+	}
+}
+
+func TestServer_MarketsDiscovery_NormalizesAndDeduplicates(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	markets := config.MarketsConfig{
+		Exchanges: []config.MarketsExchangeConfig{
+			{
+				Name: "ByBit",
+				Symbols: []config.MarketsSymbolConfig{
+					{Ticker: "btcusdt", TickSize: 0.5, MarketType: "spot"},
+					{Ticker: "BTCUSDT", TickSize: 0.5, MarketType: "SPOT"},
+				},
+			},
+			{
+				Name: "binance",
+				Symbols: []config.MarketsSymbolConfig{
+					{Ticker: "ETHUSDT", TickSize: 0.1, MarketType: "spot"},
+					{Ticker: "BTCUSDT", TickSize: 0.01, MarketType: "usd_m_futures"},
+				},
+			},
+			{
+				Name: " BINANCE ",
+				Symbols: []config.MarketsSymbolConfig{
+					{Ticker: "SOLUSDT", TickSize: -1, MarketType: " spot "},
+					{Ticker: "BTCUSDT", TickSize: 0.01, MarketType: "USD_M_FUTURES"},
+				},
+			},
+		},
+	}
+
+	srv := httpserver.NewServer(
+		e,
+		guardianPID,
+		":0",
+		false,
+		nil,
+		httpserver.WithMarkets(&markets),
+	)
+	rec := doRequest(t, srv, http.MethodGet, "/api/v1/markets", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var body config.MarketsConfig
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v body=%s", err, rec.Body.String())
+	}
+	assertMarketsDiscoveryPayload(t, body)
+}
+
+func assertMarketsDiscoveryPayload(t *testing.T, body config.MarketsConfig) {
+	t.Helper()
+	if len(body.Exchanges) != 2 {
+		t.Fatalf("exchanges=%d want=2", len(body.Exchanges))
+	}
+	if body.Exchanges[0].Name != "binance" || body.Exchanges[1].Name != "bybit" {
+		t.Fatalf("exchange order/name mismatch: %+v", body.Exchanges)
+	}
+	assertBinanceSymbols(t, body.Exchanges[0])
+	assertBybitSymbols(t, body.Exchanges[1])
+}
+
+func assertBinanceSymbols(t *testing.T, binance config.MarketsExchangeConfig) {
+	t.Helper()
+	if len(binance.Symbols) != 3 {
+		t.Fatalf("binance symbols=%d want=3", len(binance.Symbols))
+	}
+	if got := binance.Symbols[0]; got.Ticker != "BTCUSDT" || got.MarketType != "USD_M_FUTURES" {
+		t.Fatalf("binance symbol[0]=%+v want BTCUSDT/USD_M_FUTURES", got)
+	}
+	if got := binance.Symbols[1]; got.Ticker != "ETHUSDT" || got.MarketType != "SPOT" {
+		t.Fatalf("binance symbol[1]=%+v want ETHUSDT/SPOT", got)
+	}
+	if got := binance.Symbols[2]; got.Ticker != "SOLUSDT" || got.TickSize != 0 {
+		t.Fatalf("binance symbol[2]=%+v want SOLUSDT tick_size=0", got)
+	}
+}
+
+func assertBybitSymbols(t *testing.T, bybit config.MarketsExchangeConfig) {
+	t.Helper()
+	if len(bybit.Symbols) != 1 {
+		t.Fatalf("bybit symbols=%d want=1", len(bybit.Symbols))
+	}
+	if got := bybit.Symbols[0]; got.Ticker != "BTCUSDT" || got.MarketType != "SPOT" {
+		t.Fatalf("bybit symbol=%+v want BTCUSDT/SPOT", got)
 	}
 }
 

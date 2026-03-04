@@ -16,7 +16,7 @@ ODIN_OPT ?= size
 SERVE_PORT ?= 8080
 NATIVE_FLAGS ?=
 
-CORE_PKGS := app ui widgets math util ports services
+CORE_PKGS := app ui widgets math util ports services layers streams md_common
 
 .PHONY: help build-native build-wasm build clean run run-native-compose run-native-offline serve check-wasm-compile check-wasm check-core check-core-imports check-widgets check-widgets-functional check-widgets-online soak-mem-native
 

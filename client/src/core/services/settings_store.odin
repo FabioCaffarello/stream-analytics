@@ -88,6 +88,12 @@ SETTING_FEATURE_PREV_SEQ         :: "feature_prev_seq"
 SETTING_FEATURE_COMPRESS         :: "feature_compress"
 SETTING_ASSIST_MODE              :: "assist_mode"
 SETTING_ALLOW_LEGACY_WS          :: "allow_legacy_ws"
+SETTING_LAYER_PRICE_CANDLES      :: "layer_price_candles"
+SETTING_LAYER_TRADES_TAPE        :: "layer_trades_tape"
+SETTING_LAYER_ORDERBOOK_DOM      :: "layer_orderbook_dom"
+SETTING_LAYER_VPVR_HEATMAP       :: "layer_vpvr_heatmap"
+SETTING_LAYER_EVIDENCE           :: "layer_evidence"
+SETTING_LAYER_SIGNAL             :: "layer_signal"
 
 // Initialize store, loading known keys from port.
 settings_init :: proc(store: ^Settings_Store, port: ports.Settings_Port) {
@@ -122,6 +128,9 @@ settings_init :: proc(store: ^Settings_Store, port: ports.Settings_Port) {
 				SETTING_FEATURE_BATCHING, SETTING_FEATURE_SNAPSHOT_HASH, SETTING_FEATURE_PREV_SEQ,
 				SETTING_FEATURE_COMPRESS, SETTING_ASSIST_MODE,
 				SETTING_ALLOW_LEGACY_WS,
+				SETTING_LAYER_PRICE_CANDLES, SETTING_LAYER_TRADES_TAPE,
+				SETTING_LAYER_ORDERBOOK_DOM, SETTING_LAYER_VPVR_HEATMAP,
+				SETTING_LAYER_EVIDENCE, SETTING_LAYER_SIGNAL,
 			}
 	for key in known_keys {
 		value, ok := port.load(key)
