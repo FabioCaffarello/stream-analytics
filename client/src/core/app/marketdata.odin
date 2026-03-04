@@ -374,6 +374,27 @@ handle_stats_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, st: ports
 	}
 }
 
+handle_tape_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, tp: ports.MD_Tape_Event, unix: i64, is_active_stream: bool) {
+	record_stream_event(state, slot, .Tape, unix, 0, false, is_active_stream)
+	if tp.last_price <= 0 do return
+
+	qty := max(tp.total_volume, tp.buy_volume + tp.sell_volume)
+	if qty <= 0 do return
+	t := ports.MD_Trade_Event{
+		price  = tp.last_price,
+		qty    = qty,
+		is_buy = tp.buy_volume >= tp.sell_volume,
+		unix   = tp.unix,
+	}
+
+	if slot != nil {
+		apply_trade_to_store(&slot.trades_store, t)
+	}
+	if is_active_stream {
+		apply_trade_to_store(&state.stores.trades, t)
+	}
+}
+
 handle_heatmap_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, hm: ports.MD_Heatmap_Event, unix: i64, is_active_stream: bool) {
 	record_stream_event(state, slot, .Heatmap, unix, 0, false, is_active_stream)
 	snap := build_heatmap_snapshot(hm)
@@ -645,6 +666,8 @@ drain_marketdata :: proc(state: ^App_State) -> int {
 				}
 			case .Stats:
 				handle_stats_event(state, slot, evt.data.stats, evt.unix, is_active_stream)
+			case .Tape:
+				handle_tape_event(state, slot, evt.data.tape, evt.unix, is_active_stream)
 			case .Heatmap:
 				handle_heatmap_event(state, slot, evt.data.heatmap, evt.unix, is_active_stream)
 			case .VPVR:
@@ -813,7 +836,7 @@ record_stream_event :: proc(
 	// real-time trade timestamps on the same stream handle.
 	effective_server_ms := server_ms
 	#partial switch kind {
-	case .Stats, .Candle, .Heatmap, .VPVR, .Range_Candle_Batch, .Evidence, .Signal:
+	case .Stats, .Tape, .Candle, .Heatmap, .VPVR, .Range_Candle_Batch, .Evidence, .Signal:
 		effective_server_ms = 0
 	case:
 	}

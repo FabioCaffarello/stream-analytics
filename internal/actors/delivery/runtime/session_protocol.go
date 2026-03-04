@@ -376,6 +376,8 @@ func channelEnumFromStreamType(streamType string) deliveryv1.Channel {
 		return deliveryv1.Channel_CHANNEL_STATS
 	case "aggregation.candle":
 		return deliveryv1.Channel_CHANNEL_CANDLE
+	case "aggregation.tape":
+		return deliveryv1.Channel_CHANNEL_UNSPECIFIED
 	case "marketdata.liquidation":
 		return deliveryv1.Channel_CHANNEL_LIQUIDATION
 	case "insights.heatmap_snapshot":
@@ -416,6 +418,10 @@ func channelName(ch deliveryv1.Channel, fallback string) string {
 	case deliveryv1.Channel_CHANNEL_EVIDENCE:
 		return "evidence"
 	default:
+		ft := strings.ToLower(strings.TrimSpace(fallback))
+		if ft == "aggregation.tape" || ft == "tape" {
+			return "tape"
+		}
 		if strings.TrimSpace(fallback) == "" {
 			return "unknown"
 		}

@@ -20,6 +20,7 @@ type soakArtifactPublisher struct {
 	snapshots int
 	candles   int
 	stats     int
+	tapes     int
 }
 
 func (p *soakArtifactPublisher) PublishSnapshot(context.Context, aggdomain.SnapshotProduced) *problem.Problem {
@@ -38,6 +39,11 @@ func (p *soakArtifactPublisher) PublishCandleClosed(context.Context, aggdomain.C
 
 func (p *soakArtifactPublisher) PublishStatsClosed(context.Context, aggdomain.StatsWindowClosed) *problem.Problem {
 	p.stats++
+	return nil
+}
+
+func (p *soakArtifactPublisher) PublishTapeClosed(context.Context, aggdomain.TapeClosed) *problem.Problem {
+	p.tapes++
 	return nil
 }
 

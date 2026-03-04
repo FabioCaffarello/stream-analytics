@@ -114,6 +114,67 @@ func ProtoToWireDTOStatsWindowClosedV1(in *aggregationv1.StatsWindowClosedV1) Ag
 	}
 }
 
+// WireDTOToProtoTapeWindowV1 converts the wire DTO to the protobuf message.
+func WireDTOToProtoTapeWindowV1(in AggregationTapeV1) *aggregationv1.TapeWindowV1 {
+	return &aggregationv1.TapeWindowV1{
+		Venue:         in.Venue,
+		Instrument:    in.Instrument,
+		Timeframe:     in.Timeframe,
+		WindowStartTs: in.WindowStartTs,
+		WindowEndTs:   in.WindowEndTs,
+		TradeCount:    in.TradeCount,
+		BuyCount:      in.BuyCount,
+		SellCount:     in.SellCount,
+		BuyVolume:     in.BuyVolume,
+		SellVolume:    in.SellVolume,
+		TotalVolume:   in.TotalVolume,
+		BuyNotional:   in.BuyNotional,
+		SellNotional:  in.SellNotional,
+		VwapPrice:     in.VwapPrice,
+		MaxPrice:      in.MaxPrice,
+		MinPrice:      in.MinPrice,
+		LastPrice:     in.LastPrice,
+		MaxTradeSize:  in.MaxTradeSize,
+		Rate:          in.Rate,
+		Imbalance:     in.Imbalance,
+		IsBurst:       in.IsBurst,
+		Seq:           in.Seq,
+		TsIngestMs:    in.TsIngestMs,
+	}
+}
+
+// ProtoToWireDTOTapeWindowV1 converts the protobuf message to the wire DTO.
+func ProtoToWireDTOTapeWindowV1(in *aggregationv1.TapeWindowV1) AggregationTapeV1 {
+	if in == nil {
+		return AggregationTapeV1{}
+	}
+	return AggregationTapeV1{
+		Venue:         in.GetVenue(),
+		Instrument:    in.GetInstrument(),
+		Timeframe:     in.GetTimeframe(),
+		WindowStartTs: in.GetWindowStartTs(),
+		WindowEndTs:   in.GetWindowEndTs(),
+		TradeCount:    in.GetTradeCount(),
+		BuyCount:      in.GetBuyCount(),
+		SellCount:     in.GetSellCount(),
+		BuyVolume:     in.GetBuyVolume(),
+		SellVolume:    in.GetSellVolume(),
+		TotalVolume:   in.GetTotalVolume(),
+		BuyNotional:   in.GetBuyNotional(),
+		SellNotional:  in.GetSellNotional(),
+		VwapPrice:     in.GetVwapPrice(),
+		MaxPrice:      in.GetMaxPrice(),
+		MinPrice:      in.GetMinPrice(),
+		LastPrice:     in.GetLastPrice(),
+		MaxTradeSize:  in.GetMaxTradeSize(),
+		Rate:          in.GetRate(),
+		Imbalance:     in.GetImbalance(),
+		IsBurst:       in.GetIsBurst(),
+		Seq:           in.GetSeq(),
+		TsIngestMs:    in.GetTsIngestMs(),
+	}
+}
+
 // WireDTOToProtoSnapshotV1 converts the wire DTO to the protobuf message.
 func WireDTOToProtoSnapshotV1(in AggregationSnapshotV1) *aggregationv1.OrderBookSnapshotV1 {
 	bids := make([]*aggregationv1.OrderBookLevelV1, len(in.Bids))

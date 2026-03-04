@@ -16,6 +16,7 @@ func TestProtoRolloutEnabledForEventType(t *testing.T) {
 	t.Setenv(contracts.EnvProtoMarketDataLiquidation, "on")
 	t.Setenv(contracts.EnvProtoAggregationCandle, "on")
 	t.Setenv(contracts.EnvProtoAggregationStats, "t")
+	t.Setenv(contracts.EnvProtoAggregationTape, "true")
 	t.Setenv(contracts.EnvProtoAggregationSnapshot, "1")
 	t.Setenv(contracts.EnvProtoInsightsVPVR, "true")
 	t.Setenv(contracts.EnvProtoInsightsHeatmap, "1")
@@ -28,6 +29,7 @@ func TestProtoRolloutEnabledForEventType(t *testing.T) {
 		"marketdata.liquidation",
 		"aggregation.candle",
 		"aggregation.stats",
+		"aggregation.tape",
 		"aggregation.snapshot",
 		"aggregation.orderbook_inconsistency",
 		"insights.volume_profile_snapshot",
@@ -55,6 +57,7 @@ func TestProtoRolloutEnabledForEventType_DefaultDisabled(t *testing.T) {
 		contracts.EnvProtoMarketDataLiquidation,
 		contracts.EnvProtoAggregationCandle,
 		contracts.EnvProtoAggregationStats,
+		contracts.EnvProtoAggregationTape,
 		contracts.EnvProtoAggregationSnapshot,
 		contracts.EnvProtoInsightsVPVR,
 		contracts.EnvProtoInsightsHeatmap,
@@ -71,6 +74,7 @@ func TestProtoRolloutEnabledForEventType_DefaultDisabled(t *testing.T) {
 		"marketdata.liquidation",
 		"aggregation.candle",
 		"aggregation.stats",
+		"aggregation.tape",
 		"aggregation.snapshot",
 		"insights.volume_profile_snapshot",
 		"insights.heatmap_snapshot",

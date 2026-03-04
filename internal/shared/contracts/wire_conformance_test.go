@@ -198,6 +198,7 @@ func TestWireConformance_RegistrySchemasRequireProtoDecoderForCoreMarketData(t *
 		"marketdata.markprice": true,
 		"aggregation.candle":   true,
 		"aggregation.stats":    true,
+		"aggregation.tape":     true,
 	}
 	for _, sch := range parsed.Schemas {
 		if sch.Status != "stable" && sch.Status != "draft" {

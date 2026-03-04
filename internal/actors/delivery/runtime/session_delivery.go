@@ -21,6 +21,15 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 )
 
+func observeTradeTapeWireBudget(venue, eventType string, bytes int) {
+	switch strings.ToLower(strings.TrimSpace(eventType)) {
+	case "marketdata.trade":
+		metrics.ObserveMRTradeWireBytes(venue, "trade", bytes)
+	case "aggregation.tape":
+		metrics.ObserveMRTradeWireBytes(venue, "tape", bytes)
+	}
+}
+
 // ── Enqueue / backpressure ──────────────────────────────────────────────────
 
 func (s *SessionActor) enqueueDelivery(evt DeliveryEvent) {
@@ -350,6 +359,7 @@ func (s *SessionActor) writeDeliveryBatchFromQueue(maxItems int) (int, int, *pro
 			metrics.IncWSMessagesOut(channel)
 			metrics.IncWSTenantMessagesOut(s.cfg.TenantID, channel)
 			metrics.AddWSBytesOut(channel, len(prep.payload))
+			observeTradeTapeWireBudget(prep.subject.Venue, prep.env.Type, len(prep.payload))
 			s.messagesOut++
 			lag := prep.tsServer - prep.tsIngest
 			s.lastLagMs = lag
@@ -516,6 +526,7 @@ func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) *problem.Problem {
 		metrics.IncWSMessagesOut(channel)
 		metrics.IncWSTenantMessagesOut(s.cfg.TenantID, channel)
 		metrics.AddWSBytesOut(channel, len(raw))
+		observeTradeTapeWireBudget(evt.Subject.Venue, evt.Env.Type, len(raw))
 		s.messagesOut++
 		observability.IncDeliveryProto()
 		lag := meta.GetTsServer() - evt.Env.TsIngest
@@ -652,6 +663,7 @@ func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) *problem.Problem {
 	metrics.IncWSMessagesOut(channel)
 	metrics.IncWSTenantMessagesOut(s.cfg.TenantID, channel)
 	metrics.AddWSBytesOut(channel, len(payload))
+	observeTradeTapeWireBudget(evt.Subject.Venue, evt.Env.Type, len(payload))
 	s.messagesOut++
 	lag := frame.TsServer - evt.Env.TsIngest
 	s.lastLagMs = lag

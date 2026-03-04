@@ -507,6 +507,31 @@ func (p *ProcessorSubsystemActor) handleEnvelope(_ *actor.Context, env envelope.
 		} else {
 			metrics.IncIngestDrop("candle_route_unconfigured")
 		}
+		if p.cfg.Service != nil && p.cfg.Service.Tape != nil {
+			if prob := p.handleTradeForTape(env); prob != nil {
+				if isBenignStreamOrderProblem(prob) {
+					p.logger.Debug("aggruntime: BuildTape ignored stale event",
+						"venue", env.Venue,
+						"instrument", env.Instrument,
+						"market_type", envelopeMarketType(env),
+						"seq", env.Seq,
+						"code", prob.Code,
+						"reason", prob.Message,
+					)
+				} else {
+					p.logger.Warn("aggruntime: BuildTape failed",
+						"venue", env.Venue,
+						"instrument", env.Instrument,
+						"market_type", envelopeMarketType(env),
+						"seq", env.Seq,
+						"code", prob.Code,
+						"reason", prob.Message,
+					)
+				}
+			}
+		} else {
+			metrics.IncIngestDrop("tape_route_unconfigured")
+		}
 		if prob := p.handleTradeForRealtimeInsights(env); prob != nil {
 			p.logger.Warn("aggruntime: realtime insights trade handling failed",
 				"venue", env.Venue,
@@ -1226,6 +1251,46 @@ func (p *ProcessorSubsystemActor) handleTradeForCandle(env envelope.Envelope) *p
 			"instrument", env.Instrument,
 			"closed_count", len(resp.Closed),
 			"active_candles", resp.ActiveCandles,
+		)
+	}
+	return nil
+}
+
+func (p *ProcessorSubsystemActor) handleTradeForTape(env envelope.Envelope) *problem.Problem {
+	if p.cfg.Service == nil || p.cfg.Service.Tape == nil {
+		return nil
+	}
+
+	decoded, prob := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
+	if prob != nil {
+		return problem.WithDetail(prob, "reason_code", reasonCodeDecodeFailed)
+	}
+	trade, ok := decoded.(mddomain.TradeTickV1)
+	if !ok {
+		return problem.WithDetail(
+			problem.Newf(problem.ValidationFailed, "decoded trade payload type mismatch: got %T", decoded),
+			"reason_code", reasonCodeValidationFailed,
+		)
+	}
+	req := aggapp.BuildTapeRequest{
+		Venue:      env.Venue,
+		Instrument: stateInstrumentKey(env),
+		Price:      trade.Price,
+		Quantity:   trade.Size,
+		IsBuy:      strings.EqualFold(trade.Side, "buy"),
+		Seq:        env.Seq,
+		TsIngest:   env.TsIngest,
+	}
+	resp, prob := p.cfg.Service.Tape.Execute(context.Background(), req)
+	if prob != nil {
+		return prob
+	}
+	if len(resp.ClosedWindows) > 0 {
+		p.logger.Debug("aggruntime: tape windows closed",
+			"venue", env.Venue,
+			"instrument", env.Instrument,
+			"closed_count", len(resp.ClosedWindows),
+			"active_windows", resp.ActiveWindows,
 		)
 	}
 	return nil

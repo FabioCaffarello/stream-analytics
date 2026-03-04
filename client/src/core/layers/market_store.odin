@@ -239,6 +239,17 @@ market_store_apply_event :: proc(store: ^Market_Store, evt: ^ports.MD_Event) -> 
 			side  = evt.data.trade.is_buy ? .Buy : .Sell,
 			unix  = evt.data.trade.unix,
 		})
+	case .Tape:
+		if stream.trades.count >= services.TRADES_CAP do stream.evictions += 1
+		qty := max(evt.data.tape.total_volume, evt.data.tape.buy_volume + evt.data.tape.sell_volume)
+		if qty > 0 && evt.data.tape.last_price > 0 {
+			services.push_trade(&stream.trades, services.Trade_Entry{
+				price = evt.data.tape.last_price,
+				qty   = qty,
+				side  = evt.data.tape.buy_volume >= evt.data.tape.sell_volume ? .Buy : .Sell,
+				unix  = evt.data.tape.unix,
+			})
+		}
 	case .Orderbook_Snapshot:
 		services.update_orderbook(
 			&stream.orderbook,

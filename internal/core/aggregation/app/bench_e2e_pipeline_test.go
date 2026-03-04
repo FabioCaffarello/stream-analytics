@@ -49,6 +49,9 @@ func (benchArtifactPublisher) PublishCandleClosed(context.Context, aggdomain.Can
 func (benchArtifactPublisher) PublishStatsClosed(context.Context, aggdomain.StatsWindowClosed) *problem.Problem {
 	return nil
 }
+func (benchArtifactPublisher) PublishTapeClosed(context.Context, aggdomain.TapeClosed) *problem.Problem {
+	return nil
+}
 
 type benchHotStore struct {
 	last aggdomain.SnapshotProduced

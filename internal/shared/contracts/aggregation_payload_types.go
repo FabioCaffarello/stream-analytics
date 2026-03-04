@@ -52,6 +52,33 @@ type AggregationStatsWindowV1 struct {
 	IsClosed        bool
 }
 
+// AggregationTapeV1 is the shared wire DTO for aggregation.tape v1.
+type AggregationTapeV1 struct {
+	Venue         string
+	Instrument    string
+	Timeframe     string
+	WindowStartTs int64
+	WindowEndTs   int64
+	TradeCount    int64
+	BuyCount      int64
+	SellCount     int64
+	BuyVolume     float64
+	SellVolume    float64
+	TotalVolume   float64
+	BuyNotional   float64
+	SellNotional  float64
+	VwapPrice     float64
+	MaxPrice      float64
+	MinPrice      float64
+	LastPrice     float64
+	MaxTradeSize  float64
+	Rate          float64
+	Imbalance     float64
+	IsBurst       bool
+	Seq           int64
+	TsIngestMs    int64
+}
+
 // AggregationSnapshotV1 is the shared wire DTO for aggregation.snapshot v1.
 type AggregationSnapshotV1 struct {
 	Venue      string

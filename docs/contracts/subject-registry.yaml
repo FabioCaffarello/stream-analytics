@@ -148,6 +148,17 @@ subjects:
     sources:
       - docs/contracts/event-bus.md
       - .context/docs/feature-packs/stats-aggregation.md
+  - id: aggregation.tape.v1
+    pattern: aggregation.tape.v1.{venue}.{instrument}
+    root: aggregation
+    owner_bc: aggregation
+    producer_bc: aggregation
+    schema_authority_bc: aggregation
+    consumer_bcs: [delivery, storage]
+    status: stable
+    sources:
+      - docs/contracts/event-bus.md
+      - proto/aggregation/v1/tape.proto
   - id: insights.heatmap_snapshot.v1
     pattern: insights.heatmap_snapshot.v1.{venue}.{instrument}
     root: insights

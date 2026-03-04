@@ -14,6 +14,7 @@ import (
 type spyArtifactPublisher struct {
 	candleCalls int
 	statsCalls  int
+	tapeCalls   int
 }
 
 func (s *spyArtifactPublisher) PublishSnapshot(context.Context, aggdomain.SnapshotProduced) *problem.Problem {
@@ -31,6 +32,11 @@ func (s *spyArtifactPublisher) PublishCandleClosed(_ context.Context, _ aggdomai
 
 func (s *spyArtifactPublisher) PublishStatsClosed(_ context.Context, _ aggdomain.StatsWindowClosed) *problem.Problem {
 	s.statsCalls++
+	return nil
+}
+
+func (s *spyArtifactPublisher) PublishTapeClosed(_ context.Context, _ aggdomain.TapeClosed) *problem.Problem {
+	s.tapeCalls++
 	return nil
 }
 

@@ -143,6 +143,7 @@ Proibido:
 | `aggregation.orderbook_inconsistency.v1.{venue}.{instrument}` | `aggregation` runtime (`UpdateOrderBookFromEvents` on crossed book) | `storage` | draft | `.context/docs/feature-packs/orderbook.md`, `internal/core/aggregation/ports/ports.go:13` |
 | `aggregation.candle.v1.{venue}.{instrument}` | `aggregation` runtime (`BuildCandleFromEvents` via `ArtifactPublisher`) | `delivery`, `storage` | stable | `.context/docs/feature-packs/candle-aggregation.md`, `internal/core/aggregation/ports/ports.go:14` |
 | `aggregation.stats.v1.{venue}.{instrument}` | `aggregation` runtime (`BuildStatsFromEvents` via `ArtifactPublisher`) | `delivery`, `storage` | stable | `.context/docs/feature-packs/stats-aggregation.md`, `internal/core/aggregation/ports/ports.go:15` |
+| `aggregation.tape.v1.{venue}.{instrument}` | `aggregation` runtime (`BuildTapeFromTrades` via `ArtifactPublisher`) | `delivery`, `storage` | stable | `proto/aggregation/v1/tape.proto`, `internal/core/aggregation/ports/ports.go:16` |
 
 ## Evidence
 
@@ -155,6 +156,8 @@ Proibido:
 
 ## Changelog
 
+- 2026-03-04:
+- Added `aggregation.tape.v1.{venue}.{instrument}` to aggregation runtime subject matrix.
 - 2026-02-19:
 - `aggregation.candle.v1` promoted to `stable` after M6 production readiness (runtime + storage + WS contract + latency evidence).
 - `aggregation.stats.v1` promoted to `stable` after M7 production readiness (multi-timeframe tests + cross-source consistency + stream observability evidence).

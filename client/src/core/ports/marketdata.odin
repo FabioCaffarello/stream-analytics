@@ -48,6 +48,7 @@ MD_Event_Kind :: enum u8 {
 	Range_Candle_Batch,
 	Evidence,
 	Signal,
+	Tape,
 }
 
 MD_Channel :: enum u8 {
@@ -59,6 +60,7 @@ MD_Channel :: enum u8 {
 	Candles,
 	Evidence,
 	Signals,
+	Tape,
 }
 
 MD_Desync_Reason :: enum u8 {
@@ -76,6 +78,20 @@ MD_Trade_Event :: struct {
 	qty:    f64,
 	is_buy: bool,
 	unix:   i64,
+}
+
+MD_Tape_Event :: struct {
+	last_price:      f64,
+	total_volume:    f64,
+	buy_volume:      f64,
+	sell_volume:     f64,
+	trade_count:     i64,
+	rate_per_sec:    f64,
+	imbalance:       f64,
+	is_burst:        bool,
+	window_start_ts: i64,
+	window_end_ts:   i64,
+	unix:            i64,
 }
 
 MD_Orderbook_Event :: struct {
@@ -173,6 +189,7 @@ MD_Range_Candle_Batch :: struct {
 
 MD_Event_Data :: struct #raw_union {
 	trade:          MD_Trade_Event,
+	tape:           MD_Tape_Event,
 	ob:             MD_Orderbook_Event,
 	stats:          MD_Stats_Event,
 	heatmap:        MD_Heatmap_Event,

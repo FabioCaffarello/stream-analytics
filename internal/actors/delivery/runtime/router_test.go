@@ -644,6 +644,42 @@ func TestRouter_routesStatsByEnvelopeTimeframeMeta(t *testing.T) {
 	}
 }
 
+func TestRouter_routesTapeByEnvelopeTimeframeMeta(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	routerPID := e.Spawn(NewRouterActor(RouterConfig{Timeframe: "raw"}), "router")
+	defer e.Poison(routerPID)
+
+	ch := make(chan any, 16)
+	s := e.Spawn(func() actor.Receiver { return &captureActor{ch: ch} }, "session-capture")
+	defer e.Poison(s)
+
+	id := ids.NewSessionID()
+	subject := mustParseSubject(t, "aggregation.tape/binance/BTC-USDT/1s")
+
+	e.Send(routerPID, RegisterSession{SessionID: id, PID: s})
+	e.Send(routerPID, SubscribeSession{SessionID: id, Subject: subject})
+
+	e.Send(routerPID, DeliverEnvelope{Envelope: envelope.Envelope{
+		Type:       "aggregation.tape",
+		Version:    1,
+		Venue:      "binance",
+		Instrument: "BTC-USDT",
+		Seq:        10,
+		TsIngest:   time.Now().UnixMilli(),
+		Payload:    []byte(`{}`),
+		Meta:       map[string]string{"timeframe": "1s"},
+	}})
+
+	msg := waitForMessage[DeliveryEvent](t, ch, time.Second)
+	if got, want := msg.Subject.String(), "aggregation.tape/binance/BTCUSDT/1s"; got != want {
+		t.Fatalf("subject=%q want=%q", got, want)
+	}
+}
+
 func TestRouter_routesMarketTypeAliasWhenEnvelopeMetaPresent(t *testing.T) {
 	e, err := actor.NewEngine(actor.NewEngineConfig())
 	if err != nil {

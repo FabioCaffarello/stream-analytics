@@ -14,6 +14,7 @@ type ArtifactPublisher interface {
 	PublishInconsistent(ctx context.Context, evt domain.OrderBookInconsistentDetected) *problem.Problem
 	PublishCandleClosed(ctx context.Context, evt domain.CandleClosed) *problem.Problem
 	PublishStatsClosed(ctx context.Context, evt domain.StatsWindowClosed) *problem.Problem
+	PublishTapeClosed(ctx context.Context, evt domain.TapeClosed) *problem.Problem
 }
 
 // HotReadModelStore is the write port for the in-memory hot read model.
@@ -36,4 +37,9 @@ type CandleHotReadModelStore interface {
 // StatsHotReadModelStore writes closed stats windows to the hot read model.
 type StatsHotReadModelStore interface {
 	SaveStats(ctx context.Context, evt domain.StatsWindowClosed) *problem.Problem
+}
+
+// TapeHotReadModelStore writes closed tape windows to the hot read model.
+type TapeHotReadModelStore interface {
+	SaveTape(ctx context.Context, evt domain.TapeClosed) *problem.Problem
 }

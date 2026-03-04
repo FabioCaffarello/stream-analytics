@@ -181,6 +181,41 @@ func (a *ArtifactPublisher) PublishStatsClosed(ctx context.Context, evt aggdomai
 	return a.pub.Publish(ctx, env)
 }
 
+// PublishTapeClosed publishes a closed tape window event using the codec registry.
+func (a *ArtifactPublisher) PublishTapeClosed(ctx context.Context, evt aggdomain.TapeClosed) *problem.Problem {
+	wireDTO := domainTapeToWireDTO(evt)
+	contentType := chooseArtifactContentType("aggregation.tape")
+	payload, p := codec.EncodePayload("aggregation.tape", 1, contentType, wireDTO)
+	if p != nil {
+		return p
+	}
+	env := envelope.Envelope{
+		Type:       "aggregation.tape",
+		Version:    1,
+		Venue:      evt.Window.Venue,
+		Instrument: naming.StripMarketType(evt.Window.Instrument),
+		TsIngest:   evt.Window.WindowEndTs,
+		Seq:        evt.Window.LastSeq,
+		IdempotencyKey: sharedhash.HashFieldsFast(
+			"aggregation.tape",
+			evt.Window.Venue,
+			evt.Window.Instrument,
+			evt.Window.Timeframe,
+			strconv.FormatInt(evt.Window.WindowStartTs, 10),
+		),
+		ContentType: contentType,
+		Payload:     payload,
+		Meta: artifactMetaForInstrument(
+			evt.Window.Instrument,
+			map[string]string{"timeframe": evt.Window.Timeframe},
+		),
+	}
+	if p := env.Validate(); p != nil {
+		return p
+	}
+	return a.pub.Publish(ctx, env)
+}
+
 // chooseArtifactContentType selects proto or JSON based on rollout flags.
 func chooseArtifactContentType(eventType string) string {
 	if contracts.ProtoRolloutEnabledForEventType(eventType) {
@@ -262,6 +297,35 @@ func domainStatsToWireDTO(evt aggdomain.StatsWindowClosed) contracts.Aggregation
 			SeqLast:         s.SeqLast,
 			IsClosed:        s.IsClosed,
 		},
+	}
+}
+
+func domainTapeToWireDTO(evt aggdomain.TapeClosed) contracts.AggregationTapeV1 {
+	t := evt.Window
+	return contracts.AggregationTapeV1{
+		Venue:         t.Venue,
+		Instrument:    t.Instrument,
+		Timeframe:     t.Timeframe,
+		WindowStartTs: t.WindowStartTs,
+		WindowEndTs:   t.WindowEndTs,
+		TradeCount:    t.TradeCount,
+		BuyCount:      t.BuyCount,
+		SellCount:     t.SellCount,
+		BuyVolume:     t.BuyVolume,
+		SellVolume:    t.SellVolume,
+		TotalVolume:   t.TotalVolume,
+		BuyNotional:   t.BuyNotional,
+		SellNotional:  t.SellNotional,
+		VwapPrice:     t.VwapPrice,
+		MaxPrice:      t.MaxPrice,
+		MinPrice:      t.MinPrice,
+		LastPrice:     t.LastPrice,
+		MaxTradeSize:  t.MaxTradeSize,
+		Rate:          t.Rate(),
+		Imbalance:     t.Imbalance(),
+		IsBurst:       evt.IsBurst,
+		Seq:           t.LastSeq,
+		TsIngestMs:    t.WindowEndTs,
 	}
 }
 

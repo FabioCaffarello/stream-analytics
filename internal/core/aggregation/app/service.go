@@ -14,10 +14,12 @@ type AggregationServiceConfig struct {
 	Update      UpdateConfig
 	Candle      BuildCandleConfig
 	Stats       BuildStatsConfig
+	Tape        BuildTapeConfig
 	Publisher   ports.ArtifactPublisher
 	Store       ports.HotReadModelStore
 	CandleStore ports.CandleHotReadModelStore
 	StatsStore  ports.StatsHotReadModelStore
+	TapeStore   ports.TapeHotReadModelStore
 }
 
 // AggregationService is the entrypoint facade for the aggregation bounded context.
@@ -25,6 +27,7 @@ type AggregationService struct {
 	UpdateBook *UpdateOrderBookFromEvents
 	Candle     *BuildCandleFromEvents
 	Stats      *BuildStatsFromEvents
+	Tape       *BuildTapeFromTrades
 	Funding    *BuildFundingRateFromEvents
 }
 
@@ -35,6 +38,7 @@ func NewAggregationService(cfg AggregationServiceConfig) *AggregationService {
 		UpdateBook: NewUpdateOrderBookFromEventsWithConfig(cfg.Publisher, cfg.Store, cfg.Update),
 		Candle:     NewBuildCandleFromEvents(cfg.Publisher, cfg.CandleStore, cfg.Candle),
 		Stats:      statsUC,
+		Tape:       NewBuildTapeFromTrades(cfg.Publisher, cfg.TapeStore, cfg.Tape),
 		Funding:    NewBuildFundingRateFromEvents(statsUC),
 	}
 }

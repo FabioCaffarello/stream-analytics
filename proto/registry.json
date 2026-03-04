@@ -66,6 +66,14 @@
       "introduced_at": "2026-02-18"
     },
     {
+      "type": "aggregation.tape",
+      "version": 1,
+      "proto_file": "aggregation/v1/tape.proto",
+      "message": "aggregation.v1.TapeWindowV1",
+      "status": "stable",
+      "introduced_at": "2026-03-04"
+    },
+    {
       "type": "insights.volume_profile_snapshot",
       "version": 1,
       "proto_file": "insights/v1/volume_profile.proto",

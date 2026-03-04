@@ -488,6 +488,7 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 				}
 				if state.marketdata.subscribe != nil {
 					state.marketdata.subscribe(venue, symbol, .Trades)
+					state.marketdata.subscribe(venue, symbol, .Tape)
 					state.marketdata.subscribe(venue, symbol, .Orderbook)
 					state.marketdata.subscribe(venue, symbol, .Candles)
 					state.marketdata.subscribe(venue, symbol, .Stats)
@@ -512,6 +513,7 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 				}
 				if state.marketdata.unsubscribe != nil {
 					state.marketdata.unsubscribe(venue, symbol, .Trades)
+					state.marketdata.unsubscribe(venue, symbol, .Tape)
 					state.marketdata.unsubscribe(venue, symbol, .Orderbook)
 					state.marketdata.unsubscribe(venue, symbol, .Candles)
 					state.marketdata.unsubscribe(venue, symbol, .Stats)

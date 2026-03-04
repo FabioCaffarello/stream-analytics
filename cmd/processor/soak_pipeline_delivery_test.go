@@ -75,6 +75,10 @@ func (p *soakBusArtifactPublisher) PublishStatsClosed(ctx context.Context, evt a
 	return p.inner.PublishStatsClosed(ctx, evt)
 }
 
+func (p *soakBusArtifactPublisher) PublishTapeClosed(ctx context.Context, evt aggdomain.TapeClosed) *problem.Problem {
+	return p.inner.PublishTapeClosed(ctx, evt)
+}
+
 //nolint:gocyclo // soak scenario intentionally validates aggregation and delivery behavior jointly.
 func TestSoak_PipelineWithDelivery_100k(t *testing.T) {
 	if testing.Short() {

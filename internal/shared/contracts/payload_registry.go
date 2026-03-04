@@ -26,6 +26,7 @@ const (
 	marketDataEventTypeLiq             = "marketdata.liquidation"
 	aggregationEventTypeCandle         = "aggregation.candle"
 	aggregationEventTypeStats          = "aggregation.stats"
+	aggregationEventTypeTape           = "aggregation.tape"
 	aggregationEventTypeSnapshot       = "aggregation.snapshot"
 	aggregationEventTypeInconsistency  = "aggregation.orderbook_inconsistency"
 	aggregationEventTypeCrossVenueBook = "aggregation.cross_venue_book"
@@ -165,6 +166,18 @@ func RegisterAggregationPayloadV1(reg *codec.Registry) *problem.Problem {
 			newProto: func() *aggregationv1.StatsWindowClosedV1 { return &aggregationv1.StatsWindowClosedV1{} },
 			toProto:  WireDTOToProtoStatsWindowClosedV1,
 			toDomain: ProtoToWireDTOStatsWindowClosedV1,
+		},
+	); p != nil {
+		return p
+	}
+	if p := registerPayloadDual(
+		reg,
+		aggregationEventTypeTape,
+		codec.JSONCodec[AggregationTapeV1]{},
+		domainProtoPayloadCodec[AggregationTapeV1, *aggregationv1.TapeWindowV1]{
+			newProto: func() *aggregationv1.TapeWindowV1 { return &aggregationv1.TapeWindowV1{} },
+			toProto:  WireDTOToProtoTapeWindowV1,
+			toDomain: ProtoToWireDTOTapeWindowV1,
 		},
 	); p != nil {
 		return p

@@ -90,6 +90,8 @@ MD_Web_State :: struct {
 	ob_dirty:        bool,
 	stats_staging:   services.Parsed_Stats,
 	stats_dirty:     bool,
+	tape_staging:    services.Parsed_Tape,
+	tape_dirty:      bool,
 	heatmap_staging: services.Parsed_Heatmap,
 	heatmap_dirty:   bool,
 	vpvr_staging:    services.Parsed_VPVR,
@@ -686,6 +688,7 @@ web_metrics :: proc(out: ^ports.MD_Runtime_Metrics) -> bool {
 	latest_pending := 0
 	if state.ob_dirty do latest_pending += 1
 	if state.stats_dirty do latest_pending += 1
+	if state.tape_dirty do latest_pending += 1
 	if state.heatmap_dirty do latest_pending += 1
 	if state.vpvr_dirty do latest_pending += 1
 	if state.candle_ring_count > 0 do latest_pending += 1
@@ -884,7 +887,7 @@ web_resubscribe_timeframe_channels :: proc(state: ^MD_Web_State) {
 
 	for i in 0 ..< state.active_count {
 		entry := &state.active_subs[i]
-		if entry.channel != .Heatmaps && entry.channel != .VPVR && entry.channel != .Candles && entry.channel != .Signals do continue
+		if entry.channel != .Heatmaps && entry.channel != .VPVR && entry.channel != .Candles && entry.channel != .Signals && entry.channel != .Tape do continue
 		if entry.is_explicit_tf do continue // per-cell TF sub — don't clobber
 
 		new_subject := util.build_subject_with_timeframe(entry.venue, entry.symbol, entry.channel, state.candle_tf_filter)
@@ -1256,6 +1259,7 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 	non_trade_pending := 0
 	if state.ob_dirty      do non_trade_pending += 1
 	if state.stats_dirty   do non_trade_pending += 1
+	if state.tape_dirty    do non_trade_pending += 1
 	if state.heatmap_dirty do non_trade_pending += 1
 	if state.vpvr_dirty    do non_trade_pending += 1
 	non_trade_pending += min(state.candle_ring_count, WEB_CANDLE_RING_CAP)
@@ -1323,6 +1327,31 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 			unix       = st.unix,
 		}
 		state.stats_dirty = false
+		out += 1
+	}
+
+	// Tape.
+	if state.tape_dirty && out < len(events_buf) {
+		tp := state.tape_staging
+		events_buf[out].source.subject_id = tp.subject_id
+		events_buf[out].source.channel = .Tape
+		events_buf[out].source.seq = tp.seq
+		events_buf[out].kind = .Tape
+		events_buf[out].unix = tp.unix
+		events_buf[out].data.tape = ports.MD_Tape_Event{
+			last_price      = tp.last_price,
+			total_volume    = tp.total_volume,
+			buy_volume      = tp.buy_volume,
+			sell_volume     = tp.sell_volume,
+			trade_count     = tp.trade_count,
+			rate_per_sec    = tp.rate_per_sec,
+			imbalance       = tp.imbalance,
+			is_burst        = tp.is_burst,
+			window_start_ts = tp.window_start_ts,
+			window_end_ts   = tp.window_end_ts,
+			unix            = tp.unix,
+		}
+		state.tape_dirty = false
 		out += 1
 	}
 
@@ -2002,6 +2031,9 @@ web_apply_parsed_result :: proc(state: ^MD_Web_State, result: services.Parse_Res
 	case .Stats:
 		state.stats_staging = result.data.stats
 		state.stats_dirty = true
+	case .Tape:
+		state.tape_staging = result.data.tape
+		state.tape_dirty = true
 	case .Heatmap:
 		state.heatmap_staging = result.data.heatmap
 		state.heatmap_dirty = true

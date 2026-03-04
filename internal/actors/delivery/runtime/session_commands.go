@@ -593,6 +593,8 @@ func canonicalStreamTypeForCommandChannel(channel string) string {
 		return "aggregation.stats"
 	case "candle", "aggregation.candle":
 		return "aggregation.candle"
+	case "tape", "aggregation.tape":
+		return "aggregation.tape"
 	case "heatmap_snapshot", "insights.heatmap_snapshot":
 		return "insights.heatmap_snapshot"
 	case "volume_profile_snapshot", "insights.volume_profile_snapshot":

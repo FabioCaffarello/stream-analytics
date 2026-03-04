@@ -87,6 +87,10 @@ MD_Native_State :: struct {
 	stats_staging: services.Parsed_Stats,
 	stats_dirty:   bool,
 
+	// Tape staging (latest-wins).
+	tape_staging: services.Parsed_Tape,
+	tape_dirty:   bool,
+
 	// Heatmap staging (latest-wins).
 	heatmap_staging: services.Parsed_Heatmap,
 	heatmap_dirty:   bool,
@@ -793,6 +797,7 @@ native_metrics :: proc(out: ^ports.MD_Runtime_Metrics) -> bool {
 	latest_pending := 0
 	if state.ob_dirty do latest_pending += 1
 	if state.stats_dirty do latest_pending += 1
+	if state.tape_dirty do latest_pending += 1
 	if state.heatmap_dirty do latest_pending += 1
 	if state.vpvr_dirty do latest_pending += 1
 	if state.candle_ring_count > 0 do latest_pending += 1
@@ -1013,7 +1018,7 @@ native_resubscribe_timeframe_channels :: proc(state: ^MD_Native_State) {
 
 	for i in 0 ..< state.active_count {
 		entry := &state.active_subs[i]
-		if entry.channel != .Heatmaps && entry.channel != .VPVR && entry.channel != .Candles && entry.channel != .Signals do continue
+		if entry.channel != .Heatmaps && entry.channel != .VPVR && entry.channel != .Candles && entry.channel != .Signals && entry.channel != .Tape do continue
 
 		new_subject := util.build_subject_with_timeframe(entry.venue, entry.symbol, entry.channel, state.candle_tf_filter)
 		if new_subject == entry.subject {
@@ -1103,6 +1108,31 @@ native_poll :: proc(events_buf: []ports.MD_Event) -> int {
 			unix       = st.unix,
 		}
 		state.stats_dirty = false
+		n += 1
+	}
+
+	// Emit latest tape if dirty.
+	if state.tape_dirty && n < len(events_buf) {
+		tp := state.tape_staging
+		events_buf[n].source.subject_id = tp.subject_id
+		events_buf[n].source.channel = .Tape
+		events_buf[n].source.seq = tp.seq
+		events_buf[n].kind = .Tape
+		events_buf[n].unix = tp.unix
+		events_buf[n].data.tape = ports.MD_Tape_Event{
+			last_price      = tp.last_price,
+			total_volume    = tp.total_volume,
+			buy_volume      = tp.buy_volume,
+			sell_volume     = tp.sell_volume,
+			trade_count     = tp.trade_count,
+			rate_per_sec    = tp.rate_per_sec,
+			imbalance       = tp.imbalance,
+			is_burst        = tp.is_burst,
+			window_start_ts = tp.window_start_ts,
+			window_end_ts   = tp.window_end_ts,
+			unix            = tp.unix,
+		}
+		state.tape_dirty = false
 		n += 1
 	}
 
@@ -2153,6 +2183,11 @@ apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 		sync.lock(&state.mu)
 		state.stats_staging = result.data.stats
 		state.stats_dirty = true
+		sync.unlock(&state.mu)
+	case .Tape:
+		sync.lock(&state.mu)
+		state.tape_staging = result.data.tape
+		state.tape_dirty = true
 		sync.unlock(&state.mu)
 	case .Heatmap:
 		sync.lock(&state.mu)

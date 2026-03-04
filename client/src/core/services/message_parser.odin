@@ -122,6 +122,22 @@ Parsed_Trade :: struct {
 	seq:        i64,
 }
 
+Parsed_Tape :: struct {
+	last_price:      f64,
+	total_volume:    f64,
+	buy_volume:      f64,
+	sell_volume:     f64,
+	trade_count:     i64,
+	rate_per_sec:    f64,
+	imbalance:       f64,
+	is_burst:        bool,
+	window_start_ts: i64,
+	window_end_ts:   i64,
+	unix:            i64,
+	subject_id:      u64,
+	seq:             i64,
+}
+
 Parsed_Ack :: struct {
 	op:        string,
 	subject:   string,
@@ -228,6 +244,7 @@ Parsed_Range_Candles :: struct {
 Parse_Result_Kind :: enum u8 {
 	None,
 	Trade,
+	Tape,
 	Orderbook,
 	Stats,
 	Heatmap,
@@ -248,6 +265,7 @@ Parse_Result_Kind :: enum u8 {
 
 Parse_Result_Data :: struct #raw_union {
 	trade:          Parsed_Trade,
+	tape:           Parsed_Tape,
 	ob:             Parsed_OB,
 	stats:          Parsed_Stats,
 	heatmap:        Parsed_Heatmap,
@@ -807,6 +825,14 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 		} else if telemetry != nil {
 			telemetry.parse_errors += 1
 		}
+	case "aggregation.tape":
+		if r, ok := parse_tape(raw, env.ts_ingest, subject_id); ok {
+			r.seq = result.meta.seq
+			result.kind = .Tape
+			result.data.tape = r
+		} else if telemetry != nil {
+			telemetry.parse_errors += 1
+		}
 	case "marketdata.bookdelta":
 		if r, ok := parse_book_delta(raw, env.ts_ingest, subject_id); ok {
 			// Trust envelope type=snapshot even when payload omits/incorrectly sets IsSnapshot.
@@ -922,6 +948,13 @@ parse_batched_event_payload :: proc(
 			r.seq = seq
 			result.kind = .Trade
 			result.data.trade = r
+			return result, true
+		}
+	case "aggregation.tape":
+		if r, ok := parse_tape_payload(payload_raw, ts_ingest_ms, subject_id); ok {
+			r.seq = seq
+			result.kind = .Tape
+			result.data.tape = r
 			return result, true
 		}
 	case "marketdata.bookdelta":
@@ -1110,6 +1143,47 @@ parse_trade_from_payload :: proc(trade: util.MR_Trade, ts: i64, subject_id: u64)
 		is_buy     = trade.side == "buy",
 		unix       = unix,
 		subject_id = subject_id,
+	}, true
+}
+
+@(private = "file")
+parse_tape :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Tape, bool) {
+	frame: util.MR_Tape_Frame
+	if json.unmarshal(raw, &frame) != nil do return {}, false
+	return parse_tape_from_payload(frame.payload, ts, subject_id)
+}
+
+@(private = "file")
+parse_tape_payload :: proc(payload_raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Tape, bool) {
+	tape: util.MR_Tape_Payload
+	if json.unmarshal(payload_raw, &tape) != nil do return {}, false
+	return parse_tape_from_payload(tape, ts, subject_id)
+}
+
+@(private = "file")
+parse_tape_from_payload :: proc(tape: util.MR_Tape_Payload, ts: i64, subject_id: u64) -> (Parsed_Tape, bool) {
+	if tape.TradeCount < 0 do return {}, false
+	if !f64_valid(tape.LastPrice) || !f64_valid(tape.TotalVolume) do return {}, false
+	if !f64_valid(tape.BuyVolume) || !f64_valid(tape.SellVolume) do return {}, false
+	if !f64_valid(tape.Rate) || !f64_valid(tape.Imbalance) do return {}, false
+	if tape.TotalVolume < 0 || tape.BuyVolume < 0 || tape.SellVolume < 0 do return {}, false
+	if tape.Imbalance < -1 || tape.Imbalance > 1 do return {}, false
+
+	unix := util.normalize_unix_seconds(tape.WindowEndTs if tape.WindowEndTs != 0 else ts)
+	return Parsed_Tape{
+		last_price      = tape.LastPrice,
+		total_volume    = tape.TotalVolume,
+		buy_volume      = tape.BuyVolume,
+		sell_volume     = tape.SellVolume,
+		trade_count     = tape.TradeCount,
+		rate_per_sec    = tape.Rate,
+		imbalance       = tape.Imbalance,
+		is_burst        = tape.IsBurst,
+		window_start_ts = tape.WindowStartTs,
+		window_end_ts   = tape.WindowEndTs,
+		unix            = unix,
+		subject_id      = subject_id,
+		seq             = tape.Seq,
 	}, true
 }
 

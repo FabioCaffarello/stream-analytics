@@ -71,6 +71,7 @@ func TestProtoRolloutEventTypeFlags(t *testing.T) {
 			Trade: true,
 		},
 		Aggregation: ProtoRolloutAggregationConfig{
+			Tape:     true,
 			Snapshot: true,
 		},
 		Insights: ProtoRolloutInsightsConfig{
@@ -83,6 +84,9 @@ func TestProtoRolloutEventTypeFlags(t *testing.T) {
 	}
 	if !flags["aggregation.orderbook_inconsistency"] {
 		t.Fatal("aggregation.orderbook_inconsistency should follow aggregation.snapshot")
+	}
+	if !flags["aggregation.tape"] {
+		t.Fatal("aggregation.tape should be enabled")
 	}
 	if !flags["insights.heatmap_delta"] {
 		t.Fatal("insights.heatmap_delta should follow insights.heatmap")

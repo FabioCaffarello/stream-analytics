@@ -45,6 +45,7 @@ parse_positive_int_flag :: proc(arg: string, prefix: string, fallback: int) -> i
 subscribe_default_channels :: proc(md_port: ports.Marketdata_Port, subs: []Venue_Symbol) {
 	for vs in subs {
 		md_port.subscribe(vs.venue, vs.symbol, .Trades)
+		md_port.subscribe(vs.venue, vs.symbol, .Tape)
 		md_port.subscribe(vs.venue, vs.symbol, .Orderbook)
 		md_port.subscribe(vs.venue, vs.symbol, .Stats)
 		md_port.subscribe(vs.venue, vs.symbol, .Heatmaps)

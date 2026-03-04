@@ -21,6 +21,7 @@ func TestValidateEnvelopeForDelivery_AllowsAggregationCandleAndStats(t *testing.
 	for _, eventType := range []string{
 		"aggregation.candle",
 		"aggregation.stats",
+		"aggregation.tape",
 		"aggregation.orderbook_inconsistency",
 		"insights.heatmap_snapshot",
 		"signal.composite",

@@ -92,6 +92,19 @@ func (p *logArtifactPublisher) PublishStatsClosed(_ context.Context, evt aggdoma
 	return nil
 }
 
+func (p *logArtifactPublisher) PublishTapeClosed(_ context.Context, evt aggdomain.TapeClosed) *problem.Problem {
+	p.logger.Debug("aggregation: tape window closed",
+		"venue", evt.Window.Venue,
+		"instrument", evt.Window.Instrument,
+		"timeframe", evt.Window.Timeframe,
+		"window_start_ts", evt.Window.WindowStartTs,
+		"window_end_ts", evt.Window.WindowEndTs,
+		"trade_count", evt.Window.TradeCount,
+		"is_burst", evt.IsBurst,
+	)
+	return nil
+}
+
 type committedHotStore struct {
 	committer *adapterstorage.SnapshotCommitter
 }
@@ -228,6 +241,13 @@ func (p *subMinuteFilteringArtifactPublisher) PublishStatsClosed(ctx context.Con
 		return nil
 	}
 	return p.next.PublishStatsClosed(ctx, evt)
+}
+
+func (p *subMinuteFilteringArtifactPublisher) PublishTapeClosed(ctx context.Context, evt aggdomain.TapeClosed) *problem.Problem {
+	if p == nil || p.next == nil {
+		return nil
+	}
+	return p.next.PublishTapeClosed(ctx, evt)
 }
 
 type subMinuteFilteringCandleStore struct {
@@ -550,6 +570,10 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 			WindowCap:  cfg.Processor.Candle.WindowCap,
 		},
 		Stats: aggapp.BuildStatsConfig{
+			MaxWindows: cfg.Processor.Stats.MaxWindows,
+			WindowCap:  cfg.Processor.Stats.WindowCap,
+		},
+		Tape: aggapp.BuildTapeConfig{
 			MaxWindows: cfg.Processor.Stats.MaxWindows,
 			WindowCap:  cfg.Processor.Stats.WindowCap,
 		},

@@ -21,6 +21,7 @@ type fakePublisher struct {
 	inconsistent []domain.OrderBookInconsistentDetected
 	candles      []domain.CandleClosed
 	stats        []domain.StatsWindowClosed
+	tapes        []domain.TapeClosed
 	snapErr      *problem.Problem
 }
 
@@ -44,6 +45,11 @@ func (f *fakePublisher) PublishCandleClosed(_ context.Context, e domain.CandleCl
 
 func (f *fakePublisher) PublishStatsClosed(_ context.Context, e domain.StatsWindowClosed) *problem.Problem {
 	f.stats = append(f.stats, e)
+	return nil
+}
+
+func (f *fakePublisher) PublishTapeClosed(_ context.Context, e domain.TapeClosed) *problem.Problem {
+	f.tapes = append(f.tapes, e)
 	return nil
 }
 

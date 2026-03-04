@@ -100,6 +100,8 @@ channel_short_label :: proc(ch: ports.MD_Channel) -> string {
 		return "evidence"
 	case .Signals:
 		return "signal"
+	case .Tape:
+		return "tape"
 	}
 	return "?"
 }
@@ -122,6 +124,8 @@ parse_channel_short_label :: proc(s: string) -> (ports.MD_Channel, bool) {
 		return .Evidence, true
 	case "signal":
 		return .Signals, true
+	case "tape":
+		return .Tape, true
 	}
 	return {}, false
 }

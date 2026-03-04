@@ -24,3 +24,18 @@ func TestCanonicalStreamTypeForCommandChannelEvidence(t *testing.T) {
 		t.Fatalf("stream type passthrough = %q, want insights.microstructure_evidence", got)
 	}
 }
+
+func TestChannelNameTapeFallback(t *testing.T) {
+	if got := channelName(deliveryv1.Channel_CHANNEL_UNSPECIFIED, "aggregation.tape"); got != "tape" {
+		t.Fatalf("channel name = %q, want tape", got)
+	}
+}
+
+func TestCanonicalStreamTypeForCommandChannelTape(t *testing.T) {
+	if got := canonicalStreamTypeForCommandChannel("tape"); got != "aggregation.tape" {
+		t.Fatalf("stream type = %q, want aggregation.tape", got)
+	}
+	if got := canonicalStreamTypeForCommandChannel("aggregation.tape"); got != "aggregation.tape" {
+		t.Fatalf("stream type passthrough = %q, want aggregation.tape", got)
+	}
+}

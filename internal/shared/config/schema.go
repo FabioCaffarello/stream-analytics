@@ -146,6 +146,7 @@ type ProtoRolloutMarketDataConfig struct {
 type ProtoRolloutAggregationConfig struct {
 	Candle   bool `json:"candle"`
 	Stats    bool `json:"stats"`
+	Tape     bool `json:"tape"`
 	Snapshot bool `json:"snapshot"`
 }
 
@@ -166,6 +167,7 @@ func (c ProtoRolloutConfig) EventTypeFlags() map[string]bool {
 
 	flags["aggregation.candle"] = c.Aggregation.Candle
 	flags["aggregation.stats"] = c.Aggregation.Stats
+	flags["aggregation.tape"] = c.Aggregation.Tape
 	flags["aggregation.snapshot"] = c.Aggregation.Snapshot
 	flags["aggregation.orderbook_inconsistency"] = c.Aggregation.Snapshot
 

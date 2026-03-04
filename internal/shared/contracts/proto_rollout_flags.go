@@ -13,6 +13,7 @@ const (
 	EnvProtoMarketDataLiquidation = "PROTO_MARKETDATA_LIQUIDATION"
 	EnvProtoAggregationCandle     = "PROTO_AGGREGATION_CANDLE"
 	EnvProtoAggregationStats      = "PROTO_AGGREGATION_STATS"
+	EnvProtoAggregationTape       = "PROTO_AGGREGATION_TAPE"
 	EnvProtoAggregationSnapshot   = "PROTO_AGGREGATION_SNAPSHOT"
 	EnvProtoInsightsVPVR          = "PROTO_INSIGHTS_VPVR"
 	EnvProtoInsightsHeatmap       = "PROTO_INSIGHTS_HEATMAP"
@@ -36,6 +37,7 @@ var eventTypeToEnvVar = map[string]string{
 	"marketdata.liquidation":              EnvProtoMarketDataLiquidation,
 	"aggregation.candle":                  EnvProtoAggregationCandle,
 	"aggregation.stats":                   EnvProtoAggregationStats,
+	"aggregation.tape":                    EnvProtoAggregationTape,
 	"aggregation.snapshot":                EnvProtoAggregationSnapshot,
 	"aggregation.orderbook_inconsistency": EnvProtoAggregationSnapshot,
 	"insights.volume_profile_snapshot":    EnvProtoInsightsVPVR,

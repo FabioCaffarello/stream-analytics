@@ -16,18 +16,19 @@ import "mr:util"
 // Subscribe only to channels cells actually need.
 // ===============================================================
 
-CHANNEL_COUNT :: 8
+CHANNEL_COUNT :: 9
 
 // Returns a bitmask of channels required by a legacy layer route mapping.
-channels_for_bundle :: proc(bundle: u32) -> u8 {
-	CH_TRADES    :: u8(1 << u8(ports.MD_Channel.Trades))
-	CH_ORDERBOOK :: u8(1 << u8(ports.MD_Channel.Orderbook))
-	CH_STATS     :: u8(1 << u8(ports.MD_Channel.Stats))
-	CH_HEATMAPS  :: u8(1 << u8(ports.MD_Channel.Heatmaps))
-	CH_VPVR      :: u8(1 << u8(ports.MD_Channel.VPVR))
-	CH_CANDLES   :: u8(1 << u8(ports.MD_Channel.Candles))
-	CH_EVIDENCE  :: u8(1 << u8(ports.MD_Channel.Evidence))
-	CH_SIGNALS   :: u8(1 << u8(ports.MD_Channel.Signals))
+channels_for_bundle :: proc(bundle: u32) -> u16 {
+	CH_TRADES    :: u16(1 << u16(ports.MD_Channel.Trades))
+	CH_ORDERBOOK :: u16(1 << u16(ports.MD_Channel.Orderbook))
+	CH_STATS     :: u16(1 << u16(ports.MD_Channel.Stats))
+	CH_HEATMAPS  :: u16(1 << u16(ports.MD_Channel.Heatmaps))
+	CH_VPVR      :: u16(1 << u16(ports.MD_Channel.VPVR))
+	CH_CANDLES   :: u16(1 << u16(ports.MD_Channel.Candles))
+	CH_EVIDENCE  :: u16(1 << u16(ports.MD_Channel.Evidence))
+	CH_SIGNALS   :: u16(1 << u16(ports.MD_Channel.Signals))
+	CH_TAPE      :: u16(1 << u16(ports.MD_Channel.Tape))
 
 	route := bundle & (LEGACY_ROUTE_CANDLE | LEGACY_ROUTE_TRADES | LEGACY_ROUTE_ORDERBOOK | LEGACY_ROUTE_DOM |
 		LEGACY_ROUTE_HEATMAP | LEGACY_ROUTE_VPVR | LEGACY_ROUTE_STATS | LEGACY_ROUTE_COUNTER)
@@ -39,7 +40,7 @@ channels_for_bundle :: proc(bundle: u32) -> u8 {
 	case LEGACY_ROUTE_DOM:
 		return CH_ORDERBOOK | CH_TRADES
 	case LEGACY_ROUTE_TRADES:
-		return CH_TRADES
+		return CH_TRADES | CH_TAPE
 	case LEGACY_ROUTE_STATS:
 		return CH_STATS
 	case LEGACY_ROUTE_COUNTER:
@@ -67,7 +68,7 @@ compare_bundle_for_idx :: proc(widget_idx: int) -> u32 {
 Sub_Want :: struct {
 	venue:           string,
 	symbol:          string,
-	channels:        u8,
+	channels:        u16,
 	tf:              string,  // for TF-sensitive channels (Candles, Heatmaps, VPVR)
 	has_explicit_tf: bool,    // true = at least one cell has per-cell TF override
 }
@@ -78,7 +79,7 @@ Prev_Sub_Entry :: struct {
 	venue_len:  u8,
 	symbol:     [32]u8,
 	symbol_len: u8,
-	channels:   u8,
+	channels:   u16,
 	tf:         [8]u8,
 	tf_len:     u8,
 }
@@ -87,10 +88,11 @@ SUB_WANT_CAP :: 128
 
 // TF-sensitive channel bitmask.
 @(private = "file")
-CH_TF_SENSITIVE :: u8(1 << u8(ports.MD_Channel.Candles)) |
-                   u8(1 << u8(ports.MD_Channel.Heatmaps)) |
-                   u8(1 << u8(ports.MD_Channel.VPVR)) |
-                   u8(1 << u8(ports.MD_Channel.Signals))
+CH_TF_SENSITIVE :: u16(1 << u16(ports.MD_Channel.Candles)) |
+                   u16(1 << u16(ports.MD_Channel.Heatmaps)) |
+                   u16(1 << u16(ports.MD_Channel.VPVR)) |
+                   u16(1 << u16(ports.MD_Channel.Signals)) |
+                   u16(1 << u16(ports.MD_Channel.Tape))
 
 @(private = "file")
 sanitize_market_field :: proc(s: string) -> string {
@@ -166,10 +168,10 @@ reconcile_subscriptions :: proc(state: ^App_State) {
 		ch_mask := channels_for_bundle(bundle)
 		if ch_mask == 0 do continue
 		if state.bp_assist.degrade_heatmap {
-			ch_mask &= ~u8(1 << u8(ports.MD_Channel.Heatmaps))
+			ch_mask &= ~u16(1 << u16(ports.MD_Channel.Heatmaps))
 		}
 		if state.bp_assist.degrade_vpvr {
-			ch_mask &= ~u8(1 << u8(ports.MD_Channel.VPVR))
+			ch_mask &= ~u16(1 << u16(ports.MD_Channel.VPVR))
 		}
 		if ch_mask == 0 do continue
 
@@ -304,11 +306,12 @@ reconcile_subscriptions :: proc(state: ^App_State) {
 		ps = san_ps
 		// For each channel bit in prev, check if still in wanted.
 		for chi in 0 ..< CHANNEL_COUNT {
-			if (prev.channels & (1 << u8(chi))) == 0 do continue
-			is_tf_ch := ((1 << u8(chi)) & CH_TF_SENSITIVE) != 0
+			ch_bit := u16(1 << u16(chi))
+			if (prev.channels & ch_bit) == 0 do continue
+			is_tf_ch := (ch_bit & CH_TF_SENSITIVE) != 0
 			still_wanted := false
 			for wi in 0 ..< wanted_count {
-				if wanted[wi].venue == pv && wanted[wi].symbol == ps && (wanted[wi].channels & (1 << u8(chi))) != 0 {
+				if wanted[wi].venue == pv && wanted[wi].symbol == ps && (wanted[wi].channels & ch_bit) != 0 {
 					// For TF-sensitive channels, also compare timeframe — a TF mismatch
 					// means the old sub is stale and must be unsubscribed.
 					if is_tf_ch {
@@ -335,10 +338,11 @@ reconcile_subscriptions :: proc(state: ^App_State) {
 		w.symbol = ws
 		endpoint := streams.endpoint_for_venue(w.venue)
 		for chi in 0 ..< CHANNEL_COUNT {
-			if (w.channels & (1 << u8(chi))) == 0 do continue
+			ch_bit := u16(1 << u16(chi))
+			if (w.channels & ch_bit) == 0 do continue
 			ch := ports.MD_Channel(chi)
 			if !streams.endpoint_supports_channel(endpoint, ch) do continue
-			is_tf_ch := ((1 << u8(chi)) & CH_TF_SENSITIVE) != 0
+			is_tf_ch := (ch_bit & CH_TF_SENSITIVE) != 0
 			eff_tf := is_tf_ch ? w.tf : ""
 			seed_stream_slot_for_subject(state, w.venue, w.symbol, ch, eff_tf)
 			// Skip subscribe if this exact channel+venue+symbol+tf is already in prev_subs.
@@ -351,7 +355,7 @@ reconcile_subscriptions :: proc(state: ^App_State) {
 				if !ok do continue
 				pv = san_pv
 				ps = san_ps
-				if pv == w.venue && ps == w.symbol && (prev.channels & (1 << u8(chi))) != 0 {
+				if pv == w.venue && ps == w.symbol && (prev.channels & ch_bit) != 0 {
 					// For TF-sensitive channels, also verify timeframe matches.
 					if is_tf_ch {
 						pt := string(prev.tf[:int(prev.tf_len)])

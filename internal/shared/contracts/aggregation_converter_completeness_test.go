@@ -65,6 +65,40 @@ func TestConverterCompleteness_StatsWindowClosedV1(t *testing.T) {
 	assertAggregationProtoEqual(t, in, roundtrip)
 }
 
+func TestConverterCompleteness_TapeWindowV1(t *testing.T) {
+	t.Parallel()
+
+	in := &aggregationv1.TapeWindowV1{
+		Venue:         "binance",
+		Instrument:    "BTC-USDT",
+		Timeframe:     "1s",
+		WindowStartTs: 1700000000000,
+		WindowEndTs:   1700000001000,
+		TradeCount:    125,
+		BuyCount:      70,
+		SellCount:     55,
+		BuyVolume:     12.5,
+		SellVolume:    10.4,
+		TotalVolume:   22.9,
+		BuyNotional:   812345.6,
+		SellNotional:  676543.2,
+		VwapPrice:     65012.3,
+		MaxPrice:      65100.0,
+		MinPrice:      64950.0,
+		LastPrice:     65055.5,
+		MaxTradeSize:  2.25,
+		Rate:          125.0,
+		Imbalance:     0.0917,
+		IsBurst:       true,
+		Seq:           4242,
+		TsIngestMs:    1700000001001,
+	}
+
+	wireDTO := ProtoToWireDTOTapeWindowV1(in)
+	roundtrip := WireDTOToProtoTapeWindowV1(wireDTO)
+	assertAggregationProtoEqual(t, in, roundtrip)
+}
+
 func TestConverterCompleteness_CandleClosedV1_NilInput(t *testing.T) {
 	t.Parallel()
 	wireDTO := ProtoToWireDTOCandleClosedV1(nil)
@@ -77,6 +111,14 @@ func TestConverterCompleteness_StatsWindowClosedV1_NilInput(t *testing.T) {
 	t.Parallel()
 	wireDTO := ProtoToWireDTOStatsWindowClosedV1(nil)
 	if wireDTO.Stats.Venue != "" || wireDTO.Stats.IsClosed {
+		t.Fatal("expected zero value from nil proto input")
+	}
+}
+
+func TestConverterCompleteness_TapeWindowV1_NilInput(t *testing.T) {
+	t.Parallel()
+	wireDTO := ProtoToWireDTOTapeWindowV1(nil)
+	if wireDTO.Venue != "" || wireDTO.TradeCount != 0 || wireDTO.IsBurst {
 		t.Fatal("expected zero value from nil proto input")
 	}
 }

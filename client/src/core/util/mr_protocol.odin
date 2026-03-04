@@ -109,6 +109,33 @@ MR_Stats_Wrapper :: struct {
 	stats: MR_Stats_Payload `json:"Stats"`,
 }
 
+// Tape payload — flat, matches Go AggregationTapeV1 (PascalCase, no json tags).
+MR_Tape_Payload :: struct {
+	Venue:            string `json:"Venue"`,
+	Instrument:       string `json:"Instrument"`,
+	Timeframe:        string `json:"Timeframe"`,
+	WindowStartTs:    i64    `json:"WindowStartTs"`,
+	WindowEndTs:      i64    `json:"WindowEndTs"`,
+	TradeCount:       i64    `json:"TradeCount"`,
+	BuyCount:         i64    `json:"BuyCount"`,
+	SellCount:        i64    `json:"SellCount"`,
+	BuyVolume:        f64    `json:"BuyVolume"`,
+	SellVolume:       f64    `json:"SellVolume"`,
+	TotalVolume:      f64    `json:"TotalVolume"`,
+	BuyNotional:      f64    `json:"BuyNotional"`,
+	SellNotional:     f64    `json:"SellNotional"`,
+	VwapPrice:        f64    `json:"VwapPrice"`,
+	MaxPrice:         f64    `json:"MaxPrice"`,
+	MinPrice:         f64    `json:"MinPrice"`,
+	LastPrice:        f64    `json:"LastPrice"`,
+	MaxTradeSize:     f64    `json:"MaxTradeSize"`,
+	Rate:             f64    `json:"Rate"`,
+	Imbalance:        f64    `json:"Imbalance"`,
+	IsBurst:          bool   `json:"IsBurst"`,
+	Seq:              i64    `json:"Seq"`,
+	TsIngestMs:       i64    `json:"TsIngestMs"`,
+}
+
 MR_Heatmap_Cell :: struct {
 	price_bucket_low:  f64 `json:"price_bucket_low"`,
 	price_bucket_high: f64 `json:"price_bucket_high"`,
@@ -230,6 +257,10 @@ MR_Stats_Frame :: struct {
 
 MR_Stats_Frame_Wrapped :: struct {
 	payload: MR_Stats_Wrapper `json:"payload"`,
+}
+
+MR_Tape_Frame :: struct {
+	payload: MR_Tape_Payload `json:"payload"`,
 }
 
 MR_Heatmap_Frame :: struct {

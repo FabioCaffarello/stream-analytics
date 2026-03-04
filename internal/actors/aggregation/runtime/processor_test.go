@@ -40,6 +40,7 @@ type spyArtifactPublisher struct {
 	snapshots []aggdomain.SnapshotProduced
 	candles   []aggdomain.CandleClosed
 	stats     []aggdomain.StatsWindowClosed
+	tapes     []aggdomain.TapeClosed
 }
 
 func (s *spyArtifactPublisher) PublishSnapshot(_ context.Context, snap aggdomain.SnapshotProduced) *problem.Problem {
@@ -64,6 +65,13 @@ func (s *spyArtifactPublisher) PublishStatsClosed(_ context.Context, evt aggdoma
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.stats = append(s.stats, evt)
+	return nil
+}
+
+func (s *spyArtifactPublisher) PublishTapeClosed(_ context.Context, evt aggdomain.TapeClosed) *problem.Problem {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tapes = append(s.tapes, evt)
 	return nil
 }
 

@@ -29,6 +29,7 @@ var deliveryContracts = map[string]deliveryContract{
 	"aggregation.orderbook_inconsistency": {version: 1, ownerBC: "aggregation", producerBC: "aggregation", schemaAuthority: "aggregation"},
 	"aggregation.candle":                  {version: 1, ownerBC: "aggregation", producerBC: "aggregation", schemaAuthority: "aggregation"},
 	"aggregation.stats":                   {version: 1, ownerBC: "aggregation", producerBC: "aggregation", schemaAuthority: "aggregation"},
+	"aggregation.tape":                    {version: 1, ownerBC: "aggregation", producerBC: "aggregation", schemaAuthority: "aggregation"},
 	"insights.heatmap_snapshot":           {version: 1, ownerBC: "insights", producerBC: "aggregation", schemaAuthority: "aggregation"},
 	"insights.volume_profile_snapshot":    {version: 1, ownerBC: "insights", producerBC: "aggregation", schemaAuthority: "aggregation"},
 }

@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package aggregation.v1;
+
+option go_package = "github.com/market-raccoon/internal/shared/proto/gen/aggregation/v1";
+
+// TapeWindowV1 models a closed tape window derived from trade flow.
+message TapeWindowV1 {
+  // Venue is the canonical venue identifier.
+  string venue = 1;
+  // Instrument is the canonical instrument identifier.
+  string instrument = 2;
+  // Timeframe is the tape window timeframe (250ms, 1s, 5s).
+  string timeframe = 3;
+  // WindowStartTs is the window start in Unix milliseconds.
+  int64 window_start_ts = 4;
+  // WindowEndTs is the window end in Unix milliseconds.
+  int64 window_end_ts = 5;
+  // TradeCount is the number of trades in the window.
+  int64 trade_count = 6;
+  // BuyCount is the number of buy-side trades.
+  int64 buy_count = 7;
+  // SellCount is the number of sell-side trades.
+  int64 sell_count = 8;
+  // BuyVolume is the total buy-side size.
+  double buy_volume = 9;
+  // SellVolume is the total sell-side size.
+  double sell_volume = 10;
+  // TotalVolume is buy+sell volume.
+  double total_volume = 11;
+  // BuyNotional is the total buy-side notional.
+  double buy_notional = 12;
+  // SellNotional is the total sell-side notional.
+  double sell_notional = 13;
+  // VwapPrice is the volume-weighted average price.
+  double vwap_price = 14;
+  // MaxPrice is the highest trade price in the window.
+  double max_price = 15;
+  // MinPrice is the lowest trade price in the window.
+  double min_price = 16;
+  // LastPrice is the deterministic last-trade price in the window.
+  double last_price = 17;
+  // MaxTradeSize is the largest single trade size in the window.
+  double max_trade_size = 18;
+  // Rate is trades-per-second for this timeframe.
+  double rate = 19;
+  // Imbalance is (buy_volume-sell_volume)/total_volume in [-1,+1].
+  double imbalance = 20;
+  // IsBurst flags burst windows using timeframe-specific deterministic thresholds.
+  bool is_burst = 21;
+  // Seq is the highest sequence seen for this window.
+  int64 seq = 22;
+  // TsIngestMs is the close-time ingest timestamp in milliseconds.
+  int64 ts_ingest_ms = 23;
+
+  reserved 100 to 199;
+}

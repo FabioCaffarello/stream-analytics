@@ -59,6 +59,30 @@ test_parse_candle_inverted_window_rejected :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_parse_tape_valid :: proc(t: ^testing.T) {
+	raw := `{"type":"event","subject":"aggregation.tape/binance/BTCUSDT/1s","seq":12,"ts_ingest":1700000000000,"payload":{"Venue":"binance","Instrument":"BTCUSDT","Timeframe":"1s","WindowStartTs":1700000000000,"WindowEndTs":1700000001000,"TradeCount":42,"BuyCount":24,"SellCount":18,"BuyVolume":12.5,"SellVolume":8.5,"TotalVolume":21.0,"BuyNotional":620000.0,"SellNotional":420000.0,"VwapPrice":49523.8,"MaxPrice":50010.0,"MinPrice":49450.0,"LastPrice":49990.0,"MaxTradeSize":2.3,"Rate":42.0,"Imbalance":0.19047619,"IsBurst":true,"Seq":999,"TsIngestMs":1700000001000}}`
+	result := parse_mr_message(transmute([]u8)raw, nil)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Tape)
+	tp := result.data.tape
+	testing.expect_value(t, tp.trade_count, i64(42))
+	testing.expect_value(t, tp.rate_per_sec, 42.0)
+	testing.expect_value(t, tp.imbalance > 0.19 && tp.imbalance < 0.191, true)
+	testing.expect_value(t, tp.is_burst, true)
+	testing.expect_value(t, tp.seq, i64(999))
+	free_all(context.temp_allocator)
+}
+
+@(test)
+test_parse_tape_invalid_imbalance_rejected :: proc(t: ^testing.T) {
+	raw := `{"type":"event","subject":"aggregation.tape/binance/BTCUSDT/1s","seq":12,"ts_ingest":1700000000000,"payload":{"Venue":"binance","Instrument":"BTCUSDT","Timeframe":"1s","WindowStartTs":1700000000000,"WindowEndTs":1700000001000,"TradeCount":42,"BuyCount":24,"SellCount":18,"BuyVolume":12.5,"SellVolume":8.5,"TotalVolume":21.0,"LastPrice":49990.0,"MaxTradeSize":2.3,"Rate":42.0,"Imbalance":1.2,"IsBurst":false,"Seq":999,"TsIngestMs":1700000001000}}`
+	tel: Parse_Telemetry
+	result := parse_mr_message(transmute([]u8)raw, &tel)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.None)
+	testing.expect(t, tel.parse_errors > 0, "expected parse error for invalid tape imbalance")
+	free_all(context.temp_allocator)
+}
+
+@(test)
 test_parse_book_delta_empty_levels :: proc(t: ^testing.T) {
 	raw := `{"type":"event","subject":"marketdata.bookdelta/binance/BTCUSDT","seq":1,"ts_ingest":1700000000000,"payload":{"Bids":[],"Asks":[],"IsSnapshot":true,"Timestamp":1700000000000}}`
 	result := parse_mr_message(transmute([]u8)raw, nil)
@@ -626,4 +650,23 @@ test_parse_batched_event_payload_bookdelta_respects_snapshot_flag :: proc(t: ^te
 	testing.expect_value(t, result.meta.is_snapshot, true)
 	testing.expect_value(t, result.data.ob.is_snapshot, true)
 	testing.expect_value(t, result.data.ob.seq, i64(202))
+}
+
+@(test)
+test_parse_batched_event_payload_tape_fastpath :: proc(t: ^testing.T) {
+	payload := `{"Venue":"binance","Instrument":"BTCUSDT","Timeframe":"1s","WindowStartTs":1700000000000,"WindowEndTs":1700000001000,"TradeCount":9,"BuyCount":4,"SellCount":5,"BuyVolume":1.2,"SellVolume":1.8,"TotalVolume":3.0,"LastPrice":50001.0,"Rate":9.0,"Imbalance":-0.2,"IsBurst":false,"Seq":333}`
+	result, ok := parse_batched_event_payload(
+		"aggregation.tape",
+		transmute([]u8)payload,
+		333,
+		1700000001000,
+		1700000001000,
+		0xCD01,
+	)
+	testing.expect_value(t, ok, true)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Tape)
+	testing.expect_value(t, result.meta.seq, i64(333))
+	testing.expect_value(t, result.data.tape.trade_count, i64(9))
+	testing.expect_value(t, result.data.tape.rate_per_sec, 9.0)
+	testing.expect_value(t, result.data.tape.imbalance, -0.2)
 }

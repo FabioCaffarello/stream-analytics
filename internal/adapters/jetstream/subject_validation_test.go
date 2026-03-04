@@ -8,6 +8,7 @@ func TestValidateSubjectTaxonomy_Valid(t *testing.T) {
 	for _, subject := range []string{
 		"aggregation.snapshot.v1.binance.BTCUSDT",
 		"aggregation.orderbook_inconsistency.v1.binance.BTCUSDT",
+		"aggregation.tape.v1.binance.BTCUSDT",
 		"quarantine.v1.binance.BTCUSDT",
 		"marketdata.trade.v1.binance.BTCUSDT",
 		"insights.crossvenue.trade_snapshot.v1.global.BTCUSDT",

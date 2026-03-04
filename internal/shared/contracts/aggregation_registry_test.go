@@ -16,6 +16,7 @@ func TestRegisterAggregationPayloadV1_RegistersDualCodecs(t *testing.T) {
 	eventTypes := []string{
 		"aggregation.candle",
 		"aggregation.stats",
+		"aggregation.tape",
 		"aggregation.snapshot",
 		"aggregation.orderbook_inconsistency",
 	}
