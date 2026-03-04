@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	aggregationv1 "github.com/market-raccoon/internal/shared/proto/gen/aggregation/v1"
+	aggregationv2 "github.com/market-raccoon/internal/shared/proto/gen/aggregation/v2"
 	"google.golang.org/protobuf/encoding/prototext"
 	"google.golang.org/protobuf/proto"
 )
@@ -122,6 +123,45 @@ func TestConverterCompleteness_SnapshotV1_EmptyLevels(t *testing.T) {
 	wireDTO := ProtoToWireDTOSnapshotV1(in)
 	roundtrip := WireDTOToProtoSnapshotV1(wireDTO)
 	assertAggregationProtoEqual(t, in, roundtrip)
+}
+
+func TestConverterCompleteness_SnapshotV2(t *testing.T) {
+	t.Parallel()
+
+	in := &aggregationv2.OrderBookSnapshotV2{
+		Venue:        "binance",
+		Instrument:   "BTC-USDT",
+		Seq:          42,
+		BestBidPrice: 65000.5,
+		BestAskPrice: 65001.0,
+		SpreadBps:    0.0769,
+		Checksum:     12345,
+		TsIngestMs:   1700000000001,
+		BidCount:     2,
+		AskCount:     2,
+		DepthCap:     50,
+		Version:      2,
+		Bids: []*aggregationv2.OrderBookLevelV1{
+			{Price: 65000.5, Quantity: 1.25},
+			{Price: 64999.0, Quantity: 3.5},
+		},
+		Asks: []*aggregationv2.OrderBookLevelV1{
+			{Price: 65001.0, Quantity: 0.75},
+			{Price: 65002.5, Quantity: 2.0},
+		},
+	}
+
+	wireDTO := ProtoToWireDTOSnapshotV2(in)
+	roundtrip := WireDTOToProtoSnapshotV2(wireDTO)
+	assertAggregationProtoEqual(t, in, roundtrip)
+}
+
+func TestConverterCompleteness_SnapshotV2_NilInput(t *testing.T) {
+	t.Parallel()
+	wireDTO := ProtoToWireDTOSnapshotV2(nil)
+	if wireDTO.Venue != "" || wireDTO.Seq != 0 || len(wireDTO.Bids) != 0 || wireDTO.Version != 0 {
+		t.Fatal("expected zero value from nil proto input")
+	}
 }
 
 func TestConverterCompleteness_InconsistencyV1(t *testing.T) {

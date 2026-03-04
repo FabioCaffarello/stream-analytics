@@ -29,9 +29,13 @@ type UpdateRequest struct {
 type UpdateResponse struct {
 	Seq          int64
 	Spread       float64
+	SpreadBPS    float64
 	BidLevels    int
 	AskLevels    int
 	PrunedLevels int
+	Checksum     uint32
+	BestBidPrice float64
+	BestAskPrice float64
 }
 
 // UpdateOrderBookFromEvents applies incremental deltas and publishes snapshots.
@@ -47,6 +51,7 @@ type UpdateOrderBookFromEvents struct {
 	store                      ports.HotReadModelStore
 	books                      *ds.BoundedMap[domain.BookID, *domain.OrderBook]
 	maxLevels                  int
+	publishDepthCap            int
 	clock                      clock.Clock
 	snapshotPublishMinInterval time.Duration
 	lastSnapshotPublishedAt    map[domain.BookID]time.Time
@@ -56,6 +61,7 @@ type UpdateConfig struct {
 	MaxBooks                   int
 	BookTTL                    time.Duration
 	MaxLevels                  int
+	PublishDepthCap            int
 	Clock                      clock.Clock
 	SnapshotPublishMinInterval time.Duration
 }
@@ -66,10 +72,11 @@ func NewUpdateOrderBookFromEvents(
 	store ports.HotReadModelStore,
 ) *UpdateOrderBookFromEvents {
 	return NewUpdateOrderBookFromEventsWithConfig(pub, store, UpdateConfig{
-		MaxBooks:  10_000,
-		BookTTL:   time.Hour,
-		MaxLevels: 1_000,
-		Clock:     clock.NewSystemClock(),
+		MaxBooks:        10_000,
+		BookTTL:         time.Hour,
+		MaxLevels:       1_000,
+		PublishDepthCap: 50,
+		Clock:           clock.NewSystemClock(),
 	})
 }
 
@@ -87,6 +94,9 @@ func NewUpdateOrderBookFromEventsWithConfig(
 	if cfg.MaxLevels <= 0 {
 		cfg.MaxLevels = 1_000
 	}
+	if cfg.PublishDepthCap <= 0 {
+		cfg.PublishDepthCap = 50
+	}
 	if cfg.Clock == nil {
 		cfg.Clock = clock.NewSystemClock()
 	}
@@ -102,6 +112,7 @@ func NewUpdateOrderBookFromEventsWithConfig(
 		store:                      store,
 		books:                      books,
 		maxLevels:                  cfg.MaxLevels,
+		publishDepthCap:            cfg.PublishDepthCap,
 		clock:                      cfg.Clock,
 		snapshotPublishMinInterval: cfg.SnapshotPublishMinInterval,
 		lastSnapshotPublishedAt:    make(map[domain.BookID]time.Time),
@@ -128,13 +139,22 @@ func (uc *UpdateOrderBookFromEvents) Execute(ctx context.Context, req UpdateRequ
 			}
 		}
 		if failed == nil {
+			metrics.SetMROrderBookStaleDuration(req.Venue, req.Instrument, 0)
 			return
 		}
 		switch failed.Code {
 		case problem.IntegrityViolation:
 			metrics.IncMROrderBookCrossed(req.Venue, req.Instrument)
+			metrics.IncMROrderBookDrop(req.Venue, req.Instrument, "integrity_violation")
 		case problem.OutOfOrder:
 			metrics.IncMROrderBookStale(req.Venue, req.Instrument)
+			metrics.IncMROrderBookDrop(req.Venue, req.Instrument, "out_of_order")
+		case problem.ValidationFailed:
+			reason := badLevelReasonFromProblem(failed)
+			if reason != "" {
+				metrics.IncMROrderBookBadLevel(req.Venue, req.Instrument, reason)
+			}
+			metrics.IncMROrderBookDrop(req.Venue, req.Instrument, "validation_failed")
 		}
 	}()
 
@@ -147,13 +167,15 @@ func (uc *UpdateOrderBookFromEvents) Execute(ctx context.Context, req UpdateRequ
 		failed = p
 		return result.FailProblem[UpdateResponse](p)
 	}
-
 	// 2. Get or create aggregate.
 	var p *problem.Problem
 	book, p = uc.getOrCreateBook(req.Venue, req.Instrument)
 	if p != nil {
 		failed = p
 		return result.FailProblem[UpdateResponse](p)
+	}
+	if lastSeq := book.LastSeq(); lastSeq > 0 && req.Seq > lastSeq+1 {
+		metrics.IncMROrderBookGap(req.Venue, req.Instrument)
 	}
 
 	// 3. Apply delta (or snapshot).
@@ -183,32 +205,23 @@ func (uc *UpdateOrderBookFromEvents) Execute(ctx context.Context, req UpdateRequ
 	snap := domain.NewSnapshotProduced(book)
 	if p := uc.store.Save(ctx, snap); p != nil {
 		failed = p
+		metrics.IncMROrderBookDrop(req.Venue, req.Instrument, "store_failed")
 		return result.FailProblem[UpdateResponse](p)
 	}
 
 	// 5. Publish snapshot.
 	if !uc.shouldPublishSnapshot(book.ID()) {
-		return result.Ok(UpdateResponse{
-			Seq:          book.LastSeq(),
-			Spread:       book.Spread(),
-			BidLevels:    len(book.Bids()),
-			AskLevels:    len(book.Asks()),
-			PrunedLevels: book.LastPrunedLevels(),
-		})
+		return result.Ok(updateResponseFromSnapshot(book, snap))
 	}
-	if p := uc.publisher.PublishSnapshot(ctx, snap); p != nil {
+	publishSnap := snap.Capped(uc.publishDepthCap, uc.clock.Now().UnixMilli())
+	if p := uc.publisher.PublishSnapshot(ctx, publishSnap); p != nil {
 		failed = p
+		metrics.IncMROrderBookDrop(req.Venue, req.Instrument, "publish_failed")
 		return result.FailProblem[UpdateResponse](p)
 	}
 	uc.recordSnapshotPublished(book.ID())
 
-	return result.Ok(UpdateResponse{
-		Seq:          book.LastSeq(),
-		Spread:       book.Spread(),
-		BidLevels:    len(book.Bids()),
-		AskLevels:    len(book.Asks()),
-		PrunedLevels: book.LastPrunedLevels(),
-	})
+	return result.Ok(updateResponseFromSnapshot(book, snap))
 }
 
 // getOrCreateBook lazily initialises an OrderBook for the given identity.
@@ -285,4 +298,33 @@ func spreadBPS(book *domain.OrderBook) float64 {
 		return 0
 	}
 	return (spread / mid) * 10_000
+}
+
+func updateResponseFromSnapshot(book *domain.OrderBook, snap domain.SnapshotProduced) UpdateResponse {
+	return UpdateResponse{
+		Seq:          book.LastSeq(),
+		Spread:       book.Spread(),
+		SpreadBPS:    snap.SpreadBPS,
+		BidLevels:    len(book.Bids()),
+		AskLevels:    len(book.Asks()),
+		PrunedLevels: book.LastPrunedLevels(),
+		Checksum:     snap.Checksum,
+		BestBidPrice: snap.BestBidPrice,
+		BestAskPrice: snap.BestAskPrice,
+	}
+}
+
+func badLevelReasonFromProblem(p *problem.Problem) string {
+	if p == nil || p.Details == nil {
+		return ""
+	}
+	raw, ok := p.Details["reason"]
+	if !ok {
+		return ""
+	}
+	reason, ok := raw.(string)
+	if !ok {
+		return ""
+	}
+	return reason
 }

@@ -78,6 +78,7 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 		{name: "processor.catchup_skip_trade_skew_ms", got: cfg.Processor.CatchUpSkipTradeSkewMs, want: 0},
 		{name: "processor.catchup_skip_stats_skew_ms", got: cfg.Processor.CatchUpSkipStatsSkewMs, want: 0},
 		{name: "processor.rt_publish.orderbook_interval_ms", got: cfg.Processor.RTPublish.OrderbookIntervalMs, want: 200},
+		{name: "processor.rt_publish.ws_snapshot_depth_cap", got: cfg.Processor.RTPublish.WsSnapshotDepthCap, want: 50},
 		{name: "processor.rt_publish.heatmap_interval_ms", got: cfg.Processor.RTPublish.HeatmapIntervalMs, want: 200},
 		{name: "processor.rt_publish.volume_interval_ms", got: cfg.Processor.RTPublish.VolumeIntervalMs, want: 250},
 		{name: "processor.insights.enable_crossvenue_join", got: cfg.Processor.Insights.EnableCrossVenueJoin, want: false},
@@ -281,6 +282,7 @@ func TestLoad_ValidJSONC_ParsesFields(t *testing.T) {
 		{name: "processor.catchup_skip_trade_skew_ms", got: cfg.Processor.CatchUpSkipTradeSkewMs, want: 8000},
 		{name: "processor.catchup_skip_stats_skew_ms", got: cfg.Processor.CatchUpSkipStatsSkewMs, want: 12000},
 		{name: "processor.rt_publish.orderbook_interval_ms", got: cfg.Processor.RTPublish.OrderbookIntervalMs, want: 150},
+		{name: "processor.rt_publish.ws_snapshot_depth_cap", got: cfg.Processor.RTPublish.WsSnapshotDepthCap, want: 50},
 		{name: "processor.rt_publish.heatmap_interval_ms", got: cfg.Processor.RTPublish.HeatmapIntervalMs, want: 0},
 		{name: "processor.rt_publish.volume_interval_ms", got: cfg.Processor.RTPublish.VolumeIntervalMs, want: 300},
 		{name: "processor.insights.enable_crossvenue_join", got: cfg.Processor.Insights.EnableCrossVenueJoin, want: true},
@@ -1187,6 +1189,18 @@ func TestValidate_ProcessorRTPublishIntervals_MustBeNonNegative(t *testing.T) {
 			name: "volume_interval_ms",
 			mutate: func(cfg *AppConfig) {
 				cfg.Processor.RTPublish.VolumeIntervalMs = -1
+			},
+		},
+		{
+			name: "ws_snapshot_depth_cap_low",
+			mutate: func(cfg *AppConfig) {
+				cfg.Processor.RTPublish.WsSnapshotDepthCap = 9
+			},
+		},
+		{
+			name: "ws_snapshot_depth_cap_high",
+			mutate: func(cfg *AppConfig) {
+				cfg.Processor.RTPublish.WsSnapshotDepthCap = 1001
 			},
 		},
 	}

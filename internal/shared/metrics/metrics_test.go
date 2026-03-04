@@ -161,6 +161,13 @@ func TestMetricsNamesPresent(t *testing.T) {
 	AddMROrderBookPruned("binance", "BTC-USDT", 2)
 	IncMROrderBookCrossed("binance", "BTC-USDT")
 	IncMROrderBookStale("binance", "BTC-USDT")
+	IncMROrderBookBadLevel("binance", "BTC-USDT", "nan")
+	IncMROrderBookGap("binance", "BTC-USDT")
+	IncMROrderBookDrop("binance", "BTC-USDT", "out_of_order")
+	SetMROrderBookStaleDuration("binance", "BTC-USDT", 5)
+	ObserveMROrderBookPublishDepth("binance", "bid", 50)
+	ObserveMROrderBookWireBytes("binance", 1024)
+	IncMROrderBookChecksumMismatch("binance", "BTC-USDT")
 	SetMRWindowOpen("binance", "BTC-USDT", "1m", 1)
 	IncMRWindowLateArrival("binance", "BTC-USDT", "1m")
 	IncMRWindowForceClose("binance", "BTC-USDT", "1m")
@@ -269,6 +276,13 @@ func TestMetricsNamesPresent(t *testing.T) {
 		"mr_orderbook_prune_total",
 		"mr_orderbook_crossed_total",
 		"mr_orderbook_stale_total",
+		"mr_orderbook_bad_level_total",
+		"mr_orderbook_gap_total",
+		"mr_orderbook_drops_total",
+		"mr_orderbook_stale_duration_seconds",
+		"mr_orderbook_publish_depth",
+		"mr_orderbook_wire_bytes",
+		"mr_orderbook_checksum_mismatch_total",
 		"mr_window_open_total",
 		"mr_window_late_arrival_total",
 		"mr_window_force_close_total",
@@ -899,6 +913,41 @@ func TestTranscodeCacheMetrics_Registered(t *testing.T) {
 	if got := testutil.ToFloat64(TranscodeCacheMisses); got != 5 {
 		t.Fatalf("misses=%f want=5", got)
 	}
+}
+
+func TestPublishDepth_Histogram(t *testing.T) {
+	before := testutil.CollectAndCount(MROrderBookPublishDepth)
+	ObserveMROrderBookPublishDepth("binance", "bid", 50)
+	after := testutil.CollectAndCount(MROrderBookPublishDepth)
+	if after < before {
+		t.Fatalf("publish depth histogram count decreased: before=%d after=%d", before, after)
+	}
+}
+
+func TestMetricCardinality_Bounded(t *testing.T) {
+	before := metricSeriesCount(t, "mr_orderbook_bad_level_total")
+	for i := 0; i < 200; i++ {
+		instrument := fmt.Sprintf("asset-%d", i)
+		IncMROrderBookBadLevel("binance", instrument, fmt.Sprintf("bad-reason-%d", i))
+	}
+	after := metricSeriesCount(t, "mr_orderbook_bad_level_total")
+	if growth := after - before; growth > 20 {
+		t.Fatalf("bad-level metric cardinality growth=%d want<=20", growth)
+	}
+}
+
+func metricSeriesCount(t *testing.T, name string) int {
+	t.Helper()
+	mfs, err := Registry().Gather()
+	if err != nil {
+		t.Fatalf("gather metrics: %v", err)
+	}
+	for _, mf := range mfs {
+		if mf.GetName() == name {
+			return len(mf.GetMetric())
+		}
+	}
+	return 0
 }
 
 func TestSanitizeTenantID(t *testing.T) {

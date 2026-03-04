@@ -149,16 +149,25 @@ func TestStatsWindowClosedV1_JSON_vs_Proto_SemanticEquivalence(t *testing.T) {
 	}
 }
 
-func TestSnapshotV1_JSON_vs_Proto_SemanticEquivalence(t *testing.T) {
+func TestSnapshotV2_JSON_vs_Proto_SemanticEquivalence(t *testing.T) {
 	reg := codec.NewRegistry()
 	if p := contracts.RegisterAggregationPayloadV1(reg); p != nil {
 		t.Fatalf("RegisterAggregationPayloadV1: %v", p)
 	}
 
-	canonical := contracts.AggregationSnapshotV1{
-		Venue:      "binance",
-		Instrument: "BTC-USDT",
-		Seq:        42,
+	canonical := contracts.AggregationSnapshotV2{
+		Venue:        "binance",
+		Instrument:   "BTC-USDT",
+		Seq:          42,
+		BestBidPrice: 65000.5,
+		BestAskPrice: 65001.0,
+		SpreadBPS:    0.0769,
+		Checksum:     12345,
+		TsIngestMs:   1700000000001,
+		BidCount:     2,
+		AskCount:     2,
+		DepthCap:     50,
+		Version:      2,
 		Bids: []contracts.AggregationOrderBookLevelV1{
 			{Price: 65000.5, Quantity: 1.25},
 			{Price: 64999.0, Quantity: 3.5},
@@ -180,9 +189,9 @@ func TestSnapshotV1_JSON_vs_Proto_SemanticEquivalence(t *testing.T) {
 	if p != nil {
 		t.Fatalf("json decode: %v", p)
 	}
-	jsonResult, ok := jsonAny.(contracts.AggregationSnapshotV1)
+	jsonResult, ok := jsonAny.(contracts.AggregationSnapshotV2)
 	if !ok {
-		t.Fatalf("json decoded type = %T; want contracts.AggregationSnapshotV1", jsonAny)
+		t.Fatalf("json decoded type = %T; want contracts.AggregationSnapshotV2", jsonAny)
 	}
 
 	protoKey := codec.SchemaKey{Type: "aggregation.snapshot", Version: 1, Format: codec.FormatProto}
@@ -196,9 +205,9 @@ func TestSnapshotV1_JSON_vs_Proto_SemanticEquivalence(t *testing.T) {
 	if p != nil {
 		t.Fatalf("proto decode: %v", p)
 	}
-	protoResult, ok := protoAny.(contracts.AggregationSnapshotV1)
+	protoResult, ok := protoAny.(contracts.AggregationSnapshotV2)
 	if !ok {
-		t.Fatalf("proto decoded type = %T; want contracts.AggregationSnapshotV1", protoAny)
+		t.Fatalf("proto decoded type = %T; want contracts.AggregationSnapshotV2", protoAny)
 	}
 
 	if !reflect.DeepEqual(jsonResult, canonical) {

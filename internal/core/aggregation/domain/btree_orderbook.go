@@ -188,6 +188,30 @@ func levelsFromTree(tree *btree.BTreeG[levelNode]) []Level {
 	return out
 }
 
+// TopN returns at most n levels per side. If n <= 0, all levels are returned.
+// Bids are returned in descending price order, asks in ascending price order.
+func (b *OrderBook) TopN(n int) (bids, asks []Level) {
+	if n <= 0 {
+		return b.Bids(), b.Asks()
+	}
+	return levelsFromTreeLimited(b.bids, n), levelsFromTreeLimited(b.asks, n)
+}
+
+func levelsFromTreeLimited(tree *btree.BTreeG[levelNode], n int) []Level {
+	if tree == nil || tree.Len() == 0 {
+		return nil
+	}
+	if n <= 0 || n >= tree.Len() {
+		return levelsFromTree(tree)
+	}
+	out := make([]Level, 0, n)
+	tree.Ascend(func(node levelNode) bool {
+		out = append(out, Level(node))
+		return len(out) < n
+	})
+	return out
+}
+
 // ApplyDelta applies an incremental update to the order book.
 func (b *OrderBook) ApplyDelta(seq int64, bids, asks []Level) *problem.Problem {
 	return b.applyDelta(seq, bids, asks, false)

@@ -34,4 +34,14 @@ func TestRegisterAggregationPayloadV1_RegistersDualCodecs(t *testing.T) {
 			}
 		}
 	}
+
+	for _, format := range formats {
+		key := codec.SchemaKey{Type: "aggregation.snapshot", Version: 2, Format: format}
+		if _, ok := reg.Encoder(key); !ok {
+			t.Fatalf("missing encoder for key %+v", key)
+		}
+		if _, ok := reg.Decoder(key); !ok {
+			t.Fatalf("missing decoder for key %+v", key)
+		}
+	}
 }

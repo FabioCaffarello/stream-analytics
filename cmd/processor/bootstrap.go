@@ -542,6 +542,7 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 		Update: aggapp.UpdateConfig{
 			MaxBooks:                   cfg.Processor.MaxInstruments,
 			MaxLevels:                  cfg.Processor.OrderBook.MaxLevels,
+			PublishDepthCap:            cfg.Processor.RTPublish.WsSnapshotDepthCap,
 			SnapshotPublishMinInterval: time.Duration(cfg.Processor.RTPublish.OrderbookIntervalMs) * time.Millisecond,
 		},
 		Candle: aggapp.BuildCandleConfig{
@@ -629,9 +630,10 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 		VolumeProfileStore:    volumeProfileStore,
 		SnapshotSubjectPrefix: cfg.Processor.Insights.SnapshotSubjectPrefix,
 		RTPublish: aggruntime.ProcessorRTPublishConfig{
-			OrderbookInterval: time.Duration(cfg.Processor.RTPublish.OrderbookIntervalMs) * time.Millisecond,
-			HeatmapInterval:   time.Duration(cfg.Processor.RTPublish.HeatmapIntervalMs) * time.Millisecond,
-			VolumeInterval:    time.Duration(cfg.Processor.RTPublish.VolumeIntervalMs) * time.Millisecond,
+			OrderbookInterval:  time.Duration(cfg.Processor.RTPublish.OrderbookIntervalMs) * time.Millisecond,
+			WsSnapshotDepthCap: cfg.Processor.RTPublish.WsSnapshotDepthCap,
+			HeatmapInterval:    time.Duration(cfg.Processor.RTPublish.HeatmapIntervalMs) * time.Millisecond,
+			VolumeInterval:     time.Duration(cfg.Processor.RTPublish.VolumeIntervalMs) * time.Millisecond,
 		},
 		CatchUpSkipBookDeltaSkew: time.Duration(cfg.Processor.CatchUpSkipBookDeltaSkewMs) * time.Millisecond,
 		CatchUpSkipTradeSkew:     time.Duration(cfg.Processor.CatchUpSkipTradeSkewMs) * time.Millisecond,

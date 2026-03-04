@@ -192,9 +192,10 @@ type ProcessorCrossVenueConfig struct {
 
 // ProcessorRTPublishConfig controls timer-driven publish cadence.
 type ProcessorRTPublishConfig struct {
-	OrderbookInterval time.Duration
-	HeatmapInterval   time.Duration
-	VolumeInterval    time.Duration
+	OrderbookInterval  time.Duration
+	WsSnapshotDepthCap int
+	HeatmapInterval    time.Duration
+	VolumeInterval     time.Duration
 }
 
 const (
@@ -236,9 +237,11 @@ type ProcessorSubsystemActor struct {
 	shuttingDown     bool
 	tickerPID        *actor.PID
 
-	activeOrderBooks map[aggdomain.BookID]struct{}
-	activeHeatmaps   map[insightsapp.HeatmapSnapshotKey]struct{}
-	activeVolumes    map[insightsapp.VolumeProfileSnapshotKey]struct{}
+	activeOrderBooks      map[aggdomain.BookID]struct{}
+	lastOrderBookUpdateAt map[aggdomain.BookID]time.Time
+	lastOrderBookSnapshot map[aggdomain.BookID]orderBookSnapshotSignature
+	activeHeatmaps        map[insightsapp.HeatmapSnapshotKey]struct{}
+	activeVolumes         map[insightsapp.VolumeProfileSnapshotKey]struct{}
 
 	crossVenueBooks       map[string]map[string]aggdomain.CrossVenueVenueBook
 	crossVenueInstrumentQ []string
@@ -256,6 +259,11 @@ type ProcessorSubsystemActor struct {
 	tradeCatchUpSkipLastLogAt     time.Time
 	liquidationCatchUpSkipLogAt   time.Time
 	markPriceCatchUpSkipLogAt     time.Time
+}
+
+type orderBookSnapshotSignature struct {
+	Seq      int64
+	Checksum uint32
 }
 
 // NewProcessorSubsystemActor returns a hollywood actor.Producer for the
@@ -309,6 +317,12 @@ func (p *ProcessorSubsystemActor) ensureDefaults() {
 	if p.activeOrderBooks == nil {
 		p.activeOrderBooks = make(map[aggdomain.BookID]struct{})
 	}
+	if p.lastOrderBookUpdateAt == nil {
+		p.lastOrderBookUpdateAt = make(map[aggdomain.BookID]time.Time)
+	}
+	if p.lastOrderBookSnapshot == nil {
+		p.lastOrderBookSnapshot = make(map[aggdomain.BookID]orderBookSnapshotSignature)
+	}
 	if p.activeHeatmaps == nil {
 		p.activeHeatmaps = make(map[insightsapp.HeatmapSnapshotKey]struct{})
 	}
@@ -332,6 +346,9 @@ func (p *ProcessorSubsystemActor) ensureDefaults() {
 	}
 	if p.cfg.CrossVenueMerger == nil {
 		p.cfg.CrossVenueMerger = aggdomain.DeterministicCrossVenueBookMerger{}
+	}
+	if p.cfg.RTPublish.WsSnapshotDepthCap <= 0 {
+		p.cfg.RTPublish.WsSnapshotDepthCap = 50
 	}
 	if p.cfg.PolicyKitEngine != nil {
 		if p.policyApplier == nil {
@@ -720,7 +737,10 @@ func (p *ProcessorSubsystemActor) handleBookDelta(env envelope.Envelope) *proble
 	}
 
 	resp := res.Value()
-	p.markOrderBookActive(env.Venue, orderBookInstrumentKey(env))
+	orderBookID := aggdomain.BookID{Venue: env.Venue, Instrument: orderBookInstrumentKey(env)}
+	p.markOrderBookActive(orderBookID.Venue, orderBookID.Instrument)
+	p.lastOrderBookUpdateAt[orderBookID] = p.clockNow()
+	metrics.SetMROrderBookStaleDuration(orderBookID.Venue, orderBookID.Instrument, 0)
 	p.handleBookDeltaForInsights(env, delta)
 	if prob := p.handleBookDeltaForCrossVenue(env, req.Instrument); prob != nil {
 		p.logger.Warn("aggruntime: cross-venue book merge failed",
@@ -1455,7 +1475,9 @@ func (p *ProcessorSubsystemActor) handleSnapshotTick(msg SnapshotTick) {
 	if p.shuttingDown || p.cfg.PublishEnvelope == nil {
 		return
 	}
-	if p.shouldDeferSnapshotTick(p.clockNow(), msg.Kind) {
+	now := p.clockNow()
+	p.emitOrderBookStaleDurations(now)
+	if p.shouldDeferSnapshotTick(now, msg.Kind) {
 		return
 	}
 
@@ -1620,10 +1642,18 @@ func (p *ProcessorSubsystemActor) publishOrderBookSnapshots() {
 		if res.IsFail() {
 			continue
 		}
-		env, prob := buildOrderbookSnapshotEnvelope(res.Value(), p.publishTimestampMs())
+		capped := res.Value().Capped(p.cfg.RTPublish.WsSnapshotDepthCap, p.publishTimestampMs())
+		env, prob := buildOrderbookSnapshotEnvelope(capped)
 		if prob != nil {
 			continue
 		}
+		metrics.ObserveMROrderBookPublishDepth(key.Venue, "bid", len(capped.Bids))
+		metrics.ObserveMROrderBookPublishDepth(key.Venue, "ask", len(capped.Asks))
+		metrics.ObserveMROrderBookWireBytes(key.Venue, len(env.Payload))
+		if prev, ok := p.lastOrderBookSnapshot[key]; ok && prev.Seq == capped.Seq && prev.Checksum != capped.Checksum {
+			metrics.IncMROrderBookChecksumMismatch(key.Venue, key.Instrument)
+		}
+		p.lastOrderBookSnapshot[key] = orderBookSnapshotSignature{Seq: capped.Seq, Checksum: capped.Checksum}
 		if prob := p.cfg.PublishEnvelope.Publish(context.Background(), env); prob != nil {
 			p.logger.Warn("aggruntime: publish orderbook snapshot tick failed",
 				"venue", key.Venue,
@@ -1631,6 +1661,21 @@ func (p *ProcessorSubsystemActor) publishOrderBookSnapshots() {
 				"code", prob.Code,
 			)
 		}
+	}
+}
+
+func (p *ProcessorSubsystemActor) emitOrderBookStaleDurations(now time.Time) {
+	for _, key := range sortedOrderBookKeys(p.activeOrderBooks) {
+		lastUpdate, ok := p.lastOrderBookUpdateAt[key]
+		if !ok || lastUpdate.IsZero() {
+			metrics.SetMROrderBookStaleDuration(key.Venue, key.Instrument, 0)
+			continue
+		}
+		age := now.Sub(lastUpdate)
+		if age < 0 {
+			age = 0
+		}
+		metrics.SetMROrderBookStaleDuration(key.Venue, key.Instrument, age.Seconds())
 	}
 }
 
@@ -1726,8 +1771,55 @@ func resolveContentType(eventType string) string {
 	return envelope.ContentTypeJSON
 }
 
-func buildOrderbookSnapshotEnvelope(snapshot aggdomain.SnapshotProduced, nowMs int64) (envelope.Envelope, *problem.Problem) {
-	payload, p := codec.Marshal(snapshot)
+func buildOrderbookSnapshotEnvelope(snapshot aggdomain.SnapshotProduced) (envelope.Envelope, *problem.Problem) {
+	contentType := resolveContentType("aggregation.snapshot")
+	wireDTO := contracts.AggregationSnapshotV2{
+		Venue:      snapshot.BookID.Venue,
+		Instrument: snapshot.BookID.Instrument,
+		Seq:        snapshot.Seq,
+		Bids:       make([]contracts.AggregationOrderBookLevelV1, len(snapshot.Bids)),
+		Asks:       make([]contracts.AggregationOrderBookLevelV1, len(snapshot.Asks)),
+	}
+	for i := range snapshot.Bids {
+		wireDTO.Bids[i] = contracts.AggregationOrderBookLevelV1{
+			Price:    float64(snapshot.Bids[i].Price),
+			Quantity: float64(snapshot.Bids[i].Quantity),
+		}
+	}
+	for i := range snapshot.Asks {
+		wireDTO.Asks[i] = contracts.AggregationOrderBookLevelV1{
+			Price:    float64(snapshot.Asks[i].Price),
+			Quantity: float64(snapshot.Asks[i].Quantity),
+		}
+	}
+	wireDTO.BestBidPrice = snapshot.BestBidPrice
+	wireDTO.BestAskPrice = snapshot.BestAskPrice
+	wireDTO.SpreadBPS = snapshot.SpreadBPS
+	wireDTO.Checksum = snapshot.Checksum
+	wireDTO.TsIngestMs = snapshot.TsIngestMs
+	wireDTO.BidCount = snapshot.BidCount
+	wireDTO.AskCount = snapshot.AskCount
+	wireDTO.DepthCap = snapshot.DepthCap
+	wireDTO.Version = snapshot.Version
+	if wireDTO.BidCount <= 0 {
+		wireDTO.BidCount = len(snapshot.Bids)
+	}
+	if wireDTO.AskCount <= 0 {
+		wireDTO.AskCount = len(snapshot.Asks)
+	}
+	if wireDTO.BestBidPrice <= 0 && len(snapshot.Bids) > 0 {
+		wireDTO.BestBidPrice = float64(snapshot.Bids[0].Price)
+	}
+	if wireDTO.BestAskPrice <= 0 && len(snapshot.Asks) > 0 {
+		wireDTO.BestAskPrice = float64(snapshot.Asks[0].Price)
+	}
+	if wireDTO.Checksum == 0 {
+		wireDTO.Checksum = aggdomain.ComputeOrderBookChecksum(snapshot.Bids, snapshot.Asks)
+	}
+	if wireDTO.Version <= 0 {
+		wireDTO.Version = 2
+	}
+	payload, p := codec.EncodePayload("aggregation.snapshot", 1, contentType, wireDTO)
 	if p != nil {
 		return envelope.Envelope{}, p
 	}
@@ -1736,9 +1828,9 @@ func buildOrderbookSnapshotEnvelope(snapshot aggdomain.SnapshotProduced, nowMs i
 		Version:     1,
 		Venue:       snapshot.BookID.Venue,
 		Instrument:  naming.StripMarketType(snapshot.BookID.Instrument),
-		TsIngest:    nowMs,
+		TsIngest:    wireDTO.TsIngestMs,
 		Seq:         snapshot.Seq,
-		ContentType: envelope.ContentTypeJSON,
+		ContentType: contentType,
 		Payload:     payload,
 		IdempotencyKey: sharedhash.HashFieldsFast(
 			"aggregation.snapshot",

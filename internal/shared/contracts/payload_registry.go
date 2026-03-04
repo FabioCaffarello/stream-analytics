@@ -172,13 +172,32 @@ func RegisterAggregationPayloadV1(reg *codec.Registry) *problem.Problem {
 	if p := registerPayloadDual(
 		reg,
 		aggregationEventTypeSnapshot,
-		codec.JSONCodec[AggregationSnapshotV1]{},
-		domainProtoPayloadCodec[AggregationSnapshotV1, *aggregationv1.OrderBookSnapshotV1]{
-			newProto: func() *aggregationv1.OrderBookSnapshotV1 { return &aggregationv1.OrderBookSnapshotV1{} },
-			toProto:  WireDTOToProtoSnapshotV1,
-			toDomain: ProtoToWireDTOSnapshotV1,
+		codec.JSONCodec[AggregationSnapshotV2]{},
+		domainProtoPayloadCodec[AggregationSnapshotV2, *aggregationv2.OrderBookSnapshotV2]{
+			newProto: func() *aggregationv2.OrderBookSnapshotV2 { return &aggregationv2.OrderBookSnapshotV2{} },
+			toProto:  WireDTOToProtoSnapshotV2,
+			toDomain: ProtoToWireDTOSnapshotV2,
 		},
 	); p != nil {
+		return p
+	}
+	if p := reg.Register(codec.SchemaKey{
+		Type:    aggregationEventTypeSnapshot,
+		Version: 2,
+		Format:  codec.FormatJSON,
+	}, codec.JSONCodec[AggregationSnapshotV2]{}, codec.JSONCodec[AggregationSnapshotV2]{}); p != nil {
+		return p
+	}
+	snapshotV2ProtoCodec := domainProtoPayloadCodec[AggregationSnapshotV2, *aggregationv2.OrderBookSnapshotV2]{
+		newProto: func() *aggregationv2.OrderBookSnapshotV2 { return &aggregationv2.OrderBookSnapshotV2{} },
+		toProto:  WireDTOToProtoSnapshotV2,
+		toDomain: ProtoToWireDTOSnapshotV2,
+	}
+	if p := reg.Register(codec.SchemaKey{
+		Type:    aggregationEventTypeSnapshot,
+		Version: 2,
+		Format:  codec.FormatProto,
+	}, snapshotV2ProtoCodec, snapshotV2ProtoCodec); p != nil {
 		return p
 	}
 	if p := registerPayloadDual(

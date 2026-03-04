@@ -3,6 +3,7 @@ package metrics
 import (
 	"fmt"
 	"hash/fnv"
+	"math"
 	"regexp"
 	"runtime"
 	"strings"
@@ -584,6 +585,57 @@ var (
 		prometheus.CounterOpts{
 			Name: "mr_orderbook_stale_total",
 			Help: "Total stale (out-of-order) order book deltas.",
+		},
+		[]string{"venue", "instrument_bucket"},
+	)
+	MROrderBookBadLevelTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_orderbook_bad_level_total",
+			Help: "Total rejected order book levels by bounded reason.",
+		},
+		[]string{"venue", "instrument_bucket", "reason"},
+	)
+	MROrderBookGapTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_orderbook_gap_total",
+			Help: "Total detected sequence gaps between consecutive accepted updates.",
+		},
+		[]string{"venue", "instrument_bucket"},
+	)
+	MROrderBookDropsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_orderbook_drops_total",
+			Help: "Total dropped/rejected order book updates by reason.",
+		},
+		[]string{"venue", "instrument_bucket", "reason"},
+	)
+	MROrderBookStaleDurationSeconds = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "mr_orderbook_stale_duration_seconds",
+			Help: "Seconds since last successful update per bounded instrument bucket.",
+		},
+		[]string{"venue", "instrument_bucket"},
+	)
+	MROrderBookPublishDepth = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mr_orderbook_publish_depth",
+			Help:    "Published snapshot depth per side.",
+			Buckets: []float64{5, 10, 25, 50, 100, 200, 500, 1000},
+		},
+		[]string{"venue", "side"},
+	)
+	MROrderBookWireBytes = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mr_orderbook_wire_bytes",
+			Help:    "Encoded orderbook snapshot frame size in bytes.",
+			Buckets: []float64{256, 512, 1024, 2048, 4096, 8192, 16384, 32768},
+		},
+		[]string{"venue"},
+	)
+	MROrderBookChecksumMismatchTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_orderbook_checksum_mismatch_total",
+			Help: "Total checksum mismatches observed for repeated snapshot sequence numbers.",
 		},
 		[]string{"venue", "instrument_bucket"},
 	)
@@ -1379,27 +1431,30 @@ var (
 	samplerMu    sync.Map
 	signalWSSubs atomic.Int64
 
-	venuePattern            = regexp.MustCompile(`^[a-z0-9_\-]{1,24}$`)
-	eventTypePattern        = regexp.MustCompile(`^[a-z0-9_.]{1,64}$`)
-	policyPattern           = regexp.MustCompile(`^[a-z_]{1,32}$`)
-	kindPattern             = regexp.MustCompile(`^[a-z0-9_]{1,48}$`)
-	busTypePattern          = regexp.MustCompile(`^[a-z0-9_]{1,24}$`)
-	busStatusPattern        = regexp.MustCompile(`^[a-z_]{1,24}$`)
-	instrumentBucketAliases = map[string]string{
-		"btc":   "btc",
-		"xbt":   "btc",
-		"eth":   "eth",
-		"usdt":  "stable",
-		"usdc":  "stable",
-		"dai":   "stable",
-		"fdusd": "stable",
-		"bnb":   "major",
-		"sol":   "major",
-		"xrp":   "major",
-		"ada":   "major",
-		"doge":  "major",
-		"dot":   "major",
-		"avax":  "major",
+	venuePattern          = regexp.MustCompile(`^[a-z0-9_\-]{1,24}$`)
+	eventTypePattern      = regexp.MustCompile(`^[a-z0-9_.]{1,64}$`)
+	policyPattern         = regexp.MustCompile(`^[a-z_]{1,32}$`)
+	kindPattern           = regexp.MustCompile(`^[a-z0-9_]{1,48}$`)
+	busTypePattern        = regexp.MustCompile(`^[a-z0-9_]{1,24}$`)
+	busStatusPattern      = regexp.MustCompile(`^[a-z_]{1,24}$`)
+	instrumentBucketRules = []struct {
+		alias  string
+		bucket string
+	}{
+		{alias: "btc", bucket: "btc"},
+		{alias: "xbt", bucket: "btc"},
+		{alias: "eth", bucket: "eth"},
+		{alias: "bnb", bucket: "major"},
+		{alias: "sol", bucket: "major"},
+		{alias: "xrp", bucket: "major"},
+		{alias: "ada", bucket: "major"},
+		{alias: "doge", bucket: "major"},
+		{alias: "dot", bucket: "major"},
+		{alias: "avax", bucket: "major"},
+		{alias: "usdt", bucket: "stable"},
+		{alias: "usdc", bucket: "stable"},
+		{alias: "dai", bucket: "stable"},
+		{alias: "fdusd", bucket: "stable"},
 	}
 	timeframeAllowedBuckets = map[string]struct{}{
 		"1s":  {},
@@ -1522,6 +1577,13 @@ func registerAll() {
 			MROrderBookPruneTotal,
 			MROrderBookCrossedTotal,
 			MROrderBookStaleTotal,
+			MROrderBookBadLevelTotal,
+			MROrderBookGapTotal,
+			MROrderBookDropsTotal,
+			MROrderBookStaleDurationSeconds,
+			MROrderBookPublishDepth,
+			MROrderBookWireBytes,
+			MROrderBookChecksumMismatchTotal,
 			MRWindowOpenTotal,
 			MRWindowLateArrivalTotal,
 			MRWindowForceCloseTotal,
@@ -2316,6 +2378,68 @@ func IncMROrderBookStale(venue, instrument string) {
 		sanitizeVenue(venue),
 		bucketInstrument(instrument),
 	).Inc()
+}
+
+func IncMROrderBookBadLevel(venue, instrument, reason string) {
+	MROrderBookBadLevelTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+		sanitizeOrderBookBadLevelReason(reason),
+	).Inc()
+}
+
+func IncMROrderBookGap(venue, instrument string) {
+	MROrderBookGapTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+	).Inc()
+}
+
+func IncMROrderBookDrop(venue, instrument, reason string) {
+	MROrderBookDropsTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+		sanitizeOrderBookDropReason(reason),
+	).Inc()
+}
+
+func SetMROrderBookStaleDuration(venue, instrument string, seconds float64) {
+	if seconds < 0 || math.IsNaN(seconds) || math.IsInf(seconds, 0) {
+		seconds = 0
+	}
+	MROrderBookStaleDurationSeconds.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+	).Set(seconds)
+}
+
+func ObserveMROrderBookPublishDepth(venue, side string, depth int) {
+	if depth < 0 {
+		depth = 0
+	}
+	MROrderBookPublishDepth.WithLabelValues(
+		sanitizeVenue(venue),
+		sanitizeOrderBookSide(side),
+	).Observe(float64(depth))
+}
+
+func ObserveMROrderBookWireBytes(venue string, bytes int) {
+	if bytes < 0 {
+		bytes = 0
+	}
+	MROrderBookWireBytes.WithLabelValues(sanitizeVenue(venue)).Observe(float64(bytes))
+}
+
+func IncMROrderBookChecksumMismatch(venue, instrument string) {
+	MROrderBookChecksumMismatchTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+	).Inc()
+}
+
+// InstrumentBucket returns the bounded metrics label bucket for an instrument.
+func InstrumentBucket(instrument string) string {
+	return bucketInstrument(instrument)
 }
 
 func SetMRWindowOpen(venue, instrument, timeframe string, openCount int) {
@@ -3134,6 +3258,24 @@ func sanitizeOrderBookSide(v string) string {
 	}
 }
 
+func sanitizeOrderBookBadLevelReason(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "nan", "inf", "neg_price", "neg_qty", "zero_price":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeOrderBookDropReason(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "out_of_order", "validation_failed", "integrity_violation", "publish_failed", "store_failed":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return "unknown"
+	}
+}
+
 func sanitizeBusType(v string) string {
 	v = strings.ToLower(strings.TrimSpace(v))
 	if busTypePattern.MatchString(v) {
@@ -3194,12 +3336,13 @@ func bucketInstrument(v string) string {
 	if sanitized == "" {
 		return "unknown"
 	}
-	for alias, bucket := range instrumentBucketAliases {
-		if strings.Contains(strings.ToLower(sanitized), alias) {
-			return bucket
+	sanitizedLower := strings.ToLower(sanitized)
+	for _, rule := range instrumentBucketRules {
+		if strings.Contains(sanitizedLower, rule.alias) {
+			return rule.bucket
 		}
 	}
-	if strings.HasSuffix(strings.ToLower(sanitized), "usd") {
+	if strings.HasSuffix(sanitizedLower, "usd") {
 		return "fiat"
 	}
 	return "other"

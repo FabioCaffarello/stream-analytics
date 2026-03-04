@@ -695,6 +695,13 @@ func validateProcessor(p ProcessorConfig) *problem.Problem {
 	if p.RTPublish.OrderbookIntervalMs < 0 {
 		return problem.Newf(codeInvalid, "processor.rt_publish.orderbook_interval_ms must be >= 0, got %d", p.RTPublish.OrderbookIntervalMs)
 	}
+	if p.RTPublish.WsSnapshotDepthCap < 10 || p.RTPublish.WsSnapshotDepthCap > 1000 {
+		return problem.Newf(
+			codeInvalid,
+			"processor.rt_publish.ws_snapshot_depth_cap must be in [10,1000], got %d",
+			p.RTPublish.WsSnapshotDepthCap,
+		)
+	}
 	if p.RTPublish.HeatmapIntervalMs < 0 {
 		return problem.Newf(codeInvalid, "processor.rt_publish.heatmap_interval_ms must be >= 0, got %d", p.RTPublish.HeatmapIntervalMs)
 	}
@@ -1379,6 +1386,9 @@ func applyDefaults(c *AppConfig) {
 	}
 	if c.Processor.RTPublish.OrderbookIntervalMs == 0 && !c.Processor.RTPublish.orderbookConfigured() {
 		c.Processor.RTPublish.OrderbookIntervalMs = 200
+	}
+	if c.Processor.RTPublish.WsSnapshotDepthCap == 0 && !c.Processor.RTPublish.depthCapConfigured() {
+		c.Processor.RTPublish.WsSnapshotDepthCap = 50
 	}
 	if c.Processor.RTPublish.HeatmapIntervalMs == 0 && !c.Processor.RTPublish.heatmapConfigured() {
 		c.Processor.RTPublish.HeatmapIntervalMs = 200

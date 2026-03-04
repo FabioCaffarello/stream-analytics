@@ -2,6 +2,12 @@ package contracts
 
 import (
 	aggregationv1 "github.com/market-raccoon/internal/shared/proto/gen/aggregation/v1"
+	aggregationv2 "github.com/market-raccoon/internal/shared/proto/gen/aggregation/v2"
+)
+
+const (
+	minProtoInt32 = int64(-1 << 31)
+	maxProtoInt32 = int64(1<<31 - 1)
 )
 
 // WireDTOToProtoCandleClosedV1 converts the wire DTO to the protobuf message.
@@ -149,6 +155,65 @@ func ProtoToWireDTOSnapshotV1(in *aggregationv1.OrderBookSnapshotV1) Aggregation
 	}
 }
 
+// WireDTOToProtoSnapshotV2 converts the wire DTO to the protobuf message.
+func WireDTOToProtoSnapshotV2(in AggregationSnapshotV2) *aggregationv2.OrderBookSnapshotV2 {
+	bids := make([]*aggregationv2.OrderBookLevelV1, len(in.Bids))
+	for i, b := range in.Bids {
+		bids[i] = &aggregationv2.OrderBookLevelV1{Price: b.Price, Quantity: b.Quantity}
+	}
+	asks := make([]*aggregationv2.OrderBookLevelV1, len(in.Asks))
+	for i, a := range in.Asks {
+		asks[i] = &aggregationv2.OrderBookLevelV1{Price: a.Price, Quantity: a.Quantity}
+	}
+	return &aggregationv2.OrderBookSnapshotV2{
+		Venue:        in.Venue,
+		Instrument:   in.Instrument,
+		Seq:          in.Seq,
+		Bids:         bids,
+		Asks:         asks,
+		BestBidPrice: in.BestBidPrice,
+		BestAskPrice: in.BestAskPrice,
+		SpreadBps:    in.SpreadBPS,
+		Checksum:     in.Checksum,
+		TsIngestMs:   in.TsIngestMs,
+		BidCount:     boundedInt32(in.BidCount),
+		AskCount:     boundedInt32(in.AskCount),
+		DepthCap:     boundedInt32(in.DepthCap),
+		Version:      boundedInt32(in.Version),
+	}
+}
+
+// ProtoToWireDTOSnapshotV2 converts the protobuf message to the wire DTO.
+func ProtoToWireDTOSnapshotV2(in *aggregationv2.OrderBookSnapshotV2) AggregationSnapshotV2 {
+	if in == nil {
+		return AggregationSnapshotV2{}
+	}
+	bids := make([]AggregationOrderBookLevelV1, len(in.GetBids()))
+	for i, b := range in.GetBids() {
+		bids[i] = AggregationOrderBookLevelV1{Price: b.GetPrice(), Quantity: b.GetQuantity()}
+	}
+	asks := make([]AggregationOrderBookLevelV1, len(in.GetAsks()))
+	for i, a := range in.GetAsks() {
+		asks[i] = AggregationOrderBookLevelV1{Price: a.GetPrice(), Quantity: a.GetQuantity()}
+	}
+	return AggregationSnapshotV2{
+		Venue:        in.GetVenue(),
+		Instrument:   in.GetInstrument(),
+		Seq:          in.GetSeq(),
+		Bids:         bids,
+		Asks:         asks,
+		BestBidPrice: in.GetBestBidPrice(),
+		BestAskPrice: in.GetBestAskPrice(),
+		SpreadBPS:    in.GetSpreadBps(),
+		Checksum:     in.GetChecksum(),
+		TsIngestMs:   in.GetTsIngestMs(),
+		BidCount:     int(in.GetBidCount()),
+		AskCount:     int(in.GetAskCount()),
+		DepthCap:     int(in.GetDepthCap()),
+		Version:      int(in.GetVersion()),
+	}
+}
+
 // WireDTOToProtoInconsistencyV1 converts the wire DTO to the protobuf message.
 func WireDTOToProtoInconsistencyV1(in AggregationOrderBookInconsistencyV1) *aggregationv1.OrderBookInconsistencyV1 {
 	return &aggregationv1.OrderBookInconsistencyV1{
@@ -169,5 +234,17 @@ func ProtoToWireDTOInconsistencyV1(in *aggregationv1.OrderBookInconsistencyV1) A
 		Instrument: in.GetInstrument(),
 		Seq:        in.GetSeq(),
 		Reason:     in.GetReason(),
+	}
+}
+
+func boundedInt32(v int) int32 {
+	iv := int64(v)
+	switch {
+	case iv > maxProtoInt32:
+		return int32(maxProtoInt32)
+	case iv < minProtoInt32:
+		return int32(minProtoInt32)
+	default:
+		return int32(iv)
 	}
 }

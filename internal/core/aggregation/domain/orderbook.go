@@ -61,24 +61,95 @@ func NewOrderBookWithMaxLevels(venue, instrument string, maxLevels int) (*OrderB
 func validateLevel(side string, idx int, l Level) *problem.Problem {
 	price := float64(l.Price)
 	qty := float64(l.Quantity)
-	if l.Price <= 0 || math.IsNaN(price) || math.IsInf(price, 0) {
+	if math.IsNaN(price) {
 		return problem.WithDetail(
 			problem.WithDetail(
-				problem.Newf(problem.ValidationFailed,
-					"%s level[%d] price must be a finite positive number, got %g", side, idx, price),
-				"side", side,
+				problem.WithDetail(
+					problem.Newf(problem.ValidationFailed,
+						"%s level[%d] price must be a finite positive number, got %g", side, idx, price),
+					"side", side,
+				),
+				"index", idx,
 			),
-			"index", idx,
+			"reason", "nan",
 		)
 	}
-	if l.Quantity < 0 || math.IsNaN(qty) || math.IsInf(qty, 0) {
+	if math.IsInf(price, 0) {
 		return problem.WithDetail(
 			problem.WithDetail(
-				problem.Newf(problem.ValidationFailed,
-					"%s level[%d] quantity must be a finite non-negative number, got %g", side, idx, qty),
-				"side", side,
+				problem.WithDetail(
+					problem.Newf(problem.ValidationFailed,
+						"%s level[%d] price must be a finite positive number, got %g", side, idx, price),
+					"side", side,
+				),
+				"index", idx,
 			),
-			"index", idx,
+			"reason", "inf",
+		)
+	}
+	if l.Price < 0 {
+		return problem.WithDetail(
+			problem.WithDetail(
+				problem.WithDetail(
+					problem.Newf(problem.ValidationFailed,
+						"%s level[%d] price must be a finite positive number, got %g", side, idx, price),
+					"side", side,
+				),
+				"index", idx,
+			),
+			"reason", "neg_price",
+		)
+	}
+	if l.Price == 0 {
+		return problem.WithDetail(
+			problem.WithDetail(
+				problem.WithDetail(
+					problem.Newf(problem.ValidationFailed,
+						"%s level[%d] price must be a finite positive number, got %g", side, idx, price),
+					"side", side,
+				),
+				"index", idx,
+			),
+			"reason", "zero_price",
+		)
+	}
+	if math.IsNaN(qty) {
+		return problem.WithDetail(
+			problem.WithDetail(
+				problem.WithDetail(
+					problem.Newf(problem.ValidationFailed,
+						"%s level[%d] quantity must be a finite non-negative number, got %g", side, idx, qty),
+					"side", side,
+				),
+				"index", idx,
+			),
+			"reason", "nan",
+		)
+	}
+	if math.IsInf(qty, 0) {
+		return problem.WithDetail(
+			problem.WithDetail(
+				problem.WithDetail(
+					problem.Newf(problem.ValidationFailed,
+						"%s level[%d] quantity must be a finite non-negative number, got %g", side, idx, qty),
+					"side", side,
+				),
+				"index", idx,
+			),
+			"reason", "inf",
+		)
+	}
+	if l.Quantity < 0 {
+		return problem.WithDetail(
+			problem.WithDetail(
+				problem.WithDetail(
+					problem.Newf(problem.ValidationFailed,
+						"%s level[%d] quantity must be a finite non-negative number, got %g", side, idx, qty),
+					"side", side,
+				),
+				"index", idx,
+			),
+			"reason", "neg_qty",
 		)
 	}
 	return nil

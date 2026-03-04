@@ -723,6 +723,9 @@ type ProcessorRTPublishConfig struct {
 	// OrderbookIntervalMs controls periodic orderbook snapshot publish cadence.
 	// Default: 200ms. 0 disables timer-driven orderbook publishing.
 	OrderbookIntervalMs int `json:"orderbook_interval_ms"`
+	// WsSnapshotDepthCap bounds aggregation.snapshot levels per side for WS/tick publishes.
+	// Default: 50. Valid range: 10..1000.
+	WsSnapshotDepthCap int `json:"ws_snapshot_depth_cap"`
 	// HeatmapIntervalMs controls periodic heatmap snapshot publish cadence.
 	// Default: 200ms. 0 disables timer-driven heatmap publishing.
 	HeatmapIntervalMs int `json:"heatmap_interval_ms"`
@@ -731,6 +734,7 @@ type ProcessorRTPublishConfig struct {
 	VolumeIntervalMs int `json:"volume_interval_ms"`
 
 	orderbookIntervalSet bool `json:"-"`
+	depthCapSet          bool `json:"-"`
 	heatmapIntervalSet   bool `json:"-"`
 	volumeIntervalSet    bool `json:"-"`
 }
@@ -752,6 +756,9 @@ func (c *ProcessorRTPublishConfig) UnmarshalJSON(data []byte) error {
 	if _, ok := raw["orderbook_interval_ms"]; ok {
 		c.orderbookIntervalSet = true
 	}
+	if _, ok := raw["ws_snapshot_depth_cap"]; ok {
+		c.depthCapSet = true
+	}
 	if _, ok := raw["heatmap_interval_ms"]; ok {
 		c.heatmapIntervalSet = true
 	}
@@ -763,6 +770,10 @@ func (c *ProcessorRTPublishConfig) UnmarshalJSON(data []byte) error {
 
 func (c ProcessorRTPublishConfig) orderbookConfigured() bool {
 	return c.orderbookIntervalSet
+}
+
+func (c ProcessorRTPublishConfig) depthCapConfigured() bool {
+	return c.depthCapSet
 }
 
 func (c ProcessorRTPublishConfig) heatmapConfigured() bool {

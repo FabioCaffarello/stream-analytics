@@ -61,6 +61,25 @@ type AggregationSnapshotV1 struct {
 	Asks       []AggregationOrderBookLevelV1
 }
 
+// AggregationSnapshotV2 is the enriched wire DTO for aggregation.snapshot.
+// Envelope version remains v1 for backward-compat stream contracts.
+type AggregationSnapshotV2 struct {
+	Venue        string
+	Instrument   string
+	Seq          int64
+	Bids         []AggregationOrderBookLevelV1
+	Asks         []AggregationOrderBookLevelV1
+	BestBidPrice float64
+	BestAskPrice float64
+	SpreadBPS    float64
+	Checksum     uint32
+	TsIngestMs   int64
+	BidCount     int
+	AskCount     int
+	DepthCap     int
+	Version      int
+}
+
 // AggregationOrderBookLevelV1 is a single price level in the wire DTO.
 type AggregationOrderBookLevelV1 struct {
 	Price    float64

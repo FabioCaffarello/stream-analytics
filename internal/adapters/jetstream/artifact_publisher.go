@@ -13,6 +13,7 @@ import (
 	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 	sharedhash "github.com/market-raccoon/internal/shared/hash"
+	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/naming"
 	"github.com/market-raccoon/internal/shared/problem"
 )
@@ -45,18 +46,22 @@ func NewArtifactPublisher(pub *Publisher, logger *slog.Logger) *ArtifactPublishe
 
 // PublishSnapshot publishes an aggregation snapshot event.
 func (a *ArtifactPublisher) PublishSnapshot(ctx context.Context, snap aggdomain.SnapshotProduced) *problem.Problem {
-	wireDTO := domainSnapshotToWireDTO(snap)
+	nowMs := a.clock()
+	wireDTO := domainSnapshotToWireDTO(snap, nowMs)
 	contentType := chooseArtifactContentType("aggregation.snapshot")
 	payload, p := codec.EncodePayload("aggregation.snapshot", 1, contentType, wireDTO)
 	if p != nil {
 		return p
 	}
+	metrics.ObserveMROrderBookPublishDepth(snap.BookID.Venue, "bid", len(wireDTO.Bids))
+	metrics.ObserveMROrderBookPublishDepth(snap.BookID.Venue, "ask", len(wireDTO.Asks))
+	metrics.ObserveMROrderBookWireBytes(snap.BookID.Venue, len(payload))
 	env := envelope.Envelope{
 		Type:       "aggregation.snapshot",
 		Version:    1,
 		Venue:      snap.BookID.Venue,
 		Instrument: naming.StripMarketType(snap.BookID.Instrument),
-		TsIngest:   a.clock(),
+		TsIngest:   nowMs,
 		Seq:        snap.Seq,
 		IdempotencyKey: sharedhash.HashFieldsFast(
 			"aggregation.snapshot",
@@ -261,22 +266,101 @@ func domainStatsToWireDTO(evt aggdomain.StatsWindowClosed) contracts.Aggregation
 }
 
 // domainSnapshotToWireDTO converts a domain SnapshotProduced to the shared wire DTO.
-func domainSnapshotToWireDTO(snap aggdomain.SnapshotProduced) contracts.AggregationSnapshotV1 {
-	bids := make([]contracts.AggregationOrderBookLevelV1, len(snap.Bids))
-	for i, b := range snap.Bids {
-		bids[i] = contracts.AggregationOrderBookLevelV1{Price: float64(b.Price), Quantity: float64(b.Quantity)}
+func domainSnapshotToWireDTO(snap aggdomain.SnapshotProduced, nowMs int64) contracts.AggregationSnapshotV2 {
+	bids := snapshotLevelsToWire(snap.Bids)
+	asks := snapshotLevelsToWire(snap.Asks)
+	tsIngestMs := snapshotTsIngestMs(snap.TsIngestMs, nowMs)
+	bidCount, askCount := snapshotLevelCounts(snap)
+	bestBid, bestAsk := snapshotBestPrices(snap)
+	spreadBPS := snapshotSpreadBPS(snap.SpreadBPS, bestBid, bestAsk)
+	version := snapshotVersion(snap.Version)
+	checksum := snapshotChecksum(snap)
+	return contracts.AggregationSnapshotV2{
+		Venue:        snap.BookID.Venue,
+		Instrument:   snap.BookID.Instrument,
+		Seq:          snap.Seq,
+		Bids:         bids,
+		Asks:         asks,
+		BestBidPrice: bestBid,
+		BestAskPrice: bestAsk,
+		SpreadBPS:    spreadBPS,
+		Checksum:     checksum,
+		TsIngestMs:   tsIngestMs,
+		BidCount:     bidCount,
+		AskCount:     askCount,
+		DepthCap:     snap.DepthCap,
+		Version:      version,
 	}
-	asks := make([]contracts.AggregationOrderBookLevelV1, len(snap.Asks))
-	for i, a := range snap.Asks {
-		asks[i] = contracts.AggregationOrderBookLevelV1{Price: float64(a.Price), Quantity: float64(a.Quantity)}
+}
+
+func snapshotLevelsToWire(levels []aggdomain.Level) []contracts.AggregationOrderBookLevelV1 {
+	if len(levels) == 0 {
+		return nil
 	}
-	return contracts.AggregationSnapshotV1{
-		Venue:      snap.BookID.Venue,
-		Instrument: snap.BookID.Instrument,
-		Seq:        snap.Seq,
-		Bids:       bids,
-		Asks:       asks,
+	out := make([]contracts.AggregationOrderBookLevelV1, len(levels))
+	for i, lvl := range levels {
+		out[i] = contracts.AggregationOrderBookLevelV1{
+			Price:    float64(lvl.Price),
+			Quantity: float64(lvl.Quantity),
+		}
 	}
+	return out
+}
+
+func snapshotTsIngestMs(tsIngestMs, nowMs int64) int64 {
+	if tsIngestMs > 0 {
+		return tsIngestMs
+	}
+	return nowMs
+}
+
+func snapshotLevelCounts(snap aggdomain.SnapshotProduced) (bidCount, askCount int) {
+	bidCount = snap.BidCount
+	if bidCount <= 0 {
+		bidCount = len(snap.Bids)
+	}
+	askCount = snap.AskCount
+	if askCount <= 0 {
+		askCount = len(snap.Asks)
+	}
+	return bidCount, askCount
+}
+
+func snapshotBestPrices(snap aggdomain.SnapshotProduced) (bestBid, bestAsk float64) {
+	bestBid = snap.BestBidPrice
+	if bestBid <= 0 && len(snap.Bids) > 0 {
+		bestBid = float64(snap.Bids[0].Price)
+	}
+	bestAsk = snap.BestAskPrice
+	if bestAsk <= 0 && len(snap.Asks) > 0 {
+		bestAsk = float64(snap.Asks[0].Price)
+	}
+	return bestBid, bestAsk
+}
+
+func snapshotSpreadBPS(spreadBPS, bestBid, bestAsk float64) float64 {
+	if spreadBPS != 0 || bestBid <= 0 || bestAsk <= 0 {
+		return spreadBPS
+	}
+	mid := (bestBid + bestAsk) * 0.5
+	if mid <= 0 {
+		return 0
+	}
+	return ((bestAsk - bestBid) / mid) * 10_000
+}
+
+func snapshotVersion(version int) int {
+	if version > 0 {
+		return version
+	}
+	return 2
+}
+
+func snapshotChecksum(snap aggdomain.SnapshotProduced) uint32 {
+	if snap.Checksum != 0 {
+		return snap.Checksum
+	}
+	return aggdomain.ComputeOrderBookChecksum(snap.Bids, snap.Asks)
 }
 
 // domainInconsistentToWireDTO converts a domain OrderBookInconsistentDetected to the shared wire DTO.

@@ -10,6 +10,8 @@ type OrderBookV2 interface {
 	Spread() float64
 	Bids() []Level
 	Asks() []Level
+	TopN(n int) (bids, asks []Level)
+	Checksum() uint32
 	ApplyDelta(seq int64, bids, asks []Level) *problem.Problem
 	ApplySnapshot(seq int64, bids, asks []Level) *problem.Problem
 	LastSeq() int64
