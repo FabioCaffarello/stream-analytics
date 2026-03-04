@@ -11,6 +11,7 @@ import (
 // the inline struct building in emitHello().
 type EffectiveLimits struct {
 	MaxSubscriptions        int
+	MaxSignalSubscriptions  int
 	MaxSymbolsPerConnection int
 	MaxFrameBytes           int
 	OutboundQueueSize       int
@@ -26,6 +27,7 @@ type EffectiveLimits struct {
 func NewEffectiveLimits(cfg SessionConfig) EffectiveLimits {
 	el := EffectiveLimits{
 		MaxSubscriptions:        cfg.MaxSubscriptions,
+		MaxSignalSubscriptions:  cfg.MaxSignalSubscriptions,
 		MaxSymbolsPerConnection: cfg.MaxSymbolsPerConnection,
 		RateLimit:               cfg.RateLimit,
 		SlowClientDropThreshold: cfg.SlowClientDropThreshold,
@@ -90,6 +92,7 @@ func (el EffectiveLimits) ToHelloCapabilities(serverInstanceID string, compressi
 			"aggregation.candle",
 			"insights.heatmap_snapshot",
 			"insights.volume_profile_snapshot",
+			"signal",
 		},
 		Venues: []string{
 			"binance",
@@ -98,14 +101,15 @@ func (el EffectiveLimits) ToHelloCapabilities(serverInstanceID string, compressi
 			"kraken",
 			"hyperliquid",
 		},
-		MaxSubscriptionsPerConn: el.MaxSubscriptions,
-		MaxSymbolsPerConnection: el.MaxSymbolsPerConnection,
-		MaxFrameBytes:           el.MaxFrameBytes,
-		OutboundQueueSize:       el.OutboundQueueSize,
-		MetricsCadenceMs:        el.MetricsCadenceMs,
-		KeepaliveIntervalMs:     el.KeepaliveIntervalMs,
-		RateLimit:               rl,
-		SupportedFeatures:       features,
+		MaxSubscriptionsPerConn:       el.MaxSubscriptions,
+		MaxSignalSubscriptionsPerConn: el.MaxSignalSubscriptions,
+		MaxSymbolsPerConnection:       el.MaxSymbolsPerConnection,
+		MaxFrameBytes:                 el.MaxFrameBytes,
+		OutboundQueueSize:             el.OutboundQueueSize,
+		MetricsCadenceMs:              el.MetricsCadenceMs,
+		KeepaliveIntervalMs:           el.KeepaliveIntervalMs,
+		RateLimit:                     rl,
+		SupportedFeatures:             features,
 	}
 }
 

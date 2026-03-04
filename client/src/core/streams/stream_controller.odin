@@ -58,18 +58,38 @@ controller_mark_message :: proc(
 	status.connected = true
 	if seq > 0 {
 		if status.last_seq > 0 && (seq > status.last_seq + 1 || seq < status.last_seq) {
-			status.desync_reason = .Sequence_Gap
-			status.state = .Desync
+			// Only flag gap if the jump is significant (>10). Multi-replica delivery
+			// can interleave small out-of-order bursts that are not real data loss.
+			gap := seq - status.last_seq
+			if gap < 0 do gap = -gap
+			if gap > 10 {
+				status.desync_reason = .Sequence_Gap
+				status.state = .Desync
+			}
+		} else if status.desync_reason == .Sequence_Gap {
+			// Auto-recover: monotonic sequence resumes.
+			status.desync_reason = .None
+			status.state = .Live
 		}
 		status.last_seq = seq
 	}
 	if local_ts_ms > 0 do status.last_local_ts_ms = local_ts_ms
 	if server_ts_ms > 0 {
-		if status.last_server_ts_ms > 0 && server_ts_ms < status.last_server_ts_ms {
+		// Allow minor timestamp regressions (up to 5s) — expected with multi-replica
+		// processors delivering interleaved events. Only flag as protocol violation
+		// when regression exceeds the threshold, indicating real clock skew.
+		TS_REGRESSION_TOLERANCE_MS :: i64(5_000)
+		if status.last_server_ts_ms > 0 && server_ts_ms < status.last_server_ts_ms - TS_REGRESSION_TOLERANCE_MS {
 			status.desync_reason = .Protocol_Invalid
 			status.state = .Desync
+		} else if status.desync_reason == .Protocol_Invalid {
+			// Auto-recover: valid forward-progressing timestamp clears stale Protocol_Invalid.
+			status.desync_reason = .None
+			status.state = .Live
 		}
-		status.last_server_ts_ms = server_ts_ms
+		if server_ts_ms >= status.last_server_ts_ms {
+			status.last_server_ts_ms = server_ts_ms
+		}
 	}
 	if is_snapshot && local_ts_ms > 0 {
 		status.last_snapshot_ts_ms = local_ts_ms
@@ -114,12 +134,37 @@ controller_update_health :: proc(ctrl: ^Stream_Controller, status: ^Stream_Statu
 		status.last_message_age_ms = age
 	}
 	if status.desync_reason != .None {
-		status.state = .Desync
-		return status.state
+		// Auto-recover recoverable desync reasons before returning early.
+		#partial switch status.desync_reason {
+		case .Clock_Drift:
+			if status.lag_ms <= ctrl.clock_drift_warn_ms {
+				status.desync_reason = .None
+				// Fall through to normal health checks.
+			} else {
+				status.state = .Desync
+				return status.state
+			}
+		case .Snapshot_Stale:
+			event_age := now_ms - status.last_local_ts_ms
+			if now_ms > 0 && status.last_local_ts_ms > 0 && event_age <= ctrl.desync_stale_ms {
+				status.desync_reason = .None
+				// Fall through to normal health checks.
+			} else {
+				status.state = .Desync
+				return status.state
+			}
+		case:
+			status.state = .Desync
+			return status.state
+		}
 	}
 	if now_ms > 0 && status.last_snapshot_ts_ms > 0 {
 		snapshot_age := now_ms - status.last_snapshot_ts_ms
-		if snapshot_age > ctrl.desync_stale_ms {
+		// Only flag snapshot stale when the stream is truly silent — not
+		// receiving ANY events. Orderbook deltas, trades, and stats prove
+		// liveness even when explicit snapshots aren't flowing.
+		event_age := now_ms - status.last_local_ts_ms
+		if snapshot_age > ctrl.desync_stale_ms && event_age > ctrl.desync_stale_ms {
 			status.desync_reason = .Snapshot_Stale
 			status.state = .Desync
 			return status.state

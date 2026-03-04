@@ -769,6 +769,7 @@ test_free_sub_entry_clears_all_fields :: proc(t: ^testing.T) {
 test_missing_ts_server_gap_terminal_v1_only :: proc(t: ^testing.T) {
 	testing.expect_value(t, missing_ts_server_gap(false, services.Parse_Result_Kind.Trade, util.Transport_Mode.Terminal_V1), true)
 	testing.expect_value(t, missing_ts_server_gap(true, services.Parse_Result_Kind.Trade, util.Transport_Mode.Terminal_V1), false)
+	testing.expect_value(t, missing_ts_server_gap(false, services.Parse_Result_Kind.Signal, util.Transport_Mode.Terminal_V1), true)
 	testing.expect_value(t, missing_ts_server_gap(false, services.Parse_Result_Kind.Range_Candle, util.Transport_Mode.Terminal_V1), false)
 	testing.expect_value(t, missing_ts_server_gap(false, services.Parse_Result_Kind.Trade, util.Transport_Mode.Legacy_JSON), false)
 }

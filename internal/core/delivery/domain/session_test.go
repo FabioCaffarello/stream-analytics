@@ -75,3 +75,14 @@ func TestSession_uniqueSubjects(t *testing.T) {
 		t.Errorf("duplicate subscription; expected 1, got %d", len(s.Subscriptions()))
 	}
 }
+
+func TestSession_signalSubscriptionCount(t *testing.T) {
+	s := domain.NewSession()
+	_ = s.Subscribe(mustSubject(t, "marketdata.trade/binance/BTC-USDT/raw"), domain.Filter{})
+	_ = s.Subscribe(mustSubject(t, "signal/absorption/binance/BTC-USDT/1m"), domain.Filter{})
+	_ = s.Subscribe(mustSubject(t, "signal/sweep/binance/BTC-USDT/1m"), domain.Filter{})
+
+	if got, want := s.SignalSubscriptionCount(), 2; got != want {
+		t.Fatalf("signal subscription count=%d want=%d", got, want)
+	}
+}

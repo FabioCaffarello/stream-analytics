@@ -41,16 +41,17 @@ Parsed_Stats :: struct {
 }
 
 Parsed_Heatmap :: struct {
-	prices:      [HEATMAP_STAGING_CAP]f64,
-	sizes:       [HEATMAP_STAGING_CAP]f64,
-	level_count: int,
-	price_group: f64,
-	min_price:   f64,
-	max_price:   f64,
-	max_size:    f64,
-	unix:        i64,
-	subject_id:  u64,
-	seq:         i64,
+	prices:          [HEATMAP_STAGING_CAP]f64,
+	sizes:           [HEATMAP_STAGING_CAP]f64,
+	level_count:     int,
+	price_group:     f64,
+	min_price:       f64,
+	max_price:       f64,
+	max_size:        f64,
+	unix:            i64,
+	window_start_ms: i64,
+	subject_id:      u64,
+	seq:             i64,
 }
 
 Parsed_VPVR :: struct {
@@ -94,6 +95,22 @@ Parsed_Evidence :: struct {
 	unix:          i64,
 	subject_id:    u64,
 	seq:           i64,
+}
+
+Parsed_Signal :: struct {
+	kind:            [24]u8,
+	kind_len:        u8,
+	severity:        [12]u8,
+	severity_len:    u8,
+	confidence:      f64,
+	reason:          [96]u8,
+	reason_len:      u8,
+	regime:          [24]u8,
+	regime_len:      u8,
+	regime_strength: f64,
+	unix:            i64,
+	subject_id:      u64,
+	seq:             i64,
 }
 
 Parsed_Trade :: struct {
@@ -217,6 +234,7 @@ Parse_Result_Kind :: enum u8 {
 	VPVR,
 	Candle,
 	Evidence,
+	Signal,
 	Range_Candle,
 	Ack,
 	Hello,
@@ -236,6 +254,7 @@ Parse_Result_Data :: struct #raw_union {
 	vpvr:           Parsed_VPVR,
 	candle:         Parsed_Candle,
 	evidence:       Parsed_Evidence,
+	signal:         Parsed_Signal,
 	range_candles:  Parsed_Range_Candles,
 	ack:            Parsed_Ack,
 	control:        Parsed_Control,
@@ -757,7 +776,7 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 		return result
 	case .Batch, .Last, .Unknown:
 		return result
-	case .Event, .Snapshot:
+	case .Event, .Snapshot, .Signal:
 		// For snapshot frames: parse integrity fields if present.
 		if ft == .Snapshot {
 			snap: util.MR_Snapshot_Frame
@@ -790,6 +809,12 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 		}
 	case "marketdata.bookdelta":
 		if r, ok := parse_book_delta(raw, env.ts_ingest, subject_id); ok {
+			// Trust envelope type=snapshot even when payload omits/incorrectly sets IsSnapshot.
+			// Delivery can emit snapshot envelopes backed by cached payloads that don't carry
+			// a reliable IsSnapshot marker.
+			if result.meta.is_snapshot {
+				r.is_snapshot = true
+			}
 			r.seq = result.meta.seq
 			result.kind = .Orderbook
 			result.data.ob = r
@@ -833,6 +858,14 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 			r.seq = result.meta.seq
 			result.kind = .Evidence
 			result.data.evidence = r
+		} else if telemetry != nil {
+			telemetry.parse_errors += 1
+		}
+	case "signal":
+		if r, ok := parse_signal(raw, result.meta.server_ts_ms, subject_id); ok {
+			r.seq = result.meta.seq
+			result.kind = .Signal
+			result.data.signal = r
 		} else if telemetry != nil {
 			telemetry.parse_errors += 1
 		}
@@ -888,6 +921,59 @@ parse_microstructure_evidence :: proc(raw: []u8, ts: i64, subject_id: u64) -> (P
 		out.feature_vals[vi] = p.feature_values[vi]
 	}
 	out.feature_count = fc
+	return out, true
+}
+
+parse_signal :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Signal, bool) {
+	frame: util.MR_Signal_Frame
+	if json.unmarshal(raw, &frame) != nil do return {}, false
+	p := frame.payload
+	if !f64_valid(p.confidence) || p.confidence < 0 || p.confidence > 1 do return {}, false
+	if !f64_valid(p.regime_strength) do return {}, false
+	if len(p.kind) == 0 || len(p.severity) == 0 do return {}, false
+
+	regime := p.regime_kind
+	if len(regime) == 0 {
+		if p.regime_strength != 0 do return {}, false
+	} else if p.regime_strength < 0 || p.regime_strength > 1 {
+		return {}, false
+	}
+
+	ts_source := ts
+	if ts_source <= 0 do ts_source = frame.ts_server
+	unix := util.normalize_unix_seconds(ts_source)
+
+	out: Parsed_Signal
+	out.confidence = p.confidence
+	out.regime_strength = p.regime_strength
+	out.unix = unix
+	out.subject_id = subject_id
+	out.seq = frame.seq
+
+	nk := min(len(p.kind), len(out.kind))
+	for i in 0 ..< nk {
+		out.kind[i] = p.kind[i]
+	}
+	out.kind_len = u8(nk)
+
+	ns := min(len(p.severity), len(out.severity))
+	for i in 0 ..< ns {
+		out.severity[i] = p.severity[i]
+	}
+	out.severity_len = u8(ns)
+
+	nr := min(len(p.reason), len(out.reason))
+	for i in 0 ..< nr {
+		out.reason[i] = p.reason[i]
+	}
+	out.reason_len = u8(nr)
+
+	ng := min(len(regime), len(out.regime))
+	for i in 0 ..< ng {
+		out.regime[i] = regime[i]
+	}
+	out.regime_len = u8(ng)
+
 	return out, true
 }
 
@@ -1007,6 +1093,8 @@ parse_heatmap :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Heatmap, b
 
 	result: Parsed_Heatmap
 	out := 0
+	prev_low := -math.F64_MAX
+	prev_high := -math.F64_MAX
 	for i in 0 ..< lc {
 		c := hm.cells[i]
 		mid := (c.price_bucket_low + c.price_bucket_high) / 2.0
@@ -1016,6 +1104,18 @@ parse_heatmap :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Heatmap, b
 		if out == 0 {
 			price_group = c.price_bucket_high - c.price_bucket_low
 		}
+
+		// Aggregate size buckets at the same price level. Backend sorts cells
+		// by (price_bucket_low, size_bucket), so consecutive cells with identical
+		// price ranges represent different size buckets for the same price level.
+		if out > 0 && c.price_bucket_low == prev_low && c.price_bucket_high == prev_high {
+			result.sizes[out - 1] += total
+			if result.sizes[out - 1] > max_s do max_s = result.sizes[out - 1]
+			continue
+		}
+
+		prev_low = c.price_bucket_low
+		prev_high = c.price_bucket_high
 		if mid < min_p do min_p = mid
 		if mid > max_p do max_p = mid
 		if total > max_s do max_s = total
@@ -1030,6 +1130,7 @@ parse_heatmap :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Heatmap, b
 	result.max_price = max_p if out > 0 else 0
 	result.max_size = max_s
 	result.unix = unix
+	result.window_start_ms = hm.window_start_ts > util.UNIX_MS_THRESHOLD ? hm.window_start_ts : hm.window_start_ts * 1000
 	result.subject_id = subject_id
 	return result, true
 }

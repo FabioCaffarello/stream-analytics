@@ -32,14 +32,16 @@ type RuleEvent struct {
 	AskLevels int
 
 	// Candle (Kind == EventKindCandle)
-	CandleOpen      float64
-	CandleClose     float64
-	CandleHigh      float64
-	CandleLow       float64
-	CandleVolume    float64
-	CandleBuyVol    float64
-	CandleSellVol   float64
-	CandleTimeframe string
+	CandleOpen        float64
+	CandleClose       float64
+	CandleHigh        float64
+	CandleLow         float64
+	CandleVolume      float64
+	CandleBuyVol      float64
+	CandleSellVol     float64
+	CandleWindowStart int64
+	CandleWindowEnd   int64
+	CandleTimeframe   string
 }
 
 // StreamKey returns the canonical partition key for per-stream state.

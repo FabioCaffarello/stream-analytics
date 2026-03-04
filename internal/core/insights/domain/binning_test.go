@@ -141,6 +141,43 @@ func TestCalculateBinSize_MinimumBound(t *testing.T) {
 	}
 }
 
+func TestHeatmapBinFactorForTimeframe(t *testing.T) {
+	cases := []struct {
+		tf   string
+		want float64
+	}{
+		{"5s", 0.001},
+		{"1s", 0.001},
+		{"10s", 0.001},
+		{"1m", 0.005},
+		{"5m", 0.005},
+		{"15m", 0.025},
+		{"1h", 0.025},
+		{"4h", 0.025},
+		{"1d", 0.025},
+	}
+	for _, tc := range cases {
+		got := domain.HeatmapBinFactorForTimeframe(tc.tf)
+		if got != tc.want {
+			t.Fatalf("HeatmapBinFactorForTimeframe(%q) = %v, want %v", tc.tf, got, tc.want)
+		}
+	}
+}
+
+func TestCalculateHeatmapBinSizeWithFactor_SubMinute(t *testing.T) {
+	// BTC at $90,000 with 0.01 tick: sub-minute factor (0.001) should produce
+	// a much smaller bin than the default 2.5% factor.
+	binDefault := domain.CalculateHeatmapBinSize(90000, 0.01)
+	binSubMin := domain.CalculateHeatmapBinSizeWithFactor(90000, 0.01, 0.001)
+	if binSubMin >= binDefault {
+		t.Fatalf("sub-minute bin %v should be smaller than default bin %v", binSubMin, binDefault)
+	}
+	// Sub-minute bin should be at least 10x smaller than default for BTC.
+	if binSubMin > binDefault/5 {
+		t.Fatalf("sub-minute bin %v not small enough vs default %v", binSubMin, binDefault)
+	}
+}
+
 func BenchmarkCalculateBinSize(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {

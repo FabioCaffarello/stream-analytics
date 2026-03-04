@@ -1,0 +1,2729 @@
+{
+  "timestamp": "2026-03-04T02:36:58.373Z",
+  "passes": 10,
+  "bugs": [],
+  "report": [
+    {
+      "ts": "02:34:00.073",
+      "msg": "================================================================"
+    },
+    {
+      "ts": "02:34:00.074",
+      "msg": "Market Raccoon — Overlay Rendering Validation (v2)"
+    },
+    {
+      "ts": "02:34:00.074",
+      "msg": "Target: http://localhost:8090"
+    },
+    {
+      "ts": "02:34:00.074",
+      "msg": "Timestamp: 2026-03-04T02:34:00.074Z"
+    },
+    {
+      "ts": "02:34:00.074",
+      "msg": "================================================================\n"
+    },
+    {
+      "ts": "02:34:00.074",
+      "msg": "Validation strategy:"
+    },
+    {
+      "ts": "02:34:00.074",
+      "msg": "  1. Color detection: scan for Viridis (heatmap) and red/green (VPVR) pixel signatures"
+    },
+    {
+      "ts": "02:34:00.074",
+      "msg": "  2. Toggle diff: click HM/VP toggles and measure pixel change %"
+    },
+    {
+      "ts": "02:34:00.074",
+      "msg": "  3. Per-TF: verify overlays render across all 9 timeframes"
+    },
+    {
+      "ts": "02:34:00.074",
+      "msg": "  4. Stress: rapid TF cycling, compare mode, stream switching\n"
+    },
+    {
+      "ts": "02:34:00.968",
+      "msg": "=== Phase 1: Page Load + Data Accumulation ==="
+    },
+    {
+      "ts": "02:34:01.667",
+      "msg": "Waiting 15s for WASM + WS + data accumulation..."
+    },
+    {
+      "ts": "02:34:16.668",
+      "msg": "PASS WS-1: WebSocket connected"
+    },
+    {
+      "ts": "02:34:16.744",
+      "msg": "=== Phase 2: Overlay ON/OFF Pixel-Diff Per TF ==="
+    },
+    {
+      "ts": "02:34:16.744",
+      "msg": "Method: capture chart pixels with overlays ON, toggle OFF, diff."
+    },
+    {
+      "ts": "02:34:16.744",
+      "msg": "If diff% > 0.5%, overlay is proven to render.\n"
+    },
+    {
+      "ts": "02:34:16.749",
+      "msg": "Chart sample region: 96,54 1248x486"
+    },
+    {
+      "ts": "02:34:16.749",
+      "msg": "VPVR sample region:  864,54 480x486\n"
+    },
+    {
+      "ts": "02:34:27.949",
+      "msg": "  TF 1s : HM=RENDERING     (13057 viridis px, 2.15%)  VP=RENDERING     (2514r+6236g px, 1.08%+2.67%)"
+    },
+    {
+      "ts": "02:34:38.730",
+      "msg": "  TF 5s : HM=RENDERING     (17472 viridis px, 2.88%)  VP=RENDERING     (4670r+10060g px, 2.00%+4.31%)"
+    },
+    {
+      "ts": "02:34:49.376",
+      "msg": "  TF 1m : HM=RENDERING     (17506 viridis px, 2.89%)  VP=RENDERING     (8079r+6537g px, 3.46%+2.80%)"
+    },
+    {
+      "ts": "02:35:02.178",
+      "msg": "  TF 5m : HM=RENDERING     (19049 viridis px, 3.14%)  VP=RENDERING     (9514r+3300g px, 4.08%+1.41%)"
+    },
+    {
+      "ts": "02:35:14.143",
+      "msg": "  TF 15m: HM=RENDERING     (12487 viridis px, 2.06%)  VP=RENDERING     (8750r+13023g px, 3.75%+5.58%)"
+    },
+    {
+      "ts": "02:35:25.714",
+      "msg": "  TF 30m: HM=RENDERING     (21042 viridis px, 3.47%)  VP=RENDERING     (11230r+20369g px, 4.81%+8.73%)"
+    },
+    {
+      "ts": "02:35:39.438",
+      "msg": "  TF 1h : HM=RENDERING     (12290 viridis px, 2.03%)  VP=RENDERING     (13369r+1957g px, 5.73%+0.84%)"
+    },
+    {
+      "ts": "02:35:53.051",
+      "msg": "  TF 4h : HM=RENDERING     (8258 viridis px, 1.36%)  VP=RENDERING     (28274r+7403g px, 12.12%+3.17%)"
+    },
+    {
+      "ts": "02:36:06.567",
+      "msg": "  TF 1d : HM=RENDERING     (8260 viridis px, 1.36%)  VP=RENDERING     (28110r+7403g px, 12.05%+3.17%)"
+    },
+    {
+      "ts": "02:36:06.567",
+      "msg": ""
+    },
+    {
+      "ts": "02:36:06.567",
+      "msg": "Heatmap overlay detected: 9/9 TFs (1s, 5s, 1m, 5m, 15m, 30m, 1h, 4h, 1d)"
+    },
+    {
+      "ts": "02:36:06.567",
+      "msg": "VPVR overlay detected:    9/9 TFs (1s, 5s, 1m, 5m, 15m, 30m, 1h, 4h, 1d)"
+    },
+    {
+      "ts": "02:36:06.567",
+      "msg": "PASS HM-RENDER-1: Heatmap rendering on 3/3 short TFs: 1s, 5s, 1m"
+    },
+    {
+      "ts": "02:36:06.567",
+      "msg": "PASS VP-RENDER-1: VPVR rendering on 3/3 short TFs: 1s, 5s, 1m"
+    },
+    {
+      "ts": "02:36:06.567",
+      "msg": "PASS HM-RENDER-2: Heatmap rendering on 9/9 TFs"
+    },
+    {
+      "ts": "02:36:06.567",
+      "msg": "PASS VP-RENDER-2: VPVR rendering on 9/9 TFs"
+    },
+    {
+      "ts": "02:36:06.567",
+      "msg": "\n=== Phase 3: Overlay Toggle ON/OFF Pixel-Diff ==="
+    },
+    {
+      "ts": "02:36:06.567",
+      "msg": "Method: capture with overlays ON → click HM toggle OFF → diff → click back ON.\n"
+    },
+    {
+      "ts": "02:36:15.588",
+      "msg": "Toolbar scan: rightEdge=1917, canvasW=1920"
+    },
+    {
+      "ts": "02:36:15.588",
+      "msg": "Toggle positions (canvas-relative): HM≈1832, VP≈1866, Vol≈1900, Y≈44"
+    },
+    {
+      "ts": "02:36:20.430",
+      "msg": "Heatmap toggle diff: 11268 pixels changed (1.86%)"
+    },
+    {
+      "ts": "02:36:20.430",
+      "msg": "PASS HM-TOGGLE: Heatmap toggle produced 1.9% pixel change — overlay is rendering"
+    },
+    {
+      "ts": "02:36:33.394",
+      "msg": "VPVR toggle diff: 6308 pixels changed (1.04%)"
+    },
+    {
+      "ts": "02:36:33.394",
+      "msg": "PASS VP-TOGGLE: VPVR toggle produced 1.0% pixel change — overlay is rendering"
+    },
+    {
+      "ts": "02:36:33.696",
+      "msg": "\n=== Phase 4: Rapid TF Stress + Compare Mode ==="
+    },
+    {
+      "ts": "02:36:40.222",
+      "msg": "PASS STRESS-1: Rapid TF cycling (18 switches) — no errors"
+    },
+    {
+      "ts": "02:36:51.331",
+      "msg": "PASS COMPARE-1: Compare mode + TF switch — no errors"
+    },
+    {
+      "ts": "02:36:58.342",
+      "msg": "PASS PANIC-1: No WASM panics"
+    },
+    {
+      "ts": "02:36:58.342",
+      "msg": "Total console errors across all phases: 0"
+    },
+    {
+      "ts": "02:36:58.342",
+      "msg": "Total console messages: 518"
+    },
+    {
+      "ts": "02:36:58.373",
+      "msg": "\n================================================================"
+    },
+    {
+      "ts": "02:36:58.373",
+      "msg": "VALIDATION SUMMARY"
+    },
+    {
+      "ts": "02:36:58.373",
+      "msg": "================================================================"
+    },
+    {
+      "ts": "02:36:58.373",
+      "msg": "Passed: 10"
+    },
+    {
+      "ts": "02:36:58.373",
+      "msg": "Bugs: 0"
+    },
+    {
+      "ts": "02:36:58.373",
+      "msg": "Screenshots: 16"
+    },
+    {
+      "ts": "02:36:58.373",
+      "msg": "\nAll checks passed."
+    }
+  ],
+  "consoleMessages": [
+    {
+      "type": "log",
+      "text": "[md-lifecycle] connect requested_url=ws://127.0.0.1:8080/ws",
+      "ts": 1772591641099
+    },
+    {
+      "type": "log",
+      "text": "[ws] connected to ws://localhost:8090/ws",
+      "ts": 1772591641165
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] connect requested_url=ws://127.0.0.1:8080/ws",
+      "ts": 1772591641166
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] hello_sent rid=h1 features=3",
+      "ts": 1772591641167
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=aggregation.stats/binance/BTCUSDT/raw rid=r2",
+      "ts": 1772591641168
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1m rid=r3",
+      "ts": 1772591641168
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m rid=r4",
+      "ts": 1772591641168
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/1m rid=r5",
+      "ts": 1772591641168
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=signal/composite/binance/BTCUSDT/1m rid=r6",
+      "ts": 1772591641168
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] hello_ok proto_ver=1 server_id=18d27540-7938-4ec6-b554-bd2b981ad619 topics=8 venues=5 symbols=0",
+      "ts": 1772591641168
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=marketdata.trade/binance/BTCUSDT/raw rid=r8",
+      "ts": 1772591641168
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=marketdata.bookdelta/binance/BTCUSDT/raw rid=r9",
+      "ts": 1772591641168
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] hello_ack_recv negotiated_features=0",
+      "ts": 1772591641175
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=aggregation.stats/binance/BTCUSDT/raw",
+      "ts": 1772591641191
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1m",
+      "ts": 1772591641191
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m",
+      "ts": 1772591641191
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/1m",
+      "ts": 1772591641191
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] first_data_after_connect_ms=40 kind=Range_Candle sid=6af6786668ce2458",
+      "ts": 1772591641206
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=signal/composite/binance/BTCUSDT/1m",
+      "ts": 1772591641213
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=marketdata.trade/binance/BTCUSDT/raw",
+      "ts": 1772591641214
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=marketdata.bookdelta/binance/BTCUSDT/raw",
+      "ts": 1772591641214
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1m rid=r17",
+      "ts": 1772591656758
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m rid=r18",
+      "ts": 1772591656758
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=aggregation.candle/binance/BTCUSDT/1m rid=r19",
+      "ts": 1772591656758
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=signal/composite/binance/BTCUSDT/1m rid=r20",
+      "ts": 1772591656758
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1s rid=r21",
+      "ts": 1772591656758
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1s rid=r22",
+      "ts": 1772591656758
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/1s rid=r23",
+      "ts": 1772591656759
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=signal/composite/binance/BTCUSDT/1s rid=r24",
+      "ts": 1772591656759
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1m",
+      "ts": 1772591658490
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m",
+      "ts": 1772591658490
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=aggregation.candle/binance/BTCUSDT/1m",
+      "ts": 1772591658490
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=signal/composite/binance/BTCUSDT/1m",
+      "ts": 1772591658490
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1s",
+      "ts": 1772591658490
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1s",
+      "ts": 1772591658490
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/1s",
+      "ts": 1772591658490
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=signal/composite/binance/BTCUSDT/1s",
+      "ts": 1772591658500
+    },
+    {
+      "type": "warning",
+      "text": "Canvas2D: Multiple readback operations using getImageData are faster with the willReadFrequently attribute set to true. See: https://html.spec.whatwg.org/multipage/canvas.html#concept-canvas-will-read-frequently",
+      "ts": 1772591666204
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1s rid=r31",
+      "ts": 1772591667958
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1s rid=r32",
+      "ts": 1772591667958
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=aggregation.candle/binance/BTCUSDT/1s rid=r33",
+      "ts": 1772591667958
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=signal/composite/binance/BTCUSDT/1s rid=r34",
+      "ts": 1772591667958
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/5s rid=r35",
+      "ts": 1772591667958
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/5s rid=r36",
+      "ts": 1772591667958
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/5s rid=r37",
+      "ts": 1772591667958
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=signal/composite/binance/BTCUSDT/5s rid=r38",
+      "ts": 1772591667958
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1s",
+      "ts": 1772591668004
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1s",
+      "ts": 1772591668004
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=aggregation.candle/binance/BTCUSDT/1s",
+      "ts": 1772591668004
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=signal/composite/binance/BTCUSDT/1s",
+      "ts": 1772591668004
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/5s",
+      "ts": 1772591668004
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/5s",
+      "ts": 1772591668004
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/5s",
+      "ts": 1772591668004
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=signal/composite/binance/BTCUSDT/5s",
+      "ts": 1772591668028
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/5s rid=r44",
+      "ts": 1772591678736
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/5s rid=r45",
+      "ts": 1772591678736
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=aggregation.candle/binance/BTCUSDT/5s rid=r46",
+      "ts": 1772591678736
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=signal/composite/binance/BTCUSDT/5s rid=r47",
+      "ts": 1772591678736
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1m rid=r48",
+      "ts": 1772591678736
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m rid=r49",
+      "ts": 1772591678736
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/1m rid=r50",
+      "ts": 1772591678736
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=signal/composite/binance/BTCUSDT/1m rid=r51",
+      "ts": 1772591678736
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/5s",
+      "ts": 1772591678753
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/5s",
+      "ts": 1772591678753
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=aggregation.candle/binance/BTCUSDT/5s",
+      "ts": 1772591678753
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=signal/composite/binance/BTCUSDT/5s",
+      "ts": 1772591678753
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1m",
+      "ts": 1772591678753
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m",
+      "ts": 1772591678753
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/1m",
+      "ts": 1772591678753
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=signal/composite/binance/BTCUSDT/1m",
+      "ts": 1772591678763
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1m rid=r57",
+      "ts": 1772591689390
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m rid=r58",
+      "ts": 1772591689390
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=aggregation.candle/binance/BTCUSDT/1m rid=r59",
+      "ts": 1772591689390
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=signal/composite/binance/BTCUSDT/1m rid=r60",
+      "ts": 1772591689390
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/5m rid=r61",
+      "ts": 1772591689391
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/5m rid=r62",
+      "ts": 1772591689391
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/5m rid=r63",
+      "ts": 1772591689391
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=signal/composite/binance/BTCUSDT/5m rid=r64",
+      "ts": 1772591689391
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1m",
+      "ts": 1772591689408
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m",
+      "ts": 1772591689408
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=aggregation.candle/binance/BTCUSDT/1m",
+      "ts": 1772591689408
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=signal/composite/binance/BTCUSDT/1m",
+      "ts": 1772591689408
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/5m",
+      "ts": 1772591689408
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/5m",
+      "ts": 1772591689408
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/5m",
+      "ts": 1772591689408
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=signal/composite/binance/BTCUSDT/5m",
+      "ts": 1772591689417
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/5m rid=r71",
+      "ts": 1772591702190
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/5m rid=r72",
+      "ts": 1772591702190
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=aggregation.candle/binance/BTCUSDT/5m rid=r73",
+      "ts": 1772591702190
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=signal/composite/binance/BTCUSDT/5m rid=r74",
+      "ts": 1772591702190
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/15m rid=r75",
+      "ts": 1772591702190
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/15m rid=r76",
+      "ts": 1772591702190
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/15m rid=r77",
+      "ts": 1772591702190
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=signal/composite/binance/BTCUSDT/15m rid=r78",
+      "ts": 1772591702190
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/5m",
+      "ts": 1772591702200
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/5m",
+      "ts": 1772591702200
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=aggregation.candle/binance/BTCUSDT/5m",
+      "ts": 1772591702200
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=signal/composite/binance/BTCUSDT/5m",
+      "ts": 1772591702200
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/15m",
+      "ts": 1772591702200
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/15m",
+      "ts": 1772591702200
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/15m",
+      "ts": 1772591702200
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=signal/composite/binance/BTCUSDT/15m",
+      "ts": 1772591702201
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/15m rid=r83",
+      "ts": 1772591714150
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/15m rid=r84",
+      "ts": 1772591714150
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=aggregation.candle/binance/BTCUSDT/15m rid=r85",
+      "ts": 1772591714150
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=signal/composite/binance/BTCUSDT/15m rid=r86",
+      "ts": 1772591714150
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/30m rid=r87",
+      "ts": 1772591714150
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/30m rid=r88",
+      "ts": 1772591714150
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/30m rid=r89",
+      "ts": 1772591714150
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=signal/composite/binance/BTCUSDT/30m rid=r90",
+      "ts": 1772591714150
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/15m",
+      "ts": 1772591714165
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/15m",
+      "ts": 1772591714165
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=aggregation.candle/binance/BTCUSDT/15m",
+      "ts": 1772591714166
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=signal/composite/binance/BTCUSDT/15m",
+      "ts": 1772591714166
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/30m",
+      "ts": 1772591714166
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/30m",
+      "ts": 1772591714166
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/30m",
+      "ts": 1772591714166
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=signal/composite/binance/BTCUSDT/30m",
+      "ts": 1772591714166
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/30m rid=r96",
+      "ts": 1772591725727
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/30m rid=r97",
+      "ts": 1772591725727
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=aggregation.candle/binance/BTCUSDT/30m rid=r98",
+      "ts": 1772591725727
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=signal/composite/binance/BTCUSDT/30m rid=r99",
+      "ts": 1772591725727
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1h rid=r100",
+      "ts": 1772591725727
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1h rid=r101",
+      "ts": 1772591725727
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/1h rid=r102",
+      "ts": 1772591725727
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=signal/composite/binance/BTCUSDT/1h rid=r103",
+      "ts": 1772591725727
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/30m",
+      "ts": 1772591725735
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/30m",
+      "ts": 1772591725735
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=aggregation.candle/binance/BTCUSDT/30m",
+      "ts": 1772591725735
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=signal/composite/binance/BTCUSDT/30m",
+      "ts": 1772591725735
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1h",
+      "ts": 1772591725735
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1h",
+      "ts": 1772591725735
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/1h",
+      "ts": 1772591725735
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=signal/composite/binance/BTCUSDT/1h",
+      "ts": 1772591725744
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1h rid=r109",
+      "ts": 1772591739448
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1h rid=r110",
+      "ts": 1772591739448
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=aggregation.candle/binance/BTCUSDT/1h rid=r111",
+      "ts": 1772591739448
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=signal/composite/binance/BTCUSDT/1h rid=r112",
+      "ts": 1772591739448
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/4h rid=r113",
+      "ts": 1772591739448
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/4h rid=r114",
+      "ts": 1772591739448
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/4h rid=r115",
+      "ts": 1772591739448
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=signal/composite/binance/BTCUSDT/4h rid=r116",
+      "ts": 1772591739448
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1h",
+      "ts": 1772591739457
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1h",
+      "ts": 1772591739457
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=aggregation.candle/binance/BTCUSDT/1h",
+      "ts": 1772591739457
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=signal/composite/binance/BTCUSDT/1h",
+      "ts": 1772591739457
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/4h",
+      "ts": 1772591739457
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/4h",
+      "ts": 1772591739457
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/4h",
+      "ts": 1772591739457
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=signal/composite/binance/BTCUSDT/4h",
+      "ts": 1772591739457
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/4h rid=r123",
+      "ts": 1772591753053
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/4h rid=r124",
+      "ts": 1772591753053
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=aggregation.candle/binance/BTCUSDT/4h rid=r125",
+      "ts": 1772591753053
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=signal/composite/binance/BTCUSDT/4h rid=r126",
+      "ts": 1772591753053
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1d rid=r127",
+      "ts": 1772591753053
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1d rid=r128",
+      "ts": 1772591753053
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/1d rid=r129",
+      "ts": 1772591753053
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=signal/composite/binance/BTCUSDT/1d rid=r130",
+      "ts": 1772591753053
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/4h",
+      "ts": 1772591753069
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/4h",
+      "ts": 1772591753069
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=aggregation.candle/binance/BTCUSDT/4h",
+      "ts": 1772591753069
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=signal/composite/binance/BTCUSDT/4h",
+      "ts": 1772591753069
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1d",
+      "ts": 1772591753069
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1d",
+      "ts": 1772591753069
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/1d",
+      "ts": 1772591753070
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=signal/composite/binance/BTCUSDT/1d",
+      "ts": 1772591753070
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1d rid=r137",
+      "ts": 1772591766571
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1d rid=r138",
+      "ts": 1772591766571
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=aggregation.candle/binance/BTCUSDT/1d rid=r139",
+      "ts": 1772591766571
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=signal/composite/binance/BTCUSDT/1d rid=r140",
+      "ts": 1772591766571
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1m rid=r141",
+      "ts": 1772591766571
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m rid=r142",
+      "ts": 1772591766571
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/1m rid=r143",
+      "ts": 1772591766571
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=signal/composite/binance/BTCUSDT/1m rid=r144",
+      "ts": 1772591766571
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1d",
+      "ts": 1772591766597
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1d",
+      "ts": 1772591766597
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=aggregation.candle/binance/BTCUSDT/1d",
+      "ts": 1772591766597
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=signal/composite/binance/BTCUSDT/1d",
+      "ts": 1772591766597
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1m",
+      "ts": 1772591766597
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m",
+      "ts": 1772591766597
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/1m",
+      "ts": 1772591766597
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=signal/composite/binance/BTCUSDT/1m",
+      "ts": 1772591766612
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1m rid=r154",
+      "ts": 1772591793708
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m rid=r155",
+      "ts": 1772591793708
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=aggregation.candle/binance/BTCUSDT/1m rid=r156",
+      "ts": 1772591793708
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=signal/composite/binance/BTCUSDT/1m rid=r157",
+      "ts": 1772591793709
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1s rid=r158",
+      "ts": 1772591793709
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1s rid=r159",
+      "ts": 1772591793709
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/1s rid=r160",
+      "ts": 1772591793709
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=signal/composite/binance/BTCUSDT/1s rid=r161",
+      "ts": 1772591793709
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1m",
+      "ts": 1772591793758
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m",
+      "ts": 1772591793758
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=aggregation.candle/binance/BTCUSDT/1m",
+      "ts": 1772591793758
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=signal/composite/binance/BTCUSDT/1m",
+      "ts": 1772591793758
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1s",
+      "ts": 1772591793758
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1s",
+      "ts": 1772591793759
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/1s",
+      "ts": 1772591793759
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=signal/composite/binance/BTCUSDT/1s",
+      "ts": 1772591793786
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1s rid=r164",
+      "ts": 1772591793957
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1s rid=r165",
+      "ts": 1772591793957
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=aggregation.candle/binance/BTCUSDT/1s rid=r166",
+      "ts": 1772591793957
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=signal/composite/binance/BTCUSDT/1s rid=r167",
+      "ts": 1772591793957
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/5s rid=r168",
+      "ts": 1772591793957
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/5s rid=r169",
+      "ts": 1772591793957
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/5s rid=r170",
+      "ts": 1772591793957
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=signal/composite/binance/BTCUSDT/5s rid=r171",
+      "ts": 1772591793957
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1s",
+      "ts": 1772591794001
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1s",
+      "ts": 1772591794001
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=aggregation.candle/binance/BTCUSDT/1s",
+      "ts": 1772591794001
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=signal/composite/binance/BTCUSDT/1s",
+      "ts": 1772591794001
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/5s",
+      "ts": 1772591794001
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/5s",
+      "ts": 1772591794001
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/5s",
+      "ts": 1772591794001
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=signal/composite/binance/BTCUSDT/5s",
+      "ts": 1772591794018
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/5s rid=r175",
+      "ts": 1772591794204
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/5s rid=r176",
+      "ts": 1772591794204
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=aggregation.candle/binance/BTCUSDT/5s rid=r177",
+      "ts": 1772591794204
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=signal/composite/binance/BTCUSDT/5s rid=r178",
+      "ts": 1772591794204
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1m rid=r179",
+      "ts": 1772591794204
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m rid=r180",
+      "ts": 1772591794204
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/1m rid=r181",
+      "ts": 1772591794204
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=signal/composite/binance/BTCUSDT/1m rid=r182",
+      "ts": 1772591794204
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/5s",
+      "ts": 1772591794217
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/5s",
+      "ts": 1772591794217
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=aggregation.candle/binance/BTCUSDT/5s",
+      "ts": 1772591794217
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=signal/composite/binance/BTCUSDT/5s",
+      "ts": 1772591794217
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1m",
+      "ts": 1772591794217
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m",
+      "ts": 1772591794217
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/1m",
+      "ts": 1772591794217
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=signal/composite/binance/BTCUSDT/1m",
+      "ts": 1772591794225
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1m rid=r185",
+      "ts": 1772591794454
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m rid=r186",
+      "ts": 1772591794454
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=aggregation.candle/binance/BTCUSDT/1m rid=r187",
+      "ts": 1772591794454
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=signal/composite/binance/BTCUSDT/1m rid=r188",
+      "ts": 1772591794454
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/5m rid=r189",
+      "ts": 1772591794454
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/5m rid=r190",
+      "ts": 1772591794454
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/5m rid=r191",
+      "ts": 1772591794454
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=signal/composite/binance/BTCUSDT/5m rid=r192",
+      "ts": 1772591794454
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1m",
+      "ts": 1772591794458
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m",
+      "ts": 1772591794458
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=aggregation.candle/binance/BTCUSDT/1m",
+      "ts": 1772591794458
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=signal/composite/binance/BTCUSDT/1m",
+      "ts": 1772591794458
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/5m",
+      "ts": 1772591794458
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/5m",
+      "ts": 1772591794458
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/5m",
+      "ts": 1772591794462
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=signal/composite/binance/BTCUSDT/5m",
+      "ts": 1772591794464
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/5m rid=r196",
+      "ts": 1772591794709
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/5m rid=r197",
+      "ts": 1772591794709
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=aggregation.candle/binance/BTCUSDT/5m rid=r198",
+      "ts": 1772591794709
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=signal/composite/binance/BTCUSDT/5m rid=r199",
+      "ts": 1772591794709
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/15m rid=r200",
+      "ts": 1772591794709
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/15m rid=r201",
+      "ts": 1772591794709
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/15m rid=r202",
+      "ts": 1772591794709
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=signal/composite/binance/BTCUSDT/15m rid=r203",
+      "ts": 1772591794709
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/5m",
+      "ts": 1772591794715
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/5m",
+      "ts": 1772591794715
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=aggregation.candle/binance/BTCUSDT/5m",
+      "ts": 1772591794715
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=signal/composite/binance/BTCUSDT/5m",
+      "ts": 1772591794715
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/15m",
+      "ts": 1772591794715
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/15m",
+      "ts": 1772591794715
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/15m",
+      "ts": 1772591794715
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=signal/composite/binance/BTCUSDT/15m",
+      "ts": 1772591794741
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/15m rid=r206",
+      "ts": 1772591794958
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/15m rid=r207",
+      "ts": 1772591794958
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=aggregation.candle/binance/BTCUSDT/15m rid=r208",
+      "ts": 1772591794958
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=signal/composite/binance/BTCUSDT/15m rid=r209",
+      "ts": 1772591794958
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/30m rid=r210",
+      "ts": 1772591794958
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/30m rid=r211",
+      "ts": 1772591794958
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/30m rid=r212",
+      "ts": 1772591794958
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=signal/composite/binance/BTCUSDT/30m rid=r213",
+      "ts": 1772591794958
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/15m",
+      "ts": 1772591794974
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/15m",
+      "ts": 1772591794974
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=aggregation.candle/binance/BTCUSDT/15m",
+      "ts": 1772591794974
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=signal/composite/binance/BTCUSDT/15m",
+      "ts": 1772591794974
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/30m",
+      "ts": 1772591794974
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/30m",
+      "ts": 1772591794974
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/30m",
+      "ts": 1772591794974
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=signal/composite/binance/BTCUSDT/30m",
+      "ts": 1772591794975
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/30m rid=r216",
+      "ts": 1772591795216
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/30m rid=r217",
+      "ts": 1772591795216
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=aggregation.candle/binance/BTCUSDT/30m rid=r218",
+      "ts": 1772591795216
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=signal/composite/binance/BTCUSDT/30m rid=r219",
+      "ts": 1772591795216
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1h rid=r220",
+      "ts": 1772591795216
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1h rid=r221",
+      "ts": 1772591795216
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/1h rid=r222",
+      "ts": 1772591795216
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=signal/composite/binance/BTCUSDT/1h rid=r223",
+      "ts": 1772591795216
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/30m",
+      "ts": 1772591795221
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/30m",
+      "ts": 1772591795221
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=aggregation.candle/binance/BTCUSDT/30m",
+      "ts": 1772591795221
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=signal/composite/binance/BTCUSDT/30m",
+      "ts": 1772591795221
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1h",
+      "ts": 1772591795221
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1h",
+      "ts": 1772591795221
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/1h",
+      "ts": 1772591795221
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=signal/composite/binance/BTCUSDT/1h",
+      "ts": 1772591795221
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1h rid=r226",
+      "ts": 1772591795471
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1h rid=r227",
+      "ts": 1772591795471
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=aggregation.candle/binance/BTCUSDT/1h rid=r228",
+      "ts": 1772591795471
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=signal/composite/binance/BTCUSDT/1h rid=r229",
+      "ts": 1772591795471
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/4h rid=r230",
+      "ts": 1772591795471
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/4h rid=r231",
+      "ts": 1772591795471
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/4h rid=r232",
+      "ts": 1772591795471
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=signal/composite/binance/BTCUSDT/4h rid=r233",
+      "ts": 1772591795471
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1h",
+      "ts": 1772591795480
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1h",
+      "ts": 1772591795480
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=aggregation.candle/binance/BTCUSDT/1h",
+      "ts": 1772591795480
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=signal/composite/binance/BTCUSDT/1h",
+      "ts": 1772591795480
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/4h",
+      "ts": 1772591795480
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/4h",
+      "ts": 1772591795480
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/4h",
+      "ts": 1772591795480
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=signal/composite/binance/BTCUSDT/4h",
+      "ts": 1772591795480
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/4h rid=r236",
+      "ts": 1772591795724
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/4h rid=r237",
+      "ts": 1772591795724
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=aggregation.candle/binance/BTCUSDT/4h rid=r238",
+      "ts": 1772591795724
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=signal/composite/binance/BTCUSDT/4h rid=r239",
+      "ts": 1772591795724
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1d rid=r240",
+      "ts": 1772591795724
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1d rid=r241",
+      "ts": 1772591795724
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/1d rid=r242",
+      "ts": 1772591795724
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=signal/composite/binance/BTCUSDT/1d rid=r243",
+      "ts": 1772591795724
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/4h",
+      "ts": 1772591795734
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/4h",
+      "ts": 1772591795734
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=aggregation.candle/binance/BTCUSDT/4h",
+      "ts": 1772591795734
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=signal/composite/binance/BTCUSDT/4h",
+      "ts": 1772591795734
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1d",
+      "ts": 1772591795734
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1d",
+      "ts": 1772591795734
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/1d",
+      "ts": 1772591795734
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=signal/composite/binance/BTCUSDT/1d",
+      "ts": 1772591795734
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1d rid=r246",
+      "ts": 1772591795961
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1d rid=r247",
+      "ts": 1772591795961
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=aggregation.candle/binance/BTCUSDT/1d rid=r248",
+      "ts": 1772591795961
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=signal/composite/binance/BTCUSDT/1d rid=r249",
+      "ts": 1772591795961
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1s rid=r250",
+      "ts": 1772591795961
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1s rid=r251",
+      "ts": 1772591795961
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/1s rid=r252",
+      "ts": 1772591795961
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=signal/composite/binance/BTCUSDT/1s rid=r253",
+      "ts": 1772591795962
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1d",
+      "ts": 1772591795985
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1d",
+      "ts": 1772591795985
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=aggregation.candle/binance/BTCUSDT/1d",
+      "ts": 1772591795985
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=signal/composite/binance/BTCUSDT/1d",
+      "ts": 1772591795985
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1s",
+      "ts": 1772591795985
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1s",
+      "ts": 1772591795985
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/1s",
+      "ts": 1772591795985
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=signal/composite/binance/BTCUSDT/1s",
+      "ts": 1772591795990
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1s rid=r256",
+      "ts": 1772591796224
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1s rid=r257",
+      "ts": 1772591796224
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=aggregation.candle/binance/BTCUSDT/1s rid=r258",
+      "ts": 1772591796224
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=signal/composite/binance/BTCUSDT/1s rid=r259",
+      "ts": 1772591796224
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/5s rid=r260",
+      "ts": 1772591796224
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/5s rid=r261",
+      "ts": 1772591796224
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/5s rid=r262",
+      "ts": 1772591796224
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=signal/composite/binance/BTCUSDT/5s rid=r263",
+      "ts": 1772591796224
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1s",
+      "ts": 1772591796242
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1s",
+      "ts": 1772591796242
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=aggregation.candle/binance/BTCUSDT/1s",
+      "ts": 1772591796242
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=signal/composite/binance/BTCUSDT/1s",
+      "ts": 1772591796242
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/5s",
+      "ts": 1772591796242
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/5s",
+      "ts": 1772591796242
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/5s",
+      "ts": 1772591796242
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=signal/composite/binance/BTCUSDT/5s",
+      "ts": 1772591796259
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/5s rid=r267",
+      "ts": 1772591796474
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/5s rid=r268",
+      "ts": 1772591796474
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=aggregation.candle/binance/BTCUSDT/5s rid=r269",
+      "ts": 1772591796474
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=signal/composite/binance/BTCUSDT/5s rid=r270",
+      "ts": 1772591796474
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1m rid=r271",
+      "ts": 1772591796474
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m rid=r272",
+      "ts": 1772591796474
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/1m rid=r273",
+      "ts": 1772591796474
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=signal/composite/binance/BTCUSDT/1m rid=r274",
+      "ts": 1772591796474
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/5s",
+      "ts": 1772591796484
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/5s",
+      "ts": 1772591796484
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=aggregation.candle/binance/BTCUSDT/5s",
+      "ts": 1772591796484
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=signal/composite/binance/BTCUSDT/5s",
+      "ts": 1772591796484
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1m",
+      "ts": 1772591796484
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m",
+      "ts": 1772591796484
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/1m",
+      "ts": 1772591796484
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=signal/composite/binance/BTCUSDT/1m",
+      "ts": 1772591796492
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1m rid=r277",
+      "ts": 1772591796723
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m rid=r278",
+      "ts": 1772591796723
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=aggregation.candle/binance/BTCUSDT/1m rid=r279",
+      "ts": 1772591796723
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=signal/composite/binance/BTCUSDT/1m rid=r280",
+      "ts": 1772591796723
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/5m rid=r281",
+      "ts": 1772591796723
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/5m rid=r282",
+      "ts": 1772591796723
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/5m rid=r283",
+      "ts": 1772591796723
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=signal/composite/binance/BTCUSDT/5m rid=r284",
+      "ts": 1772591796723
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1m",
+      "ts": 1772591796741
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m",
+      "ts": 1772591796741
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=aggregation.candle/binance/BTCUSDT/1m",
+      "ts": 1772591796741
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=signal/composite/binance/BTCUSDT/1m",
+      "ts": 1772591796741
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/5m",
+      "ts": 1772591796741
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/5m",
+      "ts": 1772591796741
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/5m",
+      "ts": 1772591796741
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=signal/composite/binance/BTCUSDT/5m",
+      "ts": 1772591796751
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/5m rid=r287",
+      "ts": 1772591796967
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/5m rid=r288",
+      "ts": 1772591796967
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=aggregation.candle/binance/BTCUSDT/5m rid=r289",
+      "ts": 1772591796967
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=signal/composite/binance/BTCUSDT/5m rid=r290",
+      "ts": 1772591796967
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/15m rid=r291",
+      "ts": 1772591796967
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/15m rid=r292",
+      "ts": 1772591796967
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/15m rid=r293",
+      "ts": 1772591796967
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=signal/composite/binance/BTCUSDT/15m rid=r294",
+      "ts": 1772591796967
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/5m",
+      "ts": 1772591796976
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/5m",
+      "ts": 1772591796976
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=aggregation.candle/binance/BTCUSDT/5m",
+      "ts": 1772591796976
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=signal/composite/binance/BTCUSDT/5m",
+      "ts": 1772591796976
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/15m",
+      "ts": 1772591796976
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/15m",
+      "ts": 1772591796976
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/15m",
+      "ts": 1772591796976
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=signal/composite/binance/BTCUSDT/15m",
+      "ts": 1772591796976
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/15m rid=r297",
+      "ts": 1772591797221
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/15m rid=r298",
+      "ts": 1772591797221
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=aggregation.candle/binance/BTCUSDT/15m rid=r299",
+      "ts": 1772591797221
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=signal/composite/binance/BTCUSDT/15m rid=r300",
+      "ts": 1772591797221
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/30m rid=r301",
+      "ts": 1772591797221
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/30m rid=r302",
+      "ts": 1772591797221
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/30m rid=r303",
+      "ts": 1772591797221
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=signal/composite/binance/BTCUSDT/30m rid=r304",
+      "ts": 1772591797221
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/15m",
+      "ts": 1772591797240
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/15m",
+      "ts": 1772591797240
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=aggregation.candle/binance/BTCUSDT/15m",
+      "ts": 1772591797240
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=signal/composite/binance/BTCUSDT/15m",
+      "ts": 1772591797240
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/30m",
+      "ts": 1772591797240
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/30m",
+      "ts": 1772591797241
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/30m",
+      "ts": 1772591797241
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=signal/composite/binance/BTCUSDT/30m",
+      "ts": 1772591797241
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/30m rid=r307",
+      "ts": 1772591797475
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/30m rid=r308",
+      "ts": 1772591797475
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=aggregation.candle/binance/BTCUSDT/30m rid=r309",
+      "ts": 1772591797475
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=signal/composite/binance/BTCUSDT/30m rid=r310",
+      "ts": 1772591797475
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1h rid=r311",
+      "ts": 1772591797476
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1h rid=r312",
+      "ts": 1772591797476
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/1h rid=r313",
+      "ts": 1772591797476
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=signal/composite/binance/BTCUSDT/1h rid=r314",
+      "ts": 1772591797476
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/30m",
+      "ts": 1772591797486
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/30m",
+      "ts": 1772591797486
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=aggregation.candle/binance/BTCUSDT/30m",
+      "ts": 1772591797486
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=signal/composite/binance/BTCUSDT/30m",
+      "ts": 1772591797486
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1h",
+      "ts": 1772591797486
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1h",
+      "ts": 1772591797486
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/1h",
+      "ts": 1772591797486
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=signal/composite/binance/BTCUSDT/1h",
+      "ts": 1772591797486
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1h rid=r317",
+      "ts": 1772591797734
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1h rid=r318",
+      "ts": 1772591797734
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=aggregation.candle/binance/BTCUSDT/1h rid=r319",
+      "ts": 1772591797734
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=signal/composite/binance/BTCUSDT/1h rid=r320",
+      "ts": 1772591797734
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/4h rid=r321",
+      "ts": 1772591797735
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/4h rid=r322",
+      "ts": 1772591797735
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/4h rid=r323",
+      "ts": 1772591797735
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=signal/composite/binance/BTCUSDT/4h rid=r324",
+      "ts": 1772591797735
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1h",
+      "ts": 1772591797751
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1h",
+      "ts": 1772591797751
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=aggregation.candle/binance/BTCUSDT/1h",
+      "ts": 1772591797751
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=signal/composite/binance/BTCUSDT/1h",
+      "ts": 1772591797751
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/4h",
+      "ts": 1772591797751
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/4h",
+      "ts": 1772591797751
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/4h",
+      "ts": 1772591797751
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=signal/composite/binance/BTCUSDT/4h",
+      "ts": 1772591797751
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/4h rid=r327",
+      "ts": 1772591797987
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/4h rid=r328",
+      "ts": 1772591797987
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=aggregation.candle/binance/BTCUSDT/4h rid=r329",
+      "ts": 1772591797987
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=signal/composite/binance/BTCUSDT/4h rid=r330",
+      "ts": 1772591797987
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1d rid=r331",
+      "ts": 1772591797987
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1d rid=r332",
+      "ts": 1772591797987
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/1d rid=r333",
+      "ts": 1772591797987
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=signal/composite/binance/BTCUSDT/1d rid=r334",
+      "ts": 1772591797987
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/4h",
+      "ts": 1772591797997
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/4h",
+      "ts": 1772591797997
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=aggregation.candle/binance/BTCUSDT/4h",
+      "ts": 1772591797997
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=signal/composite/binance/BTCUSDT/4h",
+      "ts": 1772591797997
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1d",
+      "ts": 1772591797997
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1d",
+      "ts": 1772591797997
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/1d",
+      "ts": 1772591797997
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=signal/composite/binance/BTCUSDT/1d",
+      "ts": 1772591797997
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1d rid=r337",
+      "ts": 1772591800275
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1d rid=r338",
+      "ts": 1772591800275
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=aggregation.candle/binance/BTCUSDT/1d rid=r339",
+      "ts": 1772591800275
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=signal/composite/binance/BTCUSDT/1d rid=r340",
+      "ts": 1772591800275
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1m rid=r341",
+      "ts": 1772591800275
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m rid=r342",
+      "ts": 1772591800275
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/1m rid=r343",
+      "ts": 1772591800275
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=signal/composite/binance/BTCUSDT/1m rid=r344",
+      "ts": 1772591800275
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1d",
+      "ts": 1772591800286
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1d",
+      "ts": 1772591800286
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=aggregation.candle/binance/BTCUSDT/1d",
+      "ts": 1772591800286
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=signal/composite/binance/BTCUSDT/1d",
+      "ts": 1772591800286
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1m",
+      "ts": 1772591800287
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m",
+      "ts": 1772591800287
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=aggregation.candle/binance/BTCUSDT/1m",
+      "ts": 1772591800287
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=signal/composite/binance/BTCUSDT/1m",
+      "ts": 1772591800300
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/1m rid=r349",
+      "ts": 1772591807340
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m rid=r350",
+      "ts": 1772591807340
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=aggregation.candle/binance/BTCUSDT/1m rid=r351",
+      "ts": 1772591807340
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] unsubscribe_sent subject=signal/composite/binance/BTCUSDT/1m rid=r352",
+      "ts": 1772591807340
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.heatmap_snapshot/binance/BTCUSDT/15m rid=r353",
+      "ts": 1772591807340
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=insights.volume_profile_snapshot/binance/BTCUSDT/15m rid=r354",
+      "ts": 1772591807340
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=aggregation.candle/binance/BTCUSDT/15m rid=r355",
+      "ts": 1772591807340
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] subscribe_sent subject=signal/composite/binance/BTCUSDT/15m rid=r356",
+      "ts": 1772591807340
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/1m",
+      "ts": 1772591807358
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/1m",
+      "ts": 1772591807358
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=aggregation.candle/binance/BTCUSDT/1m",
+      "ts": 1772591807358
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=unsubscribe subject=signal/composite/binance/BTCUSDT/1m",
+      "ts": 1772591807358
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.heatmap_snapshot/binance/BTCUSDT/15m",
+      "ts": 1772591807358
+    },
+    {
+      "type": "log",
+      "text": "[md-lifecycle] ack_recv op=subscribe subject=insights.volume_profile_snapshot/binance/BTCUSDT/15m",
+      "ts": 1772591807358
+    }
+  ]
+}

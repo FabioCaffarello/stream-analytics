@@ -23,6 +23,7 @@ func TestValidateEnvelopeForDelivery_AllowsAggregationCandleAndStats(t *testing.
 		"aggregation.stats",
 		"aggregation.orderbook_inconsistency",
 		"insights.heatmap_snapshot",
+		"signal.composite",
 	} {
 		p := domain.ValidateEnvelopeForDelivery(envelope.Envelope{
 			Type:    eventType,

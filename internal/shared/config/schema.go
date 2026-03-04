@@ -34,6 +34,8 @@ type AppConfig struct {
 	Storage      StorageConfig      `json:"storage"`
 	Backfill     BackfillConfig     `json:"backfill"`
 	Markets      MarketsConfig      `json:"markets"`
+	Evidence     EvidenceConfig     `json:"evidence"`
+	Signals      SignalsConfig      `json:"signals"`
 }
 
 // MarketsConfig declares available exchanges and symbols for client discovery.
@@ -52,6 +54,36 @@ type MarketsSymbolConfig struct {
 	Ticker     string  `json:"ticker"`
 	TickSize   float64 `json:"tick_size"`
 	MarketType string  `json:"market_type"`
+}
+
+// EvidenceConfig controls evidence-engine boundedness and confidence decay.
+type EvidenceConfig struct {
+	// BufferCapPerKind bounds in-memory evidence history per kind.
+	BufferCapPerKind int `json:"buffer_cap_per_kind"`
+	// DecayHalfLifeMs controls time-weighted confidence decay half-life in milliseconds.
+	DecayHalfLifeMs int `json:"decay_half_life_ms"`
+	// RegimeMaxStreams bounds active regime streams.
+	RegimeMaxStreams int `json:"regime_max_streams"`
+	// RegimeHistoryCap bounds candle/regime history per stream.
+	RegimeHistoryCap int `json:"regime_history_cap"`
+}
+
+// SignalsConfig controls signal-composer boundedness and delivery limits.
+type SignalsConfig struct {
+	// UseComposer toggles signal composer path (strangler flag).
+	UseComposer bool `json:"use_composer"`
+	// DedupWindowMs controls dedup TTL window in milliseconds.
+	DedupWindowMs int64 `json:"dedup_window_ms"`
+	// RateLimitPerMin bounds per {venue,instrument} signal emits per minute.
+	RateLimitPerMin int `json:"rate_limit_per_min"`
+	// GlobalRateLimitPerMin bounds all signal emits per minute.
+	GlobalRateLimitPerMin int `json:"global_rate_limit_per_min"`
+	// CorrelationWindowMs controls cross-venue correlation window in milliseconds.
+	CorrelationWindowMs int64 `json:"correlation_window_ms"`
+	// MaxSubsPerSession bounds active signal subscriptions per websocket session.
+	MaxSubsPerSession int `json:"max_subs_per_session"`
+	// WindowCap bounds dedup history entries per signal key.
+	WindowCap int `json:"window_cap"`
 }
 
 // ShardConfig controls deterministic shard assignment for horizontal scaling.
@@ -569,6 +601,10 @@ type ProcessorConfig struct {
 	BusCapacity int `json:"bus_capacity"`
 	// MaxInstruments bounds in-memory order book state for aggregation.
 	MaxInstruments int `json:"max_instruments"`
+	// OrderBook controls deterministic order book implementation and limits.
+	OrderBook ProcessorOrderBookConfig `json:"orderbook"`
+	// XVenue controls synthetic cross-venue top-of-book merge settings.
+	XVenue ProcessorXVenueConfig `json:"xvenue"`
 	// PublisherTimeout is the JetStream publish timeout per envelope.  Default: "5s".
 	PublisherTimeout string `json:"publisher_timeout"`
 	// Insights controls optional processor-side insight derivations.
@@ -592,6 +628,32 @@ type ProcessorConfig struct {
 	CatchUpSkipStatsSkewMs int `json:"catchup_skip_stats_skew_ms"`
 }
 
+// ProcessorOrderBookConfig controls order book boundedness and implementation policy.
+type ProcessorOrderBookConfig struct {
+	// MaxLevels caps levels per side for in-memory order books.
+	MaxLevels int `json:"max_levels"`
+	// UseBTreeOrderBook keeps migration intent explicit in config.
+	// nil defaults to true.
+	UseBTreeOrderBook *bool `json:"use_btree_orderbook,omitempty"`
+}
+
+// ProcessorXVenueConfig controls synthetic cross-venue snapshot behavior.
+type ProcessorXVenueConfig struct {
+	// Enabled toggles cross-venue snapshot emission on order book updates.
+	Enabled bool `json:"enabled"`
+	// StaleThresholdMs excludes venue books older than this event-time age.
+	StaleThresholdMs int64 `json:"stale_threshold_ms"`
+	// MaxInstruments bounds active cross-venue instrument partitions.
+	MaxInstruments int `json:"max_instruments"`
+	// MaxVenues bounds active venue books per instrument.
+	MaxVenues int `json:"max_venues"`
+}
+
+// IsBTreeEnabled reports whether the B-Tree order book should be active.
+func (c ProcessorOrderBookConfig) IsBTreeEnabled() bool {
+	return c.UseBTreeOrderBook == nil || *c.UseBTreeOrderBook
+}
+
 // PublisherTimeoutDuration parses and returns ProcessorConfig.PublisherTimeout.
 func (p ProcessorConfig) PublisherTimeoutDuration() time.Duration {
 	return mustParseDuration(p.PublisherTimeout)
@@ -603,6 +665,8 @@ type ProcessorCandleConfig struct {
 	Enabled bool `json:"enabled"`
 	// MaxCandles bounds active candle windows in memory.
 	MaxCandles int `json:"max_candles"`
+	// WindowCap bounds tracked open watermark windows.
+	WindowCap int `json:"window_cap"`
 }
 
 // ProcessorStatsConfig controls stats aggregation options in processor runtime.
@@ -611,6 +675,8 @@ type ProcessorStatsConfig struct {
 	Enabled bool `json:"enabled"`
 	// MaxWindows bounds active stats windows in memory.
 	MaxWindows int `json:"max_windows"`
+	// WindowCap bounds tracked open watermark windows.
+	WindowCap int `json:"window_cap"`
 }
 
 // ProcessorSubMinuteRolloutConfig controls rollout for sub-minute outputs.
@@ -738,6 +804,10 @@ type ProcessorInsightsConfig struct {
 	// RoundingMode controls deterministic spread rounding.
 	// Supported: half_even (default) | floor.
 	RoundingMode string `json:"rounding_mode"`
+	// InsightsTimeframes controls which timeframes the processor generates
+	// heatmap and volume-profile snapshots for.
+	// Default: ["1m"]. Allowed: "1s","5s","1m","5m","15m","30m","1h","4h","1d".
+	InsightsTimeframes []string `json:"insights_timeframes"`
 }
 
 // ReadTimeout parses and returns HTTPConfig.ReadTimeout as a time.Duration.

@@ -32,6 +32,15 @@ build_focus_mode :: proc(
 	// Candle widget (active stream).
 	cell_now_ms := current_now_ms(state)
 	cell_recv_ms := stores.candle == &state.stores.candle ? state.candle_last_recv_local_ms : cell_now_ms
+	signal_subject_id := u64(0)
+	if reg := state.stream_views; reg != nil {
+		if active := stream_view_active_slot(reg); active != nil {
+			if !active.has_stream_info { refresh_stream_info_for_slot(state, active) }
+			if active.has_stream_info {
+				signal_subject_id = build_signal_subject_id(active.stream_info.venue, active.stream_info.symbol, cell_effective_tf_string(state, 0))
+			}
+		}
+	}
 	candle_health_label, candle_health_detail, candle_health_color := build_candle_health_ui_for_store(
 		stores.candle, cell_recv_ms, cell_effective_tf_ms(state, 0), cell_now_ms)
 	widgets.candle_widget(&state.cmd_buf, widgets.Candle_Widget_Data{
@@ -78,6 +87,8 @@ build_focus_mode :: proc(
 		pointer               = pointer,
 		now_ms                = cell_now_ms,
 		timeframe_ms          = cell_effective_tf_ms(state, 0),
+		signal_store          = &state.stores.signals,
+		signal_subject_id     = signal_subject_id,
 		indicator_probe       = &state.telemetry.last_indicator_probe,
 	})
 

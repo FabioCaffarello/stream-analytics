@@ -34,9 +34,9 @@ Heatmap_Intensity_Profile :: struct {
 }
 
 HEATMAP_INTENSITY_PROFILES :: [3]Heatmap_Intensity_Profile{
-	{min_visible_pct = 0.16, min_intensity = 0.03, min_alpha = 0.08, max_alpha = 0.40},
-	{min_visible_pct = 0.24, min_intensity = 0.05, min_alpha = 0.10, max_alpha = 0.50},
-	{min_visible_pct = 0.34, min_intensity = 0.07, min_alpha = 0.12, max_alpha = 0.58},
+	{min_visible_pct = 0.10, min_intensity = 0.02, min_alpha = 0.16, max_alpha = 0.55},
+	{min_visible_pct = 0.18, min_intensity = 0.04, min_alpha = 0.22, max_alpha = 0.68},
+	{min_visible_pct = 0.26, min_intensity = 0.06, min_alpha = 0.28, max_alpha = 0.80},
 }
 
 // --- Chart type ---
@@ -124,6 +124,8 @@ Candle_Widget_Data :: struct {
 	pointer:       ui.Pointer_Input,
 	now_ms:        i64,         // current wall-clock ms (0 = no countdown)
 	timeframe_ms:  i64,         // active candle TF in ms (e.g. 60_000)
+	signal_store:  ^services.Signal_Store,
+	signal_subject_id: u64,
 	// Crosshair sync: price level from another chart's crosshair.
 	sync_price:    f64,         // price from synced crosshair (0 = no sync)
 	sync_active:   bool,        // true if sync crosshair should be drawn
@@ -553,7 +555,22 @@ candle_widget :: proc(buf: ^ui.Command_Buffer, data: Candle_Widget_Data) {
 	// Layer pipeline aligned with MarketMonkey: guides -> overlays -> indicators -> primary series -> annotations.
 	draw_candle_price_grid(buf, &ctx)
 	draw_candle_day_boundaries(buf, &ctx)
-	draw_candle_overlays(buf, data, &ctx)
+	draw_candle_underlays(buf, data, &ctx)
+	draw_signal_overlay(buf, Signal_Overlay_Data{
+		store      = data.signal_store,
+		subject_id = data.signal_subject_id,
+		rect       = ui.rect_xywh(ctx.inner.pos.x + 6, ctx.inner.pos.y + 6, max(ctx.chart_w * 0.4, f32(120)), 18),
+		text       = data.text,
+	})
+	sig_panel_w := min(f32(196), max(ctx.chart_w * 0.34, f32(132)))
+	sig_panel_rect := ui.rect_xywh(ctx.inner.pos.x + ctx.chart_w - sig_panel_w - 6, ctx.inner.pos.y + 6, sig_panel_w, 84)
+	signal_panel(buf, Signal_Panel_Data{
+		store      = data.signal_store,
+		subject_id = data.signal_subject_id,
+		viewport   = sig_panel_rect,
+		text       = data.text,
+		max_rows   = 3,
+	})
 
 	// Build layer stack and dispatch overlays via vtable (PRD-0007 M3).
 	layers: [MAX_CHART_LAYERS]Chart_Layer
@@ -639,6 +656,7 @@ candle_widget :: proc(buf: ^ui.Command_Buffer, data: Candle_Widget_Data) {
 	}
 
 	draw_candle_bars(buf, &ctx)
+	draw_candle_overlays(buf, data, &ctx)
 	draw_candle_volume_separator(buf, &ctx)
 	draw_candle_current_price(buf, data, &ctx)
 	draw_candle_high_low_labels(buf, data, &ctx)

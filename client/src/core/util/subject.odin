@@ -94,6 +94,8 @@ channel_to_stream_type :: proc(channel: ports.MD_Channel) -> string {
 		return "aggregation.candle"
 	case .Evidence:
 		return "insights.microstructure_evidence"
+	case .Signals:
+		return "signal/composite"
 	}
 	return ""
 }
@@ -101,7 +103,7 @@ channel_to_stream_type :: proc(channel: ports.MD_Channel) -> string {
 @(private = "file")
 timeframe_for_channel :: proc(channel: ports.MD_Channel, timeframe: string) -> string {
 	switch channel {
-	case .Heatmaps, .VPVR, .Candles:
+	case .Heatmaps, .VPVR, .Candles, .Signals:
 		// Timeframe-aware streams follow the active candle timeframe.
 		if len(timeframe) > 0 do return timeframe
 		return "1m"

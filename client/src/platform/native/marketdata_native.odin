@@ -29,6 +29,7 @@ import "mr:util"
 
 TRADE_RING_CAP  :: 1024
 CANDLE_RING_CAP :: 8
+SIGNAL_RING_CAP :: 64
 MAX_SUBS :: 128
 
 // --- Reconnection constants ---
@@ -104,6 +105,9 @@ MD_Native_State :: struct {
 	range_candle_dirty:   bool,
 	evidence_staging:     services.Parsed_Evidence,
 	evidence_dirty:       bool,
+	signal_ring:          [SIGNAL_RING_CAP]services.Parsed_Signal,
+	signal_ring_write:    int,
+	signal_ring_count:    int,
 
 	// Candle timeframe filter (mutable, heap-allocated).
 	candle_tf_filter: string,
@@ -792,6 +796,7 @@ native_metrics :: proc(out: ^ports.MD_Runtime_Metrics) -> bool {
 	if state.heatmap_dirty do latest_pending += 1
 	if state.vpvr_dirty do latest_pending += 1
 	if state.candle_ring_count > 0 do latest_pending += 1
+	if state.signal_ring_count > 0 do latest_pending += 1
 	sm := state.server_metrics
 	out^ = ports.MD_Runtime_Metrics{
 		active_subs       = state.active_count,
@@ -1008,7 +1013,7 @@ native_resubscribe_timeframe_channels :: proc(state: ^MD_Native_State) {
 
 	for i in 0 ..< state.active_count {
 		entry := &state.active_subs[i]
-		if entry.channel != .Heatmaps && entry.channel != .VPVR && entry.channel != .Candles do continue
+		if entry.channel != .Heatmaps && entry.channel != .VPVR && entry.channel != .Candles && entry.channel != .Signals do continue
 
 		new_subject := util.build_subject_with_timeframe(entry.venue, entry.symbol, entry.channel, state.candle_tf_filter)
 		if new_subject == entry.subject {
@@ -1117,14 +1122,15 @@ native_poll :: proc(events_buf: []ports.MD_Event) -> int {
 		events_buf[n].kind = .Heatmap
 		events_buf[n].unix = hm.unix
 		events_buf[n].data.heatmap = ports.MD_Heatmap_Event{
-			prices      = raw_data(state.poll_hm_prices[:lc]),
-			sizes       = raw_data(state.poll_hm_sizes[:lc]),
-			level_count = lc,
-			price_group = hm.price_group,
-			min_price   = hm.min_price,
-			max_price   = hm.max_price,
-			max_size    = hm.max_size,
-			unix        = hm.unix,
+			prices          = raw_data(state.poll_hm_prices[:lc]),
+			sizes           = raw_data(state.poll_hm_sizes[:lc]),
+			level_count     = lc,
+			price_group     = hm.price_group,
+			min_price       = hm.min_price,
+			max_price       = hm.max_price,
+			max_size        = hm.max_size,
+			unix            = hm.unix,
+			window_start_ms = hm.window_start_ms,
 		}
 		state.heatmap_dirty = false
 		n += 1
@@ -1222,6 +1228,13 @@ native_poll :: proc(events_buf: []ports.MD_Event) -> int {
 		state.evidence_dirty = false
 		n += 1
 	}
+	for n < len(events_buf) && state.signal_ring_count > 0 {
+		oldest := (state.signal_ring_write - state.signal_ring_count + SIGNAL_RING_CAP) % SIGNAL_RING_CAP
+		sig := state.signal_ring[oldest]
+		native_fill_signal_event(&events_buf[n], sig)
+		state.signal_ring_count -= 1
+		n += 1
+	}
 
 	return n
 }
@@ -1244,6 +1257,29 @@ native_fill_evidence_event :: proc(dst: ^ports.MD_Event, ev: services.Parsed_Evi
 		feature_vals  = ev.feature_vals,
 		feature_count = ev.feature_count,
 		unix          = ev.unix,
+	}
+}
+
+@(private = "package")
+native_fill_signal_event :: proc(dst: ^ports.MD_Event, sig: services.Parsed_Signal) {
+	if dst == nil do return
+	dst.source.subject_id = sig.subject_id
+	dst.source.channel = .Signals
+	dst.source.seq = sig.seq
+	dst.kind = .Signal
+	dst.unix = util.normalize_unix_seconds(sig.unix)
+	dst.data.signal = ports.MD_Signal_Event{
+		kind            = sig.kind,
+		kind_len        = sig.kind_len,
+		severity        = sig.severity,
+		severity_len    = sig.severity_len,
+		confidence      = sig.confidence,
+		reason          = sig.reason,
+		reason_len      = sig.reason_len,
+		regime          = sig.regime,
+		regime_len      = sig.regime_len,
+		regime_strength = sig.regime_strength,
+		unix            = sig.unix,
 	}
 }
 
@@ -1828,19 +1864,32 @@ apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 				prev_seq := state.last_seq_by_sub[si]
 				gap, next_streak, recurring := md_common.seq_gap_transition(prev_seq, result.meta.seq, state.seq_gap_streak, 3)
 				if gap {
-					state.desync = true
-					state.desync_reason = .Sequence_Gap
 					state.seq_gap_count += 1
 					state.seq_gap_streak = next_streak
 					if recurring {
 						state.backend_gap_seq_gap_recurring += 1
 					}
-					set_transport_state(state, .Desync)
-					if state.desync_resub_subject_id == 0 {
-						state.desync_resub_subject_id = result.meta.subject_id
+					// Only escalate to desync for significant gaps (>10), consistent
+					// with stream controller tolerance for multi-replica interleaving.
+					abs_gap := result.meta.seq - prev_seq
+					if abs_gap < 0 do abs_gap = -abs_gap
+					SEQ_GAP_TOLERANCE :: i64(10)
+					if abs_gap > SEQ_GAP_TOLERANCE {
+						state.desync = true
+						state.desync_reason = .Sequence_Gap
+						set_transport_state(state, .Desync)
+						if state.desync_resub_subject_id == 0 {
+							state.desync_resub_subject_id = result.meta.subject_id
+						}
 					}
 				} else {
 					state.seq_gap_streak = next_streak
+					// Auto-recover: monotonic sequence resumes — clear seq gap desync.
+					if state.desync_reason == .Sequence_Gap {
+						state.desync = false
+						state.desync_reason = .None
+						set_transport_state(state, .Running)
+					}
 				}
 				state.last_seq_by_sub[si] = result.meta.seq
 				// prev_seq chaining: validate if server sent prev_seq.
@@ -1874,15 +1923,26 @@ apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 				}
 				if result.meta.server_ts_ms > 0 {
 					prev_server_ts := state.last_server_ts_by_sub[si]
-					if prev_server_ts > 0 && result.meta.server_ts_ms < prev_server_ts {
+					// Allow minor timestamp regressions (up to 5s) — expected with
+					// multi-replica processors delivering interleaved events.
+					TS_REGRESSION_TOLERANCE_MS :: i64(5_000)
+					if prev_server_ts > 0 && result.meta.server_ts_ms < prev_server_ts - TS_REGRESSION_TOLERANCE_MS {
 						state.desync = true
 						state.desync_reason = .Protocol_Invalid
 						set_transport_state(state, .Desync)
 						if state.desync_resub_subject_id == 0 {
 							state.desync_resub_subject_id = result.meta.subject_id
 						}
+					} else if state.desync_reason == .Protocol_Invalid {
+						// Auto-recover: valid forward-progressing timestamp clears desync.
+						state.desync = false
+						state.desync_reason = .None
+						set_transport_state(state, .Running)
 					}
-					state.last_server_ts_by_sub[si] = result.meta.server_ts_ms
+					// Only update watermark on forward progress to avoid ratcheting down.
+					if result.meta.server_ts_ms >= prev_server_ts {
+						state.last_server_ts_by_sub[si] = result.meta.server_ts_ms
+					}
 				}
 				if result.meta.is_snapshot && !state.snapshot_logged_by_sub[si] {
 					state.snapshot_logged_by_sub[si] = true
@@ -2128,6 +2188,18 @@ apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 		sync.lock(&state.mu)
 		state.evidence_staging = result.data.evidence
 		state.evidence_dirty = true
+		sync.unlock(&state.mu)
+	case .Signal:
+		sync.lock(&state.mu)
+		if state.signal_ring_count >= SIGNAL_RING_CAP {
+			state.drop_count += 1
+			apply_ws_fault(state, .BackpressureDrop)
+		}
+		state.signal_ring[state.signal_ring_write] = result.data.signal
+		state.signal_ring_write = (state.signal_ring_write + 1) % SIGNAL_RING_CAP
+		if state.signal_ring_count < SIGNAL_RING_CAP {
+			state.signal_ring_count += 1
+		}
 		sync.unlock(&state.mu)
 	case .None:
 		// Ignored (last, unknown frame types).

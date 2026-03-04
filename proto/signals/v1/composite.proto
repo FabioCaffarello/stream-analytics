@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package signals.v1;
+
+option go_package = "github.com/market-raccoon/internal/shared/proto/gen/signals/v1";
+
+message Feature {
+  string label = 1;
+  string value = 2;
+}
+
+message CompositeSignalV1 {
+  string kind = 1;
+  string venue = 2;
+  string instrument = 3;
+  string timeframe = 4;
+  int64 ts_server_ms = 5;
+  string severity = 6;
+  double confidence = 7;
+  repeated Feature evidence = 8;
+  string regime_kind = 9;
+  double regime_strength = 10;
+  string reason = 11;
+  int64 seq = 12;
+  repeated string source_kinds = 13;
+}

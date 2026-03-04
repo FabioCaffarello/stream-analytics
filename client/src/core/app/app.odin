@@ -132,6 +132,7 @@ Stream_View_Slot :: struct {
 	has_timeframe_ms: bool,
 	timeframe_ms:     i64,
 	has_heatmap_snapshot: bool,
+	has_live_vpvr:       bool,
 	heatmap_snapshot:     services.Heatmap_Snapshot,
 	heatmap_store:        services.Heatmap_Store,
 	vpvr_store:           services.VPVR_Store,

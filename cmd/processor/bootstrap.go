@@ -497,10 +497,17 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 	aggSvc := aggapp.NewAggregationService(aggapp.AggregationServiceConfig{
 		Update: aggapp.UpdateConfig{
 			MaxBooks:                   cfg.Processor.MaxInstruments,
+			MaxLevels:                  cfg.Processor.OrderBook.MaxLevels,
 			SnapshotPublishMinInterval: time.Duration(cfg.Processor.RTPublish.OrderbookIntervalMs) * time.Millisecond,
 		},
-		Candle:      aggapp.BuildCandleConfig{MaxCandles: cfg.Processor.Candle.MaxCandles},
-		Stats:       aggapp.BuildStatsConfig{MaxWindows: cfg.Processor.Stats.MaxWindows},
+		Candle: aggapp.BuildCandleConfig{
+			MaxCandles: cfg.Processor.Candle.MaxCandles,
+			WindowCap:  cfg.Processor.Candle.WindowCap,
+		},
+		Stats: aggapp.BuildStatsConfig{
+			MaxWindows: cfg.Processor.Stats.MaxWindows,
+			WindowCap:  cfg.Processor.Stats.WindowCap,
+		},
 		Publisher:   artifactPub,
 		Store:       hotStore,
 		CandleStore: candleStore,
@@ -545,19 +552,33 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 			"sweep_every", cfg.Processor.Insights.SweepEvery,
 		)
 	}
+	if cfg.Processor.XVenue.Enabled {
+		logger.Info("processor: cross-venue orderbook merge enabled",
+			"stale_threshold_ms", cfg.Processor.XVenue.StaleThresholdMs,
+			"max_instruments", cfg.Processor.XVenue.MaxInstruments,
+			"max_venues", cfg.Processor.XVenue.MaxVenues,
+		)
+	}
 
 	// ── envelope source ─────────────────────────────────────────────────
 	source := initEnvelopeSource(cfg, logger, e2e)
 
 	// ── processor subsystem config ──────────────────────────────────────
 	processorCfg := aggruntime.ProcessorConfig{
-		Logger:                       logger,
-		EnvelopeCh:                   source.envelopeCh,
-		Service:                      aggSvc,
-		CandleEnabled:                boolPtr(cfg.Processor.Candle.Enabled),
-		StatsEnabled:                 boolPtr(cfg.Processor.Stats.Enabled),
-		Insights:                     insightsSvc,
-		JoinTrades:                   joinTrades,
+		Logger:           logger,
+		EnvelopeCh:       source.envelopeCh,
+		Service:          aggSvc,
+		CandleEnabled:    boolPtr(cfg.Processor.Candle.Enabled),
+		StatsEnabled:     boolPtr(cfg.Processor.Stats.Enabled),
+		Insights:         insightsSvc,
+		JoinTrades:       joinTrades,
+		CrossVenueMerger: aggdomain.DeterministicCrossVenueBookMerger{},
+		CrossVenue: aggruntime.ProcessorCrossVenueConfig{
+			Enabled:        cfg.Processor.XVenue.Enabled,
+			StaleThreshold: time.Duration(cfg.Processor.XVenue.StaleThresholdMs) * time.Millisecond,
+			MaxInstruments: cfg.Processor.XVenue.MaxInstruments,
+			MaxVenues:      cfg.Processor.XVenue.MaxVenues,
+		},
 		PublishEnvelope:              publishEnvelope,
 		HeatmapStore:                 heatmapStore,
 		VolumeProfileStore:           volumeProfileStore,
@@ -571,6 +592,7 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 		CatchUpSkipBookDeltaSkew: time.Duration(cfg.Processor.CatchUpSkipBookDeltaSkewMs) * time.Millisecond,
 		CatchUpSkipTradeSkew:     time.Duration(cfg.Processor.CatchUpSkipTradeSkewMs) * time.Millisecond,
 		CatchUpSkipStatsSkew:     time.Duration(cfg.Processor.CatchUpSkipStatsSkewMs) * time.Millisecond,
+		InsightsTimeframes:       cfg.Processor.Insights.InsightsTimeframes,
 		OnEnvelopeProcessed:      source.onResult,
 	}
 

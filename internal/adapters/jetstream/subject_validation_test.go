@@ -13,6 +13,7 @@ func TestValidateSubjectTaxonomy_Valid(t *testing.T) {
 		"insights.crossvenue.trade_snapshot.v1.global.BTCUSDT",
 		"insights.heatmap_snapshot.v1.binance.BTCUSDT",
 		"insights.heatmap_delta.v1.binance.BTCUSDT",
+		"signal.composite.v1.binance.BTCUSDT",
 	} {
 		if err := ValidateSubjectTaxonomy(subject); err != nil {
 			t.Fatalf("subject %q should be valid: %v", subject, err)

@@ -25,6 +25,27 @@ func CalculateHeatmapBinSize(price, tickSize float64) float64 {
 	return CalculateBinSize(price, tickSize, binFactorP)
 }
 
+// CalculateHeatmapBinSizeWithFactor returns the heatmap bin size using an
+// explicit grouping factor instead of the default 2.5%.
+func CalculateHeatmapBinSizeWithFactor(price, tickSize, factor float64) float64 {
+	return CalculateBinSize(price, tickSize, factor)
+}
+
+// HeatmapBinFactorForTimeframe returns a timeframe-aware grouping factor for
+// heatmap bins. Short timeframes use finer bins so that the visible price
+// range (typically narrow on 5s charts) contains multiple distinct levels
+// instead of 1-2 solid blocks.
+func HeatmapBinFactorForTimeframe(tf string) float64 {
+	switch tf {
+	case "1s", "5s", "10s":
+		return 0.001 // 0.1% — BTC ~$90 bins
+	case "1m", "5m":
+		return 0.005 // 0.5% — BTC ~$450 bins
+	default:
+		return binFactorP // 2.5% — BTC ~$2,250 bins (unchanged)
+	}
+}
+
 // CalculateBinSize computes a tick-aligned bin size for the given price and
 // grouping factor. The algorithm matches MarketMonkey common.CalculateBinSize
 // exactly: it finds the largest canonical step (1, 0.5, 0.25, 0.2, 0.1, 0.05)

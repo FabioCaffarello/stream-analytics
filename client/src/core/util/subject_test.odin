@@ -18,6 +18,13 @@ test_build_subject_normalizes_symbol_separators :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_build_signal_subject_uses_composite_kind_path :: proc(t: ^testing.T) {
+	subject := build_subject_with_timeframe("binance-perp", "BTCUSDT", .Signals, "5m")
+	defer delete(subject)
+	testing.expect_value(t, subject, "signal/composite/binance/BTCUSDT/5m")
+}
+
+@(test)
 test_subject_id64_for_stream_uses_canonical_market_key :: proc(t: ^testing.T) {
 	a := subject_id64_for_stream("binance-spot", "BTCUSDT:SPOT", ports.MD_Channel.Trades)
 	b := subject_id64_for_stream("binance", "BTCUSDT", ports.MD_Channel.Trades)

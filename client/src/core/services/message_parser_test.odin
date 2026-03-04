@@ -299,6 +299,16 @@ test_parse_snapshot_no_integrity_fields :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_parse_snapshot_envelope_overrides_bookdelta_payload_flag :: proc(t: ^testing.T) {
+	raw := `{"type":"snapshot","subject":"marketdata.bookdelta/binance/BTCUSDT","seq":51,"ts_ingest":1700000000000,"payload":{"Bids":[],"Asks":[],"IsSnapshot":false,"Timestamp":1700000000000}}`
+	result := parse_mr_message(transmute([]u8)raw, nil)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Orderbook)
+	testing.expect_value(t, result.meta.is_snapshot, true)
+	testing.expect_value(t, result.data.ob.is_snapshot, true)
+	free_all(context.temp_allocator)
+}
+
+@(test)
 test_parse_metrics_backpressure :: proc(t: ^testing.T) {
 	raw := `{"type":"metrics","payload":{"ws_dropped_total":5,"ws_queue_len":42,"ws_lag_ms":15,"publish_to_deliver_latency_ms":8,"serialize_errors_total":1,"resync_total":2,"active_subscriptions":24,"messages_out_total":10000,"backpressure_level":2,"recommended_action":"reduce_subs","queue_capacity":1024,"queue_high_watermark":768}}`
 	result := parse_mr_message(transmute([]u8)raw, nil)
@@ -453,6 +463,31 @@ test_parse_microstructure_evidence :: proc(t: ^testing.T) {
 	testing.expect_value(t, string(ev.kind[:ev.kind_len]), "SPREAD_EXPLOSION")
 	testing.expect_value(t, ev.feature_count, 2)
 	testing.expect_value(t, ev.confidence > 0.8, true)
+	free_all(context.temp_allocator)
+}
+
+@(test)
+test_parse_signal_frame_valid :: proc(t: ^testing.T) {
+	raw := `{"type":"signal","subject":"signal/composite/binance/BTCUSDT/1m","seq":88,"ts_server":1700000001200,"payload":{"kind":"trend_breakout","venue":"binance","instrument":"BTCUSDT","timeframe":"1m","severity":"high","confidence":0.91,"evidence":[{"label":"spread_bps","value":"8.1"}],"regime_kind":"trend","regime_strength":0.77,"reason":"breakout confirmed"}}`
+	result := parse_mr_message(transmute([]u8)raw, nil)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Signal)
+	testing.expect_value(t, result.meta.has_ts_server, true)
+	testing.expect_value(t, result.meta.server_ts_ms, i64(1700000001200))
+	sig := result.data.signal
+	testing.expect_value(t, string(sig.kind[:sig.kind_len]), "trend_breakout")
+	testing.expect_value(t, string(sig.severity[:sig.severity_len]), "high")
+	testing.expect_value(t, sig.confidence, 0.91)
+	testing.expect_value(t, string(sig.regime[:sig.regime_len]), "trend")
+	free_all(context.temp_allocator)
+}
+
+@(test)
+test_parse_signal_frame_invalid_confidence_rejected :: proc(t: ^testing.T) {
+	raw := `{"type":"signal","subject":"signal/composite/binance/BTCUSDT/1m","seq":89,"ts_server":1700000001300,"payload":{"kind":"trend_breakout","severity":"high","confidence":1.5,"reason":"invalid"}}`
+	tel: Parse_Telemetry
+	result := parse_mr_message(transmute([]u8)raw, &tel)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.None)
+	testing.expect(t, tel.parse_errors > 0, "invalid signal confidence should increment parse_errors")
 	free_all(context.temp_allocator)
 }
 

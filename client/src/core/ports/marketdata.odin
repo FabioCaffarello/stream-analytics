@@ -47,6 +47,7 @@ MD_Event_Kind :: enum u8 {
 	Candle,
 	Range_Candle_Batch,
 	Evidence,
+	Signal,
 }
 
 MD_Channel :: enum u8 {
@@ -57,6 +58,7 @@ MD_Channel :: enum u8 {
 	VPVR,
 	Candles,
 	Evidence,
+	Signals,
 }
 
 MD_Desync_Reason :: enum u8 {
@@ -97,14 +99,15 @@ MD_Stats_Event :: struct {
 }
 
 MD_Heatmap_Event :: struct {
-	prices:      [^]f64,
-	sizes:       [^]f64,
-	level_count: int,
-	price_group: f64,
-	min_price:   f64,
-	max_price:   f64,
-	max_size:    f64,
-	unix:        i64,
+	prices:          [^]f64,
+	sizes:           [^]f64,
+	level_count:     int,
+	price_group:     f64,
+	min_price:       f64,
+	max_price:       f64,
+	max_size:        f64,
+	unix:            i64,
+	window_start_ms: i64,
 }
 
 MD_VPVR_Event :: struct {
@@ -144,6 +147,20 @@ MD_Evidence_Event :: struct {
 	unix:          i64,
 }
 
+MD_Signal_Event :: struct {
+	kind:            [24]u8,
+	kind_len:        u8,
+	severity:        [12]u8,
+	severity_len:    u8,
+	confidence:      f64,
+	reason:          [96]u8,
+	reason_len:      u8,
+	regime:          [24]u8,
+	regime_len:      u8,
+	regime_strength: f64,
+	unix:            i64,
+}
+
 // Keep range batches compact enough for per-frame polling, while still allowing
 // a meaningful historical seed for candle UI.
 RANGE_CANDLE_MAX :: 32
@@ -163,6 +180,7 @@ MD_Event_Data :: struct #raw_union {
 	candle:         MD_Candle_Event,
 	range_candles:  MD_Range_Candle_Batch,
 	evidence:       MD_Evidence_Event,
+	signal:         MD_Signal_Event,
 }
 
 MD_Event_Source :: struct {

@@ -15,7 +15,7 @@ import "mr:util"
 // Subscribe only to channels cells actually need.
 // ===============================================================
 
-CHANNEL_COUNT :: 7
+CHANNEL_COUNT :: 8
 
 // Returns a bitmask of channels a widget type needs.
 channels_for_widget :: proc(kind: Widget_Kind) -> u8 {
@@ -26,9 +26,10 @@ channels_for_widget :: proc(kind: Widget_Kind) -> u8 {
 	CH_VPVR      :: u8(1 << u8(ports.MD_Channel.VPVR))
 	CH_CANDLES   :: u8(1 << u8(ports.MD_Channel.Candles))
 	CH_EVIDENCE  :: u8(1 << u8(ports.MD_Channel.Evidence))
+	CH_SIGNALS   :: u8(1 << u8(ports.MD_Channel.Signals))
 
 	switch kind {
-	case .Candle:    return CH_CANDLES | CH_STATS | CH_HEATMAPS | CH_VPVR | CH_EVIDENCE
+	case .Candle:    return CH_CANDLES | CH_STATS | CH_HEATMAPS | CH_VPVR | CH_EVIDENCE | CH_SIGNALS
 	case .Orderbook: return CH_ORDERBOOK
 	case .DOM:       return CH_ORDERBOOK | CH_TRADES
 	case .Trades:    return CH_TRADES
@@ -67,7 +68,8 @@ SUB_WANT_CAP :: 128
 @(private = "file")
 CH_TF_SENSITIVE :: u8(1 << u8(ports.MD_Channel.Candles)) |
                    u8(1 << u8(ports.MD_Channel.Heatmaps)) |
-                   u8(1 << u8(ports.MD_Channel.VPVR))
+                   u8(1 << u8(ports.MD_Channel.VPVR)) |
+                   u8(1 << u8(ports.MD_Channel.Signals))
 
 @(private = "file")
 sanitize_market_field :: proc(s: string) -> string {

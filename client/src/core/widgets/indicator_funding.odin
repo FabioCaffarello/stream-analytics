@@ -71,10 +71,12 @@ render_funding :: proc(
 	fund_ts: [FUNDING_MAX_POINTS]i64
 	fund_count := 0
 
+	// Skip stats entries with funding == 0 — these are synthetic entries from trade events
+	// that have no funding data. Real funding rates are never exactly 0 for extended periods.
 	use_window_filter := has_visible_window
 	for i in 0 ..< stats.count {
 		s := services.get_stats(stats, i)
-		// Stats unix is in seconds; candle timestamps are in ms.
+		if s.funding == 0 do continue // synthetic / no-data sentinel
 		s_ms := s.unix * 1000 if s.unix < 1_000_000_000_000 else s.unix
 		if use_window_filter && (s_ms < vis_start_ts || s_ms > vis_end_ts) do continue
 		if fund_count >= FUNDING_MAX_POINTS do break
@@ -82,12 +84,13 @@ render_funding :: proc(
 		fund_ts[fund_count] = s_ms
 		fund_count += 1
 	}
-	// Fallback: if the visible candle window has no stats, render most-recent stats anyway.
+	// Fallback: if the visible candle window has no non-zero stats, try without window filter.
 	if fund_count <= 1 && use_window_filter {
 		use_window_filter = false
 		fund_count = 0
 		for i in 0 ..< stats.count {
 			s := services.get_stats(stats, i)
+			if s.funding == 0 do continue
 			s_ms := s.unix * 1000 if s.unix < 1_000_000_000_000 else s.unix
 			if fund_count >= FUNDING_MAX_POINTS do break
 			fund_vals[fund_count] = s.funding

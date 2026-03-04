@@ -511,6 +511,99 @@ var (
 			Help: "Number of active order books held in memory.",
 		},
 	)
+	MROrderBookLevelsTotal = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "mr_orderbook_levels_total",
+			Help: "Current order book levels by bounded instrument bucket and side.",
+		},
+		[]string{"venue", "instrument_bucket", "side"},
+	)
+	MROrderBookSpreadBPS = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "mr_orderbook_spread_bps",
+			Help: "Current order book spread in bps by bounded instrument bucket.",
+		},
+		[]string{"venue", "instrument_bucket"},
+	)
+	MROrderBookUpdateDurationSeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mr_orderbook_update_duration_seconds",
+			Help:    "Latency in seconds for order book apply operations.",
+			Buckets: []float64{0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05},
+		},
+		[]string{"venue"},
+	)
+	MROrderBookPruneTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_orderbook_prune_total",
+			Help: "Total pruned order book levels due to cap enforcement.",
+		},
+		[]string{"venue", "instrument_bucket"},
+	)
+	MROrderBookCrossedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_orderbook_crossed_total",
+			Help: "Total crossed-book detections.",
+		},
+		[]string{"venue", "instrument_bucket"},
+	)
+	MROrderBookStaleTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_orderbook_stale_total",
+			Help: "Total stale (out-of-order) order book deltas.",
+		},
+		[]string{"venue", "instrument_bucket"},
+	)
+	MRWindowOpenTotal = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "mr_window_open_total",
+			Help: "Current open event-time windows by bounded partition.",
+		},
+		[]string{"venue", "instrument_bucket", "timeframe_bucket"},
+	)
+	MRWindowLateArrivalTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_window_late_arrival_total",
+			Help: "Total late-arrival events dropped by watermark policy.",
+		},
+		[]string{"venue", "instrument_bucket", "timeframe_bucket"},
+	)
+	MRWindowForceCloseTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_window_force_close_total",
+			Help: "Total forced window closes triggered by hard cap.",
+		},
+		[]string{"venue", "instrument_bucket", "timeframe_bucket"},
+	)
+	MRXVenueSpreadBPS = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "mr_xvenue_spread_bps",
+			Help: "Current cross-venue best-spread in bps by bounded instrument bucket.",
+		},
+		[]string{"instrument_bucket"},
+	)
+	MRXVenueDivergenceBPS = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "mr_xvenue_divergence_bps",
+			Help: "Current cross-venue spread divergence in bps by bounded instrument bucket.",
+		},
+		[]string{"instrument_bucket"},
+	)
+	MRXVenueMergeDurationSeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mr_xvenue_merge_duration_seconds",
+			Help:    "Latency in seconds for cross-venue merge operations.",
+			Buckets: []float64{0.00001, 0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05},
+		},
+		[]string{"instrument_bucket"},
+	)
+	MRXVenueVenuesActive = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "mr_xvenue_venues_active",
+			Help: "Number of active (non-stale) venues in cross-venue merge by instrument bucket.",
+		},
+		[]string{"instrument_bucket"},
+	)
 	StreamsEvictedTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "streams_evicted_total",
@@ -576,6 +669,120 @@ var (
 		prometheus.CounterOpts{
 			Name: "evidence_engine_events_total",
 			Help: "Total events processed by the evidence engine.",
+		},
+	)
+	EvidenceBufferEntries = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "evidence_buffer_entries",
+			Help: "Current number of buffered evidence events by kind.",
+		},
+		[]string{"kind"},
+	)
+	EvidenceBufferOverwritesTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "evidence_buffer_overwrites_total",
+			Help: "Total evidence buffer overwrites (ring replacement) by kind.",
+		},
+		[]string{"kind"},
+	)
+	MRRegimeCurrent = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "mr_regime_current",
+			Help: "Current active regime one-hot gauge by bounded venue/instrument/timeframe and regime kind.",
+		},
+		[]string{"venue", "instrument_bucket", "timeframe_bucket", "kind"},
+	)
+	MRRegimeStrength = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "mr_regime_strength",
+			Help: "Current regime strength by bounded venue/instrument/timeframe.",
+		},
+		[]string{"venue", "instrument_bucket", "timeframe_bucket"},
+	)
+	MRRegimeTransitionTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_regime_transition_total",
+			Help: "Total regime transitions by bounded venue/instrument/timeframe and transition pair.",
+		},
+		[]string{"venue", "instrument_bucket", "timeframe_bucket", "from", "to"},
+	)
+	MRRegimeDetectionDurationSeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mr_regime_detection_duration_seconds",
+			Help:    "Detection window duration in seconds for regime classification.",
+			Buckets: []float64{1, 5, 10, 30, 60, 300, 900, 3600},
+		},
+		[]string{"venue", "instrument_bucket", "timeframe_bucket"},
+	)
+	MRSignalEmittedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_signal_emitted_total",
+			Help: "Total composed signals emitted by kind, bounded venue/instrument bucket and severity.",
+		},
+		[]string{"kind", "venue", "instrument_bucket", "severity"},
+	)
+	MRSignalDeduplicatedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_signal_deduplicated_total",
+			Help: "Total composed signals dropped by dedup policy.",
+		},
+		[]string{"kind", "venue", "instrument_bucket"},
+	)
+	MRSignalRateLimitedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_signal_rate_limited_total",
+			Help: "Total composed signals dropped by per-key or global rate limits.",
+		},
+		[]string{"venue", "instrument_bucket"},
+	)
+	MRSignalCompositionDurationSeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mr_signal_composition_duration_seconds",
+			Help:    "Deterministic composition span in seconds (cross-venue correlation span).",
+			Buckets: []float64{0, 0.001, 0.01, 0.1, 0.5, 1, 2, 5},
+		},
+		[]string{"kind"},
+	)
+	MRSignalConfidenceDistribution = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mr_signal_confidence_distribution",
+			Help:    "Composed signal confidence distribution by kind.",
+			Buckets: []float64{0, 0.1, 0.2, 0.4, 0.6, 0.8, 0.9, 0.95, 0.99, 1},
+		},
+		[]string{"kind"},
+	)
+	MRSignalCorrelationHitTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_signal_correlation_hit_total",
+			Help: "Total signals where cross-venue confirmation rule fired.",
+		},
+		[]string{"kind"},
+	)
+	MRSignalRegimeBoostTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_signal_regime_boost_total",
+			Help: "Total signals where regime boost rule fired by signal/regime kind.",
+		},
+		[]string{"kind", "regime"},
+	)
+	MRSignalWSDeliveredTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_signal_ws_delivered_total",
+			Help: "Total signal frames delivered to websocket clients.",
+		},
+		[]string{"kind", "venue", "instrument_bucket"},
+	)
+	MRSignalWSSubscriptionRejectedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_signal_ws_subscription_rejected_total",
+			Help: "Total rejected signal subscriptions by reason.",
+		},
+		[]string{"reason"},
+	)
+	MRSignalWSSubscriptionsActive = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "mr_signal_ws_subscriptions_active",
+			Help: "Current active signal websocket subscriptions across sessions.",
 		},
 	)
 	VPVRBuilderBucketCount = prometheus.NewGaugeVec(
@@ -1027,12 +1234,6 @@ var (
 			Help: "Total delivery router stream-state entries evicted by TTL sweeps or hard-cap eviction.",
 		},
 	)
-	DeliveryRouterStreamStateEvictedTotalDeprecated = prometheus.NewCounter(
-		prometheus.CounterOpts{
-			Name: "router_stream_state_evicted_total",
-			Help: "(DEPRECATED; remove-by=2026-06-30: use delivery_router_stream_state_evicted_total) Total delivery router stream-state entries evicted by TTL sweeps.",
-		},
-	)
 	DeliveryRouterStreamStateActiveTotal = prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "router_stream_state_active_total",
@@ -1102,6 +1303,7 @@ var (
 	gcMu         sync.Mutex
 	lastNumGC    uint32
 	samplerMu    sync.Map
+	signalWSSubs atomic.Int64
 
 	venuePattern            = regexp.MustCompile(`^[a-z0-9_\-]{1,24}$`)
 	eventTypePattern        = regexp.MustCompile(`^[a-z0-9_.]{1,64}$`)
@@ -1126,12 +1328,23 @@ var (
 		"avax":  "major",
 	}
 	timeframeAllowedBuckets = map[string]struct{}{
+		"1s":  {},
+		"5s":  {},
 		"1m":  {},
 		"5m":  {},
 		"15m": {},
+		"30m": {},
 		"1h":  {},
 		"4h":  {},
 		"1d":  {},
+	}
+	regimeAllowedKinds = []string{
+		"trending",
+		"ranging",
+		"breakout",
+		"high_volatility",
+		"low_volatility",
+		"unknown",
 	}
 	tenantLabelPolicy = struct {
 		mu                    sync.RWMutex
@@ -1224,6 +1437,19 @@ func registerAll() {
 			ProcessHeapAllocBytes,
 			ProcessGCPauseSeconds,
 			AggregationBooksActive,
+			MROrderBookLevelsTotal,
+			MROrderBookSpreadBPS,
+			MROrderBookUpdateDurationSeconds,
+			MROrderBookPruneTotal,
+			MROrderBookCrossedTotal,
+			MROrderBookStaleTotal,
+			MRWindowOpenTotal,
+			MRWindowLateArrivalTotal,
+			MRWindowForceCloseTotal,
+			MRXVenueSpreadBPS,
+			MRXVenueDivergenceBPS,
+			MRXVenueMergeDurationSeconds,
+			MRXVenueVenuesActive,
 			StreamsEvictedTotal,
 			BooksEvictedTotal,
 			InsightsSnapshotsTotal,
@@ -1234,6 +1460,22 @@ func registerAll() {
 			EvidenceStateEntriesTotal,
 			EvidenceStateEvictedTotal,
 			EvidenceEngineEventsTotal,
+			EvidenceBufferEntries,
+			EvidenceBufferOverwritesTotal,
+			MRRegimeCurrent,
+			MRRegimeStrength,
+			MRRegimeTransitionTotal,
+			MRRegimeDetectionDurationSeconds,
+			MRSignalEmittedTotal,
+			MRSignalDeduplicatedTotal,
+			MRSignalRateLimitedTotal,
+			MRSignalCompositionDurationSeconds,
+			MRSignalConfidenceDistribution,
+			MRSignalCorrelationHitTotal,
+			MRSignalRegimeBoostTotal,
+			MRSignalWSDeliveredTotal,
+			MRSignalWSSubscriptionRejectedTotal,
+			MRSignalWSSubscriptionsActive,
 			VPVRBuilderBucketCount,
 			VPVRBuilderWindowsOpen,
 			VPVRBuilderOverloadActionsTotal,
@@ -1296,7 +1538,6 @@ func registerAll() {
 			DeliveryRouterCoherenceViolationsTotal,
 			DeliveryRouterStreamStateEntries,
 			DeliveryRouterStreamStateEvictedTotal,
-			DeliveryRouterStreamStateEvictedTotalDeprecated,
 			DeliveryRouterStreamStateActiveTotal,
 			DeliveryRouterSessionsActive,
 			DeliveryRouterSessionsRejectedTotal,
@@ -1389,6 +1630,25 @@ func registerAll() {
 		EvidenceStateEvictedTotal.WithLabelValues("liquidity_thinning")
 		EvidenceStateEvictedTotal.WithLabelValues("persistent_imbalance")
 		EvidenceStateEvictedTotal.WithLabelValues("absorption")
+		MRRegimeCurrent.WithLabelValues("unknown", "unknown", "unknown", "unknown").Set(0)
+		MRRegimeCurrent.WithLabelValues("unknown", "unknown", "unknown", "trending").Set(0)
+		MRRegimeCurrent.WithLabelValues("unknown", "unknown", "unknown", "ranging").Set(0)
+		MRRegimeCurrent.WithLabelValues("unknown", "unknown", "unknown", "breakout").Set(0)
+		MRRegimeCurrent.WithLabelValues("unknown", "unknown", "unknown", "high_volatility").Set(0)
+		MRRegimeCurrent.WithLabelValues("unknown", "unknown", "unknown", "low_volatility").Set(0)
+		MRRegimeStrength.WithLabelValues("unknown", "unknown", "unknown").Set(0)
+		MRRegimeTransitionTotal.WithLabelValues("unknown", "unknown", "unknown", "unknown", "unknown")
+		MRRegimeDetectionDurationSeconds.WithLabelValues("unknown", "unknown", "unknown")
+		MRSignalEmittedTotal.WithLabelValues("unknown", "unknown", "unknown", "unknown")
+		MRSignalDeduplicatedTotal.WithLabelValues("unknown", "unknown", "unknown")
+		MRSignalRateLimitedTotal.WithLabelValues("unknown", "unknown")
+		MRSignalCompositionDurationSeconds.WithLabelValues("unknown")
+		MRSignalConfidenceDistribution.WithLabelValues("unknown")
+		MRSignalCorrelationHitTotal.WithLabelValues("unknown")
+		MRSignalRegimeBoostTotal.WithLabelValues("unknown", "unknown")
+		MRSignalWSDeliveredTotal.WithLabelValues("unknown", "unknown", "unknown")
+		MRSignalWSSubscriptionRejectedTotal.WithLabelValues("unknown")
+		MRSignalWSSubscriptionsActive.Set(0)
 		VPVRBuilderBucketCount.WithLabelValues("unknown", "unknown", "unknown")
 		VPVRBuilderWindowsOpen.WithLabelValues("unknown", "unknown", "unknown")
 		VPVRBuilderOverloadActionsTotal.WithLabelValues("unknown")
@@ -1867,6 +2127,123 @@ func IncBooksEvicted(reason string) {
 	BooksEvictedTotal.WithLabelValues(sanitizeReason(reason)).Inc()
 }
 
+func SetMROrderBookLevels(venue, instrument, side string, levels int) {
+	if levels < 0 {
+		levels = 0
+	}
+	MROrderBookLevelsTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+		sanitizeOrderBookSide(side),
+	).Set(float64(levels))
+}
+
+func SetMROrderBookSpreadBPS(venue, instrument string, spreadBPS float64) {
+	if spreadBPS < 0 {
+		spreadBPS = 0
+	}
+	MROrderBookSpreadBPS.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+	).Set(spreadBPS)
+}
+
+func ObserveMROrderBookUpdateDuration(venue string, d time.Duration) {
+	seconds := d.Seconds()
+	if seconds < 0 {
+		seconds = 0
+	}
+	MROrderBookUpdateDurationSeconds.WithLabelValues(sanitizeVenue(venue)).Observe(seconds)
+}
+
+func AddMROrderBookPruned(venue, instrument string, count int) {
+	if count <= 0 {
+		return
+	}
+	MROrderBookPruneTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+	).Add(float64(count))
+}
+
+func IncMROrderBookCrossed(venue, instrument string) {
+	MROrderBookCrossedTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+	).Inc()
+}
+
+func IncMROrderBookStale(venue, instrument string) {
+	MROrderBookStaleTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+	).Inc()
+}
+
+func SetMRWindowOpen(venue, instrument, timeframe string, openCount int) {
+	if openCount < 0 {
+		openCount = 0
+	}
+	MRWindowOpenTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+		bucketTimeframe(timeframe),
+	).Set(float64(openCount))
+}
+
+func IncMRWindowLateArrival(venue, instrument, timeframe string) {
+	MRWindowLateArrivalTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+		bucketTimeframe(timeframe),
+	).Inc()
+}
+
+func IncMRWindowForceClose(venue, instrument, timeframe string) {
+	MRWindowForceCloseTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+		bucketTimeframe(timeframe),
+	).Inc()
+}
+
+func SetMRXVenueSpreadBPS(instrument string, spreadBPS float64) {
+	if spreadBPS < 0 {
+		spreadBPS = 0
+	}
+	MRXVenueSpreadBPS.WithLabelValues(
+		bucketInstrument(instrument),
+	).Set(spreadBPS)
+}
+
+func SetMRXVenueDivergenceBPS(instrument string, divergenceBPS float64) {
+	if divergenceBPS < 0 {
+		divergenceBPS = 0
+	}
+	MRXVenueDivergenceBPS.WithLabelValues(
+		bucketInstrument(instrument),
+	).Set(divergenceBPS)
+}
+
+func ObserveMRXVenueMergeDuration(instrument string, d time.Duration) {
+	seconds := d.Seconds()
+	if seconds < 0 {
+		seconds = 0
+	}
+	MRXVenueMergeDurationSeconds.WithLabelValues(
+		bucketInstrument(instrument),
+	).Observe(seconds)
+}
+
+func SetMRXVenueVenuesActive(instrument string, venues int) {
+	if venues < 0 {
+		venues = 0
+	}
+	MRXVenueVenuesActive.WithLabelValues(
+		bucketInstrument(instrument),
+	).Set(float64(venues))
+}
+
 func IncInsightsSnapshots(venueCount int) {
 	InsightsSnapshotsTotal.WithLabelValues(bucketVenueCount(venueCount)).Inc()
 }
@@ -1906,6 +2283,146 @@ func IncEvidenceStateEvicted(rule string) {
 
 func IncEvidenceEngineEvents() {
 	EvidenceEngineEventsTotal.Inc()
+}
+
+func SetEvidenceBufferEntries(kind string, count int) {
+	if count < 0 {
+		count = 0
+	}
+	EvidenceBufferEntries.WithLabelValues(sanitizeKind(kind)).Set(float64(count))
+}
+
+func IncEvidenceBufferOverwrites(kind string) {
+	EvidenceBufferOverwritesTotal.WithLabelValues(sanitizeKind(kind)).Inc()
+}
+
+func SetMRRegimeCurrent(venue, instrument, timeframe, kind string) {
+	sanitizedVenue := sanitizeVenue(venue)
+	sanitizedInstrument := bucketInstrument(instrument)
+	sanitizedTimeframe := bucketTimeframe(timeframe)
+	selected := sanitizeRegimeKind(kind)
+	for i := 0; i < len(regimeAllowedKinds); i++ {
+		value := 0.0
+		if regimeAllowedKinds[i] == selected {
+			value = 1
+		}
+		MRRegimeCurrent.WithLabelValues(
+			sanitizedVenue,
+			sanitizedInstrument,
+			sanitizedTimeframe,
+			regimeAllowedKinds[i],
+		).Set(value)
+	}
+}
+
+func SetMRRegimeStrength(venue, instrument, timeframe string, strength float64) {
+	if strength < 0 {
+		strength = 0
+	}
+	if strength > 1 {
+		strength = 1
+	}
+	MRRegimeStrength.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+		bucketTimeframe(timeframe),
+	).Set(strength)
+}
+
+func IncMRRegimeTransition(venue, instrument, timeframe, from, to string) {
+	MRRegimeTransitionTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+		bucketTimeframe(timeframe),
+		sanitizeRegimeKind(from),
+		sanitizeRegimeKind(to),
+	).Inc()
+}
+
+func ObserveMRRegimeDetectionDuration(venue, instrument, timeframe string, d time.Duration) {
+	if d < 0 {
+		d = 0
+	}
+	MRRegimeDetectionDurationSeconds.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+		bucketTimeframe(timeframe),
+	).Observe(d.Seconds())
+}
+
+func IncMRSignalEmitted(kind, venue, instrument, severity string) {
+	MRSignalEmittedTotal.WithLabelValues(
+		sanitizeKind(kind),
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+		sanitizeSignalSeverity(severity),
+	).Inc()
+}
+
+func IncMRSignalDeduplicated(kind, venue, instrument string) {
+	MRSignalDeduplicatedTotal.WithLabelValues(
+		sanitizeKind(kind),
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+	).Inc()
+}
+
+func IncMRSignalRateLimited(venue, instrument string) {
+	MRSignalRateLimitedTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+	).Inc()
+}
+
+func ObserveMRSignalCompositionDuration(kind string, d time.Duration) {
+	if d < 0 {
+		d = 0
+	}
+	MRSignalCompositionDurationSeconds.WithLabelValues(sanitizeKind(kind)).Observe(d.Seconds())
+}
+
+func ObserveMRSignalConfidence(kind string, confidence float64) {
+	if confidence < 0 {
+		confidence = 0
+	}
+	if confidence > 1 {
+		confidence = 1
+	}
+	MRSignalConfidenceDistribution.WithLabelValues(sanitizeKind(kind)).Observe(confidence)
+}
+
+func IncMRSignalCorrelationHit(kind string) {
+	MRSignalCorrelationHitTotal.WithLabelValues(sanitizeKind(kind)).Inc()
+}
+
+func IncMRSignalRegimeBoost(kind, regime string) {
+	MRSignalRegimeBoostTotal.WithLabelValues(sanitizeKind(kind), sanitizeRegimeKind(regime)).Inc()
+}
+
+func IncMRSignalWSDelivered(kind, venue, instrument string) {
+	MRSignalWSDeliveredTotal.WithLabelValues(
+		sanitizeKind(kind),
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+	).Inc()
+}
+
+func IncMRSignalWSSubscriptionRejected(reason string) {
+	MRSignalWSSubscriptionRejectedTotal.WithLabelValues(sanitizeSignalWSRejectReason(reason)).Inc()
+}
+
+func IncMRSignalWSActiveSubscriptions() {
+	v := signalWSSubs.Add(1)
+	MRSignalWSSubscriptionsActive.Set(float64(v))
+}
+
+func DecMRSignalWSActiveSubscriptions() {
+	v := signalWSSubs.Add(-1)
+	if v < 0 {
+		signalWSSubs.Store(0)
+		v = 0
+	}
+	MRSignalWSSubscriptionsActive.Set(float64(v))
 }
 
 func SetVPVRBuilderBucketCount(venue, instrument, timeframe string, count int) {
@@ -2407,6 +2924,43 @@ func sanitizeKind(v string) string {
 	return "unknown"
 }
 
+func sanitizeRegimeKind(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	for i := 0; i < len(regimeAllowedKinds); i++ {
+		if v == regimeAllowedKinds[i] {
+			return v
+		}
+	}
+	return "unknown"
+}
+
+func sanitizeSignalSeverity(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "low", "medium", "high", "critical":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeSignalWSRejectReason(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "max_signal_subscriptions", "max_subscriptions_per_connection", "max_symbols_per_connection":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeOrderBookSide(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "bid", "ask":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return "unknown"
+	}
+}
+
 func sanitizeBusType(v string) string {
 	v = strings.ToLower(strings.TrimSpace(v))
 	if busTypePattern.MatchString(v) {
@@ -2690,7 +3244,6 @@ func AddDeliveryRouterStreamStateEvicted(n int) {
 		return
 	}
 	DeliveryRouterStreamStateEvictedTotal.Add(float64(n))
-	DeliveryRouterStreamStateEvictedTotalDeprecated.Add(float64(n))
 }
 
 // SetDeliveryRouterStreamStateActive sets the active stream-state count from the latest sweep.

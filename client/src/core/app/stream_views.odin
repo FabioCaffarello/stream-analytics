@@ -364,6 +364,11 @@ apply_set_timeframe_action :: proc(state: ^App_State, idx: int) -> bool {
 		slot.has_heatmap_snapshot = false
 		slot.heatmap_snapshot = {}
 		slot.vpvr_store = {}
+		slot.has_live_vpvr = false
+		// Clear orderbook store and reset snapshot gate so stale L2 data from the
+		// prior TF doesn't persist. A fresh snapshot will arrive after resubscribe.
+		slot.orderbook_store = {}
+		slot.orderbook_snapshot_seen = false
 	}
 
 	// Clear TF-sensitive data for cells following global TF.
@@ -510,6 +515,7 @@ apply_set_cell_timeframe_action :: proc(state: ^App_State, cell_idx: int, tf_idx
 			slot.has_heatmap_snapshot = false
 			slot.heatmap_snapshot = {}
 			slot.vpvr_store = {}
+			slot.has_live_vpvr = false
 		}
 	} else {
 		// BUG-17: Follow-active cell — only clear candle store (TF-sensitive).

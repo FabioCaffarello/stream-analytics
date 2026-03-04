@@ -41,6 +41,7 @@ foreign odin_env {
 
 WEB_TRADE_RING_CAP   :: 1024
 WEB_CANDLE_RING_CAP  :: 32
+WEB_SIGNAL_RING_CAP  :: 64
 WEB_MAX_SUBS         :: 128
 WEB_RECV_BUF_SIZE    :: 128 * 1024 // 128 KB per message max
 WEB_PARSE_MAX_MSGS_PER_POLL :: 64
@@ -102,6 +103,9 @@ MD_Web_State :: struct {
 	range_candle_dirty:   bool,
 	evidence_staging:     services.Parsed_Evidence,
 	evidence_dirty:       bool,
+	signal_ring:          [WEB_SIGNAL_RING_CAP]services.Parsed_Signal,
+	signal_ring_write:    int,
+	signal_ring_count:    int,
 
 	// Candle timeframe filter (mutable, heap-allocated).
 	candle_tf_filter: string,
@@ -391,7 +395,7 @@ make_marketdata_web :: proc(url: string, api_key: string = "") -> ports.Marketda
 	url_raw := raw_data(transmute([]u8)url)
 	state.connect_started_ms = time.now()._nsec / 1_000_000
 	state.first_data_logged = false
-	fmt.printf("[md-lifecycle] connect url=%s\n", web_log_safe_url(url))
+	fmt.printf("[md-lifecycle] connect requested_url=%s\n", web_log_safe_url(url))
 	ws_connect(url_raw, i32(len(url)), raw_data(hdr_buf[:hdr_len]), i32(hdr_len))
 
 	return ports.Marketdata_Port{
@@ -486,6 +490,10 @@ web_disconnect_transport :: proc() -> bool {
 	if state == nil do return false
 	fmt.println("[md-lifecycle] disconnect requested=manual")
 	ws_close()
+	// Manual disconnect should stay offline until explicit reconnect is requested.
+	state.reconnect_blocked = true
+	state.reconnect_timer = 0
+	state.backoff_s = WEB_BACKOFF_INITIAL_S
 	state.was_connected = false
 	state.desync = false
 	state.desync_reason = .None
@@ -507,6 +515,7 @@ web_disconnect_transport :: proc() -> bool {
 	state.pending_getrange_queued = false
 	// Reset caps so next HELLO repopulates cleanly.
 	state.caps.received = false
+	fmt.println("[md-lifecycle] disconnect manual_offline=true")
 	return true
 }
 
@@ -672,6 +681,7 @@ web_metrics :: proc(out: ^ports.MD_Runtime_Metrics) -> bool {
 	if state.heatmap_dirty do latest_pending += 1
 	if state.vpvr_dirty do latest_pending += 1
 	if state.candle_ring_count > 0 do latest_pending += 1
+	if state.signal_ring_count > 0 do latest_pending += 1
 	sm := state.server_metrics
 	out^ = ports.MD_Runtime_Metrics{
 		active_subs       = state.active_count,
@@ -864,7 +874,7 @@ web_resubscribe_timeframe_channels :: proc(state: ^MD_Web_State) {
 
 	for i in 0 ..< state.active_count {
 		entry := &state.active_subs[i]
-		if entry.channel != .Heatmaps && entry.channel != .VPVR && entry.channel != .Candles do continue
+		if entry.channel != .Heatmaps && entry.channel != .VPVR && entry.channel != .Candles && entry.channel != .Signals do continue
 		if entry.is_explicit_tf do continue // per-cell TF sub — don't clobber
 
 		new_subject := util.build_subject_with_timeframe(entry.venue, entry.symbol, entry.channel, state.candle_tf_filter)
@@ -1094,7 +1104,7 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 			state.snapshot_logged_by_sub[i] = false
 			state.active_subs[i].stream_id_len = 0 // Clear stale stream_id from previous connection.
 		}
-		fmt.printf("[md-lifecycle] connect url=%s\n", web_log_safe_url(state.ws_url))
+		fmt.printf("[md-lifecycle] connect requested_url=%s\n", web_log_safe_url(state.ws_url))
 		// Terminal_V1: send HELLO immediately.
 		web_send_hello(state)
 		for i in 0 ..< state.active_count {
@@ -1239,6 +1249,7 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 	if state.heatmap_dirty do non_trade_pending += 1
 	if state.vpvr_dirty    do non_trade_pending += 1
 	non_trade_pending += min(state.candle_ring_count, WEB_CANDLE_RING_CAP)
+	non_trade_pending += min(state.signal_ring_count, WEB_SIGNAL_RING_CAP)
 	trade_emit_limit := len(events_buf) - non_trade_pending
 	if trade_emit_limit < 0 do trade_emit_limit = 0
 
@@ -1319,14 +1330,15 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 		events_buf[out].kind = .Heatmap
 		events_buf[out].unix = hm.unix
 		events_buf[out].data.heatmap = ports.MD_Heatmap_Event{
-			prices      = raw_data(state.poll_hm_prices[:lc]),
-			sizes       = raw_data(state.poll_hm_sizes[:lc]),
-			level_count = lc,
-			price_group = hm.price_group,
-			min_price   = hm.min_price,
-			max_price   = hm.max_price,
-			max_size    = hm.max_size,
-			unix        = hm.unix,
+			prices          = raw_data(state.poll_hm_prices[:lc]),
+			sizes           = raw_data(state.poll_hm_sizes[:lc]),
+			level_count     = lc,
+			price_group     = hm.price_group,
+			min_price       = hm.min_price,
+			max_price       = hm.max_price,
+			max_size        = hm.max_size,
+			unix            = hm.unix,
+			window_start_ms = hm.window_start_ms,
 		}
 		state.heatmap_dirty = false
 		out += 1
@@ -1422,6 +1434,13 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 		state.evidence_dirty = false
 		out += 1
 	}
+	for out < len(events_buf) && state.signal_ring_count > 0 {
+		oldest := (state.signal_ring_write - state.signal_ring_count + WEB_SIGNAL_RING_CAP) % WEB_SIGNAL_RING_CAP
+		sig := state.signal_ring[oldest]
+		web_fill_signal_event(&events_buf[out], sig)
+		state.signal_ring_count -= 1
+		out += 1
+	}
 
 	return out
 }
@@ -1444,6 +1463,29 @@ web_fill_evidence_event :: proc(dst: ^ports.MD_Event, ev: services.Parsed_Eviden
 		feature_vals  = ev.feature_vals,
 		feature_count = ev.feature_count,
 		unix          = ev.unix,
+	}
+}
+
+@(private = "file")
+web_fill_signal_event :: proc(dst: ^ports.MD_Event, sig: services.Parsed_Signal) {
+	if dst == nil do return
+	dst.source.subject_id = sig.subject_id
+	dst.source.channel = .Signals
+	dst.source.seq = sig.seq
+	dst.kind = .Signal
+	dst.unix = util.normalize_unix_seconds(sig.unix)
+	dst.data.signal = ports.MD_Signal_Event{
+		kind            = sig.kind,
+		kind_len        = sig.kind_len,
+		severity        = sig.severity,
+		severity_len    = sig.severity_len,
+		confidence      = sig.confidence,
+		reason          = sig.reason,
+		reason_len      = sig.reason_len,
+		regime          = sig.regime,
+		regime_len      = sig.regime_len,
+		regime_strength = sig.regime_strength,
+		unix            = sig.unix,
 	}
 }
 
@@ -1654,19 +1696,32 @@ web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 				prev_seq := state.last_seq_by_sub[si]
 				gap, next_streak, recurring := md_common.seq_gap_transition(prev_seq, result.meta.seq, state.seq_gap_streak, 3)
 				if gap {
-					state.desync = true
-					state.desync_reason = .Sequence_Gap
 					state.seq_gap_count += 1
 					state.seq_gap_streak = next_streak
 					if recurring {
 						state.backend_gap_seq_gap_recurring += 1
 					}
-					set_web_transport_state(state, .Desync)
-					if state.desync_resub_subject_id == 0 {
-						state.desync_resub_subject_id = result.meta.subject_id
+					// Only escalate to desync for significant gaps (>10), consistent
+					// with stream controller tolerance for multi-replica interleaving.
+					abs_gap := result.meta.seq - prev_seq
+					if abs_gap < 0 do abs_gap = -abs_gap
+					SEQ_GAP_TOLERANCE :: i64(10)
+					if abs_gap > SEQ_GAP_TOLERANCE {
+						state.desync = true
+						state.desync_reason = .Sequence_Gap
+						set_web_transport_state(state, .Desync)
+						if state.desync_resub_subject_id == 0 {
+							state.desync_resub_subject_id = result.meta.subject_id
+						}
 					}
 				} else {
 					state.seq_gap_streak = next_streak
+					// Auto-recover: monotonic sequence resumes — clear seq gap desync.
+					if state.desync_reason == .Sequence_Gap {
+						state.desync = false
+						state.desync_reason = .None
+						set_web_transport_state(state, .Running)
+					}
 				}
 				state.last_seq_by_sub[si] = result.meta.seq
 				if result.meta.prev_seq > 0 {
@@ -1695,15 +1750,26 @@ web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 				}
 				if result.meta.server_ts_ms > 0 {
 					prev_server_ts := state.last_server_ts_by_sub[si]
-					if prev_server_ts > 0 && result.meta.server_ts_ms < prev_server_ts {
+					// Allow minor timestamp regressions (up to 5s) — expected with
+					// multi-replica processors delivering interleaved events.
+					TS_REGRESSION_TOLERANCE_MS :: i64(5_000)
+					if prev_server_ts > 0 && result.meta.server_ts_ms < prev_server_ts - TS_REGRESSION_TOLERANCE_MS {
 						state.desync = true
 						state.desync_reason = .Protocol_Invalid
 						set_web_transport_state(state, .Desync)
 						if state.desync_resub_subject_id == 0 {
 							state.desync_resub_subject_id = result.meta.subject_id
 						}
+					} else if state.desync_reason == .Protocol_Invalid {
+						// Auto-recover: valid forward-progressing timestamp clears desync.
+						state.desync = false
+						state.desync_reason = .None
+						set_web_transport_state(state, .Running)
 					}
-					state.last_server_ts_by_sub[si] = result.meta.server_ts_ms
+					// Only update watermark on forward progress to avoid ratcheting down.
+					if result.meta.server_ts_ms >= prev_server_ts {
+						state.last_server_ts_by_sub[si] = result.meta.server_ts_ms
+					}
 				}
 				if result.meta.is_snapshot && !state.snapshot_logged_by_sub[si] {
 					state.snapshot_logged_by_sub[si] = true
@@ -1901,6 +1967,16 @@ web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 	case .Evidence:
 		state.evidence_staging = result.data.evidence
 		state.evidence_dirty = true
+	case .Signal:
+		if state.signal_ring_count >= WEB_SIGNAL_RING_CAP {
+			state.drop_count += 1
+			apply_web_fault(state, .BackpressureDrop)
+		}
+		state.signal_ring[state.signal_ring_write] = result.data.signal
+		state.signal_ring_write = (state.signal_ring_write + 1) % WEB_SIGNAL_RING_CAP
+		if state.signal_ring_count < WEB_SIGNAL_RING_CAP {
+			state.signal_ring_count += 1
+		}
 	case .None:
 		// Ignored (last, unknown frame types).
 	}

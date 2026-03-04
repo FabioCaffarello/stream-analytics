@@ -409,6 +409,39 @@ func (s *SessionActor) prepareJSONPayload(env envelope.Envelope) (json.RawMessag
 	return json.RawMessage(transcoded), nil
 }
 
+func prepareSignalFramePayload(payload json.RawMessage) (wsSignalPayload, *problem.Problem) {
+	var in struct {
+		Kind           string          `json:"kind"`
+		Venue          string          `json:"venue"`
+		Instrument     string          `json:"instrument"`
+		Timeframe      string          `json:"timeframe"`
+		Severity       string          `json:"severity"`
+		Confidence     float64         `json:"confidence"`
+		Evidence       json.RawMessage `json:"evidence"`
+		RegimeKind     string          `json:"regime_kind"`
+		RegimeStrength float64         `json:"regime_strength"`
+		Reason         string          `json:"reason"`
+	}
+	if err := json.Unmarshal(payload, &in); err != nil {
+		return wsSignalPayload{}, problem.Wrap(err, problem.Internal, "signal payload decode failed")
+	}
+	if len(in.Evidence) == 0 {
+		in.Evidence = json.RawMessage("[]")
+	}
+	return wsSignalPayload{
+		Kind:           strings.ToLower(strings.TrimSpace(in.Kind)),
+		Venue:          strings.ToLower(strings.TrimSpace(in.Venue)),
+		Instrument:     strings.TrimSpace(in.Instrument),
+		Timeframe:      strings.ToLower(strings.TrimSpace(in.Timeframe)),
+		Severity:       strings.ToLower(strings.TrimSpace(in.Severity)),
+		Confidence:     in.Confidence,
+		Evidence:       in.Evidence,
+		Regime:         strings.ToLower(strings.TrimSpace(in.RegimeKind)),
+		RegimeStrength: in.RegimeStrength,
+		Reason:         strings.TrimSpace(in.Reason),
+	}, nil
+}
+
 func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) *problem.Problem {
 	_, span := otel.Tracer("market-raccoon.delivery.session").Start(context.Background(), "session.write_delivery_event")
 	span.SetAttributes(
@@ -484,6 +517,75 @@ func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) *problem.Problem {
 		observability.IncTerminalWSSerializeError()
 		span.RecordError(p)
 		return p
+	}
+	if evt.Subject.IsSignal() {
+		signalPayload, p := prepareSignalFramePayload(payload)
+		if p != nil {
+			metrics.IncWSSerializeErrors()
+			observability.IncTerminalWSSerializeError()
+			span.RecordError(p)
+			return p
+		}
+		frame := wsSignalFrame{
+			Type:     "signal",
+			Subject:  subjectKey,
+			Seq:      evt.Env.Seq,
+			TsServer: meta.GetTsServer(),
+			Payload:  signalPayload,
+		}
+		raw, marshalErr := json.Marshal(frame)
+		if marshalErr != nil {
+			metrics.IncWSSerializeErrors()
+			observability.IncTerminalWSSerializeError()
+			span.RecordError(marshalErr)
+			return problem.Wrap(marshalErr, problem.Internal, "signal frame marshal failed")
+		}
+		applyCompression, wireSize := s.planWireCompression(raw)
+		if s.limits.MaxFrameBytes > 0 && wireSize > s.limits.MaxFrameBytes {
+			s.onDrop("frame_too_large", &evt)
+			return nil
+		}
+		if applyCompression {
+			if err := s.writeJSONRaw(raw, applyCompression, wireSize); err != nil {
+				span.RecordError(err)
+				return problem.Wrap(err, problem.Internal, "signal frame write failed")
+			}
+		} else if err := s.writeJSONDirect(frame); err != nil {
+			span.RecordError(err)
+			return problem.Wrap(err, problem.Internal, "signal frame write failed")
+		}
+		s.lastDeliveredSeq[subjectKey] = evt.Env.Seq
+		metrics.IncWSMessagesOut("signal")
+		metrics.IncWSTenantMessagesOut(s.cfg.TenantID, "signal")
+		metrics.AddWSBytesOut("signal", len(payload))
+		metrics.IncMRSignalWSDelivered(signalPayload.Kind, signalPayload.Venue, signalPayload.Instrument)
+		s.messagesOut++
+		lag := frame.TsServer - evt.Env.TsIngest
+		s.lastLagMs = lag
+		metrics.SetWSLag("signal", lag)
+		metrics.ObserveWSPublishToDeliverLatency("signal", time.Duration(maxInt64(0, lag))*time.Millisecond)
+		if json.Valid(payload) {
+			s.lastSnapshot[subjectKey] = sessionSnapshotEntry{
+				Seq:      frame.Seq,
+				TsServer: frame.TsServer,
+				Venue:    evt.Subject.Venue,
+				Symbol:   evt.Subject.Symbol,
+				Channel:  "signal",
+				Payload:  append(json.RawMessage(nil), payload...),
+			}
+		}
+		observability.RecordTerminalWSDelivery(
+			subjectKey,
+			evt.Subject.Venue,
+			evt.Subject.Symbol,
+			"signal",
+			frame.Seq,
+			evt.Env.TsIngest,
+			frame.TsServer,
+			lag,
+		)
+		observability.IncDeliveryJSON()
+		return nil
 	}
 	frame := wsEventFrame{
 		Type:             "event",

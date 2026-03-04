@@ -1,6 +1,7 @@
 package app
 
 import (
+	"strings"
 	"time"
 
 	"github.com/market-raccoon/internal/core/evidence/domain"
@@ -13,6 +14,8 @@ type EngineConfig struct {
 	MaxStreamsGlobal  int
 	StreamTTL         time.Duration
 	SweepInterval     time.Duration
+	BufferCapPerKind  int
+	DecayHalfLife     time.Duration
 	Now               func() time.Time // for deterministic tests
 }
 
@@ -23,6 +26,8 @@ func DefaultEngineConfig() EngineConfig {
 		MaxStreamsGlobal:  1024,
 		StreamTTL:         10 * time.Minute,
 		SweepInterval:     1 * time.Minute,
+		BufferCapPerKind:  1000,
+		DecayHalfLife:     1 * time.Minute,
 		Now:               time.Now,
 	}
 }
@@ -40,6 +45,7 @@ type EngineStats struct {
 type EvidenceEngine struct {
 	cfg            EngineConfig
 	rules          []domain.EvidenceRule
+	buffer         *domain.EvidenceBuffer
 	streamLastSeen map[string]time.Time
 	lastSweep      time.Time
 	totalEmitted   int64
@@ -51,9 +57,20 @@ func NewEvidenceEngine(cfg EngineConfig, rules ...domain.EvidenceRule) *Evidence
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
+	if cfg.BufferCapPerKind <= 0 {
+		cfg.BufferCapPerKind = 1000
+	}
+	if cfg.DecayHalfLife <= 0 {
+		cfg.DecayHalfLife = time.Minute
+	}
+	policy, p := domain.NewEvidenceBufferPolicy(cfg.BufferCapPerKind)
+	if p != nil {
+		policy = domain.EvidenceBufferPolicy{MaxPerKind: 1000}
+	}
 	return &EvidenceEngine{
 		cfg:            cfg,
 		rules:          rules,
+		buffer:         domain.NewEvidenceBuffer(policy),
 		streamLastSeen: make(map[string]time.Time),
 		lastSweep:      cfg.Now(),
 	}
@@ -81,9 +98,19 @@ func (e *EvidenceEngine) OnEvent(event domain.RuleEvent) []domain.EvidenceEvent 
 	for _, rule := range e.rules {
 		events := rule.OnEvent(event)
 		for i := range events {
+			age := eventAge(now, events[i].TsServer)
+			events[i].Confidence = domain.ApplyConfidenceDecay(events[i].Confidence, age, e.cfg.DecayHalfLife)
+			overwritten, p := e.buffer.Push(events[i])
+			if p != nil {
+				continue
+			}
+			metrics.SetEvidenceBufferEntries(string(events[i].Kind), e.buffer.Size(events[i].Kind))
+			if overwritten {
+				metrics.IncEvidenceBufferOverwrites(string(events[i].Kind))
+			}
 			metrics.IncEvidenceEmitted(string(events[i].Kind), string(events[i].Severity))
+			result = append(result, events[i])
 		}
-		result = append(result, events...)
 	}
 
 	e.totalEmitted += int64(len(result))
@@ -142,7 +169,7 @@ func (e *EvidenceEngine) evictOldestGlobal() {
 	var oldestTime time.Time
 	first := true
 	for key, ts := range e.streamLastSeen {
-		if first || ts.Before(oldestTime) {
+		if first || ts.Before(oldestTime) || (ts.Equal(oldestTime) && strings.Compare(key, oldestKey) < 0) {
 			oldestKey = key
 			oldestTime = ts
 			first = false
@@ -155,4 +182,15 @@ func (e *EvidenceEngine) evictOldestGlobal() {
 		}
 		e.totalEvicted++
 	}
+}
+
+func eventAge(now time.Time, tsServerMs int64) time.Duration {
+	if tsServerMs <= 0 {
+		return 0
+	}
+	nowMs := now.UnixMilli()
+	if nowMs <= tsServerMs {
+		return 0
+	}
+	return time.Duration(nowMs-tsServerMs) * time.Millisecond
 }

@@ -31,6 +31,7 @@ func newStatsUC(maxWindows int) (*app.BuildStatsFromEvents, *fakePublisher, *fak
 	store := &fakeStatsStore{}
 	uc := app.NewBuildStatsFromEvents(pub, store, app.BuildStatsConfig{
 		MaxWindows: maxWindows,
+		WindowCap:  96,
 		WindowTTL:  time.Hour,
 		Clock:      clock.NewFakeClock(time.Unix(0, 0)),
 	})
@@ -248,6 +249,30 @@ func TestBuildStats_GapEventDriven_NoSyntheticWindowClosures(t *testing.T) {
 	}
 	if got := countClosedStatsByTimeframe(resp.Closed, "1s"); got != 1 {
 		t.Fatalf("1s close count=%d want=1", got)
+	}
+}
+
+func TestBuildStats_LateArrivalDropped(t *testing.T) {
+	uc, _, _ := newStatsUC(1_000)
+
+	if _, p := uc.Execute(context.Background(), app.BuildStatsRequest{
+		Venue: "binance", Instrument: "BTCUSDT", Kind: app.StatsInputMarkPrice, MarkPrice: 100, Seq: 1, TsIngest: 60_000,
+	}); p != nil {
+		t.Fatalf("Execute #1: %v", p)
+	}
+	if _, p := uc.Execute(context.Background(), app.BuildStatsRequest{
+		Venue: "binance", Instrument: "BTCUSDT", Kind: app.StatsInputMarkPrice, MarkPrice: 101, Seq: 2, TsIngest: 120_000,
+	}); p != nil {
+		t.Fatalf("Execute #2: %v", p)
+	}
+	resp, p := uc.Execute(context.Background(), app.BuildStatsRequest{
+		Venue: "binance", Instrument: "BTCUSDT", Kind: app.StatsInputMarkPrice, MarkPrice: 99, Seq: 3, TsIngest: 60_000,
+	})
+	if p != nil {
+		t.Fatalf("Execute late: %v", p)
+	}
+	if len(resp.Closed) != 0 {
+		t.Fatalf("late arrival should not close windows, got %d closed", len(resp.Closed))
 	}
 }
 

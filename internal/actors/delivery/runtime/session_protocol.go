@@ -54,17 +54,18 @@ type wsHelloRateLimit struct {
 }
 
 type wsHelloCapabilities struct {
-	Topics                  []string          `json:"topics"`
-	Venues                  []string          `json:"venues"`
-	Symbols                 []string          `json:"symbols,omitempty"`
-	MaxSubscriptionsPerConn int               `json:"max_subscriptions_per_connection,omitempty"`
-	MaxSymbolsPerConnection int               `json:"max_symbols_per_connection,omitempty"`
-	MaxFrameBytes           int               `json:"max_frame_bytes,omitempty"`
-	OutboundQueueSize       int               `json:"outbound_queue_size,omitempty"`
-	MetricsCadenceMs        int               `json:"metrics_cadence_ms,omitempty"`
-	KeepaliveIntervalMs     int               `json:"keepalive_interval_ms,omitempty"`
-	RateLimit               *wsHelloRateLimit `json:"rate_limit,omitempty"`
-	SupportedFeatures       []string          `json:"supported_features,omitempty"`
+	Topics                        []string          `json:"topics"`
+	Venues                        []string          `json:"venues"`
+	Symbols                       []string          `json:"symbols,omitempty"`
+	MaxSubscriptionsPerConn       int               `json:"max_subscriptions_per_connection,omitempty"`
+	MaxSignalSubscriptionsPerConn int               `json:"max_signal_subscriptions_per_connection,omitempty"`
+	MaxSymbolsPerConnection       int               `json:"max_symbols_per_connection,omitempty"`
+	MaxFrameBytes                 int               `json:"max_frame_bytes,omitempty"`
+	OutboundQueueSize             int               `json:"outbound_queue_size,omitempty"`
+	MetricsCadenceMs              int               `json:"metrics_cadence_ms,omitempty"`
+	KeepaliveIntervalMs           int               `json:"keepalive_interval_ms,omitempty"`
+	RateLimit                     *wsHelloRateLimit `json:"rate_limit,omitempty"`
+	SupportedFeatures             []string          `json:"supported_features,omitempty"`
 }
 
 type wsHelloPayload struct {
@@ -147,6 +148,27 @@ type wsEventFrame struct {
 	Symbol           string          `json:"symbol"`
 	Channel          string          `json:"channel"`
 	Payload          json.RawMessage `json:"payload"`
+}
+
+type wsSignalPayload struct {
+	Kind           string          `json:"kind"`
+	Venue          string          `json:"venue"`
+	Instrument     string          `json:"instrument"`
+	Timeframe      string          `json:"timeframe"`
+	Severity       string          `json:"severity"`
+	Confidence     float64         `json:"confidence"`
+	Evidence       json.RawMessage `json:"evidence"`
+	Regime         string          `json:"regime,omitempty"`
+	RegimeStrength float64         `json:"regime_strength,omitempty"`
+	Reason         string          `json:"reason"`
+}
+
+type wsSignalFrame struct {
+	Type     string          `json:"type"`
+	Subject  string          `json:"subject"`
+	Seq      int64           `json:"seq"`
+	TsServer int64           `json:"ts_server"`
+	Payload  wsSignalPayload `json:"payload"`
 }
 
 type wsBatchFrame struct {
@@ -405,6 +427,8 @@ func wsQueryBucket(streamType string) string {
 		return "aggregation"
 	case strings.HasPrefix(streamType, "insights."):
 		return "insights"
+	case streamType == "signal":
+		return "signal"
 	default:
 		return "unknown"
 	}

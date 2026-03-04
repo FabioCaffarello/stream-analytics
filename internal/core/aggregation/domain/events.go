@@ -35,7 +35,7 @@ type SnapshotProduced struct {
 }
 
 // NewOrderBookUpdated builds an OrderBookUpdated event from a book.
-func NewOrderBookUpdated(book *OrderBook, seq int64) OrderBookUpdated {
+func NewOrderBookUpdated(book OrderBookV2, seq int64) OrderBookUpdated {
 	return OrderBookUpdated{
 		BookID: book.ID(),
 		Seq:    seq,
@@ -48,7 +48,7 @@ func NewOrderBookUpdated(book *OrderBook, seq int64) OrderBookUpdated {
 }
 
 // NewSnapshotProduced builds a SnapshotProduced event from the current book state.
-func NewSnapshotProduced(book *OrderBook) SnapshotProduced {
+func NewSnapshotProduced(book OrderBookV2) SnapshotProduced {
 	return SnapshotProduced{
 		BookID: book.ID(),
 		Seq:    book.LastSeq(),

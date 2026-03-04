@@ -1099,6 +1099,148 @@ func captureJSONDeliveryEventFrame(t *testing.T, subjectRaw string, env envelope
 	return event
 }
 
+func TestSession_WriteDeliveryEvent_SignalFrame(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-capture-signal-frame")
+	defer e.Poison(routerPID)
+
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{
+		RouterPID: routerPID,
+		Conn:      conn,
+	}), "ws-session-signal-frame")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	e.Send(sessionPID, DeliveryEvent{
+		Subject: mustParseSubjectForSession(t, "signal/absorption/binance/BTC-USDT/1m"),
+		Env: envelope.Envelope{
+			Type:       "signal.composite",
+			Version:    1,
+			Venue:      "binance",
+			Instrument: "BTC-USDT",
+			Seq:        9,
+			TsIngest:   1_710_000_060_100,
+			Payload: []byte(`{
+				"kind":"absorption",
+				"venue":"binance",
+				"instrument":"BTC-USDT",
+				"timeframe":"1m",
+				"severity":"high",
+				"confidence":0.87,
+				"evidence":[{"label":"volume_ratio","value":"2.1"}],
+				"regime_kind":"trending",
+				"regime_strength":0.72,
+				"reason":"absorption with trending regime",
+				"seq":9,
+				"source_kinds":["absorption","trending"]
+			}`),
+		},
+	})
+
+	msg := <-conn.writeCh
+	frame, ok := msg.(wsSignalFrame)
+	if !ok {
+		t.Fatalf("message type=%T want wsSignalFrame", msg)
+	}
+	if got, want := frame.Type, "signal"; got != want {
+		t.Fatalf("type=%q want=%q", got, want)
+	}
+	if got, want := frame.Subject, "signal/absorption/binance/BTCUSDT/1m"; got != want {
+		t.Fatalf("subject=%q want=%q", got, want)
+	}
+	if got, want := frame.Payload.Regime, "trending"; got != want {
+		t.Fatalf("regime=%q want=%q", got, want)
+	}
+
+	raw, err := json.Marshal(frame.Payload)
+	if err != nil {
+		t.Fatalf("marshal signal payload: %v", err)
+	}
+	var payloadMap map[string]any
+	if err := json.Unmarshal(raw, &payloadMap); err != nil {
+		t.Fatalf("unmarshal signal payload: %v", err)
+	}
+	forbidden := map[string]struct{}{
+		"action":  {},
+		"order":   {},
+		"execute": {},
+		"buy":     {},
+		"sell":    {},
+	}
+	if hasForbiddenKey(payloadMap, forbidden) {
+		t.Fatalf("signal payload contains forbidden execution field(s): %s", string(raw))
+	}
+}
+
+func TestSession_SubscribeSignalEnforcesMaxSignalSubscriptions(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-capture-signal-limit")
+	defer e.Poison(routerPID)
+
+	conn := newFakeConn()
+	beforeRejected := testutil.ToFloat64(metrics.MRSignalWSSubscriptionRejectedTotal.WithLabelValues("max_signal_subscriptions"))
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{
+		RouterPID:               routerPID,
+		Conn:                    conn,
+		MaxSignalSubscriptions:  2,
+		MaxSubscriptions:        64,
+		MaxSymbolsPerConnection: 64,
+	}), "ws-session-signal-limit")
+	defer e.Poison(sessionPID)
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"subscribe","subject":"signal/absorption/binance/BTC-USDT/1m","request_id":"s1"}`)}
+	if _, ok := (<-conn.writeCh).(wsAckFrame); !ok {
+		t.Fatalf("expected ack for first signal subscribe")
+	}
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"subscribe","subject":"signal/sweep/binance/BTC-USDT/1m","request_id":"s2"}`)}
+	if _, ok := (<-conn.writeCh).(wsAckFrame); !ok {
+		t.Fatalf("expected ack for second signal subscribe")
+	}
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"subscribe","subject":"signal/spread_explosion/binance/BTC-USDT/1m","request_id":"s3"}`)}
+	errFrame, ok := (<-conn.writeCh).(wsErrorFrame)
+	if !ok {
+		t.Fatalf("expected error for third signal subscribe")
+	}
+	if errFrame.Problem.Code != string(problem.ValidationFailed) {
+		t.Fatalf("problem.code=%q want=%q", errFrame.Problem.Code, problem.ValidationFailed)
+	}
+	if got := testutil.ToFloat64(metrics.MRSignalWSSubscriptionRejectedTotal.WithLabelValues("max_signal_subscriptions")); got < beforeRejected+1 {
+		t.Fatalf("expected signal subscription rejection metric increment, before=%f after=%f", beforeRejected, got)
+	}
+}
+
+func hasForbiddenKey(value any, forbidden map[string]struct{}) bool {
+	switch v := value.(type) {
+	case map[string]any:
+		for key, nested := range v {
+			if _, bad := forbidden[key]; bad {
+				return true
+			}
+			if hasForbiddenKey(nested, forbidden) {
+				return true
+			}
+		}
+	case []any:
+		for i := range v {
+			if hasForbiddenKey(v[i], forbidden) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func TestSession_PingReturnsPong(t *testing.T) {
 	e, err := actor.NewEngine(actor.NewEngineConfig())
 	if err != nil {

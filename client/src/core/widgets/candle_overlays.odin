@@ -54,6 +54,20 @@ overlay_source_badge :: proc(
 	return badge_w
 }
 
+draw_candle_underlays :: proc(buf: ^ui.Command_Buffer, data: Candle_Widget_Data, ctx: ^Candle_Render_Context) {
+	if ctx.show_vpvr {
+		draw_candle_vpvr_overlay(buf, Candle_VPVR_Overlay_Data{
+			store       = data.vpvr_store,
+			inner       = ctx.inner,
+			chart_w     = ctx.chart_w,
+			price_lo    = ctx.price_lo,
+			price_hi    = ctx.price_hi,
+			price_range = ctx.price_range,
+			price_h     = ctx.price_h,
+		})
+	}
+}
+
 draw_candle_overlays :: proc(buf: ^ui.Command_Buffer, data: Candle_Widget_Data, ctx: ^Candle_Render_Context) {
 	if ctx.show_heatmap {
 		draw_candle_heatmap_overlay(buf, Candle_Heatmap_Overlay_Data{
@@ -73,18 +87,7 @@ draw_candle_overlays :: proc(buf: ^ui.Command_Buffer, data: Candle_Widget_Data, 
 			min_intensity   = ctx.heatmap_profile.min_intensity,
 			min_alpha       = ctx.heatmap_profile.min_alpha,
 			max_alpha       = ctx.heatmap_profile.max_alpha,
-		})
-	}
-
-	if ctx.show_vpvr {
-		draw_candle_vpvr_overlay(buf, Candle_VPVR_Overlay_Data{
-			store       = data.vpvr_store,
-			inner       = ctx.inner,
-			chart_w     = ctx.chart_w,
-			price_lo    = ctx.price_lo,
-			price_hi    = ctx.price_hi,
-			price_range = ctx.price_range,
-			price_h     = ctx.price_h,
+			measure         = data.text.measure,
 		})
 	}
 }
@@ -106,6 +109,7 @@ Candle_Heatmap_Overlay_Data :: struct {
 	min_intensity:   f32,
 	min_alpha:       f32,
 	max_alpha:       f32,
+	measure:      proc(font_size: f32, text: string) -> ui.Vec2,
 }
 
 @(private = "file")
@@ -141,9 +145,15 @@ draw_candle_heatmap_overlay :: proc(buf: ^ui.Command_Buffer, data: Candle_Heatma
 		s := services.get_heatmap_snapshot(data.store, i)
 		if s == nil || s.unix <= 0 do continue
 
-		// Heatmap unix is window_end_ts in seconds. Align to candle window_start_ts.
-		snap_end_ms := s.unix * 1000
-		aligned_ts := ((snap_end_ms - 1) / tf_ms) * tf_ms
+		// FIX 1: Use window_start_ms directly when available; fall back to
+		// reverse-engineering from window_end_ts for synthetic/old data.
+		aligned_ts: i64
+		if s.window_start_ms > 0 {
+			aligned_ts = s.window_start_ms
+		} else {
+			snap_end_ms := s.unix * 1000
+			aligned_ts = ((snap_end_ms - 1) / tf_ms) * tf_ms
+		}
 
 		// Direct slot computation from first visible candle.
 		candle_offset := int((aligned_ts - first_candle_ts) / tf_ms)
@@ -157,14 +167,57 @@ draw_candle_heatmap_overlay :: proc(buf: ^ui.Command_Buffer, data: Candle_Heatma
 		}
 	}
 
+	// FIX 2: Compute sparse flag over the entire visible window to prevent
+	// per-snapshot flickering between cbrt/sqrt when adjacent snapshots
+	// straddle the threshold.
+	total_visible_levels := 0
+	visible_snap_count := 0
+	for slot in 0 ..< visible_slots {
+		idx := slot_snapshot_idx[slot]
+		if idx < 0 do continue
+		snap := services.get_heatmap_snapshot(data.store, idx)
+		if snap == nil do continue
+		total_visible_levels += snap.level_count
+		visible_snap_count += 1
+	}
+	avg_levels := visible_snap_count > 0 ? total_visible_levels / visible_snap_count : 0
+	sparse := avg_levels < 8
+
 	// Stable intensity normalization using global max (no per-frame flicker).
-	global_max := data.store.global_max_size
-	if global_max <= 0 do return
+	norm_hi := data.store.global_max_size
+	if norm_hi <= 0 do return
+
+	// Visible-window max keeps contrast usable even if a stale outlier inflated global_max.
+	visible_max := f64(0)
+	for slot in 0 ..< visible_slots {
+		idx := slot_snapshot_idx[slot]
+		if idx < 0 do continue
+		snap := services.get_heatmap_snapshot(data.store, idx)
+		if snap == nil || snap.level_count <= 0 do continue
+		for l in 0 ..< snap.level_count {
+			level := snap.levels[l]
+			if level.size <= 0 do continue
+			if level.price < data.price_lo || level.price > data.price_hi do continue
+			if level.size > visible_max do visible_max = level.size
+		}
+	}
+	if visible_max > 0 {
+		// IMPROVE 6: Adaptive normalization spread — tighter when dense (many
+		// snapshots per visible window) to keep 5s heatmaps visible.
+		spread_mult := visible_snap_count > 40 ? 2.0 : 4.0
+		clamped_hi := visible_max * spread_mult
+		if clamped_hi < norm_hi do norm_hi = clamped_hi
+		if norm_hi < visible_max do norm_hi = visible_max
+	}
 
 	min_visible_pct := clamp(data.min_visible_pct, f64(0), f64(0.95))
-	range_min := global_max * min_visible_pct
+	range_min := norm_hi * min_visible_pct
+	if visible_max > 0 && range_min >= visible_max {
+		range_min = visible_max * 0.5
+	}
 
-	cell_w := max(data.slot_w - 0.5, 1)
+	// FIX 4: Clamp cell_w to slot_w to prevent cells exceeding slot boundary.
+	cell_w := clamp(data.slot_w - 0.5, 1, data.slot_w)
 	min_intensity := clamp(data.min_intensity, 0, 1)
 	min_alpha := clamp(data.min_alpha, 0, 1)
 	max_alpha := clamp(data.max_alpha, min_alpha, 1)
@@ -187,8 +240,15 @@ draw_candle_heatmap_overlay :: proc(buf: ^ui.Command_Buffer, data: Candle_Heatma
 			if level.size <= 0 do continue
 			if level.price < data.price_lo || level.price > data.price_hi do continue
 
-			intensity := heatmap_remap01(level.size, range_min, global_max)
+			intensity := heatmap_remap01(level.size, range_min, norm_hi)
 			if intensity < min_intensity do continue
+			// Perceptual lift: cbrt for sparse data, sqrt for dense.
+			intensity_vis: f32
+			if sparse {
+				intensity_vis = clamp(f32(math.pow(f64(intensity), 1.0 / 3.0)), 0, 1)
+			} else {
+				intensity_vis = clamp(f32(math.sqrt(f64(intensity))), 0, 1)
+			}
 
 			center_y := data.inner.pos.y + f32((data.price_hi - level.price) / data.price_range) * data.price_h
 			y := center_y - cell_h * 0.5
@@ -198,15 +258,84 @@ draw_candle_heatmap_overlay :: proc(buf: ^ui.Command_Buffer, data: Candle_Heatma
 			h := min(cell_h, max_y - y)
 			if h <= 0 do continue
 
-			col := candle_heatmap_gradient(intensity)
-			alpha := min_alpha + intensity * (max_alpha - min_alpha)
+			col := candle_heatmap_gradient(intensity_vis)
+			alpha := min_alpha + intensity_vis * (max_alpha - min_alpha)
 			col = ui.with_alpha(col, alpha)
-			ui.push(buf, ui.Cmd_Rect_Filled{
-				rect  = {pos = {x, y}, size = {cell_w, h}},
-				color = col,
-			})
+
+			// FIX 3: Large-cell visual softening — trigger on aspect ratio
+			// (height >> width) instead of comparing price-domain to time-domain.
+			if h > cell_w * 2.5 && h > 4 {
+				edge_alpha := alpha * 0.3
+				third := h / 3.0
+				ui.push(buf, ui.Cmd_Rect_Filled{
+					rect  = {pos = {x, y}, size = {cell_w, third}},
+					color = ui.with_alpha(col, edge_alpha),
+				})
+				ui.push(buf, ui.Cmd_Rect_Filled{
+					rect  = {pos = {x, y + third}, size = {cell_w, third}},
+					color = ui.with_alpha(col, alpha),
+				})
+				ui.push(buf, ui.Cmd_Rect_Filled{
+					rect  = {pos = {x, y + 2 * third}, size = {cell_w, h - 2 * third}},
+					color = ui.with_alpha(col, edge_alpha),
+				})
+			} else {
+				ui.push(buf, ui.Cmd_Rect_Filled{
+					rect  = {pos = {x, y}, size = {cell_w, h}},
+					color = col,
+				})
+			}
+
+			// IMPROVE 5: Text labels on large heatmap cells (MM-inspired).
+			if data.measure != nil && cell_w >= 40 && h >= 14 {
+				size_buf: [12]u8
+				size_str := format_compact_size(level.size, size_buf[:])
+				if len(size_str) > 0 {
+					text_color := intensity_vis > 0.55 ? ui.COL_BLACK : ui.COL_WHITE
+					text_color = ui.with_alpha(text_color, alpha * 0.85)
+					text_sz := data.measure(ui.FONT_SIZE_XS, size_str)
+					text_x := x + (cell_w - text_sz.x) * 0.5
+					text_y := y + (h - text_sz.y) * 0.5 + ui.FONT_SIZE_XS * 0.35
+					ui.push_text(buf, {text_x, text_y}, size_str, text_color, ui.FONT_SIZE_XS, .Mono)
+				}
+			}
 		}
 	}
+}
+
+// Format a size value compactly for heatmap cell labels.
+// 0.5 → "0.5", 1.2 → "1.2", 123.4 → "123", 1500 → "1.5K", 2500000 → "2.5M"
+@(private = "file")
+format_compact_size :: proc(val: f64, buf: []u8) -> string {
+	if len(buf) < 8 || val <= 0 do return ""
+	v: f64
+	suffix: u8
+	if val >= 1_000_000 {
+		v = val / 1_000_000
+		suffix = 'M'
+	} else if val >= 1000 {
+		v = val / 1000
+		suffix = 'K'
+	} else {
+		v = val
+		suffix = 0
+	}
+	whole := int(v)
+	frac := int((v - f64(whole)) * 10 + 0.5) % 10
+	if frac < 0 do frac = 0
+	off := 0
+	if whole >= 1000 { buf[off] = '0' + u8((whole / 1000) % 10); off += 1 }
+	if whole >= 100  { buf[off] = '0' + u8((whole / 100) % 10); off += 1 }
+	if whole >= 10   { buf[off] = '0' + u8((whole / 10) % 10); off += 1 }
+	buf[off] = '0' + u8(whole % 10); off += 1
+	if frac > 0 && whole < 100 {
+		buf[off] = '.'; off += 1
+		buf[off] = '0' + u8(frac); off += 1
+	}
+	if suffix != 0 {
+		buf[off] = suffix; off += 1
+	}
+	return string(buf[:off])
 }
 
 Candle_VPVR_Overlay_Data :: struct {

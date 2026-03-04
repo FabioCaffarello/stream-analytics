@@ -9,6 +9,7 @@ import (
 	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/problem"
 	aggregationv1 "github.com/market-raccoon/internal/shared/proto/gen/aggregation/v1"
+	aggregationv2 "github.com/market-raccoon/internal/shared/proto/gen/aggregation/v2"
 	marketdatav1 "github.com/market-raccoon/internal/shared/proto/gen/marketdata/v1"
 	"google.golang.org/protobuf/proto"
 )
@@ -26,7 +27,8 @@ const (
 	aggregationEventTypeCandle        = "aggregation.candle"
 	aggregationEventTypeStats         = "aggregation.stats"
 	aggregationEventTypeSnapshot      = "aggregation.snapshot"
-	aggregationEventTypeInconsistency = "aggregation.orderbook_inconsistency"
+	aggregationEventTypeInconsistency    = "aggregation.orderbook_inconsistency"
+	aggregationEventTypeCrossVenueBook   = "aggregation.cross_venue_book"
 )
 
 type PayloadRegistryOptions struct {
@@ -60,6 +62,10 @@ func BootstrapPayloadCodecRegistryWithOptions(opts PayloadRegistryOptions) *prob
 			return
 		}
 		if p := RegisterEvidencePayloadV1(reg); p != nil {
+			payloadRegistryErr = p
+			return
+		}
+		if p := RegisterSignalsPayloadV1(reg); p != nil {
 			payloadRegistryErr = p
 			return
 		}
@@ -179,6 +185,18 @@ func RegisterAggregationPayloadV1(reg *codec.Registry) *problem.Problem {
 			newProto: func() *aggregationv1.OrderBookInconsistencyV1 { return &aggregationv1.OrderBookInconsistencyV1{} },
 			toProto:  WireDTOToProtoInconsistencyV1,
 			toDomain: ProtoToWireDTOInconsistencyV1,
+		},
+	); p != nil {
+		return p
+	}
+	if p := registerPayloadDual(
+		reg,
+		aggregationEventTypeCrossVenueBook,
+		codec.JSONCodec[AggregationCrossVenueBookSnapshotV1]{},
+		domainProtoPayloadCodec[AggregationCrossVenueBookSnapshotV1, *aggregationv2.CrossVenueBookSnapshotV1]{
+			newProto: func() *aggregationv2.CrossVenueBookSnapshotV1 { return &aggregationv2.CrossVenueBookSnapshotV1{} },
+			toProto:  WireDTOToProtoCrossVenueBookSnapshotV1,
+			toDomain: ProtoToWireDTOCrossVenueBookSnapshotV1,
 		},
 	); p != nil {
 		return p

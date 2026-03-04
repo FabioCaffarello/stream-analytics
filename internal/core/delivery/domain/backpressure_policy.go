@@ -54,6 +54,7 @@ func DefaultBackpressurePriorities() map[string]int {
 		"insights.crossvenue.trade_snapshot":   30,
 		"insights.crossvenue.spread_signal":    20,
 		"insights.microstructure_evidence":     25,
+		"signal.composite":                     65,
 		"insights.volume_profile_snapshot.v1":  20,
 		"insights.volume_profile_buckets.v1":   20,
 		"insights.volume_profile_compact.v1":   20,

@@ -26,6 +26,7 @@ const (
 	LiquidityThinning   EvidenceKind = "liquidity_thinning"
 	PersistentImbalance EvidenceKind = "persistent_imbalance"
 	Absorption          EvidenceKind = "absorption"
+	Sweep               EvidenceKind = "sweep"
 )
 
 var validKinds = map[EvidenceKind]struct{}{
@@ -33,6 +34,7 @@ var validKinds = map[EvidenceKind]struct{}{
 	LiquidityThinning:   {},
 	PersistentImbalance: {},
 	Absorption:          {},
+	Sweep:               {},
 }
 
 // Severity classifies the urgency of an evidence event.

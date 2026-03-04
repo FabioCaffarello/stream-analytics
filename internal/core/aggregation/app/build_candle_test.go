@@ -30,6 +30,7 @@ func newCandleUC(maxCandles int) (*app.BuildCandleFromEvents, *fakePublisher, *f
 	store := &fakeCandleStore{}
 	uc := app.NewBuildCandleFromEvents(pub, store, app.BuildCandleConfig{
 		MaxCandles: maxCandles,
+		WindowCap:  96,
 		CandleTTL:  time.Hour,
 		Clock:      clock.NewFakeClock(time.Unix(0, 0)),
 	})
@@ -194,6 +195,30 @@ func TestBuildCandle_GapEventDriven_NoSyntheticBaseClosures(t *testing.T) {
 	}
 	if got := countClosedCandlesByTimeframe(resp.Closed, "1m"); got != 0 {
 		t.Fatalf("1m close count=%d want=0 (first 1m close occurs only after a second base close)", got)
+	}
+}
+
+func TestBuildCandle_LateArrivalDropped(t *testing.T) {
+	uc, _, _ := newCandleUC(1_000)
+
+	if _, p := uc.Execute(context.Background(), app.BuildCandleRequest{
+		Venue: "binance", Instrument: "BTCUSDT", Price: 100, Quantity: 1, IsBuy: true, Seq: 1, TsIngest: 60_000,
+	}); p != nil {
+		t.Fatalf("Execute #1: %v", p)
+	}
+	if _, p := uc.Execute(context.Background(), app.BuildCandleRequest{
+		Venue: "binance", Instrument: "BTCUSDT", Price: 101, Quantity: 1, IsBuy: true, Seq: 2, TsIngest: 120_000,
+	}); p != nil {
+		t.Fatalf("Execute #2: %v", p)
+	}
+	resp, p := uc.Execute(context.Background(), app.BuildCandleRequest{
+		Venue: "binance", Instrument: "BTCUSDT", Price: 99, Quantity: 1, IsBuy: true, Seq: 3, TsIngest: 60_000,
+	})
+	if p != nil {
+		t.Fatalf("Execute late: %v", p)
+	}
+	if len(resp.Closed) != 0 {
+		t.Fatalf("late arrival should not close windows, got %d closed", len(resp.Closed))
 	}
 }
 

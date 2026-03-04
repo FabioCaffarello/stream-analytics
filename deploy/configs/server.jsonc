@@ -13,7 +13,7 @@
     "max_ack_pending": 1024,
     "max_deliver": 5,
     "deliver_policy": "new",
-    "filter_subjects": ["marketdata.>", "aggregation.>", "insights.>"],
+    "filter_subjects": ["marketdata.>", "aggregation.>", "insights.>", "signal.>"],
     "dedup_window": "5m",
     "max_age": "24h",
     "max_bytes": "10GB"
@@ -78,10 +78,11 @@
     "backpressure_policy": "drop_newest",
     "slow_client_drop_threshold": 1000,
     "router_stream_state_ttl": "30m",
-    "max_frame_bytes": 65536,
+    // Keep bookdelta snapshots/resync frames below rejection threshold in local QA.
+    "max_frame_bytes": 262144,
     "nats": {
       "consumer_durable": "delivery-v2",
-      "filter_subjects": ["marketdata.>", "aggregation.>", "insights.>"]
+      "filter_subjects": ["marketdata.>", "aggregation.>", "insights.>", "signal.>"]
     }
   },
   "storage": {
@@ -108,13 +109,47 @@
     }
   },
   "processor": {
+    "orderbook": {
+      "max_levels": 500,
+      "use_btree_orderbook": true
+    },
+    "xvenue": {
+      "enabled": false,
+      "stale_threshold_ms": 30000,
+      "max_instruments": 2048,
+      "max_venues": 6
+    },
+    "candle": {
+      "window_cap": 96
+    },
+    "stats": {
+      "window_cap": 96
+    },
     "subminute_rollout": {
       // Server-side read/query gate for 1s/5s (getrange + cold APIs + hot fallback).
       // enabled=false => rollback sub-minute reads immediately.
       "enabled": true,
       "venues": [],
       "instruments": []
+    },
+    "insights": {
+      "insights_timeframes": ["1s", "5s", "1m", "5m", "15m", "30m", "1h", "4h", "1d"]
     }
+  },
+  "evidence": {
+    "buffer_cap_per_kind": 1000,
+    "decay_half_life_ms": 60000,
+    "regime_max_streams": 1024,
+    "regime_history_cap": 20
+  },
+  "signals": {
+    "use_composer": false,
+    "dedup_window_ms": 30000,
+    "rate_limit_per_min": 10,
+    "global_rate_limit_per_min": 100,
+    "correlation_window_ms": 5000,
+    "max_subs_per_session": 20,
+    "window_cap": 50
   },
   "markets": {
     "exchanges": [

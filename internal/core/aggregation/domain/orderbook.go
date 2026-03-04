@@ -2,7 +2,7 @@
 package domain
 
 import (
-	"sort"
+	"math"
 
 	"github.com/market-raccoon/internal/shared/problem"
 	"github.com/market-raccoon/internal/shared/validation"
@@ -36,25 +36,6 @@ const (
 	NeedsResync HealthState = "NEEDS_RESYNC"
 )
 
-// OrderBook is the aggregate for a live limit order book.
-//
-// Invariants:
-//   - All bid prices < all ask prices (no negative spread).
-//   - Bid levels are sorted descending by price.
-//   - Ask levels are sorted ascending by price.
-//   - All prices are strictly positive.
-//   - All quantities are non-negative (zero means removed).
-//   - Sequence is monotonic.
-type OrderBook struct {
-	id      BookID
-	lastSeq int64
-	bids    []Level // sorted desc by price
-	asks    []Level // sorted asc by price
-	maxLvls int
-	state   HealthState
-	events  []DomainEvent
-}
-
 // NewOrderBook creates an empty OrderBook for the given identity.
 func NewOrderBook(venue, instrument string) (*OrderBook, *problem.Problem) {
 	return NewOrderBookWithMaxLevels(venue, instrument, 0)
@@ -69,246 +50,32 @@ func NewOrderBookWithMaxLevels(venue, instrument string, maxLevels int) (*OrderB
 	); p != nil {
 		return nil, p
 	}
-	if maxLevels < 0 {
-		return nil, problem.New(problem.ValidationFailed, "max_levels must be >= 0")
+	policy, p := NewOrderBookLimitsPolicy(maxLevels)
+	if p != nil {
+		return nil, p
 	}
-	return &OrderBook{
-		id:      BookID{Venue: venue, Instrument: instrument},
-		maxLvls: maxLevels,
-		state:   Healthy,
-	}, nil
-}
-
-// ID returns the book identity.
-func (b *OrderBook) ID() BookID { return b.id }
-
-// BestBid returns the highest bid level, or nil if no bids.
-func (b *OrderBook) BestBid() *Level {
-	if len(b.bids) == 0 {
-		return nil
-	}
-	l := b.bids[0]
-	return &l
-}
-
-// BestAsk returns the lowest ask level, or nil if no asks.
-func (b *OrderBook) BestAsk() *Level {
-	if len(b.asks) == 0 {
-		return nil
-	}
-	l := b.asks[0]
-	return &l
-}
-
-// Spread returns the current bid-ask spread. Returns -1 if incomplete book.
-func (b *OrderBook) Spread() float64 {
-	bid := b.BestBid()
-	ask := b.BestAsk()
-	if bid == nil || ask == nil {
-		return -1
-	}
-	return float64(ask.Price - bid.Price)
-}
-
-// Bids returns a copy of all bid levels (desc by price).
-func (b *OrderBook) Bids() []Level {
-	out := make([]Level, len(b.bids))
-	copy(out, b.bids)
-	return out
-}
-
-// Asks returns a copy of all ask levels (asc by price).
-func (b *OrderBook) Asks() []Level {
-	out := make([]Level, len(b.asks))
-	copy(out, b.asks)
-	return out
-}
-
-// ApplyDelta applies an incremental update to the order book.
-//
-// seq must be strictly greater than the last applied seq (monotonicity).
-// Each level with quantity=0 is removed; otherwise upserted.
-// After applying, invariants are validated.  If the resulting book is
-// crossed (best bid >= best ask), the book is cleared and NeedsResync
-// is set.  lastSeq still advances so subsequent deltas are not stuck.
-func (b *OrderBook) ApplyDelta(seq int64, bids, asks []Level) *problem.Problem {
-	return b.applyDelta(seq, bids, asks, false)
-}
-
-// ApplySnapshot replaces the entire order book with the given levels.
-// Unlike ApplyDelta, it clears existing levels first so that stale
-// prices from previous snapshots do not accumulate.
-func (b *OrderBook) ApplySnapshot(seq int64, bids, asks []Level) *problem.Problem {
-	return b.applyDelta(seq, bids, asks, true)
-}
-
-func (b *OrderBook) applyDelta(seq int64, bids, asks []Level, isSnapshot bool) *problem.Problem {
-	if p := validation.PositiveInt("seq", seq); p != nil {
-		return p
-	}
-	if seq <= b.lastSeq && !isSnapshot {
-		return problem.WithDetail(
-			problem.WithDetail(
-				problem.Newf(problem.OutOfOrder,
-					"seq %d is not greater than last seq %d", seq, b.lastSeq),
-				"seq", seq,
-			),
-			"last_seq", b.lastSeq,
-		)
-	}
-
-	// Validate input levels before mutating.
-	for i, l := range bids {
-		if p := validateLevel("bid", i, l); p != nil {
-			return p
-		}
-	}
-	for i, l := range asks {
-		if p := validateLevel("ask", i, l); p != nil {
-			return p
-		}
-	}
-
-	// Full snapshot: clear existing levels so stale prices don't accumulate.
-	if isSnapshot {
-		b.bids = b.bids[:0]
-		b.asks = b.asks[:0]
-	}
-
-	// Apply updates.
-	b.bids = applyLevels(b.bids, bids)
-	b.asks = applyLevels(b.asks, asks)
-
-	// Re-sort.
-	sort.Slice(b.bids, func(i, j int) bool { return b.bids[i].Price > b.bids[j].Price })
-	sort.Slice(b.asks, func(i, j int) bool { return b.asks[i].Price < b.asks[j].Price })
-	b.trimLevels()
-
-	// Invariant: no crossed book.
-	if p := b.checkSpread(); p != nil {
-		b.state = NeedsResync
-		b.lastSeq = seq // advance seq to prevent infinite retry loop
-		b.events = append(b.events, OrderBookInconsistentDetected{
-			BookID: b.ID(),
-			Seq:    seq,
-			Reason: p.Message,
-		})
-		// Clear the book so the next delta rebuilds from scratch.
-		// Stale levels from prior snapshots are the typical cause of
-		// crossed books; keeping them would poison every future delta.
-		b.bids = b.bids[:0]
-		b.asks = b.asks[:0]
-		return p
-	}
-
-	b.state = Healthy
-	b.lastSeq = seq
-	return nil
-}
-
-func (b *OrderBook) trimLevels() {
-	if b.maxLvls <= 0 {
-		return
-	}
-	if len(b.bids) > b.maxLvls {
-		b.bids = b.bids[:b.maxLvls]
-	}
-	if len(b.asks) > b.maxLvls {
-		b.asks = b.asks[:b.maxLvls]
-	}
-}
-
-// LastSeq returns the last successfully applied sequence number.
-func (b *OrderBook) LastSeq() int64 { return b.lastSeq }
-
-// State returns the current aggregate consistency state.
-func (b *OrderBook) State() HealthState { return b.state }
-
-// IsHealthy reports if the aggregate is consistent.
-func (b *OrderBook) IsHealthy() bool { return b.state == Healthy }
-
-// NeedsResync reports if the aggregate requires snapshot resync.
-func (b *OrderBook) NeedsResync() bool { return b.state == NeedsResync }
-
-// PullDomainEvents returns and clears pending domain events.
-func (b *OrderBook) PullDomainEvents() []DomainEvent {
-	out := make([]DomainEvent, len(b.events))
-	copy(out, b.events)
-	b.events = b.events[:0]
-	return out
-}
-
-// checkSpread validates that best bid < best ask (no negative spread).
-func (b *OrderBook) checkSpread() *problem.Problem {
-	bid := b.BestBid()
-	ask := b.BestAsk()
-	if bid == nil || ask == nil {
-		return nil // incomplete book is allowed
-	}
-	if bid.Price >= ask.Price {
-		return problem.WithDetail(
-			problem.WithDetail(
-				problem.Newf(problem.IntegrityViolation,
-					"crossed book: best bid %.8f >= best ask %.8f",
-					float64(bid.Price), float64(ask.Price)),
-				"best_bid", float64(bid.Price),
-			),
-			"best_ask", float64(ask.Price),
-		)
-	}
-	return nil
-}
-
-// applyLevels upserts/removes levels from the current side.
-func applyLevels(current []Level, updates []Level) []Level {
-	// Build a map for O(1) lookup.
-	index := make(map[Price]int, len(current))
-	for i, l := range current {
-		index[l.Price] = i
-	}
-
-	for _, u := range updates {
-		if u.Quantity == 0 {
-			// Remove level via swap-remove — O(1) per deletion.
-			if i, ok := index[u.Price]; ok {
-				last := len(current) - 1
-				if i != last {
-					current[i] = current[last]
-					index[current[i].Price] = i
-				}
-				delete(index, u.Price)
-				current = current[:last]
-			}
-		} else {
-			// Upsert.
-			if i, ok := index[u.Price]; ok {
-				current[i].Quantity = u.Quantity
-			} else {
-				current = append(current, u)
-				index[u.Price] = len(current) - 1
-			}
-		}
-	}
-	return current
+	return NewBTreeOrderBook(venue, instrument, policy, FurthestFromMidPruneStrategy{})
 }
 
 // validateLevel checks a single level's price and size constraints.
 func validateLevel(side string, idx int, l Level) *problem.Problem {
-	if l.Price <= 0 {
+	price := float64(l.Price)
+	qty := float64(l.Quantity)
+	if l.Price <= 0 || math.IsNaN(price) || math.IsInf(price, 0) {
 		return problem.WithDetail(
 			problem.WithDetail(
 				problem.Newf(problem.ValidationFailed,
-					"%s level[%d] price must be positive, got %g", side, idx, float64(l.Price)),
+					"%s level[%d] price must be a finite positive number, got %g", side, idx, price),
 				"side", side,
 			),
 			"index", idx,
 		)
 	}
-	if l.Quantity < 0 {
+	if l.Quantity < 0 || math.IsNaN(qty) || math.IsInf(qty, 0) {
 		return problem.WithDetail(
 			problem.WithDetail(
 				problem.Newf(problem.ValidationFailed,
-					"%s level[%d] quantity must be non-negative, got %g", side, idx, float64(l.Quantity)),
+					"%s level[%d] quantity must be a finite non-negative number, got %g", side, idx, qty),
 				"side", side,
 			),
 			"index", idx,

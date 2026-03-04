@@ -30,7 +30,8 @@ ENDPOINT_ALL_CHANNELS :: u8(
 	(1 << u8(ports.MD_Channel.Stats)) |
 	(1 << u8(ports.MD_Channel.Heatmaps)) |
 	(1 << u8(ports.MD_Channel.VPVR)) |
-	(1 << u8(ports.MD_Channel.Candles))
+	(1 << u8(ports.MD_Channel.Candles)) |
+	(1 << u8(ports.MD_Channel.Signals))
 )
 
 endpoint_normalize_venue :: proc(v: string) -> string {

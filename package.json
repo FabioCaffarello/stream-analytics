@@ -1,0 +1,28 @@
+{
+  "name": "market-raccoon",
+  "version": "1.0.0",
+  "description": "[![ci-fast](https://github.com/market-raccoon/market-raccoon/actions/workflows/ci-fast.yml/badge.svg)](https://github.com/market-raccoon/market-raccoon/actions/workflows/ci-fast.yml)",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FabioCaffarello/market-raccoon.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/FabioCaffarello/market-raccoon/issues"
+  },
+  "homepage": "https://github.com/FabioCaffarello/market-raccoon#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.58.2"
+  }
+}

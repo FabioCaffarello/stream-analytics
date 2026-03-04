@@ -62,6 +62,7 @@ func (s *SessionActor) handleSubscribe(cmd clientCommand) {
 		s.writeProblem("subscribe", cmd.RequestID, p)
 		return
 	}
+	alreadySubscribed := s.session.IsSubscribed(subject)
 	if p := s.enforceSubscriptionLimits(subject); p != nil {
 		s.writeProblem("subscribe", cmd.RequestID, p)
 		return
@@ -69,6 +70,9 @@ func (s *SessionActor) handleSubscribe(cmd clientCommand) {
 	if p := s.session.Subscribe(subject, domain.Filter{}); p != nil {
 		s.writeProblem(cmd.Op, cmd.RequestID, p)
 		return
+	}
+	if !alreadySubscribed && subject.IsSignal() {
+		metrics.IncMRSignalWSActiveSubscriptions()
 	}
 	s.emitSnapshot(subject)
 	if s.cfg.RouterPID != nil {
@@ -109,9 +113,13 @@ func (s *SessionActor) handleUnsubscribe(cmd clientCommand) {
 		s.writeProblem("unsubscribe", cmd.RequestID, p)
 		return
 	}
+	hadSignalSubscription := subject.IsSignal() && s.session.IsSubscribed(subject)
 	if p := s.session.Unsubscribe(subject); p != nil {
 		s.writeProblem(cmd.Op, cmd.RequestID, p)
 		return
+	}
+	if hadSignalSubscription {
+		metrics.DecMRSignalWSActiveSubscriptions()
 	}
 	subjectKey := subject.String()
 	delete(s.lastSnapshot, subjectKey)
@@ -515,9 +523,28 @@ func (s *SessionActor) resolveCommandSubject(cmd clientCommand, op string) (doma
 }
 
 func (s *SessionActor) enforceSubscriptionLimits(subject domain.Subject) *problem.Problem {
+	alreadySubscribed := s.session.IsSubscribed(subject)
+	if subject.IsSignal() && s.limits.MaxSignalSubscriptions > 0 && !alreadySubscribed {
+		currentSignalSubs := s.session.SignalSubscriptionCount()
+		if currentSignalSubs >= s.limits.MaxSignalSubscriptions {
+			metrics.IncMRSignalWSSubscriptionRejected("max_signal_subscriptions")
+			return withWSLimitProblemDetails(
+				problem.Newf(
+					problem.ValidationFailed,
+					"max signal subscriptions per connection exceeded (%d)",
+					s.limits.MaxSignalSubscriptions,
+				),
+				wsLimitTypeMaxSubscriptions,
+				deliveryv1.ActionHint_ACTION_HINT_NONE,
+			)
+		}
+	}
 	if s.limits.MaxSubscriptions > 0 {
 		current := len(s.session.Subscriptions())
-		if !s.session.IsSubscribed(subject) && current >= s.limits.MaxSubscriptions {
+		if !alreadySubscribed && current >= s.limits.MaxSubscriptions {
+			if subject.IsSignal() {
+				metrics.IncMRSignalWSSubscriptionRejected("max_subscriptions_per_connection")
+			}
 			return withWSLimitProblemDetails(
 				problem.Newf(problem.ValidationFailed, "max subscriptions per connection exceeded (%d)", s.limits.MaxSubscriptions),
 				wsLimitTypeMaxSubscriptions,
@@ -528,7 +555,7 @@ func (s *SessionActor) enforceSubscriptionLimits(subject domain.Subject) *proble
 	if s.limits.MaxSymbolsPerConnection <= 0 {
 		return nil
 	}
-	if s.session.IsSubscribed(subject) {
+	if alreadySubscribed {
 		return nil
 	}
 	symbols := map[string]struct{}{}
@@ -537,6 +564,9 @@ func (s *SessionActor) enforceSubscriptionLimits(subject domain.Subject) *proble
 	}
 	symbols[subject.Symbol] = struct{}{}
 	if len(symbols) > s.limits.MaxSymbolsPerConnection {
+		if subject.IsSignal() {
+			metrics.IncMRSignalWSSubscriptionRejected("max_symbols_per_connection")
+		}
 		return withWSLimitProblemDetails(
 			problem.Newf(problem.ValidationFailed, "max symbols per connection exceeded (%d)", s.limits.MaxSymbolsPerConnection),
 			wsLimitTypeMaxSymbols,

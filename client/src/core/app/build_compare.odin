@@ -139,7 +139,11 @@ build_compare_mode :: proc(
 				pointer    = pointer,
 				now_ms     = current_now_ms(state),
 			})
-		case 2: // Candles — synchronized scroll/zoom across all compare panels.
+		case 2: // Candles — independent scroll/zoom per compare pane.
+			signal_subject_id := u64(0)
+			if slot.has_stream_info {
+				signal_subject_id = build_signal_subject_id(slot.stream_info.venue, slot.stream_info.symbol, cell_effective_tf_string(state, ci))
+			}
 			widgets.candle_widget(&state.cmd_buf, widgets.Candle_Widget_Data{
 				store         = &slot.candle_store,
 				heatmap_store = &slot.heatmap_store,
@@ -147,15 +151,15 @@ build_compare_mode :: proc(
 				viewport     = cell_rect,
 				text         = state.text,
 				input        = input,
-				scroll_x     = &state.compare.scroll_x[0],
-				zoom_level   = &state.compare.zoom[0],
+				scroll_x     = &state.compare.scroll_x[ci],
+				zoom_level   = &state.compare.zoom[ci],
 				health_label = "---",
 				health_color = ui.COL_TEXT_MUTED,
-				tf_label     = cell_effective_tf_string(state, 0),
-				heatmap_live  = false,
-				heatmap_synth = false,
-				vpvr_live     = false,
-				vpvr_synth    = false,
+				tf_label     = cell_effective_tf_string(state, ci),
+				heatmap_live  = slot.has_heatmap_snapshot,
+				heatmap_synth = !slot.has_heatmap_snapshot && slot.heatmap_store.count > 0,
+				vpvr_live     = slot.has_live_vpvr,
+				vpvr_synth    = !slot.has_live_vpvr && slot.vpvr_store.count > 0,
 				show_volume  = &state.compare.show_vol[ci],
 				show_heatmap_overlay = &state.compare.show_heatmap[ci],
 				show_vpvr_overlay    = &state.compare.show_vpvr[ci],
@@ -166,7 +170,9 @@ build_compare_mode :: proc(
 				footprint_store = nil,
 				pointer      = pointer,
 				now_ms       = current_now_ms(state),
-				timeframe_ms = cell_effective_tf_ms(state, 0),
+				timeframe_ms = cell_effective_tf_ms(state, ci),
+				signal_store = &state.stores.signals,
+				signal_subject_id = signal_subject_id,
 			})
 		}
 	}

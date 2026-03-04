@@ -47,6 +47,7 @@ type Server struct {
 	snapshotWireCache       *deliveryruntime.SnapshotWireCache
 	spawnSession            func(cfg deliveryruntime.SessionConfig) *actor.PID
 	limits                  ServerConnectionLimits
+	maxSignalSubsPerConn    int
 	serverInstanceID        string
 	connRegistry            *connectionRegistry
 	ipLimiter               *ipRateLimiter
@@ -114,6 +115,14 @@ func WithIPRateLimit(cfg deliveryruntime.RateLimitConfig) Option {
 func WithConnectionLimits(limits ServerConnectionLimits) Option {
 	return func(s *Server) {
 		s.limits = limits
+	}
+}
+
+func WithSignalSubscriptionLimit(limit int) Option {
+	return func(s *Server) {
+		if limit > 0 {
+			s.maxSignalSubsPerConn = limit
+		}
 	}
 }
 
@@ -186,7 +195,8 @@ func NewServer(engine *actor.Engine, routerPID *actor.PID, logger *slog.Logger, 
 			MaxSubsPerConnection: 256,
 			MaxSymbolsPerConn:    128,
 		},
-		serverInstanceID: ids.NewSessionID().String(),
+		maxSignalSubsPerConn: 20,
+		serverInstanceID:     ids.NewSessionID().String(),
 		connRegistry: &connectionRegistry{
 			byIP:  map[string]int{},
 			byKey: map[string]int{},
@@ -291,6 +301,7 @@ func (s *Server) handleUpgradeWithMode(w http.ResponseWriter, r *http.Request, m
 
 	sessionRateLimit := s.rateLimit
 	maxSubs := s.limits.MaxSubsPerConnection
+	maxSignalSubs := s.maxSignalSubsPerConn
 	maxSymbols := s.limits.MaxSymbolsPerConn
 	maxFrameBytes := s.maxFrameBytes
 	outboundQueueSize := s.outboundQueueSize
@@ -332,6 +343,7 @@ func (s *Server) handleUpgradeWithMode(w http.ResponseWriter, r *http.Request, m
 		CompressionEnabled:      s.enableCompression,
 		ServerInstanceID:        s.serverInstanceID,
 		MaxSubscriptions:        maxSubs,
+		MaxSignalSubscriptions:  maxSignalSubs,
 		MaxSymbolsPerConnection: maxSymbols,
 		MaxFrameBytes:           maxFrameBytes,
 		OnClosed:                onClosed,

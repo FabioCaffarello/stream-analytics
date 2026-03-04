@@ -74,3 +74,20 @@ type AggregationOrderBookInconsistencyV1 struct {
 	Seq        int64
 	Reason     string
 }
+
+// AggregationCrossVenueBookVenueLevelV1 is a single venue level in the wire DTO.
+type AggregationCrossVenueBookVenueLevelV1 struct {
+	Venue   string `json:"venue"`
+	PriceFP int64  `json:"price_fp"`
+	SizeFP  int64  `json:"size_fp"`
+}
+
+// AggregationCrossVenueBookSnapshotV1 is the shared wire DTO for aggregation.cross_venue_book v1.
+type AggregationCrossVenueBookSnapshotV1 struct {
+	Instrument         string                                  `json:"instrument"`
+	TsServerMs         int64                                   `json:"ts_server_ms"`
+	BestBids           []AggregationCrossVenueBookVenueLevelV1 `json:"best_bids"`
+	BestAsks           []AggregationCrossVenueBookVenueLevelV1 `json:"best_asks"`
+	GlobalSpreadBPS    float64                                 `json:"global_spread_bps"`
+	VenueDivergenceBPS float64                                 `json:"venue_divergence_bps"`
+}

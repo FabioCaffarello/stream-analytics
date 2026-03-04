@@ -21,6 +21,7 @@ MR_Frame_Type :: enum u8 {
 	Unknown,
 	Event,
 	Snapshot,
+	Signal,
 	Batch,
 	Ack,
 	Error,
@@ -133,6 +134,24 @@ MR_Microstructure_Evidence_Payload :: struct {
 	seq:            i64       `json:"seq"`,
 }
 
+MR_Signal_Feature :: struct {
+	label: string `json:"label"`,
+	value: string `json:"value"`,
+}
+
+MR_Signal_Payload :: struct {
+	kind:           string              `json:"kind"`,
+	venue:          string              `json:"venue"`,
+	instrument:     string              `json:"instrument"`,
+	timeframe:      string              `json:"timeframe"`,
+	severity:       string              `json:"severity"`,
+	confidence:     f64                 `json:"confidence"`,
+	evidence:       []MR_Signal_Feature `json:"evidence"`,
+	regime_kind:    string              `json:"regime_kind"`,
+	regime_strength: f64                `json:"regime_strength"`,
+	reason:         string              `json:"reason"`,
+}
+
 // Candle payload — matches Go AggregationCandleV1 (PascalCase, no json tags).
 MR_Candle_Payload :: struct {
 	Venue:         string `json:"Venue"`,
@@ -186,6 +205,14 @@ MR_VPVR_Frame :: struct {
 
 MR_Microstructure_Evidence_Frame :: struct {
 	payload: MR_Microstructure_Evidence_Payload `json:"payload"`,
+}
+
+MR_Signal_Frame :: struct {
+	type_str:  string            `json:"type"`,
+	subject:   string            `json:"subject"`,
+	seq:       i64               `json:"seq"`,
+	ts_server: i64               `json:"ts_server"`,
+	payload:   MR_Signal_Payload `json:"payload"`,
 }
 
 MR_Candle_Frame :: struct {
@@ -370,6 +397,7 @@ parse_frame_type :: proc(s: string) -> MR_Frame_Type {
 	switch s {
 	case "event":     return .Event
 	case "snapshot":  return .Snapshot
+	case "signal":    return .Signal
 	case "batch":     return .Batch
 	case "ack":       return .Ack
 	case "error":     return .Error

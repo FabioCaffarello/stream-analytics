@@ -372,3 +372,114 @@ func TestOrderBook_applySnapshot_preventsAccumulationCross(t *testing.T) {
 		t.Errorf("state = %s; want HEALTHY", b.State())
 	}
 }
+
+func TestBTreeOrderBook_PruneAtCap(t *testing.T) {
+	b, p := domain.NewOrderBookWithMaxLevels("binance", "BTCUSDT", 500)
+	if p != nil {
+		t.Fatalf("NewOrderBookWithMaxLevels: %v", p)
+	}
+
+	bids := make([]domain.Level, 0, 600)
+	asks := make([]domain.Level, 0, 600)
+	for i := 1; i <= 600; i++ {
+		bids = append(bids, domain.Level{Price: domain.Price(i), Quantity: 1})
+		asks = append(asks, domain.Level{Price: domain.Price(10_000 + i), Quantity: 1})
+	}
+	if p := b.ApplyDelta(1, bids, asks); p != nil {
+		t.Fatalf("ApplyDelta: %v", p)
+	}
+
+	if got := len(b.Bids()); got != 500 {
+		t.Fatalf("bids len=%d want=500", got)
+	}
+	if got := len(b.Asks()); got != 500 {
+		t.Fatalf("asks len=%d want=500", got)
+	}
+	if got := float64(b.BestBid().Price); got != 600 {
+		t.Fatalf("best bid=%f want=600", got)
+	}
+	if got := float64(b.BestAsk().Price); got != 10001 {
+		t.Fatalf("best ask=%f want=10001", got)
+	}
+	if got := b.LastPrunedLevels(); got != 200 {
+		t.Fatalf("last pruned levels=%d want=200", got)
+	}
+}
+
+func TestBTreeOrderBook_DeterministicReplay(t *testing.T) {
+	left, p := domain.NewOrderBookWithMaxLevels("binance", "BTCUSDT", 500)
+	if p != nil {
+		t.Fatalf("left NewOrderBookWithMaxLevels: %v", p)
+	}
+	right, p := domain.NewOrderBookWithMaxLevels("binance", "BTCUSDT", 500)
+	if p != nil {
+		t.Fatalf("right NewOrderBookWithMaxLevels: %v", p)
+	}
+
+	for seq := int64(1); seq <= 10_000; seq++ {
+		bidPrice := domain.Price(30_000 + float64(seq%700))
+		askPrice := domain.Price(31_000 + float64(seq%700))
+		bidQty := domain.Quantity(1 + float64(seq%9))
+		askQty := domain.Quantity(1 + float64((seq+3)%9))
+
+		bid := domain.Level{Price: bidPrice, Quantity: bidQty}
+		ask := domain.Level{Price: askPrice, Quantity: askQty}
+		if seq%11 == 0 {
+			bid.Quantity = 0
+		}
+		if seq%13 == 0 {
+			ask.Quantity = 0
+		}
+
+		bids := []domain.Level{bid}
+		asks := []domain.Level{ask}
+		if seq%17 == 0 {
+			bids = append(bids, domain.Level{
+				Price:    domain.Price(29_000 + float64(seq%300)),
+				Quantity: domain.Quantity(2 + float64(seq%5)),
+			})
+		}
+		if seq%19 == 0 {
+			asks = append(asks, domain.Level{
+				Price:    domain.Price(32_000 + float64(seq%300)),
+				Quantity: domain.Quantity(2 + float64(seq%5)),
+			})
+		}
+
+		if p := left.ApplyDelta(seq, bids, asks); p != nil {
+			t.Fatalf("left ApplyDelta seq=%d: %v", seq, p)
+		}
+		if p := right.ApplyDelta(seq, bids, asks); p != nil {
+			t.Fatalf("right ApplyDelta seq=%d: %v", seq, p)
+		}
+	}
+
+	if left.LastSeq() != right.LastSeq() {
+		t.Fatalf("last seq mismatch left=%d right=%d", left.LastSeq(), right.LastSeq())
+	}
+	if left.Spread() != right.Spread() {
+		t.Fatalf("spread mismatch left=%f right=%f", left.Spread(), right.Spread())
+	}
+
+	leftBids := left.Bids()
+	rightBids := right.Bids()
+	if len(leftBids) != len(rightBids) {
+		t.Fatalf("bid length mismatch left=%d right=%d", len(leftBids), len(rightBids))
+	}
+	for i := range leftBids {
+		if leftBids[i] != rightBids[i] {
+			t.Fatalf("bid level[%d] mismatch left=%v right=%v", i, leftBids[i], rightBids[i])
+		}
+	}
+
+	leftAsks := left.Asks()
+	rightAsks := right.Asks()
+	if len(leftAsks) != len(rightAsks) {
+		t.Fatalf("ask length mismatch left=%d right=%d", len(leftAsks), len(rightAsks))
+	}
+	for i := range leftAsks {
+		if leftAsks[i] != rightAsks[i] {
+			t.Fatalf("ask level[%d] mismatch left=%v right=%v", i, leftAsks[i], rightAsks[i])
+		}
+	}
+}

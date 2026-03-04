@@ -293,6 +293,7 @@ Global_Stores :: struct {
 	vpvr:      services.VPVR_Store,
 	stats:     services.Stats_Store,
 	candle:    services.Candle_Store,
+	signals:   services.Signal_Store,
 	dom:       services.DOM_Store,
 	footprint: services.Footprint_Store,
 	markets:   services.Markets_Store,

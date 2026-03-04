@@ -17,6 +17,19 @@ func TestParseSubject(t *testing.T) {
 	}
 }
 
+func TestParseSubject_Signal(t *testing.T) {
+	sub, p := domain.ParseSubject("signal/absorption/binance/BTC-USDT/1m")
+	if p != nil {
+		t.Fatalf("ParseSubject signal: %v", p)
+	}
+	if got, want := sub.String(), "signal/absorption/binance/BTCUSDT/1m"; got != want {
+		t.Fatalf("subject = %q, want %q", got, want)
+	}
+	if !sub.IsSignal() {
+		t.Fatal("expected signal subject")
+	}
+}
+
 func TestParseSubject_invalid(t *testing.T) {
 	_, p := domain.ParseSubject("marketdata.trade/binance/BTC-USDT")
 	if p == nil {
@@ -31,6 +44,24 @@ func TestSubjectFromEnvelope(t *testing.T) {
 		t.Fatalf("SubjectFromEnvelope: %v", p)
 	}
 	if got, want := sub.String(), "marketdata.bookdelta/binance/BTCUSDT/raw"; got != want {
+		t.Fatalf("subject = %q, want %q", got, want)
+	}
+}
+
+func TestSubjectFromEnvelope_Signal(t *testing.T) {
+	env := envelope.Envelope{
+		Type:       "signal.composite",
+		Venue:      "binance",
+		Instrument: "BTC-USDT",
+		Meta: map[string]string{
+			"kind": "absorption",
+		},
+	}
+	sub, p := domain.SubjectFromEnvelope(env, "1m")
+	if p != nil {
+		t.Fatalf("SubjectFromEnvelope signal: %v", p)
+	}
+	if got, want := sub.String(), "signal/absorption/binance/BTCUSDT/1m"; got != want {
 		t.Fatalf("subject = %q, want %q", got, want)
 	}
 }

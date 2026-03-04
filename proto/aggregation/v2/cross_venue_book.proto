@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package aggregation.v2;
+
+option go_package = "github.com/market-raccoon/internal/shared/proto/gen/aggregation/v2";
+
+message VenueLevel {
+  string venue = 1;
+  int64 price_fp = 2;
+  int64 size_fp = 3;
+}
+
+message CrossVenueBookSnapshotV1 {
+  string instrument = 1;
+  int64 ts_server_ms = 2;
+  repeated VenueLevel best_bids = 3;
+  repeated VenueLevel best_asks = 4;
+  double global_spread_bps = 5;
+  double venue_divergence_bps = 6;
+}

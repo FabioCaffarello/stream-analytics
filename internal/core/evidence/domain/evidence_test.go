@@ -170,6 +170,7 @@ func TestEvidenceEventValidateAllKinds(t *testing.T) {
 		domain.LiquidityThinning,
 		domain.PersistentImbalance,
 		domain.Absorption,
+		domain.Sweep,
 	}
 	for _, k := range kinds {
 		t.Run(string(k), func(t *testing.T) {

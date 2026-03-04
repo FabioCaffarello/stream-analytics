@@ -165,7 +165,10 @@ func (a *ArtifactPublisher) PublishStatsClosed(ctx context.Context, evt aggdomai
 		),
 		ContentType: contentType,
 		Payload:     payload,
-		Meta:        artifactMetaForInstrument(evt.Stats.Instrument, nil),
+		Meta: artifactMetaForInstrument(
+			evt.Stats.Instrument,
+			map[string]string{"timeframe": evt.Stats.Timeframe},
+		),
 	}
 	if p := env.Validate(); p != nil {
 		return p

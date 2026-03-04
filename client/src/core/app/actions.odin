@@ -493,6 +493,8 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 					state.marketdata.subscribe(venue, symbol, .Stats)
 					state.marketdata.subscribe(venue, symbol, .Heatmaps)
 					state.marketdata.subscribe(venue, symbol, .VPVR)
+					state.marketdata.subscribe(venue, symbol, .Evidence)
+					state.marketdata.subscribe(venue, symbol, .Signals)
 				}
 				sub_buf: [64]u8
 				show_toast(state, fmt.bprintf(sub_buf[:], "%s:%s", venue, symbol))
@@ -515,6 +517,8 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 					state.marketdata.unsubscribe(venue, symbol, .Stats)
 					state.marketdata.unsubscribe(venue, symbol, .Heatmaps)
 					state.marketdata.unsubscribe(venue, symbol, .VPVR)
+					state.marketdata.unsubscribe(venue, symbol, .Evidence)
+					state.marketdata.unsubscribe(venue, symbol, .Signals)
 				}
 				sub_buf: [64]u8
 				show_toast(state, fmt.bprintf(sub_buf[:], "Unsub %s:%s", venue, symbol))

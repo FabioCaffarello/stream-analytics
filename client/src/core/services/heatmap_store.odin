@@ -6,7 +6,7 @@ package services
 import "core:math"
 
 HEATMAP_SNAP_CAP  :: 128
-HEATMAP_LEVEL_CAP :: 64
+HEATMAP_LEVEL_CAP :: 256
 
 Heatmap_Level :: struct {
 	price: f64,
@@ -14,13 +14,14 @@ Heatmap_Level :: struct {
 }
 
 Heatmap_Snapshot :: struct {
-	levels:      [HEATMAP_LEVEL_CAP]Heatmap_Level,
-	level_count: int,
-	unix:        i64,
-	price_group: f64,
-	min_price:   f64,
-	max_price:   f64,
-	max_size:    f64,
+	levels:          [HEATMAP_LEVEL_CAP]Heatmap_Level,
+	level_count:     int,
+	unix:            i64,   // window_end_ts in seconds (used for dedup)
+	window_start_ms: i64,   // window_start_ts in milliseconds (for slot alignment)
+	price_group:     f64,
+	min_price:       f64,
+	max_price:       f64,
+	max_size:        f64,
 }
 
 Heatmap_Store :: struct {
@@ -33,7 +34,30 @@ Heatmap_Store :: struct {
 }
 
 // Push a new snapshot into the ring buffer.
+// Window-based dedup: if the most recent snapshot has the same window_end_ts (unix),
+// replace it in-place instead of advancing the head. This prevents the 128-cap buffer
+// from overflowing every ~25s at 200ms publish rate.
 push_heatmap_snapshot :: proc(store: ^Heatmap_Store, snap: Heatmap_Snapshot) {
+	// Dedup: replace the most recent snapshot if it covers the same window.
+	if store.count > 0 {
+		prev_idx := (store.head - 1 + HEATMAP_SNAP_CAP) % HEATMAP_SNAP_CAP
+		if store.snapshots[prev_idx].unix == snap.unix {
+			store.snapshots[prev_idx] = snap
+			// Recompute global bounds after in-place replacement.
+			store.global_min_price = snap.min_price
+			store.global_max_price = snap.max_price
+			store.global_max_size  = snap.max_size
+			for i in 0 ..< store.count {
+				s := get_heatmap_snapshot(store, i)
+				if s == nil do continue
+				store.global_min_price = math.min(store.global_min_price, s.min_price)
+				store.global_max_price = math.max(store.global_max_price, s.max_price)
+				store.global_max_size  = math.max(store.global_max_size, s.max_size)
+			}
+			return
+		}
+	}
+
 	store.snapshots[store.head] = snap
 	store.head = (store.head + 1) % HEATMAP_SNAP_CAP
 	if store.count < HEATMAP_SNAP_CAP {

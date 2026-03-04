@@ -25,6 +25,17 @@ func TestRegisterEvidencePayloadV1(t *testing.T) {
 	if _, ok := reg.Encoder(key); !ok {
 		t.Error("JSON encoder not registered")
 	}
+	regimeKey := codec.SchemaKey{
+		Type:    evidencedomain.RegimeEvidenceType,
+		Version: 1,
+		Format:  codec.FormatJSON,
+	}
+	if _, ok := reg.Decoder(regimeKey); !ok {
+		t.Error("regime JSON decoder not registered")
+	}
+	if _, ok := reg.Encoder(regimeKey); !ok {
+		t.Error("regime JSON encoder not registered")
+	}
 	// Verify Proto codec exists
 	keyProto := codec.SchemaKey{
 		Type:    evidencedomain.MicrostructureEvidenceType,
@@ -33,6 +44,61 @@ func TestRegisterEvidencePayloadV1(t *testing.T) {
 	}
 	if _, ok := reg.Decoder(keyProto); !ok {
 		t.Error("Proto decoder not registered")
+	}
+}
+
+func TestRegimeJSONRoundtrip(t *testing.T) {
+	reg := codec.NewRegistry()
+	if p := contracts.RegisterEvidencePayloadV1(reg); p != nil {
+		t.Fatalf("register failed: %s", p.Message)
+	}
+
+	original := evidencedomain.RegimeSignal{
+		Venue:       "binance",
+		Instrument:  "BTC-USDT",
+		Timeframe:   "1m",
+		Kind:        evidencedomain.RegimeTrending,
+		Strength:    0.82,
+		Confidence:  0.91,
+		WindowStart: 1709500000000,
+		WindowEnd:   1709500060000,
+		Features: []evidencedomain.FeaturePair{
+			{Name: "slope_ratio", Value: 0.0032},
+		},
+	}
+
+	key := codec.SchemaKey{
+		Type:    evidencedomain.RegimeEvidenceType,
+		Version: 1,
+		Format:  codec.FormatJSON,
+	}
+	enc, ok := reg.Encoder(key)
+	if !ok {
+		t.Fatal("regime encoder not found")
+	}
+	data, p := enc.Encode(original)
+	if p != nil {
+		t.Fatalf("encode failed: %s", p.Message)
+	}
+
+	dec, ok := reg.Decoder(key)
+	if !ok {
+		t.Fatal("regime decoder not found")
+	}
+	decoded, p := dec.Decode(data)
+	if p != nil {
+		t.Fatalf("decode failed: %s", p.Message)
+	}
+
+	got, ok := decoded.(evidencedomain.RegimeSignal)
+	if !ok {
+		t.Fatalf("decoded type = %T, want RegimeSignal", decoded)
+	}
+	if got.Kind != original.Kind {
+		t.Fatalf("kind = %s, want %s", got.Kind, original.Kind)
+	}
+	if got.WindowEnd != original.WindowEnd {
+		t.Fatalf("window_end = %d, want %d", got.WindowEnd, original.WindowEnd)
 	}
 }
 

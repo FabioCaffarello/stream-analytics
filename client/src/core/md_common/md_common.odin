@@ -478,7 +478,7 @@ update_parse_rates :: proc(rs: ^Rate_State, now_ms: i64, bytes: int) {
 
 parse_result_has_data :: proc(kind: services.Parse_Result_Kind) -> bool {
 	switch kind {
-	case .Trade, .Orderbook, .Stats, .Heatmap, .VPVR, .Candle, .Evidence, .Range_Candle:
+	case .Trade, .Orderbook, .Stats, .Heatmap, .VPVR, .Candle, .Evidence, .Signal, .Range_Candle:
 		return true
 	case .None, .Ack, .Hello, .Hello_Ack, .Heartbeat, .Health, .Error, .Pong, .Metrics:
 		return false
@@ -488,7 +488,7 @@ parse_result_has_data :: proc(kind: services.Parse_Result_Kind) -> bool {
 
 parse_result_requires_ts_server :: proc(kind: services.Parse_Result_Kind) -> bool {
 	switch kind {
-	case .Trade, .Orderbook, .Stats, .Heatmap, .VPVR, .Candle, .Evidence:
+	case .Trade, .Orderbook, .Stats, .Heatmap, .VPVR, .Candle, .Evidence, .Signal:
 		return true
 	case .None, .Range_Candle, .Ack, .Hello, .Hello_Ack, .Heartbeat, .Health, .Error, .Pong, .Metrics:
 		return false
@@ -604,7 +604,7 @@ now_ms :: proc() -> i64 {
 
 subject_for_channel :: proc(venue, symbol, tf_filter: string, channel: ports.MD_Channel) -> string {
 	tf := ""
-	if channel == .Heatmaps || channel == .VPVR || channel == .Candles {
+	if channel == .Heatmaps || channel == .VPVR || channel == .Candles || channel == .Signals {
 		tf = tf_filter
 	}
 	return util.build_subject_with_timeframe(venue, symbol, channel, tf)

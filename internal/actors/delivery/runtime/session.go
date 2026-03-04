@@ -81,6 +81,9 @@ type SessionConfig struct {
 	// MaxSubscriptions bounds active subscriptions per websocket session.
 	// 0 disables the limit.
 	MaxSubscriptions int
+	// MaxSignalSubscriptions bounds active signal subscriptions per session.
+	// 0 disables the signal-specific limit.
+	MaxSignalSubscriptions int
 	// MaxSymbolsPerConnection bounds active unique symbols per session.
 	// 0 disables the limit.
 	MaxSymbolsPerConnection int
@@ -393,6 +396,9 @@ func (s *SessionActor) closeSession() {
 	metrics.SetWSQueueDepth(0)
 	metrics.SetWSTenantQueueDepth(s.cfg.TenantID, 0)
 	for _, sub := range s.session.Subscriptions() {
+		if sub.Subject.IsSignal() {
+			metrics.DecMRSignalWSActiveSubscriptions()
+		}
 		if s.cfg.RouterPID != nil {
 			s.engine.Send(s.cfg.RouterPID, UnsubscribeSession{
 				SessionID: s.session.ID(),

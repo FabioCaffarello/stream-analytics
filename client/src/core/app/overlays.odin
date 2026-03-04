@@ -257,12 +257,40 @@ draw_stream_picker :: proc(state: ^App_State, viewport_w, viewport_h: f32, point
 	})
 
 	reg := state.stream_views
-	stream_count := 0
+
+	// Deduplicate connected slots by venue+symbol: keep only the first slot per market.
+	deduped_slot_indices: [STREAM_VIEW_CAP]int
+	deduped_count := 0
 	if reg != nil {
+		Seen_Market :: struct { venue: string, symbol: string }
+		seen: [STREAM_VIEW_CAP]Seen_Market
+		seen_count := 0
 		for i in 0 ..< STREAM_VIEW_CAP {
-			if reg.slots[i].used do stream_count += 1
+			if !reg.slots[i].used do continue
+			slot := &reg.slots[i]
+			if !slot.has_stream_info {
+				refresh_stream_info_for_slot(state, slot)
+			}
+			if !slot.has_stream_info do continue
+			// Check if this venue+symbol pair was already seen.
+			already := false
+			for si in 0 ..< seen_count {
+				if seen[si].venue == slot.stream_info.venue &&
+					seen[si].symbol == slot.stream_info.symbol {
+					already = true
+					break
+				}
+			}
+			if already do continue
+			if seen_count < STREAM_VIEW_CAP {
+				seen[seen_count] = {venue = slot.stream_info.venue, symbol = slot.stream_info.symbol}
+				seen_count += 1
+			}
+			deduped_slot_indices[deduped_count] = i
+			deduped_count += 1
 		}
 	}
+	stream_count := deduped_count
 
 	// Count available (not yet connected) markets from discovery store.
 	available_count := 0
@@ -322,15 +350,28 @@ draw_stream_picker :: proc(state: ^App_State, viewport_w, viewport_h: f32, point
 			"CONNECTED", ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Bold)
 		y += 18
 
-		for i in 0 ..< STREAM_VIEW_CAP {
+		for di in 0 ..< deduped_count {
 			if y + item_h > py + panel_h - 20 do break
-			if !reg.slots[i].used do continue
+			i := deduped_slot_indices[di]
 			slot := &reg.slots[i]
-			if !slot.has_stream_info {
-				refresh_stream_info_for_slot(state, slot)
+
+			// A market row is "active" if any slot for this venue+symbol is the active subject.
+			is_active := false
+			if reg.has_active && slot.has_stream_info {
+				for si in 0 ..< STREAM_VIEW_CAP {
+					if !reg.slots[si].used do continue
+					if reg.slots[si].subject_id != reg.active_subject_id do continue
+					s := &reg.slots[si]
+					if !s.has_stream_info { refresh_stream_info_for_slot(state, s) }
+					if s.has_stream_info &&
+						s.stream_info.venue == slot.stream_info.venue &&
+						s.stream_info.symbol == slot.stream_info.symbol {
+						is_active = true
+						break
+					}
+				}
 			}
 
-			is_active := reg.has_active && slot.subject_id == reg.active_subject_id
 			item_rect := ui.Rect{pos = {px + 8, y}, size = {panel_w - 16, item_h}}
 
 			hovered := ui.rect_contains(item_rect, pointer.pos)

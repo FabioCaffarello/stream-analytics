@@ -72,11 +72,12 @@ orderbook_auto_price_group :: proc(price: f64) -> f64 {
 	return math.pow(10, exp)
 }
 
-// Wider grouping for synthetic heatmap overlay (~1% of price, snapped to 10^N).
-// E.g. BTC 90000 → 1000, ETH 3000 → 10, DOGE 0.08 → 0.001
+// Synthetic heatmap price grouping (~0.2% of price, snapped to 10^N).
+// Between live 5s (0.1%) and live 1m (0.5%) for a reasonable visual.
+// E.g. BTC 90000 → 100, ETH 3000 → 1, DOGE 0.08 → 0.0001
 synthetic_heatmap_price_group :: proc(price: f64) -> f64 {
 	if price <= 0 do return 1
-	target := price * 0.01
+	target := price * 0.002
 	exp := math.floor(math.log10(target))
 	return math.pow(10, exp)
 }
@@ -97,6 +98,8 @@ channel_short_label :: proc(ch: ports.MD_Channel) -> string {
 		return "candles"
 	case .Evidence:
 		return "evidence"
+	case .Signals:
+		return "signal"
 	}
 	return "?"
 }
@@ -115,6 +118,10 @@ parse_channel_short_label :: proc(s: string) -> (ports.MD_Channel, bool) {
 		return .VPVR, true
 	case "candles":
 		return .Candles, true
+	case "evidence":
+		return .Evidence, true
+	case "signal":
+		return .Signals, true
 	}
 	return {}, false
 }

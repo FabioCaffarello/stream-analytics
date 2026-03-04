@@ -34,6 +34,7 @@ apply_stats_to_store :: proc(store: ^services.Stats_Store, st: ports.MD_Stats_Ev
 build_heatmap_snapshot :: proc(hm: ports.MD_Heatmap_Event) -> services.Heatmap_Snapshot {
 	snap: services.Heatmap_Snapshot
 	snap.unix = hm.unix
+	snap.window_start_ms = hm.window_start_ms
 	snap.price_group = hm.price_group
 	snap.min_price = hm.min_price
 	snap.max_price = hm.max_price
@@ -268,16 +269,35 @@ handle_trade_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, t: ports.
 }
 
 // Returns true when the caller should `continue` the event loop (snapshot gap triggers resync).
+@(private = "package")
+orderbook_snapshot_gate :: proc(snapshot_seen: bool, is_snapshot: bool, ask_count: int, bid_count: int) -> (next_snapshot_seen: bool, mark_as_snapshot: bool, has_snapshot_gap: bool) {
+	if snapshot_seen {
+		return true, is_snapshot, false
+	}
+	if is_snapshot {
+		return true, true, false
+	}
+	// Some venues can stream a valid bootstrap delta before emitting explicit snapshot frames.
+	// Accept the first non-empty book as baseline to avoid permanent startup desync loops.
+	if ask_count > 0 && bid_count > 0 {
+		return true, true, false
+	}
+	return false, false, true
+}
+
+// Returns true when the caller should `continue` the event loop (snapshot gap triggers resync).
 handle_orderbook_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, ob: ports.MD_Orderbook_Event, unix: i64, seq: i64, is_active_stream: bool) -> (skip: bool) {
 	has_snapshot_gap := false
+	is_snapshot_for_stream := ob.is_snapshot
 	if slot != nil {
-		if ob.is_snapshot {
-			slot.orderbook_snapshot_seen = true
-		} else if !slot.orderbook_snapshot_seen {
-			has_snapshot_gap = true
-		}
-	} else if !ob.is_snapshot {
-		has_snapshot_gap = true
+		next_seen, mark_snapshot, gap := orderbook_snapshot_gate(slot.orderbook_snapshot_seen, ob.is_snapshot, ob.ask_count, ob.bid_count)
+		slot.orderbook_snapshot_seen = next_seen
+		is_snapshot_for_stream = mark_snapshot
+		has_snapshot_gap = gap
+	} else {
+		_, mark_snapshot, gap := orderbook_snapshot_gate(false, ob.is_snapshot, ob.ask_count, ob.bid_count)
+		is_snapshot_for_stream = mark_snapshot
+		has_snapshot_gap = gap
 	}
 	if has_snapshot_gap {
 		if is_active_stream {
@@ -292,7 +312,7 @@ handle_orderbook_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, ob: p
 		}
 		return true
 	}
-	record_stream_event(state, slot, .Orderbook_Snapshot, unix, seq, ob.is_snapshot, is_active_stream)
+	record_stream_event(state, slot, .Orderbook_Snapshot, unix, seq, is_snapshot_for_stream, is_active_stream)
 	if slot != nil {
 		apply_orderbook_to_store(&slot.orderbook_store, ob)
 		if !slot.has_heatmap_snapshot {
@@ -301,7 +321,9 @@ handle_orderbook_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, ob: p
 			if snap.level_count > 0 {
 				tf_s := active_timeframe_ms(state) / 1000
 				if tf_s <= 0 do tf_s = 60
-				snap.unix = ((ob.unix / tf_s) * tf_s) + tf_s
+				window_s := (ob.unix / tf_s) * tf_s
+				snap.unix = window_s + tf_s
+				snap.window_start_ms = window_s * 1000
 				services.push_heatmap_snapshot(&slot.heatmap_store, snap)
 			}
 		}
@@ -311,7 +333,11 @@ handle_orderbook_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, ob: p
 			state.active_metrics.last_orderbook_ts_ms = now_ms
 		}
 		apply_orderbook_to_store(&state.stores.orderbook, ob)
-		if !state.active_metrics.has_live_heatmap {
+		// Always generate synthetic heatmap from orderbook — it provides current
+		// depth (WHERE liquidity IS) while live heatmap provides aggregated
+		// activity (WHERE activity HAPPENED). Both feed the same ring buffer;
+		// window dedup keeps latest per timestamp.
+		{
 			tf_s := active_timeframe_ms(state) / 1000
 			if tf_s <= 0 do tf_s = 60
 			window := (ob.unix / tf_s) * tf_s
@@ -320,6 +346,7 @@ handle_orderbook_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, ob: p
 				snap := build_synthetic_heatmap_snapshot_from_orderbook(ob, synth_group)
 				if snap.level_count > 0 {
 					snap.unix = window + tf_s
+					snap.window_start_ms = window * 1000
 					services.push_heatmap_snapshot(&state.stores.heatmap, snap)
 				}
 				state.synth_heatmap_last_window = window
@@ -360,23 +387,36 @@ handle_heatmap_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, hm: por
 		services.push_heatmap_snapshot(&slot.heatmap_store, snap)
 	}
 	if is_active_stream {
-		// First live snapshot replaces synthetic warmup samples for active chart.
-		if !state.active_metrics.has_live_heatmap {
-			state.stores.heatmap = {}
+		// TF guard: only write to global store if heatmap TF matches active TF.
+		tf_opts := TF_OPTIONS
+		active_tf := tf_opts[clamp(state.active_tf_idx, 0, len(TF_OPTIONS) - 1)]
+		slot_tf_match := slot == nil || !slot.has_stream_info ||
+			len(slot.stream_info.timeframe) == 0 ||
+			slot.stream_info.timeframe == active_tf
+		if slot_tf_match {
+			state.active_metrics.has_live_heatmap = true
+			services.push_heatmap_snapshot(&state.stores.heatmap, snap)
 		}
-		state.active_metrics.has_live_heatmap = true
-		services.push_heatmap_snapshot(&state.stores.heatmap, snap)
 	}
 }
 
 handle_vpvr_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, vpvr: ports.MD_VPVR_Event, unix: i64, is_active_stream: bool) {
 	record_stream_event(state, slot, .VPVR, unix, 0, false, is_active_stream)
 	if slot != nil {
+		slot.has_live_vpvr = true
 		apply_vpvr_to_store(&slot.vpvr_store, vpvr)
 	}
 	if is_active_stream {
-		state.active_metrics.has_live_vpvr = true
-		apply_vpvr_to_store(&state.stores.vpvr, vpvr)
+		// TF guard: only write to global store if VPVR TF matches active TF.
+		tf_opts := TF_OPTIONS
+		active_tf := tf_opts[clamp(state.active_tf_idx, 0, len(TF_OPTIONS) - 1)]
+		slot_tf_match := slot == nil || !slot.has_stream_info ||
+			len(slot.stream_info.timeframe) == 0 ||
+			slot.stream_info.timeframe == active_tf
+		if slot_tf_match {
+			state.active_metrics.has_live_vpvr = true
+			apply_vpvr_to_store(&state.stores.vpvr, vpvr)
+		}
 	}
 }
 
@@ -427,6 +467,30 @@ push_evidence :: proc(state: ^App_State, evt: ports.MD_Evidence_Event, subject_i
 handle_evidence_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, ev: ports.MD_Evidence_Event, unix: i64, subject_id: u64, is_active_stream: bool) {
 	record_stream_event(state, slot, .Evidence, unix, 0, false, is_active_stream)
 	push_evidence(state, ev, subject_id)
+}
+
+push_signal :: proc(state: ^App_State, evt: ports.MD_Signal_Event, subject_id: u64, seq: i64) {
+	if state == nil || subject_id == 0 do return
+	services.signal_store_push(&state.stores.signals, services.Signal_Entry{
+		kind            = evt.kind,
+		kind_len        = evt.kind_len,
+		severity        = evt.severity,
+		severity_len    = evt.severity_len,
+		confidence      = evt.confidence,
+		reason          = evt.reason,
+		reason_len      = evt.reason_len,
+		regime          = evt.regime,
+		regime_len      = evt.regime_len,
+		regime_strength = evt.regime_strength,
+		unix            = evt.unix,
+		subject_id      = subject_id,
+		seq             = seq,
+	})
+}
+
+handle_signal_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, sig: ports.MD_Signal_Event, unix: i64, subject_id: u64, seq: i64, is_active_stream: bool) {
+	record_stream_event(state, slot, .Signal, unix, seq, false, is_active_stream)
+	push_signal(state, sig, subject_id, seq)
 }
 
 handle_range_candle_batch :: proc(
@@ -591,6 +655,8 @@ drain_marketdata :: proc(state: ^App_State) -> int {
 				handle_range_candle_batch(state, slot, evt.data.range_candles, evt.unix, subject_id, is_active_stream, is_active_range_batch, is_active_getrange_subject)
 			case .Evidence:
 				handle_evidence_event(state, slot, evt.data.evidence, evt.unix, subject_id, is_active_stream)
+			case .Signal:
+				handle_signal_event(state, slot, evt.data.signal, evt.unix, subject_id, evt.source.seq, is_active_stream)
 			}
 		}
 	}
@@ -740,10 +806,21 @@ record_stream_event :: proc(
 	local_ms := current_now_ms(state)
 	server_ms := event_unix_to_ms(unix)
 	if local_ms <= 0 do local_ms = server_ms
+	// Only pass server_ts for real-time event types (trades, orderbook) to the
+	// stream controller's regression check. Aggregation types (stats, candles,
+	// heatmap, vpvr) use window boundaries that can lag real-time by an entire
+	// aggregation window, causing false timestamp regressions when mixed with
+	// real-time trade timestamps on the same stream handle.
+	effective_server_ms := server_ms
+	#partial switch kind {
+	case .Stats, .Candle, .Heatmap, .VPVR, .Range_Candle_Batch, .Evidence, .Signal:
+		effective_server_ms = 0
+	case:
+	}
 	if is_active_stream && handle.status.desync_reason == .Manual {
 		streams.controller_clear_desync(&handle.status)
 	}
-	streams.controller_mark_message(&handle.status, local_ms, server_ms, seq, is_snapshot)
+	streams.controller_mark_message(&handle.status, local_ms, effective_server_ms, seq, is_snapshot)
 	if is_active_stream {
 		if kind == .Stats && handle.status.desync_reason == .Snapshot_Stale {
 			streams.controller_clear_desync(&handle.status)

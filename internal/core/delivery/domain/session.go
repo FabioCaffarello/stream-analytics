@@ -70,3 +70,14 @@ func (s *Session) IsSubscribed(subject Subject) bool {
 	_, ok := s.subscriptions[subject]
 	return ok
 }
+
+// SignalSubscriptionCount returns the number of active signal subscriptions.
+func (s *Session) SignalSubscriptionCount() int {
+	count := 0
+	for _, sub := range s.subscriptions {
+		if sub.Subject.IsSignal() {
+			count++
+		}
+	}
+	return count
+}

@@ -10,6 +10,7 @@ require (
 	github.com/market-raccoon/internal/core/aggregation v0.0.0
 	github.com/market-raccoon/internal/core/delivery v0.0.0
 	github.com/market-raccoon/internal/core/evidence v0.0.0
+	github.com/market-raccoon/internal/core/signals v0.0.0
 	github.com/market-raccoon/internal/interfaces v0.0.0
 	github.com/market-raccoon/internal/shared v0.0.0
 	github.com/prometheus/client_golang v1.18.0
@@ -28,6 +29,7 @@ require (
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.0 // indirect
+	github.com/google/btree v1.1.3 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
@@ -69,6 +71,7 @@ replace (
 	github.com/market-raccoon/internal/core/evidence => ../../internal/core/evidence
 	github.com/market-raccoon/internal/core/insights => ../../internal/core/insights
 	github.com/market-raccoon/internal/core/marketdata => ../../internal/core/marketdata
+	github.com/market-raccoon/internal/core/signals => ../../internal/core/signals
 	github.com/market-raccoon/internal/interfaces => ../../internal/interfaces
 	github.com/market-raccoon/internal/shared => ../../internal/shared
 )

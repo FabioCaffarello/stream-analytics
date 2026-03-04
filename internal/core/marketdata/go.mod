@@ -13,6 +13,7 @@ require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/market-raccoon/internal/core/evidence v0.0.0 // indirect
 	github.com/market-raccoon/internal/core/insights v0.0.0 // indirect
+	github.com/market-raccoon/internal/core/signals v0.0.0 // indirect
 	github.com/matttproud/golang_protobuf_extensions/v2 v2.0.0 // indirect
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/common v0.45.0 // indirect
@@ -24,5 +25,6 @@ require (
 replace (
 	github.com/market-raccoon/internal/core/evidence => ../../../internal/core/evidence
 	github.com/market-raccoon/internal/core/insights => ../../../internal/core/insights
+	github.com/market-raccoon/internal/core/signals => ../../../internal/core/signals
 	github.com/market-raccoon/internal/shared => ../../../internal/shared
 )

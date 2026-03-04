@@ -90,6 +90,12 @@ func (a AppConfig) Validate() *problem.Problem {
 	if prob := validateProcessor(a.Processor); prob != nil {
 		return prob
 	}
+	if prob := validateEvidence(a.Evidence); prob != nil {
+		return prob
+	}
+	if prob := validateSignals(a.Signals); prob != nil {
+		return prob
+	}
 	if prob := validateStore(a.Store); prob != nil {
 		return prob
 	}
@@ -659,11 +665,32 @@ func validateProcessor(p ProcessorConfig) *problem.Problem {
 	if p.MaxInstruments <= 0 {
 		return problem.Newf(codeInvalid, "processor.max_instruments must be > 0, got %d", p.MaxInstruments)
 	}
+	if p.OrderBook.MaxLevels <= 0 {
+		return problem.Newf(codeInvalid, "processor.orderbook.max_levels must be > 0, got %d", p.OrderBook.MaxLevels)
+	}
+	if !p.OrderBook.IsBTreeEnabled() {
+		return problem.New(codeInvalid, "processor.orderbook.use_btree_orderbook must be true (legacy orderbook removed)")
+	}
+	if p.XVenue.StaleThresholdMs <= 0 {
+		return problem.Newf(codeInvalid, "processor.xvenue.stale_threshold_ms must be > 0, got %d", p.XVenue.StaleThresholdMs)
+	}
+	if p.XVenue.MaxInstruments <= 0 {
+		return problem.Newf(codeInvalid, "processor.xvenue.max_instruments must be > 0, got %d", p.XVenue.MaxInstruments)
+	}
+	if p.XVenue.MaxVenues <= 0 {
+		return problem.Newf(codeInvalid, "processor.xvenue.max_venues must be > 0, got %d", p.XVenue.MaxVenues)
+	}
 	if p.Candle.MaxCandles <= 0 {
 		return problem.Newf(codeInvalid, "processor.candle.max_candles must be > 0, got %d", p.Candle.MaxCandles)
 	}
+	if p.Candle.WindowCap <= 0 {
+		return problem.Newf(codeInvalid, "processor.candle.window_cap must be > 0, got %d", p.Candle.WindowCap)
+	}
 	if p.Stats.MaxWindows <= 0 {
 		return problem.Newf(codeInvalid, "processor.stats.max_windows must be > 0, got %d", p.Stats.MaxWindows)
+	}
+	if p.Stats.WindowCap <= 0 {
+		return problem.Newf(codeInvalid, "processor.stats.window_cap must be > 0, got %d", p.Stats.WindowCap)
 	}
 	if p.RTPublish.OrderbookIntervalMs < 0 {
 		return problem.Newf(codeInvalid, "processor.rt_publish.orderbook_interval_ms must be >= 0, got %d", p.RTPublish.OrderbookIntervalMs)
@@ -724,6 +751,69 @@ func validateProcessor(p ProcessorConfig) *problem.Problem {
 	case "", "half_even", "floor":
 	default:
 		return problem.Newf(codeInvalid, "processor.insights.rounding_mode must be half_even|floor, got %q", insights.RoundingMode)
+	}
+	if prob := validateInsightsTimeframes(insights.InsightsTimeframes); prob != nil {
+		return prob
+	}
+	return nil
+}
+
+var allowedInsightsTimeframes = map[string]struct{}{
+	"1s": {}, "5s": {}, "1m": {}, "5m": {}, "15m": {},
+	"30m": {}, "1h": {}, "4h": {}, "1d": {},
+}
+
+func validateInsightsTimeframes(tfs []string) *problem.Problem {
+	seen := make(map[string]struct{}, len(tfs))
+	for i, tf := range tfs {
+		tf = strings.TrimSpace(tf)
+		if _, ok := allowedInsightsTimeframes[tf]; !ok {
+			return problem.Newf(codeInvalid,
+				"processor.insights.insights_timeframes[%d] %q is not a supported timeframe; allowed: 1s,5s,1m,5m,15m,30m,1h,4h,1d", i, tf)
+		}
+		if _, dup := seen[tf]; dup {
+			return problem.Newf(codeInvalid,
+				"processor.insights.insights_timeframes[%d] %q is a duplicate", i, tf)
+		}
+		seen[tf] = struct{}{}
+	}
+	return nil
+}
+
+func validateEvidence(e EvidenceConfig) *problem.Problem {
+	if e.BufferCapPerKind <= 0 {
+		return problem.Newf(codeInvalid, "evidence.buffer_cap_per_kind must be > 0, got %d", e.BufferCapPerKind)
+	}
+	if e.DecayHalfLifeMs <= 0 {
+		return problem.Newf(codeInvalid, "evidence.decay_half_life_ms must be > 0, got %d", e.DecayHalfLifeMs)
+	}
+	if e.RegimeMaxStreams <= 0 {
+		return problem.Newf(codeInvalid, "evidence.regime_max_streams must be > 0, got %d", e.RegimeMaxStreams)
+	}
+	if e.RegimeHistoryCap <= 0 {
+		return problem.Newf(codeInvalid, "evidence.regime_history_cap must be > 0, got %d", e.RegimeHistoryCap)
+	}
+	return nil
+}
+
+func validateSignals(s SignalsConfig) *problem.Problem {
+	if s.DedupWindowMs <= 0 {
+		return problem.Newf(codeInvalid, "signals.dedup_window_ms must be > 0, got %d", s.DedupWindowMs)
+	}
+	if s.RateLimitPerMin <= 0 {
+		return problem.Newf(codeInvalid, "signals.rate_limit_per_min must be > 0, got %d", s.RateLimitPerMin)
+	}
+	if s.GlobalRateLimitPerMin <= 0 {
+		return problem.Newf(codeInvalid, "signals.global_rate_limit_per_min must be > 0, got %d", s.GlobalRateLimitPerMin)
+	}
+	if s.CorrelationWindowMs <= 0 {
+		return problem.Newf(codeInvalid, "signals.correlation_window_ms must be > 0, got %d", s.CorrelationWindowMs)
+	}
+	if s.MaxSubsPerSession <= 0 {
+		return problem.Newf(codeInvalid, "signals.max_subs_per_session must be > 0, got %d", s.MaxSubsPerSession)
+	}
+	if s.WindowCap <= 0 {
+		return problem.Newf(codeInvalid, "signals.window_cap must be > 0, got %d", s.WindowCap)
 	}
 	return nil
 }
@@ -1263,11 +1353,29 @@ func applyDefaults(c *AppConfig) {
 	if c.Processor.MaxInstruments == 0 {
 		c.Processor.MaxInstruments = 2048
 	}
+	if c.Processor.OrderBook.MaxLevels == 0 {
+		c.Processor.OrderBook.MaxLevels = 500
+	}
+	if c.Processor.XVenue.StaleThresholdMs == 0 {
+		c.Processor.XVenue.StaleThresholdMs = 30_000
+	}
+	if c.Processor.XVenue.MaxInstruments == 0 {
+		c.Processor.XVenue.MaxInstruments = c.Processor.MaxInstruments
+	}
+	if c.Processor.XVenue.MaxVenues == 0 {
+		c.Processor.XVenue.MaxVenues = 6
+	}
 	if c.Processor.Candle.MaxCandles == 0 {
 		c.Processor.Candle.MaxCandles = 50_000
 	}
+	if c.Processor.Candle.WindowCap == 0 {
+		c.Processor.Candle.WindowCap = 96
+	}
 	if c.Processor.Stats.MaxWindows == 0 {
 		c.Processor.Stats.MaxWindows = 50_000
+	}
+	if c.Processor.Stats.WindowCap == 0 {
+		c.Processor.Stats.WindowCap = 96
 	}
 	if c.Processor.RTPublish.OrderbookIntervalMs == 0 && !c.Processor.RTPublish.orderbookConfigured() {
 		c.Processor.RTPublish.OrderbookIntervalMs = 200
@@ -1298,6 +1406,39 @@ func applyDefaults(c *AppConfig) {
 	}
 	if c.Processor.Insights.RoundingMode == "" {
 		c.Processor.Insights.RoundingMode = "half_even"
+	}
+	if len(c.Processor.Insights.InsightsTimeframes) == 0 {
+		c.Processor.Insights.InsightsTimeframes = []string{"1m"}
+	}
+	if c.Evidence.BufferCapPerKind == 0 {
+		c.Evidence.BufferCapPerKind = 1000
+	}
+	if c.Evidence.DecayHalfLifeMs == 0 {
+		c.Evidence.DecayHalfLifeMs = 60_000
+	}
+	if c.Evidence.RegimeMaxStreams == 0 {
+		c.Evidence.RegimeMaxStreams = 1024
+	}
+	if c.Evidence.RegimeHistoryCap == 0 {
+		c.Evidence.RegimeHistoryCap = 20
+	}
+	if c.Signals.DedupWindowMs == 0 {
+		c.Signals.DedupWindowMs = 30_000
+	}
+	if c.Signals.RateLimitPerMin == 0 {
+		c.Signals.RateLimitPerMin = 10
+	}
+	if c.Signals.GlobalRateLimitPerMin == 0 {
+		c.Signals.GlobalRateLimitPerMin = 100
+	}
+	if c.Signals.CorrelationWindowMs == 0 {
+		c.Signals.CorrelationWindowMs = 5_000
+	}
+	if c.Signals.MaxSubsPerSession == 0 {
+		c.Signals.MaxSubsPerSession = 20
+	}
+	if c.Signals.WindowCap == 0 {
+		c.Signals.WindowCap = 50
 	}
 	if !c.Processor.SubMinuteRollout.enabledConfigured() {
 		c.Processor.SubMinuteRollout.Enabled = true

@@ -348,7 +348,15 @@ refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtim
 		active.status.subscribe_acks += ack_delta
 	}
 	if metrics.desync {
-		streams.controller_mark_desync(&active.status, md_desync_reason_to_stream(metrics.desync_reason))
+		reason := md_desync_reason_to_stream(metrics.desync_reason)
+		// Don't forward seq_gap or protocol_invalid — the stream controller
+		// already detects these per-event with proper tolerance for multi-replica.
+		#partial switch reason {
+		case .Sequence_Gap, .Protocol_Invalid:
+			// Handled by controller_mark_message with ±10 / 5s tolerance.
+		case:
+			streams.controller_mark_desync(&active.status, reason)
+		}
 	}
 	now_ms := current_now_ms(state)
 	if now_ms <= 0 do now_ms = metrics.last_msg_ts_ms
@@ -367,7 +375,11 @@ refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtim
 	state.active_metrics.parsed_bytes_total = metrics.parsed_bytes_total
 	state.active_metrics.parse_arena_resets = metrics.parse_arena_resets
 
-	// Additional client-side DESYNC detection for visible "Waiting for stats/orderbook" regressions.
+	// Additional client-side DESYNC detection: only escalate when both stats AND
+	// orderbook were previously active (ts > 0) and have gone silent. If they
+	// haven't arrived yet (ts == 0), the status bar already shows informational
+	// "stats pending" / "snapshot pending" messages — no need for hard DESYNC.
+	// Also guard with stream event age: if any events are flowing, skip this check.
 	if now_ms > 0 && current_conn_status(state) == .Connected {
 		stats_age := i64(0)
 		if state.active_metrics.last_stats_ts_ms > 0 {
@@ -377,8 +389,10 @@ refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtim
 		if state.active_metrics.last_orderbook_ts_ms > 0 {
 			ob_age = now_ms - state.active_metrics.last_orderbook_ts_ms
 		}
-		if (state.active_metrics.last_stats_ts_ms == 0 || stats_age > 12_000) &&
-			(state.active_metrics.last_orderbook_ts_ms == 0 || ob_age > 12_000) &&
+		stream_event_age := now_ms - active.status.last_local_ts_ms
+		if state.active_metrics.last_stats_ts_ms > 0 && stats_age > 12_000 &&
+			state.active_metrics.last_orderbook_ts_ms > 0 && ob_age > 12_000 &&
+			stream_event_age > 12_000 &&
 			state.active_metrics.state != .Offline {
 			streams.controller_mark_desync(&active.status, .Snapshot_Stale)
 			state.active_metrics.state = .Desync

@@ -234,6 +234,30 @@ render_cell_widget :: proc(
 		// BUG-C fix: per-cell health using the cell's own store + TF.
 		cell_now_ms := current_now_ms(state)
 		cell_recv_ms := stores.candle == &state.stores.candle ? state.candle_last_recv_local_ms : cell_now_ms
+		signal_subject_id := u64(0)
+		signal_venue := ""
+		signal_symbol := ""
+		if bind.stream_idx >= 0 && bind.stream_idx < STREAM_VIEW_CAP {
+			if reg := state.stream_views; reg != nil && reg.slots[bind.stream_idx].used {
+				slot := &reg.slots[bind.stream_idx]
+				if !slot.has_stream_info { refresh_stream_info_for_slot(state, slot) }
+				if slot.has_stream_info {
+					signal_venue = slot.stream_info.venue
+					signal_symbol = slot.stream_info.symbol
+				}
+			}
+		} else if reg := state.stream_views; reg != nil {
+			if active := stream_view_active_slot(reg); active != nil {
+				if !active.has_stream_info { refresh_stream_info_for_slot(state, active) }
+				if active.has_stream_info {
+					signal_venue = active.stream_info.venue
+					signal_symbol = active.stream_info.symbol
+				}
+			}
+		}
+		if len(signal_venue) > 0 && len(signal_symbol) > 0 {
+			signal_subject_id = build_signal_subject_id(signal_venue, signal_symbol, cell_effective_tf_string(state, ci))
+		}
 		candle_health_label, candle_health_detail, candle_health_color := build_candle_health_ui_for_store(
 			stores.candle, cell_recv_ms, cell_effective_tf_ms(state, ci), cell_now_ms)
 		// BUG-G fix: is_active = follow-active cell, is_active_market = same market as active.
@@ -269,10 +293,10 @@ render_cell_widget :: proc(
 			tf_label              = cell_effective_tf_string(state, ci),
 			stream_id             = cell_stream_id,
 			stream_state          = cell_stream_state,
-			heatmap_live          = is_active_market && state.active_metrics.has_live_heatmap,
-			heatmap_synth         = is_active_market && !state.active_metrics.has_live_heatmap && stores.heatmap != nil && stores.heatmap.count > 0,
-			vpvr_live             = is_active_market && state.active_metrics.has_live_vpvr,
-			vpvr_synth            = is_active_market && !state.active_metrics.has_live_vpvr && stores.vpvr != nil && stores.vpvr.count > 0,
+			heatmap_live          = stores.heatmap_live,
+			heatmap_synth         = !stores.heatmap_live && stores.heatmap != nil && stores.heatmap.count > 0,
+			vpvr_live             = stores.vpvr_live,
+			vpvr_synth            = !stores.vpvr_live && stores.vpvr != nil && stores.vpvr.count > 0,
 			show_volume           = &ch.show_vol,
 			show_heatmap_overlay  = &ch.show_heatmap,
 			show_vpvr_overlay     = &ch.show_vpvr,
@@ -300,6 +324,8 @@ render_cell_widget :: proc(
 			pointer               = pointer,
 			now_ms                = cell_now_ms,
 			timeframe_ms          = cell_effective_tf_ms(state, ci),
+			signal_store          = &state.stores.signals,
+			signal_subject_id     = signal_subject_id,
 			sync_price            = sync_active && !vw.crosshair.active ? sync_price : 0,
 			sync_active           = sync_active && !vw.crosshair.active,
 			indicator_probe       = cell_indicator_probe,

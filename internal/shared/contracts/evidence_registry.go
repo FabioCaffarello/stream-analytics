@@ -15,6 +15,13 @@ func RegisterEvidencePayloadV1(reg *codec.Registry) *problem.Problem {
 		return problem.New(problem.ValidationFailed, "codec registry must not be nil")
 	}
 	if p := reg.Register(codec.SchemaKey{
+		Type:    evidencedomain.RegimeEvidenceType,
+		Version: evidenceV1Version,
+		Format:  codec.FormatJSON,
+	}, codec.JSONCodec[evidencedomain.RegimeSignal]{}, codec.JSONCodec[evidencedomain.RegimeSignal]{}); p != nil {
+		return p
+	}
+	if p := reg.Register(codec.SchemaKey{
 		Type:    evidencedomain.MicrostructureEvidenceType,
 		Version: evidenceV1Version,
 		Format:  codec.FormatJSON,

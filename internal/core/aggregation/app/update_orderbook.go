@@ -27,8 +27,11 @@ type UpdateRequest struct {
 
 // UpdateResponse is returned on success.
 type UpdateResponse struct {
-	Seq    int64
-	Spread float64
+	Seq          int64
+	Spread       float64
+	BidLevels    int
+	AskLevels    int
+	PrunedLevels int
 }
 
 // UpdateOrderBookFromEvents applies incremental deltas and publishes snapshots.
@@ -107,18 +110,47 @@ func NewUpdateOrderBookFromEventsWithConfig(
 
 // Execute applies the delta and returns the updated spread.
 func (uc *UpdateOrderBookFromEvents) Execute(ctx context.Context, req UpdateRequest) result.Result[UpdateResponse] {
+	startedAt := uc.clock.Now()
+	var book *domain.OrderBook
+	var failed *problem.Problem
+	defer func() {
+		metrics.ObserveMROrderBookUpdateDuration(req.Venue, uc.clock.Now().Sub(startedAt))
+		if book != nil {
+			bidLevels := len(book.Bids())
+			askLevels := len(book.Asks())
+			metrics.SetMROrderBookLevels(req.Venue, req.Instrument, "bid", bidLevels)
+			metrics.SetMROrderBookLevels(req.Venue, req.Instrument, "ask", askLevels)
+			metrics.SetMROrderBookSpreadBPS(req.Venue, req.Instrument, spreadBPS(book))
+			if pruned := book.LastPrunedLevels(); pruned > 0 {
+				metrics.AddMROrderBookPruned(req.Venue, req.Instrument, pruned)
+			}
+		}
+		if failed == nil {
+			return
+		}
+		switch failed.Code {
+		case problem.IntegrityViolation:
+			metrics.IncMROrderBookCrossed(req.Venue, req.Instrument)
+		case problem.OutOfOrder:
+			metrics.IncMROrderBookStale(req.Venue, req.Instrument)
+		}
+	}()
+
 	// 1. Validate inputs.
 	if p := validation.Collect(
 		validation.NonEmptyString("venue", req.Venue),
 		validation.NonEmptyString("instrument", req.Instrument),
 		validation.PositiveInt("seq", req.Seq),
 	); p != nil {
+		failed = p
 		return result.FailProblem[UpdateResponse](p)
 	}
 
 	// 2. Get or create aggregate.
-	book, p := uc.getOrCreateBook(req.Venue, req.Instrument)
+	var p *problem.Problem
+	book, p = uc.getOrCreateBook(req.Venue, req.Instrument)
 	if p != nil {
+		failed = p
 		return result.FailProblem[UpdateResponse](p)
 	}
 
@@ -128,6 +160,7 @@ func (uc *UpdateOrderBookFromEvents) Execute(ctx context.Context, req UpdateRequ
 		applyFn = book.ApplySnapshot
 	}
 	if p := applyFn(req.Seq, req.Bids, req.Asks); p != nil {
+		failed = p
 		if p.Code == problem.IntegrityViolation {
 			events := book.PullDomainEvents()
 			for _, evt := range events {
@@ -147,24 +180,32 @@ func (uc *UpdateOrderBookFromEvents) Execute(ctx context.Context, req UpdateRequ
 	// 4. Persist snapshot in hot read model.
 	snap := domain.NewSnapshotProduced(book)
 	if p := uc.store.Save(ctx, snap); p != nil {
+		failed = p
 		return result.FailProblem[UpdateResponse](p)
 	}
 
 	// 5. Publish snapshot.
 	if !uc.shouldPublishSnapshot(book.ID()) {
 		return result.Ok(UpdateResponse{
-			Seq:    book.LastSeq(),
-			Spread: book.Spread(),
+			Seq:          book.LastSeq(),
+			Spread:       book.Spread(),
+			BidLevels:    len(book.Bids()),
+			AskLevels:    len(book.Asks()),
+			PrunedLevels: book.LastPrunedLevels(),
 		})
 	}
 	if p := uc.publisher.PublishSnapshot(ctx, snap); p != nil {
+		failed = p
 		return result.FailProblem[UpdateResponse](p)
 	}
 	uc.recordSnapshotPublished(book.ID())
 
 	return result.Ok(UpdateResponse{
-		Seq:    book.LastSeq(),
-		Spread: book.Spread(),
+		Seq:          book.LastSeq(),
+		Spread:       book.Spread(),
+		BidLevels:    len(book.Bids()),
+		AskLevels:    len(book.Asks()),
+		PrunedLevels: book.LastPrunedLevels(),
 	})
 }
 
@@ -222,4 +263,24 @@ func (uc *UpdateOrderBookFromEvents) Snapshot(venue, instrument string) (domain.
 		return domain.SnapshotProduced{}, problem.Newf(problem.NotFound, "orderbook snapshot not found for %s/%s", venue, instrument)
 	}
 	return domain.NewSnapshotProduced(book), nil
+}
+
+func spreadBPS(book *domain.OrderBook) float64 {
+	if book == nil {
+		return 0
+	}
+	bid := book.BestBid()
+	ask := book.BestAsk()
+	if bid == nil || ask == nil {
+		return 0
+	}
+	mid := (float64(bid.Price) + float64(ask.Price)) / 2
+	if mid <= 0 {
+		return 0
+	}
+	spread := float64(ask.Price - bid.Price)
+	if spread < 0 {
+		return 0
+	}
+	return (spread / mid) * 10_000
 }

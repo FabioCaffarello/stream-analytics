@@ -24,6 +24,7 @@ require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/go-faster/city v1.0.1 // indirect
 	github.com/go-faster/errors v0.7.1 // indirect
+	github.com/google/btree v1.1.3 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
@@ -33,6 +34,7 @@ require (
 	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
 	github.com/market-raccoon/internal/core/delivery v0.0.0 // indirect
 	github.com/market-raccoon/internal/core/evidence v0.0.0 // indirect
+	github.com/market-raccoon/internal/core/signals v0.0.0 // indirect
 	github.com/matttproud/golang_protobuf_extensions/v2 v2.0.0 // indirect
 	github.com/nats-io/nats.go v1.48.0 // indirect
 	github.com/nats-io/nkeys v0.4.11 // indirect
@@ -63,6 +65,7 @@ replace (
 	github.com/market-raccoon/internal/core/evidence => ../../internal/core/evidence
 	github.com/market-raccoon/internal/core/insights => ../../internal/core/insights
 	github.com/market-raccoon/internal/core/marketdata => ../../internal/core/marketdata
+	github.com/market-raccoon/internal/core/signals => ../../internal/core/signals
 	github.com/market-raccoon/internal/interfaces => ../../internal/interfaces
 	github.com/market-raccoon/internal/shared => ../../internal/shared
 )

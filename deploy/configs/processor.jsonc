@@ -94,6 +94,9 @@
       "enable_volume_profile_snapshot_proto": true,
       "enable_spread_signal": true,
       "join_trades_subject": "marketdata.trade.v1.>",
+      // Ensure live heatmap/VPVR generation for sub-minute dashboards.
+      // Keep aligned with server read gate insights_timeframes.
+      "insights_timeframes": ["1s", "5s", "1m", "5m", "15m", "30m", "1h", "4h", "1d"],
       "snapshot_subject_prefix": "",
       "max_instruments": 10000,
       "ttl": "1h",

@@ -283,24 +283,28 @@ find_market_channel_slot :: proc(
 
 // Resolve data stores for a cell. Returns pointers to the appropriate stores.
 Cell_Stores :: struct {
-	candle:    ^services.Candle_Store,
-	heatmap:   ^services.Heatmap_Store,
-	vpvr:      ^services.VPVR_Store,
-	trades:    ^services.Trades_Store,
-	orderbook: ^services.Orderbook_Store,
-	stats:     ^services.Stats_Store,
+	candle:       ^services.Candle_Store,
+	heatmap:      ^services.Heatmap_Store,
+	vpvr:         ^services.VPVR_Store,
+	trades:       ^services.Trades_Store,
+	orderbook:    ^services.Orderbook_Store,
+	stats:        ^services.Stats_Store,
+	heatmap_live: bool,
+	vpvr_live:    bool,
 }
 
 resolve_stores_for_cell :: proc(state: ^App_State, ci: int) -> Cell_Stores {
 	stores: Cell_Stores
 
 	// Default fallback: active/global stores.
-	stores.candle    = &state.stores.candle
-	stores.heatmap   = &state.stores.heatmap
-	stores.vpvr      = &state.stores.vpvr
-	stores.trades    = &state.stores.trades
-	stores.orderbook = &state.stores.orderbook
-	stores.stats     = &state.stores.stats
+	stores.candle       = &state.stores.candle
+	stores.heatmap      = &state.stores.heatmap
+	stores.vpvr         = &state.stores.vpvr
+	stores.trades       = &state.stores.trades
+	stores.orderbook    = &state.stores.orderbook
+	stores.stats        = &state.stores.stats
+	stores.heatmap_live = state.active_metrics.has_live_heatmap
+	stores.vpvr_live    = state.active_metrics.has_live_vpvr
 
 	reg := state.stream_views
 	if reg == nil do return stores
@@ -381,9 +385,11 @@ resolve_stores_for_cell :: proc(state: ^App_State, ci: int) -> Cell_Stores {
 	}
 	if slot := find_market_channel_slot(state, reg, venue, symbol, .Heatmaps, cell_tf); slot != nil {
 		stores.heatmap = &slot.heatmap_store
+		stores.heatmap_live = slot.has_heatmap_snapshot
 	}
 	if slot := find_market_channel_slot(state, reg, venue, symbol, .VPVR, cell_tf); slot != nil {
 		stores.vpvr = &slot.vpvr_store
+		stores.vpvr_live = slot.has_live_vpvr
 	}
 	if slot := find_market_channel_slot(state, reg, venue, symbol, .Trades); slot != nil {
 		stores.trades = &slot.trades_store

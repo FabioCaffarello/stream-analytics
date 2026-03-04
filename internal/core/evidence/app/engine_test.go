@@ -1,6 +1,7 @@
 package app
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -187,4 +188,54 @@ func TestEngineStats(t *testing.T) {
 	if _, ok := stats.RuleStreams["absorption"]; !ok {
 		t.Error("expected absorption in RuleStreams")
 	}
+}
+
+func TestEngine_AppliesConfidenceDecayDeterministically(t *testing.T) {
+	now := time.UnixMilli(120_000)
+	engine := NewEvidenceEngine(EngineConfig{
+		MaxStreamsPerRule: 16,
+		MaxStreamsGlobal:  16,
+		StreamTTL:         10 * time.Minute,
+		SweepInterval:     1 * time.Minute,
+		BufferCapPerKind:  1000,
+		DecayHalfLife:     1 * time.Minute,
+		Now: func() time.Time {
+			return now
+		},
+	}, fixedEmitRule{})
+
+	out := engine.OnEvent(domain.RuleEvent{
+		Kind:       domain.EventKindBook,
+		Venue:      "binance",
+		Instrument: "BTCUSDT",
+		TsServer:   60_000,
+		Seq:        10,
+	})
+	if len(out) != 1 {
+		t.Fatalf("events=%d want=1", len(out))
+	}
+	if math.Abs(out[0].Confidence-0.5) > 1e-12 {
+		t.Fatalf("confidence=%0.12f want=0.500000000000", out[0].Confidence)
+	}
+}
+
+type fixedEmitRule struct{}
+
+func (fixedEmitRule) Name() string         { return "fixed_emit" }
+func (fixedEmitRule) StreamCount() int     { return 0 }
+func (fixedEmitRule) Reset()               {}
+func (fixedEmitRule) EvictStream(_ string) {}
+func (fixedEmitRule) OnEvent(ev domain.RuleEvent) []domain.EvidenceEvent {
+	return []domain.EvidenceEvent{{
+		Kind:        domain.Sweep,
+		TsServer:    ev.TsServer,
+		Venue:       ev.Venue,
+		Symbol:      ev.Instrument,
+		Severity:    domain.SeverityMedium,
+		Confidence:  1.0,
+		Features:    []string{"x"},
+		FeatureVals: []float64{1},
+		Reason:      "fixed emit",
+		SeqTrigger:  ev.Seq,
+	}}
 }

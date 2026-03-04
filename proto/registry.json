@@ -1,5 +1,5 @@
 {
-  "_coverage_note": "Proto schemas cover all hot-path payloads: marketdata, aggregation (candle + stats), and insights (volume_profile + heatmap).  See docs/contracts/subject-registry.yaml for the full subject catalog.",
+  "_coverage_note": "Proto schemas cover all hot-path payloads: marketdata, aggregation (candle + stats + cross_venue_book), insights (volume_profile + heatmap), evidence, signals, and delivery frames.  See docs/contracts/subject-registry.yaml for the full subject catalog.",
   "schemas": [
     {
       "type": "envelope",
@@ -104,6 +104,30 @@
       "message": "delivery.v1.ServerFrame",
       "status": "stable",
       "introduced_at": "2026-03-02"
+    },
+    {
+      "type": "evidence.microstructure_evidence",
+      "version": 1,
+      "proto_file": "evidence/v1/evidence.proto",
+      "message": "evidence.v1.MicrostructureEvidenceV1",
+      "status": "stable",
+      "introduced_at": "2026-03-03"
+    },
+    {
+      "type": "aggregation.cross_venue_book",
+      "version": 1,
+      "proto_file": "aggregation/v2/cross_venue_book.proto",
+      "message": "aggregation.v2.CrossVenueBookSnapshotV1",
+      "status": "stable",
+      "introduced_at": "2026-03-03"
+    },
+    {
+      "type": "signal.composite",
+      "version": 1,
+      "proto_file": "signals/v1/composite.proto",
+      "message": "signals.v1.CompositeSignalV1",
+      "status": "stable",
+      "introduced_at": "2026-03-03"
     }
   ]
 }

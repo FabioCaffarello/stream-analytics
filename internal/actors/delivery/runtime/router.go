@@ -543,9 +543,21 @@ func routingTimeframeForEnvelope(defaultTimeframe string, env envelope.Envelope)
 }
 
 func allowEnvelopeTimeframeOverride(eventType string) bool {
-	// WS contract for marketdata and aggregation candle/stats routes on `/raw`.
-	// Insights streams are timeframe-routed and should honor envelope metadata.
-	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(eventType)), "insights.")
+	// Timeframe-qualified streams honour envelope Meta["timeframe"] so that
+	// clients can subscribe to a specific TF (e.g. /1m) and only receive
+	// events for that window.  Raw marketdata (trade, bookdelta) is always
+	// routed on DefaultTimeframe ("raw") because those streams have no TF.
+	et := strings.ToLower(strings.TrimSpace(eventType))
+	switch {
+	case strings.HasPrefix(et, "insights."):
+		return true
+	case et == "aggregation.candle", et == "aggregation.stats":
+		return true
+	case et == "signal.composite":
+		return true
+	default:
+		return false
+	}
 }
 
 func routingMarketTypeAliasSubject(primary domain.Subject, env envelope.Envelope) (domain.Subject, bool) {

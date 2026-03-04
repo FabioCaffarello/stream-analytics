@@ -6,6 +6,7 @@ require (
 	github.com/market-raccoon/internal/core/evidence v0.0.0
 	github.com/market-raccoon/internal/core/insights v0.0.0
 	github.com/market-raccoon/internal/core/marketdata v0.0.0
+	github.com/market-raccoon/internal/core/signals v0.0.0
 	github.com/nats-io/nats.go v1.48.0
 	github.com/prometheus/client_golang v1.18.0
 	google.golang.org/protobuf v1.36.11
@@ -30,4 +31,5 @@ replace (
 	github.com/market-raccoon/internal/core/evidence => ../core/evidence
 	github.com/market-raccoon/internal/core/insights => ../core/insights
 	github.com/market-raccoon/internal/core/marketdata => ../core/marketdata
+	github.com/market-raccoon/internal/core/signals => ../core/signals
 )

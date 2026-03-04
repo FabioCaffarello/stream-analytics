@@ -6,3 +6,5 @@ coverage.out
 .DS_Store
 .tmp
 .artifacts
+qa
+node_modules
