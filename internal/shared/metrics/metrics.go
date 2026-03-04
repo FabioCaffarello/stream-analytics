@@ -1004,6 +1004,20 @@ var (
 		},
 		[]string{"type"},
 	)
+	SignalLELAdaptedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "signal_lel_adapted_total",
+			Help: "Total liquidity.evidence events adapted into signal evidence inputs.",
+		},
+		[]string{"lel_type"},
+	)
+	SignalLELAdaptErrorsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "signal_lel_adapt_errors_total",
+			Help: "Total liquidity.evidence adaptation errors by reason.",
+		},
+		[]string{"reason"},
+	)
 	VPVRBuilderBucketCount = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "vpvr_builder_bucket_count",
@@ -1729,6 +1743,8 @@ func registerAll() {
 			SignalEvictedTotal,
 			SignalEvalLatencySeconds,
 			SignalDedupTotal,
+			SignalLELAdaptedTotal,
+			SignalLELAdaptErrorsTotal,
 			VPVRBuilderBucketCount,
 			VPVRBuilderWindowsOpen,
 			VPVRBuilderOverloadActionsTotal,
@@ -1936,6 +1952,8 @@ func registerAll() {
 		SignalEvictedTotal.WithLabelValues("unknown")
 		SignalEvalLatencySeconds.Observe(0)
 		SignalDedupTotal.WithLabelValues("unknown")
+		SignalLELAdaptedTotal.WithLabelValues("unknown")
+		SignalLELAdaptErrorsTotal.WithLabelValues("unknown")
 		VPVRBuilderBucketCount.WithLabelValues("unknown", "unknown", "unknown")
 		VPVRBuilderWindowsOpen.WithLabelValues("unknown", "unknown", "unknown")
 		VPVRBuilderOverloadActionsTotal.WithLabelValues("unknown")
@@ -2934,6 +2952,14 @@ func ObserveSignalEvalLatency(d time.Duration) {
 
 func IncSignalDedup(signalType string) {
 	SignalDedupTotal.WithLabelValues(sanitizeKind(signalType)).Inc()
+}
+
+func IncSignalLELAdapted(lelType string) {
+	SignalLELAdaptedTotal.WithLabelValues(sanitizeKind(lelType)).Inc()
+}
+
+func IncSignalLELAdaptError(reason string) {
+	SignalLELAdaptErrorsTotal.WithLabelValues(sanitizeReason(reason)).Inc()
 }
 
 func SetVPVRBuilderBucketCount(venue, instrument, timeframe string, count int) {

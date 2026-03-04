@@ -423,6 +423,8 @@ func TestMetricsNamesPresent(t *testing.T) {
 		"signal_evicted_total",
 		"signal_eval_latency_seconds",
 		"signal_dedup_total",
+		"signal_lel_adapted_total",
+		"signal_lel_adapt_errors_total",
 		"delivery_range_alias_fallback_total",
 		"delivery_ws_snapshot_cache_entries",
 		"delivery_ws_snapshot_cache_hits_total",
@@ -581,12 +583,16 @@ func TestSignalEngineMetrics_StableLabelsOnly(t *testing.T) {
 	IncSignalEvicted("tenant_cap")
 	ObserveSignalEvalLatency(5 * time.Millisecond)
 	IncSignalDedup("liquidity_collapse")
+	IncSignalLELAdapted("BOOK_IMBALANCE")
+	IncSignalLELAdaptError("decode_failed")
 
 	assertMetricLabelNames(t, "signal_emitted_total", []string{"severity", "type"})
 	assertMetricLabelNames(t, "signal_state_entries", nil)
 	assertMetricLabelNames(t, "signal_evicted_total", []string{"reason"})
 	assertMetricLabelNames(t, "signal_eval_latency_seconds", nil)
 	assertMetricLabelNames(t, "signal_dedup_total", []string{"type"})
+	assertMetricLabelNames(t, "signal_lel_adapted_total", []string{"lel_type"})
+	assertMetricLabelNames(t, "signal_lel_adapt_errors_total", []string{"reason"})
 }
 
 func TestWSExtendedMetrics_StableLabelsOnly(t *testing.T) {

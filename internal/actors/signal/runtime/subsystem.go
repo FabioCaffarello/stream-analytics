@@ -16,6 +16,7 @@ import (
 	marketmodel "github.com/market-raccoon/internal/core/marketmodel"
 	signalcore "github.com/market-raccoon/internal/core/signal"
 	"github.com/market-raccoon/internal/shared/codec"
+	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 	sharedhash "github.com/market-raccoon/internal/shared/hash"
 	"github.com/market-raccoon/internal/shared/metrics"
@@ -27,6 +28,8 @@ const (
 	envelopeTypeBookDelta = "marketdata.bookdelta"
 	envelopeTypeCandle    = "aggregation.candle"
 	envelopeTypeStats     = "aggregation.stats"
+	envelopeTypeLiquidity = evidencedomain.LiquidityEvidenceEventType
+	envelopeTypeRegime    = evidencedomain.RegimeEvidenceType
 )
 
 type signalEnvelopeMsg struct {
@@ -214,6 +217,60 @@ func (s *SubsystemActor) processEnvelope(env envelope.Envelope) {
 			Seq:      env.Seq,
 		})
 		return
+	case envelopeTypeRegime, "evidence.regime_evidence":
+		decoded, p := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
+		if p != nil {
+			return
+		}
+		regime, ok := decoded.(evidencedomain.RegimeSignal)
+		if !ok {
+			return
+		}
+		if p := regime.Validate(); p != nil {
+			return
+		}
+		key, ok := signalStreamKey(regime.Venue, regime.Instrument)
+		if !ok || !s.isOwner(key) {
+			return
+		}
+		seq := env.Seq
+		if seq <= 0 {
+			seq = 1
+		}
+		tsServer := env.TsIngest
+		if regime.WindowEnd > 0 {
+			tsServer = regime.WindowEnd
+		}
+		s.recordMarket(signalcore.MarketObservation{
+			Key:      key,
+			Tenant:   tenant,
+			TsServer: tsServer,
+			Seq:      seq,
+		})
+		return
+	case envelopeTypeLiquidity:
+		decoded, p := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
+		if p != nil {
+			metrics.IncSignalLELAdaptError("decode_failed")
+			return
+		}
+		wire, ok := decoded.(contracts.LiquidityEvidenceV1)
+		if !ok {
+			metrics.IncSignalLELAdaptError("decode_type_mismatch")
+			return
+		}
+		adapted, p := signalcore.LELToEvidenceEvent(liquidityWireToDomain(wire))
+		if p != nil {
+			metrics.IncSignalLELAdaptError(string(p.Code))
+			return
+		}
+		key, ok := signalStreamKey(adapted.Venue, adapted.Symbol)
+		if !ok || !s.isOwner(key) {
+			return
+		}
+		metrics.IncSignalLELAdapted(string(wire.EvidenceType))
+		s.evaluateEvidenceEvent(key, tenant, adapted)
+		return
 	case evidencedomain.MicrostructureEvidenceType, "evidence.microstructure_evidence":
 		decoded, p := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
 		if p != nil {
@@ -230,23 +287,27 @@ func (s *SubsystemActor) processEnvelope(env envelope.Envelope) {
 		if !ok || !s.isOwner(key) {
 			return
 		}
-		emissions, evictions, dedupTypes, evalSpanMs, p := s.signalEngine.OnEvidenceEvent(key, tenant, ev)
-		if p != nil {
-			s.logger.Warn("signal subsystem: evaluate evidence failed", "code", p.Code, "message", p.Message)
-			return
-		}
-		s.recordEvictions(evictions)
-		for i := range dedupTypes {
-			metrics.IncSignalDedup(dedupTypes[i])
-		}
-		if evalSpanMs > 0 {
-			metrics.ObserveSignalEvalLatency(time.Duration(evalSpanMs) * time.Millisecond)
-		}
-		for i := range emissions {
-			metrics.IncSignalEmitted(emissions[i].Event.Type, emissions[i].Event.Severity)
-		}
-		metrics.SetSignalStateEntries(s.signalEngine.StoreEntries())
+		s.evaluateEvidenceEvent(key, tenant, ev)
 	}
+}
+
+func (s *SubsystemActor) evaluateEvidenceEvent(key marketmodel.StreamKey, tenant string, ev evidencedomain.EvidenceEvent) {
+	emissions, evictions, dedupTypes, evalSpanMs, p := s.signalEngine.OnEvidenceEvent(key, tenant, ev)
+	if p != nil {
+		s.logger.Warn("signal subsystem: evaluate evidence failed", "code", p.Code, "message", p.Message)
+		return
+	}
+	s.recordEvictions(evictions)
+	for i := range dedupTypes {
+		metrics.IncSignalDedup(dedupTypes[i])
+	}
+	if evalSpanMs > 0 {
+		metrics.ObserveSignalEvalLatency(time.Duration(evalSpanMs) * time.Millisecond)
+	}
+	for i := range emissions {
+		metrics.IncSignalEmitted(emissions[i].Event.Type, emissions[i].Event.Severity)
+	}
+	metrics.SetSignalStateEntries(s.signalEngine.StoreEntries())
 }
 
 func (s *SubsystemActor) recordMarket(obs signalcore.MarketObservation) {
@@ -297,6 +358,36 @@ func sumDepth(levels []marketmodel.Level) float64 {
 		total += levels[i].Size
 	}
 	return total
+}
+
+func liquidityWireToDomain(in contracts.LiquidityEvidenceV1) evidencedomain.LiquidityEvidence {
+	out := evidencedomain.LiquidityEvidence{
+		EvidenceType: evidencedomain.LiquidityEvidenceType(in.EvidenceType),
+		TsIngestMs:   in.TsIngestMs,
+		Venue:        in.Venue,
+		Symbol:       in.Symbol,
+		WindowMs:     in.WindowMs,
+		Severity:     evidencedomain.LiquidityEvidenceSeverity(in.Severity),
+		Confidence:   in.Confidence,
+		Explain:      append([]string(nil), in.Explain...),
+		Version:      in.Version,
+		StreamID:     in.StreamID,
+		Seq:          in.Seq,
+		Watermark: evidencedomain.LiquidityInputWatermark{
+			SeqStart: in.Watermark.SeqStart,
+			SeqEnd:   in.Watermark.SeqEnd,
+		},
+	}
+	if len(in.Metrics) > 0 {
+		out.Metrics = make([]evidencedomain.LiquidityEvidenceMetric, len(in.Metrics))
+		for i := range in.Metrics {
+			out.Metrics[i] = evidencedomain.LiquidityEvidenceMetric{
+				Key:   in.Metrics[i].Key,
+				Value: in.Metrics[i].Value,
+			}
+		}
+	}
+	return out
 }
 
 func (s *SubsystemActor) Emit(emission signalcore.Emission) *problem.Problem {
