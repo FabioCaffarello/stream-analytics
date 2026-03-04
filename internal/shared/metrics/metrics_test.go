@@ -148,8 +148,8 @@ func TestMetricsNamesPresent(t *testing.T) {
 	IncDeliveryWSSnapshotCacheHit()
 	IncDeliveryWSSnapshotCacheMiss()
 	SetDeliveryRouterCoherenceMode("sticky_session")
-	IncDeliveryRouterCoherenceViolation("seq_non_monotonic")
-	IncDeliveryRouterCoherenceViolation("seq_invalid")
+	IncDeliveryRouterCoherenceViolation("seq_non_monotonic", "out_of_order_input")
+	IncDeliveryRouterCoherenceViolation("seq_invalid", "unknown")
 	SetDeliveryRouterStreamStateEntries(5)
 	AddDeliveryRouterStreamStateEvicted(2)
 	SetDeliveryRouterStreamStateActive(3)
@@ -207,6 +207,7 @@ func TestMetricsNamesPresent(t *testing.T) {
 		"ws_compress_bytes_out_total",
 		"ws_batch_frames_total",
 		"ws_batch_events_total",
+		"ws_batch_fallback_events_total",
 		"ws_messages_out_total",
 		"ws_bytes_out_total",
 		"ws_lag_ms",
@@ -478,6 +479,7 @@ func TestWSExtendedMetrics_StableLabelsOnly(t *testing.T) {
 	assertMetricLabelNames(t, "ws_contract_violations_total", []string{"reason"})
 	assertMetricLabelNames(t, "ws_limit_rejections_total", []string{"type"})
 	assertMetricLabelNames(t, "ws_effective_limits", []string{"limit_name"})
+	assertMetricLabelNames(t, "delivery_router_coherence_violations_total", []string{"reason", "type"})
 }
 
 func TestWSTenantMetrics_LabelPolicy_WhitelistAndFallbackUnknown(t *testing.T) {
@@ -865,6 +867,15 @@ func TestWSLegacyRequestsTotal_Registered(t *testing.T) {
 	count := testutil.CollectAndCount(WSLegacyRequestsTotal)
 	if count == 0 {
 		t.Fatal("WSLegacyRequestsTotal not registered or has no series")
+	}
+}
+
+func TestAddWSBatchFallbackEvents(t *testing.T) {
+	before := testutil.ToFloat64(WSBatchFallbackEventsTotal)
+	AddWSBatchFallbackEvents(3)
+	after := testutil.ToFloat64(WSBatchFallbackEventsTotal)
+	if after-before != 3 {
+		t.Fatalf("fallback events delta=%f want=3", after-before)
 	}
 }
 

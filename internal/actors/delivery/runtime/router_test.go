@@ -451,6 +451,90 @@ func TestNormalizeStreamCoherenceMode(t *testing.T) {
 	}
 }
 
+func TestSeqPolicy_ReasonClassification_Deterministic(t *testing.T) {
+	policy := newDefaultSeqPolicy()
+	tests := []struct {
+		name string
+		in   seqPolicyInput
+		want string
+	}{
+		{
+			name: "duplicate seq",
+			in: seqPolicyInput{
+				streamKey:       "marketdata.trade/binance/BTCUSDT/raw",
+				eventType:       "marketdata.trade",
+				candidateSeq:    100,
+				lastSeq:         100,
+				lastTsIngest:    5000,
+				lastProcessorID: "p1",
+			},
+			want: coherenceReasonReplayDuplicate,
+		},
+		{
+			name: "owner changed",
+			in: seqPolicyInput{
+				streamKey:            "marketdata.trade/binance/BTCUSDT/raw",
+				eventType:            "marketdata.trade",
+				candidateSeq:         99,
+				lastSeq:              100,
+				lastTsIngest:         5000,
+				candidateProcessorID: "p2",
+				lastProcessorID:      "p1",
+			},
+			want: coherenceReasonOwnerChange,
+		},
+		{
+			name: "resync overlap snapshot",
+			in: seqPolicyInput{
+				streamKey:           "aggregation.snapshot/binance/BTCUSDT/raw",
+				eventType:           "aggregation.snapshot",
+				candidateSeq:        98,
+				lastSeq:             100,
+				lastTsIngest:        5000,
+				handoffWatermarkSeq: 100,
+			},
+			want: coherenceReasonResyncOverlap,
+		},
+		{
+			name: "stale event by ts_ingest",
+			in: seqPolicyInput{
+				streamKey:         "marketdata.trade/binance/BTCUSDT/raw",
+				eventType:         "marketdata.trade",
+				candidateSeq:      1,
+				candidateTsIngest: 4999,
+				lastSeq:           1000,
+				lastTsIngest:      5000,
+			},
+			want: coherenceReasonStaleEvent,
+		},
+		{
+			name: "out of order input",
+			in: seqPolicyInput{
+				streamKey:    "marketdata.trade/binance/BTCUSDT/raw",
+				eventType:    "marketdata.trade",
+				candidateSeq: 900,
+				lastSeq:      5000,
+				lastTsIngest: 5000,
+			},
+			want: coherenceReasonOutOfOrderInput,
+		},
+		{
+			name: "invalid seq unknown",
+			in: seqPolicyInput{
+				streamKey:    "marketdata.trade/binance/BTCUSDT/raw",
+				eventType:    "marketdata.trade",
+				candidateSeq: 0,
+			},
+			want: coherenceReasonUnknown,
+		},
+	}
+	for _, tc := range tests {
+		if got := policy.Decide(tc.in).coherenceReason; got != tc.want {
+			t.Fatalf("%s: reason=%q want=%q", tc.name, got, tc.want)
+		}
+	}
+}
+
 func TestRouter_routesCandleByEnvelopeTimeframeMeta(t *testing.T) {
 	e, err := actor.NewEngine(actor.NewEngineConfig())
 	if err != nil {

@@ -288,6 +288,12 @@ var (
 			Help: "Total websocket events emitted inside batched frames.",
 		},
 	)
+	WSBatchFallbackEventsTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "ws_batch_fallback_events_total",
+			Help: "Total websocket events that fell back to single-frame writes after batch candidacy.",
+		},
+	)
 	WSMessagesOutTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "ws_messages_out_total",
@@ -1288,7 +1294,7 @@ var (
 			Name: "delivery_router_coherence_violations_total",
 			Help: "Total stream coherence violations detected by the delivery router.",
 		},
-		[]string{"type"},
+		[]string{"type", "reason"},
 	)
 	DeliveryRouterStreamStateEntries = prometheus.NewGauge(
 		prometheus.GaugeOpts{
@@ -1473,6 +1479,7 @@ func registerAll() {
 			WSCompressBytesOutTotal,
 			WSBatchFramesTotal,
 			WSBatchEventsTotal,
+			WSBatchFallbackEventsTotal,
 			WSMessagesOutTotal,
 			WSBytesOutTotal,
 			WSSendLatencyMilliseconds,
@@ -1786,11 +1793,24 @@ func registerAll() {
 		DeliveryRouterEventsRejectedTotal.WithLabelValues("invalid_subject")
 		DeliveryRouterEventsRejectedTotal.WithLabelValues("seq_non_monotonic")
 		DeliveryRouterEventsRejectedTotal.WithLabelValues("seq_invalid")
+		DeliveryRouterEventsRejectedTotal.WithLabelValues("stale_event")
+		DeliveryRouterEventsRejectedTotal.WithLabelValues("replay_duplicate")
+		DeliveryRouterEventsRejectedTotal.WithLabelValues("owner_change")
+		DeliveryRouterEventsRejectedTotal.WithLabelValues("resync_overlap")
 		DeliveryRouterCoherenceMode.WithLabelValues("sticky_session")
 		DeliveryRouterCoherenceMode.WithLabelValues("upstream_sequencer")
 		DeliveryRouterCoherenceMode.WithLabelValues("unknown")
-		DeliveryRouterCoherenceViolationsTotal.WithLabelValues("seq_non_monotonic")
-		DeliveryRouterCoherenceViolationsTotal.WithLabelValues("seq_invalid")
+		for _, reason := range []string{
+			"out_of_order_input",
+			"stale_event",
+			"owner_change",
+			"resync_overlap",
+			"replay_duplicate",
+			"unknown",
+		} {
+			DeliveryRouterCoherenceViolationsTotal.WithLabelValues("seq_non_monotonic", reason)
+		}
+		DeliveryRouterCoherenceViolationsTotal.WithLabelValues("seq_invalid", "unknown")
 		DeliveryRangeAliasFallbackTotal.WithLabelValues("hit")
 		DeliveryRangeAliasFallbackTotal.WithLabelValues("miss")
 		DeliveryRangeAliasFallbackTotal.WithLabelValues("error")
@@ -1983,6 +2003,13 @@ func AddWSBatchEvents(n int) {
 		return
 	}
 	WSBatchEventsTotal.Add(float64(n))
+}
+
+func AddWSBatchFallbackEvents(n int) {
+	if n <= 0 {
+		return
+	}
+	WSBatchFallbackEventsTotal.Add(float64(n))
 }
 
 func IncWSMessagesOut(channel string) {
@@ -3370,13 +3397,13 @@ func SetDeliveryRouterCoherenceMode(mode string) {
 }
 
 // IncDeliveryRouterCoherenceViolation increments the coherence violation counter.
-func IncDeliveryRouterCoherenceViolation(violationType string) {
+func IncDeliveryRouterCoherenceViolation(violationType, reason string) {
 	label := "seq_non_monotonic"
 	switch violationType {
 	case "seq_non_monotonic", "seq_invalid":
 		label = violationType
 	}
-	DeliveryRouterCoherenceViolationsTotal.WithLabelValues(label).Inc()
+	DeliveryRouterCoherenceViolationsTotal.WithLabelValues(label, sanitizeDeliveryRouterCoherenceReason(reason)).Inc()
 }
 
 // SetDeliveryRouterStreamStateEntries sets the current stream-state entry count.
@@ -3453,6 +3480,16 @@ func sanitizeDeliveryRouterCoherenceMode(v string) string {
 	v = strings.ToLower(strings.TrimSpace(v))
 	switch v {
 	case "sticky_session", "upstream_sequencer":
+		return v
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeDeliveryRouterCoherenceReason(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	switch v {
+	case "out_of_order_input", "stale_event", "owner_change", "resync_overlap", "replay_duplicate":
 		return v
 	default:
 		return "unknown"
