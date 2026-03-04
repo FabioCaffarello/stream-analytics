@@ -149,7 +149,7 @@ func firstLevel(tree *btree.BTreeG[levelNode]) *Level {
 	}
 	var out *Level
 	tree.Ascend(func(node levelNode) bool {
-		l := Level{Price: node.Price, Quantity: node.Quantity}
+		l := Level(node)
 		out = &l
 		return false
 	})
@@ -182,10 +182,7 @@ func levelsFromTree(tree *btree.BTreeG[levelNode]) []Level {
 	}
 	out := make([]Level, 0, tree.Len())
 	tree.Ascend(func(node levelNode) bool {
-		out = append(out, Level{
-			Price:    node.Price,
-			Quantity: node.Quantity,
-		})
+		out = append(out, Level(node))
 		return true
 	})
 	return out
@@ -264,10 +261,7 @@ func applySideUpdates(tree *btree.BTreeG[levelNode], updates []Level) {
 			tree.Delete(key)
 			continue
 		}
-		tree.ReplaceOrInsert(levelNode{
-			Price:    u.Price,
-			Quantity: u.Quantity,
-		})
+		tree.ReplaceOrInsert(levelNode(u))
 	}
 }
 

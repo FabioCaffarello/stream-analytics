@@ -355,7 +355,7 @@ func readSchemaRegistry(t *testing.T) map[string]schemaRegistryEntry {
 	return out
 }
 
-func TestContractAuthority_DomainPayloadsHaveNoJSONTags(t *testing.T) {
+func TestContractAuthority_DomainPayloadsUseCanonicalJSONTags(t *testing.T) {
 	t.Parallel()
 
 	domainPayloadTypes := []reflect.Type{
@@ -369,8 +369,14 @@ func TestContractAuthority_DomainPayloadsHaveNoJSONTags(t *testing.T) {
 	for _, payloadType := range domainPayloadTypes {
 		for i := 0; i < payloadType.NumField(); i++ {
 			field := payloadType.Field(i)
-			if tag := field.Tag.Get("json"); tag != "" {
-				t.Fatalf("%s.%s must not define json tag, got %q", payloadType.Name(), field.Name, tag)
+			jsonTag := field.Tag.Get("json")
+			if jsonTag == "" || jsonTag == "-" {
+				t.Fatalf("%s.%s must define canonical json tag, got %q", payloadType.Name(), field.Name, jsonTag)
+			}
+			for _, ch := range jsonTag {
+				if ch >= 'A' && ch <= 'Z' {
+					t.Fatalf("%s.%s json tag must be lowercase/snake_case, got %q", payloadType.Name(), field.Name, jsonTag)
+				}
 			}
 			if tag := field.Tag.Get("protobuf"); tag != "" {
 				t.Fatalf("%s.%s must not define protobuf tag, got %q", payloadType.Name(), field.Name, tag)

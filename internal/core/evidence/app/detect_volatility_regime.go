@@ -54,6 +54,8 @@ func (d *VolatilityRegimeDetector) Name() string {
 }
 
 // Detect emits high/low volatility regime when ATR ratio crosses thresholds.
+//
+//nolint:gocyclo // Threshold and guard branches are explicit to preserve deterministic classification behavior.
 func (d *VolatilityRegimeDetector) Detect(key domain.RegimeStoreKey, candles []domain.RegimeCandleSample) (domain.RegimeSignal, bool) {
 	if len(candles) < d.policy.MinSamples {
 		return domain.RegimeSignal{}, false

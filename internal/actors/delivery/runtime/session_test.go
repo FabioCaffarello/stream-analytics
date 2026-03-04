@@ -914,7 +914,7 @@ func TestSession_deliveryEventProtoFrameWhenEnabled(t *testing.T) {
 	}
 }
 
-func TestSession_deliveryEventProtoJSONTranscode_TradeUsesPascalCase(t *testing.T) {
+func TestSession_deliveryEventProtoJSONTranscode_TradeUsesCanonicalSnakeCase(t *testing.T) {
 	if p := contracts.BootstrapPayloadCodecRegistry(); p != nil {
 		t.Fatalf("bootstrap codec registry: %v", p)
 	}
@@ -944,17 +944,17 @@ func TestSession_deliveryEventProtoJSONTranscode_TradeUsesPascalCase(t *testing.
 	if err := json.Unmarshal(event.Payload, &got); err != nil {
 		t.Fatalf("unmarshal trade payload: %v", err)
 	}
-	for _, k := range []string{"Price", "Size", "Side", "TradeID", "Timestamp"} {
+	for _, k := range []string{"price", "size", "side", "trade_id", "timestamp"} {
 		if _, ok := got[k]; !ok {
-			t.Fatalf("missing PascalCase key %q in payload=%s", k, string(event.Payload))
+			t.Fatalf("missing canonical key %q in payload=%s", k, string(event.Payload))
 		}
 	}
-	if _, ok := got["price"]; ok {
-		t.Fatalf("unexpected lowercase key in payload=%s", string(event.Payload))
+	if _, ok := got["Price"]; ok {
+		t.Fatalf("unexpected legacy PascalCase key in payload=%s", string(event.Payload))
 	}
 }
 
-func TestSession_deliveryEventProtoJSONTranscode_BookDeltaUsesPascalCase(t *testing.T) {
+func TestSession_deliveryEventProtoJSONTranscode_BookDeltaUsesCanonicalSnakeCase(t *testing.T) {
 	if p := contracts.BootstrapPayloadCodecRegistry(); p != nil {
 		t.Fatalf("bootstrap codec registry: %v", p)
 	}
@@ -986,26 +986,26 @@ func TestSession_deliveryEventProtoJSONTranscode_BookDeltaUsesPascalCase(t *test
 	if err := json.Unmarshal(event.Payload, &got); err != nil {
 		t.Fatalf("unmarshal bookdelta payload: %v", err)
 	}
-	for _, k := range []string{"Bids", "Asks", "FirstID", "FinalID", "PrevFinal", "Timestamp", "IsSnapshot"} {
+	for _, k := range []string{"bids", "asks", "first_id", "final_id", "prev_final", "timestamp", "is_snapshot"} {
 		if _, ok := got[k]; !ok {
-			t.Fatalf("missing PascalCase key %q in payload=%s", k, string(event.Payload))
+			t.Fatalf("missing canonical key %q in payload=%s", k, string(event.Payload))
 		}
 	}
-	bids, ok := got["Bids"].([]any)
+	bids, ok := got["bids"].([]any)
 	if !ok || len(bids) == 0 {
-		t.Fatalf("Bids type/len invalid: %T payload=%s", got["Bids"], string(event.Payload))
+		t.Fatalf("bids type/len invalid: %T payload=%s", got["bids"], string(event.Payload))
 	}
 	firstBid, ok := bids[0].(map[string]any)
 	if !ok {
 		t.Fatalf("first bid type=%T", bids[0])
 	}
-	for _, k := range []string{"Price", "Size"} {
+	for _, k := range []string{"price", "size"} {
 		if _, ok := firstBid[k]; !ok {
-			t.Fatalf("missing nested PascalCase key %q in payload=%s", k, string(event.Payload))
+			t.Fatalf("missing nested canonical key %q in payload=%s", k, string(event.Payload))
 		}
 	}
-	if _, ok := got["bids"]; ok {
-		t.Fatalf("unexpected lowercase key in payload=%s", string(event.Payload))
+	if _, ok := got["Bids"]; ok {
+		t.Fatalf("unexpected legacy PascalCase key in payload=%s", string(event.Payload))
 	}
 }
 

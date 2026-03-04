@@ -37,6 +37,7 @@ type CompositeSignalV1 struct {
 	SourceKinds    []string        `json:"source_kinds"`
 }
 
+//nolint:gocyclo // Validation keeps one explicit branch per invariant for deterministic errors.
 func (s CompositeSignalV1) Validate() *problem.Problem {
 	if strings.TrimSpace(s.Kind) == "" {
 		return problem.New(problem.ValidationFailed, "signal kind must not be empty")

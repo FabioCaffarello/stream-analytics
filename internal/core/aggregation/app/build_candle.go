@@ -310,11 +310,7 @@ func (uc *BuildCandleFromEvents) observeWindow(
 	if uc.windows == nil {
 		return domain.WindowDecision{WindowStart: bucketStart(eventTsMs, windowDurationMs)}, nil, nil
 	}
-	decision, p := uc.windows.Observe(domain.WindowKey{
-		Venue:      key.Venue,
-		Instrument: key.Instrument,
-		Timeframe:  key.Timeframe,
-	}, eventTsMs, windowDurationMs)
+	decision, p := uc.windows.Observe(domain.WindowKey(key), eventTsMs, windowDurationMs)
 	if p != nil {
 		return domain.WindowDecision{}, nil, p
 	}

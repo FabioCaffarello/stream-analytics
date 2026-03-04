@@ -284,11 +284,7 @@ func (uc *BuildStatsFromEvents) observeWindow(
 	if uc.lifecycle == nil {
 		return domain.WindowDecision{WindowStart: bucketStart(eventTsMs, windowDurationMs)}, nil, nil
 	}
-	decision, p := uc.lifecycle.Observe(domain.WindowKey{
-		Venue:      key.Venue,
-		Instrument: key.Instrument,
-		Timeframe:  key.Timeframe,
-	}, eventTsMs, windowDurationMs)
+	decision, p := uc.lifecycle.Observe(domain.WindowKey(key), eventTsMs, windowDurationMs)
 	if p != nil {
 		return domain.WindowDecision{}, nil, p
 	}

@@ -46,6 +46,8 @@ type CrossVenueBookMerger interface {
 type DeterministicCrossVenueBookMerger struct{}
 
 // Merge merges venue books deterministically and excludes stale venues.
+//
+//nolint:gocyclo // Explicit branching keeps the deterministic ranking and staleness rules readable.
 func (DeterministicCrossVenueBookMerger) Merge(
 	instrument string,
 	nowMs int64,

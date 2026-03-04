@@ -109,6 +109,8 @@ func NewUpdateOrderBookFromEventsWithConfig(
 }
 
 // Execute applies the delta and returns the updated spread.
+//
+//nolint:gocyclo // Coordinates validation, apply, publish, and metrics for one deterministic update path.
 func (uc *UpdateOrderBookFromEvents) Execute(ctx context.Context, req UpdateRequest) result.Result[UpdateResponse] {
 	startedAt := uc.clock.Now()
 	var book *domain.OrderBook

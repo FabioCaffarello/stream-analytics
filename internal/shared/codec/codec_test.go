@@ -70,7 +70,7 @@ func TestJSONCodec_Roundtrip_TradeTickV1(t *testing.T) {
 	}
 }
 
-func TestJSONCodec_UsesDomainFieldNames(t *testing.T) {
+func TestJSONCodec_UsesCanonicalFieldNames(t *testing.T) {
 	c := codec.JSONCodec[marketdomain.TradeTickV1]{}
 	in := marketdomain.TradeTickV1{
 		Price:     65000.25,
@@ -90,14 +90,14 @@ func TestJSONCodec_UsesDomainFieldNames(t *testing.T) {
 		t.Fatalf("unmarshal encoded json: %v", err)
 	}
 
-	if _, ok := payload["TradeID"]; !ok {
-		t.Fatalf("expected TradeID key in JSON payload, got keys=%v", keys(payload))
+	if _, ok := payload["trade_id"]; !ok {
+		t.Fatalf("expected trade_id key in JSON payload, got keys=%v", keys(payload))
 	}
-	if _, ok := payload["Timestamp"]; !ok {
-		t.Fatalf("expected Timestamp key in JSON payload, got keys=%v", keys(payload))
+	if _, ok := payload["timestamp"]; !ok {
+		t.Fatalf("expected timestamp key in JSON payload, got keys=%v", keys(payload))
 	}
-	if _, ok := payload["trade_id"]; ok {
-		t.Fatalf("unexpected transport-style key trade_id in JSON payload, got keys=%v", keys(payload))
+	if _, ok := payload["TradeID"]; ok {
+		t.Fatalf("unexpected legacy key TradeID in JSON payload, got keys=%v", keys(payload))
 	}
 }
 

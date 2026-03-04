@@ -406,6 +406,7 @@ func TestBTreeOrderBook_PruneAtCap(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo // Long replay scenario intentionally exercises multiple deterministic branches.
 func TestBTreeOrderBook_DeterministicReplay(t *testing.T) {
 	left, p := domain.NewOrderBookWithMaxLevels("binance", "BTCUSDT", 500)
 	if p != nil {

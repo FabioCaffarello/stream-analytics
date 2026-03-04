@@ -76,6 +76,8 @@ func NewSignalComposer(policy ComposePolicy) *SignalComposer {
 }
 
 // Compose applies rules 1-3 and returns a composed signal when eligible.
+//
+//nolint:gocyclo // Rule composition keeps explicit deterministic branching for auditability.
 func (c *SignalComposer) Compose(input ComposeInput) (ComposeResult, bool) {
 	micro := input.Micro
 	if p := micro.Validate(); p != nil {
