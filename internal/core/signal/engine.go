@@ -93,12 +93,7 @@ func (e *SignalEngine) OnEvidenceEvent(key marketmodel.StreamKey, tenant string,
 		if len(features) == 0 {
 			continue
 		}
-		watermark := []marketmodel.SignalInputSeqRange{{
-			Venue:    string(key.Venue),
-			Symbol:   string(key.Symbol),
-			SeqStart: max64(snapshot.WatermarkStart, 1),
-			SeqEnd:   max64(snapshot.WatermarkEnd, event.Seq),
-		}}
+		watermark := signalInputWatermark(key, snapshot, event)
 		signalEvent := marketmodel.SignalEvent{
 			Type:           strings.TrimSpace(out.Type),
 			TsServer:       event.TsServer,
@@ -198,4 +193,28 @@ func evidenceEvalSpan(event evidencedomain.EvidenceEvent, snapshot StreamSnapsho
 		return -evalSpan
 	}
 	return evalSpan
+}
+
+func signalInputWatermark(
+	key marketmodel.StreamKey,
+	snapshot StreamSnapshot,
+	event evidencedomain.EvidenceEvent,
+) []marketmodel.SignalInputSeqRange {
+	seqStart := max64(snapshot.WatermarkStart, 1)
+	if event.InputWatermark.SeqStart > 0 && event.InputWatermark.SeqStart < seqStart {
+		seqStart = event.InputWatermark.SeqStart
+	}
+	seqEnd := max64(snapshot.WatermarkEnd, event.Seq)
+	if event.InputWatermark.SeqEnd > seqEnd {
+		seqEnd = event.InputWatermark.SeqEnd
+	}
+	if seqEnd < seqStart {
+		seqEnd = seqStart
+	}
+	return []marketmodel.SignalInputSeqRange{{
+		Venue:    string(key.Venue),
+		Symbol:   string(key.Symbol),
+		SeqStart: seqStart,
+		SeqEnd:   seqEnd,
+	}}
 }
