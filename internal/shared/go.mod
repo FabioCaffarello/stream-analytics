@@ -6,6 +6,7 @@ require (
 	github.com/market-raccoon/internal/core/evidence v0.0.0
 	github.com/market-raccoon/internal/core/insights v0.0.0
 	github.com/market-raccoon/internal/core/marketdata v0.0.0
+	github.com/market-raccoon/internal/core/marketmodel v0.0.0
 	github.com/market-raccoon/internal/core/signals v0.0.0
 	github.com/nats-io/nats.go v1.48.0
 	github.com/prometheus/client_golang v1.18.0
@@ -17,7 +18,6 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/klauspost/compress v1.18.3 // indirect
-	github.com/market-raccoon/internal/core/marketmodel v0.0.0 // indirect
 	github.com/matttproud/golang_protobuf_extensions/v2 v2.0.0 // indirect
 	github.com/nats-io/nkeys v0.4.11 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect

@@ -12,7 +12,7 @@ import (
 	actorruntime "github.com/market-raccoon/internal/actors/runtime"
 	evidenceapp "github.com/market-raccoon/internal/core/evidence/app"
 	"github.com/market-raccoon/internal/core/evidence/domain"
-	marketdomain "github.com/market-raccoon/internal/core/marketdata/domain"
+	marketmodel "github.com/market-raccoon/internal/core/marketmodel"
 	"github.com/market-raccoon/internal/shared/codec"
 	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
@@ -171,11 +171,16 @@ func (s *SubsystemActor) processEnvelope(env envelope.Envelope) {
 }
 
 func (s *SubsystemActor) toRuleEvent(env envelope.Envelope) (domain.RuleEvent, bool) {
+	streamID := env.Venue + "/" + env.Instrument + "/" + strings.ToLower(strings.TrimSpace(env.Type))
+	if key, p := marketmodel.NewStreamKey(env.Venue, env.Instrument, channelFromEnvelopeType(env.Type)); p == nil {
+		streamID = key.String()
+	}
 	base := domain.RuleEvent{
-		Venue:      env.Venue,
-		Instrument: env.Instrument,
-		TsServer:   env.TsIngest,
-		Seq:        env.Seq,
+		Venue:    env.Venue,
+		Symbol:   env.Instrument,
+		StreamID: streamID,
+		TsServer: env.TsIngest,
+		Seq:      env.Seq,
 	}
 
 	switch env.Type {
@@ -184,7 +189,7 @@ func (s *SubsystemActor) toRuleEvent(env envelope.Envelope) (domain.RuleEvent, b
 		if p != nil {
 			return domain.RuleEvent{}, false
 		}
-		trade, ok := decoded.(marketdomain.TradeTickV1)
+		trade, ok := decoded.(marketmodel.Trade)
 		if !ok {
 			return domain.RuleEvent{}, false
 		}
@@ -199,7 +204,7 @@ func (s *SubsystemActor) toRuleEvent(env envelope.Envelope) (domain.RuleEvent, b
 		if p != nil {
 			return domain.RuleEvent{}, false
 		}
-		book, ok := decoded.(marketdomain.BookDeltaV1)
+		book, ok := decoded.(marketmodel.BookDelta)
 		if !ok {
 			return domain.RuleEvent{}, false
 		}
@@ -243,7 +248,7 @@ func (s *SubsystemActor) toRuleEvent(env envelope.Envelope) (domain.RuleEvent, b
 	}
 }
 
-func sumDepth(levels []marketdomain.PriceLevel) float64 {
+func sumDepth(levels []marketmodel.Level) float64 {
 	total := 0.0
 	for _, l := range levels {
 		total += l.Size
@@ -267,7 +272,7 @@ func (s *SubsystemActor) processRegimeEvent(triggerEnv envelope.Envelope, event 
 	}
 	key := domain.RegimeStoreKey{
 		Venue:      event.Venue,
-		Instrument: event.Instrument,
+		Instrument: event.Symbol,
 		Timeframe:  event.CandleTimeframe,
 	}
 	sample := domain.RegimeCandleSample{
@@ -345,7 +350,7 @@ func (s *SubsystemActor) emitEvidence(triggerEnv envelope.Envelope, ev domain.Ev
 		Venue:       ev.Venue,
 		Instrument:  ev.Symbol,
 		TsIngest:    ev.TsServer,
-		Seq:         ev.SeqTrigger,
+		Seq:         ev.Seq,
 		ContentType: envelope.ContentTypeJSON,
 		Payload:     payload,
 	}
@@ -359,6 +364,19 @@ func (s *SubsystemActor) emitEvidence(triggerEnv envelope.Envelope, ev domain.Ev
 
 	if s.cfg.RouterPID != nil && s.engine != nil {
 		s.engine.Send(s.cfg.RouterPID, deliveryruntime.DeliverEnvelope{Envelope: evidenceEnv})
+	}
+}
+
+func channelFromEnvelopeType(eventType string) marketmodel.Channel {
+	switch strings.ToLower(strings.TrimSpace(eventType)) {
+	case envelopeTypeTrade:
+		return marketmodel.ChannelTrade
+	case envelopeTypeBookDelta:
+		return marketmodel.ChannelBookDelta
+	case envelopeTypeCandle:
+		return marketmodel.ChannelCandle
+	default:
+		return marketmodel.ChannelTrade
 	}
 }
 

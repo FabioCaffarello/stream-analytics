@@ -109,16 +109,24 @@ func TestEvidenceJSONRoundtrip(t *testing.T) {
 	}
 
 	original := evidencedomain.EvidenceEvent{
-		Kind:        evidencedomain.SpreadExplosion,
-		TsServer:    1709500000000,
-		Venue:       "binance",
-		Symbol:      "BTC-USDT",
-		Severity:    evidencedomain.SeverityHigh,
-		Confidence:  0.85,
-		Features:    []string{"spread_bps", "z_score"},
-		FeatureVals: []float64{45.2, 3.7},
-		Reason:      "spread z-score exceeded threshold",
-		SeqTrigger:  42,
+		Type:       evidencedomain.SpreadExplosion,
+		TsServer:   1709500000000,
+		Venue:      "binance",
+		Symbol:     "BTC-USDT",
+		StreamID:   "binance/BTC-USDT/book_delta",
+		Seq:        42,
+		Severity:   evidencedomain.SeverityHigh,
+		Confidence: 0.85,
+		Features: []evidencedomain.EvidenceFeature{
+			{Key: "spread_bps", Value: 45.2},
+			{Key: "z_score", Value: 3.7},
+		},
+		Explanation: "spread z-score exceeded threshold",
+		RuleVersion: evidencedomain.RuleVersionV0,
+		InputWatermark: evidencedomain.InputWatermark{
+			SeqStart: 40,
+			SeqEnd:   42,
+		},
 	}
 
 	key := codec.SchemaKey{
@@ -148,14 +156,20 @@ func TestEvidenceJSONRoundtrip(t *testing.T) {
 	if !ok {
 		t.Fatalf("decoded type = %T, want EvidenceEvent", decoded)
 	}
-	if ev.Kind != original.Kind {
-		t.Errorf("Kind = %s, want %s", ev.Kind, original.Kind)
+	if ev.Type != original.Type {
+		t.Errorf("Type = %s, want %s", ev.Type, original.Type)
 	}
 	if ev.Confidence != original.Confidence {
 		t.Errorf("Confidence = %f, want %f", ev.Confidence, original.Confidence)
 	}
 	if len(ev.Features) != len(original.Features) {
 		t.Errorf("Features length = %d, want %d", len(ev.Features), len(original.Features))
+	}
+	if ev.Explanation != original.Explanation {
+		t.Errorf("Explanation = %q, want %q", ev.Explanation, original.Explanation)
+	}
+	if ev.InputWatermark.SeqEnd != original.InputWatermark.SeqEnd {
+		t.Errorf("InputWatermark.SeqEnd = %d, want %d", ev.InputWatermark.SeqEnd, original.InputWatermark.SeqEnd)
 	}
 }
 
@@ -166,16 +180,24 @@ func TestEvidenceProtoRoundtrip(t *testing.T) {
 	}
 
 	original := evidencedomain.EvidenceEvent{
-		Kind:        evidencedomain.Absorption,
-		TsServer:    1709500000000,
-		Venue:       "coinbase",
-		Symbol:      "ETH-USD",
-		Severity:    evidencedomain.SeverityCritical,
-		Confidence:  0.95,
-		Features:    []string{"volume_ratio", "cum_volume"},
-		FeatureVals: []float64{8.5, 150000},
-		Reason:      "large volume absorbed",
-		SeqTrigger:  99,
+		Type:       evidencedomain.Absorption,
+		TsServer:   1709500000000,
+		Venue:      "coinbase",
+		Symbol:     "ETH-USD",
+		StreamID:   "coinbase/ETH-USD/trade",
+		Seq:        99,
+		Severity:   evidencedomain.SeverityCritical,
+		Confidence: 0.95,
+		Features: []evidencedomain.EvidenceFeature{
+			{Key: "cum_volume", Value: 150000},
+			{Key: "volume_ratio", Value: 8.5},
+		},
+		Explanation: "large volume absorbed",
+		RuleVersion: evidencedomain.RuleVersionV0,
+		InputWatermark: evidencedomain.InputWatermark{
+			SeqStart: 97,
+			SeqEnd:   99,
+		},
 	}
 
 	key := codec.SchemaKey{
@@ -205,13 +227,16 @@ func TestEvidenceProtoRoundtrip(t *testing.T) {
 	if !ok {
 		t.Fatalf("decoded type = %T, want EvidenceEvent", decoded)
 	}
-	if ev.Kind != original.Kind {
-		t.Errorf("Kind = %s, want %s", ev.Kind, original.Kind)
+	if ev.Type != original.Type {
+		t.Errorf("Type = %s, want %s", ev.Type, original.Type)
 	}
 	if ev.Severity != original.Severity {
 		t.Errorf("Severity = %s, want %s", ev.Severity, original.Severity)
 	}
-	if ev.SeqTrigger != original.SeqTrigger {
-		t.Errorf("SeqTrigger = %d, want %d", ev.SeqTrigger, original.SeqTrigger)
+	if ev.Seq != original.Seq {
+		t.Errorf("Seq = %d, want %d", ev.Seq, original.Seq)
+	}
+	if ev.RuleVersion != original.RuleVersion {
+		t.Errorf("RuleVersion = %s, want %s", ev.RuleVersion, original.RuleVersion)
 	}
 }

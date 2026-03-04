@@ -291,6 +291,11 @@ func TestMetricsNamesPresent(t *testing.T) {
 		"mr_signal_ws_delivered_total",
 		"mr_signal_ws_subscription_rejected_total",
 		"mr_signal_ws_subscriptions_active",
+		"signal_emitted_total",
+		"signal_state_entries",
+		"signal_evicted_total",
+		"signal_eval_latency_seconds",
+		"signal_dedup_total",
 		"delivery_range_alias_fallback_total",
 		"delivery_ws_snapshot_cache_entries",
 		"delivery_ws_snapshot_cache_hits_total",
@@ -439,6 +444,22 @@ func TestSignalWSActiveSubscriptions_NonNegative(t *testing.T) {
 	if before < 0 {
 		t.Fatalf("initial mr_signal_ws_subscriptions_active=%f want >= 0", before)
 	}
+}
+
+func TestSignalEngineMetrics_StableLabelsOnly(t *testing.T) {
+	t.Parallel()
+
+	IncSignalEmitted("liquidity_collapse", "high")
+	SetSignalStateEntries(10)
+	IncSignalEvicted("tenant_cap")
+	ObserveSignalEvalLatency(5 * time.Millisecond)
+	IncSignalDedup("liquidity_collapse")
+
+	assertMetricLabelNames(t, "signal_emitted_total", []string{"severity", "type"})
+	assertMetricLabelNames(t, "signal_state_entries", nil)
+	assertMetricLabelNames(t, "signal_evicted_total", []string{"reason"})
+	assertMetricLabelNames(t, "signal_eval_latency_seconds", nil)
+	assertMetricLabelNames(t, "signal_dedup_total", []string{"type"})
 }
 
 func TestWSExtendedMetrics_StableLabelsOnly(t *testing.T) {

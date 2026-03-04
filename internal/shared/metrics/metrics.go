@@ -668,29 +668,36 @@ var (
 	EvidenceEmittedTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "evidence_emitted_total",
-			Help: "Total evidence events emitted by kind and severity.",
+			Help: "Total liquidity evidence events emitted by type, severity, and venue.",
 		},
-		[]string{"kind", "severity"},
+		[]string{"type", "severity", "venue"},
 	)
-	EvidenceStateEntries = prometheus.NewGaugeVec(
+	EvidenceDroppedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "evidence_dropped_total",
+			Help: "Total liquidity evidence events dropped by deterministic reason.",
+		},
+		[]string{"reason"},
+	)
+	EvidenceStateEntries = prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "evidence_state_entries",
-			Help: "Number of active per-stream state entries per rule.",
-		},
-		[]string{"rule"},
-	)
-	EvidenceStateEntriesTotal = prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Name: "evidence_state_entries_total",
-			Help: "Total active per-stream state entries across all rules.",
+			Help: "Number of active per-stream evidence state entries.",
 		},
 	)
 	EvidenceStateEvictedTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "evidence_state_evicted_total",
-			Help: "Total per-stream state evictions by rule.",
+			Help: "Total per-stream evidence state evictions by reason.",
 		},
-		[]string{"rule"},
+		[]string{"reason"},
+	)
+	EvidenceEvalLatencySeconds = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "evidence_eval_latency_seconds",
+			Help:    "Deterministic evaluation latency derived from canonical event ts_server deltas.",
+			Buckets: []float64{0, 0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5},
+		},
 	)
 	EvidenceEngineEventsTotal = prometheus.NewCounter(
 		prometheus.CounterOpts{
@@ -811,6 +818,40 @@ var (
 			Name: "mr_signal_ws_subscriptions_active",
 			Help: "Current active signal websocket subscriptions across sessions.",
 		},
+	)
+	SignalEmittedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "signal_emitted_total",
+			Help: "Total emitted canonical signal events by type and severity.",
+		},
+		[]string{"type", "severity"},
+	)
+	SignalStateEntries = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "signal_state_entries",
+			Help: "Current number of signal state entries.",
+		},
+	)
+	SignalEvictedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "signal_evicted_total",
+			Help: "Total signal state evictions by reason.",
+		},
+		[]string{"reason"},
+	)
+	SignalEvalLatencySeconds = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "signal_eval_latency_seconds",
+			Help:    "Deterministic signal evaluation span in seconds.",
+			Buckets: []float64{0.0001, 0.001, 0.01, 0.05, 0.1, 0.5, 1, 2, 5},
+		},
+	)
+	SignalDedupTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "signal_dedup_total",
+			Help: "Total deduplicated signal events by type.",
+		},
+		[]string{"type"},
 	)
 	VPVRBuilderBucketCount = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -1487,9 +1528,10 @@ func registerAll() {
 			InsightsStateInstrumentsActive,
 			InsightsStateEvictionsTotal,
 			EvidenceEmittedTotal,
+			EvidenceDroppedTotal,
 			EvidenceStateEntries,
-			EvidenceStateEntriesTotal,
 			EvidenceStateEvictedTotal,
+			EvidenceEvalLatencySeconds,
 			EvidenceEngineEventsTotal,
 			EvidenceBufferEntries,
 			EvidenceBufferOverwritesTotal,
@@ -1507,6 +1549,11 @@ func registerAll() {
 			MRSignalWSDeliveredTotal,
 			MRSignalWSSubscriptionRejectedTotal,
 			MRSignalWSSubscriptionsActive,
+			SignalEmittedTotal,
+			SignalStateEntries,
+			SignalEvictedTotal,
+			SignalEvalLatencySeconds,
+			SignalDedupTotal,
 			VPVRBuilderBucketCount,
 			VPVRBuilderWindowsOpen,
 			VPVRBuilderOverloadActionsTotal,
@@ -1653,18 +1700,15 @@ func registerAll() {
 		InsightsSnapshotsTotal.WithLabelValues("5_8")
 		InsightsSnapshotsTotal.WithLabelValues("9_plus")
 		InsightsStateEvictionsTotal.WithLabelValues("unknown")
-		EvidenceEmittedTotal.WithLabelValues("spread_explosion", "medium")
-		EvidenceEmittedTotal.WithLabelValues("liquidity_thinning", "medium")
-		EvidenceEmittedTotal.WithLabelValues("persistent_imbalance", "medium")
-		EvidenceEmittedTotal.WithLabelValues("absorption", "medium")
-		EvidenceStateEntries.WithLabelValues("spread_explosion")
-		EvidenceStateEntries.WithLabelValues("liquidity_thinning")
-		EvidenceStateEntries.WithLabelValues("persistent_imbalance")
-		EvidenceStateEntries.WithLabelValues("absorption")
-		EvidenceStateEvictedTotal.WithLabelValues("spread_explosion")
-		EvidenceStateEvictedTotal.WithLabelValues("liquidity_thinning")
-		EvidenceStateEvictedTotal.WithLabelValues("persistent_imbalance")
-		EvidenceStateEvictedTotal.WithLabelValues("absorption")
+		EvidenceEmittedTotal.WithLabelValues("spread_explosion", "medium", "unknown")
+		EvidenceEmittedTotal.WithLabelValues("liquidity_thinning", "medium", "unknown")
+		EvidenceEmittedTotal.WithLabelValues("persistent_imbalance", "medium", "unknown")
+		EvidenceEmittedTotal.WithLabelValues("absorption", "medium", "unknown")
+		EvidenceDroppedTotal.WithLabelValues("unknown")
+		EvidenceStateEntries.Set(0)
+		EvidenceStateEvictedTotal.WithLabelValues("ttl")
+		EvidenceStateEvictedTotal.WithLabelValues("capacity")
+		EvidenceEvalLatencySeconds.Observe(0)
 		MRRegimeCurrent.WithLabelValues("unknown", "unknown", "unknown", "unknown").Set(0)
 		MRRegimeCurrent.WithLabelValues("unknown", "unknown", "unknown", "trending").Set(0)
 		MRRegimeCurrent.WithLabelValues("unknown", "unknown", "unknown", "ranging").Set(0)
@@ -1684,6 +1728,11 @@ func registerAll() {
 		MRSignalWSDeliveredTotal.WithLabelValues("unknown", "unknown", "unknown")
 		MRSignalWSSubscriptionRejectedTotal.WithLabelValues("unknown")
 		MRSignalWSSubscriptionsActive.Set(0)
+		SignalEmittedTotal.WithLabelValues("unknown", "unknown")
+		SignalStateEntries.Set(0)
+		SignalEvictedTotal.WithLabelValues("unknown")
+		SignalEvalLatencySeconds.Observe(0)
+		SignalDedupTotal.WithLabelValues("unknown")
 		VPVRBuilderBucketCount.WithLabelValues("unknown", "unknown", "unknown")
 		VPVRBuilderWindowsOpen.WithLabelValues("unknown", "unknown", "unknown")
 		VPVRBuilderOverloadActionsTotal.WithLabelValues("unknown")
@@ -2321,26 +2370,23 @@ func IncInsightsStateEvictions(reason string) {
 	InsightsStateEvictionsTotal.WithLabelValues(sanitizeReason(reason)).Inc()
 }
 
-func IncEvidenceEmitted(kind, severity string) {
-	EvidenceEmittedTotal.WithLabelValues(kind, severity).Inc()
+func IncEvidenceEmitted(typ, severity, venue string) {
+	EvidenceEmittedTotal.WithLabelValues(sanitizeKind(typ), sanitizeSignalSeverity(severity), sanitizeVenue(venue)).Inc()
 }
 
-func SetEvidenceStateEntries(rule string, count int) {
+func IncEvidenceDropped(reason string) {
+	EvidenceDroppedTotal.WithLabelValues(sanitizeReason(reason)).Inc()
+}
+
+func SetEvidenceStateEntries(count int) {
 	if count < 0 {
 		count = 0
 	}
-	EvidenceStateEntries.WithLabelValues(rule).Set(float64(count))
+	EvidenceStateEntries.Set(float64(count))
 }
 
-func SetEvidenceStateEntriesTotal(count int) {
-	if count < 0 {
-		count = 0
-	}
-	EvidenceStateEntriesTotal.Set(float64(count))
-}
-
-func IncEvidenceStateEvicted(rule string) {
-	EvidenceStateEvictedTotal.WithLabelValues(rule).Inc()
+func IncEvidenceStateEvicted(reason string) {
+	EvidenceStateEvictedTotal.WithLabelValues(sanitizeReason(reason)).Inc()
 }
 
 func IncEvidenceEngineEvents() {
@@ -2356,6 +2402,13 @@ func SetEvidenceBufferEntries(kind string, count int) {
 
 func IncEvidenceBufferOverwrites(kind string) {
 	EvidenceBufferOverwritesTotal.WithLabelValues(sanitizeKind(kind)).Inc()
+}
+
+func ObserveEvidenceEvalLatency(seconds float64) {
+	if seconds < 0 {
+		seconds = 0
+	}
+	EvidenceEvalLatencySeconds.Observe(seconds)
 }
 
 func SetMRRegimeCurrent(venue, instrument, timeframe, kind string) {
@@ -2485,6 +2538,35 @@ func DecMRSignalWSActiveSubscriptions() {
 		v = 0
 	}
 	MRSignalWSSubscriptionsActive.Set(float64(v))
+}
+
+func IncSignalEmitted(signalType, severity string) {
+	SignalEmittedTotal.WithLabelValues(
+		sanitizeKind(signalType),
+		sanitizeSignalSeverity(severity),
+	).Inc()
+}
+
+func SetSignalStateEntries(entries int) {
+	if entries < 0 {
+		entries = 0
+	}
+	SignalStateEntries.Set(float64(entries))
+}
+
+func IncSignalEvicted(reason string) {
+	SignalEvictedTotal.WithLabelValues(sanitizeReason(reason)).Inc()
+}
+
+func ObserveSignalEvalLatency(d time.Duration) {
+	if d < 0 {
+		d = 0
+	}
+	SignalEvalLatencySeconds.Observe(d.Seconds())
+}
+
+func IncSignalDedup(signalType string) {
+	SignalDedupTotal.WithLabelValues(sanitizeKind(signalType)).Inc()
 }
 
 func SetVPVRBuilderBucketCount(venue, instrument, timeframe string, count int) {
@@ -2971,7 +3053,9 @@ func sanitizeSubsystem(v string) string {
 func sanitizeReason(v string) string {
 	v = strings.ToLower(strings.TrimSpace(v))
 	switch v {
-	case "ttl", "size", "capacity", "unknown":
+	case "ttl", "size", "capacity", "unknown",
+		"nil_store", "empty_stream_id", "invalid_seq", "invalid_ts_server",
+		"non_monotonic_seq", "invalid_evidence":
 		return v
 	default:
 		return "unknown"

@@ -72,15 +72,22 @@ func TestSignalComposer_CrossVenue(t *testing.T) {
 
 func baseMicroEvidence(venue string, ts int64, confidence float64) evidencedomain.EvidenceEvent {
 	return evidencedomain.EvidenceEvent{
-		Kind:        evidencedomain.Absorption,
-		TsServer:    ts,
-		Venue:       venue,
-		Symbol:      "BTCUSDT",
-		Severity:    evidencedomain.SeverityMedium,
-		Confidence:  confidence,
-		Features:    []string{"volume_ratio"},
-		FeatureVals: []float64{2.1},
-		Reason:      "absorption detected",
-		SeqTrigger:  ts / 1000,
+		Type:       evidencedomain.Absorption,
+		TsServer:   ts,
+		Venue:      venue,
+		Symbol:     "BTCUSDT",
+		StreamID:   venue + "/BTCUSDT/trade",
+		Seq:        ts / 1000,
+		Severity:   evidencedomain.SeverityMedium,
+		Confidence: confidence,
+		Features: []evidencedomain.EvidenceFeature{
+			{Key: "volume_ratio", Value: 2.1},
+		},
+		Explanation: "absorption detected",
+		RuleVersion: evidencedomain.RuleVersionV0,
+		InputWatermark: evidencedomain.InputWatermark{
+			SeqStart: ts / 1000,
+			SeqEnd:   ts / 1000,
+		},
 	}
 }

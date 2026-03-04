@@ -98,6 +98,8 @@ const (
 	Channel_CHANNEL_HEATMAP_SNAPSHOT Channel = 10
 	// CHANNEL_VOLUME_PROFILE_SNAPSHOT maps to volume-profile snapshots.
 	Channel_CHANNEL_VOLUME_PROFILE_SNAPSHOT Channel = 11
+	// CHANNEL_EVIDENCE maps to liquidity evidence events.
+	Channel_CHANNEL_EVIDENCE Channel = 12
 )
 
 // Enum value maps for Channel.
@@ -115,6 +117,7 @@ var (
 		9:  "CHANNEL_CANDLE",
 		10: "CHANNEL_HEATMAP_SNAPSHOT",
 		11: "CHANNEL_VOLUME_PROFILE_SNAPSHOT",
+		12: "CHANNEL_EVIDENCE",
 	}
 	Channel_value = map[string]int32{
 		"CHANNEL_UNSPECIFIED":             0,
@@ -129,6 +132,7 @@ var (
 		"CHANNEL_CANDLE":                  9,
 		"CHANNEL_HEATMAP_SNAPSHOT":        10,
 		"CHANNEL_VOLUME_PROFILE_SNAPSHOT": 11,
+		"CHANNEL_EVIDENCE":                12,
 	}
 )
 
@@ -2028,7 +2032,7 @@ const file_delivery_v1_terminal_proto_rawDesc = "" +
 	"\x05frameJ\x05\bd\x10\xc8\x01*Z\n" +
 	"\x13WireProtocolVersion\x12%\n" +
 	"!WIRE_PROTOCOL_VERSION_UNSPECIFIED\x10\x00\x12\x1c\n" +
-	"\x18WIRE_PROTOCOL_VERSION_V1\x10\x01*\xb6\x02\n" +
+	"\x18WIRE_PROTOCOL_VERSION_V1\x10\x01*\xcc\x02\n" +
 	"\aChannel\x12\x17\n" +
 	"\x13CHANNEL_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rCHANNEL_TRADE\x10\x01\x12\x16\n" +
@@ -2042,7 +2046,8 @@ const file_delivery_v1_terminal_proto_rawDesc = "" +
 	"\x0eCHANNEL_CANDLE\x10\t\x12\x1c\n" +
 	"\x18CHANNEL_HEATMAP_SNAPSHOT\x10\n" +
 	"\x12#\n" +
-	"\x1fCHANNEL_VOLUME_PROFILE_SNAPSHOT\x10\v\"\x05\bd\x10\xc7\x01*\x8d\x02\n" +
+	"\x1fCHANNEL_VOLUME_PROFILE_SNAPSHOT\x10\v\x12\x14\n" +
+	"\x10CHANNEL_EVIDENCE\x10\f\"\x05\bd\x10\xc7\x01*\x8d\x02\n" +
 	"\tErrorCode\x12\x1a\n" +
 	"\x16ERROR_CODE_UNSPECIFIED\x10\x00\x12\x19\n" +
 	"\x15ERROR_CODE_VALIDATION\x10\x01\x12\x1b\n" +

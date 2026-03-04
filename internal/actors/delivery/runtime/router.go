@@ -380,7 +380,15 @@ func (r *RouterActor) handleEnvelope(env envelope.Envelope) {
 	if hasAlias {
 		aliasTargets = r.subjectPIDs[aliasSubject]
 	}
-	if len(targets) == 0 && len(aliasTargets) == 0 {
+	wildcardSubject := domain.Subject{}
+	wildcardTargets := []*actor.PID(nil)
+	if subject.IsSignal() {
+		if wild, wp := domain.NewSignalSubject("*", subject.Venue, subject.Symbol, subject.Timeframe); wp == nil && wild != subject {
+			wildcardSubject = wild
+			wildcardTargets = r.subjectPIDs[wild]
+		}
+	}
+	if len(targets) == 0 && len(aliasTargets) == 0 && len(wildcardTargets) == 0 {
 		return
 	}
 	if len(targets) > 0 {
@@ -395,10 +403,16 @@ func (r *RouterActor) handleEnvelope(env envelope.Envelope) {
 			return
 		}
 	}
+	if len(wildcardTargets) > 0 {
+		if ok, reason := r.acceptStreamSeq(wildcardSubject.String(), env.Seq); !ok {
+			metrics.IncDeliveryRouterEventsRejected(reason)
+			return
+		}
+	}
 	metrics.IncDeliveryRouterEventsRouted()
 	sent := map[string]struct{}(nil)
-	if len(targets) > 0 && len(aliasTargets) > 0 {
-		sent = make(map[string]struct{}, len(targets))
+	if len(targets)+len(aliasTargets)+len(wildcardTargets) > 1 {
+		sent = make(map[string]struct{}, len(targets)+len(aliasTargets)+len(wildcardTargets))
 	}
 	primaryEnv := env
 	primaryEnv.Seq = r.nextDeliverySeq(subject.String())
@@ -418,12 +432,31 @@ func (r *RouterActor) handleEnvelope(env envelope.Envelope) {
 			if _, exists := sent[pid.String()]; exists {
 				continue
 			}
+			sent[pid.String()] = struct{}{}
 		}
 		if !aliasSeqAssigned {
 			aliasEnv.Seq = r.nextDeliverySeq(aliasSubject.String())
 			aliasSeqAssigned = true
 		}
 		r.engine.Send(pid, DeliveryEvent{Subject: aliasSubject, Env: aliasEnv})
+	}
+	wildcardEnv := env
+	wildcardSeqAssigned := false
+	for _, pid := range wildcardTargets {
+		if pid == nil {
+			continue
+		}
+		if sent != nil {
+			if _, exists := sent[pid.String()]; exists {
+				continue
+			}
+			sent[pid.String()] = struct{}{}
+		}
+		if !wildcardSeqAssigned {
+			wildcardEnv.Seq = r.nextDeliverySeq(wildcardSubject.String())
+			wildcardSeqAssigned = true
+		}
+		r.engine.Send(pid, DeliveryEvent{Subject: wildcardSubject, Env: wildcardEnv})
 	}
 }
 
@@ -553,7 +586,7 @@ func allowEnvelopeTimeframeOverride(eventType string) bool {
 		return true
 	case et == "aggregation.candle", et == "aggregation.stats":
 		return true
-	case et == "signal.composite":
+	case et == "signal.composite", et == "signal.event":
 		return true
 	default:
 		return false

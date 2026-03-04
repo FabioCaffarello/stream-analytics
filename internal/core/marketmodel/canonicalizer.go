@@ -118,6 +118,8 @@ func ChannelFromEventType(eventType string) Channel {
 		return ChannelStats
 	case "insights.microstructure_evidence", "insights.regime_evidence", "evidence.microstructure_evidence":
 		return ChannelEvidence
+	case "signal.event", "signal.composite":
+		return ChannelSignal
 	default:
 		return ""
 	}

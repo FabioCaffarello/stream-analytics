@@ -15,6 +15,7 @@ use (
 	./internal/core/insights
 	./internal/core/marketdata
 	./internal/core/marketmodel
+	./internal/core/signal
 	./internal/core/signals
 	./internal/interfaces
 	./internal/shared

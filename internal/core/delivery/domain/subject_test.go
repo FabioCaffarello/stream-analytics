@@ -30,6 +30,19 @@ func TestParseSubject_Signal(t *testing.T) {
 	}
 }
 
+func TestParseSubject_SignalWildcardKind(t *testing.T) {
+	sub, p := domain.ParseSubject("signal/*/binance/BTC-USDT/1m")
+	if p != nil {
+		t.Fatalf("ParseSubject signal wildcard: %v", p)
+	}
+	if got, want := sub.String(), "signal/*/binance/BTCUSDT/1m"; got != want {
+		t.Fatalf("subject = %q, want %q", got, want)
+	}
+	if !sub.IsSignal() {
+		t.Fatal("expected signal subject")
+	}
+}
+
 func TestParseSubject_invalid(t *testing.T) {
 	_, p := domain.ParseSubject("marketdata.trade/binance/BTC-USDT")
 	if p == nil {
@@ -62,6 +75,24 @@ func TestSubjectFromEnvelope_Signal(t *testing.T) {
 		t.Fatalf("SubjectFromEnvelope signal: %v", p)
 	}
 	if got, want := sub.String(), "signal/absorption/binance/BTCUSDT/1m"; got != want {
+		t.Fatalf("subject = %q, want %q", got, want)
+	}
+}
+
+func TestSubjectFromEnvelope_SignalEvent(t *testing.T) {
+	env := envelope.Envelope{
+		Type:       "signal.event",
+		Venue:      "binance",
+		Instrument: "BTC-USDT",
+		Meta: map[string]string{
+			"kind": "liquidity_collapse",
+		},
+	}
+	sub, p := domain.SubjectFromEnvelope(env, "raw")
+	if p != nil {
+		t.Fatalf("SubjectFromEnvelope signal.event: %v", p)
+	}
+	if got, want := sub.String(), "signal/liquidity_collapse/binance/BTCUSDT/raw"; got != want {
 		t.Fatalf("subject = %q, want %q", got, want)
 	}
 }

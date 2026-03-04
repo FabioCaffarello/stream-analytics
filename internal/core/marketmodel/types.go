@@ -24,6 +24,7 @@ const (
 	ChannelCandle       Channel = "candle"
 	ChannelStats        Channel = "stats"
 	ChannelEvidence     Channel = "evidence"
+	ChannelSignal       Channel = "signal"
 	ChannelMarkPrice    Channel = "mark_price"
 	ChannelLiquidation  Channel = "liquidation"
 )
@@ -74,6 +75,7 @@ func NewChannel(raw string) (Channel, *problem.Problem) {
 		ChannelCandle,
 		ChannelStats,
 		ChannelEvidence,
+		ChannelSignal,
 		ChannelMarkPrice,
 		ChannelLiquidation:
 		return c, nil

@@ -10,7 +10,7 @@ func TestAbsorptionNoEmitNormal(t *testing.T) {
 	rule := NewAbsorptionRule(DefaultRuleConfig())
 	for i := range 20 {
 		events := rule.OnEvent(domain.RuleEvent{
-			Kind: domain.EventKindTrade, Venue: "binance", Instrument: "BTC-USDT",
+			Kind: domain.EventKindTrade, Venue: "binance", Symbol: "BTC-USDT",
 			TsServer: int64(i) * 1000, Seq: int64(i),
 			TradePrice: 50000 + float64(i)*10, // price moves
 			TradeSize:  1.0,
@@ -27,7 +27,7 @@ func TestAbsorptionEmitOnAbsorption(t *testing.T) {
 	// Build baseline with small trades
 	for i := range 15 {
 		rule.OnEvent(domain.RuleEvent{
-			Kind: domain.EventKindTrade, Venue: "binance", Instrument: "BTC-USDT",
+			Kind: domain.EventKindTrade, Venue: "binance", Symbol: "BTC-USDT",
 			TsServer: int64(i) * 1000, Seq: int64(i),
 			TradePrice: 50000.0, // stable price
 			TradeSize:  0.1,
@@ -38,7 +38,7 @@ func TestAbsorptionEmitOnAbsorption(t *testing.T) {
 	var emitted bool
 	for i := 15; i < 200; i++ {
 		events := rule.OnEvent(domain.RuleEvent{
-			Kind: domain.EventKindTrade, Venue: "binance", Instrument: "BTC-USDT",
+			Kind: domain.EventKindTrade, Venue: "binance", Symbol: "BTC-USDT",
 			TsServer: int64(i) * 100, Seq: int64(i),
 			TradePrice: 50000.0, // no price movement
 			TradeSize:  5.0,     // 50x normal
@@ -46,8 +46,11 @@ func TestAbsorptionEmitOnAbsorption(t *testing.T) {
 		})
 		if len(events) > 0 {
 			emitted = true
-			if events[0].Kind != domain.Absorption {
-				t.Errorf("kind = %s, want absorption", events[0].Kind)
+			if events[0].Type != domain.Absorption {
+				t.Errorf("kind = %s, want absorption", events[0].Type)
+			}
+			if events[0].Seq <= 0 || events[0].TsServer <= 0 {
+				t.Fatalf("expected positive seq/ts, got seq=%d ts=%d", events[0].Seq, events[0].TsServer)
 			}
 			break
 		}
@@ -62,7 +65,7 @@ func TestAbsorptionCooldownRespected(t *testing.T) {
 	// Build baseline
 	for i := range 15 {
 		rule.OnEvent(domain.RuleEvent{
-			Kind: domain.EventKindTrade, Venue: "binance", Instrument: "BTC-USDT",
+			Kind: domain.EventKindTrade, Venue: "binance", Symbol: "BTC-USDT",
 			TsServer: int64(i) * 1000, Seq: int64(i),
 			TradePrice: 50000.0, TradeSize: 0.1, TradeSide: "buy",
 		})
@@ -71,7 +74,7 @@ func TestAbsorptionCooldownRespected(t *testing.T) {
 	firstEmitTs := int64(0)
 	for i := 15; i < 500; i++ {
 		events := rule.OnEvent(domain.RuleEvent{
-			Kind: domain.EventKindTrade, Venue: "binance", Instrument: "BTC-USDT",
+			Kind: domain.EventKindTrade, Venue: "binance", Symbol: "BTC-USDT",
 			TsServer: int64(i) * 100, Seq: int64(i),
 			TradePrice: 50000.0, TradeSize: 5.0, TradeSide: "buy",
 		})
@@ -86,7 +89,7 @@ func TestAbsorptionCooldownRespected(t *testing.T) {
 
 	// Immediately after — should be in cooldown
 	events := rule.OnEvent(domain.RuleEvent{
-		Kind: domain.EventKindTrade, Venue: "binance", Instrument: "BTC-USDT",
+		Kind: domain.EventKindTrade, Venue: "binance", Symbol: "BTC-USDT",
 		TsServer: firstEmitTs + 100, Seq: 999,
 		TradePrice: 50000.0, TradeSize: 100.0, TradeSide: "buy",
 	})
@@ -98,11 +101,11 @@ func TestAbsorptionCooldownRespected(t *testing.T) {
 func TestAbsorptionMultiStream(t *testing.T) {
 	rule := NewAbsorptionRule(DefaultRuleConfig())
 	rule.OnEvent(domain.RuleEvent{
-		Kind: domain.EventKindTrade, Venue: "binance", Instrument: "BTC-USDT",
+		Kind: domain.EventKindTrade, Venue: "binance", Symbol: "BTC-USDT",
 		TsServer: 1000, Seq: 1, TradePrice: 50000, TradeSize: 1, TradeSide: "buy",
 	})
 	rule.OnEvent(domain.RuleEvent{
-		Kind: domain.EventKindTrade, Venue: "coinbase", Instrument: "ETH-USD",
+		Kind: domain.EventKindTrade, Venue: "coinbase", Symbol: "ETH-USD",
 		TsServer: 1000, Seq: 2, TradePrice: 3000, TradeSize: 1, TradeSide: "sell",
 	})
 	if rule.StreamCount() != 2 {
@@ -113,7 +116,7 @@ func TestAbsorptionMultiStream(t *testing.T) {
 func TestAbsorptionIgnoresNonTrade(t *testing.T) {
 	rule := NewAbsorptionRule(DefaultRuleConfig())
 	events := rule.OnEvent(domain.RuleEvent{
-		Kind: domain.EventKindBook, Venue: "binance", Instrument: "BTC-USDT",
+		Kind: domain.EventKindBook, Venue: "binance", Symbol: "BTC-USDT",
 		TsServer: 1000, Seq: 1, BestBid: 50000, BestAsk: 50001,
 	})
 	if len(events) != 0 {

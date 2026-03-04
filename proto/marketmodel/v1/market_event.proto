@@ -32,6 +32,18 @@ enum Channel {
   CHANNEL_STATS = 5;
   // CHANNEL_EVIDENCE carries evidence events.
   CHANNEL_EVIDENCE = 6;
+  // CHANNEL_SIGNAL carries signal events.
+  CHANNEL_SIGNAL = 7;
+}
+
+// SignalScope identifies whether a signal targets one stream or market scope.
+enum SignalScope {
+  // SIGNAL_SCOPE_UNSPECIFIED indicates unknown scope.
+  SIGNAL_SCOPE_UNSPECIFIED = 0;
+  // SIGNAL_SCOPE_STREAM targets one venue+symbol stream.
+  SIGNAL_SCOPE_STREAM = 1;
+  // SIGNAL_SCOPE_MARKET targets market-wide context.
+  SIGNAL_SCOPE_MARKET = 2;
 }
 
 // StreamKey is the deterministic stream identity used by canonical events.
@@ -198,6 +210,60 @@ message Stats {
   reserved 100 to 199;
 }
 
+// SignalFeature is one named numeric feature supporting a signal event.
+message SignalFeature {
+  // key is the deterministic feature key.
+  string key = 1;
+  // value is the numeric feature value.
+  double value = 2;
+
+  reserved 100 to 199;
+}
+
+// SignalInputSeqRange captures one source stream sequence range used by a signal.
+message SignalInputSeqRange {
+  // venue is the canonical venue identifier for this range.
+  string venue = 1;
+  // symbol is the canonical symbol identifier for this range.
+  string symbol = 2;
+  // seq_start is the first consumed sequence.
+  int64 seq_start = 3;
+  // seq_end is the last consumed sequence.
+  int64 seq_end = 4;
+
+  reserved 100 to 199;
+}
+
+// SignalEvent is one canonical deterministic signal payload.
+message SignalEvent {
+  // type is the signal class identifier.
+  string type = 1;
+  // ts_server is deterministic server timestamp in Unix milliseconds.
+  int64 ts_server = 2;
+  // scope identifies stream or market-level scope.
+  SignalScope scope = 3;
+  // venue is populated for SIGNAL_SCOPE_STREAM.
+  string venue = 4;
+  // symbol is populated for SIGNAL_SCOPE_STREAM.
+  string symbol = 5;
+  // severity classifies signal urgency.
+  evidence.v1.Severity severity = 6;
+  // confidence is a deterministic value in [0,1].
+  double confidence = 7;
+  // features carries sorted deterministic signal features.
+  repeated SignalFeature features = 8;
+  // explanation is a human-readable rationale.
+  string explanation = 9;
+  // rule_version is the emitting deterministic rule version.
+  string rule_version = 10;
+  // input_watermark carries consumed source sequence ranges.
+  repeated SignalInputSeqRange input_watermark = 11;
+  // correlation_id is a deterministic correlation identifier.
+  string correlation_id = 12;
+
+  reserved 100 to 199;
+}
+
 // MarketEvent is a typed canonical market event envelope.
 message MarketEvent {
   // meta carries deterministic stream metadata.
@@ -217,6 +283,8 @@ message MarketEvent {
     Stats stats = 6;
     // evidence carries canonical evidence payload.
     evidence.v1.MicrostructureEvidenceV1 evidence = 7;
+    // signal carries canonical signal payload.
+    SignalEvent signal = 8;
   }
 
   reserved 100 to 199;

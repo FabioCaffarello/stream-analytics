@@ -85,8 +85,8 @@ func (Severity) EnumDescriptor() ([]byte, []int) {
 // EvidenceFeature is a single named numeric observation supporting the evidence.
 type EvidenceFeature struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Name is the feature tag (e.g. "spread_bps", "depth_drop_pct").
-	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// key is the deterministic feature key.
+	Key string `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
 	// Value is the numeric observation.
 	Value         float64 `protobuf:"fixed64,2,opt,name=value,proto3" json:"value,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -123,9 +123,9 @@ func (*EvidenceFeature) Descriptor() ([]byte, []int) {
 	return file_evidence_v1_evidence_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *EvidenceFeature) GetName() string {
+func (x *EvidenceFeature) GetKey() string {
 	if x != nil {
-		return x.Name
+		return x.Key
 	}
 	return ""
 }
@@ -137,34 +137,95 @@ func (x *EvidenceFeature) GetValue() float64 {
 	return 0
 }
 
+// InputWatermark captures the input sequence range used to evaluate one evidence event.
+type InputWatermark struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// seq_start is the first input sequence used for this evidence.
+	SeqStart int64 `protobuf:"varint,1,opt,name=seq_start,json=seqStart,proto3" json:"seq_start,omitempty"`
+	// seq_end is the last input sequence used for this evidence.
+	SeqEnd        int64 `protobuf:"varint,2,opt,name=seq_end,json=seqEnd,proto3" json:"seq_end,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InputWatermark) Reset() {
+	*x = InputWatermark{}
+	mi := &file_evidence_v1_evidence_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InputWatermark) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InputWatermark) ProtoMessage() {}
+
+func (x *InputWatermark) ProtoReflect() protoreflect.Message {
+	mi := &file_evidence_v1_evidence_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InputWatermark.ProtoReflect.Descriptor instead.
+func (*InputWatermark) Descriptor() ([]byte, []int) {
+	return file_evidence_v1_evidence_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *InputWatermark) GetSeqStart() int64 {
+	if x != nil {
+		return x.SeqStart
+	}
+	return 0
+}
+
+func (x *InputWatermark) GetSeqEnd() int64 {
+	if x != nil {
+		return x.SeqEnd
+	}
+	return 0
+}
+
 // MicrostructureEvidenceV1 models one deterministic microstructure observation.
 type MicrostructureEvidenceV1 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Kind is the evidence class (e.g. "spread_explosion").
-	Kind string `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	// type is the evidence class (e.g. "spread_explosion").
+	Type string `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`
 	// TsServer is the deterministic server timestamp in Unix milliseconds.
 	TsServer int64 `protobuf:"varint,2,opt,name=ts_server,json=tsServer,proto3" json:"ts_server,omitempty"`
 	// Venue is the canonical venue identifier.
 	Venue string `protobuf:"bytes,3,opt,name=venue,proto3" json:"venue,omitempty"`
 	// Symbol is the canonical instrument identifier.
 	Symbol string `protobuf:"bytes,4,opt,name=symbol,proto3" json:"symbol,omitempty"`
+	// stream_id is the canonical source stream identity.
+	StreamId string `protobuf:"bytes,5,opt,name=stream_id,json=streamId,proto3" json:"stream_id,omitempty"`
+	// seq is the canonical source stream sequence.
+	Seq int64 `protobuf:"varint,6,opt,name=seq,proto3" json:"seq,omitempty"`
 	// Severity classifies urgency.
-	Severity Severity `protobuf:"varint,5,opt,name=severity,proto3,enum=evidence.v1.Severity" json:"severity,omitempty"`
+	Severity Severity `protobuf:"varint,7,opt,name=severity,proto3,enum=evidence.v1.Severity" json:"severity,omitempty"`
 	// Confidence is a value in [0,1].
-	Confidence float64 `protobuf:"fixed64,6,opt,name=confidence,proto3" json:"confidence,omitempty"`
-	// Features carries parallel named numeric observations.
-	Features []*EvidenceFeature `protobuf:"bytes,7,rep,name=features,proto3" json:"features,omitempty"`
-	// Reason is a human-readable explanation of the detection.
-	Reason string `protobuf:"bytes,8,opt,name=reason,proto3" json:"reason,omitempty"`
-	// SeqTrigger is the envelope sequence that triggered the emission.
-	SeqTrigger    int64 `protobuf:"varint,9,opt,name=seq_trigger,json=seqTrigger,proto3" json:"seq_trigger,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Confidence float64 `protobuf:"fixed64,8,opt,name=confidence,proto3" json:"confidence,omitempty"`
+	// features carries sorted deterministic key/value observations.
+	Features []*EvidenceFeature `protobuf:"bytes,9,rep,name=features,proto3" json:"features,omitempty"`
+	// explanation is a human-readable explanation of the detection.
+	Explanation string `protobuf:"bytes,10,opt,name=explanation,proto3" json:"explanation,omitempty"`
+	// rule_version is the deterministic rule version that produced the event.
+	RuleVersion string `protobuf:"bytes,11,opt,name=rule_version,json=ruleVersion,proto3" json:"rule_version,omitempty"`
+	// input_watermark captures the source sequence span consumed by the rule.
+	InputWatermark *InputWatermark `protobuf:"bytes,12,opt,name=input_watermark,json=inputWatermark,proto3" json:"input_watermark,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *MicrostructureEvidenceV1) Reset() {
 	*x = MicrostructureEvidenceV1{}
-	mi := &file_evidence_v1_evidence_proto_msgTypes[1]
+	mi := &file_evidence_v1_evidence_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -176,7 +237,7 @@ func (x *MicrostructureEvidenceV1) String() string {
 func (*MicrostructureEvidenceV1) ProtoMessage() {}
 
 func (x *MicrostructureEvidenceV1) ProtoReflect() protoreflect.Message {
-	mi := &file_evidence_v1_evidence_proto_msgTypes[1]
+	mi := &file_evidence_v1_evidence_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -189,12 +250,12 @@ func (x *MicrostructureEvidenceV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MicrostructureEvidenceV1.ProtoReflect.Descriptor instead.
 func (*MicrostructureEvidenceV1) Descriptor() ([]byte, []int) {
-	return file_evidence_v1_evidence_proto_rawDescGZIP(), []int{1}
+	return file_evidence_v1_evidence_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *MicrostructureEvidenceV1) GetKind() string {
+func (x *MicrostructureEvidenceV1) GetType() string {
 	if x != nil {
-		return x.Kind
+		return x.Type
 	}
 	return ""
 }
@@ -220,6 +281,20 @@ func (x *MicrostructureEvidenceV1) GetSymbol() string {
 	return ""
 }
 
+func (x *MicrostructureEvidenceV1) GetStreamId() string {
+	if x != nil {
+		return x.StreamId
+	}
+	return ""
+}
+
+func (x *MicrostructureEvidenceV1) GetSeq() int64 {
+	if x != nil {
+		return x.Seq
+	}
+	return 0
+}
+
 func (x *MicrostructureEvidenceV1) GetSeverity() Severity {
 	if x != nil {
 		return x.Severity
@@ -241,41 +316,54 @@ func (x *MicrostructureEvidenceV1) GetFeatures() []*EvidenceFeature {
 	return nil
 }
 
-func (x *MicrostructureEvidenceV1) GetReason() string {
+func (x *MicrostructureEvidenceV1) GetExplanation() string {
 	if x != nil {
-		return x.Reason
+		return x.Explanation
 	}
 	return ""
 }
 
-func (x *MicrostructureEvidenceV1) GetSeqTrigger() int64 {
+func (x *MicrostructureEvidenceV1) GetRuleVersion() string {
 	if x != nil {
-		return x.SeqTrigger
+		return x.RuleVersion
 	}
-	return 0
+	return ""
+}
+
+func (x *MicrostructureEvidenceV1) GetInputWatermark() *InputWatermark {
+	if x != nil {
+		return x.InputWatermark
+	}
+	return nil
 }
 
 var File_evidence_v1_evidence_proto protoreflect.FileDescriptor
 
 const file_evidence_v1_evidence_proto_rawDesc = "" +
 	"\n" +
-	"\x1aevidence/v1/evidence.proto\x12\vevidence.v1\";\n" +
-	"\x0fEvidenceFeature\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x01R\x05value\"\xc6\x02\n" +
+	"\x1aevidence/v1/evidence.proto\x12\vevidence.v1\"9\n" +
+	"\x0fEvidenceFeature\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x01R\x05value\"F\n" +
+	"\x0eInputWatermark\x12\x1b\n" +
+	"\tseq_start\x18\x01 \x01(\x03R\bseqStart\x12\x17\n" +
+	"\aseq_end\x18\x02 \x01(\x03R\x06seqEnd\"\xc7\x03\n" +
 	"\x18MicrostructureEvidenceV1\x12\x12\n" +
-	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x1b\n" +
+	"\x04type\x18\x01 \x01(\tR\x04type\x12\x1b\n" +
 	"\tts_server\x18\x02 \x01(\x03R\btsServer\x12\x14\n" +
 	"\x05venue\x18\x03 \x01(\tR\x05venue\x12\x16\n" +
-	"\x06symbol\x18\x04 \x01(\tR\x06symbol\x121\n" +
-	"\bseverity\x18\x05 \x01(\x0e2\x15.evidence.v1.SeverityR\bseverity\x12\x1e\n" +
+	"\x06symbol\x18\x04 \x01(\tR\x06symbol\x12\x1b\n" +
+	"\tstream_id\x18\x05 \x01(\tR\bstreamId\x12\x10\n" +
+	"\x03seq\x18\x06 \x01(\x03R\x03seq\x121\n" +
+	"\bseverity\x18\a \x01(\x0e2\x15.evidence.v1.SeverityR\bseverity\x12\x1e\n" +
 	"\n" +
-	"confidence\x18\x06 \x01(\x01R\n" +
+	"confidence\x18\b \x01(\x01R\n" +
 	"confidence\x128\n" +
-	"\bfeatures\x18\a \x03(\v2\x1c.evidence.v1.EvidenceFeatureR\bfeatures\x12\x16\n" +
-	"\x06reason\x18\b \x01(\tR\x06reason\x12\x1f\n" +
-	"\vseq_trigger\x18\t \x01(\x03R\n" +
-	"seqTriggerJ\x05\bd\x10\xc8\x01*u\n" +
+	"\bfeatures\x18\t \x03(\v2\x1c.evidence.v1.EvidenceFeatureR\bfeatures\x12 \n" +
+	"\vexplanation\x18\n" +
+	" \x01(\tR\vexplanation\x12!\n" +
+	"\frule_version\x18\v \x01(\tR\vruleVersion\x12D\n" +
+	"\x0finput_watermark\x18\f \x01(\v2\x1b.evidence.v1.InputWatermarkR\x0einputWatermarkJ\x05\bd\x10\xc8\x01*u\n" +
 	"\bSeverity\x12\x18\n" +
 	"\x14SEVERITY_UNSPECIFIED\x10\x00\x12\x10\n" +
 	"\fSEVERITY_LOW\x10\x01\x12\x13\n" +
@@ -296,20 +384,22 @@ func file_evidence_v1_evidence_proto_rawDescGZIP() []byte {
 }
 
 var file_evidence_v1_evidence_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_evidence_v1_evidence_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_evidence_v1_evidence_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_evidence_v1_evidence_proto_goTypes = []any{
 	(Severity)(0),                    // 0: evidence.v1.Severity
 	(*EvidenceFeature)(nil),          // 1: evidence.v1.EvidenceFeature
-	(*MicrostructureEvidenceV1)(nil), // 2: evidence.v1.MicrostructureEvidenceV1
+	(*InputWatermark)(nil),           // 2: evidence.v1.InputWatermark
+	(*MicrostructureEvidenceV1)(nil), // 3: evidence.v1.MicrostructureEvidenceV1
 }
 var file_evidence_v1_evidence_proto_depIdxs = []int32{
 	0, // 0: evidence.v1.MicrostructureEvidenceV1.severity:type_name -> evidence.v1.Severity
 	1, // 1: evidence.v1.MicrostructureEvidenceV1.features:type_name -> evidence.v1.EvidenceFeature
-	2, // [2:2] is the sub-list for method output_type
-	2, // [2:2] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	2, // 2: evidence.v1.MicrostructureEvidenceV1.input_watermark:type_name -> evidence.v1.InputWatermark
+	3, // [3:3] is the sub-list for method output_type
+	3, // [3:3] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_evidence_v1_evidence_proto_init() }
@@ -323,7 +413,7 @@ func file_evidence_v1_evidence_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_evidence_v1_evidence_proto_rawDesc), len(file_evidence_v1_evidence_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   2,
+			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

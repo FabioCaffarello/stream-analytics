@@ -9,21 +9,39 @@ import (
 // spreadStreamState holds per-stream rolling state for spread explosion detection.
 type spreadStreamState struct {
 	ring     RingFloat64
+	seqRing  RingInt64
 	cooldown streamEntry
+}
+
+// SpreadExplosionThresholds configures detection thresholds for spread explosions.
+type SpreadExplosionThresholds struct {
+	MinSamples   int
+	MinZScore    float64
+	MinSpreadBps float64
+}
+
+func defaultSpreadExplosionThresholds() SpreadExplosionThresholds {
+	return SpreadExplosionThresholds{
+		MinSamples:   10,
+		MinZScore:    2.5,
+		MinSpreadBps: 10,
+	}
 }
 
 // SpreadExplosionRule detects when the bid-ask spread suddenly widens
 // beyond statistical norms (z-score based on rolling history).
 type SpreadExplosionRule struct {
-	cfg     RuleConfig
-	streams map[string]*spreadStreamState
+	cfg        RuleConfig
+	thresholds SpreadExplosionThresholds
+	streams    map[string]*spreadStreamState
 }
 
 // NewSpreadExplosionRule creates a spread explosion detector.
 func NewSpreadExplosionRule(cfg RuleConfig) *SpreadExplosionRule {
 	return &SpreadExplosionRule{
-		cfg:     cfg,
-		streams: make(map[string]*spreadStreamState),
+		cfg:        cfg,
+		thresholds: defaultSpreadExplosionThresholds(),
+		streams:    make(map[string]*spreadStreamState),
 	}
 }
 
@@ -42,9 +60,9 @@ func (r *SpreadExplosionRule) OnEvent(event domain.RuleEvent) []domain.EvidenceE
 
 	spreadBps := SpreadBps(event.BestBid, event.BestAsk)
 	st.ring.Push(spreadBps)
+	st.seqRing.Push(event.Seq)
 
-	// Need at least 10 observations for meaningful statistics
-	if st.ring.Len() < 10 {
+	if st.ring.Len() < r.thresholds.MinSamples {
 		return nil
 	}
 
@@ -52,8 +70,7 @@ func (r *SpreadExplosionRule) OnEvent(event domain.RuleEvent) []domain.EvidenceE
 	stddev := st.ring.StdDev()
 	z := ZScore(spreadBps, mean, stddev)
 
-	// Threshold: z > 2.5 AND absolute spread > 10 bps
-	if z <= 2.5 || spreadBps <= 10 {
+	if z <= r.thresholds.MinZScore || spreadBps <= r.thresholds.MinSpreadBps {
 		return nil
 	}
 
@@ -65,16 +82,25 @@ func (r *SpreadExplosionRule) OnEvent(event domain.RuleEvent) []domain.EvidenceE
 	sev := severityFromZ(z)
 
 	return []domain.EvidenceEvent{{
-		Kind:        domain.SpreadExplosion,
-		TsServer:    event.TsServer,
-		Venue:       event.Venue,
-		Symbol:      event.Instrument,
-		Severity:    sev,
-		Confidence:  confidenceFromZ(z),
-		Features:    []string{"spread_bps", "z_score", "mean_bps"},
-		FeatureVals: []float64{spreadBps, z, mean},
-		Reason:      "spread z-score exceeded threshold",
-		SeqTrigger:  event.Seq,
+		Type:       domain.SpreadExplosion,
+		TsServer:   event.TsServer,
+		Venue:      event.Venue,
+		Symbol:     event.Symbol,
+		StreamID:   resolveStreamID(event),
+		Seq:        event.Seq,
+		Severity:   sev,
+		Confidence: confidenceFromZ(z),
+		Features: domain.FeaturesFromMap(map[string]float64{
+			"mean_bps":   mean,
+			"spread_bps": spreadBps,
+			"z_score":    z,
+		}),
+		Explanation: "spread z-score exceeded threshold",
+		RuleVersion: domain.RuleVersionV0,
+		InputWatermark: domain.InputWatermark{
+			SeqStart: st.seqRing.Oldest(),
+			SeqEnd:   event.Seq,
+		},
 	}}
 }
 

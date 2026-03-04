@@ -74,16 +74,23 @@ func TestSignalsSubsystem_ComposesAndPublishesSignal(t *testing.T) {
 	}
 
 	microPayload, p := codec.EncodePayload(evidencedomain.MicrostructureEvidenceType, evidencedomain.MicrostructureEvidenceVersion, envelope.ContentTypeJSON, evidencedomain.EvidenceEvent{
-		Kind:        evidencedomain.Absorption,
-		TsServer:    1700000060000,
-		Venue:       "binance",
-		Symbol:      "BTCUSDT",
-		Severity:    evidencedomain.SeverityMedium,
-		Confidence:  0.6,
-		Features:    []string{"volume_ratio"},
-		FeatureVals: []float64{2.1},
-		Reason:      "absorption detected",
-		SeqTrigger:  77,
+		Type:       evidencedomain.Absorption,
+		TsServer:   1700000060000,
+		Venue:      "binance",
+		Symbol:     "BTCUSDT",
+		StreamID:   "binance/BTCUSDT/trade",
+		Seq:        77,
+		Severity:   evidencedomain.SeverityMedium,
+		Confidence: 0.6,
+		Features: []evidencedomain.EvidenceFeature{
+			{Key: "volume_ratio", Value: 2.1},
+		},
+		Explanation: "absorption detected",
+		RuleVersion: evidencedomain.RuleVersionV0,
+		InputWatermark: evidencedomain.InputWatermark{
+			SeqStart: 77,
+			SeqEnd:   77,
+		},
 	})
 	if p != nil {
 		t.Fatalf("encode micro payload: %v", p)

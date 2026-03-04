@@ -18,16 +18,16 @@ func NewEvidenceBufferPolicy(maxPerKind int) (EvidenceBufferPolicy, *problem.Pro
 // EvidenceBuffer is a deterministic per-kind ring buffer.
 type EvidenceBuffer struct {
 	policy EvidenceBufferPolicy
-	rings  map[EvidenceKind][]EvidenceEvent
-	head   map[EvidenceKind]int
+	rings  map[EvidenceType][]EvidenceEvent
+	head   map[EvidenceType]int
 }
 
 // NewEvidenceBuffer creates a bounded evidence buffer.
 func NewEvidenceBuffer(policy EvidenceBufferPolicy) *EvidenceBuffer {
 	return &EvidenceBuffer{
 		policy: policy,
-		rings:  make(map[EvidenceKind][]EvidenceEvent, len(validKinds)),
-		head:   make(map[EvidenceKind]int, len(validKinds)),
+		rings:  make(map[EvidenceType][]EvidenceEvent, len(validTypes)),
+		head:   make(map[EvidenceType]int, len(validTypes)),
 	}
 }
 
@@ -40,24 +40,24 @@ func (b *EvidenceBuffer) Push(ev EvidenceEvent) (overwritten bool, p *problem.Pr
 	if p := ev.Validate(); p != nil {
 		return false, p
 	}
-	ring := b.rings[ev.Kind]
+	ring := b.rings[ev.Type]
 	if len(ring) < b.policy.MaxPerKind {
-		b.rings[ev.Kind] = append(ring, ev)
+		b.rings[ev.Type] = append(ring, ev)
 		return false, nil
 	}
 	if len(ring) == 0 {
 		// Defensive fallback when buffer is misconfigured.
 		return false, problem.New(problem.ValidationFailed, "evidence buffer ring is empty under full state")
 	}
-	idx := b.head[ev.Kind]
+	idx := b.head[ev.Type]
 	ring[idx] = ev
-	b.head[ev.Kind] = (idx + 1) % b.policy.MaxPerKind
-	b.rings[ev.Kind] = ring
+	b.head[ev.Type] = (idx + 1) % b.policy.MaxPerKind
+	b.rings[ev.Type] = ring
 	return true, nil
 }
 
 // List returns events in chronological order (oldest -> newest).
-func (b *EvidenceBuffer) List(kind EvidenceKind) []EvidenceEvent {
+func (b *EvidenceBuffer) List(kind EvidenceType) []EvidenceEvent {
 	if b == nil {
 		return nil
 	}
@@ -79,7 +79,7 @@ func (b *EvidenceBuffer) List(kind EvidenceKind) []EvidenceEvent {
 }
 
 // Size returns current number of entries for one kind.
-func (b *EvidenceBuffer) Size(kind EvidenceKind) int {
+func (b *EvidenceBuffer) Size(kind EvidenceType) int {
 	if b == nil {
 		return 0
 	}

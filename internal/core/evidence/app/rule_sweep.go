@@ -76,24 +76,25 @@ func (r *SweepRule) OnEvent(event domain.RuleEvent) []domain.EvidenceEvent {
 	st.cooldown.lastEmitTs = event.TsServer
 
 	return []domain.EvidenceEvent{{
-		Kind:       domain.Sweep,
+		Type:       domain.Sweep,
 		TsServer:   event.TsServer,
 		Venue:      event.Venue,
-		Symbol:     event.Instrument,
+		Symbol:     event.Symbol,
+		StreamID:   resolveStreamID(event),
+		Seq:        event.Seq,
 		Severity:   sweepSeverity(levelDrop, depthDrop),
 		Confidence: sweepConfidence(levelDrop, depthDrop),
-		Features: []string{
-			"level_drop",
-			"depth_drop_pct",
-			"side",
+		Features: domain.FeaturesFromMap(map[string]float64{
+			"depth_drop_pct": depthDrop * 100,
+			"level_drop":     float64(levelDrop),
+			"side":           sideToNumeric(side),
+		}),
+		Explanation: "order book " + side + " side depleted across multiple levels",
+		RuleVersion: domain.RuleVersionV0,
+		InputWatermark: domain.InputWatermark{
+			SeqStart: event.Seq,
+			SeqEnd:   event.Seq,
 		},
-		FeatureVals: []float64{
-			float64(levelDrop),
-			depthDrop * 100,
-			sideToNumeric(side),
-		},
-		Reason:     "order book " + side + " side depleted across multiple levels",
-		SeqTrigger: event.Seq,
 	}}
 }
 

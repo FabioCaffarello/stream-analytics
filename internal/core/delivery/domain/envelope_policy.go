@@ -24,6 +24,7 @@ var deliveryContracts = map[string]deliveryContract{
 	"insights.microstructure_evidence":    {version: 1, ownerBC: "insights", producerBC: "evidence", schemaAuthority: "evidence"},
 	"insights.regime_evidence":            {version: 1, ownerBC: "insights", producerBC: "evidence", schemaAuthority: "evidence"},
 	"signal.composite":                    {version: 1, ownerBC: "signals", producerBC: "signals", schemaAuthority: "signals"},
+	"signal.event":                        {version: 1, ownerBC: "signals", producerBC: "signals", schemaAuthority: "signals"},
 	"aggregation.snapshot":                {version: 1, ownerBC: "aggregation", producerBC: "aggregation", schemaAuthority: "aggregation"},
 	"aggregation.orderbook_inconsistency": {version: 1, ownerBC: "aggregation", producerBC: "aggregation", schemaAuthority: "aggregation"},
 	"aggregation.candle":                  {version: 1, ownerBC: "aggregation", producerBC: "aggregation", schemaAuthority: "aggregation"},

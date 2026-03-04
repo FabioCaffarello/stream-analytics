@@ -1,7 +1,9 @@
 package marketmodel
 
 import (
+	"math"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/market-raccoon/internal/shared/problem"
@@ -14,6 +16,7 @@ const (
 	CandleVersion       uint16 = SchemaVersionV1
 	StatsVersion        uint16 = SchemaVersionV1
 	EvidenceVersion     uint16 = SchemaVersionV1
+	SignalVersion       uint16 = SchemaVersionV1
 )
 
 type Level struct {
@@ -100,18 +103,62 @@ type Stats struct {
 }
 
 type Evidence struct {
-	Kind       string            `json:"kind"`
-	Venue      string            `json:"venue"`
-	Instrument string            `json:"instrument"`
-	Severity   string            `json:"severity"`
-	Score      float64           `json:"score"`
-	Features   []EvidenceFeature `json:"features"`
-	Timestamp  int64             `json:"timestamp"`
+	Type           string            `json:"type"`
+	TsServer       int64             `json:"ts_server"`
+	Venue          string            `json:"venue"`
+	Symbol         string            `json:"symbol"`
+	StreamID       string            `json:"stream_id"`
+	Seq            int64             `json:"seq"`
+	Severity       string            `json:"severity"`
+	Confidence     float64           `json:"confidence"`
+	Features       []EvidenceFeature `json:"features"`
+	Explanation    string            `json:"explanation"`
+	RuleVersion    string            `json:"rule_version"`
+	InputWatermark InputWatermark    `json:"input_watermark"`
 }
 
 type EvidenceFeature struct {
-	Name  string  `json:"name"`
+	Key   string  `json:"key"`
 	Value float64 `json:"value"`
+}
+
+type InputWatermark struct {
+	SeqStart int64 `json:"seq_start"`
+	SeqEnd   int64 `json:"seq_end"`
+}
+
+type SignalScope string
+
+const (
+	SignalScopeStream SignalScope = "stream"
+	SignalScopeMarket SignalScope = "market"
+)
+
+type SignalFeature struct {
+	Key   string  `json:"key"`
+	Value float64 `json:"value"`
+}
+
+type SignalInputSeqRange struct {
+	Venue    string `json:"venue"`
+	Symbol   string `json:"symbol"`
+	SeqStart int64  `json:"seq_start"`
+	SeqEnd   int64  `json:"seq_end"`
+}
+
+type SignalEvent struct {
+	Type           string                `json:"type"`
+	TsServer       int64                 `json:"ts_server"`
+	Scope          SignalScope           `json:"scope"`
+	Venue          string                `json:"venue,omitempty"`
+	Symbol         string                `json:"symbol,omitempty"`
+	Severity       string                `json:"severity"`
+	Confidence     float64               `json:"confidence"`
+	Features       []SignalFeature       `json:"features"`
+	Explanation    string                `json:"explanation"`
+	RuleVersion    string                `json:"rule_version"`
+	InputWatermark []SignalInputSeqRange `json:"input_watermark"`
+	CorrelationID  string                `json:"correlation_id"`
 }
 
 func (t Trade) Validate() *problem.Problem {
@@ -259,4 +306,119 @@ func cloneLevels(in []Level) []Level {
 	out := make([]Level, len(in))
 	copy(out, in)
 	return out
+}
+
+//nolint:gocyclo // signal payload validation keeps explicit contract checks in one place.
+func (s SignalEvent) Validate() *problem.Problem {
+	if strings.TrimSpace(s.Type) == "" {
+		return problem.New(problem.ValidationFailed, "signal type must not be empty")
+	}
+	if _, p := NewServerTS(s.TsServer); p != nil {
+		return p
+	}
+	switch s.Scope {
+	case SignalScopeStream:
+		if strings.TrimSpace(s.Venue) == "" {
+			return problem.New(problem.ValidationFailed, "signal venue must not be empty for stream scope")
+		}
+		if strings.TrimSpace(s.Symbol) == "" {
+			return problem.New(problem.ValidationFailed, "signal symbol must not be empty for stream scope")
+		}
+	case SignalScopeMarket:
+		if strings.TrimSpace(s.Venue) != "" || strings.TrimSpace(s.Symbol) != "" {
+			return problem.New(problem.ValidationFailed, "market scope signal must not set venue/symbol")
+		}
+	default:
+		return problem.New(problem.ValidationFailed, "signal scope must be stream or market")
+	}
+	if !isSignalSeverity(s.Severity) {
+		return problem.New(problem.ValidationFailed, "signal severity must be one of low|medium|high|critical")
+	}
+	if !isFinite(s.Confidence) || s.Confidence < 0 || s.Confidence > 1 {
+		return problem.New(problem.ValidationFailed, "signal confidence must be in [0,1]")
+	}
+	if len(s.Features) == 0 {
+		return problem.New(problem.ValidationFailed, "signal features must not be empty")
+	}
+	for i := range s.Features {
+		if strings.TrimSpace(s.Features[i].Key) == "" {
+			return problem.New(problem.ValidationFailed, "signal feature key must not be empty")
+		}
+		if !isFinite(s.Features[i].Value) {
+			return problem.New(problem.ValidationFailed, "signal feature values must be finite")
+		}
+		if i > 0 && strings.Compare(s.Features[i-1].Key, s.Features[i].Key) >= 0 {
+			return problem.New(problem.ValidationFailed, "signal features must be sorted and unique by key")
+		}
+	}
+	if strings.TrimSpace(s.Explanation) == "" {
+		return problem.New(problem.ValidationFailed, "signal explanation must not be empty")
+	}
+	if strings.TrimSpace(s.RuleVersion) == "" {
+		return problem.New(problem.ValidationFailed, "signal rule_version must not be empty")
+	}
+	if len(s.InputWatermark) == 0 {
+		return problem.New(problem.ValidationFailed, "signal input_watermark must not be empty")
+	}
+	for i := range s.InputWatermark {
+		w := s.InputWatermark[i]
+		if strings.TrimSpace(w.Venue) == "" || strings.TrimSpace(w.Symbol) == "" {
+			return problem.New(problem.ValidationFailed, "signal input_watermark venue/symbol must not be empty")
+		}
+		if w.SeqStart <= 0 || w.SeqEnd <= 0 || w.SeqEnd < w.SeqStart {
+			return problem.New(problem.ValidationFailed, "signal input_watermark seq range is invalid")
+		}
+		if i > 0 {
+			prev := s.InputWatermark[i-1]
+			if cmp := strings.Compare(prev.Venue+"|"+prev.Symbol, w.Venue+"|"+w.Symbol); cmp >= 0 {
+				return problem.New(problem.ValidationFailed, "signal input_watermark must be sorted and unique by venue/symbol")
+			}
+		}
+	}
+	if strings.TrimSpace(s.CorrelationID) == "" {
+		return problem.New(problem.ValidationFailed, "signal correlation_id must not be empty")
+	}
+	return nil
+}
+
+func SignalScopeFromProtoValue(v int32) SignalScope {
+	switch v {
+	case 1:
+		return SignalScopeStream
+	case 2:
+		return SignalScopeMarket
+	default:
+		return ""
+	}
+}
+
+func (s SignalScope) ProtoValue() int32 {
+	switch s {
+	case SignalScopeStream:
+		return 1
+	case SignalScopeMarket:
+		return 2
+	default:
+		return 0
+	}
+}
+
+func FormatSignalFeatureValue(v float64) string {
+	if !isFinite(v) {
+		return "0"
+	}
+	return strconv.FormatFloat(v, 'f', 6, 64)
+}
+
+func isSignalSeverity(severity string) bool {
+	switch strings.ToLower(strings.TrimSpace(severity)) {
+	case "low", "medium", "high", "critical":
+		return true
+	default:
+		return false
+	}
+}
+
+func isFinite(v float64) bool {
+	return !math.IsNaN(v) && !math.IsInf(v, 0)
 }

@@ -382,6 +382,8 @@ func channelEnumFromStreamType(streamType string) deliveryv1.Channel {
 		return deliveryv1.Channel_CHANNEL_HEATMAP_SNAPSHOT
 	case "insights.volume_profile_snapshot":
 		return deliveryv1.Channel_CHANNEL_VOLUME_PROFILE_SNAPSHOT
+	case "insights.microstructure_evidence":
+		return deliveryv1.Channel_CHANNEL_EVIDENCE
 	default:
 		return deliveryv1.Channel_CHANNEL_UNSPECIFIED
 	}
@@ -411,6 +413,8 @@ func channelName(ch deliveryv1.Channel, fallback string) string {
 		return "heatmap_snapshot"
 	case deliveryv1.Channel_CHANNEL_VOLUME_PROFILE_SNAPSHOT:
 		return "volume_profile_snapshot"
+	case deliveryv1.Channel_CHANNEL_EVIDENCE:
+		return "evidence"
 	default:
 		if strings.TrimSpace(fallback) == "" {
 			return "unknown"

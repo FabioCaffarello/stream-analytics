@@ -9,16 +9,21 @@ import (
 
 func validEvent() domain.EvidenceEvent {
 	return domain.EvidenceEvent{
-		Kind:        domain.SpreadExplosion,
+		Type:        domain.SpreadExplosion,
 		TsServer:    1709500000000,
 		Venue:       "binance",
 		Symbol:      "BTC-USDT",
+		StreamID:    "binance/BTC-USDT/book_delta",
+		Seq:         42,
 		Severity:    domain.SeverityMedium,
 		Confidence:  0.85,
-		Features:    []string{"spread_bps"},
-		FeatureVals: []float64{45.2},
-		Reason:      "spread z-score exceeded threshold",
-		SeqTrigger:  42,
+		Features:    []domain.EvidenceFeature{{Key: "spread_bps", Value: 45.2}},
+		Explanation: "spread z-score exceeded threshold",
+		RuleVersion: domain.RuleVersionV0,
+		InputWatermark: domain.InputWatermark{
+			SeqStart: 33,
+			SeqEnd:   42,
+		},
 	}
 }
 
@@ -28,125 +33,25 @@ func TestEvidenceEventValidate(t *testing.T) {
 		modify  func(*domain.EvidenceEvent)
 		wantErr bool
 	}{
-		{
-			name:    "valid event",
-			modify:  func(_ *domain.EvidenceEvent) {},
-			wantErr: false,
-		},
-		{
-			name:    "empty kind",
-			modify:  func(e *domain.EvidenceEvent) { e.Kind = "" },
-			wantErr: true,
-		},
-		{
-			name:    "unknown kind",
-			modify:  func(e *domain.EvidenceEvent) { e.Kind = "unknown" },
-			wantErr: true,
-		},
-		{
-			name:    "empty severity",
-			modify:  func(e *domain.EvidenceEvent) { e.Severity = "" },
-			wantErr: true,
-		},
-		{
-			name:    "unknown severity",
-			modify:  func(e *domain.EvidenceEvent) { e.Severity = "extreme" },
-			wantErr: true,
-		},
-		{
-			name:    "zero ts_server",
-			modify:  func(e *domain.EvidenceEvent) { e.TsServer = 0 },
-			wantErr: true,
-		},
-		{
-			name:    "negative ts_server",
-			modify:  func(e *domain.EvidenceEvent) { e.TsServer = -1 },
-			wantErr: true,
-		},
-		{
-			name:    "empty venue",
-			modify:  func(e *domain.EvidenceEvent) { e.Venue = "" },
-			wantErr: true,
-		},
-		{
-			name:    "whitespace venue",
-			modify:  func(e *domain.EvidenceEvent) { e.Venue = "  " },
-			wantErr: true,
-		},
-		{
-			name:    "empty symbol",
-			modify:  func(e *domain.EvidenceEvent) { e.Symbol = "" },
-			wantErr: true,
-		},
-		{
-			name:    "confidence below zero",
-			modify:  func(e *domain.EvidenceEvent) { e.Confidence = -0.1 },
-			wantErr: true,
-		},
-		{
-			name:    "confidence above one",
-			modify:  func(e *domain.EvidenceEvent) { e.Confidence = 1.1 },
-			wantErr: true,
-		},
-		{
-			name:    "confidence NaN",
-			modify:  func(e *domain.EvidenceEvent) { e.Confidence = math.NaN() },
-			wantErr: true,
-		},
-		{
-			name:    "empty features",
-			modify:  func(e *domain.EvidenceEvent) { e.Features = nil; e.FeatureVals = nil },
-			wantErr: true,
-		},
-		{
-			name: "mismatched parallel arrays",
-			modify: func(e *domain.EvidenceEvent) {
-				e.Features = []string{"a", "b"}
-				e.FeatureVals = []float64{1.0}
-			},
-			wantErr: true,
-		},
-		{
-			name: "NaN feature value",
-			modify: func(e *domain.EvidenceEvent) {
-				e.FeatureVals = []float64{math.NaN()}
-			},
-			wantErr: true,
-		},
-		{
-			name: "Inf feature value",
-			modify: func(e *domain.EvidenceEvent) {
-				e.FeatureVals = []float64{math.Inf(1)}
-			},
-			wantErr: true,
-		},
-		{
-			name:    "empty reason",
-			modify:  func(e *domain.EvidenceEvent) { e.Reason = "" },
-			wantErr: true,
-		},
-		{
-			name:    "whitespace reason",
-			modify:  func(e *domain.EvidenceEvent) { e.Reason = "  " },
-			wantErr: true,
-		},
-		{
-			name:    "confidence exactly zero",
-			modify:  func(e *domain.EvidenceEvent) { e.Confidence = 0 },
-			wantErr: false,
-		},
-		{
-			name:    "confidence exactly one",
-			modify:  func(e *domain.EvidenceEvent) { e.Confidence = 1.0 },
-			wantErr: false,
-		},
-		{
-			name: "all valid kinds",
-			modify: func(e *domain.EvidenceEvent) {
-				// test each kind individually
-			},
-			wantErr: false,
-		},
+		{name: "valid", modify: func(_ *domain.EvidenceEvent) {}, wantErr: false},
+		{name: "empty type", modify: func(e *domain.EvidenceEvent) { e.Type = "" }, wantErr: true},
+		{name: "unknown type", modify: func(e *domain.EvidenceEvent) { e.Type = "unknown" }, wantErr: true},
+		{name: "empty severity", modify: func(e *domain.EvidenceEvent) { e.Severity = "" }, wantErr: true},
+		{name: "zero ts_server", modify: func(e *domain.EvidenceEvent) { e.TsServer = 0 }, wantErr: true},
+		{name: "empty stream id", modify: func(e *domain.EvidenceEvent) { e.StreamID = "" }, wantErr: true},
+		{name: "invalid seq", modify: func(e *domain.EvidenceEvent) { e.Seq = 0 }, wantErr: true},
+		{name: "confidence NaN", modify: func(e *domain.EvidenceEvent) { e.Confidence = math.NaN() }, wantErr: true},
+		{name: "empty features", modify: func(e *domain.EvidenceEvent) { e.Features = nil }, wantErr: true},
+		{name: "empty feature key", modify: func(e *domain.EvidenceEvent) { e.Features = []domain.EvidenceFeature{{Key: "", Value: 1}} }, wantErr: true},
+		{name: "unsorted features", modify: func(e *domain.EvidenceEvent) {
+			e.Features = []domain.EvidenceFeature{{Key: "z", Value: 1}, {Key: "a", Value: 2}}
+		}, wantErr: true},
+		{name: "empty explanation", modify: func(e *domain.EvidenceEvent) { e.Explanation = "" }, wantErr: true},
+		{name: "empty rule version", modify: func(e *domain.EvidenceEvent) { e.RuleVersion = "" }, wantErr: true},
+		{name: "invalid watermark", modify: func(e *domain.EvidenceEvent) {
+			e.InputWatermark.SeqStart = 100
+			e.InputWatermark.SeqEnd = 99
+		}, wantErr: true},
 	}
 
 	for _, tt := range tests {
@@ -155,39 +60,37 @@ func TestEvidenceEventValidate(t *testing.T) {
 			tt.modify(&ev)
 			p := ev.Validate()
 			if tt.wantErr && p == nil {
-				t.Error("expected validation error, got nil")
+				t.Fatal("expected validation error")
 			}
 			if !tt.wantErr && p != nil {
-				t.Errorf("expected no error, got: %s", p.Message)
+				t.Fatalf("unexpected error: %s", p.Message)
 			}
 		})
 	}
 }
 
-func TestEvidenceEventValidateAllKinds(t *testing.T) {
-	kinds := []domain.EvidenceKind{
+func TestEvidenceEventValidateAllTypes(t *testing.T) {
+	types := []domain.EvidenceType{
 		domain.SpreadExplosion,
 		domain.LiquidityThinning,
 		domain.PersistentImbalance,
 		domain.Absorption,
 		domain.Sweep,
 	}
-	for _, k := range kinds {
-		t.Run(string(k), func(t *testing.T) {
+	for _, typ := range types {
+		t.Run(string(typ), func(t *testing.T) {
 			ev := validEvent()
-			ev.Kind = k
+			ev.Type = typ
 			if p := ev.Validate(); p != nil {
-				t.Errorf("kind %s should be valid, got: %s", k, p.Message)
+				t.Fatalf("type %s should be valid: %s", typ, p.Message)
 			}
 		})
 	}
 }
 
 func TestRuleEventStreamKey(t *testing.T) {
-	re := domain.RuleEvent{Venue: "binance", Instrument: "BTC-USDT"}
-	got := re.StreamKey()
-	want := "binance|BTC-USDT"
-	if got != want {
-		t.Errorf("StreamKey() = %q, want %q", got, want)
+	re := domain.RuleEvent{Venue: "binance", Symbol: "BTC-USDT"}
+	if got, want := re.StreamKey(), "binance|BTC-USDT"; got != want {
+		t.Fatalf("StreamKey()=%q want=%q", got, want)
 	}
 }

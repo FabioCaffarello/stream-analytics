@@ -38,6 +38,8 @@ enum Channel {
   CHANNEL_HEATMAP_SNAPSHOT = 10;
   // CHANNEL_VOLUME_PROFILE_SNAPSHOT maps to volume-profile snapshots.
   CHANNEL_VOLUME_PROFILE_SNAPSHOT = 11;
+  // CHANNEL_EVIDENCE maps to liquidity evidence events.
+  CHANNEL_EVIDENCE = 12;
 
   reserved 100 to 199;
 }

@@ -12,11 +12,12 @@ const (
 // RuleEvent is the flat input struct for all evidence rules.
 // Only fields matching Kind are populated; rules must check Kind before access.
 type RuleEvent struct {
-	Kind       EventKind
-	Venue      string
-	Instrument string
-	TsServer   int64 // deterministic (from envelope, not wall clock)
-	Seq        int64
+	Kind     EventKind
+	Venue    string
+	Symbol   string
+	StreamID string
+	TsServer int64 // deterministic (from canonical event stream, not wall clock)
+	Seq      int64
 
 	// Trade (Kind == EventKindTrade)
 	TradePrice float64
@@ -46,12 +47,12 @@ type RuleEvent struct {
 
 // StreamKey returns the canonical partition key for per-stream state.
 func (e RuleEvent) StreamKey() string {
-	return e.Venue + "|" + e.Instrument
+	return e.Venue + "|" + e.Symbol
 }
 
 // EvidenceRule is the strategy interface for deterministic microstructure detection.
 type EvidenceRule interface {
-	// Name returns the stable rule identifier (matches an EvidenceKind).
+	// Name returns the stable rule identifier (matches an EvidenceType).
 	Name() string
 	// OnEvent processes a market event and returns zero or more evidence emissions.
 	OnEvent(event RuleEvent) []EvidenceEvent

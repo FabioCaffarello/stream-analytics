@@ -13,6 +13,7 @@ const DefaultTimeframe = "raw"
 const (
 	signalStreamType         = "signal"
 	signalCompositeEventType = "signal.composite"
+	signalEventType          = "signal.event"
 	unknownSignalSubjectKind = "unknown"
 )
 
@@ -110,7 +111,8 @@ func IsInstrumentSymbolEquivalent(symbol, instrument string) bool {
 }
 
 func SubjectFromEnvelope(env envelope.Envelope, timeframe string) (Subject, *problem.Problem) {
-	if strings.EqualFold(strings.TrimSpace(env.Type), signalCompositeEventType) {
+	eventType := strings.ToLower(strings.TrimSpace(env.Type))
+	if eventType == signalCompositeEventType || eventType == signalEventType {
 		kind := unknownSignalSubjectKind
 		if len(env.Meta) > 0 {
 			if rawKind := strings.ToLower(strings.TrimSpace(env.Meta["kind"])); rawKind != "" {

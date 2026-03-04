@@ -92,7 +92,7 @@ func (c *SignalComposer) Compose(input ComposeInput) (ComposeResult, bool) {
 	}
 
 	obs := microObservation{
-		Kind:       string(micro.Kind),
+		Kind:       string(micro.Type),
 		Venue:      micro.Venue,
 		Instrument: micro.Symbol,
 		TsServer:   micro.TsServer,
@@ -110,7 +110,7 @@ func (c *SignalComposer) Compose(input ComposeInput) (ComposeResult, bool) {
 	if input.Regime != nil {
 		regimeKind = string(input.Regime.Kind)
 		regimeStrength = input.Regime.Strength
-		if micro.Confidence > 0.5 && regimeStrength > 0.6 && regimeMatches(micro.Kind, input.Regime.Kind) {
+		if micro.Confidence > 0.5 && regimeStrength > 0.6 && regimeMatches(micro.Type, input.Regime.Kind) {
 			confidence = micro.Confidence * (1 + c.policy.RegimeBoostFactor*regimeStrength)
 			regimeBoosted = true
 		}
@@ -129,7 +129,7 @@ func (c *SignalComposer) Compose(input ComposeInput) (ComposeResult, bool) {
 		return ComposeResult{}, false
 	}
 
-	sourceKinds := []string{string(micro.Kind)}
+	sourceKinds := []string{string(micro.Type)}
 	if regimeBoosted {
 		sourceKinds = append(sourceKinds, regimeKind)
 	}
@@ -138,7 +138,7 @@ func (c *SignalComposer) Compose(input ComposeInput) (ComposeResult, bool) {
 	}
 
 	signal := signalsdomain.CompositeSignalV1{
-		Kind:           string(micro.Kind),
+		Kind:           string(micro.Type),
 		Venue:          micro.Venue,
 		Instrument:     micro.Symbol,
 		Timeframe:      timeframe,
@@ -148,8 +148,8 @@ func (c *SignalComposer) Compose(input ComposeInput) (ComposeResult, bool) {
 		Evidence:       buildSignalFeatures(micro),
 		RegimeKind:     regimeKind,
 		RegimeStrength: regimeStrength,
-		Reason:         buildReason(micro.Reason, regimeBoosted, correlationHit),
-		Seq:            micro.SeqTrigger,
+		Reason:         buildReason(micro.Explanation, regimeBoosted, correlationHit),
+		Seq:            micro.Seq,
 		SourceKinds:    sourceKinds,
 	}
 	if p := signal.Validate(); p != nil {
@@ -237,7 +237,7 @@ func severityRank(sev evidencedomain.Severity) int {
 	}
 }
 
-func regimeMatches(kind evidencedomain.EvidenceKind, regime evidencedomain.RegimeKind) bool {
+func regimeMatches(kind evidencedomain.EvidenceType, regime evidencedomain.RegimeKind) bool {
 	switch kind {
 	case evidencedomain.Absorption, evidencedomain.PersistentImbalance:
 		return regime == evidencedomain.RegimeTrending
@@ -261,22 +261,18 @@ func capConfidence(v float64) float64 {
 }
 
 func buildSignalFeatures(micro evidencedomain.EvidenceEvent) []signalsdomain.SignalFeature {
-	n := len(micro.Features)
-	if len(micro.FeatureVals) < n {
-		n = len(micro.FeatureVals)
-	}
-	if n <= 0 {
+	if len(micro.Features) == 0 {
 		return []signalsdomain.SignalFeature{{Label: "evidence", Value: "missing"}}
 	}
-	features := make([]signalsdomain.SignalFeature, 0, n)
-	for i := 0; i < n; i++ {
-		label := strings.TrimSpace(micro.Features[i])
+	features := make([]signalsdomain.SignalFeature, 0, len(micro.Features))
+	for i := range micro.Features {
+		label := strings.TrimSpace(micro.Features[i].Key)
 		if label == "" {
 			continue
 		}
 		features = append(features, signalsdomain.SignalFeature{
 			Label: label,
-			Value: strconv.FormatFloat(micro.FeatureVals[i], 'f', 6, 64),
+			Value: strconv.FormatFloat(micro.Features[i].Value, 'f', 6, 64),
 		})
 	}
 	if len(features) == 0 {

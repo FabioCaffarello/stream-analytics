@@ -10,7 +10,7 @@ import (
 	evidenceruntime "github.com/market-raccoon/internal/actors/evidence/runtime"
 	evidenceapp "github.com/market-raccoon/internal/core/evidence/app"
 	"github.com/market-raccoon/internal/core/evidence/domain"
-	marketdomain "github.com/market-raccoon/internal/core/marketdata/domain"
+	marketmodel "github.com/market-raccoon/internal/core/marketmodel"
 	"github.com/market-raccoon/internal/shared/codec"
 	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
@@ -45,16 +45,23 @@ func (bookRule) OnEvent(event domain.RuleEvent) []domain.EvidenceEvent {
 		return nil
 	}
 	return []domain.EvidenceEvent{{
-		Kind:        domain.Sweep,
-		TsServer:    event.TsServer,
-		Venue:       event.Venue,
-		Symbol:      event.Instrument,
-		Severity:    domain.SeverityMedium,
-		Confidence:  0.9,
-		Features:    []string{"x"},
-		FeatureVals: []float64{1},
-		Reason:      "book test evidence",
-		SeqTrigger:  event.Seq,
+		Type:       domain.Sweep,
+		TsServer:   event.TsServer,
+		Venue:      event.Venue,
+		Symbol:     event.Symbol,
+		StreamID:   event.StreamID,
+		Seq:        event.Seq,
+		Severity:   domain.SeverityMedium,
+		Confidence: 0.9,
+		Features: []domain.EvidenceFeature{
+			{Key: "x", Value: 1},
+		},
+		Explanation: "book test evidence",
+		RuleVersion: domain.RuleVersionV0,
+		InputWatermark: domain.InputWatermark{
+			SeqStart: event.Seq,
+			SeqEnd:   event.Seq,
+		},
 	}}
 }
 
@@ -88,13 +95,9 @@ func TestEvidenceSubsystem_BookDeltaPublishesEvidenceEnvelope(t *testing.T) {
 	engine := evidenceapp.NewEvidenceEngine(evidenceapp.EngineConfig{
 		MaxStreamsPerRule: 16,
 		MaxStreamsGlobal:  16,
-		StreamTTL:         10 * time.Minute,
-		SweepInterval:     1 * time.Minute,
+		StreamTTLMillis:   int64((10 * time.Minute) / time.Millisecond),
 		BufferCapPerKind:  1000,
 		DecayHalfLife:     1 * time.Minute,
-		Now: func() time.Time {
-			return time.UnixMilli(2_000)
-		},
 	}, bookRule{})
 
 	e, err := actor.NewEngine(actor.NewEngineConfig())
@@ -109,13 +112,16 @@ func TestEvidenceSubsystem_BookDeltaPublishesEvidenceEnvelope(t *testing.T) {
 		},
 	}), "evidence", actor.WithID("evidence"))
 
-	payload, p := codec.EncodePayload("marketdata.bookdelta", 1, envelope.ContentTypeJSON, marketdomain.BookDeltaV1{
-		Bids: []marketdomain.PriceLevel{
+	payload, p := codec.EncodePayload("marketdata.bookdelta", 1, envelope.ContentTypeJSON, marketmodel.BookDelta{
+		Bids: []marketmodel.Level{
 			{Price: 100.0, Size: 2.0},
 		},
-		Asks: []marketdomain.PriceLevel{
+		Asks: []marketmodel.Level{
 			{Price: 101.0, Size: 2.0},
 		},
+		FirstID:   1,
+		FinalID:   1,
+		PrevFinal: 0,
 		Timestamp: 1_000,
 	})
 	if p != nil {
@@ -147,8 +153,8 @@ func TestEvidenceSubsystem_BookDeltaPublishesEvidenceEnvelope(t *testing.T) {
 		if !ok {
 			t.Fatalf("decoded type=%T want domain.EvidenceEvent", decoded)
 		}
-		if ev.Kind != domain.Sweep {
-			t.Fatalf("evidence kind=%s want=%s", ev.Kind, domain.Sweep)
+		if ev.Type != domain.Sweep {
+			t.Fatalf("evidence type=%s want=%s", ev.Type, domain.Sweep)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for evidence envelope publish")

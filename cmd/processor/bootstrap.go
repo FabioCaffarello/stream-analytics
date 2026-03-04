@@ -16,6 +16,7 @@ import (
 	"github.com/anthdm/hollywood/actor"
 	aggruntime "github.com/market-raccoon/internal/actors/aggregation/runtime"
 	actorruntime "github.com/market-raccoon/internal/actors/runtime"
+	signalruntime "github.com/market-raccoon/internal/actors/signal/runtime"
 	"github.com/market-raccoon/internal/adapters/bus"
 	adapterjs "github.com/market-raccoon/internal/adapters/jetstream"
 	adapterstorage "github.com/market-raccoon/internal/adapters/storage"
@@ -26,6 +27,7 @@ import (
 	aggports "github.com/market-raccoon/internal/core/aggregation/ports"
 	insightsapp "github.com/market-raccoon/internal/core/insights/app"
 	mddomain "github.com/market-raccoon/internal/core/marketdata/domain"
+	signalcore "github.com/market-raccoon/internal/core/signal"
 	httpserver "github.com/market-raccoon/internal/interfaces/http"
 	"github.com/market-raccoon/internal/shared/bootstrap"
 	"github.com/market-raccoon/internal/shared/codec"
@@ -267,6 +269,48 @@ type envelopeSource struct {
 	consumeErr <-chan *problem.Problem
 	shutdownFn func(context.Context)
 	onResult   func(aggruntime.EnvelopeProcessResult)
+}
+
+func fanOutEnvelopeStream(source <-chan envelope.Envelope, capacity int) (<-chan envelope.Envelope, <-chan envelope.Envelope) {
+	if capacity <= 0 {
+		capacity = 1024
+	}
+	aggregationCh := make(chan envelope.Envelope, capacity)
+	signalCh := make(chan envelope.Envelope, capacity)
+	go func() {
+		defer close(aggregationCh)
+		defer close(signalCh)
+		if source == nil {
+			return
+		}
+		for env := range source {
+			aggregationCh <- env
+			signalCh <- env
+		}
+	}()
+	return aggregationCh, signalCh
+}
+
+func buildSignalEngineConfig(cfg config.AppConfig) signalcore.EngineConfig {
+	out := signalcore.DefaultEngineConfig()
+	if cfg.Signals.WindowCap > 0 {
+		out.Store.PerStreamWindow = cfg.Signals.WindowCap
+	}
+	if cfg.Evidence.RegimeMaxStreams > 0 {
+		out.Store.PerTenantStreamCap = cfg.Evidence.RegimeMaxStreams
+	}
+	if cfg.Processor.MaxInstruments > 0 {
+		out.Store.GlobalStreamCap = cfg.Processor.MaxInstruments
+	}
+	if cfg.Signals.DedupWindowMs > 0 {
+		out.Store.DedupWindowMillis = cfg.Signals.DedupWindowMs
+	}
+	if cfg.Signals.CorrelationWindowMs > 0 {
+		out.Rules.RegimeChange.WindowMs = cfg.Signals.CorrelationWindowMs
+		out.Rules.LiquidityCollapse.WindowMs = cfg.Signals.CorrelationWindowMs
+		out.Rules.PersistentImbalance.WindowMs = cfg.Signals.CorrelationWindowMs
+	}
+	return out
 }
 
 // ---------------------------------------------------------------------------
@@ -562,11 +606,12 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 
 	// ── envelope source ─────────────────────────────────────────────────
 	source := initEnvelopeSource(cfg, logger, e2e)
+	aggregationInputCh, signalInputCh := fanOutEnvelopeStream(source.envelopeCh, cfg.Processor.BusCapacity)
 
 	// ── processor subsystem config ──────────────────────────────────────
 	processorCfg := aggruntime.ProcessorConfig{
 		Logger:           logger,
-		EnvelopeCh:       source.envelopeCh,
+		EnvelopeCh:       aggregationInputCh,
 		Service:          aggSvc,
 		CandleEnabled:    boolPtr(cfg.Processor.Candle.Enabled),
 		StatsEnabled:     boolPtr(cfg.Processor.Stats.Enabled),
@@ -579,11 +624,10 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 			MaxInstruments: cfg.Processor.XVenue.MaxInstruments,
 			MaxVenues:      cfg.Processor.XVenue.MaxVenues,
 		},
-		PublishEnvelope:              publishEnvelope,
-		HeatmapStore:                 heatmapStore,
-		VolumeProfileStore:           volumeProfileStore,
-		SnapshotSubjectPrefix:        cfg.Processor.Insights.SnapshotSubjectPrefix,
-		EnableMicrostructureEvidence: true,
+		PublishEnvelope:       publishEnvelope,
+		HeatmapStore:          heatmapStore,
+		VolumeProfileStore:    volumeProfileStore,
+		SnapshotSubjectPrefix: cfg.Processor.Insights.SnapshotSubjectPrefix,
 		RTPublish: aggruntime.ProcessorRTPublishConfig{
 			OrderbookInterval: time.Duration(cfg.Processor.RTPublish.OrderbookIntervalMs) * time.Millisecond,
 			HeatmapInterval:   time.Duration(cfg.Processor.RTPublish.HeatmapIntervalMs) * time.Millisecond,
@@ -594,6 +638,15 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 		CatchUpSkipStatsSkew:     time.Duration(cfg.Processor.CatchUpSkipStatsSkewMs) * time.Millisecond,
 		InsightsTimeframes:       cfg.Processor.Insights.InsightsTimeframes,
 		OnEnvelopeProcessed:      source.onResult,
+	}
+	signalEngineCfg := buildSignalEngineConfig(cfg)
+	signalCfg := signalruntime.SubsystemConfig{
+		Logger:       logger,
+		EnvelopeCh:   signalInputCh,
+		Engine:       signalcore.NewSignalEngine(signalEngineCfg, nil),
+		Publisher:    publishEnvelope,
+		ReplicaID:    cfg.Shard.Index,
+		ReplicaCount: cfg.Shard.Count,
 	}
 
 	// ── engine ──────────────────────────────────────────────────────────
@@ -607,6 +660,7 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 		Logger: logger,
 		Factories: map[actorruntime.Subsystem]actor.Producer{
 			actorruntime.SubsystemAggregation: aggruntime.NewProcessorSubsystemActor(processorCfg),
+			actorruntime.SubsystemSignals:     signalruntime.NewSubsystemActor(signalCfg),
 		},
 	})
 	logger.Info("processor: guardian spawned", "pid", guardianPID.String())
@@ -1066,18 +1120,10 @@ func initReplayEnvelopeSource(path string, capacity int, logger *slog.Logger) en
 
 func effectiveJetStreamFilters(cfg config.AppConfig) []string {
 	base := append([]string(nil), cfg.JetStream.FilterSubjects...)
+	base = appendFilterSubjectIfMissing(base, "insights.microstructure_evidence.v1.>")
 	if cfg.Processor.Insights.EnableCrossVenueJoin {
 		if joinSubject := strings.TrimSpace(cfg.Processor.Insights.JoinTradesSubject); joinSubject != "" {
-			covered := false
-			for _, existing := range base {
-				if subjectMatchesFilter(joinSubject, strings.TrimSpace(existing)) {
-					covered = true
-					break
-				}
-			}
-			if !covered {
-				base = append(base, joinSubject)
-			}
+			base = appendFilterSubjectIfMissing(base, joinSubject)
 		}
 	}
 	if len(base) == 0 {
@@ -1097,6 +1143,19 @@ func effectiveJetStreamFilters(cfg config.AppConfig) []string {
 		out = append(out, subject)
 	}
 	return out
+}
+
+func appendFilterSubjectIfMissing(base []string, subject string) []string {
+	subject = strings.TrimSpace(subject)
+	if subject == "" {
+		return base
+	}
+	for _, existing := range base {
+		if subjectMatchesFilter(subject, strings.TrimSpace(existing)) {
+			return base
+		}
+	}
+	return append(base, subject)
 }
 
 func subjectMatchesFilter(subject, filter string) bool {

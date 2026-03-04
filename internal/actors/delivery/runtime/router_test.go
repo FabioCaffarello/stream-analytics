@@ -237,6 +237,55 @@ func TestRouter_RoutesSignalSubjects(t *testing.T) {
 	}
 }
 
+func TestRouter_RoutesSignalWildcardKindSubjects(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	routerPID := e.Spawn(NewRouterActor(RouterConfig{Timeframe: "raw"}), "router-signal-wild")
+	defer e.Poison(routerPID)
+
+	wildCh := make(chan any, 16)
+	exactCh := make(chan any, 16)
+	wildPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: wildCh} }, "session-signal-wild")
+	exactPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: exactCh} }, "session-signal-exact")
+	defer e.Poison(wildPID)
+	defer e.Poison(exactPID)
+
+	wildID := ids.NewSessionID()
+	exactID := ids.NewSessionID()
+	wildSubject := mustParseSubject(t, "signal/*/binance/BTC-USDT/1m")
+	exactSubject := mustParseSubject(t, "signal/liquidity_collapse/binance/BTC-USDT/1m")
+
+	e.Send(routerPID, RegisterSession{SessionID: wildID, PID: wildPID})
+	e.Send(routerPID, RegisterSession{SessionID: exactID, PID: exactPID})
+	e.Send(routerPID, SubscribeSession{SessionID: wildID, Subject: wildSubject})
+	e.Send(routerPID, SubscribeSession{SessionID: exactID, Subject: exactSubject})
+	e.Send(routerPID, DeliverEnvelope{Envelope: envelope.Envelope{
+		Type:       "signal.event",
+		Version:    1,
+		Venue:      "binance",
+		Instrument: "BTC-USDT",
+		Seq:        10,
+		TsIngest:   time.Now().UnixMilli(),
+		Meta: map[string]string{
+			"timeframe": "1m",
+			"kind":      "liquidity_collapse",
+		},
+		Payload: []byte(`{"type":"liquidity_collapse"}`),
+	}})
+
+	wild := waitForMessage[DeliveryEvent](t, wildCh, time.Second)
+	exact := waitForMessage[DeliveryEvent](t, exactCh, time.Second)
+	if got, want := wild.Subject.String(), "signal/*/binance/BTCUSDT/1m"; got != want {
+		t.Fatalf("wild subject=%q want=%q", got, want)
+	}
+	if got, want := exact.Subject.String(), "signal/liquidity_collapse/binance/BTCUSDT/1m"; got != want {
+		t.Fatalf("exact subject=%q want=%q", got, want)
+	}
+}
+
 func TestRouter_AssignsContinuousDeliverySeqPerStream(t *testing.T) {
 	e, err := actor.NewEngine(actor.NewEngineConfig())
 	if err != nil {

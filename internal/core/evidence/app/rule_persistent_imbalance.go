@@ -8,25 +8,28 @@ import (
 
 // imbStreamState holds per-stream state for persistent imbalance detection.
 type imbStreamState struct {
-	consecutive int     // count of consecutive |imbalance| > threshold
-	lastSign    float64 // sign of last imbalance (+1 or -1)
-	cooldown    streamEntry
+	consecutive    int     // count of consecutive |imbalance| > threshold
+	lastSign       float64 // sign of last imbalance (+1 or -1)
+	streakStartSeq int64
+	cooldown       streamEntry
 }
 
 // PersistentImbalanceRule detects when the order book depth imbalance
 // persists in the same direction for N consecutive observations.
 type PersistentImbalanceRule struct {
-	cfg       RuleConfig
-	threshold float64 // absolute imbalance threshold, default 0.3
-	streams   map[string]*imbStreamState
+	cfg            RuleConfig
+	threshold      float64
+	minConsecutive int
+	streams        map[string]*imbStreamState
 }
 
 // NewPersistentImbalanceRule creates a persistent imbalance detector.
 func NewPersistentImbalanceRule(cfg RuleConfig) *PersistentImbalanceRule {
 	return &PersistentImbalanceRule{
-		cfg:       cfg,
-		threshold: 0.3,
-		streams:   make(map[string]*imbStreamState),
+		cfg:            cfg,
+		threshold:      0.3,
+		minConsecutive: 10,
+		streams:        make(map[string]*imbStreamState),
 	}
 }
 
@@ -46,6 +49,7 @@ func (r *PersistentImbalanceRule) OnEvent(event domain.RuleEvent) []domain.Evide
 	if absImb < r.threshold {
 		st.consecutive = 0
 		st.lastSign = 0
+		st.streakStartSeq = 0
 		return nil
 	}
 
@@ -59,10 +63,13 @@ func (r *PersistentImbalanceRule) OnEvent(event domain.RuleEvent) []domain.Evide
 	} else {
 		st.consecutive = 1
 		st.lastSign = sign
+		st.streakStartSeq = event.Seq
+	}
+	if st.streakStartSeq <= 0 {
+		st.streakStartSeq = event.Seq
 	}
 
-	// Minimum 10 consecutive observations
-	if st.consecutive < 10 {
+	if st.consecutive < r.minConsecutive {
 		return nil
 	}
 
@@ -78,16 +85,25 @@ func (r *PersistentImbalanceRule) OnEvent(event domain.RuleEvent) []domain.Evide
 	}
 
 	return []domain.EvidenceEvent{{
-		Kind:        domain.PersistentImbalance,
-		TsServer:    event.TsServer,
-		Venue:       event.Venue,
-		Symbol:      event.Instrument,
-		Severity:    sev,
-		Confidence:  imbConfidence(st.consecutive),
-		Features:    []string{"imbalance", "consecutive", "dominant_side"},
-		FeatureVals: []float64{imb, float64(st.consecutive), sign},
-		Reason:      side + "-heavy imbalance persisted over consecutive observations",
-		SeqTrigger:  event.Seq,
+		Type:       domain.PersistentImbalance,
+		TsServer:   event.TsServer,
+		Venue:      event.Venue,
+		Symbol:     event.Symbol,
+		StreamID:   resolveStreamID(event),
+		Seq:        event.Seq,
+		Severity:   sev,
+		Confidence: imbConfidence(st.consecutive),
+		Features: domain.FeaturesFromMap(map[string]float64{
+			"consecutive":   float64(st.consecutive),
+			"dominant_side": sign,
+			"imbalance":     imb,
+		}),
+		Explanation: side + "-heavy imbalance persisted over consecutive observations",
+		RuleVersion: domain.RuleVersionV0,
+		InputWatermark: domain.InputWatermark{
+			SeqStart: st.streakStartSeq,
+			SeqEnd:   event.Seq,
+		},
 	}}
 }
 

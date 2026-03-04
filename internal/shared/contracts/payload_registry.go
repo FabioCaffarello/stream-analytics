@@ -69,6 +69,10 @@ func BootstrapPayloadCodecRegistryWithOptions(opts PayloadRegistryOptions) *prob
 			payloadRegistryErr = p
 			return
 		}
+		if p := RegisterSignalEnginePayloadV1(reg); p != nil {
+			payloadRegistryErr = p
+			return
+		}
 		payloadRegistryErr = codec.SetPayloadRegistry(reg)
 		if payloadRegistryErr == nil {
 			metrics.SetCodecRegistrySize(reg.Size())

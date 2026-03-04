@@ -12,6 +12,14 @@ type RingFloat64 struct {
 	count int
 }
 
+// RingInt64 is a fixed-size ring buffer for sequence windows.
+// Zero value is ready to use.
+type RingInt64 struct {
+	buf   [ringCap]int64
+	head  int
+	count int
+}
+
 // Push appends a value, overwriting the oldest if full.
 func (r *RingFloat64) Push(v float64) {
 	r.buf[r.head] = v
@@ -70,4 +78,27 @@ func (r *RingFloat64) StdDev() float64 {
 func (r *RingFloat64) Reset() {
 	r.head = 0
 	r.count = 0
+}
+
+// Push appends one sequence, overwriting oldest when full.
+func (r *RingInt64) Push(v int64) {
+	r.buf[r.head] = v
+	r.head = (r.head + 1) % ringCap
+	if r.count < ringCap {
+		r.count++
+	}
+}
+
+// Len returns the number of values currently in the buffer.
+func (r *RingInt64) Len() int {
+	return r.count
+}
+
+// Oldest returns the oldest sequence in the ring.
+func (r *RingInt64) Oldest() int64 {
+	if r.count == 0 {
+		return 0
+	}
+	start := (r.head - r.count + ringCap) % ringCap
+	return r.buf[start]
 }

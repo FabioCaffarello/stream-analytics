@@ -511,6 +511,7 @@ func (s *SessionActor) resolveCommandSubject(cmd clientCommand, op string) (doma
 		return domain.Subject{}, problem.Newf(problem.ValidationFailed, "%s requires stream_id or (venue,symbol,channel)", op)
 	}
 	channel := strings.ToLower(strings.TrimSpace(cmd.Channel))
+	channel = canonicalStreamTypeForCommandChannel(channel)
 	timeframe := "raw"
 	if agg := strings.TrimSpace(cmd.Aggregation); agg != "" {
 		timeframe = strings.ToLower(agg)
@@ -574,6 +575,35 @@ func (s *SessionActor) enforceSubscriptionLimits(subject domain.Subject) *proble
 		)
 	}
 	return nil
+}
+
+func canonicalStreamTypeForCommandChannel(channel string) string {
+	switch strings.ToLower(strings.TrimSpace(channel)) {
+	case "trade", "marketdata.trade":
+		return "marketdata.trade"
+	case "book_delta", "marketdata.bookdelta":
+		return "marketdata.bookdelta"
+	case "book_snapshot", "aggregation.snapshot":
+		return "aggregation.snapshot"
+	case "ticker", "marketdata.markprice":
+		return "marketdata.markprice"
+	case "liquidation", "marketdata.liquidation":
+		return "marketdata.liquidation"
+	case "stats", "aggregation.stats":
+		return "aggregation.stats"
+	case "candle", "aggregation.candle":
+		return "aggregation.candle"
+	case "heatmap_snapshot", "insights.heatmap_snapshot":
+		return "insights.heatmap_snapshot"
+	case "volume_profile_snapshot", "insights.volume_profile_snapshot":
+		return "insights.volume_profile_snapshot"
+	case "evidence", "insights.microstructure_evidence":
+		return "insights.microstructure_evidence"
+	case "signal", "signal.event":
+		return "signal"
+	default:
+		return channel
+	}
 }
 
 // ── Rate limiting ───────────────────────────────────────────────────────────

@@ -8,25 +8,43 @@ import (
 
 // absStreamState holds per-stream state for absorption detection.
 type absStreamState struct {
-	volumeRing RingFloat64
-	cumVol     float64 // cumulative volume since last price anchor
-	priceRef   float64 // reference price when accumulation started
-	cooldown   streamEntry
+	volumeRing           RingFloat64
+	cumVol               float64 // cumulative volume since last price anchor
+	priceRef             float64 // reference price when accumulation started
+	accumulationStartSeq int64
+	cooldown             streamEntry
+}
+
+// AbsorptionThresholds configures deterministic absorption detection.
+type AbsorptionThresholds struct {
+	MinSamples      int
+	MaxPriceMovePct float64
+	MinVolumeRatio  float64
+}
+
+func defaultAbsorptionThresholds() AbsorptionThresholds {
+	return AbsorptionThresholds{
+		MinSamples:      10,
+		MaxPriceMovePct: 0.1,
+		MinVolumeRatio:  2.0,
+	}
 }
 
 // AbsorptionRule detects when large cumulative trade volume occurs
 // with minimal price movement — a sign that passive orders are absorbing
 // aggressive flow.
 type AbsorptionRule struct {
-	cfg     RuleConfig
-	streams map[string]*absStreamState
+	cfg        RuleConfig
+	thresholds AbsorptionThresholds
+	streams    map[string]*absStreamState
 }
 
 // NewAbsorptionRule creates an absorption detector.
 func NewAbsorptionRule(cfg RuleConfig) *AbsorptionRule {
 	return &AbsorptionRule{
-		cfg:     cfg,
-		streams: make(map[string]*absStreamState),
+		cfg:        cfg,
+		thresholds: defaultAbsorptionThresholds(),
+		streams:    make(map[string]*absStreamState),
 	}
 }
 
@@ -44,8 +62,9 @@ func (r *AbsorptionRule) OnEvent(event domain.RuleEvent) []domain.EvidenceEvent 
 	st := r.getOrCreate(key)
 
 	st.volumeRing.Push(event.TradeSize)
-	if st.volumeRing.Len() < 10 {
+	if st.volumeRing.Len() < r.thresholds.MinSamples {
 		st.priceRef = event.TradePrice
+		st.accumulationStartSeq = event.Seq
 		return nil
 	}
 
@@ -54,6 +73,7 @@ func (r *AbsorptionRule) OnEvent(event domain.RuleEvent) []domain.EvidenceEvent 
 	// Set reference price on first meaningful observation
 	if st.priceRef == 0 {
 		st.priceRef = event.TradePrice
+		st.accumulationStartSeq = event.Seq
 	}
 
 	st.cumVol += event.TradeSize
@@ -61,16 +81,16 @@ func (r *AbsorptionRule) OnEvent(event domain.RuleEvent) []domain.EvidenceEvent 
 	// Check price movement from reference
 	priceMove := math.Abs(event.TradePrice-st.priceRef) / st.priceRef
 
-	// If price moved significantly (>0.1%), reset accumulation
-	if priceMove > 0.001 {
+	if priceMove*100 > r.thresholds.MaxPriceMovePct {
 		st.cumVol = 0
 		st.priceRef = event.TradePrice
+		st.accumulationStartSeq = event.Seq
 		return nil
 	}
 
-	// Absorption: cumulative volume > 2x mean with <0.1% price move
+	// Absorption: cumulative volume > threshold with compressed price move.
 	volRatio := st.cumVol / (meanVol * float64(st.volumeRing.Len()))
-	if volRatio < 2.0 {
+	if volRatio < r.thresholds.MinVolumeRatio {
 		return nil
 	}
 
@@ -83,20 +103,34 @@ func (r *AbsorptionRule) OnEvent(event domain.RuleEvent) []domain.EvidenceEvent 
 	cumVolEmitted := st.cumVol
 	st.cumVol = 0
 	st.priceRef = event.TradePrice
+	startSeq := st.accumulationStartSeq
+	if startSeq <= 0 {
+		startSeq = event.Seq
+	}
+	st.accumulationStartSeq = event.Seq
 
 	sev := absSeverity(volRatio)
 
 	return []domain.EvidenceEvent{{
-		Kind:        domain.Absorption,
-		TsServer:    event.TsServer,
-		Venue:       event.Venue,
-		Symbol:      event.Instrument,
-		Severity:    sev,
-		Confidence:  absConfidence(volRatio),
-		Features:    []string{"volume_ratio", "cum_volume", "price_move_pct"},
-		FeatureVals: []float64{volRatio, cumVolEmitted, priceMove * 100},
-		Reason:      "large cumulative volume absorbed with minimal price movement",
-		SeqTrigger:  event.Seq,
+		Type:       domain.Absorption,
+		TsServer:   event.TsServer,
+		Venue:      event.Venue,
+		Symbol:     event.Symbol,
+		StreamID:   resolveStreamID(event),
+		Seq:        event.Seq,
+		Severity:   sev,
+		Confidence: absConfidence(volRatio),
+		Features: domain.FeaturesFromMap(map[string]float64{
+			"cum_volume":     cumVolEmitted,
+			"price_move_pct": priceMove * 100,
+			"volume_ratio":   volRatio,
+		}),
+		Explanation: "large cumulative volume absorbed with minimal price movement",
+		RuleVersion: domain.RuleVersionV0,
+		InputWatermark: domain.InputWatermark{
+			SeqStart: startSeq,
+			SeqEnd:   event.Seq,
+		},
 	}}
 }
 

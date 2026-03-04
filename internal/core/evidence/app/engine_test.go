@@ -1,221 +1,163 @@
 package app
 
 import (
-	"math"
+	"encoding/json"
 	"testing"
-	"time"
 
 	"github.com/market-raccoon/internal/core/evidence/domain"
+	"github.com/market-raccoon/internal/shared/metrics"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
-func testEngineConfig(now func() time.Time) EngineConfig {
-	return EngineConfig{
-		MaxStreamsPerRule: 256,
-		MaxStreamsGlobal:  10,
-		StreamTTL:         5 * time.Minute,
-		SweepInterval:     1 * time.Minute,
-		Now:               now,
-	}
-}
-
-func TestEngineDispatchesToAllRules(t *testing.T) {
-	now := time.Date(2026, 3, 3, 0, 0, 0, 0, time.UTC)
-	cfg := testEngineConfig(func() time.Time { return now })
-	ruleCfg := DefaultRuleConfig()
-
-	engine := NewEvidenceEngine(cfg,
-		NewSpreadExplosionRule(ruleCfg),
-		NewLiquidityThinningRule(ruleCfg),
-		NewPersistentImbalanceRule(ruleCfg),
-		NewAbsorptionRule(ruleCfg),
-	)
-
-	// Feed a book event — should be dispatched to all book-consuming rules
-	ev := domain.RuleEvent{
-		Kind: domain.EventKindBook, Venue: "binance", Instrument: "BTC-USDT",
-		TsServer: 1000, Seq: 1,
-		BestBid: 50000, BestAsk: 50002,
-		BidDepth: 1000, AskDepth: 1000,
-	}
-	events := engine.OnEvent(ev)
-	// No emission expected on first event, but no panic
-	_ = events
-
-	stats := engine.Stats()
-	if stats.TotalStreams != 1 {
-		t.Errorf("TotalStreams = %d, want 1", stats.TotalStreams)
-	}
-	if len(stats.RuleStreams) != 4 {
-		t.Errorf("RuleStreams count = %d, want 4", len(stats.RuleStreams))
-	}
-}
-
-func TestEngineGlobalCapEviction(t *testing.T) {
-	now := time.Date(2026, 3, 3, 0, 0, 0, 0, time.UTC)
-	cfg := testEngineConfig(func() time.Time { return now })
-	cfg.MaxStreamsGlobal = 3
-	cfg.SweepInterval = 1 * time.Hour // disable periodic sweep
-
-	engine := NewEvidenceEngine(cfg, NewSpreadExplosionRule(DefaultRuleConfig()))
-
-	// Add 5 streams — should evict down to cap
-	for i := range 5 {
-		engine.OnEvent(domain.RuleEvent{
-			Kind: domain.EventKindBook, Venue: "binance",
-			Instrument: "SYM-" + string(rune('A'+i)),
-			TsServer:   int64(i) * 1000, Seq: int64(i),
-			BestBid: 50000, BestAsk: 50002,
-		})
-	}
-
-	stats := engine.Stats()
-	if stats.TotalStreams > cfg.MaxStreamsGlobal {
-		t.Errorf("TotalStreams = %d, want <= %d", stats.TotalStreams, cfg.MaxStreamsGlobal)
-	}
-}
-
-func TestEngineTTLSweep(t *testing.T) {
-	now := time.Date(2026, 3, 3, 0, 0, 0, 0, time.UTC)
-	clock := func() time.Time { return now }
-	cfg := testEngineConfig(clock)
-	cfg.StreamTTL = 2 * time.Minute
-	cfg.SweepInterval = 1 * time.Minute
-
-	engine := NewEvidenceEngine(cfg, NewSpreadExplosionRule(DefaultRuleConfig()))
-
-	// Add a stream
-	engine.OnEvent(domain.RuleEvent{
-		Kind: domain.EventKindBook, Venue: "binance", Instrument: "BTC-USDT",
-		TsServer: 1000, Seq: 1, BestBid: 50000, BestAsk: 50002,
-	})
-
-	if engine.Stats().TotalStreams != 1 {
-		t.Fatal("expected 1 stream")
-	}
-
-	// Advance time past TTL + sweep interval
-	now = now.Add(3 * time.Minute)
-	engine.cfg.Now = func() time.Time { return now }
-
-	// Trigger sweep via another event on a different stream
-	engine.OnEvent(domain.RuleEvent{
-		Kind: domain.EventKindBook, Venue: "coinbase", Instrument: "ETH-USD",
-		TsServer: 200000, Seq: 2, BestBid: 3000, BestAsk: 3001,
-	})
-
-	stats := engine.Stats()
-	if stats.TotalStreams != 1 {
-		t.Errorf("TotalStreams after sweep = %d, want 1 (old stream evicted)", stats.TotalStreams)
-	}
-	if stats.TotalEvicted < 1 {
-		t.Errorf("TotalEvicted = %d, want >= 1", stats.TotalEvicted)
-	}
-}
-
-func TestEngineDeterminism(t *testing.T) {
-	makeCfg := func() EngineConfig {
-		now := time.Date(2026, 3, 3, 0, 0, 0, 0, time.UTC)
-		return testEngineConfig(func() time.Time { return now })
-	}
-	makeRules := func() []domain.EvidenceRule {
-		rc := DefaultRuleConfig()
-		return []domain.EvidenceRule{
-			NewSpreadExplosionRule(rc),
-			NewLiquidityThinningRule(rc),
-		}
-	}
-
-	// Build a deterministic event sequence
-	events := []domain.RuleEvent{}
-	for i := range 20 {
-		events = append(events, domain.RuleEvent{
-			Kind: domain.EventKindBook, Venue: "binance", Instrument: "BTC-USDT",
-			TsServer: int64(i) * 1000, Seq: int64(i),
-			BestBid: 50000, BestAsk: 50002, BidDepth: 1000, AskDepth: 1000,
-		})
-	}
-	// Add a spike
-	events = append(events, domain.RuleEvent{
-		Kind: domain.EventKindBook, Venue: "binance", Instrument: "BTC-USDT",
-		TsServer: 25000, Seq: 25,
-		BestBid: 50000, BestAsk: 50100, BidDepth: 200, AskDepth: 200,
-	})
-
-	// Run twice
-	run := func() []domain.EvidenceEvent {
-		engine := NewEvidenceEngine(makeCfg(), makeRules()...)
-		var all []domain.EvidenceEvent
-		for _, ev := range events {
-			all = append(all, engine.OnEvent(ev)...)
-		}
-		return all
-	}
-
-	result1 := run()
-	result2 := run()
-
-	if len(result1) != len(result2) {
-		t.Fatalf("determinism: run1 emitted %d, run2 emitted %d", len(result1), len(result2))
-	}
-	for i := range result1 {
-		if result1[i].Kind != result2[i].Kind || result1[i].SeqTrigger != result2[i].SeqTrigger {
-			t.Errorf("determinism mismatch at index %d", i)
-		}
-	}
-}
-
-func TestEngineStats(t *testing.T) {
-	now := time.Date(2026, 3, 3, 0, 0, 0, 0, time.UTC)
-	cfg := testEngineConfig(func() time.Time { return now })
-	engine := NewEvidenceEngine(cfg,
-		NewSpreadExplosionRule(DefaultRuleConfig()),
-		NewAbsorptionRule(DefaultRuleConfig()),
-	)
-
-	engine.OnEvent(domain.RuleEvent{
-		Kind: domain.EventKindBook, Venue: "binance", Instrument: "BTC-USDT",
-		TsServer: 1000, Seq: 1, BestBid: 50000, BestAsk: 50002,
-		BidDepth: 1000, AskDepth: 1000,
-	})
-
-	stats := engine.Stats()
-	if stats.TotalStreams != 1 {
-		t.Errorf("TotalStreams = %d, want 1", stats.TotalStreams)
-	}
-	if _, ok := stats.RuleStreams["spread_explosion"]; !ok {
-		t.Error("expected spread_explosion in RuleStreams")
-	}
-	if _, ok := stats.RuleStreams["absorption"]; !ok {
-		t.Error("expected absorption in RuleStreams")
-	}
-}
-
-func TestEngine_AppliesConfidenceDecayDeterministically(t *testing.T) {
-	now := time.UnixMilli(120_000)
+func TestEngineSeqMonotonicPerStream(t *testing.T) {
 	engine := NewEvidenceEngine(EngineConfig{
-		MaxStreamsPerRule: 16,
-		MaxStreamsGlobal:  16,
-		StreamTTL:         10 * time.Minute,
-		SweepInterval:     1 * time.Minute,
-		BufferCapPerKind:  1000,
-		DecayHalfLife:     1 * time.Minute,
-		Now: func() time.Time {
-			return now
-		},
+		MaxStreamsGlobal: 8,
+		StreamTTLMillis:  60_000,
 	}, fixedEmitRule{})
 
-	out := engine.OnEvent(domain.RuleEvent{
-		Kind:       domain.EventKindBook,
-		Venue:      "binance",
-		Instrument: "BTCUSDT",
-		TsServer:   60_000,
-		Seq:        10,
+	baseDrop := testutil.ToFloat64(metrics.EvidenceDroppedTotal.WithLabelValues("non_monotonic_seq"))
+
+	first := engine.OnEvent(domain.RuleEvent{
+		Kind:     domain.EventKindBook,
+		Venue:    "binance",
+		Symbol:   "BTC-USDT",
+		StreamID: "binance/BTC-USDT/book_delta",
+		TsServer: 1000,
+		Seq:      10,
+		BestBid:  100,
+		BestAsk:  101,
 	})
-	if len(out) != 1 {
-		t.Fatalf("events=%d want=1", len(out))
+	if len(first) != 1 {
+		t.Fatalf("first emissions=%d want=1", len(first))
 	}
-	if math.Abs(out[0].Confidence-0.5) > 1e-12 {
-		t.Fatalf("confidence=%0.12f want=0.500000000000", out[0].Confidence)
+
+	second := engine.OnEvent(domain.RuleEvent{
+		Kind:     domain.EventKindBook,
+		Venue:    "binance",
+		Symbol:   "BTC-USDT",
+		StreamID: "binance/BTC-USDT/book_delta",
+		TsServer: 1100,
+		Seq:      10,
+		BestBid:  100,
+		BestAsk:  101,
+	})
+	if len(second) != 0 {
+		t.Fatalf("second emissions=%d want=0", len(second))
+	}
+	afterDrop := testutil.ToFloat64(metrics.EvidenceDroppedTotal.WithLabelValues("non_monotonic_seq"))
+	if afterDrop <= baseDrop {
+		t.Fatalf("evidence_dropped_total not incremented: before=%f after=%f", baseDrop, afterDrop)
+	}
+}
+
+func TestEngineDeterminismByteIdentical(t *testing.T) {
+	run := func() [][]byte {
+		engine := NewEvidenceEngine(EngineConfig{
+			MaxStreamsGlobal: 16,
+			StreamTTLMillis:  600_000,
+		},
+			NewSpreadExplosionRule(DefaultRuleConfig()),
+			NewLiquidityThinningRule(DefaultRuleConfig()),
+			NewPersistentImbalanceRule(DefaultRuleConfig()),
+		)
+
+		fixtures := make([]domain.RuleEvent, 0, 64)
+		for i := 1; i <= 20; i++ {
+			fixtures = append(fixtures, domain.RuleEvent{
+				Kind:      domain.EventKindBook,
+				Venue:     "binance",
+				Symbol:    "BTC-USDT",
+				StreamID:  "binance/BTC-USDT/book_delta",
+				TsServer:  int64(i) * 1000,
+				Seq:       int64(i),
+				BestBid:   50_000,
+				BestAsk:   50_002,
+				BidDepth:  1000,
+				AskDepth:  1000,
+				BidLevels: 20,
+				AskLevels: 20,
+			})
+		}
+		fixtures = append(fixtures,
+			domain.RuleEvent{
+				Kind:      domain.EventKindBook,
+				Venue:     "binance",
+				Symbol:    "BTC-USDT",
+				StreamID:  "binance/BTC-USDT/book_delta",
+				TsServer:  21_000,
+				Seq:       21,
+				BestBid:   50_000,
+				BestAsk:   50_200,
+				BidDepth:  350,
+				AskDepth:  350,
+				BidLevels: 8,
+				AskLevels: 8,
+			},
+			domain.RuleEvent{
+				Kind:      domain.EventKindBook,
+				Venue:     "binance",
+				Symbol:    "BTC-USDT",
+				StreamID:  "binance/BTC-USDT/book_delta",
+				TsServer:  22_000,
+				Seq:       22,
+				BestBid:   50_000,
+				BestAsk:   50_200,
+				BidDepth:  900,
+				AskDepth:  100,
+				BidLevels: 10,
+				AskLevels: 3,
+			},
+		)
+
+		encoded := make([][]byte, 0, 8)
+		for i := range fixtures {
+			emitted := engine.OnEvent(fixtures[i])
+			for j := range emitted {
+				raw, err := json.Marshal(emitted[j])
+				if err != nil {
+					t.Fatalf("marshal evidence: %v", err)
+				}
+				encoded = append(encoded, raw)
+			}
+		}
+		return encoded
+	}
+
+	first := run()
+	second := run()
+	if len(first) != len(second) {
+		t.Fatalf("len(first)=%d len(second)=%d", len(first), len(second))
+	}
+	for i := range first {
+		if string(first[i]) != string(second[i]) {
+			t.Fatalf("event bytes mismatch at %d\nfirst=%s\nsecond=%s", i, string(first[i]), string(second[i]))
+		}
+	}
+}
+
+func TestEngineBoundedEviction(t *testing.T) {
+	engine := NewEvidenceEngine(EngineConfig{
+		MaxStreamsGlobal: 2,
+		StreamTTLMillis:  60_000,
+	}, fixedEmitRule{})
+
+	before := testutil.ToFloat64(metrics.EvidenceStateEvictedTotal.WithLabelValues("capacity"))
+
+	inputs := []domain.RuleEvent{
+		{Kind: domain.EventKindBook, Venue: "binance", Symbol: "BTC-USDT", StreamID: "binance/BTC-USDT/book_delta", TsServer: 1000, Seq: 1, BestBid: 1, BestAsk: 2},
+		{Kind: domain.EventKindBook, Venue: "binance", Symbol: "ETH-USDT", StreamID: "binance/ETH-USDT/book_delta", TsServer: 2000, Seq: 1, BestBid: 1, BestAsk: 2},
+		{Kind: domain.EventKindBook, Venue: "binance", Symbol: "SOL-USDT", StreamID: "binance/SOL-USDT/book_delta", TsServer: 3000, Seq: 1, BestBid: 1, BestAsk: 2},
+	}
+	for i := range inputs {
+		_ = engine.OnEvent(inputs[i])
+	}
+
+	if stats := engine.Stats(); stats.TotalStreams > 2 {
+		t.Fatalf("total streams=%d want<=2", stats.TotalStreams)
+	}
+	after := testutil.ToFloat64(metrics.EvidenceStateEvictedTotal.WithLabelValues("capacity"))
+	if after <= before {
+		t.Fatalf("capacity evictions not incremented: before=%f after=%f", before, after)
 	}
 }
 
@@ -227,15 +169,20 @@ func (fixedEmitRule) Reset()               {}
 func (fixedEmitRule) EvictStream(_ string) {}
 func (fixedEmitRule) OnEvent(ev domain.RuleEvent) []domain.EvidenceEvent {
 	return []domain.EvidenceEvent{{
-		Kind:        domain.Sweep,
+		Type:        domain.Sweep,
 		TsServer:    ev.TsServer,
 		Venue:       ev.Venue,
-		Symbol:      ev.Instrument,
+		Symbol:      ev.Symbol,
+		StreamID:    resolveStreamID(ev),
+		Seq:         ev.Seq,
 		Severity:    domain.SeverityMedium,
 		Confidence:  1.0,
-		Features:    []string{"x"},
-		FeatureVals: []float64{1},
-		Reason:      "fixed emit",
-		SeqTrigger:  ev.Seq,
+		Features:    []domain.EvidenceFeature{{Key: "x", Value: 1}},
+		Explanation: "fixed emit",
+		RuleVersion: domain.RuleVersionV0,
+		InputWatermark: domain.InputWatermark{
+			SeqStart: ev.Seq,
+			SeqEnd:   ev.Seq,
+		},
 	}}
 }

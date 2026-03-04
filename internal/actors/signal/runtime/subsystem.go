@@ -1,0 +1,339 @@
+package signalruntime
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/anthdm/hollywood/actor"
+	deliveryruntime "github.com/market-raccoon/internal/actors/delivery/runtime"
+	actorruntime "github.com/market-raccoon/internal/actors/runtime"
+	evidencedomain "github.com/market-raccoon/internal/core/evidence/domain"
+	marketmodel "github.com/market-raccoon/internal/core/marketmodel"
+	signalcore "github.com/market-raccoon/internal/core/signal"
+	"github.com/market-raccoon/internal/shared/codec"
+	"github.com/market-raccoon/internal/shared/envelope"
+	sharedhash "github.com/market-raccoon/internal/shared/hash"
+	"github.com/market-raccoon/internal/shared/metrics"
+	"github.com/market-raccoon/internal/shared/problem"
+)
+
+const (
+	envelopeTypeTrade     = "marketdata.trade"
+	envelopeTypeBookDelta = "marketdata.bookdelta"
+	envelopeTypeCandle    = "aggregation.candle"
+	envelopeTypeStats     = "aggregation.stats"
+)
+
+type signalEnvelopeMsg struct {
+	Envelope envelope.Envelope
+}
+
+type EventPublisher interface {
+	Publish(ctx context.Context, env envelope.Envelope) *problem.Problem
+}
+
+type SubsystemConfig struct {
+	Logger        *slog.Logger
+	EnvelopeCh    <-chan envelope.Envelope
+	Engine        *signalcore.SignalEngine
+	Publisher     EventPublisher
+	RouterPID     *actor.PID
+	ReplicaID     int
+	ReplicaCount  int
+	TenantMetaKey string
+}
+
+type SubsystemActor struct {
+	cfg        SubsystemConfig
+	logger     *slog.Logger
+	engine     *actor.Engine
+	selfPID    *actor.PID
+	consumeCtx context.Context
+	cancel     context.CancelFunc
+
+	signalEngine  *signalcore.SignalEngine
+	replicaID     int
+	replicaCount  int
+	tenantMetaKey string
+}
+
+func NewSubsystemActor(cfg SubsystemConfig) actor.Producer {
+	return func() actor.Receiver {
+		return &SubsystemActor{cfg: cfg}
+	}
+}
+
+func (s *SubsystemActor) Receive(c *actor.Context) {
+	s.ensureDefaults(c)
+
+	switch msg := c.Message().(type) {
+	case actor.Initialized:
+	case actor.Started:
+		s.onStarted()
+	case actor.Stopped:
+		s.onStopped()
+	case signalEnvelopeMsg:
+		s.processEnvelope(msg.Envelope)
+	case actorruntime.ChildFailed:
+		if c.Parent() != nil {
+			c.Send(c.Parent(), msg)
+		}
+	default:
+		s.logger.Warn("signal subsystem: unknown message", "type", fmt.Sprintf("%T", msg))
+	}
+}
+
+func (s *SubsystemActor) ensureDefaults(c *actor.Context) {
+	if s.logger == nil {
+		if s.cfg.Logger != nil {
+			s.logger = s.cfg.Logger
+		} else {
+			s.logger = slog.Default()
+		}
+	}
+	if s.engine == nil && c != nil {
+		s.engine = c.Engine()
+		s.selfPID = c.PID()
+	}
+	if s.signalEngine == nil {
+		s.signalEngine = s.cfg.Engine
+		if s.signalEngine == nil {
+			s.signalEngine = signalcore.NewSignalEngine(signalcore.DefaultEngineConfig(), nil)
+		}
+		s.signalEngine.SetEmitter(s)
+	}
+	if s.tenantMetaKey == "" {
+		s.tenantMetaKey = strings.TrimSpace(s.cfg.TenantMetaKey)
+		if s.tenantMetaKey == "" {
+			s.tenantMetaKey = "tenant_id"
+		}
+	}
+	if s.replicaCount <= 0 {
+		s.replicaCount = s.cfg.ReplicaCount
+		if envCount := strings.TrimSpace(os.Getenv("PROCESSOR_REPLICAS")); envCount != "" {
+			if parsed, err := strconv.Atoi(envCount); err == nil && parsed > 0 {
+				s.replicaCount = parsed
+			}
+		}
+		if s.replicaCount <= 0 {
+			s.replicaCount = 1
+		}
+	}
+	if s.replicaID < 0 {
+		s.replicaID = 0
+	}
+	if s.replicaID == 0 {
+		s.replicaID = s.cfg.ReplicaID
+		if envID := strings.TrimSpace(os.Getenv("PROCESSOR_REPLICA_ID")); envID != "" {
+			if parsed, err := strconv.Atoi(envID); err == nil && parsed >= 0 {
+				s.replicaID = parsed
+			}
+		}
+	}
+	if s.replicaID < 0 || s.replicaID >= s.replicaCount {
+		s.replicaID = 0
+	}
+}
+
+func (s *SubsystemActor) onStarted() {
+	s.logger.Info("signal subsystem started", "replica_id", s.replicaID, "replica_count", s.replicaCount)
+	if s.cfg.EnvelopeCh != nil && s.engine != nil && s.selfPID != nil {
+		s.consumeCtx, s.cancel = context.WithCancel(context.Background())
+		go s.consumeLoop()
+	}
+}
+
+func (s *SubsystemActor) onStopped() {
+	if s.cancel != nil {
+		s.cancel()
+	}
+	s.logger.Info("signal subsystem stopped")
+}
+
+func (s *SubsystemActor) consumeLoop() {
+	for {
+		select {
+		case <-s.consumeCtx.Done():
+			return
+		case env, ok := <-s.cfg.EnvelopeCh:
+			if !ok {
+				return
+			}
+			s.engine.Send(s.selfPID, signalEnvelopeMsg{Envelope: env})
+		}
+	}
+}
+
+func (s *SubsystemActor) processEnvelope(env envelope.Envelope) {
+	tenant := s.tenantFromEnv(env)
+	eventType := strings.ToLower(strings.TrimSpace(env.Type))
+	switch eventType {
+	case envelopeTypeBookDelta:
+		decoded, p := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
+		if p != nil {
+			return
+		}
+		delta, ok := decoded.(marketmodel.BookDelta)
+		if !ok {
+			return
+		}
+		key, ok := signalStreamKey(env.Venue, env.Instrument)
+		if !ok || !s.isOwner(key) {
+			return
+		}
+		obs := signalcore.MarketObservation{
+			Key:      key,
+			Tenant:   tenant,
+			TsServer: env.TsIngest,
+			Seq:      env.Seq,
+			BidDepth: sumDepth(delta.Bids),
+			AskDepth: sumDepth(delta.Asks),
+		}
+		if len(delta.Bids) > 0 {
+			obs.BestBid = delta.Bids[0].Price
+		}
+		if len(delta.Asks) > 0 {
+			obs.BestAsk = delta.Asks[0].Price
+		}
+		s.recordMarket(obs)
+		return
+	case envelopeTypeTrade, envelopeTypeCandle, envelopeTypeStats:
+		key, ok := signalStreamKey(env.Venue, env.Instrument)
+		if !ok || !s.isOwner(key) {
+			return
+		}
+		s.recordMarket(signalcore.MarketObservation{
+			Key:      key,
+			Tenant:   tenant,
+			TsServer: env.TsIngest,
+			Seq:      env.Seq,
+		})
+		return
+	case evidencedomain.MicrostructureEvidenceType, "evidence.microstructure_evidence":
+		decoded, p := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
+		if p != nil {
+			return
+		}
+		ev, ok := decoded.(evidencedomain.EvidenceEvent)
+		if !ok {
+			return
+		}
+		if p := ev.Validate(); p != nil {
+			return
+		}
+		key, ok := signalStreamKey(ev.Venue, ev.Symbol)
+		if !ok || !s.isOwner(key) {
+			return
+		}
+		emissions, evictions, dedupTypes, evalSpanMs, p := s.signalEngine.OnEvidenceEvent(key, tenant, ev)
+		if p != nil {
+			s.logger.Warn("signal subsystem: evaluate evidence failed", "code", p.Code, "message", p.Message)
+			return
+		}
+		s.recordEvictions(evictions)
+		for i := range dedupTypes {
+			metrics.IncSignalDedup(dedupTypes[i])
+		}
+		if evalSpanMs > 0 {
+			metrics.ObserveSignalEvalLatency(time.Duration(evalSpanMs) * time.Millisecond)
+		}
+		for i := range emissions {
+			metrics.IncSignalEmitted(emissions[i].Event.Type, emissions[i].Event.Severity)
+		}
+		metrics.SetSignalStateEntries(s.signalEngine.StoreEntries())
+	}
+}
+
+func (s *SubsystemActor) recordMarket(obs signalcore.MarketObservation) {
+	evictions, p := s.signalEngine.OnMarketEvent(obs)
+	if p != nil {
+		s.logger.Warn("signal subsystem: observe market failed", "code", p.Code, "message", p.Message)
+		return
+	}
+	s.recordEvictions(evictions)
+	metrics.SetSignalStateEntries(s.signalEngine.StoreEntries())
+}
+
+func (s *SubsystemActor) recordEvictions(evictions []signalcore.EvictionReason) {
+	for i := range evictions {
+		metrics.IncSignalEvicted(string(evictions[i]))
+	}
+}
+
+func (s *SubsystemActor) tenantFromEnv(env envelope.Envelope) string {
+	if len(env.Meta) == 0 {
+		return "default"
+	}
+	if tenant := strings.TrimSpace(env.Meta[s.tenantMetaKey]); tenant != "" {
+		return tenant
+	}
+	return "default"
+}
+
+func signalStreamKey(venue, symbol string) (marketmodel.StreamKey, bool) {
+	key, p := marketmodel.NewStreamKey(venue, symbol, marketmodel.ChannelEvidence)
+	if p != nil {
+		return marketmodel.StreamKey{}, false
+	}
+	return key, true
+}
+
+func (s *SubsystemActor) isOwner(key marketmodel.StreamKey) bool {
+	if s.replicaCount <= 1 {
+		return true
+	}
+	owner := sharedhash.SumFieldsFast64(string(key.Venue), string(key.Symbol), string(key.Channel)) % uint64(s.replicaCount)
+	return owner == uint64(s.replicaID) //nolint:gosec // replicaID is validated as non-negative and bounded by replicaCount.
+}
+
+func sumDepth(levels []marketmodel.Level) float64 {
+	total := 0.0
+	for i := range levels {
+		total += levels[i].Size
+	}
+	return total
+}
+
+func (s *SubsystemActor) Emit(emission signalcore.Emission) *problem.Problem {
+	contentType := envelope.ContentTypeProto
+	payload, p := codec.EncodePayload(signalcore.EventType, signalcore.EventVersion, contentType, emission.Event)
+	if p != nil {
+		return p
+	}
+	venue := strings.ToLower(strings.TrimSpace(string(emission.StreamKey.Venue)))
+	instrument := strings.TrimSpace(string(emission.StreamKey.Symbol))
+	if emission.Event.Scope == marketmodel.SignalScopeMarket {
+		venue = "global"
+		instrument = "MARKET"
+	}
+	meta := map[string]string{
+		"kind":           strings.ToLower(strings.TrimSpace(emission.Event.Type)),
+		"timeframe":      "raw",
+		"scope":          string(emission.Event.Scope),
+		"correlation_id": emission.Event.CorrelationID,
+	}
+	env := envelope.Envelope{
+		Type:           signalcore.EventType,
+		Version:        signalcore.EventVersion,
+		Venue:          venue,
+		Instrument:     instrument,
+		TsIngest:       emission.Event.TsServer,
+		Seq:            emission.Seq,
+		IdempotencyKey: sharedhash.IdempotencyKeyFast(venue, instrument, signalcore.EventType, emission.Seq),
+		ContentType:    contentType,
+		Payload:        payload,
+		Meta:           meta,
+	}
+	if s.cfg.Publisher != nil {
+		return s.cfg.Publisher.Publish(context.Background(), env)
+	}
+	if s.cfg.RouterPID != nil && s.engine != nil {
+		s.engine.Send(s.cfg.RouterPID, deliveryruntime.DeliverEnvelope{Envelope: env})
+	}
+	return nil
+}

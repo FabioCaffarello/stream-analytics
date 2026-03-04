@@ -7,21 +7,39 @@ import (
 // liqStreamState holds per-stream rolling state for liquidity thinning.
 type liqStreamState struct {
 	ring     RingFloat64
+	seqRing  RingInt64
 	cooldown streamEntry
+}
+
+// LiquidityThinningThresholds configures detection thresholds for thinning events.
+type LiquidityThinningThresholds struct {
+	MinSamples int
+	MinDropPct float64
+	MaxZScore  float64
+}
+
+func defaultLiquidityThinningThresholds() LiquidityThinningThresholds {
+	return LiquidityThinningThresholds{
+		MinSamples: 10,
+		MinDropPct: 0.30,
+		MaxZScore:  -2.0,
+	}
 }
 
 // LiquidityThinningRule detects when aggregate order book depth drops
 // significantly below its rolling average (>2σ AND >30% drop).
 type LiquidityThinningRule struct {
-	cfg     RuleConfig
-	streams map[string]*liqStreamState
+	cfg        RuleConfig
+	thresholds LiquidityThinningThresholds
+	streams    map[string]*liqStreamState
 }
 
 // NewLiquidityThinningRule creates a liquidity thinning detector.
 func NewLiquidityThinningRule(cfg RuleConfig) *LiquidityThinningRule {
 	return &LiquidityThinningRule{
-		cfg:     cfg,
-		streams: make(map[string]*liqStreamState),
+		cfg:        cfg,
+		thresholds: defaultLiquidityThinningThresholds(),
+		streams:    make(map[string]*liqStreamState),
 	}
 }
 
@@ -41,8 +59,9 @@ func (r *LiquidityThinningRule) OnEvent(event domain.RuleEvent) []domain.Evidenc
 	st := r.getOrCreate(key)
 
 	st.ring.Push(totalDepth)
+	st.seqRing.Push(event.Seq)
 
-	if st.ring.Len() < 10 {
+	if st.ring.Len() < r.thresholds.MinSamples {
 		return nil
 	}
 
@@ -56,8 +75,7 @@ func (r *LiquidityThinningRule) OnEvent(event domain.RuleEvent) []domain.Evidenc
 	dropPct := (mean - totalDepth) / mean
 	z := ZScore(totalDepth, mean, stddev)
 
-	// Detect: z < -2 (depth is 2σ below mean) AND drop > 30%
-	if z > -2 || dropPct < 0.30 {
+	if z > r.thresholds.MaxZScore || dropPct < r.thresholds.MinDropPct {
 		return nil
 	}
 
@@ -69,16 +87,25 @@ func (r *LiquidityThinningRule) OnEvent(event domain.RuleEvent) []domain.Evidenc
 	sev := liqSeverity(dropPct)
 
 	return []domain.EvidenceEvent{{
-		Kind:        domain.LiquidityThinning,
-		TsServer:    event.TsServer,
-		Venue:       event.Venue,
-		Symbol:      event.Instrument,
-		Severity:    sev,
-		Confidence:  liqConfidence(dropPct),
-		Features:    []string{"depth_drop_pct", "total_depth", "mean_depth"},
-		FeatureVals: []float64{dropPct * 100, totalDepth, mean},
-		Reason:      "aggregate depth dropped significantly below rolling mean",
-		SeqTrigger:  event.Seq,
+		Type:       domain.LiquidityThinning,
+		TsServer:   event.TsServer,
+		Venue:      event.Venue,
+		Symbol:     event.Symbol,
+		StreamID:   resolveStreamID(event),
+		Seq:        event.Seq,
+		Severity:   sev,
+		Confidence: liqConfidence(dropPct),
+		Features: domain.FeaturesFromMap(map[string]float64{
+			"depth_drop_pct": dropPct * 100,
+			"mean_depth":     mean,
+			"total_depth":    totalDepth,
+		}),
+		Explanation: "aggregate depth dropped significantly below rolling mean",
+		RuleVersion: domain.RuleVersionV0,
+		InputWatermark: domain.InputWatermark{
+			SeqStart: st.seqRing.Oldest(),
+			SeqEnd:   event.Seq,
+		},
 	}}
 }
 

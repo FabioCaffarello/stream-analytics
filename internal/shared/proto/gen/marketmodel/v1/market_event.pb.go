@@ -93,6 +93,8 @@ const (
 	Channel_CHANNEL_STATS Channel = 5
 	// CHANNEL_EVIDENCE carries evidence events.
 	Channel_CHANNEL_EVIDENCE Channel = 6
+	// CHANNEL_SIGNAL carries signal events.
+	Channel_CHANNEL_SIGNAL Channel = 7
 )
 
 // Enum value maps for Channel.
@@ -105,6 +107,7 @@ var (
 		4: "CHANNEL_CANDLE",
 		5: "CHANNEL_STATS",
 		6: "CHANNEL_EVIDENCE",
+		7: "CHANNEL_SIGNAL",
 	}
 	Channel_value = map[string]int32{
 		"CHANNEL_UNSPECIFIED":   0,
@@ -114,6 +117,7 @@ var (
 		"CHANNEL_CANDLE":        4,
 		"CHANNEL_STATS":         5,
 		"CHANNEL_EVIDENCE":      6,
+		"CHANNEL_SIGNAL":        7,
 	}
 )
 
@@ -142,6 +146,59 @@ func (x Channel) Number() protoreflect.EnumNumber {
 // Deprecated: Use Channel.Descriptor instead.
 func (Channel) EnumDescriptor() ([]byte, []int) {
 	return file_marketmodel_v1_market_event_proto_rawDescGZIP(), []int{1}
+}
+
+// SignalScope identifies whether a signal targets one stream or market scope.
+type SignalScope int32
+
+const (
+	// SIGNAL_SCOPE_UNSPECIFIED indicates unknown scope.
+	SignalScope_SIGNAL_SCOPE_UNSPECIFIED SignalScope = 0
+	// SIGNAL_SCOPE_STREAM targets one venue+symbol stream.
+	SignalScope_SIGNAL_SCOPE_STREAM SignalScope = 1
+	// SIGNAL_SCOPE_MARKET targets market-wide context.
+	SignalScope_SIGNAL_SCOPE_MARKET SignalScope = 2
+)
+
+// Enum value maps for SignalScope.
+var (
+	SignalScope_name = map[int32]string{
+		0: "SIGNAL_SCOPE_UNSPECIFIED",
+		1: "SIGNAL_SCOPE_STREAM",
+		2: "SIGNAL_SCOPE_MARKET",
+	}
+	SignalScope_value = map[string]int32{
+		"SIGNAL_SCOPE_UNSPECIFIED": 0,
+		"SIGNAL_SCOPE_STREAM":      1,
+		"SIGNAL_SCOPE_MARKET":      2,
+	}
+)
+
+func (x SignalScope) Enum() *SignalScope {
+	p := new(SignalScope)
+	*p = x
+	return p
+}
+
+func (x SignalScope) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SignalScope) Descriptor() protoreflect.EnumDescriptor {
+	return file_marketmodel_v1_market_event_proto_enumTypes[2].Descriptor()
+}
+
+func (SignalScope) Type() protoreflect.EnumType {
+	return &file_marketmodel_v1_market_event_proto_enumTypes[2]
+}
+
+func (x SignalScope) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SignalScope.Descriptor instead.
+func (SignalScope) EnumDescriptor() ([]byte, []int) {
+	return file_marketmodel_v1_market_event_proto_rawDescGZIP(), []int{2}
 }
 
 // StreamKey is the deterministic stream identity used by canonical events.
@@ -962,6 +1019,279 @@ func (x *Stats) GetIsClosed() bool {
 	return false
 }
 
+// SignalFeature is one named numeric feature supporting a signal event.
+type SignalFeature struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// key is the deterministic feature key.
+	Key string `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	// value is the numeric feature value.
+	Value         float64 `protobuf:"fixed64,2,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SignalFeature) Reset() {
+	*x = SignalFeature{}
+	mi := &file_marketmodel_v1_market_event_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SignalFeature) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SignalFeature) ProtoMessage() {}
+
+func (x *SignalFeature) ProtoReflect() protoreflect.Message {
+	mi := &file_marketmodel_v1_market_event_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SignalFeature.ProtoReflect.Descriptor instead.
+func (*SignalFeature) Descriptor() ([]byte, []int) {
+	return file_marketmodel_v1_market_event_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *SignalFeature) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *SignalFeature) GetValue() float64 {
+	if x != nil {
+		return x.Value
+	}
+	return 0
+}
+
+// SignalInputSeqRange captures one source stream sequence range used by a signal.
+type SignalInputSeqRange struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// venue is the canonical venue identifier for this range.
+	Venue string `protobuf:"bytes,1,opt,name=venue,proto3" json:"venue,omitempty"`
+	// symbol is the canonical symbol identifier for this range.
+	Symbol string `protobuf:"bytes,2,opt,name=symbol,proto3" json:"symbol,omitempty"`
+	// seq_start is the first consumed sequence.
+	SeqStart int64 `protobuf:"varint,3,opt,name=seq_start,json=seqStart,proto3" json:"seq_start,omitempty"`
+	// seq_end is the last consumed sequence.
+	SeqEnd        int64 `protobuf:"varint,4,opt,name=seq_end,json=seqEnd,proto3" json:"seq_end,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SignalInputSeqRange) Reset() {
+	*x = SignalInputSeqRange{}
+	mi := &file_marketmodel_v1_market_event_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SignalInputSeqRange) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SignalInputSeqRange) ProtoMessage() {}
+
+func (x *SignalInputSeqRange) ProtoReflect() protoreflect.Message {
+	mi := &file_marketmodel_v1_market_event_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SignalInputSeqRange.ProtoReflect.Descriptor instead.
+func (*SignalInputSeqRange) Descriptor() ([]byte, []int) {
+	return file_marketmodel_v1_market_event_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *SignalInputSeqRange) GetVenue() string {
+	if x != nil {
+		return x.Venue
+	}
+	return ""
+}
+
+func (x *SignalInputSeqRange) GetSymbol() string {
+	if x != nil {
+		return x.Symbol
+	}
+	return ""
+}
+
+func (x *SignalInputSeqRange) GetSeqStart() int64 {
+	if x != nil {
+		return x.SeqStart
+	}
+	return 0
+}
+
+func (x *SignalInputSeqRange) GetSeqEnd() int64 {
+	if x != nil {
+		return x.SeqEnd
+	}
+	return 0
+}
+
+// SignalEvent is one canonical deterministic signal payload.
+type SignalEvent struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// type is the signal class identifier.
+	Type string `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`
+	// ts_server is deterministic server timestamp in Unix milliseconds.
+	TsServer int64 `protobuf:"varint,2,opt,name=ts_server,json=tsServer,proto3" json:"ts_server,omitempty"`
+	// scope identifies stream or market-level scope.
+	Scope SignalScope `protobuf:"varint,3,opt,name=scope,proto3,enum=marketmodel.v1.SignalScope" json:"scope,omitempty"`
+	// venue is populated for SIGNAL_SCOPE_STREAM.
+	Venue string `protobuf:"bytes,4,opt,name=venue,proto3" json:"venue,omitempty"`
+	// symbol is populated for SIGNAL_SCOPE_STREAM.
+	Symbol string `protobuf:"bytes,5,opt,name=symbol,proto3" json:"symbol,omitempty"`
+	// severity classifies signal urgency.
+	Severity v1.Severity `protobuf:"varint,6,opt,name=severity,proto3,enum=evidence.v1.Severity" json:"severity,omitempty"`
+	// confidence is a deterministic value in [0,1].
+	Confidence float64 `protobuf:"fixed64,7,opt,name=confidence,proto3" json:"confidence,omitempty"`
+	// features carries sorted deterministic signal features.
+	Features []*SignalFeature `protobuf:"bytes,8,rep,name=features,proto3" json:"features,omitempty"`
+	// explanation is a human-readable rationale.
+	Explanation string `protobuf:"bytes,9,opt,name=explanation,proto3" json:"explanation,omitempty"`
+	// rule_version is the emitting deterministic rule version.
+	RuleVersion string `protobuf:"bytes,10,opt,name=rule_version,json=ruleVersion,proto3" json:"rule_version,omitempty"`
+	// input_watermark carries consumed source sequence ranges.
+	InputWatermark []*SignalInputSeqRange `protobuf:"bytes,11,rep,name=input_watermark,json=inputWatermark,proto3" json:"input_watermark,omitempty"`
+	// correlation_id is a deterministic correlation identifier.
+	CorrelationId string `protobuf:"bytes,12,opt,name=correlation_id,json=correlationId,proto3" json:"correlation_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SignalEvent) Reset() {
+	*x = SignalEvent{}
+	mi := &file_marketmodel_v1_market_event_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SignalEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SignalEvent) ProtoMessage() {}
+
+func (x *SignalEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_marketmodel_v1_market_event_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SignalEvent.ProtoReflect.Descriptor instead.
+func (*SignalEvent) Descriptor() ([]byte, []int) {
+	return file_marketmodel_v1_market_event_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *SignalEvent) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *SignalEvent) GetTsServer() int64 {
+	if x != nil {
+		return x.TsServer
+	}
+	return 0
+}
+
+func (x *SignalEvent) GetScope() SignalScope {
+	if x != nil {
+		return x.Scope
+	}
+	return SignalScope_SIGNAL_SCOPE_UNSPECIFIED
+}
+
+func (x *SignalEvent) GetVenue() string {
+	if x != nil {
+		return x.Venue
+	}
+	return ""
+}
+
+func (x *SignalEvent) GetSymbol() string {
+	if x != nil {
+		return x.Symbol
+	}
+	return ""
+}
+
+func (x *SignalEvent) GetSeverity() v1.Severity {
+	if x != nil {
+		return x.Severity
+	}
+	return v1.Severity(0)
+}
+
+func (x *SignalEvent) GetConfidence() float64 {
+	if x != nil {
+		return x.Confidence
+	}
+	return 0
+}
+
+func (x *SignalEvent) GetFeatures() []*SignalFeature {
+	if x != nil {
+		return x.Features
+	}
+	return nil
+}
+
+func (x *SignalEvent) GetExplanation() string {
+	if x != nil {
+		return x.Explanation
+	}
+	return ""
+}
+
+func (x *SignalEvent) GetRuleVersion() string {
+	if x != nil {
+		return x.RuleVersion
+	}
+	return ""
+}
+
+func (x *SignalEvent) GetInputWatermark() []*SignalInputSeqRange {
+	if x != nil {
+		return x.InputWatermark
+	}
+	return nil
+}
+
+func (x *SignalEvent) GetCorrelationId() string {
+	if x != nil {
+		return x.CorrelationId
+	}
+	return ""
+}
+
 // MarketEvent is a typed canonical market event envelope.
 type MarketEvent struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -977,6 +1307,7 @@ type MarketEvent struct {
 	//	*MarketEvent_Candle
 	//	*MarketEvent_Stats
 	//	*MarketEvent_Evidence
+	//	*MarketEvent_Signal
 	Payload       isMarketEvent_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -984,7 +1315,7 @@ type MarketEvent struct {
 
 func (x *MarketEvent) Reset() {
 	*x = MarketEvent{}
-	mi := &file_marketmodel_v1_market_event_proto_msgTypes[8]
+	mi := &file_marketmodel_v1_market_event_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -996,7 +1327,7 @@ func (x *MarketEvent) String() string {
 func (*MarketEvent) ProtoMessage() {}
 
 func (x *MarketEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_marketmodel_v1_market_event_proto_msgTypes[8]
+	mi := &file_marketmodel_v1_market_event_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1009,7 +1340,7 @@ func (x *MarketEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MarketEvent.ProtoReflect.Descriptor instead.
 func (*MarketEvent) Descriptor() ([]byte, []int) {
-	return file_marketmodel_v1_market_event_proto_rawDescGZIP(), []int{8}
+	return file_marketmodel_v1_market_event_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *MarketEvent) GetMeta() *EventMeta {
@@ -1080,6 +1411,15 @@ func (x *MarketEvent) GetEvidence() *v1.MicrostructureEvidenceV1 {
 	return nil
 }
 
+func (x *MarketEvent) GetSignal() *SignalEvent {
+	if x != nil {
+		if x, ok := x.Payload.(*MarketEvent_Signal); ok {
+			return x.Signal
+		}
+	}
+	return nil
+}
+
 type isMarketEvent_Payload interface {
 	isMarketEvent_Payload()
 }
@@ -1114,6 +1454,11 @@ type MarketEvent_Evidence struct {
 	Evidence *v1.MicrostructureEvidenceV1 `protobuf:"bytes,7,opt,name=evidence,proto3,oneof"`
 }
 
+type MarketEvent_Signal struct {
+	// signal carries canonical signal payload.
+	Signal *SignalEvent `protobuf:"bytes,8,opt,name=signal,proto3,oneof"`
+}
+
 func (*MarketEvent_Trade) isMarketEvent_Payload() {}
 
 func (*MarketEvent_BookSnapshot) isMarketEvent_Payload() {}
@@ -1125,6 +1470,8 @@ func (*MarketEvent_Candle) isMarketEvent_Payload() {}
 func (*MarketEvent_Stats) isMarketEvent_Payload() {}
 
 func (*MarketEvent_Evidence) isMarketEvent_Payload() {}
+
+func (*MarketEvent_Signal) isMarketEvent_Payload() {}
 
 var File_marketmodel_v1_market_event_proto protoreflect.FileDescriptor
 
@@ -1210,7 +1557,31 @@ const file_marketmodel_v1_market_event_proto_rawDesc = "" +
 	"\x11funding_rate_last\x18\x0f \x01(\x01R\x0ffundingRateLast\x12\x1b\n" +
 	"\tseq_first\x18\x10 \x01(\x03R\bseqFirst\x12\x19\n" +
 	"\bseq_last\x18\x11 \x01(\x03R\aseqLast\x12\x1b\n" +
-	"\tis_closed\x18\x12 \x01(\bR\bisClosedJ\x05\bd\x10\xc8\x01\"\xa4\x03\n" +
+	"\tis_closed\x18\x12 \x01(\bR\bisClosedJ\x05\bd\x10\xc8\x01\">\n" +
+	"\rSignalFeature\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x01R\x05valueJ\x05\bd\x10\xc8\x01\"\x80\x01\n" +
+	"\x13SignalInputSeqRange\x12\x14\n" +
+	"\x05venue\x18\x01 \x01(\tR\x05venue\x12\x16\n" +
+	"\x06symbol\x18\x02 \x01(\tR\x06symbol\x12\x1b\n" +
+	"\tseq_start\x18\x03 \x01(\x03R\bseqStart\x12\x17\n" +
+	"\aseq_end\x18\x04 \x01(\x03R\x06seqEndJ\x05\bd\x10\xc8\x01\"\xee\x03\n" +
+	"\vSignalEvent\x12\x12\n" +
+	"\x04type\x18\x01 \x01(\tR\x04type\x12\x1b\n" +
+	"\tts_server\x18\x02 \x01(\x03R\btsServer\x121\n" +
+	"\x05scope\x18\x03 \x01(\x0e2\x1b.marketmodel.v1.SignalScopeR\x05scope\x12\x14\n" +
+	"\x05venue\x18\x04 \x01(\tR\x05venue\x12\x16\n" +
+	"\x06symbol\x18\x05 \x01(\tR\x06symbol\x121\n" +
+	"\bseverity\x18\x06 \x01(\x0e2\x15.evidence.v1.SeverityR\bseverity\x12\x1e\n" +
+	"\n" +
+	"confidence\x18\a \x01(\x01R\n" +
+	"confidence\x129\n" +
+	"\bfeatures\x18\b \x03(\v2\x1d.marketmodel.v1.SignalFeatureR\bfeatures\x12 \n" +
+	"\vexplanation\x18\t \x01(\tR\vexplanation\x12!\n" +
+	"\frule_version\x18\n" +
+	" \x01(\tR\vruleVersion\x12L\n" +
+	"\x0finput_watermark\x18\v \x03(\v2#.marketmodel.v1.SignalInputSeqRangeR\x0einputWatermark\x12%\n" +
+	"\x0ecorrelation_id\x18\f \x01(\tR\rcorrelationIdJ\x05\bd\x10\xc8\x01\"\xdb\x03\n" +
 	"\vMarketEvent\x12-\n" +
 	"\x04meta\x18\x01 \x01(\v2\x19.marketmodel.v1.EventMetaR\x04meta\x12-\n" +
 	"\x05trade\x18\x02 \x01(\v2\x15.marketmodel.v1.TradeH\x00R\x05trade\x12C\n" +
@@ -1219,12 +1590,13 @@ const file_marketmodel_v1_market_event_proto_rawDesc = "" +
 	"book_delta\x18\x04 \x01(\v2\x19.marketmodel.v1.BookDeltaH\x00R\tbookDelta\x120\n" +
 	"\x06candle\x18\x05 \x01(\v2\x16.marketmodel.v1.CandleH\x00R\x06candle\x12-\n" +
 	"\x05stats\x18\x06 \x01(\v2\x15.marketmodel.v1.StatsH\x00R\x05stats\x12C\n" +
-	"\bevidence\x18\a \x01(\v2%.evidence.v1.MicrostructureEvidenceV1H\x00R\bevidenceB\t\n" +
+	"\bevidence\x18\a \x01(\v2%.evidence.v1.MicrostructureEvidenceV1H\x00R\bevidence\x125\n" +
+	"\x06signal\x18\b \x01(\v2\x1b.marketmodel.v1.SignalEventH\x00R\x06signalB\t\n" +
 	"\apayloadJ\x05\bd\x10\xc8\x01*9\n" +
 	"\x04Side\x12\x14\n" +
 	"\x10SIDE_UNSPECIFIED\x10\x00\x12\f\n" +
 	"\bSIDE_BUY\x10\x01\x12\r\n" +
-	"\tSIDE_SELL\x10\x02*\xa5\x01\n" +
+	"\tSIDE_SELL\x10\x02*\xb9\x01\n" +
 	"\aChannel\x12\x17\n" +
 	"\x13CHANNEL_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rCHANNEL_TRADE\x10\x01\x12\x19\n" +
@@ -1232,7 +1604,12 @@ const file_marketmodel_v1_market_event_proto_rawDesc = "" +
 	"\x12CHANNEL_BOOK_DELTA\x10\x03\x12\x12\n" +
 	"\x0eCHANNEL_CANDLE\x10\x04\x12\x11\n" +
 	"\rCHANNEL_STATS\x10\x05\x12\x14\n" +
-	"\x10CHANNEL_EVIDENCE\x10\x06BDZBgithub.com/market-raccoon/internal/shared/proto/gen/marketmodel/v1b\x06proto3"
+	"\x10CHANNEL_EVIDENCE\x10\x06\x12\x12\n" +
+	"\x0eCHANNEL_SIGNAL\x10\a*]\n" +
+	"\vSignalScope\x12\x1c\n" +
+	"\x18SIGNAL_SCOPE_UNSPECIFIED\x10\x00\x12\x17\n" +
+	"\x13SIGNAL_SCOPE_STREAM\x10\x01\x12\x17\n" +
+	"\x13SIGNAL_SCOPE_MARKET\x10\x02BDZBgithub.com/market-raccoon/internal/shared/proto/gen/marketmodel/v1b\x06proto3"
 
 var (
 	file_marketmodel_v1_market_event_proto_rawDescOnce sync.Once
@@ -1246,42 +1623,52 @@ func file_marketmodel_v1_market_event_proto_rawDescGZIP() []byte {
 	return file_marketmodel_v1_market_event_proto_rawDescData
 }
 
-var file_marketmodel_v1_market_event_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_marketmodel_v1_market_event_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_marketmodel_v1_market_event_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_marketmodel_v1_market_event_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_marketmodel_v1_market_event_proto_goTypes = []any{
 	(Side)(0),                           // 0: marketmodel.v1.Side
 	(Channel)(0),                        // 1: marketmodel.v1.Channel
-	(*StreamKey)(nil),                   // 2: marketmodel.v1.StreamKey
-	(*EventMeta)(nil),                   // 3: marketmodel.v1.EventMeta
-	(*PriceLevel)(nil),                  // 4: marketmodel.v1.PriceLevel
-	(*Trade)(nil),                       // 5: marketmodel.v1.Trade
-	(*BookSnapshot)(nil),                // 6: marketmodel.v1.BookSnapshot
-	(*BookDelta)(nil),                   // 7: marketmodel.v1.BookDelta
-	(*Candle)(nil),                      // 8: marketmodel.v1.Candle
-	(*Stats)(nil),                       // 9: marketmodel.v1.Stats
-	(*MarketEvent)(nil),                 // 10: marketmodel.v1.MarketEvent
-	(*v1.MicrostructureEvidenceV1)(nil), // 11: evidence.v1.MicrostructureEvidenceV1
+	(SignalScope)(0),                    // 2: marketmodel.v1.SignalScope
+	(*StreamKey)(nil),                   // 3: marketmodel.v1.StreamKey
+	(*EventMeta)(nil),                   // 4: marketmodel.v1.EventMeta
+	(*PriceLevel)(nil),                  // 5: marketmodel.v1.PriceLevel
+	(*Trade)(nil),                       // 6: marketmodel.v1.Trade
+	(*BookSnapshot)(nil),                // 7: marketmodel.v1.BookSnapshot
+	(*BookDelta)(nil),                   // 8: marketmodel.v1.BookDelta
+	(*Candle)(nil),                      // 9: marketmodel.v1.Candle
+	(*Stats)(nil),                       // 10: marketmodel.v1.Stats
+	(*SignalFeature)(nil),               // 11: marketmodel.v1.SignalFeature
+	(*SignalInputSeqRange)(nil),         // 12: marketmodel.v1.SignalInputSeqRange
+	(*SignalEvent)(nil),                 // 13: marketmodel.v1.SignalEvent
+	(*MarketEvent)(nil),                 // 14: marketmodel.v1.MarketEvent
+	(v1.Severity)(0),                    // 15: evidence.v1.Severity
+	(*v1.MicrostructureEvidenceV1)(nil), // 16: evidence.v1.MicrostructureEvidenceV1
 }
 var file_marketmodel_v1_market_event_proto_depIdxs = []int32{
 	1,  // 0: marketmodel.v1.StreamKey.channel:type_name -> marketmodel.v1.Channel
-	2,  // 1: marketmodel.v1.EventMeta.key:type_name -> marketmodel.v1.StreamKey
+	3,  // 1: marketmodel.v1.EventMeta.key:type_name -> marketmodel.v1.StreamKey
 	0,  // 2: marketmodel.v1.Trade.side:type_name -> marketmodel.v1.Side
-	4,  // 3: marketmodel.v1.BookSnapshot.bids:type_name -> marketmodel.v1.PriceLevel
-	4,  // 4: marketmodel.v1.BookSnapshot.asks:type_name -> marketmodel.v1.PriceLevel
-	4,  // 5: marketmodel.v1.BookDelta.bids:type_name -> marketmodel.v1.PriceLevel
-	4,  // 6: marketmodel.v1.BookDelta.asks:type_name -> marketmodel.v1.PriceLevel
-	3,  // 7: marketmodel.v1.MarketEvent.meta:type_name -> marketmodel.v1.EventMeta
-	5,  // 8: marketmodel.v1.MarketEvent.trade:type_name -> marketmodel.v1.Trade
-	6,  // 9: marketmodel.v1.MarketEvent.book_snapshot:type_name -> marketmodel.v1.BookSnapshot
-	7,  // 10: marketmodel.v1.MarketEvent.book_delta:type_name -> marketmodel.v1.BookDelta
-	8,  // 11: marketmodel.v1.MarketEvent.candle:type_name -> marketmodel.v1.Candle
-	9,  // 12: marketmodel.v1.MarketEvent.stats:type_name -> marketmodel.v1.Stats
-	11, // 13: marketmodel.v1.MarketEvent.evidence:type_name -> evidence.v1.MicrostructureEvidenceV1
-	14, // [14:14] is the sub-list for method output_type
-	14, // [14:14] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	5,  // 3: marketmodel.v1.BookSnapshot.bids:type_name -> marketmodel.v1.PriceLevel
+	5,  // 4: marketmodel.v1.BookSnapshot.asks:type_name -> marketmodel.v1.PriceLevel
+	5,  // 5: marketmodel.v1.BookDelta.bids:type_name -> marketmodel.v1.PriceLevel
+	5,  // 6: marketmodel.v1.BookDelta.asks:type_name -> marketmodel.v1.PriceLevel
+	2,  // 7: marketmodel.v1.SignalEvent.scope:type_name -> marketmodel.v1.SignalScope
+	15, // 8: marketmodel.v1.SignalEvent.severity:type_name -> evidence.v1.Severity
+	11, // 9: marketmodel.v1.SignalEvent.features:type_name -> marketmodel.v1.SignalFeature
+	12, // 10: marketmodel.v1.SignalEvent.input_watermark:type_name -> marketmodel.v1.SignalInputSeqRange
+	4,  // 11: marketmodel.v1.MarketEvent.meta:type_name -> marketmodel.v1.EventMeta
+	6,  // 12: marketmodel.v1.MarketEvent.trade:type_name -> marketmodel.v1.Trade
+	7,  // 13: marketmodel.v1.MarketEvent.book_snapshot:type_name -> marketmodel.v1.BookSnapshot
+	8,  // 14: marketmodel.v1.MarketEvent.book_delta:type_name -> marketmodel.v1.BookDelta
+	9,  // 15: marketmodel.v1.MarketEvent.candle:type_name -> marketmodel.v1.Candle
+	10, // 16: marketmodel.v1.MarketEvent.stats:type_name -> marketmodel.v1.Stats
+	16, // 17: marketmodel.v1.MarketEvent.evidence:type_name -> evidence.v1.MicrostructureEvidenceV1
+	13, // 18: marketmodel.v1.MarketEvent.signal:type_name -> marketmodel.v1.SignalEvent
+	19, // [19:19] is the sub-list for method output_type
+	19, // [19:19] is the sub-list for method input_type
+	19, // [19:19] is the sub-list for extension type_name
+	19, // [19:19] is the sub-list for extension extendee
+	0,  // [0:19] is the sub-list for field type_name
 }
 
 func init() { file_marketmodel_v1_market_event_proto_init() }
@@ -1289,21 +1676,22 @@ func file_marketmodel_v1_market_event_proto_init() {
 	if File_marketmodel_v1_market_event_proto != nil {
 		return
 	}
-	file_marketmodel_v1_market_event_proto_msgTypes[8].OneofWrappers = []any{
+	file_marketmodel_v1_market_event_proto_msgTypes[11].OneofWrappers = []any{
 		(*MarketEvent_Trade)(nil),
 		(*MarketEvent_BookSnapshot)(nil),
 		(*MarketEvent_BookDelta)(nil),
 		(*MarketEvent_Candle)(nil),
 		(*MarketEvent_Stats)(nil),
 		(*MarketEvent_Evidence)(nil),
+		(*MarketEvent_Signal)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_marketmodel_v1_market_event_proto_rawDesc), len(file_marketmodel_v1_market_event_proto_rawDesc)),
-			NumEnums:      2,
-			NumMessages:   9,
+			NumEnums:      3,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -412,33 +412,53 @@ func (s *SessionActor) prepareJSONPayload(env envelope.Envelope) (json.RawMessag
 func prepareSignalFramePayload(payload json.RawMessage) (wsSignalPayload, *problem.Problem) {
 	var in struct {
 		Kind           string          `json:"kind"`
+		Type           string          `json:"type"`
 		Venue          string          `json:"venue"`
 		Instrument     string          `json:"instrument"`
+		Symbol         string          `json:"symbol"`
 		Timeframe      string          `json:"timeframe"`
 		Severity       string          `json:"severity"`
 		Confidence     float64         `json:"confidence"`
 		Evidence       json.RawMessage `json:"evidence"`
+		Features       json.RawMessage `json:"features"`
 		RegimeKind     string          `json:"regime_kind"`
 		RegimeStrength float64         `json:"regime_strength"`
 		Reason         string          `json:"reason"`
+		Explanation    string          `json:"explanation"`
 	}
 	if err := json.Unmarshal(payload, &in); err != nil {
 		return wsSignalPayload{}, problem.Wrap(err, problem.Internal, "signal payload decode failed")
 	}
-	if len(in.Evidence) == 0 {
-		in.Evidence = json.RawMessage("[]")
+	kind := strings.TrimSpace(in.Kind)
+	if kind == "" {
+		kind = strings.TrimSpace(in.Type)
+	}
+	instrument := strings.TrimSpace(in.Instrument)
+	if instrument == "" {
+		instrument = strings.TrimSpace(in.Symbol)
+	}
+	evidence := in.Evidence
+	if len(evidence) == 0 {
+		evidence = in.Features
+	}
+	if len(evidence) == 0 {
+		evidence = json.RawMessage("[]")
+	}
+	reason := strings.TrimSpace(in.Reason)
+	if reason == "" {
+		reason = strings.TrimSpace(in.Explanation)
 	}
 	return wsSignalPayload{
-		Kind:           strings.ToLower(strings.TrimSpace(in.Kind)),
+		Kind:           strings.ToLower(strings.TrimSpace(kind)),
 		Venue:          strings.ToLower(strings.TrimSpace(in.Venue)),
-		Instrument:     strings.TrimSpace(in.Instrument),
+		Instrument:     instrument,
 		Timeframe:      strings.ToLower(strings.TrimSpace(in.Timeframe)),
 		Severity:       strings.ToLower(strings.TrimSpace(in.Severity)),
 		Confidence:     in.Confidence,
-		Evidence:       in.Evidence,
+		Evidence:       evidence,
 		Regime:         strings.ToLower(strings.TrimSpace(in.RegimeKind)),
 		RegimeStrength: in.RegimeStrength,
-		Reason:         strings.TrimSpace(in.Reason),
+		Reason:         reason,
 	}, nil
 }
 
