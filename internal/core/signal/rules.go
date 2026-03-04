@@ -46,18 +46,21 @@ func DefaultRulesConfig() RulesConfig {
 			MinBurst:         3,
 			MinDistinctTypes: 2,
 			RuleVersion:      "v0",
+			LELRuleVersion:   "v1",
 		},
 		LiquidityCollapse: LiquidityCollapseConfig{
 			WindowMs:          5000,
 			MinSpreadEvents:   1,
 			MinThinningEvents: 1,
 			RuleVersion:       "v0",
+			LELRuleVersion:    "v1",
 		},
 		PersistentImbalance: PersistentImbalanceConfig{
 			WindowMs:             5000,
 			MinImbalanceEvents:   2,
 			RequireAbsorptionHit: true,
 			RuleVersion:          "v0",
+			LELRuleVersion:       "v1",
 		},
 		VenueDivergence: VenueDivergenceConfig{
 			Enabled:       false,
@@ -82,6 +85,7 @@ type RegimeChangeConfig struct {
 	MinBurst         int
 	MinDistinctTypes int
 	RuleVersion      string
+	LELRuleVersion   string
 }
 
 type RegimeChangeRule struct{ cfg RegimeChangeConfig }
@@ -128,7 +132,7 @@ func (r RegimeChangeRule) Evaluate(input RuleInput) (RuleOutput, bool) {
 			{Key: "mean_confidence", Value: avgConfidence},
 		},
 		Explanation: "evidence burst indicates regime transition pressure",
-		RuleVersion: fallbackRuleVersion(r.cfg.RuleVersion),
+		RuleVersion: ruleVersionForEvidence(r.cfg.RuleVersion, r.cfg.LELRuleVersion, input.Evidence.RuleVersion),
 	}, true
 }
 
@@ -137,6 +141,7 @@ type LiquidityCollapseConfig struct {
 	MinSpreadEvents   int
 	MinThinningEvents int
 	RuleVersion       string
+	LELRuleVersion    string
 }
 
 type LiquidityCollapseRule struct{ cfg LiquidityCollapseConfig }
@@ -177,7 +182,7 @@ func (r LiquidityCollapseRule) Evaluate(input RuleInput) (RuleOutput, bool) {
 			{Key: "window_ms", Value: float64(r.cfg.WindowMs)},
 		},
 		Explanation: "thinning and spread explosion co-occurred in the same window",
-		RuleVersion: fallbackRuleVersion(r.cfg.RuleVersion),
+		RuleVersion: ruleVersionForEvidence(r.cfg.RuleVersion, r.cfg.LELRuleVersion, input.Evidence.RuleVersion),
 	}, true
 }
 
@@ -186,6 +191,7 @@ type PersistentImbalanceConfig struct {
 	MinImbalanceEvents   int
 	RequireAbsorptionHit bool
 	RuleVersion          string
+	LELRuleVersion       string
 }
 
 type PersistentImbalanceRule struct{ cfg PersistentImbalanceConfig }
@@ -231,7 +237,7 @@ func (r PersistentImbalanceRule) Evaluate(input RuleInput) (RuleOutput, bool) {
 			{Key: "window_ms", Value: float64(r.cfg.WindowMs)},
 		},
 		Explanation: "persistent imbalance persisted with absorption evidence",
-		RuleVersion: fallbackRuleVersion(r.cfg.RuleVersion),
+		RuleVersion: ruleVersionForEvidence(r.cfg.RuleVersion, r.cfg.LELRuleVersion, input.Evidence.RuleVersion),
 	}, true
 }
 
@@ -295,6 +301,13 @@ func fallbackRuleVersion(v string) string {
 		return "v0"
 	}
 	return strings.TrimSpace(v)
+}
+
+func ruleVersionForEvidence(defaultVersion, lelVersion, evidenceVersion string) string {
+	if strings.EqualFold(strings.TrimSpace(evidenceVersion), "v1") {
+		return fallbackRuleVersion(lelVersion)
+	}
+	return fallbackRuleVersion(defaultVersion)
 }
 
 func clamp01(v float64) float64 {
