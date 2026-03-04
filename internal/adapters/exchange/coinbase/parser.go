@@ -10,6 +10,7 @@ import (
 	"github.com/market-raccoon/internal/core/marketdata/app"
 	"github.com/market-raccoon/internal/core/marketdata/domain"
 	sharedhash "github.com/market-raccoon/internal/shared/hash"
+	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/naming"
 	"github.com/market-raccoon/internal/shared/problem"
 )
@@ -150,7 +151,26 @@ func parseTrade(data []byte, recvAt time.Time, marketType string) (app.IngestReq
 	}
 	tradeID := common.TradeIDStringFromAny(msg.TradeID)
 	if msg.TradeID <= 0 {
-		return app.IngestRequest{}, true, problem.New(problem.ValidationFailed, "coinbase match: trade_id must be > 0")
+		metrics.IncMRTradeBadValue(VenueCoinbase, "empty_trade_id")
+		return app.IngestRequest{}, true, nil
+	}
+	trade := domain.TradeTickV1{
+		Price:     price,
+		Size:      size,
+		Side:      side,
+		TradeID:   tradeID,
+		Timestamp: tsExchange,
+	}
+	if p := trade.Validate(); p != nil {
+		metrics.IncMRTradeBadValue(
+			VenueCoinbase,
+			common.ClassifyTradeValidationReason(trade.Price, trade.Size, trade.Side, trade.TradeID, trade.Timestamp),
+		)
+		return app.IngestRequest{}, true, nil
+	}
+	metrics.IncMRTradeIngest(VenueCoinbase)
+	if recvTs := recvAt.UnixMilli(); tsExchange > 0 && recvTs > tsExchange {
+		metrics.ObserveMRTradeLatency(VenueCoinbase, float64(recvTs-tsExchange)/1000.0)
 	}
 
 	return app.IngestRequest{
@@ -166,13 +186,7 @@ func parseTrade(data []byte, recvAt time.Time, marketType string) (app.IngestReq
 			tradeID,
 		),
 		Metadata: buildInstrumentMetadata(msg.ProductID, instrument, marketType),
-		Payload: domain.TradeTickV1{
-			Price:     price,
-			Size:      size,
-			Side:      side,
-			TradeID:   tradeID,
-			Timestamp: tsExchange,
-		},
+		Payload:  trade,
 	}, false, nil
 }
 

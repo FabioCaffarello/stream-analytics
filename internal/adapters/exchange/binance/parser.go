@@ -10,6 +10,7 @@ import (
 	common "github.com/market-raccoon/internal/adapters/exchange/common"
 	"github.com/market-raccoon/internal/core/marketdata/app"
 	"github.com/market-raccoon/internal/core/marketdata/domain"
+	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/naming"
 	"github.com/market-raccoon/internal/shared/problem"
 )
@@ -285,8 +286,25 @@ func parseAggTrade(payload []byte, recvAt time.Time, marketType string) (app.Ing
 	if m.BuyerIsMaker {
 		side = "sell"
 	}
-
 	tradeID := common.TradeIDStringFromAny(m.AggTradeID)
+	trade := domain.TradeTickV1{
+		Price:     price,
+		Size:      size,
+		Side:      side,
+		TradeID:   tradeID,
+		Timestamp: tsExchange,
+	}
+	if p := trade.Validate(); p != nil {
+		metrics.IncMRTradeBadValue(
+			VenueBinance,
+			common.ClassifyTradeValidationReason(trade.Price, trade.Size, trade.Side, trade.TradeID, trade.Timestamp),
+		)
+		return app.IngestRequest{}, true, nil
+	}
+	metrics.IncMRTradeIngest(VenueBinance)
+	if recvTs := recvAt.UnixMilli(); tsExchange > 0 && recvTs > tsExchange {
+		metrics.ObserveMRTradeLatency(VenueBinance, float64(recvTs-tsExchange)/1000.0)
+	}
 
 	return app.IngestRequest{
 		Venue:      VenueBinance,
@@ -301,13 +319,7 @@ func parseAggTrade(payload []byte, recvAt time.Time, marketType string) (app.Ing
 			tradeID,
 		),
 		Metadata: buildInstrumentMetadata(m.Symbol, instrument, marketType),
-		Payload: domain.TradeTickV1{
-			Price:     price,
-			Size:      size,
-			Side:      side,
-			TradeID:   tradeID,
-			Timestamp: tsExchange,
-		},
+		Payload:  trade,
 	}, false, nil
 }
 

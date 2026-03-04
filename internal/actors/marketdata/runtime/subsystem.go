@@ -362,8 +362,14 @@ func (s *SubsystemActor) processMessage(msg *ws.WsMessage) {
 		switch p.Code {
 		case problem.Duplicate:
 			status = "duplicate"
+			if req.EventType == "marketdata.trade" {
+				metrics.IncMRTradeDuplicate(req.Venue)
+			}
 		case problem.OutOfOrder:
 			status = "out_of_order"
+			if req.EventType == "marketdata.trade" {
+				metrics.IncMRTradeOutOfOrder(req.Venue, req.Instrument)
+			}
 		case problem.ValidationFailed, problem.InvalidArgument:
 			status = "validation_failed"
 		}
@@ -429,8 +435,14 @@ func (s *SubsystemActor) ingestSingleRequest(msg *ws.WsMessage, req app.IngestRe
 		switch p.Code {
 		case problem.Duplicate:
 			status = "duplicate"
+			if req.EventType == "marketdata.trade" {
+				metrics.IncMRTradeDuplicate(req.Venue)
+			}
 		case problem.OutOfOrder:
 			status = "out_of_order"
+			if req.EventType == "marketdata.trade" {
+				metrics.IncMRTradeOutOfOrder(req.Venue, req.Instrument)
+			}
 		case problem.ValidationFailed, problem.InvalidArgument:
 			status = "validation_failed"
 		}

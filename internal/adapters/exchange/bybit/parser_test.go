@@ -6,7 +6,9 @@ import (
 
 	"github.com/market-raccoon/internal/adapters/exchange/bybit"
 	"github.com/market-raccoon/internal/core/marketdata/domain"
+	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 func TestParseMessage_Trade(t *testing.T) {
@@ -185,6 +187,21 @@ func TestParseMessage_UnknownEventRejected(t *testing.T) {
 	}
 	if p.Details["reason"] != "unsupported_event_type" {
 		t.Fatalf("problem reason = %v, want unsupported_event_type", p.Details["reason"])
+	}
+}
+
+func TestBybitParser_RejectsBadTrade(t *testing.T) {
+	before := testutil.ToFloat64(metrics.MRTradeBadValueTotal.WithLabelValues("bybit", "nan_size"))
+	_, skip, p := bybit.ParseMessage(
+		[]byte(`{"topic":"publicTrade.BTCUSDT","type":"snapshot","ts":1710000001000,"data":[{"T":1710000001001,"s":"BTCUSDT","S":"Buy","v":"NaN","p":"65000.50","i":"123456"}]}`),
+		time.UnixMilli(1710000003000),
+	)
+	if !skip || p != nil {
+		t.Fatalf("expected skip + nil problem, got skip=%v problem=%v", skip, p)
+	}
+	after := testutil.ToFloat64(metrics.MRTradeBadValueTotal.WithLabelValues("bybit", "nan_size"))
+	if after < before+1 {
+		t.Fatalf("mr_trade_bad_value_total did not increment: before=%f after=%f", before, after)
 	}
 }
 

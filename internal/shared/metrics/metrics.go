@@ -639,6 +639,50 @@ var (
 		},
 		[]string{"venue", "instrument_bucket"},
 	)
+	MRTradeBadValueTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_trade_bad_value_total",
+			Help: "Total trades rejected by data-quality validation, by venue and reason.",
+		},
+		[]string{"venue", "reason"},
+	)
+	MRTradeOutOfOrderTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_trade_out_of_order_total",
+			Help: "Total out-of-order trades detected per venue/instrument.",
+		},
+		[]string{"venue", "instrument_bucket"},
+	)
+	MRTradeDuplicateTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_trade_duplicate_total",
+			Help: "Total duplicate trades dropped per venue.",
+		},
+		[]string{"venue"},
+	)
+	MRTradeIngestTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_trade_ingest_total",
+			Help: "Total trades successfully ingested per venue.",
+		},
+		[]string{"venue"},
+	)
+	MRTradeLatencySeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mr_trade_latency_seconds",
+			Help:    "Latency from exchange timestamp to MR ingest, per venue.",
+			Buckets: []float64{0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5},
+		},
+		[]string{"venue"},
+	)
+	MRTradeWireBytes = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mr_trade_wire_bytes",
+			Help:    "Encoded trade event frame size in bytes.",
+			Buckets: []float64{64, 128, 256, 512, 1024},
+		},
+		[]string{"venue", "channel"},
+	)
 	MRWindowOpenTotal = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "mr_window_open_total",
@@ -1584,6 +1628,12 @@ func registerAll() {
 			MROrderBookPublishDepth,
 			MROrderBookWireBytes,
 			MROrderBookChecksumMismatchTotal,
+			MRTradeBadValueTotal,
+			MRTradeOutOfOrderTotal,
+			MRTradeDuplicateTotal,
+			MRTradeIngestTotal,
+			MRTradeLatencySeconds,
+			MRTradeWireBytes,
 			MRWindowOpenTotal,
 			MRWindowLateArrivalTotal,
 			MRWindowForceCloseTotal,
@@ -1768,6 +1818,13 @@ func registerAll() {
 		// process only exposes metrics (e.g. server) and does not produce OB events.
 		MROrderBookWireBytes.WithLabelValues("unknown")
 		MROrderBookChecksumMismatchTotal.WithLabelValues("unknown", "unknown")
+		MRTradeBadValueTotal.WithLabelValues("unknown", "unknown")
+		MRTradeOutOfOrderTotal.WithLabelValues("unknown", "unknown")
+		MRTradeDuplicateTotal.WithLabelValues("unknown")
+		MRTradeIngestTotal.WithLabelValues("unknown")
+		MRTradeLatencySeconds.WithLabelValues("unknown")
+		MRTradeWireBytes.WithLabelValues("unknown", "trade")
+		MRTradeWireBytes.WithLabelValues("unknown", "tape")
 		InsightsSnapshotsTotal.WithLabelValues("2")
 		InsightsSnapshotsTotal.WithLabelValues("3_4")
 		InsightsSnapshotsTotal.WithLabelValues("5_8")
@@ -2439,6 +2496,51 @@ func IncMROrderBookChecksumMismatch(venue, instrument string) {
 		sanitizeVenue(venue),
 		bucketInstrument(instrument),
 	).Inc()
+}
+
+func IncMRTradeBadValue(venue, reason string) {
+	MRTradeBadValueTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		sanitizeTradeBadValueReason(reason),
+	).Inc()
+}
+
+func IncMRTradeOutOfOrder(venue, instrument string) {
+	MRTradeOutOfOrderTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+	).Inc()
+}
+
+func IncMRTradeDuplicate(venue string) {
+	MRTradeDuplicateTotal.WithLabelValues(
+		sanitizeVenue(venue),
+	).Inc()
+}
+
+func IncMRTradeIngest(venue string) {
+	MRTradeIngestTotal.WithLabelValues(
+		sanitizeVenue(venue),
+	).Inc()
+}
+
+func ObserveMRTradeLatency(venue string, seconds float64) {
+	if seconds < 0 || math.IsNaN(seconds) || math.IsInf(seconds, 0) {
+		seconds = 0
+	}
+	MRTradeLatencySeconds.WithLabelValues(
+		sanitizeVenue(venue),
+	).Observe(seconds)
+}
+
+func ObserveMRTradeWireBytes(venue, channel string, bytes int) {
+	if bytes < 0 {
+		bytes = 0
+	}
+	MRTradeWireBytes.WithLabelValues(
+		sanitizeVenue(venue),
+		sanitizeTradeWireChannel(channel),
+	).Observe(float64(bytes))
 }
 
 // InstrumentBucket returns the bounded metrics label bucket for an instrument.
@@ -3274,6 +3376,24 @@ func sanitizeOrderBookBadLevelReason(v string) string {
 func sanitizeOrderBookDropReason(v string) string {
 	switch strings.ToLower(strings.TrimSpace(v)) {
 	case "out_of_order", "validation_failed", "integrity_violation", "publish_failed", "store_failed":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeTradeBadValueReason(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "nan_price", "nan_size", "zero_price", "zero_size", "neg_price", "neg_size", "empty_side", "empty_trade_id", "bad_timestamp", "unknown":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeTradeWireChannel(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "trade", "tape":
 		return strings.ToLower(strings.TrimSpace(v))
 	default:
 		return "unknown"

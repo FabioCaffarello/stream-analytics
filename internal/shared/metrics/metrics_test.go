@@ -58,6 +58,36 @@ func TestOrderBookV2MetricsExposedWithoutRuntimeEvents(t *testing.T) {
 	}
 }
 
+func TestTradeQualityMetricsExposedWithoutRuntimeEvents(t *testing.T) {
+	mfs, err := Registry().Gather()
+	if err != nil {
+		t.Fatalf("gather metrics: %v", err)
+	}
+
+	for _, name := range []string{
+		"mr_trade_bad_value_total",
+		"mr_trade_out_of_order_total",
+		"mr_trade_duplicate_total",
+		"mr_trade_ingest_total",
+		"mr_trade_latency_seconds",
+		"mr_trade_wire_bytes",
+	} {
+		found := false
+		for _, mf := range mfs {
+			if mf.GetName() == name {
+				found = true
+				if len(mf.GetMetric()) == 0 {
+					t.Fatalf("%s has no exposed series", name)
+				}
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("%s metric family not found", name)
+		}
+	}
+}
+
 func TestObserveIngestAndCardinalityGuard(t *testing.T) {
 	before := testutil.ToFloat64(IngestMessagesTotal.WithLabelValues("unknown", "unknown", "unknown"))
 
@@ -207,6 +237,13 @@ func TestMetricsNamesPresent(t *testing.T) {
 	ObserveMROrderBookPublishDepth("binance", "bid", 50)
 	ObserveMROrderBookWireBytes("binance", 1024)
 	IncMROrderBookChecksumMismatch("binance", "BTC-USDT")
+	IncMRTradeBadValue("binance", "zero_price")
+	IncMRTradeOutOfOrder("binance", "BTC-USDT")
+	IncMRTradeDuplicate("binance")
+	IncMRTradeIngest("binance")
+	ObserveMRTradeLatency("binance", 0.01)
+	ObserveMRTradeWireBytes("binance", "trade", 256)
+	ObserveMRTradeWireBytes("binance", "tape", 512)
 	SetMRWindowOpen("binance", "BTC-USDT", "1m", 1)
 	IncMRWindowLateArrival("binance", "BTC-USDT", "1m")
 	IncMRWindowForceClose("binance", "BTC-USDT", "1m")
@@ -322,6 +359,12 @@ func TestMetricsNamesPresent(t *testing.T) {
 		"mr_orderbook_publish_depth",
 		"mr_orderbook_wire_bytes",
 		"mr_orderbook_checksum_mismatch_total",
+		"mr_trade_bad_value_total",
+		"mr_trade_out_of_order_total",
+		"mr_trade_duplicate_total",
+		"mr_trade_ingest_total",
+		"mr_trade_latency_seconds",
+		"mr_trade_wire_bytes",
 		"mr_window_open_total",
 		"mr_window_late_arrival_total",
 		"mr_window_force_close_total",
@@ -533,6 +576,24 @@ func TestWSExtendedMetrics_StableLabelsOnly(t *testing.T) {
 	assertMetricLabelNames(t, "ws_limit_rejections_total", []string{"type"})
 	assertMetricLabelNames(t, "ws_effective_limits", []string{"limit_name"})
 	assertMetricLabelNames(t, "delivery_router_coherence_violations_total", []string{"reason", "type"})
+}
+
+func TestTradeQualityMetrics_StableLabelsOnly(t *testing.T) {
+	t.Parallel()
+
+	IncMRTradeBadValue("binance", "zero_price")
+	IncMRTradeOutOfOrder("binance", "BTC-USDT")
+	IncMRTradeDuplicate("binance")
+	IncMRTradeIngest("binance")
+	ObserveMRTradeLatency("binance", 0.02)
+	ObserveMRTradeWireBytes("binance", "trade", 128)
+
+	assertMetricLabelNames(t, "mr_trade_bad_value_total", []string{"reason", "venue"})
+	assertMetricLabelNames(t, "mr_trade_out_of_order_total", []string{"instrument_bucket", "venue"})
+	assertMetricLabelNames(t, "mr_trade_duplicate_total", []string{"venue"})
+	assertMetricLabelNames(t, "mr_trade_ingest_total", []string{"venue"})
+	assertMetricLabelNames(t, "mr_trade_latency_seconds", []string{"venue"})
+	assertMetricLabelNames(t, "mr_trade_wire_bytes", []string{"channel", "venue"})
 }
 
 func TestWSTenantMetrics_LabelPolicy_WhitelistAndFallbackUnknown(t *testing.T) {
