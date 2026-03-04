@@ -596,6 +596,53 @@ Remove compatibility fallback paths only when all criteria below hold together:
 3. No client parse failures for `aggregation.snapshot` V2 fields across native + wasm builds/releases.
 4. Contract checks pass with only canonical V2 encode/decode path enabled (no legacy conversion fallback).
 
+## IQ Evidence (2026-03-04)
+
+Run: `artifacts/iq/20260304-171040`
+
+Operational verification executed with:
+
+- `make up PROCESSOR_REPLICAS=2`
+- Playwright MCP against `http://localhost:8090/`
+- Gates: `make test-short`, `make lint`, `make proto-check`, `make docs-check`, `make -C client doctor`, `make -C client build-native`, `make -C client build-wasm`, `make -C client check-core`
+
+Result summary:
+
+- WS + HELLO/ACK: PASS (`artifacts/iq/20260304-171040/playwright.console.log`)
+- Snapshot V2 observed on `aggregation.snapshot/binance/BTCUSDT/raw`: PASS (`artifacts/iq/20260304-171040/playwright.ws-diagnostic.json`)
+- DOM/OrderBook activity (trades + orderbook stream events): PASS (`artifacts/iq/20260304-171040/playwright.ws-diagnostic.json`)
+- Console errors/warnings: PASS (0/0)
+- Retry behavior: PASS (`reconnect_attempt count=1`, no retry storm)
+- Parsing/deserialize errors + drops/backpressure: PASS (`artifacts/iq/20260304-171040/metrics-summary.txt`, `artifacts/iq/20260304-171040/consumer.counters.summary.txt`)
+- `mr_orderbook_checksum_mismatch_total` and `mr_orderbook_wire_bytes` (p95/p99) on **server** endpoint: NOT EXPOSED (`artifacts/iq/20260304-171040/server.metrics.prom`)
+
+IQ verdict for this run: **FAIL (strict thresholds)** due to missing orderbook observability metrics on server endpoint, despite healthy runtime behavior.
+
+## IQ Evidence Rerun (2026-03-04)
+
+Run: `artifacts/iq/20260304-172513`
+
+Change under validation:
+
+- `fix(shared): expose orderbook v2 metrics on server registry`
+
+Validation summary:
+
+- Gates: PASS (`make test-short`, `make lint`, `make proto-check`, `make docs-check`) — see `artifacts/iq/20260304-172513/gates/summary.txt`
+- WS + HELLO/ACK: PASS (`artifacts/iq/20260304-172513/playwright.console.log`)
+- Snapshot V2 + streams ativos (orderbook + trades): PASS (`artifacts/iq/20260304-172513/playwright.ws-diagnostic.json`)
+- Console errors/warnings: PASS (0/0)
+- Parsing/deserialize + drops/backpressure: PASS (`artifacts/iq/20260304-172513/metrics-summary.txt`)
+- `mr_orderbook_checksum_mismatch_total` now exposed on server metrics: PASS
+- `mr_orderbook_wire_bytes` histogram now exposed on server metrics (`_bucket/_sum/_count`): PASS
+
+Evidence for required metric series:
+
+- `artifacts/iq/20260304-172513/metrics.orderbook-series.txt`
+- `artifacts/iq/20260304-172513/server.metrics.prom`
+
+IQ verdict for rerun: **PASS**
+
 ---
 
 ## CODEX Execution Checklist
