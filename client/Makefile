@@ -18,7 +18,7 @@ NATIVE_FLAGS ?=
 
 CORE_PKGS := app ui widgets math util ports services
 
-.PHONY: help build-native build-wasm build clean run run-native-compose run-native-offline serve check-wasm check-core check-core-imports check-widgets check-widgets-functional check-widgets-online soak-mem-native
+.PHONY: help build-native build-wasm build clean run run-native-compose run-native-offline serve check-wasm-compile check-wasm check-core check-core-imports check-widgets check-widgets-functional check-widgets-online soak-mem-native
 
 help:
 	@echo "Client targets:"
@@ -30,6 +30,7 @@ help:
 	@echo "  make run-native-offline - build + run native in offline/stub mode"
 	@echo "  make clean              - remove build artifacts"
 	@echo "  make serve              - build wasm + serve web/ on :$(SERVE_PORT)"
+	@echo "  make check-wasm-compile - compile-only wasm type check (no artifact copy)"
 	@echo "  make check-wasm         - verify web/app.wasm serves HTTP 200"
 	@echo "  make check-core         - odin check all core packages"
 	@echo "  make check-core-imports - gate: fail if core imports platform or deps"
@@ -80,6 +81,10 @@ serve: build-wasm
 	@echo "Serving $(WEB_DIR) on http://localhost:$(SERVE_PORT)"
 	@echo "Open browser console to see Odin output"
 	python3 -m http.server $(SERVE_PORT) --directory $(WEB_DIR)
+
+check-wasm-compile:
+	$(ODIN) check $(SRC_WEB) -target:js_wasm32 $(COLLECTION_CORE) -no-entry-point
+	@echo "check-wasm-compile: OK"
 
 check-wasm: build-wasm
 	@python3 -m http.server $(SERVE_PORT) --directory $(WEB_DIR) &>/dev/null & \

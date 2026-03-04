@@ -488,6 +488,7 @@ soak-full: soak-check soak-store soak-cold-path soak-roundtrip soak-pipeline soa
 
 test-short:
 	$(call RUN_IN_MODULES,bash -lc 'pkgs="$$( $(GO) list ./... 2>/dev/null || true )"; if [ -n "$$pkgs" ]; then $(GO) test -short $$pkgs; else echo "no packages to test (skipping)"; fi')
+	@$(MAKE) -C client check-wasm-compile
 
 test-short-changed:
 	@set -euo pipefail; \
