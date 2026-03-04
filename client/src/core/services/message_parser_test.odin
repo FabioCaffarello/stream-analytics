@@ -69,6 +69,20 @@ test_parse_book_delta_empty_levels :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_parse_aggregation_snapshot_v2 :: proc(t: ^testing.T) {
+	raw := `{"type":"event","subject":"aggregation.snapshot/binance/BTCUSDT/raw","seq":11,"ts_ingest":1700000000000,"payload":{"Venue":"binance","Instrument":"BTCUSDT","Seq":11,"Bids":[{"Price":50000.0,"Quantity":1.2}],"Asks":[{"Price":50001.0,"Quantity":1.1}],"BestBidPrice":50000.0,"BestAskPrice":50001.0,"SpreadBPS":0.2,"Checksum":1234,"TsIngestMs":1700000000000,"BidCount":1,"AskCount":1,"DepthCap":50,"Version":2}}`
+	result := parse_mr_message(transmute([]u8)raw, nil)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Orderbook)
+	testing.expect_value(t, result.meta.is_snapshot, true)
+	testing.expect_value(t, result.data.ob.is_snapshot, true)
+	testing.expect_value(t, result.data.ob.bid_count, 1)
+	testing.expect_value(t, result.data.ob.ask_count, 1)
+	testing.expect_value(t, result.data.ob.bid_prices[0], 50000.0)
+	testing.expect_value(t, result.data.ob.ask_prices[0], 50001.0)
+	free_all(context.temp_allocator)
+}
+
+@(test)
 test_f64_valid :: proc(t: ^testing.T) {
 	testing.expect_value(t, f64_valid(0.0), true)
 	testing.expect_value(t, f64_valid(1.0), true)

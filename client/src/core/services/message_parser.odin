@@ -821,6 +821,16 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 		} else if telemetry != nil {
 			telemetry.parse_errors += 1
 		}
+	case "aggregation.snapshot":
+		if r, ok := parse_aggregation_snapshot(raw, env.ts_ingest, subject_id); ok {
+			r.seq = result.meta.seq
+			r.is_snapshot = true
+			result.meta.is_snapshot = true
+			result.kind = .Orderbook
+			result.data.ob = r
+		} else if telemetry != nil {
+			telemetry.parse_errors += 1
+		}
 	case "aggregation.stats":
 		if r, ok := parse_stats(raw, env.ts_ingest, subject_id); ok {
 			r.seq = result.meta.seq
@@ -1111,6 +1121,13 @@ parse_book_delta :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_OB, boo
 }
 
 @(private = "file")
+parse_aggregation_snapshot :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_OB, bool) {
+	frame: util.MR_Aggregation_Snapshot_Frame
+	if json.unmarshal(raw, &frame) != nil do return {}, false
+	return parse_aggregation_snapshot_from_payload(frame.payload, ts, subject_id)
+}
+
+@(private = "file")
 parse_book_delta_payload :: proc(payload_raw: []u8, ts: i64, subject_id: u64) -> (Parsed_OB, bool) {
 	bd: util.MR_Book_Delta
 	if json.unmarshal(payload_raw, &bd) != nil do return {}, false
@@ -1155,6 +1172,51 @@ parse_book_delta_from_payload :: proc(bd: util.MR_Book_Delta, ts: i64, subject_i
 		out_bc += 1
 	}
 	result.bid_count = out_bc
+	return result, true
+}
+
+@(private = "file")
+parse_aggregation_snapshot_from_payload :: proc(snap: util.MR_Aggregation_Snapshot, ts: i64, subject_id: u64) -> (Parsed_OB, bool) {
+	unix := util.normalize_unix_seconds(snap.ts_ingest_ms if snap.ts_ingest_ms != 0 else ts)
+
+	result: Parsed_OB
+	ac := min(len(snap.asks), OB_STAGING_DEPTH)
+	bc := min(len(snap.bids), OB_STAGING_DEPTH)
+	result.ask_count = ac
+	result.bid_count = bc
+	result.is_snapshot = true
+	result.unix = unix
+	result.subject_id = subject_id
+
+	if f64_valid(snap.best_ask_price) && f64_valid(snap.best_bid_price) &&
+		snap.best_ask_price > 0 && snap.best_bid_price > 0 {
+		result.last_price = (snap.best_ask_price + snap.best_bid_price) / 2.0
+	}
+
+	out_ac := 0
+	for i in 0 ..< ac {
+		p := snap.asks[i].price
+		s := snap.asks[i].quantity
+		if !f64_valid(p) || !f64_valid(s) || p < 0 || s < 0 do continue
+		result.ask_prices[out_ac] = p
+		result.ask_sizes[out_ac]  = s
+		out_ac += 1
+	}
+	result.ask_count = out_ac
+
+	out_bc := 0
+	for i in 0 ..< bc {
+		p := snap.bids[i].price
+		s := snap.bids[i].quantity
+		if !f64_valid(p) || !f64_valid(s) || p < 0 || s < 0 do continue
+		result.bid_prices[out_bc] = p
+		result.bid_sizes[out_bc]  = s
+		out_bc += 1
+	}
+	result.bid_count = out_bc
+	if result.last_price <= 0 && result.ask_count > 0 && result.bid_count > 0 {
+		result.last_price = (result.ask_prices[0] + result.bid_prices[0]) / 2.0
+	}
 	return result, true
 }
 

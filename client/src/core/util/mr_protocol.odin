@@ -78,6 +78,22 @@ MR_Book_Delta :: struct {
 	timestamp_ms: i64              `json:"Timestamp"`,
 }
 
+MR_Snapshot_Price_Level :: struct {
+	price:    f64 `json:"Price"`,
+	quantity: f64 `json:"Quantity"`,
+}
+
+MR_Aggregation_Snapshot :: struct {
+	venue:         string                    `json:"Venue"`,
+	instrument:    string                    `json:"Instrument"`,
+	seq:           i64                       `json:"Seq"`,
+	bids:          []MR_Snapshot_Price_Level `json:"Bids"`,
+	asks:          []MR_Snapshot_Price_Level `json:"Asks"`,
+	best_bid_price: f64                      `json:"BestBidPrice"`,
+	best_ask_price: f64                      `json:"BestAskPrice"`,
+	ts_ingest_ms:  i64                       `json:"TsIngestMs"`,
+}
+
 // Stats payload — flat, matches Go StatsWindowV1 (no json tags → PascalCase).
 MR_Stats_Payload :: struct {
 	liq_buy_volume:    f64 `json:"LiqBuyVolume"`,
@@ -202,6 +218,10 @@ MR_Trade_Frame :: struct {
 
 MR_Book_Delta_Frame :: struct {
 	payload: MR_Book_Delta `json:"payload"`,
+}
+
+MR_Aggregation_Snapshot_Frame :: struct {
+	payload: MR_Aggregation_Snapshot `json:"payload"`,
 }
 
 MR_Stats_Frame :: struct {

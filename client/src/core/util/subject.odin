@@ -83,7 +83,7 @@ channel_to_stream_type :: proc(channel: ports.MD_Channel) -> string {
 	case .Trades:
 		return "marketdata.trade"
 	case .Orderbook:
-		return "marketdata.bookdelta"
+		return "aggregation.snapshot"
 	case .Stats:
 		return "aggregation.stats"
 	case .Heatmaps:

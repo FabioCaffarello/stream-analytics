@@ -18,6 +18,13 @@ test_build_subject_normalizes_symbol_separators :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_build_subject_orderbook_uses_aggregation_snapshot_stream :: proc(t: ^testing.T) {
+	subject := build_subject_with_timeframe("binance", "BTCUSDT", .Orderbook, "")
+	defer delete(subject)
+	testing.expect_value(t, subject, "aggregation.snapshot/binance/BTCUSDT/raw")
+}
+
+@(test)
 test_build_signal_subject_uses_composite_kind_path :: proc(t: ^testing.T) {
 	subject := build_subject_with_timeframe("binance-perp", "BTCUSDT", .Signals, "5m")
 	defer delete(subject)
