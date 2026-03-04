@@ -1706,6 +1706,169 @@ func TestProcessorSubsystem_HeatmapSnapshotIdempotencyStableWithoutNewData(t *te
 	<-e.Poison(pid).Done()
 }
 
+func TestProcessorSubsystem_OrderbookSnapshotIdempotencyStableWithoutNewData(t *testing.T) {
+	pub := &spyArtifactPublisher{}
+	aggSvc := newAggService(pub)
+	outPublisher := &spyEnvelopePublisher{}
+
+	ch := make(chan envelope.Envelope, 8)
+	resultCh := make(chan aggruntime.EnvelopeProcessResult, 4)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh:      ch,
+		Service:         aggSvc,
+		PublishEnvelope: outPublisher,
+		OnEnvelopeProcessed: func(res aggruntime.EnvelopeProcessResult) {
+			select {
+			case resultCh <- res:
+			default:
+			}
+		},
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+
+	now := time.Now().UnixMilli()
+	ch <- makeBookDeltaEnvelopeAt(
+		"BINANCE", "BTC-USDT", 1, now,
+		[]mddomain.PriceLevel{{Price: 42000, Size: 1.5}},
+		[]mddomain.PriceLevel{{Price: 42001, Size: 2.0}},
+	)
+	select {
+	case <-resultCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for envelope processing")
+	}
+
+	e.Send(pid, aggruntime.SnapshotTick{Kind: aggruntime.SnapshotTickOrderBook})
+	waitFor(t, 2*time.Second, func() bool {
+		for _, env := range outPublisher.all() {
+			if env.Type == "aggregation.snapshot" {
+				return true
+			}
+		}
+		return false
+	})
+
+	var firstKey string
+	for _, env := range outPublisher.all() {
+		if env.Type == "aggregation.snapshot" {
+			firstKey = env.IdempotencyKey
+		}
+	}
+	if firstKey == "" {
+		t.Fatal("expected first orderbook snapshot idempotency key")
+	}
+
+	time.Sleep(20 * time.Millisecond)
+	e.Send(pid, aggruntime.SnapshotTick{Kind: aggruntime.SnapshotTickOrderBook})
+	waitFor(t, 2*time.Second, func() bool {
+		count := 0
+		for _, env := range outPublisher.all() {
+			if env.Type == "aggregation.snapshot" {
+				count++
+			}
+		}
+		return count >= 2
+	})
+
+	var lastKey string
+	for _, env := range outPublisher.all() {
+		if env.Type == "aggregation.snapshot" {
+			lastKey = env.IdempotencyKey
+		}
+	}
+	if lastKey == "" {
+		t.Fatal("expected second orderbook snapshot idempotency key")
+	}
+	if firstKey != lastKey {
+		t.Fatalf("orderbook idempotency key changed without new data: first=%s second=%s", firstKey, lastKey)
+	}
+
+	<-e.Poison(pid).Done()
+}
+
+func TestProcessorSubsystem_VolumeSnapshotIdempotencyStableWithoutNewData(t *testing.T) {
+	pub := &spyArtifactPublisher{}
+	aggSvc := newAggService(pub)
+	insightsSvc := insightsapp.NewInsightsService(insightsapp.InsightsServiceConfig{})
+	outPublisher := &spyEnvelopePublisher{}
+
+	ch := make(chan envelope.Envelope, 8)
+	resultCh := make(chan aggruntime.EnvelopeProcessResult, 4)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh:         ch,
+		Service:            aggSvc,
+		Insights:           insightsSvc,
+		InsightsTimeframes: []string{"1m"},
+		PublishEnvelope:    outPublisher,
+		OnEnvelopeProcessed: func(res aggruntime.EnvelopeProcessResult) {
+			select {
+			case resultCh <- res:
+			default:
+			}
+		},
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+
+	now := time.Now().UnixMilli()
+	ch <- makeTradeEnvelope("BINANCE", "BTC-USDT", 1, now, 42000, "buy", "t-vpvr-stable")
+	select {
+	case <-resultCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for envelope processing")
+	}
+
+	e.Send(pid, aggruntime.SnapshotTick{Kind: aggruntime.SnapshotTickVolume})
+	waitFor(t, 2*time.Second, func() bool {
+		for _, env := range outPublisher.all() {
+			if env.Type == insightsdomain.VolumeProfileSnapshotType {
+				return true
+			}
+		}
+		return false
+	})
+
+	var firstKey string
+	for _, env := range outPublisher.all() {
+		if env.Type == insightsdomain.VolumeProfileSnapshotType {
+			firstKey = env.IdempotencyKey
+		}
+	}
+	if firstKey == "" {
+		t.Fatal("expected first volume snapshot idempotency key")
+	}
+
+	time.Sleep(20 * time.Millisecond)
+	e.Send(pid, aggruntime.SnapshotTick{Kind: aggruntime.SnapshotTickVolume})
+	waitFor(t, 2*time.Second, func() bool {
+		count := 0
+		for _, env := range outPublisher.all() {
+			if env.Type == insightsdomain.VolumeProfileSnapshotType {
+				count++
+			}
+		}
+		return count >= 2
+	})
+
+	var lastKey string
+	for _, env := range outPublisher.all() {
+		if env.Type == insightsdomain.VolumeProfileSnapshotType {
+			lastKey = env.IdempotencyKey
+		}
+	}
+	if lastKey == "" {
+		t.Fatal("expected second volume snapshot idempotency key")
+	}
+	if firstKey != lastKey {
+		t.Fatalf("volume idempotency key changed without new data: first=%s second=%s", firstKey, lastKey)
+	}
+
+	<-e.Poison(pid).Done()
+}
+
 // ---------------------------------------------------------------------------
 // inline parent actor helper
 // ---------------------------------------------------------------------------

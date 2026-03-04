@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -204,6 +205,8 @@ const (
 	// and expensive; defer them temporarily so the actor can catch up on envelopes.
 	snapshotTickDeferSkewThreshold = 30 * time.Second
 	snapshotTickDeferLogInterval   = 20 * time.Second
+	// policyPartitionCacheCap bounds interned "type|venue|instrument" keys used by PolicyKit.
+	policyPartitionCacheCap = 4096
 )
 
 // ProcessorSubsystemActor consumes envelopes from a channel and dispatches
@@ -224,6 +227,8 @@ type ProcessorSubsystemActor struct {
 	policyApplier    *policykit.Applier
 	policyLevels     map[string]policykit.Level
 	policyPartitions map[string]string // intern cache: "type|venue|instrument" → same string
+	policyPartitionQ []string          // deterministic FIFO ring for bounded partition eviction.
+	policyPartitionI int
 	shuttingDown     bool
 	tickerPID        *actor.PID
 
@@ -333,6 +338,9 @@ func (p *ProcessorSubsystemActor) ensureDefaults() {
 		}
 		if p.policyPartitions == nil {
 			p.policyPartitions = make(map[string]string)
+		}
+		if p.policyPartitionQ == nil {
+			p.policyPartitionQ = make([]string, 0, policyPartitionCacheCap)
 		}
 	}
 }
@@ -532,11 +540,7 @@ func (p *ProcessorSubsystemActor) applyPolicyKit(env envelope.Envelope) (envelop
 	// The number of unique triples is small (bounded by type×venue×instrument),
 	// so the cache stays small while eliminating ~1.8M allocs/min.
 	partitionKey := env.Type + "|" + env.Venue + "|" + env.Instrument
-	partition, ok := p.policyPartitions[partitionKey]
-	if !ok {
-		partition = partitionKey
-		p.policyPartitions[partitionKey] = partition
-	}
+	partition := p.internPolicyPartitionWithCap(partitionKey, policyPartitionCacheCap)
 	prev := p.policyLevels[partition]
 	decision := p.cfg.PolicyKitEngine.Decide(prev, policykit.Signals{
 		Backlog:    len(p.cfg.EnvelopeCh),
@@ -577,6 +581,60 @@ func (p *ProcessorSubsystemActor) applyPolicyKit(env envelope.Envelope) (envelop
 		return env, true
 	}
 	return applied, false
+}
+
+func (p *ProcessorSubsystemActor) internPolicyPartitionWithCap(partitionKey string, maxEntries int) string {
+	if maxEntries <= 0 {
+		maxEntries = 1
+	}
+	if p.policyPartitions == nil {
+		p.policyPartitions = make(map[string]string, maxEntries)
+	}
+	if p.policyLevels == nil {
+		p.policyLevels = make(map[string]policykit.Level, maxEntries)
+	}
+	if p.policyPartitionQ == nil {
+		p.policyPartitionQ = make([]string, 0, maxEntries)
+	}
+	if partition, ok := p.policyPartitions[partitionKey]; ok {
+		return partition
+	}
+
+	if len(p.policyPartitions) >= maxEntries {
+		if len(p.policyPartitionQ) == 0 {
+			keys := make([]string, 0, len(p.policyPartitions))
+			for key := range p.policyPartitions {
+				keys = append(keys, key)
+			}
+			sort.Strings(keys)
+			if len(keys) > 0 {
+				evictKey := keys[0]
+				if evictPartition, ok := p.policyPartitions[evictKey]; ok {
+					delete(p.policyPartitions, evictKey)
+					delete(p.policyLevels, evictPartition)
+				}
+			}
+		} else {
+			if p.policyPartitionI < 0 || p.policyPartitionI >= len(p.policyPartitionQ) {
+				p.policyPartitionI = 0
+			}
+			evictKey := p.policyPartitionQ[p.policyPartitionI]
+			if evictPartition, ok := p.policyPartitions[evictKey]; ok {
+				delete(p.policyPartitions, evictKey)
+				delete(p.policyLevels, evictPartition)
+			}
+			p.policyPartitionQ[p.policyPartitionI] = partitionKey
+			p.policyPartitionI = (p.policyPartitionI + 1) % maxEntries
+		}
+	} else {
+		p.policyPartitionQ = append(p.policyPartitionQ, partitionKey)
+		if len(p.policyPartitionQ) == maxEntries {
+			p.policyPartitionI = 0
+		}
+	}
+
+	p.policyPartitions[partitionKey] = partitionKey
+	return partitionKey
 }
 
 func activeThresholdsForLevel(level policykit.Level) (policykit.Threshold, policykit.Threshold) {
@@ -981,11 +1039,76 @@ func deterministicCrossVenueEvictionCandidate(venues map[string]aggdomain.CrossV
 
 func (p *ProcessorSubsystemActor) collectCrossVenueBooks(instrumentKey string) []aggdomain.CrossVenueVenueBook {
 	venues := p.crossVenueBooks[instrumentKey]
-	books := make([]aggdomain.CrossVenueVenueBook, 0, len(venues))
-	for _, book := range venues {
-		books = append(books, book)
+	if len(venues) == 0 {
+		return nil
+	}
+	venueKeys := make([]string, 0, len(venues))
+	for venue := range venues {
+		venueKeys = append(venueKeys, venue)
+	}
+	sort.Strings(venueKeys)
+	books := make([]aggdomain.CrossVenueVenueBook, 0, len(venueKeys))
+	for _, venue := range venueKeys {
+		books = append(books, venues[venue])
 	}
 	return books
+}
+
+func sortedOrderBookKeys(active map[aggdomain.BookID]struct{}) []aggdomain.BookID {
+	if len(active) == 0 {
+		return nil
+	}
+	keys := make([]aggdomain.BookID, 0, len(active))
+	for key := range active {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].Venue != keys[j].Venue {
+			return strings.Compare(keys[i].Venue, keys[j].Venue) < 0
+		}
+		return strings.Compare(keys[i].Instrument, keys[j].Instrument) < 0
+	})
+	return keys
+}
+
+func sortedHeatmapKeys(active map[insightsapp.HeatmapSnapshotKey]struct{}) []insightsapp.HeatmapSnapshotKey {
+	if len(active) == 0 {
+		return nil
+	}
+	keys := make([]insightsapp.HeatmapSnapshotKey, 0, len(active))
+	for key := range active {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].Venue != keys[j].Venue {
+			return strings.Compare(keys[i].Venue, keys[j].Venue) < 0
+		}
+		if keys[i].Instrument != keys[j].Instrument {
+			return strings.Compare(keys[i].Instrument, keys[j].Instrument) < 0
+		}
+		return strings.Compare(keys[i].Timeframe, keys[j].Timeframe) < 0
+	})
+	return keys
+}
+
+func sortedVolumeKeys(active map[insightsapp.VolumeProfileSnapshotKey]struct{}) []insightsapp.VolumeProfileSnapshotKey {
+	if len(active) == 0 {
+		return nil
+	}
+	keys := make([]insightsapp.VolumeProfileSnapshotKey, 0, len(active))
+	for key := range active {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].Venue != keys[j].Venue {
+			return strings.Compare(keys[i].Venue, keys[j].Venue) < 0
+		}
+		if keys[i].Instrument != keys[j].Instrument {
+			return strings.Compare(keys[i].Instrument, keys[j].Instrument) < 0
+		}
+		return strings.Compare(keys[i].Timeframe, keys[j].Timeframe) < 0
+	})
+	return keys
 }
 
 func (p *ProcessorSubsystemActor) nextCrossVenueSeq(instrumentKey string) int64 {
@@ -1480,7 +1603,7 @@ func (p *ProcessorSubsystemActor) publishOrderBookSnapshots() {
 	if p.cfg.Service == nil {
 		return
 	}
-	for key := range p.activeOrderBooks {
+	for _, key := range sortedOrderBookKeys(p.activeOrderBooks) {
 		res := p.cfg.Service.SnapshotOrderBook(context.Background(), key)
 		if res.IsFail() {
 			continue
@@ -1503,7 +1626,7 @@ func (p *ProcessorSubsystemActor) publishHeatmapSnapshots() {
 	if p.cfg.Insights == nil {
 		return
 	}
-	for key := range p.activeHeatmaps {
+	for _, key := range sortedHeatmapKeys(p.activeHeatmaps) {
 		res := p.cfg.Insights.SnapshotHeatmap(context.Background(), key)
 		if res.IsFail() {
 			continue
@@ -1537,7 +1660,7 @@ func (p *ProcessorSubsystemActor) publishVolumeSnapshots() {
 	if p.cfg.Insights == nil {
 		return
 	}
-	for key := range p.activeVolumes {
+	for _, key := range sortedVolumeKeys(p.activeVolumes) {
 		res := p.cfg.Insights.SnapshotVolumeProfile(context.Background(), key)
 		if res.IsFail() {
 			continue
@@ -1610,7 +1733,6 @@ func buildOrderbookSnapshotEnvelope(snapshot aggdomain.SnapshotProduced, nowMs i
 			snapshot.BookID.Venue,
 			snapshot.BookID.Instrument,
 			strconv.FormatInt(snapshot.Seq, 10),
-			strconv.FormatInt(nowMs, 10),
 		),
 	}
 	if p := out.Validate(); p != nil {
@@ -1632,13 +1754,14 @@ func buildHeatmapSnapshotEnvelope(snapshot insightsdomain.HeatmapArtifactV1, now
 	}
 	idempotencyKey := insightsapp.HeatmapArtifactIdempotencyKey(snapshot)
 	if idempotencyKey == "" {
+		seq := heatmapSeq(snapshot)
 		idempotencyKey = sharedhash.HashFieldsFast(
 			insightsdomain.HeatmapSnapshotType,
 			snapshot.Venue,
 			snapshot.Instrument,
 			snapshot.Timeframe,
 			strconv.FormatInt(snapshot.WindowStartTs, 10),
-			strconv.FormatInt(nowMs, 10),
+			strconv.FormatInt(seq, 10),
 		)
 	}
 
@@ -1687,7 +1810,8 @@ func buildVolumeSnapshotEnvelope(snapshot insightsdomain.VolumeProfileSnapshotV1
 			snapshot.Instrument,
 			snapshot.Timeframe,
 			strconv.FormatInt(snapshot.WindowStartTs, 10),
-			strconv.FormatInt(nowMs, 10),
+			strconv.FormatInt(snapshot.WindowEndTs, 10),
+			strconv.FormatInt(volumeSeq(snapshot), 10),
 		),
 	}
 	if p := out.Validate(); p != nil {
