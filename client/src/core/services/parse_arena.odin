@@ -14,11 +14,15 @@ Parse_Arena :: struct {
 }
 
 parse_mr_message_with_arena :: proc(arena: ^Parse_Arena, raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result {
+	parse_arena_record_message(arena, len(raw))
+	return parse_mr_message(raw, telemetry)
+}
+
+parse_arena_record_message :: proc(arena: ^Parse_Arena, raw_len: int) {
 	if arena != nil {
 		arena.msg_count += 1
-		if len(raw) > 0 do arena.bytes_total += u64(len(raw))
+		if raw_len > 0 do arena.bytes_total += u64(raw_len)
 	}
-	return parse_mr_message(raw, telemetry)
 }
 
 parse_arena_reset_message :: proc(arena: ^Parse_Arena) {

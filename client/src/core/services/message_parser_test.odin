@@ -467,6 +467,20 @@ test_parse_microstructure_evidence :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_parse_microstructure_evidence_v2 :: proc(t: ^testing.T) {
+	raw := `{"type":"event","subject":"insights.microstructure_evidence/binance/BTCUSDT/raw","seq":107,"ts_ingest":1772638137464,"ts_server":1772638137552,"payload":{"type":"absorption","ts_server":1772638137464,"venue":"BINANCE","symbol":"BTCUSDT","stream_id":"BINANCE/BTCUSDT/trade","seq":1772637404558069,"severity":"critical","confidence":0.95,"features":[{"key":"cum_volume","value":42.66},{"key":"price_move_pct","value":0.0049}],"explanation":"large cumulative volume absorbed with minimal price movement","rule_version":"v0","input_watermark":{"seq_start":1772637404557538,"seq_end":1772637404558069}}}`
+	result := parse_mr_message(transmute([]u8)raw, nil)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Evidence)
+	ev := result.data.evidence
+	testing.expect_value(t, string(ev.kind[:ev.kind_len]), "absorption")
+	testing.expect_value(t, ev.feature_count, 2)
+	testing.expect_value(t, string(ev.feature_tags[0][:10]), "cum_volume")
+	testing.expect_value(t, ev.feature_vals[0] > 40, true)
+	testing.expect_value(t, string(ev.reason[:ev.reason_len]), "large cumulative volume absorbed with minimal price movement")
+	free_all(context.temp_allocator)
+}
+
+@(test)
 test_parse_signal_frame_valid :: proc(t: ^testing.T) {
 	raw := `{"type":"signal","subject":"signal/composite/binance/BTCUSDT/1m","seq":88,"ts_server":1700000001200,"payload":{"kind":"trend_breakout","venue":"binance","instrument":"BTCUSDT","timeframe":"1m","severity":"high","confidence":0.91,"evidence":[{"label":"spread_bps","value":"8.1"}],"regime_kind":"trend","regime_strength":0.77,"reason":"breakout confirmed"}}`
 	result := parse_mr_message(transmute([]u8)raw, nil)
@@ -560,4 +574,42 @@ test_parse_batched_frame_split_behavior :: proc(t: ^testing.T) {
 	testing.expect_value(t, ok1, true)
 	testing.expect_value(t, seg1.event_count, total - BATCH_EVENT_VIEW_CAP)
 	testing.expect_value(t, seg1.has_more, false)
+}
+
+@(test)
+test_parse_batched_event_payload_trade_fastpath :: proc(t: ^testing.T) {
+	payload := `{"Price":50000.0,"Size":1.5,"Side":"buy","Timestamp":1700000000000}`
+	result, ok := parse_batched_event_payload(
+		"marketdata.trade",
+		transmute([]u8)payload,
+		101,
+		1700000000002,
+		1700000000001,
+		0xABCD,
+	)
+	testing.expect_value(t, ok, true)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Trade)
+	testing.expect_value(t, result.meta.seq, i64(101))
+	testing.expect_value(t, result.meta.subject_id, u64(0xABCD))
+	testing.expect_value(t, result.meta.server_ts_ms, i64(1700000000002))
+	testing.expect_value(t, result.data.trade.seq, i64(101))
+}
+
+@(test)
+test_parse_batched_event_payload_bookdelta_respects_snapshot_flag :: proc(t: ^testing.T) {
+	payload := `{"Bids":[{"Price":100.0,"Size":1.0}],"Asks":[{"Price":101.0,"Size":1.2}],"IsSnapshot":false,"Timestamp":1700000000000}`
+	result, ok := parse_batched_event_payload(
+		"marketdata.bookdelta",
+		transmute([]u8)payload,
+		202,
+		1700000000010,
+		1700000000009,
+		0xBCDE,
+		true,
+	)
+	testing.expect_value(t, ok, true)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Orderbook)
+	testing.expect_value(t, result.meta.is_snapshot, true)
+	testing.expect_value(t, result.data.ob.is_snapshot, true)
+	testing.expect_value(t, result.data.ob.seq, i64(202))
 }

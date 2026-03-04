@@ -887,38 +887,125 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 	return result
 }
 
-parse_microstructure_evidence :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Evidence, bool) {
-	frame: util.MR_Microstructure_Evidence_Frame
-	if json.unmarshal(raw, &frame) != nil do return {}, false
-	p := frame.payload
-	out: Parsed_Evidence
-	out.confidence = p.confidence
-	out.unix = p.ts_ingest if p.ts_ingest > 0 else ts
-	out.subject_id = subject_id
-	out.seq = p.seq
+// Fast-path parser for batched event payload views.
+// Supports channels commonly emitted in batched frames without rebuilding
+// synthetic envelope JSON.
+parse_batched_event_payload :: proc(
+	channel: string,
+	payload_raw: []u8,
+	seq: i64,
+	ts_server_ms: i64,
+	ts_ingest_ms: i64,
+	subject_id: u64,
+	is_snapshot: bool = false,
+) -> (Parse_Result, bool) {
+	result: Parse_Result
+	result.meta.seq = seq
+	result.meta.subject_id = subject_id
+	result.meta.has_ts_server = ts_server_ms > 0
+	result.meta.server_ts_ms = ts_server_ms if ts_server_ms > 0 else ts_ingest_ms
+	result.meta.is_snapshot = is_snapshot
 
-	nk := min(len(p.kind), len(out.kind))
+	switch channel {
+	case "marketdata.trade":
+		if r, ok := parse_trade_payload(payload_raw, ts_ingest_ms, subject_id); ok {
+			r.seq = seq
+			result.kind = .Trade
+			result.data.trade = r
+			return result, true
+		}
+	case "marketdata.bookdelta":
+		if r, ok := parse_book_delta_payload(payload_raw, ts_ingest_ms, subject_id); ok {
+			if is_snapshot do r.is_snapshot = true
+			r.seq = seq
+			result.meta.is_snapshot = r.is_snapshot
+			result.kind = .Orderbook
+			result.data.ob = r
+			return result, true
+		}
+	case:
+	}
+	return {}, false
+}
+
+parse_microstructure_evidence :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Evidence, bool) {
+	out: Parsed_Evidence
+	out.subject_id = subject_id
+
+	// Legacy evidence payload: features[] + feature_values[].
+	legacy: util.MR_Microstructure_Evidence_Frame
+	if json.unmarshal(raw, &legacy) == nil {
+		p := legacy.payload
+		out.confidence = p.confidence
+		out.unix = p.ts_ingest if p.ts_ingest > 0 else ts
+		out.seq = p.seq
+
+		nk := min(len(p.kind), len(out.kind))
+		for i in 0 ..< nk {
+			out.kind[i] = p.kind[i]
+		}
+		out.kind_len = u8(nk)
+
+		nr := min(len(p.reason), len(out.reason))
+		for i in 0 ..< nr {
+			out.reason[i] = p.reason[i]
+		}
+		out.reason_len = u8(nr)
+
+		fc := min(len(p.features), len(out.feature_tags))
+		for fi in 0 ..< fc {
+			tn := min(len(p.features[fi]), len(out.feature_tags[fi]))
+			for tj in 0 ..< tn {
+				out.feature_tags[fi][tj] = p.features[fi][tj]
+			}
+		}
+		fv := min(len(p.feature_values), len(out.feature_vals))
+		for vi in 0 ..< fv {
+			out.feature_vals[vi] = p.feature_values[vi]
+		}
+		out.feature_count = fc
+		if out.kind_len > 0 do return out, true
+	}
+
+	// V2 evidence payload: type/explanation + features[{key,value}].
+	v2: util.MR_Microstructure_Evidence_Frame_V2
+	if json.unmarshal(raw, &v2) != nil do return {}, false
+	p2 := v2.payload
+	out.confidence = p2.confidence
+	if p2.ts_ingest > 0 {
+		out.unix = p2.ts_ingest
+	} else if p2.ts_server > 0 {
+		out.unix = p2.ts_server
+	} else {
+		out.unix = ts
+	}
+	out.seq = p2.seq
+
+	kind := p2.kind
+	if len(kind) == 0 do kind = p2.type_str
+	nk := min(len(kind), len(out.kind))
 	for i in 0 ..< nk {
-		out.kind[i] = p.kind[i]
+		out.kind[i] = kind[i]
 	}
 	out.kind_len = u8(nk)
+	if out.kind_len == 0 do return {}, false
 
-	nr := min(len(p.reason), len(out.reason))
+	reason := p2.reason
+	if len(reason) == 0 do reason = p2.explanation
+	nr := min(len(reason), len(out.reason))
 	for i in 0 ..< nr {
-		out.reason[i] = p.reason[i]
+		out.reason[i] = reason[i]
 	}
 	out.reason_len = u8(nr)
 
-	fc := min(len(p.features), len(out.feature_tags))
+	fc := min(len(p2.features), len(out.feature_tags))
 	for fi in 0 ..< fc {
-		tn := min(len(p.features[fi]), len(out.feature_tags[fi]))
+		tag := p2.features[fi].key
+		tn := min(len(tag), len(out.feature_tags[fi]))
 		for tj in 0 ..< tn {
-			out.feature_tags[fi][tj] = p.features[fi][tj]
+			out.feature_tags[fi][tj] = tag[tj]
 		}
-	}
-	fv := min(len(p.feature_values), len(out.feature_vals))
-	for vi in 0 ..< fv {
-		out.feature_vals[vi] = p.feature_values[vi]
+		out.feature_vals[fi] = p2.features[fi].value
 	}
 	out.feature_count = fc
 	return out, true
@@ -990,8 +1077,18 @@ f64_valid :: proc(v: f64) -> bool {
 parse_trade :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Trade, bool) {
 	frame: util.MR_Trade_Frame
 	if json.unmarshal(raw, &frame) != nil do return {}, false
-	trade := frame.payload
+	return parse_trade_from_payload(frame.payload, ts, subject_id)
+}
 
+@(private = "file")
+parse_trade_payload :: proc(payload_raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Trade, bool) {
+	trade: util.MR_Trade
+	if json.unmarshal(payload_raw, &trade) != nil do return {}, false
+	return parse_trade_from_payload(trade, ts, subject_id)
+}
+
+@(private = "file")
+parse_trade_from_payload :: proc(trade: util.MR_Trade, ts: i64, subject_id: u64) -> (Parsed_Trade, bool) {
 	if !f64_valid(trade.price) || !f64_valid(trade.size) do return {}, false
 	if trade.price < 0 || trade.size < 0 do return {}, false
 
@@ -1010,8 +1107,18 @@ parse_trade :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Trade, bool)
 parse_book_delta :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_OB, bool) {
 	frame: util.MR_Book_Delta_Frame
 	if json.unmarshal(raw, &frame) != nil do return {}, false
-	bd := frame.payload
+	return parse_book_delta_from_payload(frame.payload, ts, subject_id)
+}
 
+@(private = "file")
+parse_book_delta_payload :: proc(payload_raw: []u8, ts: i64, subject_id: u64) -> (Parsed_OB, bool) {
+	bd: util.MR_Book_Delta
+	if json.unmarshal(payload_raw, &bd) != nil do return {}, false
+	return parse_book_delta_from_payload(bd, ts, subject_id)
+}
+
+@(private = "file")
+parse_book_delta_from_payload :: proc(bd: util.MR_Book_Delta, ts: i64, subject_id: u64) -> (Parsed_OB, bool) {
 	unix := util.normalize_unix_seconds(bd.timestamp_ms if bd.timestamp_ms != 0 else ts)
 
 	result: Parsed_OB

@@ -238,6 +238,8 @@ MD_Web_State :: struct {
 	batch_decode_sample_count: int,
 	batched_frames_received: u64,
 	batched_events_received: u64,
+	batched_fastpath_events: u64,
+	batched_fallback_events: u64,
 }
 
 // File-private singleton: Odin procs are bare function pointers (no closures),
@@ -372,7 +374,7 @@ web_frame_within_limit :: proc(state: ^MD_Web_State, frame_len: int) -> bool {
 
 // --- Public API ---
 
-make_marketdata_web :: proc(url: string, api_key: string = "") -> ports.Marketdata_Port {
+make_marketdata_web :: proc(url: string, api_key: string = "", connect: bool = true) -> ports.Marketdata_Port {
 	if g_web_state != nil {
 		web_shutdown()
 	}
@@ -386,17 +388,23 @@ make_marketdata_web :: proc(url: string, api_key: string = "") -> ports.Marketda
 	state.jitter_seed = u32(time.now()._nsec & 0xFFFFFFFF)
 	state.transport_mode = .Terminal_V1
 	state.allow_legacy_ws = read_allow_legacy_ws_web()
-	set_web_transport_state(state, .Hello_Pending)
 	g_web_state = state
 
-	// Initiate connection via JS bridge.
-	hdr_buf: [256]u8
-	hdr_len := web_build_auth_header(state, hdr_buf[:])
-	url_raw := raw_data(transmute([]u8)url)
-	state.connect_started_ms = time.now()._nsec / 1_000_000
-	state.first_data_logged = false
-	fmt.printf("[md-lifecycle] connect requested_url=%s\n", web_log_safe_url(url))
-	ws_connect(url_raw, i32(len(url)), raw_data(hdr_buf[:hdr_len]), i32(hdr_len))
+	if connect {
+		// Eager connect: initiate WS immediately.
+		set_web_transport_state(state, .Hello_Pending)
+		hdr_buf: [256]u8
+		hdr_len := web_build_auth_header(state, hdr_buf[:])
+		url_raw := raw_data(transmute([]u8)url)
+		state.connect_started_ms = time.now()._nsec / 1_000_000
+		state.first_data_logged = false
+		fmt.printf("[md-lifecycle] connect requested_url=%s\n", web_log_safe_url(url))
+		ws_connect(url_raw, i32(len(url)), raw_data(hdr_buf[:hdr_len]), i32(hdr_len))
+	} else {
+		// Deferred connect: stay OFFLINE until explicit reconnect_transport call.
+		set_web_transport_state(state, .Backoff)
+		state.reconnect_blocked = true
+	}
 
 	return ports.Marketdata_Port{
 		subscribe       = web_subscribe,
@@ -754,6 +762,8 @@ web_metrics :: proc(out: ^ports.MD_Runtime_Metrics) -> bool {
 		negotiated_feature_count     = state.negotiated_feature_count,
 		batched_frames_received      = state.batched_frames_received,
 		batched_events_received      = state.batched_events_received,
+		batched_fastpath_events      = state.batched_fastpath_events,
+		batched_fallback_events      = state.batched_fallback_events,
 		// Integrity counters.
 		snapshot_hash_mismatches     = state.snapshot_hash_mismatches,
 		snapshot_seq_violations      = state.snapshot_seq_violations,
@@ -1607,29 +1617,74 @@ web_build_batched_event_frame :: proc(
 
 @(private = "file")
 web_process_batched_frame :: proc(state: ^MD_Web_State, raw: []u8) -> bool {
-	head: services.Parsed_Batched_Frame
-	if !services.parse_batched_frame(raw, &head) {
-		return false
-	}
+	if state == nil do return false
 	decode_start := time.tick_now()
-	total_events := head.total_events
-	if head.count > total_events do total_events = head.count
-	if total_events < 0 do total_events = 0
-
-	state.batched_frames_received += 1
-	state.batched_events_received += u64(total_events)
-
 	skip := 0
+	first_seg := true
 	frame_buf: [WEB_BATCH_SYNTH_FRAME_CAP]u8
 	for {
 		seg: services.Parsed_Batched_Frame
 		if !services.parse_batched_frame(raw, &seg, skip) {
+			if first_seg {
+				return false
+			}
 			state.parse_error_count += 1
 			break
 		}
+		if first_seg {
+			first_seg = false
+			total_events := seg.total_events
+			if seg.count > total_events do total_events = seg.count
+			if total_events < 0 do total_events = 0
+			state.batched_frames_received += 1
+			state.batched_events_received += u64(total_events)
+		}
 		if seg.event_count <= 0 do break
+
+		stream_subject := ""
+		if seg.stream_id_len > 0 {
+			stream_subject = string(seg.stream_id_buf[:int(seg.stream_id_len)])
+		}
+		stream_channel := ""
+		stream_sid := u64(0)
+		if len(stream_subject) > 0 {
+			stream_channel = util.subject_stream_type(stream_subject)
+			stream_sid = util.subject_id64(stream_subject)
+		}
+
 		for i in 0 ..< seg.event_count {
 			ev := seg.events[i]
+			if ev.payload_start < 0 || ev.payload_end <= ev.payload_start || ev.payload_end > len(raw) {
+				state.parse_error_count += 1
+				continue
+			}
+			payload := raw[ev.payload_start:ev.payload_end]
+			seq := seg.base_seq + i64(ev.event_index)
+			ts_server := seg.ts_server_base + ev.dts
+			ts_ingest := seg.ts_ingest_base + ev.dti
+
+			fastpath := false
+			if stream_sid != 0 && len(stream_channel) > 0 {
+				services.parse_arena_record_message(&state.parse_arena, len(payload))
+				parse_start_tick := time.tick_now()
+				if result, ok := services.parse_batched_event_payload(stream_channel, payload, seq, ts_server, ts_ingest, stream_sid); ok {
+					parse_end_tick := time.tick_now()
+					parsed_now_ms := time.now()._nsec / 1_000_000
+					md_common.update_parse_rates(&state.rates, parsed_now_ms, len(payload))
+					web_apply_parsed_result(state, result, len(payload), parsed_now_ms)
+					apply_end_tick := time.tick_now()
+					parse_us := i64(time.duration_microseconds(time.tick_diff(parse_start_tick, parse_end_tick)))
+					apply_us := i64(time.duration_microseconds(time.tick_diff(parse_end_tick, apply_end_tick)))
+					web_record_perf_sample(&state.parse_samples_us, &state.parse_sample_head, &state.parse_sample_count, parse_us)
+					web_record_perf_sample(&state.apply_samples_us, &state.apply_sample_head, &state.apply_sample_count, apply_us)
+					state.batched_fastpath_events += 1
+					fastpath = true
+				}
+				services.parse_arena_reset_message(&state.parse_arena)
+			}
+			if fastpath do continue
+
+			state.batched_fallback_events += 1
 			synth, ok := web_build_batched_event_frame(frame_buf[:], &seg, ev, raw)
 			if !ok {
 				state.parse_error_count += 1
@@ -1656,20 +1711,7 @@ web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 	telemetry: services.Parse_Telemetry
 	result := services.parse_mr_message_with_arena(&state.parse_arena, raw, &telemetry)
 	parse_end_tick := time.tick_now()
-	parse_us := i64(time.duration_microseconds(time.tick_diff(parse_start_tick, parse_end_tick)))
-	defer {
-		apply_end_tick := time.tick_now()
-		apply_us := i64(time.duration_microseconds(time.tick_diff(parse_end_tick, apply_end_tick)))
-		web_record_perf_sample(&state.parse_samples_us, &state.parse_sample_head, &state.parse_sample_count, parse_us)
-		web_record_perf_sample(&state.apply_samples_us, &state.apply_sample_head, &state.apply_sample_count, apply_us)
-	}
 	parsed_now_ms := time.now()._nsec / 1_000_000
-	should_log_snapshot := false
-	snapshot_subject := ""
-	snapshot_seq := i64(0)
-	snapshot_sid := u64(0)
-	should_log_first_data := false
-	first_data_delta_ms := i64(0)
 
 	md_common.update_parse_rates(&state.rates, parsed_now_ms, len(raw))
 
@@ -1679,6 +1721,23 @@ web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 			fmt.printf("[ws] Parse error #%d (frame_len=%d)\n", state.parse_error_count, len(raw))
 		}
 	}
+	web_apply_parsed_result(state, result, len(raw), parsed_now_ms)
+
+	parse_us := i64(time.duration_microseconds(time.tick_diff(parse_start_tick, parse_end_tick)))
+	apply_end_tick := time.tick_now()
+	apply_us := i64(time.duration_microseconds(time.tick_diff(parse_end_tick, apply_end_tick)))
+	web_record_perf_sample(&state.parse_samples_us, &state.parse_sample_head, &state.parse_sample_count, parse_us)
+	web_record_perf_sample(&state.apply_samples_us, &state.apply_sample_head, &state.apply_sample_count, apply_us)
+}
+
+@(private = "file")
+web_apply_parsed_result :: proc(state: ^MD_Web_State, result: services.Parse_Result, frame_len: int, parsed_now_ms: i64) {
+	should_log_snapshot := false
+	snapshot_subject := ""
+	snapshot_seq := i64(0)
+	snapshot_sid := u64(0)
+	should_log_first_data := false
+	first_data_delta_ms := i64(0)
 
 	if result.kind != .None {
 		state.last_msg_ts_ms = parsed_now_ms
@@ -1917,7 +1976,7 @@ web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 				}
 			}
 		} else {
-			fmt.printf("[ws] Error frame without code (frame_len=%d)\n", len(raw))
+			fmt.printf("[ws] Error frame without code (frame_len=%d)\n", frame_len)
 		}
 	case .Trade:
 		t := result.data.trade

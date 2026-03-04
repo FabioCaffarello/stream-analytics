@@ -269,7 +269,7 @@ refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtim
 	state.active_metrics.ws_error_action = metrics.ws_error_action
 	state.active_metrics.last_server_ts_ms = metrics.last_server_ts_ms
 	state.active_metrics.seq_gap_count = metrics.seq_gap_count
-	state.active_metrics.resync_count = metrics.resync_count
+	state.active_metrics.resync_count = metrics.resync_count + state.manual_resync_count
 	state.active_metrics.server_ws_dropped = metrics.server_ws_dropped
 	state.active_metrics.server_ws_queue_len = metrics.server_ws_queue_len
 	state.active_metrics.server_ws_lag_ms = metrics.server_ws_lag_ms
@@ -306,6 +306,8 @@ refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtim
 	state.active_metrics.negotiated_feature_name_lens = metrics.negotiated_feature_name_lens
 	state.active_metrics.batched_frames_received = metrics.batched_frames_received
 	state.active_metrics.batched_events_received = metrics.batched_events_received
+	state.active_metrics.batched_fastpath_events = metrics.batched_fastpath_events
+	state.active_metrics.batched_fallback_events = metrics.batched_fallback_events
 	state.active_metrics.snapshot_hash_mismatches = metrics.snapshot_hash_mismatches
 	state.active_metrics.snapshot_seq_violations = metrics.snapshot_seq_violations
 	state.active_metrics.prev_seq_violations = metrics.prev_seq_violations

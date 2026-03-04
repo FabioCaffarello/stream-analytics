@@ -377,6 +377,8 @@ Active_Stream_Metrics :: struct {
 	negotiated_feature_name_lens: [8]u8,
 	batched_frames_received:      u64,
 	batched_events_received:      u64,
+	batched_fastpath_events:      u64,
+	batched_fallback_events:      u64,
 	// Integrity counters.
 	snapshot_hash_mismatches:     int,
 	snapshot_seq_violations:      int,
