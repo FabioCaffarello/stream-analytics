@@ -1,43 +1,26 @@
 package domain
 
-// TradeTickV1 is the V1 schema for a single trade event.
-type TradeTickV1 struct {
-	Price     float64
-	Size      float64
-	Side      string // "buy" | "sell"
-	TradeID   string
-	Timestamp int64
-}
+import marketmodel "github.com/market-raccoon/internal/core/marketmodel"
 
-// BookDeltaV1 is the V1 schema for an order book delta (incremental update).
-type BookDeltaV1 struct {
-	Bids       []PriceLevel // [price, size]; size=0 means remove
-	Asks       []PriceLevel
-	FirstID    int64 // Binance U
-	FinalID    int64 // Binance u
-	PrevFinal  int64 // Binance pu (when present)
-	Timestamp  int64
-	IsSnapshot bool // true when the message is a full L2 snapshot (not incremental)
-}
+// TradeTickV1 is the canonical trade payload (CMM v1).
+// Deprecated alias kept only for package-compatibility; do not introduce new local models.
+type TradeTickV1 = marketmodel.Trade
 
-// PriceLevel represents a [price, size] entry in the order book.
-type PriceLevel struct {
-	Price float64
-	Size  float64
-}
+// BookSnapshotV1 is the canonical full-book payload (CMM v1).
+type BookSnapshotV1 = marketmodel.BookSnapshot
 
-// MarkPriceTickV1 is the V1 schema for a mark price update.
-type MarkPriceTickV1 struct {
-	MarkPrice   float64
-	IndexPrice  float64
-	FundingRate float64
-	Timestamp   int64
-}
+// BookDeltaV1 is the canonical incremental book payload (CMM v1).
+// Deprecated alias kept only for package-compatibility; do not introduce new local models.
+type BookDeltaV1 = marketmodel.BookDelta
 
-// LiquidationTickV1 is the V1 schema for a liquidation event.
-type LiquidationTickV1 struct {
-	Side      string // "buy" | "sell"
-	Price     float64
-	Size      float64
-	Timestamp int64
-}
+// PriceLevel is the canonical order-book level payload (CMM v1).
+// Deprecated alias kept only for package-compatibility; do not introduce new local models.
+type PriceLevel = marketmodel.Level
+
+// MarkPriceTickV1 is the canonical mark-price payload (CMM v1).
+// Deprecated alias kept only for package-compatibility; do not introduce new local models.
+type MarkPriceTickV1 = marketmodel.MarkPrice
+
+// LiquidationTickV1 is the canonical liquidation payload (CMM v1).
+// Deprecated alias kept only for package-compatibility; do not introduce new local models.
+type LiquidationTickV1 = marketmodel.Liquidation

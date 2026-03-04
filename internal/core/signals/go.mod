@@ -9,5 +9,6 @@ require (
 
 replace (
 	github.com/market-raccoon/internal/core/evidence => ../../../internal/core/evidence
+	github.com/market-raccoon/internal/core/marketmodel => ../marketmodel
 	github.com/market-raccoon/internal/shared => ../../../internal/shared
 )

@@ -25,6 +25,7 @@ require (
 	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
 	github.com/market-raccoon/internal/core/evidence v0.0.0 // indirect
 	github.com/market-raccoon/internal/core/marketdata v0.0.0 // indirect
+	github.com/market-raccoon/internal/core/marketmodel v0.0.0 // indirect
 	github.com/market-raccoon/internal/core/signals v0.0.0 // indirect
 	github.com/matttproud/golang_protobuf_extensions/v2 v2.0.0 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
@@ -47,6 +48,7 @@ replace (
 	github.com/market-raccoon/internal/core/evidence => ../core/evidence
 	github.com/market-raccoon/internal/core/insights => ../core/insights
 	github.com/market-raccoon/internal/core/marketdata => ../core/marketdata
+	github.com/market-raccoon/internal/core/marketmodel => ../core/marketmodel
 	github.com/market-raccoon/internal/core/signals => ../core/signals
 	github.com/market-raccoon/internal/shared => ../shared
 )

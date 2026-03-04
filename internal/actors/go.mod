@@ -12,6 +12,7 @@ require (
 	github.com/market-raccoon/internal/core/evidence v0.0.0
 	github.com/market-raccoon/internal/core/insights v0.0.0
 	github.com/market-raccoon/internal/core/marketdata v0.0.0
+	github.com/market-raccoon/internal/core/marketmodel v0.0.0
 	github.com/market-raccoon/internal/core/signals v0.0.0
 	github.com/market-raccoon/internal/shared v0.0.0
 	github.com/prometheus/client_golang v1.18.0
@@ -46,6 +47,7 @@ replace (
 	github.com/market-raccoon/internal/core/evidence => ../core/evidence
 	github.com/market-raccoon/internal/core/insights => ../core/insights
 	github.com/market-raccoon/internal/core/marketdata => ../core/marketdata
+	github.com/market-raccoon/internal/core/marketmodel => ../core/marketmodel
 	github.com/market-raccoon/internal/core/signals => ../core/signals
 	github.com/market-raccoon/internal/shared => ../shared
 )

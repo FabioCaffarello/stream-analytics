@@ -389,10 +389,10 @@ func TestHandleLegacyWS_ProceedsWhenEnabled(t *testing.T) {
 	}
 }
 
-func TestNewServer_DefaultAllowLegacyTrue(t *testing.T) {
+func TestNewServer_DefaultAllowLegacyFalse(t *testing.T) {
 	srv := NewServer(nil, &actor.PID{}, nil, nil, 256)
-	if !srv.allowLegacy {
-		t.Fatal("allowLegacy should default to true")
+	if srv.allowLegacy {
+		t.Fatal("allowLegacy should default to false")
 	}
 }
 

@@ -18,6 +18,7 @@ require (
 
 replace (
 	github.com/market-raccoon/internal/core/marketdata => ../../../internal/core/marketdata
+	github.com/market-raccoon/internal/core/marketmodel => ../marketmodel
 	github.com/market-raccoon/internal/core/signals => ../../../internal/core/signals
 	github.com/market-raccoon/internal/shared => ../../../internal/shared
 )

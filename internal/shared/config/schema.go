@@ -257,7 +257,7 @@ type WSConfig struct {
 	TenantLimits  map[string]WSTenantLimitConfig `json:"tenant_limits,omitempty"`
 	TenantMetrics WSTenantMetricsConfig          `json:"tenant_metrics,omitempty"`
 	// AllowLegacy controls whether the /ws/marketdata legacy route is served.
-	// nil defaults to true (legacy allowed). Explicit false returns 410 Gone.
+	// nil defaults to false (legacy disabled). Explicit true requires opt-in.
 	AllowLegacy *bool `json:"allow_legacy_ws,omitempty"`
 }
 
@@ -275,9 +275,9 @@ type WSTenantMetricsConfig struct {
 }
 
 // IsLegacyAllowed returns whether the legacy /ws/marketdata route is enabled.
-// Default is true when AllowLegacy is nil (not specified in config).
+// Default is false when AllowLegacy is nil (not specified in config).
 func (w WSConfig) IsLegacyAllowed() bool {
-	return w.AllowLegacy == nil || *w.AllowLegacy
+	return w.AllowLegacy != nil && *w.AllowLegacy
 }
 
 // WSTenantLimitConfig defines per-tenant connection and rate limit overrides.

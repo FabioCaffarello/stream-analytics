@@ -187,7 +187,7 @@ func NewServer(engine *actor.Engine, routerPID *actor.PID, logger *slog.Logger, 
 		logger:            logger,
 		rangeStore:        rangeStore,
 		outboundQueueSize: outboundQueueSize,
-		allowLegacy:       true,
+		allowLegacy:       false,
 		enableCompression: true,
 		limits: ServerConnectionLimits{
 			MaxConnectionsPerIP:  200,

@@ -661,12 +661,11 @@ func enableWSRoute(
 			wsserver.WithSlowClientDropThreshold(cfg.Delivery.SlowClientDropThreshold),
 			wsserver.WithTranscodeCache(deliveryruntime.NewTranscodeCache(0)),
 			wsserver.WithMaxFrameBytes(cfg.Delivery.MaxFrameBytes),
-			wsserver.WithAllowLegacy(cfg.WS.IsLegacyAllowed()),
+			wsserver.WithAllowLegacy(false),
 		)
 		srv.HandleFunc("GET /ws", ws.HandleWS)
-		srv.HandleFunc("GET /ws/marketdata", ws.HandleLegacyWS)
 		srv.HandleFunc("GET /introspection", ws.HandleIntrospection)
-		logger.Info("delivery websocket route enabled", "route", "GET /ws (v1), GET /ws/marketdata (legacy)")
+		logger.Info("delivery websocket route enabled", "route", "GET /ws (v1)")
 	case <-time.After(cfg.Delivery.RouterReadyTimeoutDuration()):
 		logger.Warn("delivery router not ready in time; /ws route disabled")
 	}
