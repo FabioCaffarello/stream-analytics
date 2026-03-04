@@ -88,6 +88,36 @@ func TestTradeQualityMetricsExposedWithoutRuntimeEvents(t *testing.T) {
 	}
 }
 
+func TestLELMetricsExposedWithoutRuntimeEvents(t *testing.T) {
+	mfs, err := Registry().Gather()
+	if err != nil {
+		t.Fatalf("gather metrics: %v", err)
+	}
+	for _, name := range []string{
+		"lel_evidence_emitted_total",
+		"lel_evidence_dropped_total",
+		"lel_state_entries",
+		"lel_state_evicted_total",
+		"lel_eval_latency_seconds",
+		"lel_input_processed_total",
+		"lel_wire_budget_bytes",
+	} {
+		found := false
+		for _, mf := range mfs {
+			if mf.GetName() == name {
+				found = true
+				if len(mf.GetMetric()) == 0 {
+					t.Fatalf("%s has no exposed series", name)
+				}
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("%s metric family not found", name)
+		}
+	}
+}
+
 func TestObserveIngestAndCardinalityGuard(t *testing.T) {
 	before := testutil.ToFloat64(IngestMessagesTotal.WithLabelValues("unknown", "unknown", "unknown"))
 
@@ -594,6 +624,26 @@ func TestTradeQualityMetrics_StableLabelsOnly(t *testing.T) {
 	assertMetricLabelNames(t, "mr_trade_ingest_total", []string{"venue"})
 	assertMetricLabelNames(t, "mr_trade_latency_seconds", []string{"venue"})
 	assertMetricLabelNames(t, "mr_trade_wire_bytes", []string{"channel", "venue"})
+}
+
+func TestLELMetrics_StableLabelsOnly(t *testing.T) {
+	t.Parallel()
+
+	IncLELEvidenceEmitted("SWEEP", "high", "binance")
+	IncLELEvidenceDropped("invalid_kind")
+	SetLELStateEntries(10)
+	IncLELStateEvicted("capacity")
+	ObserveLELEvalLatency(0.004)
+	IncLELInputProcessed("snapshot")
+	ObserveLELWireBudget("SWEEP", 128)
+
+	assertMetricLabelNames(t, "lel_evidence_emitted_total", []string{"severity", "type", "venue"})
+	assertMetricLabelNames(t, "lel_evidence_dropped_total", []string{"reason"})
+	assertMetricLabelNames(t, "lel_state_entries", nil)
+	assertMetricLabelNames(t, "lel_state_evicted_total", []string{"reason"})
+	assertMetricLabelNames(t, "lel_eval_latency_seconds", nil)
+	assertMetricLabelNames(t, "lel_input_processed_total", []string{"kind"})
+	assertMetricLabelNames(t, "lel_wire_budget_bytes", []string{"type"})
 }
 
 func TestWSTenantMetrics_LabelPolicy_WhitelistAndFallbackUnknown(t *testing.T) {

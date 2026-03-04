@@ -801,6 +801,55 @@ var (
 			Buckets: []float64{0, 0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5},
 		},
 	)
+	LELEvidenceEmittedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "lel_evidence_emitted_total",
+			Help: "Total LEL v1 evidence events emitted by type, severity, and venue.",
+		},
+		[]string{"type", "severity", "venue"},
+	)
+	LELEvidenceDroppedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "lel_evidence_dropped_total",
+			Help: "Total LEL v1 evidence events dropped by deterministic reason.",
+		},
+		[]string{"reason"},
+	)
+	LELStateEntries = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "lel_state_entries",
+			Help: "Current active stream entries tracked by LEL state store.",
+		},
+	)
+	LELStateEvictedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "lel_state_evicted_total",
+			Help: "Total LEL state-store evictions by reason.",
+		},
+		[]string{"reason"},
+	)
+	LELEvalLatencySeconds = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "lel_eval_latency_seconds",
+			Help:    "LEL rule evaluation latency derived from deterministic ts deltas.",
+			Buckets: []float64{0, 0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5},
+		},
+	)
+	LELInputProcessedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "lel_input_processed_total",
+			Help: "Total LEL input events processed by kind.",
+		},
+		[]string{"kind"},
+	)
+	LELWireBudgetBytes = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "lel_wire_budget_bytes",
+			Help:    "Serialized liquidity.evidence payload size in bytes by evidence type.",
+			Buckets: []float64{64, 128, 256, 512, 1024, 2048, 4096, 8192},
+		},
+		[]string{"type"},
+	)
 	EvidenceEngineEventsTotal = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "evidence_engine_events_total",
@@ -1651,6 +1700,13 @@ func registerAll() {
 			EvidenceStateEntries,
 			EvidenceStateEvictedTotal,
 			EvidenceEvalLatencySeconds,
+			LELEvidenceEmittedTotal,
+			LELEvidenceDroppedTotal,
+			LELStateEntries,
+			LELStateEvictedTotal,
+			LELEvalLatencySeconds,
+			LELInputProcessedTotal,
+			LELWireBudgetBytes,
 			EvidenceEngineEventsTotal,
 			EvidenceBufferEntries,
 			EvidenceBufferOverwritesTotal,
@@ -1839,6 +1895,23 @@ func registerAll() {
 		EvidenceStateEvictedTotal.WithLabelValues("ttl")
 		EvidenceStateEvictedTotal.WithLabelValues("capacity")
 		EvidenceEvalLatencySeconds.Observe(0)
+		LELEvidenceEmittedTotal.WithLabelValues("book_imbalance", "medium", "unknown")
+		LELEvidenceEmittedTotal.WithLabelValues("absorption", "medium", "unknown")
+		LELEvidenceEmittedTotal.WithLabelValues("sweep", "medium", "unknown")
+		LELEvidenceEmittedTotal.WithLabelValues("thinning", "medium", "unknown")
+		LELEvidenceEmittedTotal.WithLabelValues("spread_regime", "medium", "unknown")
+		LELEvidenceDroppedTotal.WithLabelValues("unknown")
+		LELStateEntries.Set(0)
+		LELStateEvictedTotal.WithLabelValues("ttl")
+		LELStateEvictedTotal.WithLabelValues("capacity")
+		LELEvalLatencySeconds.Observe(0)
+		LELInputProcessedTotal.WithLabelValues("snapshot")
+		LELInputProcessedTotal.WithLabelValues("tape")
+		LELWireBudgetBytes.WithLabelValues("book_imbalance").Observe(0)
+		LELWireBudgetBytes.WithLabelValues("absorption").Observe(0)
+		LELWireBudgetBytes.WithLabelValues("sweep").Observe(0)
+		LELWireBudgetBytes.WithLabelValues("thinning").Observe(0)
+		LELWireBudgetBytes.WithLabelValues("spread_regime").Observe(0)
 		MRRegimeCurrent.WithLabelValues("unknown", "unknown", "unknown", "unknown").Set(0)
 		MRRegimeCurrent.WithLabelValues("unknown", "unknown", "unknown", "trending").Set(0)
 		MRRegimeCurrent.WithLabelValues("unknown", "unknown", "unknown", "ranging").Set(0)
@@ -2668,6 +2741,43 @@ func ObserveEvidenceEvalLatency(seconds float64) {
 	EvidenceEvalLatencySeconds.Observe(seconds)
 }
 
+func IncLELEvidenceEmitted(typ, severity, venue string) {
+	LELEvidenceEmittedTotal.WithLabelValues(sanitizeKind(typ), sanitizeSignalSeverity(severity), sanitizeVenue(venue)).Inc()
+}
+
+func IncLELEvidenceDropped(reason string) {
+	LELEvidenceDroppedTotal.WithLabelValues(sanitizeReason(reason)).Inc()
+}
+
+func SetLELStateEntries(count int) {
+	if count < 0 {
+		count = 0
+	}
+	LELStateEntries.Set(float64(count))
+}
+
+func IncLELStateEvicted(reason string) {
+	LELStateEvictedTotal.WithLabelValues(sanitizeReason(reason)).Inc()
+}
+
+func ObserveLELEvalLatency(seconds float64) {
+	if seconds < 0 {
+		seconds = 0
+	}
+	LELEvalLatencySeconds.Observe(seconds)
+}
+
+func IncLELInputProcessed(kind string) {
+	LELInputProcessedTotal.WithLabelValues(sanitizeLELInputKind(kind)).Inc()
+}
+
+func ObserveLELWireBudget(typ string, sizeBytes int) {
+	if sizeBytes < 0 {
+		sizeBytes = 0
+	}
+	LELWireBudgetBytes.WithLabelValues(sanitizeKind(typ)).Observe(float64(sizeBytes))
+}
+
 func SetMRRegimeCurrent(venue, instrument, timeframe, kind string) {
 	sanitizedVenue := sanitizeVenue(venue)
 	sanitizedInstrument := bucketInstrument(instrument)
@@ -3312,7 +3422,7 @@ func sanitizeReason(v string) string {
 	switch v {
 	case "ttl", "size", "capacity", "unknown",
 		"nil_store", "empty_stream_id", "invalid_seq", "invalid_ts_server",
-		"non_monotonic_seq", "invalid_evidence":
+		"non_monotonic_seq", "invalid_evidence", "invalid_event", "invalid_kind":
 		return v
 	default:
 		return "unknown"
@@ -3340,6 +3450,15 @@ func sanitizeRegimeKind(v string) string {
 func sanitizeSignalSeverity(v string) string {
 	switch strings.ToLower(strings.TrimSpace(v)) {
 	case "low", "medium", "high", "critical":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeLELInputKind(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "snapshot", "tape":
 		return strings.ToLower(strings.TrimSpace(v))
 	default:
 		return "unknown"
