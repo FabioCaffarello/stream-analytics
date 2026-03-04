@@ -1,6 +1,7 @@
 package app
 
 import "core:strings"
+import "mr:layers"
 import "mr:ports"
 import "mr:streams"
 import "mr:util"
@@ -17,8 +18,8 @@ import "mr:util"
 
 CHANNEL_COUNT :: 8
 
-// Returns a bitmask of channels a widget type needs.
-channels_for_widget :: proc(kind: Widget_Kind) -> u8 {
+// Returns a bitmask of channels required by a legacy layer route mapping.
+channels_for_bundle :: proc(bundle: u32) -> u8 {
 	CH_TRADES    :: u8(1 << u8(ports.MD_Channel.Trades))
 	CH_ORDERBOOK :: u8(1 << u8(ports.MD_Channel.Orderbook))
 	CH_STATS     :: u8(1 << u8(ports.MD_Channel.Stats))
@@ -28,18 +29,38 @@ channels_for_widget :: proc(kind: Widget_Kind) -> u8 {
 	CH_EVIDENCE  :: u8(1 << u8(ports.MD_Channel.Evidence))
 	CH_SIGNALS   :: u8(1 << u8(ports.MD_Channel.Signals))
 
-	switch kind {
-	case .Candle:    return CH_CANDLES | CH_STATS | CH_HEATMAPS | CH_VPVR | CH_EVIDENCE | CH_SIGNALS
-	case .Orderbook: return CH_ORDERBOOK
-	case .DOM:       return CH_ORDERBOOK | CH_TRADES
-	case .Trades:    return CH_TRADES
-	case .Stats:     return CH_STATS
-	case .Counter:   return CH_CANDLES | CH_STATS
-	case .Heatmap:   return CH_HEATMAPS
-	case .VPVR:      return CH_VPVR
-	case .Empty:     return 0
+	route := bundle & (LEGACY_ROUTE_CANDLE | LEGACY_ROUTE_TRADES | LEGACY_ROUTE_ORDERBOOK | LEGACY_ROUTE_DOM |
+		LEGACY_ROUTE_HEATMAP | LEGACY_ROUTE_VPVR | LEGACY_ROUTE_STATS | LEGACY_ROUTE_COUNTER)
+	switch route {
+	case LEGACY_ROUTE_CANDLE:
+		return CH_CANDLES | CH_STATS | CH_HEATMAPS | CH_VPVR | CH_EVIDENCE | CH_SIGNALS
+	case LEGACY_ROUTE_ORDERBOOK:
+		return CH_ORDERBOOK
+	case LEGACY_ROUTE_DOM:
+		return CH_ORDERBOOK | CH_TRADES
+	case LEGACY_ROUTE_TRADES:
+		return CH_TRADES
+	case LEGACY_ROUTE_STATS:
+		return CH_STATS
+	case LEGACY_ROUTE_COUNTER:
+		return CH_CANDLES | CH_STATS
+	case LEGACY_ROUTE_HEATMAP:
+		return CH_HEATMAPS
+	case LEGACY_ROUTE_VPVR:
+		return CH_VPVR
+	case 0:
+		return 0
 	}
 	return 0
+}
+
+compare_bundle_for_idx :: proc(widget_idx: int) -> u32 {
+	switch widget_idx {
+	case 0: return u32(layers.Layer_Bundle.Bundle_Orderbook) | LEGACY_ROUTE_ORDERBOOK
+	case 1: return u32(layers.Layer_Bundle.Bundle_Trades) | LEGACY_ROUTE_TRADES
+	case 2: return u32(layers.Layer_Bundle.Bundle_Candles) | LEGACY_ROUTE_CANDLE
+	}
+	return u32(layers.Layer_Bundle.Bundle_Candles) | LEGACY_ROUTE_CANDLE
 }
 
 // Wanted subscription: venue + symbol + channel bitmask + TF for TF-sensitive channels.
@@ -104,19 +125,25 @@ seed_stream_slot_for_subject :: proc(
 	subject := util.build_subject_with_timeframe(venue, symbol, channel, tf)
 	defer delete(subject)
 	if len(subject) == 0 do return
-	subject_id := util.subject_id64(subject)
-	if subject_id == 0 do return
 
-	slot := stream_view_get_or_alloc_slot(state.stream_views, subject_id, state.frame, state)
+	// Use market-level ID so ALL channels for the same venue+symbol
+	// converge into one slot (matching data_source market_id routing).
+	market_id := util.market_id64(venue, symbol)
+	if market_id == 0 do return
+
+	slot := stream_view_get_or_alloc_slot(state.stream_views, market_id, state.frame, state)
 	if slot == nil do return
-	stream_view_set_stream_info(slot, ports.MD_Stream_Info{
-		subject_id = subject_id,
-		channel    = channel,
-		venue      = venue,
-		symbol     = symbol,
-		timeframe  = tf,
-		subject    = subject,
-	})
+	// Only set stream_info on first seed (avoid overwriting with a non-primary channel).
+	if !slot.has_stream_info {
+		stream_view_set_stream_info(slot, ports.MD_Stream_Info{
+			subject_id = market_id,
+			channel    = channel,
+			venue      = venue,
+			symbol     = symbol,
+			timeframe  = tf,
+			subject    = subject,
+		})
+	}
 	slot.has_channel = true
 	slot.channel = channel
 }
@@ -135,7 +162,8 @@ reconcile_subscriptions :: proc(state: ^App_State) {
 	tf_opts := TF_OPTIONS
 
 	for ci in 0 ..< state.world.count {
-		ch_mask := channels_for_widget(state.world.widgets[ci].kind)
+		bundle := legacy_widget_bundle(state.world.widgets[ci].kind)
+		ch_mask := channels_for_bundle(bundle)
 		if ch_mask == 0 do continue
 		if state.bp_assist.degrade_heatmap {
 			ch_mask &= ~u8(1 << u8(ports.MD_Channel.Heatmaps))
@@ -201,14 +229,8 @@ reconcile_subscriptions :: proc(state: ^App_State) {
 
 	// Compare mode: ensure compare slot streams are subscribed for the selected widget type.
 	if state.compare.active && state.compare.count > 0 {
-		cmp_widget: Widget_Kind
-		switch state.compare.widget_idx {
-		case 0:  cmp_widget = .Orderbook
-		case 1:  cmp_widget = .Trades
-		case 2:  cmp_widget = .Candle
-		case:    cmp_widget = .Candle
-		}
-		cmp_ch_mask := channels_for_widget(cmp_widget)
+		cmp_bundle := compare_bundle_for_idx(state.compare.widget_idx)
+		cmp_ch_mask := channels_for_bundle(cmp_bundle)
 		for csi in 0 ..< state.compare.count {
 			sid := state.compare.slots[csi]
 			slot_idx := stream_view_find_slot(reg, sid)
