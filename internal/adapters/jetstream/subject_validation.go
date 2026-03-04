@@ -16,6 +16,7 @@ var (
 var allowedSubjectRoots = map[string]struct{}{
 	"aggregation": {},
 	"insights":    {},
+	"liquidity":   {},
 	"marketdata":  {},
 	"quarantine":  {},
 	"signal":      {},

@@ -66,6 +66,10 @@ func BootstrapPayloadCodecRegistryWithOptions(opts PayloadRegistryOptions) *prob
 			payloadRegistryErr = p
 			return
 		}
+		if p := RegisterLiquidityPayloadV1(reg); p != nil {
+			payloadRegistryErr = p
+			return
+		}
 		if p := RegisterSignalsPayloadV1(reg); p != nil {
 			payloadRegistryErr = p
 			return

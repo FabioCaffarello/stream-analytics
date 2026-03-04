@@ -1,0 +1,67 @@
+syntax = "proto3";
+
+package liquidity.v1;
+
+option go_package = "github.com/market-raccoon/internal/shared/proto/gen/liquidity/v1";
+
+// LiquiditySeverity classifies urgency of one liquidity evidence event.
+enum LiquiditySeverity {
+  // Default value.
+  LIQUIDITY_SEVERITY_UNSPECIFIED = 0;
+  // Informational severity.
+  LIQUIDITY_SEVERITY_LOW = 1;
+  // Elevated severity.
+  LIQUIDITY_SEVERITY_MEDIUM = 2;
+  // High severity.
+  LIQUIDITY_SEVERITY_HIGH = 3;
+  // Critical severity.
+  LIQUIDITY_SEVERITY_CRITICAL = 4;
+}
+
+// EvidenceMetric is one deterministic metric key/value pair.
+message EvidenceMetric {
+  // key is a stable metric name.
+  string key = 1;
+  // value is a finite numeric metric value.
+  double value = 2;
+}
+
+// InputWatermark captures source sequence range for one evidence.
+message InputWatermark {
+  // seq_start is the first source sequence consumed.
+  int64 seq_start = 1;
+  // seq_end is the last source sequence consumed.
+  int64 seq_end = 2;
+}
+
+// LiquidityEvidenceV1 models one deterministic liquidity evidence emission.
+message LiquidityEvidenceV1 {
+  // evidence_type is BOOK_IMBALANCE | ABSORPTION | SWEEP | THINNING | SPREAD_REGIME.
+  string evidence_type = 1;
+  // ts_ingest_ms is canonical ingest timestamp in unix milliseconds.
+  int64 ts_ingest_ms = 2;
+  // venue is canonical venue key.
+  string venue = 3;
+  // symbol is canonical instrument key.
+  string symbol = 4;
+  // window_ms is source observation window in milliseconds.
+  int64 window_ms = 5;
+  // severity is bounded urgency.
+  LiquiditySeverity severity = 6;
+  // confidence is bounded in [0,1].
+  double confidence = 7;
+  // metrics is deterministic sorted evidence metrics.
+  repeated EvidenceMetric metrics = 8;
+  // explain carries compact explanation fragments.
+  repeated string explain = 9;
+  // version is schema version and must be 1.
+  int32 version = 10;
+  // stream_id is canonical stream identity.
+  string stream_id = 11;
+  // seq is monotonic source sequence.
+  int64 seq = 12;
+  // watermark captures source sequence span.
+  InputWatermark watermark = 13;
+
+  reserved 100 to 199;
+}
