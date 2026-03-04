@@ -20,15 +20,15 @@ var (
 )
 
 const (
-	marketDataEventTypeTrade          = "marketdata.trade"
-	marketDataEventTypeBookDelta      = "marketdata.bookdelta"
-	marketDataEventTypeMarkPrice      = "marketdata.markprice"
-	marketDataEventTypeLiq            = "marketdata.liquidation"
-	aggregationEventTypeCandle        = "aggregation.candle"
-	aggregationEventTypeStats         = "aggregation.stats"
-	aggregationEventTypeSnapshot      = "aggregation.snapshot"
-	aggregationEventTypeInconsistency    = "aggregation.orderbook_inconsistency"
-	aggregationEventTypeCrossVenueBook   = "aggregation.cross_venue_book"
+	marketDataEventTypeTrade           = "marketdata.trade"
+	marketDataEventTypeBookDelta       = "marketdata.bookdelta"
+	marketDataEventTypeMarkPrice       = "marketdata.markprice"
+	marketDataEventTypeLiq             = "marketdata.liquidation"
+	aggregationEventTypeCandle         = "aggregation.candle"
+	aggregationEventTypeStats          = "aggregation.stats"
+	aggregationEventTypeSnapshot       = "aggregation.snapshot"
+	aggregationEventTypeInconsistency  = "aggregation.orderbook_inconsistency"
+	aggregationEventTypeCrossVenueBook = "aggregation.cross_venue_book"
 )
 
 type PayloadRegistryOptions struct {

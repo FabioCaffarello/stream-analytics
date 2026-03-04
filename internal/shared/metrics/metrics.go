@@ -45,6 +45,33 @@ var (
 			Help: "Number of active ingest streams held in memory.",
 		},
 	)
+	CanonicalizationErrorsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "canonicalization_errors_total",
+			Help: "Total canonicalization errors by venue and reason.",
+		},
+		[]string{"venue", "reason"},
+	)
+	CanonicalEventsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "canonical_events_total",
+			Help: "Total canonical events produced by channel and venue.",
+		},
+		[]string{"channel", "venue"},
+	)
+	CanonicalStateEntries = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "canonical_state_entries",
+			Help: "Current number of canonical per-stream state entries.",
+		},
+	)
+	CanonicalStateEvictedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "canonical_state_evicted_total",
+			Help: "Total canonical per-stream state evictions by reason.",
+		},
+		[]string{"reason"},
+	)
 
 	BackpressureQueueDepth = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -1370,6 +1397,10 @@ func registerAll() {
 			IngestMessagesTotal,
 			IngestLatencySeconds,
 			IngestStreamsActive,
+			CanonicalizationErrorsTotal,
+			CanonicalEventsTotal,
+			CanonicalStateEntries,
+			CanonicalStateEvictedTotal,
 			BackpressureQueueDepth,
 			BackpressureDropsTotal,
 			BusPublishedTotal,
@@ -1553,6 +1584,10 @@ func registerAll() {
 		// even before the first domain event is observed.
 		IngestMessagesTotal.WithLabelValues("unknown", "unknown", "unknown")
 		IngestLatencySeconds.WithLabelValues("unknown", "unknown")
+		CanonicalizationErrorsTotal.WithLabelValues("unknown", "unknown")
+		CanonicalEventsTotal.WithLabelValues("unknown", "unknown")
+		CanonicalStateEntries.Set(0)
+		CanonicalStateEvictedTotal.WithLabelValues("unknown")
 		BackpressureQueueDepth.WithLabelValues("unknown")
 		BackpressureDropsTotal.WithLabelValues("unknown")
 		BusPublishedTotal.WithLabelValues("unknown", "unknown")
@@ -1723,6 +1758,33 @@ func ObserveIngest(venue, instrument, eventType, status string, latency time.Dur
 	if s == statusOK {
 		IngestLatencySeconds.WithLabelValues(v, e).Observe(latency.Seconds())
 	}
+}
+
+func IncCanonicalizationError(venue, reason string) {
+	CanonicalizationErrorsTotal.WithLabelValues(sanitizeVenue(venue), sanitizeReason(reason)).Inc()
+}
+
+func IncCanonicalEvent(channel any, venue string) {
+	label := "unknown"
+	switch v := channel.(type) {
+	case string:
+		label = sanitizeEventType(v)
+	case fmt.Stringer:
+		label = sanitizeEventType(v.String())
+	default:
+		if channel != nil {
+			label = sanitizeEventType(fmt.Sprint(channel))
+		}
+	}
+	CanonicalEventsTotal.WithLabelValues(label, sanitizeVenue(venue)).Inc()
+}
+
+func SetCanonicalStateEntries(count int) {
+	CanonicalStateEntries.Set(float64(max(count, 0)))
+}
+
+func IncCanonicalStateEvicted(reason string) {
+	CanonicalStateEvictedTotal.WithLabelValues(sanitizeReason(reason)).Inc()
 }
 
 func SetBackpressureQueueDepth(venue string, depth int) {
@@ -2909,7 +2971,7 @@ func sanitizeSubsystem(v string) string {
 func sanitizeReason(v string) string {
 	v = strings.ToLower(strings.TrimSpace(v))
 	switch v {
-	case "ttl", "size", "unknown":
+	case "ttl", "size", "capacity", "unknown":
 		return v
 	default:
 		return "unknown"

@@ -7,8 +7,6 @@ import (
 	signalsv1 "github.com/market-raccoon/internal/shared/proto/gen/signals/v1"
 )
 
-const signalsV1Version int32 = 1
-
 // RegisterSignalsPayloadV1 registers runtime payload codecs for composed signals.
 func RegisterSignalsPayloadV1(reg *codec.Registry) *problem.Problem {
 	if reg == nil {
