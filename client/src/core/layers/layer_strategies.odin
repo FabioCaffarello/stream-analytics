@@ -176,6 +176,9 @@ price_candles_diagnostics :: proc(store: ^Market_Store, out: ^Layer_Diagnostics)
 	out.has_data = stream != nil && (stream.candles.count > 0 || stream.stats.count > 0)
 	out.state = layer_diag_state(store, stream, out.has_data)
 	if stream == nil do return
+	out.entries = stream.stats.count
+	out.max_entries = services.STATS_CAP
+	out.evicted_total = stream.stats_drops
 	out.last_seq = stream.last_seq
 	out.last_unix = stream.last_unix
 	out.parse_total = stream.stats_frames
@@ -252,6 +255,9 @@ trades_tape_diagnostics :: proc(store: ^Market_Store, out: ^Layer_Diagnostics) {
 	out.has_data = stream != nil && stream.trades.count > 0
 	out.state = layer_diag_state(store, stream, out.has_data)
 	if stream == nil do return
+	out.entries = stream.trades.count
+	out.max_entries = services.TRADES_CAP
+	out.evicted_total = stream.trades_drops + stream.tape_drops
 	out.last_seq = stream.last_seq
 	out.last_unix = stream.last_unix
 	out.parse_total = stream.trades_frames + stream.tape_frames
@@ -339,6 +345,9 @@ orderbook_dom_diagnostics :: proc(store: ^Market_Store, out: ^Layer_Diagnostics)
 	out.has_data = stream != nil && (stream.orderbook.ask_count > 0 || stream.orderbook.bid_count > 0)
 	out.state = layer_diag_state(store, stream, out.has_data)
 	if stream == nil do return
+	out.entries = stream.orderbook.ask_count + stream.orderbook.bid_count
+	out.max_entries = services.OB_DEPTH_CAP * 2
+	out.evicted_total = stream.orderbook_drops
 	out.last_seq = stream.last_seq
 	out.last_unix = stream.last_unix
 	out.parse_total = stream.orderbook_frames
@@ -419,6 +428,9 @@ vpvr_heatmap_diagnostics :: proc(store: ^Market_Store, out: ^Layer_Diagnostics) 
 	out.has_data = stream != nil && (stream.heatmap.count > 0 || stream.vpvr.count > 0)
 	out.state = layer_diag_state(store, stream, out.has_data)
 	if stream == nil do return
+	out.entries = stream.heatmap.count + stream.vpvr.count
+	out.max_entries = services.HEATMAP_SNAP_CAP + services.VPVR_BUCKET_CAP
+	out.evicted_total = stream.evictions
 	out.last_seq = stream.last_seq
 	out.last_unix = stream.last_unix
 	out.parse_total = stream.event_count
@@ -473,6 +485,9 @@ evidence_diagnostics :: proc(store: ^Market_Store, out: ^Layer_Diagnostics) {
 	out.has_data = stream != nil && stream.evidence_count > 0
 	out.state = layer_diag_state(store, stream, out.has_data)
 	if stream == nil do return
+	out.entries = stream.evidence_count
+	out.max_entries = EVIDENCE_RING_CAP
+	out.evicted_total = stream.evidence_drops
 	out.last_seq = stream.last_seq
 	out.last_unix = stream.last_unix
 	out.parse_total = stream.evidence_frames
@@ -536,6 +551,13 @@ signal_diagnostics :: proc(store: ^Market_Store, out: ^Layer_Diagnostics) {
 	out.has_data = stream != nil && stream.signals.kind_count > 0
 	out.state = layer_diag_state(store, stream, out.has_data)
 	if stream == nil do return
+	signal_entries := 0
+	for ki in 0 ..< stream.signals.kind_count {
+		signal_entries += stream.signals.kinds[ki].count
+	}
+	out.entries = signal_entries
+	out.max_entries = services.SIGNAL_KIND_CAP * services.SIGNAL_PER_KIND_CAP
+	out.evicted_total = stream.signals.overwritten_total + stream.signals.evicted_kind_total
 	out.last_seq = stream.last_seq
 	out.last_unix = stream.last_unix
 	out.parse_total = stream.signal_frames

@@ -76,25 +76,9 @@ layer_record_render_sample_us :: proc(entry: ^Layer_Entry, sample_us: i64) {
 }
 
 @(private = "file")
-layer_render_p95_us :: proc(entry: ^Layer_Entry) -> i64 {
+layer_render_percentile_us :: proc(entry: ^Layer_Entry, pct: int) -> i64 {
 	if entry == nil do return 0
-	n := entry.render_sample_count
-	if n <= 0 do return 0
-	start := (entry.render_sample_head - n + len(entry.render_samples_us)) % len(entry.render_samples_us)
-	sorted: [120]i64
-	for i in 0 ..< n {
-		sorted[i] = entry.render_samples_us[(start + i) % len(entry.render_samples_us)]
-	}
-	for i in 1 ..< n {
-		key := sorted[i]
-		j := i - 1
-		for j >= 0 && sorted[j] > key {
-			sorted[j + 1] = sorted[j]
-			j -= 1
-		}
-		sorted[j + 1] = key
-	}
-	return sorted[min((n * 95) / 100, n - 1)]
+	return services.ring_percentile_i64(entry.render_samples_us, entry.render_sample_head, entry.render_sample_count, pct)
 }
 
 layer_registry_set_enabled :: proc(reg: ^Layer_Registry, id: Layer_ID, enabled: bool) {
@@ -194,11 +178,15 @@ layer_registry_collect_diagnostics :: proc(reg: ^Layer_Registry, store: ^Market_
 		diag := Layer_Diagnostics{
 			id                 = entry.strategy.id,
 			enabled            = entry.enabled,
+			entries            = 0,
+			max_entries        = 0,
+			evicted_total      = 0,
 			render_invocations = entry.render_invocations,
 			dropped_outputs    = entry.dropped_outputs,
 			drop_render_overflow_total = entry.dropped_outputs,
 			render_budget_us   = layer_budget_us(entry.strategy.id),
-			render_p95_us      = layer_render_p95_us(entry),
+			render_p95_us      = layer_render_percentile_us(entry, 95),
+			render_p99_us      = layer_render_percentile_us(entry, 99),
 			render_over_budget = entry.render_over_budget,
 		}
 		if entry.strategy.diagnostics != nil {

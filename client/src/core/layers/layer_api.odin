@@ -91,6 +91,9 @@ Layer_Diagnostics :: struct {
 	enabled:          bool,
 	has_data:         bool,
 	state:            Layer_Widget_State,
+	entries:          int,
+	max_entries:      int,
+	evicted_total:    u64,
 	render_invocations: u64,
 	dropped_outputs:  u64,
 	parse_total:      u64,
@@ -104,6 +107,7 @@ Layer_Diagnostics :: struct {
 	signal_link_evidence_seq: i64,
 	render_budget_us: i64,
 	render_p95_us:    i64,
+	render_p99_us:    i64,
 	render_over_budget: u64,
 }
 
