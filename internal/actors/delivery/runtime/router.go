@@ -328,7 +328,7 @@ func (r *RouterActor) removeSessionFromSubject(sessionID string, subject domain.
 			delete(r.subjectSessions, subject)
 			delete(r.subjectPIDs, subject)
 			delete(r.streamState, subject.String())
-			metrics.SetDeliveryRouterStreamStateEntries(len(r.streamState))
+			r.syncStreamStateMetrics(-1)
 		} else {
 			r.rebuildSubjectPIDs(subject)
 		}
@@ -499,7 +499,7 @@ func (r *RouterActor) acceptStreamSeq(streamID string, env envelope.Envelope) (b
 		}
 		state = &streamState{}
 		r.streamState[streamID] = state
-		metrics.SetDeliveryRouterStreamStateEntries(len(r.streamState))
+		r.syncStreamStateMetrics(-1)
 	}
 	state.lastSeenAt = now
 	decision := r.seqPolicy.Decide(seqPolicyInput{
@@ -575,8 +575,7 @@ func (r *RouterActor) nextDeliverySeq(streamID string) int64 {
 
 func (r *RouterActor) sweepStreamState() {
 	if len(r.streamState) == 0 {
-		metrics.SetDeliveryRouterStreamStateEntries(0)
-		metrics.SetDeliveryRouterStreamStateActive(0)
+		r.syncStreamStateMetrics(0)
 		return
 	}
 	now := r.now()
@@ -590,8 +589,7 @@ func (r *RouterActor) sweepStreamState() {
 		}
 		active++
 	}
-	metrics.SetDeliveryRouterStreamStateEntries(len(r.streamState))
-	metrics.SetDeliveryRouterStreamStateActive(active)
+	r.syncStreamStateMetrics(active)
 	if evicted > 0 {
 		metrics.AddDeliveryRouterStreamStateEvicted(evicted)
 	}
@@ -604,7 +602,7 @@ func (r *RouterActor) evictOldestStreamState() {
 		if state == nil {
 			delete(r.streamState, id)
 			metrics.AddDeliveryRouterStreamStateEvicted(1)
-			metrics.SetDeliveryRouterStreamStateEntries(len(r.streamState))
+			r.syncStreamStateMetrics(-1)
 			return
 		}
 		if oldestID == "" || state.lastSeenAt.Before(oldestTime) {
@@ -615,8 +613,20 @@ func (r *RouterActor) evictOldestStreamState() {
 	if oldestID != "" {
 		delete(r.streamState, oldestID)
 		metrics.AddDeliveryRouterStreamStateEvicted(1)
-		metrics.SetDeliveryRouterStreamStateEntries(len(r.streamState))
+		r.syncStreamStateMetrics(-1)
 	}
+}
+
+func (r *RouterActor) syncStreamStateMetrics(active int) {
+	entries := len(r.streamState)
+	if active < 0 {
+		active = entries
+	}
+	if active > entries {
+		active = entries
+	}
+	metrics.SetDeliveryRouterStreamStateEntries(entries)
+	metrics.SetDeliveryRouterStreamStateActive(active)
 }
 
 func routingTimeframeForEnvelope(defaultTimeframe string, env envelope.Envelope) string {

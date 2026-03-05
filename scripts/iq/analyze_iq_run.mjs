@@ -49,6 +49,57 @@ function metricSamples(metricsText, name) {
     return samples;
 }
 
+function labelGroupKey(labels, exclude = []) {
+    const out = [];
+    const ignored = new Set(exclude);
+    for (const key of Object.keys(labels).sort()) {
+        if (ignored.has(key)) continue;
+        out.push(`${key}=${labels[key]}`);
+    }
+    return out.join(",");
+}
+
+function parseHistogramLe(raw) {
+    if (raw === "+Inf") return Number.POSITIVE_INFINITY;
+    const v = Number(raw);
+    return Number.isFinite(v) ? v : Number.NaN;
+}
+
+function histogramQuantilesByLabel(metricsText, baseName, groupLabel, quantiles) {
+    const buckets = metricSamples(metricsText, `${baseName}_bucket`);
+    const groups = new Map();
+    for (const sample of buckets) {
+        const leRaw = sample.labels.le;
+        const le = parseHistogramLe(leRaw);
+        if (!Number.isFinite(le) && le !== Number.POSITIVE_INFINITY) continue;
+        const group = sample.labels[groupLabel] || "unknown";
+        const key = `${group}|${labelGroupKey(sample.labels, ["le"])}`;
+        if (!groups.has(key)) {
+            groups.set(key, { group, buckets: [] });
+        }
+        groups.get(key).buckets.push({ le, count: Number(sample.value) || 0 });
+    }
+
+    const out = new Map();
+    for (const value of groups.values()) {
+        value.buckets.sort((a, b) => a.le - b.le);
+        const totalSample = value.buckets.find((b) => b.le === Number.POSITIVE_INFINITY);
+        const total = totalSample ? totalSample.count : 0;
+        const qValues = {};
+        for (const q of quantiles) {
+            if (!(q > 0 && q <= 1) || total <= 0) {
+                qValues[q] = null;
+                continue;
+            }
+            const target = total * q;
+            const bucket = value.buckets.find((b) => b.count >= target);
+            qValues[q] = bucket ? bucket.le : null;
+        }
+        out.set(value.group, { count: total, quantiles: qValues });
+    }
+    return out;
+}
+
 function excerpt(lines, includes, max = 6) {
     const out = [];
     for (const line of lines) {
@@ -159,6 +210,23 @@ const allowStatsFallback = envBool("IQ_ALLOW_STATS_FALLBACK");
 const statsFallbackRemovalRuns = Number.parseInt(process.env.IQ_STATS_FALLBACK_ZERO_RUNS || "5", 10) || 5;
 const allowUnexpectedSkips = envBool("IQ_ALLOW_UNEXPECTED_SKIPS");
 const statsFallbackStreak = statsFallbackZeroStreak(runDir);
+const wireBudgetChannels = String(process.env.IQ_WIRE_BUDGET_CHANNELS || "trade,book_snapshot,stats,candle")
+    .split(",")
+    .map((v) => v.trim())
+    .filter(Boolean);
+const wireP95BudgetMs = Number.parseFloat(process.env.IQ_WIRE_P95_BUDGET_MS || "2000");
+const wireP99BudgetMs = Number.parseFloat(process.env.IQ_WIRE_P99_BUDGET_MS || "5000");
+const routerStateMaxEntries = Number.parseInt(process.env.IQ_ROUTER_STREAM_STATE_MAX || "2048", 10) || 2048;
+
+const wireLatencyByChannel = histogramQuantilesByLabel(
+    metricsText,
+    "ws_publish_to_deliver_latency_seconds",
+    "channel",
+    [0.95, 0.99]
+);
+const routerStreamEntries = metricSamples(metricsText, "router_stream_state_entries")[0]?.value ?? 0;
+const routerStreamActive = metricSamples(metricsText, "router_stream_state_active_total")[0]?.value ?? 0;
+const routerStreamEvicted = metricSamples(metricsText, "delivery_router_stream_state_evicted_total")[0]?.value ?? 0;
 const wsMissingTsSamples = metricSamples(metricsText, "ws_contract_violations_total")
     .filter((s) => s.labels.reason === "missing_ts_server");
 const wsMissingTsTotal = wsMissingTsSamples.reduce((acc, s) => acc + s.value, 0);
@@ -337,6 +405,56 @@ addCheck(
         legacySignalRejected === 0,
     `legacy_evidence_frames=${legacyEvidenceFrames} legacy_signal_frames=${legacySignalFrames} evidence_fallback_frames=${evidenceFallbackFrames} signal_fallback_frames=${signalFallbackFrames} legacy_evidence_rejected=${legacyEvidenceRejected} legacy_signal_rejected=${legacySignalRejected}`,
     ["legacy_evidence_frames", "legacy_signal_frames", "evidence_fallback_frames", "signal_fallback_frames", "legacy_evidence_rejected", "legacy_signal_rejected"]
+);
+
+const compatStatsFallback = Number(
+    statsProbe.md_stats_fallback_frames ?? probe.probe_md_stats_fallback_frames ?? -1
+);
+addCheck(
+    "compat_fallback_zero",
+    "no fallback/compat path hit",
+    compatStatsFallback === 0 &&
+        evidenceFallbackFrames === 0 &&
+        signalFallbackFrames === 0 &&
+        batchFallbackEventsTotal === 0,
+    `threshold=0 stats_fallback_frames=${compatStatsFallback} evidence_fallback_frames=${evidenceFallbackFrames} signal_fallback_frames=${signalFallbackFrames} ws_batch_fallback_events=${batchFallbackEventsTotal}`,
+    ["ws_batch_fallback_events_total", "stats_fallback_frames", "evidence_fallback_frames", "signal_fallback_frames"]
+);
+
+const wireObserved = [];
+const wireViolations = [];
+for (const channel of wireBudgetChannels) {
+    const sample = wireLatencyByChannel.get(channel);
+    if (!sample || !(sample.count > 0)) {
+        continue;
+    }
+    const p95s = sample.quantiles[0.95];
+    const p99s = sample.quantiles[0.99];
+    const p95ms = Number.isFinite(p95s) ? p95s * 1000 : null;
+    const p99ms = Number.isFinite(p99s) ? p99s * 1000 : null;
+    wireObserved.push(`${channel}:count=${sample.count},p95_ms=${fmt(p95ms)},p99_ms=${fmt(p99ms)}`);
+    if ((p95ms !== null && p95ms > wireP95BudgetMs) || (p99ms !== null && p99ms > wireP99BudgetMs)) {
+        wireViolations.push(channel);
+    }
+}
+addCheck(
+    "wire_budget_p95_p99",
+    "wire budgets p95/p99",
+    wireObserved.length > 0 && wireViolations.length === 0,
+    `threshold_ms(p95<=${wireP95BudgetMs},p99<=${wireP99BudgetMs}) observed=${wireObserved.join(";") || "none"} violations=${wireViolations.join(",") || "none"}`,
+    ["ws_publish_to_deliver_latency_seconds_bucket", "ws_publish_to_deliver_latency_seconds_count"]
+);
+
+addCheck(
+    "bounded_state_eviction",
+    "bounded state/eviction not growing",
+    routerStreamEntries >= 0 &&
+        routerStreamActive >= 0 &&
+        routerStreamActive <= routerStreamEntries &&
+        routerStreamEntries <= routerStateMaxEntries &&
+        routerStreamEvicted >= 0,
+    `threshold_entries<=${routerStateMaxEntries} entries=${routerStreamEntries} active=${routerStreamActive} evicted_total=${routerStreamEvicted}`,
+    ["router_stream_state_entries", "router_stream_state_active_total", "delivery_router_stream_state_evicted_total"]
 );
 
 const allocFrame = Number(probe.probe_md_alloc_estimate_frame ?? -1);
