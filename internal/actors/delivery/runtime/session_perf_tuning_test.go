@@ -86,7 +86,7 @@ func TestBatchingBaseSeqAndCountCorrect(t *testing.T) {
 	}
 }
 
-func TestBatchingFallbackMetricIncrementsWhenBatchCannotFit(t *testing.T) {
+func TestBatchingHardFailsWhenBatchCannotFit(t *testing.T) {
 	s, _ := newPerfSession(t, SessionConfig{
 		MaxFrameBytes: 1,
 	})
@@ -97,12 +97,11 @@ func TestBatchingFallbackMetricIncrementsWhenBatchCannotFit(t *testing.T) {
 	s.outbound.PushBack(makePerfEvent(subject, "marketdata.trade", 10, 1700000000010, 8))
 	s.outbound.PushBack(makePerfEvent(subject, "marketdata.trade", 11, 1700000000011, 8))
 
-	before := testutil.ToFloat64(metrics.WSBatchFallbackEventsTotal)
 	s.flushing = true
 	s.flushOutbound()
-	after := testutil.ToFloat64(metrics.WSBatchFallbackEventsTotal)
-	if got, want := after-before, float64(2); got != want {
-		t.Fatalf("fallback events delta=%f want=%f", got, want)
+
+	if !s.closed {
+		t.Fatal("session should close when batched candidate cannot fit max_frame_bytes")
 	}
 }
 

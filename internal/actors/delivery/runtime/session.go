@@ -125,6 +125,7 @@ type SessionActor struct {
 
 	readerCtx    context.Context
 	cancelReader context.CancelFunc
+	started      bool
 	closed       bool
 	outbound     *deliveryRing
 	flushing     bool
@@ -309,14 +310,15 @@ func (s *SessionActor) ensureDefaults(c *actor.Context) {
 }
 
 func (s *SessionActor) onStarted() {
-	if s.cfg.RouterPID != nil {
-		s.engine.Send(s.cfg.RouterPID, RegisterSession{SessionID: s.session.ID(), PID: s.self})
-	}
+	s.started = true
 	metrics.IncWSClientsConnected()
 	metrics.IncWSTenantConnectionsActive(s.cfg.TenantID)
 	observability.IncSessionsActive()
 	if s.cfg.PreferProto {
 		observability.IncPreferProtoSessions()
+	}
+	if s.cfg.RouterPID != nil {
+		s.engine.Send(s.cfg.RouterPID, RegisterSession{SessionID: s.session.ID(), PID: s.self})
 	}
 	s.attachConn(s.cfg.Conn)
 }
@@ -400,29 +402,31 @@ func (s *SessionActor) closeSession() {
 		s.cancelReader()
 	}
 	s.flushBackpressureDropSamples(true)
-	metrics.DecWSClientsConnected()
-	metrics.DecWSTenantConnectionsActive(s.cfg.TenantID)
-	observability.DecSessionsActive()
-	if s.cfg.PreferProto {
-		observability.DecPreferProtoSessions()
-	}
-	metrics.SetWSQueueDepth(0)
-	metrics.SetWSTenantQueueDepth(s.cfg.TenantID, 0)
-	metrics.SetWSBackpressureLevel(0)
-	metrics.SetWSQueueHighWatermark(0)
-	for _, sub := range s.session.Subscriptions() {
-		if sub.Subject.IsSignal() {
-			metrics.DecMRSignalWSActiveSubscriptions()
+	if s.started {
+		metrics.DecWSClientsConnected()
+		metrics.DecWSTenantConnectionsActive(s.cfg.TenantID)
+		observability.DecSessionsActive()
+		if s.cfg.PreferProto {
+			observability.DecPreferProtoSessions()
+		}
+		metrics.SetWSQueueDepth(0)
+		metrics.SetWSTenantQueueDepth(s.cfg.TenantID, 0)
+		metrics.SetWSBackpressureLevel(0)
+		metrics.SetWSQueueHighWatermark(0)
+		for _, sub := range s.session.Subscriptions() {
+			if sub.Subject.IsSignal() {
+				metrics.DecMRSignalWSActiveSubscriptions()
+			}
+			if s.cfg.RouterPID != nil {
+				s.engine.Send(s.cfg.RouterPID, UnsubscribeSession{
+					SessionID: s.session.ID(),
+					Subject:   sub.Subject,
+				})
+			}
 		}
 		if s.cfg.RouterPID != nil {
-			s.engine.Send(s.cfg.RouterPID, UnsubscribeSession{
-				SessionID: s.session.ID(),
-				Subject:   sub.Subject,
-			})
+			s.engine.Send(s.cfg.RouterPID, UnregisterSession{SessionID: s.session.ID()})
 		}
-	}
-	if s.cfg.RouterPID != nil {
-		s.engine.Send(s.cfg.RouterPID, UnregisterSession{SessionID: s.session.ID()})
 	}
 	if s.cfg.Conn != nil {
 		_ = s.cfg.Conn.Close()
