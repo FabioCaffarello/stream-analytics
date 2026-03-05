@@ -31,6 +31,27 @@ const (
 	statsQualityFlagForcedCloseMask
 )
 
+const (
+	tapeQualityFlagEmptyWindowMask uint32 = 1 << iota
+	tapeQualityFlagWindowBoundsInvalidMask
+	tapeQualityFlagLastSeqInvalidMask
+	tapeQualityFlagLastPriceInvalidMask
+	tapeQualityFlagTotalVolumeInvalidMask
+)
+
+const (
+	evidenceQualityFlagMissingExplainMask uint32 = 1 << iota
+	evidenceQualityFlagMissingFeaturesMask
+	evidenceQualityFlagConfidenceInvalidMask
+)
+
+const (
+	signalQualityFlagMissingExplainMask uint32 = 1 << iota
+	signalQualityFlagMissingCorrelationIDsMask
+	signalQualityFlagMissingEvidenceLinkMask
+	signalQualityFlagConfidenceInvalidMask
+)
+
 var (
 	IngestMessagesTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -690,6 +711,21 @@ var (
 		},
 		[]string{"venue", "channel"},
 	)
+	MRTapeWireBytes = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mr_tape_wire_bytes",
+			Help:    "Encoded tape window payload size in bytes.",
+			Buckets: []float64{128, 256, 512, 1024, 2048, 4096, 8192},
+		},
+		[]string{"venue", "timeframe_bucket"},
+	)
+	MRTapeQualityFlagsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_tape_quality_flags_total",
+			Help: "Total observed tape quality flags by bounded venue/instrument/timeframe and flag.",
+		},
+		[]string{"venue", "instrument_bucket", "timeframe_bucket", "flag"},
+	)
 	MRStatsWireBytes = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "mr_stats_wire_bytes",
@@ -872,6 +908,21 @@ var (
 		},
 		[]string{"type"},
 	)
+	EvidenceWireBytes = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "evidence_wire_bytes",
+			Help:    "Encoded canonical evidence payload size in bytes by evidence type.",
+			Buckets: []float64{64, 128, 256, 512, 1024, 2048, 4096, 8192},
+		},
+		[]string{"type"},
+	)
+	EvidenceQualityFlagsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "evidence_quality_flags_total",
+			Help: "Total observed canonical evidence quality flags by type and flag.",
+		},
+		[]string{"type", "flag"},
+	)
 	EvidenceEngineEventsTotal = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "evidence_engine_events_total",
@@ -1040,6 +1091,13 @@ var (
 			Buckets: []float64{128, 256, 512, 1024, 2048, 4096, 8192, 16384},
 		},
 		[]string{"type"},
+	)
+	SignalQualityFlagsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "signal_quality_flags_total",
+			Help: "Total observed canonical signal quality flags by type and flag.",
+		},
+		[]string{"type", "flag"},
 	)
 	SignalLELAdaptedTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -1734,6 +1792,8 @@ func registerAll() {
 			MRTradeIngestTotal,
 			MRTradeLatencySeconds,
 			MRTradeWireBytes,
+			MRTapeWireBytes,
+			MRTapeQualityFlagsTotal,
 			MRStatsWireBytes,
 			MRStatsQualityFlagsTotal,
 			MRWindowOpenTotal,
@@ -1760,6 +1820,8 @@ func registerAll() {
 			LELEvalLatencySeconds,
 			LELInputProcessedTotal,
 			LELWireBudgetBytes,
+			EvidenceWireBytes,
+			EvidenceQualityFlagsTotal,
 			EvidenceEngineEventsTotal,
 			EvidenceBufferEntries,
 			EvidenceBufferOverwritesTotal,
@@ -1784,6 +1846,7 @@ func registerAll() {
 			SignalEvalLatencySeconds,
 			SignalDedupTotal,
 			SignalWireBytes,
+			SignalQualityFlagsTotal,
 			SignalLELAdaptedTotal,
 			SignalLELAdaptErrorsTotal,
 			VPVRBuilderBucketCount,
@@ -1938,6 +2001,13 @@ func registerAll() {
 		MRTradeLatencySeconds.WithLabelValues("unknown")
 		MRTradeWireBytes.WithLabelValues("unknown", "trade")
 		MRTradeWireBytes.WithLabelValues("unknown", "tape")
+		MRTapeWireBytes.WithLabelValues("unknown", "unknown")
+		MRTapeQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "none")
+		MRTapeQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "empty_window")
+		MRTapeQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "window_bounds_invalid")
+		MRTapeQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "last_seq_invalid")
+		MRTapeQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "last_price_invalid")
+		MRTapeQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "total_volume_invalid")
 		MRStatsWireBytes.WithLabelValues("unknown", "unknown")
 		MRStatsQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "none")
 		MRStatsQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "missing_liquidation")
@@ -1975,6 +2045,11 @@ func registerAll() {
 		LELWireBudgetBytes.WithLabelValues("sweep").Observe(0)
 		LELWireBudgetBytes.WithLabelValues("thinning").Observe(0)
 		LELWireBudgetBytes.WithLabelValues("spread_regime").Observe(0)
+		EvidenceWireBytes.WithLabelValues("unknown").Observe(0)
+		EvidenceQualityFlagsTotal.WithLabelValues("unknown", "none")
+		EvidenceQualityFlagsTotal.WithLabelValues("unknown", "missing_explain")
+		EvidenceQualityFlagsTotal.WithLabelValues("unknown", "missing_features")
+		EvidenceQualityFlagsTotal.WithLabelValues("unknown", "confidence_invalid")
 		MRRegimeCurrent.WithLabelValues("unknown", "unknown", "unknown", "unknown").Set(0)
 		MRRegimeCurrent.WithLabelValues("unknown", "unknown", "unknown", "trending").Set(0)
 		MRRegimeCurrent.WithLabelValues("unknown", "unknown", "unknown", "ranging").Set(0)
@@ -2001,6 +2076,11 @@ func registerAll() {
 		SignalEvalLatencySeconds.Observe(0)
 		SignalDedupTotal.WithLabelValues("unknown")
 		SignalWireBytes.WithLabelValues("unknown").Observe(0)
+		SignalQualityFlagsTotal.WithLabelValues("unknown", "none")
+		SignalQualityFlagsTotal.WithLabelValues("unknown", "missing_explain")
+		SignalQualityFlagsTotal.WithLabelValues("unknown", "missing_correlation_ids")
+		SignalQualityFlagsTotal.WithLabelValues("unknown", "missing_evidence_link")
+		SignalQualityFlagsTotal.WithLabelValues("unknown", "confidence_invalid")
 		SignalLELAdaptedTotal.WithLabelValues("unknown")
 		SignalLELAdaptErrorsTotal.WithLabelValues("unknown")
 		VPVRBuilderBucketCount.WithLabelValues("unknown", "unknown", "unknown")
@@ -2683,6 +2763,89 @@ func ObserveMRTradeWireBytes(venue, channel string, bytes int) {
 	).Observe(float64(bytes))
 }
 
+func ObserveMRTapeWireBytes(venue, timeframe string, bytes int) {
+	if bytes < 0 {
+		bytes = 0
+	}
+	MRTapeWireBytes.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketTimeframe(timeframe),
+	).Observe(float64(bytes))
+}
+
+func ObserveMRTapeQuality(
+	venue, instrument, timeframe string,
+	tradeCount int64,
+	windowStartTs, windowEndTs, lastSeq int64,
+	lastPrice, totalVolume float64,
+) {
+	flags := computeMRTapeQualityFlags(
+		tradeCount,
+		windowStartTs,
+		windowEndTs,
+		lastSeq,
+		lastPrice,
+		totalVolume,
+	)
+	if flags == 0 {
+		MRTapeQualityFlagsTotal.WithLabelValues(
+			sanitizeVenue(venue),
+			bucketInstrument(instrument),
+			bucketTimeframe(timeframe),
+			"none",
+		).Inc()
+		return
+	}
+
+	for _, candidate := range []struct {
+		mask uint32
+		flag string
+	}{
+		{mask: tapeQualityFlagEmptyWindowMask, flag: "empty_window"},
+		{mask: tapeQualityFlagWindowBoundsInvalidMask, flag: "window_bounds_invalid"},
+		{mask: tapeQualityFlagLastSeqInvalidMask, flag: "last_seq_invalid"},
+		{mask: tapeQualityFlagLastPriceInvalidMask, flag: "last_price_invalid"},
+		{mask: tapeQualityFlagTotalVolumeInvalidMask, flag: "total_volume_invalid"},
+	} {
+		if flags&candidate.mask != 0 {
+			incMRTapeQualityFlag(venue, instrument, timeframe, candidate.flag)
+		}
+	}
+}
+
+func computeMRTapeQualityFlags(
+	tradeCount int64,
+	windowStartTs, windowEndTs, lastSeq int64,
+	lastPrice, totalVolume float64,
+) uint32 {
+	var flags uint32
+	if tradeCount <= 0 {
+		flags |= tapeQualityFlagEmptyWindowMask
+	}
+	if windowEndTs <= windowStartTs {
+		flags |= tapeQualityFlagWindowBoundsInvalidMask
+	}
+	if lastSeq <= 0 {
+		flags |= tapeQualityFlagLastSeqInvalidMask
+	}
+	if math.IsNaN(lastPrice) || math.IsInf(lastPrice, 0) || lastPrice <= 0 {
+		flags |= tapeQualityFlagLastPriceInvalidMask
+	}
+	if math.IsNaN(totalVolume) || math.IsInf(totalVolume, 0) || totalVolume < 0 {
+		flags |= tapeQualityFlagTotalVolumeInvalidMask
+	}
+	return flags
+}
+
+func incMRTapeQualityFlag(venue, instrument, timeframe, flag string) {
+	MRTapeQualityFlagsTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+		bucketTimeframe(timeframe),
+		sanitizeTapeQualityFlag(flag),
+	).Inc()
+}
+
 func ObserveMRStatsWireBytes(venue, timeframe string, bytes int) {
 	if bytes < 0 {
 		bytes = 0
@@ -2888,6 +3051,47 @@ func ObserveLELWireBudget(typ string, sizeBytes int) {
 	LELWireBudgetBytes.WithLabelValues(sanitizeKind(typ)).Observe(float64(sizeBytes))
 }
 
+func ObserveEvidenceWireBytes(typ string, sizeBytes int) {
+	if sizeBytes < 0 {
+		sizeBytes = 0
+	}
+	EvidenceWireBytes.WithLabelValues(sanitizeKind(typ)).Observe(float64(sizeBytes))
+}
+
+func ObserveEvidenceQuality(typ, explain string, featureCount int, confidence float64) {
+	typeLabel := sanitizeKind(typ)
+	var flags uint32
+	if strings.TrimSpace(explain) == "" {
+		flags |= evidenceQualityFlagMissingExplainMask
+	}
+	if featureCount <= 0 {
+		flags |= evidenceQualityFlagMissingFeaturesMask
+	}
+	if math.IsNaN(confidence) || math.IsInf(confidence, 0) || confidence < 0 || confidence > 1 {
+		flags |= evidenceQualityFlagConfidenceInvalidMask
+	}
+	if flags == 0 {
+		EvidenceQualityFlagsTotal.WithLabelValues(typeLabel, "none").Inc()
+		return
+	}
+	if flags&evidenceQualityFlagMissingExplainMask != 0 {
+		incEvidenceQualityFlag(typeLabel, "missing_explain")
+	}
+	if flags&evidenceQualityFlagMissingFeaturesMask != 0 {
+		incEvidenceQualityFlag(typeLabel, "missing_features")
+	}
+	if flags&evidenceQualityFlagConfidenceInvalidMask != 0 {
+		incEvidenceQualityFlag(typeLabel, "confidence_invalid")
+	}
+}
+
+func incEvidenceQualityFlag(typ, flag string) {
+	EvidenceQualityFlagsTotal.WithLabelValues(
+		sanitizeKind(typ),
+		sanitizeEvidenceQualityFlag(flag),
+	).Inc()
+}
+
 func SetMRRegimeCurrent(venue, instrument, timeframe, kind string) {
 	sanitizedVenue := sanitizeVenue(venue)
 	sanitizedInstrument := bucketInstrument(instrument)
@@ -3051,6 +3255,54 @@ func ObserveSignalWireBytes(signalType string, sizeBytes int) {
 		sizeBytes = 0
 	}
 	SignalWireBytes.WithLabelValues(sanitizeKind(signalType)).Observe(float64(sizeBytes))
+}
+
+func ObserveSignalQuality(signalType string, explain []string, correlationIDs []string, confidence float64) {
+	typeLabel := sanitizeKind(signalType)
+	var flags uint32
+	if len(explain) == 0 {
+		flags |= signalQualityFlagMissingExplainMask
+	}
+	if len(correlationIDs) == 0 {
+		flags |= signalQualityFlagMissingCorrelationIDsMask
+	} else {
+		hasEvidenceLink := false
+		for i := range correlationIDs {
+			if strings.HasPrefix(strings.TrimSpace(correlationIDs[i]), "evidence:") {
+				hasEvidenceLink = true
+				break
+			}
+		}
+		if !hasEvidenceLink {
+			flags |= signalQualityFlagMissingEvidenceLinkMask
+		}
+	}
+	if math.IsNaN(confidence) || math.IsInf(confidence, 0) || confidence < 0 || confidence > 1 {
+		flags |= signalQualityFlagConfidenceInvalidMask
+	}
+	if flags == 0 {
+		SignalQualityFlagsTotal.WithLabelValues(typeLabel, "none").Inc()
+		return
+	}
+	if flags&signalQualityFlagMissingExplainMask != 0 {
+		incSignalQualityFlag(typeLabel, "missing_explain")
+	}
+	if flags&signalQualityFlagMissingCorrelationIDsMask != 0 {
+		incSignalQualityFlag(typeLabel, "missing_correlation_ids")
+	}
+	if flags&signalQualityFlagMissingEvidenceLinkMask != 0 {
+		incSignalQualityFlag(typeLabel, "missing_evidence_link")
+	}
+	if flags&signalQualityFlagConfidenceInvalidMask != 0 {
+		incSignalQualityFlag(typeLabel, "confidence_invalid")
+	}
+}
+
+func incSignalQualityFlag(signalType, flag string) {
+	SignalQualityFlagsTotal.WithLabelValues(
+		sanitizeKind(signalType),
+		sanitizeSignalQualityFlag(flag),
+	).Inc()
 }
 
 func IncSignalLELAdapted(lelType string) {
@@ -3647,6 +3899,33 @@ func sanitizeTradeWireChannel(v string) string {
 func sanitizeStatsQualityFlag(v string) string {
 	switch strings.ToLower(strings.TrimSpace(v)) {
 	case "none", "missing_liquidation", "missing_mark_price", "missing_funding", "forced_close":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeTapeQualityFlag(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "none", "empty_window", "window_bounds_invalid", "last_seq_invalid", "last_price_invalid", "total_volume_invalid":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeEvidenceQualityFlag(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "none", "missing_explain", "missing_features", "confidence_invalid":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeSignalQualityFlag(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "none", "missing_explain", "missing_correlation_ids", "missing_evidence_link", "confidence_invalid":
 		return strings.ToLower(strings.TrimSpace(v))
 	default:
 		return "unknown"

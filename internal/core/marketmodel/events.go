@@ -134,6 +134,13 @@ const (
 	SignalScopeMarket SignalScope = "market"
 )
 
+const (
+	SignalExplainMaxFragments  = 4
+	SignalExplainMaxLength     = 120
+	SignalCorrelationIDsMax    = 8
+	SignalCorrelationIDMaxSize = 64
+)
+
 type SignalFeature struct {
 	Key   string  `json:"key"`
 	Value float64 `json:"value"`
@@ -355,9 +362,17 @@ func (s SignalEvent) Validate() *problem.Problem {
 			return problem.New(problem.ValidationFailed, "signal features must be sorted and unique by key")
 		}
 	}
-	explain := compactNonEmptyStrings(s.Explain)
+	explain := NormalizeSignalExplainFragments(s.Explain)
 	if len(explain) == 0 && strings.TrimSpace(s.Explanation) == "" {
 		return problem.New(problem.ValidationFailed, "signal explanation must not be empty")
+	}
+	if len(explain) > SignalExplainMaxFragments {
+		return problem.New(problem.ValidationFailed, "signal explain must be bounded to max fragments")
+	}
+	for i := range explain {
+		if len(explain[i]) > SignalExplainMaxLength {
+			return problem.New(problem.ValidationFailed, "signal explain fragment length exceeds limit")
+		}
 	}
 	if strings.TrimSpace(s.SignalID) == "" {
 		return problem.New(problem.ValidationFailed, "signal signal_id must not be empty")
@@ -386,9 +401,20 @@ func (s SignalEvent) Validate() *problem.Problem {
 			}
 		}
 	}
-	correlationIDs := compactNonEmptyStrings(s.CorrelationIDs)
+	correlationIDs := NormalizeSignalCorrelationIDs(s.CorrelationIDs)
 	if strings.TrimSpace(s.CorrelationID) == "" && len(correlationIDs) == 0 {
 		return problem.New(problem.ValidationFailed, "signal correlation_id must not be empty")
+	}
+	if len(strings.TrimSpace(s.CorrelationID)) > SignalCorrelationIDMaxSize {
+		return problem.New(problem.ValidationFailed, "signal correlation_id exceeds max length")
+	}
+	if len(correlationIDs) > SignalCorrelationIDsMax {
+		return problem.New(problem.ValidationFailed, "signal correlation_ids must be bounded")
+	}
+	for i := range correlationIDs {
+		if len(correlationIDs[i]) > SignalCorrelationIDMaxSize {
+			return problem.New(problem.ValidationFailed, "signal correlation_ids item exceeds max length")
+		}
 	}
 	if hasDuplicateStrings(correlationIDs) {
 		return problem.New(problem.ValidationFailed, "signal correlation_ids must be unique")
@@ -425,6 +451,14 @@ func FormatSignalFeatureValue(v float64) string {
 	return strconv.FormatFloat(v, 'f', 6, 64)
 }
 
+func NormalizeSignalExplainFragments(in []string) []string {
+	return normalizeBoundedStrings(in, SignalExplainMaxFragments, SignalExplainMaxLength)
+}
+
+func NormalizeSignalCorrelationIDs(in []string) []string {
+	return normalizeBoundedStrings(in, SignalCorrelationIDsMax, SignalCorrelationIDMaxSize)
+}
+
 func isSignalSeverity(severity string) bool {
 	switch strings.ToLower(strings.TrimSpace(severity)) {
 	case "low", "medium", "high", "critical":
@@ -452,6 +486,25 @@ func compactNonEmptyStrings(in []string) []string {
 	}
 	if len(out) == 0 {
 		return nil
+	}
+	return out
+}
+
+func normalizeBoundedStrings(in []string, maxItems, maxLen int) []string {
+	if maxItems <= 0 || maxLen <= 0 {
+		return nil
+	}
+	out := compactNonEmptyStrings(in)
+	if len(out) == 0 {
+		return nil
+	}
+	if len(out) > maxItems {
+		out = out[:maxItems]
+	}
+	for i := range out {
+		if len(out[i]) > maxLen {
+			out[i] = strings.TrimSpace(out[i][:maxLen])
+		}
 	}
 	return out
 }

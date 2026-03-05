@@ -100,7 +100,7 @@ func (e *SignalEngine) OnEvidenceEvent(
 			continue
 		}
 		watermark := signalInputWatermark(key, snapshot, event)
-		explain := explainFragments(out, event)
+		explain := marketmodel.NormalizeSignalExplainFragments(explainFragments(out, event))
 		signalEvent := marketmodel.SignalEvent{
 			Type:           strings.TrimSpace(out.Type),
 			TsServer:       event.TsServer,
@@ -119,7 +119,9 @@ func (e *SignalEngine) OnEvidenceEvent(
 			signalEvent.Symbol = string(key.Symbol)
 		}
 		signalEvent.CorrelationID = correlationID(signalEvent)
-		signalEvent.CorrelationIDs = mergeUniqueStrings(signalEvent.CorrelationID, evidenceCorrelationID(event))
+		signalEvent.CorrelationIDs = marketmodel.NormalizeSignalCorrelationIDs(
+			mergeUniqueStrings(signalEvent.CorrelationID, evidenceCorrelationID(event)),
+		)
 		signalEvent.SignalID = signalID(tenant, key, signalEvent)
 		if p := signalEvent.Validate(); p != nil {
 			return nil, evictions, dedupTypes, rateLimitedTypes, evalSpan, p

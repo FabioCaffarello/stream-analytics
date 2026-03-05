@@ -196,6 +196,18 @@ func (a *ArtifactPublisher) PublishTapeClosed(ctx context.Context, evt aggdomain
 	if p != nil {
 		return p
 	}
+	metrics.ObserveMRTapeWireBytes(evt.Window.Venue, evt.Window.Timeframe, len(payload))
+	metrics.ObserveMRTapeQuality(
+		evt.Window.Venue,
+		evt.Window.Instrument,
+		evt.Window.Timeframe,
+		evt.Window.TradeCount,
+		evt.Window.WindowStartTs,
+		evt.Window.WindowEndTs,
+		evt.Window.LastSeq,
+		evt.Window.LastPrice,
+		evt.Window.TotalVolume,
+	)
 	env := envelope.Envelope{
 		Type:       "aggregation.tape",
 		Version:    1,

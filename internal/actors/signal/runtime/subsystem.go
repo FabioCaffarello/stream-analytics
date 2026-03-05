@@ -400,6 +400,12 @@ func (s *SubsystemActor) Emit(emission signalcore.Emission) *problem.Problem {
 		return p
 	}
 	metrics.ObserveSignalWireBytes(emission.Event.Type, len(payload))
+	metrics.ObserveSignalQuality(
+		emission.Event.Type,
+		emission.Event.Explain,
+		emission.Event.CorrelationIDs,
+		emission.Event.Confidence,
+	)
 	venue := strings.ToLower(strings.TrimSpace(string(emission.StreamKey.Venue)))
 	instrument := strings.TrimSpace(string(emission.StreamKey.Symbol))
 	if emission.Event.Scope == marketmodel.SignalScopeMarket {

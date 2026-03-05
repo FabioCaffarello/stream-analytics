@@ -433,6 +433,8 @@ func (s *SubsystemActor) emitEvidence(triggerEnv envelope.Envelope, ev domain.Ev
 		s.logger.Warn("evidence: failed to encode evidence payload", "err", p.Message)
 		return
 	}
+	metrics.ObserveEvidenceWireBytes(string(ev.Type), len(payload))
+	metrics.ObserveEvidenceQuality(string(ev.Type), ev.Explanation, len(ev.Features), ev.Confidence)
 
 	evidenceEnv := envelope.Envelope{
 		Type:        domain.MicrostructureEvidenceType,
@@ -489,6 +491,13 @@ func (s *SubsystemActor) emitLiquidityEvidence(_ envelope.Envelope, ev domain.Li
 		return
 	}
 	metrics.ObserveLELWireBudget(string(ev.EvidenceType), len(payload))
+	metrics.ObserveEvidenceWireBytes(string(ev.EvidenceType), len(payload))
+	metrics.ObserveEvidenceQuality(
+		string(ev.EvidenceType),
+		strings.Join(ev.Explain, "; "),
+		len(ev.Metrics),
+		ev.Confidence,
+	)
 
 	out := envelope.Envelope{
 		Type:        domain.LiquidityEvidenceEventType,
