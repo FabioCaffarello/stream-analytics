@@ -168,6 +168,8 @@ Runtime_Probe :: struct {
 	active_subject_id:     u64,
 	stream_evictions:      u64,
 	stream_repairs:        u64,
+	layer_stream_entries:  int,
+	layer_stream_evictions: u64,
 	pending_restore:       bool,
 	has_md_metrics:        bool,
 	md_metrics:            ports.MD_Runtime_Metrics,
@@ -214,7 +216,11 @@ Runtime_Probe :: struct {
 	w_stats_drop_total:    u64,
 	w_stats_drop_capacity_total: u64,
 	w_stats_drop_render_overflow_total: u64,
+	w_stats_entries:       int,
+	w_stats_max_entries:   int,
+	w_stats_evicted_total: u64,
 	w_stats_render_p95_us: i64,
+	w_stats_render_p99_us: i64,
 	w_stats_render_budget_us: i64,
 	w_stats_render_over_budget: u64,
 	w_heatmap_snaps:       int,
@@ -229,7 +235,11 @@ Runtime_Probe :: struct {
 	w_dom_drop_total:      u64,
 	w_dom_drop_capacity_total: u64,
 	w_dom_drop_render_overflow_total: u64,
+	w_dom_entries:         int,
+	w_dom_max_entries:     int,
+	w_dom_evicted_total:   u64,
 	w_dom_render_p95_us:   i64,
+	w_dom_render_p99_us:   i64,
 	w_dom_render_budget_us: i64,
 	w_dom_render_over_budget: u64,
 	w_tape_parse_total:    u64,
@@ -237,7 +247,11 @@ Runtime_Probe :: struct {
 	w_tape_drop_total:     u64,
 	w_tape_drop_capacity_total: u64,
 	w_tape_drop_render_overflow_total: u64,
+	w_tape_entries:        int,
+	w_tape_max_entries:    int,
+	w_tape_evicted_total:  u64,
 	w_tape_render_p95_us:  i64,
+	w_tape_render_p99_us:  i64,
 	w_tape_render_budget_us: i64,
 	w_tape_render_over_budget: u64,
 	w_evidence_parse_total:    u64,
@@ -245,7 +259,11 @@ Runtime_Probe :: struct {
 	w_evidence_drop_total:     u64,
 	w_evidence_drop_capacity_total: u64,
 	w_evidence_drop_render_overflow_total: u64,
+	w_evidence_entries:     int,
+	w_evidence_max_entries: int,
+	w_evidence_evicted_total: u64,
 	w_evidence_render_p95_us:  i64,
+	w_evidence_render_p99_us:  i64,
 	w_evidence_render_budget_us: i64,
 	w_evidence_render_over_budget: u64,
 	w_signal_parse_total:    u64,
@@ -253,7 +271,11 @@ Runtime_Probe :: struct {
 	w_signal_drop_total:     u64,
 	w_signal_drop_capacity_total: u64,
 	w_signal_drop_render_overflow_total: u64,
+	w_signal_entries:       int,
+	w_signal_max_entries:   int,
+	w_signal_evicted_total: u64,
 	w_signal_render_p95_us:  i64,
+	w_signal_render_p99_us:  i64,
 	w_signal_render_budget_us: i64,
 	w_signal_render_over_budget: u64,
 	w_stats_state:          layers.Layer_Widget_State,
@@ -751,6 +773,8 @@ runtime_probe :: proc(state: ^App_State) -> Runtime_Probe {
 		p.stream_evictions = reg.eviction_count
 		p.stream_repairs = reg.repair_count
 	}
+	p.layer_stream_entries = state.layer_store.stream_count
+	p.layer_stream_evictions = state.layer_store.stream_evictions
 
 	if state.marketdata.metrics != nil {
 		p.has_md_metrics = state.marketdata.metrics(&p.md_metrics)
@@ -823,7 +847,11 @@ runtime_probe :: proc(state: ^App_State) -> Runtime_Probe {
 			p.w_stats_drop_capacity_total = d.drop_capacity_total
 			p.w_stats_drop_render_overflow_total = d.drop_render_overflow_total
 			p.w_stats_drop_total = d.drop_capacity_total + d.drop_render_overflow_total
+			p.w_stats_entries = d.entries
+			p.w_stats_max_entries = d.max_entries
+			p.w_stats_evicted_total = d.evicted_total
 			p.w_stats_render_p95_us = d.render_p95_us
+			p.w_stats_render_p99_us = d.render_p99_us
 			p.w_stats_render_budget_us = d.render_budget_us
 			p.w_stats_render_over_budget = d.render_over_budget
 			p.w_stats_state = d.state
@@ -833,7 +861,11 @@ runtime_probe :: proc(state: ^App_State) -> Runtime_Probe {
 			p.w_dom_drop_capacity_total = d.drop_capacity_total
 			p.w_dom_drop_render_overflow_total = d.drop_render_overflow_total
 			p.w_dom_drop_total = d.drop_capacity_total + d.drop_render_overflow_total
+			p.w_dom_entries = d.entries
+			p.w_dom_max_entries = d.max_entries
+			p.w_dom_evicted_total = d.evicted_total
 			p.w_dom_render_p95_us = d.render_p95_us
+			p.w_dom_render_p99_us = d.render_p99_us
 			p.w_dom_render_budget_us = d.render_budget_us
 			p.w_dom_render_over_budget = d.render_over_budget
 		case .Trades_Tape:
@@ -842,7 +874,11 @@ runtime_probe :: proc(state: ^App_State) -> Runtime_Probe {
 			p.w_tape_drop_capacity_total = d.drop_capacity_total
 			p.w_tape_drop_render_overflow_total = d.drop_render_overflow_total
 			p.w_tape_drop_total = d.drop_capacity_total + d.drop_render_overflow_total
+			p.w_tape_entries = d.entries
+			p.w_tape_max_entries = d.max_entries
+			p.w_tape_evicted_total = d.evicted_total
 			p.w_tape_render_p95_us = d.render_p95_us
+			p.w_tape_render_p99_us = d.render_p99_us
 			p.w_tape_render_budget_us = d.render_budget_us
 			p.w_tape_render_over_budget = d.render_over_budget
 		case .Evidence:
@@ -851,7 +887,11 @@ runtime_probe :: proc(state: ^App_State) -> Runtime_Probe {
 			p.w_evidence_drop_capacity_total = d.drop_capacity_total
 			p.w_evidence_drop_render_overflow_total = d.drop_render_overflow_total
 			p.w_evidence_drop_total = d.drop_capacity_total + d.drop_render_overflow_total
+			p.w_evidence_entries = d.entries
+			p.w_evidence_max_entries = d.max_entries
+			p.w_evidence_evicted_total = d.evicted_total
 			p.w_evidence_render_p95_us = d.render_p95_us
+			p.w_evidence_render_p99_us = d.render_p99_us
 			p.w_evidence_render_budget_us = d.render_budget_us
 			p.w_evidence_render_over_budget = d.render_over_budget
 			p.w_evidence_state = d.state
@@ -861,7 +901,11 @@ runtime_probe :: proc(state: ^App_State) -> Runtime_Probe {
 			p.w_signal_drop_capacity_total = d.drop_capacity_total
 			p.w_signal_drop_render_overflow_total = d.drop_render_overflow_total
 			p.w_signal_drop_total = d.drop_capacity_total + d.drop_render_overflow_total
+			p.w_signal_entries = d.entries
+			p.w_signal_max_entries = d.max_entries
+			p.w_signal_evicted_total = d.evicted_total
 			p.w_signal_render_p95_us = d.render_p95_us
+			p.w_signal_render_p99_us = d.render_p99_us
 			p.w_signal_render_budget_us = d.render_budget_us
 			p.w_signal_render_over_budget = d.render_over_budget
 			p.w_signal_state = d.state
@@ -922,30 +966,26 @@ record_frame_time :: proc(state: ^App_State, us: i64) {
 
 // Compute p50/p95/p99 from the frame time ring buffer using insertion sort on a small copy.
 frame_time_percentiles :: proc(state: ^App_State) -> (p50, p95, p99: i64) {
-	n := state.telemetry.frame_time_count
-	if n <= 0 do return
-
-	// Copy into sortable buffer.
-	sorted: [120]i64
-	start := (state.telemetry.frame_time_head - n + len(state.telemetry.frame_times_us)) % len(state.telemetry.frame_times_us)
-	for i in 0 ..< n {
-		sorted[i] = state.telemetry.frame_times_us[(start + i) % len(state.telemetry.frame_times_us)]
-	}
-
-	// Insertion sort (n <= 120, negligible overhead).
-	for i in 1 ..< n {
-		key := sorted[i]
-		j := i - 1
-		for j >= 0 && sorted[j] > key {
-			sorted[j + 1] = sorted[j]
-			j -= 1
-		}
-		sorted[j + 1] = key
-	}
-
-	p50 = sorted[n * 50 / 100]
-	p95 = sorted[min(n * 95 / 100, n - 1)]
-	p99 = sorted[min(n * 99 / 100, n - 1)]
+	count := state.telemetry.frame_time_count
+	if count <= 0 do return
+	p50 = services.ring_percentile_i64(
+		state.telemetry.frame_times_us,
+		state.telemetry.frame_time_head,
+		count,
+		50,
+	)
+	p95 = services.ring_percentile_i64(
+		state.telemetry.frame_times_us,
+		state.telemetry.frame_time_head,
+		count,
+		95,
+	)
+	p99 = services.ring_percentile_i64(
+		state.telemetry.frame_times_us,
+		state.telemetry.frame_time_head,
+		count,
+		99,
+	)
 	return
 }
 

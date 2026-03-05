@@ -281,14 +281,21 @@ refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtim
 	state.active_metrics.drop_candle_ring = metrics.drop_candle_ring
 	state.active_metrics.drop_ws_queue = metrics.drop_ws_queue
 	state.active_metrics.drop_payload_oversize = metrics.drop_payload_oversize
+	state.active_metrics.trade_backlog_cap = metrics.trade_backlog_cap
+	state.active_metrics.candle_backlog_cap = metrics.candle_backlog_cap
+	state.active_metrics.signal_backlog = metrics.signal_backlog
+	state.active_metrics.signal_backlog_cap = metrics.signal_backlog_cap
 	state.active_metrics.alloc_estimate_total = metrics.alloc_estimate_total
 	state.active_metrics.alloc_estimate_frame = i64(metrics.alloc_estimate_total) - i64(prev_alloc_estimate)
 	if state.active_metrics.alloc_estimate_frame < 0 {
 		state.active_metrics.alloc_estimate_frame = i64(metrics.alloc_estimate_total)
 	}
 	state.active_metrics.parse_time_p95_us = metrics.parse_time_p95_us
+	state.active_metrics.parse_time_p99_us = metrics.parse_time_p99_us
 	state.active_metrics.apply_time_p95_us = metrics.apply_time_p95_us
+	state.active_metrics.apply_time_p99_us = metrics.apply_time_p99_us
 	state.active_metrics.batched_decode_time_p95_us = metrics.batched_decode_time_p95_us
+	state.active_metrics.batched_decode_time_p99_us = metrics.batched_decode_time_p99_us
 	state.active_metrics.backend_gap_no_metrics = metrics.backend_gap_no_metrics
 	state.active_metrics.backend_gap_pong_timeout = metrics.backend_gap_pong_timeout
 	state.active_metrics.backend_gap_resync_ack_timeout = metrics.backend_gap_resync_ack_timeout
@@ -348,11 +355,21 @@ refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtim
 		state.active_metrics.reconnect_count = metrics.reconnect_count
 		state.active_metrics.subscribe_acks = raw_subscribe_acks
 		state.active_metrics.candle_backlog = metrics.candle_backlog
+		state.active_metrics.candle_backlog_cap = metrics.candle_backlog_cap
+		state.active_metrics.trade_backlog_cap = metrics.trade_backlog_cap
+		state.active_metrics.signal_backlog = metrics.signal_backlog
+		state.active_metrics.signal_backlog_cap = metrics.signal_backlog_cap
 		state.active_metrics.msg_rate = metrics.msg_rate
 		state.active_metrics.bytes_rate = metrics.bytes_rate
 		state.active_metrics.parsed_msgs_total = metrics.parsed_msgs_total
 		state.active_metrics.parsed_bytes_total = metrics.parsed_bytes_total
 		state.active_metrics.parse_arena_resets = metrics.parse_arena_resets
+		state.active_metrics.parse_time_p95_us = metrics.parse_time_p95_us
+		state.active_metrics.parse_time_p99_us = metrics.parse_time_p99_us
+		state.active_metrics.apply_time_p95_us = metrics.apply_time_p95_us
+		state.active_metrics.apply_time_p99_us = metrics.apply_time_p99_us
+		state.active_metrics.batched_decode_time_p95_us = metrics.batched_decode_time_p95_us
+		state.active_metrics.batched_decode_time_p99_us = metrics.batched_decode_time_p99_us
 		return
 	}
 

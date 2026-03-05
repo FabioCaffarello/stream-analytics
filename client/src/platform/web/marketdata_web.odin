@@ -289,25 +289,8 @@ web_record_perf_sample :: proc(samples: ^[WEB_PERF_SAMPLE_CAP]i64, head: ^int, c
 }
 
 @(private = "file")
-web_sample_p95_us :: proc(samples: [WEB_PERF_SAMPLE_CAP]i64, head: int, count: int) -> i64 {
-	n := count
-	if n <= 0 do return 0
-	if n > WEB_PERF_SAMPLE_CAP do n = WEB_PERF_SAMPLE_CAP
-	start := (head - n + WEB_PERF_SAMPLE_CAP) % WEB_PERF_SAMPLE_CAP
-	sorted: [WEB_PERF_SAMPLE_CAP]i64
-	for i in 0 ..< n {
-		sorted[i] = samples[(start + i) % WEB_PERF_SAMPLE_CAP]
-	}
-	for i in 1 ..< n {
-		key := sorted[i]
-		j := i - 1
-		for j >= 0 && sorted[j] > key {
-			sorted[j + 1] = sorted[j]
-			j -= 1
-		}
-		sorted[j + 1] = key
-	}
-	return sorted[min((n * 95) / 100, n - 1)]
+web_sample_percentile_us :: proc(samples: [WEB_PERF_SAMPLE_CAP]i64, head: int, count: int, pct: int) -> i64 {
+	return services.ring_percentile_i64(samples, head, count, pct)
 }
 
 @(private = "file")
@@ -734,7 +717,11 @@ web_metrics :: proc(out: ^ports.MD_Runtime_Metrics) -> bool {
 	out^ = ports.MD_Runtime_Metrics{
 		active_subs       = state.active_count,
 		trade_backlog     = state.trade_count,
+		trade_backlog_cap = WEB_TRADE_RING_CAP,
 		candle_backlog    = state.candle_ring_count,
+		candle_backlog_cap = WEB_CANDLE_RING_CAP,
+		signal_backlog    = state.signal_ring_count,
+		signal_backlog_cap = WEB_SIGNAL_RING_CAP,
 		// Include JS bridge queue drops so metrics reflect end-to-end pressure.
 		drop_count        = state.drop_count + queue_drop_count,
 		drop_trade_ring   = state.drop_trade_ring,
@@ -757,9 +744,12 @@ web_metrics :: proc(out: ^ports.MD_Runtime_Metrics) -> bool {
 		last_server_ts_ms = state.last_server_ts_ms,
 		rtt_ms           = state.last_rtt_ms,
 		lag_ms           = state.last_lag_ms,
-		parse_time_p95_us = web_sample_p95_us(state.parse_samples_us, state.parse_sample_head, state.parse_sample_count),
-		apply_time_p95_us = web_sample_p95_us(state.apply_samples_us, state.apply_sample_head, state.apply_sample_count),
-		batched_decode_time_p95_us = web_sample_p95_us(state.batch_decode_samples_us, state.batch_decode_sample_head, state.batch_decode_sample_count),
+		parse_time_p95_us = web_sample_percentile_us(state.parse_samples_us, state.parse_sample_head, state.parse_sample_count, 95),
+		parse_time_p99_us = web_sample_percentile_us(state.parse_samples_us, state.parse_sample_head, state.parse_sample_count, 99),
+		apply_time_p95_us = web_sample_percentile_us(state.apply_samples_us, state.apply_sample_head, state.apply_sample_count, 95),
+		apply_time_p99_us = web_sample_percentile_us(state.apply_samples_us, state.apply_sample_head, state.apply_sample_count, 99),
+		batched_decode_time_p95_us = web_sample_percentile_us(state.batch_decode_samples_us, state.batch_decode_sample_head, state.batch_decode_sample_count, 95),
+		batched_decode_time_p99_us = web_sample_percentile_us(state.batch_decode_samples_us, state.batch_decode_sample_head, state.batch_decode_sample_count, 99),
 		protocol_version = state.protocol_version,
 		hello_received   = state.hello_received,
 		desync           = state.desync,
