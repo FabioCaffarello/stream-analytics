@@ -397,18 +397,38 @@ parse_aggregation_snapshot_from_payload :: proc(snap: util.MR_Aggregation_Snapsh
 }
 
 @(private = "package")
+stats_payload_has_data :: proc(s: util.MR_Stats_Payload) -> bool {
+	return s.window_start_ts != 0 ||
+		s.window_end_ts != 0 ||
+		s.window_ms != 0 ||
+		s.ts_ingest_ms != 0 ||
+		s.quality_flags != 0 ||
+		s.mark_price_close != 0 ||
+		s.funding_rate_last != 0 ||
+		s.liq_buy_volume != 0 ||
+		s.liq_sell_volume != 0
+}
+
+@(private = "package")
 parse_stats :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Stats, bool, bool) {
-	frame: util.MR_Stats_Frame
-	if json.unmarshal(raw, &frame) != nil do return {}, false, false
-	s := frame.payload
+	// Canonical server JSON shape for aggregation.stats is wrapped as
+	// payload.Stats; keep this path non-fallback to avoid compat false positives.
 	used_fallback := false
-	if s.window_start_ts == 0 && s.window_end_ts == 0 {
-		wrapped: util.MR_Stats_Frame_Wrapped
-		if json.unmarshal(raw, &wrapped) == nil {
-			s = wrapped.payload.stats
-			used_fallback = true
-		}
+	s: util.MR_Stats_Payload
+	used_wrapped := false
+	wrapped: util.MR_Stats_Frame_Wrapped
+	if json.unmarshal(raw, &wrapped) == nil && stats_payload_has_data(wrapped.payload.stats) {
+		s = wrapped.payload.stats
+		used_wrapped = true
+	} else {
+		// Compatibility path for legacy flat payloads.
+		frame: util.MR_Stats_Frame
+		if json.unmarshal(raw, &frame) != nil do return {}, false, false
+		if !stats_payload_has_data(frame.payload) do return {}, false, false
+		s = frame.payload
+		used_fallback = true
 	}
+	if !used_wrapped && !used_fallback do return {}, false, false
 
 	if !f64_valid(s.mark_price_close) do return {}, false, false
 

@@ -548,6 +548,27 @@ probe_md_alloc_estimate_frame :: proc "c" () -> i32 {
 }
 
 @(export)
+probe_md_parse_time_p95_us :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.md_metrics.parse_time_p95_us)
+}
+
+@(export)
+probe_md_apply_time_p95_us :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.md_metrics.apply_time_p95_us)
+}
+
+@(export)
+probe_md_batched_decode_time_p95_us :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.md_metrics.batched_decode_time_p95_us)
+}
+
+@(export)
 probe_md_canonical_stats_frames :: proc "c" () -> i32 {
 	context = runtime.default_context()
 	p := app.runtime_probe(&g_state)

@@ -98,6 +98,9 @@ async function readRuntimeProbe(page) {
         "probe_md_legacy_downgrade_count",
         "probe_md_alloc_estimate_total",
         "probe_md_alloc_estimate_frame",
+        "probe_md_parse_time_p95_us",
+        "probe_md_apply_time_p95_us",
+        "probe_md_batched_decode_time_p95_us",
         "probe_md_canonical_stats_frames",
         "probe_md_stats_fallback_frames",
         "probe_md_canonical_evidence_frames",
@@ -496,6 +499,9 @@ async function main() {
             const statsFallback = Number(probe.probe_widget_stats_fallback_total ?? -1);
             const statsState = Number(probe.probe_widget_stats_state ?? -1);
             const mdStatsFallback = Number(probe.probe_md_stats_fallback_frames ?? -1);
+            const parseP95 = Number(probe.probe_md_parse_time_p95_us ?? -1);
+            const applyP95 = Number(probe.probe_md_apply_time_p95_us ?? -1);
+            const batchedDecodeP95 = Number(probe.probe_md_batched_decode_time_p95_us ?? -1);
             if (statsCount <= 0 || statsParse <= 0) {
                 throw new Error(`stats probes missing count=${statsCount} parse=${statsParse}`);
             }
@@ -505,6 +511,11 @@ async function main() {
             if (statsState < 0) {
                 throw new Error(`stats state probe invalid=${statsState}`);
             }
+            if (parseP95 < 0 || applyP95 < 0 || batchedDecodeP95 < 0) {
+                throw new Error(
+                    `parse/apply p95 probes invalid parse=${parseP95} apply=${applyP95} batch_decode=${batchedDecodeP95}`
+                );
+            }
             const shot = await snap(page, "stats-regime");
             statsProbeSnapshot = {
                 stats_count: statsCount,
@@ -513,10 +524,13 @@ async function main() {
                 widget_stats_state: statsState,
                 canonical_stats_frames: Number(probe.probe_md_canonical_stats_frames ?? 0),
                 md_stats_fallback_frames: mdStatsFallback,
+                parse_time_p95_us: parseP95,
+                apply_time_p95_us: applyP95,
+                batched_decode_time_p95_us: batchedDecodeP95,
             };
             return {
                 shots: [shot],
-                details: `stats_count=${statsCount} stats_parse=${statsParse} stats_fallback=${statsFallback} md_stats_fallback=${mdStatsFallback}.`,
+                details: `stats_count=${statsCount} stats_parse=${statsParse} stats_fallback=${statsFallback} md_stats_fallback=${mdStatsFallback} parse_p95_us=${parseP95} apply_p95_us=${applyP95}.`,
             };
         });
 

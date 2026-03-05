@@ -497,6 +497,7 @@ test_parse_stats_frame_quality_fields :: proc(t: ^testing.T) {
 	raw := `{"type":"event","subject":"aggregation.stats/binance/BTCUSDT/1m","seq":61,"ts_ingest":1700000001200,"payload":{"MarkPriceClose":43210.5,"FundingRateLast":0.00015,"LiqBuyVolume":12.3,"LiqSellVolume":8.7,"WindowStartTs":1700000000000,"WindowEndTs":1700000060000,"WindowMs":60000,"TsIngestMs":1700000060123,"QualityFlags":5}}`
 	result := parse_mr_message(transmute([]u8)raw, nil)
 	testing.expect_value(t, result.kind, Parse_Result_Kind.Stats)
+	testing.expect_value(t, result.meta.parse_fallback, true)
 	st := result.data.stats
 	testing.expect_value(t, st.mark_price, 43210.5)
 	testing.expect_value(t, st.window_ms, i64(60000))
@@ -506,14 +507,14 @@ test_parse_stats_frame_quality_fields :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_parse_stats_frame_wrapped_fallback_marks_probe :: proc(t: ^testing.T) {
+test_parse_stats_frame_wrapped_is_canonical_no_fallback :: proc(t: ^testing.T) {
 	raw := `{"type":"event","subject":"aggregation.stats/binance/BTCUSDT/1m","seq":62,"ts_ingest":1700000002200,"payload":{"Stats":{"MarkPriceClose":43211.5,"FundingRateLast":0.00011,"LiqBuyVolume":4.0,"LiqSellVolume":6.0,"WindowStartTs":1700000060000,"WindowEndTs":1700000120000,"WindowMs":60000,"TsIngestMs":1700000120123,"QualityFlags":1}}}`
 	tel: Parse_Telemetry
 	result := parse_mr_message(transmute([]u8)raw, &tel)
 	testing.expect_value(t, result.kind, Parse_Result_Kind.Stats)
-	testing.expect_value(t, result.meta.parse_fallback, true)
+	testing.expect_value(t, result.meta.parse_fallback, false)
 	testing.expect_value(t, tel.canonical_stats_frames, 1)
-	testing.expect_value(t, tel.stats_fallback_frames, 1)
+	testing.expect_value(t, tel.stats_fallback_frames, 0)
 	free_all(context.temp_allocator)
 }
 
