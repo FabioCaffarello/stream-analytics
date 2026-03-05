@@ -1,0 +1,14 @@
+{
+  "active": [
+    {
+      "slug": "signals-strategist-entrypoint-hardening",
+      "path": "plans/signals-strategist-entrypoint-hardening.md",
+      "title": "Signals/Strategist Entrypoint Hardening",
+      "summary": "Definir e executar uma implementação robusta de `cmd/signals` e `cmd/strategist` com refatoração segura de bootstrap e contratos de runtime.",
+      "linkedAt": "2026-03-05T20:46:45.334Z",
+      "status": "active"
+    }
+  ],
+  "completed": [],
+  "primary": "signals-strategist-entrypoint-hardening"
+}
