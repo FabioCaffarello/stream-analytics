@@ -64,7 +64,7 @@ type SubsystemActor struct {
 	replicaCount  int
 	tenantMetaKey string
 
-	streamLastSeq  map[string]int64
+	streamState    map[string]streamProgress
 	streamOrder    []string
 	streamOrderIdx int
 
@@ -149,8 +149,10 @@ func (s *SubsystemActor) ensureDefaults(c *actor.Context) {
 	if s.replicaID < 0 || s.replicaID >= s.replicaCount {
 		s.replicaID = 0
 	}
-	if s.streamLastSeq == nil {
-		s.streamLastSeq = make(map[string]int64, signalStateMaxStreams)
+	if s.streamState == nil {
+		s.streamState = make(map[string]streamProgress, signalStateMaxStreams)
+		metrics.SetBoundedMapSize(signalsBoundedMapName, 0)
+		metrics.SetOwnershipContractEntries("signals", 0)
 	}
 	if s.streamOrder == nil {
 		s.streamOrder = make([]string, 0, signalStateMaxStreams)
@@ -213,6 +215,10 @@ func (s *SubsystemActor) processEnvelope(env envelope.Envelope) {
 		if !s.acceptOwner(key, env.Seq) {
 			return
 		}
+		streamKey := signalStreamKeyLabel(key)
+		if !s.acceptMonotonicProgress(key, streamKey, env.Seq, env.TsIngest) {
+			return
+		}
 		obs := signalcore.MarketObservation{
 			Key:      key,
 			Tenant:   tenant,
@@ -236,6 +242,10 @@ func (s *SubsystemActor) processEnvelope(env envelope.Envelope) {
 			return
 		}
 		if !s.acceptOwner(key, env.Seq) {
+			return
+		}
+		streamKey := signalStreamKeyLabel(key)
+		if !s.acceptMonotonicProgress(key, streamKey, env.Seq, env.TsIngest) {
 			return
 		}
 		s.recordMarket(signalcore.MarketObservation{
@@ -276,6 +286,10 @@ func (s *SubsystemActor) processEnvelope(env envelope.Envelope) {
 		if regime.WindowEnd > 0 {
 			tsServer = regime.WindowEnd
 		}
+		streamKey := signalStreamKeyLabel(key)
+		if !s.acceptMonotonicProgress(key, streamKey, seq, tsServer) {
+			return
+		}
 		s.recordMarket(signalcore.MarketObservation{
 			Key:      key,
 			Tenant:   tenant,
@@ -310,6 +324,10 @@ func (s *SubsystemActor) processEnvelope(env envelope.Envelope) {
 		if !s.acceptOwner(key, adapted.Seq) {
 			return
 		}
+		streamKey := signalStreamKeyLabel(key)
+		if !s.acceptMonotonicProgress(key, streamKey, adapted.Seq, adapted.TsServer) {
+			return
+		}
 		metrics.IncSignalLELAdapted(string(wire.EvidenceType))
 		s.evaluateEvidenceEvent(key, tenant, adapted)
 		return
@@ -336,31 +354,23 @@ func (s *SubsystemActor) processEnvelope(env envelope.Envelope) {
 		if !s.acceptOwner(key, ev.Seq) {
 			return
 		}
+		streamKey := signalStreamKeyLabel(key)
+		if !s.acceptMonotonicProgress(key, streamKey, ev.Seq, ev.TsServer) {
+			return
+		}
 		s.evaluateEvidenceEvent(key, tenant, ev)
 	}
 }
 
 func (s *SubsystemActor) evaluateEvidenceEvent(key marketmodel.StreamKey, tenant string, ev evidencedomain.EvidenceEvent) {
 	streamKey := signalStreamKeyLabel(key)
-	lastSeq := s.lastStreamSeq(streamKey)
-	if ev.Seq > 0 && lastSeq > 0 && ev.Seq <= lastSeq {
-		metrics.IncSignalDrop(dropReasonDuplicate)
-		s.recordDropSample(dropSampleKey{
-			streamKey: streamKey,
-			lastSeq:   lastSeq,
-			candSeq:   ev.Seq,
-			reason:    dropReasonDuplicate,
-			owner:     strconv.Itoa(s.ownerReplicaID(key)),
-			instance:  strconv.Itoa(s.replicaID),
-		})
-	}
 
 	emissions, evictions, dedupTypes, rateLimitedTypes, evalSpanMs, p := s.signalEngine.OnEvidenceEvent(key, tenant, ev)
 	if p != nil {
 		s.logger.Warn("signal subsystem: evaluate evidence failed", "code", p.Code, "message", p.Message)
 		return
 	}
-	s.noteStreamSeq(streamKey, ev.Seq)
+	s.noteStreamProgress(streamKey, ev.Seq, ev.TsServer, strconv.Itoa(s.ownerReplicaID(key)))
 	s.recordEvictions(evictions)
 	for i := range dedupTypes {
 		metrics.IncSignalDedup(dedupTypes[i])
@@ -387,7 +397,7 @@ func (s *SubsystemActor) recordMarket(obs signalcore.MarketObservation) {
 		s.logger.Warn("signal subsystem: observe market failed", "code", p.Code, "message", p.Message)
 		return
 	}
-	s.noteStreamSeq(signalStreamKeyLabel(obs.Key), obs.Seq)
+	s.noteStreamProgress(signalStreamKeyLabel(obs.Key), obs.Seq, obs.TsServer, strconv.Itoa(s.ownerReplicaID(obs.Key)))
 	s.recordEvictions(evictions)
 	metrics.SetSignalStateEntries(s.signalEngine.StoreEntries())
 }

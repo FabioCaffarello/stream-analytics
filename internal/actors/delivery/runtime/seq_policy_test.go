@@ -80,3 +80,44 @@ func TestSeqPolicy_ReplicasOwnerChangeCannotReemitLowerSeq(t *testing.T) {
 		t.Fatalf("higher action=%q want=%q", got, want)
 	}
 }
+
+func TestSeqPolicy_WatermarkRegressionAcceptsWhenSeqAdvances(t *testing.T) {
+	policy := newDefaultSeqPolicy()
+	decision := policy.Decide(seqPolicyInput{
+		streamKey:         "marketdata.trade/binance/BTCUSDT/raw",
+		eventType:         "marketdata.trade",
+		candidateSeq:      101,
+		candidateTsIngest: 4_999,
+		lastSeq:           100,
+		lastTsIngest:      5_000,
+	})
+
+	if got, want := decision.action, seqPolicyActionAccept; got != want {
+		t.Fatalf("action=%q want=%q", got, want)
+	}
+	if got, want := decision.rejectReason, ""; got != want {
+		t.Fatalf("reject_reason=%q want=%q", got, want)
+	}
+}
+
+func TestSeqPolicy_WatermarkRegressionDropsWhenSeqDoesNotAdvance(t *testing.T) {
+	policy := newDefaultSeqPolicy()
+	decision := policy.Decide(seqPolicyInput{
+		streamKey:         "marketdata.trade/binance/BTCUSDT/raw",
+		eventType:         "marketdata.trade",
+		candidateSeq:      100,
+		candidateTsIngest: 4_999,
+		lastSeq:           101,
+		lastTsIngest:      5_000,
+	})
+
+	if got, want := decision.action, seqPolicyActionDrop; got != want {
+		t.Fatalf("action=%q want=%q", got, want)
+	}
+	if got, want := decision.rejectReason, coherenceReasonStaleEvent; got != want {
+		t.Fatalf("reject_reason=%q want=%q", got, want)
+	}
+	if !decision.outOfOrder {
+		t.Fatal("expected out_of_order classification for watermark regression")
+	}
+}

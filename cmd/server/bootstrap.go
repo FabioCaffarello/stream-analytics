@@ -505,6 +505,8 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 				Limiter:               signalsapp.NewSignalRateLimiter(limiterPolicy),
 				RegimeCacheMaxStreams: cfg.Evidence.RegimeMaxStreams,
 				Publisher:             eventBus,
+				ReplicaID:             cfg.Shard.Index,
+				ReplicaCount:          cfg.Shard.Count,
 			})
 		}
 	}

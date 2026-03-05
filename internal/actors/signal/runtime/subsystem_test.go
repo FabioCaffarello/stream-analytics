@@ -18,6 +18,7 @@ import (
 	"github.com/market-raccoon/internal/shared/envelope"
 	sharedhash "github.com/market-raccoon/internal/shared/hash"
 	"github.com/market-raccoon/internal/shared/metrics"
+	"github.com/market-raccoon/internal/shared/ownership"
 	"github.com/market-raccoon/internal/shared/problem"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
@@ -129,9 +130,13 @@ func TestSignalSubsystem_OwnerRejectIncrementsDropMetric(t *testing.T) {
 	if p != nil {
 		t.Fatalf("stream key: %v", p)
 	}
-	ownerU := sharedhash.SumFieldsFast64(string(key.Venue), string(key.Symbol), string(key.Channel)) % 2
+	ownerID := ownership.OwnerReplica(ownership.SubsystemSignals, ownership.StreamKey{
+		Venue:      string(key.Venue),
+		Instrument: string(key.Symbol),
+		Channel:    string(key.Channel),
+	}, 2)
 	replicaID := 0
-	if ownerU == 0 {
+	if ownerID == 0 {
 		replicaID = 1
 	}
 	before := testutil.ToFloat64(metrics.SignalDropTotal.WithLabelValues("owner_reject"))
@@ -166,6 +171,50 @@ func TestSignalSubsystem_OwnerRejectIncrementsDropMetric(t *testing.T) {
 		t.Fatalf("unexpected owner-rejected emission: kind=%s seq=%d", env.Meta["kind"], env.Seq)
 	default:
 	}
+}
+
+func TestSignalSubsystem_WatermarkRegressionDropsAsOutOfOrder(t *testing.T) {
+	if p := contracts.BootstrapPayloadCodecRegistry(); p != nil {
+		t.Fatalf("bootstrap codec registry: %v", p)
+	}
+
+	e, err := actorruntime.NewDefaultEngine()
+	if err != nil {
+		t.Fatalf("engine: %v", err)
+	}
+
+	input := make(chan envelope.Envelope, 4)
+	pub := &capturePublisher{ch: make(chan envelope.Envelope, 4)}
+	cfg := signalcore.DefaultEngineConfig()
+	engine := signalcore.NewSignalEngine(cfg, nil, signalcore.BuildV0Rules(cfg.Rules)...)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	pid := e.Spawn(signalruntime.NewSubsystemActor(signalruntime.SubsystemConfig{
+		Logger:       logger,
+		EnvelopeCh:   input,
+		Engine:       engine,
+		Publisher:    pub,
+		ReplicaID:    0,
+		ReplicaCount: 1,
+	}), "signal-watermark-regression")
+	defer func() {
+		close(input)
+		e.Poison(pid)
+	}()
+
+	before := testutil.ToFloat64(metrics.SignalDropTotal.WithLabelValues("out_of_order"))
+	input <- makeEvidenceEnvelope(t, "spread_explosion", 1_000, 2)
+	input <- makeEvidenceEnvelope(t, "spread_explosion", 900, 1) // seq regressed + watermark regressed
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		after := testutil.ToFloat64(metrics.SignalDropTotal.WithLabelValues("out_of_order"))
+		if after >= before+1 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	after := testutil.ToFloat64(metrics.SignalDropTotal.WithLabelValues("out_of_order"))
+	t.Fatalf("signal_drop_total{reason=out_of_order}=%.0f want at least %.0f", after, before+1)
 }
 
 func TestSubsystem_LiquidityEvidenceEnvelope_EmitsSignalEvent(t *testing.T) {

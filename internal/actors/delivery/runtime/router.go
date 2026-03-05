@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/observability"
+	"github.com/market-raccoon/internal/shared/ownership"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 )
@@ -163,6 +165,7 @@ func (r *RouterActor) ensureDefaults(c *actor.Context) {
 		r.streamState = make(map[string]*streamState)
 		metrics.SetDeliveryRouterStreamStateEntries(0)
 		metrics.SetDeliveryRouterStreamStateActive(0)
+		metrics.SetOwnershipContractEntries("delivery", 0)
 	}
 	if r.coherenceSamples == nil {
 		r.coherenceSamples = make(map[coherenceSampleKey]int)
@@ -502,6 +505,10 @@ func (r *RouterActor) acceptStreamSeq(streamID string, env envelope.Envelope) (b
 		r.syncStreamStateMetrics(-1)
 	}
 	state.lastSeenAt = now
+	candidateOwner := processorInstanceIDFromMeta(env.Meta)
+	if candidateOwner == "" {
+		candidateOwner = deliveryOwnershipToken(streamID)
+	}
 	decision := r.seqPolicy.Decide(seqPolicyInput{
 		streamKey:              streamID,
 		eventType:              env.Type,
@@ -509,7 +516,7 @@ func (r *RouterActor) acceptStreamSeq(streamID string, env envelope.Envelope) (b
 		candidateTsIngest:      env.TsIngest,
 		lastSeq:                state.lastOriginSeq,
 		lastTsIngest:           state.lastOriginTsIngest,
-		candidateProcessorID:   processorInstanceIDFromMeta(env.Meta),
+		candidateProcessorID:   candidateOwner,
 		lastProcessorID:        state.lastProcessorInstanceID,
 		handoffWatermarkSeq:    handoffWatermarkFromMeta(env.Meta),
 		pendingResyncWatermark: state.pendingResyncWatermark,
@@ -519,8 +526,8 @@ func (r *RouterActor) acceptStreamSeq(streamID string, env envelope.Envelope) (b
 		if env.TsIngest > 0 {
 			state.lastOriginTsIngest = env.TsIngest
 		}
-		if procID := processorInstanceIDFromMeta(env.Meta); procID != "" {
-			state.lastProcessorInstanceID = procID
+		if candidateOwner != "" {
+			state.lastProcessorInstanceID = candidateOwner
 		}
 		if state.pendingResyncWatermark > 0 && seq > state.pendingResyncWatermark {
 			state.pendingResyncWatermark = 0
@@ -529,6 +536,12 @@ func (r *RouterActor) acceptStreamSeq(streamID string, env envelope.Envelope) (b
 	}
 	if decision.action == seqPolicyActionConvertToResync && decision.resyncWatermark > state.pendingResyncWatermark {
 		state.pendingResyncWatermark = decision.resyncWatermark
+	}
+	if decision.duplicate {
+		metrics.IncOwnershipContractDuplicate("delivery")
+	}
+	if decision.outOfOrder {
+		metrics.IncOwnershipContractOutOfOrder("delivery")
 	}
 	if decision.violationType != "" {
 		metrics.IncDeliveryRouterCoherenceViolation(decision.violationType, decision.coherenceReason)
@@ -542,7 +555,7 @@ func (r *RouterActor) acceptStreamSeq(streamID string, env envelope.Envelope) (b
 		lastSeq:      state.lastOriginSeq,
 		candidateSeq: seq,
 		reason:       sampleReason,
-		owner:        processorInstanceIDForLog(env.Meta),
+		owner:        candidateOwner,
 		instance:     instanceIDForLog(env.Meta),
 		origin:       originFromMeta(env.Meta),
 	})
@@ -592,6 +605,7 @@ func (r *RouterActor) sweepStreamState() {
 	r.syncStreamStateMetrics(active)
 	if evicted > 0 {
 		metrics.AddDeliveryRouterStreamStateEvicted(evicted)
+		metrics.IncOwnershipContractEvicted("delivery", "ttl")
 	}
 }
 
@@ -602,6 +616,7 @@ func (r *RouterActor) evictOldestStreamState() {
 		if state == nil {
 			delete(r.streamState, id)
 			metrics.AddDeliveryRouterStreamStateEvicted(1)
+			metrics.IncOwnershipContractEvicted("delivery", "unknown")
 			r.syncStreamStateMetrics(-1)
 			return
 		}
@@ -613,6 +628,7 @@ func (r *RouterActor) evictOldestStreamState() {
 	if oldestID != "" {
 		delete(r.streamState, oldestID)
 		metrics.AddDeliveryRouterStreamStateEvicted(1)
+		metrics.IncOwnershipContractEvicted("delivery", "size")
 		r.syncStreamStateMetrics(-1)
 	}
 }
@@ -627,6 +643,7 @@ func (r *RouterActor) syncStreamStateMetrics(active int) {
 	}
 	metrics.SetDeliveryRouterStreamStateEntries(entries)
 	metrics.SetDeliveryRouterStreamStateActive(active)
+	metrics.SetOwnershipContractEntries("delivery", entries)
 }
 
 func routingTimeframeForEnvelope(defaultTimeframe string, env envelope.Envelope) string {
@@ -696,4 +713,18 @@ func normalizeStreamCoherenceMode(raw string) string {
 	default:
 		return "unknown"
 	}
+}
+
+func deliveryOwnershipToken(streamID string) string {
+	parts := strings.SplitN(strings.TrimSpace(streamID), "/", 4)
+	if len(parts) != 4 {
+		return ""
+	}
+	key := ownership.StreamKey{
+		Channel:    parts[0],
+		Venue:      parts[1],
+		Instrument: parts[2],
+		Timeframe:  parts[3],
+	}
+	return strconv.FormatUint(ownership.ShardKey(ownership.SubsystemDelivery, key), 10)
 }

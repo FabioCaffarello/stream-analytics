@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,10 +18,23 @@ import (
 	"github.com/market-raccoon/internal/shared/codec"
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/metrics"
+	"github.com/market-raccoon/internal/shared/ownership"
 	"github.com/market-raccoon/internal/shared/problem"
 )
 
-const defaultRegimeCacheMaxStreams = 1024
+const (
+	defaultRegimeCacheMaxStreams = 1024
+	strategistStateMaxStreams    = 4096
+	strategistStaleGapWindow     = int64(2048)
+	strategistBoundedMapName     = "strategist_ownership_contract"
+	strategistOwnerChannel       = "signal"
+)
+
+type streamProgress struct {
+	lastSeq       int64
+	lastWatermark int64
+	owner         string
+}
 
 type signalEnvelopeMsg struct {
 	Envelope envelope.Envelope
@@ -37,6 +52,8 @@ type SubsystemConfig struct {
 	Composer              *signalsapp.SignalComposer
 	Limiter               *signalsapp.SignalRateLimiter
 	RegimeCacheMaxStreams int
+	ReplicaID             int
+	ReplicaCount          int
 	RouterPID             *actor.PID // delivery router to publish signal envelopes
 	Publisher             EventPublisher
 }
@@ -56,6 +73,12 @@ type SubsystemActor struct {
 	regimeCacheMaxStreams int
 	regimeByKey           map[string]evidencedomain.RegimeSignal
 	regimeOrder           []string
+
+	replicaID     int
+	replicaCount  int
+	streamState   map[string]streamProgress
+	streamOrder   []string
+	streamOrderIx int
 }
 
 // NewSubsystemActor creates the signals subsystem actor producer.
@@ -119,10 +142,38 @@ func (s *SubsystemActor) ensureDefaults(c *actor.Context) {
 		s.regimeByKey = make(map[string]evidencedomain.RegimeSignal, s.regimeCacheMaxStreams)
 		s.regimeOrder = make([]string, 0, s.regimeCacheMaxStreams)
 	}
+	if s.replicaCount <= 0 {
+		s.replicaCount = s.cfg.ReplicaCount
+		if envCount := strings.TrimSpace(os.Getenv("STRATEGIST_REPLICAS")); envCount != "" {
+			if parsed, err := strconv.Atoi(envCount); err == nil && parsed > 0 {
+				s.replicaCount = parsed
+			}
+		}
+		if s.replicaCount <= 0 {
+			s.replicaCount = 1
+		}
+	}
+	if s.replicaID == 0 {
+		s.replicaID = s.cfg.ReplicaID
+		if envID := strings.TrimSpace(os.Getenv("STRATEGIST_REPLICA_ID")); envID != "" {
+			if parsed, err := strconv.Atoi(envID); err == nil && parsed >= 0 {
+				s.replicaID = parsed
+			}
+		}
+	}
+	if s.replicaID < 0 || s.replicaID >= s.replicaCount {
+		s.replicaID = 0
+	}
+	if s.streamState == nil {
+		s.streamState = make(map[string]streamProgress, strategistStateMaxStreams)
+		s.streamOrder = make([]string, 0, strategistStateMaxStreams)
+		metrics.SetBoundedMapSize(strategistBoundedMapName, 0)
+		metrics.SetOwnershipContractEntries("strategist", 0)
+	}
 }
 
 func (s *SubsystemActor) onStarted() {
-	s.logger.Info("signals subsystem started")
+	s.logger.Info("signals subsystem started", "replica_id", s.replicaID, "replica_count", s.replicaCount)
 	if s.cfg.EnvelopeCh != nil && s.engine != nil && s.selfPID != nil {
 		s.consumeCtx, s.cancel = context.WithCancel(context.Background())
 		go s.consumeLoop()
@@ -172,7 +223,18 @@ func (s *SubsystemActor) processRegimeEnvelope(env envelope.Envelope) {
 		return
 	}
 	key := regimeCacheKey(regime.Venue, regime.Instrument)
+	if !s.acceptOwner(regime.Venue, regime.Instrument, strategistOwnerChannel, env.Seq) {
+		return
+	}
+	watermark := env.TsIngest
+	if regime.WindowEnd > 0 {
+		watermark = regime.WindowEnd
+	}
+	if !s.acceptMonotonic(key, strategistOwnerChannel, env.Seq, watermark) {
+		return
+	}
 	s.putRegime(key, regime)
+	s.noteStreamProgress(key, env.Seq, watermark, strconv.Itoa(s.ownerReplicaID(regime.Venue, regime.Instrument, strategistOwnerChannel)))
 }
 
 func (s *SubsystemActor) processMicroEnvelope(env envelope.Envelope) {
@@ -187,8 +249,16 @@ func (s *SubsystemActor) processMicroEnvelope(env envelope.Envelope) {
 	if p := micro.Validate(); p != nil {
 		return
 	}
+	key := regimeCacheKey(micro.Venue, micro.Symbol)
+	if !s.acceptOwner(micro.Venue, micro.Symbol, strategistOwnerChannel, micro.Seq) {
+		return
+	}
+	if !s.acceptMonotonic(key, strategistOwnerChannel, micro.Seq, micro.TsServer) {
+		return
+	}
+	s.noteStreamProgress(key, micro.Seq, micro.TsServer, strconv.Itoa(s.ownerReplicaID(micro.Venue, micro.Symbol, strategistOwnerChannel)))
 
-	regime, ok := s.regimeByKey[regimeCacheKey(micro.Venue, micro.Symbol)]
+	regime, ok := s.regimeByKey[key]
 	var regimePtr *evidencedomain.RegimeSignal
 	if ok {
 		regimeCopy := regime
@@ -294,6 +364,101 @@ func (s *SubsystemActor) evictOldestRegime() {
 	victim := s.regimeOrder[0]
 	s.regimeOrder = s.regimeOrder[1:]
 	delete(s.regimeByKey, victim)
+}
+
+func (s *SubsystemActor) ownerReplicaID(venue, instrument, channel string) int {
+	return ownership.OwnerReplica(ownership.SubsystemStrategist, ownership.StreamKey{
+		Venue:      venue,
+		Instrument: instrument,
+		Channel:    channel,
+		Timeframe:  "raw",
+	}, s.replicaCount)
+}
+
+func (s *SubsystemActor) acceptOwner(venue, instrument, channel string, seq int64) bool {
+	owner := s.ownerReplicaID(venue, instrument, channel)
+	if owner == s.replicaID {
+		return true
+	}
+	_ = seq
+	metrics.IncSignalDrop("owner_reject")
+	return false
+}
+
+func (s *SubsystemActor) lastStreamProgress(streamKey string) streamProgress {
+	if s.streamState == nil {
+		return streamProgress{}
+	}
+	return s.streamState[streamKey]
+}
+
+func (s *SubsystemActor) noteStreamProgress(streamKey string, seq, watermark int64, owner string) {
+	streamKey = strings.TrimSpace(streamKey)
+	if streamKey == "" || seq <= 0 {
+		return
+	}
+	if state, ok := s.streamState[streamKey]; ok {
+		if seq >= state.lastSeq {
+			state.lastSeq = seq
+		}
+		if watermark > state.lastWatermark {
+			state.lastWatermark = watermark
+		}
+		if strings.TrimSpace(owner) != "" {
+			state.owner = owner
+		}
+		s.streamState[streamKey] = state
+		return
+	}
+	if len(s.streamState) >= strategistStateMaxStreams {
+		if len(s.streamOrder) == 0 {
+			return
+		}
+		if s.streamOrderIx < 0 || s.streamOrderIx >= len(s.streamOrder) {
+			s.streamOrderIx = 0
+		}
+		evictKey := s.streamOrder[s.streamOrderIx]
+		delete(s.streamState, evictKey)
+		metrics.IncBoundedMapEviction(strategistBoundedMapName, "size")
+		metrics.IncOwnershipContractEvicted("strategist", "size")
+		s.streamOrder[s.streamOrderIx] = streamKey
+		s.streamOrderIx = (s.streamOrderIx + 1) % strategistStateMaxStreams
+		s.streamState[streamKey] = streamProgress{lastSeq: seq, lastWatermark: watermark, owner: owner}
+		metrics.SetBoundedMapSize(strategistBoundedMapName, len(s.streamState))
+		metrics.SetOwnershipContractEntries("strategist", len(s.streamState))
+		return
+	}
+	s.streamState[streamKey] = streamProgress{lastSeq: seq, lastWatermark: watermark, owner: owner}
+	s.streamOrder = append(s.streamOrder, streamKey)
+	if len(s.streamOrder) == strategistStateMaxStreams {
+		s.streamOrderIx = 0
+	}
+	metrics.SetBoundedMapSize(strategistBoundedMapName, len(s.streamState))
+	metrics.SetOwnershipContractEntries("strategist", len(s.streamState))
+}
+
+func (s *SubsystemActor) acceptMonotonic(streamKey, channel string, seq, watermark int64) bool {
+	if seq <= 0 {
+		return true
+	}
+	last := s.lastStreamProgress(streamKey)
+	decision := ownership.DecideMonotonic(ownership.MonotonicInput{
+		StreamKey:          streamKey + "|" + channel,
+		CandidateSeq:       seq,
+		CandidateWatermark: watermark,
+		LastSeq:            last.lastSeq,
+		LastWatermark:      last.lastWatermark,
+		StaleGapWindow:     strategistStaleGapWindow,
+	})
+	if decision.Action == ownership.ActionAccept {
+		return true
+	}
+	if decision.Duplicate {
+		metrics.IncOwnershipContractDuplicate("strategist")
+	} else if decision.OutOfOrder {
+		metrics.IncOwnershipContractOutOfOrder("strategist")
+	}
+	return false
 }
 
 func regimeCacheKey(venue, instrument string) string {

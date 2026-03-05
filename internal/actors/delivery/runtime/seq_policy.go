@@ -3,6 +3,8 @@ package deliveryruntime
 import (
 	"strconv"
 	"strings"
+
+	"github.com/market-raccoon/internal/shared/ownership"
 )
 
 const (
@@ -38,6 +40,8 @@ type seqPolicyDecision struct {
 	violationType   string
 	coherenceReason string
 	resyncWatermark int64
+	duplicate       bool
+	outOfOrder      bool
 }
 
 type SeqPolicy interface {
@@ -53,91 +57,41 @@ func newDefaultSeqPolicy() SeqPolicy {
 }
 
 func (p defaultSeqPolicy) Decide(in seqPolicyInput) seqPolicyDecision {
-	if strings.TrimSpace(in.streamKey) == "" || in.candidateSeq <= 0 {
-		return seqPolicyDecision{
-			action:          seqPolicyActionDrop,
-			rejectReason:    "seq_invalid",
-			violationType:   "seq_invalid",
-			coherenceReason: coherenceReasonUnknown,
-		}
-	}
-	if in.lastSeq <= 0 || in.candidateSeq > in.lastSeq {
-		if in.pendingResyncWatermark > 0 && in.candidateSeq <= in.pendingResyncWatermark {
-			return seqPolicyDecision{
-				action:          seqPolicyActionDrop,
-				rejectReason:    coherenceReasonResyncOverlap,
-				coherenceReason: coherenceReasonResyncOverlap,
-			}
-		}
+	decision := ownership.DecideMonotonic(ownership.MonotonicInput{
+		StreamKey:              in.streamKey,
+		IsSnapshot:             isSnapshotEventType(in.eventType),
+		CandidateSeq:           in.candidateSeq,
+		CandidateWatermark:     in.candidateTsIngest,
+		LastSeq:                in.lastSeq,
+		LastWatermark:          in.lastTsIngest,
+		CandidateOwner:         in.candidateProcessorID,
+		LastOwner:              in.lastProcessorID,
+		HandoffWatermarkSeq:    in.handoffWatermarkSeq,
+		PendingResyncWatermark: in.pendingResyncWatermark,
+		StaleGapWindow:         p.staleGapWindow,
+	})
+
+	switch decision.Action {
+	case ownership.ActionAccept:
 		return seqPolicyDecision{action: seqPolicyActionAccept}
-	}
-	if in.pendingResyncWatermark > 0 &&
-		!isSnapshotEventType(in.eventType) &&
-		in.candidateSeq <= in.pendingResyncWatermark {
-		return seqPolicyDecision{
-			action:          seqPolicyActionDrop,
-			rejectReason:    coherenceReasonResyncOverlap,
-			coherenceReason: coherenceReasonResyncOverlap,
-		}
-	}
-	if in.candidateSeq == in.lastSeq {
-		return seqPolicyDecision{
-			action:          seqPolicyActionDrop,
-			rejectReason:    coherenceReasonReplayDuplicate,
-			coherenceReason: coherenceReasonReplayDuplicate,
-		}
-	}
-
-	// Owner change requires explicit monotonic handoff watermark before emit.
-	if in.candidateProcessorID != "" &&
-		in.lastProcessorID != "" &&
-		in.candidateProcessorID != in.lastProcessorID {
-		watermark := in.handoffWatermarkSeq
-		if watermark < in.lastSeq {
-			watermark = in.lastSeq
-		}
-		if in.candidateSeq <= watermark {
-			return seqPolicyDecision{
-				action:          seqPolicyActionConvertToResync,
-				rejectReason:    coherenceReasonOwnerChange,
-				coherenceReason: coherenceReasonOwnerChange,
-				resyncWatermark: watermark,
-			}
-		}
-	}
-
-	// Snapshot overlap can happen during replay/resync windows.
-	if isSnapshotEventType(in.eventType) && in.handoffWatermarkSeq > 0 && in.candidateSeq <= in.handoffWatermarkSeq {
+	case ownership.ActionConvertToResync:
 		return seqPolicyDecision{
 			action:          seqPolicyActionConvertToResync,
-			rejectReason:    coherenceReasonResyncOverlap,
-			coherenceReason: coherenceReasonResyncOverlap,
-			resyncWatermark: in.handoffWatermarkSeq,
+			rejectReason:    decision.RejectReason,
+			coherenceReason: decision.CoherenceReason,
+			resyncWatermark: decision.ResyncWatermark,
+			duplicate:       decision.Duplicate,
+			outOfOrder:      decision.OutOfOrder,
 		}
-	}
-
-	// Dominant production path: minor backwards gaps are stale arrivals to drop early.
-	gap := in.lastSeq - in.candidateSeq
-	if gap > 0 && gap <= p.staleGapWindow {
+	default:
 		return seqPolicyDecision{
 			action:          seqPolicyActionDrop,
-			rejectReason:    coherenceReasonStaleEvent,
-			coherenceReason: coherenceReasonStaleEvent,
+			rejectReason:    decision.RejectReason,
+			violationType:   decision.ViolationType,
+			coherenceReason: decision.CoherenceReason,
+			duplicate:       decision.Duplicate,
+			outOfOrder:      decision.OutOfOrder,
 		}
-	}
-	if in.lastTsIngest > 0 && in.candidateTsIngest > 0 && in.candidateTsIngest < in.lastTsIngest {
-		return seqPolicyDecision{
-			action:          seqPolicyActionDrop,
-			rejectReason:    coherenceReasonStaleEvent,
-			coherenceReason: coherenceReasonStaleEvent,
-		}
-	}
-
-	return seqPolicyDecision{
-		action:          seqPolicyActionDrop,
-		rejectReason:    "seq_non_monotonic",
-		violationType:   "seq_non_monotonic",
-		coherenceReason: coherenceReasonOutOfOrderInput,
 	}
 }
 

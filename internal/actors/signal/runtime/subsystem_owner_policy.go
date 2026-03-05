@@ -9,19 +9,29 @@ import (
 	signalcore "github.com/market-raccoon/internal/core/signal"
 	sharedhash "github.com/market-raccoon/internal/shared/hash"
 	"github.com/market-raccoon/internal/shared/metrics"
+	"github.com/market-raccoon/internal/shared/ownership"
 )
 
 const (
 	signalStateMaxStreams    = 4096
+	signalStaleGapWindow     = int64(2048)
+	signalsBoundedMapName    = "signals_ownership_contract"
 	dropSampleTopN           = 5
 	dropSampleMaxUnique      = 64
 	dropSampleFlushEvery     = 50
 	dropReasonOwnerReject    = "owner_reject"
 	dropReasonDuplicate      = "duplicate"
+	dropReasonOutOfOrder     = "out_of_order"
 	dropReasonRateLimited    = "rate_limited"
 	dropReasonDecodeFailed   = "decode_failed"
 	dropReasonValidationFail = "validation_failed"
 )
+
+type streamProgress struct {
+	lastSeq       int64
+	lastWatermark int64
+	owner         string
+}
 
 type dropSampleKey struct {
 	streamKey string
@@ -50,31 +60,20 @@ func deterministicIntentID(emission signalcore.Emission) string {
 	)
 }
 
-func signalShardKey(key marketmodel.StreamKey) uint64 {
-	return sharedhash.SumFieldsFast64(string(key.Venue), string(key.Symbol), string(key.Channel))
-}
-
 func signalStreamKeyLabel(key marketmodel.StreamKey) string {
-	return strings.ToLower(strings.TrimSpace(string(key.Venue))) +
-		"|" +
-		strings.ToUpper(strings.TrimSpace(string(key.Symbol))) +
-		"|" +
-		strings.ToLower(strings.TrimSpace(string(key.Channel)))
+	return ownership.CanonicalLabel(ownership.StreamKey{
+		Venue:      string(key.Venue),
+		Instrument: string(key.Symbol),
+		Channel:    string(key.Channel),
+	})
 }
 
 func (s *SubsystemActor) ownerReplicaID(key marketmodel.StreamKey) int {
-	if s.replicaCount <= 1 {
-		return s.replicaID
-	}
-	owner := signalShardKey(key) % uint64(s.replicaCount)
-	ownerID, err := strconv.Atoi(strconv.FormatUint(owner, 10))
-	if err != nil {
-		return 0
-	}
-	if ownerID >= 0 && ownerID < s.replicaCount {
-		return ownerID
-	}
-	return 0
+	return ownership.OwnerReplica(ownership.SubsystemSignals, ownership.StreamKey{
+		Venue:      string(key.Venue),
+		Instrument: string(key.Symbol),
+		Channel:    string(key.Channel),
+	}, s.replicaCount)
 }
 
 func (s *SubsystemActor) acceptOwner(key marketmodel.StreamKey, candidateSeq int64) bool {
@@ -86,7 +85,7 @@ func (s *SubsystemActor) acceptOwner(key marketmodel.StreamKey, candidateSeq int
 	metrics.IncSignalDrop(dropReasonOwnerReject)
 	s.recordDropSample(dropSampleKey{
 		streamKey: streamKey,
-		lastSeq:   s.lastStreamSeq(streamKey),
+		lastSeq:   s.lastStreamProgress(streamKey).lastSeq,
 		candSeq:   candidateSeq,
 		reason:    dropReasonOwnerReject,
 		owner:     strconv.Itoa(owner),
@@ -95,18 +94,25 @@ func (s *SubsystemActor) acceptOwner(key marketmodel.StreamKey, candidateSeq int
 	return false
 }
 
-func (s *SubsystemActor) noteStreamSeq(streamKey string, seq int64) {
+func (s *SubsystemActor) noteStreamProgress(streamKey string, seq, watermark int64, owner string) {
 	streamKey = strings.TrimSpace(streamKey)
 	if streamKey == "" || seq <= 0 {
 		return
 	}
-	if last, ok := s.streamLastSeq[streamKey]; ok {
-		if seq > last {
-			s.streamLastSeq[streamKey] = seq
+	if state, ok := s.streamState[streamKey]; ok {
+		if seq >= state.lastSeq {
+			state.lastSeq = seq
 		}
+		if watermark > state.lastWatermark {
+			state.lastWatermark = watermark
+		}
+		if strings.TrimSpace(owner) != "" {
+			state.owner = owner
+		}
+		s.streamState[streamKey] = state
 		return
 	}
-	if len(s.streamLastSeq) >= signalStateMaxStreams {
+	if len(s.streamState) >= signalStateMaxStreams {
 		if len(s.streamOrder) == 0 {
 			return
 		}
@@ -114,24 +120,68 @@ func (s *SubsystemActor) noteStreamSeq(streamKey string, seq int64) {
 			s.streamOrderIdx = 0
 		}
 		evictKey := s.streamOrder[s.streamOrderIdx]
-		delete(s.streamLastSeq, evictKey)
+		delete(s.streamState, evictKey)
+		metrics.IncBoundedMapEviction(signalsBoundedMapName, "size")
+		metrics.IncSignalEvicted("capacity")
+		metrics.IncOwnershipContractEvicted("signals", "size")
 		s.streamOrder[s.streamOrderIdx] = streamKey
 		s.streamOrderIdx = (s.streamOrderIdx + 1) % signalStateMaxStreams
-		s.streamLastSeq[streamKey] = seq
+		s.streamState[streamKey] = streamProgress{lastSeq: seq, lastWatermark: watermark, owner: owner}
+		metrics.SetBoundedMapSize(signalsBoundedMapName, len(s.streamState))
+		metrics.SetOwnershipContractEntries("signals", len(s.streamState))
 		return
 	}
-	s.streamLastSeq[streamKey] = seq
+	s.streamState[streamKey] = streamProgress{lastSeq: seq, lastWatermark: watermark, owner: owner}
 	s.streamOrder = append(s.streamOrder, streamKey)
 	if len(s.streamOrder) == signalStateMaxStreams {
 		s.streamOrderIdx = 0
 	}
+	metrics.SetBoundedMapSize(signalsBoundedMapName, len(s.streamState))
+	metrics.SetOwnershipContractEntries("signals", len(s.streamState))
 }
 
-func (s *SubsystemActor) lastStreamSeq(streamKey string) int64 {
-	if s.streamLastSeq == nil {
-		return 0
+func (s *SubsystemActor) lastStreamProgress(streamKey string) streamProgress {
+	if s.streamState == nil {
+		return streamProgress{}
 	}
-	return s.streamLastSeq[streamKey]
+	return s.streamState[streamKey]
+}
+
+func (s *SubsystemActor) acceptMonotonicProgress(key marketmodel.StreamKey, streamKey string, seq, watermark int64) bool {
+	if seq <= 0 {
+		return true
+	}
+	last := s.lastStreamProgress(streamKey)
+	owner := strconv.Itoa(s.ownerReplicaID(key))
+	decision := ownership.DecideMonotonic(ownership.MonotonicInput{
+		StreamKey:          streamKey,
+		CandidateSeq:       seq,
+		CandidateWatermark: watermark,
+		LastSeq:            last.lastSeq,
+		LastWatermark:      last.lastWatermark,
+		CandidateOwner:     owner,
+		LastOwner:          last.owner,
+		StaleGapWindow:     signalStaleGapWindow,
+	})
+	if decision.Action == ownership.ActionAccept {
+		return true
+	}
+	if decision.Duplicate {
+		metrics.IncSignalDrop(dropReasonDuplicate)
+		metrics.IncOwnershipContractDuplicate("signals")
+	} else if decision.OutOfOrder {
+		metrics.IncSignalDrop(dropReasonOutOfOrder)
+		metrics.IncOwnershipContractOutOfOrder("signals")
+	}
+	s.recordDropSample(dropSampleKey{
+		streamKey: streamKey,
+		lastSeq:   last.lastSeq,
+		candSeq:   seq,
+		reason:    decision.RejectReason,
+		owner:     owner,
+		instance:  strconv.Itoa(s.replicaID),
+	})
+	return false
 }
 
 func (s *SubsystemActor) recordDropSample(sample dropSampleKey) {
