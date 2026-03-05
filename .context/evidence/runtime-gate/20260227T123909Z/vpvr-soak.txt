@@ -1,8 +1,0 @@
-# VPVR soak harness 2026-02-27T12:39:34Z
-go_cache=/tmp/go-build
-test_pattern=TestVPVROverloadSoakBurstDeterministicBudgets
-Running VPVR deterministic burst soak...
-testing: warning: no tests to run
-PASS
-ok  	github.com/market-raccoon/internal/actors/insights/runtime	0.162s [no tests to run]
-VPVR soak harness completed

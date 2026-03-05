@@ -1,8 +1,0 @@
-# processor1
-667:# HELP process_heap_alloc_bytes Current heap allocations in bytes.
-668:# TYPE process_heap_alloc_bytes gauge
-669:process_heap_alloc_bytes 2.4727032e+07
-# processor2
-553:# HELP process_heap_alloc_bytes Current heap allocations in bytes.
-554:# TYPE process_heap_alloc_bytes gauge
-555:process_heap_alloc_bytes 2.9614736e+07
