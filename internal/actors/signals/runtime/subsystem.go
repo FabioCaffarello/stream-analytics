@@ -23,11 +23,12 @@ import (
 )
 
 const (
-	defaultRegimeCacheMaxStreams = 1024
-	strategistStateMaxStreams    = 4096
-	strategistStaleGapWindow     = int64(2048)
-	strategistBoundedMapName     = "strategist_ownership_contract"
-	strategistOwnerChannel       = "signal"
+	defaultRegimeCacheMaxStreams    = 1024
+	strategistStateMaxStreams       = 4096
+	strategistStaleGapWindow        = int64(2048)
+	strategistBoundedMapName        = "strategist_ownership_contract"
+	strategistOwnerChannel          = "signal"
+	strategistDropReasonOwnerReject = "owner_reject"
 )
 
 type streamProgress struct {
@@ -381,7 +382,7 @@ func (s *SubsystemActor) acceptOwner(venue, instrument, channel string, seq int6
 		return true
 	}
 	_ = seq
-	metrics.IncSignalDrop("owner_reject")
+	metrics.IncSignalDrop(strategistDropReasonOwnerReject)
 	return false
 }
 
