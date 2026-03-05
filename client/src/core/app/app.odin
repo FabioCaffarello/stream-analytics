@@ -180,6 +180,16 @@ Runtime_Probe :: struct {
 	md_parsed_msgs_total: u64,
 	md_parsed_bytes_total: u64,
 	md_parse_arena_resets_total: u64,
+	md_alloc_estimate_total: u64,
+	md_alloc_estimate_frame: i64,
+	md_canonical_evidence_frames: u64,
+	md_legacy_evidence_frames:    u64,
+	md_evidence_fallback_frames:  u64,
+	md_canonical_signal_frames:   u64,
+	md_legacy_signal_frames:      u64,
+	md_signal_fallback_frames:    u64,
+	md_legacy_evidence_rejected:  u64,
+	md_legacy_signal_rejected:    u64,
 	ui_actions_enqueued_total: u64,
 	ui_action_drops:       u64,
 	stream_switches_total: u64,
@@ -200,6 +210,31 @@ Runtime_Probe :: struct {
 	w_heatmap_snaps:       int,
 	w_vpvr_levels:         int,
 	w_candle_count:        int,
+	w_evidence_count:      int,
+	w_signal_count:        int,
+	w_signal_link_total:   u64,
+	w_signal_link_evidence_seq: i64,
+	w_dom_parse_total:     u64,
+	w_dom_fallback_total:  u64,
+	w_dom_drop_total:      u64,
+	w_dom_render_p95_us:   i64,
+	w_tape_parse_total:    u64,
+	w_tape_fallback_total: u64,
+	w_tape_drop_total:     u64,
+	w_tape_render_p95_us:  i64,
+	w_evidence_parse_total:    u64,
+	w_evidence_fallback_total: u64,
+	w_evidence_drop_total:     u64,
+	w_evidence_render_p95_us:  i64,
+	w_signal_parse_total:    u64,
+	w_signal_fallback_total: u64,
+	w_signal_drop_total:     u64,
+	w_signal_render_p95_us:  i64,
+	w_signal_state:         layers.Layer_Widget_State,
+	w_evidence_state:       layers.Layer_Widget_State,
+	layout_version:         int,
+	layout_migrated:        bool,
+	layout_link_enabled:    bool,
 	ind_rsi_enabled:           bool,
 	ind_macd_enabled:          bool,
 	ind_funding_enabled:       bool,
@@ -323,6 +358,7 @@ App_State :: struct {
 
 	// Layout mode (PRD-0007 M2).
 	layout_mode: Layout_Mode,
+	signal_evidence_link_enabled: bool,
 
 	// Manual resync counter (app-side, not overwritten by transport metrics).
 	manual_resync_count: int,
@@ -364,6 +400,7 @@ init :: proc(
 		state.compare.heatmap_idx[i] = 1
 	}
 	state.active_tf_idx = 2 // default to "1m"
+	state.signal_evidence_link_enabled = true
 	// All panels visible by default.
 	for i in 0 ..< ui.PANEL_COUNT {
 		state.chrome.panel_visible[i] = true
@@ -537,12 +574,14 @@ init :: proc(
 				state.chrome.panel_visible = vis
 				ui.sync_sidebar_visibility(&state.chrome.sidebar, state.chrome.panel_visible)
 			}
-			// Restore cell layout (V4 -> V3 -> V2 -> V1 chain).
+			// Restore cell layout (V5 -> V4 -> V3 -> V2 -> V1 chain).
 			layout_from_panels(state) // rebuild from panel_visible
-			if !restore_layout_v4(state) {
-				if !restore_layout_v3(state) {
-					if !restore_layout_v2(state) {
-						restore_layout(state) // V1 fallback
+			if !restore_layout_v5(state) {
+				if !restore_layout_v4(state) {
+					if !restore_layout_v3(state) {
+						if !restore_layout_v2(state) {
+							restore_layout(state) // V1 fallback
+						}
 					}
 				}
 			}
@@ -700,6 +739,16 @@ runtime_probe :: proc(state: ^App_State) -> Runtime_Probe {
 	p.md_parsed_msgs_total = state.active_metrics.parsed_msgs_total
 	p.md_parsed_bytes_total = state.active_metrics.parsed_bytes_total
 	p.md_parse_arena_resets_total = state.active_metrics.parse_arena_resets
+	p.md_alloc_estimate_total = state.active_metrics.alloc_estimate_total
+	p.md_alloc_estimate_frame = state.active_metrics.alloc_estimate_frame
+	p.md_canonical_evidence_frames = state.active_metrics.canonical_evidence_frames
+	p.md_legacy_evidence_frames = state.active_metrics.legacy_evidence_frames
+	p.md_evidence_fallback_frames = state.active_metrics.evidence_fallback_frames
+	p.md_canonical_signal_frames = state.active_metrics.canonical_signal_frames
+	p.md_legacy_signal_frames = state.active_metrics.legacy_signal_frames
+	p.md_signal_fallback_frames = state.active_metrics.signal_fallback_frames
+	p.md_legacy_evidence_rejected = state.active_metrics.legacy_evidence_rejected
+	p.md_legacy_signal_rejected = state.active_metrics.legacy_signal_rejected
 	p.ui_action_drops = state.ui_action_drops
 	p.ui_actions_enqueued_total = state.ui_actions_enqueued_total
 	p.stream_switches_total = state.stream_switches_total
@@ -720,6 +769,68 @@ runtime_probe :: proc(state: ^App_State) -> Runtime_Probe {
 	p.w_heatmap_snaps = state.stores.heatmap.count
 	p.w_vpvr_levels = state.stores.vpvr.count
 	p.w_candle_count = state.stores.candle.count
+	p.w_evidence_count = state.evidence.count
+	active_subject := p.active_subject_id
+	if active_subject == 0 {
+		active_subject = state.layer_store.active_subject_id
+	}
+	recent_signals: [32]services.Signal_Entry
+	if active_subject != 0 {
+		p.w_signal_count = services.signal_store_recent_for_subject(&state.stores.signals, active_subject, recent_signals[:])
+	}
+	active_stream := layers.market_store_active_stream(&state.layer_store)
+	if active_stream != nil {
+		p.w_signal_link_total = active_stream.signal_evidence_links
+		p.w_signal_link_evidence_seq = active_stream.last_linked_evidence_seq
+	}
+	layer_diags: [layers.LAYER_REGISTRY_CAP]layers.Layer_Diagnostics
+	diag_count := layers.layer_registry_collect_diagnostics(&state.layer_registry, &state.layer_store, layer_diags[:])
+	for i in 0 ..< diag_count {
+		d := layer_diags[i]
+		#partial switch d.id {
+		case .OrderBook_DOM:
+			p.w_dom_parse_total = d.parse_total
+			p.w_dom_fallback_total = d.fallback_total
+			p.w_dom_drop_total = d.drop_total + d.dropped_outputs
+			p.w_dom_render_p95_us = d.render_p95_us
+		case .Trades_Tape:
+			p.w_tape_parse_total = d.parse_total
+			p.w_tape_fallback_total = d.fallback_total
+			p.w_tape_drop_total = d.drop_total + d.dropped_outputs
+			p.w_tape_render_p95_us = d.render_p95_us
+		case .Evidence:
+			p.w_evidence_parse_total = d.parse_total
+			p.w_evidence_fallback_total = d.fallback_total
+			p.w_evidence_drop_total = d.drop_total + d.dropped_outputs
+			p.w_evidence_render_p95_us = d.render_p95_us
+			p.w_evidence_state = d.state
+		case .Signal:
+			p.w_signal_parse_total = d.parse_total
+			p.w_signal_fallback_total = d.fallback_total
+			p.w_signal_drop_total = d.drop_total + d.dropped_outputs
+			p.w_signal_render_p95_us = d.render_p95_us
+			p.w_signal_state = d.state
+			p.w_signal_link_total = d.signal_link_total
+			p.w_signal_link_evidence_seq = d.signal_link_evidence_seq
+		}
+	}
+	p.layout_link_enabled = state.signal_evidence_link_enabled
+	if _, ok := services.settings_get(&state.settings, services.SETTING_LAYOUT_V5); ok {
+		p.layout_version = 5
+	} else if _, ok := services.settings_get(&state.settings, services.SETTING_LAYOUT_V4); ok {
+		p.layout_version = 4
+	} else if _, ok := services.settings_get(&state.settings, services.SETTING_LAYOUT_V3); ok {
+		p.layout_version = 3
+	} else if _, ok := services.settings_get(&state.settings, services.SETTING_LAYOUT_V2); ok {
+		p.layout_version = 2
+	} else if _, ok := services.settings_get(&state.settings, services.SETTING_LAYOUT); ok {
+		p.layout_version = 1
+	}
+	if p.layout_version == 5 {
+		if _, ok := services.settings_get(&state.settings, services.SETTING_LAYOUT_V4); ok {
+			p.layout_migrated = true
+		}
+	}
 	p.ind_rsi_enabled = state.telemetry.last_indicator_probe.rsi_enabled
 	p.ind_macd_enabled = state.telemetry.last_indicator_probe.macd_enabled
 	p.ind_funding_enabled = state.telemetry.last_indicator_probe.funding_enabled

@@ -276,11 +276,16 @@ refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtim
 	state.active_metrics.server_serialize_errors = metrics.server_serialize_errors
 	state.active_metrics.server_resync_total = metrics.server_resync_total
 	state.active_metrics.server_pub_deliver_ms = metrics.server_pub_deliver_ms
+	prev_alloc_estimate := state.active_metrics.alloc_estimate_total
 	state.active_metrics.drop_trade_ring = metrics.drop_trade_ring
 	state.active_metrics.drop_candle_ring = metrics.drop_candle_ring
 	state.active_metrics.drop_ws_queue = metrics.drop_ws_queue
 	state.active_metrics.drop_payload_oversize = metrics.drop_payload_oversize
 	state.active_metrics.alloc_estimate_total = metrics.alloc_estimate_total
+	state.active_metrics.alloc_estimate_frame = i64(metrics.alloc_estimate_total) - i64(prev_alloc_estimate)
+	if state.active_metrics.alloc_estimate_frame < 0 {
+		state.active_metrics.alloc_estimate_frame = i64(metrics.alloc_estimate_total)
+	}
 	state.active_metrics.parse_time_p95_us = metrics.parse_time_p95_us
 	state.active_metrics.apply_time_p95_us = metrics.apply_time_p95_us
 	state.active_metrics.batched_decode_time_p95_us = metrics.batched_decode_time_p95_us
@@ -308,6 +313,14 @@ refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtim
 	state.active_metrics.batched_events_received = metrics.batched_events_received
 	state.active_metrics.batched_fastpath_events = metrics.batched_fastpath_events
 	state.active_metrics.batched_fallback_events = metrics.batched_fallback_events
+	state.active_metrics.canonical_evidence_frames = metrics.canonical_evidence_frames
+	state.active_metrics.legacy_evidence_frames = metrics.legacy_evidence_frames
+	state.active_metrics.evidence_fallback_frames = metrics.evidence_fallback_frames
+	state.active_metrics.canonical_signal_frames = metrics.canonical_signal_frames
+	state.active_metrics.legacy_signal_frames = metrics.legacy_signal_frames
+	state.active_metrics.signal_fallback_frames = metrics.signal_fallback_frames
+	state.active_metrics.legacy_evidence_rejected = metrics.legacy_evidence_rejected
+	state.active_metrics.legacy_signal_rejected = metrics.legacy_signal_rejected
 	state.active_metrics.snapshot_hash_mismatches = metrics.snapshot_hash_mismatches
 	state.active_metrics.snapshot_seq_violations = metrics.snapshot_seq_violations
 	state.active_metrics.prev_seq_violations = metrics.prev_seq_violations

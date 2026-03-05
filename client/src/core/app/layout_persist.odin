@@ -1,6 +1,7 @@
 package app
 
 import "core:fmt"
+import "core:strings"
 import "mr:services"
 import "mr:ui"
 
@@ -282,6 +283,17 @@ persist_layout_v4 :: proc(state: ^App_State) {
 	services.settings_set(&state.settings, services.SETTING_LAYOUT_V4, string(buf[:off]))
 	services.settings_set(&state.settings, services.SETTING_LAYOUT_MODE,
 		state.layout_mode == .Custom ? "C" : "P")
+	persist_layout_v5_from_v4(state, string(buf[:off]))
+}
+
+persist_layout_v5_from_v4 :: proc(state: ^App_State, layout_v4: string) {
+	if state == nil do return
+	if len(layout_v4) < 2 do return
+	if layout_v4[0] != 'V' || layout_v4[1] != '4' do return
+	link_flag := "1" if state.signal_evidence_link_enabled else "0"
+	layout_v5 := strings.concatenate({"V5", layout_v4[2:], "|LK:", link_flag})
+	defer delete(layout_v5)
+	services.settings_set(&state.settings, services.SETTING_LAYOUT_V5, layout_v5)
 }
 
 // ===============================================================
@@ -789,6 +801,36 @@ restore_layout_v4 :: proc(state: ^App_State) -> bool {
 	return true
 }
 
+restore_layout_v5 :: proc(state: ^App_State) -> bool {
+	v, ok := services.settings_get(&state.settings, services.SETTING_LAYOUT_V5)
+	if !ok || len(v) < 4 do return false
+	return restore_layout_v5_from_string(state, v)
+}
+
+restore_layout_v5_from_string :: proc(state: ^App_State, v: string) -> bool {
+	if len(v) < 4 do return false
+	if v[0] != 'V' || v[1] != '5' do return false
+
+	base := v
+	link_enabled := true
+	for i := 2; i + 3 < len(v); i += 1 {
+		if v[i] == '|' && v[i + 1] == 'L' && v[i + 2] == 'K' && v[i + 3] == ':' {
+			base = v[:i]
+			val := v[i + 4:]
+			if len(val) > 0 {
+				link_enabled = val[0] != '0'
+			}
+			break
+		}
+	}
+
+	v4 := strings.concatenate({"V4", base[2:]})
+	defer delete(v4)
+	if !restore_layout_v4_from_string(state, v4) do return false
+	state.signal_evidence_link_enabled = link_enabled
+	return true
+}
+
 restore_layout_v2 :: proc(state: ^App_State) -> bool {
 	v, ok := services.settings_get(&state.settings, services.SETTING_LAYOUT_V2)
 	if !ok || len(v) < 4 do return false
@@ -896,18 +938,28 @@ restore_layout_v2 :: proc(state: ^App_State) -> bool {
 
 // Export current layout V4 string to the system clipboard.
 layout_export_to_clipboard :: proc(state: ^App_State) -> bool {
-	// Ensure latest V4 is persisted.
+	// Ensure latest V5 is persisted (and V4 kept for rollback).
 	persist_layout_v4(state)
-	v, ok := services.settings_get(&state.settings, services.SETTING_LAYOUT_V4)
+	v, ok := services.settings_get(&state.settings, services.SETTING_LAYOUT_V5)
+	if !ok || len(v) < 4 {
+		v, ok = services.settings_get(&state.settings, services.SETTING_LAYOUT_V4)
+	}
 	if !ok || len(v) < 4 do return false
 	return services.settings_clipboard_write(&state.settings, v)
 }
 
-// Import layout from a V4 string (e.g. pasted from clipboard).
+// Import layout from a V5/V4 string (e.g. pasted from clipboard).
 layout_import_from_string :: proc(state: ^App_State, v: string) -> bool {
 	if len(v) < 4 do return false
-	if v[0] != 'V' || v[1] != '4' do return false
-	if !restore_layout_v4_from_string(state, v) do return false
+	if v[0] != 'V' do return false
+	if v[1] == '5' {
+		if !restore_layout_v5_from_string(state, v) do return false
+	} else if v[1] == '4' {
+		if !restore_layout_v4_from_string(state, v) do return false
+		state.signal_evidence_link_enabled = true
+	} else {
+		return false
+	}
 	persist_layout_v4(state)
 	reconcile_subscriptions(state)
 	return true
