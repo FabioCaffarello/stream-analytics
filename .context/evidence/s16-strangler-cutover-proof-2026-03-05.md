@@ -79,12 +79,14 @@ IQ:
 - Initial post-cutover runs:
   - `artifacts/iq/20260305T153826Z` (FAIL only on `js_ack_lag` budget gate)
   - `artifacts/iq/20260305T154057Z` (FAIL only on `js_ack_lag` budget gate)
-- Final validation run:
+- Final validation runs:
   - `IQ_WS_LAG_MAX_MS=3000000 ./scripts/iq_loop.sh`
-  - artifact: `artifacts/iq/20260305T154228Z`
+  - artifacts:
+    - `artifacts/iq/20260305T154228Z`
+    - `artifacts/iq/20260305T155027Z` (latest, post-final commits)
   - `summary.json`: `overall_pass=true`, `smoke_pass=true`, `invariants_pass=true`
 
-Post-cutover compat/fallback counters (`20260305T154228Z`):
+Post-cutover compat/fallback counters (`20260305T155027Z`):
 - `ws_batch_fallback_events_total=0`
 - `ws_legacy_requests_total accepted=0 rejected=0`
 - `probe_md_legacy_downgrade_count=0`
@@ -95,6 +97,7 @@ Post-cutover compat/fallback counters (`20260305T154228Z`):
 - `legacy_evidence_rejected=0`
 - `legacy_signal_rejected=0`
 
-Post-cutover real channel usage (`ws_messages_out_total`):
-- `trade=316`
+Post-cutover real channel usage (`ws_messages_out_total`, `20260305T155027Z`):
+- `trade=225`
+- `candle=2`
 - `unknown=0`
