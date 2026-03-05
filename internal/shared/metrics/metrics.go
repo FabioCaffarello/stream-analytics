@@ -1077,6 +1077,34 @@ var (
 		},
 		[]string{"reason"},
 	)
+	OwnershipContractEntries = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "ownership_contract_entries",
+			Help: "Current number of ownership-contract stream-state entries per subsystem.",
+		},
+		[]string{"subsystem"},
+	)
+	OwnershipContractEvictedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ownership_contract_evicted_total",
+			Help: "Total ownership-contract stream-state evictions by subsystem and reason.",
+		},
+		[]string{"subsystem", "reason"},
+	)
+	OwnershipContractDuplicateTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ownership_contract_duplicate_total",
+			Help: "Total ownership-contract duplicate rejections by subsystem.",
+		},
+		[]string{"subsystem"},
+	)
+	OwnershipContractOutOfOrderTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ownership_contract_out_of_order_total",
+			Help: "Total ownership-contract out-of-order/watermark regressions by subsystem.",
+		},
+		[]string{"subsystem"},
+	)
 	SignalEvalLatencySeconds = prometheus.NewHistogram(
 		prometheus.HistogramOpts{
 			Name:    "signal_eval_latency_seconds",
@@ -1851,6 +1879,10 @@ func registerAll() {
 			SignalStateEntries,
 			SignalEvictedTotal,
 			SignalDropTotal,
+			OwnershipContractEntries,
+			OwnershipContractEvictedTotal,
+			OwnershipContractDuplicateTotal,
+			OwnershipContractOutOfOrderTotal,
 			SignalEvalLatencySeconds,
 			SignalDedupTotal,
 			SignalWireBytes,
@@ -2092,6 +2124,11 @@ func registerAll() {
 		SignalDropTotal.WithLabelValues("unknown")
 		SignalDropTotal.WithLabelValues("owner_reject")
 		SignalDropTotal.WithLabelValues("duplicate")
+		SignalDropTotal.WithLabelValues("out_of_order")
+		OwnershipContractEntries.WithLabelValues("unknown").Set(0)
+		OwnershipContractEvictedTotal.WithLabelValues("unknown", "unknown")
+		OwnershipContractDuplicateTotal.WithLabelValues("unknown")
+		OwnershipContractOutOfOrderTotal.WithLabelValues("unknown")
 		SignalEvalLatencySeconds.Observe(0)
 		SignalDedupTotal.WithLabelValues("unknown")
 		SignalWireBytes.WithLabelValues("unknown").Observe(0)
@@ -3876,7 +3913,7 @@ func sanitizeSignalWSRejectReason(v string) string {
 
 func sanitizeSignalDropReason(v string) string {
 	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "owner_reject", "duplicate", "rate_limited", "decode_failed", "validation_failed":
+	case "owner_reject", "duplicate", "out_of_order", "rate_limited", "decode_failed", "validation_failed":
 		return strings.ToLower(strings.TrimSpace(v))
 	default:
 		return "unknown"
@@ -4187,6 +4224,49 @@ func sanitizeBoundedMapName(v string) string {
 		return v
 	}
 	return "unknown"
+}
+
+func sanitizeOwnershipSubsystem(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	switch v {
+	case "signals", "strategist", "delivery":
+		return v
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeOwnershipEvictReason(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	switch v {
+	case "size", "ttl", "capacity", "unknown":
+		return v
+	default:
+		return "unknown"
+	}
+}
+
+// SetOwnershipContractEntries sets stream-state entries tracked by the ownership contract.
+func SetOwnershipContractEntries(subsystem string, entries int) {
+	OwnershipContractEntries.WithLabelValues(sanitizeOwnershipSubsystem(subsystem)).Set(float64(max(entries, 0)))
+}
+
+// IncOwnershipContractEvicted increments stream-state evictions by subsystem and reason.
+func IncOwnershipContractEvicted(subsystem, reason string) {
+	OwnershipContractEvictedTotal.WithLabelValues(
+		sanitizeOwnershipSubsystem(subsystem),
+		sanitizeOwnershipEvictReason(reason),
+	).Inc()
+}
+
+// IncOwnershipContractDuplicate increments duplicate drops for the subsystem.
+func IncOwnershipContractDuplicate(subsystem string) {
+	OwnershipContractDuplicateTotal.WithLabelValues(sanitizeOwnershipSubsystem(subsystem)).Inc()
+}
+
+// IncOwnershipContractOutOfOrder increments out-of-order drops for the subsystem.
+func IncOwnershipContractOutOfOrder(subsystem string) {
+	OwnershipContractOutOfOrderTotal.WithLabelValues(sanitizeOwnershipSubsystem(subsystem)).Inc()
 }
 
 // ── Delivery router observability helpers ────────────────────────────────────
