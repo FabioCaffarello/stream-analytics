@@ -325,6 +325,9 @@ func buildSignalEngineConfig(cfg config.AppConfig) signalcore.EngineConfig {
 	if cfg.Signals.DedupWindowMs > 0 {
 		out.Store.DedupWindowMillis = cfg.Signals.DedupWindowMs
 	}
+	if cfg.Signals.RateLimitPerMin > 0 {
+		out.Store.TenantRateLimitMin = cfg.Signals.RateLimitPerMin
+	}
 	if cfg.Signals.CorrelationWindowMs > 0 {
 		out.Rules.RegimeChange.WindowMs = cfg.Signals.CorrelationWindowMs
 		out.Rules.LiquidityCollapse.WindowMs = cfg.Signals.CorrelationWindowMs

@@ -1,6 +1,8 @@
 package contracts
 
 import (
+	"strings"
+
 	evidencedomain "github.com/market-raccoon/internal/core/evidence/domain"
 	marketmodel "github.com/market-raccoon/internal/core/marketmodel"
 	marketmodelv1 "github.com/market-raccoon/internal/shared/proto/gen/marketmodel/v1"
@@ -33,9 +35,13 @@ func DomainToProtoSignalEventV1(d marketmodel.SignalEvent) *marketmodelv1.Signal
 		Confidence:     d.Confidence,
 		Features:       features,
 		Explanation:    d.Explanation,
+		SignalId:       d.SignalID,
+		RuleId:         d.RuleID,
 		RuleVersion:    d.RuleVersion,
+		Explain:        append([]string(nil), d.Explain...),
 		InputWatermark: watermarks,
 		CorrelationId:  d.CorrelationID,
+		CorrelationIds: append([]string(nil), d.CorrelationIDs...),
 	}
 }
 
@@ -59,6 +65,14 @@ func ProtoToDomainSignalEventV1(p *marketmodelv1.SignalEvent) marketmodel.Signal
 			SeqEnd:   p.GetInputWatermark()[i].GetSeqEnd(),
 		}
 	}
+	explain := append([]string(nil), p.GetExplain()...)
+	if len(explain) == 0 && strings.TrimSpace(p.GetExplanation()) != "" {
+		explain = []string{strings.TrimSpace(p.GetExplanation())}
+	}
+	correlationIDs := append([]string(nil), p.GetCorrelationIds()...)
+	if len(correlationIDs) == 0 && strings.TrimSpace(p.GetCorrelationId()) != "" {
+		correlationIDs = []string{strings.TrimSpace(p.GetCorrelationId())}
+	}
 	return marketmodel.SignalEvent{
 		Type:           p.GetType(),
 		TsServer:       p.GetTsServer(),
@@ -69,8 +83,12 @@ func ProtoToDomainSignalEventV1(p *marketmodelv1.SignalEvent) marketmodel.Signal
 		Confidence:     p.GetConfidence(),
 		Features:       features,
 		Explanation:    p.GetExplanation(),
+		SignalID:       p.GetSignalId(),
+		RuleID:         p.GetRuleId(),
 		RuleVersion:    p.GetRuleVersion(),
+		Explain:        explain,
 		InputWatermark: watermarks,
 		CorrelationID:  p.GetCorrelationId(),
+		CorrelationIDs: correlationIDs,
 	}
 }

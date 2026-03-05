@@ -292,7 +292,7 @@ func (s *SubsystemActor) processEnvelope(env envelope.Envelope) {
 }
 
 func (s *SubsystemActor) evaluateEvidenceEvent(key marketmodel.StreamKey, tenant string, ev evidencedomain.EvidenceEvent) {
-	emissions, evictions, dedupTypes, evalSpanMs, p := s.signalEngine.OnEvidenceEvent(key, tenant, ev)
+	emissions, evictions, dedupTypes, rateLimitedTypes, evalSpanMs, p := s.signalEngine.OnEvidenceEvent(key, tenant, ev)
 	if p != nil {
 		s.logger.Warn("signal subsystem: evaluate evidence failed", "code", p.Code, "message", p.Message)
 		return
@@ -303,6 +303,9 @@ func (s *SubsystemActor) evaluateEvidenceEvent(key marketmodel.StreamKey, tenant
 	}
 	if evalSpanMs > 0 {
 		metrics.ObserveSignalEvalLatency(time.Duration(evalSpanMs) * time.Millisecond)
+	}
+	if len(rateLimitedTypes) > 0 {
+		s.logger.Debug("signal subsystem: tenant rate-limited signal emissions", "count", len(rateLimitedTypes), "tenant", tenant)
 	}
 	for i := range emissions {
 		metrics.IncSignalEmitted(emissions[i].Event.Type, emissions[i].Event.Severity)
@@ -396,6 +399,7 @@ func (s *SubsystemActor) Emit(emission signalcore.Emission) *problem.Problem {
 	if p != nil {
 		return p
 	}
+	metrics.ObserveSignalWireBytes(emission.Event.Type, len(payload))
 	venue := strings.ToLower(strings.TrimSpace(string(emission.StreamKey.Venue)))
 	instrument := strings.TrimSpace(string(emission.StreamKey.Symbol))
 	if emission.Event.Scope == marketmodel.SignalScopeMarket {
@@ -406,6 +410,9 @@ func (s *SubsystemActor) Emit(emission signalcore.Emission) *problem.Problem {
 		"kind":           strings.ToLower(strings.TrimSpace(emission.Event.Type)),
 		"timeframe":      "raw",
 		"scope":          string(emission.Event.Scope),
+		"signal_id":      emission.Event.SignalID,
+		"rule_id":        emission.Event.RuleID,
+		"rule_version":   emission.Event.RuleVersion,
 		"correlation_id": emission.Event.CorrelationID,
 	}
 	env := envelope.Envelope{

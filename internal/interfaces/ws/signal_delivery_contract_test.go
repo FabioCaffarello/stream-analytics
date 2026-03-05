@@ -183,48 +183,8 @@ func TestWSDelivery_SignalEventFrame_RoutedToSubscriber(t *testing.T) {
 	}
 	defer func() { _ = conn.Close() }()
 
-	if err := conn.WriteJSON(map[string]any{
-		"op":         "subscribe",
-		"subject":    "signal/regime_change/binance/BTC-USDT/raw",
-		"request_id": "sub-signal-event-1",
-	}); err != nil {
-		t.Fatalf("subscribe write: %v", err)
-	}
-	ack := readFrameSkipHello(t, conn, 2*time.Second)
-	if got, want := ack["type"], "ack"; got != want {
-		t.Fatalf("ack type=%v want=%v", got, want)
-	}
-
-	payload, p := codec.EncodePayload(
-		"signal.event",
-		int(marketmodel.SignalVersion),
-		envelope.ContentTypeJSON,
-		marketmodel.SignalEvent{
-			Type:       "regime_change",
-			TsServer:   1710000000123,
-			Scope:      marketmodel.SignalScopeStream,
-			Venue:      "BINANCE",
-			Symbol:     "BTCUSDT",
-			Severity:   "high",
-			Confidence: 0.89,
-			Features: []marketmodel.SignalFeature{
-				{Key: "burst_count", Value: 3},
-				{Key: "mean_confidence", Value: 0.85},
-			},
-			Explanation: "evidence burst indicates regime transition pressure",
-			RuleVersion: "v1",
-			InputWatermark: []marketmodel.SignalInputSeqRange{{
-				Venue:    "BINANCE",
-				Symbol:   "BTCUSDT",
-				SeqStart: 1,
-				SeqEnd:   3,
-			}},
-			CorrelationID: "cid-1",
-		},
-	)
-	if p != nil {
-		t.Fatalf("encode signal payload: %v", p)
-	}
+	subscribeSignalEventRaw(t, conn)
+	payload := encodeSignalEventContractPayload(t)
 
 	e.Send(routerPID, deliveryruntime.DeliverEnvelope{Envelope: envelope.Envelope{
 		Type:        "signal.event",
@@ -242,6 +202,65 @@ func TestWSDelivery_SignalEventFrame_RoutedToSubscriber(t *testing.T) {
 	}})
 
 	frame := readFrameSkipHello(t, conn, 2*time.Second)
+	assertSignalEventFrameContract(t, frame)
+}
+
+func subscribeSignalEventRaw(t *testing.T, conn *websocket.Conn) {
+	t.Helper()
+	if err := conn.WriteJSON(map[string]any{
+		"op":         "subscribe",
+		"subject":    "signal/regime_change/binance/BTC-USDT/raw",
+		"request_id": "sub-signal-event-1",
+	}); err != nil {
+		t.Fatalf("subscribe write: %v", err)
+	}
+	ack := readFrameSkipHello(t, conn, 2*time.Second)
+	if got, want := ack["type"], "ack"; got != want {
+		t.Fatalf("ack type=%v want=%v", got, want)
+	}
+}
+
+func encodeSignalEventContractPayload(t *testing.T) []byte {
+	t.Helper()
+	payload, p := codec.EncodePayload(
+		"signal.event",
+		int(marketmodel.SignalVersion),
+		envelope.ContentTypeJSON,
+		marketmodel.SignalEvent{
+			Type:       "regime_change",
+			TsServer:   1710000000123,
+			Scope:      marketmodel.SignalScopeStream,
+			Venue:      "BINANCE",
+			Symbol:     "BTCUSDT",
+			Severity:   "high",
+			Confidence: 0.89,
+			Features: []marketmodel.SignalFeature{
+				{Key: "burst_count", Value: 3},
+				{Key: "mean_confidence", Value: 0.85},
+			},
+			Explanation: "evidence burst indicates regime transition pressure",
+			Explain:     []string{"burst threshold reached", "cross-feature confirmation present"},
+			SignalID:    "sig-1",
+			RuleID:      "regime_change_rule",
+			RuleVersion: "v1",
+			InputWatermark: []marketmodel.SignalInputSeqRange{{
+				Venue:    "BINANCE",
+				Symbol:   "BTCUSDT",
+				SeqStart: 1,
+				SeqEnd:   3,
+			}},
+			CorrelationID:  "cid-1",
+			CorrelationIDs: []string{"cid-1", "evidence:abc"},
+		},
+	)
+	if p != nil {
+		t.Fatalf("encode signal payload: %v", p)
+	}
+	return payload
+}
+
+func assertSignalEventFrameContract(t *testing.T, frame map[string]any) {
+	t.Helper()
 	if got, want := frame["type"], "signal"; got != want {
 		t.Fatalf("frame type=%v want=%v", got, want)
 	}
@@ -257,6 +276,27 @@ func TestWSDelivery_SignalEventFrame_RoutedToSubscriber(t *testing.T) {
 	}
 	if got, want := payloadMap["severity"], "high"; got != want {
 		t.Fatalf("payload.severity=%v want=%v", got, want)
+	}
+	if got, want := payloadMap["signal_id"], "sig-1"; got != want {
+		t.Fatalf("payload.signal_id=%v want=%v", got, want)
+	}
+	if got, want := payloadMap["rule_id"], "regime_change_rule"; got != want {
+		t.Fatalf("payload.rule_id=%v want=%v", got, want)
+	}
+	assertEvidenceIDs(t, payloadMap["evidence_ids"])
+}
+
+func assertEvidenceIDs(t *testing.T, value any) {
+	t.Helper()
+	evidenceIDs, ok := value.([]any)
+	if !ok {
+		t.Fatalf("payload.evidence_ids type=%T want=[]any", value)
+	}
+	if got, want := len(evidenceIDs), 1; got != want {
+		t.Fatalf("payload.evidence_ids len=%d want=%d", got, want)
+	}
+	if got, want := evidenceIDs[0], "BINANCE|BTCUSDT|1-3"; got != want {
+		t.Fatalf("payload.evidence_ids[0]=%v want=%v", got, want)
 	}
 }
 

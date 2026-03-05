@@ -14,6 +14,7 @@ type StateStoreConfig struct {
 	GlobalStreamCap    int
 	TTLMillis          int64
 	DedupWindowMillis  int64
+	TenantRateLimitMin int
 }
 
 func DefaultStateStoreConfig() StateStoreConfig {
@@ -23,6 +24,7 @@ func DefaultStateStoreConfig() StateStoreConfig {
 		GlobalStreamCap:    10000,
 		TTLMillis:          15 * 60 * 1000,
 		DedupWindowMillis:  5000,
+		TenantRateLimitMin: 10,
 	}
 }
 
@@ -73,9 +75,15 @@ type StreamSnapshot struct {
 }
 
 type SignalStateStore struct {
-	cfg      StateStoreConfig
-	streams  map[string]*streamState
-	byTenant map[string]map[string]struct{}
+	cfg        StateStoreConfig
+	streams    map[string]*streamState
+	byTenant   map[string]map[string]struct{}
+	tenantRate map[string]tenantRateWindow
+}
+
+type tenantRateWindow struct {
+	WindowStartMs int64
+	Count         int
 }
 
 func NewSignalStateStore(cfg StateStoreConfig) *SignalStateStore {
@@ -94,10 +102,14 @@ func NewSignalStateStore(cfg StateStoreConfig) *SignalStateStore {
 	if cfg.DedupWindowMillis <= 0 {
 		cfg.DedupWindowMillis = 1
 	}
+	if cfg.TenantRateLimitMin <= 0 {
+		cfg.TenantRateLimitMin = DefaultStateStoreConfig().TenantRateLimitMin
+	}
 	return &SignalStateStore{
-		cfg:      cfg,
-		streams:  make(map[string]*streamState, cfg.GlobalStreamCap),
-		byTenant: make(map[string]map[string]struct{}),
+		cfg:        cfg,
+		streams:    make(map[string]*streamState, cfg.GlobalStreamCap),
+		byTenant:   make(map[string]map[string]struct{}),
+		tenantRate: make(map[string]tenantRateWindow),
 	}
 }
 
@@ -176,6 +188,29 @@ func (s *SignalStateStore) IsDuplicate(key marketmodel.StreamKey, tenant, signal
 	}
 	state.DedupRing.Push(dedupRecord{SignalType: signalType, Fingerprint: fingerprint, TsServer: tsServer})
 	return false
+}
+
+func (s *SignalStateStore) AllowTenantEmission(tenant string, tsServer int64) bool {
+	if s == nil {
+		return false
+	}
+	if tsServer <= 0 {
+		return false
+	}
+	tenant = normalizedTenant(tenant)
+	windowStart := tsServer - (tsServer % 60_000)
+	window := s.tenantRate[tenant]
+	if window.WindowStartMs != windowStart {
+		window.WindowStartMs = windowStart
+		window.Count = 0
+	}
+	if window.Count >= s.cfg.TenantRateLimitMin {
+		s.tenantRate[tenant] = window
+		return false
+	}
+	window.Count++
+	s.tenantRate[tenant] = window
+	return true
 }
 
 func (s *SignalStateStore) getOrCreate(key marketmodel.StreamKey, tenant string, tsServer int64) (*streamState, []EvictionReason) {
@@ -267,6 +302,7 @@ func (s *SignalStateStore) deleteStream(streamID string) {
 		delete(tenantStreams, streamID)
 		if len(tenantStreams) == 0 {
 			delete(s.byTenant, st.Tenant)
+			delete(s.tenantRate, st.Tenant)
 		}
 	}
 }

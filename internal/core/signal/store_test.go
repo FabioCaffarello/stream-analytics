@@ -160,6 +160,31 @@ func TestSignalStateStore_ObserveEvidence_IgnoresReplayBySeq(t *testing.T) {
 	}
 }
 
+func TestSignalStateStore_TenantRateLimitPerMinute(t *testing.T) {
+	t.Parallel()
+	store := NewSignalStateStore(StateStoreConfig{
+		PerStreamWindow:    4,
+		PerTenantStreamCap: 4,
+		GlobalStreamCap:    4,
+		TTLMillis:          1000,
+		DedupWindowMillis:  100,
+		TenantRateLimitMin: 1,
+	})
+
+	if ok := store.AllowTenantEmission("tenant-a", 60_000); !ok {
+		t.Fatal("first tenant emission should be allowed")
+	}
+	if ok := store.AllowTenantEmission("tenant-a", 60_500); ok {
+		t.Fatal("second tenant emission in same minute should be rate-limited")
+	}
+	if ok := store.AllowTenantEmission("tenant-a", 120_000); !ok {
+		t.Fatal("tenant emission should reset in next minute")
+	}
+	if ok := store.AllowTenantEmission("tenant-b", 60_700); !ok {
+		t.Fatal("different tenant should have isolated budget")
+	}
+}
+
 func containsReason(in []EvictionReason, target EvictionReason) bool {
 	for i := range in {
 		if in[i] == target {

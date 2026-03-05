@@ -977,6 +977,13 @@ var (
 		},
 		[]string{"type", "severity"},
 	)
+	SignalEmitTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "signal_emit_total",
+			Help: "Total emitted canonical signal events by type and severity.",
+		},
+		[]string{"type", "severity"},
+	)
 	SignalStateEntries = prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "signal_state_entries",
@@ -1001,6 +1008,14 @@ var (
 		prometheus.CounterOpts{
 			Name: "signal_dedup_total",
 			Help: "Total deduplicated signal events by type.",
+		},
+		[]string{"type"},
+	)
+	SignalWireBytes = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "signal_wire_bytes",
+			Help:    "Encoded canonical signal event payload size in bytes.",
+			Buckets: []float64{128, 256, 512, 1024, 2048, 4096, 8192, 16384},
 		},
 		[]string{"type"},
 	)
@@ -1739,10 +1754,12 @@ func registerAll() {
 			MRSignalWSSubscriptionRejectedTotal,
 			MRSignalWSSubscriptionsActive,
 			SignalEmittedTotal,
+			SignalEmitTotal,
 			SignalStateEntries,
 			SignalEvictedTotal,
 			SignalEvalLatencySeconds,
 			SignalDedupTotal,
+			SignalWireBytes,
 			SignalLELAdaptedTotal,
 			SignalLELAdaptErrorsTotal,
 			VPVRBuilderBucketCount,
@@ -1948,10 +1965,12 @@ func registerAll() {
 		MRSignalWSSubscriptionRejectedTotal.WithLabelValues("unknown")
 		MRSignalWSSubscriptionsActive.Set(0)
 		SignalEmittedTotal.WithLabelValues("unknown", "unknown")
+		SignalEmitTotal.WithLabelValues("unknown", "unknown")
 		SignalStateEntries.Set(0)
 		SignalEvictedTotal.WithLabelValues("unknown")
 		SignalEvalLatencySeconds.Observe(0)
 		SignalDedupTotal.WithLabelValues("unknown")
+		SignalWireBytes.WithLabelValues("unknown").Observe(0)
 		SignalLELAdaptedTotal.WithLabelValues("unknown")
 		SignalLELAdaptErrorsTotal.WithLabelValues("unknown")
 		VPVRBuilderBucketCount.WithLabelValues("unknown", "unknown", "unknown")
@@ -2926,10 +2945,10 @@ func DecMRSignalWSActiveSubscriptions() {
 }
 
 func IncSignalEmitted(signalType, severity string) {
-	SignalEmittedTotal.WithLabelValues(
-		sanitizeKind(signalType),
-		sanitizeSignalSeverity(severity),
-	).Inc()
+	typeLabel := sanitizeKind(signalType)
+	severityLabel := sanitizeSignalSeverity(severity)
+	SignalEmittedTotal.WithLabelValues(typeLabel, severityLabel).Inc()
+	SignalEmitTotal.WithLabelValues(typeLabel, severityLabel).Inc()
 }
 
 func SetSignalStateEntries(entries int) {
@@ -2952,6 +2971,13 @@ func ObserveSignalEvalLatency(d time.Duration) {
 
 func IncSignalDedup(signalType string) {
 	SignalDedupTotal.WithLabelValues(sanitizeKind(signalType)).Inc()
+}
+
+func ObserveSignalWireBytes(signalType string, sizeBytes int) {
+	if sizeBytes < 0 {
+		sizeBytes = 0
+	}
+	SignalWireBytes.WithLabelValues(sanitizeKind(signalType)).Observe(float64(sizeBytes))
 }
 
 func IncSignalLELAdapted(lelType string) {

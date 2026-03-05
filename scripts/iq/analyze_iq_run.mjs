@@ -202,12 +202,21 @@ addCheck(
 
 const legacyEvidenceRejected = Number(probe.probe_md_legacy_evidence_rejected ?? -1);
 const legacySignalRejected = Number(probe.probe_md_legacy_signal_rejected ?? -1);
+const legacyEvidenceFrames = Number(probe.probe_md_legacy_evidence_frames ?? -1);
+const legacySignalFrames = Number(probe.probe_md_legacy_signal_frames ?? -1);
+const evidenceFallbackFrames = Number(probe.probe_md_evidence_fallback_frames ?? -1);
+const signalFallbackFrames = Number(probe.probe_md_signal_fallback_frames ?? -1);
 addCheck(
-    "legacy_rejections_non_negative",
-    "legacy rejection counters",
-    legacyEvidenceRejected >= 0 && legacySignalRejected >= 0,
-    `legacy_evidence_rejected=${legacyEvidenceRejected} legacy_signal_rejected=${legacySignalRejected}`,
-    ["legacy_evidence_rejected", "legacy_signal_rejected"]
+    "legacy_fallback_zero",
+    "legacy/fallback zero",
+    legacyEvidenceFrames === 0 &&
+        legacySignalFrames === 0 &&
+        evidenceFallbackFrames === 0 &&
+        signalFallbackFrames === 0 &&
+        legacyEvidenceRejected === 0 &&
+        legacySignalRejected === 0,
+    `legacy_evidence_frames=${legacyEvidenceFrames} legacy_signal_frames=${legacySignalFrames} evidence_fallback_frames=${evidenceFallbackFrames} signal_fallback_frames=${signalFallbackFrames} legacy_evidence_rejected=${legacyEvidenceRejected} legacy_signal_rejected=${legacySignalRejected}`,
+    ["legacy_evidence_frames", "legacy_signal_frames", "evidence_fallback_frames", "signal_fallback_frames", "legacy_evidence_rejected", "legacy_signal_rejected"]
 );
 
 const allocFrame = Number(probe.probe_md_alloc_estimate_frame ?? -1);

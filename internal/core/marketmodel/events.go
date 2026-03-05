@@ -156,9 +156,13 @@ type SignalEvent struct {
 	Confidence     float64               `json:"confidence"`
 	Features       []SignalFeature       `json:"features"`
 	Explanation    string                `json:"explanation"`
+	Explain        []string              `json:"explain,omitempty"`
+	SignalID       string                `json:"signal_id"`
+	RuleID         string                `json:"rule_id"`
 	RuleVersion    string                `json:"rule_version"`
 	InputWatermark []SignalInputSeqRange `json:"input_watermark"`
 	CorrelationID  string                `json:"correlation_id"`
+	CorrelationIDs []string              `json:"correlation_ids,omitempty"`
 }
 
 func (t Trade) Validate() *problem.Problem {
@@ -351,8 +355,15 @@ func (s SignalEvent) Validate() *problem.Problem {
 			return problem.New(problem.ValidationFailed, "signal features must be sorted and unique by key")
 		}
 	}
-	if strings.TrimSpace(s.Explanation) == "" {
+	explain := compactNonEmptyStrings(s.Explain)
+	if len(explain) == 0 && strings.TrimSpace(s.Explanation) == "" {
 		return problem.New(problem.ValidationFailed, "signal explanation must not be empty")
+	}
+	if strings.TrimSpace(s.SignalID) == "" {
+		return problem.New(problem.ValidationFailed, "signal signal_id must not be empty")
+	}
+	if strings.TrimSpace(s.RuleID) == "" {
+		return problem.New(problem.ValidationFailed, "signal rule_id must not be empty")
 	}
 	if strings.TrimSpace(s.RuleVersion) == "" {
 		return problem.New(problem.ValidationFailed, "signal rule_version must not be empty")
@@ -375,8 +386,12 @@ func (s SignalEvent) Validate() *problem.Problem {
 			}
 		}
 	}
-	if strings.TrimSpace(s.CorrelationID) == "" {
+	correlationIDs := compactNonEmptyStrings(s.CorrelationIDs)
+	if strings.TrimSpace(s.CorrelationID) == "" && len(correlationIDs) == 0 {
 		return problem.New(problem.ValidationFailed, "signal correlation_id must not be empty")
+	}
+	if hasDuplicateStrings(correlationIDs) {
+		return problem.New(problem.ValidationFailed, "signal correlation_ids must be unique")
 	}
 	return nil
 }
@@ -421,4 +436,36 @@ func isSignalSeverity(severity string) bool {
 
 func isFinite(v float64) bool {
 	return !math.IsNaN(v) && !math.IsInf(v, 0)
+}
+
+func compactNonEmptyStrings(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(in))
+	for i := range in {
+		v := strings.TrimSpace(in[i])
+		if v == "" {
+			continue
+		}
+		out = append(out, v)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func hasDuplicateStrings(in []string) bool {
+	if len(in) <= 1 {
+		return false
+	}
+	seen := make(map[string]struct{}, len(in))
+	for i := range in {
+		if _, ok := seen[in[i]]; ok {
+			return true
+		}
+		seen[in[i]] = struct{}{}
+	}
+	return false
 }

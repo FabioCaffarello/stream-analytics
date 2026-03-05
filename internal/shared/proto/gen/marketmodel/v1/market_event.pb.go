@@ -1174,8 +1174,16 @@ type SignalEvent struct {
 	InputWatermark []*SignalInputSeqRange `protobuf:"bytes,11,rep,name=input_watermark,json=inputWatermark,proto3" json:"input_watermark,omitempty"`
 	// correlation_id is a deterministic correlation identifier.
 	CorrelationId string `protobuf:"bytes,12,opt,name=correlation_id,json=correlationId,proto3" json:"correlation_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// signal_id is the deterministic unique identifier for this signal event.
+	SignalId string `protobuf:"bytes,13,opt,name=signal_id,json=signalId,proto3" json:"signal_id,omitempty"`
+	// rule_id is the deterministic rule identifier.
+	RuleId string `protobuf:"bytes,14,opt,name=rule_id,json=ruleId,proto3" json:"rule_id,omitempty"`
+	// explain carries deterministic explainability fragments.
+	Explain []string `protobuf:"bytes,15,rep,name=explain,proto3" json:"explain,omitempty"`
+	// correlation_ids carries deterministic related evidence/signal identifiers.
+	CorrelationIds []string `protobuf:"bytes,16,rep,name=correlation_ids,json=correlationIds,proto3" json:"correlation_ids,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *SignalEvent) Reset() {
@@ -1290,6 +1298,34 @@ func (x *SignalEvent) GetCorrelationId() string {
 		return x.CorrelationId
 	}
 	return ""
+}
+
+func (x *SignalEvent) GetSignalId() string {
+	if x != nil {
+		return x.SignalId
+	}
+	return ""
+}
+
+func (x *SignalEvent) GetRuleId() string {
+	if x != nil {
+		return x.RuleId
+	}
+	return ""
+}
+
+func (x *SignalEvent) GetExplain() []string {
+	if x != nil {
+		return x.Explain
+	}
+	return nil
+}
+
+func (x *SignalEvent) GetCorrelationIds() []string {
+	if x != nil {
+		return x.CorrelationIds
+	}
+	return nil
 }
 
 // MarketEvent is a typed canonical market event envelope.
@@ -1565,7 +1601,7 @@ const file_marketmodel_v1_market_event_proto_rawDesc = "" +
 	"\x05venue\x18\x01 \x01(\tR\x05venue\x12\x16\n" +
 	"\x06symbol\x18\x02 \x01(\tR\x06symbol\x12\x1b\n" +
 	"\tseq_start\x18\x03 \x01(\x03R\bseqStart\x12\x17\n" +
-	"\aseq_end\x18\x04 \x01(\x03R\x06seqEndJ\x05\bd\x10\xc8\x01\"\xee\x03\n" +
+	"\aseq_end\x18\x04 \x01(\x03R\x06seqEndJ\x05\bd\x10\xc8\x01\"\xe7\x04\n" +
 	"\vSignalEvent\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12\x1b\n" +
 	"\tts_server\x18\x02 \x01(\x03R\btsServer\x121\n" +
@@ -1581,7 +1617,11 @@ const file_marketmodel_v1_market_event_proto_rawDesc = "" +
 	"\frule_version\x18\n" +
 	" \x01(\tR\vruleVersion\x12L\n" +
 	"\x0finput_watermark\x18\v \x03(\v2#.marketmodel.v1.SignalInputSeqRangeR\x0einputWatermark\x12%\n" +
-	"\x0ecorrelation_id\x18\f \x01(\tR\rcorrelationIdJ\x05\bd\x10\xc8\x01\"\xdb\x03\n" +
+	"\x0ecorrelation_id\x18\f \x01(\tR\rcorrelationId\x12\x1b\n" +
+	"\tsignal_id\x18\r \x01(\tR\bsignalId\x12\x17\n" +
+	"\arule_id\x18\x0e \x01(\tR\x06ruleId\x12\x18\n" +
+	"\aexplain\x18\x0f \x03(\tR\aexplain\x12'\n" +
+	"\x0fcorrelation_ids\x18\x10 \x03(\tR\x0ecorrelationIdsJ\x05\bd\x10\xc8\x01\"\xdb\x03\n" +
 	"\vMarketEvent\x12-\n" +
 	"\x04meta\x18\x01 \x01(\v2\x19.marketmodel.v1.EventMetaR\x04meta\x12-\n" +
 	"\x05trade\x18\x02 \x01(\v2\x15.marketmodel.v1.TradeH\x00R\x05trade\x12C\n" +

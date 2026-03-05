@@ -260,6 +260,14 @@ message SignalEvent {
   repeated SignalInputSeqRange input_watermark = 11;
   // correlation_id is a deterministic correlation identifier.
   string correlation_id = 12;
+  // signal_id is the deterministic unique identifier for this signal event.
+  string signal_id = 13;
+  // rule_id is the deterministic rule identifier.
+  string rule_id = 14;
+  // explain carries deterministic explainability fragments.
+  repeated string explain = 15;
+  // correlation_ids carries deterministic related evidence/signal identifiers.
+  repeated string correlation_ids = 16;
 
   reserved 100 to 199;
 }

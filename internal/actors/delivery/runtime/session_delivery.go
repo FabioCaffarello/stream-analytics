@@ -430,14 +430,27 @@ func prepareSignalFramePayload(payload json.RawMessage) (wsSignalPayload, *probl
 		Instrument     string          `json:"instrument"`
 		Symbol         string          `json:"symbol"`
 		Timeframe      string          `json:"timeframe"`
+		SignalID       string          `json:"signal_id"`
+		RuleID         string          `json:"rule_id"`
+		RuleVersion    string          `json:"rule_version"`
 		Severity       string          `json:"severity"`
 		Confidence     float64         `json:"confidence"`
 		Evidence       json.RawMessage `json:"evidence"`
 		Features       json.RawMessage `json:"features"`
-		RegimeKind     string          `json:"regime_kind"`
-		RegimeStrength float64         `json:"regime_strength"`
-		Reason         string          `json:"reason"`
-		Explanation    string          `json:"explanation"`
+		EvidenceIDs    []string        `json:"evidence_ids"`
+		Explain        []string        `json:"explain"`
+		CorrelationIDs []string        `json:"correlation_ids"`
+		CorrelationID  string          `json:"correlation_id"`
+		InputWatermark []struct {
+			Venue    string `json:"venue"`
+			Symbol   string `json:"symbol"`
+			SeqStart int64  `json:"seq_start"`
+			SeqEnd   int64  `json:"seq_end"`
+		} `json:"input_watermark"`
+		RegimeKind     string  `json:"regime_kind"`
+		RegimeStrength float64 `json:"regime_strength"`
+		Reason         string  `json:"reason"`
+		Explanation    string  `json:"explanation"`
 	}
 	if err := json.Unmarshal(payload, &in); err != nil {
 		return wsSignalPayload{}, problem.Wrap(err, problem.Internal, "signal payload decode failed")
@@ -457,22 +470,87 @@ func prepareSignalFramePayload(payload json.RawMessage) (wsSignalPayload, *probl
 	if len(evidence) == 0 {
 		evidence = json.RawMessage("[]")
 	}
+	explain := normalizedStringList(in.Explain)
 	reason := strings.TrimSpace(in.Reason)
 	if reason == "" {
 		reason = strings.TrimSpace(in.Explanation)
+	}
+	if reason == "" && len(explain) > 0 {
+		reason = explain[0]
+	}
+	correlationIDs := normalizedStringList(append(in.CorrelationIDs, in.CorrelationID))
+	evidenceIDs := normalizedStringList(in.EvidenceIDs)
+	if len(evidenceIDs) == 0 {
+		evidenceIDs = evidenceIDsFromWatermark(in.InputWatermark)
 	}
 	return wsSignalPayload{
 		Kind:           strings.ToLower(strings.TrimSpace(kind)),
 		Venue:          strings.ToLower(strings.TrimSpace(in.Venue)),
 		Instrument:     instrument,
 		Timeframe:      strings.ToLower(strings.TrimSpace(in.Timeframe)),
+		SignalID:       strings.TrimSpace(in.SignalID),
+		RuleID:         strings.TrimSpace(in.RuleID),
+		RuleVersion:    strings.TrimSpace(in.RuleVersion),
 		Severity:       strings.ToLower(strings.TrimSpace(in.Severity)),
 		Confidence:     in.Confidence,
 		Evidence:       evidence,
+		EvidenceIDs:    evidenceIDs,
+		Explain:        explain,
+		CorrelationIDs: correlationIDs,
 		Regime:         strings.ToLower(strings.TrimSpace(in.RegimeKind)),
 		RegimeStrength: in.RegimeStrength,
 		Reason:         reason,
 	}, nil
+}
+
+func normalizedStringList(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(in))
+	seen := make(map[string]struct{}, len(in))
+	for i := range in {
+		v := strings.TrimSpace(in[i])
+		if v == "" {
+			continue
+		}
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func evidenceIDsFromWatermark(in []struct {
+	Venue    string `json:"venue"`
+	Symbol   string `json:"symbol"`
+	SeqStart int64  `json:"seq_start"`
+	SeqEnd   int64  `json:"seq_end"`
+}) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(in))
+	for i := range in {
+		venue := strings.ToUpper(strings.TrimSpace(in[i].Venue))
+		symbol := strings.ToUpper(strings.TrimSpace(in[i].Symbol))
+		if venue == "" || symbol == "" {
+			continue
+		}
+		if in[i].SeqStart <= 0 || in[i].SeqEnd <= 0 {
+			continue
+		}
+		if in[i].SeqEnd < in[i].SeqStart {
+			continue
+		}
+		out = append(out, fmt.Sprintf("%s|%s|%d-%d", venue, symbol, in[i].SeqStart, in[i].SeqEnd))
+	}
+	return normalizedStringList(out)
 }
 
 func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) *problem.Problem {

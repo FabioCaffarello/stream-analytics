@@ -28,6 +28,8 @@ type RuleOutput struct {
 	Confidence  float64
 	Features    []marketmodel.SignalFeature
 	Explanation string
+	Explain     []string
+	RuleID      string
 	RuleVersion string
 }
 
@@ -132,6 +134,11 @@ func (r RegimeChangeRule) Evaluate(input RuleInput) (RuleOutput, bool) {
 			{Key: "mean_confidence", Value: avgConfidence},
 		},
 		Explanation: "evidence burst indicates regime transition pressure",
+		Explain: []string{
+			"evidence burst exceeded threshold",
+			"distinct evidence types indicate regime pressure",
+		},
+		RuleID:      "regime_change_rule",
 		RuleVersion: ruleVersionForEvidence(r.cfg.RuleVersion, r.cfg.LELRuleVersion, input.Evidence.RuleVersion),
 	}, true
 }
@@ -182,6 +189,11 @@ func (r LiquidityCollapseRule) Evaluate(input RuleInput) (RuleOutput, bool) {
 			{Key: "window_ms", Value: float64(r.cfg.WindowMs)},
 		},
 		Explanation: "thinning and spread explosion co-occurred in the same window",
+		Explain: []string{
+			"thinning evidence observed in correlation window",
+			"spread explosion evidence observed in correlation window",
+		},
+		RuleID:      "liquidity_collapse_rule",
 		RuleVersion: ruleVersionForEvidence(r.cfg.RuleVersion, r.cfg.LELRuleVersion, input.Evidence.RuleVersion),
 	}, true
 }
@@ -237,6 +249,11 @@ func (r PersistentImbalanceRule) Evaluate(input RuleInput) (RuleOutput, bool) {
 			{Key: "window_ms", Value: float64(r.cfg.WindowMs)},
 		},
 		Explanation: "persistent imbalance persisted with absorption evidence",
+		Explain: []string{
+			"persistent imbalance count exceeded threshold",
+			"absorption confirmation present in window",
+		},
+		RuleID:      "persistent_imbalance_rule",
 		RuleVersion: ruleVersionForEvidence(r.cfg.RuleVersion, r.cfg.LELRuleVersion, input.Evidence.RuleVersion),
 	}, true
 }
@@ -266,6 +283,10 @@ func (r VenueDivergenceRule) Evaluate(input RuleInput) (RuleOutput, bool) {
 			{Key: "aggregator_cap", Value: float64(r.cfg.AggregatorCap)},
 		},
 		Explanation: "multi-venue divergence detector enabled",
+		Explain: []string{
+			"multi-venue divergence detector explicitly enabled",
+		},
+		RuleID:      "venue_divergence_rule",
 		RuleVersion: fallbackRuleVersion(r.cfg.RuleVersion),
 	}, true
 }

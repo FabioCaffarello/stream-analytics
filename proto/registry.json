@@ -167,7 +167,8 @@
       "proto_file": "marketmodel/v1/market_event.proto",
       "message": "marketmodel.v1.SignalEvent",
       "status": "stable",
-      "introduced_at": "2026-03-04"
+      "introduced_at": "2026-03-04",
+      "updated_at": "2026-03-05"
     }
   ]
 }

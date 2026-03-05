@@ -40,9 +40,13 @@ Signal Engine consumers must not subscribe to raw exchange payloads.
 - `confidence` in `[0,1]`
 - `features` (sorted by key, deterministic)
 - `explanation`
+- `explain[]` (deterministic explainability fragments)
+- `signal_id` (deterministic unique signal identifier)
+- `rule_id`
 - `rule_version`
 - `input_watermark` (deterministic seq ranges)
 - `correlation_id` (deterministic hash)
+- `correlation_ids[]` (deterministic related ids, including evidence linkage)
 
 ## Initial v0 Rules
 
@@ -84,11 +88,13 @@ Rules are deterministic and configuration-driven through engine/rule config stru
 
 ## Observability
 
-- `signal_emitted_total{type,severity}`
+- `signal_emit_total{type,severity}`
+- `signal_emitted_total{type,severity}` (backward-compatible alias)
 - `signal_state_entries`
 - `signal_evicted_total{reason}`
 - `signal_eval_latency_seconds`
 - `signal_dedup_total{type}`
+- `signal_wire_bytes{type}`
 
 Cardinality policy: no symbol-level labels in default signal metrics.
 

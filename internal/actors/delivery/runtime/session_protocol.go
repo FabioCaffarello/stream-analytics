@@ -155,9 +155,15 @@ type wsSignalPayload struct {
 	Venue          string          `json:"venue"`
 	Instrument     string          `json:"instrument"`
 	Timeframe      string          `json:"timeframe"`
+	SignalID       string          `json:"signal_id,omitempty"`
+	RuleID         string          `json:"rule_id,omitempty"`
+	RuleVersion    string          `json:"rule_version,omitempty"`
 	Severity       string          `json:"severity"`
 	Confidence     float64         `json:"confidence"`
 	Evidence       json.RawMessage `json:"evidence"`
+	EvidenceIDs    []string        `json:"evidence_ids,omitempty"`
+	Explain        []string        `json:"explain,omitempty"`
+	CorrelationIDs []string        `json:"correlation_ids,omitempty"`
 	Regime         string          `json:"regime,omitempty"`
 	RegimeStrength float64         `json:"regime_strength,omitempty"`
 	Reason         string          `json:"reason"`

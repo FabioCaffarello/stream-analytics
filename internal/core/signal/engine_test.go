@@ -2,6 +2,7 @@ package signal
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	evidencedomain "github.com/market-raccoon/internal/core/evidence/domain"
@@ -235,7 +236,7 @@ func TestSignalEngine_LELEvidence_DedupReplaySuppressed(t *testing.T) {
 		t.Fatalf("expected liquidity_collapse before replay, got=%+v", out)
 	}
 
-	emissions, _, _, _, p := engine.OnEvidenceEvent(key, "tenant-a", replay)
+	emissions, _, _, _, _, p := engine.OnEvidenceEvent(key, "tenant-a", replay)
 	if p != nil {
 		t.Fatalf("replay OnEvidenceEvent failed: %v", p)
 	}
@@ -244,11 +245,108 @@ func TestSignalEngine_LELEvidence_DedupReplaySuppressed(t *testing.T) {
 	}
 }
 
+func TestSignalEngine_EmissionCarriesSignalIdentityAndExplainability(t *testing.T) {
+	t.Parallel()
+	cfg := EngineConfig{
+		Store: StateStoreConfig{
+			PerStreamWindow:    8,
+			PerTenantStreamCap: 8,
+			GlobalStreamCap:    32,
+			TTLMillis:          10_000,
+			DedupWindowMillis:  1,
+			TenantRateLimitMin: 10,
+		},
+		Rules: DefaultRulesConfig(),
+	}
+	key := mustStreamKey(t, "binance", "BTC-USDT", marketmodel.ChannelEvidence)
+	engine := NewSignalEngine(cfg, nil, testEmitRule{})
+
+	emissions, _, _, _, _, p := engine.OnEvidenceEvent(key, "tenant-a", makeEvidence("spread_explosion", 1000, 1, "high", 0.9))
+	if p != nil {
+		t.Fatalf("OnEvidenceEvent failed: %v", p)
+	}
+	if len(emissions) != 1 {
+		t.Fatalf("emissions len=%d want=1", len(emissions))
+	}
+	got := emissions[0].Event
+	if got.SignalID == "" {
+		t.Fatal("signal_id must not be empty")
+	}
+	if got.RuleID != "test_emit_rule" {
+		t.Fatalf("rule_id=%q want=%q", got.RuleID, "test_emit_rule")
+	}
+	if len(got.Explain) == 0 {
+		t.Fatal("explain must not be empty")
+	}
+	if got.Explanation != got.Explain[0] {
+		t.Fatalf("explanation=%q want first explain fragment=%q", got.Explanation, got.Explain[0])
+	}
+	if got.CorrelationID == "" {
+		t.Fatal("correlation_id must not be empty")
+	}
+	if !containsString(got.CorrelationIDs, got.CorrelationID) {
+		t.Fatalf("correlation_ids=%v must include primary correlation_id", got.CorrelationIDs)
+	}
+	if !containsPrefix(got.CorrelationIDs, "evidence:") {
+		t.Fatalf("correlation_ids=%v must include evidence link id", got.CorrelationIDs)
+	}
+}
+
+func TestSignalEngine_TenantRateLimitPerMinuteIsolation(t *testing.T) {
+	t.Parallel()
+	cfg := EngineConfig{
+		Store: StateStoreConfig{
+			PerStreamWindow:    8,
+			PerTenantStreamCap: 8,
+			GlobalStreamCap:    32,
+			TTLMillis:          10_000,
+			DedupWindowMillis:  1,
+			TenantRateLimitMin: 1,
+		},
+		Rules: DefaultRulesConfig(),
+	}
+	key := mustStreamKey(t, "binance", "BTC-USDT", marketmodel.ChannelEvidence)
+	engine := NewSignalEngine(cfg, nil, testEmitRule{})
+
+	first, _, _, firstRateLimited, _, p := engine.OnEvidenceEvent(key, "tenant-a", makeEvidence("spread_explosion", 1000, 1, "high", 0.9))
+	if p != nil {
+		t.Fatalf("first OnEvidenceEvent failed: %v", p)
+	}
+	if len(first) != 1 {
+		t.Fatalf("first emissions len=%d want=1", len(first))
+	}
+	if len(firstRateLimited) != 0 {
+		t.Fatalf("first rate_limited=%v want=[]", firstRateLimited)
+	}
+
+	second, _, _, secondRateLimited, _, p := engine.OnEvidenceEvent(key, "tenant-a", makeEvidence("spread_explosion", 2000, 2, "high", 0.9))
+	if p != nil {
+		t.Fatalf("second OnEvidenceEvent failed: %v", p)
+	}
+	if len(second) != 0 {
+		t.Fatalf("second emissions len=%d want=0 due to tenant rate-limit", len(second))
+	}
+	if !containsString(secondRateLimited, "test_signal") {
+		t.Fatalf("rate_limited=%v want test_signal", secondRateLimited)
+	}
+
+	otherTenant, _, _, otherRateLimited, _, p := engine.OnEvidenceEvent(key, "tenant-b", makeEvidence("spread_explosion", 3000, 3, "high", 0.9))
+	if p != nil {
+		t.Fatalf("third OnEvidenceEvent failed: %v", p)
+	}
+	if len(otherTenant) != 1 {
+		t.Fatalf("other tenant emissions len=%d want=1", len(otherTenant))
+	}
+	if len(otherRateLimited) != 0 {
+		t.Fatalf("other tenant rate_limited=%v want=[]", otherRateLimited)
+	}
+}
+
 func runEvidence(t *testing.T, engine *SignalEngine, key marketmodel.StreamKey, events []evidencedomain.EvidenceEvent) []Emission {
 	t.Helper()
 	out := make([]Emission, 0)
 	for i := range events {
-		emissions, _, _, _, p := engine.OnEvidenceEvent(key, "tenant-a", events[i])
+		emissions, _, _, _, _, p := engine.OnEvidenceEvent(key, "tenant-a", events[i])
 		if p != nil {
 			t.Fatalf("OnEvidenceEvent failed: %v", p)
 		}
@@ -353,6 +451,47 @@ func assertRuleVersionForType(t *testing.T, emissions []Emission, signalType, ex
 		}
 	}
 	t.Fatalf("signal type %s not found in emissions", signalType)
+}
+
+type testEmitRule struct{}
+
+func (testEmitRule) Name() string { return "TestEmitRule" }
+
+func (testEmitRule) Evaluate(input RuleInput) (RuleOutput, bool) {
+	return RuleOutput{
+		Type:       "test_signal",
+		Scope:      marketmodel.SignalScopeStream,
+		Severity:   "high",
+		Confidence: 0.9,
+		Features: []marketmodel.SignalFeature{
+			{Key: "evidence_seq", Value: float64(input.Evidence.Seq)},
+		},
+		Explanation: "test rule fired",
+		Explain: []string{
+			"test rule fired",
+			"evidence sequence contributes to explainability",
+		},
+		RuleID:      "test_emit_rule",
+		RuleVersion: "v1",
+	}, true
+}
+
+func containsString(in []string, target string) bool {
+	for i := range in {
+		if in[i] == target {
+			return true
+		}
+	}
+	return false
+}
+
+func containsPrefix(in []string, prefix string) bool {
+	for i := range in {
+		if strings.HasPrefix(in[i], prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func mustStreamKey(t *testing.T, venue, symbol string, channel marketmodel.Channel) marketmodel.StreamKey {
