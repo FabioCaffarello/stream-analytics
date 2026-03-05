@@ -64,6 +64,8 @@ type BuildStatsFromEvents struct {
 	timeframes []string
 }
 
+const statsClosedBufferCap = 18 // 9 timeframes + up to 9 forced closes in one input tick.
+
 // NewBuildStatsFromEvents constructs BuildStatsFromEvents.
 func NewBuildStatsFromEvents(
 	pub ports.ArtifactPublisher,
@@ -121,7 +123,8 @@ func (uc *BuildStatsFromEvents) Execute(ctx context.Context, req BuildStatsReque
 	}
 	venue := naming.CanonicalVenue(req.Venue)
 	instrument := naming.CanonicalInstrument(req.Instrument)
-	var closed []domain.StatsWindowClosed
+	var closedBuf [statsClosedBufferCap]domain.StatsWindowClosed
+	closedCount := 0
 
 	for _, timeframe := range uc.timeframes {
 		key := domain.StatsKey{
@@ -134,7 +137,10 @@ func (uc *BuildStatsFromEvents) Execute(ctx context.Context, req BuildStatsReque
 			return BuildStatsResponse{}, p
 		}
 		if forcedClosed != nil {
-			closed = append(closed, *forcedClosed)
+			if closedCount < len(closedBuf) {
+				closedBuf[closedCount] = *forcedClosed
+				closedCount++
+			}
 		}
 		if decision.IsLate {
 			metrics.IncMRWindowLateArrival(key.Venue, key.Instrument, key.Timeframe)
@@ -147,17 +153,29 @@ func (uc *BuildStatsFromEvents) Execute(ctx context.Context, req BuildStatsReque
 			return BuildStatsResponse{}, p
 		}
 		if closedEvt != nil {
-			closed = append(closed, *closedEvt)
+			if closedCount < len(closedBuf) {
+				closedBuf[closedCount] = *closedEvt
+				closedCount++
+			}
 		}
 
-		win, p := uc.getOrCreateWindow(key, windowStart)
+		win, p := uc.getOrCreateWindow(key, windowStart, uc.windowMs[timeframe])
 		if p != nil {
 			return BuildStatsResponse{}, p
+		}
+		if req.TsIngest > win.TsIngestMs {
+			win.TsIngestMs = req.TsIngest
 		}
 		if p := applyStatsUpdate(win, req); p != nil {
 			return BuildStatsResponse{}, p
 		}
 		uc.windows.Put(key, win)
+	}
+
+	var closed []domain.StatsWindowClosed
+	if closedCount > 0 {
+		closed = make([]domain.StatsWindowClosed, closedCount)
+		copy(closed, closedBuf[:closedCount])
 	}
 
 	return BuildStatsResponse{
@@ -218,6 +236,11 @@ func (uc *BuildStatsFromEvents) closeIfWindowChanged(
 	if p := existing.Close(existing.WindowStartTs + windowDurationMs); p != nil {
 		return nil, p
 	}
+	existing.WindowMs = windowDurationMs
+	if existing.TsIngestMs <= 0 {
+		existing.TsIngestMs = existing.WindowEndTs
+	}
+	existing.SetQualityFlags(false)
 	evt, p := uc.persistClosedStats(ctx, *existing)
 	if p != nil {
 		return nil, p
@@ -229,10 +252,14 @@ func (uc *BuildStatsFromEvents) closeIfWindowChanged(
 func (uc *BuildStatsFromEvents) getOrCreateWindow(
 	key domain.StatsKey,
 	windowStart int64,
+	windowDurationMs int64,
 ) (*domain.StatsWindowV1, *problem.Problem) {
 	if w, ok := uc.windows.Get(key); ok {
 		if w.WindowStartTs != windowStart {
 			return nil, problem.New(problem.IntegrityViolation, "stats window mismatch after window roll")
+		}
+		if w.WindowMs <= 0 {
+			w.WindowMs = windowDurationMs
 		}
 		return w, nil
 	}
@@ -240,6 +267,7 @@ func (uc *BuildStatsFromEvents) getOrCreateWindow(
 	if p != nil {
 		return nil, p
 	}
+	w.WindowMs = windowDurationMs
 	uc.windows.Put(key, w)
 	return w, nil
 }
@@ -327,6 +355,11 @@ func (uc *BuildStatsFromEvents) forceCloseWindow(
 	if p := existing.Close(existing.WindowStartTs + windowDurationMs); p != nil {
 		return nil, p
 	}
+	existing.WindowMs = windowDurationMs
+	if existing.TsIngestMs <= 0 {
+		existing.TsIngestMs = existing.WindowEndTs
+	}
+	existing.SetQualityFlags(true)
 	evt, p := uc.persistClosedStats(ctx, *existing)
 	if p != nil {
 		return nil, p

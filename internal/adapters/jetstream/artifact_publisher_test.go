@@ -229,6 +229,9 @@ func TestArtifactPublisher_PublishStatsClosed(t *testing.T) {
 			Timeframe:      "5m",
 			WindowStartTs:  1_710_000_000_000,
 			WindowEndTs:    1_710_000_300_000,
+			WindowMs:       300_000,
+			TsIngestMs:     1_710_000_300_123,
+			QualityFlags:   3,
 			LiqBuyVolume:   5.0,
 			LiqSellVolume:  3.0,
 			LiqTotalVolume: 8.0,
@@ -358,6 +361,9 @@ func TestDomainStatsToWireDTO_FieldMapping(t *testing.T) {
 			Timeframe:       "1h",
 			WindowStartTs:   1000,
 			WindowEndTs:     2000,
+			WindowMs:        1000,
+			TsIngestMs:      2123,
+			QualityFlags:    9,
 			LiqBuyVolume:    10.0,
 			LiqSellVolume:   7.0,
 			LiqTotalVolume:  17.0,
@@ -384,5 +390,8 @@ func TestDomainStatsToWireDTO_FieldMapping(t *testing.T) {
 	}
 	if s.MarkPriceOpen != 150.0 || s.MarkPriceHigh != 155.0 || s.FundingRateAvg != 0.0001 {
 		t.Fatalf("markprice/funding mismatch: %+v", s)
+	}
+	if s.WindowMs != 1000 || s.TsIngestMs != 2123 || s.QualityFlags != 9 {
+		t.Fatalf("window/quality mismatch: %+v", s)
 	}
 }

@@ -154,6 +154,13 @@ func (a *ArtifactPublisher) PublishStatsClosed(ctx context.Context, evt aggdomai
 	if p != nil {
 		return p
 	}
+	metrics.ObserveMRStatsWireBytes(evt.Stats.Venue, evt.Stats.Timeframe, len(payload))
+	metrics.ObserveMRStatsQualityFlags(
+		evt.Stats.Venue,
+		evt.Stats.Instrument,
+		evt.Stats.Timeframe,
+		evt.Stats.QualityFlags,
+	)
 	env := envelope.Envelope{
 		Type:       "aggregation.stats",
 		Version:    1,
@@ -283,6 +290,9 @@ func domainStatsToWireDTO(evt aggdomain.StatsWindowClosed) contracts.Aggregation
 			Timeframe:       s.Timeframe,
 			WindowStartTs:   s.WindowStartTs,
 			WindowEndTs:     s.WindowEndTs,
+			WindowMs:        s.WindowMs,
+			TsIngestMs:      s.TsIngestMs,
+			QualityFlags:    s.QualityFlags,
 			LiqBuyVolume:    s.LiqBuyVolume,
 			LiqSellVolume:   s.LiqSellVolume,
 			LiqTotalVolume:  s.LiqTotalVolume,

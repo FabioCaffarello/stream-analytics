@@ -10,6 +10,13 @@ import (
 
 const statsFundingFixedScale int64 = 1_000_000_000
 
+const (
+	StatsQualityFlagMissingLiquidation uint32 = 1 << iota
+	StatsQualityFlagMissingMarkPrice
+	StatsQualityFlagMissingFunding
+	StatsQualityFlagForcedClose
+)
+
 // AllowedStatsTimeframes defines the fixed stats timeframe set in v1.
 var AllowedStatsTimeframes = []string{"1s", "5s", "1m", "5m", "15m", "30m", "1h", "4h", "1d"}
 
@@ -43,6 +50,9 @@ type StatsWindowV1 struct {
 	Timeframe       string
 	WindowStartTs   int64
 	WindowEndTs     int64
+	WindowMs        int64
+	TsIngestMs      int64
+	QualityFlags    uint32
 	LiqBuyVolume    float64
 	LiqSellVolume   float64
 	LiqTotalVolume  float64
@@ -207,7 +217,9 @@ func (w *StatsWindowV1) Close(windowEndTs int64) *problem.Problem {
 		)
 	}
 	w.WindowEndTs = windowEndTs
+	w.WindowMs = windowEndTs - w.WindowStartTs
 	w.IsClosed = true
+	w.setQualityFlags(false)
 	return w.Validate()
 }
 
@@ -226,6 +238,9 @@ func (w *StatsWindowV1) Validate() *problem.Problem {
 	}
 	if w.IsClosed && w.WindowEndTs <= w.WindowStartTs {
 		return problem.New(problem.IntegrityViolation, "closed stats window must have valid window bounds")
+	}
+	if w.IsClosed && w.WindowMs <= 0 {
+		return problem.New(problem.IntegrityViolation, "closed stats window must have window_ms > 0")
 	}
 	if !w.IsClosed && w.WindowEndTs != 0 {
 		return problem.New(problem.IntegrityViolation, "open stats window must not have window_end_ts set")
@@ -255,6 +270,10 @@ func (w *StatsWindowV1) Validate() *problem.Problem {
 		}
 	}
 	return nil
+}
+
+func (w *StatsWindowV1) SetQualityFlags(forcedClose bool) {
+	w.setQualityFlags(forcedClose)
 }
 
 func (w *StatsWindowV1) checkMutable() *problem.Problem {
@@ -293,4 +312,21 @@ func (w *StatsWindowV1) syncFromFixed() {
 		w.FundingRateAvg = fromFixed(w.fundingRateAvgFixed, statsFundingFixedScale)
 		w.FundingRateLast = fromFixed(w.fundingRateLastFixed, statsFundingFixedScale)
 	}
+}
+
+func (w *StatsWindowV1) setQualityFlags(forcedClose bool) {
+	var flags uint32
+	if w.LiqCount == 0 {
+		flags |= StatsQualityFlagMissingLiquidation
+	}
+	if w.markPriceSamples == 0 {
+		flags |= StatsQualityFlagMissingMarkPrice
+	}
+	if w.fundingRateSamples == 0 {
+		flags |= StatsQualityFlagMissingFunding
+	}
+	if forcedClose {
+		flags |= StatsQualityFlagForcedClose
+	}
+	w.QualityFlags = flags
 }

@@ -57,6 +57,12 @@ func TestBuildStats_WindowClose_EmitsStatsClosed(t *testing.T) {
 	if resp.Closed[0].Stats.Timeframe != "1s" {
 		t.Fatalf("closed timeframe=%s want=1s", resp.Closed[0].Stats.Timeframe)
 	}
+	if resp.Closed[0].Stats.WindowMs != 1_000 {
+		t.Fatalf("window_ms=%d want=1000", resp.Closed[0].Stats.WindowMs)
+	}
+	if resp.Closed[0].Stats.TsIngestMs != 1 {
+		t.Fatalf("ts_ingest_ms=%d want=1", resp.Closed[0].Stats.TsIngestMs)
+	}
 	if len(pub.stats) == 0 || len(store.events) == 0 {
 		t.Fatalf("expected publish+store side effects, got pub=%d store=%d", len(pub.stats), len(store.events))
 	}
@@ -223,6 +229,15 @@ func assertStatsWindowValues(t *testing.T, s domain.StatsWindowV1) {
 	}
 	if s.FundingRateAvg != 0.0002 || s.FundingRateLast != 0.0002 {
 		t.Fatalf("timeframe=%s unexpected funding: avg=%f last=%f", s.Timeframe, s.FundingRateAvg, s.FundingRateLast)
+	}
+	if s.WindowMs <= 0 {
+		t.Fatalf("timeframe=%s expected positive window_ms, got=%d", s.Timeframe, s.WindowMs)
+	}
+	if s.TsIngestMs <= 0 {
+		t.Fatalf("timeframe=%s expected positive ts_ingest_ms, got=%d", s.Timeframe, s.TsIngestMs)
+	}
+	if s.QualityFlags != 0 {
+		t.Fatalf("timeframe=%s expected quality_flags=0 when all inputs are present, got=%d", s.Timeframe, s.QualityFlags)
 	}
 	if !s.IsClosed {
 		t.Fatalf("timeframe=%s expected closed window", s.Timeframe)

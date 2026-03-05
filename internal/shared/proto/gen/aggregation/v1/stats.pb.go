@@ -59,7 +59,13 @@ type StatsWindowClosedV1 struct {
 	// SeqLast is the last sequence number in the window.
 	SeqLast int64 `protobuf:"varint,17,opt,name=seq_last,json=seqLast,proto3" json:"seq_last,omitempty"`
 	// IsClosed indicates the stats window is finalized.
-	IsClosed      bool `protobuf:"varint,18,opt,name=is_closed,json=isClosed,proto3" json:"is_closed,omitempty"`
+	IsClosed bool `protobuf:"varint,18,opt,name=is_closed,json=isClosed,proto3" json:"is_closed,omitempty"`
+	// WindowMs is the bounded window size in milliseconds.
+	WindowMs int64 `protobuf:"varint,19,opt,name=window_ms,json=windowMs,proto3" json:"window_ms,omitempty"`
+	// TsIngestMs is the latest ingest timestamp observed for this window.
+	TsIngestMs int64 `protobuf:"varint,20,opt,name=ts_ingest_ms,json=tsIngestMs,proto3" json:"ts_ingest_ms,omitempty"`
+	// QualityFlags is a deterministic bitset describing data quality for this window.
+	QualityFlags  uint32 `protobuf:"varint,21,opt,name=quality_flags,json=qualityFlags,proto3" json:"quality_flags,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -220,11 +226,32 @@ func (x *StatsWindowClosedV1) GetIsClosed() bool {
 	return false
 }
 
+func (x *StatsWindowClosedV1) GetWindowMs() int64 {
+	if x != nil {
+		return x.WindowMs
+	}
+	return 0
+}
+
+func (x *StatsWindowClosedV1) GetTsIngestMs() int64 {
+	if x != nil {
+		return x.TsIngestMs
+	}
+	return 0
+}
+
+func (x *StatsWindowClosedV1) GetQualityFlags() uint32 {
+	if x != nil {
+		return x.QualityFlags
+	}
+	return 0
+}
+
 var File_aggregation_v1_stats_proto protoreflect.FileDescriptor
 
 const file_aggregation_v1_stats_proto_rawDesc = "" +
 	"\n" +
-	"\x1aaggregation/v1/stats.proto\x12\x0eaggregation.v1\"\x9c\x05\n" +
+	"\x1aaggregation/v1/stats.proto\x12\x0eaggregation.v1\"\x80\x06\n" +
 	"\x13StatsWindowClosedV1\x12\x14\n" +
 	"\x05venue\x18\x01 \x01(\tR\x05venue\x12\x1e\n" +
 	"\n" +
@@ -246,7 +273,11 @@ const file_aggregation_v1_stats_proto_rawDesc = "" +
 	"\x11funding_rate_last\x18\x0f \x01(\x01R\x0ffundingRateLast\x12\x1b\n" +
 	"\tseq_first\x18\x10 \x01(\x03R\bseqFirst\x12\x19\n" +
 	"\bseq_last\x18\x11 \x01(\x03R\aseqLast\x12\x1b\n" +
-	"\tis_closed\x18\x12 \x01(\bR\bisClosedJ\x05\bd\x10\xc8\x01BDZBgithub.com/market-raccoon/internal/shared/proto/gen/aggregation/v1b\x06proto3"
+	"\tis_closed\x18\x12 \x01(\bR\bisClosed\x12\x1b\n" +
+	"\twindow_ms\x18\x13 \x01(\x03R\bwindowMs\x12 \n" +
+	"\fts_ingest_ms\x18\x14 \x01(\x03R\n" +
+	"tsIngestMs\x12#\n" +
+	"\rquality_flags\x18\x15 \x01(\rR\fqualityFlagsJ\x05\bd\x10\xc8\x01BDZBgithub.com/market-raccoon/internal/shared/proto/gen/aggregation/v1b\x06proto3"
 
 var (
 	file_aggregation_v1_stats_proto_rawDescOnce sync.Once

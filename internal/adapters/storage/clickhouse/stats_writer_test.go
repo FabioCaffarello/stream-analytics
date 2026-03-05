@@ -18,6 +18,7 @@ func testStatsWindowClosed() aggdomain.StatsWindowClosed {
 			Timeframe:       "1m",
 			WindowStartTs:   1_710_000_000_000,
 			WindowEndTs:     1_710_000_060_000,
+			WindowMs:        60_000,
 			LiqBuyVolume:    2.5,
 			LiqSellVolume:   1.0,
 			LiqTotalVolume:  3.5,

@@ -274,6 +274,9 @@ func TestMetricsNamesPresent(t *testing.T) {
 	ObserveMRTradeLatency("binance", 0.01)
 	ObserveMRTradeWireBytes("binance", "trade", 256)
 	ObserveMRTradeWireBytes("binance", "tape", 512)
+	ObserveMRStatsWireBytes("binance", "1m", 768)
+	ObserveMRStatsQualityFlags("binance", "BTC-USDT", "1m", 0)
+	ObserveMRStatsQualityFlags("binance", "BTC-USDT", "1m", (1<<0)|(1<<3))
 	SetMRWindowOpen("binance", "BTC-USDT", "1m", 1)
 	IncMRWindowLateArrival("binance", "BTC-USDT", "1m")
 	IncMRWindowForceClose("binance", "BTC-USDT", "1m")
@@ -395,6 +398,8 @@ func TestMetricsNamesPresent(t *testing.T) {
 		"mr_trade_ingest_total",
 		"mr_trade_latency_seconds",
 		"mr_trade_wire_bytes",
+		"mr_stats_wire_bytes",
+		"mr_stats_quality_flags_total",
 		"mr_window_open_total",
 		"mr_window_late_arrival_total",
 		"mr_window_force_close_total",
@@ -635,6 +640,16 @@ func TestTradeQualityMetrics_StableLabelsOnly(t *testing.T) {
 	assertMetricLabelNames(t, "mr_trade_ingest_total", []string{"venue"})
 	assertMetricLabelNames(t, "mr_trade_latency_seconds", []string{"venue"})
 	assertMetricLabelNames(t, "mr_trade_wire_bytes", []string{"channel", "venue"})
+}
+
+func TestStatsQualityMetrics_StableLabelsOnly(t *testing.T) {
+	t.Parallel()
+
+	ObserveMRStatsWireBytes("binance", "1m", 512)
+	ObserveMRStatsQualityFlags("binance", "BTC-USDT", "1m", (1<<1)|(1<<2))
+
+	assertMetricLabelNames(t, "mr_stats_wire_bytes", []string{"timeframe_bucket", "venue"})
+	assertMetricLabelNames(t, "mr_stats_quality_flags_total", []string{"flag", "instrument_bucket", "timeframe_bucket", "venue"})
 }
 
 func TestLELMetrics_StableLabelsOnly(t *testing.T) {

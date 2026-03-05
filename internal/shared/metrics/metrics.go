@@ -24,6 +24,13 @@ const (
 	policyKitLatencyEveryN = uint64(8)
 )
 
+const (
+	statsQualityFlagMissingLiquidationMask uint32 = 1 << iota
+	statsQualityFlagMissingMarkPriceMask
+	statsQualityFlagMissingFundingMask
+	statsQualityFlagForcedCloseMask
+)
+
 var (
 	IngestMessagesTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -682,6 +689,21 @@ var (
 			Buckets: []float64{64, 128, 256, 512, 1024},
 		},
 		[]string{"venue", "channel"},
+	)
+	MRStatsWireBytes = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mr_stats_wire_bytes",
+			Help:    "Encoded stats window frame size in bytes.",
+			Buckets: []float64{128, 256, 512, 1024, 2048, 4096, 8192},
+		},
+		[]string{"venue", "timeframe_bucket"},
+	)
+	MRStatsQualityFlagsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_stats_quality_flags_total",
+			Help: "Total observed stats quality flags by bounded venue/instrument/timeframe and flag.",
+		},
+		[]string{"venue", "instrument_bucket", "timeframe_bucket", "flag"},
 	)
 	MRWindowOpenTotal = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -1712,6 +1734,8 @@ func registerAll() {
 			MRTradeIngestTotal,
 			MRTradeLatencySeconds,
 			MRTradeWireBytes,
+			MRStatsWireBytes,
+			MRStatsQualityFlagsTotal,
 			MRWindowOpenTotal,
 			MRWindowLateArrivalTotal,
 			MRWindowForceCloseTotal,
@@ -1914,6 +1938,12 @@ func registerAll() {
 		MRTradeLatencySeconds.WithLabelValues("unknown")
 		MRTradeWireBytes.WithLabelValues("unknown", "trade")
 		MRTradeWireBytes.WithLabelValues("unknown", "tape")
+		MRStatsWireBytes.WithLabelValues("unknown", "unknown")
+		MRStatsQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "none")
+		MRStatsQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "missing_liquidation")
+		MRStatsQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "missing_mark_price")
+		MRStatsQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "missing_funding")
+		MRStatsQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "forced_close")
 		InsightsSnapshotsTotal.WithLabelValues("2")
 		InsightsSnapshotsTotal.WithLabelValues("3_4")
 		InsightsSnapshotsTotal.WithLabelValues("5_8")
@@ -2651,6 +2681,49 @@ func ObserveMRTradeWireBytes(venue, channel string, bytes int) {
 		sanitizeVenue(venue),
 		sanitizeTradeWireChannel(channel),
 	).Observe(float64(bytes))
+}
+
+func ObserveMRStatsWireBytes(venue, timeframe string, bytes int) {
+	if bytes < 0 {
+		bytes = 0
+	}
+	MRStatsWireBytes.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketTimeframe(timeframe),
+	).Observe(float64(bytes))
+}
+
+func ObserveMRStatsQualityFlags(venue, instrument, timeframe string, flags uint32) {
+	if flags == 0 {
+		MRStatsQualityFlagsTotal.WithLabelValues(
+			sanitizeVenue(venue),
+			bucketInstrument(instrument),
+			bucketTimeframe(timeframe),
+			"none",
+		).Inc()
+		return
+	}
+	if flags&statsQualityFlagMissingLiquidationMask != 0 {
+		incMRStatsQualityFlag(venue, instrument, timeframe, "missing_liquidation")
+	}
+	if flags&statsQualityFlagMissingMarkPriceMask != 0 {
+		incMRStatsQualityFlag(venue, instrument, timeframe, "missing_mark_price")
+	}
+	if flags&statsQualityFlagMissingFundingMask != 0 {
+		incMRStatsQualityFlag(venue, instrument, timeframe, "missing_funding")
+	}
+	if flags&statsQualityFlagForcedCloseMask != 0 {
+		incMRStatsQualityFlag(venue, instrument, timeframe, "forced_close")
+	}
+}
+
+func incMRStatsQualityFlag(venue, instrument, timeframe, flag string) {
+	MRStatsQualityFlagsTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+		bucketTimeframe(timeframe),
+		sanitizeStatsQualityFlag(flag),
+	).Inc()
 }
 
 // InstrumentBucket returns the bounded metrics label bucket for an instrument.
@@ -3565,6 +3638,15 @@ func sanitizeTradeBadValueReason(v string) string {
 func sanitizeTradeWireChannel(v string) string {
 	switch strings.ToLower(strings.TrimSpace(v)) {
 	case "trade", "tape":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeStatsQualityFlag(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "none", "missing_liquidation", "missing_mark_price", "missing_funding", "forced_close":
 		return strings.ToLower(strings.TrimSpace(v))
 	default:
 		return "unknown"

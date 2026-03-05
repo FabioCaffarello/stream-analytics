@@ -37,6 +37,9 @@ type AggregationStatsWindowV1 struct {
 	Timeframe       string
 	WindowStartTs   int64
 	WindowEndTs     int64
+	WindowMs        int64
+	TsIngestMs      int64
+	QualityFlags    uint32
 	LiqBuyVolume    float64
 	LiqSellVolume   float64
 	LiqTotalVolume  float64

@@ -119,3 +119,36 @@ func TestStatsWindowV1_ApplyLiquidation_OutOfOrderDoesNotMutate(t *testing.T) {
 			buyBefore, totalBefore, countBefore, w.LiqBuyVolume, w.LiqTotalVolume, w.LiqCount)
 	}
 }
+
+func TestStatsWindowV1_Close_SetsWindowMsAndQualityFlags(t *testing.T) {
+	w := newStatsWindow(t)
+	if p := w.ApplyMarkPrice(100, 1); p != nil {
+		t.Fatalf("ApplyMarkPrice: %v", p)
+	}
+	if p := w.Close(120_000); p != nil {
+		t.Fatalf("Close: %v", p)
+	}
+	if got, want := w.WindowMs, int64(60_000); got != want {
+		t.Fatalf("window_ms=%d want=%d", got, want)
+	}
+	if w.QualityFlags&domain.StatsQualityFlagMissingLiquidation == 0 {
+		t.Fatalf("expected missing liquidation flag set, flags=%b", w.QualityFlags)
+	}
+	if w.QualityFlags&domain.StatsQualityFlagMissingFunding == 0 {
+		t.Fatalf("expected missing funding flag set, flags=%b", w.QualityFlags)
+	}
+	if w.QualityFlags&domain.StatsQualityFlagMissingMarkPrice != 0 {
+		t.Fatalf("did not expect missing mark price flag, flags=%b", w.QualityFlags)
+	}
+}
+
+func TestStatsWindowV1_SetQualityFlags_ForcedCloseBit(t *testing.T) {
+	w := newStatsWindow(t)
+	if p := w.ApplyMarkPrice(100, 1); p != nil {
+		t.Fatalf("ApplyMarkPrice: %v", p)
+	}
+	w.SetQualityFlags(true)
+	if w.QualityFlags&domain.StatsQualityFlagForcedClose == 0 {
+		t.Fatalf("expected forced close flag set, flags=%b", w.QualityFlags)
+	}
+}
