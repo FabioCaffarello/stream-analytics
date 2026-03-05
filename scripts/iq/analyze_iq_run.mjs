@@ -145,6 +145,14 @@ const routerViolationSamples = metricSamples(metricsText, "delivery_router_coher
 const routerViolationsTotal = routerViolationSamples.reduce((acc, s) => acc + s.value, 0);
 const batchFallbackSamples = metricSamples(metricsText, "ws_batch_fallback_events_total");
 const batchFallbackEventsTotal = batchFallbackSamples.reduce((acc, s) => acc + s.value, 0);
+const legacyRouteSamples = metricSamples(metricsText, "ws_legacy_requests_total");
+const legacyRouteAcceptedTotal = legacyRouteSamples
+    .filter((s) => s.labels.status === "accepted")
+    .reduce((acc, s) => acc + s.value, 0);
+const legacyRouteRejectedTotal = legacyRouteSamples
+    .filter((s) => s.labels.status === "rejected")
+    .reduce((acc, s) => acc + s.value, 0);
+const legacyRouteTotal = legacyRouteAcceptedTotal + legacyRouteRejectedTotal;
 const allowBatchedFallback = envBool("IQ_ALLOW_BATCHED_FALLBACK");
 const batchFallbackRemovalRuns = Number.parseInt(process.env.IQ_BATCHED_FALLBACK_ZERO_RUNS || "5", 10) || 5;
 const allowStatsFallback = envBool("IQ_ALLOW_STATS_FALLBACK");
@@ -279,6 +287,23 @@ addCheck(
     ["subscribe_sent subject=liquidity.evidence/", "subscribe_sent subject=signal/", "signal/composite/", "insights.microstructure_evidence/"]
 );
 
+addCheck(
+    "legacy_route_zero",
+    "legacy route requests zero",
+    legacyRouteTotal === 0,
+    `ws_legacy_requests_total accepted=${legacyRouteAcceptedTotal} rejected=${legacyRouteRejectedTotal} total=${legacyRouteTotal}`,
+    ["ws_legacy_requests_total", "/ws/marketdata", "legacy route"]
+);
+
+const legacyDowngradeCount = Number(probe.probe_md_legacy_downgrade_count ?? -1);
+addCheck(
+    "legacy_downgrade_zero",
+    "legacy downgrade zero",
+    legacyDowngradeCount === 0,
+    `probe_md_legacy_downgrade_count=${legacyDowngradeCount}`,
+    ["legacy_downgrade", "probe_md_legacy_downgrade_count"]
+);
+
 const legacyEvidenceRejected = Number(probe.probe_md_legacy_evidence_rejected ?? -1);
 const legacySignalRejected = Number(probe.probe_md_legacy_signal_rejected ?? -1);
 const legacyEvidenceFrames = Number(probe.probe_md_legacy_evidence_frames ?? -1);
@@ -392,6 +417,10 @@ markdown.push(`- stats fallback removal requires \`md_stats_fallback_frames=0\` 
 markdown.push(`- current run md_stats_fallback_frames: \`${statsFallbackFrames}\``);
 markdown.push(`- current consecutive zero streak: \`${statsFallbackStreak.streak}\` PASS runs (observed runs: \`${statsFallbackStreak.observedRuns}\`).`);
 markdown.push(`- override active: \`${allowStatsFallback}\` (set via \`IQ_ALLOW_STATS_FALLBACK=1\`)`);
+markdown.push("");
+markdown.push("- legacy cutover gate requires `ws_legacy_requests_total=0` and `probe_md_legacy_downgrade_count=0` (no override).");
+markdown.push(`- current run ws_legacy_requests_total: \`${legacyRouteTotal}\` (accepted=\`${legacyRouteAcceptedTotal}\`, rejected=\`${legacyRouteRejectedTotal}\`)`);
+markdown.push(`- current run probe_md_legacy_downgrade_count: \`${legacyDowngradeCount}\``);
 markdown.push("");
 markdown.push("## Failures");
 markdown.push("");
