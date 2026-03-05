@@ -1,0 +1,32 @@
+# Market Raccoon - AI Instructions & Structural Constraints
+
+You are an AI Agent operating within the **Market Raccoon** repository. You MUST adhere to these strict constraints. Failure to do so introduces entropy and violates system invariants.
+
+## 1. Single Sources of Truth
+Do NOT hallucinate architecture or design patterns. You must read from the official folders:
+- **`docs/`**: The human-readable architecture root. See `docs/README.md`.
+- **`docs/architecture/subsystems.md`**: Top-level definitions of MarketData, Aggregation, Storage, etc.
+- **`docs/architecture/iq-loop-invariants.md`**: The runtime guardrails.
+- **`.context/`**: Contains specialized agent instructions, constraints, and docs. Always refer to `.context/README.md`.
+
+## 2. Go Backend Rules
+- Everything operates inside a **Go Workspace (`go.work`)**. Use `make` commands. Do not run `go` directly without workspace awareness.
+- **Domain Isolation (`INV-DOM`)**: Code in `internal/core/*` (domains) MUST NOT import `internal/adapters`, `internal/interfaces`, or `net/http`.
+- **Determinism (`INV-DET`)**: You are forbidden from using `time.Now()` in `internal/core/*`. All time MUST be injected via `Envelope.Time` or `ts_ingest`.
+- **Error Handling**: Use `*problem.Problem` for controlled domain errors. Do not use plain Go `error` inside domains.
+- **Protobuf**: Use `make proto` for contract updates. Do not edit `.pb.go` generated files.
+
+## 3. Client & Odin Rules (Web/Native WASM)
+Market Raccoon has a front-end terminal written in the Odin language.
+- Go backend sends **PascalCase** JSON for domain structs (Trade, BookDelta, Stats, Candle). Odin json tags must match exactly.
+- **Memory Allocation**: `fmt.tprintf` returns `temp_allocator` strings. NEVER store these strings in structs. Use `strings.concatenate` for heap strings.
+- `fmt.tprintf` treats `{`/`}` as format verbs. Never use it to format raw JSON.
+- Build via: `make -C client build-native` (GLFW) or `make -C client build-wasm` (WASM).
+- For legacy terminal reference, read `zip/01-marketmonkey-files/marketmonkey/` (**READ-ONLY**, do not modify files under `zip/`).
+
+## 4. Workflows & Validation
+- **Doc-First**: If you rewrite an architectural boundary, you MUST update `docs/architecture/*`.
+- **Gates**: Code cannot be merged unless it passes `make invariants-check`, `make docs-check-fast`, and `test-replay-golden`.
+- **No `time.Sleep`**: If you are fixing a race condition, use sync primitives (WaitGroups, Channels, Actor model contexts).
+
+For your specific phase of operation, consult your agent profile in `.context/agents/`.

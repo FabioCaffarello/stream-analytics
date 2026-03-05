@@ -1,49 +1,44 @@
----
-type: doc
-name: README
-description: Documentation index and navigation for .context guides
-category: index
-generated: 2026-02-12
-status: filled
-docStatus: ACTIVE
-last_reviewed: "2026-02-17"
-scaffoldVersion: "2.0.0"
----
-
 # Documentation Index
 
-This folder is the operational knowledge base for contributors and AI agents working in Market Raccoon.
+Welcome to the repository knowledge base. Start with the project overview, then dive into specific guides as needed.
 
 ## Core Guides
-- [Start Here](./00-START-HERE.md)
 - [Project Overview](./project-overview.md)
 - [Development Workflow](./development-workflow.md)
 - [Testing Strategy](./testing-strategy.md)
 - [Tooling & Productivity Guide](./tooling.md)
 
-## Architecture Sources (Primary)
-- [Architecture Overview](../../docs/architecture/README.md)
-- [System Invariants](../../docs/architecture/system-invariants.md)
-- [Event Bus Contract](../../docs/contracts/event-bus.md)
-- [Heatmap Architecture](../../docs/architecture/heatmap.md)
-- [ADRs](../../docs/adrs)
-
 ## Repository Snapshot
-- `cmd/` - Binary entrypoints (`consumer`, `processor`, `server`, `store`).
-- `internal/core/` - Domain and application use cases by bounded context.
-- `internal/actors/` - Actor runtime and subsystem orchestration.
-- `internal/adapters/` - Adapter implementations (bus, etc.).
-- `internal/interfaces/` - HTTP and boundary-facing interfaces.
-- `internal/shared/` - Shared primitives (`problem`, `result`, `envelope`, naming/ids).
-- `scripts/` - Workspace utility scripts used by Make targets.
+- `AGENTS.md/`
+- `artifacts/`
+- `bin/`
+- `CLAUDE.md/`
+- `client/`
+- `cmd/`
+- `CODEX.md/`
+- `deploy/`
+- `docs/` — Living documentation produced by this tool.
+- `go.work/`
+- `go.work.sum/`
+- `internal/`
+- `Makefile/`
+- `package-lock.json/`
+- `package.json/`
+- `playwright.config.ts/`
+- `proto/`
+- `README.md/`
+- `scripts/`
+- `sql/`
+- `test-results/`
+- `testdata/`
+- `tests/` — Automated tests and fixtures.
+- `tools/`
+- `zip/`
 
-## How To Use This Folder
-1. Start with `project-overview.md` to understand architecture and entry points.
-2. Follow `development-workflow.md` for day-to-day coding and PR flow.
-3. Apply `testing-strategy.md` before requesting review.
-4. Use `tooling.md` for local setup, linting, reproducibility, and CI parity.
-
-## Maintenance Rules
-- Keep documentation aligned with `Makefile`, `go.work`, and `.github/workflows/ci-*.yml`.
-- When adding/changing a subsystem, update both docs and agent playbooks.
-- Treat docs as versioned engineering assets, not optional notes.
+## Document Map
+| Guide | File | Primary Inputs |
+| --- | --- | --- |
+| Project Overview | `project-overview.md` | Roadmap, README, stakeholder notes |
+| Development Workflow | `development-workflow.md` | Branching rules, CI config, contributing guide |
+| Testing Strategy | `testing-strategy.md` | Test configs, CI gates, known flaky suites |
+| Tooling & Productivity Guide | `tooling.md` | CLI scripts, IDE configs, automation workflows |

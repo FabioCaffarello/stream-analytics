@@ -3,66 +3,34 @@ type: doc
 name: project-overview
 description: High-level overview of the project, its purpose, and key components
 category: overview
-generated: 2026-02-12
+generated: 2026-03-05
 status: filled
-docStatus: ACTIVE
-last_reviewed: "2026-02-17"
 scaffoldVersion: "2.0.0"
 ---
 
-# Project Overview
+# Market Raccoon - Project Overview
 
-Market Raccoon is a market intelligence backend that ingests market data, normalizes and sequences events, builds read models, and serves runtime/delivery capabilities through an actor-based architecture. It is designed for deterministic processing, replayability, and low-latency delivery rather than trade execution.
+Market Raccoon is an institutional-grade market intelligence backend. Built on Go, it uses an actor-based concurrency model (`github.com/anthdm/hollywood/actor`), deterministic event processing, and NATS JetStream to normalize exchange streams and serve low-latency multi-timeframe insights.
 
-## Quick Facts
-- Primary language: Go (workspace with multiple modules in `go.work`)
-- Main entrypoints: `cmd/consumer`, `cmd/processor`, `cmd/server`
-- Build orchestration: `Makefile`
+## Canonical Architecture (The 9 Core Documents)
 
-## Context Truth Navigation
-- Context bridge index: [`truth-pack.md`](./truth-pack.md)
-- Canonical authority map: [`docs/architecture/TRUTH-MAP.md`](../../docs/architecture/TRUTH-MAP.md)
-- Execution/program baseline: [`docs/rfcs/EXECUTION-SEQUENCE.md`](../../docs/rfcs/EXECUTION-SEQUENCE.md), [`docs/prd/PRD-0001-extreme-runtime.md`](../../docs/prd/PRD-0001-extreme-runtime.md)
+Future agents and contributors MUST refer to the official architecture directory at [`docs/`](../../docs/README.md). This is where the absolute truth is stored:
 
-## Entry Points
-- [`cmd/consumer/main.go`](../../cmd/consumer/main.go#L1) - Market data ingestion runtime (supports fake feed mode for development).
-- [`cmd/processor/main.go`](../../cmd/processor/main.go#L1) - Envelope processing and aggregation pipeline wiring.
-- [`cmd/server/main.go`](../../cmd/server/main.go#L1) - Runtime supervision and HTTP endpoints (`/healthz`, `/runtime/snapshot`, `/runtime/reload`).
+1. **[`docs/architecture/subsystems.md`](../../docs/architecture/subsystems.md)** - Explains the 7 core subsystems (MarketData, Aggregation, Delivery, Insights, Evidence, Signals, Storage), boundedness caps, and inputs/outputs.
+2. **[`docs/architecture/sequencing-model.md`](../../docs/architecture/sequencing-model.md)** - Details strict monotonic sequence chaining (`seq`, `prev_seq`, `DecideMonotonic`), time primitives (`ts_ingest`, `ts_server`), and replay determinism.
+3. **[`docs/architecture/iq-loop-invariants.md`](../../docs/architecture/iq-loop-invariants.md)** - The runtime guardrails matrix. 
+4. **[`docs/architecture/decisions.md`](../../docs/architecture/decisions.md)** - An index of active Architectural Decision Records (ADRs) and Requests for Comments (RFCs).
 
-## Key Exports
-Primary exported behavior is organized by bounded context modules under `internal/core/*`, plus actor runtime orchestration under `internal/actors/*`. See package-level docs for detailed symbol inventory.
+## Key Subsystems
 
-## File Structure & Code Organization
-- `cmd/` - Process-level composition and dependency wiring for binaries.
-- `internal/core/marketdata` - Ingestion use cases and domain rules for market data.
-- `internal/core/aggregation` - Order book aggregation use cases and domain events.
-- `internal/core/delivery` - Delivery/session domain logic.
-- `internal/core/insights` - Insight domain model.
-- `internal/actors/` - Actor subsystem runtime and supervision boundaries.
-- `internal/adapters/` - Infrastructure adapter implementations.
-- `internal/interfaces/` - HTTP interface and boundary adapters.
-- `internal/shared/` - Reusable value objects and utilities used cross-context.
-- `docs/` - Architecture notes, ADRs, and domain contracts.
+- **Consumer (`cmd/consumer`)**: Ingests WebSocket streams from multiple venues, normalizes to Canonical Market Model (CMM), and publishes to JetStream.
+- **Processor (`cmd/processor`)**: Applies domain rules to build deterministic orderbook aggregation, OHLCV candles, metrics, heatmaps, and signal evidence. 
+- **Server (`cmd/server`)**: Binds WebSocket delivery sessions applying rate-limits and backpressure, plus routing runtime supervision via Guardian.
+- **Store (`cmd/store`)**: TimescaleDB/Clickhouse persistence.
+- **Client (`client/src/`)**: Odin/WASM highly-optimized interface that binds to terminal WS frames and validates sequences strictly.
 
-## Technology Stack Summary
-The project uses Go workspace modules (`go.work`) with actor runtime patterns (`github.com/anthdm/hollywood/actor`), Make-driven engineering workflows, and GitHub Actions CI. Docker and Docker Compose are available for containerized workflows. Quality controls include `gofmt`, `goimports`, `golangci-lint`, race-enabled tests, and optional/required `govulncheck` depending on environment.
+## Core Properties
 
-## Development Tools Overview
-Key workflow entrypoints:
-- `make` targets for formatting, lint, test, vulnerability scan, and build.
-- `scripts/*` helpers for module-aware workspace operations.
-- pre-commit hooks for fast local guardrails (`legacy-check-staged`, `tidy-check-changed`, `fmt-check`, `lint-changed`, `test-short-changed`, commit message validation), with heavier checks on pre-push and CI.
-
-## Getting Started Checklist
-1. Install Go toolchain compatible with workspace and install tools with `make install-tools`.
-2. Run `make modules` to inspect workspace module boundaries.
-3. Execute `make tidy-check-changed && make lint-changed && make test-short-changed` for a fast changed-path validation loop.
-4. Execute `make ci` to run the same quality gates expected in CI.
-5. Run a binary locally, for example `make run APP_CMD=./cmd/server`.
-6. Read [`development-workflow.md`](./development-workflow.md) and [`testing-strategy.md`](./testing-strategy.md) before opening PRs.
-
-## Next Steps
-For design decisions and future direction, continue with:
-- `../../docs/architecture/README.md`
-- `../../docs/prd/moat.md`
-- `../../docs/adrs/`
+- **Domain Isolation (`INV-DOM`)**: Business logic inside `internal/core` MUST NOT import `adapters/`, `interfaces/`, or `actors/` packages.
+- **Strict Determinism (`INV-DET`)**: Time `time.Now()` is injected externally. Replays of identical inputs guarantee identical OHLCV and event outputs.
+- **Event-Driven**: Complete separation between hot-path processing (in-memory fast actors) and cold-path processing (Database storage and analytics).

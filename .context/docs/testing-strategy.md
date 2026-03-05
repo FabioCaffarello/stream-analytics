@@ -1,80 +1,31 @@
 ---
 type: doc
 name: testing-strategy
-description: Testing approach, quality gates, and verification workflow for contributors
-category: quality
-generated: 2026-02-12
+description: Testing approaches, CI configurations, and test data management
+category: qa
+generated: 2026-03-05
 status: filled
-docStatus: ACTIVE
-last_reviewed: "2026-02-17"
 scaffoldVersion: "2.0.0"
 ---
 
 # Testing Strategy
 
-Testing in this repository protects deterministic event processing, actor supervision behavior, and domain invariants across bounded contexts.
+Market Raccoon tests are governed by the **Doc-First Strategy**. Acceptance Criteria defined in RFCs, ADRs, and Invariants must strictly translate to automated tests.
 
-## Testing Layers
-- Unit tests for shared primitives and value objects (`internal/shared/*`).
-- Domain/application tests for core logic (`internal/core/*`).
-- Runtime/actor tests for orchestration and subsystem behavior (`internal/actors/*`).
-- Interface tests for HTTP surfaces (`internal/interfaces/http/*`).
-- Adapter tests for infrastructure behavior (`internal/adapters/*`).
+## 1. Domain Tests (Fast, Memory-Only)
+`internal/core/*` packages contain 100% of the domain behavior. These tests execute instantly, simulate complex orderbooks or aggregates via struct inputs, and assert outputs reliably. They MUST NEVER rely on real databases, NATS clusters, or HTTP mocks.
+*Target:* `make test-unit`
 
-## Standard Commands
-- Fast local cycle (changed paths only):
-```bash
-make tidy-check-changed
-make lint-changed
-make test-short-changed
-```
-- Full suite with race detector and coverage mode:
-```bash
-make test
-```
-- Full CI parity (recommended before PR):
-```bash
-make ci VULN_REQUIRED=true
-```
+## 2. Invariants & Architecture Gates
+Market Raccoon leverages specialized custom linting to enforce boundaries.
+- `make invariants-check`: Verifies `INV-DOM` (business logic cannot import infrastructural logic).
+- `validate_boundedness_matrix.mjs`: Ensures all subsystem caps are properly respected in their structures.
 
-## Quality Gates
-`make ci` composes the required gates:
-1. `make legacy-check`
-2. `make tidy-check`
-3. `make fmt-check`
-4. `make lint`
-5. `make test-workspace-race`
-6. `make vuln`
-7. `make build`
+## 3. Soak & Pipeline Validation
+To prevent Out-Of-Memory (OOM) bursts, memory leaks, or logical backpressure failures, we run deterministic bursts.
+- `make soak-check`, `make soak-vpvr`, `make soak-c4-production`: Heavy sustained workloads that assert metrics (like `ws_backpressure_drops_total`) stay within budget limits.
 
-## Test Design Principles
-- Keep domain behavior deterministic and assertion-oriented.
-- Validate event ordering and idempotency where sequence is relevant.
-- Prefer narrow, explicit fixtures over broad integration-style implicit state.
-- Ensure actor tests verify startup/shutdown/supervision transitions.
-- For concurrency-sensitive code, preserve `-race` compatibility.
+## 4. Replay & Determinism (IQ Loop)
+**Determinism is non-negotiable.** The system is capable of re-running `player.go` (`make test-replay-golden`) which hashes the output sequences via SHA arrays to guarantee exact identical event reconstruction.
 
-## Mocking and Fakes
-- Prefer small hand-rolled fakes at boundaries (publisher/store/sequencer style) over complex mocking frameworks.
-- Use in-memory adapters in tests when validating app orchestration logic.
-- Keep fake implementations deterministic (fixed ordering, no random time unless injected).
-
-## Coverage Expectations
-There is no hard numeric threshold in CI, but practical expectations are:
-- New domain rules require targeted tests.
-- Bug fixes require regression tests.
-- Changed public behavior in runtime/interfaces requires tests that fail before the fix.
-
-## CI/CD Integration
-GitHub Actions workflows (`.github/workflows/ci-*.yml`) run in tiers:
-- **ci-fast** (every PR): lint, unit tests, proto checks, operability gates
-- **ci-full** (path/label-triggered): race tests, replay golden, bench regression, integration
-- **ci-nightly** (scheduled): soak harnesses, govulncheck, legacy scan, bench baseline
-
-This means local `make ci VULN_REQUIRED=true` is the closest reliable pre-PR signal.
-
-## Common Failure Triage
-- `tidy-check` failures: run `make tidy`.
-- `fmt-check` failures: run `make fmt`.
-- Lint failures: address static analysis warnings; avoid disabling linters unless justified.
-- Flaky behavior under race mode: inspect shared state and actor message ordering assumptions.
+Testing MUST cover missing timestamps, gap-filling resilience, regression tolerance, and out-of-order sequencing logic. See `docs/architecture/iq-loop-invariants.md`.

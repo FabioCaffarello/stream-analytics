@@ -1,190 +1,536 @@
 {
   "version": "1.0.0",
-  "generated": "2026-02-19T18:30:00.000Z",
-  "constraints": {
-    "readOnly": ["zip/"],
-    "notes": "zip/ contains MarketMonkey reference source. Read for analysis only — never create, edit, or delete files there."
-  },
+  "generated": "2026-03-05T19:34:25.627Z",
   "stack": {
-    "primaryLanguage": "go",
-    "languages": ["go", "protobuf", "sql"],
-    "frameworks": ["hollywood-actors", "nats-jetstream", "pgx", "clickhouse-go"],
-    "buildTools": ["make", "buf"],
-    "testFrameworks": ["testing", "testify"],
-    "packageManager": "go-modules",
-    "isMonorepo": true,
-    "hasDocker": true,
-    "hasCI": true
+    "primaryLanguage": "typescript",
+    "languages": [
+      "javascript",
+      "typescript",
+      "go",
+      "cpp"
+    ],
+    "frameworks": [
+      "cli"
+    ],
+    "buildTools": [],
+    "testFrameworks": [
+      "playwright"
+    ],
+    "packageManager": "npm",
+    "isMonorepo": false,
+    "hasDocker": false,
+    "hasCI": true,
+    "runtimeEnvironment": "node"
   },
   "structure": {
-    "totalFiles": 371,
+    "totalFiles": 20676,
     "rootPath": ".",
     "topDirectories": [
-      {"name": "cmd", "fileCount": 33, "description": "Binary entrypoints (consumer, processor, server, store, backfill)"},
-      {"name": "internal/shared", "fileCount": 120, "description": "Shared primitives (problem, result, envelope, codec, config, metrics, replay)"},
-      {"name": "internal/core", "fileCount": 83, "description": "Domain + app + ports by bounded context (marketdata, aggregation, delivery, insights)"},
-      {"name": "internal/adapters", "fileCount": 80, "description": "Infrastructure adapters (bus, exchange parsers, jetstream, storage drivers)"},
-      {"name": "internal/actors", "fileCount": 42, "description": "Actor runtime, subsystem actors, WS consumer/manager"},
-      {"name": "internal/interfaces", "fileCount": 12, "description": "HTTP server + WebSocket server"},
-      {"name": "proto", "fileCount": 12, "description": "Protobuf definitions (envelope, marketdata, aggregation, insights)"},
-      {"name": "sql", "fileCount": 8, "description": "DDL migrations (timescale + clickhouse)"},
-      {"name": "docs", "fileCount": 69, "description": "ADRs, RFCs, architecture, contracts, PRDs"},
-      {"name": "scripts", "fileCount": 29, "description": "Build, lint, CI utility scripts"}
+      {
+        "name": "artifacts",
+        "fileCount": 18744,
+        "description": "Artifact definitions"
+      },
+      {
+        "name": "bin",
+        "fileCount": 10,
+        "description": "CLI binaries and executables"
+      },
+      {
+        "name": "client",
+        "fileCount": 162,
+        "description": "Module directory"
+      },
+      {
+        "name": "cmd",
+        "fileCount": 56,
+        "description": "Module directory"
+      },
+      {
+        "name": "deploy",
+        "fileCount": 219,
+        "description": "Module directory"
+      },
+      {
+        "name": "docs",
+        "fileCount": 103,
+        "description": "Documentation files"
+      },
+      {
+        "name": "internal",
+        "fileCount": 602,
+        "description": "Module directory"
+      },
+      {
+        "name": "proto",
+        "fileCount": 22,
+        "description": "Module directory"
+      },
+      {
+        "name": "scripts",
+        "fileCount": 54,
+        "description": "Build and utility scripts"
+      },
+      {
+        "name": "sql",
+        "fileCount": 12,
+        "description": "Module directory"
+      },
+      {
+        "name": "test-results",
+        "fileCount": 0,
+        "description": "Test files"
+      },
+      {
+        "name": "testdata",
+        "fileCount": 7,
+        "description": "Test files"
+      },
+      {
+        "name": "tests",
+        "fileCount": 674,
+        "description": "Test files and fixtures"
+      },
+      {
+        "name": "tools",
+        "fileCount": 1,
+        "description": "Tool definitions"
+      },
+      {
+        "name": "zip",
+        "fileCount": 0,
+        "description": "Module directory"
+      }
     ],
     "languageDistribution": [
-      {"extension": ".go", "count": 429},
-      {"extension": ".md", "count": 78},
-      {"extension": ".sh", "count": 32},
-      {"extension": ".sql", "count": 19},
-      {"extension": ".proto", "count": 8}
+      {
+        "extension": ".odin",
+        "count": 12065
+      },
+      {
+        "extension": ".log",
+        "count": 1917
+      },
+      {
+        "extension": ".h",
+        "count": 1557
+      },
+      {
+        "extension": ".png",
+        "count": 1349
+      },
+      {
+        "extension": ".go",
+        "count": 613
+      },
+      {
+        "extension": ".js",
+        "count": 497
+      },
+      {
+        "extension": ".txt",
+        "count": 405
+      },
+      {
+        "extension": ".md",
+        "count": 403
+      },
+      {
+        "extension": ".a",
+        "count": 231
+      },
+      {
+        "extension": ".json",
+        "count": 167
+      }
     ]
   },
   "architecture": {
-    "layers": [
-      {"name": "domain", "pattern": "internal/core/*/domain/", "description": "Value objects, aggregates, domain events"},
-      {"name": "app", "pattern": "internal/core/*/app/", "description": "Use cases and application services"},
-      {"name": "ports", "pattern": "internal/core/*/ports/", "description": "Port interfaces (driven side)"},
-      {"name": "adapters", "pattern": "internal/adapters/", "description": "Infrastructure implementations"},
-      {"name": "actors", "pattern": "internal/actors/", "description": "Actor-based runtime orchestration"},
-      {"name": "interfaces", "pattern": "internal/interfaces/", "description": "HTTP/WS boundary interfaces"},
-      {"name": "shared", "pattern": "internal/shared/", "description": "Cross-cutting primitives and config"}
-    ],
-    "patterns": ["hexagonal-architecture", "actor-model", "event-driven", "cqrs-read-write-split"],
-    "entryPoints": [
-      "cmd/consumer/main.go",
-      "cmd/processor/main.go",
-      "cmd/server/main.go",
-      "cmd/store/main.go",
-      "cmd/backfill/main.go"
-    ],
-    "mainEntryPoints": [
-      "cmd/consumer/bootstrap.go",
-      "cmd/processor/bootstrap.go",
-      "cmd/server/bootstrap.go",
-      "cmd/store/bootstrap.go",
-      "cmd/backfill/bootstrap.go"
-    ]
+    "layers": [],
+    "patterns": [],
+    "entryPoints": [],
+    "mainEntryPoints": [],
+    "moduleExports": []
   },
   "symbols": {
     "classes": [],
-    "interfaces": [
-      {"name": "Clock", "path": "internal/shared/clock/clock.go", "package": "clock"},
-      {"name": "Sequencer", "path": "internal/core/marketdata/ports/sequencer.go", "package": "ports"},
-      {"name": "InstrumentCatalog", "path": "internal/core/marketdata/ports/catalog.go", "package": "ports"},
-      {"name": "EventPublisher", "path": "internal/core/marketdata/ports/publisher.go", "package": "ports"},
-      {"name": "ArtifactPublisher", "path": "internal/core/aggregation/ports/publisher.go", "package": "ports"},
-      {"name": "HotReadModelStore", "path": "internal/core/aggregation/ports/store.go", "package": "ports"},
-      {"name": "CandleHotReadModelStore", "path": "internal/core/aggregation/ports/store.go", "package": "ports"},
-      {"name": "StatsHotReadModelStore", "path": "internal/core/aggregation/ports/store.go", "package": "ports"},
-      {"name": "CandleReader", "path": "internal/core/aggregation/ports/reader.go", "package": "ports"},
-      {"name": "StatsReader", "path": "internal/core/aggregation/ports/reader.go", "package": "ports"},
-      {"name": "RangeStore", "path": "internal/core/delivery/ports/store.go", "package": "ports"},
-      {"name": "VolumeProfileHotWriter", "path": "internal/core/insights/ports/writer.go", "package": "ports"},
-      {"name": "Engine", "path": "internal/shared/policykit/engine.go", "package": "policykit"},
-      {"name": "BusObserver", "path": "internal/shared/observability/bus.go", "package": "observability"},
-      {"name": "Lease", "path": "internal/shared/shardregistry/lease.go", "package": "shardregistry"}
-    ],
+    "interfaces": [],
     "functions": [
-      {"name": "NewIngestMarketData", "path": "internal/core/marketdata/app/ingest.go", "package": "app"},
-      {"name": "NewUpdateOrderBookFromEvents", "path": "internal/core/aggregation/app/update.go", "package": "app"},
-      {"name": "NewBuildCandleFromEvents", "path": "internal/core/aggregation/app/candle.go", "package": "app"},
-      {"name": "NewBuildStatsFromEvents", "path": "internal/core/aggregation/app/stats.go", "package": "app"},
-      {"name": "NewAggregationService", "path": "internal/core/aggregation/app/service.go", "package": "app"},
-      {"name": "NewBuildHeatmap", "path": "internal/core/insights/app/heatmap.go", "package": "app"},
-      {"name": "NewBuildVolumeProfile", "path": "internal/core/insights/app/volume_profile.go", "package": "app"},
-      {"name": "NewJoinCrossVenueTrades", "path": "internal/core/insights/app/cross_venue.go", "package": "app"},
-      {"name": "NewGuardian", "path": "internal/actors/runtime/guardian.go", "package": "runtime"},
-      {"name": "NewProcessorSubsystemActor", "path": "internal/actors/aggregation/runtime/processor.go", "package": "aggruntime"},
-      {"name": "NewServer", "path": "internal/interfaces/http/server.go", "package": "httpserver"},
-      {"name": "LoadAndValidate", "path": "internal/shared/bootstrap/bootstrap.go", "package": "bootstrap"},
-      {"name": "BootstrapPayloadCodecRegistry", "path": "internal/shared/contracts/codec_registry.go", "package": "contracts"}
+      {
+        "name": "envBoolValue",
+        "kind": "function",
+        "file": "scripts/iq/profile_loader.mjs",
+        "line": 84,
+        "exported": true
+      },
+      {
+        "name": "parseEnvFile",
+        "kind": "function",
+        "file": "scripts/iq/profile_loader.mjs",
+        "line": 54,
+        "exported": true
+      },
+      {
+        "name": "resolveIQProfile",
+        "kind": "function",
+        "file": "scripts/iq/profile_loader.mjs",
+        "line": 162,
+        "exported": true
+      },
+      {
+        "name": "validateBoundednessMatrix",
+        "kind": "function",
+        "file": "scripts/iq/validate_boundedness_matrix.mjs",
+        "line": 297,
+        "exported": true
+      },
+      {
+        "name": "attachConsoleCollector",
+        "kind": "function",
+        "file": "tests/playwright/validate-overlay-tf.mjs",
+        "line": 51,
+        "exported": false
+      },
+      {
+        "name": "attachConsoleCollector",
+        "kind": "function",
+        "file": "tests/playwright/client-diagnostic.mjs",
+        "line": 43,
+        "exported": false
+      },
+      {
+        "name": "bug",
+        "kind": "function",
+        "file": "tests/playwright/validate-overlay-tf.mjs",
+        "line": 30,
+        "exported": false
+      },
+      {
+        "name": "bug",
+        "kind": "function",
+        "file": "tests/playwright/client-diagnostic.mjs",
+        "line": 24,
+        "exported": false
+      },
+      {
+        "name": "buildMetricsText",
+        "kind": "function",
+        "file": "scripts/iq/profile_loader.test.mjs",
+        "line": 22,
+        "exported": false
+      },
+      {
+        "name": "captureRegionPixels",
+        "kind": "function",
+        "file": "tests/playwright/validate-overlay-tf.mjs",
+        "line": 68,
+        "exported": false
+      },
+      {
+        "name": "clickCanvasToggle",
+        "kind": "function",
+        "file": "tests/playwright/validate-overlay-tf.mjs",
+        "line": 139,
+        "exported": false
+      },
+      {
+        "name": "comparePixels",
+        "kind": "function",
+        "file": "tests/playwright/validate-overlay-tf.mjs",
+        "line": 85,
+        "exported": false
+      },
+      {
+        "name": "conflictingDuplicateErrors",
+        "kind": "function",
+        "file": "scripts/iq/validate_boundedness_matrix.mjs",
+        "line": 276,
+        "exported": false
+      },
+      {
+        "name": "createContext",
+        "kind": "function",
+        "file": "scripts/iq/validate_boundedness_matrix.mjs",
+        "line": 39,
+        "exported": false
+      },
+      {
+        "name": "detectHeatmapPixels",
+        "kind": "function",
+        "file": "tests/playwright/validate-overlay-tf.mjs",
+        "line": 103,
+        "exported": false
+      },
+      {
+        "name": "detectVPVRPixels",
+        "kind": "function",
+        "file": "tests/playwright/validate-overlay-tf.mjs",
+        "line": 122,
+        "exported": false
+      },
+      {
+        "name": "emitCheck",
+        "kind": "function",
+        "file": "scripts/iq/legacy_negative_test.mjs",
+        "line": 32,
+        "exported": false
+      },
+      {
+        "name": "extractGoAssignedInt",
+        "kind": "function",
+        "file": "scripts/iq/validate_boundedness_matrix.mjs",
+        "line": 110,
+        "exported": false
+      },
+      {
+        "name": "extractGoConstExprInt",
+        "kind": "function",
+        "file": "scripts/iq/validate_boundedness_matrix.mjs",
+        "line": 116,
+        "exported": false
+      },
+      {
+        "name": "extractOdinConstInt",
+        "kind": "function",
+        "file": "scripts/iq/validate_boundedness_matrix.mjs",
+        "line": 126,
+        "exported": false
+      },
+      {
+        "name": "extractProfileDefaultInt",
+        "kind": "function",
+        "file": "scripts/iq/validate_boundedness_matrix.mjs",
+        "line": 136,
+        "exported": false
+      },
+      {
+        "name": "extractReleaseEnvInt",
+        "kind": "function",
+        "file": "scripts/iq/validate_boundedness_matrix.mjs",
+        "line": 147,
+        "exported": false
+      },
+      {
+        "name": "extractRouterBudgetDefault",
+        "kind": "function",
+        "file": "scripts/iq/validate_boundedness_matrix.mjs",
+        "line": 158,
+        "exported": false
+      },
+      {
+        "name": "fetchText",
+        "kind": "function",
+        "file": "scripts/iq/legacy_negative_test.mjs",
+        "line": 52,
+        "exported": false
+      },
+      {
+        "name": "getStatusBarText",
+        "kind": "function",
+        "file": "tests/playwright/diagnostic.spec.ts",
+        "line": 30,
+        "exported": false
+      },
+      {
+        "name": "histogramSeries",
+        "kind": "function",
+        "file": "scripts/iq/profile_loader.test.mjs",
+        "line": 16,
+        "exported": false
+      },
+      {
+        "name": "line",
+        "kind": "function",
+        "file": "scripts/iq/validate_boundedness_matrix.mjs",
+        "line": 55,
+        "exported": false
+      },
+      {
+        "name": "log",
+        "kind": "function",
+        "file": "tests/playwright/validate-overlay-tf.mjs",
+        "line": 24,
+        "exported": false
+      },
+      {
+        "name": "log",
+        "kind": "function",
+        "file": "tests/playwright/full-diagnostic.mjs",
+        "line": 16,
+        "exported": false
+      },
+      {
+        "name": "log",
+        "kind": "function",
+        "file": "tests/playwright/client-diagnostic.mjs",
+        "line": 18,
+        "exported": false
+      }
     ],
-    "types": [
-      {"name": "Problem", "path": "internal/shared/problem/problem.go", "package": "problem"},
-      {"name": "Result[T]", "path": "internal/shared/result/result.go", "package": "result"},
-      {"name": "Envelope", "path": "internal/shared/envelope/envelope.go", "package": "envelope"},
-      {"name": "AppConfig", "path": "internal/shared/config/schema.go", "package": "config"},
-      {"name": "OrderBook", "path": "internal/core/aggregation/domain/orderbook.go", "package": "domain"},
-      {"name": "CandleV1", "path": "internal/core/aggregation/domain/candle.go", "package": "domain"},
-      {"name": "StatsWindowV1", "path": "internal/core/aggregation/domain/stats.go", "package": "domain"},
-      {"name": "InstrumentStream", "path": "internal/core/marketdata/domain/instrument_stream.go", "package": "domain"},
-      {"name": "TradeTickV1", "path": "internal/core/marketdata/domain/payloads.go", "package": "domain"},
-      {"name": "BookDeltaV1", "path": "internal/core/marketdata/domain/payloads.go", "package": "domain"},
-      {"name": "HeatmapArtifactV1", "path": "internal/core/insights/domain/heatmap.go", "package": "domain"},
-      {"name": "VolumeProfileSnapshotV1", "path": "internal/core/insights/domain/volume_profile.go", "package": "domain"},
-      {"name": "Session", "path": "internal/core/delivery/domain/session.go", "package": "domain"},
-      {"name": "Guardian", "path": "internal/actors/runtime/guardian.go", "package": "runtime"},
-      {"name": "SupervisorPolicy", "path": "internal/actors/runtime/supervisor.go", "package": "runtime"},
-      {"name": "Subsystem", "path": "internal/actors/runtime/protocol.go", "package": "runtime"}
-    ],
-    "enums": [
-      {"name": "EventType", "path": "internal/core/marketdata/domain/value_objects.go", "package": "domain"},
-      {"name": "BackpressurePolicy", "path": "internal/core/delivery/domain/backpressure.go", "package": "domain"},
-      {"name": "HealthState", "path": "internal/core/aggregation/domain/orderbook.go", "package": "domain"},
-      {"name": "MarketType", "path": "internal/core/marketdata/domain/value_objects.go", "package": "domain"},
-      {"name": "Level", "path": "internal/shared/policykit/level.go", "package": "policykit"}
-    ]
+    "types": [],
+    "enums": []
   },
   "publicAPI": [
-    {"path": "internal/interfaces/http", "description": "HTTP: /healthz, /readyz, /runtime/snapshot, /runtime/reload"},
-    {"path": "internal/interfaces/ws", "description": "WS: subscribe/unsubscribe, backpressure, auth, rate limiting"}
+    {
+      "name": "envBoolValue",
+      "kind": "function",
+      "file": "scripts/iq/profile_loader.mjs",
+      "line": 84,
+      "exported": true
+    },
+    {
+      "name": "parseEnvFile",
+      "kind": "function",
+      "file": "scripts/iq/profile_loader.mjs",
+      "line": 54,
+      "exported": true
+    },
+    {
+      "name": "resolveIQProfile",
+      "kind": "function",
+      "file": "scripts/iq/profile_loader.mjs",
+      "line": 162,
+      "exported": true
+    },
+    {
+      "name": "validateBoundednessMatrix",
+      "kind": "function",
+      "file": "scripts/iq/validate_boundedness_matrix.mjs",
+      "line": 297,
+      "exported": true
+    }
   ],
   "dependencies": {
     "mostImported": [
-      {"path": "internal/shared/problem", "importedBy": "all modules"},
-      {"path": "internal/shared/result", "importedBy": "all core modules"},
-      {"path": "internal/shared/envelope", "importedBy": "actors, adapters, interfaces"},
-      {"path": "internal/shared/config", "importedBy": "cmd/*, bootstrap"},
-      {"path": "internal/shared/codec", "importedBy": "contracts, adapters"},
-      {"path": "internal/shared/naming", "importedBy": "core/marketdata, adapters/exchange"},
-      {"path": "internal/shared/metrics", "importedBy": "actors, adapters, interfaces"}
+      {
+        "file": "scripts/iq/validate_boundedness_matrix.mjs",
+        "importedBy": 1
+      },
+      {
+        "file": "scripts/iq/profile_loader.mjs",
+        "importedBy": 1
+      }
     ]
   },
   "stats": {
-    "totalSymbols": 429,
-    "goFiles": 429,
-    "boundedContexts": 4,
-    "exchangeAdapters": 4,
-    "protoDefinitions": 8,
-    "adrs": 19,
-    "rfcs": 12,
-    "modules": 13
-  },
-  "workspace": {
-    "goVersion": "1.25.6",
-    "modules": [
-      "cmd/backfill",
-      "cmd/consumer",
-      "cmd/processor",
-      "cmd/server",
-      "cmd/store",
-      "internal/actors",
-      "internal/adapters",
-      "internal/core/aggregation",
-      "internal/core/delivery",
-      "internal/core/insights",
-      "internal/core/marketdata",
-      "internal/interfaces",
-      "internal/shared"
-    ]
+    "totalSymbols": 88,
+    "exportedSymbols": 4,
+    "analysisTimeMs": 470
   },
   "keyFiles": [
-    {"path": "cmd/consumer/bootstrap.go", "description": "Consumer composition root", "category": "entrypoint"},
-    {"path": "cmd/processor/bootstrap.go", "description": "Processor composition root", "category": "entrypoint"},
-    {"path": "cmd/server/bootstrap.go", "description": "Server composition root", "category": "entrypoint"},
-    {"path": "cmd/store/bootstrap.go", "description": "Store composition root", "category": "entrypoint"},
-    {"path": "internal/shared/config/schema.go", "description": "AppConfig schema", "category": "config"},
-    {"path": "internal/shared/contracts/codec_registry.go", "description": "Payload codec registry bootstrap", "category": "config"},
-    {"path": "internal/actors/runtime/guardian.go", "description": "Actor supervisor tree root", "category": "runtime"},
-    {"path": "internal/shared/envelope/envelope.go", "description": "Event envelope (wire format)", "category": "core"},
-    {"path": "go.work", "description": "Go workspace definition", "category": "config"},
-    {"path": "Makefile", "description": "Build targets (test, lint, ci, tidy)", "category": "build"},
-    {"path": "docker-compose.yml", "description": "Infrastructure (NATS, TimescaleDB, ClickHouse)", "category": "infra"}
+    {
+      "path": "bin/backfill",
+      "description": "CLI executable",
+      "category": "entrypoint"
+    },
+    {
+      "path": "bin/buf",
+      "description": "CLI executable",
+      "category": "entrypoint"
+    },
+    {
+      "path": "bin/consumer",
+      "description": "CLI executable",
+      "category": "entrypoint"
+    },
+    {
+      "path": "bin/migrate",
+      "description": "CLI executable",
+      "category": "entrypoint"
+    },
+    {
+      "path": "bin/processor",
+      "description": "CLI executable",
+      "category": "entrypoint"
+    },
+    {
+      "path": "bin/protoc-gen-go",
+      "description": "CLI executable",
+      "category": "entrypoint"
+    },
+    {
+      "path": "bin/server",
+      "description": "CLI executable",
+      "category": "entrypoint"
+    },
+    {
+      "path": "bin/signals",
+      "description": "CLI executable",
+      "category": "entrypoint"
+    },
+    {
+      "path": "bin/store",
+      "description": "CLI executable",
+      "category": "entrypoint"
+    },
+    {
+      "path": "bin/strategist",
+      "description": "CLI executable",
+      "category": "entrypoint"
+    },
+    {
+      "path": "package.json",
+      "description": "Package manifest",
+      "category": "config"
+    },
+    {
+      "path": "playwright.config.ts",
+      "description": "Tool configuration",
+      "category": "config"
+    },
+    {
+      "path": "tests/playwright/node_modules/playwright-core/types/types.d.ts",
+      "description": "Type definitions",
+      "category": "types"
+    },
+    {
+      "path": "tests/playwright/node_modules/playwright/lib/mcp/terminal/helpGenerator.js",
+      "description": "Generator class",
+      "category": "generator"
+    },
+    {
+      "path": "tests/playwright/node_modules/playwright-core/lib/server/helper.js",
+      "description": "Helper functions",
+      "category": "util"
+    },
+    {
+      "path": "tests/playwright/node_modules/playwright-core/lib/utils.js",
+      "description": "Utility functions",
+      "category": "util"
+    },
+    {
+      "path": "tests/playwright/node_modules/playwright/lib/mcp/browser/tools/utils.js",
+      "description": "Utility functions",
+      "category": "util"
+    },
+    {
+      "path": "tests/playwright/node_modules/playwright/lib/util.js",
+      "description": "Utility functions",
+      "category": "util"
+    },
+    {
+      "path": "tests/playwright/node_modules/playwright/lib/worker/util.js",
+      "description": "Utility functions",
+      "category": "util"
+    }
   ],
   "navigation": {
-    "tests": "**/*_test.go",
-    "config": ["go.work", "Makefile", "docker-compose.yml", "internal/shared/config/schema.go"],
-    "types": ["internal/core/*/domain/", "internal/shared/problem/", "internal/shared/result/", "internal/shared/envelope/"],
-    "mainLogic": ["internal/core/*/app/", "internal/actors/*/runtime/"]
+    "tests": "**/*.spec.ts",
+    "config": [
+      "package.json"
+    ],
+    "types": [
+      "tests/playwright/node_modules/playwright/test.d.ts",
+      "tests/playwright/node_modules/playwright/index.d.ts",
+      "tests/playwright/node_modules/playwright-core/index.d.ts",
+      "tests/playwright/node_modules/playwright/types/testReporter.d.ts",
+      "tests/playwright/node_modules/playwright/types/test.d.ts",
+      "tests/playwright/node_modules/playwright-core/types/structs.d.ts",
+      "tests/playwright/node_modules/playwright-core/types/protocol.d.ts",
+      "tests/playwright/node_modules/playwright-core/types/types.d.ts"
+    ],
+    "mainLogic": [
+      "src"
+    ]
   }
 }

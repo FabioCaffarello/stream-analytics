@@ -1,59 +1,81 @@
 # Project Rules and Guidelines
 
-> Source of truth: `.context/docs/` — this file is a curated summary, not auto-generated.
+> Auto-generated from .context/docs on 2026-03-05T19:36:14.896Z
 
-## Hard Constraints
+## README
 
-- **`./zip/` is READ-ONLY reference.** Never create, edit, or delete files under `zip/`. It contains MarketMonkey source as architectural reference only. Read for analysis; write nothing.
-- **Errors are `*problem.Problem`**, never plain `error` in domain/app layers.
-- **Results are `result.Result[T]`** for use case returns.
-- **`replace` directives are required** in every go.mod, even with go.work.
-- **No implementation outside bounded context boundaries** — domain logic lives in `internal/core/*/domain`, orchestration in `internal/core/*/app`.
+# Documentation Index
 
-## Repository Snapshot
-
-- `cmd/` — Binary entrypoints (`consumer`, `processor`, `server`, `store`, `backfill`).
-- `internal/core/` — Domain and application use cases by bounded context.
-- `internal/actors/` — Actor runtime and subsystem orchestration.
-- `internal/adapters/` — Infrastructure adapters (bus, exchange parsers, storage drivers).
-- `internal/interfaces/` — HTTP and WebSocket boundary interfaces.
-- `internal/shared/` — Shared primitives (`problem`, `result`, `envelope`, `codec`, `config`, `naming`, `ids`).
-- `proto/` — Protobuf definitions (envelope, marketdata, aggregation, insights).
-- `scripts/` — Workspace utility scripts used by Make targets.
-- `docs/` — ADRs, RFCs, PRDs, architecture, contracts.
-- `sql/` — DDL migrations (TimescaleDB + ClickHouse).
+Welcome to the repository knowledge base. Start with the project overview, then dive into specific guides as needed.
 
 ## Core Guides
+- [Project Overview](./project-overview.md)
+- [Development Workflow](./development-workflow.md)
+- [Testing Strategy](./testing-strategy.md)
+- [Tooling & Productivity Guide](./tooling.md)
 
-- [Start Here](.context/docs/00-START-HERE.md)
-- [Project Overview](.context/docs/project-overview.md)
-- [Development Workflow](.context/docs/development-workflow.md)
-- [Testing Strategy](.context/docs/testing-strategy.md)
-- [Tooling](.context/docs/tooling.md)
+## Repository Snapshot
+- `AGENTS.md/`
+- `artifacts/`
+- `bin/`
+- `CLAUDE.md/`
+- `client/`
+- `cmd/`
+- `CODEX.md/`
+- `deploy/`
+- `docs/` — Living documentation produced by this tool.
+- `go.work/`
+- `go.work.sum/`
+- `internal/`
+- `Makefile/`
+- `package-lock.json/`
+- `package.json/`
+- `playwright.config.ts/`
+- `proto/`
+- `README.md/`
+- `scripts/`
+- `sql/`
+- `test-results/`
+- `testdata/`
+- `tests/` — Automated tests and fixtures.
+- `tools/`
+- `zip/`
 
-## Architecture Sources
+## Document Map
+| Guide | File | Primary Inputs |
+| --- | --- | --- |
+| Project Overview | `project-overview.md` | Roadmap, README, stakeholder notes |
+| Development Workflow | `development-workflow.md` | Branching rules, CI config, contributing guide |
+| Testing Strategy | `testing-strategy.md` | Test configs, CI gates, known flaky suites |
+| Tooling & Productivity Guide | `tooling.md` | CLI scripts, IDE configs, automation workflows |
 
-- [Architecture Overview](docs/architecture/README.md)
-- [System Invariants](docs/architecture/system-invariants.md)
-- [Event Bus Contract](docs/contracts/event-bus.md)
-- [TRUTH-MAP](docs/architecture/TRUTH-MAP.md)
-- [ADRs](docs/adrs/) (19 decisions, ADR-0000 to ADR-0018)
-- [RFCs](docs/rfcs/) (12 proposals, RFC-0001 to RFC-0011)
-- [PRDs](docs/prds/)
 
-## Context Engineering
+## README
 
-- **Skills** (16 total): `.context/skills/` — 10 built-in + 6 custom (pareto-analysis, swot-analysis, write-prd, write-adr, write-rfc, milestone-plan)
-- **Agents** (15 total): `.context/agents/` — 14 built-in + 1 custom (strategic-planner)
-- **Codebase Map**: `.context/docs/codebase-map.json` — Go-first semantic map, 429 files, 13 modules, 4 BCs
-- **Workflow**: PREVC (Plan → Review → Execute → Validate → Complete)
+# Q&A Index
 
-## Makefile Quick Reference
+Project type: **cli**
 
-- `make test` — all modules
-- `make test MODULE=./internal/shared` — single module
-- `make fmt` — format all
-- `make lint` — golangci-lint
-- `make ci` — full pipeline
-- `make tidy` — go mod tidy all modules
-- `make up-infra` — docker-compose (NATS, TimescaleDB, ClickHouse)
+Generated: 2026-03-05T19:35:04.214Z
+
+## Getting-started
+
+- [How do I set up and run this project?](./getting-started.md)
+
+## Architecture
+
+- [How is the codebase organized?](./project-structure.md)
+
+## Features
+
+- [What commands are available?](./cli-commands.md)
+- [How do I pass arguments and options?](./cli-arguments.md)
+
+## Testing
+
+- [How do I run and write tests?](./testing.md)
+
+## Operations
+
+- [How do I deploy this project?](./deployment.md)
+

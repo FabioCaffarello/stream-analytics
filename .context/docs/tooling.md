@@ -1,110 +1,37 @@
 ---
 type: doc
 name: tooling
-description: Toolchain setup, automation commands, and productivity workflows
-category: tooling
-generated: 2026-02-12
+description: Developer tools, make targets, and local environment setup
+category: tools
+generated: 2026-03-05
 status: filled
-docStatus: ACTIVE
-last_reviewed: "2026-02-17"
 scaffoldVersion: "2.0.0"
 ---
 
-# Tooling & Productivity Guide
+# Tooling & Operations
 
-This guide documents the canonical tooling path for consistent local and CI behavior.
+Market Raccoon leverages strict tooling for invariant guarantees.
 
-## Core Toolchain
-- Go workspace (`go.work`) with multiple modules.
-- Make as top-level task runner.
-- `golangci-lint` for static analysis.
-- `govulncheck` for vulnerability scanning.
-- pre-commit for local guardrails.
-- Docker/Docker Compose for container workflows.
+## Prerequisite Binaries (macOS / Linux)
+- `go 1.23+`
+- `golangci-lint` (via `curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh`)
+- `govulncheck` (via `go install golang.org/x/vuln/cmd/govulncheck@latest`)
+- `protoc` (via `brew install protobuf`)
+- `protoc-gen-go` (via `go install google.golang.org/protobuf/cmd/protoc-gen-go@latest`)
+- Docker and Docker-Compose (OrbStack recommended for macOS testing performance)
 
-## Environment Setup
-1. Ensure Go is installed and on PATH.
-2. Install lint/vuln tooling:
+## Core Targets (`make help`)
 ```bash
-make install-tools
-```
-3. (Optional) Install git hooks:
-```bash
-make pre-commit-install
+make install-tools        # Installs Go toolchains
+make tidy-check-changed   # go mod tidy constraint checking
+make fmt-check            # Enforces deterministic gofmt standards
+make lint-changed         # Runs golangci-lint on delta lines
+make test-workspace-race  # Full tests with race detector enabled (vital for Actors)
 ```
 
-## High-Value Commands
-- Inspect modules:
-```bash
-make modules
-```
-- Keep dependencies clean (changed-path fast check + full check when needed):
-```bash
-make tidy
-make tidy-check-changed
-make tidy-check
-```
-- Format and lint:
-```bash
-make fmt
-make fmt-check
-make lint-changed
-make lint
-```
-- Validate behavior:
-```bash
-make test-short-changed
-make test
-```
-- Legacy guardrails:
-```bash
-make legacy-check-staged
-make legacy-check
-```
-- Security gate:
-```bash
-make vuln
-```
-- Build binaries:
-```bash
-make build
-```
+## Go Workspace (`go.work`)
+The system separates `client/` (WASM/Odin/JS) and `.` (Go Backend Modules) physically or conceptually.
+Dependencies inside the `make` file traverse `go.work` paths to strictly test isolated bounded contexts. Do not bypass `make` targets; manual `go build ./...` outside workspace configurations will drift from the CI.
 
-## Module-Scoped Execution
-Most Make targets support `MODULE=...` for focused runs, example:
-```bash
-make test MODULE=./internal/core/aggregation
-make lint MODULE=./cmd/consumer
-```
-Use this for fast iteration, then run full `make ci` before review.
-
-## Caching and Reproducibility
-The `Makefile` exports local cache directories under `.cache/`:
-- `GOCACHE`
-- `GOMODCACHE`
-- `GOLANGCI_LINT_CACHE`
-
-Benefits:
-- Predictable local cache scope.
-- Better CI/local parity in ephemeral environments.
-- Easier cleanup (`make clean`).
-
-## Container Tooling
-- Build image:
-```bash
-make docker-build
-```
-- Start stack:
-```bash
-make up
-```
-- Stop stack:
-```bash
-make down
-```
-
-## Troubleshooting
-- Missing linters/scanners: rerun `make install-tools`.
-- Unexpected dependency diffs: run `make tidy` and re-check.
-- Lint noise from generated code: confirm generated artifacts are intentional before suppressing findings.
-- Vulnerability command fails offline: local runs may warn unless `VULN_REQUIRED=true`; CI enforces strict mode.
+## Deployment Simulation
+`make local-dev` stands up PostgreSQL (TimescaleDB), ClickHouse, NATS JetStream, and the Guardian orchestration stack for full cold-path runbook testing. See `docs/operations/local-dev.md`.

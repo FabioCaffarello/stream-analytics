@@ -77,8 +77,8 @@ mode: false        # Optional: mode command?
 
 | Phase | Name | Skills |
 |-------|------|--------|
-| P | Planning | feature-breakdown, documentation, api-design, pareto-analysis, swot-analysis, write-prd, write-adr, write-rfc, milestone-plan |
-| R | Review | pr-review, code-review, api-design, security-audit, write-adr |
+| P | Planning | feature-breakdown, documentation, api-design |
+| R | Review | pr-review, code-review, api-design, security-audit |
 | E | Execution | commit-message, test-generation, refactoring, bug-investigation |
 | V | Validation | pr-review, code-review, test-generation, security-audit |
 | C | Confirmation | commit-message, documentation |

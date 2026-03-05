@@ -41,11 +41,27 @@ Execution is explicitly out of scope.
 ## High-Level Flow
 
 ```text
-Exchange → Ingestion Actors → Event Bus → Aggregation Actors
-→ Hot Read Models → Delivery (WS/API)
-                ↘
-                 Cold Storage
+Exchange WS
+    │
+    ▼
+[MarketData] ──(marketdata.*)──────────────────────────────────►
+                                                                 │
+[Aggregation] ◄──────────────────────────────────────────────────┘
+    │
+    ├──(aggregation.tape / candle / stats / snapshot)────────────────────┐
+    ├──(insights.heatmap_snapshot / volume_profile_snapshot)─────────────┤
+    └──(trades+bookdelta)──► [Evidence / LEL] ──► [Signal Engine] ───────┤
+                                                  [Strategist] ──────────┤
+                                                                          ▼
+                                                               [Delivery / Router]
+                                                                     │      │
+                                                                  [Store]  [WS Session]
+                                                                          │
+                                                                    [Client WASM]
 ```
+
+Full subsystem responsibility table, ownership contracts, and traceability:
+→ [`docs/architecture/subsystems.md`](subsystems.md)
 
 ---
 
@@ -252,21 +268,33 @@ without requiring rewrites.
 
 ### Architecture Docs Index
 
-- [Architecture Overview](README.md)
-- [Doc Contract Template](../../.context/docs/doc-contract-template.md)
-- [System Invariants](system-invariants.md)
-- [TRUTH-MAP](TRUTH-MAP.md)
+#### Core Reference
+
+- [Architecture Overview](README.md) — this file
+- [Subsystem Responsibilities](subsystems.md) — **START HERE** for per-subsystem boundary, I/O, caps, and IQ evidence
+- [Sequencing Model](sequencing-model.md) — ordering guarantees, ownership contracts, `DecideMonotonic`, `prev_seq`, replay
+- [Architectural Decisions](decisions.md) — consolidated ADR + RFC index with status and thematic groups
+- [IQ Loop Runtime Invariants](iq-loop-invariants.md) — Top-10 IQ properties, guardrail metrics, rollback actions
+- [System Invariants](system-invariants.md) — live invariant index with gates (`INV-DOM-01`, `INV-DET-01`, …)
+- [TRUTH-MAP](TRUTH-MAP.md) — single source of truth per critical theme; doc + code/test anchors
+- [Authority Map](AUTHORITY-MAP.md) — governance domain → authoritative document mapping
+
+#### Domain Architecture
+
 - [Ingestion](ingestion.md)
-- [Insights](insights.md)
-- [Moat](../prd/moat.md)
-- [Authority Map](AUTHORITY-MAP.md)
-- [Storage](storage.md)
 - [Orderbook](orderbook.md)
+- [Candle Aggregation](candle-aggregation.md)
+- [Stats Aggregation](stats-aggregation.md)
 - [Heatmap](heatmap.md)
 - [Volume Profiles](volume-profiles.md)
 - [Liquidations and MarkPrice](liquidations-markprice.md)
-- [Candle Aggregation](candle-aggregation.md)
-- [Stats Aggregation](stats-aggregation.md)
+- [Insights](insights.md)
+- [Storage](storage.md)
+
+#### Planning
+
+- [Moat](../prd/moat.md)
+- [Doc Contract Template](../../.context/docs/doc-contract-template.md)
 
 ### Contracts Index
 
