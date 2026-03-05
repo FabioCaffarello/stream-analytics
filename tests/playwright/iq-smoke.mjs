@@ -92,6 +92,41 @@ async function readRuntimeProbe(page) {
         "probe_md_resync_count",
         "probe_md_transport_mode",
         "probe_md_legacy_downgrade_count",
+        "probe_md_alloc_estimate_total",
+        "probe_md_alloc_estimate_frame",
+        "probe_md_canonical_evidence_frames",
+        "probe_md_legacy_evidence_frames",
+        "probe_md_evidence_fallback_frames",
+        "probe_md_canonical_signal_frames",
+        "probe_md_legacy_signal_frames",
+        "probe_md_signal_fallback_frames",
+        "probe_md_legacy_evidence_rejected",
+        "probe_md_legacy_signal_rejected",
+        "probe_widget_evidence_count",
+        "probe_widget_signal_count",
+        "probe_widget_signal_link_total",
+        "probe_widget_signal_link_evidence_seq",
+        "probe_widget_dom_parse_total",
+        "probe_widget_dom_fallback_total",
+        "probe_widget_dom_drop_total",
+        "probe_widget_dom_render_p95_us",
+        "probe_widget_tape_parse_total",
+        "probe_widget_tape_fallback_total",
+        "probe_widget_tape_drop_total",
+        "probe_widget_tape_render_p95_us",
+        "probe_widget_evidence_parse_total",
+        "probe_widget_evidence_fallback_total",
+        "probe_widget_evidence_drop_total",
+        "probe_widget_evidence_render_p95_us",
+        "probe_widget_signal_parse_total",
+        "probe_widget_signal_fallback_total",
+        "probe_widget_signal_drop_total",
+        "probe_widget_signal_render_p95_us",
+        "probe_widget_evidence_state",
+        "probe_widget_signal_state",
+        "probe_layout_version",
+        "probe_layout_migrated",
+        "probe_layout_link_enabled",
         "probe_indicator_funding_rendered",
         "probe_indicator_liq_rendered",
     ];
@@ -392,12 +427,33 @@ async function main() {
             await page.keyboard.press("j");
             await page.waitForTimeout(350);
             await waitFor(async () => {
-                if (hasLine("signal/composite/")) return true;
+                const canonicalByLogs =
+                    hasLine("subscribe_sent subject=liquidity.evidence/") &&
+                    hasLine("subscribe_sent subject=signal/");
+                if (canonicalByLogs) return true;
                 const probe = await readRuntimeProbe(page);
-                return Number(probe.probe_md_subscribe_ack_count ?? 0) > 0;
-            }, "signal/composite subscribe");
+                const canonicalFrames =
+                    Number(probe.probe_md_canonical_evidence_frames ?? 0) +
+                    Number(probe.probe_md_canonical_signal_frames ?? 0);
+                return canonicalFrames > 0;
+            }, "canonical evidence+signal subscribe/frame");
+            const probe = await readRuntimeProbe(page);
+            const legacyEvidenceSubs = hasLine("subscribe_sent subject=insights.microstructure_evidence/");
+            const legacySignalSubs = hasLine("subscribe_sent subject=signal/composite/");
+            if (legacyEvidenceSubs || legacySignalSubs) {
+                throw new Error(
+                    `legacy subjects observed evidence=${legacyEvidenceSubs} signal=${legacySignalSubs}`
+                );
+            }
+            if (Number(probe.probe_md_legacy_evidence_rejected ?? 0) < 0 ||
+                Number(probe.probe_md_legacy_signal_rejected ?? 0) < 0) {
+                throw new Error("invalid legacy rejection counters");
+            }
             const shot = await snap(page, "evidence-signal");
-            return { shots: [shot], details: "Signal channel observed and overlay toggles executed." };
+            return {
+                shots: [shot],
+                details: `canonical evidence/signal active; links=${Number(probe.probe_widget_signal_link_total ?? 0)}.`,
+            };
         });
 
         await runStep("layouts", "Exercise layout transitions", async () => {
@@ -418,8 +474,19 @@ async function main() {
             const s3 = await snap(page, "layout-compare");
             await page.keyboard.press("Escape");
             await page.waitForTimeout(250);
-
-            return { shots: [s1, s2, s3], details: "Focus, Zen, and Compare layouts toggled." };
+            const probe = await readRuntimeProbe(page);
+            const layoutVersion = Number(probe.probe_layout_version ?? 0);
+            const layoutLinkEnabled = Number(probe.probe_layout_link_enabled ?? -1);
+            if (layoutVersion !== 0 && layoutVersion < 4) {
+                throw new Error(`layout version expected 0|>=4, got ${layoutVersion}`);
+            }
+            if (!(layoutLinkEnabled === 0 || layoutLinkEnabled === 1)) {
+                throw new Error(`layout link flag expected 0|1, got ${layoutLinkEnabled}`);
+            }
+            return {
+                shots: [s1, s2, s3],
+                details: `Focus/Zen/Compare toggled; layout_version=${layoutVersion} link=${layoutLinkEnabled} (0 means clean boot).`,
+            };
         });
 
         await runStep("diagnostics-copy", "Copy diagnostics payload", async () => {

@@ -113,6 +113,10 @@ const resyncSentIdx = consoleLines.findIndex((l) => l.includes("[md-lifecycle] r
 const resyncAckIdx = consoleLines.findIndex((l) => l.includes("[md-lifecycle] ack_recv op=resync"));
 const desyncRecoveryIdx = consoleLines.findIndex((l) => l.includes("[md-lifecycle] desync_recovery resync"));
 const resyncStep = (Array.isArray(smoke.steps) ? smoke.steps : []).find((s) => s.id === "resync");
+const sawCanonicalEvidenceSub = consoleLines.some((l) => l.includes("subscribe_sent subject=liquidity.evidence/"));
+const sawCanonicalSignalSub = consoleLines.some((l) => l.includes("subscribe_sent subject=signal/"));
+const sawLegacyEvidenceSub = consoleLines.some((l) => l.includes("subscribe_sent subject=insights.microstructure_evidence/"));
+const sawLegacySignalSub = consoleLines.some((l) => l.includes("subscribe_sent subject=signal/composite/"));
 
 const checks = [];
 
@@ -186,6 +190,55 @@ addCheck(
     activeModes.length > 0,
     `modes=${activeModes.join(",") || "none"} violations_total=${routerViolationsTotal}`,
     ["delivery_router_coherence_mode", "delivery_router_coherence_violations_total"]
+);
+
+addCheck(
+    "canonical_subjects",
+    "canonical evidence/signal subjects",
+    sawCanonicalEvidenceSub && sawCanonicalSignalSub && !sawLegacyEvidenceSub && !sawLegacySignalSub,
+    `canonical_evidence_sub=${sawCanonicalEvidenceSub} canonical_signal_sub=${sawCanonicalSignalSub} legacy_evidence_sub=${sawLegacyEvidenceSub} legacy_signal_sub=${sawLegacySignalSub}`,
+    ["subscribe_sent subject=liquidity.evidence/", "subscribe_sent subject=signal/", "signal/composite/", "insights.microstructure_evidence/"]
+);
+
+const legacyEvidenceRejected = Number(probe.probe_md_legacy_evidence_rejected ?? -1);
+const legacySignalRejected = Number(probe.probe_md_legacy_signal_rejected ?? -1);
+addCheck(
+    "legacy_rejections_non_negative",
+    "legacy rejection counters",
+    legacyEvidenceRejected >= 0 && legacySignalRejected >= 0,
+    `legacy_evidence_rejected=${legacyEvidenceRejected} legacy_signal_rejected=${legacySignalRejected}`,
+    ["legacy_evidence_rejected", "legacy_signal_rejected"]
+);
+
+const allocFrame = Number(probe.probe_md_alloc_estimate_frame ?? -1);
+addCheck(
+    "alloc_counter_frame",
+    "alloc/frame counter",
+    allocFrame >= 0,
+    `alloc_estimate_frame=${allocFrame}`,
+    ["alloc_estimate_frame"]
+);
+
+const signalCount = Number(probe.probe_widget_signal_count ?? 0);
+const evidenceCount = Number(probe.probe_widget_evidence_count ?? 0);
+const signalLinkTotal = Number(probe.probe_widget_signal_link_total ?? -1);
+const linkHealthy = signalLinkTotal >= 0 && (signalCount <= 0 || evidenceCount <= 0 || signalLinkTotal > 0);
+addCheck(
+    "signal_evidence_link",
+    "signal→evidence link",
+    linkHealthy,
+    `signal_count=${signalCount} evidence_count=${evidenceCount} link_total=${signalLinkTotal}`,
+    ["signal", "evidence", "link"]
+);
+
+const layoutVersion = Number(probe.probe_layout_version ?? 0);
+const layoutLinkEnabled = Number(probe.probe_layout_link_enabled ?? -1);
+addCheck(
+    "layout_versioned",
+    "layout v4/v5 active when persisted",
+    (layoutVersion === 0 || layoutVersion >= 4) && (layoutLinkEnabled === 0 || layoutLinkEnabled === 1),
+    `layout_version=${layoutVersion} layout_link_enabled=${layoutLinkEnabled} layout_migrated=${fmt(probe.probe_layout_migrated)}`,
+    ["layout_version", "layout_link_enabled", "layout_migrated"]
 );
 
 const smokeSteps = Array.isArray(smoke.steps) ? smoke.steps : [];
