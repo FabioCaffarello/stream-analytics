@@ -63,6 +63,14 @@ type SubsystemActor struct {
 	replicaID     int
 	replicaCount  int
 	tenantMetaKey string
+
+	streamLastSeq  map[string]int64
+	streamOrder    []string
+	streamOrderIdx int
+
+	dropSamples      map[dropSampleKey]int
+	dropSampleDrops  int
+	dropSampleWindow int
 }
 
 func NewSubsystemActor(cfg SubsystemConfig) actor.Producer {
@@ -141,6 +149,15 @@ func (s *SubsystemActor) ensureDefaults(c *actor.Context) {
 	if s.replicaID < 0 || s.replicaID >= s.replicaCount {
 		s.replicaID = 0
 	}
+	if s.streamLastSeq == nil {
+		s.streamLastSeq = make(map[string]int64, signalStateMaxStreams)
+	}
+	if s.streamOrder == nil {
+		s.streamOrder = make([]string, 0, signalStateMaxStreams)
+	}
+	if s.dropSamples == nil {
+		s.dropSamples = make(map[dropSampleKey]int)
+	}
 }
 
 func (s *SubsystemActor) onStarted() {
@@ -155,6 +172,7 @@ func (s *SubsystemActor) onStopped() {
 	if s.cancel != nil {
 		s.cancel()
 	}
+	s.flushDropSamples()
 	s.logger.Info("signal subsystem stopped")
 }
 
@@ -179,14 +197,20 @@ func (s *SubsystemActor) processEnvelope(env envelope.Envelope) {
 	case envelopeTypeBookDelta:
 		decoded, p := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
 		if p != nil {
+			metrics.IncSignalDrop(dropReasonDecodeFailed)
 			return
 		}
 		delta, ok := decoded.(marketmodel.BookDelta)
 		if !ok {
+			metrics.IncSignalDrop(dropReasonValidationFail)
 			return
 		}
 		key, ok := signalStreamKey(env.Venue, env.Instrument)
-		if !ok || !s.isOwner(key) {
+		if !ok {
+			metrics.IncSignalDrop(dropReasonValidationFail)
+			return
+		}
+		if !s.acceptOwner(key, env.Seq) {
 			return
 		}
 		obs := signalcore.MarketObservation{
@@ -207,7 +231,11 @@ func (s *SubsystemActor) processEnvelope(env envelope.Envelope) {
 		return
 	case envelopeTypeTrade, envelopeTypeCandle, envelopeTypeStats:
 		key, ok := signalStreamKey(env.Venue, env.Instrument)
-		if !ok || !s.isOwner(key) {
+		if !ok {
+			metrics.IncSignalDrop(dropReasonValidationFail)
+			return
+		}
+		if !s.acceptOwner(key, env.Seq) {
 			return
 		}
 		s.recordMarket(signalcore.MarketObservation{
@@ -220,17 +248,24 @@ func (s *SubsystemActor) processEnvelope(env envelope.Envelope) {
 	case envelopeTypeRegime, "evidence.regime_evidence":
 		decoded, p := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
 		if p != nil {
+			metrics.IncSignalDrop(dropReasonDecodeFailed)
 			return
 		}
 		regime, ok := decoded.(evidencedomain.RegimeSignal)
 		if !ok {
+			metrics.IncSignalDrop(dropReasonValidationFail)
 			return
 		}
 		if p := regime.Validate(); p != nil {
+			metrics.IncSignalDrop(dropReasonValidationFail)
 			return
 		}
 		key, ok := signalStreamKey(regime.Venue, regime.Instrument)
-		if !ok || !s.isOwner(key) {
+		if !ok {
+			metrics.IncSignalDrop(dropReasonValidationFail)
+			return
+		}
+		if !s.acceptOwner(key, env.Seq) {
 			return
 		}
 		seq := env.Seq
@@ -251,21 +286,28 @@ func (s *SubsystemActor) processEnvelope(env envelope.Envelope) {
 	case envelopeTypeLiquidity:
 		decoded, p := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
 		if p != nil {
+			metrics.IncSignalDrop(dropReasonDecodeFailed)
 			metrics.IncSignalLELAdaptError("decode_failed")
 			return
 		}
 		wire, ok := decoded.(contracts.LiquidityEvidenceV1)
 		if !ok {
+			metrics.IncSignalDrop(dropReasonValidationFail)
 			metrics.IncSignalLELAdaptError("decode_type_mismatch")
 			return
 		}
 		adapted, p := signalcore.LELToEvidenceEvent(liquidityWireToDomain(wire))
 		if p != nil {
+			metrics.IncSignalDrop(dropReasonValidationFail)
 			metrics.IncSignalLELAdaptError(string(p.Code))
 			return
 		}
 		key, ok := signalStreamKey(adapted.Venue, adapted.Symbol)
-		if !ok || !s.isOwner(key) {
+		if !ok {
+			metrics.IncSignalDrop(dropReasonValidationFail)
+			return
+		}
+		if !s.acceptOwner(key, adapted.Seq) {
 			return
 		}
 		metrics.IncSignalLELAdapted(string(wire.EvidenceType))
@@ -274,17 +316,24 @@ func (s *SubsystemActor) processEnvelope(env envelope.Envelope) {
 	case evidencedomain.MicrostructureEvidenceType, "evidence.microstructure_evidence":
 		decoded, p := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
 		if p != nil {
+			metrics.IncSignalDrop(dropReasonDecodeFailed)
 			return
 		}
 		ev, ok := decoded.(evidencedomain.EvidenceEvent)
 		if !ok {
+			metrics.IncSignalDrop(dropReasonValidationFail)
 			return
 		}
 		if p := ev.Validate(); p != nil {
+			metrics.IncSignalDrop(dropReasonValidationFail)
 			return
 		}
 		key, ok := signalStreamKey(ev.Venue, ev.Symbol)
-		if !ok || !s.isOwner(key) {
+		if !ok {
+			metrics.IncSignalDrop(dropReasonValidationFail)
+			return
+		}
+		if !s.acceptOwner(key, ev.Seq) {
 			return
 		}
 		s.evaluateEvidenceEvent(key, tenant, ev)
@@ -292,19 +341,38 @@ func (s *SubsystemActor) processEnvelope(env envelope.Envelope) {
 }
 
 func (s *SubsystemActor) evaluateEvidenceEvent(key marketmodel.StreamKey, tenant string, ev evidencedomain.EvidenceEvent) {
+	streamKey := signalStreamKeyLabel(key)
+	lastSeq := s.lastStreamSeq(streamKey)
+	if ev.Seq > 0 && lastSeq > 0 && ev.Seq <= lastSeq {
+		metrics.IncSignalDrop(dropReasonDuplicate)
+		s.recordDropSample(dropSampleKey{
+			streamKey: streamKey,
+			lastSeq:   lastSeq,
+			candSeq:   ev.Seq,
+			reason:    dropReasonDuplicate,
+			owner:     strconv.Itoa(s.ownerReplicaID(key)),
+			instance:  strconv.Itoa(s.replicaID),
+		})
+	}
+
 	emissions, evictions, dedupTypes, rateLimitedTypes, evalSpanMs, p := s.signalEngine.OnEvidenceEvent(key, tenant, ev)
 	if p != nil {
 		s.logger.Warn("signal subsystem: evaluate evidence failed", "code", p.Code, "message", p.Message)
 		return
 	}
+	s.noteStreamSeq(streamKey, ev.Seq)
 	s.recordEvictions(evictions)
 	for i := range dedupTypes {
 		metrics.IncSignalDedup(dedupTypes[i])
+		metrics.IncSignalDrop(dropReasonDuplicate)
 	}
 	if evalSpanMs > 0 {
 		metrics.ObserveSignalEvalLatency(time.Duration(evalSpanMs) * time.Millisecond)
 	}
 	if len(rateLimitedTypes) > 0 {
+		for range rateLimitedTypes {
+			metrics.IncSignalDrop(dropReasonRateLimited)
+		}
 		s.logger.Debug("signal subsystem: tenant rate-limited signal emissions", "count", len(rateLimitedTypes), "tenant", tenant)
 	}
 	for i := range emissions {
@@ -319,6 +387,7 @@ func (s *SubsystemActor) recordMarket(obs signalcore.MarketObservation) {
 		s.logger.Warn("signal subsystem: observe market failed", "code", p.Code, "message", p.Message)
 		return
 	}
+	s.noteStreamSeq(signalStreamKeyLabel(obs.Key), obs.Seq)
 	s.recordEvictions(evictions)
 	metrics.SetSignalStateEntries(s.signalEngine.StoreEntries())
 }
@@ -345,14 +414,6 @@ func signalStreamKey(venue, symbol string) (marketmodel.StreamKey, bool) {
 		return marketmodel.StreamKey{}, false
 	}
 	return key, true
-}
-
-func (s *SubsystemActor) isOwner(key marketmodel.StreamKey) bool {
-	if s.replicaCount <= 1 {
-		return true
-	}
-	owner := sharedhash.SumFieldsFast64(string(key.Venue), string(key.Symbol), string(key.Channel)) % uint64(s.replicaCount)
-	return owner == uint64(s.replicaID) //nolint:gosec // replicaID is validated as non-negative and bounded by replicaCount.
 }
 
 func sumDepth(levels []marketmodel.Level) float64 {
@@ -417,6 +478,7 @@ func (s *SubsystemActor) Emit(emission signalcore.Emission) *problem.Problem {
 		"timeframe":      "raw",
 		"scope":          string(emission.Event.Scope),
 		"signal_id":      emission.Event.SignalID,
+		"intent_id":      deterministicIntentID(emission),
 		"rule_id":        emission.Event.RuleID,
 		"rule_version":   emission.Event.RuleVersion,
 		"correlation_id": emission.Event.CorrelationID,

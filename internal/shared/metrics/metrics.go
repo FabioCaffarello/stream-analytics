@@ -1070,6 +1070,13 @@ var (
 		},
 		[]string{"reason"},
 	)
+	SignalDropTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "signal_drop_total",
+			Help: "Total signal events dropped before emit by deterministic reason.",
+		},
+		[]string{"reason"},
+	)
 	SignalEvalLatencySeconds = prometheus.NewHistogram(
 		prometheus.HistogramOpts{
 			Name:    "signal_eval_latency_seconds",
@@ -1843,6 +1850,7 @@ func registerAll() {
 			SignalEmitTotal,
 			SignalStateEntries,
 			SignalEvictedTotal,
+			SignalDropTotal,
 			SignalEvalLatencySeconds,
 			SignalDedupTotal,
 			SignalWireBytes,
@@ -2073,6 +2081,9 @@ func registerAll() {
 		SignalEmitTotal.WithLabelValues("unknown", "unknown")
 		SignalStateEntries.Set(0)
 		SignalEvictedTotal.WithLabelValues("unknown")
+		SignalDropTotal.WithLabelValues("unknown")
+		SignalDropTotal.WithLabelValues("owner_reject")
+		SignalDropTotal.WithLabelValues("duplicate")
 		SignalEvalLatencySeconds.Observe(0)
 		SignalDedupTotal.WithLabelValues("unknown")
 		SignalWireBytes.WithLabelValues("unknown").Observe(0)
@@ -3239,6 +3250,10 @@ func IncSignalEvicted(reason string) {
 	SignalEvictedTotal.WithLabelValues(sanitizeReason(reason)).Inc()
 }
 
+func IncSignalDrop(reason string) {
+	SignalDropTotal.WithLabelValues(sanitizeSignalDropReason(reason)).Inc()
+}
+
 func ObserveSignalEvalLatency(d time.Duration) {
 	if d < 0 {
 		d = 0
@@ -3845,6 +3860,15 @@ func sanitizeLELInputKind(v string) string {
 func sanitizeSignalWSRejectReason(v string) string {
 	switch strings.ToLower(strings.TrimSpace(v)) {
 	case "max_signal_subscriptions", "max_subscriptions_per_connection", "max_symbols_per_connection":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeSignalDropReason(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "owner_reject", "duplicate", "rate_limited", "decode_failed", "validation_failed":
 		return strings.ToLower(strings.TrimSpace(v))
 	default:
 		return "unknown"

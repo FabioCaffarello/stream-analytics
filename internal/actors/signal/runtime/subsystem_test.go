@@ -17,7 +17,9 @@ import (
 	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 	sharedhash "github.com/market-raccoon/internal/shared/hash"
+	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 type capturePublisher struct {
@@ -107,6 +109,65 @@ collect:
 	e.Poison(pidB)
 }
 
+func TestSignalSubsystem_OwnerRejectIncrementsDropMetric(t *testing.T) {
+	if p := contracts.BootstrapPayloadCodecRegistry(); p != nil {
+		t.Fatalf("bootstrap codec registry: %v", p)
+	}
+
+	e, err := actorruntime.NewDefaultEngine()
+	if err != nil {
+		t.Fatalf("engine: %v", err)
+	}
+
+	input := make(chan envelope.Envelope, 2)
+	pub := &capturePublisher{ch: make(chan envelope.Envelope, 1)}
+	cfg := signalcore.DefaultEngineConfig()
+	engine := signalcore.NewSignalEngine(cfg, nil, signalcore.BuildV0Rules(cfg.Rules)...)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	key, p := marketmodel.NewStreamKey("binance", "BTC-USDT", marketmodel.ChannelEvidence)
+	if p != nil {
+		t.Fatalf("stream key: %v", p)
+	}
+	ownerU := sharedhash.SumFieldsFast64(string(key.Venue), string(key.Symbol), string(key.Channel)) % 2
+	replicaID := 0
+	if ownerU == 0 {
+		replicaID = 1
+	}
+	before := testutil.ToFloat64(metrics.SignalDropTotal.WithLabelValues("owner_reject"))
+	pid := e.Spawn(signalruntime.NewSubsystemActor(signalruntime.SubsystemConfig{
+		Logger:       logger,
+		EnvelopeCh:   input,
+		Engine:       engine,
+		Publisher:    pub,
+		ReplicaID:    replicaID,
+		ReplicaCount: 2,
+	}), "signal-owner-reject")
+	defer func() {
+		close(input)
+		e.Poison(pid)
+	}()
+
+	input <- makeEvidenceEnvelope(t, "spread_explosion", 1000, 1)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		after := testutil.ToFloat64(metrics.SignalDropTotal.WithLabelValues("owner_reject"))
+		if after >= before+1 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	after := testutil.ToFloat64(metrics.SignalDropTotal.WithLabelValues("owner_reject"))
+	if after < before+1 {
+		t.Fatalf("signal_drop_total{reason=owner_reject}=%.0f want at least %.0f", after, before+1)
+	}
+	select {
+	case env := <-pub.ch:
+		t.Fatalf("unexpected owner-rejected emission: kind=%s seq=%d", env.Meta["kind"], env.Seq)
+	default:
+	}
+}
+
 func TestSubsystem_LiquidityEvidenceEnvelope_EmitsSignalEvent(t *testing.T) {
 	if p := contracts.BootstrapPayloadCodecRegistry(); p != nil {
 		t.Fatalf("bootstrap codec registry: %v", p)
@@ -149,6 +210,9 @@ func TestSubsystem_LiquidityEvidenceEnvelope_EmitsSignalEvent(t *testing.T) {
 	if signalEnv.IdempotencyKey != wantIdem {
 		t.Fatalf("idempotency_key=%q want=%q", signalEnv.IdempotencyKey, wantIdem)
 	}
+	if got := signalEnv.Meta["intent_id"]; got == "" {
+		t.Fatal("intent_id must not be empty")
+	}
 	decoded, p := codec.DecodePayload(signalcore.EventType, signalcore.EventVersion, signalEnv.ContentType, signalEnv.Payload)
 	if p != nil {
 		t.Fatalf("decode signal payload: %v", p)
@@ -174,6 +238,12 @@ func TestSubsystem_LiquidityEvidenceEnvelope_ReplayDeterministicNoDoubleEmit(t *
 	}
 	if first.IdempotencyKey != second.IdempotencyKey {
 		t.Fatalf("idempotency mismatch first=%q second=%q", first.IdempotencyKey, second.IdempotencyKey)
+	}
+	if first.Meta["intent_id"] == "" {
+		t.Fatal("first intent_id must not be empty")
+	}
+	if first.Meta["intent_id"] != second.Meta["intent_id"] {
+		t.Fatalf("intent_id mismatch first=%q second=%q", first.Meta["intent_id"], second.Meta["intent_id"])
 	}
 	if !bytes.Equal(first.Payload, second.Payload) {
 		t.Fatal("payload bytes differ between identical runs")
