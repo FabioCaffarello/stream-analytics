@@ -75,8 +75,9 @@ Behavior:
 ## Perf Tuning
 - Batching (`hello.requested_features` includes `batching`):
   - Server emits compact `batch` frames with one header (`stream_id`, `base_seq`, `count`, `ts_server_base`) and per-item deltas.
-  - Batch writer is size-guarded by `delivery.max_frame_bytes`; oversized batches are split automatically (or downgraded to single-event writes).
-  - Strangler counter: `ws_batch_fallback_events_total` counts events that were batch candidates but downgraded to single-event writes.
+  - Batch writer is size-guarded by `delivery.max_frame_bytes`; oversized batches are split to smaller batch chunks.
+  - If no valid batch chunk fits `max_frame_bytes`, the session fails closed (no single-event runtime downgrade path).
+  - Strangler counter `ws_batch_fallback_events_total` is retained as a zero-regression probe and must stay `0`.
   - Use batching when stream fanout is bursty (book/trade bursts) and client parser supports Terminal V1 batch frames.
 - Compression (`hello.requested_features` includes `compress`):
   - Server-driven, negotiated at hello.
@@ -174,10 +175,27 @@ ws_backpressure_level
 ws_queue_high_watermark
 ```
 
-Batch fast-path strangler removal criteria:
-- Removal gate: `ws_batch_fallback_events_total == 0` for **5 consecutive IQ runs**.
-- IQ gate: `scripts/iq/analyze_iq_run.mjs` fails when fallback events are non-zero.
-- Temporary override (explicit only): `IQ_ALLOW_BATCHED_FALLBACK=1`.
+## S16 Strangler Removal Criteria
+
+All compatibility runtime paths are removed only when all three gates pass:
+- **N-run gate**: `N` consecutive IQ PASS runs with zero compat counters (`N=5` default).
+- **Metric gate**: compatibility counters stay zero on `/metrics`.
+- **Test gate**: runtime rejection tests + compat-module tests pass.
+
+Removed in S16:
+- Batch single-frame downgrade runtime path:
+  - IQ gate: `ws_batch_fallback_events_total == 0` for `N` runs.
+  - Tests: `TestBatchingRespectsMaxFrameBytes`, `TestBatchingHardFailsWhenBatchCannotFit`.
+- Stats flat payload runtime parser path:
+  - IQ gate: `probe_md_stats_fallback_frames == 0` for `N` runs.
+  - Tests: `test_parse_stats_frame_flat_payload_rejected_in_runtime`, `test_parse_stats_frame_flat_payload_compat_parser`.
+- Legacy evidence/signal runtime parser paths:
+  - IQ gate: `legacy_evidence_frames == 0`, `legacy_signal_frames == 0`, `evidence_fallback_frames == 0`, `signal_fallback_frames == 0`.
+  - Tests: `test_parse_signal_frame_legacy_subject_compat`, `test_parse_signal_frame_legacy_compat_parser`, `test_parse_microstructure_evidence_legacy_compat_parser`.
+
+Preserved intentionally:
+- Idempotent layout/settings migration path.
+- Compatibility parsers in isolated module (non-runtime) for offline migration/forensics only.
 
 ## Per-Tenant Limits
 
@@ -222,11 +240,15 @@ rate(ws_legacy_requests_total{status="accepted"}[5m])
 rate(ws_legacy_requests_total{status="rejected"}[5m])
 ```
 
-Rollback (safe):
-1. Roll back to the last release tag before Sprint S9.
+Rollback (safe, explicit):
+1. Revert cleanup commits:
+   - `git revert <s16-commit-1> [<s16-commit-2> ...]`
 2. Redeploy `server`, `processor`, `consumer`, `client` as one version set.
-3. Run IQ loop with `PROCESSOR_REPLICAS=2` and verify PASS before re-enabling traffic.
-4. Confirm `ws_clients_total{mode="legacy"}` and `ws_legacy_requests_total{status="accepted"}` behavior matches the rollback release expectations.
+3. Use existing flag surfaces only while diagnosing rollback:
+   - Client HELLO `requested_features`: temporarily remove `batching`/`compress` if needed.
+   - Keep `ws.allow_legacy_ws=false` unless reverting to a pre-S9 commit set.
+4. Run IQ loop with `PROCESSOR_REPLICAS=2` and verify PASS before re-enabling traffic.
+5. Confirm `ws_clients_total{mode="legacy"}` and `ws_legacy_requests_total{status="accepted"}` behavior matches the reverted commit set.
 
 ## HELLO Negotiation
 
