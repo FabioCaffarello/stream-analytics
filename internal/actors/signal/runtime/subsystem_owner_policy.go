@@ -16,9 +16,9 @@ const (
 	signalStateMaxStreams    = 4096
 	signalStaleGapWindow     = int64(2048)
 	signalsBoundedMapName    = "signals_ownership_contract"
-	dropSampleTopN           = 5
+	dropSampleTopN           = 2
 	dropSampleMaxUnique      = 64
-	dropSampleFlushEvery     = 50
+	dropSampleFlushEvery     = 1000
 	dropReasonOwnerReject    = "owner_reject"
 	dropReasonDuplicate      = "duplicate"
 	dropReasonOutOfOrder     = "out_of_order"

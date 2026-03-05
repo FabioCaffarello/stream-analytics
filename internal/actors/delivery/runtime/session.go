@@ -144,6 +144,10 @@ type SessionActor struct {
 
 	// Peak queue depth since last metrics emission (reset after each emission).
 	queueHighWatermark int
+	bpStrategy         backpressureStrategy
+	bpDropSamples      map[backpressureDropSampleKey]int
+	bpDropSampleDrops  int
+	bpDropSampleWindow int
 
 	compressBuf    bytes.Buffer
 	compressWriter *flate.Writer
@@ -258,6 +262,12 @@ func (s *SessionActor) ensureDefaults(c *actor.Context) {
 	if s.cfg.Clock == nil {
 		s.cfg.Clock = sharedclock.NewSystemClock()
 	}
+	if s.bpStrategy.sampleFlushEvery <= 0 {
+		s.bpStrategy = defaultBackpressureStrategy()
+	}
+	if s.bpDropSamples == nil {
+		s.bpDropSamples = make(map[backpressureDropSampleKey]int)
+	}
 	if strings.TrimSpace(s.cfg.ServerInstanceID) == "" {
 		s.cfg.ServerInstanceID = "unknown"
 	}
@@ -294,6 +304,8 @@ func (s *SessionActor) ensureDefaults(c *actor.Context) {
 	}
 	s.limits.EmitMetrics()
 	metrics.SetWSQueueCapacity(s.limits.OutboundQueueSize)
+	metrics.SetWSBackpressureLevel(0)
+	metrics.SetWSQueueHighWatermark(0)
 }
 
 func (s *SessionActor) onStarted() {
@@ -387,6 +399,7 @@ func (s *SessionActor) closeSession() {
 	if s.cancelReader != nil {
 		s.cancelReader()
 	}
+	s.flushBackpressureDropSamples(true)
 	metrics.DecWSClientsConnected()
 	metrics.DecWSTenantConnectionsActive(s.cfg.TenantID)
 	observability.DecSessionsActive()
@@ -395,6 +408,8 @@ func (s *SessionActor) closeSession() {
 	}
 	metrics.SetWSQueueDepth(0)
 	metrics.SetWSTenantQueueDepth(s.cfg.TenantID, 0)
+	metrics.SetWSBackpressureLevel(0)
+	metrics.SetWSQueueHighWatermark(0)
 	for _, sub := range s.session.Subscriptions() {
 		if sub.Subject.IsSignal() {
 			metrics.DecMRSignalWSActiveSubscriptions()

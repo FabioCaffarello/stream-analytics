@@ -168,7 +168,7 @@ func (s *SessionActor) emitSnapshot(subject domain.Subject) bool {
 						SnapshotHash:     fnvHexHash(payload),
 					}
 					if !s.frameFitsMaxBytes(frame) {
-						s.onDrop("frame_too_large", nil)
+						s.onDrop(backpressureDropReasonFrameTooLarge, nil)
 						return false
 					}
 					s.writeJSON(frame)
@@ -209,7 +209,7 @@ func (s *SessionActor) emitSnapshot(subject domain.Subject) bool {
 					return false
 				}
 				if err := s.writeJSONRawWithLimits(wire); err != nil {
-					s.onDrop("frame_too_large", nil)
+					s.onDrop(backpressureDropReasonFrameTooLarge, nil)
 					return false
 				}
 				if s.cfg.SnapshotWireCache != nil {
@@ -245,7 +245,7 @@ func (s *SessionActor) emitSnapshot(subject domain.Subject) bool {
 		SnapshotHash:     fnvHexHash(payloadCopy),
 	}
 	if !s.frameFitsMaxBytes(frame) {
-		s.onDrop("frame_too_large", nil)
+		s.onDrop(backpressureDropReasonFrameTooLarge, nil)
 		return false
 	}
 	s.writeJSON(frame)

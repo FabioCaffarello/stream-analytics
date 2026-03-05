@@ -337,6 +337,14 @@ var (
 		},
 		[]string{"channel"},
 	)
+	WSWireBytes = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "ws_wire_bytes",
+			Help:    "Websocket frame wire bytes by channel (post-compression estimate).",
+			Buckets: []float64{64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144},
+		},
+		[]string{"channel"},
+	)
 	WSSendLatencyMilliseconds = prometheus.NewHistogram(
 		prometheus.HistogramOpts{
 			Name:    "ws_send_latency_ms",
@@ -1774,6 +1782,7 @@ func registerAll() {
 			WSBatchFallbackEventsTotal,
 			WSMessagesOutTotal,
 			WSBytesOutTotal,
+			WSWireBytes,
 			WSSendLatencyMilliseconds,
 			WSSendLatencySeconds,
 			WSPublishToDeliverLatencyMilliseconds,
@@ -1992,10 +2001,15 @@ func registerAll() {
 		WSReconnectsTotal.WithLabelValues("unknown", "unknown")
 		WSMessagesReceivedTotal.WithLabelValues("unknown", "unknown")
 		WSErrorsTotal.WithLabelValues("unknown", "unknown")
+		WSQueueDepth.Set(0)
+		WSQueueLen.Set(0)
 		WSDropsTotal.WithLabelValues("unknown")
 		WSDroppedTotal.WithLabelValues("unknown", "unknown", "unknown")
 		WSMessagesOutTotal.WithLabelValues("unknown")
 		WSBytesOutTotal.WithLabelValues("unknown")
+		for _, channel := range []string{"unknown", "trade", "book_snapshot", "stats", "candle", "signal"} {
+			WSWireBytes.WithLabelValues(channel)
+		}
 		WSLagMilliseconds.WithLabelValues("unknown")
 		WSLagSeconds.WithLabelValues("unknown")
 		WSPublishToDeliverLatencyMilliseconds.WithLabelValues("unknown")
@@ -2035,6 +2049,9 @@ func registerAll() {
 		WSResyncRejectedTotal.WithLabelValues("snapshot_unavailable")
 		WSContractViolationsTotal.WithLabelValues("missing_ts_server")
 		WSContractViolationsTotal.WithLabelValues("unknown_feature")
+		WSBackpressureLevel.Set(0)
+		WSQueueHighWatermark.Set(0)
+		WSQueueCapacity.Set(0)
 		GuardianRestartsTotal.WithLabelValues("unknown", "unknown")
 		GuardianDegradedTotal.WithLabelValues("unknown")
 		GuardianSubsystemState.WithLabelValues("unknown")
@@ -2199,6 +2216,10 @@ func registerAll() {
 		DeliveryRouterCoherenceMode.WithLabelValues("sticky_session")
 		DeliveryRouterCoherenceMode.WithLabelValues("upstream_sequencer")
 		DeliveryRouterCoherenceMode.WithLabelValues("unknown")
+		DeliveryRouterStreamStateEntries.Set(0)
+		DeliveryRouterStreamStateActiveTotal.Set(0)
+		DeliveryRouterSessionsActive.Set(0)
+		DeliveryRouterSessionsRejectedTotal.Add(0)
 		for _, reason := range []string{
 			"out_of_order_input",
 			"stale_event",
@@ -2420,6 +2441,13 @@ func AddWSBytesOut(channel string, n int) {
 		return
 	}
 	WSBytesOutTotal.WithLabelValues(sanitizeEventType(channel)).Add(float64(n))
+}
+
+func ObserveWSWireBytes(channel string, n int) {
+	if n <= 0 {
+		return
+	}
+	WSWireBytes.WithLabelValues(sanitizeEventType(channel)).Observe(float64(n))
 }
 
 func SetWSLag(channel string, lagMs int64) {

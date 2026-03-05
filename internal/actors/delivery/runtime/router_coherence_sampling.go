@@ -6,9 +6,9 @@ import (
 )
 
 const (
-	coherenceSampleTopN       = 5
+	coherenceSampleTopN       = 2
 	coherenceSampleMaxUnique  = 64
-	coherenceSampleFlushEvery = 50
+	coherenceSampleFlushEvery = 500
 
 	coherenceReasonOutOfOrderInput = "out_of_order_input"
 	coherenceReasonStaleEvent      = "stale_event"

@@ -7,7 +7,6 @@ import (
 	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/observability"
 	"github.com/market-raccoon/internal/shared/problem"
-	deliveryv1 "github.com/market-raccoon/internal/shared/proto/gen/delivery/v1"
 )
 
 // enqueueDelivery is the hot-path backpressure policy executor.
@@ -16,26 +15,27 @@ func (s *SessionActor) enqueueDelivery(evt DeliveryEvent) {
 	if s.outbound.IsFull() {
 		switch s.policy {
 		case domain.BackpressureDropNewest:
-			if s.onDrop("queue_full", &evt) {
+			if s.onDrop(backpressureDropReasonQueueFull, &evt) {
 				return
 			}
 			return
 		case domain.BackpressureDropOldest:
 			s.outbound.DropFront()
-			if s.onDrop("drop_oldest", &evt) {
+			if s.onDrop(backpressureDropReasonDropOldest, &evt) {
 				return
 			}
 		case domain.BackpressurePriorityDrop:
 			if !s.priorityDrop(evt) {
-				if s.onDrop("priority_drop_self", &evt) {
+				if s.onDrop(backpressureDropReasonPriorityDropSelf, &evt) {
 					return
 				}
 				return
 			}
-			if s.onDrop("priority_drop", &evt) {
+			if s.onDrop(backpressureDropReasonPriorityDrop, &evt) {
 				return
 			}
 			metrics.SetWSQueueDepth(s.outbound.Len())
+			metrics.SetWSTenantQueueDepth(s.cfg.TenantID, s.outbound.Len())
 			if s.flushing {
 				return
 			}
@@ -43,7 +43,7 @@ func (s *SessionActor) enqueueDelivery(evt DeliveryEvent) {
 			s.engine.Send(s.self, sessionFlushOutbound{})
 			return
 		default:
-			if s.onDrop("queue_full", &evt) {
+			if s.onDrop(backpressureDropReasonQueueFull, &evt) {
 				return
 			}
 			return
@@ -87,38 +87,41 @@ func (s *SessionActor) priorityDrop(evt DeliveryEvent) bool {
 }
 
 func (s *SessionActor) onDrop(reason string, evt *DeliveryEvent) bool {
+	reason = s.bpStrategy.normalizeDropReason(reason)
 	switch reason {
-	case "queue_full", "priority_drop_self":
+	case backpressureDropReasonQueueFull, backpressureDropReasonPriorityDropSelf:
 		s.writeProblem("delivery", "",
 			withWSLimitProblemDetails(
 				problem.New(problem.Unavailable, "outbound queue limit reached"),
 				wsLimitTypeOutboundQueue,
-				deliveryv1.ActionHint_ACTION_HINT_RECONNECT,
+				s.bpStrategy.actionHintForDrop(reason),
 			),
 		)
-	case "frame_too_large":
+	case backpressureDropReasonFrameTooLarge:
 		s.writeProblem("delivery", "",
 			withWSLimitProblemDetails(
 				problem.Newf(problem.ValidationFailed, "event exceeds max_frame_bytes (%d)", s.limits.MaxFrameBytes),
 				wsLimitTypeMaxFrameBytes,
-				deliveryv1.ActionHint_ACTION_HINT_NONE,
+				s.bpStrategy.actionHintForDrop(reason),
 			),
 		)
 	}
 
-	metrics.IncWSDrops(reason)
-	metrics.IncWSTenantDrop(s.cfg.TenantID, reason)
 	channel := "unknown"
 	streamID := "unknown"
 	venue := "unknown"
 	symbol := "unknown"
+	priority := s.dropPriorityLabel(evt)
 	if evt != nil {
 		streamID = evt.Subject.String()
 		venue = evt.Subject.Venue
 		symbol = evt.Subject.Symbol
 		channel = channelName(channelEnumFromStreamType(evt.Subject.StreamType), evt.Subject.StreamType)
 	}
-	metrics.IncWSDropped(reason, channel, s.dropPriorityLabel(evt))
+	metrics.IncWSDrops(reason)
+	metrics.IncWSTenantDrop(s.cfg.TenantID, reason)
+	metrics.IncWSDropped(reason, channel, priority)
+	s.recordBackpressureDropSample(reason, channel, priority)
 	observability.RecordTerminalWSDrop(streamID, venue, symbol, channel, reason)
 	s.dropCount++
 	threshold := s.cfg.SlowClientDropThreshold
@@ -126,12 +129,16 @@ func (s *SessionActor) onDrop(reason string, evt *DeliveryEvent) bool {
 		return false
 	}
 
-	metrics.IncWSDrops("slow_client_disconnect")
+	disconnectReason := backpressureDropReasonSlowClientDisconnect
+	metrics.IncWSDrops(disconnectReason)
+	metrics.IncWSTenantDrop(s.cfg.TenantID, disconnectReason)
+	metrics.IncWSDropped(disconnectReason, channel, priority)
+	s.recordBackpressureDropSample(disconnectReason, channel, priority)
 	s.writeProblem("delivery", "",
 		withWSLimitProblemDetails(
 			problem.New(problem.Unavailable, "outbound queue limit reached; disconnecting slow client"),
 			wsLimitTypeOutboundQueue,
-			deliveryv1.ActionHint_ACTION_HINT_RECONNECT,
+			s.bpStrategy.actionHintForDrop(disconnectReason),
 		),
 	)
 	s.logger.Warn(
@@ -142,6 +149,7 @@ func (s *SessionActor) onDrop(reason string, evt *DeliveryEvent) bool {
 		"threshold", threshold,
 		"reason", reason,
 	)
+	s.flushBackpressureDropSamples(true)
 	s.closeSession()
 	return true
 }

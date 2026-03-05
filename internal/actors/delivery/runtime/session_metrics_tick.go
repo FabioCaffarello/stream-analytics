@@ -49,6 +49,9 @@ func (s *SessionActor) handleMetricsTick() {
 	bpLevel, bpAction := s.computeBackpressureLevel()
 	hwm := s.queueHighWatermark
 	s.queueHighWatermark = 0
+	metrics.SetWSBackpressureLevel(bpLevel)
+	metrics.SetWSQueueHighWatermark(hwm)
+	metrics.SetWSQueueCapacity(s.limits.OutboundQueueSize)
 	metrics.IncWSControlFrame("metrics")
 	s.writeJSON(wsMetricsFrame{
 		Type: "metrics",

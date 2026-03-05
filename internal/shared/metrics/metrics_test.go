@@ -118,6 +118,39 @@ func TestLELMetricsExposedWithoutRuntimeEvents(t *testing.T) {
 	}
 }
 
+func TestDeliveryCriticalMetricsExposedWithoutRuntimeEvents(t *testing.T) {
+	mfs, err := Registry().Gather()
+	if err != nil {
+		t.Fatalf("gather metrics: %v", err)
+	}
+
+	for _, name := range []string{
+		"ws_backpressure_level",
+		"ws_queue_high_watermark",
+		"ws_queue_capacity",
+		"ws_queue_depth",
+		"ws_queue_len",
+		"ws_wire_bytes",
+		"router_stream_state_entries",
+		"router_stream_state_active_total",
+		"delivery_router_sessions_active",
+	} {
+		found := false
+		for _, mf := range mfs {
+			if mf.GetName() == name {
+				found = true
+				if len(mf.GetMetric()) == 0 {
+					t.Fatalf("%s has no exposed series", name)
+				}
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("%s metric family not found", name)
+		}
+	}
+}
+
 func TestObserveIngestAndCardinalityGuard(t *testing.T) {
 	before := testutil.ToFloat64(IngestMessagesTotal.WithLabelValues("unknown", "unknown", "unknown"))
 
@@ -199,6 +232,7 @@ func TestMetricsNamesPresent(t *testing.T) {
 	AddWSBatchEvents(4)
 	IncWSMessagesOut("trade")
 	AddWSBytesOut("trade", 128)
+	ObserveWSWireBytes("trade", 128)
 	SetWSLag("trade", 42)
 	ObserveWSPublishToDeliverLatency("trade", 5*time.Millisecond)
 	IncWSSerializeErrors()
@@ -326,6 +360,7 @@ func TestMetricsNamesPresent(t *testing.T) {
 		"ws_batch_fallback_events_total",
 		"ws_messages_out_total",
 		"ws_bytes_out_total",
+		"ws_wire_bytes",
 		"ws_lag_ms",
 		"ws_lag_seconds",
 		"ws_publish_to_deliver_latency_ms",
@@ -610,6 +645,7 @@ func TestWSExtendedMetrics_StableLabelsOnly(t *testing.T) {
 	assertMetricLabelNames(t, "ws_dropped_total", []string{"reason", "channel", "priority"})
 	assertMetricLabelNames(t, "ws_messages_out_total", []string{"channel"})
 	assertMetricLabelNames(t, "ws_bytes_out_total", []string{"channel"})
+	assertMetricLabelNames(t, "ws_wire_bytes", []string{"channel"})
 	assertMetricLabelNames(t, "ws_lag_ms", []string{"channel"})
 	assertMetricLabelNames(t, "ws_lag_seconds", []string{"channel"})
 	assertMetricLabelNames(t, "ws_publish_to_deliver_latency_ms", []string{"channel"})

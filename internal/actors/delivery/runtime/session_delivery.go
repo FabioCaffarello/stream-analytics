@@ -183,6 +183,7 @@ func (s *SessionActor) writeDeliveryBatchFromQueue(maxItems int) (int, int, *pro
 		if err := s.writeJSONRaw(raw, applyCompression, wireSize); err != nil {
 			return 0, 0, problem.Wrap(err, problem.Internal, "batch write failed")
 		}
+		metrics.ObserveWSWireBytes(channel, wireSize)
 
 		for i := 0; i < count; i++ {
 			prep := s.batchPrepared[i]
@@ -425,7 +426,7 @@ func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) *problem.Problem {
 		}
 		applyCompression, wireSize := s.planWireCompression(raw)
 		if s.limits.MaxFrameBytes > 0 && wireSize > s.limits.MaxFrameBytes {
-			s.onDrop("frame_too_large", &evt)
+			s.onDrop(backpressureDropReasonFrameTooLarge, &evt)
 			return nil
 		}
 		if err := s.writeBinaryRaw(raw, applyCompression, wireSize); err != nil {
@@ -436,6 +437,7 @@ func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) *problem.Problem {
 		metrics.IncWSMessagesOut(channel)
 		metrics.IncWSTenantMessagesOut(s.cfg.TenantID, channel)
 		metrics.AddWSBytesOut(channel, len(raw))
+		metrics.ObserveWSWireBytes(channel, wireSize)
 		observeTradeTapeWireBudget(evt.Subject.Venue, evt.Env.Type, len(raw))
 		s.messagesOut++
 		observability.IncDeliveryProto()
@@ -486,7 +488,7 @@ func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) *problem.Problem {
 		}
 		applyCompression, wireSize := s.planWireCompression(raw)
 		if s.limits.MaxFrameBytes > 0 && wireSize > s.limits.MaxFrameBytes {
-			s.onDrop("frame_too_large", &evt)
+			s.onDrop(backpressureDropReasonFrameTooLarge, &evt)
 			return nil
 		}
 		if applyCompression {
@@ -502,6 +504,7 @@ func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) *problem.Problem {
 		metrics.IncWSMessagesOut("signal")
 		metrics.IncWSTenantMessagesOut(s.cfg.TenantID, "signal")
 		metrics.AddWSBytesOut("signal", len(payload))
+		metrics.ObserveWSWireBytes("signal", wireSize)
 		metrics.IncMRSignalWSDelivered(signalPayload.Kind, signalPayload.Venue, signalPayload.Instrument)
 		s.messagesOut++
 		lag := frame.TsServer - evt.Env.TsIngest
@@ -555,7 +558,7 @@ func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) *problem.Problem {
 	}
 	applyCompression, wireSize := s.planWireCompression(raw)
 	if s.limits.MaxFrameBytes > 0 && wireSize > s.limits.MaxFrameBytes {
-		s.onDrop("frame_too_large", &evt)
+		s.onDrop(backpressureDropReasonFrameTooLarge, &evt)
 		return nil
 	}
 	if applyCompression {
@@ -573,6 +576,7 @@ func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) *problem.Problem {
 	metrics.IncWSMessagesOut(channel)
 	metrics.IncWSTenantMessagesOut(s.cfg.TenantID, channel)
 	metrics.AddWSBytesOut(channel, len(payload))
+	metrics.ObserveWSWireBytes(channel, wireSize)
 	observeTradeTapeWireBudget(evt.Subject.Venue, evt.Env.Type, len(payload))
 	s.messagesOut++
 	lag := frame.TsServer - evt.Env.TsIngest
@@ -718,20 +722,11 @@ func (s *SessionActor) estimateCompressedSize(payload []byte) int {
 // ── Backpressure level ──────────────────────────────────────────────────────
 
 func (s *SessionActor) computeBackpressureLevel() (level int, action string) {
-	if s.limits.OutboundQueueSize <= 0 {
-		return 0, "none"
+	strategy := s.bpStrategy
+	if strategy.criticalRatio <= 0 {
+		strategy = defaultBackpressureStrategy()
 	}
-	ratio := float64(s.outbound.Len()) / float64(s.limits.OutboundQueueSize)
-	switch {
-	case ratio >= 0.95:
-		return 3, "reconnect"
-	case ratio >= 0.75:
-		return 2, "reduce_subscriptions"
-	case ratio >= 0.50:
-		return 1, "none"
-	default:
-		return 0, "none"
-	}
+	return strategy.queueLevel(s.outbound.Len(), s.limits.OutboundQueueSize)
 }
 
 // ── Stream metadata builder ─────────────────────────────────────────────────

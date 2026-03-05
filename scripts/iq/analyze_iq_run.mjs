@@ -125,6 +125,24 @@ function envBool(name) {
     return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
 }
 
+function parseChannelBudgetMap(raw) {
+    const out = new Map();
+    const text = String(raw || "").trim();
+    if (!text) return out;
+    for (const token of text.split(",")) {
+        const part = token.trim();
+        if (!part) continue;
+        let idx = part.indexOf("=");
+        if (idx < 0) idx = part.indexOf(":");
+        if (idx <= 0) continue;
+        const channel = part.slice(0, idx).trim();
+        const budget = Number.parseFloat(part.slice(idx + 1).trim());
+        if (!channel || !Number.isFinite(budget) || budget < 0) continue;
+        out.set(channel, budget);
+    }
+    return out;
+}
+
 function listIqRunDirs(runDir) {
     const baseDir = join(runDir, "..");
     if (!existsSync(baseDir)) return [];
@@ -216,6 +234,17 @@ const wireBudgetChannels = String(process.env.IQ_WIRE_BUDGET_CHANNELS || "trade,
     .filter(Boolean);
 const wireP95BudgetMs = Number.parseFloat(process.env.IQ_WIRE_P95_BUDGET_MS || "2000");
 const wireP99BudgetMs = Number.parseFloat(process.env.IQ_WIRE_P99_BUDGET_MS || "5000");
+const wireP95BudgetMsByChannel = parseChannelBudgetMap(process.env.IQ_WIRE_P95_BUDGET_MS_BY_CHANNEL);
+const wireP99BudgetMsByChannel = parseChannelBudgetMap(process.env.IQ_WIRE_P99_BUDGET_MS_BY_CHANNEL);
+const wireBytesP95Budget = Number.parseFloat(process.env.IQ_WIRE_BYTES_P95_BUDGET || "65536");
+const wireBytesP99Budget = Number.parseFloat(process.env.IQ_WIRE_BYTES_P99_BUDGET || "131072");
+const wireBytesP95BudgetByChannel = parseChannelBudgetMap(process.env.IQ_WIRE_BYTES_P95_BUDGET_BY_CHANNEL);
+const wireBytesP99BudgetByChannel = parseChannelBudgetMap(process.env.IQ_WIRE_BYTES_P99_BUDGET_BY_CHANNEL);
+const wsQueueUtilizationMax = Number.parseFloat(process.env.IQ_WS_QUEUE_UTILIZATION_MAX || "0.85");
+const wsLagMaxMs = Number.parseFloat(process.env.IQ_WS_LAG_MAX_MS || "300000");
+const subscribeAckMin = Number.parseInt(process.env.IQ_SUBSCRIBE_ACK_MIN || "1", 10);
+const wsBackpressureDropsMax = Number.parseFloat(process.env.IQ_WS_BACKPRESSURE_DROPS_MAX || "0");
+const logSpamMaxPerSignature = Number.parseInt(process.env.IQ_LOG_SPAM_MAX_PER_SIGNATURE || "20", 10);
 const routerStateMaxEntries = Number.parseInt(process.env.IQ_ROUTER_STREAM_STATE_MAX || "2048", 10) || 2048;
 
 const wireLatencyByChannel = histogramQuantilesByLabel(
@@ -224,9 +253,43 @@ const wireLatencyByChannel = histogramQuantilesByLabel(
     "channel",
     [0.95, 0.99]
 );
+const wireBytesByChannel = histogramQuantilesByLabel(
+    metricsText,
+    "ws_wire_bytes",
+    "channel",
+    [0.95, 0.99]
+);
 const routerStreamEntries = metricSamples(metricsText, "router_stream_state_entries")[0]?.value ?? 0;
 const routerStreamActive = metricSamples(metricsText, "router_stream_state_active_total")[0]?.value ?? 0;
 const routerStreamEvicted = metricSamples(metricsText, "delivery_router_stream_state_evicted_total")[0]?.value ?? 0;
+const wsQueueLen = metricSamples(metricsText, "ws_queue_len")[0]?.value ?? 0;
+const wsQueueCapacity = metricSamples(metricsText, "ws_queue_capacity")[0]?.value ?? 0;
+const wsQueueUtilization = wsQueueCapacity > 0 ? wsQueueLen / wsQueueCapacity : 0;
+const wsLagSamples = metricSamples(metricsText, "ws_lag_ms");
+const wsLagMaxObserved = wsLagSamples.reduce((max, s) => Math.max(max, Number(s.value) || 0), 0);
+const subscribeAckCount = Number(probe.probe_md_subscribe_ack_count ?? -1);
+const backpressureDropReasons = new Set(["queue_full", "drop_oldest", "priority_drop", "priority_drop_self", "slow_client_disconnect"]);
+const wsBackpressureDropsTotal = metricSamples(metricsText, "ws_drops_total")
+    .filter((s) => backpressureDropReasons.has(s.labels.reason || ""))
+    .reduce((acc, s) => acc + (Number(s.value) || 0), 0);
+const spamSignatureCounts = new Map();
+for (const line of composeLines) {
+    if (!line.includes("sampled")) {
+        continue;
+    }
+    const normalized = line
+        .replace(/^[^|]+\|\s*/, "")
+        .replace(/\"time\":\"[^\"]+\"/g, "\"time\":\"<ts>\"")
+        .replace(/[0-9a-f]{12,}/gi, "<hex>")
+        .replace(/[0-9]+/g, "<n>")
+        .trim();
+    if (!normalized) continue;
+    spamSignatureCounts.set(normalized, (spamSignatureCounts.get(normalized) || 0) + 1);
+}
+const spamEntries = Array.from(spamSignatureCounts.entries())
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+const spamMaxCount = spamEntries.length > 0 ? spamEntries[0][1] : 0;
+const spamTop = spamEntries.slice(0, 3).map(([sig, count]) => `${count}x:${sig.slice(0, 120)}`);
 const wsMissingTsSamples = metricSamples(metricsText, "ws_contract_violations_total")
     .filter((s) => s.labels.reason === "missing_ts_server");
 const wsMissingTsTotal = wsMissingTsSamples.reduce((acc, s) => acc + s.value, 0);
@@ -423,6 +486,8 @@ addCheck(
 
 const wireObserved = [];
 const wireViolations = [];
+const wireP95BudgetFor = (channel) => wireP95BudgetMsByChannel.get(channel) ?? wireP95BudgetMs;
+const wireP99BudgetFor = (channel) => wireP99BudgetMsByChannel.get(channel) ?? wireP99BudgetMs;
 for (const channel of wireBudgetChannels) {
     const sample = wireLatencyByChannel.get(channel);
     if (!sample || !(sample.count > 0)) {
@@ -432,8 +497,10 @@ for (const channel of wireBudgetChannels) {
     const p99s = sample.quantiles[0.99];
     const p95ms = Number.isFinite(p95s) ? p95s * 1000 : null;
     const p99ms = Number.isFinite(p99s) ? p99s * 1000 : null;
-    wireObserved.push(`${channel}:count=${sample.count},p95_ms=${fmt(p95ms)},p99_ms=${fmt(p99ms)}`);
-    if ((p95ms !== null && p95ms > wireP95BudgetMs) || (p99ms !== null && p99ms > wireP99BudgetMs)) {
+    const p95Budget = wireP95BudgetFor(channel);
+    const p99Budget = wireP99BudgetFor(channel);
+    wireObserved.push(`${channel}:count=${sample.count},p95_ms=${fmt(p95ms)},p99_ms=${fmt(p99ms)},budget_ms(p95<=${p95Budget},p99<=${p99Budget})`);
+    if ((p95ms !== null && p95ms > p95Budget) || (p99ms !== null && p99ms > p99Budget)) {
         wireViolations.push(channel);
     }
 }
@@ -441,8 +508,66 @@ addCheck(
     "wire_budget_p95_p99",
     "wire budgets p95/p99",
     wireObserved.length > 0 && wireViolations.length === 0,
-    `threshold_ms(p95<=${wireP95BudgetMs},p99<=${wireP99BudgetMs}) observed=${wireObserved.join(";") || "none"} violations=${wireViolations.join(",") || "none"}`,
+    `default_threshold_ms(p95<=${wireP95BudgetMs},p99<=${wireP99BudgetMs}) observed=${wireObserved.join(";") || "none"} violations=${wireViolations.join(",") || "none"}`,
     ["ws_publish_to_deliver_latency_seconds_bucket", "ws_publish_to_deliver_latency_seconds_count"]
+);
+
+const wireBytesObserved = [];
+const wireBytesViolations = [];
+const wireBytesP95BudgetFor = (channel) => wireBytesP95BudgetByChannel.get(channel) ?? wireBytesP95Budget;
+const wireBytesP99BudgetFor = (channel) => wireBytesP99BudgetByChannel.get(channel) ?? wireBytesP99Budget;
+for (const channel of wireBudgetChannels) {
+    const sample = wireBytesByChannel.get(channel);
+    if (!sample || !(sample.count > 0)) {
+        continue;
+    }
+    const p95 = sample.quantiles[0.95];
+    const p99 = sample.quantiles[0.99];
+    const p95Budget = wireBytesP95BudgetFor(channel);
+    const p99Budget = wireBytesP99BudgetFor(channel);
+    wireBytesObserved.push(`${channel}:count=${sample.count},p95_bytes=${fmt(p95)},p99_bytes=${fmt(p99)},budget_bytes(p95<=${p95Budget},p99<=${p99Budget})`);
+    if ((p95 !== null && p95 > p95Budget) || (p99 !== null && p99 > p99Budget)) {
+        wireBytesViolations.push(channel);
+    }
+}
+addCheck(
+    "wire_bytes_budget_p95_p99",
+    "wire bytes budgets p95/p99",
+    wireBytesObserved.length > 0 && wireBytesViolations.length === 0,
+    `default_threshold_bytes(p95<=${wireBytesP95Budget},p99<=${wireBytesP99Budget}) observed=${wireBytesObserved.join(";") || "none"} violations=${wireBytesViolations.join(",") || "none"}`,
+    ["ws_wire_bytes_bucket", "ws_wire_bytes_count"]
+);
+
+addCheck(
+    "queue_utilization",
+    "queue utilization bounded",
+    wsQueueLen >= 0 && wsQueueCapacity >= 0 && wsQueueUtilization <= wsQueueUtilizationMax,
+    `queue_len=${wsQueueLen} queue_capacity=${wsQueueCapacity} utilization=${wsQueueUtilization.toFixed(4)} max=${wsQueueUtilizationMax}`,
+    ["ws_queue_len", "ws_queue_capacity"]
+);
+
+addCheck(
+    "js_ack_lag",
+    "js ack/lag budget",
+    subscribeAckCount >= subscribeAckMin && wsLagMaxObserved <= wsLagMaxMs,
+    `subscribe_ack_count=${subscribeAckCount} min_ack=${subscribeAckMin} ws_lag_max_ms=${wsLagMaxObserved} lag_budget_ms<=${wsLagMaxMs}`,
+    ["ack_recv op=subscribe", "ws_lag_ms"]
+);
+
+addCheck(
+    "backpressure_drop_budget",
+    "drops/backpressure budget",
+    wsBackpressureDropsTotal <= wsBackpressureDropsMax,
+    `ws_backpressure_drops_total=${wsBackpressureDropsTotal} budget<=${wsBackpressureDropsMax}`,
+    ["ws_drops_total", "queue_full", "priority_drop"]
+);
+
+addCheck(
+    "log_spam",
+    "no spam logs",
+    spamMaxCount <= logSpamMaxPerSignature,
+    `sampled_log_signature_max=${spamMaxCount} threshold<=${logSpamMaxPerSignature} top=${spamTop.join(";") || "none"}`,
+    ["sampled"]
 );
 
 addCheck(

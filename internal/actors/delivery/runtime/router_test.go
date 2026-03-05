@@ -1,6 +1,7 @@
 package deliveryruntime
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -1304,6 +1305,54 @@ func TestRouterStreamStateGaugeResetsOnLastUnsubscribe(t *testing.T) {
 	waitForMetricEqual(t, "router_stream_state_active_total", func() float64 {
 		return testutil.ToFloat64(sharedmetrics.DeliveryRouterStreamStateActiveTotal)
 	}, 0, time.Second)
+}
+
+func TestRouterStreamStateEntriesBoundedByMax(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+
+	fakeClock := sharedclock.NewFakeClock(time.Unix(1_700_000_000, 0).UTC())
+	const maxEntries = 3
+	routerPID := e.Spawn(NewRouterActor(RouterConfig{
+		Timeframe:             "raw",
+		StreamStateTTL:        24 * time.Hour,
+		StreamStateSweepEvery: 24 * time.Hour,
+		MaxStreamStateEntries: maxEntries,
+		Now:                   fakeClock.Now,
+	}), "router-stream-state-max-bounded")
+	defer e.Poison(routerPID)
+
+	ch := make(chan any, 32)
+	sessionPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: ch} }, "session-stream-state-max-bounded")
+	defer e.Poison(sessionPID)
+
+	id := ids.NewSessionID()
+	e.Send(routerPID, RegisterSession{SessionID: id, PID: sessionPID})
+
+	for i := 0; i < 10; i++ {
+		instrument := fmt.Sprintf("S%02d-USDT", i)
+		subject := mustParseSubject(t, fmt.Sprintf("marketdata.trade/binance/%s/raw", instrument))
+		e.Send(routerPID, SubscribeSession{SessionID: id, Subject: subject})
+		e.Send(routerPID, DeliverEnvelope{Envelope: envelope.Envelope{
+			Type:       "marketdata.trade",
+			Version:    1,
+			Venue:      "binance",
+			Instrument: instrument,
+			Seq:        int64(i + 1),
+			TsIngest:   fakeClock.NowUnixMilli(),
+			Payload:    []byte(`{}`),
+		}})
+		_ = waitForMessage[DeliveryEvent](t, ch, time.Second)
+	}
+
+	waitForMetricEqual(t, "router_stream_state_entries", func() float64 {
+		return testutil.ToFloat64(sharedmetrics.DeliveryRouterStreamStateEntries)
+	}, maxEntries, time.Second)
+	waitForMetricEqual(t, "router_stream_state_active_total", func() float64 {
+		return testutil.ToFloat64(sharedmetrics.DeliveryRouterStreamStateActiveTotal)
+	}, maxEntries, time.Second)
 }
 
 func TestRouterSeqContinuityStillHoldsAfterEviction(t *testing.T) {
