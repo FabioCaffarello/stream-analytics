@@ -80,7 +80,7 @@ func (t *parserTelemetry) recordSkip(exchange, eventType, reason, problemCode, t
 
 	t.byEvent[event]++
 	t.bySkipReason[skipReason]++
-	if isExpectedSkipReason(event, skipReason, wsStream) {
+	if isExpectedSkipReason(event, skipReason, code, wsStream) {
 		t.expectedSkipTotal++
 		incCapped(t.byExpectedSkipReason, skipReason, maxTelemetryKeys)
 	} else {
@@ -222,7 +222,7 @@ func normalizeWSStreamLabel(raw string) string {
 	}
 }
 
-func isExpectedSkipReason(eventType, skipReason, wsStream string) bool {
+func isExpectedSkipReason(eventType, skipReason, problemCode, wsStream string) bool {
 	switch strings.ToLower(strings.TrimSpace(skipReason)) {
 	case "control_event":
 		return true
@@ -233,6 +233,15 @@ func isExpectedSkipReason(eventType, skipReason, wsStream string) bool {
 		}
 		stream := normalizeWSStreamLabel(wsStream)
 		return stream == "ticker" || stream == "markprice"
+	case "canonicalization_error":
+		// Depth feeds commonly emit delete levels and partial deltas that fail
+		// strict canonical validation; classify those as expected runtime noise.
+		event := strings.ToLower(strings.TrimSpace(eventType))
+		stream := normalizeWSStreamLabel(wsStream)
+		code := strings.ToUpper(strings.TrimSpace(problemCode))
+		return event == "marketdata.bookdelta" &&
+			stream == "depth" &&
+			(code == "VAL_VALIDATION_FAILED" || code == "VAL_INVALID_ARGUMENT")
 	default:
 		return false
 	}

@@ -304,7 +304,8 @@ func (s *SubsystemActor) processMessage(msg *ws.WsMessage) {
 		metrics.IncWSMessageReceived(msg.Exchange, eventType)
 		metrics.ObserveIngest(msg.Exchange, instrument, eventType, "validation_failed", 0)
 		s.telemetry.recordSkip(msg.Exchange, meta.EventType, meta.SkipReason, meta.ProblemCode, meta.Ticker, meta.WSStream)
-		if meta.SkipReason == "parse_error" && s.telemetry.shouldSample(time.Now(), meta.ProblemCode) {
+		if !isExpectedSkipReason(meta.EventType, meta.SkipReason, meta.ProblemCode, meta.WSStream) &&
+			s.telemetry.shouldSample(time.Now(), meta.SkipReason+"|"+meta.ProblemCode) {
 			s.logger.Warn("mdruntime: parse skip sampled",
 				"exchange", msg.Exchange,
 				"bucket_id", msg.BucketID,
@@ -335,6 +336,17 @@ func (s *SubsystemActor) processMessage(msg *ws.WsMessage) {
 		metrics.IncWSMessageReceived(msg.Exchange, req.EventType)
 		metrics.ObserveIngest(msg.Exchange, req.Instrument, req.EventType, "validation_failed", 0)
 		s.telemetry.recordSkip(msg.Exchange, req.EventType, "canonicalization_error", string(p.Code), req.Instrument, req.Metadata["ws_stream"])
+		if !isExpectedSkipReason(req.EventType, "canonicalization_error", string(p.Code), req.Metadata["ws_stream"]) &&
+			s.telemetry.shouldSample(time.Now(), "canonicalization_error|"+string(p.Code)) {
+			s.logger.Warn("mdruntime: canonicalization skip sampled",
+				"exchange", msg.Exchange,
+				"event_type", req.EventType,
+				"venue", req.Venue,
+				"instrument", req.Instrument,
+				"problem_code", p.Code,
+				"problem_message", p.Message,
+			)
+		}
 		s.logProgress()
 		return
 	}
@@ -422,6 +434,17 @@ func (s *SubsystemActor) ingestSingleRequest(msg *ws.WsMessage, req app.IngestRe
 		metrics.IncWSMessageReceived(msg.Exchange, req.EventType)
 		metrics.ObserveIngest(msg.Exchange, req.Instrument, req.EventType, "validation_failed", 0)
 		s.telemetry.recordSkip(msg.Exchange, req.EventType, "canonicalization_error", string(p.Code), req.Instrument, req.Metadata["ws_stream"])
+		if !isExpectedSkipReason(req.EventType, "canonicalization_error", string(p.Code), req.Metadata["ws_stream"]) &&
+			s.telemetry.shouldSample(time.Now(), "canonicalization_error|"+string(p.Code)) {
+			s.logger.Warn("mdruntime: canonicalization skip sampled",
+				"exchange", msg.Exchange,
+				"event_type", req.EventType,
+				"venue", req.Venue,
+				"instrument", req.Instrument,
+				"problem_code", p.Code,
+				"problem_message", p.Message,
+			)
+		}
 		return
 	}
 	metrics.IncCanonicalEvent(marketmodel.ChannelFromEventType(req.EventType), req.Venue)

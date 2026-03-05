@@ -157,10 +157,18 @@ const allowBatchedFallback = envBool("IQ_ALLOW_BATCHED_FALLBACK");
 const batchFallbackRemovalRuns = Number.parseInt(process.env.IQ_BATCHED_FALLBACK_ZERO_RUNS || "5", 10) || 5;
 const allowStatsFallback = envBool("IQ_ALLOW_STATS_FALLBACK");
 const statsFallbackRemovalRuns = Number.parseInt(process.env.IQ_STATS_FALLBACK_ZERO_RUNS || "5", 10) || 5;
+const allowUnexpectedSkips = envBool("IQ_ALLOW_UNEXPECTED_SKIPS");
 const statsFallbackStreak = statsFallbackZeroStreak(runDir);
 const wsMissingTsSamples = metricSamples(metricsText, "ws_contract_violations_total")
     .filter((s) => s.labels.reason === "missing_ts_server");
 const wsMissingTsTotal = wsMissingTsSamples.reduce((acc, s) => acc + s.value, 0);
+const unexpectedSkipTotals = composeLines
+    .map((line) => {
+        const match = line.match(/skip_unexpected_total[^0-9]*([0-9]+)/i);
+        return match ? Number(match[1]) : null;
+    })
+    .filter((v) => Number.isFinite(v));
+const unexpectedSkipTotal = unexpectedSkipTotals.length > 0 ? Math.max(...unexpectedSkipTotals) : 0;
 
 const resyncSentIdx = consoleLines.findIndex((l) => l.includes("[md-lifecycle] resync_sent"));
 const resyncAckIdx = consoleLines.findIndex((l) => l.includes("[md-lifecycle] ack_recv op=resync"));
@@ -202,6 +210,14 @@ addCheck(
     Number(recurringSeqGaps) === 0,
     `client_recurring_seq_gaps=${fmt(recurringSeqGaps)} router_coherence_violations_total=${routerViolationsTotal}`,
     ["seq_gap", "coherence_violations_total", "seq_non_monotonic"]
+);
+
+addCheck(
+    "unexpected_skip_zero",
+    "unexpected skip/canonicalization zero",
+    allowUnexpectedSkips || unexpectedSkipTotal === 0,
+    `skip_unexpected_total=${unexpectedSkipTotal} allow_override=${allowUnexpectedSkips}`,
+    ["skip_unexpected_total", "canonicalization_error", "parse_error"]
 );
 
 addCheck(
@@ -362,6 +378,39 @@ addCheck(
     ["[error]", "[pageerror]", "requestfailed"]
 );
 
+function addWidgetBudgetChecks(idPrefix, title, probePrefix) {
+    const renderP95 = Number(probe[`probe_widget_${probePrefix}_render_p95_us`] ?? -1);
+    const renderBudget = Number(probe[`probe_widget_${probePrefix}_render_budget_us`] ?? -1);
+    const renderOverBudget = Number(probe[`probe_widget_${probePrefix}_render_over_budget`] ?? -1);
+    addCheck(
+        `${idPrefix}_render_budget`,
+        `${title} render budget`,
+        renderP95 >= 0 && renderBudget > 0 && renderP95 <= renderBudget && renderOverBudget === 0,
+        `render_p95_us=${renderP95} render_budget_us=${renderBudget} render_over_budget=${renderOverBudget}`,
+        [`probe_widget_${probePrefix}_render_p95_us`, `probe_widget_${probePrefix}_render_budget_us`]
+    );
+
+    const dropTotal = Number(probe[`probe_widget_${probePrefix}_drop_total`] ?? -1);
+    const dropCapacity = Number(probe[`probe_widget_${probePrefix}_drop_capacity_total`] ?? -1);
+    const dropRenderOverflow = Number(probe[`probe_widget_${probePrefix}_drop_render_overflow_total`] ?? -1);
+    addCheck(
+        `${idPrefix}_drop_reasons_bounded`,
+        `${title} drop reasons bounded`,
+        dropTotal >= 0 &&
+            dropCapacity >= 0 &&
+            dropRenderOverflow >= 0 &&
+            dropTotal === dropCapacity + dropRenderOverflow,
+        `drop_total=${dropTotal} drop_capacity_total=${dropCapacity} drop_render_overflow_total=${dropRenderOverflow}`,
+        [`probe_widget_${probePrefix}_drop_total`, `probe_widget_${probePrefix}_drop_capacity_total`, `probe_widget_${probePrefix}_drop_render_overflow_total`]
+    );
+}
+
+addWidgetBudgetChecks("stats_widget", "stats widget", "stats");
+addWidgetBudgetChecks("dom_widget", "dom widget", "dom");
+addWidgetBudgetChecks("tape_widget", "tape widget", "tape");
+addWidgetBudgetChecks("evidence_widget", "evidence widget", "evidence");
+addWidgetBudgetChecks("signal_widget", "signal widget", "signal");
+
 const smokeSteps = Array.isArray(smoke.steps) ? smoke.steps : [];
 const smokePass = smokeSteps.every((s) => s.ok);
 const invariantsPass = checks.every((c) => c.ok);
@@ -417,6 +466,10 @@ markdown.push(`- stats fallback removal requires \`md_stats_fallback_frames=0\` 
 markdown.push(`- current run md_stats_fallback_frames: \`${statsFallbackFrames}\``);
 markdown.push(`- current consecutive zero streak: \`${statsFallbackStreak.streak}\` PASS runs (observed runs: \`${statsFallbackStreak.observedRuns}\`).`);
 markdown.push(`- override active: \`${allowStatsFallback}\` (set via \`IQ_ALLOW_STATS_FALLBACK=1\`)`);
+markdown.push("");
+markdown.push("- unexpected skip/canonicalization gate requires `skip_unexpected_total=0` (from runtime logs).");
+markdown.push(`- current run skip_unexpected_total: \`${unexpectedSkipTotal}\``);
+markdown.push(`- override active: \`${allowUnexpectedSkips}\` (set via \`IQ_ALLOW_UNEXPECTED_SKIPS=1\`)`);
 markdown.push("");
 markdown.push("- legacy cutover gate requires `ws_legacy_requests_total=0` and `probe_md_legacy_downgrade_count=0` (no override).");
 markdown.push(`- current run ws_legacy_requests_total: \`${legacyRouteTotal}\` (accepted=\`${legacyRouteAcceptedTotal}\`, rejected=\`${legacyRouteRejectedTotal}\`)`);

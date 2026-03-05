@@ -63,6 +63,55 @@ func TestParserTelemetry_RecordSkip_ExpectedMarkpriceUnavailable(t *testing.T) {
 	}
 }
 
+func TestParserTelemetry_RecordSkip_ExpectedCanonicalizationDepth(t *testing.T) {
+	tel := newParserTelemetry()
+
+	tel.recordSkip(
+		"coinbase",
+		"marketdata.bookdelta",
+		"canonicalization_error",
+		"VAL_VALIDATION_FAILED",
+		"BTCUSD",
+		"l2update",
+	)
+
+	if got, want := tel.expectedSkipTotal, uint64(1); got != want {
+		t.Fatalf("expectedSkipTotal = %d, want %d", got, want)
+	}
+	if got, want := tel.unexpectedSkipTotal, uint64(0); got != want {
+		t.Fatalf("unexpectedSkipTotal = %d, want %d", got, want)
+	}
+	if got, want := tel.byExpectedSkipReason["canonicalization_error"], uint64(1); got != want {
+		t.Fatalf("expected canonicalization_error count = %d, want %d", got, want)
+	}
+	if got := tel.byExchangeEventAndSkip["coinbase|marketdata.bookdelta|canonicalization_error"]; got != 0 {
+		t.Fatalf("expected no exchange_event_and_skip entry for expected canonicalization skip, got %d", got)
+	}
+}
+
+func TestParserTelemetry_RecordSkip_UnexpectedCanonicalizationNonDepth(t *testing.T) {
+	tel := newParserTelemetry()
+
+	tel.recordSkip(
+		"coinbase",
+		"marketdata.trade",
+		"canonicalization_error",
+		"VAL_VALIDATION_FAILED",
+		"BTCUSD",
+		"match",
+	)
+
+	if got, want := tel.expectedSkipTotal, uint64(0); got != want {
+		t.Fatalf("expectedSkipTotal = %d, want %d", got, want)
+	}
+	if got, want := tel.unexpectedSkipTotal, uint64(1); got != want {
+		t.Fatalf("unexpectedSkipTotal = %d, want %d", got, want)
+	}
+	if got, want := tel.byUnexpectedSkipReason["canonicalization_error"], uint64(1); got != want {
+		t.Fatalf("unexpected canonicalization_error count = %d, want %d", got, want)
+	}
+}
+
 func TestParserTelemetry_ShouldSampleRateLimited(t *testing.T) {
 	tel := newParserTelemetry()
 	now := time.Now()
