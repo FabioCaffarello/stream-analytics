@@ -38,5 +38,5 @@ There is no legacy fallback in the hot path. Ingest, processor, and WS Terminal 
 
 ## Cutover
 
-- `/ws/marketdata` legacy route is disabled by default and removed from server route wiring.
+- `/ws/marketdata` legacy route is permanently hard-disabled (`410 Gone`) and tracked via `ws_legacy_requests_total{status="rejected"}`.
 - Hot-path market payload aliases in `internal/core/marketdata/domain` point to CMM types; no parallel legacy payload structs are maintained.

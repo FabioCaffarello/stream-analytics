@@ -2,7 +2,6 @@
 
 ## Endpoints
 - `GET /ws`
-- `GET /ws/marketdata` (legacy compatibility route)
 - `GET /healthz`
 - `GET /readyz`
 - `GET /metrics`
@@ -204,45 +203,30 @@ Configure tenant-specific overrides in `ws.tenant_limits`:
 
 When a tenant has configured limits, they override the global `max_subs_per_connection` and `rate_limit` for all sessions authenticated under that tenant. Unconfigured tenants use global defaults.
 
-## Legacy Route Deprecation
+## Legacy Route Hard Cutover (Sprint S9)
 
-The `/ws/marketdata` route is the legacy entry point. New clients should use `/ws` exclusively. The deprecation follows a 3-phase timeline controlled by `ws.allow_legacy_ws` in config:
+`/ws/marketdata` is permanently disabled. The server always returns **410 Gone** and increments `ws_legacy_requests_total{status="rejected"}` for regression detection.
 
-Web client note: the browser client-side fallback switch (`allow_legacy_ws`) is now OFF by default and requires explicit opt-in.
+The client hard-cutover policy is also active:
+- Terminal V1 timeout must not downgrade to Legacy JSON.
+- Any legacy evidence/signal subject frame is rejected and counted in client probes.
 
-| Phase | Config | Behavior |
-|-------|--------|----------|
-| 1. Both active (current) | `allow_legacy_ws: true` (default) | Both `/ws` and `/ws/marketdata` served; legacy requests counted via `ws_legacy_requests_total{status=accepted}` |
-| 2. Legacy disabled | `allow_legacy_ws: false` | `/ws/marketdata` returns **410 Gone**; counter increments `{status=rejected}` |
-| 3. Route removed | (code change) | `/ws/marketdata` handler removed entirely |
+There are no runtime override flags for this cutover path.
 
-Target shutdown window:
-- Earliest disable date: **June 30, 2026**.
-- Disable criteria:
-  - `rate(ws_clients_total{mode="legacy"}[7d]) == 0`
-  - no customer profile explicitly requiring legacy fallback
-  - zero `ws_legacy_requests_total{status="accepted"}` in staged canary window
-
-Config example:
-```json
-{
-  "ws": {
-    "allow_legacy_ws": false
-  }
-}
-```
-
-Monitoring (Phase 1 → 2 transition):
+Monitoring:
 ```promql
-# Legacy clients still active (should trend to zero before Phase 2)
+# Must stay at 0 after S9 cutover
 rate(ws_legacy_requests_total{status="accepted"}[5m])
 
-# Legacy vs v1 connection mix
-sum by (mode) (rate(ws_clients_total[15m]))
-
-# Rejected legacy requests after flag-off
+# Legacy route hits should be rejected-only and investigated
 rate(ws_legacy_requests_total{status="rejected"}[5m])
 ```
+
+Rollback (safe):
+1. Roll back to the last release tag before Sprint S9.
+2. Redeploy `server`, `processor`, `consumer`, `client` as one version set.
+3. Run IQ loop with `PROCESSOR_REPLICAS=2` and verify PASS before re-enabling traffic.
+4. Confirm `ws_clients_total{mode="legacy"}` and `ws_legacy_requests_total{status="accepted"}` behavior matches the rollback release expectations.
 
 ## HELLO Negotiation
 
