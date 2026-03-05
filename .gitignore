@@ -8,3 +8,4 @@ coverage.out
 .artifacts
 qa
 node_modules
+test-results/

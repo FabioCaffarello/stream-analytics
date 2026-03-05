@@ -523,9 +523,14 @@ async function main() {
         await runStep("stats-regime", "Validate canonical stats/perf probes", async () => {
             await waitFor(async () => {
                 const probe = await readRuntimeProbe(page);
-                return Number(probe.probe_md_parse_time_p95_us ?? -1) >= 0 &&
+                const perfReady = Number(probe.probe_md_parse_time_p95_us ?? -1) >= 0 &&
                     Number(probe.probe_md_apply_time_p95_us ?? -1) >= 0 &&
                     Number(probe.probe_md_batched_decode_time_p95_us ?? -1) >= 0;
+                if (!perfReady) return false;
+                if (!REQUIRE_STATS_CANONICAL) return true;
+                return Number(probe.probe_widget_stats_count ?? 0) > 0 &&
+                    Number(probe.probe_widget_stats_parse_total ?? 0) > 0 &&
+                    Number(probe.probe_md_canonical_stats_frames ?? 0) > 0;
             }, "md_perf_probes", STATS_WAIT_TIMEOUT_MS);
             const probe = await readRuntimeProbe(page);
             const statsCount = Number(probe.probe_widget_stats_count ?? 0);
