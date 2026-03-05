@@ -96,6 +96,8 @@ Layer_Diagnostics :: struct {
 	parse_total:      u64,
 	fallback_total:   u64,
 	drop_total:       u64,
+	drop_capacity_total: u64,
+	drop_render_overflow_total: u64,
 	last_seq:         i64,
 	last_unix:        i64,
 	signal_link_total: u64,

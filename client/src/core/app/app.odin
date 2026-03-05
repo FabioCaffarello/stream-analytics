@@ -212,7 +212,11 @@ Runtime_Probe :: struct {
 	w_stats_parse_total:   u64,
 	w_stats_fallback_total: u64,
 	w_stats_drop_total:    u64,
+	w_stats_drop_capacity_total: u64,
+	w_stats_drop_render_overflow_total: u64,
 	w_stats_render_p95_us: i64,
+	w_stats_render_budget_us: i64,
+	w_stats_render_over_budget: u64,
 	w_heatmap_snaps:       int,
 	w_vpvr_levels:         int,
 	w_candle_count:        int,
@@ -223,19 +227,35 @@ Runtime_Probe :: struct {
 	w_dom_parse_total:     u64,
 	w_dom_fallback_total:  u64,
 	w_dom_drop_total:      u64,
+	w_dom_drop_capacity_total: u64,
+	w_dom_drop_render_overflow_total: u64,
 	w_dom_render_p95_us:   i64,
+	w_dom_render_budget_us: i64,
+	w_dom_render_over_budget: u64,
 	w_tape_parse_total:    u64,
 	w_tape_fallback_total: u64,
 	w_tape_drop_total:     u64,
+	w_tape_drop_capacity_total: u64,
+	w_tape_drop_render_overflow_total: u64,
 	w_tape_render_p95_us:  i64,
+	w_tape_render_budget_us: i64,
+	w_tape_render_over_budget: u64,
 	w_evidence_parse_total:    u64,
 	w_evidence_fallback_total: u64,
 	w_evidence_drop_total:     u64,
+	w_evidence_drop_capacity_total: u64,
+	w_evidence_drop_render_overflow_total: u64,
 	w_evidence_render_p95_us:  i64,
+	w_evidence_render_budget_us: i64,
+	w_evidence_render_over_budget: u64,
 	w_signal_parse_total:    u64,
 	w_signal_fallback_total: u64,
 	w_signal_drop_total:     u64,
+	w_signal_drop_capacity_total: u64,
+	w_signal_drop_render_overflow_total: u64,
 	w_signal_render_p95_us:  i64,
+	w_signal_render_budget_us: i64,
+	w_signal_render_over_budget: u64,
 	w_stats_state:          layers.Layer_Widget_State,
 	w_signal_state:         layers.Layer_Widget_State,
 	w_evidence_state:       layers.Layer_Widget_State,
@@ -800,30 +820,50 @@ runtime_probe :: proc(state: ^App_State) -> Runtime_Probe {
 		case .Price_Candles:
 			p.w_stats_parse_total = d.parse_total
 			p.w_stats_fallback_total = d.fallback_total
-			p.w_stats_drop_total = d.drop_total + d.dropped_outputs
+			p.w_stats_drop_capacity_total = d.drop_capacity_total
+			p.w_stats_drop_render_overflow_total = d.drop_render_overflow_total
+			p.w_stats_drop_total = d.drop_capacity_total + d.drop_render_overflow_total
 			p.w_stats_render_p95_us = d.render_p95_us
+			p.w_stats_render_budget_us = d.render_budget_us
+			p.w_stats_render_over_budget = d.render_over_budget
 			p.w_stats_state = d.state
 		case .OrderBook_DOM:
 			p.w_dom_parse_total = d.parse_total
 			p.w_dom_fallback_total = d.fallback_total
-			p.w_dom_drop_total = d.drop_total + d.dropped_outputs
+			p.w_dom_drop_capacity_total = d.drop_capacity_total
+			p.w_dom_drop_render_overflow_total = d.drop_render_overflow_total
+			p.w_dom_drop_total = d.drop_capacity_total + d.drop_render_overflow_total
 			p.w_dom_render_p95_us = d.render_p95_us
+			p.w_dom_render_budget_us = d.render_budget_us
+			p.w_dom_render_over_budget = d.render_over_budget
 		case .Trades_Tape:
 			p.w_tape_parse_total = d.parse_total
 			p.w_tape_fallback_total = d.fallback_total
-			p.w_tape_drop_total = d.drop_total + d.dropped_outputs
+			p.w_tape_drop_capacity_total = d.drop_capacity_total
+			p.w_tape_drop_render_overflow_total = d.drop_render_overflow_total
+			p.w_tape_drop_total = d.drop_capacity_total + d.drop_render_overflow_total
 			p.w_tape_render_p95_us = d.render_p95_us
+			p.w_tape_render_budget_us = d.render_budget_us
+			p.w_tape_render_over_budget = d.render_over_budget
 		case .Evidence:
 			p.w_evidence_parse_total = d.parse_total
 			p.w_evidence_fallback_total = d.fallback_total
-			p.w_evidence_drop_total = d.drop_total + d.dropped_outputs
+			p.w_evidence_drop_capacity_total = d.drop_capacity_total
+			p.w_evidence_drop_render_overflow_total = d.drop_render_overflow_total
+			p.w_evidence_drop_total = d.drop_capacity_total + d.drop_render_overflow_total
 			p.w_evidence_render_p95_us = d.render_p95_us
+			p.w_evidence_render_budget_us = d.render_budget_us
+			p.w_evidence_render_over_budget = d.render_over_budget
 			p.w_evidence_state = d.state
 		case .Signal:
 			p.w_signal_parse_total = d.parse_total
 			p.w_signal_fallback_total = d.fallback_total
-			p.w_signal_drop_total = d.drop_total + d.dropped_outputs
+			p.w_signal_drop_capacity_total = d.drop_capacity_total
+			p.w_signal_drop_render_overflow_total = d.drop_render_overflow_total
+			p.w_signal_drop_total = d.drop_capacity_total + d.drop_render_overflow_total
 			p.w_signal_render_p95_us = d.render_p95_us
+			p.w_signal_render_budget_us = d.render_budget_us
+			p.w_signal_render_over_budget = d.render_over_budget
 			p.w_signal_state = d.state
 			p.w_signal_link_total = d.signal_link_total
 			p.w_signal_link_evidence_seq = d.signal_link_evidence_seq

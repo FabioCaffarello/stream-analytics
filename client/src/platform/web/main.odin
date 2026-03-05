@@ -184,6 +184,34 @@ probe_widget_stats_render_p95_us :: proc "c" () -> i32 {
 }
 
 @(export)
+probe_widget_stats_render_budget_us :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_stats_render_budget_us)
+}
+
+@(export)
+probe_widget_stats_render_over_budget :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_stats_render_over_budget)
+}
+
+@(export)
+probe_widget_stats_drop_capacity_total :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_stats_drop_capacity_total)
+}
+
+@(export)
+probe_widget_stats_drop_render_overflow_total :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_stats_drop_render_overflow_total)
+}
+
+@(export)
 probe_widget_stats_state :: proc "c" () -> i32 {
 	context = runtime.default_context()
 	p := app.runtime_probe(&g_state)
@@ -646,6 +674,34 @@ probe_widget_dom_render_p95_us :: proc "c" () -> i32 {
 }
 
 @(export)
+probe_widget_dom_render_budget_us :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_dom_render_budget_us)
+}
+
+@(export)
+probe_widget_dom_render_over_budget :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_dom_render_over_budget)
+}
+
+@(export)
+probe_widget_dom_drop_capacity_total :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_dom_drop_capacity_total)
+}
+
+@(export)
+probe_widget_dom_drop_render_overflow_total :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_dom_drop_render_overflow_total)
+}
+
+@(export)
 probe_widget_tape_parse_total :: proc "c" () -> i32 {
 	context = runtime.default_context()
 	p := app.runtime_probe(&g_state)
@@ -671,6 +727,34 @@ probe_widget_tape_render_p95_us :: proc "c" () -> i32 {
 	context = runtime.default_context()
 	p := app.runtime_probe(&g_state)
 	return i32(p.w_tape_render_p95_us)
+}
+
+@(export)
+probe_widget_tape_render_budget_us :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_tape_render_budget_us)
+}
+
+@(export)
+probe_widget_tape_render_over_budget :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_tape_render_over_budget)
+}
+
+@(export)
+probe_widget_tape_drop_capacity_total :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_tape_drop_capacity_total)
+}
+
+@(export)
+probe_widget_tape_drop_render_overflow_total :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_tape_drop_render_overflow_total)
 }
 
 @(export)
@@ -702,6 +786,34 @@ probe_widget_evidence_render_p95_us :: proc "c" () -> i32 {
 }
 
 @(export)
+probe_widget_evidence_render_budget_us :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_evidence_render_budget_us)
+}
+
+@(export)
+probe_widget_evidence_render_over_budget :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_evidence_render_over_budget)
+}
+
+@(export)
+probe_widget_evidence_drop_capacity_total :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_evidence_drop_capacity_total)
+}
+
+@(export)
+probe_widget_evidence_drop_render_overflow_total :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_evidence_drop_render_overflow_total)
+}
+
+@(export)
 probe_widget_signal_parse_total :: proc "c" () -> i32 {
 	context = runtime.default_context()
 	p := app.runtime_probe(&g_state)
@@ -727,6 +839,34 @@ probe_widget_signal_render_p95_us :: proc "c" () -> i32 {
 	context = runtime.default_context()
 	p := app.runtime_probe(&g_state)
 	return i32(p.w_signal_render_p95_us)
+}
+
+@(export)
+probe_widget_signal_render_budget_us :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_signal_render_budget_us)
+}
+
+@(export)
+probe_widget_signal_render_over_budget :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_signal_render_over_budget)
+}
+
+@(export)
+probe_widget_signal_drop_capacity_total :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_signal_drop_capacity_total)
+}
+
+@(export)
+probe_widget_signal_drop_render_overflow_total :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_signal_drop_render_overflow_total)
 }
 
 @(export)

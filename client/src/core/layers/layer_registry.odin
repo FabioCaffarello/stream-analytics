@@ -221,6 +221,7 @@ layer_registry_collect_diagnostics :: proc(reg: ^Layer_Registry, store: ^Market_
 			enabled            = entry.enabled,
 			render_invocations = entry.render_invocations,
 			dropped_outputs    = entry.dropped_outputs,
+			drop_render_overflow_total = entry.dropped_outputs,
 			render_budget_us   = layer_budget_us(entry.strategy.id),
 			render_p95_us      = layer_render_p95_us(entry),
 			render_over_budget = entry.render_over_budget,
