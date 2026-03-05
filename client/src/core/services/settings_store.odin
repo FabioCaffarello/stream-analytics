@@ -88,11 +88,6 @@ SETTING_FEATURE_SNAPSHOT_HASH    :: "feature_snapshot_hash"
 SETTING_FEATURE_PREV_SEQ         :: "feature_prev_seq"
 SETTING_FEATURE_COMPRESS         :: "feature_compress"
 SETTING_ASSIST_MODE              :: "assist_mode"
-SETTING_ALLOW_LEGACY_WS          :: "allow_legacy_ws"
-SETTING_CANONICAL_EVIDENCE_SUBJECT :: "canonical_evidence_subject"
-SETTING_CANONICAL_SIGNAL_SUBJECT   :: "canonical_signal_subject"
-SETTING_ACCEPT_LEGACY_EVIDENCE     :: "accept_legacy_evidence"
-SETTING_ACCEPT_LEGACY_SIGNAL       :: "accept_legacy_signal"
 SETTING_LAYER_PRICE_CANDLES      :: "layer_price_candles"
 SETTING_LAYER_TRADES_TAPE        :: "layer_trades_tape"
 SETTING_LAYER_ORDERBOOK_DOM      :: "layer_orderbook_dom"
@@ -106,6 +101,8 @@ settings_init :: proc(store: ^Settings_Store, port: ports.Settings_Port) {
 	if port.load == nil do return
 
 	// Pre-load known keys.
+	// NOTE: legacy WS settings keys were intentionally removed in S9 hard cutover.
+	// Older persisted keys remain harmlessly ignored (idempotent migration behavior).
 	known_keys := [?]string{
 		SETTING_ACTIVE_TF_IDX, SETTING_OB_PRICE_GRP,
 			SETTING_ACTIVE_STREAM_SUBJECT_ID,
@@ -132,9 +129,6 @@ settings_init :: proc(store: ^Settings_Store, port: ports.Settings_Port) {
 				SETTING_AUTO_CONNECT, SETTING_TF_DEFAULT, SETTING_SETTINGS_VERSION,
 				SETTING_FEATURE_BATCHING, SETTING_FEATURE_SNAPSHOT_HASH, SETTING_FEATURE_PREV_SEQ,
 				SETTING_FEATURE_COMPRESS, SETTING_ASSIST_MODE,
-				SETTING_ALLOW_LEGACY_WS,
-				SETTING_CANONICAL_EVIDENCE_SUBJECT, SETTING_CANONICAL_SIGNAL_SUBJECT,
-				SETTING_ACCEPT_LEGACY_EVIDENCE, SETTING_ACCEPT_LEGACY_SIGNAL,
 				SETTING_LAYER_PRICE_CANDLES, SETTING_LAYER_TRADES_TAPE,
 				SETTING_LAYER_ORDERBOOK_DOM, SETTING_LAYER_VPVR_HEATMAP,
 				SETTING_LAYER_EVIDENCE, SETTING_LAYER_SIGNAL,

@@ -367,7 +367,7 @@ build_health_panel :: proc(state: ^App_State, viewport_w, viewport_h: f32, point
 		legacy_buf: [128]u8
 		legacy_str := fmt.bprintf(
 			legacy_buf[:],
-			"LEGACY fallback active (downgrade:%d) - migrate to /ws and set allow_legacy_ws=OFF",
+			"LEGACY fallback detected (downgrade:%d) - regression: report and rollback release",
 			max(state.active_metrics.legacy_downgrade_count, 0),
 		)
 		ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, legacy_str, ui.COL_WARNING, ui.FONT_SIZE_XS, .Mono)
@@ -792,7 +792,7 @@ copy_diagnostics_to_clipboard :: proc(state: ^App_State) {
 		p6: [160]u8
 		p6_len := len(fmt.bprintf(
 			p6[:],
-			"  recommendation: disable legacy fallback in profile (allow_legacy_ws=off), downgrades=%d",
+			"  recommendation: legacy fallback is disabled by policy; investigate + rollback if downgrades=%d",
 			max(am.legacy_downgrade_count, 0),
 		))
 		append_line(buf[:], &n, p6[:], p6_len)

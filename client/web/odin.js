@@ -348,37 +348,6 @@ function sanitizeWsUrlForLog(wsUrl) {
     }
 }
 
-function parseBooleanFlag(raw, fallback) {
-    if (raw === undefined || raw === null) return fallback;
-    const text = String(raw).trim().toLowerCase();
-    if (text.length === 0) return fallback;
-    if (text === "1" || text === "true" || text === "on" || text === "yes") return true;
-    if (text === "0" || text === "false" || text === "off" || text === "no") return false;
-    return fallback;
-}
-
-function readAllowLegacyWsOverride() {
-    let allowLegacy = false; // Terminal_V1-only by default; explicit opt-in required.
-    try {
-        const params = new URLSearchParams(window.location.search || "");
-        if (params.has("allow_legacy_ws")) {
-            allowLegacy = parseBooleanFlag(params.get("allow_legacy_ws"), allowLegacy);
-        }
-    } catch (_) {}
-    try {
-        const stored = window.localStorage ? window.localStorage.getItem("mr.allow_legacy_ws") : null;
-        if (stored !== null) {
-            allowLegacy = parseBooleanFlag(stored, allowLegacy);
-        }
-    } catch (_) {}
-    try {
-        if (typeof window.__MR_ALLOW_LEGACY_WS__ !== "undefined") {
-            allowLegacy = parseBooleanFlag(window.__MR_ALLOW_LEGACY_WS__, allowLegacy);
-        }
-    } catch (_) {}
-    return allowLegacy ? 1 : 0;
-}
-
 function resolveWsConfigFromBridge(url, hdrs) {
     const baseUrl = (wsRuntimeOverride.ws_url || defaultWsUrlForCurrentOrigin() || url || "").trim();
     const parsed = parseAuthFromHeaderString(hdrs);
@@ -765,10 +734,6 @@ const imports = {
 
         ws_drop_count() {
             return wsMsgDropCount >>> 0;
-        },
-
-        ws_allow_legacy_ws() {
-            return readAllowLegacyWsOverride();
         },
 
         ws_poll_msg(buf_ptr, buf_len) {

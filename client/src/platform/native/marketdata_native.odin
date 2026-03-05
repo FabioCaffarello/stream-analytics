@@ -14,7 +14,6 @@ package main
 
 import "core:fmt"
 import "core:net"
-import "core:os"
 import "core:strconv"
 import "core:strings"
 import "core:sync"
@@ -238,11 +237,8 @@ g_md_state: ^MD_Native_State
 
 @(private = "file")
 read_allow_legacy_ws_native :: proc() -> bool {
-	if v, ok := native_settings_lookup(services.SETTING_ALLOW_LEGACY_WS); ok {
-		return md_common.legacy_switch_from_text(v)
-	}
-	raw := os.get_env("ALLOW_LEGACY_WS", context.temp_allocator)
-	return md_common.legacy_switch_from_text(raw)
+	// Sprint S9 hard cutover: native runtime no longer supports legacy WS downgrade.
+	return false
 }
 
 @(private = "file")
@@ -1365,7 +1361,6 @@ reader_thread_proc :: proc(t: ^thread.Thread) {
 			hello_ok := state.hello_received
 			started := state.connect_started_ms
 			mode := state.transport_mode
-			allow_legacy_ws := state.allow_legacy_ws
 			sync.unlock(&state.mu)
 
 			if !hello_ok && started > 0 && mode == .Terminal_V1 {
@@ -1382,13 +1377,9 @@ reader_thread_proc :: proc(t: ^thread.Thread) {
 						state.desync_reason = .Protocol_Version
 					}
 					sync.unlock(&state.mu)
-					if allow_legacy_ws {
-						fmt.println("[md-lifecycle] hello_timeout — downgrade to Legacy_JSON")
-					} else {
-						fmt.println("[md-lifecycle] hello_timeout — downgrade blocked (ALLOW_LEGACY_WS=OFF)")
-						ws_close(&state.conn)
-						continue
-					}
+					fmt.println("[md-lifecycle] hello_timeout — downgrade blocked (hard-cutover legacy disabled)")
+					ws_close(&state.conn)
+					continue
 				}
 			}
 		}
