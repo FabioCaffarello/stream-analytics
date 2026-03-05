@@ -46,7 +46,7 @@ Create one authoritative map of:
 
 ### Document Inventory
 
-#### ADRs (0000..0021)
+#### ADRs (0000..0022)
 
 - `docs/adrs/ADR-0000-foundation.md` (Accepted)
 - `docs/adrs/ADR-0001-bounded-contexts-and-boundaries.md` (Accepted)
@@ -70,6 +70,7 @@ Create one authoritative map of:
 - `docs/adrs/ADR-0019-dual-database-operational-strategy.md` (Accepted; fully implemented)
 - `docs/adrs/ADR-0020-gitops-secrets-management.md` (Accepted; in progress)
 - `docs/adrs/ADR-0021-signals-strategist-dedicated-topology-cutover.md` (Accepted; partial implementation)
+- `docs/adrs/ADR-0022-odin-client-action-pipeline-modularization.md` (Accepted)
 
 Status anchors: `docs/adrs/ADR-0000-foundation.md:3`, `docs/adrs/ADR-0010-config-loading-startup-validation.md:3`, `docs/adrs/ADR-0016-protobuf-contract-layer.md:3`, `docs/adrs/ADR-0018-actor-topology-supervision-model.md:3`.
 

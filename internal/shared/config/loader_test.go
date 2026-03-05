@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -1853,5 +1854,128 @@ func TestWSConfig_AllowLegacyExplicitTrue(t *testing.T) {
 	}
 	if !cfg.WS.IsLegacyAllowed() {
 		t.Fatal("IsLegacyAllowed() should return true after explicit true")
+	}
+}
+
+func TestResolveIQProfileFromEnvMap_MergeAndDefaults(t *testing.T) {
+	profile, prob := ResolveIQProfileFromEnvMap(map[string]string{
+		"IQ_PROFILE":            "ci-strict",
+		"IQ_WIRE_P99_BUDGET_MS": "5000",
+		"PROCESSOR_REPLICAS":    "2",
+	})
+	if prob != nil {
+		t.Fatalf("ResolveIQProfileFromEnvMap failed: %v", prob)
+	}
+	if got := profile.ProfileName; got != "ci-strict" {
+		t.Fatalf("profile name=%q want ci-strict", got)
+	}
+	if got := profile.Values["IQ_STRICT"]; got != "1" {
+		t.Fatalf("IQ_STRICT=%q want 1", got)
+	}
+	if got := profile.Values["IQ_REQUIRE_STATS_CANONICAL"]; got != "1" {
+		t.Fatalf("IQ_REQUIRE_STATS_CANONICAL=%q want 1", got)
+	}
+	if got := profile.Values["PROCESSOR_REPLICAS"]; got != "2" {
+		t.Fatalf("PROCESSOR_REPLICAS=%q want 2", got)
+	}
+	if got := profile.Fingerprint.Caps.RouterStreamStateMax; got != 2048 {
+		t.Fatalf("router cap=%d want 2048", got)
+	}
+	if got := profile.Fingerprint.Caps.LayerStreamStateMax; got != 2048 {
+		t.Fatalf("layer cap=%d want 2048", got)
+	}
+}
+
+func TestResolveIQProfileFromEnvMap_RejectsInvalidOverrides(t *testing.T) {
+	_, prob := ResolveIQProfileFromEnvMap(map[string]string{
+		"IQ_PROFILE":                       "ci-strict",
+		"IQ_ALLOW_STATS_FALLBACK":          "1",
+		"IQ_WIRE_BUDGET_CHANNELS":          "",
+		"IQ_WIRE_BYTES_P95_BUDGET":         "0",
+		"PROCESSOR_REPLICAS":               "1",
+		"IQ_WIRE_P95_BUDGET_MS_BY_CHANNEL": "trade=99999",
+	})
+	if prob == nil {
+		t.Fatal("expected IQ profile validation failure")
+	}
+	msg := prob.Message
+	for _, key := range []string{
+		"IQ_ALLOW_STATS_FALLBACK",
+		"IQ_WIRE_BUDGET_CHANNELS",
+		"IQ_WIRE_BYTES_P95_BUDGET",
+		"PROCESSOR_REPLICAS",
+		"IQ_WIRE_P95_BUDGET_MS_BY_CHANNEL",
+	} {
+		if !strings.Contains(msg, key) {
+			t.Fatalf("expected validation message to include %q, got=%q", key, msg)
+		}
+	}
+}
+
+func TestResolveIQProfileFromEnvMap_FingerprintStable(t *testing.T) {
+	baseEnv := map[string]string{
+		"IQ_PROFILE":                 "ci-strict",
+		"IQ_STRICT":                  "1",
+		"IQ_REQUIRE_STATS_CANONICAL": "1",
+		"IQ_FALLBACK_STRICT":         "1",
+		"IQ_LEGACY_STRICT":           "1",
+		"IQ_ALLOW_BATCHED_FALLBACK":  "0",
+		"IQ_ALLOW_STATS_FALLBACK":    "0",
+		"IQ_ALLOW_UNEXPECTED_SKIPS":  "0",
+		"IQ_WIRE_BUDGET_CHANNELS":    "trade,book_snapshot,stats,candle",
+		"IQ_WIRE_P95_BUDGET_MS":      "5000",
+		"IQ_WIRE_P99_BUDGET_MS":      "5000",
+		"IQ_WIRE_BYTES_P95_BUDGET":   "65536",
+		"IQ_WIRE_BYTES_P99_BUDGET":   "131072",
+		"IQ_ROUTER_STREAM_STATE_MAX": "2048",
+		"IQ_LAYER_STREAM_STATE_MAX":  "2048",
+		"PROCESSOR_REPLICAS":         "2",
+	}
+
+	first, prob := ResolveIQProfileFromEnvMap(baseEnv)
+	if prob != nil {
+		t.Fatalf("first resolve failed: %v", prob)
+	}
+	second, prob := ResolveIQProfileFromEnvMap(map[string]string{
+		"PROCESSOR_REPLICAS":         "2",
+		"IQ_LAYER_STREAM_STATE_MAX":  "2048",
+		"IQ_ROUTER_STREAM_STATE_MAX": "2048",
+		"IQ_WIRE_BYTES_P99_BUDGET":   "131072",
+		"IQ_WIRE_BYTES_P95_BUDGET":   "65536",
+		"IQ_WIRE_P99_BUDGET_MS":      "5000",
+		"IQ_WIRE_P95_BUDGET_MS":      "5000",
+		"IQ_WIRE_BUDGET_CHANNELS":    "trade,book_snapshot,stats,candle",
+		"IQ_ALLOW_UNEXPECTED_SKIPS":  "0",
+		"IQ_ALLOW_STATS_FALLBACK":    "0",
+		"IQ_ALLOW_BATCHED_FALLBACK":  "0",
+		"IQ_LEGACY_STRICT":           "1",
+		"IQ_FALLBACK_STRICT":         "1",
+		"IQ_REQUIRE_STATS_CANONICAL": "1",
+		"IQ_STRICT":                  "1",
+		"IQ_PROFILE":                 "ci-strict",
+	})
+	if prob != nil {
+		t.Fatalf("second resolve failed: %v", prob)
+	}
+
+	if first.FingerprintHash != second.FingerprintHash {
+		t.Fatalf("fingerprint hash mismatch: %q vs %q", first.FingerprintHash, second.FingerprintHash)
+	}
+	if first.FingerprintJSON != second.FingerprintJSON {
+		t.Fatalf("fingerprint json mismatch: %q vs %q", first.FingerprintJSON, second.FingerprintJSON)
+	}
+
+	var parsed IQEffectiveProfileFingerprint
+	if err := json.Unmarshal([]byte(first.FingerprintJSON), &parsed); err != nil {
+		t.Fatalf("unmarshal fingerprint json: %v", err)
+	}
+	if parsed.ProfileName != "ci-strict" {
+		t.Fatalf("fingerprint profile_name=%q want ci-strict", parsed.ProfileName)
+	}
+	if parsed.ReplicaCount != 2 {
+		t.Fatalf("fingerprint replica_count=%d want 2", parsed.ReplicaCount)
+	}
+	if parsed.Budgets.P95Ms != 5000 || parsed.Budgets.P99Ms != 5000 {
+		t.Fatalf("unexpected budget p95/p99: %+v", parsed.Budgets)
 	}
 }

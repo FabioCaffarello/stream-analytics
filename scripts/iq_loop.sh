@@ -13,7 +13,8 @@ KEEP_STACK="${IQ_KEEP_STACK:-0}"
 OVERALL_RC=0
 IQ_PROFILE_RAW="${IQ_PROFILE:-}"
 IQ_PROFILE_REQUESTED="$(printf '%s' "$IQ_PROFILE_RAW" | tr '[:upper:]' '[:lower:]')"
-IQ_PROFILE_EFFECTIVE="default"
+IQ_PROFILE_REQUIRED="ci-strict"
+IQ_PROFILE_EFFECTIVE=""
 IQ_PROFILE_SOURCE=""
 PROFILE_OVERRIDES=()
 LATEST_PASS_PTR="artifacts/iq/latest_pass"
@@ -44,59 +45,53 @@ is_truthy() {
   [[ "$raw" == "1" || "$raw" == "true" || "$raw" == "yes" || "$raw" == "on" ]]
 }
 
-load_profile_env_file() {
-  local profile_file="$1"
-  local fail_on_conflict="$2"
-  local line
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    line="${line%"${line##*[![:space:]]}"}"
-    line="${line#"${line%%[![:space:]]*}"}"
-    [[ -z "$line" || "${line:0:1}" == "#" ]] && continue
-    if [[ ! "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
-      log "Invalid profile line in ${profile_file}: ${line}"
-      return 1
-    fi
-    local key="${line%%=*}"
-    local value="${line#*=}"
-    if [[ "$fail_on_conflict" == "1" && -n "${!key+x}" && "${!key}" != "$value" ]]; then
-      log "RELAX-CONFLICT ${key}: env='${!key}' profile='${value}'"
-      return 1
-    fi
-    export "${key}=${value}"
-    PROFILE_OVERRIDES+=("${key}=${value}")
-  done < "$profile_file"
-}
-
 configure_iq_profile() {
   if [[ -z "$IQ_PROFILE_REQUESTED" ]]; then
     if is_truthy "${CI:-0}"; then
-      IQ_PROFILE_REQUESTED="release"
-    else
-      IQ_PROFILE_REQUESTED="default"
+      log "IQ_PROFILE is required in CI and must be '${IQ_PROFILE_REQUIRED}'"
+      log "Action: run IQ_PROFILE=${IQ_PROFILE_REQUIRED} PROCESSOR_REPLICAS=2 ./scripts/iq_loop.sh"
+      return 1
     fi
+    IQ_PROFILE_REQUESTED="$IQ_PROFILE_REQUIRED"
+    log "IQ_PROFILE not provided; defaulting to '${IQ_PROFILE_REQUIRED}' for local run"
   fi
 
-  case "$IQ_PROFILE_REQUESTED" in
-    release|releaselike)
-      IQ_PROFILE_EFFECTIVE="release"
-      IQ_PROFILE_SOURCE="${ROOT_DIR}/scripts/iq/profiles/release.env"
-      if [[ ! -f "$IQ_PROFILE_SOURCE" ]]; then
-        log "Missing IQ profile source file: ${IQ_PROFILE_SOURCE}"
-        return 1
-      fi
-      if ! load_profile_env_file "$IQ_PROFILE_SOURCE" "1"; then
-        return 1
-      fi
-      ;;
-    *)
-      IQ_PROFILE_EFFECTIVE="default"
-      IQ_PROFILE_SOURCE=""
-      ;;
-  esac
+  if [[ "$IQ_PROFILE_REQUESTED" != "$IQ_PROFILE_REQUIRED" ]]; then
+    log "Unsupported IQ_PROFILE='${IQ_PROFILE_REQUESTED}' (expected '${IQ_PROFILE_REQUIRED}')"
+    log "Action: run IQ_PROFILE=${IQ_PROFILE_REQUIRED} PROCESSOR_REPLICAS=2 ./scripts/iq_loop.sh"
+    return 1
+  fi
 
   export IQ_PROFILE="$IQ_PROFILE_REQUESTED"
-  export IQ_EFFECTIVE_PROFILE_NAME="$IQ_PROFILE_EFFECTIVE"
-  export IQ_EFFECTIVE_PROFILE_SOURCE="$IQ_PROFILE_SOURCE"
+
+  local profile_exports
+  if ! profile_exports="$(node scripts/iq/profile_loader.mjs --shell-export 2> >(tee -a "$RUNNER_LOG" >&2))"; then
+    log "IQ profile validation failed before stack startup"
+    log "Action: remove relax overrides and keep IQ_PROFILE=${IQ_PROFILE_REQUIRED}"
+    return 1
+  fi
+
+  eval "$profile_exports"
+
+  IQ_PROFILE_EFFECTIVE="${IQ_EFFECTIVE_PROFILE_NAME:-$IQ_PROFILE_REQUIRED}"
+  IQ_PROFILE_SOURCE="${IQ_EFFECTIVE_PROFILE_SOURCE:-}"
+  PROFILE_OVERRIDES=(
+    "IQ_STRICT=${IQ_STRICT:-}"
+    "IQ_REQUIRE_STATS_CANONICAL=${IQ_REQUIRE_STATS_CANONICAL:-}"
+    "IQ_FALLBACK_STRICT=${IQ_FALLBACK_STRICT:-}"
+    "IQ_LEGACY_STRICT=${IQ_LEGACY_STRICT:-}"
+    "IQ_ALLOW_BATCHED_FALLBACK=${IQ_ALLOW_BATCHED_FALLBACK:-}"
+    "IQ_ALLOW_STATS_FALLBACK=${IQ_ALLOW_STATS_FALLBACK:-}"
+    "IQ_ALLOW_UNEXPECTED_SKIPS=${IQ_ALLOW_UNEXPECTED_SKIPS:-}"
+    "IQ_WIRE_BUDGET_CHANNELS=${IQ_WIRE_BUDGET_CHANNELS:-}"
+    "IQ_WIRE_P95_BUDGET_MS=${IQ_WIRE_P95_BUDGET_MS:-}"
+    "IQ_WIRE_P99_BUDGET_MS=${IQ_WIRE_P99_BUDGET_MS:-}"
+    "IQ_WIRE_BYTES_P95_BUDGET=${IQ_WIRE_BYTES_P95_BUDGET:-}"
+    "IQ_WIRE_BYTES_P99_BUDGET=${IQ_WIRE_BYTES_P99_BUDGET:-}"
+    "IQ_ROUTER_STREAM_STATE_MAX=${IQ_ROUTER_STREAM_STATE_MAX:-}"
+    "IQ_LAYER_STREAM_STATE_MAX=${IQ_LAYER_STREAM_STATE_MAX:-}"
+    "PROCESSOR_REPLICAS=${PROCESSOR_REPLICAS:-}"
+  )
 }
 
 run_step() {
@@ -165,15 +160,12 @@ if ! configure_iq_profile; then
   log "Aborting IQ loop due to profile configuration failure"
   exit "$OVERALL_RC"
 fi
-if [[ "$IQ_PROFILE_EFFECTIVE" == "release" ]]; then
-  log "Effective IQ profile: ${IQ_PROFILE_EFFECTIVE} (requested=${IQ_PROFILE_REQUESTED}, source=${IQ_PROFILE_SOURCE})"
-  log "Effective IQ profile overrides: ${PROFILE_OVERRIDES[*]}"
-else
-  log "Effective IQ profile: default (requested=${IQ_PROFILE_REQUESTED})"
-fi
-log "Bringing stack up with PROCESSOR_REPLICAS=2"
+log "Effective IQ profile: ${IQ_PROFILE_EFFECTIVE} (requested=${IQ_PROFILE_REQUESTED}, source=${IQ_PROFILE_SOURCE})"
+log "Effective IQ profile overrides: ${PROFILE_OVERRIDES[*]}"
+log "Effective IQ profile fingerprint: ${IQ_EFFECTIVE_PROFILE_FINGERPRINT_HASH:-<missing>}"
+log "Bringing stack up with PROCESSOR_REPLICAS=${PROCESSOR_REPLICAS:-2}"
 
-run_step "up" make up PROCESSOR_REPLICAS=2
+run_step "up" make up PROCESSOR_REPLICAS="${PROCESSOR_REPLICAS:-2}"
 run_step "ready-core" make smoke
 run_step "ready-client-healthz" wait_http "http://127.0.0.1:8090/healthz" "client /healthz" 120
 run_step "ready-client-root" wait_http "http://127.0.0.1:8090/" "client /" 120
@@ -184,7 +176,7 @@ run_step \
   IQ_BASE_URL="http://localhost:8090" \
   IQ_SHOTS_DIR="$SHOTS_DIR" \
   IQ_LOGS_DIR="$LOG_DIR" \
-  node tests/playwright/iq-smoke.mjs
+  node tests/playwright/scripts/iq-smoke.mjs
 
 run_step \
   "legacy-negative" \

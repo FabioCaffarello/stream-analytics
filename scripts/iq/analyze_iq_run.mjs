@@ -793,8 +793,9 @@ const wsLagMaxMs = Number.parseFloat(process.env.IQ_WS_LAG_MAX_MS || "2000000");
 const subscribeAckMin = Number.parseInt(process.env.IQ_SUBSCRIBE_ACK_MIN || "1", 10);
 const wsBackpressureDropsMax = Number.parseFloat(process.env.IQ_WS_BACKPRESSURE_DROPS_MAX || "0");
 const logSpamMaxPerSignature = Number.parseInt(process.env.IQ_LOG_SPAM_MAX_PER_SIGNATURE || "20", 10);
-const routerStateMaxEntries = Number.parseInt(process.env.IQ_ROUTER_STREAM_STATE_MAX || "2048", 10) || 2048;
-const layerStateMaxEntries = Number.parseInt(process.env.IQ_LAYER_STREAM_STATE_MAX || String(routerStateMaxEntries), 10) || routerStateMaxEntries;
+const routerStateMaxEntries = Number.parseInt(profileValue("IQ_ROUTER_STREAM_STATE_MAX", "2048"), 10) || 2048;
+const layerStateMaxEntries = Number.parseInt(profileValue("IQ_LAYER_STREAM_STATE_MAX", String(routerStateMaxEntries)), 10) || routerStateMaxEntries;
+const profileReplicaCount = Number.parseInt(profileValue("PROCESSOR_REPLICAS", "2"), 10) || 2;
 
 const mdParseP95BudgetUs = parseOptionalNumber(process.env.IQ_MD_PARSE_P95_BUDGET_US);
 const mdParseP99BudgetUs = parseOptionalNumber(process.env.IQ_MD_PARSE_P99_BUDGET_US);
@@ -976,11 +977,11 @@ addCheck(
 );
 
 addCheck(
-    "profile_release_guardrail",
-    "release profile guardrail",
-    iqProfile.effectiveProfileName !== "release" || iqProfile.releaseRelaxViolations.length === 0,
-    `requested=${iqProfile.requestedProfile || "default"} effective=${iqProfile.effectiveProfileName} strict=${strictProfile} fallback_strict=${fallbackStrict} legacy_strict=${legacyStrict} relax_violations=${iqProfile.releaseRelaxViolations.join(";") || "none"}`,
-    ["IQ_PROFILE", "IQ_REQUIRE_STATS_CANONICAL", "IQ_ALLOW_STATS_FALLBACK", "IQ_ALLOW_BATCHED_FALLBACK", "IQ_ALLOW_UNEXPECTED_SKIPS"]
+    "profile_contract_guardrail",
+    "ci-strict profile guardrail",
+    iqProfile.valid,
+    `requested=${iqProfile.requestedProfile || "<unset>"} effective=${iqProfile.effectiveProfileName} strict=${strictProfile} fallback_strict=${fallbackStrict} legacy_strict=${legacyStrict} replica_count=${profileReplicaCount} violations=${iqProfile.validationErrors.join(";") || "none"}`,
+    ["IQ_PROFILE", "IQ_PROFILE_VALIDATION", "IQ_REQUIRE_STATS_CANONICAL", "IQ_ALLOW_STATS_FALLBACK", "IQ_ALLOW_BATCHED_FALLBACK", "IQ_ALLOW_UNEXPECTED_SKIPS"]
 );
 
 const missingTsGap = probe.probe_md_backend_gap_missing_ts_server;
@@ -1544,14 +1545,25 @@ markdown.push(`- run_dir: \`${runDir}\``);
 markdown.push(`- generated_at: \`${new Date().toISOString()}\``);
 markdown.push(`- status: **${overallPass ? "PASS" : "FAIL"}**`);
 markdown.push("");
+markdown.push("## Effective Profile Fingerprint");
+markdown.push("");
+markdown.push(`- profile_name: \`${iqProfile.fingerprint.object.profile_name}\``);
+markdown.push(`- replica_count: \`${iqProfile.fingerprint.object.replica_count}\``);
+markdown.push(`- fingerprint_hash: \`${iqProfile.fingerprint.hash}\``);
+markdown.push("- fingerprint_json:");
+markdown.push("```json");
+markdown.push(iqProfile.fingerprint.json);
+markdown.push("```");
+markdown.push("");
 markdown.push("## Effective IQ Profile");
 markdown.push("");
-markdown.push(`- requested profile: \`${iqProfile.requestedProfile || "default"}\``);
+markdown.push(`- requested profile: \`${iqProfile.requestedProfile || "<unset>"}\``);
 markdown.push(`- effective profile: \`${iqProfile.effectiveProfileName}\``);
 markdown.push(`- profile source: \`${iqProfile.sourcePath || "embedded defaults"}\``);
+markdown.push(`- profile valid: \`${iqProfile.valid}\``);
 markdown.push(`- strict flags: strict=\`${strictProfile}\` fallback_strict=\`${fallbackStrict}\` legacy_strict=\`${legacyStrict}\``);
-if (iqProfile.releaseRelaxViolations.length > 0) {
-    markdown.push(`- release guardrail violations: \`${iqProfile.releaseRelaxViolations.join("; ")}\``);
+if (iqProfile.validationErrors.length > 0) {
+    markdown.push(`- profile contract violations: \`${iqProfile.validationErrors.join("; ")}\``);
 }
 markdown.push("");
 markdown.push("| Key | Effective | Default |");
@@ -1659,10 +1671,10 @@ markdown.push("");
 markdown.push("## Reproduction Steps");
 markdown.push("");
 markdown.push("```bash");
-markdown.push("IQ_PROFILE=release PROCESSOR_REPLICAS=2 ./scripts/iq_loop.sh");
+markdown.push("IQ_PROFILE=ci-strict PROCESSOR_REPLICAS=2 ./scripts/iq_loop.sh");
 markdown.push("# or manual");
 markdown.push("make up PROCESSOR_REPLICAS=2");
-markdown.push("IQ_PROFILE=release node tests/playwright/iq-smoke.mjs");
+markdown.push("IQ_PROFILE=ci-strict node tests/playwright/scripts/iq-smoke.mjs");
 markdown.push("docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile core --profile obs --profile client logs --no-color --timestamps");
 markdown.push("```");
 markdown.push("");
@@ -1712,13 +1724,19 @@ const summary = {
     stats_fallback_zero_streak: statsFallbackStreak.streak,
     stats_fallback_required_runs: statsFallbackRemovalRuns,
     effective_profile: {
-        requested: iqProfile.requestedProfile || "default",
+        requested: iqProfile.requestedProfile || "<unset>",
         effective: iqProfile.effectiveProfileName,
         source: iqProfile.sourcePath || "embedded defaults",
+        valid: iqProfile.valid,
         strict: strictProfile,
         fallback_strict: fallbackStrict,
         legacy_strict: legacyStrict,
-        release_relax_violations: iqProfile.releaseRelaxViolations,
+        validation_errors: iqProfile.validationErrors,
+        fingerprint: {
+            hash: iqProfile.fingerprint.hash,
+            json: iqProfile.fingerprint.json,
+            value: iqProfile.fingerprint.object,
+        },
         values: iqProfile.effectiveValues,
         diffs: iqProfile.diffs,
     },

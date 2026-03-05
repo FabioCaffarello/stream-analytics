@@ -38,6 +38,51 @@ type AppConfig struct {
 	Signals      SignalsConfig      `json:"signals"`
 }
 
+// IQProfileBudgets captures strict p95/p99 IQ budget thresholds used in CI.
+type IQProfileBudgets struct {
+	P95Ms    float64 `json:"p95_ms"`
+	P99Ms    float64 `json:"p99_ms"`
+	BytesP95 float64 `json:"bytes_p95"`
+	BytesP99 float64 `json:"bytes_p99"`
+}
+
+// IQProfileCaps captures strict state caps used in IQ CI profile validation.
+type IQProfileCaps struct {
+	RouterStreamStateMax int `json:"router_stream_state_max"`
+	LayerStreamStateMax  int `json:"layer_stream_state_max"`
+}
+
+// IQProfileLegacyFlags captures strict legacy/fallback guardrails.
+type IQProfileLegacyFlags struct {
+	Strict                bool `json:"strict"`
+	FallbackStrict        bool `json:"fallback_strict"`
+	LegacyStrict          bool `json:"legacy_strict"`
+	RequireStatsCanonical bool `json:"require_stats_canonical"`
+	AllowBatchedFallback  bool `json:"allow_batched_fallback"`
+	AllowStatsFallback    bool `json:"allow_stats_fallback"`
+	AllowUnexpectedSkips  bool `json:"allow_unexpected_skips"`
+}
+
+// IQEffectiveProfileFingerprint is the stable profile proof emitted in IQ CI.
+type IQEffectiveProfileFingerprint struct {
+	ProfileName  string               `json:"profile_name"`
+	Budgets      IQProfileBudgets     `json:"budgets"`
+	Caps         IQProfileCaps        `json:"caps"`
+	LegacyFlags  IQProfileLegacyFlags `json:"legacy_flags"`
+	ReplicaCount int                  `json:"replica_count"`
+}
+
+// IQEffectiveProfile is the resolved strict IQ profile contract.
+type IQEffectiveProfile struct {
+	RequestedProfile string                        `json:"requested_profile"`
+	ProfileName      string                        `json:"profile_name"`
+	Source           string                        `json:"source"`
+	Values           map[string]string             `json:"values"`
+	Fingerprint      IQEffectiveProfileFingerprint `json:"fingerprint"`
+	FingerprintJSON  string                        `json:"fingerprint_json"`
+	FingerprintHash  string                        `json:"fingerprint_hash"`
+}
+
 // MarketsConfig declares available exchanges and symbols for client discovery.
 type MarketsConfig struct {
 	Exchanges []MarketsExchangeConfig `json:"exchanges"`

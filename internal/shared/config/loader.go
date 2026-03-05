@@ -1,12 +1,15 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
 	"os"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,6 +24,217 @@ const (
 )
 
 var metricsExchangeNamePattern = regexp.MustCompile(`^[a-z0-9_-]{1,24}$`)
+
+const (
+	iqProfileCIStrictName         = "ci-strict"
+	iqProfileCIStrictSource       = "internal/shared/config:ci-strict"
+	iqProfileRouterStateMaxCap    = 2048
+	iqProfileLayerStateMaxCap     = 2048
+	iqProfileReplicaCount         = 2
+	iqProfileRequiredWireChannels = "trade,book_snapshot,stats,candle"
+)
+
+var iqProfilePinnedValues = map[string]string{
+	"IQ_STRICT":                  "1",
+	"IQ_REQUIRE_STATS_CANONICAL": "1",
+	"IQ_FALLBACK_STRICT":         "1",
+	"IQ_LEGACY_STRICT":           "1",
+	"IQ_ALLOW_BATCHED_FALLBACK":  "0",
+	"IQ_ALLOW_STATS_FALLBACK":    "0",
+	"IQ_ALLOW_UNEXPECTED_SKIPS":  "0",
+	"IQ_WIRE_BUDGET_CHANNELS":    iqProfileRequiredWireChannels,
+	"IQ_WIRE_P95_BUDGET_MS":      "5000",
+	"IQ_WIRE_P99_BUDGET_MS":      "5000",
+	"IQ_WIRE_BYTES_P95_BUDGET":   "65536",
+	"IQ_WIRE_BYTES_P99_BUDGET":   "131072",
+	"IQ_ROUTER_STREAM_STATE_MAX": strconv.Itoa(iqProfileRouterStateMaxCap),
+	"IQ_LAYER_STREAM_STATE_MAX":  strconv.Itoa(iqProfileLayerStateMaxCap),
+	"PROCESSOR_REPLICAS":         strconv.Itoa(iqProfileReplicaCount),
+}
+
+var iqProfileForbiddenOverrideKeys = []string{
+	"IQ_WIRE_P95_BUDGET_MS_BY_CHANNEL",
+	"IQ_WIRE_P99_BUDGET_MS_BY_CHANNEL",
+	"IQ_WIRE_BYTES_P95_BUDGET_BY_CHANNEL",
+	"IQ_WIRE_BYTES_P99_BUDGET_BY_CHANNEL",
+}
+
+var iqProfileNumericBudgetKeys = []string{
+	"IQ_WIRE_P95_BUDGET_MS",
+	"IQ_WIRE_P99_BUDGET_MS",
+	"IQ_WIRE_BYTES_P95_BUDGET",
+	"IQ_WIRE_BYTES_P99_BUDGET",
+}
+
+// ResolveIQProfileFromOS resolves and validates IQ strict-profile env contract.
+func ResolveIQProfileFromOS() (IQEffectiveProfile, *problem.Problem) {
+	env := make(map[string]string)
+	for _, pair := range os.Environ() {
+		idx := strings.Index(pair, "=")
+		if idx <= 0 {
+			continue
+		}
+		env[pair[:idx]] = pair[idx+1:]
+	}
+	return ResolveIQProfileFromEnvMap(env)
+}
+
+// ResolveIQProfileFromEnvMap resolves and validates the IQ CI profile contract.
+func ResolveIQProfileFromEnvMap(env map[string]string) (IQEffectiveProfile, *problem.Problem) {
+	requestedRaw := strings.TrimSpace(env["IQ_PROFILE"])
+	requestedProfile := strings.ToLower(requestedRaw)
+	if requestedProfile == "" {
+		requestedProfile = iqProfileCIStrictName
+	}
+	if requestedProfile != iqProfileCIStrictName {
+		return IQEffectiveProfile{}, problem.Newf(
+			codeInvalid,
+			"IQ_PROFILE must be %q, got %q; set IQ_PROFILE=ci-strict in CI and IQ runs",
+			iqProfileCIStrictName,
+			strings.TrimSpace(env["IQ_PROFILE"]),
+		)
+	}
+
+	effectiveValues := make(map[string]string, len(iqProfilePinnedValues))
+	for key, value := range iqProfilePinnedValues {
+		effectiveValues[key] = value
+	}
+
+	violations := make([]string, 0)
+	for key, expected := range iqProfilePinnedValues {
+		raw, exists := env[key]
+		if !exists {
+			continue
+		}
+		actual := strings.TrimSpace(raw)
+		if actual != expected {
+			if actual == "" {
+				actual = "<empty>"
+			}
+			violations = append(violations, fmt.Sprintf("%s=%s (expected %s)", key, actual, expected))
+		}
+	}
+	for _, key := range iqProfileForbiddenOverrideKeys {
+		if raw, exists := env[key]; exists && strings.TrimSpace(raw) != "" {
+			violations = append(violations, fmt.Sprintf("%s must be unset for ci-strict profile", key))
+		}
+	}
+
+	wireChannels := parseCSVNonEmpty(effectiveValues["IQ_WIRE_BUDGET_CHANNELS"])
+	if len(wireChannels) == 0 {
+		violations = append(violations, "IQ_WIRE_BUDGET_CHANNELS must not be empty")
+	}
+	for _, key := range iqProfileNumericBudgetKeys {
+		if _, err := parseStrictPositiveFloat(effectiveValues[key]); err != nil {
+			violations = append(violations, fmt.Sprintf("%s %v", key, err))
+		}
+	}
+	for _, key := range []string{"IQ_ROUTER_STREAM_STATE_MAX", "IQ_LAYER_STREAM_STATE_MAX", "PROCESSOR_REPLICAS"} {
+		if _, err := parseStrictPositiveInt(effectiveValues[key]); err != nil {
+			violations = append(violations, fmt.Sprintf("%s %v", key, err))
+		}
+	}
+
+	if len(violations) > 0 {
+		return IQEffectiveProfile{}, problem.Newf(
+			codeInvalid,
+			"IQ ci-strict profile validation failed: %s. Fix by exporting IQ_PROFILE=ci-strict and removing relax overrides.",
+			strings.Join(violations, "; "),
+		)
+	}
+
+	wireP95, _ := parseStrictPositiveFloat(effectiveValues["IQ_WIRE_P95_BUDGET_MS"])
+	wireP99, _ := parseStrictPositiveFloat(effectiveValues["IQ_WIRE_P99_BUDGET_MS"])
+	wireBytesP95, _ := parseStrictPositiveFloat(effectiveValues["IQ_WIRE_BYTES_P95_BUDGET"])
+	wireBytesP99, _ := parseStrictPositiveFloat(effectiveValues["IQ_WIRE_BYTES_P99_BUDGET"])
+	routerCap, _ := parseStrictPositiveInt(effectiveValues["IQ_ROUTER_STREAM_STATE_MAX"])
+	layerCap, _ := parseStrictPositiveInt(effectiveValues["IQ_LAYER_STREAM_STATE_MAX"])
+	replicaCount, _ := parseStrictPositiveInt(effectiveValues["PROCESSOR_REPLICAS"])
+
+	fingerprint := IQEffectiveProfileFingerprint{
+		ProfileName: iqProfileCIStrictName,
+		Budgets: IQProfileBudgets{
+			P95Ms:    wireP95,
+			P99Ms:    wireP99,
+			BytesP95: wireBytesP95,
+			BytesP99: wireBytesP99,
+		},
+		Caps: IQProfileCaps{
+			RouterStreamStateMax: routerCap,
+			LayerStreamStateMax:  layerCap,
+		},
+		LegacyFlags: IQProfileLegacyFlags{
+			Strict:                parseIQProfileBool(effectiveValues["IQ_STRICT"]),
+			FallbackStrict:        parseIQProfileBool(effectiveValues["IQ_FALLBACK_STRICT"]),
+			LegacyStrict:          parseIQProfileBool(effectiveValues["IQ_LEGACY_STRICT"]),
+			RequireStatsCanonical: parseIQProfileBool(effectiveValues["IQ_REQUIRE_STATS_CANONICAL"]),
+			AllowBatchedFallback:  parseIQProfileBool(effectiveValues["IQ_ALLOW_BATCHED_FALLBACK"]),
+			AllowStatsFallback:    parseIQProfileBool(effectiveValues["IQ_ALLOW_STATS_FALLBACK"]),
+			AllowUnexpectedSkips:  parseIQProfileBool(effectiveValues["IQ_ALLOW_UNEXPECTED_SKIPS"]),
+		},
+		ReplicaCount: replicaCount,
+	}
+
+	fingerprintRaw, err := json.Marshal(fingerprint)
+	if err != nil {
+		return IQEffectiveProfile{}, problem.Wrap(err, codeParseError, "could not marshal IQ profile fingerprint")
+	}
+	sum := sha256.Sum256(fingerprintRaw)
+	fingerprintHash := "sha256:" + hex.EncodeToString(sum[:])
+
+	return IQEffectiveProfile{
+		RequestedProfile: requestedProfile,
+		ProfileName:      iqProfileCIStrictName,
+		Source:           iqProfileCIStrictSource,
+		Values:           effectiveValues,
+		Fingerprint:      fingerprint,
+		FingerprintJSON:  string(fingerprintRaw),
+		FingerprintHash:  fingerprintHash,
+	}, nil
+}
+
+func parseStrictPositiveFloat(raw string) (float64, error) {
+	v, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+	if err != nil {
+		return 0, fmt.Errorf("must be a number > 0, got %q", raw)
+	}
+	if math.IsNaN(v) || math.IsInf(v, 0) || v <= 0 {
+		return 0, fmt.Errorf("must be > 0, got %q", raw)
+	}
+	return v, nil
+}
+
+func parseStrictPositiveInt(raw string) (int, error) {
+	v, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil {
+		return 0, fmt.Errorf("must be an integer > 0, got %q", raw)
+	}
+	if v <= 0 {
+		return 0, fmt.Errorf("must be > 0, got %q", raw)
+	}
+	return v, nil
+}
+
+func parseCSVNonEmpty(raw string) []string {
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
+func parseIQProfileBool(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
 
 // Load reads a JSONC config file and returns an AppConfig with defaults applied.
 // If path is empty, Load returns a fully-defaulted AppConfig without reading any file.

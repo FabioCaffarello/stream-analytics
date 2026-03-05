@@ -14,7 +14,7 @@
       "anchors": [
         {
           "file": "internal/shared/config/loader.go",
-          "line": 1163,
+          "line": 1377,
           "snippet": "c.Delivery.SessionOutboundQueueSize = 512"
         },
         {
@@ -353,7 +353,7 @@
         {
           "file": "scripts/iq/analyze_iq_run.mjs",
           "line": 796,
-          "snippet": "IQ_ROUTER_STREAM_STATE_MAX || \"2048\""
+          "snippet": "IQ_ROUTER_STREAM_STATE_MAX\", \"2048\")"
         }
       ]
     },
@@ -370,7 +370,7 @@
         {
           "file": "scripts/iq/analyze_iq_run.mjs",
           "line": 797,
-          "snippet": "IQ_LAYER_STREAM_STATE_MAX || String(routerStateMaxEntries)"
+          "snippet": "IQ_LAYER_STREAM_STATE_MAX\", String(routerStateMaxEntries))"
         }
       ]
     },
@@ -386,11 +386,11 @@
       "anchors": [
         {
           "file": "scripts/iq/profile_loader.mjs",
-          "line": 22,
+          "line": 24,
           "snippet": "IQ_WIRE_BYTES_P95_BUDGET: \"65536\""
         },
         {
-          "file": "scripts/iq/profiles/release.env",
+          "file": "scripts/iq/profiles/ci-strict.env",
           "line": 18,
           "snippet": "IQ_WIRE_BYTES_P95_BUDGET=65536"
         }
@@ -408,11 +408,11 @@
       "anchors": [
         {
           "file": "scripts/iq/profile_loader.mjs",
-          "line": 23,
+          "line": 25,
           "snippet": "IQ_WIRE_BYTES_P99_BUDGET: \"131072\""
         },
         {
-          "file": "scripts/iq/profiles/release.env",
+          "file": "scripts/iq/profiles/ci-strict.env",
           "line": 19,
           "snippet": "IQ_WIRE_BYTES_P99_BUDGET=131072"
         }

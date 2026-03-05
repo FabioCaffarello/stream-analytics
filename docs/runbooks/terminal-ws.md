@@ -252,33 +252,35 @@ Rollback (safe, explicit):
 
 ## IQ Critical Profile (S17/P3)
 
-IQ CI/release checks now use a fixed critical profile source-of-truth:
-- File: `scripts/iq/profiles/release.env`
-- Activated automatically in CI (`CI=true`) and when `IQ_PROFILE=releaselike` (or `IQ_PROFILE=release`).
+IQ CI checks now use a fixed critical profile source-of-truth:
+- File: `scripts/iq/profiles/ci-strict.env`
+- CI must be explicit: `IQ_PROFILE=ci-strict` (no implicit `CI=true` fallback).
+- Local `iq_loop.sh` defaults to `ci-strict` when `IQ_PROFILE` is omitted.
 - Enforced guardrails:
   - `strict=true`
   - `require_stats_canonical=true`
   - `fallback_strict=true` (`IQ_ALLOW_*_FALLBACK=0` and `IQ_ALLOW_UNEXPECTED_SKIPS=0`)
   - `legacy_strict=true`
   - wire/bytes p95+p99 thresholds must stay active (non-empty channels + positive budgets)
+  - pinned caps and replicas: `IQ_ROUTER_STREAM_STATE_MAX=2048`, `IQ_LAYER_STREAM_STATE_MAX=2048`, `PROCESSOR_REPLICAS=2`
 
-Local reproduction with the same release profile:
+Local reproduction with the same CI strict profile:
 ```bash
-IQ_PROFILE=release PROCESSOR_REPLICAS=2 ./scripts/iq_loop.sh
+IQ_PROFILE=ci-strict PROCESSOR_REPLICAS=2 ./scripts/iq_loop.sh
 ```
 
 Expected artifacts:
 - `artifacts/iq/<ts>/summary.json`
-- `artifacts/iq/<ts>/report.md` (section `Effective IQ Profile`)
+- `artifacts/iq/<ts>/report.md` (sections `Effective Profile Fingerprint` + `Effective IQ Profile`)
 - `artifacts/iq/<ts>/logs/server.metrics.prom`
 - `artifacts/iq/<ts>/logs/playwright-smoke.json`
 - `artifacts/iq/<ts>/logs/*`
 
 Rollback notes (profile freeze only):
-1. Revert profile-loader/profile-file changes (`scripts/iq_loop.sh`, `scripts/iq/analyze_iq_run.mjs`, `scripts/iq/profile_loader.mjs`, `scripts/iq/profiles/release.env`).
+1. Revert profile-loader/profile-file changes (`scripts/iq_loop.sh`, `scripts/iq/analyze_iq_run.mjs`, `scripts/iq/profile_loader.mjs`, `scripts/iq/profiles/ci-strict.env`).
 2. Re-run baseline IQ with prior behavior:
-   - `PROCESSOR_REPLICAS=2 ./scripts/iq_loop.sh`
-3. Confirm report/summary no longer include `Effective IQ Profile` strict gate and record rationale in release notes.
+   - `IQ_PROFILE=ci-strict PROCESSOR_REPLICAS=2 ./scripts/iq_loop.sh`
+3. Confirm report/summary no longer include strict `ci-strict` fingerprint gate and record rationale in release notes.
 
 ## HELLO Negotiation
 

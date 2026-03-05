@@ -7,7 +7,7 @@ import { join, dirname } from "path";
 import { tmpdir } from "os";
 import { fileURLToPath } from "url";
 import { spawnSync } from "child_process";
-import { RELEASE_PROFILE_PATH, resolveIQProfile } from "./profile_loader.mjs";
+import { CI_STRICT_PROFILE_PATH, resolveIQProfile } from "./profile_loader.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, "..", "..");
@@ -68,31 +68,34 @@ function writeIqRunFixture(runDir, { metricsText, runtimeProbe, statsProbe, over
     );
 }
 
-test("resolveIQProfile applies release profile for releaselike", () => {
-    const profile = resolveIQProfile({ IQ_PROFILE: "releaselike" });
+test("resolveIQProfile applies ci-strict profile defaults", () => {
+    const profile = resolveIQProfile({ IQ_PROFILE: "ci-strict" });
 
-    assert.equal(profile.effectiveProfileName, "release");
-    assert.equal(profile.sourcePath, RELEASE_PROFILE_PATH);
+    assert.equal(profile.effectiveProfileName, "ci-strict");
+    assert.equal(profile.sourcePath, CI_STRICT_PROFILE_PATH);
     assert.equal(profile.effectiveValues.IQ_STRICT, "1");
     assert.equal(profile.effectiveValues.IQ_REQUIRE_STATS_CANONICAL, "1");
     assert.equal(profile.effectiveValues.IQ_ALLOW_STATS_FALLBACK, "0");
-    assert.equal(profile.releaseRelaxViolations.length, 0);
+    assert.equal(profile.valid, true);
+    assert.equal(profile.validationErrors.length, 0);
+    assert.match(profile.fingerprint.hash, /^sha256:[0-9a-f]{64}$/);
 });
 
-test("resolveIQProfile flags release relax override", () => {
+test("resolveIQProfile flags ci-strict relax override", () => {
     const profile = resolveIQProfile({
-        IQ_PROFILE: "release",
+        IQ_PROFILE: "ci-strict",
         IQ_REQUIRE_STATS_CANONICAL: "0",
         IQ_ALLOW_STATS_FALLBACK: "1",
     });
 
-    assert.equal(profile.effectiveProfileName, "release");
+    assert.equal(profile.effectiveProfileName, "ci-strict");
+    assert.equal(profile.valid, false);
     assert.ok(
-        profile.releaseRelaxViolations.some((item) => item.includes("IQ_REQUIRE_STATS_CANONICAL=0")),
+        profile.validationErrors.some((item) => item.includes("IQ_REQUIRE_STATS_CANONICAL=0")),
         "expected IQ_REQUIRE_STATS_CANONICAL relax violation"
     );
     assert.ok(
-        profile.releaseRelaxViolations.some((item) => item.includes("IQ_ALLOW_STATS_FALLBACK=1")),
+        profile.validationErrors.some((item) => item.includes("IQ_ALLOW_STATS_FALLBACK=1")),
         "expected IQ_ALLOW_STATS_FALLBACK relax violation"
     );
 });
@@ -119,7 +122,8 @@ test("analyze report includes Effective IQ Profile header", () => {
         cwd: repoRoot,
         env: {
             ...process.env,
-            IQ_PROFILE: "releaselike",
+            IQ_PROFILE: "ci-strict",
+            PROCESSOR_REPLICAS: "2",
         },
         encoding: "utf8",
     });
@@ -130,9 +134,11 @@ test("analyze report includes Effective IQ Profile header", () => {
     assert.ok(existsSync(reportPath), "expected report.md to be generated");
 
     const report = readFileSync(reportPath, "utf8");
+    assert.match(report, /^## Effective Profile Fingerprint$/m);
+    assert.match(report, /- fingerprint_hash: `sha256:[0-9a-f]{64}`/);
     assert.match(report, /^## Effective IQ Profile$/m);
-    assert.match(report, /- effective profile: `release`/);
-    assert.match(report, /\| IQ_REQUIRE_STATS_CANONICAL \| 1 \*\(diff\)\* \| 0 \|/);
+    assert.match(report, /- effective profile: `ci-strict`/);
+    assert.match(report, /\| IQ_REQUIRE_STATS_CANONICAL \| 1 \| 1 \|/);
 });
 
 test("analyze scorecard is deterministic and sorted with baseline diff", () => {
@@ -211,7 +217,8 @@ test("analyze scorecard is deterministic and sorted with baseline diff", () => {
         env: {
             ...process.env,
             BASELINE_IQ_DIR: baselineDir,
-            IQ_PROFILE: "default",
+            IQ_PROFILE: "ci-strict",
+            PROCESSOR_REPLICAS: "2",
         },
         encoding: "utf8",
     });

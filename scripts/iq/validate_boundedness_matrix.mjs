@@ -144,8 +144,8 @@ function extractProfileDefaultInt(ctx, key) {
     return parsePositiveInt(raw, `${file}:${key}`);
 }
 
-function extractReleaseEnvInt(ctx, key) {
-    const file = "scripts/iq/profiles/release.env";
+function extractCIStrictEnvInt(ctx, key) {
+    const file = "scripts/iq/profiles/ci-strict.env";
     const text = ctx.read(file);
     const raw = requireMatch(
         text,
@@ -160,7 +160,7 @@ function extractRouterBudgetDefault(ctx) {
     const text = ctx.read(file);
     const raw = requireMatch(
         text,
-        /IQ_ROUTER_STREAM_STATE_MAX\s*\|\|\s*"(?<value>\d+)"/,
+        /IQ_ROUTER_STREAM_STATE_MAX",\s*"(?<value>\d+)"\)/,
         `${file}:IQ_ROUTER_STREAM_STATE_MAX`
     );
     return parsePositiveInt(raw, `${file}:IQ_ROUTER_STREAM_STATE_MAX`);
@@ -214,17 +214,17 @@ const EXTRACTORS = Object.freeze({
         extractRouterBudgetDefault(ctx),
     "iq.wire_bytes_p95_budget_default": (ctx) => {
         const defaults = extractProfileDefaultInt(ctx, "IQ_WIRE_BYTES_P95_BUDGET");
-        const release = extractReleaseEnvInt(ctx, "IQ_WIRE_BYTES_P95_BUDGET");
-        if (defaults !== release) {
-            throw new Error(`profile mismatch for IQ_WIRE_BYTES_P95_BUDGET: defaults=${defaults} release=${release}`);
+        const ciStrict = extractCIStrictEnvInt(ctx, "IQ_WIRE_BYTES_P95_BUDGET");
+        if (defaults !== ciStrict) {
+            throw new Error(`profile mismatch for IQ_WIRE_BYTES_P95_BUDGET: defaults=${defaults} ci-strict=${ciStrict}`);
         }
         return defaults;
     },
     "iq.wire_bytes_p99_budget_default": (ctx) => {
         const defaults = extractProfileDefaultInt(ctx, "IQ_WIRE_BYTES_P99_BUDGET");
-        const release = extractReleaseEnvInt(ctx, "IQ_WIRE_BYTES_P99_BUDGET");
-        if (defaults !== release) {
-            throw new Error(`profile mismatch for IQ_WIRE_BYTES_P99_BUDGET: defaults=${defaults} release=${release}`);
+        const ciStrict = extractCIStrictEnvInt(ctx, "IQ_WIRE_BYTES_P99_BUDGET");
+        if (defaults !== ciStrict) {
+            throw new Error(`profile mismatch for IQ_WIRE_BYTES_P99_BUDGET: defaults=${defaults} ci-strict=${ciStrict}`);
         }
         return defaults;
     },
