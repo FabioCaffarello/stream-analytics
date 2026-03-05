@@ -63,6 +63,31 @@ func TestParserTelemetry_RecordSkip_ExpectedMarkpriceUnavailable(t *testing.T) {
 	}
 }
 
+func TestParserTelemetry_RecordSkip_ExpectedDuplicateNormalized(t *testing.T) {
+	tel := newParserTelemetry()
+
+	tel.recordSkip("coinbase", "marketdata.markprice", "duplicate_normalized", "DUPLICATE", "BTC-USD", "ticker")
+
+	if got, want := tel.skipped, uint64(1); got != want {
+		t.Fatalf("skipped = %d, want %d", got, want)
+	}
+	if got, want := tel.expectedSkipTotal, uint64(1); got != want {
+		t.Fatalf("expectedSkipTotal = %d, want %d", got, want)
+	}
+	if got, want := tel.unexpectedSkipTotal, uint64(0); got != want {
+		t.Fatalf("unexpectedSkipTotal = %d, want %d", got, want)
+	}
+	if got, want := tel.byExpectedSkipReason["duplicate_normalized"], uint64(1); got != want {
+		t.Fatalf("expected duplicate_normalized count = %d, want %d", got, want)
+	}
+	if got := tel.byUnexpectedSkipReason["duplicate_normalized"]; got != 0 {
+		t.Fatalf("unexpected duplicate_normalized count = %d, want 0", got)
+	}
+	if got := tel.byExchangeEventAndSkip["coinbase|marketdata.markprice|duplicate_normalized"]; got != 0 {
+		t.Fatalf("expected no exchange_event_and_skip entry for expected duplicate skip, got %d", got)
+	}
+}
+
 func TestParserTelemetry_RecordSkip_ExpectedCanonicalizationDepth(t *testing.T) {
 	tel := newParserTelemetry()
 

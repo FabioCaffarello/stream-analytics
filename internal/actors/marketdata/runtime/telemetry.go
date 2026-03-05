@@ -226,6 +226,10 @@ func isExpectedSkipReason(eventType, skipReason, problemCode, wsStream string) b
 	switch strings.ToLower(strings.TrimSpace(skipReason)) {
 	case "control_event":
 		return true
+	case "duplicate_normalized":
+		// Duplicate-normalized marks are expected when parallel feeds (for example
+		// ticker + markPrice) converge to the same canonical mark price payload.
+		return true
 	case "markprice_unavailable":
 		event := strings.ToLower(strings.TrimSpace(eventType))
 		if event == "ticker" || event == "marketdata.markprice" {

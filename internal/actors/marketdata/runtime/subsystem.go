@@ -730,27 +730,47 @@ func (s *SubsystemActor) trackCanonicalBookState(venue, instrument string, delta
 }
 
 func (s *SubsystemActor) logProgress() {
-	if s.telemetry.shouldEmitProgress() {
-		s.logger.Info("mdruntime: message counters",
-			"total", s.telemetry.total,
-			"ingested", s.telemetry.ingested,
-			"skipped", s.telemetry.skipped,
-			"by_event", s.telemetry.byEvent,
-			"skip_by_reason", s.telemetry.topSkipReasons(5),
-			"skip_expected_total", s.telemetry.expectedSkipTotal,
-			"skip_expected_by_reason", s.telemetry.topExpectedSkipReasons(3),
+	if !s.telemetry.shouldEmitProgress() {
+		return
+	}
+	topN := 5
+	s.logger.Info("mdruntime: message counters",
+		"subsystem", s.cfg.Subsystem,
+		"sample_kind", "progress_topn",
+		"sample_window_seconds", int(s.telemetry.sampleWindow/time.Second),
+		"top_n", topN,
+		"total", s.telemetry.total,
+		"ingested", s.telemetry.ingested,
+		"skipped", s.telemetry.skipped,
+		"by_event_top", topCounts(s.telemetry.byEvent, topN),
+		"skip_by_reason_top", s.telemetry.topSkipReasons(topN),
+		"skip_expected_total", s.telemetry.expectedSkipTotal,
+		"skip_expected_by_reason_top", s.telemetry.topExpectedSkipReasons(3),
+		"skip_unexpected_total", s.telemetry.unexpectedSkipTotal,
+		"skip_unexpected_by_reason_top", s.telemetry.topUnexpectedSkipReasons(topN),
+		"skip_by_exchange_event_reason_top", s.telemetry.topExchangeEventSkips(topN),
+		"parse_error_by_code_top", topCounts(s.telemetry.parseErrorsByProblemCode, topN),
+		"depth_gaps_total", s.telemetry.depthGapsTotal,
+		"depth_gaps_by_symbol_top", topCounts(s.telemetry.depthGapsBySymbol, topN),
+		"ws_backpressure_drops_total", s.telemetry.backpressureDropsTotal,
+		"ws_reconnect_total", s.telemetry.wsReconnectTotal,
+		"ws_disconnect_reason_top", topCounts(s.telemetry.wsDisconnectByReason, topN),
+		"ws_connection_uptime_seconds", s.telemetry.wsConnectionUptimeSecs,
+		"top_ws_streams", s.telemetry.topWSStreams(topN),
+		"top_ticker_share_pct", s.telemetry.topTickerSharePercent(topN),
+	)
+
+	if s.telemetry.unexpectedSkipTotal > 0 && s.telemetry.shouldSample(time.Now(), "top-unexpected-skips") {
+		s.logger.Warn("mdruntime: top unexpected skips sampled",
+			"subsystem", s.cfg.Subsystem,
+			"sample_kind", "unexpected_skip_topn",
+			"sample_window_seconds", int(s.telemetry.sampleWindow/time.Second),
+			"top_n", topN,
 			"skip_unexpected_total", s.telemetry.unexpectedSkipTotal,
-			"skip_unexpected_by_reason", s.telemetry.topUnexpectedSkipReasons(5),
-			"skip_by_exchange_event_reason", s.telemetry.topExchangeEventSkips(5),
-			"parse_error_by_code", s.telemetry.parseErrorsByProblemCode,
-			"depth_gaps_total", s.telemetry.depthGapsTotal,
-			"depth_gaps_by_symbol", s.telemetry.depthGapsBySymbol,
-			"ws_backpressure_drops_total", s.telemetry.backpressureDropsTotal,
+			"skip_unexpected_by_reason_top", s.telemetry.topUnexpectedSkipReasons(topN),
+			"skip_by_exchange_event_reason_top", s.telemetry.topExchangeEventSkips(topN),
 			"ws_reconnect_total", s.telemetry.wsReconnectTotal,
-			"ws_disconnect_reason", s.telemetry.wsDisconnectByReason,
-			"ws_connection_uptime_seconds", s.telemetry.wsConnectionUptimeSecs,
-			"top_ws_streams", s.telemetry.topWSStreams(5),
-			"top_ticker_share_pct", s.telemetry.topTickerSharePercent(5),
+			"ws_backpressure_drops_total", s.telemetry.backpressureDropsTotal,
 		)
 	}
 }
