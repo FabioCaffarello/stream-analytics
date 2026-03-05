@@ -59,6 +59,7 @@ func (s *SessionActor) handleSubscribe(cmd clientCommand) {
 	}
 	subject, p := s.resolveCommandSubject(cmd, "subscribe")
 	if p != nil {
+		metrics.IncWSQueryRejected("subject_invalid")
 		s.writeProblem("subscribe", cmd.RequestID, p)
 		return
 	}
@@ -110,6 +111,7 @@ func (s *SessionActor) supportsSubscribeBackfill() bool {
 func (s *SessionActor) handleUnsubscribe(cmd clientCommand) {
 	subject, p := s.resolveCommandSubject(cmd, "unsubscribe")
 	if p != nil {
+		metrics.IncWSQueryRejected("subject_invalid")
 		s.writeProblem("unsubscribe", cmd.RequestID, p)
 		return
 	}
@@ -498,14 +500,22 @@ func (s *SessionActor) resolveCommandSubject(cmd clientCommand, op string) (doma
 		if subRes.IsFail() {
 			return domain.Subject{}, subRes.Problem()
 		}
-		return subRes.Value(), nil
+		subject := subRes.Value()
+		if p := rejectLegacyCutoverSubject(subject); p != nil {
+			return domain.Subject{}, p
+		}
+		return subject, nil
 	}
 	if raw := strings.TrimSpace(cmd.StreamID); raw != "" {
 		subRes := s.service.ParseSubject(raw)
 		if subRes.IsFail() {
 			return domain.Subject{}, subRes.Problem()
 		}
-		return subRes.Value(), nil
+		subject := subRes.Value()
+		if p := rejectLegacyCutoverSubject(subject); p != nil {
+			return domain.Subject{}, p
+		}
+		return subject, nil
 	}
 	if strings.TrimSpace(cmd.Venue) == "" || strings.TrimSpace(cmd.Symbol) == "" || strings.TrimSpace(cmd.Channel) == "" {
 		return domain.Subject{}, problem.Newf(problem.ValidationFailed, "%s requires stream_id or (venue,symbol,channel)", op)
@@ -520,7 +530,33 @@ func (s *SessionActor) resolveCommandSubject(cmd clientCommand, op string) (doma
 	if p != nil {
 		return domain.Subject{}, p
 	}
+	if p := rejectLegacyCutoverSubject(subject); p != nil {
+		return domain.Subject{}, p
+	}
 	return subject, nil
+}
+
+func rejectLegacyCutoverSubject(subject domain.Subject) *problem.Problem {
+	streamType := strings.ToLower(strings.TrimSpace(subject.StreamType))
+	switch streamType {
+	case "insights.microstructure_evidence":
+		return problem.New(
+			problem.ValidationFailed,
+			`legacy subject "insights.microstructure_evidence" removed; use "liquidity.evidence"`,
+		)
+	case "signal.composite":
+		return problem.New(
+			problem.ValidationFailed,
+			`legacy stream type "signal.composite" removed; use "signal/<kind>/<venue>/<symbol>/<timeframe>"`,
+		)
+	}
+	if subject.IsSignal() && strings.EqualFold(strings.TrimSpace(subject.Kind), "composite") {
+		return problem.New(
+			problem.ValidationFailed,
+			`legacy signal kind "composite" removed; use "signal/<kind>/<venue>/<symbol>/<timeframe>"`,
+		)
+	}
+	return nil
 }
 
 func (s *SessionActor) enforceSubscriptionLimits(subject domain.Subject) *problem.Problem {
@@ -599,7 +635,7 @@ func canonicalStreamTypeForCommandChannel(channel string) string {
 		return "insights.heatmap_snapshot"
 	case "volume_profile_snapshot", "insights.volume_profile_snapshot":
 		return "insights.volume_profile_snapshot"
-	case "evidence", "liquidity.evidence", "insights.microstructure_evidence":
+	case "evidence", "liquidity.evidence":
 		return "liquidity.evidence"
 	case "signal", "signal.event":
 		return "signal"

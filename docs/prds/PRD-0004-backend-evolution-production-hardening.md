@@ -287,7 +287,7 @@ This PRD addresses the security and operational gaps identified in the competiti
 
 ## References
 
-- [SWOT v8 Analysis](../../.context/evidence/swot-market-raccoon-v8-2026-02-20.md)
+- [SWOT Runtime Analysis](../../.context/evidence/swot-runtime-2026-03-05.md)
 - [PRD-0003 — MM Backend Parity](PRD-0003-mm-backend-parity.md)
 - [ADR-0020 — GitOps Secrets Management](../adrs/ADR-0020-gitops-secrets-management.md)
 - [ADR-0007 — Delivery WS Sessions](../adrs/ADR-0007-delivery-ws-sessions.md)
@@ -295,7 +295,7 @@ This PRD addresses the security and operational gaps identified in the competiti
 - [RFC-0015 — Backend Sub-Minute Hardening](../rfcs/RFC-0015-backend-subminute-hardening-rollout.md)
 - [Architecture TRUTH-MAP](../architecture/TRUTH-MAP.md)
 - [System Invariants](../architecture/system-invariants.md)
-- [MarketMonkey Audit Pack](../audits/AUDIT-PACK-W11-finalization.md)
+- [Architecture TRUTH-MAP](../architecture/TRUTH-MAP.md)
 
 ---
 

@@ -114,8 +114,9 @@ Dynamic exchange-level market-data subsystems use the key `marketdata:{exchange}
 | Field | Value |
 |---|---|
 | **Responsibility** | Consume `liquidity.evidence` and microstructure/regime evidence, apply deterministic rules, dedup/rate-limit, and emit `signal.event` envelopes. |
-| **Inputs** | `liquidity.evidence`, `evidence.microstructure_evidence`, `evidence.regime_evidence`. |
+| **Inputs** | `liquidity.evidence`, `insights.microstructure_evidence`, `insights.regime_evidence`. |
 | **Outputs** | `signal.event`. |
+| **Topology** | Primary: `cmd/signals` dedicated service. Fallback: embedded processor path via `processor.signals.enabled`. |
 | **Shard key / Ownership** | `OwnerReplica(SubsystemSignals, StreamKey)` (`subsystem_owner_policy.go:71-77`). |
 | **Monotonicity** | `DecideMonotonic` + reject `duplicate`/`out_of_order`. |
 | **Boundedness** | State ownership cap `4096`; circular eviction (`subsystem_owner_policy.go:15-18,115-141`). |
@@ -132,8 +133,9 @@ Dynamic exchange-level market-data subsystems use the key `marketdata:{exchange}
 | Field | Value |
 |---|---|
 | **Responsibility** | Compose derived/correlated signals (regime boost, microstructure correlation), control rate-limits, and maintain a bounded regime cache. |
-| **Inputs** | `evidence.regime_evidence`, `evidence.microstructure_evidence`. |
+| **Inputs** | `insights.regime_evidence`, `insights.microstructure_evidence`. |
 | **Outputs** | `signal.composite` (via router / publisher). |
+| **Topology** | Primary: `cmd/strategist` dedicated service. Fallback: embedded server path via `signals.use_composer`. |
 | **Boundedness** | `strategistStateMaxStreams=4096`; regime cache bounded. |
 | **Shard key / Ownership** | `OwnerReplica(SubsystemStrategist, venue/instrument/channel/raw)`. |
 | **Monotonicity** | `DecideMonotonic` with stale gap window. |

@@ -230,6 +230,42 @@ apply_synthetic_vpvr_from_orderbook :: proc(store: ^services.VPVR_Store, ob: por
 // Per-event-type handlers (extracted from drain_marketdata for readability).
 // ---------------------------------------------------------------------------
 
+@(private = "file")
+should_skip_event_by_backpressure_policy :: proc(state: ^App_State, kind: ports.MD_Event_Kind) -> bool {
+	if state == nil do return false
+	level := max(state.active_metrics.server_backpressure_level, 0)
+
+	// Priority policy by event type:
+	// - Always keep: trade/orderbook/candle/range/signal/stats.
+	// - Assist-managed degrade: heatmap/vpvr.
+	// - Critical overload (L3+): evidence is dropped first.
+	#partial switch kind {
+	case .Trade, .Orderbook_Snapshot, .Stats, .Candle, .Range_Candle_Batch, .Signal, .Tape:
+		return false
+	case .Heatmap:
+		return state.bp_assist.enabled && state.bp_assist.degrade_heatmap
+	case .VPVR:
+		return state.bp_assist.enabled && state.bp_assist.degrade_vpvr
+	case .Evidence:
+		return level >= 3
+	}
+	return false
+}
+
+@(private = "file")
+record_backpressure_policy_skip :: proc(state: ^App_State, kind: ports.MD_Event_Kind) {
+	if state == nil do return
+	#partial switch kind {
+	case .Heatmap:
+		state.bp_assist.dropped_heatmap += 1
+	case .VPVR:
+		state.bp_assist.dropped_vpvr += 1
+	case .Evidence:
+		state.bp_assist.dropped_evidence += 1
+	case:
+	}
+}
+
 handle_trade_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, t: ports.MD_Trade_Event, unix: i64, is_active_stream: bool) {
 	record_stream_event(state, slot, .Trade, unix, 0, false, is_active_stream)
 	if slot != nil {
@@ -663,6 +699,10 @@ drain_marketdata :: proc(state: ^App_State) -> int {
 				stream_ids_same_market(state, state.stream_views.active_subject_id, subject_id)
 			is_active_getrange_subject := state.getrange.subject_id != 0 && subject_id == state.getrange.subject_id
 			is_active_range_batch := is_active_stream || is_active_getrange_subject
+			if should_skip_event_by_backpressure_policy(state, evt.kind) {
+				record_backpressure_policy_skip(state, evt.kind)
+				continue
+			}
 			switch evt.kind {
 			case .Trade:
 				handle_trade_event(state, slot, evt.data.trade, evt.unix, is_active_stream)

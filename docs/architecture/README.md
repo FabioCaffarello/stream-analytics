@@ -224,7 +224,7 @@ without requiring rewrites.
 
 - [Metrics Budget & Label Policy](../observability/metrics-policy.md)
  - [Sharding and consumer group operations](../operations/sharding.md)
- - [Local dev setup](../../.context/docs/local-dev.md)
+ - [Local dev setup](../local-dev.md)
 
 ### ADR Index
 
@@ -263,7 +263,7 @@ without requiring rewrites.
 - [RFC-0011](../rfcs/RFC-0011-product-parity-marketmonkey.md)
 - [EXECUTION-SEQUENCE](../rfcs/EXECUTION-SEQUENCE.md)
 - [ADR-REVISIONS patch plan](../rfcs/archive/ADR-REVISIONS-patch-plan.md) (ARCHIVED)
-- [W4-W5 Audit](../audits/W4-W5-AUDIT.md) (ARCHIVED)
+- [W4-W5 Audit](TRUTH-MAP.md) (ARCHIVED; consolidated in TRUTH-MAP)
 - [W5.1 Sweep Throttling](../rfcs/archive/W5.1-SWEEP-THROTTLING.md) (ARCHIVED)
 
 ### Architecture Docs Index
@@ -293,8 +293,8 @@ without requiring rewrites.
 
 #### Planning
 
-- [Moat](../prd/moat.md)
-- [Doc Contract Template](../../.context/docs/doc-contract-template.md)
+- [Moat](../prds/moat.md)
+- [Doc Contract Template](../doc-contract-template.md)
 
 ### Contracts Index
 

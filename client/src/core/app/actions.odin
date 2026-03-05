@@ -1,10 +1,7 @@
 package app
 
-import "core:fmt"
-import "core:strings"
 import "mr:ports"
 import "mr:services"
-import "mr:streams"
 import "mr:ui"
 import "mr:widgets"
 
@@ -142,6 +139,7 @@ queue_ui_actions_from_input :: proc(state: ^App_State, input: ports.Input_State)
 }
 
 apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switched: bool) {
+	set_timeframe_consumed := false
 	for i in 0 ..< state.ui_action_count {
 		action := state.ui_actions[i]
 		switch action.kind {
@@ -156,6 +154,8 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 				state.stream_switches_total += 1
 			}
 		case .Set_Timeframe:
+			if set_timeframe_consumed do break
+			set_timeframe_consumed = true
 			if apply_set_timeframe_action(state, action.timeframe_idx) {
 				tf_switched = true
 				state.timeframe_switches_total += 1
@@ -240,223 +240,32 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 		case .Toggle_Connection_Modal:
 			state.overlays.show_exchange_manager = !state.overlays.show_exchange_manager
 		case .Select_Profile:
-			if services.profile_store_set_active(&state.profiles, action.profile_idx) {
-				state.connection_manager_selected_profile = action.profile_idx
-				services.profile_store_save(&state.profiles, &state.settings)
-				services.settings_flush(&state.settings)
-			}
+			apply_select_profile_action(state, action.profile_idx)
 		case .Add_Profile:
-			if active_slot := stream_view_active_slot(state.stream_views); active_slot != nil {
-				if !active_slot.has_stream_info {
-					refresh_stream_info_for_slot(state, active_slot)
-				}
-				if active_slot.has_stream_info {
-					name_buf: [32]u8
-					pname := fmt.bprintf(name_buf[:], "P%d", state.profiles.count + 1)
-					ws_url := ""
-					if state.conn.runtime_ws_url_len > 0 {
-						ws_url = string(state.conn.runtime_ws_url[:int(state.conn.runtime_ws_url_len)])
-					}
-					_, market_type := streams.split_symbol_market_type(active_slot.stream_info.symbol)
-					profile := services.profile_make(
-						pname,
-						ws_url,
-						active_slot.stream_info.venue,
-						active_slot.stream_info.symbol,
-						market_type,
-						"",
-						true,
-					)
-					if services.profile_store_upsert(&state.profiles, profile) {
-						state.connection_manager_selected_profile = state.profiles.count - 1
-						services.profile_store_save(&state.profiles, &state.settings)
-						services.settings_flush(&state.settings)
-						show_toast(state, "Profile saved")
-					}
-				}
-			}
+			apply_add_profile_action(state)
 		case .Remove_Profile:
-			if services.profile_store_remove(&state.profiles, action.profile_idx) {
-				state.connection_manager_selected_profile = clamp(state.connection_manager_selected_profile, 0, max(state.profiles.count - 1, 0))
-				services.profile_store_save(&state.profiles, &state.settings)
-				services.settings_flush(&state.settings)
-			}
+			apply_remove_profile_action(state, action.profile_idx)
 		case .Apply_Profile:
-			if services.profile_store_set_active(&state.profiles, action.profile_idx) {
-				state.connection_manager_selected_profile = action.profile_idx
-				if profile := services.profile_store_active(&state.profiles); profile != nil {
-					if state.world.count > 0 {
-						binding_set(&state.world.bindings[0], services.profile_venue(profile), services.profile_symbol(profile))
-						state.world.bindings[0].stream_idx = -1
-					}
-					services.profile_store_save(&state.profiles, &state.settings)
-					services.settings_flush(&state.settings)
-					reconcile_subscriptions(state)
-					request_active_stream_candle_range(state)
-					show_toast(state, "Profile applied")
-				}
-			}
+			apply_apply_profile_action(state, action.profile_idx)
 		case .Connect_Profile:
-			if services.profile_store_set_active(&state.profiles, action.profile_idx) {
-				if profile := services.profile_store_active(&state.profiles); profile != nil {
-					ws_url := services.profile_ws_url(profile)
-					api_key := services.profile_api_key_ref(profile)
-					jwt_token := services.profile_jwt_token(profile)
-					if state.marketdata.reconnect_transport != nil {
-						_ = state.marketdata.reconnect_transport(ws_url, api_key, jwt_token)
-					}
-					state.connection_manager_selected_profile = action.profile_idx
-					if state.world.count > 0 {
-						binding_set(&state.world.bindings[0], services.profile_venue(profile), services.profile_symbol(profile))
-						state.world.bindings[0].stream_idx = -1
-					}
-					services.settings_set(&state.settings, services.SETTING_AUTO_CONNECT, "1")
-					services.profile_store_save(&state.profiles, &state.settings)
-					services.settings_flush(&state.settings)
-					reconcile_subscriptions(state)
-					request_active_stream_candle_range(state)
-					show_toast(state, "Connecting...")
-				}
-			}
+			apply_connect_profile_action(state, action.profile_idx)
 		case .Disconnect_Profile:
-			if state.marketdata.disconnect_transport != nil {
-				_ = state.marketdata.disconnect_transport()
-			}
-			state.active_metrics.has_live_stats = false
-			state.active_metrics.has_live_heatmap = false
-			state.active_metrics.has_live_vpvr = false
-			state.active_metrics.has_live_candle = false
-			state.active_metrics.context_stage = .Empty
-			state.active_metrics.last_stats_ts_ms = 0
-			state.active_metrics.last_orderbook_ts_ms = 0
-			services.settings_set(&state.settings, services.SETTING_AUTO_CONNECT, "0")
-			services.settings_flush(&state.settings)
-			show_toast(state, "Disconnected")
+			apply_disconnect_profile_action(state)
 		case .Set_Cell_Widget:
-			ci := action.cell_idx
-			if ci >= 0 && ci < state.world.count {
-				state.world.widgets[ci].kind = action.widget_kind
-				persist_layout_v4(state)
-				reconcile_subscriptions(state)
-			}
+			apply_set_cell_widget_action(state, action.cell_idx, action.widget_kind)
 		case .Set_Cell_Stream:
-			ci := action.cell_idx
-			if ci >= 0 && ci < state.world.count {
-				bind := &state.world.bindings[ci]
-				old_stream_idx := bind.stream_idx
-				old_has_binding := binding_has(bind)
-				// PRD-0009: if action carries venue/symbol, set binding and reset stream_idx for lazy resolution.
-				if len(action.bind_venue) > 0 && len(action.bind_symbol) > 0 {
-					binding_set(bind, action.bind_venue, action.bind_symbol)
-					bind.stream_idx = -1
-				} else if action.stream_idx < 0 {
-					// "Follow Active" — clear binding.
-					binding_clear(bind)
-					bind.stream_idx = -1
-				} else {
-					bind.stream_idx = action.stream_idx
-				}
-				// Reset DOM/footprint stores when stream actually changes.
-				stream_changed := bind.stream_idx != old_stream_idx || (len(action.bind_venue) > 0) || old_has_binding
-				if stream_changed {
-					services.dom_store_reset(&state.stores.dom)
-					services.footprint_store_reset(&state.stores.footprint)
-				}
-				state.world.getranges[ci].pending = false
-				state.world.getranges[ci].seeded = false
-				state.world.getranges[ci].oldest_ts = 0
-				persist_layout_v4(state)
-				reconcile_subscriptions(state)
-				request_cell_candle_range(state, ci)
-			}
+			apply_set_cell_stream_action(state, action)
 		case .Add_Cell:
-			if state.world.count < CELL_MAX {
-				ci := state.world.count
-				init_world_cell_defaults(state, ci, action.widget_kind, action.stream_idx)
-				// PRD-0009: if action carries venue/symbol, set binding.
-				if len(action.bind_venue) > 0 && len(action.bind_symbol) > 0 {
-					binding_set(&state.world.bindings[ci], action.bind_venue, action.bind_symbol)
-					state.world.bindings[ci].stream_idx = -1
-				}
-				state.world.count += 1
-				persist_layout_v4(state)
-				reconcile_subscriptions(state)
-				request_cell_candle_range(state, ci)
-			} else {
-				show_toast(state, "Max 12 cells")
-			}
+			apply_add_cell_action(state, action)
 		case .Remove_Cell:
-			ci := action.cell_idx
-			if ci >= 0 && ci < state.world.count && state.world.count > 1 {
-				// BUG-15: Adjust focused cell index before compacting.
-				if state.world.focused == ci {
-					state.world.focused = -1
-				} else if state.world.focused > ci {
-					state.world.focused -= 1
-				}
-				for j in ci ..< state.world.count - 1 {
-					state.world.widgets[j]    = state.world.widgets[j + 1]
-					state.world.bindings[j]   = state.world.bindings[j + 1]
-					state.world.views[j]      = state.world.views[j + 1]
-					state.world.indicators[j] = state.world.indicators[j + 1]
-					state.world.ind_params[j] = state.world.ind_params[j + 1]
-					state.world.charts[j]     = state.world.charts[j + 1]
-					state.world.subplots[j]   = state.world.subplots[j + 1]
-					state.world.spans[j]      = state.world.spans[j + 1]
-					state.world.timeframes[j] = state.world.timeframes[j + 1]
-					state.world.getranges[j]  = state.world.getranges[j + 1]
-				}
-				state.world.count -= 1
-				last := state.world.count
-				state.world.widgets[last]    = {}
-				state.world.bindings[last]   = {}
-				state.world.views[last]      = {}
-				state.world.indicators[last] = {}
-				state.world.ind_params[last] = {}
-				state.world.charts[last]     = {}
-				state.world.subplots[last]   = {}
-				state.world.spans[last]      = {}
-				state.world.timeframes[last] = {}
-				state.world.getranges[last]  = {}
-				persist_layout_v4(state)
-				reconcile_subscriptions(state)
-			}
+			apply_remove_cell_action(state, action.cell_idx)
 		case .Toggle_Focus_Mode:
 			state.focus_mode = !state.focus_mode
 			show_toast(state, state.focus_mode ? "Focus Mode" : "Normal Mode")
 		case .Toggle_Stream_Picker:
 			state.overlays.show_stream_picker = !state.overlays.show_stream_picker
 		case .Pick_Stream:
-			sid := action.subject_id
-			if sid != 0 {
-				reg := state.stream_views
-				if reg != nil {
-					reg.active_subject_id = sid
-					reg.has_active = true
-					sync_active_stream_view_to_global_stores(state)
-					persist_active_stream_subject(state)
-						state.active_metrics.has_live_stats = false
-						state.active_metrics.has_live_heatmap = false
-						state.active_metrics.has_live_vpvr = false
-						state.active_metrics.has_live_candle = false
-						state.active_metrics.context_stage = .Empty
-						state.active_metrics.last_stats_ts_ms = 0
-					state.active_metrics.last_orderbook_ts_ms = 0
-					state.getrange.pending = false
-					state.getrange.seeded = false
-					state.getrange.subject_id = 0
-					state.getrange.oldest_ts = 0
-					ensure_active_candle_subject_id(state)
-					state.candle_health = .No_Data
-					state.stream_switches_total += 1
-					if now_ms := current_now_ms(state); now_ms > 0 {
-						state.candle_last_recv_local_ms = now_ms
-					}
-					if state.stores.candle.count <= 0 {
-						request_active_stream_candle_range(state)
-					}
-				}
-			}
+			apply_pick_stream_action(state, action.subject_id)
 			state.overlays.show_stream_picker = false
 		case .Toggle_MA:
 			toggle_focused_indicator(state, 0)
@@ -477,54 +286,10 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 		case .Delete_Draw_Tool:
 			widgets.remove_selected_tool(&state.draw_tools)
 		case .Subscribe_Market:
-			mi := action.market_entry_idx
-			if mi >= 0 && mi < state.stores.markets.count {
-				entry := state.stores.markets.entries[mi]
-				venue := normalized_venue(entry.venue)
-				symbol := entry.ticker
-				symbol_buf: [80]u8
-				if len(entry.market_type) > 0 && !strings.contains(symbol, ":") {
-					symbol = fmt.bprintf(symbol_buf[:], "%s:%s", symbol, entry.market_type)
-				}
-				if state.marketdata.subscribe != nil {
-					state.marketdata.subscribe(venue, symbol, .Trades)
-					state.marketdata.subscribe(venue, symbol, .Tape)
-					state.marketdata.subscribe(venue, symbol, .Orderbook)
-					state.marketdata.subscribe(venue, symbol, .Candles)
-					state.marketdata.subscribe(venue, symbol, .Stats)
-					state.marketdata.subscribe(venue, symbol, .Heatmaps)
-					state.marketdata.subscribe(venue, symbol, .VPVR)
-					state.marketdata.subscribe(venue, symbol, .Evidence)
-					state.marketdata.subscribe(venue, symbol, .Signals)
-				}
-				sub_buf: [64]u8
-				show_toast(state, fmt.bprintf(sub_buf[:], "%s:%s", venue, symbol))
-			}
+			apply_subscribe_market_action(state, action.market_entry_idx)
 			state.overlays.show_stream_picker = false
 		case .Unsubscribe_Market:
-			mi := action.market_entry_idx
-			if mi >= 0 && mi < state.stores.markets.count {
-				entry := state.stores.markets.entries[mi]
-				venue := normalized_venue(entry.venue)
-				symbol := entry.ticker
-				symbol_buf: [80]u8
-				if len(entry.market_type) > 0 && !strings.contains(symbol, ":") {
-					symbol = fmt.bprintf(symbol_buf[:], "%s:%s", symbol, entry.market_type)
-				}
-				if state.marketdata.unsubscribe != nil {
-					state.marketdata.unsubscribe(venue, symbol, .Trades)
-					state.marketdata.unsubscribe(venue, symbol, .Tape)
-					state.marketdata.unsubscribe(venue, symbol, .Orderbook)
-					state.marketdata.unsubscribe(venue, symbol, .Candles)
-					state.marketdata.unsubscribe(venue, symbol, .Stats)
-					state.marketdata.unsubscribe(venue, symbol, .Heatmaps)
-					state.marketdata.unsubscribe(venue, symbol, .VPVR)
-					state.marketdata.unsubscribe(venue, symbol, .Evidence)
-					state.marketdata.unsubscribe(venue, symbol, .Signals)
-				}
-				sub_buf: [64]u8
-				show_toast(state, fmt.bprintf(sub_buf[:], "Unsub %s:%s", venue, symbol))
-			}
+			apply_unsubscribe_market_action(state, action.market_entry_idx)
 		case .Toggle_Widget_Catalog:
 			state.overlays.show_widget_catalog = !state.overlays.show_widget_catalog
 			state.overlays.catalog_step = 0
@@ -550,47 +315,7 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 				}
 			}
 		case .Resync_Active_Stream:
-			state.manual_resync_count += 1
-			current_ack_metric := 0
-			if state.marketdata.metrics != nil {
-				metrics: ports.MD_Runtime_Metrics
-				if state.marketdata.metrics(&metrics) {
-					current_ack_metric = max(metrics.subscribe_ack_count, 0)
-				}
-			}
-			state.active_metrics.last_ack_metric = current_ack_metric
-			state.active_metrics.subscribe_acks = 0
-			state.active_metrics.has_live_stats = false
-			state.active_metrics.has_live_heatmap = false
-			state.active_metrics.has_live_vpvr = false
-			state.active_metrics.has_live_candle = false
-			state.active_metrics.context_stage = .Empty
-			state.active_metrics.last_stats_ts_ms = 0
-			state.active_metrics.last_orderbook_ts_ms = 0
-			state.synth_heatmap_last_window = 0
-			state.getrange.pending = false
-			state.getrange.seeded = false
-			state.getrange.subject_id = 0
-			state.getrange.oldest_ts = 0
-			ensure_active_candle_subject_id(state)
-			if now_ms := current_now_ms(state); now_ms > 0 {
-				state.candle_last_recv_local_ms = now_ms
-			}
-			if active := streams.registry_active(&state.stream_registry); active != nil {
-				streams.controller_mark_desync(&active.status, .Manual)
-				active.status.last_snapshot_ts_ms = 0
-				active.status.last_local_ts_ms = 0
-				active.status.last_server_ts_ms = 0
-				active.status.last_message_age_ms = 0
-				active.status.last_seq = 0
-				active.status.subscribe_acks = 0
-			}
-			state.active_metrics.state = .Desync
-			state.active_metrics.desync_reason = .Manual
-			state.prev_subs_count = 0 // force full re-subscribe path
-			reconcile_subscriptions(state)
-			request_active_stream_candle_range(state)
-			show_toast(state, "Resync requested")
+			apply_resync_active_stream_action(state)
 		}
 	}
 	state.ui_action_count = 0

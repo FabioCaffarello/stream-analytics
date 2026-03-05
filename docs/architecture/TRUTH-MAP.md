@@ -3,7 +3,7 @@
 **Status:** Active
 **Date:** 2026-02-13
 **last_reviewed:** 2026-02-27
-**Scope:** `docs/prd/PRD-0001-extreme-runtime.md`, `docs/prd/PRD-0002-backend-stable-and-odin-ready.md`, `docs/audits/AUDIT-PACK-W11-finalization.md`, `docs/rfcs/EXECUTION-SEQUENCE.md`, `docs/rfcs/archive/ADR-REVISIONS-patch-plan.md`, `docs/rfcs/RFC-0011-product-parity-marketmonkey.md`
+**Scope:** `docs/prds/PRD-0001-extreme-runtime.md`, `docs/prds/PRD-0002-backend-stable-and-odin-ready.md`, `docs/audits/AUDIT-PACK-W11-finalization.md`, `docs/rfcs/EXECUTION-SEQUENCE.md`, `docs/rfcs/archive/ADR-REVISIONS-patch-plan.md`, `docs/rfcs/RFC-0011-product-parity-marketmonkey.md`
 
 ## Purpose
 
@@ -22,7 +22,7 @@ Create one authoritative map of:
 | Volume profile (VPVR) | `docs/architecture/volume-profiles.md` | `docs/adrs/ADR-0013-backpressure-overload-policies.md`, `docs/adrs/ADR-0014-stream-partitioning-strategy.md`, `docs/adrs/ADR-0017-multi-exchange-normalization.md` | `internal/adapters/storage/vpvr_overload_integration_test.go:TestIntegrationVPVROverload_AckBoundarySafeAndDeterministic`, `internal/actors/insights/runtime/vpvr_soak_test.go:TestVPVROverloadSoakBurstDeterministicBudgets` | Accepted/Done/Production-ready (overload policy VPVR) |
 | Liquidations and markprice parity path | `docs/architecture/liquidations-markprice.md` | `docs/adrs/ADR-0002-event-envelope-and-versioning.md`, `docs/adrs/ADR-0004-bus-nats-jetstream.md`, `docs/adrs/ADR-0013-backpressure-overload-policies.md`, `docs/adrs/ADR-0017-multi-exchange-normalization.md` | `internal/shared/contracts/converter_completeness_test.go:TestConverterCompleteness_MarkPriceTickV1`, `internal/shared/contracts/converter_completeness_test.go:TestConverterCompleteness_LiquidationTickV1` | Draft doc, contracts existing |
 | Delivery WS wire contract and lifecycle | `docs/contracts/delivery-ws.md` | `docs/adrs/ADR-0007-delivery-ws-sessions.md`, `docs/adrs/ADR-0013-backpressure-overload-policies.md`, `docs/rfcs/RFC-0003-W2-DELIVERY-BC.md` | `internal/actors/delivery/runtime/session_test.go:TestSession_parseSubscribeUnsubscribeGetRange`, `internal/actors/delivery/runtime/router_test.go:TestRouter_subscribeUnsubscribeAndBroadcast` | Draft doc, backpressure gap explicit |
-| Parity roadmap and acceptance gates | `docs/rfcs/RFC-0011-product-parity-marketmonkey.md` | `docs/prd/PRD-0001-extreme-runtime.md`, `docs/audits/AUDIT-PACK-W11-finalization.md` | `make docs-check`, `make invariants-check`, `make test-workspace`, `make test-workspace-race` | Draft RFC, active planning authority |
+| Parity roadmap and acceptance gates | `docs/rfcs/RFC-0011-product-parity-marketmonkey.md` | `docs/prds/PRD-0001-extreme-runtime.md`, `docs/audits/AUDIT-PACK-W11-finalization.md` | `make docs-check`, `make invariants-check`, `make test-workspace`, `make test-workspace-race` | Draft RFC, active planning authority |
 
 ## Invariants
 
@@ -36,8 +36,8 @@ Create one authoritative map of:
 
 | Doc | Summary | Anchor |
 |---|---|---|
-| PRD-0001 | Normalized active baseline with Implemented/Partially Implemented/Planned matrix and workspace-safe gates. | `docs/prd/PRD-0001-extreme-runtime.md:1`, `docs/prd/PRD-0001-extreme-runtime.md:81` |
-| PRD-0002 | Backend stable + Odin-ready acceptance gates, milestones, release checklist. | `docs/prd/PRD-0002-backend-stable-and-odin-ready.md:1` |
+| PRD-0001 | Normalized active baseline with Implemented/Partially Implemented/Planned matrix and workspace-safe gates. | `docs/prds/PRD-0001-extreme-runtime.md:1`, `docs/prds/PRD-0001-extreme-runtime.md:81` |
+| PRD-0002 | Backend stable + Odin-ready acceptance gates, milestones, release checklist. | `docs/prds/PRD-0002-backend-stable-and-odin-ready.md:1` |
 | AUDIT-PACK-W11 | Contains strongest evidence matrix linking docs to code/tests. | `docs/audits/AUDIT-PACK-W11-finalization.md:25` |
 | EXECUTION-SEQUENCE | Tracks W4..W13 with explicit Implemented/Partially Implemented/Planned matrix and real workspace gates. | `docs/rfcs/EXECUTION-SEQUENCE.md:1`, `docs/rfcs/EXECUTION-SEQUENCE.md:94` |
 | ADR-REVISIONS patch plan | **(ARCHIVED)** Historical patch plan; amendments absorbed into ADRs. | `docs/rfcs/archive/ADR-REVISIONS-patch-plan.md:1` |
@@ -46,7 +46,7 @@ Create one authoritative map of:
 
 ### Document Inventory
 
-#### ADRs (0000..0020)
+#### ADRs (0000..0021)
 
 - `docs/adrs/ADR-0000-foundation.md` (Accepted)
 - `docs/adrs/ADR-0001-bounded-contexts-and-boundaries.md` (Accepted)
@@ -69,6 +69,7 @@ Create one authoritative map of:
 - `docs/adrs/ADR-0018-actor-topology-supervision-model.md` (Accepted; partial implementation)
 - `docs/adrs/ADR-0019-dual-database-operational-strategy.md` (Accepted; fully implemented)
 - `docs/adrs/ADR-0020-gitops-secrets-management.md` (Accepted; in progress)
+- `docs/adrs/ADR-0021-signals-strategist-dedicated-topology-cutover.md` (Accepted; partial implementation)
 
 Status anchors: `docs/adrs/ADR-0000-foundation.md:3`, `docs/adrs/ADR-0010-config-loading-startup-validation.md:3`, `docs/adrs/ADR-0016-protobuf-contract-layer.md:3`, `docs/adrs/ADR-0018-actor-topology-supervision-model.md:3`.
 
@@ -100,7 +101,7 @@ Status anchors: `docs/rfcs/RFC-0001-robustness-roadmap.md:3`, `docs/rfcs/RFC-000
 - `docs/architecture/README.md`
 - `docs/architecture/ingestion.md`
 - `docs/architecture/insights.md`
-- `docs/prd/moat.md`
+- `docs/prds/moat.md`
 - `docs/architecture/system-invariants.md`
 - `docs/architecture/storage.md`
 - `docs/architecture/orderbook.md`
@@ -147,7 +148,7 @@ Anchor: `Makefile`, `scripts/ci/docs/check-doc-headers.sh`, `scripts/ci/docs/che
 
 ## Acceptance
 
-- Inventory includes ADR-0000..0020 and RFC-0001..0015.
+- Inventory includes ADR-0000..0021 and RFC-0001..0015.
 - All requested topics have single-source mapping to doc + code/test anchors.
 - Any unresolved drift is explicitly marked as `TODO` or `OPEN QUESTION`.
 

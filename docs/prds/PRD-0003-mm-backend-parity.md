@@ -3,7 +3,7 @@
 **Status:** Implemented — functional milestones M1–M5 validated (2026-02-20). Remaining NF benchmarks pending (soak/benchmem).
 **Date:** 2026-02-20
 **Owner:** Chief Architect
-**Relates to:** `docs/prd/PRD-0002-backend-stable-and-odin-ready.md`, `docs/rfcs/RFC-0011-product-parity-marketmonkey.md`, `.context/evidence/swot-market-raccoon-v7-2026-02-20.md`, `docs/architecture/TRUTH-MAP.md`
+**Relates to:** `docs/prds/PRD-0002-backend-stable-and-odin-ready.md`, `docs/rfcs/RFC-0011-product-parity-marketmonkey.md`, `.context/evidence/swot-runtime-2026-03-05.md`, `docs/architecture/TRUTH-MAP.md`
 
 ---
 
@@ -244,14 +244,14 @@ go test -benchmem ./internal/adapters/storage/...  # NF-5: zero new allocs
 
 ## References
 
-- [SWOT v7 Analysis](../../.context/evidence/swot-market-raccoon-v7-2026-02-20.md)
+- [SWOT Runtime Analysis](../../.context/evidence/swot-runtime-2026-03-05.md)
 - [RFC-0011 — Product Parity v1](../rfcs/RFC-0011-product-parity-marketmonkey.md)
-- [PRD-0002 — Backend Stable & Odin-Ready](../prd/PRD-0002-backend-stable-and-odin-ready.md)
+- [PRD-0002 — Backend Stable & Odin-Ready](PRD-0002-backend-stable-and-odin-ready.md)
 - [ADR-0006 — Storage Hot vs Cold](../adrs/ADR-0006-storage-hot-vs-cold.md)
 - [ADR-0002 — Event Envelope and Versioning](../adrs/ADR-0002-event-envelope-and-versioning.md)
 - [ADR-0013 — Backpressure Overload Policies](../adrs/ADR-0013-backpressure-overload-policies.md)
 - [Architecture TRUTH-MAP](../architecture/TRUTH-MAP.md)
-- [MarketMonkey Audit Pack](../audits/AUDIT-PACK-W11-finalization.md)
+- [Architecture TRUTH-MAP](../architecture/TRUTH-MAP.md)
 
 ---
 

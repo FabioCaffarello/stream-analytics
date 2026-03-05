@@ -14,6 +14,17 @@ ports=(8081 8082 8080 8083)
 ready=(0 0 0 0)
 urls=()
 
+check_restarting_services() {
+  local ps_out
+  ps_out="$("${COMPOSE[@]}" ps 2>/dev/null || true)"
+  if printf '%s\n' "$ps_out" | grep -q 'Restarting'; then
+    echo "smoke-compose: FAIL one or more core services are in Restarting state"
+    printf '%s\n' "$ps_out" | sed -n '1p;/Restarting/p'
+    return 1
+  fi
+  return 0
+}
+
 resolve_service_url() {
   local service="$1"
   local port="$2"
@@ -56,6 +67,9 @@ for i in "${!services[@]}"; do
 done
 
 for _ in $(seq 1 "$TIMEOUT_SECONDS"); do
+  if ! check_restarting_services; then
+    exit 1
+  fi
   pending=0
   for i in "${!services[@]}"; do
     if [[ "${ready[$i]}" -eq 1 ]]; then
@@ -69,6 +83,9 @@ for _ in $(seq 1 "$TIMEOUT_SECONDS"); do
     fi
   done
   if [[ "$pending" -eq 0 ]]; then
+    if ! check_restarting_services; then
+      exit 1
+    fi
     echo "smoke-compose: all endpoints are ready"
     exit 0
   fi

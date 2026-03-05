@@ -344,6 +344,7 @@ reconcile_subscriptions :: proc(state: ^App_State) {
 			if !streams.endpoint_supports_channel(endpoint, ch) do continue
 			is_tf_ch := (ch_bit & CH_TF_SENSITIVE) != 0
 			eff_tf := is_tf_ch ? w.tf : ""
+			layers.data_source_seed_market_id(&state.layer_datasource, w.venue, w.symbol, ch, eff_tf)
 			seed_stream_slot_for_subject(state, w.venue, w.symbol, ch, eff_tf)
 			// Skip subscribe if this exact channel+venue+symbol+tf is already in prev_subs.
 			already_subscribed := false

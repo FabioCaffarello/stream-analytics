@@ -305,6 +305,7 @@ docs-fix:
 
 invariants-check:
 	@./scripts/ci/guards/check-domain-isolation.sh "$(CURDIR)"
+	@node ./scripts/iq/validate_boundedness_matrix.mjs
 
 legacy-check-staged:
 	@./scripts/legacy-scan.sh --staged

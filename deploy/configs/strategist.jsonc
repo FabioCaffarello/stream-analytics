@@ -1,0 +1,55 @@
+{
+  // Runtime config mounted in container at /etc/market-raccoon/strategist.jsonc
+  "bus": {
+    "type": "jetstream",
+    "wire_format": "proto"
+  },
+  "jetstream": {
+    "url": "nats://nats:4222",
+    "stream_name": "MARKETDATA",
+    "consumer_durable": "strategist-v1",
+    "ack_wait": "30s",
+    "max_ack_pending": 1024,
+    "max_deliver": 10,
+    "deliver_policy": "new",
+    "filter_subjects": ["insights.>"],
+    "dedup_window": "5m",
+    "max_age": "24h",
+    "max_bytes": "10GB"
+  },
+  "shard": {
+    "index": 0,
+    "count": 1,
+    "max_lag": 0
+  },
+  "log": {
+    "level": "info",
+    "format": "json"
+  },
+  "http": {
+    "addr": ":8085",
+    "shutdown_timeout": "10s",
+    "publisher_flush_timeout": "3s",
+    "guardian_shutdown_timeout": "10s"
+  },
+  "processor": {
+    "bus_capacity": 4096,
+    "publisher_timeout": "5s",
+    "max_instruments": 4096
+  },
+  "evidence": {
+    "buffer_cap_per_kind": 1000,
+    "decay_half_life_ms": 60000,
+    "regime_max_streams": 1024,
+    "regime_history_cap": 20
+  },
+  "signals": {
+    "use_composer": true,
+    "dedup_window_ms": 30000,
+    "rate_limit_per_min": 10,
+    "global_rate_limit_per_min": 100,
+    "correlation_window_ms": 5000,
+    "max_subs_per_session": 20,
+    "window_cap": 50
+  }
+}

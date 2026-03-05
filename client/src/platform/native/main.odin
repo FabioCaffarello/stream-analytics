@@ -42,6 +42,14 @@ parse_positive_int_flag :: proc(arg: string, prefix: string, fallback: int) -> i
 }
 
 @(private = "file")
+parse_string_flag :: proc(arg: string, prefix: string, fallback: string) -> string {
+	if !strings.has_prefix(arg, prefix) do return fallback
+	v := arg[len(prefix):]
+	if len(v) == 0 do return fallback
+	return v
+}
+
+@(private = "file")
 subscribe_default_channels :: proc(md_port: ports.Marketdata_Port, subs: []Venue_Symbol) {
 	for vs in subs {
 		md_port.subscribe(vs.venue, vs.symbol, .Trades)
@@ -68,6 +76,8 @@ main :: proc() {
 		if arg == "--sdl2"    do use_sdl2 = true
 		if arg == "--offline" do offline = true
 		if arg == "--soak-multi" do soak_multi = true
+		ws_url = parse_string_flag(arg, "--ws-url=", ws_url)
+		api_key = parse_string_flag(arg, "--api-key=", api_key)
 		soak_seconds = parse_positive_int_flag(arg, "--soak-seconds=", soak_seconds)
 		soak_log_ms = parse_positive_int_flag(arg, "--soak-log-ms=", soak_log_ms)
 	}

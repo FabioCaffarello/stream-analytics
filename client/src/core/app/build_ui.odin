@@ -106,6 +106,18 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 		left_pressed  = input.mouse.pressed[.Left],
 		left_released = input.mouse.released[.Left],
 	}
+	workspace_input := input
+	workspace_pointer := pointer
+	// In zen mode, top bar is rendered as a compact overlay. Prevent click-through
+	// from top controls into the underlying workspace when the bar is visible.
+	if state.zen.active && state.zen.top_alpha > 0 && pointer.pos.y <= TOP_BAR_H_COMPACT {
+		workspace_input.mouse.buttons[.Left] = false
+		workspace_input.mouse.pressed[.Left] = false
+		workspace_input.mouse.released[.Left] = false
+		workspace_pointer.left_down = false
+		workspace_pointer.left_pressed = false
+		workspace_pointer.left_released = false
+	}
 
 	// --- Two-zone sidebar: nav rail + detail panel ---
 	sidebar_layout := ui.compute_sidebar_layout(workspace, state.chrome.detail_expanded, mobile, state.chrome.detail_w)
@@ -181,13 +193,13 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 	switch state.chrome.active_route {
 	case .Dashboard:
 		if state.focus_mode {
-		build_focus_mode(state, input, workspace, pointer)
+			build_focus_mode(state, workspace_input, workspace, workspace_pointer)
 		} else if state.compare.active && state.compare.count >= 2 {
-		build_compare_mode(state, input, workspace, pointer, gap)
-	} else {
-		// ═══════════════════════════════════════════════════════════
-		// NORMAL MODE — grid layout (preset or free-form)
-		// ═══════════════════════════════════════════════════════════
+			build_compare_mode(state, workspace_input, workspace, workspace_pointer, gap)
+		} else {
+			// ═══════════════════════════════════════════════════════════
+			// NORMAL MODE — grid layout (preset or free-form)
+			// ═══════════════════════════════════════════════════════════
 
 			// Compute grid layout.
 			grid_def: ui.Grid_Def
@@ -218,7 +230,7 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 			if !mobile {
 				swapped, swap_a, swap_b := ui.update_drag(
 					&state.panel_drag, grid.rects, state.chrome.panel_visible,
-					pointer, current_now_ms(state), f32(26))
+					workspace_pointer, current_now_ms(state), f32(26))
 				if swapped {
 					ui.apply_panel_swap(&state.custom_grid_def, swap_a, swap_b)
 				}
@@ -251,7 +263,7 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 			// Dispatch widgets from ECS world components (see build_cell.odin).
 			for ci in 0 ..< state.world.count {
 				if ci >= grid_def.cell_count do break
-				render_cell_widget(state, ci, grid.rects[ci], pointer, input, sync_price, sync_active)
+				render_cell_widget(state, ci, grid.rects[ci], workspace_pointer, workspace_input, sync_price, sync_active)
 			}
 
 			// --- Drag feedback (rendered after widgets for z-order) ---
@@ -260,14 +272,14 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 			}
 
 			// --- Right-click on cell → open context menu ---
-			if !mobile && input.mouse.pressed[.Right] {
+			if !mobile && workspace_input.mouse.pressed[.Right] {
 				for ci in 0 ..< state.world.count {
 					if ci >= grid_def.cell_count do break
 					cell_vp := grid.rects[ci]
-					if ui.rect_contains(cell_vp, pointer.pos) {
+					if ui.rect_contains(cell_vp, workspace_pointer.pos) {
 						state.cell_context_menu = ui.Context_Menu_State{
 							open = true,
-							pos  = pointer.pos,
+							pos  = workspace_pointer.pos,
 						}
 						state.cell_context_cell_idx = ci
 						break
@@ -325,7 +337,7 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 				}
 
 				menu_res := ui.context_menu(&state.cmd_buf, &state.cell_context_menu,
-					menu_items[:menu_count], pointer, state.text.measure,
+					menu_items[:menu_count], workspace_pointer, state.text.measure,
 					ui.Rect{pos = {0, 0}, size = {viewport_w, viewport_h}})
 				if menu_res.clicked_idx >= 0 {
 					if menu_res.clicked_idx < 9 {

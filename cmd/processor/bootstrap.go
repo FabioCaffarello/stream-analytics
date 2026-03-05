@@ -291,21 +291,28 @@ type envelopeSource struct {
 	onResult   func(aggruntime.EnvelopeProcessResult)
 }
 
-func fanOutEnvelopeStream(source <-chan envelope.Envelope, capacity int) (<-chan envelope.Envelope, <-chan envelope.Envelope) {
+func fanOutEnvelopeStream(source <-chan envelope.Envelope, capacity int, includeSignal bool) (<-chan envelope.Envelope, <-chan envelope.Envelope) {
 	if capacity <= 0 {
 		capacity = 1024
 	}
 	aggregationCh := make(chan envelope.Envelope, capacity)
-	signalCh := make(chan envelope.Envelope, capacity)
+	var signalCh chan envelope.Envelope
+	if includeSignal {
+		signalCh = make(chan envelope.Envelope, capacity)
+	}
 	go func() {
 		defer close(aggregationCh)
-		defer close(signalCh)
+		if includeSignal {
+			defer close(signalCh)
+		}
 		if source == nil {
 			return
 		}
 		for env := range source {
 			aggregationCh <- env
-			signalCh <- env
+			if includeSignal {
+				signalCh <- env
+			}
 		}
 	}()
 	return aggregationCh, signalCh
@@ -632,9 +639,14 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 		)
 	}
 
+	embeddedSignalsEnabled := cfg.Processor.Signals.IsEnabled()
+	if !embeddedSignalsEnabled {
+		logger.Info("processor: embedded signals subsystem disabled", "config", "processor.signals.enabled=false")
+	}
+
 	// ── envelope source ─────────────────────────────────────────────────
 	source := initEnvelopeSource(cfg, logger, e2e)
-	aggregationInputCh, signalInputCh := fanOutEnvelopeStream(source.envelopeCh, cfg.Processor.BusCapacity)
+	aggregationInputCh, signalInputCh := fanOutEnvelopeStream(source.envelopeCh, cfg.Processor.BusCapacity, embeddedSignalsEnabled)
 
 	// ── processor subsystem config ──────────────────────────────────────
 	processorCfg := aggruntime.ProcessorConfig{
@@ -668,16 +680,6 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 		InsightsTimeframes:       cfg.Processor.Insights.InsightsTimeframes,
 		OnEnvelopeProcessed:      source.onResult,
 	}
-	signalEngineCfg := buildSignalEngineConfig(cfg)
-	signalCfg := signalruntime.SubsystemConfig{
-		Logger:       logger,
-		EnvelopeCh:   signalInputCh,
-		Engine:       signalcore.NewSignalEngine(signalEngineCfg, nil),
-		Publisher:    publishEnvelope,
-		ReplicaID:    cfg.Shard.Index,
-		ReplicaCount: cfg.Shard.Count,
-	}
-
 	// ── engine ──────────────────────────────────────────────────────────
 	e, err := actorruntime.NewDefaultEngine()
 	if err != nil {
@@ -685,12 +687,24 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 	}
 
 	// ── guardian with aggregation factory ────────────────────────────────
+	factories := map[actorruntime.Subsystem]actor.Producer{
+		actorruntime.SubsystemAggregation: aggruntime.NewProcessorSubsystemActor(processorCfg),
+	}
+	if embeddedSignalsEnabled {
+		signalEngineCfg := buildSignalEngineConfig(cfg)
+		signalCfg := signalruntime.SubsystemConfig{
+			Logger:       logger,
+			EnvelopeCh:   signalInputCh,
+			Engine:       signalcore.NewSignalEngine(signalEngineCfg, nil),
+			Publisher:    publishEnvelope,
+			ReplicaID:    cfg.Shard.Index,
+			ReplicaCount: cfg.Shard.Count,
+		}
+		factories[actorruntime.SubsystemSignals] = signalruntime.NewSubsystemActor(signalCfg)
+	}
 	guardianPID := actorruntime.SpawnGuardian(e, actorruntime.GuardianConfig{
-		Logger: logger,
-		Factories: map[actorruntime.Subsystem]actor.Producer{
-			actorruntime.SubsystemAggregation: aggruntime.NewProcessorSubsystemActor(processorCfg),
-			actorruntime.SubsystemSignals:     signalruntime.NewSubsystemActor(signalCfg),
-		},
+		Logger:    logger,
+		Factories: factories,
 	})
 	logger.Info("processor: guardian spawned", "pid", guardianPID.String())
 	logger.Info("processor: waiting for envelopes (use cmd/consumer or inject via InMemoryBus)")

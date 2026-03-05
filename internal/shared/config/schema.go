@@ -603,6 +603,8 @@ type ProcessorConfig struct {
 	BusCapacity int `json:"bus_capacity"`
 	// MaxInstruments bounds in-memory order book state for aggregation.
 	MaxInstruments int `json:"max_instruments"`
+	// Signals controls the embedded signal subsystem inside processor runtime.
+	Signals ProcessorSignalsConfig `json:"signals"`
 	// OrderBook controls deterministic order book implementation and limits.
 	OrderBook ProcessorOrderBookConfig `json:"orderbook"`
 	// XVenue controls synthetic cross-venue top-of-book merge settings.
@@ -628,6 +630,18 @@ type ProcessorConfig struct {
 	// CatchUpSkipStatsSkewMs skips stale liquidation/markprice envelopes while
 	// the processor is catching up. 0 disables this behavior (default).
 	CatchUpSkipStatsSkewMs int `json:"catchup_skip_stats_skew_ms"`
+}
+
+// ProcessorSignalsConfig controls the embedded signal subsystem in processor.
+type ProcessorSignalsConfig struct {
+	// Enabled toggles the embedded signal subsystem.
+	// nil means enabled for backward compatibility.
+	Enabled *bool `json:"enabled,omitempty"`
+}
+
+// IsEnabled returns true when embedded signal subsystem should run.
+func (c ProcessorSignalsConfig) IsEnabled() bool {
+	return c.Enabled == nil || *c.Enabled
 }
 
 // ProcessorOrderBookConfig controls order book boundedness and implementation policy.

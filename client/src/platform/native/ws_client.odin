@@ -444,8 +444,9 @@ ws_dial :: proc(url: string, extra_headers: string = "") -> (WS_Connection, WS_E
 	connected := false
 	for i in 0 ..< candidate_count {
 		candidate := candidates[i]
-		conn, dial_err := net.dial_tcp(candidate)
+		dialed_conn, dial_err := net.dial_tcp(candidate)
 		if dial_err == nil {
+			conn = dialed_conn
 			connected = true
 			break
 		}
@@ -459,7 +460,9 @@ ws_dial :: proc(url: string, extra_headers: string = "") -> (WS_Connection, WS_E
 
 	// WebSocket handshake.
 	key := ws_generate_key()
-	handshake := fmt.tprintf(
+	handshake_buf: [2048]u8
+	handshake := fmt.bprintf(
+		handshake_buf[:],
 		"GET %s%s HTTP/1.1\r\n" +
 		"Host: %s\r\n" +
 		"Upgrade: websocket\r\n" +
@@ -470,7 +473,11 @@ ws_dial :: proc(url: string, extra_headers: string = "") -> (WS_Connection, WS_E
 		"\r\n",
 		parsed.path, parsed.query, parsed.host_port, key, extra_headers,
 	)
-	if _, err := tcp_send_all(conn, transmute([]u8)handshake); err != nil {
+	if len(handshake) <= 0 {
+		return {socket = conn}, .Handshake_Error
+	}
+	handshake_bytes := handshake_buf[:len(handshake)]
+	if _, err := tcp_send_all(conn, handshake_bytes); err != nil {
 		return {socket = conn}, .Handshake_Error
 	}
 

@@ -599,6 +599,9 @@ func enableWSRoute(
 ) {
 	hotSnapshotProvider := newWSHotSnapshotProvider(rangeStore, tsPool, subMinuteGate)
 	hotSnapshotProvider = newBoundedSnapshotCacheProvider(hotSnapshotProvider, wsSnapshotCacheTTL, wsSnapshotCacheMaxEntries)
+	legacyWS := wsserver.NewServer(nil, nil, logger, nil, 0)
+	srv.HandleFunc("GET /ws/marketdata", legacyWS.HandleLegacyWS)
+	logger.Info("legacy websocket route hard-disabled", "route", "GET /ws/marketdata", "status", http.StatusGone)
 	metrics.ConfigureWSTenantLabelPolicy(
 		cfg.WS.TenantMetrics.IncludeTenantLabel,
 		cfg.WS.TenantMetrics.TenantWhitelist,

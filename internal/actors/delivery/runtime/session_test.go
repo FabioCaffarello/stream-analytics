@@ -206,6 +206,67 @@ func TestSession_parseSubscribeUnsubscribeGetRange(t *testing.T) {
 	_ = waitForMessage[UnsubscribeSession](t, routerCh, time.Second)
 }
 
+func TestSession_SubscribeRejectsLegacyCutoverSubjects(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload string
+	}{
+		{
+			name:    "legacy evidence subject",
+			payload: `{"op":"subscribe","subject":"insights.microstructure_evidence/binance/BTC-USDT/raw","request_id":"legacy-evidence"}`,
+		},
+		{
+			name:    "legacy signal composite subject",
+			payload: `{"op":"subscribe","subject":"signal/composite/binance/BTC-USDT/1m","request_id":"legacy-signal"}`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e, err := actor.NewEngine(actor.NewEngineConfig())
+			if err != nil {
+				t.Fatalf("new engine: %v", err)
+			}
+
+			routerCh := make(chan any, 32)
+			routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-capture-legacy-subject-reject")
+			defer e.Poison(routerPID)
+
+			conn := newFakeConn()
+			sessionPID := e.Spawn(NewSessionActor(SessionConfig{RouterPID: routerPID, Conn: conn}), "ws-session-legacy-subject-reject")
+			defer e.Poison(sessionPID)
+
+			_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+			beforeRejected := testutil.ToFloat64(metrics.WSQueryRejectedTotal.WithLabelValues("subject_invalid"))
+
+			conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(tc.payload)}
+
+			msg := <-conn.writeCh
+			errFrame, ok := msg.(wsErrorFrame)
+			if !ok {
+				t.Fatalf("expected error frame, got %T %#v", msg, msg)
+			}
+			if got, want := errFrame.Type, "error"; got != want {
+				t.Fatalf("type=%q want=%q", got, want)
+			}
+			if got, want := errFrame.Op, "subscribe"; got != want {
+				t.Fatalf("op=%q want=%q", got, want)
+			}
+
+			select {
+			case got := <-routerCh:
+				t.Fatalf("unexpected router message after legacy rejection: %T %+v", got, got)
+			case <-time.After(100 * time.Millisecond):
+			}
+
+			afterRejected := testutil.ToFloat64(metrics.WSQueryRejectedTotal.WithLabelValues("subject_invalid"))
+			if afterRejected < beforeRejected+1 {
+				t.Fatalf("expected ws_query_rejected_total{reason=subject_invalid} increment, before=%f after=%f", beforeRejected, afterRejected)
+			}
+		})
+	}
+}
+
 func TestSession_attachConnStartsReadLoop(t *testing.T) {
 	e, err := actor.NewEngine(actor.NewEngineConfig())
 	if err != nil {

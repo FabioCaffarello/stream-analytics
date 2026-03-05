@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
-import { readFileSync, writeFileSync, existsSync, readdirSync } from "fs";
-import { join } from "path";
+import { readFileSync, writeFileSync, existsSync, readdirSync, lstatSync, readlinkSync } from "fs";
+import { join, resolve, dirname } from "path";
+import { envBoolValue, resolveIQProfile } from "./profile_loader.mjs";
+import { validateBoundednessMatrix } from "./validate_boundedness_matrix.mjs";
 
 function readText(path) {
     if (!existsSync(path)) return "";
@@ -120,11 +122,6 @@ function fmt(v) {
     return v === null || v === undefined ? "n/a" : String(v);
 }
 
-function envBool(name) {
-    const raw = String(process.env[name] || "").trim().toLowerCase();
-    return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
-}
-
 function parseChannelBudgetMap(raw) {
     const out = new Map();
     const text = String(raw || "").trim();
@@ -159,6 +156,108 @@ function parseOptionalInt(raw) {
 
 function isNonNegativeNumber(value) {
     return Number.isFinite(value) && value >= 0;
+}
+
+const BACKPRESSURE_DROP_REASONS = new Set([
+    "queue_full",
+    "drop_oldest",
+    "priority_drop",
+    "priority_drop_self",
+    "slow_client_disconnect",
+]);
+
+const SCORECARD_FALLBACK_COUNTER_KEYS = [
+    "md_stats_fallback_frames",
+    "md_evidence_fallback_frames",
+    "md_signal_fallback_frames",
+    "ws_batch_fallback_events",
+    "md_legacy_downgrade_count",
+];
+
+function lstatSafe(path) {
+    try {
+        return lstatSync(path);
+    } catch {
+        return null;
+    }
+}
+
+function normalizeNumber(value) {
+    if (value === null || value === undefined) return null;
+    if (typeof value === "string" && value.trim() === "") return null;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+}
+
+function roundNumber(value, digits = 6) {
+    if (!Number.isFinite(value)) return null;
+    const factor = 10 ** digits;
+    return Math.round(value * factor) / factor;
+}
+
+function emptyFallbackCounters() {
+    const out = {};
+    for (const key of SCORECARD_FALLBACK_COUNTER_KEYS) {
+        out[key] = null;
+    }
+    return out;
+}
+
+function normalizeFallbackCounters(raw) {
+    const out = emptyFallbackCounters();
+    for (const key of SCORECARD_FALLBACK_COUNTER_KEYS) {
+        out[key] = normalizeNumber(raw && raw[key]);
+    }
+    return out;
+}
+
+function emptyScorecardMetrics() {
+    return {
+        lat_p95_ms: null,
+        lat_p99_ms: null,
+        bytes_p95: null,
+        bytes_p99: null,
+        drops_total: null,
+        backlog: null,
+        cap: null,
+        backlog_utilization: null,
+        fallback_total: null,
+        fallback_counters: emptyFallbackCounters(),
+    };
+}
+
+function normalizeScorecardMetrics(raw) {
+    return {
+        lat_p95_ms: normalizeNumber(raw && raw.lat_p95_ms),
+        lat_p99_ms: normalizeNumber(raw && raw.lat_p99_ms),
+        bytes_p95: normalizeNumber(raw && raw.bytes_p95),
+        bytes_p99: normalizeNumber(raw && raw.bytes_p99),
+        drops_total: normalizeNumber(raw && raw.drops_total),
+        backlog: normalizeNumber(raw && raw.backlog),
+        cap: normalizeNumber(raw && raw.cap),
+        backlog_utilization: normalizeNumber(raw && raw.backlog_utilization),
+        fallback_total: normalizeNumber(raw && raw.fallback_total),
+        fallback_counters: normalizeFallbackCounters(raw && raw.fallback_counters),
+    };
+}
+
+function parseScorecardRatioThreshold(name, fallback) {
+    const value = parseOptionalNumber(process.env[name]);
+    if (value !== null && value > 1) return value;
+    return fallback;
+}
+
+function parseScorecardDeltaThreshold(name, fallback) {
+    const value = parseOptionalNumber(process.env[name]);
+    if (value !== null && value >= 0) return value;
+    return fallback;
+}
+
+function toBacklogUtilization(backlog, cap) {
+    if (!Number.isFinite(backlog) || !Number.isFinite(cap) || cap <= 0) {
+        return null;
+    }
+    return backlog / cap;
 }
 
 function listIqRunDirs(runDir) {
@@ -202,6 +301,416 @@ function statsFallbackZeroStreak(runDir) {
     return { streak, observedRuns: runDirs.length };
 }
 
+function buildScorecardSnapshot({
+    metricsText,
+    smoke,
+    wireBudgetChannels,
+    routerStateMaxEntries,
+    layerStateMaxEntries,
+}) {
+    const probe = smoke && smoke.runtime_probe ? smoke.runtime_probe : {};
+    const statsProbe = smoke && smoke.stats_probe ? smoke.stats_probe : {};
+    const wireLatencyByChannel = histogramQuantilesByLabel(
+        metricsText,
+        "ws_publish_to_deliver_latency_seconds",
+        "channel",
+        [0.95, 0.99]
+    );
+    const wireBytesByChannel = histogramQuantilesByLabel(
+        metricsText,
+        "ws_wire_bytes",
+        "channel",
+        [0.95, 0.99]
+    );
+    const dropsByChannel = new Map();
+    let wsBackpressureDropsTotal = 0;
+    const wsDropSamples = metricSamples(metricsText, "ws_drops_total");
+    for (const sample of wsDropSamples) {
+        const reason = sample.labels.reason || "";
+        if (!BACKPRESSURE_DROP_REASONS.has(reason)) {
+            continue;
+        }
+        const value = normalizeNumber(sample.value) ?? 0;
+        wsBackpressureDropsTotal += value;
+        const channel = sample.labels.channel || "unknown";
+        dropsByChannel.set(channel, (dropsByChannel.get(channel) || 0) + value);
+    }
+
+    const wsQueueLen = normalizeNumber(metricSamples(metricsText, "ws_queue_len")[0]?.value);
+    const wsQueueCapacity = normalizeNumber(metricSamples(metricsText, "ws_queue_capacity")[0]?.value);
+    const routerEntries = normalizeNumber(metricSamples(metricsText, "router_stream_state_entries")[0]?.value);
+    const routerEvicted = normalizeNumber(metricSamples(metricsText, "delivery_router_stream_state_evicted_total")[0]?.value);
+    const layerEntries = normalizeNumber(probe.probe_layer_stream_entries);
+    const layerEvictions = normalizeNumber(probe.probe_layer_stream_evictions);
+    const batchFallbackEvents = metricSamples(metricsText, "ws_batch_fallback_events_total")
+        .reduce((acc, sample) => acc + (normalizeNumber(sample.value) ?? 0), 0);
+
+    const fallbackCounters = normalizeFallbackCounters({
+        md_stats_fallback_frames: statsProbe.md_stats_fallback_frames ?? probe.probe_md_stats_fallback_frames,
+        md_evidence_fallback_frames: probe.probe_md_evidence_fallback_frames,
+        md_signal_fallback_frames: probe.probe_md_signal_fallback_frames,
+        ws_batch_fallback_events: batchFallbackEvents,
+        md_legacy_downgrade_count: probe.probe_md_legacy_downgrade_count,
+    });
+    const fallbackTotal = SCORECARD_FALLBACK_COUNTER_KEYS
+        .reduce((acc, key) => acc + (fallbackCounters[key] ?? 0), 0);
+
+    const channels = new Set(wireBudgetChannels);
+    for (const key of wireLatencyByChannel.keys()) channels.add(key);
+    for (const key of wireBytesByChannel.keys()) channels.add(key);
+    for (const key of dropsByChannel.keys()) channels.add(key);
+
+    const rows = [];
+    for (const channel of Array.from(channels).sort()) {
+        const latencySample = wireLatencyByChannel.get(channel);
+        const bytesSample = wireBytesByChannel.get(channel);
+        const p95s = latencySample ? latencySample.quantiles[0.95] : null;
+        const p99s = latencySample ? latencySample.quantiles[0.99] : null;
+        const metrics = emptyScorecardMetrics();
+        metrics.lat_p95_ms = Number.isFinite(p95s) ? roundNumber(p95s * 1000) : null;
+        metrics.lat_p99_ms = Number.isFinite(p99s) ? roundNumber(p99s * 1000) : null;
+        metrics.bytes_p95 = Number.isFinite(bytesSample && bytesSample.quantiles[0.95])
+            ? roundNumber(bytesSample.quantiles[0.95])
+            : null;
+        metrics.bytes_p99 = Number.isFinite(bytesSample && bytesSample.quantiles[0.99])
+            ? roundNumber(bytesSample.quantiles[0.99])
+            : null;
+        metrics.drops_total = normalizeNumber(dropsByChannel.get(channel));
+        rows.push({
+            key: `channel/${channel}`,
+            scope: "channel",
+            metrics,
+        });
+    }
+
+    for (const stream of ["trade", "candle", "signal"]) {
+        const backlog = normalizeNumber(probe[`probe_md_${stream}_backlog`]);
+        const cap = normalizeNumber(probe[`probe_md_${stream}_backlog_cap`]);
+        const metrics = emptyScorecardMetrics();
+        metrics.backlog = backlog;
+        metrics.cap = cap;
+        metrics.backlog_utilization = roundNumber(toBacklogUtilization(backlog, cap));
+        rows.push({
+            key: `stream/${stream}`,
+            scope: "stream",
+            metrics,
+        });
+    }
+
+    const wsDeliveryMetrics = emptyScorecardMetrics();
+    wsDeliveryMetrics.drops_total = roundNumber(wsBackpressureDropsTotal);
+    wsDeliveryMetrics.backlog = wsQueueLen;
+    wsDeliveryMetrics.cap = wsQueueCapacity;
+    wsDeliveryMetrics.backlog_utilization = roundNumber(toBacklogUtilization(wsQueueLen, wsQueueCapacity));
+    rows.push({
+        key: "subsystem/ws_delivery",
+        scope: "subsystem",
+        metrics: wsDeliveryMetrics,
+    });
+
+    const routerStateMetrics = emptyScorecardMetrics();
+    routerStateMetrics.backlog = routerEntries;
+    routerStateMetrics.cap = normalizeNumber(routerStateMaxEntries);
+    routerStateMetrics.backlog_utilization = roundNumber(
+        toBacklogUtilization(routerEntries, routerStateMaxEntries)
+    );
+    routerStateMetrics.drops_total = routerEvicted;
+    rows.push({
+        key: "subsystem/router_state",
+        scope: "subsystem",
+        metrics: routerStateMetrics,
+    });
+
+    const layerStateMetrics = emptyScorecardMetrics();
+    layerStateMetrics.backlog = layerEntries;
+    layerStateMetrics.cap = normalizeNumber(layerStateMaxEntries);
+    layerStateMetrics.backlog_utilization = roundNumber(
+        toBacklogUtilization(layerEntries, layerStateMaxEntries)
+    );
+    layerStateMetrics.drops_total = layerEvictions;
+    rows.push({
+        key: "subsystem/layer_state",
+        scope: "subsystem",
+        metrics: layerStateMetrics,
+    });
+
+    const fallbackMetrics = emptyScorecardMetrics();
+    fallbackMetrics.fallback_total = roundNumber(fallbackTotal);
+    fallbackMetrics.fallback_counters = fallbackCounters;
+    rows.push({
+        key: "subsystem/fallback_path",
+        scope: "subsystem",
+        metrics: fallbackMetrics,
+    });
+
+    return rows.sort((a, b) => a.key.localeCompare(b.key));
+}
+
+function scorecardSeverityFromMetric(metric, deltaValue, ratioValue) {
+    if (metric === "drops_total" || metric === "backlog_utilization" || metric === "fallback_total") {
+        return Math.max(0, normalizeNumber(deltaValue) ?? 0);
+    }
+    if (metric === "cap") {
+        return Math.max(0, (normalizeNumber(ratioValue) ?? 1) - 1);
+    }
+    if (metric === "lat_p95_ms" || metric === "lat_p99_ms" || metric === "bytes_p95" || metric === "bytes_p99") {
+        return Math.max(0, (normalizeNumber(ratioValue) ?? 1) - 1);
+    }
+    return 0;
+}
+
+function buildScorecard(currentRows, baselineRows, baselineMeta, thresholds) {
+    const currentMap = new Map(currentRows.map((row) => [row.key, row]));
+    const baselineMap = new Map((baselineRows || []).map((row) => [row.key, row]));
+    const allKeys = new Set([...currentMap.keys(), ...baselineMap.keys()]);
+    const orderedKeys = Array.from(allKeys).sort();
+    const items = [];
+    const topRegressions = [];
+
+    const metricsOrder = [
+        "lat_p95_ms",
+        "lat_p99_ms",
+        "bytes_p95",
+        "bytes_p99",
+        "drops_total",
+        "backlog_utilization",
+        "cap",
+        "fallback_total",
+    ];
+
+    for (const key of orderedKeys) {
+        const currentRow = currentMap.get(key);
+        const baselineRow = baselineMap.get(key);
+        const scope = (currentRow && currentRow.scope) || (baselineRow && baselineRow.scope) || "unknown";
+        const metrics = normalizeScorecardMetrics(currentRow && currentRow.metrics);
+        const baseline = normalizeScorecardMetrics(baselineRow && baselineRow.metrics);
+        const hasBaseline = baselineMeta.status === "available";
+
+        const delta = {
+            lat_p95_ms: null,
+            lat_p95_ratio: null,
+            lat_p99_ms: null,
+            lat_p99_ratio: null,
+            bytes_p95: null,
+            bytes_p95_ratio: null,
+            bytes_p99: null,
+            bytes_p99_ratio: null,
+            drops_total: null,
+            backlog: null,
+            cap: null,
+            cap_ratio: null,
+            backlog_utilization: null,
+            fallback_total: null,
+            fallback_counters: emptyFallbackCounters(),
+        };
+        const regression = {
+            lat_p95: false,
+            lat_p99: false,
+            bytes_p95: false,
+            bytes_p99: false,
+            drops: false,
+            backlog_utilization: false,
+            cap: false,
+            fallback: false,
+            any: false,
+            reasons: [],
+        };
+
+        const compareMetric = (metric, ratioField, ratioThreshold, deltaThreshold, regressionField) => {
+            const currentValue = metrics[metric];
+            const baselineValue = baseline[metric];
+            if (!hasBaseline || !Number.isFinite(currentValue) || !Number.isFinite(baselineValue)) {
+                return;
+            }
+            const deltaValue = roundNumber(currentValue - baselineValue);
+            delta[metric] = deltaValue;
+            if (ratioField) {
+                const ratioValue = baselineValue === 0
+                    ? null
+                    : roundNumber(currentValue / baselineValue);
+                delta[ratioField] = ratioValue;
+            }
+
+            let isRegression = false;
+            if (ratioField && ratioThreshold !== null) {
+                const ratioValue = delta[ratioField];
+                if (baselineValue === 0) {
+                    isRegression = currentValue > 0;
+                } else if (Number.isFinite(ratioValue)) {
+                    isRegression = ratioValue > ratioThreshold;
+                }
+            } else if (deltaThreshold !== null) {
+                isRegression = Number.isFinite(deltaValue) && deltaValue > deltaThreshold;
+            }
+            if (!isRegression) {
+                return;
+            }
+            regression[regressionField] = true;
+            regression.any = true;
+            regression.reasons.push(metric);
+            topRegressions.push({
+                key,
+                scope,
+                metric,
+                current: currentValue,
+                baseline: baselineValue,
+                delta: deltaValue,
+                ratio: ratioField ? delta[ratioField] : null,
+                severity: roundNumber(scorecardSeverityFromMetric(metric, deltaValue, ratioField ? delta[ratioField] : null)),
+            });
+        };
+
+        compareMetric("lat_p95_ms", "lat_p95_ratio", thresholds.lat_p95_ratio_max, null, "lat_p95");
+        compareMetric("lat_p99_ms", "lat_p99_ratio", thresholds.lat_p99_ratio_max, null, "lat_p99");
+        compareMetric("bytes_p95", "bytes_p95_ratio", thresholds.bytes_p95_ratio_max, null, "bytes_p95");
+        compareMetric("bytes_p99", "bytes_p99_ratio", thresholds.bytes_p99_ratio_max, null, "bytes_p99");
+        compareMetric("drops_total", null, null, thresholds.drops_delta_max, "drops");
+        compareMetric("backlog_utilization", null, null, thresholds.backlog_utilization_delta_max, "backlog_utilization");
+        compareMetric("cap", "cap_ratio", thresholds.cap_ratio_max, null, "cap");
+        compareMetric("fallback_total", null, null, thresholds.fallback_delta_max, "fallback");
+
+        if (hasBaseline) {
+            if (Number.isFinite(metrics.backlog) && Number.isFinite(baseline.backlog)) {
+                delta.backlog = roundNumber(metrics.backlog - baseline.backlog);
+            }
+            for (const counterKey of SCORECARD_FALLBACK_COUNTER_KEYS) {
+                const currentValue = normalizeNumber(metrics.fallback_counters[counterKey]);
+                const baselineValue = normalizeNumber(baseline.fallback_counters[counterKey]);
+                if (Number.isFinite(currentValue) && Number.isFinite(baselineValue)) {
+                    delta.fallback_counters[counterKey] = roundNumber(currentValue - baselineValue);
+                }
+            }
+        }
+
+        const regressionScore = roundNumber(topRegressions
+            .filter((entry) => entry.key === key)
+            .reduce((acc, entry) => acc + (entry.severity || 0), 0));
+
+        items.push({
+            key,
+            scope,
+            metrics,
+            baseline,
+            delta,
+            regression,
+            regression_score: regressionScore,
+        });
+    }
+
+    topRegressions.sort((a, b) =>
+        (b.severity - a.severity) ||
+        a.key.localeCompare(b.key) ||
+        a.metric.localeCompare(b.metric)
+    );
+
+    return {
+        schema_version: "iq.scorecard.v1",
+        baseline: baselineMeta,
+        thresholds,
+        items,
+        top_regressions: topRegressions.slice(0, 10),
+    };
+}
+
+function resolveBaselineCandidate(runDir) {
+    const explicitBaselineDir = String(process.env.BASELINE_IQ_DIR || "").trim();
+    if (explicitBaselineDir) {
+        return {
+            source: "BASELINE_IQ_DIR",
+            candidate_dir: resolve(process.cwd(), explicitBaselineDir),
+            pointer_path: null,
+        };
+    }
+
+    const pointerPath = join(process.cwd(), "artifacts", "iq", "latest_pass");
+    const pointerStat = lstatSafe(pointerPath);
+    if (!pointerStat) {
+        return {
+            source: "artifacts/iq/latest_pass",
+            candidate_dir: null,
+            pointer_path: pointerPath,
+            reason: "latest_pass pointer missing",
+        };
+    }
+    if (pointerStat.isSymbolicLink()) {
+        try {
+            const linkTarget = readlinkSync(pointerPath);
+            return {
+                source: "artifacts/iq/latest_pass",
+                candidate_dir: resolve(dirname(pointerPath), linkTarget),
+                pointer_path: pointerPath,
+            };
+        } catch {
+            return {
+                source: "artifacts/iq/latest_pass",
+                candidate_dir: null,
+                pointer_path: pointerPath,
+                reason: "failed to read latest_pass symlink",
+            };
+        }
+    }
+
+    const raw = readText(pointerPath).trim();
+    if (!raw) {
+        return {
+            source: "artifacts/iq/latest_pass",
+            candidate_dir: null,
+            pointer_path: pointerPath,
+            reason: "latest_pass file empty",
+        };
+    }
+    return {
+        source: "artifacts/iq/latest_pass",
+        candidate_dir: resolve(dirname(pointerPath), raw),
+        pointer_path: pointerPath,
+    };
+}
+
+function loadBaselineSnapshot(runDir, wireBudgetChannels, routerStateMaxEntries, layerStateMaxEntries) {
+    const candidate = resolveBaselineCandidate(runDir);
+    const baselineMeta = {
+        status: "no_baseline",
+        source: candidate.source,
+        run_dir: candidate.candidate_dir,
+        pointer_path: candidate.pointer_path || null,
+        reason: candidate.reason || "baseline not resolved",
+    };
+    if (!candidate.candidate_dir) {
+        return { baselineMeta, baselineRows: null };
+    }
+
+    const currentResolved = resolve(runDir);
+    const baselineResolved = resolve(candidate.candidate_dir);
+    if (currentResolved === baselineResolved) {
+        baselineMeta.reason = "baseline points to current run";
+        return { baselineMeta, baselineRows: null };
+    }
+
+    const baselineSummary = readJSON(join(candidate.candidate_dir, "summary.json"));
+    if (!baselineSummary || baselineSummary.overall_pass !== true) {
+        baselineMeta.reason = "baseline summary missing or non-pass";
+        return { baselineMeta, baselineRows: null };
+    }
+
+    const baselineSmoke = readJSON(join(candidate.candidate_dir, "logs", "playwright-smoke.json"));
+    const baselineMetricsText = readText(join(candidate.candidate_dir, "logs", "server.metrics.prom"));
+    if (!baselineSmoke || !baselineMetricsText.trim()) {
+        baselineMeta.reason = "baseline smoke/metrics missing";
+        return { baselineMeta, baselineRows: null };
+    }
+
+    baselineMeta.status = "available";
+    baselineMeta.reason = null;
+    const baselineRows = buildScorecardSnapshot({
+        metricsText: baselineMetricsText,
+        smoke: baselineSmoke,
+        wireBudgetChannels,
+        routerStateMaxEntries,
+        layerStateMaxEntries,
+    });
+    return { baselineMeta, baselineRows };
+}
+
 const runDir = process.argv[2];
 if (!runDir) {
     console.error("usage: node scripts/iq/analyze_iq_run.mjs <run_dir>");
@@ -210,13 +719,16 @@ if (!runDir) {
 
 const logsDir = join(runDir, "logs");
 const smokePath = join(logsDir, "playwright-smoke.json");
+const legacyNegativePath = join(logsDir, "legacy-negative.json");
 const consolePath = join(logsDir, "playwright-console.log");
 const metricsPath = join(logsDir, "server.metrics.prom");
 const composePath = join(logsDir, "compose.all.log");
 const reportPath = join(runDir, "report.md");
 const summaryPath = join(runDir, "summary.json");
+const scorecardPath = join(runDir, "scorecard.json");
 
 const smoke = readJSON(smokePath) || { steps: [], runtime_probe: {} };
+const legacyNegative = readJSON(legacyNegativePath);
 const consoleText = readText(consolePath);
 const metricsText = readText(metricsPath);
 const composeText = readText(composePath);
@@ -225,6 +737,12 @@ const consoleLines = consoleText.split(/\r?\n/).filter(Boolean);
 const composeLines = composeText.split(/\r?\n/).filter(Boolean);
 const probe = smoke.runtime_probe || {};
 const statsProbe = smoke.stats_probe || {};
+const iqProfile = resolveIQProfile(process.env);
+const profileValue = (name, fallback = "") =>
+    iqProfile.effectiveValues[name] ?? (process.env[name] ?? fallback);
+const strictProfile = envBoolValue(profileValue("IQ_STRICT", "0"), false);
+const fallbackStrict = envBoolValue(profileValue("IQ_FALLBACK_STRICT", "0"), false);
+const legacyStrict = envBoolValue(profileValue("IQ_LEGACY_STRICT", "0"), false);
 
 const routerModeSamples = metricSamples(metricsText, "delivery_router_coherence_mode")
     .filter((s) => s.value > 0);
@@ -240,23 +758,34 @@ const legacyRouteRejectedTotal = legacyRouteSamples
     .filter((s) => s.labels.status === "rejected")
     .reduce((acc, s) => acc + s.value, 0);
 const legacyRouteTotal = legacyRouteAcceptedTotal + legacyRouteRejectedTotal;
-const allowBatchedFallback = envBool("IQ_ALLOW_BATCHED_FALLBACK");
+const legacyNegativePass = Boolean(legacyNegative && legacyNegative.overall_pass === true);
+const legacyNegativeCounters = legacyNegative && legacyNegative.counters ? legacyNegative.counters : {};
+const legacyNegativeRejectedDelta = Number(
+    legacyNegativeCounters.ws_legacy_requests_rejected_delta ?? Number.NaN
+);
+const legacyNegativeSubjectInvalidDelta = Number(
+    legacyNegativeCounters.ws_query_rejected_subject_invalid_delta ?? Number.NaN
+);
+const legacyNegativeDowngradeProbe = Number(
+    legacyNegativeCounters.probe_md_legacy_downgrade_count ?? Number.NaN
+);
+const allowBatchedFallback = envBoolValue(profileValue("IQ_ALLOW_BATCHED_FALLBACK", "0"), false);
 const batchFallbackRemovalRuns = Number.parseInt(process.env.IQ_BATCHED_FALLBACK_ZERO_RUNS || "5", 10) || 5;
-const allowStatsFallback = envBool("IQ_ALLOW_STATS_FALLBACK");
-const requireStatsCanonical = envBool("IQ_REQUIRE_STATS_CANONICAL");
+const allowStatsFallback = envBoolValue(profileValue("IQ_ALLOW_STATS_FALLBACK", "0"), false);
+const requireStatsCanonical = envBoolValue(profileValue("IQ_REQUIRE_STATS_CANONICAL", "0"), false);
 const statsFallbackRemovalRuns = Number.parseInt(process.env.IQ_STATS_FALLBACK_ZERO_RUNS || "5", 10) || 5;
-const allowUnexpectedSkips = envBool("IQ_ALLOW_UNEXPECTED_SKIPS");
+const allowUnexpectedSkips = envBoolValue(profileValue("IQ_ALLOW_UNEXPECTED_SKIPS", "0"), false);
 const statsFallbackStreak = statsFallbackZeroStreak(runDir);
-const wireBudgetChannels = String(process.env.IQ_WIRE_BUDGET_CHANNELS || "trade,book_snapshot,stats,candle")
+const wireBudgetChannels = String(profileValue("IQ_WIRE_BUDGET_CHANNELS", "trade,book_snapshot,stats,candle"))
     .split(",")
     .map((v) => v.trim())
     .filter(Boolean);
-const wireP95BudgetMs = Number.parseFloat(process.env.IQ_WIRE_P95_BUDGET_MS || "2000");
-const wireP99BudgetMs = Number.parseFloat(process.env.IQ_WIRE_P99_BUDGET_MS || "5000");
+const wireP95BudgetMs = Number.parseFloat(profileValue("IQ_WIRE_P95_BUDGET_MS", "2000"));
+const wireP99BudgetMs = Number.parseFloat(profileValue("IQ_WIRE_P99_BUDGET_MS", "5000"));
 const wireP95BudgetMsByChannel = parseChannelBudgetMap(process.env.IQ_WIRE_P95_BUDGET_MS_BY_CHANNEL);
 const wireP99BudgetMsByChannel = parseChannelBudgetMap(process.env.IQ_WIRE_P99_BUDGET_MS_BY_CHANNEL);
-const wireBytesP95Budget = Number.parseFloat(process.env.IQ_WIRE_BYTES_P95_BUDGET || "65536");
-const wireBytesP99Budget = Number.parseFloat(process.env.IQ_WIRE_BYTES_P99_BUDGET || "131072");
+const wireBytesP95Budget = Number.parseFloat(profileValue("IQ_WIRE_BYTES_P95_BUDGET", "65536"));
+const wireBytesP99Budget = Number.parseFloat(profileValue("IQ_WIRE_BYTES_P99_BUDGET", "131072"));
 const wireBytesP95BudgetByChannel = parseChannelBudgetMap(process.env.IQ_WIRE_BYTES_P95_BUDGET_BY_CHANNEL);
 const wireBytesP99BudgetByChannel = parseChannelBudgetMap(process.env.IQ_WIRE_BYTES_P99_BUDGET_BY_CHANNEL);
 const wsQueueUtilizationMax = Number.parseFloat(process.env.IQ_WS_QUEUE_UTILIZATION_MAX || "0.85");
@@ -308,9 +837,8 @@ const wsQueueUtilization = wsQueueCapacity > 0 ? wsQueueLen / wsQueueCapacity : 
 const wsLagSamples = metricSamples(metricsText, "ws_lag_ms");
 const wsLagMaxObserved = wsLagSamples.reduce((max, s) => Math.max(max, Number(s.value) || 0), 0);
 const subscribeAckCount = Number(probe.probe_md_subscribe_ack_count ?? -1);
-const backpressureDropReasons = new Set(["queue_full", "drop_oldest", "priority_drop", "priority_drop_self", "slow_client_disconnect"]);
 const wsBackpressureDropsTotal = metricSamples(metricsText, "ws_drops_total")
-    .filter((s) => backpressureDropReasons.has(s.labels.reason || ""))
+    .filter((s) => BACKPRESSURE_DROP_REASONS.has(s.labels.reason || ""))
     .reduce((acc, s) => acc + (Number(s.value) || 0), 0);
 const spamSignatureCounts = new Map();
 for (const line of composeLines) {
@@ -375,6 +903,36 @@ const mdSignalBacklog = Number(probe.probe_md_signal_backlog ?? -1);
 const mdSignalBacklogCap = Number(probe.probe_md_signal_backlog_cap ?? -1);
 const layerStreamEntries = Number(probe.probe_layer_stream_entries ?? -1);
 const layerStreamEvictions = Number(probe.probe_layer_stream_evictions ?? -1);
+const scorecardThresholds = {
+    lat_p95_ratio_max: parseScorecardRatioThreshold("IQ_SCORECARD_LAT_P95_RATIO_MAX", 1.10),
+    lat_p99_ratio_max: parseScorecardRatioThreshold("IQ_SCORECARD_LAT_P99_RATIO_MAX", 1.10),
+    bytes_p95_ratio_max: parseScorecardRatioThreshold("IQ_SCORECARD_BYTES_P95_RATIO_MAX", 1.10),
+    bytes_p99_ratio_max: parseScorecardRatioThreshold("IQ_SCORECARD_BYTES_P99_RATIO_MAX", 1.10),
+    drops_delta_max: parseScorecardDeltaThreshold("IQ_SCORECARD_DROPS_DELTA_MAX", 0),
+    backlog_utilization_delta_max: parseScorecardDeltaThreshold("IQ_SCORECARD_BACKLOG_UTILIZATION_DELTA_MAX", 0.05),
+    cap_ratio_max: parseScorecardRatioThreshold("IQ_SCORECARD_CAP_RATIO_MAX", 1.10),
+    fallback_delta_max: parseScorecardDeltaThreshold("IQ_SCORECARD_FALLBACK_DELTA_MAX", 0),
+};
+const currentScorecardRows = buildScorecardSnapshot({
+    metricsText,
+    smoke,
+    wireBudgetChannels,
+    routerStateMaxEntries,
+    layerStateMaxEntries,
+});
+const { baselineMeta, baselineRows } = loadBaselineSnapshot(
+    runDir,
+    wireBudgetChannels,
+    routerStateMaxEntries,
+    layerStateMaxEntries
+);
+const scorecard = buildScorecard(
+    currentScorecardRows,
+    baselineRows,
+    baselineMeta,
+    scorecardThresholds
+);
+const scorecardRegressionItems = scorecard.items.filter((item) => item.regression.any).length;
 
 const widgetProbeNames = {
     stats: "stats",
@@ -389,6 +947,41 @@ const checks = [];
 function addCheck(id, title, ok, evidence, excerptPatterns = []) {
     checks.push({ id, title, ok, evidence, excerptPatterns });
 }
+
+let boundednessValidation;
+try {
+    boundednessValidation = validateBoundednessMatrix({
+        repoRoot: process.cwd(),
+        matrixPath: "docs/contracts/boundedness-matrix.yaml",
+        enforceFullCatalog: true,
+    });
+} catch (err) {
+    boundednessValidation = {
+        ok: false,
+        checkedEntries: 0,
+        checkedAnchors: 0,
+        errors: [`validator exception: ${err instanceof Error ? err.message : String(err)}`],
+    };
+}
+const boundednessErrorPreview = boundednessValidation.errors.slice(0, 3).join("; ");
+const boundednessEvidence = boundednessValidation.ok
+    ? `entries=${boundednessValidation.checkedEntries} anchors=${boundednessValidation.checkedAnchors} drift=0`
+    : `entries=${boundednessValidation.checkedEntries} anchors=${boundednessValidation.checkedAnchors} errors=${boundednessValidation.errors.length} preview=${boundednessErrorPreview}${boundednessValidation.errors.length > 3 ? "; ..." : ""}`;
+addCheck(
+    "boundedness_matrix_valid",
+    "boundedness matrix valid",
+    boundednessValidation.ok,
+    boundednessEvidence,
+    ["boundedness_matrix_valid", "router_stream_state_entries", "ws_queue_capacity"]
+);
+
+addCheck(
+    "profile_release_guardrail",
+    "release profile guardrail",
+    iqProfile.effectiveProfileName !== "release" || iqProfile.releaseRelaxViolations.length === 0,
+    `requested=${iqProfile.requestedProfile || "default"} effective=${iqProfile.effectiveProfileName} strict=${strictProfile} fallback_strict=${fallbackStrict} legacy_strict=${legacyStrict} relax_violations=${iqProfile.releaseRelaxViolations.join(";") || "none"}`,
+    ["IQ_PROFILE", "IQ_REQUIRE_STATS_CANONICAL", "IQ_ALLOW_STATS_FALLBACK", "IQ_ALLOW_BATCHED_FALLBACK", "IQ_ALLOW_UNEXPECTED_SKIPS"]
+);
 
 const missingTsGap = probe.probe_md_backend_gap_missing_ts_server;
 addCheck(
@@ -502,11 +1095,25 @@ addCheck(
 );
 
 addCheck(
-    "legacy_route_zero",
-    "legacy route requests zero",
-    legacyRouteTotal === 0,
+    "legacy_route_never_accepted",
+    "legacy route never accepted",
+    legacyRouteAcceptedTotal === 0,
     `ws_legacy_requests_total accepted=${legacyRouteAcceptedTotal} rejected=${legacyRouteRejectedTotal} total=${legacyRouteTotal}`,
     ["ws_legacy_requests_total", "/ws/marketdata", "legacy route"]
+);
+
+addCheck(
+    "legacy_negative_probe",
+    "legacy negative probe",
+    legacyNegativePass &&
+        Number.isFinite(legacyNegativeRejectedDelta) &&
+        legacyNegativeRejectedDelta >= 1 &&
+        Number.isFinite(legacyNegativeSubjectInvalidDelta) &&
+        legacyNegativeSubjectInvalidDelta >= 2 &&
+        Number.isFinite(legacyNegativeDowngradeProbe) &&
+        legacyNegativeDowngradeProbe === 0,
+    `legacy_negative_json=${legacyNegative ? "present" : "missing"} pass=${legacyNegativePass} rejected_delta=${fmt(legacyNegativeRejectedDelta)} subject_invalid_delta=${fmt(legacyNegativeSubjectInvalidDelta)} probe_md_legacy_downgrade_count=${fmt(legacyNegativeDowngradeProbe)}`,
+    ["legacy-negative", "ws_legacy_requests_total", "subject_invalid", "probe_md_legacy_downgrade_count"]
 );
 
 const legacyDowngradeCount = Number(probe.probe_md_legacy_downgrade_count ?? -1);
@@ -919,6 +1526,16 @@ const memoryPressureRows = [
     .filter((row) => isNonNegativeNumber(row.value))
     .sort((a, b) => b.value - a.value);
 const top3MemoryPressure = memoryPressureRows.slice(0, 3);
+const effectiveProfileEntries = Object.keys(iqProfile.effectiveValues)
+    .sort()
+    .map((key) => ({
+        key,
+        effectiveValue: String(iqProfile.effectiveValues[key] ?? "<unset>"),
+        defaultValue: String(iqProfile.defaults[key] ?? "<unset>"),
+    }));
+const effectiveProfileDiffMap = new Map(
+    iqProfile.diffs.map((entry) => [entry.key, entry])
+);
 
 const markdown = [];
 markdown.push("# IQ Loop Report");
@@ -926,6 +1543,24 @@ markdown.push("");
 markdown.push(`- run_dir: \`${runDir}\``);
 markdown.push(`- generated_at: \`${new Date().toISOString()}\``);
 markdown.push(`- status: **${overallPass ? "PASS" : "FAIL"}**`);
+markdown.push("");
+markdown.push("## Effective IQ Profile");
+markdown.push("");
+markdown.push(`- requested profile: \`${iqProfile.requestedProfile || "default"}\``);
+markdown.push(`- effective profile: \`${iqProfile.effectiveProfileName}\``);
+markdown.push(`- profile source: \`${iqProfile.sourcePath || "embedded defaults"}\``);
+markdown.push(`- strict flags: strict=\`${strictProfile}\` fallback_strict=\`${fallbackStrict}\` legacy_strict=\`${legacyStrict}\``);
+if (iqProfile.releaseRelaxViolations.length > 0) {
+    markdown.push(`- release guardrail violations: \`${iqProfile.releaseRelaxViolations.join("; ")}\``);
+}
+markdown.push("");
+markdown.push("| Key | Effective | Default |");
+markdown.push("|---|---|---|");
+for (const row of effectiveProfileEntries) {
+    const diff = effectiveProfileDiffMap.get(row.key);
+    const effectiveCell = diff ? `${row.effectiveValue} *(diff)*` : row.effectiveValue;
+    markdown.push(`| ${row.key} | ${effectiveCell} | ${row.defaultValue} |`);
+}
 markdown.push("");
 markdown.push("## Perf+Memory Baseline");
 markdown.push("");
@@ -1000,9 +1635,13 @@ markdown.push("- unexpected skip/canonicalization gate requires `skip_unexpected
 markdown.push(`- current run skip_unexpected_total: \`${unexpectedSkipTotal}\``);
 markdown.push(`- override active: \`${allowUnexpectedSkips}\` (set via \`IQ_ALLOW_UNEXPECTED_SKIPS=1\`)`);
 markdown.push("");
-markdown.push("- legacy cutover gate requires `ws_legacy_requests_total=0` and `probe_md_legacy_downgrade_count=0` (no override).");
-markdown.push(`- current run ws_legacy_requests_total: \`${legacyRouteTotal}\` (accepted=\`${legacyRouteAcceptedTotal}\`, rejected=\`${legacyRouteRejectedTotal}\`)`);
+markdown.push("- legacy cutover gate requires `ws_legacy_requests_total{status=\"accepted\"}=0` and `probe_md_legacy_downgrade_count=0`.");
+markdown.push(`- current run ws_legacy_requests_total: accepted=\`${legacyRouteAcceptedTotal}\` rejected=\`${legacyRouteRejectedTotal}\``);
 markdown.push(`- current run probe_md_legacy_downgrade_count: \`${legacyDowngradeCount}\``);
+markdown.push(`- legacy negative probe artifact: \`${legacyNegative ? "present" : "missing"}\` (\`logs/legacy-negative.json\`)`);
+if (legacyNegative) {
+    markdown.push(`- legacy negative probe deltas: rejected=\`${fmt(legacyNegativeRejectedDelta)}\` subject_invalid=\`${fmt(legacyNegativeSubjectInvalidDelta)}\``);
+}
 markdown.push("");
 markdown.push("## Failures");
 markdown.push("");
@@ -1020,8 +1659,10 @@ markdown.push("");
 markdown.push("## Reproduction Steps");
 markdown.push("");
 markdown.push("```bash");
+markdown.push("IQ_PROFILE=release PROCESSOR_REPLICAS=2 ./scripts/iq_loop.sh");
+markdown.push("# or manual");
 markdown.push("make up PROCESSOR_REPLICAS=2");
-markdown.push("node tests/playwright/iq-smoke.mjs");
+markdown.push("IQ_PROFILE=release node tests/playwright/iq-smoke.mjs");
 markdown.push("docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile core --profile obs --profile client logs --no-color --timestamps");
 markdown.push("```");
 markdown.push("");
@@ -1039,7 +1680,29 @@ if (logExcerptSections.length === 0) {
         markdown.push("");
     }
 }
+markdown.push("## Scorecard por stream/canal");
+markdown.push("");
+markdown.push(`- baseline status: \`${scorecard.baseline.status}\``);
+markdown.push(`- baseline source: \`${scorecard.baseline.source}\``);
+markdown.push(`- baseline run_dir: \`${scorecard.baseline.run_dir || "n/a"}\``);
+if (scorecard.baseline.reason) {
+    markdown.push(`- baseline note: \`${scorecard.baseline.reason}\``);
+}
+markdown.push(`- scorecard artifact: \`scorecard.json\``);
+markdown.push(`- scorecard regressions: \`${scorecardRegressionItems}\` items / \`${scorecard.top_regressions.length}\` top entries`);
+markdown.push("");
+if (scorecard.top_regressions.length === 0) {
+    markdown.push("- no regressions detected");
+} else {
+    markdown.push("| Key | Metric | Current | Baseline | Delta | Ratio | Severity |");
+    markdown.push("|---|---|---|---|---|---|---|");
+    for (const row of scorecard.top_regressions) {
+        markdown.push(`| ${row.key} | ${row.metric} | ${fmt(row.current)} | ${fmt(row.baseline)} | ${fmt(row.delta)} | ${fmt(row.ratio)} | ${fmt(row.severity)} |`);
+    }
+}
+markdown.push("");
 
+writeFileSync(scorecardPath, JSON.stringify(scorecard, null, 2) + "\n");
 writeFileSync(reportPath, markdown.join("\n") + "\n");
 const summary = {
     generated_at: new Date().toISOString(),
@@ -1048,8 +1711,20 @@ const summary = {
     invariants_pass: invariantsPass,
     stats_fallback_zero_streak: statsFallbackStreak.streak,
     stats_fallback_required_runs: statsFallbackRemovalRuns,
+    effective_profile: {
+        requested: iqProfile.requestedProfile || "default",
+        effective: iqProfile.effectiveProfileName,
+        source: iqProfile.sourcePath || "embedded defaults",
+        strict: strictProfile,
+        fallback_strict: fallbackStrict,
+        legacy_strict: legacyStrict,
+        release_relax_violations: iqProfile.releaseRelaxViolations,
+        values: iqProfile.effectiveValues,
+        diffs: iqProfile.diffs,
+    },
     failed_steps: failedSteps.map((s) => ({ id: s.id, details: s.details || "" })),
     failed_checks: failedChecks.map((c) => ({ id: c.id, evidence: c.evidence })),
+    legacy_negative: legacyNegative || null,
     baseline: {
         md_parse_p95_us: mdParseP95,
         md_parse_p99_us: mdParseP99,
@@ -1072,7 +1747,13 @@ const summary = {
     })),
     top3_hot_paths: top3HotPaths,
     top3_memory_pressure: top3MemoryPressure,
+    scorecard: {
+        baseline: scorecard.baseline,
+        thresholds: scorecard.thresholds,
+        regression_items: scorecardRegressionItems,
+        top_regressions: scorecard.top_regressions,
+    },
 };
-writeFileSync(summaryPath, JSON.stringify(summary, null, 2));
+writeFileSync(summaryPath, JSON.stringify(summary, null, 2) + "\n");
 
 process.exit(overallPass ? 0 : 1);

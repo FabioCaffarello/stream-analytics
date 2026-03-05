@@ -62,6 +62,11 @@
   "processor": {
     "bus_capacity": 4096,
     "max_instruments": 4096,
+    "signals": {
+      // Dedicated cutover: cmd/signals handles signal runtime.
+      // Keep false here to avoid running embedded signal subsystem in processor.
+      "enabled": false
+    },
     "candle": {
       "enabled": true,
       "max_candles": 100000

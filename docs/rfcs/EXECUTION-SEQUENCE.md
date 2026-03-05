@@ -5,7 +5,7 @@
 **Owner:** Governance Doc-First Maintainer
 **Last updated:** 2026-02-18
 **Date:** 2026-02-13
-**PRD:** `docs/prd/PRD-0001-extreme-runtime.md`
+**PRD:** `docs/prds/PRD-0001-extreme-runtime.md`
 **Relates to:** `docs/architecture/TRUTH-MAP.md`, `docs/audits/DRIFT-REPORT-W11.md`
 
 ---

@@ -7,6 +7,47 @@ import "mr:services"
 import "mr:streams"
 import "mr:ui"
 
+M4_DROP_RATE_BUDGET_PCT :: u64(20)
+
+@(private = "file")
+M4_Budget_Summary :: struct {
+	parse_total:             u64,
+	drop_total:              u64,
+	drop_budget:             u64,
+	drop_pct:                f64,
+	render_over_budget_total: u64,
+	drop_alert:              bool,
+	render_alert:            bool,
+}
+
+@(private = "file")
+collect_m4_budget_summary :: proc(state: ^App_State) -> M4_Budget_Summary {
+	summary: M4_Budget_Summary
+	if state == nil do return summary
+
+	layer_diags: [layers.LAYER_REGISTRY_CAP]layers.Layer_Diagnostics
+	layer_count := layers.layer_registry_collect_diagnostics(&state.layer_registry, &state.layer_store, layer_diags[:])
+	for i in 0 ..< layer_count {
+		d := layer_diags[i]
+		#partial switch d.id {
+		case .Price_Candles, .OrderBook_DOM, .Trades_Tape, .Evidence, .Signal:
+			summary.parse_total += d.parse_total
+			summary.drop_total += d.drop_total
+			summary.render_over_budget_total += d.render_over_budget
+		case:
+		}
+	}
+
+	if summary.parse_total > 0 {
+		summary.drop_budget = (summary.parse_total * M4_DROP_RATE_BUDGET_PCT + 99) / 100
+		if summary.drop_budget <= 0 do summary.drop_budget = 1
+		summary.drop_pct = f64(summary.drop_total) * 100.0 / f64(summary.parse_total)
+	}
+	summary.drop_alert = summary.parse_total > 0 && summary.drop_total > summary.drop_budget
+	summary.render_alert = summary.render_over_budget_total > 0
+	return summary
+}
+
 @(private = "package")
 refresh_telemetry_hud_cache :: proc(state: ^App_State) {
 	if state == nil do return
@@ -392,6 +433,50 @@ build_health_panel :: proc(state: ^App_State, viewport_w, viewport_h: f32, point
 		y += ROW_H + SECTION_GAP
 	}
 
+	// === M4 BUDGETS section ===
+	m4_budget := collect_m4_budget_summary(state)
+	if m4_budget.parse_total > 0 || m4_budget.render_over_budget_total > 0 || state.active_metrics.server_backpressure_level > 0 {
+		ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, "M4 BUDGETS", ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_XS, .Bold)
+		y += ROW_H + 2
+
+		drop_col := ui.COL_TEXT_SECONDARY
+		if m4_budget.drop_alert do drop_col = ui.COL_RED
+		drop_line_buf: [128]u8
+		drop_line := fmt.bprintf(
+			drop_line_buf[:],
+			"drop:%d/%d (%.1f%%) budget:%d%%",
+			m4_budget.drop_total,
+			max(m4_budget.parse_total, u64(1)),
+			m4_budget.drop_pct,
+			M4_DROP_RATE_BUDGET_PCT,
+		)
+		ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, drop_line, drop_col, ui.FONT_SIZE_XS, .Mono)
+		y += ROW_H
+
+		render_col := m4_budget.render_alert ? ui.COL_RED : ui.COL_TEXT_SECONDARY
+		render_line_buf: [96]u8
+		render_line := fmt.bprintf(
+			render_line_buf[:],
+			"render_over_budget:%d target:0",
+			m4_budget.render_over_budget_total,
+		)
+		ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, render_line, render_col, ui.FONT_SIZE_XS, .Mono)
+		y += ROW_H
+
+		policy_col := state.active_metrics.server_backpressure_level >= 2 ? ui.COL_WARNING : ui.COL_TEXT_MUTED
+		policy_line_buf: [144]u8
+		policy_line := fmt.bprintf(
+			policy_line_buf[:],
+			"policy_skips hm:%d vpvr:%d ev:%d bp:%d",
+			max(state.active_metrics.assist_drop_heatmap, 0),
+			max(state.active_metrics.assist_drop_vpvr, 0),
+			max(state.active_metrics.assist_drop_evidence, 0),
+			max(state.active_metrics.server_backpressure_level, 0),
+		)
+		ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, policy_line, policy_col, ui.FONT_SIZE_XS, .Mono)
+		y += ROW_H + SECTION_GAP
+	}
+
 	// === SERVER LIMITS section (from HELLO capabilities) ===
 	ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, "Server Limits:", ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_XS, .Bold)
 	y += ROW_H + 2
@@ -719,6 +804,37 @@ copy_diagnostics_to_clipboard :: proc(state: ^App_State) {
 		max(state.active_metrics.batched_decode_time_p95_us, 0),
 	))
 	append_line(buf[:], &n, t1b[:], t1b_len)
+
+	m4_budget := collect_m4_budget_summary(state)
+	append_str(buf[:], &n, "\nM4 BUDGETS:\n")
+	m4d: [128]u8
+	m4d_len := len(fmt.bprintf(
+		m4d[:],
+		"  drop=%d/%d(%.1f%%) budget=%d%% alert=%v",
+		m4_budget.drop_total,
+		max(m4_budget.parse_total, u64(1)),
+		m4_budget.drop_pct,
+		M4_DROP_RATE_BUDGET_PCT,
+		m4_budget.drop_alert,
+	))
+	append_line(buf[:], &n, m4d[:], m4d_len)
+	m4r: [96]u8
+	m4r_len := len(fmt.bprintf(
+		m4r[:],
+		"  render_over_budget=%d alert=%v",
+		m4_budget.render_over_budget_total,
+		m4_budget.render_alert,
+	))
+	append_line(buf[:], &n, m4r[:], m4r_len)
+	m4p: [128]u8
+	m4p_len := len(fmt.bprintf(
+		m4p[:],
+		"  policy_skips heatmap=%d vpvr=%d evidence=%d",
+		max(state.active_metrics.assist_drop_heatmap, 0),
+		max(state.active_metrics.assist_drop_vpvr, 0),
+		max(state.active_metrics.assist_drop_evidence, 0),
+	))
+	append_line(buf[:], &n, m4p[:], m4p_len)
 
 	// Protocol
 	append_str(buf[:], &n, "\nPROTOCOL:\n")

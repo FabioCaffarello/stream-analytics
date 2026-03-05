@@ -413,6 +413,9 @@ Active_Stream_Metrics :: struct {
 	assist_reason:                [32]u8,
 	assist_reason_len:            u8,
 	assist_user_enabled:          bool,
+	assist_drop_heatmap:          int,
+	assist_drop_vpvr:             int,
+	assist_drop_evidence:         int,
 }
 
 Backpressure_Assist_State :: struct {
@@ -425,6 +428,9 @@ Backpressure_Assist_State :: struct {
 	reason:           [32]u8,
 	reason_len:       u8,
 	cooldown_frames:  int,
+	dropped_heatmap:  u64,
+	dropped_vpvr:     u64,
+	dropped_evidence: u64,
 }
 
 Context_Stage :: enum u8 {

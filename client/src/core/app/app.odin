@@ -365,6 +365,7 @@ App_State :: struct {
 	frame:           u64,
 	last_viewport:   ui.Vec2,
 	last_keys_pressed: bit_set[ports.Key],
+	last_mouse_press_frame: [ports.Mouse_Button]u64,
 	ui_actions:      [UI_ACTION_CAP]UI_Action,
 	ui_action_count: int,
 	ui_actions_enqueued_total: u64,
@@ -991,22 +992,25 @@ frame_time_percentiles :: proc(state: ^App_State) -> (p50, p95, p99: i64) {
 
 update :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buffer {
 	state.frame += 1
+	frame_input := dedupe_mouse_pressed_edges(state, input)
 
 	t0 := time.tick_now()
 	_ = drain_layer_marketdata(state)
 	t1 := time.tick_now()
 
-	queue_ui_actions_from_input(state, input)
+	queue_ui_actions_from_input(state, frame_input)
 	_, _ = apply_ui_actions(state)
 	t2 := time.tick_now()
 
 	sample_marketdata_metrics(state)
 	observe_candle_health(state)
-	cache_render_observations(state, input)
-	buf := build_ui(state, input)
+	cache_render_observations(state, frame_input)
+	buf := build_ui(state, frame_input)
 	if state.ui_action_count > 0 {
 		_, _ = apply_ui_actions(state)
-		buf = build_ui(state, input)
+		// Second pass is for visual consistency after state mutation.
+		// Consume edge-triggered input so click/keyboard actions aren't enqueued twice.
+		buf = build_ui(state, consume_edge_input_for_rerender(frame_input))
 	}
 	t3 := time.tick_now()
 
@@ -1020,13 +1024,14 @@ update :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buffe
 
 update_web :: proc(state: ^App_State, input: ports.Input_State) -> (buf: ^ui.Command_Buffer, should_render: bool) {
 	state.frame += 1
-	input_interaction := has_input_interaction(input)
+	frame_input := dedupe_mouse_pressed_edges(state, input)
+	input_interaction := has_input_interaction(frame_input)
 
 	t0 := time.tick_now()
 	events_processed := drain_layer_marketdata(state)
 	t1 := time.tick_now()
 
-	queue_ui_actions_from_input(state, input)
+	queue_ui_actions_from_input(state, frame_input)
 	stream_switched, tf_switched := apply_ui_actions(state)
 	t2 := time.tick_now()
 
@@ -1039,7 +1044,7 @@ update_web :: proc(state: ^App_State, input: ports.Input_State) -> (buf: ^ui.Com
 		needs_render = events_processed > 0
 	}
 	if !needs_render {
-		needs_render = state.last_viewport.x != input.viewport_size.x || state.last_viewport.y != input.viewport_size.y
+		needs_render = state.last_viewport.x != frame_input.viewport_size.x || state.last_viewport.y != frame_input.viewport_size.y
 	}
 	if !needs_render {
 		needs_render = state.conn.last_conn != conn
@@ -1063,13 +1068,15 @@ update_web :: proc(state: ^App_State, input: ports.Input_State) -> (buf: ^ui.Com
 		return &state.cmd_buf, false
 	}
 
-	cache_render_observations(state, input)
-	buf = build_ui(state, input)
+	cache_render_observations(state, frame_input)
+	buf = build_ui(state, frame_input)
 	if state.ui_action_count > 0 {
 		sw2, tf2 := apply_ui_actions(state)
 		if sw2 do stream_switched = true
 		if tf2 do tf_switched = true
-		buf = build_ui(state, input)
+		// Second pass is for visual consistency after state mutation.
+		// Consume edge-triggered input so click/keyboard actions aren't enqueued twice.
+		buf = build_ui(state, consume_edge_input_for_rerender(frame_input))
 	}
 	t3 := time.tick_now()
 
@@ -1097,6 +1104,32 @@ has_input_interaction :: proc(input: ports.Input_State) -> bool {
 	if input.keys.just_pressed != {} do return true
 	if input.keys.just_released != {} do return true
 	return false
+}
+
+dedupe_mouse_pressed_edges :: proc(state: ^App_State, input: ports.Input_State) -> ports.Input_State {
+	out := input
+	for btn in ports.Mouse_Button {
+		if !out.mouse.pressed[btn] do continue
+		last := state.last_mouse_press_frame[btn]
+		// Some runtimes can emit duplicate pressed edges across adjacent frames for
+		// a single physical click. Collapse those duplicates to keep UI actions deterministic.
+		if last > 0 && state.frame <= last + 1 {
+			out.mouse.pressed[btn] = false
+			continue
+		}
+		state.last_mouse_press_frame[btn] = state.frame
+	}
+	return out
+}
+
+consume_edge_input_for_rerender :: proc(input: ports.Input_State) -> ports.Input_State {
+	out := input
+	out.mouse.pressed = {}
+	out.mouse.released = {}
+	out.mouse.scroll = {}
+	out.keys.just_pressed = {}
+	out.keys.just_released = {}
+	return out
 }
 
 cache_render_observations :: proc(state: ^App_State, input: ports.Input_State) {

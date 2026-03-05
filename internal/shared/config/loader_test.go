@@ -59,6 +59,7 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 		{name: "marketdata.replay_path", got: cfg.MarketData.ReplayPath, want: ""},
 		{name: "processor.bus_capacity", got: cfg.Processor.BusCapacity, want: 1024},
 		{name: "processor.max_instruments", got: cfg.Processor.MaxInstruments, want: 2048},
+		{name: "processor.signals.enabled", got: cfg.Processor.Signals.IsEnabled(), want: true},
 		{name: "processor.orderbook.max_levels", got: cfg.Processor.OrderBook.MaxLevels, want: 500},
 		{name: "processor.orderbook.use_btree_orderbook", got: cfg.Processor.OrderBook.IsBTreeEnabled(), want: true},
 		{name: "processor.xvenue.enabled", got: cfg.Processor.XVenue.Enabled, want: false},
@@ -165,6 +166,9 @@ func TestLoad_ValidJSONC_ParsesFields(t *testing.T) {
 		"processor": {
 			"bus_capacity": 512,
 			"max_instruments": 1024,
+			"signals": {
+				"enabled": false
+			},
 			"orderbook": {
 				"max_levels": 750,
 				"use_btree_orderbook": true
@@ -263,6 +267,7 @@ func TestLoad_ValidJSONC_ParsesFields(t *testing.T) {
 		{name: "marketdata.replay_path", got: cfg.MarketData.ReplayPath, want: "/tmp/replay.input.jsonl"},
 		{name: "processor.bus_capacity", got: cfg.Processor.BusCapacity, want: 512},
 		{name: "processor.max_instruments", got: cfg.Processor.MaxInstruments, want: 1024},
+		{name: "processor.signals.enabled", got: cfg.Processor.Signals.IsEnabled(), want: false},
 		{name: "processor.orderbook.max_levels", got: cfg.Processor.OrderBook.MaxLevels, want: 750},
 		{name: "processor.orderbook.use_btree_orderbook", got: cfg.Processor.OrderBook.IsBTreeEnabled(), want: true},
 		{name: "processor.xvenue.enabled", got: cfg.Processor.XVenue.Enabled, want: true},

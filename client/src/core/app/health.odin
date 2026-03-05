@@ -343,6 +343,9 @@ refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtim
 	state.active_metrics.assist_reason = state.bp_assist.reason
 	state.active_metrics.assist_reason_len = state.bp_assist.reason_len
 	state.active_metrics.assist_user_enabled = state.bp_assist.user_enabled
+	state.active_metrics.assist_drop_heatmap = int(state.bp_assist.dropped_heatmap)
+	state.active_metrics.assist_drop_vpvr = int(state.bp_assist.dropped_vpvr)
+	state.active_metrics.assist_drop_evidence = int(state.bp_assist.dropped_evidence)
 
 	active := streams.registry_active(&state.stream_registry)
 	if active == nil {

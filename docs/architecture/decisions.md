@@ -39,6 +39,7 @@ that validates each decision. For the full text of any ADR, follow the path link
 | [ADR-0018](../adrs/ADR-0018-actor-topology-supervision-model.md) | Actor topology & supervision model | Accepted | Partial | TOP-1…5; Guardian readiness; multi-replica wiring |
 | [ADR-0019](../adrs/ADR-0019-dual-database-operational-strategy.md) | Dual-database operational strategy | Accepted | Full | TimescaleDB (hot reads) + ClickHouse (analytics/cold) |
 | [ADR-0020](../adrs/ADR-0020-gitops-secrets-management.md) | GitOps secrets management | Accepted | In progress | SOPS-encrypted config; least-privilege DB users |
+| [ADR-0021](../adrs/ADR-0021-signals-strategist-dedicated-topology-cutover.md) | Signals/Strategist dedicated topology cutover | Accepted | Partial | Dedicated services primary; embedded paths behind explicit flags |
 
 ---
 

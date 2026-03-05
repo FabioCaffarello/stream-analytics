@@ -279,6 +279,26 @@ docker volume rm market-raccoon-clickhouse-data market-raccoon-timescale-data \
 make up
 ```
 
+## Odin Client Cacheless Debug (Port 8090)
+
+Use this runbook when validating client-side regressions with a clean browser state and no network cache.
+
+```bash
+# 1) Rebuild/validate local widget liveness against the local backend
+make -C client check-widgets-online
+
+# 2) Generate cacheless runtime probes baseline (writes to .context/evidence/)
+MR_URL=http://127.0.0.1:8090 npm --prefix tests/playwright run m1:baseline
+
+# 3) Run full E2E regression pack
+npx --prefix tests/playwright playwright test tests/playwright/e2e
+```
+
+Expected signals:
+- `check-widgets-online: PASS` with `conn=Connected` and `health=OK`.
+- Probe report shows deterministic TF deltas and stable `stream_count` across TF switches.
+- E2E suite passes without desync failures.
+
 ## Processor JetStream Routing
 
 The processor routes by `env.Type`:
@@ -303,9 +323,9 @@ When `enable_crossvenue_join` is true, the `join_trades_subject` is automaticall
 
 ## Related Documentation
 
-- [Cold-Path Runbook](../../docs/operations/cold-path-runbook.md) — store alerts, degradation scenarios, ClickHouse operations
-- [Degradation Contract](../../docs/operations/degradation.md) — ClickHouse failure propagation and mitigation
-- [Sharding Guide](../../docs/operations/sharding.md) — horizontal scaling of processors
-- [Shard Incidents](../../docs/operations/shard-incidents.md) — shard-related alert playbooks
-- [Observability Runbooks](../../docs/observability/runbooks/) — per-subsystem incident response (all assume this stack is running)
-- [SLO Definitions](../../docs/observability/slo.md) — SLO targets and PromQL expressions
+- [Cold-Path Runbook](operations/cold-path-runbook.md) — store alerts, degradation scenarios, ClickHouse operations
+- [Degradation Contract](operations/degradation.md) — ClickHouse failure propagation and mitigation
+- [Sharding Guide](operations/sharding.md) — horizontal scaling of processors
+- [Shard Incidents](operations/shard-incidents.md) — shard-related alert playbooks
+- [Observability Runbooks](observability/runbooks/) — per-subsystem incident response (all assume this stack is running)
+- [SLO Definitions](observability/slo.md) — SLO targets and PromQL expressions

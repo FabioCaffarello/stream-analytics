@@ -67,6 +67,12 @@ mid_cache_lookup :: proc(ds: ^Data_Source, channel_sid: u64) -> (u64, bool) {
 // Insert into cache (overwrite oldest on overflow).
 @(private = "file")
 mid_cache_insert :: proc(ds: ^Data_Source, channel_sid: u64, market_id: u64) {
+	for i in 0 ..< ds.mid_count {
+		if ds.mid_cache[i].channel_sid == channel_sid {
+			ds.mid_cache[i].market_id = market_id
+			return
+		}
+	}
 	if ds.mid_count < MARKET_ID_CACHE_CAP {
 		ds.mid_cache[ds.mid_count] = {channel_sid, market_id}
 		ds.mid_count += 1
@@ -74,6 +80,30 @@ mid_cache_insert :: proc(ds: ^Data_Source, channel_sid: u64, market_id: u64) {
 		// Overwrite slot 0 (simple eviction — cache is small).
 		ds.mid_cache[0] = {channel_sid, market_id}
 	}
+}
+
+// Prime channel_sid -> market_id mapping at subscribe time to avoid transient
+// describe_stream misses creating per-channel stream identities.
+data_source_seed_market_id :: proc(
+	ds: ^Data_Source,
+	venue, symbol: string,
+	channel: ports.MD_Channel,
+	tf: string = "",
+) {
+	if ds == nil do return
+	if len(venue) == 0 || len(symbol) == 0 do return
+
+	market_id := util.market_id64(venue, symbol)
+	if market_id == 0 do return
+
+	subject := util.build_subject_with_timeframe(venue, symbol, channel, tf)
+	defer delete(subject)
+	if len(subject) == 0 do return
+
+	channel_sid := util.subject_id64(subject)
+	if channel_sid == 0 do return
+
+	mid_cache_insert(ds, channel_sid, market_id)
 }
 
 // Resolve the market-level subject_id for an event.
