@@ -199,13 +199,12 @@ test_sanitize_url_for_log_keeps_regular_path :: proc(t: ^testing.T) {
 
 @(test)
 test_ws_fault_action_matrix :: proc(t: ^testing.T) {
-	testing.expect_value(t, ws_fault_action(.AuthDenied, true), ports.MD_WS_Error_Action.Stop)
-	testing.expect_value(t, ws_fault_action(.HandshakeFailed, true), ports.MD_WS_Error_Action.Retry)
-	testing.expect_value(t, ws_fault_action(.ServerClosed, true), ports.MD_WS_Error_Action.Retry)
-	testing.expect_value(t, ws_fault_action(.ProtocolError, true), ports.MD_WS_Error_Action.Resync)
-	testing.expect_value(t, ws_fault_action(.BackpressureDrop, true), ports.MD_WS_Error_Action.Resync)
-	testing.expect_value(t, ws_fault_action(.Timeout, true), ports.MD_WS_Error_Action.Downgrade)
-	testing.expect_value(t, ws_fault_action(.Timeout, false), ports.MD_WS_Error_Action.Stop)
+	testing.expect_value(t, ws_fault_action(.AuthDenied), ports.MD_WS_Error_Action.Stop)
+	testing.expect_value(t, ws_fault_action(.HandshakeFailed), ports.MD_WS_Error_Action.Retry)
+	testing.expect_value(t, ws_fault_action(.ServerClosed), ports.MD_WS_Error_Action.Retry)
+	testing.expect_value(t, ws_fault_action(.ProtocolError), ports.MD_WS_Error_Action.Resync)
+	testing.expect_value(t, ws_fault_action(.BackpressureDrop), ports.MD_WS_Error_Action.Resync)
+	testing.expect_value(t, ws_fault_action(.Timeout), ports.MD_WS_Error_Action.Stop)
 }
 
 @(test)

@@ -493,12 +493,20 @@ test_parse_event_with_prev_seq :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_parse_stats_frame_quality_fields :: proc(t: ^testing.T) {
+test_parse_stats_frame_flat_payload_rejected_in_runtime :: proc(t: ^testing.T) {
 	raw := `{"type":"event","subject":"aggregation.stats/binance/BTCUSDT/1m","seq":61,"ts_ingest":1700000001200,"payload":{"MarkPriceClose":43210.5,"FundingRateLast":0.00015,"LiqBuyVolume":12.3,"LiqSellVolume":8.7,"WindowStartTs":1700000000000,"WindowEndTs":1700000060000,"WindowMs":60000,"TsIngestMs":1700000060123,"QualityFlags":5}}`
-	result := parse_mr_message(transmute([]u8)raw, nil)
-	testing.expect_value(t, result.kind, Parse_Result_Kind.Stats)
-	testing.expect_value(t, result.meta.parse_fallback, true)
-	st := result.data.stats
+	tel: Parse_Telemetry
+	result := parse_mr_message(transmute([]u8)raw, &tel)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.None)
+	testing.expect(t, tel.parse_errors > 0, "flat stats payload should be rejected on runtime path")
+	free_all(context.temp_allocator)
+}
+
+@(test)
+test_parse_stats_frame_flat_payload_compat_parser :: proc(t: ^testing.T) {
+	raw := `{"type":"event","subject":"aggregation.stats/binance/BTCUSDT/1m","seq":61,"ts_ingest":1700000001200,"payload":{"MarkPriceClose":43210.5,"FundingRateLast":0.00015,"LiqBuyVolume":12.3,"LiqSellVolume":8.7,"WindowStartTs":1700000000000,"WindowEndTs":1700000060000,"WindowMs":60000,"TsIngestMs":1700000060123,"QualityFlags":5}}`
+	st, ok := parse_stats_flat_compat(transmute([]u8)raw, 1700000001200, 0x11)
+	testing.expect_value(t, ok, true)
 	testing.expect_value(t, st.mark_price, 43210.5)
 	testing.expect_value(t, st.window_ms, i64(60000))
 	testing.expect_value(t, st.ts_ingest_ms, i64(1700000060123))
@@ -520,13 +528,23 @@ test_parse_stats_frame_wrapped_is_canonical_no_fallback :: proc(t: ^testing.T) {
 
 @(test)
 test_parse_microstructure_evidence :: proc(t: ^testing.T) {
-	raw := `{"type":"event","subject":"liquidity.evidence/binance/BTCUSDT/raw","seq":42,"ts_ingest":1700000000001,"payload":{"kind":"SPREAD_EXPLOSION","confidence":0.82,"features":["spread_bps","mid_price"],"feature_values":[25.1,50000.0],"reason":"spread expanded","ts_ingest":1700000000001,"seq":42}}`
+	raw := `{"type":"event","subject":"liquidity.evidence/binance/BTCUSDT/raw","seq":42,"ts_ingest":1700000000001,"payload":{"kind":"spread_explosion","confidence":0.82,"features":[{"key":"spread_bps","value":25.1},{"key":"mid_price","value":50000.0}],"reason":"spread expanded","ts_ingest":1700000000001,"seq":42}}`
 	result := parse_mr_message(transmute([]u8)raw, nil)
 	testing.expect_value(t, result.kind, Parse_Result_Kind.Evidence)
 	ev := result.data.evidence
-	testing.expect_value(t, string(ev.kind[:ev.kind_len]), "SPREAD_EXPLOSION")
+	testing.expect_value(t, string(ev.kind[:ev.kind_len]), "spread_explosion")
 	testing.expect_value(t, ev.feature_count, 2)
 	testing.expect_value(t, ev.confidence > 0.8, true)
+	free_all(context.temp_allocator)
+}
+
+@(test)
+test_parse_microstructure_evidence_legacy_compat_parser :: proc(t: ^testing.T) {
+	raw := `{"type":"event","subject":"liquidity.evidence/binance/BTCUSDT/raw","seq":42,"ts_ingest":1700000000001,"payload":{"kind":"SPREAD_EXPLOSION","confidence":0.82,"features":["spread_bps","mid_price"],"feature_values":[25.1,50000.0],"reason":"spread expanded","ts_ingest":1700000000001,"seq":42}}`
+	ev, ok := parse_microstructure_evidence_legacy_compat(transmute([]u8)raw, 1700000000001, 0x22)
+	testing.expect_value(t, ok, true)
+	testing.expect_value(t, string(ev.kind[:ev.kind_len]), "SPREAD_EXPLOSION")
+	testing.expect_value(t, ev.feature_count, 2)
 	free_all(context.temp_allocator)
 }
 
@@ -574,8 +592,18 @@ test_parse_signal_frame_legacy_subject_compat :: proc(t: ^testing.T) {
 	raw := `{"type":"signal","subject":"signal/composite/binance/BTCUSDT/1m","seq":90,"ts_server":1700000001300,"payload":{"kind":"trend_breakout","severity":"high","confidence":0.9,"reason":"legacy"}}`
 	tel: Parse_Telemetry
 	result := parse_mr_message(transmute([]u8)raw, &tel)
-	testing.expect_value(t, result.kind, Parse_Result_Kind.Signal)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.None)
 	testing.expect_value(t, tel.legacy_signal_frames, 1)
+	free_all(context.temp_allocator)
+}
+
+@(test)
+test_parse_signal_frame_legacy_compat_parser :: proc(t: ^testing.T) {
+	raw := `{"type":"signal","subject":"signal/composite/binance/BTCUSDT/1m","seq":90,"ts_server":1700000001300,"payload":{"kind":"trend_breakout","severity":"high","confidence":0.9,"reason":"legacy"}}`
+	sig, ok := parse_signal_legacy_compat(transmute([]u8)raw, 1700000001300, 0x33)
+	testing.expect_value(t, ok, true)
+	testing.expect_value(t, string(sig.kind[:sig.kind_len]), "trend_breakout")
+	testing.expect_value(t, string(sig.severity[:sig.severity_len]), "high")
 	free_all(context.temp_allocator)
 }
 

@@ -515,9 +515,6 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 			result.meta.parse_fallback = used_fallback
 			if telemetry != nil {
 				telemetry.canonical_stats_frames += 1
-				if used_fallback {
-					telemetry.stats_fallback_frames += 1
-				}
 			}
 		} else if telemetry != nil {
 			telemetry.parse_errors += 1
@@ -546,44 +543,32 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 		} else if telemetry != nil {
 			telemetry.parse_errors += 1
 		}
-	case "liquidity.evidence", "insights.microstructure_evidence":
-		is_legacy_subject := stream == "insights.microstructure_evidence"
-		if r, ok, legacy_payload, used_fallback := parse_microstructure_evidence(raw, env.ts_ingest, subject_id); ok {
+	case "liquidity.evidence":
+		if r, ok, _, used_fallback := parse_microstructure_evidence(raw, env.ts_ingest, subject_id); ok {
 			r.seq = result.meta.seq
 			result.kind = .Evidence
 			result.data.evidence = r
-			result.meta.legacy_subject = is_legacy_subject
 			result.meta.parse_fallback = used_fallback
 			if telemetry != nil {
-				if is_legacy_subject {
-					telemetry.legacy_evidence_frames += 1
-				} else {
-					telemetry.canonical_evidence_frames += 1
-				}
-				if used_fallback || legacy_payload {
-					telemetry.evidence_fallback_frames += 1
-				}
+				telemetry.canonical_evidence_frames += 1
 			}
 		} else if telemetry != nil {
 			telemetry.parse_errors += 1
 		}
 	case "signal", "signal.event":
-		is_legacy_subject := strings.has_prefix(env.subject, "signal/composite/")
-		if r, ok, legacy_payload, used_fallback := parse_signal(raw, result.meta.server_ts_ms, subject_id); ok {
+		if strings.has_prefix(env.subject, "signal/composite/") {
+			if telemetry != nil {
+				telemetry.legacy_signal_frames += 1
+			}
+			return result
+		}
+		if r, ok, _, used_fallback := parse_signal(raw, result.meta.server_ts_ms, subject_id); ok {
 			r.seq = result.meta.seq
 			result.kind = .Signal
 			result.data.signal = r
-			result.meta.legacy_subject = is_legacy_subject
 			result.meta.parse_fallback = used_fallback
 			if telemetry != nil {
-				if is_legacy_subject || legacy_payload {
-					telemetry.legacy_signal_frames += 1
-				} else {
-					telemetry.canonical_signal_frames += 1
-				}
-				if used_fallback {
-					telemetry.signal_fallback_frames += 1
-				}
+				telemetry.canonical_signal_frames += 1
 			}
 		} else if telemetry != nil {
 			telemetry.parse_errors += 1

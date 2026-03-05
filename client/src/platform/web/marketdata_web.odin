@@ -296,28 +296,23 @@ web_sample_percentile_us :: proc(samples: [WEB_PERF_SAMPLE_CAP]i64, head: int, c
 @(private = "file")
 apply_web_fault :: proc(state: ^MD_Web_State, category: ports.MD_WS_Error_Category) {
 	if state == nil do return
-	action := md_common.ws_fault_action(category, state.allow_legacy_ws)
+	action := md_common.ws_fault_action(category)
 	state.ws_error_category = category
 	state.ws_error_action = action
 	switch action {
 	case .Retry:
 		set_web_transport_state(state, .Backoff)
-	case .Downgrade:
-		state.legacy_downgrade_count += 1
-		state.legacy_connected_since_ms = time.now()._nsec / 1_000_000
-		fmt.printf("[md-lifecycle] WARN legacy_downgrade count=%d allow=%v\n", state.legacy_downgrade_count, state.allow_legacy_ws)
-		state.transport_mode = .Legacy_JSON
-		state.hello_timeout_count += 1
-		state.hello_received = true
-		state.hello_valid = true
-		state.desync = false
-		state.desync_reason = .None
-		set_web_transport_state(state, .Running)
 	case .Resync:
 		state.desync = true
 		if state.desync_reason == .None do state.desync_reason = .Sequence_Gap
 		set_web_transport_state(state, .Desync)
 	case .Stop:
+		state.reconnect_blocked = true
+		state.desync = true
+		state.desync_reason = .Protocol_Invalid
+		set_web_transport_state(state, .Desync)
+	case .Downgrade:
+		// Legacy downgrade is removed from runtime; fail closed if observed.
 		state.reconnect_blocked = true
 		state.desync = true
 		state.desync_reason = .Protocol_Invalid

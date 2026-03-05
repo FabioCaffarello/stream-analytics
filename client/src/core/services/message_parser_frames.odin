@@ -8,42 +8,7 @@ parse_microstructure_evidence :: proc(raw: []u8, ts: i64, subject_id: u64) -> (P
 	out: Parsed_Evidence
 	out.subject_id = subject_id
 
-	// Legacy evidence payload: features[] + feature_values[].
-	legacy: util.MR_Microstructure_Evidence_Frame
-	if json.unmarshal(raw, &legacy) == nil {
-		p := legacy.payload
-		out.confidence = p.confidence
-		out.unix = p.ts_ingest if p.ts_ingest > 0 else ts
-		out.seq = p.seq
-
-		nk := min(len(p.kind), len(out.kind))
-		for i in 0 ..< nk {
-			out.kind[i] = p.kind[i]
-		}
-		out.kind_len = u8(nk)
-
-		nr := min(len(p.reason), len(out.reason))
-		for i in 0 ..< nr {
-			out.reason[i] = p.reason[i]
-		}
-		out.reason_len = u8(nr)
-
-		fc := min(len(p.features), len(out.feature_tags))
-		for fi in 0 ..< fc {
-			tn := min(len(p.features[fi]), len(out.feature_tags[fi]))
-			for tj in 0 ..< tn {
-				out.feature_tags[fi][tj] = p.features[fi][tj]
-			}
-		}
-		fv := min(len(p.feature_values), len(out.feature_vals))
-		for vi in 0 ..< fv {
-			out.feature_vals[vi] = p.feature_values[vi]
-		}
-		out.feature_count = fc
-		if out.kind_len > 0 do return out, true, true, true
-	}
-
-	// V2 evidence payload: type/explanation + features[{key,value}].
+	// Runtime path accepts only canonical evidence frame.
 	v2: util.MR_Microstructure_Evidence_Frame_V2
 	if json.unmarshal(raw, &v2) != nil do return {}, false, false, false
 	p2 := v2.payload
@@ -57,11 +22,9 @@ parse_microstructure_evidence :: proc(raw: []u8, ts: i64, subject_id: u64) -> (P
 	}
 	out.seq = p2.seq
 
-	used_fallback := false
 	kind := p2.kind
 	if len(kind) == 0 {
 		kind = p2.type_str
-		used_fallback = true
 	}
 	nk := min(len(kind), len(out.kind))
 	for i in 0 ..< nk {
@@ -73,7 +36,6 @@ parse_microstructure_evidence :: proc(raw: []u8, ts: i64, subject_id: u64) -> (P
 	reason := p2.reason
 	if len(reason) == 0 {
 		reason = p2.explanation
-		used_fallback = true
 	}
 	nr := min(len(reason), len(out.reason))
 	for i in 0 ..< nr {
@@ -91,112 +53,58 @@ parse_microstructure_evidence :: proc(raw: []u8, ts: i64, subject_id: u64) -> (P
 		out.feature_vals[fi] = p2.features[fi].value
 	}
 	out.feature_count = fc
-	return out, true, false, used_fallback
+	return out, true, false, false
 }
 
 parse_signal :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Signal, bool, bool, bool) {
 	frame_v2: util.MR_Signal_Frame_V2
-	if json.unmarshal(raw, &frame_v2) == nil {
-		p2 := frame_v2.payload
-		kind := p2.kind
-		used_fallback := false
-		if len(kind) == 0 {
-			kind = p2.type_str
-			used_fallback = true
-		}
-		reason := p2.reason
-		if len(reason) == 0 {
-			reason = p2.explanation
-			used_fallback = true
-		}
-		if !f64_valid(p2.confidence) || p2.confidence < 0 || p2.confidence > 1 do return {}, false, false, false
-		if !f64_valid(p2.regime_strength) do return {}, false, false, false
-		if len(kind) > 0 && len(p2.severity) > 0 {
-			regime := p2.regime_kind
-			if len(regime) == 0 {
-				if p2.regime_strength != 0 do return {}, false, false, false
-			} else if p2.regime_strength < 0 || p2.regime_strength > 1 {
-				return {}, false, false, false
-			}
-
-			ts_source := ts
-			if ts_source <= 0 do ts_source = frame_v2.ts_server
-			unix := util.normalize_unix_seconds(ts_source)
-
-			out: Parsed_Signal
-			out.confidence = p2.confidence
-			out.regime_strength = p2.regime_strength
-			out.unix = unix
-			out.subject_id = subject_id
-			out.seq = frame_v2.seq
-
-			nk := min(len(kind), len(out.kind))
-			for i in 0 ..< nk {
-				out.kind[i] = kind[i]
-			}
-			out.kind_len = u8(nk)
-
-			ns := min(len(p2.severity), len(out.severity))
-			for i in 0 ..< ns {
-				out.severity[i] = p2.severity[i]
-			}
-			out.severity_len = u8(ns)
-
-			nr := min(len(reason), len(out.reason))
-			for i in 0 ..< nr {
-				out.reason[i] = reason[i]
-			}
-			out.reason_len = u8(nr)
-
-			ng := min(len(regime), len(out.regime))
-			for i in 0 ..< ng {
-				out.regime[i] = regime[i]
-			}
-			out.regime_len = u8(ng)
-			return out, true, false, used_fallback
-		}
+	if json.unmarshal(raw, &frame_v2) != nil do return {}, false, false, false
+	p2 := frame_v2.payload
+	kind := p2.kind
+	if len(kind) == 0 {
+		kind = p2.type_str
 	}
+	reason := p2.reason
+	if len(reason) == 0 {
+		reason = p2.explanation
+	}
+	if !f64_valid(p2.confidence) || p2.confidence < 0 || p2.confidence > 1 do return {}, false, false, false
+	if !f64_valid(p2.regime_strength) do return {}, false, false, false
+	if len(kind) == 0 || len(p2.severity) == 0 do return {}, false, false, false
 
-	frame: util.MR_Signal_Frame
-	if json.unmarshal(raw, &frame) != nil do return {}, false, false, false
-	p := frame.payload
-	if !f64_valid(p.confidence) || p.confidence < 0 || p.confidence > 1 do return {}, false, false, false
-	if !f64_valid(p.regime_strength) do return {}, false, false, false
-	if len(p.kind) == 0 || len(p.severity) == 0 do return {}, false, false, false
-
-	regime := p.regime_kind
+	regime := p2.regime_kind
 	if len(regime) == 0 {
-		if p.regime_strength != 0 do return {}, false, false, false
-	} else if p.regime_strength < 0 || p.regime_strength > 1 {
+		if p2.regime_strength != 0 do return {}, false, false, false
+	} else if p2.regime_strength < 0 || p2.regime_strength > 1 {
 		return {}, false, false, false
 	}
 
 	ts_source := ts
-	if ts_source <= 0 do ts_source = frame.ts_server
+	if ts_source <= 0 do ts_source = frame_v2.ts_server
 	unix := util.normalize_unix_seconds(ts_source)
 
 	out: Parsed_Signal
-	out.confidence = p.confidence
-	out.regime_strength = p.regime_strength
+	out.confidence = p2.confidence
+	out.regime_strength = p2.regime_strength
 	out.unix = unix
 	out.subject_id = subject_id
-	out.seq = frame.seq
+	out.seq = frame_v2.seq
 
-	nk := min(len(p.kind), len(out.kind))
+	nk := min(len(kind), len(out.kind))
 	for i in 0 ..< nk {
-		out.kind[i] = p.kind[i]
+		out.kind[i] = kind[i]
 	}
 	out.kind_len = u8(nk)
 
-	ns := min(len(p.severity), len(out.severity))
+	ns := min(len(p2.severity), len(out.severity))
 	for i in 0 ..< ns {
-		out.severity[i] = p.severity[i]
+		out.severity[i] = p2.severity[i]
 	}
 	out.severity_len = u8(ns)
 
-	nr := min(len(p.reason), len(out.reason))
+	nr := min(len(reason), len(out.reason))
 	for i in 0 ..< nr {
-		out.reason[i] = p.reason[i]
+		out.reason[i] = reason[i]
 	}
 	out.reason_len = u8(nr)
 
@@ -206,7 +114,7 @@ parse_signal :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Signal, boo
 	}
 	out.regime_len = u8(ng)
 
-	return out, true, true, false
+	return out, true, false, false
 }
 
 // --- Validation helper ---
@@ -411,24 +319,14 @@ stats_payload_has_data :: proc(s: util.MR_Stats_Payload) -> bool {
 
 @(private = "package")
 parse_stats :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Stats, bool, bool) {
-	// Canonical server JSON shape for aggregation.stats is wrapped as
-	// payload.Stats; keep this path non-fallback to avoid compat false positives.
-	used_fallback := false
+	// Runtime path accepts only canonical wrapped payload.Stats frame.
 	s: util.MR_Stats_Payload
-	used_wrapped := false
 	wrapped: util.MR_Stats_Frame_Wrapped
 	if json.unmarshal(raw, &wrapped) == nil && stats_payload_has_data(wrapped.payload.stats) {
 		s = wrapped.payload.stats
-		used_wrapped = true
 	} else {
-		// Compatibility path for legacy flat payloads.
-		frame: util.MR_Stats_Frame
-		if json.unmarshal(raw, &frame) != nil do return {}, false, false
-		if !stats_payload_has_data(frame.payload) do return {}, false, false
-		s = frame.payload
-		used_fallback = true
+		return {}, false, false
 	}
-	if !used_wrapped && !used_fallback do return {}, false, false
 
 	if !f64_valid(s.mark_price_close) do return {}, false, false
 
@@ -446,7 +344,7 @@ parse_stats :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Stats, bool,
 		quality_flags = s.quality_flags,
 		unix       = unix,
 		subject_id = subject_id,
-	}, true, used_fallback
+	}, true, false
 }
 
 @(private = "package")

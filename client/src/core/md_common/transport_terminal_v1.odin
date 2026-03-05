@@ -17,7 +17,7 @@ action_hint_to_ws_fault :: proc(hint: util.MR_Action_Hint) -> (ports.MD_WS_Error
 	return .None, false
 }
 
-ws_fault_action :: proc(category: ports.MD_WS_Error_Category, allow_legacy_ws: bool) -> ports.MD_WS_Error_Action {
+ws_fault_action :: proc(category: ports.MD_WS_Error_Category) -> ports.MD_WS_Error_Action {
 	switch category {
 	case .AuthDenied:
 		return .Stop
@@ -28,9 +28,6 @@ ws_fault_action :: proc(category: ports.MD_WS_Error_Category, allow_legacy_ws: b
 	case .ProtocolError:
 		return .Resync
 	case .Timeout:
-		if allow_legacy_ws {
-			return .Downgrade
-		}
 		return .Stop
 	case .BackpressureDrop:
 		return .Resync
