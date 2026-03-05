@@ -16,6 +16,7 @@ make_ctx :: proc(store: ^Market_Store, subject_id: u64, viewport: ui.Rect) -> La
 		frame_seq = 1,
 		viewport = viewport,
 		capabilities = layer_capabilities_from_stream(stream),
+		signal_evidence_link_enabled = true,
 	}
 }
 

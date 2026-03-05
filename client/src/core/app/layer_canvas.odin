@@ -77,6 +77,7 @@ render_subject_layer_canvas :: proc(
 		viewport     = cell_vp,
 		text         = state.text,
 		capabilities = layers.layer_capabilities_from_stream(stream),
+		signal_evidence_link_enabled = state.signal_evidence_link_enabled,
 	}
 
 	layers.layer_outputs_reset(&state.layer_outputs)

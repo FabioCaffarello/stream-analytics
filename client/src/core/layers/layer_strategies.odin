@@ -40,6 +40,18 @@ signal_severity_color :: proc(entry: services.Signal_Entry) -> ui.Color {
 }
 
 @(private = "file")
+layer_diag_state :: proc(store: ^Market_Store, stream: ^Market_Stream, has_data: bool) -> Layer_Widget_State {
+	if store == nil || stream == nil do return .Loading
+	if !has_data do return .Empty
+	if stream.evictions > 0 do return .Degraded
+	if store.last_now_ms > 0 && stream.last_unix > 0 {
+		age_ms := store.last_now_ms - stream.last_unix * 1000
+		if age_ms > 3_000 do return .Stale
+	}
+	return .Live
+}
+
+@(private = "file")
 price_candles_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs) {
 	if ctx == nil || out == nil || ctx.stream == nil do return
 	if !ctx.capabilities.has_candles do return
@@ -112,6 +124,12 @@ price_candles_diagnostics :: proc(store: ^Market_Store, out: ^Layer_Diagnostics)
 	if store == nil do return
 	stream := market_store_active_stream(store)
 	out.has_data = stream != nil && stream.candles.count > 0
+	out.state = layer_diag_state(store, stream, out.has_data)
+	if stream == nil do return
+	out.last_seq = stream.last_seq
+	out.last_unix = stream.last_unix
+	out.parse_total = stream.event_count
+	out.drop_total = stream.evictions
 }
 
 price_candles_layer_strategy :: proc() -> Layer_Strategy {
@@ -180,6 +198,13 @@ trades_tape_diagnostics :: proc(store: ^Market_Store, out: ^Layer_Diagnostics) {
 	if store == nil do return
 	stream := market_store_active_stream(store)
 	out.has_data = stream != nil && stream.trades.count > 0
+	out.state = layer_diag_state(store, stream, out.has_data)
+	if stream == nil do return
+	out.last_seq = stream.last_seq
+	out.last_unix = stream.last_unix
+	out.parse_total = stream.trades_frames + stream.tape_frames
+	out.fallback_total = stream.tape_fallbacks
+	out.drop_total = stream.trades_drops + stream.tape_drops
 }
 
 trades_tape_layer_strategy :: proc() -> Layer_Strategy {
@@ -259,6 +284,13 @@ orderbook_dom_diagnostics :: proc(store: ^Market_Store, out: ^Layer_Diagnostics)
 	if store == nil do return
 	stream := market_store_active_stream(store)
 	out.has_data = stream != nil && (stream.orderbook.ask_count > 0 || stream.orderbook.bid_count > 0)
+	out.state = layer_diag_state(store, stream, out.has_data)
+	if stream == nil do return
+	out.last_seq = stream.last_seq
+	out.last_unix = stream.last_unix
+	out.parse_total = stream.orderbook_frames
+	out.fallback_total = stream.orderbook_fallbacks
+	out.drop_total = stream.orderbook_drops
 }
 
 orderbook_dom_layer_strategy :: proc() -> Layer_Strategy {
@@ -331,6 +363,12 @@ vpvr_heatmap_diagnostics :: proc(store: ^Market_Store, out: ^Layer_Diagnostics) 
 	if store == nil do return
 	stream := market_store_active_stream(store)
 	out.has_data = stream != nil && (stream.heatmap.count > 0 || stream.vpvr.count > 0)
+	out.state = layer_diag_state(store, stream, out.has_data)
+	if stream == nil do return
+	out.last_seq = stream.last_seq
+	out.last_unix = stream.last_unix
+	out.parse_total = stream.event_count
+	out.drop_total = stream.evictions
 }
 
 vpvr_heatmap_layer_strategy :: proc() -> Layer_Strategy {
@@ -378,6 +416,13 @@ evidence_diagnostics :: proc(store: ^Market_Store, out: ^Layer_Diagnostics) {
 	if store == nil do return
 	stream := market_store_active_stream(store)
 	out.has_data = stream != nil && stream.evidence_count > 0
+	out.state = layer_diag_state(store, stream, out.has_data)
+	if stream == nil do return
+	out.last_seq = stream.last_seq
+	out.last_unix = stream.last_unix
+	out.parse_total = stream.evidence_frames
+	out.fallback_total = stream.evidence_fallbacks
+	out.drop_total = stream.evidence_drops
 }
 
 evidence_layer_strategy :: proc() -> Layer_Strategy {
@@ -410,6 +455,10 @@ signal_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs) {
 		kind := services.signal_entry_kind_string(&e)
 		reason := services.signal_entry_reason_string(&e)
 		line := fmt.bprintf(line_buf[:], "S %s %.2f %s", kind, e.confidence, reason)
+		if ctx.signal_evidence_link_enabled && ctx.stream.last_linked_evidence_seq > 0 {
+			link_buf: [160]u8
+			line = fmt.bprintf(link_buf[:], "%s ->E#%d", line, ctx.stream.last_linked_evidence_seq)
+		}
 		y -= 13
 		if y < ctx.viewport.pos.y + 8 do break
 		layer_outputs_push_text_badge(out, 60, text_badge_make(
@@ -428,6 +477,15 @@ signal_diagnostics :: proc(store: ^Market_Store, out: ^Layer_Diagnostics) {
 	if store == nil do return
 	stream := market_store_active_stream(store)
 	out.has_data = stream != nil && stream.signals.kind_count > 0
+	out.state = layer_diag_state(store, stream, out.has_data)
+	if stream == nil do return
+	out.last_seq = stream.last_seq
+	out.last_unix = stream.last_unix
+	out.parse_total = stream.signal_frames
+	out.fallback_total = stream.signal_fallbacks
+	out.drop_total = stream.signal_drops
+	out.signal_link_total = stream.signal_evidence_links
+	out.signal_link_evidence_seq = stream.last_linked_evidence_seq
 }
 
 signal_layer_strategy :: proc() -> Layer_Strategy {

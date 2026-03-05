@@ -40,6 +40,24 @@ Market_Stream :: struct {
 	last_unix:        i64,
 	event_count:      u64,
 	evictions:        u64,
+	orderbook_frames: u64,
+	trades_frames:    u64,
+	tape_frames:      u64,
+	evidence_frames:  u64,
+	signal_frames:    u64,
+	orderbook_fallbacks: u64,
+	tape_fallbacks:      u64,
+	evidence_fallbacks:  u64,
+	signal_fallbacks:    u64,
+	orderbook_drops: u64,
+	trades_drops:    u64,
+	tape_drops:      u64,
+	evidence_drops:  u64,
+	signal_drops:    u64,
+	last_evidence_seq: i64,
+	last_signal_seq:   i64,
+	last_linked_evidence_seq: i64,
+	signal_evidence_links:    u64,
 
 	trades:           services.Trades_Store,
 	orderbook:        services.Orderbook_Store,
@@ -200,6 +218,7 @@ market_stream_push_evidence :: proc(stream: ^Market_Stream, evt: ports.MD_Eviden
 	if stream == nil do return
 	if stream.evidence_count >= EVIDENCE_RING_CAP {
 		stream.evictions += 1
+		stream.evidence_drops += 1
 	}
 	idx := stream.evidence_head
 	stream.evidence[idx] = Evidence_Entry{
@@ -232,7 +251,9 @@ market_store_apply_event :: proc(store: ^Market_Store, evt: ^ports.MD_Event) -> 
 
 	switch evt.kind {
 	case .Trade:
+		stream.trades_frames += 1
 		if stream.trades.count >= services.TRADES_CAP do stream.evictions += 1
+		if stream.trades.count >= services.TRADES_CAP do stream.trades_drops += 1
 		services.push_trade(&stream.trades, services.Trade_Entry{
 			price = evt.data.trade.price,
 			qty   = evt.data.trade.qty,
@@ -240,9 +261,12 @@ market_store_apply_event :: proc(store: ^Market_Store, evt: ^ports.MD_Event) -> 
 			unix  = evt.data.trade.unix,
 		})
 	case .Tape:
+		stream.tape_frames += 1
 		if stream.trades.count >= services.TRADES_CAP do stream.evictions += 1
+		if stream.trades.count >= services.TRADES_CAP do stream.tape_drops += 1
 		qty := max(evt.data.tape.total_volume, evt.data.tape.buy_volume + evt.data.tape.sell_volume)
 		if qty > 0 && evt.data.tape.last_price > 0 {
+			stream.tape_fallbacks += 1
 			services.push_trade(&stream.trades, services.Trade_Entry{
 				price = evt.data.tape.last_price,
 				qty   = qty,
@@ -251,6 +275,10 @@ market_store_apply_event :: proc(store: ^Market_Store, evt: ^ports.MD_Event) -> 
 			})
 		}
 	case .Orderbook_Snapshot:
+		stream.orderbook_frames += 1
+		if evt.data.ob.ask_count <= 0 || evt.data.ob.bid_count <= 0 {
+			stream.orderbook_fallbacks += 1
+		}
 		services.update_orderbook(
 			&stream.orderbook,
 			evt.data.ob.ask_prices[:evt.data.ob.ask_count],
@@ -330,8 +358,21 @@ market_store_apply_event :: proc(store: ^Market_Store, evt: ^ports.MD_Event) -> 
 			})
 		}
 	case .Evidence:
+		stream.evidence_frames += 1
+		stream.last_evidence_seq = evt.source.seq
+		if evt.data.evidence.feature_count <= 0 || evt.data.evidence.reason_len == 0 {
+			stream.evidence_fallbacks += 1
+		}
 		market_stream_push_evidence(stream, evt.data.evidence, subject_id)
 	case .Signal:
+		stream.signal_frames += 1
+		stream.last_signal_seq = evt.source.seq
+		if stream.last_evidence_seq > 0 {
+			stream.last_linked_evidence_seq = stream.last_evidence_seq
+			stream.signal_evidence_links += 1
+		} else {
+			stream.signal_fallbacks += 1
+		}
 		services.signal_store_push(&stream.signals, services.Signal_Entry{
 			kind            = evt.data.signal.kind,
 			kind_len        = evt.data.signal.kind_len,

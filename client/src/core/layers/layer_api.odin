@@ -65,6 +65,14 @@ Layer_Capabilities :: struct {
 	has_signal:    bool,
 }
 
+Layer_Widget_State :: enum u8 {
+	Loading,
+	Live,
+	Stale,
+	Degraded,
+	Empty,
+}
+
 // Read-only context for layer render hooks.
 Layer_Context :: struct {
 	store:        ^Market_Store,
@@ -75,14 +83,26 @@ Layer_Context :: struct {
 	viewport:     ui.Rect,
 	text:         ports.Text_Port,
 	capabilities: Layer_Capabilities,
+	signal_evidence_link_enabled: bool,
 }
 
 Layer_Diagnostics :: struct {
 	id:               Layer_ID,
 	enabled:          bool,
 	has_data:         bool,
+	state:            Layer_Widget_State,
 	render_invocations: u64,
 	dropped_outputs:  u64,
+	parse_total:      u64,
+	fallback_total:   u64,
+	drop_total:       u64,
+	last_seq:         i64,
+	last_unix:        i64,
+	signal_link_total: u64,
+	signal_link_evidence_seq: i64,
+	render_budget_us: i64,
+	render_p95_us:    i64,
+	render_over_budget: u64,
 }
 
 Layer_Strategy :: struct {
