@@ -93,9 +93,10 @@ channel_to_stream_type :: proc(channel: ports.MD_Channel) -> string {
 	case .Candles:
 		return "aggregation.candle"
 	case .Evidence:
-		return "insights.microstructure_evidence"
+		return "liquidity.evidence"
 	case .Signals:
-		return "signal/composite"
+		// Delivery canonicalizes signal.event command channels to signal subjects.
+		return "signal"
 	case .Tape:
 		return "aggregation.tape"
 	}
@@ -136,6 +137,13 @@ build_subject :: proc(venue, symbol: string, channel: ports.MD_Channel) -> strin
 // Build subject variant that allows timeframe override for heatmap/VPVR streams.
 build_subject_with_timeframe :: proc(venue, symbol: string, channel: ports.MD_Channel, timeframe: string) -> string {
 	stream_type, tf := channel_to_stream_parts_with_timeframe(channel, timeframe)
+	return build_subject_from_stream_type(venue, symbol, stream_type, tf)
+}
+
+// Build subject from explicit stream type and timeframe.
+// Used by strangler cutovers that need canonical/legacy routing by runtime flag.
+build_subject_from_stream_type :: proc(venue, symbol, stream_type, timeframe: string) -> string {
+	tf := timeframe
 	if len(stream_type) == 0 || len(tf) == 0 do return ""
 	venue_buf: [32]u8
 	norm_venue := normalize_subject_venue_into(venue_buf[:], venue)

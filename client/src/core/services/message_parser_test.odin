@@ -494,7 +494,7 @@ test_parse_event_with_prev_seq :: proc(t: ^testing.T) {
 
 @(test)
 test_parse_microstructure_evidence :: proc(t: ^testing.T) {
-	raw := `{"type":"event","subject":"insights.microstructure_evidence/binance/BTCUSDT/raw","seq":42,"ts_ingest":1700000000001,"payload":{"kind":"SPREAD_EXPLOSION","confidence":0.82,"features":["spread_bps","mid_price"],"feature_values":[25.1,50000.0],"reason":"spread expanded","ts_ingest":1700000000001,"seq":42}}`
+	raw := `{"type":"event","subject":"liquidity.evidence/binance/BTCUSDT/raw","seq":42,"ts_ingest":1700000000001,"payload":{"kind":"SPREAD_EXPLOSION","confidence":0.82,"features":["spread_bps","mid_price"],"feature_values":[25.1,50000.0],"reason":"spread expanded","ts_ingest":1700000000001,"seq":42}}`
 	result := parse_mr_message(transmute([]u8)raw, nil)
 	testing.expect_value(t, result.kind, Parse_Result_Kind.Evidence)
 	ev := result.data.evidence
@@ -506,7 +506,7 @@ test_parse_microstructure_evidence :: proc(t: ^testing.T) {
 
 @(test)
 test_parse_microstructure_evidence_v2 :: proc(t: ^testing.T) {
-	raw := `{"type":"event","subject":"insights.microstructure_evidence/binance/BTCUSDT/raw","seq":107,"ts_ingest":1772638137464,"ts_server":1772638137552,"payload":{"type":"absorption","ts_server":1772638137464,"venue":"BINANCE","symbol":"BTCUSDT","stream_id":"BINANCE/BTCUSDT/trade","seq":1772637404558069,"severity":"critical","confidence":0.95,"features":[{"key":"cum_volume","value":42.66},{"key":"price_move_pct","value":0.0049}],"explanation":"large cumulative volume absorbed with minimal price movement","rule_version":"v0","input_watermark":{"seq_start":1772637404557538,"seq_end":1772637404558069}}}`
+	raw := `{"type":"event","subject":"liquidity.evidence/binance/BTCUSDT/raw","seq":107,"ts_ingest":1772638137464,"ts_server":1772638137552,"payload":{"type":"absorption","ts_server":1772638137464,"venue":"BINANCE","symbol":"BTCUSDT","stream_id":"BINANCE/BTCUSDT/trade","seq":1772637404558069,"severity":"critical","confidence":0.95,"features":[{"key":"cum_volume","value":42.66},{"key":"price_move_pct","value":0.0049}],"explanation":"large cumulative volume absorbed with minimal price movement","rule_version":"v0","input_watermark":{"seq_start":1772637404557538,"seq_end":1772637404558069}}}`
 	result := parse_mr_message(transmute([]u8)raw, nil)
 	testing.expect_value(t, result.kind, Parse_Result_Kind.Evidence)
 	ev := result.data.evidence
@@ -520,7 +520,7 @@ test_parse_microstructure_evidence_v2 :: proc(t: ^testing.T) {
 
 @(test)
 test_parse_signal_frame_valid :: proc(t: ^testing.T) {
-	raw := `{"type":"signal","subject":"signal/composite/binance/BTCUSDT/1m","seq":88,"ts_server":1700000001200,"payload":{"kind":"trend_breakout","venue":"binance","instrument":"BTCUSDT","timeframe":"1m","severity":"high","confidence":0.91,"evidence":[{"label":"spread_bps","value":"8.1"}],"regime_kind":"trend","regime_strength":0.77,"reason":"breakout confirmed"}}`
+	raw := `{"type":"signal","subject":"signal/regime_change/binance/BTCUSDT/1m","seq":88,"ts_server":1700000001200,"payload":{"type":"trend_breakout","venue":"binance","symbol":"BTCUSDT","timeframe":"1m","severity":"high","confidence":0.91,"features":[{"key":"spread_bps","value":8.1}],"regime_kind":"trend","regime_strength":0.77,"explanation":"breakout confirmed"}}`
 	result := parse_mr_message(transmute([]u8)raw, nil)
 	testing.expect_value(t, result.kind, Parse_Result_Kind.Signal)
 	testing.expect_value(t, result.meta.has_ts_server, true)
@@ -535,11 +535,21 @@ test_parse_signal_frame_valid :: proc(t: ^testing.T) {
 
 @(test)
 test_parse_signal_frame_invalid_confidence_rejected :: proc(t: ^testing.T) {
-	raw := `{"type":"signal","subject":"signal/composite/binance/BTCUSDT/1m","seq":89,"ts_server":1700000001300,"payload":{"kind":"trend_breakout","severity":"high","confidence":1.5,"reason":"invalid"}}`
+	raw := `{"type":"signal","subject":"signal/trend_breakout/binance/BTCUSDT/1m","seq":89,"ts_server":1700000001300,"payload":{"type":"trend_breakout","severity":"high","confidence":1.5,"explanation":"invalid"}}`
 	tel: Parse_Telemetry
 	result := parse_mr_message(transmute([]u8)raw, &tel)
 	testing.expect_value(t, result.kind, Parse_Result_Kind.None)
 	testing.expect(t, tel.parse_errors > 0, "invalid signal confidence should increment parse_errors")
+	free_all(context.temp_allocator)
+}
+
+@(test)
+test_parse_signal_frame_legacy_subject_compat :: proc(t: ^testing.T) {
+	raw := `{"type":"signal","subject":"signal/composite/binance/BTCUSDT/1m","seq":90,"ts_server":1700000001300,"payload":{"kind":"trend_breakout","severity":"high","confidence":0.9,"reason":"legacy"}}`
+	tel: Parse_Telemetry
+	result := parse_mr_message(transmute([]u8)raw, &tel)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Signal)
+	testing.expect_value(t, tel.legacy_signal_frames, 1)
 	free_all(context.temp_allocator)
 }
 

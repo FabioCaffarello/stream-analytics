@@ -122,6 +122,10 @@ MD_Web_State :: struct {
 	transport_mode: util.Transport_Mode,
 	auth_mode:      u8, // 0=none, 1=apikey, 2=jwt
 	allow_legacy_ws: bool,
+	canonical_evidence_subject: bool,
+	canonical_signal_subject:   bool,
+	accept_legacy_evidence:     bool,
+	accept_legacy_signal:       bool,
 	ws_error_category: ports.MD_WS_Error_Category,
 	ws_error_action:   ports.MD_WS_Error_Action,
 	hello_timeout_count: int,
@@ -242,6 +246,14 @@ MD_Web_State :: struct {
 	batched_events_received: u64,
 	batched_fastpath_events: u64,
 	batched_fallback_events: u64,
+	canonical_evidence_frames: u64,
+	legacy_evidence_frames:    u64,
+	evidence_fallback_frames:  u64,
+	canonical_signal_frames:   u64,
+	legacy_signal_frames:      u64,
+	signal_fallback_frames:    u64,
+	legacy_evidence_rejected:  u64,
+	legacy_signal_rejected:    u64,
 }
 
 // File-private singleton: Odin procs are bare function pointers (no closures),
@@ -259,6 +271,14 @@ read_allow_legacy_ws_web :: proc() -> bool {
 	if v == 0 do return false
 	if v > 0 do return true
 	return md_common.ALLOW_LEGACY_WS_DEFAULT
+}
+
+@(private = "file")
+read_bool_web_setting :: proc(key: string, default_value: bool) -> bool {
+	if v, ok := web_settings_lookup(key); ok {
+		return md_common.legacy_switch_from_text(v)
+	}
+	return default_value
 }
 
 @(private = "file")
@@ -390,6 +410,10 @@ make_marketdata_web :: proc(url: string, api_key: string = "", connect: bool = t
 	state.jitter_seed = u32(time.now()._nsec & 0xFFFFFFFF)
 	state.transport_mode = .Terminal_V1
 	state.allow_legacy_ws = read_allow_legacy_ws_web()
+	state.canonical_evidence_subject = read_bool_web_setting(services.SETTING_CANONICAL_EVIDENCE_SUBJECT, true)
+	state.canonical_signal_subject = read_bool_web_setting(services.SETTING_CANONICAL_SIGNAL_SUBJECT, true)
+	state.accept_legacy_evidence = read_bool_web_setting(services.SETTING_ACCEPT_LEGACY_EVIDENCE, true)
+	state.accept_legacy_signal = read_bool_web_setting(services.SETTING_ACCEPT_LEGACY_SIGNAL, true)
 	g_web_state = state
 
 	if connect {
@@ -445,6 +469,18 @@ find_web_sub_by_subject_id :: proc(state: ^MD_Web_State, subject_id: u64) -> int
 
 @(private = "file")
 web_subject_for_channel :: proc(state: ^MD_Web_State, venue: string, symbol: string, channel: ports.MD_Channel) -> string {
+	if state != nil {
+		#partial switch channel {
+		case .Evidence:
+			stream_type := "liquidity.evidence" if state.canonical_evidence_subject else "insights.microstructure_evidence"
+			return util.build_subject_from_stream_type(venue, symbol, stream_type, "raw")
+		case .Signals:
+			stream_type := "signal" if state.canonical_signal_subject else "signal/composite"
+			tf := state.candle_tf_filter
+			if len(tf) == 0 do tf = "1m"
+			return util.build_subject_from_stream_type(venue, symbol, stream_type, tf)
+		}
+	}
 	return md_common.subject_for_channel(venue, symbol, state.candle_tf_filter, channel)
 }
 
@@ -566,6 +602,10 @@ web_reconnect_transport :: proc(ws_url: string, api_key: string, jwt_token: stri
 	state.hello_valid = false
 	state.transport_mode = .Terminal_V1
 	state.allow_legacy_ws = read_allow_legacy_ws_web()
+	state.canonical_evidence_subject = read_bool_web_setting(services.SETTING_CANONICAL_EVIDENCE_SUBJECT, true)
+	state.canonical_signal_subject = read_bool_web_setting(services.SETTING_CANONICAL_SIGNAL_SUBJECT, true)
+	state.accept_legacy_evidence = read_bool_web_setting(services.SETTING_ACCEPT_LEGACY_EVIDENCE, true)
+	state.accept_legacy_signal = read_bool_web_setting(services.SETTING_ACCEPT_LEGACY_SIGNAL, true)
 	state.ws_error_category = .None
 	state.ws_error_action = .None
 	set_web_transport_state(state, .Backoff)
@@ -626,7 +666,20 @@ web_subscribe_tf :: proc(venue: string, symbol: string, channel: ports.MD_Channe
 	state := g_web_state
 	if state == nil do return false
 
-	subject := util.build_subject_with_timeframe(venue, symbol, channel, tf)
+	subject := ""
+	#partial switch channel {
+	case .Evidence:
+		stream_type := "liquidity.evidence" if state.canonical_evidence_subject else "insights.microstructure_evidence"
+		subject = util.build_subject_from_stream_type(venue, symbol, stream_type, "raw")
+	case .Signals:
+		stream_type := "signal" if state.canonical_signal_subject else "signal/composite"
+		tf_eff := tf
+		if len(tf_eff) == 0 do tf_eff = "1m"
+		subject = util.build_subject_from_stream_type(venue, symbol, stream_type, tf_eff)
+	}
+	if len(subject) == 0 {
+		subject = util.build_subject_with_timeframe(venue, symbol, channel, tf)
+	}
 	if len(subject) == 0 do return false
 	subject_id := util.subject_id64(subject)
 
@@ -767,6 +820,14 @@ web_metrics :: proc(out: ^ports.MD_Runtime_Metrics) -> bool {
 		batched_events_received      = state.batched_events_received,
 		batched_fastpath_events      = state.batched_fastpath_events,
 		batched_fallback_events      = state.batched_fallback_events,
+		canonical_evidence_frames    = state.canonical_evidence_frames,
+		legacy_evidence_frames       = state.legacy_evidence_frames,
+		evidence_fallback_frames     = state.evidence_fallback_frames,
+		canonical_signal_frames      = state.canonical_signal_frames,
+		legacy_signal_frames         = state.legacy_signal_frames,
+		signal_fallback_frames       = state.signal_fallback_frames,
+		legacy_evidence_rejected     = state.legacy_evidence_rejected,
+		legacy_signal_rejected       = state.legacy_signal_rejected,
 		// Integrity counters.
 		snapshot_hash_mismatches     = state.snapshot_hash_mismatches,
 		snapshot_seq_violations      = state.snapshot_seq_violations,
@@ -890,7 +951,17 @@ web_resubscribe_timeframe_channels :: proc(state: ^MD_Web_State) {
 		if entry.channel != .Heatmaps && entry.channel != .VPVR && entry.channel != .Candles && entry.channel != .Signals && entry.channel != .Tape do continue
 		if entry.is_explicit_tf do continue // per-cell TF sub — don't clobber
 
-		new_subject := util.build_subject_with_timeframe(entry.venue, entry.symbol, entry.channel, state.candle_tf_filter)
+		new_subject := ""
+		#partial switch entry.channel {
+		case .Signals:
+			stream_type := "signal" if state.canonical_signal_subject else "signal/composite"
+			tf := state.candle_tf_filter
+			if len(tf) == 0 do tf = "1m"
+			new_subject = util.build_subject_from_stream_type(entry.venue, entry.symbol, stream_type, tf)
+		}
+		if len(new_subject) == 0 {
+			new_subject = util.build_subject_with_timeframe(entry.venue, entry.symbol, entry.channel, state.candle_tf_filter)
+		}
 		if new_subject == entry.subject {
 			delete(new_subject)
 			continue
@@ -1091,6 +1162,10 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 	if is_open && !state.was_connected {
 		state.backoff_s = WEB_BACKOFF_INITIAL_S
 		state.allow_legacy_ws = read_allow_legacy_ws_web()
+		state.canonical_evidence_subject = read_bool_web_setting(services.SETTING_CANONICAL_EVIDENCE_SUBJECT, true)
+		state.canonical_signal_subject = read_bool_web_setting(services.SETTING_CANONICAL_SIGNAL_SUBJECT, true)
+		state.accept_legacy_evidence = read_bool_web_setting(services.SETTING_ACCEPT_LEGACY_EVIDENCE, true)
+		state.accept_legacy_signal = read_bool_web_setting(services.SETTING_ACCEPT_LEGACY_SIGNAL, true)
 		state.ws_error_category = .None
 		state.ws_error_action = .None
 		state.desync = false
@@ -1750,6 +1825,12 @@ web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 			fmt.printf("[ws] Parse error #%d (frame_len=%d)\n", state.parse_error_count, len(raw))
 		}
 	}
+	state.canonical_evidence_frames += u64(max(telemetry.canonical_evidence_frames, 0))
+	state.legacy_evidence_frames += u64(max(telemetry.legacy_evidence_frames, 0))
+	state.evidence_fallback_frames += u64(max(telemetry.evidence_fallback_frames, 0))
+	state.canonical_signal_frames += u64(max(telemetry.canonical_signal_frames, 0))
+	state.legacy_signal_frames += u64(max(telemetry.legacy_signal_frames, 0))
+	state.signal_fallback_frames += u64(max(telemetry.signal_fallback_frames, 0))
 	web_apply_parsed_result(state, result, len(raw), parsed_now_ms)
 
 	parse_us := i64(time.duration_microseconds(time.tick_diff(parse_start_tick, parse_end_tick)))
@@ -1893,6 +1974,14 @@ web_apply_parsed_result :: proc(state: ^MD_Web_State, result: services.Parse_Res
 		fmt.printf("[md-lifecycle] first_data_after_connect_ms=%d kind=%v sid=%x\n", first_data_delta_ms, result.kind, result.meta.subject_id)
 	}
 	if md_common.parse_result_has_data(result.kind) {
+		if result.kind == .Evidence && result.meta.legacy_subject && !state.accept_legacy_evidence {
+			state.legacy_evidence_rejected += 1
+			return
+		}
+		if result.kind == .Signal && result.meta.legacy_subject && !state.accept_legacy_signal {
+			state.legacy_signal_rejected += 1
+			return
+		}
 		if !state.hello_received {
 			if state.desync_reason != .Missing_Hello {
 				fmt.printf("[md-lifecycle] desync reason=missing_hello kind=%v sid=%x\n", result.kind, result.meta.subject_id)

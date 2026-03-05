@@ -25,10 +25,17 @@ test_build_subject_orderbook_uses_aggregation_snapshot_stream :: proc(t: ^testin
 }
 
 @(test)
-test_build_signal_subject_uses_composite_kind_path :: proc(t: ^testing.T) {
+test_build_signal_subject_uses_canonical_signal_stream :: proc(t: ^testing.T) {
 	subject := build_subject_with_timeframe("binance-perp", "BTCUSDT", .Signals, "5m")
 	defer delete(subject)
-	testing.expect_value(t, subject, "signal/composite/binance/BTCUSDT/5m")
+	testing.expect_value(t, subject, "signal/binance/BTCUSDT/5m")
+}
+
+@(test)
+test_build_evidence_subject_uses_liquidity_evidence_stream :: proc(t: ^testing.T) {
+	subject := build_subject_with_timeframe("binance", "BTCUSDT", .Evidence, "")
+	defer delete(subject)
+	testing.expect_value(t, subject, "liquidity.evidence/binance/BTCUSDT/raw")
 }
 
 @(test)

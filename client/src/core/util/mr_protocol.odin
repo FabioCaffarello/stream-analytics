@@ -200,6 +200,7 @@ MR_Signal_Feature :: struct {
 }
 
 MR_Signal_Payload :: struct {
+	type_str:       string              `json:"type"`,
 	kind:           string              `json:"kind"`,
 	venue:          string              `json:"venue"`,
 	instrument:     string              `json:"instrument"`,
@@ -207,9 +208,32 @@ MR_Signal_Payload :: struct {
 	severity:       string              `json:"severity"`,
 	confidence:     f64                 `json:"confidence"`,
 	evidence:       []MR_Signal_Feature `json:"evidence"`,
+	explanation:    string              `json:"explanation"`,
+	rule_version:   string              `json:"rule_version"`,
 	regime_kind:    string              `json:"regime_kind"`,
 	regime_strength: f64                `json:"regime_strength"`,
 	reason:         string              `json:"reason"`,
+}
+
+MR_Signal_Feature_V2 :: struct {
+	key:   string `json:"key"`,
+	value: f64    `json:"value"`,
+}
+
+MR_Signal_Payload_V2 :: struct {
+	type_str:       string                `json:"type"`,
+	kind:           string                `json:"kind"`,
+	venue:          string                `json:"venue"`,
+	symbol:         string                `json:"symbol"`,
+	timeframe:      string                `json:"timeframe"`,
+	severity:       string                `json:"severity"`,
+	confidence:     f64                   `json:"confidence"`,
+	features:       []MR_Signal_Feature_V2 `json:"features"`,
+	explanation:    string                `json:"explanation"`,
+	rule_version:   string                `json:"rule_version"`,
+	regime_kind:    string                `json:"regime_kind"`,
+	regime_strength: f64                  `json:"regime_strength"`,
+	reason:         string                `json:"reason"`,
 }
 
 // Candle payload — matches Go AggregationCandleV1 (PascalCase, no json tags).
@@ -285,6 +309,14 @@ MR_Signal_Frame :: struct {
 	seq:       i64               `json:"seq"`,
 	ts_server: i64               `json:"ts_server"`,
 	payload:   MR_Signal_Payload `json:"payload"`,
+}
+
+MR_Signal_Frame_V2 :: struct {
+	type_str:  string               `json:"type"`,
+	subject:   string               `json:"subject"`,
+	seq:       i64                  `json:"seq"`,
+	ts_server: i64                  `json:"ts_server"`,
+	payload:   MR_Signal_Payload_V2 `json:"payload"`,
 }
 
 MR_Candle_Frame :: struct {

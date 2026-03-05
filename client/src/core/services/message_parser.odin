@@ -8,6 +8,7 @@ package services
 
 import "core:encoding/json"
 import "core:math"
+import "core:strings"
 import "mr:util"
 
 // --- Shared staging structs (used by both platform adapters) ---
@@ -289,6 +290,8 @@ Parse_Result_Meta :: struct {
 	has_ts_server:    bool,
 	subject_id:       u64,
 	is_snapshot:      bool,
+	legacy_subject:   bool,
+	parse_fallback:   bool,
 	// Terminal_V1 integrity fields.
 	prev_seq:         i64,
 	snapshot_seq:     i64,
@@ -706,6 +709,12 @@ Parse_Telemetry :: struct {
 	parse_errors:    int,
 	envelope_errors: int,
 	unknown_streams: int,
+	canonical_evidence_frames: int,
+	legacy_evidence_frames:    int,
+	evidence_fallback_frames:  int,
+	canonical_signal_frames:   int,
+	legacy_signal_frames:      int,
+	signal_fallback_frames:    int,
 }
 
 // --- Main parse entry point ---
@@ -889,19 +898,45 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 		} else if telemetry != nil {
 			telemetry.parse_errors += 1
 		}
-	case "insights.microstructure_evidence":
-		if r, ok := parse_microstructure_evidence(raw, env.ts_ingest, subject_id); ok {
+	case "liquidity.evidence", "insights.microstructure_evidence":
+		is_legacy_subject := stream == "insights.microstructure_evidence"
+		if r, ok, legacy_payload, used_fallback := parse_microstructure_evidence(raw, env.ts_ingest, subject_id); ok {
 			r.seq = result.meta.seq
 			result.kind = .Evidence
 			result.data.evidence = r
+			result.meta.legacy_subject = is_legacy_subject
+			result.meta.parse_fallback = used_fallback
+			if telemetry != nil {
+				if is_legacy_subject {
+					telemetry.legacy_evidence_frames += 1
+				} else {
+					telemetry.canonical_evidence_frames += 1
+				}
+				if used_fallback || legacy_payload {
+					telemetry.evidence_fallback_frames += 1
+				}
+			}
 		} else if telemetry != nil {
 			telemetry.parse_errors += 1
 		}
-	case "signal":
-		if r, ok := parse_signal(raw, result.meta.server_ts_ms, subject_id); ok {
+	case "signal", "signal.event":
+		is_legacy_subject := strings.has_prefix(env.subject, "signal/composite/")
+		if r, ok, legacy_payload, used_fallback := parse_signal(raw, result.meta.server_ts_ms, subject_id); ok {
 			r.seq = result.meta.seq
 			result.kind = .Signal
 			result.data.signal = r
+			result.meta.legacy_subject = is_legacy_subject
+			result.meta.parse_fallback = used_fallback
+			if telemetry != nil {
+				if is_legacy_subject || legacy_payload {
+					telemetry.legacy_signal_frames += 1
+				} else {
+					telemetry.canonical_signal_frames += 1
+				}
+				if used_fallback {
+					telemetry.signal_fallback_frames += 1
+				}
+			}
 		} else if telemetry != nil {
 			telemetry.parse_errors += 1
 		}
@@ -971,7 +1006,7 @@ parse_batched_event_payload :: proc(
 	return {}, false
 }
 
-parse_microstructure_evidence :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Evidence, bool) {
+parse_microstructure_evidence :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Evidence, bool, bool, bool) {
 	out: Parsed_Evidence
 	out.subject_id = subject_id
 
@@ -1007,12 +1042,12 @@ parse_microstructure_evidence :: proc(raw: []u8, ts: i64, subject_id: u64) -> (P
 			out.feature_vals[vi] = p.feature_values[vi]
 		}
 		out.feature_count = fc
-		if out.kind_len > 0 do return out, true
+		if out.kind_len > 0 do return out, true, true, true
 	}
 
 	// V2 evidence payload: type/explanation + features[{key,value}].
 	v2: util.MR_Microstructure_Evidence_Frame_V2
-	if json.unmarshal(raw, &v2) != nil do return {}, false
+	if json.unmarshal(raw, &v2) != nil do return {}, false, false, false
 	p2 := v2.payload
 	out.confidence = p2.confidence
 	if p2.ts_ingest > 0 {
@@ -1024,17 +1059,24 @@ parse_microstructure_evidence :: proc(raw: []u8, ts: i64, subject_id: u64) -> (P
 	}
 	out.seq = p2.seq
 
+	used_fallback := false
 	kind := p2.kind
-	if len(kind) == 0 do kind = p2.type_str
+	if len(kind) == 0 {
+		kind = p2.type_str
+		used_fallback = true
+	}
 	nk := min(len(kind), len(out.kind))
 	for i in 0 ..< nk {
 		out.kind[i] = kind[i]
 	}
 	out.kind_len = u8(nk)
-	if out.kind_len == 0 do return {}, false
+	if out.kind_len == 0 do return {}, false, false, false
 
 	reason := p2.reason
-	if len(reason) == 0 do reason = p2.explanation
+	if len(reason) == 0 {
+		reason = p2.explanation
+		used_fallback = true
+	}
 	nr := min(len(reason), len(out.reason))
 	for i in 0 ..< nr {
 		out.reason[i] = reason[i]
@@ -1051,22 +1093,84 @@ parse_microstructure_evidence :: proc(raw: []u8, ts: i64, subject_id: u64) -> (P
 		out.feature_vals[fi] = p2.features[fi].value
 	}
 	out.feature_count = fc
-	return out, true
+	return out, true, false, used_fallback
 }
 
-parse_signal :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Signal, bool) {
+parse_signal :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Signal, bool, bool, bool) {
+	frame_v2: util.MR_Signal_Frame_V2
+	if json.unmarshal(raw, &frame_v2) == nil {
+		p2 := frame_v2.payload
+		kind := p2.kind
+		used_fallback := false
+		if len(kind) == 0 {
+			kind = p2.type_str
+			used_fallback = true
+		}
+		reason := p2.reason
+		if len(reason) == 0 {
+			reason = p2.explanation
+			used_fallback = true
+		}
+		if !f64_valid(p2.confidence) || p2.confidence < 0 || p2.confidence > 1 do return {}, false, false, false
+		if !f64_valid(p2.regime_strength) do return {}, false, false, false
+		if len(kind) > 0 && len(p2.severity) > 0 {
+			regime := p2.regime_kind
+			if len(regime) == 0 {
+				if p2.regime_strength != 0 do return {}, false, false, false
+			} else if p2.regime_strength < 0 || p2.regime_strength > 1 {
+				return {}, false, false, false
+			}
+
+			ts_source := ts
+			if ts_source <= 0 do ts_source = frame_v2.ts_server
+			unix := util.normalize_unix_seconds(ts_source)
+
+			out: Parsed_Signal
+			out.confidence = p2.confidence
+			out.regime_strength = p2.regime_strength
+			out.unix = unix
+			out.subject_id = subject_id
+			out.seq = frame_v2.seq
+
+			nk := min(len(kind), len(out.kind))
+			for i in 0 ..< nk {
+				out.kind[i] = kind[i]
+			}
+			out.kind_len = u8(nk)
+
+			ns := min(len(p2.severity), len(out.severity))
+			for i in 0 ..< ns {
+				out.severity[i] = p2.severity[i]
+			}
+			out.severity_len = u8(ns)
+
+			nr := min(len(reason), len(out.reason))
+			for i in 0 ..< nr {
+				out.reason[i] = reason[i]
+			}
+			out.reason_len = u8(nr)
+
+			ng := min(len(regime), len(out.regime))
+			for i in 0 ..< ng {
+				out.regime[i] = regime[i]
+			}
+			out.regime_len = u8(ng)
+			return out, true, false, used_fallback
+		}
+	}
+
 	frame: util.MR_Signal_Frame
-	if json.unmarshal(raw, &frame) != nil do return {}, false
+	if json.unmarshal(raw, &frame) != nil do return {}, false, false, false
 	p := frame.payload
-	if !f64_valid(p.confidence) || p.confidence < 0 || p.confidence > 1 do return {}, false
-	if !f64_valid(p.regime_strength) do return {}, false
-	if len(p.kind) == 0 || len(p.severity) == 0 do return {}, false
+	if !f64_valid(p.confidence) || p.confidence < 0 || p.confidence > 1 do return {}, false, false, false
+	if !f64_valid(p.regime_strength) do return {}, false, false, false
+	if len(p.kind) == 0 || len(p.severity) == 0 do return {}, false, false, false
 
 	regime := p.regime_kind
 	if len(regime) == 0 {
-		if p.regime_strength != 0 do return {}, false
+		if p.regime_strength != 0 do return {}, false, false, false
 	} else if p.regime_strength < 0 || p.regime_strength > 1 {
-		return {}, false
+		return {}, false, false, false
 	}
 
 	ts_source := ts
@@ -1104,7 +1208,7 @@ parse_signal :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Signal, boo
 	}
 	out.regime_len = u8(ng)
 
-	return out, true
+	return out, true, true, false
 }
 
 // --- Validation helper ---
