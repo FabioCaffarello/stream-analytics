@@ -276,6 +276,94 @@ services:
           memory: 512M
           cpus: "1.00"
 
+  signals:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/signals.Dockerfile
+    image: market-raccoon/signals:dev
+    command: ["-config", "/etc/market-raccoon/signals.jsonc"]
+    volumes:
+      - ../configs/signals.jsonc:/etc/market-raccoon/signals.jsonc:ro
+    ports:
+      - "8084"
+    depends_on:
+      nats:
+        condition: service_healthy
+      timescale:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      server:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8084/readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - market-raccoon-network
+    restart: unless-stopped
+    profiles: ["core"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.00"
+
+  strategist:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/strategist.Dockerfile
+    image: market-raccoon/strategist:dev
+    command: ["-config", "/etc/market-raccoon/strategist.jsonc"]
+    volumes:
+      - ../configs/strategist.jsonc:/etc/market-raccoon/strategist.jsonc:ro
+    ports:
+      - "8085"
+    depends_on:
+      nats:
+        condition: service_healthy
+      timescale:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      server:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8085/readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - market-raccoon-network
+    restart: unless-stopped
+    profiles: ["core"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.00"
+
   migrate:
     build:
       context: ../..

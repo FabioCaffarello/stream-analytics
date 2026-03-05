@@ -6,7 +6,9 @@ use (
 	./cmd/migrate
 	./cmd/processor
 	./cmd/server
+	./cmd/signals
 	./cmd/store
+	./cmd/strategist
 	./internal/actors
 	./internal/adapters
 	./internal/core/aggregation
