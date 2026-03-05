@@ -236,12 +236,14 @@ func isExpectedSkipReason(eventType, skipReason, problemCode, wsStream string) b
 	case "canonicalization_error":
 		// Depth feeds commonly emit delete levels and partial deltas that fail
 		// strict canonical validation; classify those as expected runtime noise.
+		// Out-of-order depth deltas are also expected under reconnect/resubscribe
+		// churn and should not trip unexpected skip IQ gates.
 		event := strings.ToLower(strings.TrimSpace(eventType))
 		stream := normalizeWSStreamLabel(wsStream)
 		code := strings.ToUpper(strings.TrimSpace(problemCode))
 		return event == "marketdata.bookdelta" &&
 			stream == "depth" &&
-			(code == "VAL_VALIDATION_FAILED" || code == "VAL_INVALID_ARGUMENT")
+			(code == "VAL_VALIDATION_FAILED" || code == "VAL_INVALID_ARGUMENT" || code == "MD_OUT_OF_ORDER")
 	default:
 		return false
 	}
