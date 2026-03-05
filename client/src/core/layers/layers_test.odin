@@ -294,6 +294,11 @@ test_layer_registry_collect_diagnostics_reports_state :: proc(t: ^testing.T) {
 	testing.expect(t, n > 0)
 	found_price := false
 	for i in 0 ..< n {
+		testing.expect(t, diags[i].entries >= 0, "entries should be non-negative")
+		testing.expect(t, diags[i].max_entries >= 0, "max_entries should be non-negative")
+		testing.expect(t, diags[i].entries <= diags[i].max_entries, "entries should be bounded by max_entries")
+		testing.expect(t, diags[i].render_p95_us >= 0, "render_p95_us should be non-negative")
+		testing.expect(t, diags[i].render_p99_us >= 0, "render_p99_us should be non-negative")
 		if diags[i].id == .Price_Candles {
 			found_price = true
 			testing.expect_value(t, diags[i].enabled, true)

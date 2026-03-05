@@ -128,6 +128,31 @@ test_controller_reconnect_clears_state :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_controller_reconnect_clears_stale_state :: proc(t: ^testing.T) {
+	ctrl: Stream_Controller
+	controller_init(&ctrl)
+	ctrl.desync_stale_ms = 5_000
+
+	status := Stream_Status{}
+	controller_mark_connected(&status, true)
+	controller_mark_message(&status, 10_000, 10_000, 1, true)
+	controller_update_health(&ctrl, &status, 16_001)
+	testing.expect_value(t, status.desync_reason, Stream_Desync_Reason.Snapshot_Stale)
+	testing.expect_value(t, status.state, Stream_State.Desync)
+
+	// Disconnect + reconnect should allow stale latch to be cleared before new data arrives.
+	controller_mark_connected(&status, false)
+	controller_mark_connected(&status, true)
+	controller_clear_desync(&status)
+	controller_mark_ack(&status)
+	controller_mark_message(&status, 16_500, 16_500, 2, false)
+	result := controller_update_health(&ctrl, &status, 16_700)
+
+	testing.expect_value(t, result, Stream_State.Live)
+	testing.expect_value(t, status.desync_reason, Stream_Desync_Reason.None)
+}
+
+@(test)
 test_controller_lag_then_recovery :: proc(t: ^testing.T) {
 	ctrl: Stream_Controller
 	controller_init(&ctrl)
