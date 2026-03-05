@@ -469,3 +469,250 @@ probe_md_legacy_downgrade_count :: proc "c" () -> i32 {
 	p := app.runtime_probe(&g_state)
 	return i32(p.md_metrics.legacy_downgrade_count)
 }
+
+@(export)
+probe_md_alloc_estimate_total :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.md_alloc_estimate_total)
+}
+
+@(export)
+probe_md_alloc_estimate_frame :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.md_alloc_estimate_frame)
+}
+
+@(export)
+probe_md_canonical_evidence_frames :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.md_canonical_evidence_frames)
+}
+
+@(export)
+probe_md_legacy_evidence_frames :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.md_legacy_evidence_frames)
+}
+
+@(export)
+probe_md_evidence_fallback_frames :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.md_evidence_fallback_frames)
+}
+
+@(export)
+probe_md_canonical_signal_frames :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.md_canonical_signal_frames)
+}
+
+@(export)
+probe_md_legacy_signal_frames :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.md_legacy_signal_frames)
+}
+
+@(export)
+probe_md_signal_fallback_frames :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.md_signal_fallback_frames)
+}
+
+@(export)
+probe_md_legacy_evidence_rejected :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.md_legacy_evidence_rejected)
+}
+
+@(export)
+probe_md_legacy_signal_rejected :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.md_legacy_signal_rejected)
+}
+
+@(export)
+probe_widget_evidence_count :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_evidence_count)
+}
+
+@(export)
+probe_widget_signal_count :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_signal_count)
+}
+
+@(export)
+probe_widget_signal_link_total :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_signal_link_total)
+}
+
+@(export)
+probe_widget_signal_link_evidence_seq :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_signal_link_evidence_seq)
+}
+
+@(export)
+probe_widget_dom_parse_total :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_dom_parse_total)
+}
+
+@(export)
+probe_widget_dom_fallback_total :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_dom_fallback_total)
+}
+
+@(export)
+probe_widget_dom_drop_total :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_dom_drop_total)
+}
+
+@(export)
+probe_widget_dom_render_p95_us :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_dom_render_p95_us)
+}
+
+@(export)
+probe_widget_tape_parse_total :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_tape_parse_total)
+}
+
+@(export)
+probe_widget_tape_fallback_total :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_tape_fallback_total)
+}
+
+@(export)
+probe_widget_tape_drop_total :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_tape_drop_total)
+}
+
+@(export)
+probe_widget_tape_render_p95_us :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_tape_render_p95_us)
+}
+
+@(export)
+probe_widget_evidence_parse_total :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_evidence_parse_total)
+}
+
+@(export)
+probe_widget_evidence_fallback_total :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_evidence_fallback_total)
+}
+
+@(export)
+probe_widget_evidence_drop_total :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_evidence_drop_total)
+}
+
+@(export)
+probe_widget_evidence_render_p95_us :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_evidence_render_p95_us)
+}
+
+@(export)
+probe_widget_signal_parse_total :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_signal_parse_total)
+}
+
+@(export)
+probe_widget_signal_fallback_total :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_signal_fallback_total)
+}
+
+@(export)
+probe_widget_signal_drop_total :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_signal_drop_total)
+}
+
+@(export)
+probe_widget_signal_render_p95_us :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_signal_render_p95_us)
+}
+
+@(export)
+probe_widget_evidence_state :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_evidence_state)
+}
+
+@(export)
+probe_widget_signal_state :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_signal_state)
+}
+
+@(export)
+probe_layout_version :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.layout_version)
+}
+
+@(export)
+probe_layout_migrated :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	if p.layout_migrated do return 1
+	return 0
+}
+
+@(export)
+probe_layout_link_enabled :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	if p.layout_link_enabled do return 1
+	return 0
+}
