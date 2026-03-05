@@ -115,6 +115,56 @@ price_candles_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs) {
 		ui.COL_TEXT_PRIMARY,
 		ui.FONT_SIZE_XS,
 	))
+
+	if ctx.stream.stats.count > 0 {
+		st := services.get_stats(&ctx.stream.stats, 0)
+		stats_buf: [128]u8
+		window_s := st.window_ms / 1000
+		if window_s < 0 do window_s = 0
+		stats_str := fmt.bprintf(
+			stats_buf[:],
+			"Stats M %.2f F %.4f%% L %.2f/%.2f W %ds",
+			st.mark_price,
+			st.funding * 100,
+			st.liq_buy,
+			st.liq_sell,
+			window_s,
+		)
+		layer_outputs_push_text_badge(out, 27, text_badge_make(
+			{ctx.viewport.pos.x + 6, ctx.viewport.pos.y + 28},
+			stats_str,
+			ui.COL_TEXT_SECONDARY,
+			ui.FONT_SIZE_XS,
+		))
+
+		quality_buf: [80]u8
+		quality_str := fmt.bprintf(quality_buf[:], "Q 0x%x Ti %d", st.quality_flags, st.ts_ingest_ms)
+		quality_color := ui.COL_TEXT_MUTED
+		if st.quality_flags != 0 {
+			quality_color = ui.COL_WARNING
+		}
+		layer_outputs_push_text_badge(out, 27, text_badge_make(
+			{ctx.viewport.pos.x + 6, ctx.viewport.pos.y + 40},
+			quality_str,
+			quality_color,
+			ui.FONT_SIZE_XS,
+		))
+	}
+
+	if sig, ok := services.signal_store_latest_for_subject(&ctx.stream.signals, ctx.subject_id); ok {
+		regime := "unknown"
+		if sig.regime_len > 0 {
+			regime = string(sig.regime[:int(sig.regime_len)])
+		}
+		regime_buf: [80]u8
+		regime_str := fmt.bprintf(regime_buf[:], "Reg %s %.2f", regime, sig.regime_strength)
+		layer_outputs_push_text_badge(out, 27, text_badge_make(
+			{ctx.viewport.pos.x + 6, ctx.viewport.pos.y + 52},
+			regime_str,
+			ui.COL_ACCENT_CYAN,
+			ui.FONT_SIZE_XS,
+		))
+	}
 }
 
 @(private = "file")
@@ -123,13 +173,14 @@ price_candles_diagnostics :: proc(store: ^Market_Store, out: ^Layer_Diagnostics)
 	out.id = .Price_Candles
 	if store == nil do return
 	stream := market_store_active_stream(store)
-	out.has_data = stream != nil && stream.candles.count > 0
+	out.has_data = stream != nil && (stream.candles.count > 0 || stream.stats.count > 0)
 	out.state = layer_diag_state(store, stream, out.has_data)
 	if stream == nil do return
 	out.last_seq = stream.last_seq
 	out.last_unix = stream.last_unix
-	out.parse_total = stream.event_count
-	out.drop_total = stream.evictions
+	out.parse_total = stream.stats_frames
+	out.fallback_total = stream.stats_fallbacks
+	out.drop_total = stream.stats_drops
 }
 
 price_candles_layer_strategy :: proc() -> Layer_Strategy {

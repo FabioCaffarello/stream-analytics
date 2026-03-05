@@ -102,6 +102,9 @@ MR_Stats_Payload :: struct {
 	funding_rate_last: f64 `json:"FundingRateLast"`,
 	window_start_ts:   i64 `json:"WindowStartTs"`,
 	window_end_ts:     i64 `json:"WindowEndTs"`,
+	window_ms:         i64 `json:"WindowMs"`,
+	ts_ingest_ms:      i64 `json:"TsIngestMs"`,
+	quality_flags:     u32 `json:"QualityFlags"`,
 }
 
 // Compatibility wrapper for payloads encoded as {"Stats": {...}}.

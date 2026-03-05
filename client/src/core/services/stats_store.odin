@@ -8,6 +8,9 @@ Stats_Entry :: struct {
 	funding:    f64,
 	liq_buy:    f64,
 	liq_sell:   f64,
+	window_ms:  i64,
+	ts_ingest_ms: i64,
+	quality_flags: u32,
 	unix:       i64,
 }
 

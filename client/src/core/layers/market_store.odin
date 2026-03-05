@@ -42,13 +42,16 @@ Market_Stream :: struct {
 	evictions:        u64,
 	orderbook_frames: u64,
 	trades_frames:    u64,
+	stats_frames:     u64,
 	tape_frames:      u64,
 	evidence_frames:  u64,
 	signal_frames:    u64,
+	stats_fallbacks:     u64,
 	orderbook_fallbacks: u64,
 	tape_fallbacks:      u64,
 	evidence_fallbacks:  u64,
 	signal_fallbacks:    u64,
+	stats_drops:     u64,
 	orderbook_drops: u64,
 	trades_drops:    u64,
 	tape_drops:      u64,
@@ -289,12 +292,20 @@ market_store_apply_event :: proc(store: ^Market_Store, evt: ^ports.MD_Event) -> 
 			evt.data.ob.unix,
 		)
 	case .Stats:
+		stream.stats_frames += 1
 		if stream.stats.count >= services.STATS_CAP do stream.evictions += 1
+		if stream.stats.count >= services.STATS_CAP do stream.stats_drops += 1
+		if evt.data.stats.quality_flags != 0 {
+			stream.stats_fallbacks += 1
+		}
 		services.push_stats(&stream.stats, services.Stats_Entry{
 			mark_price = evt.data.stats.mark_price,
 			funding    = evt.data.stats.funding,
 			liq_buy    = evt.data.stats.tbuy,
 			liq_sell   = evt.data.stats.tsell,
+			window_ms  = evt.data.stats.window_ms,
+			ts_ingest_ms = evt.data.stats.ts_ingest_ms,
+			quality_flags = evt.data.stats.quality_flags,
 			unix       = evt.data.stats.unix,
 		})
 	case .Heatmap:

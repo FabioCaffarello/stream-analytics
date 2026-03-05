@@ -27,6 +27,9 @@ apply_stats_to_store :: proc(store: ^services.Stats_Store, st: ports.MD_Stats_Ev
 		funding    = st.funding,
 		liq_buy    = st.tbuy,
 		liq_sell   = st.tsell,
+		window_ms  = st.window_ms,
+		ts_ingest_ms = st.ts_ingest_ms,
+		quality_flags = st.quality_flags,
 		unix       = st.unix,
 	})
 }
@@ -112,6 +115,9 @@ apply_synthetic_stats_from_trade :: proc(store: ^services.Stats_Store, t: ports.
 		funding    = 0,
 		liq_buy    = liq_buy,
 		liq_sell   = liq_sell,
+		window_ms  = 0,
+		ts_ingest_ms = t.unix * 1000,
+		quality_flags = 0,
 		unix       = t.unix,
 	})
 }

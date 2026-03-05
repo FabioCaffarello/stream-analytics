@@ -380,6 +380,8 @@ Active_Stream_Metrics :: struct {
 	batched_events_received:      u64,
 	batched_fastpath_events:      u64,
 	batched_fallback_events:      u64,
+	canonical_stats_frames:       u64,
+	stats_fallback_frames:        u64,
 	canonical_evidence_frames:    u64,
 	legacy_evidence_frames:       u64,
 	evidence_fallback_frames:     u64,

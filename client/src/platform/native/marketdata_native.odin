@@ -1100,13 +1100,16 @@ native_poll :: proc(events_buf: []ports.MD_Event) -> int {
 		events_buf[n].source.seq = st.seq
 		events_buf[n].kind = .Stats
 		events_buf[n].unix = st.unix
-		events_buf[n].data.stats = ports.MD_Stats_Event{
-			mark_price = st.mark_price,
-			funding    = st.funding,
-			tbuy       = st.tbuy,
-			tsell      = st.tsell,
-			unix       = st.unix,
-		}
+			events_buf[n].data.stats = ports.MD_Stats_Event{
+				mark_price = st.mark_price,
+				funding    = st.funding,
+				tbuy       = st.tbuy,
+				tsell      = st.tsell,
+				window_ms  = st.window_ms,
+				ts_ingest_ms = st.ts_ingest_ms,
+				quality_flags = st.quality_flags,
+				unix       = st.unix,
+			}
 		state.stats_dirty = false
 		n += 1
 	}

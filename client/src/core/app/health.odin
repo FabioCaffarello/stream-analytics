@@ -313,6 +313,8 @@ refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtim
 	state.active_metrics.batched_events_received = metrics.batched_events_received
 	state.active_metrics.batched_fastpath_events = metrics.batched_fastpath_events
 	state.active_metrics.batched_fallback_events = metrics.batched_fallback_events
+	state.active_metrics.canonical_stats_frames = metrics.canonical_stats_frames
+	state.active_metrics.stats_fallback_frames = metrics.stats_fallback_frames
 	state.active_metrics.canonical_evidence_frames = metrics.canonical_evidence_frames
 	state.active_metrics.legacy_evidence_frames = metrics.legacy_evidence_frames
 	state.active_metrics.evidence_fallback_frames = metrics.evidence_fallback_frames

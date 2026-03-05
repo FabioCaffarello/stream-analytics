@@ -36,6 +36,9 @@ Parsed_Stats :: struct {
 	funding:    f64,
 	tbuy:       f64,
 	tsell:      f64,
+	window_ms:  i64,
+	ts_ingest_ms: i64,
+	quality_flags: u32,
 	unix:       i64,
 	subject_id: u64,
 	seq:        i64,
@@ -709,6 +712,8 @@ Parse_Telemetry :: struct {
 	parse_errors:    int,
 	envelope_errors: int,
 	unknown_streams: int,
+	canonical_stats_frames: int,
+	stats_fallback_frames:  int,
 	canonical_evidence_frames: int,
 	legacy_evidence_frames:    int,
 	evidence_fallback_frames:  int,
@@ -867,10 +872,17 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 			telemetry.parse_errors += 1
 		}
 	case "aggregation.stats":
-		if r, ok := parse_stats(raw, env.ts_ingest, subject_id); ok {
+		if r, ok, used_fallback := parse_stats(raw, env.ts_ingest, subject_id); ok {
 			r.seq = result.meta.seq
 			result.kind = .Stats
 			result.data.stats = r
+			result.meta.parse_fallback = used_fallback
+			if telemetry != nil {
+				telemetry.canonical_stats_frames += 1
+				if used_fallback {
+					telemetry.stats_fallback_frames += 1
+				}
+			}
 		} else if telemetry != nil {
 			telemetry.parse_errors += 1
 		}
@@ -1399,29 +1411,36 @@ parse_aggregation_snapshot_from_payload :: proc(snap: util.MR_Aggregation_Snapsh
 }
 
 @(private = "file")
-parse_stats :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Stats, bool) {
+parse_stats :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Stats, bool, bool) {
 	frame: util.MR_Stats_Frame
-	if json.unmarshal(raw, &frame) != nil do return {}, false
+	if json.unmarshal(raw, &frame) != nil do return {}, false, false
 	s := frame.payload
+	used_fallback := false
 	if s.window_start_ts == 0 && s.window_end_ts == 0 {
 		wrapped: util.MR_Stats_Frame_Wrapped
 		if json.unmarshal(raw, &wrapped) == nil {
 			s = wrapped.payload.stats
+			used_fallback = true
 		}
 	}
 
-	if !f64_valid(s.mark_price_close) do return {}, false
+	if !f64_valid(s.mark_price_close) do return {}, false, false
 
-	unix := util.normalize_unix_seconds(s.window_end_ts if s.window_end_ts != 0 else ts)
+	ingest_ms := s.ts_ingest_ms
+	if ingest_ms <= 0 do ingest_ms = ts
+	unix := util.normalize_unix_seconds(s.window_end_ts if s.window_end_ts != 0 else ingest_ms)
 
 	return Parsed_Stats{
 		mark_price = s.mark_price_close,
 		funding    = f64_valid(s.funding_rate_last) ? s.funding_rate_last : 0,
 		tbuy       = f64_valid(s.liq_buy_volume) ? s.liq_buy_volume : 0,
 		tsell      = f64_valid(s.liq_sell_volume) ? s.liq_sell_volume : 0,
+		window_ms  = s.window_ms,
+		ts_ingest_ms = ingest_ms,
+		quality_flags = s.quality_flags,
 		unix       = unix,
 		subject_id = subject_id,
-	}, true
+	}, true, used_fallback
 }
 
 @(private = "file")

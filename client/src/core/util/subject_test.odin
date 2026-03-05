@@ -25,6 +25,13 @@ test_build_subject_orderbook_uses_aggregation_snapshot_stream :: proc(t: ^testin
 }
 
 @(test)
+test_build_stats_subject_uses_timeframe_stream :: proc(t: ^testing.T) {
+	subject := build_subject_with_timeframe("binance", "BTCUSDT", .Stats, "5m")
+	defer delete(subject)
+	testing.expect_value(t, subject, "aggregation.stats/binance/BTCUSDT/5m")
+}
+
+@(test)
 test_build_signal_subject_uses_canonical_signal_stream :: proc(t: ^testing.T) {
 	subject := build_subject_with_timeframe("binance-perp", "BTCUSDT", .Signals, "5m")
 	defer delete(subject)

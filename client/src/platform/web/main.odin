@@ -156,6 +156,41 @@ probe_widget_stats_count :: proc "c" () -> i32 {
 }
 
 @(export)
+probe_widget_stats_parse_total :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_stats_parse_total)
+}
+
+@(export)
+probe_widget_stats_fallback_total :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_stats_fallback_total)
+}
+
+@(export)
+probe_widget_stats_drop_total :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_stats_drop_total)
+}
+
+@(export)
+probe_widget_stats_render_p95_us :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_stats_render_p95_us)
+}
+
+@(export)
+probe_widget_stats_state :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.w_stats_state)
+}
+
+@(export)
 probe_widget_heatmap_snaps :: proc "c" () -> i32 {
 	context = runtime.default_context()
 	p := app.runtime_probe(&g_state)
@@ -482,6 +517,20 @@ probe_md_alloc_estimate_frame :: proc "c" () -> i32 {
 	context = runtime.default_context()
 	p := app.runtime_probe(&g_state)
 	return i32(p.md_alloc_estimate_frame)
+}
+
+@(export)
+probe_md_canonical_stats_frames :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.md_canonical_stats_frames)
+}
+
+@(export)
+probe_md_stats_fallback_frames :: proc "c" () -> i32 {
+	context = runtime.default_context()
+	p := app.runtime_probe(&g_state)
+	return i32(p.md_stats_fallback_frames)
 }
 
 @(export)

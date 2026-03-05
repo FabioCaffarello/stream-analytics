@@ -7,7 +7,7 @@ import "mr:util"
 // and applies them to the bounded MarketStore.
 //
 // IMPORTANT: The WS protocol uses separate subject strings per channel type
-// (e.g. "aggregation.candle/binance/BTCUSDT/1m" vs "aggregation.stats/binance/BTCUSDT/raw").
+// (e.g. "aggregation.candle/binance/BTCUSDT/1m" vs "aggregation.stats/binance/BTCUSDT/1m").
 // Each subject produces a distinct subject_id (FNV-1a hash).
 //
 // Market_Store, however, stores ONE Market_Stream per market (venue+symbol) with

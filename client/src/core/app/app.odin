@@ -182,6 +182,8 @@ Runtime_Probe :: struct {
 	md_parse_arena_resets_total: u64,
 	md_alloc_estimate_total: u64,
 	md_alloc_estimate_frame: i64,
+	md_canonical_stats_frames: u64,
+	md_stats_fallback_frames:  u64,
 	md_canonical_evidence_frames: u64,
 	md_legacy_evidence_frames:    u64,
 	md_evidence_fallback_frames:  u64,
@@ -207,6 +209,10 @@ Runtime_Probe :: struct {
 	w_orderbook_asks:      int,
 	w_orderbook_bids:      int,
 	w_stats_count:         int,
+	w_stats_parse_total:   u64,
+	w_stats_fallback_total: u64,
+	w_stats_drop_total:    u64,
+	w_stats_render_p95_us: i64,
 	w_heatmap_snaps:       int,
 	w_vpvr_levels:         int,
 	w_candle_count:        int,
@@ -230,6 +236,7 @@ Runtime_Probe :: struct {
 	w_signal_fallback_total: u64,
 	w_signal_drop_total:     u64,
 	w_signal_render_p95_us:  i64,
+	w_stats_state:          layers.Layer_Widget_State,
 	w_signal_state:         layers.Layer_Widget_State,
 	w_evidence_state:       layers.Layer_Widget_State,
 	layout_version:         int,
@@ -741,6 +748,8 @@ runtime_probe :: proc(state: ^App_State) -> Runtime_Probe {
 	p.md_parse_arena_resets_total = state.active_metrics.parse_arena_resets
 	p.md_alloc_estimate_total = state.active_metrics.alloc_estimate_total
 	p.md_alloc_estimate_frame = state.active_metrics.alloc_estimate_frame
+	p.md_canonical_stats_frames = state.active_metrics.canonical_stats_frames
+	p.md_stats_fallback_frames = state.active_metrics.stats_fallback_frames
 	p.md_canonical_evidence_frames = state.active_metrics.canonical_evidence_frames
 	p.md_legacy_evidence_frames = state.active_metrics.legacy_evidence_frames
 	p.md_evidence_fallback_frames = state.active_metrics.evidence_fallback_frames
@@ -788,6 +797,12 @@ runtime_probe :: proc(state: ^App_State) -> Runtime_Probe {
 	for i in 0 ..< diag_count {
 		d := layer_diags[i]
 		#partial switch d.id {
+		case .Price_Candles:
+			p.w_stats_parse_total = d.parse_total
+			p.w_stats_fallback_total = d.fallback_total
+			p.w_stats_drop_total = d.drop_total + d.dropped_outputs
+			p.w_stats_render_p95_us = d.render_p95_us
+			p.w_stats_state = d.state
 		case .OrderBook_DOM:
 			p.w_dom_parse_total = d.parse_total
 			p.w_dom_fallback_total = d.fallback_total

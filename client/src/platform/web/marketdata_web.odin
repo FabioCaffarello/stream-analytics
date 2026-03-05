@@ -246,6 +246,8 @@ MD_Web_State :: struct {
 	batched_events_received: u64,
 	batched_fastpath_events: u64,
 	batched_fallback_events: u64,
+	canonical_stats_frames:   u64,
+	stats_fallback_frames:    u64,
 	canonical_evidence_frames: u64,
 	legacy_evidence_frames:    u64,
 	evidence_fallback_frames:  u64,
@@ -816,12 +818,14 @@ web_metrics :: proc(out: ^ports.MD_Runtime_Metrics) -> bool {
 		server_queue_high_watermark  = sm.queue_high_watermark,
 		// Feature negotiation.
 		negotiated_feature_count     = state.negotiated_feature_count,
-		batched_frames_received      = state.batched_frames_received,
-		batched_events_received      = state.batched_events_received,
-		batched_fastpath_events      = state.batched_fastpath_events,
-		batched_fallback_events      = state.batched_fallback_events,
-		canonical_evidence_frames    = state.canonical_evidence_frames,
-		legacy_evidence_frames       = state.legacy_evidence_frames,
+			batched_frames_received      = state.batched_frames_received,
+			batched_events_received      = state.batched_events_received,
+			batched_fastpath_events      = state.batched_fastpath_events,
+			batched_fallback_events      = state.batched_fallback_events,
+			canonical_stats_frames       = state.canonical_stats_frames,
+			stats_fallback_frames        = state.stats_fallback_frames,
+			canonical_evidence_frames    = state.canonical_evidence_frames,
+			legacy_evidence_frames       = state.legacy_evidence_frames,
 		evidence_fallback_frames     = state.evidence_fallback_frames,
 		canonical_signal_frames      = state.canonical_signal_frames,
 		legacy_signal_frames         = state.legacy_signal_frames,
@@ -1399,6 +1403,9 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 			funding    = st.funding,
 			tbuy       = st.tbuy,
 			tsell      = st.tsell,
+			window_ms  = st.window_ms,
+			ts_ingest_ms = st.ts_ingest_ms,
+			quality_flags = st.quality_flags,
 			unix       = st.unix,
 		}
 		state.stats_dirty = false
@@ -1825,6 +1832,8 @@ web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 			fmt.printf("[ws] Parse error #%d (frame_len=%d)\n", state.parse_error_count, len(raw))
 		}
 	}
+	state.canonical_stats_frames += u64(max(telemetry.canonical_stats_frames, 0))
+	state.stats_fallback_frames += u64(max(telemetry.stats_fallback_frames, 0))
 	state.canonical_evidence_frames += u64(max(telemetry.canonical_evidence_frames, 0))
 	state.legacy_evidence_frames += u64(max(telemetry.legacy_evidence_frames, 0))
 	state.evidence_fallback_frames += u64(max(telemetry.evidence_fallback_frames, 0))

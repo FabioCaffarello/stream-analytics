@@ -106,12 +106,12 @@ channel_to_stream_type :: proc(channel: ports.MD_Channel) -> string {
 @(private = "file")
 timeframe_for_channel :: proc(channel: ports.MD_Channel, timeframe: string) -> string {
 	switch channel {
-	case .Heatmaps, .VPVR, .Candles, .Signals, .Tape:
+	case .Heatmaps, .VPVR, .Candles, .Stats, .Signals, .Tape:
 		// Timeframe-aware streams follow the active candle timeframe.
 		if len(timeframe) > 0 do return timeframe
 		if channel == .Tape do return "1s"
 		return "1m"
-	case .Trades, .Orderbook, .Stats, .Evidence:
+	case .Trades, .Orderbook, .Evidence:
 		return "raw"
 	}
 	return ""
