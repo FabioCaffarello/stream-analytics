@@ -2339,24 +2339,25 @@ func TestSession_TenantMetrics_ConnectionsActive(t *testing.T) {
 	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-tenant-conn")
 	defer e.Poison(routerPID)
 
-	before := testutil.ToFloat64(metrics.WSTenantConnectionsActive.WithLabelValues("acme"))
+	tenantID := "acme_conn_active"
+	before := testutil.ToFloat64(metrics.WSTenantConnectionsActive.WithLabelValues(tenantID))
 
 	conn1 := newFakeConn()
-	s1 := e.Spawn(NewSessionActor(SessionConfig{RouterPID: routerPID, Conn: conn1, TenantID: "acme"}), "ws-session-t1")
+	s1 := e.Spawn(NewSessionActor(SessionConfig{RouterPID: routerPID, Conn: conn1, TenantID: tenantID}), "ws-session-t1")
 	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
 
 	conn2 := newFakeConn()
-	s2 := e.Spawn(NewSessionActor(SessionConfig{RouterPID: routerPID, Conn: conn2, TenantID: "acme"}), "ws-session-t2")
+	s2 := e.Spawn(NewSessionActor(SessionConfig{RouterPID: routerPID, Conn: conn2, TenantID: tenantID}), "ws-session-t2")
 	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
 
-	afterSpawn := testutil.ToFloat64(metrics.WSTenantConnectionsActive.WithLabelValues("acme"))
+	afterSpawn := testutil.ToFloat64(metrics.WSTenantConnectionsActive.WithLabelValues(tenantID))
 	if afterSpawn < before+2 {
-		t.Fatalf("expected +2 connections for acme, before=%f after=%f", before, afterSpawn)
+		t.Fatalf("expected +2 connections for tenant=%s, before=%f after=%f", tenantID, before, afterSpawn)
 	}
 
 	<-e.Poison(s1).Done()
-	waitForMetricEqualSession(t, "ws_tenant_connections_active{tenant_id=acme}", func() float64 {
-		return testutil.ToFloat64(metrics.WSTenantConnectionsActive.WithLabelValues("acme"))
+	waitForMetricEqualSession(t, "ws_tenant_connections_active", func() float64 {
+		return testutil.ToFloat64(metrics.WSTenantConnectionsActive.WithLabelValues(tenantID))
 	}, afterSpawn-1, time.Second)
 	<-e.Poison(s2).Done()
 }
