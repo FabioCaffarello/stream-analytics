@@ -672,7 +672,6 @@ func enableWSRoute(
 			wsserver.WithSlowClientDropThreshold(cfg.Delivery.SlowClientDropThreshold),
 			wsserver.WithTranscodeCache(deliveryruntime.NewTranscodeCache(0)),
 			wsserver.WithMaxFrameBytes(cfg.Delivery.MaxFrameBytes),
-			wsserver.WithAllowLegacy(false),
 		)
 		srv.HandleFunc("GET /ws", ws.HandleWS)
 		srv.HandleFunc("GET /introspection", ws.HandleIntrospection)

@@ -53,7 +53,6 @@ type Server struct {
 	ipLimiter               *ipRateLimiter
 	tenantLimits            map[string]config.WSTenantLimitConfig
 	maxFrameBytes           int
-	allowLegacy             bool
 	enableCompression       bool
 }
 
@@ -84,8 +83,7 @@ type ipRateLimiterBucket struct {
 type wsClientMode string
 
 const (
-	wsClientModeV1     wsClientMode = "v1"
-	wsClientModeLegacy wsClientMode = "legacy"
+	wsClientModeV1 wsClientMode = "v1"
 
 	defaultIPRateLimiterMaxEntries = 8192
 	defaultIPRateLimiterIdleTTL    = 15 * time.Minute
@@ -159,12 +157,6 @@ func WithMaxFrameBytes(maxFrameBytes int) Option {
 	}
 }
 
-func WithAllowLegacy(allow bool) Option {
-	return func(s *Server) {
-		s.allowLegacy = allow
-	}
-}
-
 func WithCompressionEnabled(enabled bool) Option {
 	return func(s *Server) {
 		s.enableCompression = enabled
@@ -187,7 +179,6 @@ func NewServer(engine *actor.Engine, routerPID *actor.PID, logger *slog.Logger, 
 		logger:            logger,
 		rangeStore:        rangeStore,
 		outboundQueueSize: outboundQueueSize,
-		allowLegacy:       false,
 		enableCompression: true,
 		limits: ServerConnectionLimits{
 			MaxConnectionsPerIP:  200,
@@ -610,13 +601,5 @@ func sessionWantsProto(r *http.Request) bool {
 }
 
 func wsClientModeFromRequestPath(r *http.Request) wsClientMode {
-	if r == nil {
-		return wsClientModeV1
-	}
-	switch strings.ToLower(strings.TrimSpace(r.URL.Path)) {
-	case "/ws/marketdata":
-		return wsClientModeLegacy
-	default:
-		return wsClientModeV1
-	}
+	return wsClientModeV1
 }
