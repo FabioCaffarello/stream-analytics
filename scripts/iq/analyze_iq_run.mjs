@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFileSync, writeFileSync, existsSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, readdirSync } from "fs";
 import { join } from "path";
 
 function readText(path) {
@@ -74,6 +74,47 @@ function envBool(name) {
     return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
 }
 
+function listIqRunDirs(runDir) {
+    const baseDir = join(runDir, "..");
+    if (!existsSync(baseDir)) return [];
+    const out = [];
+    for (const name of readdirSync(baseDir)) {
+        const dir = join(baseDir, name);
+        if (existsSync(join(dir, "logs", "playwright-smoke.json"))) {
+            out.push(dir);
+        }
+    }
+    out.sort();
+    return out.filter((dir) => dir <= runDir);
+}
+
+function readRunStatsFallback(runDir) {
+    const smoke = readJSON(join(runDir, "logs", "playwright-smoke.json"));
+    const summary = readJSON(join(runDir, "summary.json"));
+    const probe = smoke && smoke.runtime_probe ? smoke.runtime_probe : {};
+    const statsProbe = smoke && smoke.stats_probe ? smoke.stats_probe : {};
+    const fallbackRaw = statsProbe.md_stats_fallback_frames ?? probe.probe_md_stats_fallback_frames;
+    const fallback = Number(fallbackRaw);
+    return {
+        hasValue: Number.isFinite(fallback),
+        fallback,
+        overallPass: Boolean(summary && summary.overall_pass === true),
+    };
+}
+
+function statsFallbackZeroStreak(runDir) {
+    const runDirs = listIqRunDirs(runDir);
+    let streak = 0;
+    for (let i = runDirs.length - 1; i >= 0; i--) {
+        const sample = readRunStatsFallback(runDirs[i]);
+        if (!sample.overallPass || !sample.hasValue || sample.fallback !== 0) {
+            break;
+        }
+        streak += 1;
+    }
+    return { streak, observedRuns: runDirs.length };
+}
+
 const runDir = process.argv[2];
 if (!runDir) {
     console.error("usage: node scripts/iq/analyze_iq_run.mjs <run_dir>");
@@ -96,6 +137,7 @@ const composeText = readText(composePath);
 const consoleLines = consoleText.split(/\r?\n/).filter(Boolean);
 const composeLines = composeText.split(/\r?\n/).filter(Boolean);
 const probe = smoke.runtime_probe || {};
+const statsProbe = smoke.stats_probe || {};
 
 const routerModeSamples = metricSamples(metricsText, "delivery_router_coherence_mode")
     .filter((s) => s.value > 0);
@@ -105,6 +147,9 @@ const batchFallbackSamples = metricSamples(metricsText, "ws_batch_fallback_event
 const batchFallbackEventsTotal = batchFallbackSamples.reduce((acc, s) => acc + s.value, 0);
 const allowBatchedFallback = envBool("IQ_ALLOW_BATCHED_FALLBACK");
 const batchFallbackRemovalRuns = Number.parseInt(process.env.IQ_BATCHED_FALLBACK_ZERO_RUNS || "5", 10) || 5;
+const allowStatsFallback = envBool("IQ_ALLOW_STATS_FALLBACK");
+const statsFallbackRemovalRuns = Number.parseInt(process.env.IQ_STATS_FALLBACK_ZERO_RUNS || "5", 10) || 5;
+const statsFallbackStreak = statsFallbackZeroStreak(runDir);
 const wsMissingTsSamples = metricSamples(metricsText, "ws_contract_violations_total")
     .filter((s) => s.labels.reason === "missing_ts_server");
 const wsMissingTsTotal = wsMissingTsSamples.reduce((acc, s) => acc + s.value, 0);
@@ -117,6 +162,15 @@ const sawCanonicalEvidenceSub = consoleLines.some((l) => l.includes("subscribe_s
 const sawCanonicalSignalSub = consoleLines.some((l) => l.includes("subscribe_sent subject=signal/"));
 const sawLegacyEvidenceSub = consoleLines.some((l) => l.includes("subscribe_sent subject=insights.microstructure_evidence/"));
 const sawLegacySignalSub = consoleLines.some((l) => l.includes("subscribe_sent subject=signal/composite/"));
+const hardConsoleErrors = consoleLines.filter((l) => l.includes("[error]") || l.includes("[pageerror]"));
+const networkRequestFailures = Array.isArray(smoke.network_request_failures) ? smoke.network_request_failures : [];
+const networkErrorResponses = Array.isArray(smoke.network_error_responses) ? smoke.network_error_responses : [];
+const networkFailureCount = Number.isFinite(Number(smoke.network_failure_count))
+    ? Number(smoke.network_failure_count)
+    : networkRequestFailures.length;
+const networkErrorResponseCount = Number.isFinite(Number(smoke.network_error_response_count))
+    ? Number(smoke.network_error_response_count)
+    : networkErrorResponses.length;
 
 const checks = [];
 
@@ -148,6 +202,31 @@ addCheck(
     allowBatchedFallback || batchFallbackEventsTotal === 0,
     `batched_fallback_events=${batchFallbackEventsTotal} allow_override=${allowBatchedFallback}`,
     ["ws_batch_fallback_events_total"]
+);
+
+const canonicalStatsFrames = Number(
+    statsProbe.canonical_stats_frames ?? probe.probe_md_canonical_stats_frames ?? -1
+);
+const widgetStatsParseTotal = Number(
+    statsProbe.widget_stats_parse_total ?? probe.probe_widget_stats_parse_total ?? -1
+);
+addCheck(
+    "stats_canonical",
+    "stats canonical delivery",
+    canonicalStatsFrames > 0 && widgetStatsParseTotal > 0,
+    `canonical_stats_frames=${canonicalStatsFrames} widget_stats_parse_total=${widgetStatsParseTotal}`,
+    ["aggregation.stats", "canonical_stats_frames"]
+);
+
+const statsFallbackFrames = Number(
+    statsProbe.md_stats_fallback_frames ?? probe.probe_md_stats_fallback_frames ?? -1
+);
+addCheck(
+    "stats_fallback_counter",
+    "stats fallback counter",
+    statsFallbackFrames >= 0,
+    `md_stats_fallback_frames=${statsFallbackFrames} zero_streak=${statsFallbackStreak.streak}/${statsFallbackRemovalRuns} allow_override=${allowStatsFallback}`,
+    ["stats_fallback_frames", "aggregation.stats"]
 );
 
 const prevSeqViolations = probe.probe_md_prev_seq_violations;
@@ -250,6 +329,14 @@ addCheck(
     ["layout_version", "layout_link_enabled", "layout_migrated"]
 );
 
+addCheck(
+    "console_network_clean",
+    "console/network clean",
+    hardConsoleErrors.length === 0 && networkFailureCount === 0 && networkErrorResponseCount === 0,
+    `console_errors=${hardConsoleErrors.length} request_failures=${networkFailureCount} error_responses=${networkErrorResponseCount}`,
+    ["[error]", "[pageerror]", "requestfailed"]
+);
+
 const smokeSteps = Array.isArray(smoke.steps) ? smoke.steps : [];
 const smokePass = smokeSteps.every((s) => s.ok);
 const invariantsPass = checks.every((c) => c.ok);
@@ -301,6 +388,11 @@ markdown.push(`- batched fast-path fallback removal requires \`batched_fallback_
 markdown.push(`- current run batched_fallback_events: \`${batchFallbackEventsTotal}\``);
 markdown.push(`- override active: \`${allowBatchedFallback}\` (set via \`IQ_ALLOW_BATCHED_FALLBACK=1\`)`);
 markdown.push("");
+markdown.push(`- stats fallback removal requires \`md_stats_fallback_frames=0\` for **${statsFallbackRemovalRuns}** consecutive IQ PASS runs.`);
+markdown.push(`- current run md_stats_fallback_frames: \`${statsFallbackFrames}\``);
+markdown.push(`- current consecutive zero streak: \`${statsFallbackStreak.streak}\` PASS runs (observed runs: \`${statsFallbackStreak.observedRuns}\`).`);
+markdown.push(`- override active: \`${allowStatsFallback}\` (set via \`IQ_ALLOW_STATS_FALLBACK=1\`)`);
+markdown.push("");
 markdown.push("## Failures");
 markdown.push("");
 if (failedSteps.length === 0 && failedChecks.length === 0) {
@@ -343,6 +435,8 @@ const summary = {
     overall_pass: overallPass,
     smoke_pass: smokePass,
     invariants_pass: invariantsPass,
+    stats_fallback_zero_streak: statsFallbackStreak.streak,
+    stats_fallback_required_runs: statsFallbackRemovalRuns,
     failed_steps: failedSteps.map((s) => ({ id: s.id, details: s.details || "" })),
     failed_checks: failedChecks.map((c) => ({ id: c.id, evidence: c.evidence })),
 };

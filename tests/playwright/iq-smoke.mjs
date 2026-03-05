@@ -8,6 +8,7 @@ const BASE_URL = process.env.IQ_BASE_URL || "http://localhost:8090";
 const SHOTS_DIR = process.env.IQ_SHOTS_DIR || join(process.cwd(), "artifacts", "iq", "shots");
 const LOGS_DIR = process.env.IQ_LOGS_DIR || join(process.cwd(), "artifacts", "iq", "logs");
 const WAIT_TIMEOUT_MS = Number(process.env.IQ_TIMEOUT_MS || "20000");
+const STATS_WAIT_TIMEOUT_MS = Number(process.env.IQ_STATS_TIMEOUT_MS || "90000");
 
 mkdirSync(SHOTS_DIR, { recursive: true });
 mkdirSync(LOGS_DIR, { recursive: true });
@@ -15,8 +16,11 @@ mkdirSync(LOGS_DIR, { recursive: true });
 const steps = [];
 const notes = [];
 const consoleEvents = [];
+const networkFailures = [];
+const networkErrorResponses = [];
 let shotSeq = 0;
 let diagnosticsClipboard = "";
+let statsProbeSnapshot = null;
 
 function nowIso() {
     return new Date().toISOString();
@@ -94,6 +98,8 @@ async function readRuntimeProbe(page) {
         "probe_md_legacy_downgrade_count",
         "probe_md_alloc_estimate_total",
         "probe_md_alloc_estimate_frame",
+        "probe_md_canonical_stats_frames",
+        "probe_md_stats_fallback_frames",
         "probe_md_canonical_evidence_frames",
         "probe_md_legacy_evidence_frames",
         "probe_md_evidence_fallback_frames",
@@ -103,6 +109,7 @@ async function readRuntimeProbe(page) {
         "probe_md_legacy_evidence_rejected",
         "probe_md_legacy_signal_rejected",
         "probe_widget_evidence_count",
+        "probe_widget_stats_count",
         "probe_widget_signal_count",
         "probe_widget_signal_link_total",
         "probe_widget_signal_link_evidence_seq",
@@ -110,6 +117,11 @@ async function readRuntimeProbe(page) {
         "probe_widget_dom_fallback_total",
         "probe_widget_dom_drop_total",
         "probe_widget_dom_render_p95_us",
+        "probe_widget_stats_parse_total",
+        "probe_widget_stats_fallback_total",
+        "probe_widget_stats_drop_total",
+        "probe_widget_stats_render_p95_us",
+        "probe_widget_stats_state",
         "probe_widget_tape_parse_total",
         "probe_widget_tape_fallback_total",
         "probe_widget_tape_drop_total",
@@ -301,6 +313,37 @@ async function main() {
     page.on("pageerror", (err) => {
         consoleEvents.push({ ts: nowIso(), type: "pageerror", text: String(err) });
     });
+    page.on("requestfailed", (request) => {
+        const failure = request.failure();
+        const url = request.url();
+        if (url.endsWith("/favicon.ico")) {
+            return;
+        }
+        networkFailures.push({
+            ts: nowIso(),
+            url,
+            method: request.method(),
+            resourceType: request.resourceType(),
+            errorText: failure && failure.errorText ? failure.errorText : "unknown",
+        });
+    });
+    page.on("response", (response) => {
+        const status = response.status();
+        const url = response.url();
+        if (status < 400 || status >= 600) {
+            return;
+        }
+        if (url.endsWith("/favicon.ico")) {
+            return;
+        }
+        networkErrorResponses.push({
+            ts: nowIso(),
+            url,
+            status,
+            method: response.request().method(),
+            resourceType: response.request().resourceType(),
+        });
+    });
 
     try {
         await runStep("load", "Open client and render canvas", async () => {
@@ -421,6 +464,42 @@ async function main() {
             return { shots: [shot], details: `Telemetry HUD toggled; cadence=${cadence}ms.` };
         });
 
+        await runStep("stats-regime", "Validate canonical stats and regime overlay probes", async () => {
+            await waitFor(async () => {
+                const probe = await readRuntimeProbe(page);
+                return Number(probe.probe_widget_stats_count ?? 0) > 0 &&
+                    Number(probe.probe_md_canonical_stats_frames ?? 0) > 0;
+            }, "stats_widget_and_frames", STATS_WAIT_TIMEOUT_MS);
+            const probe = await readRuntimeProbe(page);
+            const statsCount = Number(probe.probe_widget_stats_count ?? 0);
+            const statsParse = Number(probe.probe_widget_stats_parse_total ?? 0);
+            const statsFallback = Number(probe.probe_widget_stats_fallback_total ?? -1);
+            const statsState = Number(probe.probe_widget_stats_state ?? -1);
+            const mdStatsFallback = Number(probe.probe_md_stats_fallback_frames ?? -1);
+            if (statsCount <= 0 || statsParse <= 0) {
+                throw new Error(`stats probes missing count=${statsCount} parse=${statsParse}`);
+            }
+            if (statsFallback < 0 || mdStatsFallback < 0) {
+                throw new Error(`stats fallback counters invalid widget=${statsFallback} md=${mdStatsFallback}`);
+            }
+            if (statsState < 0) {
+                throw new Error(`stats state probe invalid=${statsState}`);
+            }
+            const shot = await snap(page, "stats-regime");
+            statsProbeSnapshot = {
+                stats_count: statsCount,
+                widget_stats_parse_total: statsParse,
+                widget_stats_fallback_total: statsFallback,
+                widget_stats_state: statsState,
+                canonical_stats_frames: Number(probe.probe_md_canonical_stats_frames ?? 0),
+                md_stats_fallback_frames: mdStatsFallback,
+            };
+            return {
+                shots: [shot],
+                details: `stats_count=${statsCount} stats_parse=${statsParse} stats_fallback=${statsFallback} md_stats_fallback=${mdStatsFallback}.`,
+            };
+        });
+
         await runStep("evidence-signal", "Exercise evidence/signal surfaces", async () => {
             await page.keyboard.press("h");
             await page.waitForTimeout(350);
@@ -483,9 +562,29 @@ async function main() {
             if (!(layoutLinkEnabled === 0 || layoutLinkEnabled === 1)) {
                 throw new Error(`layout link flag expected 0|1, got ${layoutLinkEnabled}`);
             }
+            await page.reload({ waitUntil: "networkidle" });
+            await page.waitForSelector("canvas#canvas", { timeout: 15000 });
+            await waitFor(
+                () => page.evaluate(() => typeof window.__mr_wasm_exports !== "undefined"),
+                "__mr_wasm_exports after reload"
+            );
+            await waitFor(async () => {
+                const probe = await readRuntimeProbe(page);
+                return Number(probe.probe_md_hello_received ?? 0) > 0;
+            }, "hello_after_layout_reload");
+            const probeAfter = await readRuntimeProbe(page);
+            const layoutVersionAfter = Number(probeAfter.probe_layout_version ?? 0);
+            const layoutLinkAfter = Number(probeAfter.probe_layout_link_enabled ?? -1);
+            if (layoutVersionAfter !== layoutVersion) {
+                throw new Error(`layout restore mismatch version before=${layoutVersion} after=${layoutVersionAfter}`);
+            }
+            if (layoutLinkAfter !== layoutLinkEnabled) {
+                throw new Error(`layout restore mismatch link before=${layoutLinkEnabled} after=${layoutLinkAfter}`);
+            }
+            const s4 = await snap(page, "layout-reload-restore");
             return {
-                shots: [s1, s2, s3],
-                details: `Focus/Zen/Compare toggled; layout_version=${layoutVersion} link=${layoutLinkEnabled} (0 means clean boot).`,
+                shots: [s1, s2, s3, s4],
+                details: `Focus/Zen/Compare toggled; layout restore preserved version=${layoutVersion} link=${layoutLinkEnabled}.`,
             };
         });
 
@@ -548,6 +647,33 @@ async function main() {
             const shot = await snap(page, "legacy-off");
             return { shots: [shot], details: "Legacy fallback remained disabled." };
         });
+
+        await runStep("clean-runtime", "Validate absence of console/network errors", async () => {
+            const consoleErrors = consoleEvents.filter((e) => e.type === "error" || e.type === "pageerror");
+            if (consoleErrors.length > 0) {
+                const sample = consoleErrors
+                    .slice(0, 3)
+                    .map((e) => `${e.type}:${e.text.slice(0, 140)}`)
+                    .join(" | ");
+                throw new Error(`console errors observed count=${consoleErrors.length} sample=${sample}`);
+            }
+            if (networkFailures.length > 0) {
+                const sample = networkFailures
+                    .slice(0, 3)
+                    .map((e) => `${e.method} ${e.url} err=${e.errorText}`)
+                    .join(" | ");
+                throw new Error(`network request failures observed count=${networkFailures.length} sample=${sample}`);
+            }
+            if (networkErrorResponses.length > 0) {
+                const sample = networkErrorResponses
+                    .slice(0, 3)
+                    .map((e) => `${e.method} ${e.url} status=${e.status}`)
+                    .join(" | ");
+                throw new Error(`network error responses observed count=${networkErrorResponses.length} sample=${sample}`);
+            }
+            const shot = await snap(page, "clean-runtime");
+            return { shots: [shot], details: "No console/page errors and no network failures (requestfailed/HTTP 4xx/5xx)." };
+        });
     } finally {
         const runtimeProbe = await readRuntimeProbe(page).catch(() => ({}));
         const runtimeConfig = await page.evaluate(() => {
@@ -572,6 +698,11 @@ async function main() {
                 ? diagnosticsClipboard.slice(0, 400)
                 : "",
             console_event_count: consoleEvents.length,
+            network_failure_count: networkFailures.length,
+            network_error_response_count: networkErrorResponses.length,
+            network_request_failures: networkFailures.slice(0, 32),
+            network_error_responses: networkErrorResponses.slice(0, 32),
+            stats_probe: statsProbeSnapshot,
             notes,
         };
 
