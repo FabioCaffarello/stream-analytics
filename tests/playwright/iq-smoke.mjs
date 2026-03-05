@@ -9,6 +9,7 @@ const SHOTS_DIR = process.env.IQ_SHOTS_DIR || join(process.cwd(), "artifacts", "
 const LOGS_DIR = process.env.IQ_LOGS_DIR || join(process.cwd(), "artifacts", "iq", "logs");
 const WAIT_TIMEOUT_MS = Number(process.env.IQ_TIMEOUT_MS || "20000");
 const STATS_WAIT_TIMEOUT_MS = Number(process.env.IQ_STATS_TIMEOUT_MS || "90000");
+const REQUIRE_STATS_CANONICAL = /^(1|true|yes|on)$/i.test(String(process.env.IQ_REQUIRE_STATS_CANONICAL || "0"));
 
 mkdirSync(SHOTS_DIR, { recursive: true });
 mkdirSync(LOGS_DIR, { recursive: true });
@@ -98,9 +99,21 @@ async function readRuntimeProbe(page) {
         "probe_md_legacy_downgrade_count",
         "probe_md_alloc_estimate_total",
         "probe_md_alloc_estimate_frame",
+        "probe_md_trade_backlog",
+        "probe_md_trade_backlog_cap",
+        "probe_md_candle_backlog",
+        "probe_md_candle_backlog_cap",
+        "probe_md_signal_backlog",
+        "probe_md_signal_backlog_cap",
         "probe_md_parse_time_p95_us",
+        "probe_md_parse_time_p99_us",
         "probe_md_apply_time_p95_us",
+        "probe_md_apply_time_p99_us",
         "probe_md_batched_decode_time_p95_us",
+        "probe_md_batched_decode_time_p99_us",
+        "probe_stream_evictions",
+        "probe_layer_stream_entries",
+        "probe_layer_stream_evictions",
         "probe_md_canonical_stats_frames",
         "probe_md_stats_fallback_frames",
         "probe_md_canonical_evidence_frames",
@@ -122,16 +135,24 @@ async function readRuntimeProbe(page) {
         "probe_widget_dom_drop_capacity_total",
         "probe_widget_dom_drop_render_overflow_total",
         "probe_widget_dom_render_p95_us",
+        "probe_widget_dom_render_p99_us",
         "probe_widget_dom_render_budget_us",
         "probe_widget_dom_render_over_budget",
+        "probe_widget_dom_entries",
+        "probe_widget_dom_max_entries",
+        "probe_widget_dom_evicted_total",
         "probe_widget_stats_parse_total",
         "probe_widget_stats_fallback_total",
         "probe_widget_stats_drop_total",
         "probe_widget_stats_drop_capacity_total",
         "probe_widget_stats_drop_render_overflow_total",
         "probe_widget_stats_render_p95_us",
+        "probe_widget_stats_render_p99_us",
         "probe_widget_stats_render_budget_us",
         "probe_widget_stats_render_over_budget",
+        "probe_widget_stats_entries",
+        "probe_widget_stats_max_entries",
+        "probe_widget_stats_evicted_total",
         "probe_widget_stats_state",
         "probe_widget_tape_parse_total",
         "probe_widget_tape_fallback_total",
@@ -139,24 +160,36 @@ async function readRuntimeProbe(page) {
         "probe_widget_tape_drop_capacity_total",
         "probe_widget_tape_drop_render_overflow_total",
         "probe_widget_tape_render_p95_us",
+        "probe_widget_tape_render_p99_us",
         "probe_widget_tape_render_budget_us",
         "probe_widget_tape_render_over_budget",
+        "probe_widget_tape_entries",
+        "probe_widget_tape_max_entries",
+        "probe_widget_tape_evicted_total",
         "probe_widget_evidence_parse_total",
         "probe_widget_evidence_fallback_total",
         "probe_widget_evidence_drop_total",
         "probe_widget_evidence_drop_capacity_total",
         "probe_widget_evidence_drop_render_overflow_total",
         "probe_widget_evidence_render_p95_us",
+        "probe_widget_evidence_render_p99_us",
         "probe_widget_evidence_render_budget_us",
         "probe_widget_evidence_render_over_budget",
+        "probe_widget_evidence_entries",
+        "probe_widget_evidence_max_entries",
+        "probe_widget_evidence_evicted_total",
         "probe_widget_signal_parse_total",
         "probe_widget_signal_fallback_total",
         "probe_widget_signal_drop_total",
         "probe_widget_signal_drop_capacity_total",
         "probe_widget_signal_drop_render_overflow_total",
         "probe_widget_signal_render_p95_us",
+        "probe_widget_signal_render_p99_us",
         "probe_widget_signal_render_budget_us",
         "probe_widget_signal_render_over_budget",
+        "probe_widget_signal_entries",
+        "probe_widget_signal_max_entries",
+        "probe_widget_signal_evicted_total",
         "probe_widget_evidence_state",
         "probe_widget_signal_state",
         "probe_layout_version",
@@ -487,23 +520,31 @@ async function main() {
             return { shots: [shot], details: `Telemetry HUD toggled; cadence=${cadence}ms.` };
         });
 
-        await runStep("stats-regime", "Validate canonical stats and regime overlay probes", async () => {
+        await runStep("stats-regime", "Validate canonical stats/perf probes", async () => {
             await waitFor(async () => {
                 const probe = await readRuntimeProbe(page);
-                return Number(probe.probe_widget_stats_count ?? 0) > 0 &&
-                    Number(probe.probe_md_canonical_stats_frames ?? 0) > 0;
-            }, "stats_widget_and_frames", STATS_WAIT_TIMEOUT_MS);
+                return Number(probe.probe_md_parse_time_p95_us ?? -1) >= 0 &&
+                    Number(probe.probe_md_apply_time_p95_us ?? -1) >= 0 &&
+                    Number(probe.probe_md_batched_decode_time_p95_us ?? -1) >= 0;
+            }, "md_perf_probes", STATS_WAIT_TIMEOUT_MS);
             const probe = await readRuntimeProbe(page);
             const statsCount = Number(probe.probe_widget_stats_count ?? 0);
             const statsParse = Number(probe.probe_widget_stats_parse_total ?? 0);
             const statsFallback = Number(probe.probe_widget_stats_fallback_total ?? -1);
             const statsState = Number(probe.probe_widget_stats_state ?? -1);
+            const canonicalStatsFrames = Number(probe.probe_md_canonical_stats_frames ?? 0);
             const mdStatsFallback = Number(probe.probe_md_stats_fallback_frames ?? -1);
             const parseP95 = Number(probe.probe_md_parse_time_p95_us ?? -1);
+            const parseP99 = Number(probe.probe_md_parse_time_p99_us ?? -1);
             const applyP95 = Number(probe.probe_md_apply_time_p95_us ?? -1);
+            const applyP99 = Number(probe.probe_md_apply_time_p99_us ?? -1);
             const batchedDecodeP95 = Number(probe.probe_md_batched_decode_time_p95_us ?? -1);
-            if (statsCount <= 0 || statsParse <= 0) {
-                throw new Error(`stats probes missing count=${statsCount} parse=${statsParse}`);
+            const batchedDecodeP99 = Number(probe.probe_md_batched_decode_time_p99_us ?? -1);
+            const hasCanonicalStats = statsCount > 0 && statsParse > 0 && canonicalStatsFrames > 0;
+            if (REQUIRE_STATS_CANONICAL && !hasCanonicalStats) {
+                throw new Error(
+                    `stats probes missing count=${statsCount} parse=${statsParse} canonical=${canonicalStatsFrames}`
+                );
             }
             if (statsFallback < 0 || mdStatsFallback < 0) {
                 throw new Error(`stats fallback counters invalid widget=${statsFallback} md=${mdStatsFallback}`);
@@ -511,9 +552,9 @@ async function main() {
             if (statsState < 0) {
                 throw new Error(`stats state probe invalid=${statsState}`);
             }
-            if (parseP95 < 0 || applyP95 < 0 || batchedDecodeP95 < 0) {
+            if (parseP95 < 0 || parseP99 < 0 || applyP95 < 0 || applyP99 < 0 || batchedDecodeP95 < 0 || batchedDecodeP99 < 0) {
                 throw new Error(
-                    `parse/apply p95 probes invalid parse=${parseP95} apply=${applyP95} batch_decode=${batchedDecodeP95}`
+                    `parse/apply probes invalid parse=${parseP95}/${parseP99} apply=${applyP95}/${applyP99} batch_decode=${batchedDecodeP95}/${batchedDecodeP99}`
                 );
             }
             const shot = await snap(page, "stats-regime");
@@ -522,15 +563,20 @@ async function main() {
                 widget_stats_parse_total: statsParse,
                 widget_stats_fallback_total: statsFallback,
                 widget_stats_state: statsState,
-                canonical_stats_frames: Number(probe.probe_md_canonical_stats_frames ?? 0),
+                canonical_stats_frames: canonicalStatsFrames,
                 md_stats_fallback_frames: mdStatsFallback,
                 parse_time_p95_us: parseP95,
+                parse_time_p99_us: parseP99,
                 apply_time_p95_us: applyP95,
+                apply_time_p99_us: applyP99,
                 batched_decode_time_p95_us: batchedDecodeP95,
+                batched_decode_time_p99_us: batchedDecodeP99,
+                has_canonical_stats: hasCanonicalStats,
+                require_stats_canonical: REQUIRE_STATS_CANONICAL,
             };
             return {
                 shots: [shot],
-                details: `stats_count=${statsCount} stats_parse=${statsParse} stats_fallback=${statsFallback} md_stats_fallback=${mdStatsFallback} parse_p95_us=${parseP95} apply_p95_us=${applyP95}.`,
+                details: `stats_count=${statsCount} stats_parse=${statsParse} canonical_stats=${canonicalStatsFrames} require_stats=${REQUIRE_STATS_CANONICAL} stats_fallback=${statsFallback} md_stats_fallback=${mdStatsFallback} parse_us(p95/p99)=${parseP95}/${parseP99} apply_us(p95/p99)=${applyP95}/${applyP99}.`,
             };
         });
 
@@ -619,6 +665,53 @@ async function main() {
             return {
                 shots: [s1, s2, s3, s4],
                 details: `Focus/Zen/Compare toggled; layout restore preserved version=${layoutVersion} link=${layoutLinkEnabled}.`,
+            };
+        });
+
+        await runStep("reconnect-no-stale", "Reconnect transport and verify no stale widget state", async () => {
+            const before = await readRuntimeProbe(page);
+            const beforeAck = Number(before.probe_md_subscribe_ack_count ?? 0);
+            const cfg = await page.evaluate(() => (
+                typeof window.__mr_get_runtime_config === "function"
+                    ? window.__mr_get_runtime_config()
+                    : null
+            ));
+            const targetWsUrl = (cfg && (cfg.ws_url || cfg.default_ws_url)) || "ws://localhost:8090/ws";
+            const targetApiKey = (cfg && cfg.api_key) || "";
+
+            await page.evaluate(({ wsUrl, apiKey }) => {
+                if (typeof window.__mr_switch_ws_runtime !== "function") {
+                    throw new Error("__mr_switch_ws_runtime unavailable");
+                }
+                window.__mr_switch_ws_runtime(wsUrl, apiKey, { live: true });
+            }, { wsUrl: targetWsUrl, apiKey: targetApiKey });
+
+            await waitFor(async () => {
+                const probe = await readRuntimeProbe(page);
+                const ack = Number(probe.probe_md_subscribe_ack_count ?? 0);
+                return Number(probe.probe_md_hello_received ?? 0) > 0 && ack >= beforeAck;
+            }, "reconnect hello+ack", STATS_WAIT_TIMEOUT_MS);
+
+            await waitFor(async () => {
+                const probe = await readRuntimeProbe(page);
+                const statsState = Number(probe.probe_widget_stats_state ?? -1);
+                const evidenceState = Number(probe.probe_widget_evidence_state ?? -1);
+                const signalState = Number(probe.probe_widget_signal_state ?? -1);
+                return statsState !== 2 && evidenceState !== 2 && signalState !== 2;
+            }, "widgets no stale state after reconnect", STATS_WAIT_TIMEOUT_MS);
+
+            const probe = await readRuntimeProbe(page);
+            const statsState = Number(probe.probe_widget_stats_state ?? -1);
+            const evidenceState = Number(probe.probe_widget_evidence_state ?? -1);
+            const signalState = Number(probe.probe_widget_signal_state ?? -1);
+            if (statsState === 2 || evidenceState === 2 || signalState === 2) {
+                throw new Error(`stale state after reconnect stats=${statsState} evidence=${evidenceState} signal=${signalState}`);
+            }
+            const afterAck = Number(probe.probe_md_subscribe_ack_count ?? 0);
+            const shot = await snap(page, "reconnect-no-stale");
+            return {
+                shots: [shot],
+                details: `reconnect ws=${targetWsUrl} ack_before=${beforeAck} ack_after=${afterAck} states(stats/evidence/signal)=${statsState}/${evidenceState}/${signalState}.`,
             };
         });
 

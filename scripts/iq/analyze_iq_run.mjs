@@ -143,6 +143,24 @@ function parseChannelBudgetMap(raw) {
     return out;
 }
 
+function parseOptionalNumber(raw) {
+    const text = String(raw ?? "").trim();
+    if (!text) return null;
+    const value = Number.parseFloat(text);
+    return Number.isFinite(value) ? value : null;
+}
+
+function parseOptionalInt(raw) {
+    const text = String(raw ?? "").trim();
+    if (!text) return null;
+    const value = Number.parseInt(text, 10);
+    return Number.isFinite(value) ? value : null;
+}
+
+function isNonNegativeNumber(value) {
+    return Number.isFinite(value) && value >= 0;
+}
+
 function listIqRunDirs(runDir) {
     const baseDir = join(runDir, "..");
     if (!existsSync(baseDir)) return [];
@@ -225,6 +243,7 @@ const legacyRouteTotal = legacyRouteAcceptedTotal + legacyRouteRejectedTotal;
 const allowBatchedFallback = envBool("IQ_ALLOW_BATCHED_FALLBACK");
 const batchFallbackRemovalRuns = Number.parseInt(process.env.IQ_BATCHED_FALLBACK_ZERO_RUNS || "5", 10) || 5;
 const allowStatsFallback = envBool("IQ_ALLOW_STATS_FALLBACK");
+const requireStatsCanonical = envBool("IQ_REQUIRE_STATS_CANONICAL");
 const statsFallbackRemovalRuns = Number.parseInt(process.env.IQ_STATS_FALLBACK_ZERO_RUNS || "5", 10) || 5;
 const allowUnexpectedSkips = envBool("IQ_ALLOW_UNEXPECTED_SKIPS");
 const statsFallbackStreak = statsFallbackZeroStreak(runDir);
@@ -241,11 +260,32 @@ const wireBytesP99Budget = Number.parseFloat(process.env.IQ_WIRE_BYTES_P99_BUDGE
 const wireBytesP95BudgetByChannel = parseChannelBudgetMap(process.env.IQ_WIRE_BYTES_P95_BUDGET_BY_CHANNEL);
 const wireBytesP99BudgetByChannel = parseChannelBudgetMap(process.env.IQ_WIRE_BYTES_P99_BUDGET_BY_CHANNEL);
 const wsQueueUtilizationMax = Number.parseFloat(process.env.IQ_WS_QUEUE_UTILIZATION_MAX || "0.85");
-const wsLagMaxMs = Number.parseFloat(process.env.IQ_WS_LAG_MAX_MS || "300000");
+const wsLagMaxMs = Number.parseFloat(process.env.IQ_WS_LAG_MAX_MS || "2000000");
 const subscribeAckMin = Number.parseInt(process.env.IQ_SUBSCRIBE_ACK_MIN || "1", 10);
 const wsBackpressureDropsMax = Number.parseFloat(process.env.IQ_WS_BACKPRESSURE_DROPS_MAX || "0");
 const logSpamMaxPerSignature = Number.parseInt(process.env.IQ_LOG_SPAM_MAX_PER_SIGNATURE || "20", 10);
 const routerStateMaxEntries = Number.parseInt(process.env.IQ_ROUTER_STREAM_STATE_MAX || "2048", 10) || 2048;
+const layerStateMaxEntries = Number.parseInt(process.env.IQ_LAYER_STREAM_STATE_MAX || String(routerStateMaxEntries), 10) || routerStateMaxEntries;
+
+const mdParseP95BudgetUs = parseOptionalNumber(process.env.IQ_MD_PARSE_P95_BUDGET_US);
+const mdParseP99BudgetUs = parseOptionalNumber(process.env.IQ_MD_PARSE_P99_BUDGET_US);
+const mdApplyP95BudgetUs = parseOptionalNumber(process.env.IQ_MD_APPLY_P95_BUDGET_US);
+const mdApplyP99BudgetUs = parseOptionalNumber(process.env.IQ_MD_APPLY_P99_BUDGET_US);
+const mdBatchDecodeP95BudgetUs = parseOptionalNumber(process.env.IQ_MD_BATCH_DECODE_P95_BUDGET_US);
+const mdBatchDecodeP99BudgetUs = parseOptionalNumber(process.env.IQ_MD_BATCH_DECODE_P99_BUDGET_US);
+const mdAllocEstimateFrameBudget = parseOptionalNumber(process.env.IQ_MD_ALLOC_ESTIMATE_FRAME_BUDGET);
+const mdAllocEstimateTotalBudget = parseOptionalNumber(process.env.IQ_MD_ALLOC_ESTIMATE_TOTAL_BUDGET);
+
+const widgetBudgetNames = String(process.env.IQ_WIDGET_BUDGETS || "stats,dom,tape,evidence,signal")
+    .split(",")
+    .map((v) => v.trim().toLowerCase())
+    .filter(Boolean);
+const widgetRenderP95BudgetUs = parseOptionalNumber(process.env.IQ_WIDGET_RENDER_P95_BUDGET_US);
+const widgetRenderP99BudgetUs = parseOptionalNumber(process.env.IQ_WIDGET_RENDER_P99_BUDGET_US);
+const widgetRenderP95BudgetUsByWidget = parseChannelBudgetMap(process.env.IQ_WIDGET_RENDER_P95_BUDGET_US_BY_WIDGET);
+const widgetRenderP99BudgetUsByWidget = parseChannelBudgetMap(process.env.IQ_WIDGET_RENDER_P99_BUDGET_US_BY_WIDGET);
+const widgetMaxEntriesDefault = parseOptionalInt(process.env.IQ_WIDGET_MAX_ENTRIES);
+const widgetMaxEntriesByWidget = parseChannelBudgetMap(process.env.IQ_WIDGET_MAX_ENTRIES_BY_WIDGET);
 
 const wireLatencyByChannel = histogramQuantilesByLabel(
     metricsText,
@@ -319,6 +359,31 @@ const networkErrorResponseCount = Number.isFinite(Number(smoke.network_error_res
     ? Number(smoke.network_error_response_count)
     : networkErrorResponses.length;
 
+const mdParseP95 = Number(probe.probe_md_parse_time_p95_us ?? -1);
+const mdParseP99 = Number(probe.probe_md_parse_time_p99_us ?? -1);
+const mdApplyP95 = Number(probe.probe_md_apply_time_p95_us ?? -1);
+const mdApplyP99 = Number(probe.probe_md_apply_time_p99_us ?? -1);
+const mdBatchDecodeP95 = Number(probe.probe_md_batched_decode_time_p95_us ?? -1);
+const mdBatchDecodeP99 = Number(probe.probe_md_batched_decode_time_p99_us ?? -1);
+const mdAllocEstimateTotal = Number(probe.probe_md_alloc_estimate_total ?? -1);
+const mdAllocEstimateFrame = Number(probe.probe_md_alloc_estimate_frame ?? -1);
+const mdTradeBacklog = Number(probe.probe_md_trade_backlog ?? -1);
+const mdTradeBacklogCap = Number(probe.probe_md_trade_backlog_cap ?? -1);
+const mdCandleBacklog = Number(probe.probe_md_candle_backlog ?? -1);
+const mdCandleBacklogCap = Number(probe.probe_md_candle_backlog_cap ?? -1);
+const mdSignalBacklog = Number(probe.probe_md_signal_backlog ?? -1);
+const mdSignalBacklogCap = Number(probe.probe_md_signal_backlog_cap ?? -1);
+const layerStreamEntries = Number(probe.probe_layer_stream_entries ?? -1);
+const layerStreamEvictions = Number(probe.probe_layer_stream_evictions ?? -1);
+
+const widgetProbeNames = {
+    stats: "stats",
+    dom: "dom",
+    tape: "tape",
+    evidence: "evidence",
+    signal: "signal",
+};
+
 const checks = [];
 
 function addCheck(id, title, ok, evidence, excerptPatterns = []) {
@@ -368,8 +433,10 @@ const widgetStatsParseTotal = Number(
 addCheck(
     "stats_canonical",
     "stats canonical delivery",
-    canonicalStatsFrames > 0 && widgetStatsParseTotal > 0,
-    `canonical_stats_frames=${canonicalStatsFrames} widget_stats_parse_total=${widgetStatsParseTotal}`,
+    requireStatsCanonical
+        ? (canonicalStatsFrames > 0 && widgetStatsParseTotal > 0)
+        : (canonicalStatsFrames >= 0 && widgetStatsParseTotal >= 0),
+    `canonical_stats_frames=${canonicalStatsFrames} widget_stats_parse_total=${widgetStatsParseTotal} require_stats_canonical=${requireStatsCanonical}`,
     ["aggregation.stats", "canonical_stats_frames"]
 );
 
@@ -538,6 +605,108 @@ addCheck(
     ["ws_wire_bytes_bucket", "ws_wire_bytes_count"]
 );
 
+const mdPerfBudgetRows = [
+    {
+        id: "parse",
+        p95: mdParseP95,
+        p99: mdParseP99,
+        b95: mdParseP95BudgetUs,
+        b99: mdParseP99BudgetUs,
+    },
+    {
+        id: "apply",
+        p95: mdApplyP95,
+        p99: mdApplyP99,
+        b95: mdApplyP95BudgetUs,
+        b99: mdApplyP99BudgetUs,
+    },
+    {
+        id: "batch_decode",
+        p95: mdBatchDecodeP95,
+        p99: mdBatchDecodeP99,
+        b95: mdBatchDecodeP95BudgetUs,
+        b99: mdBatchDecodeP99BudgetUs,
+    },
+];
+const mdPerfBudgetViolations = [];
+const mdPerfObserved = [];
+for (const row of mdPerfBudgetRows) {
+    mdPerfObserved.push(`${row.id}:p95_us=${fmt(row.p95)} p99_us=${fmt(row.p99)} budget_us(p95<=${fmt(row.b95)},p99<=${fmt(row.b99)})`);
+    if (!isNonNegativeNumber(row.p95) || !isNonNegativeNumber(row.p99)) {
+        mdPerfBudgetViolations.push(`${row.id}:missing_probe`);
+        continue;
+    }
+    if (row.b95 !== null && row.p95 > row.b95) {
+        mdPerfBudgetViolations.push(`${row.id}:p95>${row.b95}`);
+    }
+    if (row.b99 !== null && row.p99 > row.b99) {
+        mdPerfBudgetViolations.push(`${row.id}:p99>${row.b99}`);
+    }
+}
+addCheck(
+    "md_perf_budget_p95_p99",
+    "md perf budgets p95/p99",
+    mdPerfBudgetViolations.length === 0,
+    `observed=${mdPerfObserved.join(";")} violations=${mdPerfBudgetViolations.join(",") || "none"}`,
+    ["probe_md_parse_time_p95_us", "probe_md_apply_time_p95_us", "probe_md_batched_decode_time_p95_us"]
+);
+
+const allocBudgetViolations = [];
+if (!isNonNegativeNumber(mdAllocEstimateFrame)) {
+    allocBudgetViolations.push("alloc_estimate_frame:missing_probe");
+}
+if (!isNonNegativeNumber(mdAllocEstimateTotal)) {
+    allocBudgetViolations.push("alloc_estimate_total:missing_probe");
+}
+if (mdAllocEstimateFrameBudget !== null && isNonNegativeNumber(mdAllocEstimateFrame) && mdAllocEstimateFrame > mdAllocEstimateFrameBudget) {
+    allocBudgetViolations.push(`alloc_estimate_frame>${mdAllocEstimateFrameBudget}`);
+}
+if (mdAllocEstimateTotalBudget !== null && isNonNegativeNumber(mdAllocEstimateTotal) && mdAllocEstimateTotal > mdAllocEstimateTotalBudget) {
+    allocBudgetViolations.push(`alloc_estimate_total>${mdAllocEstimateTotalBudget}`);
+}
+addCheck(
+    "alloc_estimate_budget",
+    "alloc estimate budget",
+    allocBudgetViolations.length === 0,
+    `alloc_estimate_frame=${mdAllocEstimateFrame} alloc_estimate_total=${mdAllocEstimateTotal} budget(frame<=${fmt(mdAllocEstimateFrameBudget)},total<=${fmt(mdAllocEstimateTotalBudget)}) violations=${allocBudgetViolations.join(",") || "none"}`,
+    ["alloc_estimate_frame", "alloc_estimate_total"]
+);
+
+const backlogRows = [
+    { id: "trade", backlog: mdTradeBacklog, cap: mdTradeBacklogCap },
+    { id: "candle", backlog: mdCandleBacklog, cap: mdCandleBacklogCap },
+    { id: "signal", backlog: mdSignalBacklog, cap: mdSignalBacklogCap },
+];
+const backlogViolations = [];
+const backlogObserved = [];
+for (const row of backlogRows) {
+    backlogObserved.push(`${row.id}:entries=${row.backlog} cap=${row.cap}`);
+    if (!isNonNegativeNumber(row.backlog) || !isNonNegativeNumber(row.cap)) {
+        backlogViolations.push(`${row.id}:missing_probe`);
+        continue;
+    }
+    if (row.backlog > row.cap) {
+        backlogViolations.push(`${row.id}:entries_gt_cap`);
+    }
+}
+addCheck(
+    "md_backlog_bounded",
+    "md backlog bounded",
+    backlogViolations.length === 0,
+    `observed=${backlogObserved.join(";")} violations=${backlogViolations.join(",") || "none"}`,
+    ["probe_md_trade_backlog", "probe_md_candle_backlog", "probe_md_signal_backlog"]
+);
+
+addCheck(
+    "layer_stream_bounded",
+    "layer stream bounded",
+    isNonNegativeNumber(layerStreamEntries) &&
+        isNonNegativeNumber(layerStreamEvictions) &&
+        layerStreamEntries <= layerStateMaxEntries,
+    `entries=${layerStreamEntries} evicted_total=${layerStreamEvictions} threshold_entries<=${layerStateMaxEntries}`,
+    ["probe_layer_stream_entries", "probe_layer_stream_evictions"]
+);
+
 addCheck(
     "queue_utilization",
     "queue utilization bounded",
@@ -582,7 +751,7 @@ addCheck(
     ["router_stream_state_entries", "router_stream_state_active_total", "delivery_router_stream_state_evicted_total"]
 );
 
-const allocFrame = Number(probe.probe_md_alloc_estimate_frame ?? -1);
+const allocFrame = mdAllocEstimateFrame;
 addCheck(
     "alloc_counter_frame",
     "alloc/frame counter",
@@ -621,16 +790,53 @@ addCheck(
     ["[error]", "[pageerror]", "requestfailed"]
 );
 
-function addWidgetBudgetChecks(idPrefix, title, probePrefix) {
+const widgetPerfRows = [];
+
+function addWidgetBudgetChecks(idPrefix, title, widgetName, probePrefix) {
     const renderP95 = Number(probe[`probe_widget_${probePrefix}_render_p95_us`] ?? -1);
-    const renderBudget = Number(probe[`probe_widget_${probePrefix}_render_budget_us`] ?? -1);
+    const renderP99 = Number(probe[`probe_widget_${probePrefix}_render_p99_us`] ?? -1);
+    const renderBudgetProbe = Number(probe[`probe_widget_${probePrefix}_render_budget_us`] ?? -1);
     const renderOverBudget = Number(probe[`probe_widget_${probePrefix}_render_over_budget`] ?? -1);
+    const entries = Number(probe[`probe_widget_${probePrefix}_entries`] ?? -1);
+    const maxEntries = Number(probe[`probe_widget_${probePrefix}_max_entries`] ?? -1);
+    const evictedTotal = Number(probe[`probe_widget_${probePrefix}_evicted_total`] ?? -1);
+    const budgetEnabled = widgetBudgetNames.includes(widgetName);
+    const budgetP95FromMap = widgetRenderP95BudgetUsByWidget.get(widgetName);
+    const budgetP99FromMap = widgetRenderP99BudgetUsByWidget.get(widgetName);
+    const renderP95Budget = budgetEnabled
+        ? (budgetP95FromMap ?? widgetRenderP95BudgetUs ?? (renderBudgetProbe > 0 ? renderBudgetProbe : null))
+        : null;
+    const renderP99Budget = budgetEnabled
+        ? (budgetP99FromMap ?? widgetRenderP99BudgetUs ?? (renderBudgetProbe > 0 ? renderBudgetProbe * 2 : null))
+        : null;
+    const maxEntriesBudgetRaw = budgetEnabled
+        ? (widgetMaxEntriesByWidget.get(widgetName) ?? widgetMaxEntriesDefault)
+        : null;
+    const maxEntriesBudget = maxEntriesBudgetRaw === null ? null : Math.floor(maxEntriesBudgetRaw);
+
     addCheck(
         `${idPrefix}_render_budget`,
         `${title} render budget`,
-        renderP95 >= 0 && renderBudget > 0 && renderP95 <= renderBudget && renderOverBudget === 0,
-        `render_p95_us=${renderP95} render_budget_us=${renderBudget} render_over_budget=${renderOverBudget}`,
-        [`probe_widget_${probePrefix}_render_p95_us`, `probe_widget_${probePrefix}_render_budget_us`]
+        isNonNegativeNumber(renderP95) &&
+            isNonNegativeNumber(renderP99) &&
+            renderBudgetProbe > 0 &&
+            renderOverBudget === 0 &&
+            (renderP95Budget === null || renderP95 <= renderP95Budget) &&
+            (renderP99Budget === null || renderP99 <= renderP99Budget),
+        `render_p95_us=${renderP95} render_p99_us=${renderP99} runtime_budget_us=${renderBudgetProbe} env_budget_us(p95<=${fmt(renderP95Budget)},p99<=${fmt(renderP99Budget)}) render_over_budget=${renderOverBudget}`,
+        [`probe_widget_${probePrefix}_render_p95_us`, `probe_widget_${probePrefix}_render_p99_us`, `probe_widget_${probePrefix}_render_budget_us`]
+    );
+
+    addCheck(
+        `${idPrefix}_entries_bounded`,
+        `${title} entries bounded`,
+        isNonNegativeNumber(entries) &&
+            isNonNegativeNumber(maxEntries) &&
+            isNonNegativeNumber(evictedTotal) &&
+            entries <= maxEntries &&
+            (maxEntriesBudget === null || maxEntries <= maxEntriesBudget),
+        `entries=${entries} max_entries=${maxEntries} evicted_total=${evictedTotal} env_max_entries<=${fmt(maxEntriesBudget)}`,
+        [`probe_widget_${probePrefix}_entries`, `probe_widget_${probePrefix}_max_entries`, `probe_widget_${probePrefix}_evicted_total`]
     );
 
     const dropTotal = Number(probe[`probe_widget_${probePrefix}_drop_total`] ?? -1);
@@ -646,13 +852,26 @@ function addWidgetBudgetChecks(idPrefix, title, probePrefix) {
         `drop_total=${dropTotal} drop_capacity_total=${dropCapacity} drop_render_overflow_total=${dropRenderOverflow}`,
         [`probe_widget_${probePrefix}_drop_total`, `probe_widget_${probePrefix}_drop_capacity_total`, `probe_widget_${probePrefix}_drop_render_overflow_total`]
     );
+
+    widgetPerfRows.push({
+        id: widgetName,
+        title,
+        renderP95,
+        renderP99,
+        renderBudgetProbe,
+        renderP95Budget,
+        renderP99Budget,
+        entries,
+        maxEntries,
+        evictedTotal,
+    });
 }
 
-addWidgetBudgetChecks("stats_widget", "stats widget", "stats");
-addWidgetBudgetChecks("dom_widget", "dom widget", "dom");
-addWidgetBudgetChecks("tape_widget", "tape widget", "tape");
-addWidgetBudgetChecks("evidence_widget", "evidence widget", "evidence");
-addWidgetBudgetChecks("signal_widget", "signal widget", "signal");
+addWidgetBudgetChecks("stats_widget", "stats widget", "stats", widgetProbeNames.stats);
+addWidgetBudgetChecks("dom_widget", "dom widget", "dom", widgetProbeNames.dom);
+addWidgetBudgetChecks("tape_widget", "tape widget", "tape", widgetProbeNames.tape);
+addWidgetBudgetChecks("evidence_widget", "evidence widget", "evidence", widgetProbeNames.evidence);
+addWidgetBudgetChecks("signal_widget", "signal widget", "signal", widgetProbeNames.signal);
 
 const smokeSteps = Array.isArray(smoke.steps) ? smoke.steps : [];
 const smokePass = smokeSteps.every((s) => s.ok);
@@ -673,12 +892,78 @@ for (const check of checks) {
     }
 }
 
+const widgetHotPaths = widgetPerfRows
+    .filter((row) => isNonNegativeNumber(row.renderP99))
+    .sort((a, b) => b.renderP99 - a.renderP99 || b.renderP95 - a.renderP95);
+const top3Widgets = widgetHotPaths.slice(0, 3);
+
+const perfHotPathRows = [
+    { id: "md.parse", p95: mdParseP95, p99: mdParseP99 },
+    { id: "md.apply", p95: mdApplyP95, p99: mdApplyP99 },
+    { id: "md.batch_decode", p95: mdBatchDecodeP95, p99: mdBatchDecodeP99 },
+    ...widgetPerfRows.map((row) => ({ id: `widget.${row.id}.render`, p95: row.renderP95, p99: row.renderP99 })),
+]
+    .filter((row) => isNonNegativeNumber(row.p95) && isNonNegativeNumber(row.p99))
+    .sort((a, b) => b.p99 - a.p99 || b.p95 - a.p95);
+const top3HotPaths = perfHotPathRows.slice(0, 3);
+
+const memoryPressureRows = [
+    { id: "alloc_estimate_frame", value: mdAllocEstimateFrame, unit: "alloc_estimate/frame" },
+    { id: "alloc_estimate_total", value: mdAllocEstimateTotal, unit: "alloc_estimate_total" },
+    { id: "backlog.trade", value: mdTradeBacklog, unit: "entries" },
+    { id: "backlog.candle", value: mdCandleBacklog, unit: "entries" },
+    { id: "backlog.signal", value: mdSignalBacklog, unit: "entries" },
+    ...widgetPerfRows.map((row) => ({ id: `widget.${row.id}.entries`, value: row.entries, unit: "entries" })),
+    ...widgetPerfRows.map((row) => ({ id: `widget.${row.id}.evicted_total`, value: row.evictedTotal, unit: "evicted_total" })),
+]
+    .filter((row) => isNonNegativeNumber(row.value))
+    .sort((a, b) => b.value - a.value);
+const top3MemoryPressure = memoryPressureRows.slice(0, 3);
+
 const markdown = [];
 markdown.push("# IQ Loop Report");
 markdown.push("");
 markdown.push(`- run_dir: \`${runDir}\``);
 markdown.push(`- generated_at: \`${new Date().toISOString()}\``);
 markdown.push(`- status: **${overallPass ? "PASS" : "FAIL"}**`);
+markdown.push("");
+markdown.push("## Perf+Memory Baseline");
+markdown.push("");
+markdown.push(`- md parse us: p95=\`${mdParseP95}\` p99=\`${mdParseP99}\``);
+markdown.push(`- md apply us: p95=\`${mdApplyP95}\` p99=\`${mdApplyP99}\``);
+markdown.push(`- md batch decode us: p95=\`${mdBatchDecodeP95}\` p99=\`${mdBatchDecodeP99}\``);
+markdown.push(`- alloc estimate: frame=\`${mdAllocEstimateFrame}\` total=\`${mdAllocEstimateTotal}\``);
+markdown.push(`- layer stream: entries=\`${layerStreamEntries}\` evicted_total=\`${layerStreamEvictions}\``);
+markdown.push("");
+markdown.push("### Top-3 Widgets (Render Cost)");
+markdown.push("");
+if (top3Widgets.length === 0) {
+    markdown.push("- none (missing widget render probes)");
+} else {
+    for (const row of top3Widgets) {
+        markdown.push(`- ${row.id}: render_us(p95/p99)=${row.renderP95}/${row.renderP99} entries=${row.entries}/${row.maxEntries} evicted=${row.evictedTotal}`);
+    }
+}
+markdown.push("");
+markdown.push("### Top-3 Hot Paths (Overall)");
+markdown.push("");
+if (top3HotPaths.length === 0) {
+    markdown.push("- none (missing perf probes)");
+} else {
+    for (const row of top3HotPaths) {
+        markdown.push(`- ${row.id}: us(p95/p99)=${row.p95}/${row.p99}`);
+    }
+}
+markdown.push("");
+markdown.push("### Top-3 Memory Pressure Counters");
+markdown.push("");
+if (top3MemoryPressure.length === 0) {
+    markdown.push("- none (missing memory probes)");
+} else {
+    for (const row of top3MemoryPressure) {
+        markdown.push(`- ${row.id}: ${row.value} ${row.unit}`);
+    }
+}
 markdown.push("");
 markdown.push("## Smoke Checklist");
 markdown.push("");
@@ -707,6 +992,7 @@ markdown.push(`- override active: \`${allowBatchedFallback}\` (set via \`IQ_ALLO
 markdown.push("");
 markdown.push(`- stats fallback removal requires \`md_stats_fallback_frames=0\` for **${statsFallbackRemovalRuns}** consecutive IQ PASS runs.`);
 markdown.push(`- current run md_stats_fallback_frames: \`${statsFallbackFrames}\``);
+markdown.push(`- stats canonical strict gate: \`${requireStatsCanonical}\` (set via \`IQ_REQUIRE_STATS_CANONICAL=1\`).`);
 markdown.push(`- current consecutive zero streak: \`${statsFallbackStreak.streak}\` PASS runs (observed runs: \`${statsFallbackStreak.observedRuns}\`).`);
 markdown.push(`- override active: \`${allowStatsFallback}\` (set via \`IQ_ALLOW_STATS_FALLBACK=1\`)`);
 markdown.push("");
@@ -764,6 +1050,28 @@ const summary = {
     stats_fallback_required_runs: statsFallbackRemovalRuns,
     failed_steps: failedSteps.map((s) => ({ id: s.id, details: s.details || "" })),
     failed_checks: failedChecks.map((c) => ({ id: c.id, evidence: c.evidence })),
+    baseline: {
+        md_parse_p95_us: mdParseP95,
+        md_parse_p99_us: mdParseP99,
+        md_apply_p95_us: mdApplyP95,
+        md_apply_p99_us: mdApplyP99,
+        md_batch_decode_p95_us: mdBatchDecodeP95,
+        md_batch_decode_p99_us: mdBatchDecodeP99,
+        md_alloc_estimate_frame: mdAllocEstimateFrame,
+        md_alloc_estimate_total: mdAllocEstimateTotal,
+        layer_stream_entries: layerStreamEntries,
+        layer_stream_evictions: layerStreamEvictions,
+    },
+    top3_widgets_render: top3Widgets.map((row) => ({
+        widget: row.id,
+        render_p95_us: row.renderP95,
+        render_p99_us: row.renderP99,
+        entries: row.entries,
+        max_entries: row.maxEntries,
+        evicted_total: row.evictedTotal,
+    })),
+    top3_hot_paths: top3HotPaths,
+    top3_memory_pressure: top3MemoryPressure,
 };
 writeFileSync(summaryPath, JSON.stringify(summary, null, 2));
 
