@@ -465,6 +465,11 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 	// Pass 2: re-parse same bytes into typed frame struct.
 	stream := util.subject_stream_type(env.subject)
 	subject_id := util.subject_id64(env.subject)
+	legacyEvidenceSubject := strings.has_prefix(env.subject, "insights.microstructure_evidence/")
+	legacySignalSubject := strings.has_prefix(env.subject, "signal/composite/")
+	if legacyEvidenceSubject || legacySignalSubject {
+		result.meta.legacy_subject = true
+	}
 
 	switch stream {
 	case "marketdata.trade":
@@ -555,8 +560,13 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 		} else if telemetry != nil {
 			telemetry.parse_errors += 1
 		}
+	case "insights.microstructure_evidence":
+		if telemetry != nil {
+			telemetry.legacy_evidence_frames += 1
+		}
+		return result
 	case "signal", "signal.event":
-		if strings.has_prefix(env.subject, "signal/composite/") {
+		if legacySignalSubject {
 			if telemetry != nil {
 				telemetry.legacy_signal_frames += 1
 			}

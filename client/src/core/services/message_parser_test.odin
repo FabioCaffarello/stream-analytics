@@ -588,12 +588,26 @@ test_parse_signal_frame_invalid_confidence_rejected :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_parse_evidence_frame_legacy_subject_rejected :: proc(t: ^testing.T) {
+	raw := `{"type":"event","subject":"insights.microstructure_evidence/binance/BTCUSDT/raw","seq":77,"ts_server":1700000002200,"payload":{"type":"absorption","confidence":0.8,"features":[{"key":"x","value":1.0}],"reason":"legacy-subject"}}`
+	tel: Parse_Telemetry
+	result := parse_mr_message(transmute([]u8)raw, &tel)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.None)
+	testing.expect_value(t, result.meta.legacy_subject, true)
+	testing.expect_value(t, tel.legacy_evidence_frames, 1)
+	testing.expect_value(t, tel.canonical_evidence_frames, 0)
+	free_all(context.temp_allocator)
+}
+
+@(test)
 test_parse_signal_frame_legacy_subject_compat :: proc(t: ^testing.T) {
 	raw := `{"type":"signal","subject":"signal/composite/binance/BTCUSDT/1m","seq":90,"ts_server":1700000001300,"payload":{"kind":"trend_breakout","severity":"high","confidence":0.9,"reason":"legacy"}}`
 	tel: Parse_Telemetry
 	result := parse_mr_message(transmute([]u8)raw, &tel)
 	testing.expect_value(t, result.kind, Parse_Result_Kind.None)
+	testing.expect_value(t, result.meta.legacy_subject, true)
 	testing.expect_value(t, tel.legacy_signal_frames, 1)
+	testing.expect_value(t, tel.canonical_signal_frames, 0)
 	free_all(context.temp_allocator)
 }
 

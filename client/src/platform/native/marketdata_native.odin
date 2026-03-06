@@ -300,13 +300,24 @@ apply_ws_fault :: proc(state: ^MD_Native_State, category: ports.MD_WS_Error_Cate
 		state.reconnect_blocked = true
 		set_transport_state(state, .Desync)
 	case .Downgrade:
-		// Legacy downgrade is removed from runtime; fail closed if observed.
-		state.desync = true
-		state.desync_reason = .Protocol_Invalid
-		state.reconnect_blocked = true
-		set_transport_state(state, .Desync)
+		native_record_legacy_downgrade_attempt(state, "fault_matrix")
 	case .None:
 	}
+}
+
+@(private = "file")
+native_record_legacy_downgrade_attempt :: proc(state: ^MD_Native_State, source: string) {
+	if state == nil do return
+	state.legacy_downgrade_count += 1
+	state.desync = true
+	state.desync_reason = .Protocol_Invalid
+	state.reconnect_blocked = true
+	set_transport_state(state, .Desync)
+	fmt.printf(
+		"[md-lifecycle] legacy_downgrade_blocked source=%s count=%d\n",
+		source,
+		state.legacy_downgrade_count,
+	)
 }
 
 // --- Auth header helper ---
@@ -2103,7 +2114,9 @@ apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 					state.desync_reason = .Protocol_Invalid
 					state.reconnect_blocked = true
 					set_transport_state(state, .Desync)
-				case .Downgrade, .None:
+				case .Downgrade:
+					native_record_legacy_downgrade_attempt(state, "action_hint")
+				case .None:
 					// No action needed.
 				}
 				sync.unlock(&state.mu)

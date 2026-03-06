@@ -312,13 +312,24 @@ apply_web_fault :: proc(state: ^MD_Web_State, category: ports.MD_WS_Error_Catego
 		state.desync_reason = .Protocol_Invalid
 		set_web_transport_state(state, .Desync)
 	case .Downgrade:
-		// Legacy downgrade is removed from runtime; fail closed if observed.
-		state.reconnect_blocked = true
-		state.desync = true
-		state.desync_reason = .Protocol_Invalid
-		set_web_transport_state(state, .Desync)
+		web_record_legacy_downgrade_attempt(state, "fault_matrix")
 	case .None:
 	}
+}
+
+@(private = "file")
+web_record_legacy_downgrade_attempt :: proc(state: ^MD_Web_State, source: string) {
+	if state == nil do return
+	state.legacy_downgrade_count += 1
+	state.reconnect_blocked = true
+	state.desync = true
+	state.desync_reason = .Protocol_Invalid
+	set_web_transport_state(state, .Desync)
+	fmt.printf(
+		"[md-lifecycle] legacy_downgrade_blocked source=%s count=%d\n",
+		source,
+		state.legacy_downgrade_count,
+	)
 }
 
 // Feature lookup — delegates to md_common.feature_slot_has_name.
@@ -2062,7 +2073,9 @@ web_apply_parsed_result :: proc(state: ^MD_Web_State, result: services.Parse_Res
 					state.desync = true
 					state.desync_reason = .Protocol_Invalid
 					set_web_transport_state(state, .Desync)
-				case .Downgrade, .None:
+				case .Downgrade:
+					web_record_legacy_downgrade_attempt(state, "action_hint")
+				case .None:
 				}
 			} else {
 				if strings.contains(ed.code, "AUTH") || strings.contains(ed.code, "UNAUTHORIZED") || strings.contains(ed.code, "TOKEN") {
