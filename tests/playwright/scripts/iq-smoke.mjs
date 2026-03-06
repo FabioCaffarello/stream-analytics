@@ -725,6 +725,19 @@ async function main() {
 
         await runStep("stats-regime", "Validate canonical stats/perf probes", async () => {
             const statsPrime = await primeCanonicalStatsFlow(page);
+            if (REQUIRE_STATS_CANONICAL) {
+                for (let i = 0; i < 8; i += 1) {
+                    const probe = await readRuntimeProbe(page);
+                    const hasCanonical = Number(probe.probe_md_canonical_stats_frames ?? 0) > 0 &&
+                        Number(probe.probe_widget_stats_count ?? 0) > 0 &&
+                        Number(probe.probe_widget_stats_parse_total ?? 0) > 0;
+                    if (hasCanonical) {
+                        break;
+                    }
+                    await page.keyboard.press("Tab");
+                    await page.waitForTimeout(450);
+                }
+            }
             await waitFor(async () => {
                 const probe = await readRuntimeProbe(page);
                 const perfReady = Number(probe.probe_md_parse_time_p95_us ?? -1) >= 0 &&
