@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
+import { createHash } from "crypto";
+import { spawnSync } from "child_process";
 import { readFileSync, writeFileSync, existsSync, readdirSync, lstatSync, readlinkSync } from "fs";
-import { join, resolve, dirname } from "path";
+import { join, resolve, dirname, basename } from "path";
 import { envBoolValue, resolveIQProfile } from "./profile_loader.mjs";
 import { validateBoundednessMatrix } from "./validate_boundedness_matrix.mjs";
 
@@ -17,6 +19,84 @@ function readJSON(path) {
     } catch {
         return null;
     }
+}
+
+function sortJSONValue(value) {
+    if (Array.isArray(value)) {
+        return value.map((item) => sortJSONValue(item));
+    }
+    if (value && typeof value === "object") {
+        const out = {};
+        const keys = Object.keys(value).sort();
+        for (const key of keys) {
+            out[key] = sortJSONValue(value[key]);
+        }
+        return out;
+    }
+    return value;
+}
+
+function stableJSONString(value, indent = 2) {
+    return JSON.stringify(sortJSONValue(value), null, indent);
+}
+
+function sha256Hex(raw) {
+    return createHash("sha256").update(raw).digest("hex");
+}
+
+function parseRunTimestampFromDir(runDirPath) {
+    const runID = basename(resolve(runDirPath));
+    const match = runID.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/);
+    if (!match) {
+        return {
+            run_id: runID,
+            started_at_utc: null,
+        };
+    }
+    const [, year, month, day, hour, minute, second] = match;
+    const iso = new Date(Date.UTC(
+        Number(year),
+        Number(month) - 1,
+        Number(day),
+        Number(hour),
+        Number(minute),
+        Number(second)
+    )).toISOString();
+    return {
+        run_id: runID,
+        started_at_utc: iso,
+    };
+}
+
+function resolveCommitHash() {
+    const fromEnv = String(
+        process.env.GIT_COMMIT ||
+        process.env.COMMIT_SHA ||
+        process.env.GITHUB_SHA ||
+        ""
+    ).trim();
+    if (fromEnv) {
+        return fromEnv;
+    }
+    const result = spawnSync("git", ["rev-parse", "HEAD"], {
+        cwd: process.cwd(),
+        encoding: "utf8",
+    });
+    if (result.status === 0) {
+        const value = String(result.stdout || "").trim();
+        if (value) {
+            return value;
+        }
+    }
+    return "unknown";
+}
+
+function matrixCapSnapshot(validation, id, fallback = null) {
+    const value = Number(validation?.effectiveCaps?.[id]);
+    if (Number.isFinite(value) && value > 0) {
+        return value;
+    }
+    return fallback;
 }
 
 function parseLabels(raw) {
@@ -1537,13 +1617,191 @@ const effectiveProfileEntries = Object.keys(iqProfile.effectiveValues)
 const effectiveProfileDiffMap = new Map(
     iqProfile.diffs.map((entry) => [entry.key, entry])
 );
+const checkByID = new Map(checks.map((check) => [check.id, check]));
+const criticalInvariants = [
+    {
+        id: "p1_ts_server_present",
+        label: "ts_server present",
+        check_id: "ts_server_present",
+        enabled: true,
+    },
+    {
+        id: "p2_seq_monotonic",
+        label: "seq monotonic",
+        check_id: "seq_monotonic",
+        enabled: true,
+    },
+    {
+        id: "p3_prev_seq_chaining",
+        label: "prev_seq chaining",
+        check_id: "prev_seq_chaining",
+        enabled: true,
+    },
+    {
+        id: "p4_canonical_subjects",
+        label: "canonical evidence/signal subjects",
+        check_id: "canonical_subjects",
+        enabled: legacyStrict,
+    },
+    {
+        id: "p5_legacy_route_never_accepted",
+        label: "legacy route never accepted",
+        check_id: "legacy_route_never_accepted",
+        enabled: legacyStrict,
+    },
+    {
+        id: "p6_no_compat_fallback_path",
+        label: "no fallback/compat path hit",
+        check_id: "compat_fallback_zero",
+        enabled: fallbackStrict && !allowBatchedFallback && !allowStatsFallback && !allowUnexpectedSkips,
+    },
+    {
+        id: "p7_wire_latency_budget_p95_p99",
+        label: "wire budgets p95/p99",
+        check_id: "wire_budget_p95_p99",
+        enabled: wireBudgetChannels.length > 0 &&
+            Number.isFinite(wireP95BudgetMs) && wireP95BudgetMs > 0 &&
+            Number.isFinite(wireP99BudgetMs) && wireP99BudgetMs > 0,
+    },
+    {
+        id: "p8_wire_bytes_budget_p95_p99",
+        label: "wire bytes budgets p95/p99",
+        check_id: "wire_bytes_budget_p95_p99",
+        enabled: wireBudgetChannels.length > 0 &&
+            Number.isFinite(wireBytesP95Budget) && wireBytesP95Budget > 0 &&
+            Number.isFinite(wireBytesP99Budget) && wireBytesP99Budget > 0,
+    },
+    {
+        id: "p9_backpressure_drop_budget",
+        label: "drops/backpressure budget",
+        check_id: "backpressure_drop_budget",
+        enabled: true,
+    },
+    {
+        id: "p10_md_backlog_bounded",
+        label: "md backlog bounded",
+        check_id: "md_backlog_bounded",
+        enabled: true,
+    },
+].map((entry) => ({
+    ...entry,
+    runtime_ok: Boolean(checkByID.get(entry.check_id)?.ok),
+}));
+const criticalEnabled = criticalInvariants
+    .filter((entry) => entry.enabled)
+    .map((entry) => entry.id);
+const criticalDisabled = criticalInvariants
+    .filter((entry) => !entry.enabled)
+    .map((entry) => entry.id);
+
+const generatedAtISO = new Date().toISOString();
+const runTimestamp = parseRunTimestampFromDir(runDir);
+const commitHash = resolveCommitHash();
+const effectiveProfileProofPath = join(runDir, "effective-profile.json");
+const effectiveProfileProof = {
+    schema_version: "iq.effective_profile.v1",
+    profile_name: iqProfile.effectiveProfileName,
+    requested_profile: iqProfile.requestedProfile || "<unset>",
+    run: {
+        run_dir: runDir,
+        run_id: runTimestamp.run_id,
+        started_at_utc: runTimestamp.started_at_utc,
+        generated_at_utc: generatedAtISO,
+    },
+    commit: {
+        hash: commitHash,
+    },
+    replica_count: profileReplicaCount,
+    budgets: {
+        wire_latency_ms: {
+            channels: wireBudgetChannels,
+            p95: wireP95BudgetMs,
+            p99: wireP99BudgetMs,
+        },
+        wire_bytes: {
+            channels: wireBudgetChannels,
+            p95: wireBytesP95Budget,
+            p99: wireBytesP99Budget,
+        },
+    },
+    caps: {
+        router_stream_state_max: {
+            value: routerStateMaxEntries,
+            boundedness_matrix: {
+                path: "docs/contracts/boundedness-matrix.md",
+                id: "iq.router_stream_state_max_budget",
+                cap: matrixCapSnapshot(boundednessValidation, "iq.router_stream_state_max_budget", routerStateMaxEntries),
+            },
+        },
+        layer_stream_state_max: {
+            value: layerStateMaxEntries,
+            boundedness_matrix: {
+                path: "docs/contracts/boundedness-matrix.md",
+                id: "iq.layer_stream_state_max_budget",
+                cap: matrixCapSnapshot(boundednessValidation, "iq.layer_stream_state_max_budget", layerStateMaxEntries),
+            },
+        },
+        wire_bytes_p95_budget: {
+            value: wireBytesP95Budget,
+            boundedness_matrix: {
+                path: "docs/contracts/boundedness-matrix.md",
+                id: "iq.wire_bytes_p95_budget_default",
+                cap: matrixCapSnapshot(boundednessValidation, "iq.wire_bytes_p95_budget_default", wireBytesP95Budget),
+            },
+        },
+        wire_bytes_p99_budget: {
+            value: wireBytesP99Budget,
+            boundedness_matrix: {
+                path: "docs/contracts/boundedness-matrix.md",
+                id: "iq.wire_bytes_p99_budget_default",
+                cap: matrixCapSnapshot(boundednessValidation, "iq.wire_bytes_p99_budget_default", wireBytesP99Budget),
+            },
+        },
+    },
+    legacy_flags: {
+        strict: strictProfile,
+        fallback_strict: fallbackStrict,
+        legacy_strict: legacyStrict,
+        require_stats_canonical: requireStatsCanonical,
+        allow_batched_fallback: allowBatchedFallback,
+        allow_stats_fallback: allowStatsFallback,
+        allow_unexpected_skips: allowUnexpectedSkips,
+    },
+    critical_invariants: {
+        enabled: criticalEnabled,
+        disabled: criticalDisabled,
+        items: criticalInvariants,
+    },
+    profile_validation: {
+        valid: iqProfile.valid,
+        errors: iqProfile.validationErrors,
+        profile_loader_fingerprint_hash: iqProfile.fingerprint.hash,
+    },
+};
+const effectiveProfileProofRaw = `${stableJSONString(effectiveProfileProof, 2)}\n`;
+const effectiveProfileProofHash = `sha256:${sha256Hex(effectiveProfileProofRaw)}`;
 
 const markdown = [];
 markdown.push("# IQ Loop Report");
 markdown.push("");
 markdown.push(`- run_dir: \`${runDir}\``);
-markdown.push(`- generated_at: \`${new Date().toISOString()}\``);
+markdown.push(`- generated_at: \`${generatedAtISO}\``);
 markdown.push(`- status: **${overallPass ? "PASS" : "FAIL"}**`);
+markdown.push("");
+markdown.push("## Profile");
+markdown.push("");
+markdown.push(`- profile_name: \`${iqProfile.effectiveProfileName}\``);
+markdown.push(`- effective_profile_artifact: \`effective-profile.json\``);
+markdown.push(`- effective_profile_fingerprint_hash: \`${effectiveProfileProofHash}\``);
+markdown.push(`- profile_loader_fingerprint_hash: \`${iqProfile.fingerprint.hash}\``);
+markdown.push(`- critical_invariants_enabled: \`${criticalEnabled.join(",") || "none"}\``);
+markdown.push(`- critical_invariants_disabled: \`${criticalDisabled.join(",") || "none"}\``);
+markdown.push("");
+markdown.push("| Critical Invariant | Enabled | Runtime Check | Status |");
+markdown.push("|---|---|---|---|");
+for (const entry of criticalInvariants) {
+    markdown.push(`| ${entry.label} | ${entry.enabled ? "ON" : "OFF"} | ${entry.check_id} | ${statusIcon(entry.runtime_ok)} |`);
+}
 markdown.push("");
 markdown.push("## Effective Profile Fingerprint");
 markdown.push("");
@@ -1714,10 +1972,11 @@ if (scorecard.top_regressions.length === 0) {
 }
 markdown.push("");
 
+writeFileSync(effectiveProfileProofPath, effectiveProfileProofRaw);
 writeFileSync(scorecardPath, JSON.stringify(scorecard, null, 2) + "\n");
 writeFileSync(reportPath, markdown.join("\n") + "\n");
 const summary = {
-    generated_at: new Date().toISOString(),
+    generated_at: generatedAtISO,
     overall_pass: overallPass,
     smoke_pass: smokePass,
     invariants_pass: invariantsPass,
@@ -1740,6 +1999,12 @@ const summary = {
         values: iqProfile.effectiveValues,
         diffs: iqProfile.diffs,
     },
+    effective_profile_proof: {
+        path: "effective-profile.json",
+        hash: effectiveProfileProofHash,
+        value: effectiveProfileProof,
+    },
+    critical_invariants: effectiveProfileProof.critical_invariants,
     failed_steps: failedSteps.map((s) => ({ id: s.id, details: s.details || "" })),
     failed_checks: failedChecks.map((c) => ({ id: c.id, evidence: c.evidence })),
     legacy_negative: legacyNegative || null,
