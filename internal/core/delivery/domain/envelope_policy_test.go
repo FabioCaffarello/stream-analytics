@@ -19,9 +19,14 @@ func TestValidateEnvelopeForDelivery_AllowsAggregationSnapshot(t *testing.T) {
 
 func TestValidateEnvelopeForDelivery_AllowsAggregationCandleAndStats(t *testing.T) {
 	for _, eventType := range []string{
+		"marketdata.open_interest",
 		"aggregation.candle",
 		"aggregation.stats",
 		"aggregation.tape",
+		"aggregation.oi",
+		"aggregation.delta_volume",
+		"aggregation.cvd",
+		"aggregation.bar_stats",
 		"aggregation.orderbook_inconsistency",
 		"insights.heatmap_snapshot",
 		"liquidity.evidence",

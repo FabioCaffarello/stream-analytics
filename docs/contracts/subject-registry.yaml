@@ -59,6 +59,17 @@ subjects:
       - .context/docs/feature-packs/delivery-ws.md
       - .context/docs/feature-packs/storage.md
       - .context/docs/feature-packs/liquidations-markprice.md
+  - id: marketdata.open_interest.v1
+    pattern: marketdata.open_interest.v1.{venue}.{instrument}
+    root: marketdata
+    owner_bc: marketdata
+    producer_bc: marketdata
+    schema_authority_bc: marketdata
+    consumer_bcs: [aggregation, delivery, storage]
+    status: stable
+    sources:
+      - docs/contracts/event-bus.md
+      - proto/marketdata/v1/open_interest.proto
   - id: marketdata.liquidation.v1
     pattern: marketdata.liquidation.v1.{venue}.{instrument}
     root: marketdata
@@ -159,6 +170,50 @@ subjects:
     sources:
       - docs/contracts/event-bus.md
       - proto/aggregation/v1/tape.proto
+  - id: aggregation.oi.v1
+    pattern: aggregation.oi.v1.{venue}.{instrument}
+    root: aggregation
+    owner_bc: aggregation
+    producer_bc: aggregation
+    schema_authority_bc: aggregation
+    consumer_bcs: [delivery, storage]
+    status: stable
+    sources:
+      - docs/contracts/event-bus.md
+      - proto/aggregation/v1/oi.proto
+  - id: aggregation.delta_volume.v1
+    pattern: aggregation.delta_volume.v1.{venue}.{instrument}
+    root: aggregation
+    owner_bc: aggregation
+    producer_bc: aggregation
+    schema_authority_bc: aggregation
+    consumer_bcs: [delivery, storage]
+    status: stable
+    sources:
+      - docs/contracts/event-bus.md
+      - proto/aggregation/v1/delta_volume.proto
+  - id: aggregation.cvd.v1
+    pattern: aggregation.cvd.v1.{venue}.{instrument}
+    root: aggregation
+    owner_bc: aggregation
+    producer_bc: aggregation
+    schema_authority_bc: aggregation
+    consumer_bcs: [delivery, storage]
+    status: stable
+    sources:
+      - docs/contracts/event-bus.md
+      - proto/aggregation/v1/cvd.proto
+  - id: aggregation.bar_stats.v1
+    pattern: aggregation.bar_stats.v1.{venue}.{instrument}
+    root: aggregation
+    owner_bc: aggregation
+    producer_bc: aggregation
+    schema_authority_bc: aggregation
+    consumer_bcs: [delivery, storage]
+    status: stable
+    sources:
+      - docs/contracts/event-bus.md
+      - proto/aggregation/v1/bar_stats.proto
   - id: insights.heatmap_snapshot.v1
     pattern: insights.heatmap_snapshot.v1.{venue}.{instrument}
     root: insights

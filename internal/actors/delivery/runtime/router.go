@@ -672,7 +672,13 @@ func allowEnvelopeTimeframeOverride(eventType string) bool {
 	switch {
 	case strings.HasPrefix(et, "insights."):
 		return true
-	case et == "aggregation.candle", et == "aggregation.stats", et == "aggregation.tape":
+	case et == "aggregation.candle",
+		et == "aggregation.stats",
+		et == "aggregation.tape",
+		et == "aggregation.oi",
+		et == "aggregation.delta_volume",
+		et == "aggregation.cvd",
+		et == "aggregation.bar_stats":
 		return true
 	case et == "signal.composite", et == "signal.event":
 		return true

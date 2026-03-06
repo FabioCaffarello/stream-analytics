@@ -64,4 +64,7 @@ func TestDefaultBackpressurePriorities_HasCriticalTypes(t *testing.T) {
 	if priorities["aggregation.candle"] <= priorities["insights.crossvenue.spread_signal"] {
 		t.Fatal("candle priority must be greater than insights spread signal")
 	}
+	if priorities["aggregation.oi"] <= 0 || priorities["aggregation.cvd"] <= 0 || priorities["aggregation.delta_volume"] <= 0 || priorities["aggregation.bar_stats"] <= 0 {
+		t.Fatal("analytics primitive priorities must be present and positive")
+	}
 }

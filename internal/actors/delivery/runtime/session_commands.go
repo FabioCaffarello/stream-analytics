@@ -623,6 +623,16 @@ func canonicalStreamTypeForCommandChannel(channel string) string {
 		return "aggregation.snapshot"
 	case "ticker", "marketdata.markprice":
 		return "marketdata.markprice"
+	case "open_interest", "marketdata.open_interest":
+		return "marketdata.open_interest"
+	case "oi", "aggregation.oi":
+		return "aggregation.oi"
+	case "delta_volume", "aggregation.delta_volume":
+		return "aggregation.delta_volume"
+	case "cvd", "aggregation.cvd":
+		return "aggregation.cvd"
+	case "bar_stats", "aggregation.bar_stats":
+		return "aggregation.bar_stats"
 	case "liquidation", "marketdata.liquidation":
 		return "marketdata.liquidation"
 	case "stats", "aggregation.stats":

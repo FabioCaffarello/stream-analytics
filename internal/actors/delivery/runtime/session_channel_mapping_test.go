@@ -44,6 +44,46 @@ func TestCanonicalStreamTypeForCommandChannelTape(t *testing.T) {
 	}
 }
 
+func TestCanonicalStreamTypeForCommandChannelAnalyticsPrimitives(t *testing.T) {
+	cases := map[string]string{
+		"open_interest":  "marketdata.open_interest",
+		"oi":             "aggregation.oi",
+		"delta_volume":   "aggregation.delta_volume",
+		"cvd":            "aggregation.cvd",
+		"bar_stats":      "aggregation.bar_stats",
+		"aggregation.oi": "aggregation.oi",
+	}
+	for input, want := range cases {
+		if got := canonicalStreamTypeForCommandChannel(input); got != want {
+			t.Fatalf("channel=%q stream type=%q want=%q", input, got, want)
+		}
+	}
+}
+
+func TestChannelEnumAndNameForOpenInterest(t *testing.T) {
+	if got := channelEnumFromStreamType("marketdata.open_interest"); got != deliveryv1.Channel_CHANNEL_OPEN_INTEREST {
+		t.Fatalf("channel enum = %v, want %v", got, deliveryv1.Channel_CHANNEL_OPEN_INTEREST)
+	}
+	if got := channelEnumFromStreamType("aggregation.oi"); got != deliveryv1.Channel_CHANNEL_OPEN_INTEREST {
+		t.Fatalf("channel enum = %v, want %v", got, deliveryv1.Channel_CHANNEL_OPEN_INTEREST)
+	}
+	if name := channelName(deliveryv1.Channel_CHANNEL_OPEN_INTEREST, ""); name != "open_interest" {
+		t.Fatalf("channel name = %q, want open_interest", name)
+	}
+}
+
+func TestChannelNameForAnalyticsFallbacks(t *testing.T) {
+	if got := channelName(deliveryv1.Channel_CHANNEL_UNSPECIFIED, "aggregation.delta_volume"); got != "delta_volume" {
+		t.Fatalf("channel name = %q, want delta_volume", got)
+	}
+	if got := channelName(deliveryv1.Channel_CHANNEL_UNSPECIFIED, "aggregation.cvd"); got != "cvd" {
+		t.Fatalf("channel name = %q, want cvd", got)
+	}
+	if got := channelName(deliveryv1.Channel_CHANNEL_UNSPECIFIED, "aggregation.bar_stats"); got != "bar_stats" {
+		t.Fatalf("channel name = %q, want bar_stats", got)
+	}
+}
+
 func TestRejectLegacyCutoverSubject(t *testing.T) {
 	t.Run("legacy evidence stream type rejected", func(t *testing.T) {
 		sub, p := domain.ParseSubject("insights.microstructure_evidence/binance/BTC-USDT/raw")
