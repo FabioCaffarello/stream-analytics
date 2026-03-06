@@ -183,6 +183,185 @@ func (s *logStatsHotStore) SaveStats(_ context.Context, evt aggdomain.StatsWindo
 	return nil
 }
 
+type logTapeHotStore struct{ logger *slog.Logger }
+
+func (s *logTapeHotStore) SaveTape(_ context.Context, evt aggdomain.TapeClosed) *problem.Problem {
+	s.logger.Debug("aggregation: tape saved to hot store",
+		"venue", evt.Window.Venue,
+		"instrument", evt.Window.Instrument,
+		"timeframe", evt.Window.Timeframe,
+		"trade_count", evt.Window.TradeCount,
+	)
+	return nil
+}
+
+type logOIHotStore struct{ logger *slog.Logger }
+
+func (s *logOIHotStore) SaveOI(_ context.Context, evt aggdomain.OpenInterestClosed) *problem.Problem {
+	s.logger.Debug("aggregation: oi saved to hot store",
+		"venue", evt.Window.Venue,
+		"instrument", evt.Window.Instrument,
+		"oi", evt.Window.OpenInterest,
+	)
+	return nil
+}
+
+type logDeltaVolumeHotStore struct{ logger *slog.Logger }
+
+func (s *logDeltaVolumeHotStore) SaveDeltaVolume(_ context.Context, evt aggdomain.DeltaVolumeClosed) *problem.Problem {
+	s.logger.Debug("aggregation: delta_volume saved to hot store",
+		"venue", evt.Window.Venue,
+		"instrument", evt.Window.Instrument,
+		"delta", evt.Window.DeltaVolume,
+	)
+	return nil
+}
+
+type logCVDHotStore struct{ logger *slog.Logger }
+
+func (s *logCVDHotStore) SaveCVD(_ context.Context, evt aggdomain.CVDClosed) *problem.Problem {
+	s.logger.Debug("aggregation: cvd saved to hot store",
+		"venue", evt.Window.Venue,
+		"instrument", evt.Window.Instrument,
+		"cvd", evt.Window.CVD,
+	)
+	return nil
+}
+
+type logBarStatsHotStore struct{ logger *slog.Logger }
+
+func (s *logBarStatsHotStore) SaveBarStats(_ context.Context, evt aggdomain.BarStatsClosed) *problem.Problem {
+	s.logger.Debug("aggregation: bar_stats saved to hot store",
+		"venue", evt.Window.Venue,
+		"instrument", evt.Window.Instrument,
+		"trade_count", evt.Window.TradeCount,
+	)
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// dual-write composite stores (Pg hot + CH cold)
+// ---------------------------------------------------------------------------
+
+type dualWriteCandleStore struct {
+	hot    aggports.CandleHotReadModelStore
+	cold   aggports.CandleHotReadModelStore
+	logger *slog.Logger
+}
+
+func (s *dualWriteCandleStore) SaveCandle(ctx context.Context, evt aggdomain.CandleClosed) *problem.Problem {
+	if p := s.hot.SaveCandle(ctx, evt); p != nil {
+		return p
+	}
+	if p := s.cold.SaveCandle(ctx, evt); p != nil {
+		s.logger.Warn("cold candle write failed (non-fatal)", "err", p.Message)
+		metrics.IncProcessorCommit("candle_cold_err")
+	}
+	return nil
+}
+
+type dualWriteStatsStore struct {
+	hot    aggports.StatsHotReadModelStore
+	cold   aggports.StatsHotReadModelStore
+	logger *slog.Logger
+}
+
+func (s *dualWriteStatsStore) SaveStats(ctx context.Context, evt aggdomain.StatsWindowClosed) *problem.Problem {
+	if p := s.hot.SaveStats(ctx, evt); p != nil {
+		return p
+	}
+	if p := s.cold.SaveStats(ctx, evt); p != nil {
+		s.logger.Warn("cold stats write failed (non-fatal)", "err", p.Message)
+		metrics.IncProcessorCommit("stats_cold_err")
+	}
+	return nil
+}
+
+type dualWriteTapeStore struct {
+	hot    aggports.TapeHotReadModelStore
+	cold   aggports.TapeHotReadModelStore
+	logger *slog.Logger
+}
+
+func (s *dualWriteTapeStore) SaveTape(ctx context.Context, evt aggdomain.TapeClosed) *problem.Problem {
+	if p := s.hot.SaveTape(ctx, evt); p != nil {
+		return p
+	}
+	if p := s.cold.SaveTape(ctx, evt); p != nil {
+		s.logger.Warn("cold tape write failed (non-fatal)", "err", p.Message)
+		metrics.IncProcessorCommit("tape_cold_err")
+	}
+	return nil
+}
+
+type dualWriteOIStore struct {
+	hot    aggports.OIHotReadModelStore
+	cold   aggports.OIHotReadModelStore
+	logger *slog.Logger
+}
+
+func (s *dualWriteOIStore) SaveOI(ctx context.Context, evt aggdomain.OpenInterestClosed) *problem.Problem {
+	if p := s.hot.SaveOI(ctx, evt); p != nil {
+		return p
+	}
+	if p := s.cold.SaveOI(ctx, evt); p != nil {
+		s.logger.Warn("cold oi write failed (non-fatal)", "err", p.Message)
+		metrics.IncProcessorCommit("oi_cold_err")
+	}
+	return nil
+}
+
+type dualWriteDeltaVolumeStore struct {
+	hot    aggports.DeltaVolumeHotReadModelStore
+	cold   aggports.DeltaVolumeHotReadModelStore
+	logger *slog.Logger
+}
+
+func (s *dualWriteDeltaVolumeStore) SaveDeltaVolume(ctx context.Context, evt aggdomain.DeltaVolumeClosed) *problem.Problem {
+	if p := s.hot.SaveDeltaVolume(ctx, evt); p != nil {
+		return p
+	}
+	if p := s.cold.SaveDeltaVolume(ctx, evt); p != nil {
+		s.logger.Warn("cold delta_volume write failed (non-fatal)", "err", p.Message)
+		metrics.IncProcessorCommit("delta_volume_cold_err")
+	}
+	return nil
+}
+
+type dualWriteCVDStore struct {
+	hot    aggports.CVDHotReadModelStore
+	cold   aggports.CVDHotReadModelStore
+	logger *slog.Logger
+}
+
+func (s *dualWriteCVDStore) SaveCVD(ctx context.Context, evt aggdomain.CVDClosed) *problem.Problem {
+	if p := s.hot.SaveCVD(ctx, evt); p != nil {
+		return p
+	}
+	if p := s.cold.SaveCVD(ctx, evt); p != nil {
+		s.logger.Warn("cold cvd write failed (non-fatal)", "err", p.Message)
+		metrics.IncProcessorCommit("cvd_cold_err")
+	}
+	return nil
+}
+
+type dualWriteBarStatsStore struct {
+	hot    aggports.BarStatsHotReadModelStore
+	cold   aggports.BarStatsHotReadModelStore
+	logger *slog.Logger
+}
+
+func (s *dualWriteBarStatsStore) SaveBarStats(ctx context.Context, evt aggdomain.BarStatsClosed) *problem.Problem {
+	if p := s.hot.SaveBarStats(ctx, evt); p != nil {
+		return p
+	}
+	if p := s.cold.SaveBarStats(ctx, evt); p != nil {
+		s.logger.Warn("cold bar_stats write failed (non-fatal)", "err", p.Message)
+		metrics.IncProcessorCommit("bar_stats_cold_err")
+	}
+	return nil
+}
+
 type subMinuteRolloutGate struct {
 	enabled     bool
 	venues      map[string]struct{}
@@ -351,6 +530,81 @@ func (s *subMinuteFilteringStatsStore) SaveStats(ctx context.Context, evt aggdom
 	return s.next.SaveStats(ctx, evt)
 }
 
+type subMinuteFilteringTapeStore struct {
+	next aggports.TapeHotReadModelStore
+	gate *subMinuteRolloutGate
+}
+
+func (s *subMinuteFilteringTapeStore) SaveTape(ctx context.Context, evt aggdomain.TapeClosed) *problem.Problem {
+	if s == nil || s.next == nil {
+		return nil
+	}
+	if s.gate != nil && !s.gate.allows(evt.Window.Venue, evt.Window.Instrument, evt.Window.Timeframe) {
+		return nil
+	}
+	return s.next.SaveTape(ctx, evt)
+}
+
+type subMinuteFilteringOIStore struct {
+	next aggports.OIHotReadModelStore
+	gate *subMinuteRolloutGate
+}
+
+func (s *subMinuteFilteringOIStore) SaveOI(ctx context.Context, evt aggdomain.OpenInterestClosed) *problem.Problem {
+	if s == nil || s.next == nil {
+		return nil
+	}
+	if s.gate != nil && !s.gate.allows(evt.Window.Venue, evt.Window.Instrument, evt.Window.Timeframe) {
+		return nil
+	}
+	return s.next.SaveOI(ctx, evt)
+}
+
+type subMinuteFilteringDeltaVolumeStore struct {
+	next aggports.DeltaVolumeHotReadModelStore
+	gate *subMinuteRolloutGate
+}
+
+func (s *subMinuteFilteringDeltaVolumeStore) SaveDeltaVolume(ctx context.Context, evt aggdomain.DeltaVolumeClosed) *problem.Problem {
+	if s == nil || s.next == nil {
+		return nil
+	}
+	if s.gate != nil && !s.gate.allows(evt.Window.Venue, evt.Window.Instrument, evt.Window.Timeframe) {
+		return nil
+	}
+	return s.next.SaveDeltaVolume(ctx, evt)
+}
+
+type subMinuteFilteringCVDStore struct {
+	next aggports.CVDHotReadModelStore
+	gate *subMinuteRolloutGate
+}
+
+func (s *subMinuteFilteringCVDStore) SaveCVD(ctx context.Context, evt aggdomain.CVDClosed) *problem.Problem {
+	if s == nil || s.next == nil {
+		return nil
+	}
+	if s.gate != nil && !s.gate.allows(evt.Window.Venue, evt.Window.Instrument, evt.Window.Timeframe) {
+		return nil
+	}
+	return s.next.SaveCVD(ctx, evt)
+}
+
+type subMinuteFilteringBarStatsStore struct {
+	next aggports.BarStatsHotReadModelStore
+	gate *subMinuteRolloutGate
+}
+
+func (s *subMinuteFilteringBarStatsStore) SaveBarStats(ctx context.Context, evt aggdomain.BarStatsClosed) *problem.Problem {
+	if s == nil || s.next == nil {
+		return nil
+	}
+	if s.gate != nil && !s.gate.allows(evt.Window.Venue, evt.Window.Instrument, evt.Window.Timeframe) {
+		return nil
+	}
+	return s.next.SaveBarStats(ctx, evt)
+}
+
 // ---------------------------------------------------------------------------
 // envelope source abstraction
 // ---------------------------------------------------------------------------
@@ -497,6 +751,11 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 	var hotWriter aggports.HotReadModelStore = timescale.NewWriter()
 	var candleStore aggports.CandleHotReadModelStore = &logCandleHotStore{logger: logger}
 	var statsStore aggports.StatsHotReadModelStore = &logStatsHotStore{logger: logger}
+	var tapeStore aggports.TapeHotReadModelStore = &logTapeHotStore{logger: logger}
+	var oiStore aggports.OIHotReadModelStore = &logOIHotStore{logger: logger}
+	var deltaVolumeStore aggports.DeltaVolumeHotReadModelStore = &logDeltaVolumeHotStore{logger: logger}
+	var cvdStore aggports.CVDHotReadModelStore = &logCVDHotStore{logger: logger}
+	var barStatsStore aggports.BarStatsHotReadModelStore = &logBarStatsHotStore{logger: logger}
 	var heatmapStore *timescale.HeatmapWriter
 	var volumeProfileStore *timescale.VolumeProfileWriter
 	var tsPool *timescale.Pool
@@ -526,6 +785,11 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 		hotWriter = timescale.NewPgWriter(tsPool)
 		candleStore = timescale.NewPgCandleWriter(tsPool)
 		statsStore = timescale.NewPgStatsWriter(tsPool)
+		tapeStore = timescale.NewPgTapeWriter(tsPool)
+		oiStore = timescale.NewPgOIWriter(tsPool)
+		deltaVolumeStore = timescale.NewPgDeltaVolumeWriter(tsPool)
+		cvdStore = timescale.NewPgCVDWriter(tsPool)
+		barStatsStore = timescale.NewPgBarStatsWriter(tsPool)
 		heatmapStore = timescale.NewPgHeatmapWriter(tsPool)
 		volumeProfileStore = timescale.NewPgVolumeProfileWriter(tsPool)
 		timescale.SetProductionReady(timescale.AdapterModePGX)
@@ -557,7 +821,17 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 		}()
 
 		coldWriter = clickhouse.NewChWriter(chPool)
-		logger.Info("processor: using ClickHouse writer")
+
+		// Dual-write: wrap Pg hot stores with CH cold stores.
+		candleStore = &dualWriteCandleStore{hot: candleStore, cold: clickhouse.NewChCandleWriter(chPool), logger: logger}
+		statsStore = &dualWriteStatsStore{hot: statsStore, cold: clickhouse.NewChStatsWriter(chPool), logger: logger}
+		tapeStore = &dualWriteTapeStore{hot: tapeStore, cold: clickhouse.NewChTapeWriter(chPool), logger: logger}
+		oiStore = &dualWriteOIStore{hot: oiStore, cold: clickhouse.NewChOIWriter(chPool), logger: logger}
+		deltaVolumeStore = &dualWriteDeltaVolumeStore{hot: deltaVolumeStore, cold: clickhouse.NewChDeltaVolumeWriter(chPool), logger: logger}
+		cvdStore = &dualWriteCVDStore{hot: cvdStore, cold: clickhouse.NewChCVDWriter(chPool), logger: logger}
+		barStatsStore = &dualWriteBarStatsStore{hot: barStatsStore, cold: clickhouse.NewChBarStatsWriter(chPool), logger: logger}
+
+		logger.Info("processor: using ClickHouse writer (dual-write for all 7 artifact types)")
 	} else {
 		logger.Warn("processor: using in-memory ClickHouse writer (storage.clickhouse.enabled=false)")
 	}
@@ -580,6 +854,26 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 	}
 	statsStore = &subMinuteFilteringStatsStore{
 		next: statsStore,
+		gate: subMinuteGate,
+	}
+	tapeStore = &subMinuteFilteringTapeStore{
+		next: tapeStore,
+		gate: subMinuteGate,
+	}
+	oiStore = &subMinuteFilteringOIStore{
+		next: oiStore,
+		gate: subMinuteGate,
+	}
+	deltaVolumeStore = &subMinuteFilteringDeltaVolumeStore{
+		next: deltaVolumeStore,
+		gate: subMinuteGate,
+	}
+	cvdStore = &subMinuteFilteringCVDStore{
+		next: cvdStore,
+		gate: subMinuteGate,
+	}
+	barStatsStore = &subMinuteFilteringBarStatsStore{
+		next: barStatsStore,
 		gate: subMinuteGate,
 	}
 	logger.Info("processor: sub-minute rollout gate configured",
@@ -609,10 +903,15 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 		OpenInterest: aggapp.BuildOpenInterestConfig{
 			MaxStreams: cfg.Processor.MaxInstruments,
 		},
-		Publisher:   artifactPub,
-		Store:       hotStore,
-		CandleStore: candleStore,
-		StatsStore:  statsStore,
+		Publisher:        artifactPub,
+		Store:            hotStore,
+		CandleStore:      candleStore,
+		StatsStore:       statsStore,
+		TapeStore:        tapeStore,
+		OIStore:          oiStore,
+		DeltaVolumeStore: deltaVolumeStore,
+		CVDStore:         cvdStore,
+		BarStatsStore:    barStatsStore,
 	})
 
 	var publishEnvelope aggruntime.EventPublisher

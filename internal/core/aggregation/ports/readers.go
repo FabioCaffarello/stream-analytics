@@ -53,3 +53,28 @@ type SnapshotReader interface {
 	// GetSnapshotTimestamps returns snapshot timestamps for gap detection.
 	GetSnapshotTimestamps(ctx context.Context, venue, instrument string, fromMs, toMs int64) ([]int64, *problem.Problem)
 }
+
+// TapeReader queries tape window storage for historical data.
+type TapeReader interface {
+	GetTapeRange(ctx context.Context, venue, instrument, timeframe string, fromMs, toMs int64, limit int) ([]domain.TapeWindowV1, *problem.Problem)
+}
+
+// OIReader queries open-interest window storage for historical data.
+type OIReader interface {
+	GetOIRange(ctx context.Context, venue, instrument, timeframe string, fromMs, toMs int64, limit int) ([]domain.OpenInterestWindowV1, *problem.Problem)
+}
+
+// DeltaVolumeReader queries delta-volume window storage for historical data.
+type DeltaVolumeReader interface {
+	GetDeltaVolumeRange(ctx context.Context, venue, instrument, timeframe string, fromMs, toMs int64, limit int) ([]domain.DeltaVolumeWindowV1, *problem.Problem)
+}
+
+// CVDReader queries cumulative-volume-delta window storage for historical data.
+type CVDReader interface {
+	GetCVDRange(ctx context.Context, venue, instrument, timeframe string, fromMs, toMs int64, limit int) ([]domain.CVDWindowV1, *problem.Problem)
+}
+
+// BarStatsReader queries bar-statistics window storage for historical data.
+type BarStatsReader interface {
+	GetBarStatsRange(ctx context.Context, venue, instrument, timeframe string, fromMs, toMs int64, limit int) ([]domain.BarStatsWindowV1, *problem.Problem)
+}

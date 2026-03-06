@@ -1106,6 +1106,75 @@ func TestServer_Shardz_RemoteForbidden(t *testing.T) {
 	}
 }
 
+func TestServer_DeliveryDiagnostics_ReturnsSnapshot(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	streamID := "s18-diag-" + strings.ReplaceAll(t.Name(), "/", "-")
+	observability.SetTerminalWSConnectionsActive(7)
+	observability.RecordTerminalWSDelivery(streamID, "binance", "BTCUSDT", "trade", 101, 1700000000000, 1700000000010, 10)
+	observability.IncTerminalWSResync(streamID)
+	observability.RecordTerminalWSDrop(streamID, "binance", "BTCUSDT", "trade", "queue_full")
+
+	srv := newTestServer(e, guardianPID)
+	rec := doRequest(t, srv, http.MethodGet, "/api/v1/delivery/diagnostics", "")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var body httpserver.DeliveryDiagnosticsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal diagnostics response: %v body=%s", err, rec.Body.String())
+	}
+	if body.StreamCount != len(body.Streams) {
+		t.Fatalf("stream_count=%d want=%d", body.StreamCount, len(body.Streams))
+	}
+	if body.ConnectionsActive < 1 {
+		t.Fatalf("connections_active=%d want>=1", body.ConnectionsActive)
+	}
+
+	var found *httpserver.DeliveryDiagnosticsStreamState
+	for i := range body.Streams {
+		if body.Streams[i].StreamID == streamID {
+			found = &body.Streams[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("expected stream %q in diagnostics response", streamID)
+	}
+	if found.LastSeq != 101 {
+		t.Fatalf("last_seq=%d want=101", found.LastSeq)
+	}
+	if found.DeliveredTotal != 1 {
+		t.Fatalf("delivered_total=%d want=1", found.DeliveredTotal)
+	}
+	if found.DroppedTotal != 1 {
+		t.Fatalf("dropped_total=%d want=1", found.DroppedTotal)
+	}
+	if found.ResyncTotal != 1 {
+		t.Fatalf("resync_total=%d want=1", found.ResyncTotal)
+	}
+}
+
+func TestServer_DeliveryDiagnostics_RemoteForbidden(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/delivery/diagnostics", strings.NewReader(""))
+	req.RemoteAddr = "203.0.113.10:12345"
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for remote addr, got %d", rec.Code)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // test doubles
 // ---------------------------------------------------------------------------

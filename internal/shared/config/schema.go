@@ -471,7 +471,10 @@ type DeliveryConfig struct {
 	SessionSpawnTimeout string `json:"session_spawn_timeout"`
 	// RouterStreamStateTTL bounds delivery router stream-state retention. Default: "30m".
 	RouterStreamStateTTL string             `json:"router_stream_state_ttl"`
-	NATS                 DeliveryNATSConfig `json:"nats"`
+	// RequireClientHello gates subscribe/resync/getrange behind a client hello.
+	// Default false for backward compatibility.
+	RequireClientHello bool               `json:"require_client_hello,omitempty"`
+	NATS               DeliveryNATSConfig `json:"nats"`
 }
 
 // RouterReadyTimeoutDuration parses and returns DeliveryConfig.RouterReadyTimeout.
@@ -637,6 +640,10 @@ type StoreConfig struct {
 type StorageConfig struct {
 	Timescale  StorageTimescaleConfig  `json:"timescale"`
 	ClickHouse StorageClickHouseConfig `json:"clickhouse"`
+	// FederationHotWindowMs defines how far back (in ms) the hot store is
+	// authoritative.  Queries older than (now - FederationHotWindowMs) route
+	// to cold.  Default: 86400000 (24h).
+	FederationHotWindowMs int64 `json:"federation_hot_window_ms"`
 }
 
 // StorageTimescaleConfig controls Timescale connection options.

@@ -10,8 +10,8 @@ import (
 
 // BookID uniquely identifies an order book by venue and instrument.
 type BookID struct {
-	Venue      string
-	Instrument string
+	Venue      string `json:"Venue"`
+	Instrument string `json:"Instrument"`
 }
 
 // Price is a strictly positive market price.
@@ -22,8 +22,8 @@ type Quantity float64
 
 // Level represents a single price level in the order book.
 type Level struct {
-	Price    Price
-	Quantity Quantity
+	Price    Price    `json:"Price"`
+	Quantity Quantity `json:"Quantity"`
 }
 
 // HealthState represents consistency state of the aggregate.

@@ -104,6 +104,9 @@ type SessionConfig struct {
 	SnapshotWireCache *SnapshotWireCache
 	// CompressionEnabled toggles websocket write compression support.
 	CompressionEnabled bool
+	// RequireClientHello gates subscribe/resync/getrange behind a client hello.
+	// When true, these commands are rejected until the client sends a hello frame.
+	RequireClientHello bool
 	// OnClosed is invoked once when session is closed.
 	OnClosed func()
 }
@@ -142,6 +145,8 @@ type SessionActor struct {
 	snapshotSeq map[string]int64
 	// Per-subject last delivered event seq for prev_seq chaining.
 	lastDeliveredSeq map[string]int64
+	// Per-session resync counter (total resyncs across all subjects).
+	resyncCount int64
 
 	// Peak queue depth since last metrics emission (reset after each emission).
 	queueHighWatermark int

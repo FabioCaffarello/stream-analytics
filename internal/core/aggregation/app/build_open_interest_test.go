@@ -12,7 +12,7 @@ import (
 
 func newOpenInterestUC(maxStreams int) (*app.BuildOpenInterestFromEvents, *fakePublisher) {
 	pub := &fakePublisher{}
-	uc := app.NewBuildOpenInterestFromEvents(pub, app.BuildOpenInterestConfig{
+	uc := app.NewBuildOpenInterestFromEvents(pub, nil, app.BuildOpenInterestConfig{
 		MaxStreams: maxStreams,
 		StreamTTL:  time.Hour,
 		Clock:      clock.NewFakeClock(time.Unix(0, 0)),

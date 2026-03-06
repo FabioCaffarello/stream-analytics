@@ -98,7 +98,23 @@ All stream frames (`event` and `snapshot`) include:
 Resync semantics:
 1. client detects gap/stale state and sends `resync` with `stream_id` and `last_seq`;
 2. server emits deterministic `snapshot` (bounded cache, TTL);
-3. server emits `ack` and resumes live stream.
+3. server emits `ack` with `watermark_seq` and `snapshot_seq` diagnostics, then resumes live stream;
+4. `prev_seq` chain resets to 0 after resync (first event carries `prev_seq == 0`).
+
+Resync ack frame:
+```json
+{
+  "type": "ack",
+  "op": "resync",
+  "request_id": "r1",
+  "subject": "marketdata.trade/binance/BTCUSDT/raw",
+  "watermark_seq": 456,
+  "snapshot_seq": 3
+}
+```
+- `watermark_seq`: highest upstream seq covered by the snapshot (from last delivered event).
+- `snapshot_seq`: per-subject per-session snapshot counter (monotonically increasing).
+- Both fields are `omitempty`; absent on subscribe acks (subscribe acks carry no watermark).
 
 ### Client -> Server Commands
 
@@ -151,6 +167,10 @@ Hello contract:
 - on validation failure or version mismatch, client must enter `DESYNC(reason)` and request resync/reconnect.
 - silent fallback on unknown/unsupported protocol versions is forbidden.
 
+Optional strict gate:
+- when `delivery.require_client_hello=true`, the server rejects `subscribe`, `resync`, and `getrange` until the client sends `{"op":"hello"}`.
+- default is disabled for backward compatibility.
+
 #### Extended Capabilities
 
 The `capabilities` object in the `hello` frame includes additional fields for client self-tuning:
@@ -192,6 +212,21 @@ Field semantics:
 - `supported_features`: list of optional protocol features the server supports.
 
 All new fields are `omitempty`/zero-value. Clients that predate this extension see the original `topics`+`venues` only.
+
+Hello ack diagnostics example:
+```json
+{
+  "type": "ack",
+  "op": "hello",
+  "request_id": "h1",
+  "negotiated_features": ["batching", "snapshot_hash", "prev_seq"],
+  "ts_server": 1710000001234,
+  "clock_skew_ms": -12
+}
+```
+
+- `ts_server` is always included in hello ack.
+- `clock_skew_ms` is included when client sends `ts_client`.
 
 Ack:
 ```json
@@ -349,14 +384,18 @@ The periodic `metrics` frame includes backpressure awareness fields:
 {
   "type": "metrics",
   "payload": {
-    "queue_len": 512,
+    "ws_queue_len": 512,
     "queue_capacity": 1024,
     "queue_high_watermark": 768,
     "backpressure_level": 2,
     "recommended_action": "reduce_subscriptions",
-    "subscriptions": 10,
-    "total_delivered": 50000,
-    "total_dropped": 5
+    "resync_total": 10,
+    "resync_count": 2,
+    "active_subscriptions": 10,
+    "messages_out_total": 50000,
+    "ws_dropped_total": 5,
+    "dropped_count": 5,
+    "subject_count": 10
   }
 }
 ```
@@ -373,6 +412,9 @@ Backpressure levels:
 - `queue_high_watermark`: peak queue depth since last metrics emission, then reset.
 - `backpressure_level`: 0–3 severity indicator.
 - `recommended_action`: suggested client recovery action.
+- `resync_count`: per-session resync counter.
+- `dropped_count`: per-session drop counter.
+- `subject_count`: number of subject chains tracked in-session.
 
 All fields are `omitempty`/zero-value. `backpressure_level == 0` means normal (pre-F5 behavior).
 
@@ -421,6 +463,61 @@ When a tenant has a configured override, its limits take precedence over global 
 - `WS-8`: protocol gate is mandatory (`hello` + `proto_ver` + required capabilities fields).
 - `WS-9`: `snapshot_seq(N) < snapshot_seq(N+1)` within a session for the same subject.
 - `WS-10`: `prev_seq(event[N]) == seq(event[N-1])` for the same subject within a session.
+- `WS-11`: snapshot-before-delta ordering is guaranteed on subscribe and resync. See Snapshot Delivery Ordering below.
+
+### Snapshot Delivery Ordering (WS-11)
+
+On subscribe and resync, the server guarantees snapshot-before-delta ordering:
+
+1. **Subscribe flow:**
+   - Client sends `{"op":"subscribe","subject":"...","request_id":"r1"}`
+   - Server emits `snapshot` frame from `HotSnapshotProvider.GetLatest(subject)` or session last event (fallback)
+   - Server emits `ack` frame
+   - Server then streams `event` frames starting from the watermark seq
+   - First `event` after subscribe carries `prev_seq == 0` (fresh chain)
+
+2. **Resync flow:**
+   - Client sends `{"op":"resync","subject":"...","last_seq":M}`
+   - Server emits `snapshot` frame (updated watermark, incremented `snapshot_seq`)
+   - Server emits `ack` for resync
+   - Server resets `prev_seq` chain for this subject (first event carries `prev_seq == 0`)
+   - Server resumes `event` frames from the new watermark
+
+3. **Snapshot source hierarchy:**
+   - Primary: `HotSnapshotProvider` (in-memory latest state, bounded TTL cache)
+   - Fallback: session's last cached event for the subject
+   - If neither source has data, no snapshot is emitted and events begin immediately
+
+4. **Guarantees:**
+   - No `event` frame for a subject is delivered before its subscribe/resync `snapshot` (when a snapshot source is available)
+   - `snapshot_seq` is monotonically increasing per subject per session
+   - `watermark_seq` in the snapshot indicates the highest upstream seq covered
+   - Clients should treat `prev_seq == 0` on the first event after snapshot as normal (gap-free)
+
+Evidence: `internal/actors/delivery/runtime/session_commands.go:emitSnapshot`, `internal/actors/delivery/runtime/session_delivery.go`
+
+## HTTP vs WS Consumption Policy
+
+Clients should use the correct transport for each data need:
+
+| Data Need | Transport | Endpoint | Notes |
+|---|---|---|---|
+| Session bootstrap | HTTP | `GET /api/v1/session` | Markets, capabilities, server time |
+| Stream catalog | HTTP | `GET /api/v1/catalog` | Artifact types, timeframes |
+| Time range discovery | HTTP | `GET /api/v1/timeline` | First/last timestamps per artifact |
+| Data flow health | HTTP | `GET /api/v1/freshness` | Per-instrument channel freshness |
+| Delivery sequence diagnostics | HTTP | `GET /api/v1/delivery/diagnostics` | Per-stream seq/lag/drop/resync state (localhost-only) |
+| Deep historical data | HTTP | `GET /api/v1/candles`, etc. | Federated (hot+cold), paginated |
+| Realtime events | WS | `subscribe` | Live stream with snapshot-before-delta |
+| Lightweight history | WS | `getrange` | In-memory only, bounded limit |
+| Gap recovery | WS | `resync` | Snapshot + chain reset |
+| Latency measurement | WS | `ping` | Round-trip with server timestamp |
+
+Rules:
+- Use HTTP for bootstrap, discovery, and deep history (federation-backed)
+- Use WS for realtime delivery and lightweight queries
+- WS `getrange` uses in-memory store only (no federation bridge); for deep history, use HTTP data endpoints
+- Do not poll HTTP endpoints for realtime data; subscribe via WS
 
 ## Backpressure
 

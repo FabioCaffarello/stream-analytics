@@ -54,6 +54,7 @@ type Server struct {
 	tenantLimits            map[string]config.WSTenantLimitConfig
 	maxFrameBytes           int
 	enableCompression       bool
+	requireClientHello      bool
 }
 
 type connectionRegistry struct {
@@ -160,6 +161,12 @@ func WithMaxFrameBytes(maxFrameBytes int) Option {
 func WithCompressionEnabled(enabled bool) Option {
 	return func(s *Server) {
 		s.enableCompression = enabled
+	}
+}
+
+func WithRequireClientHello(required bool) Option {
+	return func(s *Server) {
+		s.requireClientHello = required
 	}
 }
 
@@ -337,6 +344,7 @@ func (s *Server) handleUpgradeWithMode(w http.ResponseWriter, r *http.Request, m
 		MaxSignalSubscriptions:  maxSignalSubs,
 		MaxSymbolsPerConnection: maxSymbols,
 		MaxFrameBytes:           maxFrameBytes,
+		RequireClientHello:      s.requireClientHello,
 		OnClosed:                onClosed,
 	})
 	if pid == nil {

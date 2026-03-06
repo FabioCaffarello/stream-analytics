@@ -41,10 +41,12 @@ type clientCommand struct {
 }
 
 type wsAckFrame struct {
-	Type      string `json:"type"`
-	Op        string `json:"op"`
-	RequestID string `json:"request_id"`
-	Subject   string `json:"subject"`
+	Type         string `json:"type"`
+	Op           string `json:"op"`
+	RequestID    string `json:"request_id"`
+	Subject      string `json:"subject"`
+	WatermarkSeq int64  `json:"watermark_seq,omitempty"`
+	SnapshotSeq  int64  `json:"snapshot_seq,omitempty"`
 }
 
 type wsHelloRateLimit struct {
@@ -86,6 +88,8 @@ type wsHelloAckFrame struct {
 	Op                 string   `json:"op"`
 	RequestID          string   `json:"request_id"`
 	NegotiatedFeatures []string `json:"negotiated_features,omitempty"`
+	TsServer           int64    `json:"ts_server,omitempty"`
+	ClockSkewMs        int64    `json:"clock_skew_ms,omitempty"`
 }
 
 type wsPongFrame struct {
@@ -121,12 +125,15 @@ type wsMetricsPayload struct {
 	PublishToDeliverLatencyMs int64  `json:"publish_to_deliver_latency_ms"`
 	SerializeErrorsTotal      int64  `json:"serialize_errors_total"`
 	ResyncTotal               int64  `json:"resync_total"`
+	ResyncCount               int64  `json:"resync_count"`
 	ActiveSubscriptions       int    `json:"active_subscriptions"`
 	MessagesOutTotal          int64  `json:"messages_out_total"`
 	BackpressureLevel         int    `json:"backpressure_level,omitempty"`
 	RecommendedAction         string `json:"recommended_action,omitempty"`
 	QueueCapacity             int    `json:"queue_capacity,omitempty"`
 	QueueHighWatermark        int    `json:"queue_high_watermark,omitempty"`
+	DroppedCount              int64  `json:"dropped_count"`
+	SubjectCount              int    `json:"subject_count,omitempty"`
 }
 
 type wsMetricsFrame struct {
@@ -274,12 +281,30 @@ func (s *SessionActor) handleClientHello(cmd clientCommand) {
 		}
 		s.features = nf
 	}
-	s.writeJSON(wsHelloAckFrame{
+	nowMs := s.clockNowMs()
+	ack := wsHelloAckFrame{
 		Type:               "ack",
 		Op:                 "hello",
 		RequestID:          cmd.RequestID,
 		NegotiatedFeatures: s.features.List(),
-	})
+		TsServer:           nowMs,
+	}
+	if cmd.TsClient > 0 {
+		ack.ClockSkewMs = nowMs - cmd.TsClient
+	}
+	s.writeJSON(ack)
+}
+
+// requireHelloGate checks whether the client hello gate is active and hello
+// has not been seen. Returns true if the command should be rejected.
+func (s *SessionActor) requireHelloGate(op, requestID string) bool {
+	if !s.cfg.RequireClientHello || s.helloSeen {
+		return false
+	}
+	metrics.IncWSContractViolation("hello_required")
+	s.writeProblem(op, requestID, problem.New(problem.ValidationFailed,
+		"client hello required before "+op+"; send {\"op\":\"hello\"} first"))
+	return true
 }
 
 func (s *SessionActor) handlePing(cmd clientCommand) {

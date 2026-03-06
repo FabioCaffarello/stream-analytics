@@ -187,6 +187,75 @@ Proibido:
 - Real adapter must remain trade-only with allowlists and fail-closed guardrails.
 - Portfolio projector consumes lifecycle transitions (`accepted/placed/partially_filled/filled/rejected/canceled/expired/failed`) and emits `source_execution_status` in envelope metadata.
 
+### Runtime Controls (Stage 11/12 Control Plane + Operational API)
+
+- Stage 11 InMemoryControlPlane: 10 commands, 4 states (active/paused/drained/halted), 7 rejection reasons.
+- Stage 12 exposes control plane via HTTP API on the executor process:
+  - `POST /api/v1/control` -- apply control directives (localhost-only);
+  - `GET /api/v1/control/snapshot` -- query current control plane state (localhost-only).
+- Control plane rejection reasons: `control_plane_paused`, `control_plane_drained`, `control_plane_halted`, `control_plane_strategy_disabled`, `control_plane_adapter_disabled`, `control_plane_venue_restricted`, `control_plane_symbol_restricted`.
+
+## HTTP Discovery APIs
+
+### Timeline API
+
+```
+GET /api/v1/timeline?venue=X&instrument=Y&timeframe=Z&artifact=candle|stats
+→ {"venue":"X","instrument":"Y","timeframe":"Z","artifact":"candle","first_ts":N,"last_ts":M}
+```
+
+Returns the earliest and latest `window_start` timestamps for the requested artifact, enabling clients to discover available data ranges without transferring full payloads. The response hides hot/cold/federation details — the caller sees a single unified time range.
+
+- Artifact defaults to `candle` when omitted.
+- Uses existing federated readers (`GetFirstCandle/GetLastCandle`, `GetFirstStats/GetLastStats`).
+- Registered only when `coldReaders` is configured.
+
+### Stream Catalog API
+
+```
+GET /api/v1/catalog?venue=X&instrument=Y
+→ {"entries":[{"venue":"X","instrument":"Y","artifacts":[{"name":"candle","endpoint":"/api/v1/candles","timeframes":["1s","5s","1m",...]},...]}]}
+```
+
+Returns available artifacts, their supported timeframes, and HTTP endpoints for configured markets. Config-derived — no storage queries.
+
+- Both `venue` and `instrument` are optional filters.
+- Results are sorted by venue then instrument.
+- Registered only when `markets` config is present.
+
+### Session Overview API
+
+```
+GET /api/v1/session
+-> {"server_time_ms":N,"ready":bool,"markets":[{"venue":"X","instruments":["Y",...]}],"capabilities":{"artifacts":[{"name":"candle","endpoint":"/api/v1/candles","timeframes":["1s",...]}]}}
+```
+
+Returns a composed bootstrap payload combining server time, guardian readiness, available markets, and artifact capabilities. Replaces multiple startup calls (/readyz + /markets + /catalog) with a single request. Config-derived markets, domain-constant artifacts — no storage queries.
+
+- Registered only when `markets` config is present.
+- Readiness is best-effort (returns false on guardian timeout).
+
+### Instrument Freshness API
+
+```
+GET /api/v1/freshness?venue=X&instrument=Y
+-> {"venue":"X","instrument":"Y","active":bool,"channels":{"candle":{"last_event_ts":N,"lag_ms":M,"flowing":bool},...},"checked_at":N}
+```
+
+Returns per-channel data flow health for the requested instrument. Derived from terminal WS stream state — no storage queries. A channel is "flowing" if its last event is within 30 seconds.
+
+- Always available (no config gate).
+- Case-insensitive venue/instrument matching.
+- Hides internal stream IDs and observability details.
+
+### Wire Format Contract
+
+All aggregation domain types (CandleV1, StatsWindowV1, TapeWindowV1, DeltaVolumeWindowV1, CVDWindowV1, BarStatsWindowV1, OpenInterestWindowV1, SnapshotProduced) have explicit `json` tags preserving PascalCase field names. Wire format is frozen — any field rename requires a version bump.
+
+Insights domain types (HeatmapArtifactV1, VolumeProfileSnapshotV1, CrossVenueTradeSnapshotV1) use snake_case `json` tags. These two conventions coexist by design (aggregation types were stabilized in-place; insights types were designed with explicit tags from the start).
+
+Evidence: `internal/core/aggregation/domain/wire_format_golden_test.go`
+
 ## Evidence
 
 - `internal/shared/envelope/subject.go:9`

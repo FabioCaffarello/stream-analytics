@@ -54,6 +54,9 @@ func (s *SessionActor) handleInboundText(data []byte) {
 // ── Subscribe / Unsubscribe ─────────────────────────────────────────────────
 
 func (s *SessionActor) handleSubscribe(cmd clientCommand) {
+	if s.requireHelloGate("subscribe", cmd.RequestID) {
+		return
+	}
 	if !s.allowRateLimitedCommand("subscribe", cmd.RequestID) {
 		return
 	}
@@ -317,6 +320,9 @@ func (s *SessionActor) handleGetLast(cmd clientCommand) {
 }
 
 func (s *SessionActor) handleGetRange(cmd clientCommand) {
+	if s.requireHelloGate("getrange", cmd.RequestID) {
+		return
+	}
 	if !s.allowRateLimitedCommand("getrange", cmd.RequestID) {
 		return
 	}
@@ -462,6 +468,9 @@ func (s *SessionActor) emitRangeFrame(op, requestID string, subject domain.Subje
 }
 
 func (s *SessionActor) handleResync(cmd clientCommand) {
+	if s.requireHelloGate("resync", cmd.RequestID) {
+		return
+	}
 	if !s.allowRateLimitedCommand("resync", cmd.RequestID) {
 		return
 	}
@@ -481,14 +490,27 @@ func (s *SessionActor) handleResync(cmd clientCommand) {
 		s.writeProblem("resync", cmd.RequestID, problem.New(problem.NotFound, "snapshot unavailable for requested stream"))
 		return
 	}
+	subjectKey := subject.String()
+	// Reset prev_seq chain: after resync the client rebuilds state from the
+	// fresh snapshot, so the first subsequent event should carry prev_seq=0.
+	delete(s.lastDeliveredSeq, subjectKey)
+	s.resyncCount++
 	metrics.IncWSResync()
-	observability.IncTerminalWSResync(subject.String())
+	observability.IncTerminalWSResync(subjectKey)
 	metrics.IncWSControlFrame("ack_resync")
+	// Include watermark_seq and snapshot_seq so the client knows what the
+	// snapshot covers and can verify monotonicity.
+	watermark := int64(0)
+	if entry, ok := s.lastSnapshot[subjectKey]; ok {
+		watermark = entry.Seq
+	}
 	s.writeJSON(wsAckFrame{
-		Type:      "ack",
-		Op:        "resync",
-		RequestID: cmd.RequestID,
-		Subject:   subject.String(),
+		Type:         "ack",
+		Op:           "resync",
+		RequestID:    cmd.RequestID,
+		Subject:      subjectKey,
+		WatermarkSeq: watermark,
+		SnapshotSeq:  s.snapshotSeq[subjectKey],
 	})
 }
 

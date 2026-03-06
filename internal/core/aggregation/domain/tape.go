@@ -29,37 +29,37 @@ type TapeKey struct {
 
 // TapeWindowV1 accumulates deterministic trade-flow metrics in one fixed window.
 type TapeWindowV1 struct {
-	Venue         string
-	Instrument    string
-	Timeframe     string
-	WindowStartTs int64
-	WindowEndTs   int64
+	Venue         string `json:"Venue"`
+	Instrument    string `json:"Instrument"`
+	Timeframe     string `json:"Timeframe"`
+	WindowStartTs int64  `json:"WindowStartTs"`
+	WindowEndTs   int64  `json:"WindowEndTs"`
 
-	TradeCount int64
-	BuyCount   int64
-	SellCount  int64
+	TradeCount int64 `json:"TradeCount"`
+	BuyCount   int64 `json:"BuyCount"`
+	SellCount  int64 `json:"SellCount"`
 
-	BuyVolume   float64
-	SellVolume  float64
-	TotalVolume float64
+	BuyVolume   float64 `json:"BuyVolume"`
+	SellVolume  float64 `json:"SellVolume"`
+	TotalVolume float64 `json:"TotalVolume"`
 
-	BuyNotional  float64
-	SellNotional float64
+	BuyNotional  float64 `json:"BuyNotional"`
+	SellNotional float64 `json:"SellNotional"`
 
-	VwapPrice float64
+	VwapPrice float64 `json:"VwapPrice"`
 
-	MaxPrice  float64
-	MinPrice  float64
-	LastPrice float64
+	MaxPrice  float64 `json:"MaxPrice"`
+	MinPrice  float64 `json:"MinPrice"`
+	LastPrice float64 `json:"LastPrice"`
 
-	MaxTradeSize float64
+	MaxTradeSize float64 `json:"MaxTradeSize"`
 
-	LastSeq int64
+	LastSeq int64 `json:"LastSeq"`
 
-	RateTradesPerSec float64
-	VolumeImbalance  float64
+	RateTradesPerSec float64 `json:"RateTradesPerSec"`
+	VolumeImbalance  float64 `json:"VolumeImbalance"`
 
-	IsClosed bool
+	IsClosed bool `json:"IsClosed"`
 
 	buyVolumeFixed   int64
 	sellVolumeFixed  int64

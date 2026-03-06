@@ -62,12 +62,15 @@ func (s *SessionActor) handleMetricsTick() {
 			PublishToDeliverLatencyMs: lag,
 			SerializeErrorsTotal:      serializeErrors,
 			ResyncTotal:               resyncTotal,
+			ResyncCount:               s.resyncCount,
 			ActiveSubscriptions:       len(s.session.Subscriptions()),
 			MessagesOutTotal:          msgOut,
 			BackpressureLevel:         bpLevel,
 			RecommendedAction:         bpAction,
 			QueueCapacity:             s.limits.OutboundQueueSize,
 			QueueHighWatermark:        hwm,
+			DroppedCount:              int64(s.dropCount),
+			SubjectCount:              len(s.lastDeliveredSeq),
 		},
 	})
 }

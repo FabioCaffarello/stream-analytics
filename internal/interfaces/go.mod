@@ -9,6 +9,7 @@ require (
 	github.com/market-raccoon/internal/actors v0.0.0
 	github.com/market-raccoon/internal/core/aggregation v0.0.0
 	github.com/market-raccoon/internal/core/delivery v0.0.0
+	github.com/market-raccoon/internal/core/execution v0.0.0
 	github.com/market-raccoon/internal/core/insights v0.0.0
 	github.com/market-raccoon/internal/core/marketmodel v0.0.0
 	github.com/market-raccoon/internal/shared v0.0.0
@@ -25,7 +26,6 @@ require (
 	github.com/google/btree v1.1.3 // indirect
 	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
 	github.com/market-raccoon/internal/core/evidence v0.0.0 // indirect
-	github.com/market-raccoon/internal/core/execution v0.0.0 // indirect
 	github.com/market-raccoon/internal/core/marketdata v0.0.0 // indirect
 	github.com/market-raccoon/internal/core/portfolio v0.0.0 // indirect
 	github.com/market-raccoon/internal/core/signals v0.0.0 // indirect

@@ -57,20 +57,26 @@ type BuildTapeResponse struct {
 
 // BuildTapeFromTrades builds deterministic tape windows from trade events.
 type BuildTapeFromTrades struct {
-	publisher  ports.ArtifactPublisher
-	store      ports.TapeHotReadModelStore
-	windows    *ds.BoundedMap[domain.TapeKey, *domain.TapeWindowV1]
-	cvdState   *ds.BoundedMap[domain.TapeKey, float64]
-	lifecycle  domain.WindowManager
-	windowMs   map[string]int64
-	burst      map[string]int64
-	timeframes []string
+	publisher        ports.ArtifactPublisher
+	store            ports.TapeHotReadModelStore
+	deltaVolumeStore ports.DeltaVolumeHotReadModelStore
+	cvdStore         ports.CVDHotReadModelStore
+	barStatsStore    ports.BarStatsHotReadModelStore
+	windows          *ds.BoundedMap[domain.TapeKey, *domain.TapeWindowV1]
+	cvdState         *ds.BoundedMap[domain.TapeKey, float64]
+	lifecycle        domain.WindowManager
+	windowMs         map[string]int64
+	burst            map[string]int64
+	timeframes       []string
 }
 
 // NewBuildTapeFromTrades constructs BuildTapeFromTrades.
 func NewBuildTapeFromTrades(
 	pub ports.ArtifactPublisher,
 	store ports.TapeHotReadModelStore,
+	dvStore ports.DeltaVolumeHotReadModelStore,
+	cvdStore ports.CVDHotReadModelStore,
+	bsStore ports.BarStatsHotReadModelStore,
 	cfg BuildTapeConfig,
 ) *BuildTapeFromTrades {
 	if cfg.MaxWindows <= 0 {
@@ -121,14 +127,17 @@ func NewBuildTapeFromTrades(
 	}
 
 	return &BuildTapeFromTrades{
-		publisher:  pub,
-		store:      store,
-		windows:    windows,
-		cvdState:   cvdState,
-		lifecycle:  lifecycle,
-		windowMs:   windowMs,
-		burst:      burst,
-		timeframes: []string{"250ms", "1s", "5s"},
+		publisher:        pub,
+		store:            store,
+		deltaVolumeStore: dvStore,
+		cvdStore:         cvdStore,
+		barStatsStore:    bsStore,
+		windows:          windows,
+		cvdState:         cvdState,
+		lifecycle:        lifecycle,
+		windowMs:         windowMs,
+		burst:            burst,
+		timeframes:       []string{"250ms", "1s", "5s"},
 	}
 }
 
@@ -275,6 +284,11 @@ func (uc *BuildTapeFromTrades) publishDerivedAnalytics(ctx context.Context, evt 
 	}
 	delta := domain.NewDeltaVolumeWindowV1(evt.Window)
 	deltaEvt := domain.DeltaVolumeClosed{Window: delta}
+	if uc.deltaVolumeStore != nil {
+		if p := uc.deltaVolumeStore.SaveDeltaVolume(ctx, deltaEvt); p != nil {
+			return p
+		}
+	}
 	if p := uc.publisher.PublishDeltaVolume(ctx, deltaEvt); p != nil {
 		return p
 	}
@@ -290,12 +304,22 @@ func (uc *BuildTapeFromTrades) publishDerivedAnalytics(ctx context.Context, evt 
 	}
 	uc.cvdState.Put(key, nextCVD)
 	cvdEvt := domain.CVDClosed{Window: domain.NewCVDWindowV1(delta, nextCVD)}
+	if uc.cvdStore != nil {
+		if p := uc.cvdStore.SaveCVD(ctx, cvdEvt); p != nil {
+			return p
+		}
+	}
 	if p := uc.publisher.PublishCVD(ctx, cvdEvt); p != nil {
 		return p
 	}
 
 	barStats := domain.NewBarStatsWindowV1(evt.Window, evt.IsBurst)
 	barEvt := domain.BarStatsClosed{Window: barStats}
+	if uc.barStatsStore != nil {
+		if p := uc.barStatsStore.SaveBarStats(ctx, barEvt); p != nil {
+			return p
+		}
+	}
 	if p := uc.publisher.PublishBarStats(ctx, barEvt); p != nil {
 		return p
 	}

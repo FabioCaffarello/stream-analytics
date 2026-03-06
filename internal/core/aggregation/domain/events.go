@@ -28,20 +28,20 @@ type OrderBookInconsistentDetected struct {
 
 // SnapshotProduced is emitted when a full snapshot of the book is available.
 type SnapshotProduced struct {
-	BookID BookID
-	Seq    int64
-	Bids   []Level
-	Asks   []Level
+	BookID BookID  `json:"BookID"`
+	Seq    int64   `json:"Seq"`
+	Bids   []Level `json:"Bids"`
+	Asks   []Level `json:"Asks"`
 	// V2 metadata for deterministic replay verification and bounded WS delivery.
-	BestBidPrice float64
-	BestAskPrice float64
-	SpreadBPS    float64
-	Checksum     uint32
-	TsIngestMs   int64
-	BidCount     int
-	AskCount     int
-	DepthCap     int
-	Version      int
+	BestBidPrice float64 `json:"BestBidPrice"`
+	BestAskPrice float64 `json:"BestAskPrice"`
+	SpreadBPS    float64 `json:"SpreadBPS"`
+	Checksum     uint32  `json:"Checksum"`
+	TsIngestMs   int64   `json:"TsIngestMs"`
+	BidCount     int     `json:"BidCount"`
+	AskCount     int     `json:"AskCount"`
+	DepthCap     int     `json:"DepthCap"`
+	Version      int     `json:"Version"`
 }
 
 // NewOrderBookUpdated builds an OrderBookUpdated event from a book.

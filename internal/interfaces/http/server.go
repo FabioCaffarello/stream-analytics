@@ -26,6 +26,7 @@ import (
 
 	"github.com/anthdm/hollywood/actor"
 	"github.com/market-raccoon/internal/actors/runtime"
+	executionports "github.com/market-raccoon/internal/core/execution/ports"
 	"github.com/market-raccoon/internal/shared/config"
 	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/metrics"
@@ -54,11 +55,13 @@ type Server struct {
 	readyGate  func() bool
 	reloadHook func() error
 
-	tlsCertFile string
-	tlsKeyFile  string
-	wsHandler   http.HandlerFunc
-	coldReaders *ColdReaders
-	markets     *config.MarketsConfig
+	tlsCertFile  string
+	tlsKeyFile   string
+	wsHandler    http.HandlerFunc
+	coldReaders        *ColdReaders
+	markets            *config.MarketsConfig
+	controlPlane       executionports.ControlPlane
+	consistencyChecks map[string]ConsistencyCheckFn
 }
 
 type Option func(*Server)
@@ -81,6 +84,16 @@ func WithWSHandler(handler http.HandlerFunc) Option {
 func WithReloadHook(hook func() error) Option {
 	return func(s *Server) {
 		s.reloadHook = hook
+	}
+}
+
+// ConsistencyCheckFn checks a single artifact type's hot/cold consistency.
+type ConsistencyCheckFn func(ctx context.Context, venue, instrument, timeframe string, fromMs, toMs int64) (any, error)
+
+// WithConsistencyChecks registers named artifact consistency check functions.
+func WithConsistencyChecks(checks map[string]ConsistencyCheckFn) Option {
+	return func(s *Server) {
+		s.consistencyChecks = checks
 	}
 }
 
@@ -144,9 +157,28 @@ func NewServer(
 		mux.HandleFunc("GET /api/v1/candles", s.handleGetCandles)
 		mux.HandleFunc("GET /api/v1/stats", s.handleGetStats)
 		mux.HandleFunc("GET /api/v1/snapshots", s.handleGetSnapshots)
+		mux.HandleFunc("GET /api/v1/tape", s.handleGetTape)
+		mux.HandleFunc("GET /api/v1/oi", s.handleGetOI)
+		mux.HandleFunc("GET /api/v1/delta_volume", s.handleGetDeltaVolume)
+		mux.HandleFunc("GET /api/v1/cvd", s.handleGetCVD)
+		mux.HandleFunc("GET /api/v1/bar_stats", s.handleGetBarStats)
 	}
 	if s.markets != nil {
 		mux.HandleFunc("GET /api/v1/markets", s.handleGetMarkets)
+		mux.HandleFunc("GET /api/v1/catalog", s.handleGetCatalog)
+		mux.HandleFunc("GET /api/v1/session", s.handleGetSession)
+	}
+	mux.HandleFunc("GET /api/v1/freshness", s.handleGetFreshness)
+	if s.coldReaders != nil {
+		mux.HandleFunc("GET /api/v1/timeline", s.handleGetTimeline)
+	}
+	if len(s.consistencyChecks) > 0 {
+		mux.Handle("GET /api/v1/consistency", localhostOnly(http.HandlerFunc(s.handleConsistencyCheck)))
+	}
+	mux.Handle("GET /api/v1/delivery/diagnostics", localhostOnly(http.HandlerFunc(s.handleDeliveryDiagnostics)))
+	if s.controlPlane != nil {
+		mux.Handle("POST /api/v1/control", localhostOnly(http.HandlerFunc(s.handleControlApply)))
+		mux.Handle("GET /api/v1/control/snapshot", localhostOnly(http.HandlerFunc(s.handleControlSnapshot)))
 	}
 	s.mux = mux
 
@@ -187,7 +219,7 @@ func (s *Server) Handler() http.Handler {
 // It must be called before ListenAndServe.
 func (s *Server) HandleFunc(pattern string, handler http.HandlerFunc) {
 	switch pattern {
-	case "GET /healthz", "GET /readyz", "GET /runtime/snapshot", "GET /runtime/overload", "GET /runtime/storage", "GET /runtime/ws", "GET /runtime/terminal", "GET /shardz", "POST /runtime/reload", "GET /metrics":
+	case "GET /healthz", "GET /readyz", "GET /runtime/snapshot", "GET /runtime/overload", "GET /runtime/storage", "GET /runtime/ws", "GET /runtime/terminal", "GET /shardz", "POST /runtime/reload", "GET /metrics", "POST /api/v1/control", "GET /api/v1/control/snapshot":
 		s.logger.Warn("httpserver: refusing to override critical route", "pattern", pattern)
 		return
 	}

@@ -29,7 +29,7 @@ func (f *fakeTapeStore) SaveTape(_ context.Context, evt domain.TapeClosed) *prob
 func newTapeUC(maxWindows int) (*app.BuildTapeFromTrades, *fakePublisher, *fakeTapeStore) {
 	pub := &fakePublisher{}
 	store := &fakeTapeStore{}
-	uc := app.NewBuildTapeFromTrades(pub, store, app.BuildTapeConfig{
+	uc := app.NewBuildTapeFromTrades(pub, store, nil, nil, nil, app.BuildTapeConfig{
 		MaxWindows: maxWindows,
 		WindowCap:  96,
 		WindowTTL:  time.Hour,

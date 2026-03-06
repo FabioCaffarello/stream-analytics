@@ -4,66 +4,66 @@ import "math"
 
 // DeltaVolumeWindowV1 is the deterministic delta-volume projection for one tape window.
 type DeltaVolumeWindowV1 struct {
-	Venue         string
-	Instrument    string
-	Timeframe     string
-	WindowStartTs int64
-	WindowEndTs   int64
-	BuyVolume     float64
-	SellVolume    float64
-	DeltaVolume   float64
-	Seq           int64
-	TsIngestMs    int64
+	Venue         string  `json:"Venue"`
+	Instrument    string  `json:"Instrument"`
+	Timeframe     string  `json:"Timeframe"`
+	WindowStartTs int64   `json:"WindowStartTs"`
+	WindowEndTs   int64   `json:"WindowEndTs"`
+	BuyVolume     float64 `json:"BuyVolume"`
+	SellVolume    float64 `json:"SellVolume"`
+	DeltaVolume   float64 `json:"DeltaVolume"`
+	Seq           int64   `json:"Seq"`
+	TsIngestMs    int64   `json:"TsIngestMs"`
 }
 
 // CVDWindowV1 is the deterministic cumulative volume delta projection for one tape window.
 type CVDWindowV1 struct {
-	Venue         string
-	Instrument    string
-	Timeframe     string
-	WindowStartTs int64
-	WindowEndTs   int64
-	DeltaVolume   float64
-	CVD           float64
-	Seq           int64
-	TsIngestMs    int64
+	Venue         string  `json:"Venue"`
+	Instrument    string  `json:"Instrument"`
+	Timeframe     string  `json:"Timeframe"`
+	WindowStartTs int64   `json:"WindowStartTs"`
+	WindowEndTs   int64   `json:"WindowEndTs"`
+	DeltaVolume   float64 `json:"DeltaVolume"`
+	CVD           float64 `json:"CVD"`
+	Seq           int64   `json:"Seq"`
+	TsIngestMs    int64   `json:"TsIngestMs"`
 }
 
 // BarStatsWindowV1 is the deterministic bar-statistics projection for one tape window.
 type BarStatsWindowV1 struct {
-	Venue         string
-	Instrument    string
-	Timeframe     string
-	WindowStartTs int64
-	WindowEndTs   int64
-	TradeCount    int64
-	BuyCount      int64
-	SellCount     int64
-	TotalVolume   float64
-	BuyVolume     float64
-	SellVolume    float64
-	VwapPrice     float64
-	LastPrice     float64
-	MaxPrice      float64
-	MinPrice      float64
-	Imbalance     float64
-	IsBurst       bool
-	Seq           int64
-	TsIngestMs    int64
+	Venue         string  `json:"Venue"`
+	Instrument    string  `json:"Instrument"`
+	Timeframe     string  `json:"Timeframe"`
+	WindowStartTs int64   `json:"WindowStartTs"`
+	WindowEndTs   int64   `json:"WindowEndTs"`
+	TradeCount    int64   `json:"TradeCount"`
+	BuyCount      int64   `json:"BuyCount"`
+	SellCount     int64   `json:"SellCount"`
+	TotalVolume   float64 `json:"TotalVolume"`
+	BuyVolume     float64 `json:"BuyVolume"`
+	SellVolume    float64 `json:"SellVolume"`
+	VwapPrice     float64 `json:"VwapPrice"`
+	LastPrice     float64 `json:"LastPrice"`
+	MaxPrice      float64 `json:"MaxPrice"`
+	MinPrice      float64 `json:"MinPrice"`
+	Imbalance     float64 `json:"Imbalance"`
+	IsBurst       bool    `json:"IsBurst"`
+	Seq           int64   `json:"Seq"`
+	TsIngestMs    int64   `json:"TsIngestMs"`
 }
 
 // OpenInterestWindowV1 is the deterministic open-interest projection for one input update.
 type OpenInterestWindowV1 struct {
-	Venue         string
-	Instrument    string
-	Timeframe     string
-	WindowStartTs int64
-	WindowEndTs   int64
-	OpenInterest  float64
-	Delta         float64
-	DeltaPct      float64
-	Seq           int64
-	TsIngestMs    int64
+	Venue         string  `json:"Venue"`
+	Instrument    string  `json:"Instrument"`
+	Timeframe     string  `json:"Timeframe"`
+	WindowStartTs int64   `json:"WindowStartTs"`
+	WindowEndTs   int64   `json:"WindowEndTs"`
+	OpenInterest  float64 `json:"OpenInterest"`
+	Delta         float64 `json:"Delta"`
+	DeltaPct      float64 `json:"DeltaPct"`
+	Seq           int64   `json:"Seq"`
+	TsIngestMs    int64   `json:"TsIngestMs"`
 }
 
 // DeltaVolumeClosed is emitted when one delta-volume window is materialized.

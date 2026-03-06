@@ -127,8 +127,9 @@ Status anchors: `docs/rfcs/RFC-0001-robustness-roadmap.md:3`, `docs/rfcs/RFC-000
 | ACK semantics (ACK/NAK/TERM) | `docs/adrs/ADR-0004-bus-nats-jetstream.md:1`, `docs/rfcs/RFC-0008-W7-nats-jetstream-integration.md:1` | `internal/adapters/jetstream/consumer.go:279`, `internal/adapters/jetstream/ingest_policy.go:59` | `internal/adapters/jetstream/ingest_conformance_test.go:15` | Accepted in runtime; RFC remains Draft with explicit partial matrix |
 | Replay deterministico | `docs/adrs/ADR-0015-deterministic-replay-time-invariants.md:1`, `docs/rfcs/RFC-0009-W8-deterministic-replay-golden-tests.md:1` | `internal/shared/replay/player.go:45`, `internal/shared/replay/sequencer.go:56`, `internal/shared/replay/canon.go:284` | `internal/shared/replay/golden_test.go:18`, `cmd/consumer/replay_test.go:63` | Accepted |
 | Backpressure | `docs/adrs/ADR-0013-backpressure-overload-policies.md:1`, `docs/rfcs/RFC-0006-W5-memory-lifecycle-hardening.md:1` | `internal/core/insights/app/vpvr_overload_policy.go:1`, `internal/actors/insights/runtime/vpvr_policy.go:1`, `internal/shared/config/loader.go:280` | `internal/adapters/storage/vpvr_overload_integration_test.go:TestIntegrationVPVROverload_AckBoundarySafeAndDeterministic`, `internal/actors/insights/runtime/vpvr_soak_test.go:TestVPVROverloadSoakBurstDeterministicBudgets` | Accepted/Done/Production-ready for VPVR overload path |
-| Storage hot/cold | `docs/adrs/ADR-0006-storage-hot-vs-cold.md:12` | `internal/core/aggregation/ports/ports.go:17`, `internal/core/aggregation/app/update_orderbook.go:141` | `internal/core/aggregation/app/update_orderbook_test.go:33` | Accepted with explicit cold-path deferral |
+| Storage hot/cold + federation | `docs/adrs/ADR-0006-storage-hot-vs-cold.md:12`, `docs/stages/stage-13-cold-analytics-store-report.md`, `docs/stages/stage-14-historical-consistency-query-federation-report.md`, `docs/stages/stage-15-client-ready-read-models-delivery-contracts-report.md`, `docs/stages/stage-16-wire-contract-stabilization-discovery-surfaces-report.md`, `docs/stages/stage-17-operational-session-surfaces-report.md` | `internal/core/aggregation/ports/readers.go:1`, `internal/adapters/storage/timescale/candle_reader.go:1`, `internal/adapters/storage/timescale/stats_reader.go:1`, `internal/adapters/storage/timescale/tape_reader.go:1`, `internal/adapters/storage/timescale/oi_reader.go:1`, `internal/adapters/storage/timescale/delta_volume_reader.go:1`, `internal/adapters/storage/timescale/cvd_reader.go:1`, `internal/adapters/storage/timescale/bar_stats_reader.go:1`, `internal/adapters/storage/federation/merge.go:1`, `internal/adapters/storage/federation/candle_reader.go:1`, `internal/adapters/storage/federation/stats_reader.go:1`, `internal/adapters/storage/federation/consistency.go:1`, `cmd/server/bootstrap.go:buildStorageOptions`, `internal/interfaces/http/session_handlers.go:1`, `internal/interfaces/http/freshness_handlers.go:1` | `internal/adapters/storage/timescale/reader_test.go:1`, `internal/adapters/storage/federation/federation_test.go:1`, `internal/adapters/storage/federation/consistency_test.go:1`, `internal/interfaces/http/timeline_handlers_test.go:1`, `internal/core/aggregation/domain/wire_format_golden_test.go:1`, `internal/interfaces/http/catalog_handlers_test.go:1`, `internal/interfaces/http/session_handlers_test.go:1`, `internal/interfaces/http/freshness_handlers_test.go:1` | S14 complete + S15 Slice 1 + S16 COMPLETE + S17 COMPLETE: wire format frozen, catalog API, WS-11, session overview (6 tests), instrument freshness (6 tests) |
 | Product parity roadmap | `docs/rfcs/RFC-0011-product-parity-marketmonkey.md:1` | `internal/shared/contracts/authority_manifest.go:37`, `internal/adapters/jetstream/subject_validation.go:13` | `internal/shared/contracts/marketdata_registry_test.go:17`, `internal/adapters/jetstream/subject_validation_test.go:5` | Draft (doc-first planning) |
+| Delivery WS protocol hardening | `docs/contracts/delivery-ws.md:1`, `docs/stages/stage-18-realtime-consumption-protocol-hardening-report.md` | `internal/actors/delivery/runtime/session_commands.go:handleResync`, `internal/actors/delivery/runtime/session_protocol.go:requireHelloGate`, `internal/actors/delivery/runtime/session_protocol.go:handleClientHello`, `internal/interfaces/http/delivery_diagnostics_handlers.go:1`, `cmd/server/bootstrap.go:enableWSRoute` | `internal/actors/delivery/runtime/session_protocol_contract_test.go:TestProtocol_PrevSeqChain_MonotonicAcrossEvents`, `internal/actors/delivery/runtime/session_protocol_contract_test.go:TestProtocol_ResyncAck_CarriesWatermark`, `internal/actors/delivery/runtime/session_protocol_contract_test.go:TestProtocol_HelloGate_RejectsSubscribeWithoutHello`, `internal/actors/delivery/runtime/session_protocol_contract_test.go:TestProtocol_HelloAck_ClockSkew`, `internal/actors/delivery/runtime/session_protocol_contract_test.go:TestProtocol_MetricsFrame_DiagnosticCounters`, `internal/interfaces/http/server_test.go:TestServer_DeliveryDiagnostics_ReturnsSnapshot` | S18 COMPLETE (Slices 1-4): prev_seq resync reset, WS-9/10/11 contracts, resync diagnostics, optional hello gate + clock skew diagnostics, delivery diagnostics endpoint |
 | Orderbook snapshots and delivery contract | `docs/architecture/orderbook.md:1`, `docs/contracts/delivery-ws.md:1` | `internal/core/aggregation/app/update_orderbook.go:33`, `internal/actors/delivery/runtime/router.go:167` | `internal/core/aggregation/app/golden_replay_test.go:1`, `internal/actors/delivery/runtime/router_test.go:70` | Draft docs; runtime partial |
 | Heatmap derivation/persistence | `docs/architecture/heatmap.md:1` | `internal/core/insights/domain/heatmap_bucket.go:1`, `internal/core/insights/app/build_heatmap.go:1`, `internal/adapters/storage/clickhouse/heatmap_writer.go:1`, `cmd/store/bootstrap.go:264` | `internal/core/insights/app/build_heatmap_test.go:1`, `internal/adapters/storage/clickhouse/heatmap_writer_test.go:1`, `internal/interfaces/ws/heatmap_delivery_contract_test.go:1` | Implemented (M8) com hot/cold + delivery contract |
 | Volume profile (VPVR) | `docs/architecture/volume-profiles.md:1` | `internal/core/insights/domain/volume_profile.go:1`, `internal/core/insights/app/build_volume_profile.go:1` | `internal/core/insights/app/build_volume_profile_test.go:1` | Draft doc; domain + app use cases Existing; writers/delivery TODO |
@@ -161,6 +162,57 @@ Anchor: `Makefile`, `scripts/ci/docs/check-doc-headers.sh`, `scripts/ci/docs/che
 
 ## Changelog
 
+- 2026-03-06:
+  - Stage 18 COMPLETE (Slices 1-4):
+  - Slice 2: resync ack diagnostics (`watermark_seq`, `snapshot_seq`) + per-session `resync_count`;
+  - Slice 3: optional `delivery.require_client_hello` gate + hello ack `ts_server` / `clock_skew_ms`;
+  - Slice 4: `GET /api/v1/delivery/diagnostics` (localhost-only) + metrics `dropped_count`/`subject_count`;
+  - Added S18 completion anchors in Delivery WS protocol hardening SSoT row, including runtime contract tests and HTTP diagnostics tests.
+- 2026-03-06:
+  - Stage 18 Slice 1: Realtime Consumption Protocol Hardening;
+  - FIX: prev_seq chain reset on resync (P0 bug -- stale prev_seq after resync);
+  - FIX: delivery-ws.md subscribe flow order aligned to code (snapshot-before-ack);
+  - ADD: HTTP vs WS consumption policy table in delivery-ws.md;
+  - ADD: 5 protocol contract tests (WS-9 snapshot_seq, WS-10 prev_seq chain, WS-11 snapshot-before-ack);
+  - Added S18 authority doc and protocol contract test anchors to new delivery WS protocol hardening SSoT row.
+- 2026-03-06:
+  - Stage 17 COMPLETE (2 slices):
+  - Slice 1: Session Overview API (`GET /api/v1/session`) — composed bootstrap read model: server time, readiness, markets, artifact capabilities; 6 tests;
+  - Slice 2: Instrument Freshness API (`GET /api/v1/freshness`) — per-channel data flow health from terminal WS state; 6 tests;
+  - Added Stage 17 authority doc and session/freshness test anchors to storage hot/cold SSoT row.
+- 2026-03-06:
+  - Stage 16 COMPLETE (4 slices):
+  - Slice 1: Added explicit `json` tags to 8 aggregation domain types + nested types (BookID, Level); PascalCase tags preserve current wire format; 8 golden wire format tests;
+  - Slice 2: Stream Catalog API (`GET /api/v1/catalog`) — 8 artifact types, timeframes, endpoints; 9 tests;
+  - Slice 3: Delivery contract documentation — WS-11 snapshot-before-delta invariant formalized in delivery-ws.md; Timeline/Catalog/Wire format docs in event-bus.md;
+  - Slice 4: Wire contract regression suite (8 golden tests in Slice 1);
+  - Added Stage 16 authority doc and catalog test anchors to storage hot/cold SSoT row.
+- 2026-03-06:
+  - Stage 15 Slice 1: Timeline API (`GET /api/v1/timeline`) for client data-range discovery;
+  - `TimelineResponse` read-model type with explicit json tags;
+  - Supports candle and stats artifacts via existing federated readers;
+  - 10 new tests (happy path, defaults, no data, errors, validation);
+  - Added Stage 15 authority doc to storage hot/cold SSoT row.
+- 2026-03-06:
+  - Stage 14 COMPLETE (all 6 slices): Pg hot readers (7), federated readers (7), consistency checker, HTTP federation wiring, hot retention migration, consistency HTTP endpoint;
+  - Slice 1: 7 Pg hot readers + 22 unit tests;
+  - Slice 2: Federation package — time-based routing, O(n) merge, generic helpers, 19 tests;
+  - Slice 3: cmd/server/bootstrap.go rewired to use federated readers when both Pg+CH available;
+  - Slice 4: Migration 0006 extends hot-retention cleanup to all 7 artifact tables;
+  - Slice 5: ConsistencyChecker comparing candle/stats timestamps across hot/cold, 4 tests;
+  - Slice 6: GET /api/v1/consistency HTTP diagnostic endpoint (localhost-only);
+  - Config: `storage.federation_hot_window_ms` (default 24h);
+  - updated storage hot/cold SSoT row with federation code+test anchors.
+- 2026-03-06:
+  - Stage 13 Slices 1-2: ClickHouse cold analytics tables (5), writers (5), readers (5), TTL policies, writer tests (16);
+  - updated storage hot/cold SSoT row with Stage 13 authority and cold writer/reader code+test anchors;
+  - added `docs/stages/stage-13-cold-analytics-store-report.md` as Stage 13 authority.
+- 2026-03-06:
+  - Stage 12 Slice 1: Control Plane HTTP API;
+  - added `docs/stages/stage-12-read-models-operational-api-report.md` as Stage 12 authority;
+  - updated signal->intent->execution->portfolio authority row to include Stage 11 control plane + Stage 12 HTTP API;
+  - added Stage 12 test anchors for control plane HTTP handlers;
+  - added `POST /api/v1/control` and `GET /api/v1/control/snapshot` to operational API surface.
 - 2026-03-06:
   - added Stage 9B authority (`docs/architecture/credentials-broker-hardening-stage9b.md`);
   - updated signal->intent->execution->portfolio authority row to include hardened credential broker/provenance/lease semantics;

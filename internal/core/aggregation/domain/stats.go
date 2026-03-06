@@ -45,27 +45,27 @@ func NewStatsKey(venue, instrument, timeframe string) (StatsKey, *problem.Proble
 
 // StatsWindowV1 is the v1 stats aggregate for one timeframe window.
 type StatsWindowV1 struct {
-	Venue           string
-	Instrument      string
-	Timeframe       string
-	WindowStartTs   int64
-	WindowEndTs     int64
-	WindowMs        int64
-	TsIngestMs      int64
-	QualityFlags    uint32
-	LiqBuyVolume    float64
-	LiqSellVolume   float64
-	LiqTotalVolume  float64
-	LiqCount        int64
-	MarkPriceOpen   float64
-	MarkPriceHigh   float64
-	MarkPriceLow    float64
-	MarkPriceClose  float64
-	FundingRateAvg  float64
-	FundingRateLast float64
-	SeqFirst        int64
-	SeqLast         int64
-	IsClosed        bool
+	Venue           string  `json:"Venue"`
+	Instrument      string  `json:"Instrument"`
+	Timeframe       string  `json:"Timeframe"`
+	WindowStartTs   int64   `json:"WindowStartTs"`
+	WindowEndTs     int64   `json:"WindowEndTs"`
+	WindowMs        int64   `json:"WindowMs"`
+	TsIngestMs      int64   `json:"TsIngestMs"`
+	QualityFlags    uint32  `json:"QualityFlags"`
+	LiqBuyVolume    float64 `json:"LiqBuyVolume"`
+	LiqSellVolume   float64 `json:"LiqSellVolume"`
+	LiqTotalVolume  float64 `json:"LiqTotalVolume"`
+	LiqCount        int64   `json:"LiqCount"`
+	MarkPriceOpen   float64 `json:"MarkPriceOpen"`
+	MarkPriceHigh   float64 `json:"MarkPriceHigh"`
+	MarkPriceLow    float64 `json:"MarkPriceLow"`
+	MarkPriceClose  float64 `json:"MarkPriceClose"`
+	FundingRateAvg  float64 `json:"FundingRateAvg"`
+	FundingRateLast float64 `json:"FundingRateLast"`
+	SeqFirst        int64   `json:"SeqFirst"`
+	SeqLast         int64   `json:"SeqLast"`
+	IsClosed        bool    `json:"IsClosed"`
 
 	liqBuyVolumeFixed   int64
 	liqSellVolumeFixed  int64

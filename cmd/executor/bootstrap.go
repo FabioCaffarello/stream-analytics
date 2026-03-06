@@ -108,6 +108,7 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 		logger,
 		httpserver.WithTLS(cfg.HTTP.TLSCert, cfg.HTTP.TLSKey),
 		httpserver.WithReloadHook(protoRolloutReloadHook(configPath, logger)),
+		httpserver.WithControlPlane(controlPlane),
 	)
 	srv.SetReadyGate(func() bool { return ready.Load() })
 

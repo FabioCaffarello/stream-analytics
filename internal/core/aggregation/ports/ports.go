@@ -47,3 +47,23 @@ type StatsHotReadModelStore interface {
 type TapeHotReadModelStore interface {
 	SaveTape(ctx context.Context, evt domain.TapeClosed) *problem.Problem
 }
+
+// OIHotReadModelStore writes closed open-interest windows to the hot read model.
+type OIHotReadModelStore interface {
+	SaveOI(ctx context.Context, evt domain.OpenInterestClosed) *problem.Problem
+}
+
+// DeltaVolumeHotReadModelStore writes closed delta-volume windows to the hot read model.
+type DeltaVolumeHotReadModelStore interface {
+	SaveDeltaVolume(ctx context.Context, evt domain.DeltaVolumeClosed) *problem.Problem
+}
+
+// CVDHotReadModelStore writes closed cumulative-volume-delta windows to the hot read model.
+type CVDHotReadModelStore interface {
+	SaveCVD(ctx context.Context, evt domain.CVDClosed) *problem.Problem
+}
+
+// BarStatsHotReadModelStore writes closed bar-statistics windows to the hot read model.
+type BarStatsHotReadModelStore interface {
+	SaveBarStats(ctx context.Context, evt domain.BarStatsClosed) *problem.Problem
+}

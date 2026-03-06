@@ -52,12 +52,14 @@ type BuildOpenInterestResponse struct {
 // BuildOpenInterestFromEvents builds deterministic aggregation.oi projections.
 type BuildOpenInterestFromEvents struct {
 	publisher ports.ArtifactPublisher
+	store     ports.OIHotReadModelStore
 	state     *ds.BoundedMap[openInterestKey, *openInterestState]
 }
 
 // NewBuildOpenInterestFromEvents constructs BuildOpenInterestFromEvents.
 func NewBuildOpenInterestFromEvents(
 	pub ports.ArtifactPublisher,
+	store ports.OIHotReadModelStore,
 	cfg BuildOpenInterestConfig,
 ) *BuildOpenInterestFromEvents {
 	if cfg.MaxStreams <= 0 {
@@ -74,6 +76,7 @@ func NewBuildOpenInterestFromEvents(
 	state.SetSweepMinInterval(time.Second)
 	return &BuildOpenInterestFromEvents{
 		publisher: pub,
+		store:     store,
 		state:     state,
 	}
 }
@@ -113,6 +116,11 @@ func (uc *BuildOpenInterestFromEvents) Execute(
 		state.HasLast,
 	)
 	evt := domain.OpenInterestClosed{Window: window}
+	if uc.store != nil {
+		if p := uc.store.SaveOI(ctx, evt); p != nil {
+			return BuildOpenInterestResponse{}, p
+		}
+	}
 	if uc.publisher != nil {
 		if p := uc.publisher.PublishOpenInterest(ctx, evt); p != nil {
 			return BuildOpenInterestResponse{}, p
