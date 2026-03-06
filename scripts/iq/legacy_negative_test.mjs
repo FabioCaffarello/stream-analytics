@@ -316,4 +316,3 @@ main().catch((err) => {
     writeFileSync(OUT_JSON, JSON.stringify({ overall_pass: false, error: err instanceof Error ? err.message : String(err), checks: rows }, null, 2));
     process.exit(1);
 });
-

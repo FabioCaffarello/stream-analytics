@@ -19,4 +19,3 @@ The original W11 audit pack content was consolidated into:
 
 - `docs/architecture/TRUTH-MAP.md`
 - `docs/rfcs/EXECUTION-SEQUENCE.md`
-

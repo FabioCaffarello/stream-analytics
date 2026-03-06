@@ -11,4 +11,3 @@ Governance placeholder retained for historical links from execution sequence.
 
 - `docs/architecture/TRUTH-MAP.md`
 - `docs/architecture/AUTHORITY-MAP.md`
-

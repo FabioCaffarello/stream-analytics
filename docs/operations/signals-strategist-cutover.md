@@ -127,4 +127,3 @@ Fast rollback to embedded path (if dedicated services become unstable):
 
 - `.context/evidence/m3-runtime-validation-2026-03-05.md`
 - `.context/evidence/m4-cutover-hardening-2026-03-05.md`
-

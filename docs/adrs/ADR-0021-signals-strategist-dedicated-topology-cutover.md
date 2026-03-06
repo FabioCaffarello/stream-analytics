@@ -1,12 +1,12 @@
 # ADR-0021 - Signals/Strategist Dedicated Topology Cutover
 
-**Status:** Accepted  
-**Implementation status:** Partially Implemented  
-**Partial marker:** Status: Partially Implemented  
-**Owner:** Runtime Platform  
-**Last updated:** 2026-03-05  
-**Date:** 2026-03-05  
-**Deciders:** Chief Architect  
+**Status:** Accepted
+**Implementation status:** Partially Implemented
+**Partial marker:** Status: Partially Implemented
+**Owner:** Runtime Platform
+**Last updated:** 2026-03-05
+**Date:** 2026-03-05
+**Deciders:** Chief Architect
 **Relates to:** ADR-0018, ADR-0014, ADR-0015, `.context/plans/signals-strategist-entrypoint-hardening.md`
 
 ---
@@ -69,4 +69,3 @@ The system needs an explicit, auditable cutover rule that preserves ownership/mo
 - 2026-03-05:
 - ADR created to fix topology ambiguity and define dedicated cutover contract.
 - Added processor embedded-signal feature flag (`processor.signals.enabled`) for safe cutover.
-

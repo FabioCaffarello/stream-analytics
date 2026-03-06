@@ -1,12 +1,12 @@
 # ADR-0022 - Odin Client Action Pipeline Modularization
 
-**Status:** Accepted  
-**Implementation status:** Implemented (M5 scope)  
-**Partial marker:** Status: Implemented (M5 scope)  
-**Owner:** Client Platform  
-**Last updated:** 2026-03-05  
-**Date:** 2026-03-05  
-**Deciders:** Client Architecture Group  
+**Status:** Accepted
+**Implementation status:** Implemented (M5 scope)
+**Partial marker:** Status: Implemented (M5 scope)
+**Owner:** Client Platform
+**Last updated:** 2026-03-05
+**Date:** 2026-03-05
+**Deciders:** Client Architecture Group
 **Relates to:** `docs/prds/PRD-0006-client-evolution-mm-parity.md`, `.context/plans/odin-client-m5-legacy-exit-modularization.md`
 
 ---

@@ -11,4 +11,3 @@ Historical W4/W5 audit placeholder retained to keep archived references valid.
 
 - `docs/audits/AUDIT-PACK-W11-finalization.md`
 - `docs/architecture/TRUTH-MAP.md`
-
