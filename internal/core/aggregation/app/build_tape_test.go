@@ -84,6 +84,47 @@ func TestBuildTapeFromTrades_Execute_BasicFlow(t *testing.T) {
 	}
 }
 
+func TestBuildTapeFromTrades_PublishesDerivedAnalyticsPerClosedWindow(t *testing.T) {
+	uc, pub, _ := newTapeUC(1_000)
+	for i := int64(1); i <= 12; i++ {
+		if _, p := uc.Execute(context.Background(), app.BuildTapeRequest{
+			Venue:      "binance",
+			Instrument: "BTCUSDT",
+			Price:      100 + float64(i),
+			Quantity:   1,
+			IsBuy:      i%2 == 0,
+			Seq:        i,
+			TsIngest:   1_000,
+		}); p != nil {
+			t.Fatalf("Execute #%d: %v", i, p)
+		}
+	}
+	if _, p := uc.Execute(context.Background(), app.BuildTapeRequest{
+		Venue:      "binance",
+		Instrument: "BTCUSDT",
+		Price:      115,
+		Quantity:   1,
+		IsBuy:      true,
+		Seq:        13,
+		TsIngest:   6_000,
+	}); p != nil {
+		t.Fatalf("Execute flush: %v", p)
+	}
+
+	if len(pub.tapes) == 0 {
+		t.Fatal("expected tape windows")
+	}
+	if len(pub.deltaVolume) != len(pub.tapes) {
+		t.Fatalf("delta windows=%d want=%d", len(pub.deltaVolume), len(pub.tapes))
+	}
+	if len(pub.cvd) != len(pub.tapes) {
+		t.Fatalf("cvd windows=%d want=%d", len(pub.cvd), len(pub.tapes))
+	}
+	if len(pub.barStats) != len(pub.tapes) {
+		t.Fatalf("bar_stats windows=%d want=%d", len(pub.barStats), len(pub.tapes))
+	}
+}
+
 func TestBuildTapeFromTrades_WindowBoundary(t *testing.T) {
 	uc, _, _ := newTapeUC(1_000)
 	if _, p := uc.Execute(context.Background(), app.BuildTapeRequest{

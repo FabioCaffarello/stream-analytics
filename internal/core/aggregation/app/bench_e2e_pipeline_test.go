@@ -52,6 +52,18 @@ func (benchArtifactPublisher) PublishStatsClosed(context.Context, aggdomain.Stat
 func (benchArtifactPublisher) PublishTapeClosed(context.Context, aggdomain.TapeClosed) *problem.Problem {
 	return nil
 }
+func (benchArtifactPublisher) PublishOpenInterest(context.Context, aggdomain.OpenInterestClosed) *problem.Problem {
+	return nil
+}
+func (benchArtifactPublisher) PublishDeltaVolume(context.Context, aggdomain.DeltaVolumeClosed) *problem.Problem {
+	return nil
+}
+func (benchArtifactPublisher) PublishCVD(context.Context, aggdomain.CVDClosed) *problem.Problem {
+	return nil
+}
+func (benchArtifactPublisher) PublishBarStats(context.Context, aggdomain.BarStatsClosed) *problem.Problem {
+	return nil
+}
 
 type benchHotStore struct {
 	last aggdomain.SnapshotProduced

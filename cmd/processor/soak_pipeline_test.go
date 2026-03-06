@@ -17,10 +17,14 @@ import (
 const soakEnableEnv = "MR_ENABLE_SOAK"
 
 type soakArtifactPublisher struct {
-	snapshots int
-	candles   int
-	stats     int
-	tapes     int
+	snapshots    int
+	candles      int
+	stats        int
+	tapes        int
+	openInterest int
+	deltaVolume  int
+	cvd          int
+	barStats     int
 }
 
 func (p *soakArtifactPublisher) PublishSnapshot(context.Context, aggdomain.SnapshotProduced) *problem.Problem {
@@ -44,6 +48,26 @@ func (p *soakArtifactPublisher) PublishStatsClosed(context.Context, aggdomain.St
 
 func (p *soakArtifactPublisher) PublishTapeClosed(context.Context, aggdomain.TapeClosed) *problem.Problem {
 	p.tapes++
+	return nil
+}
+
+func (p *soakArtifactPublisher) PublishOpenInterest(context.Context, aggdomain.OpenInterestClosed) *problem.Problem {
+	p.openInterest++
+	return nil
+}
+
+func (p *soakArtifactPublisher) PublishDeltaVolume(context.Context, aggdomain.DeltaVolumeClosed) *problem.Problem {
+	p.deltaVolume++
+	return nil
+}
+
+func (p *soakArtifactPublisher) PublishCVD(context.Context, aggdomain.CVDClosed) *problem.Problem {
+	p.cvd++
+	return nil
+}
+
+func (p *soakArtifactPublisher) PublishBarStats(context.Context, aggdomain.BarStatsClosed) *problem.Problem {
+	p.barStats++
 	return nil
 }
 

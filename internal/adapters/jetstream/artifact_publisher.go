@@ -235,6 +235,164 @@ func (a *ArtifactPublisher) PublishTapeClosed(ctx context.Context, evt aggdomain
 	return a.pub.Publish(ctx, env)
 }
 
+// PublishOpenInterest publishes an open-interest projection event.
+func (a *ArtifactPublisher) PublishOpenInterest(ctx context.Context, evt aggdomain.OpenInterestClosed) *problem.Problem {
+	wireDTO := domainOpenInterestToWireDTO(evt)
+	contentType := chooseArtifactContentType("aggregation.oi")
+	payload, p := codec.EncodePayload("aggregation.oi", 1, contentType, wireDTO)
+	if p != nil {
+		return p
+	}
+	metrics.ObserveMROIWireBytes(evt.Window.Venue, len(payload))
+	metrics.ObserveMROIQuality(
+		evt.Window.Venue,
+		evt.Window.Instrument,
+		evt.Window.OpenInterest,
+		evt.Window.Seq,
+	)
+	env := envelope.Envelope{
+		Type:       "aggregation.oi",
+		Version:    1,
+		Venue:      evt.Window.Venue,
+		Instrument: naming.StripMarketType(evt.Window.Instrument),
+		TsIngest:   evt.Window.TsIngestMs,
+		Seq:        evt.Window.Seq,
+		IdempotencyKey: sharedhash.HashFieldsFast(
+			"aggregation.oi",
+			evt.Window.Venue,
+			evt.Window.Instrument,
+			evt.Window.Timeframe,
+			strconv.FormatInt(evt.Window.WindowStartTs, 10),
+		),
+		ContentType: contentType,
+		Payload:     payload,
+		Meta: artifactMetaForInstrument(
+			evt.Window.Instrument,
+			map[string]string{"timeframe": evt.Window.Timeframe},
+		),
+	}
+	if p := env.Validate(); p != nil {
+		return p
+	}
+	return a.pub.Publish(ctx, env)
+}
+
+// PublishDeltaVolume publishes a delta-volume projection event.
+func (a *ArtifactPublisher) PublishDeltaVolume(ctx context.Context, evt aggdomain.DeltaVolumeClosed) *problem.Problem {
+	wireDTO := domainDeltaVolumeToWireDTO(evt)
+	contentType := chooseArtifactContentType("aggregation.delta_volume")
+	payload, p := codec.EncodePayload("aggregation.delta_volume", 1, contentType, wireDTO)
+	if p != nil {
+		return p
+	}
+	metrics.ObserveMRDeltaVolumeWireBytes(evt.Window.Venue, evt.Window.Timeframe, len(payload))
+	env := envelope.Envelope{
+		Type:       "aggregation.delta_volume",
+		Version:    1,
+		Venue:      evt.Window.Venue,
+		Instrument: naming.StripMarketType(evt.Window.Instrument),
+		TsIngest:   evt.Window.TsIngestMs,
+		Seq:        evt.Window.Seq,
+		IdempotencyKey: sharedhash.HashFieldsFast(
+			"aggregation.delta_volume",
+			evt.Window.Venue,
+			evt.Window.Instrument,
+			evt.Window.Timeframe,
+			strconv.FormatInt(evt.Window.WindowStartTs, 10),
+		),
+		ContentType: contentType,
+		Payload:     payload,
+		Meta: artifactMetaForInstrument(
+			evt.Window.Instrument,
+			map[string]string{"timeframe": evt.Window.Timeframe},
+		),
+	}
+	if p := env.Validate(); p != nil {
+		return p
+	}
+	return a.pub.Publish(ctx, env)
+}
+
+// PublishCVD publishes a cumulative-volume-delta projection event.
+func (a *ArtifactPublisher) PublishCVD(ctx context.Context, evt aggdomain.CVDClosed) *problem.Problem {
+	wireDTO := domainCVDToWireDTO(evt)
+	contentType := chooseArtifactContentType("aggregation.cvd")
+	payload, p := codec.EncodePayload("aggregation.cvd", 1, contentType, wireDTO)
+	if p != nil {
+		return p
+	}
+	metrics.ObserveMRCVDWireBytes(evt.Window.Venue, evt.Window.Timeframe, len(payload))
+	env := envelope.Envelope{
+		Type:       "aggregation.cvd",
+		Version:    1,
+		Venue:      evt.Window.Venue,
+		Instrument: naming.StripMarketType(evt.Window.Instrument),
+		TsIngest:   evt.Window.TsIngestMs,
+		Seq:        evt.Window.Seq,
+		IdempotencyKey: sharedhash.HashFieldsFast(
+			"aggregation.cvd",
+			evt.Window.Venue,
+			evt.Window.Instrument,
+			evt.Window.Timeframe,
+			strconv.FormatInt(evt.Window.WindowStartTs, 10),
+		),
+		ContentType: contentType,
+		Payload:     payload,
+		Meta: artifactMetaForInstrument(
+			evt.Window.Instrument,
+			map[string]string{"timeframe": evt.Window.Timeframe},
+		),
+	}
+	if p := env.Validate(); p != nil {
+		return p
+	}
+	return a.pub.Publish(ctx, env)
+}
+
+// PublishBarStats publishes a bar-statistics projection event.
+func (a *ArtifactPublisher) PublishBarStats(ctx context.Context, evt aggdomain.BarStatsClosed) *problem.Problem {
+	wireDTO := domainBarStatsToWireDTO(evt)
+	contentType := chooseArtifactContentType("aggregation.bar_stats")
+	payload, p := codec.EncodePayload("aggregation.bar_stats", 1, contentType, wireDTO)
+	if p != nil {
+		return p
+	}
+	metrics.ObserveMRBarStatsWireBytes(evt.Window.Venue, evt.Window.Timeframe, len(payload))
+	metrics.ObserveMRBarStatsQuality(
+		evt.Window.Venue,
+		evt.Window.Instrument,
+		evt.Window.Timeframe,
+		evt.Window.TradeCount,
+		evt.Window.TotalVolume,
+		evt.Window.Seq,
+	)
+	env := envelope.Envelope{
+		Type:       "aggregation.bar_stats",
+		Version:    1,
+		Venue:      evt.Window.Venue,
+		Instrument: naming.StripMarketType(evt.Window.Instrument),
+		TsIngest:   evt.Window.TsIngestMs,
+		Seq:        evt.Window.Seq,
+		IdempotencyKey: sharedhash.HashFieldsFast(
+			"aggregation.bar_stats",
+			evt.Window.Venue,
+			evt.Window.Instrument,
+			evt.Window.Timeframe,
+			strconv.FormatInt(evt.Window.WindowStartTs, 10),
+		),
+		ContentType: contentType,
+		Payload:     payload,
+		Meta: artifactMetaForInstrument(
+			evt.Window.Instrument,
+			map[string]string{"timeframe": evt.Window.Timeframe},
+		),
+	}
+	if p := env.Validate(); p != nil {
+		return p
+	}
+	return a.pub.Publish(ctx, env)
+}
+
 // chooseArtifactContentType selects proto or JSON based on rollout flags.
 func chooseArtifactContentType(eventType string) string {
 	if contracts.ProtoRolloutEnabledForEventType(eventType) {
@@ -348,6 +506,78 @@ func domainTapeToWireDTO(evt aggdomain.TapeClosed) contracts.AggregationTapeV1 {
 		IsBurst:       evt.IsBurst,
 		Seq:           t.LastSeq,
 		TsIngestMs:    t.WindowEndTs,
+	}
+}
+
+func domainOpenInterestToWireDTO(evt aggdomain.OpenInterestClosed) contracts.AggregationOpenInterestV1 {
+	o := evt.Window
+	return contracts.AggregationOpenInterestV1{
+		Venue:         o.Venue,
+		Instrument:    o.Instrument,
+		Timeframe:     o.Timeframe,
+		WindowStartTs: o.WindowStartTs,
+		WindowEndTs:   o.WindowEndTs,
+		OpenInterest:  o.OpenInterest,
+		Delta:         o.Delta,
+		DeltaPct:      o.DeltaPct,
+		Seq:           o.Seq,
+		TsIngestMs:    o.TsIngestMs,
+	}
+}
+
+func domainDeltaVolumeToWireDTO(evt aggdomain.DeltaVolumeClosed) contracts.AggregationDeltaVolumeV1 {
+	d := evt.Window
+	return contracts.AggregationDeltaVolumeV1{
+		Venue:         d.Venue,
+		Instrument:    d.Instrument,
+		Timeframe:     d.Timeframe,
+		WindowStartTs: d.WindowStartTs,
+		WindowEndTs:   d.WindowEndTs,
+		BuyVolume:     d.BuyVolume,
+		SellVolume:    d.SellVolume,
+		DeltaVolume:   d.DeltaVolume,
+		Seq:           d.Seq,
+		TsIngestMs:    d.TsIngestMs,
+	}
+}
+
+func domainCVDToWireDTO(evt aggdomain.CVDClosed) contracts.AggregationCVDV1 {
+	c := evt.Window
+	return contracts.AggregationCVDV1{
+		Venue:         c.Venue,
+		Instrument:    c.Instrument,
+		Timeframe:     c.Timeframe,
+		WindowStartTs: c.WindowStartTs,
+		WindowEndTs:   c.WindowEndTs,
+		DeltaVolume:   c.DeltaVolume,
+		CVD:           c.CVD,
+		Seq:           c.Seq,
+		TsIngestMs:    c.TsIngestMs,
+	}
+}
+
+func domainBarStatsToWireDTO(evt aggdomain.BarStatsClosed) contracts.AggregationBarStatsV1 {
+	b := evt.Window
+	return contracts.AggregationBarStatsV1{
+		Venue:         b.Venue,
+		Instrument:    b.Instrument,
+		Timeframe:     b.Timeframe,
+		WindowStartTs: b.WindowStartTs,
+		WindowEndTs:   b.WindowEndTs,
+		TradeCount:    b.TradeCount,
+		BuyCount:      b.BuyCount,
+		SellCount:     b.SellCount,
+		TotalVolume:   b.TotalVolume,
+		BuyVolume:     b.BuyVolume,
+		SellVolume:    b.SellVolume,
+		VwapPrice:     b.VwapPrice,
+		LastPrice:     b.LastPrice,
+		MaxPrice:      b.MaxPrice,
+		MinPrice:      b.MinPrice,
+		Imbalance:     b.Imbalance,
+		IsBurst:       b.IsBurst,
+		Seq:           b.Seq,
+		TsIngestMs:    b.TsIngestMs,
 	}
 }
 

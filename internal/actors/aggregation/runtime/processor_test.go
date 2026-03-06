@@ -36,11 +36,15 @@ func init() {
 // ---------------------------------------------------------------------------
 
 type spyArtifactPublisher struct {
-	mu        sync.Mutex
-	snapshots []aggdomain.SnapshotProduced
-	candles   []aggdomain.CandleClosed
-	stats     []aggdomain.StatsWindowClosed
-	tapes     []aggdomain.TapeClosed
+	mu           sync.Mutex
+	snapshots    []aggdomain.SnapshotProduced
+	candles      []aggdomain.CandleClosed
+	stats        []aggdomain.StatsWindowClosed
+	tapes        []aggdomain.TapeClosed
+	openInterest []aggdomain.OpenInterestClosed
+	deltaVolumes []aggdomain.DeltaVolumeClosed
+	cvds         []aggdomain.CVDClosed
+	barStats     []aggdomain.BarStatsClosed
 }
 
 func (s *spyArtifactPublisher) PublishSnapshot(_ context.Context, snap aggdomain.SnapshotProduced) *problem.Problem {
@@ -72,6 +76,34 @@ func (s *spyArtifactPublisher) PublishTapeClosed(_ context.Context, evt aggdomai
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.tapes = append(s.tapes, evt)
+	return nil
+}
+
+func (s *spyArtifactPublisher) PublishOpenInterest(_ context.Context, evt aggdomain.OpenInterestClosed) *problem.Problem {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.openInterest = append(s.openInterest, evt)
+	return nil
+}
+
+func (s *spyArtifactPublisher) PublishDeltaVolume(_ context.Context, evt aggdomain.DeltaVolumeClosed) *problem.Problem {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.deltaVolumes = append(s.deltaVolumes, evt)
+	return nil
+}
+
+func (s *spyArtifactPublisher) PublishCVD(_ context.Context, evt aggdomain.CVDClosed) *problem.Problem {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cvds = append(s.cvds, evt)
+	return nil
+}
+
+func (s *spyArtifactPublisher) PublishBarStats(_ context.Context, evt aggdomain.BarStatsClosed) *problem.Problem {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.barStats = append(s.barStats, evt)
 	return nil
 }
 

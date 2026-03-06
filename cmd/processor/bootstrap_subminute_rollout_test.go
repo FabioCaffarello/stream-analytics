@@ -40,6 +40,22 @@ func (s *spyArtifactPublisher) PublishTapeClosed(_ context.Context, _ aggdomain.
 	return nil
 }
 
+func (s *spyArtifactPublisher) PublishOpenInterest(_ context.Context, _ aggdomain.OpenInterestClosed) *problem.Problem {
+	return nil
+}
+
+func (s *spyArtifactPublisher) PublishDeltaVolume(_ context.Context, _ aggdomain.DeltaVolumeClosed) *problem.Problem {
+	return nil
+}
+
+func (s *spyArtifactPublisher) PublishCVD(_ context.Context, _ aggdomain.CVDClosed) *problem.Problem {
+	return nil
+}
+
+func (s *spyArtifactPublisher) PublishBarStats(_ context.Context, _ aggdomain.BarStatsClosed) *problem.Problem {
+	return nil
+}
+
 type spyCandleStore struct{ calls int }
 
 func (s *spyCandleStore) SaveCandle(context.Context, aggdomain.CandleClosed) *problem.Problem {

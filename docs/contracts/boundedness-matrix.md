@@ -182,7 +182,7 @@ Updated at: `2026-03-05`
         },
         {
           "file": "internal/shared/metrics/metrics.go",
-          "line": 1598,
+          "line": 1655,
           "snippet": "Name: \"router_stream_state_entries\""
         }
       ]
@@ -226,7 +226,7 @@ Updated at: `2026-03-05`
         },
         {
           "file": "internal/shared/metrics/metrics.go",
-          "line": 1628,
+          "line": 1685,
           "snippet": "Name: \"ws_queue_capacity\""
         }
       ]

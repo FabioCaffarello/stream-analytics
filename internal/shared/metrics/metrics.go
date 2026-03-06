@@ -32,6 +32,17 @@ const (
 )
 
 const (
+	oiQualityFlagSeqInvalidMask uint32 = 1 << iota
+	oiQualityFlagOpenInterestInvalidMask
+)
+
+const (
+	barStatsQualityFlagTradeCountInvalidMask uint32 = 1 << iota
+	barStatsQualityFlagTotalVolumeInvalidMask
+	barStatsQualityFlagSeqInvalidMask
+)
+
+const (
 	tapeQualityFlagEmptyWindowMask uint32 = 1 << iota
 	tapeQualityFlagWindowBoundsInvalidMask
 	tapeQualityFlagLastSeqInvalidMask
@@ -746,6 +757,52 @@ var (
 		prometheus.CounterOpts{
 			Name: "mr_stats_quality_flags_total",
 			Help: "Total observed stats quality flags by bounded venue/instrument/timeframe and flag.",
+		},
+		[]string{"venue", "instrument_bucket", "timeframe_bucket", "flag"},
+	)
+	MROIWireBytes = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mr_oi_wire_bytes",
+			Help:    "Encoded open-interest window frame size in bytes.",
+			Buckets: []float64{64, 128, 256, 512, 1024, 2048},
+		},
+		[]string{"venue"},
+	)
+	MROIQualityFlagsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_oi_quality_flags_total",
+			Help: "Total observed open-interest quality flags by bounded venue/instrument and flag.",
+		},
+		[]string{"venue", "instrument_bucket", "flag"},
+	)
+	MRDeltaVolumeWireBytes = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mr_delta_volume_wire_bytes",
+			Help:    "Encoded delta-volume window frame size in bytes.",
+			Buckets: []float64{64, 128, 256, 512, 1024, 2048},
+		},
+		[]string{"venue", "timeframe_bucket"},
+	)
+	MRCVDWireBytes = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mr_cvd_wire_bytes",
+			Help:    "Encoded CVD window frame size in bytes.",
+			Buckets: []float64{64, 128, 256, 512, 1024, 2048},
+		},
+		[]string{"venue", "timeframe_bucket"},
+	)
+	MRBarStatsWireBytes = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mr_bar_stats_wire_bytes",
+			Help:    "Encoded bar-stats window frame size in bytes.",
+			Buckets: []float64{128, 256, 512, 1024, 2048, 4096},
+		},
+		[]string{"venue", "timeframe_bucket"},
+	)
+	MRBarStatsQualityFlagsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_bar_stats_quality_flags_total",
+			Help: "Total observed bar-stats quality flags by bounded venue/instrument/timeframe and flag.",
 		},
 		[]string{"venue", "instrument_bucket", "timeframe_bucket", "flag"},
 	)
@@ -1840,6 +1897,12 @@ func registerAll() {
 			MRTapeQualityFlagsTotal,
 			MRStatsWireBytes,
 			MRStatsQualityFlagsTotal,
+			MROIWireBytes,
+			MROIQualityFlagsTotal,
+			MRDeltaVolumeWireBytes,
+			MRCVDWireBytes,
+			MRBarStatsWireBytes,
+			MRBarStatsQualityFlagsTotal,
 			MRWindowOpenTotal,
 			MRWindowLateArrivalTotal,
 			MRWindowForceCloseTotal,
@@ -2079,6 +2142,17 @@ func registerAll() {
 		MRStatsQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "missing_mark_price")
 		MRStatsQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "missing_funding")
 		MRStatsQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "forced_close")
+		MROIWireBytes.WithLabelValues("unknown")
+		MROIQualityFlagsTotal.WithLabelValues("unknown", "unknown", "none")
+		MROIQualityFlagsTotal.WithLabelValues("unknown", "unknown", "seq_invalid")
+		MROIQualityFlagsTotal.WithLabelValues("unknown", "unknown", "open_interest_invalid")
+		MRDeltaVolumeWireBytes.WithLabelValues("unknown", "unknown")
+		MRCVDWireBytes.WithLabelValues("unknown", "unknown")
+		MRBarStatsWireBytes.WithLabelValues("unknown", "unknown")
+		MRBarStatsQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "none")
+		MRBarStatsQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "trade_count_invalid")
+		MRBarStatsQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "total_volume_invalid")
+		MRBarStatsQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "seq_invalid")
 		InsightsSnapshotsTotal.WithLabelValues("2")
 		InsightsSnapshotsTotal.WithLabelValues("3_4")
 		InsightsSnapshotsTotal.WithLabelValues("5_8")
@@ -2962,6 +3036,117 @@ func ObserveMRStatsQualityFlags(venue, instrument, timeframe string, flags uint3
 	if flags&statsQualityFlagForcedCloseMask != 0 {
 		incMRStatsQualityFlag(venue, instrument, timeframe, "forced_close")
 	}
+}
+
+func ObserveMROIWireBytes(venue string, bytes int) {
+	if bytes < 0 {
+		bytes = 0
+	}
+	MROIWireBytes.WithLabelValues(
+		sanitizeVenue(venue),
+	).Observe(float64(bytes))
+}
+
+func ObserveMROIQuality(venue, instrument string, openInterest float64, seq int64) {
+	var flags uint32
+	if seq <= 0 {
+		flags |= oiQualityFlagSeqInvalidMask
+	}
+	if math.IsNaN(openInterest) || math.IsInf(openInterest, 0) || openInterest < 0 {
+		flags |= oiQualityFlagOpenInterestInvalidMask
+	}
+	if flags == 0 {
+		MROIQualityFlagsTotal.WithLabelValues(
+			sanitizeVenue(venue),
+			bucketInstrument(instrument),
+			"none",
+		).Inc()
+		return
+	}
+	if flags&oiQualityFlagSeqInvalidMask != 0 {
+		incMROIQualityFlag(venue, instrument, "seq_invalid")
+	}
+	if flags&oiQualityFlagOpenInterestInvalidMask != 0 {
+		incMROIQualityFlag(venue, instrument, "open_interest_invalid")
+	}
+}
+
+func incMROIQualityFlag(venue, instrument, flag string) {
+	MROIQualityFlagsTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+		sanitizeOIQualityFlag(flag),
+	).Inc()
+}
+
+func ObserveMRDeltaVolumeWireBytes(venue, timeframe string, bytes int) {
+	if bytes < 0 {
+		bytes = 0
+	}
+	MRDeltaVolumeWireBytes.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketTimeframe(timeframe),
+	).Observe(float64(bytes))
+}
+
+func ObserveMRCVDWireBytes(venue, timeframe string, bytes int) {
+	if bytes < 0 {
+		bytes = 0
+	}
+	MRCVDWireBytes.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketTimeframe(timeframe),
+	).Observe(float64(bytes))
+}
+
+func ObserveMRBarStatsWireBytes(venue, timeframe string, bytes int) {
+	if bytes < 0 {
+		bytes = 0
+	}
+	MRBarStatsWireBytes.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketTimeframe(timeframe),
+	).Observe(float64(bytes))
+}
+
+func ObserveMRBarStatsQuality(venue, instrument, timeframe string, tradeCount int64, totalVolume float64, seq int64) {
+	var flags uint32
+	if tradeCount <= 0 {
+		flags |= barStatsQualityFlagTradeCountInvalidMask
+	}
+	if math.IsNaN(totalVolume) || math.IsInf(totalVolume, 0) || totalVolume < 0 {
+		flags |= barStatsQualityFlagTotalVolumeInvalidMask
+	}
+	if seq <= 0 {
+		flags |= barStatsQualityFlagSeqInvalidMask
+	}
+	if flags == 0 {
+		MRBarStatsQualityFlagsTotal.WithLabelValues(
+			sanitizeVenue(venue),
+			bucketInstrument(instrument),
+			bucketTimeframe(timeframe),
+			"none",
+		).Inc()
+		return
+	}
+	if flags&barStatsQualityFlagTradeCountInvalidMask != 0 {
+		incMRBarStatsQualityFlag(venue, instrument, timeframe, "trade_count_invalid")
+	}
+	if flags&barStatsQualityFlagTotalVolumeInvalidMask != 0 {
+		incMRBarStatsQualityFlag(venue, instrument, timeframe, "total_volume_invalid")
+	}
+	if flags&barStatsQualityFlagSeqInvalidMask != 0 {
+		incMRBarStatsQualityFlag(venue, instrument, timeframe, "seq_invalid")
+	}
+}
+
+func incMRBarStatsQualityFlag(venue, instrument, timeframe, flag string) {
+	MRBarStatsQualityFlagsTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+		bucketTimeframe(timeframe),
+		sanitizeBarStatsQualityFlag(flag),
+	).Inc()
 }
 
 func incMRStatsQualityFlag(venue, instrument, timeframe, flag string) {
@@ -3996,6 +4181,24 @@ func sanitizeTradeWireChannel(v string) string {
 func sanitizeStatsQualityFlag(v string) string {
 	switch strings.ToLower(strings.TrimSpace(v)) {
 	case "none", "missing_liquidation", "missing_mark_price", "missing_funding", "forced_close":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeOIQualityFlag(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "none", "seq_invalid", "open_interest_invalid":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeBarStatsQualityFlag(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "none", "trade_count_invalid", "total_volume_invalid", "seq_invalid":
 		return strings.ToLower(strings.TrimSpace(v))
 	default:
 		return "unknown"

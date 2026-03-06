@@ -22,6 +22,10 @@ type fakePublisher struct {
 	candles      []domain.CandleClosed
 	stats        []domain.StatsWindowClosed
 	tapes        []domain.TapeClosed
+	openInterest []domain.OpenInterestClosed
+	deltaVolume  []domain.DeltaVolumeClosed
+	cvd          []domain.CVDClosed
+	barStats     []domain.BarStatsClosed
 	snapErr      *problem.Problem
 }
 
@@ -50,6 +54,26 @@ func (f *fakePublisher) PublishStatsClosed(_ context.Context, e domain.StatsWind
 
 func (f *fakePublisher) PublishTapeClosed(_ context.Context, e domain.TapeClosed) *problem.Problem {
 	f.tapes = append(f.tapes, e)
+	return nil
+}
+
+func (f *fakePublisher) PublishOpenInterest(_ context.Context, e domain.OpenInterestClosed) *problem.Problem {
+	f.openInterest = append(f.openInterest, e)
+	return nil
+}
+
+func (f *fakePublisher) PublishDeltaVolume(_ context.Context, e domain.DeltaVolumeClosed) *problem.Problem {
+	f.deltaVolume = append(f.deltaVolume, e)
+	return nil
+}
+
+func (f *fakePublisher) PublishCVD(_ context.Context, e domain.CVDClosed) *problem.Problem {
+	f.cvd = append(f.cvd, e)
+	return nil
+}
+
+func (f *fakePublisher) PublishBarStats(_ context.Context, e domain.BarStatsClosed) *problem.Problem {
+	f.barStats = append(f.barStats, e)
 	return nil
 }
 

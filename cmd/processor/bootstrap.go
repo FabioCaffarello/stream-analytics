@@ -105,6 +105,51 @@ func (p *logArtifactPublisher) PublishTapeClosed(_ context.Context, evt aggdomai
 	return nil
 }
 
+func (p *logArtifactPublisher) PublishOpenInterest(_ context.Context, evt aggdomain.OpenInterestClosed) *problem.Problem {
+	p.logger.Debug("aggregation: open_interest emitted",
+		"venue", evt.Window.Venue,
+		"instrument", evt.Window.Instrument,
+		"timeframe", evt.Window.Timeframe,
+		"seq", evt.Window.Seq,
+		"open_interest", evt.Window.OpenInterest,
+		"delta", evt.Window.Delta,
+	)
+	return nil
+}
+
+func (p *logArtifactPublisher) PublishDeltaVolume(_ context.Context, evt aggdomain.DeltaVolumeClosed) *problem.Problem {
+	p.logger.Debug("aggregation: delta_volume emitted",
+		"venue", evt.Window.Venue,
+		"instrument", evt.Window.Instrument,
+		"timeframe", evt.Window.Timeframe,
+		"seq", evt.Window.Seq,
+		"delta_volume", evt.Window.DeltaVolume,
+	)
+	return nil
+}
+
+func (p *logArtifactPublisher) PublishCVD(_ context.Context, evt aggdomain.CVDClosed) *problem.Problem {
+	p.logger.Debug("aggregation: cvd emitted",
+		"venue", evt.Window.Venue,
+		"instrument", evt.Window.Instrument,
+		"timeframe", evt.Window.Timeframe,
+		"seq", evt.Window.Seq,
+		"cvd", evt.Window.CVD,
+	)
+	return nil
+}
+
+func (p *logArtifactPublisher) PublishBarStats(_ context.Context, evt aggdomain.BarStatsClosed) *problem.Problem {
+	p.logger.Debug("aggregation: bar_stats emitted",
+		"venue", evt.Window.Venue,
+		"instrument", evt.Window.Instrument,
+		"timeframe", evt.Window.Timeframe,
+		"seq", evt.Window.Seq,
+		"trade_count", evt.Window.TradeCount,
+	)
+	return nil
+}
+
 type committedHotStore struct {
 	committer *adapterstorage.SnapshotCommitter
 }
@@ -248,6 +293,34 @@ func (p *subMinuteFilteringArtifactPublisher) PublishTapeClosed(ctx context.Cont
 		return nil
 	}
 	return p.next.PublishTapeClosed(ctx, evt)
+}
+
+func (p *subMinuteFilteringArtifactPublisher) PublishOpenInterest(ctx context.Context, evt aggdomain.OpenInterestClosed) *problem.Problem {
+	if p == nil || p.next == nil {
+		return nil
+	}
+	return p.next.PublishOpenInterest(ctx, evt)
+}
+
+func (p *subMinuteFilteringArtifactPublisher) PublishDeltaVolume(ctx context.Context, evt aggdomain.DeltaVolumeClosed) *problem.Problem {
+	if p == nil || p.next == nil {
+		return nil
+	}
+	return p.next.PublishDeltaVolume(ctx, evt)
+}
+
+func (p *subMinuteFilteringArtifactPublisher) PublishCVD(ctx context.Context, evt aggdomain.CVDClosed) *problem.Problem {
+	if p == nil || p.next == nil {
+		return nil
+	}
+	return p.next.PublishCVD(ctx, evt)
+}
+
+func (p *subMinuteFilteringArtifactPublisher) PublishBarStats(ctx context.Context, evt aggdomain.BarStatsClosed) *problem.Problem {
+	if p == nil || p.next == nil {
+		return nil
+	}
+	return p.next.PublishBarStats(ctx, evt)
 }
 
 type subMinuteFilteringCandleStore struct {
@@ -586,6 +659,9 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 		Tape: aggapp.BuildTapeConfig{
 			MaxWindows: cfg.Processor.Stats.MaxWindows,
 			WindowCap:  cfg.Processor.Stats.WindowCap,
+		},
+		OpenInterest: aggapp.BuildOpenInterestConfig{
+			MaxStreams: cfg.Processor.MaxInstruments,
 		},
 		Publisher:   artifactPub,
 		Store:       hotStore,

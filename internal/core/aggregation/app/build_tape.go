@@ -60,6 +60,7 @@ type BuildTapeFromTrades struct {
 	publisher  ports.ArtifactPublisher
 	store      ports.TapeHotReadModelStore
 	windows    *ds.BoundedMap[domain.TapeKey, *domain.TapeWindowV1]
+	cvdState   *ds.BoundedMap[domain.TapeKey, float64]
 	lifecycle  domain.WindowManager
 	windowMs   map[string]int64
 	burst      map[string]int64
@@ -95,6 +96,9 @@ func NewBuildTapeFromTrades(
 	windows := ds.NewBoundedMap[domain.TapeKey, *domain.TapeWindowV1](cfg.MaxWindows, cfg.WindowTTL, cfg.Clock)
 	windows.SetSweepEveryOps(1024)
 	windows.SetSweepMinInterval(time.Second)
+	cvdState := ds.NewBoundedMap[domain.TapeKey, float64](cfg.MaxWindows, cfg.WindowTTL, cfg.Clock)
+	cvdState.SetSweepEveryOps(1024)
+	cvdState.SetSweepMinInterval(time.Second)
 	lifecycle, p := domain.NewWatermarkWindowManager(domain.WatermarkWindowConfig{
 		MaxOpenWindows:  cfg.WindowCap,
 		LateToleranceMs: cfg.LateTolerance.Milliseconds(),
@@ -120,6 +124,7 @@ func NewBuildTapeFromTrades(
 		publisher:  pub,
 		store:      store,
 		windows:    windows,
+		cvdState:   cvdState,
 		lifecycle:  lifecycle,
 		windowMs:   windowMs,
 		burst:      burst,
@@ -256,9 +261,45 @@ func (uc *BuildTapeFromTrades) persistClosedWindow(
 		if p := uc.publisher.PublishTapeClosed(ctx, evt); p != nil {
 			return TapeCloseEvent{}, p
 		}
+		if p := uc.publishDerivedAnalytics(ctx, evt); p != nil {
+			return TapeCloseEvent{}, p
+		}
 	}
 	closedCopy := evt.Window
 	return TapeCloseEvent{Window: &closedCopy, IsBurst: evt.IsBurst}, nil
+}
+
+func (uc *BuildTapeFromTrades) publishDerivedAnalytics(ctx context.Context, evt domain.TapeClosed) *problem.Problem {
+	if uc == nil || uc.publisher == nil {
+		return nil
+	}
+	delta := domain.NewDeltaVolumeWindowV1(evt.Window)
+	deltaEvt := domain.DeltaVolumeClosed{Window: delta}
+	if p := uc.publisher.PublishDeltaVolume(ctx, deltaEvt); p != nil {
+		return p
+	}
+
+	key := domain.TapeKey{
+		Venue:      evt.Window.Venue,
+		Instrument: evt.Window.Instrument,
+		Timeframe:  evt.Window.Timeframe,
+	}
+	nextCVD := delta.DeltaVolume
+	if prev, ok := uc.cvdState.Get(key); ok {
+		nextCVD += prev
+	}
+	uc.cvdState.Put(key, nextCVD)
+	cvdEvt := domain.CVDClosed{Window: domain.NewCVDWindowV1(delta, nextCVD)}
+	if p := uc.publisher.PublishCVD(ctx, cvdEvt); p != nil {
+		return p
+	}
+
+	barStats := domain.NewBarStatsWindowV1(evt.Window, evt.IsBurst)
+	barEvt := domain.BarStatsClosed{Window: barStats}
+	if p := uc.publisher.PublishBarStats(ctx, barEvt); p != nil {
+		return p
+	}
+	return nil
 }
 
 func (uc *BuildTapeFromTrades) observeWindow(

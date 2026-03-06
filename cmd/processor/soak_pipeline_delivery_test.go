@@ -79,6 +79,22 @@ func (p *soakBusArtifactPublisher) PublishTapeClosed(ctx context.Context, evt ag
 	return p.inner.PublishTapeClosed(ctx, evt)
 }
 
+func (p *soakBusArtifactPublisher) PublishOpenInterest(ctx context.Context, evt aggdomain.OpenInterestClosed) *problem.Problem {
+	return p.inner.PublishOpenInterest(ctx, evt)
+}
+
+func (p *soakBusArtifactPublisher) PublishDeltaVolume(ctx context.Context, evt aggdomain.DeltaVolumeClosed) *problem.Problem {
+	return p.inner.PublishDeltaVolume(ctx, evt)
+}
+
+func (p *soakBusArtifactPublisher) PublishCVD(ctx context.Context, evt aggdomain.CVDClosed) *problem.Problem {
+	return p.inner.PublishCVD(ctx, evt)
+}
+
+func (p *soakBusArtifactPublisher) PublishBarStats(ctx context.Context, evt aggdomain.BarStatsClosed) *problem.Problem {
+	return p.inner.PublishBarStats(ctx, evt)
+}
+
 //nolint:gocyclo // soak scenario intentionally validates aggregation and delivery behavior jointly.
 func TestSoak_PipelineWithDelivery_100k(t *testing.T) {
 	if testing.Short() {

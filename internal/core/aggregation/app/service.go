@@ -11,35 +11,38 @@ import (
 
 // AggregationServiceConfig configures all use cases exposed by AggregationService.
 type AggregationServiceConfig struct {
-	Update      UpdateConfig
-	Candle      BuildCandleConfig
-	Stats       BuildStatsConfig
-	Tape        BuildTapeConfig
-	Publisher   ports.ArtifactPublisher
-	Store       ports.HotReadModelStore
-	CandleStore ports.CandleHotReadModelStore
-	StatsStore  ports.StatsHotReadModelStore
-	TapeStore   ports.TapeHotReadModelStore
+	Update       UpdateConfig
+	Candle       BuildCandleConfig
+	Stats        BuildStatsConfig
+	Tape         BuildTapeConfig
+	OpenInterest BuildOpenInterestConfig
+	Publisher    ports.ArtifactPublisher
+	Store        ports.HotReadModelStore
+	CandleStore  ports.CandleHotReadModelStore
+	StatsStore   ports.StatsHotReadModelStore
+	TapeStore    ports.TapeHotReadModelStore
 }
 
 // AggregationService is the entrypoint facade for the aggregation bounded context.
 type AggregationService struct {
-	UpdateBook *UpdateOrderBookFromEvents
-	Candle     *BuildCandleFromEvents
-	Stats      *BuildStatsFromEvents
-	Tape       *BuildTapeFromTrades
-	Funding    *BuildFundingRateFromEvents
+	UpdateBook   *UpdateOrderBookFromEvents
+	Candle       *BuildCandleFromEvents
+	Stats        *BuildStatsFromEvents
+	Tape         *BuildTapeFromTrades
+	OpenInterest *BuildOpenInterestFromEvents
+	Funding      *BuildFundingRateFromEvents
 }
 
 // NewAggregationService creates all aggregation use cases from a single config.
 func NewAggregationService(cfg AggregationServiceConfig) *AggregationService {
 	statsUC := NewBuildStatsFromEvents(cfg.Publisher, cfg.StatsStore, cfg.Stats)
 	return &AggregationService{
-		UpdateBook: NewUpdateOrderBookFromEventsWithConfig(cfg.Publisher, cfg.Store, cfg.Update),
-		Candle:     NewBuildCandleFromEvents(cfg.Publisher, cfg.CandleStore, cfg.Candle),
-		Stats:      statsUC,
-		Tape:       NewBuildTapeFromTrades(cfg.Publisher, cfg.TapeStore, cfg.Tape),
-		Funding:    NewBuildFundingRateFromEvents(statsUC),
+		UpdateBook:   NewUpdateOrderBookFromEventsWithConfig(cfg.Publisher, cfg.Store, cfg.Update),
+		Candle:       NewBuildCandleFromEvents(cfg.Publisher, cfg.CandleStore, cfg.Candle),
+		Stats:        statsUC,
+		Tape:         NewBuildTapeFromTrades(cfg.Publisher, cfg.TapeStore, cfg.Tape),
+		OpenInterest: NewBuildOpenInterestFromEvents(cfg.Publisher, cfg.OpenInterest),
+		Funding:      NewBuildFundingRateFromEvents(statsUC),
 	}
 }
 

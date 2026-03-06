@@ -15,6 +15,10 @@ type ArtifactPublisher interface {
 	PublishCandleClosed(ctx context.Context, evt domain.CandleClosed) *problem.Problem
 	PublishStatsClosed(ctx context.Context, evt domain.StatsWindowClosed) *problem.Problem
 	PublishTapeClosed(ctx context.Context, evt domain.TapeClosed) *problem.Problem
+	PublishOpenInterest(ctx context.Context, evt domain.OpenInterestClosed) *problem.Problem
+	PublishDeltaVolume(ctx context.Context, evt domain.DeltaVolumeClosed) *problem.Problem
+	PublishCVD(ctx context.Context, evt domain.CVDClosed) *problem.Problem
+	PublishBarStats(ctx context.Context, evt domain.BarStatsClosed) *problem.Problem
 }
 
 // HotReadModelStore is the write port for the in-memory hot read model.

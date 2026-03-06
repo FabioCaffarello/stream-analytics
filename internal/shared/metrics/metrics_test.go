@@ -88,6 +88,36 @@ func TestTradeQualityMetricsExposedWithoutRuntimeEvents(t *testing.T) {
 	}
 }
 
+func TestAnalyticsPrimitivesMetricsExposedWithoutRuntimeEvents(t *testing.T) {
+	mfs, err := Registry().Gather()
+	if err != nil {
+		t.Fatalf("gather metrics: %v", err)
+	}
+
+	for _, name := range []string{
+		"mr_oi_wire_bytes",
+		"mr_oi_quality_flags_total",
+		"mr_delta_volume_wire_bytes",
+		"mr_cvd_wire_bytes",
+		"mr_bar_stats_wire_bytes",
+		"mr_bar_stats_quality_flags_total",
+	} {
+		found := false
+		for _, mf := range mfs {
+			if mf.GetName() == name {
+				found = true
+				if len(mf.GetMetric()) == 0 {
+					t.Fatalf("%s has no exposed series", name)
+				}
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("%s metric family not found", name)
+		}
+	}
+}
+
 func TestLELMetricsExposedWithoutRuntimeEvents(t *testing.T) {
 	mfs, err := Registry().Gather()
 	if err != nil {
@@ -311,6 +341,12 @@ func TestMetricsNamesPresent(t *testing.T) {
 	ObserveMRStatsWireBytes("binance", "1m", 768)
 	ObserveMRStatsQualityFlags("binance", "BTC-USDT", "1m", 0)
 	ObserveMRStatsQualityFlags("binance", "BTC-USDT", "1m", (1<<0)|(1<<3))
+	ObserveMROIWireBytes("binance", 196)
+	ObserveMROIQuality("binance", "BTC-USDT", 12345, 17)
+	ObserveMRDeltaVolumeWireBytes("binance", "1m", 220)
+	ObserveMRCVDWireBytes("binance", "1m", 244)
+	ObserveMRBarStatsWireBytes("binance", "1m", 330)
+	ObserveMRBarStatsQuality("binance", "BTC-USDT", "1m", 30, 123.4, 17)
 	SetMRWindowOpen("binance", "BTC-USDT", "1m", 1)
 	IncMRWindowLateArrival("binance", "BTC-USDT", "1m")
 	IncMRWindowForceClose("binance", "BTC-USDT", "1m")
@@ -435,6 +471,12 @@ func TestMetricsNamesPresent(t *testing.T) {
 		"mr_trade_wire_bytes",
 		"mr_stats_wire_bytes",
 		"mr_stats_quality_flags_total",
+		"mr_oi_wire_bytes",
+		"mr_oi_quality_flags_total",
+		"mr_delta_volume_wire_bytes",
+		"mr_cvd_wire_bytes",
+		"mr_bar_stats_wire_bytes",
+		"mr_bar_stats_quality_flags_total",
 		"mr_window_open_total",
 		"mr_window_late_arrival_total",
 		"mr_window_force_close_total",
@@ -686,6 +728,24 @@ func TestStatsQualityMetrics_StableLabelsOnly(t *testing.T) {
 
 	assertMetricLabelNames(t, "mr_stats_wire_bytes", []string{"timeframe_bucket", "venue"})
 	assertMetricLabelNames(t, "mr_stats_quality_flags_total", []string{"flag", "instrument_bucket", "timeframe_bucket", "venue"})
+}
+
+func TestAnalyticsPrimitivesMetrics_StableLabelsOnly(t *testing.T) {
+	t.Parallel()
+
+	ObserveMROIWireBytes("binance", 256)
+	ObserveMROIQuality("binance", "BTC-USDT", 10000, 10)
+	ObserveMRDeltaVolumeWireBytes("binance", "1m", 256)
+	ObserveMRCVDWireBytes("binance", "1m", 256)
+	ObserveMRBarStatsWireBytes("binance", "1m", 512)
+	ObserveMRBarStatsQuality("binance", "BTC-USDT", "1m", 20, 35.5, 10)
+
+	assertMetricLabelNames(t, "mr_oi_wire_bytes", []string{"venue"})
+	assertMetricLabelNames(t, "mr_oi_quality_flags_total", []string{"flag", "instrument_bucket", "venue"})
+	assertMetricLabelNames(t, "mr_delta_volume_wire_bytes", []string{"timeframe_bucket", "venue"})
+	assertMetricLabelNames(t, "mr_cvd_wire_bytes", []string{"timeframe_bucket", "venue"})
+	assertMetricLabelNames(t, "mr_bar_stats_wire_bytes", []string{"timeframe_bucket", "venue"})
+	assertMetricLabelNames(t, "mr_bar_stats_quality_flags_total", []string{"flag", "instrument_bucket", "timeframe_bucket", "venue"})
 }
 
 func TestLELMetrics_StableLabelsOnly(t *testing.T) {

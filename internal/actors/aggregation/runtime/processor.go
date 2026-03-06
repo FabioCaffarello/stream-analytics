@@ -43,12 +43,13 @@ import (
 )
 
 const (
-	typeBookDelta   = "marketdata.bookdelta"
-	typeTrade       = "marketdata.trade"
-	typeRaw         = "marketdata.raw"
-	typeLiquidation = "marketdata.liquidation"
-	typeMarkPrice   = "marketdata.markprice"
-	typeXVenueBook  = "aggregation.crossvenue_book"
+	typeBookDelta    = "marketdata.bookdelta"
+	typeTrade        = "marketdata.trade"
+	typeRaw          = "marketdata.raw"
+	typeLiquidation  = "marketdata.liquidation"
+	typeMarkPrice    = "marketdata.markprice"
+	typeOpenInterest = "marketdata.open_interest"
+	typeXVenueBook   = "aggregation.crossvenue_book"
 
 	xVenueBookVersion = 1
 	xVenueBookVenue   = "crossvenue"
@@ -559,6 +560,11 @@ func (p *ProcessorSubsystemActor) handleEnvelope(_ *actor.Context, env envelope.
 			return nil
 		}
 		return p.handleMarkPrice(env)
+	case typeOpenInterest:
+		if env.Version != 1 {
+			return unsupportedVersionProblem(env.Type, env.Version)
+		}
+		return p.handleOpenInterest(env)
 	case typeRaw:
 		if env.Version != 1 {
 			return unsupportedVersionProblem(env.Type, env.Version)
@@ -1151,6 +1157,49 @@ func (p *ProcessorSubsystemActor) handleMarkPrice(env envelope.Envelope) *proble
 			"instrument", env.Instrument,
 			"closed_count", len(resp.Closed),
 		)
+	}
+	return nil
+}
+
+func (p *ProcessorSubsystemActor) handleOpenInterest(env envelope.Envelope) *problem.Problem {
+	if p.cfg.Service == nil || p.cfg.Service.OpenInterest == nil {
+		metrics.IncIngestDrop("open_interest_route_unconfigured")
+		return nil
+	}
+
+	decoded, prob := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
+	if prob != nil {
+		return problem.WithDetail(prob, "reason_code", reasonCodeDecodeFailed)
+	}
+	oi, ok := decoded.(mddomain.OpenInterestTickV1)
+	if !ok {
+		return problem.WithDetail(
+			problem.Newf(problem.ValidationFailed, "decoded open_interest type mismatch: got %T", decoded),
+			"reason_code", reasonCodeValidationFailed,
+		)
+	}
+	req := aggapp.BuildOpenInterestRequest{
+		Venue:        env.Venue,
+		Instrument:   stateInstrumentKey(env),
+		OpenInterest: oi.OpenInterest,
+		Seq:          env.Seq,
+		TsIngest:     env.TsIngest,
+		Timestamp:    oi.Timestamp,
+	}
+	_, prob = p.cfg.Service.OpenInterest.Execute(context.Background(), req)
+	if prob != nil {
+		if isBenignStreamOrderProblem(prob) {
+			p.logger.Debug("aggruntime: BuildOpenInterest ignored stale open_interest",
+				"venue", env.Venue,
+				"instrument", env.Instrument,
+				"market_type", envelopeMarketType(env),
+				"seq", env.Seq,
+				"code", prob.Code,
+				"reason", prob.Message,
+			)
+			return nil
+		}
+		return prob
 	}
 	return nil
 }
