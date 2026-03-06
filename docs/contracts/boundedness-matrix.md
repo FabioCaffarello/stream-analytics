@@ -655,7 +655,7 @@ Updated at: `2026-03-05`
       "anchors": [
         {
           "file": "scripts/iq/analyze_iq_run.mjs",
-          "line": 887,
+          "line": 1067,
           "snippet": "IQ_LAYER_STREAM_STATE_MAX\", String(routerStateMaxEntries))"
         }
       ]
@@ -672,7 +672,7 @@ Updated at: `2026-03-05`
       "anchors": [
         {
           "file": "scripts/iq/analyze_iq_run.mjs",
-          "line": 886,
+          "line": 1066,
           "snippet": "IQ_ROUTER_STREAM_STATE_MAX\", \"2048\")"
         }
       ]

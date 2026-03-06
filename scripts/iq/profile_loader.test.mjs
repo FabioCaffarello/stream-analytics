@@ -292,10 +292,16 @@ test("analyze scorecard is deterministic and sorted with baseline diff", () => {
     const firstScorecard = JSON.parse(firstScorecardRaw);
     const firstKeys = firstScorecard.items.map((item) => item.key);
     assert.deepEqual(firstKeys, [...firstKeys].sort(), "scorecard keys must be sorted");
+    const tradeRow = firstScorecard.items.find((item) => item.key === "channel/trade");
+    assert.ok(tradeRow, "expected channel/trade row in scorecard");
+    assert.equal(tradeRow.regression.any, true, "expected channel/trade regression");
     assert.ok(
-        firstScorecard.top_regressions.some((row) => row.key === "channel/trade" && row.metric === "lat_p99_ms"),
-        "expected trade latency regression in top_regressions"
+        tradeRow.regression.reasons.includes("lat_p99_ms"),
+        "expected channel/trade latency reason in regression payload"
     );
+    assert.ok(firstScorecard.top_regressions.length <= 3, "top_regressions must be capped at top-3");
+    assert.equal(firstScorecard.thresholds.lat_p95_delta_min_ms, 25);
+    assert.equal(firstScorecard.thresholds.drops_ratio_max, 1.1);
     assert.equal(firstScorecard.baseline.status, "available");
 
     const second = runOnce();
@@ -304,6 +310,8 @@ test("analyze scorecard is deterministic and sorted with baseline diff", () => {
     assert.equal(secondScorecardRaw, firstScorecardRaw, "scorecard output should be deterministic for same inputs");
 
     const report = readFileSync(join(runDir, "report.md"), "utf8");
-    assert.match(report, /^## Scorecard por stream\/canal$/m);
+    assert.match(report, /^## Scorecard$/m);
+    assert.match(report, /^\| channel\/trade \| channel \|/m);
+    assert.match(report, /^### Top 3 Regressions vs Baseline$/m);
     assert.match(report, /- baseline status: `available`/);
 });

@@ -253,6 +253,11 @@ const SCORECARD_FALLBACK_COUNTER_KEYS = [
     "ws_batch_fallback_events",
     "md_legacy_downgrade_count",
 ];
+const SCORECARD_REASON_TOP_N = (() => {
+    const value = parseOptionalInt(process.env.IQ_SCORECARD_REASON_TOP_N);
+    if (value === null) return 3;
+    return Math.max(1, Math.min(value, 10));
+})();
 
 function lstatSafe(path) {
     try {
@@ -291,6 +296,30 @@ function normalizeFallbackCounters(raw) {
     return out;
 }
 
+function incrementCounterMap(counter, key, value) {
+    const normalized = normalizeNumber(value);
+    if (!key || !Number.isFinite(normalized) || normalized <= 0) {
+        return;
+    }
+    counter.set(key, (counter.get(key) || 0) + normalized);
+}
+
+function boundedCounterMapObject(rawCounter, limit = SCORECARD_REASON_TOP_N) {
+    const counter = rawCounter instanceof Map
+        ? rawCounter
+        : new Map(Object.entries(rawCounter || {}));
+    const entries = Array.from(counter.entries())
+        .map(([key, value]) => [String(key), normalizeNumber(value)])
+        .filter(([, value]) => Number.isFinite(value) && value > 0)
+        .sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]))
+        .slice(0, Math.max(1, limit));
+    const out = {};
+    for (const [key, value] of entries) {
+        out[key] = roundNumber(value);
+    }
+    return out;
+}
+
 function emptyScorecardMetrics() {
     return {
         lat_p95_ms: null,
@@ -298,6 +327,9 @@ function emptyScorecardMetrics() {
         bytes_p95: null,
         bytes_p99: null,
         drops_total: null,
+        drops_by_reason: {},
+        rejects_total: null,
+        rejects_by_reason: {},
         backlog: null,
         cap: null,
         backlog_utilization: null,
@@ -313,6 +345,9 @@ function normalizeScorecardMetrics(raw) {
         bytes_p95: normalizeNumber(raw && raw.bytes_p95),
         bytes_p99: normalizeNumber(raw && raw.bytes_p99),
         drops_total: normalizeNumber(raw && raw.drops_total),
+        drops_by_reason: boundedCounterMapObject(raw && raw.drops_by_reason),
+        rejects_total: normalizeNumber(raw && raw.rejects_total),
+        rejects_by_reason: boundedCounterMapObject(raw && raw.rejects_by_reason),
         backlog: normalizeNumber(raw && raw.backlog),
         cap: normalizeNumber(raw && raw.cap),
         backlog_utilization: normalizeNumber(raw && raw.backlog_utilization),
@@ -403,17 +438,37 @@ function buildScorecardSnapshot({
         [0.95, 0.99]
     );
     const dropsByChannel = new Map();
+    const dropReasonsByChannel = new Map();
     let wsBackpressureDropsTotal = 0;
+    const wsBackpressureDropReasons = new Map();
     const wsDropSamples = metricSamples(metricsText, "ws_drops_total");
     for (const sample of wsDropSamples) {
         const reason = sample.labels.reason || "";
-        if (!BACKPRESSURE_DROP_REASONS.has(reason)) {
+        const value = normalizeNumber(sample.value);
+        if (!Number.isFinite(value) || value <= 0) {
             continue;
         }
-        const value = normalizeNumber(sample.value) ?? 0;
-        wsBackpressureDropsTotal += value;
-        const channel = sample.labels.channel || "unknown";
-        dropsByChannel.set(channel, (dropsByChannel.get(channel) || 0) + value);
+        if (BACKPRESSURE_DROP_REASONS.has(reason)) {
+            wsBackpressureDropsTotal += value;
+            incrementCounterMap(wsBackpressureDropReasons, reason || "unknown", value);
+        }
+    }
+    const wsDroppedSamples = metricSamples(metricsText, "ws_dropped_total");
+    for (const sample of wsDroppedSamples) {
+        const value = normalizeNumber(sample.value);
+        if (!Number.isFinite(value) || value <= 0) {
+            continue;
+        }
+        const channel = String(sample.labels.channel || "").trim();
+        if (!channel) {
+            continue;
+        }
+        const reason = String(sample.labels.reason || "unknown").trim() || "unknown";
+        incrementCounterMap(dropsByChannel, channel, value);
+        if (!dropReasonsByChannel.has(channel)) {
+            dropReasonsByChannel.set(channel, new Map());
+        }
+        incrementCounterMap(dropReasonsByChannel.get(channel), reason, value);
     }
 
     const wsQueueLen = normalizeNumber(metricSamples(metricsText, "ws_queue_len")[0]?.value);
@@ -434,6 +489,31 @@ function buildScorecardSnapshot({
     });
     const fallbackTotal = SCORECARD_FALLBACK_COUNTER_KEYS
         .reduce((acc, key) => acc + (fallbackCounters[key] ?? 0), 0);
+    const rejectReasons = new Map();
+    for (const sample of metricSamples(metricsText, "ws_query_rejected_total")) {
+        const reason = String(sample.labels.reason || "unknown").trim() || "unknown";
+        incrementCounterMap(rejectReasons, `ws_query:${reason}`, sample.value);
+    }
+    for (const sample of metricSamples(metricsText, "ws_resync_rejected_total")) {
+        const reason = String(sample.labels.reason || "unknown").trim() || "unknown";
+        incrementCounterMap(rejectReasons, `ws_resync:${reason}`, sample.value);
+    }
+    for (const sample of metricSamples(metricsText, "delivery_router_events_rejected_total")) {
+        const reason = String(sample.labels.reason || "unknown").trim() || "unknown";
+        incrementCounterMap(rejectReasons, `router:${reason}`, sample.value);
+    }
+    for (const sample of metricSamples(metricsText, "mr_signal_ws_subscription_rejected_total")) {
+        const reason = String(sample.labels.reason || "unknown").trim() || "unknown";
+        incrementCounterMap(rejectReasons, `signal_sub:${reason}`, sample.value);
+    }
+    for (const sample of metricSamples(metricsText, "ws_legacy_requests_total")) {
+        const status = String(sample.labels.status || "unknown").trim() || "unknown";
+        if (status !== "rejected") {
+            continue;
+        }
+        incrementCounterMap(rejectReasons, `legacy:${status}`, sample.value);
+    }
+    const rejectsTotal = roundNumber(Array.from(rejectReasons.values()).reduce((acc, value) => acc + value, 0));
 
     const channels = new Set(wireBudgetChannels);
     for (const key of wireLatencyByChannel.keys()) channels.add(key);
@@ -456,6 +536,7 @@ function buildScorecardSnapshot({
             ? roundNumber(bytesSample.quantiles[0.99])
             : null;
         metrics.drops_total = normalizeNumber(dropsByChannel.get(channel));
+        metrics.drops_by_reason = boundedCounterMapObject(dropReasonsByChannel.get(channel));
         rows.push({
             key: `channel/${channel}`,
             scope: "channel",
@@ -476,9 +557,38 @@ function buildScorecardSnapshot({
             metrics,
         });
     }
+    const widgetDescriptors = [
+        { key: "stats", probe: "stats" },
+        { key: "dom", probe: "dom" },
+        { key: "tape", probe: "tape" },
+        { key: "evidence", probe: "evidence" },
+        { key: "signal", probe: "signal" },
+    ];
+    for (const widget of widgetDescriptors) {
+        const entries = normalizeNumber(probe[`probe_widget_${widget.probe}_entries`]);
+        const maxEntries = normalizeNumber(probe[`probe_widget_${widget.probe}_max_entries`]);
+        const dropTotal = normalizeNumber(probe[`probe_widget_${widget.probe}_drop_total`]);
+        const dropCapacity = normalizeNumber(probe[`probe_widget_${widget.probe}_drop_capacity_total`]);
+        const dropRenderOverflow = normalizeNumber(probe[`probe_widget_${widget.probe}_drop_render_overflow_total`]);
+        const widgetDropReasons = new Map();
+        incrementCounterMap(widgetDropReasons, "capacity", dropCapacity);
+        incrementCounterMap(widgetDropReasons, "render_overflow", dropRenderOverflow);
+        const metrics = emptyScorecardMetrics();
+        metrics.backlog = entries;
+        metrics.cap = maxEntries;
+        metrics.backlog_utilization = roundNumber(toBacklogUtilization(entries, maxEntries));
+        metrics.drops_total = dropTotal;
+        metrics.drops_by_reason = boundedCounterMapObject(widgetDropReasons);
+        rows.push({
+            key: `widget/${widget.key}`,
+            scope: "widget",
+            metrics,
+        });
+    }
 
     const wsDeliveryMetrics = emptyScorecardMetrics();
     wsDeliveryMetrics.drops_total = roundNumber(wsBackpressureDropsTotal);
+    wsDeliveryMetrics.drops_by_reason = boundedCounterMapObject(wsBackpressureDropReasons);
     wsDeliveryMetrics.backlog = wsQueueLen;
     wsDeliveryMetrics.cap = wsQueueCapacity;
     wsDeliveryMetrics.backlog_utilization = roundNumber(toBacklogUtilization(wsQueueLen, wsQueueCapacity));
@@ -514,6 +624,15 @@ function buildScorecardSnapshot({
         metrics: layerStateMetrics,
     });
 
+    const rejectMetrics = emptyScorecardMetrics();
+    rejectMetrics.rejects_total = rejectsTotal;
+    rejectMetrics.rejects_by_reason = boundedCounterMapObject(rejectReasons);
+    rows.push({
+        key: "subsystem/rejections",
+        scope: "subsystem",
+        metrics: rejectMetrics,
+    });
+
     const fallbackMetrics = emptyScorecardMetrics();
     fallbackMetrics.fallback_total = roundNumber(fallbackTotal);
     fallbackMetrics.fallback_counters = fallbackCounters;
@@ -527,14 +646,22 @@ function buildScorecardSnapshot({
 }
 
 function scorecardSeverityFromMetric(metric, deltaValue, ratioValue) {
-    if (metric === "drops_total" || metric === "backlog_utilization" || metric === "fallback_total") {
+    if (metric === "drops_total" || metric === "rejects_total" || metric === "backlog_utilization" || metric === "fallback_total") {
         return Math.max(0, normalizeNumber(deltaValue) ?? 0);
     }
     if (metric === "cap") {
-        return Math.max(0, (normalizeNumber(ratioValue) ?? 1) - 1);
+        const ratio = normalizeNumber(ratioValue);
+        if (Number.isFinite(ratio)) {
+            return Math.max(0, ratio - 1);
+        }
+        return Math.max(0, normalizeNumber(deltaValue) ?? 0);
     }
     if (metric === "lat_p95_ms" || metric === "lat_p99_ms" || metric === "bytes_p95" || metric === "bytes_p99") {
-        return Math.max(0, (normalizeNumber(ratioValue) ?? 1) - 1);
+        const ratio = normalizeNumber(ratioValue);
+        if (Number.isFinite(ratio)) {
+            return Math.max(0, ratio - 1);
+        }
+        return Math.max(0, normalizeNumber(deltaValue) ?? 0);
     }
     return 0;
 }
@@ -546,17 +673,6 @@ function buildScorecard(currentRows, baselineRows, baselineMeta, thresholds) {
     const orderedKeys = Array.from(allKeys).sort();
     const items = [];
     const topRegressions = [];
-
-    const metricsOrder = [
-        "lat_p95_ms",
-        "lat_p99_ms",
-        "bytes_p95",
-        "bytes_p99",
-        "drops_total",
-        "backlog_utilization",
-        "cap",
-        "fallback_total",
-    ];
 
     for (const key of orderedKeys) {
         const currentRow = currentMap.get(key);
@@ -576,11 +692,16 @@ function buildScorecard(currentRows, baselineRows, baselineMeta, thresholds) {
             bytes_p99: null,
             bytes_p99_ratio: null,
             drops_total: null,
+            drops_ratio: null,
+            rejects_total: null,
+            rejects_ratio: null,
             backlog: null,
             cap: null,
             cap_ratio: null,
             backlog_utilization: null,
+            backlog_utilization_ratio: null,
             fallback_total: null,
+            fallback_ratio: null,
             fallback_counters: emptyFallbackCounters(),
         };
         const regression = {
@@ -589,14 +710,16 @@ function buildScorecard(currentRows, baselineRows, baselineMeta, thresholds) {
             bytes_p95: false,
             bytes_p99: false,
             drops: false,
+            rejects: false,
             backlog_utilization: false,
             cap: false,
             fallback: false,
             any: false,
             reasons: [],
         };
+        const rowRegressions = [];
 
-        const compareMetric = (metric, ratioField, ratioThreshold, deltaThreshold, regressionField) => {
+        const compareMetric = ({ metric, ratioField = null, ratioThreshold = null, deltaThreshold = null, regressionField }) => {
             const currentValue = metrics[metric];
             const baselineValue = baseline[metric];
             if (!hasBaseline || !Number.isFinite(currentValue) || !Number.isFinite(baselineValue)) {
@@ -611,43 +734,101 @@ function buildScorecard(currentRows, baselineRows, baselineMeta, thresholds) {
                 delta[ratioField] = ratioValue;
             }
 
-            let isRegression = false;
-            if (ratioField && ratioThreshold !== null) {
-                const ratioValue = delta[ratioField];
-                if (baselineValue === 0) {
-                    isRegression = currentValue > 0;
-                } else if (Number.isFinite(ratioValue)) {
-                    isRegression = ratioValue > ratioThreshold;
-                }
-            } else if (deltaThreshold !== null) {
-                isRegression = Number.isFinite(deltaValue) && deltaValue > deltaThreshold;
-            }
+            const ratioValue = ratioField ? delta[ratioField] : null;
+            const ratioPass = ratioThreshold === null
+                ? true
+                : (baselineValue === 0
+                    ? currentValue > 0
+                    : (Number.isFinite(ratioValue) && ratioValue > ratioThreshold));
+            const deltaPass = deltaThreshold === null
+                ? true
+                : (Number.isFinite(deltaValue) && deltaValue > deltaThreshold);
+            const isRegression = ratioPass && deltaPass;
             if (!isRegression) {
                 return;
             }
             regression[regressionField] = true;
             regression.any = true;
             regression.reasons.push(metric);
-            topRegressions.push({
+            const rowRegression = {
                 key,
                 scope,
                 metric,
                 current: currentValue,
                 baseline: baselineValue,
                 delta: deltaValue,
-                ratio: ratioField ? delta[ratioField] : null,
-                severity: roundNumber(scorecardSeverityFromMetric(metric, deltaValue, ratioField ? delta[ratioField] : null)),
-            });
+                ratio: ratioValue,
+                ratio_threshold: ratioThreshold,
+                delta_threshold: deltaThreshold,
+                severity: roundNumber(scorecardSeverityFromMetric(metric, deltaValue, ratioValue)),
+            };
+            rowRegressions.push(rowRegression);
+            topRegressions.push(rowRegression);
         };
 
-        compareMetric("lat_p95_ms", "lat_p95_ratio", thresholds.lat_p95_ratio_max, null, "lat_p95");
-        compareMetric("lat_p99_ms", "lat_p99_ratio", thresholds.lat_p99_ratio_max, null, "lat_p99");
-        compareMetric("bytes_p95", "bytes_p95_ratio", thresholds.bytes_p95_ratio_max, null, "bytes_p95");
-        compareMetric("bytes_p99", "bytes_p99_ratio", thresholds.bytes_p99_ratio_max, null, "bytes_p99");
-        compareMetric("drops_total", null, null, thresholds.drops_delta_max, "drops");
-        compareMetric("backlog_utilization", null, null, thresholds.backlog_utilization_delta_max, "backlog_utilization");
-        compareMetric("cap", "cap_ratio", thresholds.cap_ratio_max, null, "cap");
-        compareMetric("fallback_total", null, null, thresholds.fallback_delta_max, "fallback");
+        compareMetric({
+            metric: "lat_p95_ms",
+            ratioField: "lat_p95_ratio",
+            ratioThreshold: thresholds.lat_p95_ratio_max,
+            deltaThreshold: thresholds.lat_p95_delta_min_ms,
+            regressionField: "lat_p95",
+        });
+        compareMetric({
+            metric: "lat_p99_ms",
+            ratioField: "lat_p99_ratio",
+            ratioThreshold: thresholds.lat_p99_ratio_max,
+            deltaThreshold: thresholds.lat_p99_delta_min_ms,
+            regressionField: "lat_p99",
+        });
+        compareMetric({
+            metric: "bytes_p95",
+            ratioField: "bytes_p95_ratio",
+            ratioThreshold: thresholds.bytes_p95_ratio_max,
+            deltaThreshold: thresholds.bytes_p95_delta_min,
+            regressionField: "bytes_p95",
+        });
+        compareMetric({
+            metric: "bytes_p99",
+            ratioField: "bytes_p99_ratio",
+            ratioThreshold: thresholds.bytes_p99_ratio_max,
+            deltaThreshold: thresholds.bytes_p99_delta_min,
+            regressionField: "bytes_p99",
+        });
+        compareMetric({
+            metric: "drops_total",
+            ratioField: "drops_ratio",
+            ratioThreshold: thresholds.drops_ratio_max,
+            deltaThreshold: thresholds.drops_delta_max,
+            regressionField: "drops",
+        });
+        compareMetric({
+            metric: "rejects_total",
+            ratioField: "rejects_ratio",
+            ratioThreshold: thresholds.rejects_ratio_max,
+            deltaThreshold: thresholds.rejects_delta_max,
+            regressionField: "rejects",
+        });
+        compareMetric({
+            metric: "backlog_utilization",
+            ratioField: "backlog_utilization_ratio",
+            ratioThreshold: thresholds.backlog_utilization_ratio_max,
+            deltaThreshold: thresholds.backlog_utilization_delta_max,
+            regressionField: "backlog_utilization",
+        });
+        compareMetric({
+            metric: "cap",
+            ratioField: "cap_ratio",
+            ratioThreshold: thresholds.cap_ratio_max,
+            deltaThreshold: thresholds.cap_delta_min,
+            regressionField: "cap",
+        });
+        compareMetric({
+            metric: "fallback_total",
+            ratioField: "fallback_ratio",
+            ratioThreshold: thresholds.fallback_ratio_max,
+            deltaThreshold: thresholds.fallback_delta_max,
+            regressionField: "fallback",
+        });
 
         if (hasBaseline) {
             if (Number.isFinite(metrics.backlog) && Number.isFinite(baseline.backlog)) {
@@ -662,8 +843,7 @@ function buildScorecard(currentRows, baselineRows, baselineMeta, thresholds) {
             }
         }
 
-        const regressionScore = roundNumber(topRegressions
-            .filter((entry) => entry.key === key)
+        const regressionScore = roundNumber(rowRegressions
             .reduce((acc, entry) => acc + (entry.severity || 0), 0));
 
         items.push({
@@ -688,7 +868,7 @@ function buildScorecard(currentRows, baselineRows, baselineMeta, thresholds) {
         baseline: baselineMeta,
         thresholds,
         items,
-        top_regressions: topRegressions.slice(0, 10),
+        top_regressions: topRegressions.slice(0, 3),
     };
 }
 
@@ -998,13 +1178,23 @@ const layerStreamEntries = Number(probe.probe_layer_stream_entries ?? -1);
 const layerStreamEvictions = Number(probe.probe_layer_stream_evictions ?? -1);
 const scorecardThresholds = {
     lat_p95_ratio_max: parseScorecardRatioThreshold("IQ_SCORECARD_LAT_P95_RATIO_MAX", 1.10),
+    lat_p95_delta_min_ms: parseScorecardDeltaThreshold("IQ_SCORECARD_LAT_P95_DELTA_MIN_MS", 25),
     lat_p99_ratio_max: parseScorecardRatioThreshold("IQ_SCORECARD_LAT_P99_RATIO_MAX", 1.10),
+    lat_p99_delta_min_ms: parseScorecardDeltaThreshold("IQ_SCORECARD_LAT_P99_DELTA_MIN_MS", 50),
     bytes_p95_ratio_max: parseScorecardRatioThreshold("IQ_SCORECARD_BYTES_P95_RATIO_MAX", 1.10),
+    bytes_p95_delta_min: parseScorecardDeltaThreshold("IQ_SCORECARD_BYTES_P95_DELTA_MIN", 256),
     bytes_p99_ratio_max: parseScorecardRatioThreshold("IQ_SCORECARD_BYTES_P99_RATIO_MAX", 1.10),
-    drops_delta_max: parseScorecardDeltaThreshold("IQ_SCORECARD_DROPS_DELTA_MAX", 0),
+    bytes_p99_delta_min: parseScorecardDeltaThreshold("IQ_SCORECARD_BYTES_P99_DELTA_MIN", 512),
+    drops_ratio_max: parseScorecardRatioThreshold("IQ_SCORECARD_DROPS_RATIO_MAX", 1.10),
+    drops_delta_max: parseScorecardDeltaThreshold("IQ_SCORECARD_DROPS_DELTA_MAX", 1),
+    rejects_ratio_max: parseScorecardRatioThreshold("IQ_SCORECARD_REJECTS_RATIO_MAX", 1.10),
+    rejects_delta_max: parseScorecardDeltaThreshold("IQ_SCORECARD_REJECTS_DELTA_MAX", 1),
+    backlog_utilization_ratio_max: parseScorecardRatioThreshold("IQ_SCORECARD_BACKLOG_UTILIZATION_RATIO_MAX", 1.10),
     backlog_utilization_delta_max: parseScorecardDeltaThreshold("IQ_SCORECARD_BACKLOG_UTILIZATION_DELTA_MAX", 0.05),
     cap_ratio_max: parseScorecardRatioThreshold("IQ_SCORECARD_CAP_RATIO_MAX", 1.10),
-    fallback_delta_max: parseScorecardDeltaThreshold("IQ_SCORECARD_FALLBACK_DELTA_MAX", 0),
+    cap_delta_min: parseScorecardDeltaThreshold("IQ_SCORECARD_CAP_DELTA_MIN", 1),
+    fallback_ratio_max: parseScorecardRatioThreshold("IQ_SCORECARD_FALLBACK_RATIO_MAX", 1.10),
+    fallback_delta_max: parseScorecardDeltaThreshold("IQ_SCORECARD_FALLBACK_DELTA_MAX", 1),
 };
 const currentScorecardRows = buildScorecardSnapshot({
     metricsText,
@@ -1814,6 +2004,36 @@ const effectiveProfileProof = {
 const effectiveProfileProofRaw = `${stableJSONString(effectiveProfileProof, 2)}\n`;
 const effectiveProfileProofHash = `sha256:${sha256Hex(effectiveProfileProofRaw)}`;
 
+function formatScorecardPair(left, right) {
+    const l = normalizeNumber(left);
+    const r = normalizeNumber(right);
+    if (!Number.isFinite(l) && !Number.isFinite(r)) {
+        return "n/a";
+    }
+    return `${fmt(l)}/${fmt(r)}`;
+}
+
+function formatScorecardBacklog(metrics) {
+    const backlog = normalizeNumber(metrics.backlog);
+    const cap = normalizeNumber(metrics.cap);
+    const util = normalizeNumber(metrics.backlog_utilization);
+    if (!Number.isFinite(backlog) && !Number.isFinite(cap) && !Number.isFinite(util)) {
+        return "n/a";
+    }
+    return `${fmt(backlog)}/${fmt(cap)} (${fmt(util)})`;
+}
+
+function formatScorecardReasons(rawReasons) {
+    const reasons = boundedCounterMapObject(rawReasons);
+    const entries = Object.entries(reasons);
+    if (entries.length === 0) {
+        return "none";
+    }
+    return entries
+        .map(([reason, value]) => `${reason}:${fmt(value)}`)
+        .join("; ");
+}
+
 const markdown = [];
 markdown.push("# IQ Loop Report");
 markdown.push("");
@@ -2004,7 +2224,7 @@ if (logExcerptSections.length === 0) {
         markdown.push("");
     }
 }
-markdown.push("## Scorecard por stream/canal");
+markdown.push("## Scorecard");
 markdown.push("");
 markdown.push(`- baseline status: \`${scorecard.baseline.status}\``);
 markdown.push(`- baseline source: \`${scorecard.baseline.source}\``);
@@ -2013,15 +2233,31 @@ if (scorecard.baseline.reason) {
     markdown.push(`- baseline note: \`${scorecard.baseline.reason}\``);
 }
 markdown.push(`- scorecard artifact: \`scorecard.json\``);
-markdown.push(`- scorecard regressions: \`${scorecardRegressionItems}\` items / \`${scorecard.top_regressions.length}\` top entries`);
+markdown.push(`- scorecard regressions: \`${scorecardRegressionItems}\` items / \`${scorecard.top_regressions.length}\` highlighted`);
+markdown.push(`- regression rule: \`ratio > threshold\` **and** \`absolute_delta > threshold\` (noise guard)`);
+markdown.push(`- scorecard reason cap: top-\`${SCORECARD_REASON_TOP_N}\` per row`);
+markdown.push("");
+markdown.push("| Key | Scope | Latency ms (p95/p99) | Wire bytes (p95/p99) | Drops (top reasons) | Rejects (top reasons) | Backlog/cap (util) | Regression |");
+markdown.push("|---|---|---|---|---|---|---|---|");
+for (const item of scorecard.items) {
+    const metrics = item.metrics || {};
+    const regressionSummary = item.regression && item.regression.any
+        ? `YES (${item.regression.reasons.slice(0, 3).join(",")})`
+        : "no";
+    markdown.push(
+        `| ${item.key} | ${item.scope} | ${formatScorecardPair(metrics.lat_p95_ms, metrics.lat_p99_ms)} | ${formatScorecardPair(metrics.bytes_p95, metrics.bytes_p99)} | ${fmt(metrics.drops_total)} [${formatScorecardReasons(metrics.drops_by_reason)}] | ${fmt(metrics.rejects_total)} [${formatScorecardReasons(metrics.rejects_by_reason)}] | ${formatScorecardBacklog(metrics)} | ${regressionSummary} |`
+    );
+}
+markdown.push("");
+markdown.push("### Top 3 Regressions vs Baseline");
 markdown.push("");
 if (scorecard.top_regressions.length === 0) {
-    markdown.push("- no regressions detected");
+    markdown.push("- no regressions detected against baseline");
 } else {
-    markdown.push("| Key | Metric | Current | Baseline | Delta | Ratio | Severity |");
-    markdown.push("|---|---|---|---|---|---|---|");
+    markdown.push("| Key | Metric | Current | Baseline | Delta | Ratio | Thresholds (ratio, delta) | Severity |");
+    markdown.push("|---|---|---|---|---|---|---|---|");
     for (const row of scorecard.top_regressions) {
-        markdown.push(`| ${row.key} | ${row.metric} | ${fmt(row.current)} | ${fmt(row.baseline)} | ${fmt(row.delta)} | ${fmt(row.ratio)} | ${fmt(row.severity)} |`);
+        markdown.push(`| ${row.key} | ${row.metric} | ${fmt(row.current)} | ${fmt(row.baseline)} | ${fmt(row.delta)} | ${fmt(row.ratio)} | ${fmt(row.ratio_threshold)}, ${fmt(row.delta_threshold)} | ${fmt(row.severity)} |`);
     }
 }
 markdown.push("");
