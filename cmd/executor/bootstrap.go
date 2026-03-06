@@ -58,7 +58,9 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 		return err
 	}
 
-	intentExecutor, err := buildIntentExecutor(cfg, logger)
+	controlPlane := executionapp.NewInMemoryControlPlane()
+
+	intentExecutor, err := buildIntentExecutor(cfg, logger, controlPlane)
 	if err != nil {
 		source.shutdownFn(context.Background())
 		_ = closePublisher(context.Background())
@@ -358,17 +360,12 @@ func protoRolloutReloadHook(configPath string, logger *slog.Logger) func() error
 	}
 }
 
-func buildIntentExecutor(cfg config.AppConfig, logger *slog.Logger) (executionports.IntentExecutor, error) {
+func buildIntentExecutor(cfg config.AppConfig, logger *slog.Logger, controlPlane executionports.ControlPlane) (executionports.IntentExecutor, error) {
 	mode := strings.ToLower(strings.TrimSpace(cfg.Execution.Mode))
 	switch mode {
 	case "", "bootstrap_simulated":
 		grant := buildExecutionGrant(cfg)
-		bootstrapExecutor := executionapp.NewBootstrapExecutor(executionapp.BootstrapConfig{
-			MaxIntentTTLms: cfg.Execution.MaxIntentTTLms,
-			MaxAbsQuantity: cfg.Execution.MaxAbsQuantity,
-			MaxNotionalUSD: cfg.Execution.MaxNotionalUSD,
-			MaxSlippageBps: cfg.Execution.MaxSlippageBps,
-		})
+		adapter := selectBootstrapAdapter(cfg, grant)
 		exec := executionapp.NewGovernedExecutor(executionapp.GovernedExecutorConfig{
 			Governance: executionapp.NewStaticExecutionGovernance(executionapp.StaticExecutionGovernanceConfig{
 				Authorizer: executionapp.StaticCapabilityAuthorizer{Grant: &grant},
@@ -384,8 +381,9 @@ func buildIntentExecutor(cfg config.AppConfig, logger *slog.Logger) (executionpo
 				},
 			}),
 			Adapters: map[string]executionports.IntentExecutor{
-				grant.AdapterID: bootstrapExecutor,
+				grant.AdapterID: adapter,
 			},
+			ControlPlane: controlPlane,
 		})
 		logger.Info("executor: using bootstrap simulated adapter",
 			"mode", modeOrDefault(mode, "bootstrap_simulated"),
@@ -450,6 +448,7 @@ func buildIntentExecutor(cfg config.AppConfig, logger *slog.Logger) (executionpo
 			Adapters: map[string]executionports.IntentExecutor{
 				grant.AdapterID: realExecutor,
 			},
+			ControlPlane: controlPlane,
 		})
 		logger.Info("executor: using real adapter in safe mode",
 			"mode", cfg.Execution.Mode,
@@ -478,10 +477,14 @@ func buildIntentExecutor(cfg config.AppConfig, logger *slog.Logger) (executionpo
 
 func buildExecutionGrant(cfg config.AppConfig) executiongovernance.ExecutionGrant {
 	mode := modeOrDefault(strings.ToLower(strings.TrimSpace(cfg.Execution.Mode)), "bootstrap_simulated")
+	adapterID := strings.ToLower(strings.TrimSpace(cfg.Execution.Adapter))
+	if mode == "bootstrap_simulated" && adapterID == "" {
+		adapterID = "bootstrap.simulated"
+	}
 	grant := executiongovernance.ExecutionGrant{
 		GrantID:   "execution." + mode + ".static_grant",
 		Boundary:  "execution.adapter",
-		AdapterID: strings.ToLower(strings.TrimSpace(cfg.Execution.Adapter)),
+		AdapterID: adapterID,
 		Mode:      mode,
 		SafeMode:  cfg.Execution.SafeMode,
 		TradeOnly: cfg.Execution.TradeOnly,
@@ -534,6 +537,29 @@ func modeOrDefault(mode, fallback string) string {
 		return fallback
 	}
 	return mode
+}
+
+// selectBootstrapAdapter returns the IntentExecutor for bootstrap_simulated mode.
+// When execution.adapter is "simulation.deterministic", uses the SimulationEngine
+// which provides realistic order lifecycle (partial fills, latency, cancellation).
+// Otherwise falls back to the original BootstrapExecutor (instant fill).
+func selectBootstrapAdapter(cfg config.AppConfig, grant executiongovernance.ExecutionGrant) executionports.IntentExecutor {
+	adapterID := strings.ToLower(strings.TrimSpace(cfg.Execution.Adapter))
+	if adapterID == "simulation.deterministic" {
+		return executionapp.NewSimulationEngine(executionapp.SimulationConfig{
+			ExecutionMode:  "bootstrap_simulated",
+			MaxIntentTTLms: cfg.Execution.MaxIntentTTLms,
+			MaxAbsQuantity: cfg.Execution.MaxAbsQuantity,
+			MaxNotionalUSD: cfg.Execution.MaxNotionalUSD,
+			MaxSlippageBps: cfg.Execution.MaxSlippageBps,
+		})
+	}
+	return executionapp.NewBootstrapExecutor(executionapp.BootstrapConfig{
+		MaxIntentTTLms: cfg.Execution.MaxIntentTTLms,
+		MaxAbsQuantity: cfg.Execution.MaxAbsQuantity,
+		MaxNotionalUSD: cfg.Execution.MaxNotionalUSD,
+		MaxSlippageBps: cfg.Execution.MaxSlippageBps,
+	})
 }
 
 func buildTradeCredentialRequirement(grant executiongovernance.ExecutionGrant) executiongovernance.CredentialRequirement {

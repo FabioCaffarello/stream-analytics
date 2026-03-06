@@ -7,6 +7,7 @@ import (
 	executiongovernance "github.com/market-raccoon/internal/core/execution/governance"
 	executionports "github.com/market-raccoon/internal/core/execution/ports"
 	strategydomain "github.com/market-raccoon/internal/core/strategy/domain"
+	"github.com/market-raccoon/internal/shared/problem"
 )
 
 type fakeGovernedAdapter struct {
@@ -292,5 +293,154 @@ func resolvedCredentialFixture(requirement executiongovernance.CredentialRequire
 			ResolverID: "credentials.trade_broker.v1",
 			ProviderID: "credentials.provider.env.trade_static",
 		},
+	}
+}
+
+// --- Control Plane test helpers ---
+
+type fakeControlPlane struct {
+	snapshot executiondomain.ControlSnapshot
+}
+
+func (f *fakeControlPlane) Snapshot() executiondomain.ControlSnapshot {
+	return f.snapshot
+}
+
+func (f *fakeControlPlane) Apply(_ executiondomain.ControlDirective) *problem.Problem {
+	return nil
+}
+
+func governedExecutorWithControlPlane(cp executionports.ControlPlane) (*GovernedExecutor, *fakeGovernedAdapter) {
+	intent := validIntentFixture()
+	grant := governedGrantFixture()
+	adapter := &fakeGovernedAdapter{events: []executiondomain.ExecutionEventV1{{
+		EventID:      "accepted-cp",
+		Status:       executiondomain.ExecutionStatusAccepted,
+		Correlation:  executiondomain.ExecutionCorrelation{IntentID: intent.IntentID, OrderID: "order-cp", Venue: "binance", Symbol: "BTCUSDT", AccountID: "paper"},
+		TsEventMs:    1_700_000_002_000,
+		ExecutionSeq: 1,
+		Attempt:      1,
+		RequestedQty: 1.5,
+		LeavesQty:    1.5,
+		Reason:       "accepted_control_plane_test",
+		Provenance:   executiondomain.ExecutionProvenance{CorrelationID: intent.Provenance.CorrelationID, Source: "fake"},
+	}}}
+
+	governance := NewStaticExecutionGovernance(StaticExecutionGovernanceConfig{
+		Authorizer: StaticCapabilityAuthorizer{Grant: &grant},
+		Selector: NewStaticAdapterSelector(AdapterRoute{
+			Boundary:              "execution.adapter",
+			AdapterID:             "binance.spot",
+			Mode:                  "real_adapter_safe",
+			CredentialRequirement: credentialRequirementFixture(),
+		}),
+		CredentialResolver: fakeCredentialResolver{result: executiongovernance.CredentialResolution{
+			Status: executiongovernance.CredentialResolutionResolved,
+		}},
+		BoundaryInfo: executionports.BoundaryInfo{
+			Boundary: "execution.adapter",
+			Adapter:  "binance.spot",
+			Mode:     "real_adapter_safe",
+		},
+	})
+
+	executor := NewGovernedExecutor(GovernedExecutorConfig{
+		Governance: governance,
+		Adapters: map[string]executionports.IntentExecutor{
+			"binance.spot": adapter,
+		},
+		ControlPlane: cp,
+	})
+	return executor, adapter
+}
+
+func TestGovernedExecutor_NilControlPlane_BehaviorUnchanged(t *testing.T) {
+	executor, adapter := governedExecutorWithControlPlane(nil)
+	events := executor.ExecuteAt(validIntentFixture(), 1_700_000_002_000)
+	if len(events) != 1 {
+		t.Fatalf("events=%d want=1", len(events))
+	}
+	if events[0].Status != executiondomain.ExecutionStatusAccepted {
+		t.Fatalf("status=%q want=%q", events[0].Status, executiondomain.ExecutionStatusAccepted)
+	}
+	if adapter.calls != 1 {
+		t.Fatalf("adapter calls=%d want=1", adapter.calls)
+	}
+}
+
+func TestGovernedExecutor_ControlPlaneHalted_RejectsIntent(t *testing.T) {
+	cp := &fakeControlPlane{snapshot: executiondomain.ControlSnapshot{
+		State:       executiondomain.ControlStateHalted,
+		UpdatedAtMs: 1_700_000_001_000,
+	}}
+	executor, adapter := governedExecutorWithControlPlane(cp)
+	events := executor.ExecuteAt(validIntentFixture(), 1_700_000_002_000)
+	if len(events) != 1 {
+		t.Fatalf("events=%d want=1", len(events))
+	}
+	if events[0].Status != executiondomain.ExecutionStatusRejected {
+		t.Fatalf("status=%q want=%q", events[0].Status, executiondomain.ExecutionStatusRejected)
+	}
+	if events[0].Reason != executiondomain.ReasonControlPlaneHalted {
+		t.Fatalf("reason=%q want=%q", events[0].Reason, executiondomain.ReasonControlPlaneHalted)
+	}
+	if adapter.calls != 0 {
+		t.Fatalf("adapter should not be called when control plane halts, calls=%d", adapter.calls)
+	}
+}
+
+func TestGovernedExecutor_ControlPlanePaused_RejectsIntent(t *testing.T) {
+	cp := &fakeControlPlane{snapshot: executiondomain.ControlSnapshot{
+		State:       executiondomain.ControlStatePaused,
+		UpdatedAtMs: 1_700_000_001_000,
+	}}
+	executor, adapter := governedExecutorWithControlPlane(cp)
+	events := executor.ExecuteAt(validIntentFixture(), 1_700_000_002_000)
+	if len(events) != 1 {
+		t.Fatalf("events=%d want=1", len(events))
+	}
+	if events[0].Reason != executiondomain.ReasonControlPlanePaused {
+		t.Fatalf("reason=%q want=%q", events[0].Reason, executiondomain.ReasonControlPlanePaused)
+	}
+	if adapter.calls != 0 {
+		t.Fatalf("adapter should not be called when control plane paused, calls=%d", adapter.calls)
+	}
+}
+
+func TestGovernedExecutor_ControlPlaneDisablesStrategy_RejectsIntent(t *testing.T) {
+	intent := validIntentFixture()
+	cp := &fakeControlPlane{snapshot: executiondomain.ControlSnapshot{
+		State:              executiondomain.ControlStateActive,
+		DisabledStrategies: map[string]struct{}{intent.Strategy.StrategyID: {}},
+		UpdatedAtMs:        1_700_000_001_000,
+	}}
+	executor, adapter := governedExecutorWithControlPlane(cp)
+	events := executor.ExecuteAt(intent, 1_700_000_002_000)
+	if len(events) != 1 {
+		t.Fatalf("events=%d want=1", len(events))
+	}
+	if events[0].Reason != executiondomain.ReasonControlPlaneStrategyDisabled {
+		t.Fatalf("reason=%q want=%q", events[0].Reason, executiondomain.ReasonControlPlaneStrategyDisabled)
+	}
+	if adapter.calls != 0 {
+		t.Fatalf("adapter should not be called when strategy disabled, calls=%d", adapter.calls)
+	}
+}
+
+func TestGovernedExecutor_ControlPlaneActive_FlowsThrough(t *testing.T) {
+	cp := &fakeControlPlane{snapshot: executiondomain.ControlSnapshot{
+		State:       executiondomain.ControlStateActive,
+		UpdatedAtMs: 1_700_000_001_000,
+	}}
+	executor, adapter := governedExecutorWithControlPlane(cp)
+	events := executor.ExecuteAt(validIntentFixture(), 1_700_000_002_000)
+	if len(events) != 1 {
+		t.Fatalf("events=%d want=1", len(events))
+	}
+	if events[0].Status != executiondomain.ExecutionStatusAccepted {
+		t.Fatalf("status=%q want=%q", events[0].Status, executiondomain.ExecutionStatusAccepted)
+	}
+	if adapter.calls != 1 {
+		t.Fatalf("adapter calls=%d want=1", adapter.calls)
 	}
 }

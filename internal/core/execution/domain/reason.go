@@ -13,6 +13,7 @@ const (
 	ReasonCategoryAdapterSelectionDenied  = "adapter_selection_denied"
 	ReasonCategoryExecutionPolicyRejected = "execution_policy_rejected"
 	ReasonCategoryVenueRuntimeFailure     = "venue_runtime_failure"
+	ReasonCategoryControlPlane            = "control_plane"
 	ReasonCategoryUnknown                 = "unknown"
 )
 
@@ -49,6 +50,14 @@ const (
 	ReasonCredentialsLeaseInactive              = "credentials_lease_inactive"
 
 	ReasonVenueRuntimeAdapterCallFailed = "venue_runtime_failed_adapter_call"
+
+	ReasonControlPlanePaused           = "control_plane_paused"
+	ReasonControlPlaneDrained          = "control_plane_drained"
+	ReasonControlPlaneHalted           = "control_plane_halted"
+	ReasonControlPlaneStrategyDisabled = "control_plane_strategy_disabled"
+	ReasonControlPlaneAdapterDisabled  = "control_plane_adapter_disabled"
+	ReasonControlPlaneVenueRestricted  = "control_plane_venue_restricted"
+	ReasonControlPlaneSymbolRestricted = "control_plane_symbol_restricted"
 )
 
 func ReasonCategory(reason string) string {
@@ -77,6 +86,8 @@ func ReasonCategory(reason string) string {
 	case strings.HasPrefix(reason, "failed_"),
 		strings.HasPrefix(reason, "venue_runtime_failed_"):
 		return ReasonCategoryVenueRuntimeFailure
+	case strings.HasPrefix(reason, "control_plane_"):
+		return ReasonCategoryControlPlane
 	case strings.HasPrefix(reason, "rejected_"):
 		return ReasonCategoryExecutionPolicyRejected
 	default:

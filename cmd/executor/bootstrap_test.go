@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"testing"
 
+	executionapp "github.com/market-raccoon/internal/core/execution/app"
 	"github.com/market-raccoon/internal/shared/config"
 )
 
@@ -13,7 +14,7 @@ func TestBuildIntentExecutor_DefaultBootstrapMode(t *testing.T) {
 		t.Fatalf("config.Load defaults failed: %v", prob)
 	}
 
-	executor, err := buildIntentExecutor(cfg, slog.Default())
+	executor, err := buildIntentExecutor(cfg, slog.Default(), executionapp.NewInMemoryControlPlane())
 	if err != nil {
 		t.Fatalf("buildIntentExecutor() error = %v", err)
 	}
@@ -37,7 +38,7 @@ func TestBuildIntentExecutor_RealSafeMode(t *testing.T) {
 	cfg.Execution.AllowedVenues = []string{"binance"}
 	cfg.Execution.AllowedSymbols = []string{"BTCUSDT"}
 
-	executor, err := buildIntentExecutor(cfg, slog.Default())
+	executor, err := buildIntentExecutor(cfg, slog.Default(), executionapp.NewInMemoryControlPlane())
 	if err != nil {
 		t.Fatalf("buildIntentExecutor() error = %v", err)
 	}
@@ -61,7 +62,7 @@ func TestBuildIntentExecutor_RealSafeModeRequiresBinanceAdapter(t *testing.T) {
 	cfg.Execution.AllowedVenues = []string{"binance"}
 	cfg.Execution.AllowedSymbols = []string{"BTCUSDT"}
 
-	if _, err := buildIntentExecutor(cfg, slog.Default()); err == nil {
+	if _, err := buildIntentExecutor(cfg, slog.Default(), executionapp.NewInMemoryControlPlane()); err == nil {
 		t.Fatal("expected error when real mode does not use binance.spot adapter")
 	}
 }
@@ -81,7 +82,7 @@ func TestBuildIntentExecutor_RealSafeLifecycleMode(t *testing.T) {
 	cfg.Execution.Real.Binance.TradeAPI.ReconcilePollInterval = "100ms"
 	cfg.Execution.Real.Binance.TradeAPI.ReconcileMaxPolls = 3
 
-	executor, err := buildIntentExecutor(cfg, slog.Default())
+	executor, err := buildIntentExecutor(cfg, slog.Default(), executionapp.NewInMemoryControlPlane())
 	if err != nil {
 		t.Fatalf("buildIntentExecutor() error = %v", err)
 	}

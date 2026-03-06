@@ -12,15 +12,17 @@ import (
 )
 
 type GovernedExecutor struct {
-	governance executionports.ExecutionGovernance
-	adapters   map[string]executionports.IntentExecutor
-	source     string
+	governance   executionports.ExecutionGovernance
+	adapters     map[string]executionports.IntentExecutor
+	source       string
+	controlPlane executionports.ControlPlane // optional, nil = no control plane
 }
 
 type GovernedExecutorConfig struct {
-	Governance executionports.ExecutionGovernance
-	Adapters   map[string]executionports.IntentExecutor
-	Source     string
+	Governance   executionports.ExecutionGovernance
+	Adapters     map[string]executionports.IntentExecutor
+	Source       string
+	ControlPlane executionports.ControlPlane // optional
 }
 
 func NewGovernedExecutor(cfg GovernedExecutorConfig) *GovernedExecutor {
@@ -37,9 +39,10 @@ func NewGovernedExecutor(cfg GovernedExecutorConfig) *GovernedExecutor {
 		source = "executor.governance.v1"
 	}
 	return &GovernedExecutor{
-		governance: cfg.Governance,
-		adapters:   adapters,
-		source:     source,
+		governance:   cfg.Governance,
+		adapters:     adapters,
+		source:       source,
+		controlPlane: cfg.ControlPlane,
 	}
 }
 
@@ -53,6 +56,19 @@ func (e *GovernedExecutor) BoundaryInfo() executionports.BoundaryInfo {
 func (e *GovernedExecutor) ExecuteAt(intent strategydomain.StrategyIntentV1, observedAtMs int64) []executiondomain.ExecutionEventV1 {
 	if e == nil || e.governance == nil {
 		return []executiondomain.ExecutionEventV1{e.rejectEvent(intent, observedAtMs, executiondomain.ReasonGovernanceNoGrant)}
+	}
+
+	if e.controlPlane != nil {
+		snap := e.controlPlane.Snapshot()
+		allowed, reason := snap.IsExecutionAllowed(
+			intent.Strategy.StrategyID,
+			"", // adapter not known yet at pre-flight
+			intent.Scope.Venue,
+			intent.Scope.Symbol,
+		)
+		if !allowed {
+			return []executiondomain.ExecutionEventV1{e.rejectEvent(intent, observedAtMs, reason)}
+		}
 	}
 
 	outcome := e.governance.Evaluate(intent, observedAtMs)
