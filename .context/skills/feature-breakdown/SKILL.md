@@ -20,7 +20,7 @@ scaffoldVersion: "2.0.0"
 Whenever breaking down a feature, you MUST structure it around Market Raccoon's Bounded Contexts.
 
 ### Step 1: Subsystem Identification
-Determine which subsystem is affected based on `docs/architecture/subsystems.md`. 
+Determine which subsystem is affected based on `docs/architecture/subsystems.md`.
 - Is it MarketData (Ingestion)? Aggregation (Orderbook/Candles)? Delivery (WS)?
 - If it spans multiple, the breakdown must isolate the commits per subsystem.
 

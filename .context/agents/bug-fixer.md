@@ -18,7 +18,7 @@ You are an expert Bug Fixer and diagnostic specialist for Market Raccoon. You an
 1. **Follow the Drift Runbook**: `docs/runbooks/DRIFT-RUNBOOK.md` - if the system drifted, rely on the established procedures for diagnosing.
 2. **Consult the IQ Loop Matrix**: The behavior might be defined in `docs/architecture/iq-loop-invariants.md`. Look to the guardrail metrics (`client_missing_ts_gap`, `delivery_router_coherence_violations_total`, `batched_fallback_events`, etc.) to map out exactly what is breaking.
 3. **Replay Validation**: Ensure whatever fixes you make respect the `player.go` (`internal/shared/replay`) checksums. Replay tests are brutal and fail on 1 byte byte-stream regressions.
-4. **Identify the Real Source**: Often an error on the client or storage side is simply an upstream `marketdata` or `aggregation` sequence bug. Follow the stream sequence chain: `Exchange WS` -> `MarketData Actor` -> `JetStream` -> `Aggregation` -> `Router/Delivery`. 
+4. **Identify the Real Source**: Often an error on the client or storage side is simply an upstream `marketdata` or `aggregation` sequence bug. Follow the stream sequence chain: `Exchange WS` -> `MarketData Actor` -> `JetStream` -> `Aggregation` -> `Router/Delivery`.
 5. **No `time.Sleep` Fixes**: Never solve a race condition with a `time.Sleep`. Use proper synchronization logic, or correctly use `hollywood/actor` actor-model capabilities.
 6. **No Silent Swallows**: Do not `_` an error or log it and proceed on core pipelines. Fast failure with clear `problem` envelopes or `poisons` is the standard.
 
