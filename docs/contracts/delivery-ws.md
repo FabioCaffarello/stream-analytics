@@ -503,6 +503,9 @@ Clients should use the correct transport for each data need:
 | Data Need | Transport | Endpoint | Notes |
 |---|---|---|---|
 | Session bootstrap | HTTP | `GET /api/v1/session` | Markets, capabilities, server time |
+| Session readiness dashboard | HTTP | `GET /api/v1/session/dashboard` | Normalized global readiness/freshness/resync + artifact coverage |
+| Artifact matrix | HTTP | `GET /api/v1/artifacts/summary` | Filterable artifact availability matrix for widget enablement |
+| Instrument overview | HTTP | `GET /api/v1/instrument/overview` | Normalized readiness/freshness/resync + artifact timeline summary |
 | Stream catalog | HTTP | `GET /api/v1/catalog` | Artifact types, timeframes |
 | Time range discovery | HTTP | `GET /api/v1/timeline` | First/last timestamps per artifact |
 | Data flow health | HTTP | `GET /api/v1/freshness` | Per-instrument channel freshness |
@@ -515,6 +518,9 @@ Clients should use the correct transport for each data need:
 
 Rules:
 - Use HTTP for bootstrap, discovery, and deep history (federation-backed)
+- Prefer `GET /api/v1/session/dashboard` for global session readiness views to avoid client-side aggregation drift
+- Prefer `GET /api/v1/artifacts/summary` for artifact enablement matrices instead of recomputing availability in-client
+- Prefer `GET /api/v1/instrument/overview` for per-instrument widget bootstrap state to avoid client-side composition drift
 - Use WS for realtime delivery and lightweight queries
 - WS `getrange` uses in-memory store only (no federation bridge); for deep history, use HTTP data endpoints
 - Do not poll HTTP endpoints for realtime data; subscribe via WS

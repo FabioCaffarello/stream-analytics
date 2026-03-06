@@ -55,12 +55,12 @@ type Server struct {
 	readyGate  func() bool
 	reloadHook func() error
 
-	tlsCertFile  string
-	tlsKeyFile   string
-	wsHandler    http.HandlerFunc
-	coldReaders        *ColdReaders
-	markets            *config.MarketsConfig
-	controlPlane       executionports.ControlPlane
+	tlsCertFile       string
+	tlsKeyFile        string
+	wsHandler         http.HandlerFunc
+	coldReaders       *ColdReaders
+	markets           *config.MarketsConfig
+	controlPlane      executionports.ControlPlane
 	consistencyChecks map[string]ConsistencyCheckFn
 }
 
@@ -167,8 +167,11 @@ func NewServer(
 		mux.HandleFunc("GET /api/v1/markets", s.handleGetMarkets)
 		mux.HandleFunc("GET /api/v1/catalog", s.handleGetCatalog)
 		mux.HandleFunc("GET /api/v1/session", s.handleGetSession)
+		mux.HandleFunc("GET /api/v1/session/dashboard", s.handleGetSessionDashboard)
+		mux.HandleFunc("GET /api/v1/artifacts/summary", s.handleGetArtifactSummary)
 	}
 	mux.HandleFunc("GET /api/v1/freshness", s.handleGetFreshness)
+	mux.HandleFunc("GET /api/v1/instrument/overview", s.handleGetInstrumentOverview)
 	if s.coldReaders != nil {
 		mux.HandleFunc("GET /api/v1/timeline", s.handleGetTimeline)
 	}

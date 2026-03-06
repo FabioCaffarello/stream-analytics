@@ -235,6 +235,56 @@ Returns a composed bootstrap payload combining server time, guardian readiness, 
 - Registered only when `markets` config is present.
 - Readiness is best-effort (returns false on guardian timeout).
 
+### Session Dashboard API
+
+```
+GET /api/v1/session/dashboard
+-> {
+     "server_time_ms":N,
+     "status":"ready|degraded|inactive|not_ready",
+     "readiness":{"status":"ready|not_ready"},
+     "freshness":{"status":"flowing|partial|stale|inactive","active_instruments":A,"stale_instruments":S,"flowing_channels":C1,"stale_channels":C2,"checked_at":N},
+     "resync":{"status":"stable|recovering|degraded","connections_active":K,"streams":M,"resync_total":R,"drops_total":D,"max_lag_ms":L},
+     "artifacts":[
+       {"name":"candle","endpoint":"/api/v1/candles","timeframes":[...],"default_timeframe":"1m","coverage":{"status":"available|partial|empty|unavailable","total_instruments":T,"available_instruments":A1,"empty_instruments":E1,"unavailable_instruments":U1}},
+       {"name":"stats","endpoint":"/api/v1/stats","timeframes":[...],"default_timeframe":"1m","coverage":{"status":"available|partial|empty|unavailable","total_instruments":T,"available_instruments":A2,"empty_instruments":E2,"unavailable_instruments":U2}}
+     ],
+     "summary":{"venues":V,"instruments":I}
+   }
+```
+
+Returns a backend-owned session-level readiness dashboard composed from guardian readiness, terminal WS state, and best-effort timeline coverage for configured markets.
+
+- Registered only when `markets` config is present.
+- Coverage is computed from timeline availability without exposing hot/cold/federation internals.
+- Status enums are contract-level and must remain backward-compatible.
+
+### Artifact Summary API
+
+```
+GET /api/v1/artifacts/summary?timeframe=1m&venue=X&instrument=Y&artifact=candle|stats
+-> {
+     "timeframe":"1m",
+     "status":"available|partial|empty|unavailable",
+     "checked_at":N,
+     "filters":{"venue":"X","instrument":"Y","artifact":"candle"},
+     "artifacts":[
+       {"name":"candle","endpoint":"/api/v1/candles","timeframes":[...],"default_timeframe":"1m","coverage":{"status":"available|partial|empty|unavailable","total_instruments":T,"available_instruments":A,"empty_instruments":E,"unavailable_instruments":U}}
+     ],
+     "entries":[
+       {"venue":"X","instrument":"Y","artifacts":{"candle":"available"}}
+     ],
+     "summary":{"venues":V,"instruments":I,"entries":R}
+   }
+```
+
+Returns a dedicated backend-owned artifact matrix for dynamic widget enablement with optional filters and deterministic sorting.
+
+- Registered only when `markets` config is present.
+- `timeframe` defaults to `1m`; unsupported timeframes return `400`.
+- `artifact` is optional (`candle|stats`); unsupported artifacts return `400`.
+- Per-entry artifact statuses are `available|empty|unavailable`.
+
 ### Instrument Freshness API
 
 ```
@@ -247,6 +297,32 @@ Returns per-channel data flow health for the requested instrument. Derived from 
 - Always available (no config gate).
 - Case-insensitive venue/instrument matching.
 - Hides internal stream IDs and observability details.
+
+### Instrument Overview API
+
+```
+GET /api/v1/instrument/overview?venue=X&instrument=Y
+-> {
+     "venue":"X",
+     "instrument":"Y",
+     "status":"ready|degraded|inactive|not_ready",
+     "checked_at":N,
+     "readiness":{"status":"ready|not_ready"},
+     "freshness":{"status":"flowing|stale|inactive","active":bool,"channels":{...}},
+     "resync":{"status":"stable|recovering|degraded","resync_total":N,"drops_total":M,"streams":K,"max_lag_ms":L},
+     "artifacts":[
+       {"name":"candle","endpoint":"/api/v1/candles","timeframes":[...],"timeline":{"timeframe":"1m","first_ts":N,"last_ts":M,"status":"available|empty|unavailable"}},
+       {"name":"stats","endpoint":"/api/v1/stats","timeframes":[...],"timeline":{"timeframe":"1m","first_ts":N,"last_ts":M,"status":"available|empty|unavailable"}}
+     ]
+   }
+```
+
+Returns a backend-owned composed read model for one instrument, normalizing readiness/freshness/resync semantics for client widget bootstrap without leaking hot/cold/federation internals.
+
+- Always available (no config gate).
+- Case-insensitive venue/instrument matching.
+- Timeline summaries are best-effort and marked as `unavailable` when readers are not wired.
+- Status enums are contract-level and must remain backward-compatible.
 
 ### Wire Format Contract
 
@@ -267,6 +343,28 @@ Evidence: `internal/core/aggregation/domain/wire_format_golden_test.go`
 
 ## Changelog
 
+- 2026-03-06:
+- Stage 19 slice 1:
+  - added Instrument Overview API (`GET /api/v1/instrument/overview`);
+  - froze initial normalized status enums for readiness/freshness/resync and overall instrument status;
+  - added artifact timeline summary contract (`available|empty|unavailable`) for candle/stats.
+- 2026-03-06:
+- Stage 19 slice 2:
+  - added Session Dashboard API (`GET /api/v1/session/dashboard`);
+  - froze session-level normalized statuses for readiness/freshness/resync and overall dashboard status;
+  - added compact artifact coverage matrix contract (`available|partial|empty|unavailable`) for candle/stats.
+- 2026-03-06:
+- Stage 19 slice 3:
+  - added Artifact Summary API (`GET /api/v1/artifacts/summary`);
+  - added filter/timeframe contract (`venue`, `instrument`, `artifact`, `timeframe`) for artifact matrix consumption;
+  - froze artifact summary status semantics (`available|partial|empty|unavailable`) and per-entry artifact status semantics (`available|empty|unavailable`).
+- 2026-03-06:
+- Stage 19 slice 4:
+  - added cross-endpoint client-readiness contract suite for:
+    - `GET /api/v1/instrument/overview`
+    - `GET /api/v1/session/dashboard`
+    - `GET /api/v1/artifacts/summary`
+  - codified enum stability and semantic consistency checks (`ready` and `degraded` paths) to prevent contract drift before S20 client slices.
 - 2026-03-06:
 - Stage 9B credentials-broker hardening:
   - credential resolution is now modeled with explicit availability, provenance, and lease semantics;
