@@ -139,6 +139,71 @@ MR_Tape_Payload :: struct {
 	TsIngestMs:       i64    `json:"TsIngestMs"`,
 }
 
+MR_Open_Interest_Tick_Payload :: struct {
+	open_interest: f64 `json:"open_interest"`,
+	timestamp:     i64 `json:"timestamp"`,
+}
+
+MR_Open_Interest_Window_Payload :: struct {
+	Venue:         string `json:"Venue"`,
+	Instrument:    string `json:"Instrument"`,
+	Timeframe:     string `json:"Timeframe"`,
+	WindowStartTs: i64    `json:"WindowStartTs"`,
+	WindowEndTs:   i64    `json:"WindowEndTs"`,
+	OpenInterest:  f64    `json:"OpenInterest"`,
+	Delta:         f64    `json:"Delta"`,
+	DeltaPct:      f64    `json:"DeltaPct"`,
+	Seq:           i64    `json:"Seq"`,
+	TsIngestMs:    i64    `json:"TsIngestMs"`,
+}
+
+MR_Delta_Volume_Payload :: struct {
+	Venue:         string `json:"Venue"`,
+	Instrument:    string `json:"Instrument"`,
+	Timeframe:     string `json:"Timeframe"`,
+	WindowStartTs: i64    `json:"WindowStartTs"`,
+	WindowEndTs:   i64    `json:"WindowEndTs"`,
+	BuyVolume:     f64    `json:"BuyVolume"`,
+	SellVolume:    f64    `json:"SellVolume"`,
+	DeltaVolume:   f64    `json:"DeltaVolume"`,
+	Seq:           i64    `json:"Seq"`,
+	TsIngestMs:    i64    `json:"TsIngestMs"`,
+}
+
+MR_CVD_Payload :: struct {
+	Venue:         string `json:"Venue"`,
+	Instrument:    string `json:"Instrument"`,
+	Timeframe:     string `json:"Timeframe"`,
+	WindowStartTs: i64    `json:"WindowStartTs"`,
+	WindowEndTs:   i64    `json:"WindowEndTs"`,
+	DeltaVolume:   f64    `json:"DeltaVolume"`,
+	CVD:           f64    `json:"CVD"`,
+	Seq:           i64    `json:"Seq"`,
+	TsIngestMs:    i64    `json:"TsIngestMs"`,
+}
+
+MR_Bar_Stats_Payload :: struct {
+	Venue:         string `json:"Venue"`,
+	Instrument:    string `json:"Instrument"`,
+	Timeframe:     string `json:"Timeframe"`,
+	WindowStartTs: i64    `json:"WindowStartTs"`,
+	WindowEndTs:   i64    `json:"WindowEndTs"`,
+	TradeCount:    i64    `json:"TradeCount"`,
+	BuyCount:      i64    `json:"BuyCount"`,
+	SellCount:     i64    `json:"SellCount"`,
+	TotalVolume:   f64    `json:"TotalVolume"`,
+	BuyVolume:     f64    `json:"BuyVolume"`,
+	SellVolume:    f64    `json:"SellVolume"`,
+	VwapPrice:     f64    `json:"VwapPrice"`,
+	LastPrice:     f64    `json:"LastPrice"`,
+	MaxPrice:      f64    `json:"MaxPrice"`,
+	MinPrice:      f64    `json:"MinPrice"`,
+	Imbalance:     f64    `json:"Imbalance"`,
+	IsBurst:       bool   `json:"IsBurst"`,
+	Seq:           i64    `json:"Seq"`,
+	TsIngestMs:    i64    `json:"TsIngestMs"`,
+}
+
 MR_Heatmap_Cell :: struct {
 	price_bucket_low:  f64 `json:"price_bucket_low"`,
 	price_bucket_high: f64 `json:"price_bucket_high"`,
@@ -288,6 +353,26 @@ MR_Stats_Frame_Wrapped :: struct {
 
 MR_Tape_Frame :: struct {
 	payload: MR_Tape_Payload `json:"payload"`,
+}
+
+MR_Open_Interest_Tick_Frame :: struct {
+	payload: MR_Open_Interest_Tick_Payload `json:"payload"`,
+}
+
+MR_Open_Interest_Window_Frame :: struct {
+	payload: MR_Open_Interest_Window_Payload `json:"payload"`,
+}
+
+MR_Delta_Volume_Frame :: struct {
+	payload: MR_Delta_Volume_Payload `json:"payload"`,
+}
+
+MR_CVD_Frame :: struct {
+	payload: MR_CVD_Payload `json:"payload"`,
+}
+
+MR_Bar_Stats_Frame :: struct {
+	payload: MR_Bar_Stats_Payload `json:"payload"`,
 }
 
 MR_Heatmap_Frame :: struct {

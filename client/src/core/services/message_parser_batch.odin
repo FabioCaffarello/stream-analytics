@@ -398,6 +398,41 @@ parse_batched_event_payload :: proc(
 			result.data.tape = r
 			return result, true
 		}
+	case "aggregation.bar_stats":
+		if r, ok := parse_bar_stats_payload(payload_raw, ts_ingest_ms, subject_id); ok {
+			r.seq = seq
+			result.kind = .Tape
+			result.data.tape = r
+			return result, true
+		}
+	case "marketdata.open_interest":
+		if r, ok := parse_open_interest_tick_payload(payload_raw, ts_ingest_ms, subject_id); ok {
+			r.seq = seq
+			result.kind = .Stats
+			result.data.stats = r
+			return result, true
+		}
+	case "aggregation.oi":
+		if r, ok := parse_open_interest_window_payload(payload_raw, ts_ingest_ms, subject_id); ok {
+			r.seq = seq
+			result.kind = .Stats
+			result.data.stats = r
+			return result, true
+		}
+	case "aggregation.delta_volume":
+		if r, ok := parse_delta_volume_payload(payload_raw, ts_ingest_ms, subject_id); ok {
+			r.seq = seq
+			result.kind = .Stats
+			result.data.stats = r
+			return result, true
+		}
+	case "aggregation.cvd":
+		if r, ok := parse_cvd_payload(payload_raw, ts_ingest_ms, subject_id); ok {
+			r.seq = seq
+			result.kind = .Stats
+			result.data.stats = r
+			return result, true
+		}
 	case "marketdata.bookdelta":
 		if r, ok := parse_book_delta_payload(payload_raw, ts_ingest_ms, subject_id); ok {
 			if is_snapshot do r.is_snapshot = true

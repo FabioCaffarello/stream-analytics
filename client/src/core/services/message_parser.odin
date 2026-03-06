@@ -488,6 +488,14 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 		} else if telemetry != nil {
 			telemetry.parse_errors += 1
 		}
+	case "aggregation.bar_stats":
+		if r, ok := parse_bar_stats(raw, env.ts_ingest, subject_id); ok {
+			r.seq = result.meta.seq
+			result.kind = .Tape
+			result.data.tape = r
+		} else if telemetry != nil {
+			telemetry.parse_errors += 1
+		}
 	case "marketdata.bookdelta":
 		if r, ok := parse_book_delta(raw, env.ts_ingest, subject_id); ok {
 			// Trust envelope type=snapshot even when payload omits/incorrectly sets IsSnapshot.
@@ -521,6 +529,38 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 			if telemetry != nil {
 				telemetry.canonical_stats_frames += 1
 			}
+		} else if telemetry != nil {
+			telemetry.parse_errors += 1
+		}
+	case "marketdata.open_interest":
+		if r, ok := parse_open_interest_tick(raw, env.ts_ingest, subject_id); ok {
+			r.seq = result.meta.seq
+			result.kind = .Stats
+			result.data.stats = r
+		} else if telemetry != nil {
+			telemetry.parse_errors += 1
+		}
+	case "aggregation.oi":
+		if r, ok := parse_open_interest_window(raw, env.ts_ingest, subject_id); ok {
+			r.seq = result.meta.seq
+			result.kind = .Stats
+			result.data.stats = r
+		} else if telemetry != nil {
+			telemetry.parse_errors += 1
+		}
+	case "aggregation.delta_volume":
+		if r, ok := parse_delta_volume(raw, env.ts_ingest, subject_id); ok {
+			r.seq = result.meta.seq
+			result.kind = .Stats
+			result.data.stats = r
+		} else if telemetry != nil {
+			telemetry.parse_errors += 1
+		}
+	case "aggregation.cvd":
+		if r, ok := parse_cvd(raw, env.ts_ingest, subject_id); ok {
+			r.seq = result.meta.seq
+			result.kind = .Stats
+			result.data.stats = r
 		} else if telemetry != nil {
 			telemetry.parse_errors += 1
 		}

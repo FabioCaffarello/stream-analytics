@@ -527,6 +527,62 @@ test_parse_stats_frame_wrapped_is_canonical_no_fallback :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_parse_open_interest_tick_as_stats :: proc(t: ^testing.T) {
+	raw := `{"type":"event","subject":"marketdata.open_interest/binance/BTCUSDT/raw","seq":77,"ts_ingest":1700000002200,"payload":{"open_interest":12345.5,"timestamp":1700000002100}}`
+	result := parse_mr_message(transmute([]u8)raw, nil)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Stats)
+	testing.expect_value(t, result.data.stats.mark_price, 12345.5)
+	testing.expect_value(t, result.data.stats.window_ms, i64(0))
+	testing.expect_value(t, result.data.stats.seq, i64(77))
+	free_all(context.temp_allocator)
+}
+
+@(test)
+test_parse_open_interest_window_as_stats :: proc(t: ^testing.T) {
+	raw := `{"type":"event","subject":"aggregation.oi/binance/BTCUSDT/raw","seq":91,"ts_ingest":1700000100000,"payload":{"Venue":"binance","Instrument":"BTCUSDT","Timeframe":"raw","WindowStartTs":1700000099000,"WindowEndTs":1700000100000,"OpenInterest":13000.0,"Delta":200.0,"DeltaPct":0.0156,"Seq":91,"TsIngestMs":1700000100000}}`
+	result := parse_mr_message(transmute([]u8)raw, nil)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Stats)
+	testing.expect_value(t, result.data.stats.mark_price, 13000.0)
+	testing.expect_value(t, result.data.stats.funding, 0.0156)
+	testing.expect_value(t, result.data.stats.tbuy, 200.0)
+	testing.expect_value(t, result.data.stats.tsell, 0.0)
+	free_all(context.temp_allocator)
+}
+
+@(test)
+test_parse_delta_volume_as_stats :: proc(t: ^testing.T) {
+	raw := `{"type":"event","subject":"aggregation.delta_volume/binance/BTCUSDT/1m","seq":55,"ts_ingest":1700000120000,"payload":{"Venue":"binance","Instrument":"BTCUSDT","Timeframe":"1m","WindowStartTs":1700000060000,"WindowEndTs":1700000120000,"BuyVolume":12.0,"SellVolume":9.0,"DeltaVolume":3.0,"Seq":55,"TsIngestMs":1700000120000}}`
+	result := parse_mr_message(transmute([]u8)raw, nil)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Stats)
+	testing.expect_value(t, result.data.stats.funding, 3.0)
+	testing.expect_value(t, result.data.stats.tbuy, 12.0)
+	testing.expect_value(t, result.data.stats.tsell, 9.0)
+	free_all(context.temp_allocator)
+}
+
+@(test)
+test_parse_cvd_as_stats :: proc(t: ^testing.T) {
+	raw := `{"type":"event","subject":"aggregation.cvd/binance/BTCUSDT/1m","seq":56,"ts_ingest":1700000120000,"payload":{"Venue":"binance","Instrument":"BTCUSDT","Timeframe":"1m","WindowStartTs":1700000060000,"WindowEndTs":1700000120000,"DeltaVolume":-2.5,"CVD":150.0,"Seq":56,"TsIngestMs":1700000120000}}`
+	result := parse_mr_message(transmute([]u8)raw, nil)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Stats)
+	testing.expect_value(t, result.data.stats.funding, 150.0)
+	testing.expect_value(t, result.data.stats.tbuy, 0.0)
+	testing.expect_value(t, result.data.stats.tsell, 2.5)
+	free_all(context.temp_allocator)
+}
+
+@(test)
+test_parse_bar_stats_as_tape :: proc(t: ^testing.T) {
+	raw := `{"type":"event","subject":"aggregation.bar_stats/binance/BTCUSDT/1m","seq":60,"ts_ingest":1700000120000,"payload":{"Venue":"binance","Instrument":"BTCUSDT","Timeframe":"1m","WindowStartTs":1700000060000,"WindowEndTs":1700000120000,"TradeCount":30,"BuyCount":18,"SellCount":12,"TotalVolume":22.0,"BuyVolume":13.0,"SellVolume":9.0,"VwapPrice":50001.2,"LastPrice":50005.0,"MaxPrice":50020.0,"MinPrice":49980.0,"Imbalance":0.18,"IsBurst":true,"Seq":60,"TsIngestMs":1700000120000}}`
+	result := parse_mr_message(transmute([]u8)raw, nil)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Tape)
+	testing.expect_value(t, result.data.tape.trade_count, i64(30))
+	testing.expect_value(t, result.data.tape.total_volume, 22.0)
+	testing.expect_value(t, result.data.tape.is_burst, true)
+	free_all(context.temp_allocator)
+}
+
+@(test)
 test_parse_microstructure_evidence :: proc(t: ^testing.T) {
 	raw := `{"type":"event","subject":"liquidity.evidence/binance/BTCUSDT/raw","seq":42,"ts_ingest":1700000000001,"payload":{"kind":"spread_explosion","confidence":0.82,"features":[{"key":"spread_bps","value":25.1},{"key":"mid_price","value":50000.0}],"reason":"spread expanded","ts_ingest":1700000000001,"seq":42}}`
 	result := parse_mr_message(transmute([]u8)raw, nil)
@@ -747,4 +803,38 @@ test_parse_batched_event_payload_tape_fastpath :: proc(t: ^testing.T) {
 	testing.expect_value(t, result.data.tape.trade_count, i64(9))
 	testing.expect_value(t, result.data.tape.rate_per_sec, 9.0)
 	testing.expect_value(t, result.data.tape.imbalance, -0.2)
+}
+
+@(test)
+test_parse_batched_event_payload_open_interest_fastpath :: proc(t: ^testing.T) {
+	payload := `{"open_interest":10123.0,"timestamp":1700000001000}`
+	result, ok := parse_batched_event_payload(
+		"marketdata.open_interest",
+		transmute([]u8)payload,
+		401,
+		1700000001001,
+		1700000001000,
+		0xDD11,
+	)
+	testing.expect_value(t, ok, true)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Stats)
+	testing.expect_value(t, result.data.stats.mark_price, 10123.0)
+	testing.expect_value(t, result.data.stats.seq, i64(401))
+}
+
+@(test)
+test_parse_batched_event_payload_bar_stats_fastpath :: proc(t: ^testing.T) {
+	payload := `{"Venue":"binance","Instrument":"BTCUSDT","Timeframe":"1m","WindowStartTs":1700000000000,"WindowEndTs":1700000060000,"TradeCount":20,"BuyCount":12,"SellCount":8,"TotalVolume":11.0,"BuyVolume":7.0,"SellVolume":4.0,"VwapPrice":50000.0,"LastPrice":50002.0,"MaxPrice":50020.0,"MinPrice":49980.0,"Imbalance":0.2,"IsBurst":false,"Seq":402}`
+	result, ok := parse_batched_event_payload(
+		"aggregation.bar_stats",
+		transmute([]u8)payload,
+		402,
+		1700000060001,
+		1700000060000,
+		0xDD22,
+	)
+	testing.expect_value(t, ok, true)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Tape)
+	testing.expect_value(t, result.data.tape.trade_count, i64(20))
+	testing.expect_value(t, result.data.tape.seq, i64(402))
 }
