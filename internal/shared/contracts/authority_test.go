@@ -19,10 +19,11 @@ func TestContractAuthority_ProtoFieldsAreFullyMapped(t *testing.T) {
 	t.Parallel()
 
 	requiredMessages := map[string]struct{}{
-		"marketdata.v1.TradeTickV1":       {},
-		"marketdata.v1.BookDeltaV1":       {},
-		"marketdata.v1.MarkPriceTickV1":   {},
-		"marketdata.v1.LiquidationTickV1": {},
+		"marketdata.v1.TradeTickV1":        {},
+		"marketdata.v1.BookDeltaV1":        {},
+		"marketdata.v1.MarkPriceTickV1":    {},
+		"marketdata.v1.LiquidationTickV1":  {},
+		"marketdata.v1.OpenInterestTickV1": {},
 	}
 	seenMessages := make(map[string]struct{}, len(marketDataAuthorityBindings))
 
@@ -364,6 +365,7 @@ func TestContractAuthority_DomainPayloadsUseCanonicalJSONTags(t *testing.T) {
 		reflect.TypeOf(marketdomain.PriceLevel{}),
 		reflect.TypeOf(marketdomain.MarkPriceTickV1{}),
 		reflect.TypeOf(marketdomain.LiquidationTickV1{}),
+		reflect.TypeOf(marketdomain.OpenInterestTickV1{}),
 	}
 
 	for _, payloadType := range domainPayloadTypes {

@@ -49,6 +49,13 @@ func TestWireConformance_SubjectPayloadCodecDecode_MarkPriceProto(t *testing.T) 
 	}, validateMarkPrice)
 }
 
+func TestWireConformance_SubjectPayloadCodecDecode_OpenInterestProto(t *testing.T) {
+	runMarketDataSubjectProtoRoundtrip(t, "marketdata.open_interest", marketdomain.OpenInterestTickV1{
+		OpenInterest: 1_250_000.5,
+		Timestamp:    1_710_000_000_350,
+	}, validateOpenInterest)
+}
+
 func runMarketDataSubjectProtoRoundtrip(t *testing.T, eventType string, payload any, validate func(t *testing.T, got any, want any)) {
 	t.Helper()
 	reg := newConformanceRegistry(t)
@@ -114,6 +121,21 @@ func validateMarkPrice(t *testing.T, got any, want any) {
 	}
 	if out.Timestamp <= 0 {
 		t.Fatalf("missing required markprice timestamp: %+v", out)
+	}
+}
+
+func validateOpenInterest(t *testing.T, got any, want any) {
+	t.Helper()
+	out, ok := got.(marketdomain.OpenInterestTickV1)
+	if !ok {
+		t.Fatalf("decoded type=%T want %T", got, marketdomain.OpenInterestTickV1{})
+	}
+	in := want.(marketdomain.OpenInterestTickV1)
+	if out != in {
+		t.Fatalf("decoded mismatch\ngot=%+v\nwant=%+v", out, in)
+	}
+	if out.Timestamp <= 0 {
+		t.Fatalf("missing required open_interest timestamp: %+v", out)
 	}
 }
 
@@ -193,12 +215,17 @@ func TestWireConformance_RegistrySchemasRequireProtoDecoderForCoreMarketData(t *
 		t.Fatalf("decode %s: %v", path, err)
 	}
 	protoRequiredTypes := map[string]bool{
-		"marketdata.trade":     true,
-		"marketdata.bookdelta": true,
-		"marketdata.markprice": true,
-		"aggregation.candle":   true,
-		"aggregation.stats":    true,
-		"aggregation.tape":     true,
+		"marketdata.trade":         true,
+		"marketdata.bookdelta":     true,
+		"marketdata.markprice":     true,
+		"marketdata.open_interest": true,
+		"aggregation.candle":       true,
+		"aggregation.stats":        true,
+		"aggregation.tape":         true,
+		"aggregation.oi":           true,
+		"aggregation.cvd":          true,
+		"aggregation.delta_volume": true,
+		"aggregation.bar_stats":    true,
 	}
 	for _, sch := range parsed.Schemas {
 		if sch.Status != "stable" && sch.Status != "draft" {

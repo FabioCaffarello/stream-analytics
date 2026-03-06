@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package marketdata.v1;
+
+option go_package = "github.com/market-raccoon/internal/shared/proto/gen/marketdata/v1";
+
+// OpenInterestTickV1 models one open interest update tick.
+message OpenInterestTickV1 {
+  // OpenInterest is the current open interest value.
+  double open_interest = 1;
+  // TimestampMs is the event timestamp in Unix milliseconds.
+  int64 timestamp_ms = 2;
+
+  reserved 100 to 199;
+}

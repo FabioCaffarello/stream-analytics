@@ -14,9 +14,14 @@ func TestProtoRolloutEnabledForEventType(t *testing.T) {
 	t.Setenv(contracts.EnvProtoMarketDataBookDelta, "1")
 	t.Setenv(contracts.EnvProtoMarketDataMarkPrice, "yes")
 	t.Setenv(contracts.EnvProtoMarketDataLiquidation, "on")
+	t.Setenv(contracts.EnvProtoMarketDataOpenInterest, "on")
 	t.Setenv(contracts.EnvProtoAggregationCandle, "on")
 	t.Setenv(contracts.EnvProtoAggregationStats, "t")
 	t.Setenv(contracts.EnvProtoAggregationTape, "true")
+	t.Setenv(contracts.EnvProtoAggregationOI, "true")
+	t.Setenv(contracts.EnvProtoAggregationCVD, "true")
+	t.Setenv(contracts.EnvProtoAggregationDeltaVolume, "true")
+	t.Setenv(contracts.EnvProtoAggregationBarStats, "true")
 	t.Setenv(contracts.EnvProtoAggregationSnapshot, "1")
 	t.Setenv(contracts.EnvProtoInsightsVPVR, "true")
 	t.Setenv(contracts.EnvProtoInsightsHeatmap, "1")
@@ -27,9 +32,14 @@ func TestProtoRolloutEnabledForEventType(t *testing.T) {
 		"marketdata.bookdelta",
 		"marketdata.markprice",
 		"marketdata.liquidation",
+		"marketdata.open_interest",
 		"aggregation.candle",
 		"aggregation.stats",
 		"aggregation.tape",
+		"aggregation.oi",
+		"aggregation.cvd",
+		"aggregation.delta_volume",
+		"aggregation.bar_stats",
 		"aggregation.snapshot",
 		"aggregation.orderbook_inconsistency",
 		"insights.volume_profile_snapshot",
@@ -55,9 +65,14 @@ func TestProtoRolloutEnabledForEventType_DefaultDisabled(t *testing.T) {
 		contracts.EnvProtoMarketDataBookDelta,
 		contracts.EnvProtoMarketDataMarkPrice,
 		contracts.EnvProtoMarketDataLiquidation,
+		contracts.EnvProtoMarketDataOpenInterest,
 		contracts.EnvProtoAggregationCandle,
 		contracts.EnvProtoAggregationStats,
 		contracts.EnvProtoAggregationTape,
+		contracts.EnvProtoAggregationOI,
+		contracts.EnvProtoAggregationCVD,
+		contracts.EnvProtoAggregationDeltaVolume,
+		contracts.EnvProtoAggregationBarStats,
 		contracts.EnvProtoAggregationSnapshot,
 		contracts.EnvProtoInsightsVPVR,
 		contracts.EnvProtoInsightsHeatmap,
@@ -72,9 +87,14 @@ func TestProtoRolloutEnabledForEventType_DefaultDisabled(t *testing.T) {
 		"marketdata.bookdelta",
 		"marketdata.markprice",
 		"marketdata.liquidation",
+		"marketdata.open_interest",
 		"aggregation.candle",
 		"aggregation.stats",
 		"aggregation.tape",
+		"aggregation.oi",
+		"aggregation.cvd",
+		"aggregation.delta_volume",
+		"aggregation.bar_stats",
 		"aggregation.snapshot",
 		"insights.volume_profile_snapshot",
 		"insights.heatmap_snapshot",

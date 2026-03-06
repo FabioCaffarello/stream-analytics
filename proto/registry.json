@@ -1,5 +1,5 @@
 {
-  "_coverage_note": "Proto schemas cover all hot-path payloads: marketdata, aggregation (candle + stats + cross_venue_book), insights (volume_profile + heatmap), evidence, signals, and delivery frames.  See docs/contracts/subject-registry.yaml for the full subject catalog.",
+  "_coverage_note": "Proto schemas cover all hot-path payloads: marketdata, aggregation (candle + stats + tape + analytics primitives + cross_venue_book), insights (volume_profile + heatmap), evidence, signals, and delivery frames. See docs/contracts/subject-registry.yaml for the full subject catalog.",
   "schemas": [
     {
       "type": "envelope",
@@ -50,6 +50,14 @@
       "introduced_at": "2026-02-12"
     },
     {
+      "type": "marketdata.open_interest",
+      "version": 1,
+      "proto_file": "marketdata/v1/open_interest.proto",
+      "message": "marketdata.v1.OpenInterestTickV1",
+      "status": "stable",
+      "introduced_at": "2026-03-06"
+    },
+    {
       "type": "aggregation.candle",
       "version": 1,
       "proto_file": "aggregation/v1/candle.proto",
@@ -72,6 +80,38 @@
       "message": "aggregation.v1.TapeWindowV1",
       "status": "stable",
       "introduced_at": "2026-03-04"
+    },
+    {
+      "type": "aggregation.oi",
+      "version": 1,
+      "proto_file": "aggregation/v1/oi.proto",
+      "message": "aggregation.v1.OpenInterestWindowV1",
+      "status": "stable",
+      "introduced_at": "2026-03-06"
+    },
+    {
+      "type": "aggregation.cvd",
+      "version": 1,
+      "proto_file": "aggregation/v1/cvd.proto",
+      "message": "aggregation.v1.CVDWindowV1",
+      "status": "stable",
+      "introduced_at": "2026-03-06"
+    },
+    {
+      "type": "aggregation.delta_volume",
+      "version": 1,
+      "proto_file": "aggregation/v1/delta_volume.proto",
+      "message": "aggregation.v1.DeltaVolumeWindowV1",
+      "status": "stable",
+      "introduced_at": "2026-03-06"
+    },
+    {
+      "type": "aggregation.bar_stats",
+      "version": 1,
+      "proto_file": "aggregation/v1/bar_stats.proto",
+      "message": "aggregation.v1.BarStatsWindowV1",
+      "status": "stable",
+      "introduced_at": "2026-03-06"
     },
     {
       "type": "insights.volume_profile_snapshot",

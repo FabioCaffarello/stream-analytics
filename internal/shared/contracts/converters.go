@@ -97,6 +97,23 @@ func DomainToProtoLiquidationTickV1(in marketdomain.LiquidationTickV1) *marketda
 	}
 }
 
+func ProtoToDomainOpenInterestTickV1(in *marketdatav1.OpenInterestTickV1) marketdomain.OpenInterestTickV1 {
+	if in == nil {
+		return marketdomain.OpenInterestTickV1{}
+	}
+	return marketdomain.OpenInterestTickV1{
+		OpenInterest: in.GetOpenInterest(),
+		Timestamp:    in.GetTimestampMs(),
+	}
+}
+
+func DomainToProtoOpenInterestTickV1(in marketdomain.OpenInterestTickV1) *marketdatav1.OpenInterestTickV1 {
+	return &marketdatav1.OpenInterestTickV1{
+		OpenInterest: in.OpenInterest,
+		TimestampMs:  in.Timestamp,
+	}
+}
+
 func protoToDomainPriceLevels(in []*marketdatav1.PriceLevel) []marketdomain.PriceLevel {
 	if len(in) == 0 {
 		return nil

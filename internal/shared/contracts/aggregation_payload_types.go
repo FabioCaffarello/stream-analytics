@@ -82,6 +82,70 @@ type AggregationTapeV1 struct {
 	TsIngestMs    int64
 }
 
+// AggregationOpenInterestV1 is the shared wire DTO for aggregation.oi v1.
+type AggregationOpenInterestV1 struct {
+	Venue         string
+	Instrument    string
+	Timeframe     string
+	WindowStartTs int64
+	WindowEndTs   int64
+	OpenInterest  float64
+	Delta         float64
+	DeltaPct      float64
+	Seq           int64
+	TsIngestMs    int64
+}
+
+// AggregationDeltaVolumeV1 is the shared wire DTO for aggregation.delta_volume v1.
+type AggregationDeltaVolumeV1 struct {
+	Venue         string
+	Instrument    string
+	Timeframe     string
+	WindowStartTs int64
+	WindowEndTs   int64
+	BuyVolume     float64
+	SellVolume    float64
+	DeltaVolume   float64
+	Seq           int64
+	TsIngestMs    int64
+}
+
+// AggregationCVDV1 is the shared wire DTO for aggregation.cvd v1.
+type AggregationCVDV1 struct {
+	Venue         string
+	Instrument    string
+	Timeframe     string
+	WindowStartTs int64
+	WindowEndTs   int64
+	DeltaVolume   float64
+	CVD           float64
+	Seq           int64
+	TsIngestMs    int64
+}
+
+// AggregationBarStatsV1 is the shared wire DTO for aggregation.bar_stats v1.
+type AggregationBarStatsV1 struct {
+	Venue         string
+	Instrument    string
+	Timeframe     string
+	WindowStartTs int64
+	WindowEndTs   int64
+	TradeCount    int64
+	BuyCount      int64
+	SellCount     int64
+	TotalVolume   float64
+	BuyVolume     float64
+	SellVolume    float64
+	VwapPrice     float64
+	LastPrice     float64
+	MaxPrice      float64
+	MinPrice      float64
+	Imbalance     float64
+	IsBurst       bool
+	Seq           int64
+	TsIngestMs    int64
+}
+
 // AggregationSnapshotV1 is the shared wire DTO for aggregation.snapshot v1.
 type AggregationSnapshotV1 struct {
 	Venue      string

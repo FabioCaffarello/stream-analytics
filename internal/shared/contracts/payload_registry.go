@@ -24,9 +24,14 @@ const (
 	marketDataEventTypeBookDelta       = "marketdata.bookdelta"
 	marketDataEventTypeMarkPrice       = "marketdata.markprice"
 	marketDataEventTypeLiq             = "marketdata.liquidation"
+	marketDataEventTypeOpenInterest    = "marketdata.open_interest"
 	aggregationEventTypeCandle         = "aggregation.candle"
 	aggregationEventTypeStats          = "aggregation.stats"
 	aggregationEventTypeTape           = "aggregation.tape"
+	aggregationEventTypeOI             = "aggregation.oi"
+	aggregationEventTypeCVD            = "aggregation.cvd"
+	aggregationEventTypeDeltaVolume    = "aggregation.delta_volume"
+	aggregationEventTypeBarStats       = "aggregation.bar_stats"
 	aggregationEventTypeSnapshot       = "aggregation.snapshot"
 	aggregationEventTypeInconsistency  = "aggregation.orderbook_inconsistency"
 	aggregationEventTypeCrossVenueBook = "aggregation.cross_venue_book"
@@ -141,6 +146,18 @@ func RegisterMarketDataPayloadV1(reg *codec.Registry) *problem.Problem {
 	); p != nil {
 		return p
 	}
+	if p := registerPayloadDual(
+		reg,
+		marketDataEventTypeOpenInterest,
+		codec.JSONCodec[marketdomain.OpenInterestTickV1]{},
+		domainProtoPayloadCodec[marketdomain.OpenInterestTickV1, *marketdatav1.OpenInterestTickV1]{
+			newProto: func() *marketdatav1.OpenInterestTickV1 { return &marketdatav1.OpenInterestTickV1{} },
+			toProto:  DomainToProtoOpenInterestTickV1,
+			toDomain: ProtoToDomainOpenInterestTickV1,
+		},
+	); p != nil {
+		return p
+	}
 	return nil
 }
 
@@ -182,6 +199,54 @@ func RegisterAggregationPayloadV1(reg *codec.Registry) *problem.Problem {
 			newProto: func() *aggregationv1.TapeWindowV1 { return &aggregationv1.TapeWindowV1{} },
 			toProto:  WireDTOToProtoTapeWindowV1,
 			toDomain: ProtoToWireDTOTapeWindowV1,
+		},
+	); p != nil {
+		return p
+	}
+	if p := registerPayloadDual(
+		reg,
+		aggregationEventTypeOI,
+		codec.JSONCodec[AggregationOpenInterestV1]{},
+		domainProtoPayloadCodec[AggregationOpenInterestV1, *aggregationv1.OpenInterestWindowV1]{
+			newProto: func() *aggregationv1.OpenInterestWindowV1 { return &aggregationv1.OpenInterestWindowV1{} },
+			toProto:  WireDTOToProtoOpenInterestWindowV1,
+			toDomain: ProtoToWireDTOOpenInterestWindowV1,
+		},
+	); p != nil {
+		return p
+	}
+	if p := registerPayloadDual(
+		reg,
+		aggregationEventTypeDeltaVolume,
+		codec.JSONCodec[AggregationDeltaVolumeV1]{},
+		domainProtoPayloadCodec[AggregationDeltaVolumeV1, *aggregationv1.DeltaVolumeWindowV1]{
+			newProto: func() *aggregationv1.DeltaVolumeWindowV1 { return &aggregationv1.DeltaVolumeWindowV1{} },
+			toProto:  WireDTOToProtoDeltaVolumeWindowV1,
+			toDomain: ProtoToWireDTODeltaVolumeWindowV1,
+		},
+	); p != nil {
+		return p
+	}
+	if p := registerPayloadDual(
+		reg,
+		aggregationEventTypeCVD,
+		codec.JSONCodec[AggregationCVDV1]{},
+		domainProtoPayloadCodec[AggregationCVDV1, *aggregationv1.CVDWindowV1]{
+			newProto: func() *aggregationv1.CVDWindowV1 { return &aggregationv1.CVDWindowV1{} },
+			toProto:  WireDTOToProtoCVDWindowV1,
+			toDomain: ProtoToWireDTOCVDWindowV1,
+		},
+	); p != nil {
+		return p
+	}
+	if p := registerPayloadDual(
+		reg,
+		aggregationEventTypeBarStats,
+		codec.JSONCodec[AggregationBarStatsV1]{},
+		domainProtoPayloadCodec[AggregationBarStatsV1, *aggregationv1.BarStatsWindowV1]{
+			newProto: func() *aggregationv1.BarStatsWindowV1 { return &aggregationv1.BarStatsWindowV1{} },
+			toProto:  WireDTOToProtoBarStatsWindowV1,
+			toDomain: ProtoToWireDTOBarStatsWindowV1,
 		},
 	); p != nil {
 		return p

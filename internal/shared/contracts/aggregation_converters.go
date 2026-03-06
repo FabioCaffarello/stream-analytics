@@ -181,6 +181,162 @@ func ProtoToWireDTOTapeWindowV1(in *aggregationv1.TapeWindowV1) AggregationTapeV
 	}
 }
 
+// WireDTOToProtoOpenInterestWindowV1 converts the wire DTO to the protobuf message.
+func WireDTOToProtoOpenInterestWindowV1(in AggregationOpenInterestV1) *aggregationv1.OpenInterestWindowV1 {
+	return &aggregationv1.OpenInterestWindowV1{
+		Venue:         in.Venue,
+		Instrument:    in.Instrument,
+		Timeframe:     in.Timeframe,
+		WindowStartTs: in.WindowStartTs,
+		WindowEndTs:   in.WindowEndTs,
+		OpenInterest:  in.OpenInterest,
+		Delta:         in.Delta,
+		DeltaPct:      in.DeltaPct,
+		Seq:           in.Seq,
+		TsIngestMs:    in.TsIngestMs,
+	}
+}
+
+// ProtoToWireDTOOpenInterestWindowV1 converts the protobuf message to the wire DTO.
+func ProtoToWireDTOOpenInterestWindowV1(in *aggregationv1.OpenInterestWindowV1) AggregationOpenInterestV1 {
+	if in == nil {
+		return AggregationOpenInterestV1{}
+	}
+	return AggregationOpenInterestV1{
+		Venue:         in.GetVenue(),
+		Instrument:    in.GetInstrument(),
+		Timeframe:     in.GetTimeframe(),
+		WindowStartTs: in.GetWindowStartTs(),
+		WindowEndTs:   in.GetWindowEndTs(),
+		OpenInterest:  in.GetOpenInterest(),
+		Delta:         in.GetDelta(),
+		DeltaPct:      in.GetDeltaPct(),
+		Seq:           in.GetSeq(),
+		TsIngestMs:    in.GetTsIngestMs(),
+	}
+}
+
+// WireDTOToProtoDeltaVolumeWindowV1 converts the wire DTO to the protobuf message.
+func WireDTOToProtoDeltaVolumeWindowV1(in AggregationDeltaVolumeV1) *aggregationv1.DeltaVolumeWindowV1 {
+	return &aggregationv1.DeltaVolumeWindowV1{
+		Venue:         in.Venue,
+		Instrument:    in.Instrument,
+		Timeframe:     in.Timeframe,
+		WindowStartTs: in.WindowStartTs,
+		WindowEndTs:   in.WindowEndTs,
+		BuyVolume:     in.BuyVolume,
+		SellVolume:    in.SellVolume,
+		DeltaVolume:   in.DeltaVolume,
+		Seq:           in.Seq,
+		TsIngestMs:    in.TsIngestMs,
+	}
+}
+
+// ProtoToWireDTODeltaVolumeWindowV1 converts the protobuf message to the wire DTO.
+func ProtoToWireDTODeltaVolumeWindowV1(in *aggregationv1.DeltaVolumeWindowV1) AggregationDeltaVolumeV1 {
+	if in == nil {
+		return AggregationDeltaVolumeV1{}
+	}
+	return AggregationDeltaVolumeV1{
+		Venue:         in.GetVenue(),
+		Instrument:    in.GetInstrument(),
+		Timeframe:     in.GetTimeframe(),
+		WindowStartTs: in.GetWindowStartTs(),
+		WindowEndTs:   in.GetWindowEndTs(),
+		BuyVolume:     in.GetBuyVolume(),
+		SellVolume:    in.GetSellVolume(),
+		DeltaVolume:   in.GetDeltaVolume(),
+		Seq:           in.GetSeq(),
+		TsIngestMs:    in.GetTsIngestMs(),
+	}
+}
+
+// WireDTOToProtoCVDWindowV1 converts the wire DTO to the protobuf message.
+func WireDTOToProtoCVDWindowV1(in AggregationCVDV1) *aggregationv1.CVDWindowV1 {
+	return &aggregationv1.CVDWindowV1{
+		Venue:         in.Venue,
+		Instrument:    in.Instrument,
+		Timeframe:     in.Timeframe,
+		WindowStartTs: in.WindowStartTs,
+		WindowEndTs:   in.WindowEndTs,
+		DeltaVolume:   in.DeltaVolume,
+		Cvd:           in.CVD,
+		Seq:           in.Seq,
+		TsIngestMs:    in.TsIngestMs,
+	}
+}
+
+// ProtoToWireDTOCVDWindowV1 converts the protobuf message to the wire DTO.
+func ProtoToWireDTOCVDWindowV1(in *aggregationv1.CVDWindowV1) AggregationCVDV1 {
+	if in == nil {
+		return AggregationCVDV1{}
+	}
+	return AggregationCVDV1{
+		Venue:         in.GetVenue(),
+		Instrument:    in.GetInstrument(),
+		Timeframe:     in.GetTimeframe(),
+		WindowStartTs: in.GetWindowStartTs(),
+		WindowEndTs:   in.GetWindowEndTs(),
+		DeltaVolume:   in.GetDeltaVolume(),
+		CVD:           in.GetCvd(),
+		Seq:           in.GetSeq(),
+		TsIngestMs:    in.GetTsIngestMs(),
+	}
+}
+
+// WireDTOToProtoBarStatsWindowV1 converts the wire DTO to the protobuf message.
+func WireDTOToProtoBarStatsWindowV1(in AggregationBarStatsV1) *aggregationv1.BarStatsWindowV1 {
+	return &aggregationv1.BarStatsWindowV1{
+		Venue:         in.Venue,
+		Instrument:    in.Instrument,
+		Timeframe:     in.Timeframe,
+		WindowStartTs: in.WindowStartTs,
+		WindowEndTs:   in.WindowEndTs,
+		TradeCount:    in.TradeCount,
+		BuyCount:      in.BuyCount,
+		SellCount:     in.SellCount,
+		TotalVolume:   in.TotalVolume,
+		BuyVolume:     in.BuyVolume,
+		SellVolume:    in.SellVolume,
+		VwapPrice:     in.VwapPrice,
+		LastPrice:     in.LastPrice,
+		MaxPrice:      in.MaxPrice,
+		MinPrice:      in.MinPrice,
+		Imbalance:     in.Imbalance,
+		IsBurst:       in.IsBurst,
+		Seq:           in.Seq,
+		TsIngestMs:    in.TsIngestMs,
+	}
+}
+
+// ProtoToWireDTOBarStatsWindowV1 converts the protobuf message to the wire DTO.
+func ProtoToWireDTOBarStatsWindowV1(in *aggregationv1.BarStatsWindowV1) AggregationBarStatsV1 {
+	if in == nil {
+		return AggregationBarStatsV1{}
+	}
+	return AggregationBarStatsV1{
+		Venue:         in.GetVenue(),
+		Instrument:    in.GetInstrument(),
+		Timeframe:     in.GetTimeframe(),
+		WindowStartTs: in.GetWindowStartTs(),
+		WindowEndTs:   in.GetWindowEndTs(),
+		TradeCount:    in.GetTradeCount(),
+		BuyCount:      in.GetBuyCount(),
+		SellCount:     in.GetSellCount(),
+		TotalVolume:   in.GetTotalVolume(),
+		BuyVolume:     in.GetBuyVolume(),
+		SellVolume:    in.GetSellVolume(),
+		VwapPrice:     in.GetVwapPrice(),
+		LastPrice:     in.GetLastPrice(),
+		MaxPrice:      in.GetMaxPrice(),
+		MinPrice:      in.GetMinPrice(),
+		Imbalance:     in.GetImbalance(),
+		IsBurst:       in.GetIsBurst(),
+		Seq:           in.GetSeq(),
+		TsIngestMs:    in.GetTsIngestMs(),
+	}
+}
+
 // WireDTOToProtoSnapshotV1 converts the wire DTO to the protobuf message.
 func WireDTOToProtoSnapshotV1(in AggregationSnapshotV1) *aggregationv1.OrderBookSnapshotV1 {
 	bids := make([]*aggregationv1.OrderBookLevelV1, len(in.Bids))

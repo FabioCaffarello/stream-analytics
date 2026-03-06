@@ -181,18 +181,23 @@ type ProtoRolloutConfig struct {
 
 // ProtoRolloutMarketDataConfig controls marketdata.* event rollout.
 type ProtoRolloutMarketDataConfig struct {
-	Trade       bool `json:"trade"`
-	BookDelta   bool `json:"bookdelta"`
-	MarkPrice   bool `json:"markprice"`
-	Liquidation bool `json:"liquidation"`
+	Trade        bool `json:"trade"`
+	BookDelta    bool `json:"bookdelta"`
+	MarkPrice    bool `json:"markprice"`
+	Liquidation  bool `json:"liquidation"`
+	OpenInterest bool `json:"open_interest"`
 }
 
 // ProtoRolloutAggregationConfig controls aggregation.* event rollout.
 type ProtoRolloutAggregationConfig struct {
-	Candle   bool `json:"candle"`
-	Stats    bool `json:"stats"`
-	Tape     bool `json:"tape"`
-	Snapshot bool `json:"snapshot"`
+	Candle      bool `json:"candle"`
+	Stats       bool `json:"stats"`
+	Tape        bool `json:"tape"`
+	OI          bool `json:"oi"`
+	CVD         bool `json:"cvd"`
+	DeltaVolume bool `json:"delta_volume"`
+	BarStats    bool `json:"bar_stats"`
+	Snapshot    bool `json:"snapshot"`
 }
 
 // ProtoRolloutInsightsConfig controls insights.* event rollout.
@@ -204,15 +209,20 @@ type ProtoRolloutInsightsConfig struct {
 
 // EventTypeFlags returns proto rollout enablement keyed by canonical event type.
 func (c ProtoRolloutConfig) EventTypeFlags() map[string]bool {
-	flags := make(map[string]bool, 14)
+	flags := make(map[string]bool, 19)
 	flags["marketdata.trade"] = c.MarketData.Trade
 	flags["marketdata.bookdelta"] = c.MarketData.BookDelta
 	flags["marketdata.markprice"] = c.MarketData.MarkPrice
 	flags["marketdata.liquidation"] = c.MarketData.Liquidation
+	flags["marketdata.open_interest"] = c.MarketData.OpenInterest
 
 	flags["aggregation.candle"] = c.Aggregation.Candle
 	flags["aggregation.stats"] = c.Aggregation.Stats
 	flags["aggregation.tape"] = c.Aggregation.Tape
+	flags["aggregation.oi"] = c.Aggregation.OI
+	flags["aggregation.cvd"] = c.Aggregation.CVD
+	flags["aggregation.delta_volume"] = c.Aggregation.DeltaVolume
+	flags["aggregation.bar_stats"] = c.Aggregation.BarStats
 	flags["aggregation.snapshot"] = c.Aggregation.Snapshot
 	flags["aggregation.orderbook_inconsistency"] = c.Aggregation.Snapshot
 

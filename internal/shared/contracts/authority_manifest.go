@@ -117,4 +117,22 @@ var marketDataAuthorityBindings = []authorityBinding{
 			"timestamp_ms": "Timestamp",
 		},
 	},
+	{
+		EventType:     "marketdata.open_interest",
+		Version:       marketDataV1Version,
+		MessageName:   "marketdata.v1.OpenInterestTickV1",
+		RegistryProto: "marketdata/v1/open_interest.proto",
+		NewProto:      func() protoreflect.ProtoMessage { return &marketdatav1.OpenInterestTickV1{} },
+		DomainType:    reflect.TypeOf(marketdomain.OpenInterestTickV1{}),
+		ProtoToDomain: func(msg protoreflect.ProtoMessage) any {
+			return ProtoToDomainOpenInterestTickV1(msg.(*marketdatav1.OpenInterestTickV1))
+		},
+		DomainToProto: func(v any) protoreflect.ProtoMessage {
+			return DomainToProtoOpenInterestTickV1(v.(marketdomain.OpenInterestTickV1))
+		},
+		ProtoToDomainFieldMap: map[string]string{
+			"open_interest": "OpenInterest",
+			"timestamp_ms":  "Timestamp",
+		},
+	},
 }

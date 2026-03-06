@@ -7,17 +7,22 @@ import (
 )
 
 const (
-	EnvProtoMarketDataTrade       = "PROTO_MARKETDATA_TRADE"
-	EnvProtoMarketDataBookDelta   = "PROTO_MARKETDATA_BOOKDELTA"
-	EnvProtoMarketDataMarkPrice   = "PROTO_MARKETDATA_MARKPRICE"
-	EnvProtoMarketDataLiquidation = "PROTO_MARKETDATA_LIQUIDATION"
-	EnvProtoAggregationCandle     = "PROTO_AGGREGATION_CANDLE"
-	EnvProtoAggregationStats      = "PROTO_AGGREGATION_STATS"
-	EnvProtoAggregationTape       = "PROTO_AGGREGATION_TAPE"
-	EnvProtoAggregationSnapshot   = "PROTO_AGGREGATION_SNAPSHOT"
-	EnvProtoInsightsVPVR          = "PROTO_INSIGHTS_VPVR"
-	EnvProtoInsightsHeatmap       = "PROTO_INSIGHTS_HEATMAP"
-	EnvProtoInsightsCrossVenue    = "PROTO_INSIGHTS_CROSSVENUE"
+	EnvProtoMarketDataTrade        = "PROTO_MARKETDATA_TRADE"
+	EnvProtoMarketDataBookDelta    = "PROTO_MARKETDATA_BOOKDELTA"
+	EnvProtoMarketDataMarkPrice    = "PROTO_MARKETDATA_MARKPRICE"
+	EnvProtoMarketDataLiquidation  = "PROTO_MARKETDATA_LIQUIDATION"
+	EnvProtoMarketDataOpenInterest = "PROTO_MARKETDATA_OPEN_INTEREST"
+	EnvProtoAggregationCandle      = "PROTO_AGGREGATION_CANDLE"
+	EnvProtoAggregationStats       = "PROTO_AGGREGATION_STATS"
+	EnvProtoAggregationTape        = "PROTO_AGGREGATION_TAPE"
+	EnvProtoAggregationOI          = "PROTO_AGGREGATION_OI"
+	EnvProtoAggregationCVD         = "PROTO_AGGREGATION_CVD"
+	EnvProtoAggregationDeltaVolume = "PROTO_AGGREGATION_DELTA_VOLUME"
+	EnvProtoAggregationBarStats    = "PROTO_AGGREGATION_BAR_STATS"
+	EnvProtoAggregationSnapshot    = "PROTO_AGGREGATION_SNAPSHOT"
+	EnvProtoInsightsVPVR           = "PROTO_INSIGHTS_VPVR"
+	EnvProtoInsightsHeatmap        = "PROTO_INSIGHTS_HEATMAP"
+	EnvProtoInsightsCrossVenue     = "PROTO_INSIGHTS_CROSSVENUE"
 )
 
 // protoFlagCache holds cached rollout flag values, populated once at first access.
@@ -35,9 +40,14 @@ var eventTypeToEnvVar = map[string]string{
 	"marketdata.bookdelta":                EnvProtoMarketDataBookDelta,
 	"marketdata.markprice":                EnvProtoMarketDataMarkPrice,
 	"marketdata.liquidation":              EnvProtoMarketDataLiquidation,
+	"marketdata.open_interest":            EnvProtoMarketDataOpenInterest,
 	"aggregation.candle":                  EnvProtoAggregationCandle,
 	"aggregation.stats":                   EnvProtoAggregationStats,
 	"aggregation.tape":                    EnvProtoAggregationTape,
+	"aggregation.oi":                      EnvProtoAggregationOI,
+	"aggregation.cvd":                     EnvProtoAggregationCVD,
+	"aggregation.delta_volume":            EnvProtoAggregationDeltaVolume,
+	"aggregation.bar_stats":               EnvProtoAggregationBarStats,
 	"aggregation.snapshot":                EnvProtoAggregationSnapshot,
 	"aggregation.orderbook_inconsistency": EnvProtoAggregationSnapshot,
 	"insights.volume_profile_snapshot":    EnvProtoInsightsVPVR,

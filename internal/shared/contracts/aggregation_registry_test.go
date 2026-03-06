@@ -17,6 +17,10 @@ func TestRegisterAggregationPayloadV1_RegistersDualCodecs(t *testing.T) {
 		"aggregation.candle",
 		"aggregation.stats",
 		"aggregation.tape",
+		"aggregation.oi",
+		"aggregation.cvd",
+		"aggregation.delta_volume",
+		"aggregation.bar_stats",
 		"aggregation.snapshot",
 		"aggregation.orderbook_inconsistency",
 	}

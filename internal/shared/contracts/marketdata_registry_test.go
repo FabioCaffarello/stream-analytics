@@ -18,6 +18,7 @@ func TestRegisterMarketDataV1_RegistersAll(t *testing.T) {
 		"marketdata.bookdelta",
 		"marketdata.markprice",
 		"marketdata.liquidation",
+		"marketdata.open_interest",
 	}
 	formats := []codec.Format{codec.FormatJSON, codec.FormatProto}
 
@@ -44,6 +45,7 @@ func TestRegisterMarketDataPayloadV1_RegistersProtoForCoreSubjects(t *testing.T)
 		"marketdata.trade",
 		"marketdata.bookdelta",
 		"marketdata.markprice",
+		"marketdata.open_interest",
 	}
 	for _, eventType := range coreTypes {
 		for _, format := range []codec.Format{codec.FormatJSON, codec.FormatProto} {

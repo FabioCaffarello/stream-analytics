@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package aggregation.v1;
+
+option go_package = "github.com/market-raccoon/internal/shared/proto/gen/aggregation/v1";
+
+// DeltaVolumeWindowV1 models per-window buy/sell delta volume.
+message DeltaVolumeWindowV1 {
+  // Venue is the canonical venue identifier.
+  string venue = 1;
+  // Instrument is the canonical instrument identifier.
+  string instrument = 2;
+  // Timeframe is the source tape timeframe.
+  string timeframe = 3;
+  // WindowStartTs is the window start in Unix milliseconds.
+  int64 window_start_ts = 4;
+  // WindowEndTs is the window end in Unix milliseconds.
+  int64 window_end_ts = 5;
+  // BuyVolume is the buy-side volume in this window.
+  double buy_volume = 6;
+  // SellVolume is the sell-side volume in this window.
+  double sell_volume = 7;
+  // DeltaVolume is buy_volume - sell_volume.
+  double delta_volume = 8;
+  // Seq is the highest sequence observed for this window.
+  int64 seq = 9;
+  // TsIngestMs is the deterministic ingest timestamp in Unix milliseconds.
+  int64 ts_ingest_ms = 10;
+
+  reserved 100 to 199;
+}

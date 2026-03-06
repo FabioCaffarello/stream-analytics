@@ -126,6 +126,130 @@ func TestConverterCompleteness_TapeWindowV1_NilInput(t *testing.T) {
 	}
 }
 
+func TestConverterCompleteness_OpenInterestWindowV1(t *testing.T) {
+	t.Parallel()
+
+	in := &aggregationv1.OpenInterestWindowV1{
+		Venue:         "binance",
+		Instrument:    "BTC-USDT",
+		Timeframe:     "raw",
+		WindowStartTs: 1700000000000,
+		WindowEndTs:   1700000000000,
+		OpenInterest:  1_250_000.0,
+		Delta:         2_500.5,
+		DeltaPct:      0.002,
+		Seq:           4201,
+		TsIngestMs:    1700000000001,
+	}
+
+	wireDTO := ProtoToWireDTOOpenInterestWindowV1(in)
+	roundtrip := WireDTOToProtoOpenInterestWindowV1(wireDTO)
+	assertAggregationProtoEqual(t, in, roundtrip)
+}
+
+func TestConverterCompleteness_OpenInterestWindowV1_NilInput(t *testing.T) {
+	t.Parallel()
+	wireDTO := ProtoToWireDTOOpenInterestWindowV1(nil)
+	if wireDTO.Venue != "" || wireDTO.OpenInterest != 0 || wireDTO.Seq != 0 {
+		t.Fatal("expected zero value from nil proto input")
+	}
+}
+
+func TestConverterCompleteness_DeltaVolumeWindowV1(t *testing.T) {
+	t.Parallel()
+
+	in := &aggregationv1.DeltaVolumeWindowV1{
+		Venue:         "binance",
+		Instrument:    "BTC-USDT",
+		Timeframe:     "1s",
+		WindowStartTs: 1700000000000,
+		WindowEndTs:   1700000001000,
+		BuyVolume:     15.5,
+		SellVolume:    12.25,
+		DeltaVolume:   3.25,
+		Seq:           777,
+		TsIngestMs:    1700000001000,
+	}
+
+	wireDTO := ProtoToWireDTODeltaVolumeWindowV1(in)
+	roundtrip := WireDTOToProtoDeltaVolumeWindowV1(wireDTO)
+	assertAggregationProtoEqual(t, in, roundtrip)
+}
+
+func TestConverterCompleteness_DeltaVolumeWindowV1_NilInput(t *testing.T) {
+	t.Parallel()
+	wireDTO := ProtoToWireDTODeltaVolumeWindowV1(nil)
+	if wireDTO.Venue != "" || wireDTO.DeltaVolume != 0 || wireDTO.Seq != 0 {
+		t.Fatal("expected zero value from nil proto input")
+	}
+}
+
+func TestConverterCompleteness_CVDWindowV1(t *testing.T) {
+	t.Parallel()
+
+	in := &aggregationv1.CVDWindowV1{
+		Venue:         "binance",
+		Instrument:    "BTC-USDT",
+		Timeframe:     "1s",
+		WindowStartTs: 1700000000000,
+		WindowEndTs:   1700000001000,
+		DeltaVolume:   3.25,
+		Cvd:           42.75,
+		Seq:           777,
+		TsIngestMs:    1700000001000,
+	}
+
+	wireDTO := ProtoToWireDTOCVDWindowV1(in)
+	roundtrip := WireDTOToProtoCVDWindowV1(wireDTO)
+	assertAggregationProtoEqual(t, in, roundtrip)
+}
+
+func TestConverterCompleteness_CVDWindowV1_NilInput(t *testing.T) {
+	t.Parallel()
+	wireDTO := ProtoToWireDTOCVDWindowV1(nil)
+	if wireDTO.Venue != "" || wireDTO.CVD != 0 || wireDTO.Seq != 0 {
+		t.Fatal("expected zero value from nil proto input")
+	}
+}
+
+func TestConverterCompleteness_BarStatsWindowV1(t *testing.T) {
+	t.Parallel()
+
+	in := &aggregationv1.BarStatsWindowV1{
+		Venue:         "binance",
+		Instrument:    "BTC-USDT",
+		Timeframe:     "1s",
+		WindowStartTs: 1700000000000,
+		WindowEndTs:   1700000001000,
+		TradeCount:    100,
+		BuyCount:      55,
+		SellCount:     45,
+		TotalVolume:   30.5,
+		BuyVolume:     16.0,
+		SellVolume:    14.5,
+		VwapPrice:     65000.5,
+		LastPrice:     65001.0,
+		MaxPrice:      65010.0,
+		MinPrice:      64990.0,
+		Imbalance:     0.04918,
+		IsBurst:       true,
+		Seq:           777,
+		TsIngestMs:    1700000001000,
+	}
+
+	wireDTO := ProtoToWireDTOBarStatsWindowV1(in)
+	roundtrip := WireDTOToProtoBarStatsWindowV1(wireDTO)
+	assertAggregationProtoEqual(t, in, roundtrip)
+}
+
+func TestConverterCompleteness_BarStatsWindowV1_NilInput(t *testing.T) {
+	t.Parallel()
+	wireDTO := ProtoToWireDTOBarStatsWindowV1(nil)
+	if wireDTO.Venue != "" || wireDTO.TradeCount != 0 || wireDTO.Seq != 0 {
+		t.Fatal("expected zero value from nil proto input")
+	}
+}
+
 func TestConverterCompleteness_SnapshotV1(t *testing.T) {
 	t.Parallel()
 

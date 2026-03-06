@@ -13,6 +13,7 @@ const (
 	TradeVersion        uint16 = SchemaVersionV1
 	BookSnapshotVersion uint16 = SchemaVersionV1
 	BookDeltaVersion    uint16 = SchemaVersionV1
+	OpenInterestVersion uint16 = SchemaVersionV1
 	CandleVersion       uint16 = SchemaVersionV1
 	StatsVersion        uint16 = SchemaVersionV1
 	EvidenceVersion     uint16 = SchemaVersionV1
@@ -60,6 +61,11 @@ type Liquidation struct {
 	Price     float64 `json:"price"`
 	Size      float64 `json:"size"`
 	Timestamp int64   `json:"timestamp"`
+}
+
+type OpenInterest struct {
+	OpenInterest float64 `json:"open_interest"`
+	Timestamp    int64   `json:"timestamp"`
 }
 
 type Candle struct {

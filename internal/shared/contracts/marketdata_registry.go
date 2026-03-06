@@ -52,6 +52,14 @@ func RegisterMarketDataV1(reg *codec.Registry) *problem.Problem {
 	); p != nil {
 		return p
 	}
+	if p := registerDual(
+		reg,
+		"marketdata.open_interest",
+		codec.JSONCodec[marketdomain.OpenInterestTickV1]{},
+		codec.ProtoCodec[*marketdatav1.OpenInterestTickV1]{New: func() *marketdatav1.OpenInterestTickV1 { return &marketdatav1.OpenInterestTickV1{} }},
+	); p != nil {
+		return p
+	}
 
 	return nil
 }

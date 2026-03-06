@@ -24,3 +24,7 @@ type MarkPriceTickV1 = marketmodel.MarkPrice
 // LiquidationTickV1 is the canonical liquidation payload (CMM v1).
 // Deprecated alias kept only for package-compatibility; do not introduce new local models.
 type LiquidationTickV1 = marketmodel.Liquidation
+
+// OpenInterestTickV1 is the canonical open-interest payload (CMM v1).
+// Deprecated alias kept only for package-compatibility; do not introduce new local models.
+type OpenInterestTickV1 = marketmodel.OpenInterest

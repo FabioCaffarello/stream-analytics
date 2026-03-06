@@ -77,6 +77,19 @@ func TestConverterCompleteness_LiquidationTickV1(t *testing.T) {
 	assertProtoSemanticallyEqual(t, in, roundtrip)
 }
 
+func TestConverterCompleteness_OpenInterestTickV1(t *testing.T) {
+	t.Parallel()
+
+	in := &marketdatav1.OpenInterestTickV1{
+		OpenInterest: 1_234_567.89,
+		TimestampMs:  1_700_005_555_666,
+	}
+
+	domain := ProtoToDomainOpenInterestTickV1(in)
+	roundtrip := DomainToProtoOpenInterestTickV1(domain)
+	assertProtoSemanticallyEqual(t, in, roundtrip)
+}
+
 func assertProtoSemanticallyEqual(t *testing.T, want, got proto.Message) {
 	t.Helper()
 	if proto.Equal(want, got) {
