@@ -36,3 +36,9 @@ require (
 	golang.org/x/text v0.33.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/market-raccoon/internal/core/signal => ../../internal/core/signal
+
+replace github.com/market-raccoon/internal/actors => ../../internal/actors
+
+replace github.com/market-raccoon/internal/core/delivery => ../../internal/core/delivery

@@ -64,3 +64,5 @@ replace (
 	github.com/market-raccoon/internal/interfaces => ../../internal/interfaces
 	github.com/market-raccoon/internal/shared => ../../internal/shared
 )
+
+replace github.com/market-raccoon/internal/core/signal => ../../internal/core/signal

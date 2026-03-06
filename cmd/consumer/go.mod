@@ -53,3 +53,5 @@ replace (
 )
 
 replace github.com/market-raccoon/internal/core/delivery => ../../internal/core/delivery
+
+replace github.com/market-raccoon/internal/core/signal => ../../internal/core/signal

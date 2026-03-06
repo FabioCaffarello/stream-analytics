@@ -25,3 +25,7 @@ replace (
 	github.com/market-raccoon/internal/core/signals => ../../../internal/core/signals
 	github.com/market-raccoon/internal/shared => ../../../internal/shared
 )
+
+replace github.com/market-raccoon/internal/core/signal => ../signal
+
+replace github.com/market-raccoon/internal/actors => ../../actors

@@ -115,3 +115,7 @@ replace github.com/market-raccoon/internal/core/marketdata => ../core/marketdata
 replace github.com/market-raccoon/internal/core/aggregation => ../core/aggregation
 
 replace github.com/market-raccoon/internal/core/delivery => ../core/delivery
+
+replace github.com/market-raccoon/internal/core/signal => ../core/signal
+
+replace github.com/market-raccoon/internal/actors => ../actors
