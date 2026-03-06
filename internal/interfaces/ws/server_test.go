@@ -358,6 +358,77 @@ func TestHandleLegacyWS_AlwaysReturns410(t *testing.T) {
 	}
 }
 
+func TestLegacyRouteContract_AlwaysGoneAndNoLegacyAlternatives(t *testing.T) {
+	legacy := NewServer(nil, nil, nil, nil, 0)
+	v1 := NewServer(nil, nil, nil, nil, 0)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /ws/marketdata", legacy.HandleLegacyWS)
+	mux.HandleFunc("GET /ws", v1.HandleWS)
+
+	legacyVariants := []struct {
+		name    string
+		target  string
+		headers map[string]string
+	}{
+		{name: "legacy bare path", target: "/ws/marketdata"},
+		{name: "legacy with old format query", target: "/ws/marketdata?format=legacy&proto_ver=0"},
+		{name: "legacy with old auth query", target: "/ws/marketdata?api_key=old-key"},
+		{name: "legacy with old compat query", target: "/ws/marketdata?allow_legacy_ws=1"},
+		{
+			name:   "legacy with old headers",
+			target: "/ws/marketdata",
+			headers: map[string]string{
+				"X-Delivery-Format": "legacy",
+				"X-Legacy-WS":       "1",
+				"X-API-Key":         "legacy-key",
+			},
+		},
+	}
+
+	for _, tc := range legacyVariants {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tc.target, nil)
+			for key, value := range tc.headers {
+				req.Header.Set(key, value)
+			}
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+			if rec.Code != http.StatusGone {
+				t.Fatalf("target=%s status=%d want=%d", tc.target, rec.Code, http.StatusGone)
+			}
+		})
+	}
+
+	legacyAlternatives := []struct {
+		name   string
+		method string
+		target string
+	}{
+		{name: "legacy trailing slash path", method: http.MethodGet, target: "/ws/marketdata/"},
+		{name: "legacy prefixed path", method: http.MethodGet, target: "/v1/ws/marketdata"},
+		{name: "legacy suffixed path", method: http.MethodGet, target: "/ws/marketdata/v1"},
+		{name: "legacy renamed path", method: http.MethodGet, target: "/ws/legacy-marketdata"},
+		{name: "legacy swapped path", method: http.MethodGet, target: "/marketdata/ws"},
+		{name: "legacy wrong method", method: http.MethodPost, target: "/ws/marketdata"},
+	}
+
+	for _, tc := range legacyAlternatives {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.target, nil)
+			req.Header.Set("Connection", "Upgrade")
+			req.Header.Set("Upgrade", "websocket")
+			req.Header.Set("Sec-WebSocket-Version", "13")
+			req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+
+			if rec.Code == http.StatusSwitchingProtocols || rec.Code == http.StatusOK {
+				t.Fatalf("target=%s method=%s status=%d should reject legacy alternative", tc.target, tc.method, rec.Code)
+			}
+		})
+	}
+}
+
 func TestIPRateLimiter_EvictsIdleBuckets(t *testing.T) {
 	fc := sharedclock.NewFakeClock(time.Unix(1_700_000_000, 0))
 	limiter := &ipRateLimiter{
