@@ -127,6 +127,44 @@ function parseFinitePositiveInt(raw) {
     return value;
 }
 
+function normalizeModeValue(raw) {
+    return String(raw || "").trim().toLowerCase();
+}
+
+function detectExecutionMode(env) {
+    const ci = envBoolValue(env.CI, false);
+    const releaseByFlag = [
+        env.RELEASE,
+        env.IQ_RELEASE,
+        env.RELEASE_MODE,
+        env.IQ_RELEASE_MODE,
+    ].some((value) => envBoolValue(value, false));
+    const releaseByRunMode = [
+        env.RUN_MODE,
+        env.MARKET_RACCOON_MODE,
+        env.IQ_RUN_MODE,
+        env.IQ_MODE,
+    ]
+        .map((value) => normalizeModeValue(value))
+        .some((value) => ["prod", "production", "release"].includes(value));
+
+    const release = releaseByFlag || releaseByRunMode;
+    let modeLabel = "local";
+    if (ci && release) {
+        modeLabel = "ci+release";
+    } else if (ci) {
+        modeLabel = "ci";
+    } else if (release) {
+        modeLabel = "release";
+    }
+
+    return {
+        ci,
+        release,
+        modeLabel,
+    };
+}
+
 function stableStringify(value) {
     if (Array.isArray(value)) {
         return `[${value.map((item) => stableStringify(item)).join(",")}]`;
@@ -175,9 +213,10 @@ function buildEffectiveProfileFingerprint(profileName, effectiveValues) {
 
 function ciStrictViolationsFor({ requestedRaw, requestedNorm, effectiveValues, env }) {
     const violations = [];
+    const mode = detectExecutionMode(env);
 
-    if (!requestedRaw && envBoolValue(env.CI, false)) {
-        violations.push('IQ_PROFILE must be explicitly set to "ci-strict"');
+    if (!requestedRaw && (mode.ci || mode.release)) {
+        violations.push(`IQ_PROFILE must be explicitly set to "ci-strict" in ${mode.modeLabel} mode`);
     }
 
     if (requestedNorm !== CI_STRICT_PROFILE_NAME) {

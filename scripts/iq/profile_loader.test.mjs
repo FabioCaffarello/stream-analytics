@@ -2,6 +2,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "crypto";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "fs";
 import { join, dirname } from "path";
 import { tmpdir } from "os";
@@ -12,6 +13,7 @@ import { CI_STRICT_PROFILE_PATH, resolveIQProfile } from "./profile_loader.mjs";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, "..", "..");
 const analyzeScript = join(repoRoot, "scripts", "iq", "analyze_iq_run.mjs");
+const profileLoaderScript = join(repoRoot, "scripts", "iq", "profile_loader.mjs");
 
 function histogramSeries(metric, channel, points) {
     return points
@@ -100,6 +102,46 @@ test("resolveIQProfile flags ci-strict relax override", () => {
     );
 });
 
+test("resolveIQProfile requires explicit ci-strict in release mode", () => {
+    const profile = resolveIQProfile({
+        RUN_MODE: "release",
+    });
+
+    assert.equal(profile.valid, false);
+    assert.ok(
+        profile.validationErrors.some((item) => item.includes("explicitly set to \"ci-strict\" in release mode")),
+        "expected explicit ci-strict error in release mode"
+    );
+});
+
+test("resolveIQProfile forbids per-channel wire budget overrides", () => {
+    const profile = resolveIQProfile({
+        IQ_PROFILE: "ci-strict",
+        IQ_WIRE_P95_BUDGET_MS_BY_CHANNEL: "trade=10",
+    });
+
+    assert.equal(profile.valid, false);
+    assert.ok(
+        profile.validationErrors.some((item) => item.includes("IQ_WIRE_P95_BUDGET_MS_BY_CHANNEL override is forbidden")),
+        "expected forbidden by-channel override error"
+    );
+});
+
+test("profile_loader cli fails on relax override with actionable error", () => {
+    const result = spawnSync(process.execPath, [profileLoaderScript, "--shell-export"], {
+        cwd: repoRoot,
+        env: {
+            ...process.env,
+            IQ_PROFILE: "ci-strict",
+            IQ_ALLOW_STATS_FALLBACK: "1",
+        },
+        encoding: "utf8",
+    });
+
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /IQ_PROFILE_VALIDATION IQ_ALLOW_STATS_FALLBACK=1 \(expected 0\)/);
+});
+
 test("analyze report includes Effective IQ Profile header", () => {
     const runRoot = mkdtempSync(join(tmpdir(), "iq-profile-test-"));
     const runDir = join(runRoot, "20260305T000000Z");
@@ -132,8 +174,22 @@ test("analyze report includes Effective IQ Profile header", () => {
 
     const reportPath = join(runDir, "report.md");
     assert.ok(existsSync(reportPath), "expected report.md to be generated");
+    const effectiveProfilePath = join(runDir, "effective-profile.json");
+    assert.ok(existsSync(effectiveProfilePath), "expected effective-profile.json to be generated");
 
     const report = readFileSync(reportPath, "utf8");
+    const effectiveProfileRaw = readFileSync(effectiveProfilePath, "utf8");
+    const effectiveProfile = JSON.parse(effectiveProfileRaw);
+    const expectedProofHash = `sha256:${createHash("sha256").update(effectiveProfileRaw).digest("hex")}`;
+    assert.equal(effectiveProfile.profile_name, "ci-strict");
+    assert.equal(effectiveProfile.replica_count, 2);
+    assert.equal(effectiveProfile.critical_invariants.disabled.length, 0);
+    assert.equal(effectiveProfile.caps.router_stream_state_max.boundedness_matrix.id, "iq.router_stream_state_max_budget");
+
+    assert.match(report, /^## Profile$/m);
+    assert.match(report, /- effective_profile_artifact: `effective-profile\.json`/);
+    assert.match(report, new RegExp(`- effective_profile_fingerprint_hash: \`${expectedProofHash}\``));
+    assert.match(report, /- critical_invariants_disabled: `none`/);
     assert.match(report, /^## Effective Profile Fingerprint$/m);
     assert.match(report, /- fingerprint_hash: `sha256:[0-9a-f]{64}`/);
     assert.match(report, /^## Effective IQ Profile$/m);

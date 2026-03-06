@@ -45,10 +45,52 @@ is_truthy() {
   [[ "$raw" == "1" || "$raw" == "true" || "$raw" == "yes" || "$raw" == "on" ]]
 }
 
+is_release_mode() {
+  local run_mode="${RUN_MODE:-${MARKET_RACCOON_MODE:-${IQ_RUN_MODE:-${IQ_MODE:-}}}}"
+  run_mode="$(printf '%s' "$run_mode" | tr '[:upper:]' '[:lower:]')"
+  if [[ "$run_mode" == "prod" || "$run_mode" == "production" || "$run_mode" == "release" ]]; then
+    return 0
+  fi
+
+  if is_truthy "${RELEASE:-0}" || is_truthy "${IQ_RELEASE:-0}" || is_truthy "${RELEASE_MODE:-0}" || is_truthy "${IQ_RELEASE_MODE:-0}"; then
+    return 0
+  fi
+
+  return 1
+}
+
+profile_mode_label() {
+  local ci=0
+  local release=0
+  if is_truthy "${CI:-0}"; then
+    ci=1
+  fi
+  if is_release_mode; then
+    release=1
+  fi
+
+  if [[ "$ci" == "1" && "$release" == "1" ]]; then
+    printf 'ci+release'
+    return 0
+  fi
+  if [[ "$ci" == "1" ]]; then
+    printf 'ci'
+    return 0
+  fi
+  if [[ "$release" == "1" ]]; then
+    printf 'release'
+    return 0
+  fi
+  printf 'local'
+}
+
 configure_iq_profile() {
+  local mode
+  mode="$(profile_mode_label)"
+
   if [[ -z "$IQ_PROFILE_REQUESTED" ]]; then
-    if is_truthy "${CI:-0}"; then
-      log "IQ_PROFILE is required in CI and must be '${IQ_PROFILE_REQUIRED}'"
+    if [[ "$mode" == "ci" || "$mode" == "release" || "$mode" == "ci+release" ]]; then
+      log "IQ_PROFILE is required in ${mode} mode and must be '${IQ_PROFILE_REQUIRED}'"
       log "Action: run IQ_PROFILE=${IQ_PROFILE_REQUIRED} PROCESSOR_REPLICAS=2 ./scripts/iq_loop.sh"
       return 1
     fi
@@ -215,6 +257,7 @@ fi
 
 log "IQ artifacts:"
 log "  report: ${RUN_DIR}/report.md"
+log "  effective profile: ${RUN_DIR}/effective-profile.json"
 log "  logs:   ${LOG_DIR}"
 log "  shots:  ${SHOTS_DIR}"
 
