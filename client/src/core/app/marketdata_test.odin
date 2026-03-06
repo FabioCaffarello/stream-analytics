@@ -3,29 +3,9 @@ package app
 import "core:testing"
 import "mr:ports"
 
-@(test)
-test_orderbook_snapshot_gate_accepts_explicit_snapshot :: proc(t: ^testing.T) {
-	next_seen, mark_snapshot, gap := orderbook_snapshot_gate(false, true, 0, 0)
-	testing.expect_value(t, next_seen, true)
-	testing.expect_value(t, mark_snapshot, true)
-	testing.expect_value(t, gap, false)
-}
-
-@(test)
-test_orderbook_snapshot_gate_bootstraps_non_empty_delta :: proc(t: ^testing.T) {
-	next_seen, mark_snapshot, gap := orderbook_snapshot_gate(false, false, 3, 2)
-	testing.expect_value(t, next_seen, true)
-	testing.expect_value(t, mark_snapshot, true)
-	testing.expect_value(t, gap, false)
-}
-
-@(test)
-test_orderbook_snapshot_gate_rejects_empty_delta_before_snapshot :: proc(t: ^testing.T) {
-	next_seen, mark_snapshot, gap := orderbook_snapshot_gate(false, false, 0, 0)
-	testing.expect_value(t, next_seen, false)
-	testing.expect_value(t, mark_snapshot, false)
-	testing.expect_value(t, gap, true)
-}
+// S24: Legacy orderbook_snapshot_gate tests removed — proc deleted.
+// Snapshot gate logic is now tested in md_common/protocol_engine_test.odin
+// via snapshot_gate_check and apply_state_needs_snapshot.
 
 @(test)
 test_channels_for_bundle_uses_layer_mapping :: proc(t: ^testing.T) {

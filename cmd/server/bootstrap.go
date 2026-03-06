@@ -1364,14 +1364,14 @@ func buildStorageOptions(
 
 	// Wrap with sub-minute filtering
 	coldOpt = httpserver.WithColdReaders(&httpserver.ColdReaders{
-		Candles:   subMinuteFilteringCandleReader{next: readers.Candles, gate: gate},
-		Stats:     subMinuteFilteringStatsReader{next: readers.Stats, gate: gate},
-		Snapshots: readers.Snapshots,
-		Tape:      subMinuteFilteringTapeReader{next: readers.Tape, gate: gate},
-		OI:        subMinuteFilteringOIReader{next: readers.OI, gate: gate},
+		Candles:     subMinuteFilteringCandleReader{next: readers.Candles, gate: gate},
+		Stats:       subMinuteFilteringStatsReader{next: readers.Stats, gate: gate},
+		Snapshots:   readers.Snapshots,
+		Tape:        subMinuteFilteringTapeReader{next: readers.Tape, gate: gate},
+		OI:          subMinuteFilteringOIReader{next: readers.OI, gate: gate},
 		DeltaVolume: subMinuteFilteringDeltaVolumeReader{next: readers.DeltaVolume, gate: gate},
-		CVD:       subMinuteFilteringCVDReader{next: readers.CVD, gate: gate},
-		BarStats:  subMinuteFilteringBarStatsReader{next: readers.BarStats, gate: gate},
+		CVD:         subMinuteFilteringCVDReader{next: readers.CVD, gate: gate},
+		BarStats:    subMinuteFilteringBarStatsReader{next: readers.BarStats, gate: gate},
 	})
 	return coldOpt, consistencyOpt
 }

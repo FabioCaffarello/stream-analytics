@@ -1,6 +1,7 @@
 package app
 
 import "mr:layers"
+import "mr:md_common"
 
 @(private = "file")
 unix_to_ms :: proc(unix: i64) -> i64 {
@@ -40,10 +41,7 @@ sync_legacy_stores_from_layer_store :: proc(state: ^App_State) {
 	if state == nil do return
 	active := layers.market_store_active_stream(&state.layer_store)
 	if active == nil {
-		state.active_metrics.has_live_stats = false
-		state.active_metrics.has_live_heatmap = false
-		state.active_metrics.has_live_vpvr = false
-		state.active_metrics.has_live_candle = false
+		reset_active_apply_state(state)
 		return
 	}
 
@@ -57,13 +55,21 @@ sync_legacy_stores_from_layer_store :: proc(state: ^App_State) {
 
 	sync_evidence_state_from_stream(state, active)
 
-	state.active_metrics.has_live_stats = active.stats.count > 0
-	state.active_metrics.has_live_heatmap = active.heatmap.count > 0
-	state.active_metrics.has_live_vpvr = active.vpvr.count > 0
-	state.active_metrics.has_live_candle = active.candles.count > 0
-	state.active_metrics.last_msg_ts_ms = unix_to_ms(active.last_unix)
-	state.active_metrics.last_stats_ts_ms = state.active_metrics.has_live_stats ? state.active_metrics.last_msg_ts_ms : 0
-	state.active_metrics.last_orderbook_ts_ms = (active.orderbook.ask_count > 0 || active.orderbook.bid_count > 0) ? unix_to_ms(active.orderbook.unix) : 0
+	// S24/S32: Apply state is single source of truth; metrics synced via adapter.
+	state.active_apply_state.has_live[.Stats] = active.stats.count > 0
+	state.active_apply_state.has_live[.Heatmap] = active.heatmap.count > 0
+	state.active_apply_state.has_live[.VPVR] = active.vpvr.count > 0
+	state.active_apply_state.has_live[.Candle] = active.candles.count > 0
+	// S32: Per-artifact timing via apply_state so adapter can sync to metrics.
+	msg_ts := unix_to_ms(active.last_unix)
+	if active.stats.count > 0 {
+		state.active_apply_state.last_recv_ms[.Stats] = msg_ts
+	}
+	if active.orderbook.ask_count > 0 || active.orderbook.bid_count > 0 {
+		state.active_apply_state.last_recv_ms[.Orderbook] = unix_to_ms(active.orderbook.unix)
+	}
+	apply_state_sync_all(state)
+	state.active_metrics.last_msg_ts_ms = msg_ts
 
 	if state.layer_store.last_now_ms > 0 {
 		state.candle_last_recv_local_ms = state.layer_store.last_now_ms

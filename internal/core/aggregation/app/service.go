@@ -11,15 +11,15 @@ import (
 
 // AggregationServiceConfig configures all use cases exposed by AggregationService.
 type AggregationServiceConfig struct {
-	Update       UpdateConfig
-	Candle       BuildCandleConfig
-	Stats        BuildStatsConfig
-	Tape         BuildTapeConfig
-	OpenInterest BuildOpenInterestConfig
-	Publisher    ports.ArtifactPublisher
-	Store        ports.HotReadModelStore
-	CandleStore  ports.CandleHotReadModelStore
-	StatsStore   ports.StatsHotReadModelStore
+	Update           UpdateConfig
+	Candle           BuildCandleConfig
+	Stats            BuildStatsConfig
+	Tape             BuildTapeConfig
+	OpenInterest     BuildOpenInterestConfig
+	Publisher        ports.ArtifactPublisher
+	Store            ports.HotReadModelStore
+	CandleStore      ports.CandleHotReadModelStore
+	StatsStore       ports.StatsHotReadModelStore
 	TapeStore        ports.TapeHotReadModelStore
 	OIStore          ports.OIHotReadModelStore
 	DeltaVolumeStore ports.DeltaVolumeHotReadModelStore

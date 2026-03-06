@@ -424,6 +424,9 @@ make_marketdata_web :: proc(url: string, api_key: string = "", connect: bool = t
 		disconnect_transport = web_disconnect_transport,
 		shutdown        = web_shutdown,
 		fetch_markets   = web_fetch_markets,
+		fetch_session   = web_fetch_session,
+		fetch_freshness = web_fetch_freshness,
+		fetch_timeline  = web_fetch_timeline,
 	}
 }
 
@@ -2225,4 +2228,63 @@ web_fetch_markets :: proc(out_buf: [^]u8, out_cap: i32) -> i32 {
 
 	url_raw := raw_data(transmute([]u8)url)
 	return http_get_sync(url_raw, i32(len(url)), out_buf, out_cap)
+}
+
+// S20: Derive HTTP base from WS URL (shared by all HTTP fetchers).
+@(private = "file")
+web_http_base_from_ws :: proc(ws_url: string) -> (base: string, should_delete: bool) {
+	trimmed := strings.trim_space(ws_url)
+	if len(trimmed) == 0 do return "", false
+	if strings.has_prefix(trimmed, "wss://") {
+		return strings.concatenate({"https://", trimmed[6:]}), true
+	} else if strings.has_prefix(trimmed, "ws://") {
+		return strings.concatenate({"http://", trimmed[5:]}), true
+	} else if strings.has_prefix(trimmed, "https://") || strings.has_prefix(trimmed, "http://") {
+		return trimmed, false
+	} else if strings.has_prefix(trimmed, "/") {
+		return trimmed, false
+	}
+	return "", false
+}
+
+@(private = "file")
+web_http_get :: proc(state: ^MD_Web_State, path: string, out_buf: [^]u8, out_cap: i32) -> i32 {
+	if state == nil || out_cap <= 0 do return 0
+	http_base, should_delete := web_http_base_from_ws(state.ws_url)
+	if len(http_base) == 0 do return 0
+	if should_delete do defer delete(http_base)
+	base_no_ws := http_base
+	if strings.has_suffix(base_no_ws, "/ws") {
+		base_no_ws = base_no_ws[:len(base_no_ws) - 3]
+	}
+	url: string
+	if len(base_no_ws) == 0 || base_no_ws == "/" {
+		url = strings.clone(path)
+	} else {
+		url = strings.concatenate({base_no_ws, path})
+	}
+	defer delete(url)
+	url_raw := raw_data(transmute([]u8)url)
+	return http_get_sync(url_raw, i32(len(url)), out_buf, out_cap)
+}
+
+@(private = "file")
+web_fetch_session :: proc(out_buf: [^]u8, out_cap: i32) -> i32 {
+	return web_http_get(g_web_state, "/api/v1/session", out_buf, out_cap)
+}
+
+@(private = "file")
+web_fetch_freshness :: proc(out_buf: [^]u8, out_cap: i32, venue: string, instrument: string) -> i32 {
+	if len(venue) == 0 || len(instrument) == 0 do return 0
+	path := strings.concatenate({"/api/v1/freshness?venue=", venue, "&instrument=", instrument})
+	defer delete(path)
+	return web_http_get(g_web_state, path, out_buf, out_cap)
+}
+
+@(private = "file")
+web_fetch_timeline :: proc(out_buf: [^]u8, out_cap: i32, venue: string, instrument: string, timeframe: string) -> i32 {
+	if len(venue) == 0 || len(instrument) == 0 || len(timeframe) == 0 do return 0
+	path := strings.concatenate({"/api/v1/timeline?venue=", venue, "&instrument=", instrument, "&timeframe=", timeframe, "&artifact=candle"})
+	defer delete(path)
+	return web_http_get(g_web_state, path, out_buf, out_cap)
 }

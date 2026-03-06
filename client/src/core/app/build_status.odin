@@ -107,6 +107,117 @@ refresh_telemetry_hud_cache :: proc(state: ^App_State) {
 		max(state.telemetry.actions_us, 0),
 		max(state.telemetry.render_us, 0),
 	))
+
+	// S27: Per-artifact event counts from canonical apply state.
+	ac := state.active_apply_state.artifact_event_count
+	state.telemetry.hud_cache.artifact_len = len(fmt.bprintf(
+		state.telemetry.hud_cache.artifact_buf[:],
+		"T:%d OB:%d ST:%d CD:%d HM:%d VP:%d EV:%d SG:%d",
+		ac[.Trade], ac[.Orderbook], ac[.Stats], ac[.Candle],
+		ac[.Heatmap], ac[.VPVR], ac[.Evidence], ac[.Signal],
+	))
+
+	// S27: Composition + active artifact summary.
+	comp := md_common.apply_state_composition_stage(state.active_apply_state)
+	active_count := md_common.apply_state_active_artifact_count(state.active_apply_state)
+	comp_label := "EMPTY"
+	switch comp {
+	case .Range_Pending: comp_label = "PEND"
+	case .Backfilled:    comp_label = "BFILL"
+	case .Live_Only:     comp_label = "LIVE"
+	case .Composed:      comp_label = "COMP"
+	case .Empty:
+	}
+	stale_count, aging_count := md_common.apply_state_stale_artifact_count(state.active_apply_state, now_ms, tf_ms_for_staleness(state))
+	stale_badge := ""
+	if stale_count > 0 {
+		stale_badge = " STALE!"
+	} else if aging_count > 0 {
+		stale_badge = " aging"
+	}
+	// S29: Append recovery badge if auto-recovery is active.
+	rec_status := md_common.apply_state_recovery_status(state.active_apply_state)
+	rec_badge := ""
+	switch rec_status {
+	case .Recovering: rec_badge = " REC"
+	case .Exhausted:  rec_badge = " REC!"
+	case .None:
+	}
+	state.telemetry.hud_cache.apply_len = len(fmt.bprintf(
+		state.telemetry.hud_cache.apply_buf[:],
+		"COMP:%s ART:%d/%d EVT:%d%s%s",
+		comp_label, active_count, len(md_common.Artifact_Kind),
+		state.active_apply_state.event_count, stale_badge, rec_badge,
+	))
+
+	// S28: Per-artifact age since last event.
+	{
+		age_ob := md_common.apply_state_artifact_age_ms(state.active_apply_state, .Orderbook, now_ms)
+		age_st := md_common.apply_state_artifact_age_ms(state.active_apply_state, .Stats, now_ms)
+		age_cd := md_common.apply_state_artifact_age_ms(state.active_apply_state, .Candle, now_ms)
+		age_buf: [4][16]u8
+		ob_str := age_ms_short(age_buf[0][:], age_ob)
+		st_str := age_ms_short(age_buf[1][:], age_st)
+		cd_str := age_ms_short(age_buf[2][:], age_cd)
+		age_t := md_common.apply_state_artifact_age_ms(state.active_apply_state, .Trade, now_ms)
+		t_str := age_ms_short(age_buf[3][:], age_t)
+		state.telemetry.hud_cache.age_len = len(fmt.bprintf(
+			state.telemetry.hud_cache.age_buf[:],
+			"AGE T:%s OB:%s ST:%s CD:%s",
+			t_str, ob_str, st_str, cd_str,
+		))
+	}
+
+	// S31: Aggregate health summary across all slots.
+	{
+		agg := compute_aggregate_health(state)
+		hl_label := "OK"
+		switch agg.health_level {
+		case .Degraded:  hl_label = "DEG"
+		case .Unhealthy: hl_label = "BAD"
+		case .Critical:  hl_label = "CRIT"
+		case .Healthy:
+		}
+		state.telemetry.hud_cache.agg_len = len(fmt.bprintf(
+			state.telemetry.hud_cache.agg_buf[:],
+			"HP:%s S:%d/%d REC:%d EXH:%d STL:%d AGN:%d",
+			hl_label, agg.slots_composed, agg.slot_count,
+			agg.slots_recovering, agg.slots_exhausted,
+			agg.total_stale, agg.total_aging,
+		))
+	}
+}
+
+// S28: Resolve active TF in ms for staleness thresholds.
+@(private = "file")
+tf_ms_for_staleness :: proc(state: ^App_State) -> i64 {
+	tf_options := TF_OPTION_MS
+	if state.active_tf_idx >= 0 && state.active_tf_idx < len(tf_options) {
+		return tf_options[state.active_tf_idx]
+	}
+	return 60_000
+}
+
+// S28: Format age_ms as short string ("-" if not received, "Nms", "Ns", "Nm").
+@(private = "file")
+age_ms_short :: proc(buf: []u8, age_ms: i64) -> string {
+	if age_ms < 0 do return "-"
+	if age_ms < 1000 do return fmt.bprintf(buf, "%dms", age_ms)
+	sec := age_ms / 1000
+	if sec < 60 do return fmt.bprintf(buf, "%ds", sec)
+	return fmt.bprintf(buf, "%dm", sec / 60)
+}
+
+// S28: Staleness enum to short label for display.
+@(private = "file")
+staleness_label :: proc(s: md_common.Artifact_Staleness) -> string {
+	switch s {
+	case .Unknown: return "?"
+	case .Fresh:   return "ok"
+	case .Aging:   return "aging"
+	case .Stale:   return "STALE"
+	}
+	return "?"
 }
 
 // Record a persistent error for status bar display.
@@ -477,6 +588,173 @@ build_health_panel :: proc(state: ^App_State, viewport_w, viewport_h: f32, point
 		y += ROW_H + SECTION_GAP
 	}
 
+	// === S27: APPLY STATE section (per-artifact diagnostics from canonical state) ===
+	ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, "APPLY STATE", ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_XS, .Bold)
+	y += ROW_H + 2
+	{
+		telem := md_common.apply_state_telemetry(state.active_apply_state, now_ms)
+		// Row 1: Composition stage + total events + active artifacts
+		comp_label := "EMPTY"
+		comp_color := ui.COL_TEXT_MUTED
+		switch telem.composition_stage {
+		case .Range_Pending:
+			comp_label = "PENDING"
+			comp_color = ui.COL_WARNING
+		case .Backfilled:
+			comp_label = "BACKFILLED"
+			comp_color = ui.COL_WARNING
+		case .Live_Only:
+			comp_label = "LIVE_ONLY"
+			comp_color = ui.COL_YELLOW_ACCENT
+		case .Composed:
+			comp_label = "COMPOSED"
+			comp_color = ui.COL_GREEN
+		case .Empty:
+		}
+		active_count := md_common.apply_state_active_artifact_count(state.active_apply_state)
+		as_comp_buf: [80]u8
+		as_comp_str := fmt.bprintf(as_comp_buf[:], "stage:%s  events:%d  artifacts:%d/%d  gr:%s",
+			comp_label, telem.event_count, active_count, len(md_common.Artifact_Kind),
+			telem.getrange_seeded ? "seeded" : (telem.getrange_pending ? "pending" : "none"))
+		ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, as_comp_str, comp_color, ui.FONT_SIZE_XS, .Mono)
+		y += ROW_H
+
+		// Row 2: Per-artifact event counts
+		as_evt_buf: [128]u8
+		ac := telem.artifact_event_count
+		as_evt_str := fmt.bprintf(as_evt_buf[:], "T:%d OB:%d ST:%d CD:%d HM:%d VP:%d EV:%d SG:%d TP:%d RC:%d",
+			ac[.Trade], ac[.Orderbook], ac[.Stats], ac[.Candle],
+			ac[.Heatmap], ac[.VPVR], ac[.Evidence], ac[.Signal], ac[.Tape], ac[.Range_Candle])
+		ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, as_evt_str, ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS, .Mono)
+		y += ROW_H
+
+		// Row 3: Per-artifact live/synthetic status for key artifacts
+		as_live_buf: [128]u8
+		as_live_str := fmt.bprintf(as_live_buf[:], "live: T=%v OB=%v ST=%v CD=%v HM=%v VP=%v  synth: ST=%v CD=%v HM=%v VP=%v",
+			telem.has_live[.Trade], telem.has_live[.Orderbook], telem.has_live[.Stats],
+			telem.has_live[.Candle], telem.has_live[.Heatmap], telem.has_live[.VPVR],
+			telem.using_synthetic[.Stats], telem.using_synthetic[.Candle],
+			telem.using_synthetic[.Heatmap], telem.using_synthetic[.VPVR])
+		ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, as_live_str, ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS, .Mono)
+		y += ROW_H
+
+		// S28 Row 4: Per-artifact age (key artifacts with stale detection)
+		now_ms := current_now_ms(state)
+		tf_ms := tf_ms_for_staleness(state)
+		age_bufs: [4][16]u8
+		as_age_buf: [128]u8
+		as_age_str := fmt.bprintf(as_age_buf[:], "age: T=%s OB=%s(%s) ST=%s(%s) CD=%s(%s)",
+			age_ms_short(age_bufs[0][:], md_common.apply_state_artifact_age_ms(state.active_apply_state, .Trade, now_ms)),
+			age_ms_short(age_bufs[1][:], md_common.apply_state_artifact_age_ms(state.active_apply_state, .Orderbook, now_ms)),
+			staleness_label(md_common.apply_state_artifact_staleness(state.active_apply_state, .Orderbook, now_ms, tf_ms)),
+			age_ms_short(age_bufs[2][:], md_common.apply_state_artifact_age_ms(state.active_apply_state, .Stats, now_ms)),
+			staleness_label(md_common.apply_state_artifact_staleness(state.active_apply_state, .Stats, now_ms, tf_ms)),
+			age_ms_short(age_bufs[3][:], md_common.apply_state_artifact_age_ms(state.active_apply_state, .Candle, now_ms)),
+			staleness_label(md_common.apply_state_artifact_staleness(state.active_apply_state, .Candle, now_ms, tf_ms)))
+		stale_c, aging_c := md_common.apply_state_stale_artifact_count(state.active_apply_state, now_ms, tf_ms)
+		age_color := ui.COL_TEXT_SECONDARY
+		if stale_c > 0 do age_color = ui.COL_RED
+		else if aging_c > 0 do age_color = ui.COL_WARNING
+		ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, as_age_str, age_color, ui.FONT_SIZE_XS, .Mono)
+		y += ROW_H
+
+		// S29/S30 Row 5: Recovery status with adaptive cooldown
+		rec_status := telem.recovery_status
+		if rec_status != .None || telem.recovery_attempts > 0 {
+			rec_label := "none"
+			rec_color := ui.COL_TEXT_SECONDARY
+			switch rec_status {
+			case .Recovering:
+				rec_label = "RECOVERING"
+				rec_color = ui.COL_WARNING
+			case .Exhausted:
+				rec_label = "EXHAUSTED"
+				rec_color = ui.COL_RED
+			case .None:
+			}
+			as_rec_buf: [96]u8
+			cd_sec := telem.recovery_cooldown_remaining_ms / 1000
+			as_rec_str: string
+			if telem.recovery_cooldown_remaining_ms > 0 {
+				as_rec_str = fmt.bprintf(as_rec_buf[:], "recovery: %s  attempts:%d/%d  cd:%ds/%ds",
+					rec_label, telem.recovery_attempts, md_common.RECOVERY_MAX_ATTEMPTS,
+					cd_sec, telem.recovery_cooldown_ms / 1000)
+			} else {
+				as_rec_str = fmt.bprintf(as_rec_buf[:], "recovery: %s  attempts:%d/%d  cd:%ds",
+					rec_label, telem.recovery_attempts, md_common.RECOVERY_MAX_ATTEMPTS,
+					telem.recovery_cooldown_ms / 1000)
+			}
+			ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, as_rec_str, rec_color, ui.FONT_SIZE_XS, .Mono)
+			y += ROW_H
+		}
+		y += SECTION_GAP
+	}
+
+	// === S31: AGGREGATE HEALTH section ===
+	{
+		agg := compute_aggregate_health(state)
+		hl_label := "HEALTHY"
+		hl_color := ui.COL_GREEN
+		switch agg.health_level {
+		case .Degraded:
+			hl_label = "DEGRADED"
+			hl_color = ui.COL_YELLOW_ACCENT
+		case .Unhealthy:
+			hl_label = "UNHEALTHY"
+			hl_color = ui.COL_WARNING
+		case .Critical:
+			hl_label = "CRITICAL"
+			hl_color = ui.COL_RED
+		case .Healthy:
+		}
+		ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, "AGGREGATE HEALTH", ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_XS, .Bold)
+		y += ROW_H + 2
+		agg1_buf: [128]u8
+		agg1_str := fmt.bprintf(agg1_buf[:], "%s  slots:%d  composed:%d  live:%d  pending:%d  empty:%d",
+			hl_label, agg.slot_count, agg.slots_composed, agg.slots_live_only,
+			agg.slots_pending, agg.slots_empty)
+		ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, agg1_str, hl_color, ui.FONT_SIZE_XS, .Mono)
+		y += ROW_H
+		if agg.slots_recovering > 0 || agg.slots_exhausted > 0 || agg.total_stale > 0 || agg.total_aging > 0 {
+			agg2_buf: [96]u8
+			agg2_str := fmt.bprintf(agg2_buf[:], "recovering:%d  exhausted:%d  stale:%d  aging:%d  events:%d",
+				agg.slots_recovering, agg.slots_exhausted,
+				agg.total_stale, agg.total_aging, agg.total_event_count)
+			agg2_color := ui.COL_TEXT_SECONDARY
+			if agg.total_stale > 0 do agg2_color = ui.COL_RED
+			else if agg.total_aging > 0 do agg2_color = ui.COL_WARNING
+			ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, agg2_str, agg2_color, ui.FONT_SIZE_XS, .Mono)
+			y += ROW_H
+		}
+		// Recovery event log (most recent events)
+		rec_visible := min(state.recovery_log.count, 4)
+		if rec_visible > 0 {
+			for ri in 0 ..< rec_visible {
+				rev, rok := md_common.recovery_event_log_get(&state.recovery_log, ri)
+				if !rok do break
+				rev_kind := "ATT"
+				rev_color := ui.COL_TEXT_SECONDARY
+				switch rev.kind {
+				case .Success:
+					rev_kind = "OK"
+					rev_color = ui.COL_GREEN
+				case .Exhausted:
+					rev_kind = "EXH"
+					rev_color = ui.COL_RED
+				case .Reset:
+					rev_kind = "RST"
+				case .Attempt:
+				}
+				rev_buf: [64]u8
+				rev_age := now_ms > 0 && rev.timestamp > 0 ? (now_ms - rev.timestamp) / 1000 : i64(0)
+				rev_str := fmt.bprintf(rev_buf[:], "  [%s] slot:%d att:%d %ds ago", rev_kind, rev.slot_id, rev.attempts, rev_age)
+				ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, rev_str, rev_color, ui.FONT_SIZE_XS, .Mono)
+				y += ROW_H
+			}
+		}
+		y += SECTION_GAP
+	}
+
 	// === SERVER LIMITS section (from HELLO capabilities) ===
 	ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, "Server Limits:", ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_XS, .Bold)
 	y += ROW_H + 2
@@ -775,6 +1053,111 @@ copy_diagnostics_to_clipboard :: proc(state: ^App_State) {
 			layer_name, lstate, data_state, diag.render_invocations, diag.dropped_outputs,
 		))
 		append_line(buf[:], &n, line[:], line_len)
+	}
+
+	// S27: Apply State diagnostics
+	append_str(buf[:], &n, "\nAPPLY STATE:\n")
+	{
+		telem := md_common.apply_state_telemetry(state.active_apply_state, diag_now)
+		comp_label := "Empty"
+		switch telem.composition_stage {
+		case .Range_Pending: comp_label = "Pending"
+		case .Backfilled:    comp_label = "Backfilled"
+		case .Live_Only:     comp_label = "Live_Only"
+		case .Composed:      comp_label = "Composed"
+		case .Empty:
+		}
+		active_count := md_common.apply_state_active_artifact_count(state.active_apply_state)
+		as1: [128]u8
+		as1_len := len(fmt.bprintf(as1[:], "  stage=%s events=%d artifacts=%d/%d getrange=%s",
+			comp_label, telem.event_count, active_count, len(md_common.Artifact_Kind),
+			telem.getrange_seeded ? "seeded" : (telem.getrange_pending ? "pending" : "none")))
+		append_line(buf[:], &n, as1[:], as1_len)
+		ac := telem.artifact_event_count
+		as2: [128]u8
+		as2_len := len(fmt.bprintf(as2[:], "  events T=%d OB=%d ST=%d CD=%d HM=%d VP=%d EV=%d SG=%d TP=%d RC=%d",
+			ac[.Trade], ac[.Orderbook], ac[.Stats], ac[.Candle],
+			ac[.Heatmap], ac[.VPVR], ac[.Evidence], ac[.Signal], ac[.Tape], ac[.Range_Candle]))
+		append_line(buf[:], &n, as2[:], as2_len)
+		as3: [128]u8
+		as3_len := len(fmt.bprintf(as3[:], "  live T=%v OB=%v ST=%v CD=%v HM=%v VP=%v synth ST=%v CD=%v HM=%v VP=%v",
+			telem.has_live[.Trade], telem.has_live[.Orderbook], telem.has_live[.Stats],
+			telem.has_live[.Candle], telem.has_live[.Heatmap], telem.has_live[.VPVR],
+			telem.using_synthetic[.Stats], telem.using_synthetic[.Candle],
+			telem.using_synthetic[.Heatmap], telem.using_synthetic[.VPVR]))
+		append_line(buf[:], &n, as3[:], as3_len)
+		// S28: Per-artifact age + staleness
+		diag_now := current_now_ms(state)
+		diag_tf := tf_ms_for_staleness(state)
+		age_bufs: [4][16]u8
+		as4: [128]u8
+		as4_len := len(fmt.bprintf(as4[:], "  age T=%s OB=%s(%s) ST=%s(%s) CD=%s(%s)",
+			age_ms_short(age_bufs[0][:], md_common.apply_state_artifact_age_ms(state.active_apply_state, .Trade, diag_now)),
+			age_ms_short(age_bufs[1][:], md_common.apply_state_artifact_age_ms(state.active_apply_state, .Orderbook, diag_now)),
+			staleness_label(md_common.apply_state_artifact_staleness(state.active_apply_state, .Orderbook, diag_now, diag_tf)),
+			age_ms_short(age_bufs[2][:], md_common.apply_state_artifact_age_ms(state.active_apply_state, .Stats, diag_now)),
+			staleness_label(md_common.apply_state_artifact_staleness(state.active_apply_state, .Stats, diag_now, diag_tf)),
+			age_ms_short(age_bufs[3][:], md_common.apply_state_artifact_age_ms(state.active_apply_state, .Candle, diag_now)),
+			staleness_label(md_common.apply_state_artifact_staleness(state.active_apply_state, .Candle, diag_now, diag_tf))))
+		append_line(buf[:], &n, as4[:], as4_len)
+		stale_c, aging_c := md_common.apply_state_stale_artifact_count(state.active_apply_state, diag_now, diag_tf)
+		if stale_c > 0 || aging_c > 0 {
+			as5: [64]u8
+			as5_len := len(fmt.bprintf(as5[:], "  staleness: stale=%d aging=%d", stale_c, aging_c))
+			append_line(buf[:], &n, as5[:], as5_len)
+		}
+		// S29/S30: Recovery status with adaptive cooldown in diagnostics
+		if telem.recovery_attempts > 0 {
+			rec_label := "recovering"
+			if telem.recovery_status == .Exhausted do rec_label = "exhausted"
+			as6: [96]u8
+			as6_len := len(fmt.bprintf(as6[:], "  recovery: %s attempts=%d/%d cooldown=%ds remaining=%ds",
+				rec_label, telem.recovery_attempts, md_common.RECOVERY_MAX_ATTEMPTS,
+				telem.recovery_cooldown_ms / 1000, telem.recovery_cooldown_remaining_ms / 1000))
+			append_line(buf[:], &n, as6[:], as6_len)
+		}
+	}
+
+	// S31: Aggregate Health
+	append_str(buf[:], &n, "\nAGGREGATE HEALTH:\n")
+	{
+		agg := compute_aggregate_health(state)
+		hl_label := "Healthy"
+		switch agg.health_level {
+		case .Degraded:  hl_label = "Degraded"
+		case .Unhealthy: hl_label = "Unhealthy"
+		case .Critical:  hl_label = "Critical"
+		case .Healthy:
+		}
+		ah1: [128]u8
+		ah1_len := len(fmt.bprintf(ah1[:], "  health=%s slots=%d composed=%d live=%d pending=%d empty=%d",
+			hl_label, agg.slot_count, agg.slots_composed, agg.slots_live_only,
+			agg.slots_pending, agg.slots_empty))
+		append_line(buf[:], &n, ah1[:], ah1_len)
+		ah2: [96]u8
+		ah2_len := len(fmt.bprintf(ah2[:], "  recovering=%d exhausted=%d stale=%d aging=%d events=%d",
+			agg.slots_recovering, agg.slots_exhausted,
+			agg.total_stale, agg.total_aging, agg.total_event_count))
+		append_line(buf[:], &n, ah2[:], ah2_len)
+		// Recovery event log
+		rev_count := min(state.recovery_log.count, 8)
+		if rev_count > 0 {
+			append_str(buf[:], &n, "  recovery_log:\n")
+			for ri in 0 ..< rev_count {
+				rev, rok := md_common.recovery_event_log_get(&state.recovery_log, ri)
+				if !rok do break
+				rev_kind := "attempt"
+				switch rev.kind {
+				case .Success:   rev_kind = "success"
+				case .Exhausted: rev_kind = "exhausted"
+				case .Reset:     rev_kind = "reset"
+				case .Attempt:
+				}
+				rl: [64]u8
+				rl_len := len(fmt.bprintf(rl[:], "    [%s] slot=%d att=%d ts=%d", rev_kind, rev.slot_id, rev.attempts, rev.timestamp))
+				append_line(buf[:], &n, rl[:], rl_len)
+			}
+		}
 	}
 
 	// Transport

@@ -1,6 +1,7 @@
 package app
 
 import "core:strings"
+import "mr:md_common"
 import "mr:ports"
 import "mr:services"
 
@@ -385,11 +386,11 @@ resolve_stores_for_cell :: proc(state: ^App_State, ci: int) -> Cell_Stores {
 	}
 	if slot := find_market_channel_slot(state, reg, venue, symbol, .Heatmaps, cell_tf); slot != nil {
 		stores.heatmap = &slot.heatmap_store
-		stores.heatmap_live = slot.has_heatmap_snapshot
+		stores.heatmap_live = slot.apply_state.has_live[.Heatmap]
 	}
 	if slot := find_market_channel_slot(state, reg, venue, symbol, .VPVR, cell_tf); slot != nil {
 		stores.vpvr = &slot.vpvr_store
-		stores.vpvr_live = slot.has_live_vpvr
+		stores.vpvr_live = slot.apply_state.has_live[.VPVR]
 	}
 	if slot := find_market_channel_slot(state, reg, venue, symbol, .Trades); slot != nil {
 		stores.trades = &slot.trades_store
@@ -402,4 +403,26 @@ resolve_stores_for_cell :: proc(state: ^App_State, ci: int) -> Cell_Stores {
 	}
 
 	return stores
+}
+
+// S26: Resolve the composition stage for a cell. Pure query — no mutation.
+// Bound cells use their GetRange_Component + slot live candle state.
+// Follow-active cells use the global active composition stage.
+resolve_cell_composition :: proc(state: ^App_State, ci: int) -> md_common.Composition_Stage {
+	if state == nil || ci < 0 || ci >= state.world.count do return .Empty
+	gr := state.world.getranges[ci]
+	bind := &state.world.bindings[ci]
+
+	// Follow-active: derive from global active apply state.
+	if bind.stream_idx < 0 && !binding_has(bind) {
+		return md_common.apply_state_composition_stage(state.active_apply_state)
+	}
+
+	// Bound cell: derive from cell getrange + slot live candle.
+	has_live_candle := false
+	reg := state.stream_views
+	if reg != nil && bind.stream_idx >= 0 && bind.stream_idx < STREAM_VIEW_CAP && reg.slots[bind.stream_idx].used {
+		has_live_candle = reg.slots[bind.stream_idx].apply_state.has_live[.Candle]
+	}
+	return md_common.cell_composition_stage(gr.pending, gr.seeded, has_live_candle)
 }

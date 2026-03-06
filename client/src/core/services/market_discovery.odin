@@ -162,3 +162,154 @@ markets_symbol_at :: proc(store: ^Markets_Store, venue: string, idx: int) -> ^Ma
 	}
 	return nil
 }
+
+// ---------------------------------------------------------------------------
+// S20: Session bootstrap parser (GET /api/v1/session)
+// ---------------------------------------------------------------------------
+
+Session_Bootstrap :: struct {
+	server_time_ms: i64,
+	ready:          bool,
+}
+
+@(private = "file")
+Session_Market_JSON :: struct {
+	venue:       string   `json:"venue"`,
+	instruments: []string `json:"instruments"`,
+}
+
+@(private = "file")
+Session_JSON :: struct {
+	server_time_ms: i64                  `json:"server_time_ms"`,
+	ready:          bool                 `json:"ready"`,
+	markets:        []Session_Market_JSON `json:"markets"`,
+}
+
+// Parse GET /api/v1/session response. Populates bootstrap fields and optionally
+// merges markets into the store (instruments only, no tick_size/market_type —
+// those come from the existing fetch_markets path or defaults).
+session_parse_json :: proc(store: ^Markets_Store, data: []u8, out: ^Session_Bootstrap) -> bool {
+	if len(data) == 0 do return false
+	if out == nil do return false
+
+	root: Session_JSON
+	if json.unmarshal(data, &root) != nil do return false
+
+	out.server_time_ms = root.server_time_ms
+	out.ready = root.ready
+
+	// Merge session markets into store — only add entries that don't already exist.
+	// Session markets lack tick_size/market_type so existing defaults take priority.
+	for m in root.markets {
+		if len(m.venue) == 0 do continue
+		for inst in m.instruments {
+			if len(inst) == 0 do continue
+			if store.count >= MARKET_CAP do break
+			// Check for duplicate.
+			found := false
+			for i in 0 ..< store.count {
+				if store.entries[i].venue == m.venue && store.entries[i].ticker == inst {
+					found = true
+					break
+				}
+			}
+			if !found {
+				store.entries[store.count] = Market_Entry{
+					venue       = m.venue,
+					ticker      = inst,
+					tick_size   = 0.01,
+					market_type = "SPOT",
+				}
+				store.count += 1
+			}
+		}
+	}
+	store.loaded = true
+	return true
+}
+
+// ---------------------------------------------------------------------------
+// S20: Freshness parser (GET /api/v1/freshness)
+// ---------------------------------------------------------------------------
+
+Freshness_Result :: struct {
+	active:     bool,
+	checked_at: i64,
+	channels:   [FRESHNESS_RESULT_CAP]Freshness_Channel_Result,
+	count:      int,
+}
+
+Freshness_Channel_Result :: struct {
+	name:    string,
+	flowing: bool,
+	lag_ms:  i64,
+}
+
+FRESHNESS_RESULT_CAP :: 16
+
+@(private = "file")
+Freshness_Channel_JSON :: struct {
+	last_event_ts: i64  `json:"last_event_ts"`,
+	lag_ms:        i64  `json:"lag_ms"`,
+	flowing:       bool `json:"flowing"`,
+}
+
+@(private = "file")
+Freshness_JSON :: struct {
+	venue:      string                              `json:"venue"`,
+	instrument: string                              `json:"instrument"`,
+	active:     bool                                `json:"active"`,
+	channels:   map[string]Freshness_Channel_JSON   `json:"channels"`,
+	checked_at: i64                                 `json:"checked_at"`,
+}
+
+freshness_parse_json :: proc(data: []u8, out: ^Freshness_Result) -> bool {
+	if len(data) == 0 || out == nil do return false
+
+	root: Freshness_JSON
+	if json.unmarshal(data, &root) != nil do return false
+
+	out.active = root.active
+	out.checked_at = root.checked_at
+	out.count = 0
+	for name, ch in root.channels {
+		if out.count >= FRESHNESS_RESULT_CAP do break
+		out.channels[out.count] = Freshness_Channel_Result{
+			name    = name,
+			flowing = ch.flowing,
+			lag_ms  = ch.lag_ms,
+		}
+		out.count += 1
+	}
+	return true
+}
+
+// ---------------------------------------------------------------------------
+// S20: Timeline parser (GET /api/v1/timeline)
+// ---------------------------------------------------------------------------
+
+Timeline_Result :: struct {
+	first_ts: i64,
+	last_ts:  i64,
+}
+
+@(private = "file")
+Timeline_JSON :: struct {
+	venue:      string `json:"venue"`,
+	instrument: string `json:"instrument"`,
+	timeframe:  string `json:"timeframe"`,
+	artifact:   string `json:"artifact"`,
+	first_ts:   i64    `json:"first_ts"`,
+	last_ts:    i64    `json:"last_ts"`,
+}
+
+timeline_parse_json :: proc(data: []u8, out: ^Timeline_Result) -> bool {
+	if len(data) == 0 || out == nil do return false
+
+	root: Timeline_JSON
+	if json.unmarshal(data, &root) != nil do return false
+
+	out.first_ts = root.first_ts
+	out.last_ts = root.last_ts
+	return true
+}

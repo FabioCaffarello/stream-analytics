@@ -13,16 +13,16 @@ import (
 func testOIClosed() aggdomain.OpenInterestClosed {
 	return aggdomain.OpenInterestClosed{
 		Window: aggdomain.OpenInterestWindowV1{
-			Venue:        "binance",
-			Instrument:   "BTCUSDT",
-			Timeframe:    "raw",
+			Venue:         "binance",
+			Instrument:    "BTCUSDT",
+			Timeframe:     "raw",
 			WindowStartTs: 1_710_000_000_000,
 			WindowEndTs:   1_710_000_000_000,
-			OpenInterest: 15000.0,
-			Delta:        200.0,
-			DeltaPct:     0.0135,
-			Seq:          42,
-			TsIngestMs:   1_710_000_000_100,
+			OpenInterest:  15000.0,
+			Delta:         200.0,
+			DeltaPct:      0.0135,
+			Seq:           42,
+			TsIngestMs:    1_710_000_000_100,
 		},
 	}
 }

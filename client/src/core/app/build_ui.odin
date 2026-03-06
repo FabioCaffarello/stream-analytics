@@ -652,6 +652,34 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 				ui.push_text(&state.cmd_buf, {sx, sy}, phase_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
 				sx += state.text.measure(ui.FONT_SIZE_XS, phase_str).x + 8
 			}
+
+			// S27: Apply state summary (composition + active artifacts).
+			apply_str := cache_string(state.telemetry.hud_cache.apply_buf[:], state.telemetry.hud_cache.apply_len)
+			if len(apply_str) > 0 {
+				apply_color := ui.COL_TEXT_MUTED
+				switch state.active_metrics.context_stage {
+				case .Composed:      apply_color = ui.COL_GREEN
+				case .Live_Only:     apply_color = ui.COL_YELLOW_ACCENT
+				case .Backfilled, .Range_Pending: apply_color = ui.COL_WARNING
+				case .Empty:
+				}
+				ui.push_text(&state.cmd_buf, {sx, sy}, apply_str, apply_color, ui.FONT_SIZE_XS, .Mono)
+				sx += state.text.measure(ui.FONT_SIZE_XS, apply_str).x + 8
+			}
+
+			// S28: Per-artifact age.
+			age_str := cache_string(state.telemetry.hud_cache.age_buf[:], state.telemetry.hud_cache.age_len)
+			if len(age_str) > 0 {
+				ui.push_text(&state.cmd_buf, {sx, sy}, age_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+				sx += state.text.measure(ui.FONT_SIZE_XS, age_str).x + 8
+			}
+
+			// S31: Aggregate health badge.
+			agg_str := cache_string(state.telemetry.hud_cache.agg_buf[:], state.telemetry.hud_cache.agg_len)
+			if len(agg_str) > 0 {
+				ui.push_text(&state.cmd_buf, {sx, sy}, agg_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+				sx += state.text.measure(ui.FONT_SIZE_XS, agg_str).x + 8
+			}
 		}
 
 		// Frame time p50.
@@ -688,11 +716,17 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 			ctx_label := "CTX:EMPTY"
 			ctx_color := ui.COL_TEXT_MUTED
 			switch state.active_metrics.context_stage {
+			case .Range_Pending:
+				ctx_label = "CTX:PENDING"
+				ctx_color = ui.COL_WARNING
 			case .Backfilled:
 				ctx_label = "CTX:BACKFILLED"
 				ctx_color = ui.COL_WARNING
-			case .Live:
-				ctx_label = "CTX:LIVE"
+			case .Live_Only:
+				ctx_label = "CTX:LIVE_ONLY"
+				ctx_color = ui.COL_YELLOW_ACCENT
+			case .Composed:
+				ctx_label = "CTX:COMPOSED"
 				ctx_color = ui.COL_GREEN
 			case .Empty:
 			}

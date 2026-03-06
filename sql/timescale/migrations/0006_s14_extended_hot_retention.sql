@@ -17,6 +17,9 @@ CREATE INDEX IF NOT EXISTS idx_aggregation_cvd_timeframe_created_at
 CREATE INDEX IF NOT EXISTS idx_aggregation_bar_stats_timeframe_created_at
     ON aggregation_bar_stats (timeframe, created_at);
 
+-- Drop the old 2-column version so we can recreate with 7-column return type.
+DROP FUNCTION IF EXISTS cleanup_aggregation_hot_retention(TIMESTAMPTZ);
+
 -- +goose StatementBegin
 CREATE OR REPLACE FUNCTION cleanup_aggregation_hot_retention(ref_ts TIMESTAMPTZ DEFAULT NOW())
 RETURNS TABLE (

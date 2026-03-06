@@ -13,11 +13,11 @@ import (
 // without exposing internal stream IDs, observability internals, or
 // hot/cold storage details.
 type FreshnessResponse struct {
-	Venue      string                       `json:"venue"`
-	Instrument string                       `json:"instrument"`
-	Active     bool                         `json:"active"`
-	Channels   map[string]ChannelFreshness  `json:"channels"`
-	CheckedAt  int64                        `json:"checked_at"`
+	Venue      string                      `json:"venue"`
+	Instrument string                      `json:"instrument"`
+	Active     bool                        `json:"active"`
+	Channels   map[string]ChannelFreshness `json:"channels"`
+	CheckedAt  int64                       `json:"checked_at"`
 }
 
 // ChannelFreshness describes the flow state of one data channel.

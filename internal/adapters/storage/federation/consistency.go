@@ -9,19 +9,19 @@ import (
 
 // ConsistencyReport summarises hot vs cold alignment for a single artifact slice.
 type ConsistencyReport struct {
-	Artifact      string  `json:"artifact"`
-	Venue         string  `json:"venue"`
-	Instrument    string  `json:"instrument"`
-	Timeframe     string  `json:"timeframe"`
-	HotCount      int     `json:"hot_count"`
-	ColdCount     int     `json:"cold_count"`
-	OverlapCount  int     `json:"overlap_count"`
-	MissingInCold int     `json:"missing_in_cold"`
-	MissingInHot  int     `json:"missing_in_hot"`
-	HotMinTs      int64   `json:"hot_min_ts"`
-	HotMaxTs      int64   `json:"hot_max_ts"`
-	ColdMinTs     int64   `json:"cold_min_ts"`
-	ColdMaxTs     int64   `json:"cold_max_ts"`
+	Artifact      string `json:"artifact"`
+	Venue         string `json:"venue"`
+	Instrument    string `json:"instrument"`
+	Timeframe     string `json:"timeframe"`
+	HotCount      int    `json:"hot_count"`
+	ColdCount     int    `json:"cold_count"`
+	OverlapCount  int    `json:"overlap_count"`
+	MissingInCold int    `json:"missing_in_cold"`
+	MissingInHot  int    `json:"missing_in_hot"`
+	HotMinTs      int64  `json:"hot_min_ts"`
+	HotMaxTs      int64  `json:"hot_max_ts"`
+	ColdMinTs     int64  `json:"cold_min_ts"`
+	ColdMaxTs     int64  `json:"cold_max_ts"`
 }
 
 // ConsistencyChecker compares row counts and timestamp coverage across tiers.

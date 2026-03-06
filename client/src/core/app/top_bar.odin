@@ -173,6 +173,40 @@ draw_top_bar :: proc(state: ^App_State, input: ports.Input_State, viewport_w: f3
 	}
 	right_x = badge_x - 6
 
+	// S20: Backend readiness badge (shown when session bootstrap has data and backend is not ready).
+	if state.bootstrap.has_session && !state.bootstrap.ready {
+		rdy_label := "NOT READY"
+		rdy_w := ui.status_badge_width(rdy_label, state.text.measure, ui.FONT_SIZE_XS)
+		rdy_h := f32(16)
+		rdy_x := right_x - rdy_w
+		rdy_y := (bar_h - rdy_h) * 0.5
+		ui.status_badge(&state.cmd_buf,
+			{pos = {rdy_x, rdy_y}, size = {rdy_w, rdy_h}},
+			rdy_label, ui.COL_RED, ui.COL_RED, state.text.measure, ui.FONT_SIZE_XS)
+		right_x = rdy_x - 6
+	}
+
+	// S20 Slice 2: Freshness badge — shows "FLOWING" or "STALE" when freshness data loaded.
+	if state.freshness.loaded && current_conn_status(state) == .Connected {
+		fr_label: string
+		fr_color: ui.Color
+		if state.freshness.active {
+			fr_label = "FLOWING"
+			fr_color = ui.COL_GREEN
+		} else {
+			fr_label = "STALE"
+			fr_color = ui.COL_YELLOW_ACCENT
+		}
+		fr_w := ui.status_badge_width(fr_label, state.text.measure, ui.FONT_SIZE_XS)
+		fr_h := f32(16)
+		fr_x := right_x - fr_w
+		fr_y := (bar_h - fr_h) * 0.5
+		ui.status_badge(&state.cmd_buf,
+			{pos = {fr_x, fr_y}, size = {fr_w, fr_h}},
+			fr_label, fr_color, fr_color, state.text.measure, ui.FONT_SIZE_XS)
+		right_x = fr_x - 6
+	}
+
 	// Error indicator: red dot + tooltip for recent errors.
 	if state.error_state.len > 0 && state.frame > 0 && (state.frame - state.error_state.frame) < 300 {
 		err_dot_size := f32(4)

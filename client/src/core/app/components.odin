@@ -3,6 +3,7 @@ package app
 // ECS-like Entity Component System for grid cells.
 // Each cell is an entity (0..CELL_MAX-1). Components are parallel arrays.
 
+import "mr:md_common"
 import "mr:ports"
 import "mr:services"
 import "mr:streams"
@@ -340,7 +341,7 @@ Active_Stream_Metrics :: struct {
 	has_live_heatmap:     bool,
 	has_live_vpvr:        bool,
 	has_live_candle:      bool,
-	context_stage:        Context_Stage,
+	context_stage:        md_common.Composition_Stage,
 	transport_state:       ports.MD_Transport_State,
 	ws_error_category:     ports.MD_WS_Error_Category,
 	ws_error_action:       ports.MD_WS_Error_Action,
@@ -433,8 +434,4 @@ Backpressure_Assist_State :: struct {
 	dropped_evidence: u64,
 }
 
-Context_Stage :: enum u8 {
-	Empty,
-	Backfilled,
-	Live,
-}
+// S26: Context_Stage removed — replaced by md_common.Composition_Stage (5 values, derived).

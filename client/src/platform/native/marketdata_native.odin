@@ -504,6 +504,9 @@ make_marketdata_native :: proc(url: string, api_key: string = "") -> ports.Marke
 		disconnect_transport = native_disconnect_transport,
 		shutdown        = native_shutdown,
 		fetch_markets   = native_fetch_markets,
+		fetch_session   = native_fetch_session,
+		fetch_freshness = native_fetch_freshness,
+		fetch_timeline  = native_fetch_timeline,
 	}
 }
 
@@ -2334,4 +2337,93 @@ native_fetch_markets :: proc(out_buf: [^]u8, out_cap: i32) -> i32 {
 		out_buf[i] = body[i]
 	}
 	return copy_len
+}
+
+// S20: Shared native HTTP GET helper — fires a blocking request to the given path.
+@(private = "file")
+native_http_get :: proc(path: string, out_buf: [^]u8, out_cap: i32) -> i32 {
+	state := g_md_state
+	if state == nil || out_cap <= 0 do return 0
+
+	ws_url := state.ws_url
+	parsed, ok := ws_parse_url(ws_url)
+	if !ok do return 0
+	if parsed.scheme == .WSS do return 0  // can't do HTTPS yet
+
+	endpoint, resolve_err := ws_resolve_host(parsed.host, parsed.port)
+	if resolve_err != nil do return 0
+
+	conn, dial_err := net.dial_tcp(endpoint)
+	if dial_err != nil do return 0
+	defer net.close(conn)
+
+	timeout := 3 * time.Second
+	_ = net.set_option(conn, .Receive_Timeout, timeout)
+	_ = net.set_option(conn, .Send_Timeout, timeout)
+
+	req_buf: [512]u8
+	req := fmt.bprintf(req_buf[:],
+		"GET %s HTTP/1.0\r\n" +
+		"Host: %s\r\n" +
+		"Accept: application/json\r\n" +
+		"Connection: close\r\n" +
+		"\r\n",
+		path, parsed.host_port)
+
+	req_bytes := transmute([]u8)req
+	{
+		total_sent := 0
+		for total_sent < len(req_bytes) {
+			sent, send_err := net.send_tcp(conn, req_bytes[total_sent:])
+			if send_err != nil do return 0
+			if sent <= 0 do return 0
+			total_sent += sent
+		}
+	}
+
+	HTTP_BUF_CAP :: 32 * 1024
+	resp_buf: [HTTP_BUF_CAP]u8
+	total_read := 0
+	for total_read < HTTP_BUF_CAP {
+		received, recv_err := net.recv_tcp(conn, resp_buf[total_read:])
+		if received > 0 do total_read += received
+		if recv_err != nil || received <= 0 do break
+	}
+	if total_read == 0 do return 0
+
+	resp := string(resp_buf[:total_read])
+	body_start := strings.index(resp, "\r\n\r\n")
+	if body_start < 0 do return 0
+	body := resp[body_start + 4:]
+	if len(body) == 0 do return 0
+	if !strings.has_prefix(resp, "HTTP/1.0 200") && !strings.has_prefix(resp, "HTTP/1.1 200") {
+		return 0
+	}
+
+	copy_len := min(i32(len(body)), out_cap)
+	for i in 0 ..< int(copy_len) {
+		out_buf[i] = body[i]
+	}
+	return copy_len
+}
+
+@(private = "file")
+native_fetch_session :: proc(out_buf: [^]u8, out_cap: i32) -> i32 {
+	return native_http_get("/api/v1/session", out_buf, out_cap)
+}
+
+@(private = "file")
+native_fetch_freshness :: proc(out_buf: [^]u8, out_cap: i32, venue: string, instrument: string) -> i32 {
+	if len(venue) == 0 || len(instrument) == 0 do return 0
+	path_buf: [256]u8
+	path := fmt.bprintf(path_buf[:], "/api/v1/freshness?venue=%s&instrument=%s", venue, instrument)
+	return native_http_get(path, out_buf, out_cap)
+}
+
+@(private = "file")
+native_fetch_timeline :: proc(out_buf: [^]u8, out_cap: i32, venue: string, instrument: string, timeframe: string) -> i32 {
+	if len(venue) == 0 || len(instrument) == 0 || len(timeframe) == 0 do return 0
+	path_buf: [256]u8
+	path := fmt.bprintf(path_buf[:], "/api/v1/timeline?venue=%s&instrument=%s&timeframe=%s&artifact=candle", venue, instrument, timeframe)
+	return native_http_get(path, out_buf, out_cap)
 }

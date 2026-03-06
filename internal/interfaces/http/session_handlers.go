@@ -14,10 +14,10 @@ import (
 // It combines server identity, readiness, available markets, and artifact
 // capabilities into a single payload — replacing multiple startup HTTP calls.
 type SessionOverviewResponse struct {
-	ServerTimeMs int64                 `json:"server_time_ms"`
-	Ready        bool                  `json:"ready"`
-	Markets      []SessionMarket       `json:"markets"`
-	Capabilities SessionCapabilities   `json:"capabilities"`
+	ServerTimeMs int64               `json:"server_time_ms"`
+	Ready        bool                `json:"ready"`
+	Markets      []SessionMarket     `json:"markets"`
+	Capabilities SessionCapabilities `json:"capabilities"`
 }
 
 // SessionMarket describes one venue and its available instruments.
@@ -28,7 +28,7 @@ type SessionMarket struct {
 
 // SessionCapabilities describes available artifacts, their timeframes, and endpoints.
 type SessionCapabilities struct {
-	Artifacts  []SessionArtifact `json:"artifacts"`
+	Artifacts []SessionArtifact `json:"artifacts"`
 }
 
 // SessionArtifact describes one artifact type with its timeframes and endpoint.

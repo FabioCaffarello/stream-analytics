@@ -470,7 +470,7 @@ type DeliveryConfig struct {
 	// SessionSpawnTimeout is the request timeout for spawning a new WS session.  Default: "2s".
 	SessionSpawnTimeout string `json:"session_spawn_timeout"`
 	// RouterStreamStateTTL bounds delivery router stream-state retention. Default: "30m".
-	RouterStreamStateTTL string             `json:"router_stream_state_ttl"`
+	RouterStreamStateTTL string `json:"router_stream_state_ttl"`
 	// RequireClientHello gates subscribe/resync/getrange behind a client hello.
 	// Default false for backward compatibility.
 	RequireClientHello bool               `json:"require_client_hello,omitempty"`

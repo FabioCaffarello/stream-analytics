@@ -3,6 +3,7 @@ package app
 import "core:fmt"
 import "core:time"
 import "mr:layers"
+import "mr:md_common"
 import "mr:ports"
 import "mr:services"
 import "mr:streams"
@@ -130,11 +131,8 @@ Stream_View_Slot :: struct {
 	stream_info:     ports.MD_Stream_Info,
 	has_channel:     bool,
 	channel:         ports.MD_Channel,
-	orderbook_snapshot_seen: bool,
 	has_timeframe_ms: bool,
 	timeframe_ms:     i64,
-	has_heatmap_snapshot: bool,
-	has_live_vpvr:       bool,
 	heatmap_snapshot:     services.Heatmap_Snapshot,
 	heatmap_store:        services.Heatmap_Store,
 	vpvr_store:           services.VPVR_Store,
@@ -142,6 +140,8 @@ Stream_View_Slot :: struct {
 	orderbook_store: services.Orderbook_Store,
 	stats_store:     services.Stats_Store,
 	candle_store:    services.Candle_Store,
+	// S23: Canonical per-stream apply state (replaces scattered booleans above).
+	apply_state:     md_common.Stream_Apply_State,
 }
 
 Stream_View_Registry :: struct {
@@ -324,6 +324,18 @@ Telemetry_HUD_Cache :: struct {
 	// Sub-phase timing cache.
 	phase_buf: [128]u8,
 	phase_len: int,
+	// S27: Per-artifact event count cache.
+	artifact_buf: [128]u8,
+	artifact_len: int,
+	// S27: Composition + apply state summary cache.
+	apply_buf: [96]u8,
+	apply_len: int,
+	// S28: Per-artifact age cache.
+	age_buf: [128]u8,
+	age_len: int,
+	// S31: Aggregate health summary cache.
+	agg_buf: [96]u8,
+	agg_len: int,
 }
 
 App_State :: struct {
@@ -381,8 +393,6 @@ App_State :: struct {
 
 	active_tf_idx:    int,      // index into TF_OPTIONS
 	getrange:         GetRange_Global_State,
-	// Synthetic heatmap throttle (1-per-TF-window).
-	synth_heatmap_last_window: i64,
 
 	chart_display:   Chart_Display_State,
 	indicators:      Global_Indicator_State,
@@ -416,6 +426,52 @@ App_State :: struct {
 	// Subscription reconcile: previous wanted set for diff-aware unsubscribe (BUG-1 fix).
 	prev_subs:       [SUB_WANT_CAP]Prev_Sub_Entry,
 	prev_subs_count: int,
+
+	// S20: HTTP bootstrap state from GET /api/v1/session.
+	bootstrap: Bootstrap_State,
+	freshness: Freshness_State,
+	timeline:  Timeline_State,
+
+	// S21: Unified bootstrap lifecycle state.
+	lifecycle:          md_common.Bootstrap_Lifecycle,
+	was_ever_connected: bool, // True once WS has connected at least once (distinguishes Ready vs Offline).
+
+	// S23/S25: Canonical active-stream apply state. Single source of truth for
+	// has_live_*, snapshot_seen, synthetic fallback, getrange, and composition stage.
+	// Synced to active_metrics + getrange via apply_state_sync_all each frame.
+	active_apply_state: md_common.Stream_Apply_State,
+
+	// S31: Recovery event log — canonical ring buffer for recovery observability.
+	recovery_log:       md_common.Recovery_Event_Log,
+}
+
+// S20: Bootstrap state populated from GET /api/v1/session.
+Bootstrap_State :: struct {
+	server_time_ms: i64,
+	ready:          bool,
+	has_session:    bool,
+}
+
+// S20: Per-channel freshness from GET /api/v1/freshness.
+FRESHNESS_CHANNEL_CAP :: 9
+
+Channel_Freshness :: struct {
+	flowing: bool,
+	lag_ms:  i64,
+}
+
+Freshness_State :: struct {
+	active:     bool,
+	channels:   [FRESHNESS_CHANNEL_CAP]Channel_Freshness,
+	checked_at: i64,
+	loaded:     bool,
+}
+
+// S20: Data availability from GET /api/v1/timeline.
+Timeline_State :: struct {
+	first_ts: i64,
+	last_ts:  i64,
+	loaded:   bool,
 }
 
 init :: proc(
@@ -496,8 +552,29 @@ init :: proc(
 		layers.market_store_seed_demo(&state.layer_store, 1)
 	}
 
-	// Load market discovery (defaults + HTTP fetch from backend).
+	// S20: Load market discovery (defaults + session bootstrap + markets fetch).
 	services.markets_load_defaults(&state.stores.markets)
+
+	// Try session bootstrap first — gives readiness + server_time + markets overview.
+	if state.marketdata.fetch_session != nil {
+		session_buf: [8192]u8
+		sn := state.marketdata.fetch_session(raw_data(session_buf[:]), i32(len(session_buf)))
+		if sn > 0 {
+			bootstrap_out: services.Session_Bootstrap
+			if services.session_parse_json(&state.stores.markets, session_buf[:int(sn)], &bootstrap_out) {
+				state.bootstrap.has_session = true
+				state.bootstrap.server_time_ms = bootstrap_out.server_time_ms
+				state.bootstrap.ready = bootstrap_out.ready
+			}
+		}
+	}
+	// S21: Derive lifecycle after session parse.
+	state.lifecycle = md_common.derive_lifecycle(
+		state.bootstrap.has_session, state.bootstrap.ready, state.stores.markets.loaded,
+		false, false, false, false, false,
+	)
+
+	// Full market details (tick_size, market_type) — still needed since session lacks them.
 	if state.marketdata.fetch_markets != nil {
 		markets_buf: [4096]u8
 		n := state.marketdata.fetch_markets(raw_data(markets_buf[:]), i32(len(markets_buf)))
@@ -505,6 +582,11 @@ init :: proc(
 			services.markets_parse_json(&state.stores.markets, markets_buf[:int(n)])
 		}
 	}
+	// S21: Re-derive lifecycle after markets fetch.
+	state.lifecycle = md_common.derive_lifecycle(
+		state.bootstrap.has_session, state.bootstrap.ready, state.stores.markets.loaded,
+		false, false, false, false, false,
+	)
 
 	// Initialize settings store.
 	if settings_port.load != nil {
@@ -667,9 +749,11 @@ init :: proc(
 	}
 
 	// Auto-connect: if auto_connect=1 and we have an active profile with URL, reconnect.
+	// S20: Gate on bootstrap readiness — skip WS connect if backend reported not_ready.
 	if !offline {
+		backend_ready := !state.bootstrap.has_session || state.bootstrap.ready
 		auto_connect_val, _ := services.settings_get(&state.settings, services.SETTING_AUTO_CONNECT)
-		if auto_connect_val == "1" {
+		if auto_connect_val == "1" && backend_ready {
 			if profile := services.profile_store_active(&state.profiles); profile != nil {
 				ws_url := services.profile_ws_url(profile)
 				api_key := services.profile_api_key_ref(profile)
@@ -684,6 +768,10 @@ init :: proc(
 	// non-default venues/symbols get their data channels subscribed on startup.
 	if !offline {
 		reconcile_subscriptions(state)
+
+		// S20 Slice 3: Fetch timeline bounds before requesting historical candles.
+		fetch_timeline_for_active(state)
+
 		// Prime historical candles even before first live event, so high TF startup
 		// does not stay empty waiting for a subject event to create an active slot.
 		if state.stores.candle.count <= 0 {
@@ -1004,6 +1092,7 @@ update :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buffe
 
 	sample_marketdata_metrics(state)
 	observe_candle_health(state)
+	poll_freshness(state)
 	cache_render_observations(state, frame_input)
 	buf := build_ui(state, frame_input)
 	if state.ui_action_count > 0 {
@@ -1036,6 +1125,7 @@ update_web :: proc(state: ^App_State, input: ports.Input_State) -> (buf: ^ui.Com
 	t2 := time.tick_now()
 
 	sample_marketdata_metrics(state)
+	poll_freshness(state)
 
 	conn := current_conn_status(state)
 	candle_health_changed := observe_candle_health(state)

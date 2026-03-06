@@ -1,5 +1,6 @@
 package app
 
+import "mr:md_common"
 import "mr:ports"
 import "mr:services"
 import "mr:streams"
@@ -230,26 +231,17 @@ apply_synthetic_vpvr_from_orderbook :: proc(store: ^services.VPVR_Store, ob: por
 // Per-event-type handlers (extracted from drain_marketdata for readability).
 // ---------------------------------------------------------------------------
 
+// S23: Delegate to canonical backpressure policy in md_common.
 @(private = "file")
 should_skip_event_by_backpressure_policy :: proc(state: ^App_State, kind: ports.MD_Event_Kind) -> bool {
 	if state == nil do return false
-	level := max(state.active_metrics.server_backpressure_level, 0)
-
-	// Priority policy by event type:
-	// - Always keep: trade/orderbook/candle/range/signal/stats.
-	// - Assist-managed degrade: heatmap/vpvr.
-	// - Critical overload (L3+): evidence is dropped first.
-	#partial switch kind {
-	case .Trade, .Orderbook_Snapshot, .Stats, .Candle, .Range_Candle_Batch, .Signal, .Tape:
-		return false
-	case .Heatmap:
-		return state.bp_assist.enabled && state.bp_assist.degrade_heatmap
-	case .VPVR:
-		return state.bp_assist.enabled && state.bp_assist.degrade_vpvr
-	case .Evidence:
-		return level >= 3
-	}
-	return false
+	return md_common.should_skip_by_bp_policy(
+		kind,
+		state.bp_assist.enabled,
+		state.bp_assist.degrade_heatmap,
+		state.bp_assist.degrade_vpvr,
+		max(state.active_metrics.server_backpressure_level, 0),
+	)
 }
 
 @(private = "file")
@@ -268,10 +260,13 @@ record_backpressure_policy_skip :: proc(state: ^App_State, kind: ports.MD_Event_
 
 handle_trade_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, t: ports.MD_Trade_Event, unix: i64, is_active_stream: bool) {
 	record_stream_event(state, slot, .Trade, unix, 0, false, is_active_stream)
+	now_ms := current_now_ms(state)
 	if slot != nil {
 		apply_trade_to_store(&slot.trades_store, t)
+		md_common.apply_state_mark_event(&slot.apply_state, .Trade, now_ms, false)
 	}
 	if is_active_stream {
+		md_common.apply_state_mark_event(&state.active_apply_state, .Trade, now_ms, false)
 		apply_trade_to_store(&state.stores.trades, t)
 		// DOM fill tracking.
 		dom_group := state.stores.dom.price_group
@@ -283,11 +278,11 @@ handle_trade_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, t: ports.
 		fp_tf := active_timeframe_ms(state)
 		fp_group := dom_group > 0 ? dom_group : 1.0
 		services.footprint_store_push_trade(&state.stores.footprint, t.price, t.qty, t.is_buy, t.unix * 1000, fp_tf, fp_group)
-		if !state.active_metrics.has_live_stats {
+		if md_common.apply_state_should_use_synthetic(state.active_apply_state, .Stats) {
 			apply_synthetic_stats_from_trade(&state.stores.stats, t)
 		}
-		if !state.active_metrics.has_live_candle {
-			apply_synthetic_candle_from_trade(&state.stores.candle, t, active_timeframe_ms(state), current_now_ms(state))
+		if md_common.apply_state_should_use_synthetic(state.active_apply_state, .Candle) {
+			apply_synthetic_candle_from_trade(&state.stores.candle, t, active_timeframe_ms(state), now_ms)
 		}
 		// Trades on active stream prove the feed is alive for candle health tracking.
 		if now_ms := current_now_ms(state); now_ms > 0 {
@@ -311,34 +306,25 @@ handle_trade_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, t: ports.
 }
 
 // Returns true when the caller should `continue` the event loop (snapshot gap triggers resync).
-@(private = "package")
-orderbook_snapshot_gate :: proc(snapshot_seen: bool, is_snapshot: bool, ask_count: int, bid_count: int) -> (next_snapshot_seen: bool, mark_as_snapshot: bool, has_snapshot_gap: bool) {
-	if snapshot_seen {
-		return true, is_snapshot, false
-	}
-	if is_snapshot {
-		return true, true, false
-	}
-	// Some venues can stream a valid bootstrap delta before emitting explicit snapshot frames.
-	// Accept the first non-empty book as baseline to avoid permanent startup desync loops.
-	if ask_count > 0 && bid_count > 0 {
-		return true, true, false
-	}
-	return false, false, true
-}
-
-// Returns true when the caller should `continue` the event loop (snapshot gap triggers resync).
 handle_orderbook_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, ob: ports.MD_Orderbook_Event, unix: i64, seq: i64, is_active_stream: bool) -> (skip: bool) {
 	has_snapshot_gap := false
 	is_snapshot_for_stream := ob.is_snapshot
+	ob_policy := md_common.artifact_policy(.Orderbook)
+	has_data := ob.ask_count > 0 && ob.bid_count > 0
 	if slot != nil {
-		next_seen, mark_snapshot, gap := orderbook_snapshot_gate(slot.orderbook_snapshot_seen, ob.is_snapshot, ob.ask_count, ob.bid_count)
-		slot.orderbook_snapshot_seen = next_seen
-		is_snapshot_for_stream = mark_snapshot
+		accept, gap := md_common.snapshot_gate_check(ob_policy, slot.apply_state.snapshot_seen[.Orderbook], ob.is_snapshot, has_data)
+		if accept && !slot.apply_state.snapshot_seen[.Orderbook] {
+			slot.apply_state.snapshot_seen[.Orderbook] = true
+			is_snapshot_for_stream = true
+		} else if accept {
+			is_snapshot_for_stream = ob.is_snapshot
+		}
 		has_snapshot_gap = gap
 	} else {
-		_, mark_snapshot, gap := orderbook_snapshot_gate(false, ob.is_snapshot, ob.ask_count, ob.bid_count)
-		is_snapshot_for_stream = mark_snapshot
+		accept, gap := md_common.snapshot_gate_check(ob_policy, false, ob.is_snapshot, has_data)
+		if accept {
+			is_snapshot_for_stream = true
+		}
 		has_snapshot_gap = gap
 	}
 	if has_snapshot_gap {
@@ -354,10 +340,12 @@ handle_orderbook_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, ob: p
 		}
 		return true
 	}
+	now_ms := current_now_ms(state)
 	record_stream_event(state, slot, .Orderbook_Snapshot, unix, seq, is_snapshot_for_stream, is_active_stream)
 	if slot != nil {
+		md_common.apply_state_mark_event(&slot.apply_state, .Orderbook, now_ms, is_snapshot_for_stream)
 		apply_orderbook_to_store(&slot.orderbook_store, ob)
-		if !slot.has_heatmap_snapshot {
+		if !slot.apply_state.has_live[.Heatmap] {
 			synth_group := synthetic_heatmap_price_group(ob.last_price)
 			snap := build_synthetic_heatmap_snapshot_from_orderbook(ob, synth_group)
 			if snap.level_count > 0 {
@@ -371,9 +359,8 @@ handle_orderbook_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, ob: p
 		}
 	}
 	if is_active_stream {
-		if now_ms := current_now_ms(state); now_ms > 0 {
-			state.active_metrics.last_orderbook_ts_ms = now_ms
-		}
+		md_common.apply_state_mark_event(&state.active_apply_state, .Orderbook, now_ms, is_snapshot_for_stream)
+		// S32: last_orderbook_ts_ms now synced via adapter from apply_state.last_recv_ms.
 		apply_orderbook_to_store(&state.stores.orderbook, ob)
 		// Always generate synthetic heatmap from orderbook — it provides current
 		// depth (WHERE liquidity IS) while live heatmap provides aggregated
@@ -383,7 +370,7 @@ handle_orderbook_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, ob: p
 			tf_s := active_timeframe_ms(state) / 1000
 			if tf_s <= 0 do tf_s = 60
 			window := (ob.unix / tf_s) * tf_s
-			if window != state.synth_heatmap_last_window {
+			if window != state.active_apply_state.synth_heatmap_last_window {
 				synth_group := synthetic_heatmap_price_group(ob.last_price)
 				snap := build_synthetic_heatmap_snapshot_from_orderbook(ob, synth_group)
 				if snap.level_count > 0 {
@@ -391,10 +378,10 @@ handle_orderbook_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, ob: p
 					snap.window_start_ms = window * 1000
 					services.push_heatmap_snapshot(&state.stores.heatmap, snap)
 				}
-				state.synth_heatmap_last_window = window
+				state.active_apply_state.synth_heatmap_last_window = window
 			}
 		}
-		if !state.active_metrics.has_live_vpvr {
+		if md_common.apply_state_should_use_synthetic(state.active_apply_state, .VPVR) {
 			group := orderbook_auto_price_group(ob.last_price)
 			apply_synthetic_vpvr_from_orderbook(&state.stores.vpvr, ob, group)
 		}
@@ -404,20 +391,27 @@ handle_orderbook_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, ob: p
 
 handle_stats_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, st: ports.MD_Stats_Event, unix: i64, is_active_stream: bool) {
 	record_stream_event(state, slot, .Stats, unix, 0, false, is_active_stream)
+	now_ms := current_now_ms(state)
 	if slot != nil {
 		apply_stats_to_store(&slot.stats_store, st)
+		md_common.apply_state_mark_event(&slot.apply_state, .Stats, now_ms, false)
 	}
 	if is_active_stream {
-		if now_ms := current_now_ms(state); now_ms > 0 {
-			state.active_metrics.last_stats_ts_ms = now_ms
-		}
-		state.active_metrics.has_live_stats = true
+		md_common.apply_state_mark_event(&state.active_apply_state, .Stats, now_ms, false)
+		// S32: last_stats_ts_ms now synced via adapter from apply_state.last_recv_ms.
 		apply_stats_to_store(&state.stores.stats, st)
 	}
 }
 
 handle_tape_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, tp: ports.MD_Tape_Event, unix: i64, is_active_stream: bool) {
 	record_stream_event(state, slot, .Tape, unix, 0, false, is_active_stream)
+	now_ms := current_now_ms(state)
+	if slot != nil {
+		md_common.apply_state_mark_event(&slot.apply_state, .Tape, now_ms, false)
+	}
+	if is_active_stream {
+		md_common.apply_state_mark_event(&state.active_apply_state, .Tape, now_ms, false)
+	}
 	if tp.last_price <= 0 do return
 
 	qty := max(tp.total_volume, tp.buy_volume + tp.sell_volume)
@@ -439,14 +433,15 @@ handle_tape_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, tp: ports.
 
 handle_heatmap_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, hm: ports.MD_Heatmap_Event, unix: i64, is_active_stream: bool) {
 	record_stream_event(state, slot, .Heatmap, unix, 0, false, is_active_stream)
+	now_ms := current_now_ms(state)
 	snap := build_heatmap_snapshot(hm)
 	if slot != nil {
 		// First live snapshot replaces synthetic warmup samples for this slot.
-		if !slot.has_heatmap_snapshot {
+		if !slot.apply_state.has_live[.Heatmap] {
 			slot.heatmap_store = {}
 		}
-		slot.has_heatmap_snapshot = true
 		slot.heatmap_snapshot = snap
+		md_common.apply_state_mark_event(&slot.apply_state, .Heatmap, now_ms, false)
 		services.push_heatmap_snapshot(&slot.heatmap_store, snap)
 	}
 	if is_active_stream {
@@ -457,7 +452,7 @@ handle_heatmap_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, hm: por
 			len(slot.stream_info.timeframe) == 0 ||
 			slot.stream_info.timeframe == active_tf
 		if slot_tf_match {
-			state.active_metrics.has_live_heatmap = true
+			md_common.apply_state_mark_event(&state.active_apply_state, .Heatmap, now_ms, false)
 			services.push_heatmap_snapshot(&state.stores.heatmap, snap)
 		}
 	}
@@ -465,8 +460,9 @@ handle_heatmap_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, hm: por
 
 handle_vpvr_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, vpvr: ports.MD_VPVR_Event, unix: i64, is_active_stream: bool) {
 	record_stream_event(state, slot, .VPVR, unix, 0, false, is_active_stream)
+	now_ms := current_now_ms(state)
 	if slot != nil {
-		slot.has_live_vpvr = true
+		md_common.apply_state_mark_event(&slot.apply_state, .VPVR, now_ms, false)
 		apply_vpvr_to_store(&slot.vpvr_store, vpvr)
 	}
 	if is_active_stream {
@@ -477,7 +473,7 @@ handle_vpvr_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, vpvr: port
 			len(slot.stream_info.timeframe) == 0 ||
 			slot.stream_info.timeframe == active_tf
 		if slot_tf_match {
-			state.active_metrics.has_live_vpvr = true
+			md_common.apply_state_mark_event(&state.active_apply_state, .VPVR, now_ms, false)
 			apply_vpvr_to_store(&state.stores.vpvr, vpvr)
 		}
 	}
@@ -485,22 +481,22 @@ handle_vpvr_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, vpvr: port
 
 handle_candle_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, cd: ports.MD_Candle_Event, unix: i64, subject_id: u64, is_active_stream: bool) {
 	record_stream_event(state, slot, .Candle, unix, 0, false, is_active_stream)
+	now_ms := current_now_ms(state)
 	if slot != nil {
 		tf_ms := cd.window_end_ts - cd.window_start_ts
 		if tf_ms > 0 {
 			slot.has_timeframe_ms = true
 			slot.timeframe_ms = tf_ms
 		}
+		md_common.apply_state_mark_event(&slot.apply_state, .Candle, now_ms, false)
 		apply_candle_to_store(&slot.candle_store, cd)
 	}
-	now_ms := current_now_ms(state)
 	if is_active_stream && now_ms > 0 {
 		state.candle_last_recv_local_ms = now_ms
 	}
 	// TF guard: only write to global store if subject matches the active candle TF.
 	if is_active_stream && (state.getrange.active_candle_subject_id == 0 || subject_id == state.getrange.active_candle_subject_id) {
-		state.active_metrics.has_live_candle = true
-		state.active_metrics.context_stage = .Live
+		md_common.apply_state_mark_event(&state.active_apply_state, .Candle, now_ms, false)
 		apply_candle_to_store(&state.stores.candle, cd)
 		if !state.getrange.seeded {
 			request_active_stream_candle_range(state)
@@ -529,6 +525,13 @@ push_evidence :: proc(state: ^App_State, evt: ports.MD_Evidence_Event, subject_i
 
 handle_evidence_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, ev: ports.MD_Evidence_Event, unix: i64, subject_id: u64, is_active_stream: bool) {
 	record_stream_event(state, slot, .Evidence, unix, 0, false, is_active_stream)
+	now_ms := current_now_ms(state)
+	if slot != nil {
+		md_common.apply_state_mark_event(&slot.apply_state, .Evidence, now_ms, false)
+	}
+	if is_active_stream {
+		md_common.apply_state_mark_event(&state.active_apply_state, .Evidence, now_ms, false)
+	}
 	push_evidence(state, ev, subject_id)
 }
 
@@ -553,6 +556,13 @@ push_signal :: proc(state: ^App_State, evt: ports.MD_Signal_Event, subject_id: u
 
 handle_signal_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, sig: ports.MD_Signal_Event, unix: i64, subject_id: u64, seq: i64, is_active_stream: bool) {
 	record_stream_event(state, slot, .Signal, unix, seq, false, is_active_stream)
+	now_ms := current_now_ms(state)
+	if slot != nil {
+		md_common.apply_state_mark_event(&slot.apply_state, .Signal, now_ms, false)
+	}
+	if is_active_stream {
+		md_common.apply_state_mark_event(&state.active_apply_state, .Signal, now_ms, false)
+	}
 	push_signal(state, sig, subject_id, seq)
 }
 
@@ -567,7 +577,11 @@ handle_range_candle_batch :: proc(
 	is_active_getrange_subject: bool,
 ) {
 	record_stream_event(state, slot, .Range_Candle_Batch, unix, 0, false, is_active_range_batch)
-	oldest_before := state.getrange.oldest_ts
+	now_ms := current_now_ms(state)
+	if slot != nil {
+		md_common.apply_state_mark_event(&slot.apply_state, .Range_Candle, now_ms, false)
+	}
+	oldest_before := state.active_apply_state.getrange_oldest_ts
 	batch_slot_idx := stream_view_find_slot(state.stream_views, subject_id)
 	// Guard: only apply to global candle store if subject matches current active candle subject.
 	is_valid_range_batch := (state.getrange.active_candle_subject_id != 0 && subject_id == state.getrange.active_candle_subject_id) ||
@@ -581,8 +595,10 @@ handle_range_candle_batch :: proc(
 		}
 		if is_valid_range_batch {
 			apply_historical_candle_to_store(&state.stores.candle, cd)
-			if state.getrange.oldest_ts <= 0 || cd.window_start_ts < state.getrange.oldest_ts {
-				state.getrange.oldest_ts = cd.window_start_ts
+			// S25: Accumulate oldest_ts in apply state (source of truth) during batch.
+			as := &state.active_apply_state
+			if as.getrange_oldest_ts <= 0 || cd.window_start_ts < as.getrange_oldest_ts {
+				as.getrange_oldest_ts = cd.window_start_ts
 			}
 		}
 		// Per-cell: update oldest_ts for cells referencing this slot.
@@ -602,13 +618,12 @@ handle_range_candle_batch :: proc(
 		if now_ms := current_now_ms(state); now_ms > 0 {
 			state.candle_last_recv_local_ms = now_ms
 		}
-		if state.active_metrics.context_stage == .Empty {
-			state.active_metrics.context_stage = .Backfilled
-		}
 	}
 	if batch.is_last {
 		if is_active_getrange_subject || (state.getrange.subject_id == 0 && is_active_stream) {
-			state.getrange.pending = false
+			// S25: Write completion to apply state (source of truth), then sync.
+			md_common.apply_state_mark_range_complete(&state.active_apply_state, state.active_apply_state.getrange_oldest_ts)
+			apply_state_sync_to_getrange(state)
 			state.getrange.subject_id = 0
 			target := min(FETCH_CANDLES_RANGE_LEN, services.CANDLE_CAP)
 			if target <= 0 do target = services.CANDLE_CAP
@@ -643,22 +658,29 @@ drain_marketdata :: proc(state: ^App_State) -> int {
 		state.conn.needs_reconcile = true
 		// Clear prev_subs so reconcile re-subscribes everything (server lost subscriptions).
 		state.prev_subs_count = 0
-		// Clear in-flight getrange state — server has no memory of requests after reconnect.
-		if state.getrange.pending {
-			state.getrange.pending = false
-			state.getrange.subject_id = 0
-		}
+		// S25: Getrange pending state cleared via apply_state_on_reconnect below.
+		// Only clear the request-scoped subject_id here.
+		state.getrange.subject_id = 0
 		for ci in 0 ..< state.world.count {
 			state.world.getranges[ci].pending = false
 		}
 		if state.stream_views != nil {
 			for si in 0 ..< STREAM_VIEW_CAP {
 				if !state.stream_views.slots[si].used do continue
-				state.stream_views.slots[si].orderbook_snapshot_seen = false
+				// S24: apply_state_on_reconnect resets snapshot_seen[.Orderbook] per policy.
+				md_common.apply_state_on_reconnect(&state.stream_views.slots[si].apply_state)
 			}
 		}
+		// S23: Reset active apply state on reconnect (policy-driven).
+		reconnect_active_apply_state(state)
+		// S21: Clear stale HTTP-fetched state — must re-fetch after reconnect.
+		state.freshness.loaded = false
+		state.timeline = {}
+		state.was_ever_connected = true
 	}
 	state.conn.prev_conn_for_reconcile = conn
+
+
 
 	// Drain marketdata events (non-blocking).
 	if state.marketdata.poll != nil {
@@ -683,11 +705,8 @@ drain_marketdata :: proc(state: ^App_State) -> int {
 					state.stream_views.active_subject_id = subject_id
 					sync_active_stream_view_to_global_stores(state)
 					persist_active_stream_subject(state)
-					state.active_metrics.has_live_stats = false
-					state.active_metrics.has_live_heatmap = false
-					state.active_metrics.has_live_vpvr = false
-					state.active_metrics.has_live_candle = false
-					state.active_metrics.context_stage = .Empty
+					// S23: Reset canonical apply state + sync from slot.
+					sync_active_apply_state_from_slot(state)
 					if state.stores.candle.count <= 0 {
 						request_active_stream_candle_range(state)
 					}
@@ -765,8 +784,10 @@ drain_marketdata :: proc(state: ^App_State) -> int {
 
 	// GetRange timeout: clear stuck pending state after ~5 seconds (300 frames at 60fps).
 	GETRANGE_TIMEOUT_FRAMES :: u64(300)
-	if state.getrange.pending && state.frame > state.getrange.sent_frame + GETRANGE_TIMEOUT_FRAMES {
-		state.getrange.pending = false
+	if md_common.apply_state_check_getrange_timeout(state.active_apply_state, state.frame, GETRANGE_TIMEOUT_FRAMES) {
+		// S25: Reset via apply state (source of truth), then sync.
+		state.active_apply_state.getrange_pending = false
+		apply_state_sync_to_getrange(state)
 		state.getrange.subject_id = 0
 		record_error(state, .GetRange_Timeout, "GetRange timeout (global)")
 	}
@@ -780,6 +801,21 @@ drain_marketdata :: proc(state: ^App_State) -> int {
 
 	// Lazy loading: check if user has scrolled near the oldest loaded data.
 	check_lazy_candle_loading(state)
+
+	// S21: Derive lifecycle from current observable state (single source of truth).
+	state.lifecycle = md_common.derive_lifecycle(
+		state.bootstrap.has_session,
+		state.bootstrap.ready,
+		state.stores.markets.loaded,
+		conn == .Connected,
+		state.was_ever_connected,
+		state.active_metrics.subscribe_acks > 0,
+		processed > 0,
+		state.active_metrics.desync_reason != .None,
+	)
+
+	// S25: Sync apply state → active_metrics + getrange (single source of truth).
+	apply_state_sync_all(state)
 
 	return processed
 }
@@ -819,6 +855,8 @@ check_lazy_candle_loading :: proc(state: ^App_State) {
 		if gr.pending do continue
 		if !gr.seeded do continue
 		if gr.oldest_ts <= 0 do continue
+		// S20: Stop if timeline boundary reached.
+		if state.timeline.loaded && state.timeline.first_ts > 0 && gr.oldest_ts <= state.timeline.first_ts do continue
 
 		// Resolve the candle store for this cell.
 		stores := resolve_stores_for_cell(state, ci)

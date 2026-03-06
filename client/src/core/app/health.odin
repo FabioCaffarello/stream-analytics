@@ -7,6 +7,16 @@ import "mr:services"
 import "mr:streams"
 import "mr:ui"
 
+// S29: Resolve active TF in ms for stale remediation thresholds.
+@(private = "file")
+tf_ms_for_health :: proc(state: ^App_State) -> i64 {
+	tf_options := TF_OPTION_MS
+	if state.active_tf_idx >= 0 && state.active_tf_idx < len(tf_options) {
+		return tf_options[state.active_tf_idx]
+	}
+	return 60_000
+}
+
 @(private = "file")
 clamp_nonneg_i64 :: proc(v: i64) -> i64 {
 	if v < 0 do return 0
@@ -412,29 +422,59 @@ refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtim
 	state.active_metrics.parsed_bytes_total = metrics.parsed_bytes_total
 	state.active_metrics.parse_arena_resets = metrics.parse_arena_resets
 
-	// Additional client-side DESYNC detection: only escalate when both stats AND
-	// orderbook were previously active (ts > 0) and have gone silent. If they
-	// haven't arrived yet (ts == 0), the status bar already shows informational
-	// "stats pending" / "snapshot pending" messages — no need for hard DESYNC.
-	// Also guard with stream event age: if any events are flowing, skip this check.
-	if now_ms > 0 && current_conn_status(state) == .Connected {
-		stats_age := i64(0)
-		if state.active_metrics.last_stats_ts_ms > 0 {
-			stats_age = now_ms - state.active_metrics.last_stats_ts_ms
-		}
-		ob_age := i64(0)
-		if state.active_metrics.last_orderbook_ts_ms > 0 {
-			ob_age = now_ms - state.active_metrics.last_orderbook_ts_ms
-		}
-		stream_event_age := now_ms - active.status.last_local_ts_ms
-		if state.active_metrics.last_stats_ts_ms > 0 && stats_age > 12_000 &&
-			state.active_metrics.last_orderbook_ts_ms > 0 && ob_age > 12_000 &&
-			stream_event_age > 12_000 &&
-			state.active_metrics.state != .Offline {
+	// S29/S30: Policy-driven stale auto-recovery with adaptive exponential backoff.
+	// Only fires when connected and not already offline.
+	if now_ms > 0 && current_conn_status(state) == .Connected &&
+		state.active_metrics.state != .Offline {
+		tf_ms := tf_ms_for_health(state)
+		decision := md_common.apply_state_stale_remediation(state.active_apply_state, now_ms, tf_ms)
+		recovery_mutated := false
+		switch decision {
+		case .Resubscribe:
+			// Auto-recovery: mark attempt, force resubscribe.
+			md_common.apply_state_mark_recovery(&state.active_apply_state, now_ms)
+			state.prev_subs_count = 0
+			reconcile_subscriptions(state)
+			record_error(state, .Connection, "STALE: auto-recovery resubscribe")
+			recovery_mutated = true
+			md_common.recovery_event_log_push(&state.recovery_log, md_common.Recovery_Event{
+				kind = .Attempt,
+				timestamp = now_ms,
+				attempts = state.active_apply_state.recovery_attempts,
+				slot_id = u8(stream_view_find_slot(state.stream_views, state.stream_views.active_subject_id)),
+			})
+		case .Exhausted:
+			// Max attempts reached — escalate to DESYNC for manual intervention.
 			streams.controller_mark_desync(&active.status, .Snapshot_Stale)
 			state.active_metrics.state = .Desync
 			state.active_metrics.desync_reason = .Snapshot_Stale
-			record_error(state, .Connection, "DESYNC: snapshot stale")
+			record_error(state, .Connection, "DESYNC: stale recovery exhausted")
+			md_common.recovery_event_log_push(&state.recovery_log, md_common.Recovery_Event{
+				kind = .Exhausted,
+				timestamp = now_ms,
+				attempts = state.active_apply_state.recovery_attempts,
+				slot_id = u8(stream_view_find_slot(state.stream_views, state.stream_views.active_subject_id)),
+			})
+		case .Cooldown, .None:
+			// No action — either fresh or within cooldown window.
+		}
+
+		// S29: Check if recovery succeeded (stale artifacts became fresh).
+		prev_attempts := state.active_apply_state.recovery_attempts
+		md_common.apply_state_check_recovery_success(&state.active_apply_state, now_ms, tf_ms)
+		if state.active_apply_state.recovery_attempts != prev_attempts {
+			md_common.recovery_event_log_push(&state.recovery_log, md_common.Recovery_Event{
+				kind = .Success,
+				timestamp = now_ms,
+				attempts = prev_attempts,
+				slot_id = u8(stream_view_find_slot(state.stream_views, state.stream_views.active_subject_id)),
+			})
+			recovery_mutated = true
+		}
+
+		// S30: Sync recovery state back to slot for per-stream isolation.
+		if recovery_mutated {
+			sync_recovery_to_active_slot(state)
 		}
 	}
 }
@@ -458,4 +498,108 @@ metrics_history_summary :: proc(state: ^App_State) -> (ok: bool, qmax: int, drop
 	if drop_delta < 0 do drop_delta = 0
 	if rc_delta < 0 do rc_delta = 0
 	return true, qmax, drop_delta, rc_delta
+}
+
+// ---------------------------------------------------------------------------
+// S20 Slice 2: Freshness polling (periodic, ~10s cadence @ 60fps = 600 frames)
+// ---------------------------------------------------------------------------
+
+FRESHNESS_POLL_INTERVAL :: u64(600)
+
+poll_freshness :: proc(state: ^App_State) {
+	if state == nil do return
+	if state.marketdata.fetch_freshness == nil do return
+	if current_conn_status(state) != .Connected do return
+	if state.frame % FRESHNESS_POLL_INTERVAL != 0 && state.freshness.loaded do return
+
+	// Resolve active market venue+symbol.
+	slot := stream_view_active_slot(state.stream_views)
+	if slot == nil do return
+	if !slot.has_stream_info do return
+	venue := slot.stream_info.venue
+	symbol := slot.stream_info.symbol
+	if len(venue) == 0 || len(symbol) == 0 do return
+
+	// Strip market type suffix (e.g. "BTCUSDT:SPOT" -> "BTCUSDT").
+	instrument := normalized_symbol(symbol)
+
+	buf: [4096]u8
+	n := state.marketdata.fetch_freshness(raw_data(buf[:]), i32(len(buf)), venue, instrument)
+	if n <= 0 do return
+
+	result: services.Freshness_Result
+	if !services.freshness_parse_json(buf[:int(n)], &result) do return
+
+	state.freshness.active = result.active
+	state.freshness.checked_at = result.checked_at
+	state.freshness.loaded = true
+
+	// Map channel names to our channel indices for display.
+	for i in 0 ..< services.FRESHNESS_RESULT_CAP {
+		if i >= result.count do break
+		ch := result.channels[i]
+		idx := freshness_channel_name_to_idx(ch.name)
+		if idx >= 0 && idx < FRESHNESS_CHANNEL_CAP {
+			state.freshness.channels[idx] = Channel_Freshness{
+				flowing = ch.flowing,
+				lag_ms  = ch.lag_ms,
+			}
+		}
+	}
+}
+
+@(private = "file")
+freshness_channel_name_to_idx :: proc(name: string) -> int {
+	switch {
+	case len(name) >= 16 && name[:16] == "marketdata.trade": return int(ports.MD_Channel.Trades)
+	case len(name) >= 19 && name[:19] == "marketdata.bookdelt": return int(ports.MD_Channel.Orderbook)
+	case len(name) >= 16 && name[:16] == "aggregation.stat": return int(ports.MD_Channel.Stats)
+	case len(name) >= 19 && name[:19] == "aggregation.heatmap": return int(ports.MD_Channel.Heatmaps) if len(name) >= 19 else -1
+	case len(name) >= 15 && name[:15] == "aggregation.vpv": return int(ports.MD_Channel.VPVR)
+	case len(name) >= 18 && name[:18] == "aggregation.candle": return int(ports.MD_Channel.Candles)
+	case len(name) >= 15 && name[:15] == "insights.heatma": return int(ports.MD_Channel.Heatmaps)
+	case len(name) >= 12 && name[:12] == "insights.vpv": return int(ports.MD_Channel.VPVR)
+	}
+	return -1
+}
+
+// ---------------------------------------------------------------------------
+// S20 Slice 3: Timeline fetch (once per active market+TF change)
+// ---------------------------------------------------------------------------
+
+fetch_timeline_for_active :: proc(state: ^App_State) {
+	if state == nil do return
+	if state.marketdata.fetch_timeline == nil do return
+
+	slot := stream_view_active_slot(state.stream_views)
+	if slot == nil do return
+	if !slot.has_stream_info do return
+	venue := slot.stream_info.venue
+	symbol := slot.stream_info.symbol
+	if len(venue) == 0 || len(symbol) == 0 do return
+
+	instrument := normalized_symbol(symbol)
+
+	tf_opts := TF_OPTIONS
+	tf := tf_opts[0]
+	if state.active_tf_idx >= 0 && state.active_tf_idx < len(tf_opts) {
+		tf = tf_opts[state.active_tf_idx]
+	}
+
+	buf: [1024]u8
+	n := state.marketdata.fetch_timeline(raw_data(buf[:]), i32(len(buf)), venue, instrument, tf)
+	if n <= 0 {
+		state.timeline = {}
+		return
+	}
+
+	result: services.Timeline_Result
+	if !services.timeline_parse_json(buf[:int(n)], &result) {
+		state.timeline = {}
+		return
+	}
+
+	state.timeline.first_ts = result.first_ts
+	state.timeline.last_ts = result.last_ts
+	state.timeline.loaded = true
 }

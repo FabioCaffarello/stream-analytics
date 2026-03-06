@@ -50,13 +50,13 @@ func (r *fakeRows) Scan(dest ...any) error {
 	return nil
 }
 
-func (r *fakeRows) Close()                        {}
-func (r *fakeRows) Err() error                    { return r.err }
-func (r *fakeRows) CommandTag() pgconn.CommandTag  { return pgconn.CommandTag{} }
+func (r *fakeRows) Close()                                       {}
+func (r *fakeRows) Err() error                                   { return r.err }
+func (r *fakeRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
 func (r *fakeRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
-func (r *fakeRows) RawValues() [][]byte            { return nil }
-func (r *fakeRows) Conn() *pgx.Conn               { return nil }
-func (r *fakeRows) Values() ([]any, error)         { return nil, nil }
+func (r *fakeRows) RawValues() [][]byte                          { return nil }
+func (r *fakeRows) Conn() *pgx.Conn                              { return nil }
+func (r *fakeRows) Values() ([]any, error)                       { return nil, nil }
 
 func assignDest(dest, src any) {
 	switch d := dest.(type) {

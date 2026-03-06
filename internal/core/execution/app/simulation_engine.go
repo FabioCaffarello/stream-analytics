@@ -20,11 +20,11 @@ type SimulationConfig struct {
 	ExecutionMode string
 
 	// Latency model: deterministic delays per lifecycle stage.
-	AcceptDelayMs    int64 // Delay before accepted event (default: 1).
-	PlaceDelayMs     int64 // Delay between accepted and placed (default: 5).
-	FillBaseDelayMs  int64 // Base delay between placed and first fill (default: 10).
-	FillStepDelayMs  int64 // Delay between consecutive partial fills (default: 8).
-	CancelDelayMs    int64 // Delay for cancel event after last partial (default: 5).
+	AcceptDelayMs   int64 // Delay before accepted event (default: 1).
+	PlaceDelayMs    int64 // Delay between accepted and placed (default: 5).
+	FillBaseDelayMs int64 // Base delay between placed and first fill (default: 10).
+	FillStepDelayMs int64 // Delay between consecutive partial fills (default: 8).
+	CancelDelayMs   int64 // Delay for cancel event after last partial (default: 5).
 
 	// Fill model configuration.
 	MaxPartialFills int     // Maximum number of partial fills for GTC orders (default: 3).
@@ -606,15 +606,15 @@ func (s *SimulationEngine) rejectionReason(intent strategydomain.StrategyIntentV
 // ---------- simulation-specific reason constants ----------
 
 const (
-	simReasonAccepted          = "accepted_simulation_policy"
-	simReasonPlaced            = "placed_simulated_venue"
-	simReasonFilled            = "filled_simulation_complete"
-	simReasonPartialFill       = "partially_filled_simulation"
-	simReasonFOKNoFill         = "canceled_fok_no_liquidity"
-	simReasonIOCNoFill         = "canceled_ioc_no_liquidity"
+	simReasonAccepted           = "accepted_simulation_policy"
+	simReasonPlaced             = "placed_simulated_venue"
+	simReasonFilled             = "filled_simulation_complete"
+	simReasonPartialFill        = "partially_filled_simulation"
+	simReasonFOKNoFill          = "canceled_fok_no_liquidity"
+	simReasonIOCNoFill          = "canceled_ioc_no_liquidity"
 	simReasonIOCCancelRemainder = "canceled_ioc_remainder"
-	simReasonCanceledPartial   = "canceled_simulation_partial"
-	simReasonExpired           = "expired_simulation_ttl"
+	simReasonCanceledPartial    = "canceled_simulation_partial"
+	simReasonExpired            = "expired_simulation_ttl"
 )
 
 // ---------- utility ----------

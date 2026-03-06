@@ -1,6 +1,7 @@
 package app
 
 import "core:fmt"
+import "mr:md_common"
 import "mr:ports"
 import "mr:services"
 import "mr:streams"
@@ -126,7 +127,7 @@ sync_active_stream_view_to_global_stores :: proc(state: ^App_State) {
 		state.stores.trades = slot.trades_store
 		state.stores.orderbook = slot.orderbook_store
 		state.stores.heatmap = slot.heatmap_store
-		if state.stores.heatmap.count <= 0 && slot.has_heatmap_snapshot {
+		if state.stores.heatmap.count <= 0 && slot.apply_state.has_live[.Heatmap] {
 			services.push_heatmap_snapshot(&state.stores.heatmap, slot.heatmap_snapshot)
 		}
 		state.stores.vpvr = slot.vpvr_store
@@ -158,8 +159,11 @@ ensure_active_candle_subject_id :: proc(state: ^App_State) {
 		tf = tf_opts[state.active_tf_idx]
 	}
 	cs := util.build_subject_with_timeframe(info.venue, info.symbol, .Candles, tf)
-	state.getrange.active_candle_subject_id = util.subject_id64(cs)
+	sid := util.subject_id64(cs)
 	delete(cs)
+	// S25: Write to apply state (source of truth), then sync to getrange global.
+	state.active_apply_state.range_candle_subject_id = sid
+	apply_state_sync_to_getrange(state)
 }
 
 apply_cycle_stream_action :: proc(state: ^App_State, forward: bool) -> bool {
@@ -180,11 +184,8 @@ apply_cycle_stream_action :: proc(state: ^App_State, forward: bool) -> bool {
 		services.fill_demo_vpvr(&state.stores.vpvr)
 		services.fill_demo_stats(&state.stores.stats)
 		services.fill_demo_candles(&state.stores.candle)
-			state.active_metrics.has_live_stats = false
-			state.active_metrics.has_live_heatmap = false
-			state.active_metrics.has_live_vpvr = false
-			state.active_metrics.has_live_candle = false
-			state.active_metrics.context_stage = .Empty
+			// S23: Use canonical reset for offline demo path.
+			reset_active_apply_state(state)
 			return true
 		}
 
@@ -200,18 +201,11 @@ apply_cycle_stream_action :: proc(state: ^App_State, forward: bool) -> bool {
 		state.world.views[ci].candle_scroll_x = 0
 		state.world.views[ci].candle_zoom = 0
 	}
-	state.active_metrics.has_live_stats = false
-	state.active_metrics.has_live_heatmap = false
-	state.active_metrics.has_live_vpvr = false
-	state.active_metrics.has_live_candle = false
-	state.active_metrics.context_stage = .Empty
-	state.active_metrics.last_stats_ts_ms = 0
-	state.active_metrics.last_orderbook_ts_ms = 0
-	state.synth_heatmap_last_window = 0
-	state.getrange.pending = false
-	state.getrange.seeded = false
+	// S25: Canonical apply state sync from new active slot drives getrange state.
+	sync_active_apply_state_from_slot(state)
+	// S25: subject_id is request-scoped — clear on stream switch since the
+	// new stream has no in-flight getrange yet.
 	state.getrange.subject_id = 0
-	state.getrange.oldest_ts = 0
 	ensure_active_candle_subject_id(state)
 	state.candle_health = .No_Data
 	if now_ms := current_now_ms(state); now_ms > 0 {
@@ -248,12 +242,16 @@ request_active_stream_candle_range :: proc(state: ^App_State) {
 	candle_subject := util.build_subject_with_timeframe(info.venue, info.symbol, .Candles, tf)
 	sid := util.subject_id64(candle_subject)
 	state.getrange.subject_id = sid
-	state.getrange.active_candle_subject_id = sid
-	state.marketdata.send_getrange(candle_subject, limit, 0)
+	// S20: Use timeline last_ts as end bound if available (smarter than sending 0).
+	end_ts := i64(0)
+	if state.timeline.loaded && state.timeline.last_ts > 0 {
+		end_ts = state.timeline.last_ts
+	}
+	state.marketdata.send_getrange(candle_subject, limit, end_ts)
 	delete(candle_subject)
-	state.getrange.pending = true
-	state.getrange.seeded = true
-	state.getrange.sent_frame = state.frame
+	// S25: Write to apply state (source of truth) — adapter syncs to getrange global.
+	md_common.apply_state_mark_range_sent(&state.active_apply_state, state.frame, sid)
+	apply_state_sync_to_getrange(state)
 }
 
 // Request older candles (before the oldest we have) for lazy loading on scroll-left.
@@ -263,6 +261,10 @@ request_older_candles :: proc(state: ^App_State) {
 	if state.getrange.pending do return
 	if state.getrange.oldest_ts <= 0 do return
 	if state.stores.candle.count >= services.CANDLE_CAP do return // store full, no point fetching more
+	// S20: Stop requesting if we've reached the timeline's first_ts boundary.
+	if state.timeline.loaded && state.timeline.first_ts > 0 && state.getrange.oldest_ts <= state.timeline.first_ts {
+		return
+	}
 
 	slot := stream_view_active_slot(state.stream_views)
 	if slot == nil do return
@@ -279,11 +281,13 @@ request_older_candles :: proc(state: ^App_State) {
 		tf = tf_opts[state.active_tf_idx]
 	}
 	candle_subject := util.build_subject_with_timeframe(info.venue, info.symbol, .Candles, tf)
-	state.getrange.subject_id = util.subject_id64(candle_subject)
+	sid := util.subject_id64(candle_subject)
+	state.getrange.subject_id = sid
 	state.marketdata.send_getrange(candle_subject, limit, state.getrange.oldest_ts)
 	delete(candle_subject)
-	state.getrange.pending = true
-	state.getrange.sent_frame = state.frame
+	// S25: Write to apply state (source of truth) — adapter syncs to getrange global.
+	md_common.apply_state_mark_range_sent(&state.active_apply_state, state.frame, sid)
+	apply_state_sync_to_getrange(state)
 }
 
 // Resolve the effective TF index for a cell: per-cell if >= 0, else global.
@@ -333,27 +337,20 @@ apply_set_timeframe_action :: proc(state: ^App_State, idx: int) -> bool {
 	state.stores.candle.count = 0
 	state.stores.heatmap = {}
 	state.stores.vpvr = {}
-	state.active_metrics.has_live_heatmap = false
-	state.active_metrics.has_live_vpvr = false
-	state.active_metrics.has_live_candle = false
-	state.active_metrics.context_stage = .Empty
-	state.active_metrics.last_stats_ts_ms = 0
-	state.active_metrics.last_orderbook_ts_ms = 0
-	state.synth_heatmap_last_window = 0
-	state.getrange.pending = false
-	state.getrange.seeded = false
+	// S25: Canonical apply state TF change (policy-driven) — also syncs getrange.
+	tf_change_active_apply_state(state)
 	state.getrange.subject_id = 0
-	state.getrange.oldest_ts = 0
 	state.candle_health = .No_Data
 	if now_ms := current_now_ms(state); now_ms > 0 {
 		state.candle_last_recv_local_ms = now_ms
 	}
 
-	// Update active candle subject_id for stale getrange guard.
+	// S25: Update active candle subject_id via apply state for stale getrange guard.
 	if as := stream_view_active_slot(state.stream_views); as != nil && as.has_stream_info {
 		cs := util.build_subject_with_timeframe(as.stream_info.venue, as.stream_info.symbol, .Candles, tf)
-		state.getrange.active_candle_subject_id = util.subject_id64(cs)
+		state.active_apply_state.range_candle_subject_id = util.subject_id64(cs)
 		delete(cs)
+		apply_state_sync_to_getrange(state)
 	}
 
 	// Also clear timeframe-sensitive overlays in the active stream view slot.
@@ -361,14 +358,14 @@ apply_set_timeframe_action :: proc(state: ^App_State, idx: int) -> bool {
 		slot.candle_store.head = 0
 		slot.candle_store.count = 0
 		slot.heatmap_store = {}
-		slot.has_heatmap_snapshot = false
 		slot.heatmap_snapshot = {}
 		slot.vpvr_store = {}
-		slot.has_live_vpvr = false
-		// Clear orderbook store and reset snapshot gate so stale L2 data from the
-		// prior TF doesn't persist. A fresh snapshot will arrive after resubscribe.
+		// Clear orderbook store — stale L2 data from the prior TF doesn't persist.
+		// A fresh snapshot will arrive after resubscribe.
 		slot.orderbook_store = {}
-		slot.orderbook_snapshot_seen = false
+		// S24: apply_state_on_tf_change resets has_live[.Heatmap/.VPVR],
+		// snapshot_seen[.Orderbook], and synth_heatmap_last_window per policy.
+		md_common.apply_state_on_tf_change(&slot.apply_state)
 	}
 
 	// Clear TF-sensitive data for cells following global TF.
@@ -381,6 +378,10 @@ apply_set_timeframe_action :: proc(state: ^App_State, idx: int) -> bool {
 		state.world.getranges[ci].seeded = false
 		state.world.getranges[ci].oldest_ts = 0
 	}
+
+	// S20: Refetch timeline for new TF (bounds may differ per timeframe).
+	state.timeline = {}
+	fetch_timeline_for_active(state)
 
 	// Request historical data for the new TF.
 	request_active_stream_candle_range(state)
@@ -512,18 +513,22 @@ apply_set_cell_timeframe_action :: proc(state: ^App_State, cell_idx: int, tf_idx
 			slot.candle_store.head = 0
 			slot.candle_store.count = 0
 			slot.heatmap_store = {}
-			slot.has_heatmap_snapshot = false
 			slot.heatmap_snapshot = {}
 			slot.vpvr_store = {}
-			slot.has_live_vpvr = false
+			// S24: apply_state_on_tf_change handles has_live/snapshot_seen resets per policy.
+			md_common.apply_state_on_tf_change(&slot.apply_state)
 		}
 	} else {
 		// BUG-17: Follow-active cell — only clear candle store (TF-sensitive).
 		// Do NOT clear global heatmap/vpvr stores; they serve other cells.
 			state.stores.candle.head = 0
 			state.stores.candle.count = 0
-			state.active_metrics.has_live_candle = false
-			state.active_metrics.context_stage = .Empty
+			// S25: Partial TF reset for follow-active — only candle.
+			state.active_apply_state.has_live[.Candle] = false
+			state.active_apply_state.using_synthetic[.Candle] = false
+			state.active_apply_state.last_recv_ms[.Candle] = 0
+			state.active_apply_state.artifact_event_count[.Candle] = 0
+			apply_state_sync_all(state)
 		}
 
 	// BUG-16: Reset candle health so stale badge doesn't persist across TF changes.

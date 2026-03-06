@@ -103,7 +103,7 @@ apply_disconnect_profile_action :: proc(state: ^App_State) {
 	if state.marketdata.disconnect_transport != nil {
 		_ = state.marketdata.disconnect_transport()
 	}
-	reset_active_stream_live_metrics(state)
+	reset_active_apply_state(state)
 	services.settings_set(&state.settings, services.SETTING_AUTO_CONNECT, "0")
 	services.settings_flush(&state.settings)
 	show_toast(state, "Disconnected")
