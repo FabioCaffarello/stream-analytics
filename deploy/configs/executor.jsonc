@@ -1,0 +1,82 @@
+{
+  // Runtime config mounted in container at /etc/market-raccoon/executor.jsonc
+  "bus": {
+    "type": "jetstream",
+    "wire_format": "proto"
+  },
+  "jetstream": {
+    "url": "nats://nats:4222",
+    "stream_name": "MARKETDATA",
+    "consumer_durable": "executor-v2",
+    "ack_wait": "30s",
+    "max_ack_pending": 1024,
+    "max_deliver": 10,
+    "deliver_policy": "new",
+    "filter_subjects": ["strategy.intent.>"],
+    "dedup_window": "5m",
+    "max_age": "24h",
+    "max_bytes": "10GB"
+  },
+  "shard": {
+    "index": 0,
+    "count": 1,
+    "max_lag": 0
+  },
+  "log": {
+    "level": "info",
+    "format": "json"
+  },
+  "http": {
+    "addr": ":8086",
+    "shutdown_timeout": "10s",
+    "publisher_flush_timeout": "3s",
+    "guardian_shutdown_timeout": "10s"
+  },
+  "processor": {
+    "bus_capacity": 4096,
+    "publisher_timeout": "5s",
+    "max_instruments": 4096
+  },
+  "execution": {
+    // Stage 9A/9B keep bootstrap as default but route every intent through an
+    // explicit execution-governance layer plus a hardened credential broker
+    // before the real adapter may be called.
+    // The broker stays in-process with the executor; compose only passes the
+    // env var names consumed by the broker-backed provider.
+    // Set mode to "real_adapter_safe" to cut-in the real adapter behind the
+    // same boundary and static governance grant.
+    "mode": "bootstrap_simulated",
+    "adapter": "bootstrap.simulated",
+    "safe_mode": true,
+    "trade_only": true,
+    // Real-mode scope remains fail-closed unless these grant inputs are
+    // explicitly populated. bootstrap_simulated ignores the allowlists.
+    "allowed_venues": [],
+    "allowed_symbols": [],
+    "allowed_accounts": [],
+    "max_intent_ttl_ms": 30000,
+    "max_abs_quantity": 5,
+    "max_notional_usd": 2500,
+    "max_slippage_bps": 50,
+    "real": {
+      "enabled": false,
+      "binance": {
+        "trade_api": {
+          "base_url": "https://testnet.binance.vision",
+          "endpoint_mode": "test_order",
+          // Env var names stay in config/wiring only; the core governance model
+          // sees only brokered credential requirements, provenance, and lease
+          // decisions. The Binance client consumes the broker, not the env
+          // provider directly.
+          "api_key_env": "MR_BINANCE_API_KEY",
+          "api_secret_env": "MR_BINANCE_API_SECRET",
+          "recv_window_ms": 5000,
+          "request_timeout": "3s",
+          "reconcile_enabled": false,
+          "reconcile_poll_interval": "500ms",
+          "reconcile_max_polls": 6
+        }
+      }
+    }
+  }
+}

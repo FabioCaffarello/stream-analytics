@@ -3,7 +3,10 @@ go 1.25.6
 use (
 	./cmd/backfill
 	./cmd/consumer
+	./cmd/credentials-broker
+	./cmd/executor
 	./cmd/migrate
+	./cmd/portfolio
 	./cmd/processor
 	./cmd/server
 	./cmd/signals
@@ -14,11 +17,14 @@ use (
 	./internal/core/aggregation
 	./internal/core/delivery
 	./internal/core/evidence
+	./internal/core/execution
 	./internal/core/insights
 	./internal/core/marketdata
 	./internal/core/marketmodel
+	./internal/core/portfolio
 	./internal/core/signal
 	./internal/core/signals
+	./internal/core/strategy
 	./internal/interfaces
 	./internal/shared
 )

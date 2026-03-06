@@ -25,10 +25,12 @@ require (
 	github.com/google/btree v1.1.3 // indirect
 	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
 	github.com/market-raccoon/internal/core/evidence v0.0.0 // indirect
+	github.com/market-raccoon/internal/core/execution v0.0.0 // indirect
 	github.com/market-raccoon/internal/core/marketdata v0.0.0 // indirect
+	github.com/market-raccoon/internal/core/portfolio v0.0.0 // indirect
 	github.com/market-raccoon/internal/core/signals v0.0.0 // indirect
+	github.com/market-raccoon/internal/core/strategy v0.0.0 // indirect
 	github.com/matttproud/golang_protobuf_extensions/v2 v2.0.0 // indirect
-	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/common v0.45.0 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
@@ -54,3 +56,11 @@ replace (
 )
 
 replace github.com/market-raccoon/internal/core/signal => ../core/signal
+
+replace github.com/market-raccoon/internal/core/strategy => ../core/strategy
+
+replace github.com/market-raccoon/internal/core/execution => ../core/execution
+
+replace github.com/market-raccoon/internal/core/portfolio => ../core/portfolio
+
+replace github.com/market-raccoon/internal/adapters => ../adapters

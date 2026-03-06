@@ -2,8 +2,8 @@
 
 **Status:** Active
 **Date:** 2026-02-13
-**last_reviewed:** 2026-02-27
-**Scope:** `docs/prds/PRD-0001-extreme-runtime.md`, `docs/prds/PRD-0002-backend-stable-and-odin-ready.md`, `docs/audits/AUDIT-PACK-W11-finalization.md`, `docs/rfcs/EXECUTION-SEQUENCE.md`, `docs/rfcs/archive/ADR-REVISIONS-patch-plan.md`, `docs/rfcs/RFC-0011-product-parity-marketmonkey.md`
+**last_reviewed:** 2026-03-06
+**Scope:** `docs/prds/PRD-0001-extreme-runtime.md`, `docs/prds/PRD-0002-backend-stable-and-odin-ready.md`, `docs/audits/AUDIT-PACK-W11-finalization.md`, `docs/rfcs/EXECUTION-SEQUENCE.md`, `docs/rfcs/archive/ADR-REVISIONS-patch-plan.md`, `docs/rfcs/RFC-0011-product-parity-marketmonkey.md`, `docs/contracts/strategy-execution-portfolio-contracts.md`, `docs/architecture/execution-portfolio-hardening-stage5.md`, `docs/architecture/legacy-retirement-stage6.md`, `docs/architecture/real-adapter-integration-stage7.md`, `docs/architecture/real-execution-lifecycle-stage8.md`, `docs/architecture/execution-governance-stage9a.md`, `docs/architecture/credentials-broker-hardening-stage9b.md`
 
 ## Purpose
 
@@ -46,7 +46,7 @@ Create one authoritative map of:
 
 ### Document Inventory
 
-#### ADRs (0000..0022)
+#### ADRs (0000..0023)
 
 - `docs/adrs/ADR-0000-foundation.md` (Accepted)
 - `docs/adrs/ADR-0001-bounded-contexts-and-boundaries.md` (Accepted)
@@ -69,8 +69,9 @@ Create one authoritative map of:
 - `docs/adrs/ADR-0018-actor-topology-supervision-model.md` (Accepted; partial implementation)
 - `docs/adrs/ADR-0019-dual-database-operational-strategy.md` (Accepted; fully implemented)
 - `docs/adrs/ADR-0020-gitops-secrets-management.md` (Accepted; in progress)
-- `docs/adrs/ADR-0021-signals-strategist-dedicated-topology-cutover.md` (Accepted; partial implementation)
+- `docs/adrs/ADR-0021-signals-strategist-dedicated-topology-cutover.md` (Accepted; implemented)
 - `docs/adrs/ADR-0022-odin-client-action-pipeline-modularization.md` (Accepted)
+- `docs/adrs/ADR-0023-frozen-semantic-model-feature-evidence-signal-intent-execution-portfolio.md` (Proposed)
 
 Status anchors: `docs/adrs/ADR-0000-foundation.md:3`, `docs/adrs/ADR-0010-config-loading-startup-validation.md:3`, `docs/adrs/ADR-0016-protobuf-contract-layer.md:3`, `docs/adrs/ADR-0018-actor-topology-supervision-model.md:3`.
 
@@ -109,8 +110,12 @@ Status anchors: `docs/rfcs/RFC-0001-robustness-roadmap.md:3`, `docs/rfcs/RFC-000
 - `docs/architecture/heatmap.md`
 - `docs/architecture/volume-profiles.md`
 - `docs/architecture/liquidations-markprice.md`
+- `docs/architecture/semantic-hardening-stage1.md`
+- `docs/architecture/boundary-hardening-stage2.md`
+- `docs/architecture/real-adapter-integration-stage7.md`
 - `docs/contracts/event-bus.md`
 - `docs/contracts/delivery-ws.md`
+- `docs/contracts/strategy-execution-portfolio-contracts.md`
 
 ### Single Source of Truth by Critical Theme
 
@@ -118,6 +123,7 @@ Status anchors: `docs/rfcs/RFC-0001-robustness-roadmap.md:3`, `docs/rfcs/RFC-000
 |---|---|---|---|---|
 | Runtime invariants | `docs/audits/AUDIT-PACK-W11-finalization.md:25` | `scripts/ci/guards/check-domain-isolation.sh:16`, `internal/actors/runtime/guardian.go:273` | `internal/shared/contracts/import_guard_test.go:15`, `internal/actors/runtime/guardian_test.go:57` | Accepted (operational evidence); INV-LAY-01..06 automated |
 | Subject taxonomy | `docs/adrs/ADR-0014-stream-partitioning-strategy.md:33` | `internal/adapters/jetstream/subject_validation.go:24` | `internal/adapters/jetstream/subject_validation_test.go:5` | Accepted |
+| Signal->Intent->Execution->Portfolio semantic boundaries | `docs/adrs/ADR-0023-frozen-semantic-model-feature-evidence-signal-intent-execution-portfolio.md:1`, `docs/contracts/strategy-execution-portfolio-contracts.md:1`, `docs/architecture/runtime-bootstrap-stage4.md:1`, `docs/architecture/execution-portfolio-hardening-stage5.md:1`, `docs/architecture/legacy-retirement-stage6.md:1`, `docs/architecture/real-adapter-integration-stage7.md:1`, `docs/architecture/real-execution-lifecycle-stage8.md:1`, `docs/architecture/execution-governance-stage9a.md:1`, `docs/architecture/credentials-broker-hardening-stage9b.md:1` | `cmd/strategist/bootstrap.go:1`, `cmd/executor/bootstrap.go:1`, `cmd/portfolio/bootstrap.go:1` | `internal/actors/runtime/strategy_execution_portfolio_bootstrap_e2e_test.go:1`, `internal/actors/strategy/runtime/subsystem_test.go:1`, `internal/actors/execution/runtime/subsystem_test.go:1`, `internal/actors/portfolio/runtime/subsystem_test.go:1`, `internal/adapters/execution/binance/safe_intent_executor_test.go:1`, `internal/adapters/execution/binance/trade_api_client_test.go:1`, `internal/adapters/execution/credentials/env_provider_test.go:1`, `internal/core/execution/app/governed_executor_test.go:1`, `internal/core/execution/governance/model_test.go:1`, `internal/core/portfolio/app/bootstrap_projector_test.go:1` | Stage 9B aligned (canonical semantics preserved + governance now consumes brokered credential provenance/lease decisions behind the same execution boundary) |
 | ACK semantics (ACK/NAK/TERM) | `docs/adrs/ADR-0004-bus-nats-jetstream.md:1`, `docs/rfcs/RFC-0008-W7-nats-jetstream-integration.md:1` | `internal/adapters/jetstream/consumer.go:279`, `internal/adapters/jetstream/ingest_policy.go:59` | `internal/adapters/jetstream/ingest_conformance_test.go:15` | Accepted in runtime; RFC remains Draft with explicit partial matrix |
 | Replay deterministico | `docs/adrs/ADR-0015-deterministic-replay-time-invariants.md:1`, `docs/rfcs/RFC-0009-W8-deterministic-replay-golden-tests.md:1` | `internal/shared/replay/player.go:45`, `internal/shared/replay/sequencer.go:56`, `internal/shared/replay/canon.go:284` | `internal/shared/replay/golden_test.go:18`, `cmd/consumer/replay_test.go:63` | Accepted |
 | Backpressure | `docs/adrs/ADR-0013-backpressure-overload-policies.md:1`, `docs/rfcs/RFC-0006-W5-memory-lifecycle-hardening.md:1` | `internal/core/insights/app/vpvr_overload_policy.go:1`, `internal/actors/insights/runtime/vpvr_policy.go:1`, `internal/shared/config/loader.go:280` | `internal/adapters/storage/vpvr_overload_integration_test.go:TestIntegrationVPVROverload_AckBoundarySafeAndDeterministic`, `internal/actors/insights/runtime/vpvr_soak_test.go:TestVPVROverloadSoakBurstDeterministicBudgets` | Accepted/Done/Production-ready for VPVR overload path |
@@ -149,12 +155,42 @@ Anchor: `Makefile`, `scripts/ci/docs/check-doc-headers.sh`, `scripts/ci/docs/che
 
 ## Acceptance
 
-- Inventory includes ADR-0000..0021 and RFC-0001..0015.
+- Inventory includes ADR-0000..0023 and RFC-0001..0015.
 - All requested topics have single-source mapping to doc + code/test anchors.
 - Any unresolved drift is explicitly marked as `TODO` or `OPEN QUESTION`.
 
 ## Changelog
 
+- 2026-03-06:
+  - added Stage 9B authority (`docs/architecture/credentials-broker-hardening-stage9b.md`);
+  - updated signal->intent->execution->portfolio authority row to include hardened credential broker/provenance/lease semantics;
+  - added Stage 9B test anchors for broker resolution, lease modeling, and governance denial on invalid credentials.
+- 2026-03-06:
+  - added Stage 9A authority (`docs/architecture/execution-governance-stage9a.md`);
+  - updated signal->intent->execution->portfolio authority row to include execution governance layer;
+  - added Stage 9A test anchors for deny-by-default governance, scope enforcement, adapter selection, and credential availability.
+- 2026-03-06:
+  - added Stage 8 authority (`docs/architecture/real-execution-lifecycle-stage8.md`);
+  - updated signal->intent->execution->portfolio authority row to include safe lifecycle expansion + deterministic reconciliation;
+  - added Stage 8 e2e/unit anchors for lifecycle reconciliation and portfolio partial-fill projection.
+- 2026-03-06:
+  - added Stage 7 authority (`docs/architecture/real-adapter-integration-stage7.md`);
+  - updated signal->intent->execution->portfolio authority row to Stage 7 safe real-adapter cut-in posture;
+  - added Stage 7 test anchors for adapter selection and guarded real path.
+- 2026-03-06:
+  - added Stage 6 authority (`docs/architecture/legacy-retirement-stage6.md`);
+  - updated signal->intent->execution->portfolio authority row to Stage 6 canonical strategist intake and execution adapter-boundary posture;
+  - refreshed scope with Stage 6 legacy retirement report.
+- 2026-03-06:
+  - added Stage 5 hardening authority (`docs/architecture/execution-portfolio-hardening-stage5.md`);
+  - updated signal->intent->execution->portfolio authority row to Stage 5 hardened status with executor/portfolio lifecycle test anchors;
+  - refreshed scope with Stage 5 hardening report.
+- 2026-03-06:
+  - added Stage 4 runtime bootstrap authority row and e2e/runtime test anchors for `strategy.intent -> execution.event -> portfolio.state`;
+  - added `docs/architecture/runtime-bootstrap-stage4.md` as runtime topology authority for bootstrap phase;
+  - added Stage 3 contract-phase authority row for `strategy.intent`, `execution.event`, and `portfolio.state`;
+  - added `docs/contracts/strategy-execution-portfolio-contracts.md` to scope and architecture/contracts inventory;
+  - refreshed review date for Stage 3 truth alignment.
 - 2026-02-19:
   - added PRD-0002 to scope and evidence table;
   - updated candle/stats SSoT rows: "Not started" → "Deferred — PRD-0002 Non-Goal for Odin v0";

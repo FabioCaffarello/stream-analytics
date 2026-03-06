@@ -9,13 +9,17 @@ func TestValidateSubjectTaxonomy_Valid(t *testing.T) {
 		"aggregation.snapshot.v1.binance.BTCUSDT",
 		"aggregation.orderbook_inconsistency.v1.binance.BTCUSDT",
 		"aggregation.tape.v1.binance.BTCUSDT",
+		"execution.event.v1.binance.BTCUSDT",
 		"quarantine.v1.binance.BTCUSDT",
 		"marketdata.trade.v1.binance.BTCUSDT",
 		"insights.crossvenue.trade_snapshot.v1.global.BTCUSDT",
 		"insights.heatmap_snapshot.v1.binance.BTCUSDT",
 		"insights.heatmap_delta.v1.binance.BTCUSDT",
 		"liquidity.evidence.v1.binance.BTCUSDT",
+		"portfolio.state.v1.binance.BTCUSDT",
 		"signal.composite.v1.binance.BTCUSDT",
+		"signal.event.v1.binance.BTCUSDT",
+		"strategy.intent.v1.binance.BTCUSDT",
 	} {
 		if err := ValidateSubjectTaxonomy(subject); err != nil {
 			t.Fatalf("subject %q should be valid: %v", subject, err)

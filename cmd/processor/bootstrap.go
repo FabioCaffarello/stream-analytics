@@ -16,7 +16,6 @@ import (
 	"github.com/anthdm/hollywood/actor"
 	aggruntime "github.com/market-raccoon/internal/actors/aggregation/runtime"
 	actorruntime "github.com/market-raccoon/internal/actors/runtime"
-	signalruntime "github.com/market-raccoon/internal/actors/signal/runtime"
 	"github.com/market-raccoon/internal/adapters/bus"
 	adapterjs "github.com/market-raccoon/internal/adapters/jetstream"
 	adapterstorage "github.com/market-raccoon/internal/adapters/storage"
@@ -27,7 +26,6 @@ import (
 	aggports "github.com/market-raccoon/internal/core/aggregation/ports"
 	insightsapp "github.com/market-raccoon/internal/core/insights/app"
 	mddomain "github.com/market-raccoon/internal/core/marketdata/domain"
-	signalcore "github.com/market-raccoon/internal/core/signal"
 	httpserver "github.com/market-raccoon/internal/interfaces/http"
 	"github.com/market-raccoon/internal/shared/bootstrap"
 	"github.com/market-raccoon/internal/shared/codec"
@@ -364,58 +362,6 @@ type envelopeSource struct {
 	onResult   func(aggruntime.EnvelopeProcessResult)
 }
 
-func fanOutEnvelopeStream(source <-chan envelope.Envelope, capacity int, includeSignal bool) (<-chan envelope.Envelope, <-chan envelope.Envelope) {
-	if capacity <= 0 {
-		capacity = 1024
-	}
-	aggregationCh := make(chan envelope.Envelope, capacity)
-	var signalCh chan envelope.Envelope
-	if includeSignal {
-		signalCh = make(chan envelope.Envelope, capacity)
-	}
-	go func() {
-		defer close(aggregationCh)
-		if includeSignal {
-			defer close(signalCh)
-		}
-		if source == nil {
-			return
-		}
-		for env := range source {
-			aggregationCh <- env
-			if includeSignal {
-				signalCh <- env
-			}
-		}
-	}()
-	return aggregationCh, signalCh
-}
-
-func buildSignalEngineConfig(cfg config.AppConfig) signalcore.EngineConfig {
-	out := signalcore.DefaultEngineConfig()
-	if cfg.Signals.WindowCap > 0 {
-		out.Store.PerStreamWindow = cfg.Signals.WindowCap
-	}
-	if cfg.Evidence.RegimeMaxStreams > 0 {
-		out.Store.PerTenantStreamCap = cfg.Evidence.RegimeMaxStreams
-	}
-	if cfg.Processor.MaxInstruments > 0 {
-		out.Store.GlobalStreamCap = cfg.Processor.MaxInstruments
-	}
-	if cfg.Signals.DedupWindowMs > 0 {
-		out.Store.DedupWindowMillis = cfg.Signals.DedupWindowMs
-	}
-	if cfg.Signals.RateLimitPerMin > 0 {
-		out.Store.TenantRateLimitMin = cfg.Signals.RateLimitPerMin
-	}
-	if cfg.Signals.CorrelationWindowMs > 0 {
-		out.Rules.RegimeChange.WindowMs = cfg.Signals.CorrelationWindowMs
-		out.Rules.LiquidityCollapse.WindowMs = cfg.Signals.CorrelationWindowMs
-		out.Rules.PersistentImbalance.WindowMs = cfg.Signals.CorrelationWindowMs
-	}
-	return out
-}
-
 // ---------------------------------------------------------------------------
 // Run — processor composition root
 // ---------------------------------------------------------------------------
@@ -715,19 +661,13 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 		)
 	}
 
-	embeddedSignalsEnabled := cfg.Processor.Signals.IsEnabled()
-	if !embeddedSignalsEnabled {
-		logger.Info("processor: embedded signals subsystem disabled", "config", "processor.signals.enabled=false")
-	}
-
 	// ── envelope source ─────────────────────────────────────────────────
 	source := initEnvelopeSource(cfg, logger, e2e)
-	aggregationInputCh, signalInputCh := fanOutEnvelopeStream(source.envelopeCh, cfg.Processor.BusCapacity, embeddedSignalsEnabled)
 
 	// ── processor subsystem config ──────────────────────────────────────
 	processorCfg := aggruntime.ProcessorConfig{
 		Logger:           logger,
-		EnvelopeCh:       aggregationInputCh,
+		EnvelopeCh:       source.envelopeCh,
 		Service:          aggSvc,
 		CandleEnabled:    boolPtr(cfg.Processor.Candle.Enabled),
 		StatsEnabled:     boolPtr(cfg.Processor.Stats.Enabled),
@@ -765,18 +705,6 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 	// ── guardian with aggregation factory ────────────────────────────────
 	factories := map[actorruntime.Subsystem]actor.Producer{
 		actorruntime.SubsystemAggregation: aggruntime.NewProcessorSubsystemActor(processorCfg),
-	}
-	if embeddedSignalsEnabled {
-		signalEngineCfg := buildSignalEngineConfig(cfg)
-		signalCfg := signalruntime.SubsystemConfig{
-			Logger:       logger,
-			EnvelopeCh:   signalInputCh,
-			Engine:       signalcore.NewSignalEngine(signalEngineCfg, nil),
-			Publisher:    publishEnvelope,
-			ReplicaID:    cfg.Shard.Index,
-			ReplicaCount: cfg.Shard.Count,
-		}
-		factories[actorruntime.SubsystemSignals] = signalruntime.NewSubsystemActor(signalCfg)
 	}
 	guardianPID := actorruntime.SpawnGuardian(e, actorruntime.GuardianConfig{
 		Logger:    logger,

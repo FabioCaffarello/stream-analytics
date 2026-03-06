@@ -42,3 +42,9 @@ replace github.com/market-raccoon/internal/core/signal => ../../internal/core/si
 replace github.com/market-raccoon/internal/actors => ../../internal/actors
 
 replace github.com/market-raccoon/internal/core/delivery => ../../internal/core/delivery
+
+replace github.com/market-raccoon/internal/core/strategy => ../../internal/core/strategy
+
+replace github.com/market-raccoon/internal/core/execution => ../../internal/core/execution
+
+replace github.com/market-raccoon/internal/core/portfolio => ../../internal/core/portfolio

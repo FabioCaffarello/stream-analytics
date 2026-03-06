@@ -649,6 +649,12 @@ func canonicalStreamTypeForCommandChannel(channel string) string {
 		return "liquidity.evidence"
 	case "signal", "signal.event":
 		return "signal"
+	case "strategy_intent", "strategy.intent":
+		return "strategy.intent"
+	case "execution_event", "execution.event":
+		return "execution.event"
+	case "portfolio_state", "portfolio.state":
+		return "portfolio.state"
 	default:
 		return channel
 	}

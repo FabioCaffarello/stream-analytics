@@ -1,7 +1,7 @@
 // Package main is the market-raccoon strategist binary.
 //
-// The strategist service consumes evidence envelopes and emits composed
-// `signal.composite` envelopes.
+// The strategist service consumes canonical `signal.event` envelopes and emits
+// `strategy.intent`.
 package main
 
 import (

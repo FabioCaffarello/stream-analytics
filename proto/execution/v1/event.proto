@@ -1,0 +1,97 @@
+syntax = "proto3";
+
+package execution.v1;
+
+option go_package = "github.com/market-raccoon/internal/shared/proto/gen/execution/v1";
+
+// ExecutionStatus identifies one immutable lifecycle transition for execution.
+enum ExecutionStatus {
+  // EXECUTION_STATUS_UNSPECIFIED indicates status was not set.
+  EXECUTION_STATUS_UNSPECIFIED = 0;
+  // EXECUTION_STATUS_ACCEPTED indicates intent passed executor validation.
+  EXECUTION_STATUS_ACCEPTED = 1;
+  // EXECUTION_STATUS_REJECTED indicates intent was rejected before placement.
+  EXECUTION_STATUS_REJECTED = 2;
+  // EXECUTION_STATUS_PLACED indicates order placement was acknowledged.
+  EXECUTION_STATUS_PLACED = 3;
+  // EXECUTION_STATUS_PARTIALLY_FILLED indicates partial fill progress.
+  EXECUTION_STATUS_PARTIALLY_FILLED = 4;
+  // EXECUTION_STATUS_FILLED indicates full fill completion.
+  EXECUTION_STATUS_FILLED = 5;
+  // EXECUTION_STATUS_CANCELED indicates cancellation completed.
+  EXECUTION_STATUS_CANCELED = 6;
+  // EXECUTION_STATUS_EXPIRED indicates order lifetime expired.
+  EXECUTION_STATUS_EXPIRED = 7;
+  // EXECUTION_STATUS_FAILED indicates execution infrastructure failure.
+  EXECUTION_STATUS_FAILED = 8;
+}
+
+// ExecutionCorrelation captures intent, order, and venue identifiers.
+message ExecutionCorrelation {
+  // intent_id links this event to strategy.intent.
+  string intent_id = 1;
+  // order_id is the internal order correlation identifier.
+  string order_id = 2;
+  // venue_order_id is the venue-level order identifier.
+  string venue_order_id = 3;
+  // client_order_id is the client-supplied order identifier.
+  string client_order_id = 4;
+  // venue is the canonical venue identifier.
+  string venue = 5;
+  // symbol is the canonical instrument identifier.
+  string symbol = 6;
+  // account_id is the logical account scope for this execution event.
+  string account_id = 7;
+
+  reserved 100 to 199;
+}
+
+// ExecutionProvenance captures tracing and source metadata for one event.
+message ExecutionProvenance {
+  // correlation_id links execution events with upstream/downstream contexts.
+  string correlation_id = 1;
+  // trace_id links execution events to distributed tracing context.
+  string trace_id = 2;
+  // source identifies the emitting component (for example, "executor").
+  string source = 3;
+
+  reserved 100 to 199;
+}
+
+// ExecutionEventV1 is one immutable execution lifecycle event.
+message ExecutionEventV1 {
+  // event_id is the immutable identifier for this lifecycle event.
+  string event_id = 1;
+  // status identifies the lifecycle transition represented by this event.
+  ExecutionStatus status = 2;
+  // correlation carries intent/order/venue linkage identifiers.
+  ExecutionCorrelation correlation = 3;
+  // ts_event_ms is executor event timestamp in Unix milliseconds.
+  int64 ts_event_ms = 4;
+  // ts_exchange_ms is venue timestamp in Unix milliseconds when available.
+  int64 ts_exchange_ms = 5;
+  // execution_seq is monotonic sequence for replay ordering in execution stream.
+  int64 execution_seq = 6;
+  // attempt is the execution attempt counter for this order flow.
+  int32 attempt = 7;
+  // requested_qty is the original requested quantity.
+  double requested_qty = 8;
+  // cumulative_filled_qty is cumulative filled quantity after this event.
+  double cumulative_filled_qty = 9;
+  // last_fill_qty is fill quantity added by this event when applicable.
+  double last_fill_qty = 10;
+  // leaves_qty is remaining quantity after this event.
+  double leaves_qty = 11;
+  // limit_price is requested limit price when applicable.
+  double limit_price = 12;
+  // avg_fill_price is average fill price after this event when applicable.
+  double avg_fill_price = 13;
+  // last_fill_price is last fill price observed in this event when applicable.
+  double last_fill_price = 14;
+  // reason captures rejection/cancel/failure reason when applicable.
+  string reason = 15;
+  // provenance carries trace and source metadata.
+  ExecutionProvenance provenance = 16;
+
+  reserved 100 to 199;
+}

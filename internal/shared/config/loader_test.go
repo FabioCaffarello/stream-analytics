@@ -108,6 +108,27 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 		{name: "signals.correlation_window_ms", got: cfg.Signals.CorrelationWindowMs, want: int64(5_000)},
 		{name: "signals.max_subs_per_session", got: cfg.Signals.MaxSubsPerSession, want: 20},
 		{name: "signals.window_cap", got: cfg.Signals.WindowCap, want: 50},
+		{name: "execution.mode", got: cfg.Execution.Mode, want: "bootstrap_simulated"},
+		{name: "execution.adapter", got: cfg.Execution.Adapter, want: "bootstrap.simulated"},
+		{name: "execution.safe_mode", got: cfg.Execution.SafeMode, want: true},
+		{name: "execution.trade_only", got: cfg.Execution.TradeOnly, want: true},
+		{name: "execution.allowed_venues", got: cfg.Execution.AllowedVenues, want: []string{}},
+		{name: "execution.allowed_symbols", got: cfg.Execution.AllowedSymbols, want: []string{}},
+		{name: "execution.allowed_accounts", got: cfg.Execution.AllowedAccounts, want: []string{}},
+		{name: "execution.max_intent_ttl_ms", got: cfg.Execution.MaxIntentTTLms, want: int64(30_000)},
+		{name: "execution.max_abs_quantity", got: cfg.Execution.MaxAbsQuantity, want: float64(5)},
+		{name: "execution.max_notional_usd", got: cfg.Execution.MaxNotionalUSD, want: float64(2_500)},
+		{name: "execution.max_slippage_bps", got: cfg.Execution.MaxSlippageBps, want: float64(50)},
+		{name: "execution.real.enabled", got: cfg.Execution.Real.Enabled, want: false},
+		{name: "execution.real.binance.trade_api.base_url", got: cfg.Execution.Real.Binance.TradeAPI.BaseURL, want: "https://testnet.binance.vision"},
+		{name: "execution.real.binance.trade_api.endpoint_mode", got: cfg.Execution.Real.Binance.TradeAPI.EndpointMode, want: "test_order"},
+		{name: "execution.real.binance.trade_api.api_key_env", got: cfg.Execution.Real.Binance.TradeAPI.APIKeyEnv, want: "MR_BINANCE_API_KEY"},
+		{name: "execution.real.binance.trade_api.api_secret_env", got: cfg.Execution.Real.Binance.TradeAPI.APISecretEnv, want: "MR_BINANCE_API_SECRET"},
+		{name: "execution.real.binance.trade_api.recv_window_ms", got: cfg.Execution.Real.Binance.TradeAPI.RecvWindowMs, want: int64(5_000)},
+		{name: "execution.real.binance.trade_api.request_timeout", got: cfg.Execution.Real.Binance.TradeAPI.RequestTimeout, want: "3s"},
+		{name: "execution.real.binance.trade_api.reconcile_enabled", got: cfg.Execution.Real.Binance.TradeAPI.ReconcileEnabled, want: false},
+		{name: "execution.real.binance.trade_api.reconcile_poll_interval", got: cfg.Execution.Real.Binance.TradeAPI.ReconcilePollInterval, want: "500ms"},
+		{name: "execution.real.binance.trade_api.reconcile_max_polls", got: cfg.Execution.Real.Binance.TradeAPI.ReconcileMaxPolls, want: 6},
 	})
 }
 
@@ -395,6 +416,98 @@ func TestValidate_Defaults_Passes(t *testing.T) {
 	cfg, _ := Load("")
 	if prob := cfg.Validate(); prob != nil {
 		t.Fatalf("default config should pass validation, got: %v", prob)
+	}
+}
+
+func TestValidate_ExecutionRealSafeRequiresExplicitAllowLists(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Execution.Mode = "real_adapter_safe"
+	cfg.Execution.Adapter = "binance.spot"
+	cfg.Execution.Real.Enabled = true
+	cfg.Execution.AllowedVenues = nil
+	cfg.Execution.AllowedSymbols = nil
+
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("expected validation error when real_adapter_safe has empty allowlists")
+	}
+	if !strings.Contains(prob.Message, "execution.allowed_venues") {
+		t.Fatalf("unexpected validation message: %q", prob.Message)
+	}
+}
+
+func TestValidate_ExecutionRealSafeRejectsUnsupportedEndpointMode(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Execution.Mode = "real_adapter_safe"
+	cfg.Execution.Adapter = "binance.spot"
+	cfg.Execution.Real.Enabled = true
+	cfg.Execution.AllowedVenues = []string{"binance"}
+	cfg.Execution.AllowedSymbols = []string{"BTCUSDT"}
+	cfg.Execution.Real.Binance.TradeAPI.EndpointMode = "live_order"
+
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("expected validation error for endpoint_mode live_order")
+	}
+	if !strings.Contains(prob.Message, "endpoint_mode") {
+		t.Fatalf("unexpected validation message: %q", prob.Message)
+	}
+}
+
+func TestValidate_ExecutionRealSafeLifecycleRequiresReconciliation(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Execution.Mode = "real_adapter_safe"
+	cfg.Execution.Adapter = "binance.spot"
+	cfg.Execution.Real.Enabled = true
+	cfg.Execution.AllowedVenues = []string{"binance"}
+	cfg.Execution.AllowedSymbols = []string{"BTCUSDT"}
+	cfg.Execution.Real.Binance.TradeAPI.EndpointMode = "safe_order_lifecycle"
+	cfg.Execution.Real.Binance.TradeAPI.ReconcileEnabled = false
+
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("expected validation error for safe_order_lifecycle without reconciliation")
+	}
+	if !strings.Contains(prob.Message, "reconcile_enabled") {
+		t.Fatalf("unexpected validation message: %q", prob.Message)
+	}
+}
+
+func TestValidate_ExecutionRealSafeLifecycleRequiresTestnetBaseURL(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Execution.Mode = "real_adapter_safe"
+	cfg.Execution.Adapter = "binance.spot"
+	cfg.Execution.Real.Enabled = true
+	cfg.Execution.AllowedVenues = []string{"binance"}
+	cfg.Execution.AllowedSymbols = []string{"BTCUSDT"}
+	cfg.Execution.Real.Binance.TradeAPI.EndpointMode = "safe_order_lifecycle"
+	cfg.Execution.Real.Binance.TradeAPI.ReconcileEnabled = true
+	cfg.Execution.Real.Binance.TradeAPI.BaseURL = "https://api.binance.com"
+
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("expected validation error for non-testnet safe_order_lifecycle base_url")
+	}
+	if !strings.Contains(prob.Message, "testnet") {
+		t.Fatalf("unexpected validation message: %q", prob.Message)
+	}
+}
+
+func TestValidate_ExecutionRealSafeRejectsInvalidCredentialEnvVarNames(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Execution.Mode = "real_adapter_safe"
+	cfg.Execution.Adapter = "binance.spot"
+	cfg.Execution.Real.Enabled = true
+	cfg.Execution.AllowedVenues = []string{"binance"}
+	cfg.Execution.AllowedSymbols = []string{"BTCUSDT"}
+	cfg.Execution.Real.Binance.TradeAPI.APIKeyEnv = "bad-key"
+
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("expected validation error for invalid api_key_env")
+	}
+	if !strings.Contains(prob.Message, "api_key_env") {
+		t.Fatalf("unexpected validation message: %q", prob.Message)
 	}
 }
 

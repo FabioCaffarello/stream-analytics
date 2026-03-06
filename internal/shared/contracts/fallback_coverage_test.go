@@ -17,6 +17,7 @@ type subjectRegistryEntry struct {
 	Status string
 }
 
+//nolint:gocyclo // Registry coverage enumerates codec families explicitly to catch missing stage contracts.
 func TestPayloadRegistryCoverage_SubjectRegistryStableDraft(t *testing.T) {
 	t.Parallel()
 
@@ -32,6 +33,24 @@ func TestPayloadRegistryCoverage_SubjectRegistryStableDraft(t *testing.T) {
 	}
 	if p := RegisterEvidencePayloadV1(reg); p != nil {
 		t.Fatalf("RegisterEvidencePayloadV1: %v", p)
+	}
+	if p := RegisterLiquidityPayloadV1(reg); p != nil {
+		t.Fatalf("RegisterLiquidityPayloadV1: %v", p)
+	}
+	if p := RegisterSignalsPayloadV1(reg); p != nil {
+		t.Fatalf("RegisterSignalsPayloadV1: %v", p)
+	}
+	if p := RegisterSignalEnginePayloadV1(reg); p != nil {
+		t.Fatalf("RegisterSignalEnginePayloadV1: %v", p)
+	}
+	if p := RegisterStrategyPayloadV1(reg); p != nil {
+		t.Fatalf("RegisterStrategyPayloadV1: %v", p)
+	}
+	if p := RegisterExecutionPayloadV1(reg); p != nil {
+		t.Fatalf("RegisterExecutionPayloadV1: %v", p)
+	}
+	if p := RegisterPortfolioPayloadV1(reg); p != nil {
+		t.Fatalf("RegisterPortfolioPayloadV1: %v", p)
 	}
 
 	// Aggregation subjects that use non-standard payload schemas (not candle/stats).
@@ -74,7 +93,14 @@ func isStableOrDraft(status string) bool {
 }
 
 func isCodecManagedRoot(root string) bool {
-	return root == "marketdata" || root == "insights" || root == "aggregation"
+	return root == "marketdata" ||
+		root == "insights" ||
+		root == "aggregation" ||
+		root == "liquidity" ||
+		root == "signal" ||
+		root == "strategy" ||
+		root == "execution" ||
+		root == "portfolio"
 }
 
 func isUntypedDeltaSubject(id string) bool {

@@ -7,12 +7,14 @@
   "jetstream": {
     "url": "nats://nats:4222",
     "stream_name": "MARKETDATA",
-    "consumer_durable": "strategist-v1",
+    "consumer_durable": "strategist-v2",
     "ack_wait": "30s",
     "max_ack_pending": 1024,
     "max_deliver": 10,
     "deliver_policy": "new",
-    "filter_subjects": ["insights.>"],
+    // Stage 6 canonical strategist intake: signal.event only.
+    // signal.composite is retired from strategist operational intake.
+    "filter_subjects": ["signal.event.>"],
     "dedup_window": "5m",
     "max_age": "24h",
     "max_bytes": "10GB"
@@ -44,7 +46,6 @@
     "regime_history_cap": 20
   },
   "signals": {
-    "use_composer": true,
     "dedup_window_ms": 30000,
     "rate_limit_per_min": 10,
     "global_rate_limit_per_min": 100,

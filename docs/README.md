@@ -2,7 +2,7 @@
 
 **Status:** Active
 **Owner:** Core Engineering
-**Last updated:** 2026-03-05
+**Last updated:** 2026-03-06
 
 Welcome to the Market Raccoon core knowledge base. This directory is the single source of truth for all human-readable and agent-readable architectural decisions, boundaries, and runbooks.
 
@@ -15,6 +15,8 @@ Welcome to the Market Raccoon core knowledge base. This directory is the single 
 ### 1. Architecture & Subsystems
 - **[Architecture Overview](architecture/README.md)** — Core principles and system flow.
 - **[Subsystem Responsibilities](architecture/subsystems.md)** — Boundary, I/O, limits, and runtime anchors for all subsystems.
+- **[Runtime Bootstrap (Stage 4)](architecture/runtime-bootstrap-stage4.md)** — Deterministic bootstrap chain for `signal.event -> strategy.intent -> execution.event -> portfolio.state`.
+- **[Legacy Retirement (Stage 6)](architecture/legacy-retirement-stage6.md)** — Retirement of `signal.composite` strategist intake and pre-real-execution adapter boundary hardening.
 - **[Sequencing Model](architecture/sequencing-model.md)** — Ordering guarantees, predictability, replay, and monotonicity invariants.
 - **[IQ Loop Invariants](architecture/iq-loop-invariants.md)** — The top 10 execution properties guarded by the runtime pipeline.
 - **[System Invariants](architecture/system-invariants.md)** — Core domain invariants (`INV-DOM`, `INV-DET`, etc).
@@ -29,6 +31,7 @@ Welcome to the Market Raccoon core knowledge base. This directory is the single 
 ### 3. Contracts
 - **[Contracts Index](contracts/)** — Schemas for exactly how systems communicate.
 - **[Event Bus](contracts/event-bus.md)** — Canonical topic taxonomy and deterministic envelope behavior.
+- **[Strategy/Execution/Portfolio Contracts](contracts/strategy-execution-portfolio-contracts.md)** — Stage 3 canonical contracts for intent, execution lifecycle, and portfolio projection.
 - **[Delivery WS](contracts/delivery-ws.md)** — External WebSocket protocol (frames, backpressure, limits).
 
 ### 4. Operations & Runbooks

@@ -1,0 +1,127 @@
+syntax = "proto3";
+
+package portfolio.v1;
+
+option go_package = "github.com/market-raccoon/internal/shared/proto/gen/portfolio/v1";
+
+// PortfolioScope identifies the ownership boundary of a projected portfolio state.
+enum PortfolioScope {
+  // PORTFOLIO_SCOPE_UNSPECIFIED indicates scope was not set.
+  PORTFOLIO_SCOPE_UNSPECIFIED = 0;
+  // PORTFOLIO_SCOPE_GLOBAL represents global state across accounts and venues.
+  PORTFOLIO_SCOPE_GLOBAL = 1;
+  // PORTFOLIO_SCOPE_ACCOUNT represents one account-level state across venues.
+  PORTFOLIO_SCOPE_ACCOUNT = 2;
+  // PORTFOLIO_SCOPE_VENUE_ACCOUNT represents one account on one venue.
+  PORTFOLIO_SCOPE_VENUE_ACCOUNT = 3;
+}
+
+// BalanceV1 represents one asset balance projection.
+message BalanceV1 {
+  // asset is the canonical asset code.
+  string asset = 1;
+  // total is total asset balance.
+  double total = 2;
+  // available is free balance available for new intents.
+  double available = 3;
+  // locked is balance locked by open execution lifecycle.
+  double locked = 4;
+
+  reserved 100 to 199;
+}
+
+// PositionV1 represents one instrument position projection.
+message PositionV1 {
+  // venue is the canonical venue identifier.
+  string venue = 1;
+  // symbol is the canonical instrument identifier.
+  string symbol = 2;
+  // quantity is signed position quantity.
+  double quantity = 3;
+  // avg_entry_price is average entry price for the position.
+  double avg_entry_price = 4;
+  // notional_usd is current position notional in USD.
+  double notional_usd = 5;
+  // realized_pnl is cumulative realized PnL in USD.
+  double realized_pnl = 6;
+  // unrealized_pnl is current unrealized PnL in USD.
+  double unrealized_pnl = 7;
+
+  reserved 100 to 199;
+}
+
+// ExposureV1 represents deterministic exposure metrics for one symbol.
+message ExposureV1 {
+  // symbol is the canonical instrument identifier.
+  string symbol = 1;
+  // net_qty is signed net quantity exposure.
+  double net_qty = 2;
+  // gross_notional_usd is gross notional exposure in USD.
+  double gross_notional_usd = 3;
+  // leverage is current effective leverage ratio.
+  double leverage = 4;
+
+  reserved 100 to 199;
+}
+
+// RiskSnapshotV1 represents bounded risk metrics derived from execution state.
+message RiskSnapshotV1 {
+  // margin_used_usd is total margin currently allocated in USD.
+  double margin_used_usd = 1;
+  // margin_available_usd is margin currently available in USD.
+  double margin_available_usd = 2;
+  // maintenance_margin_usd is required maintenance margin in USD.
+  double maintenance_margin_usd = 3;
+  // var_95_usd is one-step Value at Risk (95%) in USD.
+  double var_95_usd = 4;
+
+  reserved 100 to 199;
+}
+
+// ProjectionProvenanceV1 captures replay and trace metadata for state projection.
+message ProjectionProvenanceV1 {
+  // source_execution_event_id is the latest applied execution event id.
+  string source_execution_event_id = 1;
+  // source_execution_seq is the latest applied execution stream sequence.
+  int64 source_execution_seq = 2;
+  // correlation_id links projected state with execution and strategy context.
+  string correlation_id = 3;
+  // trace_id links projected state with distributed tracing context.
+  string trace_id = 4;
+  // projector_version identifies the projector policy/build used.
+  string projector_version = 5;
+
+  reserved 100 to 199;
+}
+
+// PortfolioStateV1 is one deterministic projected portfolio snapshot.
+message PortfolioStateV1 {
+  // state_id is the immutable identifier for this state projection.
+  string state_id = 1;
+  // scope identifies ownership boundary for this projection.
+  PortfolioScope scope = 2;
+  // account_id is the account identifier when scope includes account ownership.
+  string account_id = 3;
+  // venue is the venue identifier when scope includes venue ownership.
+  string venue = 4;
+  // projected_at_ms is projection timestamp in Unix milliseconds.
+  int64 projected_at_ms = 5;
+  // balances is the deterministic list of asset balances.
+  repeated BalanceV1 balances = 6;
+  // positions is the deterministic list of instrument positions.
+  repeated PositionV1 positions = 7;
+  // exposures is the deterministic list of exposure summaries.
+  repeated ExposureV1 exposures = 8;
+  // equity_usd is total account equity in USD.
+  double equity_usd = 9;
+  // realized_pnl_usd is cumulative realized PnL in USD.
+  double realized_pnl_usd = 10;
+  // unrealized_pnl_usd is cumulative unrealized PnL in USD.
+  double unrealized_pnl_usd = 11;
+  // risk is the projected risk snapshot.
+  RiskSnapshotV1 risk = 12;
+  // provenance carries replay/audit traceability metadata.
+  ProjectionProvenanceV1 provenance = 13;
+
+  reserved 100 to 199;
+}

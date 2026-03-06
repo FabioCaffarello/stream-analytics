@@ -2,12 +2,12 @@
 
 **Status:** Active
 **Owner:** Product Architect
-**Last updated:** 2026-03-02
+**Last updated:** 2026-03-06
 **Relates to:** `docs/adrs/ADR-0002-event-envelope-and-versioning.md`, `docs/adrs/ADR-0007-delivery-ws-sessions.md`, `docs/adrs/ADR-0013-backpressure-overload-policies.md`, `docs/adrs/ADR-0014-stream-partitioning-strategy.md`, `docs/contracts/event-bus.md`, `docs/rfcs/RFC-0003-W2-DELIVERY-BC.md`
 
 ## Purpose
 
-Define WS delivery contract for marketdata/aggregation/insights streams with explicit separation between current behavior and planned parity extensions.
+Define WS delivery contract for marketdata/aggregation/insights streams plus the canonical lifecycle streams (`signal.event`, `strategy.intent`, `execution.event`, `portfolio.state`) with explicit separation between current behavior and planned parity extensions.
 
 ## Terminology (canonical)
 
@@ -31,6 +31,10 @@ Accepted delivery router inputs:
 - `insights.crossvenue.trade_snapshot.v1.global.{instrument}`
 - `insights.crossvenue.spread_signal.v1.global.{instrument}`
 - `insights.microstructure_evidence.v1.{venue}.{instrument}`
+- `signal.event.v1.{venue}.{instrument}`
+- `strategy.intent.v1.{venue}.{instrument}`
+- `execution.event.v1.{venue}.{instrument}`
+- `portfolio.state.v1.{venue}.{instrument}`
 - `aggregation.snapshot.v1.{venue}.{instrument}`
 - `aggregation.candle.v1.{venue}.{instrument}`
 - `aggregation.stats.v1.{venue}.{instrument}`
@@ -52,6 +56,10 @@ Examples:
 - `aggregation.candle/binance/BTCUSDT/1m`
 - `aggregation.stats/binance/BTCUSDT/raw`
 - `insights.heatmap_snapshot/binance/BTCUSDT/1m`
+- `signal/regime_change/binance/BTCUSDT/raw`
+- `strategy.intent/binance/BTCUSDT/raw`
+- `execution.event/binance/BTCUSDT/raw`
+- `portfolio.state/binance/BTCUSDT/raw`
 
 Proto rollout is controlled by config (`proto_rollout.*`) and can be refreshed with `POST /runtime/reload`.
 - `proto_rollout.marketdata.trade`
@@ -61,6 +69,10 @@ Proto rollout is controlled by config (`proto_rollout.*`) and can be refreshed w
 - `proto_rollout.aggregation.candle|stats|snapshot`
 - `proto_rollout.insights.volume_profile|heatmap|crossvenue`
 - default for all flags is disabled (`false`), so rollout-controlled streams stay on JSON unless explicitly enabled.
+
+Lifecycle stream note:
+- `strategy.intent`, `execution.event`, and `portfolio.state` are routable through delivery for observability and audit use cases.
+- Durable storage/read APIs for those streams are not wired yet; do not infer cold-path support from WS delivery support.
 
 ## Contracts
 

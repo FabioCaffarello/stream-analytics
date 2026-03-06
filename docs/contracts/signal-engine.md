@@ -2,8 +2,8 @@
 
 **Status:** Active
 **Owner:** Signals
-**Last updated:** 2026-03-04
-**Relates to:** `docs/contracts/canonical-market-model.md`, `docs/contracts/liquidity-evidence-layer.md`, `proto/marketmodel/v1/market_event.proto`
+**Last updated:** 2026-03-06
+**Relates to:** `docs/adrs/ADR-0023-frozen-semantic-model-feature-evidence-signal-intent-execution-portfolio.md`, `docs/contracts/canonical-market-model.md`, `docs/contracts/liquidity-evidence-layer.md`, `docs/contracts/strategy-execution-portfolio-contracts.md`, `proto/marketmodel/v1/market_event.proto`
 
 ---
 
@@ -28,8 +28,9 @@ Signal Engine consumers must not subscribe to raw exchange payloads.
 - Canonical event type: `signal.event` (version `1`)
 - Canonical proto payload: `marketmodel.v1.SignalEvent`
 - Published in `MarketEvent.oneof` as `signal`
+- Event-bus subject pattern: `signal.event.v1.{venue}.{instrument}`
 - Delivery WS channel: `signal`
-- Subject format: `signal/{type}/{venue}/{symbol}/{timeframe}`
+- Delivery routing format: `signal/{type}/{venue}/{symbol}/{timeframe}`
 
 `SignalEvent` fields:
 - `type`
@@ -81,7 +82,7 @@ Rules are deterministic and configuration-driven through engine/rule config stru
 
 ## Horizontal Scaling and Sharding
 
-- Signal Engine runs as a dedicated processor actor subsystem.
+- Signal Engine runs as a dedicated `cmd/signals` service.
 - Ownership is computed by consistent hash of `StreamKey`.
 - `PROCESSOR_REPLICAS` and replica index produce stable owner selection.
 - Owner-only emit rule: only the owning replica can publish `signal.event`, preventing duplicates under replica fanout.
@@ -101,3 +102,10 @@ Cardinality policy: no symbol-level labels in default signal metrics.
 ## Explicit Non-Responsibility
 
 Signal Engine has no execution responsibility. It only emits analytical signal events and does not place orders, route orders, or perform risk/execution actions.
+
+## Semantic Boundary (Stage 3)
+
+- `signal.event` remains the canonical signal stream and must stay non-execution.
+- `strategy.intent` is the decision contract for future strategist runtime and must not be encoded inside `signal.event` metadata.
+- `signal.composite` is retired from strategist runtime intake in Stage 6 and is not a strategy contract anchor.
+- Any residual `signal.composite` handling is compatibility-only for historical replay/read paths.

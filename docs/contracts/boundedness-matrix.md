@@ -221,7 +221,7 @@ Updated at: `2026-03-05`
       "anchors": [
         {
           "file": "internal/shared/config/loader.go",
-          "line": 1377,
+          "line": 1564,
           "snippet": "c.Delivery.SessionOutboundQueueSize = 512"
         },
         {

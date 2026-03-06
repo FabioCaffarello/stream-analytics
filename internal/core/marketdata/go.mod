@@ -13,8 +13,11 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/market-raccoon/internal/core/evidence v0.0.0 // indirect
+	github.com/market-raccoon/internal/core/execution v0.0.0 // indirect
 	github.com/market-raccoon/internal/core/insights v0.0.0 // indirect
+	github.com/market-raccoon/internal/core/portfolio v0.0.0 // indirect
 	github.com/market-raccoon/internal/core/signals v0.0.0 // indirect
+	github.com/market-raccoon/internal/core/strategy v0.0.0 // indirect
 	github.com/matttproud/golang_protobuf_extensions/v2 v2.0.0 // indirect
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/common v0.45.0 // indirect
@@ -36,3 +39,9 @@ replace github.com/market-raccoon/internal/core/signal => ../signal
 replace github.com/market-raccoon/internal/actors => ../../actors
 
 replace github.com/market-raccoon/internal/core/delivery => ../delivery
+
+replace github.com/market-raccoon/internal/core/strategy => ../strategy
+
+replace github.com/market-raccoon/internal/core/execution => ../execution
+
+replace github.com/market-raccoon/internal/core/portfolio => ../portfolio

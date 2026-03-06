@@ -1,0 +1,143 @@
+syntax = "proto3";
+
+package strategy.v1;
+
+option go_package = "github.com/market-raccoon/internal/shared/proto/gen/strategy/v1";
+
+// IntentSide identifies the risk direction requested by strategy intent.
+enum IntentSide {
+  // INTENT_SIDE_UNSPECIFIED indicates side was not set.
+  INTENT_SIDE_UNSPECIFIED = 0;
+  // INTENT_SIDE_BUY requests increasing long exposure.
+  INTENT_SIDE_BUY = 1;
+  // INTENT_SIDE_SELL requests increasing short exposure or reducing longs.
+  INTENT_SIDE_SELL = 2;
+}
+
+// SizingMode identifies how the requested size value must be interpreted.
+enum SizingMode {
+  // SIZING_MODE_UNSPECIFIED indicates no sizing semantics were selected.
+  SIZING_MODE_UNSPECIFIED = 0;
+  // SIZING_MODE_BASE_QUANTITY interprets value as base-asset quantity.
+  SIZING_MODE_BASE_QUANTITY = 1;
+  // SIZING_MODE_QUOTE_NOTIONAL_USD interprets value as quote notional in USD.
+  SIZING_MODE_QUOTE_NOTIONAL_USD = 2;
+  // SIZING_MODE_TARGET_EXPOSURE_PCT interprets value as target exposure percent.
+  SIZING_MODE_TARGET_EXPOSURE_PCT = 3;
+}
+
+// OrderType identifies the execution style requested by strategy intent.
+enum OrderType {
+  // ORDER_TYPE_UNSPECIFIED indicates order type was not set.
+  ORDER_TYPE_UNSPECIFIED = 0;
+  // ORDER_TYPE_MARKET requests immediate market execution.
+  ORDER_TYPE_MARKET = 1;
+  // ORDER_TYPE_LIMIT requests limit execution with an explicit limit price.
+  ORDER_TYPE_LIMIT = 2;
+}
+
+// TimeInForce identifies execution lifetime constraints for one order intent.
+enum TimeInForce {
+  // TIME_IN_FORCE_UNSPECIFIED indicates no explicit time-in-force policy.
+  TIME_IN_FORCE_UNSPECIFIED = 0;
+  // TIME_IN_FORCE_GTC requests good-till-cancel behavior.
+  TIME_IN_FORCE_GTC = 1;
+  // TIME_IN_FORCE_IOC requests immediate-or-cancel behavior.
+  TIME_IN_FORCE_IOC = 2;
+  // TIME_IN_FORCE_FOK requests fill-or-kill behavior.
+  TIME_IN_FORCE_FOK = 3;
+}
+
+// StrategyRef identifies the strategy policy emitting an intent.
+message StrategyRef {
+  // strategy_id is the stable strategy identifier.
+  string strategy_id = 1;
+  // strategy_version is the strategy policy version.
+  string strategy_version = 2;
+  // strategy_instance_id identifies one running strategist instance.
+  string strategy_instance_id = 3;
+
+  reserved 100 to 199;
+}
+
+// IntentScope identifies where the intent should be applied.
+message IntentScope {
+  // venue is the canonical venue identifier.
+  string venue = 1;
+  // symbol is the canonical instrument identifier.
+  string symbol = 2;
+  // account_id is the logical account scope for the intent.
+  string account_id = 3;
+
+  reserved 100 to 199;
+}
+
+// SizingIntent defines the requested sizing semantics for an intent.
+message SizingIntent {
+  // mode identifies how value should be interpreted.
+  SizingMode mode = 1;
+  // value is the requested size according to mode semantics.
+  double value = 2;
+  // max_notional_usd is an optional hard notional ceiling in USD.
+  double max_notional_usd = 3;
+
+  reserved 100 to 199;
+}
+
+// ExecutionConstraints defines runtime-safe execution constraints.
+message ExecutionConstraints {
+  // order_type selects market or limit execution style.
+  OrderType order_type = 1;
+  // time_in_force defines order lifetime policy.
+  TimeInForce time_in_force = 2;
+  // limit_price applies when order_type is ORDER_TYPE_LIMIT.
+  double limit_price = 3;
+  // max_slippage_bps caps acceptable slippage in basis points.
+  double max_slippage_bps = 4;
+  // post_only requests passive-only placement behavior.
+  bool post_only = 5;
+  // reduce_only requests position-reducing behavior only.
+  bool reduce_only = 6;
+
+  reserved 100 to 199;
+}
+
+// IntentProvenance captures deterministic trace and rationale metadata.
+message IntentProvenance {
+  // reason is the explicit rationale for this decision.
+  string reason = 1;
+  // correlation_id links intent with upstream and downstream events.
+  string correlation_id = 2;
+  // trace_id links intent to distributed tracing context.
+  string trace_id = 3;
+  // parent_signal_ids links source signal.event identifiers used by strategy policy.
+  repeated string parent_signal_ids = 4;
+  // policy_hash identifies the decision policy snapshot used at emit time.
+  string policy_hash = 5;
+
+  reserved 100 to 199;
+}
+
+// StrategyIntentV1 is the canonical decision contract produced by strategist.
+message StrategyIntentV1 {
+  // intent_id is the immutable unique identifier for this strategy intent.
+  string intent_id = 1;
+  // strategy identifies the strategy policy and version.
+  StrategyRef strategy = 2;
+  // scope identifies venue, symbol, and account target for the intent.
+  IntentScope scope = 3;
+  // side identifies the requested risk direction.
+  IntentSide side = 4;
+  // sizing defines requested quantity/notional/exposure semantics.
+  SizingIntent sizing = 5;
+  // constraints defines execution guardrails for downstream executor.
+  ExecutionConstraints constraints = 6;
+  // created_at_ms is intent creation timestamp in Unix milliseconds.
+  int64 created_at_ms = 7;
+  // expires_at_ms is intent TTL deadline in Unix milliseconds.
+  int64 expires_at_ms = 8;
+  // provenance carries rationale and trace metadata for auditability.
+  IntentProvenance provenance = 9;
+
+  reserved 100 to 199;
+}

@@ -2,8 +2,8 @@
 
 **Status:** Active
 **Owner:** Governance Doc-First Maintainer
-**Last updated:** 2026-03-04
-**Relates to:** `docs/adrs/ADR-0002-event-envelope-and-versioning.md`, `docs/adrs/ADR-0014-stream-partitioning-strategy.md`, `docs/adrs/ADR-0016-protobuf-contract-layer.md`, `docs/contracts/subject-registry.yaml`, `docs/contracts/canonical-market-model.md`
+**Last updated:** 2026-03-06
+**Relates to:** `docs/adrs/ADR-0002-event-envelope-and-versioning.md`, `docs/adrs/ADR-0014-stream-partitioning-strategy.md`, `docs/adrs/ADR-0016-protobuf-contract-layer.md`, `docs/adrs/ADR-0023-frozen-semantic-model-feature-evidence-signal-intent-execution-portfolio.md`, `docs/architecture/credentials-broker-hardening-stage9b.md`, `docs/contracts/subject-registry.yaml`, `docs/contracts/canonical-market-model.md`, `docs/contracts/strategy-execution-portfolio-contracts.md`
 
 ---
 
@@ -64,6 +64,10 @@ Exemplos válidos:
 - `marketdata.liquidation.v1.bybit.ETHUSDT`
 - `insights.heatmap_snapshot.v1.binance.BTCUSDT`
 - `insights.heatmap_delta.v1.binance.BTCUSDT`
+- `signal.event.v1.binance.BTCUSDT`
+- `strategy.intent.v1.binance.BTCUSDT`
+- `execution.event.v1.binance.BTCUSDT`
+- `portfolio.state.v1.binance.BTCUSDT`
 - `quarantine.v1.binance.BTCUSDT`
 
 Regras:
@@ -74,7 +78,7 @@ Regras:
 
 ## Pattern Taxonomy (filters)
 
-Patterns com wildcard são válidos para subscription/filter quando respeitam raiz permitida (`aggregation`, `insights`, `marketdata`, `quarantine`) e regras de token.
+Patterns com wildcard são válidos para subscription/filter quando respeitam raiz permitida (`aggregation`, `insights`, `liquidity`, `marketdata`, `quarantine`, `signal`, `strategy`, `execution`, `portfolio`) e regras de token.
 
 Exemplos:
 - `marketdata.>`
@@ -145,6 +149,44 @@ Proibido:
 | `aggregation.stats.v1.{venue}.{instrument}` | `aggregation` runtime (`BuildStatsFromEvents` via `ArtifactPublisher`) | `delivery`, `storage` | stable | `.context/docs/feature-packs/stats-aggregation.md`, `internal/core/aggregation/ports/ports.go:15` |
 | `aggregation.tape.v1.{venue}.{instrument}` | `aggregation` runtime (`BuildTapeFromTrades` via `ArtifactPublisher`) | `delivery`, `storage` | stable | `proto/aggregation/v1/tape.proto`, `internal/core/aggregation/ports/ports.go:16` |
 
+### Signal / Strategy / Execution / Portfolio Subjects
+
+| Subject | Producer (BC/runtime) | Consumer(s) esperados | Status | Referencia |
+|---|---|---|---|---|
+| `signal.event.v1.{venue}.{instrument}` | `signal` runtime (`cmd/signals`) | `delivery`, `strategy` | stable | `docs/contracts/signal-engine.md`, `proto/marketmodel/v1/market_event.proto`, `docs/contracts/subject-registry.yaml` |
+| `signal.composite.v1.{venue}.{instrument}` | retired from strategist runtime (legacy compatibility/replay only) | `delivery` (historical compatibility) | draft (deprecated operationally) | `docs/architecture/semantic-hardening-stage1.md`, `proto/signals/v1/composite.proto`, `docs/contracts/subject-registry.yaml`, `docs/operations/signals-strategist-cutover.md` |
+| `strategy.intent.v1.{venue}.{instrument}` | `strategy` runtime (`cmd/strategist`) | `execution`, `delivery` | draft (runtime hardened Stage 6 canonical intake; storage not yet wired) | `docs/contracts/strategy-execution-portfolio-contracts.md`, `proto/strategy/v1/intent.proto`, `docs/contracts/subject-registry.yaml`, `docs/architecture/runtime-bootstrap-stage4.md` |
+| `execution.event.v1.{venue}.{instrument}` | `execution` runtime (`cmd/executor`) | `portfolio`, `delivery` | draft (Stage 7 safe real-adapter cut-in behind boundary; storage not yet wired) | `docs/contracts/strategy-execution-portfolio-contracts.md`, `proto/execution/v1/event.proto`, `docs/contracts/subject-registry.yaml`, `docs/architecture/real-adapter-integration-stage7.md` |
+| `portfolio.state.v1.{venue}.{instrument}` | `portfolio` runtime (`cmd/portfolio`) | `delivery` | draft (runtime hardened Stage 6+ chain; storage not yet wired) | `docs/contracts/strategy-execution-portfolio-contracts.md`, `proto/portfolio/v1/state.proto`, `docs/contracts/subject-registry.yaml`, `docs/architecture/runtime-bootstrap-stage4.md` |
+
+### Runtime Controls (Stage 9A/9B Canonical + Governed Safe Cut-In)
+
+- Canonical strategist intake default: `signal.event.>`.
+- `signal.composite` strategist intake is retired and must not be enabled.
+- Executor rejection lifecycle is explicit (`execution.event` with `status=rejected` and deterministic `reason`).
+- Executor boundary metadata is explicit (`execution_boundary`, `execution_adapter`, `execution_mode`).
+- Executor rejection metadata now includes `execution_reason_category`:
+  - `governance_denied`
+  - `credentials_unavailable`
+  - `credentials_invalid`
+  - `credentials_scope_denied`
+  - `credentials_lease_denied`
+  - `adapter_selection_denied`
+  - `execution_policy_rejected`
+  - `venue_runtime_failure`
+- Executor default mode remains `bootstrap_simulated`.
+- Real adapter path is explicit and restricted: `execution.mode=real_adapter_safe`, `execution.adapter=binance.spot`, `execution.real.binance.trade_api.endpoint_mode=test_order`.
+- Stage 9A/9B governance is explicit and fail-closed:
+  - `CapabilityAuthorizer` evaluates grant/scope/limit posture;
+  - `AdapterSelector` chooses the concrete boundary route;
+  - `CredentialResolver` / broker checks required trade-only credential availability, provenance, and lease fitness.
+- Stage 8 lifecycle expansion remains opt-in:
+  - `execution.real.binance.trade_api.endpoint_mode=safe_order_lifecycle`
+  - bounded reconciliation polling (`reconcile_enabled`, `reconcile_poll_interval`, `reconcile_max_polls`)
+  - deterministic mapping from observed venue status to canonical `execution.event` lifecycle transitions.
+- Real adapter must remain trade-only with allowlists and fail-closed guardrails.
+- Portfolio projector consumes lifecycle transitions (`accepted/placed/partially_filled/filled/rejected/canceled/expired/failed`) and emits `source_execution_status` in envelope metadata.
+
 ## Evidence
 
 - `internal/shared/envelope/subject.go:9`
@@ -156,6 +198,42 @@ Proibido:
 
 ## Changelog
 
+- 2026-03-06:
+- Stage 9B credentials-broker hardening:
+  - credential resolution is now modeled with explicit availability, provenance, and lease semantics;
+  - runtime rejection metadata now distinguishes unavailable vs invalid vs scope-denied vs lease-denied credentials;
+  - real adapter wiring uses a broker boundary instead of consuming env providers directly.
+- 2026-03-06:
+- Stage 9A governance-first hardening:
+  - execution governance is now explicit before adapter invocation;
+  - rejection metadata now includes `execution_reason_category`;
+  - missing credentials and adapter selection denials are separated from execution-policy and venue-runtime failures.
+- 2026-03-06:
+- Stage 8 safe lifecycle expansion:
+  - real adapter now supports opt-in lifecycle reconciliation mode (`safe_order_lifecycle`) behind the same boundary;
+  - observed venue statuses are translated deterministically to canonical `execution.event` lifecycle transitions;
+  - portfolio projector remains event-derived and lifecycle-aware with partial-fill progression.
+- 2026-03-06:
+- Stage 7 safe real-adapter cut-in:
+  - execution runtime now supports explicit mode gating (`bootstrap_simulated` vs `real_adapter_safe`);
+  - real adapter is constrained to trade-only Binance test-order endpoint behind boundary;
+  - canonical `execution.event`/`portfolio.state` contract flow remains unchanged.
+- 2026-03-06:
+- Stage 6 legacy retirement:
+  - strategist intake narrowed to canonical `signal.event` only;
+  - `signal.composite` reclassified as deprecated operationally (historical compatibility only);
+  - execution publish metadata now includes explicit adapter boundary markers.
+- 2026-03-06:
+- Added Stage 3 contract taxonomy for `strategy.intent`, `execution.event`, and `portfolio.state`.
+- Added explicit signal contract lineage (`signal.event` canonical, `signal.composite` transitional).
+- Expanded allowed pattern roots to include `signal`, `strategy`, `execution`, and `portfolio`.
+- 2026-03-06:
+- Stage 5 transitional cutover markers:
+  - `signal.composite` reclassified to draft transitional legacy stream;
+  - strategist canonical intake default set to `signal.event.>` with legacy opt-in;
+  - execution/portfolio runtime matrix marked as Stage 5 hardened bootstrap.
+- 2026-03-06:
+- Updated runtime matrix with Stage 4 bootstrap producers (`cmd/strategist`, `cmd/executor`, `cmd/portfolio`).
 - 2026-03-04:
 - Added `aggregation.tape.v1.{venue}.{instrument}` to aggregation runtime subject matrix.
 - 2026-02-19:

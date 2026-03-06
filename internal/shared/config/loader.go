@@ -24,6 +24,7 @@ const (
 )
 
 var metricsExchangeNamePattern = regexp.MustCompile(`^[a-z0-9_-]{1,24}$`)
+var envVarNamePattern = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
 
 const (
 	iqProfileCIStrictName         = "ci-strict"
@@ -308,6 +309,9 @@ func (a AppConfig) Validate() *problem.Problem {
 		return prob
 	}
 	if prob := validateSignals(a.Signals); prob != nil {
+		return prob
+	}
+	if prob := validateExecution(a.Execution); prob != nil {
 		return prob
 	}
 	if prob := validateStore(a.Store); prob != nil {
@@ -1039,6 +1043,136 @@ func validateSignals(s SignalsConfig) *problem.Problem {
 	return nil
 }
 
+func validateExecution(e ExecutionConfig) *problem.Problem {
+	mode := strings.ToLower(strings.TrimSpace(e.Mode))
+	adapter := strings.ToLower(strings.TrimSpace(e.Adapter))
+
+	switch mode {
+	case "bootstrap_simulated", "real_adapter_safe":
+	default:
+		return problem.Newf(codeInvalid, "execution.mode must be bootstrap_simulated|real_adapter_safe, got %q", e.Mode)
+	}
+	switch adapter {
+	case "bootstrap.simulated", "binance.spot":
+	default:
+		return problem.Newf(codeInvalid, "execution.adapter must be bootstrap.simulated|binance.spot, got %q", e.Adapter)
+	}
+	if !e.SafeMode {
+		return problem.New(codeInvalid, "execution.safe_mode must be true in Stage 8 safe pilot")
+	}
+	if !e.TradeOnly {
+		return problem.New(codeInvalid, "execution.trade_only must be true (withdraw/custody are out of scope)")
+	}
+	if e.MaxIntentTTLms <= 0 {
+		return problem.Newf(codeInvalid, "execution.max_intent_ttl_ms must be > 0, got %d", e.MaxIntentTTLms)
+	}
+	if e.MaxAbsQuantity <= 0 {
+		return problem.Newf(codeInvalid, "execution.max_abs_quantity must be > 0, got %f", e.MaxAbsQuantity)
+	}
+	if e.MaxNotionalUSD <= 0 {
+		return problem.Newf(codeInvalid, "execution.max_notional_usd must be > 0, got %f", e.MaxNotionalUSD)
+	}
+	if e.MaxSlippageBps <= 0 {
+		return problem.Newf(codeInvalid, "execution.max_slippage_bps must be > 0, got %f", e.MaxSlippageBps)
+	}
+
+	switch mode {
+	case "bootstrap_simulated":
+		if adapter != "bootstrap.simulated" {
+			return problem.Newf(codeInvalid, "execution.adapter=%q must be bootstrap.simulated when execution.mode=bootstrap_simulated", e.Adapter)
+		}
+		if e.Real.Enabled {
+			return problem.New(codeInvalid, "execution.real.enabled must be false when execution.mode=bootstrap_simulated")
+		}
+		return nil
+	case "real_adapter_safe":
+		if adapter != "binance.spot" {
+			return problem.Newf(codeInvalid, "execution.adapter=%q must be binance.spot when execution.mode=real_adapter_safe", e.Adapter)
+		}
+		if !e.Real.Enabled {
+			return problem.New(codeInvalid, "execution.real.enabled must be true when execution.mode=real_adapter_safe")
+		}
+		if len(e.AllowedVenues) == 0 {
+			return problem.New(codeInvalid, "execution.allowed_venues must not be empty when execution.mode=real_adapter_safe")
+		}
+		if len(e.AllowedSymbols) == 0 {
+			return problem.New(codeInvalid, "execution.allowed_symbols must not be empty when execution.mode=real_adapter_safe")
+		}
+		for i, venue := range e.AllowedVenues {
+			if strings.TrimSpace(venue) == "" {
+				return problem.Newf(codeInvalid, "execution.allowed_venues[%d] must not be empty", i)
+			}
+		}
+		for i, symbol := range e.AllowedSymbols {
+			if strings.TrimSpace(symbol) == "" {
+				return problem.Newf(codeInvalid, "execution.allowed_symbols[%d] must not be empty", i)
+			}
+		}
+		for i, account := range e.AllowedAccounts {
+			if strings.TrimSpace(account) == "" {
+				return problem.Newf(codeInvalid, "execution.allowed_accounts[%d] must not be empty", i)
+			}
+		}
+
+		tradeAPI := e.Real.Binance.TradeAPI
+		if strings.TrimSpace(tradeAPI.BaseURL) == "" {
+			return problem.New(codeInvalid, "execution.real.binance.trade_api.base_url must not be empty")
+		}
+		if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(tradeAPI.BaseURL)), "https://") {
+			return problem.New(codeInvalid, "execution.real.binance.trade_api.base_url must use https://")
+		}
+		endpointMode := strings.ToLower(strings.TrimSpace(tradeAPI.EndpointMode))
+		switch endpointMode {
+		case "test_order", "safe_order_lifecycle":
+		default:
+			return problem.Newf(codeInvalid, "execution.real.binance.trade_api.endpoint_mode must be test_order|safe_order_lifecycle, got %q", tradeAPI.EndpointMode)
+		}
+		if !envVarNamePattern.MatchString(strings.TrimSpace(tradeAPI.APIKeyEnv)) {
+			return problem.Newf(codeInvalid, "execution.real.binance.trade_api.api_key_env must match %s, got %q", envVarNamePattern.String(), tradeAPI.APIKeyEnv)
+		}
+		if !envVarNamePattern.MatchString(strings.TrimSpace(tradeAPI.APISecretEnv)) {
+			return problem.Newf(codeInvalid, "execution.real.binance.trade_api.api_secret_env must match %s, got %q", envVarNamePattern.String(), tradeAPI.APISecretEnv)
+		}
+		if tradeAPI.RecvWindowMs <= 0 {
+			return problem.Newf(codeInvalid, "execution.real.binance.trade_api.recv_window_ms must be > 0, got %d", tradeAPI.RecvWindowMs)
+		}
+		if tradeAPI.RecvWindowMs > 60_000 {
+			return problem.Newf(codeInvalid, "execution.real.binance.trade_api.recv_window_ms must be <= 60000, got %d", tradeAPI.RecvWindowMs)
+		}
+		timeout := tradeAPI.RequestTimeoutDuration()
+		if timeout <= 0 {
+			return problem.Newf(codeInvalid, "execution.real.binance.trade_api.request_timeout must be > 0 duration, got %q", tradeAPI.RequestTimeout)
+		}
+		if endpointMode == "test_order" {
+			if tradeAPI.ReconcileEnabled {
+				return problem.New(codeInvalid, "execution.real.binance.trade_api.reconcile_enabled must be false when endpoint_mode=test_order")
+			}
+		}
+		if endpointMode == "safe_order_lifecycle" {
+			if !strings.Contains(strings.ToLower(strings.TrimSpace(tradeAPI.BaseURL)), "testnet.binance.") {
+				return problem.New(codeInvalid, "execution.real.binance.trade_api.base_url must target testnet in safe_order_lifecycle mode")
+			}
+			if !tradeAPI.ReconcileEnabled {
+				return problem.New(codeInvalid, "execution.real.binance.trade_api.reconcile_enabled must be true when endpoint_mode=safe_order_lifecycle")
+			}
+			if tradeAPI.ReconcileMaxPolls <= 0 {
+				return problem.Newf(codeInvalid, "execution.real.binance.trade_api.reconcile_max_polls must be > 0, got %d", tradeAPI.ReconcileMaxPolls)
+			}
+			if tradeAPI.ReconcileMaxPolls > 120 {
+				return problem.Newf(codeInvalid, "execution.real.binance.trade_api.reconcile_max_polls must be <= 120, got %d", tradeAPI.ReconcileMaxPolls)
+			}
+			pollInterval := tradeAPI.ReconcilePollIntervalDuration()
+			if pollInterval <= 0 {
+				return problem.Newf(codeInvalid, "execution.real.binance.trade_api.reconcile_poll_interval must be > 0 duration, got %q", tradeAPI.ReconcilePollInterval)
+			}
+			if pollInterval > 30*time.Second {
+				return problem.Newf(codeInvalid, "execution.real.binance.trade_api.reconcile_poll_interval must be <= 30s, got %q", tradeAPI.ReconcilePollInterval)
+			}
+		}
+	}
+	return nil
+}
+
 func validateStore(s StoreConfig) *problem.Problem {
 	if strings.TrimSpace(s.ClickHouse.DSN) == "" {
 		return problem.New(codeInvalid, "store.clickhouse.dsn must not be empty")
@@ -1335,6 +1469,59 @@ func dedupeStrings(values []string) []string {
 		out = append(out, v)
 	}
 	return out
+}
+
+func dedupeLowerStrings(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, raw := range values {
+		v := strings.ToLower(strings.TrimSpace(raw))
+		if v == "" {
+			continue
+		}
+		if _, exists := seen[v]; exists {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	return out
+}
+
+func dedupeExecutionSymbols(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, raw := range values {
+		v := canonicalExecutionSymbol(raw)
+		if v == "" {
+			continue
+		}
+		if _, exists := seen[v]; exists {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	return out
+}
+
+func canonicalExecutionSymbol(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	b := make([]rune, 0, len(trimmed))
+	for _, r := range trimmed {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b = append(b, r-'a'+'A')
+		case r >= 'A' && r <= 'Z':
+			b = append(b, r)
+		case r >= '0' && r <= '9':
+			b = append(b, r)
+		}
+	}
+	return string(b)
 }
 
 // applyDefaults fills zero-value fields with safe defaults.
@@ -1664,6 +1851,55 @@ func applyDefaults(c *AppConfig) {
 	if c.Signals.WindowCap == 0 {
 		c.Signals.WindowCap = 50
 	}
+	if strings.TrimSpace(c.Execution.Mode) == "" {
+		c.Execution.Mode = "bootstrap_simulated"
+	}
+	if strings.TrimSpace(c.Execution.Adapter) == "" {
+		c.Execution.Adapter = "bootstrap.simulated"
+	}
+	// Stage 8 remains safe-mode only; defaults enforce fail-closed posture.
+	if !c.Execution.SafeMode {
+		c.Execution.SafeMode = true
+	}
+	if !c.Execution.TradeOnly {
+		c.Execution.TradeOnly = true
+	}
+	if c.Execution.MaxIntentTTLms == 0 {
+		c.Execution.MaxIntentTTLms = 30_000
+	}
+	if c.Execution.MaxAbsQuantity == 0 {
+		c.Execution.MaxAbsQuantity = 5
+	}
+	if c.Execution.MaxNotionalUSD == 0 {
+		c.Execution.MaxNotionalUSD = 2_500
+	}
+	if c.Execution.MaxSlippageBps == 0 {
+		c.Execution.MaxSlippageBps = 50
+	}
+	if strings.TrimSpace(c.Execution.Real.Binance.TradeAPI.BaseURL) == "" {
+		c.Execution.Real.Binance.TradeAPI.BaseURL = "https://testnet.binance.vision"
+	}
+	if strings.TrimSpace(c.Execution.Real.Binance.TradeAPI.EndpointMode) == "" {
+		c.Execution.Real.Binance.TradeAPI.EndpointMode = "test_order"
+	}
+	if strings.TrimSpace(c.Execution.Real.Binance.TradeAPI.APIKeyEnv) == "" {
+		c.Execution.Real.Binance.TradeAPI.APIKeyEnv = "MR_BINANCE_API_KEY"
+	}
+	if strings.TrimSpace(c.Execution.Real.Binance.TradeAPI.APISecretEnv) == "" {
+		c.Execution.Real.Binance.TradeAPI.APISecretEnv = "MR_BINANCE_API_SECRET"
+	}
+	if c.Execution.Real.Binance.TradeAPI.RecvWindowMs == 0 {
+		c.Execution.Real.Binance.TradeAPI.RecvWindowMs = 5_000
+	}
+	if strings.TrimSpace(c.Execution.Real.Binance.TradeAPI.RequestTimeout) == "" {
+		c.Execution.Real.Binance.TradeAPI.RequestTimeout = "3s"
+	}
+	if strings.TrimSpace(c.Execution.Real.Binance.TradeAPI.ReconcilePollInterval) == "" {
+		c.Execution.Real.Binance.TradeAPI.ReconcilePollInterval = "500ms"
+	}
+	if c.Execution.Real.Binance.TradeAPI.ReconcileMaxPolls == 0 {
+		c.Execution.Real.Binance.TradeAPI.ReconcileMaxPolls = 6
+	}
 	if !c.Processor.SubMinuteRollout.enabledConfigured() {
 		c.Processor.SubMinuteRollout.Enabled = true
 	}
@@ -1776,6 +2012,16 @@ func applyDefaults(c *AppConfig) {
 	c.Processor.Insights.TTL = strings.TrimSpace(c.Processor.Insights.TTL)
 	c.Processor.Insights.SweepEvery = strings.TrimSpace(c.Processor.Insights.SweepEvery)
 	c.Processor.Insights.RoundingMode = strings.ToLower(strings.TrimSpace(c.Processor.Insights.RoundingMode))
+	c.Execution.Mode = strings.ToLower(strings.TrimSpace(c.Execution.Mode))
+	c.Execution.Adapter = strings.ToLower(strings.TrimSpace(c.Execution.Adapter))
+	c.Execution.AllowedVenues = dedupeLowerStrings(c.Execution.AllowedVenues)
+	c.Execution.AllowedSymbols = dedupeExecutionSymbols(c.Execution.AllowedSymbols)
+	c.Execution.AllowedAccounts = dedupeStrings(c.Execution.AllowedAccounts)
+	c.Execution.Real.Binance.TradeAPI.BaseURL = strings.TrimSpace(c.Execution.Real.Binance.TradeAPI.BaseURL)
+	c.Execution.Real.Binance.TradeAPI.EndpointMode = strings.ToLower(strings.TrimSpace(c.Execution.Real.Binance.TradeAPI.EndpointMode))
+	c.Execution.Real.Binance.TradeAPI.APIKeyEnv = strings.TrimSpace(c.Execution.Real.Binance.TradeAPI.APIKeyEnv)
+	c.Execution.Real.Binance.TradeAPI.APISecretEnv = strings.TrimSpace(c.Execution.Real.Binance.TradeAPI.APISecretEnv)
+	c.Execution.Real.Binance.TradeAPI.RequestTimeout = strings.TrimSpace(c.Execution.Real.Binance.TradeAPI.RequestTimeout)
 	c.Storage.Timescale.DSN = strings.TrimSpace(c.Storage.Timescale.DSN)
 	c.Storage.Timescale.MaxConnLifetime = strings.TrimSpace(c.Storage.Timescale.MaxConnLifetime)
 	c.Storage.Timescale.MaxConnIdleTime = strings.TrimSpace(c.Storage.Timescale.MaxConnIdleTime)

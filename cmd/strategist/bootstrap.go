@@ -11,10 +11,10 @@ import (
 
 	"github.com/anthdm/hollywood/actor"
 	actorruntime "github.com/market-raccoon/internal/actors/runtime"
-	signalsruntime "github.com/market-raccoon/internal/actors/signals/runtime"
+	strategyruntime "github.com/market-raccoon/internal/actors/strategy/runtime"
 	"github.com/market-raccoon/internal/adapters/bus"
 	adapterjs "github.com/market-raccoon/internal/adapters/jetstream"
-	signalsapp "github.com/market-raccoon/internal/core/signals/app"
+	strategyapp "github.com/market-raccoon/internal/core/strategy/app"
 	httpserver "github.com/market-raccoon/internal/interfaces/http"
 	"github.com/market-raccoon/internal/shared/bootstrap"
 	"github.com/market-raccoon/internal/shared/config"
@@ -33,10 +33,11 @@ type strategistEnvelopeSource struct {
 	envelopeCh <-chan envelope.Envelope
 	consumeErr <-chan *problem.Problem
 	shutdownFn func(context.Context)
+	filters    []string
 }
 
-// Run is the strategist composition root. It wires the signal composer
-// subsystem, envelope source, and HTTP runtime endpoints.
+// Run is the strategist composition root. It consumes canonical signal streams
+// and publishes strategy.intent contracts.
 func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 	logger := bootstrap.BuildLogger(cfg.Log)
 	slog.SetDefault(logger)
@@ -56,23 +57,14 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 		return err
 	}
 
-	composePolicy := signalsapp.DefaultComposePolicy()
-	composePolicy.CorrelationWindowMs = cfg.Signals.CorrelationWindowMs
-	limiterPolicy := signalsapp.DefaultRateLimitPolicy()
-	limiterPolicy.DedupWindowMs = cfg.Signals.DedupWindowMs
-	limiterPolicy.DedupCapPerKey = cfg.Signals.WindowCap
-	limiterPolicy.RateLimitPerMin = cfg.Signals.RateLimitPerMin
-	limiterPolicy.GlobalRateLimitMin = cfg.Signals.GlobalRateLimitPerMin
-
-	strategistCfg := signalsruntime.SubsystemConfig{
-		Logger:                logger.With("subsystem", "strategist"),
-		EnvelopeCh:            source.envelopeCh,
-		Composer:              signalsapp.NewSignalComposer(composePolicy),
-		Limiter:               signalsapp.NewSignalRateLimiter(limiterPolicy),
-		RegimeCacheMaxStreams: cfg.Evidence.RegimeMaxStreams,
-		Publisher:             publisher,
-		ReplicaID:             cfg.Shard.Index,
-		ReplicaCount:          cfg.Shard.Count,
+	planner := strategyapp.NewIntentPlanner(strategyapp.DefaultPlannerConfig())
+	strategistCfg := strategyruntime.SubsystemConfig{
+		Logger:       logger.With("subsystem", "strategy"),
+		EnvelopeCh:   source.envelopeCh,
+		Planner:      planner,
+		Publisher:    publisher,
+		ReplicaID:    cfg.Shard.Index,
+		ReplicaCount: cfg.Shard.Count,
 	}
 
 	e, err := actorruntime.NewDefaultEngine()
@@ -85,7 +77,7 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 	guardianPID := actorruntime.SpawnGuardian(e, actorruntime.GuardianConfig{
 		Logger: logger,
 		Factories: map[actorruntime.Subsystem]actor.Producer{
-			actorruntime.SubsystemSignals: signalsruntime.NewSubsystemActor(strategistCfg),
+			actorruntime.SubsystemStrategy: strategyruntime.NewSubsystemActor(strategistCfg),
 		},
 	})
 	logger.Info("strategist: guardian spawned", "pid", guardianPID.String())
@@ -145,7 +137,7 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 	return nil
 }
 
-func buildStrategistPublisher(cfg config.AppConfig, logger *slog.Logger) (signalsruntime.EventPublisher, func(context.Context) *problem.Problem, error) {
+func buildStrategistPublisher(cfg config.AppConfig, logger *slog.Logger) (strategyruntime.EventPublisher, func(context.Context) *problem.Problem, error) {
 	if strings.EqualFold(strings.TrimSpace(cfg.Bus.Type), "jetstream") {
 		pub, p := adapterjs.NewPublisher(context.Background(), adapterjs.PublisherConfig{
 			URL:            cfg.JetStream.URL,
@@ -168,10 +160,12 @@ func buildStrategistPublisher(cfg config.AppConfig, logger *slog.Logger) (signal
 func initStrategistEnvelopeSource(cfg config.AppConfig, logger *slog.Logger) (strategistEnvelopeSource, error) {
 	if !strings.EqualFold(strings.TrimSpace(cfg.Bus.Type), "jetstream") {
 		logger.Info("strategist: bus.type is not jetstream, no inbound stream configured")
+		filters := effectiveStrategistFilters(nil)
 		return strategistEnvelopeSource{
 			envelopeCh: make(chan envelope.Envelope),
 			consumeErr: make(chan *problem.Problem),
 			shutdownFn: func(context.Context) {},
+			filters:    filters,
 		}, nil
 	}
 
@@ -230,6 +224,7 @@ func initStrategistEnvelopeSource(cfg config.AppConfig, logger *slog.Logger) (st
 	return strategistEnvelopeSource{
 		envelopeCh: envCh,
 		consumeErr: errCh,
+		filters:    filters,
 		shutdownFn: func(shutCtx context.Context) {
 			cancel()
 			if p := consumer.Close(shutCtx); p != nil {
@@ -240,8 +235,25 @@ func initStrategistEnvelopeSource(cfg config.AppConfig, logger *slog.Logger) (st
 }
 
 func effectiveStrategistFilters(base []string) []string {
-	out := append([]string(nil), base...)
-	out = appendFilterSubjectIfMissing(out, "insights.>")
+	const (
+		canonicalProbe = "signal.event.v1.binance.BTCUSDT"
+		legacyProbe    = "signal.composite.v1.binance.BTCUSDT"
+	)
+	out := make([]string, 0, len(base)+1)
+	for _, raw := range base {
+		subject := strings.TrimSpace(raw)
+		if subject == "" {
+			continue
+		}
+		// Stage 6: legacy signal.composite intake is retired from strategist.
+		if subjectMatchesFilter(legacyProbe, subject) {
+			continue
+		}
+		if subjectMatchesFilter(canonicalProbe, subject) {
+			out = append(out, subject)
+		}
+	}
+	out = appendFilterSubjectIfMissing(out, "signal.event.>")
 	return dedupeSubjects(out)
 }
 

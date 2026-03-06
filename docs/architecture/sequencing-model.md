@@ -98,7 +98,7 @@ each subsystem independently computes its owner without coordination.
 |---|---|---|
 | Delivery | `SubsystemDelivery` | `internal/actors/delivery/runtime/router.go:718-730` |
 | Signal | `SubsystemSignals` | `internal/actors/signal/runtime/subsystem_owner_policy.go:71-77` |
-| Strategist | `SubsystemStrategist` | `internal/actors/signals/runtime/subsystem.go:369-376` |
+| Strategy / Strategist ownership salt | `SubsystemStrategist` | `internal/actors/strategy/runtime/subsystem.go:243`; legacy compatibility also remains in `internal/actors/signals/runtime/subsystem.go:371` |
 
 **Key invariant:** Non-owner replicas reject events with reason `owner_reject` and must not emit
 or mutate stream state. Double-emit is prevented by the combination of owner gating and monotonic

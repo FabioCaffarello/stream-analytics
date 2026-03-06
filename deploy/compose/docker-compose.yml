@@ -152,16 +152,12 @@ services:
       SHARD_INDEX: 0
       SHARD_COUNT: ${CONSUMER_SHARD_COUNT:-1}
     ports:
-      - "8081"
+      - "127.0.0.1:8081:8081"
     volumes:
       - ../configs/consumer.jsonc:/etc/market-raccoon/consumer.jsonc:ro
     depends_on:
       nats:
         condition: service_healthy
-      server:
-        condition: service_started
-      migrate:
-        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/readyz"]
       interval: 10s
@@ -209,52 +205,8 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
-      server:
-        condition: service_started
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8082/readyz"]
-      interval: 10s
-      timeout: 3s
-      retries: 10
-      start_period: 10s
-    networks:
-      - market-raccoon-network
-    restart: unless-stopped
-    profiles: ["core"]
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "5"
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: "1.00"
-
-  store:
-    build:
-      context: ../..
-      dockerfile: deploy/docker/store.Dockerfile
-    image: market-raccoon/store:dev
-    container_name: market-raccoon-store
-    command: ["-config", "/etc/market-raccoon/store.jsonc"]
-    ports:
-      - "127.0.0.1:8083:8083"
-    volumes:
-      - ../configs/store.jsonc:/etc/market-raccoon/store.jsonc:ro
-      - ../../sql/clickhouse/migrations:/sql/clickhouse/migrations:ro
-    depends_on:
-      nats:
-        condition: service_healthy
-      clickhouse:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8083/readyz"]
       interval: 10s
       timeout: 3s
       retries: 10
@@ -282,20 +234,16 @@ services:
       dockerfile: deploy/docker/signals.Dockerfile
     image: market-raccoon/signals:dev
     command: ["-config", "/etc/market-raccoon/signals.jsonc"]
+    ports:
+      - "127.0.0.1:8084:8084"
     volumes:
       - ../configs/signals.jsonc:/etc/market-raccoon/signals.jsonc:ro
-    ports:
-      - "8084"
     depends_on:
       nats:
         condition: service_healthy
-      timescale:
-        condition: service_healthy
-      clickhouse:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
-      server:
+      consumer:
+        condition: service_started
+      processor:
         condition: service_started
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8084/readyz"]
@@ -317,8 +265,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
-          cpus: "1.00"
+          memory: 256M
+          cpus: "0.50"
 
   strategist:
     build:
@@ -326,23 +274,140 @@ services:
       dockerfile: deploy/docker/strategist.Dockerfile
     image: market-raccoon/strategist:dev
     command: ["-config", "/etc/market-raccoon/strategist.jsonc"]
+    ports:
+      - "127.0.0.1:8085:8085"
     volumes:
       - ../configs/strategist.jsonc:/etc/market-raccoon/strategist.jsonc:ro
-    ports:
-      - "8085"
     depends_on:
       nats:
         condition: service_healthy
-      timescale:
+      signals:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8085/readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - market-raccoon-network
+    restart: unless-stopped
+    profiles: ["core"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.50"
+
+  executor:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/executor.Dockerfile
+    image: market-raccoon/executor:dev
+    command: ["-config", "/etc/market-raccoon/executor.jsonc"]
+    env_file:
+      - ../envs/local.env
+    environment:
+      MR_BINANCE_API_KEY: ${MR_BINANCE_API_KEY:-}
+      MR_BINANCE_API_SECRET: ${MR_BINANCE_API_SECRET:-}
+    ports:
+      - "127.0.0.1:8086:8086"
+    volumes:
+      - ../configs/executor.jsonc:/etc/market-raccoon/executor.jsonc:ro
+    depends_on:
+      nats:
+        condition: service_healthy
+      strategist:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8086/readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - market-raccoon-network
+    restart: unless-stopped
+    profiles: ["core"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.50"
+
+  portfolio:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/portfolio.Dockerfile
+    image: market-raccoon/portfolio:dev
+    command: ["-config", "/etc/market-raccoon/portfolio.jsonc"]
+    ports:
+      - "127.0.0.1:8087:8087"
+    volumes:
+      - ../configs/portfolio.jsonc:/etc/market-raccoon/portfolio.jsonc:ro
+    depends_on:
+      nats:
+        condition: service_healthy
+      executor:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8087/readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - market-raccoon-network
+    restart: unless-stopped
+    profiles: ["core"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.50"
+
+  store:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/store.Dockerfile
+    image: market-raccoon/store:dev
+    container_name: market-raccoon-store
+    command: ["-config", "/etc/market-raccoon/store.jsonc"]
+    ports:
+      - "127.0.0.1:8083:8083"
+    volumes:
+      - ../configs/store.jsonc:/etc/market-raccoon/store.jsonc:ro
+      - ../../sql/clickhouse/migrations:/sql/clickhouse/migrations:ro
+    depends_on:
+      nats:
         condition: service_healthy
       clickhouse:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
-      server:
-        condition: service_started
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8085/readyz"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8083/readyz"]
       interval: 10s
       timeout: 3s
       retries: 10
@@ -422,12 +487,10 @@ services:
     networks:
       - market-raccoon-network
     depends_on:
-      consumer:
-        condition: service_started
-      processor:
-        condition: service_started
-      store:
-        condition: service_started
+      server:
+        condition: service_healthy
+      portfolio:
+        condition: service_healthy
     restart: unless-stopped
     profiles: ["client"]
     cap_drop: [ALL]

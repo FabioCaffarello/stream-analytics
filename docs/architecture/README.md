@@ -34,7 +34,10 @@ The system helps professionals:
 - understand positioning
 - gain market clarity
 
-Execution is explicitly out of scope.
+Full production venue execution is out of scope in current stages.
+Stage 7 introduces a restricted real-adapter safe cut-in behind the execution boundary.
+Stage 8 expands safe pilot lifecycle/reconciliation without changing canonical contracts.
+Stage 9A/9B add explicit governance plus a hardened trade-only credentials broker behind the same boundary.
 
 ---
 
@@ -50,8 +53,8 @@ Exchange WS
     │
     ├──(aggregation.tape / candle / stats / snapshot)────────────────────┐
     ├──(insights.heatmap_snapshot / volume_profile_snapshot)─────────────┤
-    └──(trades+bookdelta)──► [Evidence / LEL] ──► [Signal Engine] ───────┤
-                                                  [Strategist] ──────────┤
+    └──(trades+bookdelta)──► [Evidence / LEL] ──► [Signal Engine] ──► [Strategist]
+                                                                   └──► [Execution] ──► [Portfolio] ──►┤
                                                                           ▼
                                                                [Delivery / Router]
                                                                      │      │
@@ -59,6 +62,12 @@ Exchange WS
                                                                           │
                                                                     [Client WASM]
 ```
+
+Canonical decision/execution chain is:
+`signal.event -> strategy.intent -> execution.event -> portfolio.state`
+(bootstrap default runtime with Stage 7 opt-in real-adapter safe mode).
+(Stage 8 adds opt-in lifecycle reconciliation under the same safe boundary.)
+(Stage 9B keeps the same contracts while making credential provenance/lease handling explicit.)
 
 Full subsystem responsibility table, ownership contracts, and traceability:
 → [`docs/architecture/subsystems.md`](subsystems.md)

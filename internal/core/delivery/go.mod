@@ -29,3 +29,9 @@ replace (
 replace github.com/market-raccoon/internal/core/signal => ../signal
 
 replace github.com/market-raccoon/internal/actors => ../../actors
+
+replace github.com/market-raccoon/internal/core/strategy => ../strategy
+
+replace github.com/market-raccoon/internal/core/execution => ../execution
+
+replace github.com/market-raccoon/internal/core/portfolio => ../portfolio

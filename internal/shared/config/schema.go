@@ -36,6 +36,7 @@ type AppConfig struct {
 	Markets      MarketsConfig      `json:"markets"`
 	Evidence     EvidenceConfig     `json:"evidence"`
 	Signals      SignalsConfig      `json:"signals"`
+	Execution    ExecutionConfig    `json:"execution"`
 }
 
 // IQProfileBudgets captures strict p95/p99 IQ budget thresholds used in CI.
@@ -115,7 +116,9 @@ type EvidenceConfig struct {
 
 // SignalsConfig controls signal-composer boundedness and delivery limits.
 type SignalsConfig struct {
-	// UseComposer toggles signal composer path (strangler flag).
+	// UseComposer is deprecated and currently a no-op.
+	// Embedded server composer wiring was removed in Stage 2 boundary hardening.
+	// Kept only for backward-compatible config loading.
 	UseComposer bool `json:"use_composer"`
 	// DedupWindowMs controls dedup TTL window in milliseconds.
 	DedupWindowMs int64 `json:"dedup_window_ms"`
@@ -129,6 +132,71 @@ type SignalsConfig struct {
 	MaxSubsPerSession int `json:"max_subs_per_session"`
 	// WindowCap bounds dedup history entries per signal key.
 	WindowCap int `json:"window_cap"`
+}
+
+// ExecutionConfig controls executor adapter mode selection plus Stage 9A static
+// governance grant inputs.
+type ExecutionConfig struct {
+	// Mode selects the active execution boundary behavior.
+	// Allowed: bootstrap_simulated | real_adapter_safe.
+	Mode string `json:"mode"`
+	// Adapter selects the concrete implementation behind IntentExecutor.
+	// Allowed in Stage 8 safe pilot: bootstrap.simulated | binance.spot.
+	Adapter string `json:"adapter"`
+	// SafeMode is required by Stage 9A governance for any execution grant.
+	SafeMode bool `json:"safe_mode"`
+	// TradeOnly is required by Stage 9A governance. Withdraw/custody are forbidden.
+	TradeOnly bool `json:"trade_only"`
+	// AllowedVenues defines the real-mode venue scope on the execution grant.
+	AllowedVenues []string `json:"allowed_venues"`
+	// AllowedSymbols defines the real-mode symbol scope on the execution grant.
+	AllowedSymbols []string `json:"allowed_symbols"`
+	// AllowedAccounts defines the optional account scope on the execution grant.
+	AllowedAccounts []string `json:"allowed_accounts"`
+	// MaxIntentTTLms bounds intent TTL authorized by the execution grant.
+	MaxIntentTTLms int64 `json:"max_intent_ttl_ms"`
+	// MaxAbsQuantity bounds absolute requested quantity authorized by the grant.
+	MaxAbsQuantity float64 `json:"max_abs_quantity"`
+	// MaxNotionalUSD bounds requested notional in USD authorized by the grant.
+	MaxNotionalUSD float64 `json:"max_notional_usd"`
+	// MaxSlippageBps bounds allowed slippage in basis points authorized by the grant.
+	MaxSlippageBps float64 `json:"max_slippage_bps"`
+	// Real holds real-adapter specific settings.
+	Real ExecutionRealConfig `json:"real"`
+}
+
+// ExecutionRealConfig holds real-adapter mode toggles.
+type ExecutionRealConfig struct {
+	Enabled bool                   `json:"enabled"`
+	Binance ExecutionBinanceConfig `json:"binance"`
+}
+
+// ExecutionBinanceConfig holds Binance trade API adapter settings.
+type ExecutionBinanceConfig struct {
+	TradeAPI ExecutionBinanceTradeAPIConfig `json:"trade_api"`
+}
+
+// ExecutionBinanceTradeAPIConfig controls Binance signed trade-only API access.
+type ExecutionBinanceTradeAPIConfig struct {
+	// BaseURL is the Binance REST base URL.
+	BaseURL string `json:"base_url"`
+	// EndpointMode is the allowed operational endpoint mode.
+	// Stage 8 allows: test_order | safe_order_lifecycle.
+	EndpointMode string `json:"endpoint_mode"`
+	// APIKeyEnv is the environment variable name for API key.
+	APIKeyEnv string `json:"api_key_env"`
+	// APISecretEnv is the environment variable name for API secret.
+	APISecretEnv string `json:"api_secret_env"`
+	// RecvWindowMs is Binance recvWindow in milliseconds.
+	RecvWindowMs int64 `json:"recv_window_ms"`
+	// RequestTimeout is the HTTP timeout for Binance signed requests.
+	RequestTimeout string `json:"request_timeout"`
+	// ReconcileEnabled enables deterministic order-status reconciliation polling.
+	ReconcileEnabled bool `json:"reconcile_enabled"`
+	// ReconcilePollInterval is the delay between reconciliation polls.
+	ReconcilePollInterval string `json:"reconcile_poll_interval"`
+	// ReconcileMaxPolls bounds reconciliation attempts per intent.
+	ReconcileMaxPolls int `json:"reconcile_max_polls"`
 }
 
 // ShardConfig controls deterministic shard assignment for horizontal scaling.
@@ -658,7 +726,9 @@ type ProcessorConfig struct {
 	BusCapacity int `json:"bus_capacity"`
 	// MaxInstruments bounds in-memory order book state for aggregation.
 	MaxInstruments int `json:"max_instruments"`
-	// Signals controls the embedded signal subsystem inside processor runtime.
+	// Signals is deprecated and currently a no-op.
+	// Embedded processor signal wiring was removed in Stage 2 boundary hardening.
+	// Kept only for backward-compatible config loading.
 	Signals ProcessorSignalsConfig `json:"signals"`
 	// OrderBook controls deterministic order book implementation and limits.
 	OrderBook ProcessorOrderBookConfig `json:"orderbook"`
@@ -687,14 +757,15 @@ type ProcessorConfig struct {
 	CatchUpSkipStatsSkewMs int `json:"catchup_skip_stats_skew_ms"`
 }
 
-// ProcessorSignalsConfig controls the embedded signal subsystem in processor.
+// ProcessorSignalsConfig is deprecated and kept for config compatibility.
 type ProcessorSignalsConfig struct {
-	// Enabled toggles the embedded signal subsystem.
-	// nil means enabled for backward compatibility.
+	// Enabled no longer controls runtime behavior.
+	// Kept only for backward-compatible config loading.
 	Enabled *bool `json:"enabled,omitempty"`
 }
 
-// IsEnabled returns true when embedded signal subsystem should run.
+// IsEnabled returns the legacy configured value.
+// Deprecated: embedded signal subsystem was removed from processor runtime.
 func (c ProcessorSignalsConfig) IsEnabled() bool {
 	return c.Enabled == nil || *c.Enabled
 }
@@ -973,6 +1044,16 @@ func (r ReplayJetStreamConfig) WindowDuration() time.Duration {
 // TTLDuration parses and returns ProcessorInsightsConfig.TTL.
 func (i ProcessorInsightsConfig) TTLDuration() time.Duration {
 	return mustParseDuration(i.TTL)
+}
+
+// RequestTimeoutDuration parses and returns ExecutionBinanceTradeAPIConfig.RequestTimeout.
+func (c ExecutionBinanceTradeAPIConfig) RequestTimeoutDuration() time.Duration {
+	return mustParseDuration(c.RequestTimeout)
+}
+
+// ReconcilePollIntervalDuration parses and returns ExecutionBinanceTradeAPIConfig.ReconcilePollInterval.
+func (c ExecutionBinanceTradeAPIConfig) ReconcilePollIntervalDuration() time.Duration {
+	return mustParseDuration(c.ReconcilePollInterval)
 }
 
 // SweepEveryDuration parses and returns ProcessorInsightsConfig.SweepEvery.

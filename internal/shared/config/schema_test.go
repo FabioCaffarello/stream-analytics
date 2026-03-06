@@ -95,3 +95,17 @@ func TestProtoRolloutEventTypeFlags(t *testing.T) {
 		t.Fatal("insights.crossvenue.trade_snapshot should be disabled")
 	}
 }
+
+func TestExecutionTradeAPITimeoutHelper(t *testing.T) {
+	cfg := ExecutionBinanceTradeAPIConfig{RequestTimeout: "3s"}
+	if got := cfg.RequestTimeoutDuration().String(); got != "3s" {
+		t.Fatalf("RequestTimeoutDuration=%s want=3s", got)
+	}
+}
+
+func TestExecutionTradeAPIReconcilePollIntervalHelper(t *testing.T) {
+	cfg := ExecutionBinanceTradeAPIConfig{ReconcilePollInterval: "500ms"}
+	if got := cfg.ReconcilePollIntervalDuration().String(); got != "500ms" {
+		t.Fatalf("ReconcilePollIntervalDuration=%s want=500ms", got)
+	}
+}

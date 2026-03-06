@@ -44,7 +44,6 @@
     "regime_history_cap": 20
   },
   "signals": {
-    "use_composer": false,
     "dedup_window_ms": 30000,
     "rate_limit_per_min": 10,
     "global_rate_limit_per_min": 100,

@@ -13,6 +13,8 @@ type Subsystem string
 const (
 	SubsystemSignals    Subsystem = "signals"
 	SubsystemStrategist Subsystem = "strategist"
+	SubsystemExecution  Subsystem = "execution"
+	SubsystemPortfolio  Subsystem = "portfolio"
 	SubsystemDelivery   Subsystem = "delivery"
 )
 

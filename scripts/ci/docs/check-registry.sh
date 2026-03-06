@@ -34,7 +34,7 @@ fi
 
 # 3. Parse subjects from registry (line-by-line, predictable structure).
 valid_statuses="stable draft planned"
-valid_bcs="marketdata aggregation insights delivery storage"
+valid_bcs="marketdata aggregation insights signal strategist strategy execution portfolio delivery storage"
 required_fields="id pattern root owner_bc producer_bc schema_authority_bc consumer_bcs status"
 
 current_id=""

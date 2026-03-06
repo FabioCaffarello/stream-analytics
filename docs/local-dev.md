@@ -13,17 +13,17 @@ Single source of truth for running the Market Raccoon backend locally. All other
 | `promtool` (optional, for alert validation) | 2.50+ | `promtool --version` |
 | `jq` (optional, for operability checks) | 1.6+ | `jq --version` |
 
-Free ports required: `4222` (NATS), `5432` (TimescaleDB), `8080-8083` (app), `8123/9000` (ClickHouse), `8222` (NATS monitor), `9090` (Prometheus), `3000` (Grafana).
+Free ports required: `4222` (NATS), `5432` (TimescaleDB), fixed app ports `8080-8081` and `8083-8087`, one dynamic host port for `processor:8082`, `8123/9000` (ClickHouse), `8222` (NATS monitor), `9090` (Prometheus), `3000` (Grafana).
 
 ## Quick Start
 
 ```bash
-# Full stack — infra + all 4 app binaries + observability
+# Full stack — infra + canonical runtime pipeline + observability
 make up
 
 # Or step by step:
 make up-infra    # NATS + TimescaleDB + ClickHouse + Prometheus + Grafana
-make up-core     # + server + consumer + processor + store (builds images)
+make up-core     # + consumer + processor + signals + strategist + executor + portfolio + server + store
 ```
 
 Wait ~30-60 s for all services to become healthy, then verify:
@@ -35,25 +35,35 @@ make ps          # all services should show "healthy" or "running"
 ## Architecture (what runs)
 
 ```
-                 ┌─────────────┐
-   exchanges ──▶ │  consumer   │:8081  (WS ingest → NATS JetStream)
-                 └──────┬──────┘
-                        │ JetStream: marketdata.>
-                 ┌──────▼──────┐
-                 │  processor  │:8082  (aggregation, insights, orderbook)
-                 └──┬───────┬──┘
-      JetStream:    │       │  hot-path
-      aggregation.> │       │  (TimescaleDB :5432)
-                 ┌──▼──┐ ┌─▼──────┐
-                 │store │ │ server │:8080  (WS delivery, /healthz, /readyz)
-                 │:8083 │ └────────┘
-                 └──┬───┘
-                    │ cold-path
-              ┌─────▼──────┐
-              │ ClickHouse │:8123/:9000
-              └────────────┘
+ exchanges
+    │
+    ▼
+ consumer :8081  ──▶ marketdata.>
+    │
+    ▼
+ processor :8082 ──▶ aggregation.>, insights.>
+    │
+    ▼
+ signals :8084 ───▶ signal.event.>
+    │
+    ▼
+ strategist :8085 ─▶ strategy.intent.>
+    │
+    ▼
+ executor :8086  ──▶ execution.event.>
+    │
+    ▼
+ portfolio :8087 ─▶ portfolio.state.>
 
-Observability: Prometheus :9090 → scrapes all 4 binaries
+ server :8080 subscribes to the canonical stream families for delivery/runtime APIs.
+ store  :8083 persists cold-path snapshots into ClickHouse.
+
+ Infra:
+ - NATS JetStream :4222 / :8222
+ - TimescaleDB    :5432
+ - ClickHouse     :8123 / :9000
+
+Observability: Prometheus :9090 → scrapes runtime services configured in the local stack
                Grafana    :3000 → dashboards auto-provisioned
 ```
 
@@ -63,8 +73,12 @@ Observability: Prometheus :9090 → scrapes all 4 binaries
 |---------|------|--------|-----------|---------|
 | **server** | 8080 | `/healthz` | `/readyz` | `/metrics` |
 | **consumer** | 8081 | `/healthz` | `/readyz` | `/metrics` |
-| **processor** | 8082 | `/healthz` | `/readyz` | `/metrics` |
+| **processor** | `docker compose port processor 8082` | `/healthz` | `/readyz` | `/metrics` |
 | **store** | 8083 | `/healthz` | `/readyz` | `/metrics` |
+| **signals** | 8084 | `/healthz` | `/readyz` | `/metrics` |
+| **strategist** | 8085 | `/healthz` | `/readyz` | `/metrics` |
+| **executor** | 8086 | `/healthz` | `/readyz` | `/metrics` |
+| **portfolio** | 8087 | `/healthz` | `/readyz` | `/metrics` |
 | **NATS** | 4222 (client) / 8222 (monitor) | `http://127.0.0.1:8222/healthz` | — | — |
 | **TimescaleDB** | 5432 | `pg_isready -U raccoon -d raccoon` | — | — |
 | **ClickHouse** | 8123 (HTTP) / 9000 (native) | `http://127.0.0.1:8123/ping` | — | — |
@@ -73,9 +87,13 @@ Observability: Prometheus :9090 → scrapes all 4 binaries
 
 All app binaries also expose `/runtime/snapshot` (guardian state JSON) and `/runtime/reload` (POST, 202).
 
+`processor` publishes container port `8082` on a Docker-assigned host port so `PROCESSOR_REPLICAS>1` can scale without port collisions. Resolve the current host mapping with `docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile core port processor 8082`.
+
 ## Credentials (local only)
 
 Source: `deploy/envs/local.env` — **never use these outside localhost**.
+
+The credential broker is not a standalone container in local compose. It is an in-process executor boundary. If you opt into `execution.mode=real_adapter_safe`, provide `MR_BINANCE_API_KEY` and `MR_BINANCE_API_SECRET` to the executor container environment.
 
 | Service | User | Password | Database |
 |---------|------|----------|----------|
@@ -88,11 +106,17 @@ Source: `deploy/envs/local.env` — **never use these outside localhost**.
 Run after `make up` to confirm the full stack is operational:
 
 ```bash
-# 1. All readiness probes pass
+PROC_URL="http://$(docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile core port processor 8082 | head -n1 | sed 's#^0.0.0.0:#127.0.0.1:#; s#^\\[::\\]:#127.0.0.1:#')"
+
+# 1. Canonical pipeline readiness probes pass
 curl -sf http://127.0.0.1:8080/readyz && echo "server: OK"
 curl -sf http://127.0.0.1:8081/readyz && echo "consumer: OK"
-curl -sf http://127.0.0.1:8082/readyz && echo "processor: OK"
+curl -sf "${PROC_URL}/readyz" && echo "processor: OK"
 curl -sf http://127.0.0.1:8083/readyz && echo "store: OK"
+curl -sf http://127.0.0.1:8084/readyz && echo "signals: OK"
+curl -sf http://127.0.0.1:8085/readyz && echo "strategist: OK"
+curl -sf http://127.0.0.1:8086/readyz && echo "executor: OK"
+curl -sf http://127.0.0.1:8087/readyz && echo "portfolio: OK"
 
 # 2. Infra healthy
 curl -sf http://127.0.0.1:8222/healthz  && echo "nats: OK"
@@ -101,21 +125,27 @@ pg_isready -h 127.0.0.1 -U raccoon -d raccoon && echo "timescale: OK"
 
 # 3. Prometheus scraping targets
 curl -s http://127.0.0.1:9090/api/v1/targets | jq '.data.activeTargets | length'
-# expect >= 4 (server, consumer, processor, store)
+# expect runtime targets configured for the local stack
 
 # 4. Consumer is ingesting (counter should increase)
 curl -s http://127.0.0.1:8081/metrics | grep ingest_messages_total
 
 # 5. Processor is aggregating
-curl -s http://127.0.0.1:8082/metrics | grep orderbook_update_total
+curl -s "${PROC_URL}/metrics" | grep orderbook_update_total
 
-# 6. Store is committing to ClickHouse
+# 6. Signals / strategist / executor / portfolio are alive on the canonical runtime boundary
+curl -s http://127.0.0.1:8084/metrics | grep signal
+curl -s http://127.0.0.1:8085/metrics | grep strategy
+curl -s http://127.0.0.1:8086/runtime/snapshot | jq .
+curl -s http://127.0.0.1:8087/runtime/snapshot | jq .
+
+# 7. Store is committing to ClickHouse
 curl -s http://127.0.0.1:8083/metrics | grep store_commit_total
 
-# 7. ClickHouse has tables
+# 8. ClickHouse has tables
 curl -s 'http://127.0.0.1:8123/?query=SHOW+TABLES+FROM+default' | grep aggregation
 
-# 8. WS delivery accepts connections
+# 9. WS delivery accepts connections
 # (requires a valid API key — see deploy/configs/server.jsonc ws.auth.api_keys)
 ```
 
@@ -136,14 +166,42 @@ The consumer connects to 5 exchanges by default (see `deploy/configs/consumer.js
 ### Processor (aggregation)
 
 ```bash
+PROC_URL="http://$(docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile core port processor 8082 | head -n1 | sed 's#^0.0.0.0:#127.0.0.1:#; s#^\\[::\\]:#127.0.0.1:#')"
+
 # Guardian state — shows active subsystems
-curl -s http://127.0.0.1:8082/runtime/snapshot | jq .
+curl -s "${PROC_URL}/runtime/snapshot" | jq .
 
 # Key metrics
-curl -s http://127.0.0.1:8082/metrics | grep -E 'orderbook_update_total|candle_|stats_|crossvenue_'
+curl -s "${PROC_URL}/metrics" | grep -E 'orderbook_update_total|candle_|stats_|crossvenue_'
 ```
 
 Filter subjects default to `marketdata.>` (all event types). Override in `deploy/configs/processor.jsonc` under `jetstream.filter_subjects`.
+
+### Signals, Strategist, Executor, Portfolio
+
+```bash
+curl -sf http://127.0.0.1:8084/readyz && echo "signals ready"
+curl -sf http://127.0.0.1:8085/readyz && echo "strategist ready"
+curl -sf http://127.0.0.1:8086/readyz && echo "executor ready"
+curl -sf http://127.0.0.1:8087/readyz && echo "portfolio ready"
+
+curl -s http://127.0.0.1:8084/runtime/snapshot | jq .
+curl -s http://127.0.0.1:8085/runtime/snapshot | jq .
+curl -s http://127.0.0.1:8086/runtime/snapshot | jq .
+curl -s http://127.0.0.1:8087/runtime/snapshot | jq .
+```
+
+Default execution posture is fail-closed:
+
+- `execution.mode=bootstrap_simulated`
+- `execution.safe_mode=true`
+- `execution.trade_only=true`
+- `execution.real.enabled=false`
+
+Switch to `real_adapter_safe` only when you also provide the broker-backed env vars consumed by `deploy/configs/executor.jsonc`:
+
+- `MR_BINANCE_API_KEY`
+- `MR_BINANCE_API_SECRET`
 
 ### Server (WS delivery)
 
@@ -179,7 +237,7 @@ JetStream durable: `store-v2`. Filter subjects: `aggregation.snapshot.v1.>`, `ag
 | `make up` | Build + start full stack (core + obs profiles) |
 | `make down` | Stop all services, remove volumes |
 | `make up-infra` | Start only infra (NATS, TimescaleDB, ClickHouse, Prometheus, Grafana) |
-| `make up-core` | Start infra + app binaries (no Grafana/Prometheus) |
+| `make up-core` | Start infra + canonical runtime services (no Grafana/Prometheus) |
 | `make ps` | Show compose service status |
 | `make logs` | Tail all compose logs |
 | `make docker-build` | Build images without starting |

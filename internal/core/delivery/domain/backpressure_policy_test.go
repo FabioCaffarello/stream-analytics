@@ -67,4 +67,13 @@ func TestDefaultBackpressurePriorities_HasCriticalTypes(t *testing.T) {
 	if priorities["aggregation.oi"] <= 0 || priorities["aggregation.cvd"] <= 0 || priorities["aggregation.delta_volume"] <= 0 || priorities["aggregation.bar_stats"] <= 0 {
 		t.Fatal("analytics primitive priorities must be present and positive")
 	}
+	if priorities["signal.event"] <= priorities["signal.composite"] {
+		t.Fatal("canonical signal.event priority must be greater than legacy signal.composite")
+	}
+	if priorities["strategy.intent"] <= priorities["execution.event"] {
+		t.Fatal("strategy.intent priority must be greater than execution.event")
+	}
+	if priorities["execution.event"] <= priorities["portfolio.state"] {
+		t.Fatal("execution.event priority must be greater than portfolio.state")
+	}
 }

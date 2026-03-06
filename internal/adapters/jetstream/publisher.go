@@ -20,7 +20,17 @@ const (
 	busTypeJetStream      = "jetstream"
 )
 
-var subjectWildcards = []string{"marketdata.>", "insights.>", "aggregation.>", "quarantine.>"}
+var subjectWildcards = []string{
+	"marketdata.>",
+	"aggregation.>",
+	"insights.>",
+	"liquidity.>",
+	"signal.>",
+	"strategy.>",
+	"execution.>",
+	"portfolio.>",
+	"quarantine.>",
+}
 
 // PublisherConfig defines JetStream publisher runtime behavior.
 type PublisherConfig struct {

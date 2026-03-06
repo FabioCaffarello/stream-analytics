@@ -20,10 +20,13 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/klauspost/compress v1.18.3 // indirect
 	github.com/market-raccoon/internal/core/evidence v0.0.0 // indirect
+	github.com/market-raccoon/internal/core/execution v0.0.0 // indirect
 	github.com/market-raccoon/internal/core/insights v0.0.0 // indirect
 	github.com/market-raccoon/internal/core/marketdata v0.0.0 // indirect
 	github.com/market-raccoon/internal/core/marketmodel v0.0.0 // indirect
+	github.com/market-raccoon/internal/core/portfolio v0.0.0 // indirect
 	github.com/market-raccoon/internal/core/signals v0.0.0 // indirect
+	github.com/market-raccoon/internal/core/strategy v0.0.0 // indirect
 	github.com/matttproud/golang_protobuf_extensions/v2 v2.0.0 // indirect
 	github.com/paulmach/orb v0.12.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.22 // indirect
@@ -56,3 +59,9 @@ replace (
 replace github.com/market-raccoon/internal/core/signal => ../../internal/core/signal
 
 replace github.com/market-raccoon/internal/actors => ../../internal/actors
+
+replace github.com/market-raccoon/internal/core/strategy => ../../internal/core/strategy
+
+replace github.com/market-raccoon/internal/core/execution => ../../internal/core/execution
+
+replace github.com/market-raccoon/internal/core/portfolio => ../../internal/core/portfolio
