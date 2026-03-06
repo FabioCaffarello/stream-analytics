@@ -5,6 +5,9 @@ import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 
 const BASE_URL = process.env.IQ_BASE_URL || "http://localhost:8090";
+const SERVER_BASE = (process.env.IQ_SERVER_BASE || "http://127.0.0.1:8080").replace(/\/+$/, "");
+const METRICS_URL = process.env.IQ_METRICS_URL || `${SERVER_BASE}/metrics`;
+const LEGACY_SIGNAL_SUBJECT = process.env.IQ_LEGACY_SIGNAL_SUBJECT || "signal/composite/binance/BTCUSDT/1m";
 const SHOTS_DIR = process.env.IQ_SHOTS_DIR || join(process.cwd(), "artifacts", "iq", "shots");
 const LOGS_DIR = process.env.IQ_LOGS_DIR || join(process.cwd(), "artifacts", "iq", "logs");
 const WAIT_TIMEOUT_MS = Number(process.env.IQ_TIMEOUT_MS || "20000");
@@ -22,6 +25,7 @@ const networkErrorResponses = [];
 let shotSeq = 0;
 let diagnosticsClipboard = "";
 let statsProbeSnapshot = null;
+let legacyCutoverSnapshot = null;
 
 function nowIso() {
     return new Date().toISOString();
@@ -82,6 +86,163 @@ async function runStep(id, name, fn) {
         steps.push(step);
     }
     return step.ok;
+}
+
+function parseLabels(raw) {
+    if (!raw) return {};
+    const labels = {};
+    for (const token of raw.split(",")) {
+        const idx = token.indexOf("=");
+        if (idx <= 0) continue;
+        const key = token.slice(0, idx).trim();
+        let value = token.slice(idx + 1).trim();
+        if (value.startsWith("\"") && value.endsWith("\"")) {
+            value = value.slice(1, -1);
+        }
+        labels[key] = value;
+    }
+    return labels;
+}
+
+function metricSample(metricsText, metricName, matcher = {}) {
+    const lines = String(metricsText || "").split(/\r?\n/);
+    const re = new RegExp(`^${metricName}(\\{([^}]*)\\})?\\s+([0-9.eE+-]+)$`);
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#")) continue;
+        const match = trimmed.match(re);
+        if (!match) continue;
+        const labels = parseLabels(match[2] || "");
+        let ok = true;
+        for (const key of Object.keys(matcher)) {
+            if (labels[key] !== matcher[key]) {
+                ok = false;
+                break;
+            }
+        }
+        if (!ok) continue;
+        return Number(match[3]);
+    }
+    return 0;
+}
+
+async function fetchText(url, timeoutMs = WAIT_TIMEOUT_MS) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const response = await fetch(url, { signal: controller.signal });
+        return {
+            status: response.status,
+            ok: response.ok,
+            text: await response.text(),
+        };
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+async function runLegacySubscribeProbe(page, subject) {
+    return page.evaluate(async ({ subjectValue }) => {
+        const output = {
+            outcome: "timeout",
+            ws_url: "",
+            details: "",
+            request_id: "legacy-cutover-negative-sub",
+        };
+
+        const runtimeCfg = typeof window.__mr_get_runtime_config === "function"
+            ? window.__mr_get_runtime_config()
+            : null;
+
+        let wsUrl = runtimeCfg && (runtimeCfg.ws_url || runtimeCfg.default_ws_url)
+            ? String(runtimeCfg.ws_url || runtimeCfg.default_ws_url)
+            : "";
+        let apiKey = runtimeCfg && runtimeCfg.api_key ? String(runtimeCfg.api_key) : "";
+
+        if (!wsUrl) {
+            wsUrl = `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/ws`;
+        }
+
+        let fullWsUrl = wsUrl;
+        try {
+            const parsed = new URL(wsUrl, window.location.href);
+            if (apiKey && !parsed.searchParams.get("api_key")) {
+                parsed.searchParams.set("api_key", apiKey);
+            }
+            fullWsUrl = parsed.toString();
+        } catch {
+            // Keep original url; treat URL issues as no-wiring if connect fails.
+        }
+        output.ws_url = fullWsUrl;
+
+        await new Promise((resolve) => {
+            let settled = false;
+            let opened = false;
+            let ws;
+            let timer = null;
+            const finish = (outcome, details) => {
+                if (settled) return;
+                settled = true;
+                output.outcome = outcome;
+                output.details = details || "";
+                if (timer !== null) {
+                    clearTimeout(timer);
+                }
+                try {
+                    ws.close();
+                } catch {}
+                resolve();
+            };
+
+            try {
+                ws = new WebSocket(fullWsUrl);
+            } catch (err) {
+                finish("no_wiring", `ws_constructor_failed=${String(err)}`);
+                return;
+            }
+
+            timer = setTimeout(() => {
+                if (!opened) {
+                    finish("no_wiring", "websocket_open_timeout");
+                    return;
+                }
+                finish("timeout", "no_subscribe_response");
+            }, 8000);
+
+            ws.onopen = () => {
+                opened = true;
+                ws.send(JSON.stringify({
+                    op: "subscribe",
+                    request_id: output.request_id,
+                    subject: subjectValue,
+                }));
+            };
+
+            ws.onerror = () => {
+                if (!opened) {
+                    finish("no_wiring", "websocket_open_failed");
+                }
+            };
+
+            ws.onmessage = (event) => {
+                let msg;
+                try {
+                    msg = JSON.parse(String(event.data));
+                } catch {
+                    return;
+                }
+                if (msg && msg.type === "error" && msg.op === "subscribe") {
+                    finish("rejected", JSON.stringify(msg));
+                    return;
+                }
+                if (msg && msg.type === "ack" && msg.op === "subscribe") {
+                    finish("accepted", JSON.stringify(msg));
+                }
+            };
+        });
+
+        return output;
+    }, { subjectValue: subject });
 }
 
 async function readRuntimeProbe(page) {
@@ -228,6 +389,48 @@ async function triggerCtrlShortcut(page, key, code) {
     await dispatch("keyup", key, code, true);
     await page.waitForTimeout(90);
     await dispatch("keyup", "Control", "ControlLeft", false);
+}
+
+async function primeCanonicalStatsFlow(page) {
+    const beforeProbe = await readRuntimeProbe(page);
+    const ackBefore = Number(beforeProbe.probe_md_subscribe_ack_count ?? 0);
+
+    await page.keyboard.press("Control+k");
+    await page.waitForTimeout(300);
+
+    const vp = page.viewportSize() || { width: 1440, height: 900 };
+    const panelW = 460;
+    const panelH = 420;
+    const px = (vp.width - panelW) * 0.5;
+    const py = (vp.height - panelH) * 0.5;
+    const plusStreamBtnX = px + 190 + 38; // "+ Stream" center (btn_x + width/2)
+    const plusStreamBtnY = py + panelH - 46 + 10; // footer_y + btn_h/2
+
+    await page.mouse.click(plusStreamBtnX, plusStreamBtnY);
+    await page.waitForTimeout(350);
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(200);
+
+    // 1s timeframe helps guarantee quick canonical stats emission.
+    await page.keyboard.press("1");
+    await page.waitForTimeout(350);
+
+    let ackAfter = Number((await readRuntimeProbe(page)).probe_md_subscribe_ack_count ?? 0);
+    try {
+        await waitFor(async () => {
+            ackAfter = Number((await readRuntimeProbe(page)).probe_md_subscribe_ack_count ?? 0);
+            return ackAfter >= ackBefore + 1;
+        }, "stats-prime subscribe ack delta", 12000);
+    } catch {
+        // Keep running; canonical wait below remains the hard gate.
+        ackAfter = Number((await readRuntimeProbe(page)).probe_md_subscribe_ack_count ?? 0);
+    }
+
+    return {
+        ack_before: ackBefore,
+        ack_after: ackAfter,
+        ack_delta: ackAfter - ackBefore,
+    };
 }
 
 async function runDirectResyncProbe(page, wsUrl) {
@@ -521,6 +724,7 @@ async function main() {
         });
 
         await runStep("stats-regime", "Validate canonical stats/perf probes", async () => {
+            const statsPrime = await primeCanonicalStatsFlow(page);
             await waitFor(async () => {
                 const probe = await readRuntimeProbe(page);
                 const perfReady = Number(probe.probe_md_parse_time_p95_us ?? -1) >= 0 &&
@@ -578,10 +782,11 @@ async function main() {
                 batched_decode_time_p99_us: batchedDecodeP99,
                 has_canonical_stats: hasCanonicalStats,
                 require_stats_canonical: REQUIRE_STATS_CANONICAL,
+                stats_prime: statsPrime,
             };
             return {
                 shots: [shot],
-                details: `stats_count=${statsCount} stats_parse=${statsParse} canonical_stats=${canonicalStatsFrames} require_stats=${REQUIRE_STATS_CANONICAL} stats_fallback=${statsFallback} md_stats_fallback=${mdStatsFallback} parse_us(p95/p99)=${parseP95}/${parseP99} apply_us(p95/p99)=${applyP95}/${applyP99}.`,
+                details: `stats_count=${statsCount} stats_parse=${statsParse} canonical_stats=${canonicalStatsFrames} require_stats=${REQUIRE_STATS_CANONICAL} stats_prime_ack_delta=${statsPrime.ack_delta} stats_fallback=${statsFallback} md_stats_fallback=${mdStatsFallback} parse_us(p95/p99)=${parseP95}/${parseP99} apply_us(p95/p99)=${applyP95}/${applyP99}.`,
             };
         });
 
@@ -697,6 +902,13 @@ async function main() {
                 return Number(probe.probe_md_hello_received ?? 0) > 0 && ack >= beforeAck;
             }, "reconnect hello+ack", STATS_WAIT_TIMEOUT_MS);
 
+            // Force a deterministic unsub/sub cycle after reconnect so widget state
+            // transitions out of stale markers even under low-traffic windows.
+            await page.keyboard.press("1");
+            await page.waitForTimeout(700);
+            await page.keyboard.press("3");
+            await page.waitForTimeout(700);
+
             await waitFor(async () => {
                 const probe = await readRuntimeProbe(page);
                 const statsState = Number(probe.probe_widget_stats_state ?? -1);
@@ -780,6 +992,87 @@ async function main() {
             return { shots: [shot], details: "Legacy fallback remained disabled." };
         });
 
+        await runStep("legacy-cutover-negative", "Assert hard cutover legacy contract", async () => {
+            const metricsBeforeResp = await fetchText(METRICS_URL, 10000);
+            if (metricsBeforeResp.status !== 200) {
+                throw new Error(`metrics before fetch failed status=${metricsBeforeResp.status}`);
+            }
+            const metricsBefore = metricsBeforeResp.text;
+            const legacyRejectedBefore = metricSample(
+                metricsBefore,
+                "ws_legacy_requests_total",
+                { status: "rejected" }
+            );
+
+            const routeResp = await fetchText(`${SERVER_BASE}/ws/marketdata`, 8000);
+            if (routeResp.status !== 410) {
+                throw new Error(`legacy route expected 410, got ${routeResp.status}`);
+            }
+
+            const subscribeProbe = await runLegacySubscribeProbe(page, LEGACY_SIGNAL_SUBJECT);
+            if (!(subscribeProbe.outcome === "rejected" || subscribeProbe.outcome === "no_wiring")) {
+                throw new Error(
+                    `legacy subscribe should be rejected/no_wiring, got=${subscribeProbe.outcome} details=${subscribeProbe.details}`
+                );
+            }
+
+            const metricsAfterResp = await fetchText(METRICS_URL, 10000);
+            if (metricsAfterResp.status !== 200) {
+                throw new Error(`metrics after fetch failed status=${metricsAfterResp.status}`);
+            }
+            const metricsAfter = metricsAfterResp.text;
+            const legacyAcceptedAfter = metricSample(
+                metricsAfter,
+                "ws_legacy_requests_total",
+                { status: "accepted" }
+            );
+            const legacyRejectedAfter = metricSample(
+                metricsAfter,
+                "ws_legacy_requests_total",
+                { status: "rejected" }
+            );
+            const legacyRejectedDelta = legacyRejectedAfter - legacyRejectedBefore;
+            if (legacyAcceptedAfter !== 0) {
+                throw new Error(`legacy accepted counter expected 0, got ${legacyAcceptedAfter}`);
+            }
+            if (legacyRejectedDelta < 1) {
+                throw new Error(`legacy rejected delta expected >=1, got ${legacyRejectedDelta}`);
+            }
+
+            const probe = await readRuntimeProbe(page);
+            const compatCounters = {
+                probe_md_legacy_downgrade_count: Number(probe.probe_md_legacy_downgrade_count ?? -1),
+                probe_md_legacy_evidence_frames: Number(probe.probe_md_legacy_evidence_frames ?? -1),
+                probe_md_legacy_signal_frames: Number(probe.probe_md_legacy_signal_frames ?? -1),
+                probe_md_stats_fallback_frames: Number(probe.probe_md_stats_fallback_frames ?? -1),
+                probe_md_evidence_fallback_frames: Number(probe.probe_md_evidence_fallback_frames ?? -1),
+                probe_md_signal_fallback_frames: Number(probe.probe_md_signal_fallback_frames ?? -1),
+            };
+            const nonZeroCompat = Object.entries(compatCounters).filter(([, value]) => value !== 0);
+            if (nonZeroCompat.length > 0) {
+                throw new Error(`compat/legacy counters must stay zero: ${JSON.stringify(nonZeroCompat)}`);
+            }
+
+            legacyCutoverSnapshot = {
+                route_status: routeResp.status,
+                route_status_410: routeResp.status === 410,
+                subscribe_probe: subscribeProbe,
+                counters: {
+                    ws_legacy_requests_total_accepted: legacyAcceptedAfter,
+                    ws_legacy_requests_total_rejected_before: legacyRejectedBefore,
+                    ws_legacy_requests_total_rejected_after: legacyRejectedAfter,
+                    ws_legacy_requests_total_rejected_delta: legacyRejectedDelta,
+                    ...compatCounters,
+                },
+            };
+
+            const shot = await snap(page, "legacy-cutover-negative");
+            return {
+                shots: [shot],
+                details: `route=410 subscribe_outcome=${subscribeProbe.outcome} accepted=${legacyAcceptedAfter} rejected_delta=${legacyRejectedDelta} compat_zero=${nonZeroCompat.length === 0}`,
+            };
+        });
+
         await runStep("clean-runtime", "Validate absence of console/network errors", async () => {
             const consoleErrors = consoleEvents.filter((e) => e.type === "error" || e.type === "pageerror");
             if (consoleErrors.length > 0) {
@@ -821,6 +1114,8 @@ async function main() {
         const report = {
             generated_at: nowIso(),
             base_url: BASE_URL,
+            server_base: SERVER_BASE,
+            metrics_url: METRICS_URL,
             shots_dir: SHOTS_DIR,
             logs_dir: LOGS_DIR,
             steps,
@@ -835,6 +1130,7 @@ async function main() {
             network_request_failures: networkFailures.slice(0, 32),
             network_error_responses: networkErrorResponses.slice(0, 32),
             stats_probe: statsProbeSnapshot,
+            legacy_cutover_negative: legacyCutoverSnapshot,
             notes,
         };
 

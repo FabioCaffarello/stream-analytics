@@ -195,6 +195,11 @@ test("analyze report includes Effective IQ Profile header", () => {
     assert.match(report, /^## Effective IQ Profile$/m);
     assert.match(report, /- effective profile: `ci-strict`/);
     assert.match(report, /\| IQ_REQUIRE_STATS_CANONICAL \| 1 \| 1 \|/);
+    assert.match(report, /^## Legacy Cutover Proof$/m);
+    assert.match(report, /- route_410_status: \*\*(PASS|FAIL)\*\* \(status=`[^`]+`\)/);
+    assert.match(report, /- legacy-cutover-negative smoke step: \*\*(PASS|FAIL)\*\*/);
+    assert.match(report, /\| ws_legacy_requests_total\{status="accepted"\} \| [^|]+ \| == 0 \|/);
+    assert.match(report, /\| probe_md_legacy_downgrade_count \| [^|]+ \| == 0 \|/);
 });
 
 test("analyze scorecard is deterministic and sorted with baseline diff", () => {

@@ -849,6 +849,16 @@ const legacyNegativeSubjectInvalidDelta = Number(
 const legacyNegativeDowngradeProbe = Number(
     legacyNegativeCounters.probe_md_legacy_downgrade_count ?? Number.NaN
 );
+const legacyCutover = smoke && smoke.legacy_cutover_negative ? smoke.legacy_cutover_negative : null;
+const legacyCutoverRouteStatus = Number(legacyCutover?.route_status ?? Number.NaN);
+const legacyCutoverRoute410 = legacyCutover?.route_status_410 === true || legacyCutoverRouteStatus === 410;
+const legacyCutoverSubscribeOutcome = String(legacyCutover?.subscribe_probe?.outcome || "missing");
+const legacyCutoverAccepted = Number(
+    legacyCutover?.counters?.ws_legacy_requests_total_accepted ?? Number.NaN
+);
+const legacyCutoverRejectedDelta = Number(
+    legacyCutover?.counters?.ws_legacy_requests_total_rejected_delta ?? Number.NaN
+);
 const allowBatchedFallback = envBoolValue(profileValue("IQ_ALLOW_BATCHED_FALLBACK", "0"), false);
 const batchFallbackRemovalRuns = Number.parseInt(process.env.IQ_BATCHED_FALLBACK_ZERO_RUNS || "5", 10) || 5;
 const allowStatsFallback = envBoolValue(profileValue("IQ_ALLOW_STATS_FALLBACK", "0"), false);
@@ -953,7 +963,9 @@ const unexpectedSkipTotal = unexpectedSkipTotals.length > 0 ? Math.max(...unexpe
 const resyncSentIdx = consoleLines.findIndex((l) => l.includes("[md-lifecycle] resync_sent"));
 const resyncAckIdx = consoleLines.findIndex((l) => l.includes("[md-lifecycle] ack_recv op=resync"));
 const desyncRecoveryIdx = consoleLines.findIndex((l) => l.includes("[md-lifecycle] desync_recovery resync"));
-const resyncStep = (Array.isArray(smoke.steps) ? smoke.steps : []).find((s) => s.id === "resync");
+const smokeStepsList = Array.isArray(smoke.steps) ? smoke.steps : [];
+const resyncStep = smokeStepsList.find((s) => s.id === "resync");
+const legacyCutoverStep = smokeStepsList.find((s) => s.id === "legacy-cutover-negative");
 const sawCanonicalEvidenceSub = consoleLines.some((l) => l.includes("subscribe_sent subject=liquidity.evidence/"));
 const sawCanonicalSignalSub = consoleLines.some((l) => l.includes("subscribe_sent subject=signal/"));
 const sawLegacyEvidenceSub = consoleLines.some((l) => l.includes("subscribe_sent subject=insights.microstructure_evidence/"));
@@ -1195,6 +1207,27 @@ addCheck(
         legacyNegativeDowngradeProbe === 0,
     `legacy_negative_json=${legacyNegative ? "present" : "missing"} pass=${legacyNegativePass} rejected_delta=${fmt(legacyNegativeRejectedDelta)} subject_invalid_delta=${fmt(legacyNegativeSubjectInvalidDelta)} probe_md_legacy_downgrade_count=${fmt(legacyNegativeDowngradeProbe)}`,
     ["legacy-negative", "ws_legacy_requests_total", "subject_invalid", "probe_md_legacy_downgrade_count"]
+);
+
+addCheck(
+    "legacy_cutover_negative_step",
+    "legacy-cutover-negative smoke step",
+    Boolean(legacyCutoverStep && legacyCutoverStep.ok),
+    `step_present=${Boolean(legacyCutoverStep)} step_ok=${Boolean(legacyCutoverStep && legacyCutoverStep.ok)} details=${legacyCutoverStep?.details || "missing"}`,
+    ["legacy-cutover-negative", "/ws/marketdata", "legacy"]
+);
+
+addCheck(
+    "legacy_cutover_snapshot",
+    "legacy cutover smoke snapshot",
+    legacyCutoverRoute410 &&
+        (legacyCutoverSubscribeOutcome === "rejected" || legacyCutoverSubscribeOutcome === "no_wiring") &&
+        Number.isFinite(legacyCutoverAccepted) &&
+        legacyCutoverAccepted === 0 &&
+        Number.isFinite(legacyCutoverRejectedDelta) &&
+        legacyCutoverRejectedDelta >= 1,
+    `snapshot_present=${Boolean(legacyCutover)} route_status=${fmt(legacyCutoverRouteStatus)} subscribe_outcome=${legacyCutoverSubscribeOutcome} accepted=${fmt(legacyCutoverAccepted)} rejected_delta=${fmt(legacyCutoverRejectedDelta)}`,
+    ["legacy_cutover_negative", "route_status", "subscribe_outcome", "ws_legacy_requests_total"]
 );
 
 const legacyDowngradeCount = Number(probe.probe_md_legacy_downgrade_count ?? -1);
@@ -1561,7 +1594,7 @@ addWidgetBudgetChecks("tape_widget", "tape widget", "tape", widgetProbeNames.tap
 addWidgetBudgetChecks("evidence_widget", "evidence widget", "evidence", widgetProbeNames.evidence);
 addWidgetBudgetChecks("signal_widget", "signal widget", "signal", widgetProbeNames.signal);
 
-const smokeSteps = Array.isArray(smoke.steps) ? smoke.steps : [];
+const smokeSteps = smokeStepsList;
 const smokePass = smokeSteps.every((s) => s.ok);
 const invariantsPass = checks.every((c) => c.ok);
 const overallPass = smokePass && invariantsPass;
@@ -1913,6 +1946,27 @@ if (legacyNegative) {
     markdown.push(`- legacy negative probe deltas: rejected=\`${fmt(legacyNegativeRejectedDelta)}\` subject_invalid=\`${fmt(legacyNegativeSubjectInvalidDelta)}\``);
 }
 markdown.push("");
+markdown.push("## Legacy Cutover Proof");
+markdown.push("");
+markdown.push(`- route_410_status: **${legacyCutoverRoute410 ? "PASS" : "FAIL"}** (status=\`${fmt(legacyCutoverRouteStatus)}\`)`);
+markdown.push(`- legacy-cutover-negative smoke step: **${legacyCutoverStep && legacyCutoverStep.ok ? "PASS" : "FAIL"}**`);
+markdown.push(`- legacy subscribe probe outcome: \`${legacyCutoverSubscribeOutcome}\``);
+markdown.push(`- effective_profile_fingerprint_hash: \`${effectiveProfileProofHash}\``);
+markdown.push(`- effective_profile_artifact: \`effective-profile.json\``);
+markdown.push(`- commit_hash: \`${commitHash}\``);
+markdown.push("");
+markdown.push("| Counter | Value | Assertion |");
+markdown.push("|---|---|---|");
+markdown.push(`| ws_legacy_requests_total{status=\"accepted\"} | ${fmt(legacyRouteAcceptedTotal)} | == 0 |`);
+markdown.push(`| ws_legacy_requests_total{status=\"rejected\"} | ${fmt(legacyRouteRejectedTotal)} | >= 0 (route stays 410) |`);
+markdown.push(`| smoke.ws_legacy_requests_total_accepted | ${fmt(legacyCutoverAccepted)} | == 0 |`);
+markdown.push(`| smoke.ws_legacy_requests_total_rejected_delta | ${fmt(legacyCutoverRejectedDelta)} | >= 1 |`);
+markdown.push(`| probe_md_legacy_downgrade_count | ${fmt(legacyDowngradeCount)} | == 0 |`);
+markdown.push(`| probe_md_legacy_evidence_frames | ${fmt(legacyEvidenceFrames)} | == 0 |`);
+markdown.push(`| probe_md_legacy_signal_frames | ${fmt(legacySignalFrames)} | == 0 |`);
+markdown.push(`| probe_md_evidence_fallback_frames | ${fmt(evidenceFallbackFrames)} | == 0 |`);
+markdown.push(`| probe_md_signal_fallback_frames | ${fmt(signalFallbackFrames)} | == 0 |`);
+markdown.push("");
 markdown.push("## Failures");
 markdown.push("");
 if (failedSteps.length === 0 && failedChecks.length === 0) {
@@ -2008,6 +2062,25 @@ const summary = {
     failed_steps: failedSteps.map((s) => ({ id: s.id, details: s.details || "" })),
     failed_checks: failedChecks.map((c) => ({ id: c.id, evidence: c.evidence })),
     legacy_negative: legacyNegative || null,
+    legacy_cutover_proof: {
+        route_status: legacyCutoverRouteStatus,
+        route_status_410: legacyCutoverRoute410,
+        smoke_step_ok: Boolean(legacyCutoverStep && legacyCutoverStep.ok),
+        smoke_subscribe_outcome: legacyCutoverSubscribeOutcome,
+        counters: {
+            ws_legacy_requests_total_accepted: legacyRouteAcceptedTotal,
+            ws_legacy_requests_total_rejected: legacyRouteRejectedTotal,
+            smoke_ws_legacy_requests_total_accepted: legacyCutoverAccepted,
+            smoke_ws_legacy_requests_total_rejected_delta: legacyCutoverRejectedDelta,
+            probe_md_legacy_downgrade_count: legacyDowngradeCount,
+            probe_md_legacy_evidence_frames: legacyEvidenceFrames,
+            probe_md_legacy_signal_frames: legacySignalFrames,
+            probe_md_evidence_fallback_frames: evidenceFallbackFrames,
+            probe_md_signal_fallback_frames: signalFallbackFrames,
+        },
+        fingerprint_hash: effectiveProfileProofHash,
+        commit_hash: commitHash,
+    },
     baseline: {
         md_parse_p95_us: mdParseP95,
         md_parse_p99_us: mdParseP99,
