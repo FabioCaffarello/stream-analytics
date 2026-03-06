@@ -6,7 +6,7 @@ import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_REPO_ROOT = resolve(join(__dirname, "..", ".."));
-export const DEFAULT_MATRIX_PATH = "docs/contracts/boundedness-matrix.yaml";
+export const DEFAULT_MATRIX_PATH = "docs/contracts/boundedness-matrix.md";
 
 function parseArgs(argv) {
     const out = {
@@ -69,12 +69,43 @@ function createContext(repoRoot) {
     };
 }
 
-function parseJSONCompatibleYAML(raw, matrixPath) {
+function parseJSONMatrix(raw, matrixPath) {
     try {
         return JSON.parse(raw);
     } catch (err) {
         throw new Error(`matrix parse error at ${matrixPath}: expected JSON-compatible YAML (${err.message})`);
     }
+}
+
+function extractJSONCodeFence(raw, matrixPath) {
+    const markerStart = "<!-- boundedness-matrix:data:start -->";
+    const markerEnd = "<!-- boundedness-matrix:data:end -->";
+
+    const startIdx = raw.indexOf(markerStart);
+    const endIdx = raw.indexOf(markerEnd);
+    if (startIdx >= 0 && endIdx > startIdx) {
+        const section = raw.slice(startIdx + markerStart.length, endIdx);
+        const fenced = section.match(/```json\s*([\s\S]*?)```/i);
+        if (fenced && fenced[1]) {
+            return fenced[1].trim();
+        }
+    }
+
+    const fallback = raw.match(/```json\s*([\s\S]*?)```/i);
+    if (fallback && fallback[1]) {
+        return fallback[1].trim();
+    }
+
+    throw new Error(
+        `matrix parse error at ${matrixPath}: markdown must contain a JSON code fence between ${markerStart} and ${markerEnd}`
+    );
+}
+
+function parseMatrixDocument(raw, matrixPath) {
+    if (String(matrixPath).toLowerCase().endsWith(".md")) {
+        return parseJSONMatrix(extractJSONCodeFence(raw, matrixPath), matrixPath);
+    }
+    return parseJSONMatrix(raw, matrixPath);
 }
 
 function requireMatch(text, regex, label) {
@@ -86,7 +117,8 @@ function requireMatch(text, regex, label) {
 }
 
 function parsePositiveInt(raw, label) {
-    const value = Number.parseInt(String(raw).trim(), 10);
+    const normalized = String(raw).trim().replaceAll("_", "");
+    const value = Number.parseInt(normalized, 10);
     if (!Number.isInteger(value) || value <= 0) {
         throw new Error(`invalid positive int for ${label}: ${raw}`);
     }
@@ -183,6 +215,83 @@ const EXTRACTORS = Object.freeze({
             /defaultMaxStreamStateEntries\s*=\s*(?<value>\d+)/,
             "internal/actors/delivery/runtime/router.go:defaultMaxStreamStateEntries"
         ),
+    "backend.aggregation.candle_max_windows": (ctx) =>
+        extractGoAssignedInt(
+            ctx,
+            "internal/shared/config/loader.go",
+            /c\.Processor\.Candle\.MaxCandles = (?<value>[0-9_]+)/,
+            "internal/shared/config/loader.go:Candle.MaxCandles"
+        ),
+    "backend.aggregation.candle_window_cap": (ctx) =>
+        extractGoAssignedInt(
+            ctx,
+            "internal/shared/config/loader.go",
+            /c\.Processor\.Candle\.WindowCap = (?<value>[0-9_]+)/,
+            "internal/shared/config/loader.go:Candle.WindowCap"
+        ),
+    "backend.aggregation.stats_max_windows": (ctx) =>
+        extractGoAssignedInt(
+            ctx,
+            "internal/shared/config/loader.go",
+            /c\.Processor\.Stats\.MaxWindows = (?<value>[0-9_]+)/,
+            "internal/shared/config/loader.go:Stats.MaxWindows"
+        ),
+    "backend.aggregation.stats_window_cap": (ctx) =>
+        extractGoAssignedInt(
+            ctx,
+            "internal/shared/config/loader.go",
+            /c\.Processor\.Stats\.WindowCap = (?<value>[0-9_]+)/,
+            "internal/shared/config/loader.go:Stats.WindowCap"
+        ),
+    "backend.evidence.buffer_cap_per_kind": (ctx) =>
+        extractGoAssignedInt(
+            ctx,
+            "internal/shared/config/loader.go",
+            /c\.Evidence\.BufferCapPerKind = (?<value>[0-9_]+)/,
+            "internal/shared/config/loader.go:Evidence.BufferCapPerKind"
+        ),
+    "backend.evidence.regime_max_streams": (ctx) =>
+        extractGoAssignedInt(
+            ctx,
+            "internal/shared/config/loader.go",
+            /c\.Evidence\.RegimeMaxStreams = (?<value>[0-9_]+)/,
+            "internal/shared/config/loader.go:Evidence.RegimeMaxStreams"
+        ),
+    "backend.evidence.regime_history_cap": (ctx) =>
+        extractGoAssignedInt(
+            ctx,
+            "internal/shared/config/loader.go",
+            /c\.Evidence\.RegimeHistoryCap = (?<value>[0-9_]+)/,
+            "internal/shared/config/loader.go:Evidence.RegimeHistoryCap"
+        ),
+    "backend.signal.rate_limit_per_min": (ctx) =>
+        extractGoAssignedInt(
+            ctx,
+            "internal/shared/config/loader.go",
+            /c\.Signals\.RateLimitPerMin = (?<value>[0-9_]+)/,
+            "internal/shared/config/loader.go:Signals.RateLimitPerMin"
+        ),
+    "backend.signal.global_rate_limit_per_min": (ctx) =>
+        extractGoAssignedInt(
+            ctx,
+            "internal/shared/config/loader.go",
+            /c\.Signals\.GlobalRateLimitPerMin = (?<value>[0-9_]+)/,
+            "internal/shared/config/loader.go:Signals.GlobalRateLimitPerMin"
+        ),
+    "backend.signal.max_subs_per_session": (ctx) =>
+        extractGoAssignedInt(
+            ctx,
+            "internal/shared/config/loader.go",
+            /c\.Signals\.MaxSubsPerSession = (?<value>[0-9_]+)/,
+            "internal/shared/config/loader.go:Signals.MaxSubsPerSession"
+        ),
+    "backend.signal.window_cap": (ctx) =>
+        extractGoAssignedInt(
+            ctx,
+            "internal/shared/config/loader.go",
+            /c\.Signals\.WindowCap = (?<value>[0-9_]+)/,
+            "internal/shared/config/loader.go:Signals.WindowCap"
+        ),
     "client.native.trade_ring_cap": (ctx) =>
         extractOdinConstInt(ctx, "client/src/platform/native/marketdata_native.odin", "TRADE_RING_CAP"),
     "client.native.candle_ring_cap": (ctx) =>
@@ -231,6 +340,38 @@ const EXTRACTORS = Object.freeze({
 });
 
 export const EXTRACTOR_IDS = Object.freeze(Object.keys(EXTRACTORS));
+
+const EXTRACTOR_SOURCE_HINTS = Object.freeze({
+    "backend.delivery.session_outbound_queue_size": "internal/shared/config/loader.go (applyDefaults delivery session queue)",
+    "backend.delivery.session_max_frame_bytes": "internal/actors/delivery/runtime/session.go (readLimitBytes)",
+    "backend.delivery.router_stream_state_entries_max": "internal/actors/delivery/runtime/router.go (defaultMaxStreamStateEntries)",
+    "backend.aggregation.candle_max_windows": "internal/shared/config/loader.go (processor.candle.max_candles default)",
+    "backend.aggregation.candle_window_cap": "internal/shared/config/loader.go (processor.candle.window_cap default)",
+    "backend.aggregation.stats_max_windows": "internal/shared/config/loader.go (processor.stats.max_windows default)",
+    "backend.aggregation.stats_window_cap": "internal/shared/config/loader.go (processor.stats.window_cap default)",
+    "backend.evidence.buffer_cap_per_kind": "internal/shared/config/loader.go (evidence.buffer_cap_per_kind default)",
+    "backend.evidence.regime_max_streams": "internal/shared/config/loader.go (evidence.regime_max_streams default)",
+    "backend.evidence.regime_history_cap": "internal/shared/config/loader.go (evidence.regime_history_cap default)",
+    "backend.signal.rate_limit_per_min": "internal/shared/config/loader.go (signals.rate_limit_per_min default)",
+    "backend.signal.global_rate_limit_per_min": "internal/shared/config/loader.go (signals.global_rate_limit_per_min default)",
+    "backend.signal.max_subs_per_session": "internal/shared/config/loader.go (signals.max_subs_per_session default)",
+    "backend.signal.window_cap": "internal/shared/config/loader.go (signals.window_cap default)",
+    "client.native.trade_ring_cap": "client/src/platform/native/marketdata_native.odin (TRADE_RING_CAP)",
+    "client.native.candle_ring_cap": "client/src/platform/native/marketdata_native.odin (CANDLE_RING_CAP)",
+    "client.native.signal_ring_cap": "client/src/platform/native/marketdata_native.odin (SIGNAL_RING_CAP)",
+    "client.web.trade_ring_cap": "client/src/platform/web/marketdata_web.odin (WEB_TRADE_RING_CAP)",
+    "client.web.candle_ring_cap": "client/src/platform/web/marketdata_web.odin (WEB_CANDLE_RING_CAP)",
+    "client.web.signal_ring_cap": "client/src/platform/web/marketdata_web.odin (WEB_SIGNAL_RING_CAP)",
+    "client.widgets.stats_max_entries": "client/src/core/services/stats_store.odin (STATS_CAP)",
+    "client.widgets.dom_max_entries": "client/src/core/services/orderbook_store.odin (OB_DEPTH_CAP * 2)",
+    "client.widgets.tape_max_entries": "client/src/core/services/trades_store.odin (TRADES_CAP)",
+    "client.widgets.evidence_max_entries": "client/src/core/layers/market_store.odin (EVIDENCE_RING_CAP)",
+    "client.widgets.signal_max_entries": "client/src/core/services/signal_store.odin (SIGNAL_KIND_CAP * SIGNAL_PER_KIND_CAP)",
+    "iq.router_stream_state_max_budget": "scripts/iq/analyze_iq_run.mjs (IQ_ROUTER_STREAM_STATE_MAX default)",
+    "iq.layer_stream_state_max_budget": "scripts/iq/analyze_iq_run.mjs (IQ_LAYER_STREAM_STATE_MAX default)",
+    "iq.wire_bytes_p95_budget_default": "scripts/iq/profile_loader.mjs + scripts/iq/profiles/ci-strict.env",
+    "iq.wire_bytes_p99_budget_default": "scripts/iq/profile_loader.mjs + scripts/iq/profiles/ci-strict.env",
+});
 
 function validateAnchor(ctx, entryID, anchor) {
     if (!anchor || typeof anchor !== "object") {
@@ -323,7 +464,7 @@ export function validateBoundednessMatrix(options = {}) {
     let matrix;
     try {
         const raw = readFileSync(absMatrix, "utf8");
-        matrix = parseJSONCompatibleYAML(raw, matrixPath);
+        matrix = parseMatrixDocument(raw, matrixPath);
     } catch (err) {
         return {
             ok: false,
@@ -394,10 +535,14 @@ export function validateBoundednessMatrix(options = {}) {
             effectiveCaps[id] = effectiveCap;
             if (effectiveCap !== matrixCap) {
                 driftCount += 1;
-                errors.push(`entry ${id}: cap drift detected (matrix=${matrixCap}, effective=${effectiveCap})`);
+                const sourceHint = EXTRACTOR_SOURCE_HINTS[id] || "allowlisted source";
+                errors.push(
+                    `entry ${id}: cap drift detected (matrix=${matrixCap}, effective=${effectiveCap}) | action: update ${matrixPath} cap to ${effectiveCap} or update source ${sourceHint}`
+                );
             }
         } catch (err) {
-            errors.push(`entry ${id}: extractor failed (${err.message})`);
+            const sourceHint = EXTRACTOR_SOURCE_HINTS[id] || "allowlisted source";
+            errors.push(`entry ${id}: extractor failed (${err.message}) | source=${sourceHint}`);
         }
 
         const anchors = Array.isArray(entry.anchors) ? entry.anchors : [];

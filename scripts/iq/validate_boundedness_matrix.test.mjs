@@ -12,7 +12,7 @@ const fixturesRoot = join(__dirname, "testdata", "boundedness_matrix");
 test("boundedness matrix validator passes minimal fixture", () => {
     const result = validateBoundednessMatrix({
         repoRoot: join(fixturesRoot, "minimal_ok"),
-        matrixPath: "docs/contracts/boundedness-matrix.yaml",
+        matrixPath: "docs/contracts/boundedness-matrix.md",
         enforceFullCatalog: false,
     });
 
@@ -24,7 +24,7 @@ test("boundedness matrix validator passes minimal fixture", () => {
 test("boundedness matrix validator detects cap drift fixture", () => {
     const result = validateBoundednessMatrix({
         repoRoot: join(fixturesRoot, "drift_cap"),
-        matrixPath: "docs/contracts/boundedness-matrix.yaml",
+        matrixPath: "docs/contracts/boundedness-matrix.md",
         enforceFullCatalog: false,
     });
 

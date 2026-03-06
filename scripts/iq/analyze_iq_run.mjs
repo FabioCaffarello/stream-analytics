@@ -953,7 +953,7 @@ let boundednessValidation;
 try {
     boundednessValidation = validateBoundednessMatrix({
         repoRoot: process.cwd(),
-        matrixPath: "docs/contracts/boundedness-matrix.yaml",
+        matrixPath: "docs/contracts/boundedness-matrix.md",
         enforceFullCatalog: true,
     });
 } catch (err) {
