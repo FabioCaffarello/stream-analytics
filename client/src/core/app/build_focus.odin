@@ -22,7 +22,9 @@ build_focus_mode :: proc(
 	candle_rect := ui.rect_xywh(workspace.pos.x, workspace.pos.y, candle_w, workspace.size.y)
 	ob_rect := ui.rect_xywh(workspace.pos.x + candle_w + focus_gap, workspace.pos.y, ob_w, workspace.size.y)
 
-	subject_id := resolve_cell_subject_id(state, 0)
+	// S53: Use focused candle cell (was hardcoded cell 0).
+	focus_cell := state.world.focused if state.world.focused >= 0 && state.world.focused < state.world.count else 0
+	subject_id := resolve_cell_subject_id(state, focus_cell)
 	render_subject_layer_canvas(state, subject_id, .Candle, candle_rect)
 	render_subject_layer_canvas(state, subject_id, .Orderbook, ob_rect)
 
