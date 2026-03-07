@@ -2333,6 +2333,8 @@ apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 		state.bar_stats_staging = result.data.bar_stats
 		state.bar_stats_dirty = true
 		sync.unlock(&state.mu)
+	// S49: Session profile events — staging deferred to S49-5 integration.
+	case .Session_Volume_Profile, .TPO_Profile:
 	case .None:
 		// Ignored (last, unknown frame types).
 	}

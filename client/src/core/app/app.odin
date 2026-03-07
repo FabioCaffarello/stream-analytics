@@ -32,7 +32,9 @@ Widget_Kind :: enum u8 {
 	Orderbook,
 	DOM,
 	Empty,
-	Analytics, // S48: Orderflow analytics (OI, DV, CVD, BS)
+	Analytics,    // S48: Orderflow analytics (OI, DV, CVD, BS)
+	Session_VPVR, // S49: Session volume profile
+	TPO,          // S49: TPO profile
 }
 
 TOP_BAR_H :: f32(32)
@@ -146,7 +148,9 @@ Stream_View_Slot :: struct {
 	orderbook_store: services.Orderbook_Store,
 	stats_store:     services.Stats_Store,
 	candle_store:    services.Candle_Store,
-	analytics_store: services.Analytics_Store,  // S47: per-slot analytics ring
+	analytics_store:    services.Analytics_Store,       // S47: per-slot analytics ring
+	session_vpvr_store: services.Session_VPVR_Store,   // S49: per-slot session VP
+	tpo_store:          services.TPO_Store,             // S49: per-slot TPO profile
 	// S23: Canonical per-stream apply state (replaces scattered booleans above).
 	apply_state:     md_common.Stream_Apply_State,
 }

@@ -317,7 +317,9 @@ Global_Stores :: struct {
 	dom:       services.DOM_Store,
 	footprint: services.Footprint_Store,
 	markets:   services.Markets_Store,
-	analytics: services.Analytics_Store,  // S47: global analytics ring
+	analytics:    services.Analytics_Store,       // S47: global analytics ring
+	session_vpvr: services.Session_VPVR_Store,   // S49: global session VP
+	tpo:          services.TPO_Store,             // S49: global TPO profile
 }
 
 Active_Stream_Metrics :: struct {

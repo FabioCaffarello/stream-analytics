@@ -20,6 +20,9 @@ Artifact_Kind :: enum u8 {
 	Delta_Volume,
 	CVD,
 	Bar_Stats,
+	// S49: Session & Profile Engine.
+	Session_Volume_Profile,
+	TPO_Profile,
 }
 
 // Snapshot_Semantics defines how an artifact's state is replaced or accumulated.
@@ -233,6 +236,31 @@ artifact_policies : [Artifact_Kind]Artifact_Policy = {
 		backpressure_priority       = .Degradable,
 		stale_detection             = .TF_Adaptive,
 	},
+	// S49: Session & Profile Engine policies.
+	.Session_Volume_Profile = {
+		needs_snapshot_gate          = false,
+		accepts_range_seed          = false,
+		accepts_delta_without_snapshot = true,
+		snapshot_semantics          = .Latest_Wins,
+		reset_on_reconnect          = false,
+		reset_on_tf_change          = true,
+		is_tf_sensitive             = true,
+		has_synthetic_fallback      = false,
+		backpressure_priority       = .Degradable,
+		stale_detection             = .None,
+	},
+	.TPO_Profile = {
+		needs_snapshot_gate          = false,
+		accepts_range_seed          = false,
+		accepts_delta_without_snapshot = true,
+		snapshot_semantics          = .Latest_Wins,
+		reset_on_reconnect          = false,
+		reset_on_tf_change          = true,
+		is_tf_sensitive             = true,
+		has_synthetic_fallback      = false,
+		backpressure_priority       = .Degradable,
+		stale_detection             = .None,
+	},
 }
 
 // artifact_kind_from_event_kind maps the port event kind to artifact kind.
@@ -253,6 +281,9 @@ artifact_kind_from_event_kind :: proc(kind: ports.MD_Event_Kind) -> Artifact_Kin
 	case .Delta_Volume:       return .Delta_Volume
 	case .CVD:                return .CVD
 	case .Bar_Stats:          return .Bar_Stats
+	// S49: Session & Profile Engine.
+	case .Session_Volume_Profile: return .Session_Volume_Profile
+	case .TPO_Profile:            return .TPO_Profile
 	}
 	return .Trade
 }
@@ -284,7 +315,7 @@ should_skip_by_bp_policy :: proc(
 		if !bp_enabled do return false
 		ak := artifact_kind_from_event_kind(kind)
 		if ak == .Heatmap do return degrade_heatmap
-		if ak == .VPVR do return degrade_vpvr
+		if ak == .VPVR || ak == .Session_Volume_Profile || ak == .TPO_Profile do return degrade_vpvr
 		return false
 	case .Low:
 		return level >= 3

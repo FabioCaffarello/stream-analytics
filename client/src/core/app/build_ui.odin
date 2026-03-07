@@ -294,7 +294,7 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 				if cci >= 0 && cci < state.world.count {
 					current_widget = state.world.widgets[cci].kind
 				}
-				WIDGET_LABELS :: [10]string{"Candle", "Stats", "Counter", "Heatmap", "VPVR", "Trades", "Orderbook", "DOM", "Empty", "Analytics"}
+				WIDGET_LABELS :: [12]string{"Candle", "Stats", "Counter", "Heatmap", "VPVR", "Trades", "Orderbook", "DOM", "Empty", "Analytics", "Session VPVR", "TPO"}
 				labels := WIDGET_LABELS
 				menu_items: [ui.CONTEXT_MENU_MAX_ITEMS]ui.Context_Menu_Item
 				menu_count := 0

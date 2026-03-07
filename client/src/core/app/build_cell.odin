@@ -144,7 +144,7 @@ render_cell_widget :: proc(
 		}
 	}
 
-	WIDGET_SHORT :: [10]string{"Candle", "Stats", "Counter", "HM", "VPVR", "Trades", "OB", "DOM", "--", "Analytics"}
+	WIDGET_SHORT :: [12]string{"Candle", "Stats", "Counter", "HM", "VPVR", "Trades", "OB", "DOM", "--", "Analytics", "SVPVR", "TPO"}
 	ANALYTICS_SHORT :: [4]string{"OI", "DV", "CVD", "BS"}
 	widget_short := WIDGET_SHORT
 	analytics_short := ANALYTICS_SHORT
@@ -168,8 +168,11 @@ render_cell_widget :: proc(
 	})
 
 	// S48: Analytics widgets render directly from cell stores (no layer canvas).
+	// S49: Session profile widgets render directly from cell stores.
 	if wid == .Analytics {
 		render_analytics_cell(state, ci, cell_vp)
+	} else if wid == .Session_VPVR || wid == .TPO {
+		render_session_profile_cell(state, ci, wid, cell_vp)
 	} else {
 		render_cell_layer_canvas(state, ci, wid, cell_vp)
 	}

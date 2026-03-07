@@ -319,6 +319,9 @@ Parse_Result_Kind :: enum u8 {
 	Delta_Volume,
 	CVD,
 	Bar_Stats,
+	// S49: Session & Profile Engine.
+	Session_Volume_Profile,
+	TPO_Profile,
 }
 
 Parse_Result_Data :: struct #raw_union {

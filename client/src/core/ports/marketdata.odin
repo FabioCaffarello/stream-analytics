@@ -54,6 +54,9 @@ MD_Event_Kind :: enum u8 {
 	Delta_Volume,
 	CVD,
 	Bar_Stats,
+	// S49: Session & Profile Engine event kinds.
+	Session_Volume_Profile,
+	TPO_Profile,
 }
 
 MD_Channel :: enum u8 {

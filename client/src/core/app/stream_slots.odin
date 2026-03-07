@@ -291,7 +291,9 @@ Cell_Stores :: struct {
 	trades:       ^services.Trades_Store,
 	orderbook:    ^services.Orderbook_Store,
 	stats:        ^services.Stats_Store,
-	analytics:    ^services.Analytics_Store,  // S47: per-cell analytics ring
+	analytics:    ^services.Analytics_Store,        // S47: per-cell analytics ring
+	session_vpvr: ^services.Session_VPVR_Store,     // S49: per-cell session VP
+	tpo:          ^services.TPO_Store,               // S49: per-cell TPO profile
 	heatmap_live: bool,
 	vpvr_live:    bool,
 }
@@ -323,6 +325,8 @@ resolve_stores_for_cell :: proc(state: ^App_State, ci: int) -> Cell_Stores {
 	stores.orderbook    = &state.stores.orderbook
 	stores.stats        = &state.stores.stats
 	stores.analytics    = &state.stores.analytics
+	stores.session_vpvr = &state.stores.session_vpvr
+	stores.tpo          = &state.stores.tpo
 	// S36: Read from canonical apply_state (was active_metrics — a derived copy).
 	stores.heatmap_live = state.active_apply_state.has_live[.Heatmap]
 	stores.vpvr_live    = state.active_apply_state.has_live[.VPVR]
@@ -422,8 +426,11 @@ resolve_stores_for_cell :: proc(state: ^App_State, ci: int) -> Cell_Stores {
 		stores.stats = &slot.stats_store
 	}
 	// S47: Analytics store from bound slot (analytics events arrive on any channel slot).
+	// S49: Session VP + TPO stores from bound slot.
 	if stream_idx >= 0 && stream_idx < STREAM_VIEW_CAP && reg.slots[stream_idx].used {
 		stores.analytics = &reg.slots[stream_idx].analytics_store
+		stores.session_vpvr = &reg.slots[stream_idx].session_vpvr_store
+		stores.tpo = &reg.slots[stream_idx].tpo_store
 	}
 
 	return stores

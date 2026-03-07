@@ -874,6 +874,8 @@ drain_marketdata :: proc(state: ^App_State) -> int {
 				handle_cvd_event(state, slot, evt.data.cvd, evt.unix, is_active_stream)
 			case .Bar_Stats:
 				handle_bar_stats_event(state, slot, evt.data.bar_stats, evt.unix, is_active_stream)
+			// S49: Session profile events (stub — store update wired in S49-5).
+			case .Session_Volume_Profile, .TPO_Profile:
 			}
 		}
 	}

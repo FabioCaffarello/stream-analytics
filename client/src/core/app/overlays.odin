@@ -600,21 +600,24 @@ draw_widget_catalog :: proc(state: ^App_State, viewport_w, viewport_h: f32, poin
 		y += 22
 
 		Widget_Entry :: struct { kind: Widget_Kind, label: string, analytics_kind: services.Analytics_Kind }
-		CATALOG_COUNT :: 12
+		CATALOG_COUNT :: 14
 		entries := [CATALOG_COUNT]Widget_Entry{
-			{.Candle,    "Candle", {}},
-			{.Orderbook, "Orderbook", {}},
-			{.Trades,    "Trades", {}},
-			{.DOM,       "DOM", {}},
-			{.Stats,     "Stats", {}},
-			{.Counter,   "Counter", {}},
-			{.Heatmap,   "Heatmap", {}},
-			{.VPVR,      "VPVR", {}},
+			{.Candle,       "Candle", {}},
+			{.Orderbook,    "Orderbook", {}},
+			{.Trades,       "Trades", {}},
+			{.DOM,          "DOM", {}},
+			{.Stats,        "Stats", {}},
+			{.Counter,      "Counter", {}},
+			{.Heatmap,      "Heatmap", {}},
+			{.VPVR,         "VPVR", {}},
 			// S48: Analytics widgets
-			{.Analytics, "Open Interest", .Open_Interest},
-			{.Analytics, "Delta Volume",  .Delta_Volume},
-			{.Analytics, "CVD",           .CVD},
-			{.Analytics, "Bar Stats",     .Bar_Stats},
+			{.Analytics,    "Open Interest", .Open_Interest},
+			{.Analytics,    "Delta Volume",  .Delta_Volume},
+			{.Analytics,    "CVD",           .CVD},
+			{.Analytics,    "Bar Stats",     .Bar_Stats},
+			// S49: Session profile widgets
+			{.Session_VPVR, "Session VPVR", {}},
+			{.TPO,          "TPO Profile",  {}},
 		}
 
 		cols :: 3

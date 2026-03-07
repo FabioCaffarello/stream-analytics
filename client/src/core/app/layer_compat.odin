@@ -36,6 +36,9 @@ legacy_widget_bundle :: proc(kind: Widget_Kind) -> u32 {
 	case .Analytics:
 		// S48: Analytics widgets render directly from cell stores, no layer canvas needed.
 		return u32(layers.Layer_Bundle.Bundle_Empty)
+	case .Session_VPVR, .TPO:
+		// S49: Session profile widgets render directly from cell stores.
+		return u32(layers.Layer_Bundle.Bundle_Empty)
 	case .Empty:
 		return u32(layers.Layer_Bundle.Bundle_Empty)
 	}

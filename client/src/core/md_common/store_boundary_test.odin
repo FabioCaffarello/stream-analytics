@@ -3570,8 +3570,8 @@ test_s47_analytics_artifact_kinds_exist :: proc(t: ^testing.T) {
 	testing.expect(t, int(dv) > int(oi), "DV after OI")
 	testing.expect(t, int(cvd) > int(dv), "CVD after DV")
 	testing.expect(t, int(bs) > int(cvd), "BS after CVD")
-	// Total artifact count = 14
-	testing.expect_value(t, len(Artifact_Kind), 14)
+	// Total artifact count = 16 (S49: +Session_Volume_Profile, +TPO_Profile)
+	testing.expect_value(t, len(Artifact_Kind), 16)
 }
 
 @(test)
@@ -3688,11 +3688,11 @@ test_s47_analytics_backpressure_degradable :: proc(t: ^testing.T) {
 test_s47_apply_state_arrays_cover_14_artifacts :: proc(t: ^testing.T) {
 	s: Stream_Apply_State
 	// Verify arrays expanded automatically via enum sizing
-	testing.expect_value(t, len(s.snapshot_seen), 14)
-	testing.expect_value(t, len(s.has_live), 14)
-	testing.expect_value(t, len(s.using_synthetic), 14)
-	testing.expect_value(t, len(s.last_recv_ms), 14)
-	testing.expect_value(t, len(s.artifact_event_count), 14)
+	testing.expect_value(t, len(s.snapshot_seen), 16)
+	testing.expect_value(t, len(s.has_live), 16)
+	testing.expect_value(t, len(s.using_synthetic), 16)
+	testing.expect_value(t, len(s.last_recv_ms), 16)
+	testing.expect_value(t, len(s.artifact_event_count), 16)
 }
 
 @(test)
@@ -3719,7 +3719,7 @@ test_s48_artifact_kind_count_is_14 :: proc(t: ^testing.T) {
 		count += 1
 		_ = k
 	}
-	testing.expect(t, count == 14, "Artifact_Kind enum must have exactly 14 values")
+	testing.expect(t, count == 16, "Artifact_Kind enum must have exactly 16 values")
 }
 
 @(test)
