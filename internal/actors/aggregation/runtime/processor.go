@@ -173,6 +173,9 @@ type ProcessorConfig struct {
 	// PolicyKitResolver customizes subject category mapping.
 	PolicyKitResolver policykit.CategoryResolver
 
+	// Fusion controls multi-venue fused depth snapshot behavior.
+	Fusion ProcessorFusionConfig
+
 	// Now is an optional clock source for runtime decisions/log throttling.
 	// When nil, time.Now is used.
 	Now func() time.Time
@@ -246,6 +249,7 @@ type ProcessorSubsystemActor struct {
 	crossVenueBooks       map[string]map[string]aggdomain.CrossVenueVenueBook
 	crossVenueInstrumentQ []string
 	crossVenueSeq         map[string]int64
+	fusionSeq             map[string]int64
 
 	// heartbeat state — pure runtime counters, not persisted.
 	hbTotal                       int64
@@ -655,6 +659,15 @@ func (p *ProcessorSubsystemActor) handleBookDelta(env envelope.Envelope) *proble
 	p.handleBookDeltaForInsights(env, delta)
 	if prob := p.handleBookDeltaForCrossVenue(env, req.Instrument); prob != nil {
 		p.logger.Warn("aggruntime: cross-venue book merge failed",
+			"venue", env.Venue,
+			"instrument", env.Instrument,
+			"seq", req.Seq,
+			"code", prob.Code,
+			"message", prob.Message,
+		)
+	}
+	if prob := p.handleBookDeltaForFusion(env, req.Instrument); prob != nil {
+		p.logger.Warn("aggruntime: fused depth merge failed",
 			"venue", env.Venue,
 			"instrument", env.Instrument,
 			"seq", req.Seq,
