@@ -1724,6 +1724,36 @@ var (
 		},
 		[]string{"status"},
 	)
+
+	// S51: SLO runtime evaluator metrics.
+	SLOBreachActive = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "slo_breach_active",
+			Help: "Whether an SLO is currently in breach (0=ok, 1=breached).",
+		},
+		[]string{"name"},
+	)
+	SLOErrorBudgetRemainingRatio = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "slo_error_budget_remaining_ratio",
+			Help: "Remaining error budget as a ratio (0.0-1.0).",
+		},
+		[]string{"name"},
+	)
+	SLOBurnRateFast = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "slo_burn_rate_fast",
+			Help: "Current fast burn rate for SLO.",
+		},
+		[]string{"name"},
+	)
+	SLOBurnRateSlow = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "slo_burn_rate_slow",
+			Help: "Current slow burn rate for SLO.",
+		},
+		[]string{"name"},
+	)
 )
 
 var (
@@ -2032,6 +2062,10 @@ func registerAll() {
 			TranscodeCacheHits,
 			TranscodeCacheMisses,
 			WSLegacyRequestsTotal,
+			SLOBreachActive,
+			SLOErrorBudgetRemainingRatio,
+			SLOBurnRateFast,
+			SLOBurnRateSlow,
 		)
 
 		// Pre-create one series for vector metrics so /metrics exposition is stable
@@ -2310,6 +2344,12 @@ func registerAll() {
 		DeliveryRangeAliasFallbackTotal.WithLabelValues("error")
 		WSLegacyRequestsTotal.WithLabelValues("accepted")
 		WSLegacyRequestsTotal.WithLabelValues("rejected")
+		for _, name := range []string{"ingest_success", "delivery_latency", "data_loss_guard"} {
+			SLOBreachActive.WithLabelValues(name).Set(0)
+			SLOErrorBudgetRemainingRatio.WithLabelValues(name).Set(1)
+			SLOBurnRateFast.WithLabelValues(name).Set(0)
+			SLOBurnRateSlow.WithLabelValues(name).Set(0)
+		}
 	})
 }
 
@@ -4636,4 +4676,20 @@ func sanitizeDeliveryRouterCoherenceReason(v string) string {
 	default:
 		return "unknown"
 	}
+}
+
+// SetSLOState exports SLO evaluator state to Prometheus gauges.
+func SetSLOState(name string, breached bool, budgetRatio, burnFast, burnSlow float64) {
+	n := strings.ToLower(strings.TrimSpace(name))
+	if n == "" {
+		return
+	}
+	b := float64(0)
+	if breached {
+		b = 1
+	}
+	SLOBreachActive.WithLabelValues(n).Set(b)
+	SLOErrorBudgetRemainingRatio.WithLabelValues(n).Set(budgetRatio)
+	SLOBurnRateFast.WithLabelValues(n).Set(burnFast)
+	SLOBurnRateSlow.WithLabelValues(n).Set(burnSlow)
 }
