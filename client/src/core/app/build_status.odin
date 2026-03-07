@@ -1500,3 +1500,362 @@ copy_diagnostics_to_clipboard :: proc(state: ^App_State) {
 		services.settings_clipboard_write(&state.settings, string(buf[:n]))
 	}
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// S52: Status bar — extracted from build_ui.odin
+// ═══════════════════════════════════════════════════════════════════════════
+
+SHELL_STATUS_BAR_H :: f32(16)
+
+@(private = "file")
+cache_string :: proc(buf: []u8, n: int) -> string {
+	m := n
+	if m <= 0 do return ""
+	if m > len(buf) do m = len(buf)
+	return string(buf[:m])
+}
+
+draw_status_bar :: proc(state: ^App_State, viewport_w, viewport_h: f32, pointer: ui.Pointer_Input) {
+	bar_y := viewport_h - SHELL_STATUS_BAR_H
+	bar_rect := ui.Rect{pos = {0, bar_y}, size = {viewport_w, SHELL_STATUS_BAR_H}}
+	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = bar_rect, color = ui.COL_SURFACE_2})
+	ui.push(&state.cmd_buf, ui.Cmd_Line{
+		from = {0, bar_y}, to = {viewport_w, bar_y},
+		color = ui.COL_DIVIDER, thickness = 1,
+	})
+
+	sx := f32(8)
+	sy := bar_y + SHELL_STATUS_BAR_H * 0.5 + ui.FONT_SIZE_XS * 0.35
+
+	// Strong stream health status (LIVE / LAG / DESYNC).
+	health_label := "OFFLINE"
+	health_color := ui.COL_TEXT_MUTED
+	waiting_primary := active_stream_waiting_primary_data(state)
+	switch state.active_metrics.state {
+	case .Live:
+		if waiting_primary {
+			health_label = "LIVE (no data)"
+			health_color = ui.COL_WARNING
+		} else {
+			health_label = "LIVE"
+			health_color = ui.COL_GREEN
+		}
+	case .Lag:
+		health_label = "LAG"
+		health_color = ui.COL_WARNING
+	case .Desync:
+		health_label = "DESYNC"
+		health_color = ui.COL_RED
+	case .Offline:
+	}
+	ui.push_text(&state.cmd_buf, {sx, sy}, health_label, health_color, ui.FONT_SIZE_XS, .Bold)
+	sx += state.text.measure(ui.FONT_SIZE_XS, health_label).x + 10
+	reason_short := active_stream_reason_short(state)
+	if len(reason_short) > 0 {
+		reason_color := state.active_metrics.state == .Desync ? ui.COL_RED : ui.COL_TEXT_MUTED
+		reason_buf: [48]u8
+		reason_str := fmt.bprintf(reason_buf[:], "[%s]", reason_short)
+		ui.push_text(&state.cmd_buf, {sx, sy}, reason_str, reason_color, ui.FONT_SIZE_XS, .Mono)
+		sx += state.text.measure(ui.FONT_SIZE_XS, reason_str).x + 8
+	}
+	hud_label := state.telemetry.hud_enabled ? "HUD*" : "HUD"
+	hud_rect := ui.rect_xywh(sx, bar_y + 1, 38, SHELL_STATUS_BAR_H - 2)
+	hud_btn := ui.button(&state.cmd_buf, hud_rect, hud_label, pointer, state.text.measure, ui.FONT_SIZE_XS, .Mono)
+	if hud_btn.clicked {
+		queue_ui_action(state, UI_Action{kind = .Toggle_Telemetry_HUD})
+	}
+	sx += hud_rect.size.x + 8
+	if state.active_metrics.state == .Desync || waiting_primary {
+		rs_rect := ui.rect_xywh(sx, bar_y + 1, 48, SHELL_STATUS_BAR_H - 2)
+		rs_btn := ui.button(&state.cmd_buf, rs_rect, "Resync", pointer, state.text.measure, ui.FONT_SIZE_XS, .Mono)
+		if rs_btn.clicked {
+			queue_ui_action(state, UI_Action{kind = .Resync_Active_Stream})
+		}
+		sx += rs_rect.size.x + 8
+	}
+
+	rtt_buf: [24]u8
+	rtt_str := fmt.bprintf(rtt_buf[:], "RTT:%dms", max(state.active_metrics.rtt_ms, 0))
+	ui.push_text(&state.cmd_buf, {sx, sy}, rtt_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+	sx += state.text.measure(ui.FONT_SIZE_XS, rtt_str).x + 8
+
+	lag_buf: [24]u8
+	lag_str := fmt.bprintf(lag_buf[:], "LAG:%dms", max(state.active_metrics.lag_ms, 0))
+	lag_color := state.active_metrics.lag_ms > 4_000 ? ui.COL_WARNING : ui.COL_TEXT_MUTED
+	ui.push_text(&state.cmd_buf, {sx, sy}, lag_str, lag_color, ui.FONT_SIZE_XS, .Mono)
+	sx += state.text.measure(ui.FONT_SIZE_XS, lag_str).x + 8
+
+	last_age_ms := i64(0)
+	if now_ms := current_now_ms(state); now_ms > 0 && state.active_metrics.last_msg_ts_ms > 0 {
+		last_age_ms = max(now_ms - state.active_metrics.last_msg_ts_ms, 0)
+	}
+	last_buf: [24]u8
+	last_str := fmt.bprintf(last_buf[:], "LAST:%dms", last_age_ms)
+	last_color := last_age_ms > 8_000 ? ui.COL_WARNING : ui.COL_TEXT_MUTED
+	ui.push_text(&state.cmd_buf, {sx, sy}, last_str, last_color, ui.FONT_SIZE_XS, .Mono)
+	sx += state.text.measure(ui.FONT_SIZE_XS, last_str).x + 8
+
+	ack_buf: [20]u8
+	ack_str := fmt.bprintf(ack_buf[:], "ACK:%d", max(state.active_metrics.subscribe_acks, 0))
+	ui.push_text(&state.cmd_buf, {sx, sy}, ack_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+	sx += state.text.measure(ui.FONT_SIZE_XS, ack_str).x + 8
+
+	dr_buf: [24]u8
+	dr_str := fmt.bprintf(dr_buf[:], "DROP:%d", max(state.active_metrics.drop_count, 0))
+	dr_color := state.active_metrics.drop_count > 0 ? ui.COL_RED : ui.COL_TEXT_MUTED
+	ui.push_text(&state.cmd_buf, {sx, sy}, dr_str, dr_color, ui.FONT_SIZE_XS, .Mono)
+	sx += state.text.measure(ui.FONT_SIZE_XS, dr_str).x + 8
+
+	rc_buf: [24]u8
+	rc_str := fmt.bprintf(rc_buf[:], "RC:%d", max(state.active_metrics.reconnect_count, 0))
+	rc_color := state.active_metrics.reconnect_count > 0 ? ui.COL_WARNING : ui.COL_TEXT_MUTED
+	ui.push_text(&state.cmd_buf, {sx, sy}, rc_str, rc_color, ui.FONT_SIZE_XS, .Mono)
+	sx += state.text.measure(ui.FONT_SIZE_XS, rc_str).x + 8
+
+	// Queue fill + drops + reconnects from metrics history.
+	if ok, qmax, drop_delta, rc_delta := metrics_history_summary(state); ok {
+		q_buf: [32]u8
+		q_str := fmt.bprintf(q_buf[:], "Q:%d", qmax)
+		q_color := qmax > 100 ? ui.COL_WARNING : ui.COL_TEXT_MUTED
+		ui.push_text(&state.cmd_buf, {sx, sy}, q_str, q_color, ui.FONT_SIZE_XS, .Mono)
+		sx += state.text.measure(ui.FONT_SIZE_XS, q_str).x + 10
+
+		d_buf: [32]u8
+		d_str := fmt.bprintf(d_buf[:], "D:%d", drop_delta)
+		d_color := drop_delta > 0 ? ui.COL_RED : ui.COL_TEXT_MUTED
+		ui.push_text(&state.cmd_buf, {sx, sy}, d_str, d_color, ui.FONT_SIZE_XS, .Mono)
+		sx += state.text.measure(ui.FONT_SIZE_XS, d_str).x + 10
+
+		r_buf: [32]u8
+		r_str := fmt.bprintf(r_buf[:], "RC:%d", rc_delta)
+		r_color := rc_delta > 0 ? ui.COL_WARNING : ui.COL_TEXT_MUTED
+		ui.push_text(&state.cmd_buf, {sx, sy}, r_str, r_color, ui.FONT_SIZE_XS, .Mono)
+		sx += state.text.measure(ui.FONT_SIZE_XS, r_str).x + 10
+	}
+	if state.telemetry.hud_enabled {
+		refresh_telemetry_hud_cache(state)
+
+		mps_str := cache_string(state.telemetry.hud_cache.mps_buf[:], state.telemetry.hud_cache.mps_len)
+		ui.push_text(&state.cmd_buf, {sx, sy}, mps_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+		sx += state.text.measure(ui.FONT_SIZE_XS, mps_str).x + 8
+
+		bps_str := cache_string(state.telemetry.hud_cache.bps_buf[:], state.telemetry.hud_cache.bps_len)
+		ui.push_text(&state.cmd_buf, {sx, sy}, bps_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+		sx += state.text.measure(ui.FONT_SIZE_XS, bps_str).x + 8
+
+		cb_str := cache_string(state.telemetry.hud_cache.cb_buf[:], state.telemetry.hud_cache.cb_len)
+		cb_color := state.active_metrics.candle_backlog > 0 ? ui.COL_WARNING : ui.COL_TEXT_MUTED
+		ui.push_text(&state.cmd_buf, {sx, sy}, cb_str, cb_color, ui.FONT_SIZE_XS, .Mono)
+		sx += state.text.measure(ui.FONT_SIZE_XS, cb_str).x + 8
+
+		arena_str := cache_string(state.telemetry.hud_cache.arena_buf[:], state.telemetry.hud_cache.arena_len)
+		ui.push_text(&state.cmd_buf, {sx, sy}, arena_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+		sx += state.text.measure(ui.FONT_SIZE_XS, arena_str).x + 8
+
+		pm_str := cache_string(state.telemetry.hud_cache.pm_buf[:], state.telemetry.hud_cache.pm_len)
+		ui.push_text(&state.cmd_buf, {sx, sy}, pm_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+		sx += state.text.measure(ui.FONT_SIZE_XS, pm_str).x + 8
+
+		pr_str := cache_string(state.telemetry.hud_cache.pr_buf[:], state.telemetry.hud_cache.pr_len)
+		ui.push_text(&state.cmd_buf, {sx, sy}, pr_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+		sx += state.text.measure(ui.FONT_SIZE_XS, pr_str).x + 8
+
+		pb_str := cache_string(state.telemetry.hud_cache.pb_buf[:], state.telemetry.hud_cache.pb_len)
+		ui.push_text(&state.cmd_buf, {sx, sy}, pb_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+		sx += state.text.measure(ui.FONT_SIZE_XS, pb_str).x + 8
+
+		phase_str := cache_string(state.telemetry.hud_cache.phase_buf[:], state.telemetry.hud_cache.phase_len)
+		if len(phase_str) > 0 {
+			ui.push_text(&state.cmd_buf, {sx, sy}, phase_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+			sx += state.text.measure(ui.FONT_SIZE_XS, phase_str).x + 8
+		}
+
+		// S27: Apply state summary (composition + active artifacts).
+		apply_str := cache_string(state.telemetry.hud_cache.apply_buf[:], state.telemetry.hud_cache.apply_len)
+		if len(apply_str) > 0 {
+			apply_color := ui.COL_TEXT_MUTED
+			switch state.active_metrics.context_stage {
+			case .Composed:      apply_color = ui.COL_GREEN
+			case .Live_Only:     apply_color = ui.COL_YELLOW_ACCENT
+			case .Backfilled, .Range_Pending: apply_color = ui.COL_WARNING
+			case .Empty:
+			}
+			ui.push_text(&state.cmd_buf, {sx, sy}, apply_str, apply_color, ui.FONT_SIZE_XS, .Mono)
+			sx += state.text.measure(ui.FONT_SIZE_XS, apply_str).x + 8
+		}
+
+		// S28: Per-artifact age.
+		age_str := cache_string(state.telemetry.hud_cache.age_buf[:], state.telemetry.hud_cache.age_len)
+		if len(age_str) > 0 {
+			ui.push_text(&state.cmd_buf, {sx, sy}, age_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+			sx += state.text.measure(ui.FONT_SIZE_XS, age_str).x + 8
+		}
+
+		// S31: Aggregate health badge.
+		agg_str := cache_string(state.telemetry.hud_cache.agg_buf[:], state.telemetry.hud_cache.agg_len)
+		if len(agg_str) > 0 {
+			ui.push_text(&state.cmd_buf, {sx, sy}, agg_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+			sx += state.text.measure(ui.FONT_SIZE_XS, agg_str).x + 8
+		}
+	}
+
+	// Frame time p50.
+	if state.telemetry.frame_time_count > 0 {
+		p50, _, _ := frame_time_percentiles(state)
+		fps_approx := p50 > 0 ? 1_000_000 / p50 : 0
+		f_buf: [32]u8
+		f_str := fmt.bprintf(f_buf[:], "FPS:%d", fps_approx)
+		fps_color := fps_approx < 30 ? ui.COL_WARNING : ui.COL_TEXT_MUTED
+		ui.push_text(&state.cmd_buf, {sx, sy}, f_str, fps_color, ui.FONT_SIZE_XS, .Mono)
+		sx += state.text.measure(ui.FONT_SIZE_XS, f_str).x + 10
+	}
+
+	// Data source badges: HM, VP, CD.
+	hm_live := state.active_metrics.has_live_heatmap
+	hm_synth := !hm_live && state.stores.heatmap.count > 0
+	hm_label := hm_live ? "HM:LIVE" : (hm_synth ? "HM:SYNTH" : "HM:--")
+	hm_color := hm_live ? ui.COL_GREEN : (hm_synth ? ui.COL_WARNING : ui.COL_TEXT_MUTED)
+	ui.push_text(&state.cmd_buf, {sx, sy}, hm_label, hm_color, ui.FONT_SIZE_XS, .Mono)
+	sx += state.text.measure(ui.FONT_SIZE_XS, hm_label).x + 8
+
+	vp_live := state.active_metrics.has_live_vpvr
+	vp_synth := !vp_live && state.stores.vpvr.count > 0
+	vp_label := vp_live ? "VP:LIVE" : (vp_synth ? "VP:SYNTH" : "VP:--")
+	vp_color := vp_live ? ui.COL_GREEN : (vp_synth ? ui.COL_WARNING : ui.COL_TEXT_MUTED)
+	ui.push_text(&state.cmd_buf, {sx, sy}, vp_label, vp_color, ui.FONT_SIZE_XS, .Mono)
+	sx += state.text.measure(ui.FONT_SIZE_XS, vp_label).x + 8
+
+	cd_live := state.active_metrics.has_live_candle
+	cd_label := cd_live ? "CD:LIVE" : "CD:--"
+	cd_color := cd_live ? ui.COL_GREEN : ui.COL_TEXT_MUTED
+	ui.push_text(&state.cmd_buf, {sx, sy}, cd_label, cd_color, ui.FONT_SIZE_XS, .Mono)
+	sx += state.text.measure(ui.FONT_SIZE_XS, cd_label).x + 12
+	ctx_label := "CTX:EMPTY"
+	ctx_color := ui.COL_TEXT_MUTED
+	switch state.active_metrics.context_stage {
+	case .Range_Pending:
+		ctx_label = "CTX:PENDING"
+		ctx_color = ui.COL_WARNING
+	case .Backfilled:
+		ctx_label = "CTX:BACKFILLED"
+		ctx_color = ui.COL_WARNING
+	case .Live_Only:
+		ctx_label = "CTX:LIVE_ONLY"
+		ctx_color = ui.COL_YELLOW_ACCENT
+	case .Composed:
+		ctx_label = "CTX:COMPOSED"
+		ctx_color = ui.COL_GREEN
+	case .Empty:
+	}
+	ui.push_text(&state.cmd_buf, {sx, sy}, ctx_label, ctx_color, ui.FONT_SIZE_XS, .Mono)
+	sx += state.text.measure(ui.FONT_SIZE_XS, ctx_label).x + 12
+	if len(reason_short) > 0 {
+		rsn_buf: [64]u8
+		rsn_label := fmt.bprintf(rsn_buf[:], "RSN:%s", reason_short)
+		rsn_color := state.active_metrics.state == .Desync ? ui.COL_RED : ui.COL_WARNING
+		ui.push_text(&state.cmd_buf, {sx, sy}, rsn_label, rsn_color, ui.FONT_SIZE_XS, .Mono)
+		sx += state.text.measure(ui.FONT_SIZE_XS, rsn_label).x + 8
+	}
+
+	// Whale alert flash (visible for ~2 sec = 120 frames at 60fps).
+	if state.whale.frame > 0 && state.frame > 0 && state.frame - state.whale.frame < 120 {
+		whale_side := state.whale.buy ? "BUY" : "SELL"
+		whale_color := state.whale.buy ? ui.COL_GREEN : ui.COL_RED
+		w_buf: [48]u8
+		w_str := fmt.bprintf(w_buf[:], "WHALE %s %.2f @ %.2f", whale_side, state.whale.qty, state.whale.price)
+		pulse_w := state.text.measure(ui.FONT_SIZE_XS, w_str).x + 8
+		if sx + pulse_w < viewport_w - 80 {
+			alpha := f32(0.25) - f32(state.frame - state.whale.frame) * 0.002
+			if alpha > 0 {
+				ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
+					rect = ui.rect_xywh(sx - 4, bar_y + 1, pulse_w, SHELL_STATUS_BAR_H - 2),
+					color = ui.with_alpha(whale_color, alpha),
+				})
+			}
+			ui.push_text(&state.cmd_buf, {sx, sy}, w_str, whale_color, ui.FONT_SIZE_XS, .Bold)
+		}
+	}
+
+	// Error state: persistent last-error indicator (visible ~10 sec = 600 frames).
+	ERROR_DISPLAY_FRAMES :: u64(600)
+	if state.error_state.len > 0 && state.error_state.frame > 0 &&
+		state.frame - state.error_state.frame < ERROR_DISPLAY_FRAMES {
+		err_str := string(state.error_state.text[:state.error_state.len])
+		err_w := state.text.measure(ui.FONT_SIZE_XS, err_str).x + 8
+		if sx + err_w < viewport_w - 120 {
+			age := state.frame - state.error_state.frame
+			err_alpha := age < ERROR_DISPLAY_FRAMES - 120 ? f32(1.0) : f32(ERROR_DISPLAY_FRAMES - age) / 120.0
+			ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
+				rect = ui.rect_xywh(sx - 2, bar_y + 1, err_w, SHELL_STATUS_BAR_H - 2),
+				color = ui.with_alpha(ui.COL_RED, 0.15 * err_alpha),
+			})
+			ui.push_text(&state.cmd_buf, {sx, sy}, err_str,
+				ui.with_alpha(ui.COL_RED, 0.9 * err_alpha), ui.FONT_SIZE_XS, .Mono)
+			sx += err_w + 8
+		}
+	}
+
+	// Right-aligned: active stream_id + TF.
+	right_x := viewport_w - 8
+	tf_opts := TF_OPTIONS
+	tf_str := tf_opts[state.active_tf_idx]
+	tf_w := state.text.measure(ui.FONT_SIZE_XS, tf_str).x
+	right_x -= tf_w
+	ui.push_text(&state.cmd_buf, {right_x, sy}, tf_str, ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS, .Mono)
+	right_x -= 8
+
+	active_stream_id := streams.registry_active_stream_id(&state.stream_registry)
+	if len(active_stream_id) > 0 {
+		id_w := state.text.measure(ui.FONT_SIZE_XS, active_stream_id).x
+		right_x -= id_w
+		ui.push_text(&state.cmd_buf, {right_x, sy}, active_stream_id, ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS, .Mono)
+	}
+}
+
+// S52: Toast notification + TF OSD — extracted from build_ui.odin
+draw_toast_osd :: proc(state: ^App_State, viewport_w, viewport_h: f32) {
+	// Toast notification (brief feedback, fades after ~90 frames / 1.5s).
+	if state.toast.len > 0 && state.frame > 0 && state.toast.frame > 0 {
+		elapsed := state.frame - state.toast.frame
+		TOAST_DURATION :: u64(90)
+		if elapsed < TOAST_DURATION {
+			toast_str := string(state.toast.text[:state.toast.len])
+			tw := state.text.measure(ui.FONT_SIZE_SM, toast_str).x
+			pill_w := tw + 20
+			pill_h := f32(24)
+			px := (viewport_w - pill_w) * 0.5
+			py := viewport_h - 60
+			alpha := f32(1.0)
+			if elapsed > 60 {
+				alpha = 1.0 - f32(elapsed - 60) / f32(TOAST_DURATION - 60)
+			}
+			ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
+				rect  = ui.rect_xywh(px, py, pill_w, pill_h),
+				color = ui.with_alpha(ui.COL_SURFACE_2, alpha * 0.9),
+			})
+			ui.push_text(&state.cmd_buf,
+				{px + 10, py + pill_h * 0.5 + ui.FONT_SIZE_SM * 0.35},
+				toast_str, ui.with_alpha(ui.COL_TEXT_PRIMARY, alpha), ui.FONT_SIZE_SM, .Mono)
+		}
+	}
+
+	// TF OSD: large overlay text when TF changes in zen mode (PRD-0007 M4.3).
+	if state.zen.active && state.zen.tf_osd_frame > 0 && state.frame > state.zen.tf_osd_frame {
+		osd_elapsed := state.frame - state.zen.tf_osd_frame
+		OSD_DURATION :: u64(90)
+		if osd_elapsed < OSD_DURATION {
+			tf_opts := TF_OPTIONS
+			osd_str_buf: [16]u8
+			osd_str := fmt.bprintf(osd_str_buf[:], "TF: %s", tf_opts[state.active_tf_idx])
+			osd_w := state.text.measure(ui.FONT_SIZE_LG, osd_str).x
+			osd_x := (viewport_w - osd_w) * 0.5
+			osd_y := viewport_h * 0.45
+			alpha := f32(1.0)
+			if osd_elapsed > 60 {
+				alpha = 1.0 - f32(osd_elapsed - 60) / f32(OSD_DURATION - 60)
+			}
+			ui.push_text(&state.cmd_buf, {osd_x, osd_y},
+				osd_str, ui.with_alpha(ui.COL_TEXT_PRIMARY, alpha), ui.FONT_SIZE_LG, .Bold)
+		}
+	}
+}
