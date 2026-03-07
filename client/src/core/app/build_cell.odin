@@ -4,6 +4,7 @@ package app
 
 import "core:fmt"
 import "mr:ports"
+import "mr:services"
 import "mr:ui"
 
 CELL_HDR_H :: f32(20)
@@ -114,22 +115,72 @@ render_cell_widget :: proc(
 		}
 	}
 
-	WIDGET_SHORT :: [12]string{"Candle", "Stats", "Counter", "HM", "VPVR", "Trades", "OB", "DOM", "--", "Analytics", "SVPVR", "TPO"}
-	ANALYTICS_SHORT :: [4]string{"OI", "DV", "CVD", "BS"}
-	widget_short := WIDGET_SHORT
-	analytics_short := ANALYTICS_SHORT
-	wlabel := widget_short[int(wid)]
-	if wid == .Analytics {
+	// S55: Analytics cells get interactive kind badge + history toggle.
+	// Non-analytics cells get a static widget short label.
+	analytics_inset := f32(0)
+	if wid == .Analytics && cell_vp.size.x >= 80 {
+		ANALYTICS_SHORT :: [4]string{"OI", "DV", "CVD", "BS"}
+		analytics_short := ANALYTICS_SHORT
 		ak := int(state.world.analytics[ci].analytics_kind)
-		if ak >= 0 && ak < len(analytics_short) {
-			wlabel = analytics_short[ak]
+		wlabel := analytics_short[ak] if ak >= 0 && ak < len(analytics_short) else "OI"
+
+		// Clickable kind badge (cycles OI → DV → CVD → BS → OI).
+		ak_w := state.text.measure(ui.FONT_SIZE_XS, wlabel).x + 8
+		ak_x := ui.rect_right(hdr_rect) - ak_w - 4 - close_inset - tf_inset
+		ak_rect := ui.rect_xywh(ak_x, hdr_rect.pos.y + 1, ak_w, CELL_HDR_H - 2)
+		ak_hov := ui.rect_contains(ak_rect, pointer.pos)
+		ak_bg := ak_hov ? ui.with_alpha(ui.COL_ACCENT_CYAN, 0.2) : ui.with_alpha(ui.COL_ACCENT_CYAN, 0.08)
+		ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = ak_rect, color = ak_bg})
+		ui.push_text(&state.cmd_buf,
+			{ak_x + 4, hdr_rect.pos.y + CELL_HDR_H * 0.5 + ui.FONT_SIZE_XS * 0.35},
+			wlabel, ui.COL_ACCENT_CYAN, ui.FONT_SIZE_XS, .Mono)
+		if ak_hov && pointer.left_pressed {
+			next_ak := services.Analytics_Kind((ak + 1) % 4)
+			queue_ui_action(state, UI_Action{
+				kind           = .Set_Cell_Widget,
+				cell_idx       = ci,
+				widget_kind    = .Analytics,
+				analytics_kind = next_ak,
+			})
 		}
+		analytics_inset = ak_w + 4
+
+		// History toggle: "H" button.
+		show_hist := state.world.analytics[ci].show_history
+		h_w := f32(16)
+		h_x := ak_x - h_w - 2
+		h_rect := ui.rect_xywh(h_x, hdr_rect.pos.y + 1, h_w, CELL_HDR_H - 2)
+		h_hov := ui.rect_contains(h_rect, pointer.pos)
+		h_col := show_hist ? ui.COL_ACCENT_CYAN : ui.COL_TEXT_MUTED
+		h_bg := h_hov ? ui.with_alpha(h_col, 0.2) : ui.with_alpha(h_col, 0.06)
+		ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = h_rect, color = h_bg})
+		ui.push_text(&state.cmd_buf,
+			{h_x + 4, hdr_rect.pos.y + CELL_HDR_H * 0.5 + ui.FONT_SIZE_XS * 0.35},
+			"H", h_col, ui.FONT_SIZE_XS, .Mono)
+		if h_hov && pointer.left_pressed {
+			state.world.analytics[ci].show_history = !show_hist
+		}
+		analytics_inset += h_w + 2
+	} else if wid == .Session_VPVR || wid == .TPO {
+		PROFILE_SHORT :: [2]string{"SVPVR", "TPO"}
+		profile_short := PROFILE_SHORT
+		pidx := wid == .TPO ? 1 : 0
+		wlabel := profile_short[pidx]
+		wlabel_w := state.text.measure(ui.FONT_SIZE_XS, wlabel).x
+		wlabel_x := ui.rect_right(hdr_rect) - wlabel_w - 4 - close_inset - tf_inset
+		ui.push_text(&state.cmd_buf,
+			{wlabel_x, hdr_rect.pos.y + CELL_HDR_H * 0.5 + ui.FONT_SIZE_XS * 0.35},
+			wlabel, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+	} else {
+		WIDGET_SHORT :: [12]string{"Candle", "Stats", "Counter", "HM", "VPVR", "Trades", "OB", "DOM", "--", "Analytics", "SVPVR", "TPO"}
+		widget_short := WIDGET_SHORT
+		wlabel := widget_short[int(wid)]
+		wlabel_w := state.text.measure(ui.FONT_SIZE_XS, wlabel).x
+		wlabel_x := ui.rect_right(hdr_rect) - wlabel_w - 4 - close_inset - tf_inset
+		ui.push_text(&state.cmd_buf,
+			{wlabel_x, hdr_rect.pos.y + CELL_HDR_H * 0.5 + ui.FONT_SIZE_XS * 0.35},
+			wlabel, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
 	}
-	wlabel_w := state.text.measure(ui.FONT_SIZE_XS, wlabel).x
-	wlabel_x := ui.rect_right(hdr_rect) - wlabel_w - 4 - close_inset - tf_inset
-	ui.push_text(&state.cmd_buf,
-		{wlabel_x, hdr_rect.pos.y + CELL_HDR_H * 0.5 + ui.FONT_SIZE_XS * 0.35},
-		wlabel, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
 
 	ui.push(&state.cmd_buf, ui.Cmd_Line{
 		from = {hdr_rect.pos.x, hdr_rect.pos.y + CELL_HDR_H},
