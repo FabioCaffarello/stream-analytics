@@ -33,6 +33,9 @@ legacy_widget_bundle :: proc(kind: Widget_Kind) -> u32 {
 		return u32(layers.Layer_Bundle.Bundle_Stats) | LEGACY_ROUTE_STATS
 	case .Counter:
 		return u32(layers.Layer_Bundle.Bundle_Counter) | LEGACY_ROUTE_COUNTER
+	case .Analytics:
+		// S48: Analytics widgets render directly from cell stores, no layer canvas needed.
+		return u32(layers.Layer_Bundle.Bundle_Empty)
 	case .Empty:
 		return u32(layers.Layer_Bundle.Bundle_Empty)
 	}

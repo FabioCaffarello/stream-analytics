@@ -838,3 +838,112 @@ test_parse_batched_event_payload_bar_stats_fastpath :: proc(t: ^testing.T) {
 	testing.expect_value(t, result.data.bar_stats.trade_count, i64(20))
 	testing.expect_value(t, result.data.bar_stats.seq, i64(402))
 }
+
+// -----------------------------------------------------------------------
+// S48: Analytics store contract tests
+// -----------------------------------------------------------------------
+
+@(test)
+test_s48_analytics_store_push_and_get_latest :: proc(t: ^testing.T) {
+	store: Analytics_Store
+
+	// Push OI entry.
+	push_analytics(&store, Analytics_Entry{
+		kind = .Open_Interest,
+		ts_ms = 1000,
+		values = {100.0, 5.0, 0.05, 0, 0, 0, 0, 0},
+	})
+
+	entry, ok := get_analytics_latest(&store, .Open_Interest)
+	testing.expect(t, ok, "should find OI entry")
+	testing.expect_value(t, entry.values[0], 100.0)
+	testing.expect_value(t, entry.values[1], 5.0)
+
+	// Push DV entry — OI should still be retrievable.
+	push_analytics(&store, Analytics_Entry{
+		kind = .Delta_Volume,
+		ts_ms = 2000,
+		values = {10.0, 8.0, 2.0, 0, 0, 0, 0, 0},
+	})
+
+	oi, oi_ok := get_analytics_latest(&store, .Open_Interest)
+	testing.expect(t, oi_ok, "OI still findable after DV push")
+	testing.expect_value(t, oi.values[0], 100.0)
+
+	dv, dv_ok := get_analytics_latest(&store, .Delta_Volume)
+	testing.expect(t, dv_ok, "DV should be findable")
+	testing.expect_value(t, dv.values[2], 2.0)
+}
+
+@(test)
+test_s48_analytics_store_count_by_kind :: proc(t: ^testing.T) {
+	store: Analytics_Store
+
+	for i in 0 ..< 5 {
+		push_analytics(&store, Analytics_Entry{kind = .CVD, ts_ms = i64(i * 1000)})
+	}
+	push_analytics(&store, Analytics_Entry{kind = .Open_Interest, ts_ms = 6000})
+	push_analytics(&store, Analytics_Entry{kind = .Open_Interest, ts_ms = 7000})
+
+	testing.expect_value(t, analytics_count_by_kind(&store, .CVD), 5)
+	testing.expect_value(t, analytics_count_by_kind(&store, .Open_Interest), 2)
+	testing.expect_value(t, analytics_count_by_kind(&store, .Bar_Stats), 0)
+}
+
+@(test)
+test_s48_analytics_store_ring_overflow :: proc(t: ^testing.T) {
+	store: Analytics_Store
+
+	// Fill past capacity.
+	for i in 0 ..< ANALYTICS_STORE_CAP + 10 {
+		push_analytics(&store, Analytics_Entry{
+			kind = .Bar_Stats,
+			ts_ms = i64(i * 100),
+			values = {f64(i), 0, 0, 0, 0, 0, 0, 0},
+		})
+	}
+
+	testing.expect_value(t, store.count, ANALYTICS_STORE_CAP)
+
+	// Most recent should be the last pushed.
+	latest, ok := get_analytics_latest(&store, .Bar_Stats)
+	testing.expect(t, ok, "should find latest after overflow")
+	testing.expect_value(t, latest.values[0], f64(ANALYTICS_STORE_CAP + 9))
+}
+
+@(test)
+test_s48_analytics_store_clear :: proc(t: ^testing.T) {
+	store: Analytics_Store
+	push_analytics(&store, Analytics_Entry{kind = .CVD, ts_ms = 1000})
+	testing.expect_value(t, store.count, 1)
+
+	analytics_store_clear(&store)
+	testing.expect_value(t, store.count, 0)
+
+	_, ok := get_analytics_latest(&store, .CVD)
+	testing.expect(t, !ok, "no entries after clear")
+}
+
+@(test)
+test_s48_analytics_value_slot_mapping :: proc(t: ^testing.T) {
+	// Verify documented slot mapping for each kind.
+	// OI: [0]=oi, [1]=delta, [2]=delta_pct
+	oi := Analytics_Entry{kind = .Open_Interest, values = {1000, 50, 0.05, 0, 0, 0, 0, 0}}
+	testing.expect_value(t, oi.values[0], 1000.0) // open_interest
+	testing.expect_value(t, oi.values[1], 50.0)   // delta
+	testing.expect_value(t, oi.values[2], 0.05)   // delta_pct
+
+	// DV: [0]=buy_vol, [1]=sell_vol, [2]=delta_vol
+	dv := Analytics_Entry{kind = .Delta_Volume, values = {10, 8, 2, 0, 0, 0, 0, 0}}
+	testing.expect_value(t, dv.values[2], 2.0) // delta = buy - sell
+
+	// CVD: [0]=delta_vol, [1]=cvd
+	cvd := Analytics_Entry{kind = .CVD, values = {2, 150, 0, 0, 0, 0, 0, 0}}
+	testing.expect_value(t, cvd.values[1], 150.0) // cumulative
+
+	// BS: [0]=trade_count, ..., [6]=vwap, [7]=imbalance
+	bs := Analytics_Entry{kind = .Bar_Stats, values = {20, 12, 8, 100, 60, 40, 50000, 0.2}, flags = 1}
+	testing.expect_value(t, bs.values[6], 50000.0) // vwap
+	testing.expect_value(t, bs.values[7], 0.2)     // imbalance
+	testing.expect(t, (bs.flags & 1) != 0, "burst flag set")
+}

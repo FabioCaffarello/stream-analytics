@@ -144,9 +144,17 @@ render_cell_widget :: proc(
 		}
 	}
 
-	WIDGET_SHORT :: [9]string{"Candle", "Stats", "Counter", "HM", "VPVR", "Trades", "OB", "DOM", "--"}
+	WIDGET_SHORT :: [10]string{"Candle", "Stats", "Counter", "HM", "VPVR", "Trades", "OB", "DOM", "--", "Analytics"}
+	ANALYTICS_SHORT :: [4]string{"OI", "DV", "CVD", "BS"}
 	widget_short := WIDGET_SHORT
+	analytics_short := ANALYTICS_SHORT
 	wlabel := widget_short[int(wid)]
+	if wid == .Analytics {
+		ak := int(state.world.analytics[ci].analytics_kind)
+		if ak >= 0 && ak < len(analytics_short) {
+			wlabel = analytics_short[ak]
+		}
+	}
 	wlabel_w := state.text.measure(ui.FONT_SIZE_XS, wlabel).x
 	wlabel_x := ui.rect_right(hdr_rect) - wlabel_w - 4 - close_inset - tf_inset
 	ui.push_text(&state.cmd_buf,
@@ -159,6 +167,11 @@ render_cell_widget :: proc(
 		color = ui.COL_DIVIDER, thickness = 1,
 	})
 
-	render_cell_layer_canvas(state, ci, wid, cell_vp)
+	// S48: Analytics widgets render directly from cell stores (no layer canvas).
+	if wid == .Analytics {
+		render_analytics_cell(state, ci, cell_vp)
+	} else {
+		render_cell_layer_canvas(state, ci, wid, cell_vp)
+	}
 
 }

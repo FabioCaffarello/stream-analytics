@@ -52,6 +52,13 @@ apply_add_cell_action :: proc(state: ^App_State, action: UI_Action) {
 	}
 	ci := state.world.count
 	init_world_cell_defaults(state, ci, action.widget_kind, action.stream_idx)
+	// S48: set analytics sub-kind for analytics widgets.
+	if action.widget_kind == .Analytics {
+		state.world.analytics[ci] = Analytics_Component{
+			analytics_kind = action.analytics_kind,
+			show_history   = true,
+		}
+	}
 	// PRD-0009: if action carries venue/symbol, set binding.
 	if len(action.bind_venue) > 0 && len(action.bind_symbol) > 0 {
 		binding_set(&state.world.bindings[ci], action.bind_venue, action.bind_symbol)
@@ -83,6 +90,7 @@ apply_remove_cell_action :: proc(state: ^App_State, cell_idx: int) {
 		state.world.subplots[j]   = state.world.subplots[j + 1]
 		state.world.spans[j]      = state.world.spans[j + 1]
 		state.world.timeframes[j] = state.world.timeframes[j + 1]
+		state.world.analytics[j]  = state.world.analytics[j + 1]
 		state.world.getranges[j]  = state.world.getranges[j + 1]
 	}
 	state.world.count -= 1
@@ -96,6 +104,7 @@ apply_remove_cell_action :: proc(state: ^App_State, cell_idx: int) {
 	state.world.subplots[last]   = {}
 	state.world.spans[last]      = {}
 	state.world.timeframes[last] = {}
+	state.world.analytics[last]  = {}
 	state.world.getranges[last]  = {}
 	persist_layout_v6(state)
 	reconcile_subscriptions(state)

@@ -294,11 +294,11 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 				if cci >= 0 && cci < state.world.count {
 					current_widget = state.world.widgets[cci].kind
 				}
-				WIDGET_LABELS :: [9]string{"Candle", "Stats", "Counter", "Heatmap", "VPVR", "Trades", "Orderbook", "DOM", "Empty"}
+				WIDGET_LABELS :: [10]string{"Candle", "Stats", "Counter", "Heatmap", "VPVR", "Trades", "Orderbook", "DOM", "Empty", "Analytics"}
 				labels := WIDGET_LABELS
 				menu_items: [ui.CONTEXT_MENU_MAX_ITEMS]ui.Context_Menu_Item
 				menu_count := 0
-				for i in 0 ..< 9 {
+				for i in 0 ..< 10 {
 					menu_items[menu_count] = ui.Context_Menu_Item{
 						label    = labels[i],
 						selected = Widget_Kind(i) == current_widget,
@@ -340,7 +340,7 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 					menu_items[:menu_count], workspace_pointer, state.text.measure,
 					ui.Rect{pos = {0, 0}, size = {viewport_w, viewport_h}})
 				if menu_res.clicked_idx >= 0 {
-					if menu_res.clicked_idx < 9 {
+					if menu_res.clicked_idx < 10 {
 						queue_ui_action(state, UI_Action{
 							kind        = .Set_Cell_Widget,
 							cell_idx    = cci,

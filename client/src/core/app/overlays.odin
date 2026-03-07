@@ -599,16 +599,22 @@ draw_widget_catalog :: proc(state: ^App_State, viewport_w, viewport_h: f32, poin
 			ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS, .Mono)
 		y += 22
 
-		Widget_Entry :: struct { kind: Widget_Kind, label: string }
-		entries := [8]Widget_Entry{
-			{.Candle,    "Candle"},
-			{.Orderbook, "Orderbook"},
-			{.Trades,    "Trades"},
-			{.DOM,       "DOM"},
-			{.Stats,     "Stats"},
-			{.Counter,   "Counter"},
-			{.Heatmap,   "Heatmap"},
-			{.VPVR,      "VPVR"},
+		Widget_Entry :: struct { kind: Widget_Kind, label: string, analytics_kind: services.Analytics_Kind }
+		CATALOG_COUNT :: 12
+		entries := [CATALOG_COUNT]Widget_Entry{
+			{.Candle,    "Candle", {}},
+			{.Orderbook, "Orderbook", {}},
+			{.Trades,    "Trades", {}},
+			{.DOM,       "DOM", {}},
+			{.Stats,     "Stats", {}},
+			{.Counter,   "Counter", {}},
+			{.Heatmap,   "Heatmap", {}},
+			{.VPVR,      "VPVR", {}},
+			// S48: Analytics widgets
+			{.Analytics, "Open Interest", .Open_Interest},
+			{.Analytics, "Delta Volume",  .Delta_Volume},
+			{.Analytics, "CVD",           .CVD},
+			{.Analytics, "Bar Stats",     .Bar_Stats},
 		}
 
 		cols :: 3
@@ -616,7 +622,7 @@ draw_widget_catalog :: proc(state: ^App_State, viewport_w, viewport_h: f32, poin
 		cell_h := f32(36)
 		gx := px + 16
 
-		for ei in 0 ..< 8 {
+		for ei in 0 ..< CATALOG_COUNT {
 			col := ei % cols
 			row := ei / cols
 			cx := gx + f32(col) * cell_w
@@ -634,11 +640,12 @@ draw_widget_catalog :: proc(state: ^App_State, viewport_w, viewport_h: f32, poin
 
 			if hovered && pointer.left_pressed {
 				state.overlays.catalog_selected = entries[ei].kind
+				state.overlays.catalog_analytics_kind = entries[ei].analytics_kind
 				state.overlays.catalog_step = 1
 			}
 		}
 
-		y += f32((8 + cols - 1) / cols) * cell_h + 12
+		y += f32((CATALOG_COUNT + cols - 1) / cols) * cell_h + 12
 
 	} else {
 		// --- Step 2: Stream picker (PRD-0009: show ALL available markets) ---
@@ -673,6 +680,7 @@ draw_widget_catalog :: proc(state: ^App_State, viewport_w, viewport_h: f32, poin
 			queue_ui_action(state, UI_Action{
 				kind = .Add_Cell,
 				widget_kind = state.overlays.catalog_selected,
+				analytics_kind = state.overlays.catalog_analytics_kind,
 				stream_idx = -1,
 			})
 			state.overlays.show_widget_catalog = false
@@ -710,6 +718,7 @@ draw_widget_catalog :: proc(state: ^App_State, viewport_w, viewport_h: f32, poin
 				queue_ui_action(state, UI_Action{
 					kind = .Add_Cell,
 					widget_kind = state.overlays.catalog_selected,
+					analytics_kind = state.overlays.catalog_analytics_kind,
 					bind_venue = entry_venue,
 					bind_symbol = entry_symbol,
 				})

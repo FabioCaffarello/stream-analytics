@@ -88,6 +88,12 @@ Timeframe_Component :: struct {
 	tf_idx: int,  // -1 = follow global
 }
 
+// S48: Analytics display mode per entity.
+Analytics_Component :: struct {
+	analytics_kind: services.Analytics_Kind, // which analytics to display
+	show_history:   bool,                     // show ring buffer bar chart
+}
+
 // GetRange state per entity.
 GetRange_Component :: struct {
 	pending:    bool,
@@ -109,6 +115,7 @@ Entity_World :: struct {
 	subplots:   [CELL_MAX]Subplot_Component,
 	spans:      [CELL_MAX]Span_Component,
 	timeframes: [CELL_MAX]Timeframe_Component,
+	analytics:  [CELL_MAX]Analytics_Component,  // S48: per-cell analytics kind
 	getranges:  [CELL_MAX]GetRange_Component,
 	count:      int,
 	focused:    int,  // focused entity index
@@ -218,6 +225,7 @@ Overlay_State :: struct {
 	show_stream_picker:        bool,
 	catalog_step:              int,
 	catalog_selected:          Widget_Kind,
+	catalog_analytics_kind:    services.Analytics_Kind, // S48: analytics sub-kind for catalog
 	cell_stream_picker_open:   int,
 	cell_stream_picker_scroll: f32,
 	exchange_sections:         [services.EXCHANGE_CAP]ui.Section_State,

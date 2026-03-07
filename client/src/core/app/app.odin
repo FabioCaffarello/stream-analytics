@@ -32,6 +32,7 @@ Widget_Kind :: enum u8 {
 	Orderbook,
 	DOM,
 	Empty,
+	Analytics, // S48: Orderflow analytics (OI, DV, CVD, BS)
 }
 
 TOP_BAR_H :: f32(32)
@@ -118,6 +119,7 @@ UI_Action :: struct {
 	cell_idx:       int,
 	profile_idx:    int,
 	widget_kind:    Widget_Kind,
+	analytics_kind: services.Analytics_Kind, // S48: analytics sub-kind for .Analytics widgets
 	stream_idx:     int,
 	subject_id:     u64,        // for Pick_Stream
 	market_entry_idx: int,      // for Subscribe_Market

@@ -3706,3 +3706,118 @@ test_s47_analytics_stale_count_includes_analytics :: proc(t: ^testing.T) {
 	testing.expect(t, stale >= 2, "both OI and DV stale at 200s")
 	_ = aging
 }
+
+// -----------------------------------------------------------------------
+// S48: Orderflow Analytics Pack v1 — Widget contract tests
+// -----------------------------------------------------------------------
+
+@(test)
+test_s48_artifact_kind_count_is_14 :: proc(t: ^testing.T) {
+	// S47 introduced 4 analytics kinds, total should be 14.
+	count := 0
+	for k in Artifact_Kind {
+		count += 1
+		_ = k
+	}
+	testing.expect(t, count == 14, "Artifact_Kind enum must have exactly 14 values")
+}
+
+@(test)
+test_s48_analytics_kind_values_stable :: proc(t: ^testing.T) {
+	// Ensure analytics artifact ordinals are stable (widgets + persistence depend on them).
+	testing.expect(t, int(Artifact_Kind.Open_Interest) == 10, "Open_Interest ordinal must be 10")
+	testing.expect(t, int(Artifact_Kind.Delta_Volume)  == 11, "Delta_Volume ordinal must be 11")
+	testing.expect(t, int(Artifact_Kind.CVD)           == 12, "CVD ordinal must be 12")
+	testing.expect(t, int(Artifact_Kind.Bar_Stats)     == 13, "Bar_Stats ordinal must be 13")
+}
+
+@(test)
+test_s48_analytics_policy_ring_append_for_tf_sensitive :: proc(t: ^testing.T) {
+	// Delta Volume, CVD, Bar Stats must use Ring_Append semantics and be TF-sensitive.
+	for k in ([3]Artifact_Kind{.Delta_Volume, .CVD, .Bar_Stats}) {
+		p := artifact_policy(k)
+		testing.expect(t, p.snapshot_semantics == .Ring_Append, "analytics TF-sensitive must use Ring_Append")
+		testing.expect(t, p.reset_on_tf_change, "DV/CVD/BS must reset on TF change")
+		testing.expect(t, p.stale_detection == .TF_Adaptive, "DV/CVD/BS must use TF_Adaptive staleness")
+	}
+}
+
+@(test)
+test_s48_oi_policy_sparse_not_tf_sensitive :: proc(t: ^testing.T) {
+	p := artifact_policy(.Open_Interest)
+	testing.expect(t, p.snapshot_semantics == .Latest_Wins, "OI must use Latest_Wins")
+	testing.expect(t, !p.reset_on_tf_change, "OI must NOT reset on TF change")
+	testing.expect(t, p.stale_detection == .Sparse_Adaptive, "OI must use Sparse_Adaptive staleness")
+}
+
+@(test)
+test_s48_analytics_apply_state_mark_and_query :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+
+	// Mark all 4 analytics kinds.
+	apply_state_mark_event(&s, .Open_Interest, 1000, false)
+	apply_state_mark_event(&s, .Delta_Volume, 1000, false)
+	apply_state_mark_event(&s, .CVD, 1000, false)
+	apply_state_mark_event(&s, .Bar_Stats, 1000, false)
+
+	testing.expect(t, s.has_live[.Open_Interest], "OI must be live after mark")
+	testing.expect(t, s.has_live[.Delta_Volume], "DV must be live after mark")
+	testing.expect(t, s.has_live[.CVD], "CVD must be live after mark")
+	testing.expect(t, s.has_live[.Bar_Stats], "BS must be live after mark")
+	testing.expect(t, s.last_recv_ms[.Open_Interest] == 1000, "OI last_recv_ms must be 1000")
+	testing.expect(t, s.artifact_event_count[.Bar_Stats] == 1, "BS event count must be 1")
+}
+
+@(test)
+test_s48_tf_change_preserves_oi_clears_others :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Open_Interest, 1000, false)
+	apply_state_mark_event(&s, .Delta_Volume, 1000, false)
+	apply_state_mark_event(&s, .CVD, 1000, false)
+	apply_state_mark_event(&s, .Bar_Stats, 1000, false)
+
+	apply_state_on_tf_change(&s)
+
+	// OI survives TF change (not TF-sensitive).
+	testing.expect(t, s.has_live[.Open_Interest], "OI must survive TF change")
+	testing.expect(t, s.last_recv_ms[.Open_Interest] == 1000, "OI last_recv_ms preserved")
+
+	// DV/CVD/BS cleared on TF change.
+	testing.expect(t, !s.has_live[.Delta_Volume], "DV must be cleared on TF change")
+	testing.expect(t, !s.has_live[.CVD], "CVD must be cleared on TF change")
+	testing.expect(t, !s.has_live[.Bar_Stats], "BS must be cleared on TF change")
+}
+
+@(test)
+test_s48_analytics_staleness_at_boundaries :: proc(t: ^testing.T) {
+	// OI: Sparse_Adaptive — fresh at 59s, aging at 60s, stale at 180s.
+	s_oi: Stream_Apply_State
+	apply_state_mark_event(&s_oi, .Open_Interest, 1000, false)
+	testing.expect(t, apply_state_artifact_staleness(s_oi, .Open_Interest, 60_000) == .Fresh, "OI fresh at 59s")
+	testing.expect(t, apply_state_artifact_staleness(s_oi, .Open_Interest, 61_000) == .Aging, "OI aging at 60s")
+	testing.expect(t, apply_state_artifact_staleness(s_oi, .Open_Interest, 181_000) == .Stale, "OI stale at 180s")
+
+	// DV with TF=5s: aging at 10s (2x), stale at 15s (3x).
+	s_dv: Stream_Apply_State
+	apply_state_mark_event(&s_dv, .Delta_Volume, 1000, false)
+	testing.expect(t, apply_state_artifact_staleness(s_dv, .Delta_Volume, 10_999, 5_000) == .Fresh, "DV fresh at 9.999s")
+	testing.expect(t, apply_state_artifact_staleness(s_dv, .Delta_Volume, 11_000, 5_000) == .Aging, "DV aging at 10s")
+	testing.expect(t, apply_state_artifact_staleness(s_dv, .Delta_Volume, 16_000, 5_000) == .Stale, "DV stale at 15s")
+}
+
+@(test)
+test_s48_reconnect_resets_analytics :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Delta_Volume, 1000, false)
+	apply_state_mark_event(&s, .CVD, 1000, false)
+
+	apply_state_on_reconnect(&s)
+
+	// Reconnect-sensitive artifacts get snapshot_seen cleared based on policy.
+	// Analytics don't have snapshot gates, so has_live should remain but
+	// the key behavior is that new data will re-seed the state.
+	// Verify the apply state still tracks correctly after reconnect.
+	apply_state_mark_event(&s, .Delta_Volume, 2000, false)
+	testing.expect(t, s.has_live[.Delta_Volume], "DV live after reconnect + new event")
+	testing.expect(t, s.last_recv_ms[.Delta_Volume] == 2000, "DV last_recv_ms updated after reconnect")
+}

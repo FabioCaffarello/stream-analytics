@@ -478,6 +478,7 @@ init_world_cell_defaults :: proc(state: ^App_State, ci: int, widget: Widget_Kind
 	}
 	state.world.subplots[ci]   = Subplot_Component{sub_resize_idx = -1}
 	state.world.spans[ci]      = {}
+	state.world.analytics[ci]  = {}
 }
 
 apply_add_compare_stream :: proc(state: ^App_State) {

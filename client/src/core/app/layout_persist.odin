@@ -68,7 +68,7 @@ restore_layout_from_string :: proc(state: ^App_State, v: string) -> bool {
 	for c in rest {
 		if c == ',' do continue
 		d := int(c) - '0'
-		if d < 0 || d > 7 do return false
+		if d < 0 || d > 9 do return false
 		if ki >= n do break
 		kinds[ki] = Widget_Kind(d)
 		ki += 1
@@ -281,8 +281,8 @@ build_layout_v6_string :: proc(state: ^App_State, buf: []u8) -> int {
 		off = write_int_to_buf(buf, off, tf_val)
 		buf[off] = ':'; off += 1
 
-		// CD: chart display packed (V6).
-		cd := pack_chart_display(&state.world.charts[i])
+		// CD: chart display packed (V6 + S48 analytics_kind bits 17-18).
+		cd := pack_chart_display_with_analytics(&state.world.charts[i], &state.world.analytics[i])
 		off = write_int_to_buf(buf, off, cd)
 	}
 
@@ -403,7 +403,7 @@ restore_layout_v6_from_string :: proc(state: ^App_State, v: string) -> bool {
 
 		// K: widget kind digit.
 		k_digit := int(rest[pos]) - '0'
-		if k_digit < 0 || k_digit > 8 do break
+		if k_digit < 0 || k_digit > 9 do break
 		pos += 1
 		if pos >= len(rest) || rest[pos] != ':' do break
 		pos += 1
@@ -522,10 +522,10 @@ restore_layout_v6_from_string :: proc(state: ^App_State, v: string) -> bool {
 			state.world.timeframes[ci].tf_idx = tf_val > 0 ? tf_val - 1 : -1
 		}
 
-		// Decode chart display (V6).
+		// Decode chart display (V6 + S48 analytics_kind).
 		if len(cd_field) > 0 {
 			cd := parse_int_from(cd_field)
-			unpack_chart_display(&state.world.charts[ci], cd)
+			unpack_chart_display_with_analytics(&state.world.charts[ci], &state.world.analytics[ci], cd)
 		}
 
 		cell_count += 1
@@ -860,7 +860,7 @@ restore_layout_v3 :: proc(state: ^App_State) -> bool {
 
 		// K: widget kind.
 		k_digit := int(rest[pos]) - '0'
-		if k_digit < 0 || k_digit > 8 do break
+		if k_digit < 0 || k_digit > 9 do break
 		pos += 1
 		if pos >= len(rest) || rest[pos] != ':' do break
 		pos += 1
@@ -1036,7 +1036,7 @@ restore_layout_v4 :: proc(state: ^App_State) -> bool {
 
 		// K: widget kind.
 		k_digit := int(rest[pos]) - '0'
-		if k_digit < 0 || k_digit > 8 do break
+		if k_digit < 0 || k_digit > 9 do break
 		pos += 1
 		if pos >= len(rest) || rest[pos] != ':' do break
 		pos += 1
@@ -1204,7 +1204,7 @@ restore_layout_v2 :: proc(state: ^App_State) -> bool {
 
 		// Parse K (widget kind digit).
 		k_digit := int(rest[pos]) - '0'
-		if k_digit < 0 || k_digit > 8 do break
+		if k_digit < 0 || k_digit > 9 do break
 		pos += 1
 		if pos >= len(rest) || rest[pos] != ':' do break
 		pos += 1
@@ -1395,7 +1395,7 @@ restore_layout_v4_from_string :: proc(state: ^App_State, v: string) -> bool {
 		if pos >= len(rest) do break
 
 		k_digit := int(rest[pos]) - '0'
-		if k_digit < 0 || k_digit > 8 do break
+		if k_digit < 0 || k_digit > 9 do break
 		pos += 1
 		if pos >= len(rest) || rest[pos] != ':' do break
 		pos += 1
@@ -1601,5 +1601,6 @@ write_default_cell_to_world :: proc(state: ^App_State, ci: int, widget: Widget_K
 	state.world.subplots[ci]   = Subplot_Component{ sub_resize_idx = -1 }
 	state.world.spans[ci]      = {}
 	state.world.timeframes[ci] = Timeframe_Component{ tf_idx = -1 }
+	state.world.analytics[ci]  = {}
 	state.world.getranges[ci]  = {}
 }
