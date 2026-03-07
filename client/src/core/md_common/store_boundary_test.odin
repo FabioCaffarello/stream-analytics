@@ -3821,3 +3821,365 @@ test_s48_reconnect_resets_analytics :: proc(t: ^testing.T) {
 	testing.expect(t, s.has_live[.Delta_Volume], "DV live after reconnect + new event")
 	testing.expect(t, s.last_recv_ms[.Delta_Volume] == 2000, "DV last_recv_ms updated after reconnect")
 }
+
+// ============================================================================
+// S51: Replay Scrubber Tests
+// ============================================================================
+
+@(test)
+test_scrubber_push_and_get :: proc(t: ^testing.T) {
+	s: Replay_Scrubber
+	scrubber_push(&s, Scrubber_Entry{seq = 1, slot_idx = 0, artifact_kind = .Trade})
+	scrubber_push(&s, Scrubber_Entry{seq = 2, slot_idx = 0, artifact_kind = .Trade})
+	scrubber_push(&s, Scrubber_Entry{seq = 3, slot_idx = 0, artifact_kind = .Trade})
+	testing.expect_value(t, s.count, 3)
+
+	e, ok := scrubber_get(&s, 0) // newest
+	testing.expect(t, ok, "get offset 0")
+	testing.expect_value(t, e.seq, u64(3))
+
+	e, ok = scrubber_get(&s, 2) // oldest
+	testing.expect(t, ok, "get offset 2")
+	testing.expect_value(t, e.seq, u64(1))
+
+	_, ok = scrubber_get(&s, 3) // out of range
+	testing.expect(t, !ok, "offset 3 should fail")
+}
+
+@(test)
+test_scrubber_integrity_gap :: proc(t: ^testing.T) {
+	s: Replay_Scrubber
+	scrubber_push(&s, Scrubber_Entry{seq = 1, slot_idx = 0, artifact_kind = .Trade})
+	scrubber_push(&s, Scrubber_Entry{seq = 5, slot_idx = 0, artifact_kind = .Trade}) // gap
+	e, ok := scrubber_get(&s, 0)
+	testing.expect(t, ok, "get newest")
+	testing.expect_value(t, e.integrity, Stream_Integrity_Flag.Gap)
+}
+
+@(test)
+test_scrubber_integrity_duplicate :: proc(t: ^testing.T) {
+	s: Replay_Scrubber
+	scrubber_push(&s, Scrubber_Entry{seq = 1, slot_idx = 0, artifact_kind = .Trade})
+	scrubber_push(&s, Scrubber_Entry{seq = 1, slot_idx = 0, artifact_kind = .Trade}) // dup
+	e, ok := scrubber_get(&s, 0)
+	testing.expect(t, ok, "get newest")
+	testing.expect_value(t, e.integrity, Stream_Integrity_Flag.Duplicate)
+}
+
+@(test)
+test_scrubber_integrity_reorder :: proc(t: ^testing.T) {
+	s: Replay_Scrubber
+	scrubber_push(&s, Scrubber_Entry{seq = 5, slot_idx = 0, artifact_kind = .Trade})
+	scrubber_push(&s, Scrubber_Entry{seq = 3, slot_idx = 0, artifact_kind = .Trade}) // reorder
+	e, ok := scrubber_get(&s, 0)
+	testing.expect(t, ok, "get newest")
+	testing.expect_value(t, e.integrity, Stream_Integrity_Flag.Reorder)
+}
+
+@(test)
+test_scrubber_integrity_ok :: proc(t: ^testing.T) {
+	s: Replay_Scrubber
+	scrubber_push(&s, Scrubber_Entry{seq = 1, slot_idx = 0, artifact_kind = .Trade})
+	scrubber_push(&s, Scrubber_Entry{seq = 2, slot_idx = 0, artifact_kind = .Trade})
+	e, ok := scrubber_get(&s, 0)
+	testing.expect(t, ok, "get newest")
+	testing.expect_value(t, e.integrity, Stream_Integrity_Flag.Ok)
+}
+
+@(test)
+test_scrubber_multi_slot_isolation :: proc(t: ^testing.T) {
+	s: Replay_Scrubber
+	scrubber_push(&s, Scrubber_Entry{seq = 1, slot_idx = 0, artifact_kind = .Trade})
+	scrubber_push(&s, Scrubber_Entry{seq = 1, slot_idx = 1, artifact_kind = .Trade}) // different slot, not dup
+	e, ok := scrubber_get(&s, 0)
+	testing.expect(t, ok, "get newest")
+	testing.expect_value(t, e.integrity, Stream_Integrity_Flag.Ok)
+}
+
+@(test)
+test_scrubber_integrity_summary :: proc(t: ^testing.T) {
+	s: Replay_Scrubber
+	scrubber_push(&s, Scrubber_Entry{seq = 1, slot_idx = 0, artifact_kind = .Trade})
+	scrubber_push(&s, Scrubber_Entry{seq = 2, slot_idx = 0, artifact_kind = .Trade}) // ok
+	scrubber_push(&s, Scrubber_Entry{seq = 5, slot_idx = 0, artifact_kind = .Trade}) // gap
+	scrubber_push(&s, Scrubber_Entry{seq = 5, slot_idx = 0, artifact_kind = .Trade}) // dup
+	summary := scrubber_integrity_summary(&s)
+	testing.expect_value(t, summary.total, 4)
+	testing.expect_value(t, summary.ok, 2) // first + second
+	testing.expect_value(t, summary.gaps, 1)
+	testing.expect_value(t, summary.duplicates, 1)
+}
+
+@(test)
+test_scrubber_ring_wrap :: proc(t: ^testing.T) {
+	s: Replay_Scrubber
+	for i in 0 ..< SCRUBBER_RING_CAP + 10 {
+		scrubber_push(&s, Scrubber_Entry{seq = u64(i + 1), slot_idx = 0, artifact_kind = .Trade})
+	}
+	testing.expect_value(t, s.count, SCRUBBER_RING_CAP)
+	e, ok := scrubber_get(&s, 0)
+	testing.expect(t, ok, "get newest after wrap")
+	testing.expect_value(t, e.seq, u64(SCRUBBER_RING_CAP + 10))
+}
+
+@(test)
+test_scrubber_pause_discards :: proc(t: ^testing.T) {
+	s: Replay_Scrubber
+	scrubber_push(&s, Scrubber_Entry{seq = 1, slot_idx = 0, artifact_kind = .Trade})
+	scrubber_pause(&s, true)
+	scrubber_push(&s, Scrubber_Entry{seq = 2, slot_idx = 0, artifact_kind = .Trade})
+	testing.expect_value(t, s.count, 1) // paused, not pushed
+	scrubber_pause(&s, false)
+	scrubber_push(&s, Scrubber_Entry{seq = 3, slot_idx = 0, artifact_kind = .Trade})
+	testing.expect_value(t, s.count, 2)
+}
+
+@(test)
+test_scrubber_seek :: proc(t: ^testing.T) {
+	s: Replay_Scrubber
+	scrubber_push(&s, Scrubber_Entry{seq = 1, slot_idx = 0, artifact_kind = .Trade})
+	scrubber_push(&s, Scrubber_Entry{seq = 2, slot_idx = 0, artifact_kind = .Trade})
+	scrubber_push(&s, Scrubber_Entry{seq = 3, slot_idx = 0, artifact_kind = .Trade})
+	scrubber_seek(&s, 1)
+	testing.expect_value(t, s.cursor, 1)
+	scrubber_seek(&s, -1)
+	testing.expect_value(t, s.cursor, -1)
+	scrubber_seek(&s, 100)
+	testing.expect_value(t, s.cursor, 2) // clamped to count-1
+}
+
+@(test)
+test_scrubber_reset :: proc(t: ^testing.T) {
+	s: Replay_Scrubber
+	scrubber_push(&s, Scrubber_Entry{seq = 1, slot_idx = 0, artifact_kind = .Trade})
+	scrubber_reset(&s)
+	testing.expect_value(t, s.count, 0)
+	testing.expect_value(t, s.head, 0)
+}
+
+@(test)
+test_scrubber_nil_safe :: proc(t: ^testing.T) {
+	scrubber_push(nil, Scrubber_Entry{})
+	_, ok := scrubber_get(nil, 0)
+	testing.expect(t, !ok, "nil get should fail")
+	summary := scrubber_integrity_summary(nil)
+	testing.expect_value(t, summary.total, 0)
+	scrubber_seek(nil, 0)
+	scrubber_pause(nil, true)
+	scrubber_reset(nil)
+}
+
+// ============================================================================
+// S51: Scene Snapshot Tests
+// ============================================================================
+
+@(test)
+test_scene_snapshot_copy_scrubber_tail :: proc(t: ^testing.T) {
+	scrubber: Replay_Scrubber
+	for i in 0 ..< 100 {
+		scrubber_push(&scrubber, Scrubber_Entry{seq = u64(i + 1), slot_idx = 0, artifact_kind = .Trade})
+	}
+	snap: Scene_Snapshot
+	scene_snapshot_copy_scrubber_tail(&snap, &scrubber)
+	testing.expect_value(t, snap.scrubber_tail_count, SCENE_SCRUBBER_TAIL_CAP)
+	// Newest should be seq=100
+	testing.expect_value(t, snap.scrubber_tail[0].seq, u64(100))
+}
+
+@(test)
+test_scene_snapshot_set_build_tag :: proc(t: ^testing.T) {
+	snap: Scene_Snapshot
+	scene_snapshot_set_build_tag(&snap, "v1.2.3-abc123")
+	testing.expect_value(t, int(snap.build_tag_len), 13)
+	tag := string(snap.build_tag[:snap.build_tag_len])
+	testing.expect(t, tag == "v1.2.3-abc123", "build tag mismatch")
+}
+
+@(test)
+test_scene_snapshot_set_build_tag_truncate :: proc(t: ^testing.T) {
+	snap: Scene_Snapshot
+	long_tag := "this-is-a-very-long-build-tag-that-exceeds-32-characters-and-should-be-truncated"
+	scene_snapshot_set_build_tag(&snap, long_tag)
+	testing.expect_value(t, int(snap.build_tag_len), 32)
+}
+
+@(test)
+test_scene_snapshot_serialize :: proc(t: ^testing.T) {
+	snap: Scene_Snapshot
+	snap.scene_version = SCENE_SNAPSHOT_VERSION
+	snap.schema_version = 7
+	snap.workspace_fingerprint = 12345
+	snap.runtime.version = RUNTIME_SNAPSHOT_VERSION
+	snap.runtime.capture_ts_ms = 1000
+	snap.runtime.slot_count = 1
+	snap.runtime.slots[0].used = true
+	snap.runtime.slots[0].subject_id = 42
+	snap.store_digests[0].candle_count = 100
+	snap.store_digests[0].candle_newest_ts = 999
+
+	buf: [32768]u8
+	n := scene_snapshot_serialize(&snap, buf[:])
+	testing.expect(t, n > 0, "serialize should write bytes")
+	// Should contain SC| header and SD| store digest
+	has_sc := false
+	has_sd := false
+	// Check for SC and SD prefixes in raw bytes
+	for i in 0 ..< n - 2 {
+		if buf[i] == 'S' && buf[i+1] == 'C' && buf[i+2] == '|' do has_sc = true
+		if buf[i] == 'S' && buf[i+1] == 'D' && buf[i+2] == '|' do has_sd = true
+	}
+	testing.expect(t, has_sc, "output should contain SC| header")
+	testing.expect(t, has_sd, "output should contain SD| store digest")
+}
+
+@(test)
+test_scene_snapshot_nil_safe :: proc(t: ^testing.T) {
+	scene_snapshot_copy_scrubber_tail(nil, nil)
+	scene_snapshot_set_build_tag(nil, "test")
+	buf: [256]u8
+	n := scene_snapshot_serialize(nil, buf[:])
+	testing.expect_value(t, n, 0)
+}
+
+// ============================================================================
+// S51: Workspace Governance Tests
+// ============================================================================
+
+@(test)
+test_workspace_compat_compatible :: proc(t: ^testing.T) {
+	result := workspace_compat_check(WORKSPACE_MAX_COMPAT_VERSION)
+	testing.expect_value(t, result, Workspace_Compat_Result.Compatible)
+}
+
+@(test)
+test_workspace_compat_upgrade :: proc(t: ^testing.T) {
+	result := workspace_compat_check(5)
+	testing.expect_value(t, result, Workspace_Compat_Result.Upgrade_Available)
+}
+
+@(test)
+test_workspace_compat_downgrade :: proc(t: ^testing.T) {
+	result := workspace_compat_check(WORKSPACE_MAX_COMPAT_VERSION + 1)
+	testing.expect_value(t, result, Workspace_Compat_Result.Downgrade_Warning)
+}
+
+@(test)
+test_workspace_compat_incompatible :: proc(t: ^testing.T) {
+	result := workspace_compat_check(WORKSPACE_MIN_COMPAT_VERSION - 1)
+	testing.expect_value(t, result, Workspace_Compat_Result.Incompatible)
+}
+
+@(test)
+test_workspace_compat_min_boundary :: proc(t: ^testing.T) {
+	result := workspace_compat_check(WORKSPACE_MIN_COMPAT_VERSION)
+	testing.expect(t, workspace_compat_is_loadable(result), "min version should be loadable")
+}
+
+@(test)
+test_workspace_fingerprint_deterministic :: proc(t: ^testing.T) {
+	data := []u8{1, 2, 3, 4, 5}
+	fp1 := workspace_fingerprint(data)
+	fp2 := workspace_fingerprint(data)
+	testing.expect_value(t, fp1, fp2)
+}
+
+@(test)
+test_workspace_fingerprint_varies :: proc(t: ^testing.T) {
+	fp1 := workspace_fingerprint([]u8{1, 2, 3})
+	fp2 := workspace_fingerprint([]u8{1, 2, 4})
+	testing.expect(t, fp1 != fp2, "different data should produce different fingerprints")
+}
+
+@(test)
+test_workspace_fingerprint_empty :: proc(t: ^testing.T) {
+	fp := workspace_fingerprint([]u8{})
+	testing.expect(t, fp != 0, "empty input should produce non-zero FNV offset basis")
+}
+
+@(test)
+test_workspace_profile_version_guard :: proc(t: ^testing.T) {
+	compat, fp_match := workspace_profile_version_guard(WORKSPACE_MAX_COMPAT_VERSION, 12345, 12345)
+	testing.expect_value(t, compat, Workspace_Compat_Result.Compatible)
+	testing.expect(t, fp_match, "same fingerprint should match")
+}
+
+@(test)
+test_workspace_profile_version_guard_fp_mismatch :: proc(t: ^testing.T) {
+	compat, fp_match := workspace_profile_version_guard(WORKSPACE_MAX_COMPAT_VERSION, 12345, 99999)
+	testing.expect_value(t, compat, Workspace_Compat_Result.Compatible)
+	testing.expect(t, !fp_match, "different fingerprint should not match")
+}
+
+@(test)
+test_workspace_compat_is_loadable :: proc(t: ^testing.T) {
+	testing.expect(t, workspace_compat_is_loadable(.Compatible), "Compatible is loadable")
+	testing.expect(t, workspace_compat_is_loadable(.Upgrade_Available), "Upgrade is loadable")
+	testing.expect(t, workspace_compat_is_loadable(.Downgrade_Warning), "Downgrade is loadable")
+	testing.expect(t, !workspace_compat_is_loadable(.Incompatible), "Incompatible not loadable")
+}
+
+// ============================================================================
+// S51: Diagnostics View Tests
+// ============================================================================
+
+@(test)
+test_diagnostics_stream_latency :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	s.last_recv_ms[.Trade] = 1000
+	s.last_recv_ms[.Orderbook] = 500
+	lat := diagnostics_stream_latency(s, 2000)
+	testing.expect_value(t, lat.recv_age_ms[.Trade], i64(1000))
+	testing.expect_value(t, lat.recv_age_ms[.Orderbook], i64(1500))
+	testing.expect_value(t, lat.worst_age_ms, i64(1500))
+	testing.expect_value(t, lat.worst_artifact, Artifact_Kind.Orderbook)
+}
+
+@(test)
+test_diagnostics_stream_latency_no_data :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	lat := diagnostics_stream_latency(s, 2000)
+	testing.expect_value(t, lat.worst_age_ms, i64(-1))
+}
+
+@(test)
+test_diagnostics_store_health_empty :: proc(t: ^testing.T) {
+	h := diagnostics_store_health(0, 0, 1000, 60_000)
+	testing.expect_value(t, h.integrity, Store_Integrity_Flag.Empty)
+}
+
+@(test)
+test_diagnostics_store_health_ok :: proc(t: ^testing.T) {
+	h := diagnostics_store_health(100, 900, 1000, 60_000)
+	testing.expect_value(t, h.integrity, Store_Integrity_Flag.Ok)
+	testing.expect_value(t, h.newest_age_ms, i64(100))
+}
+
+@(test)
+test_diagnostics_store_health_stale :: proc(t: ^testing.T) {
+	// newest_ts = 0, now = 200_000, tf = 60_000 → age = 200_000 > 180_000 (3x TF)
+	h := diagnostics_store_health(50, 1000, 200_000, 60_000)
+	testing.expect_value(t, h.integrity, Store_Integrity_Flag.Stale)
+}
+
+@(test)
+test_diagnostics_cell_health :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Candle, 1000, false)
+	apply_state_mark_event(&s, .Orderbook, 1000, false)
+	diag := diagnostics_cell_health(0, s, 2000, 60_000)
+	testing.expect_value(t, diag.composition, Composition_Stage.Live_Only)
+	testing.expect_value(t, diag.health_level, System_Health_Level.Healthy)
+	testing.expect(t, diag.event_count > 0, "event count should be positive")
+}
+
+@(test)
+test_diagnostics_count_stale_aging :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	// Mark an orderbook event, then check at a time far in the future
+	apply_state_mark_event(&s, .Orderbook, 1000, false)
+	// Dual_Silence: aging > 8s, stale > 12s
+	_, aging := diagnostics_count_stale_aging(s, 10_000, 60_000)
+	testing.expect(t, aging > 0, "should have aging artifacts at 9s age")
+	stale, _ := diagnostics_count_stale_aging(s, 14_000, 60_000)
+	testing.expect(t, stale > 0, "should have stale artifacts at 13s age")
+}

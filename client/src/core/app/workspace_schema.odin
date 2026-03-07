@@ -2,10 +2,10 @@ package app
 
 import "mr:services"
 
-// S45/S48: Workspace State Schema — canonical contract for persisted vs derived state.
+// S45/S48/S51: Workspace State Schema — canonical contract for persisted vs derived state.
 //
 // WORKSPACE_SCHEMA_VERSION is bumped on every persistence format change.
-// Current format: V6 (extends V5 with per-cell chart display state + S48 analytics kind).
+// Current format: V7 (extends V6 with workspace governance fingerprint).
 //
 // --- Persisted Per-Cell Fields (V6 layout string) ---
 //   widget_kind       Widget_Kind enum (0-9, where 9=Analytics)
@@ -35,7 +35,7 @@ import "mr:services"
 //   Overlay_State               UI modals (transient)
 //   Telemetry/Connection/Error  runtime-only
 
-WORKSPACE_SCHEMA_VERSION :: 6
+WORKSPACE_SCHEMA_VERSION :: 7
 
 // Pack per-cell chart display into a single integer for V6 persistence.
 // Layout: bit0=show_vol, bit1=show_heatmap, bit2=show_vpvr,
