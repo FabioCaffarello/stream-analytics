@@ -97,6 +97,8 @@ UI_Action_Kind :: enum u8 {
 	Close_Cell_Stream_Picker,
 	Toggle_Zen_Mode,
 	Set_Cell_Timeframe,
+	Set_Compare_Pane_Timeframe, // S39: TF change directed at a compare pane
+	Focus_Compare_Pane,         // S39: set focused pane in compare mode
 	Resync_Active_Stream,
 	Select_Profile,
 	Add_Profile,
@@ -104,6 +106,7 @@ UI_Action_Kind :: enum u8 {
 	Apply_Profile,
 	Connect_Profile,
 	Disconnect_Profile,
+	Capture_Runtime_Snapshot, // S46: deterministic snapshot to clipboard
 }
 
 UI_Action :: struct {
@@ -118,6 +121,7 @@ UI_Action :: struct {
 	stream_idx:     int,
 	subject_id:     u64,        // for Pick_Stream
 	market_entry_idx: int,      // for Subscribe_Market
+	pane_idx:       int,        // S39: for Set_Compare_Pane_Timeframe / Focus_Compare_Pane
 	// Intent binding transport (PRD-0009): venue/symbol for Set_Cell_Stream / Add_Cell.
 	bind_venue:     string,
 	bind_symbol:    string,
@@ -388,7 +392,6 @@ App_State :: struct {
 	has_last_render: bool,
 	has_pending_active_subject: bool,
 	pending_active_subject_id:  u64,
-	candle_last_recv_local_ms: i64,
 	candle_health:             Candle_Health,
 
 	active_tf_idx:    int,      // index into TF_OPTIONS
@@ -706,13 +709,15 @@ init :: proc(
 				state.chrome.panel_visible = vis
 				ui.sync_sidebar_visibility(&state.chrome.sidebar, state.chrome.panel_visible)
 			}
-			// Restore cell layout (V5 -> V4 -> V3 -> V2 -> V1 chain).
+			// Restore cell layout (V6 -> V5 -> V4 -> V3 -> V2 -> V1 chain).
 			layout_from_panels(state) // rebuild from panel_visible
-			if !restore_layout_v5(state) {
-				if !restore_layout_v4(state) {
-					if !restore_layout_v3(state) {
-						if !restore_layout_v2(state) {
-							restore_layout(state) // V1 fallback
+			if !restore_layout_v6(state) {
+				if !restore_layout_v5(state) {
+					if !restore_layout_v4(state) {
+						if !restore_layout_v3(state) {
+							if !restore_layout_v2(state) {
+								restore_layout(state) // V1 fallback
+							}
 						}
 					}
 				}

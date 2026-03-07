@@ -23,6 +23,7 @@ queue_ui_actions_from_input :: proc(state: ^App_State, input: ports.Input_State)
 		.G in pressed,
 		.R in pressed,
 		.H in pressed,
+		.D in pressed,
 	) {
 	case .Open_Connection_Manager:
 		queue_ui_action(state, UI_Action{kind = .Toggle_Connection_Modal})
@@ -32,6 +33,8 @@ queue_ui_actions_from_input :: proc(state: ^App_State, input: ports.Input_State)
 		queue_ui_action(state, UI_Action{kind = .Resync_Active_Stream})
 	case .Toggle_Telemetry_HUD:
 		queue_ui_action(state, UI_Action{kind = .Toggle_Telemetry_HUD})
+	case .Capture_Runtime_Snapshot:
+		queue_ui_action(state, UI_Action{kind = .Capture_Runtime_Snapshot})
 	case .None:
 	}
 
@@ -66,19 +69,33 @@ queue_ui_actions_from_input :: proc(state: ^App_State, input: ports.Input_State)
 			queue_ui_action(state, UI_Action{kind = .Cycle_Stream_Next})
 		}
 	}
-	// Number keys: Shift+N = set focused cell TF, plain N = set global TF.
+	// Number keys: Shift+N = set focused cell/pane TF, plain N = set global TF.
 	if input.modifiers.shift {
-		fci := state.world.focused
-		if fci >= 0 && fci < state.world.count && state.world.widgets[fci].kind == .Candle {
-			if .Num_1 in pressed { queue_ui_action(state, UI_Action{kind = .Set_Cell_Timeframe, cell_idx = fci, timeframe_idx = 0}) }
-			if .Num_2 in pressed { queue_ui_action(state, UI_Action{kind = .Set_Cell_Timeframe, cell_idx = fci, timeframe_idx = 1}) }
-			if .Num_3 in pressed { queue_ui_action(state, UI_Action{kind = .Set_Cell_Timeframe, cell_idx = fci, timeframe_idx = 2}) }
-			if .Num_4 in pressed { queue_ui_action(state, UI_Action{kind = .Set_Cell_Timeframe, cell_idx = fci, timeframe_idx = 3}) }
-			if .Num_5 in pressed { queue_ui_action(state, UI_Action{kind = .Set_Cell_Timeframe, cell_idx = fci, timeframe_idx = 4}) }
-			if .Num_6 in pressed { queue_ui_action(state, UI_Action{kind = .Set_Cell_Timeframe, cell_idx = fci, timeframe_idx = 5}) }
-			if .Num_7 in pressed { queue_ui_action(state, UI_Action{kind = .Set_Cell_Timeframe, cell_idx = fci, timeframe_idx = 6}) }
-			if .Num_8 in pressed { queue_ui_action(state, UI_Action{kind = .Set_Cell_Timeframe, cell_idx = fci, timeframe_idx = 7}) }
-			if .Num_9 in pressed { queue_ui_action(state, UI_Action{kind = .Set_Cell_Timeframe, cell_idx = fci, timeframe_idx = 8}) }
+		// S39: In compare mode, Shift+N targets the focused pane.
+		if state.compare.active && state.compare.focused_pane >= 0 && state.compare.focused_pane < state.compare.count {
+			fpi := state.compare.focused_pane
+			if .Num_1 in pressed { queue_ui_action(state, UI_Action{kind = .Set_Compare_Pane_Timeframe, pane_idx = fpi, timeframe_idx = 0}) }
+			if .Num_2 in pressed { queue_ui_action(state, UI_Action{kind = .Set_Compare_Pane_Timeframe, pane_idx = fpi, timeframe_idx = 1}) }
+			if .Num_3 in pressed { queue_ui_action(state, UI_Action{kind = .Set_Compare_Pane_Timeframe, pane_idx = fpi, timeframe_idx = 2}) }
+			if .Num_4 in pressed { queue_ui_action(state, UI_Action{kind = .Set_Compare_Pane_Timeframe, pane_idx = fpi, timeframe_idx = 3}) }
+			if .Num_5 in pressed { queue_ui_action(state, UI_Action{kind = .Set_Compare_Pane_Timeframe, pane_idx = fpi, timeframe_idx = 4}) }
+			if .Num_6 in pressed { queue_ui_action(state, UI_Action{kind = .Set_Compare_Pane_Timeframe, pane_idx = fpi, timeframe_idx = 5}) }
+			if .Num_7 in pressed { queue_ui_action(state, UI_Action{kind = .Set_Compare_Pane_Timeframe, pane_idx = fpi, timeframe_idx = 6}) }
+			if .Num_8 in pressed { queue_ui_action(state, UI_Action{kind = .Set_Compare_Pane_Timeframe, pane_idx = fpi, timeframe_idx = 7}) }
+			if .Num_9 in pressed { queue_ui_action(state, UI_Action{kind = .Set_Compare_Pane_Timeframe, pane_idx = fpi, timeframe_idx = 8}) }
+		} else {
+			fci := state.world.focused
+			if fci >= 0 && fci < state.world.count && state.world.widgets[fci].kind == .Candle {
+				if .Num_1 in pressed { queue_ui_action(state, UI_Action{kind = .Set_Cell_Timeframe, cell_idx = fci, timeframe_idx = 0}) }
+				if .Num_2 in pressed { queue_ui_action(state, UI_Action{kind = .Set_Cell_Timeframe, cell_idx = fci, timeframe_idx = 1}) }
+				if .Num_3 in pressed { queue_ui_action(state, UI_Action{kind = .Set_Cell_Timeframe, cell_idx = fci, timeframe_idx = 2}) }
+				if .Num_4 in pressed { queue_ui_action(state, UI_Action{kind = .Set_Cell_Timeframe, cell_idx = fci, timeframe_idx = 3}) }
+				if .Num_5 in pressed { queue_ui_action(state, UI_Action{kind = .Set_Cell_Timeframe, cell_idx = fci, timeframe_idx = 4}) }
+				if .Num_6 in pressed { queue_ui_action(state, UI_Action{kind = .Set_Cell_Timeframe, cell_idx = fci, timeframe_idx = 5}) }
+				if .Num_7 in pressed { queue_ui_action(state, UI_Action{kind = .Set_Cell_Timeframe, cell_idx = fci, timeframe_idx = 6}) }
+				if .Num_8 in pressed { queue_ui_action(state, UI_Action{kind = .Set_Cell_Timeframe, cell_idx = fci, timeframe_idx = 7}) }
+				if .Num_9 in pressed { queue_ui_action(state, UI_Action{kind = .Set_Cell_Timeframe, cell_idx = fci, timeframe_idx = 8}) }
+			}
 		}
 	} else {
 		if .Num_1 in pressed { queue_ui_action(state, UI_Action{kind = .Set_Timeframe, timeframe_idx = 0}) } // 1s
@@ -236,7 +253,7 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 				state.world.getranges[ci].oldest_ts = 0
 				state.world.spans[ci] = {} // BUG-18: Clear spans on layout preset change.
 			}
-			persist_layout_v4(state)
+			persist_layout_v6(state)
 		case .Toggle_Connection_Modal:
 			state.overlays.show_exchange_manager = !state.overlays.show_exchange_manager
 		case .Select_Profile:
@@ -314,8 +331,26 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 					show_toast(state, tf_opts[cell_tf])
 				}
 			}
+		case .Set_Compare_Pane_Timeframe:
+			if apply_set_compare_pane_timeframe(state, action.pane_idx, action.timeframe_idx) {
+				tf_switched = true
+				state.timeframe_switches_total += 1
+				tf_opts := TF_OPTIONS
+				pane_tf := action.timeframe_idx
+				if pane_tf >= 0 && pane_tf < len(tf_opts) {
+					show_toast(state, tf_opts[pane_tf])
+				}
+			}
+		case .Focus_Compare_Pane:
+			if state.compare.active && action.pane_idx >= 0 && action.pane_idx < state.compare.count {
+				state.compare.focused_pane = action.pane_idx
+			}
 		case .Resync_Active_Stream:
 			apply_resync_active_stream_action(state)
+		case .Capture_Runtime_Snapshot:
+			if capture_runtime_snapshot_to_clipboard(state) {
+				show_toast(state, "Snapshot copied")
+			}
 		}
 	}
 	state.ui_action_count = 0
@@ -330,8 +365,11 @@ apply_enter_compare :: proc(state: ^App_State) {
 	state.compare.active = true
 	state.compare.count = 1
 	state.compare.widget_idx = 2 // Default to Candles (most reliable data via GetRange)
+	state.compare.focused_pane = 0 // S39: focus first pane by default
 	state.compare.slots[0] = reg.active_subject_id
 	for i in 0 ..< len(state.compare.show_vol) {
+		state.compare.tf_idx[i] = -1 // S38: follow global TF by default
+		state.compare.getranges[i] = {} // S39: reset per-pane getrange
 		state.compare.show_vol[i] = state.chart_display.show_vol
 		state.compare.show_heatmap[i] = state.chart_display.show_heatmap
 		state.compare.show_vpvr[i] = state.chart_display.show_vpvr
@@ -351,6 +389,11 @@ apply_enter_compare :: proc(state: ^App_State) {
 		state.compare.slots[1] = reg.slots[i].subject_id
 		state.compare.count = 2
 		break
+	}
+
+	// S41: Trigger initial backfill for all compare panes.
+	for cpi in 0 ..< state.compare.count {
+		request_compare_pane_candle_range(state, cpi)
 	}
 }
 
@@ -458,6 +501,8 @@ apply_add_compare_stream :: proc(state: ^App_State) {
 		si := state.compare.count
 		state.compare.slots[si] = sid
 		// Reset view state for the new slot so stale scroll/zoom doesn't carry over.
+		state.compare.tf_idx[si] = -1 // S38: follow global TF by default
+		state.compare.getranges[si] = {} // S39: reset per-pane getrange
 		state.compare.ob_scroll[si] = 0
 		state.compare.ob_grp[si] = 1
 		state.compare.trade_scroll[si] = 0
@@ -469,6 +514,8 @@ apply_add_compare_stream :: proc(state: ^App_State) {
 		state.compare.show_vpvr[si] = state.chart_display.show_vpvr
 		state.compare.heatmap_idx[si] = state.chart_display.heatmap_intensity_idx
 		state.compare.count += 1
+		// S41: Trigger initial backfill for the newly added pane.
+		request_compare_pane_candle_range(state, si)
 		return
 	}
 }

@@ -290,7 +290,8 @@ active_stream_waiting_primary_data :: proc(state: ^App_State) -> bool {
 	if state == nil do return false
 	if current_conn_status(state) != .Connected do return false
 	if state.active_metrics.state == .Offline do return false
-	return state.active_metrics.last_stats_ts_ms <= 0 && state.active_metrics.last_orderbook_ts_ms <= 0
+	// S36: Read from canonical apply_state (was active_metrics — a derived copy).
+	return state.active_apply_state.last_recv_ms[.Stats] <= 0 && state.active_apply_state.last_recv_ms[.Orderbook] <= 0
 }
 
 @(private = "package")
@@ -306,7 +307,8 @@ active_stream_reason_short :: proc(state: ^App_State) -> string {
 		snapshot_ts_ms = active.status.last_snapshot_ts_ms
 	}
 	if snapshot_ts_ms <= 0 do return "snapshot pending"
-	if state.active_metrics.last_stats_ts_ms <= 0 do return "stats pending"
+	// S36: Read from canonical apply_state.
+	if state.active_apply_state.last_recv_ms[.Stats] <= 0 do return "stats pending"
 	if state.active_metrics.state == .Lag do return "lagging"
 	return ""
 }
@@ -592,7 +594,8 @@ build_health_panel :: proc(state: ^App_State, viewport_w, viewport_h: f32, point
 	ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, "APPLY STATE", ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_XS, .Bold)
 	y += ROW_H + 2
 	{
-		telem := md_common.apply_state_telemetry(state.active_apply_state, now_ms)
+		as_now := current_now_ms(state)
+		telem := md_common.apply_state_telemetry(state.active_apply_state, as_now, tf_ms_for_staleness(state))
 		// Row 1: Composition stage + total events + active artifacts
 		comp_label := "EMPTY"
 		comp_color := ui.COL_TEXT_MUTED
@@ -658,7 +661,29 @@ build_health_panel :: proc(state: ^App_State, viewport_w, viewport_h: f32, point
 		ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, as_age_str, age_color, ui.FONT_SIZE_XS, .Mono)
 		y += ROW_H
 
-		// S29/S30 Row 5: Recovery status with adaptive cooldown
+		// S35 Row 5: Per-stream health level
+		{
+			hl_label := "HEALTHY"
+			hl_color := ui.COL_GREEN
+			switch telem.stream_health {
+			case .Degraded:
+				hl_label = "DEGRADED"
+				hl_color = ui.COL_WARNING
+			case .Unhealthy:
+				hl_label = "UNHEALTHY"
+				hl_color = ui.COL_RED
+			case .Critical:
+				hl_label = "CRITICAL"
+				hl_color = ui.COL_RED
+			case .Healthy:
+			}
+			hl_buf: [48]u8
+			hl_str := fmt.bprintf(hl_buf[:], "stream health: %s", hl_label)
+			ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, hl_str, hl_color, ui.FONT_SIZE_XS, .Mono)
+			y += ROW_H
+		}
+
+		// S29/S30 Row 6: Recovery status with adaptive cooldown
 		rec_status := telem.recovery_status
 		if rec_status != .None || telem.recovery_attempts > 0 {
 			rec_label := "none"
@@ -746,7 +771,8 @@ build_health_panel :: proc(state: ^App_State, viewport_w, viewport_h: f32, point
 				case .Attempt:
 				}
 				rev_buf: [64]u8
-				rev_age := now_ms > 0 && rev.timestamp > 0 ? (now_ms - rev.timestamp) / 1000 : i64(0)
+				agg_now := current_now_ms(state)
+				rev_age := agg_now > 0 && rev.timestamp > 0 ? (agg_now - rev.timestamp) / 1000 : i64(0)
 				rev_str := fmt.bprintf(rev_buf[:], "  [%s] slot:%d att:%d %ds ago", rev_kind, rev.slot_id, rev.attempts, rev_age)
 				ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, rev_str, rev_color, ui.FONT_SIZE_XS, .Mono)
 				y += ROW_H
@@ -972,6 +998,17 @@ build_health_panel :: proc(state: ^App_State, viewport_w, viewport_h: f32, point
 			copy_diagnostics_to_clipboard(state)
 		}
 	}
+
+	// S46: Copy Snapshot button — deterministic runtime snapshot for reproduction.
+	snap_btn_rect := ui.rect_xywh(lx + btn_w + 8, y, btn_w, btn_h)
+	if snap_btn_rect.pos.y + btn_h < py + ph {
+		snap_btn := ui.button(&state.cmd_buf, snap_btn_rect, "Copy Snapshot", pointer, state.text.measure, ui.FONT_SIZE_XS, .Mono)
+		if snap_btn.clicked {
+			if capture_runtime_snapshot_to_clipboard(state) {
+				show_toast(state, "Snapshot copied")
+			}
+		}
+	}
 }
 
 // Build diagnostics string and copy to clipboard.
@@ -1058,7 +1095,8 @@ copy_diagnostics_to_clipboard :: proc(state: ^App_State) {
 	// S27: Apply State diagnostics
 	append_str(buf[:], &n, "\nAPPLY STATE:\n")
 	{
-		telem := md_common.apply_state_telemetry(state.active_apply_state, diag_now)
+		diag_now := current_now_ms(state)
+		telem := md_common.apply_state_telemetry(state.active_apply_state, diag_now, tf_ms_for_staleness(state))
 		comp_label := "Empty"
 		switch telem.composition_stage {
 		case .Range_Pending: comp_label = "Pending"
@@ -1087,7 +1125,6 @@ copy_diagnostics_to_clipboard :: proc(state: ^App_State) {
 			telem.using_synthetic[.Heatmap], telem.using_synthetic[.VPVR]))
 		append_line(buf[:], &n, as3[:], as3_len)
 		// S28: Per-artifact age + staleness
-		diag_now := current_now_ms(state)
 		diag_tf := tf_ms_for_staleness(state)
 		age_bufs: [4][16]u8
 		as4: [128]u8
@@ -1105,6 +1142,19 @@ copy_diagnostics_to_clipboard :: proc(state: ^App_State) {
 			as5: [64]u8
 			as5_len := len(fmt.bprintf(as5[:], "  staleness: stale=%d aging=%d", stale_c, aging_c))
 			append_line(buf[:], &n, as5[:], as5_len)
+		}
+		// S35: Per-stream health level in diagnostics
+		{
+			hl_label := "Healthy"
+			switch telem.stream_health {
+			case .Degraded:  hl_label = "Degraded"
+			case .Unhealthy: hl_label = "Unhealthy"
+			case .Critical:  hl_label = "Critical"
+			case .Healthy:
+			}
+			hl_buf: [48]u8
+			hl_len := len(fmt.bprintf(hl_buf[:], "  stream_health: %s", hl_label))
+			append_line(buf[:], &n, hl_buf[:], hl_len)
 		}
 		// S29/S30: Recovery status with adaptive cooldown in diagnostics
 		if telem.recovery_attempts > 0 {

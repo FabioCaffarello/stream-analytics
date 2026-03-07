@@ -713,3 +713,220 @@ test_protocol_and_apply_state_coordinated :: proc(t: ^testing.T) {
 	testing.expect(t, s.has_live[.Trade], "trade survives TF change")
 	testing.expect(t, apply_state_should_use_synthetic(s, .Candle), "back to synthetic candle")
 }
+
+// =========================================================================
+// S33: Runtime Ownership Cutover — Candle recv timing convergence tests.
+// =========================================================================
+
+@(test)
+test_apply_state_candle_recv_ms_zero :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	testing.expect_value(t, apply_state_candle_recv_ms(s), i64(0))
+}
+
+@(test)
+test_apply_state_candle_recv_ms_live_only :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Candle, 5000, false)
+	testing.expect_value(t, apply_state_candle_recv_ms(s), i64(5000))
+}
+
+@(test)
+test_apply_state_candle_recv_ms_range_only :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Range_Candle, 3000, false)
+	testing.expect_value(t, apply_state_candle_recv_ms(s), i64(3000))
+}
+
+@(test)
+test_apply_state_candle_recv_ms_live_wins :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Range_Candle, 3000, false)
+	apply_state_mark_event(&s, .Candle, 5000, false)
+	testing.expect_value(t, apply_state_candle_recv_ms(s), i64(5000))
+}
+
+@(test)
+test_apply_state_candle_recv_ms_range_wins :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	// Range data arrived more recently (e.g., lazy loading after live already flowing).
+	apply_state_mark_event(&s, .Candle, 3000, false)
+	apply_state_mark_event(&s, .Range_Candle, 5000, false)
+	testing.expect_value(t, apply_state_candle_recv_ms(s), i64(5000))
+}
+
+@(test)
+test_apply_state_candle_recv_ms_tf_change_clears_both :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Candle, 5000, false)
+	apply_state_mark_event(&s, .Range_Candle, 3000, false)
+	// Both Candle and Range_Candle are TF-sensitive (reset_on_tf_change = true).
+	apply_state_on_tf_change(&s)
+	// After TF change, both timestamps are cleared.
+	testing.expect_value(t, apply_state_candle_recv_ms(s), i64(0))
+}
+
+@(test)
+test_apply_state_candle_recv_ms_reset_zeros :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Candle, 5000, false)
+	apply_state_mark_event(&s, .Range_Candle, 3000, false)
+	apply_state_reset(&s)
+	testing.expect_value(t, apply_state_candle_recv_ms(s), i64(0))
+}
+
+// =========================================================================
+// S34: getrange_request_id lifecycle tests
+// =========================================================================
+
+@(test)
+test_getrange_request_id_set_by_mark_range_sent :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_range_sent(&s, 10, 0xABCD)
+	testing.expect_value(t, s.getrange_request_id, u64(0xABCD))
+	testing.expect(t, s.getrange_pending, "should be pending after mark_range_sent")
+}
+
+@(test)
+test_getrange_request_id_cleared_by_mark_range_complete :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_range_sent(&s, 10, 0xABCD)
+	apply_state_mark_range_complete(&s, 1000)
+	testing.expect_value(t, s.getrange_request_id, u64(0))
+	testing.expect(t, !s.getrange_pending, "should not be pending after completion")
+	testing.expect(t, s.getrange_seeded, "should be seeded after completion")
+}
+
+@(test)
+test_getrange_request_id_cleared_by_reconnect :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_range_sent(&s, 10, 0xABCD)
+	apply_state_on_reconnect(&s)
+	testing.expect_value(t, s.getrange_request_id, u64(0))
+	testing.expect(t, !s.getrange_pending, "should not be pending after reconnect")
+}
+
+@(test)
+test_getrange_request_id_cleared_by_tf_change :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_range_sent(&s, 10, 0xABCD)
+	apply_state_on_tf_change(&s)
+	testing.expect_value(t, s.getrange_request_id, u64(0))
+	testing.expect(t, !s.getrange_pending, "should not be pending after TF change")
+	testing.expect(t, !s.getrange_seeded, "seeded should be false after TF change")
+}
+
+@(test)
+test_getrange_request_id_cleared_by_reset :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_range_sent(&s, 10, 0xABCD)
+	apply_state_reset(&s)
+	testing.expect_value(t, s.getrange_request_id, u64(0))
+}
+
+@(test)
+test_getrange_request_id_preserved_across_events :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_range_sent(&s, 10, 0xABCD)
+	apply_state_mark_event(&s, .Candle, 5000, false)
+	apply_state_mark_event(&s, .Trade, 5100, false)
+	testing.expect_value(t, s.getrange_request_id, u64(0xABCD))
+}
+
+// =========================================================================
+// S34: Composition orchestrator tests
+// =========================================================================
+
+@(test)
+test_composition_intent_no_stream :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	testing.expect_value(t, composition_intent(s, 0, false), Orchestrator_Intent.None)
+}
+
+@(test)
+test_composition_intent_empty_store_seeds :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	testing.expect_value(t, composition_intent(s, 0, true), Orchestrator_Intent.Seed_Range)
+}
+
+@(test)
+test_composition_intent_pending_awaits :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_range_sent(&s, 1, 0x1)
+	testing.expect_value(t, composition_intent(s, 0, true), Orchestrator_Intent.Await_Seed)
+}
+
+@(test)
+test_composition_intent_seeded_no_live_awaits :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_range_complete(&s, 1000)
+	testing.expect_value(t, composition_intent(s, 100, true), Orchestrator_Intent.Await_Live)
+}
+
+@(test)
+test_composition_intent_seeded_with_live_steady :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_range_complete(&s, 1000)
+	apply_state_mark_event(&s, .Candle, 5000, false)
+	testing.expect_value(t, composition_intent(s, 100, true), Orchestrator_Intent.Steady)
+}
+
+@(test)
+test_composition_intent_live_only_seeds :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Candle, 5000, false)
+	testing.expect_value(t, composition_intent(s, 10, true), Orchestrator_Intent.Seed_Range)
+}
+
+@(test)
+test_composition_intent_tf_change_resets_to_seed :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_range_complete(&s, 1000)
+	apply_state_mark_event(&s, .Candle, 5000, false)
+	testing.expect_value(t, composition_intent(s, 100, true), Orchestrator_Intent.Steady)
+	apply_state_on_tf_change(&s)
+	testing.expect_value(t, composition_intent(s, 0, true), Orchestrator_Intent.Seed_Range)
+}
+
+@(test)
+test_composition_should_extend_basic :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_range_complete(&s, 5000)
+	testing.expect(t, composition_should_extend(s, 100, 500, 0, false),
+		"should extend when seeded with room")
+}
+
+@(test)
+test_composition_should_extend_pending_blocks :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_range_complete(&s, 5000)
+	apply_state_mark_range_sent(&s, 10, 0x1)
+	testing.expect(t, !composition_should_extend(s, 100, 500, 0, false),
+		"should not extend while pending")
+}
+
+@(test)
+test_composition_should_extend_full_blocks :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_range_complete(&s, 5000)
+	testing.expect(t, !composition_should_extend(s, 500, 500, 0, false),
+		"should not extend when store full")
+}
+
+@(test)
+test_composition_should_extend_timeline_boundary :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_range_complete(&s, 5000)
+	// oldest_ts <= timeline.first_ts means we reached the boundary
+	testing.expect(t, !composition_should_extend(s, 100, 500, 5000, true),
+		"should not extend past timeline boundary")
+	testing.expect(t, composition_should_extend(s, 100, 500, 4000, true),
+		"should extend when not yet at timeline boundary")
+}
+
+@(test)
+test_composition_should_extend_not_seeded :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	testing.expect(t, !composition_should_extend(s, 0, 500, 0, false),
+		"should not extend when not seeded")
+}

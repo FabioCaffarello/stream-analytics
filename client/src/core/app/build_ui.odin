@@ -354,21 +354,21 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 						cs := state.world.spans[cci].col_span
 						if cs < 1 do cs = 1
 						if cs < 4 { state.world.spans[cci].col_span = cs + 1 }
-						persist_layout_v4(state)
+						persist_layout_v6(state)
 					} else if menu_res.clicked_idx == expand_down_idx && cci >= 0 && cci < state.world.count {
 						rs := state.world.spans[cci].row_span
 						if rs < 1 do rs = 1
 						if rs < 4 { state.world.spans[cci].row_span = rs + 1 }
-						persist_layout_v4(state)
+						persist_layout_v6(state)
 					} else if menu_res.clicked_idx == reset_size_idx && cci >= 0 && cci < state.world.count {
 						state.world.spans[cci].col_span = 1
 						state.world.spans[cci].row_span = 1
-						persist_layout_v4(state)
+						persist_layout_v6(state)
 					} else if menu_res.clicked_idx == clear_all_idx {
 						state.world.count = 0
 						state.overlays.show_widget_catalog = true
 						state.overlays.catalog_step = 0
-						persist_layout_v4(state)
+						persist_layout_v6(state)
 					}
 				}
 			}

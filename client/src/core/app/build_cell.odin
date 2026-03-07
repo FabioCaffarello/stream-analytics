@@ -40,16 +40,13 @@ render_cell_widget :: proc(
 	hdr_rect := ui.rect_cut_top(&cell_vp, CELL_HDR_H)
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = hdr_rect, color = ui.with_alpha(ui.COL_SURFACE_2, 0.7)})
 
+	// S43: Surface view resolved once, used for all header elements (identity, composition, health).
+	sv := resolve_cell_surface_view(state, ci)
+
 	badge_label := "~ Active"
 	badge_buf: [40]u8
-	if bind.stream_idx >= 0 && bind.stream_idx < STREAM_VIEW_CAP {
-		if reg := state.stream_views; reg != nil && reg.slots[bind.stream_idx].used {
-			slot := &reg.slots[bind.stream_idx]
-			if !slot.has_stream_info { refresh_stream_info_for_slot(state, slot) }
-			if slot.has_stream_info && len(slot.stream_info.venue) > 0 {
-				badge_label = fmt.bprintf(badge_buf[:], "%s:%s", slot.stream_info.venue, slot.stream_info.symbol)
-			}
-		}
+	if sv.stream_bound && len(sv.venue) > 0 {
+		badge_label = fmt.bprintf(badge_buf[:], "%s:%s", sv.venue, sv.symbol)
 	}
 	badge_w := min(state.text.measure(ui.FONT_SIZE_XS, badge_label).x + 12, hdr_rect.size.x * 0.5)
 	badge_rect := ui.rect_xywh(hdr_rect.pos.x + 2, hdr_rect.pos.y + 1, badge_w, CELL_HDR_H - 2)
@@ -61,6 +58,42 @@ render_cell_widget :: proc(
 		badge_label, ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS, .Mono)
 	if badge_hovered && pointer.left_pressed {
 		queue_ui_action(state, UI_Action{kind = .Open_Cell_Stream_Picker, cell_idx = ci})
+	}
+
+	// S37: Composition badge + health dot from Cell_Surface_View read model.
+	hdr_cursor := ui.rect_right(badge_rect) + 4
+	hdr_text_y := hdr_rect.pos.y + CELL_HDR_H * 0.5 + ui.FONT_SIZE_XS * 0.35
+	{
+		comp_label: string
+		comp_color: ui.Color
+		switch sv.composition {
+		case .Range_Pending: comp_label = "PEND";  comp_color = ui.COL_WARNING
+		case .Backfilled:    comp_label = "BFILL"; comp_color = ui.COL_WARNING
+		case .Live_Only:     comp_label = "LIVE";  comp_color = ui.COL_YELLOW_ACCENT
+		case .Composed:      comp_label = "COMP";  comp_color = ui.COL_GREEN
+		case .Empty:
+		}
+		if len(comp_label) > 0 {
+			ui.push_text(&state.cmd_buf, {hdr_cursor, hdr_text_y},
+				comp_label, comp_color, ui.FONT_SIZE_XS, .Mono)
+			hdr_cursor += state.text.measure(ui.FONT_SIZE_XS, comp_label).x + 4
+		}
+
+		health_color := ui.COL_GREEN
+		switch sv.health_level {
+		case .Degraded:  health_color = ui.COL_WARNING
+		case .Unhealthy: health_color = ui.COL_RED
+		case .Critical:  health_color = ui.COL_RED
+		case .Healthy:
+		}
+		if sv.has_live_data || sv.composition != .Empty {
+			dot_sz := f32(6)
+			dot_y := hdr_rect.pos.y + (CELL_HDR_H - dot_sz) * 0.5
+			ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
+				rect = ui.rect_xywh(hdr_cursor, dot_y, dot_sz, dot_sz),
+				color = health_color,
+			})
+		}
 	}
 
 	close_inset := f32(0)

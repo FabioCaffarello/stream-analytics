@@ -183,11 +183,22 @@ Error_Kind :: enum u8 {
 	Connection,
 }
 
+// S39: Per-pane GetRange state for compare mode (mirrors GetRange_Component for cells).
+Compare_Pane_GetRange :: struct {
+	pending:    bool,
+	seeded:     bool,
+	oldest_ts:  i64,
+	sent_frame: u64,
+}
+
 Compare_State :: struct {
 	active:       bool,
 	slots:        [4]u64,
 	count:        int,
 	widget_idx:   int,
+	focused_pane: int,       // S39: focused pane index (-1 = none)
+	tf_idx:       [4]int,    // S38: per-pane TF override (-1 = follow global)
+	getranges:    [4]Compare_Pane_GetRange, // S39: per-pane getrange state
 	scroll_x:     [4]f32,
 	zoom:         [4]f32,
 	show_vol:     [4]bool,

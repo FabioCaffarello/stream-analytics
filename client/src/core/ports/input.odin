@@ -44,6 +44,7 @@ Key :: enum u8 {
 	J,
 	K,
 	Z,
+	D,     // S46: Ctrl+D = capture runtime snapshot
 	Delete,
 }
 

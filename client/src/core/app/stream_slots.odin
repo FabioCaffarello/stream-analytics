@@ -4,6 +4,7 @@ import "core:strings"
 import "mr:md_common"
 import "mr:ports"
 import "mr:services"
+import "mr:util"
 
 // ---------------------------------------------------------------------------
 // Slot CRUD and stream resolution
@@ -294,6 +295,22 @@ Cell_Stores :: struct {
 	vpvr_live:    bool,
 }
 
+// S36: Cell_Surface_View — unified per-cell read model for surfaces.
+// Bundles composition, health, staleness, and identity into a single query result.
+// Surfaces consume this instead of reaching into protocol/apply_state internals.
+Cell_Surface_View :: struct {
+	composition:     md_common.Composition_Stage,
+	candle_health:   Candle_Health,
+	has_live_data:   bool, // any artifact with live data
+	stale_count:     int,
+	aging_count:     int,
+	venue:           string, // resolved label (may be empty)
+	symbol:          string, // resolved label (may be empty)
+	stream_bound:    bool,   // has explicit stream binding
+	health_level:    md_common.System_Health_Level,
+	recovery_status: md_common.Recovery_Status, // S42: per-pane recovery diagnostics
+}
+
 resolve_stores_for_cell :: proc(state: ^App_State, ci: int) -> Cell_Stores {
 	stores: Cell_Stores
 
@@ -304,8 +321,9 @@ resolve_stores_for_cell :: proc(state: ^App_State, ci: int) -> Cell_Stores {
 	stores.trades       = &state.stores.trades
 	stores.orderbook    = &state.stores.orderbook
 	stores.stats        = &state.stores.stats
-	stores.heatmap_live = state.active_metrics.has_live_heatmap
-	stores.vpvr_live    = state.active_metrics.has_live_vpvr
+	// S36: Read from canonical apply_state (was active_metrics — a derived copy).
+	stores.heatmap_live = state.active_apply_state.has_live[.Heatmap]
+	stores.vpvr_live    = state.active_apply_state.has_live[.VPVR]
 
 	reg := state.stream_views
 	if reg == nil do return stores
@@ -425,4 +443,313 @@ resolve_cell_composition :: proc(state: ^App_State, ci: int) -> md_common.Compos
 		has_live_candle = reg.slots[bind.stream_idx].apply_state.has_live[.Candle]
 	}
 	return md_common.cell_composition_stage(gr.pending, gr.seeded, has_live_candle)
+}
+
+// S36: Resolve the apply_state for a cell — either from the bound slot or global active.
+// Returns a snapshot (value copy) suitable for pure queries.
+resolve_cell_apply_state :: proc(state: ^App_State, ci: int) -> md_common.Stream_Apply_State {
+	if state == nil || ci < 0 || ci >= state.world.count do return {}
+	bind := &state.world.bindings[ci]
+
+	// Follow-active cells use the global active apply state.
+	if bind.stream_idx < 0 && !binding_has(bind) {
+		return state.active_apply_state
+	}
+
+	// Bound cell: read from the slot's per-stream apply state.
+	reg := state.stream_views
+	if reg != nil && bind.stream_idx >= 0 && bind.stream_idx < STREAM_VIEW_CAP && reg.slots[bind.stream_idx].used {
+		return reg.slots[bind.stream_idx].apply_state
+	}
+
+	return state.active_apply_state
+}
+
+// S36: Unified per-cell read model. Surfaces call this once per cell per frame
+// instead of assembling composition, health, and identity from scattered sources.
+// Pure derived view — no mutation, no allocations.
+resolve_cell_surface_view :: proc(state: ^App_State, ci: int) -> Cell_Surface_View {
+	view: Cell_Surface_View
+	if state == nil || ci < 0 || ci >= state.world.count do return view
+
+	// Composition stage (reuses existing S26 logic).
+	view.composition = resolve_cell_composition(state, ci)
+
+	// Apply state snapshot for staleness + health queries.
+	apply := resolve_cell_apply_state(state, ci)
+
+	now_ms := current_now_ms(state)
+	tf_ms := cell_effective_tf_ms(state, ci)
+
+	// Per-cell candle health.
+	stores := resolve_stores_for_cell(state, ci)
+	view.candle_health = compute_candle_health_for_store(
+		stores.candle,
+		md_common.apply_state_candle_recv_ms(apply),
+		tf_ms,
+		now_ms,
+	)
+
+	// Live data flag — any artifact alive.
+	for kind in md_common.Artifact_Kind {
+		if apply.has_live[kind] {
+			view.has_live_data = true
+			break
+		}
+	}
+
+	// Staleness counts.
+	view.stale_count, view.aging_count = md_common.apply_state_stale_artifact_count(apply, now_ms, tf_ms)
+
+	// Health level.
+	view.health_level = md_common.stream_health_level(apply, now_ms, tf_ms)
+	view.recovery_status = md_common.apply_state_recovery_status(apply) // S42
+
+	// Identity — resolved from slot stream info.
+	bind := &state.world.bindings[ci]
+	view.stream_bound = bind.stream_idx >= 0 || binding_has(bind)
+
+	reg := state.stream_views
+	if reg != nil {
+		slot_idx := -1
+		if bind.stream_idx >= 0 && bind.stream_idx < STREAM_VIEW_CAP && reg.slots[bind.stream_idx].used {
+			slot_idx = bind.stream_idx
+		} else if reg.has_active {
+			slot_idx = stream_view_find_slot(reg, reg.active_subject_id)
+		}
+		if slot_idx >= 0 {
+			slot := &reg.slots[slot_idx]
+			if !slot.has_stream_info { refresh_stream_info_for_slot(state, slot) }
+			if slot.has_stream_info {
+				view.venue = slot.stream_info.venue
+				view.symbol = slot.stream_info.symbol
+			}
+		}
+	}
+
+	return view
+}
+
+// S38: Resolve the effective subject_id for a compare pane at its per-pane TF.
+// Uses the seed subject_id (compare.slots[ci]) to identify the market, then
+// finds the best slot at the pane's effective TF. Falls back to seed if no
+// TF-matched slot exists yet (subscription may be in flight).
+compare_pane_resolve_subject_id :: proc(state: ^App_State, pane_idx: int) -> u64 {
+	if state == nil do return 0
+	if pane_idx < 0 || pane_idx >= state.compare.count do return 0
+	seed_sid := state.compare.slots[pane_idx]
+	if seed_sid == 0 do return 0
+
+	reg := state.stream_views
+	if reg == nil do return seed_sid
+
+	slot_idx := stream_view_find_slot(reg, seed_sid)
+	if slot_idx < 0 do return seed_sid
+	slot := &reg.slots[slot_idx]
+	if !slot.has_stream_info { refresh_stream_info_for_slot(state, slot) }
+	if !slot.has_stream_info do return seed_sid
+
+	// If per-pane TF matches global, seed subject_id is already correct.
+	pane_tf := compare_pane_effective_tf_string(state, pane_idx)
+
+	// Find best slot for this market at the pane's effective TF.
+	if found := find_market_channel_slot(state, reg, slot.stream_info.venue, slot.stream_info.symbol, .Candles, pane_tf); found != nil {
+		return found.subject_id
+	}
+
+	return seed_sid
+}
+
+// S38: Surface view for compare mode panes. Takes a pane index (not subject_id)
+// to support per-pane TF resolution. Resolves the correct slot for the pane's
+// effective TF, then derives composition, health, staleness, and identity.
+// Pure derived view — no mutation, no allocations.
+resolve_compare_surface_view :: proc(state: ^App_State, pane_idx: int) -> Cell_Surface_View {
+	view: Cell_Surface_View
+	if state == nil || pane_idx < 0 || pane_idx >= state.compare.count do return view
+
+	// S38: Resolve effective subject_id (per-pane TF aware).
+	eff_sid := compare_pane_resolve_subject_id(state, pane_idx)
+	if eff_sid == 0 do return view
+
+	reg := state.stream_views
+	if reg == nil do return view
+
+	slot_idx := stream_view_find_slot(reg, eff_sid)
+	if slot_idx < 0 do return view
+
+	slot := &reg.slots[slot_idx]
+	apply := slot.apply_state
+
+	now_ms := current_now_ms(state)
+	// S38: Per-pane TF for health/staleness (was global_tf_ms in S37).
+	tf_ms := compare_pane_effective_tf_ms(state, pane_idx)
+
+	// S39: Use per-pane composition (from per-pane getrange + slot live candle).
+	view.composition = resolve_compare_pane_composition(state, pane_idx)
+
+	view.candle_health = compute_candle_health_for_store(
+		&slot.candle_store,
+		md_common.apply_state_candle_recv_ms(apply),
+		tf_ms,
+		now_ms,
+	)
+
+	for kind in md_common.Artifact_Kind {
+		if apply.has_live[kind] {
+			view.has_live_data = true
+			break
+		}
+	}
+
+	view.stale_count, view.aging_count = md_common.apply_state_stale_artifact_count(apply, now_ms, tf_ms)
+	view.health_level = md_common.stream_health_level(apply, now_ms, tf_ms)
+	view.recovery_status = md_common.apply_state_recovery_status(apply) // S42
+
+	if !slot.has_stream_info { refresh_stream_info_for_slot(state, slot) }
+	if slot.has_stream_info {
+		view.venue = slot.stream_info.venue
+		view.symbol = slot.stream_info.symbol
+	}
+	view.stream_bound = true
+
+	return view
+}
+
+// S39: Resolve the composition stage for a compare pane. Pure query — no mutation.
+// Uses per-pane getrange state + slot live candle to derive composition.
+resolve_compare_pane_composition :: proc(state: ^App_State, pane_idx: int) -> md_common.Composition_Stage {
+	if state == nil || pane_idx < 0 || pane_idx >= state.compare.count do return .Empty
+
+	gr := state.compare.getranges[pane_idx]
+	eff_sid := compare_pane_resolve_subject_id(state, pane_idx)
+	if eff_sid == 0 do return .Empty
+
+	reg := state.stream_views
+	if reg == nil do return .Empty
+
+	slot_idx := stream_view_find_slot(reg, eff_sid)
+	if slot_idx < 0 do return .Empty
+
+	has_live_candle := reg.slots[slot_idx].apply_state.has_live[.Candle]
+	return md_common.cell_composition_stage(gr.pending, gr.seeded, has_live_candle)
+}
+
+// S39: Request historical candle data for a compare pane.
+request_compare_pane_candle_range :: proc(state: ^App_State, pane_idx: int) {
+	if state == nil do return
+	if state.marketdata.send_getrange == nil do return
+	if pane_idx < 0 || pane_idx >= state.compare.count do return
+	if state.compare.getranges[pane_idx].pending do return
+
+	seed_sid := state.compare.slots[pane_idx]
+	if seed_sid == 0 do return
+
+	reg := state.stream_views
+	if reg == nil do return
+
+	slot_idx := stream_view_find_slot(reg, seed_sid)
+	if slot_idx < 0 do return
+	slot := &reg.slots[slot_idx]
+	if !slot.has_stream_info { refresh_stream_info_for_slot(state, slot) }
+	if !slot.has_stream_info do return
+
+	venue := slot.stream_info.venue
+	symbol := slot.stream_info.symbol
+	if len(venue) == 0 || len(symbol) == 0 do return
+
+	limit := adaptive_getrange_limit(state)
+	tf := compare_pane_effective_tf_string(state, pane_idx)
+
+	candle_subject := util.build_subject_with_timeframe(venue, symbol, .Candles, tf)
+	state.marketdata.send_getrange(candle_subject, limit, state.compare.getranges[pane_idx].oldest_ts)
+	delete(candle_subject)
+
+	state.compare.getranges[pane_idx].pending = true
+	state.compare.getranges[pane_idx].seeded = true
+	state.compare.getranges[pane_idx].sent_frame = state.frame
+}
+
+// S39: Request older candles for a compare pane (lazy loading on scroll-left).
+request_compare_pane_older_candles :: proc(state: ^App_State, pane_idx: int) {
+	if state == nil do return
+	if state.marketdata.send_getrange == nil do return
+	if pane_idx < 0 || pane_idx >= state.compare.count do return
+	if state.compare.getranges[pane_idx].pending do return
+	if state.compare.getranges[pane_idx].oldest_ts <= 0 do return
+
+	seed_sid := state.compare.slots[pane_idx]
+	if seed_sid == 0 do return
+
+	reg := state.stream_views
+	if reg == nil do return
+
+	slot_idx := stream_view_find_slot(reg, seed_sid)
+	if slot_idx < 0 do return
+	slot := &reg.slots[slot_idx]
+	if !slot.has_stream_info do return
+
+	venue := slot.stream_info.venue
+	symbol := slot.stream_info.symbol
+	if len(venue) == 0 || len(symbol) == 0 do return
+
+	limit := adaptive_getrange_limit(state)
+	tf := compare_pane_effective_tf_string(state, pane_idx)
+
+	candle_subject := util.build_subject_with_timeframe(venue, symbol, .Candles, tf)
+	state.marketdata.send_getrange(candle_subject, limit, state.compare.getranges[pane_idx].oldest_ts)
+	delete(candle_subject)
+
+	state.compare.getranges[pane_idx].pending = true
+	state.compare.getranges[pane_idx].sent_frame = state.frame
+}
+
+// S39: Set a per-pane timeframe for a compare pane. Returns true if changed.
+// Invalidates only the target pane — other panes are unaffected.
+apply_set_compare_pane_timeframe :: proc(state: ^App_State, pane_idx: int, tf_idx: int) -> bool {
+	if state == nil do return false
+	if pane_idx < 0 || pane_idx >= state.compare.count do return false
+	if tf_idx < -1 || tf_idx >= len(TF_OPTIONS) do return false
+	if state.compare.tf_idx[pane_idx] == tf_idx do return false
+
+	state.compare.tf_idx[pane_idx] = tf_idx
+
+	// S39: Reset per-pane getrange state — stale data from old TF.
+	state.compare.getranges[pane_idx] = {}
+	state.compare.scroll_x[pane_idx] = 0
+	state.compare.zoom[pane_idx] = 0
+
+	// S39: Clear TF-sensitive stores in the pane's slot.
+	eff_sid := compare_pane_resolve_subject_id(state, pane_idx)
+	if eff_sid != 0 {
+		reg := state.stream_views
+		if reg != nil {
+			if slot_idx := stream_view_find_slot(reg, eff_sid); slot_idx >= 0 {
+				slot := &reg.slots[slot_idx]
+				slot.candle_store.head = 0
+				slot.candle_store.count = 0
+				slot.heatmap_store = {}
+				slot.heatmap_snapshot = {}
+				slot.vpvr_store = {}
+				md_common.apply_state_on_tf_change(&slot.apply_state)
+			}
+		}
+	}
+
+	// Reconcile subscriptions since TF change affects candle/heatmap/vpvr subjects.
+	reconcile_subscriptions(state)
+
+	// Request historical data for the new TF.
+	request_compare_pane_candle_range(state, pane_idx)
+
+	return true
+}
+
+// S37: Resolve global TF in milliseconds (utility, retained for non-pane contexts).
+global_tf_ms :: proc(state: ^App_State) -> i64 {
+	options := TF_OPTION_MS
+	if state.active_tf_idx >= 0 && state.active_tf_idx < len(options) {
+		return options[state.active_tf_idx]
+	}
+	return options[0]
 }

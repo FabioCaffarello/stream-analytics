@@ -78,6 +78,8 @@ compute_candle_health_for_store :: proc(
 }
 
 // Global convenience: delegates to parameterized version using active stream state.
+// S33: Rebased on apply_state canonical timing — uses apply_state_candle_recv_ms
+// instead of the former candle_last_recv_local_ms (removed in S33).
 compute_candle_health :: proc(state: ^App_State) -> Candle_Health {
 	tf_options := TF_OPTION_MS
 	tf_ms: i64 = 60_000
@@ -86,7 +88,7 @@ compute_candle_health :: proc(state: ^App_State) -> Candle_Health {
 	}
 	return compute_candle_health_for_store(
 		&state.stores.candle,
-		state.candle_last_recv_local_ms,
+		md_common.apply_state_candle_recv_ms(state.active_apply_state),
 		tf_ms,
 		current_now_ms(state),
 	)
@@ -154,6 +156,7 @@ build_candle_health_ui_for_store :: proc(
 }
 
 // Global convenience: delegates to parameterized version using active stream state.
+// S33: Rebased on apply_state canonical timing.
 build_candle_health_ui :: proc(state: ^App_State) -> (label: string, detail: string, color: ui.Color) {
 	tf_options := TF_OPTION_MS
 	tf_ms: i64 = 60_000
@@ -162,7 +165,7 @@ build_candle_health_ui :: proc(state: ^App_State) -> (label: string, detail: str
 	}
 	return build_candle_health_ui_for_store(
 		&state.stores.candle,
-		state.candle_last_recv_local_ms,
+		md_common.apply_state_candle_recv_ms(state.active_apply_state),
 		tf_ms,
 		current_now_ms(state),
 	)
@@ -183,6 +186,8 @@ sample_marketdata_metrics :: proc(state: ^App_State) {
 	}
 	apply_backpressure_assist(state, m)
 	refresh_active_stream_health(state, m)
+	// S42: Per-pane recovery for non-active compare pane slots.
+	evaluate_compare_pane_health(state, current_now_ms(state))
 }
 
 @(private = "file")
@@ -422,14 +427,22 @@ refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtim
 	state.active_metrics.parsed_bytes_total = metrics.parsed_bytes_total
 	state.active_metrics.parse_arena_resets = metrics.parse_arena_resets
 
-	// S29/S30: Policy-driven stale auto-recovery with adaptive exponential backoff.
-	// Only fires when connected and not already offline.
-	if now_ms > 0 && current_conn_status(state) == .Connected &&
-		state.active_metrics.state != .Offline {
+	// S29/S30/S35: Policy-driven stale auto-recovery via control-plane evaluation.
+	// health_tick_evaluate is a pure function; side effects applied here.
+	if now_ms > 0 {
 		tf_ms := tf_ms_for_health(state)
-		decision := md_common.apply_state_stale_remediation(state.active_apply_state, now_ms, tf_ms)
+		tick := md_common.health_tick_evaluate(md_common.Health_Tick_Input{
+			apply_state = state.active_apply_state,
+			now_ms = now_ms,
+			tf_ms = tf_ms,
+			is_connected = current_conn_status(state) == .Connected,
+			is_offline = state.active_metrics.state == .Offline,
+		})
+
+		slot_id := u8(stream_view_find_slot(state.stream_views, state.stream_views.active_subject_id))
 		recovery_mutated := false
-		switch decision {
+
+		switch tick.remediation {
 		case .Resubscribe:
 			// Auto-recovery: mark attempt, force resubscribe.
 			md_common.apply_state_mark_recovery(&state.active_apply_state, now_ms)
@@ -441,7 +454,7 @@ refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtim
 				kind = .Attempt,
 				timestamp = now_ms,
 				attempts = state.active_apply_state.recovery_attempts,
-				slot_id = u8(stream_view_find_slot(state.stream_views, state.stream_views.active_subject_id)),
+				slot_id = slot_id,
 			})
 		case .Exhausted:
 			// Max attempts reached — escalate to DESYNC for manual intervention.
@@ -453,29 +466,120 @@ refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtim
 				kind = .Exhausted,
 				timestamp = now_ms,
 				attempts = state.active_apply_state.recovery_attempts,
-				slot_id = u8(stream_view_find_slot(state.stream_views, state.stream_views.active_subject_id)),
+				slot_id = slot_id,
 			})
 		case .Cooldown, .None:
 			// No action — either fresh or within cooldown window.
 		}
 
-		// S29: Check if recovery succeeded (stale artifacts became fresh).
+		// S29/S35: Check recovery success via pure output.
 		prev_attempts := state.active_apply_state.recovery_attempts
-		md_common.apply_state_check_recovery_success(&state.active_apply_state, now_ms, tf_ms)
-		if state.active_apply_state.recovery_attempts != prev_attempts {
-			md_common.recovery_event_log_push(&state.recovery_log, md_common.Recovery_Event{
-				kind = .Success,
-				timestamp = now_ms,
-				attempts = prev_attempts,
-				slot_id = u8(stream_view_find_slot(state.stream_views, state.stream_views.active_subject_id)),
-			})
-			recovery_mutated = true
+		if tick.recovery_success {
+			md_common.apply_state_check_recovery_success(&state.active_apply_state, now_ms, tf_ms)
+			if state.active_apply_state.recovery_attempts == 0 {
+				md_common.recovery_event_log_push(&state.recovery_log, md_common.Recovery_Event{
+					kind = .Success,
+					timestamp = now_ms,
+					attempts = prev_attempts,
+					slot_id = slot_id,
+				})
+				recovery_mutated = true
+			}
 		}
 
 		// S30: Sync recovery state back to slot for per-stream isolation.
 		if recovery_mutated {
 			sync_recovery_to_active_slot(state)
 		}
+	}
+}
+
+// S42: Per-pane recovery evaluation for compare mode.
+// Evaluates health_tick for each compare pane whose slot differs from the active stream.
+// Active stream recovery is already handled by refresh_active_stream_health; this covers
+// non-active compare pane slots so they get independent staleness detection and recovery.
+// Side effects (resubscribe, recovery marking) are applied directly to the slot's apply_state.
+evaluate_compare_pane_health :: proc(state: ^App_State, now_ms: i64) {
+	if state == nil do return
+	if !state.compare.active do return
+	if now_ms <= 0 do return
+	is_connected := current_conn_status(state) == .Connected
+	if !is_connected do return
+
+	reg := state.stream_views
+	if reg == nil do return
+
+	active_slot_idx := -1
+	if reg.has_active {
+		active_slot_idx = stream_view_find_slot(reg, reg.active_subject_id)
+	}
+
+	for cpi in 0 ..< state.compare.count {
+		eff_sid := compare_pane_resolve_subject_id(state, cpi)
+		if eff_sid == 0 do continue
+
+		slot_idx := stream_view_find_slot(reg, eff_sid)
+		if slot_idx < 0 do continue
+		// Skip panes on the active slot — already evaluated by refresh_active_stream_health.
+		if slot_idx == active_slot_idx do continue
+
+		slot := &reg.slots[slot_idx]
+		tf_ms := compare_pane_effective_tf_ms(state, cpi)
+
+		tick := md_common.health_tick_evaluate(md_common.Health_Tick_Input{
+			apply_state = slot.apply_state,
+			now_ms = now_ms,
+			tf_ms = tf_ms,
+			is_connected = true,
+			is_offline = false,
+		})
+
+		recovery_mutated := false
+		pane_slot_id := u8(slot_idx)
+
+		switch tick.remediation {
+		case .Resubscribe:
+			md_common.apply_state_mark_recovery(&slot.apply_state, now_ms)
+			// Force resubscribe for all (reconcile is idempotent).
+			state.prev_subs_count = 0
+			reconcile_subscriptions(state)
+			recovery_mutated = true
+			md_common.recovery_event_log_push(&state.recovery_log, md_common.Recovery_Event{
+				kind = .Attempt,
+				timestamp = now_ms,
+				attempts = slot.apply_state.recovery_attempts,
+				slot_id = pane_slot_id,
+			})
+		case .Exhausted:
+			md_common.recovery_event_log_push(&state.recovery_log, md_common.Recovery_Event{
+				kind = .Exhausted,
+				timestamp = now_ms,
+				attempts = slot.apply_state.recovery_attempts,
+				slot_id = pane_slot_id,
+			})
+		case .Cooldown, .None:
+		}
+
+		// Check recovery success.
+		if tick.recovery_success {
+			prev_attempts := slot.apply_state.recovery_attempts
+			md_common.apply_state_check_recovery_success(&slot.apply_state, now_ms, tf_ms)
+			if slot.apply_state.recovery_attempts == 0 && prev_attempts > 0 {
+				md_common.recovery_event_log_push(&state.recovery_log, md_common.Recovery_Event{
+					kind = .Success,
+					timestamp = now_ms,
+					attempts = prev_attempts,
+					slot_id = pane_slot_id,
+				})
+				recovery_mutated = true
+				// S42: Reseed per-pane getrange after successful recovery.
+				gr := &state.compare.getranges[cpi]
+				if !gr.pending && !gr.seeded {
+					request_compare_pane_candle_range(state, cpi)
+				}
+			}
+		}
+		_ = recovery_mutated
 	}
 }
 

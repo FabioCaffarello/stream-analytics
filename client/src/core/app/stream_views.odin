@@ -28,7 +28,7 @@ current_now_ms :: proc(state: ^App_State) -> i64 {
 	return 0
 }
 
-@(private = "file")
+@(private = "package")
 adaptive_getrange_limit :: proc(state: ^App_State) -> int {
 	limit := min(FETCH_CANDLES_RANGE_LEN, services.RANGE_CANDLE_PARSE_MAX)
 	if limit <= 0 do limit = services.RANGE_CANDLE_PARSE_MAX
@@ -202,15 +202,10 @@ apply_cycle_stream_action :: proc(state: ^App_State, forward: bool) -> bool {
 		state.world.views[ci].candle_zoom = 0
 	}
 	// S25: Canonical apply state sync from new active slot drives getrange state.
+	// S34: getrange_request_id cleared by sync_active_apply_state_from_slot (slot's apply_state).
 	sync_active_apply_state_from_slot(state)
-	// S25: subject_id is request-scoped — clear on stream switch since the
-	// new stream has no in-flight getrange yet.
-	state.getrange.subject_id = 0
 	ensure_active_candle_subject_id(state)
 	state.candle_health = .No_Data
-	if now_ms := current_now_ms(state); now_ms > 0 {
-		state.candle_last_recv_local_ms = now_ms
-	}
 	if state.stores.candle.count <= 0 {
 		request_active_stream_candle_range(state)
 	}
@@ -241,7 +236,6 @@ request_active_stream_candle_range :: proc(state: ^App_State) {
 	}
 	candle_subject := util.build_subject_with_timeframe(info.venue, info.symbol, .Candles, tf)
 	sid := util.subject_id64(candle_subject)
-	state.getrange.subject_id = sid
 	// S20: Use timeline last_ts as end bound if available (smarter than sending 0).
 	end_ts := i64(0)
 	if state.timeline.loaded && state.timeline.last_ts > 0 {
@@ -249,7 +243,7 @@ request_active_stream_candle_range :: proc(state: ^App_State) {
 	}
 	state.marketdata.send_getrange(candle_subject, limit, end_ts)
 	delete(candle_subject)
-	// S25: Write to apply state (source of truth) — adapter syncs to getrange global.
+	// S34: apply_state is sole owner of getrange_request_id + pending state.
 	md_common.apply_state_mark_range_sent(&state.active_apply_state, state.frame, sid)
 	apply_state_sync_to_getrange(state)
 }
@@ -282,10 +276,9 @@ request_older_candles :: proc(state: ^App_State) {
 	}
 	candle_subject := util.build_subject_with_timeframe(info.venue, info.symbol, .Candles, tf)
 	sid := util.subject_id64(candle_subject)
-	state.getrange.subject_id = sid
 	state.marketdata.send_getrange(candle_subject, limit, state.getrange.oldest_ts)
 	delete(candle_subject)
-	// S25: Write to apply state (source of truth) — adapter syncs to getrange global.
+	// S34: apply_state is sole owner of getrange_request_id + pending state.
 	md_common.apply_state_mark_range_sent(&state.active_apply_state, state.frame, sid)
 	apply_state_sync_to_getrange(state)
 }
@@ -319,6 +312,37 @@ cell_effective_tf_ms :: proc(state: ^App_State, ci: int) -> i64 {
 	return options[0]
 }
 
+// S38: Resolve the effective TF index for a compare pane: per-pane if >= 0, else global.
+compare_pane_effective_tf_idx :: proc(state: ^App_State, ci: int) -> int {
+	if ci >= 0 && ci < 4 {
+		tf := state.compare.tf_idx[ci]
+		if tf >= 0 && tf < len(TF_OPTIONS) {
+			return tf
+		}
+	}
+	return state.active_tf_idx
+}
+
+// S38: Resolve the effective TF string label for a compare pane.
+compare_pane_effective_tf_string :: proc(state: ^App_State, ci: int) -> string {
+	tf_opts := TF_OPTIONS
+	idx := compare_pane_effective_tf_idx(state, ci)
+	if idx >= 0 && idx < len(tf_opts) {
+		return tf_opts[idx]
+	}
+	return tf_opts[0]
+}
+
+// S38: Resolve the effective TF duration in milliseconds for a compare pane.
+compare_pane_effective_tf_ms :: proc(state: ^App_State, ci: int) -> i64 {
+	options := TF_OPTION_MS
+	idx := compare_pane_effective_tf_idx(state, ci)
+	if idx >= 0 && idx < len(options) {
+		return options[idx]
+	}
+	return options[0]
+}
+
 apply_set_timeframe_action :: proc(state: ^App_State, idx: int) -> bool {
 	if idx < 0 || idx >= len(TF_OPTIONS) do return false
 	if idx == state.active_tf_idx do return false
@@ -338,12 +362,9 @@ apply_set_timeframe_action :: proc(state: ^App_State, idx: int) -> bool {
 	state.stores.heatmap = {}
 	state.stores.vpvr = {}
 	// S25: Canonical apply state TF change (policy-driven) — also syncs getrange.
+	// S34: getrange_request_id cleared by apply_state_on_tf_change.
 	tf_change_active_apply_state(state)
-	state.getrange.subject_id = 0
 	state.candle_health = .No_Data
-	if now_ms := current_now_ms(state); now_ms > 0 {
-		state.candle_last_recv_local_ms = now_ms
-	}
 
 	// S25: Update active candle subject_id via apply state for stale getrange guard.
 	if as := stream_view_active_slot(state.stream_views); as != nil && as.has_stream_info {
@@ -379,6 +400,17 @@ apply_set_timeframe_action :: proc(state: ^App_State, idx: int) -> bool {
 		state.world.getranges[ci].oldest_ts = 0
 	}
 
+	// S44: Invalidate compare panes following global TF (tf_idx == -1).
+	// Per-pane TF overrides are unaffected — only global-followers need reset.
+	if state.compare.active {
+		for cpi in 0 ..< state.compare.count {
+			if state.compare.tf_idx[cpi] >= 0 do continue // Per-pane TF, not affected.
+			state.compare.getranges[cpi] = {}
+			state.compare.scroll_x[cpi] = 0
+			state.compare.zoom[cpi] = 0
+		}
+	}
+
 	// S20: Refetch timeline for new TF (bounds may differ per timeframe).
 	state.timeline = {}
 	fetch_timeline_for_active(state)
@@ -388,6 +420,14 @@ apply_set_timeframe_action :: proc(state: ^App_State, idx: int) -> bool {
 
 	// Reconcile subscriptions since TF change affects candle/heatmap/vpvr subjects.
 	reconcile_subscriptions(state)
+
+	// S44: Trigger fresh backfill for global-following compare panes after reconcile.
+	if state.compare.active {
+		for cpi in 0 ..< state.compare.count {
+			if state.compare.tf_idx[cpi] >= 0 do continue
+			request_compare_pane_candle_range(state, cpi)
+		}
+	}
 
 	// Persist active timeframe selection.
 	tf_store_buf: [8]u8
@@ -535,7 +575,7 @@ apply_set_cell_timeframe_action :: proc(state: ^App_State, cell_idx: int, tf_idx
 	state.candle_health = .No_Data
 
 	// Persist and reconcile subscriptions for the new TF.
-	persist_layout_v4(state)
+	persist_layout_v6(state)
 	reconcile_subscriptions(state)
 
 	// Request historical candle data for the new TF.

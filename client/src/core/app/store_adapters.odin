@@ -27,6 +27,7 @@ apply_state_sync_to_metrics :: proc(state: ^App_State) {
 // S25: Sync getrange state from apply_state → GetRange_Global_State.
 // Called after apply_state changes. GetRange_Global_State becomes a
 // derived view; the apply_state getrange fields are the source of truth.
+// S34: subject_id now synced from canonical apply_state.getrange_request_id.
 apply_state_sync_to_getrange :: proc(state: ^App_State) {
 	if state == nil do return
 	s := &state.active_apply_state
@@ -35,6 +36,7 @@ apply_state_sync_to_getrange :: proc(state: ^App_State) {
 	state.getrange.oldest_ts = s.getrange_oldest_ts
 	state.getrange.sent_frame = s.getrange_sent_frame
 	state.getrange.active_candle_subject_id = s.range_candle_subject_id
+	state.getrange.subject_id = s.getrange_request_id
 }
 
 // S25: Combined sync — metrics + getrange. Called at end of drain_marketdata frame.
@@ -52,18 +54,40 @@ reset_active_apply_state :: proc(state: ^App_State) {
 }
 
 // Apply reconnect policy to the active apply state.
+// S35: Logs Reset event if recovery was in progress (attempts > 0).
 reconnect_active_apply_state :: proc(state: ^App_State) {
 	if state == nil do return
+	prev_attempts := state.active_apply_state.recovery_attempts
 	md_common.apply_state_on_reconnect(&state.active_apply_state)
 	apply_state_sync_all(state)
+	// S35: Emit Reset event so the recovery log has a complete audit trail.
+	if prev_attempts > 0 {
+		md_common.recovery_event_log_push(&state.recovery_log, md_common.Recovery_Event{
+			kind = .Reset,
+			timestamp = current_now_ms(state),
+			attempts = prev_attempts,
+			slot_id = u8(stream_view_find_slot(state.stream_views, state.stream_views.active_subject_id)),
+		})
+	}
 }
 
 // Apply TF change policy to the active apply state.
 // S32: Manual timing resets removed — adapter sync drives metrics from apply_state.
+// S35: Logs Reset event if recovery was in progress (attempts > 0).
 tf_change_active_apply_state :: proc(state: ^App_State) {
 	if state == nil do return
+	prev_attempts := state.active_apply_state.recovery_attempts
 	md_common.apply_state_on_tf_change(&state.active_apply_state)
 	apply_state_sync_all(state)
+	// S35: Emit Reset event so the recovery log has a complete audit trail.
+	if prev_attempts > 0 {
+		md_common.recovery_event_log_push(&state.recovery_log, md_common.Recovery_Event{
+			kind = .Reset,
+			timestamp = current_now_ms(state),
+			attempts = prev_attempts,
+			slot_id = u8(stream_view_find_slot(state.stream_views, state.stream_views.active_subject_id)),
+		})
+	}
 }
 
 // Sync the active slot's apply_state into the global active_apply_state.

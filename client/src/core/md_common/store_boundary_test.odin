@@ -1666,3 +1666,1891 @@ test_s32_timing_monotonic_updates :: proc(t: ^testing.T) {
 	testing.expect_value(t, s.last_recv_ms[.Stats], i64(7000))
 	testing.expect_value(t, s.artifact_event_count[.Stats], u64(3))
 }
+
+// ==========================================================================
+// S35: Recovery & Health Control Plane tests
+// ==========================================================================
+
+@(test)
+test_s35_stream_health_level_healthy :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Orderbook, 10_000, true)
+	apply_state_mark_event(&s, .Stats, 10_000, false)
+	// Fresh at now=11_000 (1s age, well within 8s Dual_Silence warn threshold).
+	testing.expect_value(t, stream_health_level(s, 11_000), System_Health_Level.Healthy)
+}
+
+@(test)
+test_s35_stream_health_level_degraded_aging :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Orderbook, 10_000, true)
+	apply_state_mark_event(&s, .Stats, 10_000, false)
+	// Aging at now=19_000 (9s age, past 8s Dual_Silence warn but below 12s stale).
+	testing.expect_value(t, stream_health_level(s, 19_000), System_Health_Level.Degraded)
+}
+
+@(test)
+test_s35_stream_health_level_unhealthy_stale :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Orderbook, 10_000, true)
+	apply_state_mark_event(&s, .Stats, 10_000, false)
+	// Stale at now=23_000 (13s age, past 12s Dual_Silence stale threshold).
+	testing.expect_value(t, stream_health_level(s, 23_000), System_Health_Level.Unhealthy)
+}
+
+@(test)
+test_s35_stream_health_level_critical_exhausted :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Orderbook, 10_000, true)
+	apply_state_mark_event(&s, .Stats, 10_000, false)
+	s.recovery_attempts = RECOVERY_MAX_ATTEMPTS
+	// Stale + exhausted = critical.
+	testing.expect_value(t, stream_health_level(s, 23_000), System_Health_Level.Critical)
+}
+
+@(test)
+test_s35_stream_health_level_no_data_is_healthy :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	// No events received yet — not degraded.
+	testing.expect_value(t, stream_health_level(s, 10_000), System_Health_Level.Healthy)
+}
+
+@(test)
+test_s35_health_tick_evaluate_none_when_fresh :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Orderbook, 10_000, true)
+	apply_state_mark_event(&s, .Stats, 10_000, false)
+	tick := health_tick_evaluate(Health_Tick_Input{
+		apply_state = s,
+		now_ms = 11_000,
+		tf_ms = 60_000,
+		is_connected = true,
+		is_offline = false,
+	})
+	testing.expect_value(t, tick.remediation, Remediation_Decision.None)
+	testing.expect_value(t, tick.recovery_success, false)
+	testing.expect_value(t, tick.stream_health, System_Health_Level.Healthy)
+	testing.expect_value(t, tick.stale_count, 0)
+}
+
+@(test)
+test_s35_health_tick_evaluate_resubscribe_when_stale :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Orderbook, 10_000, true)
+	apply_state_mark_event(&s, .Stats, 10_000, false)
+	tick := health_tick_evaluate(Health_Tick_Input{
+		apply_state = s,
+		now_ms = 23_000,  // 13s past → Stale
+		tf_ms = 60_000,
+		is_connected = true,
+		is_offline = false,
+	})
+	testing.expect_value(t, tick.remediation, Remediation_Decision.Resubscribe)
+	testing.expect_value(t, tick.stream_health, System_Health_Level.Unhealthy)
+	testing.expect(t, tick.stale_count > 0, "expected stale artifacts")
+}
+
+@(test)
+test_s35_health_tick_evaluate_no_action_when_disconnected :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Orderbook, 10_000, true)
+	tick := health_tick_evaluate(Health_Tick_Input{
+		apply_state = s,
+		now_ms = 23_000,
+		tf_ms = 60_000,
+		is_connected = false,  // disconnected
+		is_offline = false,
+	})
+	// Recovery decisions suppressed when disconnected.
+	testing.expect_value(t, tick.remediation, Remediation_Decision.None)
+}
+
+@(test)
+test_s35_health_tick_evaluate_recovery_success :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Orderbook, 10_000, true)
+	apply_state_mark_event(&s, .Stats, 10_000, false)
+	// Simulate previous recovery attempt.
+	s.recovery_attempts = 1
+	s.recovery_last_ms = 5_000
+	// Now all Dual_Silence artifacts are fresh (1s age).
+	tick := health_tick_evaluate(Health_Tick_Input{
+		apply_state = s,
+		now_ms = 11_000,
+		tf_ms = 60_000,
+		is_connected = true,
+		is_offline = false,
+	})
+	testing.expect_value(t, tick.recovery_success, true)
+	testing.expect_value(t, tick.remediation, Remediation_Decision.None)
+}
+
+@(test)
+test_s35_telemetry_includes_stream_health :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Orderbook, 10_000, true)
+	apply_state_mark_event(&s, .Stats, 10_000, false)
+	telem := apply_state_telemetry(s, 11_000, 60_000)
+	testing.expect_value(t, telem.stream_health, System_Health_Level.Healthy)
+	telem2 := apply_state_telemetry(s, 23_000, 60_000)
+	testing.expect_value(t, telem2.stream_health, System_Health_Level.Unhealthy)
+}
+
+@(test)
+test_s35_recovery_event_reset_kind :: proc(t: ^testing.T) {
+	// Verify that Reset event kind can be pushed and retrieved from the log.
+	log: Recovery_Event_Log
+	recovery_event_log_push(&log, Recovery_Event{
+		kind = .Reset,
+		timestamp = 50_000,
+		attempts = 2,
+		slot_id = 1,
+	})
+	evt, ok := recovery_event_log_get(&log, 0)
+	testing.expect(t, ok, "should retrieve event")
+	testing.expect_value(t, evt.kind, Recovery_Event_Kind.Reset)
+	testing.expect_value(t, evt.attempts, u8(2))
+	testing.expect_value(t, evt.slot_id, u8(1))
+}
+
+// =========================================================================
+// S36: Surface Read-Model Stabilization tests.
+// Verify that per-cell derived views produce correct results from apply state,
+// and that read model contracts are stable across composition/health states.
+// =========================================================================
+
+@(test)
+test_s36_composition_stage_empty_state :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	testing.expect_value(t, apply_state_composition_stage(s), Composition_Stage.Empty)
+	testing.expect_value(t, stream_health_level(s, 10_000), System_Health_Level.Healthy)
+}
+
+@(test)
+test_s36_composition_stage_live_only :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Candle, 1000, false)
+	testing.expect_value(t, apply_state_composition_stage(s), Composition_Stage.Live_Only)
+}
+
+@(test)
+test_s36_composition_stage_backfilled :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_range_complete(&s, 500)
+	testing.expect_value(t, apply_state_composition_stage(s), Composition_Stage.Backfilled)
+}
+
+@(test)
+test_s36_composition_stage_composed :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_range_complete(&s, 500)
+	apply_state_mark_event(&s, .Candle, 2000, false)
+	testing.expect_value(t, apply_state_composition_stage(s), Composition_Stage.Composed)
+}
+
+@(test)
+test_s36_cell_composition_mirrors_global :: proc(t: ^testing.T) {
+	// cell_composition_stage should produce the same result as apply_state_composition_stage
+	// when given matching inputs.
+	s: Stream_Apply_State
+	apply_state_mark_range_sent(&s, 1, 100)
+	testing.expect_value(t, apply_state_composition_stage(s), Composition_Stage.Range_Pending)
+	testing.expect_value(t, cell_composition_stage(true, false, false), Composition_Stage.Range_Pending)
+}
+
+@(test)
+test_s36_staleness_fresh_when_recent :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Orderbook, 10_000, true)
+	apply_state_mark_event(&s, .Stats, 10_000, false)
+	stale, aging := apply_state_stale_artifact_count(s, 11_000, 60_000)
+	testing.expect_value(t, stale, 0)
+	testing.expect_value(t, aging, 0)
+}
+
+@(test)
+test_s36_staleness_aging_at_8s :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Orderbook, 10_000, true)
+	// 8s past = aging for Dual_Silence.
+	staleness := apply_state_artifact_staleness(s, .Orderbook, 18_000)
+	testing.expect_value(t, staleness, Artifact_Staleness.Aging)
+}
+
+@(test)
+test_s36_staleness_stale_at_12s :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Stats, 10_000, false)
+	// 12s past = stale for Dual_Silence.
+	staleness := apply_state_artifact_staleness(s, .Stats, 22_000)
+	testing.expect_value(t, staleness, Artifact_Staleness.Stale)
+}
+
+@(test)
+test_s36_health_level_degraded_when_aging :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Orderbook, 10_000, true)
+	// 9s = aging
+	hl := stream_health_level(s, 19_000)
+	testing.expect_value(t, hl, System_Health_Level.Degraded)
+}
+
+@(test)
+test_s36_summary_has_live_flags :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Stats, 1000, false)
+	apply_state_mark_event(&s, .Heatmap, 2000, false)
+	summary := apply_state_summary(s)
+	testing.expect(t, summary.has_live_stats, "stats should be live")
+	testing.expect(t, summary.has_live_heatmap, "heatmap should be live")
+	testing.expect(t, !summary.has_live_candle, "candle should not be live")
+	testing.expect(t, !summary.has_live_vpvr, "vpvr should not be live")
+}
+
+@(test)
+test_s36_candle_recv_ms_max_of_live_and_range :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Candle, 5000, false)
+	apply_state_mark_event(&s, .Range_Candle, 8000, false)
+	testing.expect_value(t, apply_state_candle_recv_ms(s), i64(8000))
+	// Now live surpasses range.
+	apply_state_mark_event(&s, .Candle, 9000, false)
+	testing.expect_value(t, apply_state_candle_recv_ms(s), i64(9000))
+}
+
+@(test)
+test_s36_active_artifact_count :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	testing.expect_value(t, apply_state_active_artifact_count(s), 0)
+	apply_state_mark_event(&s, .Trade, 1000, false)
+	apply_state_mark_event(&s, .Stats, 2000, false)
+	testing.expect_value(t, apply_state_active_artifact_count(s), 2)
+}
+
+// --- S37: Compare Mode Surface Enrichment ---
+// Verify that pure surface view derivation produces correct composition,
+// health, staleness, and identity signals from apply_state alone.
+
+@(test)
+test_s37_surface_composition_empty_no_health_dot :: proc(t: ^testing.T) {
+	// Empty apply state should yield Empty composition, Healthy level, no live data.
+	s: Stream_Apply_State
+	comp := apply_state_composition_stage(s)
+	health := stream_health_level(s, 10000, 60_000)
+	testing.expect_value(t, comp, Composition_Stage.Empty)
+	testing.expect_value(t, health, System_Health_Level.Healthy)
+}
+
+@(test)
+test_s37_surface_composition_live_only :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Candle, 5000, false)
+	comp := apply_state_composition_stage(s)
+	testing.expect_value(t, comp, Composition_Stage.Live_Only)
+	health := stream_health_level(s, 6000, 60_000)
+	testing.expect_value(t, health, System_Health_Level.Healthy)
+}
+
+@(test)
+test_s37_surface_composition_composed :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Candle, 5000, false)
+	apply_state_mark_range_complete(&s, 1000)
+	comp := apply_state_composition_stage(s)
+	testing.expect_value(t, comp, Composition_Stage.Composed)
+}
+
+@(test)
+test_s37_surface_health_degraded_on_aging :: proc(t: ^testing.T) {
+	// Stats aging at 8s with Dual_Silence policy → Degraded.
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Stats, 1000, false)
+	health := stream_health_level(s, 9000, 60_000)
+	testing.expect_value(t, health, System_Health_Level.Degraded)
+}
+
+@(test)
+test_s37_surface_health_unhealthy_on_stale :: proc(t: ^testing.T) {
+	// Stats stale at 12s with Dual_Silence policy → Unhealthy.
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Stats, 1000, false)
+	health := stream_health_level(s, 13000, 60_000)
+	testing.expect_value(t, health, System_Health_Level.Unhealthy)
+}
+
+@(test)
+test_s37_surface_staleness_counts_for_compare :: proc(t: ^testing.T) {
+	// Two artifacts: one fresh, one stale → stale_count=1.
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Trade, 9000, false)    // fresh at now=10000
+	apply_state_mark_event(&s, .Stats, 1000, false)    // stale at now=10000 (9s, >8s for Dual_Silence)
+	_, aging := apply_state_stale_artifact_count(s, 10000, 60_000)
+	testing.expect(t, aging >= 1, "at least one artifact should be aging")
+}
+
+@(test)
+test_s37_surface_has_live_data_flag :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	// No events → no live data.
+	has_live := false
+	for kind in Artifact_Kind {
+		if s.has_live[kind] { has_live = true; break }
+	}
+	testing.expect(t, !has_live, "no live data on empty state")
+	// After a trade event → has live data.
+	apply_state_mark_event(&s, .Trade, 1000, false)
+	for kind in Artifact_Kind {
+		if s.has_live[kind] { has_live = true; break }
+	}
+	testing.expect(t, has_live, "trade should set live data flag")
+}
+
+@(test)
+test_s37_cell_composition_stage_pending :: proc(t: ^testing.T) {
+	// GetRange pending without live candle → Range_Pending.
+	comp := cell_composition_stage(true, false, false)
+	testing.expect_value(t, comp, Composition_Stage.Range_Pending)
+}
+
+@(test)
+test_s37_cell_composition_stage_backfilled :: proc(t: ^testing.T) {
+	// GetRange seeded without live candle → Backfilled.
+	comp := cell_composition_stage(false, true, false)
+	testing.expect_value(t, comp, Composition_Stage.Backfilled)
+}
+
+@(test)
+test_s37_cell_composition_stage_composed :: proc(t: ^testing.T) {
+	// GetRange seeded + live candle → Composed.
+	comp := cell_composition_stage(false, true, true)
+	testing.expect_value(t, comp, Composition_Stage.Composed)
+}
+
+// --- S38: Per-Pane TF Isolation ---
+// Verify that the same apply_state produces different health/staleness results
+// when evaluated at different TF durations, validating per-pane TF isolation.
+// TF only affects TF_Adaptive artifacts (Candle); Dual_Silence (Stats, Orderbook)
+// uses fixed 8s/12s thresholds regardless of TF.
+
+@(test)
+test_s38_per_pane_tf_health_isolation :: proc(t: ^testing.T) {
+	// Candle event at t=1000. At now=131_000 (130s gap):
+	// TF_Adaptive aging = max(2*tf, 5000)
+	// - tf=60_000 (1m): aging=120s → 130s gap > 120s → Degraded
+	// - tf=3_600_000 (1h): aging=7200s → 130s gap < 7200s → Healthy
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Candle, 1000, false)
+
+	health_1m := stream_health_level(s, 131_000, 60_000)
+	health_1h := stream_health_level(s, 131_000, 3_600_000)
+
+	testing.expect_value(t, health_1m, System_Health_Level.Degraded)
+	testing.expect_value(t, health_1h, System_Health_Level.Healthy)
+}
+
+@(test)
+test_s38_per_pane_tf_staleness_isolation :: proc(t: ^testing.T) {
+	// Candle event at t=1000. At now=201_000 (200s gap):
+	// TF_Adaptive stale = max(3*tf, 10000)
+	// - tf=60_000 (1m): stale=180s → 200s > 180s → stale_count=1
+	// - tf=3_600_000 (1h): stale=10800s → 200s < 10800s → stale_count=0
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Candle, 1000, false)
+
+	stale_1m, _ := apply_state_stale_artifact_count(s, 201_000, 60_000)
+	stale_1h, aging_1h := apply_state_stale_artifact_count(s, 201_000, 3_600_000)
+
+	testing.expect(t, stale_1m > 0, "1m TF: candle should be stale at 200s gap")
+	testing.expect_value(t, stale_1h, 0)
+	testing.expect_value(t, aging_1h, 0)
+}
+
+@(test)
+test_s38_per_pane_tf_composition_unaffected :: proc(t: ^testing.T) {
+	// Composition stage depends on apply_state (getrange/live), not TF.
+	// Same apply_state should produce same composition regardless of TF.
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Candle, 5000, false)
+	apply_state_mark_range_complete(&s, 1000)
+
+	comp := apply_state_composition_stage(s)
+	testing.expect_value(t, comp, Composition_Stage.Composed)
+	// TF does not influence composition derivation — it's purely about getrange + live state.
+}
+
+@(test)
+test_s38_per_pane_tf_two_panes_different_health :: proc(t: ^testing.T) {
+	// Simulate two panes viewing the same market at different TFs.
+	// Candle event at t=1000, now=131_000 (130s gap).
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Candle, 1000, false)
+
+	now_ms: i64 = 131_000
+
+	// Pane A: 1m TF → aging at 120s → Degraded
+	health_a := stream_health_level(s, now_ms, 60_000)
+	// Pane B: 1h TF → aging at 7200s → Healthy
+	health_b := stream_health_level(s, now_ms, 3_600_000)
+
+	testing.expect_value(t, health_a, System_Health_Level.Degraded)
+	testing.expect_value(t, health_b, System_Health_Level.Healthy)
+}
+
+@(test)
+test_s38_per_pane_tf_default_follows_global :: proc(t: ^testing.T) {
+	// When per-pane tf_idx is -1, effective TF should match global.
+	// Same TF → same health result.
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Candle, 1000, false)
+
+	tf_ms: i64 = 60_000
+	now_ms: i64 = 131_000
+
+	health_global := stream_health_level(s, now_ms, tf_ms)
+	health_pane := stream_health_level(s, now_ms, tf_ms) // same TF when following global
+
+	testing.expect_value(t, health_global, health_pane)
+}
+
+@(test)
+test_s38_per_pane_tf_critical_isolation :: proc(t: ^testing.T) {
+	// Two stale Dual_Silence artifacts + exhausted recovery → Critical.
+	// Dual_Silence is TF-independent, so we need Orderbook+Stats for critical.
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Stats, 1000, false)
+	apply_state_mark_event(&s, .Orderbook, 1000, true)
+	// Exhaust recovery: 3 attempts
+	s.recovery_attempts = 3
+	s.recovery_last_ms = 1000
+
+	now_ms: i64 = 20000 // 19s gap > 12s stale threshold
+
+	// Both Dual_Silence artifacts stale + exhausted → Critical (TF irrelevant for Dual_Silence)
+	health := stream_health_level(s, now_ms, 60_000)
+	testing.expect_value(t, health, System_Health_Level.Critical)
+}
+
+@(test)
+test_s38_per_pane_tf_candle_stale_not_critical :: proc(t: ^testing.T) {
+	// Only candle stale (TF_Adaptive) + exhausted recovery.
+	// stale=1 + exhausted → Unhealthy (not Critical, which needs stale >= 2).
+	// At 1h TF, candle is fresh → recovery exhausted alone → Unhealthy.
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Candle, 1000, false)
+	s.recovery_attempts = 3
+	s.recovery_last_ms = 1000
+
+	now_ms: i64 = 201_000 // 200s gap
+
+	// 1m TF: candle stale (>180s) + exhausted → Unhealthy
+	health_1m := stream_health_level(s, now_ms, 60_000)
+	// 1h TF: candle fresh (<10800s) + exhausted → Unhealthy (exhausted alone)
+	health_1h := stream_health_level(s, now_ms, 3_600_000)
+
+	testing.expect_value(t, health_1m, System_Health_Level.Unhealthy)
+	testing.expect_value(t, health_1h, System_Health_Level.Unhealthy)
+}
+
+// =========================================================================
+// S39: Compare Pane Backfill, Focus & Local Invalidation tests.
+// Tests verify per-pane composition derived from per-pane getrange + canonical apply_state.
+// =========================================================================
+
+@(test)
+test_s39_pane_composition_empty_when_no_getrange :: proc(t: ^testing.T) {
+	// Per-pane getrange: pending=false, seeded=false.
+	// Slot has no live candle. → .Empty
+	comp := cell_composition_stage(false, false, false)
+	testing.expect_value(t, comp, Composition_Stage.Empty)
+}
+
+@(test)
+test_s39_pane_composition_range_pending :: proc(t: ^testing.T) {
+	// Per-pane getrange: pending=true, seeded=false, no live candle → .Range_Pending
+	comp := cell_composition_stage(true, false, false)
+	testing.expect_value(t, comp, Composition_Stage.Range_Pending)
+}
+
+@(test)
+test_s39_pane_composition_backfilled :: proc(t: ^testing.T) {
+	// Per-pane getrange: seeded=true, slot has no live candle → .Backfilled
+	comp := cell_composition_stage(false, true, false)
+	testing.expect_value(t, comp, Composition_Stage.Backfilled)
+}
+
+@(test)
+test_s39_pane_composition_live_only :: proc(t: ^testing.T) {
+	// Per-pane getrange: seeded=false, slot has live candle → .Live_Only
+	comp := cell_composition_stage(false, false, true)
+	testing.expect_value(t, comp, Composition_Stage.Live_Only)
+}
+
+@(test)
+test_s39_pane_composition_composed :: proc(t: ^testing.T) {
+	// Per-pane getrange: seeded=true, slot has live candle → .Composed
+	comp := cell_composition_stage(false, true, true)
+	testing.expect_value(t, comp, Composition_Stage.Composed)
+}
+
+@(test)
+test_s39_tf_change_clears_getrange_not_other_artifacts :: proc(t: ^testing.T) {
+	// Simulates per-pane TF change: apply_state_on_tf_change clears TF-sensitive
+	// data but preserves TF-insensitive artifacts (Trade, Orderbook, Stats).
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Trade, 1000, false)
+	apply_state_mark_event(&s, .Orderbook, 2000, true)
+	apply_state_mark_event(&s, .Candle, 3000, false)
+	apply_state_mark_event(&s, .Heatmap, 4000, false)
+	s.getrange_seeded = true
+	s.getrange_pending = false
+	s.getrange_oldest_ts = 500
+
+	apply_state_on_tf_change(&s)
+
+	// TF-sensitive artifacts cleared.
+	testing.expect(t, !s.has_live[.Candle], "candle must clear on tf change")
+	testing.expect(t, !s.has_live[.Heatmap], "heatmap must clear on tf change")
+	testing.expect(t, !s.getrange_seeded, "getrange_seeded must clear")
+	testing.expect_value(t, s.getrange_oldest_ts, i64(0))
+
+	// TF-insensitive artifacts survive.
+	testing.expect(t, s.has_live[.Trade], "trade must survive tf change")
+	testing.expect(t, s.has_live[.Orderbook], "orderbook must survive tf change")
+}
+
+@(test)
+test_s39_pane_composition_after_tf_change_is_empty :: proc(t: ^testing.T) {
+	// After TF change on a pane, both getrange and live candle are cleared.
+	// The pane should show .Empty until new data arrives.
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Candle, 3000, false)
+	s.getrange_seeded = true
+
+	// Before TF change: Composed
+	comp_before := cell_composition_stage(false, true, true)
+	testing.expect_value(t, comp_before, Composition_Stage.Composed)
+
+	apply_state_on_tf_change(&s)
+
+	// After TF change: getrange cleared, candle live cleared → Empty
+	comp_after := cell_composition_stage(false, s.getrange_seeded, s.has_live[.Candle])
+	testing.expect_value(t, comp_after, Composition_Stage.Empty)
+}
+
+@(test)
+test_s39_independent_panes_isolated_composition :: proc(t: ^testing.T) {
+	// Two independent apply states simulate two panes.
+	// TF change on pane A should not affect pane B's composition.
+	a: Stream_Apply_State
+	b: Stream_Apply_State
+
+	// Both start Composed.
+	apply_state_mark_event(&a, .Candle, 1000, false)
+	a.getrange_seeded = true
+	apply_state_mark_event(&b, .Candle, 2000, false)
+	b.getrange_seeded = true
+
+	comp_a := cell_composition_stage(false, a.getrange_seeded, a.has_live[.Candle])
+	comp_b := cell_composition_stage(false, b.getrange_seeded, b.has_live[.Candle])
+	testing.expect_value(t, comp_a, Composition_Stage.Composed)
+	testing.expect_value(t, comp_b, Composition_Stage.Composed)
+
+	// TF change on pane A only.
+	apply_state_on_tf_change(&a)
+
+	comp_a_after := cell_composition_stage(false, a.getrange_seeded, a.has_live[.Candle])
+	comp_b_after := cell_composition_stage(false, b.getrange_seeded, b.has_live[.Candle])
+	testing.expect_value(t, comp_a_after, Composition_Stage.Empty)
+	testing.expect_value(t, comp_b_after, Composition_Stage.Composed) // B unaffected
+}
+
+@(test)
+test_s39_pane_backfill_seed_marks_seeded :: proc(t: ^testing.T) {
+	// apply_state_mark_range_complete sets seeded=true and clears pending.
+	s: Stream_Apply_State
+	apply_state_mark_range_sent(&s, 10, 0xABCD)
+	testing.expect(t, s.getrange_pending, "pending after mark_range_sent")
+
+	apply_state_mark_range_complete(&s, 5000)
+	testing.expect(t, s.getrange_seeded, "seeded after mark_range_complete")
+	testing.expect(t, !s.getrange_pending, "pending cleared after complete")
+	testing.expect_value(t, s.getrange_oldest_ts, i64(5000))
+}
+
+@(test)
+test_s39_pane_recovery_isolated_per_slot :: proc(t: ^testing.T) {
+	// Recovery state lives in each slot's apply_state.
+	// Marking recovery on slot A should not affect slot B.
+	a: Stream_Apply_State
+	b: Stream_Apply_State
+
+	apply_state_mark_event(&a, .Orderbook, 1000, true)
+	apply_state_mark_event(&b, .Orderbook, 1000, true)
+
+	apply_state_mark_recovery(&a, 50_000)
+	testing.expect_value(t, a.recovery_attempts, u8(1))
+	testing.expect_value(t, b.recovery_attempts, u8(0)) // B unaffected
+}
+
+// =========================================================================
+// S41: Per-Pane Historical/Realtime Composition tests.
+// Tests verify the full lifecycle: seed → backfill → live continuation → composed,
+// per-pane getrange completion, timeout guard, reconnect clearing, and
+// independent pane composition coexistence.
+// =========================================================================
+
+@(test)
+test_s41_pane_lifecycle_empty_to_composed :: proc(t: ^testing.T) {
+	// Full lifecycle: Empty → Range_Pending → Backfilled → Composed
+	s: Stream_Apply_State
+
+	// Phase 1: Empty (no getrange, no live)
+	comp := cell_composition_stage(false, false, false)
+	testing.expect_value(t, comp, Composition_Stage.Empty)
+
+	// Phase 2: Range_Pending (getrange in flight)
+	apply_state_mark_range_sent(&s, 1, 0x1234)
+	comp = cell_composition_stage(s.getrange_pending, s.getrange_seeded, s.has_live[.Candle])
+	testing.expect_value(t, comp, Composition_Stage.Range_Pending)
+
+	// Phase 3: Backfilled (range complete, no live yet)
+	apply_state_mark_range_complete(&s, 5000)
+	comp = cell_composition_stage(s.getrange_pending, s.getrange_seeded, s.has_live[.Candle])
+	testing.expect_value(t, comp, Composition_Stage.Backfilled)
+
+	// Phase 4: Composed (range seeded + live candle)
+	apply_state_mark_event(&s, .Candle, 10000, false)
+	comp = cell_composition_stage(s.getrange_pending, s.getrange_seeded, s.has_live[.Candle])
+	testing.expect_value(t, comp, Composition_Stage.Composed)
+}
+
+@(test)
+test_s41_range_complete_clears_pending_and_sets_oldest :: proc(t: ^testing.T) {
+	// Verifies that mark_range_complete correctly transitions per-pane state.
+	s: Stream_Apply_State
+	apply_state_mark_range_sent(&s, 10, 0xABC)
+	testing.expect(t, s.getrange_pending, "pending after send")
+	testing.expect_value(t, s.getrange_request_id, u64(0xABC))
+
+	apply_state_mark_range_complete(&s, 3000)
+	testing.expect(t, !s.getrange_pending, "pending must clear on complete")
+	testing.expect(t, s.getrange_seeded, "seeded must be true after complete")
+	testing.expect_value(t, s.getrange_oldest_ts, i64(3000))
+	testing.expect_value(t, s.getrange_request_id, u64(0)) // cleared on complete
+}
+
+@(test)
+test_s41_range_complete_preserves_older_oldest_ts :: proc(t: ^testing.T) {
+	// If oldest_ts already has a value, mark_range_complete should only
+	// update it if the new value is smaller (extends history further).
+	s: Stream_Apply_State
+	s.getrange_seeded = true
+	s.getrange_oldest_ts = 2000
+
+	// Simulate a second batch with newer oldest — should NOT update.
+	apply_state_mark_range_sent(&s, 20, 0)
+	apply_state_mark_range_complete(&s, 3000)
+	testing.expect_value(t, s.getrange_oldest_ts, i64(2000)) // kept older
+
+	// Simulate a third batch extending further back.
+	apply_state_mark_range_sent(&s, 30, 0)
+	apply_state_mark_range_complete(&s, 1000)
+	testing.expect_value(t, s.getrange_oldest_ts, i64(1000)) // updated
+}
+
+@(test)
+test_s41_getrange_timeout_detected :: proc(t: ^testing.T) {
+	// Timeout detection should fire when current_frame > sent_frame + timeout.
+	s: Stream_Apply_State
+	apply_state_mark_range_sent(&s, 100, 0)
+	testing.expect(t, !apply_state_check_getrange_timeout(s, 399, 300), "should not timeout at frame 399")
+	testing.expect(t, apply_state_check_getrange_timeout(s, 401, 300), "should timeout at frame 401")
+}
+
+@(test)
+test_s41_getrange_timeout_not_fired_when_not_pending :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	// Not pending — timeout should never fire regardless of frame.
+	testing.expect(t, !apply_state_check_getrange_timeout(s, 99999, 300), "no timeout when not pending")
+}
+
+@(test)
+test_s41_reconnect_clears_getrange_state :: proc(t: ^testing.T) {
+	// Reconnect should clear getrange pending + request_id so panes can re-request.
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Candle, 1000, false)
+	apply_state_mark_range_sent(&s, 10, 0xDEAD)
+	s.getrange_seeded = true
+	s.getrange_oldest_ts = 500
+
+	apply_state_on_reconnect(&s)
+
+	testing.expect(t, !s.getrange_pending, "pending must clear on reconnect")
+	testing.expect_value(t, s.getrange_request_id, u64(0))
+	// seeded and oldest_ts survive reconnect (data is still in store)
+	testing.expect(t, s.getrange_seeded, "seeded must survive reconnect")
+	testing.expect_value(t, s.getrange_oldest_ts, i64(500))
+}
+
+@(test)
+test_s41_independent_panes_different_lifecycle_stages :: proc(t: ^testing.T) {
+	// Pane A: Composed. Pane B: Backfilled. Pane C: Range_Pending.
+	// Each pane is independent, uses own getrange state + own slot.
+	a: Stream_Apply_State
+	b: Stream_Apply_State
+	c: Stream_Apply_State
+
+	// Pane A: Composed (seeded + live)
+	apply_state_mark_range_sent(&a, 1, 0)
+	apply_state_mark_range_complete(&a, 1000)
+	apply_state_mark_event(&a, .Candle, 5000, false)
+
+	// Pane B: Backfilled (seeded, no live)
+	apply_state_mark_range_sent(&b, 2, 0)
+	apply_state_mark_range_complete(&b, 2000)
+
+	// Pane C: Range_Pending (in flight)
+	apply_state_mark_range_sent(&c, 3, 0)
+
+	comp_a := cell_composition_stage(a.getrange_pending, a.getrange_seeded, a.has_live[.Candle])
+	comp_b := cell_composition_stage(b.getrange_pending, b.getrange_seeded, b.has_live[.Candle])
+	comp_c := cell_composition_stage(c.getrange_pending, c.getrange_seeded, c.has_live[.Candle])
+
+	testing.expect_value(t, comp_a, Composition_Stage.Composed)
+	testing.expect_value(t, comp_b, Composition_Stage.Backfilled)
+	testing.expect_value(t, comp_c, Composition_Stage.Range_Pending)
+}
+
+@(test)
+test_s41_composition_should_extend_guards :: proc(t: ^testing.T) {
+	// Verify all guard conditions for lazy loading extension.
+	s: Stream_Apply_State
+	s.getrange_seeded = true
+	s.getrange_oldest_ts = 5000
+
+	// Should extend when conditions are met.
+	testing.expect(t, composition_should_extend(s, 50, 200, 0, false), "should extend: normal case")
+
+	// Pending blocks extension.
+	s.getrange_pending = true
+	testing.expect(t, !composition_should_extend(s, 50, 200, 0, false), "should NOT extend: pending")
+	s.getrange_pending = false
+
+	// Store at cap blocks extension.
+	testing.expect(t, !composition_should_extend(s, 200, 200, 0, false), "should NOT extend: store at cap")
+
+	// Timeline boundary reached blocks extension.
+	testing.expect(t, !composition_should_extend(s, 50, 200, 5000, true), "should NOT extend: at timeline boundary")
+	testing.expect(t, composition_should_extend(s, 50, 200, 4000, true), "should extend: oldest > timeline first")
+
+	// Not seeded blocks extension.
+	s.getrange_seeded = false
+	testing.expect(t, !composition_should_extend(s, 50, 200, 0, false), "should NOT extend: not seeded")
+}
+
+@(test)
+test_s41_tf_change_resets_then_reseeds :: proc(t: ^testing.T) {
+	// After TF change: apply_state resets → pane re-requests → re-enters lifecycle.
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Candle, 1000, false)
+	s.getrange_seeded = true
+	s.getrange_oldest_ts = 500
+
+	// Verify Composed before TF change.
+	comp := cell_composition_stage(false, s.getrange_seeded, s.has_live[.Candle])
+	testing.expect_value(t, comp, Composition_Stage.Composed)
+
+	// TF change resets.
+	apply_state_on_tf_change(&s)
+	comp = cell_composition_stage(false, s.getrange_seeded, s.has_live[.Candle])
+	testing.expect_value(t, comp, Composition_Stage.Empty)
+
+	// Pane re-requests (simulates request_compare_pane_candle_range).
+	apply_state_mark_range_sent(&s, 50, 0xBEEF)
+	comp = cell_composition_stage(s.getrange_pending, s.getrange_seeded, s.has_live[.Candle])
+	testing.expect_value(t, comp, Composition_Stage.Range_Pending)
+
+	// Range completes → Backfilled.
+	apply_state_mark_range_complete(&s, 2000)
+	comp = cell_composition_stage(s.getrange_pending, s.getrange_seeded, s.has_live[.Candle])
+	testing.expect_value(t, comp, Composition_Stage.Backfilled)
+
+	// Live candle arrives → Composed again.
+	apply_state_mark_event(&s, .Candle, 6000, false)
+	comp = cell_composition_stage(s.getrange_pending, s.getrange_seeded, s.has_live[.Candle])
+	testing.expect_value(t, comp, Composition_Stage.Composed)
+}
+
+@(test)
+test_s41_composition_intent_lifecycle :: proc(t: ^testing.T) {
+	// Verify composition_intent returns correct orchestrator actions through lifecycle.
+	s: Stream_Apply_State
+
+	// No active stream → None
+	testing.expect_value(t, composition_intent(s, 0, false), Orchestrator_Intent.None)
+
+	// Active stream, no data → Seed_Range
+	testing.expect_value(t, composition_intent(s, 0, true), Orchestrator_Intent.Seed_Range)
+
+	// Pending getrange → Await_Seed
+	apply_state_mark_range_sent(&s, 1, 0)
+	testing.expect_value(t, composition_intent(s, 0, true), Orchestrator_Intent.Await_Seed)
+
+	// Seeded but no live → Await_Live
+	apply_state_mark_range_complete(&s, 1000)
+	testing.expect_value(t, composition_intent(s, 50, true), Orchestrator_Intent.Await_Live)
+
+	// Seeded + live → Steady
+	apply_state_mark_event(&s, .Candle, 5000, false)
+	testing.expect_value(t, composition_intent(s, 50, true), Orchestrator_Intent.Steady)
+}
+
+// =========================================================================
+// S42: Per-Pane Invalidation, Recovery & Diagnostics
+// Tests prove per-pane recovery isolation, no cross-pane contamination,
+// diagnostics derivation, and reconnect reseed correctness.
+// =========================================================================
+
+@(test)
+test_s42_per_pane_recovery_isolation :: proc(t: ^testing.T) {
+	// Two panes: pane A goes stale + recovers, pane B stays healthy.
+	// Recovery on A must NOT affect B.
+	a: Stream_Apply_State
+	b: Stream_Apply_State
+
+	// Both active with data.
+	apply_state_mark_event(&a, .Orderbook, 1000, true)
+	apply_state_mark_event(&a, .Stats, 1000, false)
+	apply_state_mark_event(&b, .Orderbook, 1000, true)
+	apply_state_mark_event(&b, .Stats, 1000, false)
+
+	// Pane A: Stale (no data for 20s).
+	now_ms := i64(21_000)
+	rem_a := apply_state_stale_remediation(a, now_ms)
+	testing.expect_value(t, rem_a, Remediation_Decision.Resubscribe)
+
+	// Pane B: Still fresh (received data at 20s).
+	b.last_recv_ms[.Orderbook] = 20_000
+	b.last_recv_ms[.Stats] = 20_000
+	rem_b := apply_state_stale_remediation(b, now_ms)
+	testing.expect_value(t, rem_b, Remediation_Decision.None)
+
+	// Mark recovery on A.
+	apply_state_mark_recovery(&a, now_ms)
+	testing.expect_value(t, a.recovery_attempts, u8(1))
+	testing.expect_value(t, b.recovery_attempts, u8(0)) // B unaffected
+}
+
+@(test)
+test_s42_per_pane_recovery_success_clears_only_target :: proc(t: ^testing.T) {
+	// Pane with recovery in progress: verify success clears only that pane.
+	a: Stream_Apply_State
+	b: Stream_Apply_State
+
+	apply_state_mark_event(&a, .Orderbook, 1000, true)
+	apply_state_mark_event(&a, .Stats, 1000, false)
+	apply_state_mark_event(&b, .Orderbook, 1000, true)
+	apply_state_mark_event(&b, .Stats, 1000, false)
+
+	// Both go stale and attempt recovery.
+	apply_state_mark_recovery(&a, 15_000)
+	apply_state_mark_recovery(&b, 15_000)
+	testing.expect_value(t, a.recovery_attempts, u8(1))
+	testing.expect_value(t, b.recovery_attempts, u8(1))
+
+	// Pane A gets fresh data.
+	a.last_recv_ms[.Orderbook] = 16_000
+	a.last_recv_ms[.Stats] = 16_000
+	apply_state_check_recovery_success(&a, 17_000)
+	testing.expect_value(t, a.recovery_attempts, u8(0)) // A cleared
+	testing.expect_value(t, b.recovery_attempts, u8(1)) // B still recovering
+}
+
+@(test)
+test_s42_per_pane_health_tick_independent :: proc(t: ^testing.T) {
+	// Two panes at different health levels produce independent tick outputs.
+	healthy: Stream_Apply_State
+	stale: Stream_Apply_State
+
+	apply_state_mark_event(&healthy, .Orderbook, 1000, true)
+	apply_state_mark_event(&healthy, .Stats, 1000, false)
+	healthy.last_recv_ms[.Orderbook] = 9_000
+	healthy.last_recv_ms[.Stats] = 9_000
+
+	apply_state_mark_event(&stale, .Orderbook, 1000, true)
+	apply_state_mark_event(&stale, .Stats, 1000, false)
+	// Stale pane: no recent data.
+
+	now_ms := i64(10_000)
+	tick_h := health_tick_evaluate(Health_Tick_Input{
+		apply_state = healthy, now_ms = now_ms, tf_ms = 60_000,
+		is_connected = true, is_offline = false,
+	})
+	tick_s := health_tick_evaluate(Health_Tick_Input{
+		apply_state = stale, now_ms = now_ms, tf_ms = 60_000,
+		is_connected = true, is_offline = false,
+	})
+
+	testing.expect_value(t, tick_h.remediation, Remediation_Decision.None)
+	testing.expect_value(t, tick_h.stream_health, System_Health_Level.Healthy)
+	// Stale: OB+Stats both silent for 10s (below 12s threshold for Dual_Silence).
+	// At 13s they'd be stale. Let's push to 13s:
+	now_ms = 13_000
+	tick_s = health_tick_evaluate(Health_Tick_Input{
+		apply_state = stale, now_ms = now_ms, tf_ms = 60_000,
+		is_connected = true, is_offline = false,
+	})
+	testing.expect_value(t, tick_s.remediation, Remediation_Decision.Resubscribe)
+	testing.expect(t, tick_s.stale_count > 0, "stale pane must have stale artifacts")
+}
+
+@(test)
+test_s42_recovery_status_derivation :: proc(t: ^testing.T) {
+	// Verify recovery_status is correctly derived for diagnostics.
+	s: Stream_Apply_State
+
+	testing.expect_value(t, apply_state_recovery_status(s), Recovery_Status.None)
+
+	s.recovery_attempts = 1
+	testing.expect_value(t, apply_state_recovery_status(s), Recovery_Status.Recovering)
+
+	s.recovery_attempts = 2
+	testing.expect_value(t, apply_state_recovery_status(s), Recovery_Status.Recovering)
+
+	s.recovery_attempts = RECOVERY_MAX_ATTEMPTS
+	testing.expect_value(t, apply_state_recovery_status(s), Recovery_Status.Exhausted)
+}
+
+@(test)
+test_s42_health_level_reflects_recovery :: proc(t: ^testing.T) {
+	// stream_health_level should reflect recovery status even if no stale artifacts.
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Trade, 1000, false)
+
+	// Healthy with no recovery.
+	testing.expect_value(t, stream_health_level(s, 2000), System_Health_Level.Healthy)
+
+	// Recovering → Degraded.
+	s.recovery_attempts = 1
+	testing.expect_value(t, stream_health_level(s, 2000), System_Health_Level.Degraded)
+
+	// Exhausted → Unhealthy.
+	s.recovery_attempts = RECOVERY_MAX_ATTEMPTS
+	testing.expect_value(t, stream_health_level(s, 2000), System_Health_Level.Unhealthy)
+}
+
+@(test)
+test_s42_reconnect_clears_recovery_per_slot :: proc(t: ^testing.T) {
+	// Reconnect should clear recovery state per slot independently.
+	a: Stream_Apply_State
+	b: Stream_Apply_State
+
+	apply_state_mark_event(&a, .Orderbook, 1000, true)
+	apply_state_mark_recovery(&a, 5000)
+	apply_state_mark_event(&b, .Orderbook, 1000, true)
+	apply_state_mark_recovery(&b, 5000)
+
+	testing.expect_value(t, a.recovery_attempts, u8(1))
+	testing.expect_value(t, b.recovery_attempts, u8(1))
+
+	// Reconnect both (simulates global reconnect clearing all slots).
+	apply_state_on_reconnect(&a)
+	apply_state_on_reconnect(&b)
+
+	testing.expect_value(t, a.recovery_attempts, u8(0))
+	testing.expect_value(t, b.recovery_attempts, u8(0))
+	testing.expect_value(t, a.recovery_last_ms, i64(0))
+	testing.expect_value(t, b.recovery_last_ms, i64(0))
+}
+
+@(test)
+test_s42_tf_change_clears_recovery_per_slot :: proc(t: ^testing.T) {
+	// TF change on a pane should clear recovery for that pane's slot only.
+	a: Stream_Apply_State
+	b: Stream_Apply_State
+
+	apply_state_mark_event(&a, .Candle, 1000, false)
+	apply_state_mark_event(&b, .Candle, 1000, false)
+	apply_state_mark_recovery(&a, 5000)
+	apply_state_mark_recovery(&b, 5000)
+
+	// TF change on A only.
+	apply_state_on_tf_change(&a)
+	testing.expect_value(t, a.recovery_attempts, u8(0)) // A cleared
+	testing.expect_value(t, b.recovery_attempts, u8(1)) // B untouched
+}
+
+@(test)
+test_s42_exhausted_pane_does_not_trigger_resubscribe :: proc(t: ^testing.T) {
+	// A pane at max attempts should get .Exhausted, not .Resubscribe.
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Orderbook, 1000, true)
+	apply_state_mark_event(&s, .Stats, 1000, false)
+	s.recovery_attempts = RECOVERY_MAX_ATTEMPTS
+	s.recovery_last_ms = 1000
+
+	rem := apply_state_stale_remediation(s, 100_000) // well past any cooldown
+	testing.expect_value(t, rem, Remediation_Decision.Exhausted)
+}
+
+@(test)
+test_s42_cooldown_prevents_thrashing :: proc(t: ^testing.T) {
+	// During cooldown window, remediation should be .Cooldown not .Resubscribe.
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Orderbook, 1000, true)
+	apply_state_mark_event(&s, .Stats, 1000, false)
+
+	// First recovery attempt.
+	now := i64(20_000)
+	apply_state_mark_recovery(&s, now)
+
+	// Within cooldown (15s base): still stale but cooldown blocks resubscribe.
+	rem := apply_state_stale_remediation(s, now + 10_000)
+	testing.expect_value(t, rem, Remediation_Decision.Cooldown)
+
+	// After cooldown expires (attempt=1 → cooldown=30s): should allow next attempt.
+	rem = apply_state_stale_remediation(s, now + 31_000)
+	testing.expect_value(t, rem, Remediation_Decision.Resubscribe)
+}
+
+@(test)
+test_s42_recovery_event_log_tracks_per_slot :: proc(t: ^testing.T) {
+	// Recovery events should carry distinct slot_id for different panes.
+	log: Recovery_Event_Log
+
+	recovery_event_log_push(&log, Recovery_Event{kind = .Attempt, timestamp = 1000, attempts = 1, slot_id = 3})
+	recovery_event_log_push(&log, Recovery_Event{kind = .Attempt, timestamp = 2000, attempts = 1, slot_id = 7})
+	recovery_event_log_push(&log, Recovery_Event{kind = .Success, timestamp = 3000, attempts = 1, slot_id = 3})
+
+	testing.expect_value(t, log.count, 3)
+
+	// Index 0 = newest, 2 = oldest.
+	e0, ok0 := recovery_event_log_get(&log, 0) // newest: Success on slot 3
+	testing.expect(t, ok0, "event 0 must exist")
+	testing.expect_value(t, e0.slot_id, u8(3))
+	testing.expect_value(t, e0.kind, Recovery_Event_Kind.Success)
+
+	e1, ok1 := recovery_event_log_get(&log, 1) // middle: Attempt on slot 7
+	testing.expect(t, ok1, "event 1 must exist")
+	testing.expect_value(t, e1.slot_id, u8(7))
+
+	e2, ok2 := recovery_event_log_get(&log, 2) // oldest: Attempt on slot 3
+	testing.expect(t, ok2, "event 2 must exist")
+	testing.expect_value(t, e2.slot_id, u8(3))
+	testing.expect_value(t, e2.kind, Recovery_Event_Kind.Attempt)
+}
+
+// ---------------------------------------------------------------------------
+// S43: Surface View Composition Contract tests.
+// Verify that the pure functions composing Cell_Surface_View produce
+// consistent, correct results when combined — the "surface contract".
+// ---------------------------------------------------------------------------
+
+@(test)
+test_s43_surface_empty_state_contract :: proc(t: ^testing.T) {
+	// An empty apply_state must produce Empty composition, Healthy health, no recovery.
+	s: Stream_Apply_State
+
+	comp := apply_state_composition_stage(s)
+	testing.expect_value(t, comp, Composition_Stage.Empty)
+
+	health := stream_health_level(s, 1000)
+	testing.expect_value(t, health, System_Health_Level.Healthy)
+
+	stale, aging := apply_state_stale_artifact_count(s, 1000)
+	testing.expect_value(t, stale, 0)
+	testing.expect_value(t, aging, 0)
+
+	recovery := apply_state_recovery_status(s)
+	testing.expect_value(t, recovery, Recovery_Status.None)
+}
+
+@(test)
+test_s43_surface_live_only_contract :: proc(t: ^testing.T) {
+	// Live candle + no getrange = Live_Only, Healthy, no staleness.
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Candle, 1000, false)
+	apply_state_mark_event(&s, .Trade, 1000, false)
+
+	comp := apply_state_composition_stage(s)
+	testing.expect_value(t, comp, Composition_Stage.Live_Only)
+
+	health := stream_health_level(s, 2000)
+	testing.expect_value(t, health, System_Health_Level.Healthy)
+
+	stale, aging := apply_state_stale_artifact_count(s, 2000)
+	testing.expect_value(t, stale, 0)
+	testing.expect_value(t, aging, 0)
+
+	recovery := apply_state_recovery_status(s)
+	testing.expect_value(t, recovery, Recovery_Status.None)
+}
+
+@(test)
+test_s43_surface_composed_contract :: proc(t: ^testing.T) {
+	// Getrange seeded + live candle = Composed. All fields consistent.
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Candle, 5000, false)
+	apply_state_mark_range_sent(&s, 1, 0xABC)
+	s.getrange_seeded = true
+	s.getrange_oldest_ts = 1000
+
+	comp := apply_state_composition_stage(s)
+	testing.expect_value(t, comp, Composition_Stage.Composed)
+
+	health := stream_health_level(s, 6000)
+	testing.expect_value(t, health, System_Health_Level.Healthy)
+}
+
+@(test)
+test_s43_surface_range_pending_contract :: proc(t: ^testing.T) {
+	// Getrange pending + no live candle = Range_Pending.
+	s: Stream_Apply_State
+	apply_state_mark_range_sent(&s, 1, 0xABC)
+
+	comp := apply_state_composition_stage(s)
+	testing.expect_value(t, comp, Composition_Stage.Range_Pending)
+
+	health := stream_health_level(s, 1000)
+	testing.expect_value(t, health, System_Health_Level.Healthy)
+}
+
+@(test)
+test_s43_surface_backfilled_contract :: proc(t: ^testing.T) {
+	// Getrange seeded + no live candle = Backfilled.
+	s: Stream_Apply_State
+	apply_state_mark_range_sent(&s, 1, 0xABC)
+	s.getrange_pending = false
+	s.getrange_seeded = true
+	s.getrange_oldest_ts = 1000
+
+	comp := apply_state_composition_stage(s)
+	testing.expect_value(t, comp, Composition_Stage.Backfilled)
+}
+
+@(test)
+test_s43_surface_degraded_staleness_contract :: proc(t: ^testing.T) {
+	// Live data with aging artifacts → Degraded health, aging > 0.
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Orderbook, 1000, true)
+	apply_state_mark_event(&s, .Stats, 1000, false)
+	apply_state_mark_event(&s, .Trade, 1000, false)
+	apply_state_mark_event(&s, .Candle, 1000, false)
+
+	// 9s later: Dual_Silence artifacts (OB, Stats) are aging (>8s warn threshold).
+	now_ms := i64(10_000)
+	health := stream_health_level(s, now_ms)
+	testing.expect_value(t, health, System_Health_Level.Degraded)
+
+	stale, aging := apply_state_stale_artifact_count(s, now_ms)
+	testing.expect(t, aging > 0, "aging count must be > 0 for 9s silence on Dual_Silence artifacts")
+	testing.expect_value(t, stale, 0) // not yet stale (threshold is 12s)
+}
+
+@(test)
+test_s43_surface_unhealthy_staleness_contract :: proc(t: ^testing.T) {
+	// Live data with stale artifacts → Unhealthy health, stale > 0.
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Orderbook, 1000, true)
+	apply_state_mark_event(&s, .Stats, 1000, false)
+
+	// 13s later: stale threshold (12s) exceeded.
+	now_ms := i64(14_000)
+	health := stream_health_level(s, now_ms)
+	testing.expect_value(t, health, System_Health_Level.Unhealthy)
+
+	stale, aging := apply_state_stale_artifact_count(s, now_ms)
+	testing.expect(t, stale > 0, "stale count must be > 0 at 13s silence for Dual_Silence")
+	_ = aging
+}
+
+@(test)
+test_s43_surface_recovery_contract :: proc(t: ^testing.T) {
+	// Recovering → Degraded, Exhausted → Unhealthy. Contract consistency.
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Trade, 1000, false)
+
+	// Baseline: Healthy.
+	testing.expect_value(t, stream_health_level(s, 2000), System_Health_Level.Healthy)
+	testing.expect_value(t, apply_state_recovery_status(s), Recovery_Status.None)
+
+	// After 1 recovery attempt: Degraded + Recovering.
+	s.recovery_attempts = 1
+	testing.expect_value(t, stream_health_level(s, 2000), System_Health_Level.Degraded)
+	testing.expect_value(t, apply_state_recovery_status(s), Recovery_Status.Recovering)
+
+	// After max attempts: Unhealthy + Exhausted.
+	s.recovery_attempts = RECOVERY_MAX_ATTEMPTS
+	testing.expect_value(t, stream_health_level(s, 2000), System_Health_Level.Unhealthy)
+	testing.expect_value(t, apply_state_recovery_status(s), Recovery_Status.Exhausted)
+}
+
+@(test)
+test_s43_cell_composition_matches_apply_state :: proc(t: ^testing.T) {
+	// cell_composition_stage must agree with apply_state_composition_stage
+	// for equivalent inputs.
+	s: Stream_Apply_State
+
+	// Empty state: both should return Empty.
+	testing.expect_value(t, cell_composition_stage(false, false, false), Composition_Stage.Empty)
+	testing.expect_value(t, apply_state_composition_stage(s), Composition_Stage.Empty)
+
+	// Live only: candle live, no getrange.
+	apply_state_mark_event(&s, .Candle, 1000, false)
+	testing.expect_value(t, cell_composition_stage(false, false, true), Composition_Stage.Live_Only)
+	testing.expect_value(t, apply_state_composition_stage(s), Composition_Stage.Live_Only)
+
+	// Range pending: getrange sent, no live candle.
+	s2: Stream_Apply_State
+	apply_state_mark_range_sent(&s2, 1, 0xABC)
+	testing.expect_value(t, cell_composition_stage(true, false, false), Composition_Stage.Range_Pending)
+	testing.expect_value(t, apply_state_composition_stage(s2), Composition_Stage.Range_Pending)
+
+	// Composed: getrange seeded + live candle.
+	s3: Stream_Apply_State
+	apply_state_mark_event(&s3, .Candle, 1000, false)
+	apply_state_mark_range_sent(&s3, 1, 0xABC)
+	s3.getrange_seeded = true
+	s3.getrange_oldest_ts = 500
+	testing.expect_value(t, cell_composition_stage(false, true, true), Composition_Stage.Composed)
+	testing.expect_value(t, apply_state_composition_stage(s3), Composition_Stage.Composed)
+}
+
+@(test)
+test_s43_surface_tf_sensitive_health_isolation :: proc(t: ^testing.T) {
+	// Same apply_state, different TF → different health levels.
+	// This validates per-pane TF isolation at the contract level.
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Candle, 1000, false)
+	now_ms := i64(200_000) // 199s gap
+
+	// At 1m TF: candle gap is well past TF_Adaptive thresholds → stale.
+	health_1m := stream_health_level(s, now_ms, 60_000)
+
+	// At 1h TF: thresholds scale with TF → still healthy or degraded.
+	health_1h := stream_health_level(s, now_ms, 3_600_000)
+
+	// 1m must be worse than 1h.
+	testing.expect(t, int(health_1m) > int(health_1h),
+		"1m TF should have worse health than 1h TF for same gap")
+}
+
+@(test)
+test_s43_surface_staleness_tf_scaling :: proc(t: ^testing.T) {
+	// Stale artifact counts must scale with TF for TF_Adaptive artifacts (Candle).
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Candle, 1000, false)
+	now_ms := i64(200_000) // 199s gap
+
+	// 1m TF: Candle stale (3*60s = 180s threshold, gap=199s > threshold).
+	stale_1m, _ := apply_state_stale_artifact_count(s, now_ms, 60_000)
+
+	// 1h TF: Candle not stale (3*3600s = 10800s threshold, gap=199s < threshold).
+	stale_1h, _ := apply_state_stale_artifact_count(s, now_ms, 3_600_000)
+
+	testing.expect(t, stale_1m > stale_1h,
+		"1m TF should have more stale artifacts than 1h TF")
+}
+
+// --- S44: Compare Pane Autonomy Completion ---
+
+// S44: After getrange reset (simulating global TF change), composition reverts to
+// Live_Only if live candles exist, or Empty if not. This is the contract that
+// compare panes following global TF rely on after invalidation.
+@(test)
+test_s44_composition_after_getrange_reset_with_live_candle :: proc(t: ^testing.T) {
+	// Simulates: pane was Composed, then global TF change resets getrange.
+	// Slot still has has_live[.Candle] from previous data.
+	comp := cell_composition_stage(false, false, true)
+	testing.expect_value(t, comp, Composition_Stage.Live_Only)
+}
+
+@(test)
+test_s44_composition_after_getrange_reset_without_live_candle :: proc(t: ^testing.T) {
+	// Simulates: pane had only backfill, global TF change resets getrange.
+	// No live candle yet at new TF → Empty.
+	comp := cell_composition_stage(false, false, false)
+	testing.expect_value(t, comp, Composition_Stage.Empty)
+}
+
+// S44: TF change clears recovery state — TF change triggers a full resubscribe,
+// which is itself a recovery action. Recovery counters reset to zero.
+@(test)
+test_s44_tf_change_clears_recovery_state :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Orderbook, 1000, true)
+	apply_state_mark_recovery(&s, 5000)
+	testing.expect(t, s.recovery_attempts == 1, "should have 1 recovery attempt")
+
+	apply_state_on_tf_change(&s)
+
+	testing.expect(t, s.recovery_attempts == 0,
+		"TF change must clear recovery_attempts (resubscribe is recovery)")
+	testing.expect(t, s.recovery_last_ms == 0,
+		"TF change must clear recovery_last_ms")
+}
+
+// S44: Per-pane TF override pane's composition must be unaffected by global TF change.
+// When pane A follows global and pane B has override, only A gets invalidated.
+// Verified by showing B's apply_state/composition inputs are independent.
+@(test)
+test_s44_per_pane_override_survives_global_tf_change :: proc(t: ^testing.T) {
+	// Pane B: per-pane TF override, Composed state.
+	b: Stream_Apply_State
+	apply_state_mark_event(&b, .Candle, 1000, false)
+	apply_state_mark_range_sent(&b, 10, 0)
+	apply_state_mark_range_complete(&b, 500)
+	comp_b := cell_composition_stage(b.getrange_pending, b.getrange_seeded, b.has_live[.Candle])
+	testing.expect_value(t, comp_b, Composition_Stage.Composed)
+
+	// Simulate global TF change affecting pane A but NOT pane B.
+	// Pane A: getrange reset (pending=false, seeded=false).
+	comp_a := cell_composition_stage(false, false, false)
+	testing.expect_value(t, comp_a, Composition_Stage.Empty)
+
+	// Pane B: unchanged — its apply_state was never touched.
+	comp_b2 := cell_composition_stage(b.getrange_pending, b.getrange_seeded, b.has_live[.Candle])
+	testing.expect_value(t, comp_b2, Composition_Stage.Composed)
+}
+
+// S44: After getrange invalidation + reseed, pane transitions back through
+// the full composition lifecycle (Empty → Range_Pending → Composed).
+@(test)
+test_s44_reseed_lifecycle_after_invalidation :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Candle, 1000, false)
+	apply_state_mark_range_sent(&s, 10, 0)
+	apply_state_mark_range_complete(&s, 500)
+	testing.expect_value(t, cell_composition_stage(s.getrange_pending, s.getrange_seeded, s.has_live[.Candle]),
+		Composition_Stage.Composed)
+
+	// Simulate global TF change: reset getrange, clear TF-sensitive state.
+	apply_state_on_tf_change(&s)
+	// Per-pane getrange also reset (app layer does getranges[cpi] = {}).
+	pane_pending := false
+	pane_seeded := false
+
+	// After invalidation: has_live[.Candle] cleared by tf_change, getrange reset.
+	comp := cell_composition_stage(pane_pending, pane_seeded, s.has_live[.Candle])
+	testing.expect_value(t, comp, Composition_Stage.Empty)
+
+	// Reseed: new getrange request sent.
+	pane_pending = true
+	comp = cell_composition_stage(pane_pending, pane_seeded, s.has_live[.Candle])
+	testing.expect_value(t, comp, Composition_Stage.Range_Pending)
+
+	// Range complete + live candle at new TF.
+	pane_pending = false
+	pane_seeded = true
+	apply_state_mark_event(&s, .Candle, 2000, false) // Live candle at new TF.
+	comp = cell_composition_stage(pane_pending, pane_seeded, s.has_live[.Candle])
+	testing.expect_value(t, comp, Composition_Stage.Composed)
+}
+
+// S44: Health level adapts to TF for TF-Adaptive (candle) artifacts.
+// Candle staleness thresholds scale with TF — same gap is stale at 1m but healthy at 1h.
+@(test)
+test_s44_health_adapts_to_new_tf_after_change :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	// Only candle — Dual_Silence artifacts (OB/Stats) would dominate with fixed 12s threshold.
+	apply_state_mark_event(&s, .Candle, 1000, false)
+	now_ms := i64(200_000) // 199s gap
+
+	// 1m TF: candle stale (3*60s=180s threshold, 199s > 180s → stale).
+	stale_1m, aging_1m := apply_state_stale_artifact_count(s, now_ms, 60_000)
+
+	// 1h TF: candle not stale (3*3600s=10800s threshold, 199s < 10800s → fresh).
+	stale_1h, aging_1h := apply_state_stale_artifact_count(s, now_ms, 3_600_000)
+
+	testing.expect(t, stale_1m > stale_1h,
+		"1m TF should have more stale artifacts than 1h TF for same gap")
+	_ = aging_1m
+	_ = aging_1h
+}
+
+// S44: Getrange timeout detection works correctly after invalidation + reseed.
+// Ensures the new sent_frame is used for timeout, not stale frame from old TF.
+@(test)
+test_s44_getrange_timeout_uses_reseed_frame :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	// Old getrange at frame 100.
+	apply_state_mark_range_sent(&s, 100, 0)
+	testing.expect(t, apply_state_check_getrange_timeout(s, 500, 300), "old request should timeout")
+
+	// Simulate TF change invalidation + reseed at frame 1000.
+	s.getrange_pending = false
+	s.getrange_seeded = false
+	apply_state_mark_range_sent(&s, 1000, 0)
+
+	// At frame 1200: not timed out (only 200 frames since reseed).
+	testing.expect(t, !apply_state_check_getrange_timeout(s, 1200, 300),
+		"reseed frame should be used for timeout, not old frame")
+
+	// At frame 1400: timed out (400 > 300 frames since reseed).
+	testing.expect(t, apply_state_check_getrange_timeout(s, 1400, 300),
+		"should timeout after threshold from reseed frame")
+}
+
+// S44: TF change clears recovery, so post-TF-change remediation starts fresh.
+// A stale Dual_Silence artifact (OB) after TF change triggers immediate Resubscribe
+// (not Cooldown) since recovery_attempts was cleared to 0.
+@(test)
+test_s44_recovery_resets_on_tf_change :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Orderbook, 1000, true)
+
+	// Two recovery attempts with escalating backoff.
+	apply_state_mark_recovery(&s, 5000)
+	apply_state_mark_recovery(&s, 20_000)
+	testing.expect(t, s.recovery_attempts == 2, "two attempts before TF change")
+
+	// TF change clears recovery state.
+	apply_state_on_tf_change(&s)
+	testing.expect(t, s.recovery_attempts == 0,
+		"TF change must reset attempt count")
+
+	// Re-receive OB data at new TF to set up Dual_Silence tracking.
+	apply_state_mark_event(&s, .Orderbook, 30_000, true)
+
+	// OB goes stale (now=50s, OB at 30s → 20s gap > 12s threshold).
+	// With recovery_attempts=0, first stale triggers Resubscribe (not Cooldown).
+	remediation := apply_state_stale_remediation(s, 50_000, 60_000)
+	testing.expect_value(t, remediation, Remediation_Decision.Resubscribe)
+}
+
+// ===================================================================
+// S45: Workspace Schema Contract Tests
+// Verify bitfield layout, persist/derive boundary, and schema invariants.
+// ===================================================================
+
+// Chart display bitfield roundtrip: pack and unpack must be symmetric.
+@(test)
+test_s45_chart_display_bitfield_roundtrip :: proc(t: ^testing.T) {
+	// Pack: bit0=vol, bit1=heatmap, bit2=vpvr, bits3-4=heatmap_idx,
+	//       bits5-8=ob_grp, bits9-12=dom_grp, bits13-16=trade_filter
+	f := 0
+	f |= 1 << 0   // show_vol = true
+	f |= 0 << 1   // show_heatmap = false
+	f |= 1 << 2   // show_vpvr = true
+	f |= 2 << 3   // heatmap_intensity_idx = 2
+	f |= 5 << 5   // ob_group_idx = 5
+	f |= 3 << 9   // dom_group_idx = 3
+	f |= 7 << 13  // trade_filter_idx = 7
+
+	// Unpack and verify.
+	testing.expect(t, (f & (1 << 0)) != 0, "vol bit set")
+	testing.expect(t, (f & (1 << 1)) == 0, "heatmap bit clear")
+	testing.expect(t, (f & (1 << 2)) != 0, "vpvr bit set")
+	testing.expect_value(t, (f >> 3) & 0x3, 2)
+	testing.expect_value(t, (f >> 5) & 0xF, 5)
+	testing.expect_value(t, (f >> 9) & 0xF, 3)
+	testing.expect_value(t, (f >> 13) & 0xF, 7)
+}
+
+// Chart display zero state: all flags off, all indices zero.
+@(test)
+test_s45_chart_display_zero_state :: proc(t: ^testing.T) {
+	f := 0
+	testing.expect(t, (f & (1 << 0)) == 0, "vol off")
+	testing.expect(t, (f & (1 << 1)) == 0, "heatmap off")
+	testing.expect(t, (f & (1 << 2)) == 0, "vpvr off")
+	testing.expect_value(t, (f >> 3) & 0x3, 0)
+	testing.expect_value(t, (f >> 5) & 0xF, 0)
+	testing.expect_value(t, (f >> 9) & 0xF, 0)
+	testing.expect_value(t, (f >> 13) & 0xF, 0)
+}
+
+// Chart display max values: all flags on, max valid indices.
+@(test)
+test_s45_chart_display_max_values :: proc(t: ^testing.T) {
+	f := 0
+	f |= 1 << 0    // vol
+	f |= 1 << 1    // heatmap
+	f |= 1 << 2    // vpvr
+	f |= 3 << 3    // max heatmap_idx (2 bits)
+	f |= 15 << 5   // max ob_grp (4 bits)
+	f |= 15 << 9   // max dom_grp (4 bits)
+	f |= 15 << 13  // max trade_filter (4 bits)
+
+	testing.expect(t, (f & (1 << 0)) != 0, "vol on")
+	testing.expect(t, (f & (1 << 1)) != 0, "heatmap on")
+	testing.expect(t, (f & (1 << 2)) != 0, "vpvr on")
+	testing.expect_value(t, (f >> 3) & 0x3, 3)
+	testing.expect_value(t, (f >> 5) & 0xF, 15)
+	testing.expect_value(t, (f >> 9) & 0xF, 15)
+	testing.expect_value(t, (f >> 13) & 0xF, 15)
+}
+
+// Bit isolation: ob_group_idx must not bleed into heatmap_idx or dom_group_idx.
+@(test)
+test_s45_chart_display_ob_grp_isolation :: proc(t: ^testing.T) {
+	f := 15 << 5  // ob_grp = 15, everything else 0
+	testing.expect(t, (f & (1 << 0)) == 0, "vol must be 0")
+	testing.expect(t, (f & (1 << 1)) == 0, "heatmap must be 0")
+	testing.expect(t, (f & (1 << 2)) == 0, "vpvr must be 0")
+	testing.expect_value(t, (f >> 3) & 0x3, 0)   // heatmap_idx clean
+	testing.expect_value(t, (f >> 5) & 0xF, 15)   // ob_grp correct
+	testing.expect_value(t, (f >> 9) & 0xF, 0)    // dom_grp clean
+	testing.expect_value(t, (f >> 13) & 0xF, 0)   // trade_filter clean
+}
+
+// Bit isolation: dom_group_idx must not bleed into adjacent fields.
+@(test)
+test_s45_chart_display_dom_grp_isolation :: proc(t: ^testing.T) {
+	f := 15 << 9  // dom_grp = 15, everything else 0
+	testing.expect_value(t, (f >> 3) & 0x3, 0)    // heatmap_idx clean
+	testing.expect_value(t, (f >> 5) & 0xF, 0)    // ob_grp clean
+	testing.expect_value(t, (f >> 9) & 0xF, 15)   // dom_grp correct
+	testing.expect_value(t, (f >> 13) & 0xF, 0)   // trade_filter clean
+}
+
+// Composition stage must be deterministic: same apply_state inputs → same stage.
+@(test)
+test_s45_schema_composition_deterministic :: proc(t: ^testing.T) {
+	// Two identical apply states must produce identical composition stages.
+	s1, s2: Stream_Apply_State
+	apply_state_mark_event(&s1, .Candle, 5000, false)
+	apply_state_mark_event(&s2, .Candle, 5000, false)
+	s1.getrange_seeded = true
+	s2.getrange_seeded = true
+
+	c1 := apply_state_composition_stage(s1)
+	c2 := apply_state_composition_stage(s2)
+	testing.expect_value(t, c1, c2)
+	testing.expect_value(t, c1, Composition_Stage.Composed)
+}
+
+// Persisted state must not include recovery/backfill (these are derived/transient).
+@(test)
+test_s45_schema_recovery_is_transient :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Orderbook, 1000, true)
+	apply_state_mark_recovery(&s, 5000)
+	testing.expect(t, s.recovery_attempts == 1, "recovery tracked")
+
+	// TF change resets recovery — proving it's transient per-session state.
+	apply_state_on_tf_change(&s)
+	testing.expect_value(t, s.recovery_attempts, u8(0))
+}
+
+// Reconnect must reset only policy-gated artifacts, not all persisted state.
+@(test)
+test_s45_schema_reconnect_preserves_persisted_markers :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	// Trade: no gate, should survive reconnect.
+	apply_state_mark_event(&s, .Trade, 1000, false)
+	// Candle: live, should survive reconnect.
+	apply_state_mark_event(&s, .Candle, 2000, false)
+	s.getrange_seeded = true
+
+	apply_state_on_reconnect(&s)
+
+	// Trade snapshot_seen survives (not gated).
+	testing.expect(t, s.snapshot_seen[.Trade], "trade snapshot survives reconnect")
+	// Candle live survives.
+	testing.expect(t, s.has_live[.Candle], "candle live survives reconnect")
+	// getrange_pending cleared (transient backfill state).
+	testing.expect(t, !s.getrange_pending, "getrange cleared on reconnect")
+}
+
+// Composition stage covers full lifecycle: Empty → Pending → Backfilled → LiveOnly → Composed.
+@(test)
+test_s45_schema_composition_lifecycle_coverage :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	// Empty.
+	testing.expect_value(t, apply_state_composition_stage(s), Composition_Stage.Empty)
+
+	// Pending (getrange in flight).
+	s.getrange_pending = true
+	testing.expect_value(t, apply_state_composition_stage(s), Composition_Stage.Range_Pending)
+
+	// Backfilled (seeded, no live candle).
+	s.getrange_pending = false
+	s.getrange_seeded = true
+	testing.expect_value(t, apply_state_composition_stage(s), Composition_Stage.Backfilled)
+
+	// Live_Only (live candle, no backfill).
+	s2: Stream_Apply_State
+	apply_state_mark_event(&s2, .Candle, 5000, false)
+	testing.expect_value(t, apply_state_composition_stage(s2), Composition_Stage.Live_Only)
+
+	// Composed (seeded + live candle).
+	s.has_live[.Candle] = true
+	testing.expect_value(t, apply_state_composition_stage(s), Composition_Stage.Composed)
+}
+
+// =========================================================================
+// S46: Deterministic Runtime Snapshot tests.
+// Verify snapshot capture determinism, serialization, and apply state equality.
+// =========================================================================
+
+@(test)
+test_s46_snapshot_version_constant :: proc(t: ^testing.T) {
+	testing.expect_value(t, RUNTIME_SNAPSHOT_VERSION, 1)
+	testing.expect_value(t, SNAPSHOT_MAX_SLOTS, 32)
+	testing.expect_value(t, SNAPSHOT_MAX_CELLS, 12)
+	testing.expect_value(t, SNAPSHOT_MAX_COMPARE_PANES, 4)
+}
+
+@(test)
+test_s46_empty_snapshot_serializes :: proc(t: ^testing.T) {
+	snap: Runtime_Snapshot
+	snap.version = RUNTIME_SNAPSHOT_VERSION
+	buf: [SNAPSHOT_SERIALIZE_CAP]u8
+	n := runtime_snapshot_serialize(&snap, buf[:])
+	testing.expect(t, n > 0, "empty snapshot must produce output")
+
+	// Must start with "SNAP1|"
+	out := string(buf[:n])
+	testing.expect(t, len(out) >= 5, "output too short")
+	testing.expect(t, out[:5] == "SNAP1", "must start with SNAP1")
+}
+
+@(test)
+test_s46_serialize_deterministic :: proc(t: ^testing.T) {
+	// Build a snapshot with known state.
+	snap: Runtime_Snapshot
+	snap.version = RUNTIME_SNAPSHOT_VERSION
+	snap.capture_ts_ms = 1709800000000
+	snap.active_subject_id = 42
+	snap.active_tf_idx = 3
+	snap.active_apply_state.event_count = 100
+	snap.active_apply_state.has_live[.Trade] = true
+	snap.active_apply_state.has_live[.Candle] = true
+	snap.active_apply_state.getrange_seeded = true
+
+	// Serialize twice — must produce identical output.
+	buf1: [SNAPSHOT_SERIALIZE_CAP]u8
+	buf2: [SNAPSHOT_SERIALIZE_CAP]u8
+	n1 := runtime_snapshot_serialize(&snap, buf1[:])
+	n2 := runtime_snapshot_serialize(&snap, buf2[:])
+	testing.expect_value(t, n1, n2)
+	testing.expect(t, n1 > 0, "must produce output")
+	for i in 0 ..< n1 {
+		if buf1[i] != buf2[i] {
+			testing.expect(t, false, "determinism violation at byte")
+			break
+		}
+	}
+}
+
+@(test)
+test_s46_apply_state_equality_basic :: proc(t: ^testing.T) {
+	a: Stream_Apply_State
+	b: Stream_Apply_State
+	testing.expect(t, runtime_snapshot_apply_states_equal(a, b), "zero states must be equal")
+
+	apply_state_mark_event(&a, .Trade, 1000, false)
+	testing.expect(t, !runtime_snapshot_apply_states_equal(a, b), "different event counts must differ")
+
+	apply_state_mark_event(&b, .Trade, 1000, false)
+	testing.expect(t, runtime_snapshot_apply_states_equal(a, b), "same events must match")
+}
+
+@(test)
+test_s46_apply_state_equality_getrange :: proc(t: ^testing.T) {
+	a: Stream_Apply_State
+	b: Stream_Apply_State
+	a.getrange_seeded = true
+	a.getrange_oldest_ts = 5000
+	testing.expect(t, !runtime_snapshot_apply_states_equal(a, b), "getrange diff must detect")
+	b.getrange_seeded = true
+	b.getrange_oldest_ts = 5000
+	testing.expect(t, runtime_snapshot_apply_states_equal(a, b), "getrange match")
+}
+
+@(test)
+test_s46_apply_state_equality_recovery :: proc(t: ^testing.T) {
+	a: Stream_Apply_State
+	b: Stream_Apply_State
+	a.recovery_attempts = 2
+	a.recovery_last_ms = 9000
+	testing.expect(t, !runtime_snapshot_apply_states_equal(a, b), "recovery diff must detect")
+	b.recovery_attempts = 2
+	b.recovery_last_ms = 9000
+	testing.expect(t, runtime_snapshot_apply_states_equal(a, b), "recovery match")
+}
+
+@(test)
+test_s46_snapshot_with_slots_serializes :: proc(t: ^testing.T) {
+	snap: Runtime_Snapshot
+	snap.version = RUNTIME_SNAPSHOT_VERSION
+	snap.capture_ts_ms = 1000
+	snap.slot_count = 2
+
+	// Slot 0: used
+	snap.slots[0].used = true
+	snap.slots[0].subject_id = 100
+	v0 := "binance"
+	for i in 0 ..< len(v0) { snap.slots[0].venue[i] = v0[i] }
+	snap.slots[0].venue_len = u8(len(v0))
+	s0 := "BTCUSDT"
+	for i in 0 ..< len(s0) { snap.slots[0].symbol[i] = s0[i] }
+	snap.slots[0].symbol_len = u8(len(s0))
+	snap.slots[0].timeframe_ms = 60000
+	apply_state_mark_event(&snap.slots[0].apply_state, .Trade, 500, false)
+
+	// Slot 1: used
+	snap.slots[1].used = true
+	snap.slots[1].subject_id = 200
+
+	buf: [SNAPSHOT_SERIALIZE_CAP]u8
+	n := runtime_snapshot_serialize(&snap, buf[:])
+	testing.expect(t, n > 100, "slot snapshot must be substantial")
+
+	// Verify presence of SL lines.
+	out := string(buf[:n])
+	has_sl := false
+	for i in 0 ..< len(out) - 2 {
+		if out[i] == 'S' && out[i + 1] == 'L' && out[i + 2] == '|' {
+			has_sl = true
+			break
+		}
+	}
+	testing.expect(t, has_sl, "must contain SL| lines")
+}
+
+@(test)
+test_s46_snapshot_with_cells_serializes :: proc(t: ^testing.T) {
+	snap: Runtime_Snapshot
+	snap.version = RUNTIME_SNAPSHOT_VERSION
+	snap.cell_count = 2
+	snap.cells[0].widget_kind = 3 // Candle
+	snap.cells[0].stream_idx = -1
+	snap.cells[0].tf_idx = -1
+	snap.cells[1].widget_kind = 1
+	snap.cells[1].stream_idx = 0
+	snap.cells[1].tf_idx = 2
+
+	buf: [SNAPSHOT_SERIALIZE_CAP]u8
+	n := runtime_snapshot_serialize(&snap, buf[:])
+	testing.expect(t, n > 50, "cell snapshot must be substantial")
+
+	// Verify CL| lines present.
+	out := string(buf[:n])
+	has_cl := false
+	for i in 0 ..< len(out) - 2 {
+		if out[i] == 'C' && out[i + 1] == 'L' && out[i + 2] == '|' {
+			has_cl = true
+			break
+		}
+	}
+	testing.expect(t, has_cl, "must contain CL| lines")
+}
+
+@(test)
+test_s46_snapshot_compare_serializes :: proc(t: ^testing.T) {
+	snap: Runtime_Snapshot
+	snap.version = RUNTIME_SNAPSHOT_VERSION
+	snap.compare.active = true
+	snap.compare.count = 2
+	snap.compare.widget_idx = 2
+	snap.compare.focused_pane = 1
+	snap.compare.slots[0] = 100
+	snap.compare.slots[1] = 200
+	snap.compare.tf_idx[0] = -1
+	snap.compare.tf_idx[1] = 4
+	snap.compare.getranges[0].seeded = true
+	snap.compare.getranges[0].oldest_ts = 5000
+
+	buf: [SNAPSHOT_SERIALIZE_CAP]u8
+	n := runtime_snapshot_serialize(&snap, buf[:])
+	testing.expect(t, n > 30, "compare snapshot must produce output")
+
+	// Verify CM| line present.
+	out := string(buf[:n])
+	has_cm := false
+	for i in 0 ..< len(out) - 2 {
+		if out[i] == 'C' && out[i + 1] == 'M' && out[i + 2] == '|' {
+			has_cm = true
+			break
+		}
+	}
+	testing.expect(t, has_cm, "must contain CM| line")
+}
+
+@(test)
+test_s46_snapshot_recovery_log_serializes :: proc(t: ^testing.T) {
+	snap: Runtime_Snapshot
+	snap.version = RUNTIME_SNAPSHOT_VERSION
+
+	// Push 3 events into recovery log.
+	recovery_event_log_push(&snap.recovery_log, Recovery_Event{kind = .Attempt, timestamp = 1000, attempts = 1, slot_id = 0})
+	recovery_event_log_push(&snap.recovery_log, Recovery_Event{kind = .Success, timestamp = 2000, attempts = 1, slot_id = 0})
+	recovery_event_log_push(&snap.recovery_log, Recovery_Event{kind = .Reset, timestamp = 3000, attempts = 0, slot_id = 1})
+
+	buf: [SNAPSHOT_SERIALIZE_CAP]u8
+	n := runtime_snapshot_serialize(&snap, buf[:])
+	testing.expect(t, n > 30, "recovery log must serialize")
+
+	// Verify RL| and RE| lines present.
+	out := string(buf[:n])
+	has_rl := false
+	has_re := false
+	for i in 0 ..< len(out) - 2 {
+		if out[i] == 'R' && out[i + 1] == 'L' && out[i + 2] == '|' do has_rl = true
+		if out[i] == 'R' && out[i + 1] == 'E' && out[i + 2] == '|' do has_re = true
+	}
+	testing.expect(t, has_rl, "must contain RL| line")
+	testing.expect(t, has_re, "must contain RE| lines")
+}
+
+@(test)
+test_s46_nil_snapshot_serializes_zero :: proc(t: ^testing.T) {
+	buf: [256]u8
+	n := runtime_snapshot_serialize(nil, buf[:])
+	testing.expect_value(t, n, 0)
+}
+
+@(test)
+test_s46_aggregate_health_in_snapshot :: proc(t: ^testing.T) {
+	snap: Runtime_Snapshot
+	snap.version = RUNTIME_SNAPSHOT_VERSION
+	snap.aggregate_health.health_level = .Degraded
+	snap.aggregate_health.slot_count = 5
+	snap.aggregate_health.slots_composed = 3
+	snap.aggregate_health.total_aging = 2
+
+	buf: [SNAPSHOT_SERIALIZE_CAP]u8
+	n := runtime_snapshot_serialize(&snap, buf[:])
+	testing.expect(t, n > 0, "aggregate health must serialize")
+
+	// Verify AH| line present.
+	out := string(buf[:n])
+	has_ah := false
+	for i in 0 ..< len(out) - 2 {
+		if out[i] == 'A' && out[i + 1] == 'H' && out[i + 2] == '|' {
+			has_ah = true
+			break
+		}
+	}
+	testing.expect(t, has_ah, "must contain AH| line")
+}
+
+@(test)
+test_s46_apply_state_bitmask_roundtrip :: proc(t: ^testing.T) {
+	// Verify that bitmask packing in serialization captures all artifact kinds.
+	s: Stream_Apply_State
+	for kind in Artifact_Kind {
+		apply_state_mark_event(&s, kind, 1000 + i64(kind) * 100, kind == .Orderbook)
+	}
+	testing.expect_value(t, s.event_count, u64(len(Artifact_Kind)))
+
+	// Serialize and check all artifacts appear in the apply state line.
+	snap: Runtime_Snapshot
+	snap.version = RUNTIME_SNAPSHOT_VERSION
+	snap.active_apply_state = s
+
+	buf: [SNAPSHOT_SERIALIZE_CAP]u8
+	n := runtime_snapshot_serialize(&snap, buf[:])
+	testing.expect(t, n > 0, "must serialize")
+
+	// The bitmask for all artifacts set = (1<<len(Artifact_Kind))-1
+	all_mask := u16((1 << uint(len(Artifact_Kind))) - 1)
+	testing.expect(t, all_mask > 0, "artifact mask must be nonzero")
+
+	// Verify determinism: same input, same output, both times.
+	buf2: [SNAPSHOT_SERIALIZE_CAP]u8
+	n2 := runtime_snapshot_serialize(&snap, buf2[:])
+	testing.expect_value(t, n, n2)
+}

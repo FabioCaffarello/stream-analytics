@@ -56,31 +56,112 @@ build_compare_mode :: proc(
 
 	for ci in 0 ..< state.compare.count {
 		cell_rect := cmp_result.rects[ci]
-		sid := state.compare.slots[ci]
+		if state.compare.slots[ci] == 0 do continue
+
+		// S39: Click-to-focus — if pointer is inside this pane and mouse pressed, focus it.
+		is_focused := ci == state.compare.focused_pane
+		if ui.rect_contains(cell_rect, pointer.pos) && pointer.left_pressed {
+			state.compare.focused_pane = ci
+			is_focused = true
+		}
+
+		// S38: Resolve effective subject_id (per-pane TF aware) for rendering.
+		sid := compare_pane_resolve_subject_id(state, ci)
 		if sid == 0 do continue
 
+		// S38: Surface view uses per-pane TF for health/staleness.
+		sv := resolve_compare_surface_view(state, ci)
+
 		venue_label := "---"
-		if reg := state.stream_views; reg != nil {
-			slot_idx := stream_view_find_slot(reg, sid)
-			if slot_idx >= 0 {
-				slot := &reg.slots[slot_idx]
-				if !slot.has_stream_info {
-					refresh_stream_info_for_slot(state, slot)
-				}
-				if slot.has_stream_info && len(slot.stream_info.venue) > 0 {
-					vl_buf: [64]u8
-					venue_label = fmt.bprintf(vl_buf[:], "%s:%s", slot.stream_info.venue, slot.stream_info.symbol)
-				}
-			}
+		vl_buf: [64]u8
+		if len(sv.venue) > 0 {
+			venue_label = fmt.bprintf(vl_buf[:], "%s:%s", sv.venue, sv.symbol)
 		}
 
 		header_h := f32(18)
 		header_rect := ui.rect_cut_top(&cell_rect, header_h)
 		ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = header_rect, color = ui.with_alpha(ui.COL_SURFACE_1, 0.9)})
-		ui.push_text(&state.cmd_buf,
-			{header_rect.pos.x + 6, header_rect.pos.y + header_h * 0.5 + ui.FONT_SIZE_XS * 0.35},
+
+		// S37: Venue:Symbol label.
+		cursor_x := header_rect.pos.x + 6
+		text_y := header_rect.pos.y + header_h * 0.5 + ui.FONT_SIZE_XS * 0.35
+		ui.push_text(&state.cmd_buf, {cursor_x, text_y},
 			venue_label, ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_XS, .Bold)
+		cursor_x += state.text.measure(ui.FONT_SIZE_XS, venue_label).x + 6
+
+		// S38: Per-pane TF badge.
+		tf_opts := TF_OPTIONS
+		eff_tf := compare_pane_effective_tf_idx(state, ci)
+		tf_str := tf_opts[eff_tf] if eff_tf >= 0 && eff_tf < len(tf_opts) else tf_opts[0]
+		is_per_pane_tf := state.compare.tf_idx[ci] >= 0
+		tf_color := is_per_pane_tf ? ui.COL_BLUE : ui.COL_YELLOW_ACCENT
+		ui.push_text(&state.cmd_buf, {cursor_x, text_y},
+			tf_str, tf_color, ui.FONT_SIZE_XS, .Mono)
+		cursor_x += state.text.measure(ui.FONT_SIZE_XS, tf_str).x + 4
+
+		// S37: Composition badge (PEND/BFILL/LIVE/COMP).
+		comp_label: string
+		comp_color: ui.Color
+		switch sv.composition {
+		case .Range_Pending: comp_label = "PEND";  comp_color = ui.COL_WARNING
+		case .Backfilled:    comp_label = "BFILL"; comp_color = ui.COL_WARNING
+		case .Live_Only:     comp_label = "LIVE";  comp_color = ui.COL_YELLOW_ACCENT
+		case .Composed:      comp_label = "COMP";  comp_color = ui.COL_GREEN
+		case .Empty:
+		}
+		if len(comp_label) > 0 {
+			ui.push_text(&state.cmd_buf, {cursor_x, text_y},
+				comp_label, comp_color, ui.FONT_SIZE_XS, .Mono)
+			cursor_x += state.text.measure(ui.FONT_SIZE_XS, comp_label).x + 4
+		}
+
+		// S42: Recovery badge (RCVR/XHST) — surfaces per-pane recovery status.
+		switch sv.recovery_status {
+		case .Recovering:
+			rcvr_label :: "RCVR"
+			ui.push_text(&state.cmd_buf, {cursor_x, text_y},
+				rcvr_label, ui.COL_WARNING, ui.FONT_SIZE_XS, .Mono)
+			cursor_x += state.text.measure(ui.FONT_SIZE_XS, rcvr_label).x + 4
+		case .Exhausted:
+			xhst_label :: "XHST"
+			ui.push_text(&state.cmd_buf, {cursor_x, text_y},
+				xhst_label, ui.COL_RED, ui.FONT_SIZE_XS, .Mono)
+			cursor_x += state.text.measure(ui.FONT_SIZE_XS, xhst_label).x + 4
+		case .None:
+		}
+
+		// S37: Health dot — colored indicator for per-pane health level.
+		health_color := ui.COL_GREEN
+		switch sv.health_level {
+		case .Degraded:  health_color = ui.COL_WARNING
+		case .Unhealthy: health_color = ui.COL_RED
+		case .Critical:  health_color = ui.COL_RED
+		case .Healthy:
+		}
+		if sv.has_live_data || sv.composition != .Empty {
+			dot_sz := f32(6)
+			dot_y := header_rect.pos.y + (header_h - dot_sz) * 0.5
+			ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
+				rect = ui.rect_xywh(cursor_x, dot_y, dot_sz, dot_sz),
+				color = health_color,
+			})
+		}
 
 		render_subject_layer_canvas(state, sid, render_kind, cell_rect)
+
+		// S39: Focused pane border highlight.
+		if is_focused {
+			border_color := ui.with_alpha(ui.COL_BLUE, 0.6)
+			b := f32(1)
+			full_rect := cmp_result.rects[ci]
+			// Top
+			ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = ui.rect_xywh(full_rect.pos.x, full_rect.pos.y, full_rect.size.x, b), color = border_color})
+			// Bottom
+			ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = ui.rect_xywh(full_rect.pos.x, full_rect.pos.y + full_rect.size.y - b, full_rect.size.x, b), color = border_color})
+			// Left
+			ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = ui.rect_xywh(full_rect.pos.x, full_rect.pos.y, b, full_rect.size.y), color = border_color})
+			// Right
+			ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = ui.rect_xywh(full_rect.pos.x + full_rect.size.x - b, full_rect.pos.y, b, full_rect.size.y), color = border_color})
+		}
 	}
 }

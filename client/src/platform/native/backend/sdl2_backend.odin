@@ -254,6 +254,7 @@ sdl2_collect_input :: proc() -> ports.Input_State {
 	if keyboard[sdl.SCANCODE_J] != 0 do curr_keys += {.J}
 	if keyboard[sdl.SCANCODE_K] != 0 do curr_keys += {.K}
 	if keyboard[sdl.SCANCODE_Z] != 0 do curr_keys += {.Z}
+	if keyboard[sdl.SCANCODE_D] != 0 do curr_keys += {.D}
 	if keyboard[sdl.SCANCODE_DELETE] != 0 || keyboard[sdl.SCANCODE_BACKSPACE] != 0 do curr_keys += {.Delete}
 	input.keys.pressed = curr_keys
 	mark_sdl_key_edges(&input, curr_keys, g_sdl_prev_keys_down, .Up)
@@ -287,6 +288,7 @@ sdl2_collect_input :: proc() -> ports.Input_State {
 	mark_sdl_key_edges(&input, curr_keys, g_sdl_prev_keys_down, .J)
 	mark_sdl_key_edges(&input, curr_keys, g_sdl_prev_keys_down, .K)
 	mark_sdl_key_edges(&input, curr_keys, g_sdl_prev_keys_down, .Z)
+	mark_sdl_key_edges(&input, curr_keys, g_sdl_prev_keys_down, .D)
 	mark_sdl_key_edges(&input, curr_keys, g_sdl_prev_keys_down, .Delete)
 	g_sdl_prev_keys_down = curr_keys
 

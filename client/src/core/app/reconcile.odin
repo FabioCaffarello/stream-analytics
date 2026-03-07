@@ -248,8 +248,8 @@ reconcile_subscriptions :: proc(state: ^App_State) {
 			if !ok do continue
 			cmp_venue = san_cmp_venue
 			cmp_symbol = san_cmp_symbol
-			eff_tf_idx := state.active_tf_idx
-			cmp_tf := tf_opts[eff_tf_idx] if eff_tf_idx >= 0 && eff_tf_idx < len(tf_opts) else tf_opts[0]
+			// S38: Per-pane TF (was state.active_tf_idx for all panes).
+			cmp_tf := compare_pane_effective_tf_string(state, csi)
 			// Merge into wanted set.
 			found_cmp := false
 			for wi in 0 ..< wanted_count {

@@ -6,7 +6,7 @@ apply_set_cell_widget_action :: proc(state: ^App_State, cell_idx: int, widget_ki
 	if state == nil do return
 	if cell_idx < 0 || cell_idx >= state.world.count do return
 	state.world.widgets[cell_idx].kind = widget_kind
-	persist_layout_v4(state)
+	persist_layout_v6(state)
 	reconcile_subscriptions(state)
 }
 
@@ -39,7 +39,7 @@ apply_set_cell_stream_action :: proc(state: ^App_State, action: UI_Action) {
 	state.world.getranges[ci].pending = false
 	state.world.getranges[ci].seeded = false
 	state.world.getranges[ci].oldest_ts = 0
-	persist_layout_v4(state)
+	persist_layout_v6(state)
 	reconcile_subscriptions(state)
 	request_cell_candle_range(state, ci)
 }
@@ -58,7 +58,7 @@ apply_add_cell_action :: proc(state: ^App_State, action: UI_Action) {
 		state.world.bindings[ci].stream_idx = -1
 	}
 	state.world.count += 1
-	persist_layout_v4(state)
+	persist_layout_v6(state)
 	reconcile_subscriptions(state)
 	request_cell_candle_range(state, ci)
 }
@@ -97,6 +97,6 @@ apply_remove_cell_action :: proc(state: ^App_State, cell_idx: int) {
 	state.world.spans[last]      = {}
 	state.world.timeframes[last] = {}
 	state.world.getranges[last]  = {}
-	persist_layout_v4(state)
+	persist_layout_v6(state)
 	reconcile_subscriptions(state)
 }

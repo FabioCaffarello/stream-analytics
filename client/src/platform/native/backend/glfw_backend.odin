@@ -227,6 +227,7 @@ glfw_collect_input :: proc() -> ports.Input_State {
 	if glfw.GetKey(g_window, glfw.KEY_J) == glfw.PRESS do curr_keys += {.J}
 	if glfw.GetKey(g_window, glfw.KEY_K) == glfw.PRESS do curr_keys += {.K}
 	if glfw.GetKey(g_window, glfw.KEY_Z) == glfw.PRESS do curr_keys += {.Z}
+	if glfw.GetKey(g_window, glfw.KEY_D) == glfw.PRESS do curr_keys += {.D}
 	if glfw.GetKey(g_window, glfw.KEY_DELETE) == glfw.PRESS || glfw.GetKey(g_window, glfw.KEY_BACKSPACE) == glfw.PRESS do curr_keys += {.Delete}
 	input.keys.pressed = curr_keys
 	mark_key_edges(&input, curr_keys, g_prev_keys_down, .Up)
@@ -260,6 +261,7 @@ glfw_collect_input :: proc() -> ports.Input_State {
 	mark_key_edges(&input, curr_keys, g_prev_keys_down, .J)
 	mark_key_edges(&input, curr_keys, g_prev_keys_down, .K)
 	mark_key_edges(&input, curr_keys, g_prev_keys_down, .Z)
+	mark_key_edges(&input, curr_keys, g_prev_keys_down, .D)
 	mark_key_edges(&input, curr_keys, g_prev_keys_down, .Delete)
 	g_prev_keys_down = curr_keys
 

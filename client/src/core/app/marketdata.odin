@@ -284,10 +284,6 @@ handle_trade_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, t: ports.
 		if md_common.apply_state_should_use_synthetic(state.active_apply_state, .Candle) {
 			apply_synthetic_candle_from_trade(&state.stores.candle, t, active_timeframe_ms(state), now_ms)
 		}
-		// Trades on active stream prove the feed is alive for candle health tracking.
-		if now_ms := current_now_ms(state); now_ms > 0 {
-			state.candle_last_recv_local_ms = now_ms
-		}
 		// Whale alert: EMA of trade qty, fire on >3x average.
 		if t.qty > 0 {
 			if state.whale.avg_qty <= 0 {
@@ -491,9 +487,6 @@ handle_candle_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, cd: port
 		md_common.apply_state_mark_event(&slot.apply_state, .Candle, now_ms, false)
 		apply_candle_to_store(&slot.candle_store, cd)
 	}
-	if is_active_stream && now_ms > 0 {
-		state.candle_last_recv_local_ms = now_ms
-	}
 	// TF guard: only write to global store if subject matches the active candle TF.
 	if is_active_stream && (state.getrange.active_candle_subject_id == 0 || subject_id == state.getrange.active_candle_subject_id) {
 		md_common.apply_state_mark_event(&state.active_apply_state, .Candle, now_ms, false)
@@ -613,18 +606,30 @@ handle_range_candle_batch :: proc(
 			}
 		}
 	}
-	// GetRange data counts as "received" for health tracking.
-	if is_valid_range_batch && batch.count > 0 {
-		if now_ms := current_now_ms(state); now_ms > 0 {
-			state.candle_last_recv_local_ms = now_ms
+	// S41: Track oldest_ts for compare panes referencing this slot.
+	if state.compare.active {
+		for cpi in 0 ..< state.compare.count {
+			cgr := &state.compare.getranges[cpi]
+			if !cgr.pending do continue
+			pane_sid := compare_pane_resolve_subject_id(state, cpi)
+			if pane_sid == 0 do continue
+			pane_slot_idx := stream_view_find_slot(state.stream_views, pane_sid)
+			if pane_slot_idx < 0 || pane_slot_idx != batch_slot_idx do continue
+			for bci in 0 ..< batch.count {
+				cd := batch.candles[bci]
+				if cd.window_start_ts <= 0 do continue
+				if cgr.oldest_ts <= 0 || cd.window_start_ts < cgr.oldest_ts {
+					cgr.oldest_ts = cd.window_start_ts
+				}
+			}
 		}
 	}
+	// Timing tracked via apply_state_mark_event(.Range_Candle) → last_recv_ms.
 	if batch.is_last {
 		if is_active_getrange_subject || (state.getrange.subject_id == 0 && is_active_stream) {
-			// S25: Write completion to apply state (source of truth), then sync.
+			// S34: apply_state_mark_range_complete clears getrange_request_id; sync propagates.
 			md_common.apply_state_mark_range_complete(&state.active_apply_state, state.active_apply_state.getrange_oldest_ts)
 			apply_state_sync_to_getrange(state)
-			state.getrange.subject_id = 0
 			target := min(FETCH_CANDLES_RANGE_LEN, services.CANDLE_CAP)
 			if target <= 0 do target = services.CANDLE_CAP
 			oldest_advanced := state.getrange.oldest_ts > 0 &&
@@ -640,6 +645,18 @@ handle_range_candle_batch :: proc(
 			bind := &state.world.bindings[cell_ci]
 			if bind.stream_idx >= 0 && bind.stream_idx == batch_slot_idx {
 				gr.pending = false
+			}
+		}
+		// S41: Clear per-pane getrange_pending for compare panes referencing this slot.
+		if state.compare.active {
+			for cpi in 0 ..< state.compare.count {
+				cgr := &state.compare.getranges[cpi]
+				if !cgr.pending do continue
+				pane_sid := compare_pane_resolve_subject_id(state, cpi)
+				if pane_sid == 0 do continue
+				pane_slot_idx := stream_view_find_slot(state.stream_views, pane_sid)
+				if pane_slot_idx < 0 || pane_slot_idx != batch_slot_idx do continue
+				cgr.pending = false
 			}
 		}
 	}
@@ -658,11 +675,13 @@ drain_marketdata :: proc(state: ^App_State) -> int {
 		state.conn.needs_reconcile = true
 		// Clear prev_subs so reconcile re-subscribes everything (server lost subscriptions).
 		state.prev_subs_count = 0
-		// S25: Getrange pending state cleared via apply_state_on_reconnect below.
-		// Only clear the request-scoped subject_id here.
-		state.getrange.subject_id = 0
+		// S34: getrange_request_id cleared by apply_state_on_reconnect below.
 		for ci in 0 ..< state.world.count {
 			state.world.getranges[ci].pending = false
+		}
+		// S41/S42: Clear compare pane getranges on reconnect and reseed.
+		for cpi in 0 ..< state.compare.count {
+			state.compare.getranges[cpi] = {}
 		}
 		if state.stream_views != nil {
 			for si in 0 ..< STREAM_VIEW_CAP {
@@ -677,6 +696,12 @@ drain_marketdata :: proc(state: ^App_State) -> int {
 		state.freshness.loaded = false
 		state.timeline = {}
 		state.was_ever_connected = true
+		// S42: Reseed compare pane getranges after reconnect clearing.
+		if state.compare.active {
+			for cpi in 0 ..< state.compare.count {
+				request_compare_pane_candle_range(state, cpi)
+			}
+		}
 	}
 	state.conn.prev_conn_for_reconcile = conn
 
@@ -785,10 +810,10 @@ drain_marketdata :: proc(state: ^App_State) -> int {
 	// GetRange timeout: clear stuck pending state after ~5 seconds (300 frames at 60fps).
 	GETRANGE_TIMEOUT_FRAMES :: u64(300)
 	if md_common.apply_state_check_getrange_timeout(state.active_apply_state, state.frame, GETRANGE_TIMEOUT_FRAMES) {
-		// S25: Reset via apply state (source of truth), then sync.
+		// S34: Reset pending + request_id via apply state, then sync.
 		state.active_apply_state.getrange_pending = false
+		state.active_apply_state.getrange_request_id = 0
 		apply_state_sync_to_getrange(state)
-		state.getrange.subject_id = 0
 		record_error(state, .GetRange_Timeout, "GetRange timeout (global)")
 	}
 	for ci in 0 ..< state.world.count {
@@ -796,6 +821,16 @@ drain_marketdata :: proc(state: ^App_State) -> int {
 		if gr.pending && state.frame > gr.sent_frame + GETRANGE_TIMEOUT_FRAMES {
 			gr.pending = false
 			record_error(state, .GetRange_Timeout, "GetRange timeout (cell)")
+		}
+	}
+	// S41: GetRange timeout for compare panes.
+	if state.compare.active {
+		for cpi in 0 ..< state.compare.count {
+			cgr := &state.compare.getranges[cpi]
+			if cgr.pending && state.frame > cgr.sent_frame + GETRANGE_TIMEOUT_FRAMES {
+				cgr.pending = false
+				record_error(state, .GetRange_Timeout, "GetRange timeout (compare pane)")
+			}
 		}
 	}
 
@@ -844,6 +879,12 @@ check_lazy_candle_loading :: proc(state: ^App_State) {
 	for ci in 0 ..< state.world.count {
 		if state.world.getranges[ci].pending do pending_count += 1
 	}
+	// S41: Include compare pane pending count in concurrency budget.
+	if state.compare.active {
+		for cpi in 0 ..< state.compare.count {
+			if state.compare.getranges[cpi].pending do pending_count += 1
+		}
+	}
 	MAX_CONCURRENT_GETRANGE :: 2
 	if pending_count >= MAX_CONCURRENT_GETRANGE do return
 
@@ -872,6 +913,36 @@ check_lazy_candle_loading :: proc(state: ^App_State) {
 			request_cell_older_candles(state, ci)
 			pending_count += 1
 			if pending_count >= MAX_CONCURRENT_GETRANGE do return
+		}
+	}
+
+	// S41: Lazy loading for compare panes — scroll-near-edge triggers older candle fetch.
+	if state.compare.active && state.compare.widget_idx == 2 { // widget_idx 2 = Candle
+		for cpi in 0 ..< state.compare.count {
+			if pending_count >= MAX_CONCURRENT_GETRANGE do return
+			cgr := &state.compare.getranges[cpi]
+			if cgr.pending do continue
+			if !cgr.seeded do continue
+			if cgr.oldest_ts <= 0 do continue
+
+			eff_sid := compare_pane_resolve_subject_id(state, cpi)
+			if eff_sid == 0 do continue
+			reg := state.stream_views
+			if reg == nil do continue
+			slot_idx := stream_view_find_slot(reg, eff_sid)
+			if slot_idx < 0 do continue
+			slot := &reg.slots[slot_idx]
+			if slot.candle_store.count <= 0 do continue
+			if slot.candle_store.count >= services.CANDLE_CAP do continue
+
+			visible := state.compare.zoom[cpi] > 0 ? max(int(state.compare.zoom[cpi]), 1) : max(slot.candle_store.count, 1)
+			scroll := int(state.compare.scroll_x[cpi])
+			end_idx := slot.candle_store.count - scroll
+			start_idx := max(end_idx - visible, 0)
+			if start_idx < 10 {
+				request_compare_pane_older_candles(state, cpi)
+				pending_count += 1
+			}
 		}
 	}
 }

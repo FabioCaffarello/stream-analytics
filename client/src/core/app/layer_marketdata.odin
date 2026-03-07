@@ -70,10 +70,6 @@ sync_legacy_stores_from_layer_store :: proc(state: ^App_State) {
 	}
 	apply_state_sync_all(state)
 	state.active_metrics.last_msg_ts_ms = msg_ts
-
-	if state.layer_store.last_now_ms > 0 {
-		state.candle_last_recv_local_ms = state.layer_store.last_now_ms
-	}
 }
 
 // Canonical marketdata drain for layer architecture.

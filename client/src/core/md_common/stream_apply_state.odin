@@ -32,6 +32,11 @@ Stream_Apply_State :: struct {
 	// Set when getrange is requested, used to reject stale batches from wrong TF.
 	range_candle_subject_id: u64,
 
+	// S34: Per-request correlation ID for GetRange.
+	// Set when a GetRange request is sent, cleared on completion/timeout/invalidation.
+	// Moved from GetRange_Global_State.subject_id to canonical apply state.
+	getrange_request_id: u64,
+
 	// Heatmap dedup: last synthetic heatmap window applied
 	synth_heatmap_last_window: i64,
 
@@ -59,6 +64,7 @@ apply_state_on_reconnect :: proc(s: ^Stream_Apply_State) {
 	}
 	s.getrange_pending = false
 	s.getrange_sent_frame = 0
+	s.getrange_request_id = 0
 	// S29: Clear recovery state — transport reconnect is already a recovery action.
 	s.recovery_attempts = 0
 	s.recovery_last_ms = 0
@@ -80,6 +86,7 @@ apply_state_on_tf_change :: proc(s: ^Stream_Apply_State) {
 	s.getrange_oldest_ts = 0
 	s.getrange_sent_frame = 0
 	s.range_candle_subject_id = 0
+	s.getrange_request_id = 0
 	s.synth_heatmap_last_window = 0
 	// S29: Clear recovery state — TF change resubscribes everything.
 	s.recovery_attempts = 0
@@ -114,11 +121,13 @@ apply_state_mark_synthetic :: proc(s: ^Stream_Apply_State, kind: Artifact_Kind, 
 }
 
 // apply_state_mark_range_sent records that a GetRange request was sent.
+// S34: request_id parameter added for per-request correlation (was getrange.subject_id).
 apply_state_mark_range_sent :: proc(s: ^Stream_Apply_State, frame: u64, candle_subject_id: u64 = 0) {
 	s.getrange_pending = true
 	s.getrange_sent_frame = frame
 	if candle_subject_id != 0 {
 		s.range_candle_subject_id = candle_subject_id
+		s.getrange_request_id = candle_subject_id
 	}
 }
 
@@ -126,6 +135,7 @@ apply_state_mark_range_sent :: proc(s: ^Stream_Apply_State, frame: u64, candle_s
 apply_state_mark_range_complete :: proc(s: ^Stream_Apply_State, oldest_ts: i64) {
 	s.getrange_seeded = true
 	s.getrange_pending = false
+	s.getrange_request_id = 0
 	if oldest_ts > 0 && (s.getrange_oldest_ts <= 0 || oldest_ts < s.getrange_oldest_ts) {
 		s.getrange_oldest_ts = oldest_ts
 	}
@@ -150,6 +160,17 @@ apply_state_needs_snapshot :: proc(s: Stream_Apply_State, kind: Artifact_Kind) -
 	policy := artifact_policies[kind]
 	if !policy.needs_snapshot_gate do return false
 	return !s.snapshot_seen[kind]
+}
+
+// S33: Canonical candle feed timing — returns the most recent candle-related
+// timestamp, considering both live candle events and historical range data.
+// This converges the former candle_last_recv_local_ms (ad-hoc, 7 write sites)
+// into a single derived query from canonical apply state. Pure function.
+apply_state_candle_recv_ms :: proc(s: Stream_Apply_State) -> i64 {
+	live := s.last_recv_ms[.Candle]
+	hist := s.last_recv_ms[.Range_Candle]
+	if live >= hist do return live
+	return hist
 }
 
 // apply_state_is_range_ready returns true when the stream has received historical
@@ -240,12 +261,15 @@ Apply_State_Telemetry :: struct {
 	// S30: Adaptive cooldown diagnostics.
 	recovery_cooldown_ms:          i64,  // Current cooldown window for this attempt level
 	recovery_cooldown_remaining_ms: i64, // Time remaining before next attempt allowed
+	// S35: Per-stream health level.
+	stream_health:                 System_Health_Level,
 }
 
 // apply_state_telemetry returns a telemetry snapshot for diagnostics display.
 // Pure function — reads apply state, creates no new state.
 // S30: now_ms parameter added for cooldown remaining computation.
-apply_state_telemetry :: proc(s: Stream_Apply_State, now_ms: i64 = 0) -> Apply_State_Telemetry {
+// S35: tf_ms parameter added for per-stream health level derivation.
+apply_state_telemetry :: proc(s: Stream_Apply_State, now_ms: i64 = 0, tf_ms: i64 = 0) -> Apply_State_Telemetry {
 	cooldown := recovery_cooldown_for_attempt(s.recovery_attempts)
 	remaining := i64(0)
 	if s.recovery_last_ms > 0 && now_ms > 0 {
@@ -265,6 +289,7 @@ apply_state_telemetry :: proc(s: Stream_Apply_State, now_ms: i64 = 0) -> Apply_S
 		recovery_attempts    = s.recovery_attempts,
 		recovery_cooldown_ms = cooldown,
 		recovery_cooldown_remaining_ms = remaining,
+		stream_health        = stream_health_level(s, now_ms, tf_ms),
 	}
 }
 
@@ -429,6 +454,130 @@ apply_state_recovery_status :: proc(s: Stream_Apply_State) -> Recovery_Status {
 	if s.recovery_attempts == 0 do return .None
 	if s.recovery_attempts >= RECOVERY_MAX_ATTEMPTS do return .Exhausted
 	return .Recovering
+}
+
+// S35: Per-stream health level — derives System_Health_Level for a single stream.
+// Pure function — no mutation, no allocations.
+stream_health_level :: proc(s: Stream_Apply_State, now_ms: i64, tf_ms: i64 = 0) -> System_Health_Level {
+	if s.event_count == 0 do return .Healthy  // no data yet, not degraded
+
+	stale, aging := apply_state_stale_artifact_count(s, now_ms, tf_ms)
+	rec := apply_state_recovery_status(s)
+
+	if stale >= 2 && rec == .Exhausted do return .Critical
+	if stale > 0 || rec == .Exhausted do return .Unhealthy
+	if aging > 0 || rec == .Recovering do return .Degraded
+	return .Healthy
+}
+
+// S35: Health_Tick_Input — snapshot of state needed for per-frame health evaluation.
+// Passed into the pure control-plane function to avoid coupling to App_State.
+Health_Tick_Input :: struct {
+	apply_state:       Stream_Apply_State,
+	now_ms:            i64,
+	tf_ms:             i64,
+	is_connected:      bool,
+	is_offline:        bool,  // active_metrics.state == .Offline
+}
+
+// S35: Health_Tick_Output — all health decisions for one frame tick.
+// Pure output of the control-plane evaluation. The caller applies side effects.
+Health_Tick_Output :: struct {
+	remediation:       Remediation_Decision,
+	recovery_success:  bool,   // true if recovery counter was reset (stale cleared)
+	stream_health:     System_Health_Level,
+	stale_count:       int,
+	aging_count:       int,
+}
+
+// S35: health_tick_evaluate — pure control-plane function for per-frame health.
+// Returns what to do; caller applies side effects (resubscribe, log, sync).
+// Deterministic: same input always produces same output. No mutation.
+health_tick_evaluate :: proc(input: Health_Tick_Input) -> Health_Tick_Output {
+	out: Health_Tick_Output
+	s := input.apply_state
+
+	out.stream_health = stream_health_level(s, input.now_ms, input.tf_ms)
+	out.stale_count, out.aging_count = apply_state_stale_artifact_count(s, input.now_ms, input.tf_ms)
+
+	// Recovery decisions only when connected and not offline.
+	if input.now_ms > 0 && input.is_connected && !input.is_offline {
+		out.remediation = apply_state_stale_remediation(s, input.now_ms, input.tf_ms)
+
+		// Check if recovery succeeded (requires pre-mutation state).
+		if s.recovery_attempts > 0 {
+			// Simulate check: all active Dual_Silence artifacts must be Fresh.
+			all_fresh := true
+			for kind in Artifact_Kind {
+				if s.artifact_event_count[kind] == 0 do continue
+				policy := artifact_policies[kind]
+				if policy.stale_detection != .Dual_Silence do continue
+				staleness := apply_state_artifact_staleness(s, kind, input.now_ms, input.tf_ms)
+				if staleness == .Stale || staleness == .Aging {
+					all_fresh = false
+					break
+				}
+			}
+			out.recovery_success = all_fresh
+		}
+	}
+
+	return out
+}
+
+// =========================================================================
+// S34: Historical/Realtime Composition Orchestrator.
+// Pure decision functions for the composition lifecycle:
+//   Empty → Seed_Range → Await_Seed → Backfilled/Await_Live → Steady
+// These centralize the scattered guard logic for GetRange requests
+// and lazy loading into testable, deterministic orchestrator decisions.
+// =========================================================================
+
+// Orchestrator_Intent — what the composition system should do next.
+Orchestrator_Intent :: enum u8 {
+	None,         // No action possible (no active stream)
+	Seed_Range,   // Need initial GetRange request
+	Await_Seed,   // GetRange in flight, wait for response
+	Await_Live,   // Backfilled, waiting for first live candle
+	Steady,       // Composed — historical + live coherent
+}
+
+// composition_intent returns what the orchestrator should do next for the
+// active stream's composition lifecycle. Pure function — no mutation.
+composition_intent :: proc(
+	s: Stream_Apply_State,
+	store_count: int,
+	has_active_stream: bool,
+) -> Orchestrator_Intent {
+	if !has_active_stream do return .None
+	if s.getrange_pending do return .Await_Seed
+	has_seed := s.getrange_seeded
+	has_live := s.has_live[.Candle]
+	if has_seed && has_live do return .Steady
+	if has_seed && !has_live do return .Await_Live
+	// No seed yet — request one (regardless of store_count, Live_Only should also seed).
+	if store_count <= 0 || !has_seed do return .Seed_Range
+	return .None
+}
+
+// composition_should_extend returns true if the orchestrator should request
+// older candles (lazy loading). Encapsulates all guard conditions.
+// Pure function — no mutation.
+composition_should_extend :: proc(
+	s: Stream_Apply_State,
+	store_count: int,
+	store_cap: int,
+	timeline_first_ts: i64,
+	timeline_loaded: bool,
+) -> bool {
+	if s.getrange_pending do return false
+	if !s.getrange_seeded do return false
+	if s.getrange_oldest_ts <= 0 do return false
+	if store_count >= store_cap do return false
+	if timeline_loaded && timeline_first_ts > 0 && s.getrange_oldest_ts <= timeline_first_ts {
+		return false
+	}
+	return true
 }
 
 // =========================================================================

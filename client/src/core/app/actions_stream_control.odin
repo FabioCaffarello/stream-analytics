@@ -13,14 +13,11 @@ apply_pick_stream_action :: proc(state: ^App_State, subject_id: u64) {
 	sync_active_stream_view_to_global_stores(state)
 	persist_active_stream_subject(state)
 	// S25: Canonical apply state sync from new slot drives getrange state.
+	// S34: getrange_request_id cleared by sync_active_apply_state_from_slot.
 	sync_active_apply_state_from_slot(state)
-	state.getrange.subject_id = 0
 	ensure_active_candle_subject_id(state)
 	state.candle_health = .No_Data
 	state.stream_switches_total += 1
-	if now_ms := current_now_ms(state); now_ms > 0 {
-		state.candle_last_recv_local_ms = now_ms
-	}
 	if state.stores.candle.count <= 0 {
 		request_active_stream_candle_range(state)
 	}
@@ -39,12 +36,9 @@ apply_resync_active_stream_action :: proc(state: ^App_State) {
 	state.active_metrics.last_ack_metric = current_ack_metric
 	state.active_metrics.subscribe_acks = 0
 	// S25: Canonical apply state reset (zeros apply_state + syncs to metrics + getrange).
+	// S34: getrange_request_id cleared by apply_state_reset.
 	reset_active_apply_state(state)
-	state.getrange.subject_id = 0
 	ensure_active_candle_subject_id(state)
-	if now_ms := current_now_ms(state); now_ms > 0 {
-		state.candle_last_recv_local_ms = now_ms
-	}
 	if active := streams.registry_active(&state.stream_registry); active != nil {
 		streams.controller_mark_desync(&active.status, .Manual)
 		active.status.last_snapshot_ts_ms = 0

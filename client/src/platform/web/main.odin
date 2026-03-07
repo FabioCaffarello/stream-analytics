@@ -108,6 +108,7 @@ decode_input_state :: proc(input: ^ports.Input_State, dt: f32) {
 	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 29, .K)
 	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 30, .Z)
 	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 31, .Delete)
+	// S46: D key requires >32 bits; web snapshot via health panel button instead.
 }
 
 @(export)

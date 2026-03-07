@@ -185,6 +185,359 @@ persist_layout_v2 :: proc(state: ^App_State) {
 }
 
 // ===============================================================
+// V6 persistence — extends V5 with per-cell chart display state.
+// Format: "V6|MODE|CW:w0,...|RW:w0,...|K:S:F:CS:RS:SM:SR:TF:CD|...|LK:flag"
+//   CD = chart display packed int (vol/heatmap/vpvr/heatmap_idx/ob_grp/dom_grp/trade_filter)
+//   LK = signal-evidence link (absorbed from V5)
+// ===============================================================
+
+// Build V6 layout string into buf, return bytes written.
+build_layout_v6_string :: proc(state: ^App_State, buf: []u8) -> int {
+	off := 0
+
+	// Header: "V6"
+	buf[off] = 'V'; off += 1
+	buf[off] = '6'; off += 1
+
+	// MODE.
+	buf[off] = '|'; off += 1
+	buf[off] = state.layout_mode == .Custom ? 'C' : 'P'; off += 1
+
+	// CW: col weights.
+	buf[off] = '|'; off += 1
+	buf[off] = 'C'; off += 1
+	buf[off] = 'W'; off += 1
+	buf[off] = ':'; off += 1
+	for c in 0 ..< state.custom_grid_def.col_count {
+		if c > 0 { buf[off] = ','; off += 1 }
+		w := int(state.custom_grid_def.col_weights[c] * 100 + 0.5)
+		off = write_int_to_buf(buf, off, w)
+	}
+
+	// RW: row weights.
+	buf[off] = '|'; off += 1
+	buf[off] = 'R'; off += 1
+	buf[off] = 'W'; off += 1
+	buf[off] = ':'; off += 1
+	for r in 0 ..< state.custom_grid_def.row_count {
+		if r > 0 { buf[off] = ','; off += 1 }
+		w := int(state.custom_grid_def.row_weights[r] * 100 + 0.5)
+		off = write_int_to_buf(buf, off, w)
+	}
+
+	// Cells: K:S:F:CS:RS:SM:SR:TF:CD per cell.
+	n := state.world.count
+	for i in 0 ..< n {
+		buf[off] = '|'; off += 1
+
+		// K: widget kind.
+		buf[off] = '0' + u8(state.world.widgets[i].kind); off += 1
+		buf[off] = ':'; off += 1
+
+		// S: stream binding — read from cell's bound fields (PRD-0009).
+		bv := binding_venue(&state.world.bindings[i])
+		bs := binding_symbol(&state.world.bindings[i])
+		if len(bv) > 0 && len(bs) > 0 {
+			for vi in 0 ..< len(bv) { if off < len(buf) { buf[off] = bv[vi]; off += 1 } }
+			buf[off] = '/'; off += 1
+			for si in 0 ..< len(bs) { if off < len(buf) { buf[off] = bs[si]; off += 1 } }
+		} else {
+			buf[off] = '-'; off += 1
+			buf[off] = '1'; off += 1
+		}
+		buf[off] = ':'; off += 1
+
+		// F: indicator flags.
+		flags := pack_indicator_flags(&state.world.indicators[i])
+		off = write_int_to_buf(buf, off, flags)
+		buf[off] = ':'; off += 1
+
+		// CS: col_span.
+		cs := state.world.spans[i].col_span > 1 ? state.world.spans[i].col_span : 1
+		off = write_int_to_buf(buf, off, cs)
+		buf[off] = ':'; off += 1
+
+		// RS: row_span.
+		rs := state.world.spans[i].row_span > 1 ? state.world.spans[i].row_span : 1
+		off = write_int_to_buf(buf, off, rs)
+		buf[off] = ':'; off += 1
+
+		// SM: sub_main_split (x1000).
+		sm := int(state.world.subplots[i].sub_main_split * 1000 + 0.5)
+		off = write_int_to_buf(buf, off, sm)
+		buf[off] = ':'; off += 1
+
+		// SR: sub_ratios (x1000, comma-separated).
+		for sri in 0 ..< 5 {
+			if sri > 0 { buf[off] = ','; off += 1 }
+			sr := int(state.world.subplots[i].sub_ratios[sri] * 1000 + 0.5)
+			off = write_int_to_buf(buf, off, sr)
+		}
+		buf[off] = ':'; off += 1
+
+		// TF: tf_idx+1 (0 = global, 1-9 = per-cell).
+		tf_val := state.world.timeframes[i].tf_idx + 1
+		if tf_val < 0 { tf_val = 0 }
+		off = write_int_to_buf(buf, off, tf_val)
+		buf[off] = ':'; off += 1
+
+		// CD: chart display packed (V6).
+		cd := pack_chart_display(&state.world.charts[i])
+		off = write_int_to_buf(buf, off, cd)
+	}
+
+	// LK: signal-evidence link.
+	buf[off] = '|'; off += 1
+	buf[off] = 'L'; off += 1
+	buf[off] = 'K'; off += 1
+	buf[off] = ':'; off += 1
+	buf[off] = state.signal_evidence_link_enabled ? '1' : '0'; off += 1
+
+	return off
+}
+
+persist_layout_v6 :: proc(state: ^App_State) {
+	buf: [2048]u8
+	off := build_layout_v6_string(state, buf[:])
+
+	services.settings_set(&state.settings, services.SETTING_LAYOUT_V6, string(buf[:off]))
+	services.settings_set(&state.settings, services.SETTING_LAYOUT_MODE,
+		state.layout_mode == .Custom ? "C" : "P")
+
+	// Rollback: persist V4 + V5 for backward compatibility.
+	persist_layout_v4(state)
+
+	// Schema version marker.
+	services.settings_set(&state.settings, services.SETTING_SETTINGS_VERSION, "6")
+}
+
+restore_layout_v6 :: proc(state: ^App_State) -> bool {
+	v, ok := services.settings_get(&state.settings, services.SETTING_LAYOUT_V6)
+	if !ok || len(v) < 4 do return false
+	return restore_layout_v6_from_string(state, v)
+}
+
+restore_layout_v6_from_string :: proc(state: ^App_State, v: string) -> bool {
+	if len(v) < 4 do return false
+	if v[0] != 'V' || v[1] != '6' do return false
+
+	// Strip |LK: suffix.
+	base := v
+	link_enabled := true
+	for i := 2; i + 3 < len(v); i += 1 {
+		if v[i] == '|' && v[i + 1] == 'L' && v[i + 2] == 'K' && v[i + 3] == ':' {
+			base = v[:i]
+			val := v[i + 4:]
+			if len(val) > 0 {
+				link_enabled = val[0] != '0'
+			}
+			break
+		}
+	}
+
+	rest := base[2:] // skip "V6"
+	pos := 0
+
+	// Parse MODE.
+	if pos >= len(rest) || rest[pos] != '|' do return false
+	pos += 1
+	if pos >= len(rest) do return false
+	mode_ch := rest[pos]
+	pos += 1
+	if mode_ch == 'C' {
+		state.layout_mode = .Custom
+	} else {
+		state.layout_mode = .Preset
+	}
+
+	// Parse CW: col weights.
+	if pos >= len(rest) || rest[pos] != '|' do return false
+	pos += 1
+	if pos + 2 >= len(rest) || rest[pos] != 'C' || rest[pos + 1] != 'W' || rest[pos + 2] != ':' do return false
+	pos += 3
+	cw_start := pos
+	for pos < len(rest) && rest[pos] != '|' { pos += 1 }
+	cw_field := rest[cw_start:pos]
+	col_idx := 0
+	seg_start := 0
+	for ci in 0 ..= len(cw_field) {
+		if ci == len(cw_field) || cw_field[ci] == ',' {
+			if ci > seg_start && col_idx < ui.GRID_MAX_COLS {
+				w := parse_int_from(cw_field[seg_start:ci])
+				state.custom_grid_def.col_weights[col_idx] = f32(w) / 100.0
+				col_idx += 1
+			}
+			seg_start = ci + 1
+		}
+	}
+	if col_idx > 0 { state.custom_grid_def.col_count = col_idx }
+
+	// Parse RW: row weights.
+	if pos >= len(rest) || rest[pos] != '|' do return false
+	pos += 1
+	if pos + 2 >= len(rest) || rest[pos] != 'R' || rest[pos + 1] != 'W' || rest[pos + 2] != ':' do return false
+	pos += 3
+	rw_start := pos
+	for pos < len(rest) && rest[pos] != '|' { pos += 1 }
+	rw_field := rest[rw_start:pos]
+	row_idx := 0
+	seg_start = 0
+	for ri in 0 ..= len(rw_field) {
+		if ri == len(rw_field) || rw_field[ri] == ',' {
+			if ri > seg_start && row_idx < ui.GRID_MAX_ROWS {
+				w := parse_int_from(rw_field[seg_start:ri])
+				state.custom_grid_def.row_weights[row_idx] = f32(w) / 100.0
+				row_idx += 1
+			}
+			seg_start = ri + 1
+		}
+	}
+	if row_idx > 0 { state.custom_grid_def.row_count = row_idx }
+
+	// Parse cells.
+	cell_count := 0
+	for cell_count < CELL_MAX && pos < len(rest) {
+		if rest[pos] != '|' do break
+		pos += 1
+		if pos >= len(rest) do break
+
+		// K: widget kind digit.
+		k_digit := int(rest[pos]) - '0'
+		if k_digit < 0 || k_digit > 8 do break
+		pos += 1
+		if pos >= len(rest) || rest[pos] != ':' do break
+		pos += 1
+
+		// S: stream binding.
+		s_start := pos
+		for pos < len(rest) && rest[pos] != ':' && rest[pos] != '|' { pos += 1 }
+		s_field := rest[s_start:pos]
+		if pos >= len(rest) || rest[pos] != ':' do break
+		pos += 1
+
+		// F: indicator flags.
+		f_start := pos
+		for pos < len(rest) && rest[pos] != ':' && rest[pos] != '|' { pos += 1 }
+		f_field := rest[f_start:pos]
+		if pos >= len(rest) || rest[pos] != ':' do break
+		pos += 1
+
+		// CS: col_span.
+		cs_start := pos
+		for pos < len(rest) && rest[pos] != ':' && rest[pos] != '|' { pos += 1 }
+		cs_field := rest[cs_start:pos]
+		if pos >= len(rest) || rest[pos] != ':' do break
+		pos += 1
+
+		// RS: row_span.
+		rs_start := pos
+		for pos < len(rest) && rest[pos] != ':' && rest[pos] != '|' { pos += 1 }
+		rs_field := rest[rs_start:pos]
+
+		// SM: sub_main_split (optional).
+		sm_field := ""
+		if pos < len(rest) && rest[pos] == ':' {
+			pos += 1
+			sm_start := pos
+			for pos < len(rest) && rest[pos] != '|' && rest[pos] != ':' { pos += 1 }
+			sm_field = rest[sm_start:pos]
+		}
+
+		// SR: sub_ratios (optional).
+		sr_field := ""
+		if pos < len(rest) && rest[pos] == ':' {
+			pos += 1
+			sr_start := pos
+			for pos < len(rest) && rest[pos] != '|' && rest[pos] != ':' { pos += 1 }
+			sr_field = rest[sr_start:pos]
+		}
+
+		// TF: timeframe (optional).
+		tf_field := ""
+		if pos < len(rest) && rest[pos] == ':' {
+			pos += 1
+			tf_start := pos
+			for pos < len(rest) && rest[pos] != '|' && rest[pos] != ':' { pos += 1 }
+			tf_field = rest[tf_start:pos]
+		}
+
+		// CD: chart display (V6, optional for forward compat).
+		cd_field := ""
+		if pos < len(rest) && rest[pos] == ':' {
+			pos += 1
+			cd_start := pos
+			for pos < len(rest) && rest[pos] != '|' { pos += 1 }
+			cd_field = rest[cd_start:pos]
+		}
+
+		ci := cell_count
+		write_default_cell_to_world(state, ci, Widget_Kind(k_digit))
+
+		// Decode stream binding.
+		if s_field == "-1" {
+			state.world.bindings[ci].stream_idx = -1
+			binding_clear(&state.world.bindings[ci])
+		} else {
+			slash := -1
+			for si in 0 ..< len(s_field) {
+				if s_field[si] == '/' { slash = si; break }
+			}
+			if slash > 0 && slash < len(s_field) - 1 {
+				binding_set(&state.world.bindings[ci], s_field[:slash], s_field[slash + 1:])
+			}
+			state.world.bindings[ci].stream_idx = -1
+		}
+
+		// Decode indicator flags.
+		flags := parse_int_from(f_field)
+		unpack_indicator_flags(&state.world.indicators[ci], flags)
+
+		// Decode spans.
+		cs := parse_int_from(cs_field)
+		rs := parse_int_from(rs_field)
+		state.world.spans[ci].col_span = cs > 1 ? cs : 1
+		state.world.spans[ci].row_span = rs > 1 ? rs : 1
+
+		// Decode subplots.
+		if len(sm_field) > 0 {
+			state.world.subplots[ci].sub_main_split = f32(parse_int_from(sm_field)) / 1000.0
+		}
+		if len(sr_field) > 0 {
+			sr_idx := 0
+			sr_seg_start := 0
+			for si in 0 ..= len(sr_field) {
+				if si == len(sr_field) || sr_field[si] == ',' {
+					if si > sr_seg_start && sr_idx < 5 {
+						state.world.subplots[ci].sub_ratios[sr_idx] = f32(parse_int_from(sr_field[sr_seg_start:si])) / 1000.0
+						sr_idx += 1
+					}
+					sr_seg_start = si + 1
+				}
+			}
+		}
+
+		// Decode per-cell TF.
+		if len(tf_field) > 0 {
+			tf_val := parse_int_from(tf_field)
+			state.world.timeframes[ci].tf_idx = tf_val > 0 ? tf_val - 1 : -1
+		}
+
+		// Decode chart display (V6).
+		if len(cd_field) > 0 {
+			cd := parse_int_from(cd_field)
+			unpack_chart_display(&state.world.charts[ci], cd)
+		}
+
+		cell_count += 1
+	}
+
+	if cell_count <= 0 do return false
+	state.world.count = cell_count
+	state.signal_evidence_link_enabled = link_enabled
+	return true
+}
+
+// ===============================================================
 // V4 persistence — extends V3 with per-cell timeframe.
 // Format: "V4|MODE|CW:w0,w1,...|RW:w0,w1,...|K:S:F:CS:RS:SM:SR:TF|..."
 //   TF = tf_idx+1 (0 = follow global, 1-9 = per-cell TF 0-8)
@@ -938,9 +1291,12 @@ restore_layout_v2 :: proc(state: ^App_State) -> bool {
 
 // Export current layout V4 string to the system clipboard.
 layout_export_to_clipboard :: proc(state: ^App_State) -> bool {
-	// Ensure latest V5 is persisted (and V4 kept for rollback).
-	persist_layout_v4(state)
-	v, ok := services.settings_get(&state.settings, services.SETTING_LAYOUT_V5)
+	// Ensure latest V6 is persisted (V5/V4 kept for rollback).
+	persist_layout_v6(state)
+	v, ok := services.settings_get(&state.settings, services.SETTING_LAYOUT_V6)
+	if !ok || len(v) < 4 {
+		v, ok = services.settings_get(&state.settings, services.SETTING_LAYOUT_V5)
+	}
 	if !ok || len(v) < 4 {
 		v, ok = services.settings_get(&state.settings, services.SETTING_LAYOUT_V4)
 	}
@@ -948,11 +1304,13 @@ layout_export_to_clipboard :: proc(state: ^App_State) -> bool {
 	return services.settings_clipboard_write(&state.settings, v)
 }
 
-// Import layout from a V5/V4 string (e.g. pasted from clipboard).
+// Import layout from a V6/V5/V4 string (e.g. pasted from clipboard).
 layout_import_from_string :: proc(state: ^App_State, v: string) -> bool {
 	if len(v) < 4 do return false
 	if v[0] != 'V' do return false
-	if v[1] == '5' {
+	if v[1] == '6' {
+		if !restore_layout_v6_from_string(state, v) do return false
+	} else if v[1] == '5' {
 		if !restore_layout_v5_from_string(state, v) do return false
 	} else if v[1] == '4' {
 		if !restore_layout_v4_from_string(state, v) do return false
@@ -960,7 +1318,7 @@ layout_import_from_string :: proc(state: ^App_State, v: string) -> bool {
 	} else {
 		return false
 	}
-	persist_layout_v4(state)
+	persist_layout_v6(state)
 	reconcile_subscriptions(state)
 	return true
 }
@@ -1154,29 +1512,28 @@ CUSTOM_LAYOUT_KEYS :: [4]string{
 // Save current layout to a custom preset slot (0-3).
 save_custom_preset :: proc(state: ^App_State, slot: int) {
 	if slot < 0 || slot >= 4 do return
-	// Build layout string.
-	buf: [128]u8
-	off := 0
-	n := state.world.count
-	if n > 9 { buf[off] = '0' + u8(n / 10); off += 1 }
-	buf[off] = '0' + u8(n % 10); off += 1
-	buf[off] = ':'; off += 1
-	for i in 0 ..< n {
-		if i > 0 { buf[off] = ','; off += 1 }
-		buf[off] = '0' + u8(state.world.widgets[i].kind); off += 1
-	}
+	// S45: Save full V6 format (preserves bindings, indicators, spans, TF, chart display).
+	buf: [2048]u8
+	off := build_layout_v6_string(state, buf[:])
 	keys := CUSTOM_LAYOUT_KEYS
 	services.settings_set(&state.settings, keys[slot], string(buf[:off]))
 	services.settings_flush(&state.settings)
 }
 
 // Load a custom preset slot. Returns true if valid and applied.
+// S45: Tries V6 first, then V4, then V1 (backward compat with old presets).
 load_custom_preset :: proc(state: ^App_State, slot: int) -> bool {
 	if slot < 0 || slot >= 4 do return false
 	keys := CUSTOM_LAYOUT_KEYS
 	v, ok := services.settings_get(&state.settings, keys[slot])
 	if !ok || len(v) < 3 do return false
-	return restore_layout_from_string(state, v)
+	if len(v) >= 4 && v[0] == 'V' && v[1] == '6' {
+		return restore_layout_v6_from_string(state, v)
+	}
+	if len(v) >= 4 && v[0] == 'V' && v[1] == '4' {
+		return restore_layout_v4_from_string(state, v)
+	}
+	return restore_layout_from_string(state, v) // V1 fallback
 }
 
 // Check if a custom preset slot has a valid saved layout.
