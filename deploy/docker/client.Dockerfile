@@ -51,7 +51,9 @@ RUN rm -rf /usr/share/nginx/html/* \
 COPY deploy/nginx/client.conf /etc/nginx/conf.d/default.conf
 
 COPY --from=builder /src/client/web/index.html /usr/share/nginx/html/
-COPY --from=builder /src/client/web/odin.js    /usr/share/nginx/html/
+COPY --from=builder /src/client/web/main.js    /usr/share/nginx/html/
+COPY --from=builder /src/client/web/runtime.js /usr/share/nginx/html/
+COPY --from=builder /src/client/web/modules/   /usr/share/nginx/html/modules/
 COPY --from=builder /src/client/web/app.wasm   /usr/share/nginx/html/
 
 RUN chown -R nginx:nginx /usr/share/nginx/html \

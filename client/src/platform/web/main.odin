@@ -1,7 +1,7 @@
 package main
 
 // WASM entry point — init in main(), per-frame in step() export.
-// The odin.js animation loop calls step(dt, odin_ctx) on every frame.
+// The JS runtime (runtime.js) animation loop calls step(dt, odin_ctx) on every frame.
 
 import "base:runtime"
 import "mr:app"

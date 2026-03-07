@@ -1,6 +1,6 @@
 package main
 
-// Web settings port backed by localStorage via odin.js bridge.
+// Web settings port backed by localStorage via JS storage bridge (modules/storage.js).
 
 import "core:strings"
 import "mr:ports"

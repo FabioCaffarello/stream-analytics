@@ -400,14 +400,14 @@ async function testPerformance(page) {
                 .map((r) => ({ name: r.name.split("/").pop(), size: r.transferSize, duration: Math.round(r.duration) }))[0] || null,
             jsSize: performance
                 .getEntriesByType("resource")
-                .filter((r) => r.name.includes("odin.js"))
+                .filter((r) => r.name.includes("main.js") || r.name.includes("runtime.js"))
                 .map((r) => ({ name: r.name.split("/").pop(), size: r.transferSize, duration: Math.round(r.duration) }))[0] || null,
         };
     });
     log(`DOMContentLoaded: ${perf.domContentLoaded}ms`);
     log(`Full load: ${perf.load}ms`);
     if (perf.wasmSize) log(`WASM: ${(perf.wasmSize.size / 1024).toFixed(0)}KB, ${perf.wasmSize.duration}ms`);
-    if (perf.jsSize) log(`odin.js: ${(perf.jsSize.size / 1024).toFixed(0)}KB, ${perf.jsSize.duration}ms`);
+    if (perf.jsSize) log(`JS host: ${(perf.jsSize.size / 1024).toFixed(0)}KB, ${perf.jsSize.duration}ms`);
 
     if (perf.domContentLoaded > 5000) {
         bug("PERF-1", "P2", "DOMContentLoaded > 5s", `${perf.domContentLoaded}ms`);
