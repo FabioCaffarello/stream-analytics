@@ -18,7 +18,7 @@ render_session_profile_cell :: proc(state: ^App_State, ci: int, wid: Widget_Kind
 
 	stores := resolve_stores_for_cell(state, ci)
 
-	switch wid {
+	#partial switch wid {
 	case .Session_VPVR:
 		render_session_vpvr(state, stores.session_vpvr, cell_vp)
 	case .TPO:

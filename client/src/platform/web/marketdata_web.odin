@@ -2156,6 +2156,8 @@ web_apply_parsed_result :: proc(state: ^MD_Web_State, result: services.Parse_Res
 		}
 	// S47: Analytics substrate — web staging deferred; events are parsed but not yet polled.
 	case .Open_Interest, .Delta_Volume, .CVD, .Bar_Stats:
+	// S49: Session profiles — web staging deferred.
+	case .Session_Volume_Profile, .TPO_Profile:
 	case .None:
 		// Ignored (last, unknown frame types).
 	}
