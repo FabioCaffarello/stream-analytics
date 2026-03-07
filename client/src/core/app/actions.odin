@@ -5,6 +5,16 @@ import "mr:services"
 import "mr:ui"
 import "mr:widgets"
 
+// S53: Close all modal overlays. Called before opening a new modal to enforce exclusivity.
+close_all_overlays :: proc(state: ^App_State) {
+	state.overlays.show_help = false
+	state.overlays.show_exchange_manager = false
+	state.overlays.show_widget_catalog = false
+	state.overlays.show_stream_picker = false
+	state.overlays.cell_stream_picker_open = -1
+	state.overlays.catalog_step = 0
+}
+
 queue_ui_action :: proc(state: ^App_State, action: UI_Action) {
 	if state.ui_action_count >= len(state.ui_actions) {
 		state.ui_action_drops += 1
@@ -211,6 +221,7 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 				services.settings_flush(&state.settings)
 			}
 		case .Toggle_Help:
+			if !state.overlays.show_help { close_all_overlays(state) }
 			state.overlays.show_help = !state.overlays.show_help
 		case .Toggle_Telemetry_HUD:
 			state.telemetry.hud_enabled = !state.telemetry.hud_enabled
@@ -220,6 +231,8 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 				state.compare.active = false
 				show_toast(state, "Compare: OFF")
 			} else {
+				// S53: Entering compare exits focus mode.
+				state.focus_mode = false
 				apply_enter_compare(state)
 				if state.compare.active {
 					show_toast(state, "Compare: ON")
@@ -255,6 +268,7 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 			}
 			persist_layout_v6(state)
 		case .Toggle_Connection_Modal:
+			if !state.overlays.show_exchange_manager { close_all_overlays(state) }
 			state.overlays.show_exchange_manager = !state.overlays.show_exchange_manager
 		case .Select_Profile:
 			apply_select_profile_action(state, action.profile_idx)
@@ -278,8 +292,13 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 			apply_remove_cell_action(state, action.cell_idx)
 		case .Toggle_Focus_Mode:
 			state.focus_mode = !state.focus_mode
+			if state.focus_mode {
+				// S53: Entering focus exits compare mode.
+				state.compare.active = false
+			}
 			show_toast(state, state.focus_mode ? "Focus Mode" : "Normal Mode")
 		case .Toggle_Stream_Picker:
+			if !state.overlays.show_stream_picker { close_all_overlays(state) }
 			state.overlays.show_stream_picker = !state.overlays.show_stream_picker
 		case .Pick_Stream:
 			apply_pick_stream_action(state, action.subject_id)
@@ -308,9 +327,11 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 		case .Unsubscribe_Market:
 			apply_unsubscribe_market_action(state, action.market_entry_idx)
 		case .Toggle_Widget_Catalog:
+			if !state.overlays.show_widget_catalog { close_all_overlays(state) }
 			state.overlays.show_widget_catalog = !state.overlays.show_widget_catalog
 			state.overlays.catalog_step = 0
 		case .Open_Cell_Stream_Picker:
+			close_all_overlays(state)
 			state.overlays.cell_stream_picker_open = action.cell_idx
 		case .Close_Cell_Stream_Picker:
 			state.overlays.cell_stream_picker_open = -1
@@ -351,6 +372,10 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 			if capture_runtime_snapshot_to_clipboard(state) {
 				show_toast(state, "Snapshot copied")
 			}
+		case .Set_Cell_Span:
+			apply_set_cell_span_action(state, action.cell_idx, action.col_span, action.row_span)
+		case .Clear_All_Cells:
+			apply_clear_all_cells_action(state)
 		}
 	}
 	state.ui_action_count = 0

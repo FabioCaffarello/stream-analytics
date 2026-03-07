@@ -70,6 +70,24 @@ apply_add_cell_action :: proc(state: ^App_State, action: UI_Action) {
 	request_cell_candle_range(state, ci)
 }
 
+// S53: Set col/row span for a cell (routed through action queue).
+apply_set_cell_span_action :: proc(state: ^App_State, cell_idx, col_span, row_span: int) {
+	if state == nil do return
+	if cell_idx < 0 || cell_idx >= state.world.count do return
+	state.world.spans[cell_idx].col_span = col_span
+	state.world.spans[cell_idx].row_span = row_span
+	persist_layout_v6(state)
+}
+
+// S53: Clear all cells and open widget catalog.
+apply_clear_all_cells_action :: proc(state: ^App_State) {
+	if state == nil do return
+	state.world.count = 0
+	state.overlays.show_widget_catalog = true
+	state.overlays.catalog_step = 0
+	persist_layout_v6(state)
+}
+
 apply_remove_cell_action :: proc(state: ^App_State, cell_idx: int) {
 	if state == nil do return
 	if cell_idx < 0 || cell_idx >= state.world.count || state.world.count <= 1 do return

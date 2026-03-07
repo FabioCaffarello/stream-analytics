@@ -265,7 +265,7 @@ draw_dashboard_detail :: proc(state: ^App_State, rect: ui.Rect, pointer: ui.Poin
 // S52: Dashboard grid workspace — extracted from build_ui.odin
 // ═══════════════════════════════════════════════════════════════════════════
 
-@(private = "file")
+@(private = "package")
 col_weight_sum :: proc(state: ^App_State, col_count: int) -> f32 {
 	s := f32(0)
 	for c in 0 ..< col_count {
@@ -275,7 +275,7 @@ col_weight_sum :: proc(state: ^App_State, col_count: int) -> f32 {
 	return s
 }
 
-@(private = "file")
+@(private = "package")
 row_weight_sum :: proc(state: ^App_State, row_count: int) -> f32 {
 	s := f32(0)
 	for r in 0 ..< row_count {
@@ -383,204 +383,10 @@ build_dashboard_grid :: proc(
 		}
 	}
 
-	// --- Cell context menu rendering (simplified: widget type + add/remove) ---
-	if state.cell_context_menu.open {
-		cci := state.cell_context_cell_idx
-		current_widget := Widget_Kind.Empty
-		if cci >= 0 && cci < state.world.count {
-			current_widget = state.world.widgets[cci].kind
-		}
-		WIDGET_LABELS :: [12]string{"Candle", "Stats", "Counter", "Heatmap", "VPVR", "Trades", "Orderbook", "DOM", "Empty", "Analytics", "Session VPVR", "TPO"}
-		widget_labels := WIDGET_LABELS
-		menu_items: [ui.CONTEXT_MENU_MAX_ITEMS]ui.Context_Menu_Item
-		menu_count := 0
-		for i in 0 ..< 10 {
-			menu_items[menu_count] = ui.Context_Menu_Item{
-				label    = widget_labels[i],
-				selected = Widget_Kind(i) == current_widget,
-			}
-			menu_count += 1
-		}
-		// Add Cell + Remove Cell.
-		menu_items[menu_count] = {label = "+ Add Cell", divider = true}
-		add_cell_idx := menu_count
-		menu_count += 1
-		menu_items[menu_count] = {label = "- Remove", divider = false}
-		remove_cell_idx := menu_count
-		menu_count += 1
-		// Span controls (PRD-0007 M2).
-		expand_right_idx := -1
-		expand_down_idx := -1
-		reset_size_idx := -1
-		clear_all_idx := -1
-		if state.layout_mode == .Custom {
-			menu_items[menu_count] = {label = "Expand ->", divider = true}
-			expand_right_idx = menu_count
-			menu_count += 1
-			menu_items[menu_count] = {label = "Expand v", divider = false}
-			expand_down_idx = menu_count
-			menu_count += 1
-			has_span := cci >= 0 && cci < state.world.count &&
-				(state.world.spans[cci].col_span > 1 || state.world.spans[cci].row_span > 1)
-			if has_span {
-				menu_items[menu_count] = {label = "Reset Size", divider = false}
-				reset_size_idx = menu_count
-				menu_count += 1
-			}
-			menu_items[menu_count] = {label = "Clear All", divider = true}
-			clear_all_idx = menu_count
-			menu_count += 1
-		}
-
-		menu_res := ui.context_menu(&state.cmd_buf, &state.cell_context_menu,
-			menu_items[:menu_count], workspace_pointer, state.text.measure,
-			ui.Rect{pos = {0, 0}, size = {viewport_w, viewport_h}})
-		if menu_res.clicked_idx >= 0 {
-			if menu_res.clicked_idx < 10 {
-				queue_ui_action(state, UI_Action{
-					kind        = .Set_Cell_Widget,
-					cell_idx    = cci,
-					widget_kind = Widget_Kind(menu_res.clicked_idx),
-				})
-			} else if menu_res.clicked_idx == add_cell_idx {
-				queue_ui_action(state, UI_Action{kind = .Add_Cell})
-			} else if menu_res.clicked_idx == remove_cell_idx {
-				queue_ui_action(state, UI_Action{kind = .Remove_Cell, cell_idx = cci})
-			} else if menu_res.clicked_idx == expand_right_idx && cci >= 0 && cci < state.world.count {
-				cs := state.world.spans[cci].col_span
-				if cs < 1 do cs = 1
-				if cs < 4 { state.world.spans[cci].col_span = cs + 1 }
-				persist_layout_v6(state)
-			} else if menu_res.clicked_idx == expand_down_idx && cci >= 0 && cci < state.world.count {
-				rs := state.world.spans[cci].row_span
-				if rs < 1 do rs = 1
-				if rs < 4 { state.world.spans[cci].row_span = rs + 1 }
-				persist_layout_v6(state)
-			} else if menu_res.clicked_idx == reset_size_idx && cci >= 0 && cci < state.world.count {
-				state.world.spans[cci].col_span = 1
-				state.world.spans[cci].row_span = 1
-				persist_layout_v6(state)
-			} else if menu_res.clicked_idx == clear_all_idx {
-				state.world.count = 0
-				state.overlays.show_widget_catalog = true
-				state.overlays.catalog_step = 0
-				persist_layout_v6(state)
-			}
-		}
-	}
-
-	// --- Grid column resize handles ---
-	if !mobile && grid_def.col_count >= 2 {
-		RESIZE_HIT_W :: f32(6)
-		// Detect hover/drag on column borders.
-		if state.grid_col_resize >= 0 {
-			// Active resize drag.
-			if pointer.left_down {
-				ci := state.grid_col_resize
-				// Convert pointer X to weight adjustment.
-				total_w := workspace.size.x - gap * f32(grid_def.col_count - 1)
-				if total_w > 0 {
-					left_x := workspace.pos.x
-					for c in 0 ..< ci {
-						left_x += total_w * (state.custom_grid_def.col_weights[c] / col_weight_sum(state, grid_def.col_count)) + gap
-					}
-					new_left_w := pointer.pos.x - left_x
-					right_edge := left_x + total_w * (state.custom_grid_def.col_weights[ci] / col_weight_sum(state, grid_def.col_count)) + gap + total_w * (state.custom_grid_def.col_weights[ci + 1] / col_weight_sum(state, grid_def.col_count))
-					new_right_w := right_edge - pointer.pos.x - gap
-					min_w := total_w * 0.08
-					if new_left_w >= min_w && new_right_w >= min_w {
-						s := col_weight_sum(state, grid_def.col_count)
-						state.custom_grid_def.col_weights[ci]     = (new_left_w / total_w) * s
-						state.custom_grid_def.col_weights[ci + 1] = (new_right_w / total_w) * s
-					}
-				}
-			} else {
-				state.grid_col_resize = -1
-				// Persist column weights on drag release.
-				persist_col_weights(state, grid_def.col_count)
-			}
-		} else {
-			// Detect hover on column borders.
-			for ci in 0 ..< grid_def.col_count - 1 {
-				// BUG-20: Compute border_x from accumulated weights (handles spanned cells).
-				total_w_detect := workspace.size.x - gap * f32(grid_def.col_count - 1)
-				cw_sum_detect := col_weight_sum(state, grid_def.col_count)
-				border_x := workspace.pos.x
-				for c in 0 ..= ci {
-					if c > 0 do border_x += gap
-					border_x += total_w_detect * (state.custom_grid_def.col_weights[c] / cw_sum_detect)
-				}
-				hit := ui.Rect{pos = {border_x - RESIZE_HIT_W * 0.5, workspace.pos.y}, size = {RESIZE_HIT_W, workspace.size.y}}
-				if ui.rect_contains(hit, pointer.pos) {
-					// Visual hint.
-					ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
-						rect = {pos = {border_x - 1, workspace.pos.y}, size = {2, workspace.size.y}},
-						color = ui.with_alpha(ui.COL_BLUE, 0.35),
-					})
-					if pointer.left_pressed {
-						state.grid_col_resize = ci
-					}
-					break
-				}
-			}
-		}
-	}
-
-	// --- Grid row resize handles (PRD-0007 M0) ---
-	if !mobile && grid_def.row_count >= 2 {
-		RESIZE_HIT_H :: f32(6)
-		if state.grid_row_resize >= 0 {
-			// Active resize drag.
-			if pointer.left_down {
-				ri := state.grid_row_resize
-				total_h := workspace.size.y - gap * f32(grid_def.row_count - 1)
-				if total_h > 0 {
-					top_y := workspace.pos.y
-					for r in 0 ..< ri {
-						top_y += total_h * (state.custom_grid_def.row_weights[r] / row_weight_sum(state, grid_def.row_count)) + gap
-					}
-					new_top_h := pointer.pos.y - top_y
-					bottom_edge := top_y + total_h * (state.custom_grid_def.row_weights[ri] / row_weight_sum(state, grid_def.row_count)) + gap + total_h * (state.custom_grid_def.row_weights[ri + 1] / row_weight_sum(state, grid_def.row_count))
-					new_bottom_h := bottom_edge - pointer.pos.y - gap
-					min_h := total_h * 0.06
-					if new_top_h >= min_h && new_bottom_h >= min_h {
-						s := row_weight_sum(state, grid_def.row_count)
-						state.custom_grid_def.row_weights[ri]     = (new_top_h / total_h) * s
-						state.custom_grid_def.row_weights[ri + 1] = (new_bottom_h / total_h) * s
-					}
-				}
-			} else {
-				state.grid_row_resize = -1
-				// Persist row weights on drag release.
-				persist_row_weights(state, grid_def.row_count)
-			}
-		} else {
-			// Detect hover on row borders.
-			for ri in 0 ..< grid_def.row_count - 1 {
-				border_y := f32(0)
-				found_border := false
-				for gi in 0 ..< grid_def.cell_count {
-					gc := grid_def.cells[gi]
-					if gc.row == ri && gc.row_span == 1 {
-						border_y = ui.rect_bottom(grid.rects[gi])
-						found_border = true
-						break
-					}
-				}
-				if !found_border do continue
-				hit := ui.Rect{pos = {workspace.pos.x, border_y - RESIZE_HIT_H * 0.5}, size = {workspace.size.x, RESIZE_HIT_H}}
-				if ui.rect_contains(hit, pointer.pos) {
-					// Visual hint: horizontal blue line.
-					ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
-						rect = {pos = {workspace.pos.x, border_y - 1}, size = {workspace.size.x, 2}},
-						color = ui.with_alpha(ui.COL_BLUE, 0.35),
-					})
-					if pointer.left_pressed {
-						state.grid_row_resize = ri
-					}
-					break
-				}
-			}
-		}
+	// S53: Context menu and resize handles delegated to extracted procs.
+	build_cell_context_menu(state, workspace_pointer, viewport_w, viewport_h)
+	if !mobile {
+		update_grid_col_resize(state, workspace, pointer, grid_def, gap)
+		update_grid_row_resize(state, workspace, pointer, grid_def, grid, gap)
 	}
 }

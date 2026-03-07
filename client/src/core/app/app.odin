@@ -110,6 +110,8 @@ UI_Action_Kind :: enum u8 {
 	Connect_Profile,
 	Disconnect_Profile,
 	Capture_Runtime_Snapshot, // S46: deterministic snapshot to clipboard
+	Set_Cell_Span,           // S53: set col/row span for a cell
+	Clear_All_Cells,         // S53: remove all cells and open widget catalog
 }
 
 UI_Action :: struct {
@@ -126,6 +128,8 @@ UI_Action :: struct {
 	subject_id:     u64,        // for Pick_Stream
 	market_entry_idx: int,      // for Subscribe_Market
 	pane_idx:       int,        // S39: for Set_Compare_Pane_Timeframe / Focus_Compare_Pane
+	col_span:       int,        // S53: for Set_Cell_Span
+	row_span:       int,        // S53: for Set_Cell_Span
 	// Intent binding transport (PRD-0009): venue/symbol for Set_Cell_Stream / Add_Cell.
 	bind_venue:     string,
 	bind_symbol:    string,
