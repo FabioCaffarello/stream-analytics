@@ -1,5 +1,6 @@
 package app
 
+import "mr:md_common"
 import "mr:ports"
 import "mr:ui"
 
@@ -39,6 +40,54 @@ modal_backdrop :: proc(cmd_buf: ^ui.Command_Buffer, viewport_w, viewport_h: f32,
 		color = {0, 0, 0, alpha},
 	})
 	cmd_buf.current_z_layer = prev_z
+}
+
+// S53: Shared composition badge — renders PEND/BFILL/LIVE/COMP label.
+// Returns the cursor advance (width of label + trailing gap), or 0 if empty.
+@(private = "package")
+draw_composition_badge :: proc(
+	cmd_buf: ^ui.Command_Buffer,
+	x, text_y: f32,
+	composition: md_common.Composition_Stage,
+	measure: proc(size: f32, text: string) -> ui.Vec2,
+) -> f32 {
+	comp_label: string
+	comp_color: ui.Color
+	switch composition {
+	case .Range_Pending: comp_label = "PEND";  comp_color = ui.COL_WARNING
+	case .Backfilled:    comp_label = "BFILL"; comp_color = ui.COL_WARNING
+	case .Live_Only:     comp_label = "LIVE";  comp_color = ui.COL_YELLOW_ACCENT
+	case .Composed:      comp_label = "COMP";  comp_color = ui.COL_GREEN
+	case .Empty:         return 0
+	}
+	ui.push_text(cmd_buf, {x, text_y}, comp_label, comp_color, ui.FONT_SIZE_XS, .Mono)
+	return measure(ui.FONT_SIZE_XS, comp_label).x + 4
+}
+
+// S53: Shared health dot — renders green/yellow/red square indicator.
+// Returns the cursor advance (dot_size + trailing gap), or 0 if not shown.
+@(private = "package")
+draw_health_dot :: proc(
+	cmd_buf: ^ui.Command_Buffer,
+	x, center_y, dot_sz: f32,
+	health_level: md_common.System_Health_Level,
+	has_live_data: bool,
+	composition: md_common.Composition_Stage,
+) -> f32 {
+	if !has_live_data && composition == .Empty do return 0
+	health_color := ui.COL_GREEN
+	switch health_level {
+	case .Degraded:  health_color = ui.COL_WARNING
+	case .Unhealthy: health_color = ui.COL_RED
+	case .Critical:  health_color = ui.COL_RED
+	case .Healthy:
+	}
+	dot_y := center_y - dot_sz * 0.5
+	ui.push(cmd_buf, ui.Cmd_Rect_Filled{
+		rect = ui.rect_xywh(x, dot_y, dot_sz, dot_sz),
+		color = health_color,
+	})
+	return dot_sz + 4
 }
 
 // S52: Overlay dispatch — renders all global overlays/modals in z-order.

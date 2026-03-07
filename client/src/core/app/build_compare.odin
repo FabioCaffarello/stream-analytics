@@ -99,21 +99,8 @@ build_compare_mode :: proc(
 			tf_str, tf_color, ui.FONT_SIZE_XS, .Mono)
 		cursor_x += state.text.measure(ui.FONT_SIZE_XS, tf_str).x + 4
 
-		// S37: Composition badge (PEND/BFILL/LIVE/COMP).
-		comp_label: string
-		comp_color: ui.Color
-		switch sv.composition {
-		case .Range_Pending: comp_label = "PEND";  comp_color = ui.COL_WARNING
-		case .Backfilled:    comp_label = "BFILL"; comp_color = ui.COL_WARNING
-		case .Live_Only:     comp_label = "LIVE";  comp_color = ui.COL_YELLOW_ACCENT
-		case .Composed:      comp_label = "COMP";  comp_color = ui.COL_GREEN
-		case .Empty:
-		}
-		if len(comp_label) > 0 {
-			ui.push_text(&state.cmd_buf, {cursor_x, text_y},
-				comp_label, comp_color, ui.FONT_SIZE_XS, .Mono)
-			cursor_x += state.text.measure(ui.FONT_SIZE_XS, comp_label).x + 4
-		}
+		// S37/S53: Composition badge (shared proc).
+		cursor_x += draw_composition_badge(&state.cmd_buf, cursor_x, text_y, sv.composition, state.text.measure)
 
 		// S42: Recovery badge (RCVR/XHST) — surfaces per-pane recovery status.
 		switch sv.recovery_status {
@@ -130,22 +117,8 @@ build_compare_mode :: proc(
 		case .None:
 		}
 
-		// S37: Health dot — colored indicator for per-pane health level.
-		health_color := ui.COL_GREEN
-		switch sv.health_level {
-		case .Degraded:  health_color = ui.COL_WARNING
-		case .Unhealthy: health_color = ui.COL_RED
-		case .Critical:  health_color = ui.COL_RED
-		case .Healthy:
-		}
-		if sv.has_live_data || sv.composition != .Empty {
-			dot_sz := f32(6)
-			dot_y := header_rect.pos.y + (header_h - dot_sz) * 0.5
-			ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
-				rect = ui.rect_xywh(cursor_x, dot_y, dot_sz, dot_sz),
-				color = health_color,
-			})
-		}
+		// S37/S53: Health dot (shared proc).
+		draw_health_dot(&state.cmd_buf, cursor_x, header_rect.pos.y + header_h * 0.5, 6, sv.health_level, sv.has_live_data, sv.composition)
 
 		render_subject_layer_canvas(state, sid, render_kind, cell_rect)
 
