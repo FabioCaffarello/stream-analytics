@@ -772,3 +772,95 @@ test_missing_ts_server_gap_terminal_v1_only :: proc(t: ^testing.T) {
 	testing.expect_value(t, missing_ts_server_gap(false, services.Parse_Result_Kind.Range_Candle, util.Transport_Mode.Terminal_V1), false)
 	testing.expect_value(t, missing_ts_server_gap(false, services.Parse_Result_Kind.Trade, util.Transport_Mode.Legacy_JSON), false)
 }
+
+// --- S50: Fusion tests ---
+
+@(test)
+test_fusion_confidence_level_high :: proc(t: ^testing.T) {
+	testing.expect_value(t, fusion_confidence_level(0.95), Fusion_Confidence_Level.High)
+	testing.expect_value(t, fusion_confidence_level(0.9), Fusion_Confidence_Level.High)
+	testing.expect_value(t, fusion_confidence_level(1.0), Fusion_Confidence_Level.High)
+}
+
+@(test)
+test_fusion_confidence_level_medium :: proc(t: ^testing.T) {
+	testing.expect_value(t, fusion_confidence_level(0.5), Fusion_Confidence_Level.Medium)
+	testing.expect_value(t, fusion_confidence_level(0.7), Fusion_Confidence_Level.Medium)
+	testing.expect_value(t, fusion_confidence_level(0.89), Fusion_Confidence_Level.Medium)
+}
+
+@(test)
+test_fusion_confidence_level_low :: proc(t: ^testing.T) {
+	testing.expect_value(t, fusion_confidence_level(0.1), Fusion_Confidence_Level.Low)
+	testing.expect_value(t, fusion_confidence_level(0.49), Fusion_Confidence_Level.Low)
+}
+
+@(test)
+test_fusion_confidence_level_unknown :: proc(t: ^testing.T) {
+	testing.expect_value(t, fusion_confidence_level(0.0), Fusion_Confidence_Level.Unknown)
+	testing.expect_value(t, fusion_confidence_level(-1.0), Fusion_Confidence_Level.Unknown)
+}
+
+@(test)
+test_fusion_is_degraded :: proc(t: ^testing.T) {
+	meta_degraded := Fusion_Meta{ confidence = 0.3 }
+	testing.expect(t, fusion_is_degraded(&meta_degraded), "0.3 should be degraded")
+
+	meta_ok := Fusion_Meta{ confidence = 0.8 }
+	testing.expect(t, !fusion_is_degraded(&meta_ok), "0.8 should not be degraded")
+
+	meta_zero := Fusion_Meta{ confidence = 0.0 }
+	testing.expect(t, !fusion_is_degraded(&meta_zero), "0.0 should not be degraded (unknown)")
+}
+
+@(test)
+test_fusion_fresh_ratio :: proc(t: ^testing.T) {
+	meta := Fusion_Meta{
+		staleness = Fusion_Staleness{ fresh_count = 2, stale_count = 1 },
+	}
+	ratio := fusion_fresh_ratio(&meta)
+	testing.expect(t, ratio > 0.66 && ratio < 0.67, "2/3 fresh ratio")
+
+	meta_empty := Fusion_Meta{}
+	testing.expect_value(t, fusion_fresh_ratio(&meta_empty), 0.0)
+}
+
+@(test)
+test_fusion_has_tag :: proc(t: ^testing.T) {
+	meta := Fusion_Meta{
+		feature_tags = {"degraded", "partial_sources", "", "", "", "", "", "", "", ""},
+		tag_count = 2,
+	}
+	testing.expect(t, fusion_has_tag(&meta, "degraded"), "should find degraded tag")
+	testing.expect(t, fusion_has_tag(&meta, "partial_sources"), "should find partial_sources tag")
+	testing.expect(t, !fusion_has_tag(&meta, "high_confidence"), "should not find high_confidence tag")
+}
+
+@(test)
+test_resolve_fusion_badge :: proc(t: ^testing.T) {
+	meta := Fusion_Meta{
+		confidence = 0.95,
+		source_count = 3,
+		staleness = Fusion_Staleness{ fresh_count = 3, stale_count = 0 },
+	}
+	badge := resolve_fusion_badge(&meta, .Merge)
+	testing.expect_value(t, badge.mode, Fusion_Mode.Merge)
+	testing.expect_value(t, badge.confidence_level, Fusion_Confidence_Level.High)
+	testing.expect_value(t, badge.source_count, 3)
+	testing.expect_value(t, badge.fresh_count, 3)
+	testing.expect(t, !badge.is_degraded, "should not be degraded")
+}
+
+@(test)
+test_resolve_fusion_badge_degraded :: proc(t: ^testing.T) {
+	meta := Fusion_Meta{
+		confidence = 0.3,
+		source_count = 3,
+		staleness = Fusion_Staleness{ fresh_count = 1, stale_count = 2 },
+	}
+	badge := resolve_fusion_badge(&meta, .Weighted)
+	testing.expect_value(t, badge.mode, Fusion_Mode.Weighted)
+	testing.expect_value(t, badge.confidence_level, Fusion_Confidence_Level.Low)
+	testing.expect(t, badge.is_degraded, "should be degraded")
+	testing.expect_value(t, badge.fresh_count, 1)
+}
