@@ -343,6 +343,12 @@ apply_state_artifact_staleness :: proc(s: Stream_Apply_State, kind: Artifact_Kin
 		if age >= 12_000 do return .Stale
 		if age >= 8_000 do return .Aging
 		return .Fresh
+	case .Sparse_Adaptive:
+		// S47: Sparse/irregular feeds (OI). Updates can be 1/min on some exchanges.
+		// 60s aging, 180s stale — avoids false-positive on naturally sparse data.
+		if age >= 180_000 do return .Stale
+		if age >= 60_000 do return .Aging
+		return .Fresh
 	}
 	return .Fresh
 }

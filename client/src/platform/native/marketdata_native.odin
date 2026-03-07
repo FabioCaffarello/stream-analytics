@@ -112,6 +112,16 @@ MD_Native_State :: struct {
 	signal_ring_write:    int,
 	signal_ring_count:    int,
 
+	// S47: Analytics staging (latest-wins per kind).
+	oi_staging:            services.Parsed_Open_Interest,
+	oi_dirty:              bool,
+	delta_vol_staging:     services.Parsed_Delta_Volume,
+	delta_vol_dirty:       bool,
+	cvd_staging:           services.Parsed_CVD,
+	cvd_dirty:             bool,
+	bar_stats_staging:     services.Parsed_Bar_Stats,
+	bar_stats_dirty:       bool,
+
 	// Candle timeframe filter (mutable, heap-allocated).
 	candle_tf_filter: string,
 
@@ -1256,6 +1266,85 @@ native_poll :: proc(events_buf: []ports.MD_Event) -> int {
 		n += 1
 	}
 
+	// S47: Emit analytics staging events.
+	if state.oi_dirty && n < len(events_buf) {
+		oi := state.oi_staging
+		events_buf[n].source.subject_id = oi.subject_id
+		events_buf[n].source.channel = .Stats  // reuse channel (no analytics channel enum yet)
+		events_buf[n].source.seq = oi.seq
+		events_buf[n].kind = .Open_Interest
+		events_buf[n].unix = oi.unix
+		events_buf[n].data.open_interest = ports.MD_Open_Interest_Event{
+			open_interest   = oi.open_interest,
+			delta           = oi.delta,
+			delta_pct       = oi.delta_pct,
+			window_start_ts = oi.window_start_ts,
+			window_end_ts   = oi.window_end_ts,
+			unix            = oi.unix,
+		}
+		state.oi_dirty = false
+		n += 1
+	}
+	if state.delta_vol_dirty && n < len(events_buf) {
+		dv := state.delta_vol_staging
+		events_buf[n].source.subject_id = dv.subject_id
+		events_buf[n].source.channel = .Stats
+		events_buf[n].source.seq = dv.seq
+		events_buf[n].kind = .Delta_Volume
+		events_buf[n].unix = dv.unix
+		events_buf[n].data.delta_volume = ports.MD_Delta_Volume_Event{
+			buy_volume      = dv.buy_volume,
+			sell_volume     = dv.sell_volume,
+			delta_volume    = dv.delta_volume,
+			window_start_ts = dv.window_start_ts,
+			window_end_ts   = dv.window_end_ts,
+			unix            = dv.unix,
+		}
+		state.delta_vol_dirty = false
+		n += 1
+	}
+	if state.cvd_dirty && n < len(events_buf) {
+		cv := state.cvd_staging
+		events_buf[n].source.subject_id = cv.subject_id
+		events_buf[n].source.channel = .Stats
+		events_buf[n].source.seq = cv.seq
+		events_buf[n].kind = .CVD
+		events_buf[n].unix = cv.unix
+		events_buf[n].data.cvd = ports.MD_CVD_Event{
+			delta_volume    = cv.delta_volume,
+			cvd             = cv.cvd,
+			window_start_ts = cv.window_start_ts,
+			window_end_ts   = cv.window_end_ts,
+			unix            = cv.unix,
+		}
+		state.cvd_dirty = false
+		n += 1
+	}
+	if state.bar_stats_dirty && n < len(events_buf) {
+		bs := state.bar_stats_staging
+		events_buf[n].source.subject_id = bs.subject_id
+		events_buf[n].source.channel = .Stats
+		events_buf[n].source.seq = bs.seq
+		events_buf[n].kind = .Bar_Stats
+		events_buf[n].unix = bs.unix
+		events_buf[n].data.bar_stats = ports.MD_Bar_Stats_Event{
+			trade_count     = bs.trade_count,
+			buy_count       = bs.buy_count,
+			sell_count      = bs.sell_count,
+			total_volume    = bs.total_volume,
+			buy_volume      = bs.buy_volume,
+			sell_volume     = bs.sell_volume,
+			vwap_price      = bs.vwap_price,
+			imbalance       = bs.imbalance,
+			is_burst        = bs.is_burst,
+			window_start_ts = bs.window_start_ts,
+			window_end_ts   = bs.window_end_ts,
+			unix            = bs.unix,
+		}
+		state.bar_stats_dirty = false
+		n += 1
+	}
+
 	return n
 }
 
@@ -2222,6 +2311,27 @@ apply_parse_result :: proc(state: ^MD_Native_State, raw: []u8) {
 		if state.signal_ring_count < SIGNAL_RING_CAP {
 			state.signal_ring_count += 1
 		}
+		sync.unlock(&state.mu)
+	// S47: Analytics substrate staging.
+	case .Open_Interest:
+		sync.lock(&state.mu)
+		state.oi_staging = result.data.open_interest
+		state.oi_dirty = true
+		sync.unlock(&state.mu)
+	case .Delta_Volume:
+		sync.lock(&state.mu)
+		state.delta_vol_staging = result.data.delta_volume
+		state.delta_vol_dirty = true
+		sync.unlock(&state.mu)
+	case .CVD:
+		sync.lock(&state.mu)
+		state.cvd_staging = result.data.cvd
+		state.cvd_dirty = true
+		sync.unlock(&state.mu)
+	case .Bar_Stats:
+		sync.lock(&state.mu)
+		state.bar_stats_staging = result.data.bar_stats
+		state.bar_stats_dirty = true
 		sync.unlock(&state.mu)
 	case .None:
 		// Ignored (last, unknown frame types).

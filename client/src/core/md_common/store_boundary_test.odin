@@ -3554,3 +3554,155 @@ test_s46_apply_state_bitmask_roundtrip :: proc(t: ^testing.T) {
 	n2 := runtime_snapshot_serialize(&snap, buf2[:])
 	testing.expect_value(t, n, n2)
 }
+
+// =========================================================================
+// S47: Analytics Substrate Tests — artifact identity, policies, staleness.
+// =========================================================================
+
+@(test)
+test_s47_analytics_artifact_kinds_exist :: proc(t: ^testing.T) {
+	// Verify all 4 analytics artifact kinds are valid enum values.
+	oi := Artifact_Kind.Open_Interest
+	dv := Artifact_Kind.Delta_Volume
+	cvd := Artifact_Kind.CVD
+	bs := Artifact_Kind.Bar_Stats
+	testing.expect(t, int(oi) > int(Artifact_Kind.Range_Candle), "OI after Range_Candle")
+	testing.expect(t, int(dv) > int(oi), "DV after OI")
+	testing.expect(t, int(cvd) > int(dv), "CVD after DV")
+	testing.expect(t, int(bs) > int(cvd), "BS after CVD")
+	// Total artifact count = 14
+	testing.expect_value(t, len(Artifact_Kind), 14)
+}
+
+@(test)
+test_s47_analytics_policies_correct :: proc(t: ^testing.T) {
+	// Open Interest: Latest_Wins, not TF-sensitive, Sparse_Adaptive, Degradable
+	oi := artifact_policy(.Open_Interest)
+	testing.expect(t, !oi.needs_snapshot_gate, "OI no gate")
+	testing.expect(t, oi.snapshot_semantics == .Latest_Wins, "OI Latest_Wins")
+	testing.expect(t, !oi.is_tf_sensitive, "OI not TF-sensitive")
+	testing.expect(t, oi.stale_detection == .Sparse_Adaptive, "OI Sparse_Adaptive")
+	testing.expect(t, oi.backpressure_priority == .Degradable, "OI Degradable")
+
+	// Delta Volume: Ring_Append, TF-sensitive, TF_Adaptive, Degradable
+	dv := artifact_policy(.Delta_Volume)
+	testing.expect(t, dv.snapshot_semantics == .Ring_Append, "DV Ring_Append")
+	testing.expect(t, dv.is_tf_sensitive, "DV TF-sensitive")
+	testing.expect(t, dv.stale_detection == .TF_Adaptive, "DV TF_Adaptive")
+	testing.expect(t, dv.backpressure_priority == .Degradable, "DV Degradable")
+	testing.expect(t, dv.reset_on_tf_change, "DV reset on TF change")
+
+	// CVD: Ring_Append, TF-sensitive, TF_Adaptive, Degradable
+	cvd := artifact_policy(.CVD)
+	testing.expect(t, cvd.snapshot_semantics == .Ring_Append, "CVD Ring_Append")
+	testing.expect(t, cvd.is_tf_sensitive, "CVD TF-sensitive")
+	testing.expect(t, cvd.stale_detection == .TF_Adaptive, "CVD TF_Adaptive")
+	testing.expect(t, cvd.reset_on_tf_change, "CVD reset on TF change")
+
+	// Bar Stats: Ring_Append, TF-sensitive, TF_Adaptive, Degradable
+	bs := artifact_policy(.Bar_Stats)
+	testing.expect(t, bs.snapshot_semantics == .Ring_Append, "BS Ring_Append")
+	testing.expect(t, bs.is_tf_sensitive, "BS TF-sensitive")
+	testing.expect(t, bs.stale_detection == .TF_Adaptive, "BS TF_Adaptive")
+	testing.expect(t, bs.reset_on_tf_change, "BS reset on TF change")
+}
+
+@(test)
+test_s47_analytics_apply_state_tracking :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+
+	// Mark all 4 analytics kinds
+	apply_state_mark_event(&s, .Open_Interest, 10_000, false)
+	apply_state_mark_event(&s, .Delta_Volume, 11_000, false)
+	apply_state_mark_event(&s, .CVD, 12_000, false)
+	apply_state_mark_event(&s, .Bar_Stats, 13_000, false)
+
+	testing.expect(t, s.has_live[.Open_Interest], "OI live")
+	testing.expect(t, s.has_live[.Delta_Volume], "DV live")
+	testing.expect(t, s.has_live[.CVD], "CVD live")
+	testing.expect(t, s.has_live[.Bar_Stats], "BS live")
+	testing.expect_value(t, s.event_count, u64(4))
+	testing.expect_value(t, s.artifact_event_count[.Open_Interest], u64(1))
+	testing.expect_value(t, s.last_recv_ms[.Open_Interest], i64(10_000))
+}
+
+@(test)
+test_s47_sparse_adaptive_staleness :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Open_Interest, 100_000, false)
+
+	// Fresh: 30s old
+	st := apply_state_artifact_staleness(s, .Open_Interest, 130_000)
+	testing.expect(t, st == .Fresh, "OI fresh at 30s")
+
+	// Aging: 90s old
+	st = apply_state_artifact_staleness(s, .Open_Interest, 190_000)
+	testing.expect(t, st == .Aging, "OI aging at 90s")
+
+	// Stale: 200s old
+	st = apply_state_artifact_staleness(s, .Open_Interest, 300_000)
+	testing.expect(t, st == .Stale, "OI stale at 200s")
+}
+
+@(test)
+test_s47_analytics_tf_change_resets_tf_sensitive :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Open_Interest, 1000, false)
+	apply_state_mark_event(&s, .Delta_Volume, 2000, false)
+	apply_state_mark_event(&s, .CVD, 3000, false)
+	apply_state_mark_event(&s, .Bar_Stats, 4000, false)
+
+	apply_state_on_tf_change(&s)
+
+	// OI is NOT TF-sensitive — should survive TF change
+	testing.expect(t, s.has_live[.Open_Interest], "OI survives TF change")
+	testing.expect_value(t, s.last_recv_ms[.Open_Interest], i64(1000))
+
+	// DV, CVD, BS are TF-sensitive — should be cleared
+	testing.expect(t, !s.has_live[.Delta_Volume], "DV cleared on TF change")
+	testing.expect(t, !s.has_live[.CVD], "CVD cleared on TF change")
+	testing.expect(t, !s.has_live[.Bar_Stats], "BS cleared on TF change")
+	testing.expect_value(t, s.last_recv_ms[.Delta_Volume], i64(0))
+}
+
+@(test)
+test_s47_analytics_backpressure_degradable :: proc(t: ^testing.T) {
+	// Analytics are Degradable — should be skippable under backpressure
+	oi_p := artifact_policy(.Open_Interest)
+	dv_p := artifact_policy(.Delta_Volume)
+	cvd_p := artifact_policy(.CVD)
+	bs_p := artifact_policy(.Bar_Stats)
+	testing.expect(t, oi_p.backpressure_priority == .Degradable, "OI degradable")
+	testing.expect(t, dv_p.backpressure_priority == .Degradable, "DV degradable")
+	testing.expect(t, cvd_p.backpressure_priority == .Degradable, "CVD degradable")
+	testing.expect(t, bs_p.backpressure_priority == .Degradable, "BS degradable")
+
+	// None have synthetic fallback
+	testing.expect(t, !oi_p.has_synthetic_fallback, "OI no synthetic")
+	testing.expect(t, !dv_p.has_synthetic_fallback, "DV no synthetic")
+	testing.expect(t, !cvd_p.has_synthetic_fallback, "CVD no synthetic")
+	testing.expect(t, !bs_p.has_synthetic_fallback, "BS no synthetic")
+}
+
+@(test)
+test_s47_apply_state_arrays_cover_14_artifacts :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	// Verify arrays expanded automatically via enum sizing
+	testing.expect_value(t, len(s.snapshot_seen), 14)
+	testing.expect_value(t, len(s.has_live), 14)
+	testing.expect_value(t, len(s.using_synthetic), 14)
+	testing.expect_value(t, len(s.last_recv_ms), 14)
+	testing.expect_value(t, len(s.artifact_event_count), 14)
+}
+
+@(test)
+test_s47_analytics_stale_count_includes_analytics :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Open_Interest, 1000, false)
+	apply_state_mark_event(&s, .Delta_Volume, 1000, false)
+
+	// At 200s later, OI should be stale (Sparse_Adaptive 180s), DV should be stale (TF_Adaptive ~10s default)
+	stale, aging := apply_state_stale_artifact_count(s, 201_000, 5_000)
+	testing.expect(t, stale >= 2, "both OI and DV stale at 200s")
+	_ = aging
+}

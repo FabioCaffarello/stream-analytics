@@ -309,6 +309,7 @@ Global_Stores :: struct {
 	dom:       services.DOM_Store,
 	footprint: services.Footprint_Store,
 	markets:   services.Markets_Store,
+	analytics: services.Analytics_Store,  // S47: global analytics ring
 }
 
 Active_Stream_Metrics :: struct {

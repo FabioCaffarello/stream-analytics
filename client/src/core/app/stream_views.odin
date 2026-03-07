@@ -381,6 +381,7 @@ apply_set_timeframe_action :: proc(state: ^App_State, idx: int) -> bool {
 		slot.heatmap_store = {}
 		slot.heatmap_snapshot = {}
 		slot.vpvr_store = {}
+		services.analytics_store_clear(&slot.analytics_store) // S47
 		// Clear orderbook store — stale L2 data from the prior TF doesn't persist.
 		// A fresh snapshot will arrive after resubscribe.
 		slot.orderbook_store = {}
@@ -555,6 +556,7 @@ apply_set_cell_timeframe_action :: proc(state: ^App_State, cell_idx: int, tf_idx
 			slot.heatmap_store = {}
 			slot.heatmap_snapshot = {}
 			slot.vpvr_store = {}
+			services.analytics_store_clear(&slot.analytics_store) // S47
 			// S24: apply_state_on_tf_change handles has_live/snapshot_seen resets per policy.
 			md_common.apply_state_on_tf_change(&slot.apply_state)
 		}

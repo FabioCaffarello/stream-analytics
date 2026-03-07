@@ -144,6 +144,7 @@ Stream_View_Slot :: struct {
 	orderbook_store: services.Orderbook_Store,
 	stats_store:     services.Stats_Store,
 	candle_store:    services.Candle_Store,
+	analytics_store: services.Analytics_Store,  // S47: per-slot analytics ring
 	// S23: Canonical per-stream apply state (replaces scattered booleans above).
 	apply_state:     md_common.Stream_Apply_State,
 }

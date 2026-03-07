@@ -141,6 +141,56 @@ Parsed_Tape :: struct {
 	seq:             i64,
 }
 
+// S47: Analytics substrate parsed types.
+Parsed_Open_Interest :: struct {
+	open_interest:   f64,
+	delta:           f64,
+	delta_pct:       f64,
+	window_start_ts: i64,
+	window_end_ts:   i64,
+	unix:            i64,
+	subject_id:      u64,
+	seq:             i64,
+}
+
+Parsed_Delta_Volume :: struct {
+	buy_volume:      f64,
+	sell_volume:     f64,
+	delta_volume:    f64,
+	window_start_ts: i64,
+	window_end_ts:   i64,
+	unix:            i64,
+	subject_id:      u64,
+	seq:             i64,
+}
+
+Parsed_CVD :: struct {
+	delta_volume:    f64,
+	cvd:             f64,
+	window_start_ts: i64,
+	window_end_ts:   i64,
+	unix:            i64,
+	subject_id:      u64,
+	seq:             i64,
+}
+
+Parsed_Bar_Stats :: struct {
+	trade_count:     i64,
+	buy_count:       i64,
+	sell_count:      i64,
+	total_volume:    f64,
+	buy_volume:      f64,
+	sell_volume:     f64,
+	vwap_price:      f64,
+	imbalance:       f64,
+	is_burst:        bool,
+	window_start_ts: i64,
+	window_end_ts:   i64,
+	unix:            i64,
+	subject_id:      u64,
+	seq:             i64,
+}
+
 Parsed_Ack :: struct {
 	op:        string,
 	subject:   string,
@@ -264,6 +314,11 @@ Parse_Result_Kind :: enum u8 {
 	Error,
 	Pong,
 	Metrics,
+	// S47: Analytics substrate kinds — first-class identity.
+	Open_Interest,
+	Delta_Volume,
+	CVD,
+	Bar_Stats,
 }
 
 Parse_Result_Data :: struct #raw_union {
@@ -284,6 +339,11 @@ Parse_Result_Data :: struct #raw_union {
 	pong:           Parsed_Pong,
 	server_metrics: Parsed_Metrics,
 	error_detail:   Parsed_Error,
+	// S47: Analytics substrate parsed types.
+	open_interest:  Parsed_Open_Interest,
+	delta_volume:   Parsed_Delta_Volume,
+	cvd:            Parsed_CVD,
+	bar_stats:      Parsed_Bar_Stats,
 }
 
 Parse_Result_Meta :: struct {
@@ -491,8 +551,8 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 	case "aggregation.bar_stats":
 		if r, ok := parse_bar_stats(raw, env.ts_ingest, subject_id); ok {
 			r.seq = result.meta.seq
-			result.kind = .Tape
-			result.data.tape = r
+			result.kind = .Bar_Stats
+			result.data.bar_stats = r
 		} else if telemetry != nil {
 			telemetry.parse_errors += 1
 		}
@@ -543,24 +603,24 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 	case "aggregation.oi":
 		if r, ok := parse_open_interest_window(raw, env.ts_ingest, subject_id); ok {
 			r.seq = result.meta.seq
-			result.kind = .Stats
-			result.data.stats = r
+			result.kind = .Open_Interest
+			result.data.open_interest = r
 		} else if telemetry != nil {
 			telemetry.parse_errors += 1
 		}
 	case "aggregation.delta_volume":
 		if r, ok := parse_delta_volume(raw, env.ts_ingest, subject_id); ok {
 			r.seq = result.meta.seq
-			result.kind = .Stats
-			result.data.stats = r
+			result.kind = .Delta_Volume
+			result.data.delta_volume = r
 		} else if telemetry != nil {
 			telemetry.parse_errors += 1
 		}
 	case "aggregation.cvd":
 		if r, ok := parse_cvd(raw, env.ts_ingest, subject_id); ok {
 			r.seq = result.meta.seq
-			result.kind = .Stats
-			result.data.stats = r
+			result.kind = .CVD
+			result.data.cvd = r
 		} else if telemetry != nil {
 			telemetry.parse_errors += 1
 		}

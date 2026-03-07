@@ -230,140 +230,123 @@ parse_open_interest_tick_from_payload :: proc(payload: util.MR_Open_Interest_Tic
 	}, true
 }
 
+// S47: Returns Parsed_Open_Interest (was Parsed_Stats — identity collapse fix).
 @(private = "package")
-parse_open_interest_window :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Stats, bool) {
+parse_open_interest_window :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Open_Interest, bool) {
 	frame: util.MR_Open_Interest_Window_Frame
 	if json.unmarshal(raw, &frame) != nil do return {}, false
 	return parse_open_interest_window_from_payload(frame.payload, ts, subject_id)
 }
 
 @(private = "package")
-parse_open_interest_window_payload :: proc(payload_raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Stats, bool) {
+parse_open_interest_window_payload :: proc(payload_raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Open_Interest, bool) {
 	payload: util.MR_Open_Interest_Window_Payload
 	if json.unmarshal(payload_raw, &payload) != nil do return {}, false
 	return parse_open_interest_window_from_payload(payload, ts, subject_id)
 }
 
 @(private = "package")
-parse_open_interest_window_from_payload :: proc(payload: util.MR_Open_Interest_Window_Payload, ts: i64, subject_id: u64) -> (Parsed_Stats, bool) {
+parse_open_interest_window_from_payload :: proc(payload: util.MR_Open_Interest_Window_Payload, ts: i64, subject_id: u64) -> (Parsed_Open_Interest, bool) {
 	if !f64_valid(payload.OpenInterest) || payload.OpenInterest < 0 do return {}, false
 	if !f64_valid(payload.Delta) || !f64_valid(payload.DeltaPct) do return {}, false
 	ingest_ms := payload.TsIngestMs
 	if ingest_ms <= 0 do ingest_ms = ts
 	unix := util.normalize_unix_seconds(payload.WindowEndTs if payload.WindowEndTs != 0 else ingest_ms)
-	window_ms := payload.WindowEndTs - payload.WindowStartTs
-	if window_ms < 0 do window_ms = 0
-	buy := payload.Delta
-	if buy < 0 do buy = 0
-	sell := -payload.Delta
-	if sell < 0 do sell = 0
-	return Parsed_Stats{
-		mark_price   = payload.OpenInterest,
-		funding      = payload.DeltaPct,
-		tbuy         = buy,
-		tsell        = sell,
-		window_ms    = window_ms,
-		ts_ingest_ms = ingest_ms,
-		quality_flags = 0,
-		unix         = unix,
-		subject_id   = subject_id,
-		seq          = payload.Seq,
+	return Parsed_Open_Interest{
+		open_interest   = payload.OpenInterest,
+		delta           = payload.Delta,
+		delta_pct       = payload.DeltaPct,
+		window_start_ts = payload.WindowStartTs,
+		window_end_ts   = payload.WindowEndTs,
+		unix            = unix,
+		subject_id      = subject_id,
+		seq             = payload.Seq,
 	}, true
 }
 
+// S47: Returns Parsed_Delta_Volume (was Parsed_Stats — identity collapse fix).
 @(private = "package")
-parse_delta_volume :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Stats, bool) {
+parse_delta_volume :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Delta_Volume, bool) {
 	frame: util.MR_Delta_Volume_Frame
 	if json.unmarshal(raw, &frame) != nil do return {}, false
 	return parse_delta_volume_from_payload(frame.payload, ts, subject_id)
 }
 
 @(private = "package")
-parse_delta_volume_payload :: proc(payload_raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Stats, bool) {
+parse_delta_volume_payload :: proc(payload_raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Delta_Volume, bool) {
 	payload: util.MR_Delta_Volume_Payload
 	if json.unmarshal(payload_raw, &payload) != nil do return {}, false
 	return parse_delta_volume_from_payload(payload, ts, subject_id)
 }
 
 @(private = "package")
-parse_delta_volume_from_payload :: proc(payload: util.MR_Delta_Volume_Payload, ts: i64, subject_id: u64) -> (Parsed_Stats, bool) {
+parse_delta_volume_from_payload :: proc(payload: util.MR_Delta_Volume_Payload, ts: i64, subject_id: u64) -> (Parsed_Delta_Volume, bool) {
 	if !f64_valid(payload.BuyVolume) || !f64_valid(payload.SellVolume) || !f64_valid(payload.DeltaVolume) do return {}, false
 	if payload.BuyVolume < 0 || payload.SellVolume < 0 do return {}, false
 	ingest_ms := payload.TsIngestMs
 	if ingest_ms <= 0 do ingest_ms = ts
 	unix := util.normalize_unix_seconds(payload.WindowEndTs if payload.WindowEndTs != 0 else ingest_ms)
-	window_ms := payload.WindowEndTs - payload.WindowStartTs
-	if window_ms < 0 do window_ms = 0
-	return Parsed_Stats{
-		mark_price   = 0,
-		funding      = payload.DeltaVolume,
-		tbuy         = payload.BuyVolume,
-		tsell        = payload.SellVolume,
-		window_ms    = window_ms,
-		ts_ingest_ms = ingest_ms,
-		quality_flags = 0,
-		unix         = unix,
-		subject_id   = subject_id,
-		seq          = payload.Seq,
+	return Parsed_Delta_Volume{
+		buy_volume      = payload.BuyVolume,
+		sell_volume     = payload.SellVolume,
+		delta_volume    = payload.DeltaVolume,
+		window_start_ts = payload.WindowStartTs,
+		window_end_ts   = payload.WindowEndTs,
+		unix            = unix,
+		subject_id      = subject_id,
+		seq             = payload.Seq,
 	}, true
 }
 
+// S47: Returns Parsed_CVD (was Parsed_Stats — identity collapse fix).
 @(private = "package")
-parse_cvd :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Stats, bool) {
+parse_cvd :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_CVD, bool) {
 	frame: util.MR_CVD_Frame
 	if json.unmarshal(raw, &frame) != nil do return {}, false
 	return parse_cvd_from_payload(frame.payload, ts, subject_id)
 }
 
 @(private = "package")
-parse_cvd_payload :: proc(payload_raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Stats, bool) {
+parse_cvd_payload :: proc(payload_raw: []u8, ts: i64, subject_id: u64) -> (Parsed_CVD, bool) {
 	payload: util.MR_CVD_Payload
 	if json.unmarshal(payload_raw, &payload) != nil do return {}, false
 	return parse_cvd_from_payload(payload, ts, subject_id)
 }
 
 @(private = "package")
-parse_cvd_from_payload :: proc(payload: util.MR_CVD_Payload, ts: i64, subject_id: u64) -> (Parsed_Stats, bool) {
+parse_cvd_from_payload :: proc(payload: util.MR_CVD_Payload, ts: i64, subject_id: u64) -> (Parsed_CVD, bool) {
 	if !f64_valid(payload.DeltaVolume) || !f64_valid(payload.CVD) do return {}, false
 	ingest_ms := payload.TsIngestMs
 	if ingest_ms <= 0 do ingest_ms = ts
 	unix := util.normalize_unix_seconds(payload.WindowEndTs if payload.WindowEndTs != 0 else ingest_ms)
-	window_ms := payload.WindowEndTs - payload.WindowStartTs
-	if window_ms < 0 do window_ms = 0
-	buy := payload.DeltaVolume
-	if buy < 0 do buy = 0
-	sell := -payload.DeltaVolume
-	if sell < 0 do sell = 0
-	return Parsed_Stats{
-		mark_price   = 0,
-		funding      = payload.CVD,
-		tbuy         = buy,
-		tsell        = sell,
-		window_ms    = window_ms,
-		ts_ingest_ms = ingest_ms,
-		quality_flags = 0,
-		unix         = unix,
-		subject_id   = subject_id,
-		seq          = payload.Seq,
+	return Parsed_CVD{
+		delta_volume    = payload.DeltaVolume,
+		cvd             = payload.CVD,
+		window_start_ts = payload.WindowStartTs,
+		window_end_ts   = payload.WindowEndTs,
+		unix            = unix,
+		subject_id      = subject_id,
+		seq             = payload.Seq,
 	}, true
 }
 
+// S47: Returns Parsed_Bar_Stats (was Parsed_Tape — identity collapse fix).
 @(private = "package")
-parse_bar_stats :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Tape, bool) {
+parse_bar_stats :: proc(raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Bar_Stats, bool) {
 	frame: util.MR_Bar_Stats_Frame
 	if json.unmarshal(raw, &frame) != nil do return {}, false
 	return parse_bar_stats_from_payload(frame.payload, ts, subject_id)
 }
 
 @(private = "package")
-parse_bar_stats_payload :: proc(payload_raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Tape, bool) {
+parse_bar_stats_payload :: proc(payload_raw: []u8, ts: i64, subject_id: u64) -> (Parsed_Bar_Stats, bool) {
 	payload: util.MR_Bar_Stats_Payload
 	if json.unmarshal(payload_raw, &payload) != nil do return {}, false
 	return parse_bar_stats_from_payload(payload, ts, subject_id)
 }
 
 @(private = "package")
-parse_bar_stats_from_payload :: proc(payload: util.MR_Bar_Stats_Payload, ts: i64, subject_id: u64) -> (Parsed_Tape, bool) {
+parse_bar_stats_from_payload :: proc(payload: util.MR_Bar_Stats_Payload, ts: i64, subject_id: u64) -> (Parsed_Bar_Stats, bool) {
 	if payload.TradeCount < 0 do return {}, false
 	if !f64_valid(payload.LastPrice) || !f64_valid(payload.TotalVolume) do return {}, false
 	if !f64_valid(payload.BuyVolume) || !f64_valid(payload.SellVolume) do return {}, false
@@ -373,23 +356,14 @@ parse_bar_stats_from_payload :: proc(payload: util.MR_Bar_Stats_Payload, ts: i64
 	ingest_ms := payload.TsIngestMs
 	if ingest_ms <= 0 do ingest_ms = ts
 	unix := util.normalize_unix_seconds(payload.WindowEndTs if payload.WindowEndTs != 0 else ingest_ms)
-
-	rate := f64(0)
-	span_ms := payload.WindowEndTs - payload.WindowStartTs
-	if span_ms > 0 {
-		rate = f64(payload.TradeCount) * 1000.0 / f64(span_ms)
-		if !f64_valid(rate) || rate < 0 {
-			rate = 0
-		}
-	}
-
-	return Parsed_Tape{
-		last_price      = payload.LastPrice,
+	return Parsed_Bar_Stats{
+		trade_count     = payload.TradeCount,
+		buy_count       = payload.BuyCount,
+		sell_count      = payload.SellCount,
 		total_volume    = payload.TotalVolume,
 		buy_volume      = payload.BuyVolume,
 		sell_volume     = payload.SellVolume,
-		trade_count     = payload.TradeCount,
-		rate_per_sec    = rate,
+		vwap_price      = payload.VwapPrice,
 		imbalance       = payload.Imbalance,
 		is_burst        = payload.IsBurst,
 		window_start_ts = payload.WindowStartTs,

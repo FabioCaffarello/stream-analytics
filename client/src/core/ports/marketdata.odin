@@ -49,6 +49,11 @@ MD_Event_Kind :: enum u8 {
 	Evidence,
 	Signal,
 	Tape,
+	// S47: Analytics substrate event kinds.
+	Open_Interest,
+	Delta_Volume,
+	CVD,
+	Bar_Stats,
 }
 
 MD_Channel :: enum u8 {
@@ -190,6 +195,48 @@ MD_Range_Candle_Batch :: struct {
 	is_last: bool,
 }
 
+// S47: Analytics event structs — flat value slots per stream kind.
+MD_Open_Interest_Event :: struct {
+	open_interest:   f64,
+	delta:           f64,
+	delta_pct:       f64,
+	window_start_ts: i64,
+	window_end_ts:   i64,
+	unix:            i64,
+}
+
+MD_Delta_Volume_Event :: struct {
+	buy_volume:      f64,
+	sell_volume:     f64,
+	delta_volume:    f64,
+	window_start_ts: i64,
+	window_end_ts:   i64,
+	unix:            i64,
+}
+
+MD_CVD_Event :: struct {
+	delta_volume:    f64,
+	cvd:             f64,
+	window_start_ts: i64,
+	window_end_ts:   i64,
+	unix:            i64,
+}
+
+MD_Bar_Stats_Event :: struct {
+	trade_count:     i64,
+	buy_count:       i64,
+	sell_count:      i64,
+	total_volume:    f64,
+	buy_volume:      f64,
+	sell_volume:     f64,
+	vwap_price:      f64,
+	imbalance:       f64,
+	is_burst:        bool,
+	window_start_ts: i64,
+	window_end_ts:   i64,
+	unix:            i64,
+}
+
 MD_Event_Data :: struct #raw_union {
 	trade:          MD_Trade_Event,
 	tape:           MD_Tape_Event,
@@ -201,6 +248,11 @@ MD_Event_Data :: struct #raw_union {
 	range_candles:  MD_Range_Candle_Batch,
 	evidence:       MD_Evidence_Event,
 	signal:         MD_Signal_Event,
+	// S47: Analytics substrate events.
+	open_interest:  MD_Open_Interest_Event,
+	delta_volume:   MD_Delta_Volume_Event,
+	cvd:            MD_CVD_Event,
+	bar_stats:      MD_Bar_Stats_Event,
 }
 
 MD_Event_Source :: struct {

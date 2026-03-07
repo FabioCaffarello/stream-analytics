@@ -15,6 +15,11 @@ Artifact_Kind :: enum u8 {
 	Signal,
 	Tape,
 	Range_Candle,
+	// S47: Analytics substrate — first-class identity for analytics streams.
+	Open_Interest,
+	Delta_Volume,
+	CVD,
+	Bar_Stats,
 }
 
 // Snapshot_Semantics defines how an artifact's state is replaced or accumulated.
@@ -34,9 +39,10 @@ BP_Priority :: enum u8 {
 
 // Stale_Detection defines the staleness detection strategy for an artifact.
 Stale_Detection :: enum u8 {
-	None,          // No staleness check (trades, evidence, signal, tape)
-	TF_Adaptive,   // Candle health: 2x/3x TF thresholds
-	Dual_Silence,  // Dual-event silence: stats+orderbook silent >12s
+	None,              // No staleness check (trades, evidence, signal, tape)
+	TF_Adaptive,       // Candle health: 2x/3x TF thresholds
+	Dual_Silence,      // Dual-event silence: stats+orderbook silent >12s
+	Sparse_Adaptive,   // S47: Sparse/irregular feeds (OI): 60s/180s thresholds
 }
 
 // Artifact_Policy is the compile-time contract for each artifact kind.
@@ -178,6 +184,55 @@ artifact_policies : [Artifact_Kind]Artifact_Policy = {
 		backpressure_priority       = .Critical,
 		stale_detection             = .None,
 	},
+	// S47: Analytics substrate policies.
+	.Open_Interest = {
+		needs_snapshot_gate          = false,
+		accepts_range_seed          = false,
+		accepts_delta_without_snapshot = true,
+		snapshot_semantics          = .Latest_Wins,
+		reset_on_reconnect          = false,
+		reset_on_tf_change          = false,
+		is_tf_sensitive             = false,
+		has_synthetic_fallback      = false,
+		backpressure_priority       = .Degradable,
+		stale_detection             = .Sparse_Adaptive,
+	},
+	.Delta_Volume = {
+		needs_snapshot_gate          = false,
+		accepts_range_seed          = false,
+		accepts_delta_without_snapshot = true,
+		snapshot_semantics          = .Ring_Append,
+		reset_on_reconnect          = false,
+		reset_on_tf_change          = true,
+		is_tf_sensitive             = true,
+		has_synthetic_fallback      = false,
+		backpressure_priority       = .Degradable,
+		stale_detection             = .TF_Adaptive,
+	},
+	.CVD = {
+		needs_snapshot_gate          = false,
+		accepts_range_seed          = false,
+		accepts_delta_without_snapshot = true,
+		snapshot_semantics          = .Ring_Append,
+		reset_on_reconnect          = false,
+		reset_on_tf_change          = true,
+		is_tf_sensitive             = true,
+		has_synthetic_fallback      = false,
+		backpressure_priority       = .Degradable,
+		stale_detection             = .TF_Adaptive,
+	},
+	.Bar_Stats = {
+		needs_snapshot_gate          = false,
+		accepts_range_seed          = false,
+		accepts_delta_without_snapshot = true,
+		snapshot_semantics          = .Ring_Append,
+		reset_on_reconnect          = false,
+		reset_on_tf_change          = true,
+		is_tf_sensitive             = true,
+		has_synthetic_fallback      = false,
+		backpressure_priority       = .Degradable,
+		stale_detection             = .TF_Adaptive,
+	},
 }
 
 // artifact_kind_from_event_kind maps the port event kind to artifact kind.
@@ -193,6 +248,11 @@ artifact_kind_from_event_kind :: proc(kind: ports.MD_Event_Kind) -> Artifact_Kin
 	case .Signal:             return .Signal
 	case .Tape:               return .Tape
 	case .Range_Candle_Batch: return .Range_Candle
+	// S47: Analytics event kinds → artifact kinds.
+	case .Open_Interest:      return .Open_Interest
+	case .Delta_Volume:       return .Delta_Volume
+	case .CVD:                return .CVD
+	case .Bar_Stats:          return .Bar_Stats
 	}
 	return .Trade
 }

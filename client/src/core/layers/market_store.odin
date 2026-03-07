@@ -273,6 +273,8 @@ market_store_apply_event :: proc(store: ^Market_Store, evt: ^ports.MD_Event) -> 
 		market_store_reduce_evidence(stream, evt, subject_id)
 	case .Signal:
 		market_store_reduce_signal(stream, evt, subject_id)
+	// S47: Analytics events — no market-store reduction needed; handled via analytics_store.
+	case .Open_Interest, .Delta_Volume, .CVD, .Bar_Stats:
 	}
 
 	if store.active_subject_id == 0 {

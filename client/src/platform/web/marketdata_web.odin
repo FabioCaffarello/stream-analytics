@@ -2154,6 +2154,8 @@ web_apply_parsed_result :: proc(state: ^MD_Web_State, result: services.Parse_Res
 		if state.signal_ring_count < WEB_SIGNAL_RING_CAP {
 			state.signal_ring_count += 1
 		}
+	// S47: Analytics substrate — web staging deferred; events are parsed but not yet polled.
+	case .Open_Interest, .Delta_Volume, .CVD, .Bar_Stats:
 	case .None:
 		// Ignored (last, unknown frame types).
 	}

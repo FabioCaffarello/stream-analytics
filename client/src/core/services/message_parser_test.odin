@@ -68,7 +68,7 @@ test_parse_tape_valid :: proc(t: ^testing.T) {
 	testing.expect_value(t, tp.rate_per_sec, 42.0)
 	testing.expect_value(t, tp.imbalance > 0.19 && tp.imbalance < 0.191, true)
 	testing.expect_value(t, tp.is_burst, true)
-	testing.expect_value(t, tp.seq, i64(999))
+	testing.expect_value(t, tp.seq, i64(12))  // envelope seq overrides payload Seq
 	free_all(context.temp_allocator)
 }
 
@@ -537,48 +537,48 @@ test_parse_open_interest_tick_as_stats :: proc(t: ^testing.T) {
 	free_all(context.temp_allocator)
 }
 
+// S47: Analytics streams now parse to dedicated kinds (not Stats/Tape).
+
 @(test)
-test_parse_open_interest_window_as_stats :: proc(t: ^testing.T) {
+test_parse_open_interest_window :: proc(t: ^testing.T) {
 	raw := `{"type":"event","subject":"aggregation.oi/binance/BTCUSDT/raw","seq":91,"ts_ingest":1700000100000,"payload":{"Venue":"binance","Instrument":"BTCUSDT","Timeframe":"raw","WindowStartTs":1700000099000,"WindowEndTs":1700000100000,"OpenInterest":13000.0,"Delta":200.0,"DeltaPct":0.0156,"Seq":91,"TsIngestMs":1700000100000}}`
 	result := parse_mr_message(transmute([]u8)raw, nil)
-	testing.expect_value(t, result.kind, Parse_Result_Kind.Stats)
-	testing.expect_value(t, result.data.stats.mark_price, 13000.0)
-	testing.expect_value(t, result.data.stats.funding, 0.0156)
-	testing.expect_value(t, result.data.stats.tbuy, 200.0)
-	testing.expect_value(t, result.data.stats.tsell, 0.0)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Open_Interest)
+	testing.expect_value(t, result.data.open_interest.open_interest, 13000.0)
+	testing.expect_value(t, result.data.open_interest.delta, 200.0)
+	testing.expect_value(t, result.data.open_interest.delta_pct, 0.0156)
 	free_all(context.temp_allocator)
 }
 
 @(test)
-test_parse_delta_volume_as_stats :: proc(t: ^testing.T) {
+test_parse_delta_volume :: proc(t: ^testing.T) {
 	raw := `{"type":"event","subject":"aggregation.delta_volume/binance/BTCUSDT/1m","seq":55,"ts_ingest":1700000120000,"payload":{"Venue":"binance","Instrument":"BTCUSDT","Timeframe":"1m","WindowStartTs":1700000060000,"WindowEndTs":1700000120000,"BuyVolume":12.0,"SellVolume":9.0,"DeltaVolume":3.0,"Seq":55,"TsIngestMs":1700000120000}}`
 	result := parse_mr_message(transmute([]u8)raw, nil)
-	testing.expect_value(t, result.kind, Parse_Result_Kind.Stats)
-	testing.expect_value(t, result.data.stats.funding, 3.0)
-	testing.expect_value(t, result.data.stats.tbuy, 12.0)
-	testing.expect_value(t, result.data.stats.tsell, 9.0)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Delta_Volume)
+	testing.expect_value(t, result.data.delta_volume.buy_volume, 12.0)
+	testing.expect_value(t, result.data.delta_volume.sell_volume, 9.0)
+	testing.expect_value(t, result.data.delta_volume.delta_volume, 3.0)
 	free_all(context.temp_allocator)
 }
 
 @(test)
-test_parse_cvd_as_stats :: proc(t: ^testing.T) {
+test_parse_cvd :: proc(t: ^testing.T) {
 	raw := `{"type":"event","subject":"aggregation.cvd/binance/BTCUSDT/1m","seq":56,"ts_ingest":1700000120000,"payload":{"Venue":"binance","Instrument":"BTCUSDT","Timeframe":"1m","WindowStartTs":1700000060000,"WindowEndTs":1700000120000,"DeltaVolume":-2.5,"CVD":150.0,"Seq":56,"TsIngestMs":1700000120000}}`
 	result := parse_mr_message(transmute([]u8)raw, nil)
-	testing.expect_value(t, result.kind, Parse_Result_Kind.Stats)
-	testing.expect_value(t, result.data.stats.funding, 150.0)
-	testing.expect_value(t, result.data.stats.tbuy, 0.0)
-	testing.expect_value(t, result.data.stats.tsell, 2.5)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.CVD)
+	testing.expect_value(t, result.data.cvd.delta_volume, -2.5)
+	testing.expect_value(t, result.data.cvd.cvd, 150.0)
 	free_all(context.temp_allocator)
 }
 
 @(test)
-test_parse_bar_stats_as_tape :: proc(t: ^testing.T) {
+test_parse_bar_stats :: proc(t: ^testing.T) {
 	raw := `{"type":"event","subject":"aggregation.bar_stats/binance/BTCUSDT/1m","seq":60,"ts_ingest":1700000120000,"payload":{"Venue":"binance","Instrument":"BTCUSDT","Timeframe":"1m","WindowStartTs":1700000060000,"WindowEndTs":1700000120000,"TradeCount":30,"BuyCount":18,"SellCount":12,"TotalVolume":22.0,"BuyVolume":13.0,"SellVolume":9.0,"VwapPrice":50001.2,"LastPrice":50005.0,"MaxPrice":50020.0,"MinPrice":49980.0,"Imbalance":0.18,"IsBurst":true,"Seq":60,"TsIngestMs":1700000120000}}`
 	result := parse_mr_message(transmute([]u8)raw, nil)
-	testing.expect_value(t, result.kind, Parse_Result_Kind.Tape)
-	testing.expect_value(t, result.data.tape.trade_count, i64(30))
-	testing.expect_value(t, result.data.tape.total_volume, 22.0)
-	testing.expect_value(t, result.data.tape.is_burst, true)
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Bar_Stats)
+	testing.expect_value(t, result.data.bar_stats.trade_count, i64(30))
+	testing.expect_value(t, result.data.bar_stats.total_volume, 22.0)
+	testing.expect_value(t, result.data.bar_stats.is_burst, true)
 	free_all(context.temp_allocator)
 }
 
@@ -834,7 +834,7 @@ test_parse_batched_event_payload_bar_stats_fastpath :: proc(t: ^testing.T) {
 		0xDD22,
 	)
 	testing.expect_value(t, ok, true)
-	testing.expect_value(t, result.kind, Parse_Result_Kind.Tape)
-	testing.expect_value(t, result.data.tape.trade_count, i64(20))
-	testing.expect_value(t, result.data.tape.seq, i64(402))
+	testing.expect_value(t, result.kind, Parse_Result_Kind.Bar_Stats)
+	testing.expect_value(t, result.data.bar_stats.trade_count, i64(20))
+	testing.expect_value(t, result.data.bar_stats.seq, i64(402))
 }

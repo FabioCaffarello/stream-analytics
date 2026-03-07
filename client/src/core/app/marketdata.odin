@@ -427,6 +427,101 @@ handle_tape_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, tp: ports.
 	}
 }
 
+// S47: Analytics substrate handlers — push to slot + global analytics ring.
+
+handle_open_interest_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, oi: ports.MD_Open_Interest_Event, unix: i64, is_active_stream: bool) {
+	record_stream_event(state, slot, .Open_Interest, unix, 0, false, is_active_stream)
+	now_ms := current_now_ms(state)
+	entry := services.Analytics_Entry{
+		kind            = .Open_Interest,
+		ts_ms           = unix,
+		window_start_ms = oi.window_start_ts,
+		window_end_ms   = oi.window_end_ts,
+	}
+	entry.values[0] = oi.open_interest
+	entry.values[1] = oi.delta
+	entry.values[2] = oi.delta_pct
+	if slot != nil {
+		md_common.apply_state_mark_event(&slot.apply_state, .Open_Interest, now_ms, false)
+		services.push_analytics(&slot.analytics_store, entry)
+	}
+	if is_active_stream {
+		md_common.apply_state_mark_event(&state.active_apply_state, .Open_Interest, now_ms, false)
+		services.push_analytics(&state.stores.analytics, entry)
+	}
+}
+
+handle_delta_volume_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, dv: ports.MD_Delta_Volume_Event, unix: i64, is_active_stream: bool) {
+	record_stream_event(state, slot, .Delta_Volume, unix, 0, false, is_active_stream)
+	now_ms := current_now_ms(state)
+	entry := services.Analytics_Entry{
+		kind            = .Delta_Volume,
+		ts_ms           = unix,
+		window_start_ms = dv.window_start_ts,
+		window_end_ms   = dv.window_end_ts,
+	}
+	entry.values[0] = dv.buy_volume
+	entry.values[1] = dv.sell_volume
+	entry.values[2] = dv.delta_volume
+	if slot != nil {
+		md_common.apply_state_mark_event(&slot.apply_state, .Delta_Volume, now_ms, false)
+		services.push_analytics(&slot.analytics_store, entry)
+	}
+	if is_active_stream {
+		md_common.apply_state_mark_event(&state.active_apply_state, .Delta_Volume, now_ms, false)
+		services.push_analytics(&state.stores.analytics, entry)
+	}
+}
+
+handle_cvd_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, cv: ports.MD_CVD_Event, unix: i64, is_active_stream: bool) {
+	record_stream_event(state, slot, .CVD, unix, 0, false, is_active_stream)
+	now_ms := current_now_ms(state)
+	entry := services.Analytics_Entry{
+		kind            = .CVD,
+		ts_ms           = unix,
+		window_start_ms = cv.window_start_ts,
+		window_end_ms   = cv.window_end_ts,
+	}
+	entry.values[0] = cv.delta_volume
+	entry.values[1] = cv.cvd
+	if slot != nil {
+		md_common.apply_state_mark_event(&slot.apply_state, .CVD, now_ms, false)
+		services.push_analytics(&slot.analytics_store, entry)
+	}
+	if is_active_stream {
+		md_common.apply_state_mark_event(&state.active_apply_state, .CVD, now_ms, false)
+		services.push_analytics(&state.stores.analytics, entry)
+	}
+}
+
+handle_bar_stats_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, bs: ports.MD_Bar_Stats_Event, unix: i64, is_active_stream: bool) {
+	record_stream_event(state, slot, .Bar_Stats, unix, 0, false, is_active_stream)
+	now_ms := current_now_ms(state)
+	entry := services.Analytics_Entry{
+		kind            = .Bar_Stats,
+		ts_ms           = unix,
+		window_start_ms = bs.window_start_ts,
+		window_end_ms   = bs.window_end_ts,
+	}
+	entry.values[0] = f64(bs.trade_count)
+	entry.values[1] = f64(bs.buy_count)
+	entry.values[2] = f64(bs.sell_count)
+	entry.values[3] = bs.total_volume
+	entry.values[4] = bs.buy_volume
+	entry.values[5] = bs.sell_volume
+	entry.values[6] = bs.vwap_price
+	entry.values[7] = bs.imbalance
+	if bs.is_burst do entry.flags = 1
+	if slot != nil {
+		md_common.apply_state_mark_event(&slot.apply_state, .Bar_Stats, now_ms, false)
+		services.push_analytics(&slot.analytics_store, entry)
+	}
+	if is_active_stream {
+		md_common.apply_state_mark_event(&state.active_apply_state, .Bar_Stats, now_ms, false)
+		services.push_analytics(&state.stores.analytics, entry)
+	}
+}
+
 handle_heatmap_event :: proc(state: ^App_State, slot: ^Stream_View_Slot, hm: ports.MD_Heatmap_Event, unix: i64, is_active_stream: bool) {
 	record_stream_event(state, slot, .Heatmap, unix, 0, false, is_active_stream)
 	now_ms := current_now_ms(state)
@@ -770,6 +865,15 @@ drain_marketdata :: proc(state: ^App_State) -> int {
 				handle_evidence_event(state, slot, evt.data.evidence, evt.unix, subject_id, is_active_stream)
 			case .Signal:
 				handle_signal_event(state, slot, evt.data.signal, evt.unix, subject_id, evt.source.seq, is_active_stream)
+			// S47: Analytics substrate events.
+			case .Open_Interest:
+				handle_open_interest_event(state, slot, evt.data.open_interest, evt.unix, is_active_stream)
+			case .Delta_Volume:
+				handle_delta_volume_event(state, slot, evt.data.delta_volume, evt.unix, is_active_stream)
+			case .CVD:
+				handle_cvd_event(state, slot, evt.data.cvd, evt.unix, is_active_stream)
+			case .Bar_Stats:
+				handle_bar_stats_event(state, slot, evt.data.bar_stats, evt.unix, is_active_stream)
 			}
 		}
 	}
