@@ -2,10 +2,16 @@ package app
 
 import "mr:services"
 
-apply_set_cell_widget_action :: proc(state: ^App_State, cell_idx: int, widget_kind: Widget_Kind) {
+apply_set_cell_widget_action :: proc(state: ^App_State, action: UI_Action) {
 	if state == nil do return
-	if cell_idx < 0 || cell_idx >= state.world.count do return
-	state.world.widgets[cell_idx].kind = widget_kind
+	ci := action.cell_idx
+	if ci < 0 || ci >= state.world.count do return
+	state.world.widgets[ci].kind = action.widget_kind
+	// S55: set analytics sub-kind when switching to Analytics widget.
+	if action.widget_kind == .Analytics {
+		state.world.analytics[ci].analytics_kind = action.analytics_kind
+		state.world.analytics[ci].show_history = true
+	}
 	persist_layout_v6(state)
 	reconcile_subscriptions(state)
 }

@@ -283,7 +283,7 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 		case .Disconnect_Profile:
 			apply_disconnect_profile_action(state)
 		case .Set_Cell_Widget:
-			apply_set_cell_widget_action(state, action.cell_idx, action.widget_kind)
+			apply_set_cell_widget_action(state, action)
 		case .Set_Cell_Stream:
 			apply_set_cell_stream_action(state, action)
 		case .Add_Cell:
