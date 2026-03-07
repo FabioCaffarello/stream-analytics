@@ -232,15 +232,16 @@ Overlay_State :: struct {
 }
 
 UI_Chrome_State :: struct {
-	sidebar:         ui.Sidebar_State,
-	panel_visible:   [ui.PANEL_COUNT]bool,
-	detail_expanded: bool,
-	detail_w:        f32,
-	detail_resizing: bool,
-	section_streams: ui.Section_State,
-	section_layers:  ui.Section_State,
-	section_panels:  ui.Section_State,
-	active_route:    Route,
+	sidebar:           ui.Sidebar_State,
+	panel_visible:     [ui.PANEL_COUNT]bool,
+	detail_expanded:   bool,
+	detail_w:          f32,
+	detail_resizing:   bool,
+	section_streams:   ui.Section_State,
+	section_analytics: ui.Section_State, // S55: analytics inspector
+	section_layers:    ui.Section_State,
+	section_panels:    ui.Section_State,
+	active_route:      Route,
 }
 
 Zen_State :: struct {

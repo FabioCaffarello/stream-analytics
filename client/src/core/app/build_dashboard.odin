@@ -136,7 +136,80 @@ draw_dashboard_detail :: proc(state: ^App_State, rect: ui.Rect, pointer: ui.Poin
 	}
 
 	// ===================================================
-	// Section 3: Chart Layers (collapsible)
+	// Section 3: Analytics & Profiles (collapsible, S55)
+	// ===================================================
+	remaining_h = (rect.pos.y + rect.size.y) - y
+	if remaining_h > 22 {
+		// Count analytics/profile cells.
+		analytics_cell_count := 0
+		profile_cell_count := 0
+		for ci in 0 ..< state.world.count {
+			wk := state.world.widgets[ci].kind
+			if wk == .Analytics do analytics_cell_count += 1
+			if wk == .Session_VPVR || wk == .TPO do profile_cell_count += 1
+		}
+		total_ap := analytics_cell_count + profile_cell_count
+
+		if total_ap > 0 {
+			ap_hdr_buf: [24]u8
+			ap_hdr_label := fmt.bprintf(ap_hdr_buf[:], "ANALYTICS (%d)", total_ap)
+			ui.collapsible_section(&state.cmd_buf,
+				ui.Rect{pos = {rect.pos.x, y}, size = {rect.size.x, remaining_h}},
+				ap_hdr_label, &state.chrome.section_analytics, pointer, state.text.measure)
+			y += 22
+			if state.chrome.section_analytics.expanded {
+				item_h := f32(22)
+				for ci in 0 ..< state.world.count {
+					if y + item_h > rect.pos.y + rect.size.y do break
+					wk := state.world.widgets[ci].kind
+					if wk != .Analytics && wk != .Session_VPVR && wk != .TPO do continue
+
+					is_focused := ci == state.world.focused
+					item_rect := ui.Rect{pos = {rect.pos.x + 4, y}, size = {rect.size.x - 8, item_h}}
+					if is_focused {
+						ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = item_rect, color = ui.with_alpha(ui.COL_BLUE, 0.12)})
+					}
+
+					label_buf: [48]u8
+					label: string
+					if wk == .Analytics {
+						ANALYTICS_NAMES :: [4]string{"OI", "Delta Vol", "CVD", "Bar Stats"}
+						analytics_names := ANALYTICS_NAMES
+						ak := int(state.world.analytics[ci].analytics_kind)
+						aname := analytics_names[ak] if ak >= 0 && ak < 4 else "OI"
+						hist := state.world.analytics[ci].show_history ? "H" : "-"
+						label = fmt.bprintf(label_buf[:], "[%d] %s  %s", ci, aname, hist)
+					} else if wk == .Session_VPVR {
+						stores := resolve_stores_for_cell(state, ci)
+						if stores.session_vpvr != nil && stores.session_vpvr.count > 0 {
+							poc_buf: [16]u8
+							poc_str := fmt.bprintf(poc_buf[:], "%.2f", stores.session_vpvr.buckets[stores.session_vpvr.poc_index].price)
+							label = fmt.bprintf(label_buf[:], "[%d] SVPVR  POC:%s", ci, poc_str)
+						} else {
+							label = fmt.bprintf(label_buf[:], "[%d] SVPVR  --", ci)
+						}
+					} else { // .TPO
+						stores := resolve_stores_for_cell(state, ci)
+						if stores.tpo != nil && stores.tpo.level_count > 0 {
+							poc_buf: [16]u8
+							poc_str := fmt.bprintf(poc_buf[:], "%.2f", stores.tpo.poc_price)
+							label = fmt.bprintf(label_buf[:], "[%d] TPO  POC:%s  P:%d", ci, poc_str, stores.tpo.period_count)
+						} else {
+							label = fmt.bprintf(label_buf[:], "[%d] TPO  --", ci)
+						}
+					}
+
+					ui.push_text(&state.cmd_buf, {item_rect.pos.x + 4, y + item_h * 0.5 + ui.FONT_SIZE_XS * 0.35},
+						label, is_focused ? ui.COL_TEXT_PRIMARY : ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS, .Mono)
+					y += item_h
+				}
+				y += 4
+			}
+		}
+	}
+
+	// ===================================================
+	// Section 4: Chart Layers (collapsible)
 	// ===================================================
 	remaining_h = (rect.pos.y + rect.size.y) - y
 	if remaining_h > 22 {
