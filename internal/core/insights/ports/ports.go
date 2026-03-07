@@ -61,3 +61,13 @@ func (u VolumeProfileBucketUpsert) Validate() *problem.Problem {
 type VolumeProfileHotWriter interface {
 	UpsertVolumeProfileBucket(ctx context.Context, upsert VolumeProfileBucketUpsert) *problem.Problem
 }
+
+// SessionVolumeProfileWriter persists session-scoped volume profile snapshots.
+type SessionVolumeProfileWriter interface {
+	UpsertSessionVolumeProfile(ctx context.Context, svp domain.SessionVolumeProfileV1) *problem.Problem
+}
+
+// TPOProfileWriter persists TPO (Time-Price Opportunity) profile snapshots.
+type TPOProfileWriter interface {
+	UpsertTPOProfile(ctx context.Context, tpo domain.TPOProfileV1) *problem.Problem
+}

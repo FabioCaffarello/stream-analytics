@@ -10,18 +10,24 @@ import (
 
 // InsightsServiceConfig configures all use cases exposed by InsightsService.
 type InsightsServiceConfig struct {
-	VolumeProfile  BuildVolumeProfileConfig
-	Heatmap        BuildHeatmapConfig
-	JoinTrades     JoinCrossVenueTradesConfig
-	OverloadDecide OverloadDecideFunc
+	VolumeProfile        BuildVolumeProfileConfig
+	Heatmap              BuildHeatmapConfig
+	JoinTrades           JoinCrossVenueTradesConfig
+	OverloadDecide       OverloadDecideFunc
+	SessionVolumeProfile BuildSessionVolumeProfileConfig
+	TPOProfile           BuildTPOProfileConfig
+	SessionEmitDecide    SessionEmitDecideFunc
 }
 
 // InsightsService is the entrypoint facade for the insights bounded context.
 type InsightsService struct {
-	VolumeProfile  *BuildVolumeProfile
-	Heatmap        *BuildHeatmap
-	JoinTrades     *JoinCrossVenueTrades
-	OverloadPolicy *VPVREmitPolicy
+	VolumeProfile        *BuildVolumeProfile
+	Heatmap              *BuildHeatmap
+	JoinTrades           *JoinCrossVenueTrades
+	OverloadPolicy       *VPVREmitPolicy
+	SessionVolumeProfile *BuildSessionVolumeProfile
+	TPOProfile           *BuildTPOProfile
+	SessionEmitPolicy    *SessionEmitPolicy
 }
 
 type HeatmapSnapshotKey struct {
@@ -39,10 +45,13 @@ type VolumeProfileSnapshotKey struct {
 // NewInsightsService creates all insights use cases from a single config.
 func NewInsightsService(cfg InsightsServiceConfig) *InsightsService {
 	return &InsightsService{
-		VolumeProfile:  NewBuildVolumeProfileWithConfig(cfg.VolumeProfile),
-		Heatmap:        NewBuildHeatmapWithConfig(cfg.Heatmap),
-		JoinTrades:     NewJoinCrossVenueTradesWithConfig(cfg.JoinTrades),
-		OverloadPolicy: NewVPVREmitPolicy(cfg.OverloadDecide),
+		VolumeProfile:        NewBuildVolumeProfileWithConfig(cfg.VolumeProfile),
+		Heatmap:              NewBuildHeatmapWithConfig(cfg.Heatmap),
+		JoinTrades:           NewJoinCrossVenueTradesWithConfig(cfg.JoinTrades),
+		OverloadPolicy:       NewVPVREmitPolicy(cfg.OverloadDecide),
+		SessionVolumeProfile: NewBuildSessionVolumeProfileWithConfig(cfg.SessionVolumeProfile),
+		TPOProfile:           NewBuildTPOProfileWithConfig(cfg.TPOProfile),
+		SessionEmitPolicy:    NewSessionEmitPolicy(cfg.SessionEmitDecide),
 	}
 }
 

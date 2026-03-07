@@ -388,7 +388,7 @@ Updated at: `2026-03-05`
         },
         {
           "file": "client/src/platform/web/main.odin",
-          "line": 621,
+          "line": 622,
           "snippet": "probe_md_candle_backlog_cap"
         }
       ]
@@ -410,7 +410,7 @@ Updated at: `2026-03-05`
         },
         {
           "file": "client/src/platform/web/main.odin",
-          "line": 635,
+          "line": 636,
           "snippet": "probe_md_signal_backlog_cap"
         }
       ]
@@ -432,7 +432,7 @@ Updated at: `2026-03-05`
         },
         {
           "file": "client/src/platform/web/main.odin",
-          "line": 607,
+          "line": 608,
           "snippet": "probe_md_trade_backlog_cap"
         }
       ]
@@ -454,7 +454,7 @@ Updated at: `2026-03-05`
         },
         {
           "file": "client/src/platform/web/main.odin",
-          "line": 621,
+          "line": 622,
           "snippet": "probe_md_candle_backlog_cap"
         }
       ]
@@ -476,7 +476,7 @@ Updated at: `2026-03-05`
         },
         {
           "file": "client/src/platform/web/main.odin",
-          "line": 635,
+          "line": 636,
           "snippet": "probe_md_signal_backlog_cap"
         }
       ]
@@ -498,7 +498,7 @@ Updated at: `2026-03-05`
         },
         {
           "file": "client/src/platform/web/main.odin",
-          "line": 607,
+          "line": 608,
           "snippet": "probe_md_trade_backlog_cap"
         }
       ]
@@ -525,7 +525,7 @@ Updated at: `2026-03-05`
         },
         {
           "file": "client/src/platform/web/main.odin",
-          "line": 852,
+          "line": 853,
           "snippet": "probe_widget_dom_max_entries"
         }
       ]
@@ -552,7 +552,7 @@ Updated at: `2026-03-05`
         },
         {
           "file": "client/src/platform/web/main.odin",
-          "line": 1020,
+          "line": 1021,
           "snippet": "probe_widget_evidence_max_entries"
         }
       ]
@@ -584,7 +584,7 @@ Updated at: `2026-03-05`
         },
         {
           "file": "client/src/platform/web/main.odin",
-          "line": 1104,
+          "line": 1105,
           "snippet": "probe_widget_signal_max_entries"
         }
       ]
@@ -611,7 +611,7 @@ Updated at: `2026-03-05`
         },
         {
           "file": "client/src/platform/web/main.odin",
-          "line": 229,
+          "line": 230,
           "snippet": "probe_widget_stats_max_entries"
         }
       ]
@@ -638,7 +638,7 @@ Updated at: `2026-03-05`
         },
         {
           "file": "client/src/platform/web/main.odin",
-          "line": 936,
+          "line": 937,
           "snippet": "probe_widget_tape_max_entries"
         }
       ]
