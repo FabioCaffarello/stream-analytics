@@ -183,42 +183,8 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 		draw_status_bar(state, viewport_w, viewport_h, pointer)
 	}
 
-	// --- Health panel (floating overlay, shown when telemetry HUD is active) ---
-	if state.telemetry.hud_enabled {
-		build_health_panel(state, viewport_w, viewport_h, pointer)
-	}
-
-	// --- Help overlay (rendered LAST, on top of everything) ---
-	if state.overlays.show_help {
-		draw_help_overlay(state, viewport_w, viewport_h)
-	}
-
-	// --- Exchange manager (on top of help overlay) ---
-	if state.overlays.show_exchange_manager {
-		draw_exchange_manager(state, viewport_w, viewport_h, pointer)
-	}
-
-	// --- Cell stream picker (on top of exchange manager) ---
-	if state.overlays.cell_stream_picker_open >= 0 && state.overlays.cell_stream_picker_open < state.world.count {
-		// Anchor below the cell header badge (approximate position).
-		anchor_y := TOP_BAR_H + 20
-		anchor_x := f32(80)
-		draw_cell_stream_picker(state, {anchor_x, anchor_y}, state.overlays.cell_stream_picker_open,
-			viewport_w, viewport_h, pointer)
-	}
-
-	// --- Widget catalog (on top of cell stream picker) ---
-	if state.overlays.show_widget_catalog {
-		draw_widget_catalog(state, viewport_w, viewport_h, pointer)
-	}
-
-	// --- Stream picker (on top of everything) ---
-	if state.overlays.show_stream_picker {
-		draw_stream_picker(state, viewport_w, viewport_h, pointer)
-	}
-
-	// --- Toast notification + TF OSD ---
-	draw_toast_osd(state, viewport_w, viewport_h)
+	// --- Overlays, modals, toast (z-ordered) ---
+	draw_shell_overlays(state, viewport_w, viewport_h, pointer)
 
 	return &state.cmd_buf
 }

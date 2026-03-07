@@ -40,3 +40,45 @@ modal_backdrop :: proc(cmd_buf: ^ui.Command_Buffer, viewport_w, viewport_h: f32,
 	})
 	cmd_buf.current_z_layer = prev_z
 }
+
+// S52: Overlay dispatch — renders all global overlays/modals in z-order.
+// Z-order (back to front): health panel, help, exchange manager,
+// cell stream picker, widget catalog, stream picker, toast/OSD.
+@(private = "package")
+draw_shell_overlays :: proc(state: ^App_State, viewport_w, viewport_h: f32, pointer: ui.Pointer_Input) {
+	// Health panel (floating, shown when telemetry HUD is active).
+	if state.telemetry.hud_enabled {
+		build_health_panel(state, viewport_w, viewport_h, pointer)
+	}
+
+	// Help overlay.
+	if state.overlays.show_help {
+		draw_help_overlay(state, viewport_w, viewport_h)
+	}
+
+	// Exchange manager.
+	if state.overlays.show_exchange_manager {
+		draw_exchange_manager(state, viewport_w, viewport_h, pointer)
+	}
+
+	// Cell stream picker.
+	if state.overlays.cell_stream_picker_open >= 0 && state.overlays.cell_stream_picker_open < state.world.count {
+		anchor_y := TOP_BAR_H + 20
+		anchor_x := f32(80)
+		draw_cell_stream_picker(state, {anchor_x, anchor_y}, state.overlays.cell_stream_picker_open,
+			viewport_w, viewport_h, pointer)
+	}
+
+	// Widget catalog.
+	if state.overlays.show_widget_catalog {
+		draw_widget_catalog(state, viewport_w, viewport_h, pointer)
+	}
+
+	// Stream picker (topmost modal).
+	if state.overlays.show_stream_picker {
+		draw_stream_picker(state, viewport_w, viewport_h, pointer)
+	}
+
+	// Toast notification + TF OSD (always on top).
+	draw_toast_osd(state, viewport_w, viewport_h)
+}
