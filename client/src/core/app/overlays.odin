@@ -102,28 +102,10 @@ draw_exchange_manager :: proc(state: ^App_State, viewport_w, viewport_h: f32, po
 	y := py + 18
 	ui.push_text(&state.cmd_buf, {px + 16, y}, "Connection Manager", ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_MD, .Bold)
 
-	conn_status := current_conn_status(state)
-	conn_label := "OFFLINE"
-	conn_dot_color := ui.with_alpha(ui.COL_WHITE, 0.35)
-	conn_text_color := ui.COL_TEXT_MUTED
-	switch conn_status {
-	case .Connected:
-		conn_label = "LIVE"
-		conn_dot_color = ui.COL_GREEN
-		conn_text_color = ui.COL_GREEN
-	case .Connecting:
-		conn_label = "CONNECTING"
-		conn_dot_color = ui.COL_YELLOW_ACCENT
-		conn_text_color = ui.COL_YELLOW_ACCENT
-	case .Reconnecting:
-		conn_label = "RECONNECTING"
-		conn_dot_color = ui.COL_WARNING
-		conn_text_color = ui.COL_WARNING
-	case .Offline:
-	}
-	badge_w := ui.status_badge_width(conn_label, state.text.measure, ui.FONT_SIZE_XS)
+	conn_disp := current_conn_status_display(state)
+	badge_w := ui.status_badge_width(conn_disp.label, state.text.measure, ui.FONT_SIZE_XS)
 	ui.status_badge(&state.cmd_buf, ui.rect_xywh(px + panel_w - badge_w - 14, y - 6, badge_w, 18),
-		conn_label, conn_dot_color, conn_text_color, state.text.measure, ui.FONT_SIZE_XS)
+		conn_disp.label, conn_disp.dot_color, conn_disp.text_color, state.text.measure, ui.FONT_SIZE_XS)
 	y += 26
 
 	ui.push(&state.cmd_buf, ui.Cmd_Line{

@@ -55,31 +55,15 @@ build_settings_page :: proc(state: ^App_State, workspace: ui.Rect, pointer: ui.P
 	y += toggle_h + 4
 
 	// Status badge.
-	conn_status := current_conn_status(state)
-	conn_label := "OFFLINE"
-	conn_color := ui.COL_TEXT_MUTED
-	switch conn_status {
-	case .Connected:
-		conn_label = "LIVE"
-		conn_color = ui.COL_GREEN
-	case .Connecting:
-		conn_label = "CONNECTING"
-		conn_color = ui.COL_YELLOW_ACCENT
-	case .Reconnecting:
-		conn_label = "RECONNECTING"
-		conn_color = ui.COL_YELLOW_ACCENT
-	case .Offline:
-		conn_label = "OFFLINE"
-		conn_color = ui.with_alpha(ui.COL_WHITE, 0.35)
-	}
+	conn_disp := current_conn_status_display(state)
 	status_buf: [32]u8
-	status_str := fmt.bprintf(status_buf[:], "Status: %s", conn_label)
+	status_str := fmt.bprintf(status_buf[:], "Status: %s", conn_disp.label)
 	ui.push_text(&state.cmd_buf, {x + 4, y + toggle_h * 0.5 + ui.FONT_SIZE_XS * 0.35},
-		status_str, conn_color, ui.FONT_SIZE_XS, .Mono)
+		status_str, conn_disp.text_color, ui.FONT_SIZE_XS, .Mono)
 	y += toggle_h + 4
 
 	// Transport + auth mode indicator (when connected).
-	if conn_status == .Connected {
+	if current_conn_status(state) == .Connected {
 		m: ports.MD_Runtime_Metrics
 		if state.marketdata.metrics != nil && state.marketdata.metrics(&m) {
 			transport_label := m.transport_mode == 0 ? "Terminal_V1" : "Legacy_JSON"
@@ -128,6 +112,7 @@ build_settings_page :: proc(state: ^App_State, workspace: ui.Rect, pointer: ui.P
 	// Connect / Disconnect button.
 	btn_w := f32(100)
 	btn_h := f32(22)
+	conn_status := current_conn_status(state)
 	is_connected := conn_status == .Connected || conn_status == .Connecting || conn_status == .Reconnecting
 	conn_btn_label := is_connected ? "Disconnect" : "Connect"
 	conn_btn_res := ui.button(&state.cmd_buf,

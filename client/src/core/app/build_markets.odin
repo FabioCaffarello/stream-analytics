@@ -1,7 +1,6 @@
 package app
 
 import "core:fmt"
-import "mr:ports"
 import "mr:services"
 import "mr:ui"
 
@@ -15,24 +14,12 @@ draw_markets_detail :: proc(state: ^App_State, rect: ui.Rect, pointer: ui.Pointe
 	ui.push_text(&state.cmd_buf, {rect.pos.x + 2, y + 14}, "VENUES",
 		ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Bold)
 
-	conn_status: ports.MD_Conn_Status = .Offline
-	if state.marketdata.conn_status != nil {
-		conn_status = state.marketdata.conn_status()
-	}
-	conn_label: string
-	conn_dot_color: ui.Color
-	conn_text_color: ui.Color
-	switch conn_status {
-	case .Connected:    conn_label = "LIVE";         conn_dot_color = ui.COL_GREEN;          conn_text_color = ui.COL_GREEN
-	case .Connecting:   conn_label = "CONNECTING";   conn_dot_color = ui.COL_YELLOW_ACCENT;  conn_text_color = ui.COL_YELLOW_ACCENT
-	case .Reconnecting: conn_label = "RECONNECTING"; conn_dot_color = ui.COL_YELLOW_ACCENT;  conn_text_color = ui.COL_YELLOW_ACCENT
-	case .Offline:      conn_label = "OFFLINE";      conn_dot_color = ui.with_alpha(ui.COL_WHITE, 0.35); conn_text_color = ui.COL_TEXT_MUTED
-	}
-	badge_w := ui.status_badge_width(conn_label, state.text.measure, ui.FONT_SIZE_XS)
+	conn_disp := current_conn_status_display(state)
+	badge_w := ui.status_badge_width(conn_disp.label, state.text.measure, ui.FONT_SIZE_XS)
 	badge_x := rect.pos.x + rect.size.x - badge_w - 4
 	ui.status_badge(&state.cmd_buf,
 		ui.rect_xywh(badge_x, y + 2, badge_w, f32(16)),
-		conn_label, conn_dot_color, conn_text_color, state.text.measure, ui.FONT_SIZE_XS)
+		conn_disp.label, conn_disp.dot_color, conn_disp.text_color, state.text.measure, ui.FONT_SIZE_XS)
 	y += 22
 
 	// Stream count summary.

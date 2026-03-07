@@ -132,31 +132,10 @@ draw_top_bar :: proc(state: ^App_State, input: ports.Input_State, viewport_w: f3
 	right_x := ui.rect_right(r)
 
 	// Connection status badge (rightmost).
-	conn_status: ports.MD_Conn_Status = .Offline
-	if state.marketdata.conn_status != nil {
-		conn_status = state.marketdata.conn_status()
-	}
-	conn_label: string
-	conn_dot_color: ui.Color
-	conn_text_color: ui.Color
-	switch conn_status {
-	case .Connected:
-		conn_label = "LIVE"
-		conn_dot_color = ui.COL_GREEN
-		conn_text_color = ui.COL_GREEN
-	case .Connecting:
-		conn_label = "CONNECTING"
-		conn_dot_color = ui.COL_YELLOW_ACCENT
-		conn_text_color = ui.COL_YELLOW_ACCENT
-	case .Reconnecting:
-		conn_label = "RECONNECTING"
-		conn_dot_color = ui.COL_YELLOW_ACCENT
-		conn_text_color = ui.COL_YELLOW_ACCENT
-	case .Offline:
-		conn_label = "OFFLINE"
-		conn_dot_color = ui.with_alpha(ui.COL_WHITE, 0.35)
-		conn_text_color = ui.COL_TEXT_MUTED
-	}
+	conn_disp := current_conn_status_display(state)
+	conn_label := conn_disp.label
+	conn_dot_color := conn_disp.dot_color
+	conn_text_color := conn_disp.text_color
 	badge_w := ui.status_badge_width(conn_label, state.text.measure, ui.FONT_SIZE_XS)
 	badge_h := f32(16)
 	badge_x := right_x - badge_w

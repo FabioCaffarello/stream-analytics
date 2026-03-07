@@ -2,7 +2,6 @@ package app
 
 import "core:fmt"
 import "mr:layers"
-import "mr:ports"
 import "mr:services"
 import "mr:ui"
 
@@ -37,18 +36,13 @@ draw_dashboard_detail :: proc(state: ^App_State, rect: ui.Rect, pointer: ui.Poin
 	y += 20
 
 	// Connection dot + stream count.
-	conn_status: ports.MD_Conn_Status = .Offline
-	if state.marketdata.conn_status != nil {
-		conn_status = state.marketdata.conn_status()
-	}
-	dot_color := conn_status == .Connected ? ui.COL_GREEN : ui.with_alpha(ui.COL_WHITE, 0.35)
+	conn_disp := current_conn_status_display(state)
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
 		rect  = {pos = {rect.pos.x + 4, y + 4}, size = {6, 6}},
-		color = dot_color,
+		color = conn_disp.dot_color,
 	})
-	status_label := conn_status == .Connected ? "LIVE" : "OFFLINE"
 	ui.push_text(&state.cmd_buf, {rect.pos.x + 14, y + 10},
-		status_label, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+		conn_disp.label, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
 	y += 16
 
 	// TF label.
