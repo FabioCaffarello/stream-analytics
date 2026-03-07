@@ -572,65 +572,92 @@ draw_widget_catalog :: proc(state: ^App_State, viewport_w, viewport_h: f32, poin
 	y := py + 20
 
 	if state.overlays.catalog_step == 0 {
-		// --- Step 1: Widget type grid ---
+		// --- Step 1: Widget type grid (S55: grouped by category) ---
 		ui.push_text(&state.cmd_buf, {px + 16, y}, "Add Widget",
 			ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_MD, .Bold)
 		y += 28
 
-		ui.push_text(&state.cmd_buf, {px + 16, y}, "Choose widget type:",
-			ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS, .Mono)
-		y += 22
-
 		Widget_Entry :: struct { kind: Widget_Kind, label: string, analytics_kind: services.Analytics_Kind }
-		CATALOG_COUNT :: 14
-		entries := [CATALOG_COUNT]Widget_Entry{
-			{.Candle,       "Candle", {}},
-			{.Orderbook,    "Orderbook", {}},
-			{.Trades,       "Trades", {}},
-			{.DOM,          "DOM", {}},
-			{.Stats,        "Stats", {}},
-			{.Counter,      "Counter", {}},
-			{.Heatmap,      "Heatmap", {}},
-			{.VPVR,         "VPVR", {}},
-			// S48: Analytics widgets
-			{.Analytics,    "Open Interest", .Open_Interest},
-			{.Analytics,    "Delta Volume",  .Delta_Volume},
-			{.Analytics,    "CVD",           .CVD},
-			{.Analytics,    "Bar Stats",     .Bar_Stats},
-			// S49: Session profile widgets
-			{.Session_VPVR, "Session VPVR", {}},
-			{.TPO,          "TPO Profile",  {}},
-		}
 
-		cols :: 3
+		cols :: 4
 		cell_w := (panel_w - 32) / f32(cols)
 		cell_h := f32(36)
 		gx := px + 16
 
-		for ei in 0 ..< CATALOG_COUNT {
-			col := ei % cols
-			row := ei / cols
-			cx := gx + f32(col) * cell_w
-			cy := y + f32(row) * cell_h
-			btn_rect := ui.Rect{pos = {cx + 2, cy + 2}, size = {cell_w - 4, cell_h - 4}}
-			hovered := ui.rect_contains(btn_rect, pointer.pos)
+		// Helper: render a group of widget entries as a cols-wide grid.
+		catalog_render_group :: proc(
+			state: ^App_State,
+			entries: []Widget_Entry,
+			gx, cell_w, cell_h: f32,
+			y: ^f32,
+			pointer: ui.Pointer_Input,
+		) {
+			cols :: 4
+			for ei in 0 ..< len(entries) {
+				col := ei % cols
+				row := ei / cols
+				cx := gx + f32(col) * cell_w
+				cy := y^ + f32(row) * cell_h
+				btn_rect := ui.Rect{pos = {cx + 2, cy + 2}, size = {cell_w - 4, cell_h - 4}}
+				hovered := ui.rect_contains(btn_rect, pointer.pos)
 
-			bg := hovered ? ui.with_alpha(ui.COL_BLUE, 0.2) : ui.with_alpha(ui.COL_WHITE, 0.04)
-			ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = btn_rect, color = bg})
-			ui.push_text(&state.cmd_buf,
-				{btn_rect.pos.x + 6, cy + cell_h * 0.5 + ui.FONT_SIZE_XS * 0.35},
-				entries[ei].label,
-				hovered ? ui.COL_TEXT_PRIMARY : ui.COL_TEXT_SECONDARY,
-				ui.FONT_SIZE_XS, .Mono)
+				bg := hovered ? ui.with_alpha(ui.COL_BLUE, 0.2) : ui.with_alpha(ui.COL_WHITE, 0.04)
+				ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = btn_rect, color = bg})
+				ui.push_text(&state.cmd_buf,
+					{btn_rect.pos.x + 6, cy + cell_h * 0.5 + ui.FONT_SIZE_XS * 0.35},
+					entries[ei].label,
+					hovered ? ui.COL_TEXT_PRIMARY : ui.COL_TEXT_SECONDARY,
+					ui.FONT_SIZE_XS, .Mono)
 
-			if hovered && pointer.left_pressed {
-				state.overlays.catalog_selected = entries[ei].kind
-				state.overlays.catalog_analytics_kind = entries[ei].analytics_kind
-				state.overlays.catalog_step = 1
+				if hovered && pointer.left_pressed {
+					state.overlays.catalog_selected = entries[ei].kind
+					state.overlays.catalog_analytics_kind = entries[ei].analytics_kind
+					state.overlays.catalog_step = 1
+				}
 			}
+			row_count := (len(entries) + cols - 1) / cols
+			y^ += f32(row_count) * cell_h + 4
 		}
 
-		y += f32((CATALOG_COUNT + cols - 1) / cols) * cell_h + 12
+		// --- CHART ---
+		ui.push_text(&state.cmd_buf, {gx, y}, "CHART",
+			ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Bold)
+		y += 16
+		chart_entries := [8]Widget_Entry{
+			{.Candle,    "Candle", {}},
+			{.Orderbook, "Orderbook", {}},
+			{.Trades,    "Trades", {}},
+			{.DOM,       "DOM", {}},
+			{.Stats,     "Stats", {}},
+			{.Counter,   "Counter", {}},
+			{.Heatmap,   "Heatmap", {}},
+			{.VPVR,      "VPVR", {}},
+		}
+		catalog_render_group(state, chart_entries[:], gx, cell_w, cell_h, &y, pointer)
+
+		// --- ANALYTICS ---
+		ui.push_text(&state.cmd_buf, {gx, y}, "ANALYTICS",
+			ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Bold)
+		y += 16
+		analytics_entries := [4]Widget_Entry{
+			{.Analytics, "Open Interest", .Open_Interest},
+			{.Analytics, "Delta Volume",  .Delta_Volume},
+			{.Analytics, "CVD",           .CVD},
+			{.Analytics, "Bar Stats",     .Bar_Stats},
+		}
+		catalog_render_group(state, analytics_entries[:], gx, cell_w, cell_h, &y, pointer)
+
+		// --- PROFILES ---
+		ui.push_text(&state.cmd_buf, {gx, y}, "PROFILES",
+			ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Bold)
+		y += 16
+		profile_entries := [2]Widget_Entry{
+			{.Session_VPVR, "Session VPVR", {}},
+			{.TPO,          "TPO Profile",  {}},
+		}
+		catalog_render_group(state, profile_entries[:], gx, cell_w, cell_h, &y, pointer)
+
+		y += 8
 
 	} else {
 		// --- Step 2: Stream picker (PRD-0009: show ALL available markets) ---
