@@ -102,6 +102,15 @@ channel_short_label :: proc(ch: ports.MD_Channel) -> string {
 		return "signal"
 	case .Tape:
 		return "tape"
+	// S98: Analytics subscription channels.
+	case .Analytics_CVD:
+		return "cvd"
+	case .Analytics_Delta_Volume:
+		return "delta_vol"
+	case .Analytics_OI:
+		return "oi"
+	case .Analytics_Bar_Stats:
+		return "bar_stats"
 	}
 	return "?"
 }
@@ -126,6 +135,14 @@ parse_channel_short_label :: proc(s: string) -> (ports.MD_Channel, bool) {
 		return .Signals, true
 	case "tape":
 		return .Tape, true
+	case "cvd":
+		return .Analytics_CVD, true
+	case "delta_vol":
+		return .Analytics_Delta_Volume, true
+	case "oi":
+		return .Analytics_OI, true
+	case "bar_stats":
+		return .Analytics_Bar_Stats, true
 	}
 	return {}, false
 }

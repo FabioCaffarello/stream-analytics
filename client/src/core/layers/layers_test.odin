@@ -82,6 +82,7 @@ test_price_candles_layer_renders_expected_primitive_count :: proc(t: ^testing.T)
 		})
 	}
 	ctx := make_ctx(store, sid, ui.Rect{pos = {0, 0}, size = {300, 180}})
+	ctx.active_bundle = u32(Layer_Bundle.Bundle_Candles) // S86: must set active_bundle for bar rendering
 	out := new(Layer_Outputs)
 	defer free(out)
 	layer_outputs_reset(out)
@@ -263,6 +264,107 @@ test_layer_capabilities_gate_blocks_render_when_disabled_in_ctx :: proc(t: ^test
 }
 
 @(test)
+test_analytics_layer_renders_oi_and_dv :: proc(t: ^testing.T) {
+	store := new(Market_Store)
+	defer free(store)
+	sid := u64(666)
+	// Push OI event.
+	apply_event(store, ports.MD_Event{
+		source = {subject_id = sid, channel = .Candles, seq = 1},
+		kind = .Open_Interest,
+		unix = 100,
+		data = {open_interest = ports.MD_Open_Interest_Event{
+			open_interest = 50000, delta = 100, delta_pct = 0.002,
+			window_start_ts = 0, window_end_ts = 60_000, unix = 100,
+		}},
+	})
+	// Push DV event.
+	apply_event(store, ports.MD_Event{
+		source = {subject_id = sid, channel = .Candles, seq = 2},
+		kind = .Delta_Volume,
+		unix = 101,
+		data = {delta_volume = ports.MD_Delta_Volume_Event{
+			buy_volume = 25.5, sell_volume = 20.3, delta_volume = 5.2,
+			window_start_ts = 0, window_end_ts = 60_000, unix = 101,
+		}},
+	})
+
+	ctx := make_ctx(store, sid, ui.Rect{pos = {0, 0}, size = {300, 180}})
+	testing.expect_value(t, ctx.capabilities.has_analytics, true)
+
+	out := new(Layer_Outputs)
+	defer free(out)
+	layer_outputs_reset(out)
+	analytics_layer_strategy().render(&ctx, out)
+	// Unfiltered: should render both OI and DV text badges + bars.
+	testing.expect(t, out.count >= 4, "analytics should emit at least 4 primitives for OI+DV")
+
+	// Filtered mode: only OI.
+	layer_outputs_reset(out)
+	ctx.analytics_filter = true
+	ctx.analytics_kind = .Open_Interest
+	analytics_layer_strategy().render(&ctx, out)
+	oi_count := out.count
+
+	layer_outputs_reset(out)
+	ctx.analytics_kind = .Delta_Volume
+	analytics_layer_strategy().render(&ctx, out)
+	dv_count := out.count
+
+	testing.expect(t, oi_count > 0, "filtered OI should emit primitives")
+	testing.expect(t, dv_count > 0, "filtered DV should emit primitives")
+}
+
+@(test)
+test_analytics_layer_no_data_emits_nothing :: proc(t: ^testing.T) {
+	store := new(Market_Store)
+	defer free(store)
+	sid := u64(777)
+	// Create stream but no analytics events.
+	apply_event(store, ports.MD_Event{
+		source = {subject_id = sid, channel = .Candles, seq = 1},
+		kind = .Candle,
+		unix = 100,
+		data = {candle = {open = 1, high = 2, low = 0.5, close = 1.5, volume = 1, buy_vol = 0.5, sell_vol = 0.5, trade_count = 1, window_start_ts = 0, window_end_ts = 60_000, is_closed = true}},
+	})
+
+	ctx := make_ctx(store, sid, ui.Rect{pos = {0, 0}, size = {300, 180}})
+	testing.expect_value(t, ctx.capabilities.has_analytics, false)
+
+	out := new(Layer_Outputs)
+	defer free(out)
+	layer_outputs_reset(out)
+	analytics_layer_strategy().render(&ctx, out)
+	testing.expect_value(t, out.count, 0)
+}
+
+@(test)
+test_market_store_reduces_analytics_events :: proc(t: ^testing.T) {
+	store := new(Market_Store)
+	defer free(store)
+	sid := u64(888)
+
+	apply_event(store, ports.MD_Event{
+		source = {subject_id = sid, channel = .Candles, seq = 1},
+		kind = .Open_Interest,
+		unix = 100,
+		data = {open_interest = ports.MD_Open_Interest_Event{
+			open_interest = 42000, delta = -500, delta_pct = -0.012,
+			window_start_ts = 0, window_end_ts = 60_000, unix = 100,
+		}},
+	})
+
+	stream := market_store_stream_for_subject(store, sid)
+	testing.expect(t, stream != nil, "stream should be allocated")
+	testing.expect_value(t, stream.analytics.count, 1)
+
+	entry := services.get_analytics(&stream.analytics, 0)
+	testing.expect_value(t, entry.kind, services.Analytics_Kind.Open_Interest)
+	testing.expect_value(t, entry.values[0], 42000.0)
+	testing.expect_value(t, entry.values[1], -500.0)
+}
+
+@(test)
 test_layer_registry_collect_diagnostics_reports_state :: proc(t: ^testing.T) {
 	store := new(Market_Store)
 	defer free(store)
@@ -307,4 +409,411 @@ test_layer_registry_collect_diagnostics_reports_state :: proc(t: ^testing.T) {
 		}
 	}
 	testing.expect_value(t, found_price, true)
+}
+
+// ═══════════════════════════════════════════════════════════════
+// S87: Stats Panel + Trade Counter layer tests
+// ═══════════════════════════════════════════════════════════════
+
+@(test)
+test_stats_panel_renders_stats_text_not_candles :: proc(t: ^testing.T) {
+	store := new(Market_Store)
+	defer free(store)
+	sid := u64(1001)
+	// Push stats event (no candle data).
+	apply_event(store, ports.MD_Event{
+		source = {subject_id = sid, channel = .Stats, seq = 1},
+		kind = .Stats,
+		unix = 100,
+		data = {stats = {
+			mark_price = 42500.0, funding = 0.0001,
+			tbuy = 41000.0, tsell = 44000.0,
+			window_ms = 60_000, quality_flags = 0,
+		}},
+	})
+
+	ctx := make_ctx(store, sid, ui.Rect{pos = {0, 0}, size = {280, 160}})
+	out := new(Layer_Outputs)
+	defer free(out)
+	layer_outputs_reset(out)
+	stats_panel_layer_strategy().render(&ctx, out)
+	// Should emit: Mark, Funding, Liq, Window, Quality = 5 text badges.
+	testing.expect_value(t, out.count, 5)
+	// All should be text badges.
+	for i in 0 ..< out.count {
+		testing.expect_value(t, out.items[i].kind, Render_Primitive_Kind.Text_Badge)
+	}
+}
+
+@(test)
+test_stats_panel_no_stats_emits_nothing :: proc(t: ^testing.T) {
+	store := new(Market_Store)
+	defer free(store)
+	sid := u64(1002)
+	// Push only candle data — no stats.
+	apply_event(store, ports.MD_Event{
+		source = {subject_id = sid, channel = .Candles, seq = 1},
+		kind = .Candle,
+		unix = 100,
+		data = {candle = {open = 1, high = 2, low = 0.5, close = 1.5, volume = 1, buy_vol = 0.5, sell_vol = 0.5, trade_count = 1, window_start_ts = 0, window_end_ts = 60_000, is_closed = true}},
+	})
+
+	ctx := make_ctx(store, sid, ui.Rect{pos = {0, 0}, size = {280, 160}})
+	out := new(Layer_Outputs)
+	defer free(out)
+	layer_outputs_reset(out)
+	stats_panel_layer_strategy().render(&ctx, out)
+	testing.expect_value(t, out.count, 0)
+}
+
+@(test)
+test_trade_counter_renders_aggregates_not_tape :: proc(t: ^testing.T) {
+	store := new(Market_Store)
+	defer free(store)
+	sid := u64(1003)
+	// Push candle with trade counts.
+	apply_event(store, ports.MD_Event{
+		source = {subject_id = sid, channel = .Candles, seq = 1},
+		kind = .Candle,
+		unix = 100,
+		data = {candle = {
+			open = 100, high = 105, low = 98, close = 103,
+			volume = 50.0, buy_vol = 30.0, sell_vol = 20.0,
+			trade_count = 142,
+			window_start_ts = 0, window_end_ts = 60_000, is_closed = true,
+		}},
+	})
+
+	ctx := make_ctx(store, sid, ui.Rect{pos = {0, 0}, size = {280, 160}})
+	out := new(Layer_Outputs)
+	defer free(out)
+	layer_outputs_reset(out)
+	trade_counter_layer_strategy().render(&ctx, out)
+	// Should emit: Trades count, Vol summary, 2 bars (buy/sell), ratio label, Last price = 6.
+	testing.expect(t, out.count >= 5, "counter should emit at least 5 primitives")
+	// First should be text badge (trade count).
+	testing.expect_value(t, out.items[0].kind, Render_Primitive_Kind.Text_Badge)
+}
+
+@(test)
+test_trade_counter_no_candles_emits_nothing :: proc(t: ^testing.T) {
+	store := new(Market_Store)
+	defer free(store)
+	sid := u64(1004)
+	// Push only trade events — no candle aggregates.
+	apply_event(store, ports.MD_Event{
+		source = {subject_id = sid, channel = .Trades, seq = 1},
+		kind = .Trade,
+		unix = 100,
+		data = {trade = {price = 101.0, qty = 1.0, is_buy = true, unix = 100}},
+	})
+
+	ctx := make_ctx(store, sid, ui.Rect{pos = {0, 0}, size = {280, 160}})
+	out := new(Layer_Outputs)
+	defer free(out)
+	layer_outputs_reset(out)
+	trade_counter_layer_strategy().render(&ctx, out)
+	testing.expect_value(t, out.count, 0)
+}
+
+@(test)
+test_bundle_stats_does_not_trigger_price_candles_layer :: proc(t: ^testing.T) {
+	store := new(Market_Store)
+	defer free(store)
+	reg := new(Layer_Registry)
+	defer free(reg)
+	layer_registry_init(reg, store)
+
+	sid := u64(1005)
+	// Push both candle and stats data.
+	apply_event(store, ports.MD_Event{
+		source = {subject_id = sid, channel = .Candles, seq = 1},
+		kind = .Candle,
+		unix = 100,
+		data = {candle = {open = 100, high = 102, low = 99, close = 101, volume = 10, buy_vol = 6, sell_vol = 4, trade_count = 20, window_start_ts = 0, window_end_ts = 60_000, is_closed = true}},
+	})
+	apply_event(store, ports.MD_Event{
+		source = {subject_id = sid, channel = .Stats, seq = 2},
+		kind = .Stats,
+		unix = 101,
+		data = {stats = {mark_price = 101.0, funding = 0.0002, tbuy = 98.0, tsell = 104.0, window_ms = 60_000, quality_flags = 0}},
+	})
+
+	ctx := make_ctx(store, sid, ui.Rect{pos = {0, 0}, size = {280, 160}})
+	ctx.active_bundle = u32(Layer_Bundle.Bundle_Stats)
+	out := new(Layer_Outputs)
+	defer free(out)
+	layer_outputs_reset(out)
+	layer_registry_render_bundle(reg, u32(Layer_Bundle.Bundle_Stats), &ctx, out)
+
+	// Should have output from Stats_Panel + Signal, but NOT from Price_Candles.
+	// Verify no Line or Bar primitives (candle wicks/bodies) — stats panel emits only text badges.
+	has_candle_primitive := false
+	for i in 0 ..< out.count {
+		p := out.items[i]
+		if p.kind == .Line && p.z == 20 do has_candle_primitive = true  // z=20 is Price_Candles z-order
+		if p.kind == .Bar && p.z == 21 do has_candle_primitive = true
+	}
+	testing.expect(t, !has_candle_primitive, "Bundle_Stats must not trigger Price_Candles layer")
+	testing.expect(t, out.count > 0, "Bundle_Stats should produce output from Stats_Panel")
+}
+
+@(test)
+test_bundle_counter_does_not_trigger_trades_tape_layer :: proc(t: ^testing.T) {
+	store := new(Market_Store)
+	defer free(store)
+	reg := new(Layer_Registry)
+	defer free(reg)
+	layer_registry_init(reg, store)
+
+	sid := u64(1006)
+	apply_event(store, ports.MD_Event{
+		source = {subject_id = sid, channel = .Candles, seq = 1},
+		kind = .Candle,
+		unix = 100,
+		data = {candle = {open = 100, high = 102, low = 99, close = 101, volume = 10, buy_vol = 6, sell_vol = 4, trade_count = 20, window_start_ts = 0, window_end_ts = 60_000, is_closed = true}},
+	})
+	apply_event(store, ports.MD_Event{
+		source = {subject_id = sid, channel = .Trades, seq = 2},
+		kind = .Trade,
+		unix = 101,
+		data = {trade = {price = 101.5, qty = 1.25, is_buy = true, unix = 101}},
+	})
+
+	ctx := make_ctx(store, sid, ui.Rect{pos = {0, 0}, size = {280, 160}})
+	ctx.active_bundle = u32(Layer_Bundle.Bundle_Counter)
+	out := new(Layer_Outputs)
+	defer free(out)
+	layer_outputs_reset(out)
+	layer_registry_render_bundle(reg, u32(Layer_Bundle.Bundle_Counter), &ctx, out)
+
+	// Should have output from Trade_Counter + Signal, but NOT from Trades_Tape.
+	has_tape_primitive := false
+	for i in 0 ..< out.count {
+		p := out.items[i]
+		if p.z == 40 || p.z == 41 do has_tape_primitive = true  // z=40,41 are Trades_Tape z-orders
+	}
+	testing.expect(t, !has_tape_primitive, "Bundle_Counter must not trigger Trades_Tape layer")
+	testing.expect(t, out.count > 0, "Bundle_Counter should produce output from Trade_Counter")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// S94: Analytics subplot tests
+// ═══════════════════════════════════════════════════════════════
+
+@(test)
+test_subplot_cvd_renders_line_segments :: proc(t: ^testing.T) {
+	store := new(Market_Store)
+	defer free(store)
+	sid := u64(2001)
+
+	// Push 5 CVD events to get enough data for line segments.
+	for i in 0 ..< 5 {
+		apply_event(store, ports.MD_Event{
+			source = {subject_id = sid, channel = .Candles, seq = i64(i + 1)},
+			kind = .CVD,
+			unix = i64(100 + i),
+			data = {cvd = ports.MD_CVD_Event{
+				delta_volume = f64(i) * 2.0,
+				cvd = f64(i) * 10.0,
+				window_start_ts = i64(i) * 60_000,
+				window_end_ts = i64(i + 1) * 60_000,
+				unix = i64(100 + i),
+			}},
+		})
+	}
+
+	ctx := make_ctx(store, sid, ui.Rect{pos = {0, 0}, size = {300, 200}})
+	subplot_vp := ui.Rect{pos = {0, 150}, size = {300, 50}}
+	out := new(Layer_Outputs)
+	defer free(out)
+	layer_outputs_reset(out)
+	subplot_cvd_render(&ctx, out, subplot_vp)
+
+	// Should emit: bg bar + divider line + zero line + 4 line segments + label = 8 primitives.
+	testing.expect(t, out.count >= 6, "CVD subplot should emit at least 6 primitives for 5 entries")
+
+	// Verify at least one line segment exists (z=25 for CVD lines).
+	has_cvd_line := false
+	for i in 0 ..< out.count {
+		if out.items[i].kind == .Line && out.items[i].z == 25 do has_cvd_line = true
+	}
+	testing.expect(t, has_cvd_line, "CVD subplot should emit line segments at z=25")
+
+	// Verify label text badge exists.
+	has_label := false
+	for i in 0 ..< out.count {
+		if out.items[i].kind == .Text_Badge && out.items[i].z == 26 do has_label = true
+	}
+	testing.expect(t, has_label, "CVD subplot should emit label badge at z=26")
+}
+
+@(test)
+test_subplot_delta_vol_renders_bars :: proc(t: ^testing.T) {
+	store := new(Market_Store)
+	defer free(store)
+	sid := u64(2002)
+
+	// Push 4 Delta Volume events.
+	for i in 0 ..< 4 {
+		delta := f64(i) * 3.0 - 4.0  // mix of positive and negative
+		apply_event(store, ports.MD_Event{
+			source = {subject_id = sid, channel = .Candles, seq = i64(i + 1)},
+			kind = .Delta_Volume,
+			unix = i64(100 + i),
+			data = {delta_volume = ports.MD_Delta_Volume_Event{
+				buy_volume = 10.0 + f64(i),
+				sell_volume = 8.0 + f64(i),
+				delta_volume = delta,
+				window_start_ts = i64(i) * 60_000,
+				window_end_ts = i64(i + 1) * 60_000,
+				unix = i64(100 + i),
+			}},
+		})
+	}
+
+	ctx := make_ctx(store, sid, ui.Rect{pos = {0, 0}, size = {300, 200}})
+	subplot_vp := ui.Rect{pos = {0, 150}, size = {300, 50}}
+	out := new(Layer_Outputs)
+	defer free(out)
+	layer_outputs_reset(out)
+	subplot_delta_vol_render(&ctx, out, subplot_vp)
+
+	// Should emit: bg + divider + zero line + 4 bars + label = 8 primitives.
+	testing.expect(t, out.count >= 6, "DV subplot should emit at least 6 primitives for 4 entries")
+
+	// Verify delta vol bars at z=25.
+	bar_count := 0
+	for i in 0 ..< out.count {
+		if out.items[i].kind == .Bar && out.items[i].z == 25 do bar_count += 1
+	}
+	testing.expect_value(t, bar_count, 4)
+}
+
+@(test)
+test_subplot_oi_renders_line_segments :: proc(t: ^testing.T) {
+	store := new(Market_Store)
+	defer free(store)
+	sid := u64(2003)
+
+	// Push 3 OI events.
+	for i in 0 ..< 3 {
+		apply_event(store, ports.MD_Event{
+			source = {subject_id = sid, channel = .Candles, seq = i64(i + 1)},
+			kind = .Open_Interest,
+			unix = i64(100 + i),
+			data = {open_interest = ports.MD_Open_Interest_Event{
+				open_interest = 50000.0 + f64(i) * 100.0,
+				delta = f64(i) * 10.0,
+				delta_pct = 0.001,
+				window_start_ts = i64(i) * 60_000,
+				window_end_ts = i64(i + 1) * 60_000,
+				unix = i64(100 + i),
+			}},
+		})
+	}
+
+	ctx := make_ctx(store, sid, ui.Rect{pos = {0, 0}, size = {300, 200}})
+	subplot_vp := ui.Rect{pos = {0, 150}, size = {300, 50}}
+	out := new(Layer_Outputs)
+	defer free(out)
+	layer_outputs_reset(out)
+	subplot_oi_render(&ctx, out, subplot_vp)
+
+	// Should emit: bg + divider + 2 line segments + label = 5 primitives.
+	testing.expect(t, out.count >= 4, "OI subplot should emit at least 4 primitives for 3 entries")
+
+	// Verify OI line at z=25.
+	has_oi_line := false
+	for i in 0 ..< out.count {
+		if out.items[i].kind == .Line && out.items[i].z == 25 do has_oi_line = true
+	}
+	testing.expect(t, has_oi_line, "OI subplot should emit line segments at z=25")
+}
+
+@(test)
+test_subplot_cvd_no_data_emits_nothing :: proc(t: ^testing.T) {
+	store := new(Market_Store)
+	defer free(store)
+	sid := u64(2004)
+
+	// Push only candle data — no CVD events.
+	apply_event(store, ports.MD_Event{
+		source = {subject_id = sid, channel = .Candles, seq = 1},
+		kind = .Candle,
+		unix = 100,
+		data = {candle = {open = 1, high = 2, low = 0.5, close = 1.5, volume = 1, buy_vol = 0.5, sell_vol = 0.5, trade_count = 1, window_start_ts = 0, window_end_ts = 60_000, is_closed = true}},
+	})
+
+	ctx := make_ctx(store, sid, ui.Rect{pos = {0, 0}, size = {300, 200}})
+	subplot_vp := ui.Rect{pos = {0, 150}, size = {300, 50}}
+	out := new(Layer_Outputs)
+	defer free(out)
+	layer_outputs_reset(out)
+	subplot_cvd_render(&ctx, out, subplot_vp)
+	testing.expect_value(t, out.count, 0)
+}
+
+@(test)
+test_subplot_cvd_single_entry_needs_two :: proc(t: ^testing.T) {
+	store := new(Market_Store)
+	defer free(store)
+	sid := u64(2005)
+
+	// Push only 1 CVD entry — need at least 2 for line segments.
+	apply_event(store, ports.MD_Event{
+		source = {subject_id = sid, channel = .Candles, seq = 1},
+		kind = .CVD,
+		unix = 100,
+		data = {cvd = ports.MD_CVD_Event{
+			delta_volume = 5.0, cvd = 10.0,
+			window_start_ts = 0, window_end_ts = 60_000, unix = 100,
+		}},
+	})
+
+	ctx := make_ctx(store, sid, ui.Rect{pos = {0, 0}, size = {300, 200}})
+	subplot_vp := ui.Rect{pos = {0, 150}, size = {300, 50}}
+	out := new(Layer_Outputs)
+	defer free(out)
+	layer_outputs_reset(out)
+	subplot_cvd_render(&ctx, out, subplot_vp)
+	// Single entry: not enough for a line chart.
+	testing.expect_value(t, out.count, 0)
+}
+
+@(test)
+test_subplot_flags_count :: proc(t: ^testing.T) {
+	testing.expect_value(t, subplot_flags_count(Subplot_Flags{}), 0)
+	testing.expect_value(t, subplot_flags_count(Subplot_Flags{show_cvd = true}), 1)
+	testing.expect_value(t, subplot_flags_count(Subplot_Flags{show_cvd = true, show_delta_vol = true}), 2)
+	testing.expect_value(t, subplot_flags_count(Subplot_Flags{show_cvd = true, show_delta_vol = true, show_oi = true}), 3)
+}
+
+@(test)
+test_analytics_collect_by_kind :: proc(t: ^testing.T) {
+	store: services.Analytics_Store
+	// Push mixed entries: OI, DV, CVD, OI, DV.
+	services.push_analytics(&store, services.Analytics_Entry{kind = .Open_Interest, ts_ms = 1, values = {100, 0, 0, 0, 0, 0, 0, 0}})
+	services.push_analytics(&store, services.Analytics_Entry{kind = .Delta_Volume, ts_ms = 2, values = {10, 8, 2, 0, 0, 0, 0, 0}})
+	services.push_analytics(&store, services.Analytics_Entry{kind = .CVD, ts_ms = 3, values = {5, 15, 0, 0, 0, 0, 0, 0}})
+	services.push_analytics(&store, services.Analytics_Entry{kind = .Open_Interest, ts_ms = 4, values = {200, 0, 0, 0, 0, 0, 0, 0}})
+	services.push_analytics(&store, services.Analytics_Entry{kind = .Delta_Volume, ts_ms = 5, values = {12, 9, 3, 0, 0, 0, 0, 0}})
+
+	// Collect OI entries — should get 2 in oldest-first order.
+	oi_entries: [8]services.Analytics_Entry
+	n := services.analytics_collect_by_kind(&store, .Open_Interest, oi_entries[:])
+	testing.expect_value(t, n, 2)
+	testing.expect_value(t, oi_entries[0].values[0], 100.0)  // oldest first
+	testing.expect_value(t, oi_entries[1].values[0], 200.0)
+
+	// Collect CVD — should get 1.
+	cvd_entries: [8]services.Analytics_Entry
+	n2 := services.analytics_collect_by_kind(&store, .CVD, cvd_entries[:])
+	testing.expect_value(t, n2, 1)
+	testing.expect_value(t, cvd_entries[0].values[1], 15.0)
+
+	// Collect Bar_Stats — should get 0.
+	bs_entries: [8]services.Analytics_Entry
+	n3 := services.analytics_collect_by_kind(&store, .Bar_Stats, bs_entries[:])
+	testing.expect_value(t, n3, 0)
 }

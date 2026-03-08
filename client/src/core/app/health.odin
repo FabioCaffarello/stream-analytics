@@ -338,19 +338,13 @@ refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtim
 	state.active_metrics.canonical_stats_frames = metrics.canonical_stats_frames
 	state.active_metrics.stats_fallback_frames = metrics.stats_fallback_frames
 	state.active_metrics.canonical_evidence_frames = metrics.canonical_evidence_frames
-	state.active_metrics.legacy_evidence_frames = metrics.legacy_evidence_frames
 	state.active_metrics.evidence_fallback_frames = metrics.evidence_fallback_frames
 	state.active_metrics.canonical_signal_frames = metrics.canonical_signal_frames
-	state.active_metrics.legacy_signal_frames = metrics.legacy_signal_frames
 	state.active_metrics.signal_fallback_frames = metrics.signal_fallback_frames
-	state.active_metrics.legacy_evidence_rejected = metrics.legacy_evidence_rejected
-	state.active_metrics.legacy_signal_rejected = metrics.legacy_signal_rejected
 	state.active_metrics.snapshot_hash_mismatches = metrics.snapshot_hash_mismatches
 	state.active_metrics.snapshot_seq_violations = metrics.snapshot_seq_violations
 	state.active_metrics.prev_seq_violations = metrics.prev_seq_violations
 	state.active_metrics.hash_validation_skipped = metrics.hash_validation_skipped
-	state.active_metrics.legacy_downgrade_count = metrics.legacy_downgrade_count
-	state.active_metrics.legacy_connected_since_ms = metrics.legacy_connected_since_ms
 	state.active_metrics.assist_enabled = state.bp_assist.enabled
 	state.active_metrics.assist_degrade_heatmap = state.bp_assist.degrade_heatmap
 	state.active_metrics.assist_degrade_vpvr = state.bp_assist.degrade_vpvr
@@ -635,7 +629,9 @@ poll_freshness :: proc(state: ^App_State) {
 	if !services.freshness_parse_json(buf[:int(n)], &result) do return
 
 	state.freshness.active = result.active
+	if result.active { state.freshness.was_ever_active = true }  // S92: Latch — once active, always "was active".
 	state.freshness.checked_at = result.checked_at
+	state.freshness.channel_count = result.count
 	state.freshness.loaded = true
 
 	// Map channel names to our channel indices for display.

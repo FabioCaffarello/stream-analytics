@@ -376,6 +376,13 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 					show_toast(state, tf_opts[pane_tf])
 				}
 			}
+		case .Set_Compare_Analytics_Kind:
+			// S84: Cycle analytics kind for a compare pane.
+			if state.compare.active && action.pane_idx >= 0 && action.pane_idx < state.compare.count {
+				state.compare.analytics_kind[action.pane_idx] = action.analytics_kind
+				// Request analytics range data for the new kind.
+				request_compare_pane_analytics_range(state, action.pane_idx)
+			}
 		case .Focus_Compare_Pane:
 			if state.compare.active && action.pane_idx >= 0 && action.pane_idx < state.compare.count {
 				state.compare.focused_pane = action.pane_idx
@@ -392,6 +399,9 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 			apply_clear_all_cells_action(state)
 		case .Navigate_Instrument_Overview:
 			apply_navigate_instrument_overview(state, action.market_entry_idx)
+		case .Toggle_Compare_Subplot:
+			// S95: Toggle CVD/DV/OI subplot on a compare pane.
+			apply_toggle_compare_subplot(state, action.pane_idx, action.subplot_idx)
 		}
 	}
 	state.ui_action_count = 0
@@ -438,6 +448,23 @@ apply_enter_compare :: proc(state: ^App_State) {
 		state.compare.trade_filter[i] = src_chart.trade_filter_idx
 	}
 
+	// S95: Copy subplot flags from focused cell indicators.
+	src_ind: Indicator_Component
+	if fci >= 0 && fci < state.world.count {
+		src_ind = state.world.indicators[fci]
+	} else {
+		src_ind = Indicator_Component{
+			show_cvd       = state.indicators.show_cvd,
+			show_delta_vol = state.indicators.show_delta_vol,
+			show_oi        = state.indicators.show_oi,
+		}
+	}
+	for i in 0 ..< len(state.compare.show_cvd) {
+		state.compare.show_cvd[i]       = src_ind.show_cvd
+		state.compare.show_delta_vol[i] = src_ind.show_delta_vol
+		state.compare.show_oi[i]        = src_ind.show_oi
+	}
+
 	// Auto-add the next stream.
 	for i in 0 ..< STREAM_VIEW_CAP {
 		if !reg.slots[i].used do continue
@@ -451,33 +478,73 @@ apply_enter_compare :: proc(state: ^App_State) {
 	for cpi in 0 ..< state.compare.count {
 		request_compare_pane_candle_range(state, cpi)
 	}
+
+	// S95: Fetch subplot analytics data for panes that have subplots enabled.
+	for cpi in 0 ..< state.compare.count {
+		request_compare_pane_subplot_analytics(state, cpi)
+	}
 }
 
-// Set a specific indicator on a cell's Indicator_Component by index (0-7).
+// S95: Toggle a subplot (CVD/DeltaVol/OI) on a compare pane.
+// subplot_idx: 0=CVD, 1=DeltaVol, 2=OI.
+apply_toggle_compare_subplot :: proc(state: ^App_State, pane_idx: int, subplot_idx: int) {
+	if state == nil do return
+	if !state.compare.active do return
+	if pane_idx < 0 || pane_idx >= state.compare.count do return
+
+	switch subplot_idx {
+	case 0:
+		state.compare.show_cvd[pane_idx] = !state.compare.show_cvd[pane_idx]
+		if state.compare.show_cvd[pane_idx] {
+			request_compare_pane_subplot_analytics_kind(state, pane_idx, .CVD)
+		}
+	case 1:
+		state.compare.show_delta_vol[pane_idx] = !state.compare.show_delta_vol[pane_idx]
+		if state.compare.show_delta_vol[pane_idx] {
+			request_compare_pane_subplot_analytics_kind(state, pane_idx, .Delta_Volume)
+		}
+	case 2:
+		state.compare.show_oi[pane_idx] = !state.compare.show_oi[pane_idx]
+		if state.compare.show_oi[pane_idx] {
+			request_compare_pane_subplot_analytics_kind(state, pane_idx, .Open_Interest)
+		}
+	}
+}
+
+// Set a specific indicator on a cell's Indicator_Component by index (0-10).
 set_indicator_on_cell :: proc(ind: ^Indicator_Component, idx: int, value: bool) {
-	if ind == nil || idx < 0 || idx >= 8 do return
-	cell_ptrs := [8]^bool{
+	if ind == nil || idx < 0 || idx >= 11 do return
+	cell_ptrs := [11]^bool{
 		&ind.show_ma, &ind.show_bbands, &ind.show_vwap, &ind.show_rsi,
 		&ind.show_macd, &ind.show_funding, &ind.show_liq, &ind.show_trade_counter,
+		&ind.show_cvd, &ind.show_delta_vol, &ind.show_oi,
 	}
 	cell_ptrs[idx]^ = value
 }
 
 // Toggle an indicator on the focused candle cell, syncing to global default + settings.
 toggle_focused_indicator :: proc(state: ^App_State, idx: int) {
-	IND_KEYS :: [8]string{
+	IND_KEYS :: [11]string{
 		services.SETTING_SHOW_MA, services.SETTING_SHOW_BBANDS, services.SETTING_SHOW_VWAP,
 		services.SETTING_SHOW_RSI, services.SETTING_SHOW_MACD, services.SETTING_SHOW_FUNDING,
 		services.SETTING_SHOW_LIQ, services.SETTING_SHOW_TRADE_COUNTER,
+		services.SETTING_SHOW_CVD, services.SETTING_SHOW_DELTA_VOL, services.SETTING_SHOW_OI,
 	}
-	IND_LABELS_ON :: [8]string{"MA: ON", "BBands: ON", "VWAP: ON", "RSI: ON", "MACD: ON", "Funding: ON", "Liq: ON", "Trade Counter: ON"}
-	IND_LABELS_OFF :: [8]string{"MA: OFF", "BBands: OFF", "VWAP: OFF", "RSI: OFF", "MACD: OFF", "Funding: OFF", "Liq: OFF", "Trade Counter: OFF"}
-	if idx < 0 || idx >= 8 do return
+	IND_LABELS_ON :: [11]string{
+		"MA: ON", "BBands: ON", "VWAP: ON", "RSI: ON", "MACD: ON", "Funding: ON", "Liq: ON", "Trade Counter: ON",
+		"CVD: ON", "Delta Vol: ON", "OI: ON",
+	}
+	IND_LABELS_OFF :: [11]string{
+		"MA: OFF", "BBands: OFF", "VWAP: OFF", "RSI: OFF", "MACD: OFF", "Funding: OFF", "Liq: OFF", "Trade Counter: OFF",
+		"CVD: OFF", "Delta Vol: OFF", "OI: OFF",
+	}
+	if idx < 0 || idx >= 11 do return
 
 	// Resolve pointers: focused candle cell, else global.
-	global_ptrs := [8]^bool{
+	global_ptrs := [11]^bool{
 		&state.indicators.show_ma, &state.indicators.show_bbands, &state.indicators.show_vwap, &state.indicators.show_rsi,
 		&state.indicators.show_macd, &state.indicators.show_funding, &state.indicators.show_liq, &state.indicators.show_trade_counter,
+		&state.indicators.show_cvd, &state.indicators.show_delta_vol, &state.indicators.show_oi,
 	}
 	fci := state.world.focused
 	has_focus := fci >= 0 && fci < state.world.count && state.world.widgets[fci].kind == .Candle
@@ -573,9 +640,15 @@ apply_add_compare_stream :: proc(state: ^App_State) {
 		state.compare.show_heatmap[si] = state.compare.show_heatmap[0]
 		state.compare.show_vpvr[si] = state.compare.show_vpvr[0]
 		state.compare.heatmap_idx[si] = state.compare.heatmap_idx[0]
+		// S95: Copy subplot flags from pane 0.
+		state.compare.show_cvd[si]       = state.compare.show_cvd[0]
+		state.compare.show_delta_vol[si] = state.compare.show_delta_vol[0]
+		state.compare.show_oi[si]        = state.compare.show_oi[0]
 		state.compare.count += 1
 		// S41: Trigger initial backfill for the newly added pane.
 		request_compare_pane_candle_range(state, si)
+		// S95: Fetch subplot analytics for the new pane.
+		request_compare_pane_subplot_analytics(state, si)
 		return
 	}
 }

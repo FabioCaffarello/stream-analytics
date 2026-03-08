@@ -16,7 +16,7 @@ MD_POLL_CAP :: 64
 TF_OPTIONS :: [9]string{"1s", "5s", "1m", "5m", "15m", "30m", "1h", "4h", "1d"}
 TF_OPTION_MS :: [9]i64{1_000, 5_000, 60_000, 300_000, 900_000, 1_800_000, 3_600_000, 14_400_000, 86_400_000}
 
-COMPARE_WIDGET_OPTIONS :: [3]string{"OB", "Trades", "Candles"}
+COMPARE_WIDGET_OPTIONS :: [4]string{"OB", "Trades", "Candles", "Analytics"}
 
 // --- Widget Instance Model (PRD-0005-B M0) ---
 
@@ -104,6 +104,7 @@ UI_Action_Kind :: enum u8 {
 	Toggle_Zen_Mode,
 	Set_Cell_Timeframe,
 	Set_Compare_Pane_Timeframe, // S39: TF change directed at a compare pane
+	Set_Compare_Analytics_Kind, // S84: cycle analytics kind for a compare pane
 	Focus_Compare_Pane,         // S39: set focused pane in compare mode
 	Resync_Active_Stream,
 	Select_Profile,
@@ -116,6 +117,7 @@ UI_Action_Kind :: enum u8 {
 	Set_Cell_Span,           // S53: set col/row span for a cell
 	Clear_All_Cells,         // S53: remove all cells and open widget catalog
 	Navigate_Instrument_Overview, // S58: navigate to overview for a market entry
+	Toggle_Compare_Subplot,      // S95: toggle CVD/DV/OI subplot on a compare pane
 }
 
 UI_Action :: struct {
@@ -131,9 +133,10 @@ UI_Action :: struct {
 	stream_idx:     int,
 	subject_id:     u64,        // for Pick_Stream
 	market_entry_idx: int,      // for Subscribe_Market
-	pane_idx:       int,        // S39: for Set_Compare_Pane_Timeframe / Focus_Compare_Pane
+	pane_idx:       int,        // S39: for Set_Compare_Pane_Timeframe / Focus_Compare_Pane / Set_Compare_Analytics_Kind
 	col_span:       int,        // S53: for Set_Cell_Span
 	row_span:       int,        // S53: for Set_Cell_Span
+	subplot_idx:    int,        // S95: 0=CVD, 1=DeltaVol, 2=OI for Toggle_Compare_Subplot
 	// Intent binding transport (PRD-0009): venue/symbol for Set_Cell_Stream / Add_Cell.
 	bind_venue:     string,
 	bind_symbol:    string,
@@ -206,13 +209,9 @@ Runtime_Probe :: struct {
 	md_canonical_stats_frames: u64,
 	md_stats_fallback_frames:  u64,
 	md_canonical_evidence_frames: u64,
-	md_legacy_evidence_frames:    u64,
 	md_evidence_fallback_frames:  u64,
 	md_canonical_signal_frames:   u64,
-	md_legacy_signal_frames:      u64,
 	md_signal_fallback_frames:    u64,
-	md_legacy_evidence_rejected:  u64,
-	md_legacy_signal_rejected:    u64,
 	ui_actions_enqueued_total: u64,
 	ui_action_drops:       u64,
 	stream_switches_total: u64,
@@ -355,6 +354,9 @@ Telemetry_HUD_Cache :: struct {
 	// S31: Aggregate health summary cache.
 	agg_buf: [96]u8,
 	agg_len: int,
+	// S97: Frame cost probe cache.
+	cost_buf: [64]u8,
+	cost_len: int,
 }
 
 App_State :: struct {
@@ -488,10 +490,12 @@ Channel_Freshness :: struct {
 }
 
 Freshness_State :: struct {
-	active:     bool,
-	channels:   [FRESHNESS_CHANNEL_CAP]Channel_Freshness,
-	checked_at: i64,
-	loaded:     bool,
+	active:          bool,
+	was_ever_active: bool,  // S92: Latched true once backend reports active=true; distinguishes SEEDING from STALE.
+	channels:        [FRESHNESS_CHANNEL_CAP]Channel_Freshness,
+	checked_at:      i64,
+	loaded:          bool,
+	channel_count:   int,  // S90: Number of channels reported by backend (0 = no data yet).
 }
 
 // S20: Data availability from GET /api/v1/timeline.
@@ -517,6 +521,7 @@ Session_Health_State :: struct {
 
 // S60: Market Explorer 2.0 — page state for venue-grouped discovery.
 EXPLORER_POLL_INTERVAL :: u64(600) // ~10s at 60fps
+EXPLORER_RETRY_INTERVAL :: u64(300) // ~5s at 60fps — faster retry on error
 
 Explorer_State :: struct {
 	// Filter.
@@ -786,6 +791,16 @@ init :: proc(
 			if v, ok := services.settings_get(&state.settings, services.SETTING_SHOW_TRADE_COUNTER); ok {
 				state.indicators.show_trade_counter = v == "1"
 			}
+			// S94: Analytics subplot toggles.
+			if v, ok := services.settings_get(&state.settings, services.SETTING_SHOW_CVD); ok {
+				state.indicators.show_cvd = v == "1"
+			}
+			if v, ok := services.settings_get(&state.settings, services.SETTING_SHOW_DELTA_VOL); ok {
+				state.indicators.show_delta_vol = v == "1"
+			}
+			if v, ok := services.settings_get(&state.settings, services.SETTING_SHOW_OI); ok {
+				state.indicators.show_oi = v == "1"
+			}
 			// Restore indicator parameters.
 			if v, ok := services.settings_get(&state.settings, services.SETTING_MA_PERIOD_0); ok {
 				state.indicators.ma_periods[0] = parse_int_clamped(v, 2, 200, 9)
@@ -899,17 +914,21 @@ init :: proc(
 		binding_set(&state.world.bindings[0], "binance", "BTCUSDT:SPOT")
 	}
 
-	// Auto-connect: if auto_connect=1 and we have an active profile with URL, reconnect.
+	// Auto-connect: reconnect if enabled and we have an active profile with URL.
 	// S20: Gate on bootstrap readiness — skip WS connect if backend reported not_ready.
+	// S89: Fresh browser (no localStorage) defaults to auto-connect ON.
+	//      Only skip if user explicitly set "0" via disconnect action.
 	if !offline {
 		backend_ready := !state.bootstrap.has_session || state.bootstrap.ready
 		auto_connect_val, _ := services.settings_get(&state.settings, services.SETTING_AUTO_CONNECT)
-		if auto_connect_val == "1" && backend_ready {
+		auto_connect_on := auto_connect_val != "0" // missing or "1" → ON
+		if auto_connect_on && backend_ready {
 			if profile := services.profile_store_active(&state.profiles); profile != nil {
 				ws_url := services.profile_ws_url(profile)
 				api_key := services.profile_api_key_ref(profile)
+				jwt_token := services.profile_jwt_token(profile)
 				if len(ws_url) > 0 && state.marketdata.reconnect_transport != nil {
-					_ = state.marketdata.reconnect_transport(ws_url, api_key)
+					_ = state.marketdata.reconnect_transport(ws_url, api_key, jwt_token)
 				}
 			}
 		}
@@ -1035,13 +1054,9 @@ runtime_probe :: proc(state: ^App_State) -> Runtime_Probe {
 	p.md_canonical_stats_frames = state.active_metrics.canonical_stats_frames
 	p.md_stats_fallback_frames = state.active_metrics.stats_fallback_frames
 	p.md_canonical_evidence_frames = state.active_metrics.canonical_evidence_frames
-	p.md_legacy_evidence_frames = state.active_metrics.legacy_evidence_frames
 	p.md_evidence_fallback_frames = state.active_metrics.evidence_fallback_frames
 	p.md_canonical_signal_frames = state.active_metrics.canonical_signal_frames
-	p.md_legacy_signal_frames = state.active_metrics.legacy_signal_frames
 	p.md_signal_fallback_frames = state.active_metrics.signal_fallback_frames
-	p.md_legacy_evidence_rejected = state.active_metrics.legacy_evidence_rejected
-	p.md_legacy_signal_rejected = state.active_metrics.legacy_signal_rejected
 	p.ui_action_drops = state.ui_action_drops
 	p.ui_actions_enqueued_total = state.ui_actions_enqueued_total
 	p.stream_switches_total = state.stream_switches_total
@@ -1231,6 +1246,10 @@ frame_time_percentiles :: proc(state: ^App_State) -> (p50, p95, p99: i64) {
 
 update :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buffer {
 	state.frame += 1
+	// S97: Reset per-frame cost probes.
+	state.telemetry.subplot_count = 0
+	state.telemetry.compare_pane_count = 0
+	state.telemetry.layer_render_count = 0
 	frame_input := dedupe_mouse_pressed_edges(state, input)
 
 	t0 := time.tick_now()
@@ -1268,6 +1287,10 @@ update :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buffe
 
 update_web :: proc(state: ^App_State, input: ports.Input_State) -> (buf: ^ui.Command_Buffer, should_render: bool) {
 	state.frame += 1
+	// S97: Reset per-frame cost probes.
+	state.telemetry.subplot_count = 0
+	state.telemetry.compare_pane_count = 0
+	state.telemetry.layer_render_count = 0
 	frame_input := dedupe_mouse_pressed_edges(state, input)
 	input_interaction := has_input_interaction(frame_input)
 

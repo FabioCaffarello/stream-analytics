@@ -1,7 +1,9 @@
 package app
 
 import "core:fmt"
+import "mr:layers"
 import "mr:ports"
+import "mr:services"
 import "mr:ui"
 
 // Compare mode rendering — side-by-side layer canvas comparison.
@@ -30,7 +32,7 @@ build_compare_mode :: proc(
 	cmp_cursor := cr.pos.x + state.text.measure(ui.FONT_SIZE_XS, cmp_label).x + 10
 
 	cmp_opts := COMPARE_WIDGET_OPTIONS
-	seg_w := f32(150)
+	seg_w := f32(200)
 	seg_rect := ui.rect_xywh(cmp_cursor, cr.pos.y, seg_w, cr.size.y)
 	seg_res := ui.segmented_control(&state.cmd_buf, seg_rect, cmp_opts[:], state.compare.widget_idx,
 		pointer, state.text.measure, ui.FONT_SIZE_XS, .Mono)
@@ -95,6 +97,67 @@ build_compare_mode :: proc(
 			tf_str, tf_color, ui.FONT_SIZE_XS, .Mono)
 		cursor_x += state.text.measure(ui.FONT_SIZE_XS, tf_str).x + 4
 
+		// S84: Per-pane analytics kind badge (clickable, cycles OI→DV→CVD→BS→OI).
+		if render_kind == .Analytics {
+			ANALYTICS_SHORT :: [4]string{"OI", "DV", "CVD", "BS"}
+			analytics_short := ANALYTICS_SHORT
+			ak := int(state.compare.analytics_kind[ci])
+			ak_label := analytics_short[ak] if ak >= 0 && ak < len(analytics_short) else "OI"
+			ak_w := state.text.measure(ui.FONT_SIZE_XS, ak_label).x + 6
+			ak_rect := ui.rect_xywh(cursor_x, header_rect.pos.y + 1, ak_w, header_h - 2)
+			ak_hov := ui.rect_contains(ak_rect, pointer.pos)
+			ak_bg := ak_hov ? ui.with_alpha(ui.COL_ACCENT_CYAN, 0.2) : ui.with_alpha(ui.COL_ACCENT_CYAN, 0.08)
+			ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = ak_rect, color = ak_bg})
+			ui.push_text(&state.cmd_buf, {cursor_x + 3, text_y},
+				ak_label, ui.COL_ACCENT_CYAN, ui.FONT_SIZE_XS, .Mono)
+			if ak_hov && pointer.left_pressed {
+				next_ak := services.Analytics_Kind((ak + 1) % 4)
+				queue_ui_action(state, UI_Action{
+					kind           = .Set_Compare_Analytics_Kind,
+					pane_idx       = ci,
+					analytics_kind = next_ak,
+				})
+			}
+			cursor_x += ak_w + 4
+		}
+
+		// S95: Per-pane subplot indicator pills (C/D/O) — only for Candle widget.
+		if render_kind == .Candle {
+			SUBPLOT_PILLS :: [3]struct{label: string, color: ui.Color}{
+				{"C", {0.3, 0.9, 0.5, 1}},   // CVD — green
+				{"D", {0.9, 0.4, 0.3, 1}},   // Delta Vol — red
+				{"O", {0.4, 0.7, 0.95, 1}},  // OI — cyan
+			}
+			subplot_pills := SUBPLOT_PILLS
+			subplot_active := [3]bool{
+				state.compare.show_cvd[ci],
+				state.compare.show_delta_vol[ci],
+				state.compare.show_oi[ci],
+			}
+			for pi in 0 ..< 3 {
+				pill := subplot_pills[pi]
+				pill_w := state.text.measure(ui.FONT_SIZE_XS, pill.label).x + 6
+				pill_rect := ui.rect_xywh(cursor_x, header_rect.pos.y + 1, pill_w, header_h - 2)
+				pill_hov := ui.rect_contains(pill_rect, pointer.pos)
+				pill_on := subplot_active[pi]
+				pill_alpha := pill_on ? f32(0.25) : f32(0.08)
+				pill_alpha = pill_hov ? pill_alpha + 0.15 : pill_alpha
+				ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = pill_rect, color = ui.with_alpha(pill.color, pill_alpha)})
+				pill_text_col := pill_on ? pill.color : ui.with_alpha(pill.color, 0.5)
+				ui.push_text(&state.cmd_buf, {cursor_x + 3, text_y},
+					pill.label, pill_text_col, ui.FONT_SIZE_XS, .Mono)
+				if pill_hov && pointer.left_pressed {
+					queue_ui_action(state, UI_Action{
+						kind        = .Toggle_Compare_Subplot,
+						pane_idx    = ci,
+						subplot_idx = pi,
+					})
+				}
+				cursor_x += pill_w + 2
+			}
+			cursor_x += 2
+		}
+
 		// S37/S53: Composition badge (shared proc).
 		cursor_x += draw_composition_badge(&state.cmd_buf, cursor_x, text_y, sv.composition, state.text.measure)
 
@@ -116,7 +179,28 @@ build_compare_mode :: proc(
 		// S37/S53: Health dot (shared proc).
 		draw_health_dot(&state.cmd_buf, cursor_x, header_rect.pos.y + header_h * 0.5, 6, sv.health_level, sv.has_live_data, sv.composition)
 
-		render_subject_layer_canvas(state, sid, render_kind, cell_rect)
+		// S84: Analytics panes route through analytics-filtered layer canvas.
+		if render_kind == .Analytics {
+			pane_ak := state.compare.analytics_kind[ci]
+			render_subject_layer_canvas_with_analytics(state, sid, .Analytics, cell_rect, pane_ak, true)
+		} else if render_kind == .Candle {
+			// S95: Route candle panes through subplot-aware renderer.
+			sf := layers.Subplot_Flags{
+				show_cvd       = state.compare.show_cvd[ci],
+				show_delta_vol = state.compare.show_delta_vol[ci],
+				show_oi        = state.compare.show_oi[ci],
+			}
+			n_subplots := layers.subplot_flags_count(sf)
+			if n_subplots > 0 {
+				render_compare_pane_with_subplots(state, sid, cell_rect, sf, n_subplots)
+			} else {
+				render_subject_layer_canvas(state, sid, .Candle, cell_rect)
+			}
+		} else {
+			render_subject_layer_canvas(state, sid, render_kind, cell_rect)
+		}
+
+		state.telemetry.compare_pane_count += 1 // S97
 
 		// S39: Focused pane border highlight.
 		if is_focused {

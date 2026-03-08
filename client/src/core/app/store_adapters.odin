@@ -4,7 +4,7 @@ import "mr:md_common"
 
 // S24: Adapter layer — bridges Stream_Apply_State → Active_Stream_Metrics.
 // S25: Extended to also sync getrange state from apply_state → GetRange_Global_State.
-// Called once per frame after drain_marketdata. Widgets read active_metrics;
+// Called once per frame after layer_marketdata. Widgets read active_metrics;
 // the apply_state is the single source of truth (S24 cutover complete).
 
 // Sync the canonical apply state into active_metrics has_live booleans,
@@ -39,7 +39,7 @@ apply_state_sync_to_getrange :: proc(state: ^App_State) {
 	state.getrange.subject_id = s.getrange_request_id
 }
 
-// S25: Combined sync — metrics + getrange. Called at end of drain_marketdata frame.
+// S25: Combined sync — metrics + getrange. Called at end of layer_marketdata frame.
 apply_state_sync_all :: proc(state: ^App_State) {
 	apply_state_sync_to_metrics(state)
 	apply_state_sync_to_getrange(state)

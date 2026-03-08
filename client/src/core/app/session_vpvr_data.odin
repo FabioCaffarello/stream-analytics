@@ -36,6 +36,9 @@ request_session_vpvr_snapshot :: proc(state: ^App_State, ci: int) {
 	}
 	if len(venue) == 0 || len(symbol) == 0 do return
 
+	// S92: Normalize symbol for backend API contract.
+	symbol = normalized_symbol(symbol)
+
 	// Fetch from backend.
 	buf: [SESSION_VPVR_BUF_CAP]u8
 	n := state.marketdata.fetch_session_volume_profile(&buf[0], SESSION_VPVR_BUF_CAP, venue, symbol, "current")

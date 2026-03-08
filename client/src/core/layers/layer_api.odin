@@ -20,6 +20,9 @@ Layer_ID :: enum u8 {
 	VPVR_Heatmap,
 	Evidence,
 	Signal,
+	Analytics,
+	Stats_Panel,
+	Trade_Counter,
 }
 
 Layer_Bundle :: enum u32 {
@@ -30,15 +33,19 @@ Layer_Bundle :: enum u32 {
 	VPVR_Heatmap    = 1 << 3,
 	Evidence        = 1 << 4,
 	Signal          = 1 << 5,
+	Analytics       = 1 << 6,
+	Stats_Panel     = 1 << 7,
+	Trade_Counter   = 1 << 8,
 
-	Bundle_Candles  = (1 << 0) | (1 << 3) | (1 << 4) | (1 << 5),
+	Bundle_Candles  = (1 << 0) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6),
 	Bundle_Trades   = (1 << 1) | (1 << 4) | (1 << 5),
 	Bundle_Orderbook = (1 << 2) | (1 << 4) | (1 << 5),
 	Bundle_DOM      = (1 << 2) | (1 << 1) | (1 << 4) | (1 << 5),
 	Bundle_Heatmap  = (1 << 3) | (1 << 4) | (1 << 5),
 	Bundle_VPVR     = (1 << 3) | (1 << 4) | (1 << 5),
-	Bundle_Stats    = (1 << 0) | (1 << 5),
-	Bundle_Counter  = (1 << 1) | (1 << 5),
+	Bundle_Stats    = (1 << 7) | (1 << 5),             // S87: Stats_Panel + Signal (was Price_Candles)
+	Bundle_Counter  = (1 << 8) | (1 << 5),             // S87: Trade_Counter + Signal (was Trades_Tape)
+	Bundle_Analytics = (1 << 6) | (1 << 4) | (1 << 5),
 	Bundle_Empty    = 0,
 }
 
@@ -50,6 +57,9 @@ layer_mask_for_id :: proc(id: Layer_ID) -> u32 {
 	case .VPVR_Heatmap: return u32(Layer_Bundle.VPVR_Heatmap)
 	case .Evidence: return u32(Layer_Bundle.Evidence)
 	case .Signal: return u32(Layer_Bundle.Signal)
+	case .Analytics: return u32(Layer_Bundle.Analytics)
+	case .Stats_Panel: return u32(Layer_Bundle.Stats_Panel)
+	case .Trade_Counter: return u32(Layer_Bundle.Trade_Counter)
 	}
 	return 0
 }
@@ -63,6 +73,7 @@ Layer_Capabilities :: struct {
 	has_candles:   bool,
 	has_evidence:  bool,
 	has_signal:    bool,
+	has_analytics: bool,
 }
 
 Layer_Widget_State :: enum u8 {
@@ -71,6 +82,22 @@ Layer_Widget_State :: enum u8 {
 	Stale,
 	Degraded,
 	Empty,
+}
+
+// S94: Subplot visibility flags — controls which analytics subplots
+// render below the main candle chart. Set from per-cell Indicator_Component.
+Subplot_Flags :: struct {
+	show_cvd:       bool,
+	show_delta_vol: bool,
+	show_oi:        bool,
+}
+
+subplot_flags_count :: proc(flags: Subplot_Flags) -> int {
+	n := 0
+	if flags.show_cvd do n += 1
+	if flags.show_delta_vol do n += 1
+	if flags.show_oi do n += 1
+	return n
 }
 
 // Read-only context for layer render hooks.
@@ -84,6 +111,10 @@ Layer_Context :: struct {
 	text:         ports.Text_Port,
 	capabilities: Layer_Capabilities,
 	signal_evidence_link_enabled: bool,
+	analytics_kind:  services.Analytics_Kind,   // filter: which analytics kind to render (for Analytics cells)
+	analytics_filter: bool,                      // true = render only analytics_kind; false = render all
+	active_bundle: u32,                          // S86: requested bundle mask — lets render functions conditionally skip irrelevant output
+	subplot_flags: Subplot_Flags,               // S94: which analytics subplots are active on this candle cell
 }
 
 Layer_Diagnostics :: struct {
@@ -136,6 +167,7 @@ layer_capabilities_from_stream :: proc(stream: ^Market_Stream) -> Layer_Capabili
 		has_candles   = stream.candles.count > 0,
 		has_evidence  = stream.evidence_count > 0,
 		has_signal    = stream.signals.kind_count > 0,
+		has_analytics = stream.analytics.count > 0,
 	}
 }
 
@@ -171,10 +203,13 @@ layer_z_order_for_id :: proc(id: Layer_ID) -> int {
 	switch id {
 	case .VPVR_Heatmap: return 10
 	case .Price_Candles: return 20
+	case .Stats_Panel: return 22    // S87: between candles and analytics
+	case .Trade_Counter: return 23  // S87: between candles and analytics
 	case .OrderBook_DOM: return 30
 	case .Trades_Tape: return 40
 	case .Evidence: return 50
 	case .Signal: return 60
+	case .Analytics: return 25
 	}
 	return 100
 }

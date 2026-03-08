@@ -178,3 +178,48 @@ market_store_reduce_signal :: proc(stream: ^Market_Stream, evt: ^ports.MD_Event,
 		seq             = evt.source.seq,
 	})
 }
+
+market_store_reduce_analytics :: proc(stream: ^Market_Stream, evt: ^ports.MD_Event) {
+	if stream == nil || evt == nil do return
+	entry: services.Analytics_Entry
+	entry.ts_ms = evt.unix
+	entry.seq = evt.source.seq
+	#partial switch evt.kind {
+	case .Open_Interest:
+		entry.kind = .Open_Interest
+		entry.values[0] = evt.data.open_interest.open_interest
+		entry.values[1] = evt.data.open_interest.delta
+		entry.values[2] = evt.data.open_interest.delta_pct
+		entry.window_start_ms = evt.data.open_interest.window_start_ts
+		entry.window_end_ms = evt.data.open_interest.window_end_ts
+	case .Delta_Volume:
+		entry.kind = .Delta_Volume
+		entry.values[0] = evt.data.delta_volume.buy_volume
+		entry.values[1] = evt.data.delta_volume.sell_volume
+		entry.values[2] = evt.data.delta_volume.delta_volume
+		entry.window_start_ms = evt.data.delta_volume.window_start_ts
+		entry.window_end_ms = evt.data.delta_volume.window_end_ts
+	case .CVD:
+		entry.kind = .CVD
+		entry.values[0] = evt.data.cvd.delta_volume
+		entry.values[1] = evt.data.cvd.cvd
+		entry.window_start_ms = evt.data.cvd.window_start_ts
+		entry.window_end_ms = evt.data.cvd.window_end_ts
+	case .Bar_Stats:
+		entry.kind = .Bar_Stats
+		entry.values[0] = f64(evt.data.bar_stats.trade_count)
+		entry.values[1] = f64(evt.data.bar_stats.buy_count)
+		entry.values[2] = f64(evt.data.bar_stats.sell_count)
+		entry.values[3] = evt.data.bar_stats.total_volume
+		entry.values[4] = evt.data.bar_stats.buy_volume
+		entry.values[5] = evt.data.bar_stats.sell_volume
+		entry.values[6] = evt.data.bar_stats.vwap_price
+		entry.values[7] = evt.data.bar_stats.imbalance
+		if evt.data.bar_stats.is_burst do entry.flags = 1
+		entry.window_start_ms = evt.data.bar_stats.window_start_ts
+		entry.window_end_ms = evt.data.bar_stats.window_end_ts
+	case:
+		return
+	}
+	services.push_analytics(&stream.analytics, entry)
+}

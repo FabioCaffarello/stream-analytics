@@ -69,6 +69,7 @@ Market_Stream :: struct {
 	vpvr:             services.VPVR_Store,
 	candles:          services.Candle_Store,
 	signals:          services.Signal_Store,
+	analytics:        services.Analytics_Store,
 	evidence:         [EVIDENCE_RING_CAP]Evidence_Entry,
 	evidence_head:    int,
 	evidence_count:   int,
@@ -273,8 +274,8 @@ market_store_apply_event :: proc(store: ^Market_Store, evt: ^ports.MD_Event) -> 
 		market_store_reduce_evidence(stream, evt, subject_id)
 	case .Signal:
 		market_store_reduce_signal(stream, evt, subject_id)
-	// S47: Analytics events — no market-store reduction needed; handled via analytics_store.
 	case .Open_Interest, .Delta_Volume, .CVD, .Bar_Stats:
+		market_store_reduce_analytics(stream, evt)
 	// S49: Session profiles — handled via dedicated stores, not market_store.
 	case .Session_Volume_Profile, .TPO_Profile:
 	}

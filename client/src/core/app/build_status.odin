@@ -186,6 +186,15 @@ refresh_telemetry_hud_cache :: proc(state: ^App_State) {
 			agg.total_stale, agg.total_aging,
 		))
 	}
+
+	// S97: Frame cost probes — subplot, compare pane, and layer render counts.
+	state.telemetry.hud_cache.cost_len = len(fmt.bprintf(
+		state.telemetry.hud_cache.cost_buf[:],
+		"SUB:%d CMP:%d LYR:%d",
+		state.telemetry.subplot_count,
+		state.telemetry.compare_pane_count,
+		state.telemetry.layer_render_count,
+	))
 }
 
 // S28: Resolve active TF in ms for staleness thresholds.
@@ -306,7 +315,14 @@ active_stream_reason_short :: proc(state: ^App_State) -> string {
 	if active := streams.registry_active(&state.stream_registry); active != nil {
 		snapshot_ts_ms = active.status.last_snapshot_ts_ms
 	}
-	if snapshot_ts_ms <= 0 do return "snapshot pending"
+	// S90: Distinguish "awaiting first snapshot" from "snapshot pending" based on composition.
+	if snapshot_ts_ms <= 0 {
+		comp := md_common.apply_state_composition_stage(state.active_apply_state)
+		if comp == .Live_Only {
+			return "seeding (no history)"
+		}
+		return "snapshot pending"
+	}
 	// S36: Read from canonical apply_state.
 	if state.active_apply_state.last_recv_ms[.Stats] <= 0 do return "stats pending"
 	if state.active_metrics.state == .Lag do return "lagging"
@@ -327,7 +343,7 @@ stats_wait_message :: proc(
 		return desync_wait_message(desync_reason)
 	case .Lag, .Live:
 		if subscribe_acks <= 0 do return "Waiting ACK (stats)..."
-		if stats_last_ts_ms <= 0 do return "LIVE (no data): stats pending"
+		if stats_last_ts_ms <= 0 do return "Awaiting stats..."
 		if stream_state == .Lag do return "LAG (stats delayed)..."
 	}
 	return "Waiting for stats..."
@@ -348,8 +364,8 @@ orderbook_wait_message :: proc(
 		return desync_wait_message(desync_reason)
 	case .Lag, .Live:
 		if subscribe_acks <= 0 do return "Waiting ACK (orderbook)..."
-		if snapshot_ts_ms <= 0 do return "LIVE (no data): snapshot pending"
-		if orderbook_last_ts_ms <= 0 do return "LIVE (no data): orderbook pending"
+		if snapshot_ts_ms <= 0 do return "Awaiting snapshot..."
+		if orderbook_last_ts_ms <= 0 do return "Awaiting orderbook..."
 		if stream_state == .Lag do return "LAG (orderbook delayed)..."
 	}
 	return "Waiting for orderbook..."
@@ -517,16 +533,6 @@ build_health_panel :: proc(state: ^App_State, viewport_w, viewport_h: f32, point
 	ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, pf_str, ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS, .Mono)
 	y += ROW_H + SECTION_GAP
 
-	if state.active_metrics.transport_mode != 0 || state.active_metrics.legacy_downgrade_count > 0 {
-		legacy_buf: [128]u8
-		legacy_str := fmt.bprintf(
-			legacy_buf[:],
-			"LEGACY fallback detected (downgrade:%d) - regression: report and rollback release",
-			max(state.active_metrics.legacy_downgrade_count, 0),
-		)
-		ui.push_text(&state.cmd_buf, {lx, y + ROW_H - 2}, legacy_str, ui.COL_WARNING, ui.FONT_SIZE_XS, .Mono)
-		y += ROW_H + SECTION_GAP
-	}
 	if state.active_metrics.assist_enabled {
 		assist_reason := "auto"
 		if state.active_metrics.assist_reason_len > 0 {
@@ -1080,6 +1086,9 @@ copy_diagnostics_to_clipboard :: proc(state: ^App_State) {
 		case .VPVR_Heatmap: layer_name = "VPVR/Heatmap"
 		case .Evidence: layer_name = "Evidence"
 		case .Signal: layer_name = "Signal"
+		case .Analytics: layer_name = "Analytics"
+		case .Stats_Panel: layer_name = "Stats Panel"
+		case .Trade_Counter: layer_name = "Trade Counter"
 		}
 		lstate := diag.enabled ? "on" : "off"
 		data_state := diag.has_data ? "data" : "empty"
@@ -1337,15 +1346,6 @@ copy_diagnostics_to_clipboard :: proc(state: ^App_State) {
 	p5_len := len(fmt.bprintf(p5[:], "  rtt=%dms lag=%dms pong_rtt=%dms reconnects=%d",
 		max(am.rtt_ms, 0), max(am.lag_ms, 0), max(am.pong_rtt_ms, 0), max(am.reconnect_count, 0)))
 	append_line(buf[:], &n, p5[:], p5_len)
-	if am.transport_mode != 0 || am.legacy_downgrade_count > 0 {
-		p6: [160]u8
-		p6_len := len(fmt.bprintf(
-			p6[:],
-			"  recommendation: legacy fallback is disabled by policy; investigate + rollback if downgrades=%d",
-			max(am.legacy_downgrade_count, 0),
-		))
-		append_line(buf[:], &n, p6[:], p6_len)
-	}
 	if am.assist_enabled {
 		assist_reason := "auto"
 		if am.assist_reason_len > 0 {
@@ -1696,6 +1696,13 @@ draw_status_bar :: proc(state: ^App_State, viewport_w, viewport_h: f32, pointer:
 		if len(agg_str) > 0 {
 			ui.push_text(&state.cmd_buf, {sx, sy}, agg_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
 			sx += state.text.measure(ui.FONT_SIZE_XS, agg_str).x + 8
+		}
+
+		// S97: Frame cost probes.
+		cost_str := cache_string(state.telemetry.hud_cache.cost_buf[:], state.telemetry.hud_cache.cost_len)
+		if len(cost_str) > 0 {
+			ui.push_text(&state.cmd_buf, {sx, sy}, cost_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+			sx += state.text.measure(ui.FONT_SIZE_XS, cost_str).x + 8
 		}
 	}
 

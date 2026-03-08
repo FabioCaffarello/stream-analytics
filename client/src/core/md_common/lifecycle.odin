@@ -17,7 +17,7 @@ Bootstrap_Lifecycle :: enum u8 {
 }
 
 // Pure derivation: computes lifecycle from current observable state.
-// Called once per frame at the end of drain_marketdata.
+// Called once per frame at the end of layer_marketdata.
 derive_lifecycle :: proc(
 	has_session: bool,
 	session_ready: bool,

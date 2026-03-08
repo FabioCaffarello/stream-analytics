@@ -99,6 +99,15 @@ channel_to_stream_type :: proc(channel: ports.MD_Channel) -> string {
 		return "signal"
 	case .Tape:
 		return "aggregation.tape"
+	// S98: Analytics subscription channels.
+	case .Analytics_CVD:
+		return "aggregation.cvd"
+	case .Analytics_Delta_Volume:
+		return "aggregation.delta_volume"
+	case .Analytics_OI:
+		return "aggregation.oi"
+	case .Analytics_Bar_Stats:
+		return "aggregation.bar_stats"
 	}
 	return ""
 }
@@ -113,6 +122,10 @@ timeframe_for_channel :: proc(channel: ports.MD_Channel, timeframe: string) -> s
 		return "1m"
 	case .Trades, .Orderbook, .Evidence:
 		return "raw"
+	// S98: Analytics channels are TF-aware (same cadence as candles).
+	case .Analytics_CVD, .Analytics_Delta_Volume, .Analytics_OI, .Analytics_Bar_Stats:
+		if len(timeframe) > 0 do return timeframe
+		return "1m"
 	}
 	return ""
 }

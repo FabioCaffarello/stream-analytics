@@ -414,10 +414,8 @@ Parse_Telemetry :: struct {
 	canonical_stats_frames: int,
 	stats_fallback_frames:  int,
 	canonical_evidence_frames: int,
-	legacy_evidence_frames:    int,
 	evidence_fallback_frames:  int,
 	canonical_signal_frames:   int,
-	legacy_signal_frames:      int,
 	signal_fallback_frames:    int,
 }
 
@@ -664,15 +662,9 @@ parse_mr_message :: proc(raw: []u8, telemetry: ^Parse_Telemetry) -> Parse_Result
 			telemetry.parse_errors += 1
 		}
 	case "insights.microstructure_evidence":
-		if telemetry != nil {
-			telemetry.legacy_evidence_frames += 1
-		}
 		return result
 	case "signal", "signal.event":
 		if legacySignalSubject {
-			if telemetry != nil {
-				telemetry.legacy_signal_frames += 1
-			}
 			return result
 		}
 		if r, ok, _, used_fallback := parse_signal(raw, result.meta.server_ts_ms, subject_id); ok {

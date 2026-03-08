@@ -24,6 +24,9 @@ layer_registry_init :: proc(reg: ^Layer_Registry, store: ^Market_Store) {
 	layer_registry_register(reg, vpvr_heatmap_layer_strategy(), true)
 	layer_registry_register(reg, evidence_layer_strategy(), true)
 	layer_registry_register(reg, signal_layer_strategy(), true)
+	layer_registry_register(reg, analytics_layer_strategy(), true)
+	layer_registry_register(reg, stats_panel_layer_strategy(), true)
+	layer_registry_register(reg, trade_counter_layer_strategy(), true)
 
 	for i in 0 ..< reg.count {
 		if reg.entries[i].strategy.init != nil {
@@ -61,6 +64,12 @@ layer_budget_us :: proc(id: Layer_ID) -> i64 {
 		return 1500
 	case .VPVR_Heatmap:
 		return 1500
+	case .Analytics:
+		return 800
+	case .Stats_Panel:
+		return 600
+	case .Trade_Counter:
+		return 600
 	}
 	return 0
 }
@@ -109,6 +118,9 @@ layer_setting_key_for_id :: proc(id: Layer_ID) -> string {
 	case .VPVR_Heatmap: return SETTING_LAYER_VPVR_HEATMAP
 	case .Evidence: return SETTING_LAYER_EVIDENCE
 	case .Signal: return SETTING_LAYER_SIGNAL
+	case .Analytics: return SETTING_LAYER_ANALYTICS
+	case .Stats_Panel: return SETTING_LAYER_STATS_PANEL
+	case .Trade_Counter: return SETTING_LAYER_TRADE_COUNTER
 	}
 	return ""
 }

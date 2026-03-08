@@ -4,14 +4,17 @@ import "core:time"
 import "mr:ports"
 import "mr:services"
 
-LAYER_REGISTRY_CAP :: 8
+LAYER_REGISTRY_CAP :: 10
 
-SETTING_LAYER_PRICE_CANDLES :: "layer_price_candles"
-SETTING_LAYER_TRADES_TAPE   :: "layer_trades_tape"
-SETTING_LAYER_ORDERBOOK_DOM :: "layer_orderbook_dom"
-SETTING_LAYER_VPVR_HEATMAP  :: "layer_vpvr_heatmap"
-SETTING_LAYER_EVIDENCE      :: "layer_evidence"
-SETTING_LAYER_SIGNAL        :: "layer_signal"
+SETTING_LAYER_PRICE_CANDLES  :: "layer_price_candles"
+SETTING_LAYER_TRADES_TAPE    :: "layer_trades_tape"
+SETTING_LAYER_ORDERBOOK_DOM  :: "layer_orderbook_dom"
+SETTING_LAYER_VPVR_HEATMAP   :: "layer_vpvr_heatmap"
+SETTING_LAYER_EVIDENCE       :: "layer_evidence"
+SETTING_LAYER_SIGNAL         :: "layer_signal"
+SETTING_LAYER_ANALYTICS      :: "layer_analytics"
+SETTING_LAYER_STATS_PANEL    :: "layer_stats_panel"
+SETTING_LAYER_TRADE_COUNTER  :: "layer_trade_counter"
 
 Layer_Entry :: struct {
 	strategy:           Layer_Strategy,

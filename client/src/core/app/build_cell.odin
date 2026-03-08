@@ -190,12 +190,13 @@ render_cell_widget :: proc(
 		color = ui.COL_DIVIDER, thickness = 1,
 	})
 
-	// S61: Widget dispatch passes pre-resolved stores from view model.
-	// Analytics and session-profile widgets no longer call resolve_stores_for_cell themselves.
-	if vm.widget_kind == .Analytics {
-		render_analytics_cell_vm(&state.cmd_buf, vm, cell_vp)
-	} else if vm.widget_kind == .Session_VPVR || vm.widget_kind == .TPO {
+	// S9: All widget kinds route through the canonical layer pipeline.
+	// Analytics cells pass analytics_kind filter via Layer_Context.
+	// Session profile widgets still use dedicated render (no layer strategy yet).
+	if vm.widget_kind == .Session_VPVR || vm.widget_kind == .TPO {
 		render_session_profile_cell_vm(&state.cmd_buf, vm, cell_vp)
+	} else if vm.widget_kind == .Analytics {
+		render_cell_layer_canvas_analytics(state, ci, cell_vp, vm.analytics_kind)
 	} else {
 		render_cell_layer_canvas(state, ci, vm.widget_kind, cell_vp)
 	}

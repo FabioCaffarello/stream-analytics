@@ -109,7 +109,7 @@ stream_view_cycle_active :: proc(reg: ^Stream_View_Registry, forward: bool) -> b
 
 // Dual store contract:
 // - Per-slot stores (Stream_View_Slot.{candle,trades,...}_store) hold data per subject_id.
-//   Data is always written here first in drain_marketdata.
+//   Data is always written here first in layer_marketdata.
 // - Global stores (App_State.{candle,trades,...}_store) mirror the ACTIVE stream's slot stores.
 //   They are synced via this proc when the active stream changes (Tab, Pick_Stream, etc.).
 // - Cells following active use global stores; bound cells resolve via resolve_stores_for_cell.
@@ -140,7 +140,7 @@ sync_active_stream_view_to_global_stores :: proc(state: ^App_State) {
 }
 
 // Eagerly compute and set active_candle_subject_id from the current active stream + global TF.
-// Must be called on every stream switch and TF change so the candle TF guard in drain_marketdata
+// Must be called on every stream switch and TF change so the candle TF guard in layer_marketdata
 // is never stale. This prevents candles from wrong TFs polluting the global store.
 ensure_active_candle_subject_id :: proc(state: ^App_State) {
 	sv := state.stream_views

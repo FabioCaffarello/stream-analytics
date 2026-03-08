@@ -23,6 +23,7 @@
   },
   "homepage": "https://github.com/FabioCaffarello/market-raccoon#readme",
   "devDependencies": {
+    "@playwright/mcp": "^0.0.68",
     "@playwright/test": "^1.58.2"
   }
 }

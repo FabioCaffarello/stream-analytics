@@ -577,13 +577,6 @@ probe_md_transport_mode :: proc "c" () -> i32 {
 }
 
 @(export)
-probe_md_legacy_downgrade_count :: proc "c" () -> i32 {
-	context = runtime.default_context()
-	p := app.runtime_probe(&g_state)
-	return i32(p.md_metrics.legacy_downgrade_count)
-}
-
-@(export)
 probe_md_alloc_estimate_total :: proc "c" () -> i32 {
 	context = runtime.default_context()
 	p := app.runtime_probe(&g_state)
@@ -703,13 +696,6 @@ probe_md_canonical_evidence_frames :: proc "c" () -> i32 {
 }
 
 @(export)
-probe_md_legacy_evidence_frames :: proc "c" () -> i32 {
-	context = runtime.default_context()
-	p := app.runtime_probe(&g_state)
-	return i32(p.md_legacy_evidence_frames)
-}
-
-@(export)
 probe_md_evidence_fallback_frames :: proc "c" () -> i32 {
 	context = runtime.default_context()
 	p := app.runtime_probe(&g_state)
@@ -724,31 +710,10 @@ probe_md_canonical_signal_frames :: proc "c" () -> i32 {
 }
 
 @(export)
-probe_md_legacy_signal_frames :: proc "c" () -> i32 {
-	context = runtime.default_context()
-	p := app.runtime_probe(&g_state)
-	return i32(p.md_legacy_signal_frames)
-}
-
-@(export)
 probe_md_signal_fallback_frames :: proc "c" () -> i32 {
 	context = runtime.default_context()
 	p := app.runtime_probe(&g_state)
 	return i32(p.md_signal_fallback_frames)
-}
-
-@(export)
-probe_md_legacy_evidence_rejected :: proc "c" () -> i32 {
-	context = runtime.default_context()
-	p := app.runtime_probe(&g_state)
-	return i32(p.md_legacy_evidence_rejected)
-}
-
-@(export)
-probe_md_legacy_signal_rejected :: proc "c" () -> i32 {
-	context = runtime.default_context()
-	p := app.runtime_probe(&g_state)
-	return i32(p.md_legacy_signal_rejected)
 }
 
 @(export)

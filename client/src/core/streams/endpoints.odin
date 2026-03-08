@@ -14,7 +14,7 @@ Endpoint_ID :: enum u8 {
 }
 
 Endpoint_Capabilities :: struct {
-	channel_mask: u8,
+	channel_mask: u16,  // S98: widened from u8 to accommodate analytics channels (13 total)
 }
 
 Stream_Endpoint :: struct {
@@ -24,15 +24,20 @@ Stream_Endpoint :: struct {
 }
 
 @(private = "file")
-ENDPOINT_ALL_CHANNELS :: u8(
-	(1 << u8(ports.MD_Channel.Trades)) |
-	(1 << u8(ports.MD_Channel.Orderbook)) |
-	(1 << u8(ports.MD_Channel.Stats)) |
-	(1 << u8(ports.MD_Channel.Heatmaps)) |
-	(1 << u8(ports.MD_Channel.VPVR)) |
-	(1 << u8(ports.MD_Channel.Candles)) |
-	(1 << u8(ports.MD_Channel.Evidence)) |
-	(1 << u8(ports.MD_Channel.Signals))
+ENDPOINT_ALL_CHANNELS :: u16(
+	(1 << u16(ports.MD_Channel.Trades)) |
+	(1 << u16(ports.MD_Channel.Orderbook)) |
+	(1 << u16(ports.MD_Channel.Stats)) |
+	(1 << u16(ports.MD_Channel.Heatmaps)) |
+	(1 << u16(ports.MD_Channel.VPVR)) |
+	(1 << u16(ports.MD_Channel.Candles)) |
+	(1 << u16(ports.MD_Channel.Evidence)) |
+	(1 << u16(ports.MD_Channel.Signals)) |
+	// S98: Analytics subscription channels.
+	(1 << u16(ports.MD_Channel.Analytics_CVD)) |
+	(1 << u16(ports.MD_Channel.Analytics_Delta_Volume)) |
+	(1 << u16(ports.MD_Channel.Analytics_OI)) |
+	(1 << u16(ports.MD_Channel.Analytics_Bar_Stats))
 )
 
 endpoint_normalize_venue :: proc(v: string) -> string {
@@ -66,7 +71,7 @@ endpoint_for_venue :: proc(venue: string) -> Stream_Endpoint {
 }
 
 endpoint_supports_channel :: proc(endpoint: Stream_Endpoint, channel: ports.MD_Channel) -> bool {
-	mask := u8(1 << u8(channel))
+	mask := u16(1 << u16(channel))
 	return (endpoint.capabilities.channel_mask & mask) != 0
 }
 

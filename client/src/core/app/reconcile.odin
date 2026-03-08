@@ -17,7 +17,7 @@ import "mr:util"
 // S62: Direct Widget_Kind → channels mapping replaces legacy route tag indirection.
 // ===============================================================
 
-CHANNEL_COUNT :: 9
+CHANNEL_COUNT :: 13  // S98: 9 base + 4 analytics channels
 
 // Wanted subscription: venue + symbol + channel bitmask + TF for TF-sensitive channels.
 Sub_Want :: struct {
@@ -47,7 +47,12 @@ CH_TF_SENSITIVE :: u16(1 << u16(ports.MD_Channel.Candles)) |
                    u16(1 << u16(ports.MD_Channel.Heatmaps)) |
                    u16(1 << u16(ports.MD_Channel.VPVR)) |
                    u16(1 << u16(ports.MD_Channel.Signals)) |
-                   u16(1 << u16(ports.MD_Channel.Tape))
+                   u16(1 << u16(ports.MD_Channel.Tape)) |
+                   // S98: Analytics channels are TF-sensitive (same cadence as candles).
+                   u16(1 << u16(ports.MD_Channel.Analytics_CVD)) |
+                   u16(1 << u16(ports.MD_Channel.Analytics_Delta_Volume)) |
+                   u16(1 << u16(ports.MD_Channel.Analytics_OI)) |
+                   u16(1 << u16(ports.MD_Channel.Analytics_Bar_Stats))
 
 @(private = "file")
 sanitize_market_field :: proc(s: string) -> string {

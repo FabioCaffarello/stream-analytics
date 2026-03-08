@@ -155,11 +155,12 @@ copy_str_to_buf :: proc(buf: []u8, len_out: ^u8, s: string) {
 	len_out^ = u8(n)
 }
 
+// S89: HTTP endpoint is independent of WS — don't gate on connection status.
 @(private = "package")
 poll_explorer :: proc(state: ^App_State) {
 	if state.chrome.active_route != .Markets do return
-	if current_conn_status(state) != .Connected do return
-	if state.frame % EXPLORER_POLL_INTERVAL != 0 && state.explorer.fetch_status != .Idle do return
+	interval := state.explorer.fetch_status == .Error ? EXPLORER_RETRY_INTERVAL : EXPLORER_POLL_INTERVAL
+	if state.frame % interval != 0 && state.explorer.fetch_status != .Idle do return
 	fetch_explorer_dashboard(state)
 }
 

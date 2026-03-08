@@ -108,6 +108,16 @@ MD_Web_State :: struct {
 	signal_ring_write:    int,
 	signal_ring_count:    int,
 
+	// S98: Analytics staging (latest-wins per kind).
+	oi_staging:            services.Parsed_Open_Interest,
+	oi_dirty:              bool,
+	delta_vol_staging:     services.Parsed_Delta_Volume,
+	delta_vol_dirty:       bool,
+	cvd_staging:           services.Parsed_CVD,
+	cvd_dirty:             bool,
+	bar_stats_staging:     services.Parsed_Bar_Stats,
+	bar_stats_dirty:       bool,
+
 	// Candle timeframe filter (mutable, heap-allocated).
 	candle_tf_filter: string,
 
@@ -429,6 +439,11 @@ make_marketdata_web :: proc(url: string, api_key: string = "", connect: bool = t
 		fetch_timeline  = web_fetch_timeline,
 		fetch_instrument_overview = web_fetch_instrument_overview,
 		fetch_session_dashboard  = web_fetch_session_dashboard,
+		fetch_analytics_cvd          = web_fetch_analytics_cvd,
+		fetch_analytics_delta_volume = web_fetch_analytics_delta_volume,
+		fetch_analytics_bar_stats    = web_fetch_analytics_bar_stats,
+		fetch_analytics_oi           = web_fetch_analytics_oi,
+		fetch_session_volume_profile = web_fetch_session_volume_profile,
 	}
 }
 
@@ -724,6 +739,11 @@ web_metrics :: proc(out: ^ports.MD_Runtime_Metrics) -> bool {
 	if state.vpvr_dirty do latest_pending += 1
 	if state.candle_ring_count > 0 do latest_pending += 1
 	if state.signal_ring_count > 0 do latest_pending += 1
+	// S98: Analytics pending.
+	if state.oi_dirty do latest_pending += 1
+	if state.delta_vol_dirty do latest_pending += 1
+	if state.cvd_dirty do latest_pending += 1
+	if state.bar_stats_dirty do latest_pending += 1
 	sm := state.server_metrics
 	out^ = ports.MD_Runtime_Metrics{
 		active_subs       = state.active_count,
@@ -808,21 +828,14 @@ web_metrics :: proc(out: ^ports.MD_Runtime_Metrics) -> bool {
 			canonical_stats_frames       = state.canonical_stats_frames,
 			stats_fallback_frames        = state.stats_fallback_frames,
 			canonical_evidence_frames    = state.canonical_evidence_frames,
-			legacy_evidence_frames       = state.legacy_evidence_frames,
 		evidence_fallback_frames     = state.evidence_fallback_frames,
 		canonical_signal_frames      = state.canonical_signal_frames,
-		legacy_signal_frames         = state.legacy_signal_frames,
 		signal_fallback_frames       = state.signal_fallback_frames,
-		legacy_evidence_rejected     = state.legacy_evidence_rejected,
-		legacy_signal_rejected       = state.legacy_signal_rejected,
 		// Integrity counters.
 		snapshot_hash_mismatches     = state.snapshot_hash_mismatches,
 		snapshot_seq_violations      = state.snapshot_seq_violations,
 		prev_seq_violations          = state.prev_seq_violations,
 		hash_validation_skipped      = state.hash_validation_skipped,
-		// Legacy tracking.
-		legacy_downgrade_count       = state.legacy_downgrade_count,
-		legacy_connected_since_ms    = state.legacy_connected_since_ms,
 	}
 	ra_n := min(int(sm.recommended_action_len), len(out.server_recommended_action))
 	for i in 0 ..< ra_n {
@@ -1325,6 +1338,11 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 	if state.vpvr_dirty    do non_trade_pending += 1
 	non_trade_pending += min(state.candle_ring_count, WEB_CANDLE_RING_CAP)
 	non_trade_pending += min(state.signal_ring_count, WEB_SIGNAL_RING_CAP)
+	// S98: Account for analytics staging slots.
+	if state.oi_dirty        do non_trade_pending += 1
+	if state.delta_vol_dirty do non_trade_pending += 1
+	if state.cvd_dirty       do non_trade_pending += 1
+	if state.bar_stats_dirty do non_trade_pending += 1
 	trade_emit_limit := len(events_buf) - non_trade_pending
 	if trade_emit_limit < 0 do trade_emit_limit = 0
 
@@ -1542,6 +1560,85 @@ web_poll :: proc(events_buf: []ports.MD_Event) -> int {
 		sig := state.signal_ring[oldest]
 		web_fill_signal_event(&events_buf[out], sig)
 		state.signal_ring_count -= 1
+		out += 1
+	}
+
+	// S98: Emit analytics staging events.
+	if state.oi_dirty && out < len(events_buf) {
+		oi := state.oi_staging
+		events_buf[out].source.subject_id = oi.subject_id
+		events_buf[out].source.channel = .Analytics_OI
+		events_buf[out].source.seq = oi.seq
+		events_buf[out].kind = .Open_Interest
+		events_buf[out].unix = oi.unix
+		events_buf[out].data.open_interest = ports.MD_Open_Interest_Event{
+			open_interest   = oi.open_interest,
+			delta           = oi.delta,
+			delta_pct       = oi.delta_pct,
+			window_start_ts = oi.window_start_ts,
+			window_end_ts   = oi.window_end_ts,
+			unix            = oi.unix,
+		}
+		state.oi_dirty = false
+		out += 1
+	}
+	if state.delta_vol_dirty && out < len(events_buf) {
+		dv := state.delta_vol_staging
+		events_buf[out].source.subject_id = dv.subject_id
+		events_buf[out].source.channel = .Analytics_Delta_Volume
+		events_buf[out].source.seq = dv.seq
+		events_buf[out].kind = .Delta_Volume
+		events_buf[out].unix = dv.unix
+		events_buf[out].data.delta_volume = ports.MD_Delta_Volume_Event{
+			buy_volume      = dv.buy_volume,
+			sell_volume     = dv.sell_volume,
+			delta_volume    = dv.delta_volume,
+			window_start_ts = dv.window_start_ts,
+			window_end_ts   = dv.window_end_ts,
+			unix            = dv.unix,
+		}
+		state.delta_vol_dirty = false
+		out += 1
+	}
+	if state.cvd_dirty && out < len(events_buf) {
+		cv := state.cvd_staging
+		events_buf[out].source.subject_id = cv.subject_id
+		events_buf[out].source.channel = .Analytics_CVD
+		events_buf[out].source.seq = cv.seq
+		events_buf[out].kind = .CVD
+		events_buf[out].unix = cv.unix
+		events_buf[out].data.cvd = ports.MD_CVD_Event{
+			delta_volume    = cv.delta_volume,
+			cvd             = cv.cvd,
+			window_start_ts = cv.window_start_ts,
+			window_end_ts   = cv.window_end_ts,
+			unix            = cv.unix,
+		}
+		state.cvd_dirty = false
+		out += 1
+	}
+	if state.bar_stats_dirty && out < len(events_buf) {
+		bs := state.bar_stats_staging
+		events_buf[out].source.subject_id = bs.subject_id
+		events_buf[out].source.channel = .Analytics_Bar_Stats
+		events_buf[out].source.seq = bs.seq
+		events_buf[out].kind = .Bar_Stats
+		events_buf[out].unix = bs.unix
+		events_buf[out].data.bar_stats = ports.MD_Bar_Stats_Event{
+			trade_count     = bs.trade_count,
+			buy_count       = bs.buy_count,
+			sell_count       = bs.sell_count,
+			total_volume    = bs.total_volume,
+			buy_volume      = bs.buy_volume,
+			sell_volume     = bs.sell_volume,
+			vwap_price      = bs.vwap_price,
+			imbalance       = bs.imbalance,
+			is_burst        = bs.is_burst,
+			window_start_ts = bs.window_start_ts,
+			window_end_ts   = bs.window_end_ts,
+			unix            = bs.unix,
+		}
+		state.bar_stats_dirty = false
 		out += 1
 	}
 
@@ -1817,10 +1914,8 @@ web_apply_parse_result :: proc(state: ^MD_Web_State, raw: []u8) {
 	state.canonical_stats_frames += u64(max(telemetry.canonical_stats_frames, 0))
 	state.stats_fallback_frames += u64(max(telemetry.stats_fallback_frames, 0))
 	state.canonical_evidence_frames += u64(max(telemetry.canonical_evidence_frames, 0))
-	state.legacy_evidence_frames += u64(max(telemetry.legacy_evidence_frames, 0))
 	state.evidence_fallback_frames += u64(max(telemetry.evidence_fallback_frames, 0))
 	state.canonical_signal_frames += u64(max(telemetry.canonical_signal_frames, 0))
-	state.legacy_signal_frames += u64(max(telemetry.legacy_signal_frames, 0))
 	state.signal_fallback_frames += u64(max(telemetry.signal_fallback_frames, 0))
 	web_apply_parsed_result(state, result, len(raw), parsed_now_ms)
 
@@ -2156,8 +2251,19 @@ web_apply_parsed_result :: proc(state: ^MD_Web_State, result: services.Parse_Res
 		if state.signal_ring_count < WEB_SIGNAL_RING_CAP {
 			state.signal_ring_count += 1
 		}
-	// S47: Analytics substrate — web staging deferred; events are parsed but not yet polled.
-	case .Open_Interest, .Delta_Volume, .CVD, .Bar_Stats:
+	// S98: Analytics substrate — web staging active (latest-wins per kind).
+	case .Open_Interest:
+		state.oi_staging = result.data.open_interest
+		state.oi_dirty = true
+	case .Delta_Volume:
+		state.delta_vol_staging = result.data.delta_volume
+		state.delta_vol_dirty = true
+	case .CVD:
+		state.cvd_staging = result.data.cvd
+		state.cvd_dirty = true
+	case .Bar_Stats:
+		state.bar_stats_staging = result.data.bar_stats
+		state.bar_stats_dirty = true
 	// S49: Session profiles — web staging deferred.
 	case .Session_Volume_Profile, .TPO_Profile:
 	case .None:
@@ -2306,4 +2412,51 @@ web_fetch_instrument_overview :: proc(out_buf: [^]u8, out_cap: i32, venue: strin
 @(private = "file")
 web_fetch_session_dashboard :: proc(out_buf: [^]u8, out_cap: i32) -> i32 {
 	return web_http_get(g_web_state, "/api/v1/session/dashboard", out_buf, out_cap)
+}
+
+// S83: Analytics cold reader port implementations.
+
+@(private = "file")
+web_fetch_analytics_cvd :: proc(out_buf: [^]u8, out_cap: i32, venue: string, instrument: string, timeframe: string, limit: i32) -> i32 {
+	if len(venue) == 0 || len(instrument) == 0 || len(timeframe) == 0 do return 0
+	lim := fmt.tprintf("%d", limit)
+	path := strings.concatenate({"/api/v1/cvd?venue=", venue, "&instrument=", instrument, "&timeframe=", timeframe, "&fromMs=0&toMs=9999999999999&limit=", lim})
+	defer delete(path)
+	return web_http_get(g_web_state, path, out_buf, out_cap)
+}
+
+@(private = "file")
+web_fetch_analytics_delta_volume :: proc(out_buf: [^]u8, out_cap: i32, venue: string, instrument: string, timeframe: string, limit: i32) -> i32 {
+	if len(venue) == 0 || len(instrument) == 0 || len(timeframe) == 0 do return 0
+	lim := fmt.tprintf("%d", limit)
+	path := strings.concatenate({"/api/v1/delta_volume?venue=", venue, "&instrument=", instrument, "&timeframe=", timeframe, "&fromMs=0&toMs=9999999999999&limit=", lim})
+	defer delete(path)
+	return web_http_get(g_web_state, path, out_buf, out_cap)
+}
+
+@(private = "file")
+web_fetch_analytics_bar_stats :: proc(out_buf: [^]u8, out_cap: i32, venue: string, instrument: string, timeframe: string, limit: i32) -> i32 {
+	if len(venue) == 0 || len(instrument) == 0 || len(timeframe) == 0 do return 0
+	lim := fmt.tprintf("%d", limit)
+	path := strings.concatenate({"/api/v1/bar_stats?venue=", venue, "&instrument=", instrument, "&timeframe=", timeframe, "&fromMs=0&toMs=9999999999999&limit=", lim})
+	defer delete(path)
+	return web_http_get(g_web_state, path, out_buf, out_cap)
+}
+
+@(private = "file")
+web_fetch_analytics_oi :: proc(out_buf: [^]u8, out_cap: i32, venue: string, instrument: string, timeframe: string, limit: i32) -> i32 {
+	if len(venue) == 0 || len(instrument) == 0 || len(timeframe) == 0 do return 0
+	lim := fmt.tprintf("%d", limit)
+	path := strings.concatenate({"/api/v1/oi?venue=", venue, "&instrument=", instrument, "&timeframe=", timeframe, "&fromMs=0&toMs=9999999999999&limit=", lim})
+	defer delete(path)
+	return web_http_get(g_web_state, path, out_buf, out_cap)
+}
+
+@(private = "file")
+web_fetch_session_volume_profile :: proc(out_buf: [^]u8, out_cap: i32, venue: string, instrument: string, anchor: string) -> i32 {
+	if len(venue) == 0 || len(instrument) == 0 do return 0
+	a := anchor if len(anchor) > 0 else "current"
+	path := strings.concatenate({"/api/v1/insights/session-vp?venue=", venue, "&instrument=", instrument, "&anchor=", a})
+	defer delete(path)
+	return web_http_get(g_web_state, path, out_buf, out_cap)
 }

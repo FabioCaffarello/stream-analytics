@@ -36,6 +36,10 @@ request_analytics_range :: proc(state: ^App_State, ci: int) {
 	}
 	if len(venue) == 0 || len(symbol) == 0 do return
 
+	// S92: Normalize symbol — strip market type suffix (e.g. "BTCUSDT:PERP" → "BTCUSDT")
+	// to match backend API contract. Without this, analytics endpoints return 400.
+	symbol = normalized_symbol(symbol)
+
 	// Resolve TF.
 	tf_opts := TF_OPTIONS
 	eff_tf := cell_effective_tf_idx(state, ci)

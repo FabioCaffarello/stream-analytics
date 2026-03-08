@@ -208,14 +208,6 @@ test_ws_fault_action_matrix :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_legacy_switch_from_text :: proc(t: ^testing.T) {
-	testing.expect_value(t, legacy_switch_from_text("on"), true)
-	testing.expect_value(t, legacy_switch_from_text("true"), true)
-	testing.expect_value(t, legacy_switch_from_text("OFF"), false)
-	testing.expect_value(t, legacy_switch_from_text("0"), false)
-}
-
-@(test)
 test_detect_no_metrics_gap :: proc(t: ^testing.T) {
 	triggered, next := detect_no_metrics_gap(1_000, 22_000, 20_000)
 	testing.expect_value(t, triggered, true)

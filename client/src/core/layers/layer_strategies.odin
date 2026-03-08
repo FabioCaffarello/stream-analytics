@@ -1,7 +1,6 @@
 package layers
 
 import "core:fmt"
-import "core:math"
 import "mr:services"
 import "mr:ui"
 
@@ -58,6 +57,10 @@ price_candles_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs) {
 	store := &ctx.stream.candles
 	if store.count <= 0 do return
 
+	// S86: Only draw candle bars when the cell is a candle-type widget.
+	// Stats cells include Price_Candles for the stats text overlay only.
+	render_bars := ctx.active_bundle == u32(Layer_Bundle.Bundle_Candles)
+
 	visible := min(store.count, 140)
 	start := max(store.count - visible, 0)
 	min_price := f64(0)
@@ -75,35 +78,37 @@ price_candles_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs) {
 		max_price = min_price + 1.0
 	}
 
-	slot_w := ctx.viewport.size.x / f32(max(visible, 1))
-	body_w := max(slot_w * 0.65, 1)
+	if render_bars {
+		slot_w := ctx.viewport.size.x / f32(max(visible, 1))
+		body_w := max(slot_w * 0.65, 1)
 
-	for i in 0 ..< visible {
-		idx := start + i
-		c := services.get_candle(store, idx)
-		x_center := ctx.viewport.pos.x + (f32(i) + 0.5) * slot_w
-		y_open := price_to_y(ctx.viewport, min_price, max_price, c.open)
-		y_close := price_to_y(ctx.viewport, min_price, max_price, c.close)
-		y_high := price_to_y(ctx.viewport, min_price, max_price, c.high)
-		y_low := price_to_y(ctx.viewport, min_price, max_price, c.low)
+		for i in 0 ..< visible {
+			idx := start + i
+			c := services.get_candle(store, idx)
+			x_center := ctx.viewport.pos.x + (f32(i) + 0.5) * slot_w
+			y_open := price_to_y(ctx.viewport, min_price, max_price, c.open)
+			y_close := price_to_y(ctx.viewport, min_price, max_price, c.close)
+			y_high := price_to_y(ctx.viewport, min_price, max_price, c.high)
+			y_low := price_to_y(ctx.viewport, min_price, max_price, c.low)
 
-		up := c.close >= c.open
-		col := up ? ui.COL_GREEN : ui.COL_RED
+			up := c.close >= c.open
+			col := up ? ui.COL_GREEN : ui.COL_RED
 
-		layer_outputs_push_line(out, 20, Render_Line{
-			from = {x_center, y_high},
-			to = {x_center, y_low},
-			color = ui.with_alpha(col, 0.8),
-			thickness = 1,
-		})
+			layer_outputs_push_line(out, 20, Render_Line{
+				from = {x_center, y_high},
+				to = {x_center, y_low},
+				color = ui.with_alpha(col, 0.8),
+				thickness = 1,
+			})
 
-		top := min(y_open, y_close)
-		bot := max(y_open, y_close)
-		h := max(bot - top, 1)
-		layer_outputs_push_bar(out, 21, Render_Bar{
-			rect = ui.Rect{pos = {x_center - body_w * 0.5, top}, size = {body_w, h}},
-			color = ui.with_alpha(col, 0.55),
-		})
+			top := min(y_open, y_close)
+			bot := max(y_open, y_close)
+			h := max(bot - top, 1)
+			layer_outputs_push_bar(out, 21, Render_Bar{
+				rect = ui.Rect{pos = {x_center - body_w * 0.5, top}, size = {body_w, h}},
+				color = ui.with_alpha(col, 0.55),
+			})
+		}
 	}
 
 	latest := services.get_candle_newest(store, 0)
@@ -191,7 +196,10 @@ price_candles_layer_strategy :: proc() -> Layer_Strategy {
 	return Layer_Strategy{
 		id          = .Price_Candles,
 		name        = "Price/Candles",
-		bundle_mask = u32(Layer_Bundle.Price_Candles | Layer_Bundle.Bundle_Candles | Layer_Bundle.Bundle_Stats),
+		// S86: Only match on Price_Candles bit — the Bundle_Candles and Bundle_Stats
+		// composites already include bit 0 (Price_Candles), so this matches correctly
+		// without leaking through shared Evidence/Signal bits.
+		bundle_mask = u32(Layer_Bundle.Price_Candles),
 		z_order     = layer_z_order_for_id(.Price_Candles),
 		init        = layer_noop_init,
 		on_event    = layer_noop_on_event,
@@ -220,6 +228,8 @@ trades_tape_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs) {
 
 	for i in 0 ..< rows {
 		t := services.get_trade(store, i)
+		// S86: Skip zero-data trade entries — avoids rendering "0.00 x 0.0000" labels.
+		if t.price == 0 && t.qty == 0 do continue
 		y := ctx.viewport.pos.y + f32(i) * row_h
 		frac := f32(t.qty / max_qty)
 		frac = clamp(frac, 0.05, 1.0)
@@ -270,7 +280,8 @@ trades_tape_layer_strategy :: proc() -> Layer_Strategy {
 	return Layer_Strategy{
 		id          = .Trades_Tape,
 		name        = "Trades Tape",
-		bundle_mask = u32(Layer_Bundle.Trades_Tape | Layer_Bundle.Bundle_Trades | Layer_Bundle.Bundle_DOM | Layer_Bundle.Bundle_Counter),
+		// S86: Match on Trades_Tape bit only — Bundle_Trades/DOM/Counter already include bit 1.
+		bundle_mask = u32(Layer_Bundle.Trades_Tape),
 		z_order     = layer_z_order_for_id(.Trades_Tape),
 		init        = layer_noop_init,
 		on_event    = layer_noop_on_event,
@@ -360,7 +371,8 @@ orderbook_dom_layer_strategy :: proc() -> Layer_Strategy {
 	return Layer_Strategy{
 		id          = .OrderBook_DOM,
 		name        = "OrderBook/DOM",
-		bundle_mask = u32(Layer_Bundle.OrderBook_DOM | Layer_Bundle.Bundle_Orderbook | Layer_Bundle.Bundle_DOM),
+		// S86: Match on OrderBook_DOM bit only — Bundle_Orderbook/DOM already include bit 2.
+		bundle_mask = u32(Layer_Bundle.OrderBook_DOM),
 		z_order     = layer_z_order_for_id(.OrderBook_DOM),
 		init        = layer_noop_init,
 		on_event    = layer_noop_on_event,
@@ -442,7 +454,8 @@ vpvr_heatmap_layer_strategy :: proc() -> Layer_Strategy {
 	return Layer_Strategy{
 		id          = .VPVR_Heatmap,
 		name        = "VPVR/Heatmap",
-		bundle_mask = u32(Layer_Bundle.VPVR_Heatmap | Layer_Bundle.Bundle_Candles | Layer_Bundle.Bundle_Heatmap | Layer_Bundle.Bundle_VPVR),
+		// S86: Match on VPVR_Heatmap bit only — Bundle_Candles/Heatmap/VPVR already include bit 3.
+		bundle_mask = u32(Layer_Bundle.VPVR_Heatmap),
 		z_order     = layer_z_order_for_id(.VPVR_Heatmap),
 		init        = layer_noop_init,
 		on_event    = layer_noop_on_event,
@@ -500,7 +513,8 @@ evidence_layer_strategy :: proc() -> Layer_Strategy {
 	return Layer_Strategy{
 		id          = .Evidence,
 		name        = "Evidence",
-		bundle_mask = u32(Layer_Bundle.Evidence | Layer_Bundle.Bundle_Candles | Layer_Bundle.Bundle_Trades | Layer_Bundle.Bundle_Orderbook | Layer_Bundle.Bundle_DOM | Layer_Bundle.Bundle_Heatmap | Layer_Bundle.Bundle_VPVR),
+		// S86: Match on Evidence bit only — all cell bundles that want evidence already include bit 4.
+		bundle_mask = u32(Layer_Bundle.Evidence),
 		z_order     = layer_z_order_for_id(.Evidence),
 		init        = layer_noop_init,
 		on_event    = layer_noop_on_event,
@@ -572,7 +586,8 @@ signal_layer_strategy :: proc() -> Layer_Strategy {
 	return Layer_Strategy{
 		id          = .Signal,
 		name        = "Signal",
-		bundle_mask = u32(Layer_Bundle.Signal | Layer_Bundle.Bundle_Candles | Layer_Bundle.Bundle_Trades | Layer_Bundle.Bundle_Orderbook | Layer_Bundle.Bundle_DOM | Layer_Bundle.Bundle_Heatmap | Layer_Bundle.Bundle_VPVR | Layer_Bundle.Bundle_Stats | Layer_Bundle.Bundle_Counter),
+		// S86: Match on Signal bit only — all cell bundles that want signals already include bit 5.
+		bundle_mask = u32(Layer_Bundle.Signal),
 		z_order     = layer_z_order_for_id(.Signal),
 		init        = layer_noop_init,
 		on_event    = layer_noop_on_event,
@@ -580,5 +595,653 @@ signal_layer_strategy :: proc() -> Layer_Strategy {
 		render      = signal_render,
 		reset       = layer_noop_reset,
 		diagnostics = signal_diagnostics,
+	}
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Analytics layer — renders OI, Delta Volume, CVD, Bar Stats
+// as text badges within the viewport. Supports filtered mode
+// (single kind for Analytics cells) and full mode (all kinds
+// for Candle cells).
+// ═══════════════════════════════════════════════════════════════
+
+@(private = "file")
+analytics_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs) {
+	if ctx == nil || out == nil || ctx.stream == nil do return
+	if !ctx.capabilities.has_analytics do return
+	store := &ctx.stream.analytics
+	if store.count <= 0 do return
+
+	y := ctx.viewport.pos.y + 14
+	x := ctx.viewport.pos.x + 6
+
+	// When filtered, render only the requested analytics kind (for Analytics widget cells).
+	if ctx.analytics_filter {
+		analytics_render_kind(ctx, out, store, ctx.analytics_kind, &y, x)
+		return
+	}
+
+	// Unfiltered: render all analytics kinds that have data (for Candle bundle).
+	analytics_render_kind(ctx, out, store, .Open_Interest, &y, x)
+	analytics_render_kind(ctx, out, store, .Delta_Volume, &y, x)
+	analytics_render_kind(ctx, out, store, .CVD, &y, x)
+	analytics_render_kind(ctx, out, store, .Bar_Stats, &y, x)
+}
+
+@(private = "file")
+analytics_render_kind :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs, store: ^services.Analytics_Store, kind: services.Analytics_Kind, y: ^f32, x: f32) {
+	entry, ok := services.get_analytics_latest(store, kind)
+	if !ok do return
+
+	switch kind {
+	case .Open_Interest:
+		oi_val := entry.values[0]
+		delta := entry.values[1]
+		delta_pct := entry.values[2]
+
+		val_buf: [64]u8
+		val_str := fmt.bprintf(val_buf[:], "OI %.0f", oi_val)
+		layer_outputs_push_text_badge(out, 25, text_badge_make(
+			{x, y^}, val_str, ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_XS,
+		))
+		y^ += 14
+
+		delta_color := delta >= 0 ? ui.COL_GREEN : ui.COL_RED
+		delta_sign := delta >= 0 ? "+" : ""
+		delta_buf: [80]u8
+		delta_str := fmt.bprintf(delta_buf[:], "%s%.0f (%s%.2f%%)", delta_sign, delta, delta_sign, delta_pct * 100)
+		layer_outputs_push_text_badge(out, 25, text_badge_make(
+			{x, y^}, delta_str, delta_color, ui.FONT_SIZE_XS,
+		))
+		y^ += 14
+
+		// Confidence dot as text badge.
+		conf_label: string
+		conf_color: ui.Color
+		switch entry.confidence {
+		case 1:  conf_label = "H"; conf_color = ui.Color{0.0, 0.8, 0.0, 0.9}
+		case 2:  conf_label = "M"; conf_color = ui.Color{0.8, 0.8, 0.0, 0.9}
+		case 3:  conf_label = "L"; conf_color = ui.Color{0.4, 0.4, 0.4, 0.7}
+		case:    conf_label = "?"; conf_color = ui.Color{0.3, 0.3, 0.3, 0.5}
+		}
+		layer_outputs_push_text_badge(out, 25, text_badge_make(
+			{x, y^}, conf_label, conf_color, ui.FONT_SIZE_XS,
+		))
+
+		// Cadence badge.
+		cadence_ms := entry.cadence_hint_ms
+		if cadence_ms > 0 {
+			cadence_buf: [16]u8
+			cadence_str: string
+			if cadence_ms < 1000 {
+				cadence_str = fmt.bprintf(cadence_buf[:], "~%dms", cadence_ms)
+			} else if cadence_ms < 60000 {
+				cadence_str = fmt.bprintf(cadence_buf[:], "~%ds", cadence_ms / 1000)
+			} else {
+				cadence_str = fmt.bprintf(cadence_buf[:], "~%dm", cadence_ms / 60000)
+			}
+			layer_outputs_push_text_badge(out, 25, text_badge_make(
+				{x + 16, y^}, cadence_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS,
+			))
+
+			// Stale indicator.
+			most_recent := services.get_analytics(store, 0)
+			if most_recent.ts_ms > 0 && entry.ts_ms > 0 {
+				age_ms := most_recent.ts_ms - entry.ts_ms
+				if age_ms > cadence_ms * 3 {
+					layer_outputs_push_text_badge(out, 25, text_badge_make(
+						{x + 64, y^}, "STALE", ui.COL_WARNING, ui.FONT_SIZE_XS,
+					))
+				}
+			}
+		}
+		y^ += 14
+
+	case .Delta_Volume:
+		buy_vol := entry.values[0]
+		sell_vol := entry.values[1]
+		delta_vol := entry.values[2]
+
+		delta_color := delta_vol >= 0 ? ui.COL_GREEN : ui.COL_RED
+		val_buf: [80]u8
+		val_str := fmt.bprintf(val_buf[:], "DV %.2f", delta_vol)
+		layer_outputs_push_text_badge(out, 25, text_badge_make(
+			{x, y^}, val_str, delta_color, ui.FONT_SIZE_XS,
+		))
+		y^ += 14
+
+		bs_buf: [80]u8
+		bs_str := fmt.bprintf(bs_buf[:], "B %.2f  S %.2f", buy_vol, sell_vol)
+		layer_outputs_push_text_badge(out, 25, text_badge_make(
+			{x, y^}, bs_str, ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS,
+		))
+		y^ += 14
+
+		// Buy/sell ratio bar.
+		total := buy_vol + sell_vol
+		if total > 0 {
+			bar_w := ctx.viewport.size.x - 16
+			buy_frac := f32(buy_vol / total)
+			layer_outputs_push_bar(out, 25, Render_Bar{
+				rect = ui.Rect{pos = {x, y^}, size = {bar_w * buy_frac, 6}},
+				color = ui.with_alpha(ui.COL_GREEN, 0.5),
+			})
+			layer_outputs_push_bar(out, 25, Render_Bar{
+				rect = ui.Rect{pos = {x + bar_w * buy_frac, y^}, size = {bar_w * (1 - buy_frac), 6}},
+				color = ui.with_alpha(ui.COL_RED, 0.5),
+			})
+			y^ += 10
+		}
+
+	case .CVD:
+		delta_vol := entry.values[0]
+		cvd := entry.values[1]
+
+		cvd_color := cvd >= 0 ? ui.COL_GREEN : ui.COL_RED
+		val_buf: [64]u8
+		val_str := fmt.bprintf(val_buf[:], "CVD %.2f", cvd)
+		layer_outputs_push_text_badge(out, 25, text_badge_make(
+			{x, y^}, val_str, cvd_color, ui.FONT_SIZE_XS,
+		))
+		y^ += 14
+
+		dv_buf: [64]u8
+		dv_str := fmt.bprintf(dv_buf[:], "Win delta %.2f", delta_vol)
+		layer_outputs_push_text_badge(out, 25, text_badge_make(
+			{x, y^}, dv_str, ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS,
+		))
+		y^ += 14
+
+	case .Bar_Stats:
+		trade_count := entry.values[0]
+		buy_count := entry.values[1]
+		sell_count := entry.values[2]
+		buy_vol := entry.values[4]
+		sell_vol := entry.values[5]
+		vwap := entry.values[6]
+		imbalance := entry.values[7]
+		is_burst := (entry.flags & 1) != 0
+
+		tc_buf: [80]u8
+		tc_str := fmt.bprintf(tc_buf[:], "Trades %.0f (B:%.0f S:%.0f)", trade_count, buy_count, sell_count)
+		layer_outputs_push_text_badge(out, 25, text_badge_make(
+			{x, y^}, tc_str, ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_XS,
+		))
+		y^ += 14
+
+		vwap_buf: [48]u8
+		vwap_str := fmt.bprintf(vwap_buf[:], "VWAP %.2f", vwap)
+		layer_outputs_push_text_badge(out, 25, text_badge_make(
+			{x, y^}, vwap_str, ui.COL_ACCENT_CYAN, ui.FONT_SIZE_XS,
+		))
+		y^ += 14
+
+		imb_color := imbalance >= 0 ? ui.COL_GREEN : ui.COL_RED
+		imb_buf: [48]u8
+		imb_str := fmt.bprintf(imb_buf[:], "Imb %.2f%%", imbalance * 100)
+		layer_outputs_push_text_badge(out, 25, text_badge_make(
+			{x, y^}, imb_str, imb_color, ui.FONT_SIZE_XS,
+		))
+		y^ += 14
+
+		// Buy/sell ratio bar.
+		total := buy_vol + sell_vol
+		if total > 0 {
+			bar_w := ctx.viewport.size.x - 16
+			buy_frac := f32(buy_vol / total)
+			layer_outputs_push_bar(out, 25, Render_Bar{
+				rect = ui.Rect{pos = {x, y^}, size = {bar_w * buy_frac, 6}},
+				color = ui.with_alpha(ui.COL_GREEN, 0.5),
+			})
+			layer_outputs_push_bar(out, 25, Render_Bar{
+				rect = ui.Rect{pos = {x + bar_w * buy_frac, y^}, size = {bar_w * (1 - buy_frac), 6}},
+				color = ui.with_alpha(ui.COL_RED, 0.5),
+			})
+			y^ += 10
+		}
+
+		if is_burst {
+			layer_outputs_push_text_badge(out, 25, text_badge_make(
+				{x, y^}, "BURST", ui.COL_WARNING, ui.FONT_SIZE_XS,
+			))
+			y^ += 14
+		}
+	}
+}
+
+@(private = "file")
+analytics_diagnostics :: proc(store: ^Market_Store, out: ^Layer_Diagnostics) {
+	if out == nil do return
+	out.id = .Analytics
+	if store == nil do return
+	stream := market_store_active_stream(store)
+	out.has_data = stream != nil && stream.analytics.count > 0
+	out.state = layer_diag_state(store, stream, out.has_data)
+	if stream == nil do return
+	out.entries = stream.analytics.count
+	out.max_entries = services.ANALYTICS_STORE_CAP
+	out.last_seq = stream.last_seq
+	out.last_unix = stream.last_unix
+}
+
+// ═══════════════════════════════════════════════════════════════
+// S87: Stats Panel layer — dedicated stats rendering for Stats cells.
+// Renders mark price, funding rate, liquidation levels, quality flags.
+// Separated from Price_Candles so Stats cells don't trigger candle
+// range scans or render "Last X.XX" price badges.
+// ═══════════════════════════════════════════════════════════════
+
+@(private = "file")
+stats_panel_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs) {
+	if ctx == nil || out == nil || ctx.stream == nil do return
+	if !ctx.capabilities.has_stats do return
+	if ctx.stream.stats.count <= 0 do return
+
+	st := services.get_stats(&ctx.stream.stats, 0)
+	y := ctx.viewport.pos.y + 14
+	x := ctx.viewport.pos.x + 6
+
+	// Mark price (primary).
+	mark_buf: [64]u8
+	mark_str := fmt.bprintf(mark_buf[:], "Mark %.2f", st.mark_price)
+	layer_outputs_push_text_badge(out, 22, text_badge_make(
+		{x, y}, mark_str, ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_XS,
+	))
+	y += 16
+
+	// Funding rate.
+	fund_color := st.funding >= 0 ? ui.COL_GREEN : ui.COL_RED
+	fund_sign := st.funding >= 0 ? "+" : ""
+	fund_buf: [64]u8
+	fund_str := fmt.bprintf(fund_buf[:], "Funding %s%.4f%%", fund_sign, st.funding * 100)
+	layer_outputs_push_text_badge(out, 22, text_badge_make(
+		{x, y}, fund_str, fund_color, ui.FONT_SIZE_XS,
+	))
+	y += 14
+
+	// Liquidation levels.
+	liq_buf: [80]u8
+	liq_str := fmt.bprintf(liq_buf[:], "Liq B %.2f / S %.2f", st.liq_buy, st.liq_sell)
+	layer_outputs_push_text_badge(out, 22, text_badge_make(
+		{x, y}, liq_str, ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS,
+	))
+	y += 14
+
+	// Window duration.
+	window_s := st.window_ms / 1000
+	if window_s < 0 do window_s = 0
+	win_buf: [48]u8
+	win_str := fmt.bprintf(win_buf[:], "Window %ds", window_s)
+	layer_outputs_push_text_badge(out, 22, text_badge_make(
+		{x, y}, win_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS,
+	))
+	y += 14
+
+	// Quality flags.
+	quality_buf: [48]u8
+	quality_str := fmt.bprintf(quality_buf[:], "Q 0x%x", st.quality_flags)
+	quality_color := st.quality_flags != 0 ? ui.COL_WARNING : ui.COL_TEXT_MUTED
+	layer_outputs_push_text_badge(out, 22, text_badge_make(
+		{x, y}, quality_str, quality_color, ui.FONT_SIZE_XS,
+	))
+}
+
+@(private = "file")
+stats_panel_diagnostics :: proc(store: ^Market_Store, out: ^Layer_Diagnostics) {
+	if out == nil do return
+	out.id = .Stats_Panel
+	if store == nil do return
+	stream := market_store_active_stream(store)
+	out.has_data = stream != nil && stream.stats.count > 0
+	out.state = layer_diag_state(store, stream, out.has_data)
+	if stream == nil do return
+	out.entries = stream.stats.count
+	out.max_entries = services.STATS_CAP
+}
+
+stats_panel_layer_strategy :: proc() -> Layer_Strategy {
+	return Layer_Strategy{
+		id          = .Stats_Panel,
+		name        = "Stats Panel",
+		bundle_mask = u32(Layer_Bundle.Stats_Panel),
+		z_order     = layer_z_order_for_id(.Stats_Panel),
+		init        = layer_noop_init,
+		on_event    = layer_noop_on_event,
+		on_snapshot = layer_noop_on_snapshot,
+		render      = stats_panel_render,
+		reset       = layer_noop_reset,
+		diagnostics = stats_panel_diagnostics,
+	}
+}
+
+// ═══════════════════════════════════════════════════════════════
+// S87: Trade Counter layer — dedicated counter rendering for Counter cells.
+// Renders aggregate trade count, buy/sell ratio bar, volume summary.
+// Separated from Trades_Tape so Counter cells don't render individual
+// trade rows.
+// ═══════════════════════════════════════════════════════════════
+
+@(private = "file")
+trade_counter_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs) {
+	if ctx == nil || out == nil || ctx.stream == nil do return
+	if !ctx.capabilities.has_candles do return
+	store := &ctx.stream.candles
+	if store.count <= 0 do return
+
+	latest := services.get_candle_newest(store, 0)
+	y := ctx.viewport.pos.y + 14
+	x := ctx.viewport.pos.x + 6
+
+	// Trade count.
+	tc_buf: [64]u8
+	tc_str := fmt.bprintf(tc_buf[:], "Trades %d", latest.trade_count)
+	layer_outputs_push_text_badge(out, 23, text_badge_make(
+		{x, y}, tc_str, ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_XS,
+	))
+	y += 16
+
+	// Volume summary.
+	total_vol := latest.buy_vol + latest.sell_vol
+	vol_buf: [80]u8
+	vol_str := fmt.bprintf(vol_buf[:], "Vol %.4f (B %.4f / S %.4f)", total_vol, latest.buy_vol, latest.sell_vol)
+	layer_outputs_push_text_badge(out, 23, text_badge_make(
+		{x, y}, vol_str, ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS,
+	))
+	y += 14
+
+	// Buy/sell ratio bar.
+	if total_vol > 0 {
+		bar_w := ctx.viewport.size.x - 16
+		buy_frac := f32(latest.buy_vol / total_vol)
+		layer_outputs_push_bar(out, 23, Render_Bar{
+			rect = ui.Rect{pos = {x, y}, size = {bar_w * buy_frac, 8}},
+			color = ui.with_alpha(ui.COL_GREEN, 0.5),
+		})
+		layer_outputs_push_bar(out, 23, Render_Bar{
+			rect = ui.Rect{pos = {x + bar_w * buy_frac, y}, size = {bar_w * (1 - buy_frac), 8}},
+			color = ui.with_alpha(ui.COL_RED, 0.5),
+		})
+		y += 12
+
+		// Ratio label.
+		ratio_buf: [48]u8
+		ratio_str := fmt.bprintf(ratio_buf[:], "B/S %.1f%%", f64(buy_frac) * 100)
+		ratio_color := buy_frac >= 0.5 ? ui.COL_GREEN : ui.COL_RED
+		layer_outputs_push_text_badge(out, 23, text_badge_make(
+			{x, y}, ratio_str, ratio_color, ui.FONT_SIZE_XS,
+		))
+		y += 14
+	}
+
+	// Last close price reference.
+	price_buf: [48]u8
+	price_str := fmt.bprintf(price_buf[:], "Last %.2f", latest.close)
+	layer_outputs_push_text_badge(out, 23, text_badge_make(
+		{x, y}, price_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS,
+	))
+
+	// Stats supplement if available.
+	if ctx.capabilities.has_stats && ctx.stream.stats.count > 0 {
+		st := services.get_stats(&ctx.stream.stats, 0)
+		y += 14
+		fund_buf: [48]u8
+		fund_str := fmt.bprintf(fund_buf[:], "F %.4f%%", st.funding * 100)
+		layer_outputs_push_text_badge(out, 23, text_badge_make(
+			{x, y}, fund_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS,
+		))
+	}
+}
+
+@(private = "file")
+trade_counter_diagnostics :: proc(store: ^Market_Store, out: ^Layer_Diagnostics) {
+	if out == nil do return
+	out.id = .Trade_Counter
+	if store == nil do return
+	stream := market_store_active_stream(store)
+	out.has_data = stream != nil && stream.candles.count > 0
+	out.state = layer_diag_state(store, stream, out.has_data)
+	if stream == nil do return
+	out.entries = stream.candles.count
+	out.max_entries = services.CANDLE_CAP
+}
+
+trade_counter_layer_strategy :: proc() -> Layer_Strategy {
+	return Layer_Strategy{
+		id          = .Trade_Counter,
+		name        = "Trade Counter",
+		bundle_mask = u32(Layer_Bundle.Trade_Counter),
+		z_order     = layer_z_order_for_id(.Trade_Counter),
+		init        = layer_noop_init,
+		on_event    = layer_noop_on_event,
+		on_snapshot = layer_noop_on_snapshot,
+		render      = trade_counter_render,
+		reset       = layer_noop_reset,
+		diagnostics = trade_counter_diagnostics,
+	}
+}
+
+// ═══════════════════════════════════════════════════════════════
+// S94: Analytics subplots — graphical CVD line / Delta Vol bars / OI line
+// rendered in dedicated subplot viewports below the main candle chart.
+// Called directly from layer_canvas, not through the registry.
+// ═══════════════════════════════════════════════════════════════
+
+SUBPLOT_COLLECT_CAP :: 48
+
+// CVD subplot: line chart of cumulative volume delta.
+subplot_cvd_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs, subplot_vp: ui.Rect) {
+	if ctx == nil || out == nil || ctx.stream == nil do return
+	store := &ctx.stream.analytics
+	if store.count <= 0 do return
+
+	entries: [SUBPLOT_COLLECT_CAP]services.Analytics_Entry
+	n := services.analytics_collect_by_kind(store, .CVD, entries[:])
+	if n < 2 do return
+
+	// Find min/max CVD for y-axis scaling.
+	min_val := entries[0].values[1]
+	max_val := entries[0].values[1]
+	for i in 1 ..< n {
+		v := entries[i].values[1]
+		if v < min_val do min_val = v
+		if v > max_val do max_val = v
+	}
+	if max_val <= min_val {
+		max_val = min_val + 1.0
+	}
+
+	// Subplot background + divider.
+	subplot_push_bg(out, subplot_vp)
+
+	// Zero line.
+	if min_val < 0 && max_val > 0 {
+		zero_y := subplot_val_to_y(subplot_vp, min_val, max_val, 0)
+		layer_outputs_push_line(out, 24, Render_Line{
+			from = {subplot_vp.pos.x, zero_y},
+			to   = {rect_right(subplot_vp), zero_y},
+			color = ui.with_alpha(ui.COL_WHITE, 0.08),
+			thickness = 1,
+		})
+	}
+
+	// Draw CVD line segments.
+	slot_w := subplot_vp.size.x / f32(max(n - 1, 1))
+	for i in 1 ..< n {
+		x0 := subplot_vp.pos.x + f32(i - 1) * slot_w
+		x1 := subplot_vp.pos.x + f32(i) * slot_w
+		y0 := subplot_val_to_y(subplot_vp, min_val, max_val, entries[i - 1].values[1])
+		y1 := subplot_val_to_y(subplot_vp, min_val, max_val, entries[i].values[1])
+		col := entries[i].values[1] >= 0 ? ui.COL_GREEN : ui.COL_RED
+		layer_outputs_push_line(out, 25, Render_Line{
+			from = {x0, y0}, to = {x1, y1},
+			color = ui.with_alpha(col, 0.85),
+			thickness = 1.5,
+		})
+	}
+
+	// Label.
+	latest_cvd := entries[n - 1].values[1]
+	label_buf: [32]u8
+	label := fmt.bprintf(label_buf[:], "CVD %.1f", latest_cvd)
+	label_col := latest_cvd >= 0 ? ui.COL_GREEN : ui.COL_RED
+	layer_outputs_push_text_badge(out, 26, text_badge_make(
+		{subplot_vp.pos.x + 4, subplot_vp.pos.y + 10},
+		label, label_col, ui.FONT_SIZE_XS,
+	))
+}
+
+// Delta Volume subplot: vertical bars of per-window delta volume.
+subplot_delta_vol_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs, subplot_vp: ui.Rect) {
+	if ctx == nil || out == nil || ctx.stream == nil do return
+	store := &ctx.stream.analytics
+	if store.count <= 0 do return
+
+	entries: [SUBPLOT_COLLECT_CAP]services.Analytics_Entry
+	n := services.analytics_collect_by_kind(store, .Delta_Volume, entries[:])
+	if n == 0 do return
+
+	// Find max absolute delta for y-axis scaling.
+	max_abs := f64(0)
+	for i in 0 ..< n {
+		v := entries[i].values[2]
+		abs_v := v >= 0 ? v : -v
+		if abs_v > max_abs do max_abs = abs_v
+	}
+	if max_abs <= 0 do max_abs = 1.0
+
+	// Subplot background + divider.
+	subplot_push_bg(out, subplot_vp)
+
+	// Zero line at center.
+	mid_y := subplot_vp.pos.y + subplot_vp.size.y * 0.5
+	layer_outputs_push_line(out, 24, Render_Line{
+		from = {subplot_vp.pos.x, mid_y},
+		to   = {rect_right(subplot_vp), mid_y},
+		color = ui.with_alpha(ui.COL_WHITE, 0.08),
+		thickness = 1,
+	})
+
+	// Draw delta volume bars.
+	slot_w := subplot_vp.size.x / f32(max(n, 1))
+	bar_w := max(slot_w * 0.7, 1)
+	half_h := subplot_vp.size.y * 0.5
+
+	for i in 0 ..< n {
+		delta := entries[i].values[2]
+		frac := f32(delta / max_abs)
+		frac = clamp(frac, -1, 1)
+		bar_h := half_h * (frac >= 0 ? frac : -frac)
+		if bar_h < 1 do bar_h = 1
+		x_center := subplot_vp.pos.x + (f32(i) + 0.5) * slot_w
+		col := delta >= 0 ? ui.COL_GREEN : ui.COL_RED
+		bar_y := delta >= 0 ? mid_y - bar_h : mid_y
+		layer_outputs_push_bar(out, 25, Render_Bar{
+			rect = ui.Rect{pos = {x_center - bar_w * 0.5, bar_y}, size = {bar_w, bar_h}},
+			color = ui.with_alpha(col, 0.6),
+		})
+	}
+
+	// Label.
+	if n > 0 {
+		latest_dv := entries[n - 1].values[2]
+		label_buf: [32]u8
+		label := fmt.bprintf(label_buf[:], "DV %.1f", latest_dv)
+		label_col := latest_dv >= 0 ? ui.COL_GREEN : ui.COL_RED
+		layer_outputs_push_text_badge(out, 26, text_badge_make(
+			{subplot_vp.pos.x + 4, subplot_vp.pos.y + 10},
+			label, label_col, ui.FONT_SIZE_XS,
+		))
+	}
+}
+
+// OI subplot: line chart of open interest.
+subplot_oi_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs, subplot_vp: ui.Rect) {
+	if ctx == nil || out == nil || ctx.stream == nil do return
+	store := &ctx.stream.analytics
+	if store.count <= 0 do return
+
+	entries: [SUBPLOT_COLLECT_CAP]services.Analytics_Entry
+	n := services.analytics_collect_by_kind(store, .Open_Interest, entries[:])
+	if n < 2 do return
+
+	// Find min/max OI for y-axis scaling.
+	min_val := entries[0].values[0]
+	max_val := entries[0].values[0]
+	for i in 1 ..< n {
+		v := entries[i].values[0]
+		if v < min_val do min_val = v
+		if v > max_val do max_val = v
+	}
+	if max_val <= min_val {
+		max_val = min_val + 1.0
+	}
+
+	// Subplot background + divider.
+	subplot_push_bg(out, subplot_vp)
+
+	// Draw OI line segments.
+	slot_w := subplot_vp.size.x / f32(max(n - 1, 1))
+	for i in 1 ..< n {
+		x0 := subplot_vp.pos.x + f32(i - 1) * slot_w
+		x1 := subplot_vp.pos.x + f32(i) * slot_w
+		y0 := subplot_val_to_y(subplot_vp, min_val, max_val, entries[i - 1].values[0])
+		y1 := subplot_val_to_y(subplot_vp, min_val, max_val, entries[i].values[0])
+		layer_outputs_push_line(out, 25, Render_Line{
+			from = {x0, y0}, to = {x1, y1},
+			color = ui.with_alpha(ui.COL_ACCENT_CYAN, 0.85),
+			thickness = 1.5,
+		})
+	}
+
+	// Label.
+	latest_oi := entries[n - 1].values[0]
+	label_buf: [32]u8
+	label := fmt.bprintf(label_buf[:], "OI %.0f", latest_oi)
+	layer_outputs_push_text_badge(out, 26, text_badge_make(
+		{subplot_vp.pos.x + 4, subplot_vp.pos.y + 10},
+		label, ui.COL_ACCENT_CYAN, ui.FONT_SIZE_XS,
+	))
+}
+
+// Helper: draw subplot background + top divider line.
+@(private = "file")
+subplot_push_bg :: proc(out: ^Layer_Outputs, vp: ui.Rect) {
+	layer_outputs_push_bar(out, 23, Render_Bar{
+		rect = vp,
+		color = ui.with_alpha(ui.COL_SURFACE_1, 0.6),
+	})
+	layer_outputs_push_line(out, 24, Render_Line{
+		from = {vp.pos.x, vp.pos.y},
+		to   = {rect_right(vp), vp.pos.y},
+		color = ui.COL_DIVIDER,
+		thickness = 1,
+	})
+}
+
+// Helper: map a value to y-coordinate within a subplot viewport.
+@(private = "file")
+subplot_val_to_y :: proc(vp: ui.Rect, min_val, max_val, val: f64) -> f32 {
+	if max_val <= min_val do return vp.pos.y + vp.size.y * 0.5
+	// Inset 4px top/bottom for padding.
+	pad := f32(4)
+	usable_h := vp.size.y - pad * 2
+	t := f32((val - min_val) / (max_val - min_val))
+	t = clamp(t, 0, 1)
+	return vp.pos.y + pad + usable_h * (1.0 - t)
+}
+
+analytics_layer_strategy :: proc() -> Layer_Strategy {
+	return Layer_Strategy{
+		id          = .Analytics,
+		name        = "Analytics",
+		// S86: Match on Analytics bit only — Bundle_Candles and Bundle_Analytics already include bit 6.
+		bundle_mask = u32(Layer_Bundle.Analytics),
+		z_order     = layer_z_order_for_id(.Analytics),
+		init        = layer_noop_init,
+		on_event    = layer_noop_on_event,
+		on_snapshot = layer_noop_on_snapshot,
+		render      = analytics_render,
+		reset       = layer_noop_reset,
+		diagnostics = analytics_diagnostics,
 	}
 }

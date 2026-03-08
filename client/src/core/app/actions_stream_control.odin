@@ -17,6 +17,8 @@ apply_pick_stream_action :: proc(state: ^App_State, subject_id: u64) {
 	sync_active_apply_state_from_slot(state)
 	ensure_active_candle_subject_id(state)
 	state.candle_health = .No_Data
+	// S92: Reset freshness for new stream — each stream has independent freshness.
+	state.freshness = {}
 	state.stream_switches_total += 1
 	if state.stores.candle.count <= 0 {
 		request_active_stream_candle_range(state)

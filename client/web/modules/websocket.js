@@ -20,6 +20,7 @@ export function initWebSocket() {
     let lastMsgTs = 0;
     let dropCount = 0;
     let epoch = 0;
+    let consecutiveErrors = 0; // S89: suppress repeated error logs
     const runtimeOverride = { ws_url: "", api_key: "" };
 
     // --- auth helpers ---
@@ -114,7 +115,12 @@ export function initWebSocket() {
         ws.onopen = () => {
             if (ws !== wsLocal || epoch !== localEpoch) return;
             wsState = 2;
-            console.log("[ws] connected to", sanitizeWsUrlForLog(wsUrl));
+            if (consecutiveErrors > 0) {
+                console.log("[ws] connected after", consecutiveErrors, "failed attempts to", sanitizeWsUrlForLog(wsUrl));
+            } else {
+                console.log("[ws] connected to", sanitizeWsUrlForLog(wsUrl));
+            }
+            consecutiveErrors = 0;
         };
         ws.onmessage = (ev) => {
             if (ws !== wsLocal || epoch !== localEpoch) return;
@@ -130,12 +136,21 @@ export function initWebSocket() {
         ws.onclose = (ev) => {
             if (ws !== wsLocal || epoch !== localEpoch) return;
             wsState = 0;
-            console.log("[ws] closed code=" + ev.code);
+            // S89: suppress repeated close logs during reconnection cycles.
+            if (consecutiveErrors === 0) {
+                console.log("[ws] closed code=" + ev.code);
+            }
         };
         ws.onerror = () => {
             if (ws !== wsLocal || epoch !== localEpoch) return;
             wsState = 0;
-            console.error("[ws] error");
+            consecutiveErrors += 1;
+            // S89: log first error, then only every 10th to reduce console noise.
+            if (consecutiveErrors === 1) {
+                console.warn("[ws] connection failed — will retry with backoff");
+            } else if (consecutiveErrors % 10 === 0) {
+                console.warn("[ws] still reconnecting... attempts=" + consecutiveErrors);
+            }
         };
 
         return true;

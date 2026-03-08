@@ -1,6 +1,7 @@
 package app
 
 import "core:fmt"
+import "mr:md_common"
 import "mr:ports"
 import "mr:services"
 import "mr:ui"
@@ -165,14 +166,22 @@ draw_top_bar :: proc(state: ^App_State, input: ports.Input_State, viewport_w: f3
 		right_x = rdy_x - 6
 	}
 
-	// S20 Slice 2: Freshness badge — shows "FLOWING" or "STALE" when freshness data loaded.
+	// S20 Slice 2: Freshness badge — shows "FLOWING", "STALE", or "SEEDING" when freshness data loaded.
+	// S92: Use was_ever_active latch to distinguish SEEDING from STALE.
+	// Previously composition stage was used, but it races ahead of the freshness poll.
 	if state.freshness.loaded && current_conn_status(state) == .Connected {
 		fr_label: string
 		fr_color: ui.Color
 		if state.freshness.active {
 			fr_label = "FLOWING"
 			fr_color = ui.COL_GREEN
+		} else if !state.freshness.was_ever_active {
+			// S92: Backend has never reported active=true — we are still seeding.
+			// This is stable regardless of composition stage advancement.
+			fr_label = "SEEDING"
+			fr_color = ui.with_alpha(ui.COL_WHITE, 0.5)
 		} else {
+			// Backend was active before but is now inactive — real staleness.
 			fr_label = "STALE"
 			fr_color = ui.COL_YELLOW_ACCENT
 		}
@@ -438,7 +447,7 @@ draw_top_bar :: proc(state: ^App_State, input: ports.Input_State, viewport_w: f3
 		Ind_Pill :: struct { key: string, active: bool, color: ui.Color }
 		fci := state.world.focused
 		fc_ok := fci >= 0 && fci < state.world.count && state.world.widgets[fci].kind == .Candle
-		ind_pills := [8]Ind_Pill{
+		ind_pills := [11]Ind_Pill{
 			{"M", fc_ok ? state.world.indicators[fci].show_ma      : state.indicators.show_ma,      {0.98, 0.85, 0.2, 1}},
 			{"B", fc_ok ? state.world.indicators[fci].show_bbands  : state.indicators.show_bbands,  {0.7, 0.4, 1.0, 1}},
 			{"V", fc_ok ? state.world.indicators[fci].show_vwap    : state.indicators.show_vwap,    ui.COL_ACCENT_CYAN},
@@ -447,6 +456,9 @@ draw_top_bar :: proc(state: ^App_State, input: ports.Input_State, viewport_w: f3
 			{"H", fc_ok ? state.world.indicators[fci].show_funding : state.indicators.show_funding, {0.2, 0.75, 0.95, 1}},
 			{"J", fc_ok ? state.world.indicators[fci].show_liq     : state.indicators.show_liq,     {0.96, 0.65, 0.2, 1}},
 			{"K", fc_ok ? state.world.indicators[fci].show_trade_counter : state.indicators.show_trade_counter, {0.85, 0.55, 0.95, 1}},
+			{"C", fc_ok ? state.world.indicators[fci].show_cvd       : state.indicators.show_cvd,       {0.3, 0.9, 0.5, 1}},
+			{"D", fc_ok ? state.world.indicators[fci].show_delta_vol : state.indicators.show_delta_vol, {0.9, 0.4, 0.3, 1}},
+			{"O", fc_ok ? state.world.indicators[fci].show_oi        : state.indicators.show_oi,        {0.4, 0.7, 0.95, 1}},
 		}
 		pill_w := f32(16)
 		pill_h := f32(18)

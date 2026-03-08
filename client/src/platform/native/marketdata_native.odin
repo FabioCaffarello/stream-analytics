@@ -519,6 +519,11 @@ make_marketdata_native :: proc(url: string, api_key: string = "") -> ports.Marke
 		fetch_timeline  = native_fetch_timeline,
 		fetch_instrument_overview = native_fetch_instrument_overview,
 		fetch_session_dashboard  = native_fetch_session_dashboard,
+		fetch_analytics_cvd          = native_fetch_analytics_cvd,
+		fetch_analytics_delta_volume = native_fetch_analytics_delta_volume,
+		fetch_analytics_bar_stats    = native_fetch_analytics_bar_stats,
+		fetch_analytics_oi           = native_fetch_analytics_oi,
+		fetch_session_volume_profile = native_fetch_session_volume_profile,
 	}
 }
 
@@ -794,6 +799,11 @@ native_metrics :: proc(out: ^ports.MD_Runtime_Metrics) -> bool {
 	if state.vpvr_dirty do latest_pending += 1
 	if state.candle_ring_count > 0 do latest_pending += 1
 	if state.signal_ring_count > 0 do latest_pending += 1
+	// S98: Analytics pending.
+	if state.oi_dirty do latest_pending += 1
+	if state.delta_vol_dirty do latest_pending += 1
+	if state.cvd_dirty do latest_pending += 1
+	if state.bar_stats_dirty do latest_pending += 1
 	sm := state.server_metrics
 	out^ = ports.MD_Runtime_Metrics{
 		active_subs       = state.active_count,
@@ -877,9 +887,6 @@ native_metrics :: proc(out: ^ports.MD_Runtime_Metrics) -> bool {
 		snapshot_seq_violations      = state.snapshot_seq_violations,
 		prev_seq_violations          = state.prev_seq_violations,
 		hash_validation_skipped      = state.hash_validation_skipped,
-		// Legacy tracking.
-		legacy_downgrade_count       = state.legacy_downgrade_count,
-		legacy_connected_since_ms    = state.legacy_connected_since_ms,
 	}
 	// Copy recommended_action from server metrics.
 	ra_n := min(int(sm.recommended_action_len), len(out.server_recommended_action))
@@ -1272,7 +1279,7 @@ native_poll :: proc(events_buf: []ports.MD_Event) -> int {
 	if state.oi_dirty && n < len(events_buf) {
 		oi := state.oi_staging
 		events_buf[n].source.subject_id = oi.subject_id
-		events_buf[n].source.channel = .Stats  // reuse channel (no analytics channel enum yet)
+		events_buf[n].source.channel = .Analytics_OI  // S98: dedicated analytics channel
 		events_buf[n].source.seq = oi.seq
 		events_buf[n].kind = .Open_Interest
 		events_buf[n].unix = oi.unix
@@ -1290,7 +1297,7 @@ native_poll :: proc(events_buf: []ports.MD_Event) -> int {
 	if state.delta_vol_dirty && n < len(events_buf) {
 		dv := state.delta_vol_staging
 		events_buf[n].source.subject_id = dv.subject_id
-		events_buf[n].source.channel = .Stats
+		events_buf[n].source.channel = .Analytics_Delta_Volume  // S98
 		events_buf[n].source.seq = dv.seq
 		events_buf[n].kind = .Delta_Volume
 		events_buf[n].unix = dv.unix
@@ -1308,7 +1315,7 @@ native_poll :: proc(events_buf: []ports.MD_Event) -> int {
 	if state.cvd_dirty && n < len(events_buf) {
 		cv := state.cvd_staging
 		events_buf[n].source.subject_id = cv.subject_id
-		events_buf[n].source.channel = .Stats
+		events_buf[n].source.channel = .Analytics_CVD  // S98
 		events_buf[n].source.seq = cv.seq
 		events_buf[n].kind = .CVD
 		events_buf[n].unix = cv.unix
@@ -1325,7 +1332,7 @@ native_poll :: proc(events_buf: []ports.MD_Event) -> int {
 	if state.bar_stats_dirty && n < len(events_buf) {
 		bs := state.bar_stats_staging
 		events_buf[n].source.subject_id = bs.subject_id
-		events_buf[n].source.channel = .Stats
+		events_buf[n].source.channel = .Analytics_Bar_Stats  // S98
 		events_buf[n].source.seq = bs.seq
 		events_buf[n].kind = .Bar_Stats
 		events_buf[n].unix = bs.unix
@@ -2553,4 +2560,47 @@ native_fetch_instrument_overview :: proc(out_buf: [^]u8, out_cap: i32, venue: st
 @(private = "file")
 native_fetch_session_dashboard :: proc(out_buf: [^]u8, out_cap: i32) -> i32 {
 	return native_http_get("/api/v1/session/dashboard", out_buf, out_cap)
+}
+
+// S83: Analytics cold reader port implementations.
+
+@(private = "file")
+native_fetch_analytics_cvd :: proc(out_buf: [^]u8, out_cap: i32, venue: string, instrument: string, timeframe: string, limit: i32) -> i32 {
+	if len(venue) == 0 || len(instrument) == 0 || len(timeframe) == 0 do return 0
+	path_buf: [512]u8
+	path := fmt.bprintf(path_buf[:], "/api/v1/cvd?venue=%s&instrument=%s&timeframe=%s&fromMs=0&toMs=9999999999999&limit=%d", venue, instrument, timeframe, limit)
+	return native_http_get(path, out_buf, out_cap)
+}
+
+@(private = "file")
+native_fetch_analytics_delta_volume :: proc(out_buf: [^]u8, out_cap: i32, venue: string, instrument: string, timeframe: string, limit: i32) -> i32 {
+	if len(venue) == 0 || len(instrument) == 0 || len(timeframe) == 0 do return 0
+	path_buf: [512]u8
+	path := fmt.bprintf(path_buf[:], "/api/v1/delta_volume?venue=%s&instrument=%s&timeframe=%s&fromMs=0&toMs=9999999999999&limit=%d", venue, instrument, timeframe, limit)
+	return native_http_get(path, out_buf, out_cap)
+}
+
+@(private = "file")
+native_fetch_analytics_bar_stats :: proc(out_buf: [^]u8, out_cap: i32, venue: string, instrument: string, timeframe: string, limit: i32) -> i32 {
+	if len(venue) == 0 || len(instrument) == 0 || len(timeframe) == 0 do return 0
+	path_buf: [512]u8
+	path := fmt.bprintf(path_buf[:], "/api/v1/bar_stats?venue=%s&instrument=%s&timeframe=%s&fromMs=0&toMs=9999999999999&limit=%d", venue, instrument, timeframe, limit)
+	return native_http_get(path, out_buf, out_cap)
+}
+
+@(private = "file")
+native_fetch_analytics_oi :: proc(out_buf: [^]u8, out_cap: i32, venue: string, instrument: string, timeframe: string, limit: i32) -> i32 {
+	if len(venue) == 0 || len(instrument) == 0 || len(timeframe) == 0 do return 0
+	path_buf: [512]u8
+	path := fmt.bprintf(path_buf[:], "/api/v1/oi?venue=%s&instrument=%s&timeframe=%s&fromMs=0&toMs=9999999999999&limit=%d", venue, instrument, timeframe, limit)
+	return native_http_get(path, out_buf, out_cap)
+}
+
+@(private = "file")
+native_fetch_session_volume_profile :: proc(out_buf: [^]u8, out_cap: i32, venue: string, instrument: string, anchor: string) -> i32 {
+	if len(venue) == 0 || len(instrument) == 0 do return 0
+	path_buf: [512]u8
+	a := anchor if len(anchor) > 0 else "current"
+	path := fmt.bprintf(path_buf[:], "/api/v1/insights/session-vp?venue=%s&instrument=%s&anchor=%s", venue, instrument, a)
+	return native_http_get(path, out_buf, out_cap)
 }

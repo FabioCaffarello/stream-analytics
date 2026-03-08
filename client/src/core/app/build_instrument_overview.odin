@@ -10,6 +10,7 @@ import "mr:ui"
 
 OVERVIEW_PAD_X :: f32(16)
 OVERVIEW_POLL_INTERVAL :: u64(600) // ~10s at 60fps
+OVERVIEW_RETRY_INTERVAL :: u64(300) // ~5s at 60fps — faster retry on error
 
 // --- Page lifecycle ---
 
@@ -81,12 +82,13 @@ fetch_instrument_overview :: proc(state: ^App_State) {
 }
 
 // Poll overview periodically while on the page.
+// S89: HTTP endpoint is independent of WS — don't gate on connection status.
 @(private = "package")
 poll_instrument_overview :: proc(state: ^App_State) {
 	if state.chrome.active_route != .Instrument_Overview do return
 	if state.instrument_overview.venue_len == 0 do return
-	if current_conn_status(state) != .Connected do return
-	if state.frame % OVERVIEW_POLL_INTERVAL != 0 && state.instrument_overview.fetch_status != .Idle do return
+	interval := state.instrument_overview.fetch_status == .Error ? OVERVIEW_RETRY_INTERVAL : OVERVIEW_POLL_INTERVAL
+	if state.frame % interval != 0 && state.instrument_overview.fetch_status != .Idle do return
 	fetch_instrument_overview(state)
 }
 

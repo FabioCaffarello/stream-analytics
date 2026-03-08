@@ -819,7 +819,156 @@ apply_set_compare_pane_timeframe :: proc(state: ^App_State, pane_idx: int, tf_id
 	// Request historical data for the new TF.
 	request_compare_pane_candle_range(state, pane_idx)
 
+	// S95: Refetch subplot analytics for the new TF.
+	request_compare_pane_subplot_analytics(state, pane_idx)
+
 	return true
+}
+
+// S84: Request analytics range data for a compare pane.
+// Resolves venue/symbol/TF from the pane's seed slot, then dispatches
+// to the appropriate cold reader API for the pane's analytics kind.
+request_compare_pane_analytics_range :: proc(state: ^App_State, pane_idx: int) {
+	if state == nil do return
+	if pane_idx < 0 || pane_idx >= state.compare.count do return
+
+	seed_sid := state.compare.slots[pane_idx]
+	if seed_sid == 0 do return
+
+	reg := state.stream_views
+	if reg == nil do return
+
+	slot_idx := stream_view_find_slot(reg, seed_sid)
+	if slot_idx < 0 do return
+	slot := &reg.slots[slot_idx]
+	if !slot.has_stream_info { refresh_stream_info_for_slot(state, slot) }
+	if !slot.has_stream_info do return
+
+	venue := slot.stream_info.venue
+	symbol := normalized_symbol(slot.stream_info.symbol)  // S92: Normalize to strip market type suffix for API.
+	if len(venue) == 0 || len(symbol) == 0 do return
+
+	tf := compare_pane_effective_tf_string(state, pane_idx)
+	kind := state.compare.analytics_kind[pane_idx]
+
+	// Resolve target store: per-slot analytics store for isolation.
+	eff_sid := compare_pane_resolve_subject_id(state, pane_idx)
+	store: ^services.Analytics_Store
+	if eff_sid != 0 {
+		if eff_idx := stream_view_find_slot(reg, eff_sid); eff_idx >= 0 {
+			store = &reg.slots[eff_idx].analytics_store
+		}
+	}
+	if store == nil {
+		store = &reg.slots[slot_idx].analytics_store
+	}
+
+	buf: [ANALYTICS_RANGE_BUF_CAP]u8
+	switch kind {
+	case .CVD:
+		if state.marketdata.fetch_analytics_cvd != nil {
+			n := state.marketdata.fetch_analytics_cvd(&buf[0], ANALYTICS_RANGE_BUF_CAP, venue, symbol, tf, 64)
+			if n > 0 { services.parse_analytics_cvd_range(store, buf[:n]) }
+		}
+	case .Delta_Volume:
+		if state.marketdata.fetch_analytics_delta_volume != nil {
+			n := state.marketdata.fetch_analytics_delta_volume(&buf[0], ANALYTICS_RANGE_BUF_CAP, venue, symbol, tf, 64)
+			if n > 0 { services.parse_analytics_delta_volume_range(store, buf[:n]) }
+		}
+	case .Bar_Stats:
+		if state.marketdata.fetch_analytics_bar_stats != nil {
+			n := state.marketdata.fetch_analytics_bar_stats(&buf[0], ANALYTICS_RANGE_BUF_CAP, venue, symbol, tf, 64)
+			if n > 0 { services.parse_analytics_bar_stats_range(store, buf[:n]) }
+		}
+	case .Open_Interest:
+		if state.marketdata.fetch_analytics_oi != nil {
+			n := state.marketdata.fetch_analytics_oi(&buf[0], ANALYTICS_RANGE_BUF_CAP, venue, symbol, tf, 64)
+			if n > 0 { services.parse_analytics_oi_range(store, buf[:n]) }
+		}
+	}
+}
+
+// S95: Fetch analytics range data for all active subplots on a compare pane.
+// Called on compare entry and when subplots are toggled on.
+request_compare_pane_subplot_analytics :: proc(state: ^App_State, pane_idx: int) {
+	if state == nil do return
+	if pane_idx < 0 || pane_idx >= state.compare.count do return
+
+	if state.compare.show_cvd[pane_idx] {
+		request_compare_pane_subplot_analytics_kind(state, pane_idx, .CVD)
+	}
+	if state.compare.show_delta_vol[pane_idx] {
+		request_compare_pane_subplot_analytics_kind(state, pane_idx, .Delta_Volume)
+	}
+	if state.compare.show_oi[pane_idx] {
+		request_compare_pane_subplot_analytics_kind(state, pane_idx, .Open_Interest)
+	}
+}
+
+// S95: Fetch analytics range for a specific kind on a compare pane.
+// Reuses the same resolution logic as request_compare_pane_analytics_range
+// but with an explicit kind parameter instead of the pane's analytics_kind.
+request_compare_pane_subplot_analytics_kind :: proc(
+	state: ^App_State,
+	pane_idx: int,
+	kind: services.Analytics_Kind,
+) {
+	if state == nil do return
+	if pane_idx < 0 || pane_idx >= state.compare.count do return
+
+	seed_sid := state.compare.slots[pane_idx]
+	if seed_sid == 0 do return
+
+	reg := state.stream_views
+	if reg == nil do return
+
+	slot_idx := stream_view_find_slot(reg, seed_sid)
+	if slot_idx < 0 do return
+	slot := &reg.slots[slot_idx]
+	if !slot.has_stream_info { refresh_stream_info_for_slot(state, slot) }
+	if !slot.has_stream_info do return
+
+	venue := slot.stream_info.venue
+	symbol := normalized_symbol(slot.stream_info.symbol)
+	if len(venue) == 0 || len(symbol) == 0 do return
+
+	tf := compare_pane_effective_tf_string(state, pane_idx)
+
+	// Resolve target store: per-slot analytics store.
+	eff_sid := compare_pane_resolve_subject_id(state, pane_idx)
+	store: ^services.Analytics_Store
+	if eff_sid != 0 {
+		if eff_idx := stream_view_find_slot(reg, eff_sid); eff_idx >= 0 {
+			store = &reg.slots[eff_idx].analytics_store
+		}
+	}
+	if store == nil {
+		store = &reg.slots[slot_idx].analytics_store
+	}
+
+	buf: [ANALYTICS_RANGE_BUF_CAP]u8
+	switch kind {
+	case .CVD:
+		if state.marketdata.fetch_analytics_cvd != nil {
+			n := state.marketdata.fetch_analytics_cvd(&buf[0], ANALYTICS_RANGE_BUF_CAP, venue, symbol, tf, 64)
+			if n > 0 { services.parse_analytics_cvd_range(store, buf[:n]) }
+		}
+	case .Delta_Volume:
+		if state.marketdata.fetch_analytics_delta_volume != nil {
+			n := state.marketdata.fetch_analytics_delta_volume(&buf[0], ANALYTICS_RANGE_BUF_CAP, venue, symbol, tf, 64)
+			if n > 0 { services.parse_analytics_delta_volume_range(store, buf[:n]) }
+		}
+	case .Bar_Stats:
+		if state.marketdata.fetch_analytics_bar_stats != nil {
+			n := state.marketdata.fetch_analytics_bar_stats(&buf[0], ANALYTICS_RANGE_BUF_CAP, venue, symbol, tf, 64)
+			if n > 0 { services.parse_analytics_bar_stats_range(store, buf[:n]) }
+		}
+	case .Open_Interest:
+		if state.marketdata.fetch_analytics_oi != nil {
+			n := state.marketdata.fetch_analytics_oi(&buf[0], ANALYTICS_RANGE_BUF_CAP, venue, symbol, tf, 64)
+			if n > 0 { services.parse_analytics_oi_range(store, buf[:n]) }
+		}
+	}
 }
 
 // S37: Resolve global TF in milliseconds (utility, retained for non-pane contexts).

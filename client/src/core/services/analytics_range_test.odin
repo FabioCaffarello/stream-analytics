@@ -172,3 +172,198 @@ test_parse_oi_range_unknown_confidence :: proc(t: ^testing.T) {
 	entry := get_analytics(&store, 0)
 	testing.expect_value(t, entry.confidence, u8(0)) // unknown maps to 0
 }
+
+// --- S83: Robustness tests ---
+
+@(test)
+test_parse_cvd_range_invalid_json :: proc(t: ^testing.T) {
+	store: Analytics_Store
+	// Garbage bytes — no valid JSON objects.
+	n := parse_analytics_cvd_range(&store, transmute([]u8)string("not json at all"))
+	testing.expect_value(t, n, 0)
+	testing.expect_value(t, store.count, 0)
+}
+
+@(test)
+test_parse_delta_volume_range_empty_array :: proc(t: ^testing.T) {
+	store: Analytics_Store
+	n := parse_analytics_delta_volume_range(&store, transmute([]u8)string("[]"))
+	testing.expect_value(t, n, 0)
+	testing.expect_value(t, store.count, 0)
+}
+
+@(test)
+test_parse_bar_stats_range_truncated :: proc(t: ^testing.T) {
+	store: Analytics_Store
+	// Truncated mid-object — no closing brace.
+	raw := transmute([]u8)string(`[{"TradeCount":30,"BuyCount":18`)
+	n := parse_analytics_bar_stats_range(&store, raw)
+	testing.expect_value(t, n, 0)
+	testing.expect_value(t, store.count, 0)
+}
+
+@(test)
+test_parse_cvd_range_missing_fields :: proc(t: ^testing.T) {
+	store: Analytics_Store
+	// Object present but missing all expected keys — values default to 0.
+	raw := transmute([]u8)string(`[{"foo":"bar"}]`)
+	n := parse_analytics_cvd_range(&store, raw)
+	testing.expect_value(t, n, 1)
+	entry, ok := get_analytics_latest(&store, .CVD)
+	testing.expect(t, ok)
+	testing.expect(t, entry.values[0] == 0.0)
+	testing.expect(t, entry.values[1] == 0.0)
+	testing.expect_value(t, entry.seq, i64(0))
+}
+
+@(test)
+test_parse_oi_range_truncated_mid_array :: proc(t: ^testing.T) {
+	store: Analytics_Store
+	// First object is complete, second is truncated.
+	raw := transmute([]u8)string(`[{"open_interest":100,"delta":1,"delta_pct":1,"cadence_hint_ms":5000,"confidence":"high","window_start_ts":100,"window_end_ts":200,"seq":1,"ts_ingest_ms":200},{"open_interest":200,"delta":2`)
+	count := parse_analytics_oi_range(&store, raw)
+	testing.expect_value(t, count, 1) // only first entry parsed
+}
+
+@(test)
+test_parse_delta_volume_range_nil_store :: proc(t: ^testing.T) {
+	raw := transmute([]u8)string(`[{"BuyVolume":1,"SellVolume":1,"DeltaVolume":0,"WindowStartTs":100,"WindowEndTs":200,"Seq":1,"TsIngestMs":200}]`)
+	n := parse_analytics_delta_volume_range(nil, raw)
+	testing.expect_value(t, n, 0)
+}
+
+@(test)
+test_parse_bar_stats_range_nil_store :: proc(t: ^testing.T) {
+	raw := transmute([]u8)string(`[{"TradeCount":10,"BuyCount":5,"SellCount":5,"TotalVolume":5.0,"BuyVolume":2.5,"SellVolume":2.5,"VwapPrice":100.0,"Imbalance":0.0,"IsBurst":false,"WindowStartTs":100,"WindowEndTs":200,"Seq":1,"TsIngestMs":200}]`)
+	n := parse_analytics_bar_stats_range(nil, raw)
+	testing.expect_value(t, n, 0)
+}
+
+@(test)
+test_parse_oi_range_nil_store :: proc(t: ^testing.T) {
+	raw := transmute([]u8)string(`[{"open_interest":100,"delta":0,"delta_pct":0,"cadence_hint_ms":0,"confidence":"high","window_start_ts":1000,"window_end_ts":1000,"seq":1,"ts_ingest_ms":1001}]`)
+	n := parse_analytics_oi_range(nil, raw)
+	testing.expect_value(t, n, 0)
+}
+
+@(test)
+test_parse_delta_volume_range_budget_limit :: proc(t: ^testing.T) {
+	store: Analytics_Store
+	buf: [16384]u8
+	off := 0
+	buf[off] = '['; off += 1
+	for i := 0; i < 80; i += 1 {
+		if i > 0 { buf[off] = ','; off += 1 }
+		src := `{"BuyVolume":1.0,"SellVolume":1.0,"DeltaVolume":0.0,"WindowStartTs":100,"WindowEndTs":200,"Seq":1,"TsIngestMs":200}`
+		for c in src { buf[off] = u8(c); off += 1 }
+	}
+	buf[off] = ']'; off += 1
+	n := parse_analytics_delta_volume_range(&store, buf[:off])
+	testing.expect_value(t, n, ANALYTICS_RANGE_BUDGET)
+}
+
+@(test)
+test_parse_bar_stats_range_budget_limit :: proc(t: ^testing.T) {
+	store: Analytics_Store
+	buf: [32768]u8
+	off := 0
+	buf[off] = '['; off += 1
+	for i := 0; i < 80; i += 1 {
+		if i > 0 { buf[off] = ','; off += 1 }
+		src := `{"TradeCount":1,"BuyCount":1,"SellCount":0,"TotalVolume":1.0,"BuyVolume":1.0,"SellVolume":0.0,"VwapPrice":100.0,"Imbalance":0.0,"IsBurst":false,"WindowStartTs":100,"WindowEndTs":200,"Seq":1,"TsIngestMs":200}`
+		for c in src { buf[off] = u8(c); off += 1 }
+	}
+	buf[off] = ']'; off += 1
+	n := parse_analytics_bar_stats_range(&store, buf[:off])
+	testing.expect_value(t, n, ANALYTICS_RANGE_BUDGET)
+}
+
+// --- S93: Missing edge-case tests for DV/BS/OI parity with CVD ---
+
+@(test)
+test_parse_delta_volume_range_invalid_json :: proc(t: ^testing.T) {
+	store: Analytics_Store
+	n := parse_analytics_delta_volume_range(&store, transmute([]u8)string("not json at all"))
+	testing.expect_value(t, n, 0)
+	testing.expect_value(t, store.count, 0)
+}
+
+@(test)
+test_parse_delta_volume_range_missing_fields :: proc(t: ^testing.T) {
+	store: Analytics_Store
+	raw := transmute([]u8)string(`[{"foo":"bar"}]`)
+	n := parse_analytics_delta_volume_range(&store, raw)
+	testing.expect_value(t, n, 1)
+	entry, ok := get_analytics_latest(&store, .Delta_Volume)
+	testing.expect(t, ok)
+	testing.expect(t, entry.values[0] == 0.0)
+	testing.expect(t, entry.values[1] == 0.0)
+	testing.expect(t, entry.values[2] == 0.0)
+	testing.expect_value(t, entry.seq, i64(0))
+}
+
+@(test)
+test_parse_delta_volume_range_truncated :: proc(t: ^testing.T) {
+	store: Analytics_Store
+	raw := transmute([]u8)string(`[{"BuyVolume":12.0,"SellVolume":9.0`)
+	n := parse_analytics_delta_volume_range(&store, raw)
+	testing.expect_value(t, n, 0)
+	testing.expect_value(t, store.count, 0)
+}
+
+@(test)
+test_parse_bar_stats_range_invalid_json :: proc(t: ^testing.T) {
+	store: Analytics_Store
+	n := parse_analytics_bar_stats_range(&store, transmute([]u8)string("garbage bytes"))
+	testing.expect_value(t, n, 0)
+	testing.expect_value(t, store.count, 0)
+}
+
+@(test)
+test_parse_bar_stats_range_missing_fields :: proc(t: ^testing.T) {
+	store: Analytics_Store
+	raw := transmute([]u8)string(`[{"unrelated":999}]`)
+	n := parse_analytics_bar_stats_range(&store, raw)
+	testing.expect_value(t, n, 1)
+	entry, ok := get_analytics_latest(&store, .Bar_Stats)
+	testing.expect(t, ok)
+	testing.expect(t, entry.values[0] == 0.0) // trade_count
+	testing.expect(t, entry.values[6] == 0.0) // vwap
+	testing.expect(t, entry.values[7] == 0.0) // imbalance
+	testing.expect(t, (entry.flags & 1) == 0) // no burst
+	testing.expect_value(t, entry.seq, i64(0))
+}
+
+@(test)
+test_parse_oi_range_invalid_json :: proc(t: ^testing.T) {
+	store: Analytics_Store
+	n := parse_analytics_oi_range(&store, transmute([]u8)string("not valid json"))
+	testing.expect_value(t, n, 0)
+	testing.expect_value(t, store.count, 0)
+}
+
+@(test)
+test_parse_oi_range_missing_fields :: proc(t: ^testing.T) {
+	store: Analytics_Store
+	raw := transmute([]u8)string(`[{"irrelevant":true}]`)
+	n := parse_analytics_oi_range(&store, raw)
+	testing.expect_value(t, n, 1)
+	entry, ok := get_analytics_latest(&store, .Open_Interest)
+	testing.expect(t, ok)
+	testing.expect(t, entry.values[0] == 0.0) // open_interest
+	testing.expect(t, entry.values[1] == 0.0) // delta
+	testing.expect(t, entry.values[2] == 0.0) // delta_pct
+	testing.expect_value(t, entry.cadence_hint_ms, i64(0))
+	testing.expect_value(t, entry.confidence, u8(0))
+	testing.expect_value(t, entry.seq, i64(0))
+}
+
+@(test)
+test_parse_cvd_range_truncated :: proc(t: ^testing.T) {
+	store: Analytics_Store
+	raw := transmute([]u8)string(`[{"DeltaVolume":1.5,"CVD":100.0`)
+	n := parse_analytics_cvd_range(&store, raw)
+	testing.expect_value(t, n, 0)
+	testing.expect_value(t, store.count, 0)
+}
+

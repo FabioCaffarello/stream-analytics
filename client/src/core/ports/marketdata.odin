@@ -69,6 +69,11 @@ MD_Channel :: enum u8 {
 	Evidence,
 	Signals,
 	Tape,
+	// S98: Analytics subscription channels — each maps to a distinct NATS subject.
+	Analytics_CVD,
+	Analytics_Delta_Volume,
+	Analytics_OI,
+	Analytics_Bar_Stats,
 }
 
 MD_Desync_Reason :: enum u8 {
@@ -359,21 +364,14 @@ MD_Runtime_Metrics :: struct {
 	canonical_stats_frames:       u64,
 	stats_fallback_frames:        u64,
 	canonical_evidence_frames:    u64,
-	legacy_evidence_frames:       u64,
 	evidence_fallback_frames:     u64,
 	canonical_signal_frames:      u64,
-	legacy_signal_frames:         u64,
 	signal_fallback_frames:       u64,
-	legacy_evidence_rejected:     u64,
-	legacy_signal_rejected:       u64,
 	// Integrity counters.
 	snapshot_hash_mismatches:     int,
 	snapshot_seq_violations:      int,
 	prev_seq_violations:         int,
 	hash_validation_skipped:     int,  // skipped byte-perfect hash verify (noncanonical)
-	// Legacy tracking.
-	legacy_downgrade_count:       int,
-	legacy_connected_since_ms:    i64,
 }
 
 MD_Event :: struct {

@@ -116,5 +116,109 @@ drain_layer_marketdata :: proc(state: ^App_State) -> int {
 	}
 
 	sync_legacy_stores_from_layer_store(state)
+
+	// S97: Reconnection detection — migrated from legacy drain path.
+	conn := current_conn_status(state)
+	if conn == .Connected && state.conn.prev_conn_for_reconcile != .Connected {
+		state.conn.needs_reconcile = true
+		state.prev_subs_count = 0
+		for ci in 0 ..< state.world.count {
+			state.world.getranges[ci].pending = false
+		}
+		for cpi in 0 ..< state.compare.count {
+			state.compare.getranges[cpi] = {}
+		}
+		if state.stream_views != nil {
+			for si in 0 ..< STREAM_VIEW_CAP {
+				if !state.stream_views.slots[si].used do continue
+				md_common.apply_state_on_reconnect(&state.stream_views.slots[si].apply_state)
+			}
+		}
+		reconnect_active_apply_state(state)
+		state.freshness.loaded = false
+		state.timeline = {}
+		state.was_ever_connected = true
+		if state.compare.active {
+			for cpi in 0 ..< state.compare.count {
+				request_compare_pane_candle_range(state, cpi)
+			}
+		}
+	}
+	state.conn.prev_conn_for_reconcile = conn
+	if state.conn.needs_reconcile {
+		state.conn.needs_reconcile = false
+		reconcile_subscriptions(state)
+	}
+
+	// S97: GetRange timeout — migrated from legacy drain path.
+	GETRANGE_TIMEOUT_FRAMES :: u64(300)
+	if md_common.apply_state_check_getrange_timeout(state.active_apply_state, state.frame, GETRANGE_TIMEOUT_FRAMES) {
+		state.active_apply_state.getrange_pending = false
+		state.active_apply_state.getrange_request_id = 0
+		apply_state_sync_to_getrange(state)
+		record_error(state, .GetRange_Timeout, "GetRange timeout (global)")
+	}
+	for ci in 0 ..< state.world.count {
+		gr := &state.world.getranges[ci]
+		if gr.pending && state.frame > gr.sent_frame + GETRANGE_TIMEOUT_FRAMES {
+			gr.pending = false
+			record_error(state, .GetRange_Timeout, "GetRange timeout (cell)")
+		}
+	}
+	if state.compare.active {
+		for cpi in 0 ..< state.compare.count {
+			cgr := &state.compare.getranges[cpi]
+			if cgr.pending && state.frame > cgr.sent_frame + GETRANGE_TIMEOUT_FRAMES {
+				cgr.pending = false
+				record_error(state, .GetRange_Timeout, "GetRange timeout (compare pane)")
+			}
+		}
+	}
+
+	// S97: Lazy candle loading — migrated from legacy drain path.
+	check_lazy_candle_loading(state)
+
+	// S97: Lifecycle derivation — migrated from legacy drain path.
+	state.lifecycle = md_common.derive_lifecycle(
+		state.bootstrap.has_session,
+		state.bootstrap.ready,
+		state.stores.markets.loaded,
+		conn == .Connected,
+		state.was_ever_connected,
+		state.active_metrics.subscribe_acks > 0,
+		result.processed > 0,
+		state.active_metrics.desync_reason != .None,
+	)
+
+	// S97: Lazy re-resolution — migrated from legacy drain path.
+	if result.processed > 0 && state.stream_views != nil {
+		for ci in 0 ..< state.world.count {
+			bind := &state.world.bindings[ci]
+			if bind.stream_idx >= 0 do continue
+			if !binding_has(bind) do continue
+			bv := binding_venue(bind)
+			bs := binding_symbol(bind)
+			for si in 0 ..< STREAM_VIEW_CAP {
+				if !state.stream_views.slots[si].used do continue
+				slot := &state.stream_views.slots[si]
+				if !slot.has_stream_info { refresh_stream_info_for_slot(state, slot) }
+				if slot.has_stream_info && slot.stream_info.venue == bv && slot.stream_info.symbol == bs {
+					bind.stream_idx = si
+					break
+				}
+			}
+		}
+	}
+
+	// S97: Slot repair + seeding.
+	if state.stream_views != nil && result.processed > 0 {
+		if stream_view_repair_invariants(state.stream_views) {
+			sync_active_stream_view_to_global_stores(state)
+		}
+		if state.stream_views.has_active && state.stores.candle.count <= 0 {
+			request_active_stream_candle_range(state)
+		}
+	}
+
 	return result.processed
 }

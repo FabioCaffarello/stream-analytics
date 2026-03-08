@@ -608,8 +608,11 @@ now_ms :: proc() -> i64 {
 
 subject_for_channel :: proc(venue, symbol, tf_filter: string, channel: ports.MD_Channel) -> string {
 	tf := ""
-	if channel == .Heatmaps || channel == .VPVR || channel == .Candles || channel == .Signals || channel == .Tape {
+	#partial switch channel {
+	case .Heatmaps, .VPVR, .Candles, .Signals, .Tape,
+	     .Analytics_CVD, .Analytics_Delta_Volume, .Analytics_OI, .Analytics_Bar_Stats:
 		tf = tf_filter
+	case: // static channels — no TF
 	}
 	return util.build_subject_with_timeframe(venue, symbol, channel, tf)
 }

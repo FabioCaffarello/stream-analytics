@@ -76,6 +76,27 @@ analytics_count_by_kind :: proc(store: ^Analytics_Store, kind: Analytics_Kind) -
 	return n
 }
 
+// Collect up to `cap` most recent entries of a specific kind into `out` (oldest first).
+// Returns the number of entries written.
+analytics_collect_by_kind :: proc(store: ^Analytics_Store, kind: Analytics_Kind, out: []Analytics_Entry) -> int {
+	if store == nil || len(out) == 0 do return 0
+	// Single pass: collect newest-first, then reverse for oldest-first output.
+	n := 0
+	for i := 0; i < store.count && n < len(out); i += 1 {
+		idx := (store.head - 1 - i + ANALYTICS_STORE_CAP) % ANALYTICS_STORE_CAP
+		if store.entries[idx].kind == kind {
+			out[n] = store.entries[idx]
+			n += 1
+		}
+	}
+	// Reverse in-place: O(n/2) swaps for oldest-first order.
+	for i in 0 ..< n / 2 {
+		j := n - 1 - i
+		out[i], out[j] = out[j], out[i]
+	}
+	return n
+}
+
 // Clear the store.
 analytics_store_clear :: proc(store: ^Analytics_Store) {
 	store.head = 0

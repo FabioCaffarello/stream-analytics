@@ -152,6 +152,10 @@ Telemetry_State :: struct {
 	drain_us:             i64,
 	actions_us:           i64,
 	render_us:            i64,
+	// S97: Frame cost probes for dense dashboard scenarios.
+	subplot_count:        int,    // number of active subplots rendered this frame
+	compare_pane_count:   int,    // number of compare panes rendered this frame
+	layer_render_count:   int,    // total layer render calls this frame
 }
 
 Error_State :: struct {
@@ -221,6 +225,12 @@ Compare_State :: struct {
 	ob_grp:       [4]int,
 	trade_scroll: [4]f32,
 	trade_filter: [4]int,
+	// S84: Per-pane analytics config for compare mode analytics.
+	analytics_kind: [4]services.Analytics_Kind,
+	// S95: Per-pane subplot toggles for candle chart analytics.
+	show_cvd:       [4]bool,
+	show_delta_vol: [4]bool,
+	show_oi:        [4]bool,
 }
 
 Overlay_State :: struct {
@@ -424,21 +434,14 @@ Active_Stream_Metrics :: struct {
 	canonical_stats_frames:       u64,
 	stats_fallback_frames:        u64,
 	canonical_evidence_frames:    u64,
-	legacy_evidence_frames:       u64,
 	evidence_fallback_frames:     u64,
 	canonical_signal_frames:      u64,
-	legacy_signal_frames:         u64,
 	signal_fallback_frames:       u64,
-	legacy_evidence_rejected:     u64,
-	legacy_signal_rejected:       u64,
 	// Integrity counters.
 	snapshot_hash_mismatches:     int,
 	snapshot_seq_violations:      int,
 	prev_seq_violations:         int,
 	hash_validation_skipped:     int,
-	// Legacy tracking.
-	legacy_downgrade_count:       int,
-	legacy_connected_since_ms:    i64,
 	// Assisted backpressure tuning.
 	assist_enabled:               bool,
 	assist_degrade_heatmap:       bool,

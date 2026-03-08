@@ -78,9 +78,9 @@ build_settings_page :: proc(state: ^App_State, workspace: ui.Rect, pointer: ui.P
 		}
 	}
 
-	// Auto-connect toggle.
+	// Auto-connect toggle. S89: default ON when no stored value.
 	auto_val, _ := services.settings_get(&state.settings, services.SETTING_AUTO_CONNECT)
-	auto_on := auto_val == "1"
+	auto_on := auto_val != "0"
 	ac_res := ui.toggle(&state.cmd_buf,
 		ui.rect_xywh(x, y, toggle_w, toggle_h),
 		"  Auto-connect", auto_on,
@@ -213,15 +213,18 @@ build_settings_page :: proc(state: ^App_State, workspace: ui.Rect, pointer: ui.P
 	y += 18
 
 	Ind_Setting :: struct { label: string, key: string, ptr: ^bool }
-	ind_settings := [8]Ind_Setting{
-		{"  EMA / SMA",       services.SETTING_SHOW_MA,      &state.indicators.show_ma},
-		{"  Bollinger Bands", services.SETTING_SHOW_BBANDS,  &state.indicators.show_bbands},
-		{"  VWAP",            services.SETTING_SHOW_VWAP,    &state.indicators.show_vwap},
-		{"  RSI",             services.SETTING_SHOW_RSI,     &state.indicators.show_rsi},
-		{"  MACD",            services.SETTING_SHOW_MACD,    &state.indicators.show_macd},
-		{"  Funding Rate",    services.SETTING_SHOW_FUNDING, &state.indicators.show_funding},
-		{"  Liquidations",    services.SETTING_SHOW_LIQ,     &state.indicators.show_liq},
-		{"  Trade Counter",   services.SETTING_SHOW_TRADE_COUNTER, &state.indicators.show_trade_counter},
+	ind_settings := [11]Ind_Setting{
+		{"  EMA / SMA",       services.SETTING_SHOW_MA,              &state.indicators.show_ma},
+		{"  Bollinger Bands", services.SETTING_SHOW_BBANDS,          &state.indicators.show_bbands},
+		{"  VWAP",            services.SETTING_SHOW_VWAP,            &state.indicators.show_vwap},
+		{"  RSI",             services.SETTING_SHOW_RSI,             &state.indicators.show_rsi},
+		{"  MACD",            services.SETTING_SHOW_MACD,            &state.indicators.show_macd},
+		{"  Funding Rate",    services.SETTING_SHOW_FUNDING,         &state.indicators.show_funding},
+		{"  Liquidations",    services.SETTING_SHOW_LIQ,             &state.indicators.show_liq},
+		{"  Trade Counter",   services.SETTING_SHOW_TRADE_COUNTER,   &state.indicators.show_trade_counter},
+		{"  CVD Subplot",     services.SETTING_SHOW_CVD,             &state.indicators.show_cvd},
+		{"  Delta Vol Subplot", services.SETTING_SHOW_DELTA_VOL,     &state.indicators.show_delta_vol},
+		{"  Open Interest",   services.SETTING_SHOW_OI,              &state.indicators.show_oi},
 	}
 	for idx in 0 ..< len(ind_settings) {
 		is := &ind_settings[idx]

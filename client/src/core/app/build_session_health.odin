@@ -25,6 +25,7 @@ import "mr:ui"
 
 HEALTH_PAD_X :: f32(16)
 HEALTH_POLL_INTERVAL :: u64(600) // ~10s at 60fps
+HEALTH_RETRY_INTERVAL :: u64(300) // ~5s at 60fps — faster retry on error
 
 // --- Page lifecycle ---
 
@@ -66,11 +67,13 @@ fetch_session_health :: proc(state: ^App_State) {
 }
 
 // Poll periodically while on the page.
+// S89: HTTP endpoint is independent of WS — don't gate on connection status.
+//      Auto-retry on error with shorter interval so first-load succeeds without manual click.
 @(private = "package")
 poll_session_health :: proc(state: ^App_State) {
 	if state.chrome.active_route != .Session_Health do return
-	if current_conn_status(state) != .Connected do return
-	if state.frame % HEALTH_POLL_INTERVAL != 0 && state.session_health.fetch_status != .Idle do return
+	interval := state.session_health.fetch_status == .Error ? HEALTH_RETRY_INTERVAL : HEALTH_POLL_INTERVAL
+	if state.frame % interval != 0 && state.session_health.fetch_status != .Idle do return
 	fetch_session_health(state)
 }
 
