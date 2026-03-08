@@ -32,12 +32,13 @@ render_analytics_cell_vm :: proc(cmd_buf: ^ui.Command_Buffer, vm: Cell_View_Mode
 	case .CVD:
 		render_analytics_cvd(cmd_buf, vm.stores.analytics, cell_vp, vm.show_history)
 	case .Bar_Stats:
-		render_analytics_bar_stats(cmd_buf, vm.stores.analytics, cell_vp)
+		render_analytics_bar_stats(cmd_buf, vm.stores.analytics, cell_vp, vm.show_history)
 	}
 }
 
 // --- Open Interest ---
-// Latest OI value + delta + delta_pct, with sparkline history.
+// Latest OI value + delta + delta_pct, with cadence badge, confidence dot,
+// stale indicator, and sparkline history.
 @(private = "file")
 render_analytics_oi :: proc(cmd_buf: ^ui.Command_Buffer, store: ^services.Analytics_Store, vp: ui.Rect, show_hist: bool) {
 	entry, ok := services.get_analytics_latest(store, .Open_Interest)
@@ -60,6 +61,22 @@ render_analytics_oi :: proc(cmd_buf: ^ui.Command_Buffer, store: ^services.Analyt
 		{vp.pos.x + 8, vp.pos.y + 18},
 		val_str, ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_MD, .Bold)
 
+	// S82: Confidence dot next to OI value.
+	// Small 6x6 filled rect as a colored dot indicating confidence level.
+	conf_color: ui.Color
+	switch entry.confidence {
+	case 1:  conf_color = ui.Color{0.0, 0.8, 0.0, 0.9}   // high = green
+	case 2:  conf_color = ui.Color{0.8, 0.8, 0.0, 0.9}   // medium = yellow
+	case 3:  conf_color = ui.Color{0.4, 0.4, 0.4, 0.7}   // low = dim gray
+	case:    conf_color = ui.Color{0.3, 0.3, 0.3, 0.5}   // unknown
+	}
+	// Place dot after the OI text (approximate width by character count * 8).
+	dot_x := vp.pos.x + 8 + f32(len(val_str)) * 8 + 6
+	ui.push(cmd_buf, ui.Cmd_Rect_Filled{
+		rect  = ui.rect_xywh(dot_x, vp.pos.y + 12, 6, 6),
+		color = conf_color,
+	})
+
 	// Delta + delta_pct.
 	delta_color := delta >= 0 ? ui.COL_GREEN : ui.COL_RED
 	delta_sign := delta >= 0 ? "+" : ""
@@ -69,10 +86,42 @@ render_analytics_oi :: proc(cmd_buf: ^ui.Command_Buffer, store: ^services.Analyt
 		{vp.pos.x + 8, vp.pos.y + 36},
 		delta_str, delta_color, ui.FONT_SIZE_XS, .Mono)
 
+	// S82: Cadence badge — display estimated update cadence from cadence_hint_ms.
+	badge_x := vp.pos.x + 8
+	badge_y := vp.pos.y + 50
+	cadence_ms := entry.cadence_hint_ms
+	if cadence_ms > 0 {
+		cadence_buf: [16]u8
+		cadence_str: string
+		if cadence_ms < 1000 {
+			cadence_str = fmt.bprintf(cadence_buf[:], "~%dms", cadence_ms)
+		} else if cadence_ms < 60000 {
+			cadence_str = fmt.bprintf(cadence_buf[:], "~%ds", cadence_ms / 1000)
+		} else {
+			cadence_str = fmt.bprintf(cadence_buf[:], "~%dm", cadence_ms / 60000)
+		}
+		ui.push_text(cmd_buf, {badge_x, badge_y}, cadence_str,
+			ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+		badge_x += f32(len(cadence_str)) * 7 + 8
+	}
+
+	// S82: Stale indicator — if latest OI entry's ts_ms is older than 3x cadence_hint_ms
+	// relative to the most recent entry in the store (any kind), show "STALE" badge.
+	if cadence_ms > 0 {
+		most_recent := services.get_analytics(store, 0)
+		if most_recent.ts_ms > 0 && entry.ts_ms > 0 {
+			age_ms := most_recent.ts_ms - entry.ts_ms
+			if age_ms > cadence_ms * 3 {
+				ui.push_text(cmd_buf, {badge_x, badge_y}, "STALE",
+					ui.COL_WARNING, ui.FONT_SIZE_XS, .Bold)
+			}
+		}
+	}
+
 	// Sparkline history.
 	if show_hist {
-		hist_y := vp.pos.y + 50
-		hist_h := vp.size.y - 54
+		hist_y := vp.pos.y + 64
+		hist_h := vp.size.y - 68
 		if hist_h > 10 {
 			render_analytics_sparkline(cmd_buf, store, .Open_Interest, 0, vp.pos.x + 4, hist_y, vp.size.x - 8, hist_h, ui.COL_ACCENT_CYAN)
 		}
@@ -182,7 +231,7 @@ render_analytics_cvd :: proc(cmd_buf: ^ui.Command_Buffer, store: ^services.Analy
 // --- Bar Statistics ---
 // Trade count, buy/sell ratio, VWAP, imbalance, burst flag.
 @(private = "file")
-render_analytics_bar_stats :: proc(cmd_buf: ^ui.Command_Buffer, store: ^services.Analytics_Store, vp: ui.Rect) {
+render_analytics_bar_stats :: proc(cmd_buf: ^ui.Command_Buffer, store: ^services.Analytics_Store, vp: ui.Rect, show_hist: bool) {
 	entry, ok := services.get_analytics_latest(store, .Bar_Stats)
 	if !ok {
 		ui.push_text(cmd_buf,
@@ -249,6 +298,16 @@ render_analytics_bar_stats :: proc(cmd_buf: ^ui.Command_Buffer, store: ^services
 	if is_burst {
 		ui.push_text(cmd_buf, {vp.pos.x + 8, y}, "BURST",
 			ui.COL_WARNING, ui.FONT_SIZE_XS, .Bold)
+		y += 14
+	}
+
+	// S81: Bar Stats history — delta bars for volume imbalance over time.
+	if show_hist {
+		hist_y := y + 4
+		hist_h := vp.pos.y + vp.size.y - hist_y - 4
+		if hist_h > 10 {
+			render_analytics_delta_bars(cmd_buf, store, .Bar_Stats, 7, vp.pos.x + 4, hist_y, vp.size.x - 8, hist_h)
+		}
 	}
 }
 

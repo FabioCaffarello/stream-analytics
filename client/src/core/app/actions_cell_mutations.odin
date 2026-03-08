@@ -11,6 +11,8 @@ apply_set_cell_widget_action :: proc(state: ^App_State, action: UI_Action) {
 	if action.widget_kind == .Analytics {
 		state.world.analytics[ci].analytics_kind = action.analytics_kind
 		state.world.analytics[ci].show_history = true
+		// S81: Trigger historical analytics fetch for cold start.
+		request_analytics_range(state, ci)
 	}
 	persist_layout_v6(state)
 	reconcile_subscriptions(state)

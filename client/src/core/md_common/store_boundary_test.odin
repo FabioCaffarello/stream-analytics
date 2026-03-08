@@ -3286,7 +3286,7 @@ test_s45_schema_composition_lifecycle_coverage :: proc(t: ^testing.T) {
 
 @(test)
 test_s46_snapshot_version_constant :: proc(t: ^testing.T) {
-	testing.expect_value(t, RUNTIME_SNAPSHOT_VERSION, 1)
+	testing.expect_value(t, RUNTIME_SNAPSHOT_VERSION, 3) // S82: bumped to V3 for show_oi
 	testing.expect_value(t, SNAPSHOT_MAX_SLOTS, 32)
 	testing.expect_value(t, SNAPSHOT_MAX_CELLS, 12)
 	testing.expect_value(t, SNAPSHOT_MAX_COMPARE_PANES, 4)
@@ -3300,10 +3300,10 @@ test_s46_empty_snapshot_serializes :: proc(t: ^testing.T) {
 	n := runtime_snapshot_serialize(&snap, buf[:])
 	testing.expect(t, n > 0, "empty snapshot must produce output")
 
-	// Must start with "SNAP1|"
+	// Must start with "SNAP3|" (S82: snapshot V3 — added show_oi indicator flag)
 	out := string(buf[:n])
 	testing.expect(t, len(out) >= 5, "output too short")
-	testing.expect(t, out[:5] == "SNAP1", "must start with SNAP1")
+	testing.expect(t, out[:5] == "SNAP3", "must start with SNAP3")
 }
 
 @(test)

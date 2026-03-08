@@ -95,6 +95,9 @@ SETTING_LAYER_ORDERBOOK_DOM      :: "layer_orderbook_dom"
 SETTING_LAYER_VPVR_HEATMAP       :: "layer_vpvr_heatmap"
 SETTING_LAYER_EVIDENCE           :: "layer_evidence"
 SETTING_LAYER_SIGNAL             :: "layer_signal"
+/// S80: Route + tab persistence — survives restart.
+SETTING_ACTIVE_ROUTE             :: "active_route"
+SETTING_PORTFOLIO_TAB            :: "portfolio_tab"
 
 // Initialize store, loading known keys from port.
 settings_init :: proc(store: ^Settings_Store, port: ports.Settings_Port) {
@@ -133,6 +136,7 @@ settings_init :: proc(store: ^Settings_Store, port: ports.Settings_Port) {
 				SETTING_LAYER_PRICE_CANDLES, SETTING_LAYER_TRADES_TAPE,
 				SETTING_LAYER_ORDERBOOK_DOM, SETTING_LAYER_VPVR_HEATMAP,
 				SETTING_LAYER_EVIDENCE, SETTING_LAYER_SIGNAL,
+				SETTING_ACTIVE_ROUTE, SETTING_PORTFOLIO_TAB,
 			}
 	for key in known_keys {
 		value, ok := port.load(key)

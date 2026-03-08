@@ -49,6 +49,8 @@ func sessionArtifactDefinitions() []SessionArtifact {
 		{Name: "cvd", Endpoint: "/api/v1/cvd", Timeframes: aggdomain.AllowedTapeTimeframes},
 		{Name: "bar_stats", Endpoint: "/api/v1/bar_stats", Timeframes: aggdomain.AllowedTapeTimeframes},
 		{Name: "snapshots", Endpoint: "/api/v1/snapshots", Timeframes: []string{"raw"}},
+		{Name: "session_vp", Endpoint: "/api/v1/insights/session-vp", Timeframes: []string{"session"}},
+		{Name: "tpo", Endpoint: "/api/v1/insights/tpo", Timeframes: []string{"session"}},
 	}
 }
 

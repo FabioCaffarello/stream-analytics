@@ -55,13 +55,15 @@ type Server struct {
 	readyGate  func() bool
 	reloadHook func() error
 
-	tlsCertFile       string
-	tlsKeyFile        string
-	wsHandler         http.HandlerFunc
-	coldReaders       *ColdReaders
-	markets           *config.MarketsConfig
-	controlPlane      executionports.ControlPlane
-	consistencyChecks map[string]ConsistencyCheckFn
+	tlsCertFile         string
+	tlsKeyFile          string
+	wsHandler           http.HandlerFunc
+	coldReaders         *ColdReaders
+	markets             *config.MarketsConfig
+	controlPlane        executionports.ControlPlane
+	portfolioReaders    *PortfolioReaders
+	insightsSnapshotter InsightsSnapshotter
+	consistencyChecks   map[string]ConsistencyCheckFn
 }
 
 type Option func(*Server)
@@ -175,6 +177,20 @@ func NewServer(
 	if s.coldReaders != nil {
 		mux.HandleFunc("GET /api/v1/timeline", s.handleGetTimeline)
 	}
+	if s.portfolioReaders != nil {
+		mux.HandleFunc("GET /api/v1/portfolio/state/latest", s.handleGetPortfolioStateLatest)
+		mux.HandleFunc("GET /api/v1/portfolio/states", s.handleGetPortfolioStates)
+		mux.HandleFunc("GET /api/v1/portfolio/account-snapshot/latest", s.handleGetAccountSnapshotLatest)
+		mux.HandleFunc("GET /api/v1/portfolio/summary/latest", s.handleGetPortfolioSummaryLatest)
+		mux.HandleFunc("GET /api/v1/portfolio/account-snapshots", s.handleGetAccountSnapshots)
+		mux.HandleFunc("GET /api/v1/portfolio/summaries", s.handleGetPortfolioSummaries)
+		mux.HandleFunc("GET /api/v1/portfolio/equity-curve", s.handleGetEquityCurve)
+		mux.HandleFunc("GET /api/v1/portfolio/reconciliation", s.handleGetReconciliation)
+	}
+	if s.insightsSnapshotter != nil {
+		mux.HandleFunc("GET /api/v1/insights/session-vp", s.handleGetSessionVolumeProfile)
+		mux.HandleFunc("GET /api/v1/insights/tpo", s.handleGetTPOProfile)
+	}
 	if len(s.consistencyChecks) > 0 {
 		mux.Handle("GET /api/v1/consistency", localhostOnly(http.HandlerFunc(s.handleConsistencyCheck)))
 	}
@@ -182,6 +198,11 @@ func NewServer(
 	if s.controlPlane != nil {
 		mux.Handle("POST /api/v1/control", localhostOnly(http.HandlerFunc(s.handleControlApply)))
 		mux.Handle("GET /api/v1/control/snapshot", localhostOnly(http.HandlerFunc(s.handleControlSnapshot)))
+	}
+	// S78: Trading readiness surface — composed from control plane + portfolio.
+	// Available when either dependency is configured; degrades gracefully.
+	if s.controlPlane != nil || s.portfolioReaders != nil {
+		mux.HandleFunc("GET /api/v1/trading/readiness", s.handleGetTradingReadiness)
 	}
 	s.mux = mux
 

@@ -46,6 +46,7 @@ Route :: enum u8 {
 	Settings,
 	Instrument_Overview,
 	Session_Health,
+	Portfolio,
 }
 
 Layout_Mode :: enum u8 {
@@ -467,6 +468,8 @@ App_State :: struct {
 	session_health: Session_Health_State,
 	// S60: Market Explorer 2.0 — discovery page state.
 	explorer: Explorer_State,
+	// S74: Portfolio data layer — three backend-owned read model stores.
+	portfolio: Portfolio_Data_State,
 }
 
 // S20: Bootstrap state populated from GET /api/v1/session.
@@ -548,6 +551,52 @@ Instrument_Overview_State :: struct {
 	fetch_frame:  u64,
 	// Parsed backend read model.
 	view: services.Instrument_Overview_Result,
+}
+
+// S76/S78: Portfolio page tab selection for drilldown views.
+Portfolio_Tab :: enum u8 {
+	Positions,
+	Exposure,
+	Fill_Stats,
+	Readiness, // S78: Trading readiness surface
+}
+
+// S76: Venue filter for drilldown — empty means show all.
+PORTFOLIO_VENUE_FILTER_CAP :: 24
+
+// S74: Portfolio data layer — three backend-owned read model stores with independent fetch lifecycle.
+// Designed for periodic polling (~10s); prepared for future streaming upgrade.
+Portfolio_Data_State :: struct {
+	// Store 1: Venue-scoped portfolio state (single account+venue+symbol).
+	state:          services.Portfolio_State_Result,
+	state_status:   Overview_Fetch_Status,
+	state_frame:    u64,
+	// Store 2: Account-level snapshot (single account, all venues).
+	snapshot:          services.Portfolio_Account_Snapshot_Result,
+	snapshot_status:   Overview_Fetch_Status,
+	snapshot_frame:    u64,
+	// Store 3: Global portfolio summary (all accounts).
+	summary:          services.Portfolio_Summary_Result,
+	summary_status:   Overview_Fetch_Status,
+	summary_frame:    u64,
+	// Target account for scoped queries (set by caller).
+	account_id:     [64]u8,
+	account_id_len: u8,
+	// Target venue+symbol for state queries (set by caller).
+	venue:          [24]u8,
+	venue_len:      u8,
+	symbol:         [32]u8,
+	symbol_len:     u8,
+	// S78: Trading readiness surface (composed: control plane + portfolio staleness).
+	readiness:        services.Trading_Readiness_Result,
+	readiness_status: Overview_Fetch_Status,
+	readiness_frame:  u64,
+	// S79: Truncation telemetry — tracks which arrays were capped during parse.
+	truncation_flags: services.Truncation_Flags,
+	// S76: UI state for drilldown views.
+	active_tab:     Portfolio_Tab,
+	venue_filter:   [PORTFOLIO_VENUE_FILTER_CAP]u8,
+	venue_filter_len: u8,
 }
 
 init :: proc(
@@ -805,6 +854,30 @@ init :: proc(
 			// Restore draw tools.
 			if v, ok := services.settings_get(&state.settings, services.SETTING_DRAW_TOOLS); ok {
 				widgets.draw_tools_deserialize(&state.draw_tools, v)
+			}
+			// S80: Restore active route (Dashboard if invalid or missing).
+			if v, ok := services.settings_get(&state.settings, services.SETTING_ACTIVE_ROUTE); ok {
+				if len(v) > 0 {
+					ri := int(v[0] - '0')
+					route_count := len(Route)
+					if ri >= 0 && ri < route_count {
+						restored_route := Route(ri)
+						// Only restore navigable routes (skip Instrument_Overview — contextual).
+						if restored_route != .Instrument_Overview {
+							state.chrome.active_route = restored_route
+						}
+					}
+				}
+			}
+			// S80: Restore portfolio tab.
+			if v, ok := services.settings_get(&state.settings, services.SETTING_PORTFOLIO_TAB); ok {
+				if len(v) > 0 {
+					ti := int(v[0] - '0')
+					tab_count := len(Portfolio_Tab)
+					if ti >= 0 && ti < tab_count {
+						state.portfolio.active_tab = Portfolio_Tab(ti)
+					}
+				}
 			}
 		}
 		for i in 0 ..< len(state.compare.show_vol) {
@@ -1174,6 +1247,7 @@ update :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buffe
 	poll_instrument_overview(state)
 	poll_session_health(state)
 	poll_explorer(state)
+	poll_portfolio(state)
 	cache_render_observations(state, frame_input)
 	buf := build_ui(state, frame_input)
 	if state.ui_action_count > 0 {
@@ -1210,6 +1284,7 @@ update_web :: proc(state: ^App_State, input: ports.Input_State) -> (buf: ^ui.Com
 	poll_instrument_overview(state)
 	poll_session_health(state)
 	poll_explorer(state)
+	poll_portfolio(state)
 
 	conn := current_conn_status(state)
 	candle_health_changed := observe_candle_health(state)

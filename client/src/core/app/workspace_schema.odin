@@ -2,15 +2,15 @@ package app
 
 import "mr:services"
 
-// S45/S48/S51: Workspace State Schema — canonical contract for persisted vs derived state.
+// S45/S48/S51/S80/S81/S82: Workspace State Schema — canonical contract for persisted vs derived state.
 //
 // WORKSPACE_SCHEMA_VERSION is bumped on every persistence format change.
-// Current format: V7 (extends V6 with workspace governance fingerprint).
+// Current format: V10 (extends V9 with OI indicator flag bit 10).
 //
-// --- Persisted Per-Cell Fields (V6 layout string) ---
+// --- Persisted Per-Cell Fields (V6 layout string, unchanged) ---
 //   widget_kind       Widget_Kind enum (0-9, where 9=Analytics)
 //   stream_binding    "venue/symbol" or "-1" (follow active)
-//   indicator_flags   8 bools packed into int
+//   indicator_flags   11 bools packed into int (S81: bits 8-9 = CVD, DV; S82: bit 10 = OI)
 //   col_span          grid column span (1+)
 //   row_span          grid row span (1+)
 //   sub_main_split    subplot main ratio (x1000)
@@ -25,6 +25,8 @@ import "mr:services"
 //   signal_evidence_link, panel_visible_mask
 //   draw_tools, indicator_params (global), chart_display (global defaults)
 //   connection_profiles (12 slots), layer_registry, assist_mode
+//   active_route (S80)           — Route ordinal persisted as settings key
+//   portfolio_tab (S80)          — Portfolio_Tab ordinal persisted as settings key
 //
 // --- Derived State (never persisted) ---
 //   Cell_Surface_View           derived per-frame from apply_state
@@ -34,8 +36,12 @@ import "mr:services"
 //   View_Component              scroll/zoom/crosshair (reset on start)
 //   Overlay_State               UI modals (transient)
 //   Telemetry/Connection/Error  runtime-only
+//
+// --- Runtime Snapshot (V3, S82) ---
+//   Per-cell: chart_display (packed), indicator_flags (packed)
+//   Global: active_route
 
-WORKSPACE_SCHEMA_VERSION :: 7
+WORKSPACE_SCHEMA_VERSION :: 10
 
 // Pack per-cell chart display into a single integer for V6 persistence.
 // Layout: bit0=show_vol, bit1=show_heatmap, bit2=show_vpvr,

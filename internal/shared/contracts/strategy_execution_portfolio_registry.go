@@ -47,7 +47,7 @@ func RegisterPortfolioPayloadV1(reg *codec.Registry) *problem.Problem {
 	if reg == nil {
 		return problem.New(problem.ValidationFailed, "codec registry must not be nil")
 	}
-	return registerPayloadDual(
+	if p := registerPayloadDual(
 		reg,
 		portfoliodomain.StateEventType,
 		codec.JSONCodec[portfoliodomain.PortfolioStateV1]{},
@@ -55,6 +55,30 @@ func RegisterPortfolioPayloadV1(reg *codec.Registry) *problem.Problem {
 			newProto: func() *portfoliov1.PortfolioStateV1 { return &portfoliov1.PortfolioStateV1{} },
 			toProto:  DomainToProtoPortfolioStateV1,
 			toDomain: ProtoToDomainPortfolioStateV1,
+		},
+	); p != nil {
+		return p
+	}
+	if p := registerPayloadDual(
+		reg,
+		portfoliodomain.AccountSnapshotEventType,
+		codec.JSONCodec[portfoliodomain.AccountSnapshotV1]{},
+		domainProtoPayloadCodec[portfoliodomain.AccountSnapshotV1, *portfoliov1.AccountSnapshotV1]{
+			newProto: func() *portfoliov1.AccountSnapshotV1 { return &portfoliov1.AccountSnapshotV1{} },
+			toProto:  DomainToProtoAccountSnapshotV1,
+			toDomain: ProtoToDomainAccountSnapshotV1,
+		},
+	); p != nil {
+		return p
+	}
+	return registerPayloadDual(
+		reg,
+		portfoliodomain.SummaryEventType,
+		codec.JSONCodec[portfoliodomain.PortfolioSummaryV1]{},
+		domainProtoPayloadCodec[portfoliodomain.PortfolioSummaryV1, *portfoliov1.PortfolioSummaryV1]{
+			newProto: func() *portfoliov1.PortfolioSummaryV1 { return &portfoliov1.PortfolioSummaryV1{} },
+			toProto:  DomainToProtoPortfolioSummaryV1,
+			toDomain: ProtoToDomainPortfolioSummaryV1,
 		},
 	)
 }

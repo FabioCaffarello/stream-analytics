@@ -283,10 +283,10 @@ find_market_channel_slot :: proc(
 	return &reg.slots[best_idx]
 }
 
-// S61: Cell_View_Model — unified per-cell resolved state.
-// Bundles surface view, data stores, effective TF, and widget config into a single
-// query result. Resolved once per cell per frame, consumed by all render procs.
-// Pure derived view — no mutation, no allocations.
+// S61/S80: Cell_View_Model — unified per-cell resolved state.
+// Bundles surface view, data stores, effective TF, widget config, chart display,
+// and indicator state into a single query result. Resolved once per cell per frame,
+// consumed by all render procs. Pure derived view — no mutation, no allocations.
 Cell_View_Model :: struct {
 	// Read model: composition, health, staleness, identity.
 	surface:        Cell_Surface_View,
@@ -300,6 +300,11 @@ Cell_View_Model :: struct {
 	// Analytics config (only meaningful for .Analytics widget kind).
 	analytics_kind: services.Analytics_Kind,
 	show_history:   bool,
+	// S80: Chart display + indicator state (closes abstraction gap — widgets
+	// no longer need to reach into state.world.charts[ci] or state.world.indicators[ci]).
+	chart:          Chart_Component,
+	indicators:     Indicator_Component,
+	ind_params:     Indicator_Params,
 	// Cell identity.
 	cell_idx:       int,
 	focused:        bool,
@@ -326,6 +331,11 @@ resolve_cell_view_model :: proc(state: ^App_State, ci: int) -> Cell_View_Model {
 	// Analytics config (from ECS component).
 	vm.analytics_kind = state.world.analytics[ci].analytics_kind
 	vm.show_history = state.world.analytics[ci].show_history
+
+	// S80: Chart display + indicator state (value copy — immutable for this frame).
+	vm.chart = state.world.charts[ci]
+	vm.indicators = state.world.indicators[ci]
+	vm.ind_params = state.world.ind_params[ci]
 
 	// Stores (resolved once — avoid double resolution).
 	vm.stores = resolve_stores_for_cell(state, ci)

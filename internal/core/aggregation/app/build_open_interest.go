@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"math"
+	"sort"
 	"time"
 
 	"github.com/market-raccoon/internal/core/aggregation/domain"
@@ -14,6 +15,15 @@ import (
 	"github.com/market-raccoon/internal/shared/validation"
 )
 
+const (
+	// oiCadenceWindowSize is the circular buffer capacity for arrival timestamps.
+	oiCadenceWindowSize = 10
+	// oiConfidenceHighMs is the upper bound (exclusive) for HIGH confidence cadence.
+	oiConfidenceHighMs = 5000
+	// oiConfidenceMediumMs is the upper bound (exclusive) for MEDIUM confidence cadence.
+	oiConfidenceMediumMs = 30000
+)
+
 type openInterestKey struct {
 	Venue      string
 	Instrument string
@@ -23,6 +33,9 @@ type openInterestState struct {
 	LastSeq          int64
 	LastOpenInterest float64
 	HasLast          bool
+	ArrivalTimes     [oiCadenceWindowSize]int64
+	ArrivalCount     int
+	ArrivalIdx       int
 }
 
 // BuildOpenInterestConfig controls bounded state for open-interest aggregation.
@@ -54,6 +67,7 @@ type BuildOpenInterestFromEvents struct {
 	publisher ports.ArtifactPublisher
 	store     ports.OIHotReadModelStore
 	state     *ds.BoundedMap[openInterestKey, *openInterestState]
+	clock     clock.Clock
 }
 
 // NewBuildOpenInterestFromEvents constructs BuildOpenInterestFromEvents.
@@ -78,6 +92,7 @@ func NewBuildOpenInterestFromEvents(
 		publisher: pub,
 		store:     store,
 		state:     state,
+		clock:     cfg.Clock,
 	}
 }
 
@@ -105,6 +120,18 @@ func (uc *BuildOpenInterestFromEvents) Execute(
 			state.LastSeq,
 		)
 	}
+	// Record arrival time in the circular buffer.
+	nowMs := uc.clock.NowUnixMilli()
+	state.ArrivalTimes[state.ArrivalIdx] = nowMs
+	state.ArrivalIdx = (state.ArrivalIdx + 1) % oiCadenceWindowSize
+	if state.ArrivalCount < oiCadenceWindowSize {
+		state.ArrivalCount++
+	}
+
+	// Compute cadence and confidence from arrival history.
+	cadenceMs := computeMedianCadence(state.ArrivalTimes[:], state.ArrivalCount)
+	confidence := deriveConfidence(cadenceMs)
+
 	window := domain.BuildOpenInterestWindowV1(
 		key.Venue,
 		key.Instrument,
@@ -114,6 +141,8 @@ func (uc *BuildOpenInterestFromEvents) Execute(
 		req.OpenInterest,
 		state.LastOpenInterest,
 		state.HasLast,
+		cadenceMs,
+		confidence,
 	)
 	evt := domain.OpenInterestClosed{Window: window}
 	if uc.store != nil {
@@ -161,4 +190,51 @@ func validateOpenInterestRequest(req BuildOpenInterestRequest) *problem.Problem 
 		return problem.New(problem.ValidationFailed, "timestamp must be >= 0")
 	}
 	return nil
+}
+
+// computeMedianCadence computes the median inter-arrival time from a circular buffer
+// of arrival timestamps. Returns 0 if fewer than 2 arrivals are recorded.
+func computeMedianCadence(times []int64, count int) int64 {
+	if count < 2 {
+		return 0
+	}
+
+	// Collect the recorded timestamps and sort them to get chronological order.
+	sorted := make([]int64, count)
+	copy(sorted, times[:count])
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+
+	// Compute inter-arrival deltas.
+	deltas := make([]int64, 0, count-1)
+	for i := 1; i < len(sorted); i++ {
+		d := sorted[i] - sorted[i-1]
+		if d > 0 {
+			deltas = append(deltas, d)
+		}
+	}
+	if len(deltas) == 0 {
+		return 0
+	}
+
+	// Return median delta.
+	sort.Slice(deltas, func(i, j int) bool { return deltas[i] < deltas[j] })
+	mid := len(deltas) / 2
+	if len(deltas)%2 == 0 {
+		return (deltas[mid-1] + deltas[mid]) / 2
+	}
+	return deltas[mid]
+}
+
+// deriveConfidence maps a cadence interval to a confidence level string.
+func deriveConfidence(cadenceMs int64) string {
+	if cadenceMs <= 0 {
+		return ""
+	}
+	if cadenceMs < oiConfidenceHighMs {
+		return "high"
+	}
+	if cadenceMs < oiConfidenceMediumMs {
+		return "medium"
+	}
+	return "low"
 }

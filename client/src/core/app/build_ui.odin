@@ -72,15 +72,16 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 	zen_skip_sidebar := state.zen.active && state.zen.left_alpha <= 0
 	if !mobile && !zen_skip_sidebar {
 		// Nav rail (route selector).
-		NAV_ITEMS :: [4]ui.Nav_Rail_Item{
+		NAV_ITEMS :: [5]ui.Nav_Rail_Item{
 			{icon = "D", label = "Dashboard"},
 			{icon = "V", label = "Venues"},
+			{icon = "P", label = "Portfolio"},
 			{icon = "G", label = "Settings"},
 			{icon = "H", label = "Health"},
 		}
 		// Nav rail index → Route mapping (skips Instrument_Overview which has no nav entry).
 		nav_items := NAV_ITEMS
-		nav_routes := [4]Route{.Dashboard, .Markets, .Settings, .Session_Health}
+		nav_routes := [5]Route{.Dashboard, .Markets, .Portfolio, .Settings, .Session_Health}
 		active_idx := -1
 		for ni in 0 ..< len(nav_routes) {
 			if nav_routes[ni] == state.chrome.active_route {

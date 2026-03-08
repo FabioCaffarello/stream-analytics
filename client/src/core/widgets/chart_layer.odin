@@ -33,9 +33,12 @@ Chart_Layer_Kind :: enum u8 {
 	Funding,
 	Liq,
 	Trade_Counter,
+	CVD,           // S81: CVD subplot
+	Delta_Volume,  // S81: Delta volume subplot
+	OI,            // S82: Open Interest subplot
 }
 
-LAYER_SHORT_LABELS :: [8]string{"MA", "BB", "VW", "RS", "MC", "FN", "LQ", "TC"}
+LAYER_SHORT_LABELS :: [11]string{"MA", "BB", "VW", "RS", "MC", "FN", "LQ", "TC", "CVD", "DV", "OI"}
 
 // Shared rendering context passed to all chart layers.
 Chart_Layer_Context :: struct {
@@ -51,9 +54,10 @@ Chart_Layer_Context :: struct {
 	candles:      ^services.Candle_Store,
 	timeframe_ms: i64,
 	// Extended fields for sub-plot and stats-based indicators.
-	sub_rect:     ui.Rect,                                       // allocated sub-plot rectangle (sub-plots only)
-	stats_store:  ^services.Stats_Store,                         // stats data (funding, liq)
-	measure:      proc(size: f32, text: string) -> ui.Vec2,      // text measurement
+	sub_rect:        ui.Rect,                                       // allocated sub-plot rectangle (sub-plots only)
+	stats_store:     ^services.Stats_Store,                         // stats data (funding, liq)
+	analytics_store: ^services.Analytics_Store,                     // S81: analytics data (CVD, DV, BS)
+	measure:         proc(size: f32, text: string) -> ui.Vec2,      // text measurement
 }
 
 // Convert a price value to a Y pixel coordinate within the chart area.
@@ -246,4 +250,31 @@ TC_Layer_Data :: struct {
 tc_layer_render :: proc(layer: rawptr, buf: ^ui.Command_Buffer, ctx: ^Chart_Layer_Context) {
 	d := (^TC_Layer_Data)(layer)
 	render_trade_counter(buf, ctx.sub_rect, ctx, d.config, ctx.measure)
+}
+
+// --- S81: CVD sub-plot ---
+CVD_Layer_Data :: struct {
+	config: CVD_Config,
+}
+cvd_layer_render :: proc(layer: rawptr, buf: ^ui.Command_Buffer, ctx: ^Chart_Layer_Context) {
+	d := (^CVD_Layer_Data)(layer)
+	render_cvd(buf, ctx.sub_rect, ctx, d.config, ctx.measure)
+}
+
+// --- S81: Delta Volume sub-plot ---
+Delta_Vol_Layer_Data :: struct {
+	config: Delta_Vol_Config,
+}
+delta_vol_layer_render :: proc(layer: rawptr, buf: ^ui.Command_Buffer, ctx: ^Chart_Layer_Context) {
+	d := (^Delta_Vol_Layer_Data)(layer)
+	render_delta_vol(buf, ctx.sub_rect, ctx, d.config, ctx.measure)
+}
+
+// --- S82: OI sub-plot ---
+OI_Layer_Data :: struct {
+	config: OI_Config,
+}
+oi_layer_render :: proc(layer: rawptr, buf: ^ui.Command_Buffer, ctx: ^Chart_Layer_Context) {
+	d := (^OI_Layer_Data)(layer)
+	render_oi(buf, ctx.sub_rect, ctx, d.config, ctx.measure)
 }

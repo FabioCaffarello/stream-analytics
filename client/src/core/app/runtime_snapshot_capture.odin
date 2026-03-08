@@ -16,6 +16,8 @@ capture_runtime_snapshot :: proc(state: ^App_State) -> md_common.Runtime_Snapsho
 	snap.capture_ts_ms = current_now_ms(state)
 	snap.active_tf_idx = state.active_tf_idx
 	snap.active_apply_state = state.active_apply_state
+	// S80: Active route for scene state reproduction.
+	snap.active_route = u8(state.chrome.active_route)
 
 	// Active subject_id
 	reg := state.stream_views
@@ -59,6 +61,9 @@ capture_runtime_snapshot :: proc(state: ^App_State) -> md_common.Runtime_Snapsho
 		cc.widget_kind = u8(state.world.widgets[ci].kind)
 		cc.stream_idx = state.world.bindings[ci].stream_idx
 		cc.tf_idx = state.world.timeframes[ci].tf_idx
+		// S80: Chart display + indicator flags for deterministic reproduction.
+		cc.chart_display = pack_chart_display_with_analytics(&state.world.charts[ci], &state.world.analytics[ci])
+		cc.indicator_flags = pack_indicator_flags(&state.world.indicators[ci])
 
 		bind := &state.world.bindings[ci]
 		cc.has_binding = binding_has(bind)

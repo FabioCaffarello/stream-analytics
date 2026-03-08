@@ -91,7 +91,9 @@ restore_layout_from_string :: proc(state: ^App_State, v: string) -> bool {
 //   F = indicator flags bitfield (8 bools packed into decimal int)
 // ===============================================================
 
-// Pack 8 indicator booleans into a single integer.
+// Pack 11 indicator booleans into a single integer.
+// S81: bits 8-9 added for show_cvd, show_delta_vol.
+// S82: bit 10 added for show_oi.
 pack_indicator_flags :: proc(ind: ^Indicator_Component) -> int {
 	f := 0
 	if ind.show_ma             do f |= 1 << 0
@@ -102,10 +104,15 @@ pack_indicator_flags :: proc(ind: ^Indicator_Component) -> int {
 	if ind.show_funding        do f |= 1 << 5
 	if ind.show_liq            do f |= 1 << 6
 	if ind.show_trade_counter  do f |= 1 << 7
+	if ind.show_cvd            do f |= 1 << 8
+	if ind.show_delta_vol      do f |= 1 << 9
+	if ind.show_oi             do f |= 1 << 10
 	return f
 }
 
 // Unpack indicator flags into an Indicator_Component.
+// S81: bits 8-9 added for show_cvd, show_delta_vol.
+// S82: bit 10 added for show_oi.
 unpack_indicator_flags :: proc(ind: ^Indicator_Component, f: int) {
 	ind.show_ma            = (f & (1 << 0)) != 0
 	ind.show_bbands        = (f & (1 << 1)) != 0
@@ -115,6 +122,9 @@ unpack_indicator_flags :: proc(ind: ^Indicator_Component, f: int) {
 	ind.show_funding       = (f & (1 << 5)) != 0
 	ind.show_liq           = (f & (1 << 6)) != 0
 	ind.show_trade_counter = (f & (1 << 7)) != 0
+	ind.show_cvd           = (f & (1 << 8)) != 0
+	ind.show_delta_vol     = (f & (1 << 9)) != 0
+	ind.show_oi            = (f & (1 << 10)) != 0
 }
 
 persist_layout_v2 :: proc(state: ^App_State) {
@@ -1588,6 +1598,9 @@ write_default_cell_to_world :: proc(state: ^App_State, ci: int, widget: Widget_K
 		show_funding       = state.indicators.show_funding,
 		show_liq           = state.indicators.show_liq,
 		show_trade_counter = state.indicators.show_trade_counter,
+		show_cvd           = state.indicators.show_cvd,
+		show_delta_vol     = state.indicators.show_delta_vol,
+		show_oi            = state.indicators.show_oi,
 	}
 	state.world.ind_params[ci] = Indicator_Params{
 		ma_periods  = state.indicators.ma_periods,

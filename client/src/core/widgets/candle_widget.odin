@@ -67,11 +67,15 @@ Indicator_Render_Probe :: struct {
 	funding_enabled:       bool,
 	liq_enabled:           bool,
 	trade_counter_enabled: bool,
+	cvd_enabled:           bool,  // S81
+	delta_vol_enabled:     bool,  // S81
 	rsi_rendered:          bool,
 	macd_rendered:         bool,
 	funding_rendered:      bool,
 	liq_rendered:          bool,
 	trade_counter_rendered: bool,
+	cvd_rendered:          bool,  // S81
+	delta_vol_rendered:    bool,  // S81
 }
 
 // --- Widget data ---

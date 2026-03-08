@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+package portfolio.v1;
+
+option go_package = "github.com/market-raccoon/internal/shared/proto/gen/portfolio/v1";
+
+import "portfolio/v1/state.proto";
+import "portfolio/v1/account_snapshot.proto";
+import "portfolio/v1/portfolio_summary.proto";
+
+// PortfolioQueryKind identifies the type of portfolio query.
+enum PortfolioQueryKind {
+  // PORTFOLIO_QUERY_KIND_UNSPECIFIED indicates query kind was not set.
+  PORTFOLIO_QUERY_KIND_UNSPECIFIED = 0;
+  // PORTFOLIO_QUERY_KIND_STATE queries venue-scoped portfolio states.
+  PORTFOLIO_QUERY_KIND_STATE = 1;
+  // PORTFOLIO_QUERY_KIND_ACCOUNT_SNAPSHOT queries account-level snapshots.
+  PORTFOLIO_QUERY_KIND_ACCOUNT_SNAPSHOT = 2;
+  // PORTFOLIO_QUERY_KIND_SUMMARY queries global portfolio summaries.
+  PORTFOLIO_QUERY_KIND_SUMMARY = 3;
+}
+
+// PortfolioStateQueryRequest is the wire request for querying venue-scoped portfolio states.
+message PortfolioStateQueryRequest {
+  // account_id filters by account (required).
+  string account_id = 1;
+  // venue filters by venue (optional).
+  string venue = 2;
+  // symbol filters by instrument (optional).
+  string symbol = 3;
+  // limit caps the number of returned results.
+  int32 limit = 4;
+
+  reserved 100 to 199;
+}
+
+// PortfolioStateQueryResponse returns matching portfolio states.
+message PortfolioStateQueryResponse {
+  // states is the list of matching portfolio states.
+  repeated PortfolioStateV1 states = 1;
+
+  reserved 100 to 199;
+}
+
+// AccountSnapshotQueryRequest is the wire request for querying account snapshots.
+message AccountSnapshotQueryRequest {
+  // account_id filters by account (optional — omit for all accounts).
+  string account_id = 1;
+  // from_ms is the start of the time range in Unix milliseconds (optional).
+  int64 from_ms = 2;
+  // to_ms is the end of the time range in Unix milliseconds (optional).
+  int64 to_ms = 3;
+  // limit caps the number of returned results.
+  int32 limit = 4;
+
+  reserved 100 to 199;
+}
+
+// AccountSnapshotQueryResponse returns matching account snapshots.
+message AccountSnapshotQueryResponse {
+  // snapshots is the list of matching account snapshots.
+  repeated AccountSnapshotV1 snapshots = 1;
+
+  reserved 100 to 199;
+}
+
+// PortfolioSummaryQueryRequest is the wire request for querying portfolio summaries.
+message PortfolioSummaryQueryRequest {
+  // from_ms is the start of the time range in Unix milliseconds (optional).
+  int64 from_ms = 1;
+  // to_ms is the end of the time range in Unix milliseconds (optional).
+  int64 to_ms = 2;
+  // limit caps the number of returned results.
+  int32 limit = 3;
+
+  reserved 100 to 199;
+}
+
+// PortfolioSummaryQueryResponse returns matching portfolio summaries.
+message PortfolioSummaryQueryResponse {
+  // summaries is the list of matching portfolio summaries.
+  repeated PortfolioSummaryV1 summaries = 1;
+
+  reserved 100 to 199;
+}

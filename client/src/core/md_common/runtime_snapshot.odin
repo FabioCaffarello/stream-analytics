@@ -10,7 +10,7 @@ package md_common
 // Non-deterministic state (frame counters, scroll positions, transport metrics,
 // data store contents) is explicitly excluded.
 
-RUNTIME_SNAPSHOT_VERSION :: 1
+RUNTIME_SNAPSHOT_VERSION :: 3 // S82: bumped for show_oi indicator flag (bit 10)
 
 // Maximum slots and cells in a snapshot (matches runtime caps).
 SNAPSHOT_MAX_SLOTS :: 32
@@ -30,16 +30,19 @@ Snapshot_Slot :: struct {
 	apply_state:  Stream_Apply_State,
 }
 
-// Per-cell snapshot — widget kind, binding, and TF override.
+// Per-cell snapshot — widget kind, binding, TF override, and display state.
 Snapshot_Cell :: struct {
-	widget_kind:  u8,        // Widget_Kind ordinal
-	stream_idx:   int,       // binding slot index (-1 = follow active)
-	has_binding:  bool,      // has explicit venue/symbol binding
-	bind_venue:   [32]u8,
-	bind_venue_len: u8,
-	bind_symbol:  [32]u8,
+	widget_kind:     u8,        // Widget_Kind ordinal
+	stream_idx:      int,       // binding slot index (-1 = follow active)
+	has_binding:     bool,      // has explicit venue/symbol binding
+	bind_venue:      [32]u8,
+	bind_venue_len:  u8,
+	bind_symbol:     [32]u8,
 	bind_symbol_len: u8,
-	tf_idx:       int,       // per-cell TF (-1 = global)
+	tf_idx:          int,       // per-cell TF (-1 = global)
+	// S80: Chart display + indicator flags for deterministic reproduction.
+	chart_display:   int,       // packed chart display (same encoding as V6 layout)
+	indicator_flags: int,       // packed indicator flags (8 bools → bitmask)
 }
 
 // Compare mode snapshot.
@@ -71,6 +74,9 @@ Runtime_Snapshot :: struct {
 	// Active stream identity.
 	active_subject_id: u64,
 	active_tf_idx:     int,
+
+	// S80: Active route for scene state reproduction.
+	active_route:      u8,       // Route ordinal (0=Dashboard, 1=Markets, etc.)
 
 	// Per-stream slot state.
 	slot_count:        int,
@@ -187,6 +193,9 @@ runtime_snapshot_serialize :: proc(snap: ^Runtime_Snapshot, buf: []u8) -> int {
 	append_int(buf, &n, i64(snap.slot_count))
 	pipe(buf, &n)
 	append_int(buf, &n, i64(snap.cell_count))
+	pipe(buf, &n)
+	// S80: Active route.
+	append_int(buf, &n, i64(snap.active_route))
 	nl(buf, &n)
 
 	// Active apply state line.
@@ -219,7 +228,7 @@ runtime_snapshot_serialize :: proc(snap: ^Runtime_Snapshot, buf: []u8) -> int {
 		nl(buf, &n)
 	}
 
-	// Per-cell lines: CL|idx|widget|stream_idx|has_bind|venue|symbol|tf_idx
+	// Per-cell lines: CL|idx|widget|stream_idx|has_bind|venue|symbol|tf_idx|chart_display|indicator_flags
 	for ci in 0 ..< snap.cell_count {
 		cell := &snap.cells[ci]
 		append_str(buf, &n, "CL|")
@@ -240,6 +249,11 @@ runtime_snapshot_serialize :: proc(snap: ^Runtime_Snapshot, buf: []u8) -> int {
 		append_str(buf, &n, string(cell.bind_symbol[:csl]))
 		pipe(buf, &n)
 		append_int(buf, &n, i64(cell.tf_idx))
+		// S80: Chart display + indicator flags.
+		pipe(buf, &n)
+		append_int(buf, &n, i64(cell.chart_display))
+		pipe(buf, &n)
+		append_int(buf, &n, i64(cell.indicator_flags))
 		nl(buf, &n)
 	}
 

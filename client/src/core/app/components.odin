@@ -45,6 +45,11 @@ Indicator_Component :: struct {
 	show_funding:       bool,
 	show_liq:           bool,
 	show_trade_counter: bool,
+	// S81: Analytics chart subplot indicators.
+	show_cvd:           bool,   // CVD line subplot below candle chart
+	show_delta_vol:     bool,   // Delta volume bars subplot below candle chart
+	// S82: Open Interest indicator.
+	show_oi:            bool,   // OI line subplot below candle chart
 }
 
 // Indicator parameter values per entity.
@@ -279,6 +284,11 @@ Global_Indicator_State :: struct {
 	show_funding:       bool,
 	show_liq:           bool,
 	show_trade_counter: bool,
+	// S81: Analytics chart subplot indicators.
+	show_cvd:           bool,
+	show_delta_vol:     bool,
+	// S82: Open Interest indicator.
+	show_oi:            bool,
 	ma_periods:         [3]int,
 	bb_period:          int,
 	bb_sigma:           f64,

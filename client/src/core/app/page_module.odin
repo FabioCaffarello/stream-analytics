@@ -61,6 +61,12 @@ PAGE_MODULES :: [Route]Page_Module{
 		on_enter      = page_session_health_enter,
 		on_leave      = page_session_health_leave,
 	},
+	.Portfolio = {
+		render_page   = page_portfolio_render,
+		render_detail = page_portfolio_render_detail,
+		on_enter      = page_portfolio_enter,
+		on_leave      = page_portfolio_leave,
+	},
 }
 
 // --- Shell-facing dispatch procs ---

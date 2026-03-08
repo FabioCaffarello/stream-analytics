@@ -24,7 +24,8 @@ test_channels_for_widget_direct_mapping :: proc(t: ^testing.T) {
 @(test)
 test_channels_for_widget_empty_returns_zero :: proc(t: ^testing.T) {
 	testing.expect(t, channels_for_widget(.Empty) == 0, "empty widget should need no channels")
-	testing.expect(t, channels_for_widget(.Analytics) == 0, "analytics renders from cell stores, no channels")
+	// S81: Analytics now returns CH_CANDLES (analytics events piggyback on candle subjects)
+	testing.expect(t, channels_for_widget(.Analytics) != 0, "analytics needs candle channel for CVD/DV/OI")
 	testing.expect(t, channels_for_widget(.Session_VPVR) == 0, "session vpvr renders from cell stores")
 	testing.expect(t, channels_for_widget(.TPO) == 0, "tpo renders from cell stores")
 }

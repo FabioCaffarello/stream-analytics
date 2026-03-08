@@ -28,6 +28,8 @@ Analytics_Entry :: struct {
 	window_end_ms:   i64,
 	values:          [ANALYTICS_VALUE_SLOTS]f64,
 	flags:           u8,   // bit 0 = is_burst (Bar_Stats)
+	cadence_hint_ms: i64,  // estimated inter-arrival interval (0 = unknown); OI only
+	confidence:      u8,   // 0=unknown, 1=high, 2=medium, 3=low; OI only
 }
 
 ANALYTICS_STORE_CAP :: 64

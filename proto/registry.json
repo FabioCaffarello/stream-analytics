@@ -236,7 +236,59 @@
       "proto_file": "portfolio/v1/state.proto",
       "message": "portfolio.v1.PortfolioStateV1",
       "status": "draft",
-      "introduced_at": "2026-03-06"
+      "introduced_at": "2026-03-06",
+      "stability_criteria": "round-trip codec tests pass, 30 days production without breaking change",
+      "stability_target": "2026-04-06"
+    },
+    {
+      "type": "portfolio.account_snapshot",
+      "version": 1,
+      "proto_file": "portfolio/v1/account_snapshot.proto",
+      "message": "portfolio.v1.AccountSnapshotV1",
+      "status": "draft",
+      "introduced_at": "2026-03-08",
+      "stability_criteria": "round-trip codec tests pass, 30 days production without breaking change",
+      "stability_target": "2026-04-08"
+    },
+    {
+      "type": "portfolio.summary",
+      "version": 1,
+      "proto_file": "portfolio/v1/portfolio_summary.proto",
+      "message": "portfolio.v1.PortfolioSummaryV1",
+      "status": "draft",
+      "introduced_at": "2026-03-08",
+      "stability_criteria": "round-trip codec tests pass, 30 days production without breaking change",
+      "stability_target": "2026-04-08"
+    },
+    {
+      "type": "portfolio.state_query",
+      "version": 1,
+      "proto_file": "portfolio/v1/query.proto",
+      "message": "portfolio.v1.PortfolioStateQueryRequest",
+      "status": "draft",
+      "introduced_at": "2026-03-08",
+      "stability_criteria": "round-trip codec tests pass, 30 days production without breaking change",
+      "stability_target": "2026-04-08"
+    },
+    {
+      "type": "portfolio.account_snapshot_query",
+      "version": 1,
+      "proto_file": "portfolio/v1/query.proto",
+      "message": "portfolio.v1.AccountSnapshotQueryRequest",
+      "status": "draft",
+      "introduced_at": "2026-03-08",
+      "stability_criteria": "round-trip codec tests pass, 30 days production without breaking change",
+      "stability_target": "2026-04-08"
+    },
+    {
+      "type": "portfolio.summary_query",
+      "version": 1,
+      "proto_file": "portfolio/v1/query.proto",
+      "message": "portfolio.v1.PortfolioSummaryQueryRequest",
+      "status": "draft",
+      "introduced_at": "2026-03-08",
+      "stability_criteria": "round-trip codec tests pass, 30 days production without breaking change",
+      "stability_target": "2026-04-08"
     }
   ]
 }

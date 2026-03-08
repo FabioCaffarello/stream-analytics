@@ -16,6 +16,8 @@ type PortfolioEventContract struct {
 //   - Adding a new entry here requires a matching delivery policy entry.
 var PortfolioEventCatalog = []PortfolioEventContract{
 	{Type: StateEventType, Version: StateEventVersion, OwnerBC: "portfolio", ProducerBC: "portfolio"},
+	{Type: AccountSnapshotEventType, Version: AccountSnapshotEventVersion, OwnerBC: "portfolio", ProducerBC: "portfolio"},
+	{Type: SummaryEventType, Version: SummaryEventVersion, OwnerBC: "portfolio", ProducerBC: "portfolio"},
 }
 
 // PortfolioEventCatalogByType returns a map keyed by event type for O(1) lookup.
@@ -27,9 +29,21 @@ func PortfolioEventCatalogByType() map[string]PortfolioEventContract {
 	return m
 }
 
+const (
+	// AccountSnapshotEventType is the stable event type for account-level snapshots.
+	AccountSnapshotEventType = "portfolio.account_snapshot"
+	// AccountSnapshotEventVersion is the schema version for account snapshots.
+	AccountSnapshotEventVersion = 1
+
+	// SummaryEventType is the stable event type for global portfolio summaries.
+	SummaryEventType = "portfolio.summary"
+	// SummaryEventVersion is the schema version for portfolio summaries.
+	SummaryEventVersion = 1
+)
+
 // PortfolioReadModelCatalog lists non-wire read model types produced by this context.
-// These are query-side projections, not published on the event bus.
+// These are query-side projections with protobuf contracts for wire queries.
 var PortfolioReadModelCatalog = []string{
-	"portfolio.account_snapshot",
-	"portfolio.summary",
+	AccountSnapshotEventType,
+	SummaryEventType,
 }

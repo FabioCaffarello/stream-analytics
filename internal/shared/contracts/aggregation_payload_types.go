@@ -94,6 +94,8 @@ type AggregationOpenInterestV1 struct {
 	DeltaPct      float64
 	Seq           int64
 	TsIngestMs    int64
+	CadenceHintMs int64
+	Confidence    string
 }
 
 // AggregationDeltaVolumeV1 is the shared wire DTO for aggregation.delta_volume v1.

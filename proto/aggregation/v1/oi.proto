@@ -26,6 +26,10 @@ message OpenInterestWindowV1 {
   int64 seq = 9;
   // TsIngestMs is the deterministic ingest timestamp in Unix milliseconds.
   int64 ts_ingest_ms = 10;
+  // CadenceHintMs is the estimated inter-arrival interval in milliseconds.
+  int64 cadence_hint_ms = 11;
+  // Confidence is the feed confidence level: "high", "medium", or "low".
+  string confidence = 12;
 
   reserved 100 to 199;
 }

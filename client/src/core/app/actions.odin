@@ -71,6 +71,8 @@ queue_ui_actions_from_input :: proc(state: ^App_State, input: ports.Input_State)
 			queue_ui_action(state, UI_Action{kind = .Navigate_Route, route = .Markets})
 		} else if state.chrome.active_route == .Session_Health {
 			queue_ui_action(state, UI_Action{kind = .Navigate_Route, route = .Dashboard})
+		} else if state.chrome.active_route == .Portfolio {
+			queue_ui_action(state, UI_Action{kind = .Navigate_Route, route = .Dashboard})
 		} else if state.chrome.active_route == .Markets {
 			queue_ui_action(state, UI_Action{kind = .Navigate_Route, route = .Dashboard})
 		}
@@ -252,6 +254,11 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 			show_toast(state, "Compare: OFF")
 		case .Navigate_Route:
 			page_navigate(state, state.chrome.active_route, action.route)
+			// S80: Persist active route for restore on restart.
+			route_buf: [4]u8
+			route_buf[0] = '0' + u8(action.route)
+			services.settings_set(&state.settings, services.SETTING_ACTIVE_ROUTE, string(route_buf[:1]))
+			services.settings_flush(&state.settings)
 		case .Toggle_Detail_Panel:
 			state.chrome.detail_expanded = !state.chrome.detail_expanded
 			services.settings_set(&state.settings, services.SETTING_SIDEBAR_EXPANDED,
@@ -401,19 +408,34 @@ apply_enter_compare :: proc(state: ^App_State) {
 	state.compare.widget_idx = 2 // Default to Candles (most reliable data via GetRange)
 	state.compare.focused_pane = 0 // S39: focus first pane by default
 	state.compare.slots[0] = reg.active_subject_id
+
+	// S80: Deterministic init — copy chart display from focused cell (or global defaults).
+	// Previously ob_grp and trade_filter were hardcoded to 1/0, losing user preference.
+	fci := state.world.focused
+	src_chart: Chart_Component
+	if fci >= 0 && fci < state.world.count {
+		src_chart = state.world.charts[fci]
+	} else {
+		src_chart = Chart_Component{
+			show_vol              = state.chart_display.show_vol,
+			show_heatmap          = state.chart_display.show_heatmap,
+			show_vpvr             = state.chart_display.show_vpvr,
+			heatmap_intensity_idx = state.chart_display.heatmap_intensity_idx,
+		}
+	}
 	for i in 0 ..< len(state.compare.show_vol) {
 		state.compare.tf_idx[i] = -1 // S38: follow global TF by default
 		state.compare.getranges[i] = {} // S39: reset per-pane getrange
-		state.compare.show_vol[i] = state.chart_display.show_vol
-		state.compare.show_heatmap[i] = state.chart_display.show_heatmap
-		state.compare.show_vpvr[i] = state.chart_display.show_vpvr
-		state.compare.heatmap_idx[i] = state.chart_display.heatmap_intensity_idx
+		state.compare.show_vol[i] = src_chart.show_vol
+		state.compare.show_heatmap[i] = src_chart.show_heatmap
+		state.compare.show_vpvr[i] = src_chart.show_vpvr
+		state.compare.heatmap_idx[i] = src_chart.heatmap_intensity_idx
 		state.compare.scroll_x[i] = state.world.views[0].candle_scroll_x
 		state.compare.zoom[i] = state.world.views[0].candle_zoom
 		state.compare.ob_scroll[i] = 0
-		state.compare.ob_grp[i] = 1
+		state.compare.ob_grp[i] = src_chart.ob_group_idx
 		state.compare.trade_scroll[i] = 0
-		state.compare.trade_filter[i] = 0
+		state.compare.trade_filter[i] = src_chart.trade_filter_idx
 	}
 
 	// Auto-add the next stream.
@@ -500,6 +522,9 @@ init_world_cell_defaults :: proc(state: ^App_State, ci: int, widget: Widget_Kind
 		show_funding       = state.indicators.show_funding,
 		show_liq           = state.indicators.show_liq,
 		show_trade_counter = state.indicators.show_trade_counter,
+		show_cvd           = state.indicators.show_cvd,
+		show_delta_vol     = state.indicators.show_delta_vol,
+		show_oi            = state.indicators.show_oi,
 	}
 	state.world.ind_params[ci] = Indicator_Params{
 		ma_periods  = state.indicators.ma_periods,
@@ -535,19 +560,19 @@ apply_add_compare_stream :: proc(state: ^App_State) {
 		if already do continue
 		si := state.compare.count
 		state.compare.slots[si] = sid
-		// Reset view state for the new slot so stale scroll/zoom doesn't carry over.
+		// S80: Reset view state — copy chart display from first pane for consistency.
 		state.compare.tf_idx[si] = -1 // S38: follow global TF by default
 		state.compare.getranges[si] = {} // S39: reset per-pane getrange
 		state.compare.ob_scroll[si] = 0
-		state.compare.ob_grp[si] = 1
+		state.compare.ob_grp[si] = state.compare.ob_grp[0]
 		state.compare.trade_scroll[si] = 0
-		state.compare.trade_filter[si] = 0
+		state.compare.trade_filter[si] = state.compare.trade_filter[0]
 		state.compare.scroll_x[si] = 0
 		state.compare.zoom[si] = 0
-		state.compare.show_vol[si] = state.chart_display.show_vol
-		state.compare.show_heatmap[si] = state.chart_display.show_heatmap
-		state.compare.show_vpvr[si] = state.chart_display.show_vpvr
-		state.compare.heatmap_idx[si] = state.chart_display.heatmap_intensity_idx
+		state.compare.show_vol[si] = state.compare.show_vol[0]
+		state.compare.show_heatmap[si] = state.compare.show_heatmap[0]
+		state.compare.show_vpvr[si] = state.compare.show_vpvr[0]
+		state.compare.heatmap_idx[si] = state.compare.heatmap_idx[0]
 		state.compare.count += 1
 		// S41: Trigger initial backfill for the newly added pane.
 		request_compare_pane_candle_range(state, si)

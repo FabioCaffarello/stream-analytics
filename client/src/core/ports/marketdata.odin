@@ -403,5 +403,18 @@ Marketdata_Port :: struct {
 	fetch_timeline:  proc(buf: [^]u8, cap: i32, venue: string, instrument: string, timeframe: string) -> i32,  // HTTP GET /api/v1/timeline?venue=X&instrument=Y&timeframe=T&artifact=candle
 	fetch_instrument_overview: proc(buf: [^]u8, cap: i32, venue: string, instrument: string) -> i32,  // HTTP GET /api/v1/instrument/overview?venue=X&instrument=Y
 	fetch_session_dashboard:  proc(buf: [^]u8, cap: i32) -> i32,  // HTTP GET /api/v1/session/dashboard
+	// S74: Portfolio data layer fetchers.
+	fetch_portfolio_state:    proc(buf: [^]u8, cap: i32, account_id: string, venue: string, symbol: string) -> i32,  // HTTP GET /api/v1/portfolio/state/latest?account_id=X&venue=Y&symbol=Z
+	fetch_account_snapshot:   proc(buf: [^]u8, cap: i32, account_id: string) -> i32,  // HTTP GET /api/v1/portfolio/account-snapshot/latest?account_id=X
+	fetch_portfolio_summary:  proc(buf: [^]u8, cap: i32) -> i32,  // HTTP GET /api/v1/portfolio/summary/latest
+	// S78: Trading readiness surface.
+	fetch_trading_readiness:  proc(buf: [^]u8, cap: i32) -> i32,  // HTTP GET /api/v1/trading/readiness
+	// S81: Analytics range fetchers (cold reader API).
+	fetch_analytics_cvd:          proc(buf: [^]u8, cap: i32, venue: string, instrument: string, timeframe: string, limit: i32) -> i32,
+	fetch_analytics_delta_volume: proc(buf: [^]u8, cap: i32, venue: string, instrument: string, timeframe: string, limit: i32) -> i32,
+	fetch_analytics_bar_stats:    proc(buf: [^]u8, cap: i32, venue: string, instrument: string, timeframe: string, limit: i32) -> i32,
+	fetch_analytics_oi:           proc(buf: [^]u8, cap: i32, venue: string, instrument: string, timeframe: string, limit: i32) -> i32,
+	// S82: Session volume profile snapshot.
+	fetch_session_volume_profile: proc(buf: [^]u8, buf_cap: i32, venue: string, instrument: string, anchor: string) -> i32,
 	on_reconnect:    proc(),  // Called by app layer when reconnect detected; triggers reconcile
 }

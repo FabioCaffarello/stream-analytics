@@ -36,7 +36,11 @@ channels_for_widget :: proc(kind: Widget_Kind) -> u16 {
 		return CH_HEATMAPS
 	case .VPVR:
 		return CH_VPVR
-	case .Analytics, .Session_VPVR, .TPO, .Empty:
+	case .Analytics:
+		// S81: Analytics widgets need candle channel to receive analytics events
+		// (CVD, DV, BS piggyback on the aggregation pipeline tied to candle subjects).
+		return CH_CANDLES
+	case .Session_VPVR, .TPO, .Empty:
 		return 0
 	}
 	return 0

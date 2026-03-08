@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package portfolio.v1;
+
+option go_package = "github.com/market-raccoon/internal/shared/proto/gen/portfolio/v1";
+
+import "portfolio/v1/state.proto";
+
+// AccountSnapshotV1 aggregates all venue-scoped portfolio states under one account.
+// This is a read model projected from accumulated PortfolioStateV1 events.
+message AccountSnapshotV1 {
+  // snapshot_id is the immutable identifier for this account snapshot.
+  string snapshot_id = 1;
+  // account_id is the account identifier.
+  string account_id = 2;
+  // projected_at_ms is the projection timestamp in Unix milliseconds.
+  int64 projected_at_ms = 3;
+  // venues is the list of per-venue position aggregates.
+  repeated VenuePositionV1 venues = 4;
+  // total_equity_usd is total account equity across all venues in USD.
+  double total_equity_usd = 5;
+  // total_realized_usd is cumulative realized PnL across all venues in USD.
+  double total_realized_usd = 6;
+  // total_unrealized_usd is current unrealized PnL across all venues in USD.
+  double total_unrealized_usd = 7;
+  // total_margin_used_usd is total margin allocated across all venues in USD.
+  double total_margin_used_usd = 8;
+  // total_leverage is aggregate leverage across all venues.
+  double total_leverage = 9;
+  // fill_summary captures aggregate fill metrics for the account.
+  FillSummaryV1 fill_summary = 10;
+
+  reserved 100 to 199;
+}
+
+// VenuePositionV1 groups positions and balances from a single venue within an account.
+message VenuePositionV1 {
+  // venue is the canonical venue identifier.
+  string venue = 1;
+  // positions is the list of instrument positions at this venue.
+  repeated PositionV1 positions = 2;
+  // balances is the list of asset balances at this venue.
+  repeated BalanceV1 balances = 3;
+  // equity_usd is venue-level equity in USD.
+  double equity_usd = 4;
+  // realized_pnl_usd is venue-level realized PnL in USD.
+  double realized_pnl_usd = 5;
+  // unrealized_pnl_usd is venue-level unrealized PnL in USD.
+  double unrealized_pnl_usd = 6;
+  // margin_used_usd is venue-level margin used in USD.
+  double margin_used_usd = 7;
+
+  reserved 100 to 199;
+}

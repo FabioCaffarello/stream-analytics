@@ -58,8 +58,8 @@ func TestHandleGetSession_HappyPath(t *testing.T) {
 		t.Errorf("expected second venue=bybit, got %s", resp.Markets[1].Venue)
 	}
 
-	if len(resp.Capabilities.Artifacts) != 8 {
-		t.Errorf("expected 8 artifacts, got %d", len(resp.Capabilities.Artifacts))
+	if len(resp.Capabilities.Artifacts) != 10 {
+		t.Errorf("expected 10 artifacts, got %d", len(resp.Capabilities.Artifacts))
 	}
 }
 
@@ -82,8 +82,8 @@ func TestHandleGetSession_NoMarkets(t *testing.T) {
 	if len(resp.Markets) != 0 {
 		t.Errorf("expected 0 markets, got %d", len(resp.Markets))
 	}
-	if len(resp.Capabilities.Artifacts) != 8 {
-		t.Errorf("expected 8 artifacts even without markets, got %d", len(resp.Capabilities.Artifacts))
+	if len(resp.Capabilities.Artifacts) != 10 {
+		t.Errorf("expected 10 artifacts even without markets, got %d", len(resp.Capabilities.Artifacts))
 	}
 }
 

@@ -43,7 +43,11 @@ type OpenInterestWindowV1 struct {
 	// Seq is the highest sequence observed for this stream.
 	Seq int64 `protobuf:"varint,9,opt,name=seq,proto3" json:"seq,omitempty"`
 	// TsIngestMs is the deterministic ingest timestamp in Unix milliseconds.
-	TsIngestMs    int64 `protobuf:"varint,10,opt,name=ts_ingest_ms,json=tsIngestMs,proto3" json:"ts_ingest_ms,omitempty"`
+	TsIngestMs int64 `protobuf:"varint,10,opt,name=ts_ingest_ms,json=tsIngestMs,proto3" json:"ts_ingest_ms,omitempty"`
+	// CadenceHintMs is the estimated inter-arrival interval in milliseconds.
+	CadenceHintMs int64 `protobuf:"varint,11,opt,name=cadence_hint_ms,json=cadenceHintMs,proto3" json:"cadence_hint_ms,omitempty"`
+	// Confidence is the feed confidence level: "high", "medium", or "low".
+	Confidence    string `protobuf:"bytes,12,opt,name=confidence,proto3" json:"confidence,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -146,6 +150,20 @@ func (x *OpenInterestWindowV1) GetTsIngestMs() int64 {
 		return x.TsIngestMs
 	}
 	return 0
+}
+
+func (x *OpenInterestWindowV1) GetCadenceHintMs() int64 {
+	if x != nil {
+		return x.CadenceHintMs
+	}
+	return 0
+}
+
+func (x *OpenInterestWindowV1) GetConfidence() string {
+	if x != nil {
+		return x.Confidence
+	}
+	return ""
 }
 
 var File_aggregation_v1_oi_proto protoreflect.FileDescriptor

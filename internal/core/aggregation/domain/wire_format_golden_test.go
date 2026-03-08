@@ -89,10 +89,14 @@ func TestWireFormatGolden_BarStatsWindowV1(t *testing.T) {
 // TestWireFormatGolden_OpenInterestWindowV1 asserts the JSON key set is frozen.
 func TestWireFormatGolden_OpenInterestWindowV1(t *testing.T) {
 	frozen := []string{
-		"Venue", "Instrument", "Timeframe",
-		"WindowStartTs", "WindowEndTs",
-		"OpenInterest", "Delta", "DeltaPct",
-		"Seq", "TsIngestMs",
+		"CadenceHintMs", "Confidence",
+		"Delta", "DeltaPct",
+		"Instrument",
+		"OpenInterest",
+		"Seq",
+		"Timeframe", "TsIngestMs",
+		"Venue",
+		"WindowEndTs", "WindowStartTs",
 	}
 	assertJSONKeys(t, "OpenInterestWindowV1", OpenInterestWindowV1{}, frozen)
 }

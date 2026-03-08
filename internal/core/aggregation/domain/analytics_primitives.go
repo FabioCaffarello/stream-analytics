@@ -64,6 +64,8 @@ type OpenInterestWindowV1 struct {
 	DeltaPct      float64 `json:"DeltaPct"`
 	Seq           int64   `json:"Seq"`
 	TsIngestMs    int64   `json:"TsIngestMs"`
+	CadenceHintMs int64   `json:"CadenceHintMs"`
+	Confidence    string  `json:"Confidence"`
 }
 
 // DeltaVolumeClosed is emitted when one delta-volume window is materialized.
@@ -160,6 +162,8 @@ func BuildOpenInterestWindowV1(
 	seq, tsIngest, timestamp int64,
 	openInterest, prevOpenInterest float64,
 	hasPrev bool,
+	cadenceHintMs int64,
+	confidence string,
 ) OpenInterestWindowV1 {
 	delta := 0.0
 	deltaPct := 0.0
@@ -190,5 +194,7 @@ func BuildOpenInterestWindowV1(
 		DeltaPct:      deltaPct,
 		Seq:           seq,
 		TsIngestMs:    tsIngest,
+		CadenceHintMs: cadenceHintMs,
+		Confidence:    confidence,
 	}
 }

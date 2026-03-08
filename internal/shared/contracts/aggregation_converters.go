@@ -194,6 +194,8 @@ func WireDTOToProtoOpenInterestWindowV1(in AggregationOpenInterestV1) *aggregati
 		DeltaPct:      in.DeltaPct,
 		Seq:           in.Seq,
 		TsIngestMs:    in.TsIngestMs,
+		CadenceHintMs: in.CadenceHintMs,
+		Confidence:    in.Confidence,
 	}
 }
 
@@ -213,6 +215,8 @@ func ProtoToWireDTOOpenInterestWindowV1(in *aggregationv1.OpenInterestWindowV1) 
 		DeltaPct:      in.GetDeltaPct(),
 		Seq:           in.GetSeq(),
 		TsIngestMs:    in.GetTsIngestMs(),
+		CadenceHintMs: in.GetCadenceHintMs(),
+		Confidence:    in.GetConfidence(),
 	}
 }
 
