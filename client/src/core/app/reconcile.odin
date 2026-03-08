@@ -14,55 +14,10 @@ import "mr:util"
 // ===============================================================
 // Smart Subscription Management (PRD-0006-B M5)
 // Subscribe only to channels cells actually need.
+// S62: Direct Widget_Kind → channels mapping replaces legacy route tag indirection.
 // ===============================================================
 
 CHANNEL_COUNT :: 9
-
-// Returns a bitmask of channels required by a legacy layer route mapping.
-channels_for_bundle :: proc(bundle: u32) -> u16 {
-	CH_TRADES    :: u16(1 << u16(ports.MD_Channel.Trades))
-	CH_ORDERBOOK :: u16(1 << u16(ports.MD_Channel.Orderbook))
-	CH_STATS     :: u16(1 << u16(ports.MD_Channel.Stats))
-	CH_HEATMAPS  :: u16(1 << u16(ports.MD_Channel.Heatmaps))
-	CH_VPVR      :: u16(1 << u16(ports.MD_Channel.VPVR))
-	CH_CANDLES   :: u16(1 << u16(ports.MD_Channel.Candles))
-	CH_EVIDENCE  :: u16(1 << u16(ports.MD_Channel.Evidence))
-	CH_SIGNALS   :: u16(1 << u16(ports.MD_Channel.Signals))
-	CH_TAPE      :: u16(1 << u16(ports.MD_Channel.Tape))
-
-	route := bundle & (LEGACY_ROUTE_CANDLE | LEGACY_ROUTE_TRADES | LEGACY_ROUTE_ORDERBOOK | LEGACY_ROUTE_DOM |
-		LEGACY_ROUTE_HEATMAP | LEGACY_ROUTE_VPVR | LEGACY_ROUTE_STATS | LEGACY_ROUTE_COUNTER)
-	switch route {
-	case LEGACY_ROUTE_CANDLE:
-		return CH_CANDLES | CH_STATS | CH_HEATMAPS | CH_VPVR | CH_EVIDENCE | CH_SIGNALS
-	case LEGACY_ROUTE_ORDERBOOK:
-		return CH_ORDERBOOK
-	case LEGACY_ROUTE_DOM:
-		return CH_ORDERBOOK | CH_TRADES
-	case LEGACY_ROUTE_TRADES:
-		return CH_TRADES | CH_TAPE
-	case LEGACY_ROUTE_STATS:
-		return CH_STATS
-	case LEGACY_ROUTE_COUNTER:
-		return CH_CANDLES | CH_STATS
-	case LEGACY_ROUTE_HEATMAP:
-		return CH_HEATMAPS
-	case LEGACY_ROUTE_VPVR:
-		return CH_VPVR
-	case 0:
-		return 0
-	}
-	return 0
-}
-
-compare_bundle_for_idx :: proc(widget_idx: int) -> u32 {
-	switch widget_idx {
-	case 0: return u32(layers.Layer_Bundle.Bundle_Orderbook) | LEGACY_ROUTE_ORDERBOOK
-	case 1: return u32(layers.Layer_Bundle.Bundle_Trades) | LEGACY_ROUTE_TRADES
-	case 2: return u32(layers.Layer_Bundle.Bundle_Candles) | LEGACY_ROUTE_CANDLE
-	}
-	return u32(layers.Layer_Bundle.Bundle_Candles) | LEGACY_ROUTE_CANDLE
-}
 
 // Wanted subscription: venue + symbol + channel bitmask + TF for TF-sensitive channels.
 Sub_Want :: struct {
@@ -164,8 +119,7 @@ reconcile_subscriptions :: proc(state: ^App_State) {
 	tf_opts := TF_OPTIONS
 
 	for ci in 0 ..< state.world.count {
-		bundle := legacy_widget_bundle(state.world.widgets[ci].kind)
-		ch_mask := channels_for_bundle(bundle)
+		ch_mask := channels_for_widget(state.world.widgets[ci].kind)
 		if ch_mask == 0 do continue
 		if state.bp_assist.degrade_heatmap {
 			ch_mask &= ~u16(1 << u16(ports.MD_Channel.Heatmaps))
@@ -231,8 +185,7 @@ reconcile_subscriptions :: proc(state: ^App_State) {
 
 	// Compare mode: ensure compare slot streams are subscribed for the selected widget type.
 	if state.compare.active && state.compare.count > 0 {
-		cmp_bundle := compare_bundle_for_idx(state.compare.widget_idx)
-		cmp_ch_mask := channels_for_bundle(cmp_bundle)
+		cmp_ch_mask := channels_for_widget(compare_widget_kind_for_idx(state.compare.widget_idx))
 		for csi in 0 ..< state.compare.count {
 			sid := state.compare.slots[csi]
 			slot_idx := stream_view_find_slot(reg, sid)

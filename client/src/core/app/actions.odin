@@ -70,6 +70,8 @@ queue_ui_actions_from_input :: proc(state: ^App_State, input: ports.Input_State)
 			queue_ui_action(state, UI_Action{kind = .Navigate_Route, route = .Markets})
 		} else if state.chrome.active_route == .Session_Health {
 			queue_ui_action(state, UI_Action{kind = .Navigate_Route, route = .Dashboard})
+		} else if state.chrome.active_route == .Markets {
+			queue_ui_action(state, UI_Action{kind = .Navigate_Route, route = .Dashboard})
 		}
 	}
 

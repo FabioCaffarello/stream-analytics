@@ -1,28 +1,26 @@
 package app
 
-// S49: Session & Profile Engine — widget render procs.
-// Renders Session VPVR and TPO Profile from per-cell stores.
-// Zero allocation, deterministic rendering, pure read from cell stores.
+// S49/S61: Session & Profile Engine — widget render procs.
+// S61: Renders from pre-resolved Cell_View_Model. Widget procs receive
+// ^Cmd_Buffer + resolved store pointers — zero App_State coupling.
 
 import "core:fmt"
 import "core:math"
 import "mr:services"
 import "mr:ui"
 
-render_session_profile_cell :: proc(state: ^App_State, ci: int, wid: Widget_Kind, cell_vp: ui.Rect) {
-	if state == nil do return
-	if ci < 0 || ci >= state.world.count do return
+// S61: Entry point from Cell_View_Model dispatch (no App_State dependency).
+render_session_profile_cell_vm :: proc(cmd_buf: ^ui.Command_Buffer, vm: Cell_View_Model, cell_vp: ui.Rect) {
+	if cmd_buf == nil do return
 	if cell_vp.size.x <= 0 || cell_vp.size.y <= 0 do return
 
-	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = cell_vp, color = ui.with_alpha(ui.COL_SURFACE_1, 0.92)})
+	ui.push(cmd_buf, ui.Cmd_Rect_Filled{rect = cell_vp, color = ui.with_alpha(ui.COL_SURFACE_1, 0.92)})
 
-	stores := resolve_stores_for_cell(state, ci)
-
-	#partial switch wid {
+	#partial switch vm.widget_kind {
 	case .Session_VPVR:
-		render_session_vpvr(state, stores.session_vpvr, cell_vp)
+		render_session_vpvr(cmd_buf, vm.stores.session_vpvr, cell_vp)
 	case .TPO:
-		render_tpo_profile(state, stores.tpo, cell_vp)
+		render_tpo_profile(cmd_buf, vm.stores.tpo, cell_vp)
 	case:
 	}
 }
@@ -30,9 +28,9 @@ render_session_profile_cell :: proc(state: ^App_State, ci: int, wid: Widget_Kind
 // --- Session VPVR ---
 
 @(private = "file")
-render_session_vpvr :: proc(state: ^App_State, store: ^services.Session_VPVR_Store, vp: ui.Rect) {
+render_session_vpvr :: proc(cmd_buf: ^ui.Command_Buffer, store: ^services.Session_VPVR_Store, vp: ui.Rect) {
 	if store == nil || store.count == 0 {
-		ui.push_text(&state.cmd_buf,
+		ui.push_text(cmd_buf,
 			{vp.pos.x + 6, vp.pos.y + 14},
 			"Session VPVR: no data",
 			ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
@@ -42,7 +40,7 @@ render_session_vpvr :: proc(state: ^App_State, store: ^services.Session_VPVR_Sto
 	// Session label header.
 	label := services.get_session_vpvr_label(store)
 	if len(label) > 0 {
-		ui.push_text(&state.cmd_buf,
+		ui.push_text(cmd_buf,
 			{vp.pos.x + 6, vp.pos.y + 12},
 			label, ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS, .Mono)
 	}
@@ -77,13 +75,13 @@ render_session_vpvr :: proc(state: ^App_State, store: ^services.Session_VPVR_Sto
 		buy_alpha := f32(0.5) + buy_dom * f32(0.35)
 
 		if sell_w > 0.5 {
-			ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
+			ui.push(cmd_buf, ui.Cmd_Rect_Filled{
 				rect  = {pos = {bar_x, y}, size = {sell_w, math.max(row_h - 1, 1)}},
 				color = ui.with_alpha(ui.COL_ORDERBOOK_RED, sell_alpha),
 			})
 		}
 		if buy_w > 0.5 {
-			ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
+			ui.push(cmd_buf, ui.Cmd_Rect_Filled{
 				rect  = {pos = {bar_x + sell_w, y}, size = {buy_w, math.max(row_h - 1, 1)}},
 				color = ui.with_alpha(ui.COL_ORDERBOOK_GREEN, buy_alpha),
 			})
@@ -91,13 +89,13 @@ render_session_vpvr :: proc(state: ^App_State, store: ^services.Session_VPVR_Sto
 
 		// POC highlight.
 		if i == store.poc_index {
-			ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
+			ui.push(cmd_buf, ui.Cmd_Rect_Filled{
 				rect  = {pos = {bar_x - 2, y}, size = {total_w + 4, math.max(row_h, 2)}},
 				color = ui.with_alpha(ui.COL_YELLOW_ACCENT, 0.3),
 			})
 			// POC line across full width.
 			poc_y := y + row_h * 0.5
-			ui.push(&state.cmd_buf, ui.Cmd_Line{
+			ui.push(cmd_buf, ui.Cmd_Line{
 				from = {bar_area.pos.x, poc_y},
 				to   = {ui.rect_right(bar_area), poc_y},
 				color = ui.with_alpha(ui.COL_YELLOW_ACCENT, 0.6),
@@ -117,11 +115,11 @@ render_session_vpvr :: proc(state: ^App_State, store: ^services.Session_VPVR_Sto
 			vah_y := bar_area.pos.y + bar_area.size.y * (1 - vah_frac)
 			val_y := bar_area.pos.y + bar_area.size.y * (1 - val_frac)
 
-			ui.push(&state.cmd_buf, ui.Cmd_Line{
+			ui.push(cmd_buf, ui.Cmd_Line{
 				from = {bar_area.pos.x, vah_y}, to = {ui.rect_right(bar_area), vah_y},
 				color = ui.with_alpha(ui.COL_YELLOW_ACCENT, 0.4), thickness = 1,
 			})
-			ui.push(&state.cmd_buf, ui.Cmd_Line{
+			ui.push(cmd_buf, ui.Cmd_Line{
 				from = {bar_area.pos.x, val_y}, to = {ui.rect_right(bar_area), val_y},
 				color = ui.with_alpha(ui.COL_YELLOW_ACCENT, 0.4), thickness = 1,
 			})
@@ -132,9 +130,9 @@ render_session_vpvr :: proc(state: ^App_State, store: ^services.Session_VPVR_Sto
 // --- TPO Profile ---
 
 @(private = "file")
-render_tpo_profile :: proc(state: ^App_State, store: ^services.TPO_Store, vp: ui.Rect) {
+render_tpo_profile :: proc(cmd_buf: ^ui.Command_Buffer, store: ^services.TPO_Store, vp: ui.Rect) {
 	if store == nil || store.level_count == 0 || store.period_count == 0 {
-		ui.push_text(&state.cmd_buf,
+		ui.push_text(cmd_buf,
 			{vp.pos.x + 6, vp.pos.y + 14},
 			"TPO: no data",
 			ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
@@ -144,7 +142,7 @@ render_tpo_profile :: proc(state: ^App_State, store: ^services.TPO_Store, vp: ui
 	// Session label header.
 	label := services.get_tpo_label(store)
 	if len(label) > 0 {
-		ui.push_text(&state.cmd_buf,
+		ui.push_text(cmd_buf,
 			{vp.pos.x + 6, vp.pos.y + 12},
 			label, ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS, .Mono)
 	}
@@ -183,7 +181,7 @@ render_tpo_profile :: proc(state: ^App_State, store: ^services.TPO_Store, vp: ui
 
 		// POC row background.
 		if is_poc {
-			ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
+			ui.push(cmd_buf, ui.Cmd_Rect_Filled{
 				rect  = {pos = {grid_area.pos.x, y}, size = {grid_area.size.x, math.max(row_h, 2)}},
 				color = ui.with_alpha(ui.COL_YELLOW_ACCENT, 0.15),
 			})
@@ -202,7 +200,7 @@ render_tpo_profile :: proc(state: ^App_State, store: ^services.TPO_Store, vp: ui
 
 			block_color := is_poc ? ui.with_alpha(ui.COL_YELLOW_ACCENT, brightness * 0.7) : ui.with_alpha(ui.COL_BLUE, brightness * 0.5)
 
-			ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
+			ui.push(cmd_buf, ui.Cmd_Rect_Filled{
 				rect  = {pos = {lx, y}, size = {math.max(letter_w - 1, 1), math.max(row_h - 1, 1)}},
 				color = block_color,
 			})
@@ -211,7 +209,7 @@ render_tpo_profile :: proc(state: ^App_State, store: ^services.TPO_Store, vp: ui
 			if letter_w >= 8 && row_h >= 8 {
 				letter_buf[0] = letter
 				text_y := y + row_h * 0.5 + ui.FONT_SIZE_XS * 0.35
-				ui.push_text(&state.cmd_buf, {lx + 1, text_y},
+				ui.push_text(cmd_buf, {lx + 1, text_y},
 					string(letter_buf[:]), ui.with_alpha(ui.COL_WHITE, 0.8), ui.FONT_SIZE_XS, .Mono)
 			}
 		}
@@ -220,7 +218,7 @@ render_tpo_profile :: proc(state: ^App_State, store: ^services.TPO_Store, vp: ui
 		if lv.count == 1 {
 			marker_x := grid_area.pos.x + letter_w + 2
 			marker_y := y + row_h * 0.5
-			ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
+			ui.push(cmd_buf, ui.Cmd_Rect_Filled{
 				rect  = {pos = {marker_x, marker_y - 1}, size = {3, 3}},
 				color = ui.COL_ACCENT_CYAN,
 			})
@@ -240,22 +238,22 @@ render_tpo_profile :: proc(state: ^App_State, store: ^services.TPO_Store, vp: ui
 			bracket_x := ui.rect_right(grid_area) - 6
 
 			// Vertical bracket line.
-			ui.push(&state.cmd_buf, ui.Cmd_Line{
+			ui.push(cmd_buf, ui.Cmd_Line{
 				from = {bracket_x, ib_hi_y}, to = {bracket_x, ib_lo_y},
 				color = ui.with_alpha(ui.COL_ACCENT_CYAN, 0.6), thickness = 1,
 			})
 			// Top tick.
-			ui.push(&state.cmd_buf, ui.Cmd_Line{
+			ui.push(cmd_buf, ui.Cmd_Line{
 				from = {bracket_x - 3, ib_hi_y}, to = {bracket_x, ib_hi_y},
 				color = ui.with_alpha(ui.COL_ACCENT_CYAN, 0.6), thickness = 1,
 			})
 			// Bottom tick.
-			ui.push(&state.cmd_buf, ui.Cmd_Line{
+			ui.push(cmd_buf, ui.Cmd_Line{
 				from = {bracket_x - 3, ib_lo_y}, to = {bracket_x, ib_lo_y},
 				color = ui.with_alpha(ui.COL_ACCENT_CYAN, 0.6), thickness = 1,
 			})
 			// IB label.
-			ui.push_text(&state.cmd_buf, {bracket_x - 16, (ib_hi_y + ib_lo_y) * 0.5 + ui.FONT_SIZE_XS * 0.35},
+			ui.push_text(cmd_buf, {bracket_x - 16, (ib_hi_y + ib_lo_y) * 0.5 + ui.FONT_SIZE_XS * 0.35},
 				"IB", ui.COL_ACCENT_CYAN, ui.FONT_SIZE_XS, .Mono)
 		}
 	}
@@ -268,11 +266,11 @@ render_tpo_profile :: proc(state: ^App_State, store: ^services.TPO_Store, vp: ui
 		if price_range > 0 {
 			vah_y := grid_area.pos.y + grid_area.size.y * (1 - f32((store.vah_price - min_p) / price_range))
 			val_y := grid_area.pos.y + grid_area.size.y * (1 - f32((store.val_price - min_p) / price_range))
-			ui.push(&state.cmd_buf, ui.Cmd_Line{
+			ui.push(cmd_buf, ui.Cmd_Line{
 				from = {grid_area.pos.x, vah_y}, to = {ui.rect_right(grid_area), vah_y},
 				color = ui.with_alpha(ui.COL_YELLOW_ACCENT, 0.4), thickness = 1,
 			})
-			ui.push(&state.cmd_buf, ui.Cmd_Line{
+			ui.push(cmd_buf, ui.Cmd_Line{
 				from = {grid_area.pos.x, val_y}, to = {ui.rect_right(grid_area), val_y},
 				color = ui.with_alpha(ui.COL_YELLOW_ACCENT, 0.4), thickness = 1,
 			})

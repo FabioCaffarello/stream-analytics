@@ -40,8 +40,8 @@ PAGE_MODULES :: [Route]Page_Module{
 	.Markets = {
 		render_page   = page_markets_render,
 		render_detail = page_markets_render_detail,
-		on_enter      = nil,
-		on_leave      = nil,
+		on_enter      = page_explorer_enter,
+		on_leave      = page_explorer_leave,
 	},
 	.Settings = {
 		render_page   = page_settings_render,

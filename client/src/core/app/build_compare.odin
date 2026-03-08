@@ -47,12 +47,8 @@ build_compare_mode :: proc(
 	cmp_grid := ui.build_compare_grid(state.compare.count, gap)
 	cmp_result := ui.compute_grid(cmp_grid, workspace)
 
-	render_kind := Widget_Kind.Candle
-	switch state.compare.widget_idx {
-	case 0: render_kind = .Orderbook
-	case 1: render_kind = .Trades
-	case 2: render_kind = .Candle
-	}
+	// S62: Use canonical compare_widget_kind_for_idx (widget_channels.odin).
+	render_kind := compare_widget_kind_for_idx(state.compare.widget_idx)
 
 	for ci in 0 ..< state.compare.count {
 		cell_rect := cmp_result.rects[ci]

@@ -465,6 +465,8 @@ App_State :: struct {
 	instrument_overview: Instrument_Overview_State,
 	// S59: Session health state — backend-owned session dashboard read model.
 	session_health: Session_Health_State,
+	// S60: Market Explorer 2.0 — discovery page state.
+	explorer: Explorer_State,
 }
 
 // S20: Bootstrap state populated from GET /api/v1/session.
@@ -508,6 +510,31 @@ Session_Health_State :: struct {
 	fetch_status: Overview_Fetch_Status,
 	fetch_frame:  u64,
 	view:         services.Session_Health_Result,
+}
+
+// S60: Market Explorer 2.0 — page state for venue-grouped discovery.
+EXPLORER_POLL_INTERVAL :: u64(600) // ~10s at 60fps
+
+Explorer_State :: struct {
+	// Filter.
+	type_filter:     services.Explorer_Market_Type_Filter,
+	// Scroll.
+	scroll_y:        f32,
+	// Per-venue collapse state (true = collapsed).
+	collapsed:       [services.EXPLORER_VENUE_CAP]bool,
+	// Session dashboard cache (for global health header).
+	has_dashboard:   bool,
+	dashboard_status: [16]u8,
+	dashboard_status_len: u8,
+	dashboard_venues:      int,
+	dashboard_instruments: int,
+	dashboard_active:      int,
+	dashboard_stale:       int,
+	dashboard_freshness:   [16]u8,
+	dashboard_freshness_len: u8,
+	// Fetch lifecycle.
+	fetch_frame:     u64,
+	fetch_status:    Overview_Fetch_Status,
 }
 
 Instrument_Overview_State :: struct {
@@ -1146,6 +1173,7 @@ update :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buffe
 	poll_freshness(state)
 	poll_instrument_overview(state)
 	poll_session_health(state)
+	poll_explorer(state)
 	cache_render_observations(state, frame_input)
 	buf := build_ui(state, frame_input)
 	if state.ui_action_count > 0 {
@@ -1181,6 +1209,7 @@ update_web :: proc(state: ^App_State, input: ports.Input_State) -> (buf: ^ui.Com
 	poll_freshness(state)
 	poll_instrument_overview(state)
 	poll_session_health(state)
+	poll_explorer(state)
 
 	conn := current_conn_status(state)
 	candle_health_changed := observe_candle_health(state)

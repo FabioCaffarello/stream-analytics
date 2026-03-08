@@ -41,7 +41,7 @@ render_subject_layer_canvas :: proc(
 
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = cell_vp, color = ui.with_alpha(ui.COL_SURFACE_1, 0.92)})
 
-	bundle_mask := legacy_widget_bundle(kind)
+	bundle_mask := layer_bundle_for_widget(kind)
 	if bundle_mask == 0 {
 		empty_label := "Empty"
 		ui.push_text(&state.cmd_buf,

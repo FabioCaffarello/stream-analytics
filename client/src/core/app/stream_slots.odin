@@ -283,6 +283,118 @@ find_market_channel_slot :: proc(
 	return &reg.slots[best_idx]
 }
 
+// S61: Cell_View_Model — unified per-cell resolved state.
+// Bundles surface view, data stores, effective TF, and widget config into a single
+// query result. Resolved once per cell per frame, consumed by all render procs.
+// Pure derived view — no mutation, no allocations.
+Cell_View_Model :: struct {
+	// Read model: composition, health, staleness, identity.
+	surface:        Cell_Surface_View,
+	// Data stores: pointers to the appropriate stores for this cell.
+	stores:         Cell_Stores,
+	// Effective configuration (resolved from ECS components).
+	widget_kind:    Widget_Kind,
+	tf_idx:         int,            // effective TF index (resolved per-cell or global)
+	tf_string:      string,         // effective TF label (e.g. "1m", "5m")
+	tf_ms:          i64,            // effective TF in milliseconds
+	// Analytics config (only meaningful for .Analytics widget kind).
+	analytics_kind: services.Analytics_Kind,
+	show_history:   bool,
+	// Cell identity.
+	cell_idx:       int,
+	focused:        bool,
+}
+
+// S61: Resolve a complete Cell_View_Model for a cell. Single call replaces
+// separate resolve_cell_surface_view + resolve_stores_for_cell + manual ECS reads.
+// Must be called once per cell per frame in the render loop.
+resolve_cell_view_model :: proc(state: ^App_State, ci: int) -> Cell_View_Model {
+	vm: Cell_View_Model
+	if state == nil || ci < 0 || ci >= state.world.count do return vm
+
+	vm.cell_idx = ci
+	vm.widget_kind = state.world.widgets[ci].kind
+	vm.focused = (ci == state.world.focused)
+
+	// Effective TF (resolved once, reused by surface view and stores).
+	vm.tf_idx = cell_effective_tf_idx(state, ci)
+	tf_opts := TF_OPTIONS
+	vm.tf_string = tf_opts[vm.tf_idx] if vm.tf_idx >= 0 && vm.tf_idx < len(tf_opts) else tf_opts[0]
+	tf_ms_opts := TF_OPTION_MS
+	vm.tf_ms = tf_ms_opts[vm.tf_idx] if vm.tf_idx >= 0 && vm.tf_idx < len(tf_ms_opts) else tf_ms_opts[0]
+
+	// Analytics config (from ECS component).
+	vm.analytics_kind = state.world.analytics[ci].analytics_kind
+	vm.show_history = state.world.analytics[ci].show_history
+
+	// Stores (resolved once — avoid double resolution).
+	vm.stores = resolve_stores_for_cell(state, ci)
+
+	// Surface view (uses pre-resolved stores and TF to avoid redundant computation).
+	vm.surface = resolve_cell_surface_view_with_stores(state, ci, vm.stores, vm.tf_ms)
+
+	return vm
+}
+
+// S61: Internal surface view resolution that accepts pre-resolved stores and TF.
+// Avoids the double resolve_stores_for_cell call in the original resolve_cell_surface_view.
+@(private = "file")
+resolve_cell_surface_view_with_stores :: proc(
+	state: ^App_State,
+	ci: int,
+	stores: Cell_Stores,
+	tf_ms: i64,
+) -> Cell_Surface_View {
+	view: Cell_Surface_View
+	if state == nil || ci < 0 || ci >= state.world.count do return view
+
+	view.composition = resolve_cell_composition(state, ci)
+	apply := resolve_cell_apply_state(state, ci)
+
+	now_ms := current_now_ms(state)
+
+	view.candle_health = compute_candle_health_for_store(
+		stores.candle,
+		md_common.apply_state_candle_recv_ms(apply),
+		tf_ms,
+		now_ms,
+	)
+
+	for kind in md_common.Artifact_Kind {
+		if apply.has_live[kind] {
+			view.has_live_data = true
+			break
+		}
+	}
+
+	view.stale_count, view.aging_count = md_common.apply_state_stale_artifact_count(apply, now_ms, tf_ms)
+	view.health_level = md_common.stream_health_level(apply, now_ms, tf_ms)
+	view.recovery_status = md_common.apply_state_recovery_status(apply)
+
+	bind := &state.world.bindings[ci]
+	view.stream_bound = bind.stream_idx >= 0 || binding_has(bind)
+
+	reg := state.stream_views
+	if reg != nil {
+		slot_idx := -1
+		if bind.stream_idx >= 0 && bind.stream_idx < STREAM_VIEW_CAP && reg.slots[bind.stream_idx].used {
+			slot_idx = bind.stream_idx
+		} else if reg.has_active {
+			slot_idx = stream_view_find_slot(reg, reg.active_subject_id)
+		}
+		if slot_idx >= 0 {
+			slot := &reg.slots[slot_idx]
+			if !slot.has_stream_info { refresh_stream_info_for_slot(state, slot) }
+			if slot.has_stream_info {
+				view.venue = slot.stream_info.venue
+				view.symbol = slot.stream_info.symbol
+			}
+		}
+	}
+
+	return view
+}
+
 // Resolve data stores for a cell. Returns pointers to the appropriate stores.
 Cell_Stores :: struct {
 	candle:       ^services.Candle_Store,
