@@ -590,71 +590,6 @@ resolve_cell_apply_state :: proc(state: ^App_State, ci: int) -> md_common.Stream
 	return state.active_apply_state
 }
 
-// S36: Unified per-cell read model. Surfaces call this once per cell per frame
-// instead of assembling composition, health, and identity from scattered sources.
-// Pure derived view — no mutation, no allocations.
-resolve_cell_surface_view :: proc(state: ^App_State, ci: int) -> Cell_Surface_View {
-	view: Cell_Surface_View
-	if state == nil || ci < 0 || ci >= state.world.count do return view
-
-	// Composition stage (reuses existing S26 logic).
-	view.composition = resolve_cell_composition(state, ci)
-
-	// Apply state snapshot for staleness + health queries.
-	apply := resolve_cell_apply_state(state, ci)
-
-	now_ms := current_now_ms(state)
-	tf_ms := cell_effective_tf_ms(state, ci)
-
-	// Per-cell candle health.
-	stores := resolve_stores_for_cell(state, ci)
-	view.candle_health = compute_candle_health_for_store(
-		stores.candle,
-		md_common.apply_state_candle_recv_ms(apply),
-		tf_ms,
-		now_ms,
-	)
-
-	// Live data flag — any artifact alive.
-	for kind in md_common.Artifact_Kind {
-		if apply.has_live[kind] {
-			view.has_live_data = true
-			break
-		}
-	}
-
-	// Staleness counts.
-	view.stale_count, view.aging_count = md_common.apply_state_stale_artifact_count(apply, now_ms, tf_ms)
-
-	// Health level.
-	view.health_level = md_common.stream_health_level(apply, now_ms, tf_ms)
-	view.recovery_status = md_common.apply_state_recovery_status(apply) // S42
-
-	// Identity — resolved from slot stream info.
-	bind := &state.world.bindings[ci]
-	view.stream_bound = bind.stream_idx >= 0 || binding_has(bind)
-
-	reg := state.stream_views
-	if reg != nil {
-		slot_idx := -1
-		if bind.stream_idx >= 0 && bind.stream_idx < STREAM_VIEW_CAP && reg.slots[bind.stream_idx].used {
-			slot_idx = bind.stream_idx
-		} else if reg.has_active {
-			slot_idx = stream_view_find_slot(reg, reg.active_subject_id)
-		}
-		if slot_idx >= 0 {
-			slot := &reg.slots[slot_idx]
-			if !slot.has_stream_info { refresh_stream_info_for_slot(state, slot) }
-			if slot.has_stream_info {
-				view.venue = slot.stream_info.venue
-				view.symbol = slot.stream_info.symbol
-			}
-		}
-	}
-
-	return view
-}
-
 // S38: Resolve the effective subject_id for a compare pane at its per-pane TF.
 // Uses the seed subject_id (compare.slots[ci]) to identify the market, then
 // finds the best slot at the pane's effective TF. Falls back to seed if no
@@ -710,8 +645,8 @@ resolve_compare_surface_view :: proc(state: ^App_State, pane_idx: int) -> Cell_S
 	// S38: Per-pane TF for health/staleness (was global_tf_ms in S37).
 	tf_ms := compare_pane_effective_tf_ms(state, pane_idx)
 
-	// S39: Use per-pane composition (from per-pane getrange + slot live candle).
-	view.composition = resolve_compare_pane_composition(state, pane_idx)
+	// S63: Use pre-resolved eff_sid to avoid double compare_pane_resolve_subject_id call.
+	view.composition = resolve_compare_pane_composition_for_sid(state, pane_idx, eff_sid)
 
 	view.candle_health = compute_candle_health_for_store(
 		&slot.candle_store,
@@ -745,11 +680,17 @@ resolve_compare_surface_view :: proc(state: ^App_State, pane_idx: int) -> Cell_S
 // Uses per-pane getrange state + slot live candle to derive composition.
 resolve_compare_pane_composition :: proc(state: ^App_State, pane_idx: int) -> md_common.Composition_Stage {
 	if state == nil || pane_idx < 0 || pane_idx >= state.compare.count do return .Empty
-
-	gr := state.compare.getranges[pane_idx]
 	eff_sid := compare_pane_resolve_subject_id(state, pane_idx)
+	return resolve_compare_pane_composition_for_sid(state, pane_idx, eff_sid)
+}
+
+// S63: Composition resolver accepting pre-resolved subject_id to avoid double resolution.
+@(private = "file")
+resolve_compare_pane_composition_for_sid :: proc(state: ^App_State, pane_idx: int, eff_sid: u64) -> md_common.Composition_Stage {
+	if state == nil || pane_idx < 0 || pane_idx >= state.compare.count do return .Empty
 	if eff_sid == 0 do return .Empty
 
+	gr := state.compare.getranges[pane_idx]
 	reg := state.stream_views
 	if reg == nil do return .Empty
 

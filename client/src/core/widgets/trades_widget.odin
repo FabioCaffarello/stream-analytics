@@ -69,6 +69,15 @@ trades_widget :: proc(buf: ^ui.Command_Buffer, data: Trades_Widget_Data) {
 		}
 	}
 
+	// S63: Empty state — consistent with other widgets (centered text, alpha 0.3).
+	if data.store == nil || data.store.count == 0 {
+		msg := "Waiting for trades..."
+		ui.push_text(buf,
+			{inner.pos.x + inner.size.x * 0.5 - 60, inner.pos.y + inner.size.y * 0.5},
+			msg, ui.with_alpha(ui.COL_WHITE, 0.3), ui.FONT_SIZE_SM)
+		return
+	}
+
 	// Determine filter threshold.
 	filter_threshold := f64(0)
 	thresholds := TRADE_FILTER_THRESHOLDS

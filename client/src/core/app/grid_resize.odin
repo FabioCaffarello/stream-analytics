@@ -16,16 +16,17 @@ update_grid_col_resize :: proc(state: ^App_State, workspace: ui.Rect, pointer: u
 			ci := state.grid_col_resize
 			total_w := workspace.size.x - gap * f32(grid_def.col_count - 1)
 			if total_w > 0 {
+				// S63: Cache weight sum once per frame (was called 4x).
+				s := col_weight_sum(state, grid_def.col_count)
 				left_x := workspace.pos.x
 				for c in 0 ..< ci {
-					left_x += total_w * (state.custom_grid_def.col_weights[c] / col_weight_sum(state, grid_def.col_count)) + gap
+					left_x += total_w * (state.custom_grid_def.col_weights[c] / s) + gap
 				}
 				new_left_w := pointer.pos.x - left_x
-				right_edge := left_x + total_w * (state.custom_grid_def.col_weights[ci] / col_weight_sum(state, grid_def.col_count)) + gap + total_w * (state.custom_grid_def.col_weights[ci + 1] / col_weight_sum(state, grid_def.col_count))
+				right_edge := left_x + total_w * (state.custom_grid_def.col_weights[ci] / s) + gap + total_w * (state.custom_grid_def.col_weights[ci + 1] / s)
 				new_right_w := right_edge - pointer.pos.x - gap
 				min_w := total_w * 0.08
 				if new_left_w >= min_w && new_right_w >= min_w {
-					s := col_weight_sum(state, grid_def.col_count)
 					state.custom_grid_def.col_weights[ci]     = (new_left_w / total_w) * s
 					state.custom_grid_def.col_weights[ci + 1] = (new_right_w / total_w) * s
 				}
@@ -35,16 +36,14 @@ update_grid_col_resize :: proc(state: ^App_State, workspace: ui.Rect, pointer: u
 			persist_col_weights(state, grid_def.col_count)
 		}
 	} else {
-		// Detect hover on column borders.
+		// S63: Pre-compute cumulative column positions once (was O(n^2) re-accumulation).
+		total_w_detect := workspace.size.x - gap * f32(grid_def.col_count - 1)
+		cw_sum_detect := col_weight_sum(state, grid_def.col_count)
+		cum_x := workspace.pos.x
 		for ci in 0 ..< grid_def.col_count - 1 {
-			// BUG-20: Compute border_x from accumulated weights (handles spanned cells).
-			total_w_detect := workspace.size.x - gap * f32(grid_def.col_count - 1)
-			cw_sum_detect := col_weight_sum(state, grid_def.col_count)
-			border_x := workspace.pos.x
-			for c in 0 ..= ci {
-				if c > 0 do border_x += gap
-				border_x += total_w_detect * (state.custom_grid_def.col_weights[c] / cw_sum_detect)
-			}
+			if ci > 0 do cum_x += gap
+			cum_x += total_w_detect * (state.custom_grid_def.col_weights[ci] / cw_sum_detect)
+			border_x := cum_x
 			hit := ui.Rect{pos = {border_x - RESIZE_HIT_W * 0.5, workspace.pos.y}, size = {RESIZE_HIT_W, workspace.size.y}}
 			if ui.rect_contains(hit, pointer.pos) {
 				ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
@@ -71,16 +70,17 @@ update_grid_row_resize :: proc(state: ^App_State, workspace: ui.Rect, pointer: u
 			ri := state.grid_row_resize
 			total_h := workspace.size.y - gap * f32(grid_def.row_count - 1)
 			if total_h > 0 {
+				// S63: Cache weight sum once per frame (was called 4x).
+				s := row_weight_sum(state, grid_def.row_count)
 				top_y := workspace.pos.y
 				for r in 0 ..< ri {
-					top_y += total_h * (state.custom_grid_def.row_weights[r] / row_weight_sum(state, grid_def.row_count)) + gap
+					top_y += total_h * (state.custom_grid_def.row_weights[r] / s) + gap
 				}
 				new_top_h := pointer.pos.y - top_y
-				bottom_edge := top_y + total_h * (state.custom_grid_def.row_weights[ri] / row_weight_sum(state, grid_def.row_count)) + gap + total_h * (state.custom_grid_def.row_weights[ri + 1] / row_weight_sum(state, grid_def.row_count))
+				bottom_edge := top_y + total_h * (state.custom_grid_def.row_weights[ri] / s) + gap + total_h * (state.custom_grid_def.row_weights[ri + 1] / s)
 				new_bottom_h := bottom_edge - pointer.pos.y - gap
 				min_h := total_h * 0.06
 				if new_top_h >= min_h && new_bottom_h >= min_h {
-					s := row_weight_sum(state, grid_def.row_count)
 					state.custom_grid_def.row_weights[ri]     = (new_top_h / total_h) * s
 					state.custom_grid_def.row_weights[ri + 1] = (new_bottom_h / total_h) * s
 				}

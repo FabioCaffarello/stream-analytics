@@ -49,15 +49,16 @@ queue_ui_actions_from_input :: proc(state: ^App_State, input: ports.Input_State)
 	}
 
 	// Escape: close picker, exit focus mode, compare mode, close modals, or close help overlay.
+	// S63: Overlay close uses direct mutation for immediate response (was queued for some).
 	if .Escape in pressed {
 		if state.overlays.show_stream_picker {
-			queue_ui_action(state, UI_Action{kind = .Toggle_Stream_Picker})
+			state.overlays.show_stream_picker = false
 		} else if state.overlays.show_widget_catalog {
 			state.overlays.show_widget_catalog = false
 		} else if state.overlays.cell_stream_picker_open >= 0 {
 			state.overlays.cell_stream_picker_open = -1
 		} else if state.overlays.show_exchange_manager {
-			queue_ui_action(state, UI_Action{kind = .Toggle_Connection_Modal})
+			state.overlays.show_exchange_manager = false
 		} else if state.zen.active {
 			queue_ui_action(state, UI_Action{kind = .Toggle_Zen_Mode})
 		} else if state.focus_mode {

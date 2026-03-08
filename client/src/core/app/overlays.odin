@@ -83,8 +83,9 @@ draw_exchange_manager :: proc(state: ^App_State, viewport_w, viewport_h: f32, po
 	px := (viewport_w - panel_w) * 0.5
 	py := (viewport_h - panel_h) * 0.5
 	panel_rect := ui.Rect{pos = {px, py}, size = {panel_w, panel_h}}
+	// S63: Direct mutation for immediate close feedback (was queued action).
 	if pointer.left_pressed && !ui.rect_contains(panel_rect, pointer.pos) {
-		queue_ui_action(state, UI_Action{kind = .Toggle_Connection_Modal})
+		state.overlays.show_exchange_manager = false
 		return
 	}
 
@@ -312,9 +313,10 @@ draw_stream_picker :: proc(state: ^App_State, viewport_w, viewport_h: f32, point
 	py := (viewport_h - panel_h) * 0.5
 	panel_rect := ui.Rect{pos = {px, py}, size = {panel_w, panel_h}}
 
-	// Click-outside to close.
+	// S63: Click-outside closes immediately with direct mutation + early return (was queue without return).
 	if pointer.left_pressed && !ui.rect_contains(panel_rect, pointer.pos) {
-		queue_ui_action(state, UI_Action{kind = .Toggle_Stream_Picker})
+		state.overlays.show_stream_picker = false
+		return
 	}
 
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = panel_rect, color = ui.COL_SURFACE_1})
