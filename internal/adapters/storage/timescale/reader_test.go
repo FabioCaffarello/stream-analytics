@@ -22,7 +22,6 @@ type fakeRow struct {
 
 type fakeRows struct {
 	items  []fakeRow
-	cols   []string
 	idx    int
 	closed bool
 	err    error

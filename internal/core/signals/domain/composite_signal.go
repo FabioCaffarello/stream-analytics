@@ -21,6 +21,9 @@ type SignalFeature struct {
 }
 
 // CompositeSignalV1 is the composed, non-execution signal contract.
+//
+// SignalID and CorrelationID enable strategy handoff — strategy's IntentPlanner
+// requires SignalID for provenance tracking (IntentProvenance.ParentSignalIDs).
 type CompositeSignalV1 struct {
 	Kind           string          `json:"kind"`
 	Venue          string          `json:"venue"`
@@ -35,6 +38,8 @@ type CompositeSignalV1 struct {
 	Reason         string          `json:"reason"`
 	Seq            int64           `json:"seq"`
 	SourceKinds    []string        `json:"source_kinds"`
+	SignalID       string          `json:"signal_id,omitempty"`
+	CorrelationID  string          `json:"correlation_id,omitempty"`
 }
 
 //nolint:gocyclo // Validation keeps one explicit branch per invariant for deterministic errors.

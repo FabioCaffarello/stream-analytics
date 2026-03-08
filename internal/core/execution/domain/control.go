@@ -77,6 +77,7 @@ type ControlSnapshot struct {
 	SimulationProfile  string              // active simulation profile name (empty = default).
 	AllowlistOverrides *AllowlistOverride  // nil = no overrides, use grant.
 	LastDirective      ControlDirective    // last applied directive (for audit).
+	DirectiveHistory   []ControlDirective  // recent directives, newest last, capped at 32.
 	UpdatedAtMs        int64
 }
 

@@ -62,6 +62,11 @@ type VolumeProfileHotWriter interface {
 	UpsertVolumeProfileBucket(ctx context.Context, upsert VolumeProfileBucketUpsert) *problem.Problem
 }
 
+// HeatmapHotWriter persists heatmap artifact snapshots.
+type HeatmapHotWriter interface {
+	UpsertHeatmapSnapshot(ctx context.Context, snapshot domain.HeatmapArtifactV1) *problem.Problem
+}
+
 // SessionVolumeProfileWriter persists session-scoped volume profile snapshots.
 type SessionVolumeProfileWriter interface {
 	UpsertSessionVolumeProfile(ctx context.Context, svp domain.SessionVolumeProfileV1) *problem.Problem

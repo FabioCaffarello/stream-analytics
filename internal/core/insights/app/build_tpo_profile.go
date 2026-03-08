@@ -81,6 +81,22 @@ func NewBuildTPOProfileWithConfig(cfg BuildTPOProfileConfig) *BuildTPOProfile {
 	}
 }
 
+// Snapshot returns the current in-memory TPO profile for a partition key.
+func (uc *BuildTPOProfile) Snapshot(venue, instrument, anchorLabel string) (domain.TPOProfileV1, *problem.Problem) {
+	v := naming.CanonicalVenue(venue)
+	i := naming.CanonicalInstrument(instrument)
+	key := v + "|" + i + "|" + anchorLabel
+	ps, ok := uc.states[key]
+	if !ok || len(ps.levels) == 0 {
+		return domain.TPOProfileV1{}, problem.Newf(problem.NotFound, "tpo profile not found for %s/%s/%s", venue, instrument, anchorLabel)
+	}
+	anchor, aOk := domain.SessionPresets[anchorLabel]
+	if !aOk {
+		anchor = domain.SessionAnchor{Kind: domain.SessionAnchorCustom, Label: anchorLabel, Timezone: "UTC", DurationMs: ps.windowEnd - ps.windowStart}
+	}
+	return uc.buildSnapshot(v, i, anchor, ps)
+}
+
 func (uc *BuildTPOProfile) Execute(_ context.Context, req BuildTPOProfileRequest) result.Result[BuildTPOProfileResponse] {
 	if p := validation.Collect(
 		validation.NonEmptyString("venue", req.Venue),

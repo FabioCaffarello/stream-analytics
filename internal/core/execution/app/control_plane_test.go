@@ -507,6 +507,90 @@ func TestClearAllowlistOverrides(t *testing.T) {
 	}
 }
 
+func TestDirectiveHistoryRecorded(t *testing.T) {
+	cp := NewInMemoryControlPlane()
+
+	d1 := validDirective(executiondomain.CommandPause)
+	d1.Reason = "first"
+	cp.Apply(d1)
+
+	d2 := validDirective(executiondomain.CommandResume)
+	d2.Reason = "second"
+	d2.IssuedAtMs = 2000
+	cp.Apply(d2)
+
+	d3 := validDirectiveWithTarget(executiondomain.CommandDisableStrategy, "strat-1")
+	d3.Reason = "third"
+	d3.IssuedAtMs = 3000
+	cp.Apply(d3)
+
+	snap := cp.Snapshot()
+	if len(snap.DirectiveHistory) != 3 {
+		t.Fatalf("expected 3 directives in history, got %d", len(snap.DirectiveHistory))
+	}
+	if snap.DirectiveHistory[0].Reason != "first" {
+		t.Fatalf("expected first directive reason 'first', got %s", snap.DirectiveHistory[0].Reason)
+	}
+	if snap.DirectiveHistory[1].Reason != "second" {
+		t.Fatalf("expected second directive reason 'second', got %s", snap.DirectiveHistory[1].Reason)
+	}
+	if snap.DirectiveHistory[2].Reason != "third" {
+		t.Fatalf("expected third directive reason 'third', got %s", snap.DirectiveHistory[2].Reason)
+	}
+}
+
+func TestDirectiveHistoryCappedAt32(t *testing.T) {
+	cp := NewInMemoryControlPlane()
+
+	for i := 0; i < 40; i++ {
+		d := validDirectiveWithTarget(executiondomain.CommandDisableStrategy, "strat-1")
+		d.IssuedAtMs = int64(1000 + i)
+		d.Reason = "directive"
+		cp.Apply(d)
+	}
+
+	snap := cp.Snapshot()
+	if len(snap.DirectiveHistory) != 32 {
+		t.Fatalf("expected 32 directives in history, got %d", len(snap.DirectiveHistory))
+	}
+	// Oldest retained should be directive #8 (0-indexed), issued at 1008
+	if snap.DirectiveHistory[0].IssuedAtMs != 1008 {
+		t.Fatalf("expected oldest retained directive issued_at_ms=1008, got %d", snap.DirectiveHistory[0].IssuedAtMs)
+	}
+	// Newest should be directive #39, issued at 1039
+	if snap.DirectiveHistory[31].IssuedAtMs != 1039 {
+		t.Fatalf("expected newest directive issued_at_ms=1039, got %d", snap.DirectiveHistory[31].IssuedAtMs)
+	}
+}
+
+func TestDirectiveHistorySnapshotImmutable(t *testing.T) {
+	cp := NewInMemoryControlPlane()
+
+	d := validDirective(executiondomain.CommandPause)
+	d.Reason = "original"
+	cp.Apply(d)
+
+	snap := cp.Snapshot()
+	if len(snap.DirectiveHistory) != 1 {
+		t.Fatalf("expected 1 directive in history, got %d", len(snap.DirectiveHistory))
+	}
+
+	// Mutate the returned history slice
+	snap.DirectiveHistory[0].Reason = "mutated"
+	snap.DirectiveHistory = append(snap.DirectiveHistory, executiondomain.ControlDirective{
+		Reason: "injected",
+	})
+
+	// Original must be unaffected
+	snap2 := cp.Snapshot()
+	if len(snap2.DirectiveHistory) != 1 {
+		t.Fatalf("expected 1 directive in history after mutation, got %d", len(snap2.DirectiveHistory))
+	}
+	if snap2.DirectiveHistory[0].Reason != "original" {
+		t.Fatalf("expected original reason preserved, got %s", snap2.DirectiveHistory[0].Reason)
+	}
+}
+
 func TestAdapterIDNormalizedToLowercase(t *testing.T) {
 	cp := NewInMemoryControlPlane()
 	cp.Apply(validDirectiveWithTarget(executiondomain.CommandDisableAdapter, "SIM-Adapter"))

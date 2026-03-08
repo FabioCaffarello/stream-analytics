@@ -6,6 +6,7 @@ import (
 
 	evidencedomain "github.com/market-raccoon/internal/core/evidence/domain"
 	signalsdomain "github.com/market-raccoon/internal/core/signals/domain"
+	sharedhash "github.com/market-raccoon/internal/shared/hash"
 )
 
 // ComposePolicy defines deterministic composition constraints for rules 1-3.
@@ -152,6 +153,8 @@ func (c *SignalComposer) Compose(input ComposeInput) (ComposeResult, bool) {
 		Seq:            micro.Seq,
 		SourceKinds:    sourceKinds,
 	}
+	signal.SignalID = compositeSignalID(signal)
+	signal.CorrelationID = compositeCorrelationID(signal, micro)
 	if p := signal.Validate(); p != nil {
 		return ComposeResult{}, false
 	}
@@ -293,4 +296,29 @@ func buildReason(base string, regimeBoosted, correlationHit bool) string {
 		reason += " | cross_venue_confirmed"
 	}
 	return reason
+}
+
+func compositeSignalID(s signalsdomain.CompositeSignalV1) string {
+	return "csig_" + sharedhash.HashFieldsFast(
+		s.Kind,
+		s.Venue,
+		s.Instrument,
+		s.Timeframe,
+		strconv.FormatInt(s.TsServer, 10),
+		strconv.FormatInt(s.Seq, 10),
+		s.Severity,
+		strconv.FormatFloat(s.Confidence, 'f', 6, 64),
+	)
+}
+
+func compositeCorrelationID(s signalsdomain.CompositeSignalV1, micro evidencedomain.EvidenceEvent) string {
+	return sharedhash.HashFieldsFast(
+		"composite",
+		s.Kind,
+		s.Venue,
+		s.Instrument,
+		strconv.FormatInt(s.TsServer, 10),
+		strconv.FormatInt(micro.Seq, 10),
+		micro.StreamID,
+	)
 }

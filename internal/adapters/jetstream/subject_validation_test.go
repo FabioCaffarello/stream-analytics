@@ -15,6 +15,8 @@ func TestValidateSubjectTaxonomy_Valid(t *testing.T) {
 		"insights.crossvenue.trade_snapshot.v1.global.BTCUSDT",
 		"insights.heatmap_snapshot.v1.binance.BTCUSDT",
 		"insights.heatmap_delta.v1.binance.BTCUSDT",
+		"evidence.microstructure_evidence.v1.binance.BTCUSDT",
+		"evidence.regime_evidence.v1.binance.BTCUSDT",
 		"liquidity.evidence.v1.binance.BTCUSDT",
 		"portfolio.state.v1.binance.BTCUSDT",
 		"signal.composite.v1.binance.BTCUSDT",

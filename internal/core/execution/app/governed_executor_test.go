@@ -1,6 +1,7 @@
 package app
 
 import (
+	"strconv"
 	"testing"
 
 	executiondomain "github.com/market-raccoon/internal/core/execution/domain"
@@ -427,6 +428,61 @@ func TestGovernedExecutor_ControlPlaneDisablesStrategy_RejectsIntent(t *testing.
 	}
 }
 
+func TestGovernedExecutor_IdempotencyRejectsDuplicateIntent(t *testing.T) {
+	executor, adapter := governedExecutorWithControlPlane(nil)
+	intent := validIntentFixture()
+
+	// First call: should succeed and dispatch to adapter.
+	events := executor.ExecuteAt(intent, 1_700_000_002_000)
+	if len(events) != 1 {
+		t.Fatalf("first call: events=%d want=1", len(events))
+	}
+	if events[0].Status != executiondomain.ExecutionStatusAccepted {
+		t.Fatalf("first call: status=%q want=%q", events[0].Status, executiondomain.ExecutionStatusAccepted)
+	}
+	if adapter.calls != 1 {
+		t.Fatalf("first call: adapter calls=%d want=1", adapter.calls)
+	}
+
+	// Second call with same intentID: should be rejected as duplicate.
+	events = executor.ExecuteAt(intent, 1_700_000_003_000)
+	if len(events) != 1 {
+		t.Fatalf("duplicate call: events=%d want=1", len(events))
+	}
+	if events[0].Status != executiondomain.ExecutionStatusRejected {
+		t.Fatalf("duplicate call: status=%q want=%q", events[0].Status, executiondomain.ExecutionStatusRejected)
+	}
+	if events[0].Reason != executiondomain.ReasonDuplicateIntent {
+		t.Fatalf("duplicate call: reason=%q want=%q", events[0].Reason, executiondomain.ReasonDuplicateIntent)
+	}
+	if adapter.calls != 1 {
+		t.Fatalf("duplicate call: adapter should not be called again, calls=%d", adapter.calls)
+	}
+
+	// Verify decision record reflects the duplicate rejection.
+	rec := executor.LastDecisionRecord()
+	if rec.FinalDecision != "rejected" {
+		t.Fatalf("decision record: final_decision=%q want=%q", rec.FinalDecision, "rejected")
+	}
+	if rec.FinalReason != executiondomain.ReasonDuplicateIntent {
+		t.Fatalf("decision record: final_reason=%q want=%q", rec.FinalReason, executiondomain.ReasonDuplicateIntent)
+	}
+
+	// Third call with different intentID: should succeed.
+	intent2 := validIntentFixture()
+	intent2.IntentID = "intent-fixture-2"
+	events = executor.ExecuteAt(intent2, 1_700_000_004_000)
+	if len(events) != 1 {
+		t.Fatalf("different intent: events=%d want=1", len(events))
+	}
+	if events[0].Status != executiondomain.ExecutionStatusAccepted {
+		t.Fatalf("different intent: status=%q want=%q", events[0].Status, executiondomain.ExecutionStatusAccepted)
+	}
+	if adapter.calls != 2 {
+		t.Fatalf("different intent: adapter calls=%d want=2", adapter.calls)
+	}
+}
+
 func TestGovernedExecutor_ControlPlaneActive_FlowsThrough(t *testing.T) {
 	cp := &fakeControlPlane{snapshot: executiondomain.ControlSnapshot{
 		State:       executiondomain.ControlStateActive,
@@ -442,5 +498,229 @@ func TestGovernedExecutor_ControlPlaneActive_FlowsThrough(t *testing.T) {
 	}
 	if adapter.calls != 1 {
 		t.Fatalf("adapter calls=%d want=1", adapter.calls)
+	}
+}
+
+// --- Circuit Breaker (Adapter Health) tests ---
+
+func governedExecutorWithFailingAdapter() (*GovernedExecutor, *fakeGovernedAdapter) {
+	intent := validIntentFixture()
+	grant := governedGrantFixture()
+	adapter := &fakeGovernedAdapter{events: []executiondomain.ExecutionEventV1{{
+		EventID:      "failed-1",
+		Status:       executiondomain.ExecutionStatusFailed,
+		Correlation:  executiondomain.ExecutionCorrelation{IntentID: intent.IntentID, OrderID: "order-fail", Venue: "binance", Symbol: "BTCUSDT", AccountID: "paper"},
+		TsEventMs:    1_700_000_002_000,
+		ExecutionSeq: 1,
+		Attempt:      1,
+		RequestedQty: 1.5,
+		LeavesQty:    1.5,
+		Reason:       "venue_runtime_failed_adapter_call",
+		Provenance:   executiondomain.ExecutionProvenance{CorrelationID: intent.Provenance.CorrelationID, Source: "fake"},
+	}}}
+
+	governance := NewStaticExecutionGovernance(StaticExecutionGovernanceConfig{
+		Authorizer: StaticCapabilityAuthorizer{Grant: &grant},
+		Selector: NewStaticAdapterSelector(AdapterRoute{
+			Boundary:              "execution.adapter",
+			AdapterID:             "binance.spot",
+			Mode:                  "real_adapter_safe",
+			CredentialRequirement: credentialRequirementFixture(),
+		}),
+		CredentialResolver: fakeCredentialResolver{result: executiongovernance.CredentialResolution{
+			Status: executiongovernance.CredentialResolutionResolved,
+		}},
+		BoundaryInfo: executionports.BoundaryInfo{
+			Boundary: "execution.adapter",
+			Adapter:  "binance.spot",
+			Mode:     "real_adapter_safe",
+		},
+	})
+
+	executor := NewGovernedExecutor(GovernedExecutorConfig{
+		Governance: governance,
+		Adapters: map[string]executionports.IntentExecutor{
+			"binance.spot": adapter,
+		},
+	})
+	return executor, adapter
+}
+
+func TestGovernedExecutor_CircuitBreaker_TripsAfterConsecutiveFailures(t *testing.T) {
+	executor, adapter := governedExecutorWithFailingAdapter()
+	baseMs := int64(1_700_000_002_000)
+
+	// Default threshold is 5. Send 5 intents that all produce "failed" status.
+	for i := 0; i < 5; i++ {
+		intent := validIntentFixture()
+		intent.IntentID = "intent-fail-" + strconv.Itoa(i)
+		events := executor.ExecuteAt(intent, baseMs+int64(i))
+		if len(events) != 1 {
+			t.Fatalf("iteration %d: events=%d want=1", i, len(events))
+		}
+		if events[0].Status != executiondomain.ExecutionStatusFailed {
+			t.Fatalf("iteration %d: status=%q want=%q", i, events[0].Status, executiondomain.ExecutionStatusFailed)
+		}
+	}
+	if adapter.calls != 5 {
+		t.Fatalf("adapter calls=%d want=5 (all dispatched before trip)", adapter.calls)
+	}
+
+	// 6th intent: circuit should be tripped, rejected without calling adapter.
+	intent6 := validIntentFixture()
+	intent6.IntentID = "intent-fail-5"
+	events := executor.ExecuteAt(intent6, baseMs+5)
+	if len(events) != 1 {
+		t.Fatalf("tripped call: events=%d want=1", len(events))
+	}
+	if events[0].Status != executiondomain.ExecutionStatusRejected {
+		t.Fatalf("tripped call: status=%q want=%q", events[0].Status, executiondomain.ExecutionStatusRejected)
+	}
+	if events[0].Reason != executiondomain.ReasonAdapterSelectionCircuitOpen {
+		t.Fatalf("tripped call: reason=%q want=%q", events[0].Reason, executiondomain.ReasonAdapterSelectionCircuitOpen)
+	}
+	if adapter.calls != 5 {
+		t.Fatalf("tripped call: adapter should not be called, calls=%d want=5", adapter.calls)
+	}
+
+	// Verify decision record.
+	rec := executor.LastDecisionRecord()
+	if rec.FinalDecision != "rejected" {
+		t.Fatalf("decision record: final_decision=%q want=%q", rec.FinalDecision, "rejected")
+	}
+	if rec.FinalReason != executiondomain.ReasonAdapterSelectionCircuitOpen {
+		t.Fatalf("decision record: final_reason=%q want=%q", rec.FinalReason, executiondomain.ReasonAdapterSelectionCircuitOpen)
+	}
+
+	// Verify reason is classified as retryable.
+	if !executiondomain.IsRetryable(events[0].Reason) {
+		t.Fatal("circuit open reason should be retryable")
+	}
+
+	// Verify health snapshot.
+	snap := executor.AdapterHealthSnapshots()
+	if snap["binance.spot"].ConsecutiveFailures < 5 {
+		t.Fatalf("snapshot failures=%d want>=5", snap["binance.spot"].ConsecutiveFailures)
+	}
+	if snap["binance.spot"].TrippedAtMs == 0 {
+		t.Fatal("snapshot tripped_at_ms should be non-zero")
+	}
+}
+
+func TestGovernedExecutor_CircuitBreaker_CooldownAllowsProbe(t *testing.T) {
+	executor, adapter := governedExecutorWithFailingAdapter()
+	tripMs := int64(1_700_000_002_000)
+
+	// Trip the circuit: 5 consecutive failures.
+	for i := 0; i < 5; i++ {
+		intent := validIntentFixture()
+		intent.IntentID = "intent-trip-" + strconv.Itoa(i)
+		executor.ExecuteAt(intent, tripMs)
+	}
+
+	// Confirm tripped.
+	trippedIntent := validIntentFixture()
+	trippedIntent.IntentID = "intent-tripped"
+	events := executor.ExecuteAt(trippedIntent, tripMs+1)
+	if events[0].Reason != executiondomain.ReasonAdapterSelectionCircuitOpen {
+		t.Fatalf("expected circuit open, got reason=%q", events[0].Reason)
+	}
+
+	// After cooldown (30s), circuit should allow a probe call.
+	// Switch adapter to return success for the probe.
+	adapter.events = []executiondomain.ExecutionEventV1{{
+		EventID:      "accepted-probe",
+		Status:       executiondomain.ExecutionStatusAccepted,
+		Correlation:  executiondomain.ExecutionCorrelation{IntentID: "intent-probe", OrderID: "order-probe", Venue: "binance", Symbol: "BTCUSDT", AccountID: "paper"},
+		TsEventMs:    tripMs + 30_001,
+		ExecutionSeq: 1,
+		Attempt:      1,
+		RequestedQty: 1.5,
+		LeavesQty:    1.5,
+		Reason:       "accepted_probe",
+		Provenance:   executiondomain.ExecutionProvenance{CorrelationID: "corr-fixture", Source: "fake"},
+	}}
+
+	probeIntent := validIntentFixture()
+	probeIntent.IntentID = "intent-probe"
+	probeIntent.CreatedAtMs = tripMs + 30_000
+	probeIntent.ExpiresAtMs = tripMs + 60_000
+	events = executor.ExecuteAt(probeIntent, tripMs+30_001)
+	if len(events) != 1 {
+		t.Fatalf("probe call: events=%d want=1", len(events))
+	}
+	if events[0].Status != executiondomain.ExecutionStatusAccepted {
+		t.Fatalf("probe call: status=%q want=%q", events[0].Status, executiondomain.ExecutionStatusAccepted)
+	}
+	// Adapter should have been called for the probe (5 original + 1 probe = calls incremented).
+	if adapter.calls < 6 {
+		t.Fatalf("probe call: adapter calls=%d want>=6", adapter.calls)
+	}
+
+	// After successful probe, circuit should be fully closed.
+	snap := executor.AdapterHealthSnapshots()
+	if snap["binance.spot"].TrippedAtMs != 0 {
+		t.Fatalf("expected circuit closed after successful probe, tripped_at_ms=%d", snap["binance.spot"].TrippedAtMs)
+	}
+}
+
+func TestGovernedExecutor_CircuitBreaker_SuccessResetsBeforeTrip(t *testing.T) {
+	executor, adapter := governedExecutorWithFailingAdapter()
+	baseMs := int64(1_700_000_002_000)
+
+	// 4 failures (one short of threshold).
+	for i := 0; i < 4; i++ {
+		intent := validIntentFixture()
+		intent.IntentID = "intent-prefail-" + strconv.Itoa(i)
+		executor.ExecuteAt(intent, baseMs+int64(i))
+	}
+
+	// Now switch adapter to return success.
+	adapter.events = []executiondomain.ExecutionEventV1{{
+		EventID:      "accepted-reset",
+		Status:       executiondomain.ExecutionStatusAccepted,
+		Correlation:  executiondomain.ExecutionCorrelation{IntentID: "intent-success", OrderID: "order-reset", Venue: "binance", Symbol: "BTCUSDT", AccountID: "paper"},
+		TsEventMs:    baseMs + 4,
+		ExecutionSeq: 1,
+		Attempt:      1,
+		RequestedQty: 1.5,
+		LeavesQty:    1.5,
+		Reason:       "accepted_reset",
+		Provenance:   executiondomain.ExecutionProvenance{CorrelationID: "corr-fixture", Source: "fake"},
+	}}
+
+	successIntent := validIntentFixture()
+	successIntent.IntentID = "intent-success"
+	events := executor.ExecuteAt(successIntent, baseMs+4)
+	if events[0].Status != executiondomain.ExecutionStatusAccepted {
+		t.Fatalf("success call: status=%q want=%q", events[0].Status, executiondomain.ExecutionStatusAccepted)
+	}
+
+	// Counter should be reset. Switch back to failing and confirm 5 more needed to trip.
+	adapter.events = []executiondomain.ExecutionEventV1{{
+		EventID:      "failed-post",
+		Status:       executiondomain.ExecutionStatusFailed,
+		Correlation:  executiondomain.ExecutionCorrelation{IntentID: "intent-post", OrderID: "order-post", Venue: "binance", Symbol: "BTCUSDT", AccountID: "paper"},
+		TsEventMs:    baseMs + 10,
+		ExecutionSeq: 1,
+		Attempt:      1,
+		RequestedQty: 1.5,
+		LeavesQty:    1.5,
+		Reason:       "venue_runtime_failed_adapter_call",
+		Provenance:   executiondomain.ExecutionProvenance{CorrelationID: "corr-fixture", Source: "fake"},
+	}}
+
+	for i := 0; i < 4; i++ {
+		intent := validIntentFixture()
+		intent.IntentID = "intent-postfail-" + strconv.Itoa(i)
+		executor.ExecuteAt(intent, baseMs+10+int64(i))
+	}
+
+	// Should not be tripped yet (only 4 failures since reset).
+	checkIntent := validIntentFixture()
+	checkIntent.IntentID = "intent-postcheck"
+	events = executor.ExecuteAt(checkIntent, baseMs+20)
+	if events[0].Status == executiondomain.ExecutionStatusRejected && events[0].Reason == executiondomain.ReasonAdapterSelectionCircuitOpen {
+		t.Fatal("circuit should not be tripped after only 4 failures post-reset")
 	}
 }

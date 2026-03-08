@@ -168,6 +168,14 @@ type PositionV1 struct {
 	RealizedPnl float64 `protobuf:"fixed64,6,opt,name=realized_pnl,json=realizedPnl,proto3" json:"realized_pnl,omitempty"`
 	// unrealized_pnl is current unrealized PnL in USD.
 	UnrealizedPnl float64 `protobuf:"fixed64,7,opt,name=unrealized_pnl,json=unrealizedPnl,proto3" json:"unrealized_pnl,omitempty"`
+	// trade_count is number of fills applied to this position.
+	TradeCount int32 `protobuf:"varint,8,opt,name=trade_count,json=tradeCount,proto3" json:"trade_count,omitempty"`
+	// volume_traded_usd is cumulative fill notional in USD.
+	VolumeTradedUsd float64 `protobuf:"fixed64,9,opt,name=volume_traded_usd,json=volumeTradedUsd,proto3" json:"volume_traded_usd,omitempty"`
+	// last_fill_ms is timestamp of most recent fill in Unix ms.
+	LastFillMs int64 `protobuf:"varint,10,opt,name=last_fill_ms,json=lastFillMs,proto3" json:"last_fill_ms,omitempty"`
+	// side is the current position side ("long", "short", or empty if flat).
+	Side          string `protobuf:"bytes,11,opt,name=side,proto3" json:"side,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -249,6 +257,34 @@ func (x *PositionV1) GetUnrealizedPnl() float64 {
 		return x.UnrealizedPnl
 	}
 	return 0
+}
+
+func (x *PositionV1) GetTradeCount() int32 {
+	if x != nil {
+		return x.TradeCount
+	}
+	return 0
+}
+
+func (x *PositionV1) GetVolumeTradedUsd() float64 {
+	if x != nil {
+		return x.VolumeTradedUsd
+	}
+	return 0
+}
+
+func (x *PositionV1) GetLastFillMs() int64 {
+	if x != nil {
+		return x.LastFillMs
+	}
+	return 0
+}
+
+func (x *PositionV1) GetSide() string {
+	if x != nil {
+		return x.Side
+	}
+	return ""
 }
 
 // ExposureV1 represents deterministic exposure metrics for one symbol.
@@ -479,6 +515,106 @@ func (x *ProjectionProvenanceV1) GetProjectorVersion() string {
 	return ""
 }
 
+// FillSummaryV1 captures aggregate fill metrics across all positions.
+type FillSummaryV1 struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// total_trade_count is the number of fills across all positions.
+	TotalTradeCount int32 `protobuf:"varint,1,opt,name=total_trade_count,json=totalTradeCount,proto3" json:"total_trade_count,omitempty"`
+	// total_volume_traded_usd is cumulative fill notional across all positions.
+	TotalVolumeTradedUsd float64 `protobuf:"fixed64,2,opt,name=total_volume_traded_usd,json=totalVolumeTradedUsd,proto3" json:"total_volume_traded_usd,omitempty"`
+	// win_count is number of profitable position closures.
+	WinCount int32 `protobuf:"varint,3,opt,name=win_count,json=winCount,proto3" json:"win_count,omitempty"`
+	// loss_count is number of unprofitable position closures.
+	LossCount int32 `protobuf:"varint,4,opt,name=loss_count,json=lossCount,proto3" json:"loss_count,omitempty"`
+	// largest_win_usd is the largest single winning PnL in USD.
+	LargestWinUsd float64 `protobuf:"fixed64,5,opt,name=largest_win_usd,json=largestWinUsd,proto3" json:"largest_win_usd,omitempty"`
+	// largest_loss_usd is the largest single losing PnL in USD (negative).
+	LargestLossUsd float64 `protobuf:"fixed64,6,opt,name=largest_loss_usd,json=largestLossUsd,proto3" json:"largest_loss_usd,omitempty"`
+	// turnover_usd is total absolute notional flow in USD.
+	TurnoverUsd   float64 `protobuf:"fixed64,7,opt,name=turnover_usd,json=turnoverUsd,proto3" json:"turnover_usd,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FillSummaryV1) Reset() {
+	*x = FillSummaryV1{}
+	mi := &file_portfolio_v1_state_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FillSummaryV1) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FillSummaryV1) ProtoMessage() {}
+
+func (x *FillSummaryV1) ProtoReflect() protoreflect.Message {
+	mi := &file_portfolio_v1_state_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FillSummaryV1.ProtoReflect.Descriptor instead.
+func (*FillSummaryV1) Descriptor() ([]byte, []int) {
+	return file_portfolio_v1_state_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *FillSummaryV1) GetTotalTradeCount() int32 {
+	if x != nil {
+		return x.TotalTradeCount
+	}
+	return 0
+}
+
+func (x *FillSummaryV1) GetTotalVolumeTradedUsd() float64 {
+	if x != nil {
+		return x.TotalVolumeTradedUsd
+	}
+	return 0
+}
+
+func (x *FillSummaryV1) GetWinCount() int32 {
+	if x != nil {
+		return x.WinCount
+	}
+	return 0
+}
+
+func (x *FillSummaryV1) GetLossCount() int32 {
+	if x != nil {
+		return x.LossCount
+	}
+	return 0
+}
+
+func (x *FillSummaryV1) GetLargestWinUsd() float64 {
+	if x != nil {
+		return x.LargestWinUsd
+	}
+	return 0
+}
+
+func (x *FillSummaryV1) GetLargestLossUsd() float64 {
+	if x != nil {
+		return x.LargestLossUsd
+	}
+	return 0
+}
+
+func (x *FillSummaryV1) GetTurnoverUsd() float64 {
+	if x != nil {
+		return x.TurnoverUsd
+	}
+	return 0
+}
+
 // PortfolioStateV1 is one deterministic projected portfolio snapshot.
 type PortfolioStateV1 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -507,14 +643,16 @@ type PortfolioStateV1 struct {
 	// risk is the projected risk snapshot.
 	Risk *RiskSnapshotV1 `protobuf:"bytes,12,opt,name=risk,proto3" json:"risk,omitempty"`
 	// provenance carries replay/audit traceability metadata.
-	Provenance    *ProjectionProvenanceV1 `protobuf:"bytes,13,opt,name=provenance,proto3" json:"provenance,omitempty"`
+	Provenance *ProjectionProvenanceV1 `protobuf:"bytes,13,opt,name=provenance,proto3" json:"provenance,omitempty"`
+	// fill_summary captures aggregate fill metrics.
+	FillSummary   *FillSummaryV1 `protobuf:"bytes,14,opt,name=fill_summary,json=fillSummary,proto3" json:"fill_summary,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PortfolioStateV1) Reset() {
 	*x = PortfolioStateV1{}
-	mi := &file_portfolio_v1_state_proto_msgTypes[5]
+	mi := &file_portfolio_v1_state_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -526,7 +664,7 @@ func (x *PortfolioStateV1) String() string {
 func (*PortfolioStateV1) ProtoMessage() {}
 
 func (x *PortfolioStateV1) ProtoReflect() protoreflect.Message {
-	mi := &file_portfolio_v1_state_proto_msgTypes[5]
+	mi := &file_portfolio_v1_state_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -539,7 +677,7 @@ func (x *PortfolioStateV1) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PortfolioStateV1.ProtoReflect.Descriptor instead.
 func (*PortfolioStateV1) Descriptor() ([]byte, []int) {
-	return file_portfolio_v1_state_proto_rawDescGZIP(), []int{5}
+	return file_portfolio_v1_state_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *PortfolioStateV1) GetStateId() string {
@@ -633,6 +771,13 @@ func (x *PortfolioStateV1) GetProvenance() *ProjectionProvenanceV1 {
 	return nil
 }
 
+func (x *PortfolioStateV1) GetFillSummary() *FillSummaryV1 {
+	if x != nil {
+		return x.FillSummary
+	}
+	return nil
+}
+
 var File_portfolio_v1_state_proto protoreflect.FileDescriptor
 
 const file_portfolio_v1_state_proto_rawDesc = "" +
@@ -642,7 +787,7 @@ const file_portfolio_v1_state_proto_rawDesc = "" +
 	"\x05asset\x18\x01 \x01(\tR\x05asset\x12\x14\n" +
 	"\x05total\x18\x02 \x01(\x01R\x05total\x12\x1c\n" +
 	"\tavailable\x18\x03 \x01(\x01R\tavailable\x12\x16\n" +
-	"\x06locked\x18\x04 \x01(\x01R\x06lockedJ\x05\bd\x10\xc8\x01\"\xf2\x01\n" +
+	"\x06locked\x18\x04 \x01(\x01R\x06lockedJ\x05\bd\x10\xc8\x01\"\xf5\x02\n" +
 	"\n" +
 	"PositionV1\x12\x14\n" +
 	"\x05venue\x18\x01 \x01(\tR\x05venue\x12\x16\n" +
@@ -651,7 +796,14 @@ const file_portfolio_v1_state_proto_rawDesc = "" +
 	"\x0favg_entry_price\x18\x04 \x01(\x01R\ravgEntryPrice\x12!\n" +
 	"\fnotional_usd\x18\x05 \x01(\x01R\vnotionalUsd\x12!\n" +
 	"\frealized_pnl\x18\x06 \x01(\x01R\vrealizedPnl\x12%\n" +
-	"\x0eunrealized_pnl\x18\a \x01(\x01R\runrealizedPnlJ\x05\bd\x10\xc8\x01\"\x8e\x01\n" +
+	"\x0eunrealized_pnl\x18\a \x01(\x01R\runrealizedPnl\x12\x1f\n" +
+	"\vtrade_count\x18\b \x01(\x05R\n" +
+	"tradeCount\x12*\n" +
+	"\x11volume_traded_usd\x18\t \x01(\x01R\x0fvolumeTradedUsd\x12 \n" +
+	"\flast_fill_ms\x18\n" +
+	" \x01(\x03R\n" +
+	"lastFillMs\x12\x12\n" +
+	"\x04side\x18\v \x01(\tR\x04sideJ\x05\bd\x10\xc8\x01\"\x8e\x01\n" +
 	"\n" +
 	"ExposureV1\x12\x16\n" +
 	"\x06symbol\x18\x01 \x01(\tR\x06symbol\x12\x17\n" +
@@ -669,7 +821,16 @@ const file_portfolio_v1_state_proto_rawDesc = "" +
 	"\x14source_execution_seq\x18\x02 \x01(\x03R\x12sourceExecutionSeq\x12%\n" +
 	"\x0ecorrelation_id\x18\x03 \x01(\tR\rcorrelationId\x12\x19\n" +
 	"\btrace_id\x18\x04 \x01(\tR\atraceId\x12+\n" +
-	"\x11projector_version\x18\x05 \x01(\tR\x10projectorVersionJ\x05\bd\x10\xc8\x01\"\xd9\x04\n" +
+	"\x11projector_version\x18\x05 \x01(\tR\x10projectorVersionJ\x05\bd\x10\xc8\x01\"\xaa\x02\n" +
+	"\rFillSummaryV1\x12*\n" +
+	"\x11total_trade_count\x18\x01 \x01(\x05R\x0ftotalTradeCount\x125\n" +
+	"\x17total_volume_traded_usd\x18\x02 \x01(\x01R\x14totalVolumeTradedUsd\x12\x1b\n" +
+	"\twin_count\x18\x03 \x01(\x05R\bwinCount\x12\x1d\n" +
+	"\n" +
+	"loss_count\x18\x04 \x01(\x05R\tlossCount\x12&\n" +
+	"\x0flargest_win_usd\x18\x05 \x01(\x01R\rlargestWinUsd\x12(\n" +
+	"\x10largest_loss_usd\x18\x06 \x01(\x01R\x0elargestLossUsd\x12!\n" +
+	"\fturnover_usd\x18\a \x01(\x01R\vturnoverUsdJ\x05\bd\x10\xc8\x01\"\x99\x05\n" +
 	"\x10PortfolioStateV1\x12\x19\n" +
 	"\bstate_id\x18\x01 \x01(\tR\astateId\x122\n" +
 	"\x05scope\x18\x02 \x01(\x0e2\x1c.portfolio.v1.PortfolioScopeR\x05scope\x12\x1d\n" +
@@ -688,7 +849,8 @@ const file_portfolio_v1_state_proto_rawDesc = "" +
 	"\x04risk\x18\f \x01(\v2\x1c.portfolio.v1.RiskSnapshotV1R\x04risk\x12D\n" +
 	"\n" +
 	"provenance\x18\r \x01(\v2$.portfolio.v1.ProjectionProvenanceV1R\n" +
-	"provenanceJ\x05\bd\x10\xc8\x01*\x8d\x01\n" +
+	"provenance\x12>\n" +
+	"\ffill_summary\x18\x0e \x01(\v2\x1b.portfolio.v1.FillSummaryV1R\vfillSummaryJ\x05\bd\x10\xc8\x01*\x8d\x01\n" +
 	"\x0ePortfolioScope\x12\x1f\n" +
 	"\x1bPORTFOLIO_SCOPE_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16PORTFOLIO_SCOPE_GLOBAL\x10\x01\x12\x1b\n" +
@@ -708,7 +870,7 @@ func file_portfolio_v1_state_proto_rawDescGZIP() []byte {
 }
 
 var file_portfolio_v1_state_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_portfolio_v1_state_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_portfolio_v1_state_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_portfolio_v1_state_proto_goTypes = []any{
 	(PortfolioScope)(0),            // 0: portfolio.v1.PortfolioScope
 	(*BalanceV1)(nil),              // 1: portfolio.v1.BalanceV1
@@ -716,7 +878,8 @@ var file_portfolio_v1_state_proto_goTypes = []any{
 	(*ExposureV1)(nil),             // 3: portfolio.v1.ExposureV1
 	(*RiskSnapshotV1)(nil),         // 4: portfolio.v1.RiskSnapshotV1
 	(*ProjectionProvenanceV1)(nil), // 5: portfolio.v1.ProjectionProvenanceV1
-	(*PortfolioStateV1)(nil),       // 6: portfolio.v1.PortfolioStateV1
+	(*FillSummaryV1)(nil),          // 6: portfolio.v1.FillSummaryV1
+	(*PortfolioStateV1)(nil),       // 7: portfolio.v1.PortfolioStateV1
 }
 var file_portfolio_v1_state_proto_depIdxs = []int32{
 	0, // 0: portfolio.v1.PortfolioStateV1.scope:type_name -> portfolio.v1.PortfolioScope
@@ -725,11 +888,12 @@ var file_portfolio_v1_state_proto_depIdxs = []int32{
 	3, // 3: portfolio.v1.PortfolioStateV1.exposures:type_name -> portfolio.v1.ExposureV1
 	4, // 4: portfolio.v1.PortfolioStateV1.risk:type_name -> portfolio.v1.RiskSnapshotV1
 	5, // 5: portfolio.v1.PortfolioStateV1.provenance:type_name -> portfolio.v1.ProjectionProvenanceV1
-	6, // [6:6] is the sub-list for method output_type
-	6, // [6:6] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	6, // 6: portfolio.v1.PortfolioStateV1.fill_summary:type_name -> portfolio.v1.FillSummaryV1
+	7, // [7:7] is the sub-list for method output_type
+	7, // [7:7] is the sub-list for method input_type
+	7, // [7:7] is the sub-list for extension type_name
+	7, // [7:7] is the sub-list for extension extendee
+	0, // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_portfolio_v1_state_proto_init() }
@@ -743,7 +907,7 @@ func file_portfolio_v1_state_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_portfolio_v1_state_proto_rawDesc), len(file_portfolio_v1_state_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   6,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

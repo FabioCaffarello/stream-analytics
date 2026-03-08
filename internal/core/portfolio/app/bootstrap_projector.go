@@ -22,12 +22,20 @@ func DefaultProjectorConfig() ProjectorConfig {
 }
 
 type positionState struct {
-	qty       float64
-	avgPrice  float64
-	cashUSD   float64
-	realized  float64
-	lastPrice float64
-	orders    map[string]pendingOrderState
+	qty             float64
+	avgPrice        float64
+	cashUSD         float64
+	realized        float64
+	lastPrice       float64
+	orders          map[string]pendingOrderState
+	tradeCount      int32
+	volumeTradedUSD float64
+	lastFillMs      int64
+	winCount        int32
+	lossCount       int32
+	largestWinUSD   float64
+	largestLossUSD  float64
+	turnoverUSD     float64
 }
 
 type pendingOrderState struct {
@@ -116,6 +124,13 @@ func (p *BootstrapProjector) Apply(event executiondomain.ExecutionEventV1) (port
 	baseAvailable := state.qty - lockedBase
 	quoteAvailable := state.cashUSD - lockedQuote
 
+	side := ""
+	if state.qty > 1e-9 {
+		side = "long"
+	} else if state.qty < -1e-9 {
+		side = "short"
+	}
+
 	portfolio := portfoliodomain.PortfolioStateV1{
 		StateID:       sharedhash.HashFieldsFast("portfolio-state-v1", key, event.EventID),
 		Scope:         portfoliodomain.PortfolioScopeVenueAccount,
@@ -128,13 +143,17 @@ func (p *BootstrapProjector) Apply(event executiondomain.ExecutionEventV1) (port
 		},
 		Positions: []portfoliodomain.PositionV1{
 			{
-				Venue:         event.Correlation.Venue,
-				Symbol:        event.Correlation.Symbol,
-				Quantity:      state.qty,
-				AvgEntryPrice: state.avgPrice,
-				NotionalUSD:   notional,
-				RealizedPnL:   state.realized,
-				UnrealizedPnL: unrealized,
+				Venue:           event.Correlation.Venue,
+				Symbol:          event.Correlation.Symbol,
+				Quantity:        state.qty,
+				AvgEntryPrice:   state.avgPrice,
+				NotionalUSD:     notional,
+				RealizedPnL:     state.realized,
+				UnrealizedPnL:   unrealized,
+				TradeCount:      state.tradeCount,
+				VolumeTradedUSD: state.volumeTradedUSD,
+				LastFillMs:      state.lastFillMs,
+				Side:            side,
 			},
 		},
 		Exposures: []portfoliodomain.ExposureV1{
@@ -153,6 +172,15 @@ func (p *BootstrapProjector) Apply(event executiondomain.ExecutionEventV1) (port
 			MarginAvailableUSD:   marginAvailable,
 			MaintenanceMarginUSD: marginUsed * 0.5,
 			Var95USD:             notional * 0.02,
+		},
+		FillSummary: portfoliodomain.FillSummaryV1{
+			TotalTradeCount:      state.tradeCount,
+			TotalVolumeTradedUSD: state.volumeTradedUSD,
+			WinCount:             state.winCount,
+			LossCount:            state.lossCount,
+			LargestWinUSD:        state.largestWinUSD,
+			LargestLossUSD:       state.largestLossUSD,
+			TurnoverUSD:          state.turnoverUSD,
 		},
 		Provenance: portfoliodomain.ProjectionProvenanceV1{
 			SourceExecutionEventID: event.EventID,
@@ -217,7 +245,7 @@ func applyFillOrder(state positionState, event executiondomain.ExecutionEventV1)
 	fillQty, cumulativeFilled := inferFillQty(event, pending)
 	if math.Abs(fillQty) > 1e-9 {
 		fillPrice := effectiveFillPrice(event)
-		state = applyFill(state, fillQty, fillPrice)
+		state = applyFill(state, fillQty, fillPrice, event.TsEventMs)
 		state.lastPrice = fillPrice
 	}
 
@@ -245,7 +273,7 @@ func applyFillOrder(state positionState, event executiondomain.ExecutionEventV1)
 	return state
 }
 
-func applyFill(state positionState, qtyDelta, fillPrice float64) positionState {
+func applyFill(state positionState, qtyDelta, fillPrice float64, tsEventMs int64) positionState {
 	if fillPrice <= 0 {
 		fillPrice = 1
 	}
@@ -254,6 +282,14 @@ func applyFill(state positionState, qtyDelta, fillPrice float64) positionState {
 	}
 	prevQty := state.qty
 	nextQty := prevQty + qtyDelta
+
+	fillNotional := math.Abs(qtyDelta) * fillPrice
+	state.tradeCount++
+	state.volumeTradedUSD += fillNotional
+	state.turnoverUSD += fillNotional
+	if tsEventMs > state.lastFillMs {
+		state.lastFillMs = tsEventMs
+	}
 
 	if math.Abs(prevQty) <= 1e-9 || sameSign(prevQty, qtyDelta) {
 		notional := (math.Abs(prevQty) * state.avgPrice) + (math.Abs(qtyDelta) * fillPrice)
@@ -264,7 +300,19 @@ func applyFill(state positionState, qtyDelta, fillPrice float64) positionState {
 		}
 	} else {
 		closed := math.Min(math.Abs(prevQty), math.Abs(qtyDelta))
-		state.realized += closed * (fillPrice - state.avgPrice) * sign(prevQty)
+		pnl := closed * (fillPrice - state.avgPrice) * sign(prevQty)
+		state.realized += pnl
+		if pnl > 0 {
+			state.winCount++
+			if pnl > state.largestWinUSD {
+				state.largestWinUSD = pnl
+			}
+		} else if pnl < 0 {
+			state.lossCount++
+			if pnl < state.largestLossUSD {
+				state.largestLossUSD = pnl
+			}
+		}
 		if math.Abs(nextQty) <= 1e-9 {
 			state.avgPrice = 0
 		} else if !sameSign(prevQty, nextQty) {

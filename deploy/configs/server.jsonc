@@ -13,7 +13,7 @@
     "max_ack_pending": 1024,
     "max_deliver": 5,
     "deliver_policy": "new",
-    "filter_subjects": ["marketdata.>", "aggregation.>", "insights.>", "signal.event.>", "strategy.intent.>", "execution.event.>", "portfolio.state.>"],
+    "filter_subjects": ["marketdata.>", "aggregation.>", "evidence.>", "insights.>", "signal.event.>", "strategy.intent.>", "execution.event.>", "portfolio.state.>"],
     "dedup_window": "5m",
     "max_age": "24h",
     "max_bytes": "10GB"
@@ -82,7 +82,7 @@
     "max_frame_bytes": 262144,
     "nats": {
       "consumer_durable": "delivery-v3",
-      "filter_subjects": ["marketdata.>", "aggregation.>", "insights.>", "signal.event.>", "strategy.intent.>", "execution.event.>", "portfolio.state.>"]
+      "filter_subjects": ["marketdata.>", "aggregation.>", "evidence.>", "insights.>", "signal.event.>", "strategy.intent.>", "execution.event.>", "portfolio.state.>"]
     }
   },
   "storage": {

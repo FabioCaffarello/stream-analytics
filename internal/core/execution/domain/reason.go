@@ -36,6 +36,7 @@ const (
 	ReasonAdapterSelectionDenied       = "adapter_selection_denied"
 	ReasonAdapterSelectionUnavailable  = "adapter_selection_denied_unavailable"
 	ReasonAdapterSelectionModeMismatch = "adapter_selection_denied_mode_mismatch"
+	ReasonAdapterSelectionCircuitOpen  = "adapter_selection_denied_circuit_open"
 
 	ReasonCredentialsUnavailableNoResolver      = "credentials_unavailable_no_resolver"
 	ReasonCredentialsUnavailableMaterialMissing = "credentials_unavailable_material_missing"
@@ -58,7 +59,53 @@ const (
 	ReasonControlPlaneAdapterDisabled  = "control_plane_adapter_disabled"
 	ReasonControlPlaneVenueRestricted  = "control_plane_venue_restricted"
 	ReasonControlPlaneSymbolRestricted = "control_plane_symbol_restricted"
+
+	ReasonDuplicateIntent = "rejected_duplicate_intent"
 )
+
+// IsRetryable returns true if the given rejection reason represents a transient
+// condition that may resolve on retry (e.g. lease refresh, operator resume,
+// venue recovery). Permanent rejections (governance denial, structural mismatch,
+// terminal control-plane states) return false. Unknown or empty reasons return
+// false (fail-closed).
+func IsRetryable(reason string) bool {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return false
+	}
+
+	// Transient: credential leases can be refreshed/reactivated.
+	if reason == ReasonCredentialsLeaseExpired ||
+		reason == ReasonCredentialsLeaseInactive {
+		return true
+	}
+
+	// Transient: material provider may recover.
+	if reason == ReasonCredentialsUnavailableMaterialMissing {
+		return true
+	}
+
+	// Transient: operator may resume.
+	if reason == ReasonControlPlanePaused ||
+		reason == ReasonControlPlaneDrained {
+		return true
+	}
+
+	// Transient: venue adapter may recover.
+	if reason == ReasonVenueRuntimeAdapterCallFailed {
+		return true
+	}
+
+	// Transient: adapter circuit breaker will reset after cooldown.
+	if reason == ReasonAdapterSelectionCircuitOpen {
+		return true
+	}
+
+	// Everything else is permanent: governance denials, credential invalidity,
+	// scope denials, terminal control-plane states, adapter selection failures,
+	// execution policy rejections, and unknown reasons.
+	return false
+}
 
 func ReasonCategory(reason string) string {
 	reason = strings.TrimSpace(reason)

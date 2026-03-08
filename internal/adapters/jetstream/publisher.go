@@ -23,6 +23,7 @@ const (
 var subjectWildcards = []string{
 	"marketdata.>",
 	"aggregation.>",
+	"evidence.>",
 	"insights.>",
 	"liquidity.>",
 	"signal.>",

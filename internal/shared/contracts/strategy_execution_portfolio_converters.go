@@ -176,13 +176,17 @@ func DomainToProtoPortfolioStateV1(in portfoliodomain.PortfolioStateV1) *portfol
 	positions := make([]*portfoliov1.PositionV1, len(in.Positions))
 	for i, p := range in.Positions {
 		positions[i] = &portfoliov1.PositionV1{
-			Venue:         p.Venue,
-			Symbol:        p.Symbol,
-			Quantity:      p.Quantity,
-			AvgEntryPrice: p.AvgEntryPrice,
-			NotionalUsd:   p.NotionalUSD,
-			RealizedPnl:   p.RealizedPnL,
-			UnrealizedPnl: p.UnrealizedPnL,
+			Venue:           p.Venue,
+			Symbol:          p.Symbol,
+			Quantity:        p.Quantity,
+			AvgEntryPrice:   p.AvgEntryPrice,
+			NotionalUsd:     p.NotionalUSD,
+			RealizedPnl:     p.RealizedPnL,
+			UnrealizedPnl:   p.UnrealizedPnL,
+			TradeCount:      p.TradeCount,
+			VolumeTradedUsd: p.VolumeTradedUSD,
+			LastFillMs:      p.LastFillMs,
+			Side:            p.Side,
 		}
 	}
 	exposures := make([]*portfoliov1.ExposureV1, len(in.Exposures))
@@ -212,6 +216,15 @@ func DomainToProtoPortfolioStateV1(in portfoliodomain.PortfolioStateV1) *portfol
 			MaintenanceMarginUsd: in.Risk.MaintenanceMarginUSD,
 			Var_95Usd:            in.Risk.Var95USD,
 		},
+		FillSummary: &portfoliov1.FillSummaryV1{
+			TotalTradeCount:      in.FillSummary.TotalTradeCount,
+			TotalVolumeTradedUsd: in.FillSummary.TotalVolumeTradedUSD,
+			WinCount:             in.FillSummary.WinCount,
+			LossCount:            in.FillSummary.LossCount,
+			LargestWinUsd:        in.FillSummary.LargestWinUSD,
+			LargestLossUsd:       in.FillSummary.LargestLossUSD,
+			TurnoverUsd:          in.FillSummary.TurnoverUSD,
+		},
 		Provenance: &portfoliov1.ProjectionProvenanceV1{
 			SourceExecutionEventId: in.Provenance.SourceExecutionEventID,
 			SourceExecutionSeq:     in.Provenance.SourceExecutionSeq,
@@ -233,13 +246,17 @@ func ProtoToDomainPortfolioStateV1(in *portfoliov1.PortfolioStateV1) portfoliodo
 	positions := make([]portfoliodomain.PositionV1, len(in.GetPositions()))
 	for i, p := range in.GetPositions() {
 		positions[i] = portfoliodomain.PositionV1{
-			Venue:         p.GetVenue(),
-			Symbol:        p.GetSymbol(),
-			Quantity:      p.GetQuantity(),
-			AvgEntryPrice: p.GetAvgEntryPrice(),
-			NotionalUSD:   p.GetNotionalUsd(),
-			RealizedPnL:   p.GetRealizedPnl(),
-			UnrealizedPnL: p.GetUnrealizedPnl(),
+			Venue:           p.GetVenue(),
+			Symbol:          p.GetSymbol(),
+			Quantity:        p.GetQuantity(),
+			AvgEntryPrice:   p.GetAvgEntryPrice(),
+			NotionalUSD:     p.GetNotionalUsd(),
+			RealizedPnL:     p.GetRealizedPnl(),
+			UnrealizedPnL:   p.GetUnrealizedPnl(),
+			TradeCount:      p.GetTradeCount(),
+			VolumeTradedUSD: p.GetVolumeTradedUsd(),
+			LastFillMs:      p.GetLastFillMs(),
+			Side:            p.GetSide(),
 		}
 	}
 	exposures := make([]portfoliodomain.ExposureV1, len(in.GetExposures()))
@@ -252,6 +269,7 @@ func ProtoToDomainPortfolioStateV1(in *portfoliov1.PortfolioStateV1) portfoliodo
 		}
 	}
 	risk := in.GetRisk()
+	fillSummary := in.GetFillSummary()
 	provenance := in.GetProvenance()
 	return portfoliodomain.PortfolioStateV1{
 		StateID:          in.GetStateId(),
@@ -270,6 +288,15 @@ func ProtoToDomainPortfolioStateV1(in *portfoliov1.PortfolioStateV1) portfoliodo
 			MarginAvailableUSD:   risk.GetMarginAvailableUsd(),
 			MaintenanceMarginUSD: risk.GetMaintenanceMarginUsd(),
 			Var95USD:             risk.GetVar_95Usd(),
+		},
+		FillSummary: portfoliodomain.FillSummaryV1{
+			TotalTradeCount:      fillSummary.GetTotalTradeCount(),
+			TotalVolumeTradedUSD: fillSummary.GetTotalVolumeTradedUsd(),
+			WinCount:             fillSummary.GetWinCount(),
+			LossCount:            fillSummary.GetLossCount(),
+			LargestWinUSD:        fillSummary.GetLargestWinUsd(),
+			LargestLossUSD:       fillSummary.GetLargestLossUsd(),
+			TurnoverUSD:          fillSummary.GetTurnoverUsd(),
 		},
 		Provenance: portfoliodomain.ProjectionProvenanceV1{
 			SourceExecutionEventID: provenance.GetSourceExecutionEventId(),

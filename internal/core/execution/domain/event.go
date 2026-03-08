@@ -36,10 +36,18 @@ type ExecutionCorrelation struct {
 	AccountID     string `json:"account_id"`
 }
 
+type GovernanceRef struct {
+	GrantID   string `json:"grant_id"`
+	AdapterID string `json:"adapter_id"`
+	Mode      string `json:"mode"`
+	Decision  string `json:"decision"` // "allowed", "denied_authorization", "denied_adapter", "denied_credential", "denied_control_plane"
+}
+
 type ExecutionProvenance struct {
-	CorrelationID string `json:"correlation_id"`
-	TraceID       string `json:"trace_id"`
-	Source        string `json:"source"`
+	CorrelationID string        `json:"correlation_id"`
+	TraceID       string        `json:"trace_id"`
+	Source        string        `json:"source"`
+	GovernanceRef GovernanceRef `json:"governance_ref"`
 }
 
 type ExecutionEventV1 struct {

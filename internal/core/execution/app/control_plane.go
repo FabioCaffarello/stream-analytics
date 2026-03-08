@@ -8,6 +8,9 @@ import (
 	"github.com/market-raccoon/internal/shared/problem"
 )
 
+// maxDirectiveHistory is the maximum number of directives retained in the ring buffer.
+const maxDirectiveHistory = 32
+
 // InMemoryControlPlane holds mutable runtime control state.
 // Thread-safe: uses sync.RWMutex. Snapshot() is a read-copy, Apply() is write-locked.
 type InMemoryControlPlane struct {
@@ -18,6 +21,7 @@ type InMemoryControlPlane struct {
 	simulationProfile  string
 	allowlistOverrides *executiondomain.AllowlistOverride
 	lastDirective      executiondomain.ControlDirective
+	directiveHistory   []executiondomain.ControlDirective
 	updatedAtMs        int64
 }
 
@@ -60,6 +64,9 @@ func (cp *InMemoryControlPlane) Snapshot() executiondomain.ControlSnapshot {
 		overrides = &o
 	}
 
+	history := make([]executiondomain.ControlDirective, len(cp.directiveHistory))
+	copy(history, cp.directiveHistory)
+
 	return executiondomain.ControlSnapshot{
 		State:              cp.state,
 		DisabledStrategies: strategies,
@@ -67,6 +74,7 @@ func (cp *InMemoryControlPlane) Snapshot() executiondomain.ControlSnapshot {
 		SimulationProfile:  cp.simulationProfile,
 		AllowlistOverrides: overrides,
 		LastDirective:      cp.lastDirective,
+		DirectiveHistory:   history,
 		UpdatedAtMs:        cp.updatedAtMs,
 	}
 }
@@ -133,6 +141,10 @@ func (cp *InMemoryControlPlane) Apply(directive executiondomain.ControlDirective
 	}
 
 	cp.lastDirective = directive
+	cp.directiveHistory = append(cp.directiveHistory, directive)
+	if len(cp.directiveHistory) > maxDirectiveHistory {
+		cp.directiveHistory = cp.directiveHistory[len(cp.directiveHistory)-maxDirectiveHistory:]
+	}
 	cp.updatedAtMs = directive.IssuedAtMs
 	return nil
 }

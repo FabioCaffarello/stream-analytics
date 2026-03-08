@@ -70,6 +70,44 @@ func TestSignalComposer_CrossVenue(t *testing.T) {
 	}
 }
 
+func TestSignalComposer_SignalIDAndCorrelationID(t *testing.T) {
+	composer := NewSignalComposer(DefaultComposePolicy())
+	micro := baseMicroEvidence("binance", 1700000000000, 0.8)
+
+	out, ok := composer.Compose(ComposeInput{Micro: micro, Timeframe: "1m"})
+	if !ok {
+		t.Fatal("expected composed signal")
+	}
+	if out.Signal.SignalID == "" {
+		t.Fatal("expected non-empty signal_id")
+	}
+	if out.Signal.CorrelationID == "" {
+		t.Fatal("expected non-empty correlation_id")
+	}
+	if len(out.Signal.SignalID) < 6 {
+		t.Fatalf("signal_id too short: %q", out.Signal.SignalID)
+	}
+	if out.Signal.SignalID[:5] != "csig_" {
+		t.Fatalf("signal_id must start with csig_ prefix, got %q", out.Signal.SignalID)
+	}
+}
+
+func TestSignalComposer_DeterministicIDs(t *testing.T) {
+	c1 := NewSignalComposer(DefaultComposePolicy())
+	c2 := NewSignalComposer(DefaultComposePolicy())
+	micro := baseMicroEvidence("binance", 1700000000000, 0.8)
+
+	out1, _ := c1.Compose(ComposeInput{Micro: micro, Timeframe: "1m"})
+	out2, _ := c2.Compose(ComposeInput{Micro: micro, Timeframe: "1m"})
+
+	if out1.Signal.SignalID != out2.Signal.SignalID {
+		t.Fatalf("signal_id not deterministic: %q vs %q", out1.Signal.SignalID, out2.Signal.SignalID)
+	}
+	if out1.Signal.CorrelationID != out2.Signal.CorrelationID {
+		t.Fatalf("correlation_id not deterministic: %q vs %q", out1.Signal.CorrelationID, out2.Signal.CorrelationID)
+	}
+}
+
 func baseMicroEvidence(venue string, ts int64, confidence float64) evidencedomain.EvidenceEvent {
 	return evidencedomain.EvidenceEvent{
 		Type:       evidencedomain.Absorption,

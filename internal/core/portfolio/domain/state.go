@@ -29,13 +29,17 @@ type BalanceV1 struct {
 }
 
 type PositionV1 struct {
-	Venue         string  `json:"venue"`
-	Symbol        string  `json:"symbol"`
-	Quantity      float64 `json:"quantity"`
-	AvgEntryPrice float64 `json:"avg_entry_price"`
-	NotionalUSD   float64 `json:"notional_usd"`
-	RealizedPnL   float64 `json:"realized_pnl"`
-	UnrealizedPnL float64 `json:"unrealized_pnl"`
+	Venue           string  `json:"venue"`
+	Symbol          string  `json:"symbol"`
+	Quantity        float64 `json:"quantity"`
+	AvgEntryPrice   float64 `json:"avg_entry_price"`
+	NotionalUSD     float64 `json:"notional_usd"`
+	RealizedPnL     float64 `json:"realized_pnl"`
+	UnrealizedPnL   float64 `json:"unrealized_pnl"`
+	TradeCount      int32   `json:"trade_count"`
+	VolumeTradedUSD float64 `json:"volume_traded_usd"`
+	LastFillMs      int64   `json:"last_fill_ms"`
+	Side            string  `json:"side"`
 }
 
 type ExposureV1 struct {
@@ -60,6 +64,16 @@ type ProjectionProvenanceV1 struct {
 	ProjectorVersion       string `json:"projector_version"`
 }
 
+type FillSummaryV1 struct {
+	TotalTradeCount      int32   `json:"total_trade_count"`
+	TotalVolumeTradedUSD float64 `json:"total_volume_traded_usd"`
+	WinCount             int32   `json:"win_count"`
+	LossCount            int32   `json:"loss_count"`
+	LargestWinUSD        float64 `json:"largest_win_usd"`
+	LargestLossUSD       float64 `json:"largest_loss_usd"`
+	TurnoverUSD          float64 `json:"turnover_usd"`
+}
+
 type PortfolioStateV1 struct {
 	StateID          string                 `json:"state_id"`
 	Scope            PortfolioScope         `json:"scope"`
@@ -73,6 +87,7 @@ type PortfolioStateV1 struct {
 	RealizedPnlUSD   float64                `json:"realized_pnl_usd"`
 	UnrealizedPnlUSD float64                `json:"unrealized_pnl_usd"`
 	Risk             RiskSnapshotV1         `json:"risk"`
+	FillSummary      FillSummaryV1          `json:"fill_summary"`
 	Provenance       ProjectionProvenanceV1 `json:"provenance"`
 }
 
