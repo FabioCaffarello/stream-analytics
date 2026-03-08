@@ -517,6 +517,8 @@ make_marketdata_native :: proc(url: string, api_key: string = "") -> ports.Marke
 		fetch_session   = native_fetch_session,
 		fetch_freshness = native_fetch_freshness,
 		fetch_timeline  = native_fetch_timeline,
+		fetch_instrument_overview = native_fetch_instrument_overview,
+		fetch_session_dashboard  = native_fetch_session_dashboard,
 	}
 }
 
@@ -2538,4 +2540,17 @@ native_fetch_timeline :: proc(out_buf: [^]u8, out_cap: i32, venue: string, instr
 	path_buf: [256]u8
 	path := fmt.bprintf(path_buf[:], "/api/v1/timeline?venue=%s&instrument=%s&timeframe=%s&artifact=candle", venue, instrument, timeframe)
 	return native_http_get(path, out_buf, out_cap)
+}
+
+@(private = "file")
+native_fetch_instrument_overview :: proc(out_buf: [^]u8, out_cap: i32, venue: string, instrument: string) -> i32 {
+	if len(venue) == 0 || len(instrument) == 0 do return 0
+	path_buf: [256]u8
+	path := fmt.bprintf(path_buf[:], "/api/v1/instrument/overview?venue=%s&instrument=%s", venue, instrument)
+	return native_http_get(path, out_buf, out_cap)
+}
+
+@(private = "file")
+native_fetch_session_dashboard :: proc(out_buf: [^]u8, out_cap: i32) -> i32 {
+	return native_http_get("/api/v1/session/dashboard", out_buf, out_cap)
 }

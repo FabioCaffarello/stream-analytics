@@ -401,5 +401,7 @@ Marketdata_Port :: struct {
 	fetch_session:   proc(buf: [^]u8, cap: i32) -> i32,  // HTTP GET /api/v1/session; returns bytes written, 0 on failure
 	fetch_freshness: proc(buf: [^]u8, cap: i32, venue: string, instrument: string) -> i32,  // HTTP GET /api/v1/freshness?venue=X&instrument=Y
 	fetch_timeline:  proc(buf: [^]u8, cap: i32, venue: string, instrument: string, timeframe: string) -> i32,  // HTTP GET /api/v1/timeline?venue=X&instrument=Y&timeframe=T&artifact=candle
+	fetch_instrument_overview: proc(buf: [^]u8, cap: i32, venue: string, instrument: string) -> i32,  // HTTP GET /api/v1/instrument/overview?venue=X&instrument=Y
+	fetch_session_dashboard:  proc(buf: [^]u8, cap: i32) -> i32,  // HTTP GET /api/v1/session/dashboard
 	on_reconnect:    proc(),  // Called by app layer when reconnect detected; triggers reconcile
 }

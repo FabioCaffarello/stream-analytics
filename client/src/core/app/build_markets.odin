@@ -313,6 +313,22 @@ draw_active_market_row :: proc(
 		ui.push_text(&state.cmd_buf, {cursor, text_y2}, mt_label, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
 	}
 
+	// S58: Overview button (right side, line 2, left of unsubscribe).
+	ov_w := f32(14)
+	ov_h := f32(14)
+	ov_x := x + content_w - ov_w - 24
+	ov_y := text_y2 - ov_h * 0.5 - 2
+	ov_rect := ui.rect_xywh(ov_x, ov_y, ov_w, ov_h)
+	ov_hov := ui.rect_contains(ov_rect, pointer.pos)
+	ov_bg := ov_hov ? ui.with_alpha(ui.COL_ACCENT_CYAN, 0.25) : ui.with_alpha(ui.COL_ACCENT_CYAN, 0.08)
+	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = ov_rect, color = ov_bg})
+	ui.push_text(&state.cmd_buf,
+		{ov_x + ov_w * 0.5 - 3, ov_y + ov_h * 0.5 + ui.FONT_SIZE_XS * 0.35},
+		">", ov_hov ? ui.COL_ACCENT_CYAN : ui.with_alpha(ui.COL_ACCENT_CYAN, 0.6), ui.FONT_SIZE_XS, .Bold)
+	if ov_hov && pointer.left_pressed {
+		queue_ui_action(state, UI_Action{kind = .Navigate_Instrument_Overview, market_entry_idx = row.market_idx})
+	}
+
 	// Unsubscribe button (right side, line 2).
 	unsub_w := f32(16)
 	unsub_h := f32(14)

@@ -66,6 +66,10 @@ queue_ui_actions_from_input :: proc(state: ^App_State, input: ports.Input_State)
 			queue_ui_action(state, UI_Action{kind = .Exit_Compare})
 		} else if state.overlays.show_help {
 			queue_ui_action(state, UI_Action{kind = .Toggle_Help})
+		} else if state.chrome.active_route == .Instrument_Overview {
+			queue_ui_action(state, UI_Action{kind = .Navigate_Route, route = .Markets})
+		} else if state.chrome.active_route == .Session_Health {
+			queue_ui_action(state, UI_Action{kind = .Navigate_Route, route = .Dashboard})
 		}
 	}
 
@@ -244,7 +248,7 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 			state.compare.active = false
 			show_toast(state, "Compare: OFF")
 		case .Navigate_Route:
-			state.chrome.active_route = action.route
+			page_navigate(state, state.chrome.active_route, action.route)
 		case .Toggle_Detail_Panel:
 			state.chrome.detail_expanded = !state.chrome.detail_expanded
 			services.settings_set(&state.settings, services.SETTING_SIDEBAR_EXPANDED,
@@ -376,6 +380,8 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 			apply_set_cell_span_action(state, action.cell_idx, action.col_span, action.row_span)
 		case .Clear_All_Cells:
 			apply_clear_all_cells_action(state)
+		case .Navigate_Instrument_Overview:
+			apply_navigate_instrument_overview(state, action.market_entry_idx)
 		}
 	}
 	state.ui_action_count = 0

@@ -278,7 +278,7 @@ build_settings_page :: proc(state: ^App_State, workspace: ui.Rect, pointer: ui.P
 }
 
 // Settings detail panel content (category list in sidebar).
-draw_settings_detail :: proc(state: ^App_State, rect: ui.Rect) {
+draw_settings_detail :: proc(state: ^App_State, rect: ui.Rect, pointer: ui.Pointer_Input = {}) {
 	y := rect.pos.y
 	ui.push_text(&state.cmd_buf, {rect.pos.x + 2, y + 14}, "SETTINGS",
 		ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Bold)

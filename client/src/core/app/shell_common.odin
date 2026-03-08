@@ -90,6 +90,68 @@ draw_health_dot :: proc(
 	return dot_sz + 4
 }
 
+// S57: Zen mode fade — updates alpha values for top bar, bottom status, left nav rail.
+// Pure state mutation, no rendering. Called once per frame in build_ui.
+@(private = "package")
+zen_update_fade :: proc(zen: ^Zen_State, mouse_x, mouse_y, viewport_h: f32) {
+	if !zen.active do return
+	ZEN_TRIGGER :: f32(12)     // mouse within 12px of edge → fade in
+	ZEN_FADE_SPEED :: f32(0.08) // ~12 frames to full fade
+
+	// Top bar.
+	if mouse_y < ZEN_TRIGGER {
+		zen.top_alpha = min(zen.top_alpha + ZEN_FADE_SPEED, 1.0)
+	} else {
+		zen.top_alpha = max(zen.top_alpha - ZEN_FADE_SPEED, 0.0)
+	}
+	// Bottom status bar.
+	if mouse_y > viewport_h - ZEN_TRIGGER {
+		zen.bottom_alpha = min(zen.bottom_alpha + ZEN_FADE_SPEED, 1.0)
+	} else {
+		zen.bottom_alpha = max(zen.bottom_alpha - ZEN_FADE_SPEED, 0.0)
+	}
+	// Left nav rail.
+	if mouse_x < ZEN_TRIGGER {
+		zen.left_alpha = min(zen.left_alpha + ZEN_FADE_SPEED, 1.0)
+	} else {
+		zen.left_alpha = max(zen.left_alpha - ZEN_FADE_SPEED, 0.0)
+	}
+}
+
+// S57: Detail panel resize handle — interactive drag handle on the right edge.
+@(private = "package")
+update_detail_resize :: proc(state: ^App_State, detail_rect: ui.Rect, nav_rail_x: f32, pointer: ui.Pointer_Input) {
+	dr := detail_rect
+	handle_rect := ui.Rect{
+		pos  = {ui.rect_right(dr) - ui.RESIZE_HANDLE_W, dr.pos.y},
+		size = {ui.RESIZE_HANDLE_W, dr.size.y},
+	}
+	handle_hovered := ui.rect_contains(handle_rect, pointer.pos)
+	if handle_hovered || state.chrome.detail_resizing {
+		// BUG-19: Push at Z_OVERLAY so the handle is always clickable above cell content.
+		prev_z := state.cmd_buf.current_z_layer
+		state.cmd_buf.current_z_layer = ui.Z_OVERLAY
+		ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
+			rect  = handle_rect,
+			color = ui.with_alpha(ui.COL_BLUE, 0.25),
+		})
+		state.cmd_buf.current_z_layer = prev_z
+	}
+	if handle_hovered && pointer.left_pressed {
+		state.chrome.detail_resizing = true
+	}
+	if state.chrome.detail_resizing {
+		if pointer.left_down {
+			state.chrome.detail_w = clamp(
+				pointer.pos.x - nav_rail_x - ui.NAV_RAIL_W,
+				ui.DETAIL_PANEL_W_MIN, ui.DETAIL_PANEL_W_MAX,
+			)
+		} else {
+			state.chrome.detail_resizing = false
+		}
+	}
+}
+
 // S52: Overlay dispatch — renders all global overlays/modals in z-order.
 // Z-order (back to front): health panel, help, exchange manager,
 // cell stream picker, widget catalog, stream picker, toast/OSD.

@@ -427,6 +427,8 @@ make_marketdata_web :: proc(url: string, api_key: string = "", connect: bool = t
 		fetch_session   = web_fetch_session,
 		fetch_freshness = web_fetch_freshness,
 		fetch_timeline  = web_fetch_timeline,
+		fetch_instrument_overview = web_fetch_instrument_overview,
+		fetch_session_dashboard  = web_fetch_session_dashboard,
 	}
 }
 
@@ -2291,4 +2293,17 @@ web_fetch_timeline :: proc(out_buf: [^]u8, out_cap: i32, venue: string, instrume
 	path := strings.concatenate({"/api/v1/timeline?venue=", venue, "&instrument=", instrument, "&timeframe=", timeframe, "&artifact=candle"})
 	defer delete(path)
 	return web_http_get(g_web_state, path, out_buf, out_cap)
+}
+
+@(private = "file")
+web_fetch_instrument_overview :: proc(out_buf: [^]u8, out_cap: i32, venue: string, instrument: string) -> i32 {
+	if len(venue) == 0 || len(instrument) == 0 do return 0
+	path := strings.concatenate({"/api/v1/instrument/overview?venue=", venue, "&instrument=", instrument})
+	defer delete(path)
+	return web_http_get(g_web_state, path, out_buf, out_cap)
+}
+
+@(private = "file")
+web_fetch_session_dashboard :: proc(out_buf: [^]u8, out_cap: i32) -> i32 {
+	return web_http_get(g_web_state, "/api/v1/session/dashboard", out_buf, out_cap)
 }

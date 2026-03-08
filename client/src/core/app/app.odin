@@ -44,6 +44,8 @@ Route :: enum u8 {
 	Dashboard,
 	Markets,
 	Settings,
+	Instrument_Overview,
+	Session_Health,
 }
 
 Layout_Mode :: enum u8 {
@@ -112,6 +114,7 @@ UI_Action_Kind :: enum u8 {
 	Capture_Runtime_Snapshot, // S46: deterministic snapshot to clipboard
 	Set_Cell_Span,           // S53: set col/row span for a cell
 	Clear_All_Cells,         // S53: remove all cells and open widget catalog
+	Navigate_Instrument_Overview, // S58: navigate to overview for a market entry
 }
 
 UI_Action :: struct {
@@ -457,6 +460,11 @@ App_State :: struct {
 
 	// S31: Recovery event log — canonical ring buffer for recovery observability.
 	recovery_log:       md_common.Recovery_Event_Log,
+
+	// S58: Instrument overview state — backend-owned read model.
+	instrument_overview: Instrument_Overview_State,
+	// S59: Session health state — backend-owned session dashboard read model.
+	session_health: Session_Health_State,
 }
 
 // S20: Bootstrap state populated from GET /api/v1/session.
@@ -486,6 +494,33 @@ Timeline_State :: struct {
 	first_ts: i64,
 	last_ts:  i64,
 	loaded:   bool,
+}
+
+// S58: Instrument Overview — backend-owned composed read model state.
+Overview_Fetch_Status :: enum u8 {
+	Idle,
+	Success,
+	Error,
+}
+
+// S59: Session Health — backend-owned session dashboard read model state.
+Session_Health_State :: struct {
+	fetch_status: Overview_Fetch_Status,
+	fetch_frame:  u64,
+	view:         services.Session_Health_Result,
+}
+
+Instrument_Overview_State :: struct {
+	// Target instrument (set on navigate).
+	venue:     [24]u8,
+	venue_len: u8,
+	symbol:    [32]u8,
+	symbol_len: u8,
+	// Fetch lifecycle.
+	fetch_status: Overview_Fetch_Status,
+	fetch_frame:  u64,
+	// Parsed backend read model.
+	view: services.Instrument_Overview_Result,
 }
 
 init :: proc(
@@ -1109,6 +1144,8 @@ update :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buffe
 	sample_marketdata_metrics(state)
 	observe_candle_health(state)
 	poll_freshness(state)
+	poll_instrument_overview(state)
+	poll_session_health(state)
 	cache_render_observations(state, frame_input)
 	buf := build_ui(state, frame_input)
 	if state.ui_action_count > 0 {
@@ -1142,6 +1179,8 @@ update_web :: proc(state: ^App_State, input: ports.Input_State) -> (buf: ^ui.Com
 
 	sample_marketdata_metrics(state)
 	poll_freshness(state)
+	poll_instrument_overview(state)
+	poll_session_health(state)
 
 	conn := current_conn_status(state)
 	candle_health_changed := observe_candle_health(state)
