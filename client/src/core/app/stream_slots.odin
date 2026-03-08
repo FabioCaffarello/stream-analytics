@@ -1,6 +1,7 @@
 package app
 
 import "core:strings"
+import "mr:layers"
 import "mr:md_common"
 import "mr:ports"
 import "mr:services"
@@ -439,21 +440,28 @@ Cell_Surface_View :: struct {
 resolve_stores_for_cell :: proc(state: ^App_State, ci: int) -> Cell_Stores {
 	stores: Cell_Stores
 
-	// Default fallback: active/global stores.
-	stores.candle       = &state.stores.candle
-	stores.heatmap      = &state.stores.heatmap
-	stores.vpvr         = &state.stores.vpvr
-	stores.trades       = &state.stores.trades
-	stores.orderbook    = &state.stores.orderbook
-	stores.stats        = &state.stores.stats
-	stores.analytics    = &state.stores.analytics
-	stores.session_vpvr = &state.stores.session_vpvr
-	stores.tpo          = &state.stores.tpo
+	// S100: Default fallback resolves from layer_store active stream (no mirror).
+	if active := layers.market_store_active_stream(&state.layer_store); active != nil {
+		stores.candle       = &active.candles
+		stores.heatmap      = &active.heatmap
+		stores.vpvr         = &active.vpvr
+		stores.trades       = &active.trades
+		stores.orderbook    = &active.orderbook
+		stores.stats        = &active.stats
+		stores.analytics    = &active.analytics
+	}
+	// S100: session_vpvr + tpo from active slot (per-slot data, not on Market_Stream).
+	reg := state.stream_views
+	if reg != nil {
+		if active_slot := stream_view_active_slot(reg); active_slot != nil {
+			stores.session_vpvr = &active_slot.session_vpvr_store
+			stores.tpo          = &active_slot.tpo_store
+		}
+	}
 	// S36: Read from canonical apply_state (was active_metrics — a derived copy).
 	stores.heatmap_live = state.active_apply_state.has_live[.Heatmap]
 	stores.vpvr_live    = state.active_apply_state.has_live[.VPVR]
 
-	reg := state.stream_views
 	if reg == nil do return stores
 
 	// Follow-active cells (stream_idx=-1) use global stores by default.
@@ -498,6 +506,14 @@ resolve_stores_for_cell :: proc(state: ^App_State, ci: int) -> Cell_Stores {
 			venue = slot.stream_info.venue
 			symbol = slot.stream_info.symbol
 		}
+		// S99: Analytics from canonical layer_store (needs only subject_id, not venue/symbol).
+		// S49: Session VP + TPO stores from bound slot.
+		sid := slot.subject_id
+		if ms := layers.market_store_stream_for_subject(&state.layer_store, sid); ms != nil {
+			stores.analytics = &ms.analytics
+		}
+		stores.session_vpvr = &slot.session_vpvr_store
+		stores.tpo = &slot.tpo_store
 	} else {
 		state.world.bindings[ci].stream_idx = -1
 		return stores
@@ -547,14 +563,6 @@ resolve_stores_for_cell :: proc(state: ^App_State, ci: int) -> Cell_Stores {
 	if slot := find_market_channel_slot(state, reg, venue, symbol, .Stats); slot != nil {
 		stores.stats = &slot.stats_store
 	}
-	// S47: Analytics store from bound slot (analytics events arrive on any channel slot).
-	// S49: Session VP + TPO stores from bound slot.
-	if stream_idx >= 0 && stream_idx < STREAM_VIEW_CAP && reg.slots[stream_idx].used {
-		stores.analytics = &reg.slots[stream_idx].analytics_store
-		stores.session_vpvr = &reg.slots[stream_idx].session_vpvr_store
-		stores.tpo = &reg.slots[stream_idx].tpo_store
-	}
-
 	return stores
 }
 
@@ -807,7 +815,10 @@ apply_set_compare_pane_timeframe :: proc(state: ^App_State, pane_idx: int, tf_id
 				slot.heatmap_store = {}
 				slot.heatmap_snapshot = {}
 				slot.vpvr_store = {}
-				services.analytics_store_clear(&slot.analytics_store) // S47
+				// S99: Clear analytics on canonical layer_store stream (was slot.analytics_store).
+				if ms := layers.market_store_stream_for_subject(&state.layer_store, eff_sid); ms != nil {
+					services.analytics_store_clear(&ms.analytics)
+				}
 				md_common.apply_state_on_tf_change(&slot.apply_state)
 			}
 		}
@@ -851,17 +862,17 @@ request_compare_pane_analytics_range :: proc(state: ^App_State, pane_idx: int) {
 	tf := compare_pane_effective_tf_string(state, pane_idx)
 	kind := state.compare.analytics_kind[pane_idx]
 
-	// Resolve target store: per-slot analytics store for isolation.
+	// S99: Resolve target store — canonical source is layer_store Market_Stream.
 	eff_sid := compare_pane_resolve_subject_id(state, pane_idx)
-	store: ^services.Analytics_Store
-	if eff_sid != 0 {
-		if eff_idx := stream_view_find_slot(reg, eff_sid); eff_idx >= 0 {
-			store = &reg.slots[eff_idx].analytics_store
-		}
+	store := resolve_analytics_store_for_subject(state, eff_sid)
+	if store == nil {
+		// Fallback: try seed slot's subject_id.
+		store = resolve_analytics_store_for_subject(state, reg.slots[slot_idx].subject_id)
 	}
 	if store == nil {
-		store = &reg.slots[slot_idx].analytics_store
+		store = active_analytics_store(state)
 	}
+	if store == nil do return
 
 	buf: [ANALYTICS_RANGE_BUF_CAP]u8
 	switch kind {
@@ -934,17 +945,16 @@ request_compare_pane_subplot_analytics_kind :: proc(
 
 	tf := compare_pane_effective_tf_string(state, pane_idx)
 
-	// Resolve target store: per-slot analytics store.
+	// S99: Resolve target store — canonical source is layer_store Market_Stream.
 	eff_sid := compare_pane_resolve_subject_id(state, pane_idx)
-	store: ^services.Analytics_Store
-	if eff_sid != 0 {
-		if eff_idx := stream_view_find_slot(reg, eff_sid); eff_idx >= 0 {
-			store = &reg.slots[eff_idx].analytics_store
-		}
+	store := resolve_analytics_store_for_subject(state, eff_sid)
+	if store == nil {
+		store = resolve_analytics_store_for_subject(state, reg.slots[slot_idx].subject_id)
 	}
 	if store == nil {
-		store = &reg.slots[slot_idx].analytics_store
+		store = active_analytics_store(state)
 	}
+	if store == nil do return
 
 	buf: [ANALYTICS_RANGE_BUF_CAP]u8
 	switch kind {
@@ -969,6 +979,16 @@ request_compare_pane_subplot_analytics_kind :: proc(
 			if n > 0 { services.parse_analytics_oi_range(store, buf[:n]) }
 		}
 	}
+}
+
+// S99: Resolve the canonical analytics store for a subject_id.
+// Returns a pointer to the Market_Stream.analytics in layer_store, or nil if not found.
+resolve_analytics_store_for_subject :: proc(state: ^App_State, subject_id: u64) -> ^services.Analytics_Store {
+	if state == nil || subject_id == 0 do return nil
+	if ms := layers.market_store_stream_get_or_alloc(&state.layer_store, subject_id); ms != nil {
+		return &ms.analytics
+	}
+	return nil
 }
 
 // S37: Resolve global TF in milliseconds (utility, retained for non-pane contexts).

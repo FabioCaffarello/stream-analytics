@@ -53,8 +53,13 @@ request_session_vpvr_snapshot :: proc(state: ^App_State, ci: int) {
 		}
 	}
 	if store == nil {
-		store = &state.stores.session_vpvr
+		if reg != nil {
+			if active_slot := stream_view_active_slot(reg); active_slot != nil {
+				store = &active_slot.session_vpvr_store
+			}
+		}
 	}
+	if store == nil do return
 
 	// Parse response into store.
 	services.parse_session_vpvr_snapshot(store, buf[:n])

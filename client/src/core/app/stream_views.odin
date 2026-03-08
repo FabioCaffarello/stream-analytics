@@ -1,6 +1,7 @@
 package app
 
 import "core:fmt"
+import "mr:layers"
 import "mr:md_common"
 import "mr:ports"
 import "mr:services"
@@ -107,13 +108,9 @@ stream_view_cycle_active :: proc(reg: ^Stream_View_Registry, forward: bool) -> b
 	return false
 }
 
-// Dual store contract:
-// - Per-slot stores (Stream_View_Slot.{candle,trades,...}_store) hold data per subject_id.
-//   Data is always written here first in layer_marketdata.
-// - Global stores (App_State.{candle,trades,...}_store) mirror the ACTIVE stream's slot stores.
-//   They are synced via this proc when the active stream changes (Tab, Pick_Stream, etc.).
-// - Cells following active use global stores; bound cells resolve via resolve_stores_for_cell.
-sync_active_stream_view_to_global_stores :: proc(state: ^App_State) {
+// S100: On stream switch, sync the stream registry + reset DOM/footprint.
+// Store mirroring removed — resolve_stores_for_cell reads layer_store directly.
+sync_active_stream_view_registry :: proc(state: ^App_State) {
 	reg := state.stream_views
 	if reg == nil do return
 	if !reg.has_active do return
@@ -124,15 +121,6 @@ sync_active_stream_view_to_global_stores :: proc(state: ^App_State) {
 			stream_id := build_stream_id_from_market_into(stream_id_buf[:], slot.stream_info.venue, slot.stream_info.symbol)
 			streams.registry_set_active(&state.stream_registry, stream_id)
 		}
-		state.stores.trades = slot.trades_store
-		state.stores.orderbook = slot.orderbook_store
-		state.stores.heatmap = slot.heatmap_store
-		if state.stores.heatmap.count <= 0 && slot.apply_state.has_live[.Heatmap] {
-			services.push_heatmap_snapshot(&state.stores.heatmap, slot.heatmap_snapshot)
-		}
-		state.stores.vpvr = slot.vpvr_store
-		state.stores.stats = slot.stats_store
-		state.stores.candle = slot.candle_store
 		// Reset DOM fill tracking and footprint accumulation on stream switch.
 		services.dom_store_reset(&state.stores.dom)
 		services.footprint_store_reset(&state.stores.footprint)
@@ -171,27 +159,15 @@ apply_cycle_stream_action :: proc(state: ^App_State, forward: bool) -> bool {
 
 	is_offline := current_conn_status(state) == .Offline
 	if is_offline {
-		// In offline mode with no stream views, re-populate demo data.
-		state.stores.trades = {}
-		state.stores.orderbook = {}
-		state.stores.heatmap = {}
-		state.stores.vpvr = {}
-		state.stores.stats = {}
-		state.stores.candle = {}
-		services.fill_demo_trades(&state.stores.trades)
-		services.fill_demo_orderbook(&state.stores.orderbook)
-		services.fill_demo_heatmaps(&state.stores.heatmap)
-		services.fill_demo_vpvr(&state.stores.vpvr)
-		services.fill_demo_stats(&state.stores.stats)
-		services.fill_demo_candles(&state.stores.candle)
-			// S23: Use canonical reset for offline demo path.
-			reset_active_apply_state(state)
-			return true
-		}
+		// S100: Re-seed demo data into layer_store (canonical source).
+		layers.market_store_seed_demo(&state.layer_store, 1)
+		reset_active_apply_state(state)
+		return true
+	}
 
 	if !stream_view_cycle_active(state.stream_views, forward) do return false
 
-	sync_active_stream_view_to_global_stores(state)
+	sync_active_stream_view_registry(state)
 	persist_active_stream_subject(state)
 
 	// BUG-23: Reset scroll/zoom on follow-active candle cells so they don't show stale position.
@@ -206,7 +182,7 @@ apply_cycle_stream_action :: proc(state: ^App_State, forward: bool) -> bool {
 	sync_active_apply_state_from_slot(state)
 	ensure_active_candle_subject_id(state)
 	state.candle_health = .No_Data
-	if state.stores.candle.count <= 0 {
+	if active_candle_count(state) <= 0 {
 		request_active_stream_candle_range(state)
 	}
 	return true
@@ -254,7 +230,7 @@ request_older_candles :: proc(state: ^App_State) {
 	if state.marketdata.send_getrange == nil do return
 	if state.getrange.pending do return
 	if state.getrange.oldest_ts <= 0 do return
-	if state.stores.candle.count >= services.CANDLE_CAP do return // store full, no point fetching more
+	if active_candle_count(state) >= services.CANDLE_CAP do return // store full, no point fetching more
 	// S20: Stop requesting if we've reached the timeline's first_ts boundary.
 	if state.timeline.loaded && state.timeline.first_ts > 0 && state.getrange.oldest_ts <= state.timeline.first_ts {
 		return
@@ -356,11 +332,13 @@ apply_set_timeframe_action :: proc(state: ^App_State, idx: int) -> bool {
 		state.marketdata.set_candle_tf(tf)
 	}
 
-	// Clear candle store and reset zoom/scroll for new TF data.
-	state.stores.candle.head = 0
-	state.stores.candle.count = 0
-	state.stores.heatmap = {}
-	state.stores.vpvr = {}
+	// S100: Clear active stream stores directly on layer_store.
+	if acs := active_candle_store(state); acs != nil {
+		acs.head = 0
+		acs.count = 0
+	}
+	if ahs := active_heatmap_store(state); ahs != nil { ahs^ = {} }
+	if avs := active_vpvr_store(state); avs != nil { avs^ = {} }
 	// S25: Canonical apply state TF change (policy-driven) — also syncs getrange.
 	// S34: getrange_request_id cleared by apply_state_on_tf_change.
 	tf_change_active_apply_state(state)
@@ -381,7 +359,10 @@ apply_set_timeframe_action :: proc(state: ^App_State, idx: int) -> bool {
 		slot.heatmap_store = {}
 		slot.heatmap_snapshot = {}
 		slot.vpvr_store = {}
-		services.analytics_store_clear(&slot.analytics_store) // S47
+		// S99: Clear analytics on canonical layer_store stream (was slot.analytics_store).
+		if ms := layers.market_store_stream_for_subject(&state.layer_store, slot.subject_id); ms != nil {
+			services.analytics_store_clear(&ms.analytics)
+		}
 		// Clear orderbook store — stale L2 data from the prior TF doesn't persist.
 		// A fresh snapshot will arrive after resubscribe.
 		slot.orderbook_store = {}
@@ -556,15 +537,20 @@ apply_set_cell_timeframe_action :: proc(state: ^App_State, cell_idx: int, tf_idx
 			slot.heatmap_store = {}
 			slot.heatmap_snapshot = {}
 			slot.vpvr_store = {}
-			services.analytics_store_clear(&slot.analytics_store) // S47
+			// S99: Clear analytics on canonical layer_store stream (was slot.analytics_store).
+			if ms := layers.market_store_stream_for_subject(&state.layer_store, slot.subject_id); ms != nil {
+				services.analytics_store_clear(&ms.analytics)
+			}
 			// S24: apply_state_on_tf_change handles has_live/snapshot_seen resets per policy.
 			md_common.apply_state_on_tf_change(&slot.apply_state)
 		}
 	} else {
 		// BUG-17: Follow-active cell — only clear candle store (TF-sensitive).
-		// Do NOT clear global heatmap/vpvr stores; they serve other cells.
-			state.stores.candle.head = 0
-			state.stores.candle.count = 0
+		// Do NOT clear heatmap/vpvr; they serve other cells.
+		if acs := active_candle_store(state); acs != nil {
+			acs.head = 0
+			acs.count = 0
+		}
 			// S25: Partial TF reset for follow-active — only candle.
 			state.active_apply_state.has_live[.Candle] = false
 			state.active_apply_state.using_synthetic[.Candle] = false

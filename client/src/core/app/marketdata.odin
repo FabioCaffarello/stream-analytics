@@ -5,14 +5,17 @@ import "mr:services"
 // Trigger a GetRange request for older candles when the user scrolls near the left edge.
 check_lazy_candle_loading :: proc(state: ^App_State) {
 	// Global active stream lazy loading — use focused candle cell's view state.
-	if !state.getrange.pending && state.getrange.seeded && state.stores.candle.count > 0 &&
-	   state.stores.candle.count < services.CANDLE_CAP && state.getrange.oldest_ts > 0 {
+	// S100: Resolve candle store from layer_store active stream.
+	gcs := active_candle_store(state)
+	gc_count := gcs != nil ? gcs.count : 0
+	if !state.getrange.pending && state.getrange.seeded && gc_count > 0 &&
+	   gc_count < services.CANDLE_CAP && state.getrange.oldest_ts > 0 {
 		fci := max(state.world.focused, 0)
 		if fci >= state.world.count do fci = 0
 		fvw := &state.world.views[fci]
-		visible := fvw.candle_zoom > 0 ? max(int(fvw.candle_zoom), 1) : max(state.stores.candle.count, 1)
+		visible := fvw.candle_zoom > 0 ? max(int(fvw.candle_zoom), 1) : max(gc_count, 1)
 		scroll := int(fvw.candle_scroll_x)
-		end_idx := state.stores.candle.count - scroll
+		end_idx := gc_count - scroll
 		start_idx := max(end_idx - visible, 0)
 		LAZY_LOAD_THRESHOLD :: 10
 		if start_idx < LAZY_LOAD_THRESHOLD {

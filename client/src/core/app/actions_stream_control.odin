@@ -10,7 +10,7 @@ apply_pick_stream_action :: proc(state: ^App_State, subject_id: u64) {
 
 	reg.active_subject_id = subject_id
 	reg.has_active = true
-	sync_active_stream_view_to_global_stores(state)
+	sync_active_stream_view_registry(state)
 	persist_active_stream_subject(state)
 	// S25: Canonical apply state sync from new slot drives getrange state.
 	// S34: getrange_request_id cleared by sync_active_apply_state_from_slot.
@@ -20,7 +20,7 @@ apply_pick_stream_action :: proc(state: ^App_State, subject_id: u64) {
 	// S92: Reset freshness for new stream — each stream has independent freshness.
 	state.freshness = {}
 	state.stream_switches_total += 1
-	if state.stores.candle.count <= 0 {
+	if active_candle_count(state) <= 0 {
 		request_active_stream_candle_range(state)
 	}
 }

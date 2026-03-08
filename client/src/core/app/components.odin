@@ -326,21 +326,13 @@ Chart_Display_State :: struct {
 	heatmap_intensity_idx: int,
 }
 
-// Global data stores (extracted from App_State).
+// S100: Global stores — only non-stream-scoped data remains.
+// Stream-scoped stores (candle, trades, orderbook, etc.) are resolved from
+// layer_store active stream via active_stream_*() helpers.
 Global_Stores :: struct {
-	trades:    services.Trades_Store,
-	orderbook: services.Orderbook_Store,
-	heatmap:   services.Heatmap_Store,
-	vpvr:      services.VPVR_Store,
-	stats:     services.Stats_Store,
-	candle:    services.Candle_Store,
-	signals:   services.Signal_Store,
 	dom:       services.DOM_Store,
 	footprint: services.Footprint_Store,
 	markets:   services.Markets_Store,
-	analytics:    services.Analytics_Store,       // S47: global analytics ring
-	session_vpvr: services.Session_VPVR_Store,   // S49: global session VP
-	tpo:          services.TPO_Store,             // S49: global TPO profile
 }
 
 Active_Stream_Metrics :: struct {

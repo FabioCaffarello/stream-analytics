@@ -87,7 +87,7 @@ compute_candle_health :: proc(state: ^App_State) -> Candle_Health {
 		tf_ms = tf_options[state.active_tf_idx]
 	}
 	return compute_candle_health_for_store(
-		&state.stores.candle,
+		active_candle_store(state),
 		md_common.apply_state_candle_recv_ms(state.active_apply_state),
 		tf_ms,
 		current_now_ms(state),
@@ -164,7 +164,7 @@ build_candle_health_ui :: proc(state: ^App_State) -> (label: string, detail: str
 		tf_ms = tf_options[state.active_tf_idx]
 	}
 	return build_candle_health_ui_for_store(
-		&state.stores.candle,
+		active_candle_store(state),
 		md_common.apply_state_candle_recv_ms(state.active_apply_state),
 		tf_ms,
 		current_now_ms(state),

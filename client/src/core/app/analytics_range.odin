@@ -4,6 +4,7 @@ package app
 // Fetches CVD/DV/BS data from cold reader APIs and populates the analytics store.
 // Called on analytics widget creation and on TF change.
 
+import "mr:layers"
 import "mr:services"
 
 ANALYTICS_RANGE_BUF_CAP :: i32(16384)
@@ -48,17 +49,21 @@ request_analytics_range :: proc(state: ^App_State, ci: int) {
 		tf = tf_opts[eff_tf]
 	}
 
-	// Resolve target store.
+	// S99: Resolve target store — canonical source is layer_store Market_Stream.
 	store: ^services.Analytics_Store
 	if reg != nil {
 		stream_idx := state.world.bindings[ci].stream_idx
 		if stream_idx >= 0 && stream_idx < STREAM_VIEW_CAP && reg.slots[stream_idx].used {
-			store = &reg.slots[stream_idx].analytics_store
+			sid := reg.slots[stream_idx].subject_id
+			if ms := layers.market_store_stream_get_or_alloc(&state.layer_store, sid); ms != nil {
+				store = &ms.analytics
+			}
 		}
 	}
 	if store == nil {
-		store = &state.stores.analytics
+		store = active_analytics_store(state)
 	}
+	if store == nil do return
 
 	// Dispatch fetch by analytics kind.
 	buf: [ANALYTICS_RANGE_BUF_CAP]u8

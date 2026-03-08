@@ -159,7 +159,7 @@ Stream_View_Slot :: struct {
 	orderbook_store: services.Orderbook_Store,
 	stats_store:     services.Stats_Store,
 	candle_store:    services.Candle_Store,
-	analytics_store:    services.Analytics_Store,       // S47: per-slot analytics ring
+	// S99: analytics_store removed — canonical source is layer_store Market_Stream.analytics.
 	session_vpvr_store: services.Session_VPVR_Store,   // S49: per-slot session VP
 	tpo_store:          services.TPO_Store,             // S49: per-slot TPO profile
 	// S23: Canonical per-stream apply state (replaces scattered booleans above).
@@ -671,14 +671,8 @@ init :: proc(
 	state.indicators.macd_slow = 26
 	state.indicators.macd_signal = 9
 
-	// Only fill demo data in offline mode; real data overwrites stores when live.
+	// S100: Demo data seeded directly into layer_store (canonical source).
 	if offline {
-		services.fill_demo_trades(&state.stores.trades)
-		services.fill_demo_orderbook(&state.stores.orderbook)
-		services.fill_demo_heatmaps(&state.stores.heatmap)
-		services.fill_demo_vpvr(&state.stores.vpvr)
-		services.fill_demo_stats(&state.stores.stats)
-		services.fill_demo_candles(&state.stores.candle)
 		layers.market_store_seed_demo(&state.layer_store, 1)
 	}
 
@@ -944,7 +938,7 @@ init :: proc(
 
 		// Prime historical candles even before first live event, so high TF startup
 		// does not stay empty waiting for a subject event to create an active slot.
-		if state.stores.candle.count <= 0 {
+		if active_candle_count(state) <= 0 {
 			request_active_stream_candle_range(state)
 		}
 	}
@@ -1065,18 +1059,21 @@ runtime_probe :: proc(state: ^App_State) -> Runtime_Probe {
 	p.active_live_heatmap = state.active_metrics.has_live_heatmap
 	p.active_live_vpvr = state.active_metrics.has_live_vpvr
 	p.active_live_candle = state.active_metrics.has_live_candle
-	p.active_synth_heatmap = !state.active_metrics.has_live_heatmap && state.stores.heatmap.count > 0
-	p.active_synth_vpvr = !state.active_metrics.has_live_vpvr && state.stores.vpvr.count > 0
+	p.active_synth_heatmap = !state.active_metrics.has_live_heatmap && active_heatmap_count(state) > 0
+	p.active_synth_vpvr = !state.active_metrics.has_live_vpvr && active_vpvr_count(state) > 0
 	p.compare_mode = state.compare.active
 	p.compare_widget_idx = state.compare.widget_idx
 	p.compare_count = state.compare.count
-	p.w_trades_count = state.stores.trades.count
-	p.w_orderbook_asks = state.stores.orderbook.ask_count
-	p.w_orderbook_bids = state.stores.orderbook.bid_count
-	p.w_stats_count = state.stores.stats.count
-	p.w_heatmap_snaps = state.stores.heatmap.count
-	p.w_vpvr_levels = state.stores.vpvr.count
-	p.w_candle_count = state.stores.candle.count
+	// S100: Read counts from layer_store active stream.
+	if as := layers.market_store_active_stream(&state.layer_store); as != nil {
+		p.w_trades_count = as.trades.count
+		p.w_orderbook_asks = as.orderbook.ask_count
+		p.w_orderbook_bids = as.orderbook.bid_count
+		p.w_stats_count = as.stats.count
+		p.w_heatmap_snaps = as.heatmap.count
+		p.w_vpvr_levels = as.vpvr.count
+		p.w_candle_count = as.candles.count
+	}
 	p.w_evidence_count = state.evidence.count
 	active_subject := p.active_subject_id
 	if active_subject == 0 {
@@ -1084,7 +1081,9 @@ runtime_probe :: proc(state: ^App_State) -> Runtime_Probe {
 	}
 	recent_signals: [32]services.Signal_Entry
 	if active_subject != 0 {
-		p.w_signal_count = services.signal_store_recent_for_subject(&state.stores.signals, active_subject, recent_signals[:])
+		if sig_store := active_signals_store(state); sig_store != nil {
+			p.w_signal_count = services.signal_store_recent_for_subject(sig_store, active_subject, recent_signals[:])
+		}
 	}
 	active_stream := layers.market_store_active_stream(&state.layer_store)
 	if active_stream != nil {

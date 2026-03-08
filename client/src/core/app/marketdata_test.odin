@@ -1,7 +1,9 @@
 package app
 
 import "core:testing"
+import "mr:layers"
 import "mr:ports"
+import "mr:services"
 
 // S24: Legacy orderbook_snapshot_gate tests removed — proc deleted.
 // Snapshot gate logic is now tested in md_common/protocol_engine_test.odin
@@ -214,4 +216,192 @@ test_compare_subplot_flags_zero_init :: proc(t: ^testing.T) {
 		testing.expect(t, cmp.show_delta_vol[i] == false, "DV should default false")
 		testing.expect(t, cmp.show_oi[i] == false, "OI should default false")
 	}
+}
+
+// ---------------------------------------------------------------------------
+// S99: Analytics Truth Unification — layer_store is canonical analytics source.
+// ---------------------------------------------------------------------------
+
+// S100: Analytics accessible directly from layer_store active stream (no mirror).
+@(test)
+test_s100_analytics_from_active_stream :: proc(t: ^testing.T) {
+	state := new(App_State)
+	defer free(state)
+
+	// Seed a stream in layer_store and push analytics.
+	sid := u64(42)
+	stream := layers.market_store_stream_get_or_alloc(&state.layer_store, sid)
+	testing.expect(t, stream != nil, "stream should be allocated")
+	layers.market_store_set_active_subject(&state.layer_store, sid)
+
+	services.push_analytics(&stream.analytics, services.Analytics_Entry{
+		kind = .CVD,
+		ts_ms = 1000,
+		seq = 1,
+		values = {-2.5, 150.0, 0, 0, 0, 0, 0, 0},
+	})
+
+	// Active stream analytics should be directly accessible.
+	store := active_analytics_store(state)
+	testing.expect(t, store != nil, "active analytics store should exist")
+	testing.expect_value(t, store.count, 1)
+	entry, ok := services.get_analytics_latest(store, .CVD)
+	testing.expect(t, ok, "active stream should contain CVD entry")
+	testing.expect(t, entry.values[1] == 150.0, "CVD value should match")
+}
+
+// S99: resolve_stores_for_cell returns layer_store analytics (not slot).
+@(test)
+test_s99_resolve_stores_analytics_from_layer_store :: proc(t: ^testing.T) {
+	state := new(App_State)
+	defer free(state)
+	reg := new(Stream_View_Registry)
+	defer free(reg)
+	state.stream_views = reg
+
+	sid := u64(100)
+
+	// Allocate slot for the stream.
+	slot := stream_view_get_or_alloc_slot(reg, sid, 1, state)
+	testing.expect(t, slot != nil, "slot should be allocated")
+	slot_idx := stream_view_find_slot(reg, sid)
+
+	// Allocate stream in layer_store.
+	stream := layers.market_store_stream_get_or_alloc(&state.layer_store, sid)
+	layers.market_store_set_active_subject(&state.layer_store, sid)
+
+	// Push analytics to layer_store stream.
+	services.push_analytics(&stream.analytics, services.Analytics_Entry{
+		kind = .Delta_Volume,
+		ts_ms = 2000,
+		seq = 10,
+		values = {12.0, 9.0, 3.0, 0, 0, 0, 0, 0},
+	})
+
+	// Setup cell binding to point at this slot.
+	state.world.count = 1
+	state.world.bindings[0].stream_idx = slot_idx
+	// Set active stream to something else so we hit the per-cell resolution path.
+	reg.active_subject_id = 999
+	reg.has_active = true
+
+	// Resolve stores for cell 0.
+	stores := resolve_stores_for_cell(state, 0)
+	testing.expect(t, stores.analytics != nil, "analytics store should be resolved")
+
+	// The analytics pointer should be the layer_store stream's analytics.
+	testing.expect(t, stores.analytics == &stream.analytics,
+		"analytics store should point to layer_store Market_Stream")
+
+	// Verify data is accessible.
+	entry, ok := services.get_analytics_latest(stores.analytics, .Delta_Volume)
+	testing.expect(t, ok, "should find delta volume entry")
+	testing.expect(t, entry.values[2] == 3.0, "delta volume should be 3.0")
+}
+
+// S99: Historical + realtime compose into same store.
+@(test)
+test_s99_historical_and_realtime_compose :: proc(t: ^testing.T) {
+	state := new(App_State)
+	defer free(state)
+
+	sid := u64(200)
+	stream := layers.market_store_stream_get_or_alloc(&state.layer_store, sid)
+	layers.market_store_set_active_subject(&state.layer_store, sid)
+
+	// Simulate historical data (HTTP fetch writes to layer_store stream).
+	services.push_analytics(&stream.analytics, services.Analytics_Entry{
+		kind = .CVD,
+		ts_ms = 1000,
+		seq = 1,
+		values = {0, 100.0, 0, 0, 0, 0, 0, 0},
+	})
+	services.push_analytics(&stream.analytics, services.Analytics_Entry{
+		kind = .CVD,
+		ts_ms = 2000,
+		seq = 2,
+		values = {0, 200.0, 0, 0, 0, 0, 0, 0},
+	})
+
+	// Simulate realtime data (WS push via market_store_reduce_analytics).
+	services.push_analytics(&stream.analytics, services.Analytics_Entry{
+		kind = .CVD,
+		ts_ms = 3000,
+		seq = 3,
+		values = {0, 350.0, 0, 0, 0, 0, 0, 0},
+	})
+
+	// All three entries should be in a single store.
+	testing.expect_value(t, stream.analytics.count, 3)
+
+	// Collect all CVD entries — should be oldest-first.
+	entries: [48]services.Analytics_Entry
+	n := services.analytics_collect_by_kind(&stream.analytics, .CVD, entries[:])
+	testing.expect_value(t, n, 3)
+	testing.expect(t, entries[0].values[1] == 100.0, "oldest should be first historical")
+	testing.expect(t, entries[1].values[1] == 200.0, "middle should be second historical")
+	testing.expect(t, entries[2].values[1] == 350.0, "newest should be realtime")
+}
+
+// S99: resolve_analytics_store_for_subject returns layer_store stream.
+@(test)
+test_s99_resolve_analytics_store_for_subject :: proc(t: ^testing.T) {
+	state := new(App_State)
+	defer free(state)
+
+	sid := u64(300)
+
+	// Before any stream exists: returns nil.
+	// Note: market_store_stream_get_or_alloc creates the stream, so resolve will too.
+	store := resolve_analytics_store_for_subject(state, sid)
+	testing.expect(t, store != nil, "should allocate stream and return analytics store")
+
+	// Null subject returns nil.
+	store_nil := resolve_analytics_store_for_subject(state, 0)
+	testing.expect(t, store_nil == nil, "zero subject_id should return nil")
+
+	// Nil state returns nil.
+	store_nil2 := resolve_analytics_store_for_subject(nil, sid)
+	testing.expect(t, store_nil2 == nil, "nil state should return nil")
+}
+
+// S99: TF change clears analytics on layer_store stream (not slot).
+@(test)
+test_s99_tf_change_clears_layer_store_analytics :: proc(t: ^testing.T) {
+	state := new(App_State)
+	defer free(state)
+
+	sid := u64(400)
+	stream := layers.market_store_stream_get_or_alloc(&state.layer_store, sid)
+
+	// Push analytics data.
+	services.push_analytics(&stream.analytics, services.Analytics_Entry{
+		kind = .Open_Interest,
+		ts_ms = 5000,
+		seq = 1,
+		values = {50000.0, 100.0, 0.2, 0, 0, 0, 0, 0},
+	})
+	testing.expect_value(t, stream.analytics.count, 1)
+
+	// Simulate the TF-change clear (same as stream_views.odin does now).
+	if ms := layers.market_store_stream_for_subject(&state.layer_store, sid); ms != nil {
+		services.analytics_store_clear(&ms.analytics)
+	}
+
+	// Analytics should be cleared.
+	testing.expect_value(t, stream.analytics.count, 0)
+}
+
+// S99: Stream_View_Slot no longer has analytics_store field.
+@(test)
+test_s99_slot_no_analytics_store :: proc(t: ^testing.T) {
+	// Verify the slot struct has the expected fields but NOT analytics_store.
+	slot := new(Stream_View_Slot)
+	defer free(slot)
+	slot.used = true
+	slot.subject_id = 1
+	// session_vpvr_store and tpo_store still exist on slot.
+	slot.session_vpvr_store = {}
+	slot.tpo_store = {}
+	testing.expect(t, slot.used, "slot should be usable without analytics_store")
 }

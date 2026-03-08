@@ -1,6 +1,7 @@
 package app
 
 import "core:testing"
+import "mr:layers"
 import "mr:md_common"
 import "mr:services"
 
@@ -130,14 +131,19 @@ test_view_model_resolves_cell_idx :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_view_model_stores_default_to_global :: proc(t: ^testing.T) {
+test_view_model_stores_default_to_active_stream :: proc(t: ^testing.T) {
 	state := make_test_state(1)
 	defer free(state)
-	// Follow-active cell (stream_idx = -1, no binding) should get global stores.
+	// S100: Seed active stream in layer_store.
+	sid := u64(1)
+	stream := layers.market_store_stream_get_or_alloc(&state.layer_store, sid)
+	testing.expect(t, stream != nil, "stream should be allocated")
+	layers.market_store_set_active_subject(&state.layer_store, sid)
+	// Follow-active cell should resolve stores from layer_store active stream.
 	vm := resolve_cell_view_model(state, 0)
-	testing.expect(t, vm.stores.candle == &state.stores.candle, "candle store should be global")
-	testing.expect(t, vm.stores.trades == &state.stores.trades, "trades store should be global")
-	testing.expect(t, vm.stores.orderbook == &state.stores.orderbook, "orderbook store should be global")
+	testing.expect(t, vm.stores.candle == &stream.candles, "candle store should be active stream")
+	testing.expect(t, vm.stores.trades == &stream.trades, "trades store should be active stream")
+	testing.expect(t, vm.stores.orderbook == &stream.orderbook, "orderbook store should be active stream")
 }
 
 @(test)

@@ -271,16 +271,18 @@ probe_widget_candle_count :: proc "c" () -> i32 {
 @(export)
 probe_widget_candle_latest_close :: proc "c" () -> f64 {
 	context = runtime.default_context()
-	if g_state.stores.candle.count <= 0 do return 0
-	c := services.get_candle_newest(&g_state.stores.candle, 0)
+	cs := app.active_candle_store(&g_state)
+	if cs == nil || cs.count <= 0 do return 0
+	c := services.get_candle_newest(cs, 0)
 	return c.close
 }
 
 @(export)
 probe_widget_candle_latest_end_ts :: proc "c" () -> f64 {
 	context = runtime.default_context()
-	if g_state.stores.candle.count <= 0 do return 0
-	c := services.get_candle_newest(&g_state.stores.candle, 0)
+	cs := app.active_candle_store(&g_state)
+	if cs == nil || cs.count <= 0 do return 0
+	c := services.get_candle_newest(cs, 0)
 	return f64(c.window_end_ts)
 }
 

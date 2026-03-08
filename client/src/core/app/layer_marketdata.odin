@@ -2,6 +2,81 @@ package app
 
 import "mr:layers"
 import "mr:md_common"
+import "mr:services"
+
+// S100: Direct accessors for the active stream's stores from layer_store.
+// These replace the removed Global_Stores mirror fields.
+
+active_candle_store :: proc(state: ^App_State) -> ^services.Candle_Store {
+	if active := layers.market_store_active_stream(&state.layer_store); active != nil {
+		return &active.candles
+	}
+	return nil
+}
+
+active_trades_store :: proc(state: ^App_State) -> ^services.Trades_Store {
+	if active := layers.market_store_active_stream(&state.layer_store); active != nil {
+		return &active.trades
+	}
+	return nil
+}
+
+active_orderbook_store :: proc(state: ^App_State) -> ^services.Orderbook_Store {
+	if active := layers.market_store_active_stream(&state.layer_store); active != nil {
+		return &active.orderbook
+	}
+	return nil
+}
+
+active_heatmap_store :: proc(state: ^App_State) -> ^services.Heatmap_Store {
+	if active := layers.market_store_active_stream(&state.layer_store); active != nil {
+		return &active.heatmap
+	}
+	return nil
+}
+
+active_vpvr_store :: proc(state: ^App_State) -> ^services.VPVR_Store {
+	if active := layers.market_store_active_stream(&state.layer_store); active != nil {
+		return &active.vpvr
+	}
+	return nil
+}
+
+active_stats_store :: proc(state: ^App_State) -> ^services.Stats_Store {
+	if active := layers.market_store_active_stream(&state.layer_store); active != nil {
+		return &active.stats
+	}
+	return nil
+}
+
+active_signals_store :: proc(state: ^App_State) -> ^services.Signal_Store {
+	if active := layers.market_store_active_stream(&state.layer_store); active != nil {
+		return &active.signals
+	}
+	return nil
+}
+
+active_analytics_store :: proc(state: ^App_State) -> ^services.Analytics_Store {
+	if active := layers.market_store_active_stream(&state.layer_store); active != nil {
+		return &active.analytics
+	}
+	return nil
+}
+
+active_candle_count :: proc(state: ^App_State) -> int {
+	if cs := active_candle_store(state); cs != nil do return cs.count
+	return 0
+}
+
+active_heatmap_count :: proc(state: ^App_State) -> int {
+	if hs := active_heatmap_store(state); hs != nil do return hs.count
+	return 0
+}
+
+active_vpvr_count :: proc(state: ^App_State) -> int {
+	if vs := active_vpvr_store(state); vs != nil do return vs.count
+	return 0
+}
 
 @(private = "file")
 unix_to_ms :: proc(unix: i64) -> i64 {
@@ -36,22 +111,15 @@ sync_evidence_state_from_stream :: proc(state: ^App_State, stream: ^layers.Marke
 	}
 }
 
+// S100: Sync apply_state + evidence from active stream (no store mirroring).
 @(private = "file")
-sync_legacy_stores_from_layer_store :: proc(state: ^App_State) {
+sync_apply_state_from_active_stream :: proc(state: ^App_State) {
 	if state == nil do return
 	active := layers.market_store_active_stream(&state.layer_store)
 	if active == nil {
 		reset_active_apply_state(state)
 		return
 	}
-
-	state.stores.trades = active.trades
-	state.stores.orderbook = active.orderbook
-	state.stores.stats = active.stats
-	state.stores.heatmap = active.heatmap
-	state.stores.vpvr = active.vpvr
-	state.stores.candle = active.candles
-	state.stores.signals = active.signals
 
 	sync_evidence_state_from_stream(state, active)
 
@@ -115,7 +183,7 @@ drain_layer_marketdata :: proc(state: ^App_State) -> int {
 		layers.market_store_set_active_subject(&state.layer_store, result.last_subject)
 	}
 
-	sync_legacy_stores_from_layer_store(state)
+	sync_apply_state_from_active_stream(state)
 
 	// S97: Reconnection detection — migrated from legacy drain path.
 	conn := current_conn_status(state)
@@ -213,9 +281,9 @@ drain_layer_marketdata :: proc(state: ^App_State) -> int {
 	// S97: Slot repair + seeding.
 	if state.stream_views != nil && result.processed > 0 {
 		if stream_view_repair_invariants(state.stream_views) {
-			sync_active_stream_view_to_global_stores(state)
+			sync_active_stream_view_registry(state)
 		}
-		if state.stream_views.has_active && state.stores.candle.count <= 0 {
+		if state.stream_views.has_active && active_candle_count(state) <= 0 {
 			request_active_stream_candle_range(state)
 		}
 	}

@@ -71,8 +71,9 @@ draw_top_bar :: proc(state: ^App_State, input: ports.Input_State, viewport_w: f3
 	cursor_x += state.text.measure(ui.FONT_SIZE_SM, active_name).x + 6
 
 	// Price ticker: latest price with change % badge.
-	if state.stores.candle.count > 0 {
-		latest := services.get_candle_newest(&state.stores.candle, 0)
+	cs := active_candle_store(state)
+	if cs != nil && cs.count > 0 {
+		latest := services.get_candle_newest(cs, 0)
 		decs := ui.auto_price_decimals(latest.close)
 		pp_buf: [24]u8
 		price_str := ui.format_price(pp_buf[:], latest.close, decs)
@@ -102,8 +103,8 @@ draw_top_bar :: proc(state: ^App_State, input: ports.Input_State, viewport_w: f3
 
 		// Volume badge: sum of volumes across visible candles.
 		total_vol := f64(0)
-		for vi in 0 ..< state.stores.candle.count {
-			c := services.get_candle(&state.stores.candle, vi)
+		for vi in 0 ..< cs.count {
+			c := services.get_candle(cs, vi)
 			total_vol += c.volume
 		}
 		if total_vol > 0 && bar_w >= 600 {

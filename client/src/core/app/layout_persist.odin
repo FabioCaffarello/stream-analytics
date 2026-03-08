@@ -240,13 +240,17 @@ build_layout_v6_string :: proc(state: ^App_State, buf: []u8) -> int {
 	for i in 0 ..< n {
 		buf[off] = '|'; off += 1
 
-		// K: widget kind.
-		buf[off] = '0' + u8(state.world.widgets[i].kind); off += 1
+		// K: widget kind (S101: multi-digit safe for Session_VPVR=10, TPO=11).
+		off = write_int_to_buf(buf, off, int(state.world.widgets[i].kind))
 		buf[off] = ':'; off += 1
 
 		// S: stream binding — read from cell's bound fields (PRD-0009).
+		// S101: Normalize symbol to strip market type suffix (e.g. ":SPOT", ":PERP")
+		// before persist. The V6 format uses ':' as field separator, so raw colons
+		// in the symbol would corrupt the parse. Normalization also matches the
+		// backend API contract (S92).
 		bv := binding_venue(&state.world.bindings[i])
-		bs := binding_symbol(&state.world.bindings[i])
+		bs := normalized_symbol(binding_symbol(&state.world.bindings[i]))
 		if len(bv) > 0 && len(bs) > 0 {
 			for vi in 0 ..< len(bv) { if off < len(buf) { buf[off] = bv[vi]; off += 1 } }
 			buf[off] = '/'; off += 1
@@ -411,10 +415,11 @@ restore_layout_v6_from_string :: proc(state: ^App_State, v: string) -> bool {
 		pos += 1
 		if pos >= len(rest) do break
 
-		// K: widget kind digit.
-		k_digit := int(rest[pos]) - '0'
-		if k_digit < 0 || k_digit > 9 do break
-		pos += 1
+		// K: widget kind (S101: multi-digit for Session_VPVR=10, TPO=11).
+		k_start := pos
+		for pos < len(rest) && rest[pos] != ':' && rest[pos] != '|' { pos += 1 }
+		k_digit := parse_int_from(rest[k_start:pos])
+		if k_digit < 0 || k_digit > int(max(Widget_Kind)) do break
 		if pos >= len(rest) || rest[pos] != ':' do break
 		pos += 1
 
@@ -592,13 +597,16 @@ persist_layout_v4 :: proc(state: ^App_State) {
 	for i in 0 ..< n {
 		buf[off] = '|'; off += 1
 
-		// K: widget kind.
-		buf[off] = '0' + u8(state.world.widgets[i].kind); off += 1
+		// K: widget kind (S101: clamp to 9 for V4 single-digit compat).
+		k := int(state.world.widgets[i].kind)
+		if k > 9 { k = 8 } // V4 doesn't support widgets > 9; map to Empty.
+		buf[off] = '0' + u8(k); off += 1
 		buf[off] = ':'; off += 1
 
 		// S: stream binding — read from cell's bound fields (PRD-0009).
+		// S101: Normalize symbol to avoid ':' in field.
 		bv := binding_venue(&state.world.bindings[i])
-		bs := binding_symbol(&state.world.bindings[i])
+		bs := normalized_symbol(binding_symbol(&state.world.bindings[i]))
 		if len(bv) > 0 && len(bs) > 0 {
 			for vi in 0 ..< len(bv) { if off < len(buf) { buf[off] = bv[vi]; off += 1 } }
 			buf[off] = '/'; off += 1

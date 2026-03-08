@@ -185,22 +185,22 @@ draw_dashboard_detail :: proc(state: ^App_State, rect: ui.Rect, pointer: ui.Poin
 						hist := state.world.analytics[ci].show_history ? "H" : "-"
 						label = fmt.bprintf(label_buf[:], "[%d] %s  %s", ci, aname, hist)
 					} else if wk == .Session_VPVR {
-						// S63: Use global stores directly — avoids redundant resolve_stores_for_cell per frame.
-						svpvr := &state.stores.session_vpvr
-						if svpvr.count > 0 {
+						// S100: Resolve from cell stores.
+						cs := resolve_stores_for_cell(state, ci)
+						if cs.session_vpvr != nil && cs.session_vpvr.count > 0 {
 							poc_buf: [16]u8
-							poc_str := fmt.bprintf(poc_buf[:], "%.2f", svpvr.buckets[svpvr.poc_index].price)
+							poc_str := fmt.bprintf(poc_buf[:], "%.2f", cs.session_vpvr.buckets[cs.session_vpvr.poc_index].price)
 							label = fmt.bprintf(label_buf[:], "[%d] SVPVR  POC:%s", ci, poc_str)
 						} else {
 							label = fmt.bprintf(label_buf[:], "[%d] SVPVR  --", ci)
 						}
 					} else { // .TPO
-						// S63: Use global stores directly — avoids redundant resolve_stores_for_cell per frame.
-						tpo := &state.stores.tpo
-						if tpo.level_count > 0 {
+						// S100: Resolve from cell stores.
+						cs := resolve_stores_for_cell(state, ci)
+						if cs.tpo != nil && cs.tpo.level_count > 0 {
 							poc_buf: [16]u8
-							poc_str := fmt.bprintf(poc_buf[:], "%.2f", tpo.poc_price)
-							label = fmt.bprintf(label_buf[:], "[%d] TPO  POC:%s  P:%d", ci, poc_str, tpo.period_count)
+							poc_str := fmt.bprintf(poc_buf[:], "%.2f", cs.tpo.poc_price)
+							label = fmt.bprintf(label_buf[:], "[%d] TPO  POC:%s  P:%d", ci, poc_str, cs.tpo.period_count)
 						} else {
 							label = fmt.bprintf(label_buf[:], "[%d] TPO  --", ci)
 						}

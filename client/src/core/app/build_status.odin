@@ -1719,14 +1719,14 @@ draw_status_bar :: proc(state: ^App_State, viewport_w, viewport_h: f32, pointer:
 
 	// Data source badges: HM, VP, CD.
 	hm_live := state.active_metrics.has_live_heatmap
-	hm_synth := !hm_live && state.stores.heatmap.count > 0
+	hm_synth := !hm_live && active_heatmap_count(state) > 0
 	hm_label := hm_live ? "HM:LIVE" : (hm_synth ? "HM:SYNTH" : "HM:--")
 	hm_color := hm_live ? ui.COL_GREEN : (hm_synth ? ui.COL_WARNING : ui.COL_TEXT_MUTED)
 	ui.push_text(&state.cmd_buf, {sx, sy}, hm_label, hm_color, ui.FONT_SIZE_XS, .Mono)
 	sx += state.text.measure(ui.FONT_SIZE_XS, hm_label).x + 8
 
 	vp_live := state.active_metrics.has_live_vpvr
-	vp_synth := !vp_live && state.stores.vpvr.count > 0
+	vp_synth := !vp_live && active_vpvr_count(state) > 0
 	vp_label := vp_live ? "VP:LIVE" : (vp_synth ? "VP:SYNTH" : "VP:--")
 	vp_color := vp_live ? ui.COL_GREEN : (vp_synth ? ui.COL_WARNING : ui.COL_TEXT_MUTED)
 	ui.push_text(&state.cmd_buf, {sx, sy}, vp_label, vp_color, ui.FONT_SIZE_XS, .Mono)
