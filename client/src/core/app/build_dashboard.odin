@@ -11,6 +11,11 @@ import "mr:ui"
 draw_dashboard_detail :: proc(state: ^App_State, rect: ui.Rect, pointer: ui.Pointer_Input) {
 	y := rect.pos.y
 
+	// S64: Header label for consistency with other detail panels.
+	ui.push_text(&state.cmd_buf, {rect.pos.x + 2, y + 14}, "WORKSPACE",
+		ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Bold)
+	y += 22
+
 	// ===================================================
 	// Section 1: Market Info (always visible)
 	// ===================================================

@@ -204,9 +204,9 @@ func (s *SubsystemActor) consumeLoop() {
 
 func (s *SubsystemActor) processEnvelope(env envelope.Envelope) {
 	switch env.Type {
-	case evidencedomain.RegimeEvidenceType:
+	case evidencedomain.RegimeEvidenceType, "insights.regime_evidence": // legacy compat
 		s.processRegimeEnvelope(env)
-	case evidencedomain.MicrostructureEvidenceType:
+	case evidencedomain.MicrostructureEvidenceType, "insights.microstructure_evidence": // legacy compat
 		s.processMicroEnvelope(env)
 	}
 }

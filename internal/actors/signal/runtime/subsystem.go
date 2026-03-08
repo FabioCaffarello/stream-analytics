@@ -255,7 +255,7 @@ func (s *SubsystemActor) processEnvelope(env envelope.Envelope) {
 			Seq:      env.Seq,
 		})
 		return
-	case envelopeTypeRegime, "evidence.regime_evidence":
+	case envelopeTypeRegime, "insights.regime_evidence": // legacy compat
 		decoded, p := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
 		if p != nil {
 			metrics.IncSignalDrop(dropReasonDecodeFailed)
@@ -331,7 +331,7 @@ func (s *SubsystemActor) processEnvelope(env envelope.Envelope) {
 		metrics.IncSignalLELAdapted(string(wire.EvidenceType))
 		s.evaluateEvidenceEvent(key, tenant, adapted)
 		return
-	case evidencedomain.MicrostructureEvidenceType, "evidence.microstructure_evidence":
+	case evidencedomain.MicrostructureEvidenceType, "insights.microstructure_evidence": // legacy compat
 		decoded, p := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
 		if p != nil {
 			metrics.IncSignalDrop(dropReasonDecodeFailed)

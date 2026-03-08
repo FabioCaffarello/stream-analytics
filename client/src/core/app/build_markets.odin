@@ -169,7 +169,7 @@ build_markets_page :: proc(state: ^App_State, workspace: ui.Rect, pointer: ui.Po
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = workspace, color = ui.COL_SURFACE_1})
 
 	x := workspace.pos.x + EXPLORER_PAD_X
-	y := workspace.pos.y + 16
+	y := workspace.pos.y + 20
 	content_w := workspace.size.x - EXPLORER_PAD_X * 2
 	if content_w < 100 do content_w = 100
 	bottom := workspace.pos.y + workspace.size.y
@@ -184,7 +184,7 @@ build_markets_page :: proc(state: ^App_State, workspace: ui.Rect, pointer: ui.Po
 	ui.status_badge(&state.cmd_buf,
 		ui.rect_xywh(badge_x, y - 4, badge_w, f32(16)),
 		conn_disp.label, conn_disp.dot_color, conn_disp.text_color, state.text.measure, ui.FONT_SIZE_XS)
-	y += 22
+	y += 24
 
 	// --- Dashboard summary line (from session dashboard) ---
 	if state.explorer.has_dashboard {
@@ -199,8 +199,7 @@ build_markets_page :: proc(state: ^App_State, workspace: ui.Rect, pointer: ui.Po
 			state.explorer.dashboard_active,
 			state.explorer.dashboard_stale,
 		)
-		status_color := status_str == "ready" ? ui.COL_GREEN : (status_str == "degraded" ? ui.COL_YELLOW_ACCENT : ui.COL_TEXT_MUTED)
-		ui.push_text(&state.cmd_buf, {x, y + 10}, summary, status_color, ui.FONT_SIZE_XS, .Mono)
+		ui.push_text(&state.cmd_buf, {x, y + 10}, summary, status_color(status_str), ui.FONT_SIZE_XS, .Mono)
 		y += 16
 	}
 
@@ -384,7 +383,7 @@ build_markets_page :: proc(state: ^App_State, workspace: ui.Rect, pointer: ui.Po
 	// Empty state.
 	if row_count == 0 {
 		ui.push_text(&state.cmd_buf, {x + 4, y + 10},
-			"No markets available — waiting for backend",
+			"No markets available. Check backend connection.",
 			ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
 	}
 }
@@ -641,34 +640,23 @@ draw_markets_detail :: proc(state: ^App_State, rect: ui.Rect, pointer: ui.Pointe
 	// Header.
 	ui.push_text(&state.cmd_buf, {rect.pos.x + 2, y + 14}, "EXPLORER",
 		ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Bold)
-
-	conn_disp := current_conn_status_display(state)
-	badge_w := ui.status_badge_width(conn_disp.label, state.text.measure, ui.FONT_SIZE_XS)
-	badge_x := rect.pos.x + rect.size.x - badge_w - 4
-	ui.status_badge(&state.cmd_buf,
-		ui.rect_xywh(badge_x, y + 2, badge_w, f32(16)),
-		conn_disp.label, conn_disp.dot_color, conn_disp.text_color, state.text.measure, ui.FONT_SIZE_XS)
 	y += 22
+
+	reg := state.stream_views
 
 	// Dashboard summary.
 	if state.explorer.has_dashboard {
-		summary_buf: [40]u8
-		summary := fmt.bprintf(summary_buf[:], "%dv %di %d active",
+		stream_count := 0
+		if reg != nil { stream_count = reg.count }
+		summary_buf: [48]u8
+		summary := fmt.bprintf(summary_buf[:], "%dv %di  %d active  %d streams",
 			state.explorer.dashboard_venues,
 			state.explorer.dashboard_instruments,
-			state.explorer.dashboard_active)
+			state.explorer.dashboard_active,
+			stream_count)
 		ui.push_text(&state.cmd_buf, {rect.pos.x + 4, y + 10}, summary, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
 		y += 16
 	}
-
-	// Stream count.
-	reg := state.stream_views
-	stream_count := 0
-	if reg != nil { stream_count = reg.count }
-	sc_buf: [24]u8
-	sc_str := fmt.bprintf(sc_buf[:], "%d streams", stream_count)
-	ui.push_text(&state.cmd_buf, {rect.pos.x + 4, y + 10}, sc_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
-	y += 16
 
 	// Divider.
 	ui.push(&state.cmd_buf, ui.Cmd_Line{

@@ -177,7 +177,7 @@ page_overview_render :: proc(state: ^App_State, workspace: ui.Rect, pointer: ui.
 	}
 	if ov.fetch_status == .Error {
 		ui.push_text(&state.cmd_buf, {x, y + 10},
-			"Failed to load overview. Backend unreachable or endpoint not available.",
+			"Failed to load overview. Check backend connection.",
 			ui.COL_WARNING, ui.FONT_SIZE_XS, .Mono)
 		// Show retry hint.
 		y += 16
@@ -233,7 +233,7 @@ draw_overview_status_section :: proc(
 
 	// Overall status badge.
 	status := len(view.status) > 0 ? view.status : "unknown"
-	status_color := overview_status_color(status)
+	status_color := status_color(status)
 	badge_w := ui.status_badge_width(status, state.text.measure, ui.FONT_SIZE_XS)
 	ui.status_badge(&state.cmd_buf,
 		ui.rect_xywh(x + 60, y + 2, badge_w, f32(16)),
@@ -278,7 +278,7 @@ draw_overview_freshness_section :: proc(
 
 	// Overall freshness status.
 	status := len(view.freshness_status) > 0 ? view.freshness_status : "unknown"
-	color := overview_freshness_color(status)
+	color := freshness_color(status)
 	ui.push_text(&state.cmd_buf, {x + 80, y + 10}, status, color, ui.FONT_SIZE_XS, .Mono)
 
 	active_label := view.freshness_active ? "active" : "inactive"
@@ -315,7 +315,7 @@ draw_overview_freshness_section :: proc(
 		y += 16
 	}
 	if view.channel_count == 0 {
-		ui.push_text(&state.cmd_buf, {x + 12, y + 10}, "no channels",
+		ui.push_text(&state.cmd_buf, {x + 12, y + 10}, "No channels",
 			ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
 		y += 16
 	}
@@ -332,7 +332,7 @@ draw_overview_resync_section :: proc(
 	ui.push_text(&state.cmd_buf, {x, y + 10}, "RESYNC", ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Bold)
 
 	status := len(view.resync_status) > 0 ? view.resync_status : "unknown"
-	color := overview_resync_color(status)
+	color := resync_color(status)
 	ui.push_text(&state.cmd_buf, {x + 80, y + 10}, status, color, ui.FONT_SIZE_XS, .Mono)
 	y += 20
 
@@ -380,7 +380,7 @@ draw_overview_artifacts_section :: proc(
 	y += 22
 
 	if view.artifact_count == 0 {
-		ui.push_text(&state.cmd_buf, {x + 12, y + 10}, "no artifacts available",
+		ui.push_text(&state.cmd_buf, {x + 12, y + 10}, "No artifacts available",
 			ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
 		return y + 16
 	}
@@ -395,7 +395,7 @@ draw_overview_artifacts_section :: proc(
 			ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_XS, .Bold)
 
 		tl_status := len(art.timeline.status) > 0 ? art.timeline.status : "unknown"
-		tl_color := overview_artifact_status_color(tl_status)
+		tl_color := coverage_color(tl_status)
 		badge_w := ui.status_badge_width(tl_status, state.text.measure, ui.FONT_SIZE_XS)
 		ui.status_badge(&state.cmd_buf,
 			ui.rect_xywh(x + 80, y + 2, badge_w, f32(16)),
@@ -482,7 +482,7 @@ page_overview_render_detail :: proc(state: ^App_State, rect: ui.Rect, pointer: u
 	if ov.fetch_status == .Success {
 		// Quick status summary.
 		status := len(view.status) > 0 ? view.status : "unknown"
-		color := overview_status_color(status)
+		color := status_color(status)
 		ui.push_text(&state.cmd_buf, {rect.pos.x + 4, y + 10}, status,
 			color, ui.FONT_SIZE_XS, .Mono)
 		y += 16
@@ -526,37 +526,4 @@ page_overview_render_detail :: proc(state: ^App_State, rect: ui.Rect, pointer: u
 	}
 }
 
-// --- Color helpers ---
-
-@(private = "file")
-overview_status_color :: proc(status: string) -> ui.Color {
-	if status == "ready" do return ui.COL_GREEN
-	if status == "degraded" do return ui.COL_WARNING
-	if status == "not_ready" do return ui.COL_RED
-	if status == "inactive" do return ui.COL_TEXT_MUTED
-	return ui.COL_TEXT_MUTED
-}
-
-@(private = "file")
-overview_freshness_color :: proc(status: string) -> ui.Color {
-	if status == "flowing" do return ui.COL_GREEN
-	if status == "stale" do return ui.COL_WARNING
-	if status == "inactive" do return ui.COL_TEXT_MUTED
-	return ui.COL_TEXT_MUTED
-}
-
-@(private = "file")
-overview_resync_color :: proc(status: string) -> ui.Color {
-	if status == "stable" do return ui.COL_GREEN
-	if status == "recovering" do return ui.COL_WARNING
-	if status == "degraded" do return ui.COL_RED
-	return ui.COL_TEXT_MUTED
-}
-
-@(private = "file")
-overview_artifact_status_color :: proc(status: string) -> ui.Color {
-	if status == "available" do return ui.COL_GREEN
-	if status == "empty" do return ui.COL_WARNING
-	if status == "unavailable" do return ui.COL_TEXT_MUTED
-	return ui.COL_TEXT_MUTED
-}
+// S64: Color helpers now delegate to shared shell_common helpers.

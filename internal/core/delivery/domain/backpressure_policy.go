@@ -58,7 +58,8 @@ func DefaultBackpressurePriorities() map[string]int {
 		"marketdata.liquidation":             40,
 		"insights.crossvenue.trade_snapshot": 30,
 		"insights.crossvenue.spread_signal":  20,
-		"insights.microstructure_evidence":   25,
+		"evidence.microstructure_evidence":   25,
+		"insights.microstructure_evidence":   25, // legacy compat
 		"liquidity.evidence":                 25,
 		"signal.event":                       70,
 		"signal.composite":                   65,

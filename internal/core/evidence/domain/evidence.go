@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	MicrostructureEvidenceType    = "insights.microstructure_evidence"
+	MicrostructureEvidenceType    = "evidence.microstructure_evidence"
 	MicrostructureEvidenceVersion = 1
 	RuleVersionV0                 = "v0"
 )

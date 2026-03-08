@@ -564,7 +564,12 @@ func rejectLegacyCutoverSubject(subject domain.Subject) *problem.Problem {
 	case "insights.microstructure_evidence":
 		return problem.New(
 			problem.ValidationFailed,
-			`legacy subject "insights.microstructure_evidence" removed; use "liquidity.evidence"`,
+			`legacy subject "insights.microstructure_evidence" removed; use "evidence.microstructure_evidence" or "liquidity.evidence"`,
+		)
+	case "insights.regime_evidence":
+		return problem.New(
+			problem.ValidationFailed,
+			`legacy subject "insights.regime_evidence" removed; use "evidence.regime_evidence"`,
 		)
 	case "signal.composite":
 		return problem.New(

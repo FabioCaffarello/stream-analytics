@@ -25,7 +25,10 @@ func TestCanonicalStreamTypeForCommandChannelEvidence(t *testing.T) {
 		t.Fatalf("stream type passthrough = %q, want liquidity.evidence", got)
 	}
 	if got := canonicalStreamTypeForCommandChannel("insights.microstructure_evidence"); got != "insights.microstructure_evidence" {
-		t.Fatalf("legacy channel should not canonicalize, got %q", got)
+		t.Fatalf("legacy channel passthrough, got %q", got)
+	}
+	if got := canonicalStreamTypeForCommandChannel("evidence.microstructure_evidence"); got != "evidence.microstructure_evidence" {
+		t.Fatalf("canonical evidence channel passthrough, got %q", got)
 	}
 }
 
@@ -92,6 +95,16 @@ func TestRejectLegacyCutoverSubject(t *testing.T) {
 		}
 		if got := rejectLegacyCutoverSubject(sub); got == nil {
 			t.Fatal("expected legacy evidence subject rejection")
+		}
+	})
+
+	t.Run("legacy regime evidence stream type rejected", func(t *testing.T) {
+		sub, p := domain.ParseSubject("insights.regime_evidence/binance/BTC-USDT/1m")
+		if p != nil {
+			t.Fatalf("parse: %v", p)
+		}
+		if got := rejectLegacyCutoverSubject(sub); got == nil {
+			t.Fatal("expected legacy regime evidence subject rejection")
 		}
 	})
 

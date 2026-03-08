@@ -22,14 +22,14 @@ build_settings_page :: proc(state: ^App_State, workspace: ui.Rect, pointer: ui.P
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = workspace, color = ui.COL_SURFACE_1})
 
 	x := workspace.pos.x + SETTINGS_PAD_X
-	y := workspace.pos.y + 24
+	y := workspace.pos.y + 20
 	content_w := workspace.size.x - SETTINGS_PAD_X * 2
 	if content_w < 100 do content_w = 100
 
 	// Page title.
 	ui.push_text(&state.cmd_buf, {x, y}, "Settings",
 		ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_LG, .Bold)
-	y += 32
+	y += 24
 
 	// ═══════════════════════════════════════════════════════════
 	// Section: Connection

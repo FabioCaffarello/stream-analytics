@@ -216,6 +216,10 @@ func TestSession_SubscribeRejectsLegacyCutoverSubjects(t *testing.T) {
 			payload: `{"op":"subscribe","subject":"insights.microstructure_evidence/binance/BTC-USDT/raw","request_id":"legacy-evidence"}`,
 		},
 		{
+			name:    "legacy regime evidence subject",
+			payload: `{"op":"subscribe","subject":"insights.regime_evidence/binance/BTC-USDT/1m","request_id":"legacy-regime"}`,
+		},
+		{
 			name:    "legacy signal composite subject",
 			payload: `{"op":"subscribe","subject":"signal/composite/binance/BTC-USDT/1m","request_id":"legacy-signal"}`,
 		},

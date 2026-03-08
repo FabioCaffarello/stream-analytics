@@ -259,6 +259,7 @@ func effectiveSignalFilters(base []string) []string {
 	out = appendFilterSubjectIfMissing(out, "marketdata.>")
 	out = appendFilterSubjectIfMissing(out, "aggregation.>")
 	out = appendFilterSubjectIfMissing(out, "insights.>")
+	out = appendFilterSubjectIfMissing(out, "evidence.>")
 	out = appendFilterSubjectIfMissing(out, "liquidity.>")
 	return dedupeSubjects(out)
 }

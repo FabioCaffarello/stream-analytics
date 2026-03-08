@@ -12,7 +12,7 @@ draw_help_overlay :: proc(state: ^App_State, viewport_w, viewport_h: f32) {
 	// Semi-transparent backdrop.
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
 		rect  = {pos = {0, 0}, size = {viewport_w, viewport_h}},
-		color = {0, 0, 0, 0.75},
+		color = {0, 0, 0, MODAL_BACKDROP_ALPHA},
 	})
 
 	// Centered panel.
@@ -25,6 +25,7 @@ draw_help_overlay :: proc(state: ^App_State, viewport_w, viewport_h: f32) {
 	panel_rect := ui.Rect{pos = {px, py}, size = {panel_w, panel_h}}
 
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = panel_rect, color = ui.COL_SURFACE_1})
+	ui.draw_rect_stroke(&state.cmd_buf, panel_rect, ui.COL_BORDER_STRONG)
 
 	// Title.
 	y := py + 24
@@ -94,7 +95,7 @@ draw_exchange_manager :: proc(state: ^App_State, viewport_w, viewport_h: f32, po
 	defer { state.cmd_buf.current_z_layer = prev_z }
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
 		rect  = {pos = {0, 0}, size = {viewport_w, viewport_h}},
-		color = {0, 0, 0, 0.75},
+		color = {0, 0, 0, MODAL_BACKDROP_ALPHA},
 	})
 
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = panel_rect, color = ui.COL_SURFACE_1})
@@ -236,7 +237,7 @@ draw_stream_picker :: proc(state: ^App_State, viewport_w, viewport_h: f32, point
 	// Semi-transparent backdrop.
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
 		rect  = {pos = {0, 0}, size = {viewport_w, viewport_h}},
-		color = {0, 0, 0, 0.75},
+		color = {0, 0, 0, MODAL_BACKDROP_ALPHA},
 	})
 
 	reg := state.stream_views
@@ -566,10 +567,11 @@ draw_widget_catalog :: proc(state: ^App_State, viewport_w, viewport_h: f32, poin
 	// Backdrop.
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
 		rect  = {pos = {0, 0}, size = {viewport_w, viewport_h}},
-		color = {0, 0, 0, 0.6},
+		color = {0, 0, 0, MODAL_BACKDROP_ALPHA},
 	})
 
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = panel_rect, color = ui.COL_SURFACE_1})
+	ui.draw_rect_stroke(&state.cmd_buf, panel_rect, ui.COL_BORDER_STRONG)
 
 	y := py + 20
 

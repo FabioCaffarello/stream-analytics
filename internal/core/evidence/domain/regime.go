@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	RegimeEvidenceType    = "insights.regime_evidence"
+	RegimeEvidenceType    = "evidence.regime_evidence"
 	RegimeEvidenceVersion = 1
 )
 

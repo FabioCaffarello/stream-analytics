@@ -419,7 +419,8 @@ func channelEnumFromStreamType(streamType string) deliveryv1.Channel {
 		return deliveryv1.Channel_CHANNEL_HEATMAP_SNAPSHOT
 	case "insights.volume_profile_snapshot":
 		return deliveryv1.Channel_CHANNEL_VOLUME_PROFILE_SNAPSHOT
-	case "liquidity.evidence", "insights.microstructure_evidence":
+	case "liquidity.evidence", "evidence.microstructure_evidence", "evidence.regime_evidence",
+		"insights.microstructure_evidence", "insights.regime_evidence": // legacy compat
 		return deliveryv1.Channel_CHANNEL_EVIDENCE
 	default:
 		return deliveryv1.Channel_CHANNEL_UNSPECIFIED

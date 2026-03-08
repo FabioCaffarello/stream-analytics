@@ -108,7 +108,7 @@ page_session_health_render :: proc(state: ^App_State, workspace: ui.Rect, pointe
 	}
 	if sh.fetch_status == .Error {
 		ui.push_text(&state.cmd_buf, {x, y + 10},
-			"Failed to load session dashboard. Backend unreachable or endpoint not available.",
+			"Failed to load session data. Check backend connection.",
 			ui.COL_WARNING, ui.FONT_SIZE_XS, .Mono)
 		y += 16
 		retry_rect := ui.rect_xywh(x, y + 4, f32(60), f32(18))
@@ -167,7 +167,7 @@ draw_health_session_status :: proc(
 	ui.push_text(&state.cmd_buf, {x, y + 10}, "SESSION", ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Bold)
 
 	status := len(view.status) > 0 ? view.status : "unknown"
-	status_color := health_status_color(status)
+	status_color := status_color(status)
 	badge_w := ui.status_badge_width(status, state.text.measure, ui.FONT_SIZE_XS)
 	ui.status_badge(&state.cmd_buf,
 		ui.rect_xywh(x + 70, y + 2, badge_w, f32(16)),
@@ -216,7 +216,7 @@ draw_health_transport :: proc(
 	m: ports.MD_Runtime_Metrics
 	has_metrics := state.marketdata.metrics != nil && state.marketdata.metrics(&m)
 	if !has_metrics {
-		ui.push_text(&state.cmd_buf, {x + 12, y + 10}, "no transport metrics available",
+		ui.push_text(&state.cmd_buf, {x + 12, y + 10}, "No transport metrics available",
 			ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
 		return y + 22
 	}
@@ -373,7 +373,7 @@ draw_health_freshness :: proc(
 
 	f := &view.freshness
 	status := len(f.status) > 0 ? f.status : "unknown"
-	color := health_freshness_color(status)
+	color := freshness_color(status)
 	ui.push_text(&state.cmd_buf, {x + 80, y + 10}, status, color, ui.FONT_SIZE_XS, .Mono)
 	y += 20
 
@@ -426,7 +426,7 @@ draw_health_delivery :: proc(
 
 	r := &view.resync
 	status := len(r.status) > 0 ? r.status : "unknown"
-	color := health_resync_color(status)
+	color := resync_color(status)
 	ui.push_text(&state.cmd_buf, {x + 80, y + 10}, status, color, ui.FONT_SIZE_XS, .Mono)
 	y += 20
 
@@ -523,7 +523,7 @@ draw_health_client :: proc(
 				ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
 		}
 	} else {
-		ui.push_text(&state.cmd_buf, {cursor, y + 10}, "no active slots",
+		ui.push_text(&state.cmd_buf, {cursor, y + 10}, "No active slots",
 			ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
 	}
 	y += 16
@@ -615,7 +615,7 @@ draw_health_artifacts :: proc(
 	y += 22
 
 	if view.artifact_count == 0 {
-		ui.push_text(&state.cmd_buf, {x + 12, y + 10}, "no artifacts configured",
+		ui.push_text(&state.cmd_buf, {x + 12, y + 10}, "No artifacts available",
 			ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
 		return y + 16
 	}
@@ -630,7 +630,7 @@ draw_health_artifacts :: proc(
 			ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_XS, .Bold)
 
 		cov_status := len(art.coverage.status) > 0 ? art.coverage.status : "unknown"
-		cov_color := health_coverage_color(cov_status)
+		cov_color := coverage_color(cov_status)
 		badge_w := ui.status_badge_width(cov_status, state.text.measure, ui.FONT_SIZE_XS)
 		ui.status_badge(&state.cmd_buf,
 			ui.rect_xywh(x + 80, y + 2, badge_w, f32(16)),
@@ -688,14 +688,14 @@ page_session_health_render_detail :: proc(state: ^App_State, rect: ui.Rect, poin
 	if sh.fetch_status == .Success {
 		view := &sh.view
 		status := len(view.status) > 0 ? view.status : "unknown"
-		color := health_status_color(status)
+		color := status_color(status)
 		ui.push_text(&state.cmd_buf, {rect.pos.x + 4, y + 10}, status,
 			color, ui.FONT_SIZE_XS, .Mono)
 		y += 16
 
 		// Summary.
 		sum_buf: [32]u8
-		sum_str := fmt.bprintf(sum_buf[:], "%dV  %dI",
+		sum_str := fmt.bprintf(sum_buf[:], "%dv  %di",
 			view.summary.venues, view.summary.instruments)
 		ui.push_text(&state.cmd_buf, {rect.pos.x + 4, y + 10}, sum_str,
 			ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
@@ -703,14 +703,14 @@ page_session_health_render_detail :: proc(state: ^App_State, rect: ui.Rect, poin
 
 		// Freshness.
 		f_status := len(view.freshness.status) > 0 ? view.freshness.status : "?"
-		f_color := health_freshness_color(f_status)
+		f_color := freshness_color(f_status)
 		ui.push_text(&state.cmd_buf, {rect.pos.x + 4, y + 10}, f_status,
 			f_color, ui.FONT_SIZE_XS, .Mono)
 		y += 16
 
 		// Delivery.
 		d_status := len(view.resync.status) > 0 ? view.resync.status : "?"
-		d_color := health_resync_color(d_status)
+		d_color := resync_color(d_status)
 		ui.push_text(&state.cmd_buf, {rect.pos.x + 4, y + 10}, d_status,
 			d_color, ui.FONT_SIZE_XS, .Mono)
 		y += 16
@@ -722,50 +722,15 @@ page_session_health_render_detail :: proc(state: ^App_State, rect: ui.Rect, poin
 		ui.push_text(&state.cmd_buf, {rect.pos.x + 4, y + 10}, h_label,
 			h_color, ui.FONT_SIZE_XS, .Mono)
 	} else if sh.fetch_status == .Error {
-		ui.push_text(&state.cmd_buf, {rect.pos.x + 4, y + 10}, "error",
+		ui.push_text(&state.cmd_buf, {rect.pos.x + 4, y + 10}, "Error",
 			ui.COL_WARNING, ui.FONT_SIZE_XS, .Mono)
 	} else {
-		ui.push_text(&state.cmd_buf, {rect.pos.x + 4, y + 10}, "loading...",
+		ui.push_text(&state.cmd_buf, {rect.pos.x + 4, y + 10}, "Loading...",
 			ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
 	}
 }
 
-// --- Color / label helpers ---
-
-@(private = "file")
-health_status_color :: proc(status: string) -> ui.Color {
-	if status == "ready" do return ui.COL_GREEN
-	if status == "degraded" do return ui.COL_WARNING
-	if status == "not_ready" do return ui.COL_RED
-	if status == "inactive" do return ui.COL_TEXT_MUTED
-	return ui.COL_TEXT_MUTED
-}
-
-@(private = "file")
-health_freshness_color :: proc(status: string) -> ui.Color {
-	if status == "flowing" do return ui.COL_GREEN
-	if status == "partial" do return ui.COL_WARNING
-	if status == "stale" do return ui.COL_RED
-	if status == "inactive" do return ui.COL_TEXT_MUTED
-	return ui.COL_TEXT_MUTED
-}
-
-@(private = "file")
-health_resync_color :: proc(status: string) -> ui.Color {
-	if status == "stable" do return ui.COL_GREEN
-	if status == "recovering" do return ui.COL_WARNING
-	if status == "degraded" do return ui.COL_RED
-	return ui.COL_TEXT_MUTED
-}
-
-@(private = "file")
-health_coverage_color :: proc(status: string) -> ui.Color {
-	if status == "available" do return ui.COL_GREEN
-	if status == "partial" do return ui.COL_WARNING
-	if status == "empty" do return ui.COL_WARNING
-	if status == "unavailable" do return ui.COL_TEXT_MUTED
-	return ui.COL_TEXT_MUTED
-}
+// S64: Color helpers now delegate to shared shell_common helpers.
 
 @(private = "file")
 health_level_label :: proc(level: md_common.System_Health_Level) -> string {

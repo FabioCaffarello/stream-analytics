@@ -22,9 +22,11 @@ var deliveryContracts = map[string]deliveryContract{
 	"marketdata.liquidation":              {version: 1, ownerBC: "marketdata", producerBC: "marketdata", schemaAuthority: "marketdata"},
 	"insights.crossvenue.trade_snapshot":  {version: 1, ownerBC: "insights", producerBC: "aggregation", schemaAuthority: "aggregation"},
 	"insights.crossvenue.spread_signal":   {version: 1, ownerBC: "insights", producerBC: "aggregation", schemaAuthority: "aggregation"},
-	"insights.microstructure_evidence":    {version: 1, ownerBC: "insights", producerBC: "evidence", schemaAuthority: "evidence"},
-	"liquidity.evidence":                  {version: 1, ownerBC: "liquidity", producerBC: "evidence", schemaAuthority: "evidence"},
-	"insights.regime_evidence":            {version: 1, ownerBC: "insights", producerBC: "evidence", schemaAuthority: "evidence"},
+	"evidence.microstructure_evidence":    {version: 1, ownerBC: "evidence", producerBC: "evidence", schemaAuthority: "evidence"},
+	"liquidity.evidence":                  {version: 1, ownerBC: "evidence", producerBC: "evidence", schemaAuthority: "evidence"},
+	"evidence.regime_evidence":            {version: 1, ownerBC: "evidence", producerBC: "evidence", schemaAuthority: "evidence"},
+	"insights.microstructure_evidence":    {version: 1, ownerBC: "evidence", producerBC: "evidence", schemaAuthority: "evidence"}, // legacy compat
+	"insights.regime_evidence":            {version: 1, ownerBC: "evidence", producerBC: "evidence", schemaAuthority: "evidence"}, // legacy compat
 	"signal.composite":                    {version: 1, ownerBC: "signal", producerBC: "signal", schemaAuthority: "signal"},
 	"signal.event":                        {version: 1, ownerBC: "signal", producerBC: "signal", schemaAuthority: "signal"},
 	"strategy.intent":                     {version: 1, ownerBC: "strategy", producerBC: "strategy", schemaAuthority: "strategy"},

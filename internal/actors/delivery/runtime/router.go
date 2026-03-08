@@ -670,7 +670,8 @@ func allowEnvelopeTimeframeOverride(eventType string) bool {
 	// routed on DefaultTimeframe ("raw") because those streams have no TF.
 	et := strings.ToLower(strings.TrimSpace(eventType))
 	switch {
-	case strings.HasPrefix(et, "insights."):
+	case strings.HasPrefix(et, "insights."),
+		strings.HasPrefix(et, "evidence."):
 		return true
 	case et == "aggregation.candle",
 		et == "aggregation.stats",

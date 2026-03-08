@@ -90,6 +90,45 @@ draw_health_dot :: proc(
 	return dot_sz + 4
 }
 
+// S64: Shared status → color mapping. Consolidates identical helpers across pages.
+@(private = "package")
+status_color :: proc(status: string) -> ui.Color {
+	if status == "ready" do return ui.COL_GREEN
+	if status == "degraded" do return ui.COL_WARNING
+	if status == "not_ready" do return ui.COL_RED
+	if status == "inactive" do return ui.COL_TEXT_MUTED
+	return ui.COL_TEXT_MUTED
+}
+
+@(private = "package")
+freshness_color :: proc(status: string) -> ui.Color {
+	if status == "flowing" do return ui.COL_GREEN
+	if status == "partial" do return ui.COL_WARNING
+	if status == "stale" do return ui.COL_WARNING
+	if status == "inactive" do return ui.COL_TEXT_MUTED
+	return ui.COL_TEXT_MUTED
+}
+
+@(private = "package")
+resync_color :: proc(status: string) -> ui.Color {
+	if status == "stable" do return ui.COL_GREEN
+	if status == "recovering" do return ui.COL_WARNING
+	if status == "degraded" do return ui.COL_RED
+	return ui.COL_TEXT_MUTED
+}
+
+@(private = "package")
+coverage_color :: proc(status: string) -> ui.Color {
+	if status == "available" do return ui.COL_GREEN
+	if status == "partial" do return ui.COL_WARNING
+	if status == "empty" do return ui.COL_WARNING
+	if status == "unavailable" do return ui.COL_TEXT_MUTED
+	return ui.COL_TEXT_MUTED
+}
+
+// S64: Standard backdrop alpha for all modals.
+MODAL_BACKDROP_ALPHA :: f32(0.75)
+
 // S57: Zen mode fade — updates alpha values for top bar, bottom status, left nav rail.
 // Pure state mutation, no rendering. Called once per frame in build_ui.
 @(private = "package")

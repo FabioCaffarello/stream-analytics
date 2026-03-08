@@ -278,17 +278,29 @@ subjects:
     sources:
       - .context/docs/feature-packs/volume-profiles.md
       - docs/contracts/event-bus.md
-  - id: insights.microstructure_evidence.v1
-    pattern: insights.microstructure_evidence.v1.{venue}.{instrument}
-    root: insights
-    owner_bc: insights
-    producer_bc: insights
-    schema_authority_bc: insights
-    consumer_bcs: [delivery]
+  - id: evidence.microstructure_evidence.v1
+    pattern: evidence.microstructure_evidence.v1.{venue}.{instrument}
+    root: evidence
+    owner_bc: evidence
+    producer_bc: evidence
+    schema_authority_bc: evidence
+    consumer_bcs: [delivery, signal]
     status: stable
     sources:
       - proto/evidence/v1/evidence.proto
       - internal/core/evidence/domain/evidence.go
+    aliases: [insights.microstructure_evidence.v1]
+  - id: evidence.regime_evidence.v1
+    pattern: evidence.regime_evidence.v1.{venue}.{instrument}.{timeframe}
+    root: evidence
+    owner_bc: evidence
+    producer_bc: evidence
+    schema_authority_bc: evidence
+    consumer_bcs: [delivery, signal]
+    status: stable
+    sources:
+      - internal/core/evidence/domain/regime.go
+    aliases: [insights.regime_evidence.v1]
   - id: insights.markprice_liquidation_snapshot.v1
     pattern: insights.markprice_liquidation_snapshot.v1.{venue}.{instrument}
     root: insights

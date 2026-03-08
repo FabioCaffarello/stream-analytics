@@ -1466,7 +1466,7 @@ func initReplayEnvelopeSource(path string, capacity int, logger *slog.Logger) en
 
 func effectiveJetStreamFilters(cfg config.AppConfig) []string {
 	base := append([]string(nil), cfg.JetStream.FilterSubjects...)
-	base = appendFilterSubjectIfMissing(base, "insights.microstructure_evidence.v1.>")
+	base = appendFilterSubjectIfMissing(base, "evidence.microstructure_evidence.v1.>")
 	base = appendFilterSubjectIfMissing(base, "liquidity.evidence.v1.>")
 	if cfg.Processor.Insights.EnableCrossVenueJoin {
 		if joinSubject := strings.TrimSpace(cfg.Processor.Insights.JoinTradesSubject); joinSubject != "" {
