@@ -181,10 +181,13 @@ apply_cycle_stream_action :: proc(state: ^App_State, forward: bool) -> bool {
 	// S34: getrange_request_id cleared by sync_active_apply_state_from_slot (slot's apply_state).
 	sync_active_apply_state_from_slot(state)
 	ensure_active_candle_subject_id(state)
+	state.getrange.retry_count = 0 // S138: reset retry on stream switch
 	state.candle_health = .No_Data
 	if active_candle_count(state) <= 0 {
 		request_active_stream_candle_range(state)
 	}
+	// S138: Bootstrap subplot analytics on stream switch so subplots render immediately.
+	request_active_subplot_analytics(state)
 	return true
 }
 
@@ -357,6 +360,7 @@ apply_set_timeframe_action :: proc(state: ^App_State, idx: int) -> bool {
 	// S25: Canonical apply state TF change (policy-driven) — also syncs getrange.
 	// S34: getrange_request_id cleared by apply_state_on_tf_change.
 	tf_change_active_apply_state(state)
+	state.getrange.retry_count = 0 // S138: reset retry on TF change
 	state.candle_health = .No_Data
 
 	// S25: Update active candle subject_id via apply state for stale getrange guard.
@@ -398,6 +402,7 @@ apply_set_timeframe_action :: proc(state: ^App_State, idx: int) -> bool {
 		state.world.getranges[ci].pending = false
 		state.world.getranges[ci].seeded = false
 		state.world.getranges[ci].oldest_ts = 0
+		state.world.getranges[ci].retry_count = 0 // S138: reset retry on TF change
 		// S104: Clear bound cell's slot stores (candle/heatmap/vpvr/analytics).
 		if binding_has(&state.world.bindings[ci]) {
 			si := state.world.bindings[ci].stream_idx
@@ -433,6 +438,9 @@ apply_set_timeframe_action :: proc(state: ^App_State, idx: int) -> bool {
 
 	// Request historical data for the new TF.
 	request_active_stream_candle_range(state)
+
+	// S138: Bootstrap subplot analytics for new TF so subplots render immediately.
+	request_active_subplot_analytics(state)
 
 	// Reconcile subscriptions since TF change affects candle/heatmap/vpvr subjects.
 	reconcile_subscriptions(state)
@@ -581,6 +589,7 @@ apply_set_cell_timeframe_action :: proc(state: ^App_State, cell_idx: int, tf_idx
 	state.world.getranges[cell_idx].pending = false
 	state.world.getranges[cell_idx].seeded = false
 	state.world.getranges[cell_idx].oldest_ts = 0
+	state.world.getranges[cell_idx].retry_count = 0 // S138: reset retry on TF change
 
 	// Clear the cell's stream slot candle/heatmap/vpvr data for fresh TF data.
 	stream_idx := state.world.bindings[cell_idx].stream_idx

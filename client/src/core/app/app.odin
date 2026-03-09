@@ -485,6 +485,9 @@ App_State :: struct {
 
 	// S111: Last restore result — for diagnostics and first-run detection.
 	persist_result: Persist_Result,
+
+	// S122: Workspace artifact fingerprint — last persisted state hash for idempotent comparison.
+	last_persist_fingerprint: u32,
 }
 
 // S20: Bootstrap state populated from GET /api/v1/session.
@@ -865,6 +868,8 @@ init :: proc(
 				// Layout restored deterministically.
 			case .No_Data:
 				// First run — layout_from_panels baseline is used.
+				// S135: Persist initial layout so workspace backend sync has data.
+				persist_layout_v6(state)
 			case .Version_Mismatch:
 				// Stored layout is from a newer version. Use defaults.
 				// Clear stale key to prevent repeated mismatch on next save.
@@ -1197,21 +1202,9 @@ runtime_probe :: proc(state: ^App_State) -> Runtime_Probe {
 		}
 	}
 	p.layout_link_enabled = state.signal_evidence_link_enabled
-	if _, ok := services.settings_get(&state.settings, services.SETTING_LAYOUT_V5); ok {
-		p.layout_version = 5
-	} else if _, ok := services.settings_get(&state.settings, services.SETTING_LAYOUT_V4); ok {
-		p.layout_version = 4
-	} else if _, ok := services.settings_get(&state.settings, services.SETTING_LAYOUT_V3); ok {
-		p.layout_version = 3
-	} else if _, ok := services.settings_get(&state.settings, services.SETTING_LAYOUT_V2); ok {
-		p.layout_version = 2
-	} else if _, ok := services.settings_get(&state.settings, services.SETTING_LAYOUT); ok {
-		p.layout_version = 1
-	}
-	if p.layout_version == 5 {
-		if _, ok := services.settings_get(&state.settings, services.SETTING_LAYOUT_V4); ok {
-			p.layout_migrated = true
-		}
+	// S135: Return WORKSPACE_SCHEMA_VERSION when layout exists (probe consumers expect schema version).
+	if _, ok := services.settings_get(&state.settings, services.SETTING_LAYOUT_V6); ok {
+		p.layout_version = WORKSPACE_SCHEMA_VERSION
 	}
 	p.ind_rsi_enabled = state.telemetry.last_indicator_probe.rsi_enabled
 	p.ind_macd_enabled = state.telemetry.last_indicator_probe.macd_enabled

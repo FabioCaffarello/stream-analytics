@@ -292,6 +292,7 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 					state.world.getranges[ci].pending = false
 					state.world.getranges[ci].seeded = false
 					state.world.getranges[ci].oldest_ts = 0
+					state.world.getranges[ci].retry_count = 0 // S138
 					state.world.spans[ci] = {} // BUG-18: Clear spans on layout preset change.
 				}
 				persist_layout_v6(state)

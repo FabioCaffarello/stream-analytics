@@ -26,12 +26,12 @@ draw_workspace_toolbar :: proc(state: ^App_State, input: ports.Input_State, y: f
 		left_released = input.mouse.released[.Left],
 	}
 
-	// Background — slightly darker than top bar for visual separation.
+	// S127: Background — half-step elevation for visual hierarchy.
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
 		rect  = {pos = {0, y}, size = {bar_w, bar_h}},
-		color = ui.COL_SURFACE_0,
+		color = ui.COL_SURFACE_0H,
 	})
-	// Top border (subtle).
+	// Top border.
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
 		rect  = {pos = {0, y}, size = {bar_w, 1}},
 		color = ui.COL_BORDER_SUBTLE,
@@ -61,9 +61,11 @@ draw_workspace_toolbar :: proc(state: ^App_State, input: ports.Input_State, y: f
 			}
 		}
 	}
-	ui.push_text(&state.cmd_buf, {cursor_x, text_baseline}, active_name,
-		ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_XS, .Bold)
-	cursor_x += state.text.measure(ui.FONT_SIZE_XS, active_name).x + 6
+	// S134: Hero instrument name — slightly larger for emphasis.
+	hero_baseline := y + bar_h * 0.5 + ui.FONT_SIZE_SM * 0.35
+	ui.push_text(&state.cmd_buf, {cursor_x, hero_baseline}, active_name,
+		ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_SM, .Bold)
+	cursor_x += state.text.measure(ui.FONT_SIZE_SM, active_name).x + 6
 
 	// --- Price ticker ---
 	cs := active_candle_store(state)
@@ -117,7 +119,7 @@ draw_workspace_toolbar :: proc(state: ^App_State, input: ports.Input_State, y: f
 			vol_pill_y := y + (bar_h - vol_pill_h) * 0.5
 			ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
 				rect  = {pos = {cursor_x, vol_pill_y}, size = {vol_w, vol_pill_h}},
-				color = ui.with_alpha(ui.COL_WHITE, 0.06),
+				color = ui.with_alpha(ui.COL_WHITE, 0.08),
 			})
 			ui.push_text(&state.cmd_buf, {cursor_x + 3, vol_pill_y + vol_pill_h * 0.5 + ui.FONT_SIZE_XS * 0.35},
 				vol_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
@@ -125,8 +127,15 @@ draw_workspace_toolbar :: proc(state: ^App_State, input: ports.Input_State, y: f
 		}
 	}
 
-	// --- Divider ---
+	// S127: Vertical separator between price section and stream controls.
 	cursor_x += 4
+	sep_h := bar_h * 0.45
+	sep_y := y + (bar_h - sep_h) * 0.5
+	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
+		rect  = {pos = {cursor_x, sep_y}, size = {1, sep_h}},
+		color = ui.with_alpha(ui.COL_WHITE, ui.CHROME_SEPARATOR_ALPHA),
+	})
+	cursor_x += 6
 
 	// --- Stream navigation: < > count ---
 	stream_controls_enabled := false
@@ -157,7 +166,18 @@ draw_workspace_toolbar :: proc(state: ^App_State, input: ports.Input_State, y: f
 			stream_view_active_index(state.stream_views) + 1, state.stream_views.count)
 		ui.push_text(&state.cmd_buf, {cursor_x, text_baseline},
 			count_str, ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS, .Mono)
-		cursor_x += state.text.measure(ui.FONT_SIZE_XS, count_str).x + 6
+		cursor_x += state.text.measure(ui.FONT_SIZE_XS, count_str).x + 4
+	}
+
+	// S127: Separator between stream nav and TF controls.
+	{
+		s_h := bar_h * 0.45
+		s_y := y + (bar_h - s_h) * 0.5
+		ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
+			rect  = {pos = {cursor_x, s_y}, size = {1, s_h}},
+			color = ui.with_alpha(ui.COL_WHITE, ui.CHROME_SEPARATOR_ALPHA),
+		})
+		cursor_x += 6
 	}
 
 	// --- Right section (right-to-left) ---
@@ -237,7 +257,14 @@ draw_workspace_toolbar :: proc(state: ^App_State, input: ports.Input_State, y: f
 			}
 			cursor_x += add_btn_w + 4
 		}
-		cursor_x += 4
+		// S127: Separator between layout presets and indicator pills.
+		s_h := bar_h * 0.45
+		s_y := y + (bar_h - s_h) * 0.5
+		ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
+			rect  = {pos = {cursor_x, s_y}, size = {1, s_h}},
+			color = ui.with_alpha(ui.COL_WHITE, ui.CHROME_SEPARATOR_ALPHA),
+		})
+		cursor_x += 6
 	}
 
 	// --- Indicator pills ---
@@ -258,7 +285,7 @@ draw_workspace_toolbar :: proc(state: ^App_State, input: ports.Input_State, y: f
 			{"D", fc_ok ? state.world.indicators[fci].show_delta_vol : state.indicators.show_delta_vol, {0.9, 0.4, 0.3, 1}},
 			{"O", fc_ok ? state.world.indicators[fci].show_oi        : state.indicators.show_oi,        {0.4, 0.7, 0.95, 1}},
 		}
-		pill_w := f32(14)
+		pill_w := f32(16) // S134: wider pills for readability
 		pill_h := f32(16)
 		pill_y := y + (bar_h - pill_h) * 0.5
 		for ip, pi in ind_pills {
@@ -286,9 +313,9 @@ draw_workspace_toolbar :: proc(state: ^App_State, input: ports.Input_State, y: f
 		}
 	}
 
-	// Bottom accent line.
+	// S127: Full-width bottom edge — professional termination.
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
-		rect  = {pos = {0, y + bar_h - 1}, size = {bar_w * 0.4, 1}},
-		color = ui.with_alpha(ui.COL_BLUE, 0.15),
+		rect  = {pos = {0, y + bar_h - 1}, size = {bar_w, 1}},
+		color = ui.COL_BORDER_SUBTLE,
 	})
 }

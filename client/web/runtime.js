@@ -139,6 +139,16 @@ function buildImports(canvasMod, inputMod, wsMod, storageMod, writeToConsole) {
             http_get_sync(url_ptr, url_len, out_ptr, out_cap) {
                 return storageMod.http_get_sync(url_ptr, url_len, out_ptr, out_cap, buf());
             },
+            // S126: HTTP PUT + workspace sync/load.
+            http_put_sync(url_ptr, url_len, body_ptr, body_len, out_ptr, out_cap) {
+                return storageMod.http_put_sync(url_ptr, url_len, body_ptr, body_len, out_ptr, out_cap, buf());
+            },
+            web_workspace_load() {
+                return storageMod.web_workspace_load(buf());
+            },
+            web_workspace_sync() {
+                return storageMod.web_workspace_sync(buf());
+            },
         },
     };
 }

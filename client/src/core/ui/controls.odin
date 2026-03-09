@@ -157,22 +157,25 @@ segmented_control :: proc(
 
 		bg := with_alpha(COL_PRIMARY_DIMMED, 0.92)
 		fg := with_alpha(COL_WHITE, 0.72)
-		border_alpha := f32(0.15)
+		border_alpha := f32(0.08) // S127: lighter default border
 		if selected {
-			bg = with_alpha(COL_BLUE, 0.60)
+			bg = with_alpha(COL_BLUE, 0.55) // S127: slightly less saturated
 			fg = with_alpha(COL_WHITE, 0.96)
-			border_alpha = 0.30
+			border_alpha = 0.20
 		}
 		if pressed {
 			bg = adjust_brightness(bg, 0.70)
-			border_alpha += 0.12
+			border_alpha += 0.08
 		} else if hovered {
-			bg = adjust_brightness(bg, 1.20)
-			border_alpha += 0.06
+			bg = adjust_brightness(bg, 1.15)
+			border_alpha += 0.04
 		}
 
 		push(buf, Cmd_Rect_Filled{rect = seg, color = bg})
-		draw_rect_stroke(buf, seg, with_alpha(COL_WHITE, border_alpha))
+		// S127: Only draw border on selected/hovered segments for cleaner look.
+		if selected || hovered {
+			draw_rect_stroke(buf, seg, with_alpha(COL_WHITE, border_alpha))
+		}
 
 		label := options[i]
 		label_size := measure_proc(font_size, label)

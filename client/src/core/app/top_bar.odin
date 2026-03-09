@@ -13,10 +13,10 @@ draw_top_bar :: proc(state: ^App_State, input: ports.Input_State, viewport_w: f3
 	if bar_w <= 0 do bar_w = 800
 	bar_h := compact ? TOP_BAR_H_COMPACT : TOP_BAR_H
 
-	// Background.
+	// S134: Background — unified chrome elevation with workspace toolbar.
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
 		rect  = {pos = {0, 0}, size = {bar_w, bar_h}},
-		color = ui.COL_SURFACE_1,
+		color = ui.COL_SURFACE_0H,
 	})
 
 	pointer := ui.Pointer_Input{
@@ -45,7 +45,16 @@ draw_top_bar :: proc(state: ^App_State, input: ports.Input_State, viewport_w: f3
 	})
 	ui.push_text(&state.cmd_buf, {cursor_x + 5, logo_box_y + logo_box_h * 0.5 + ui.FONT_SIZE_SM * 0.35},
 		logo_text, ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_SM, .Bold)
-	cursor_x += logo_box_w + 10
+	cursor_x += logo_box_w + 8
+
+	// S127: Vertical separator after logo — visual grouping.
+	sep_h := bar_h * 0.45
+	sep_y := (bar_h - sep_h) * 0.5
+	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
+		rect  = {pos = {cursor_x, sep_y}, size = {1, sep_h}},
+		color = ui.with_alpha(ui.COL_WHITE, ui.CHROME_SEPARATOR_ALPHA),
+	})
+	cursor_x += 8
 
 	// --- Right section (right-to-left): Connection + quick actions ---
 	right_x := ui.rect_right(r)
@@ -180,21 +189,17 @@ draw_top_bar :: proc(state: ^App_State, input: ports.Input_State, viewport_w: f3
 				queue_ui_action(state, UI_Action{kind = .Set_Timeframe, timeframe_idx = tf_res.index})
 			}
 		}
-		// Accent line.
+		// S134: Full-width accent line — subtler.
 		ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
-			rect  = {pos = {0, bar_h - 1}, size = {bar_w * 0.5, 1}},
-			color = ui.with_alpha(ui.COL_BLUE, 0.30),
+			rect  = {pos = {0, bar_h - 1}, size = {bar_w, 1}},
+			color = ui.with_alpha(ui.COL_BLUE, 0.12),
 		})
 		return
 	}
 
-	// Bottom accent line.
+	// S134: Full-width bottom accent line — subtler professional edge.
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
-		rect  = {pos = {0, bar_h - 1}, size = {bar_w * 0.5, 1}},
-		color = ui.with_alpha(ui.COL_BLUE, 0.30),
-	})
-	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
-		rect  = {pos = {bar_w * 0.5, bar_h - 1}, size = {bar_w * 0.5, 1}},
-		color = ui.with_alpha(ui.COL_BLUE, 0.08),
+		rect  = {pos = {0, bar_h - 1}, size = {bar_w, 1}},
+		color = ui.with_alpha(ui.COL_BLUE, 0.12),
 	})
 }

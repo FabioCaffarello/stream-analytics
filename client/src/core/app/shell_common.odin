@@ -43,8 +43,8 @@ modal_backdrop :: proc(cmd_buf: ^ui.Command_Buffer, viewport_w, viewport_h: f32,
 	cmd_buf.current_z_layer = prev_z
 }
 
-// S53: Shared composition badge — renders PEND/BFILL/LIVE/COMP label.
-// Returns the cursor advance (width of label + trailing gap), or 0 if empty.
+// S53/S127: Shared composition badge — renders PEND/BFILL/LIVE/COMP as a tinted pill.
+// Returns the cursor advance (width of pill + trailing gap), or 0 if empty.
 @(private = "package")
 draw_composition_badge :: proc(
 	cmd_buf: ^ui.Command_Buffer,
@@ -54,18 +54,28 @@ draw_composition_badge :: proc(
 ) -> f32 {
 	comp_label: string
 	comp_color: ui.Color
+	// S134: Hide COMP badge in steady state — only show transitional stages.
 	switch composition {
 	case .Range_Pending: comp_label = "PEND";  comp_color = ui.COL_WARNING
 	case .Backfilled:    comp_label = "BFILL"; comp_color = ui.COL_WARNING
 	case .Live_Only:     comp_label = "LIVE";  comp_color = ui.COL_YELLOW_ACCENT
-	case .Composed:      comp_label = "COMP";  comp_color = ui.COL_GREEN
+	case .Composed:      return 0  // steady state — no badge noise
 	case .Empty:         return 0
 	}
-	ui.push_text(cmd_buf, {x, text_y}, comp_label, comp_color, ui.FONT_SIZE_XS, .Mono)
-	return measure(ui.FONT_SIZE_XS, comp_label).x + 4
+	label_w := measure(ui.FONT_SIZE_XS, comp_label).x
+	pill_w := label_w + 6
+	pill_h := f32(14)
+	// S127: Tinted background pill for readability.
+	pill_y := text_y - ui.FONT_SIZE_XS * 0.35 - pill_h * 0.5
+	ui.push(cmd_buf, ui.Cmd_Rect_Filled{
+		rect  = ui.rect_xywh(x, pill_y, pill_w, pill_h),
+		color = ui.with_alpha(comp_color, 0.12),
+	})
+	ui.push_text(cmd_buf, {x + 3, text_y}, comp_label, comp_color, ui.FONT_SIZE_XS, .Mono)
+	return pill_w + 4
 }
 
-// S53: Shared health dot — renders green/yellow/red square indicator.
+// S53/S127: Shared health dot — renders green/yellow/red indicator with background.
 // Returns the cursor advance (dot_size + trailing gap), or 0 if not shown.
 @(private = "package")
 draw_health_dot :: proc(
@@ -84,44 +94,63 @@ draw_health_dot :: proc(
 	case .Healthy:
 	}
 	dot_y := center_y - dot_sz * 0.5
+	// S127: Background ring for contrast against dark headers.
+	ring_pad := f32(2)
+	ui.push(cmd_buf, ui.Cmd_Rect_Filled{
+		rect  = ui.rect_xywh(x - ring_pad, dot_y - ring_pad, dot_sz + ring_pad * 2, dot_sz + ring_pad * 2),
+		color = ui.with_alpha(health_color, 0.10),
+	})
 	ui.push(cmd_buf, ui.Cmd_Rect_Filled{
 		rect = ui.rect_xywh(x, dot_y, dot_sz, dot_sz),
 		color = health_color,
 	})
-	return dot_sz + 4
+	return dot_sz + ring_pad * 2 + 4
 }
 
 // ═══════════════════════════════════════════════════════════════
-// S107: Pane Visual State — unified state overlay system.
+// S107/S120: Pane Visual State — unified state overlay system.
+// S120 expands with Snapshot_Pending + No_History for granular UX.
 // ═══════════════════════════════════════════════════════════════
 
 Pane_Visual_State :: enum u8 {
-	Active,   // normal rendering — no overlay
-	Loading,  // connected, composition Range_Pending
-	Seeding,  // connected, composition Live_Only or Backfilled
-	Empty,    // no stream bound or composition Empty
-	Offline,  // connection offline
-	Error,    // desync or critical health
+	Active,            // normal rendering — no overlay
+	Loading,           // connected, composition Range_Pending
+	Seeding,           // connected, composition Live_Only or Backfilled (candle-centric)
+	Snapshot_Pending,  // S120: live data flowing but widget awaits initial snapshot (OB, Stats, DOM)
+	Empty,             // no stream bound or composition Empty
+	No_History,        // S120: live data flowing but no historical backfill (candle widgets)
+	Offline,           // connection offline
+	Error,             // desync or critical health
 }
 
-// Resolve the visual state for a pane given its surface view and connection context.
+// Resolve the visual state for a pane given its surface view, connection context,
+// and widget kind. S136: Policy-driven via widget_data_readiness — replaces
+// per-widget inline switch with unified readiness assessment.
 @(private = "package")
 resolve_pane_visual_state :: proc(
 	sv: Cell_Surface_View,
 	conn_status: ports.MD_Conn_Status,
 	stream_state: streams.Stream_State,
+	widget_kind: Widget_Kind = .Candle,
+	stores: Cell_Stores = {},
 ) -> Pane_Visual_State {
+	// Universal gates — these always override widget readiness.
 	if conn_status == .Offline do return .Offline
 	if stream_state == .Desync do return .Error
 	if sv.health_level == .Critical do return .Error
 	if sv.composition == .Empty && !sv.stream_bound do return .Empty
-	if sv.composition == .Range_Pending do return .Loading
-	if sv.composition == .Live_Only || sv.composition == .Backfilled do return .Seeding
-	return .Active
+
+	// S136: Unified policy-driven readiness. The widget_data_readiness function
+	// consults the compile-time policy table to assess readiness from store state,
+	// artifact liveness, and stream composition. Composition badges (PEND/BFILL/LIVE)
+	// communicate transitional state — the overlay only blocks rendering when there
+	// is truly no data to show.
+	readiness := widget_data_readiness(widget_kind, sv, stores)
+	return readiness_to_visual_state(readiness)
 }
 
-// S114: Draw an informative state overlay on a pane body for non-Active states.
-// Renders a semi-transparent backdrop + centered title + contextual sub-label + hint.
+// S114/S120: Draw an informative state overlay on a pane body for non-Active states.
+// S120: Richer visuals — widget glyph, progress bar, animated dots, better messaging.
 @(private = "package")
 draw_pane_state_overlay :: proc(
 	cmd_buf: ^ui.Command_Buffer,
@@ -129,6 +158,8 @@ draw_pane_state_overlay :: proc(
 	visual_state: Pane_Visual_State,
 	widget_kind: Widget_Kind,
 	measure: proc(size: f32, text: string) -> ui.Vec2,
+	frame_seq: u64 = 0,
+	tf_ms: i64 = 60_000,  // S130: TF context for bootstrap hints
 ) {
 	if visual_state == .Active do return
 	if rect.size.x <= 0 || rect.size.y <= 0 do return
@@ -137,23 +168,40 @@ draw_pane_state_overlay :: proc(
 	title_color: ui.Color
 	sub_label: string
 	hint: string
+	show_progress: bool // S120: animated progress bar for loading/seeding states
 
 	switch visual_state {
 	case .Loading:
 		title = "Loading"
 		title_color = ui.COL_STATE_LOADING
 		sub_label = _state_sub_label_loading(widget_kind)
-		hint = "Fetching historical data..."
+		bh := bootstrap_hint_for_widget(widget_kind, tf_ms)
+		hint = bh.hint_label
+		show_progress = true
 	case .Seeding:
 		title = "Seeding"
 		title_color = ui.COL_STATE_SEEDING
 		sub_label = _state_sub_label_seeding(widget_kind)
-		hint = "Waiting for live feed"
+		bh := bootstrap_hint_for_widget(widget_kind, tf_ms)
+		hint = bh.hint_label
+		show_progress = true
+	case .Snapshot_Pending:
+		title = "Awaiting Snapshot"
+		title_color = ui.COL_STATE_SEEDING
+		sub_label = _state_sub_label_snapshot_pending(widget_kind)
+		bh := bootstrap_hint_for_widget(widget_kind, tf_ms)
+		hint = bh.hint_label
+		show_progress = true
 	case .Empty:
 		title = "No Data"
 		title_color = ui.COL_STATE_EMPTY
 		sub_label = _state_sub_label_empty(widget_kind)
 		hint = "Click stream badge to bind"
+	case .No_History:
+		title = "Live Only"
+		title_color = ui.COL_YELLOW_ACCENT
+		sub_label = _state_sub_label_no_history(widget_kind)
+		hint = "Historical backfill not available"
 	case .Offline:
 		title = "Offline"
 		title_color = ui.COL_STATE_OFFLINE
@@ -171,10 +219,10 @@ draw_pane_state_overlay :: proc(
 	// Semi-transparent backdrop.
 	ui.push(cmd_buf, ui.Cmd_Rect_Filled{
 		rect  = rect,
-		color = ui.with_alpha(ui.COL_SURFACE_0, 0.65),
+		color = ui.with_alpha(ui.COL_SURFACE_0, 0.72),
 	})
 
-	// Compact mode: small panes only get the title.
+	// Compact mode: small panes only get the title + optional glyph.
 	is_compact := rect.size.y < 60 || rect.size.x < 120
 	if is_compact {
 		title_sz := measure(ui.FONT_SIZE_SM, title)
@@ -184,40 +232,111 @@ draw_pane_state_overlay :: proc(
 		return
 	}
 
-	// Full mode: title + sub-label + hint, vertically centered as a group.
+	// S120: Widget glyph — centered icon letter above the text group.
+	glyph := _widget_state_glyph(widget_kind)
+	glyph_h := f32(0)
+	glyph_gap := f32(0)
+	if len(glyph) > 0 && rect.size.y >= 100 {
+		glyph_h = ui.FONT_SIZE_LG
+		glyph_gap = 6
+	}
+
+	// Full mode: glyph + title + sub-label + hint + optional progress bar.
 	line_gap := f32(4)
 	title_h := ui.FONT_SIZE_SM
 	sub_h := ui.FONT_SIZE_XS
 	hint_h := ui.FONT_SIZE_XS
-	total_h := title_h + line_gap + sub_h + line_gap + hint_h
+	progress_h := show_progress ? f32(6) : f32(0)
+	progress_gap := show_progress ? f32(6) : f32(0)
+	total_h := glyph_h + glyph_gap + title_h + line_gap + sub_h + line_gap + hint_h + progress_gap + progress_h
 	group_top := rect.pos.y + (rect.size.y - total_h) * 0.5
+	cursor_y := group_top
+
+	// S120: Widget glyph (large, muted letter).
+	if glyph_h > 0 {
+		glyph_sz := measure(ui.FONT_SIZE_LG, glyph)
+		glyph_x := rect.pos.x + (rect.size.x - glyph_sz.x) * 0.5
+		glyph_color := ui.with_alpha(title_color, 0.3)
+		ui.push_text(cmd_buf, {glyph_x, cursor_y + glyph_h * 0.5 + ui.FONT_SIZE_LG * 0.35},
+			glyph, glyph_color, ui.FONT_SIZE_LG, .Bold)
+		cursor_y += glyph_h + glyph_gap
+	}
 
 	// Title.
 	title_sz := measure(ui.FONT_SIZE_SM, title)
 	ui.push_text(cmd_buf,
-		{rect.pos.x + (rect.size.x - title_sz.x) * 0.5, group_top + title_h * 0.5 + ui.FONT_SIZE_SM * 0.35},
+		{rect.pos.x + (rect.size.x - title_sz.x) * 0.5, cursor_y + title_h * 0.5 + ui.FONT_SIZE_SM * 0.35},
 		title, title_color, ui.FONT_SIZE_SM, .Bold)
+	cursor_y += title_h + line_gap
 
 	// Sub-label.
 	if len(sub_label) > 0 {
 		sub_sz := measure(ui.FONT_SIZE_XS, sub_label)
-		sub_y := group_top + title_h + line_gap
 		ui.push_text(cmd_buf,
-			{rect.pos.x + (rect.size.x - sub_sz.x) * 0.5, sub_y + sub_h * 0.5 + ui.FONT_SIZE_XS * 0.35},
+			{rect.pos.x + (rect.size.x - sub_sz.x) * 0.5, cursor_y + sub_h * 0.5 + ui.FONT_SIZE_XS * 0.35},
 			sub_label, ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS, .Mono)
 	}
+	cursor_y += sub_h + line_gap
 
 	// Hint.
 	if len(hint) > 0 {
 		hint_sz := measure(ui.FONT_SIZE_XS, hint)
-		hint_y := group_top + title_h + line_gap + sub_h + line_gap
 		ui.push_text(cmd_buf,
-			{rect.pos.x + (rect.size.x - hint_sz.x) * 0.5, hint_y + hint_h * 0.5 + ui.FONT_SIZE_XS * 0.35},
+			{rect.pos.x + (rect.size.x - hint_sz.x) * 0.5, cursor_y + hint_h * 0.5 + ui.FONT_SIZE_XS * 0.35},
 			hint, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+	}
+	cursor_y += hint_h
+
+	// S120: Animated progress bar — subtle moving indicator for loading/seeding states.
+	if show_progress && rect.size.x >= 80 {
+		cursor_y += progress_gap
+		bar_w := min(rect.size.x * 0.5, 120)
+		bar_x := rect.pos.x + (rect.size.x - bar_w) * 0.5
+		bar_h := f32(2)
+		bar_y := cursor_y
+
+		// Track background.
+		ui.push(cmd_buf, ui.Cmd_Rect_Filled{
+			rect  = ui.rect_xywh(bar_x, bar_y, bar_w, bar_h),
+			color = ui.with_alpha(ui.COL_WHITE, 0.06),
+		})
+
+		// Moving indicator — oscillates across the track.
+		// Use frame_seq to animate: period of ~120 frames (2 seconds at 60fps).
+		phase := f32(frame_seq % 120) / 120.0
+		// Ping-pong: 0→1→0 over 120 frames.
+		t := phase < 0.5 ? phase * 2.0 : (1.0 - phase) * 2.0
+		indicator_w := bar_w * 0.3
+		indicator_x := bar_x + t * (bar_w - indicator_w)
+		ui.push(cmd_buf, ui.Cmd_Rect_Filled{
+			rect  = ui.rect_xywh(indicator_x, bar_y, indicator_w, bar_h),
+			color = ui.with_alpha(title_color, 0.5),
+		})
 	}
 }
 
-// S114: Widget-specific sub-labels for Loading state.
+// S120: Widget glyph — representative letter for each widget kind.
+// Shown centered above the state title in large panes.
+@(private = "package")
+_widget_state_glyph :: proc(wk: Widget_Kind) -> string {
+	switch wk {
+	case .Candle:       return "C"
+	case .Stats:        return "S"
+	case .Counter:      return "#"
+	case .Heatmap:      return "H"
+	case .VPVR:         return "V"
+	case .Trades:       return "T"
+	case .Orderbook:    return "B"
+	case .DOM:          return "D"
+	case .Analytics:    return "A"
+	case .Session_VPVR: return "P"
+	case .TPO:          return "P"
+	case .Empty:        return ""
+	}
+	return ""
+}
+
+// S114/S120: Widget-specific sub-labels for Loading state.
 @(private = "package")
 _state_sub_label_loading :: proc(wk: Widget_Kind) -> string {
 	switch wk {
@@ -237,17 +356,17 @@ _state_sub_label_loading :: proc(wk: Widget_Kind) -> string {
 	return "Requesting data"
 }
 
-// S114: Widget-specific sub-labels for Seeding state.
+// S114/S120: Widget-specific sub-labels for Seeding state.
 @(private = "package")
 _state_sub_label_seeding :: proc(wk: Widget_Kind) -> string {
 	switch wk {
 	case .Candle:       return "Candles arriving, building chart"
-	case .Stats:        return "Stats snapshot pending"
+	case .Stats:        return "Stats accumulating"
 	case .Counter:      return "Accumulating trade counts"
 	case .Heatmap:      return "Building heatmap grid"
 	case .VPVR:         return "Accumulating volume levels"
 	case .Trades:       return "Trade feed starting"
-	case .Orderbook:    return "Book snapshot pending"
+	case .Orderbook:    return "Book levels populating"
 	case .DOM:          return "Depth levels populating"
 	case .Analytics:    return "Analytics feed starting"
 	case .Session_VPVR: return "Session profile building"
@@ -257,24 +376,73 @@ _state_sub_label_seeding :: proc(wk: Widget_Kind) -> string {
 	return "Receiving initial data"
 }
 
-// S114: Widget-specific sub-labels for Empty state.
+// S120: Widget-specific sub-labels for Snapshot_Pending state.
+@(private = "package")
+_state_sub_label_snapshot_pending :: proc(wk: Widget_Kind) -> string {
+	switch wk {
+	case .Stats:        return "Waiting for first stats snapshot"
+	case .Orderbook:    return "Waiting for order book snapshot"
+	case .DOM:          return "Waiting for depth snapshot"
+	case .Candle:       return "Waiting for initial candle"
+	case .Counter:      return "Waiting for first trade tick"
+	case .Heatmap:      return "Waiting for heatmap frame"
+	case .VPVR:         return "Waiting for volume snapshot"
+	case .Trades:       return "Waiting for first trade"
+	case .Analytics:    return "Waiting for analytics snapshot"
+	case .Session_VPVR: return "Waiting for session profile"
+	case .TPO:          return "Waiting for TPO snapshot"
+	case .Empty:        return ""
+	}
+	return "Waiting for snapshot"
+}
+
+// S120: Widget-specific sub-labels for No_History state.
+@(private = "package")
+_state_sub_label_no_history :: proc(wk: Widget_Kind) -> string {
+	switch wk {
+	case .Candle:       return "Live candles only, no historical backfill"
+	case .Stats:        return "Live stats only"
+	case .Counter:      return "Live counts only"
+	case .Heatmap:      return "Live heatmap only"
+	case .VPVR:         return "Live profile only"
+	case .Trades:       return "Live trades only"
+	case .Orderbook:    return "Live book only"
+	case .DOM:          return "Live depth only"
+	case .Analytics:    return "Live analytics only"
+	case .Session_VPVR: return "Live session profile only"
+	case .TPO:          return "Live TPO only"
+	case .Empty:        return ""
+	}
+	return "No historical data"
+}
+
+// S114/S120: Widget-specific sub-labels for Empty state.
 @(private = "package")
 _state_sub_label_empty :: proc(wk: Widget_Kind) -> string {
 	switch wk {
-	case .Candle:       return "No market stream bound"
-	case .Stats:        return "No market stream bound"
-	case .Counter:      return "No market stream bound"
-	case .Heatmap:      return "No market stream bound"
-	case .VPVR:         return "No market stream bound"
-	case .Trades:       return "No market stream bound"
-	case .Orderbook:    return "No market stream bound"
-	case .DOM:          return "No market stream bound"
-	case .Analytics:    return "No market stream bound"
-	case .Session_VPVR: return "No market stream bound"
-	case .TPO:          return "No market stream bound"
-	case .Empty:        return "Select a widget type"
+	case .Candle:       return "Bind a market stream to see candles"
+	case .Stats:        return "Bind a market stream to see stats"
+	case .Counter:      return "Bind a market stream to see counters"
+	case .Heatmap:      return "Bind a market stream to see heatmap"
+	case .VPVR:         return "Bind a market stream to see volume"
+	case .Trades:       return "Bind a market stream to see trades"
+	case .Orderbook:    return "Bind a market stream to see book"
+	case .DOM:          return "Bind a market stream to see depth"
+	case .Analytics:    return "Bind a market stream to see analytics"
+	case .Session_VPVR: return "Bind a market stream to see profile"
+	case .TPO:          return "Bind a market stream to see TPO"
+	case .Empty:        return "Select a widget type from the catalog"
 	}
 	return "No data source"
+}
+
+// S130/S136: Resolve TF-aware bootstrap hint for a widget.
+// Uses the widget readiness policy table to determine the primary artifact.
+// Pure function — no mutation, no allocation.
+@(private = "package")
+bootstrap_hint_for_widget :: proc(wk: Widget_Kind, tf_ms: i64) -> md_common.Bootstrap_Hint {
+	policy := widget_readiness_policies[wk]
+	return md_common.bootstrap_hint_for_artifact(policy.primary_artifact, tf_ms)
 }
 
 // S64: Shared status → color mapping. Consolidates identical helpers across pages.

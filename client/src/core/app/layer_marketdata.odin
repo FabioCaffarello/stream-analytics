@@ -111,8 +111,73 @@ sync_evidence_state_from_stream :: proc(state: ^App_State, stream: ^layers.Marke
 	}
 }
 
-// S100: Sync apply_state + evidence from active stream (no store mirroring).
-@(private = "file")
+// S131: Sync a per-slot apply_state from its corresponding Market_Stream.
+// Same logic as sync_apply_state_from_active_stream but operates on a single slot.
+// Preserves getrange and recovery state — only syncs store-derived fields.
+@(private = "package")
+sync_slot_apply_state_from_stream :: proc(s: ^md_common.Stream_Apply_State, ms: ^layers.Market_Stream) {
+	if s == nil || ms == nil do return
+
+	ob_has_data := ms.orderbook.ask_count > 0 || ms.orderbook.bid_count > 0
+	s.has_live[.Stats]     = ms.stats.count > 0
+	s.has_live[.Heatmap]   = ms.heatmap.count > 0
+	s.has_live[.VPVR]      = ms.vpvr.count > 0
+	s.has_live[.Candle]    = ms.candles.count > 0
+	s.has_live[.Trade]     = ms.trades.count > 0
+	s.has_live[.Orderbook] = ob_has_data
+	s.has_live[.Signal]    = ms.signal_frames > 0
+	s.has_live[.Evidence]  = ms.evidence_count > 0
+
+	s.snapshot_seen[.Orderbook] = ob_has_data
+
+	s.artifact_event_count[.Trade]     = ms.trades_frames
+	s.artifact_event_count[.Orderbook] = ms.orderbook_frames
+	s.artifact_event_count[.Stats]     = ms.stats_frames
+	s.artifact_event_count[.Evidence]  = ms.evidence_frames
+	s.artifact_event_count[.Signal]    = ms.signal_frames
+	s.artifact_event_count[.Tape]      = ms.tape_frames
+	if ms.candles.count > 0 {
+		s.artifact_event_count[.Candle] = max(s.artifact_event_count[.Candle], u64(ms.candles.count))
+	}
+	if ms.heatmap.count > 0 {
+		s.artifact_event_count[.Heatmap] = max(s.artifact_event_count[.Heatmap], u64(ms.heatmap.count))
+	}
+	if ms.vpvr.count > 0 {
+		s.artifact_event_count[.VPVR] = max(s.artifact_event_count[.VPVR], 1)
+	}
+	if ms.analytics.count > 0 {
+		s.artifact_event_count[.CVD] = max(s.artifact_event_count[.CVD], u64(ms.analytics.count))
+	}
+
+	s.event_count = max(s.event_count, ms.event_count)
+
+	msg_ts := unix_to_ms(ms.last_unix)
+	if ms.stats.count > 0 {
+		newest := services.get_stats(&ms.stats, 0)
+		s.last_recv_ms[.Stats] = unix_to_ms(newest.unix) if newest.unix > 0 else msg_ts
+	}
+	if ob_has_data {
+		s.last_recv_ms[.Orderbook] = unix_to_ms(ms.orderbook.unix)
+	}
+	if ms.trades.count > 0 {
+		newest := services.get_trade(&ms.trades, 0)
+		s.last_recv_ms[.Trade] = unix_to_ms(newest.unix) if newest.unix > 0 else msg_ts
+	}
+	if ms.candles.count > 0 {
+		newest := services.get_candle_newest(&ms.candles, 0)
+		ts := newest.window_end_ts if newest.window_end_ts > 0 else newest.window_start_ts
+		if ts > 0 { s.last_recv_ms[.Candle] = unix_to_ms(ts) }
+	}
+	if ms.signal_frames > 0 {
+		s.last_recv_ms[.Signal] = msg_ts
+	}
+}
+
+// S100/S131: Sync apply_state + evidence from active stream (no store mirroring).
+// S131: Complete artifact coverage — all has_live, artifact_event_count, snapshot_seen,
+// and last_recv_ms fields synced from Market_Stream counters and store state.
+// This enables correct widget readiness states and staleness/auto-recovery detection.
+@(private = "package")
 sync_apply_state_from_active_stream :: proc(state: ^App_State) {
 	if state == nil do return
 	active := layers.market_store_active_stream(&state.layer_store)
@@ -123,19 +188,87 @@ sync_apply_state_from_active_stream :: proc(state: ^App_State) {
 
 	sync_evidence_state_from_stream(state, active)
 
-	// S24/S32: Apply state is single source of truth; metrics synced via adapter.
-	state.active_apply_state.has_live[.Stats] = active.stats.count > 0
-	state.active_apply_state.has_live[.Heatmap] = active.heatmap.count > 0
-	state.active_apply_state.has_live[.VPVR] = active.vpvr.count > 0
-	state.active_apply_state.has_live[.Candle] = active.candles.count > 0
-	// S32: Per-artifact timing via apply_state so adapter can sync to metrics.
+	s := &state.active_apply_state
 	msg_ts := unix_to_ms(active.last_unix)
+
+	// S131: has_live — derived from store occupancy for all artifacts.
+	// Previously only Stats/Heatmap/VPVR/Candle were synced (S24).
+	ob_has_data := active.orderbook.ask_count > 0 || active.orderbook.bid_count > 0
+	s.has_live[.Stats]    = active.stats.count > 0
+	s.has_live[.Heatmap]  = active.heatmap.count > 0
+	s.has_live[.VPVR]     = active.vpvr.count > 0
+	s.has_live[.Candle]   = active.candles.count > 0
+	s.has_live[.Trade]    = active.trades.count > 0
+	s.has_live[.Orderbook] = ob_has_data
+	s.has_live[.Signal]   = active.signal_frames > 0
+	s.has_live[.Evidence] = active.evidence_count > 0
+
+	// S131: snapshot_seen — OB gate tracks whether a valid snapshot has populated the store.
+	s.snapshot_seen[.Orderbook] = ob_has_data
+
+	// S131: artifact_event_count — from per-artifact frame counters on Market_Stream.
+	// Required for staleness detection (skips artifacts with event_count == 0).
+	s.artifact_event_count[.Trade]     = active.trades_frames
+	s.artifact_event_count[.Orderbook] = active.orderbook_frames
+	s.artifact_event_count[.Stats]     = active.stats_frames
+	s.artifact_event_count[.Evidence]  = active.evidence_frames
+	s.artifact_event_count[.Signal]    = active.signal_frames
+	s.artifact_event_count[.Tape]      = active.tape_frames
+	// Candle/Heatmap/VPVR/Analytics: no per-artifact frame counter on Market_Stream.
+	// Use store count as floor — enables staleness detection once data arrives.
+	if active.candles.count > 0 {
+		s.artifact_event_count[.Candle] = max(s.artifact_event_count[.Candle], u64(active.candles.count))
+	}
+	if active.heatmap.count > 0 {
+		s.artifact_event_count[.Heatmap] = max(s.artifact_event_count[.Heatmap], u64(active.heatmap.count))
+	}
+	if active.vpvr.count > 0 {
+		s.artifact_event_count[.VPVR] = max(s.artifact_event_count[.VPVR], 1)
+	}
+	if active.analytics.count > 0 {
+		// Analytics store is shared across OI/CVD/DV/BS — at least one kind is active.
+		s.artifact_event_count[.CVD] = max(s.artifact_event_count[.CVD], u64(active.analytics.count))
+	}
+
+	// S131: Total event count from stream — enables health_tick_evaluate.
+	s.event_count = max(s.event_count, active.event_count)
+
+	// S131: last_recv_ms — per-artifact timing for staleness age computation.
+	// Use per-store timestamps where available, falling back to stream last_unix.
 	if active.stats.count > 0 {
-		state.active_apply_state.last_recv_ms[.Stats] = msg_ts
+		newest_stats := services.get_stats(&active.stats, 0)
+		if newest_stats.unix > 0 {
+			s.last_recv_ms[.Stats] = unix_to_ms(newest_stats.unix)
+		} else {
+			s.last_recv_ms[.Stats] = msg_ts
+		}
 	}
-	if active.orderbook.ask_count > 0 || active.orderbook.bid_count > 0 {
-		state.active_apply_state.last_recv_ms[.Orderbook] = unix_to_ms(active.orderbook.unix)
+	if ob_has_data {
+		s.last_recv_ms[.Orderbook] = unix_to_ms(active.orderbook.unix)
 	}
+	if active.trades.count > 0 {
+		newest_trade := services.get_trade(&active.trades, 0)
+		if newest_trade.unix > 0 {
+			s.last_recv_ms[.Trade] = unix_to_ms(newest_trade.unix)
+		} else {
+			s.last_recv_ms[.Trade] = msg_ts
+		}
+	}
+	if active.candles.count > 0 {
+		newest_candle := services.get_candle_newest(&active.candles, 0)
+		ts := newest_candle.window_end_ts
+		if ts <= 0 { ts = newest_candle.window_start_ts }
+		if ts > 0 {
+			s.last_recv_ms[.Candle] = unix_to_ms(ts)
+		}
+	}
+	if active.signal_frames > 0 {
+		s.last_recv_ms[.Signal] = msg_ts
+	}
+	if active.analytics.count > 0 {
+		s.last_recv_ms[.CVD] = msg_ts
+	}
+
 	apply_state_sync_all(state)
 	state.active_metrics.last_msg_ts_ms = msg_ts
 }
@@ -155,6 +288,11 @@ drain_layer_marketdata :: proc(state: ^App_State) -> int {
 			slot.last_seen_frame = state.frame
 			if !slot.has_stream_info {
 				refresh_stream_info_for_slot(state, slot)
+			}
+			// S131: Sync per-slot apply_state from the slot's Market_Stream in layer_store.
+			// This enables correct widget readiness and staleness for bound cells.
+			if ms := layers.market_store_stream_for_subject(&state.layer_store, subject_id); ms != nil {
+				sync_slot_apply_state_from_stream(&slot.apply_state, ms)
 			}
 		}
 	}
@@ -192,7 +330,9 @@ drain_layer_marketdata :: proc(state: ^App_State) -> int {
 		state.prev_subs_count = 0
 		for ci in 0 ..< state.world.count {
 			state.world.getranges[ci].pending = false
+			state.world.getranges[ci].retry_count = 0 // S138: reset retry on reconnect
 		}
+		state.getrange.retry_count = 0 // S138: reset global retry on reconnect
 		for cpi in 0 ..< state.compare.count {
 			state.compare.getranges[cpi] = {}
 		}
@@ -206,11 +346,19 @@ drain_layer_marketdata :: proc(state: ^App_State) -> int {
 		state.freshness.loaded = false
 		state.timeline = {}
 		state.was_ever_connected = true
+		// S138: Seed bound candle cells on reconnect — not just active stream.
+		for ci in 0 ..< state.world.count {
+			if state.world.widgets[ci].kind != .Candle do continue
+			if !binding_has(&state.world.bindings[ci]) do continue
+			request_cell_candle_range(state, ci)
+		}
 		if state.compare.active {
 			for cpi in 0 ..< state.compare.count {
 				request_compare_pane_candle_range(state, cpi)
 			}
 		}
+		// S138: Bootstrap subplot analytics on reconnect so subplots render immediately.
+		request_active_subplot_analytics(state)
 	}
 	state.conn.prev_conn_for_reconcile = conn
 	if state.conn.needs_reconcile {
@@ -219,18 +367,29 @@ drain_layer_marketdata :: proc(state: ^App_State) -> int {
 	}
 
 	// S97: GetRange timeout — migrated from legacy drain path.
+	// S138: Auto-retry once on timeout before logging error.
 	GETRANGE_TIMEOUT_FRAMES :: u64(300)
 	if md_common.apply_state_check_getrange_timeout(state.active_apply_state, state.frame, GETRANGE_TIMEOUT_FRAMES) {
 		state.active_apply_state.getrange_pending = false
 		state.active_apply_state.getrange_request_id = 0
 		apply_state_sync_to_getrange(state)
-		record_error(state, .GetRange_Timeout, "GetRange timeout (global)")
+		if state.getrange.retry_count < 1 {
+			state.getrange.retry_count += 1
+			request_active_stream_candle_range(state)
+		} else {
+			record_error(state, .GetRange_Timeout, "GetRange timeout (global)")
+		}
 	}
 	for ci in 0 ..< state.world.count {
 		gr := &state.world.getranges[ci]
 		if gr.pending && state.frame > gr.sent_frame + GETRANGE_TIMEOUT_FRAMES {
 			gr.pending = false
-			record_error(state, .GetRange_Timeout, "GetRange timeout (cell)")
+			if gr.retry_count < 1 {
+				gr.retry_count += 1
+				request_cell_candle_range(state, ci)
+			} else {
+				record_error(state, .GetRange_Timeout, "GetRange timeout (cell)")
+			}
 		}
 	}
 	if state.compare.active {
@@ -238,7 +397,12 @@ drain_layer_marketdata :: proc(state: ^App_State) -> int {
 			cgr := &state.compare.getranges[cpi]
 			if cgr.pending && state.frame > cgr.sent_frame + GETRANGE_TIMEOUT_FRAMES {
 				cgr.pending = false
-				record_error(state, .GetRange_Timeout, "GetRange timeout (compare pane)")
+				if cgr.retry_count < 1 {
+					cgr.retry_count += 1
+					request_compare_pane_candle_range(state, cpi)
+				} else {
+					record_error(state, .GetRange_Timeout, "GetRange timeout (compare pane)")
+				}
 			}
 		}
 	}
@@ -279,12 +443,20 @@ drain_layer_marketdata :: proc(state: ^App_State) -> int {
 	}
 
 	// S97: Slot repair + seeding.
+	// S138: Also seed bound candle cells that haven't been seeded yet.
 	if state.stream_views != nil && result.processed > 0 {
 		if stream_view_repair_invariants(state.stream_views) {
 			sync_active_stream_view_registry(state)
 		}
 		if state.stream_views.has_active && active_candle_count(state) <= 0 {
 			request_active_stream_candle_range(state)
+		}
+		for ci in 0 ..< state.world.count {
+			gr := &state.world.getranges[ci]
+			if gr.seeded || gr.pending do continue
+			if state.world.widgets[ci].kind != .Candle do continue
+			if !binding_has(&state.world.bindings[ci]) do continue
+			request_cell_candle_range(state, ci)
 		}
 	}
 

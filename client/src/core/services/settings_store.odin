@@ -35,7 +35,6 @@ SETTING_SHOW_CANDLE_HEATMAP      :: "show_candle_heatmap"
 SETTING_SHOW_CANDLE_VPVR         :: "show_candle_vpvr"
 SETTING_CANDLE_HEATMAP_INTENSITY_IDX :: "candle_heatmap_intensity_idx"
 SETTING_PANEL_VISIBLE_MASK       :: "panel_visible_mask"
-SETTING_LAYOUT                   :: "layout"
 SETTING_LAYOUT_PRESET            :: "layout_preset"
 SETTING_CUSTOM_LAYOUT_0          :: "custom_layout_0"
 SETTING_CUSTOM_LAYOUT_1          :: "custom_layout_1"
@@ -53,7 +52,6 @@ SETTING_SHOW_CVD                 :: "show_cvd"
 SETTING_SHOW_DELTA_VOL           :: "show_delta_vol"
 SETTING_SHOW_OI                  :: "show_oi"
 SETTING_DRAW_TOOLS               :: "draw_tools"
-SETTING_LAYOUT_V2                :: "layout_v2"
 SETTING_MA_PERIOD_0              :: "ma_period_0"
 SETTING_MA_PERIOD_1              :: "ma_period_1"
 SETTING_MA_PERIOD_2              :: "ma_period_2"
@@ -65,9 +63,6 @@ SETTING_MACD_SLOW                :: "macd_slow"
 SETTING_MACD_SIGNAL              :: "macd_signal"
 SETTING_ROW_WEIGHTS              :: "row_weights"
 SETTING_COL_WEIGHTS              :: "col_weights"
-SETTING_LAYOUT_V3                :: "layout_v3"
-SETTING_LAYOUT_V4                :: "layout_v4"
-SETTING_LAYOUT_V5                :: "layout_v5"
 SETTING_LAYOUT_V6                :: "layout_v6"
 SETTING_LAYOUT_MODE              :: "layout_mode"
 SETTING_CONNECTION_PROFILE_COUNT :: "connection_profile_count"
@@ -107,6 +102,12 @@ settings_init :: proc(store: ^Settings_Store, port: ports.Settings_Port) {
 	store.port = port
 	if port.load == nil do return
 
+	// S126: Try loading workspace from backend before reading local settings.
+	// This populates localStorage with backend state on first load (or after clear).
+	if port.backend_load != nil {
+		port.backend_load()
+	}
+
 	// Pre-load known keys.
 	// NOTE: legacy WS settings keys were intentionally removed in S9 hard cutover.
 	// Older persisted keys remain harmlessly ignored (idempotent migration behavior).
@@ -117,7 +118,7 @@ settings_init :: proc(store: ^Settings_Store, port: ports.Settings_Port) {
 				SETTING_SIDEBAR_EXPANDED, SETTING_OB_GROUP_IDX, SETTING_TRADE_FILTER_IDX, SETTING_SHOW_CANDLE_VOL,
 				SETTING_SHOW_CANDLE_HEATMAP, SETTING_SHOW_CANDLE_VPVR, SETTING_CANDLE_HEATMAP_INTENSITY_IDX,
 				SETTING_PANEL_VISIBLE_MASK,
-				SETTING_LAYOUT, SETTING_LAYOUT_V2, SETTING_LAYOUT_PRESET,
+				SETTING_LAYOUT_PRESET,
 				SETTING_CUSTOM_LAYOUT_0, SETTING_CUSTOM_LAYOUT_1,
 				SETTING_CUSTOM_LAYOUT_2, SETTING_CUSTOM_LAYOUT_3,
 				SETTING_SHOW_MA, SETTING_SHOW_BBANDS, SETTING_SHOW_VWAP,
@@ -126,8 +127,12 @@ settings_init :: proc(store: ^Settings_Store, port: ports.Settings_Port) {
 				SETTING_SHOW_TRADE_COUNTER,
 				SETTING_SHOW_CVD, SETTING_SHOW_DELTA_VOL, SETTING_SHOW_OI,
 				SETTING_DRAW_TOOLS,
+				SETTING_MA_PERIOD_0, SETTING_MA_PERIOD_1, SETTING_MA_PERIOD_2,
+				SETTING_BB_PERIOD, SETTING_BB_SIGMA,
+				SETTING_RSI_PERIOD,
+				SETTING_MACD_FAST, SETTING_MACD_SLOW, SETTING_MACD_SIGNAL,
 				SETTING_ROW_WEIGHTS, SETTING_COL_WEIGHTS,
-				SETTING_LAYOUT_V3, SETTING_LAYOUT_V4, SETTING_LAYOUT_V5, SETTING_LAYOUT_V6, SETTING_LAYOUT_MODE,
+				SETTING_LAYOUT_V6, SETTING_LAYOUT_MODE,
 				SETTING_CONNECTION_PROFILE_COUNT, SETTING_CONNECTION_PROFILE_ACTIVE,
 				SETTING_CONNECTION_PROFILE_0, SETTING_CONNECTION_PROFILE_1,
 				SETTING_CONNECTION_PROFILE_2, SETTING_CONNECTION_PROFILE_3,
@@ -179,6 +184,12 @@ settings_flush :: proc(store: ^Settings_Store) {
 	if store.port.flush != nil {
 		store.port.flush()
 	}
+
+	// S126: Sync workspace to backend after local write.
+	if store.port.backend_sync != nil {
+		store.port.backend_sync()
+	}
+
 	store.dirty = false
 }
 

@@ -246,29 +246,34 @@ render_subject_layer_canvas_with_analytics :: proc(
 
 	bundle_mask := layer_bundle_for_widget(kind)
 	if bundle_mask == 0 {
-		empty_label := "Empty"
-		ui.push_text(&state.cmd_buf,
-			{cell_vp.pos.x + 6, cell_vp.pos.y + 14},
-			empty_label,
-			ui.COL_TEXT_MUTED,
-			ui.FONT_SIZE_XS,
-			.Mono,
-		)
+		// S120: Styled empty widget placeholder — subtle centered label.
+		empty_label := "No widget selected"
+		if state.text.measure != nil {
+			sz := state.text.measure(ui.FONT_SIZE_XS, empty_label)
+			cx := cell_vp.pos.x + (cell_vp.size.x - sz.x) * 0.5
+			cy := cell_vp.pos.y + cell_vp.size.y * 0.5 + ui.FONT_SIZE_XS * 0.35
+			ui.push_text(&state.cmd_buf, {cx, cy}, empty_label, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+		} else {
+			ui.push_text(&state.cmd_buf, {cell_vp.pos.x + 6, cell_vp.pos.y + 14},
+				empty_label, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+		}
 		ui.push(&state.cmd_buf, ui.Cmd_Clip_Pop{})
 		return
 	}
 
 	stream := layers.market_store_stream_for_subject(&state.layer_store, subject_id)
 	if stream == nil {
-		wait_buf: [80]u8
-		wait := fmt.bprintf(wait_buf[:], "Waiting stream %x", subject_id)
-		ui.push_text(&state.cmd_buf,
-			{cell_vp.pos.x + 6, cell_vp.pos.y + 14},
-			wait,
-			ui.COL_TEXT_MUTED,
-			ui.FONT_SIZE_XS,
-			.Mono,
-		)
+		// S120: Styled waiting placeholder — centered with muted style.
+		wait_label := "Waiting for stream"
+		if state.text.measure != nil {
+			sz := state.text.measure(ui.FONT_SIZE_XS, wait_label)
+			cx := cell_vp.pos.x + (cell_vp.size.x - sz.x) * 0.5
+			cy := cell_vp.pos.y + cell_vp.size.y * 0.5 + ui.FONT_SIZE_XS * 0.35
+			ui.push_text(&state.cmd_buf, {cx, cy}, wait_label, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+		} else {
+			ui.push_text(&state.cmd_buf, {cell_vp.pos.x + 6, cell_vp.pos.y + 14},
+				wait_label, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+		}
 		ui.push(&state.cmd_buf, ui.Cmd_Clip_Pop{})
 		return
 	}

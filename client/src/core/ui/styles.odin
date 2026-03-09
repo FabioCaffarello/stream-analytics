@@ -25,12 +25,14 @@ COL_TRANSPARENT     :: Color{1.0, 1.0, 1.0, 0}
 
 // --- Semantic surface tokens (cool-tone elevation) ---
 COL_SURFACE_0       :: Color{0.035, 0.035, 0.045, 1.0}  // deepest black (app bg)
+COL_SURFACE_0H      :: Color{0.05, 0.055, 0.075, 1.0}   // S127: half-step above bg (toolbar, chrome bars)
 COL_SURFACE_1       :: Color{0.07, 0.08, 0.105, 1.0}    // panel backgrounds
 COL_SURFACE_2       :: Color{0.11, 0.125, 0.165, 1.0}   // elevated panels / headers
 COL_SURFACE_3       :: Color{0.17, 0.185, 0.245, 1.0}   // hover states
 COL_TEXT_PRIMARY     :: Color{1.0, 1.0, 1.0, 0.88}
 COL_TEXT_SECONDARY   :: Color{1.0, 1.0, 1.0, 0.55}
 COL_TEXT_MUTED       :: Color{1.0, 1.0, 1.0, 0.35}
+COL_TEXT_DIM         :: Color{1.0, 1.0, 1.0, 0.22}      // S127: very dim labels (widget type in header)
 COL_DIVIDER          :: Color{1.0, 1.0, 1.0, 0.12}
 COL_BORDER_SUBTLE    :: Color{1.0, 1.0, 1.0, 0.08}     // default panel border
 COL_BORDER_STRONG    :: Color{1.0, 1.0, 1.0, 0.20}     // active / focused border
@@ -63,8 +65,11 @@ SPACING_LG :: f32(12)
 SPACING_XL  :: f32(16)
 SPACING_2XL :: f32(24)
 
-// --- S107: Cell header accent ---
+// --- S107/S127: Cell header accent ---
 CELL_HDR_ACCENT_H :: f32(2) // accent line at bottom of pane header
+
+// --- S127: Visual separator for chrome grouping ---
+CHROME_SEPARATOR_ALPHA :: f32(0.10) // vertical separator between toolbar groups
 
 // --- Color utilities (pure, from MM color.odin) ---
 

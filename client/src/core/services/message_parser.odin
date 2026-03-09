@@ -285,7 +285,7 @@ Parsed_Error :: struct {
 
 // --- Parse result discriminated union ---
 
-RANGE_CANDLE_PARSE_MAX :: 32
+RANGE_CANDLE_PARSE_MAX :: 256
 
 Parsed_Range_Candles :: struct {
 	candles: [RANGE_CANDLE_PARSE_MAX]Parsed_Candle,

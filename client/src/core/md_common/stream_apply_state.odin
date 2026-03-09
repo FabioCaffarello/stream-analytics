@@ -43,6 +43,11 @@ Stream_Apply_State :: struct {
 	// Total events applied (for health tracking)
 	event_count:        u64,
 
+	// S138: Bootstrap timing probe — time of very first event on this stream.
+	// Set once (latched), never reset except on full apply_state_reset.
+	// Used for time-to-first-data telemetry: first_event_ms - subscribe_ms.
+	first_event_ms:     i64,
+
 	// S29: Auto-recovery tracking — cooldown + attempt counter.
 	recovery_last_ms:   i64,   // Timestamp of last auto-recovery attempt
 	recovery_attempts:  u8,    // Consecutive auto-recovery attempts since last success
@@ -98,6 +103,10 @@ apply_state_mark_event :: proc(s: ^Stream_Apply_State, kind: Artifact_Kind, now_
 	s.last_recv_ms[kind] = now_ms
 	s.event_count += 1
 	s.artifact_event_count[kind] += 1
+	// S138: Latch first event timestamp for bootstrap timing telemetry.
+	if s.first_event_ms <= 0 && now_ms > 0 {
+		s.first_event_ms = now_ms
+	}
 
 	policy := artifact_policies[kind]
 	if is_snapshot || !policy.needs_snapshot_gate {
@@ -263,6 +272,8 @@ Apply_State_Telemetry :: struct {
 	recovery_cooldown_remaining_ms: i64, // Time remaining before next attempt allowed
 	// S35: Per-stream health level.
 	stream_health:                 System_Health_Level,
+	// S138: Bootstrap timing probe.
+	first_event_ms:                i64,   // Latched timestamp of very first event
 }
 
 // apply_state_telemetry returns a telemetry snapshot for diagnostics display.
@@ -290,6 +301,7 @@ apply_state_telemetry :: proc(s: Stream_Apply_State, now_ms: i64 = 0, tf_ms: i64
 		recovery_cooldown_ms = cooldown,
 		recovery_cooldown_remaining_ms = remaining,
 		stream_health        = stream_health_level(s, now_ms, tf_ms),
+		first_event_ms       = s.first_event_ms,
 	}
 }
 

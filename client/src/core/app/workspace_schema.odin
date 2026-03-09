@@ -2,13 +2,13 @@ package app
 
 import "mr:services"
 
-// S45/S48/S51/S80/S81/S82: Workspace State Schema — canonical contract for persisted vs derived state.
+// S45/S48/S51/S80/S81/S82/S122: Workspace State Schema — canonical contract for persisted vs derived state.
 //
 // WORKSPACE_SCHEMA_VERSION is bumped on every persistence format change.
-// Current format: V10 (extends V9 with OI indicator flag bit 10).
+// Current format: V12 (S122: CRC integrity footer, legacy V1-V5 removal, artifact fingerprint).
 //
-// --- Persisted Per-Cell Fields (V6 layout string, unchanged) ---
-//   widget_kind       Widget_Kind enum (0-9, where 9=Analytics)
+// --- Persisted Per-Cell Fields (V6 layout string) ---
+//   widget_kind       Widget_Kind enum (0-11)
 //   stream_binding    "venue/symbol" or "-1" (follow active)
 //   indicator_flags   11 bools packed into int (S81: bits 8-9 = CVD, DV; S82: bit 10 = OI)
 //   col_span          grid column span (1+)
@@ -28,6 +28,10 @@ import "mr:services"
 //   active_route (S80)           — Route ordinal persisted as settings key
 //   portfolio_tab (S80)          — Portfolio_Tab ordinal persisted as settings key
 //
+// --- Integrity (S122) ---
+//   |CK:XXXXXXXX suffix         — FNV-1a checksum of V6 body (optional, validated on restore)
+//   last_persist_fingerprint     — in-memory FNV-1a for idempotent persist gating
+//
 // --- Derived State (never persisted) ---
 //   Cell_Surface_View           derived per-frame from apply_state
 //   Stream_Apply_State          populated from protocol events
@@ -41,8 +45,8 @@ import "mr:services"
 //   Per-cell: chart_display (packed), indicator_flags (packed)
 //   Global: active_route
 
-// S119: V11 — Pane_Role field on Pane struct, extended Context_Tab enum.
-WORKSPACE_SCHEMA_VERSION :: 11
+// S122: V12 — CRC integrity footer, legacy V1-V5 removal, artifact fingerprint.
+WORKSPACE_SCHEMA_VERSION :: 12
 
 // S111: Persist result — replaces bool return for restore functions.
 Persist_Result :: enum u8 {

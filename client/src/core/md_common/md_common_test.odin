@@ -856,3 +856,74 @@ test_resolve_fusion_badge_degraded :: proc(t: ^testing.T) {
 	testing.expect(t, badge.is_degraded, "should be degraded")
 	testing.expect_value(t, badge.fresh_count, 1)
 }
+
+// ═══════════════════════════════════════════════════════════════
+// S130: Bootstrap Policy — artifact-level tests.
+// ═══════════════════════════════════════════════════════════════
+
+@(test)
+test_s130_bootstrap_source_coverage :: proc(t: ^testing.T) {
+	// Every Bootstrap_Source must be used by at least one artifact.
+	sources_seen: [Bootstrap_Source]bool
+	for kind in Artifact_Kind {
+		be := artifact_bootstrap_expectation(kind)
+		sources_seen[be.source] = true
+	}
+	for src in Bootstrap_Source {
+		testing.expect(t, sources_seen[src], "every Bootstrap_Source should be used by at least one artifact")
+	}
+}
+
+@(test)
+test_s130_bootstrap_hint_tf_independence_for_immediate :: proc(t: ^testing.T) {
+	// Live_Immediate artifacts should have same expected_ms regardless of TF.
+	h1 := bootstrap_hint_for_artifact(.Trade, 1_000)
+	h2 := bootstrap_hint_for_artifact(.Trade, 86_400_000)
+	testing.expect_value(t, h1.expected_ms, h2.expected_ms)
+}
+
+@(test)
+test_s130_bootstrap_hint_tf_scaling_for_gated :: proc(t: ^testing.T) {
+	// TF-gated artifacts: expected_ms should grow with TF.
+	h1s := bootstrap_hint_for_artifact(.Delta_Volume, 1_000)
+	h1h := bootstrap_hint_for_artifact(.Delta_Volume, 3_600_000)
+	testing.expect(t, h1h.expected_ms > h1s.expected_ms, "TF-gated expected_ms should scale with TF")
+}
+
+@(test)
+test_s130_bootstrap_hint_accumulation_scales :: proc(t: ^testing.T) {
+	h1s := bootstrap_hint_for_artifact(.Heatmap, 1_000)
+	h1d := bootstrap_hint_for_artifact(.Heatmap, 86_400_000)
+	testing.expect(t, h1d.expected_ms > h1s.expected_ms, "accumulation expected_ms should scale with TF")
+}
+
+@(test)
+test_s130_bootstrap_hint_snapshot_gate_tf_independent :: proc(t: ^testing.T) {
+	h1 := bootstrap_hint_for_artifact(.Orderbook, 1_000)
+	h2 := bootstrap_hint_for_artifact(.Orderbook, 3_600_000)
+	testing.expect_value(t, h1.expected_ms, h2.expected_ms)
+	testing.expect(t, h1.hint_label == "Awaiting exchange snapshot", "OB should indicate snapshot gate")
+}
+
+@(test)
+test_s130_bootstrap_hint_historical_range_tf_independent :: proc(t: ^testing.T) {
+	h1 := bootstrap_hint_for_artifact(.Candle, 1_000)
+	h2 := bootstrap_hint_for_artifact(.Candle, 900_000)
+	testing.expect_value(t, h1.expected_ms, h2.expected_ms)
+	testing.expect(t, h1.hint_label == "Fetching historical data", "Candle should indicate historical fetch")
+}
+
+@(test)
+test_s130_bootstrap_hint_tf_gated_label_tiers :: proc(t: ^testing.T) {
+	// Verify label tiers for Live_TF_Gated artifacts.
+	h_1s := bootstrap_hint_for_artifact(.CVD, 1_000)
+	h_5s := bootstrap_hint_for_artifact(.CVD, 5_000)
+	h_1m := bootstrap_hint_for_artifact(.CVD, 60_000)
+	h_5m := bootstrap_hint_for_artifact(.CVD, 300_000)
+	h_1h := bootstrap_hint_for_artifact(.CVD, 3_600_000)
+	testing.expect(t, h_1s.hint_label == "First close in seconds", "1s should say seconds")
+	testing.expect(t, h_5s.hint_label == "First close in seconds", "5s should say seconds")
+	testing.expect(t, h_1m.hint_label == "Waiting for candle close", "1m should say candle close")
+	testing.expect(t, h_5m.hint_label == "First close takes minutes", "5m should say minutes")  // 300_000 > 60_000, <= 900_000
+	testing.expect(t, h_1h.hint_label == "Long timeframe — first close may take a while", "1h should say long TF")
+}

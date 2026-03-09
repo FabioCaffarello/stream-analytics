@@ -2,6 +2,7 @@ package app
 
 import "core:testing"
 import "mr:layers"
+import "mr:md_common"
 import "mr:ports"
 import "mr:services"
 
@@ -634,7 +635,6 @@ test_s104_global_tf_resets_apply_state_for_bound_cells :: proc(t: ^testing.T) {
 // S107: Pane Visual State resolution tests.
 // ═══════════════════════════════════════════════════════════════
 
-import "mr:md_common"
 import "mr:streams"
 
 @(test)
@@ -678,16 +678,28 @@ test_pane_visual_state_range_pending :: proc(t: ^testing.T) {
 
 @(test)
 test_pane_visual_state_live_only :: proc(t: ^testing.T) {
+	// S136: Candle + Live_Only now yields Active (chart is renderable with live data).
+	// Composition badge "LIVE" communicates the transitional state.
 	sv := Cell_Surface_View{composition = .Live_Only, stream_bound = true}
 	vs := resolve_pane_visual_state(sv, .Connected, .Live)
-	testing.expect(t, vs == .Seeding, "live_only should yield Seeding state")
+	testing.expect(t, vs == .Active, "candle live_only should yield Active (S136: store/composition-driven)")
+}
+
+@(test)
+test_pane_visual_state_live_only_trades :: proc(t: ^testing.T) {
+	// S124: Trades with live data flowing but no trades yet → Seeding.
+	sv := Cell_Surface_View{composition = .Live_Only, stream_bound = true, has_live_data = true}
+	vs := resolve_pane_visual_state(sv, .Connected, .Live, .Trades)
+	testing.expect(t, vs == .Seeding, "trades with live data but empty store should yield Seeding")
 }
 
 @(test)
 test_pane_visual_state_backfilled :: proc(t: ^testing.T) {
+	// S136: Candle + Backfilled now yields Active (chart is renderable with historical data).
+	// Composition badge "BFILL" communicates the transitional state.
 	sv := Cell_Surface_View{composition = .Backfilled, stream_bound = true}
 	vs := resolve_pane_visual_state(sv, .Connected, .Live)
-	testing.expect(t, vs == .Seeding, "backfilled should yield Seeding state")
+	testing.expect(t, vs == .Active, "backfilled should yield Active (S136: historical data is renderable)")
 }
 
 @(test)
@@ -735,13 +747,13 @@ test_state_sub_label_seeding_empty_widget :: proc(t: ^testing.T) {
 @(test)
 test_state_sub_label_empty_candle :: proc(t: ^testing.T) {
 	s := _state_sub_label_empty(.Candle)
-	testing.expect(t, s == "No market stream bound", "empty sub-label for Candle")
+	testing.expect(t, s == "Bind a market stream to see candles", "empty sub-label for Candle")
 }
 
 @(test)
 test_state_sub_label_empty_widget :: proc(t: ^testing.T) {
 	s := _state_sub_label_empty(.Empty)
-	testing.expect(t, s == "Select a widget type", "empty sub-label for Empty widget kind")
+	testing.expect(t, s == "Select a widget type from the catalog", "empty sub-label for Empty widget kind")
 }
 
 @(test)
@@ -760,4 +772,925 @@ test_state_sub_labels_all_widget_kinds_empty :: proc(t: ^testing.T) {
 		s := _state_sub_label_empty(wk)
 		testing.expect(t, len(s) > 0, "all widget kinds must have empty sub-label")
 	}
+}
+
+// ═══════════════════════════════════════════════════════════════
+// S120: Widget State Model — new state tests.
+// ═══════════════════════════════════════════════════════════════
+
+@(test)
+test_pane_visual_state_snapshot_pending_stats :: proc(t: ^testing.T) {
+	// S125: Stats widget with stats-specific live data but empty store → Snapshot_Pending.
+	sv := Cell_Surface_View{composition = .Live_Only, stream_bound = true, has_live_data = true}
+	sv.artifact_has_live[.Stats] = true  // S125: stats artifact specifically live
+	stats_store := services.Stats_Store{}
+	stores := Cell_Stores{stats = &stats_store}
+	vs := resolve_pane_visual_state(sv, .Connected, .Live, .Stats, stores)
+	testing.expect(t, vs == .Snapshot_Pending, "stats with artifact live but empty store should yield Snapshot_Pending")
+}
+
+@(test)
+test_s125_stats_seeding_when_only_candles_live :: proc(t: ^testing.T) {
+	// S125: Stats widget with candles live but stats NOT live → Seeding (not Snapshot_Pending).
+	sv := Cell_Surface_View{composition = .Live_Only, stream_bound = true, has_live_data = true}
+	sv.artifact_has_live[.Candle] = true  // candles live
+	// artifact_has_live[.Stats] = false (default)
+	stats_store := services.Stats_Store{}
+	stores := Cell_Stores{stats = &stats_store}
+	vs := resolve_pane_visual_state(sv, .Connected, .Live, .Stats, stores)
+	testing.expect(t, vs == .Seeding, "stats with only candles live should yield Seeding, not Snapshot_Pending")
+}
+
+@(test)
+test_pane_visual_state_stats_with_data :: proc(t: ^testing.T) {
+	// S124: Stats widget with data → Active (independent of candle composition).
+	sv := Cell_Surface_View{composition = .Live_Only, stream_bound = true, has_live_data = true}
+	stats_store := services.Stats_Store{count = 1}
+	stores := Cell_Stores{stats = &stats_store}
+	vs := resolve_pane_visual_state(sv, .Connected, .Live, .Stats, stores)
+	testing.expect(t, vs == .Active, "stats with data should yield Active regardless of candle composition")
+}
+
+@(test)
+test_pane_visual_state_snapshot_pending_orderbook :: proc(t: ^testing.T) {
+	// S125: Orderbook widget with OB-specific live data but no levels → Snapshot_Pending.
+	sv := Cell_Surface_View{composition = .Backfilled, stream_bound = true, has_live_data = true}
+	sv.artifact_has_live[.Orderbook] = true  // S125: OB artifact specifically live
+	ob_store := services.Orderbook_Store{}
+	stores := Cell_Stores{orderbook = &ob_store}
+	vs := resolve_pane_visual_state(sv, .Connected, .Live, .Orderbook, stores)
+	testing.expect(t, vs == .Snapshot_Pending, "orderbook with OB artifact live but no levels should yield Snapshot_Pending")
+}
+
+@(test)
+test_pane_visual_state_snapshot_pending_dom :: proc(t: ^testing.T) {
+	// S125: DOM widget with OB-specific live data but no levels → Snapshot_Pending.
+	sv := Cell_Surface_View{composition = .Live_Only, stream_bound = true, has_live_data = true}
+	sv.artifact_has_live[.Orderbook] = true  // S125: OB artifact specifically live
+	ob_store := services.Orderbook_Store{}
+	stores := Cell_Stores{orderbook = &ob_store}
+	vs := resolve_pane_visual_state(sv, .Connected, .Live, .DOM, stores)
+	testing.expect(t, vs == .Snapshot_Pending, "DOM with OB artifact live but no levels should yield Snapshot_Pending")
+}
+
+@(test)
+test_s125_orderbook_seeding_when_only_candles_live :: proc(t: ^testing.T) {
+	// S125: OB widget with candles live but OB NOT live → Seeding (not Snapshot_Pending).
+	sv := Cell_Surface_View{composition = .Backfilled, stream_bound = true, has_live_data = true}
+	sv.artifact_has_live[.Candle] = true  // candles live
+	// artifact_has_live[.Orderbook] = false (default)
+	ob_store := services.Orderbook_Store{}
+	stores := Cell_Stores{orderbook = &ob_store}
+	vs := resolve_pane_visual_state(sv, .Connected, .Live, .Orderbook, stores)
+	testing.expect(t, vs == .Seeding, "orderbook with only candles live should yield Seeding, not Snapshot_Pending")
+}
+
+@(test)
+test_s125_dom_seeding_when_only_candles_live :: proc(t: ^testing.T) {
+	// S125: DOM widget with candles live but OB NOT live → Seeding (not Snapshot_Pending).
+	sv := Cell_Surface_View{composition = .Live_Only, stream_bound = true, has_live_data = true}
+	sv.artifact_has_live[.Candle] = true  // candles live
+	ob_store := services.Orderbook_Store{}
+	stores := Cell_Stores{orderbook = &ob_store}
+	vs := resolve_pane_visual_state(sv, .Connected, .Live, .DOM, stores)
+	testing.expect(t, vs == .Seeding, "DOM with only candles live should yield Seeding, not Snapshot_Pending")
+}
+
+@(test)
+test_pane_visual_state_no_history_candle :: proc(t: ^testing.T) {
+	// S136: Candle with Live_Only → Active. Badge "LIVE" shows state.
+	sv := Cell_Surface_View{composition = .Live_Only, stream_bound = true}
+	vs := resolve_pane_visual_state(sv, .Connected, .Live, .Candle)
+	testing.expect(t, vs == .Active, "candle with live_only should yield Active (S136)")
+}
+
+@(test)
+test_pane_visual_state_candle_backfilled :: proc(t: ^testing.T) {
+	// S136: Candle with Backfilled → Active. Badge "BFILL" shows state.
+	sv := Cell_Surface_View{composition = .Backfilled, stream_bound = true}
+	vs := resolve_pane_visual_state(sv, .Connected, .Live, .Candle)
+	testing.expect(t, vs == .Active, "candle with backfilled should yield Active (S136)")
+}
+
+@(test)
+test_widget_state_glyph_coverage :: proc(t: ^testing.T) {
+	// All non-Empty widget kinds must have a glyph.
+	for wk in Widget_Kind {
+		g := _widget_state_glyph(wk)
+		if wk == .Empty {
+			testing.expect(t, len(g) == 0, "Empty widget should have no glyph")
+		} else {
+			testing.expect(t, len(g) > 0, "non-Empty widget must have glyph")
+		}
+	}
+}
+
+@(test)
+test_state_sub_label_snapshot_pending_all :: proc(t: ^testing.T) {
+	// Every widget kind must produce a non-empty snapshot_pending sub-label (except Empty).
+	for wk in Widget_Kind {
+		s := _state_sub_label_snapshot_pending(wk)
+		if wk != .Empty {
+			testing.expect(t, len(s) > 0, "all widget kinds must have snapshot_pending sub-label")
+		}
+	}
+}
+
+@(test)
+test_state_sub_label_no_history_all :: proc(t: ^testing.T) {
+	// Every widget kind must produce a non-empty no_history sub-label (except Empty).
+	for wk in Widget_Kind {
+		s := _state_sub_label_no_history(wk)
+		if wk != .Empty {
+			testing.expect(t, len(s) > 0, "all widget kinds must have no_history sub-label")
+		}
+	}
+}
+
+// ═══════════════════════════════════════════════════════════════
+// S124: Timeframe-Aware Widget Readiness — store-driven Active states.
+// Non-candle widgets become Active as soon as their own data arrives,
+// independent of candle composition stage (GetRange/Live_Only/Backfilled).
+// ═══════════════════════════════════════════════════════════════
+
+@(test)
+test_s124_stats_active_during_range_pending :: proc(t: ^testing.T) {
+	// Stats with data should be Active even while candle GetRange is in flight.
+	sv := Cell_Surface_View{composition = .Range_Pending, stream_bound = true, has_live_data = true}
+	stats_store := services.Stats_Store{count = 3}
+	stores := Cell_Stores{stats = &stats_store}
+	vs := resolve_pane_visual_state(sv, .Connected, .Live, .Stats, stores)
+	testing.expect(t, vs == .Active, "stats with data should be Active even during Range_Pending")
+}
+
+@(test)
+test_s124_orderbook_active_during_range_pending :: proc(t: ^testing.T) {
+	// Orderbook with snapshot should be Active even while candle GetRange is in flight.
+	sv := Cell_Surface_View{composition = .Range_Pending, stream_bound = true, has_live_data = true}
+	ob_store := services.Orderbook_Store{bid_count = 10, ask_count = 10}
+	stores := Cell_Stores{orderbook = &ob_store}
+	vs := resolve_pane_visual_state(sv, .Connected, .Live, .Orderbook, stores)
+	testing.expect(t, vs == .Active, "orderbook with levels should be Active even during Range_Pending")
+}
+
+@(test)
+test_s124_trades_active_with_data :: proc(t: ^testing.T) {
+	// Trades with entries should be Active even during candle Live_Only.
+	sv := Cell_Surface_View{composition = .Live_Only, stream_bound = true, has_live_data = true}
+	trades_store := services.Trades_Store{count = 5}
+	stores := Cell_Stores{trades = &trades_store}
+	vs := resolve_pane_visual_state(sv, .Connected, .Live, .Trades, stores)
+	testing.expect(t, vs == .Active, "trades with data should be Active regardless of candle composition")
+}
+
+@(test)
+test_s124_counter_active_with_candles :: proc(t: ^testing.T) {
+	// Counter with candle data should be Active even during Live_Only.
+	sv := Cell_Surface_View{composition = .Live_Only, stream_bound = true, has_live_data = true}
+	candle_store := services.Candle_Store{count = 1}
+	stores := Cell_Stores{candle = &candle_store}
+	vs := resolve_pane_visual_state(sv, .Connected, .Live, .Counter, stores)
+	testing.expect(t, vs == .Active, "counter with candle data should be Active")
+}
+
+@(test)
+test_s124_heatmap_active_with_data :: proc(t: ^testing.T) {
+	sv := Cell_Surface_View{composition = .Range_Pending, stream_bound = true, has_live_data = true}
+	hm_store := new(services.Heatmap_Store)
+	defer free(hm_store)
+	hm_store.count = 2
+	stores := Cell_Stores{heatmap = hm_store}
+	vs := resolve_pane_visual_state(sv, .Connected, .Live, .Heatmap, stores)
+	testing.expect(t, vs == .Active, "heatmap with data should be Active during Range_Pending")
+}
+
+@(test)
+test_s124_analytics_active_with_data :: proc(t: ^testing.T) {
+	sv := Cell_Surface_View{composition = .Range_Pending, stream_bound = true, has_live_data = true}
+	a_store := services.Analytics_Store{count = 10}
+	stores := Cell_Stores{analytics = &a_store}
+	vs := resolve_pane_visual_state(sv, .Connected, .Live, .Analytics, stores)
+	testing.expect(t, vs == .Active, "analytics with data should be Active during Range_Pending")
+}
+
+@(test)
+test_s124_candle_still_composition_driven :: proc(t: ^testing.T) {
+	// Candle widget should still follow candle composition (Range_Pending → Loading).
+	sv := Cell_Surface_View{composition = .Range_Pending, stream_bound = true, has_live_data = true}
+	vs := resolve_pane_visual_state(sv, .Connected, .Live, .Candle)
+	testing.expect(t, vs == .Loading, "candle should still show Loading during Range_Pending")
+}
+
+@(test)
+test_s124_stats_loading_no_live :: proc(t: ^testing.T) {
+	// Stats with no live data and empty store → Loading (not Snapshot_Pending).
+	sv := Cell_Surface_View{composition = .Range_Pending, stream_bound = true, has_live_data = false}
+	stats_store := services.Stats_Store{}
+	stores := Cell_Stores{stats = &stats_store}
+	vs := resolve_pane_visual_state(sv, .Connected, .Live, .Stats, stores)
+	testing.expect(t, vs == .Loading, "stats with no live data should yield Loading")
+}
+
+@(test)
+test_s124_vpvr_active_with_data :: proc(t: ^testing.T) {
+	sv := Cell_Surface_View{composition = .Live_Only, stream_bound = true, has_live_data = true}
+	v_store := services.VPVR_Store{count = 5}
+	stores := Cell_Stores{vpvr = &v_store}
+	vs := resolve_pane_visual_state(sv, .Connected, .Live, .VPVR, stores)
+	testing.expect(t, vs == .Active, "vpvr with data should be Active during Live_Only")
+}
+
+@(test)
+test_s124_session_vpvr_active_with_data :: proc(t: ^testing.T) {
+	sv := Cell_Surface_View{composition = .Backfilled, stream_bound = true, has_live_data = true}
+	sv_store := services.Session_VPVR_Store{count = 3}
+	stores := Cell_Stores{session_vpvr = &sv_store}
+	vs := resolve_pane_visual_state(sv, .Connected, .Live, .Session_VPVR, stores)
+	testing.expect(t, vs == .Active, "session_vpvr with data should be Active during Backfilled")
+}
+
+@(test)
+test_s124_tpo_active_with_data :: proc(t: ^testing.T) {
+	sv := Cell_Surface_View{composition = .Range_Pending, stream_bound = true, has_live_data = true}
+	tpo_store := services.TPO_Store{period_count = 2}
+	stores := Cell_Stores{tpo = &tpo_store}
+	vs := resolve_pane_visual_state(sv, .Connected, .Live, .TPO, stores)
+	testing.expect(t, vs == .Active, "tpo with data should be Active during Range_Pending")
+}
+
+@(test)
+test_s124_universal_gates_still_override :: proc(t: ^testing.T) {
+	// Even with data, universal gates (Offline, Desync, Critical) take precedence.
+	stats_store := services.Stats_Store{count = 5}
+	stores := Cell_Stores{stats = &stats_store}
+
+	// Offline overrides data.
+	sv := Cell_Surface_View{composition = .Composed, stream_bound = true, has_live_data = true}
+	vs := resolve_pane_visual_state(sv, .Offline, .Offline, .Stats, stores)
+	testing.expect(t, vs == .Offline, "offline should override even with data")
+
+	// Desync overrides data.
+	vs2 := resolve_pane_visual_state(sv, .Connected, .Desync, .Stats, stores)
+	testing.expect(t, vs2 == .Error, "desync should override even with data")
+
+	// Critical health overrides data.
+	sv_crit := Cell_Surface_View{composition = .Composed, stream_bound = true, has_live_data = true, health_level = .Critical}
+	vs3 := resolve_pane_visual_state(sv_crit, .Connected, .Live, .Stats, stores)
+	testing.expect(t, vs3 == .Error, "critical health should override even with data")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// S125: Bootstrap Completion — per-artifact readiness lifecycle tests.
+// Validates the full progression: Loading → Seeding → Snapshot_Pending → Active.
+// ═══════════════════════════════════════════════════════════════
+
+@(test)
+test_s125_stats_full_bootstrap_lifecycle :: proc(t: ^testing.T) {
+	stats_store := services.Stats_Store{}
+	stores := Cell_Stores{stats = &stats_store}
+
+	// Phase 1: No connection → Loading.
+	sv1 := Cell_Surface_View{composition = .Empty, stream_bound = true}
+	vs1 := resolve_pane_visual_state(sv1, .Connected, .Live, .Stats, stores)
+	testing.expect(t, vs1 == .Loading, "phase 1: no live data → Loading")
+
+	// Phase 2: Candles arrive (other artifact live) → Seeding.
+	sv2 := Cell_Surface_View{composition = .Live_Only, stream_bound = true, has_live_data = true}
+	sv2.artifact_has_live[.Candle] = true
+	vs2 := resolve_pane_visual_state(sv2, .Connected, .Live, .Stats, stores)
+	testing.expect(t, vs2 == .Seeding, "phase 2: candles live, no stats → Seeding")
+
+	// Phase 3: Stats artifact starts flowing, store still empty → Snapshot_Pending.
+	sv3 := Cell_Surface_View{composition = .Live_Only, stream_bound = true, has_live_data = true}
+	sv3.artifact_has_live[.Candle] = true
+	sv3.artifact_has_live[.Stats] = true
+	vs3 := resolve_pane_visual_state(sv3, .Connected, .Live, .Stats, stores)
+	testing.expect(t, vs3 == .Snapshot_Pending, "phase 3: stats artifact live, store empty → Snapshot_Pending")
+
+	// Phase 4: Stats data arrives → Active.
+	stats_store.count = 1
+	vs4 := resolve_pane_visual_state(sv3, .Connected, .Live, .Stats, stores)
+	testing.expect(t, vs4 == .Active, "phase 4: stats data in store → Active")
+}
+
+@(test)
+test_s125_orderbook_full_bootstrap_lifecycle :: proc(t: ^testing.T) {
+	ob_store := services.Orderbook_Store{}
+	stores := Cell_Stores{orderbook = &ob_store}
+
+	// Phase 1: No connection → Loading.
+	sv1 := Cell_Surface_View{composition = .Empty, stream_bound = true}
+	vs1 := resolve_pane_visual_state(sv1, .Connected, .Live, .Orderbook, stores)
+	testing.expect(t, vs1 == .Loading, "phase 1: no live data → Loading")
+
+	// Phase 2: Candles arrive → Seeding.
+	sv2 := Cell_Surface_View{composition = .Backfilled, stream_bound = true, has_live_data = true}
+	sv2.artifact_has_live[.Candle] = true
+	vs2 := resolve_pane_visual_state(sv2, .Connected, .Live, .Orderbook, stores)
+	testing.expect(t, vs2 == .Seeding, "phase 2: candles live, no OB → Seeding")
+
+	// Phase 3: OB events start flowing, no snapshot yet → Snapshot_Pending.
+	sv3 := Cell_Surface_View{composition = .Composed, stream_bound = true, has_live_data = true}
+	sv3.artifact_has_live[.Candle] = true
+	sv3.artifact_has_live[.Orderbook] = true
+	vs3 := resolve_pane_visual_state(sv3, .Connected, .Live, .Orderbook, stores)
+	testing.expect(t, vs3 == .Snapshot_Pending, "phase 3: OB artifact live, no snapshot → Snapshot_Pending")
+
+	// Phase 4: OB snapshot arrives → Active.
+	ob_store.bid_count = 10
+	ob_store.ask_count = 10
+	vs4 := resolve_pane_visual_state(sv3, .Connected, .Live, .Orderbook, stores)
+	testing.expect(t, vs4 == .Active, "phase 4: OB has levels → Active")
+}
+
+@(test)
+test_s125_trades_full_bootstrap_lifecycle :: proc(t: ^testing.T) {
+	trades_store := services.Trades_Store{}
+	stores := Cell_Stores{trades = &trades_store}
+
+	// Phase 1: No live data → Loading.
+	sv1 := Cell_Surface_View{composition = .Empty, stream_bound = true}
+	vs1 := resolve_pane_visual_state(sv1, .Connected, .Live, .Trades, stores)
+	testing.expect(t, vs1 == .Loading, "phase 1: no live data → Loading")
+
+	// Phase 2: Stream connected → Seeding.
+	sv2 := Cell_Surface_View{composition = .Live_Only, stream_bound = true, has_live_data = true}
+	sv2.artifact_has_live[.Candle] = true
+	vs2 := resolve_pane_visual_state(sv2, .Connected, .Live, .Trades, stores)
+	testing.expect(t, vs2 == .Seeding, "phase 2: stream connected, no trades → Seeding")
+
+	// Phase 3: Trades arrive → Active.
+	trades_store.count = 1
+	vs3 := resolve_pane_visual_state(sv2, .Connected, .Live, .Trades, stores)
+	testing.expect(t, vs3 == .Active, "phase 3: trades in store → Active")
+}
+
+@(test)
+test_s125_counter_bootstrap_follows_candles :: proc(t: ^testing.T) {
+	candle_store := services.Candle_Store{}
+	stores := Cell_Stores{candle = &candle_store}
+
+	// Counter depends on candle store, not its own artifact.
+	sv := Cell_Surface_View{composition = .Live_Only, stream_bound = true, has_live_data = true}
+	sv.artifact_has_live[.Candle] = true
+	vs1 := resolve_pane_visual_state(sv, .Connected, .Live, .Counter, stores)
+	testing.expect(t, vs1 == .Seeding, "counter with empty candles → Seeding")
+
+	candle_store.count = 1
+	vs2 := resolve_pane_visual_state(sv, .Connected, .Live, .Counter, stores)
+	testing.expect(t, vs2 == .Active, "counter with candle data → Active")
+}
+
+@(test)
+test_s125_artifact_has_live_propagated_in_surface_view :: proc(t: ^testing.T) {
+	// Verify that Cell_Surface_View.artifact_has_live is zero-initialized by default.
+	sv := Cell_Surface_View{}
+	for kind in md_common.Artifact_Kind {
+		testing.expect(t, !sv.artifact_has_live[kind], "artifact_has_live should default to false")
+	}
+
+	// Setting individual artifacts.
+	sv.artifact_has_live[.Stats] = true
+	sv.artifact_has_live[.Orderbook] = true
+	testing.expect(t, sv.artifact_has_live[.Stats], "Stats should be set")
+	testing.expect(t, sv.artifact_has_live[.Orderbook], "Orderbook should be set")
+	testing.expect(t, !sv.artifact_has_live[.Candle], "Candle should remain unset")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// S130: Widget Readiness & Bootstrap Policy by Timeframe.
+// TF-aware bootstrap hints for overlay UX.
+// ═══════════════════════════════════════════════════════════════
+
+@(test)
+test_s130_bootstrap_hint_trades_immediate :: proc(t: ^testing.T) {
+	// Trades are Live_Immediate — TF has no effect on expected_ms.
+	h1 := bootstrap_hint_for_widget(.Trades, 1_000)
+	h5m := bootstrap_hint_for_widget(.Trades, 300_000)
+	testing.expect(t, h1.expected_ms == h5m.expected_ms, "trades bootstrap should be TF-independent")
+	testing.expect(t, h1.partial_ok, "trades should allow partial rendering")
+	testing.expect(t, len(h1.hint_label) > 0, "trades hint label should be non-empty")
+}
+
+@(test)
+test_s130_bootstrap_hint_candle_historical :: proc(t: ^testing.T) {
+	// Candle uses Historical_Range — not TF-gated per se, network overhead.
+	h := bootstrap_hint_for_widget(.Candle, 60_000)
+	testing.expect(t, h.expected_ms > 0, "candle bootstrap should have positive expected_ms")
+	testing.expect(t, !h.partial_ok, "candle should not allow partial rendering")
+	testing.expect(t, h.hint_label == "Fetching historical data", "candle hint should mention history")
+}
+
+@(test)
+test_s130_bootstrap_hint_counter_historical :: proc(t: ^testing.T) {
+	// Counter depends on candle store → Historical_Range source.
+	h1s := bootstrap_hint_for_widget(.Counter, 1_000)
+	h5m := bootstrap_hint_for_widget(.Counter, 300_000)
+	testing.expect(t, h1s.expected_ms > 0, "counter 1s expected_ms should be positive")
+	testing.expect(t, h5m.expected_ms > 0, "counter 5m expected_ms should be positive")
+}
+
+@(test)
+test_s130_bootstrap_hint_stats_immediate :: proc(t: ^testing.T) {
+	h := bootstrap_hint_for_widget(.Stats, 300_000)
+	testing.expect(t, h.partial_ok, "stats should allow partial rendering")
+	testing.expect(t, h.hint_label == "Data arrives within seconds", "stats hint should indicate immediate")
+}
+
+@(test)
+test_s130_bootstrap_hint_orderbook_snapshot :: proc(t: ^testing.T) {
+	h := bootstrap_hint_for_widget(.Orderbook, 60_000)
+	testing.expect(t, !h.partial_ok, "orderbook should not allow partial rendering")
+	testing.expect(t, h.hint_label == "Awaiting exchange snapshot", "OB hint should mention snapshot")
+}
+
+@(test)
+test_s130_bootstrap_hint_dom_snapshot :: proc(t: ^testing.T) {
+	h := bootstrap_hint_for_widget(.DOM, 1_000)
+	testing.expect(t, h.hint_label == "Awaiting exchange snapshot", "DOM hint should mention snapshot")
+}
+
+@(test)
+test_s130_bootstrap_hint_heatmap_accumulation_scales :: proc(t: ^testing.T) {
+	h1s := bootstrap_hint_for_widget(.Heatmap, 1_000)
+	h1h := bootstrap_hint_for_widget(.Heatmap, 3_600_000)
+	testing.expect(t, h1h.expected_ms > h1s.expected_ms, "heatmap on longer TF should take longer")
+	testing.expect(t, !h1s.partial_ok, "heatmap should not allow partial rendering")
+}
+
+@(test)
+test_s130_bootstrap_hint_analytics_tf_gated :: proc(t: ^testing.T) {
+	// Analytics maps to CVD which is Live_TF_Gated.
+	h1s := bootstrap_hint_for_widget(.Analytics, 1_000)
+	h15m := bootstrap_hint_for_widget(.Analytics, 900_000)
+	testing.expect(t, h15m.expected_ms >= h1s.expected_ms, "analytics on longer TF should have >= expected_ms")
+}
+
+@(test)
+test_s130_bootstrap_hint_analytics_short_tf_label :: proc(t: ^testing.T) {
+	h := bootstrap_hint_for_widget(.Analytics, 5_000)
+	testing.expect(t, h.hint_label == "First close in seconds", "analytics 5s should indicate quick close")
+}
+
+@(test)
+test_s130_bootstrap_hint_analytics_long_tf_label :: proc(t: ^testing.T) {
+	h := bootstrap_hint_for_widget(.Analytics, 3_600_000)
+	testing.expect(t, h.hint_label == "Long timeframe — first close may take a while", "analytics 1h should indicate long TF")
+}
+
+@(test)
+test_s130_widget_primary_artifact_coverage :: proc(t: ^testing.T) {
+	// S136: Every widget kind should have a readiness policy with valid primary artifact.
+	for wk in Widget_Kind {
+		policy := widget_readiness_policy(wk)
+		_ = md_common.artifact_policy(policy.primary_artifact)
+	}
+}
+
+@(test)
+test_s130_bootstrap_hint_all_widgets_have_label :: proc(t: ^testing.T) {
+	// Every widget (except Empty) should produce a non-empty hint label at all TFs.
+	tfs := [3]i64{1_000, 60_000, 3_600_000}
+	for tf in tfs {
+		for wk in Widget_Kind {
+			if wk == .Empty do continue
+			h := bootstrap_hint_for_widget(wk, tf)
+			testing.expect(t, len(h.hint_label) > 0, "all widgets must have bootstrap hint label")
+		}
+	}
+}
+
+@(test)
+test_s130_bootstrap_expectations_table_complete :: proc(t: ^testing.T) {
+	// Every artifact kind must have a non-zero min_seed_ms.
+	for kind in md_common.Artifact_Kind {
+		be := md_common.artifact_bootstrap_expectation(kind)
+		testing.expect(t, be.min_seed_ms > 0, "every artifact must have positive min_seed_ms")
+	}
+}
+
+// ═══════════════════════════════════════════════════════════════
+// S131: Data Path Hardening — apply_state sync completeness.
+// Tests that sync_apply_state_from_active_stream and
+// sync_slot_apply_state_from_stream set all artifact fields.
+// ═══════════════════════════════════════════════════════════════
+
+@(test)
+test_s131_sync_sets_trade_has_live :: proc(t: ^testing.T) {
+	// After sync, a stream with trades should set has_live[.Trade].
+	state := new(App_State)
+	layers.market_store_seed_demo(&state.layer_store, 1)
+	sync_apply_state_from_active_stream(state)
+	testing.expect(t, state.active_apply_state.has_live[.Trade], "has_live[.Trade] should be true after sync with trades")
+	free(state)
+}
+
+@(test)
+test_s131_sync_sets_orderbook_has_live :: proc(t: ^testing.T) {
+	state := new(App_State)
+	layers.market_store_seed_demo(&state.layer_store, 1)
+	sync_apply_state_from_active_stream(state)
+	testing.expect(t, state.active_apply_state.has_live[.Orderbook], "has_live[.Orderbook] should be true after sync with OB data")
+	free(state)
+}
+
+@(test)
+test_s131_sync_sets_orderbook_snapshot_seen :: proc(t: ^testing.T) {
+	state := new(App_State)
+	layers.market_store_seed_demo(&state.layer_store, 1)
+	sync_apply_state_from_active_stream(state)
+	testing.expect(t, state.active_apply_state.snapshot_seen[.Orderbook], "snapshot_seen[.Orderbook] should be true when OB has levels")
+	free(state)
+}
+
+@(test)
+test_s131_sync_sets_artifact_event_count_from_frames :: proc(t: ^testing.T) {
+	// Simulates a stream that has received trade, OB, stats frames.
+	state := new(App_State)
+	ms := layers.market_store_stream_get_or_alloc(&state.layer_store, 42)
+	ms.used = true
+	ms.trades_frames = 10
+	ms.orderbook_frames = 5
+	ms.stats_frames = 3
+	services.push_trade(&ms.trades, services.Trade_Entry{price = 100, qty = 1, side = .Buy, unix = 1700000000})
+	services.update_orderbook(&ms.orderbook, []f64{100}, []f64{1}, []f64{99}, []f64{1}, 100, 1700000000)
+	services.push_stats(&ms.stats, services.Stats_Entry{mark_price = 100, unix = 1700000000})
+	layers.market_store_set_active_subject(&state.layer_store, 42)
+
+	sync_apply_state_from_active_stream(state)
+
+	s := state.active_apply_state
+	testing.expect(t, s.artifact_event_count[.Trade] == 10, "trade event count from frames")
+	testing.expect(t, s.artifact_event_count[.Orderbook] == 5, "OB event count from frames")
+	testing.expect(t, s.artifact_event_count[.Stats] == 3, "stats event count from frames")
+	free(state)
+}
+
+@(test)
+test_s131_staleness_detection_works_after_sync :: proc(t: ^testing.T) {
+	// With artifact_event_count populated, staleness should detect aging/stale.
+	state := new(App_State)
+	ms := layers.market_store_stream_get_or_alloc(&state.layer_store, 42)
+	ms.used = true
+	ms.stats_frames = 5
+	ms.orderbook_frames = 3
+	ms.event_count = 8
+	services.push_stats(&ms.stats, services.Stats_Entry{mark_price = 100, unix = 1700000000})
+	services.update_orderbook(&ms.orderbook, []f64{100}, []f64{1}, []f64{99}, []f64{1}, 100, 1700000000)
+	layers.market_store_set_active_subject(&state.layer_store, 42)
+
+	sync_apply_state_from_active_stream(state)
+
+	s := state.active_apply_state
+	testing.expect(t, s.artifact_event_count[.Stats] > 0, "stats event count should be non-zero")
+	testing.expect(t, s.artifact_event_count[.Orderbook] > 0, "OB event count should be non-zero")
+
+	// Dual_Silence threshold: 12s stale, 8s aging. Check at 15s.
+	stale, aging := md_common.apply_state_stale_artifact_count(s, 1700000015_000, 60_000)
+	testing.expect(t, stale >= 2, "both Stats and OB should be stale at 15s age")
+	testing.expect(t, aging == 0, "aging should be 0 when stale")
+	free(state)
+}
+
+@(test)
+test_s131_auto_recovery_triggers_after_sync :: proc(t: ^testing.T) {
+	// Before S131, auto-recovery never fired because artifact_event_count was always 0.
+	state := new(App_State)
+	ms := layers.market_store_stream_get_or_alloc(&state.layer_store, 42)
+	ms.used = true
+	ms.stats_frames = 1
+	ms.orderbook_frames = 1
+	ms.event_count = 2
+	services.push_stats(&ms.stats, services.Stats_Entry{mark_price = 100, unix = 1700000000})
+	services.update_orderbook(&ms.orderbook, []f64{100}, []f64{1}, []f64{99}, []f64{1}, 100, 1700000000)
+	layers.market_store_set_active_subject(&state.layer_store, 42)
+
+	sync_apply_state_from_active_stream(state)
+
+	s := state.active_apply_state
+	decision := md_common.apply_state_stale_remediation(s, 1700000015_000, 60_000)
+	testing.expect(t, decision == .Resubscribe, "auto-recovery should trigger Resubscribe when stale")
+	free(state)
+}
+
+@(test)
+test_s131_sync_last_recv_ms_trade :: proc(t: ^testing.T) {
+	state := new(App_State)
+	ms := layers.market_store_stream_get_or_alloc(&state.layer_store, 42)
+	ms.used = true
+	services.push_trade(&ms.trades, services.Trade_Entry{price = 100, qty = 1, side = .Buy, unix = 1700000042})
+	layers.market_store_set_active_subject(&state.layer_store, 42)
+
+	sync_apply_state_from_active_stream(state)
+
+	ts := state.active_apply_state.last_recv_ms[.Trade]
+	testing.expect(t, ts == 1700000042_000, "last_recv_ms[.Trade] should be set from newest trade unix (in ms)")
+	free(state)
+}
+
+@(test)
+test_s131_sync_empty_stream_resets :: proc(t: ^testing.T) {
+	// If no active stream, apply_state should be reset.
+	state := new(App_State)
+	state.active_apply_state.has_live[.Stats] = true
+	state.active_apply_state.artifact_event_count[.Stats] = 5
+
+	sync_apply_state_from_active_stream(state)
+
+	testing.expect(t, !state.active_apply_state.has_live[.Stats], "has_live should be reset when no active stream")
+	testing.expect(t, state.active_apply_state.artifact_event_count[.Stats] == 0, "event count should be reset")
+	free(state)
+}
+
+@(test)
+test_s131_slot_sync_sets_all_artifacts :: proc(t: ^testing.T) {
+	// Test sync_slot_apply_state_from_stream independently.
+	ms := new(layers.Market_Stream)
+	defer free(ms)
+	ms.used = true
+	ms.trades_frames = 7
+	ms.orderbook_frames = 3
+	ms.stats_frames = 2
+	ms.event_count = 12
+	services.push_trade(&ms.trades, services.Trade_Entry{price = 50, qty = 1, side = .Sell, unix = 1700000001})
+	services.update_orderbook(&ms.orderbook, []f64{50}, []f64{2}, []f64{49}, []f64{2}, 50, 1700000001)
+	services.push_stats(&ms.stats, services.Stats_Entry{mark_price = 50, unix = 1700000001})
+	services.push_candle(&ms.candles, services.Candle_Entry{open = 50, close = 51, window_end_ts = 1700000060})
+
+	s: md_common.Stream_Apply_State
+	sync_slot_apply_state_from_stream(&s, ms)
+
+	testing.expect(t, s.has_live[.Trade], "slot: has_live[.Trade]")
+	testing.expect(t, s.has_live[.Orderbook], "slot: has_live[.Orderbook]")
+	testing.expect(t, s.has_live[.Stats], "slot: has_live[.Stats]")
+	testing.expect(t, s.has_live[.Candle], "slot: has_live[.Candle]")
+	testing.expect(t, s.snapshot_seen[.Orderbook], "slot: snapshot_seen[.Orderbook]")
+	testing.expect(t, s.artifact_event_count[.Trade] == 7, "slot: trade event count")
+	testing.expect(t, s.artifact_event_count[.Orderbook] == 3, "slot: OB event count")
+	testing.expect(t, s.artifact_event_count[.Stats] == 2, "slot: stats event count")
+	testing.expect(t, s.event_count == 12, "slot: total event count")
+	testing.expect(t, s.last_recv_ms[.Trade] == 1700000001_000, "slot: trade last_recv_ms")
+	testing.expect(t, s.last_recv_ms[.Candle] == 1700000060_000, "slot: candle last_recv_ms from window_end_ts")
+}
+
+@(test)
+test_s131_slot_sync_preserves_recovery_state :: proc(t: ^testing.T) {
+	// Recovery state (attempts, last_ms) must NOT be overwritten by slot sync.
+	ms := new(layers.Market_Stream)
+	defer free(ms)
+	ms.used = true
+
+	s: md_common.Stream_Apply_State
+	s.recovery_attempts = 2
+	s.recovery_last_ms = 1700000000_000
+	s.getrange_seeded = true
+	s.getrange_pending = true
+
+	sync_slot_apply_state_from_stream(&s, ms)
+
+	testing.expect(t, s.recovery_attempts == 2, "recovery_attempts should be preserved")
+	testing.expect(t, s.recovery_last_ms == 1700000000_000, "recovery_last_ms should be preserved")
+	testing.expect(t, s.getrange_seeded, "getrange_seeded should be preserved")
+	testing.expect(t, s.getrange_pending, "getrange_pending should be preserved")
+}
+
+@(test)
+test_s131_ob_widget_snapshot_pending_with_synced_state :: proc(t: ^testing.T) {
+	// End-to-end: OB widget should correctly show Snapshot_Pending when
+	// OB events are flowing (has_live[.Orderbook] = true) but store is empty.
+	// Before S131, has_live[.Orderbook] was never set → showed Seeding instead.
+	sv := Cell_Surface_View{composition = .Live_Only, stream_bound = true, has_live_data = true}
+	sv.artifact_has_live[.Orderbook] = true  // S131: now correctly set by sync
+	ob_store := services.Orderbook_Store{}   // empty — no snapshot yet
+	stores := Cell_Stores{orderbook = &ob_store}
+	vs := resolve_pane_visual_state(sv, .Connected, .Live, .Orderbook, stores)
+	testing.expect(t, vs == .Snapshot_Pending, "OB with artifact live but empty store = Snapshot_Pending")
+}
+
+@(test)
+test_s131_trades_widget_active_with_synced_state :: proc(t: ^testing.T) {
+	// Trades widget with trades in store should be Active immediately.
+	sv := Cell_Surface_View{composition = .Live_Only, stream_bound = true, has_live_data = true}
+	sv.artifact_has_live[.Trade] = true  // S131: now correctly set by sync
+	trades_store := services.Trades_Store{}
+	services.push_trade(&trades_store, services.Trade_Entry{price = 100, qty = 1, side = .Buy, unix = 1})
+	stores := Cell_Stores{trades = &trades_store}
+	vs := resolve_pane_visual_state(sv, .Connected, .Live, .Trades, stores)
+	testing.expect(t, vs == .Active, "trades with data should be Active")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// S136: Timeframe Data Policy & Readiness Unification.
+// Tests for unified Data_Readiness, policy table, store checks,
+// and behavioral improvements (backfilled/live-only charts → Active).
+// ═══════════════════════════════════════════════════════════════
+
+@(test)
+test_s136_data_readiness_ordering :: proc(t: ^testing.T) {
+	// Data_Readiness enum ordering: lower is less ready.
+	testing.expect(t, Data_Readiness.Not_Ready < .Loading, "Not_Ready < Loading")
+	testing.expect(t, Data_Readiness.Loading < .Snapshot_Pending, "Loading < Snapshot_Pending")
+	testing.expect(t, Data_Readiness.Snapshot_Pending < .Seeding, "Snapshot_Pending < Seeding")
+	testing.expect(t, Data_Readiness.Seeding < .Partial_Usable, "Seeding < Partial_Usable")
+	testing.expect(t, Data_Readiness.Partial_Usable < .Live_Usable, "Partial_Usable < Live_Usable")
+}
+
+@(test)
+test_s136_readiness_to_visual_state_mapping :: proc(t: ^testing.T) {
+	testing.expect(t, readiness_to_visual_state(.Not_Ready) == .Empty, "Not_Ready → Empty")
+	testing.expect(t, readiness_to_visual_state(.Loading) == .Loading, "Loading → Loading")
+	testing.expect(t, readiness_to_visual_state(.Snapshot_Pending) == .Snapshot_Pending, "Snapshot_Pending → Snapshot_Pending")
+	testing.expect(t, readiness_to_visual_state(.Seeding) == .Seeding, "Seeding → Seeding")
+	testing.expect(t, readiness_to_visual_state(.Partial_Usable) == .Active, "Partial_Usable → Active")
+	testing.expect(t, readiness_to_visual_state(.Live_Usable) == .Active, "Live_Usable → Active")
+}
+
+@(test)
+test_s136_policy_table_complete :: proc(t: ^testing.T) {
+	// Every widget kind must have a policy entry with valid primary artifact.
+	for wk in Widget_Kind {
+		policy := widget_readiness_policy(wk)
+		_ = md_common.artifact_policy(policy.primary_artifact)
+	}
+}
+
+@(test)
+test_s136_policy_backfill_absent_usable :: proc(t: ^testing.T) {
+	// All non-empty, non-candle widgets should be usable without backfill.
+	for wk in Widget_Kind {
+		policy := widget_readiness_policy(wk)
+		if wk == .Empty {
+			testing.expect(t, !policy.backfill_absent_usable, "Empty should not be backfill_absent_usable")
+		} else {
+			testing.expect(t, policy.backfill_absent_usable, "all data widgets should be backfill_absent_usable")
+		}
+	}
+}
+
+@(test)
+test_s136_policy_partial_usable_artifacts :: proc(t: ^testing.T) {
+	// Stats, Trades, Counter, Analytics should be partial_usable.
+	testing.expect(t, widget_readiness_policy(.Stats).partial_usable, "Stats should be partial_usable")
+	testing.expect(t, widget_readiness_policy(.Trades).partial_usable, "Trades should be partial_usable")
+	testing.expect(t, widget_readiness_policy(.Counter).partial_usable, "Counter should be partial_usable")
+	testing.expect(t, widget_readiness_policy(.Analytics).partial_usable, "Analytics should be partial_usable")
+	// Candle, Orderbook, Heatmap, VPVR should NOT be partial_usable.
+	testing.expect(t, !widget_readiness_policy(.Candle).partial_usable, "Candle should not be partial_usable")
+	testing.expect(t, !widget_readiness_policy(.Orderbook).partial_usable, "Orderbook should not be partial_usable")
+	testing.expect(t, !widget_readiness_policy(.Heatmap).partial_usable, "Heatmap should not be partial_usable")
+}
+
+@(test)
+test_s136_widget_store_has_data_empty_stores :: proc(t: ^testing.T) {
+	stores := Cell_Stores{}
+	for wk in Widget_Kind {
+		testing.expect(t, !widget_store_has_data(wk, stores), "empty stores should have no data")
+	}
+}
+
+@(test)
+test_s136_widget_store_has_data_candle :: proc(t: ^testing.T) {
+	candle_store := services.Candle_Store{count = 5}
+	stores := Cell_Stores{candle = &candle_store}
+	testing.expect(t, widget_store_has_data(.Candle, stores), "candle store with count > 0")
+	testing.expect(t, widget_store_has_data(.Counter, stores), "counter uses candle store")
+	testing.expect(t, !widget_store_has_data(.Stats, stores), "stats should not see candle data")
+}
+
+@(test)
+test_s136_widget_store_has_data_orderbook :: proc(t: ^testing.T) {
+	ob_store := services.Orderbook_Store{bid_count = 5, ask_count = 5}
+	stores := Cell_Stores{orderbook = &ob_store}
+	testing.expect(t, widget_store_has_data(.Orderbook, stores), "OB store with levels")
+	testing.expect(t, widget_store_has_data(.DOM, stores), "DOM shares OB store")
+	testing.expect(t, !widget_store_has_data(.Candle, stores), "candle should not see OB data")
+}
+
+@(test)
+test_s136_widget_data_readiness_not_ready :: proc(t: ^testing.T) {
+	sv := Cell_Surface_View{composition = .Empty, stream_bound = false}
+	stores := Cell_Stores{}
+	for wk in Widget_Kind {
+		r := widget_data_readiness(wk, sv, stores)
+		testing.expect(t, r == .Not_Ready, "unbound + empty = Not_Ready")
+	}
+}
+
+@(test)
+test_s136_widget_data_readiness_loading :: proc(t: ^testing.T) {
+	sv := Cell_Surface_View{composition = .Empty, stream_bound = true}
+	stores := Cell_Stores{}
+	// Non-candle widgets: stream_bound → Loading
+	r := widget_data_readiness(.Stats, sv, stores)
+	testing.expect(t, r == .Loading, "bound stream with no data = Loading")
+}
+
+@(test)
+test_s136_candle_backfilled_is_partial_usable :: proc(t: ^testing.T) {
+	// S136 key improvement: backfilled chart has historical data → usable.
+	sv := Cell_Surface_View{composition = .Backfilled, stream_bound = true}
+	stores := Cell_Stores{}
+	r := widget_data_readiness(.Candle, sv, stores)
+	testing.expect(t, r == .Partial_Usable, "candle backfilled = Partial_Usable")
+}
+
+@(test)
+test_s136_candle_live_only_is_partial_usable :: proc(t: ^testing.T) {
+	// S136 key improvement: live-only chart has recent data → usable.
+	sv := Cell_Surface_View{composition = .Live_Only, stream_bound = true}
+	stores := Cell_Stores{}
+	r := widget_data_readiness(.Candle, sv, stores)
+	testing.expect(t, r == .Partial_Usable, "candle live_only = Partial_Usable")
+}
+
+@(test)
+test_s136_candle_composed_is_live_usable :: proc(t: ^testing.T) {
+	sv := Cell_Surface_View{composition = .Composed, stream_bound = true, has_live_data = true}
+	stores := Cell_Stores{}
+	r := widget_data_readiness(.Candle, sv, stores)
+	testing.expect(t, r == .Live_Usable, "candle composed+live = Live_Usable")
+}
+
+@(test)
+test_s136_candle_range_pending_is_loading :: proc(t: ^testing.T) {
+	sv := Cell_Surface_View{composition = .Range_Pending, stream_bound = true}
+	stores := Cell_Stores{}
+	r := widget_data_readiness(.Candle, sv, stores)
+	testing.expect(t, r == .Loading, "candle range_pending = Loading")
+}
+
+@(test)
+test_s136_stats_with_data_is_live_usable :: proc(t: ^testing.T) {
+	sv := Cell_Surface_View{composition = .Composed, stream_bound = true, has_live_data = true}
+	stats_store := services.Stats_Store{count = 1}
+	stores := Cell_Stores{stats = &stats_store}
+	r := widget_data_readiness(.Stats, sv, stores)
+	testing.expect(t, r == .Live_Usable, "stats with data + composed = Live_Usable")
+}
+
+@(test)
+test_s136_stats_partial_no_composed :: proc(t: ^testing.T) {
+	sv := Cell_Surface_View{composition = .Live_Only, stream_bound = true, has_live_data = true}
+	stats_store := services.Stats_Store{count = 1}
+	stores := Cell_Stores{stats = &stats_store}
+	r := widget_data_readiness(.Stats, sv, stores)
+	testing.expect(t, r == .Partial_Usable, "stats with data + non-composed = Partial_Usable")
+}
+
+@(test)
+test_s136_analytics_seeding_on_high_tf :: proc(t: ^testing.T) {
+	// Analytics with no data but live stream → Seeding (TF-gated, first close pending).
+	sv := Cell_Surface_View{composition = .Composed, stream_bound = true, has_live_data = true}
+	stores := Cell_Stores{}
+	r := widget_data_readiness(.Analytics, sv, stores)
+	testing.expect(t, r == .Seeding, "analytics with no data but live stream = Seeding")
+}
+
+@(test)
+test_s136_orderbook_snapshot_pending_flow :: proc(t: ^testing.T) {
+	sv := Cell_Surface_View{composition = .Composed, stream_bound = true, has_live_data = true}
+	sv.artifact_has_live[.Orderbook] = true
+	ob_store := services.Orderbook_Store{} // empty
+	stores := Cell_Stores{orderbook = &ob_store}
+	r := widget_data_readiness(.Orderbook, sv, stores)
+	testing.expect(t, r == .Snapshot_Pending, "OB live but empty store = Snapshot_Pending")
+}
+
+@(test)
+test_s136_store_data_overrides_composition :: proc(t: ^testing.T) {
+	// Even with Range_Pending, if store already has data → usable.
+	sv := Cell_Surface_View{composition = .Range_Pending, stream_bound = true, has_live_data = true}
+	stats_store := services.Stats_Store{count = 3}
+	stores := Cell_Stores{stats = &stats_store}
+	r := widget_data_readiness(.Stats, sv, stores)
+	testing.expect(t, r == .Partial_Usable, "store data overrides composition stage")
+}
+
+@(test)
+test_s136_widget_store_label_coverage :: proc(t: ^testing.T) {
+	// Every widget kind should have a non-empty store label.
+	for wk in Widget_Kind {
+		label := widget_store_label(wk)
+		testing.expect(t, len(label) > 0, "all widget kinds must have store label")
+	}
+}
+
+@(test)
+test_s136_candle_store_data_composed_live_usable :: proc(t: ^testing.T) {
+	// Candle with store data + Composed = Live_Usable (store check takes priority).
+	sv := Cell_Surface_View{composition = .Composed, stream_bound = true, has_live_data = true}
+	candle_store := services.Candle_Store{count = 50}
+	stores := Cell_Stores{candle = &candle_store}
+	r := widget_data_readiness(.Candle, sv, stores)
+	testing.expect(t, r == .Live_Usable, "candle store data + composed = Live_Usable")
+}
+
+@(test)
+test_s136_candle_store_data_backfilled_partial :: proc(t: ^testing.T) {
+	// Candle with store data + Backfilled = Partial_Usable.
+	sv := Cell_Surface_View{composition = .Backfilled, stream_bound = true}
+	candle_store := services.Candle_Store{count = 30}
+	stores := Cell_Stores{candle = &candle_store}
+	r := widget_data_readiness(.Candle, sv, stores)
+	testing.expect(t, r == .Partial_Usable, "candle store data + backfilled = Partial_Usable")
 }

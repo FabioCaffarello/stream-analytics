@@ -27,6 +27,8 @@ import (
 	"github.com/anthdm/hollywood/actor"
 	"github.com/market-raccoon/internal/actors/runtime"
 	executionports "github.com/market-raccoon/internal/core/execution/ports"
+	workspaceapp "github.com/market-raccoon/internal/core/workspace/app"
+	workspaceports "github.com/market-raccoon/internal/core/workspace/ports"
 	"github.com/market-raccoon/internal/shared/config"
 	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/metrics"
@@ -64,6 +66,7 @@ type Server struct {
 	portfolioReaders    *PortfolioReaders
 	insightsSnapshotter InsightsSnapshotter
 	consistencyChecks   map[string]ConsistencyCheckFn
+	workspaceSvc        *workspaceapp.WorkspaceService
 }
 
 type Option func(*Server)
@@ -96,6 +99,14 @@ type ConsistencyCheckFn func(ctx context.Context, venue, instrument, timeframe s
 func WithConsistencyChecks(checks map[string]ConsistencyCheckFn) Option {
 	return func(s *Server) {
 		s.consistencyChecks = checks
+	}
+}
+
+// WithWorkspaceRepository configures server-side workspace persistence
+// by wiring a repository into a WorkspaceService.
+func WithWorkspaceRepository(repo workspaceports.WorkspaceRepository) Option {
+	return func(s *Server) {
+		s.workspaceSvc = workspaceapp.NewWorkspaceService(repo)
 	}
 }
 
@@ -171,6 +182,11 @@ func NewServer(
 		mux.HandleFunc("GET /api/v1/session", s.handleGetSession)
 		mux.HandleFunc("GET /api/v1/session/dashboard", s.handleGetSessionDashboard)
 		mux.HandleFunc("GET /api/v1/artifacts/summary", s.handleGetArtifactSummary)
+	}
+	if s.workspaceSvc != nil {
+		mux.HandleFunc("GET /api/v1/workspace", s.handleGetWorkspace)
+		mux.HandleFunc("PUT /api/v1/workspace", s.handlePutWorkspace)
+		mux.HandleFunc("DELETE /api/v1/workspace", s.handleDeleteWorkspace)
 	}
 	mux.HandleFunc("GET /api/v1/freshness", s.handleGetFreshness)
 	mux.HandleFunc("GET /api/v1/instrument/overview", s.handleGetInstrumentOverview)

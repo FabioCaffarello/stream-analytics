@@ -1,95 +1,11 @@
 package app
 
-import "core:fmt"
-import "core:strings"
 import "mr:services"
 import "mr:ui"
 
-// ---------------------------------------------------------------------------
-// Layout persistence V1-V4
-// Extracted from stream_views.odin for cohesion.
-// ---------------------------------------------------------------------------
-
-// Persist cell layout to settings. Format: "N:K0,K1,...,KN-1" where Ki = Widget_Kind enum value.
-persist_layout :: proc(state: ^App_State) {
-	buf: [128]u8
-	off := 0
-	// Write cell count.
-	n := state.world.count
-	if n > 9 {
-		buf[off] = '0' + u8(n / 10); off += 1
-	}
-	buf[off] = '0' + u8(n % 10); off += 1
-	buf[off] = ':'; off += 1
-	// Write widget kinds.
-	for i in 0 ..< n {
-		if i > 0 { buf[off] = ','; off += 1 }
-		k := int(state.world.widgets[i].kind)
-		buf[off] = '0' + u8(k); off += 1
-	}
-	services.settings_set(&state.settings, services.SETTING_LAYOUT, string(buf[:off]))
-	// Persist preset index.
-	preset_buf: [4]u8
-	services.settings_set(&state.settings, services.SETTING_LAYOUT_PRESET,
-		fmt.bprintf(preset_buf[:], "%d", state.layout_preset))
-	services.settings_flush(&state.settings)
-}
-
-// Restore cell layout from settings. Returns true if layout was restored.
-restore_layout :: proc(state: ^App_State) -> bool {
-	v, ok := services.settings_get(&state.settings, services.SETTING_LAYOUT)
-	if !ok || len(v) < 3 do return false
-	return restore_layout_from_string(state, v)
-}
-
-// Parse and apply a layout string. Format: "N:K0,K1,...,KN-1".
-restore_layout_from_string :: proc(state: ^App_State, v: string) -> bool {
-	if len(v) < 3 do return false
-
-	// Parse cell count (1-2 digits before ':').
-	colon_idx := -1
-	for i in 0 ..< len(v) {
-		if v[i] == ':' { colon_idx = i; break }
-	}
-	if colon_idx <= 0 || colon_idx > 2 do return false
-
-	n := 0
-	for i in 0 ..< colon_idx {
-		d := int(v[i]) - '0'
-		if d < 0 || d > 9 do return false
-		n = n * 10 + d
-	}
-	if n <= 0 || n > CELL_MAX do return false
-
-	// Parse widget kinds after colon.
-	rest := v[colon_idx + 1:]
-	kinds: [CELL_MAX]Widget_Kind
-	ki := 0
-	for c in rest {
-		if c == ',' do continue
-		d := int(c) - '0'
-		if d < 0 || d > 9 do return false
-		if ki >= n do break
-		kinds[ki] = Widget_Kind(d)
-		ki += 1
-	}
-	if ki != n do return false
-
-	// Apply.
-	state.world.count = n
-	for i in 0 ..< n {
-		write_default_cell_to_world(state, i, kinds[i])
-	}
-	return true
-}
-
-// ===============================================================
-// V2 persistence — captures stream binding + indicator flags.
-// Format: "V2|K:S:F|K:S:F|..." (pipe-delimited cells)
-//   K = widget kind digit (0-8)
-//   S = stream binding: "-1" for follow-active, or "venue/symbol"
-//   F = indicator flags bitfield (8 bools packed into decimal int)
-// ===============================================================
+// S122: Layout persistence — V6 format only.
+// Legacy V1-V5 persist/restore functions removed (dead code since S111).
+// CRC integrity footer (|CK:) added for corruption detection.
 
 // Pack 11 indicator booleans into a single integer.
 // S81: bits 8-9 added for show_cvd, show_delta_vol.
@@ -111,8 +27,6 @@ pack_indicator_flags :: proc(ind: ^Indicator_Component) -> int {
 }
 
 // Unpack indicator flags into an Indicator_Component.
-// S81: bits 8-9 added for show_cvd, show_delta_vol.
-// S82: bit 10 added for show_oi.
 unpack_indicator_flags :: proc(ind: ^Indicator_Component, f: int) {
 	ind.show_ma            = (f & (1 << 0)) != 0
 	ind.show_bbands        = (f & (1 << 1)) != 0
@@ -127,78 +41,12 @@ unpack_indicator_flags :: proc(ind: ^Indicator_Component, f: int) {
 	ind.show_oi            = (f & (1 << 10)) != 0
 }
 
-persist_layout_v2 :: proc(state: ^App_State) {
-	buf: [1024]u8
-	off := 0
-
-	// Header: "V2"
-	buf[off] = 'V'; off += 1
-	buf[off] = '2'; off += 1
-
-	n := state.world.count
-	for i in 0 ..< n {
-		buf[off] = '|'; off += 1
-
-		// K: widget kind digit.
-		buf[off] = '0' + u8(state.world.widgets[i].kind); off += 1
-		buf[off] = ':'; off += 1
-
-		// S: stream binding.
-		if state.world.bindings[i].stream_idx < 0 {
-			buf[off] = '-'; off += 1
-			buf[off] = '1'; off += 1
-		} else {
-			// Look up venue/symbol from stream_views.
-			reg := state.stream_views
-			wrote_stream := false
-			si := state.world.bindings[i].stream_idx
-			if reg != nil && si >= 0 && si < STREAM_VIEW_CAP && reg.slots[si].used {
-				slot := &reg.slots[si]
-				if !slot.has_stream_info {
-					refresh_stream_info_for_slot(state, slot)
-				}
-				if slot.has_stream_info && len(slot.stream_info.venue) > 0 && len(slot.stream_info.symbol) > 0 {
-					// Write venue/symbol.
-					v := slot.stream_info.venue
-					s := slot.stream_info.symbol
-					for vi in 0 ..< len(v) {
-						if off < len(buf) { buf[off] = v[vi]; off += 1 }
-					}
-					buf[off] = '/'; off += 1
-					for si2 in 0 ..< len(s) {
-						if off < len(buf) { buf[off] = s[si2]; off += 1 }
-					}
-					wrote_stream = true
-				}
-			}
-			if !wrote_stream {
-				buf[off] = '-'; off += 1
-				buf[off] = '1'; off += 1
-			}
-		}
-		buf[off] = ':'; off += 1
-
-		// F: indicator flags.
-		flags := pack_indicator_flags(&state.world.indicators[i])
-		if flags >= 100 {
-			buf[off] = '0' + u8(flags / 100); off += 1
-		}
-		if flags >= 10 {
-			buf[off] = '0' + u8((flags / 10) % 10); off += 1
-		}
-		buf[off] = '0' + u8(flags % 10); off += 1
-	}
-
-	services.settings_set(&state.settings, services.SETTING_LAYOUT_V2, string(buf[:off]))
-	// Also export V1 layout for rollback tooling.
-	persist_layout(state)
-}
-
 // ===============================================================
-// V6 persistence — extends V5 with per-cell chart display state.
-// Format: "V6|MODE|CW:w0,...|RW:w0,...|K:S:F:CS:RS:SM:SR:TF:CD|...|LK:flag"
+// V6 persistence — canonical layout format.
+// Format: "V6|MODE|CW:w0,...|RW:w0,...|K:S:F:CS:RS:SM:SR:TF:CD|...|LK:flag|CK:XXXXXXXX"
 //   CD = chart display packed int (vol/heatmap/vpvr/heatmap_idx/ob_grp/dom_grp/trade_filter)
-//   LK = signal-evidence link (absorbed from V5)
+//   LK = signal-evidence link flag
+//   CK = FNV-1a integrity checksum (S122)
 // ===============================================================
 
 // Build V6 layout string into buf, return bytes written.
@@ -240,15 +88,11 @@ build_layout_v6_string :: proc(state: ^App_State, buf: []u8) -> int {
 	for i in 0 ..< n {
 		buf[off] = '|'; off += 1
 
-		// K: widget kind (S101: multi-digit safe for Session_VPVR=10, TPO=11).
+		// K: widget kind (multi-digit safe for Session_VPVR=10, TPO=11).
 		off = write_int_to_buf(buf, off, int(state.world.widgets[i].kind))
 		buf[off] = ':'; off += 1
 
-		// S: stream binding — read from cell's bound fields (PRD-0009).
-		// S101: Normalize symbol to strip market type suffix (e.g. ":SPOT", ":PERP")
-		// before persist. The V6 format uses ':' as field separator, so raw colons
-		// in the symbol would corrupt the parse. Normalization also matches the
-		// backend API contract (S92).
+		// S: stream binding — normalize symbol to strip market type suffix.
 		bv := binding_venue(&state.world.bindings[i])
 		bs := normalized_symbol(binding_symbol(&state.world.bindings[i]))
 		if len(bv) > 0 && len(bs) > 0 {
@@ -314,14 +158,21 @@ persist_layout_v6 :: proc(state: ^App_State) {
 	buf: [2048]u8
 	off := build_layout_v6_string(state, buf[:])
 
+	// S122: Append CRC integrity footer.
+	body := string(buf[:off])
+	off = artifact_write_ck_suffix(buf[:], off, body)
+
 	services.settings_set(&state.settings, services.SETTING_LAYOUT_V6, string(buf[:off]))
 	services.settings_set(&state.settings, services.SETTING_LAYOUT_MODE,
 		state.layout_mode == .Custom ? "C" : "P")
 
-	// S111: Schema version marker — stamp current version. No V1-V5 backward writes.
+	// Schema version marker.
 	schema_buf: [4]u8
 	schema_off := write_int_to_buf(schema_buf[:], 0, WORKSPACE_SCHEMA_VERSION)
 	services.settings_set(&state.settings, services.SETTING_SETTINGS_VERSION, string(schema_buf[:schema_off]))
+
+	// S122: Stamp artifact fingerprint for idempotent comparison.
+	workspace_artifact_stamp(state)
 }
 
 restore_layout_v6 :: proc(state: ^App_State) -> bool {
@@ -336,16 +187,30 @@ restore_workspace :: proc(state: ^App_State) -> Persist_Result {
 }
 
 // S111: Validated restore with structured result.
+// S122: Validates CRC integrity if |CK: suffix present.
 restore_layout_v6_validated :: proc(state: ^App_State, v: string) -> Persist_Result {
 	if len(v) < 4 do return .No_Data
-	if v[0] != 'V' || v[1] != '6' {
+
+	// S122: Validate and strip CRC suffix if present.
+	body, ck_valid, _ := artifact_validate_ck(v)
+
+	if !ck_valid {
+		return .Corrupted
+	}
+
+	if len(body) < 4 do return .No_Data
+	if body[0] != 'V' || body[1] != '6' {
 		// Check for a future version header (e.g. "V7", "V8", ...).
-		if len(v) >= 2 && v[0] == 'V' && v[1] > '6' && v[1] <= '9' {
+		if len(body) >= 2 && body[0] == 'V' && body[1] > '6' && body[1] <= '9' {
 			return .Version_Mismatch
 		}
 		return .Corrupted
 	}
-	ok := restore_layout_v6_from_string_inner(state, v)
+	ok := restore_layout_v6_from_string_inner(state, body)
+	if ok {
+		// S122: Stamp fingerprint so subsequent persist checks are idempotent.
+		workspace_artifact_stamp(state)
+	}
 	return ok ? .Ok : .Corrupted
 }
 
@@ -437,7 +302,7 @@ restore_layout_v6_from_string_inner :: proc(state: ^App_State, v: string) -> boo
 		pos += 1
 		if pos >= len(rest) do break
 
-		// K: widget kind (S101: multi-digit for Session_VPVR=10, TPO=11).
+		// K: widget kind (multi-digit for Session_VPVR=10, TPO=11).
 		k_start := pos
 		for pos < len(rest) && rest[pos] != ':' && rest[pos] != '|' { pos += 1 }
 		k_digit := parse_int_from(rest[k_start:pos])
@@ -468,7 +333,7 @@ restore_layout_v6_from_string_inner :: proc(state: ^App_State, v: string) -> boo
 
 		// RS: row_span.
 		rs_start := pos
-		for pos < len(rest) && rest[pos] != ':' && rest[pos] != '|' { pos += 1 }
+		for pos < len(rest) && rest[pos] != '|' && rest[pos] != ':' { pos += 1 }
 		rs_field := rest[rs_start:pos]
 
 		// SM: sub_main_split (optional).
@@ -575,219 +440,8 @@ restore_layout_v6_from_string_inner :: proc(state: ^App_State, v: string) -> boo
 }
 
 // ===============================================================
-// V4 persistence — extends V3 with per-cell timeframe.
-// Format: "V4|MODE|CW:w0,w1,...|RW:w0,w1,...|K:S:F:CS:RS:SM:SR:TF|..."
-//   TF = tf_idx+1 (0 = follow global, 1-9 = per-cell TF 0-8)
+// Helpers
 // ===============================================================
-
-persist_layout_v4 :: proc(state: ^App_State) {
-	buf: [2048]u8
-	off := 0
-
-	// Header: "V4"
-	buf[off] = 'V'; off += 1
-	buf[off] = '4'; off += 1
-
-	// MODE.
-	buf[off] = '|'; off += 1
-	buf[off] = state.layout_mode == .Custom ? 'C' : 'P'; off += 1
-
-	// CW: col weights.
-	buf[off] = '|'; off += 1
-	buf[off] = 'C'; off += 1
-	buf[off] = 'W'; off += 1
-	buf[off] = ':'; off += 1
-	for c in 0 ..< state.custom_grid_def.col_count {
-		if c > 0 { buf[off] = ','; off += 1 }
-		w := int(state.custom_grid_def.col_weights[c] * 100 + 0.5)
-		off = write_int_to_buf(buf[:], off, w)
-	}
-
-	// RW: row weights.
-	buf[off] = '|'; off += 1
-	buf[off] = 'R'; off += 1
-	buf[off] = 'W'; off += 1
-	buf[off] = ':'; off += 1
-	for r in 0 ..< state.custom_grid_def.row_count {
-		if r > 0 { buf[off] = ','; off += 1 }
-		w := int(state.custom_grid_def.row_weights[r] * 100 + 0.5)
-		off = write_int_to_buf(buf[:], off, w)
-	}
-
-	// Cells: K:S:F:CS:RS:SM:SR:TF per cell.
-	n := state.world.count
-	for i in 0 ..< n {
-		buf[off] = '|'; off += 1
-
-		// K: widget kind (S101: clamp to 9 for V4 single-digit compat).
-		k := int(state.world.widgets[i].kind)
-		if k > 9 { k = 8 } // V4 doesn't support widgets > 9; map to Empty.
-		buf[off] = '0' + u8(k); off += 1
-		buf[off] = ':'; off += 1
-
-		// S: stream binding — read from cell's bound fields (PRD-0009).
-		// S101: Normalize symbol to avoid ':' in field.
-		bv := binding_venue(&state.world.bindings[i])
-		bs := normalized_symbol(binding_symbol(&state.world.bindings[i]))
-		if len(bv) > 0 && len(bs) > 0 {
-			for vi in 0 ..< len(bv) { if off < len(buf) { buf[off] = bv[vi]; off += 1 } }
-			buf[off] = '/'; off += 1
-			for si in 0 ..< len(bs) { if off < len(buf) { buf[off] = bs[si]; off += 1 } }
-		} else {
-			buf[off] = '-'; off += 1
-			buf[off] = '1'; off += 1
-		}
-		buf[off] = ':'; off += 1
-
-		// F: indicator flags.
-		flags := pack_indicator_flags(&state.world.indicators[i])
-		off = write_int_to_buf(buf[:], off, flags)
-		buf[off] = ':'; off += 1
-
-		// CS: col_span.
-		cs := state.world.spans[i].col_span > 1 ? state.world.spans[i].col_span : 1
-		off = write_int_to_buf(buf[:], off, cs)
-		buf[off] = ':'; off += 1
-
-		// RS: row_span.
-		rs := state.world.spans[i].row_span > 1 ? state.world.spans[i].row_span : 1
-		off = write_int_to_buf(buf[:], off, rs)
-		buf[off] = ':'; off += 1
-
-		// SM: sub_main_split (x1000).
-		sm := int(state.world.subplots[i].sub_main_split * 1000 + 0.5)
-		off = write_int_to_buf(buf[:], off, sm)
-		buf[off] = ':'; off += 1
-
-		// SR: sub_ratios (x1000, comma-separated).
-		for sri in 0 ..< 5 {
-			if sri > 0 { buf[off] = ','; off += 1 }
-			sr := int(state.world.subplots[i].sub_ratios[sri] * 1000 + 0.5)
-			off = write_int_to_buf(buf[:], off, sr)
-		}
-		buf[off] = ':'; off += 1
-
-		// TF: tf_idx+1 (0 = global, 1-9 = per-cell).
-		tf_val := state.world.timeframes[i].tf_idx + 1
-		if tf_val < 0 { tf_val = 0 }
-		off = write_int_to_buf(buf[:], off, tf_val)
-	}
-
-	services.settings_set(&state.settings, services.SETTING_LAYOUT_V4, string(buf[:off]))
-	services.settings_set(&state.settings, services.SETTING_LAYOUT_MODE,
-		state.layout_mode == .Custom ? "C" : "P")
-	persist_layout_v5_from_v4(state, string(buf[:off]))
-}
-
-persist_layout_v5_from_v4 :: proc(state: ^App_State, layout_v4: string) {
-	if state == nil do return
-	if len(layout_v4) < 2 do return
-	if layout_v4[0] != 'V' || layout_v4[1] != '4' do return
-	link_flag := "1" if state.signal_evidence_link_enabled else "0"
-	layout_v5 := strings.concatenate({"V5", layout_v4[2:], "|LK:", link_flag})
-	defer delete(layout_v5)
-	services.settings_set(&state.settings, services.SETTING_LAYOUT_V5, layout_v5)
-}
-
-// ===============================================================
-// V3 persistence — extends V2 with layout mode, weights, and spans.
-// Format: "V3|MODE|CW:w0,w1,...|RW:w0,w1,...|K:S:F:CS:RS|..."
-//   MODE = P (Preset) or C (Custom)
-//   CW: = col weights (comma-sep integers, weight*100)
-//   RW: = row weights (comma-sep integers, weight*100)
-//   K:S:F:CS:RS = widget kind, stream, flags, col_span, row_span
-// ===============================================================
-
-persist_layout_v3 :: proc(state: ^App_State) {
-	buf: [2048]u8
-	off := 0
-
-	// Header: "V3"
-	buf[off] = 'V'; off += 1
-	buf[off] = '3'; off += 1
-
-	// MODE.
-	buf[off] = '|'; off += 1
-	buf[off] = state.layout_mode == .Custom ? 'C' : 'P'; off += 1
-
-	// CW: col weights.
-	buf[off] = '|'; off += 1
-	buf[off] = 'C'; off += 1
-	buf[off] = 'W'; off += 1
-	buf[off] = ':'; off += 1
-	for c in 0 ..< state.custom_grid_def.col_count {
-		if c > 0 { buf[off] = ','; off += 1 }
-		w := int(state.custom_grid_def.col_weights[c] * 100 + 0.5)
-		off = write_int_to_buf(buf[:], off, w)
-	}
-
-	// RW: row weights.
-	buf[off] = '|'; off += 1
-	buf[off] = 'R'; off += 1
-	buf[off] = 'W'; off += 1
-	buf[off] = ':'; off += 1
-	for r in 0 ..< state.custom_grid_def.row_count {
-		if r > 0 { buf[off] = ','; off += 1 }
-		w := int(state.custom_grid_def.row_weights[r] * 100 + 0.5)
-		off = write_int_to_buf(buf[:], off, w)
-	}
-
-	// Cells: K:S:F:CS:RS per cell.
-	n := state.world.count
-	for i in 0 ..< n {
-		buf[off] = '|'; off += 1
-
-		// K: widget kind.
-		buf[off] = '0' + u8(state.world.widgets[i].kind); off += 1
-		buf[off] = ':'; off += 1
-
-		// S: stream binding — read from cell's bound fields (PRD-0009).
-		bv := binding_venue(&state.world.bindings[i])
-		bs := binding_symbol(&state.world.bindings[i])
-		if len(bv) > 0 && len(bs) > 0 {
-			for vi in 0 ..< len(bv) { if off < len(buf) { buf[off] = bv[vi]; off += 1 } }
-			buf[off] = '/'; off += 1
-			for si in 0 ..< len(bs) { if off < len(buf) { buf[off] = bs[si]; off += 1 } }
-		} else {
-			buf[off] = '-'; off += 1
-			buf[off] = '1'; off += 1
-		}
-		buf[off] = ':'; off += 1
-
-		// F: indicator flags.
-		flags := pack_indicator_flags(&state.world.indicators[i])
-		off = write_int_to_buf(buf[:], off, flags)
-		buf[off] = ':'; off += 1
-
-		// CS: col_span.
-		cs := state.world.spans[i].col_span > 1 ? state.world.spans[i].col_span : 1
-		off = write_int_to_buf(buf[:], off, cs)
-		buf[off] = ':'; off += 1
-
-		// RS: row_span.
-		rs := state.world.spans[i].row_span > 1 ? state.world.spans[i].row_span : 1
-		off = write_int_to_buf(buf[:], off, rs)
-		buf[off] = ':'; off += 1
-
-		// SM: sub_main_split (x1000).
-		sm := int(state.world.subplots[i].sub_main_split * 1000 + 0.5)
-		off = write_int_to_buf(buf[:], off, sm)
-		buf[off] = ':'; off += 1
-
-		// SR: sub_ratios (x1000, comma-separated).
-		for sri in 0 ..< 5 {
-			if sri > 0 { buf[off] = ','; off += 1 }
-			sr := int(state.world.subplots[i].sub_ratios[sri] * 1000 + 0.5)
-			off = write_int_to_buf(buf[:], off, sr)
-		}
-	}
-
-	services.settings_set(&state.settings, services.SETTING_LAYOUT_V3, string(buf[:off]))
-	services.settings_set(&state.settings, services.SETTING_LAYOUT_MODE,
-		state.layout_mode == .Custom ? "C" : "P")
-	// Also export V2/V1 layouts for rollback tooling.
-	persist_layout_v2(state)
-}
 
 // Helper: write a non-negative integer to buf at off, returns new off.
 write_int_to_buf :: proc(buf: []u8, start: int, val: int) -> int {
@@ -825,536 +479,30 @@ parse_int_from :: proc(s: string) -> int {
 	return v
 }
 
-restore_layout_v3 :: proc(state: ^App_State) -> bool {
-	v, ok := services.settings_get(&state.settings, services.SETTING_LAYOUT_V3)
-	if !ok || len(v) < 4 do return false
-	if v[0] != 'V' || v[1] != '3' do return false
-
-	rest := v[2:]
-	pos := 0
-
-	// Parse MODE.
-	if pos >= len(rest) || rest[pos] != '|' do return false
-	pos += 1
-	if pos >= len(rest) do return false
-	mode_ch := rest[pos]
-	pos += 1
-	if mode_ch == 'C' {
-		state.layout_mode = .Custom
-	} else {
-		state.layout_mode = .Preset
-	}
-
-	// Parse CW: col weights.
-	if pos >= len(rest) || rest[pos] != '|' do return false
-	pos += 1
-	if pos + 2 >= len(rest) || rest[pos] != 'C' || rest[pos + 1] != 'W' || rest[pos + 2] != ':' do return false
-	pos += 3
-	cw_start := pos
-	for pos < len(rest) && rest[pos] != '|' { pos += 1 }
-	cw_field := rest[cw_start:pos]
-	// Parse comma-separated col weights.
-	col_idx := 0
-	seg_start := 0
-	for ci in 0 ..= len(cw_field) {
-		if ci == len(cw_field) || cw_field[ci] == ',' {
-			if ci > seg_start && col_idx < ui.GRID_MAX_COLS {
-				w := parse_int_from(cw_field[seg_start:ci])
-				state.custom_grid_def.col_weights[col_idx] = f32(w) / 100.0
-				col_idx += 1
-			}
-			seg_start = ci + 1
-		}
-	}
-	if col_idx > 0 { state.custom_grid_def.col_count = col_idx }
-
-	// Parse RW: row weights.
-	if pos >= len(rest) || rest[pos] != '|' do return false
-	pos += 1
-	if pos + 2 >= len(rest) || rest[pos] != 'R' || rest[pos + 1] != 'W' || rest[pos + 2] != ':' do return false
-	pos += 3
-	rw_start := pos
-	for pos < len(rest) && rest[pos] != '|' { pos += 1 }
-	rw_field := rest[rw_start:pos]
-	row_idx := 0
-	seg_start = 0
-	for ri in 0 ..= len(rw_field) {
-		if ri == len(rw_field) || rw_field[ri] == ',' {
-			if ri > seg_start && row_idx < ui.GRID_MAX_ROWS {
-				w := parse_int_from(rw_field[seg_start:ri])
-				state.custom_grid_def.row_weights[row_idx] = f32(w) / 100.0
-				row_idx += 1
-			}
-			seg_start = ri + 1
-		}
-	}
-	if row_idx > 0 { state.custom_grid_def.row_count = row_idx }
-
-	// Parse cells — build directly into world components.
-	cell_count := 0
-
-	for cell_count < CELL_MAX && pos < len(rest) {
-		if rest[pos] != '|' do break
-		pos += 1
-		if pos >= len(rest) do break
-
-		// K: widget kind.
-		k_digit := int(rest[pos]) - '0'
-		if k_digit < 0 || k_digit > 9 do break
-		pos += 1
-		if pos >= len(rest) || rest[pos] != ':' do break
-		pos += 1
-
-		// S: stream binding (until next ':').
-		s_start := pos
-		for pos < len(rest) && rest[pos] != ':' && rest[pos] != '|' { pos += 1 }
-		s_field := rest[s_start:pos]
-		if pos >= len(rest) || rest[pos] != ':' do break
-		pos += 1
-
-		// F: flags (until next ':').
-		f_start := pos
-		for pos < len(rest) && rest[pos] != ':' && rest[pos] != '|' { pos += 1 }
-		f_field := rest[f_start:pos]
-		if pos >= len(rest) || rest[pos] != ':' do break
-		pos += 1
-
-		// CS: col_span (until next ':').
-		cs_start := pos
-		for pos < len(rest) && rest[pos] != ':' && rest[pos] != '|' { pos += 1 }
-		cs_field := rest[cs_start:pos]
-		if pos >= len(rest) || rest[pos] != ':' do break
-		pos += 1
-
-		// RS: row_span (until next ':' or '|' or end).
-		rs_start := pos
-		for pos < len(rest) && rest[pos] != '|' && rest[pos] != ':' { pos += 1 }
-		rs_field := rest[rs_start:pos]
-
-		// SM: sub_main_split (optional, x1000).
-		sm_field := ""
-		if pos < len(rest) && rest[pos] == ':' {
-			pos += 1
-			sm_start := pos
-			for pos < len(rest) && rest[pos] != '|' && rest[pos] != ':' { pos += 1 }
-			sm_field = rest[sm_start:pos]
-		}
-
-		// SR: sub_ratios (optional, comma-separated x1000).
-		sr_field := ""
-		if pos < len(rest) && rest[pos] == ':' {
-			pos += 1
-			sr_start := pos
-			for pos < len(rest) && rest[pos] != '|' { pos += 1 }
-			sr_field = rest[sr_start:pos]
-		}
-
-		// Write into world components at cell_count.
-		ci := cell_count
-		write_default_cell_to_world(state, ci, Widget_Kind(k_digit))
-
-		if s_field == "-1" {
-			state.world.bindings[ci].stream_idx = -1
-			binding_clear(&state.world.bindings[ci])
-		} else {
-			slash := -1
-			for si in 0 ..< len(s_field) {
-				if s_field[si] == '/' { slash = si; break }
-			}
-			if slash > 0 && slash < len(s_field) - 1 {
-				binding_set(&state.world.bindings[ci], s_field[:slash], s_field[slash + 1:])
-			}
-			state.world.bindings[ci].stream_idx = -1
-		}
-
-		flags := parse_int_from(f_field)
-		unpack_indicator_flags(&state.world.indicators[ci], flags)
-
-		cs := parse_int_from(cs_field)
-		rs := parse_int_from(rs_field)
-		state.world.spans[ci].col_span = cs > 1 ? cs : 1
-		state.world.spans[ci].row_span = rs > 1 ? rs : 1
-
-		// Subplot ratios.
-		if len(sm_field) > 0 {
-			state.world.subplots[ci].sub_main_split = f32(parse_int_from(sm_field)) / 1000.0
-		}
-		if len(sr_field) > 0 {
-			sr_idx := 0
-			sr_seg_start := 0
-			for si in 0 ..= len(sr_field) {
-				if si == len(sr_field) || sr_field[si] == ',' {
-					if si > sr_seg_start && sr_idx < 5 {
-						state.world.subplots[ci].sub_ratios[sr_idx] = f32(parse_int_from(sr_field[sr_seg_start:si])) / 1000.0
-						sr_idx += 1
-					}
-					sr_seg_start = si + 1
-				}
-			}
-		}
-
-		cell_count += 1
-	}
-
-	if cell_count <= 0 do return false
-
-	state.world.count = cell_count
-	return true
-}
-
-restore_layout_v4 :: proc(state: ^App_State) -> bool {
-	v, ok := services.settings_get(&state.settings, services.SETTING_LAYOUT_V4)
-	if !ok || len(v) < 4 do return false
-	if v[0] != 'V' || v[1] != '4' do return false
-
-	rest := v[2:]
-	pos := 0
-
-	// Parse MODE.
-	if pos >= len(rest) || rest[pos] != '|' do return false
-	pos += 1
-	if pos >= len(rest) do return false
-	mode_ch := rest[pos]
-	pos += 1
-	if mode_ch == 'C' {
-		state.layout_mode = .Custom
-	} else {
-		state.layout_mode = .Preset
-	}
-
-	// Parse CW: col weights.
-	if pos >= len(rest) || rest[pos] != '|' do return false
-	pos += 1
-	if pos + 2 >= len(rest) || rest[pos] != 'C' || rest[pos + 1] != 'W' || rest[pos + 2] != ':' do return false
-	pos += 3
-	cw_start := pos
-	for pos < len(rest) && rest[pos] != '|' { pos += 1 }
-	cw_field := rest[cw_start:pos]
-	col_idx := 0
-	seg_start := 0
-	for ci in 0 ..= len(cw_field) {
-		if ci == len(cw_field) || cw_field[ci] == ',' {
-			if ci > seg_start && col_idx < ui.GRID_MAX_COLS {
-				w := parse_int_from(cw_field[seg_start:ci])
-				state.custom_grid_def.col_weights[col_idx] = f32(w) / 100.0
-				col_idx += 1
-			}
-			seg_start = ci + 1
-		}
-	}
-	if col_idx > 0 { state.custom_grid_def.col_count = col_idx }
-
-	// Parse RW: row weights.
-	if pos >= len(rest) || rest[pos] != '|' do return false
-	pos += 1
-	if pos + 2 >= len(rest) || rest[pos] != 'R' || rest[pos + 1] != 'W' || rest[pos + 2] != ':' do return false
-	pos += 3
-	rw_start := pos
-	for pos < len(rest) && rest[pos] != '|' { pos += 1 }
-	rw_field := rest[rw_start:pos]
-	row_idx := 0
-	seg_start = 0
-	for ri in 0 ..= len(rw_field) {
-		if ri == len(rw_field) || rw_field[ri] == ',' {
-			if ri > seg_start && row_idx < ui.GRID_MAX_ROWS {
-				w := parse_int_from(rw_field[seg_start:ri])
-				state.custom_grid_def.row_weights[row_idx] = f32(w) / 100.0
-				row_idx += 1
-			}
-			seg_start = ri + 1
-		}
-	}
-	if row_idx > 0 { state.custom_grid_def.row_count = row_idx }
-
-	// Parse cells — build directly into world components.
-	cell_count := 0
-
-	for cell_count < CELL_MAX && pos < len(rest) {
-		if rest[pos] != '|' do break
-		pos += 1
-		if pos >= len(rest) do break
-
-		// K: widget kind.
-		k_digit := int(rest[pos]) - '0'
-		if k_digit < 0 || k_digit > 9 do break
-		pos += 1
-		if pos >= len(rest) || rest[pos] != ':' do break
-		pos += 1
-
-		// S: stream binding (until next ':').
-		s_start := pos
-		for pos < len(rest) && rest[pos] != ':' && rest[pos] != '|' { pos += 1 }
-		s_field := rest[s_start:pos]
-		if pos >= len(rest) || rest[pos] != ':' do break
-		pos += 1
-
-		// F: flags (until next ':').
-		f_start := pos
-		for pos < len(rest) && rest[pos] != ':' && rest[pos] != '|' { pos += 1 }
-		f_field := rest[f_start:pos]
-		if pos >= len(rest) || rest[pos] != ':' do break
-		pos += 1
-
-		// CS: col_span (until next ':').
-		cs_start := pos
-		for pos < len(rest) && rest[pos] != ':' && rest[pos] != '|' { pos += 1 }
-		cs_field := rest[cs_start:pos]
-		if pos >= len(rest) || rest[pos] != ':' do break
-		pos += 1
-
-		// RS: row_span (until next ':' or '|' or end).
-		rs_start := pos
-		for pos < len(rest) && rest[pos] != '|' && rest[pos] != ':' { pos += 1 }
-		rs_field := rest[rs_start:pos]
-
-		// SM: sub_main_split (optional, x1000).
-		sm_field := ""
-		if pos < len(rest) && rest[pos] == ':' {
-			pos += 1
-			sm_start := pos
-			for pos < len(rest) && rest[pos] != '|' && rest[pos] != ':' { pos += 1 }
-			sm_field = rest[sm_start:pos]
-		}
-
-		// SR: sub_ratios (optional, comma-separated x1000).
-		sr_field := ""
-		if pos < len(rest) && rest[pos] == ':' {
-			pos += 1
-			sr_start := pos
-			for pos < len(rest) && rest[pos] != '|' && rest[pos] != ':' { pos += 1 }
-			sr_field = rest[sr_start:pos]
-		}
-
-		// TF: tf_idx+1 (0 = global, 1-9 = per-cell TF).
-		tf_field := ""
-		if pos < len(rest) && rest[pos] == ':' {
-			pos += 1
-			tf_start := pos
-			for pos < len(rest) && rest[pos] != '|' { pos += 1 }
-			tf_field = rest[tf_start:pos]
-		}
-
-		// Write into world components at cell_count.
-		ci := cell_count
-		write_default_cell_to_world(state, ci, Widget_Kind(k_digit))
-
-		if s_field == "-1" {
-			state.world.bindings[ci].stream_idx = -1
-			binding_clear(&state.world.bindings[ci])
-		} else {
-			slash := -1
-			for si in 0 ..< len(s_field) {
-				if s_field[si] == '/' { slash = si; break }
-			}
-			if slash > 0 && slash < len(s_field) - 1 {
-				// PRD-0009: store venue/symbol intent directly on cell.
-				binding_set(&state.world.bindings[ci], s_field[:slash], s_field[slash + 1:])
-			}
-			state.world.bindings[ci].stream_idx = -1 // will be resolved lazily (M2)
-		}
-
-		flags := parse_int_from(f_field)
-		unpack_indicator_flags(&state.world.indicators[ci], flags)
-
-		cs := parse_int_from(cs_field)
-		rs := parse_int_from(rs_field)
-		state.world.spans[ci].col_span = cs > 1 ? cs : 1
-		state.world.spans[ci].row_span = rs > 1 ? rs : 1
-
-		// Subplot ratios.
-		if len(sm_field) > 0 {
-			state.world.subplots[ci].sub_main_split = f32(parse_int_from(sm_field)) / 1000.0
-		}
-		if len(sr_field) > 0 {
-			sr_idx := 0
-			sr_seg_start := 0
-			for si in 0 ..= len(sr_field) {
-				if si == len(sr_field) || sr_field[si] == ',' {
-					if si > sr_seg_start && sr_idx < 5 {
-						state.world.subplots[ci].sub_ratios[sr_idx] = f32(parse_int_from(sr_field[sr_seg_start:si])) / 1000.0
-						sr_idx += 1
-					}
-					sr_seg_start = si + 1
-				}
-			}
-		}
-
-		// Per-cell TF: stored as tf_idx+1; 0 -> -1 (global), 1-9 -> 0-8.
-		if len(tf_field) > 0 {
-			tf_val := parse_int_from(tf_field)
-			state.world.timeframes[ci].tf_idx = tf_val > 0 ? tf_val - 1 : -1
-		}
-
-		cell_count += 1
-	}
-
-	if cell_count <= 0 do return false
-
-	state.world.count = cell_count
-	return true
-}
-
-restore_layout_v5 :: proc(state: ^App_State) -> bool {
-	v, ok := services.settings_get(&state.settings, services.SETTING_LAYOUT_V5)
-	if !ok || len(v) < 4 do return false
-	return restore_layout_v5_from_string(state, v)
-}
-
-restore_layout_v5_from_string :: proc(state: ^App_State, v: string) -> bool {
-	if len(v) < 4 do return false
-	if v[0] != 'V' || v[1] != '5' do return false
-
-	base := v
-	link_enabled := true
-	for i := 2; i + 3 < len(v); i += 1 {
-		if v[i] == '|' && v[i + 1] == 'L' && v[i + 2] == 'K' && v[i + 3] == ':' {
-			base = v[:i]
-			val := v[i + 4:]
-			if len(val) > 0 {
-				link_enabled = val[0] != '0'
-			}
-			break
-		}
-	}
-
-	v4 := strings.concatenate({"V4", base[2:]})
-	defer delete(v4)
-	if !restore_layout_v4_from_string(state, v4) do return false
-	state.signal_evidence_link_enabled = link_enabled
-	return true
-}
-
-restore_layout_v2 :: proc(state: ^App_State) -> bool {
-	v, ok := services.settings_get(&state.settings, services.SETTING_LAYOUT_V2)
-	if !ok || len(v) < 4 do return false
-	if v[0] != 'V' || v[1] != '2' do return false
-
-	rest := v[2:]  // skip "V2"
-
-	// Parse pipe-delimited cells.
-	cell_count := 0
-	stream_bindings: [CELL_MAX][2]string  // [venue, symbol] for re-association
-
-	pos := 0
-	for cell_count < CELL_MAX && pos < len(rest) {
-		// Expect '|' before each cell.
-		if rest[pos] != '|' do break
-		pos += 1
-		if pos >= len(rest) do break
-
-		// Parse K (widget kind digit).
-		k_digit := int(rest[pos]) - '0'
-		if k_digit < 0 || k_digit > 9 do break
-		pos += 1
-		if pos >= len(rest) || rest[pos] != ':' do break
-		pos += 1
-
-		// Parse S (stream binding -- up to next ':').
-		s_start := pos
-		for pos < len(rest) && rest[pos] != ':' && rest[pos] != '|' {
-			pos += 1
-		}
-		s_field := rest[s_start:pos]
-		if pos >= len(rest) || rest[pos] != ':' do break
-		pos += 1
-
-		// Parse F (flags -- digits until '|' or end).
-		f_start := pos
-		for pos < len(rest) && rest[pos] != '|' {
-			pos += 1
-		}
-		f_field := rest[f_start:pos]
-
-		// Write into world components.
-		ci := cell_count
-		write_default_cell_to_world(state, ci, Widget_Kind(k_digit))
-
-		// Decode stream binding.
-		if s_field == "-1" {
-			state.world.bindings[ci].stream_idx = -1
-		} else {
-			// Parse "venue/symbol".
-			slash := -1
-			for si in 0 ..< len(s_field) {
-				if s_field[si] == '/' { slash = si; break }
-			}
-			if slash > 0 && slash < len(s_field) - 1 {
-				stream_bindings[cell_count][0] = s_field[:slash]
-				stream_bindings[cell_count][1] = s_field[slash + 1:]
-			}
-			state.world.bindings[ci].stream_idx = -1  // will be resolved after all cells parsed
-		}
-
-		// Decode flags.
-		flags := 0
-		for fi in 0 ..< len(f_field) {
-			d := int(f_field[fi]) - '0'
-			if d < 0 || d > 9 do break
-			flags = flags * 10 + d
-		}
-		unpack_indicator_flags(&state.world.indicators[ci], flags)
-
-		cell_count += 1
-	}
-
-	if cell_count <= 0 do return false
-
-	// Apply cells.
-	state.world.count = cell_count
-
-	// Re-associate stream bindings: find matching stream_view slot by venue/symbol.
-	reg := state.stream_views
-	if reg != nil {
-		for i in 0 ..< cell_count {
-			venue := stream_bindings[i][0]
-			symbol := stream_bindings[i][1]
-			if len(venue) == 0 || len(symbol) == 0 do continue
-			// Find slot with matching venue/symbol.
-			for si in 0 ..< STREAM_VIEW_CAP {
-				if !reg.slots[si].used do continue
-				slot := &reg.slots[si]
-				if !slot.has_stream_info {
-					refresh_stream_info_for_slot(state, slot)
-				}
-				if slot.has_stream_info &&
-					normalized_venue(slot.stream_info.venue) == normalized_venue(venue) &&
-					normalized_symbol(slot.stream_info.symbol) == normalized_symbol(symbol) {
-					state.world.bindings[i].stream_idx = si
-					break
-				}
-			}
-		}
-	}
-
-	return true
-}
-
-// Export current layout V4 string to the system clipboard.
+// ===============================================================
+// Import / Export
+// ===============================================================
+
+// Export current layout V6 string to the system clipboard.
 layout_export_to_clipboard :: proc(state: ^App_State) -> bool {
-	// Ensure latest V6 is persisted (V5/V4 kept for rollback).
 	persist_layout_v6(state)
 	v, ok := services.settings_get(&state.settings, services.SETTING_LAYOUT_V6)
-	if !ok || len(v) < 4 {
-		v, ok = services.settings_get(&state.settings, services.SETTING_LAYOUT_V5)
-	}
-	if !ok || len(v) < 4 {
-		v, ok = services.settings_get(&state.settings, services.SETTING_LAYOUT_V4)
-	}
 	if !ok || len(v) < 4 do return false
 	return services.settings_clipboard_write(&state.settings, v)
 }
 
-// Import layout from a V6/V5/V4 string (e.g. pasted from clipboard).
+// Import layout from a V6 string (e.g. pasted from clipboard).
+// S122: V6-only import — legacy V5/V4 no longer accepted.
 layout_import_from_string :: proc(state: ^App_State, v: string) -> bool {
 	if len(v) < 4 do return false
 	if v[0] != 'V' do return false
-	if v[1] == '6' {
-		if !restore_layout_v6_from_string(state, v) do return false
-	} else if v[1] == '5' {
-		if !restore_layout_v5_from_string(state, v) do return false
-	} else if v[1] == '4' {
-		if !restore_layout_v4_from_string(state, v) do return false
-		state.signal_evidence_link_enabled = true
+
+	// S122: Strip CRC if present, then check header.
+	body, ck_valid, _ := artifact_validate_ck(v)
+	if !ck_valid do return false
+
+	if len(body) >= 2 && body[0] == 'V' && body[1] == '6' {
+		if !restore_layout_v6_from_string(state, body) do return false
 	} else {
 		return false
 	}
@@ -1363,183 +511,9 @@ layout_import_from_string :: proc(state: ^App_State, v: string) -> bool {
 	return true
 }
 
-// Restore V4 layout from an explicit string (decoupled from settings_get).
-restore_layout_v4_from_string :: proc(state: ^App_State, v: string) -> bool {
-	if len(v) < 4 do return false
-	if v[0] != 'V' || v[1] != '4' do return false
-
-	rest := v[2:]
-	pos := 0
-
-	// Parse MODE.
-	if pos >= len(rest) || rest[pos] != '|' do return false
-	pos += 1
-	if pos >= len(rest) do return false
-	mode_ch := rest[pos]
-	pos += 1
-	if mode_ch == 'C' {
-		state.layout_mode = .Custom
-	} else {
-		state.layout_mode = .Preset
-	}
-
-	// Parse CW: col weights.
-	if pos >= len(rest) || rest[pos] != '|' do return false
-	pos += 1
-	if pos + 2 >= len(rest) || rest[pos] != 'C' || rest[pos + 1] != 'W' || rest[pos + 2] != ':' do return false
-	pos += 3
-	cw_start := pos
-	for pos < len(rest) && rest[pos] != '|' { pos += 1 }
-	cw_field := rest[cw_start:pos]
-	col_idx := 0
-	seg_start := 0
-	for ci in 0 ..= len(cw_field) {
-		if ci == len(cw_field) || cw_field[ci] == ',' {
-			if ci > seg_start && col_idx < ui.GRID_MAX_COLS {
-				w := parse_int_from(cw_field[seg_start:ci])
-				state.custom_grid_def.col_weights[col_idx] = f32(w) / 100.0
-				col_idx += 1
-			}
-			seg_start = ci + 1
-		}
-	}
-	if col_idx > 0 { state.custom_grid_def.col_count = col_idx }
-
-	// Parse RW: row weights.
-	if pos >= len(rest) || rest[pos] != '|' do return false
-	pos += 1
-	if pos + 2 >= len(rest) || rest[pos] != 'R' || rest[pos + 1] != 'W' || rest[pos + 2] != ':' do return false
-	pos += 3
-	rw_start := pos
-	for pos < len(rest) && rest[pos] != '|' { pos += 1 }
-	rw_field := rest[rw_start:pos]
-	row_idx := 0
-	seg_start = 0
-	for ri in 0 ..= len(rw_field) {
-		if ri == len(rw_field) || rw_field[ri] == ',' {
-			if ri > seg_start && row_idx < ui.GRID_MAX_ROWS {
-				w := parse_int_from(rw_field[seg_start:ri])
-				state.custom_grid_def.row_weights[row_idx] = f32(w) / 100.0
-				row_idx += 1
-			}
-			seg_start = ri + 1
-		}
-	}
-	if row_idx > 0 { state.custom_grid_def.row_count = row_idx }
-
-	// Parse cells.
-	cell_count := 0
-	for cell_count < CELL_MAX && pos < len(rest) {
-		if rest[pos] != '|' do break
-		pos += 1
-		if pos >= len(rest) do break
-
-		k_digit := int(rest[pos]) - '0'
-		if k_digit < 0 || k_digit > 9 do break
-		pos += 1
-		if pos >= len(rest) || rest[pos] != ':' do break
-		pos += 1
-
-		s_start := pos
-		for pos < len(rest) && rest[pos] != ':' && rest[pos] != '|' { pos += 1 }
-		s_field := rest[s_start:pos]
-		if pos >= len(rest) || rest[pos] != ':' do break
-		pos += 1
-
-		f_start := pos
-		for pos < len(rest) && rest[pos] != ':' && rest[pos] != '|' { pos += 1 }
-		f_field := rest[f_start:pos]
-		if pos >= len(rest) || rest[pos] != ':' do break
-		pos += 1
-
-		cs_start := pos
-		for pos < len(rest) && rest[pos] != ':' && rest[pos] != '|' { pos += 1 }
-		cs_field := rest[cs_start:pos]
-		if pos >= len(rest) || rest[pos] != ':' do break
-		pos += 1
-
-		rs_start := pos
-		for pos < len(rest) && rest[pos] != '|' && rest[pos] != ':' { pos += 1 }
-		rs_field := rest[rs_start:pos]
-
-		sm_field := ""
-		if pos < len(rest) && rest[pos] == ':' {
-			pos += 1
-			sm_start := pos
-			for pos < len(rest) && rest[pos] != '|' && rest[pos] != ':' { pos += 1 }
-			sm_field = rest[sm_start:pos]
-		}
-
-		sr_field := ""
-		if pos < len(rest) && rest[pos] == ':' {
-			pos += 1
-			sr_start := pos
-			for pos < len(rest) && rest[pos] != '|' && rest[pos] != ':' { pos += 1 }
-			sr_field = rest[sr_start:pos]
-		}
-
-		tf_field := ""
-		if pos < len(rest) && rest[pos] == ':' {
-			pos += 1
-			tf_start := pos
-			for pos < len(rest) && rest[pos] != '|' { pos += 1 }
-			tf_field = rest[tf_start:pos]
-		}
-
-		ci := cell_count
-		write_default_cell_to_world(state, ci, Widget_Kind(k_digit))
-
-		if s_field == "-1" {
-			state.world.bindings[ci].stream_idx = -1
-			binding_clear(&state.world.bindings[ci])
-		} else {
-			slash := -1
-			for si in 0 ..< len(s_field) {
-				if s_field[si] == '/' { slash = si; break }
-			}
-			if slash > 0 && slash < len(s_field) - 1 {
-				binding_set(&state.world.bindings[ci], s_field[:slash], s_field[slash + 1:])
-			}
-			state.world.bindings[ci].stream_idx = -1
-		}
-
-		flags := parse_int_from(f_field)
-		unpack_indicator_flags(&state.world.indicators[ci], flags)
-
-		cs := parse_int_from(cs_field)
-		rs := parse_int_from(rs_field)
-		state.world.spans[ci].col_span = cs > 1 ? cs : 1
-		state.world.spans[ci].row_span = rs > 1 ? rs : 1
-
-		if len(sm_field) > 0 {
-			state.world.subplots[ci].sub_main_split = f32(parse_int_from(sm_field)) / 1000.0
-		}
-		if len(sr_field) > 0 {
-			sr_idx := 0
-			sr_seg_start := 0
-			for si in 0 ..= len(sr_field) {
-				if si == len(sr_field) || sr_field[si] == ',' {
-					if si > sr_seg_start && sr_idx < 5 {
-						state.world.subplots[ci].sub_ratios[sr_idx] = f32(parse_int_from(sr_field[sr_seg_start:si])) / 1000.0
-						sr_idx += 1
-					}
-					sr_seg_start = si + 1
-				}
-			}
-		}
-
-		if len(tf_field) > 0 {
-			tf_val := parse_int_from(tf_field)
-			state.world.timeframes[ci].tf_idx = tf_val > 0 ? tf_val - 1 : -1
-		}
-
-		cell_count += 1
-	}
-
-	if cell_count <= 0 do return false
-	state.world.count = cell_count
-	return true
-}
+// ===============================================================
+// Custom Presets
+// ===============================================================
 
 // Custom preset settings keys indexed 0-3.
 CUSTOM_LAYOUT_KEYS :: [4]string{
@@ -1552,28 +526,32 @@ CUSTOM_LAYOUT_KEYS :: [4]string{
 // Save current layout to a custom preset slot (0-3).
 save_custom_preset :: proc(state: ^App_State, slot: int) {
 	if slot < 0 || slot >= 4 do return
-	// S45: Save full V6 format (preserves bindings, indicators, spans, TF, chart display).
 	buf: [2048]u8
 	off := build_layout_v6_string(state, buf[:])
+	// S122: Append CRC to custom preset too.
+	body := string(buf[:off])
+	off = artifact_write_ck_suffix(buf[:], off, body)
 	keys := CUSTOM_LAYOUT_KEYS
 	services.settings_set(&state.settings, keys[slot], string(buf[:off]))
 	services.settings_flush(&state.settings)
 }
 
 // Load a custom preset slot. Returns true if valid and applied.
-// S45: Tries V6 first, then V4, then V1 (backward compat with old presets).
+// S122: V6-only — legacy V4/V1 presets no longer loaded.
 load_custom_preset :: proc(state: ^App_State, slot: int) -> bool {
 	if slot < 0 || slot >= 4 do return false
 	keys := CUSTOM_LAYOUT_KEYS
 	v, ok := services.settings_get(&state.settings, keys[slot])
 	if !ok || len(v) < 3 do return false
-	if len(v) >= 4 && v[0] == 'V' && v[1] == '6' {
-		return restore_layout_v6_from_string(state, v)
+
+	// S122: Strip CRC if present.
+	body, ck_valid, _ := artifact_validate_ck(v)
+	if !ck_valid do return false
+
+	if len(body) >= 4 && body[0] == 'V' && body[1] == '6' {
+		return restore_layout_v6_from_string(state, body)
 	}
-	if len(v) >= 4 && v[0] == 'V' && v[1] == '4' {
-		return restore_layout_v4_from_string(state, v)
-	}
-	return restore_layout_from_string(state, v) // V1 fallback
+	return false
 }
 
 // Check if a custom preset slot has a valid saved layout.
@@ -1583,6 +561,10 @@ custom_preset_valid :: proc(state: ^App_State, slot: int) -> bool {
 	v, ok := services.settings_get(&state.settings, keys[slot])
 	return ok && len(v) >= 3
 }
+
+// ===============================================================
+// Default Layout
+// ===============================================================
 
 // Initialize world components from panel visibility defaults.
 layout_from_panels :: proc(state: ^App_State) {
@@ -1602,7 +584,6 @@ layout_from_panels :: proc(state: ^App_State) {
 
 // ===============================================================
 // Helper: write default cell state into world components at index ci.
-// Replaces make_default_cell for ECS world component storage.
 // ===============================================================
 
 write_default_cell_to_world :: proc(state: ^App_State, ci: int, widget: Widget_Kind = .Empty, stream_idx: int = -1) {

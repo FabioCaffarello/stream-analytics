@@ -48,6 +48,22 @@ Stale_Detection :: enum u8 {
 	Sparse_Adaptive,   // S47: Sparse/irregular feeds (OI): 60s/180s thresholds
 }
 
+// S130: Bootstrap source — how an artifact first becomes usable.
+Bootstrap_Source :: enum u8 {
+	Live_Immediate,    // Trades, OB, Stats — arrive on subscribe, no TF dependency
+	Live_TF_Gated,     // Delta Vol, CVD, Bar Stats — first close = TF duration
+	Historical_Range,  // Candles — GetRange backfill
+	Snapshot_Gate,     // Needs explicit snapshot (OB depth)
+	Accumulation,      // Heatmap, VPVR, SVP, TPO — needs time to build
+}
+
+// S130: Bootstrap expectation per artifact — TF-independent base contract.
+Bootstrap_Expectation :: struct {
+	source:         Bootstrap_Source,
+	min_seed_ms:    i64,   // Minimum expected time to first usable data
+	partial_usable: bool,  // Can render partial data before full bootstrap
+}
+
 // Artifact_Policy is the compile-time contract for each artifact kind.
 // Defines what the stream engine must enforce per artifact.
 Artifact_Policy :: struct {
@@ -261,6 +277,78 @@ artifact_policies : [Artifact_Kind]Artifact_Policy = {
 		backpressure_priority       = .Degradable,
 		stale_detection             = .None,
 	},
+}
+
+// S130: Bootstrap expectation table — single source of truth for how each artifact bootstraps.
+@(rodata)
+bootstrap_expectations : [Artifact_Kind]Bootstrap_Expectation = {
+	.Trade              = { source = .Live_Immediate,   min_seed_ms = 500,    partial_usable = true  },
+	.Orderbook          = { source = .Snapshot_Gate,    min_seed_ms = 2_000,  partial_usable = false },
+	.Stats              = { source = .Live_Immediate,   min_seed_ms = 1_000,  partial_usable = true  },
+	.Candle             = { source = .Historical_Range, min_seed_ms = 1_000,  partial_usable = false },
+	.Heatmap            = { source = .Accumulation,     min_seed_ms = 5_000,  partial_usable = false },
+	.VPVR               = { source = .Accumulation,     min_seed_ms = 5_000,  partial_usable = false },
+	.Evidence           = { source = .Live_Immediate,   min_seed_ms = 500,    partial_usable = true  },
+	.Signal             = { source = .Live_Immediate,   min_seed_ms = 500,    partial_usable = true  },
+	.Tape               = { source = .Live_Immediate,   min_seed_ms = 500,    partial_usable = true  },
+	.Range_Candle       = { source = .Historical_Range, min_seed_ms = 1_000,  partial_usable = false },
+	.Open_Interest      = { source = .Live_Immediate,   min_seed_ms = 2_000,  partial_usable = true  },
+	.Delta_Volume       = { source = .Live_TF_Gated,    min_seed_ms = 1_000,  partial_usable = false },
+	.CVD                = { source = .Live_TF_Gated,    min_seed_ms = 1_000,  partial_usable = false },
+	.Bar_Stats          = { source = .Live_TF_Gated,    min_seed_ms = 1_000,  partial_usable = false },
+	.Session_Volume_Profile = { source = .Accumulation, min_seed_ms = 5_000,  partial_usable = false },
+	.TPO_Profile        = { source = .Accumulation,     min_seed_ms = 10_000, partial_usable = false },
+}
+
+// S130: Bootstrap hint — TF-aware output for UX display.
+Bootstrap_Hint :: struct {
+	expected_ms: i64,    // Expected time to first useful data for this TF
+	partial_ok:  bool,   // Can render partial data while waiting
+	hint_label:  string, // Human-readable hint (string literal, no alloc)
+}
+
+// S130: bootstrap_hint_for_artifact returns a TF-aware bootstrap hint.
+// Pure function. All returned strings are compile-time literals.
+bootstrap_hint_for_artifact :: proc(kind: Artifact_Kind, tf_ms: i64) -> Bootstrap_Hint {
+	be := bootstrap_expectations[kind]
+	hint: Bootstrap_Hint
+	hint.partial_ok = be.partial_usable
+
+	switch be.source {
+	case .Live_Immediate:
+		hint.expected_ms = be.min_seed_ms
+		hint.hint_label = "Data arrives within seconds"
+	case .Live_TF_Gated:
+		hint.expected_ms = max(be.min_seed_ms, tf_ms)
+		if tf_ms <= 5_000 {
+			hint.hint_label = "First close in seconds"
+		} else if tf_ms <= 60_000 {
+			hint.hint_label = "Waiting for candle close"
+		} else if tf_ms <= 900_000 {
+			hint.hint_label = "First close takes minutes"
+		} else {
+			hint.hint_label = "Long timeframe — first close may take a while"
+		}
+	case .Historical_Range:
+		hint.expected_ms = be.min_seed_ms + 1_000
+		hint.hint_label = "Fetching historical data"
+	case .Snapshot_Gate:
+		hint.expected_ms = be.min_seed_ms
+		hint.hint_label = "Awaiting exchange snapshot"
+	case .Accumulation:
+		hint.expected_ms = be.min_seed_ms + tf_ms
+		if tf_ms <= 5_000 {
+			hint.hint_label = "Accumulating data"
+		} else {
+			hint.hint_label = "Building over time"
+		}
+	}
+	return hint
+}
+
+// S130: artifact_bootstrap_expectation returns the bootstrap expectation for a given artifact.
+artifact_bootstrap_expectation :: proc(kind: Artifact_Kind) -> Bootstrap_Expectation {
+	return bootstrap_expectations[kind]
 }
 
 // artifact_kind_from_event_kind maps the port event kind to artifact kind.

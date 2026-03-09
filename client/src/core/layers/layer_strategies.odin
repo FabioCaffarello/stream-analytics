@@ -217,42 +217,117 @@ trades_tape_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs) {
 	store := &ctx.stream.trades
 	if store.count <= 0 do return
 
-	rows := min(store.count, 18)
-	row_h := max(ctx.viewport.size.y / f32(max(rows, 1)), 12)
+	// S121: Pre-scan visible trades for size classification thresholds.
+	vis_cap :: 18
+	rows := min(store.count, vis_cap)
 	max_qty := f64(0)
+	sum_qty := f64(0)
+	valid_count := 0
 	for i in 0 ..< rows {
 		t := services.get_trade(store, i)
+		if t.price == 0 && t.qty == 0 do continue
 		if t.qty > max_qty do max_qty = t.qty
+		sum_qty += t.qty
+		valid_count += 1
 	}
 	if max_qty <= 0 do max_qty = 1
+	avg_qty := valid_count > 0 ? sum_qty / f64(valid_count) : max_qty
+
+	// S121: Dust threshold — skip trades < 5% of avg (adapts per instrument).
+	dust_thresh := avg_qty * 0.05
+
+	// S121: Size classification thresholds.
+	large_thresh := avg_qty * 3.0
+	whale_thresh := avg_qty * 10.0
+
+	// Render visible rows (skipping dust).
+	rendered := 0
+	row_h := max(ctx.viewport.size.y / f32(max(valid_count, 1)), 14)
+	right_edge := rect_right(ctx.viewport)
 
 	for i in 0 ..< rows {
 		t := services.get_trade(store, i)
-		// S86: Skip zero-data trade entries — avoids rendering "0.00 x 0.0000" labels.
 		if t.price == 0 && t.qty == 0 do continue
-		y := ctx.viewport.pos.y + f32(i) * row_h
+		if t.qty < dust_thresh do continue
+
+		y := ctx.viewport.pos.y + f32(rendered) * row_h
+		if y + row_h > rect_bottom(ctx.viewport) do break
+		rendered += 1
+
 		frac := f32(t.qty / max_qty)
 		frac = clamp(frac, 0.05, 1.0)
 		w := (ctx.viewport.size.x - 4) * frac
 		col := t.side == .Buy ? ui.COL_GREEN : ui.COL_RED
 
+		// S121: Size-based alpha: small→0.20, medium→0.35, large→0.55, whale→0.70.
+		bar_alpha := f32(0.35)
+		if t.qty >= whale_thresh {
+			bar_alpha = 0.70
+		} else if t.qty >= large_thresh {
+			bar_alpha = 0.55
+		} else if t.qty < avg_qty * 0.5 {
+			bar_alpha = 0.20
+		}
+
 		x := ctx.viewport.pos.x + 2
 		if t.side == .Sell {
-			x = rect_right(ctx.viewport) - 2 - w
+			x = right_edge - 2 - w
 		}
 		layer_outputs_push_bar(out, 40, Render_Bar{
 			rect = ui.Rect{pos = {x, y + 1}, size = {w, row_h - 2}},
-			color = ui.with_alpha(col, 0.35),
+			color = ui.with_alpha(col, bar_alpha),
 		})
 
-		line_buf: [80]u8
-		line := fmt.bprintf(line_buf[:], "%.2f x %.4f", t.price, t.qty)
+		// S121: Whale accent — 1px yellow top border for whale trades.
+		if t.qty >= whale_thresh {
+			layer_outputs_push_line(out, 42, Render_Line{
+				from = {x, y + 1},
+				to = {x + w, y + 1},
+				color = ui.with_alpha(ui.COL_YELLOW_ACCENT, 0.60),
+				thickness = 1,
+			})
+		}
+
+		// S121: Split into price (left) + qty (right) for column alignment.
+		price_buf: [48]u8
+		price_str := fmt.bprintf(price_buf[:], "%.2f", t.price)
 		layer_outputs_push_text_badge(out, 41, text_badge_make(
 			{ctx.viewport.pos.x + 6, y + row_h * 0.7},
-			line,
+			price_str,
+			ui.COL_TEXT_PRIMARY,
+			ui.FONT_SIZE_XS,
+		))
+
+		qty_buf: [48]u8
+		qty_str := fmt.bprintf(qty_buf[:], "%.4f", t.qty)
+		layer_outputs_push_text_badge(out, 41, text_badge_make(
+			{ctx.viewport.pos.x + ctx.viewport.size.x * 0.45, y + row_h * 0.7},
+			qty_str,
 			ui.COL_TEXT_SECONDARY,
 			ui.FONT_SIZE_XS,
 		))
+
+		// S121: Age column (right edge).
+		if ctx.now_ms > 0 && t.unix > 0 {
+			age_s := (ctx.now_ms / 1000) - t.unix
+			if age_s >= 0 {
+				age_buf: [16]u8
+				age_str: string
+				if age_s < 60 {
+					age_str = fmt.bprintf(age_buf[:], "%ds", age_s)
+				} else if age_s < 3600 {
+					age_str = fmt.bprintf(age_buf[:], "%dm", age_s / 60)
+				} else {
+					age_str = fmt.bprintf(age_buf[:], "%dh", age_s / 3600)
+				}
+				layer_outputs_push_text_badge(out, 41, text_badge_make(
+					{right_edge - 30, y + row_h * 0.7},
+					age_str,
+					ui.COL_TEXT_MUTED,
+					ui.FONT_SIZE_XS,
+				))
+			}
+		}
 	}
 }
 
@@ -301,50 +376,167 @@ orderbook_dom_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs) {
 	if rows <= 0 do return
 
 	mid_x := ctx.viewport.pos.x + ctx.viewport.size.x * 0.5
-	row_h := max(ctx.viewport.size.y / f32(max(rows, 1)), 10)
+	half_w := ctx.viewport.size.x * 0.5 - 6
+	// S121: Reserve top 24px for mid-price + spread header.
+	header_h := f32(24)
+	body_y := ctx.viewport.pos.y + header_h
+	body_h := ctx.viewport.size.y - header_h
+	row_h := max(body_h / f32(max(rows, 1)), 10)
+
+	// Pre-scan: max size and cumulative totals per side.
 	max_size := f64(0)
+	cum_ask_total := f64(0)
+	cum_bid_total := f64(0)
+	avg_size := f64(0)
+	level_count := 0
 	for i in 0 ..< rows {
-		if i < ob.ask_count && ob.ask_sizes[i] > max_size do max_size = ob.ask_sizes[i]
-		if i < ob.bid_count && ob.bid_sizes[i] > max_size do max_size = ob.bid_sizes[i]
+		if i < ob.ask_count {
+			if ob.ask_sizes[i] > max_size do max_size = ob.ask_sizes[i]
+			cum_ask_total += ob.ask_sizes[i]
+			avg_size += ob.ask_sizes[i]
+			level_count += 1
+		}
+		if i < ob.bid_count {
+			if ob.bid_sizes[i] > max_size do max_size = ob.bid_sizes[i]
+			cum_bid_total += ob.bid_sizes[i]
+			avg_size += ob.bid_sizes[i]
+			level_count += 1
+		}
 	}
 	if max_size <= 0 do max_size = 1
+	if level_count > 0 do avg_size /= f64(level_count)
+	// S121: Whale wall threshold = 5x average size.
+	whale_wall := avg_size * 5.0
 
+	// S121: Mid-price hero badge at top center.
+	mid := services.mid_price(ob)
+	mid_buf: [48]u8
+	mid_str := fmt.bprintf(mid_buf[:], "%.2f", mid)
+	layer_outputs_push_text_badge(out, 33, text_badge_make(
+		{mid_x - 24, ctx.viewport.pos.y + 14},
+		mid_str,
+		ui.COL_TEXT_PRIMARY,
+		ui.FONT_SIZE_SM,
+	))
+
+	// S121: Spread in absolute + basis points.
+	sp := services.spread(ob)
+	spread_buf: [64]u8
+	spread_str: string
+	if mid > 0 {
+		bps := sp / mid * 10000
+		spread_str = fmt.bprintf(spread_buf[:], "Spd %.2f (%.1f bps)", sp, bps)
+	} else {
+		spread_str = fmt.bprintf(spread_buf[:], "Spd %.2f", sp)
+	}
+	layer_outputs_push_text_badge(out, 33, text_badge_make(
+		{ctx.viewport.pos.x + 6, ctx.viewport.pos.y + 14},
+		spread_str,
+		ui.COL_TEXT_MUTED,
+		ui.FONT_SIZE_XS,
+	))
+
+	// Center divider line.
 	layer_outputs_push_line(out, 30, Render_Line{
-		from = {mid_x, ctx.viewport.pos.y},
+		from = {mid_x, body_y},
 		to = {mid_x, rect_bottom(ctx.viewport)},
 		color = ui.with_alpha(ui.COL_WHITE, 0.12),
 		thickness = 1,
 	})
 
+	// S121: Render levels with cumulative depth shadow + price labels + whale highlights.
+	cum_ask := f64(0)
+	cum_bid := f64(0)
+
 	for i in 0 ..< rows {
-		y := ctx.viewport.pos.y + f32(i) * row_h
+		y := body_y + f32(i) * row_h
+
+		// Ask side (right of center).
 		if i < ob.ask_count {
+			cum_ask += ob.ask_sizes[i]
+			// Cumulative depth shadow bar.
+			if cum_ask_total > 0 {
+				cum_frac := f32(cum_ask / cum_ask_total)
+				cum_w := half_w * clamp(cum_frac, 0.02, 1)
+				layer_outputs_push_bar(out, 30, Render_Bar{
+					rect = ui.Rect{pos = {mid_x + 2, y + 1}, size = {cum_w, row_h - 2}},
+					color = ui.with_alpha(ui.COL_RED, 0.10),
+				})
+			}
+			// Level bar.
 			ask_frac := f32(ob.ask_sizes[i] / max_size)
-			ask_w := (ctx.viewport.size.x * 0.5 - 6) * clamp(ask_frac, 0.05, 1)
+			ask_w := half_w * clamp(ask_frac, 0.05, 1)
+			// S121: Whale wall highlight (brighter + yellow accent).
+			ask_alpha := f32(0.35)
+			if ob.ask_sizes[i] >= whale_wall {
+				ask_alpha = 0.55
+			}
 			layer_outputs_push_bar(out, 31, Render_Bar{
 				rect = ui.Rect{pos = {mid_x + 2, y + 1}, size = {ask_w, row_h - 2}},
-				color = ui.with_alpha(ui.COL_RED, 0.35),
+				color = ui.with_alpha(ui.COL_RED, ask_alpha),
 			})
+			// S121: Whale wall yellow accent.
+			if ob.ask_sizes[i] >= whale_wall {
+				layer_outputs_push_line(out, 32, Render_Line{
+					from = {mid_x + 2, y + 1},
+					to = {mid_x + 2 + ask_w, y + 1},
+					color = ui.with_alpha(ui.COL_YELLOW_ACCENT, 0.45),
+					thickness = 1,
+				})
+			}
+			// S121: Price label.
+			ap_buf: [32]u8
+			ap_str := fmt.bprintf(ap_buf[:], "%.2f", ob.ask_prices[i])
+			layer_outputs_push_text_badge(out, 32, text_badge_make(
+				{mid_x + half_w - 36, y + row_h * 0.7},
+				ap_str,
+				ui.COL_TEXT_MUTED,
+				ui.FONT_SIZE_XS,
+			))
 		}
+
+		// Bid side (left of center).
 		if i < ob.bid_count {
+			cum_bid += ob.bid_sizes[i]
+			// Cumulative depth shadow bar.
+			if cum_bid_total > 0 {
+				cum_frac := f32(cum_bid / cum_bid_total)
+				cum_w := half_w * clamp(cum_frac, 0.02, 1)
+				layer_outputs_push_bar(out, 30, Render_Bar{
+					rect = ui.Rect{pos = {mid_x - 2 - cum_w, y + 1}, size = {cum_w, row_h - 2}},
+					color = ui.with_alpha(ui.COL_GREEN, 0.10),
+				})
+			}
+			// Level bar.
 			bid_frac := f32(ob.bid_sizes[i] / max_size)
-			bid_w := (ctx.viewport.size.x * 0.5 - 6) * clamp(bid_frac, 0.05, 1)
+			bid_w := half_w * clamp(bid_frac, 0.05, 1)
+			bid_alpha := f32(0.35)
+			if ob.bid_sizes[i] >= whale_wall {
+				bid_alpha = 0.55
+			}
 			layer_outputs_push_bar(out, 31, Render_Bar{
 				rect = ui.Rect{pos = {mid_x - 2 - bid_w, y + 1}, size = {bid_w, row_h - 2}},
-				color = ui.with_alpha(ui.COL_GREEN, 0.35),
+				color = ui.with_alpha(ui.COL_GREEN, bid_alpha),
 			})
+			if ob.bid_sizes[i] >= whale_wall {
+				layer_outputs_push_line(out, 32, Render_Line{
+					from = {mid_x - 2 - bid_w, y + 1},
+					to = {mid_x - 2, y + 1},
+					color = ui.with_alpha(ui.COL_YELLOW_ACCENT, 0.45),
+					thickness = 1,
+				})
+			}
+			// S121: Price label.
+			bp_buf: [32]u8
+			bp_str := fmt.bprintf(bp_buf[:], "%.2f", ob.bid_prices[i])
+			layer_outputs_push_text_badge(out, 32, text_badge_make(
+				{ctx.viewport.pos.x + 4, y + row_h * 0.7},
+				bp_str,
+				ui.COL_TEXT_MUTED,
+				ui.FONT_SIZE_XS,
+			))
 		}
 	}
-
-	spread := services.spread(ob)
-	spread_buf: [64]u8
-	spread_str := fmt.bprintf(spread_buf[:], "Spread %.2f", spread)
-	layer_outputs_push_text_badge(out, 33, text_badge_make(
-		{ctx.viewport.pos.x + 6, ctx.viewport.pos.y + 12},
-		spread_str,
-		ui.COL_TEXT_PRIMARY,
-		ui.FONT_SIZE_XS,
-	))
 }
 
 @(private = "file")
@@ -838,30 +1030,66 @@ stats_panel_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs) {
 	if ctx.stream.stats.count <= 0 do return
 
 	st := services.get_stats(&ctx.stream.stats, 0)
-	y := ctx.viewport.pos.y + 14
 	x := ctx.viewport.pos.x + 6
+	bar_w := ctx.viewport.size.x - 16
 
-	// Mark price (primary).
+	// S121: Mark price as hero number (larger font, prominent).
+	y := ctx.viewport.pos.y + 22
 	mark_buf: [64]u8
-	mark_str := fmt.bprintf(mark_buf[:], "Mark %.2f", st.mark_price)
+	mark_str := fmt.bprintf(mark_buf[:], "%.2f", st.mark_price)
 	layer_outputs_push_text_badge(out, 22, text_badge_make(
-		{x, y}, mark_str, ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_XS,
+		{x, y}, mark_str, ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_LG,
+	))
+	y += 24
+
+	// S121: "Mark Price" label (muted, small).
+	layer_outputs_push_text_badge(out, 22, text_badge_make(
+		{x, y}, "Mark Price", ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS,
 	))
 	y += 16
 
-	// Funding rate.
+	// S121: Funding rate — larger, directional color.
 	fund_color := st.funding >= 0 ? ui.COL_GREEN : ui.COL_RED
 	fund_sign := st.funding >= 0 ? "+" : ""
 	fund_buf: [64]u8
 	fund_str := fmt.bprintf(fund_buf[:], "Funding %s%.4f%%", fund_sign, st.funding * 100)
 	layer_outputs_push_text_badge(out, 22, text_badge_make(
-		{x, y}, fund_str, fund_color, ui.FONT_SIZE_XS,
+		{x, y}, fund_str, fund_color, ui.FONT_SIZE_SM,
 	))
-	y += 14
+	y += 18
 
-	// Liquidation levels.
+	// S121: Spread in bps (cross-store from orderbook if available).
+	if ctx.capabilities.has_orderbook {
+		ob := &ctx.stream.orderbook
+		sp := services.spread(ob)
+		mid := services.mid_price(ob)
+		if sp > 0 && mid > 0 {
+			bps := sp / mid * 10000
+			sp_buf: [64]u8
+			sp_str := fmt.bprintf(sp_buf[:], "Spread %.2f (%.1f bps)", sp, bps)
+			layer_outputs_push_text_badge(out, 22, text_badge_make(
+				{x, y}, sp_str, ui.COL_ACCENT_CYAN, ui.FONT_SIZE_XS,
+			))
+			y += 14
+		}
+	}
+
+	// S121: Liquidation as compact bar + text overlay.
+	liq_total := st.liq_buy + st.liq_sell
+	if liq_total > 0 {
+		buy_frac := f32(st.liq_buy / liq_total)
+		layer_outputs_push_bar(out, 22, Render_Bar{
+			rect = ui.Rect{pos = {x, y}, size = {bar_w * buy_frac, 8}},
+			color = ui.with_alpha(ui.COL_GREEN, 0.40),
+		})
+		layer_outputs_push_bar(out, 22, Render_Bar{
+			rect = ui.Rect{pos = {x + bar_w * buy_frac, y}, size = {bar_w * (1 - buy_frac), 8}},
+			color = ui.with_alpha(ui.COL_RED, 0.40),
+		})
+		y += 12
+	}
 	liq_buf: [80]u8
-	liq_str := fmt.bprintf(liq_buf[:], "Liq B %.2f / S %.2f", st.liq_buy, st.liq_sell)
+	liq_str := fmt.bprintf(liq_buf[:], "Liq B %.0f / S %.0f", st.liq_buy, st.liq_sell)
 	layer_outputs_push_text_badge(out, 22, text_badge_make(
 		{x, y}, liq_str, ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS,
 	))
@@ -875,15 +1103,16 @@ stats_panel_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs) {
 	layer_outputs_push_text_badge(out, 22, text_badge_make(
 		{x, y}, win_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS,
 	))
-	y += 14
 
-	// Quality flags.
-	quality_buf: [48]u8
-	quality_str := fmt.bprintf(quality_buf[:], "Q 0x%x", st.quality_flags)
-	quality_color := st.quality_flags != 0 ? ui.COL_WARNING : ui.COL_TEXT_MUTED
-	layer_outputs_push_text_badge(out, 22, text_badge_make(
-		{x, y}, quality_str, quality_color, ui.FONT_SIZE_XS,
-	))
+	// S121: Quality flags — only show when non-zero (reduce noise).
+	if st.quality_flags != 0 {
+		y += 14
+		quality_buf: [48]u8
+		quality_str := fmt.bprintf(quality_buf[:], "Q 0x%x", st.quality_flags)
+		layer_outputs_push_text_badge(out, 22, text_badge_make(
+			{x, y}, quality_str, ui.COL_WARNING, ui.FONT_SIZE_XS,
+		))
+	}
 }
 
 @(private = "file")
@@ -931,14 +1160,15 @@ trade_counter_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs) {
 	latest := services.get_candle_newest(store, 0)
 	y := ctx.viewport.pos.y + 14
 	x := ctx.viewport.pos.x + 6
+	bar_w := ctx.viewport.size.x - 16
 
-	// Trade count.
+	// S121: Trade count — larger font for primary metric.
 	tc_buf: [64]u8
 	tc_str := fmt.bprintf(tc_buf[:], "Trades %d", latest.trade_count)
 	layer_outputs_push_text_badge(out, 23, text_badge_make(
-		{x, y}, tc_str, ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_XS,
+		{x, y}, tc_str, ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_SM,
 	))
-	y += 16
+	y += 18
 
 	// Volume summary.
 	total_vol := latest.buy_vol + latest.sell_vol
@@ -949,19 +1179,29 @@ trade_counter_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs) {
 	))
 	y += 14
 
-	// Buy/sell ratio bar.
+	// S121: Net delta — buy minus sell, directional color.
+	net_delta := latest.buy_vol - latest.sell_vol
+	delta_color := net_delta >= 0 ? ui.COL_GREEN : ui.COL_RED
+	delta_sign := net_delta >= 0 ? "+" : ""
+	delta_buf: [64]u8
+	delta_str := fmt.bprintf(delta_buf[:], "Delta %s%.4f", delta_sign, net_delta)
+	layer_outputs_push_text_badge(out, 23, text_badge_make(
+		{x, y}, delta_str, delta_color, ui.FONT_SIZE_SM,
+	))
+	y += 16
+
+	// S121: Buy/sell ratio bar — taller (12px) for better visibility.
 	if total_vol > 0 {
-		bar_w := ctx.viewport.size.x - 16
 		buy_frac := f32(latest.buy_vol / total_vol)
 		layer_outputs_push_bar(out, 23, Render_Bar{
-			rect = ui.Rect{pos = {x, y}, size = {bar_w * buy_frac, 8}},
+			rect = ui.Rect{pos = {x, y}, size = {bar_w * buy_frac, 12}},
 			color = ui.with_alpha(ui.COL_GREEN, 0.5),
 		})
 		layer_outputs_push_bar(out, 23, Render_Bar{
-			rect = ui.Rect{pos = {x + bar_w * buy_frac, y}, size = {bar_w * (1 - buy_frac), 8}},
+			rect = ui.Rect{pos = {x + bar_w * buy_frac, y}, size = {bar_w * (1 - buy_frac), 12}},
 			color = ui.with_alpha(ui.COL_RED, 0.5),
 		})
-		y += 12
+		y += 16
 
 		// Ratio label.
 		ratio_buf: [48]u8
@@ -969,6 +1209,39 @@ trade_counter_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs) {
 		ratio_color := buy_frac >= 0.5 ? ui.COL_GREEN : ui.COL_RED
 		layer_outputs_push_text_badge(out, 23, text_badge_make(
 			{x, y}, ratio_str, ratio_color, ui.FONT_SIZE_XS,
+		))
+		y += 14
+	}
+
+	// S121: Volume rate (per second) from candle window.
+	window_ms := latest.window_end_ts - latest.window_start_ts
+	if window_ms > 0 && total_vol > 0 {
+		window_s := f64(window_ms) / 1000.0
+		rate := total_vol / window_s
+		rate_buf: [48]u8
+		rate_str := fmt.bprintf(rate_buf[:], "Rate %.2f/s", rate)
+		layer_outputs_push_text_badge(out, 23, text_badge_make(
+			{x, y}, rate_str, ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS,
+		))
+		y += 14
+	}
+
+	// S121: Rolling 5-bar summary (if we have enough candles).
+	roll_n := min(store.count, 5)
+	if roll_n >= 2 {
+		roll_buy := f64(0)
+		roll_sell := f64(0)
+		roll_trades := i64(0)
+		for ri in 0 ..< roll_n {
+			c := services.get_candle_newest(store, ri)
+			roll_buy += c.buy_vol
+			roll_sell += c.sell_vol
+			roll_trades += c.trade_count
+		}
+		roll_buf: [80]u8
+		roll_str := fmt.bprintf(roll_buf[:], "%d-bar: Vol %.2f  Trades %d", roll_n, roll_buy + roll_sell, roll_trades)
+		layer_outputs_push_text_badge(out, 23, text_badge_make(
+			{x, y}, roll_str, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS,
 		))
 		y += 14
 	}

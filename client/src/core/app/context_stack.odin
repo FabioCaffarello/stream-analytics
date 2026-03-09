@@ -10,7 +10,7 @@ import "core:fmt"
 import "mr:ui"
 
 CONTEXT_STACK_TAB_H :: f32(28)
-CONTEXT_ROLE_BADGE_H :: f32(16)  // S119: role badge height above tab bar
+CONTEXT_ROLE_BADGE_H :: f32(18)  // S119/S127: role badge height above tab bar (16→18 for breathing room)
 
 @(rodata)
 CONTEXT_TAB_LABELS  := [CONTEXT_TAB_COUNT]string{"Stats", "Trades", "OB", "Ctr", "Info", "DOM", "Ana"}
@@ -103,16 +103,24 @@ draw_context_stack :: proc(
 		thickness = 1,
 	})
 
-	// S119: Role badge strip above tabs.
+	// S119/S127: Role badge strip above tabs — subtle divider below.
 	badge_rect := ui.Rect{
 		pos  = {rect.pos.x, rect.pos.y},
 		size = {rect.size.x, CONTEXT_ROLE_BADGE_H},
 	}
-	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = badge_rect, color = ui.COL_SURFACE_0})
+	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = badge_rect, color = ui.COL_SURFACE_0H})
 	badge_label := role_badge_label(focused_role)
 	badge_color := focused_role == .Primary_Chart ? ui.COL_BLUE : ui.COL_TEXT_MUTED
 	badge_text_y := badge_rect.pos.y + CONTEXT_ROLE_BADGE_H * 0.5 + ui.FONT_SIZE_XS * 0.3
-	ui.push_text(&state.cmd_buf, {rect.pos.x + 6, badge_text_y},
+	// S127: Tinted label pill.
+	bl_w := state.text.measure(ui.FONT_SIZE_XS, badge_label).x + 8
+	bl_h := f32(13)
+	bl_y := badge_rect.pos.y + (CONTEXT_ROLE_BADGE_H - bl_h) * 0.5
+	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
+		rect  = ui.rect_xywh(rect.pos.x + 4, bl_y, bl_w, bl_h),
+		color = ui.with_alpha(badge_color, 0.10),
+	})
+	ui.push_text(&state.cmd_buf, {rect.pos.x + 8, badge_text_y},
 		badge_label, badge_color, ui.FONT_SIZE_XS, .Bold)
 
 	// --- Tab bar ---

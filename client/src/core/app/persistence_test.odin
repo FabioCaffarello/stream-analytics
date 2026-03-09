@@ -12,7 +12,7 @@ import "mr:ui"
 // ---------------------------------------------------------------------------
 
 // Helper: create minimal heap-allocated App_State with persistence-relevant fields.
-@(private = "file")
+// S122: Removed private annotation — shared across test files in package.
 make_persist_state :: proc(cell_count: int) -> ^App_State {
 	state := new(App_State)
 	state.world.count = cell_count
@@ -257,11 +257,6 @@ test_first_run_empty_settings_defaults :: proc(t: ^testing.T) {
 	// restore_layout_v6 should return false for empty settings.
 	ok := restore_layout_v6(state)
 	testing.expect(t, !ok, "V6 restore should fail with empty settings")
-	// V5, V4, V3, V2, V1 should also fail with empty settings.
-	ok2 := restore_layout_v5(state)
-	testing.expect(t, !ok2, "V5 restore should fail with empty settings")
-	ok3 := restore_layout_v4(state)
-	testing.expect(t, !ok3, "V4 restore should fail with empty settings")
 }
 
 @(test)
@@ -585,7 +580,7 @@ test_normalized_symbol_strips_suffix :: proc(t: ^testing.T) {
 
 @(test)
 test_workspace_schema_version :: proc(t: ^testing.T) {
-	testing.expect(t, WORKSPACE_SCHEMA_VERSION >= 10, "schema version should be >= 10")
+	testing.expect(t, WORKSPACE_SCHEMA_VERSION >= 12, "schema version should be >= 12")
 }
 
 // ---------------------------------------------------------------------------
@@ -669,7 +664,7 @@ test_persist_schema_version_stamp :: proc(t: ^testing.T) {
 	persist_layout_v6(state)
 	v, ok := services.settings_get(&state.settings, services.SETTING_SETTINGS_VERSION)
 	testing.expect(t, ok, "settings version should be set after persist")
-	testing.expect(t, v == "11", "settings version should match WORKSPACE_SCHEMA_VERSION")
+	testing.expect(t, v == "12", "settings version should match WORKSPACE_SCHEMA_VERSION")
 }
 
 @(test)

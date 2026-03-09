@@ -9,7 +9,7 @@ import "mr:ports"
 import "mr:services"
 import "mr:ui"
 
-CELL_HDR_H :: f32(20)
+CELL_HDR_H :: f32(24) // S134: 22→24 for professional breathing room
 
 render_cell_widget :: proc(
 	state: ^App_State,
@@ -35,7 +35,7 @@ render_cell_widget :: proc(
 	tf_comp := &state.world.timeframes[ci]
 
 	is_cell_focused := ui.rect_contains(cell_vp, input.mouse.pos)
-	cell_border_color := is_cell_focused ? ui.COL_BORDER_STRONG : ui.COL_BORDER_SUBTLE
+	cell_border_color := is_cell_focused ? ui.with_alpha(ui.COL_BLUE, 0.25) : ui.COL_BORDER_SUBTLE
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = {pos = cell_vp.pos, size = {cell_vp.size.x, 1}}, color = cell_border_color})
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = {pos = {cell_vp.pos.x, cell_vp.pos.y + cell_vp.size.y - 1}, size = {cell_vp.size.x, 1}}, color = cell_border_color})
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = {pos = cell_vp.pos, size = {1, cell_vp.size.y}}, color = cell_border_color})
@@ -47,7 +47,7 @@ render_cell_widget :: proc(
 	// S61: Use surface view from pre-resolved view model (was separate resolve_cell_surface_view call).
 	sv := vm.surface
 
-	// S107: Header accent line — composition-colored 2px strip at bottom of header.
+	// S107/S127: Header accent line — composition-colored 2px strip at bottom of header.
 	accent_color := ui.COL_BLUE
 	#partial switch sv.composition {
 	case .Composed:                  accent_color = ui.COL_GREEN
@@ -57,22 +57,23 @@ render_cell_widget :: proc(
 	}
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
 		rect  = ui.rect_xywh(hdr_rect.pos.x, hdr_rect.pos.y + CELL_HDR_H - ui.CELL_HDR_ACCENT_H, hdr_rect.size.x, ui.CELL_HDR_ACCENT_H),
-		color = ui.with_alpha(accent_color, 0.5),
+		color = ui.with_alpha(accent_color, 0.6),
 	})
 
+	// S127: Stream badge — cleaner pill with left padding.
 	badge_label := "~ Active"
 	badge_buf: [40]u8
 	if sv.stream_bound && len(sv.venue) > 0 {
 		badge_label = fmt.bprintf(badge_buf[:], "%s:%s", sv.venue, sv.symbol)
 	}
 	badge_w := min(state.text.measure(ui.FONT_SIZE_XS, badge_label).x + 12, hdr_rect.size.x * 0.5)
-	badge_rect := ui.rect_xywh(hdr_rect.pos.x + 2, hdr_rect.pos.y + 1, badge_w, CELL_HDR_H - 2)
+	badge_rect := ui.rect_xywh(hdr_rect.pos.x + 3, hdr_rect.pos.y + 2, badge_w, CELL_HDR_H - 4)
 	badge_hovered := ui.rect_contains(badge_rect, pointer.pos)
-	badge_bg := badge_hovered ? ui.with_alpha(ui.COL_BLUE, 0.2) : ui.with_alpha(ui.COL_BLUE, 0.1)
+	badge_bg := badge_hovered ? ui.with_alpha(ui.COL_BLUE, 0.22) : ui.with_alpha(ui.COL_BLUE, 0.10)
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = badge_rect, color = badge_bg})
 	ui.push_text(&state.cmd_buf,
 		{badge_rect.pos.x + 6, hdr_rect.pos.y + CELL_HDR_H * 0.5 + ui.FONT_SIZE_XS * 0.35},
-		badge_label, ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS, .Mono)
+		badge_label, ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_XS, .Mono)
 	if badge_hovered && pointer.left_pressed {
 		queue_ui_action(state, UI_Action{kind = .Open_Cell_Stream_Picker, cell_idx = ci})
 	}
@@ -202,7 +203,7 @@ render_cell_widget :: proc(
 		wlabel_x := ui.rect_right(hdr_rect) - wlabel_w - 4 - close_inset - switcher_inset - tf_inset
 		ui.push_text(&state.cmd_buf,
 			{wlabel_x, hdr_rect.pos.y + CELL_HDR_H * 0.5 + ui.FONT_SIZE_XS * 0.35},
-			wlabel, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+			wlabel, ui.COL_TEXT_DIM, ui.FONT_SIZE_XS, .Mono)
 	} else {
 		WIDGET_SHORT :: [12]string{"Candle", "Stats", "Counter", "HM", "VPVR", "Trades", "OB", "DOM", "--", "Analytics", "SVPVR", "TPO"}
 		widget_short := WIDGET_SHORT
@@ -211,7 +212,7 @@ render_cell_widget :: proc(
 		wlabel_x := ui.rect_right(hdr_rect) - wlabel_w - 4 - close_inset - switcher_inset - tf_inset
 		ui.push_text(&state.cmd_buf,
 			{wlabel_x, hdr_rect.pos.y + CELL_HDR_H * 0.5 + ui.FONT_SIZE_XS * 0.35},
-			wlabel, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+			wlabel, ui.COL_TEXT_DIM, ui.FONT_SIZE_XS, .Mono)
 	}
 
 	// S107: Divider replaced by accent line above; keep subtle fallback divider for contrast.
@@ -232,9 +233,9 @@ render_cell_widget :: proc(
 		render_cell_layer_canvas(state, ci, vm.widget_kind, cell_vp)
 	}
 
-	// S114: Pane visual state overlay — informative per-widget state display.
-	pane_vs := resolve_pane_visual_state(sv, current_conn_status(state), state.active_metrics.state)
-	draw_pane_state_overlay(&state.cmd_buf, cell_vp, pane_vs, vm.widget_kind, state.text.measure)
+	// S114/S120: Pane visual state overlay — widget-aware state display.
+	pane_vs := resolve_pane_visual_state(sv, current_conn_status(state), state.active_metrics.state, vm.widget_kind, vm.stores)
+	draw_pane_state_overlay(&state.cmd_buf, cell_vp, pane_vs, vm.widget_kind, state.text.measure, state.frame, vm.tf_ms)
 }
 
 // ---------------------------------------------------------------------------
@@ -267,7 +268,7 @@ render_pane_via_contract :: proc(
 
 	// Cell border.
 	is_cell_focused := ui.rect_contains(cell_vp, input.mouse.pos)
-	cell_border_color := is_cell_focused ? ui.COL_BORDER_STRONG : ui.COL_BORDER_SUBTLE
+	cell_border_color := is_cell_focused ? ui.with_alpha(ui.COL_BLUE, 0.25) : ui.COL_BORDER_SUBTLE
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = {pos = cell_vp.pos, size = {cell_vp.size.x, 1}}, color = cell_border_color})
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = {pos = {cell_vp.pos.x, cell_vp.pos.y + cell_vp.size.y - 1}, size = {cell_vp.size.x, 1}}, color = cell_border_color})
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = {pos = cell_vp.pos, size = {1, cell_vp.size.y}}, color = cell_border_color})
@@ -277,7 +278,7 @@ render_pane_via_contract :: proc(
 	hdr_rect := ui.rect_cut_top(&cell_vp, CELL_HDR_H)
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = hdr_rect, color = ui.with_alpha(ui.COL_SURFACE_2, 0.7)})
 
-	// Accent line.
+	// S127: Accent line.
 	accent_color := ui.COL_BLUE
 	#partial switch sv.composition {
 	case .Composed:                  accent_color = ui.COL_GREEN
@@ -287,23 +288,23 @@ render_pane_via_contract :: proc(
 	}
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
 		rect  = ui.rect_xywh(hdr_rect.pos.x, hdr_rect.pos.y + CELL_HDR_H - ui.CELL_HDR_ACCENT_H, hdr_rect.size.x, ui.CELL_HDR_ACCENT_H),
-		color = ui.with_alpha(accent_color, 0.5),
+		color = ui.with_alpha(accent_color, 0.6),
 	})
 
-	// Stream badge.
+	// S127: Stream badge — cleaner pill.
 	badge_label := "~ Active"
 	badge_buf: [40]u8
 	if sv.stream_bound && len(sv.venue) > 0 {
 		badge_label = fmt.bprintf(badge_buf[:], "%s:%s", sv.venue, sv.symbol)
 	}
 	badge_w := min(state.text.measure(ui.FONT_SIZE_XS, badge_label).x + 12, hdr_rect.size.x * 0.5)
-	badge_rect := ui.rect_xywh(hdr_rect.pos.x + 2, hdr_rect.pos.y + 1, badge_w, CELL_HDR_H - 2)
+	badge_rect := ui.rect_xywh(hdr_rect.pos.x + 3, hdr_rect.pos.y + 2, badge_w, CELL_HDR_H - 4)
 	badge_hovered := ui.rect_contains(badge_rect, pointer.pos)
-	badge_bg := badge_hovered ? ui.with_alpha(ui.COL_BLUE, 0.2) : ui.with_alpha(ui.COL_BLUE, 0.1)
+	badge_bg := badge_hovered ? ui.with_alpha(ui.COL_BLUE, 0.22) : ui.with_alpha(ui.COL_BLUE, 0.10)
 	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = badge_rect, color = badge_bg})
 	ui.push_text(&state.cmd_buf,
 		{badge_rect.pos.x + 6, hdr_rect.pos.y + CELL_HDR_H * 0.5 + ui.FONT_SIZE_XS * 0.35},
-		badge_label, ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS, .Mono)
+		badge_label, ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_XS, .Mono)
 	if badge_hovered && pointer.left_pressed {
 		queue_ui_action(state, UI_Action{kind = .Open_Cell_Stream_Picker, cell_idx = ci})
 	}
@@ -428,7 +429,7 @@ render_pane_via_contract :: proc(
 		wlabel_x := ui.rect_right(hdr_rect) - wlabel_w - 4 - close_inset - switcher_inset - tf_inset
 		ui.push_text(&state.cmd_buf,
 			{wlabel_x, hdr_rect.pos.y + CELL_HDR_H * 0.5 + ui.FONT_SIZE_XS * 0.35},
-			wlabel, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+			wlabel, ui.COL_TEXT_DIM, ui.FONT_SIZE_XS, .Mono)
 	} else {
 		WIDGET_SHORT :: [12]string{"Candle", "Stats", "Counter", "HM", "VPVR", "Trades", "OB", "DOM", "--", "Analytics", "SVPVR", "TPO"}
 		widget_short := WIDGET_SHORT
@@ -437,7 +438,7 @@ render_pane_via_contract :: proc(
 		wlabel_x := ui.rect_right(hdr_rect) - wlabel_w - 4 - close_inset - switcher_inset - tf_inset
 		ui.push_text(&state.cmd_buf,
 			{wlabel_x, hdr_rect.pos.y + CELL_HDR_H * 0.5 + ui.FONT_SIZE_XS * 0.35},
-			wlabel, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+			wlabel, ui.COL_TEXT_DIM, ui.FONT_SIZE_XS, .Mono)
 	}
 
 	// Header divider.
@@ -450,7 +451,7 @@ render_pane_via_contract :: proc(
 	// S109: Body rendered through Widget_Contract dispatch.
 	widget_contract_render(state, pane, ctx, cell_vp)
 
-	// S114: Pane visual state overlay — informative per-widget state display.
-	pane_vs := resolve_pane_visual_state(sv, current_conn_status(state), state.active_metrics.state)
-	draw_pane_state_overlay(&state.cmd_buf, cell_vp, pane_vs, wk, state.text.measure)
+	// S114/S120: Pane visual state overlay — widget-aware state display.
+	pane_vs := resolve_pane_visual_state(sv, current_conn_status(state), state.active_metrics.state, wk, ctx.stores)
+	draw_pane_state_overlay(&state.cmd_buf, cell_vp, pane_vs, wk, state.text.measure, state.frame, ctx.tf_ms)
 }

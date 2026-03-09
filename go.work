@@ -25,6 +25,7 @@ use (
 	./internal/core/signal
 	./internal/core/signals
 	./internal/core/strategy
+	./internal/core/workspace
 	./internal/interfaces
 	./internal/shared
 )

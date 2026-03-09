@@ -69,23 +69,20 @@ draw_nav_rail :: proc(
 
 		push(buf, Cmd_Rect_Filled{rect = btn_rect, color = bg})
 
-		// Active indicator: 4px wide, full button height.
+		// S127: Active indicator: 3px blue bar on left edge, cleaner than 4px.
 		if is_active {
 			indicator := Rect{
-				pos  = {rect.pos.x, btn_y},
-				size = {4, btn_size},
+				pos  = {rect.pos.x, btn_y + 4},
+				size = {3, btn_size - 8},
 			}
 			push(buf, Cmd_Rect_Filled{rect = indicator, color = COL_BLUE})
 		}
 
-		// Border.
-		border_alpha := f32(0.12)
-		if is_active do border_alpha = 0.25
-		if hovered do border_alpha = 0.20
-		push(buf, Cmd_Line{from = {btn_rect.pos.x, btn_rect.pos.y}, to = {rect_right(btn_rect), btn_rect.pos.y}, color = with_alpha(COL_WHITE, border_alpha), thickness = 1})
-		push(buf, Cmd_Line{from = {rect_right(btn_rect), btn_rect.pos.y}, to = {rect_right(btn_rect), rect_bottom(btn_rect)}, color = with_alpha(COL_WHITE, border_alpha), thickness = 1})
-		push(buf, Cmd_Line{from = {rect_right(btn_rect), rect_bottom(btn_rect)}, to = {btn_rect.pos.x, rect_bottom(btn_rect)}, color = with_alpha(COL_WHITE, border_alpha), thickness = 1})
-		push(buf, Cmd_Line{from = {btn_rect.pos.x, rect_bottom(btn_rect)}, to = {btn_rect.pos.x, btn_rect.pos.y}, color = with_alpha(COL_WHITE, border_alpha), thickness = 1})
+		// S127: Lighter border — single subtle bottom edge instead of full box stroke.
+		border_alpha := f32(0.06)
+		if is_active do border_alpha = 0.15
+		if hovered do border_alpha = 0.12
+		push(buf, Cmd_Line{from = {btn_rect.pos.x, rect_bottom(btn_rect)}, to = {rect_right(btn_rect), rect_bottom(btn_rect)}, color = with_alpha(COL_WHITE, border_alpha), thickness = 1})
 
 		// Icon text.
 		fg := is_active ? COL_TEXT_PRIMARY : COL_TEXT_SECONDARY

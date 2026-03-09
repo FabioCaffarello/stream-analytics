@@ -28,6 +28,7 @@ require (
 	github.com/market-raccoon/internal/core/portfolio v0.0.0 // indirect
 	github.com/market-raccoon/internal/core/signals v0.0.0 // indirect
 	github.com/market-raccoon/internal/core/strategy v0.0.0 // indirect
+	github.com/market-raccoon/internal/core/workspace v0.0.0 // indirect
 	github.com/matttproud/golang_protobuf_extensions/v2 v2.0.0 // indirect
 	github.com/nats-io/nats.go v1.48.0 // indirect
 	github.com/nats-io/nkeys v0.4.11 // indirect
@@ -64,3 +65,5 @@ replace github.com/market-raccoon/internal/core/strategy => ../../internal/core/
 replace github.com/market-raccoon/internal/core/execution => ../../internal/core/execution
 
 replace github.com/market-raccoon/internal/core/portfolio => ../../internal/core/portfolio
+
+replace github.com/market-raccoon/internal/core/workspace => ../../internal/core/workspace

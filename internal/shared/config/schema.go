@@ -37,6 +37,7 @@ type AppConfig struct {
 	Evidence     EvidenceConfig     `json:"evidence"`
 	Signals      SignalsConfig      `json:"signals"`
 	Execution    ExecutionConfig    `json:"execution"`
+	Workspace    WorkspaceConfig    `json:"workspace"`
 }
 
 // IQProfileBudgets captures strict p95/p99 IQ budget thresholds used in CI.
@@ -197,6 +198,13 @@ type ExecutionBinanceTradeAPIConfig struct {
 	ReconcilePollInterval string `json:"reconcile_poll_interval"`
 	// ReconcileMaxPolls bounds reconciliation attempts per intent.
 	ReconcileMaxPolls int `json:"reconcile_max_polls"`
+}
+
+// WorkspaceConfig controls server-side client workspace persistence.
+type WorkspaceConfig struct {
+	// StateDir is the directory where workspace.json is written.
+	// Default: "." (current working directory).
+	StateDir string `json:"state_dir"`
 }
 
 // ShardConfig controls deterministic shard assignment for horizontal scaling.

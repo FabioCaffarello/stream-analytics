@@ -930,3 +930,62 @@ test_composition_should_extend_not_seeded :: proc(t: ^testing.T) {
 	testing.expect(t, !composition_should_extend(s, 0, 500, 0, false),
 		"should not extend when not seeded")
 }
+
+// =========================================================================
+// S138: Bootstrap timing probe tests.
+// =========================================================================
+
+@(test)
+test_first_event_ms_latches_on_first_event :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	testing.expect_value(t, s.first_event_ms, i64(0))
+
+	apply_state_mark_event(&s, .Trade, 5000, false)
+	testing.expect_value(t, s.first_event_ms, i64(5000))
+
+	// Second event must NOT overwrite the latched value.
+	apply_state_mark_event(&s, .Stats, 7000, false)
+	testing.expect_value(t, s.first_event_ms, i64(5000))
+}
+
+@(test)
+test_first_event_ms_survives_reconnect :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Candle, 3000, false)
+	testing.expect_value(t, s.first_event_ms, i64(3000))
+
+	// Reconnect should NOT clear first_event_ms — it persists for telemetry.
+	apply_state_on_reconnect(&s)
+	testing.expect_value(t, s.first_event_ms, i64(3000))
+}
+
+@(test)
+test_first_event_ms_reset_clears :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Trade, 2000, false)
+	testing.expect_value(t, s.first_event_ms, i64(2000))
+
+	// Full reset clears everything including first_event_ms.
+	apply_state_reset(&s)
+	testing.expect_value(t, s.first_event_ms, i64(0))
+}
+
+@(test)
+test_first_event_ms_in_telemetry :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Stats, 4200, false)
+	telem := apply_state_telemetry(s)
+	testing.expect_value(t, telem.first_event_ms, i64(4200))
+}
+
+@(test)
+test_first_event_ms_ignores_zero_timestamp :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	// Event with now_ms=0 should not set first_event_ms.
+	apply_state_mark_event(&s, .Trade, 0, false)
+	testing.expect_value(t, s.first_event_ms, i64(0))
+
+	// But a real timestamp should latch.
+	apply_state_mark_event(&s, .Trade, 1000, false)
+	testing.expect_value(t, s.first_event_ms, i64(1000))
+}

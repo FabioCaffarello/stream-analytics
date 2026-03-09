@@ -12,6 +12,8 @@ require (
 	github.com/market-raccoon/internal/core/execution v0.0.0
 	github.com/market-raccoon/internal/core/insights v0.0.0
 	github.com/market-raccoon/internal/core/marketmodel v0.0.0
+	github.com/market-raccoon/internal/core/portfolio v0.0.0
+	github.com/market-raccoon/internal/core/workspace v0.0.0
 	github.com/market-raccoon/internal/shared v0.0.0
 	github.com/prometheus/client_golang v1.18.0
 )
@@ -27,7 +29,6 @@ require (
 	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
 	github.com/market-raccoon/internal/core/evidence v0.0.0 // indirect
 	github.com/market-raccoon/internal/core/marketdata v0.0.0 // indirect
-	github.com/market-raccoon/internal/core/portfolio v0.0.0 // indirect
 	github.com/market-raccoon/internal/core/signals v0.0.0 // indirect
 	github.com/market-raccoon/internal/core/strategy v0.0.0 // indirect
 	github.com/matttproud/golang_protobuf_extensions/v2 v2.0.0 // indirect
@@ -52,6 +53,7 @@ replace (
 	github.com/market-raccoon/internal/core/marketdata => ../core/marketdata
 	github.com/market-raccoon/internal/core/marketmodel => ../core/marketmodel
 	github.com/market-raccoon/internal/core/signals => ../core/signals
+	github.com/market-raccoon/internal/core/workspace => ../core/workspace
 	github.com/market-raccoon/internal/shared => ../shared
 )
 

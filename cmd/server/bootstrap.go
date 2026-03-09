@@ -26,6 +26,7 @@ import (
 	aggports "github.com/market-raccoon/internal/core/aggregation/ports"
 	deliverydomain "github.com/market-raccoon/internal/core/delivery/domain"
 	"github.com/market-raccoon/internal/core/delivery/ports"
+	workspaceinfra "github.com/market-raccoon/internal/core/workspace/infra"
 	httpserver "github.com/market-raccoon/internal/interfaces/http"
 	wsserver "github.com/market-raccoon/internal/interfaces/ws"
 	"github.com/market-raccoon/internal/shared/bootstrap"
@@ -545,6 +546,16 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 		marketsOpt = httpserver.WithMarkets(&cfg.Markets)
 		logger.Info("server: markets discovery enabled", "exchanges", len(cfg.Markets.Exchanges))
 	}
+	// S126/S128/S137: Workspace persistence (file-backed repository).
+	var workspaceOpt httpserver.Option
+	wsStateDir := cfg.Workspace.StateDir
+	if wsStateDir == "" {
+		wsStateDir = "."
+	}
+	workspaceRepo := workspaceinfra.NewFileWorkspaceStore(wsStateDir)
+	workspaceOpt = httpserver.WithWorkspaceRepository(workspaceRepo)
+	logger.Info("server: workspace persistence enabled", "state_dir", wsStateDir)
+
 	srv := httpserver.NewServer(
 		e,
 		guardianPID,
@@ -556,6 +567,7 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 		coldOpt,
 		marketsOpt,
 		consistencyOpt,
+		workspaceOpt,
 	)
 	if cfg.Delivery.Enabled {
 		enableWSRoute(e, srv, routerPIDCh, subsystemPIDCh, logger, rangeStore, tsPool, subMinuteGate, cfg)

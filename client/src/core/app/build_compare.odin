@@ -19,11 +19,16 @@ build_compare_mode :: proc(
 	if state == nil do return
 	workspace := workspace
 
-	ctrl_h := f32(22)
+	// S127: Compare control bar — elevated surface with bottom accent.
+	ctrl_h := f32(24)
 	ctrl_rect := ui.rect_cut_top(&workspace, ctrl_h)
-	ui.rect_cut_top(&workspace, 4)
+	ui.rect_cut_top(&workspace, 3)
 
-	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = ctrl_rect, color = ui.COL_SURFACE_1})
+	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = ctrl_rect, color = ui.COL_SURFACE_0H})
+	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
+		rect  = ui.rect_xywh(ctrl_rect.pos.x, ctrl_rect.pos.y + ctrl_h - 1, ctrl_rect.size.x, 1),
+		color = ui.COL_BORDER_SUBTLE,
+	})
 
 	cr := ui.rect_pad_xy(ctrl_rect, 8, 2)
 	cmp_label := "COMPARE"
@@ -76,9 +81,22 @@ build_compare_mode :: proc(
 			venue_label = fmt.bprintf(vl_buf[:], "%s:%s", sv.venue, sv.symbol)
 		}
 
-		header_h := f32(18)
+		// S134: Compare headers aligned with main cell headers.
+		header_h := f32(22)
 		header_rect := ui.rect_cut_top(&cell_rect, header_h)
-		ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = header_rect, color = ui.with_alpha(ui.COL_SURFACE_1, 0.9)})
+		ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = header_rect, color = ui.with_alpha(ui.COL_SURFACE_2, 0.7)})
+		// S127: Accent line matching composition state.
+		cmp_accent := ui.COL_BLUE
+		#partial switch sv.composition {
+		case .Composed:                   cmp_accent = ui.COL_GREEN
+		case .Live_Only:                  cmp_accent = ui.COL_YELLOW_ACCENT
+		case .Backfilled, .Range_Pending: cmp_accent = ui.COL_WARNING
+		case .Empty:                      cmp_accent = ui.with_alpha(ui.COL_WHITE, 0.08)
+		}
+		ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
+			rect  = ui.rect_xywh(header_rect.pos.x, header_rect.pos.y + header_h - 2, header_rect.size.x, 2),
+			color = ui.with_alpha(cmp_accent, 0.5),
+		})
 
 		// S37: Venue:Symbol label.
 		cursor_x := header_rect.pos.x + 6

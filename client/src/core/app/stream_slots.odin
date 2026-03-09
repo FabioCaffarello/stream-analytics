@@ -372,6 +372,8 @@ resolve_cell_surface_view_with_stores :: proc(
 		now_ms,
 	)
 
+	// S125: Per-artifact live flags for widget-specific readiness.
+	view.artifact_has_live = apply.has_live
 	for kind in md_common.Artifact_Kind {
 		if apply.has_live[kind] {
 			view.has_live_data = true
@@ -429,6 +431,10 @@ Cell_Surface_View :: struct {
 	composition:     md_common.Composition_Stage,
 	candle_health:   Candle_Health,
 	has_live_data:   bool, // any artifact with live data
+	// S125: Per-artifact live flags — enables widget-specific readiness checks.
+	// Stats/OB/DOM use these to distinguish Snapshot_Pending (artifact live, store empty)
+	// from Seeding (other artifacts live, this one not yet).
+	artifact_has_live: [md_common.Artifact_Kind]bool,
 	stale_count:     int,
 	aging_count:     int,
 	venue:           string, // resolved label (may be empty)
@@ -799,6 +805,8 @@ resolve_compare_surface_view :: proc(state: ^App_State, pane_idx: int) -> Cell_S
 		now_ms,
 	)
 
+	// S125: Per-artifact live flags for widget-specific readiness.
+	view.artifact_has_live = apply.has_live
 	for kind in md_common.Artifact_Kind {
 		if apply.has_live[kind] {
 			view.has_live_data = true

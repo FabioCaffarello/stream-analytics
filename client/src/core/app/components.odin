@@ -101,10 +101,11 @@ Analytics_Component :: struct {
 
 // GetRange state per entity.
 GetRange_Component :: struct {
-	pending:    bool,
-	seeded:     bool,
-	oldest_ts:  i64,
-	sent_frame: u64,
+	pending:     bool,
+	seeded:      bool,
+	oldest_ts:   i64,
+	sent_frame:  u64,
+	retry_count: u8,   // S138: auto-retry on timeout (max 1)
 }
 
 // --- Entity World (component storage) ---
@@ -201,10 +202,11 @@ Error_Kind :: enum u8 {
 
 // S39: Per-pane GetRange state for compare mode (mirrors GetRange_Component for cells).
 Compare_Pane_GetRange :: struct {
-	pending:    bool,
-	seeded:     bool,
-	oldest_ts:  i64,
-	sent_frame: u64,
+	pending:     bool,
+	seeded:      bool,
+	oldest_ts:   i64,
+	sent_frame:  u64,
+	retry_count: u8,   // S138: auto-retry on timeout (max 1)
 }
 
 Compare_State :: struct {
@@ -343,6 +345,7 @@ GetRange_Global_State :: struct {
 	sent_frame:               u64,
 	active_candle_subject_id: u64,
 	oldest_ts:                i64,
+	retry_count:              u8,   // S138: auto-retry on timeout (max 1)
 }
 
 // Global chart display toggles (extracted from App_State).

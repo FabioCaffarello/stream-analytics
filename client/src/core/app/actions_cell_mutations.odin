@@ -62,6 +62,7 @@ apply_set_cell_stream_action :: proc(state: ^App_State, action: UI_Action) {
 	state.world.getranges[ci].pending = false
 	state.world.getranges[ci].seeded = false
 	state.world.getranges[ci].oldest_ts = 0
+	state.world.getranges[ci].retry_count = 0 // S138
 
 	// S112: Sync binding to pane (pane is source of truth for contract path).
 	if ws := workspace_registry_active(&state.ws_registry); ws != nil {

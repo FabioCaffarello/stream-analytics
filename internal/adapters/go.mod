@@ -9,6 +9,7 @@ require (
 	github.com/jackc/pgx/v5 v5.8.0
 	github.com/market-raccoon/internal/core/execution v0.0.0
 	github.com/market-raccoon/internal/core/marketdata v0.0.0
+	github.com/market-raccoon/internal/core/portfolio v0.0.0
 	github.com/market-raccoon/internal/core/strategy v0.0.0
 	github.com/nats-io/nats.go v1.48.0
 	github.com/prometheus/client_golang v1.18.0
@@ -26,7 +27,6 @@ require (
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/market-raccoon/internal/core/evidence v0.0.0 // indirect
 	github.com/market-raccoon/internal/core/marketmodel v0.0.0 // indirect
-	github.com/market-raccoon/internal/core/portfolio v0.0.0 // indirect
 	github.com/market-raccoon/internal/core/signals v0.0.0 // indirect
 	github.com/paulmach/orb v0.12.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.22 // indirect
