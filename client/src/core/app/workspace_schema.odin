@@ -41,7 +41,21 @@ import "mr:services"
 //   Per-cell: chart_display (packed), indicator_flags (packed)
 //   Global: active_route
 
-WORKSPACE_SCHEMA_VERSION :: 10
+// S119: V11 — Pane_Role field on Pane struct, extended Context_Tab enum.
+WORKSPACE_SCHEMA_VERSION :: 11
+
+// S111: Persist result — replaces bool return for restore functions.
+Persist_Result :: enum u8 {
+	Ok,               // Restore succeeded.
+	No_Data,          // No persisted layout found (first run or cleared).
+	Version_Mismatch, // Stored schema version is newer than runtime supports.
+	Corrupted,        // Data exists but failed to parse.
+	Too_Many_Cells,   // Cell count exceeds CELL_MAX.
+}
+
+persist_result_ok :: proc(r: Persist_Result) -> bool {
+	return r == .Ok
+}
 
 // Pack per-cell chart display into a single integer for V6 persistence.
 // Layout: bit0=show_vol, bit1=show_heatmap, bit2=show_vpvr,

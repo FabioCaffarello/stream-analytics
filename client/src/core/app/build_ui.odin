@@ -3,8 +3,11 @@ package app
 import "mr:ports"
 import "mr:ui"
 
-// S57: Shell orchestrator — delegates to page modules, chrome procs, and overlays.
-// This file should remain thin (~100 lines). All page/overlay/chrome logic lives elsewhere.
+// S57/S113: Shell orchestrator — delegates to page modules, chrome procs, and overlays.
+// S113: Three context levels:
+//   1. Top bar (global app context): logo, connection, quick actions
+//   2. Workspace toolbar (workspace context): instrument, TF, presets, indicators
+//   3. Context stack (active pane context): tabbed Stats/Trades/OB/Counter/Instrument
 
 build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buffer {
 	ui.reset(&state.cmd_buf)
@@ -20,7 +23,7 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 	// --- Zen mode fade (pure state mutation) ---
 	zen_update_fade(&state.zen, input.mouse.pos.x, input.mouse.pos.y, viewport_h)
 
-	// --- Top bar ---
+	// --- Top bar (global context) ---
 	zen_skip_chrome := state.zen.active && state.zen.top_alpha <= 0
 	zen_compact := state.zen.active && !zen_skip_chrome
 	if !zen_skip_chrome {
@@ -31,15 +34,24 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 	if viewport_w < 420 do pad = 1
 	gap := f32(2)
 
-	// --- Workspace rect (between top bar and status bar) ---
+	// --- S113: Workspace toolbar (workspace context, Dashboard only) ---
+	is_dashboard := state.chrome.active_route == .Dashboard
+	toolbar_y := TOP_BAR_H + 1
+	show_toolbar := is_dashboard && !state.zen.active
+	if show_toolbar {
+		draw_workspace_toolbar(state, input, toolbar_y, viewport_w)
+	}
+
+	// --- Workspace rect (between chrome bars) ---
 	workspace: ui.Rect
 	if state.zen.active {
 		workspace = ui.rect_xywh(pad, 1, viewport_w - pad * 2, viewport_h - 2)
 	} else {
+		ws_top := show_toolbar ? (toolbar_y + WORKSPACE_TOOLBAR_H) : (TOP_BAR_H + 1)
 		workspace = ui.rect_xywh(
-			pad, TOP_BAR_H + 1,
+			pad, ws_top,
 			viewport_w - pad * 2,
-			viewport_h - (TOP_BAR_H + 1) - SHELL_STATUS_BAR_H,
+			viewport_h - ws_top - SHELL_STATUS_BAR_H,
 		)
 	}
 	if workspace.size.x < 1 do workspace.size.x = 1
@@ -79,7 +91,6 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 			{icon = "G", label = "Settings"},
 			{icon = "H", label = "Health"},
 		}
-		// Nav rail index → Route mapping (skips Instrument_Overview which has no nav entry).
 		nav_items := NAV_ITEMS
 		nav_routes := [5]Route{.Dashboard, .Markets, .Portfolio, .Settings, .Session_Health}
 		active_idx := -1
@@ -110,16 +121,27 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 		workspace = sidebar_layout.workspace_rect
 	}
 
+	// --- S113: Context stack (right panel, Dashboard only) ---
+	context_stack_rect: ui.Rect
+	if is_dashboard && state.chrome.context_stack.expanded && !state.zen.active && !mobile {
+		cs_w := clamp(state.chrome.context_stack.width, CONTEXT_STACK_W_MIN, CONTEXT_STACK_W_MAX)
+		if cs_w > workspace.size.x * 0.4 {
+			cs_w = workspace.size.x * 0.4 // Never consume more than 40% of workspace
+		}
+		context_stack_rect = ui.rect_cut_right(&workspace, cs_w)
+		draw_context_stack(state, context_stack_rect, pointer)
+		update_context_stack_resize(state, context_stack_rect, pointer)
+	}
+
 	// --- Page content dispatch ---
-	// Dashboard has sub-modes (focus, compare, grid) that are viewport-layout concerns.
-	// All other pages delegate to their Page_Module.render_page.
-	if state.chrome.active_route == .Dashboard {
+	if is_dashboard {
 		if state.focus_mode {
 			build_focus_mode(state, workspace_input, workspace, workspace_pointer)
 		} else if state.compare.active && state.compare.count >= 2 {
 			build_compare_mode(state, workspace_input, workspace, workspace_pointer, gap)
 		} else {
-			build_dashboard_grid(state, workspace, pointer, workspace_input, workspace_pointer,
+			// S106: Workspace tree runtime replaces grid layout.
+			build_workspace_dashboard(state, workspace, pointer, workspace_input, workspace_pointer,
 				gap, viewport_w, viewport_h, mobile)
 		}
 	} else {

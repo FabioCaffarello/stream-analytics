@@ -259,6 +259,21 @@ request_older_candles :: proc(state: ^App_State) {
 	apply_state_sync_to_getrange(state)
 }
 
+// S112: Resolve the effective TF index for a pane using pane-local state.
+// Reads from pane.tf_override + workspace default — no Entity_World lookup.
+pane_effective_tf_idx :: proc(pane: ^Pane, ws: ^Workspace, global_tf_idx: int) -> int {
+	if pane != nil && pane.tf_override >= 0 && int(pane.tf_override) < len(TF_OPTIONS) {
+		return int(pane.tf_override)
+	}
+	if ws != nil && ws.data_ctx.default_tf_idx >= 0 && ws.data_ctx.default_tf_idx < len(TF_OPTIONS) {
+		return ws.data_ctx.default_tf_idx
+	}
+	if global_tf_idx >= 0 && global_tf_idx < len(TF_OPTIONS) {
+		return global_tf_idx
+	}
+	return 2  // fallback: 1m
+}
+
 // Resolve the effective TF index for a cell: per-cell if >= 0, else global.
 cell_effective_tf_idx :: proc(state: ^App_State, ci: int) -> int {
 	tf := state.world.timeframes[ci].tf_idx
@@ -371,7 +386,10 @@ apply_set_timeframe_action :: proc(state: ^App_State, idx: int) -> bool {
 		md_common.apply_state_on_tf_change(&slot.apply_state)
 	}
 
-	// Clear TF-sensitive data for cells following global TF.
+	// S104: Clear TF-sensitive data for cells following global TF.
+	// This must also clear stream slot stores for bound cells — not just the active slot —
+	// because slots are keyed by market_id (venue+symbol), so stale data from the old TF
+	// would persist if only view/getrange state is reset.
 	for ci in 0 ..< state.world.count {
 		if state.world.timeframes[ci].tf_idx >= 0 do continue  // per-cell TF, not affected
 		state.world.views[ci].candle_scroll_x = 0
@@ -380,6 +398,22 @@ apply_set_timeframe_action :: proc(state: ^App_State, idx: int) -> bool {
 		state.world.getranges[ci].pending = false
 		state.world.getranges[ci].seeded = false
 		state.world.getranges[ci].oldest_ts = 0
+		// S104: Clear bound cell's slot stores (candle/heatmap/vpvr/analytics).
+		if binding_has(&state.world.bindings[ci]) {
+			si := state.world.bindings[ci].stream_idx
+			if si >= 0 && si < STREAM_VIEW_CAP && state.stream_views != nil && state.stream_views.slots[si].used {
+				cs := &state.stream_views.slots[si]
+				cs.candle_store.head = 0
+				cs.candle_store.count = 0
+				cs.heatmap_store = {}
+				cs.heatmap_snapshot = {}
+				cs.vpvr_store = {}
+				if ms := layers.market_store_stream_for_subject(&state.layer_store, cs.subject_id); ms != nil {
+					services.analytics_store_clear(&ms.analytics)
+				}
+				md_common.apply_state_on_tf_change(&cs.apply_state)
+			}
+		}
 	}
 
 	// S44: Invalidate compare panes following global TF (tf_idx == -1).
@@ -408,6 +442,16 @@ apply_set_timeframe_action :: proc(state: ^App_State, idx: int) -> bool {
 		for cpi in 0 ..< state.compare.count {
 			if state.compare.tf_idx[cpi] >= 0 do continue
 			request_compare_pane_candle_range(state, cpi)
+			// S104: Refetch compare pane subplot analytics for new TF.
+			request_compare_pane_subplot_analytics(state, cpi)
+		}
+	}
+
+	// S104: Refetch analytics range for analytics widget cells following global TF.
+	for ci in 0 ..< state.world.count {
+		if state.world.timeframes[ci].tf_idx >= 0 do continue
+		if state.world.widgets[ci].kind == .Analytics {
+			request_analytics_range(state, ci)
 		}
 	}
 
@@ -521,6 +565,18 @@ apply_set_cell_timeframe_action :: proc(state: ^App_State, cell_idx: int, tf_idx
 	state.world.timeframes[cell_idx].tf_idx = tf_idx
 	state.world.views[cell_idx].candle_scroll_x = 0
 	state.world.views[cell_idx].candle_zoom = 0
+
+	// S112: Sync TF to pane (pane is source of truth for contract path).
+	if ws := workspace_registry_active(&state.ws_registry); ws != nil {
+		pane_ids, pane_count := tree_collect_pane_ids(&ws.tree)
+		if cell_idx < pane_count {
+			if pane := pane_pool_get(&ws.pane_pool, pane_ids[cell_idx]); pane != nil {
+				pane.tf_override = i8(tf_idx)
+				pane.view.scroll_x = 0
+				pane.view.zoom_level = 1.0
+			}
+		}
+	}
 	// BUG-24: Clear stale getrange state so the new TF request isn't suppressed.
 	state.world.getranges[cell_idx].pending = false
 	state.world.getranges[cell_idx].seeded = false
@@ -568,6 +624,11 @@ apply_set_cell_timeframe_action :: proc(state: ^App_State, cell_idx: int, tf_idx
 
 	// Request historical candle data for the new TF.
 	request_cell_candle_range(state, cell_idx)
+
+	// S104: Refetch analytics range for analytics widget cells after TF change.
+	if state.world.widgets[cell_idx].kind == .Analytics {
+		request_analytics_range(state, cell_idx)
+	}
 
 	return true
 }

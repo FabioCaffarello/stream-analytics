@@ -1548,8 +1548,15 @@ draw_status_bar :: proc(state: ^App_State, viewport_w, viewport_h: f32, pointer:
 		health_color = ui.COL_RED
 	case .Offline:
 	}
-	ui.push_text(&state.cmd_buf, {sx, sy}, health_label, health_color, ui.FONT_SIZE_XS, .Bold)
-	sx += state.text.measure(ui.FONT_SIZE_XS, health_label).x + 10
+	// S107: Health status pill with background + border.
+	health_w := state.text.measure(ui.FONT_SIZE_XS, health_label).x + 12
+	health_pill_h := SHELL_STATUS_BAR_H - 4
+	health_pill_y := bar_y + 2
+	health_pill_rect := ui.rect_xywh(sx, health_pill_y, health_w, health_pill_h)
+	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = health_pill_rect, color = ui.with_alpha(health_color, 0.15)})
+	ui.draw_rect_stroke(&state.cmd_buf, health_pill_rect, ui.with_alpha(health_color, 0.3))
+	ui.push_text(&state.cmd_buf, {sx + 6, sy}, health_label, health_color, ui.FONT_SIZE_XS, .Bold)
+	sx += health_w + 8
 	reason_short := active_stream_reason_short(state)
 	if len(reason_short) > 0 {
 		reason_color := state.active_metrics.state == .Desync ? ui.COL_RED : ui.COL_TEXT_MUTED
@@ -1754,8 +1761,12 @@ draw_status_bar :: proc(state: ^App_State, viewport_w, viewport_h: f32, pointer:
 		ctx_color = ui.COL_GREEN
 	case .Empty:
 	}
-	ui.push_text(&state.cmd_buf, {sx, sy}, ctx_label, ctx_color, ui.FONT_SIZE_XS, .Mono)
-	sx += state.text.measure(ui.FONT_SIZE_XS, ctx_label).x + 12
+	// S107: CTX composition pill.
+	ctx_w := state.text.measure(ui.FONT_SIZE_XS, ctx_label).x + 12
+	ctx_pill_rect := ui.rect_xywh(sx, bar_y + 2, ctx_w, SHELL_STATUS_BAR_H - 4)
+	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = ctx_pill_rect, color = ui.with_alpha(ctx_color, 0.12)})
+	ui.push_text(&state.cmd_buf, {sx + 6, sy}, ctx_label, ctx_color, ui.FONT_SIZE_XS, .Mono)
+	sx += ctx_w + 8
 	if len(reason_short) > 0 {
 		rsn_buf: [64]u8
 		rsn_label := fmt.bprintf(rsn_buf[:], "RSN:%s", reason_short)

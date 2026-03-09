@@ -56,12 +56,17 @@ export function createStorageProcs() {
         http_get_sync(url_ptr, url_len, out_ptr, out_cap, buffer) {
             if (!buffer || out_cap <= 0) return 0;
             const url = loadStringRaw(buffer, url_ptr, url_len);
+            if (!url) return 0;
             try {
                 const xhr = new XMLHttpRequest();
                 xhr.open("GET", url, false);
                 xhr.setRequestHeader("Accept", "application/json");
                 xhr.send(null);
-                if (xhr.status !== 200) return 0;
+                if (xhr.status !== 200) {
+                    // S111: Non-200 is a normal condition (backend not ready, no data).
+                    // Return 0 without logging — caller handles gracefully.
+                    return 0;
+                }
                 const body = xhr.responseText || "";
                 if (!body) return 0;
                 const encoded = encodeString(body);

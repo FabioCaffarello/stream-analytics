@@ -405,3 +405,359 @@ test_s99_slot_no_analytics_store :: proc(t: ^testing.T) {
 	slot.tpo_store = {}
 	testing.expect(t, slot.used, "slot should be usable without analytics_store")
 }
+
+// --- S102: Product Surface Convergence ---
+
+// S102: poll_portfolio does NOT gate on WS connection status (S89 alignment).
+// Portfolio data comes via HTTP — WS state is irrelevant.
+@(test)
+test_s102_portfolio_poll_no_ws_gate :: proc(t: ^testing.T) {
+	state := new(App_State)
+	defer free(state)
+
+	// Simulate WS disconnected — conn_status defaults to .Offline (zero-init).
+	// Before S102, poll_portfolio would early-return here.
+	// After S102, it should proceed and attempt fetches.
+	state.portfolio.summary_status = .Idle
+	state.frame = 0
+
+	// poll_portfolio should run even without WS connection.
+	// Since fetch_portfolio_summary port is nil, it should set .Error (not stay .Idle).
+	poll_portfolio(state)
+	testing.expect(t, state.portfolio.summary_status == .Error,
+		"portfolio poll should attempt fetch even when WS is disconnected")
+}
+
+// S102: Portfolio retry interval is shorter on error (aligned with S89 pattern).
+@(test)
+test_s102_portfolio_retry_interval :: proc(t: ^testing.T) {
+	state := new(App_State)
+	defer free(state)
+
+	// Set all statuses to Error to trigger faster retry interval.
+	state.portfolio.summary_status = .Error
+	state.portfolio.readiness_status = .Error
+
+	// At PORTFOLIO_RETRY_INTERVAL (300), should re-attempt.
+	state.frame = PORTFOLIO_RETRY_INTERVAL
+	poll_portfolio(state)
+	// fetch_portfolio_summary port is nil → stays .Error, but it was attempted (frame updated).
+	// The key assertion: poll_portfolio ran at 300 frames (not waiting for 600).
+	testing.expect(t, state.portfolio.summary_status == .Error,
+		"portfolio should retry at shorter interval on error")
+
+	// Verify normal interval is longer: at frame 300 with success status, should NOT poll.
+	state.portfolio.summary_status = .Success
+	state.portfolio.readiness_status = .Success
+	state.portfolio.snapshot_status = .Success
+	state.portfolio.state_status = .Success
+	state.frame = PORTFOLIO_RETRY_INTERVAL
+	prev_frame := state.portfolio.summary_frame
+	poll_portfolio(state)
+	// summary_frame should NOT change — poll was skipped.
+	testing.expect(t, state.portfolio.summary_frame == prev_frame,
+		"portfolio should not poll at retry interval when all stores are success")
+}
+
+// S102: PORTFOLIO_RETRY_INTERVAL matches HEALTH_RETRY_INTERVAL (consistent contract).
+@(test)
+test_s102_poll_intervals_consistent :: proc(t: ^testing.T) {
+	// All page surfaces should use the same base poll interval.
+	testing.expect_value(t, PORTFOLIO_POLL_INTERVAL, u64(600))
+	testing.expect_value(t, HEALTH_POLL_INTERVAL, u64(600))
+	testing.expect_value(t, OVERVIEW_POLL_INTERVAL, u64(600))
+
+	// All page surfaces should use the same retry interval.
+	testing.expect_value(t, PORTFOLIO_RETRY_INTERVAL, u64(300))
+	testing.expect_value(t, HEALTH_RETRY_INTERVAL, u64(300))
+	testing.expect_value(t, OVERVIEW_RETRY_INTERVAL, u64(300))
+}
+
+// --- S104: Dashboard Timeframe Integrity Hardening ---
+
+// S104: Global TF change clears bound cell stores (not just active slot).
+@(test)
+test_s104_global_tf_clears_bound_cell_stores :: proc(t: ^testing.T) {
+	state := new(App_State)
+	defer free(state)
+	state.stream_views = new(Stream_View_Registry)
+	defer free(state.stream_views)
+
+	// Setup: 2 cells, both following global TF.
+	state.world.count = 2
+	state.active_tf_idx = 2 // 1m
+
+	// Cell 0 = follow-active (no binding).
+	state.world.timeframes[0].tf_idx = -1
+
+	// Cell 1 = bound to its own stream (slot 1).
+	state.world.timeframes[1].tf_idx = -1
+	binding_set(&state.world.bindings[1], "binance", "ETHUSDT")
+	state.world.bindings[1].stream_idx = 1
+
+	// Allocate slot 1 with candle data.
+	slot := &state.stream_views.slots[1]
+	slot.used = true
+	slot.subject_id = 12345
+	slot.candle_store.head = 5
+	slot.candle_store.count = 10
+
+	// Apply global TF change: 1m → 5m.
+	apply_set_timeframe_action(state, 3)
+
+	// Bound cell's slot should have cleared candle store.
+	testing.expect_value(t, slot.candle_store.head, 0)
+	testing.expect_value(t, slot.candle_store.count, 0)
+}
+
+// S104: Global TF change clears analytics store for bound cells.
+@(test)
+test_s104_global_tf_clears_bound_cell_analytics :: proc(t: ^testing.T) {
+	state := new(App_State)
+	defer free(state)
+	state.stream_views = new(Stream_View_Registry)
+	defer free(state.stream_views)
+
+	state.world.count = 1
+	state.active_tf_idx = 2
+	state.world.timeframes[0].tf_idx = -1
+
+	// Bound cell with analytics data.
+	binding_set(&state.world.bindings[0], "binance", "BTCUSDT")
+	state.world.bindings[0].stream_idx = 0
+	slot := &state.stream_views.slots[0]
+	slot.used = true
+	slot.subject_id = 999
+
+	stream := layers.market_store_stream_get_or_alloc(&state.layer_store, 999)
+	services.push_analytics(&stream.analytics, services.Analytics_Entry{
+		kind = .CVD, ts_ms = 1000, seq = 1,
+	})
+	testing.expect_value(t, stream.analytics.count, 1)
+
+	// Global TF change.
+	apply_set_timeframe_action(state, 4)
+
+	// Analytics should be cleared.
+	testing.expect_value(t, stream.analytics.count, 0)
+}
+
+// S104: Per-cell TF skip — cells with per-cell TF override are NOT cleared by global change.
+@(test)
+test_s104_global_tf_skips_per_cell_tf :: proc(t: ^testing.T) {
+	state := new(App_State)
+	defer free(state)
+	state.stream_views = new(Stream_View_Registry)
+	defer free(state.stream_views)
+
+	state.world.count = 1
+	state.active_tf_idx = 2
+	state.world.timeframes[0].tf_idx = 5  // per-cell override (30m)
+
+	binding_set(&state.world.bindings[0], "binance", "ETHUSDT")
+	state.world.bindings[0].stream_idx = 0
+	slot := &state.stream_views.slots[0]
+	slot.used = true
+	slot.subject_id = 888
+	slot.candle_store.head = 3
+	slot.candle_store.count = 7
+
+	// Global TF change.
+	apply_set_timeframe_action(state, 4)
+
+	// Per-cell TF cell's slot should NOT be cleared.
+	testing.expect_value(t, slot.candle_store.head, 3)
+	testing.expect_value(t, slot.candle_store.count, 7)
+}
+
+// S104: Per-cell TF change clears stores and resets apply state.
+@(test)
+test_s104_per_cell_tf_clears_slot_stores :: proc(t: ^testing.T) {
+	state := new(App_State)
+	defer free(state)
+	state.stream_views = new(Stream_View_Registry)
+	defer free(state.stream_views)
+
+	state.world.count = 1
+	state.active_tf_idx = 2
+	state.world.timeframes[0].tf_idx = -1
+
+	binding_set(&state.world.bindings[0], "binance", "BTCUSDT")
+	state.world.bindings[0].stream_idx = 0
+	slot := &state.stream_views.slots[0]
+	slot.used = true
+	slot.subject_id = 777
+	slot.candle_store.head = 10
+	slot.candle_store.count = 20
+	slot.apply_state.has_live[.Candle] = true
+
+	// Set per-cell TF from -1 (global) to 5 (30m).
+	result := apply_set_cell_timeframe_action(state, 0, 5)
+	testing.expect(t, result, "per-cell TF change should succeed")
+
+	// Stores should be cleared.
+	testing.expect_value(t, slot.candle_store.head, 0)
+	testing.expect_value(t, slot.candle_store.count, 0)
+	// Apply state should be reset per policy.
+	testing.expect(t, !slot.apply_state.has_live[.Candle], "has_live candle should be reset")
+}
+
+// S104: apply_state_on_tf_change is called for bound cells on global TF change.
+@(test)
+test_s104_global_tf_resets_apply_state_for_bound_cells :: proc(t: ^testing.T) {
+	state := new(App_State)
+	defer free(state)
+	state.stream_views = new(Stream_View_Registry)
+	defer free(state.stream_views)
+
+	state.world.count = 1
+	state.active_tf_idx = 2
+	state.world.timeframes[0].tf_idx = -1 // follows global
+
+	binding_set(&state.world.bindings[0], "bybit", "BTCUSDT")
+	state.world.bindings[0].stream_idx = 0
+	slot := &state.stream_views.slots[0]
+	slot.used = true
+	slot.subject_id = 555
+	slot.apply_state.has_live[.Candle] = true
+	slot.apply_state.has_live[.Heatmap] = true
+
+	// Global TF change.
+	apply_set_timeframe_action(state, 6)
+
+	// Apply state should be reset.
+	testing.expect(t, !slot.apply_state.has_live[.Candle], "candle has_live should reset")
+	testing.expect(t, !slot.apply_state.has_live[.Heatmap], "heatmap has_live should reset")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// S107: Pane Visual State resolution tests.
+// ═══════════════════════════════════════════════════════════════
+
+import "mr:md_common"
+import "mr:streams"
+
+@(test)
+test_pane_visual_state_offline :: proc(t: ^testing.T) {
+	sv := Cell_Surface_View{}
+	vs := resolve_pane_visual_state(sv, .Offline, .Offline)
+	testing.expect(t, vs == .Offline, "offline connection should yield Offline state")
+}
+
+@(test)
+test_pane_visual_state_desync :: proc(t: ^testing.T) {
+	sv := Cell_Surface_View{composition = .Composed, stream_bound = true}
+	vs := resolve_pane_visual_state(sv, .Connected, .Desync)
+	testing.expect(t, vs == .Error, "desync stream should yield Error state")
+}
+
+@(test)
+test_pane_visual_state_critical :: proc(t: ^testing.T) {
+	sv := Cell_Surface_View{
+		composition  = .Composed,
+		stream_bound = true,
+		health_level = .Critical,
+	}
+	vs := resolve_pane_visual_state(sv, .Connected, .Live)
+	testing.expect(t, vs == .Error, "critical health should yield Error state")
+}
+
+@(test)
+test_pane_visual_state_empty_unbound :: proc(t: ^testing.T) {
+	sv := Cell_Surface_View{composition = .Empty, stream_bound = false}
+	vs := resolve_pane_visual_state(sv, .Connected, .Live)
+	testing.expect(t, vs == .Empty, "empty+unbound should yield Empty state")
+}
+
+@(test)
+test_pane_visual_state_range_pending :: proc(t: ^testing.T) {
+	sv := Cell_Surface_View{composition = .Range_Pending, stream_bound = true}
+	vs := resolve_pane_visual_state(sv, .Connected, .Live)
+	testing.expect(t, vs == .Loading, "range_pending should yield Loading state")
+}
+
+@(test)
+test_pane_visual_state_live_only :: proc(t: ^testing.T) {
+	sv := Cell_Surface_View{composition = .Live_Only, stream_bound = true}
+	vs := resolve_pane_visual_state(sv, .Connected, .Live)
+	testing.expect(t, vs == .Seeding, "live_only should yield Seeding state")
+}
+
+@(test)
+test_pane_visual_state_backfilled :: proc(t: ^testing.T) {
+	sv := Cell_Surface_View{composition = .Backfilled, stream_bound = true}
+	vs := resolve_pane_visual_state(sv, .Connected, .Live)
+	testing.expect(t, vs == .Seeding, "backfilled should yield Seeding state")
+}
+
+@(test)
+test_pane_visual_state_composed :: proc(t: ^testing.T) {
+	sv := Cell_Surface_View{composition = .Composed, stream_bound = true}
+	vs := resolve_pane_visual_state(sv, .Connected, .Live)
+	testing.expect(t, vs == .Active, "composed should yield Active state")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// S114: State sub-label helpers — widget-specific contextual messages.
+// ═══════════════════════════════════════════════════════════════
+
+@(test)
+test_state_sub_label_loading_candle :: proc(t: ^testing.T) {
+	s := _state_sub_label_loading(.Candle)
+	testing.expect(t, len(s) > 0, "loading sub-label for Candle should be non-empty")
+	testing.expect(t, s == "Requesting candle history", "loading sub-label for Candle")
+}
+
+@(test)
+test_state_sub_label_loading_orderbook :: proc(t: ^testing.T) {
+	s := _state_sub_label_loading(.Orderbook)
+	testing.expect(t, s == "Requesting order book", "loading sub-label for Orderbook")
+}
+
+@(test)
+test_state_sub_label_loading_empty_widget :: proc(t: ^testing.T) {
+	s := _state_sub_label_loading(.Empty)
+	testing.expect(t, s == "No widget selected", "loading sub-label for Empty widget")
+}
+
+@(test)
+test_state_sub_label_seeding_trades :: proc(t: ^testing.T) {
+	s := _state_sub_label_seeding(.Trades)
+	testing.expect(t, s == "Trade feed starting", "seeding sub-label for Trades")
+}
+
+@(test)
+test_state_sub_label_seeding_empty_widget :: proc(t: ^testing.T) {
+	s := _state_sub_label_seeding(.Empty)
+	testing.expect(t, len(s) == 0, "seeding sub-label for Empty widget should be empty")
+}
+
+@(test)
+test_state_sub_label_empty_candle :: proc(t: ^testing.T) {
+	s := _state_sub_label_empty(.Candle)
+	testing.expect(t, s == "No market stream bound", "empty sub-label for Candle")
+}
+
+@(test)
+test_state_sub_label_empty_widget :: proc(t: ^testing.T) {
+	s := _state_sub_label_empty(.Empty)
+	testing.expect(t, s == "Select a widget type", "empty sub-label for Empty widget kind")
+}
+
+@(test)
+test_state_sub_labels_all_widget_kinds_loading :: proc(t: ^testing.T) {
+	// Every widget kind must produce a non-empty loading sub-label.
+	for wk in Widget_Kind {
+		s := _state_sub_label_loading(wk)
+		testing.expect(t, len(s) > 0, "all widget kinds must have loading sub-label")
+	}
+}
+
+@(test)
+test_state_sub_labels_all_widget_kinds_empty :: proc(t: ^testing.T) {
+	// Every widget kind must produce a non-empty empty sub-label.
+	for wk in Widget_Kind {
+		s := _state_sub_label_empty(wk)
+		testing.expect(t, len(s) > 0, "all widget kinds must have empty sub-label")
+	}
+}

@@ -118,6 +118,12 @@ UI_Action_Kind :: enum u8 {
 	Clear_All_Cells,         // S53: remove all cells and open widget catalog
 	Navigate_Instrument_Overview, // S58: navigate to overview for a market entry
 	Toggle_Compare_Subplot,      // S95: toggle CVD/DV/OI subplot on a compare pane
+	Split_Pane_H,                // S106: split focused pane horizontally
+	Split_Pane_V,                // S106: split focused pane vertically
+	Rotate_Split,                // S106: rotate Split_H ↔ Split_V at focused pane's parent
+	Toggle_Context_Stack,        // S113: toggle right-side context panel
+	Set_Context_Tab,             // S113: switch active context tab
+	Cycle_Context_Tab,           // S119: cycle to next available tab for current role
 }
 
 UI_Action :: struct {
@@ -137,6 +143,7 @@ UI_Action :: struct {
 	col_span:       int,        // S53: for Set_Cell_Span
 	row_span:       int,        // S53: for Set_Cell_Span
 	subplot_idx:    int,        // S95: 0=CVD, 1=DeltaVol, 2=OI for Toggle_Compare_Subplot
+	context_tab:    Context_Tab, // S113: for Set_Context_Tab
 	// Intent binding transport (PRD-0009): venue/symbol for Set_Cell_Stream / Add_Cell.
 	bind_venue:     string,
 	bind_symbol:    string,
@@ -472,6 +479,12 @@ App_State :: struct {
 	explorer: Explorer_State,
 	// S74: Portfolio data layer — three backend-owned read model stores.
 	portfolio: Portfolio_Data_State,
+
+	// S106: Workspace tree runtime (replaces grid layout).
+	ws_registry: Workspace_Registry,
+
+	// S111: Last restore result — for diagnostics and first-run detection.
+	persist_result: Persist_Result,
 }
 
 // S20: Bootstrap state populated from GET /api/v1/session.
@@ -657,6 +670,10 @@ init :: proc(
 	// Initialize cell assignments from default panel visibility.
 	layout_from_panels(state)
 
+	// S106: Initialize workspace registry and sync tree from Entity_World.
+	workspace_registry_alloc(&state.ws_registry)
+	workspace_sync_from_world(state)
+
 	// Sidebar sections: panels expanded by default, others collapsed.
 	state.chrome.section_streams = {expanded = false}
 	state.chrome.section_layers  = {expanded = false}
@@ -840,19 +857,25 @@ init :: proc(
 				state.chrome.panel_visible = vis
 				ui.sync_sidebar_visibility(&state.chrome.sidebar, state.chrome.panel_visible)
 			}
-			// Restore cell layout (V6 -> V5 -> V4 -> V3 -> V2 -> V1 chain).
-			layout_from_panels(state) // rebuild from panel_visible
-			if !restore_layout_v6(state) {
-				if !restore_layout_v5(state) {
-					if !restore_layout_v4(state) {
-						if !restore_layout_v3(state) {
-							if !restore_layout_v2(state) {
-								restore_layout(state) // V1 fallback
-							}
-						}
-					}
-				}
+			// S111: Restore cell layout — V6 only, no silent fallback chain.
+			layout_from_panels(state) // rebuild from panel_visible as baseline
+			restore_result := restore_workspace(state)
+			switch restore_result {
+			case .Ok:
+				// Layout restored deterministically.
+			case .No_Data:
+				// First run — layout_from_panels baseline is used.
+			case .Version_Mismatch:
+				// Stored layout is from a newer version. Use defaults.
+				// Clear stale key to prevent repeated mismatch on next save.
+				services.settings_set(&state.settings, services.SETTING_LAYOUT_V6, "")
+			case .Corrupted:
+				// Data exists but is unparseable. Clear and start fresh.
+				services.settings_set(&state.settings, services.SETTING_LAYOUT_V6, "")
+			case .Too_Many_Cells:
+				// Truncation handled inside restore. Should not reach here.
 			}
+			state.persist_result = restore_result
 			// Restore layout mode (PRD-0007 M2).
 			if v, ok := services.settings_get(&state.settings, services.SETTING_LAYOUT_MODE); ok {
 				state.layout_mode = v == "C" ? .Custom : .Preset
@@ -860,6 +883,8 @@ init :: proc(
 			// Restore grid weights (PRD-0007 M0) — only if V3 didn't set them.
 			restore_col_weights(state)
 			restore_row_weights(state)
+			// S106: Rebuild workspace tree from restored Entity_World state.
+			workspace_sync_from_world(state)
 			// Restore draw tools.
 			if v, ok := services.settings_get(&state.settings, services.SETTING_DRAW_TOOLS); ok {
 				widgets.draw_tools_deserialize(&state.draw_tools, v)
@@ -933,13 +958,17 @@ init :: proc(
 	if !offline {
 		reconcile_subscriptions(state)
 
-		// S20 Slice 3: Fetch timeline bounds before requesting historical candles.
-		fetch_timeline_for_active(state)
+		// S111: Guard HTTP fetches — only fire if transport is actually connected.
+		// Prevents 400 Bad Request errors when auto-connect hasn't completed yet.
+		if current_conn_status(state) == .Connected {
+			// S20 Slice 3: Fetch timeline bounds before requesting historical candles.
+			fetch_timeline_for_active(state)
 
-		// Prime historical candles even before first live event, so high TF startup
-		// does not stay empty waiting for a subject event to create an active slot.
-		if active_candle_count(state) <= 0 {
-			request_active_stream_candle_range(state)
+			// Prime historical candles even before first live event, so high TF startup
+			// does not stay empty waiting for a subject event to create an active slot.
+			if active_candle_count(state) <= 0 {
+				request_active_stream_candle_range(state)
+			}
 		}
 	}
 	}

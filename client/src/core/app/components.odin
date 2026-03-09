@@ -246,6 +246,32 @@ Overlay_State :: struct {
 	exchange_sections:         [services.EXCHANGE_CAP]ui.Section_State,
 }
 
+// S113/S119: Context stack tab — right-side panel for active pane context.
+Context_Tab :: enum u8 {
+	Stats,
+	Trades,
+	OrderBook,
+	Counter,
+	Instrument,
+	DOM,          // S119: DOM depth view
+	Analytics,    // S119: analytics view
+}
+
+CONTEXT_TAB_COUNT :: 7
+
+// S113/S119: Context stack state — tabbed right panel.
+Context_Stack_State :: struct {
+	expanded:     bool,
+	active_tab:   Context_Tab,
+	width:        f32,          // current width (resizable)
+	resizing:     bool,
+	follow_focus: bool,         // S119: auto-switch tabs based on focused pane role
+}
+
+CONTEXT_STACK_W_DEFAULT :: f32(240)
+CONTEXT_STACK_W_MIN     :: f32(160)
+CONTEXT_STACK_W_MAX     :: f32(400)
+
 UI_Chrome_State :: struct {
 	sidebar:           ui.Sidebar_State,
 	panel_visible:     [ui.PANEL_COUNT]bool,
@@ -257,6 +283,7 @@ UI_Chrome_State :: struct {
 	section_layers:    ui.Section_State,
 	section_panels:    ui.Section_State,
 	active_route:      Route,
+	context_stack:     Context_Stack_State, // S113: right-side context panel
 }
 
 Zen_State :: struct {

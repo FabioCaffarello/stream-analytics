@@ -6,8 +6,9 @@ import "mr:services"
 // Pure data layer — no UI rendering. Fetch procs are called by the poll loop and can be
 // triggered from any page that needs portfolio data.
 
-PORTFOLIO_POLL_INTERVAL :: u64(600) // ~10s at 60fps
-PORTFOLIO_BUF_SIZE      :: 16384   // 16KB — portfolio payloads can be large
+PORTFOLIO_POLL_INTERVAL  :: u64(600) // ~10s at 60fps
+PORTFOLIO_RETRY_INTERVAL :: u64(300) // ~5s at 60fps — faster retry on error (S89/S102)
+PORTFOLIO_BUF_SIZE       :: 16384   // 16KB — portfolio payloads can be large
 
 // --- Fetch: Portfolio State (venue-scoped) ---
 
@@ -140,33 +141,38 @@ fetch_trading_readiness :: proc(state: ^App_State) {
 // --- Poll: periodic refresh ---
 
 // Poll all portfolio stores that have targets configured. Safe to call every frame.
+// S102: HTTP endpoints are independent of WS connection (aligned with S89 pattern).
+//       Portfolio polls on all pages (background) unlike page-scoped diagnostics.
 @(private = "package")
 poll_portfolio :: proc(state: ^App_State) {
-	if current_conn_status(state) != .Connected do return
-
 	pf := &state.portfolio
+
+	// Determine interval: faster retry on error (S89/S102 alignment).
+	any_error := pf.state_status == .Error || pf.snapshot_status == .Error ||
+	             pf.summary_status == .Error || pf.readiness_status == .Error
+	interval := any_error ? PORTFOLIO_RETRY_INTERVAL : PORTFOLIO_POLL_INTERVAL
 
 	// Portfolio state — requires account_id + venue + symbol.
 	if pf.account_id_len > 0 && pf.venue_len > 0 && pf.symbol_len > 0 {
-		if state.frame % PORTFOLIO_POLL_INTERVAL == 0 || pf.state_status == .Idle {
+		if state.frame % interval == 0 || pf.state_status == .Idle {
 			fetch_portfolio_state(state)
 		}
 	}
 
 	// Account snapshot — requires account_id.
 	if pf.account_id_len > 0 {
-		if state.frame % PORTFOLIO_POLL_INTERVAL == 0 || pf.snapshot_status == .Idle {
+		if state.frame % interval == 0 || pf.snapshot_status == .Idle {
 			fetch_account_snapshot(state)
 		}
 	}
 
 	// Portfolio summary — no target required (global).
-	if state.frame % PORTFOLIO_POLL_INTERVAL == 0 || pf.summary_status == .Idle {
+	if state.frame % interval == 0 || pf.summary_status == .Idle {
 		fetch_portfolio_summary(state)
 	}
 
 	// S78: Trading readiness — no target required (composed query).
-	if state.frame % PORTFOLIO_POLL_INTERVAL == 0 || pf.readiness_status == .Idle {
+	if state.frame % interval == 0 || pf.readiness_status == .Idle {
 		fetch_trading_readiness(state)
 	}
 }

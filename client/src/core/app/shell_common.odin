@@ -2,6 +2,7 @@ package app
 
 import "mr:md_common"
 import "mr:ports"
+import "mr:streams"
 import "mr:ui"
 
 // S52: Shared shell primitives — canonical connection status display.
@@ -88,6 +89,192 @@ draw_health_dot :: proc(
 		color = health_color,
 	})
 	return dot_sz + 4
+}
+
+// ═══════════════════════════════════════════════════════════════
+// S107: Pane Visual State — unified state overlay system.
+// ═══════════════════════════════════════════════════════════════
+
+Pane_Visual_State :: enum u8 {
+	Active,   // normal rendering — no overlay
+	Loading,  // connected, composition Range_Pending
+	Seeding,  // connected, composition Live_Only or Backfilled
+	Empty,    // no stream bound or composition Empty
+	Offline,  // connection offline
+	Error,    // desync or critical health
+}
+
+// Resolve the visual state for a pane given its surface view and connection context.
+@(private = "package")
+resolve_pane_visual_state :: proc(
+	sv: Cell_Surface_View,
+	conn_status: ports.MD_Conn_Status,
+	stream_state: streams.Stream_State,
+) -> Pane_Visual_State {
+	if conn_status == .Offline do return .Offline
+	if stream_state == .Desync do return .Error
+	if sv.health_level == .Critical do return .Error
+	if sv.composition == .Empty && !sv.stream_bound do return .Empty
+	if sv.composition == .Range_Pending do return .Loading
+	if sv.composition == .Live_Only || sv.composition == .Backfilled do return .Seeding
+	return .Active
+}
+
+// S114: Draw an informative state overlay on a pane body for non-Active states.
+// Renders a semi-transparent backdrop + centered title + contextual sub-label + hint.
+@(private = "package")
+draw_pane_state_overlay :: proc(
+	cmd_buf: ^ui.Command_Buffer,
+	rect: ui.Rect,
+	visual_state: Pane_Visual_State,
+	widget_kind: Widget_Kind,
+	measure: proc(size: f32, text: string) -> ui.Vec2,
+) {
+	if visual_state == .Active do return
+	if rect.size.x <= 0 || rect.size.y <= 0 do return
+
+	title: string
+	title_color: ui.Color
+	sub_label: string
+	hint: string
+
+	switch visual_state {
+	case .Loading:
+		title = "Loading"
+		title_color = ui.COL_STATE_LOADING
+		sub_label = _state_sub_label_loading(widget_kind)
+		hint = "Fetching historical data..."
+	case .Seeding:
+		title = "Seeding"
+		title_color = ui.COL_STATE_SEEDING
+		sub_label = _state_sub_label_seeding(widget_kind)
+		hint = "Waiting for live feed"
+	case .Empty:
+		title = "No Data"
+		title_color = ui.COL_STATE_EMPTY
+		sub_label = _state_sub_label_empty(widget_kind)
+		hint = "Click stream badge to bind"
+	case .Offline:
+		title = "Offline"
+		title_color = ui.COL_STATE_OFFLINE
+		sub_label = "Server connection lost"
+		hint = "Reconnecting automatically..."
+	case .Error:
+		title = "Error"
+		title_color = ui.COL_STATE_ERROR
+		sub_label = "Stream desync or critical health"
+		hint = "Recovery in progress"
+	case .Active:
+		return
+	}
+
+	// Semi-transparent backdrop.
+	ui.push(cmd_buf, ui.Cmd_Rect_Filled{
+		rect  = rect,
+		color = ui.with_alpha(ui.COL_SURFACE_0, 0.65),
+	})
+
+	// Compact mode: small panes only get the title.
+	is_compact := rect.size.y < 60 || rect.size.x < 120
+	if is_compact {
+		title_sz := measure(ui.FONT_SIZE_SM, title)
+		cx := rect.pos.x + (rect.size.x - title_sz.x) * 0.5
+		cy := rect.pos.y + rect.size.y * 0.5 + ui.FONT_SIZE_SM * 0.35
+		ui.push_text(cmd_buf, {cx, cy}, title, title_color, ui.FONT_SIZE_SM, .Bold)
+		return
+	}
+
+	// Full mode: title + sub-label + hint, vertically centered as a group.
+	line_gap := f32(4)
+	title_h := ui.FONT_SIZE_SM
+	sub_h := ui.FONT_SIZE_XS
+	hint_h := ui.FONT_SIZE_XS
+	total_h := title_h + line_gap + sub_h + line_gap + hint_h
+	group_top := rect.pos.y + (rect.size.y - total_h) * 0.5
+
+	// Title.
+	title_sz := measure(ui.FONT_SIZE_SM, title)
+	ui.push_text(cmd_buf,
+		{rect.pos.x + (rect.size.x - title_sz.x) * 0.5, group_top + title_h * 0.5 + ui.FONT_SIZE_SM * 0.35},
+		title, title_color, ui.FONT_SIZE_SM, .Bold)
+
+	// Sub-label.
+	if len(sub_label) > 0 {
+		sub_sz := measure(ui.FONT_SIZE_XS, sub_label)
+		sub_y := group_top + title_h + line_gap
+		ui.push_text(cmd_buf,
+			{rect.pos.x + (rect.size.x - sub_sz.x) * 0.5, sub_y + sub_h * 0.5 + ui.FONT_SIZE_XS * 0.35},
+			sub_label, ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS, .Mono)
+	}
+
+	// Hint.
+	if len(hint) > 0 {
+		hint_sz := measure(ui.FONT_SIZE_XS, hint)
+		hint_y := group_top + title_h + line_gap + sub_h + line_gap
+		ui.push_text(cmd_buf,
+			{rect.pos.x + (rect.size.x - hint_sz.x) * 0.5, hint_y + hint_h * 0.5 + ui.FONT_SIZE_XS * 0.35},
+			hint, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+	}
+}
+
+// S114: Widget-specific sub-labels for Loading state.
+@(private = "package")
+_state_sub_label_loading :: proc(wk: Widget_Kind) -> string {
+	switch wk {
+	case .Candle:       return "Requesting candle history"
+	case .Stats:        return "Requesting market stats"
+	case .Counter:      return "Requesting trade counters"
+	case .Heatmap:      return "Requesting heatmap data"
+	case .VPVR:         return "Requesting volume profile"
+	case .Trades:       return "Requesting recent trades"
+	case .Orderbook:    return "Requesting order book"
+	case .DOM:          return "Requesting depth of market"
+	case .Analytics:    return "Requesting analytics range"
+	case .Session_VPVR: return "Requesting session profile"
+	case .TPO:          return "Requesting TPO profile"
+	case .Empty:        return "No widget selected"
+	}
+	return "Requesting data"
+}
+
+// S114: Widget-specific sub-labels for Seeding state.
+@(private = "package")
+_state_sub_label_seeding :: proc(wk: Widget_Kind) -> string {
+	switch wk {
+	case .Candle:       return "Candles arriving, building chart"
+	case .Stats:        return "Stats snapshot pending"
+	case .Counter:      return "Accumulating trade counts"
+	case .Heatmap:      return "Building heatmap grid"
+	case .VPVR:         return "Accumulating volume levels"
+	case .Trades:       return "Trade feed starting"
+	case .Orderbook:    return "Book snapshot pending"
+	case .DOM:          return "Depth levels populating"
+	case .Analytics:    return "Analytics feed starting"
+	case .Session_VPVR: return "Session profile building"
+	case .TPO:          return "TPO blocks accumulating"
+	case .Empty:        return ""
+	}
+	return "Receiving initial data"
+}
+
+// S114: Widget-specific sub-labels for Empty state.
+@(private = "package")
+_state_sub_label_empty :: proc(wk: Widget_Kind) -> string {
+	switch wk {
+	case .Candle:       return "No market stream bound"
+	case .Stats:        return "No market stream bound"
+	case .Counter:      return "No market stream bound"
+	case .Heatmap:      return "No market stream bound"
+	case .VPVR:         return "No market stream bound"
+	case .Trades:       return "No market stream bound"
+	case .Orderbook:    return "No market stream bound"
+	case .DOM:          return "No market stream bound"
+	case .Analytics:    return "No market stream bound"
+	case .Session_VPVR: return "No market stream bound"
+	case .TPO:          return "No market stream bound"
+	case .Empty:        return "Select a widget type"
+	}
+	return "No data source"
 }
 
 // S64: Shared status → color mapping. Consolidates identical helpers across pages.

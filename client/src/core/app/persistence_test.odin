@@ -587,3 +587,116 @@ test_normalized_symbol_strips_suffix :: proc(t: ^testing.T) {
 test_workspace_schema_version :: proc(t: ^testing.T) {
 	testing.expect(t, WORKSPACE_SCHEMA_VERSION >= 10, "schema version should be >= 10")
 }
+
+// ---------------------------------------------------------------------------
+// S111: Persist_Result Structured Restore
+// ---------------------------------------------------------------------------
+
+@(test)
+test_persist_result_no_data_on_empty :: proc(t: ^testing.T) {
+	state := new(App_State)
+	defer free(state)
+	// No settings populated → No_Data.
+	result := restore_workspace(state)
+	testing.expect(t, result == .No_Data, "empty settings should return No_Data")
+}
+
+@(test)
+test_persist_result_ok_on_valid_v6 :: proc(t: ^testing.T) {
+	state := make_persist_state(2)
+	defer free(state)
+	buf: [2048]u8
+	off := build_layout_v6_string(state, buf[:])
+	v6 := string(buf[:off])
+
+	restored := new(App_State)
+	defer free(restored)
+	result := restore_layout_v6_validated(restored, v6)
+	testing.expect(t, result == .Ok, "valid V6 should return Ok")
+	testing.expect_value(t, restored.world.count, 2)
+}
+
+@(test)
+test_persist_result_corrupted_on_garbage :: proc(t: ^testing.T) {
+	state := new(App_State)
+	defer free(state)
+	result := restore_layout_v6_validated(state, "XXXX")
+	testing.expect(t, result == .Corrupted, "garbage header should return Corrupted")
+}
+
+@(test)
+test_persist_result_corrupted_on_truncated :: proc(t: ^testing.T) {
+	state := new(App_State)
+	defer free(state)
+	result := restore_layout_v6_validated(state, "V6|C")
+	testing.expect(t, result == .Corrupted, "truncated V6 should return Corrupted")
+}
+
+@(test)
+test_persist_result_version_mismatch_future :: proc(t: ^testing.T) {
+	state := new(App_State)
+	defer free(state)
+	// Simulate a future version "V7" header.
+	result := restore_layout_v6_validated(state, "V7|C|CW:50,50|RW:50,50|0:-1:0:1:1:0:0,0,0,0,0:0:0")
+	testing.expect(t, result == .Version_Mismatch, "V7 header should return Version_Mismatch")
+}
+
+@(test)
+test_persist_result_no_data_on_short :: proc(t: ^testing.T) {
+	state := new(App_State)
+	defer free(state)
+	result := restore_layout_v6_validated(state, "")
+	testing.expect(t, result == .No_Data, "empty string should return No_Data")
+	// "V6" alone is only 2 chars (< 4 min length) → treated as No_Data.
+	result2 := restore_layout_v6_validated(state, "V6")
+	testing.expect(t, result2 == .No_Data, "too-short V6 should return No_Data")
+}
+
+@(test)
+test_persist_result_ok_helper :: proc(t: ^testing.T) {
+	testing.expect(t, persist_result_ok(.Ok), "Ok should be ok")
+	testing.expect(t, !persist_result_ok(.No_Data), "No_Data should not be ok")
+	testing.expect(t, !persist_result_ok(.Corrupted), "Corrupted should not be ok")
+	testing.expect(t, !persist_result_ok(.Version_Mismatch), "Version_Mismatch should not be ok")
+	testing.expect(t, !persist_result_ok(.Too_Many_Cells), "Too_Many_Cells should not be ok")
+}
+
+@(test)
+test_persist_schema_version_stamp :: proc(t: ^testing.T) {
+	// After persist, SETTING_SETTINGS_VERSION should contain current version.
+	state := make_persist_state(1)
+	defer free(state)
+	persist_layout_v6(state)
+	v, ok := services.settings_get(&state.settings, services.SETTING_SETTINGS_VERSION)
+	testing.expect(t, ok, "settings version should be set after persist")
+	testing.expect(t, v == "11", "settings version should match WORKSPACE_SCHEMA_VERSION")
+}
+
+@(test)
+test_persist_idempotent :: proc(t: ^testing.T) {
+	// Persisting the same state twice should produce identical V6 strings.
+	state := make_persist_state(3)
+	defer free(state)
+	state.world.widgets[0].kind = .Candle
+	state.world.widgets[1].kind = .Trades
+	state.world.widgets[2].kind = .Orderbook
+	binding_set(&state.world.bindings[0], "binance", "BTCUSDT:SPOT")
+	state.world.indicators[0].show_ma = true
+	state.world.charts[0].show_vol = true
+
+	buf1: [2048]u8
+	off1 := build_layout_v6_string(state, buf1[:])
+	buf2: [2048]u8
+	off2 := build_layout_v6_string(state, buf2[:])
+	testing.expect(t, string(buf1[:off1]) == string(buf2[:off2]),
+		"two persists of same state should be identical (idempotent)")
+}
+
+@(test)
+test_persist_result_v5_header_corrupted :: proc(t: ^testing.T) {
+	// V5 header is NOT a version mismatch — it's a different format entirely.
+	state := new(App_State)
+	defer free(state)
+	result := restore_layout_v6_validated(state, "V5|C|CW:50|RW:50")
+	testing.expect(t, result == .Corrupted, "V5 header should return Corrupted (not recognized)")
+}

@@ -40,6 +40,13 @@ that validates each decision. For the full text of any ADR, follow the path link
 | [ADR-0019](../adrs/ADR-0019-dual-database-operational-strategy.md) | Dual-database operational strategy | Accepted | Full | TimescaleDB (hot reads) + ClickHouse (analytics/cold) |
 | [ADR-0020](../adrs/ADR-0020-gitops-secrets-management.md) | GitOps secrets management | Accepted | In progress | SOPS-encrypted config; least-privilege DB users |
 | [ADR-0021](../adrs/ADR-0021-signals-strategist-dedicated-topology-cutover.md) | Signals/Strategist dedicated topology cutover | Accepted | Partial | Dedicated services primary; embedded paths behind explicit flags |
+| [ADR-0024](../adrs/ADR-0024-dashboard-workspace-architecture.md) | Dashboard workspace architecture | Accepted | In progress | Workspace as aggregate root; pane registry; split tree |
+| [ADR-0025](../adrs/ADR-0025-split-tree-layout-model.md) | Split tree layout model | Accepted | In progress | Binary split tree replaces grid presets |
+| [ADR-0026](../adrs/ADR-0026-pane-runtime-model.md) | Pane runtime model | Accepted | In progress | Pane owns widget kind, descriptor, lifecycle |
+| [ADR-0027](../adrs/ADR-0027-widget-host-contract.md) | Widget host contract | Accepted | In progress | `Widget_Render_Proc` + `Widget_Data_Context` |
+| [ADR-0028](../adrs/ADR-0028-data-context-ownership.md) | Data context ownership | Accepted | In progress | 3-tier context: global / workspace / pane |
+| [ADR-0029](../adrs/ADR-0029-migration-plan-grid-to-workspace-tree.md) | Migration plan: grid to workspace tree | Accepted | In progress | Incremental cutover from Entity_World to Workspace |
+| [ADR-0030](../adrs/ADR-0030-pane-data-context-ownership.md) | Pane data context ownership | Accepted | In progress | Pane sole owner of binding/TF/indicators; no Entity_World in contract path |
 
 ---
 

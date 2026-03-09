@@ -349,7 +349,8 @@ resolve_cell_view_model :: proc(state: ^App_State, ci: int) -> Cell_View_Model {
 
 // S61: Internal surface view resolution that accepts pre-resolved stores and TF.
 // Avoids the double resolve_stores_for_cell call in the original resolve_cell_surface_view.
-@(private = "file")
+// S108: Widened to package-private for Widget_Data_Context resolution.
+@(private = "package")
 resolve_cell_surface_view_with_stores :: proc(
 	state: ^App_State,
 	ci: int,
@@ -540,6 +541,131 @@ resolve_stores_for_cell :: proc(state: ^App_State, ci: int) -> Cell_Stores {
 	cell_tf := tf_opts[0]
 	if eff_tf >= 0 && eff_tf < len(tf_opts) {
 		cell_tf = tf_opts[eff_tf]
+	}
+
+	// Resolve each channel from the best slot for this market.
+	if slot := find_market_channel_slot(state, reg, venue, symbol, .Candles, cell_tf); slot != nil {
+		stores.candle = &slot.candle_store
+	}
+	if slot := find_market_channel_slot(state, reg, venue, symbol, .Heatmaps, cell_tf); slot != nil {
+		stores.heatmap = &slot.heatmap_store
+		stores.heatmap_live = slot.apply_state.has_live[.Heatmap]
+	}
+	if slot := find_market_channel_slot(state, reg, venue, symbol, .VPVR, cell_tf); slot != nil {
+		stores.vpvr = &slot.vpvr_store
+		stores.vpvr_live = slot.apply_state.has_live[.VPVR]
+	}
+	if slot := find_market_channel_slot(state, reg, venue, symbol, .Trades); slot != nil {
+		stores.trades = &slot.trades_store
+	}
+	if slot := find_market_channel_slot(state, reg, venue, symbol, .Orderbook); slot != nil {
+		stores.orderbook = &slot.orderbook_store
+	}
+	if slot := find_market_channel_slot(state, reg, venue, symbol, .Stats); slot != nil {
+		stores.stats = &slot.stats_store
+	}
+	return stores
+}
+
+// S112: Resolve data stores for a pane using pane-local binding + TF.
+// Reads from the pane's Stream_Binding and effective TF index directly —
+// no Entity_World lookup. Used by resolve_widget_data_context to eliminate
+// implicit coupling to state.world.bindings[ci].
+resolve_stores_for_pane :: proc(state: ^App_State, binding: ^Stream_Binding, eff_tf_idx: int) -> Cell_Stores {
+	stores: Cell_Stores
+
+	// Default fallback: layer_store active stream (same as resolve_stores_for_cell).
+	if active := layers.market_store_active_stream(&state.layer_store); active != nil {
+		stores.candle    = &active.candles
+		stores.heatmap   = &active.heatmap
+		stores.vpvr      = &active.vpvr
+		stores.trades    = &active.trades
+		stores.orderbook = &active.orderbook
+		stores.stats     = &active.stats
+		stores.analytics = &active.analytics
+	}
+	// Session VP + TPO from active slot.
+	reg := state.stream_views
+	if reg != nil {
+		if active_slot := stream_view_active_slot(reg); active_slot != nil {
+			stores.session_vpvr = &active_slot.session_vpvr_store
+			stores.tpo          = &active_slot.tpo_store
+		}
+	}
+	stores.heatmap_live = state.active_apply_state.has_live[.Heatmap]
+	stores.vpvr_live    = state.active_apply_state.has_live[.VPVR]
+
+	if reg == nil || binding == nil do return stores
+
+	// Resolve binding to a stream slot (same logic as resolve_stores_for_cell).
+	if binding.stream_idx < 0 {
+		if binding_has(binding) {
+			bv := binding_venue(binding)
+			bs := binding_symbol(binding)
+			best_idx := -1
+			best_seen := u64(0)
+			for si in 0 ..< STREAM_VIEW_CAP {
+				if !reg.slots[si].used do continue
+				slot := &reg.slots[si]
+				if !slot_market_key_known(slot) { refresh_stream_info_for_slot(state, slot) }
+				if !slot_market_key_known(slot) do continue
+				if normalized_venue(slot.stream_info.venue) != normalized_venue(bv) || normalized_symbol(slot.stream_info.symbol) != normalized_symbol(bs) do continue
+				priority := 0
+				slot_ch := slot.channel
+				if !slot.has_channel { slot_ch = slot.stream_info.channel }
+				if slot_ch == .Candles do priority = 1
+				if best_idx < 0 || priority > 0 || slot.last_seen_frame > best_seen {
+					best_idx = si
+					best_seen = slot.last_seen_frame
+					if priority > 0 do break
+				}
+			}
+			if best_idx >= 0 {
+				binding.stream_idx = best_idx
+			}
+		}
+		if binding.stream_idx < 0 {
+			return stores
+		}
+	}
+
+	venue, symbol: string
+	stream_idx := binding.stream_idx
+	if stream_idx >= 0 && stream_idx < STREAM_VIEW_CAP && reg.slots[stream_idx].used {
+		slot := &reg.slots[stream_idx]
+		if !slot.has_stream_info { refresh_stream_info_for_slot(state, slot) }
+		if slot.has_stream_info {
+			venue = slot.stream_info.venue
+			symbol = slot.stream_info.symbol
+		}
+		sid := slot.subject_id
+		if ms := layers.market_store_stream_for_subject(&state.layer_store, sid); ms != nil {
+			stores.analytics = &ms.analytics
+		}
+		stores.session_vpvr = &slot.session_vpvr_store
+		stores.tpo = &slot.tpo_store
+	} else {
+		binding.stream_idx = -1
+		return stores
+	}
+
+	if len(venue) == 0 || len(symbol) == 0 do return stores
+
+	// Active market with matching TF → use global stores.
+	if active := stream_view_active_slot(reg); active != nil {
+		if !active.has_stream_info { refresh_stream_info_for_slot(state, active) }
+		if active.has_stream_info &&
+			normalized_venue(active.stream_info.venue) == normalized_venue(venue) &&
+			normalized_symbol(active.stream_info.symbol) == normalized_symbol(symbol) &&
+			eff_tf_idx == state.active_tf_idx {
+			return stores
+		}
+	}
+
+	tf_opts := TF_OPTIONS
+	cell_tf := tf_opts[0]
+	if eff_tf_idx >= 0 && eff_tf_idx < len(tf_opts) {
+		cell_tf = tf_opts[eff_tf_idx]
 	}
 
 	// Resolve each channel from the best slot for this market.

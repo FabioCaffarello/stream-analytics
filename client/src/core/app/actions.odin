@@ -170,6 +170,16 @@ queue_ui_actions_from_input :: proc(state: ^App_State, input: ports.Input_State)
 	if .Delete in pressed {
 		queue_ui_action(state, UI_Action{kind = .Delete_Draw_Tool})
 	}
+	// S106: Split pane shortcuts (Ctrl+H = horizontal, Ctrl+J = vertical, Ctrl+R = rotate).
+	if .H in pressed && input.modifiers.ctrl {
+		queue_ui_action(state, UI_Action{kind = .Split_Pane_H})
+	}
+	if .J in pressed && input.modifiers.ctrl {
+		queue_ui_action(state, UI_Action{kind = .Split_Pane_V})
+	}
+	if .R in pressed && input.modifiers.ctrl {
+		queue_ui_action(state, UI_Action{kind = .Rotate_Split})
+	}
 
 	state.last_keys_pressed = input.keys.pressed
 }
@@ -265,22 +275,27 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 				state.chrome.detail_expanded ? "1" : "0")
 			services.settings_flush(&state.settings)
 		case .Set_Layout_Preset:
-			preset_idx := clamp(action.layout_preset, 0, ui.LAYOUT_PRESET_COUNT - 1)
-			state.layout_preset = preset_idx
-			grid_def, vis := ui.get_layout_preset(preset_idx, 6)
-			state.custom_grid_def = grid_def
-			state.chrome.panel_visible = vis
-			ui.sync_sidebar_visibility(&state.chrome.sidebar, state.chrome.panel_visible)
-			layout_from_panels(state)
-			// Reset per-cell TF overrides and spans so all cells follow global TF in new layout.
-			for ci in 0 ..< state.world.count {
-				state.world.timeframes[ci].tf_idx = -1
-				state.world.getranges[ci].pending = false
-				state.world.getranges[ci].seeded = false
-				state.world.getranges[ci].oldest_ts = 0
-				state.world.spans[ci] = {} // BUG-18: Clear spans on layout preset change.
+			// S119: Preset 4 = Workstation (handled separately from grid presets).
+			if action.layout_preset == 4 {
+				apply_workstation_preset(state)
+			} else {
+				preset_idx := clamp(action.layout_preset, 0, ui.LAYOUT_PRESET_COUNT - 1)
+				state.layout_preset = preset_idx
+				grid_def, vis := ui.get_layout_preset(preset_idx, 6)
+				state.custom_grid_def = grid_def
+				state.chrome.panel_visible = vis
+				ui.sync_sidebar_visibility(&state.chrome.sidebar, state.chrome.panel_visible)
+				layout_from_panels(state)
+				// Reset per-cell TF overrides and spans so all cells follow global TF in new layout.
+				for ci in 0 ..< state.world.count {
+					state.world.timeframes[ci].tf_idx = -1
+					state.world.getranges[ci].pending = false
+					state.world.getranges[ci].seeded = false
+					state.world.getranges[ci].oldest_ts = 0
+					state.world.spans[ci] = {} // BUG-18: Clear spans on layout preset change.
+				}
+				persist_layout_v6(state)
 			}
-			persist_layout_v6(state)
 		case .Toggle_Connection_Modal:
 			if !state.overlays.show_exchange_manager { close_all_overlays(state) }
 			state.overlays.show_exchange_manager = !state.overlays.show_exchange_manager
@@ -402,6 +417,41 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 		case .Toggle_Compare_Subplot:
 			// S95: Toggle CVD/DV/OI subplot on a compare pane.
 			apply_toggle_compare_subplot(state, action.pane_idx, action.subplot_idx)
+		case .Split_Pane_H:
+			apply_split_pane_action(state, .Split_H)
+		case .Split_Pane_V:
+			apply_split_pane_action(state, .Split_V)
+		case .Rotate_Split:
+			apply_rotate_split_action(state)
+		case .Toggle_Context_Stack:
+			state.chrome.context_stack.expanded = !state.chrome.context_stack.expanded
+			if state.chrome.context_stack.width <= 0 {
+				state.chrome.context_stack.width = CONTEXT_STACK_W_DEFAULT
+			}
+		case .Set_Context_Tab:
+			state.chrome.context_stack.active_tab = action.context_tab
+			if !state.chrome.context_stack.expanded {
+				state.chrome.context_stack.expanded = true
+				if state.chrome.context_stack.width <= 0 {
+					state.chrome.context_stack.width = CONTEXT_STACK_W_DEFAULT
+				}
+			}
+		case .Cycle_Context_Tab:
+			// S119: Cycle to next available tab for focused pane's role.
+			focused_role := Pane_Role.Primary_Chart  // default
+			if ws_cycle := workspace_registry_active(&state.ws_registry); ws_cycle != nil {
+				if fp := pane_pool_get(&ws_cycle.pane_pool, ws_cycle.focus.active); fp != nil {
+					focused_role = fp.role
+				}
+			}
+			state.chrome.context_stack.active_tab = context_tab_next_available(
+				state.chrome.context_stack.active_tab, focused_role)
+			if !state.chrome.context_stack.expanded {
+				state.chrome.context_stack.expanded = true
+				if state.chrome.context_stack.width <= 0 {
+					state.chrome.context_stack.width = CONTEXT_STACK_W_DEFAULT
+				}
+			}
 		}
 	}
 	state.ui_action_count = 0
@@ -552,6 +602,15 @@ toggle_focused_indicator :: proc(state: ^App_State, idx: int) {
 		new_val := !global_ptrs[idx]^
 		set_indicator_on_cell(&state.world.indicators[fci], idx, new_val)
 		global_ptrs[idx]^ = new_val
+		// S112: Sync indicator state to pane.
+		if ws := workspace_registry_active(&state.ws_registry); ws != nil {
+			pane_ids, pane_count := tree_collect_pane_ids(&ws.tree)
+			if fci < pane_count {
+				if pane := pane_pool_get(&ws.pane_pool, pane_ids[fci]); pane != nil {
+					pane.indicators = state.world.indicators[fci]
+				}
+			}
+		}
 	} else {
 		global_ptrs[idx]^ = !global_ptrs[idx]^
 	}

@@ -40,6 +40,13 @@ COL_ACCENT_ORANGE    :: Color{1.0, 0.65, 0.0, 1.0}     // warnings
 COL_ACCENT_CYAN      :: Color{0.0, 0.82, 0.95, 1.0}    // info / highlights
 COL_WARNING          :: Color{1.0, 0.76, 0.03, 1.0}   // status bar warnings (amber)
 
+// --- S107: Semantic pane state colors ---
+COL_STATE_LOADING    :: Color{0.4, 0.7, 0.95, 0.7}    // blue-ish loading spinner
+COL_STATE_EMPTY      :: Color{1.0, 1.0, 1.0, 0.2}     // dim white for empty pane
+COL_STATE_SEEDING    :: Color{0.98, 1.0, 0.412, 0.6}   // yellow accent for seeding
+COL_STATE_OFFLINE    :: Color{1.0, 1.0, 1.0, 0.25}     // very dim for offline
+COL_STATE_ERROR      :: Color{0.965, 0.278, 0.365, 0.8} // red for error
+
 // --- Typography tokens ---
 
 FONT_SIZE_BASE :: f32(16)
@@ -53,7 +60,11 @@ SPACING_XS :: f32(2)
 SPACING_SM :: f32(4)
 SPACING_MD :: f32(8)
 SPACING_LG :: f32(12)
-SPACING_XL :: f32(16)
+SPACING_XL  :: f32(16)
+SPACING_2XL :: f32(24)
+
+// --- S107: Cell header accent ---
+CELL_HDR_ACCENT_H :: f32(2) // accent line at bottom of pane header
 
 // --- Color utilities (pure, from MM color.odin) ---
 

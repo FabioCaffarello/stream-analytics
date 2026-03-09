@@ -318,20 +318,42 @@ persist_layout_v6 :: proc(state: ^App_State) {
 	services.settings_set(&state.settings, services.SETTING_LAYOUT_MODE,
 		state.layout_mode == .Custom ? "C" : "P")
 
-	// Rollback: persist V4 + V5 for backward compatibility.
-	persist_layout_v4(state)
-
-	// Schema version marker.
-	services.settings_set(&state.settings, services.SETTING_SETTINGS_VERSION, "6")
+	// S111: Schema version marker — stamp current version. No V1-V5 backward writes.
+	schema_buf: [4]u8
+	schema_off := write_int_to_buf(schema_buf[:], 0, WORKSPACE_SCHEMA_VERSION)
+	services.settings_set(&state.settings, services.SETTING_SETTINGS_VERSION, string(schema_buf[:schema_off]))
 }
 
 restore_layout_v6 :: proc(state: ^App_State) -> bool {
+	return persist_result_ok(restore_workspace(state))
+}
+
+// S111: Primary restore entry point — returns structured result.
+restore_workspace :: proc(state: ^App_State) -> Persist_Result {
 	v, ok := services.settings_get(&state.settings, services.SETTING_LAYOUT_V6)
-	if !ok || len(v) < 4 do return false
-	return restore_layout_v6_from_string(state, v)
+	if !ok || len(v) < 4 do return .No_Data
+	return restore_layout_v6_validated(state, v)
+}
+
+// S111: Validated restore with structured result.
+restore_layout_v6_validated :: proc(state: ^App_State, v: string) -> Persist_Result {
+	if len(v) < 4 do return .No_Data
+	if v[0] != 'V' || v[1] != '6' {
+		// Check for a future version header (e.g. "V7", "V8", ...).
+		if len(v) >= 2 && v[0] == 'V' && v[1] > '6' && v[1] <= '9' {
+			return .Version_Mismatch
+		}
+		return .Corrupted
+	}
+	ok := restore_layout_v6_from_string_inner(state, v)
+	return ok ? .Ok : .Corrupted
 }
 
 restore_layout_v6_from_string :: proc(state: ^App_State, v: string) -> bool {
+	return persist_result_ok(restore_layout_v6_validated(state, v))
+}
+
+restore_layout_v6_from_string_inner :: proc(state: ^App_State, v: string) -> bool {
 	if len(v) < 4 do return false
 	if v[0] != 'V' || v[1] != '6' do return false
 

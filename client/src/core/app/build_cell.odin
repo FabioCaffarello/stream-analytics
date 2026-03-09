@@ -1,8 +1,8 @@
 package app
 
-// S61: Cell rendering through unified Cell_View_Model.
-// View model is resolved once per cell per frame. All widget renders
-// consume pre-resolved data instead of reaching into App_State.
+// S61/S109: Cell rendering.
+// - render_cell_widget: legacy path via Cell_View_Model (retained for compare/focus modes).
+// - render_pane_via_contract: S109 contract path via Widget_Data_Context + Widget_Contract.
 
 import "core:fmt"
 import "mr:ports"
@@ -47,6 +47,19 @@ render_cell_widget :: proc(
 	// S61: Use surface view from pre-resolved view model (was separate resolve_cell_surface_view call).
 	sv := vm.surface
 
+	// S107: Header accent line — composition-colored 2px strip at bottom of header.
+	accent_color := ui.COL_BLUE
+	#partial switch sv.composition {
+	case .Composed:                  accent_color = ui.COL_GREEN
+	case .Live_Only:                 accent_color = ui.COL_YELLOW_ACCENT
+	case .Backfilled, .Range_Pending: accent_color = ui.COL_WARNING
+	case .Empty:                     accent_color = ui.with_alpha(ui.COL_WHITE, 0.08)
+	}
+	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
+		rect  = ui.rect_xywh(hdr_rect.pos.x, hdr_rect.pos.y + CELL_HDR_H - ui.CELL_HDR_ACCENT_H, hdr_rect.size.x, ui.CELL_HDR_ACCENT_H),
+		color = ui.with_alpha(accent_color, 0.5),
+	})
+
 	badge_label := "~ Active"
 	badge_buf: [40]u8
 	if sv.stream_bound && len(sv.venue) > 0 {
@@ -84,6 +97,23 @@ render_cell_widget :: proc(
 		close_inset = close_sz + 4
 	}
 
+	// S107: Widget switcher button — opens cell context menu for quick widget change.
+	switcher_inset := f32(0)
+	if cell_vp.size.x >= 100 {
+		sw_sz := f32(14)
+		sw_x := ui.rect_right(hdr_rect) - sw_sz - 2 - close_inset
+		sw_y := hdr_rect.pos.y + (CELL_HDR_H - sw_sz) * 0.5
+		sw_rect := ui.rect_xywh(sw_x, sw_y, sw_sz, sw_sz)
+		sw_res := ui.icon_button(&state.cmd_buf, sw_rect,
+			"W", pointer, state.text.measure, ui.FONT_SIZE_XS)
+		if sw_res.clicked {
+			state.cell_context_cell_idx = ci
+			state.cell_context_menu.open = true
+			state.cell_context_menu.pos = {sw_x, hdr_rect.pos.y + CELL_HDR_H}
+		}
+		switcher_inset = sw_sz + 4
+	}
+
 	// S61: TF badge uses pre-resolved effective TF from view model.
 	tf_inset := f32(0)
 	if vm.widget_kind == .Candle && cell_vp.size.x >= 120 {
@@ -91,7 +121,7 @@ render_cell_widget :: proc(
 		is_per_cell_tf := tf_comp.tf_idx >= 0
 		tf_color := is_per_cell_tf ? ui.COL_BLUE : ui.COL_YELLOW_ACCENT
 		tf_w := state.text.measure(ui.FONT_SIZE_XS, tf_str).x + 8
-		tf_x := ui.rect_right(hdr_rect) - tf_w - 4 - close_inset
+		tf_x := ui.rect_right(hdr_rect) - tf_w - 4 - close_inset - switcher_inset
 		tf_rect := ui.rect_xywh(tf_x, hdr_rect.pos.y + 1, tf_w, CELL_HDR_H - 2)
 		ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = tf_rect, color = ui.with_alpha(tf_color, 0.12)})
 		ui.push_text(&state.cmd_buf,
@@ -129,7 +159,7 @@ render_cell_widget :: proc(
 
 		// Clickable kind badge (cycles OI -> DV -> CVD -> BS -> OI).
 		ak_w := state.text.measure(ui.FONT_SIZE_XS, wlabel).x + 8
-		ak_x := ui.rect_right(hdr_rect) - ak_w - 4 - close_inset - tf_inset
+		ak_x := ui.rect_right(hdr_rect) - ak_w - 4 - close_inset - switcher_inset - tf_inset
 		ak_rect := ui.rect_xywh(ak_x, hdr_rect.pos.y + 1, ak_w, CELL_HDR_H - 2)
 		ak_hov := ui.rect_contains(ak_rect, pointer.pos)
 		ak_bg := ak_hov ? ui.with_alpha(ui.COL_ACCENT_CYAN, 0.2) : ui.with_alpha(ui.COL_ACCENT_CYAN, 0.08)
@@ -169,7 +199,7 @@ render_cell_widget :: proc(
 		pidx := vm.widget_kind == .TPO ? 1 : 0
 		wlabel := profile_short[pidx]
 		wlabel_w := state.text.measure(ui.FONT_SIZE_XS, wlabel).x
-		wlabel_x := ui.rect_right(hdr_rect) - wlabel_w - 4 - close_inset - tf_inset
+		wlabel_x := ui.rect_right(hdr_rect) - wlabel_w - 4 - close_inset - switcher_inset - tf_inset
 		ui.push_text(&state.cmd_buf,
 			{wlabel_x, hdr_rect.pos.y + CELL_HDR_H * 0.5 + ui.FONT_SIZE_XS * 0.35},
 			wlabel, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
@@ -178,16 +208,17 @@ render_cell_widget :: proc(
 		widget_short := WIDGET_SHORT
 		wlabel := widget_short[int(vm.widget_kind)]
 		wlabel_w := state.text.measure(ui.FONT_SIZE_XS, wlabel).x
-		wlabel_x := ui.rect_right(hdr_rect) - wlabel_w - 4 - close_inset - tf_inset
+		wlabel_x := ui.rect_right(hdr_rect) - wlabel_w - 4 - close_inset - switcher_inset - tf_inset
 		ui.push_text(&state.cmd_buf,
 			{wlabel_x, hdr_rect.pos.y + CELL_HDR_H * 0.5 + ui.FONT_SIZE_XS * 0.35},
 			wlabel, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
 	}
 
+	// S107: Divider replaced by accent line above; keep subtle fallback divider for contrast.
 	ui.push(&state.cmd_buf, ui.Cmd_Line{
 		from = {hdr_rect.pos.x, hdr_rect.pos.y + CELL_HDR_H},
 		to   = {ui.rect_right(hdr_rect), hdr_rect.pos.y + CELL_HDR_H},
-		color = ui.COL_DIVIDER, thickness = 1,
+		color = ui.COL_BORDER_SUBTLE, thickness = 1,
 	})
 
 	// S9: All widget kinds route through the canonical layer pipeline.
@@ -201,4 +232,225 @@ render_cell_widget :: proc(
 		render_cell_layer_canvas(state, ci, vm.widget_kind, cell_vp)
 	}
 
+	// S114: Pane visual state overlay — informative per-widget state display.
+	pane_vs := resolve_pane_visual_state(sv, current_conn_status(state), state.active_metrics.state)
+	draw_pane_state_overlay(&state.cmd_buf, cell_vp, pane_vs, vm.widget_kind, state.text.measure)
+}
+
+// ---------------------------------------------------------------------------
+// S109: Contract-Based Pane Renderer
+// ---------------------------------------------------------------------------
+
+// Render a pane through Widget_Contract dispatch.
+// Reads widget config (kind, TF, analytics) from Pane state, not Entity_World.
+// Data stores still accessed via cell_idx bridge (DFS position = Entity_World index).
+@(private = "package")
+render_pane_via_contract :: proc(
+	state: ^App_State,
+	pane: ^Pane,
+	ci: int,
+	cell_vp_in: ui.Rect,
+	pointer: ui.Pointer_Input,
+	input: ports.Input_State,
+	pane_count: int,
+) {
+	if state == nil || pane == nil do return
+	if ci < 0 || ci >= state.world.count do return
+
+	cell_vp := cell_vp_in
+	if cell_vp.size.x <= 0 || cell_vp.size.y <= 0 do return
+
+	// S109: Resolve Widget_Data_Context from pane state.
+	ctx := resolve_widget_data_context(state, pane, ci, cell_vp)
+	wk := pane.widget.kind
+	sv := ctx.surface
+
+	// Cell border.
+	is_cell_focused := ui.rect_contains(cell_vp, input.mouse.pos)
+	cell_border_color := is_cell_focused ? ui.COL_BORDER_STRONG : ui.COL_BORDER_SUBTLE
+	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = {pos = cell_vp.pos, size = {cell_vp.size.x, 1}}, color = cell_border_color})
+	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = {pos = {cell_vp.pos.x, cell_vp.pos.y + cell_vp.size.y - 1}, size = {cell_vp.size.x, 1}}, color = cell_border_color})
+	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = {pos = cell_vp.pos, size = {1, cell_vp.size.y}}, color = cell_border_color})
+	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = {pos = {cell_vp.pos.x + cell_vp.size.x - 1, cell_vp.pos.y}, size = {1, cell_vp.size.y}}, color = cell_border_color})
+
+	// Header.
+	hdr_rect := ui.rect_cut_top(&cell_vp, CELL_HDR_H)
+	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = hdr_rect, color = ui.with_alpha(ui.COL_SURFACE_2, 0.7)})
+
+	// Accent line.
+	accent_color := ui.COL_BLUE
+	#partial switch sv.composition {
+	case .Composed:                  accent_color = ui.COL_GREEN
+	case .Live_Only:                 accent_color = ui.COL_YELLOW_ACCENT
+	case .Backfilled, .Range_Pending: accent_color = ui.COL_WARNING
+	case .Empty:                     accent_color = ui.with_alpha(ui.COL_WHITE, 0.08)
+	}
+	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{
+		rect  = ui.rect_xywh(hdr_rect.pos.x, hdr_rect.pos.y + CELL_HDR_H - ui.CELL_HDR_ACCENT_H, hdr_rect.size.x, ui.CELL_HDR_ACCENT_H),
+		color = ui.with_alpha(accent_color, 0.5),
+	})
+
+	// Stream badge.
+	badge_label := "~ Active"
+	badge_buf: [40]u8
+	if sv.stream_bound && len(sv.venue) > 0 {
+		badge_label = fmt.bprintf(badge_buf[:], "%s:%s", sv.venue, sv.symbol)
+	}
+	badge_w := min(state.text.measure(ui.FONT_SIZE_XS, badge_label).x + 12, hdr_rect.size.x * 0.5)
+	badge_rect := ui.rect_xywh(hdr_rect.pos.x + 2, hdr_rect.pos.y + 1, badge_w, CELL_HDR_H - 2)
+	badge_hovered := ui.rect_contains(badge_rect, pointer.pos)
+	badge_bg := badge_hovered ? ui.with_alpha(ui.COL_BLUE, 0.2) : ui.with_alpha(ui.COL_BLUE, 0.1)
+	ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = badge_rect, color = badge_bg})
+	ui.push_text(&state.cmd_buf,
+		{badge_rect.pos.x + 6, hdr_rect.pos.y + CELL_HDR_H * 0.5 + ui.FONT_SIZE_XS * 0.35},
+		badge_label, ui.COL_TEXT_SECONDARY, ui.FONT_SIZE_XS, .Mono)
+	if badge_hovered && pointer.left_pressed {
+		queue_ui_action(state, UI_Action{kind = .Open_Cell_Stream_Picker, cell_idx = ci})
+	}
+
+	// Composition badge + health dot.
+	hdr_cursor := ui.rect_right(badge_rect) + 4
+	hdr_text_y := hdr_rect.pos.y + CELL_HDR_H * 0.5 + ui.FONT_SIZE_XS * 0.35
+	hdr_cursor += draw_composition_badge(&state.cmd_buf, hdr_cursor, hdr_text_y, sv.composition, state.text.measure)
+	hdr_cursor += draw_health_dot(&state.cmd_buf, hdr_cursor, hdr_rect.pos.y + CELL_HDR_H * 0.5, 6, sv.health_level, sv.has_live_data, sv.composition)
+
+	// Close button — uses pane_count instead of Entity_World count.
+	close_inset := f32(0)
+	if pane_count > 1 {
+		close_sz := f32(14)
+		close_x := ui.rect_right(hdr_rect) - close_sz - 2
+		close_y := hdr_rect.pos.y + (CELL_HDR_H - close_sz) * 0.5
+		close_res := ui.icon_button(&state.cmd_buf,
+			ui.rect_xywh(close_x, close_y, close_sz, close_sz),
+			"x", pointer, state.text.measure, ui.FONT_SIZE_XS)
+		if close_res.clicked {
+			queue_ui_action(state, UI_Action{kind = .Remove_Cell, cell_idx = ci})
+		}
+		close_inset = close_sz + 4
+	}
+
+	// Widget switcher button.
+	switcher_inset := f32(0)
+	if cell_vp.size.x >= 100 {
+		sw_sz := f32(14)
+		sw_x := ui.rect_right(hdr_rect) - sw_sz - 2 - close_inset
+		sw_y := hdr_rect.pos.y + (CELL_HDR_H - sw_sz) * 0.5
+		sw_rect := ui.rect_xywh(sw_x, sw_y, sw_sz, sw_sz)
+		sw_res := ui.icon_button(&state.cmd_buf, sw_rect,
+			"W", pointer, state.text.measure, ui.FONT_SIZE_XS)
+		if sw_res.clicked {
+			state.cell_context_cell_idx = ci
+			state.cell_context_menu.open = true
+			state.cell_context_menu.pos = {sw_x, hdr_rect.pos.y + CELL_HDR_H}
+		}
+		switcher_inset = sw_sz + 4
+	}
+
+	// TF badge — reads from pane.tf_override, not Entity_World.
+	tf_inset := f32(0)
+	if wk == .Candle && cell_vp.size.x >= 120 {
+		tf_str := ctx.tf_string
+		is_per_pane_tf := pane.tf_override >= 0
+		tf_color := is_per_pane_tf ? ui.COL_BLUE : ui.COL_YELLOW_ACCENT
+		tf_w := state.text.measure(ui.FONT_SIZE_XS, tf_str).x + 8
+		tf_x := ui.rect_right(hdr_rect) - tf_w - 4 - close_inset - switcher_inset
+		tf_rect := ui.rect_xywh(tf_x, hdr_rect.pos.y + 1, tf_w, CELL_HDR_H - 2)
+		ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = tf_rect, color = ui.with_alpha(tf_color, 0.12)})
+		ui.push_text(&state.cmd_buf,
+			{tf_x + 4, hdr_rect.pos.y + CELL_HDR_H * 0.5 + ui.FONT_SIZE_XS * 0.35},
+			tf_str, tf_color, ui.FONT_SIZE_XS, .Mono)
+		if is_per_pane_tf {
+			ui.push(&state.cmd_buf, ui.Cmd_Line{
+				from = {tf_rect.pos.x, ui.rect_bottom(tf_rect)},
+				to   = {tf_rect.pos.x + tf_w, ui.rect_bottom(tf_rect)},
+				color = tf_color, thickness = 1,
+			})
+		}
+		tf_inset = tf_w + 4
+		if is_cell_focused && pointer.left_pressed && ui.rect_contains(tf_rect, pointer.pos) {
+			next_tf: int
+			if is_per_pane_tf {
+				next_tf = int(pane.tf_override) + 1
+				if next_tf >= len(TF_OPTIONS) do next_tf = -1
+			} else {
+				next_tf = (ctx.tf_idx + 1) % len(TF_OPTIONS)
+			}
+			queue_ui_action(state, UI_Action{kind = .Set_Cell_Timeframe, cell_idx = ci, timeframe_idx = next_tf})
+		}
+	}
+
+	// Analytics kind badge + history toggle — reads from pane.analytics, not Entity_World.
+	if wk == .Analytics && cell_vp.size.x >= 80 {
+		ANALYTICS_SHORT :: [4]string{"OI", "DV", "CVD", "BS"}
+		analytics_short := ANALYTICS_SHORT
+		ak := int(ctx.analytics_kind)
+		wlabel := analytics_short[ak] if ak >= 0 && ak < len(analytics_short) else "OI"
+
+		ak_w := state.text.measure(ui.FONT_SIZE_XS, wlabel).x + 8
+		ak_x := ui.rect_right(hdr_rect) - ak_w - 4 - close_inset - switcher_inset - tf_inset
+		ak_rect := ui.rect_xywh(ak_x, hdr_rect.pos.y + 1, ak_w, CELL_HDR_H - 2)
+		ak_hov := ui.rect_contains(ak_rect, pointer.pos)
+		ak_bg := ak_hov ? ui.with_alpha(ui.COL_ACCENT_CYAN, 0.2) : ui.with_alpha(ui.COL_ACCENT_CYAN, 0.08)
+		ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = ak_rect, color = ak_bg})
+		ui.push_text(&state.cmd_buf,
+			{ak_x + 4, hdr_rect.pos.y + CELL_HDR_H * 0.5 + ui.FONT_SIZE_XS * 0.35},
+			wlabel, ui.COL_ACCENT_CYAN, ui.FONT_SIZE_XS, .Mono)
+		if ak_hov && pointer.left_pressed {
+			next_ak := services.Analytics_Kind((ak + 1) % 4)
+			queue_ui_action(state, UI_Action{
+				kind           = .Set_Cell_Widget,
+				cell_idx       = ci,
+				widget_kind    = .Analytics,
+				analytics_kind = next_ak,
+			})
+		}
+
+		// History toggle — writes to pane, not Entity_World.
+		h_w := f32(16)
+		h_x := ak_x - h_w - 2
+		h_rect := ui.rect_xywh(h_x, hdr_rect.pos.y + 1, h_w, CELL_HDR_H - 2)
+		h_hov := ui.rect_contains(h_rect, pointer.pos)
+		h_col := ctx.show_history ? ui.COL_ACCENT_CYAN : ui.COL_TEXT_MUTED
+		h_bg := h_hov ? ui.with_alpha(h_col, 0.2) : ui.with_alpha(h_col, 0.06)
+		ui.push(&state.cmd_buf, ui.Cmd_Rect_Filled{rect = h_rect, color = h_bg})
+		ui.push_text(&state.cmd_buf,
+			{h_x + 4, hdr_rect.pos.y + CELL_HDR_H * 0.5 + ui.FONT_SIZE_XS * 0.35},
+			"H", h_col, ui.FONT_SIZE_XS, .Mono)
+		if h_hov && pointer.left_pressed {
+			pane.analytics.show_history = !ctx.show_history
+		}
+	} else if wk == .Session_VPVR || wk == .TPO {
+		PROFILE_SHORT :: [2]string{"SVPVR", "TPO"}
+		profile_short := PROFILE_SHORT
+		pidx := wk == .TPO ? 1 : 0
+		wlabel := profile_short[pidx]
+		wlabel_w := state.text.measure(ui.FONT_SIZE_XS, wlabel).x
+		wlabel_x := ui.rect_right(hdr_rect) - wlabel_w - 4 - close_inset - switcher_inset - tf_inset
+		ui.push_text(&state.cmd_buf,
+			{wlabel_x, hdr_rect.pos.y + CELL_HDR_H * 0.5 + ui.FONT_SIZE_XS * 0.35},
+			wlabel, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+	} else {
+		WIDGET_SHORT :: [12]string{"Candle", "Stats", "Counter", "HM", "VPVR", "Trades", "OB", "DOM", "--", "Analytics", "SVPVR", "TPO"}
+		widget_short := WIDGET_SHORT
+		wlabel := widget_short[int(wk)]
+		wlabel_w := state.text.measure(ui.FONT_SIZE_XS, wlabel).x
+		wlabel_x := ui.rect_right(hdr_rect) - wlabel_w - 4 - close_inset - switcher_inset - tf_inset
+		ui.push_text(&state.cmd_buf,
+			{wlabel_x, hdr_rect.pos.y + CELL_HDR_H * 0.5 + ui.FONT_SIZE_XS * 0.35},
+			wlabel, ui.COL_TEXT_MUTED, ui.FONT_SIZE_XS, .Mono)
+	}
+
+	// Header divider.
+	ui.push(&state.cmd_buf, ui.Cmd_Line{
+		from = {hdr_rect.pos.x, hdr_rect.pos.y + CELL_HDR_H},
+		to   = {ui.rect_right(hdr_rect), hdr_rect.pos.y + CELL_HDR_H},
+		color = ui.COL_BORDER_SUBTLE, thickness = 1,
+	})
+
+	// S109: Body rendered through Widget_Contract dispatch.
+	widget_contract_render(state, pane, ctx, cell_vp)
+
+	// S114: Pane visual state overlay — informative per-widget state display.
+	pane_vs := resolve_pane_visual_state(sv, current_conn_status(state), state.active_metrics.state)
+	draw_pane_state_overlay(&state.cmd_buf, cell_vp, pane_vs, wk, state.text.measure)
 }
