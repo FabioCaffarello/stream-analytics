@@ -1,7 +1,5 @@
 package app
 
-import "mr:services"
-
 apply_set_cell_widget_action :: proc(state: ^App_State, action: UI_Action) {
 	if state == nil do return
 	ci := action.cell_idx
@@ -53,12 +51,8 @@ apply_set_cell_stream_action :: proc(state: ^App_State, action: UI_Action) {
 		bind.stream_idx = action.stream_idx
 	}
 
-	// Reset DOM/footprint stores when stream actually changes.
-	stream_changed := bind.stream_idx != old_stream_idx || (len(action.bind_venue) > 0) || old_has_binding
-	if stream_changed {
-		services.dom_store_reset(&state.stores.dom)
-		services.footprint_store_reset(&state.stores.footprint)
-	}
+	// S148: DOM and footprint are per-stream — no global reset needed.
+	// Each Market_Stream owns its own dom/footprint stores.
 	state.world.getranges[ci].pending = false
 	state.world.getranges[ci].seeded = false
 	state.world.getranges[ci].oldest_ts = 0

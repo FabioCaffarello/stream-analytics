@@ -42,6 +42,10 @@ Data_Source_Result :: struct {
 	subject_ids:    [DATA_SOURCE_POLL_CAP]u64,
 	subject_count:  int,
 	last_subject:   u64,
+	// S147: Set when a Range_Candle_Batch with is_last=true is consumed.
+	// The app layer uses this to call apply_state_mark_range_complete.
+	range_complete: bool,
+	range_oldest_ts: i64,
 }
 
 @(private = "file")
@@ -163,6 +167,22 @@ data_source_poll_and_apply :: proc(ds: ^Data_Source, md: ports.Marketdata_Port, 
 			result.subject_count += 1
 		}
 		result.last_subject = market_id
+
+		// S147: Detect GetRange completion — Range_Candle_Batch with is_last=true.
+		if evt.kind == .Range_Candle_Batch && evt.data.range_candles.is_last {
+			result.range_complete = true
+			// Record oldest candle timestamp for apply_state boundary tracking.
+			if evt.data.range_candles.count > 0 {
+				oldest := evt.data.range_candles.candles[0].window_start_ts
+				for ci in 1 ..< evt.data.range_candles.count {
+					ts := evt.data.range_candles.candles[ci].window_start_ts
+					if ts > 0 && (oldest <= 0 || ts < oldest) {
+						oldest = ts
+					}
+				}
+				result.range_oldest_ts = oldest
+			}
+		}
 	}
 
 	ds.processed_total += u64(max(n, 0))

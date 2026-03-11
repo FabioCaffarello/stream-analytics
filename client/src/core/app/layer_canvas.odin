@@ -29,6 +29,22 @@ render_cell_layer_canvas :: proc(
 ) {
 	subject_id := resolve_cell_subject_id(state, ci)
 
+	// S139: Set frame-local chart viewport from per-cell view state.
+	if ci >= 0 && ci < state.world.count {
+		vw := &state.world.views[ci]
+		state.frame_chart_viewport = layers.Chart_Viewport{
+			scroll_offset = int(vw.candle_scroll_x),
+			visible_count = vw.candle_zoom > 0 ? max(int(vw.candle_zoom), 1) : 0,
+		}
+	} else {
+		state.frame_chart_viewport = {}
+	}
+
+	// S140: Set frame-local timeframe for time axis rendering.
+	tf_idx := clamp(state.active_tf_idx, 0, len(TF_OPTION_MS) - 1)
+	tf_ms_opts := TF_OPTION_MS
+	state.frame_tf_ms = tf_ms_opts[tf_idx]
+
 	// S94: For candle cells, check if any analytics subplots are active.
 	if kind == .Candle && ci >= 0 && ci < state.world.count {
 		ind := &state.world.indicators[ci]
@@ -94,14 +110,16 @@ render_cell_layer_canvas_with_subplots :: proc(
 	if stream == nil do return
 
 	ctx := layers.Layer_Context{
-		store        = &state.layer_store,
-		stream       = stream,
-		subject_id   = subject_id,
-		now_ms       = current_now_ms(state),
-		frame_seq    = state.frame,
-		text         = state.text,
-		capabilities = layers.layer_capabilities_from_stream(stream),
-		subplot_flags = sf,
+		store          = &state.layer_store,
+		stream         = stream,
+		subject_id     = subject_id,
+		now_ms         = current_now_ms(state),
+		frame_seq      = state.frame,
+		text           = state.text,
+		capabilities   = layers.layer_capabilities_from_stream(stream),
+		subplot_flags  = sf,
+		tf_ms          = state.frame_tf_ms,
+		chart_viewport = state.frame_chart_viewport, // S141: sync subplots with candle viewport
 	}
 
 	// Render each active subplot in order: Delta Vol, CVD, OI.
@@ -172,14 +190,16 @@ render_compare_pane_with_subplots :: proc(
 	if stream == nil do return
 
 	ctx := layers.Layer_Context{
-		store        = &state.layer_store,
-		stream       = stream,
-		subject_id   = subject_id,
-		now_ms       = current_now_ms(state),
-		frame_seq    = state.frame,
-		text         = state.text,
-		capabilities = layers.layer_capabilities_from_stream(stream),
-		subplot_flags = sf,
+		store          = &state.layer_store,
+		stream         = stream,
+		subject_id     = subject_id,
+		now_ms         = current_now_ms(state),
+		frame_seq      = state.frame,
+		text           = state.text,
+		capabilities   = layers.layer_capabilities_from_stream(stream),
+		subplot_flags  = sf,
+		tf_ms          = state.frame_tf_ms,
+		chart_viewport = state.frame_chart_viewport, // S141: sync subplots with candle viewport
 	}
 
 	subplot_y := cell_vp.pos.y + main_h
@@ -291,6 +311,8 @@ render_subject_layer_canvas_with_analytics :: proc(
 		analytics_kind   = analytics_kind,
 		analytics_filter = analytics_filter,
 		active_bundle    = bundle_mask,
+		chart_viewport   = state.frame_chart_viewport, // S139: scroll/zoom from per-cell view state
+		tf_ms            = state.frame_tf_ms,           // S140: timeframe for time axis
 	}
 
 	layers.layer_outputs_reset(&state.layer_outputs)

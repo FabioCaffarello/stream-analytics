@@ -359,9 +359,8 @@ Chart_Display_State :: struct {
 // S100: Global stores — only non-stream-scoped data remains.
 // Stream-scoped stores (candle, trades, orderbook, etc.) are resolved from
 // layer_store active stream via active_stream_*() helpers.
+// S148: DOM_Store and Footprint_Store moved to per-stream (Market_Stream).
 Global_Stores :: struct {
-	dom:       services.DOM_Store,
-	footprint: services.Footprint_Store,
 	markets:   services.Markets_Store,
 }
 

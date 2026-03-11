@@ -3,17 +3,37 @@ package layers
 import "mr:ports"
 import "mr:services"
 
-market_store_reduce_trade :: proc(stream: ^Market_Stream, evt: ^ports.MD_Event) {
+market_store_reduce_trade :: proc(stream: ^Market_Stream, evt: ^ports.MD_Event, active_tf_ms: i64 = 0) {
 	if stream == nil || evt == nil do return
 	stream.trades_frames += 1
 	if stream.trades.count >= services.TRADES_CAP do stream.evictions += 1
 	if stream.trades.count >= services.TRADES_CAP do stream.trades_drops += 1
+
+	price := evt.data.trade.price
+	qty   := evt.data.trade.qty
+	is_buy := evt.data.trade.is_buy
+	unix  := evt.data.trade.unix
+
 	services.push_trade(&stream.trades, services.Trade_Entry{
-		price = evt.data.trade.price,
-		qty   = evt.data.trade.qty,
-		side  = evt.data.trade.is_buy ? .Buy : .Sell,
-		unix  = evt.data.trade.unix,
+		price = price,
+		qty   = qty,
+		side  = is_buy ? .Buy : .Sell,
+		unix  = unix,
 	})
+
+	// S148: Accumulate into per-stream DOM store (TF-independent fill tracking).
+	// price_group=0 lets DOM_Store use its internal default (1.0).
+	services.dom_store_push_trade(&stream.dom, price, qty, is_buy, unix, 0)
+
+	// S155: Accumulate into per-stream footprint store (candle-aligned bins).
+	// Requires active TF to bucket trades into candle windows.
+	// price_group=0 lets Footprint_Store use its internal default (1.0).
+	if active_tf_ms > 0 {
+		services.footprint_store_push_trade(
+			&stream.footprint, price, qty, is_buy,
+			unix, active_tf_ms, 0,
+		)
+	}
 }
 
 market_store_reduce_tape :: proc(stream: ^Market_Stream, evt: ^ports.MD_Event) {

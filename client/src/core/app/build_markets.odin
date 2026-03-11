@@ -130,8 +130,8 @@ fetch_explorer_dashboard :: proc(state: ^App_State) {
 		state.explorer.fetch_status = .Error
 		return
 	}
-	result: services.Session_Health_Result
-	if !services.session_health_parse_json(buf[:int(n)], &result) {
+	result: services.Delivery_Health_Result
+	if !services.delivery_health_parse_json(buf[:int(n)], &result) {
 		state.explorer.fetch_status = .Error
 		return
 	}

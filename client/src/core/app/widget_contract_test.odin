@@ -1,6 +1,7 @@
 package app
 
 import "core:testing"
+import "mr:md_common"
 import "mr:services"
 import "mr:ui"
 
@@ -548,4 +549,334 @@ test_pane_independent_bindings :: proc(t: ^testing.T) {
 	testing.expect_value(t, binding_symbol(&pane0.binding), "BTCUSDT")
 	testing.expect_value(t, binding_venue(&pane1.binding), "bybit")
 	testing.expect_value(t, binding_symbol(&pane1.binding), "ETHUSDT")
+}
+
+// ---------------------------------------------------------------------------
+// S146: Widget TF Data Contract Integration
+// ---------------------------------------------------------------------------
+
+@(test)
+test_widget_tf_expectation_candle_tick :: proc(t: ^testing.T) {
+	exp := widget_tf_expectation(.Candle, 1_000)
+	testing.expect_value(t, exp.backfill_criticality, md_common.Backfill_Criticality.Optional)
+	testing.expect_value(t, exp.live_only_utility, md_common.Live_Only_Utility.Full)
+}
+
+@(test)
+test_widget_tf_expectation_candle_15m :: proc(t: ^testing.T) {
+	exp := widget_tf_expectation(.Candle, 900_000)
+	testing.expect_value(t, exp.backfill_criticality, md_common.Backfill_Criticality.Critical)
+	testing.expect_value(t, exp.live_only_utility, md_common.Live_Only_Utility.Minimal)
+}
+
+@(test)
+test_widget_backfill_critical_candle_5m :: proc(t: ^testing.T) {
+	testing.expect(t, widget_backfill_critical(.Candle, 300_000),
+		"candle at 5m should have critical backfill")
+}
+
+@(test)
+test_widget_backfill_not_critical_candle_1s :: proc(t: ^testing.T) {
+	testing.expect(t, !widget_backfill_critical(.Candle, 1_000),
+		"candle at 1s should not have critical backfill")
+}
+
+@(test)
+test_widget_backfill_not_critical_stats :: proc(t: ^testing.T) {
+	// Stats is TF-independent — backfill never critical.
+	testing.expect(t, !widget_backfill_critical(.Stats, 900_000),
+		"stats should never have critical backfill")
+}
+
+@(test)
+test_widget_backfill_not_critical_trades :: proc(t: ^testing.T) {
+	testing.expect(t, !widget_backfill_critical(.Trades, 86_400_000),
+		"trades should never have critical backfill")
+}
+
+@(test)
+test_widget_backfill_not_critical_orderbook :: proc(t: ^testing.T) {
+	testing.expect(t, !widget_backfill_critical(.Orderbook, 86_400_000),
+		"orderbook should never have critical backfill")
+}
+
+@(test)
+test_widget_tf_expectation_analytics_15m :: proc(t: ^testing.T) {
+	exp := widget_tf_expectation(.Analytics, 900_000)
+	testing.expect_value(t, exp.backfill_criticality, md_common.Backfill_Criticality.Critical)
+}
+
+@(test)
+test_widget_tf_expectation_heatmap_always_optional :: proc(t: ^testing.T) {
+	// Heatmap has no backfill mechanism — always optional regardless of TF.
+	exp := widget_tf_expectation(.Heatmap, 900_000)
+	testing.expect_value(t, exp.backfill_criticality, md_common.Backfill_Criticality.Optional)
+}
+
+@(test)
+test_widget_tf_all_kinds_return_valid :: proc(t: ^testing.T) {
+	// Every widget kind should return a valid expectation without panic.
+	for kind in Widget_Kind {
+		exp := widget_tf_expectation(kind, 60_000)
+		testing.expect(t, exp.overlay_patience_ms > 0, "overlay patience should be positive")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// S149: DOM Widget Readiness Tests
+// ---------------------------------------------------------------------------
+
+@(test)
+test_dom_readiness_orderbook_only :: proc(t: ^testing.T) {
+	// DOM usable when only orderbook has data.
+	ob: services.Orderbook_Store
+	ob.ask_count = 5
+	ob.bid_count = 5
+	stores := Cell_Stores{orderbook = &ob}
+	testing.expect(t, widget_store_has_data(.DOM, stores), "DOM usable with orderbook data")
+}
+
+@(test)
+test_dom_readiness_dom_fills_only :: proc(t: ^testing.T) {
+	// DOM usable when only DOM fills have accumulated (no book yet).
+	dom: services.DOM_Store
+	dom.trade_count = 10
+	stores := Cell_Stores{dom = &dom}
+	testing.expect(t, widget_store_has_data(.DOM, stores), "DOM usable with fills only")
+}
+
+@(test)
+test_dom_readiness_both :: proc(t: ^testing.T) {
+	// DOM usable when both orderbook and fills are present.
+	ob: services.Orderbook_Store
+	ob.ask_count = 3
+	dom: services.DOM_Store
+	dom.trade_count = 5
+	stores := Cell_Stores{orderbook = &ob, dom = &dom}
+	testing.expect(t, widget_store_has_data(.DOM, stores), "DOM usable with both sources")
+}
+
+@(test)
+test_dom_readiness_empty :: proc(t: ^testing.T) {
+	// DOM not usable when both are empty.
+	ob: services.Orderbook_Store
+	dom: services.DOM_Store
+	stores := Cell_Stores{orderbook = &ob, dom = &dom}
+	testing.expect(t, !widget_store_has_data(.DOM, stores), "DOM not usable when empty")
+}
+
+@(test)
+test_dom_readiness_nil_stores :: proc(t: ^testing.T) {
+	stores: Cell_Stores
+	testing.expect(t, !widget_store_has_data(.DOM, stores), "DOM not usable with nil stores")
+}
+
+@(test)
+test_dom_store_label :: proc(t: ^testing.T) {
+	testing.expect_value(t, widget_store_label(.DOM), "dom")
+	testing.expect_value(t, widget_store_label(.Orderbook), "orderbook")
+}
+
+@(test)
+test_dom_readiness_policy :: proc(t: ^testing.T) {
+	policy := widget_readiness_policy(.DOM)
+	testing.expect_value(t, policy.primary_artifact, md_common.Artifact_Kind.Orderbook)
+	testing.expect_value(t, policy.partial_usable, false)
+	testing.expect_value(t, policy.backfill_absent_usable, true)
+	testing.expect_value(t, policy.uses_artifact_live_flag, true)
+}
+
+// ---------------------------------------------------------------------------
+// S152: Backfill Concern & Hint Tests
+// ---------------------------------------------------------------------------
+
+@(test)
+test_backfill_concern_optional_no_concern :: proc(t: ^testing.T) {
+	// Tick TF (optional backfill) — no concern regardless of outcome.
+	sv := Cell_Surface_View{
+		backfill_expectation = md_common.Backfill_Expectation{
+			criticality = .Optional,
+			outcome = .Not_Attempted,
+		},
+	}
+	testing.expect(t, !widget_backfill_concern(sv), "optional backfill should not raise concern")
+}
+
+@(test)
+test_backfill_concern_critical_not_attempted :: proc(t: ^testing.T) {
+	// 15m TF (critical backfill) with no backfill → concern.
+	sv := Cell_Surface_View{
+		backfill_expectation = md_common.Backfill_Expectation{
+			criticality = .Critical,
+			outcome = .Not_Attempted,
+		},
+	}
+	testing.expect(t, widget_backfill_concern(sv), "critical backfill not attempted should raise concern")
+}
+
+@(test)
+test_backfill_concern_critical_success_no_concern :: proc(t: ^testing.T) {
+	sv := Cell_Surface_View{
+		backfill_expectation = md_common.Backfill_Expectation{
+			criticality = .Critical,
+			outcome = .Success,
+		},
+	}
+	testing.expect(t, !widget_backfill_concern(sv), "critical backfill success should not raise concern")
+}
+
+@(test)
+test_backfill_concern_critical_timeout :: proc(t: ^testing.T) {
+	sv := Cell_Surface_View{
+		backfill_expectation = md_common.Backfill_Expectation{
+			criticality = .Critical,
+			outcome = .Timeout,
+		},
+	}
+	testing.expect(t, widget_backfill_concern(sv), "critical backfill timeout should raise concern")
+}
+
+@(test)
+test_backfill_concern_recommended_timeout :: proc(t: ^testing.T) {
+	sv := Cell_Surface_View{
+		backfill_expectation = md_common.Backfill_Expectation{
+			criticality = .Recommended,
+			outcome = .Timeout,
+		},
+	}
+	testing.expect(t, widget_backfill_concern(sv), "recommended backfill timeout should raise concern")
+}
+
+@(test)
+test_backfill_hint_success :: proc(t: ^testing.T) {
+	sv := Cell_Surface_View{
+		backfill_expectation = md_common.Backfill_Expectation{
+			outcome = .Success,
+		},
+	}
+	testing.expect_value(t, widget_backfill_hint(sv), "History loaded")
+}
+
+@(test)
+test_backfill_hint_critical_timeout :: proc(t: ^testing.T) {
+	sv := Cell_Surface_View{
+		backfill_expectation = md_common.Backfill_Expectation{
+			criticality = .Critical,
+			outcome = .Timeout,
+		},
+	}
+	testing.expect_value(t, widget_backfill_hint(sv), "History fetch timed out — Ctrl+R to retry")
+}
+
+@(test)
+test_backfill_hint_not_attempted_minimal :: proc(t: ^testing.T) {
+	sv := Cell_Surface_View{
+		backfill_expectation = md_common.Backfill_Expectation{
+			live_only_util = .Minimal,
+			outcome = .Not_Attempted,
+		},
+	}
+	testing.expect_value(t, widget_backfill_hint(sv), "Backfill needed — Ctrl+R to fetch history")
+}
+
+@(test)
+test_backfill_hint_not_attempted_full :: proc(t: ^testing.T) {
+	sv := Cell_Surface_View{
+		backfill_expectation = md_common.Backfill_Expectation{
+			live_only_util = .Full,
+			outcome = .Not_Attempted,
+		},
+	}
+	testing.expect_value(t, widget_backfill_hint(sv), "Live data building chart")
+}
+
+@(test)
+test_backfill_hint_empty_critical :: proc(t: ^testing.T) {
+	sv := Cell_Surface_View{
+		backfill_expectation = md_common.Backfill_Expectation{
+			criticality = .Critical,
+			outcome = .Empty,
+		},
+	}
+	testing.expect_value(t, widget_backfill_hint(sv), "No history available")
+}
+
+@(test)
+test_backfill_hint_partial_critical :: proc(t: ^testing.T) {
+	sv := Cell_Surface_View{
+		backfill_expectation = md_common.Backfill_Expectation{
+			criticality = .Critical,
+			outcome = .Partial,
+		},
+	}
+	testing.expect_value(t, widget_backfill_hint(sv), "Partial history — Ctrl+R for more")
+}
+
+// ---------------------------------------------------------------------------
+// S155: Footprint Widget Contract Tests
+// ---------------------------------------------------------------------------
+
+@(test)
+test_s155_footprint_contract_exists :: proc(t: ^testing.T) {
+	contract := WIDGET_CONTRACTS[.Footprint]
+	testing.expect(t, contract.on_create != nil, "footprint must have on_create")
+	testing.expect(t, contract.on_render != nil, "footprint must have on_render")
+	testing.expect(t, contract.on_serialize != nil, "footprint must have on_serialize")
+	testing.expect(t, contract.on_dispose != nil, "footprint must have on_dispose")
+}
+
+@(test)
+test_s155_footprint_descriptor :: proc(t: ^testing.T) {
+	desc := WIDGET_DESCRIPTORS[.Footprint]
+	testing.expect_value(t, desc.kind, Widget_Kind.Footprint)
+	testing.expect_value(t, desc.label, "Footprint")
+	testing.expect(t, desc.min_w >= 100, "footprint min_w should be reasonable")
+	testing.expect(t, desc.min_h >= 80, "footprint min_h should be reasonable")
+}
+
+@(test)
+test_s155_footprint_readiness_policy :: proc(t: ^testing.T) {
+	policy := widget_readiness_policy(.Footprint)
+	testing.expect_value(t, policy.primary_artifact, md_common.Artifact_Kind.Trade)
+	testing.expect_value(t, policy.partial_usable, true)
+	testing.expect_value(t, policy.backfill_absent_usable, true)
+}
+
+@(test)
+test_s155_footprint_store_has_data :: proc(t: ^testing.T) {
+	fp: services.Footprint_Store
+	stores := Cell_Stores{footprint = &fp}
+	testing.expect(t, !widget_store_has_data(.Footprint, stores), "empty footprint store has no data")
+
+	// Simulate population.
+	services.footprint_store_push_trade(&fp, 100.0, 1.0, true, 60_000, 60_000, 1.0)
+	testing.expect(t, widget_store_has_data(.Footprint, stores), "populated footprint store has data")
+}
+
+@(test)
+test_s155_footprint_store_label :: proc(t: ^testing.T) {
+	testing.expect_value(t, widget_store_label(.Footprint), "footprint")
+}
+
+@(test)
+test_s155_footprint_channels :: proc(t: ^testing.T) {
+	ch := channels_for_widget(.Footprint)
+	// Footprint needs trades (for fill accumulation) and candles (for TF alignment).
+	testing.expect(t, ch != 0, "footprint should subscribe to channels")
+}
+
+@(test)
+test_s155_footprint_pane_role :: proc(t: ^testing.T) {
+	role := infer_pane_role(.Footprint)
+	testing.expect_value(t, role, Pane_Role.Auxiliary)
+}
+
+@(test)
+test_s155_footprint_lifecycle :: proc(t: ^testing.T) {
+	pool: Pane_Pool
+	pane, _ := pane_pool_alloc(&pool)
+	pane.widget = widget_host_create(.Footprint)
+	widget_contract_create(pane)
+	widget_contract_bind(pane, {})
+	widget_contract_dispose(pane)
 }

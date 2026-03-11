@@ -53,6 +53,91 @@ Stream_Apply_State :: struct {
 	recovery_attempts:  u8,    // Consecutive auto-recovery attempts since last success
 }
 
+// =========================================================================
+// S144: Snapshot Lifecycle — canonical per-stream snapshot status.
+// Replaces the ambiguous combination of snapshot_seen + has_live + composition
+// with a single ordered enum that UI/health can consume directly.
+//
+// Lifecycle ordering (worst → best):
+//   Absent       — no data ever received (event_count == 0)
+//   Pending      — subscribed, events may be flowing, but snapshot-gated
+//                  artifacts have not yet seen their first snapshot
+//   Degraded     — had snapshot but recovery is active or synthetic fallback in use
+//   Stale        — had snapshot but recovery exhausted or data unrecoverably stale
+//   Live         — all snapshot gates satisfied, data flowing normally
+// =========================================================================
+
+Snapshot_Lifecycle :: enum u8 {
+	Absent,      // No data ever received on this stream
+	Pending,     // Awaiting first snapshot for gated artifacts (e.g., Orderbook)
+	Degraded,    // Snapshot was seen but stream is recovering or using synthetic
+	Stale,       // Snapshot was seen but recovery exhausted — data untrustworthy
+	Live,        // All gates satisfied, data flowing normally
+}
+
+// apply_state_snapshot_lifecycle derives the canonical snapshot lifecycle for
+// a stream. Pure function — no mutation, no allocations.
+//
+// Decision flow:
+//   1. event_count == 0 → Absent
+//   2. Any snapshot-gated artifact unsatisfied → Pending
+//   3. Recovery exhausted → Stale
+//   4. Recovery in progress or any synthetic fallback active → Degraded
+//   5. Otherwise → Live
+apply_state_snapshot_lifecycle :: proc(s: Stream_Apply_State) -> Snapshot_Lifecycle {
+	if s.event_count == 0 do return .Absent
+
+	// Recovery exhausted → data untrustworthy (takes priority over pending gates,
+	// since recovery itself clears snapshot gates for reconnect-sensitive artifacts).
+	if s.recovery_attempts >= RECOVERY_MAX_ATTEMPTS do return .Stale
+
+	// Check if any snapshot-gated artifact is still unsatisfied.
+	for kind in Artifact_Kind {
+		policy := artifact_policies[kind]
+		if policy.needs_snapshot_gate && !s.snapshot_seen[kind] {
+			return .Pending
+		}
+	}
+
+	// Recovery in progress → degraded.
+	if s.recovery_attempts > 0 do return .Degraded
+
+	// Any synthetic fallback active → degraded (live data preferred but absent).
+	for kind in Artifact_Kind {
+		policy := artifact_policies[kind]
+		if policy.has_synthetic_fallback && s.using_synthetic[kind] && !s.has_live[kind] {
+			return .Degraded
+		}
+	}
+
+	return .Live
+}
+
+// snapshot_lifecycle_label returns a display label for the snapshot lifecycle.
+// All returned strings are compile-time literals.
+snapshot_lifecycle_label :: proc(sl: Snapshot_Lifecycle) -> string {
+	switch sl {
+	case .Absent:   return "ABSENT"
+	case .Pending:  return "PENDING"
+	case .Degraded: return "DEGRADED"
+	case .Stale:    return "STALE"
+	case .Live:     return "OK"
+	}
+	return "UNKNOWN"
+}
+
+// snapshot_lifecycle_blocks_render returns true if the snapshot lifecycle
+// indicates that widgets should NOT render data as trustworthy.
+snapshot_lifecycle_blocks_render :: proc(sl: Snapshot_Lifecycle) -> bool {
+	switch sl {
+	case .Absent, .Pending, .Stale:
+		return true
+	case .Degraded, .Live:
+		return false
+	}
+	return true
+}
+
 // apply_state_reset resets all apply state for a fresh stream.
 // Called on subscribe or when stream is completely reset.
 apply_state_reset :: proc(s: ^Stream_Apply_State) {
@@ -272,21 +357,28 @@ Apply_State_Telemetry :: struct {
 	recovery_cooldown_remaining_ms: i64, // Time remaining before next attempt allowed
 	// S35: Per-stream health level.
 	stream_health:                 System_Health_Level,
+	// S143: Canonical stream reliability.
+	reliability:                   Stream_Reliability,
 	// S138: Bootstrap timing probe.
 	first_event_ms:                i64,   // Latched timestamp of very first event
+	// S144: Canonical snapshot lifecycle.
+	snapshot_lifecycle:             Snapshot_Lifecycle,
 }
 
 // apply_state_telemetry returns a telemetry snapshot for diagnostics display.
 // Pure function — reads apply state, creates no new state.
 // S30: now_ms parameter added for cooldown remaining computation.
 // S35: tf_ms parameter added for per-stream health level derivation.
-apply_state_telemetry :: proc(s: Stream_Apply_State, now_ms: i64 = 0, tf_ms: i64 = 0) -> Apply_State_Telemetry {
+// S143: is_desync/is_offline parameters added for reliability derivation.
+apply_state_telemetry :: proc(s: Stream_Apply_State, now_ms: i64 = 0, tf_ms: i64 = 0, is_desync: bool = false, is_offline: bool = false) -> Apply_State_Telemetry {
 	cooldown := recovery_cooldown_for_attempt(s.recovery_attempts)
 	remaining := i64(0)
 	if s.recovery_last_ms > 0 && now_ms > 0 {
 		elapsed := now_ms - s.recovery_last_ms
 		if elapsed < cooldown do remaining = cooldown - elapsed
 	}
+	health := stream_health_level(s, now_ms, tf_ms)
+	rec := apply_state_recovery_status(s)
 	return Apply_State_Telemetry{
 		artifact_event_count = s.artifact_event_count,
 		last_recv_ms         = s.last_recv_ms,
@@ -296,12 +388,14 @@ apply_state_telemetry :: proc(s: Stream_Apply_State, now_ms: i64 = 0, tf_ms: i64
 		composition_stage    = apply_state_composition_stage(s),
 		getrange_pending     = s.getrange_pending,
 		getrange_seeded      = s.getrange_seeded,
-		recovery_status      = apply_state_recovery_status(s),
+		recovery_status      = rec,
 		recovery_attempts    = s.recovery_attempts,
 		recovery_cooldown_ms = cooldown,
 		recovery_cooldown_remaining_ms = remaining,
-		stream_health        = stream_health_level(s, now_ms, tf_ms),
+		stream_health        = health,
+		reliability          = stream_reliability(health, rec, is_desync, is_offline),
 		first_event_ms       = s.first_event_ms,
+		snapshot_lifecycle   = apply_state_snapshot_lifecycle(s),
 	}
 }
 
@@ -386,6 +480,12 @@ RECOVERY_BASE_COOLDOWN_MS :: i64(15_000)  // 15s base cooldown (doubles per atte
 RECOVERY_MAX_COOLDOWN_MS  :: i64(60_000)  // 60s ceiling for exponential backoff
 RECOVERY_MAX_ATTEMPTS     :: u8(3)        // Max attempts before escalating to manual
 
+// S144: Base GetRange timeout budget — 300 frames at 60fps = 5s.
+// S152: This is now the base/default for Tick TFs. Higher TFs use longer
+// timeouts via backfill_policy_for_tf() in tf_data_contract.odin.
+// Callers should prefer backfill_policy_for_tf_ms(tf_ms).timeout_frames.
+GETRANGE_TIMEOUT_FRAMES   :: u64(300)
+
 // S30: Compute adaptive cooldown for the next recovery attempt.
 // Exponential backoff: 15s, 30s, 60s (capped). Pure function.
 recovery_cooldown_for_attempt :: proc(attempts: u8) -> i64 {
@@ -441,9 +541,20 @@ apply_state_stale_remediation :: proc(s: Stream_Apply_State, now_ms: i64, tf_ms:
 }
 
 // apply_state_mark_recovery records that an auto-recovery attempt was made.
+// S144: Also resets snapshot gates for reconnect-sensitive artifacts, since
+// recovery triggers a resubscribe which is semantically equivalent to a
+// reconnect for those artifacts. Without this, stale orderbook data could
+// be displayed after recovery resubscribe without a fresh snapshot.
 apply_state_mark_recovery :: proc(s: ^Stream_Apply_State, now_ms: i64) {
 	s.recovery_last_ms = now_ms
 	s.recovery_attempts += 1
+	// S144: Clear snapshot gates for reconnect-sensitive artifacts.
+	for kind in Artifact_Kind {
+		policy := artifact_policies[kind]
+		if policy.reset_on_reconnect {
+			s.snapshot_seen[kind] = false
+		}
+	}
 }
 
 // apply_state_check_recovery_success checks if previously stale Dual_Silence
@@ -474,6 +585,87 @@ apply_state_recovery_status :: proc(s: Stream_Apply_State) -> Recovery_Status {
 	return .Recovering
 }
 
+// =========================================================================
+// S143: Stream Reliability — unified gate for "can this stream's data be trusted?"
+// Combines transport state, delivery health, and recovery status into a
+// single canonical enum that widgets consult before rendering.
+//
+// Ownership hierarchy:
+//   Transport   → Stream_State (Offline/Live/Lag/Desync) — stream_controller.odin
+//   Delivery    → Composition_Stage (Empty..Composed) — apply state
+//   Health      → System_Health_Level (Healthy..Critical) — apply state
+//   Reliability → Stream_Reliability (below) — derived from all three
+//
+// Design: pure function, no mutation, deterministic. Evaluated per-frame
+// in resolve_cell_surface_view and passed through to widget_data_readiness.
+// =========================================================================
+
+Stream_Reliability :: enum u8 {
+	Reliable,              // Transport live, data fresh, composition valid
+	Degraded_Aging,        // Transport OK but some artifacts aging — render with warning
+	Stale_Recovering,      // Stale detected, auto-recovery in progress — render with warning
+	Stale_Unrecoverable,   // Recovery exhausted — data untrustworthy, block render
+	Desync,                // Transport desync detected — data untrustworthy, block render
+	Offline,               // Transport disconnected — block render
+	Manual_Resync,         // Recovery exhausted + manual intervention required
+}
+
+// S143: stream_reliability derives the canonical reliability level.
+// Pure function. Inputs: transport state, health level, recovery status, connectivity.
+// The is_desync/is_offline parameters come from the transport layer (Stream_State/Stream_Status).
+stream_reliability :: proc(
+	health: System_Health_Level,
+	recovery: Recovery_Status,
+	is_desync: bool,
+	is_offline: bool,
+) -> Stream_Reliability {
+	if is_offline do return .Offline
+	if is_desync {
+		if recovery == .Exhausted do return .Manual_Resync
+		return .Desync
+	}
+	if recovery == .Exhausted do return .Manual_Resync
+	switch health {
+	case .Critical:  return .Stale_Unrecoverable
+	case .Unhealthy:
+		if recovery == .Recovering do return .Stale_Recovering
+		return .Stale_Unrecoverable
+	case .Degraded:
+		if recovery == .Recovering do return .Stale_Recovering
+		return .Degraded_Aging
+	case .Healthy:   return .Reliable
+	}
+	return .Reliable
+}
+
+// S143: stream_reliability_blocks_render returns true if the reliability
+// level indicates that widget data should NOT be rendered as trustworthy.
+// Widgets should show an overlay or degraded state instead.
+stream_reliability_blocks_render :: proc(r: Stream_Reliability) -> bool {
+	switch r {
+	case .Reliable, .Degraded_Aging, .Stale_Recovering:
+		return false
+	case .Stale_Unrecoverable, .Desync, .Offline, .Manual_Resync:
+		return true
+	}
+	return false
+}
+
+// S143: stream_reliability_label returns a display label for the reliability level.
+// All returned strings are compile-time literals.
+stream_reliability_label :: proc(r: Stream_Reliability) -> string {
+	switch r {
+	case .Reliable:            return "OK"
+	case .Degraded_Aging:      return "AGING"
+	case .Stale_Recovering:    return "RECOVERING"
+	case .Stale_Unrecoverable: return "STALE"
+	case .Desync:              return "DESYNC"
+	case .Offline:             return "OFFLINE"
+	case .Manual_Resync:       return "RESYNC"
+	}
+	return "UNKNOWN"
+}
+
 // S35: Per-stream health level — derives System_Health_Level for a single stream.
 // Pure function — no mutation, no allocations.
 stream_health_level :: proc(s: Stream_Apply_State, now_ms: i64, tf_ms: i64 = 0) -> System_Health_Level {
@@ -496,6 +688,7 @@ Health_Tick_Input :: struct {
 	tf_ms:             i64,
 	is_connected:      bool,
 	is_offline:        bool,  // active_metrics.state == .Offline
+	is_desync:         bool,  // S143: active_metrics.state == .Desync
 }
 
 // S35: Health_Tick_Output — all health decisions for one frame tick.
@@ -506,6 +699,10 @@ Health_Tick_Output :: struct {
 	stream_health:     System_Health_Level,
 	stale_count:       int,
 	aging_count:       int,
+	// S143: Canonical reliability derived from health + recovery + transport.
+	reliability:       Stream_Reliability,
+	// S144: Canonical snapshot lifecycle.
+	snapshot_lifecycle: Snapshot_Lifecycle,
 }
 
 // S35: health_tick_evaluate — pure control-plane function for per-frame health.
@@ -517,6 +714,11 @@ health_tick_evaluate :: proc(input: Health_Tick_Input) -> Health_Tick_Output {
 
 	out.stream_health = stream_health_level(s, input.now_ms, input.tf_ms)
 	out.stale_count, out.aging_count = apply_state_stale_artifact_count(s, input.now_ms, input.tf_ms)
+	out.snapshot_lifecycle = apply_state_snapshot_lifecycle(s)
+
+	// S143: Derive canonical reliability from health + recovery + transport.
+	rec := apply_state_recovery_status(s)
+	out.reliability = stream_reliability(out.stream_health, rec, input.is_desync, input.is_offline)
 
 	// Recovery decisions only when connected and not offline.
 	if input.now_ms > 0 && input.is_connected && !input.is_offline {
@@ -551,8 +753,8 @@ health_tick_evaluate :: proc(input: Health_Tick_Input) -> Health_Tick_Output {
 // and lazy loading into testable, deterministic orchestrator decisions.
 // =========================================================================
 
-// Orchestrator_Intent — what the composition system should do next.
-Orchestrator_Intent :: enum u8 {
+// Orchestrator_Phase — lifecycle phase of the composition system.
+Orchestrator_Phase :: enum u8 {
 	None,         // No action possible (no active stream)
 	Seed_Range,   // Need initial GetRange request
 	Await_Seed,   // GetRange in flight, wait for response
@@ -566,7 +768,7 @@ composition_intent :: proc(
 	s: Stream_Apply_State,
 	store_count: int,
 	has_active_stream: bool,
-) -> Orchestrator_Intent {
+) -> Orchestrator_Phase {
 	if !has_active_stream do return .None
 	if s.getrange_pending do return .Await_Seed
 	has_seed := s.getrange_seeded
@@ -628,6 +830,13 @@ Aggregate_Health_Summary :: struct {
 	worst_composition: Composition_Stage,   // worst stage across slots
 	worst_staleness:   Artifact_Staleness,  // worst staleness across all
 	health_level:      System_Health_Level,
+	// S144: Snapshot lifecycle counts across slots.
+	slots_snapshot_absent:   int,   // slots with Snapshot_Lifecycle == .Absent
+	slots_snapshot_pending:  int,   // slots with Snapshot_Lifecycle == .Pending
+	slots_snapshot_degraded: int,   // slots with Snapshot_Lifecycle == .Degraded
+	slots_snapshot_stale:    int,   // slots with Snapshot_Lifecycle == .Stale
+	slots_snapshot_live:     int,   // slots with Snapshot_Lifecycle == .Live
+	worst_snapshot:          Snapshot_Lifecycle,  // worst lifecycle across all slots
 }
 
 // aggregate_health_from_slots computes an aggregate health summary across all
@@ -641,6 +850,7 @@ aggregate_health_from_slots :: proc(
 ) -> Aggregate_Health_Summary {
 	summary: Aggregate_Health_Summary
 	summary.worst_composition = .Composed  // start at best, degrade downward
+	summary.worst_snapshot = .Live          // S144: start at best, degrade downward
 
 	n := min(len(states), len(used))
 	for i := 0; i < n; i += 1 {
@@ -686,11 +896,26 @@ aggregate_health_from_slots :: proc(
 		case .Exhausted:  summary.slots_exhausted += 1
 		case .None:       // nothing
 		}
+
+		// S144: Snapshot lifecycle counts
+		sl := apply_state_snapshot_lifecycle(s)
+		switch sl {
+		case .Absent:   summary.slots_snapshot_absent += 1
+		case .Pending:  summary.slots_snapshot_pending += 1
+		case .Degraded: summary.slots_snapshot_degraded += 1
+		case .Stale:    summary.slots_snapshot_stale += 1
+		case .Live:     summary.slots_snapshot_live += 1
+		}
+		// worst_snapshot: lowest enum ordinal is worst (Absent < Live)
+		if int(sl) < int(summary.worst_snapshot) {
+			summary.worst_snapshot = sl
+		}
 	}
 
 	// If no slots used, worst_composition should be Empty
 	if summary.slot_count == 0 {
 		summary.worst_composition = .Empty
+		summary.worst_snapshot = .Absent
 	}
 
 	// Derive health level

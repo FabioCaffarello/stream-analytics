@@ -840,27 +840,27 @@ test_getrange_request_id_preserved_across_events :: proc(t: ^testing.T) {
 @(test)
 test_composition_intent_no_stream :: proc(t: ^testing.T) {
 	s: Stream_Apply_State
-	testing.expect_value(t, composition_intent(s, 0, false), Orchestrator_Intent.None)
+	testing.expect_value(t, composition_intent(s, 0, false), Orchestrator_Phase.None)
 }
 
 @(test)
 test_composition_intent_empty_store_seeds :: proc(t: ^testing.T) {
 	s: Stream_Apply_State
-	testing.expect_value(t, composition_intent(s, 0, true), Orchestrator_Intent.Seed_Range)
+	testing.expect_value(t, composition_intent(s, 0, true), Orchestrator_Phase.Seed_Range)
 }
 
 @(test)
 test_composition_intent_pending_awaits :: proc(t: ^testing.T) {
 	s: Stream_Apply_State
 	apply_state_mark_range_sent(&s, 1, 0x1)
-	testing.expect_value(t, composition_intent(s, 0, true), Orchestrator_Intent.Await_Seed)
+	testing.expect_value(t, composition_intent(s, 0, true), Orchestrator_Phase.Await_Seed)
 }
 
 @(test)
 test_composition_intent_seeded_no_live_awaits :: proc(t: ^testing.T) {
 	s: Stream_Apply_State
 	apply_state_mark_range_complete(&s, 1000)
-	testing.expect_value(t, composition_intent(s, 100, true), Orchestrator_Intent.Await_Live)
+	testing.expect_value(t, composition_intent(s, 100, true), Orchestrator_Phase.Await_Live)
 }
 
 @(test)
@@ -868,14 +868,14 @@ test_composition_intent_seeded_with_live_steady :: proc(t: ^testing.T) {
 	s: Stream_Apply_State
 	apply_state_mark_range_complete(&s, 1000)
 	apply_state_mark_event(&s, .Candle, 5000, false)
-	testing.expect_value(t, composition_intent(s, 100, true), Orchestrator_Intent.Steady)
+	testing.expect_value(t, composition_intent(s, 100, true), Orchestrator_Phase.Steady)
 }
 
 @(test)
 test_composition_intent_live_only_seeds :: proc(t: ^testing.T) {
 	s: Stream_Apply_State
 	apply_state_mark_event(&s, .Candle, 5000, false)
-	testing.expect_value(t, composition_intent(s, 10, true), Orchestrator_Intent.Seed_Range)
+	testing.expect_value(t, composition_intent(s, 10, true), Orchestrator_Phase.Seed_Range)
 }
 
 @(test)
@@ -883,9 +883,9 @@ test_composition_intent_tf_change_resets_to_seed :: proc(t: ^testing.T) {
 	s: Stream_Apply_State
 	apply_state_mark_range_complete(&s, 1000)
 	apply_state_mark_event(&s, .Candle, 5000, false)
-	testing.expect_value(t, composition_intent(s, 100, true), Orchestrator_Intent.Steady)
+	testing.expect_value(t, composition_intent(s, 100, true), Orchestrator_Phase.Steady)
 	apply_state_on_tf_change(&s)
-	testing.expect_value(t, composition_intent(s, 0, true), Orchestrator_Intent.Seed_Range)
+	testing.expect_value(t, composition_intent(s, 0, true), Orchestrator_Phase.Seed_Range)
 }
 
 @(test)
@@ -988,4 +988,175 @@ test_first_event_ms_ignores_zero_timestamp :: proc(t: ^testing.T) {
 	// But a real timestamp should latch.
 	apply_state_mark_event(&s, .Trade, 1000, false)
 	testing.expect_value(t, s.first_event_ms, i64(1000))
+}
+
+// =========================================================================
+// S144: Snapshot Lifecycle & Recovery Policy tests
+// =========================================================================
+
+@(test)
+test_snapshot_lifecycle_absent_when_no_events :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	testing.expect_value(t, apply_state_snapshot_lifecycle(s), Snapshot_Lifecycle.Absent)
+}
+
+@(test)
+test_snapshot_lifecycle_pending_when_ob_unsatisfied :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	// Receive a trade (non-snapshot-gated) but no orderbook snapshot.
+	apply_state_mark_event(&s, .Trade, 1000, false)
+	testing.expect_value(t, apply_state_snapshot_lifecycle(s), Snapshot_Lifecycle.Pending)
+}
+
+@(test)
+test_snapshot_lifecycle_live_when_all_gates_satisfied :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	// Receive trade + orderbook snapshot.
+	apply_state_mark_event(&s, .Trade, 1000, false)
+	apply_state_mark_event(&s, .Orderbook, 1000, true) // is_snapshot=true
+	testing.expect_value(t, apply_state_snapshot_lifecycle(s), Snapshot_Lifecycle.Live)
+}
+
+@(test)
+test_snapshot_lifecycle_degraded_during_recovery :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Trade, 1000, false)
+	apply_state_mark_event(&s, .Orderbook, 1000, true)
+	// Simulate recovery attempt.
+	apply_state_mark_recovery(&s, 2000)
+	// S144: recovery clears OB snapshot_seen (reconnect-sensitive),
+	// so lifecycle should be Pending, not Degraded.
+	testing.expect_value(t, apply_state_snapshot_lifecycle(s), Snapshot_Lifecycle.Pending)
+}
+
+@(test)
+test_snapshot_lifecycle_stale_when_exhausted :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Trade, 1000, false)
+	apply_state_mark_event(&s, .Orderbook, 1000, true)
+	// Exhaust recovery: 3 attempts.
+	apply_state_mark_recovery(&s, 2000)
+	// Re-satisfy OB snapshot after each recovery (simulating fresh snapshots arriving).
+	apply_state_mark_event(&s, .Orderbook, 3000, true)
+	apply_state_mark_recovery(&s, 4000)
+	apply_state_mark_event(&s, .Orderbook, 5000, true)
+	apply_state_mark_recovery(&s, 6000)
+	// Now 3 attempts, OB gate re-cleared.
+	testing.expect(t, s.recovery_attempts >= RECOVERY_MAX_ATTEMPTS, "expected max attempts reached")
+	// With 3+ attempts, lifecycle should be Stale regardless of snapshot_seen.
+	testing.expect_value(t, apply_state_snapshot_lifecycle(s), Snapshot_Lifecycle.Stale)
+}
+
+@(test)
+test_snapshot_lifecycle_degraded_when_synthetic_active :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Trade, 1000, false)
+	apply_state_mark_event(&s, .Orderbook, 1000, true)
+	// Mark stats as synthetic (no live stats yet).
+	apply_state_mark_synthetic(&s, .Stats, 1000)
+	testing.expect_value(t, apply_state_snapshot_lifecycle(s), Snapshot_Lifecycle.Degraded)
+}
+
+@(test)
+test_snapshot_lifecycle_live_after_synthetic_displaced :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Trade, 1000, false)
+	apply_state_mark_event(&s, .Orderbook, 1000, true)
+	apply_state_mark_synthetic(&s, .Stats, 1000)
+	// Live stats arrive — displaces synthetic.
+	apply_state_mark_event(&s, .Stats, 2000, false)
+	testing.expect_value(t, apply_state_snapshot_lifecycle(s), Snapshot_Lifecycle.Live)
+}
+
+@(test)
+test_recovery_resets_snapshot_gates :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Orderbook, 1000, true)
+	testing.expect_value(t, s.snapshot_seen[.Orderbook], true)
+	// Recovery should clear reconnect-sensitive snapshot gates.
+	apply_state_mark_recovery(&s, 2000)
+	testing.expect_value(t, s.snapshot_seen[.Orderbook], false)
+	// Non-reconnect-sensitive artifacts should NOT be cleared.
+	apply_state_mark_event(&s, .Trade, 500, false)
+	apply_state_mark_recovery(&s, 3000)
+	testing.expect_value(t, s.snapshot_seen[.Trade], true)
+}
+
+@(test)
+test_snapshot_lifecycle_label :: proc(t: ^testing.T) {
+	testing.expect_value(t, snapshot_lifecycle_label(.Absent), "ABSENT")
+	testing.expect_value(t, snapshot_lifecycle_label(.Pending), "PENDING")
+	testing.expect_value(t, snapshot_lifecycle_label(.Degraded), "DEGRADED")
+	testing.expect_value(t, snapshot_lifecycle_label(.Stale), "STALE")
+	testing.expect_value(t, snapshot_lifecycle_label(.Live), "OK")
+}
+
+@(test)
+test_snapshot_lifecycle_blocks_render :: proc(t: ^testing.T) {
+	testing.expect_value(t, snapshot_lifecycle_blocks_render(.Absent), true)
+	testing.expect_value(t, snapshot_lifecycle_blocks_render(.Pending), true)
+	testing.expect_value(t, snapshot_lifecycle_blocks_render(.Stale), true)
+	testing.expect_value(t, snapshot_lifecycle_blocks_render(.Degraded), false)
+	testing.expect_value(t, snapshot_lifecycle_blocks_render(.Live), false)
+}
+
+@(test)
+test_getrange_timeout_constant :: proc(t: ^testing.T) {
+	// GETRANGE_TIMEOUT_FRAMES should be 300 (5s at 60fps).
+	testing.expect_value(t, GETRANGE_TIMEOUT_FRAMES, u64(300))
+}
+
+@(test)
+test_health_tick_includes_snapshot_lifecycle :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Trade, 1000, false)
+	// OB unsatisfied — should be Pending.
+	tick := health_tick_evaluate(Health_Tick_Input{
+		apply_state = s,
+		now_ms = 2000,
+		tf_ms = 60_000,
+		is_connected = true,
+	})
+	testing.expect_value(t, tick.snapshot_lifecycle, Snapshot_Lifecycle.Pending)
+
+	// Satisfy OB gate.
+	apply_state_mark_event(&s, .Orderbook, 2000, true)
+	tick2 := health_tick_evaluate(Health_Tick_Input{
+		apply_state = s,
+		now_ms = 3000,
+		tf_ms = 60_000,
+		is_connected = true,
+	})
+	testing.expect_value(t, tick2.snapshot_lifecycle, Snapshot_Lifecycle.Live)
+}
+
+@(test)
+test_aggregate_health_snapshot_counts :: proc(t: ^testing.T) {
+	states: [3]Stream_Apply_State
+	used := [3]bool{true, true, true}
+
+	// Slot 0: no events → Absent
+	// Slot 1: trade only, OB pending → Pending
+	apply_state_mark_event(&states[1], .Trade, 1000, false)
+	// Slot 2: trade + OB snapshot → Live
+	apply_state_mark_event(&states[2], .Trade, 1000, false)
+	apply_state_mark_event(&states[2], .Orderbook, 1000, true)
+
+	summary := aggregate_health_from_slots(states[:], used[:], 2000, 60_000)
+	testing.expect_value(t, summary.slots_snapshot_absent, 1)
+	testing.expect_value(t, summary.slots_snapshot_pending, 1)
+	testing.expect_value(t, summary.slots_snapshot_live, 1)
+	testing.expect_value(t, summary.worst_snapshot, Snapshot_Lifecycle.Absent)
+}
+
+@(test)
+test_telemetry_includes_snapshot_lifecycle :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	apply_state_mark_event(&s, .Trade, 1000, false)
+	tel := apply_state_telemetry(s, 2000, 60_000)
+	testing.expect_value(t, tel.snapshot_lifecycle, Snapshot_Lifecycle.Pending)
+
+	apply_state_mark_event(&s, .Orderbook, 2000, true)
+	tel2 := apply_state_telemetry(s, 3000, 60_000)
+	testing.expect_value(t, tel2.snapshot_lifecycle, Snapshot_Lifecycle.Live)
 }

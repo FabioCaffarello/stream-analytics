@@ -123,3 +123,35 @@ dom_store_get_fill :: proc(store: ^DOM_Store, bucket_price: f64) -> (buy_vol, se
 	}
 	return 0, 0
 }
+
+// S149: Check if the DOM store has any accumulated data.
+dom_store_has_data :: proc(store: ^DOM_Store) -> bool {
+	return store != nil && store.trade_count > 0
+}
+
+// S149: Buy/sell imbalance ratio. Returns [-1, +1].
+// +1 = all buys, -1 = all sells, 0 = balanced.
+dom_store_imbalance :: proc(store: ^DOM_Store) -> f64 {
+	total := store.total_buy_vol + store.total_sell_vol
+	if total <= 0 do return 0
+	return (store.total_buy_vol - store.total_sell_vol) / total
+}
+
+// S149: Find fill volume for an exact orderbook price.
+// Uses the store's price_group to bucket the lookup price.
+dom_store_fill_at_price :: proc(store: ^DOM_Store, price: f64) -> (buy_vol, sell_vol: f64) {
+	if store == nil || store.level_count <= 0 do return 0, 0
+	group := store.price_group > 0 ? store.price_group : 1.0
+	bucket := math.floor(price / group) * group
+	return dom_store_get_fill(store, bucket)
+}
+
+// S149: Maximum fill volume across all levels (for normalization).
+dom_store_max_fill :: proc(store: ^DOM_Store) -> f64 {
+	max_vol := f64(0)
+	for i in 0 ..< store.level_count {
+		lv := store.levels[i].buy_vol + store.levels[i].sell_vol
+		if lv > max_vol do max_vol = lv
+	}
+	return max_vol
+}

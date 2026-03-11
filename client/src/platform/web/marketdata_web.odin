@@ -25,6 +25,9 @@ foreign odin_env {
 	key_state   :: proc() -> u32 ---
 	key_pressed_state :: proc() -> u32 ---
 	key_released_state :: proc() -> u32 ---
+	key_state_hi :: proc() -> u32 ---           // S141: bits 32+ of key state
+	key_pressed_state_hi :: proc() -> u32 ---   // S141: bits 32+ of key pressed edges
+	key_released_state_hi :: proc() -> u32 ---  // S141: bits 32+ of key released edges
 	mouse_x     :: proc() -> f32 ---
 	mouse_y     :: proc() -> f32 ---
 	mouse_buttons :: proc() -> u32 ---
@@ -995,11 +998,20 @@ web_send_getrange_now :: proc(state: ^MD_Web_State, subject: string, limit: int,
 	if ws_state() != 2 do return false
 	if len(subject) == 0 do return false
 	state.rid_counter += 1
-	buf: [512]u8
-	msg, ok := md_common.build_getrange_msg(buf[:], subject, limit, end_ts, state.rid_counter)
+	buf: [768]u8
+	msg: string
+	ok: bool
+	// S148-BUG-1: Terminal_V1 requires component fields for server-side routing.
+	if state.transport_mode == .Terminal_V1 {
+		venue, symbol, channel, aggregation := md_common.parse_subject_components(subject)
+		msg, ok = md_common.build_getrange_msg_v2(buf[:], subject, venue, symbol, channel, aggregation, limit, end_ts, state.rid_counter)
+	} else {
+		msg, ok = md_common.build_getrange_msg(buf[:], subject, limit, end_ts, state.rid_counter)
+	}
 	if !ok do return false
 	if !web_frame_within_limit(state, len(msg)) do return false
 	ws_send(raw_data(buf[:len(msg)]), i32(len(msg)))
+	fmt.printf("[md-lifecycle] getrange_sent subject=%s limit=%d rid=gr%d\n", subject, limit, state.rid_counter)
 	return true
 }
 
@@ -2293,91 +2305,20 @@ web_send_getrange :: proc(subject: string, limit: int, end_ts: i64) {
 
 @(private = "file")
 web_fetch_markets :: proc(out_buf: [^]u8, out_cap: i32) -> i32 {
-	state := g_web_state
-	if state == nil do return 0
-	if out_cap <= 0 do return 0
-
-	// Derive markets endpoint from WS URL.
-	// Examples:
-	// - ws://host:8080/ws  -> http://host:8080/api/v1/markets
-	// - /ws                -> /api/v1/markets (same-origin)
-	// - http://host/ws     -> http://host/api/v1/markets
-	ws_url := strings.trim_space(state.ws_url)
-	if len(ws_url) == 0 do return 0
-
-	http_base := ""
-	delete_http_base := false
-	if strings.has_prefix(ws_url, "wss://") {
-		http_base = strings.concatenate({"https://", ws_url[6:]})
-		delete_http_base = true
-	} else if strings.has_prefix(ws_url, "ws://") {
-		http_base = strings.concatenate({"http://", ws_url[5:]})
-		delete_http_base = true
-	} else if strings.has_prefix(ws_url, "https://") || strings.has_prefix(ws_url, "http://") {
-		http_base = ws_url
-	} else if strings.has_prefix(ws_url, "/") {
-		http_base = ws_url
-	} else {
-		return 0
-	}
-	if delete_http_base {
-		defer delete(http_base)
-	}
-
-	base_no_ws := http_base
-	if strings.has_suffix(base_no_ws, "/ws") {
-		base_no_ws = base_no_ws[:len(base_no_ws) - 3]
-	}
-
-	url := strings.concatenate({"/api/v1/markets"})
-	if len(base_no_ws) == 0 || base_no_ws == "/" {
-		// Same-origin fallback endpoint.
-	} else {
-		delete(url)
-		url = strings.concatenate({base_no_ws, "/api/v1/markets"})
-	}
-	defer delete(url)
-
-	url_raw := raw_data(transmute([]u8)url)
-	return http_get_sync(url_raw, i32(len(url)), out_buf, out_cap)
-}
-
-// S20: Derive HTTP base from WS URL (shared by all HTTP fetchers).
-@(private = "file")
-web_http_base_from_ws :: proc(ws_url: string) -> (base: string, should_delete: bool) {
-	trimmed := strings.trim_space(ws_url)
-	if len(trimmed) == 0 do return "", false
-	if strings.has_prefix(trimmed, "wss://") {
-		return strings.concatenate({"https://", trimmed[6:]}), true
-	} else if strings.has_prefix(trimmed, "ws://") {
-		return strings.concatenate({"http://", trimmed[5:]}), true
-	} else if strings.has_prefix(trimmed, "https://") || strings.has_prefix(trimmed, "http://") {
-		return trimmed, false
-	} else if strings.has_prefix(trimmed, "/") {
-		return trimmed, false
-	}
-	return "", false
+	// S147: Use relative URL — same-origin resolution by the browser.
+	return web_http_get(g_web_state, "/api/v1/markets", out_buf, out_cap)
 }
 
 @(private = "file")
 web_http_get :: proc(state: ^MD_Web_State, path: string, out_buf: [^]u8, out_cap: i32) -> i32 {
 	if state == nil || out_cap <= 0 do return 0
-	http_base, should_delete := web_http_base_from_ws(state.ws_url)
-	if len(http_base) == 0 do return 0
-	if should_delete do defer delete(http_base)
-	base_no_ws := http_base
-	if strings.has_suffix(base_no_ws, "/ws") {
-		base_no_ws = base_no_ws[:len(base_no_ws) - 3]
-	}
-	url: string
-	if len(base_no_ws) == 0 || base_no_ws == "/" {
-		url = strings.clone(path)
-	} else {
-		url = strings.concatenate({base_no_ws, path})
-	}
-	defer delete(url)
-	url_raw := raw_data(transmute([]u8)url)
-	return http_get_sync(url_raw, i32(len(url)), out_buf, out_cap)
+	if len(path) == 0 do return 0
+	// S147: Use relative URL directly — the browser resolves against the current
+	// page origin (e.g. http://localhost:8090). This avoids the ws_url-derived
+	// base mismatch where state.ws_url may point to a different host/port than
+	// the actual server (JS WS module overrides the URL independently).
+	url_raw := raw_data(transmute([]u8)path)
+	return http_get_sync(url_raw, i32(len(path)), out_buf, out_cap)
 }
 
 @(private = "file")

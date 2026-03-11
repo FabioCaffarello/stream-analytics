@@ -70,6 +70,9 @@ Market_Stream :: struct {
 	candles:          services.Candle_Store,
 	signals:          services.Signal_Store,
 	analytics:        services.Analytics_Store,
+	// S148: Per-stream orderflow stores (moved from Global_Stores).
+	dom:              services.DOM_Store,
+	footprint:        services.Footprint_Store,
 	evidence:         [EVIDENCE_RING_CAP]Evidence_Entry,
 	evidence_head:    int,
 	evidence_count:   int,
@@ -84,6 +87,7 @@ Market_Store :: struct {
 	last_now_ms:         i64,
 	stream_evictions:    u64,
 	applied_events:      u64,
+	active_tf_ms:        i64, // S155: workspace-level TF for footprint accumulation
 }
 
 copy_fixed_text :: proc(dst: []u8, src: string) -> u8 {
@@ -255,7 +259,7 @@ market_store_apply_event :: proc(store: ^Market_Store, evt: ^ports.MD_Event) -> 
 
 	switch evt.kind {
 	case .Trade:
-		market_store_reduce_trade(stream, evt)
+		market_store_reduce_trade(stream, evt, store.active_tf_ms)
 	case .Tape:
 		market_store_reduce_tape(stream, evt)
 	case .Orderbook_Snapshot:

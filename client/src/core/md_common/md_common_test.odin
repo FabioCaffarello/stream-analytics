@@ -145,6 +145,41 @@ test_build_subscribe_v2_component_fields :: proc(t: ^testing.T) {
 	testing.expect(t, strings.contains(msg, `"aggregation":"raw"`), "expected aggregation field")
 }
 
+// S148-BUG-1: Terminal_V1 getrange includes component fields for server routing.
+@(test)
+test_build_getrange_v2_component_fields :: proc(t: ^testing.T) {
+	buf: [768]u8
+	msg, ok := build_getrange_msg_v2(buf[:], "aggregation.candle/binance/BTCUSDT/1s", "binance", "BTCUSDT", "aggregation.candle", "1s", 200, 0, 5)
+	testing.expect_value(t, ok, true)
+	testing.expect(t, len(msg) > 0, "expected non-empty v2 getrange message")
+	testing.expect(t, strings.contains(msg, `"op":"getrange"`), "expected op:getrange")
+	testing.expect(t, strings.contains(msg, `"venue":"binance"`), "expected venue field")
+	testing.expect(t, strings.contains(msg, `"symbol":"BTCUSDT"`), "expected symbol field")
+	testing.expect(t, strings.contains(msg, `"channel":"aggregation.candle"`), "expected channel field")
+	testing.expect(t, strings.contains(msg, `"aggregation":"1s"`), "expected aggregation field")
+	testing.expect(t, strings.contains(msg, `"limit":200`), "expected limit param")
+	testing.expect(t, strings.contains(msg, `"request_id":"gr5"`), "expected request_id with gr prefix")
+}
+
+// S148-BUG-1: Terminal_V1 getrange with end_ts includes to_ms param.
+@(test)
+test_build_getrange_v2_with_end_ts :: proc(t: ^testing.T) {
+	buf: [768]u8
+	msg, ok := build_getrange_msg_v2(buf[:], "aggregation.candle/binance/BTCUSDT/1m", "binance", "BTCUSDT", "aggregation.candle", "1m", 500, 1773099000000, 12)
+	testing.expect_value(t, ok, true)
+	testing.expect(t, strings.contains(msg, `"to_ms":1773099000000`), "expected to_ms when end_ts > 0")
+	testing.expect(t, strings.contains(msg, `"limit":500`), "expected limit param")
+}
+
+// S148-BUG-1: Terminal_V1 getrange with end_ts=0 omits to_ms param.
+@(test)
+test_build_getrange_v2_no_end_ts :: proc(t: ^testing.T) {
+	buf: [768]u8
+	msg, ok := build_getrange_msg_v2(buf[:], "aggregation.candle/binance/BTCUSDT/1s", "binance", "BTCUSDT", "aggregation.candle", "1s", 100, 0, 3)
+	testing.expect_value(t, ok, true)
+	testing.expect(t, !strings.contains(msg, `"to_ms"`), "should not have to_ms when end_ts=0")
+}
+
 @(test)
 test_build_unsubscribe_v2_stream_id :: proc(t: ^testing.T) {
 	buf: [512]u8
@@ -926,4 +961,325 @@ test_s130_bootstrap_hint_tf_gated_label_tiers :: proc(t: ^testing.T) {
 	testing.expect(t, h_1m.hint_label == "Waiting for candle close", "1m should say candle close")
 	testing.expect(t, h_5m.hint_label == "First close takes minutes", "5m should say minutes")  // 300_000 > 60_000, <= 900_000
 	testing.expect(t, h_1h.hint_label == "Long timeframe — first close may take a while", "1h should say long TF")
+}
+
+// =========================================================================
+// S143: Stream Reliability Tests
+// =========================================================================
+
+@(test)
+test_stream_reliability_healthy :: proc(t: ^testing.T) {
+	r := stream_reliability(.Healthy, .None, false, false)
+	testing.expect(t, r == .Reliable, "healthy + no recovery + live → Reliable")
+	testing.expect(t, !stream_reliability_blocks_render(r), "Reliable should not block render")
+}
+
+@(test)
+test_stream_reliability_degraded_aging :: proc(t: ^testing.T) {
+	r := stream_reliability(.Degraded, .None, false, false)
+	testing.expect(t, r == .Degraded_Aging, "degraded + no recovery → Degraded_Aging")
+	testing.expect(t, !stream_reliability_blocks_render(r), "Degraded_Aging should not block render")
+}
+
+@(test)
+test_stream_reliability_stale_recovering :: proc(t: ^testing.T) {
+	r := stream_reliability(.Degraded, .Recovering, false, false)
+	testing.expect(t, r == .Stale_Recovering, "degraded + recovering → Stale_Recovering")
+	testing.expect(t, !stream_reliability_blocks_render(r), "Stale_Recovering should not block render")
+
+	r2 := stream_reliability(.Unhealthy, .Recovering, false, false)
+	testing.expect(t, r2 == .Stale_Recovering, "unhealthy + recovering → Stale_Recovering")
+}
+
+@(test)
+test_stream_reliability_stale_unrecoverable :: proc(t: ^testing.T) {
+	r := stream_reliability(.Unhealthy, .None, false, false)
+	testing.expect(t, r == .Stale_Unrecoverable, "unhealthy + no recovery → Stale_Unrecoverable")
+	testing.expect(t, stream_reliability_blocks_render(r), "Stale_Unrecoverable should block render")
+
+	r2 := stream_reliability(.Critical, .None, false, false)
+	testing.expect(t, r2 == .Stale_Unrecoverable, "critical → Stale_Unrecoverable")
+	testing.expect(t, stream_reliability_blocks_render(r2), "Critical should block render")
+}
+
+@(test)
+test_stream_reliability_desync :: proc(t: ^testing.T) {
+	r := stream_reliability(.Healthy, .None, true, false)
+	testing.expect(t, r == .Desync, "desync + healthy → Desync")
+	testing.expect(t, stream_reliability_blocks_render(r), "Desync should block render")
+}
+
+@(test)
+test_stream_reliability_offline :: proc(t: ^testing.T) {
+	r := stream_reliability(.Healthy, .None, false, true)
+	testing.expect(t, r == .Offline, "offline → Offline regardless of health")
+	testing.expect(t, stream_reliability_blocks_render(r), "Offline should block render")
+}
+
+@(test)
+test_stream_reliability_manual_resync :: proc(t: ^testing.T) {
+	// Exhausted recovery → Manual_Resync
+	r := stream_reliability(.Healthy, .Exhausted, false, false)
+	testing.expect(t, r == .Manual_Resync, "exhausted recovery → Manual_Resync")
+	testing.expect(t, stream_reliability_blocks_render(r), "Manual_Resync should block render")
+
+	// Desync + exhausted → Manual_Resync
+	r2 := stream_reliability(.Unhealthy, .Exhausted, true, false)
+	testing.expect(t, r2 == .Manual_Resync, "desync + exhausted → Manual_Resync")
+}
+
+@(test)
+test_stream_reliability_offline_overrides_all :: proc(t: ^testing.T) {
+	// Offline should always win, even with desync and exhaustion.
+	r := stream_reliability(.Critical, .Exhausted, true, true)
+	testing.expect(t, r == .Offline, "offline overrides desync + critical + exhausted")
+}
+
+@(test)
+test_stream_reliability_labels :: proc(t: ^testing.T) {
+	testing.expect(t, stream_reliability_label(.Reliable) == "OK", "Reliable label")
+	testing.expect(t, stream_reliability_label(.Degraded_Aging) == "AGING", "Degraded label")
+	testing.expect(t, stream_reliability_label(.Stale_Recovering) == "RECOVERING", "Recovering label")
+	testing.expect(t, stream_reliability_label(.Stale_Unrecoverable) == "STALE", "Stale label")
+	testing.expect(t, stream_reliability_label(.Desync) == "DESYNC", "Desync label")
+	testing.expect(t, stream_reliability_label(.Offline) == "OFFLINE", "Offline label")
+	testing.expect(t, stream_reliability_label(.Manual_Resync) == "RESYNC", "Resync label")
+}
+
+@(test)
+test_health_tick_output_includes_reliability :: proc(t: ^testing.T) {
+	// Build a state that is healthy + connected → should yield Reliable.
+	s: Stream_Apply_State
+	s.event_count = 10
+	s.artifact_event_count[.Stats] = 5
+	s.last_recv_ms[.Stats] = 100_000
+	s.artifact_event_count[.Orderbook] = 5
+	s.last_recv_ms[.Orderbook] = 100_000
+
+	tick := health_tick_evaluate(Health_Tick_Input{
+		apply_state = s,
+		now_ms = 100_500,
+		tf_ms = 60_000,
+		is_connected = true,
+		is_offline = false,
+		is_desync = false,
+	})
+	testing.expect(t, tick.reliability == .Reliable, "healthy connected tick → Reliable")
+
+	// Desync flag → Desync reliability.
+	tick2 := health_tick_evaluate(Health_Tick_Input{
+		apply_state = s,
+		now_ms = 100_500,
+		tf_ms = 60_000,
+		is_connected = true,
+		is_offline = false,
+		is_desync = true,
+	})
+	testing.expect(t, tick2.reliability == .Desync, "desync flag → Desync reliability")
+}
+
+@(test)
+test_telemetry_includes_reliability :: proc(t: ^testing.T) {
+	s: Stream_Apply_State
+	s.event_count = 1
+	tel := apply_state_telemetry(s, now_ms = 1000, tf_ms = 60_000, is_desync = false, is_offline = false)
+	testing.expect(t, tel.reliability == .Reliable, "basic telemetry → Reliable")
+
+	tel_off := apply_state_telemetry(s, now_ms = 1000, tf_ms = 60_000, is_desync = false, is_offline = true)
+	testing.expect(t, tel_off.reliability == .Offline, "offline telemetry → Offline")
+}
+
+// =========================================================================
+// S151: Stream Health & Recovery Completion — 5 explicit scenario tests.
+// These verify that the health model distinguishes all failure modes
+// without conflating transport state with delivery-layer exhaustion.
+// =========================================================================
+
+@(test)
+test_s151_transport_ok_snapshot_stale :: proc(t: ^testing.T) {
+	// Scenario: transport is live (is_desync=false, is_offline=false)
+	// but recovery is exhausted → should produce Manual_Resync
+	// WITHOUT needing to pollute transport with synthetic DESYNC.
+	s: Stream_Apply_State
+	s.event_count = 100
+	s.recovery_attempts = RECOVERY_MAX_ATTEMPTS
+	s.artifact_event_count[.Orderbook] = 50
+	s.last_recv_ms[.Orderbook] = 1000 // very old
+	s.artifact_event_count[.Stats] = 50
+	s.last_recv_ms[.Stats] = 1000 // very old
+
+	now := i64(100_000)
+	health := stream_health_level(s, now, 60_000)
+	recovery := apply_state_recovery_status(s)
+	rel := stream_reliability(health, recovery, false, false)
+
+	testing.expect(t, recovery == .Exhausted, "recovery should be Exhausted")
+	testing.expect(t, rel == .Manual_Resync,
+		"transport ok + exhausted → Manual_Resync without synthetic DESYNC")
+	testing.expect(t, stream_reliability_blocks_render(rel),
+		"Manual_Resync should block render")
+
+	// Snapshot lifecycle should reflect Stale.
+	sl := apply_state_snapshot_lifecycle(s)
+	testing.expect(t, sl == .Stale, "exhausted recovery → Stale snapshot lifecycle")
+}
+
+@(test)
+test_s151_feed_lagging_via_artifact_aging :: proc(t: ^testing.T) {
+	// Scenario: transport is live but artifacts are aging (not yet stale).
+	// Reliability should be Degraded_Aging — render allowed, warning shown.
+	s: Stream_Apply_State
+	s.event_count = 50
+	s.artifact_event_count[.Orderbook] = 25
+	s.last_recv_ms[.Orderbook] = 92_500 // 7.5s ago — aging (>8s threshold is wrong, Dual_Silence aging at 8s)
+
+	// Dual_Silence aging threshold: 8s. Set to just over.
+	now := i64(101_000) // 8.5s since last OB event
+	s.last_recv_ms[.Orderbook] = now - 9_000 // 9s ago → Aging
+
+	_, aging := apply_state_stale_artifact_count(s, now, 60_000)
+	testing.expect(t, aging > 0, "should have aging artifacts")
+
+	health := stream_health_level(s, now, 60_000)
+	testing.expect(t, health == .Degraded, "aging artifacts → Degraded health")
+
+	recovery := apply_state_recovery_status(s)
+	rel := stream_reliability(health, recovery, false, false)
+	testing.expect(t, rel == .Degraded_Aging,
+		"Degraded health + no recovery → Degraded_Aging")
+	testing.expect(t, !stream_reliability_blocks_render(rel),
+		"Degraded_Aging should not block render")
+}
+
+@(test)
+test_s151_desync_recoverable :: proc(t: ^testing.T) {
+	// Scenario: transport desync detected, recovery NOT exhausted.
+	// Reliability should be Desync (blocks render, recovery may help).
+	rel := stream_reliability(.Healthy, .None, true, false)
+	testing.expect(t, rel == .Desync, "desync + no recovery → Desync")
+	testing.expect(t, stream_reliability_blocks_render(rel),
+		"Desync should block render")
+
+	// With active recovery, still Desync (recovery doesn't help transport desync).
+	rel2 := stream_reliability(.Degraded, .Recovering, true, false)
+	testing.expect(t, rel2 == .Desync, "desync + recovering → still Desync")
+}
+
+@(test)
+test_s151_desync_exhausted :: proc(t: ^testing.T) {
+	// Scenario: transport desync + recovery exhausted → Manual_Resync.
+	rel := stream_reliability(.Critical, .Exhausted, true, false)
+	testing.expect(t, rel == .Manual_Resync, "desync + exhausted → Manual_Resync")
+	testing.expect(t, stream_reliability_blocks_render(rel),
+		"Manual_Resync should block render")
+}
+
+@(test)
+test_s151_manual_resync_required_clears_on_reconnect :: proc(t: ^testing.T) {
+	// Scenario: recovery exhausted, then reconnect clears state.
+	s: Stream_Apply_State
+	s.event_count = 100
+	s.recovery_attempts = RECOVERY_MAX_ATTEMPTS
+	s.recovery_last_ms = 50_000
+
+	recovery_before := apply_state_recovery_status(s)
+	testing.expect(t, recovery_before == .Exhausted, "pre-reconnect: Exhausted")
+
+	// Simulate reconnect — should reset recovery.
+	apply_state_on_reconnect(&s)
+	recovery_after := apply_state_recovery_status(s)
+	testing.expect(t, recovery_after == .None, "post-reconnect: recovery cleared")
+	testing.expect(t, s.recovery_attempts == 0, "attempts reset to 0")
+	testing.expect(t, s.recovery_last_ms == 0, "recovery_last_ms reset to 0")
+}
+
+@(test)
+test_s151_exhausted_without_desync_differs_from_with_desync :: proc(t: ^testing.T) {
+	// S151 key distinction: exhausted recovery with and without transport desync
+	// both produce Manual_Resync, but the cause is distinguishable by is_desync.
+	// After S151 fix, active stream exhaustion no longer forces is_desync=true.
+
+	// Transport OK + exhausted → Manual_Resync (delivery-layer exhaustion)
+	rel_no_desync := stream_reliability(.Unhealthy, .Exhausted, false, false)
+	testing.expect(t, rel_no_desync == .Manual_Resync,
+		"exhausted without desync → Manual_Resync")
+
+	// Transport desync + exhausted → Manual_Resync (compound failure)
+	rel_with_desync := stream_reliability(.Unhealthy, .Exhausted, true, false)
+	testing.expect(t, rel_with_desync == .Manual_Resync,
+		"exhausted with desync → Manual_Resync")
+
+	// Both produce the same reliability level, but the snapshot lifecycle
+	// distinguishes the delivery layer state.
+	s_exhausted: Stream_Apply_State
+	s_exhausted.event_count = 100
+	s_exhausted.recovery_attempts = RECOVERY_MAX_ATTEMPTS
+	sl := apply_state_snapshot_lifecycle(s_exhausted)
+	testing.expect(t, sl == .Stale,
+		"exhausted recovery → Stale lifecycle regardless of transport")
+}
+
+@(test)
+test_s151_health_tick_exhausted_preserves_transport :: proc(t: ^testing.T) {
+	// S151 fix: health_tick_evaluate with Exhausted remediation should NOT
+	// produce is_desync in its output. The caller should NOT escalate to
+	// transport DESYNC. Verify the pure function output is clean.
+	s: Stream_Apply_State
+	s.event_count = 100
+	s.recovery_attempts = RECOVERY_MAX_ATTEMPTS
+	s.artifact_event_count[.Orderbook] = 50
+	s.last_recv_ms[.Orderbook] = 1000
+	s.artifact_event_count[.Stats] = 50
+	s.last_recv_ms[.Stats] = 1000
+
+	tick := health_tick_evaluate(Health_Tick_Input{
+		apply_state = s,
+		now_ms = 100_000,
+		tf_ms = 60_000,
+		is_connected = true,
+		is_offline = false,
+		is_desync = false, // transport is clean
+	})
+
+	testing.expect(t, tick.remediation == .Exhausted,
+		"stale + max attempts → Exhausted remediation")
+	// The reliability should be Manual_Resync from recovery alone,
+	// NOT from is_desync (transport stays clean).
+	testing.expect(t, tick.reliability == .Manual_Resync,
+		"Exhausted remediation → Manual_Resync reliability without synthetic desync")
+	testing.expect(t, tick.snapshot_lifecycle == .Stale,
+		"Exhausted → Stale snapshot lifecycle")
+}
+
+@(test)
+test_s151_recovery_success_resets_to_reliable :: proc(t: ^testing.T) {
+	// After recovery success, stream should return to Reliable.
+	s: Stream_Apply_State
+	s.event_count = 100
+	s.recovery_attempts = 1
+	s.recovery_last_ms = 50_000
+	// Fresh Dual_Silence artifacts.
+	s.artifact_event_count[.Orderbook] = 50
+	s.last_recv_ms[.Orderbook] = 99_000
+	s.artifact_event_count[.Stats] = 50
+	s.last_recv_ms[.Stats] = 99_000
+
+	now := i64(100_000) // 1s since last event — fresh
+	tick := health_tick_evaluate(Health_Tick_Input{
+		apply_state = s,
+		now_ms = now,
+		tf_ms = 60_000,
+		is_connected = true,
+		is_offline = false,
+		is_desync = false,
+	})
+
+	testing.expect(t, tick.recovery_success, "fresh after recovery → success")
+	// After applying check_recovery_success, reliability should be Reliable.
+	apply_state_check_recovery_success(&s, now, 60_000)
+	testing.expect(t, s.recovery_attempts == 0, "recovery cleared on success")
+
+	health := stream_health_level(s, now, 60_000)
+	rel := stream_reliability(health, apply_state_recovery_status(s), false, false)
+	testing.expect(t, rel == .Reliable, "after recovery success → Reliable")
 }

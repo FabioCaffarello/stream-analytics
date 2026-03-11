@@ -107,8 +107,15 @@ decode_input_state :: proc(input: ^ports.Input_State, dt: f32) {
 	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 28, .J)
 	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 29, .K)
 	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 30, .Z)
-	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 31, .Delete)
-	// S46: D key requires >32 bits; web snapshot via health panel button instead.
+	mark_key_state(input, bits, key_pressed_bits, key_released_bits, 31, .D)
+
+	// S141: High key state (bits 32+) for Delete, Home, End.
+	hi_bits := key_state_hi()
+	hi_pressed := key_pressed_state_hi()
+	hi_released := key_released_state_hi()
+	mark_key_state(input, hi_bits, hi_pressed, hi_released, 0, .Delete)
+	mark_key_state(input, hi_bits, hi_pressed, hi_released, 1, .Home)
+	mark_key_state(input, hi_bits, hi_pressed, hi_released, 2, .End)
 }
 
 @(export)

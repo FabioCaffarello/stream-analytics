@@ -46,6 +46,8 @@ Key :: enum u8 {
 	Z,
 	D,     // S46: Ctrl+D = capture runtime snapshot
 	Delete,
+	Home,  // S141: jump to live edge
+	End,   // S141: jump to oldest candle
 }
 
 Mouse :: struct {

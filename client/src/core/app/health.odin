@@ -431,6 +431,7 @@ refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtim
 			tf_ms = tf_ms,
 			is_connected = current_conn_status(state) == .Connected,
 			is_offline = state.active_metrics.state == .Offline,
+			is_desync = state.active_metrics.state == .Desync,
 		})
 
 		slot_id := u8(stream_view_find_slot(state.stream_views, state.stream_views.active_subject_id))
@@ -442,7 +443,11 @@ refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtim
 			md_common.apply_state_mark_recovery(&state.active_apply_state, now_ms)
 			state.prev_subs_count = 0
 			reconcile_subscriptions(state)
-			record_error(state, .Connection, "STALE: auto-recovery resubscribe")
+			// S145: Operator-friendly recovery message with attempt count.
+			rec_msg_buf: [64]u8
+			rec_msg := fmt.bprintf(rec_msg_buf[:], "Recovering: attempt %d/%d",
+				state.active_apply_state.recovery_attempts, md_common.RECOVERY_MAX_ATTEMPTS)
+			record_error(state, .Connection, rec_msg)
 			recovery_mutated = true
 			md_common.recovery_event_log_push(&state.recovery_log, md_common.Recovery_Event{
 				kind = .Attempt,
@@ -451,11 +456,14 @@ refresh_active_stream_health :: proc(state: ^App_State, metrics: ports.MD_Runtim
 				slot_id = slot_id,
 			})
 		case .Exhausted:
-			// Max attempts reached — escalate to DESYNC for manual intervention.
-			streams.controller_mark_desync(&active.status, .Snapshot_Stale)
-			state.active_metrics.state = .Desync
-			state.active_metrics.desync_reason = .Snapshot_Stale
-			record_error(state, .Connection, "DESYNC: stale recovery exhausted")
+			// S151: Recovery exhausted — do NOT escalate to transport DESYNC.
+			// The reliability model handles this cleanly: recovery == .Exhausted →
+			// stream_reliability() returns .Manual_Resync without polluting
+			// transport state. This aligns active stream behavior with compare
+			// pane behavior (which already avoids DESYNC escalation, see S143).
+			// Transport state remains accurate (Live/Lag/Offline), and the
+			// delivery-layer exhaustion flows through the unified reliability model.
+			record_error(state, .Connection, "Recovery exhausted. Ctrl+R to resync")
 			md_common.recovery_event_log_push(&state.recovery_log, md_common.Recovery_Event{
 				kind = .Exhausted,
 				timestamp = now_ms,
@@ -545,6 +553,10 @@ evaluate_compare_pane_health :: proc(state: ^App_State, now_ms: i64) {
 				slot_id = pane_slot_id,
 			})
 		case .Exhausted:
+			// S143: Log exhaustion event. The reliability model in resolve_cell_surface_view
+			// will detect recovery_status == .Exhausted via stream_reliability() and surface
+			// the appropriate degraded/blocked state to widgets. No need to mark transport
+			// DESYNC here — the delivery layer's exhaustion flows through the unified model.
 			md_common.recovery_event_log_push(&state.recovery_log, md_common.Recovery_Event{
 				kind = .Exhausted,
 				timestamp = now_ms,

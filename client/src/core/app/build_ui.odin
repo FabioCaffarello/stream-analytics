@@ -92,7 +92,7 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 			{icon = "H", label = "Health"},
 		}
 		nav_items := NAV_ITEMS
-		nav_routes := [5]Route{.Dashboard, .Markets, .Portfolio, .Settings, .Session_Health}
+		nav_routes := [5]Route{.Dashboard, .Markets, .Portfolio, .Settings, .Delivery_Health}
 		active_idx := -1
 		for ni in 0 ..< len(nav_routes) {
 			if nav_routes[ni] == state.chrome.active_route {

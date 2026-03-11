@@ -69,7 +69,7 @@ queue_ui_actions_from_input :: proc(state: ^App_State, input: ports.Input_State)
 			queue_ui_action(state, UI_Action{kind = .Toggle_Help})
 		} else if state.chrome.active_route == .Instrument_Overview {
 			queue_ui_action(state, UI_Action{kind = .Navigate_Route, route = .Markets})
-		} else if state.chrome.active_route == .Session_Health {
+		} else if state.chrome.active_route == .Delivery_Health {
 			queue_ui_action(state, UI_Action{kind = .Navigate_Route, route = .Dashboard})
 		} else if state.chrome.active_route == .Portfolio {
 			queue_ui_action(state, UI_Action{kind = .Navigate_Route, route = .Dashboard})
@@ -134,7 +134,11 @@ queue_ui_actions_from_input :: proc(state: ^App_State, input: ports.Input_State)
 		queue_ui_action(state, UI_Action{kind = .Toggle_Help})
 	}
 	if .C in pressed {
-		queue_ui_action(state, UI_Action{kind = .Toggle_Compare})
+		if input.modifiers.shift {
+			queue_ui_action(state, UI_Action{kind = .Toggle_CVD}) // S142: Shift+C = CVD
+		} else {
+			queue_ui_action(state, UI_Action{kind = .Toggle_Compare})
+		}
 	}
 	if .F in pressed {
 		queue_ui_action(state, UI_Action{kind = .Toggle_Focus_Mode})
@@ -147,7 +151,11 @@ queue_ui_actions_from_input :: proc(state: ^App_State, input: ports.Input_State)
 		queue_ui_action(state, UI_Action{kind = .Toggle_BBands})
 	}
 	if .V in pressed {
-		queue_ui_action(state, UI_Action{kind = .Toggle_VWAP})
+		if input.modifiers.shift {
+			queue_ui_action(state, UI_Action{kind = .Toggle_Delta_Vol}) // S142: Shift+V = Delta Volume
+		} else {
+			queue_ui_action(state, UI_Action{kind = .Toggle_VWAP})
+		}
 	}
 	if .R in pressed {
 		if !input.modifiers.ctrl do queue_ui_action(state, UI_Action{kind = .Toggle_RSI})
@@ -179,6 +187,23 @@ queue_ui_actions_from_input :: proc(state: ^App_State, input: ports.Input_State)
 	}
 	if .R in pressed && input.modifiers.ctrl {
 		queue_ui_action(state, UI_Action{kind = .Rotate_Split})
+	}
+	// S142: D key — plain = cycle context tab, Shift = toggle OI.
+	if .D in pressed && !input.modifiers.ctrl {
+		if input.modifiers.shift {
+			queue_ui_action(state, UI_Action{kind = .Toggle_OI})
+		} else {
+			queue_ui_action(state, UI_Action{kind = .Cycle_Context_Tab})
+		}
+	}
+	// S142: Left/Right arrows in compare mode = cycle pane focus.
+	if state.compare.active {
+		if .Left in pressed {
+			queue_ui_action(state, UI_Action{kind = .Cycle_Compare_Pane_Prev})
+		}
+		if .Right in pressed {
+			queue_ui_action(state, UI_Action{kind = .Cycle_Compare_Pane_Next})
+		}
 	}
 
 	state.last_keys_pressed = input.keys.pressed
@@ -255,6 +280,9 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 				apply_enter_compare(state)
 				if state.compare.active {
 					show_toast(state, "Compare: ON")
+				} else {
+					// S147-BUG-10: Inform user when compare can't activate.
+					show_toast(state, "Need 2+ streams for compare")
 				}
 			}
 		case .Add_Compare_Stream:
@@ -452,6 +480,26 @@ apply_ui_actions :: proc(state: ^App_State) -> (stream_switched: bool, tf_switch
 				if state.chrome.context_stack.width <= 0 {
 					state.chrome.context_stack.width = CONTEXT_STACK_W_DEFAULT
 				}
+			}
+		case .Toggle_CVD:
+			toggle_focused_indicator(state, 8) // S142
+		case .Toggle_Delta_Vol:
+			toggle_focused_indicator(state, 9) // S142
+		case .Toggle_OI:
+			toggle_focused_indicator(state, 10) // S142
+		case .Cycle_Compare_Pane_Next:
+			// S142: Focus next pane in compare mode.
+			if state.compare.active && state.compare.count > 0 {
+				next := state.compare.focused_pane + 1
+				if next >= state.compare.count do next = 0
+				state.compare.focused_pane = next
+			}
+		case .Cycle_Compare_Pane_Prev:
+			// S142: Focus previous pane in compare mode.
+			if state.compare.active && state.compare.count > 0 {
+				prev := state.compare.focused_pane - 1
+				if prev < 0 do prev = state.compare.count - 1
+				state.compare.focused_pane = prev
 			}
 		}
 	}

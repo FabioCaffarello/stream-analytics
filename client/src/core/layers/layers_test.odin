@@ -83,13 +83,93 @@ test_price_candles_layer_renders_expected_primitive_count :: proc(t: ^testing.T)
 	}
 	ctx := make_ctx(store, sid, ui.Rect{pos = {0, 0}, size = {300, 180}})
 	ctx.active_bundle = u32(Layer_Bundle.Bundle_Candles) // S86: must set active_bundle for bar rendering
+	ctx.tf_ms = 60_000 // S140: 1m timeframe for time axis
 	out := new(Layer_Outputs)
 	defer free(out)
 	layer_outputs_reset(out)
 	price_candles_layer_strategy().render(&ctx, out)
-	testing.expect_value(t, out.count, 7)
+	// S140: 3 candles * 2 (line+bar) + 1 text badge + time axis primitives.
+	testing.expect(t, out.count >= 7, "candle layer should emit at least 7 primitives (3 candles + badge + time axis)")
 	testing.expect_value(t, out.items[0].kind, Render_Primitive_Kind.Line)
 	testing.expect_value(t, out.items[1].kind, Render_Primitive_Kind.Bar)
+}
+
+// S139: Chart viewport scroll — rendering respects scroll_offset.
+@(test)
+test_price_candles_viewport_scroll :: proc(t: ^testing.T) {
+	store := new(Market_Store)
+	defer free(store)
+	sid := u64(139)
+	for i in 0 ..< 10 {
+		apply_event(store, ports.MD_Event{
+			source = {subject_id = sid, channel = .Candles, seq = i64(i + 1)},
+			kind = .Candle,
+			unix = i64(100 + i),
+			data = {candle = ports.MD_Candle_Event{
+				open = 100 + f64(i),
+				high = 101 + f64(i),
+				low = 99 + f64(i),
+				close = 100.5 + f64(i),
+				volume = 1,
+				buy_vol = 0.5,
+				sell_vol = 0.5,
+				trade_count = 1,
+				window_start_ts = i64(i) * 60_000,
+				window_end_ts = i64(i + 1) * 60_000,
+				is_closed = true,
+			}},
+		})
+	}
+	ctx := make_ctx(store, sid, ui.Rect{pos = {0, 0}, size = {300, 180}})
+	ctx.active_bundle = u32(Layer_Bundle.Bundle_Candles)
+	// S139: Show only 5 candles, scrolled 3 from live edge.
+	ctx.chart_viewport = Chart_Viewport{visible_count = 5, scroll_offset = 3}
+	ctx.tf_ms = 60_000 // S140
+	out := new(Layer_Outputs)
+	defer free(out)
+	layer_outputs_reset(out)
+	price_candles_layer_strategy().render(&ctx, out)
+	// S140: 5 candles * 2 (line+bar) + 1 text badge + time axis primitives.
+	testing.expect(t, out.count >= 11, "scroll test should emit at least 11 primitives")
+}
+
+// S139: Chart viewport zoom — visible_count controls candle count.
+@(test)
+test_price_candles_viewport_zoom :: proc(t: ^testing.T) {
+	store := new(Market_Store)
+	defer free(store)
+	sid := u64(1390)
+	for i in 0 ..< 20 {
+		apply_event(store, ports.MD_Event{
+			source = {subject_id = sid, channel = .Candles, seq = i64(i + 1)},
+			kind = .Candle,
+			unix = i64(100 + i),
+			data = {candle = ports.MD_Candle_Event{
+				open = 100 + f64(i),
+				high = 101 + f64(i),
+				low = 99 + f64(i),
+				close = 100.5 + f64(i),
+				volume = 1,
+				buy_vol = 0.5,
+				sell_vol = 0.5,
+				trade_count = 1,
+				window_start_ts = i64(i) * 60_000,
+				window_end_ts = i64(i + 1) * 60_000,
+				is_closed = true,
+			}},
+		})
+	}
+	ctx := make_ctx(store, sid, ui.Rect{pos = {0, 0}, size = {300, 180}})
+	ctx.active_bundle = u32(Layer_Bundle.Bundle_Candles)
+	// S139: Zoom to show only 10 candles (no scroll).
+	ctx.chart_viewport = Chart_Viewport{visible_count = 10, scroll_offset = 0}
+	ctx.tf_ms = 60_000 // S140
+	out := new(Layer_Outputs)
+	defer free(out)
+	layer_outputs_reset(out)
+	price_candles_layer_strategy().render(&ctx, out)
+	// S140: 10 candles * 2 (line+bar) + 1 text badge + time axis primitives.
+	testing.expect(t, out.count >= 21, "zoom test should emit at least 21 primitives")
 }
 
 @(test)
@@ -750,7 +830,10 @@ test_subplot_cvd_no_data_emits_nothing :: proc(t: ^testing.T) {
 	defer free(out)
 	layer_outputs_reset(out)
 	subplot_cvd_render(&ctx, out, subplot_vp)
-	testing.expect_value(t, out.count, 0)
+	// S148-BUG-6: Now emits placeholder (bg + divider + label) when no CVD data.
+	testing.expect(t, out.count > 0, "expected placeholder output for empty CVD subplot")
+	// Should have exactly 3 primitives: bg bar, divider line, text label.
+	testing.expect_value(t, out.count, 3)
 }
 
 @(test)
@@ -776,8 +859,10 @@ test_subplot_cvd_single_entry_needs_two :: proc(t: ^testing.T) {
 	defer free(out)
 	layer_outputs_reset(out)
 	subplot_cvd_render(&ctx, out, subplot_vp)
-	// Single entry: not enough for a line chart.
-	testing.expect_value(t, out.count, 0)
+	// S148-BUG-6: Single entry = placeholder (bg + divider + label), not line segments.
+	testing.expect(t, out.count > 0, "expected placeholder for single CVD entry")
+	// Should have exactly 3 primitives: bg bar, divider line, text label.
+	testing.expect_value(t, out.count, 3)
 }
 
 @(test)
@@ -815,4 +900,692 @@ test_analytics_collect_by_kind :: proc(t: ^testing.T) {
 	bs_entries: [8]services.Analytics_Entry
 	n3 := services.analytics_collect_by_kind(&store, .Bar_Stats, bs_entries[:])
 	testing.expect_value(t, n3, 0)
+}
+
+// ═══════════════════════════════════════════════════════════════
+// S140: Time Axis & Timestamp System tests
+// ═══════════════════════════════════════════════════════════════
+
+@(test)
+test_time_axis_format_time_label_sub_minute :: proc(t: ^testing.T) {
+	// 2024-03-10 14:30:45 UTC = 1710081045000 ms
+	buf: [24]u8
+	label := format_time_label(buf[:], 1710081045000, 1_000) // 1s TF
+	testing.expect_value(t, label, "14:30:45")
+}
+
+@(test)
+test_time_axis_format_time_label_minute :: proc(t: ^testing.T) {
+	// 2024-03-10 14:30:00 UTC = 1710081000000 ms
+	buf: [24]u8
+	label := format_time_label(buf[:], 1710081000000, 60_000) // 1m TF
+	testing.expect_value(t, label, "14:30")
+}
+
+@(test)
+test_time_axis_format_time_label_hourly :: proc(t: ^testing.T) {
+	// 2024-03-10 14:00:00 UTC = 1710079200000 ms
+	buf: [24]u8
+	label := format_time_label(buf[:], 1710079200000, 3_600_000) // 1h TF
+	testing.expect_value(t, label, "14:00")
+}
+
+@(test)
+test_time_axis_format_day_label :: proc(t: ^testing.T) {
+	// 2024-03-10 00:00:00 UTC = 1710028800000 ms
+	buf: [24]u8
+	label := format_day_label(buf[:], 1710028800000)
+	testing.expect_value(t, label, "10 Mar")
+}
+
+@(test)
+test_time_axis_format_time_label_daily :: proc(t: ^testing.T) {
+	// 2024-03-10 = daily TF → should use day format
+	buf: [24]u8
+	label := format_time_label(buf[:], 1710028800000, 86_400_000) // 1d TF
+	testing.expect_value(t, label, "10 Mar")
+}
+
+@(test)
+test_time_axis_unix_ms_to_date :: proc(t: ^testing.T) {
+	// 2024-03-10 00:00:00 UTC = 1710028800000 ms
+	d, m, y := unix_ms_to_date(1710028800000)
+	testing.expect_value(t, d, 10)
+	testing.expect_value(t, m, 3)
+	testing.expect_value(t, y, 2024)
+}
+
+@(test)
+test_time_axis_unix_ms_to_date_epoch :: proc(t: ^testing.T) {
+	// Unix epoch: 1970-01-01
+	d, m, y := unix_ms_to_date(0)
+	testing.expect_value(t, d, 1)
+	testing.expect_value(t, m, 1)
+	testing.expect_value(t, y, 1970)
+}
+
+@(test)
+test_time_axis_unix_ms_to_date_2026 :: proc(t: ^testing.T) {
+	// 2026-03-09 00:00:00 UTC = 1773014400000 ms (20521 days from epoch)
+	d, m, y := unix_ms_to_date(1773014400000)
+	testing.expect_value(t, d, 9)
+	testing.expect_value(t, m, 3)
+	testing.expect_value(t, y, 2026)
+}
+
+@(test)
+test_time_axis_snap_interval_1s :: proc(t: ^testing.T) {
+	// For 1s TF, raw=3 → should snap to 5.
+	result := time_axis_snap_interval(3, 1_000)
+	testing.expect_value(t, result, 5)
+}
+
+@(test)
+test_time_axis_snap_interval_1m :: proc(t: ^testing.T) {
+	// For 1m TF, raw=7 → should snap to 10.
+	result := time_axis_snap_interval(7, 60_000)
+	testing.expect_value(t, result, 10)
+}
+
+@(test)
+test_time_axis_snap_interval_1h :: proc(t: ^testing.T) {
+	// For 1h TF, raw=3 → should snap to 4.
+	result := time_axis_snap_interval(3, 3_600_000)
+	testing.expect_value(t, result, 4)
+}
+
+@(test)
+test_time_axis_snap_interval_raw_1 :: proc(t: ^testing.T) {
+	// Raw=1 → always return 1.
+	result := time_axis_snap_interval(1, 60_000)
+	testing.expect_value(t, result, 1)
+}
+
+@(test)
+test_time_axis_render_emits_primitives :: proc(t: ^testing.T) {
+	store := new(services.Candle_Store)
+	defer free(store)
+
+	// Push 20 candles with valid timestamps (1m apart starting 2024-03-10 14:00).
+	base_ts := i64(1710079200000) // 2024-03-10 14:00:00 UTC
+	for i in 0 ..< 20 {
+		services.push_candle(store, services.Candle_Entry{
+			open = 100, high = 101, low = 99, close = 100.5,
+			volume = 1, buy_vol = 0.5, sell_vol = 0.5,
+			trade_count = 1,
+			window_start_ts = base_ts + i64(i) * 60_000,
+			window_end_ts = base_ts + i64(i + 1) * 60_000,
+			is_closed = true,
+		})
+	}
+
+	out := new(Layer_Outputs)
+	defer free(out)
+	layer_outputs_reset(out)
+
+	time_axis_render(out, Time_Axis_Params{
+		axis_vp        = ui.Rect{pos = {0, 164}, size = {600, 16}},
+		store          = store,
+		start          = 0,
+		actual_visible = 20,
+		slot_w         = 30, // 600 / 20
+		tf_ms          = 60_000,
+		scroll_offset  = 0,
+		chart_left     = 0,
+	})
+
+	// Should have at least some grid lines + labels + live edge.
+	testing.expect(t, out.count >= 3, "time axis should emit at least 3 primitives")
+
+	// Verify live edge line exists (green accent).
+	has_live := false
+	for i in 0 ..< out.count {
+		p := out.items[i]
+		if p.kind == .Line && p.z == 19 do has_live = true
+	}
+	testing.expect(t, has_live, "time axis should emit live edge indicator")
+}
+
+@(test)
+test_time_axis_render_live_only_badge :: proc(t: ^testing.T) {
+	store := new(services.Candle_Store)
+	defer free(store)
+
+	// Push only 3 candles (< 10 threshold).
+	base_ts := i64(1710079200000)
+	for i in 0 ..< 3 {
+		services.push_candle(store, services.Candle_Entry{
+			open = 100, high = 101, low = 99, close = 100.5,
+			volume = 1, buy_vol = 0.5, sell_vol = 0.5,
+			trade_count = 1,
+			window_start_ts = base_ts + i64(i) * 60_000,
+			window_end_ts = base_ts + i64(i + 1) * 60_000,
+			is_closed = true,
+		})
+	}
+
+	out := new(Layer_Outputs)
+	defer free(out)
+	layer_outputs_reset(out)
+
+	time_axis_render(out, Time_Axis_Params{
+		axis_vp        = ui.Rect{pos = {0, 164}, size = {300, 16}},
+		store          = store,
+		start          = 0,
+		actual_visible = 3,
+		slot_w         = 100,
+		tf_ms          = 60_000,
+		scroll_offset  = 0,
+		chart_left     = 0,
+	})
+
+	// Should include "LIVE ONLY" badge.
+	has_live_only := false
+	for i in 0 ..< out.count {
+		p := out.items[i]
+		if p.kind == .Text_Badge && p.z == 19 {
+			badge := p.data.text
+			s := text_badge_string(&badge)
+			if s == "LIVE ONLY" do has_live_only = true
+		}
+	}
+	testing.expect(t, has_live_only, "time axis should show LIVE ONLY badge for < 10 candles")
+}
+
+@(test)
+test_time_axis_no_live_edge_when_scrolled :: proc(t: ^testing.T) {
+	store := new(services.Candle_Store)
+	defer free(store)
+
+	base_ts := i64(1710079200000)
+	for i in 0 ..< 20 {
+		services.push_candle(store, services.Candle_Entry{
+			open = 100, high = 101, low = 99, close = 100.5,
+			volume = 1, buy_vol = 0.5, sell_vol = 0.5,
+			trade_count = 1,
+			window_start_ts = base_ts + i64(i) * 60_000,
+			window_end_ts = base_ts + i64(i + 1) * 60_000,
+			is_closed = true,
+		})
+	}
+
+	out := new(Layer_Outputs)
+	defer free(out)
+	layer_outputs_reset(out)
+
+	time_axis_render(out, Time_Axis_Params{
+		axis_vp        = ui.Rect{pos = {0, 164}, size = {600, 16}},
+		store          = store,
+		start          = 0,
+		actual_visible = 15,
+		slot_w         = 40,
+		tf_ms          = 60_000,
+		scroll_offset  = 5, // scrolled away from live edge
+		chart_left     = 0,
+	})
+
+	// Should NOT have live edge (green) line at z=19 — green has alpha 0.20.
+	// We check that there's no line at z=19 with green-ish color.
+	has_live_edge := false
+	for i in 0 ..< out.count {
+		p := out.items[i]
+		if p.kind == .Line && p.z == 19 {
+			line := p.data.line
+			if line.color.g > 0.5 && line.color.r < 0.3 do has_live_edge = true
+		}
+	}
+	testing.expect(t, !has_live_edge, "time axis should NOT show live edge when scrolled")
+}
+
+@(test)
+test_time_axis_month_abbrev :: proc(t: ^testing.T) {
+	testing.expect_value(t, month_abbrev(1), "Jan")
+	testing.expect_value(t, month_abbrev(6), "Jun")
+	testing.expect_value(t, month_abbrev(12), "Dec")
+	testing.expect_value(t, month_abbrev(0), "???")
+	testing.expect_value(t, month_abbrev(13), "???")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// S141: Subplot Viewport Windowing tests
+// ═══════════════════════════════════════════════════════════════
+
+@(test)
+test_subplot_viewport_window_auto :: proc(t: ^testing.T) {
+	// Auto mode: zero chart_viewport returns full range.
+	cv := Chart_Viewport{}
+	s, c := subplot_viewport_window(20, cv)
+	testing.expect(t, s == 0, "start should be 0")
+	testing.expect(t, c == 20, "count should be 20")
+}
+
+@(test)
+test_subplot_viewport_window_scrolled :: proc(t: ^testing.T) {
+	cv := Chart_Viewport{visible_count = 10, scroll_offset = 5}
+	s, c := subplot_viewport_window(30, cv)
+	// end = 30 - 5 = 25, start = 25 - 10 = 15
+	testing.expect(t, s == 15, "start should be 15")
+	testing.expect(t, c == 10, "count should be 10")
+}
+
+@(test)
+test_subplot_viewport_window_at_live_edge :: proc(t: ^testing.T) {
+	cv := Chart_Viewport{visible_count = 10, scroll_offset = 0}
+	s, c := subplot_viewport_window(30, cv)
+	// end = 30 - 0 = 30, start = 30 - 10 = 20
+	testing.expect(t, s == 20, "start should be 20")
+	testing.expect(t, c == 10, "count should be 10")
+}
+
+@(test)
+test_subplot_viewport_window_clamped :: proc(t: ^testing.T) {
+	// Visible count exceeds total entries.
+	cv := Chart_Viewport{visible_count = 50, scroll_offset = 0}
+	s, c := subplot_viewport_window(10, cv)
+	testing.expect(t, s == 0, "start should be 0")
+	testing.expect(t, c == 10, "count should be 10")
+}
+
+@(test)
+test_subplot_viewport_window_empty :: proc(t: ^testing.T) {
+	cv := Chart_Viewport{visible_count = 10, scroll_offset = 0}
+	s, c := subplot_viewport_window(0, cv)
+	testing.expect(t, s == 0, "start should be 0")
+	testing.expect(t, c == 0, "count should be 0")
+}
+
+@(test)
+test_subplot_cvd_viewport_windowed_render :: proc(t: ^testing.T) {
+	store := new(Market_Store)
+	defer free(store)
+	sid := u64(3001)
+
+	// Push 10 CVD entries.
+	for i in 0 ..< 10 {
+		apply_event(store, ports.MD_Event{
+			source = {subject_id = sid, channel = .Candles, seq = i64(i + 1)},
+			kind = .CVD,
+			unix = i64(100 + i),
+			data = {cvd = ports.MD_CVD_Event{
+				delta_volume = f64(i) * 2.0,
+				cvd = f64(i) * 10.0,
+				window_start_ts = i64(i) * 60_000,
+				window_end_ts = i64(i + 1) * 60_000,
+				unix = i64(100 + i),
+			}},
+		})
+	}
+
+	ctx := make_ctx(store, sid, ui.Rect{pos = {0, 0}, size = {300, 200}})
+	// S141: Apply viewport window — show 5 entries, scrolled 3 from live.
+	ctx.chart_viewport = Chart_Viewport{visible_count = 5, scroll_offset = 3}
+	subplot_vp := ui.Rect{pos = {0, 150}, size = {300, 50}}
+	out := new(Layer_Outputs)
+	defer free(out)
+	layer_outputs_reset(out)
+	subplot_cvd_render(&ctx, out, subplot_vp)
+
+	// Should emit fewer primitives than full render (windowed to 5 entries).
+	// bg + divider + zero_line + 4 line segments + label = 8.
+	testing.expect(t, out.count >= 6, "windowed CVD should emit at least 6 primitives")
+	testing.expect(t, out.count <= 15, "windowed CVD should not emit more than full range")
+}
+
+@(test)
+test_subplot_delta_vol_viewport_windowed :: proc(t: ^testing.T) {
+	store := new(Market_Store)
+	defer free(store)
+	sid := u64(3002)
+
+	for i in 0 ..< 10 {
+		apply_event(store, ports.MD_Event{
+			source = {subject_id = sid, channel = .Candles, seq = i64(i + 1)},
+			kind = .Delta_Volume,
+			unix = i64(100 + i),
+			data = {delta_volume = ports.MD_Delta_Volume_Event{
+				buy_volume = 10 + f64(i), sell_volume = 8 + f64(i),
+				delta_volume = f64(i) - 5,
+				window_start_ts = i64(i) * 60_000,
+				window_end_ts = i64(i + 1) * 60_000,
+				unix = i64(100 + i),
+			}},
+		})
+	}
+
+	ctx := make_ctx(store, sid, ui.Rect{pos = {0, 0}, size = {300, 200}})
+	ctx.chart_viewport = Chart_Viewport{visible_count = 4, scroll_offset = 2}
+	subplot_vp := ui.Rect{pos = {0, 150}, size = {300, 50}}
+	out := new(Layer_Outputs)
+	defer free(out)
+	layer_outputs_reset(out)
+	subplot_delta_vol_render(&ctx, out, subplot_vp)
+
+	// 4 bars from windowed range.
+	bar_count := 0
+	for i in 0 ..< out.count {
+		if out.items[i].kind == .Bar && out.items[i].z == 25 do bar_count += 1
+	}
+	testing.expect_value(t, bar_count, 4)
+}
+
+// ═══════════════════════════════════════════════════════════════
+// S147: DataSource range_complete detection
+// ═══════════════════════════════════════════════════════════════
+
+@(test)
+test_s147_data_source_range_complete_on_is_last :: proc(t: ^testing.T) {
+	// When a Range_Candle_Batch with is_last=true is polled, the result must
+	// have range_complete=true and range_oldest_ts set from the batch.
+	ds := new(Data_Source)
+	defer free(ds)
+	store := new(Market_Store)
+	defer free(store)
+
+	polled := false
+	poll_fn := proc(events_buf: []ports.MD_Event) -> int {
+		events_buf[0] = ports.MD_Event{
+			source = {subject_id = 42, channel = .Candles, seq = 1},
+			kind = .Range_Candle_Batch,
+			unix = 1000,
+			data = {range_candles = ports.MD_Range_Candle_Batch{
+				count = 2,
+				is_last = true,
+				candles = {},
+			}},
+		}
+		events_buf[0].data.range_candles.candles[0] = {window_start_ts = 5000, window_end_ts = 6000, open = 1, high = 2, low = 0.5, close = 1.5, is_closed = true}
+		events_buf[0].data.range_candles.candles[1] = {window_start_ts = 3000, window_end_ts = 4000, open = 1, high = 2, low = 0.5, close = 1.5, is_closed = true}
+		return 1
+	}
+	md := ports.Marketdata_Port{poll = poll_fn}
+	result := data_source_poll_and_apply(ds, md, store)
+	testing.expect(t, result.range_complete, "range_complete should be true when is_last batch arrives")
+	testing.expect_value(t, result.range_oldest_ts, i64(3000))
+	testing.expect_value(t, result.processed, 1)
+}
+
+@(test)
+test_s147_data_source_no_range_complete_without_is_last :: proc(t: ^testing.T) {
+	// A Range_Candle_Batch without is_last should NOT set range_complete.
+	ds := new(Data_Source)
+	defer free(ds)
+	store := new(Market_Store)
+	defer free(store)
+
+	poll_fn := proc(events_buf: []ports.MD_Event) -> int {
+		events_buf[0] = ports.MD_Event{
+			source = {subject_id = 42, channel = .Candles, seq = 1},
+			kind = .Range_Candle_Batch,
+			unix = 1000,
+			data = {range_candles = ports.MD_Range_Candle_Batch{count = 1, is_last = false}},
+		}
+		events_buf[0].data.range_candles.candles[0] = {window_start_ts = 5000, open = 1, high = 2, low = 0.5, close = 1.5}
+		return 1
+	}
+	md := ports.Marketdata_Port{poll = poll_fn}
+	result := data_source_poll_and_apply(ds, md, store)
+	testing.expect(t, !result.range_complete, "range_complete should be false without is_last")
+}
+
+@(test)
+test_s147_data_source_range_complete_not_set_for_live_candle :: proc(t: ^testing.T) {
+	// A regular Candle event must NOT set range_complete.
+	ds := new(Data_Source)
+	defer free(ds)
+	store := new(Market_Store)
+	defer free(store)
+
+	poll_fn := proc(events_buf: []ports.MD_Event) -> int {
+		events_buf[0] = ports.MD_Event{
+			source = {subject_id = 42, channel = .Candles, seq = 1},
+			kind = .Candle,
+			unix = 1000,
+			data = {candle = ports.MD_Candle_Event{window_start_ts = 5000, open = 1, high = 2, low = 0.5, close = 1.5}},
+		}
+		return 1
+	}
+	md := ports.Marketdata_Port{poll = poll_fn}
+	result := data_source_poll_and_apply(ds, md, store)
+	testing.expect(t, !result.range_complete, "range_complete should be false for regular Candle events")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// S147-BUG-06: Time axis spacing must be wider for sub-minute TFs.
+// ═══════════════════════════════════════════════════════════════
+
+@(test)
+test_time_axis_5s_labels_no_overlap :: proc(t: ^testing.T) {
+	// 5s TF, slot_w=4px (typical for ~500 candles on 1920px).
+	// Old min_spacing=64: raw_interval=64/4=16 → snap to 30 → 120px gap (OK).
+	// With narrow slot_w=7px (default 140 candles): raw_interval=96/7≈14 → snap to 30 → 210px gap.
+	// This ensures "HH:MM:SS" labels (8 chars ≈ 64px) don't overlap.
+	store := new(services.Candle_Store)
+	defer free(store)
+	base_ts := i64(1710079200000)
+	for i in 0 ..< 140 {
+		services.push_candle(store, services.Candle_Entry{
+			open = 100, high = 101, low = 99, close = 100.5,
+			volume = 1, buy_vol = 0.5, sell_vol = 0.5, trade_count = 1,
+			window_start_ts = base_ts + i64(i) * 5_000,
+			window_end_ts = base_ts + i64(i + 1) * 5_000,
+			is_closed = true,
+		})
+	}
+
+	out := new(Layer_Outputs)
+	defer free(out)
+	layer_outputs_reset(out)
+
+	slot_w := f32(7) // 980px / 140 candles
+	time_axis_render(out, Time_Axis_Params{
+		axis_vp        = ui.Rect{pos = {0, 164}, size = {980, 16}},
+		store          = store,
+		start          = 0,
+		actual_visible = 140,
+		slot_w         = slot_w,
+		tf_ms          = 5_000,
+		scroll_offset  = 0,
+		chart_left     = 0,
+	})
+
+	// Count text badge positions and verify they're at least 84px apart (96-margin).
+	// 8-char labels at ~8px/char = 64px, so centers need ≥ 64px gap.
+	prev_x := f32(-999)
+	for i in 0 ..< out.count {
+		p := out.items[i]
+		if p.kind == .Text_Badge && p.z == 19 {
+			badge := p.data.text
+			x := badge.pos.x
+			if prev_x > -900 {
+				gap := x - prev_x
+				testing.expect(t, gap >= 60,
+					"time axis labels on 5s TF must be spaced >= 60px apart to prevent overlap")
+			}
+			prev_x = x
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// S148: Trade reducer populates per-stream DOM store
+// ---------------------------------------------------------------------------
+
+@(test)
+test_trade_reducer_populates_dom_store :: proc(t: ^testing.T) {
+	store := new(Market_Store)
+	defer free(store)
+	sid := u64(148_001)
+
+	// Push 3 trades at different prices.
+	for i in 0 ..< 3 {
+		apply_event(store, ports.MD_Event{
+			source = {subject_id = sid, channel = .Trades, seq = i64(i + 1)},
+			kind = .Trade,
+			unix = i64(1000 + i),
+			data = {trade = ports.MD_Trade_Event{
+				price  = 100.0 + f64(i),
+				qty    = 1.5,
+				is_buy = i % 2 == 0,
+				unix   = i64(1000 + i),
+			}},
+		})
+	}
+
+	stream := market_store_stream_for_subject(store, sid)
+	testing.expect(t, stream != nil, "stream should exist after trades")
+	testing.expect_value(t, stream.trades.count, 3)
+
+	// DOM store should have accumulated the trades.
+	testing.expect(t, stream.dom.trade_count == 3, "DOM store should have 3 trades")
+	testing.expect(t, stream.dom.total_buy_vol > 0, "DOM store should have buy volume")
+	testing.expect(t, stream.dom.total_sell_vol > 0, "DOM store should have sell volume")
+	testing.expect(t, stream.dom.level_count > 0, "DOM store should have price levels")
+	testing.expect(t, stream.dom.vwap_sum_v > 0, "DOM VWAP accumulator should be non-zero")
+	testing.expect(t, stream.dom.recent_count == 3, "DOM recent fills should have 3 entries")
+}
+
+@(test)
+test_dom_store_per_stream_isolation :: proc(t: ^testing.T) {
+	store := new(Market_Store)
+	defer free(store)
+	sid_a := u64(148_002)
+	sid_b := u64(148_003)
+
+	// Push trade to stream A.
+	apply_event(store, ports.MD_Event{
+		source = {subject_id = sid_a, channel = .Trades, seq = 1},
+		kind = .Trade,
+		unix = 1000,
+		data = {trade = ports.MD_Trade_Event{price = 50.0, qty = 2.0, is_buy = true, unix = 1000}},
+	})
+
+	// Push trade to stream B.
+	apply_event(store, ports.MD_Event{
+		source = {subject_id = sid_b, channel = .Trades, seq = 1},
+		kind = .Trade,
+		unix = 1001,
+		data = {trade = ports.MD_Trade_Event{price = 200.0, qty = 3.0, is_buy = false, unix = 1001}},
+	})
+
+	sa := market_store_stream_for_subject(store, sid_a)
+	sb := market_store_stream_for_subject(store, sid_b)
+	testing.expect(t, sa != nil && sb != nil, "both streams should exist")
+
+	// Verify isolation: stream A has only its trade.
+	testing.expect(t, sa.dom.trade_count == 1, "stream A DOM should have 1 trade")
+	testing.expect(t, sa.dom.total_buy_vol == 2.0, "stream A DOM buy vol should be 2.0")
+	testing.expect(t, sa.dom.total_sell_vol == 0, "stream A DOM sell vol should be 0")
+
+	// Stream B has only its trade.
+	testing.expect(t, sb.dom.trade_count == 1, "stream B DOM should have 1 trade")
+	testing.expect(t, sb.dom.total_buy_vol == 0, "stream B DOM buy vol should be 0")
+	testing.expect(t, sb.dom.total_sell_vol == 3.0, "stream B DOM sell vol should be 3.0")
+}
+
+@(test)
+test_footprint_store_in_market_stream :: proc(t: ^testing.T) {
+	store := new(Market_Store)
+	defer free(store)
+	sid := u64(148_004)
+
+	// S155: Without active_tf_ms, footprint should NOT accumulate.
+	apply_event(store, ports.MD_Event{
+		source = {subject_id = sid, channel = .Trades, seq = 1},
+		kind = .Trade,
+		unix = 1000,
+		data = {trade = ports.MD_Trade_Event{price = 100.0, qty = 1.0, is_buy = true, unix = 1000}},
+	})
+
+	stream := market_store_stream_for_subject(store, sid)
+	testing.expect(t, stream != nil, "stream should exist")
+	// No active_tf_ms → footprint not populated.
+	testing.expect_value(t, stream.footprint.count, 0)
+
+	// Manually push to verify the store works per-stream.
+	services.footprint_store_push_trade(&stream.footprint, 100.0, 1.0, true, 60_000, 60_000, 1.0)
+	testing.expect_value(t, stream.footprint.count, 1)
+}
+
+// S155: With active_tf_ms set, trade reducer populates footprint store.
+@(test)
+test_s155_footprint_accumulates_with_tf :: proc(t: ^testing.T) {
+	store := new(Market_Store)
+	defer free(store)
+	sid := u64(155_001)
+	store.active_tf_ms = 60_000 // 1m
+
+	apply_event(store, ports.MD_Event{
+		source = {subject_id = sid, channel = .Trades, seq = 1},
+		kind = .Trade,
+		unix = 120_000, // 2 minutes in ms
+		data = {trade = ports.MD_Trade_Event{price = 100.0, qty = 2.5, is_buy = true, unix = 120_000}},
+	})
+
+	stream := market_store_stream_for_subject(store, sid)
+	testing.expect(t, stream != nil, "stream exists")
+	testing.expect_value(t, stream.footprint.count, 1)
+
+	// Second trade in same candle window.
+	apply_event(store, ports.MD_Event{
+		source = {subject_id = sid, channel = .Trades, seq = 2},
+		kind = .Trade,
+		unix = 125_000,
+		data = {trade = ports.MD_Trade_Event{price = 101.0, qty = 1.0, is_buy = false, unix = 125_000}},
+	})
+	testing.expect_value(t, stream.footprint.count, 1) // same window → same entry
+
+	// Third trade in a new candle window.
+	apply_event(store, ports.MD_Event{
+		source = {subject_id = sid, channel = .Trades, seq = 3},
+		kind = .Trade,
+		unix = 200_000,
+		data = {trade = ports.MD_Trade_Event{price = 102.0, qty = 0.5, is_buy = true, unix = 200_000}},
+	})
+	testing.expect_value(t, stream.footprint.count, 2) // new window → new entry
+}
+
+// S155: Footprint accumulation skipped when active_tf_ms is 0.
+@(test)
+test_s155_footprint_skipped_without_tf :: proc(t: ^testing.T) {
+	store := new(Market_Store)
+	defer free(store)
+	sid := u64(155_002)
+	store.active_tf_ms = 0 // no TF
+
+	apply_event(store, ports.MD_Event{
+		source = {subject_id = sid, channel = .Trades, seq = 1},
+		kind = .Trade,
+		unix = 60_000,
+		data = {trade = ports.MD_Trade_Event{price = 100.0, qty = 1.0, is_buy = true, unix = 60_000}},
+	})
+
+	stream := market_store_stream_for_subject(store, sid)
+	testing.expect(t, stream != nil, "stream exists")
+	testing.expect_value(t, stream.footprint.count, 0) // no TF → no footprint
+	// DOM should still accumulate (TF-independent).
+	testing.expect(t, stream.dom.trade_count == 1, "DOM still accumulates without TF")
+}
+
+// S155: Footprint + DOM both accumulate from same trade.
+@(test)
+test_s155_trade_feeds_dom_and_footprint :: proc(t: ^testing.T) {
+	store := new(Market_Store)
+	defer free(store)
+	sid := u64(155_003)
+	store.active_tf_ms = 5_000 // 5s
+
+	apply_event(store, ports.MD_Event{
+		source = {subject_id = sid, channel = .Trades, seq = 1},
+		kind = .Trade,
+		unix = 10_000,
+		data = {trade = ports.MD_Trade_Event{price = 50.0, qty = 3.0, is_buy = true, unix = 10_000}},
+	})
+
+	stream := market_store_stream_for_subject(store, sid)
+	testing.expect(t, stream != nil, "stream exists")
+	// Both stores fed from same trade.
+	testing.expect(t, stream.dom.trade_count == 1, "DOM has trade")
+	testing.expect_value(t, stream.footprint.count, 1)
+	// Trades store also has it.
+	testing.expect_value(t, stream.trades.count, 1)
 }

@@ -45,6 +45,8 @@ channels_for_widget :: proc(kind: Widget_Kind) -> u16 {
 	case .Analytics:
 		// S98: Subscribe to dedicated analytics channels (replaces S81 candle piggyback).
 		return CH_ANALYTICS
+	case .Footprint:
+		return CH_TRADES | CH_CANDLES
 	case .Session_VPVR, .TPO, .Empty:
 		return 0
 	}
@@ -72,7 +74,7 @@ layer_bundle_for_widget :: proc(kind: Widget_Kind) -> u32 {
 		return u32(layers.Layer_Bundle.Bundle_Counter)
 	case .Analytics:
 		return u32(layers.Layer_Bundle.Bundle_Analytics)
-	case .Session_VPVR, .TPO, .Empty:
+	case .Footprint, .Session_VPVR, .TPO, .Empty:
 		return u32(layers.Layer_Bundle.Bundle_Empty)
 	}
 	return 0

@@ -61,11 +61,27 @@ price_candles_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs) {
 	// Stats cells include Price_Candles for the stats text overlay only.
 	render_bars := ctx.active_bundle == u32(Layer_Bundle.Bundle_Candles)
 
-	visible := min(store.count, 140)
-	start := max(store.count - visible, 0)
+	// S140: Reserve bottom strip for time axis when rendering candle bars.
+	chart_vp := ctx.viewport
+	if render_bars && chart_vp.size.y > TIME_AXIS_H * 3 {
+		chart_vp.size.y -= TIME_AXIS_H
+	}
+
+	// S139: Use chart viewport for scroll/zoom if set, else default behavior.
+	// S148-BUG-2: Clamp visible_count to minimum 4 to prevent giant single-candle rendering.
+	// A visible_count of 1-3 produces oversized candle bodies that fill the entire viewport.
+	cv := ctx.chart_viewport
+	default_visible := min(store.count, 140)
+	vc := cv.visible_count > 0 ? max(cv.visible_count, 4) : 0
+	visible := vc > 0 ? min(vc, store.count) : default_visible
+	scroll := clamp(cv.scroll_offset, 0, max(store.count - visible, 0))
+	end := store.count - scroll
+	start := max(end - visible, 0)
+	actual_visible := end - start
+
 	min_price := f64(0)
 	max_price := f64(0)
-	for i in start ..< store.count {
+	for i in start ..< end {
 		c := services.get_candle(store, i)
 		if i == start {
 			min_price = c.low
@@ -78,18 +94,24 @@ price_candles_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs) {
 		max_price = min_price + 1.0
 	}
 
-	if render_bars {
-		slot_w := ctx.viewport.size.x / f32(max(visible, 1))
-		body_w := max(slot_w * 0.65, 1)
+	// S154-FIX: Use actual_visible for slot width so candles always span the
+	// full viewport width. Use nominal_visible only to cap body width, preventing
+	// oversized candle bodies when few candles exist relative to zoom level.
+	nominal_visible := cv.visible_count > 0 ? cv.visible_count : default_visible
+	slot_w := chart_vp.size.x / f32(max(actual_visible, 1))
 
-		for i in 0 ..< visible {
+	if render_bars {
+		max_body_w := chart_vp.size.x / f32(max(nominal_visible, 1)) * 0.65
+		body_w := max(min(slot_w * 0.65, max_body_w), 1)
+
+		for i in 0 ..< actual_visible {
 			idx := start + i
 			c := services.get_candle(store, idx)
-			x_center := ctx.viewport.pos.x + (f32(i) + 0.5) * slot_w
-			y_open := price_to_y(ctx.viewport, min_price, max_price, c.open)
-			y_close := price_to_y(ctx.viewport, min_price, max_price, c.close)
-			y_high := price_to_y(ctx.viewport, min_price, max_price, c.high)
-			y_low := price_to_y(ctx.viewport, min_price, max_price, c.low)
+			x_center := chart_vp.pos.x + (f32(i) + 0.5) * slot_w
+			y_open := price_to_y(chart_vp, min_price, max_price, c.open)
+			y_close := price_to_y(chart_vp, min_price, max_price, c.close)
+			y_high := price_to_y(chart_vp, min_price, max_price, c.high)
+			y_low := price_to_y(chart_vp, min_price, max_price, c.low)
 
 			up := c.close >= c.open
 			col := up ? ui.COL_GREEN : ui.COL_RED
@@ -109,51 +131,77 @@ price_candles_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs) {
 				color = ui.with_alpha(col, 0.55),
 			})
 		}
+
+		// S140: Render time axis in the bottom strip.
+		if chart_vp.size.y < ctx.viewport.size.y {
+			axis_vp := ui.Rect{
+				pos  = {ctx.viewport.pos.x, chart_vp.pos.y + chart_vp.size.y},
+				size = {ctx.viewport.size.x, TIME_AXIS_H},
+			}
+			time_axis_render(out, Time_Axis_Params{
+				axis_vp        = axis_vp,
+				store          = store,
+				start          = start,
+				actual_visible = actual_visible,
+				slot_w         = slot_w,
+				tf_ms          = ctx.tf_ms,
+				scroll_offset  = cv.scroll_offset,
+				chart_left     = chart_vp.pos.x,
+			})
+		}
 	}
 
 	latest := services.get_candle_newest(store, 0)
 	latest_buf: [64]u8
 	latest_str := fmt.bprintf(latest_buf[:], "Last %.2f", latest.close)
 	layer_outputs_push_text_badge(out, 26, text_badge_make(
-		{ctx.viewport.pos.x + 6, ctx.viewport.pos.y + 14},
+		{chart_vp.pos.x + 6, chart_vp.pos.y + 14},
 		latest_str,
 		ui.COL_TEXT_PRIMARY,
 		ui.FONT_SIZE_XS,
 	))
 
+	// S147-BUG-12: Split stats into two shorter lines so text fits in narrow
+	// viewports (split cells). Each line stays under ~25 chars (~165px).
+	stats_y := chart_vp.pos.y + 28
 	if ctx.stream.stats.count > 0 {
 		st := services.get_stats(&ctx.stream.stats, 0)
-		stats_buf: [128]u8
 		window_s := st.window_ms / 1000
 		if window_s < 0 do window_s = 0
-		stats_str := fmt.bprintf(
-			stats_buf[:],
-			"Stats M %.2f F %.4f%% L %.2f/%.2f W %ds",
-			st.mark_price,
-			st.funding * 100,
-			st.liq_buy,
-			st.liq_sell,
-			window_s,
-		)
+
+		mf_buf: [64]u8
+		mf_str := fmt.bprintf(mf_buf[:], "M %.2f  F %.4f%%", st.mark_price, st.funding * 100)
 		layer_outputs_push_text_badge(out, 27, text_badge_make(
-			{ctx.viewport.pos.x + 6, ctx.viewport.pos.y + 28},
-			stats_str,
+			{chart_vp.pos.x + 6, stats_y},
+			mf_str,
 			ui.COL_TEXT_SECONDARY,
 			ui.FONT_SIZE_XS,
 		))
+		stats_y += 12
 
-		quality_buf: [80]u8
-		quality_str := fmt.bprintf(quality_buf[:], "Q 0x%x Ti %d", st.quality_flags, st.ts_ingest_ms)
-		quality_color := ui.COL_TEXT_MUTED
-		if st.quality_flags != 0 {
-			quality_color = ui.COL_WARNING
-		}
+		lw_buf: [64]u8
+		lw_str := fmt.bprintf(lw_buf[:], "L %.2f/%.2f  W %ds", st.liq_buy, st.liq_sell, window_s)
 		layer_outputs_push_text_badge(out, 27, text_badge_make(
-			{ctx.viewport.pos.x + 6, ctx.viewport.pos.y + 40},
-			quality_str,
-			quality_color,
+			{chart_vp.pos.x + 6, stats_y},
+			lw_str,
+			ui.COL_TEXT_SECONDARY,
 			ui.FONT_SIZE_XS,
 		))
+		stats_y += 12
+
+		// S148-BUG-3: Quality flags only shown when non-zero (degraded data indicator).
+		// Removed raw ts_ingest_ms timestamp — was leaking debug data into user overlay.
+		if st.quality_flags != 0 {
+			quality_buf: [32]u8
+			quality_str := fmt.bprintf(quality_buf[:], "Q %d", st.quality_flags)
+			layer_outputs_push_text_badge(out, 27, text_badge_make(
+				{chart_vp.pos.x + 6, stats_y},
+				quality_str,
+				ui.COL_WARNING,
+				ui.FONT_SIZE_XS,
+			))
+			stats_y += 12
+		}
 	}
 
 	if sig, ok := services.signal_store_latest_for_subject(&ctx.stream.signals, ctx.subject_id); ok {
@@ -164,7 +212,7 @@ price_candles_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs) {
 		regime_buf: [80]u8
 		regime_str := fmt.bprintf(regime_buf[:], "Reg %s %.2f", regime, sig.regime_strength)
 		layer_outputs_push_text_badge(out, 27, text_badge_make(
-			{ctx.viewport.pos.x + 6, ctx.viewport.pos.y + 52},
+			{chart_vp.pos.x + 6, stats_y},
 			regime_str,
 			ui.COL_ACCENT_CYAN,
 			ui.FONT_SIZE_XS,
@@ -375,10 +423,16 @@ orderbook_dom_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs) {
 	rows := min(max(ob.ask_count, ob.bid_count), 18)
 	if rows <= 0 do return
 
+	// S149: Detect DOM bundle — shows fill volumes alongside book depth.
+	is_dom := ctx.active_bundle == u32(Layer_Bundle.Bundle_DOM)
+	dom := &ctx.stream.dom
+	has_dom_data := is_dom && services.dom_store_has_data(dom)
+	dom_max_fill := has_dom_data ? services.dom_store_max_fill(dom) : 0
+
 	mid_x := ctx.viewport.pos.x + ctx.viewport.size.x * 0.5
 	half_w := ctx.viewport.size.x * 0.5 - 6
-	// S121: Reserve top 24px for mid-price + spread header.
-	header_h := f32(24)
+	// S121: Reserve top for header. S149: DOM gets taller header (24→36) for summary stats.
+	header_h := is_dom ? f32(36) : f32(24)
 	body_y := ctx.viewport.pos.y + header_h
 	body_h := ctx.viewport.size.y - header_h
 	row_h := max(body_h / f32(max(rows, 1)), 10)
@@ -436,6 +490,42 @@ orderbook_dom_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs) {
 		ui.FONT_SIZE_XS,
 	))
 
+	// S149: DOM summary stats row (VWAP + imbalance + trade count).
+	if is_dom {
+		// VWAP badge.
+		vwap := services.dom_store_vwap(dom)
+		if vwap > 0 {
+			vwap_buf: [48]u8
+			vwap_str := fmt.bprintf(vwap_buf[:], "VWAP %.2f", vwap)
+			layer_outputs_push_text_badge(out, 33, text_badge_make(
+				{ctx.viewport.pos.x + 6, ctx.viewport.pos.y + 26},
+				vwap_str,
+				ui.COL_ACCENT_CYAN,
+				ui.FONT_SIZE_XS,
+			))
+		}
+		// Imbalance badge.
+		imb := services.dom_store_imbalance(dom)
+		imb_col := imb > 0.05 ? ui.COL_GREEN : (imb < -0.05 ? ui.COL_RED : ui.COL_TEXT_MUTED)
+		imb_buf: [32]u8
+		imb_str := fmt.bprintf(imb_buf[:], "Imb %+.1f%%", imb * 100)
+		layer_outputs_push_text_badge(out, 33, text_badge_make(
+			{mid_x - 30, ctx.viewport.pos.y + 26},
+			imb_str,
+			imb_col,
+			ui.FONT_SIZE_XS,
+		))
+		// Trade count badge.
+		tc_buf: [32]u8
+		tc_str := fmt.bprintf(tc_buf[:], "%d fills", dom.trade_count)
+		layer_outputs_push_text_badge(out, 33, text_badge_make(
+			{rect_right(ctx.viewport) - 60, ctx.viewport.pos.y + 26},
+			tc_str,
+			ui.COL_TEXT_MUTED,
+			ui.FONT_SIZE_XS,
+		))
+	}
+
 	// Center divider line.
 	layer_outputs_push_line(out, 30, Render_Line{
 		from = {mid_x, body_y},
@@ -445,6 +535,7 @@ orderbook_dom_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs) {
 	})
 
 	// S121: Render levels with cumulative depth shadow + price labels + whale highlights.
+	// S149: DOM mode adds fill volume overlay at each price level.
 	cum_ask := f64(0)
 	cum_bid := f64(0)
 
@@ -484,6 +575,22 @@ orderbook_dom_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs) {
 					thickness = 1,
 				})
 			}
+
+			// S149: DOM fill volume overlay — thin bar at bottom of level row.
+			if has_dom_data && dom_max_fill > 0 {
+				buy_fill, sell_fill := services.dom_store_fill_at_price(dom, ob.ask_prices[i])
+				total_fill := buy_fill + sell_fill
+				if total_fill > 0 {
+					fill_frac := f32(total_fill / dom_max_fill)
+					fill_w := half_w * clamp(fill_frac, 0.02, 1)
+					// Sell fills at ask levels shown as orange accent.
+					layer_outputs_push_bar(out, 32, Render_Bar{
+						rect = ui.Rect{pos = {mid_x + 2, y + row_h - 4}, size = {fill_w, 3}},
+						color = ui.with_alpha(ui.COL_WARNING, 0.55),
+					})
+				}
+			}
+
 			// S121: Price label.
 			ap_buf: [32]u8
 			ap_str := fmt.bprintf(ap_buf[:], "%.2f", ob.ask_prices[i])
@@ -526,6 +633,22 @@ orderbook_dom_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs) {
 					thickness = 1,
 				})
 			}
+
+			// S149: DOM fill volume overlay — thin bar at bottom of level row.
+			if has_dom_data && dom_max_fill > 0 {
+				buy_fill, sell_fill := services.dom_store_fill_at_price(dom, ob.bid_prices[i])
+				total_fill := buy_fill + sell_fill
+				if total_fill > 0 {
+					fill_frac := f32(total_fill / dom_max_fill)
+					fill_w := half_w * clamp(fill_frac, 0.02, 1)
+					// Buy fills at bid levels shown as cyan accent.
+					layer_outputs_push_bar(out, 32, Render_Bar{
+						rect = ui.Rect{pos = {mid_x - 2 - fill_w, y + row_h - 4}, size = {fill_w, 3}},
+						color = ui.with_alpha(ui.COL_ACCENT_CYAN, 0.55),
+					})
+				}
+			}
+
 			// S121: Price label.
 			bp_buf: [32]u8
 			bp_str := fmt.bprintf(bp_buf[:], "%.2f", ob.bid_prices[i])
@@ -1301,20 +1424,50 @@ trade_counter_layer_strategy :: proc() -> Layer_Strategy {
 
 SUBPLOT_COLLECT_CAP :: 48
 
+// S141: Apply chart viewport windowing to subplot entries.
+// Returns (start_idx, visible_count) into the entries array.
+// When chart_viewport is zero (auto), returns full range.
+subplot_viewport_window :: proc(total: int, cv: Chart_Viewport) -> (start: int, count: int) {
+	if total <= 0 do return 0, 0
+	if cv.scroll_offset <= 0 && cv.visible_count <= 0 do return 0, total // auto: show all
+
+	visible := cv.visible_count > 0 ? min(cv.visible_count, total) : min(total, 140)
+	scroll := clamp(cv.scroll_offset, 0, max(total - visible, 0))
+	end := total - scroll
+	s := max(end - visible, 0)
+	return s, end - s
+}
+
 // CVD subplot: line chart of cumulative volume delta.
 subplot_cvd_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs, subplot_vp: ui.Rect) {
 	if ctx == nil || out == nil || ctx.stream == nil do return
 	store := &ctx.stream.analytics
-	if store.count <= 0 do return
 
+	// S148-BUG-6: Always render subplot background even when data is sparse.
+	// Prevents visual "disappearance" on TF switch while waiting for new data.
 	entries: [SUBPLOT_COLLECT_CAP]services.Analytics_Entry
-	n := services.analytics_collect_by_kind(store, .CVD, entries[:])
-	if n < 2 do return
+	n := store.count > 0 ? services.analytics_collect_by_kind(store, .CVD, entries[:]) : 0
+	if n < 2 {
+		subplot_push_bg(out, subplot_vp)
+		// "CVD" label centered as placeholder.
+		layer_outputs_push_text_badge(out, 25, text_badge_make(
+			{subplot_vp.pos.x + 4, subplot_vp.pos.y + subplot_vp.size.y * 0.5 + 4},
+			"CVD", ui.with_alpha(ui.COL_TEXT_MUTED, 0.4), ui.FONT_SIZE_XS,
+		))
+		return
+	}
 
-	// Find min/max CVD for y-axis scaling.
-	min_val := entries[0].values[1]
-	max_val := entries[0].values[1]
-	for i in 1 ..< n {
+	// S141: Apply viewport windowing.
+	vp_start, vp_count := subplot_viewport_window(n, ctx.chart_viewport)
+	if vp_count < 2 do return
+
+	// S141: Use windowed range for scaling and rendering.
+	vp_end := vp_start + vp_count
+
+	// Find min/max CVD for y-axis scaling (windowed).
+	min_val := entries[vp_start].values[1]
+	max_val := entries[vp_start].values[1]
+	for i in vp_start + 1 ..< vp_end {
 		v := entries[i].values[1]
 		if v < min_val do min_val = v
 		if v > max_val do max_val = v
@@ -1337,14 +1490,15 @@ subplot_cvd_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs, subplot_vp:
 		})
 	}
 
-	// Draw CVD line segments.
-	slot_w := subplot_vp.size.x / f32(max(n - 1, 1))
-	for i in 1 ..< n {
+	// Draw CVD line segments (windowed).
+	slot_w := subplot_vp.size.x / f32(max(vp_count - 1, 1))
+	for i in 1 ..< vp_count {
+		idx := vp_start + i
 		x0 := subplot_vp.pos.x + f32(i - 1) * slot_w
 		x1 := subplot_vp.pos.x + f32(i) * slot_w
-		y0 := subplot_val_to_y(subplot_vp, min_val, max_val, entries[i - 1].values[1])
-		y1 := subplot_val_to_y(subplot_vp, min_val, max_val, entries[i].values[1])
-		col := entries[i].values[1] >= 0 ? ui.COL_GREEN : ui.COL_RED
+		y0 := subplot_val_to_y(subplot_vp, min_val, max_val, entries[idx - 1].values[1])
+		y1 := subplot_val_to_y(subplot_vp, min_val, max_val, entries[idx].values[1])
+		col := entries[idx].values[1] >= 0 ? ui.COL_GREEN : ui.COL_RED
 		layer_outputs_push_line(out, 25, Render_Line{
 			from = {x0, y0}, to = {x1, y1},
 			color = ui.with_alpha(col, 0.85),
@@ -1352,8 +1506,8 @@ subplot_cvd_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs, subplot_vp:
 		})
 	}
 
-	// Label.
-	latest_cvd := entries[n - 1].values[1]
+	// Label (rightmost visible entry).
+	latest_cvd := entries[vp_end - 1].values[1]
 	label_buf: [32]u8
 	label := fmt.bprintf(label_buf[:], "CVD %.1f", latest_cvd)
 	label_col := latest_cvd >= 0 ? ui.COL_GREEN : ui.COL_RED
@@ -1367,15 +1521,27 @@ subplot_cvd_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs, subplot_vp:
 subplot_delta_vol_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs, subplot_vp: ui.Rect) {
 	if ctx == nil || out == nil || ctx.stream == nil do return
 	store := &ctx.stream.analytics
-	if store.count <= 0 do return
 
+	// S148-BUG-6: Always render subplot background for visual stability.
 	entries: [SUBPLOT_COLLECT_CAP]services.Analytics_Entry
-	n := services.analytics_collect_by_kind(store, .Delta_Volume, entries[:])
-	if n == 0 do return
+	n := store.count > 0 ? services.analytics_collect_by_kind(store, .Delta_Volume, entries[:]) : 0
+	if n == 0 {
+		subplot_push_bg(out, subplot_vp)
+		layer_outputs_push_text_badge(out, 25, text_badge_make(
+			{subplot_vp.pos.x + 4, subplot_vp.pos.y + subplot_vp.size.y * 0.5 + 4},
+			"DV", ui.with_alpha(ui.COL_TEXT_MUTED, 0.4), ui.FONT_SIZE_XS,
+		))
+		return
+	}
 
-	// Find max absolute delta for y-axis scaling.
+	// S141: Apply viewport windowing.
+	vp_start, vp_count := subplot_viewport_window(n, ctx.chart_viewport)
+	if vp_count == 0 do return
+	vp_end := vp_start + vp_count
+
+	// Find max absolute delta for y-axis scaling (windowed).
 	max_abs := f64(0)
-	for i in 0 ..< n {
+	for i in vp_start ..< vp_end {
 		v := entries[i].values[2]
 		abs_v := v >= 0 ? v : -v
 		if abs_v > max_abs do max_abs = abs_v
@@ -1394,13 +1560,14 @@ subplot_delta_vol_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs, subpl
 		thickness = 1,
 	})
 
-	// Draw delta volume bars.
-	slot_w := subplot_vp.size.x / f32(max(n, 1))
+	// Draw delta volume bars (windowed).
+	slot_w := subplot_vp.size.x / f32(max(vp_count, 1))
 	bar_w := max(slot_w * 0.7, 1)
 	half_h := subplot_vp.size.y * 0.5
 
-	for i in 0 ..< n {
-		delta := entries[i].values[2]
+	for i in 0 ..< vp_count {
+		idx := vp_start + i
+		delta := entries[idx].values[2]
 		frac := f32(delta / max_abs)
 		frac = clamp(frac, -1, 1)
 		bar_h := half_h * (frac >= 0 ? frac : -frac)
@@ -1414,33 +1581,43 @@ subplot_delta_vol_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs, subpl
 		})
 	}
 
-	// Label.
-	if n > 0 {
-		latest_dv := entries[n - 1].values[2]
-		label_buf: [32]u8
-		label := fmt.bprintf(label_buf[:], "DV %.1f", latest_dv)
-		label_col := latest_dv >= 0 ? ui.COL_GREEN : ui.COL_RED
-		layer_outputs_push_text_badge(out, 26, text_badge_make(
-			{subplot_vp.pos.x + 4, subplot_vp.pos.y + 10},
-			label, label_col, ui.FONT_SIZE_XS,
-		))
-	}
+	// Label (rightmost visible entry).
+	latest_dv := entries[vp_end - 1].values[2]
+	label_buf: [32]u8
+	label := fmt.bprintf(label_buf[:], "DV %.1f", latest_dv)
+	label_col := latest_dv >= 0 ? ui.COL_GREEN : ui.COL_RED
+	layer_outputs_push_text_badge(out, 26, text_badge_make(
+		{subplot_vp.pos.x + 4, subplot_vp.pos.y + 10},
+		label, label_col, ui.FONT_SIZE_XS,
+	))
 }
 
 // OI subplot: line chart of open interest.
 subplot_oi_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs, subplot_vp: ui.Rect) {
 	if ctx == nil || out == nil || ctx.stream == nil do return
 	store := &ctx.stream.analytics
-	if store.count <= 0 do return
 
+	// S148-BUG-6: Always render subplot background for visual stability.
 	entries: [SUBPLOT_COLLECT_CAP]services.Analytics_Entry
-	n := services.analytics_collect_by_kind(store, .Open_Interest, entries[:])
-	if n < 2 do return
+	n := store.count > 0 ? services.analytics_collect_by_kind(store, .Open_Interest, entries[:]) : 0
+	if n < 2 {
+		subplot_push_bg(out, subplot_vp)
+		layer_outputs_push_text_badge(out, 25, text_badge_make(
+			{subplot_vp.pos.x + 4, subplot_vp.pos.y + subplot_vp.size.y * 0.5 + 4},
+			"OI", ui.with_alpha(ui.COL_TEXT_MUTED, 0.4), ui.FONT_SIZE_XS,
+		))
+		return
+	}
 
-	// Find min/max OI for y-axis scaling.
-	min_val := entries[0].values[0]
-	max_val := entries[0].values[0]
-	for i in 1 ..< n {
+	// S141: Apply viewport windowing.
+	vp_start, vp_count := subplot_viewport_window(n, ctx.chart_viewport)
+	if vp_count < 2 do return
+	vp_end := vp_start + vp_count
+
+	// Find min/max OI for y-axis scaling (windowed).
+	min_val := entries[vp_start].values[0]
+	max_val := entries[vp_start].values[0]
+	for i in vp_start + 1 ..< vp_end {
 		v := entries[i].values[0]
 		if v < min_val do min_val = v
 		if v > max_val do max_val = v
@@ -1452,13 +1629,14 @@ subplot_oi_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs, subplot_vp: 
 	// Subplot background + divider.
 	subplot_push_bg(out, subplot_vp)
 
-	// Draw OI line segments.
-	slot_w := subplot_vp.size.x / f32(max(n - 1, 1))
-	for i in 1 ..< n {
+	// Draw OI line segments (windowed).
+	slot_w := subplot_vp.size.x / f32(max(vp_count - 1, 1))
+	for i in 1 ..< vp_count {
+		idx := vp_start + i
 		x0 := subplot_vp.pos.x + f32(i - 1) * slot_w
 		x1 := subplot_vp.pos.x + f32(i) * slot_w
-		y0 := subplot_val_to_y(subplot_vp, min_val, max_val, entries[i - 1].values[0])
-		y1 := subplot_val_to_y(subplot_vp, min_val, max_val, entries[i].values[0])
+		y0 := subplot_val_to_y(subplot_vp, min_val, max_val, entries[idx - 1].values[0])
+		y1 := subplot_val_to_y(subplot_vp, min_val, max_val, entries[idx].values[0])
 		layer_outputs_push_line(out, 25, Render_Line{
 			from = {x0, y0}, to = {x1, y1},
 			color = ui.with_alpha(ui.COL_ACCENT_CYAN, 0.85),
@@ -1466,8 +1644,8 @@ subplot_oi_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs, subplot_vp: 
 		})
 	}
 
-	// Label.
-	latest_oi := entries[n - 1].values[0]
+	// Label (rightmost visible entry).
+	latest_oi := entries[vp_end - 1].values[0]
 	label_buf: [32]u8
 	label := fmt.bprintf(label_buf[:], "OI %.0f", latest_oi)
 	layer_outputs_push_text_badge(out, 26, text_badge_make(

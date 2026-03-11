@@ -67,7 +67,7 @@ infer_pane_role :: proc(kind: Widget_Kind) -> Pane_Role {
 	switch kind {
 	case .Candle:
 		return .Primary_Chart
-	case .Stats, .Counter, .Trades, .Orderbook, .Heatmap, .VPVR, .DOM, .Analytics, .Session_VPVR, .TPO, .Empty:
+	case .Stats, .Counter, .Trades, .Orderbook, .Heatmap, .VPVR, .DOM, .Analytics, .Session_VPVR, .TPO, .Footprint, .Empty:
 		return .Auxiliary
 	}
 	return .Auxiliary
@@ -216,6 +216,10 @@ WIDGET_DESCRIPTORS := [Widget_Kind]Widget_Descriptor {
 	.TPO = {
 		kind = .TPO, label = "TPO",
 		min_w = 120, min_h = 100,
+	},
+	.Footprint = {
+		kind = .Footprint, label = "Footprint",
+		min_w = 140, min_h = 120,
 	},
 }
 

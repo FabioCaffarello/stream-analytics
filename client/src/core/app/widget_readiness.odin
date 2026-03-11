@@ -14,14 +14,16 @@ import "mr:md_common"
 // ═══════════════════════════════════════════════════════════════════════════
 
 // Data_Readiness — unified readiness level for a widget's primary data.
-// Ordered from least-ready to most-ready. Pure domain concept.
+// Ordered from least-ready to most-ready. Pure data availability concept.
+// S154: Removed Stale/Desync/Offline_Unreliable — reliability is now checked
+// separately in resolve_pane_visual_state, not conflated with data readiness.
 Data_Readiness :: enum u8 {
-	Not_Ready,        // No stream bound, no data source
-	Loading,          // Stream connected, awaiting first data
-	Snapshot_Pending, // Artifact events flowing but store not yet populated
-	Seeding,          // Data arriving from stream, store building up
-	Partial_Usable,   // Store has data, can render partial view (e.g., backfilled, live-only)
-	Live_Usable,      // Fully composed: historical + live, steady state
+	Not_Ready,          // No stream bound, no data source
+	Loading,            // Stream connected, awaiting first data
+	Snapshot_Pending,   // Artifact events flowing but store not yet populated
+	Seeding,            // Data arriving from stream, store building up
+	Partial_Usable,     // Store has data, can render partial view (e.g., backfilled, live-only)
+	Live_Usable,        // Fully composed: historical + live, steady state
 }
 
 // Widget_Readiness_Policy — compile-time contract per widget kind.
@@ -75,6 +77,7 @@ widget_readiness_policies : [Widget_Kind]Widget_Readiness_Policy = {
 	.Session_VPVR = { primary_artifact = .Session_Volume_Profile, partial_usable = false, backfill_absent_usable = true,  uses_artifact_live_flag = false },
 	.TPO          = { primary_artifact = .TPO_Profile,            partial_usable = false, backfill_absent_usable = true,  uses_artifact_live_flag = false },
 	.Empty        = { primary_artifact = .Trade,                  partial_usable = false, backfill_absent_usable = false, uses_artifact_live_flag = false },
+	.Footprint    = { primary_artifact = .Trade,                  partial_usable = true,  backfill_absent_usable = true,  uses_artifact_live_flag = true  },
 }
 
 // widget_readiness_policy returns the readiness policy for a widget kind.
@@ -98,6 +101,8 @@ widget_readiness_policy :: proc(wk: Widget_Kind) -> Widget_Readiness_Policy {
 //   - Candle + Backfilled → Active (was Seeding). Chart shows historical data.
 //   - Candle + Live_Only → Active (was No_History). Chart shows live data.
 //   - Composition badges (BFILL/LIVE) communicate state without blocking render.
+// S154: widget_data_readiness is now purely about data availability.
+// Stream reliability (trust) is checked separately in resolve_pane_visual_state.
 widget_data_readiness :: proc(
 	wk: Widget_Kind,
 	sv: Cell_Surface_View,
@@ -157,14 +162,15 @@ widget_data_readiness :: proc(
 // readiness_to_visual_state maps Data_Readiness to the display-facing Pane_Visual_State.
 // Partial_Usable and Live_Usable both map to Active — the composition badge
 // communicates transitional state without blocking the widget's render.
+// S154: Reliability-based degradation is now handled by resolve_pane_visual_state.
 readiness_to_visual_state :: proc(r: Data_Readiness) -> Pane_Visual_State {
 	switch r {
-	case .Not_Ready:        return .Empty
-	case .Loading:          return .Loading
-	case .Snapshot_Pending: return .Snapshot_Pending
-	case .Seeding:          return .Seeding
-	case .Partial_Usable:   return .Active
-	case .Live_Usable:      return .Active
+	case .Not_Ready:          return .Empty
+	case .Loading:            return .Loading
+	case .Snapshot_Pending:   return .Snapshot_Pending
+	case .Seeding:            return .Seeding
+	case .Partial_Usable:     return .Active
+	case .Live_Usable:        return .Active
 	}
 	return .Empty
 }
@@ -180,8 +186,15 @@ widget_store_has_data :: proc(wk: Widget_Kind, stores: Cell_Stores) -> bool {
 		return stores.stats != nil && stores.stats.count > 0
 	case .Trades:
 		return stores.trades != nil && stores.trades.count > 0
-	case .Orderbook, .DOM:
+	case .Orderbook:
 		return stores.orderbook != nil && (stores.orderbook.bid_count > 0 || stores.orderbook.ask_count > 0)
+	case .DOM:
+		// S149: DOM is usable when orderbook has data OR dom fills have accumulated.
+		ob_ok := stores.orderbook != nil && (stores.orderbook.bid_count > 0 || stores.orderbook.ask_count > 0)
+		dom_ok := stores.dom != nil && stores.dom.trade_count > 0
+		return ob_ok || dom_ok
+	case .Footprint:
+		return stores.footprint != nil && stores.footprint.count > 0
 	case .Heatmap:
 		return stores.heatmap != nil && stores.heatmap.count > 0
 	case .VPVR:
@@ -198,6 +211,81 @@ widget_store_has_data :: proc(wk: Widget_Kind, stores: Cell_Stores) -> bool {
 	return false
 }
 
+// S146: TF-aware data expectation for a widget at a given timeframe.
+// Delegates to the TF Data Contract via the widget's primary artifact.
+// Pure function — no mutation, no allocation.
+widget_tf_expectation :: proc(wk: Widget_Kind, tf_ms: i64) -> md_common.TF_Data_Expectation {
+	policy := widget_readiness_policies[wk]
+	return md_common.tf_data_expectation(policy.primary_artifact, tf_ms)
+}
+
+// S146: Backfill criticality for a widget at a given timeframe.
+// Convenience wrapper — returns whether backfill is critical for operator utility.
+widget_backfill_critical :: proc(wk: Widget_Kind, tf_ms: i64) -> bool {
+	exp := widget_tf_expectation(wk, tf_ms)
+	return exp.backfill_criticality == .Critical
+}
+
+// S152: widget_backfill_concern returns true if the backfill situation warrants
+// operator attention (e.g., high-TF chart with no history). Pure function.
+// UI uses this to decide whether to show a backfill warning badge.
+widget_backfill_concern :: proc(sv: Cell_Surface_View) -> bool {
+	be := sv.backfill_expectation
+	// No concern if backfill is optional or already succeeded.
+	if be.criticality == .Optional do return false
+	if be.outcome == .Success do return false
+	// Critical TF with no backfill or timeout → concern.
+	if be.criticality == .Critical {
+		switch be.outcome {
+		case .Empty, .Timeout, .Not_Attempted:
+			return true
+		case .Partial:
+			return true
+		case .Success:
+			return false
+		}
+	}
+	// Recommended TF with timeout → mild concern.
+	if be.outcome == .Timeout do return true
+	return false
+}
+
+// S152: widget_backfill_hint returns a TF-aware hint string for the current
+// backfill state. Extends tf_overlay_hint with outcome-specific messaging.
+// All returned strings are compile-time literals.
+widget_backfill_hint :: proc(sv: Cell_Surface_View) -> string {
+	be := sv.backfill_expectation
+	switch be.outcome {
+	case .Success:
+		return "History loaded"
+	case .Partial:
+		if be.criticality == .Critical {
+			return "Partial history — Ctrl+R for more"
+		}
+		return "Partial history"
+	case .Empty:
+		if be.criticality == .Critical {
+			return "No history available"
+		}
+		return "No history — using live data"
+	case .Timeout:
+		if be.criticality == .Critical {
+			return "History fetch timed out — Ctrl+R to retry"
+		}
+		return "History fetch timed out"
+	case .Not_Attempted:
+		switch be.live_only_util {
+		case .Full:
+			return "Live data building chart"
+		case .Degraded:
+			return "Live only — backfill improves view"
+		case .Minimal:
+			return "Backfill needed — Ctrl+R to fetch history"
+		}
+	}
+	return "Waiting for data"
+}
+
 // widget_store_for_readiness returns a human-readable store kind label.
 // Used for diagnostics/telemetry only. All returned strings are compile-time literals.
 widget_store_label :: proc(wk: Widget_Kind) -> string {
@@ -205,12 +293,14 @@ widget_store_label :: proc(wk: Widget_Kind) -> string {
 	case .Candle, .Counter: return "candle"
 	case .Stats:            return "stats"
 	case .Trades:           return "trades"
-	case .Orderbook, .DOM:  return "orderbook"
+	case .Orderbook:        return "orderbook"
+	case .DOM:              return "dom"
 	case .Heatmap:          return "heatmap"
 	case .VPVR:             return "vpvr"
 	case .Analytics:        return "analytics"
 	case .Session_VPVR:     return "session_vpvr"
 	case .TPO:              return "tpo"
+	case .Footprint:        return "footprint"
 	case .Empty:            return "none"
 	}
 	return "unknown"

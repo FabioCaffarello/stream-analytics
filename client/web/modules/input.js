@@ -3,12 +3,14 @@
 // All state is encapsulated. Returns odin_env-compatible accessor functions
 // and a hasPendingInput() predicate for idle throttling.
 
-// Key enum ordinals: Up=0 Down=1 Left=2 Right=3 Enter=4 Escape=5 Tab=6 Space=7
-//                    Num_1=8 Num_2=9 Num_3=10 Num_4=11 Num_5=12 Num_6=13
-//                    Num_7=14 Num_8=15 Num_9=16 S=17 Slash=18 C=19 G=20 F=21
-//                    M=22 B=23 V=24 R=25 I=26 H=27 J=28 K=29 Z=30 Delete=31
+// Key enum ordinals (Odin ports.Key):
+//   Up=0 Down=1 Left=2 Right=3 Enter=4 Escape=5 Tab=6 Space=7
+//   Num_1=8..Num_9=16 S=17 Slash=18 C=19 G=20 F=21 M=22 B=23 V=24 R=25
+//   I=26 H=27 J=28 K=29 Z=30 D=31 Delete=32 Home=33 End=34
+//
+// JS key bitmap: bits 0-31 in lo word, bits 32+ in hi word.
 
-const KEY_MAP = {
+const KEY_MAP_LO = {
     "ArrowUp": 0, "ArrowDown": 1, "ArrowLeft": 2, "ArrowRight": 3,
     "Enter": 4, "Escape": 5, "Tab": 6, " ": 7,
     "1": 8, "2": 9, "3": 10, "4": 11, "5": 12, "6": 13, "7": 14, "8": 15, "9": 16,
@@ -18,7 +20,14 @@ const KEY_MAP = {
     "h": 27, "H": 27, "j": 28, "J": 28,
     "k": 29, "K": 29,
     "z": 30, "Z": 30,
-    "Delete": 31, "Backspace": 31,
+    "d": 31, "D": 31,
+};
+
+// Keys with bit index >= 32, stored as (bit - 32) in hi word.
+const KEY_MAP_HI = {
+    "Delete": 0, "Backspace": 0,
+    "Home": 1,
+    "End": 2,
 };
 
 const MOUSE_WHEEL_SCALE = 1 / 100;
@@ -27,6 +36,9 @@ export function initInput(canvas) {
     let keyBits = 0;
     let keyPressedBits = 0;
     let keyReleasedBits = 0;
+    let keyBitsHi = 0;
+    let keyPressedBitsHi = 0;
+    let keyReleasedBitsHi = 0;
     let modifierBits = 0;
     let mouseX = 0;
     let mouseY = 0;
@@ -62,22 +74,39 @@ export function initInput(canvas) {
 
     document.addEventListener("keydown", (ev) => {
         updateModifiers(ev);
-        const bit = KEY_MAP[ev.key];
-        if (bit !== undefined) {
-            const mask = (1 << bit);
+        const bitLo = KEY_MAP_LO[ev.key];
+        if (bitLo !== undefined) {
+            const mask = (1 << bitLo);
             if ((keyBits & mask) === 0) keyPressedBits |= mask;
             keyBits |= mask;
-            if (ev.key === "Tab") ev.preventDefault();
+        }
+        const bitHi = KEY_MAP_HI[ev.key];
+        if (bitHi !== undefined) {
+            const mask = (1 << bitHi);
+            if ((keyBitsHi & mask) === 0) keyPressedBitsHi |= mask;
+            keyBitsHi |= mask;
+        }
+        // S147-BUG-08: Prevent browser from intercepting keys used by WASM.
+        // Ctrl+R (resync), Ctrl+H/J (split), Ctrl+K (connection), Ctrl+D (snapshot).
+        if (ev.key === "Tab" ||
+            (ev.ctrlKey && "rhjkd".includes(ev.key.toLowerCase()))) {
+            ev.preventDefault();
         }
     }, { passive: false });
 
     document.addEventListener("keyup", (ev) => {
         updateModifiers(ev);
-        const bit = KEY_MAP[ev.key];
-        if (bit !== undefined) {
-            const mask = (1 << bit);
+        const bitLo = KEY_MAP_LO[ev.key];
+        if (bitLo !== undefined) {
+            const mask = (1 << bitLo);
             if ((keyBits & mask) !== 0) keyReleasedBits |= mask;
             keyBits &= ~mask;
+        }
+        const bitHi = KEY_MAP_HI[ev.key];
+        if (bitHi !== undefined) {
+            const mask = (1 << bitHi);
+            if ((keyBitsHi & mask) !== 0) keyReleasedBitsHi |= mask;
+            keyBitsHi &= ~mask;
         }
     });
 
@@ -132,6 +161,9 @@ export function initInput(canvas) {
         keyBits = 0;
         keyPressedBits = 0;
         keyReleasedBits = 0;
+        keyBitsHi = 0;
+        keyPressedBitsHi = 0;
+        keyReleasedBitsHi = 0;
         modifierBits = 0;
         mouseButtons = 0;
         mousePressedBits = 0;
@@ -146,6 +178,8 @@ export function initInput(canvas) {
         hasPendingInput() {
             return keyPressedBits !== 0 ||
                 keyReleasedBits !== 0 ||
+                keyPressedBitsHi !== 0 ||
+                keyReleasedBitsHi !== 0 ||
                 mousePressedBits !== 0 ||
                 mouseReleasedBits !== 0 ||
                 mouseScrollX !== 0 ||
@@ -161,6 +195,17 @@ export function initInput(canvas) {
         key_released_state() {
             const v = keyReleasedBits >>> 0;
             keyReleasedBits = 0;
+            return v;
+        },
+        key_state_hi: () => keyBitsHi,
+        key_pressed_state_hi() {
+            const v = keyPressedBitsHi >>> 0;
+            keyPressedBitsHi = 0;
+            return v;
+        },
+        key_released_state_hi() {
+            const v = keyReleasedBitsHi >>> 0;
+            keyReleasedBitsHi = 0;
             return v;
         },
         mouse_x: () => mouseX,

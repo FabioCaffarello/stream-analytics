@@ -1,311 +1,534 @@
 # Architecture Overview
 
-## Purpose
-
-This system is a high-performance market intelligence platform designed to:
-
-- Aggregate multi-venue market data
-- Normalize and sequence events deterministically
-- Build real-time read models
-- Deliver low-latency streams to clients
-- Generate evidence-based insights
-- Maintain full auditability and replay capability
-
-The architecture prioritizes:
-
-- Determinism
-- Fault isolation
-- Replayability
-- Observability
-- Low cognitive latency for users
+**Status:** Active | **Last updated:** 2026-03-10
 
 ---
 
-## System Philosophy
+## What Market Raccoon Is
 
-This is NOT a trading platform.
+Market Raccoon is a real-time, multi-exchange cryptocurrency market data platform with an integrated operational cockpit. It ingests, normalizes, aggregates, and visualizes live market data across 6 exchanges with sub-millisecond latency.
 
-This is decision infrastructure.
+The system has two halves:
 
-The system helps professionals:
+- **Backend (Go, ~131K LOC):** Actor-supervised pipeline that consumes exchange WebSocket feeds, normalizes events into canonical envelopes, builds aggregated read models, and delivers them over WebSocket and HTTP. 12 bounded contexts, 10 actor subsystems, NATS JetStream event bus, TimescaleDB + ClickHouse storage. Execution framework behind a fail-closed governance boundary.
 
-- detect risk earlier
-- identify liquidity shifts
-- understand positioning
-- gain market clarity
+- **Client (Odin, ~30K LOC):** Cross-platform operational cockpit (WASM + native). 13 widget types, 8 indicators, 3 subplot analytics, orderflow visualization, workspace split-tree with compare mode, and a 5-layer stream health pipeline with operator-visible reliability signals.
 
-Full production venue execution is out of scope in current stages.
-Stage 7 introduces a restricted real-adapter safe cut-in behind the execution boundary.
-Stage 8 expands safe pilot lifecycle/reconciliation without changing canonical contracts.
-Stage 9A/9B add explicit governance plus a hardened trade-only credentials broker behind the same boundary.
+This is decision infrastructure, not a trading platform. Venue execution exists but defaults to simulation behind a 5-gate governance boundary.
 
 ---
 
-## High-Level Flow
+## Architectural Principles
 
-```text
-Exchange WS
-    │
-    ▼
-[MarketData] ──(marketdata.*)──────────────────────────────────►
-                                                                 │
-[Aggregation] ◄──────────────────────────────────────────────────┘
-    │
-    ├──(aggregation.tape / candle / stats / snapshot)────────────────────┐
-    ├──(insights.heatmap_snapshot / volume_profile_snapshot)─────────────┤
-    └──(trades+bookdelta)──► [Evidence / LEL] ──► [Signal Engine] ──► [Strategist]
-                                                                   └──► [Execution] ──► [Portfolio] ──►┤
-                                                                          ▼
-                                                               [Delivery / Router]
-                                                                     │      │
-                                                                  [Store]  [WS Session]
-                                                                          │
-                                                                    [Client WASM]
+### 1. Clean Architecture — Dependency Inversion
+
+Dependencies point inward. Domain logic (`internal/core`) defines ports (interfaces); infrastructure (`internal/adapters`) implements them. No core module imports actors, adapters, or transport handlers.
+
+### 2. DDD Bounded Contexts
+
+12 bounded contexts with explicit ownership boundaries. Each context owns its domain types, use cases, and port definitions. Cross-context communication uses versioned event contracts — no direct type sharing.
+
+### 3. Hexagonal Ports & Adapters
+
+Each bounded context exposes primary ports (use cases) and secondary ports (infrastructure contracts). Adapters implement secondary ports. Core knows exchange parsers, storage drivers, and message brokers only as interfaces.
+
+### 4. Event-Driven Architecture
+
+All state transitions originate from versioned envelopes on NATS JetStream. Events are immutable, sequenced, and replay-safe. Idempotency keys and monotonic sequencing prevent duplicate processing.
+
+### 5. Actor Model
+
+Runtime orchestration uses Hollywood actors. A Guardian supervision tree manages 10 subsystem actors with exponential backoff, restart limits, and circuit-breaking. Actors coordinate — use cases decide — domain enforces invariants.
+
+### 6. SOLID
+
+- **S:** Each bounded context has a single responsibility. Each actor manages one subsystem.
+- **O:** New exchange adapters and widget types are added without modifying core domain logic.
+- **L:** All port implementations are substitutable (InMemoryBus for tests, JetStream for production).
+- **I:** Ports are narrow and context-specific (`EventPublisher`, `RangeStore`, `SnapshotReader`).
+- **D:** Core depends on abstractions (ports); adapters depend on concrete implementations. Never reversed.
+
+---
+
+## Backend Architecture
+
+### Layer Hierarchy
+
+Dependencies flow strictly downward. No layer imports a layer above it.
+
+```
+cmd/*            ← entry points (main.go)
+  ↓
+interfaces/      ← HTTP/WS handlers
+  ↓
+actors/          ← Hollywood actor subsystems
+  ↓
+adapters/        ← exchange connectors, storage, bus
+  ↓
+core/*           ← domain + use cases + ports
+  ↓
+shared/          ← foundation (zero internal imports)
 ```
 
-Canonical decision/execution chain is:
-`signal.event -> strategy.intent -> execution.event -> portfolio.state`
-(bootstrap default runtime with Stage 7 opt-in real-adapter safe mode).
-(Stage 8 adds opt-in lifecycle reconciliation under the same safe boundary.)
-(Stage 9B keeps the same contracts while making credential provenance/lease handling explicit.)
+Layer isolation is enforced by `make invariants-check`.
 
-Full subsystem responsibility table, ownership contracts, and traceability:
-→ [`docs/architecture/subsystems.md`](subsystems.md)
+### Bounded Contexts
+
+#### Data Pipeline (reactive, event-driven)
+
+| Context | Module | Responsibility |
+|---|---|---|
+| **MarketData** | `core/marketdata` | Consume exchange WebSocket streams, canonicalize into CMM, dedup, sequence, publish envelopes |
+| **Aggregation** | `core/aggregation` | Build read models: orderbook snapshots, candles (9 timeframes), stats, tape, heatmap, volume profiles |
+| **Delivery** | `core/delivery` | Route envelopes to WS sessions. Backpressure, backfill, per-stream coherence |
+| **Insights** | `core/insights` | VPVR, heatmap, TPO profiles; Liquidity Evidence Layer with 5 stateful rules |
+| **Storage** | `core/storage` (via adapters) | Persist aggregated events; serve historical queries from TimescaleDB (hot) and ClickHouse (cold) |
+| **MarketModel** | `core/marketmodel` | Instrument metadata and market type definitions |
+
+#### Decision Pipeline (intent-driven, fail-closed)
+
+| Context | Module | Responsibility |
+|---|---|---|
+| **Evidence** | `core/evidence` | Stateful liquidity evidence detection with multi-replica ownership by stream hash |
+| **Signal** | `core/signal` | Deterministic rules + rate limiting. Consumes evidence, emits `signal.event` |
+| **Signals** | `core/signals` | Composition engine. Combines atomic signals via regime and cross-venue rules |
+| **Strategy** | `core/strategy` | Intent planner. Consumes `signal.event`, emits `strategy.intent` |
+| **Execution** | `core/execution` | Governed executor with fail-closed FSM (4 states, 10 commands). Credential brokering |
+| **Portfolio** | `core/portfolio` | Projector. Consumes `execution.event`, projects `portfolio.state` with provenance |
+
+#### Cross-Cutting
+
+| Module | Purpose |
+|---|---|
+| **Workspace** | `core/workspace` — schema management for client workspace persistence |
+
+### Shared Foundation
+
+`internal/shared` provides 24 cross-cutting packages with zero business logic:
+
+| Package | Purpose |
+|---|---|
+| `problem` | Typed errors (`*problem.Problem`) |
+| `result` | Generic result type (`result.Result[T]`) |
+| `validation` | Input validation framework |
+| `ids` | ID generation |
+| `clock` | Time abstraction (`FakeClock` in tests, `SystemClock` in prod) |
+| `envelope` | Canonical event wrapper with seq, timestamps, idempotency key |
+| `codec` | Serialization (JSON now, CBOR-ready) |
+| `hash` | FNV-1a zero-alloc hashing (`FieldHasher` fluent API) |
+| `naming` | Canonical normalization (`CanonicalVenue`, `CanonicalInstrument`) |
+| `contracts` | Versioned event contracts (TradeTickV1, CandleV1, etc.) |
+| `metrics` | Prometheus metric definitions |
+| `observability` | Structured logging and telemetry |
+| `policykit` | Actor-runtime supervision policies |
+| `replay` | Deterministic event replay (offline-only, no NATS) |
+| `ds` | Data structures |
+| `ticksize` | Tick size tables per exchange |
+| `bootstrap` | Service bootstrap helpers |
+| `config` | Configuration schema |
+| `proto` | Protobuf generated types |
+| `ownership` | Stream ownership assignment |
+| `shardregistry` | Shard allocation |
+| `slo` | SLO definitions |
+
+**Boundary rule:** If a type in `shared/` is used by only one bounded context, it belongs in that context's `domain/` package.
+
+### Data Flow
+
+```
+Exchange WS (6 venues)
+    │
+    ▼
+[Consumer / MarketData] ──(marketdata.*)──────────────────────────────►
+                                                                        │
+[Processor / Aggregation] ◄─────────────────────────────────────────────┘
+    │
+    ├──(aggregation.snapshot / candle / stats / tape)───────────────────┐
+    ├──(insights.heatmap_snapshot / volume_profile_snapshot)────────────┤
+    └──(trades+bookdelta)──► [Evidence / LEL] ──► [Signal Engine]      │
+                                                        │              │
+                                              (signal.event)           │
+                                                        │              │
+                                                  [Strategy]           │
+                                                        │              │
+                                              (strategy.intent)        │
+                                                        │              │
+                                                  [Execution]          │
+                                                        │              │
+                                              (execution.event)        │
+                                                        │              │
+                                                  [Portfolio]          │
+                                                        │              │
+                                              (portfolio.state)────────┤
+                                                                       │
+                                                                       ▼
+                                                              [Delivery / Router]
+                                                                   │        │
+                                                                [Store]  [WS Session]
+                                                                            │
+                                                                      [Client]
+```
+
+Canonical decision chain: `signal.event → strategy.intent → execution.event → portfolio.state`
+
+### Runtime Model
+
+#### Guardian Supervision Tree
+
+The Guardian (`internal/actors/runtime/guardian.go`) manages 10 subsystems in canonical order:
+
+```
+Engine
+ └── Guardian
+      ├── 1. MarketData        (+ dynamic per-exchange children)
+      ├── 2. Aggregation
+      ├── 3. Delivery
+      ├── 4. Insights
+      ├── 5. Evidence
+      ├── 6. Signals
+      ├── 7. Strategy
+      ├── 8. Execution
+      ├── 9. Portfolio
+      └── 10. Storage
+```
+
+**Supervision policy:** BaseBackoff 250ms, MaxBackoff 5s, RestartWindow 30s, RestartLimit 5/window, Cooldown 30s. Global restart limit: 5 per minute.
+
+**Actor protocol:**
+
+```
+Shutdown: e.Send(pid, Stop{}) → <-e.Poison(pid).Done()
+Request:  engine.Request(pid, Query{}) with ReplyTo fallback to c.Sender()
+```
+
+**Key invariants:**
+- Failure in one subsystem does not kill siblings (INV-TOPO-01)
+- Global restart rate limit prevents restart storms
+- Session actors clean-close and de-register from router
+- `Msg-ID` dedup on JetStream prevents double-delivery
+
+### Service Entrypoints
+
+11 binaries in `cmd/`:
+
+| Binary | Role |
+|---|---|
+| `consumer` | Exchange → NATS ingester |
+| `processor` | NATS → Aggregation pipeline |
+| `server` | HTTP + WS gateway |
+| `store` | Storage lifecycle manager |
+| `signals` | Signal engine |
+| `strategist` | Intent planner |
+| `executor` | Trade execution |
+| `portfolio` | Portfolio projector |
+| `backfill` | Historical data loading |
+| `migrate` | Database migrations (Goose) |
+| `credentials-broker` | Credential management |
+
+### Infrastructure
+
+| Component | Technology | Purpose |
+|---|---|---|
+| Event Bus | NATS JetStream | Versioned envelope transport, at-least-once delivery |
+| Hot Storage | TimescaleDB (PG16) | Recent data (7 days), range queries, idempotent upserts |
+| Cold Storage | ClickHouse 24.8.8 | Historical archive, analytical queries |
+| Actor Runtime | Hollywood v1.0.5 | Supervision, concurrency, message passing |
+| Observability | Prometheus (100+ metrics), Grafana (5 dashboards), 13 alerts | Monitoring |
+| Migrations | Goose | Schema evolution for TimescaleDB + ClickHouse |
+
+### Exchange Parity (6 venues)
+
+Binance (spot + futures), Bybit, Coinbase, HyperLiquid, Kraken (spot), KrakenF (futures).
+
+Each adapter in `internal/adapters/exchange/{name}/` implements: endpoint, parser, backfill.
+
+### Server Endpoints
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /healthz` | Liveness probe |
+| `GET /readyz` | Readiness probe (all expected subsystems running) |
+| `GET /runtime/snapshot` | Guardian state for observability |
+| `GET /ws` | WebSocket upgrade |
+| `GET /api/v1/candles` | Historical candle query |
+| `GET /api/v1/stats` | Stats query |
+| `GET /api/v1/snapshots` | Artifact snapshots |
+| `GET /api/v1/markets` | Market discovery |
+| `GET /api/v1/session` | Session metadata |
+| `POST /runtime/reload` | Config reload |
+
+### Backend ↔ Client Protocol
+
+1. Client connects: `GET /ws` → HTTP upgrade → SessionActor spawned
+2. Optional ClientHello handshake with capability negotiation
+3. Client subscribes: `{"op":"subscribe","subject":"...","venue":"...","symbol":"...","channel":"...","aggregation":"..."}`
+4. Server sends historical backfill (RangeStore → TimescaleDB/ClickHouse → envelopes)
+5. Server streams live envelopes as they arrive
+6. Backpressure: configurable drop policy (oldest/newest), slow-client disconnect
+
+Wire format: Terminal_V1 protocol with versioned envelopes. Subject taxonomy: `<family>.<type>.v<version>`. Envelope carries `seq`, `prev_seq`, `ts_exchange`, `ts_ingest`, `idempotency_key`.
 
 ---
 
-## Core Principles
+## Client Architecture (Odin)
 
-### 1. Domain First
+### Layer Hierarchy
 
-Business invariants live in `internal/core`.
+```
+app/             ← orchestration, routing, state management
+  ↓
+layers/          ← visualization strategies (stateless)
+  ↓
+services/        ← domain stores, session health
+  ↓         ↖ md_common (bridge: services ↔ layers)
+ports/           ← adapter interfaces (input, fonts, marketdata)
+  ↓
+ui/ + math/      ← foundation (zero internal imports)
+```
 
-Actors coordinate execution — they do not own rules.
+Zero cyclic dependencies. Each layer is a strict DAG:
 
----
+| Package | Responsibility | May Import |
+|---|---|---|
+| **ui/, math/** | Primitive types, layout helpers, math utilities | Standard library only |
+| **ports/** | Dependency injection interfaces (Marketdata_Port, Input_Port, Font_Port) | ui/ |
+| **services/** | Fixed-capacity, zero-allocation-after-init stores per stream | ports/, util/ |
+| **md_common/** | Protocol bridge — shared types for services ↔ layers | ports/, services/, util/ |
+| **layers/** | Visual rendering strategies (stateless) | ports/, services/, md_common/, ui/, util/ |
+| **app/** | Orchestration, workspace, state machine, frame loop | All lower tiers |
 
-### 2. Event-Driven Everything
+Additional packages: `streams/` (stream identity), `util/` (common utilities), `widgets/` (widget definitions).
 
-All state transitions originate from versioned events.
+### Dependency Rules
 
-No hidden mutations.
+- **services/** never imports layers/ or app/
+- **layers/** never imports app/
+- **Layer_Context** is read-only; strategies are stateless
+- Widgets receive all data through **Widget_Data_Context** — no globals
 
-Replay must be possible.
+### State Pipeline
 
----
+```
+Stream_Apply_State (protocol-derived, per-stream)
+    → Cell_Surface_View (10 fields: composition, health_level, reliability, ...)
+        → Data_Readiness (6 variants: Absent, Pending, Degraded, Stale, Live, Recovering)
+            → Pane_Visual_State (render decision)
+```
 
-### 3. Deterministic Pipelines
+All derivation is pure. No cached health or reliability state. Values are derived every frame from protocol state.
 
-Given the same event stream, the system must reproduce identical artifacts.
+### Health Pipeline (5 layers)
 
----
+Defined by ADR-0032 and ADR-0034:
 
-### 4. Bounded Context Isolation
+| Layer | What It Tracks | Key Types |
+|---|---|---|
+| 1. Transport | Stream liveness | Stream_State (Offline / Live / Lag / Desync) |
+| 2. Delivery | Composition progress, per-artifact staleness | Composition_Stage (Empty → Composed) |
+| 3. Snapshot | Snapshot validity and freshness | Snapshot_Lifecycle (Absent → Live) |
+| 4. Health & Recovery | Degradation level, recovery orchestration | System_Health_Level, Recovery_Status (3 backoff attempts) |
+| 5. Reliability | Operator-visible trust classification | Stream_Reliability (7 states) |
 
-Contexts:
+**Render policy:** Allows render for Reliable, Degraded_Aging, Stale_Recovering. Blocks for Stale_Unrecoverable, Desync, Offline, Manual_Resync.
 
-- MarketData
-- Aggregation
-- Storage
-- Delivery
-- Insights
+### Workspace Model
 
-No cross-context leakage.
+- **Split_Tree:** Binary layout tree (31 nodes max, 16 panes)
+- **Pane:** Widget host with role (Primary_Chart, Auxiliary, Context)
+- **Schema:** V12 with CRC checksum + artifact fingerprint
+- **Widget kinds (13):** Candle, Stats, Counter, Heatmap, VPVR, Trades, Orderbook, DOM, Empty, Analytics, Session_VPVR, TPO, Footprint
 
-Communication happens through contracts.
+### Orderflow
 
----
+Orderflow is a cross-cutting concern across 4 tiers, not a separate bounded context (ADR-0033, ADR-0035):
 
-### 5. Thin Infrastructure
+| Tier | Owner | Examples |
+|---|---|---|
+| T0 Raw | marketdata | TradeTickV1, BookDeltaV1 |
+| T1 Aggregates | aggregation | TapeWindowV1, OrderBookSnapshotV2, DeltaVolumeWindowV1 |
+| T2 Derived | insights | VolumeProfileV1, HeatmapCellV1, FootprintCandleV1 |
+| T3 Evidence | evidence | LiquidityEvidence (5 rule types) |
 
-Adapters must be replaceable.
+Client-side per-stream stores: DOM_Store (512 levels), Footprint_Store (200 candles × 50 levels), Trades_Store (256 ticks), Orderbook_Store (50/side).
 
-The core must not know about:
+### Platforms
 
-- NATS
-- ClickHouse
-- Supabase
-- Exchanges
-
-Only ports.
-
----
-
-## Runtime Model
-
-We adopt an actor model to guarantee:
-
-- concurrency safety
-- supervision
-- restartability
-- lifecycle clarity
-
-### Actor Responsibilities
-
-Actors coordinate.
-
-Use cases decide.
-
-Domain enforces invariants.
-
----
-
-## Hot vs Cold Path
-
-### Hot Path
-
-Used for:
-
-- UI streaming
-- agent consumption
-- real-time detection
-
-Characteristics:
-
-- in-memory
-- ultra-low latency
-- disposable
-
-### Cold Path
-
-Used for:
-
-- analytics
-- backtesting
-- audits
-- historical queries
-
-Characteristics:
-
-- durable
-- partitioned
-- replayable
+| Platform | Rendering | WebSocket | Threading |
+|---|---|---|---|
+| **Web (WASM)** | Canvas2D via JS bridge | JS WebSocket bridge | Single-threaded |
+| **Native** | GLFW/SDL2 + imgui | Native WebSocket | Background reader thread + mutex |
 
 ---
 
-## Insights Philosophy
+## Module Structure
 
-Insights are:
+```
+market-raccoon/
+├── cmd/                          # 11 service entrypoints
+│   ├── consumer/                 # Exchange → Event Bus ingester
+│   ├── processor/                # Event Bus → Aggregation pipeline
+│   ├── server/                   # HTTP + WS gateway
+│   ├── store/                    # Storage lifecycle
+│   ├── signals/                  # Signal engine
+│   ├── strategist/               # Intent planner
+│   ├── executor/                 # Trade execution
+│   ├── portfolio/                # Portfolio projector
+│   ├── backfill/                 # Historical data loading
+│   ├── migrate/                  # Database migrations
+│   └── credentials-broker/       # Credential management
+├── internal/
+│   ├── shared/                   # Foundation (24 packages)
+│   ├── core/                     # Bounded contexts (hexagonal)
+│   │   ├── marketdata/           #   domain/ + app/ + ports/
+│   │   ├── marketmodel/          #   instrument metadata
+│   │   ├── aggregation/          #   domain/ + app/ + ports/
+│   │   ├── delivery/             #   domain/ + app/ + ports/
+│   │   ├── insights/             #   domain/ + app/ + ports/
+│   │   ├── evidence/             #   domain/ + app/ + ports/
+│   │   ├── signal/               #   atomic detection engine
+│   │   ├── signals/              #   composition engine
+│   │   ├── strategy/             #   domain/ + app/ + ports/
+│   │   ├── execution/            #   domain/ + app/ + governance/
+│   │   ├── portfolio/            #   domain/ + app/ + ports/
+│   │   └── workspace/            #   schema management
+│   ├── adapters/                 # Infrastructure implementations
+│   │   ├── exchange/             #   6 exchange adapters + common
+│   │   ├── bus/                  #   InMemoryBus
+│   │   ├── jetstream/            #   NATS JetStream
+│   │   ├── storage/              #   TimescaleDB + ClickHouse
+│   │   └── execution/            #   Binance safe adapter + credentials broker
+│   ├── actors/                   # Hollywood actor subsystems
+│   └── interfaces/               # HTTP server + WS server
+├── client/                       # Odin UI (WASM + native)
+│   └── src/core/
+│       ├── app/                  #   orchestration, workspace, frame loop
+│       ├── layers/               #   visualization strategies
+│       ├── services/             #   per-stream stores
+│       ├── md_common/            #   protocol bridge
+│       ├── ports/                #   adapter interfaces
+│       ├── streams/              #   stream identity
+│       ├── widgets/              #   widget definitions
+│       ├── ui/                   #   layout primitives
+│       ├── math/                 #   math utilities
+│       └── util/                 #   common utilities
+├── proto/                        # Protobuf contracts
+├── sql/                          # Goose migrations
+└── deploy/                       # Docker + deployment
+```
 
-✔ probabilistic
-✔ evidence-based
-✔ auditable
-
-They are NOT signals.
-
-The system never instructs users to buy or sell.
+Each backend bounded context has its own `go.mod`. The workspace (`go.work`) connects them. Replace directives are required even in workspace mode.
 
 ---
 
-## What Makes This Architecture Defensible
+## Invariants
 
-The moat is operational:
+### Layer Isolation (enforced by `make invariants-check`)
 
-- deterministic event pipelines
-- actor supervision
-- audit trails
-- evidence-backed insights
-- venue divergence detection
+| ID | Rule |
+|---|---|
+| INV-LAY-01 | `internal/core/*` cannot import `internal/actors` |
+| INV-LAY-02 | `internal/interfaces/*` cannot import `internal/adapters` |
+| INV-LAY-03 | `internal/core/*` cannot import `internal/shared/policykit` |
+| INV-LAY-04 | `internal/core/*` cannot import `internal/adapters` |
+| INV-LAY-05 | `internal/core/*` cannot import `internal/interfaces` |
+| INV-LAY-06 | `internal/actors/*` cannot import `internal/interfaces` |
 
-Most competitors optimize UI.
+### Domain Invariants
 
-We optimize cognition.
+| ID | Rule |
+|---|---|
+| INV-DOM-01 | Core and actors must be protobuf-free |
+| INV-DET-01 | Core cannot call `time.Now()` directly — use `clock.Clock` |
+| INV-REP-01 | Replay module must remain offline (no NATS) |
+| INV-BUS-01 | Subject taxonomy must maintain valid family/versioning |
+| INV-ACK-01 | JetStream ingest must maintain ACK/NAK/TERM semantics |
+| INV-TOPO-01 | Guardian must enforce readiness by expected subsystems + restart budget |
+| INV-MEX-01 | Stream identity must include `venue + instrument + market_type` |
+
+### Client Guard Rails
+
+| Rule | Ceiling |
+|---|---|
+| Cell_Surface_View | 10 fields max |
+| Data_Readiness | 6 variants max (adding requires ADR) |
+| Per-stream store isolation | DOM, Footprint on Market_Stream |
+| Workspace schema bump | Only on persistence format change |
+| Pure derivation | No cached health/reliability state |
 
 ---
 
-## Future Extensions
+## Permitted and Prohibited Dependencies
 
-The architecture is intentionally prepared for:
+### Permitted
 
-- additional venues
-- new asset classes
-- agent expansion
-- macro data
-- on-chain analytics
+- Adapters implement core ports
+- Actors import core use cases and adapters
+- Interfaces import actors (for HTTP/WS handlers)
+- Client services import md_common
+- Client layers import services and md_common
+- Client app imports layers, services, ports
 
-without requiring rewrites.
+### Prohibited
+
+- Core importing actors, adapters, or interfaces
+- Interfaces importing adapters directly
+- Actors importing interfaces
+- Cross-context domain type imports without ADR (use contracts)
+- Client services importing layers or app
+- Client layers importing app
+- `time.Now()` in core (use `clock.Clock`)
+- `fmt.Sprintf` in hot path (use `FieldHasher`)
+- Cached health/reliability state in client (derive per-frame)
+
+Full boundary rules with code examples: [boundary-rules.md](boundary-rules.md).
+Canonical naming conventions: [naming-rules.md](naming-rules.md).
 
 ---
 
-## Docs Index (Official)
+## Performance Baseline (C4 Soak)
 
-### Observability
+10M events, 4 exchanges, 85s → 117,697 evt/sec. p50=7µs, p95=13µs, p99=56µs.
 
-- [Metrics Budget & Label Policy](../observability/metrics-policy.md)
- - [Sharding and consumer group operations](../operations/sharding.md)
- - [Local dev setup](../local-dev.md)
+---
+
+## Test Coverage
+
+- **Backend:** ~1,666 tests across all modules
+- **Client:** 1,317 tests (512 md_common + 472 app + 246 services + 57 layers + 16 streams + 14 util)
+- **CI:** 3-tier pipeline, 8 soak harnesses, testcontainers
+
+---
+
+## Docs Index
+
+### Core Reference
+
+- [Architecture Overview](README.md) — this file
+- [Subsystem Responsibilities](subsystems.md) — per-subsystem boundary, I/O, capabilities
+- [Sequencing Model](sequencing-model.md) — ordering guarantees, DecideMonotonic, prev_seq, replay
+- [System Invariants](system-invariants.md) — live invariant index with gates
+- [IQ Loop Invariants](iq-loop-invariants.md) — top-10 properties, guardrail metrics
+- [TRUTH-MAP](TRUTH-MAP.md) — single source of truth per critical theme
+- [Authority Map](AUTHORITY-MAP.md) — governance domain → authoritative document
+- [Architectural Decisions](decisions.md) — ADR + RFC index
+- [Boundary Rules](boundary-rules.md) — layer isolation, dependency direction, ownership
+- [Naming Rules](naming-rules.md) — canonical ubiquitous language
+
+### Domain Architecture
+
+- [Orderbook](orderbook.md) | [Candle Aggregation](candle-aggregation.md) | [Stats Aggregation](stats-aggregation.md)
+- [Heatmap](heatmap.md) | [Volume Profiles](volume-profiles.md) | [Liquidations and MarkPrice](liquidations-markprice.md)
+- [Insights](insights.md) | [Storage](storage.md)
 
 ### ADR Index
 
-- [ADR-0000](../adrs/ADR-0000-foundation.md)
-- [ADR-0001](../adrs/ADR-0001-bounded-contexts-and-boundaries.md)
-- [ADR-0002](../adrs/ADR-0002-event-envelope-and-versioning.md)
-- [ADR-0003](../adrs/ADR-0003-actor-runtime.md)
-- [ADR-0004](../adrs/ADR-0004-bus-nats-jetstream.md)
-- [ADR-0005](../adrs/ADR-0005-sequencing-and-time-normalization.md)
-- [ADR-0006](../adrs/ADR-0006-storage-hot-vs-cold.md)
-- [ADR-0007](../adrs/ADR-0007-delivery-ws-sessions.md)
-- [ADR-0008](../adrs/ADR-0008-insights-decision-support.md)
-- [ADR-0009](../adrs/ADR-0009-config-jsonc-determinism.md)
-- [ADR-0010](../adrs/ADR-0010-config-loading-startup-validation.md)
-- [ADR-0011](../adrs/ADR-0011-marketdata-binance-canonical-instrument-and-event-mapping.md)
-- [ADR-0012](../adrs/ADR-0012-lifecycle-invariants-leak-prevention.md)
-- [ADR-0013](../adrs/ADR-0013-backpressure-overload-policies.md)
-- [ADR-0014](../adrs/ADR-0014-stream-partitioning-strategy.md)
-- [ADR-0015](../adrs/ADR-0015-deterministic-replay-time-invariants.md)
-- [ADR-0016](../adrs/ADR-0016-protobuf-contract-layer.md)
-- [ADR-0017](../adrs/ADR-0017-multi-exchange-normalization.md)
-- [ADR-0018](../adrs/ADR-0018-actor-topology-supervision-model.md)
+- [ADR-0000](../adrs/ADR-0000-foundation.md) through [ADR-0035](../adrs/ADR-0035-orderflow-contract-architecture.md)
+- Key: [0032 Stream Reliability](../adrs/ADR-0032-stream-reliability-model.md) | [0033 Orderflow Blueprint](../adrs/ADR-0033-orderflow-domain-blueprint.md) | [0034 Health Recovery](../adrs/ADR-0034-stream-health-recovery-completion.md) | [0035 Orderflow Contracts](../adrs/ADR-0035-orderflow-contract-architecture.md)
 
-### RFC Index
+### Contracts
 
-- [RFC-0001](../rfcs/RFC-0001-robustness-roadmap.md)
-- [RFC-0002](../rfcs/RFC-0002-w1-config-shutdown-hardening.md)
-- [RFC-0003](../rfcs/RFC-0003-W2-DELIVERY-BC.md)
-- [RFC-0004](../rfcs/RFC-0004-W3-SOURCES-MARKETDATA-BINANCE.md)
-- [RFC-0005](../rfcs/RFC-0005-W4-observability-profiling.md)
-- [RFC-0006](../rfcs/RFC-0006-W5-memory-lifecycle-hardening.md)
-- [RFC-0007](../rfcs/RFC-0007-W6-protobuf-contract-layer.md)
-- [RFC-0008](../rfcs/RFC-0008-W7-nats-jetstream-integration.md)
-- [RFC-0009](../rfcs/RFC-0009-W8-deterministic-replay-golden-tests.md)
-- [RFC-0010](../rfcs/RFC-0010-W9-multi-exchange-readiness.md)
-- [RFC-0011](../rfcs/RFC-0011-product-parity-marketmonkey.md)
-- [EXECUTION-SEQUENCE](../rfcs/EXECUTION-SEQUENCE.md)
-- [ADR-REVISIONS patch plan](../rfcs/archive/ADR-REVISIONS-patch-plan.md) (ARCHIVED)
-- [W4-W5 Audit](TRUTH-MAP.md) (ARCHIVED; consolidated in TRUTH-MAP)
-- [W5.1 Sweep Throttling](../rfcs/archive/W5.1-SWEEP-THROTTLING.md) (ARCHIVED)
+- [Event Bus Contract](../contracts/event-bus.md) | [Delivery WS Contract](../contracts/delivery-ws.md)
 
-### Architecture Docs Index
+### Planning
 
-#### Core Reference
-
-- [Architecture Overview](README.md) — this file
-- [Subsystem Responsibilities](subsystems.md) — **START HERE** for per-subsystem boundary, I/O, caps, and IQ evidence
-- [Sequencing Model](sequencing-model.md) — ordering guarantees, ownership contracts, `DecideMonotonic`, `prev_seq`, replay
-- [Architectural Decisions](decisions.md) — consolidated ADR + RFC index with status and thematic groups
-- [IQ Loop Runtime Invariants](iq-loop-invariants.md) — Top-10 IQ properties, guardrail metrics, rollback actions
-- [System Invariants](system-invariants.md) — live invariant index with gates (`INV-DOM-01`, `INV-DET-01`, …)
-- [TRUTH-MAP](TRUTH-MAP.md) — single source of truth per critical theme; doc + code/test anchors
-- [Authority Map](AUTHORITY-MAP.md) — governance domain → authoritative document mapping
-
-#### Domain Architecture
-
-- [Ingestion](ingestion.md)
-- [Orderbook](orderbook.md)
-- [Candle Aggregation](candle-aggregation.md)
-- [Stats Aggregation](stats-aggregation.md)
-- [Heatmap](heatmap.md)
-- [Volume Profiles](volume-profiles.md)
-- [Liquidations and MarkPrice](liquidations-markprice.md)
-- [Insights](insights.md)
-- [Storage](storage.md)
-
-#### Planning
-
-- [Moat](../prds/moat.md)
-- [Doc Contract Template](../doc-contract-template.md)
-
-### Contracts Index
-
-- [Event Bus Contract](../contracts/event-bus.md)
-- [Delivery WS Contract](../contracts/delivery-ws.md)
+- [Product Definition](../product-definition.md) | [Moat](../prds/moat.md)

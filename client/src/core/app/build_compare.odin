@@ -179,23 +179,14 @@ build_compare_mode :: proc(
 		// S37/S53: Composition badge (shared proc).
 		cursor_x += draw_composition_badge(&state.cmd_buf, cursor_x, text_y, sv.composition, state.text.measure)
 
-		// S42: Recovery badge (RCVR/XHST) — surfaces per-pane recovery status.
-		switch sv.recovery_status {
-		case .Recovering:
-			rcvr_label :: "RCVR"
-			ui.push_text(&state.cmd_buf, {cursor_x, text_y},
-				rcvr_label, ui.COL_WARNING, ui.FONT_SIZE_XS, .Mono)
-			cursor_x += state.text.measure(ui.FONT_SIZE_XS, rcvr_label).x + 4
-		case .Exhausted:
-			xhst_label :: "XHST"
-			ui.push_text(&state.cmd_buf, {cursor_x, text_y},
-				xhst_label, ui.COL_RED, ui.FONT_SIZE_XS, .Mono)
-			cursor_x += state.text.measure(ui.FONT_SIZE_XS, xhst_label).x + 4
-		case .None:
-		}
-
 		// S37/S53: Health dot (shared proc).
-		draw_health_dot(&state.cmd_buf, cursor_x, header_rect.pos.y + header_h * 0.5, 6, sv.health_level, sv.has_live_data, sv.composition)
+		cursor_x += draw_health_dot(&state.cmd_buf, cursor_x, header_rect.pos.y + header_h * 0.5, 6, sv.health_level, sv.has_live_data, sv.composition)
+
+		// S145: Recovery badge — replaces S42 RCVR/XHST with richer reliability badge.
+		cursor_x += draw_recovery_badge(&state.cmd_buf, cursor_x, text_y, sv.reliability, sv.recovery_attempts, state.text.measure)
+
+		// S140: Set frame TF for compare pane time axis.
+		state.frame_tf_ms = compare_pane_effective_tf_ms(state, ci)
 
 		// S84: Analytics panes route through analytics-filtered layer canvas.
 		if render_kind == .Analytics {

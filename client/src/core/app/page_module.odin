@@ -55,11 +55,11 @@ PAGE_MODULES :: [Route]Page_Module{
 		on_enter      = page_instrument_overview_enter,
 		on_leave      = page_instrument_overview_leave,
 	},
-	.Session_Health = {
-		render_page   = page_session_health_render,
-		render_detail = page_session_health_render_detail,
-		on_enter      = page_session_health_enter,
-		on_leave      = page_session_health_leave,
+	.Delivery_Health = {
+		render_page   = page_delivery_health_render,
+		render_detail = page_delivery_health_render_detail,
+		on_enter      = page_delivery_health_enter,
+		on_leave      = page_delivery_health_leave,
 	},
 	.Portfolio = {
 		render_page   = page_portfolio_render,

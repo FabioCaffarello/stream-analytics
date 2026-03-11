@@ -85,6 +85,48 @@ build_getrange_msg :: proc(buf: []u8, subject: string, limit: int, end_ts: i64, 
 	return string(buf[:n]), true
 }
 
+// Terminal_V1 getrange: includes component fields for server-side routing (S148-BUG-1).
+// Legacy getrange only sent "subject" — server in Terminal_V1 mode requires venue/symbol/channel.
+build_getrange_msg_v2 :: proc(buf: []u8, subject: string, venue: string, symbol: string, channel: string, aggregation: string, limit: int, end_ts: i64, rid: u32) -> (string, bool) {
+	if !subject_is_json_safe(subject) do return "", false
+	n := 0
+	p1 :: `{"op":"getrange","subject":"`
+	for c in p1 { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	for c in subject { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	p2 :: `","venue":"`
+	for c in p2 { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	for c in venue { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	p3 :: `","symbol":"`
+	for c in p3 { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	for c in symbol { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	p4 :: `","channel":"`
+	for c in p4 { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	for c in channel { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	p5 :: `","aggregation":"`
+	for c in p5 { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	for c in aggregation { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	p6 :: `","params":{"limit":`
+	for c in p6 { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	limit_buf: [16]u8
+	limit_str := fmt.bprintf(limit_buf[:], "%d", limit)
+	for c in limit_str { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	if end_ts > 0 {
+		end_mid :: `,"to_ms":`
+		for c in end_mid { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+		end_buf: [24]u8
+		end_str := fmt.bprintf(end_buf[:], "%d", end_ts)
+		for c in end_str { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	}
+	p7 :: `},"request_id":"gr`
+	for c in p7 { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	rid_buf: [16]u8
+	rid_str := fmt.bprintf(rid_buf[:], "%d", rid)
+	for c in rid_str { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	suffix :: `"}`
+	for c in suffix { if n >= len(buf) - 1 do return "", false; buf[n] = u8(c); n += 1 }
+	return string(buf[:n]), true
+}
+
 // Terminal_V1 subscribe: includes component fields alongside subject for richer server-side routing.
 build_subscribe_msg_v2 :: proc(buf: []u8, subject: string, venue: string, symbol: string, channel: string, aggregation: string, rid: u32) -> (string, bool) {
 	if !subject_is_json_safe(subject) do return "", false

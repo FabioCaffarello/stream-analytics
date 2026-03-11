@@ -365,13 +365,6 @@ resolve_cell_surface_view_with_stores :: proc(
 
 	now_ms := current_now_ms(state)
 
-	view.candle_health = compute_candle_health_for_store(
-		stores.candle,
-		md_common.apply_state_candle_recv_ms(apply),
-		tf_ms,
-		now_ms,
-	)
-
 	// S125: Per-artifact live flags for widget-specific readiness.
 	view.artifact_has_live = apply.has_live
 	for kind in md_common.Artifact_Kind {
@@ -381,9 +374,24 @@ resolve_cell_surface_view_with_stores :: proc(
 		}
 	}
 
-	view.stale_count, view.aging_count = md_common.apply_state_stale_artifact_count(apply, now_ms, tf_ms)
+	// S154: health_level and recovery_status are derived as intermediates.
+	// health_level is kept on the struct (consumed by draw_health_dot + visual state).
+	// recovery_status is local-only (feeds reliability derivation).
 	view.health_level = md_common.stream_health_level(apply, now_ms, tf_ms)
-	view.recovery_status = md_common.apply_state_recovery_status(apply)
+	recovery_status := md_common.apply_state_recovery_status(apply)
+	view.recovery_attempts = apply.recovery_attempts
+
+	// S143: Derive canonical reliability from health + transport state.
+	is_desync := state.active_metrics.state == .Desync
+	is_offline := state.active_metrics.state == .Offline
+	view.reliability = md_common.stream_reliability(view.health_level, recovery_status, is_desync, is_offline)
+
+	// S152: Derive backfill expectation from TF data contract + current state.
+	candle_count := stores.candle != nil ? stores.candle.count : 0
+	gr_retry := resolve_cell_getrange_retry_count(state, ci)
+	view.backfill_expectation = md_common.derive_backfill_expectation(
+		tf_ms, apply.getrange_seeded, apply.getrange_pending, candle_count, gr_retry,
+	)
 
 	bind := &state.world.bindings[ci]
 	view.stream_bound = bind.stream_idx >= 0 || binding_has(bind)
@@ -420,6 +428,8 @@ Cell_Stores :: struct {
 	analytics:    ^services.Analytics_Store,        // S47: per-cell analytics ring
 	session_vpvr: ^services.Session_VPVR_Store,     // S49: per-cell session VP
 	tpo:          ^services.TPO_Store,               // S49: per-cell TPO profile
+	dom:          ^services.DOM_Store,               // S148: per-stream DOM fill tracking
+	footprint:    ^services.Footprint_Store,         // S148: per-stream footprint accumulation
 	heatmap_live: bool,
 	vpvr_live:    bool,
 }
@@ -427,21 +437,30 @@ Cell_Stores :: struct {
 // S36: Cell_Surface_View — unified per-cell read model for surfaces.
 // Bundles composition, health, staleness, and identity into a single query result.
 // Surfaces consume this instead of reaching into protocol/apply_state internals.
+// S36/S154: Cell_Surface_View — unified per-cell read model for surfaces.
+// Bundles composition, health, and identity into a single query result.
+// Surfaces consume this instead of reaching into protocol/apply_state internals.
+//
+// S154 simplification: removed dead/intermediate fields:
+//   - candle_health (global state.candle_health used instead)
+//   - snapshot_lifecycle (only used by Apply_State_Telemetry, not per-cell)
+//   - is_transport_lagging (consumers query active_metrics.state directly)
+//   - recovery_status (intermediate — feeds reliability derivation only)
+//   - stale_count/aging_count (intermediate — feed health_level derivation only)
 Cell_Surface_View :: struct {
 	composition:     md_common.Composition_Stage,
-	candle_health:   Candle_Health,
 	has_live_data:   bool, // any artifact with live data
 	// S125: Per-artifact live flags — enables widget-specific readiness checks.
-	// Stats/OB/DOM use these to distinguish Snapshot_Pending (artifact live, store empty)
-	// from Seeding (other artifacts live, this one not yet).
 	artifact_has_live: [md_common.Artifact_Kind]bool,
-	stale_count:     int,
-	aging_count:     int,
 	venue:           string, // resolved label (may be empty)
 	symbol:          string, // resolved label (may be empty)
 	stream_bound:    bool,   // has explicit stream binding
 	health_level:    md_common.System_Health_Level,
-	recovery_status: md_common.Recovery_Status, // S42: per-pane recovery diagnostics
+	recovery_attempts: u8,   // S145: attempts count for operator UX
+	// S143: Canonical reliability — single gate for "is this stream's data trustworthy?"
+	reliability:     md_common.Stream_Reliability,
+	// S152: Backfill expectation — TF-aware policy + current state classification.
+	backfill_expectation: md_common.Backfill_Expectation,
 }
 
 resolve_stores_for_cell :: proc(state: ^App_State, ci: int) -> Cell_Stores {
@@ -456,6 +475,8 @@ resolve_stores_for_cell :: proc(state: ^App_State, ci: int) -> Cell_Stores {
 		stores.orderbook    = &active.orderbook
 		stores.stats        = &active.stats
 		stores.analytics    = &active.analytics
+		stores.dom          = &active.dom         // S157: per-stream DOM for follow-active
+		stores.footprint    = &active.footprint   // S157: per-stream footprint for follow-active
 	}
 	// S100: session_vpvr + tpo from active slot (per-slot data, not on Market_Stream).
 	reg := state.stream_views
@@ -518,6 +539,8 @@ resolve_stores_for_cell :: proc(state: ^App_State, ci: int) -> Cell_Stores {
 		sid := slot.subject_id
 		if ms := layers.market_store_stream_for_subject(&state.layer_store, sid); ms != nil {
 			stores.analytics = &ms.analytics
+			stores.dom       = &ms.dom         // S148: per-stream DOM
+			stores.footprint = &ms.footprint   // S148: per-stream footprint
 		}
 		stores.session_vpvr = &slot.session_vpvr_store
 		stores.tpo = &slot.tpo_store
@@ -589,6 +612,8 @@ resolve_stores_for_pane :: proc(state: ^App_State, binding: ^Stream_Binding, eff
 		stores.orderbook = &active.orderbook
 		stores.stats     = &active.stats
 		stores.analytics = &active.analytics
+		stores.dom       = &active.dom         // S148: per-stream DOM
+		stores.footprint = &active.footprint   // S148: per-stream footprint
 	}
 	// Session VP + TPO from active slot.
 	reg := state.stream_views
@@ -647,6 +672,8 @@ resolve_stores_for_pane :: proc(state: ^App_State, binding: ^Stream_Binding, eff
 		sid := slot.subject_id
 		if ms := layers.market_store_stream_for_subject(&state.layer_store, sid); ms != nil {
 			stores.analytics = &ms.analytics
+			stores.dom       = &ms.dom         // S148: per-stream DOM
+			stores.footprint = &ms.footprint   // S148: per-stream footprint
 		}
 		stores.session_vpvr = &slot.session_vpvr_store
 		stores.tpo = &slot.tpo_store
@@ -740,6 +767,21 @@ resolve_cell_apply_state :: proc(state: ^App_State, ci: int) -> md_common.Stream
 	return state.active_apply_state
 }
 
+// S152: Resolve the GetRange retry count for a cell. Reads from the appropriate
+// retry context (global for follow-active, per-cell for bound cells).
+resolve_cell_getrange_retry_count :: proc(state: ^App_State, ci: int) -> u8 {
+	if state == nil || ci < 0 || ci >= state.world.count do return 0
+	bind := &state.world.bindings[ci]
+
+	// Follow-active cells use the global getrange retry count.
+	if bind.stream_idx < 0 && !binding_has(bind) {
+		return state.getrange.retry_count
+	}
+
+	// Bound cell: read from per-cell getrange state.
+	return state.world.getranges[ci].retry_count
+}
+
 // S38: Resolve the effective subject_id for a compare pane at its per-pane TF.
 // Uses the seed subject_id (compare.slots[ci]) to identify the market, then
 // finds the best slot at the pane's effective TF. Falls back to seed if no
@@ -798,13 +840,6 @@ resolve_compare_surface_view :: proc(state: ^App_State, pane_idx: int) -> Cell_S
 	// S63: Use pre-resolved eff_sid to avoid double compare_pane_resolve_subject_id call.
 	view.composition = resolve_compare_pane_composition_for_sid(state, pane_idx, eff_sid)
 
-	view.candle_health = compute_candle_health_for_store(
-		&slot.candle_store,
-		md_common.apply_state_candle_recv_ms(apply),
-		tf_ms,
-		now_ms,
-	)
-
 	// S125: Per-artifact live flags for widget-specific readiness.
 	view.artifact_has_live = apply.has_live
 	for kind in md_common.Artifact_Kind {
@@ -814,9 +849,24 @@ resolve_compare_surface_view :: proc(state: ^App_State, pane_idx: int) -> Cell_S
 		}
 	}
 
-	view.stale_count, view.aging_count = md_common.apply_state_stale_artifact_count(apply, now_ms, tf_ms)
+	// S154: health_level kept on struct; recovery_status is local intermediate.
 	view.health_level = md_common.stream_health_level(apply, now_ms, tf_ms)
-	view.recovery_status = md_common.apply_state_recovery_status(apply) // S42
+	recovery_status := md_common.apply_state_recovery_status(apply)
+	view.recovery_attempts = apply.recovery_attempts
+
+	// S143: Derive reliability for compare pane. Compare panes share the global
+	// transport state (is_desync/is_offline) since all streams go through one WS connection.
+	is_desync := state.active_metrics.state == .Desync
+	is_offline := state.active_metrics.state == .Offline
+	view.reliability = md_common.stream_reliability(view.health_level, recovery_status, is_desync, is_offline)
+
+	// S152: Backfill expectation for compare pane.
+	candle_count := slot.candle_store.count
+	cgr := state.compare.getranges[pane_idx]
+	view.backfill_expectation = md_common.derive_backfill_expectation(
+		tf_ms, apply.getrange_seeded || cgr.seeded, apply.getrange_pending || cgr.pending,
+		candle_count, cgr.retry_count,
+	)
 
 	if !slot.has_stream_info { refresh_stream_info_for_slot(state, slot) }
 	if slot.has_stream_info {

@@ -2487,22 +2487,22 @@ test_s41_composition_intent_lifecycle :: proc(t: ^testing.T) {
 	s: Stream_Apply_State
 
 	// No active stream → None
-	testing.expect_value(t, composition_intent(s, 0, false), Orchestrator_Intent.None)
+	testing.expect_value(t, composition_intent(s, 0, false), Orchestrator_Phase.None)
 
 	// Active stream, no data → Seed_Range
-	testing.expect_value(t, composition_intent(s, 0, true), Orchestrator_Intent.Seed_Range)
+	testing.expect_value(t, composition_intent(s, 0, true), Orchestrator_Phase.Seed_Range)
 
 	// Pending getrange → Await_Seed
 	apply_state_mark_range_sent(&s, 1, 0)
-	testing.expect_value(t, composition_intent(s, 0, true), Orchestrator_Intent.Await_Seed)
+	testing.expect_value(t, composition_intent(s, 0, true), Orchestrator_Phase.Await_Seed)
 
 	// Seeded but no live → Await_Live
 	apply_state_mark_range_complete(&s, 1000)
-	testing.expect_value(t, composition_intent(s, 50, true), Orchestrator_Intent.Await_Live)
+	testing.expect_value(t, composition_intent(s, 50, true), Orchestrator_Phase.Await_Live)
 
 	// Seeded + live → Steady
 	apply_state_mark_event(&s, .Candle, 5000, false)
-	testing.expect_value(t, composition_intent(s, 50, true), Orchestrator_Intent.Steady)
+	testing.expect_value(t, composition_intent(s, 50, true), Orchestrator_Phase.Steady)
 }
 
 // =========================================================================

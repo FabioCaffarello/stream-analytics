@@ -35,6 +35,7 @@ Widget_Kind :: enum u8 {
 	Analytics,    // S48: Orderflow analytics (OI, DV, CVD, BS)
 	Session_VPVR, // S49: Session volume profile
 	TPO,          // S49: TPO profile
+	Footprint,    // S155: Orderflow footprint chart
 }
 
 TOP_BAR_H :: f32(32)
@@ -45,7 +46,7 @@ Route :: enum u8 {
 	Markets,
 	Settings,
 	Instrument_Overview,
-	Session_Health,
+	Delivery_Health,
 	Portfolio,
 }
 
@@ -124,6 +125,11 @@ UI_Action_Kind :: enum u8 {
 	Toggle_Context_Stack,        // S113: toggle right-side context panel
 	Set_Context_Tab,             // S113: switch active context tab
 	Cycle_Context_Tab,           // S119: cycle to next available tab for current role
+	Toggle_CVD,                  // S142: toggle CVD subplot (Shift+C)
+	Toggle_Delta_Vol,            // S142: toggle Delta Volume subplot (Shift+V)
+	Toggle_OI,                   // S142: toggle Open Interest subplot (Shift+D)
+	Cycle_Compare_Pane_Next,     // S142: focus next compare pane (Right arrow)
+	Cycle_Compare_Pane_Prev,     // S142: focus prev compare pane (Left arrow)
 }
 
 UI_Action :: struct {
@@ -473,8 +479,8 @@ App_State :: struct {
 
 	// S58: Instrument overview state — backend-owned read model.
 	instrument_overview: Instrument_Overview_State,
-	// S59: Session health state — backend-owned session dashboard read model.
-	session_health: Session_Health_State,
+	// S59: Delivery health state — backend-owned delivery health dashboard read model.
+	delivery_health: Delivery_Health_State,
 	// S60: Market Explorer 2.0 — discovery page state.
 	explorer: Explorer_State,
 	// S74: Portfolio data layer — three backend-owned read model stores.
@@ -488,6 +494,15 @@ App_State :: struct {
 
 	// S122: Workspace artifact fingerprint — last persisted state hash for idempotent comparison.
 	last_persist_fingerprint: u32,
+
+	// S139: Frame-local chart viewport (set per-cell before layer rendering, consumed by Layer_Context).
+	frame_chart_viewport: layers.Chart_Viewport,
+
+	// S140: Frame-local timeframe duration (set per-cell before layer rendering, consumed by time axis).
+	frame_tf_ms: i64,
+
+	// S139: Chart pan (drag) state — tracks active drag across frames.
+	chart_pan: Chart_Pan_State,
 }
 
 // S20: Bootstrap state populated from GET /api/v1/session.
@@ -528,11 +543,11 @@ Overview_Fetch_Status :: enum u8 {
 	Error,
 }
 
-// S59: Session Health — backend-owned session dashboard read model state.
-Session_Health_State :: struct {
+// S59: Delivery Health — backend-owned delivery health dashboard read model state.
+Delivery_Health_State :: struct {
 	fetch_status: Overview_Fetch_Status,
 	fetch_frame:  u64,
-	view:         services.Session_Health_Result,
+	view:         services.Delivery_Health_Result,
 }
 
 // S60: Market Explorer 2.0 — page state for venue-grouped discovery.
@@ -1285,7 +1300,7 @@ update :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buffe
 	observe_candle_health(state)
 	poll_freshness(state)
 	poll_instrument_overview(state)
-	poll_session_health(state)
+	poll_delivery_health(state)
 	poll_explorer(state)
 	poll_portfolio(state)
 	cache_render_observations(state, frame_input)
@@ -1326,7 +1341,7 @@ update_web :: proc(state: ^App_State, input: ports.Input_State) -> (buf: ^ui.Com
 	sample_marketdata_metrics(state)
 	poll_freshness(state)
 	poll_instrument_overview(state)
-	poll_session_health(state)
+	poll_delivery_health(state)
 	poll_explorer(state)
 	poll_portfolio(state)
 

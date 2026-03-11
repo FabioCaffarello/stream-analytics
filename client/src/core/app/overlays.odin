@@ -16,8 +16,8 @@ draw_help_overlay :: proc(state: ^App_State, viewport_w, viewport_h: f32) {
 	})
 
 	// Centered panel.
-	panel_w := f32(280)
-	panel_h := f32(500)
+	panel_w := f32(300)
+	panel_h := f32(720)
 	if panel_w > viewport_w - 20 do panel_w = viewport_w - 20
 	if panel_h > viewport_h - 20 do panel_h = viewport_h - 20
 	px := (viewport_w - panel_w) * 0.5
@@ -33,32 +33,45 @@ draw_help_overlay :: proc(state: ^App_State, viewport_w, viewport_h: f32) {
 		ui.COL_TEXT_PRIMARY, ui.FONT_SIZE_MD, .Bold)
 	y += 28
 
-	// Shortcut entries.
+	// Shortcut entries — S142: comprehensive list.
 	Help_Entry :: struct { key, desc: string }
 	entries := [?]Help_Entry{
-		{"Ctrl+K", "Connection manager"},
-		{"Ctrl+H", "Telemetry HUD"},
+		// --- Navigation ---
 		{"Tab / Shift+Tab", "Cycle stream"},
-		{"1-9", "Timeframe"},
+		{"1-9", "Global timeframe"},
+		{"Shift+1-9", "Cell/pane timeframe"},
+		{"D", "Cycle context tab"},
 		{"S", "Toggle detail panel"},
+		{"G", "Stream picker"},
+		{"Escape", "Exit mode/overlay"},
+		// --- Modes ---
 		{"C", "Compare mode"},
 		{"F", "Focus mode (scalper)"},
-		{"G", "Stream picker"},
-		{"M", "Toggle MA overlay"},
-		{"B", "Toggle Bollinger Bands"},
-		{"V", "Toggle VWAP"},
-		{"R", "Toggle RSI"},
-		{"I", "Toggle MACD"},
-		{"H", "Toggle Funding Rate"},
-		{"J", "Toggle Liquidations"},
-		{"K", "Toggle Trade Counter"},
-		{"Del / Bksp", "Delete draw tool"},
+		{"Z", "Zen mode"},
+		{"Left/Right", "Compare pane focus"},
+		// --- Indicators ---
+		{"M", "Moving Average"},
+		{"B", "Bollinger Bands"},
+		{"V / Shift+V", "VWAP / Delta Volume"},
+		{"R", "RSI"},
+		{"I", "MACD"},
+		{"H", "Funding Rate"},
+		{"J", "Liquidations"},
+		{"K", "Trade Counter"},
+		{"Shift+C", "CVD subplot"},
+		{"Shift+D", "Open Interest subplot"},
+		// --- Chart ---
+		{"Scroll", "Scroll history"},
+		{"Ctrl+Scroll", "Zoom chart"},
+		{"Home / End", "Live edge / oldest"},
 		{"Dbl-click", "Add price line"},
 		{"Shift+Drag", "Rectangle zone"},
-		{"Escape", "Exit mode/overlay"},
+		{"Del / Bksp", "Delete draw tool"},
+		// --- System ---
+		{"Ctrl+K", "Connection manager"},
+		{"Ctrl+H/J/R", "Split H / V / rotate"},
+		{"Ctrl+D", "Runtime snapshot"},
 		{"?", "This help"},
-		{"Scroll", "Zoom chart"},
-		{"Right-click", "Cell context menu"},
 	}
 	for e in entries {
 		ui.push_text(&state.cmd_buf, {px + 16, y}, e.key,

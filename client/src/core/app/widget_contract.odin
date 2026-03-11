@@ -11,6 +11,7 @@ package app
 // Widgets NEVER access global stores directly. All data flows through
 // Widget_Data_Context, resolved once per pane per frame by the host.
 
+import "mr:layers"
 import "mr:ports"
 import "mr:services"
 import "mr:ui"
@@ -134,6 +135,7 @@ WIDGET_CONTRACTS := [Widget_Kind]Widget_Contract {
 	.Analytics    = { on_create = default_on_create, on_bind_context = default_on_bind, on_update = default_on_update, on_render = render_analytics_contract, on_handle_input = default_on_input, on_serialize = default_on_serialize, on_dispose = default_on_dispose },
 	.Session_VPVR = { on_create = default_on_create, on_bind_context = default_on_bind, on_update = default_on_update, on_render = render_profile_contract,   on_handle_input = default_on_input, on_serialize = default_on_serialize, on_dispose = default_on_dispose },
 	.TPO          = { on_create = default_on_create, on_bind_context = default_on_bind, on_update = default_on_update, on_render = render_profile_contract,   on_handle_input = default_on_input, on_serialize = default_on_serialize, on_dispose = default_on_dispose },
+	.Footprint    = { on_create = default_on_create, on_bind_context = default_on_bind, on_update = default_on_update, on_render = render_footprint_contract,  on_handle_input = default_on_input, on_serialize = default_on_serialize, on_dispose = default_on_dispose },
 }
 
 // ---------------------------------------------------------------------------
@@ -384,8 +386,18 @@ default_on_dispose :: proc(pane: ^Pane) {
 // ---------------------------------------------------------------------------
 
 // Candle chart: delegates to existing layer canvas with subplot support.
+// S139: Sets frame_chart_viewport from pane view state before rendering.
+// S148-BUG-2: Sync pane view → Entity_World BEFORE render_cell_layer_canvas
+// so the viewport is consistent (render_cell_layer_canvas reads from world.views).
 @(private = "file")
 render_candle_contract :: proc(state: ^App_State, pane: ^Pane, ctx: Widget_Data_Context, rect: ui.Rect) {
+	if pane != nil && ctx.cell_idx >= 0 && ctx.cell_idx < state.world.count {
+		// S148-BUG-2: Ensure Entity_World has current pane view state so
+		// render_cell_layer_canvas picks up the correct scroll/zoom.
+		state.world.views[ctx.cell_idx].candle_scroll_x = pane.view.scroll_x
+		state.world.views[ctx.cell_idx].candle_zoom = pane.view.zoom_level
+	}
+	state.frame_tf_ms = ctx.tf_ms // S140: pass effective TF to time axis
 	render_cell_layer_canvas(state, ctx.cell_idx, .Candle, rect)
 }
 
@@ -406,6 +418,12 @@ render_analytics_contract :: proc(state: ^App_State, pane: ^Pane, ctx: Widget_Da
 render_profile_contract :: proc(state: ^App_State, pane: ^Pane, ctx: Widget_Data_Context, rect: ui.Rect) {
 	vm := resolve_cell_view_model(state, ctx.cell_idx)
 	render_session_profile_cell_vm(&state.cmd_buf, vm, rect)
+}
+
+// S157: Footprint chart: renders per-candle volume distribution grid.
+@(private = "file")
+render_footprint_contract :: proc(state: ^App_State, pane: ^Pane, ctx: Widget_Data_Context, rect: ui.Rect) {
+	render_footprint_widget(&state.cmd_buf, ctx.stores.footprint, rect)
 }
 
 // Empty widget: render nothing (placeholder).

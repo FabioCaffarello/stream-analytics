@@ -121,9 +121,8 @@ sync_active_stream_view_registry :: proc(state: ^App_State) {
 			stream_id := build_stream_id_from_market_into(stream_id_buf[:], slot.stream_info.venue, slot.stream_info.symbol)
 			streams.registry_set_active(&state.stream_registry, stream_id)
 		}
-		// Reset DOM fill tracking and footprint accumulation on stream switch.
-		services.dom_store_reset(&state.stores.dom)
-		services.footprint_store_reset(&state.stores.footprint)
+		// S148: DOM and footprint are per-stream — no global reset needed.
+		// Each Market_Stream owns its own dom/footprint stores.
 	}
 }
 
@@ -381,6 +380,8 @@ apply_set_timeframe_action :: proc(state: ^App_State, idx: int) -> bool {
 		// S99: Clear analytics on canonical layer_store stream (was slot.analytics_store).
 		if ms := layers.market_store_stream_for_subject(&state.layer_store, slot.subject_id); ms != nil {
 			services.analytics_store_clear(&ms.analytics)
+			// S157: Clear TF-dependent footprint on per-stream store.
+			services.footprint_store_reset(&ms.footprint)
 		}
 		// Clear orderbook store — stale L2 data from the prior TF doesn't persist.
 		// A fresh snapshot will arrive after resubscribe.
@@ -415,6 +416,8 @@ apply_set_timeframe_action :: proc(state: ^App_State, idx: int) -> bool {
 				cs.vpvr_store = {}
 				if ms := layers.market_store_stream_for_subject(&state.layer_store, cs.subject_id); ms != nil {
 					services.analytics_store_clear(&ms.analytics)
+					// S157: Clear TF-dependent footprint on per-stream store.
+					services.footprint_store_reset(&ms.footprint)
 				}
 				md_common.apply_state_on_tf_change(&cs.apply_state)
 			}
@@ -605,6 +608,8 @@ apply_set_cell_timeframe_action :: proc(state: ^App_State, cell_idx: int, tf_idx
 			// S99: Clear analytics on canonical layer_store stream (was slot.analytics_store).
 			if ms := layers.market_store_stream_for_subject(&state.layer_store, slot.subject_id); ms != nil {
 				services.analytics_store_clear(&ms.analytics)
+				// S157: Clear TF-dependent footprint on per-stream store.
+				services.footprint_store_reset(&ms.footprint)
 			}
 			// S24: apply_state_on_tf_change handles has_live/snapshot_seen resets per policy.
 			md_common.apply_state_on_tf_change(&slot.apply_state)

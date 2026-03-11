@@ -100,6 +100,14 @@ subplot_flags_count :: proc(flags: Subplot_Flags) -> int {
 	return n
 }
 
+// S139: Chart viewport navigation state.
+// Controls which candles are visible and scroll position.
+// Zero values = "auto" (show last N candles, no scroll offset).
+Chart_Viewport :: struct {
+	scroll_offset: int,   // candles from right edge (0 = live edge, positive = scrolled left)
+	visible_count: int,   // number of candles to display (0 = auto, use default for viewport width)
+}
+
 // Read-only context for layer render hooks.
 Layer_Context :: struct {
 	store:        ^Market_Store,
@@ -115,6 +123,8 @@ Layer_Context :: struct {
 	analytics_filter: bool,                      // true = render only analytics_kind; false = render all
 	active_bundle: u32,                          // S86: requested bundle mask — lets render functions conditionally skip irrelevant output
 	subplot_flags: Subplot_Flags,               // S94: which analytics subplots are active on this candle cell
+	chart_viewport: Chart_Viewport,             // S139: scroll/zoom for candle viewport navigation
+	tf_ms:          i64,                        // S140: active timeframe duration in milliseconds
 }
 
 Layer_Diagnostics :: struct {

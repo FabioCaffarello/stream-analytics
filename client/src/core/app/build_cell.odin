@@ -78,11 +78,12 @@ render_cell_widget :: proc(
 		queue_ui_action(state, UI_Action{kind = .Open_Cell_Stream_Picker, cell_idx = ci})
 	}
 
-	// S37/S53: Composition badge + health dot from Cell_Surface_View read model.
+	// S37/S53/S145: Composition badge + health dot + recovery badge from Cell_Surface_View.
 	hdr_cursor := ui.rect_right(badge_rect) + 4
 	hdr_text_y := hdr_rect.pos.y + CELL_HDR_H * 0.5 + ui.FONT_SIZE_XS * 0.35
 	hdr_cursor += draw_composition_badge(&state.cmd_buf, hdr_cursor, hdr_text_y, sv.composition, state.text.measure)
 	hdr_cursor += draw_health_dot(&state.cmd_buf, hdr_cursor, hdr_rect.pos.y + CELL_HDR_H * 0.5, 6, sv.health_level, sv.has_live_data, sv.composition)
+	hdr_cursor += draw_recovery_badge(&state.cmd_buf, hdr_cursor, hdr_text_y, sv.reliability, sv.recovery_attempts, state.text.measure)
 
 	close_inset := f32(0)
 	if state.world.count > 1 {
@@ -222,20 +223,52 @@ render_cell_widget :: proc(
 		color = ui.COL_BORDER_SUBTLE, thickness = 1,
 	})
 
+	// S139: Chart interaction for legacy path.
+	if vm.widget_kind == .Candle {
+		candle_count := vm.stores.candle != nil ? vm.stores.candle.count : 0
+		vw := &state.world.views[ci]
+		// Build a temporary pane-like view for interaction (legacy path).
+		temp_pane_view: Pane_View_State
+		temp_pane_view.scroll_x = vw.candle_scroll_x
+		temp_pane_view.zoom_level = vw.candle_zoom
+		temp_pane_view.crosshair = vw.crosshair
+		temp_pane: Pane
+		temp_pane.view = temp_pane_view
+		temp_pane.id = Pane_ID(ci + 1) // synthetic ID for pan tracking
+		if chart_interaction_update(&temp_pane, input, pointer, cell_vp, candle_count, &state.chart_pan) {
+			vw.candle_scroll_x = temp_pane.view.scroll_x
+			vw.candle_zoom = temp_pane.view.zoom_level
+			vw.crosshair = temp_pane.view.crosshair
+		}
+	}
+
 	// S9: All widget kinds route through the canonical layer pipeline.
 	// Analytics cells pass analytics_kind filter via Layer_Context.
 	// Session profile widgets still use dedicated render (no layer strategy yet).
 	if vm.widget_kind == .Session_VPVR || vm.widget_kind == .TPO {
 		render_session_profile_cell_vm(&state.cmd_buf, vm, cell_vp)
+	} else if vm.widget_kind == .Footprint {
+		// S157: Footprint chart has dedicated renderer (not layer strategy).
+		render_footprint_widget(&state.cmd_buf, vm.stores.footprint, cell_vp)
 	} else if vm.widget_kind == .Analytics {
 		render_cell_layer_canvas_analytics(state, ci, cell_vp, vm.analytics_kind)
 	} else {
 		render_cell_layer_canvas(state, ci, vm.widget_kind, cell_vp)
 	}
 
-	// S114/S120: Pane visual state overlay — widget-aware state display.
+	// S141: "Return to Live" button + scroll position HUD when scrolled away from live edge.
+	if vm.widget_kind == .Candle {
+		candle_count := vm.stores.candle != nil ? vm.stores.candle.count : 0
+		scroll_x := state.world.views[ci].candle_scroll_x
+		if draw_return_to_live_hud(state, cell_vp, pointer, scroll_x, candle_count) {
+			state.world.views[ci].candle_scroll_x = 0
+		}
+	}
+
+	// S114/S120/S145: Pane visual state overlay — widget-aware state display with recovery context.
 	pane_vs := resolve_pane_visual_state(sv, current_conn_status(state), state.active_metrics.state, vm.widget_kind, vm.stores)
-	draw_pane_state_overlay(&state.cmd_buf, cell_vp, pane_vs, vm.widget_kind, state.text.measure, state.frame, vm.tf_ms)
+	draw_pane_state_overlay(&state.cmd_buf, cell_vp, pane_vs, vm.widget_kind, state.text.measure, state.frame, vm.tf_ms,
+		reliability = sv.reliability, recovery_attempts = sv.recovery_attempts)
 }
 
 // ---------------------------------------------------------------------------
@@ -309,11 +342,12 @@ render_pane_via_contract :: proc(
 		queue_ui_action(state, UI_Action{kind = .Open_Cell_Stream_Picker, cell_idx = ci})
 	}
 
-	// Composition badge + health dot.
+	// S145: Composition badge + health dot + recovery badge.
 	hdr_cursor := ui.rect_right(badge_rect) + 4
 	hdr_text_y := hdr_rect.pos.y + CELL_HDR_H * 0.5 + ui.FONT_SIZE_XS * 0.35
 	hdr_cursor += draw_composition_badge(&state.cmd_buf, hdr_cursor, hdr_text_y, sv.composition, state.text.measure)
 	hdr_cursor += draw_health_dot(&state.cmd_buf, hdr_cursor, hdr_rect.pos.y + CELL_HDR_H * 0.5, 6, sv.health_level, sv.has_live_data, sv.composition)
+	hdr_cursor += draw_recovery_badge(&state.cmd_buf, hdr_cursor, hdr_text_y, sv.reliability, sv.recovery_attempts, state.text.measure)
 
 	// Close button — uses pane_count instead of Entity_World count.
 	close_inset := f32(0)
@@ -448,10 +482,29 @@ render_pane_via_contract :: proc(
 		color = ui.COL_BORDER_SUBTLE, thickness = 1,
 	})
 
+	// S139: Chart interaction — process scroll/zoom/pan for candle panes before rendering.
+	if wk == .Candle {
+		candle_count := ctx.stores.candle != nil ? ctx.stores.candle.count : 0
+		if chart_interaction_update(pane, input, pointer, cell_vp, candle_count, &state.chart_pan) {
+			// View state changed — sync to Entity_World for legacy consumers.
+			chart_interaction_sync_to_world(state, pane, ci)
+		}
+	}
+
 	// S109: Body rendered through Widget_Contract dispatch.
 	widget_contract_render(state, pane, ctx, cell_vp)
 
-	// S114/S120: Pane visual state overlay — widget-aware state display.
+	// S141: "Return to Live" button + scroll position HUD when scrolled away.
+	if wk == .Candle {
+		candle_count := ctx.stores.candle != nil ? ctx.stores.candle.count : 0
+		if draw_return_to_live_hud(state, cell_vp, pointer, pane.view.scroll_x, candle_count) {
+			pane.view.scroll_x = 0
+			chart_interaction_sync_to_world(state, pane, ci)
+		}
+	}
+
+	// S114/S120/S145: Pane visual state overlay — widget-aware state display with recovery context.
 	pane_vs := resolve_pane_visual_state(sv, current_conn_status(state), state.active_metrics.state, wk, ctx.stores)
-	draw_pane_state_overlay(&state.cmd_buf, cell_vp, pane_vs, wk, state.text.measure, state.frame, ctx.tf_ms)
+	draw_pane_state_overlay(&state.cmd_buf, cell_vp, pane_vs, wk, state.text.measure, state.frame, ctx.tf_ms,
+		reliability = sv.reliability, recovery_attempts = sv.recovery_attempts)
 }

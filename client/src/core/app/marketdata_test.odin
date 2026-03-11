@@ -896,16 +896,8 @@ test_state_sub_label_snapshot_pending_all :: proc(t: ^testing.T) {
 	}
 }
 
-@(test)
-test_state_sub_label_no_history_all :: proc(t: ^testing.T) {
-	// Every widget kind must produce a non-empty no_history sub-label (except Empty).
-	for wk in Widget_Kind {
-		s := _state_sub_label_no_history(wk)
-		if wk != .Empty {
-			testing.expect(t, len(s) > 0, "all widget kinds must have no_history sub-label")
-		}
-	}
-}
+// S154: test_state_sub_label_no_history_all removed — No_History variant
+// and _state_sub_label_no_history proc were removed (dead code).
 
 // ═══════════════════════════════════════════════════════════════
 // S124: Timeframe-Aware Widget Readiness — store-driven Active states.
@@ -1020,23 +1012,32 @@ test_s124_tpo_active_with_data :: proc(t: ^testing.T) {
 
 @(test)
 test_s124_universal_gates_still_override :: proc(t: ^testing.T) {
-	// Even with data, universal gates (Offline, Desync, Critical) take precedence.
+	// S143: When data IS present, Offline/Desync/Critical yield Degraded (not blocked).
+	// This shows the cached data with a warning overlay rather than a blank screen.
+	// Without data, the original blocking behavior is preserved.
 	stats_store := services.Stats_Store{count = 5}
 	stores := Cell_Stores{stats = &stats_store}
 
-	// Offline overrides data.
-	sv := Cell_Surface_View{composition = .Composed, stream_bound = true, has_live_data = true}
+	// S143: Offline with data → Degraded (was Offline — S143 shows cached data with warning).
+	sv := Cell_Surface_View{composition = .Composed, stream_bound = true, has_live_data = true, reliability = .Offline}
 	vs := resolve_pane_visual_state(sv, .Offline, .Offline, .Stats, stores)
-	testing.expect(t, vs == .Offline, "offline should override even with data")
+	testing.expect(t, vs == .Degraded, "offline + data → Degraded (S143: show cached data)")
 
-	// Desync overrides data.
-	vs2 := resolve_pane_visual_state(sv, .Connected, .Desync, .Stats, stores)
-	testing.expect(t, vs2 == .Error, "desync should override even with data")
+	// S143: Desync with data → Degraded (was Error — S143 shows cached data with warning).
+	sv_desync := Cell_Surface_View{composition = .Composed, stream_bound = true, has_live_data = true, reliability = .Desync}
+	vs2 := resolve_pane_visual_state(sv_desync, .Connected, .Desync, .Stats, stores)
+	testing.expect(t, vs2 == .Degraded, "desync + data → Degraded (S143: show cached data)")
 
-	// Critical health overrides data.
-	sv_crit := Cell_Surface_View{composition = .Composed, stream_bound = true, has_live_data = true, health_level = .Critical}
+	// S143: Critical with data → Degraded (was Error — S143 shows cached data with warning).
+	sv_crit := Cell_Surface_View{composition = .Composed, stream_bound = true, has_live_data = true, health_level = .Critical, reliability = .Stale_Unrecoverable}
 	vs3 := resolve_pane_visual_state(sv_crit, .Connected, .Live, .Stats, stores)
-	testing.expect(t, vs3 == .Error, "critical health should override even with data")
+	testing.expect(t, vs3 == .Degraded, "critical + data → Degraded (S143: show cached data)")
+
+	// Without data, the original blocking behavior is preserved.
+	vs4 := resolve_pane_visual_state(Cell_Surface_View{}, .Offline, .Offline, .Stats, {})
+	testing.expect(t, vs4 == .Offline, "offline + no data → Offline (unchanged)")
+	vs5 := resolve_pane_visual_state(Cell_Surface_View{composition = .Composed, stream_bound = true}, .Connected, .Desync, .Stats, {})
+	testing.expect(t, vs5 == .Error, "desync + no data → Error (unchanged)")
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1693,4 +1694,133 @@ test_s136_candle_store_data_backfilled_partial :: proc(t: ^testing.T) {
 	stores := Cell_Stores{candle = &candle_store}
 	r := widget_data_readiness(.Candle, sv, stores)
 	testing.expect(t, r == .Partial_Usable, "candle store data + backfilled = Partial_Usable")
+}
+
+// =========================================================================
+// S143: Stream Health & Desync Model Hardening — Widget Readiness Integration
+// =========================================================================
+
+@(test)
+test_s154_readiness_ignores_reliability :: proc(t: ^testing.T) {
+	// S154: widget_data_readiness is purely about data availability.
+	// Reliability is checked in resolve_pane_visual_state, not here.
+	// Widget has data + unreliable stream → readiness is still Live_Usable.
+	candle_store := services.Candle_Store{count = 30}
+	stores := Cell_Stores{candle = &candle_store}
+	sv := Cell_Surface_View{
+		composition = .Composed,
+		stream_bound = true,
+		has_live_data = true,
+		reliability = .Manual_Resync,
+	}
+	r := widget_data_readiness(.Candle, sv, stores)
+	testing.expect(t, r == .Live_Usable, "data + manual_resync → Live_Usable (readiness ignores reliability)")
+}
+
+@(test)
+test_s154_visual_state_degraded_via_reliability :: proc(t: ^testing.T) {
+	// S154: resolve_pane_visual_state checks reliability separately.
+	// Data present + unreliable stream → Degraded visual.
+	candle_store := services.Candle_Store{count = 30}
+	stores := Cell_Stores{candle = &candle_store}
+	for rel in ([?]md_common.Stream_Reliability{.Offline, .Stale_Unrecoverable, .Manual_Resync, .Desync}) {
+		sv := Cell_Surface_View{
+			composition = .Composed,
+			stream_bound = true,
+			has_live_data = true,
+			reliability = rel,
+		}
+		// With data present, conn_status Connected, stream Live (data cached):
+		vs := resolve_pane_visual_state(sv, .Connected, .Live, .Candle, stores)
+		testing.expect(t, vs == .Degraded, "data + blocks_render reliability → Degraded visual")
+	}
+}
+
+@(test)
+test_s154_visual_state_active_when_reliable :: proc(t: ^testing.T) {
+	// S154: Non-blocking reliability → Active (readiness-driven).
+	candle_store := services.Candle_Store{count = 30}
+	stores := Cell_Stores{candle = &candle_store}
+	for rel in ([?]md_common.Stream_Reliability{.Reliable, .Degraded_Aging, .Stale_Recovering}) {
+		sv := Cell_Surface_View{
+			composition = .Composed,
+			stream_bound = true,
+			has_live_data = true,
+			reliability = rel,
+		}
+		vs := resolve_pane_visual_state(sv, .Connected, .Live, .Candle, stores)
+		testing.expect(t, vs == .Active, "data + non-blocking reliability → Active")
+	}
+}
+
+@(test)
+test_s143_widget_reliable_with_data :: proc(t: ^testing.T) {
+	// Widget has store data + reliable stream → normal usable.
+	candle_store := services.Candle_Store{count = 30}
+	stores := Cell_Stores{candle = &candle_store}
+	sv := Cell_Surface_View{
+		composition = .Composed,
+		stream_bound = true,
+		has_live_data = true,
+		reliability = .Reliable,
+	}
+	r := widget_data_readiness(.Candle, sv, stores)
+	testing.expect(t, r == .Live_Usable, "data + reliable → Live_Usable")
+}
+
+@(test)
+test_s143_widget_degraded_aging_still_renders :: proc(t: ^testing.T) {
+	// Degraded_Aging does not block render — widget should be usable.
+	candle_store := services.Candle_Store{count = 30}
+	stores := Cell_Stores{candle = &candle_store}
+	sv := Cell_Surface_View{
+		composition = .Composed,
+		stream_bound = true,
+		has_live_data = true,
+		reliability = .Degraded_Aging,
+	}
+	r := widget_data_readiness(.Candle, sv, stores)
+	testing.expect(t, r == .Live_Usable, "data + degraded_aging → Live_Usable (not blocked)")
+}
+
+@(test)
+test_s143_pane_visual_state_degraded :: proc(t: ^testing.T) {
+	// Desync with data should yield Degraded (not Error).
+	candle_store := services.Candle_Store{count = 30}
+	stores := Cell_Stores{candle = &candle_store}
+	sv := Cell_Surface_View{
+		composition = .Composed,
+		stream_bound = true,
+		has_live_data = true,
+		reliability = .Desync,
+	}
+	vs := resolve_pane_visual_state(sv, .Connected, .Desync, .Candle, stores)
+	testing.expect(t, vs == .Degraded, "desync + data → Degraded visual state")
+}
+
+@(test)
+test_s143_pane_visual_state_desync_no_data :: proc(t: ^testing.T) {
+	// Desync without data should still yield Error.
+	sv := Cell_Surface_View{
+		composition = .Composed,
+		stream_bound = true,
+		reliability = .Desync,
+	}
+	vs := resolve_pane_visual_state(sv, .Connected, .Desync, .Candle, {})
+	testing.expect(t, vs == .Error, "desync + no data → Error visual state")
+}
+
+@(test)
+test_s143_pane_visual_state_offline_with_data :: proc(t: ^testing.T) {
+	// Offline with cached data should yield Degraded (not Offline).
+	candle_store := services.Candle_Store{count = 30}
+	stores := Cell_Stores{candle = &candle_store}
+	sv := Cell_Surface_View{
+		composition = .Composed,
+		stream_bound = true,
+		has_live_data = true,
+		reliability = .Offline,
+	}
+	vs := resolve_pane_visual_state(sv, .Offline, .Offline, .Candle, stores)
+	testing.expect(t, vs == .Degraded, "offline + cached data → Degraded visual state")
 }
