@@ -1,0 +1,146 @@
+auth: true
+
+intervals:
+  - 1 # 1 second
+  - 5 # 5 seconds
+  - 60 # 1 minute
+  - 300 # 5 minutes
+  - 900 # 15 minutes
+  - 1800 # 30 minutes
+  - 3600 # 1 hour
+  - 86400 # 1 day
+
+markets:
+  - name: binancef
+    displayName: Binance Futures
+    type: crypto
+    category: futures
+    stats: true
+    symbols:
+      - ticker: btcusdt
+        tickSize: 0.1
+      - ticker: ethusdt
+        tickSize: 0.01
+      - ticker: solusdt
+        tickSize: 0.01
+      - ticker: xrpusdt
+        tickSize: 0.0001
+      - ticker: dogeusdt
+        tickSize: 0.00001
+      - ticker: bnbusdt
+        tickSize: 0.01
+      - ticker: ltcusdt
+        tickSize: 0.01
+      - ticker: suiusdt
+        tickSize: 0.0001
+      - ticker: 1000pepeusdt
+        tickSize: 1e-7
+      - ticker: xlmusdt
+        tickSize: 0.00001
+
+  - name: binance
+    displayName: Binance Spot
+    type: crypto
+    category: spot
+    stats: false
+    symbols:
+      - ticker: btcusdt
+        tickSize: 0.1
+      - ticker: ethusdt
+        tickSize: 0.01
+      - ticker: solusdt
+        tickSize: 0.01
+      - ticker: xrpusdt
+        tickSize: 0.0001
+      - ticker: dogeusdt
+        tickSize: 0.00001
+      - ticker: bnbusdt
+        tickSize: 0.01
+      - ticker: ltcusdt
+        tickSize: 0.01
+      - ticker: suiusdt
+        tickSize: 0.0001
+      - ticker: xlmusdt
+        tickSize: 0.0001
+
+  - name: bybit
+    displayName: Bybit
+    type: crypto
+    category: futures
+    stats: true
+    symbols:
+      - ticker: jellyjellyusdt
+        tickSize: 0.000001
+      - ticker: btcusdt
+        tickSize: 0.1
+      - ticker: ethusdt
+        tickSize: 0.01
+      - ticker: solusdt
+        tickSize: 0.01
+      - ticker: xrpusdt
+        tickSize: 0.0001
+      - ticker: dogeusdt
+        tickSize: 0.00001
+      - ticker: bnbusdt
+        tickSize: 0.01
+      - ticker: ltcusdt
+        tickSize: 0.01
+      - ticker: suiusdt
+        tickSize: 0.0001
+      - ticker: 1000pepeusdt
+        tickSize: 1e-7
+      - ticker: xlmusdt
+        tickSize: 0.00001
+
+  - name: coinbase
+    displayName: Coinbase
+    type: crypto
+    category: spot
+    stats: false
+    symbols:
+      - ticker: btcusd 
+        base: btc
+        quote: usd
+        tickSize: 0.01 
+      - ticker: ethusd
+        base: eth
+        quote: usd
+        tickSize: 0.01 
+      - ticker: solusd
+        base: sol
+        quote: usd
+        tickSize: 0.01 
+      - ticker: xrpusd
+        base: xrp
+        quote: usd
+        tickSize: 0.0001 
+      - ticker: dogeusd
+        base: doge
+        quote: usd
+        tickSize: 0.00001 
+      - ticker: ltcusd
+        base: ltc
+        quote: usd
+        tickSize: 0.01 
+      - ticker: xlmusd
+        base: xlm
+        quote: usd
+        tickSize: 0.000001
+      - ticker: suiusd
+        base: sui
+        quote: usd
+        tickSize: 0.0001
+      - ticker: adausd
+        base: ada
+        quote: usd
+        tickSize: 0.0001
+
+  - name: hyperliquid
+    type: crypto
+    category: futures
+    stats: false
+    symbols:
+      - ticker: btc
+        tickSize: 0.1
+      - ticker: eth
+        tickSize: 0.01

@@ -1,0 +1,247 @@
+services:
+  consul:
+    image: "hashicorp/consul:latest"
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8500:8500"
+    networks:
+      - marketmonkey-network
+
+  nats:
+    image: nats:latest
+    container_name: mm-nats
+    command: ["-c", "/etc/nats/nats-server.conf"]
+    ports:
+      - "127.0.0.1:4222:4222"
+      - "127.0.0.1:8222:8222"
+    volumes:
+      - ./nats-server.conf:/etc/nats/nats-server.conf
+      - nats_data:/data
+    networks:
+      - marketmonkey-network
+    restart: unless-stopped
+
+
+  # timescaledb:
+  #   image: timescale/timescaledb:latest-pg15
+  #   container_name: timescaledb
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - timescale_data:/var/lib/postgresql/data
+  #   command: postgres -c "max_connections=500"
+  #   restart: unless-stopped
+  #   networks:
+  #     - marketmonkey-network
+  #   env_file: .env
+
+  caddy:
+    image: caddy:2.9-alpine
+    container_name: mm-caddy
+    ports:
+      - "80:80" 
+      - "443:443" 
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile  
+      - caddy_data:/data                 
+      - caddy_config:/config             
+    networks:
+      - marketmonkey-network
+    restart: unless-stopped
+    env_file: .env
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: clickhouse
+    ports:
+      - "127.0.0.1:8123:8123"
+      - "127.0.0.1:9000:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse/
+      - clickhouse_logs:/var/log/clickhouse-server/
+      - ./clickhouse/config:/etc/clickhouse-server/config.d/
+      - ./clickhouse/users:/etc/clickhouse-server/users.d/
+      - ./clickhouse/init:/docker-entrypoint-initdb.d/
+    networks:
+      - marketmonkey-network
+    restart: unless-stopped
+    env_file: .env
+
+  store:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: store
+    image: marketmonkey/store:latest
+    restart: unless-stopped
+    networks:
+      - marketmonkey-network
+    env_file: .env
+
+  consumer-coinbase:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: consumer
+    image: marketmonkey/consumer:latest
+    command: /app/service --exchange coinbase
+    restart: unless-stopped
+    networks:
+      - marketmonkey-network
+    env_file: .env
+
+  processor-coinbase:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: processor
+    image: marketmonkey/processor:latest
+    command: /app/service --exchange coinbase
+    restart: unless-stopped
+    networks:
+      - marketmonkey-network
+    env_file: .env
+
+  consumer-binance:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: consumer
+    image: marketmonkey/consumer:latest
+    command: /app/service --exchange binance
+    restart: unless-stopped
+    networks:
+      - marketmonkey-network
+    env_file: .env
+
+  processor-binance:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: processor
+    image: marketmonkey/processor:latest
+    command: /app/service --exchange binance
+    restart: unless-stopped
+    networks:
+      - marketmonkey-network
+    env_file: .env
+
+  consumer-binancef:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: consumer
+    image: marketmonkey/consumer:latest
+    command: /app/service --exchange binancef
+    restart: unless-stopped
+    networks:
+      - marketmonkey-network
+    env_file: .env
+
+  processor-binancef:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: processor
+    image: marketmonkey/processor:latest
+    command: /app/service --exchange binancef
+    restart: unless-stopped
+    networks:
+      - marketmonkey-network
+    env_file: .env
+        
+
+  consumer-hyperliquid:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: consumer
+    image: marketmonkey/consumer:latest
+    command: /app/service --exchange hyperliquid
+    restart: unless-stopped
+    networks:
+      - marketmonkey-network
+    env_file: .env
+
+  processor-hyperliquid:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: processor  
+    image: marketmonkey/processor:latest
+    command: /app/service --exchange hyperliquid
+    restart: unless-stopped
+    networks:
+      - marketmonkey-network
+    env_file: .env
+
+  consumer-bybit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: consumer
+    image: marketmonkey/consumer:latest
+    command: /app/service --exchange bybit
+    restart: unless-stopped
+    networks:
+      - marketmonkey-network
+    env_file: .env
+
+  processor-bybit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: processor
+    image: marketmonkey/processor:latest
+    command: /app/service --exchange bybit
+    restart: unless-stopped
+    networks:
+      - marketmonkey-network
+    env_file: .env
+
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: server
+    image: marketmonkey/server:latest
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    networks:
+      - marketmonkey-network
+    env_file: .env
+
+
+volumes:
+  timescale_data:
+    driver: local
+  clickhouse_data:
+    driver: local
+  clickhouse_logs:
+    driver: local
+  caddy_data:
+    driver: local
+  caddy_config:
+    driver: local
+  nats_data:
+    driver: local
+
+networks:
+  marketmonkey-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.69.69.0/24
