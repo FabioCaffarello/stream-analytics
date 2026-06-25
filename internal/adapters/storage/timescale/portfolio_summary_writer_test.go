@@ -69,15 +69,15 @@ func TestPgPortfolioSummaryWriter_Upsert_ConnectionError(t *testing.T) {
 
 func testPortfolioSummary() domain.PortfolioSummaryV1 {
 	return domain.PortfolioSummaryV1{
-		SummaryID:          "sum-001",
-		ProjectedAtMs:      1_710_000_000_000,
-		GlobalEquityUSD:    100_000.0,
-		GlobalRealizedUSD:  2_000.0,
-		GlobalUnrealized:   -500.0,
-		GlobalMarginUsed:   4_000.0,
-		GlobalLeverage:     1.5,
-		TotalPositionCount: 5,
-		TotalOpenOrders:    2,
+		SummaryID:           "sum-001",
+		ProjectedAtMs:       1_710_000_000_000,
+		GlobalEquityUSD:     100_000.0,
+		GlobalRealizedUSD:   2_000.0,
+		GlobalUnrealizedUSD: -500.0,
+		GlobalMarginUsedUSD: 4_000.0,
+		GlobalLeverage:      1.5,
+		TotalPositionCount:  5,
+		TotalOpenOrders:     2,
 		Accounts: []domain.AccountSummaryV1{
 			{AccountID: "acct-1", VenueCount: 2, PositionCount: 3, EquityUSD: 50_000, RealizedPnlUSD: 1_000, UnrealizedPnlUSD: -200},
 			{AccountID: "acct-2", VenueCount: 1, PositionCount: 2, EquityUSD: 50_000, RealizedPnlUSD: 1_000, UnrealizedPnlUSD: -300},

@@ -6,10 +6,10 @@ import (
 	"context"
 	"time"
 
+	"github.com/market-raccoon/internal/contracts"
 	"github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/core/marketdata/ports"
 	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/ds"
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/metrics"

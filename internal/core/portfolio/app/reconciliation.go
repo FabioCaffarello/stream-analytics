@@ -57,8 +57,8 @@ func BuildEquityCurve(snapshots []portfoliodomain.AccountSnapshotV1) []portfolio
 			TimestampMs:   snap.ProjectedAtMs,
 			EquityUSD:     snap.TotalEquityUSD,
 			RealizedUSD:   snap.TotalRealizedUSD,
-			UnrealizedUSD: snap.TotalUnrealized,
-			MarginUsedUSD: snap.TotalMarginUsed,
+			UnrealizedUSD: snap.TotalUnrealizedUSD,
+			MarginUsedUSD: snap.TotalMarginUsedUSD,
 			PositionCount: posCount,
 			DrawdownPct:   drawdown,
 		})
@@ -96,8 +96,8 @@ func BuildEquityCurveFromSummaries(summaries []portfoliodomain.PortfolioSummaryV
 			TimestampMs:   sum.ProjectedAtMs,
 			EquityUSD:     sum.GlobalEquityUSD,
 			RealizedUSD:   sum.GlobalRealizedUSD,
-			UnrealizedUSD: sum.GlobalUnrealized,
-			MarginUsedUSD: sum.GlobalMarginUsed,
+			UnrealizedUSD: sum.GlobalUnrealizedUSD,
+			MarginUsedUSD: sum.GlobalMarginUsedUSD,
 			PositionCount: sum.TotalPositionCount,
 			DrawdownPct:   drawdown,
 		})

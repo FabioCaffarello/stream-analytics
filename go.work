@@ -3,6 +3,7 @@ go 1.25.6
 use (
 	./cmd/backfill
 	./cmd/consumer
+	./cmd/emulator
 	./cmd/credentials-broker
 	./cmd/executor
 	./cmd/migrate
@@ -12,8 +13,11 @@ use (
 	./cmd/signals
 	./cmd/store
 	./cmd/strategist
+	./cmd/validator
+	./internal/application
 	./internal/actors
 	./internal/adapters
+	./internal/contracts
 	./internal/core/aggregation
 	./internal/core/delivery
 	./internal/core/evidence

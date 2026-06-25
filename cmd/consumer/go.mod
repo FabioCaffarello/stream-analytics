@@ -6,6 +6,8 @@ require (
 	github.com/anthdm/hollywood v1.0.5
 	github.com/market-raccoon/internal/actors v0.0.0
 	github.com/market-raccoon/internal/adapters v0.0.0
+	github.com/market-raccoon/internal/application v0.0.0
+	github.com/market-raccoon/internal/contracts v0.0.0
 	github.com/market-raccoon/internal/core/insights v0.0.0
 	github.com/market-raccoon/internal/core/marketdata v0.0.0
 	github.com/market-raccoon/internal/interfaces v0.0.0
@@ -33,10 +35,12 @@ require (
 	github.com/nats-io/nats.go v1.48.0 // indirect
 	github.com/nats-io/nkeys v0.4.11 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
+	github.com/pierrec/lz4/v4 v4.1.22 // indirect
 	github.com/prometheus/client_golang v1.18.0 // indirect
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/common v0.45.0 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
+	github.com/segmentio/kafka-go v0.4.49 // indirect
 	github.com/zeebo/xxh3 v1.0.2 // indirect
 	golang.org/x/crypto v0.47.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
@@ -46,6 +50,8 @@ require (
 replace (
 	github.com/market-raccoon/internal/actors => ../../internal/actors
 	github.com/market-raccoon/internal/adapters => ../../internal/adapters
+	github.com/market-raccoon/internal/application => ../../internal/application
+	github.com/market-raccoon/internal/contracts => ../../internal/contracts
 	github.com/market-raccoon/internal/core/aggregation => ../../internal/core/aggregation
 	github.com/market-raccoon/internal/core/evidence => ../../internal/core/evidence
 	github.com/market-raccoon/internal/core/insights => ../../internal/core/insights

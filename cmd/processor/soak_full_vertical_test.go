@@ -14,12 +14,12 @@ import (
 	"github.com/anthdm/hollywood/actor"
 	aggruntime "github.com/market-raccoon/internal/actors/aggregation/runtime"
 	"github.com/market-raccoon/internal/adapters/bus"
+	"github.com/market-raccoon/internal/contracts"
 	aggapp "github.com/market-raccoon/internal/core/aggregation/app"
 	insightsapp "github.com/market-raccoon/internal/core/insights/app"
 	insightsdomain "github.com/market-raccoon/internal/core/insights/domain"
 	mddomain "github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/problem"
 )

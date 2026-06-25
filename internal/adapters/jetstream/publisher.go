@@ -21,6 +21,7 @@ const (
 )
 
 var subjectWildcards = []string{
+	"dataplane.>",
 	"marketdata.>",
 	"aggregation.>",
 	"evidence.>",

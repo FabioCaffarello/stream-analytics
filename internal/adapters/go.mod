@@ -2,7 +2,11 @@ module github.com/market-raccoon/internal/adapters
 
 go 1.25.6
 
-require github.com/market-raccoon/internal/shared v0.0.0
+require (
+	github.com/market-raccoon/internal/application v0.0.0
+	github.com/market-raccoon/internal/contracts v0.0.0
+	github.com/market-raccoon/internal/shared v0.0.0
+)
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.34.0
@@ -13,6 +17,7 @@ require (
 	github.com/market-raccoon/internal/core/strategy v0.0.0
 	github.com/nats-io/nats.go v1.48.0
 	github.com/prometheus/client_golang v1.18.0
+	github.com/segmentio/kafka-go v0.4.49
 	github.com/testcontainers/testcontainers-go v0.39.0
 )
 
@@ -59,7 +64,7 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
-	github.com/google/uuid v1.6.0 // indirect
+	github.com/google/uuid v1.6.0
 	github.com/klauspost/compress v1.18.3 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/magiconair/properties v1.8.10 // indirect
@@ -106,6 +111,8 @@ require (
 )
 
 replace (
+	github.com/market-raccoon/internal/application => ../application
+	github.com/market-raccoon/internal/contracts => ../contracts
 	github.com/market-raccoon/internal/core/evidence => ../core/evidence
 	github.com/market-raccoon/internal/core/insights => ../core/insights
 	github.com/market-raccoon/internal/core/marketmodel => ../core/marketmodel

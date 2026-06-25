@@ -7,6 +7,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/market-raccoon/internal/adapters v0.0.0
+	github.com/market-raccoon/internal/contracts v0.0.0
 	github.com/market-raccoon/internal/core/aggregation v0.0.0
 	github.com/market-raccoon/internal/core/delivery v0.0.0
 	github.com/market-raccoon/internal/core/evidence v0.0.0
@@ -46,6 +47,7 @@ require (
 
 replace (
 	github.com/market-raccoon/internal/adapters => ../adapters
+	github.com/market-raccoon/internal/contracts => ../contracts
 	github.com/market-raccoon/internal/core/aggregation => ../core/aggregation
 	github.com/market-raccoon/internal/core/delivery => ../core/delivery
 	github.com/market-raccoon/internal/core/evidence => ../core/evidence

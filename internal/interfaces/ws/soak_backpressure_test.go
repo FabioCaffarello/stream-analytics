@@ -15,7 +15,7 @@ import (
 	"github.com/anthdm/hollywood/actor"
 	"github.com/gorilla/websocket"
 	deliveryruntime "github.com/market-raccoon/internal/actors/delivery/runtime"
-	"github.com/market-raccoon/internal/shared/contracts"
+	"github.com/market-raccoon/internal/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/prometheus/client_golang/prometheus/testutil"

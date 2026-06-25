@@ -12,9 +12,9 @@ import (
 
 	"github.com/anthdm/hollywood/actor"
 	actorruntime "github.com/market-raccoon/internal/actors/runtime"
+	"github.com/market-raccoon/internal/contracts"
 	httpserver "github.com/market-raccoon/internal/interfaces/http"
 	"github.com/market-raccoon/internal/shared/config"
-	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/observability"
 )
 

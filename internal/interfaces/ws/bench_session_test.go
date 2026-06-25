@@ -9,8 +9,8 @@ import (
 
 	"github.com/anthdm/hollywood/actor"
 	deliveryruntime "github.com/market-raccoon/internal/actors/delivery/runtime"
+	"github.com/market-raccoon/internal/contracts"
 	"github.com/market-raccoon/internal/core/delivery/domain"
-	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 )
 

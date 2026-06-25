@@ -16,7 +16,7 @@ func TestBuildEquityCurve_Empty(t *testing.T) {
 
 func TestBuildEquityCurve_SinglePoint(t *testing.T) {
 	snaps := []portfoliodomain.AccountSnapshotV1{
-		{ProjectedAtMs: 1000, TotalEquityUSD: 10000, TotalRealizedUSD: 100, TotalUnrealized: 50, TotalMarginUsed: 500,
+		{ProjectedAtMs: 1000, TotalEquityUSD: 10000, TotalRealizedUSD: 100, TotalUnrealizedUSD: 50, TotalMarginUsedUSD: 500,
 			Venues: []portfoliodomain.VenuePositionV1{{Positions: []portfoliodomain.PositionV1{{Symbol: "BTCUSDT"}}}}},
 	}
 	curve := BuildEquityCurve(snaps)

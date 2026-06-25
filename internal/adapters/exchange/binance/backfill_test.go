@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/market-raccoon/internal/contracts"
 	marketdomain "github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/shared/codec"
 	"github.com/market-raccoon/internal/shared/envelope"
@@ -137,7 +138,7 @@ func TestDownloadAggTrades_ProducesValidFixture(t *testing.T) {
 		t.Fatalf("DownloadAggTrades: %v", p)
 	}
 
-	player, p := replay.NewPlayer(res.OutputPath, nil)
+	player, p := replay.NewPlayer(res.OutputPath, nil, contracts.BootstrapPayloadCodecRegistry)
 	if p != nil {
 		t.Fatalf("NewPlayer: %v", p)
 	}

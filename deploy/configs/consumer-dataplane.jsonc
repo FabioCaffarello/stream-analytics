@@ -1,0 +1,41 @@
+{
+  "bus": {
+    "type": "jetstream",
+    "wire_format": "json"
+  },
+  "jetstream": {
+    "url": "nats://nats:4222",
+    "stream_name": "MARKETDATA",
+    "consumer_durable": "dataplane-consumer-v1",
+    "ack_wait": "30s",
+    "max_ack_pending": 256,
+    "max_deliver": 10,
+    "deliver_policy": "new",
+    "filter_subjects": ["dataplane.message.>"],
+    "dedup_window": "5m",
+    "max_age": "24h",
+    "max_bytes": "10GB"
+  },
+  "log": {
+    "level": "info",
+    "format": "json"
+  },
+  "http": {
+    "addr": ":8088",
+    "shutdown_timeout": "10s",
+    "publisher_flush_timeout": "3s",
+    "guardian_shutdown_timeout": "10s"
+  },
+  "consumer": {
+    "mode": "dataplane"
+  },
+  "data_plane": {
+    "enabled": true,
+    "state_bucket": "MR_DATAPLANE",
+    "result_limit": 100,
+    "kafka": {
+      "brokers": ["kafka:9092"],
+      "consumer_group": "dataplane-consumer-v1"
+    }
+  }
+}

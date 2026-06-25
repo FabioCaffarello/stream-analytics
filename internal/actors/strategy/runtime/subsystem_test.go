@@ -8,11 +8,11 @@ import (
 
 	"github.com/anthdm/hollywood/actor"
 	strategyruntime "github.com/market-raccoon/internal/actors/strategy/runtime"
+	"github.com/market-raccoon/internal/contracts"
 	marketmodel "github.com/market-raccoon/internal/core/marketmodel"
 	signalcore "github.com/market-raccoon/internal/core/signal"
 	strategydomain "github.com/market-raccoon/internal/core/strategy/domain"
 	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/problem"
 )

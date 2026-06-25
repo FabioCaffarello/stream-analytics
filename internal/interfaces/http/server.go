@@ -26,13 +26,16 @@ import (
 
 	"github.com/anthdm/hollywood/actor"
 	"github.com/market-raccoon/internal/actors/runtime"
+	"github.com/market-raccoon/internal/application/dataplane"
+	"github.com/market-raccoon/internal/application/runtimebootstrap"
+	"github.com/market-raccoon/internal/contracts"
 	executionports "github.com/market-raccoon/internal/core/execution/ports"
 	workspaceapp "github.com/market-raccoon/internal/core/workspace/app"
 	workspaceports "github.com/market-raccoon/internal/core/workspace/ports"
 	"github.com/market-raccoon/internal/shared/config"
-	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/observability"
+	"github.com/market-raccoon/internal/shared/problem"
 )
 
 const defaultSnapshotTimeout = 5 * time.Second
@@ -67,9 +70,16 @@ type Server struct {
 	insightsSnapshotter InsightsSnapshotter
 	consistencyChecks   map[string]ConsistencyCheckFn
 	workspaceSvc        *workspaceapp.WorkspaceService
+	dataPlaneRuntime    *runtimebootstrap.Runtime
+	dataPlaneResults    dataplane.ResultStore
+	dataPlaneEmitter    DataPlaneEmitter
 }
 
 type Option func(*Server)
+
+type DataPlaneEmitter interface {
+	Emit(ctx context.Context, bindingName, scenario string) (dataplane.Message, *problem.Problem)
+}
 
 func WithTLS(certFile, keyFile string) Option {
 	return func(s *Server) {
@@ -121,6 +131,14 @@ func WithColdReaders(readers *ColdReaders) Option {
 func WithMarkets(markets *config.MarketsConfig) Option {
 	return func(s *Server) {
 		s.markets = markets
+	}
+}
+
+func WithDataPlane(runtime *runtimebootstrap.Runtime, results dataplane.ResultStore, emitter DataPlaneEmitter) Option {
+	return func(s *Server) {
+		s.dataPlaneRuntime = runtime
+		s.dataPlaneResults = results
+		s.dataPlaneEmitter = emitter
 	}
 }
 
@@ -211,6 +229,19 @@ func NewServer(
 		mux.Handle("GET /api/v1/consistency", localhostOnly(http.HandlerFunc(s.handleConsistencyCheck)))
 	}
 	mux.Handle("GET /api/v1/delivery/diagnostics", localhostOnly(http.HandlerFunc(s.handleDeliveryDiagnostics)))
+	if s.dataPlaneRuntime != nil {
+		mux.Handle("GET /api/v1/dataplane/bindings", localhostOnly(http.HandlerFunc(s.handleListDataPlaneBindings)))
+		mux.Handle("POST /api/v1/dataplane/bindings", localhostOnly(http.HandlerFunc(s.handleUpsertDataPlaneBinding)))
+		mux.Handle("GET /api/v1/dataplane/configs", localhostOnly(http.HandlerFunc(s.handleListDataPlaneConfigs)))
+		mux.Handle("POST /api/v1/dataplane/configs", localhostOnly(http.HandlerFunc(s.handleUpsertDataPlaneConfig)))
+		mux.Handle("POST /api/v1/dataplane/configs/activate", localhostOnly(http.HandlerFunc(s.handleActivateDataPlaneConfig)))
+		if s.dataPlaneResults != nil {
+			mux.Handle("GET /api/v1/dataplane/results", localhostOnly(http.HandlerFunc(s.handleGetDataPlaneResults)))
+		}
+		if s.dataPlaneEmitter != nil {
+			mux.Handle("POST /api/v1/dataplane/emulator/emit", localhostOnly(http.HandlerFunc(s.handleEmitDataPlaneScenario)))
+		}
+	}
 	if s.controlPlane != nil {
 		mux.Handle("POST /api/v1/control", localhostOnly(http.HandlerFunc(s.handleControlApply)))
 		mux.Handle("GET /api/v1/control/snapshot", localhostOnly(http.HandlerFunc(s.handleControlSnapshot)))

@@ -129,8 +129,8 @@ func scanAccountSnapshot(row rowScanner) (domain.AccountSnapshotV1, *problem.Pro
 
 	if err := row.Scan(
 		&s.SnapshotID, &s.AccountID, &s.ProjectedAtMs,
-		&s.TotalEquityUSD, &s.TotalRealizedUSD, &s.TotalUnrealized,
-		&s.TotalMarginUsed, &s.TotalLeverage,
+		&s.TotalEquityUSD, &s.TotalRealizedUSD, &s.TotalUnrealizedUSD,
+		&s.TotalMarginUsedUSD, &s.TotalLeverage,
 		&venuesJSON, &fillJSON,
 	); err != nil {
 		return domain.AccountSnapshotV1{}, problem.Wrap(err, problem.Internal, "timescale account snapshot scan failed")

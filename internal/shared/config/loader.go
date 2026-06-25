@@ -299,6 +299,9 @@ func (a AppConfig) Validate() *problem.Problem {
 	if prob := validateMarketData(a.MarketData); prob != nil {
 		return prob
 	}
+	if prob := validateDataPlane(a.DataPlane); prob != nil {
+		return prob
+	}
 	if prob := validateReplay(a.Bus, a.MarketData, a.Replay); prob != nil {
 		return prob
 	}
@@ -678,6 +681,14 @@ func validateDelivery(d DeliveryConfig) *problem.Problem {
 }
 
 func validateConsumer(c ConsumerConfig) *problem.Problem {
+	switch strings.ToLower(strings.TrimSpace(c.Mode)) {
+	case "", "marketdata":
+	case "dataplane":
+		return nil
+	default:
+		return problem.Newf(codeInvalid, "consumer.mode must be marketdata|dataplane, got %q", c.Mode)
+	}
+
 	exchanges := c.Exchanges
 	if len(exchanges) == 0 {
 		exchanges = []ConsumerExchangeConfig{synthesizeLegacyExchange(c)}
@@ -747,6 +758,24 @@ func validateConsumer(c ConsumerConfig) *problem.Problem {
 				requiredStreams,
 				c.EnableMarkPriceLiquidation,
 			)
+		}
+	}
+	return nil
+}
+
+func validateDataPlane(d DataPlaneConfig) *problem.Problem {
+	if !d.Enabled {
+		return nil
+	}
+	if strings.TrimSpace(d.StateBucket) == "" {
+		return problem.New(codeInvalid, "data_plane.state_bucket must not be empty when data_plane.enabled=true")
+	}
+	if d.ResultLimit <= 0 {
+		return problem.Newf(codeInvalid, "data_plane.result_limit must be > 0 when data_plane.enabled=true, got %d", d.ResultLimit)
+	}
+	for i, broker := range d.Kafka.Brokers {
+		if strings.TrimSpace(broker) == "" {
+			return problem.Newf(codeInvalid, "data_plane.kafka.brokers[%d] must not be empty", i)
 		}
 	}
 	return nil
@@ -1667,6 +1696,9 @@ func applyDefaults(c *AppConfig) {
 	if c.Consumer.Exchange == "" {
 		c.Consumer.Exchange = "binance"
 	}
+	if c.Consumer.Mode == "" {
+		c.Consumer.Mode = "marketdata"
+	}
 	if c.Consumer.MarketType == "" {
 		c.Consumer.MarketType = "SPOT"
 	}
@@ -1721,6 +1753,18 @@ func applyDefaults(c *AppConfig) {
 	}
 	if c.MarketData.MaxInstruments == 0 {
 		c.MarketData.MaxInstruments = 2048
+	}
+	if c.DataPlane.StateBucket == "" {
+		c.DataPlane.StateBucket = "MR_DATAPLANE"
+	}
+	if c.DataPlane.ResultLimit == 0 {
+		c.DataPlane.ResultLimit = 100
+	}
+	if c.DataPlane.Kafka.ConsumerGroup == "" {
+		c.DataPlane.Kafka.ConsumerGroup = "dataplane-consumer-v1"
+	}
+	for i := range c.DataPlane.Kafka.Brokers {
+		c.DataPlane.Kafka.Brokers[i] = strings.TrimSpace(c.DataPlane.Kafka.Brokers[i])
 	}
 	if c.Replay.Mode == "" {
 		c.Replay.Mode = "off"

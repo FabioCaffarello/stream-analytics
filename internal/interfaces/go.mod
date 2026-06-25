@@ -7,6 +7,8 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/market-raccoon/internal/actors v0.0.0
+	github.com/market-raccoon/internal/application v0.0.0
+	github.com/market-raccoon/internal/contracts v0.0.0
 	github.com/market-raccoon/internal/core/aggregation v0.0.0
 	github.com/market-raccoon/internal/core/delivery v0.0.0
 	github.com/market-raccoon/internal/core/execution v0.0.0
@@ -46,6 +48,8 @@ require (
 
 replace (
 	github.com/market-raccoon/internal/actors => ../actors
+	github.com/market-raccoon/internal/application => ../application
+	github.com/market-raccoon/internal/contracts => ../contracts
 	github.com/market-raccoon/internal/core/aggregation => ../core/aggregation
 	github.com/market-raccoon/internal/core/delivery => ../core/delivery
 	github.com/market-raccoon/internal/core/evidence => ../core/evidence

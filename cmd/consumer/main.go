@@ -52,6 +52,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	if strings.EqualFold(strings.TrimSpace(cfg.Consumer.Mode), "dataplane") {
+		if err := RunDataPlane(context.Background(), cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "consumer dataplane: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	if err := Run(context.Background(), cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "consumer: %v\n", err)
 		os.Exit(1)

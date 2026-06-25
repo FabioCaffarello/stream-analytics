@@ -12,6 +12,7 @@ import (
 	strategyruntime "github.com/market-raccoon/internal/actors/strategy/runtime"
 	executionadapterbinance "github.com/market-raccoon/internal/adapters/execution/binance"
 	executioncred "github.com/market-raccoon/internal/adapters/execution/credentials"
+	"github.com/market-raccoon/internal/contracts"
 	executionapp "github.com/market-raccoon/internal/core/execution/app"
 	executiongovernance "github.com/market-raccoon/internal/core/execution/governance"
 	executionports "github.com/market-raccoon/internal/core/execution/ports"
@@ -20,7 +21,6 @@ import (
 	signalcore "github.com/market-raccoon/internal/core/signal"
 	strategydomain "github.com/market-raccoon/internal/core/strategy/domain"
 	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/problem"
 )

@@ -26,6 +26,7 @@ import (
 
 	"github.com/anthdm/hollywood/actor"
 	actorruntime "github.com/market-raccoon/internal/actors/runtime"
+	"github.com/market-raccoon/internal/contracts"
 	aggapp "github.com/market-raccoon/internal/core/aggregation/app"
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
 	insightsapp "github.com/market-raccoon/internal/core/insights/app"
@@ -33,7 +34,6 @@ import (
 	insightsports "github.com/market-raccoon/internal/core/insights/ports"
 	mddomain "github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 	sharedhash "github.com/market-raccoon/internal/shared/hash"
 	"github.com/market-raccoon/internal/shared/metrics"

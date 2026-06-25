@@ -8,7 +8,7 @@ import (
 
 	"github.com/anthdm/hollywood/actor"
 	aggruntime "github.com/market-raccoon/internal/actors/aggregation/runtime"
-	"github.com/market-raccoon/internal/shared/contracts"
+	"github.com/market-raccoon/internal/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 )
 

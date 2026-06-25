@@ -7,8 +7,11 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/market-raccoon/internal/actors v0.0.0
 	github.com/market-raccoon/internal/adapters v0.0.0
+	github.com/market-raccoon/internal/application v0.0.0
+	github.com/market-raccoon/internal/contracts v0.0.0
 	github.com/market-raccoon/internal/core/aggregation v0.0.0
 	github.com/market-raccoon/internal/core/delivery v0.0.0
+	github.com/market-raccoon/internal/core/workspace v0.0.0
 	github.com/market-raccoon/internal/interfaces v0.0.0
 	github.com/market-raccoon/internal/shared v0.0.0
 	github.com/prometheus/client_golang v1.18.0
@@ -43,7 +46,6 @@ require (
 	github.com/market-raccoon/internal/core/portfolio v0.0.0 // indirect
 	github.com/market-raccoon/internal/core/signals v0.0.0 // indirect
 	github.com/market-raccoon/internal/core/strategy v0.0.0 // indirect
-	github.com/market-raccoon/internal/core/workspace v0.0.0 // indirect
 	github.com/matttproud/golang_protobuf_extensions/v2 v2.0.0 // indirect
 	github.com/nats-io/nats.go v1.48.0 // indirect
 	github.com/nats-io/nkeys v0.4.11 // indirect
@@ -54,6 +56,7 @@ require (
 	github.com/prometheus/common v0.45.0 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
 	github.com/segmentio/asm v1.2.0 // indirect
+	github.com/segmentio/kafka-go v0.4.49 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/zeebo/xxh3 v1.0.2 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
@@ -71,6 +74,8 @@ require (
 replace (
 	github.com/market-raccoon/internal/actors => ../../internal/actors
 	github.com/market-raccoon/internal/adapters => ../../internal/adapters
+	github.com/market-raccoon/internal/contracts => ../../internal/contracts
+	github.com/market-raccoon/internal/application => ../../internal/application
 	github.com/market-raccoon/internal/core/aggregation => ../../internal/core/aggregation
 	github.com/market-raccoon/internal/core/delivery => ../../internal/core/delivery
 	github.com/market-raccoon/internal/core/evidence => ../../internal/core/evidence

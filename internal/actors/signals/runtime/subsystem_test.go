@@ -9,11 +9,11 @@ import (
 
 	"github.com/anthdm/hollywood/actor"
 	signalsruntime "github.com/market-raccoon/internal/actors/signals/runtime"
+	"github.com/market-raccoon/internal/contracts"
 	evidencedomain "github.com/market-raccoon/internal/core/evidence/domain"
 	signalsapp "github.com/market-raccoon/internal/core/signals/app"
 	signalsdomain "github.com/market-raccoon/internal/core/signals/domain"
 	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/problem"
 )

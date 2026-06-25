@@ -19,9 +19,14 @@ import (
 	actorruntime "github.com/market-raccoon/internal/actors/runtime"
 	"github.com/market-raccoon/internal/adapters/bus"
 	adapterjs "github.com/market-raccoon/internal/adapters/jetstream"
+	adapterkafka "github.com/market-raccoon/internal/adapters/kafka"
+	adapternats "github.com/market-raccoon/internal/adapters/nats"
 	"github.com/market-raccoon/internal/adapters/storage/clickhouse"
 	"github.com/market-raccoon/internal/adapters/storage/federation"
 	"github.com/market-raccoon/internal/adapters/storage/timescale"
+	"github.com/market-raccoon/internal/application/emulatorruntime"
+	"github.com/market-raccoon/internal/application/runtimebootstrap"
+	"github.com/market-raccoon/internal/contracts"
 	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
 	aggports "github.com/market-raccoon/internal/core/aggregation/ports"
 	deliverydomain "github.com/market-raccoon/internal/core/delivery/domain"
@@ -30,8 +35,8 @@ import (
 	httpserver "github.com/market-raccoon/internal/interfaces/http"
 	wsserver "github.com/market-raccoon/internal/interfaces/ws"
 	"github.com/market-raccoon/internal/shared/bootstrap"
+	"github.com/market-raccoon/internal/shared/clock"
 	"github.com/market-raccoon/internal/shared/config"
-	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/ids"
 	"github.com/market-raccoon/internal/shared/metrics"
@@ -432,6 +437,48 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 		)
 	}
 
+	var dataPlaneOpt httpserver.Option
+	if cfg.DataPlane.Enabled {
+		store, p := adapternats.NewRuntimeStore(ctx, cfg.JetStream.URL, cfg.DataPlane.StateBucket)
+		if p != nil {
+			return fmt.Errorf("server: dataplane runtime store init failed: %v", p)
+		}
+		defer func() {
+			if err := store.Close(); err != nil {
+				logger.Warn("server: dataplane runtime store close failed", "err", err)
+			}
+		}()
+		dataPlaneRuntime := runtimebootstrap.New(store)
+		dataPlaneResults, p := adapternats.NewResultStore(ctx, cfg.JetStream.URL, cfg.DataPlane.StateBucket, cfg.DataPlane.ResultLimit)
+		if p != nil {
+			return fmt.Errorf("server: dataplane result store init failed: %v", p)
+		}
+		defer func() {
+			if err := dataPlaneResults.Close(); err != nil {
+				logger.Warn("server: dataplane result store close failed", "err", err)
+			}
+		}()
+
+		var emitter httpserver.DataPlaneEmitter
+		if len(cfg.DataPlane.Kafka.Brokers) > 0 {
+			writer, p := adapterkafka.NewWriter(adapterkafka.WriterConfig{Brokers: cfg.DataPlane.Kafka.Brokers})
+			if p != nil {
+				return fmt.Errorf("server: dataplane kafka writer init failed: %v", p)
+			}
+			defer func() {
+				if err := writer.Close(); err != nil {
+					logger.Warn("server: dataplane kafka writer close failed", "err", err)
+				}
+			}()
+			emitter = emulatorruntime.NewEmitter(dataPlaneRuntime, writer, clock.NewSystemClock())
+		}
+		dataPlaneOpt = httpserver.WithDataPlane(dataPlaneRuntime, dataPlaneResults, emitter)
+		logger.Info("server: dataplane control surface enabled",
+			"state_bucket", cfg.DataPlane.StateBucket,
+			"result_limit", cfg.DataPlane.ResultLimit,
+		)
+	}
+
 	// ── engine ────────────────────────────────────────────────────────────
 	e, err := actorruntime.NewDefaultEngine()
 	if err != nil {
@@ -460,49 +507,55 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 	var shutdownJSConsumer func(context.Context)
 
 	var deliveryFactory actor.Producer
+	bridgeEnabled := cfg.Delivery.Enabled
 	if cfg.Delivery.Enabled {
 		eventBus = bus.NewInMemoryBus(cfg.Processor.BusCapacity, metrics.NewBusObserver())
+	}
 
-		if strings.EqualFold(strings.TrimSpace(cfg.Bus.Type), "jetstream") {
-			jsConsumer, p := adapterjs.NewConsumer(ctx, adapterjs.ConsumerConfig{
-				URL:             cfg.JetStream.URL,
-				StreamName:      cfg.JetStream.StreamName,
-				DedupWindow:     cfg.JetStream.DedupWindowDuration(),
-				MaxAge:          cfg.JetStream.MaxAgeDuration(),
-				MaxBytes:        cfg.JetStream.MaxBytesInt64(),
-				ConsumerDurable: cfg.JetStream.ConsumerDurable,
-				FilterSubjects:  cfg.JetStream.FilterSubjects,
-				AckWait:         cfg.JetStream.AckWaitDuration(),
-				MaxAckPending:   cfg.JetStream.MaxAckPending,
-				MaxDeliver:      cfg.JetStream.MaxDeliver,
-				DeliverPolicy:   cfg.JetStream.DeliverPolicy,
-			}, metrics.NewBusObserver())
-			if p != nil {
-				return fmt.Errorf("server: jetstream consumer init failed: %v", p)
-			}
-			consumeCtx, cancelConsume := context.WithCancel(ctx)
-			go func() {
-				if p := jsConsumer.Consume(consumeCtx, func(_ context.Context, env envelope.Envelope) *problem.Problem {
+	if bridgeEnabled && strings.EqualFold(strings.TrimSpace(cfg.Bus.Type), "jetstream") {
+		jsConsumer, p := adapterjs.NewConsumer(ctx, adapterjs.ConsumerConfig{
+			URL:             cfg.JetStream.URL,
+			StreamName:      cfg.JetStream.StreamName,
+			DedupWindow:     cfg.JetStream.DedupWindowDuration(),
+			MaxAge:          cfg.JetStream.MaxAgeDuration(),
+			MaxBytes:        cfg.JetStream.MaxBytesInt64(),
+			ConsumerDurable: cfg.JetStream.ConsumerDurable,
+			FilterSubjects:  cfg.JetStream.FilterSubjects,
+			AckWait:         cfg.JetStream.AckWaitDuration(),
+			MaxAckPending:   cfg.JetStream.MaxAckPending,
+			MaxDeliver:      cfg.JetStream.MaxDeliver,
+			DeliverPolicy:   cfg.JetStream.DeliverPolicy,
+		}, metrics.NewBusObserver())
+		if p != nil {
+			return fmt.Errorf("server: jetstream consumer init failed: %v", p)
+		}
+		consumeCtx, cancelConsume := context.WithCancel(ctx)
+		go func() {
+			if p := jsConsumer.Consume(consumeCtx, func(_ context.Context, env envelope.Envelope) *problem.Problem {
+				if cfg.Delivery.Enabled && eventBus != nil {
 					rangeStore.StoreEnvelope(env)
 					return eventBus.Publish(ctx, env)
-				}); p != nil {
-					logger.Error("server: jetstream consume loop failed", "err", p)
 				}
-			}()
-			shutdownJSConsumer = func(shutCtx context.Context) {
-				cancelConsume()
-				if p := jsConsumer.Close(shutCtx); p != nil {
-					logger.Warn("server: jetstream consumer close failed", "err", p)
-				}
+				return nil
+			}); p != nil {
+				logger.Error("server: jetstream consume loop failed", "err", p)
 			}
-			logger.Info("server: subscribed to jetstream consumer",
-				"url", cfg.JetStream.URL,
-				"stream", cfg.JetStream.StreamName,
-				"durable", cfg.JetStream.ConsumerDurable,
-				"filters", cfg.JetStream.FilterSubjects,
-			)
+		}()
+		shutdownJSConsumer = func(shutCtx context.Context) {
+			cancelConsume()
+			if p := jsConsumer.Close(shutCtx); p != nil {
+				logger.Warn("server: jetstream consumer close failed", "err", p)
+			}
 		}
+		logger.Info("server: subscribed to jetstream consumer",
+			"url", cfg.JetStream.URL,
+			"stream", cfg.JetStream.StreamName,
+			"durable", cfg.JetStream.ConsumerDurable,
+			"filters", cfg.JetStream.FilterSubjects,
+		)
+	}
 
+	if cfg.Delivery.Enabled {
 		deliveryCfg := deliveryruntime.SubsystemConfig{
 			Logger:       logger,
 			EnvelopeCh:   eventBus.Subscribe(),
@@ -568,6 +621,7 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 		marketsOpt,
 		consistencyOpt,
 		workspaceOpt,
+		dataPlaneOpt,
 	)
 	if cfg.Delivery.Enabled {
 		enableWSRoute(e, srv, routerPIDCh, subsystemPIDCh, logger, rangeStore, tsPool, subMinuteGate, cfg)

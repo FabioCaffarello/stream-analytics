@@ -99,6 +99,50 @@ services:
           memory: 4G
           cpus: "2.00"
 
+  kafka:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.13
+    container_name: market-raccoon-kafka
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp
+      - "1"
+      - --memory
+      - "512M"
+      - --reserve-memory
+      - "0M"
+      - --check=false
+      - --node-id
+      - "0"
+      - --kafka-addr
+      - PLAINTEXT://0.0.0.0:9092,OUTSIDE://0.0.0.0:19092
+      - --advertise-kafka-addr
+      - PLAINTEXT://kafka:9092,OUTSIDE://localhost:19092
+    ports:
+      - "127.0.0.1:19092:19092"
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster info --brokers=127.0.0.1:9092 >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 15s
+    networks:
+      - market-raccoon-network
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.00"
+
   server:
     build:
       context: ../..
@@ -112,6 +156,8 @@ services:
       - ../configs/server.jsonc:/etc/market-raccoon/server.jsonc:ro
     depends_on:
       nats:
+        condition: service_healthy
+      kafka:
         condition: service_healthy
       timescale:
         condition: service_healthy
@@ -180,6 +226,82 @@ services:
         limits:
           memory: 512M
           cpus: "1.00"
+
+  dataplane-consumer:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/consumer.Dockerfile
+    image: market-raccoon/consumer:dev
+    container_name: market-raccoon-dataplane-consumer
+    command: ["-config", "/etc/market-raccoon/consumer-dataplane.jsonc"]
+    ports:
+      - "127.0.0.1:8088:8088"
+    volumes:
+      - ../configs/consumer-dataplane.jsonc:/etc/market-raccoon/consumer-dataplane.jsonc:ro
+    depends_on:
+      nats:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8088/readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - market-raccoon-network
+    restart: unless-stopped
+    profiles: ["core"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.50"
+
+  validator:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/validator.Dockerfile
+    image: market-raccoon/validator:dev
+    container_name: market-raccoon-validator
+    command: ["-config", "/etc/market-raccoon/validator.jsonc"]
+    ports:
+      - "127.0.0.1:8089:8089"
+    volumes:
+      - ../configs/validator.jsonc:/etc/market-raccoon/validator.jsonc:ro
+    depends_on:
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8089/readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - market-raccoon-network
+    restart: unless-stopped
+    profiles: ["core"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.50"
 
   processor:
     build:

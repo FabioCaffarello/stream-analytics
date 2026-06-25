@@ -10,11 +10,11 @@ import (
 	"github.com/market-raccoon/internal/adapters/bus"
 	"github.com/market-raccoon/internal/adapters/exchange/binance"
 	"github.com/market-raccoon/internal/adapters/exchange/bybit"
+	"github.com/market-raccoon/internal/contracts"
 	mdapp "github.com/market-raccoon/internal/core/marketdata/app"
 	"github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/shared/clock"
 	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/problem"
 )

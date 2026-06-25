@@ -4,9 +4,9 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/market-raccoon/internal/contracts"
 	"github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 )
 

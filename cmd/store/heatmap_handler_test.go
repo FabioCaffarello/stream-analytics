@@ -7,9 +7,9 @@ import (
 
 	adapterstorage "github.com/market-raccoon/internal/adapters/storage"
 	"github.com/market-raccoon/internal/adapters/storage/clickhouse"
+	"github.com/market-raccoon/internal/contracts"
 	insightsdomain "github.com/market-raccoon/internal/core/insights/domain"
 	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/problem"
 )

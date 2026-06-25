@@ -47,10 +47,10 @@ func dtoToDomain(dto workspaceStateDTO) *domain.Workspace {
 // (temp file + fsync + rename) to avoid partial writes on crash.
 type FileWorkspaceStore struct {
 	mu      sync.RWMutex
-	path    string           // full path to workspace.json
+	path    string            // full path to workspace.json
 	state   *domain.Workspace // cached in memory after first load
-	loaded  bool             // true after first load attempt
-	loadErr error            // non-nil if the on-disk file was corrupt
+	loaded  bool              // true after first load attempt
+	loadErr error             // non-nil if the on-disk file was corrupt
 }
 
 // NewFileWorkspaceStore creates a store that reads/writes workspace state

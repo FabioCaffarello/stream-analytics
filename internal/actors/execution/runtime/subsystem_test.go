@@ -8,10 +8,10 @@ import (
 
 	"github.com/anthdm/hollywood/actor"
 	executionruntime "github.com/market-raccoon/internal/actors/execution/runtime"
+	"github.com/market-raccoon/internal/contracts"
 	executiondomain "github.com/market-raccoon/internal/core/execution/domain"
 	strategydomain "github.com/market-raccoon/internal/core/strategy/domain"
 	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/problem"
 )

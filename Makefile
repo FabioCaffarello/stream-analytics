@@ -58,7 +58,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules workspace-check tidy tidy-check go-tidy-check tidy-check-changed fmt fmt-check vet shell-script-check quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check legacy-check-staged legacy-check lint lint-changed smoke subminute-rollout-gate subminute-rollout-gate-full runtime-gate runtime-gate-full test test-root test-workspace test-workspace-race test-unit test-integration test-integration-changed test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store soak-roundtrip soak-pipeline soak-ws-delivery soak-c4-production soak-full test-short test-short-changed bench-hotpath bench-budget vuln build run clean docker-build client-docker-build client-docker-run client-docker-stop up up-fresh down down-clean up-infra up-core migrate processor-reset-durables dev-scale-smoke ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci backup backup-timescaledb backup-clickhouse restore-timescaledb restore-clickhouse
+.PHONY: help install-tools tools modules workspace-check tidy tidy-check go-tidy-check tidy-check-changed fmt fmt-check vet shell-script-check quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check legacy-check-staged legacy-check lint lint-changed smoke smoke-dataplane subminute-rollout-gate subminute-rollout-gate-full runtime-gate runtime-gate-full test test-root test-workspace test-workspace-race test-unit test-integration test-integration-changed test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store soak-roundtrip soak-pipeline soak-ws-delivery soak-c4-production soak-full test-short test-short-changed bench-hotpath bench-budget vuln build run clean docker-build client-docker-build client-docker-run client-docker-stop up up-fresh down down-clean up-infra up-core migrate processor-reset-durables dev-scale-smoke ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci backup backup-timescaledb backup-clickhouse restore-timescaledb restore-clickhouse
 
 help:
 	@echo "Targets:"
@@ -120,15 +120,16 @@ help:
 	@echo "  make client-docker-stop  - stop client container"
 	@echo "  make down               - stop full stack (preserve data volumes)"
 	@echo "  make down-clean         - stop full stack and remove all data volumes"
-	@echo "  make up                 - start full stack (nats + timescale + clickhouse + app services + observability)"
+	@echo "  make up                 - start full stack (nats + kafka + timescale + clickhouse + app services + observability)"
 	@echo "                           vars: PROCESSOR_REPLICAS=N, PROCESSOR_SHARD_COUNT (defaults to N; consumer fixed at 1 replica)"
 	@echo "                           dev/local: SHARD_INDEX is auto-derived from replica hostname when unset"
 	@echo "  make up-fresh           - local clean startup: down -> up-infra -> reset processor durables -> up"
 	@echo "                           vars: PROCESSOR_REPLICAS=N, PROCESSOR_SHARD_COUNT (defaults to N), PROCESSOR_DURABLE_BASE"
-	@echo "  make up-infra           - start only infrastructure services (nats + timescale + clickhouse + prometheus + grafana)"
+	@echo "  make up-infra           - start only infrastructure services (nats + kafka + timescale + clickhouse + prometheus + grafana)"
 	@echo "  make up-core            - start infra + core app services (no observability)"
 	@echo "  make migrate            - run database migrations (starts infra if needed)"
 	@echo "  make smoke              - wait up to 60s for /readyz on core services via docker compose"
+	@echo "  make smoke-dataplane    - seed runtime binding/config, emit valid+invalid messages, and verify validation results via server API"
 	@echo "  make subminute-rollout-gate - run sub-minute rollout canary gate (unit/contract checks + evidence report)"
 	@echo "  make subminute-rollout-gate-full - sub-minute gate + compose smoke + runtime-gate"
 	@echo "  make processor-reset-durables - delete local JetStream processor durables (processor-v4[-sN])"
@@ -617,7 +618,7 @@ down-clean:
 	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile core --profile obs --profile client down -v --remove-orphans
 
 up-infra:
-	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile obs up -d nats timescale clickhouse migrate prometheus grafana
+	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile obs up -d nats kafka timescale clickhouse migrate prometheus grafana
 
 migrate:
 	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env run --rm migrate
@@ -641,6 +642,10 @@ up-core:
 smoke: shell-script-check
 	@chmod +x ./scripts/test/util/smoke-compose.sh
 	@./scripts/test/util/smoke-compose.sh
+
+smoke-dataplane: shell-script-check
+	@chmod +x ./scripts/test/util/dataplane-smoke.sh
+	@./scripts/test/util/dataplane-smoke.sh
 
 subminute-rollout-gate: shell-script-check
 	@chmod +x ./scripts/test/util/subminute-rollout-gate.sh

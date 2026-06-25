@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/market-raccoon/internal/adapters/bus"
+	"github.com/market-raccoon/internal/contracts"
 	mdapp "github.com/market-raccoon/internal/core/marketdata/app"
 	"github.com/market-raccoon/internal/core/marketdata/ports"
 	"github.com/market-raccoon/internal/shared/clock"
@@ -41,7 +42,7 @@ func runConsumerReplay(cfg config.AppConfig, logger *slog.Logger) {
 		MaxStreams: cfg.MarketData.MaxInstruments,
 	})
 
-	player, p := replay.NewPlayer(replayPath, fakeClock)
+	player, p := replay.NewPlayer(replayPath, fakeClock, contracts.BootstrapPayloadCodecRegistry)
 	if p != nil {
 		logger.Error("consumer: replay player init failed", "err", p)
 		os.Exit(1)

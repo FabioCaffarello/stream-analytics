@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/market-raccoon/internal/contracts"
 	mdapp "github.com/market-raccoon/internal/core/marketdata/app"
 	mddomain "github.com/market-raccoon/internal/core/marketdata/domain"
 	"github.com/market-raccoon/internal/shared/clock"
 	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/problem"
 	"github.com/market-raccoon/internal/shared/replay"
@@ -75,7 +75,7 @@ func TestReplayIngestGolden1000(t *testing.T) {
 	capture := &replay.CapturePublisher{}
 	ingest := mdapp.NewIngestMarketData(fakeClock, replaySeq, capture)
 
-	player, p := replay.NewPlayer(fixturePath, fakeClock)
+	player, p := replay.NewPlayer(fixturePath, fakeClock, contracts.BootstrapPayloadCodecRegistry)
 	if p != nil {
 		t.Fatalf("NewPlayer: %v", p)
 	}

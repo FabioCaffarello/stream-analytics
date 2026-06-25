@@ -3,6 +3,7 @@ module github.com/market-raccoon/internal/core/marketdata
 go 1.25.6
 
 require (
+	github.com/market-raccoon/internal/contracts v0.0.0
 	github.com/market-raccoon/internal/core/marketmodel v0.0.0
 	github.com/market-raccoon/internal/shared v0.0.0
 	github.com/prometheus/client_golang v1.18.0
@@ -27,6 +28,7 @@ require (
 )
 
 replace (
+	github.com/market-raccoon/internal/contracts => ../../contracts
 	github.com/market-raccoon/internal/core/evidence => ../../../internal/core/evidence
 	github.com/market-raccoon/internal/core/insights => ../../../internal/core/insights
 	github.com/market-raccoon/internal/core/marketmodel => ../../../internal/core/marketmodel

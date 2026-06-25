@@ -10,9 +10,9 @@ import (
 	"github.com/anthdm/hollywood/actor"
 	"github.com/gorilla/websocket"
 	deliveryruntime "github.com/market-raccoon/internal/actors/delivery/runtime"
+	"github.com/market-raccoon/internal/contracts"
 	marketmodel "github.com/market-raccoon/internal/core/marketmodel"
 	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 )
 

@@ -69,14 +69,14 @@ func TestPgAccountSnapshotWriter_Upsert_ConnectionError(t *testing.T) {
 
 func testAccountSnapshot() domain.AccountSnapshotV1 {
 	return domain.AccountSnapshotV1{
-		SnapshotID:       "snap-001",
-		AccountID:        "acct-1",
-		ProjectedAtMs:    1_710_000_000_000,
-		TotalEquityUSD:   50_000.0,
-		TotalRealizedUSD: 1_000.0,
-		TotalUnrealized:  -200.0,
-		TotalMarginUsed:  2_000.0,
-		TotalLeverage:    1.67,
+		SnapshotID:         "snap-001",
+		AccountID:          "acct-1",
+		ProjectedAtMs:      1_710_000_000_000,
+		TotalEquityUSD:     50_000.0,
+		TotalRealizedUSD:   1_000.0,
+		TotalUnrealizedUSD: -200.0,
+		TotalMarginUsedUSD: 2_000.0,
+		TotalLeverage:      1.67,
 		Venues: []domain.VenuePositionV1{
 			{
 				Venue:            "binance",

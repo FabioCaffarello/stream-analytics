@@ -28,6 +28,7 @@ type AppConfig struct {
 	JetStream    JetStreamConfig    `json:"jetstream"`
 	Consumer     ConsumerConfig     `json:"consumer"`
 	MarketData   MarketDataConfig   `json:"marketdata"`
+	DataPlane    DataPlaneConfig    `json:"data_plane"`
 	Replay       ReplayConfig       `json:"replay"`
 	Processor    ProcessorConfig    `json:"processor"`
 	Store        StoreConfig        `json:"store"`
@@ -513,6 +514,9 @@ type DeliveryNATSConfig struct {
 
 // ConsumerConfig controls the market-data consumer binary.
 type ConsumerConfig struct {
+	// Mode selects the consumer runtime path.
+	// Allowed: "marketdata" (default) | "dataplane".
+	Mode string `json:"mode"`
 	// Exchange is the canonical exchange name.  Default: "binance".
 	// Legacy single-exchange field; kept for backward compatibility.
 	Exchange string `json:"exchange"`
@@ -592,6 +596,26 @@ type MarketDataConfig struct {
 	// ReplayPath enables opt-in fixture replay mode for processor runtime.
 	// Empty disables replay (default behavior).
 	ReplayPath string `json:"replay_path"`
+}
+
+// DataPlaneConfig controls the minimal validation data plane runtime.
+type DataPlaneConfig struct {
+	// Enabled turns on data plane features for the current process.
+	Enabled bool `json:"enabled"`
+	// StateBucket is the JetStream KV bucket used for bindings/config activation state.
+	StateBucket string `json:"state_bucket"`
+	// ResultLimit is the default/capped result window exposed by server result queries.
+	ResultLimit int `json:"result_limit"`
+	// Kafka controls broker access for emulator/server emit and consumer intake.
+	Kafka DataPlaneKafkaConfig `json:"kafka"`
+}
+
+// DataPlaneKafkaConfig controls Kafka broker access used by the data plane.
+type DataPlaneKafkaConfig struct {
+	// Brokers are the bootstrap broker addresses.
+	Brokers []string `json:"brokers"`
+	// ConsumerGroup is the Kafka consumer group used by cmd/consumer dataplane mode.
+	ConsumerGroup string `json:"consumer_group"`
 }
 
 // ReplayConfig controls opt-in replay runtime.

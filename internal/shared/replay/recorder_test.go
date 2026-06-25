@@ -9,6 +9,27 @@ import (
 	"github.com/market-raccoon/internal/shared/problem"
 )
 
+func newTestReader(t *testing.T, path string) *Reader {
+	t.Helper()
+	r, p := NewReader(path)
+	if p != nil {
+		t.Fatalf("NewReader: %v", p)
+	}
+	return r
+}
+
+func mustNextRecord(t *testing.T, r *Reader, idx int) FixtureRecord {
+	t.Helper()
+	rec, ok, p := r.Next()
+	if p != nil {
+		t.Fatalf("Next[%d]: %v", idx, p)
+	}
+	if !ok {
+		t.Fatalf("Next[%d]: unexpected EOF", idx)
+	}
+	return rec
+}
+
 type spyPublisher struct {
 	envelopes []envelope.Envelope
 	problem   *problem.Problem

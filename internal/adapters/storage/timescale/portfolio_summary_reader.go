@@ -122,8 +122,8 @@ func scanPortfolioSummary(row rowScanner) (domain.PortfolioSummaryV1, *problem.P
 
 	if err := row.Scan(
 		&s.SummaryID, &s.ProjectedAtMs,
-		&s.GlobalEquityUSD, &s.GlobalRealizedUSD, &s.GlobalUnrealized,
-		&s.GlobalMarginUsed, &s.GlobalLeverage,
+		&s.GlobalEquityUSD, &s.GlobalRealizedUSD, &s.GlobalUnrealizedUSD,
+		&s.GlobalMarginUsedUSD, &s.GlobalLeverage,
 		&s.TotalPositionCount, &s.TotalOpenOrders,
 		&accountsJSON, &fillJSON,
 	); err != nil {

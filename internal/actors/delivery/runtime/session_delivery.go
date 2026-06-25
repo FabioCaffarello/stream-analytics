@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/market-raccoon/internal/contracts"
 	"github.com/market-raccoon/internal/core/delivery/domain"
 	"github.com/market-raccoon/internal/core/delivery/ports"
 	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/market-raccoon/internal/shared/observability"

@@ -10,11 +10,11 @@ import (
 
 	actorruntime "github.com/market-raccoon/internal/actors/runtime"
 	signalruntime "github.com/market-raccoon/internal/actors/signal/runtime"
+	"github.com/market-raccoon/internal/contracts"
 	evidencedomain "github.com/market-raccoon/internal/core/evidence/domain"
 	marketmodel "github.com/market-raccoon/internal/core/marketmodel"
 	signalcore "github.com/market-raccoon/internal/core/signal"
 	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 	sharedhash "github.com/market-raccoon/internal/shared/hash"
 	"github.com/market-raccoon/internal/shared/metrics"

@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/market-raccoon/internal/contracts"
 	evidencedomain "github.com/market-raccoon/internal/core/evidence/domain"
 	marketmodel "github.com/market-raccoon/internal/core/marketmodel"
 	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/contracts"
 	"github.com/market-raccoon/internal/shared/envelope"
 )
 

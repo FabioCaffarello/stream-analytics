@@ -46,6 +46,7 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 		{name: "jetstream.dedup_window", got: cfg.JetStream.DedupWindow, want: "5m"},
 		{name: "jetstream.max_age", got: cfg.JetStream.MaxAge, want: "24h"},
 		{name: "jetstream.max_bytes", got: cfg.JetStream.MaxBytes, want: "10GB"},
+		{name: "consumer.mode", got: cfg.Consumer.Mode, want: "marketdata"},
 		{name: "consumer.exchange", got: cfg.Consumer.Exchange, want: "binance"},
 		{name: "consumer.tickers non-empty", got: len(cfg.Consumer.Tickers) > 0, want: true},
 		{name: "consumer.exchanges has synthesized entry", got: len(cfg.Consumer.Exchanges), want: 1},
@@ -58,6 +59,8 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 		{name: "marketdata.max_instruments", got: cfg.MarketData.MaxInstruments, want: 2048},
 		{name: "marketdata.record_path", got: cfg.MarketData.RecordPath, want: ""},
 		{name: "marketdata.replay_path", got: cfg.MarketData.ReplayPath, want: ""},
+		{name: "data_plane.state_bucket", got: cfg.DataPlane.StateBucket, want: "MR_DATAPLANE"},
+		{name: "data_plane.result_limit", got: cfg.DataPlane.ResultLimit, want: 100},
 		{name: "processor.bus_capacity", got: cfg.Processor.BusCapacity, want: 1024},
 		{name: "processor.max_instruments", got: cfg.Processor.MaxInstruments, want: 2048},
 		{name: "processor.signals.enabled", got: cfg.Processor.Signals.IsEnabled(), want: true},
@@ -2090,5 +2093,34 @@ func TestResolveIQProfileFromEnvMap_FingerprintStable(t *testing.T) {
 	}
 	if parsed.Budgets.P95Ms != 5000 || parsed.Budgets.P99Ms != 5000 {
 		t.Fatalf("unexpected budget p95/p99: %+v", parsed.Budgets)
+	}
+}
+
+func TestValidateConsumer_DataplaneModeSkipsMarketdataExchangeChecks(t *testing.T) {
+	cfg, prob := Load("")
+	if prob != nil {
+		t.Fatalf("load defaults: %v", prob)
+	}
+	cfg.Consumer.Mode = "dataplane"
+	cfg.Consumer.Exchanges = nil
+	cfg.Consumer.Tickers = nil
+	cfg.Consumer.StreamsPerTicker = 0
+	cfg.Consumer.MaxStreamsPerWebsocket = 0
+	cfg.Consumer.MaxWebsockets = 0
+	cfg.Consumer.BackpressureBufferSize = 0
+	if p := cfg.Validate(); p != nil {
+		t.Fatalf("expected dataplane consumer mode to pass base config validation, got: %v", p)
+	}
+}
+
+func TestValidateDataPlane_StateBucketRequiredWhenEnabled(t *testing.T) {
+	cfg, prob := Load("")
+	if prob != nil {
+		t.Fatalf("load defaults: %v", prob)
+	}
+	cfg.DataPlane.Enabled = true
+	cfg.DataPlane.StateBucket = ""
+	if p := cfg.Validate(); p == nil {
+		t.Fatal("expected validation failure for empty data_plane.state_bucket")
 	}
 }

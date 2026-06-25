@@ -204,16 +204,16 @@ func (p *BootstrapProjector) BuildAccountSnapshot(accountID string, nowMs int64)
 	}
 
 	snap := portfoliodomain.AccountSnapshotV1{
-		SnapshotID:       sharedhash.HashFieldsFast("account-snapshot", accountID),
-		AccountID:        accountID,
-		ProjectedAtMs:    nowMs,
-		Venues:           venues,
-		TotalEquityUSD:   totalEquity,
-		TotalRealizedUSD: totalRealized,
-		TotalUnrealized:  totalUnrealized,
-		TotalMarginUsed:  totalMarginUsed,
-		TotalLeverage:    totalLeverage,
-		FillSummary:      fills,
+		SnapshotID:         sharedhash.HashFieldsFast("account-snapshot", accountID),
+		AccountID:          accountID,
+		ProjectedAtMs:      nowMs,
+		Venues:             venues,
+		TotalEquityUSD:     totalEquity,
+		TotalRealizedUSD:   totalRealized,
+		TotalUnrealizedUSD: totalUnrealized,
+		TotalMarginUsedUSD: totalMarginUsed,
+		TotalLeverage:      totalLeverage,
+		FillSummary:        fills,
 	}
 	return snap, true
 }
@@ -313,17 +313,17 @@ func (p *BootstrapProjector) BuildPortfolioSummary(nowMs int64) (portfoliodomain
 	}
 
 	sum := portfoliodomain.PortfolioSummaryV1{
-		SummaryID:          sharedhash.HashFieldsFast("portfolio-summary"),
-		ProjectedAtMs:      nowMs,
-		Accounts:           accounts,
-		GlobalEquityUSD:    globalEquity,
-		GlobalRealizedUSD:  globalRealized,
-		GlobalUnrealized:   globalUnrealized,
-		GlobalMarginUsed:   globalMarginUsed,
-		GlobalLeverage:     globalLeverage,
-		TotalPositionCount: totalPositions,
-		TotalOpenOrders:    totalOpenOrders,
-		FillSummary:        fills,
+		SummaryID:           sharedhash.HashFieldsFast("portfolio-summary"),
+		ProjectedAtMs:       nowMs,
+		Accounts:            accounts,
+		GlobalEquityUSD:     globalEquity,
+		GlobalRealizedUSD:   globalRealized,
+		GlobalUnrealizedUSD: globalUnrealized,
+		GlobalMarginUsedUSD: globalMarginUsed,
+		GlobalLeverage:      globalLeverage,
+		TotalPositionCount:  totalPositions,
+		TotalOpenOrders:     totalOpenOrders,
+		FillSummary:         fills,
 	}
 	return sum, true
 }
