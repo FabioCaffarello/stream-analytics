@@ -153,6 +153,10 @@
          <lastmod>2026-06-26</lastmod>
     </url>
     <url>
+         <loc>https://FabioCaffarello.github.io/stream-analytics/architecture/diagrams/analytics-schema/</loc>
+         <lastmod>2026-06-26</lastmod>
+    </url>
+    <url>
          <loc>https://FabioCaffarello.github.io/stream-analytics/architecture/diagrams/c4-analytics/</loc>
          <lastmod>2026-06-26</lastmod>
     </url>
@@ -162,6 +166,10 @@
     </url>
     <url>
          <loc>https://FabioCaffarello.github.io/stream-analytics/architecture/diagrams/c4-context/</loc>
+         <lastmod>2026-06-26</lastmod>
+    </url>
+    <url>
+         <loc>https://FabioCaffarello.github.io/stream-analytics/architecture/diagrams/flink-jobs-detail/</loc>
          <lastmod>2026-06-26</lastmod>
     </url>
     <url>
@@ -306,6 +314,34 @@
     </url>
     <url>
          <loc>https://FabioCaffarello.github.io/stream-analytics/rfcs/EXECUTION-SEQUENCE/</loc>
+         <lastmod>2026-06-26</lastmod>
+    </url>
+    <url>
+         <loc>https://FabioCaffarello.github.io/stream-analytics/showcase/</loc>
+         <lastmod>2026-06-26</lastmod>
+    </url>
+    <url>
+         <loc>https://FabioCaffarello.github.io/stream-analytics/showcase/analytics/</loc>
+         <lastmod>2026-06-26</lastmod>
+    </url>
+    <url>
+         <loc>https://FabioCaffarello.github.io/stream-analytics/showcase/client/</loc>
+         <lastmod>2026-06-26</lastmod>
+    </url>
+    <url>
+         <loc>https://FabioCaffarello.github.io/stream-analytics/showcase/observability/</loc>
+         <lastmod>2026-06-26</lastmod>
+    </url>
+    <url>
+         <loc>https://FabioCaffarello.github.io/stream-analytics/showcase/performance/</loc>
+         <lastmod>2026-06-26</lastmod>
+    </url>
+    <url>
+         <loc>https://FabioCaffarello.github.io/stream-analytics/showcase/pipeline/</loc>
+         <lastmod>2026-06-26</lastmod>
+    </url>
+    <url>
+         <loc>https://FabioCaffarello.github.io/stream-analytics/showcase/services/</loc>
          <lastmod>2026-06-26</lastmod>
     </url>
 </urlset>
