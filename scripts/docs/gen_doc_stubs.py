@@ -67,6 +67,14 @@ SUMMARY = """\
     * [Subsystems](architecture/subsystems.md)
     * [System Invariants](architecture/system-invariants.md)
     * [Sequencing Model](architecture/sequencing-model.md)
+* System in Action
+    * [Platform Tour](showcase/index.md)
+    * [End-to-End Pipeline](showcase/pipeline.md)
+    * [Service Binaries](showcase/services.md)
+    * [Cockpit (Odin)](showcase/client.md)
+    * [Analytics Stack](showcase/analytics.md)
+    * [Observability](showcase/observability.md)
+    * [Performance](showcase/performance.md)
 * Architecture Diagrams
     * [C4 System Context](architecture/diagrams/c4-context.md)
     * [C4 Service Map](architecture/diagrams/c4-containers.md)

@@ -20,7 +20,13 @@ done
 # Concatenate all SQL files into a single script so DDL (CREATE TABLE)
 # and DML (INSERT INTO) share the same session and the tables are visible.
 echo "flink-init: building combined SQL script"
-> "${COMBINED_SQL}"
+# Prepend restart strategy so jobs recover from transient source failures.
+cat > "${COMBINED_SQL}" << 'EOF'
+SET 'restart-strategy' = 'fixed-delay';
+SET 'restart-strategy.fixed-delay.attempts' = '10';
+SET 'restart-strategy.fixed-delay.delay' = '10s';
+
+EOF
 for sql_file in "${SQL_DIR}"/0*.sql; do
     echo "-- === ${sql_file} ===" >> "${COMBINED_SQL}"
     cat "${sql_file}" >> "${COMBINED_SQL}"

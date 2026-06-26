@@ -40,6 +40,11 @@ Stream_Apply_State :: struct {
 	// Heatmap dedup: last synthetic heatmap window applied
 	synth_heatmap_last_window: i64,
 
+	// Permanent snapshot latch — set when a snapshot is first seen, never cleared by
+	// recovery or reconnect (unlike snapshot_seen). Used to distinguish "never had data"
+	// (first connect) from "had data but recovery cleared the gate" (resubscribe during recovery).
+	snapshot_ever_seen: [Artifact_Kind]bool,
+
 	// Total events applied (for health tracking)
 	event_count:        u64,
 
@@ -80,8 +85,9 @@ Snapshot_Lifecycle :: enum u8 {
 //
 // Decision flow:
 //   1. event_count == 0 → Absent
-//   2. Any snapshot-gated artifact unsatisfied → Pending
-//   3. Recovery exhausted → Stale
+//   2. Recovery exhausted → Stale
+//   3. Any snapshot-gated artifact unsatisfied AND never seen before → Pending
+//      (if gate was cleared by recovery but artifact had data before → fall through to Degraded)
 //   4. Recovery in progress or any synthetic fallback active → Degraded
 //   5. Otherwise → Live
 apply_state_snapshot_lifecycle :: proc(s: Stream_Apply_State) -> Snapshot_Lifecycle {
@@ -95,6 +101,11 @@ apply_state_snapshot_lifecycle :: proc(s: Stream_Apply_State) -> Snapshot_Lifecy
 	for kind in Artifact_Kind {
 		policy := artifact_policies[kind]
 		if policy.needs_snapshot_gate && !s.snapshot_seen[kind] {
+			// If recovery cleared this gate but we had data before, fall through to
+			// Degraded rather than blocking as Pending (data existed, just needs refresh).
+			if s.snapshot_ever_seen[kind] && s.recovery_attempts > 0 {
+				continue
+			}
 			return .Pending
 		}
 	}
@@ -127,12 +138,13 @@ snapshot_lifecycle_label :: proc(sl: Snapshot_Lifecycle) -> string {
 }
 
 // snapshot_lifecycle_blocks_render returns true if the snapshot lifecycle
-// indicates that widgets should NOT render data as trustworthy.
+// indicates that widgets should NOT render data (nothing to show).
+// .Stale does NOT block render — last-known data is shown with a stale overlay.
 snapshot_lifecycle_blocks_render :: proc(sl: Snapshot_Lifecycle) -> bool {
 	switch sl {
-	case .Absent, .Pending, .Stale:
+	case .Absent, .Pending:
 		return true
-	case .Degraded, .Live:
+	case .Stale, .Degraded, .Live:
 		return false
 	}
 	return true
@@ -196,6 +208,7 @@ apply_state_mark_event :: proc(s: ^Stream_Apply_State, kind: Artifact_Kind, now_
 	policy := artifact_policies[kind]
 	if is_snapshot || !policy.needs_snapshot_gate {
 		s.snapshot_seen[kind] = true
+		s.snapshot_ever_seen[kind] = true  // permanent latch — never cleared by recovery
 	}
 
 	// Live data displaces synthetic fallback.
@@ -460,12 +473,29 @@ apply_state_artifact_staleness :: proc(s: Stream_Apply_State, kind: Artifact_Kin
 }
 
 // S28: Count artifacts in Stale or Aging state. Pure function.
+// TF_Adaptive artifacts (Candle) are intentionally excluded from the stale bucket:
+// low-volume markets can go minutes without a new candle — this is expected and
+// not actionable via auto-recovery. Counting them as stale would produce
+// Stream_Reliability.Stale_Unrecoverable with recovery_attempts==0, which shows
+// "Data stale, auto-recovery exhausted" even though no recovery was ever attempted.
+// Instead, TF_Adaptive stale is downgraded to aging → health becomes .Degraded →
+// reliability becomes .Degraded_Aging → widget renders with a yellow "Aging" hint.
 apply_state_stale_artifact_count :: proc(s: Stream_Apply_State, now_ms: i64, tf_ms: i64 = 0) -> (stale: int, aging: int) {
 	for kind in Artifact_Kind {
 		if s.artifact_event_count[kind] == 0 do continue
+		policy := artifact_policies[kind]
 		staleness := apply_state_artifact_staleness(s, kind, now_ms, tf_ms)
-		if staleness == .Stale do stale += 1
-		else if staleness == .Aging do aging += 1
+		switch staleness {
+		case .Stale:
+			if policy.stale_detection == .TF_Adaptive {
+				aging += 1
+			} else {
+				stale += 1
+			}
+		case .Aging:
+			aging += 1
+		case .Fresh, .Unknown:
+		}
 	}
 	return
 }

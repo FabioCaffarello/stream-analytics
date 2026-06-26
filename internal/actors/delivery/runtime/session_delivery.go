@@ -96,6 +96,11 @@ func (s *SessionActor) writeDeliveryBatchFromQueue(maxItems int) (int, *problem.
 
 	first := s.outbound.At(0)
 	subjectKey := first.Subject.String()
+	if _, pending := s.deferredSnapshotSubjects[subjectKey]; pending {
+		if s.emitHotSnapshot(first.Subject) {
+			delete(s.deferredSnapshotSubjects, subjectKey)
+		}
+	}
 	channel := channelName(channelEnumFromStreamType(first.Subject.StreamType), first.Subject.StreamType)
 
 	candidateCount := 1
@@ -405,6 +410,11 @@ func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) *problem.Problem {
 		TsIngest: evt.Env.TsIngest,
 	})
 	subjectKey := evt.Subject.String()
+	if _, pending := s.deferredSnapshotSubjects[subjectKey]; pending {
+		if s.emitHotSnapshot(evt.Subject) {
+			delete(s.deferredSnapshotSubjects, subjectKey)
+		}
+	}
 	channel := channelName(meta.GetChannel(), evt.Subject.StreamType)
 	prevSeq := s.lastDeliveredSeq[subjectKey]
 	if s.cfg.PreferProto && contracts.ProtoRolloutEnabledForEventType(evt.Env.Type) {

@@ -145,6 +145,9 @@ type SessionActor struct {
 	snapshotSeq map[string]int64
 	// Per-subject last delivered event seq for prev_seq chaining.
 	lastDeliveredSeq map[string]int64
+	// deferredSnapshotSubjects tracks subjects where snapshot was unavailable at
+	// subscribe time. The snapshot is re-attempted before the first event delivery.
+	deferredSnapshotSubjects map[string]struct{}
 	// Per-session resync counter (total resyncs across all subjects).
 	resyncCount int64
 
@@ -297,6 +300,9 @@ func (s *SessionActor) ensureDefaults(c *actor.Context) {
 	if s.lastDeliveredSeq == nil {
 		s.lastDeliveredSeq = make(map[string]int64)
 	}
+	if s.deferredSnapshotSubjects == nil {
+		s.deferredSnapshotSubjects = make(map[string]struct{})
+	}
 	if s.compressWriter == nil {
 		if w, err := flate.NewWriter(&s.compressBuf, flate.BestSpeed); err == nil {
 			s.compressWriter = w
@@ -442,4 +448,5 @@ func (s *SessionActor) closeSession() {
 	s.lastSnapshot = nil
 	s.snapshotSeq = nil
 	s.lastDeliveredSeq = nil
+	s.deferredSnapshotSubjects = nil
 }

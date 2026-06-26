@@ -81,6 +81,16 @@ class MetabaseClient:
     def post(self, path: str, body: dict) -> dict:
         self._set_auth()
         r = self.s.post(f"{self.base}/api{path}", json=body)
+        if r.status_code == 401:
+            payload = r.json()
+            err = str(payload)
+            if "Too many attempts" in err:
+                wait = next((w for w in err.split() if w.isdigit()), "unknown")
+                raise RuntimeError(
+                    f"Metabase rate limiter active — too many failed login attempts.\n"
+                    f"  Wait {wait}s OR run: docker restart stream-analytics-metabase\n"
+                    f"  Then re-run: make metabase-provision"
+                )
         r.raise_for_status()
         return r.json()
 
@@ -106,21 +116,18 @@ class MetabaseClient:
     def setup_if_needed(self):
         props = self.get("/session/properties")
         token = props.get("setup-token")
-        if not token:
+        if not token or props.get("has-user-setup"):
             log.info("Metabase already configured — skipping setup")
             return
         log.info("Running first-time setup…")
         self.post("/setup", {
             "token":    token,
             "prefs":    {"site_name": MB_SITE_NAME, "allow_tracking": False},
-            "database": None,
-            "invite":   None,
             "user": {
                 "first_name": "Market",
                 "last_name":  "Raccoon",
                 "email":      MB_EMAIL,
                 "password":   MB_PASSWORD,
-                "site_name":  MB_SITE_NAME,
             },
         })
         log.info("Initial setup complete")

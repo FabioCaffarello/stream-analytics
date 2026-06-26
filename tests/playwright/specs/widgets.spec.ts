@@ -10,7 +10,8 @@ import { waitForTrades, waitForStats, waitForOrderbook, waitForProbeValue } from
 
 test.describe('Widget Data Flow', () => {
   test.beforeEach(async ({ dash }) => {
-    await dash.bootWithData();
+    // All 7 panels needed — default layout is Candle+Orderbook only.
+    await dash.bootWithAllPanels();
   });
 
   // ── Candle widget ──────────────────────────────────────────────────

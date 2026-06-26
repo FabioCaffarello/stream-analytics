@@ -53,6 +53,21 @@ export class DashboardPage {
     await waitForCandles(this.page);
   }
 
+  /**
+   * Boot with all 7 panels enabled.
+   * Pre-seeds localStorage with the full panel visibility mask before navigation
+   * so tests that need non-default panels (Trades, Stats, etc.) work correctly.
+   * The default layout is Candle+Orderbook only; this overrides it for tests.
+   */
+  async bootWithAllPanels(): Promise<void> {
+    await this.page.addInitScript(() => {
+      // "1111111" = all 7 panels visible (Candle,Stats,Counter,Heatmap,VPVR,Trades,Orderbook)
+      window.localStorage.setItem('mr.settings.panel_visible_mask', '1111111');
+    });
+    await this.boot();
+    await waitForCandles(this.page);
+  }
+
   // ── Timeframe ──────────────────────────────────────────────────────
 
   /** Switch to a named timeframe and wait for data to start flowing. */

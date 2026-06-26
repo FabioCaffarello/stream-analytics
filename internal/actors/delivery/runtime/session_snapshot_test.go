@@ -1,6 +1,7 @@
 package deliveryruntime
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -18,6 +19,27 @@ type stubSnapshotProvider struct {
 func (s stubSnapshotProvider) GetLatest(subject domain.Subject) ([]byte, bool) {
 	v, ok := s.bySubject[subject.String()]
 	return v, ok
+}
+
+type mutableSnapshotProvider struct {
+	mu        sync.Mutex
+	bySubject map[string][]byte
+}
+
+func (p *mutableSnapshotProvider) GetLatest(subject domain.Subject) ([]byte, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	v, ok := p.bySubject[subject.String()]
+	return v, ok
+}
+
+func (p *mutableSnapshotProvider) Set(key string, data []byte) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.bySubject == nil {
+		p.bySubject = make(map[string][]byte)
+	}
+	p.bySubject[key] = data
 }
 
 func TestSession_SubscribeEmitsHotSnapshot(t *testing.T) {
@@ -301,6 +323,119 @@ func TestSession_GetRange_LimitEnforced(t *testing.T) {
 	resp, ok := msg.(wsErrorFrame)
 	if !ok || resp.Type != "error" {
 		t.Fatalf("expected error response, got %#v", msg)
+	}
+}
+
+func TestSession_DeferredSnapshot_EmittedBeforeFirstEvent(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-deferred-snap")
+	defer e.Poison(routerPID)
+
+	provider := &mutableSnapshotProvider{}
+	subject := mustParseSubjectForSession(t, "marketdata.trade/binance/BTC-USDT/raw")
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{
+		RouterPID:           routerPID,
+		Conn:                conn,
+		HotSnapshotProvider: provider,
+		OutboundQueueSize:   8,
+	}), "ws-session-deferred-snap")
+	defer e.Poison(sessionPID)
+
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"subscribe","subject":"marketdata.trade/binance/BTC-USDT/raw","request_id":"s1"}`)}
+
+	// No snapshot available — only ACK
+	msg := <-conn.writeCh
+	ack, ok := msg.(wsAckFrame)
+	if !ok || ack.Op != "subscribe" {
+		t.Fatalf("expected subscribe ack, got %#v", msg)
+	}
+
+	// Populate provider then deliver first event — deferred snapshot must arrive first.
+	provider.Set(subject.String(), []byte(`{"Price":50000,"Size":1.0}`))
+	e.Send(sessionPID, DeliveryEvent{
+		Subject: subject,
+		Env: envelope.Envelope{
+			Type:     "marketdata.trade",
+			Version:  1,
+			Seq:      1,
+			TsIngest: time.Now().UnixMilli(),
+			Payload:  []byte(`{"Price":50000,"Size":1.0,"Side":"buy","TradeID":"t1","Timestamp":1700000000000}`),
+		},
+	})
+
+	first := <-conn.writeCh
+	snap, ok := first.(wsSnapshotFrame)
+	if !ok || snap.Type != "snapshot" {
+		t.Fatalf("expected deferred snapshot before event, got %#v", first)
+	}
+	second := <-conn.writeCh
+	if _, ok := second.(wsEventFrame); !ok {
+		t.Fatalf("expected event after deferred snapshot, got %#v", second)
+	}
+}
+
+func TestSession_DeferredSnapshot_CleanedOnUnsubscribe(t *testing.T) {
+	e, err := actor.NewEngine(actor.NewEngineConfig())
+	if err != nil {
+		t.Fatalf("new engine: %v", err)
+	}
+	routerCh := make(chan any, 32)
+	routerPID := e.Spawn(func() actor.Receiver { return &captureActor{ch: routerCh} }, "router-deferred-unsub")
+	defer e.Poison(routerPID)
+
+	provider := &mutableSnapshotProvider{}
+	subject := mustParseSubjectForSession(t, "marketdata.trade/binance/BTC-USDT/raw")
+	conn := newFakeConn()
+	sessionPID := e.Spawn(NewSessionActor(SessionConfig{
+		RouterPID:           routerPID,
+		Conn:                conn,
+		HotSnapshotProvider: provider,
+		OutboundQueueSize:   8,
+	}), "ws-session-deferred-unsub")
+	defer e.Poison(sessionPID)
+
+	_ = waitForMessage[RegisterSession](t, routerCh, time.Second)
+
+	// Subscribe with no snapshot — subject enters deferred set.
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"subscribe","subject":"marketdata.trade/binance/BTC-USDT/raw","request_id":"s1"}`)}
+	msg := <-conn.writeCh
+	if ack, ok := msg.(wsAckFrame); !ok || ack.Op != "subscribe" {
+		t.Fatalf("expected subscribe ack, got %#v", msg)
+	}
+
+	// Unsubscribe — must clean up the deferred set.
+	conn.readCh <- fakeRead{typ: websocket.TextMessage, data: []byte(`{"op":"unsubscribe","subject":"marketdata.trade/binance/BTC-USDT/raw","request_id":"u1"}`)}
+	msg = <-conn.writeCh
+	if ack, ok := msg.(wsAckFrame); !ok || ack.Op != "unsubscribe" {
+		t.Fatalf("expected unsubscribe ack, got %#v", msg)
+	}
+
+	// Populate provider and deliver an event directly (bypasses router subscription check).
+	provider.Set(subject.String(), []byte(`{"Price":50000,"Size":1.0}`))
+	e.Send(sessionPID, DeliveryEvent{
+		Subject: subject,
+		Env: envelope.Envelope{
+			Type:     "marketdata.trade",
+			Version:  1,
+			Seq:      2,
+			TsIngest: time.Now().UnixMilli(),
+			Payload:  []byte(`{"Price":50000,"Size":1.0,"Side":"buy","TradeID":"t2","Timestamp":1700000000000}`),
+		},
+	})
+
+	// Deferred snapshot must NOT be emitted after unsubscribe cleanup.
+	first := <-conn.writeCh
+	if _, isSnap := first.(wsSnapshotFrame); isSnap {
+		t.Fatalf("snapshot must not be emitted after unsubscribe cleaned deferred set")
+	}
+	if _, ok := first.(wsEventFrame); !ok {
+		t.Fatalf("expected event frame, got %#v", first)
 	}
 }
 

@@ -246,10 +246,13 @@ workspace_sync_from_world :: proc(state: ^App_State) {
 		kinds[i] = state.world.widgets[i].kind
 	}
 
-	// For 7 panels (default layout), use the purpose-built tree factory
+	// For 7 panels (full layout), use the purpose-built tree factory
 	// to get a good visual layout matching the legacy grid proportions.
+	// For 2 panels Candle+Orderbook (the default), use the compact 65/35 tree.
 	if count == 7 {
 		ws.tree, _ = build_default_workspace_tree(ws)
+	} else if count == 2 && kinds[0] == .Candle && kinds[1] == .Orderbook {
+		ws.tree, _ = build_compact_workspace_tree(ws)
 	} else {
 		ws.tree = build_auto_workspace_tree(ws, kinds[:count])
 	}

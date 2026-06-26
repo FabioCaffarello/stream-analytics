@@ -726,29 +726,61 @@ logs:
 # ── Analytics stack (Flink + Metabase) ──────────────────────────────────────
 
 METABASE_URL             ?= http://localhost:3001
-METABASE_ADMIN_EMAIL     ?= admin@raccoon.local
-METABASE_ADMIN_PASSWORD  ?= raccoon_admin!
+METABASE_ADMIN_EMAIL     ?= fabio.caffarello@gmail.com
+METABASE_ADMIN_PASSWORD  ?= Racc00n_Admin!
 
-.PHONY: up-analytics metabase-provision
+.PHONY: up-analytics metabase-provision metabase-unlock showcase-assets showcase-assets-boot
 
 up-analytics:
 	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env \
 		--profile analytics up -d nats kafka timescale clickhouse migrate \
-		flink-jobmanager flink-taskmanager flink-sql-init metabase
+		kafka-topics-init flink-jobmanager flink-taskmanager flink-sql-init metabase
 	@echo "Analytics stack starting — Metabase will be available at $(METABASE_URL)"
 	@echo "Run 'make metabase-provision' once Metabase reports healthy."
 
+metabase-unlock: ## Restart Metabase to clear the in-memory login rate limiter
+	docker restart stream-analytics-metabase
+	@until curl -sf http://127.0.0.1:3001/api/health 2>/dev/null | grep -q '"status":"ok"'; do sleep 5; done
+	@echo "Metabase rate limiter cleared — run: make metabase-provision"
+
 metabase-provision:
-	@command -v python3 >/dev/null 2>&1 || { echo "python3 not found"; exit 1; }
+	@command -v uv >/dev/null 2>&1 || { echo "uv not found — install via: curl -LsSf https://astral.sh/uv/install.sh | sh"; exit 1; }
 	METABASE_URL="$(METABASE_URL)" \
 	METABASE_ADMIN_EMAIL="$(METABASE_ADMIN_EMAIL)" \
 	METABASE_ADMIN_PASSWORD="$(METABASE_ADMIN_PASSWORD)" \
-	TIMESCALE_HOST="localhost" \
+	TIMESCALE_HOST="timescale" \
 	TIMESCALE_PORT="5432" \
 	TIMESCALE_DB="$(shell grep '^TIMESCALE_DB' deploy/envs/local.env | cut -d= -f2)" \
 	TIMESCALE_USER="$(shell grep '^TIMESCALE_USER' deploy/envs/local.env | cut -d= -f2)" \
 	TIMESCALE_PASSWORD="$(shell grep '^TIMESCALE_PASSWORD' deploy/envs/local.env | cut -d= -f2)" \
-	python3 deploy/metabase/provision.py
+	uv run --with requests python3 deploy/metabase/provision.py
+
+showcase-assets: ## Capture showcase screenshots and GIFs via Playwright (requires full stack running)
+	@mkdir -p docs/assets/showcase/screenshots docs/assets/showcase/videos docs/assets/showcase/gifs
+	npx playwright test --config=tests/playwright/playwright.capture.config.ts --reporter=list
+	@echo "Converting videos to GIFs..."
+	@find tests/playwright/artifacts/capture-results -name "video.webm" | while read f; do \
+		dir=$$(dirname "$$f"); \
+		testname=$$(basename "$$dir" | sed 's/-chromium$$//' | sed 's/^[0-9]*-[a-z]*\.ts-//'); \
+		out="docs/assets/showcase/gifs/$${testname}.gif"; \
+		ffmpeg -y -i "$$f" -vf "fps=8,scale=1280:-1:flags=lanczos" "$$out" 2>/dev/null && \
+		echo "  $$out"; \
+	done
+	@echo "Showcase assets written to docs/assets/showcase/"
+
+showcase-assets-boot: ## Boot full stack (all profiles) then capture showcase assets
+	@echo "Tearing down any stale containers/networks..."
+	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env \
+		--profile core --profile client --profile obs --profile analytics \
+		down --remove-orphans 2>/dev/null || true
+	docker network rm stream-analytics-network 2>/dev/null || true
+	@echo "Starting full stack..."
+	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env \
+		--profile core --profile client --profile obs --profile analytics \
+		up -d
+	@echo "Waiting 90s for stack to initialize..."
+	@sleep 90
+	$(MAKE) showcase-assets
 
 pre-commit-install:
 	$(PRE_COMMIT) install --install-hooks --hook-type pre-commit --hook-type pre-push --hook-type commit-msg

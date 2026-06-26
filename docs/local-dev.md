@@ -369,6 +369,83 @@ Filter subjects override in config:
 
 When `enable_crossvenue_join` is true, the `join_trades_subject` is automatically merged into the effective filter list.
 
+## GitOps / Kubernetes Secrets Setup
+
+The `deploy/gitops/clusters/*/` directories contain SOPS-encrypted secret placeholders
+(`secrets.enc.yaml`). These are **not encrypted yet** — they carry a `# PLACEHOLDER` header
+and must be encrypted before any real deployment.
+
+### Prerequisites
+
+```bash
+# Install age (key generation) and sops
+brew install age sops        # macOS
+apt install age sops         # Debian/Ubuntu
+```
+
+### Per-environment key generation
+
+Each cluster environment needs its own age key pair. The public key goes in
+`deploy/gitops/.sops.yaml`; the private key is stored outside the repo.
+
+```bash
+# Generate a key for local development
+age-keygen -o ~/.config/sops/age/keys.txt
+
+# Print the public key to add to .sops.yaml
+age-keygen -y ~/.config/sops/age/keys.txt
+```
+
+Update `deploy/gitops/.sops.yaml` with the new public key under the correct
+`path_regex` entry for the target environment.
+
+### Populating and encrypting secrets
+
+1. Fill in real values in the placeholder file (replace `CHANGE_ME`):
+
+```bash
+# Edit the local data-management secrets
+$EDITOR deploy/gitops/clusters/local/data-management/secrets/secrets.enc.yaml
+
+# Edit the local app secrets
+$EDITOR deploy/gitops/clusters/local/stream-analytics-system/secrets/secrets.enc.yaml
+```
+
+2. Encrypt in-place with SOPS:
+
+```bash
+sops --encrypt --in-place deploy/gitops/clusters/local/data-management/secrets/secrets.enc.yaml
+sops --encrypt --in-place deploy/gitops/clusters/local/stream-analytics-system/secrets/secrets.enc.yaml
+```
+
+3. Repeat for `staging/` and `prod/` using the respective environment keys. CI/CD
+   stores the staging and prod private keys in GitHub Secrets
+   (`SOPS_AGE_KEY_STAGING`, `SOPS_AGE_KEY_PROD`).
+
+> Never commit unencrypted secrets. The `infra-gates` CI job validates that all
+> `*.enc.yaml` files are actually encrypted before merge.
+
+### CD pipeline image tag updates
+
+After a version tag push (`v*.*.*`), the CD pipeline builds images and pushes them
+to GHCR. To update the image tags in `staging` and `prod` gitops overlays, run:
+
+```bash
+VERSION=1.2.3    # match the pushed semver tag
+GITOPS=deploy/gitops/apps/stream-analytics-system
+
+for svc in stream-analytics-consumer stream-analytics-processor \
+           stream-analytics-server stream-analytics-store stream-analytics-migrate; do
+  for env in staging prod; do
+    (cd "$GITOPS/$svc/overlays/$env" && kustomize edit set image \
+      "ghcr.io/stream-analytics/$svc:$VERSION")
+  done
+done
+```
+
+Commit the result as a `chore(gitops): bump images to v$VERSION` commit to `main`.
+ArgoCD will detect the change and roll out the new version automatically.
+
 ## Related Documentation
 
 - [Cold-Path Runbook](operations/cold-path-runbook.md) — store alerts, degradation scenarios, ClickHouse operations
