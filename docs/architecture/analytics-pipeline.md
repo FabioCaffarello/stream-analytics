@@ -1,7 +1,7 @@
 # Analytics Pipeline
 
 **Status:** Active
-**Last updated:** 2026-06-25
+**Last updated:** 2026-06-26
 **Relates to:** `deploy/compose/docker-compose.yml`, `flink/sql/`, `sql/timescale/migrations/0009_analytics_metabase_views.sql`, `internal/adapters/kafka/`, `docs/architecture/diagrams/c4-analytics.md`
 
 ---
@@ -51,7 +51,7 @@ flowchart LR
 | Pipeline | Path | Delivery | Use case |
 |----------|------|----------|----------|
 | **Operational** | Consumer → NATS → Processor → Server/Store | Strict, at-least-once | Live cockpit, sub-millisecond latency |
-| **Analytics** | Consumer → Kafka → Flink → TimescaleDB | Best-effort, seconds latency | BI dashboards, historical queries |
+| **Analytics** | Consumer → Kafka → Flink → TimescaleDB | At-least-once (Kafka boundary); effectively exactly-once at sink via idempotent upsert — see [ADR-0036](../adrs/ADR-0036-analytics-delivery-semantics.md) | BI dashboards, historical queries |
 
 ---
 
@@ -125,10 +125,9 @@ them as a single Flink SQL session.
 
 ### Source Tables (`flink/sql/00_create_sources.sql`)
 
-| Table | Kafka topic | Group ID | Watermark |
-|-------|-------------|---------|-----------|
-| `kafka_trades` | `market.trades` | `flink-market-trades` | 5 seconds event-time |
-| `kafka_orderbook` | `market.orderbook` | `flink-market-orderbook` | 5 seconds event-time (no active jobs) |
+| Table | Kafka topic | Group ID | Startup mode | Watermark |
+|-------|-------------|---------|--------------|-----------|
+| `kafka_trades` | `market.trades` | `flink-market-trades` | `group-offsets` | 5 seconds event-time |
 
 ### Sink Tables (`flink/sql/01_create_sinks.sql`)
 
@@ -144,12 +143,18 @@ All sinks write to TimescaleDB `analytics` schema via JDBC connector.
 
 | File | Description |
 |------|-------------|
-| `flink/sql/02_ohlcv_job.sql` | 4× `INSERT INTO pg_fact_candles`: tumbling windows 1m, 5m, 15m, 1h using `FIRST_VALUE`/`LAST_VALUE` for open/close |
+| `flink/sql/02_ohlcv_job.sql` | 4× `INSERT INTO pg_fact_candles`: tumbling windows 1m, 5m, 15m, 1h. `FIRST_VALUE(price)` = open, `LAST_VALUE(price)` = close — deterministic because the producer keys every message as `venue:instrument`, routing all trades for a symbol to a single Kafka partition and therefore a single Flink sub-task (see [ADR-0036](../adrs/ADR-0036-analytics-delivery-semantics.md)). |
 | `flink/sql/03_volume_stats_job.sql` | 5-minute volume stats: total/buy/sell volume, `trade_count`, VWAP per symbol |
 | `flink/sql/04_trade_tape_job.sql` | Append-only trade tape: every raw trade copied to `fact_trades` |
 
 **Watermark latency floor:** The 5-second event-time watermark means tumbling window results
 are emitted at most 5 seconds after the window boundary.
+
+**Checkpointing:** All three jobs run with `execution.checkpointing.interval = 60s` in
+`EXACTLY_ONCE` mode. Checkpoints are stored in the `stream-analytics-flink-checkpoints`
+named volume (compose) / `/flink/checkpoints` PVC path (k8s). On restart, Flink restores
+from the latest checkpoint; if none exists, it falls back to the committed `group-offsets`
+consumer position. Maximum re-processing window: 60 seconds.
 
 ---
 
@@ -215,6 +220,24 @@ Flink does NOT write to ClickHouse. ClickHouse is not a Flink sink.
 
 ---
 
+## Delivery Semantics
+
+See [ADR-0036 — Analytics Delivery Semantics](../adrs/ADR-0036-analytics-delivery-semantics.md)
+for the full rationale. Summary:
+
+| Boundary | Guarantee | Mechanism |
+|----------|-----------|-----------|
+| Consumer → Kafka | Best-effort | Errors swallowed; never propagates to NATS path |
+| Kafka → Flink | At-least-once | Checkpoint-based offset tracking; `group-offsets` fallback |
+| Flink → TimescaleDB | Effectively exactly-once | JDBC connector generates `INSERT ... ON CONFLICT DO UPDATE` on the natural key for each fact table |
+
+The combined effect is that any given `(exchange_name, symbol, trade_id)` /
+`(exchange_name, symbol, timeframe, open_time_ms)` / `(exchange_name, symbol, window_secs, window_start_ms)`
+row converges to the correct final value even under Flink restart, because the upsert
+overwrites a partial row with the final aggregated value.
+
+---
+
 ## Operational Notes
 
 **Flink job resubmission** — `flink-sql-init` has `restart: "no"` (runs once). To re-submit:
@@ -234,3 +257,41 @@ rpk group describe flink-market-trades --brokers=localhost:19092
 ```bash
 curl -s http://127.0.0.1:8091/overview | jq .taskmanagers
 ```
+
+---
+
+## Known Limitations & Roadmap
+
+These are conscious scope decisions, not oversights.
+
+### No `tenant_id` in the analytics path
+
+The analytics schema (`fact_trades`, `fact_candles`, `fact_volume_stats`) has no tenant
+dimension. The only segmentation axes are `exchange_name` and `symbol`. `tenant_id` exists
+in the WebSocket delivery layer (JWT claim, per-tenant Prometheus metrics, per-tenant rate
+limits) but was deliberately excluded from the analytics path because this project targets a
+single-operator deployment. Adding tenant support would require:
+
+1. Propagating `tenant_id` from the Consumer into the Kafka message schema.
+2. Adding the column to all three Flink sink DDLs and TimescaleDB migrations.
+3. Updating Metabase filters to expose per-tenant views.
+
+This makes sense when the platform serves multiple operators or exchange clients from the
+same deployment.
+
+### No Schema Registry
+
+Kafka uses plain JSON without a Schema Registry (Confluent or Redpanda SR). The current
+wire schema is defined in code (`internal/adapters/kafka/market_publisher.go`) and mirrored
+in the Flink DDL (`flink/sql/00_create_sources.sql`). Schema drift between producer and Flink
+consumer is caught only at query time (Flink silently drops unknown fields via
+`json.ignore-parse-errors: true`).
+
+A Schema Registry would be warranted when:
+
+- The `market.trades` schema needs to evolve with backward/forward compatibility guarantees.
+- Multiple teams or services consume the same Kafka topics.
+- Compliance or audit requirements demand a versioned schema history.
+
+For a single-team, single-consumer setup the current approach is adequate. The wire schema
+is the contract; changes must update both the producer struct and the Flink DDL atomically.

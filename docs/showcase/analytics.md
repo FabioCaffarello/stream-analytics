@@ -4,12 +4,22 @@ description: Analytics stack deep-dive — Kafka/Redpanda dual-publish, Flink SQ
 
 # Analytics Stack
 
-The analytics path is a **best-effort OLAP pipeline**, completely separate from the primary NATS
+The analytics path is a **parallel OLAP pipeline**, completely separate from the primary NATS
 hot path. This is a deliberate architectural decision: the primary path guarantees strict
 at-least-once delivery with microsecond latency; bolting BI workloads onto it would risk degrading
 the operational cockpit. Instead, the Consumer dual-publishes every canonicalised trade event —
-NATS JetStream receives it with full guarantees, while Kafka (Redpanda) receives a fire-and-forget
+NATS JetStream receives it with full guarantees, while Kafka (Redpanda) receives a best-effort
 copy. Kafka errors are swallowed and never propagate back to the primary pipeline.
+
+**Delivery semantics by layer:**
+
+| Boundary | Guarantee |
+|----------|-----------|
+| Consumer → Kafka | Best-effort (fire-and-forget) |
+| Kafka → Flink | At-least-once — Flink checkpoints every 60 s; restarts replay from the last checkpoint, falling back to the committed consumer-group offset |
+| Flink → TimescaleDB | Effectively exactly-once — the JDBC sink uses `INSERT ... ON CONFLICT DO UPDATE` on the natural key of each fact table, making re-delivery idempotent |
+
+See [ADR-0036](../adrs/ADR-0036-analytics-delivery-semantics.md) for the full rationale.
 
 !!! warning "Analytics Latency Budget"
 
@@ -89,6 +99,11 @@ of `event_time − 5 seconds` is applied to absorb late-arriving messages.
 Computes OHLCV candles using tumbling event-time windows. Each window emits one row per
 `(venue, symbol, timeframe)` combination.
 
+**Open/close determinism:** `FIRST_VALUE(price)` and `LAST_VALUE(price)` are deterministic
+because every Kafka message is keyed as `venue:instrument`, routing all trades for a given
+symbol to a single Kafka partition and a single Flink sub-task. Records are therefore
+processed in send-time order. See [ADR-0036](../adrs/ADR-0036-analytics-delivery-semantics.md).
+
 | Window | Output table | Rows per close |
 |--------|-------------|----------------|
 | 1 minute | `fact_candles` (timeframe=`1m`) | 1 per active symbol/venue |
@@ -138,6 +153,10 @@ Batch flush: 500 rows or 2 seconds, whichever comes first.
 === "Cluster Overview"
 
     ![Flink cluster — all 3 jobs in RUNNING state](../assets/showcase/screenshots/flink-cluster-overview.png)
+
+    All three jobs run with **60-second checkpoints** stored in a persistent named volume
+    (`stream-analytics-flink-checkpoints`). On restart, Flink replays at most 60 seconds
+    of trades from Kafka and the idempotent JDBC sink absorbs any re-delivered rows.
 
 === "Completed Jobs"
 
@@ -228,3 +247,21 @@ analytics profile is enabled. Flink and Metabase start only with `make up-analyt
 
 The `flink-sql-init` container submits all three SQL jobs once on startup. Jobs are managed by
 Flink thereafter — re-submit manually after schema changes using `flink/sql/init.sh`.
+
+---
+
+## Known Limitations & Roadmap
+
+These are conscious scope decisions, not oversights.
+
+**No `tenant_id` in the analytics path.** The fact tables and views have no tenant dimension;
+the only segmentation axes are `exchange_name` and `symbol`. `tenant_id` exists in the
+WebSocket delivery layer for per-tenant rate-limiting and metrics but was excluded here because
+the current deployment model is single-operator. Extending it would require propagating the
+claim into the Kafka wire schema, Flink DDL, and TimescaleDB migrations.
+
+**No Schema Registry.** Kafka uses plain JSON without schema versioning. The wire contract is
+defined in code (`internal/adapters/kafka/market_publisher.go`) and mirrored in the Flink DDL.
+This is adequate for a single-team, single-consumer setup; a registry (Confluent or Redpanda SR)
+would be the right investment when multiple teams consume `market.trades` or when schema
+evolution history becomes a compliance requirement.

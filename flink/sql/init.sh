@@ -25,6 +25,8 @@ cat > "${COMBINED_SQL}" << 'EOF'
 SET 'restart-strategy' = 'fixed-delay';
 SET 'restart-strategy.fixed-delay.attempts' = '10';
 SET 'restart-strategy.fixed-delay.delay' = '10s';
+SET 'execution.checkpointing.interval' = '60s';
+SET 'execution.checkpointing.mode' = 'EXACTLY_ONCE';
 
 EOF
 for sql_file in "${SQL_DIR}"/0*.sql; do
