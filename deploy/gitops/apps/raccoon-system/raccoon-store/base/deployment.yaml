@@ -2,41 +2,41 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: raccoon-store
-  namespace: raccoon-system
+  name: stream-analytics-store
+  namespace: stream-analytics-system
   labels:
-    app.kubernetes.io/name: raccoon-store
+    app.kubernetes.io/name: stream-analytics-store
     app.kubernetes.io/component: store
-    app.kubernetes.io/part-of: market-raccoon
+    app.kubernetes.io/part-of: stream-analytics
     app.kubernetes.io/managed-by: argocd
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: raccoon-store
+      app: stream-analytics-store
   template:
     metadata:
       labels:
-        app: raccoon-store
-        app.kubernetes.io/name: raccoon-store
+        app: stream-analytics-store
+        app.kubernetes.io/name: stream-analytics-store
         app.kubernetes.io/component: store
-        app.kubernetes.io/part-of: market-raccoon
+        app.kubernetes.io/part-of: stream-analytics
     spec:
       terminationGracePeriodSeconds: 45
       containers:
         - name: app
-          image: ghcr.io/market-raccoon/raccoon-store:latest
-          command: ["-config", "/etc/market-raccoon/store.jsonc"]
+          image: ghcr.io/stream-analytics/stream-analytics-store:latest
+          command: ["-config", "/etc/stream-analytics/store.jsonc"]
           ports:
             - name: service
               containerPort: 8083
               protocol: TCP
           envFrom:
             - secretRef:
-                name: raccoon-app-secrets
+                name: stream-analytics-app-secrets
           volumeMounts:
             - name: config
-              mountPath: /etc/market-raccoon
+              mountPath: /etc/stream-analytics
               readOnly: true
           startupProbe:
             httpGet:
@@ -79,4 +79,4 @@ spec:
       volumes:
         - name: config
           configMap:
-            name: raccoon-store-config
+            name: stream-analytics-store-config

@@ -2,8 +2,8 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: raccoon-server
-  namespace: raccoon-system
+  name: stream-analytics-server
+  namespace: stream-analytics-system
 spec:
   replicas: 1
   template:

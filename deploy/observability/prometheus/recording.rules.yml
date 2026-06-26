@@ -8,19 +8,19 @@ groups:
             label_replace(rate(ingest_messages_total{status="ok"}[5m]), "stream", "$1", "event_type", "(.*)")
           )
         labels:
-          service: market-raccoon
+          service: stream-analytics
       - record: slo:ingest_total:rate
         expr: |
           sum by (stream, venue) (
             label_replace(rate(ingest_messages_total[5m]), "stream", "$1", "event_type", "(.*)")
           )
         labels:
-          service: market-raccoon
+          service: stream-analytics
       - record: slo:ingest:error_ratio
         expr: |
           clamp_min(1 - (slo:ingest_success:rate / clamp_min(slo:ingest_total:rate, 1e-9)), 0)
         labels:
-          service: market-raccoon
+          service: stream-analytics
       - record: slo:ingest:error_ratio_30m
         expr: |
           clamp_min(
@@ -32,7 +32,7 @@ groups:
             0
           )
         labels:
-          service: market-raccoon
+          service: stream-analytics
       - record: slo:ingest:error_ratio_1h
         expr: |
           clamp_min(
@@ -44,7 +44,7 @@ groups:
             0
           )
         labels:
-          service: market-raccoon
+          service: stream-analytics
       - record: slo:ingest:error_ratio_6h
         expr: |
           clamp_min(
@@ -56,23 +56,23 @@ groups:
             0
           )
         labels:
-          service: market-raccoon
+          service: stream-analytics
       - record: slo:ingest:burn_rate_5m
         expr: slo:ingest:error_ratio / 0.001
         labels:
-          service: market-raccoon
+          service: stream-analytics
       - record: slo:ingest:burn_rate_30m
         expr: slo:ingest:error_ratio_30m / 0.001
         labels:
-          service: market-raccoon
+          service: stream-analytics
       - record: slo:ingest:burn_rate_1h
         expr: slo:ingest:error_ratio_1h / 0.001
         labels:
-          service: market-raccoon
+          service: stream-analytics
       - record: slo:ingest:burn_rate_6h
         expr: slo:ingest:error_ratio_6h / 0.001
         labels:
-          service: market-raccoon
+          service: stream-analytics
 
   - name: slo-delivery-latency
     interval: 30s
@@ -83,12 +83,12 @@ groups:
           /
           clamp_min(sum by (venue) (rate(ws_send_latency_ms_count[5m])), 1e-9)
         labels:
-          service: market-raccoon
+          service: stream-analytics
           stream: ws
       - record: slo:delivery_latency:error_ratio
         expr: clamp_min(1 - slo:delivery_latency:rate, 0)
         labels:
-          service: market-raccoon
+          service: stream-analytics
           stream: ws
       - record: slo:delivery_latency:error_ratio_30m
         expr: |
@@ -101,7 +101,7 @@ groups:
             0
           )
         labels:
-          service: market-raccoon
+          service: stream-analytics
           stream: ws
       - record: slo:delivery_latency:error_ratio_1h
         expr: |
@@ -114,7 +114,7 @@ groups:
             0
           )
         labels:
-          service: market-raccoon
+          service: stream-analytics
           stream: ws
       - record: slo:delivery_latency:error_ratio_6h
         expr: |
@@ -127,27 +127,27 @@ groups:
             0
           )
         labels:
-          service: market-raccoon
+          service: stream-analytics
           stream: ws
       - record: slo:delivery_latency:burn_rate_5m
         expr: slo:delivery_latency:error_ratio / 0.01
         labels:
-          service: market-raccoon
+          service: stream-analytics
           stream: ws
       - record: slo:delivery_latency:burn_rate_30m
         expr: slo:delivery_latency:error_ratio_30m / 0.01
         labels:
-          service: market-raccoon
+          service: stream-analytics
           stream: ws
       - record: slo:delivery_latency:burn_rate_1h
         expr: slo:delivery_latency:error_ratio_1h / 0.01
         labels:
-          service: market-raccoon
+          service: stream-analytics
           stream: ws
       - record: slo:delivery_latency:burn_rate_6h
         expr: slo:delivery_latency:error_ratio_6h / 0.01
         labels:
-          service: market-raccoon
+          service: stream-analytics
           stream: ws
 
   - name: slo-data-loss
@@ -165,7 +165,7 @@ groups:
           + sum(rate(bus_dropped_total[5m]))
           + sum(rate(policykit_drop_total[5m]))
         labels:
-          service: market-raccoon
+          service: stream-analytics
           stream: all
           venue: all
       - record: slo:data_loss:cold_commit_errors_rate_5m
@@ -175,13 +175,13 @@ groups:
           + sum(rate(store_commit_total{status="failed"}[5m]))
           + sum(rate(store_flush_total{status="failed"}[5m]))
         labels:
-          service: market-raccoon
+          service: stream-analytics
           stream: all
           venue: all
       - record: slo:data_loss:rate
         expr: slo:data_loss:drop_rate_5m + slo:data_loss:cold_commit_errors_rate_5m
         labels:
-          service: market-raccoon
+          service: stream-analytics
           stream: all
           venue: all
       - record: slo:data_loss:error_ratio
@@ -191,7 +191,7 @@ groups:
             1
           )
         labels:
-          service: market-raccoon
+          service: stream-analytics
           stream: all
           venue: all
       - record: slo:data_loss:error_ratio_30m
@@ -208,7 +208,7 @@ groups:
             1
           )
         labels:
-          service: market-raccoon
+          service: stream-analytics
           stream: all
           venue: all
       - record: slo:data_loss:error_ratio_1h
@@ -225,7 +225,7 @@ groups:
             1
           )
         labels:
-          service: market-raccoon
+          service: stream-analytics
           stream: all
           venue: all
       - record: slo:data_loss:error_ratio_6h
@@ -242,31 +242,31 @@ groups:
             1
           )
         labels:
-          service: market-raccoon
+          service: stream-analytics
           stream: all
           venue: all
       - record: slo:data_loss:burn_rate_5m
         expr: slo:data_loss:error_ratio / 0.0001
         labels:
-          service: market-raccoon
+          service: stream-analytics
           stream: all
           venue: all
       - record: slo:data_loss:burn_rate_30m
         expr: slo:data_loss:error_ratio_30m / 0.0001
         labels:
-          service: market-raccoon
+          service: stream-analytics
           stream: all
           venue: all
       - record: slo:data_loss:burn_rate_1h
         expr: slo:data_loss:error_ratio_1h / 0.0001
         labels:
-          service: market-raccoon
+          service: stream-analytics
           stream: all
           venue: all
       - record: slo:data_loss:burn_rate_6h
         expr: slo:data_loss:error_ratio_6h / 0.0001
         labels:
-          service: market-raccoon
+          service: stream-analytics
           stream: all
           venue: all
 
@@ -277,12 +277,12 @@ groups:
       - record: slo:consumer_lag:deriv_5m
         expr: deriv(bus_consumer_lag{bus_type="jetstream"}[5m])
         labels:
-          service: market-raccoon
+          service: stream-analytics
       # Store commit throughput (scalar-like, used for stall detection).
       - record: slo:store:commit_rate_ok_5m
         expr: sum(rate(store_commit_total{status="ok"}[5m])) or vector(0)
         labels:
-          service: market-raccoon
+          service: stream-analytics
 
   - name: slo-data-loss-triage
     interval: 30s
@@ -303,4 +303,4 @@ groups:
             + rate(policykit_drop_total[5m])
           )
         labels:
-          service: market-raccoon
+          service: stream-analytics

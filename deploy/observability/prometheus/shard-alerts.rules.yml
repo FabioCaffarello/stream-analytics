@@ -13,7 +13,7 @@ groups:
         for: 5m
         labels:
           severity: warning
-          service: market-raccoon
+          service: stream-analytics
           slo: shard
         annotations:
           summary: >-
@@ -30,7 +30,7 @@ groups:
         for: 3m
         labels:
           severity: critical
-          service: market-raccoon
+          service: stream-analytics
           slo: shard
         annotations:
           summary: >-
@@ -46,7 +46,7 @@ groups:
         for: 5m
         labels:
           severity: warning
-          service: market-raccoon
+          service: stream-analytics
           slo: shard
         annotations:
           summary: >-

@@ -8,12 +8,12 @@ metadata:
   name: root
   namespace: argocd
   labels:
-    app.kubernetes.io/part-of: market-raccoon
+    app.kubernetes.io/part-of: stream-analytics
     app.kubernetes.io/component: gitops-root
 spec:
   project: gitops-root
   source:
-    repoURL: https://github.com/market-raccoon/market-raccoon.git
+    repoURL: https://github.com/stream-analytics/stream-analytics.git
     targetRevision: main
     path: deploy/gitops/applicationsets
   destination:

@@ -5,7 +5,7 @@ metadata:
   name: observability-stack
   namespace: argocd
   labels:
-    app.kubernetes.io/part-of: market-raccoon
+    app.kubernetes.io/part-of: stream-analytics
 spec:
   goTemplate: true
   goTemplateOptions: ["missingkey=error"]
@@ -21,7 +21,7 @@ spec:
                 - env: prod
                   cluster: https://kubernetes.default.svc
           - git:
-              repoURL: https://github.com/market-raccoon/market-raccoon.git
+              repoURL: https://github.com/stream-analytics/stream-analytics.git
               revision: main
               directories:
                 - path: deploy/gitops/apps/observability-stack/*
@@ -29,13 +29,13 @@ spec:
     metadata:
       name: "observability-{{ .path.basename }}-{{ .env }}"
       labels:
-        app.kubernetes.io/part-of: market-raccoon
+        app.kubernetes.io/part-of: stream-analytics
         app.kubernetes.io/component: "{{ .path.basename }}"
         environment: "{{ .env }}"
     spec:
       project: observability-stack
       source:
-        repoURL: https://github.com/market-raccoon/market-raccoon.git
+        repoURL: https://github.com/stream-analytics/stream-analytics.git
         targetRevision: main
         path: "{{ .path.path }}/overlays/{{ .env }}"
       destination:

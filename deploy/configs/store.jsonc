@@ -1,5 +1,5 @@
 {
-  // Runtime config mounted in container at /etc/market-raccoon/store.jsonc
+  // Runtime config mounted in container at /etc/stream-analytics/store.jsonc
   "bus": {
     "type": "jetstream",
     "wire_format": "proto"

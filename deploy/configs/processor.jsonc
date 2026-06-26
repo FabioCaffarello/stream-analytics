@@ -1,5 +1,5 @@
 {
-  // Runtime config mounted in container at /etc/market-raccoon/processor.jsonc
+  // Runtime config mounted in container at /etc/stream-analytics/processor.jsonc
   "bus": {
     "type": "jetstream",
     "wire_format": "proto"
@@ -71,34 +71,33 @@
       "max_windows": 100000
     },
     "subminute_rollout": {
-      // enabled=true + empty allowlists => all venues/instruments
-      // enabled=false => quick rollback for 1s/5s publish/persist
+      // Restricted to binance only to reduce 1s/5s candle generation load in dev.
       "enabled": true,
-      "venues": [],
+      "venues": ["binance"],
       "instruments": []
     },
     "rt_publish": {
-      // Local compose tuning: slightly slower snapshot cadence reduces hot-path
-      // snapshot/persist churn and helps processor replicas keep up in dev.
-      "orderbook_interval_ms": 750,
-      "heatmap_interval_ms": 750,
-      "volume_interval_ms": 1000
+      // Relaxed cadence to reduce snapshot/persist churn and help processor keep up.
+      "orderbook_interval_ms": 1500,
+      "heatmap_interval_ms": 2000,
+      "volume_interval_ms": 2000
     },
     // Local compose catch-up tuning: while far behind wall clock, skip stale
     // processing so higher-value live traffic catches up sooner.
-    "catchup_skip_bookdelta_skew_ms": 10000,
-    "catchup_skip_trade_skew_ms": 10000,
-    "catchup_skip_stats_skew_ms": 10000,
+    "catchup_skip_bookdelta_skew_ms": 1000,
+    "catchup_skip_trade_skew_ms": 0,
+    "catchup_skip_stats_skew_ms": 1000,
     "insights": {
-      "enable_crossvenue_join": true,
-      "enable_volume_profile_snapshot_proto": true,
-      "enable_spread_signal": true,
+      // Dev compose: disable expensive cross-venue computations to reduce processor load.
+      // Cross-venue join and VPVR are the two most expensive operations.
+      "enable_crossvenue_join": false,
+      "enable_volume_profile_snapshot_proto": false,
+      "enable_spread_signal": false,
       "join_trades_subject": "marketdata.trade.v1.>",
-      // Ensure live heatmap/VPVR generation for sub-minute dashboards.
-      // Keep aligned with server read gate insights_timeframes.
-      "insights_timeframes": ["1s", "5s", "1m", "5m", "15m", "30m", "1h", "4h", "1d"],
+      // Reduced to 3 TFs (down from 9) — heatmap only for common timeframes.
+      "insights_timeframes": ["1m", "5m", "15m"],
       "snapshot_subject_prefix": "",
-      "max_instruments": 10000,
+      "max_instruments": 1000,
       "ttl": "1h",
       "min_venues": 2,
       "min_spread_bps": 0,

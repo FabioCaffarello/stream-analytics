@@ -1,5 +1,5 @@
 {
-  // Runtime config mounted in container at /etc/market-raccoon/server.jsonc
+  // Runtime config mounted in container at /etc/stream-analytics/server.jsonc
   // JetStream bridges NATS envelopes into the delivery subsystem.
   "bus": {
     "type": "jetstream",
@@ -147,7 +147,7 @@
   },
   // S126: Server-side workspace persistence for client layout + settings.
   "workspace": {
-    "state_dir": "/var/lib/market-raccoon"
+    "state_dir": "/var/lib/stream-analytics"
   },
   "markets": {
     "exchanges": [

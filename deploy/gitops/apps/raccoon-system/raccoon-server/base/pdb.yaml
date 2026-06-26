@@ -2,13 +2,13 @@
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: raccoon-server
-  namespace: raccoon-system
+  name: stream-analytics-server
+  namespace: stream-analytics-system
   labels:
-    app.kubernetes.io/name: raccoon-server
-    app.kubernetes.io/part-of: market-raccoon
+    app.kubernetes.io/name: stream-analytics-server
+    app.kubernetes.io/part-of: stream-analytics
 spec:
   minAvailable: 1
   selector:
     matchLabels:
-      app: raccoon-server
+      app: stream-analytics-server

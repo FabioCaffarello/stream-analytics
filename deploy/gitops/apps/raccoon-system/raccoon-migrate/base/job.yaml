@@ -2,12 +2,12 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: raccoon-migrate
-  namespace: raccoon-system
+  name: stream-analytics-migrate
+  namespace: stream-analytics-system
   labels:
-    app.kubernetes.io/name: raccoon-migrate
+    app.kubernetes.io/name: stream-analytics-migrate
     app.kubernetes.io/component: migrate
-    app.kubernetes.io/part-of: market-raccoon
+    app.kubernetes.io/part-of: stream-analytics
     app.kubernetes.io/managed-by: argocd
   annotations:
     argocd.argoproj.io/hook: PostSync
@@ -17,15 +17,15 @@ spec:
   template:
     metadata:
       labels:
-        app: raccoon-migrate
-        app.kubernetes.io/name: raccoon-migrate
+        app: stream-analytics-migrate
+        app.kubernetes.io/name: stream-analytics-migrate
         app.kubernetes.io/component: migrate
-        app.kubernetes.io/part-of: market-raccoon
+        app.kubernetes.io/part-of: stream-analytics
     spec:
       restartPolicy: OnFailure
       containers:
         - name: migrate
-          image: ghcr.io/market-raccoon/raccoon-migrate:latest
+          image: ghcr.io/stream-analytics/stream-analytics-migrate:latest
           command:
             - /bin/sh
             - -c
@@ -34,7 +34,7 @@ spec:
               /usr/local/bin/migrate -target clickhouse up
           envFrom:
             - secretRef:
-                name: raccoon-app-secrets
+                name: stream-analytics-app-secrets
           resources:
             requests:
               memory: "64Mi"

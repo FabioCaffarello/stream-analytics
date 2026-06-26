@@ -5,9 +5,9 @@ metadata:
   name: core-system
   namespace: argocd
 spec:
-  description: "Project for core/system workloads (maps to raccoon-system namespace)"
+  description: "Project for core/system workloads (maps to stream-analytics-system namespace)"
   sourceRepos:
-    - https://github.com/market-raccoon/market-raccoon.git
+    - https://github.com/stream-analytics/stream-analytics.git
   destinations:
     - server: https://kubernetes.default.svc
-      namespace: raccoon-system
+      namespace: stream-analytics-system

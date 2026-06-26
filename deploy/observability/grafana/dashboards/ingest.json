@@ -11,7 +11,7 @@
       "title": "Ingest Burn Rate 5m",
       "type": "timeseries",
       "targets": [
-        {"expr": "slo:ingest:burn_rate_5m{service=\"market-raccoon\"}", "legendFormat": "{{stream}}/{{venue}}", "refId": "A"}
+        {"expr": "slo:ingest:burn_rate_5m{service=\"stream-analytics\"}", "legendFormat": "{{stream}}/{{venue}}", "refId": "A"}
       ]
     },
     {
@@ -22,7 +22,7 @@
       "title": "Ingest Burn Rate 1h",
       "type": "timeseries",
       "targets": [
-        {"expr": "slo:ingest:burn_rate_1h{service=\"market-raccoon\"}", "legendFormat": "{{stream}}/{{venue}}", "refId": "A"}
+        {"expr": "slo:ingest:burn_rate_1h{service=\"stream-analytics\"}", "legendFormat": "{{stream}}/{{venue}}", "refId": "A"}
       ]
     },
     {
@@ -33,7 +33,7 @@
       "title": "Ingest Error Ratio",
       "type": "timeseries",
       "targets": [
-        {"expr": "slo:ingest:error_ratio{service=\"market-raccoon\"}", "legendFormat": "{{stream}}/{{venue}}", "refId": "A"}
+        {"expr": "slo:ingest:error_ratio{service=\"stream-analytics\"}", "legendFormat": "{{stream}}/{{venue}}", "refId": "A"}
       ]
     },
     {
@@ -44,7 +44,7 @@
       "title": "Ingest Total Rate",
       "type": "timeseries",
       "targets": [
-        {"expr": "slo:ingest_total:rate{service=\"market-raccoon\"}", "legendFormat": "{{stream}}/{{venue}}", "refId": "A"}
+        {"expr": "slo:ingest_total:rate{service=\"stream-analytics\"}", "legendFormat": "{{stream}}/{{venue}}", "refId": "A"}
       ]
     }
   ],
@@ -70,7 +70,7 @@
     ]
   },
   "time": {"from": "now-6h", "to": "now"},
-  "title": "Market-Raccoon Ingest",
-  "uid": "market-raccoon-ingest",
+  "title": "Stream-Analytics Ingest",
+  "uid": "stream-analytics-ingest",
   "version": 1
 }

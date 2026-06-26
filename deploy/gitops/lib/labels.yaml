@@ -5,6 +5,6 @@ metadata:
   name: standard-labels
 labels:
   - pairs:
-      app.kubernetes.io/part-of: market-raccoon
+      app.kubernetes.io/part-of: stream-analytics
       app.kubernetes.io/managed-by: argocd
     includeSelectors: true

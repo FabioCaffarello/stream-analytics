@@ -3,7 +3,7 @@ resource "kubernetes_secret" "sops_age_key" {
     name      = "sops-age-key"
     namespace = var.namespace
     labels = {
-      "app.kubernetes.io/part-of"    = "market-raccoon"
+      "app.kubernetes.io/part-of"    = "stream-analytics"
       "app.kubernetes.io/managed-by" = "terraform"
       "app.kubernetes.io/component"  = "sops"
     }

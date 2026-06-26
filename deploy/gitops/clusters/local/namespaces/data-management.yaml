@@ -3,4 +3,4 @@ kind: Namespace
 metadata:
   name: data-management
   labels:
-    app.kubernetes.io/part-of: market-raccoon
+    app.kubernetes.io/part-of: stream-analytics
