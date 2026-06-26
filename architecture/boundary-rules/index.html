@@ -1,0 +1,3665 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Real-time multi-exchange cryptocurrency market data platform — Go + Odin">
+      
+      
+      
+        <link rel="canonical" href="https://FabioCaffarello.github.io/stream-analytics/architecture/boundary-rules/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Boundary Rules — Stream Analytics - Stream Analytics</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="deep-orange" data-md-color-accent="orange">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#boundary-rules-stream-analytics" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Stream Analytics" class="md-header__button md-logo" aria-label="Stream Analytics" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Stream Analytics
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Boundary Rules — Stream Analytics
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="deep-orange" data-md-color-accent="orange"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="deep-orange" data-md-color-accent="orange"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/FabioCaffarello/stream-analytics" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    FabioCaffarello/stream-analytics
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Platform
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../diagrams/c4-context/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Architecture Diagrams
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../analytics-pipeline/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Analytics
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../candle-aggregation/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Market Data
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../contracts/event-bus/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Data Contracts
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../client/client-architecture/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Client Cockpit
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../local-dev/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Operations
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Stream Analytics" class="md-nav__button md-logo" aria-label="Stream Analytics" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Stream Analytics
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/FabioCaffarello/stream-analytics" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    FabioCaffarello/stream-analytics
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Platform
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Platform
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../subsystems/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Subsystems
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../system-invariants/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    System Invariants
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sequencing-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sequencing Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Diagrams
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Architecture Diagrams
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../diagrams/c4-context/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C4 System Context
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../diagrams/c4-containers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C4 Service Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../diagrams/sequence-live-ingestion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Live Ingestion Flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../diagrams/sequence-storage-federation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Storage Federation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../diagrams/sequence-exchange-recovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exchange Recovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../diagrams/actor-supervision-tree/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Actor Supervision
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../diagrams/sequence-client-session/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Client Session Protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../diagrams/sequence-evidence-lel/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LEL Evidence Detection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analytics
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Analytics
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../analytics-pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../diagrams/c4-analytics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C4 Analytics Profile
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../diagrams/sequence-analytics-pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analytics Flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Market Data
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Market Data
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../candle-aggregation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Candle Aggregation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../stats-aggregation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stats Aggregation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../orderbook/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Orderbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../heatmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Heatmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../volume-profiles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Volume Profiles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../liquidations-markprice/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Liquidations & Mark Price
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../insights/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Insights
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Contracts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Data Contracts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contracts/event-bus/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Event Bus
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contracts/delivery-ws/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Delivery WebSocket
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contracts/canonical-market-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Canonical Market Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contracts/liquidity-evidence-layer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Liquidity Evidence Layer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contracts/boundedness-matrix/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Boundedness Matrix
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contracts/subject-registry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Subject Registry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Client Cockpit
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Client Cockpit
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../client/client-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../client/layer-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Layer Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../client/client-memory-ownership-rules/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Memory Ownership
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operations
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Operations
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../local-dev/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local Dev
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../storage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Storage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../metrics-catalogue/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics Catalogue
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/sharding/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sharding
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/emulator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Emulator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/validator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-backend-layers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Backend Layers
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Backend Layers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#11-shared-foundation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.1 shared/ — Foundation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12-core-domain-use-cases-ports" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.2 core/* — Domain + Use Cases + Ports
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#13-adapters-infrastructure-implementations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.3 adapters/ — Infrastructure Implementations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#14-actors-runtime-orchestration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.4 actors/ — Runtime Orchestration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#15-interfaces-external-transport" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.5 interfaces/ — External Transport
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#16-cmd-entry-points" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.6 cmd/* — Entry Points
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#17-binary-ownership-map" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.7 Binary Ownership Map
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-client-layers-odin" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Client Layers (Odin)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Client Layers (Odin)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21-ui-math-util-foundation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.1 ui/ + math/ + util/ — Foundation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#22-ports-adapter-interfaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.2 ports/ — Adapter Interfaces
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#23-streams-stream-registry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.3 streams/ — Stream Registry
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#24-services-domain-stores" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.4 services/ — Domain Stores
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#25-md_common-protocol-bridge" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.5 md_common/ — Protocol Bridge
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#26-layers-visualization-strategies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.6 layers/ — Visualization Strategies
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#27-app-orchestration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.7 app/ — Orchestration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#28-client-import-matrix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.8 Client Import Matrix
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-state-pipeline-rules-client" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. State Pipeline Rules (Client)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. State Pipeline Rules (Client)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-cell_surface_view-unified-read-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 Cell_Surface_View — Unified Read Model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-data_readiness-render-gate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 Data_Readiness — Render Gate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33-pure-derivation-constraint" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 Pure Derivation Constraint
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-bounded-context-boundaries-backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Bounded Context Boundaries (Backend)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Bounded Context Boundaries (Backend)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-boundary-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 Boundary Summary
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-isolation-rules-per-context" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 Isolation Rules Per Context
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-delivery-the-isolation-exception" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 delivery/ — The Isolation Exception
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#44-workspace-persistence-boundary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.4 workspace/ — Persistence Boundary
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-orderflow-ownership" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Orderflow Ownership
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-naming-boundaries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Naming Boundaries
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-domain-invariants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Domain Invariants
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-review-checklist-for-new-changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Review Checklist for New Changes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="8. Review Checklist for New Changes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backend
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#client" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Client
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-enforcement-mechanisms" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Enforcement Mechanisms
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-violation-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Violation Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="10. Violation Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#101-backend-adapter-leaking-domain-logic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10.1 Backend — Adapter Leaking Domain Logic
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#102-backend-core-importing-actor-framework" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10.2 Backend — Core Importing Actor Framework
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#103-backend-cross-context-direct-call" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10.3 Backend — Cross-Context Direct Call
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#104-client-layer-writing-to-store" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10.4 Client — Layer Writing to Store
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#105-client-cached-reliability" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10.5 Client — Cached Reliability
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#106-backend-shared-containing-single-context-logic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10.6 Backend — Shared Containing Single-Context Logic
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#107-client-md_common-scope-creep" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10.7 Client — md_common Scope Creep
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#108-client-upward-import" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10.8 Client — Upward Import
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/FabioCaffarello/stream-analytics/edit/main/docs/architecture/boundary-rules.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="boundary-rules-stream-analytics">Boundary Rules — Stream Analytics<a class="headerlink" href="#boundary-rules-stream-analytics" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p>Canonical reference for layer isolation, dependency direction, and ownership.
+Enforced by <code>make invariants-check</code> (backend) and review policy (client).
+Last updated: 2026-03-10 (S159 boundary hardening).</p>
+</blockquote>
+<hr />
+<h2 id="1-backend-layers">1. Backend Layers<a class="headerlink" href="#1-backend-layers" title="Permanent link">&para;</a></h2>
+<p>The backend follows hexagonal architecture with six layers.
+Dependencies flow <strong>strictly downward</strong>; no layer may import a layer above it.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>cmd/*            ← entry points (main.go) — bootstrap, wire, run
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>  ↓
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>interfaces/      ← HTTP/WS handlers — translate requests into actor messages
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>  ↓
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>actors/          ← Hollywood actor subsystems — orchestrate use cases
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>  ↓
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>adapters/        ← exchange connectors, storage, bus — implement ports
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>  ↓
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>core/*           ← domain + use cases + ports — business logic lives here
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>  ↓
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>shared/          ← foundation (zero internal imports)
+</code></pre></div>
+<h3 id="11-shared-foundation">1.1 shared/ — Foundation<a class="headerlink" href="#11-shared-foundation" title="Permanent link">&para;</a></h3>
+<p><strong>Purpose:</strong> Cross-cutting building blocks with zero business logic.</p>
+<table>
+<thead>
+<tr>
+<th>Allowed</th>
+<th>Prohibited</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Error types (<code>problem</code>, <code>result</code>, <code>validation</code>)</td>
+<td>Business rules, aggregates, entities</td>
+</tr>
+<tr>
+<td>Value objects (<code>naming</code>, <code>ids</code>, <code>hash</code>, <code>clock</code>)</td>
+<td>Exchange-specific logic</td>
+</tr>
+<tr>
+<td>Serialization (<code>codec</code>, <code>envelope</code>, <code>contracts</code>)</td>
+<td>Storage queries or connections</td>
+</tr>
+<tr>
+<td>Observability (<code>metrics</code>, <code>observability</code>)</td>
+<td>Actor framework types (<code>hollywood/*</code>)</td>
+</tr>
+<tr>
+<td>Config schema, data structures (<code>ds</code>)</td>
+<td>Imports from any <code>internal/*</code> package</td>
+</tr>
+<tr>
+<td>Protobuf definitions (<code>proto/gen</code>)</td>
+<td>HTTP handlers, NATS subjects</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Litmus test:</strong> If removing a type from <code>shared/</code> would break only one bounded context, it belongs in that context's <code>domain/</code> package, not in <code>shared/</code>.</p>
+<p><strong>Real example — correct:</strong> <code>naming.CanonicalVenue</code> normalises venue strings at every domain boundary. Used by marketdata, aggregation, delivery, insights. Lives in <code>shared/naming</code>.</p>
+<p><strong>Real example — violation (hypothetical):</strong> A <code>CandleAggregator</code> helper in <code>shared/</code> — this belongs in <code>core/aggregation/domain</code> because only aggregation owns candle construction.</p>
+<h3 id="12-core-domain-use-cases-ports">1.2 core/* — Domain + Use Cases + Ports<a class="headerlink" href="#12-core-domain-use-cases-ports" title="Permanent link">&para;</a></h3>
+<p>Each bounded context (<code>core/marketdata</code>, <code>core/aggregation</code>, etc.) contains three sub-packages:</p>
+<table>
+<thead>
+<tr>
+<th>Sub-package</th>
+<th>Contains</th>
+<th>May import</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>domain/</code></td>
+<td>Entities, value objects, aggregates, invariants</td>
+<td><code>shared/</code> only</td>
+</tr>
+<tr>
+<td><code>app/</code></td>
+<td>Use cases, orchestration, policies</td>
+<td>Own <code>domain/</code>, own <code>ports/</code>, <code>shared/</code></td>
+</tr>
+<tr>
+<td><code>ports/</code></td>
+<td>Interfaces for external deps (readers, writers, publishers)</td>
+<td><code>shared/</code>, own <code>domain/</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Prohibited for all <code>core/*</code> packages:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Import target</th>
+<th>Reason</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>internal/actors</code></td>
+<td>Core must not know its runtime</td>
+</tr>
+<tr>
+<td><code>internal/adapters</code></td>
+<td>Core must not know implementations</td>
+</tr>
+<tr>
+<td><code>internal/interfaces</code></td>
+<td>Core must not know transport</td>
+</tr>
+<tr>
+<td><code>shared/policykit</code></td>
+<td>Policy kit is actor-runtime infrastructure</td>
+</tr>
+<tr>
+<td><code>time.Now()</code> directly</td>
+<td>Use <code>clock.Clock</code> for determinism (INV-DET-01)</td>
+</tr>
+<tr>
+<td><code>fmt.Sprintf</code> in hot paths</td>
+<td>Use <code>hash.FieldHasher</code> fluent API</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Cross-context imports — permitted but minimised:</strong></p>
+<p>Core modules may import another core module's <code>domain/</code> package when there is a genuine domain relationship. <strong>Exhaustive list of allowed cross-deps:</strong></p>
+<table>
+<thead>
+<tr>
+<th>From</th>
+<th>May import</th>
+<th>Reason</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>core/aggregation</code></td>
+<td><code>core/marketdata/domain</code></td>
+<td>Aggregation consumes normalised market events</td>
+</tr>
+<tr>
+<td><code>core/aggregation</code></td>
+<td><code>core/marketmodel/domain</code></td>
+<td>Tick size and instrument metadata for book building</td>
+</tr>
+<tr>
+<td><code>core/marketdata</code></td>
+<td><code>core/marketmodel/domain</code></td>
+<td>Market model defines instrument metadata</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Explicitly prohibited cross-deps:</strong></p>
+<table>
+<thead>
+<tr>
+<th>From</th>
+<th>Must NOT import</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>core/delivery</code></td>
+<td>Any other <code>core/*</code></td>
+<td>Delivery is transport-only; receives pre-serialised envelopes</td>
+</tr>
+<tr>
+<td><code>core/workspace</code></td>
+<td>Any other <code>core/*</code></td>
+<td>Workspace is persistence-only; schema ↔ JSON, no domain logic</td>
+</tr>
+<tr>
+<td><code>core/insights</code></td>
+<td><code>core/aggregation</code></td>
+<td>Insights receives via bus, not direct import</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Rule:</strong> A new cross-context import requires an ADR or explicit approval. If two contexts need to share a type, first consider whether that type belongs in <code>shared/contracts</code>.</p>
+<h3 id="13-adapters-infrastructure-implementations">1.3 adapters/ — Infrastructure Implementations<a class="headerlink" href="#13-adapters-infrastructure-implementations" title="Permanent link">&para;</a></h3>
+<p><strong>Purpose:</strong> Implement <code>core/*/ports</code> interfaces with concrete technology.</p>
+<table>
+<thead>
+<tr>
+<th>Allowed</th>
+<th>Prohibited</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Import any <code>core/*/domain</code> and <code>core/*/ports</code></td>
+<td>Import <code>actors/</code> or <code>interfaces/</code></td>
+</tr>
+<tr>
+<td>Import <code>shared/*</code></td>
+<td>Contain business rules or invariants</td>
+</tr>
+<tr>
+<td>Exchange client code (Binance, Bybit, etc.)</td>
+<td>Expose exchange-specific types to core</td>
+</tr>
+<tr>
+<td>Storage drivers (TimescaleDB, ClickHouse)</td>
+<td>Own domain entities</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Real example — correct:</strong> <code>adapters/exchange/binance/</code> imports <code>core/marketdata/domain</code> to map Binance WebSocket messages into <code>marketdata.TradeTickV1</code>.</p>
+<p><strong>Real example — violation (hypothetical):</strong> An adapter that computes candle OHLCV — aggregation logic belongs in <code>core/aggregation/domain</code>.</p>
+<h3 id="14-actors-runtime-orchestration">1.4 actors/ — Runtime Orchestration<a class="headerlink" href="#14-actors-runtime-orchestration" title="Permanent link">&para;</a></h3>
+<p><strong>Purpose:</strong> Wire use cases into Hollywood actor subsystems with supervision.</p>
+<table>
+<thead>
+<tr>
+<th>Allowed</th>
+<th>Prohibited</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Import <code>core/*/app</code> and <code>core/*/domain</code></td>
+<td>Import <code>interfaces/</code></td>
+</tr>
+<tr>
+<td>Import <code>adapters/</code> (to inject into ports)</td>
+<td>Contain domain logic (only orchestrate)</td>
+</tr>
+<tr>
+<td>Import <code>shared/*</code></td>
+<td>Define new domain types</td>
+</tr>
+<tr>
+<td>Hollywood framework types</td>
+<td>Direct database/HTTP calls (delegate to adapters)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Real example — correct:</strong> <code>actors/aggregation/runtime/processor.go</code> imports <code>aggapp</code> and <code>insightsapp</code> to wire the processing pipeline, delegating all computation to core use cases.</p>
+<h3 id="15-interfaces-external-transport">1.5 interfaces/ — External Transport<a class="headerlink" href="#15-interfaces-external-transport" title="Permanent link">&para;</a></h3>
+<p><strong>Purpose:</strong> HTTP/WS handlers that translate external requests into actor messages.</p>
+<table>
+<thead>
+<tr>
+<th>Allowed</th>
+<th>Prohibited</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Import <code>actors/</code> (to send messages)</td>
+<td>Import <code>adapters/</code> directly</td>
+</tr>
+<tr>
+<td>Import <code>core/*/domain</code> (for response DTOs)</td>
+<td>Contain business logic</td>
+</tr>
+<tr>
+<td>Import <code>shared/*</code></td>
+<td>Call core use cases directly (go through actors)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="16-cmd-entry-points">1.6 cmd/* — Entry Points<a class="headerlink" href="#16-cmd-entry-points" title="Permanent link">&para;</a></h3>
+<p><strong>Purpose:</strong> <code>main.go</code> for each binary. Bootstrap, wire, run.</p>
+<table>
+<thead>
+<tr>
+<th>Allowed</th>
+<th>Prohibited</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Import everything</td>
+<td>Contain logic beyond bootstrap and wiring</td>
+</tr>
+</tbody>
+</table>
+<h3 id="17-binary-ownership-map">1.7 Binary Ownership Map<a class="headerlink" href="#17-binary-ownership-map" title="Permanent link">&para;</a></h3>
+<p>Each <code>cmd/*</code> binary owns exactly one deployment concern. No binary may host actors belonging to another binary's domain.</p>
+<table>
+<thead>
+<tr>
+<th>Binary</th>
+<th>Actor subsystems</th>
+<th>Core domains consumed</th>
+<th>Infrastructure</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>cmd/consumer</code></td>
+<td><code>actors/marketdata</code></td>
+<td>marketdata, marketmodel</td>
+<td>Exchange WS, NATS publish, Kafka publish (analytics path)</td>
+</tr>
+<tr>
+<td><code>cmd/processor</code></td>
+<td><code>actors/aggregation</code>, <code>actors/insights</code>, <code>actors/evidence</code></td>
+<td>aggregation, insights, evidence, marketdata</td>
+<td>NATS subscribe, NATS publish, ClickHouse write</td>
+</tr>
+<tr>
+<td><code>cmd/server</code></td>
+<td><code>actors/delivery</code></td>
+<td>delivery</td>
+<td>WS server, NATS subscribe, TimescaleDB/ClickHouse read</td>
+</tr>
+<tr>
+<td><code>cmd/store</code></td>
+<td>— (no actors)</td>
+<td>—</td>
+<td>TimescaleDB, ClickHouse, NATS subscribe</td>
+</tr>
+<tr>
+<td><code>cmd/migrate</code></td>
+<td>— (no actors)</td>
+<td>—</td>
+<td>Goose migrations (TimescaleDB + ClickHouse)</td>
+</tr>
+<tr>
+<td><code>cmd/emulator</code></td>
+<td>— (no actors)</td>
+<td>—</td>
+<td>Kafka write, NATS runtime store read</td>
+</tr>
+<tr>
+<td><code>cmd/validator</code></td>
+<td>— (no actors)</td>
+<td>—</td>
+<td>JetStream consume, NATS result publish, HTTP health</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Rule:</strong> If a new feature requires an actor subsystem not listed here, decide which binary owns it before writing code. Cross-binary actor hosting is prohibited.</p>
+<hr />
+<h2 id="2-client-layers-odin">2. Client Layers (Odin)<a class="headerlink" href="#2-client-layers-odin" title="Permanent link">&para;</a></h2>
+<p>The client follows a strict DAG with six tiers.
+Dependencies flow <strong>strictly downward</strong>; no package may import a package above it.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>app/             ← orchestration, routing, state, frame loop
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>  ↓
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>layers/          ← visualization strategies (stateless, read-only)
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>  ↓
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>md_common/       ← protocol bridge (services ↔ layers)
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>  ↓
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>services/        ← domain stores, session health, message parsing
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>  ↓
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>streams/         ← stream registry, endpoint resolution
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>  ↓
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>ports/           ← adapter interfaces (input, fonts, marketdata, settings)
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>  ↓
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>ui/ + math/      ← foundation (zero internal imports)
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>util/            ← leaf utilities (no mr: imports, same tier as ui/)
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>widgets/         ← chart type definitions (imports ui/ only)
+</code></pre></div>
+<h3 id="21-ui-math-util-foundation">2.1 ui/ + math/ + util/ — Foundation<a class="headerlink" href="#21-ui-math-util-foundation" title="Permanent link">&para;</a></h3>
+<p><strong>Purpose:</strong> Primitive types, layout helpers, math utilities, subject parsing.</p>
+<table>
+<thead>
+<tr>
+<th>Allowed</th>
+<th>Prohibited</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Standard library only</td>
+<td>Any <code>mr:</code> import</td>
+</tr>
+</tbody>
+</table>
+<p><code>widgets/</code> is a leaf package containing chart type definitions. It may import <code>ui/</code> but nothing else.</p>
+<h3 id="22-ports-adapter-interfaces">2.2 ports/ — Adapter Interfaces<a class="headerlink" href="#22-ports-adapter-interfaces" title="Permanent link">&para;</a></h3>
+<p><strong>Purpose:</strong> Define how the app talks to the platform (input, fonts, settings, marketdata).</p>
+<table>
+<thead>
+<tr>
+<th>Allowed</th>
+<th>Prohibited</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Import <code>ui/</code> (for <code>Vec2</code>, <code>Font_Id</code>)</td>
+<td>Import <code>services/</code>, <code>layers/</code>, <code>app/</code>, <code>streams/</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Real example — correct:</strong> <code>ports/input.odin</code> defines <code>Input_State</code> and keyboard/mouse abstractions consumed by <code>app/</code>.</p>
+<p>Platform implementations (<code>platform/web/</code>, <code>platform/native/</code>) implement these interfaces. They may import <code>app/</code>, <code>ports/</code>, <code>services/</code> — they sit outside the core DAG.</p>
+<h3 id="23-streams-stream-registry">2.3 streams/ — Stream Registry<a class="headerlink" href="#23-streams-stream-registry" title="Permanent link">&para;</a></h3>
+<p><strong>Purpose:</strong> Stream types, endpoint resolution, stream lifecycle.</p>
+<table>
+<thead>
+<tr>
+<th>Allowed</th>
+<th>Prohibited</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Import <code>ports/</code>, <code>util/</code></td>
+<td>Import <code>services/</code>, <code>layers/</code>, <code>app/</code>, <code>md_common/</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="24-services-domain-stores">2.4 services/ — Domain Stores<a class="headerlink" href="#24-services-domain-stores" title="Permanent link">&para;</a></h3>
+<p><strong>Purpose:</strong> Per-stream data stores (DOM, Footprint, Trades, Orderbook, Analytics), session health, snapshot lifecycle, message parsing.</p>
+<table>
+<thead>
+<tr>
+<th>Allowed</th>
+<th>Prohibited</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Import <code>ports/</code>, <code>util/</code>, <code>streams/</code></td>
+<td>Import <code>layers/</code>, <code>app/</code>, <code>md_common/</code></td>
+</tr>
+<tr>
+<td>Own per-stream mutable state</td>
+<td>Render logic or visualization</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Stores live on <code>Market_Stream</code> and are isolated per-stream:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Store</th>
+<th>Owner</th>
+<th>Cap</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Trades_Store</code></td>
+<td>services</td>
+<td>256 ticks</td>
+</tr>
+<tr>
+<td><code>Orderbook_Store</code></td>
+<td>services</td>
+<td>50/side</td>
+</tr>
+<tr>
+<td><code>DOM_Store</code></td>
+<td>services</td>
+<td>512 levels</td>
+</tr>
+<tr>
+<td><code>Footprint_Store</code></td>
+<td>services</td>
+<td>200x50 grid</td>
+</tr>
+<tr>
+<td><code>Analytics_Store</code></td>
+<td>services</td>
+<td>ring buffer</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Rule:</strong> Adding a new store requires justification that no existing store can serve the data need. New stores must declare a cap on creation.</p>
+<h3 id="25-md_common-protocol-bridge">2.5 md_common/ — Protocol Bridge<a class="headerlink" href="#25-md_common-protocol-bridge" title="Permanent link">&para;</a></h3>
+<p><strong>Purpose:</strong> Shared protocol utilities that both <code>services/</code> and <code>layers/</code> need. Intentional bridge to avoid duplication.</p>
+<table>
+<thead>
+<tr>
+<th>Allowed</th>
+<th>Prohibited</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Import <code>ports/</code>, <code>services/</code>, <code>util/</code>, <code>streams/</code></td>
+<td>Import <code>layers/</code>, <code>app/</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Real example — correct:</strong> <code>md_common/stream_apply_state.odin</code> defines the 5-layer health pipeline consumed by both <code>services/</code> (for state tracking) and <code>layers/</code> (for render decisions).</p>
+<p><strong>Why a bridge?</strong> Without <code>md_common/</code>, types like <code>Stream_Apply_State</code> and <code>Timeframe_Data_Contract</code> would either be duplicated across <code>services/</code> and <code>layers/</code>, or one package would have to import the other (breaking the DAG). The bridge is a controlled exception with a narrow scope.</p>
+<h3 id="26-layers-visualization-strategies">2.6 layers/ — Visualization Strategies<a class="headerlink" href="#26-layers-visualization-strategies" title="Permanent link">&para;</a></h3>
+<p><strong>Purpose:</strong> Stateless render strategies that read from services and produce draw commands.</p>
+<table>
+<thead>
+<tr>
+<th>Allowed</th>
+<th>Prohibited</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Import <code>ports/</code>, <code>services/</code>, <code>md_common/</code>, <code>ui/</code>, <code>util/</code></td>
+<td>Import <code>app/</code></td>
+</tr>
+<tr>
+<td>Read <code>Layer_Context</code> (read-only)</td>
+<td>Write to any store</td>
+</tr>
+<tr>
+<td>Stateless strategy functions</td>
+<td>Cached/mutable state</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Real example — correct:</strong> <code>layers/layer_strategies.odin</code> implements candle, line, heatmap rendering by reading from <code>Market_Store</code> and outputting draw lists.</p>
+<p><strong>Real example — violation (hypothetical):</strong> A strategy that modifies <code>DOM_Store</code> entries — stores are owned by <code>services/</code>, strategies only read.</p>
+<h3 id="27-app-orchestration">2.7 app/ — Orchestration<a class="headerlink" href="#27-app-orchestration" title="Permanent link">&para;</a></h3>
+<p><strong>Purpose:</strong> Top-level application state, routing, frame loop, widget layout, workspace persistence.</p>
+<table>
+<thead>
+<tr>
+<th>Allowed</th>
+<th>Prohibited</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Import all lower tiers</td>
+<td>Be imported by any other core package</td>
+</tr>
+<tr>
+<td>Own <code>Cell_Surface_View</code>, <code>Data_Readiness</code></td>
+<td>Bypass services to write stores directly</td>
+</tr>
+<tr>
+<td>Frame loop side effects (<code>health.odin</code>)</td>
+<td>Cached health/reliability state</td>
+</tr>
+</tbody>
+</table>
+<h3 id="28-client-import-matrix">2.8 Client Import Matrix<a class="headerlink" href="#28-client-import-matrix" title="Permanent link">&para;</a></h3>
+<p>Complete reference. <code>Y</code> = allowed, <code>—</code> = prohibited, <code>B</code> = bridge (md_common only).</p>
+<table>
+<thead>
+<tr>
+<th>From ↓ \ To →</th>
+<th>ui</th>
+<th>math</th>
+<th>util</th>
+<th>widgets</th>
+<th>ports</th>
+<th>streams</th>
+<th>services</th>
+<th>md_common</th>
+<th>layers</th>
+<th>app</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>app</strong></td>
+<td>Y</td>
+<td>Y</td>
+<td>Y</td>
+<td>Y</td>
+<td>Y</td>
+<td>Y</td>
+<td>Y</td>
+<td>Y</td>
+<td>Y</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>layers</strong></td>
+<td>Y</td>
+<td>Y</td>
+<td>Y</td>
+<td>—</td>
+<td>Y</td>
+<td>—</td>
+<td>Y</td>
+<td>Y</td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>md_common</strong></td>
+<td>—</td>
+<td>—</td>
+<td>Y</td>
+<td>—</td>
+<td>Y</td>
+<td>Y</td>
+<td>Y</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>services</strong></td>
+<td>—</td>
+<td>—</td>
+<td>Y</td>
+<td>—</td>
+<td>Y</td>
+<td>Y</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>streams</strong></td>
+<td>—</td>
+<td>—</td>
+<td>Y</td>
+<td>—</td>
+<td>Y</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>ports</strong></td>
+<td>Y</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>widgets</strong></td>
+<td>Y</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>ui</strong></td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>math</strong></td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>util</strong></td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="3-state-pipeline-rules-client">3. State Pipeline Rules (Client)<a class="headerlink" href="#3-state-pipeline-rules-client" title="Permanent link">&para;</a></h2>
+<h3 id="31-cell_surface_view-unified-read-model">3.1 Cell_Surface_View — Unified Read Model<a class="headerlink" href="#31-cell_surface_view-unified-read-model" title="Permanent link">&para;</a></h3>
+<p><strong>Ceiling: 10 fields.</strong> Adding a field requires justification and ceiling review.</p>
+<p>Current fields: <code>composition</code>, <code>health_level</code>, <code>recovery_status</code>, <code>reliability</code>, <code>snapshot_lifecycle</code>, <code>is_transport_lagging</code>, <code>candle_health</code>, <code>stale_count</code>, <code>aging_count</code>, <code>data_quality</code>.</p>
+<h3 id="32-data_readiness-render-gate">3.2 Data_Readiness — Render Gate<a class="headerlink" href="#32-data_readiness-render-gate" title="Permanent link">&para;</a></h3>
+<p><strong>Ceiling: 6 variants.</strong> Adding a variant requires ADR.</p>
+<p>Current variants: <code>Absent</code>, <code>Pending</code>, <code>Degraded</code>, <code>Stale</code>, <code>Live</code>, <code>Recovering</code>.</p>
+<h3 id="33-pure-derivation-constraint">3.3 Pure Derivation Constraint<a class="headerlink" href="#33-pure-derivation-constraint" title="Permanent link">&para;</a></h3>
+<p>All health, reliability, readiness, and visual state values are <strong>derived every frame</strong> from protocol state. No intermediate caching.</p>
+<p><strong>Rule:</strong> If you find yourself writing <code>cached_reliability := ...</code> and reading it later, you are violating this constraint. Derive it from source state at the point of use.</p>
+<hr />
+<h2 id="4-bounded-context-boundaries-backend">4. Bounded Context Boundaries (Backend)<a class="headerlink" href="#4-bounded-context-boundaries-backend" title="Permanent link">&para;</a></h2>
+<h3 id="41-boundary-summary">4.1 Boundary Summary<a class="headerlink" href="#41-boundary-summary" title="Permanent link">&para;</a></h3>
+<p>Each bounded context owns a slice of the domain. Communication between contexts happens through <strong>events on the bus</strong> (NATS JetStream), never through direct function calls at runtime.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>shared ──────────────────────────────────────────────────────
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>  │
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>  ├─ marketdata ─── marketmodel
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>  ├─ evidence
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>  ├─ insights
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>  │
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>  ├─ aggregation ──→ marketdata/domain (compile-time only)
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>  │
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>  ├─ delivery (isolated — transport only)
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>  └─ workspace (isolated — persistence only)
+</code></pre></div>
+<h3 id="42-isolation-rules-per-context">4.2 Isolation Rules Per Context<a class="headerlink" href="#42-isolation-rules-per-context" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Context</th>
+<th>Runtime input</th>
+<th>Runtime output</th>
+<th>Compile-time deps</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>marketdata</strong></td>
+<td>Exchange WS feeds</td>
+<td><code>TradeTickV1</code>, <code>BookDeltaV1</code> → NATS</td>
+<td><code>marketmodel/domain</code>, <code>shared</code></td>
+</tr>
+<tr>
+<td><strong>aggregation</strong></td>
+<td>NATS events from marketdata</td>
+<td><code>CandleV2</code>, <code>OrderBookSnapshotV2</code> → NATS</td>
+<td><code>marketdata/domain</code>, <code>shared</code></td>
+</tr>
+<tr>
+<td><strong>insights</strong></td>
+<td>NATS events from aggregation</td>
+<td><code>VolumeProfileV1</code>, <code>FootprintCandleV1</code> → NATS</td>
+<td><code>shared</code></td>
+</tr>
+<tr>
+<td><strong>evidence</strong></td>
+<td>NATS events from insights</td>
+<td><code>LiquidityEvidence</code> → NATS</td>
+<td><code>shared</code></td>
+</tr>
+<tr>
+<td><strong>delivery</strong></td>
+<td>NATS (all artifact streams)</td>
+<td>WS frames to clients</td>
+<td><code>shared</code> only</td>
+</tr>
+<tr>
+<td><strong>workspace</strong></td>
+<td>HTTP requests</td>
+<td>JSON persistence</td>
+<td><code>shared</code> only</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Rule:</strong> If you need context A to call context B's function at runtime, you are breaking the boundary. Use the bus.</p>
+<h3 id="43-delivery-the-isolation-exception">4.3 delivery/ — The Isolation Exception<a class="headerlink" href="#43-delivery-the-isolation-exception" title="Permanent link">&para;</a></h3>
+<p>Delivery is deliberately the most isolated core module. It receives pre-serialised envelopes from the bus and forwards them to WS clients. It has <strong>zero knowledge</strong> of what's inside the envelopes.</p>
+<p><strong>Why this matters:</strong> Delivery must never be a bottleneck for domain changes. Adding a new artifact type to aggregation must not require a delivery code change.</p>
+<h3 id="44-workspace-persistence-boundary">4.4 workspace/ — Persistence Boundary<a class="headerlink" href="#44-workspace-persistence-boundary" title="Permanent link">&para;</a></h3>
+<p>Workspace owns schema-versioned persistence for dashboard layouts. It converts between runtime state and JSON documents. It contains <strong>zero domain logic</strong> about market data, health, or indicators.</p>
+<p><strong>Workspace schema version</strong> (<code>WORKSPACE_SCHEMA_VERSION</code>) bumps only when the persistence format changes — never for runtime-only state changes.</p>
+<hr />
+<h2 id="5-orderflow-ownership">5. Orderflow Ownership<a class="headerlink" href="#5-orderflow-ownership" title="Permanent link">&para;</a></h2>
+<p>Orderflow is a <strong>cross-cutting concern</strong>, NOT a separate bounded context (ADR-0033).</p>
+<table>
+<thead>
+<tr>
+<th>Data tier</th>
+<th>Owner BC</th>
+<th>Examples</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>T0 Raw feeds</td>
+<td><code>marketdata</code></td>
+<td>TradeTickV1, BookDeltaV1</td>
+</tr>
+<tr>
+<td>T1 Aggregates</td>
+<td><code>aggregation</code></td>
+<td>TapeWindowV1, OrderBookSnapshotV2</td>
+</tr>
+<tr>
+<td>T2 Derived artifacts</td>
+<td><code>insights</code></td>
+<td>VolumeProfileV1, FootprintCandleV1</td>
+</tr>
+<tr>
+<td>T3 Evidence</td>
+<td><code>evidence</code></td>
+<td>LiquidityEvidence rules</td>
+</tr>
+<tr>
+<td>Client-local state</td>
+<td><code>client</code></td>
+<td>DOM accumulation, footprint grid</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Rule:</strong> New orderflow types must be assigned to exactly one tier and one owner. If ownership is ambiguous, write an ADR.</p>
+<hr />
+<h2 id="6-naming-boundaries">6. Naming Boundaries<a class="headerlink" href="#6-naming-boundaries" title="Permanent link">&para;</a></h2>
+<p>Full rules in <code>docs/architecture/naming-rules.md</code>. Critical subset:</p>
+<table>
+<thead>
+<tr>
+<th>Rule</th>
+<th>Prohibition</th>
+<th>Correct usage</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>N1</td>
+<td>Packages differing only by singular/plural</td>
+<td>e.g. <code>insight/</code> vs <code>insights/</code> — pick one and be consistent</td>
+</tr>
+<tr>
+<td>N3</td>
+<td>Bare <code>State</code> in type names</td>
+<td>Always qualify: <code>Stream_State</code>, <code>Transport_State</code></td>
+</tr>
+<tr>
+<td>N4</td>
+<td>Swapping <code>Health</code> and <code>Readiness</code></td>
+<td>Health = monitoring; Readiness = operational gate</td>
+</tr>
+<tr>
+<td>N5</td>
+<td>Swapping <code>Snapshot</code> and <code>Summary</code></td>
+<td>Snapshot = point-in-time; Summary = rolled-up</td>
+</tr>
+<tr>
+<td>N6</td>
+<td>Swapping <code>Event</code> and <code>Action</code></td>
+<td>Event = immutable fact (backend); Action = user input (client)</td>
+</tr>
+<tr>
+<td>N7</td>
+<td>Cross-stack semantic drift</td>
+<td>Same term must mean the same thing backend ↔ client</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="7-domain-invariants">7. Domain Invariants<a class="headerlink" href="#7-domain-invariants" title="Permanent link">&para;</a></h2>
+<p>These invariants are <strong>non-negotiable</strong>. Violations are build-breaking.</p>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Rule</th>
+<th>Enforced by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>INV-DOM-01</td>
+<td>Core and actors must be protobuf-free</td>
+<td><code>make invariants-check</code></td>
+</tr>
+<tr>
+<td>INV-DET-01</td>
+<td>Core cannot call <code>time.Now()</code></td>
+<td><code>make invariants-check</code></td>
+</tr>
+<tr>
+<td>INV-REP-01</td>
+<td>Replay module must remain offline (no NATS import)</td>
+<td><code>make invariants-check</code></td>
+</tr>
+<tr>
+<td>INV-BUS-01</td>
+<td>Subject taxonomy: valid family + version</td>
+<td><code>make invariants-check</code></td>
+</tr>
+<tr>
+<td>INV-ACK-01</td>
+<td>JetStream ingest: ACK/NAK/TERM semantics</td>
+<td>Review policy</td>
+</tr>
+<tr>
+<td>INV-TOPO-01</td>
+<td>Guardian: readiness = all 10 subsystems + restart budget</td>
+<td>Test suite</td>
+</tr>
+<tr>
+<td>INV-MEX-01</td>
+<td>Stream identity = <code>venue + instrument + market_type</code></td>
+<td>Test suite</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="8-review-checklist-for-new-changes">8. Review Checklist for New Changes<a class="headerlink" href="#8-review-checklist-for-new-changes" title="Permanent link">&para;</a></h2>
+<p>Use this checklist when reviewing PRs or planning new features.</p>
+<h3 id="backend">Backend<a class="headerlink" href="#backend" title="Permanent link">&para;</a></h3>
+<ul>
+<li>[ ] <strong>Layer direction:</strong> Does the change import only from layers below it?</li>
+<li>[ ] <strong>Shared boundary:</strong> Does the new type in <code>shared/</code> serve 2+ bounded contexts? If not, move it to the owning context.</li>
+<li>[ ] <strong>Core purity:</strong> Does <code>core/*/domain</code> remain free of <code>actors</code>, <code>adapters</code>, <code>interfaces</code>, <code>time.Now()</code>, <code>fmt.Sprintf</code>?</li>
+<li>[ ] <strong>Cross-context import:</strong> Does the change add a new <code>core/X → core/Y</code> import? If yes, is it in the §1.2 allowed list? If not, write an ADR.</li>
+<li>[ ] <strong>Adapter isolation:</strong> Does the adapter only implement ports interfaces, without leaking exchange-specific types upward?</li>
+<li>[ ] <strong>Actor responsibility:</strong> Does the actor only orchestrate? No domain logic inside actor message handlers.</li>
+<li>[ ] <strong>Binary ownership:</strong> Does the new actor subsystem belong to the correct <code>cmd/*</code> binary per §1.7?</li>
+<li>[ ] <strong>Bus boundary:</strong> Are cross-context communications via NATS events, not direct function calls?</li>
+<li>[ ] <strong>Naming:</strong> Does every new type follow naming-rules.md? No bare <code>State</code>, no <code>Health</code>/<code>Readiness</code> swap.</li>
+</ul>
+<h3 id="client">Client<a class="headerlink" href="#client" title="Permanent link">&para;</a></h3>
+<ul>
+<li>[ ] <strong>DAG direction:</strong> Does the change respect the import matrix in §2.8?</li>
+<li>[ ] <strong>Store ownership:</strong> Do writes to stores happen only in <code>services/</code>?</li>
+<li>[ ] <strong>Strategy purity:</strong> Are layer strategies stateless and side-effect free?</li>
+<li>[ ] <strong>Pure derivation:</strong> Is health/reliability/readiness derived per-frame, not cached?</li>
+<li>[ ] <strong>Cell_Surface_View ceiling:</strong> If adding a field, is the 10-field ceiling justified?</li>
+<li>[ ] <strong>Data_Readiness ceiling:</strong> If adding a variant, is an ADR attached?</li>
+<li>[ ] <strong>Widget isolation:</strong> Does the widget receive all data via <code>Widget_Data_Context</code>, not globals?</li>
+<li>[ ] <strong>md_common scope:</strong> If adding to <code>md_common/</code>, is it genuinely needed by both <code>services/</code> and <code>layers/</code>? If only one consumer, put it in that package.</li>
+<li>[ ] <strong>Odin gotchas:</strong> No <code>fmt.tprintf</code> for persistent strings, no <code>{</code>/<code>}</code> in format strings for JSON, no variable indexing into constants.</li>
+</ul>
+<hr />
+<h2 id="9-enforcement-mechanisms">9. Enforcement Mechanisms<a class="headerlink" href="#9-enforcement-mechanisms" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>What</th>
+<th>How</th>
+<th>When</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>INV-DOM-01, INV-DET-01, INV-REP-01, INV-BUS-01</td>
+<td><code>make invariants-check</code> (grep-based static analysis)</td>
+<td>CI on every push</td>
+</tr>
+<tr>
+<td>INV-TOPO-01, INV-MEX-01</td>
+<td>Test suite assertions</td>
+<td>CI on every push</td>
+</tr>
+<tr>
+<td>Backend layer direction</td>
+<td>Go compiler (separate <code>go.mod</code> per module; cross-module imports are explicit)</td>
+<td>Compile time</td>
+</tr>
+<tr>
+<td>Backend cross-context imports</td>
+<td><code>go.mod</code> <code>require</code> directives — adding a new dep is visible in diff</td>
+<td>PR review</td>
+</tr>
+<tr>
+<td>Client DAG direction</td>
+<td>Manual review (Odin has no module system enforcing this)</td>
+<td>PR review</td>
+</tr>
+<tr>
+<td>Client store write ownership</td>
+<td>Manual review + test coverage in <code>services/*_test.odin</code></td>
+<td>PR review</td>
+</tr>
+<tr>
+<td>Naming rules</td>
+<td>Manual review against <code>naming-rules.md</code></td>
+<td>PR review</td>
+</tr>
+<tr>
+<td>Cell_Surface_View / Data_Readiness ceilings</td>
+<td>Manual review</td>
+<td>PR review</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Gap:</strong> Client DAG enforcement is manual. A future stage should add a CI script that greps for prohibited <code>import "mr:..."</code> patterns per package.</p>
+<hr />
+<h2 id="10-violation-examples">10. Violation Examples<a class="headerlink" href="#10-violation-examples" title="Permanent link">&para;</a></h2>
+<h3 id="101-backend-adapter-leaking-domain-logic">10.1 Backend — Adapter Leaking Domain Logic<a class="headerlink" href="#101-backend-adapter-leaking-domain-logic" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1">// BAD: adapters/exchange/binance/ws.go</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">c</span><span class="w"> </span><span class="o">*</span><span class="nx">Client</span><span class="p">)</span><span class="w"> </span><span class="nx">handleTrade</span><span class="p">(</span><span class="nx">msg</span><span class="w"> </span><span class="p">[]</span><span class="kt">byte</span><span class="p">)</span><span class="w"> </span><span class="nx">aggregation</span><span class="p">.</span><span class="nx">Candle</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="c1">// Adapter should NOT build candles — that&#39;s core/aggregation&#39;s job</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">aggregation</span><span class="p">.</span><span class="nx">BuildCandle</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="p">}</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="c1">// GOOD: adapters/exchange/binance/ws.go</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">c</span><span class="w"> </span><span class="o">*</span><span class="nx">Client</span><span class="p">)</span><span class="w"> </span><span class="nx">handleTrade</span><span class="p">(</span><span class="nx">msg</span><span class="w"> </span><span class="p">[]</span><span class="kt">byte</span><span class="p">)</span><span class="w"> </span><span class="nx">marketdata</span><span class="p">.</span><span class="nx">TradeTickV1</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">    </span><span class="c1">// Adapter maps raw bytes to a domain event, nothing more</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">marketdata</span><span class="p">.</span><span class="nx">TradeTickV1</span><span class="p">{</span><span class="o">...</span><span class="p">}</span>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="p">}</span>
+</code></pre></div>
+<h3 id="102-backend-core-importing-actor-framework">10.2 Backend — Core Importing Actor Framework<a class="headerlink" href="#102-backend-core-importing-actor-framework" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1">// BAD: core/delivery/app/session.go</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="kn">import</span><span class="w"> </span><span class="s">&quot;github.com/anthdm/hollywood/actor&quot;</span><span class="w">  </span><span class="c1">// Core must not know its runtime</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="c1">// GOOD: core/delivery/ports/publisher.go</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="kd">type</span><span class="w"> </span><span class="nx">EventPublisher</span><span class="w"> </span><span class="kd">interface</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">    </span><span class="nx">Publish</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">env</span><span class="w"> </span><span class="nx">envelope</span><span class="p">.</span><span class="nx">Envelope</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="nx">problem</span><span class="p">.</span><span class="nx">Problem</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="p">}</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="c1">// The actor layer injects an implementation of this port</span>
+</code></pre></div>
+<h3 id="103-backend-cross-context-direct-call">10.3 Backend — Cross-Context Direct Call<a class="headerlink" href="#103-backend-cross-context-direct-call" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1">// BAD: core/insights/app/builder.go</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="kn">import</span><span class="w"> </span><span class="s">&quot;github.com/stream-analytics/internal/core/aggregation/app&quot;</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">b</span><span class="w"> </span><span class="o">*</span><span class="nx">Builder</span><span class="p">)</span><span class="w"> </span><span class="nx">Build</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span><span class="nx">candles</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">aggapp</span><span class="p">.</span><span class="nx">GetLatestCandles</span><span class="p">(</span><span class="o">...</span><span class="p">)</span><span class="w">  </span><span class="c1">// Direct call across contexts</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="p">}</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="c1">// GOOD: actors/insights/runtime/consumer.go</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">a</span><span class="w"> </span><span class="o">*</span><span class="nx">InsightsConsumer</span><span class="p">)</span><span class="w"> </span><span class="nx">Receive</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">actor</span><span class="p">.</span><span class="nx">Context</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">    </span><span class="c1">// Receives CandleV2 events via NATS subscription — no direct import</span>
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="w">    </span><span class="k">switch</span><span class="w"> </span><span class="nx">msg</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">Message</span><span class="p">().(</span><span class="kd">type</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="w">    </span><span class="k">case</span><span class="w"> </span><span class="o">*</span><span class="nx">envelope</span><span class="p">.</span><span class="nx">Envelope</span><span class="p">:</span>
+<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="w">        </span><span class="nx">a</span><span class="p">.</span><span class="nx">builder</span><span class="p">.</span><span class="nx">Build</span><span class="p">(</span><span class="nx">msg</span><span class="p">.</span><span class="nx">Payload</span><span class="p">)</span>
+<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="p">}</span>
+</code></pre></div>
+<h3 id="104-client-layer-writing-to-store">10.4 Client — Layer Writing to Store<a class="headerlink" href="#104-client-layer-writing-to-store" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="p">//</span><span class="w"> </span><span class="err">BAD:</span><span class="w"> </span><span class="nc">layers</span><span class="p">/</span><span class="nc">layer_strategies</span><span class="err">.</span><span class="nc">odin</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="nc">layer_draw_dom</span><span class="w"> </span><span class="err">::</span><span class="w"> </span><span class="nc">proc</span><span class="p">(</span><span class="nc">ctx: ^Layer_Context</span><span class="p">)</span><span class="w"> </span><span class="err">{</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">    </span><span class="nc">ctx</span><span class="err">.</span><span class="nc">stream</span><span class="err">.</span><span class="nc">dom_store</span><span class="err">.</span><span class="nc">levels</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="err">.</span><span class="nc">accumulated</span><span class="w"> </span><span class="err">+</span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="w">  </span><span class="p">//</span><span class="w"> </span><span class="err">L</span><span class="nc">ayers</span><span class="w"> </span><span class="nc">must</span><span class="w"> </span><span class="nc">not</span><span class="w"> </span><span class="nc">write</span><span class="w"> </span><span class="nc">stores</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="err">}</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="p">//</span><span class="w"> </span><span class="err">GOOD:</span><span class="w"> </span><span class="nc">services</span><span class="p">/</span><span class="nc">dom_store</span><span class="err">.</span><span class="nc">odin</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="nc">dom_store_reduce_trade</span><span class="w"> </span><span class="err">::</span><span class="w"> </span><span class="nc">proc</span><span class="p">(</span><span class="nc">store: ^DOM_Store, tick: Trade_Tick</span><span class="p">)</span><span class="w"> </span><span class="err">{</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">    </span><span class="nc">store</span><span class="err">.</span><span class="nc">levels</span><span class="p">[</span><span class="err">price_to_level(tick.price)</span><span class="p">]</span><span class="err">.</span><span class="nc">accumulated</span><span class="w"> </span><span class="err">+</span><span class="o">=</span><span class="w"> </span><span class="nc">tick</span><span class="err">.</span><span class="nc">qty</span>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="err">}</span>
+</code></pre></div>
+<h3 id="105-client-cached-reliability">10.5 Client — Cached Reliability<a class="headerlink" href="#105-client-cached-reliability" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="p">//</span><span class="w"> </span><span class="err">BAD:</span><span class="w"> </span><span class="nc">app</span><span class="p">/</span><span class="nc">health</span><span class="err">.</span><span class="nc">odin</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="nc">stream</span><span class="err">.</span><span class="nc">cached_reliability</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nc">derive_reliability</span><span class="p">(</span><span class="nc">stream</span><span class="p">)</span><span class="w">  </span><span class="p">//</span><span class="w"> </span><span class="err">N</span><span class="nc">ever</span><span class="w"> </span><span class="nc">cache</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="p">//</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="nc">later</span><span class="w"> </span><span class="p">...</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="nc">if</span><span class="w"> </span><span class="nc">stream</span><span class="err">.</span><span class="nc">cached_reliability</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="err">.R</span><span class="nc">eliable</span><span class="w"> </span><span class="err">{</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="err">}</span><span class="w">        </span><span class="p">//</span><span class="w"> </span><span class="err">S</span><span class="nc">tale</span><span class="w"> </span><span class="nc">read</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="p">//</span><span class="w"> </span><span class="err">GOOD:</span><span class="w"> </span><span class="nc">app</span><span class="p">/</span><span class="nc">health</span><span class="err">.</span><span class="nc">odin</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="nc">reliability</span><span class="w"> </span><span class="err">:</span><span class="o">=</span><span class="w"> </span><span class="nc">derive_reliability</span><span class="p">(</span><span class="nc">stream</span><span class="p">)</span><span class="w">                </span><span class="p">//</span><span class="w"> </span><span class="err">D</span><span class="nc">erive</span><span class="w"> </span><span class="nc">at</span><span class="w"> </span><span class="nc">point</span><span class="w"> </span><span class="nc">of</span><span class="w"> </span><span class="nc">use</span>
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="nc">if</span><span class="w"> </span><span class="nc">reliability</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="err">.R</span><span class="nc">eliable</span><span class="w"> </span><span class="err">{</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="err">}</span>
+</code></pre></div>
+<h3 id="106-backend-shared-containing-single-context-logic">10.6 Backend — Shared Containing Single-Context Logic<a class="headerlink" href="#106-backend-shared-containing-single-context-logic" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1">// BAD: shared/candle_helpers.go</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="kd">func</span><span class="w"> </span><span class="nx">MergeCandles</span><span class="p">(</span><span class="nx">a</span><span class="p">,</span><span class="w"> </span><span class="nx">b</span><span class="w"> </span><span class="nx">Candle</span><span class="p">)</span><span class="w"> </span><span class="nx">Candle</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="o">...</span><span class="w"> </span><span class="p">}</span><span class="w">  </span><span class="c1">// Only aggregation uses this</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="c1">// GOOD: core/aggregation/domain/candle_merge.go</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="kd">func</span><span class="w"> </span><span class="nx">MergeCandles</span><span class="p">(</span><span class="nx">a</span><span class="p">,</span><span class="w"> </span><span class="nx">b</span><span class="w"> </span><span class="nx">Candle</span><span class="p">)</span><span class="w"> </span><span class="nx">Candle</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="o">...</span><span class="w"> </span><span class="p">}</span><span class="w">  </span><span class="c1">// Lives where it&#39;s owned</span>
+</code></pre></div>
+<h3 id="107-client-md_common-scope-creep">10.7 Client — md_common Scope Creep<a class="headerlink" href="#107-client-md_common-scope-creep" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="p">//</span><span class="w"> </span><span class="err">BAD:</span><span class="w"> </span><span class="nc">md_common</span><span class="p">/</span><span class="nc">widget_helpers</span><span class="err">.</span><span class="nc">odin</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="p">//</span><span class="w"> </span><span class="err">O</span><span class="nc">nly</span><span class="w"> </span><span class="nc">app</span><span class="p">/</span><span class="w"> </span><span class="nc">uses</span><span class="w"> </span><span class="nc">widget</span><span class="w"> </span><span class="nc">helpers</span><span class="w"> </span><span class="err">—</span><span class="w"> </span><span class="nc">this</span><span class="w"> </span><span class="nc">belongs</span><span class="w"> </span><span class="nc">in</span><span class="w"> </span><span class="nc">app</span><span class="p">/,</span><span class="w"> </span><span class="nc">not</span><span class="w"> </span><span class="nc">in</span><span class="w"> </span><span class="nc">the</span><span class="w"> </span><span class="nc">bridge</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="nc">build_widget_context</span><span class="w"> </span><span class="err">::</span><span class="w"> </span><span class="nc">proc</span><span class="p">(</span><span class="nc">pane: ^Pane</span><span class="p">)</span><span class="w"> </span><span class="err">-</span><span class="p">&gt;</span><span class="w"> </span><span class="err">W</span><span class="nc">idget_Data_Context</span><span class="w"> </span><span class="err">{</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="err">}</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="p">//</span><span class="w"> </span><span class="err">GOOD:</span><span class="w"> </span><span class="nc">app</span><span class="p">/</span><span class="nc">widget_contract</span><span class="err">.</span><span class="nc">odin</span>
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="nc">build_widget_context</span><span class="w"> </span><span class="err">::</span><span class="w"> </span><span class="nc">proc</span><span class="p">(</span><span class="nc">pane: ^Pane</span><span class="p">)</span><span class="w"> </span><span class="err">-</span><span class="p">&gt;</span><span class="w"> </span><span class="err">W</span><span class="nc">idget_Data_Context</span><span class="w"> </span><span class="err">{</span><span class="w"> </span><span class="p">...</span><span class="w"> </span><span class="err">}</span>
+</code></pre></div>
+<h3 id="108-client-upward-import">10.8 Client — Upward Import<a class="headerlink" href="#108-client-upward-import" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="p">//</span><span class="w"> </span><span class="err">BAD:</span><span class="w"> </span><span class="nc">services</span><span class="p">/</span><span class="nc">candle_store</span><span class="err">.</span><span class="nc">odin</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="nc">import</span><span class="w"> </span><span class="s">&quot;mr:layers&quot;</span><span class="w">  </span><span class="p">//</span><span class="w"> </span><span class="nc">services</span><span class="w"> </span><span class="nc">must</span><span class="w"> </span><span class="err">NEVER</span><span class="w"> </span><span class="nc">import</span><span class="w"> </span><span class="nc">layers</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="p">//</span><span class="w"> </span><span class="err">GOOD:</span><span class="w"> </span><span class="nc">services</span><span class="p">/</span><span class="nc">candle_store</span><span class="err">.</span><span class="nc">odin</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="nc">import</span><span class="w"> </span><span class="s">&quot;mr:ports&quot;</span><span class="w">   </span><span class="p">//</span><span class="w"> </span><span class="nc">services</span><span class="w"> </span><span class="nc">imports</span><span class="w"> </span><span class="nc">ports</span><span class="w"> </span><span class="p">(</span><span class="nc">downward only</span><span class="p">)</span>
+</code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.annotate", "content.code.copy", "content.action.edit", "announce.dismiss", "navigation.tracking", "navigation.sections", "navigation.instant", "navigation.tabs", "navigation.tabs.sticky", "navigation.indexes", "navigation.top", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="https://unpkg.com/mermaid@11/dist/mermaid.min.js"></script>
+      
+        <script src="../../assets/js/mermaid-init.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,3909 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Real-time multi-exchange cryptocurrency market data platform — Go + Odin">
+      
+      
+      
+        <link rel="canonical" href="https://FabioCaffarello.github.io/stream-analytics/contracts/delivery-ws/">
+      
+      
+        <link rel="prev" href="../event-bus/">
+      
+      
+        <link rel="next" href="../canonical-market-model/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Delivery WebSocket - Stream Analytics</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="deep-orange" data-md-color-accent="orange">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#delivery-ws-contract-envelope-streams-backpressure" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Stream Analytics" class="md-header__button md-logo" aria-label="Stream Analytics" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Stream Analytics
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Delivery WebSocket
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="deep-orange" data-md-color-accent="orange"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="deep-orange" data-md-color-accent="orange"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/FabioCaffarello/stream-analytics" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    FabioCaffarello/stream-analytics
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../architecture/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Platform
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../architecture/diagrams/c4-context/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Architecture Diagrams
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../architecture/analytics-pipeline/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Analytics
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../architecture/candle-aggregation/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Market Data
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../event-bus/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Data Contracts
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../client/client-architecture/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Client Cockpit
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../local-dev/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Operations
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Stream Analytics" class="md-nav__button md-logo" aria-label="Stream Analytics" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Stream Analytics
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/FabioCaffarello/stream-analytics" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    FabioCaffarello/stream-analytics
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../architecture/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Platform
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Platform
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/subsystems/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Subsystems
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/system-invariants/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    System Invariants
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/sequencing-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sequencing Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture Diagrams
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Architecture Diagrams
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/diagrams/c4-context/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C4 System Context
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/diagrams/c4-containers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C4 Service Map
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/diagrams/sequence-live-ingestion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Live Ingestion Flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/diagrams/sequence-storage-federation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Storage Federation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/diagrams/sequence-exchange-recovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exchange Recovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/diagrams/actor-supervision-tree/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Actor Supervision
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/diagrams/sequence-client-session/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Client Session Protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/diagrams/sequence-evidence-lel/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LEL Evidence Detection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analytics
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Analytics
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/analytics-pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/diagrams/c4-analytics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    C4 Analytics Profile
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/diagrams/sequence-analytics-pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analytics Flow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Market Data
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Market Data
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/candle-aggregation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Candle Aggregation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/stats-aggregation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Stats Aggregation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/orderbook/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Orderbook
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/heatmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Heatmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/volume-profiles/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Volume Profiles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/liquidations-markprice/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Liquidations & Mark Price
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/insights/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Insights
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Data Contracts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Data Contracts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../event-bus/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Event Bus
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Delivery WebSocket
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Delivery WebSocket
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#purpose" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Purpose
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#terminology-canonical" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Terminology (canonical)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-planes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data Planes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Data Planes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#input-plane-businternal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Input Plane (bus/internal)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#output-plane-ws-frames" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output Plane (WS frames)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#contracts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Contracts
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Contracts">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#terminal-protocol-v1-institutional" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Terminal Protocol v1 (institutional)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#client-server-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Client -&gt; Server Commands
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#server-client-frames" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Server -&gt; Client Frames
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Server -&gt; Client Frames">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#extended-capabilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Extended Capabilities
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#error-taxonomy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Error Taxonomy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#snapshot-sequencing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Snapshot Sequencing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#client-gap-detection-via-prev_seq" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Client Gap Detection via prev_seq
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#feature-negotiation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature Negotiation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#batchedframe-reserved" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BatchedFrame (reserved)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#backpressure-hints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backpressure Hints
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#multi-tenant-observability" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multi-tenant Observability
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#invariants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Invariants
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Invariants">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#snapshot-delivery-ordering-ws-11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Snapshot Delivery Ordering (WS-11)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#http-vs-ws-consumption-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        HTTP vs WS Consumption Policy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#backpressure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backpressure
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#storage-strategy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Storage Strategy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#replay-strategy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Replay Strategy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#implementation-matrix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implementation Matrix
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#observability" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Observability
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#acceptance-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Acceptance Tests
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#compatibility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compatibility
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evidence-hooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evidence Hooks
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#failure-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Failure Modes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#message-type-catalogue" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Message Type Catalogue
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Message Type Catalogue">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#client-server-frames-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Client → Server frames (commands)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#server-client-frames-eventsresponses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Server → Client frames (events/responses)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#error-codes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Error Codes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#supported-features-enum" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported Features Enum
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#client-compatibility-matrix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Client Compatibility Matrix
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../canonical-market-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Canonical Market Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../liquidity-evidence-layer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Liquidity Evidence Layer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../boundedness-matrix/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Boundedness Matrix
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../subject-registry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Subject Registry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Client Cockpit
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Client Cockpit
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../client/client-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../client/layer-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Layer Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../client/client-memory-ownership-rules/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Memory Ownership
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operations
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Operations
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../local-dev/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Local Dev
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/storage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Storage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/metrics-catalogue/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Metrics Catalogue
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/sharding/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sharding
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/emulator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Emulator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/validator/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Validator
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#purpose" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Purpose
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#terminology-canonical" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Terminology (canonical)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-planes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data Planes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Data Planes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#input-plane-businternal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Input Plane (bus/internal)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#output-plane-ws-frames" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Output Plane (WS frames)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#contracts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Contracts
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Contracts">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#terminal-protocol-v1-institutional" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Terminal Protocol v1 (institutional)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#client-server-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Client -&gt; Server Commands
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#server-client-frames" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Server -&gt; Client Frames
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Server -&gt; Client Frames">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#extended-capabilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Extended Capabilities
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#error-taxonomy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Error Taxonomy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#snapshot-sequencing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Snapshot Sequencing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#client-gap-detection-via-prev_seq" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Client Gap Detection via prev_seq
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#feature-negotiation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feature Negotiation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#batchedframe-reserved" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BatchedFrame (reserved)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#backpressure-hints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backpressure Hints
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#multi-tenant-observability" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multi-tenant Observability
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#invariants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Invariants
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Invariants">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#snapshot-delivery-ordering-ws-11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Snapshot Delivery Ordering (WS-11)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#http-vs-ws-consumption-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        HTTP vs WS Consumption Policy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#backpressure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backpressure
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#storage-strategy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Storage Strategy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#replay-strategy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Replay Strategy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#implementation-matrix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implementation Matrix
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#observability" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Observability
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#acceptance-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Acceptance Tests
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#compatibility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compatibility
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evidence-hooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evidence Hooks
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#failure-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Failure Modes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#message-type-catalogue" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Message Type Catalogue
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Message Type Catalogue">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#client-server-frames-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Client → Server frames (commands)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#server-client-frames-eventsresponses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Server → Client frames (events/responses)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#error-codes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Error Codes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#supported-features-enum" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported Features Enum
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#client-compatibility-matrix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Client Compatibility Matrix
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/FabioCaffarello/stream-analytics/edit/main/docs/contracts/delivery-ws.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="delivery-ws-contract-envelope-streams-backpressure">Delivery WS Contract (Envelope, Streams, Backpressure)<a class="headerlink" href="#delivery-ws-contract-envelope-streams-backpressure" title="Permanent link">&para;</a></h1>
+<p><strong>Status:</strong> Active
+<strong>Owner:</strong> Product Architect
+<strong>Last updated:</strong> 2026-06-25
+<strong>Relates to:</strong> <code>docs/adrs/ADR-0002-event-envelope-and-versioning.md</code>, <code>docs/adrs/ADR-0007-delivery-ws-sessions.md</code>, <code>docs/adrs/ADR-0013-backpressure-overload-policies.md</code>, <code>docs/adrs/ADR-0014-stream-partitioning-strategy.md</code>, <code>docs/contracts/event-bus.md</code>, <code>docs/rfcs/RFC-0003-W2-DELIVERY-BC.md</code></p>
+<h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">&para;</a></h2>
+<p>Define WS delivery contract for marketdata/aggregation/insights streams with explicit separation between current behavior and planned parity extensions.</p>
+<h2 id="terminology-canonical">Terminology (canonical)<a class="headerlink" href="#terminology-canonical" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>subject</code> (WS): <code>&lt;stream_type&gt;/&lt;venue&gt;/&lt;symbol&gt;/&lt;timeframe&gt;</code>.</li>
+<li><code>subject</code> (bus): <code>{event}.v{version}.{venue}.{instrument}</code>.</li>
+<li><code>stream_type</code>: namespaced event token (for example <code>marketdata.trade</code>).</li>
+<li><code>symbol</code>: client-facing token in WS subject; canonicalized from <code>instrument</code> (<code>BTC-USDT</code> -&gt; <code>BTCUSDT</code>).</li>
+<li><code>symbol alias</code>: market-type suffix variant used by some clients (<code>BTCUSDT:SPOT</code>).</li>
+<li><code>envelope</code>: canonical bus wrapper from ADR-0002.</li>
+<li><code>frame</code>: WS JSON message emitted by the session actor.</li>
+</ul>
+<h2 id="data-planes">Data Planes<a class="headerlink" href="#data-planes" title="Permanent link">&para;</a></h2>
+<h3 id="input-plane-businternal">Input Plane (bus/internal)<a class="headerlink" href="#input-plane-businternal" title="Permanent link">&para;</a></h3>
+<p>Accepted delivery router inputs:
+- <code>marketdata.trade.v1.{venue}.{instrument}</code>
+- <code>marketdata.bookdelta.v1.{venue}.{instrument}</code>
+- <code>marketdata.markprice.v1.{venue}.{instrument}</code>
+- <code>marketdata.liquidation.v1.{venue}.{instrument}</code>
+- <code>insights.crossvenue.trade_snapshot.v1.global.{instrument}</code>
+- <code>insights.crossvenue.spread_signal.v1.global.{instrument}</code>
+- <code>insights.microstructure_evidence.v1.{venue}.{instrument}</code>
+- <code>aggregation.snapshot.v1.{venue}.{instrument}</code>
+- <code>aggregation.candle.v1.{venue}.{instrument}</code>
+- <code>aggregation.stats.v1.{venue}.{instrument}</code>
+- <code>insights.heatmap_snapshot.v1.{venue}.{instrument}</code>
+- planned: <code>insights.heatmap_delta.v1.{venue}.{instrument}</code>
+- planned: <code>insights.volume_profile_snapshot.v1.{venue}.{instrument}</code>
+- planned: <code>insights.volume_profile_delta.v1.{venue}.{instrument}</code></p>
+<h3 id="output-plane-ws-frames">Output Plane (WS frames)<a class="headerlink" href="#output-plane-ws-frames" title="Permanent link">&para;</a></h3>
+<p>Canonical WS subject:
+- <code>&lt;stream_type&gt;/&lt;venue&gt;/&lt;symbol&gt;/&lt;timeframe&gt;</code></p>
+<p>Examples:
+- <code>marketdata.trade/binance/BTCUSDT/raw</code>
+- <code>marketdata.markprice/bybit/BTCUSDT/raw</code>
+- <code>insights.crossvenue.trade_snapshot/global/BTCUSDT/raw</code>
+- <code>aggregation.snapshot/binance/BTCUSDT/raw</code>
+- <code>aggregation.candle/binance/BTCUSDT/1m</code>
+- <code>aggregation.stats/binance/BTCUSDT/raw</code>
+- <code>insights.heatmap_snapshot/binance/BTCUSDT/1m</code></p>
+<p>Proto rollout is controlled by config (<code>proto_rollout.*</code>) and can be refreshed with <code>POST /runtime/reload</code>.
+- <code>proto_rollout.marketdata.trade</code>
+- <code>proto_rollout.marketdata.bookdelta</code>
+- <code>proto_rollout.marketdata.markprice</code>
+- <code>proto_rollout.marketdata.liquidation</code>
+- <code>proto_rollout.aggregation.candle|stats|snapshot</code>
+- <code>proto_rollout.insights.volume_profile|heatmap|crossvenue</code>
+- default for all flags is disabled (<code>false</code>), so rollout-controlled streams stay on JSON unless explicitly enabled.</p>
+<h2 id="contracts">Contracts<a class="headerlink" href="#contracts" title="Permanent link">&para;</a></h2>
+<h3 id="terminal-protocol-v1-institutional">Terminal Protocol v1 (institutional)<a class="headerlink" href="#terminal-protocol-v1-institutional" title="Permanent link">&para;</a></h3>
+<p>The terminal integration now supports explicit operations:
+- <code>hello</code>
+- <code>subscribe</code>
+- <code>unsubscribe</code>
+- <code>ping</code>
+- <code>resync</code></p>
+<p>All stream frames (<code>event</code> and <code>snapshot</code>) include:
+- <code>protocol_version</code>
+- <code>server_instance_id</code>
+- <code>stream_id</code>
+- <code>seq</code>
+- <code>ts_server</code>
+- <code>venue</code>
+- <code>symbol</code>
+- <code>channel</code></p>
+<p>Resync semantics:
+1. client detects gap/stale state and sends <code>resync</code> with <code>stream_id</code> and <code>last_seq</code>;
+2. server emits deterministic <code>snapshot</code> (bounded cache, TTL);
+3. server emits <code>ack</code> with <code>watermark_seq</code> and <code>snapshot_seq</code> diagnostics, then resumes live stream;
+4. <code>prev_seq</code> chain resets to 0 after resync (first event carries <code>prev_seq == 0</code>).</p>
+<p>Resync ack frame:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ack&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">&quot;op&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;resync&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nt">&quot;request_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;r1&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span><span class="nt">&quot;subject&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;marketdata.trade/binance/BTCUSDT/raw&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">  </span><span class="nt">&quot;watermark_seq&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">456</span><span class="p">,</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span><span class="nt">&quot;snapshot_seq&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">3</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="p">}</span>
+</code></pre></div>
+- <code>watermark_seq</code>: highest upstream seq covered by the snapshot (from last delivered event).
+- <code>snapshot_seq</code>: per-subject per-session snapshot counter (monotonically increasing).
+- Both fields are <code>omitempty</code>; absent on subscribe acks (subscribe acks carry no watermark).</p>
+<h3 id="client-server-commands">Client -&gt; Server Commands<a class="headerlink" href="#client-server-commands" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">{</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">&quot;op&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;subscribe|unsubscribe|getrange&quot;</span><span class="p">,</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nt">&quot;subject&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;marketdata.trade/binance/BTCUSDT/raw&quot;</span><span class="p">,</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span><span class="nt">&quot;request_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;r1&quot;</span><span class="p">,</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">  </span><span class="nt">&quot;params&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="nt">&quot;from_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">    </span><span class="nt">&quot;to_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">    </span><span class="nt">&quot;end_ts&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">    </span><span class="nt">&quot;limit&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">100</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">  </span><span class="p">}</span>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="p">}</span>
+</code></pre></div>
+<p>GetRange range params:
+- <code>to_ms</code> is the authoritative upper-bound parameter for range queries.
+- <code>end_ts</code> is accepted only for backward compatibility and is mapped to <code>to_ms</code>.
+- clients should send <code>to_ms</code>; server keeps <code>end_ts</code> compatibility for older clients.</p>
+<h3 id="server-client-frames">Server -&gt; Client Frames<a class="headerlink" href="#server-client-frames" title="Permanent link">&para;</a></h3>
+<p>Hello (mandatory first control frame):
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="p">{</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="p">,</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span><span class="nt">&quot;payload&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="nt">&quot;proto_ver&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="nt">&quot;server_time&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1710000000000</span><span class="p">,</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span><span class="nt">&quot;capabilities&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">      </span><span class="nt">&quot;topics&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">        </span><span class="s2">&quot;marketdata.trade&quot;</span><span class="p">,</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">        </span><span class="s2">&quot;marketdata.bookdelta&quot;</span><span class="p">,</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">        </span><span class="s2">&quot;aggregation.candle&quot;</span><span class="p">,</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">        </span><span class="s2">&quot;aggregation.stats&quot;</span>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="w">      </span><span class="p">],</span>
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="w">      </span><span class="nt">&quot;venues&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;binance&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;bybit&quot;</span><span class="p">]</span>
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="w">  </span><span class="p">}</span>
+<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="p">}</span>
+</code></pre></div></p>
+<p>Hello contract:
+- <code>hello</code> MUST be delivered before data frames.
+- <code>payload.proto_ver</code> MUST match client supported version.
+- <code>payload.server_time</code> is required and must be unix epoch in milliseconds.
+- <code>payload.capabilities.topics</code> is required and non-empty.
+- on validation failure or version mismatch, client must enter <code>DESYNC(reason)</code> and request resync/reconnect.
+- silent fallback on unknown/unsupported protocol versions is forbidden.</p>
+<p>Optional strict gate:
+- when <code>delivery.require_client_hello=true</code>, the server rejects <code>subscribe</code>, <code>resync</code>, and <code>getrange</code> until the client sends <code>{"op":"hello"}</code>.
+- default is disabled for backward compatibility.</p>
+<h4 id="extended-capabilities">Extended Capabilities<a class="headerlink" href="#extended-capabilities" title="Permanent link">&para;</a></h4>
+<p>The <code>capabilities</code> object in the <code>hello</code> frame includes additional fields for client self-tuning:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="p">{</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="p">,</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span><span class="nt">&quot;payload&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="nt">&quot;proto_ver&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">    </span><span class="nt">&quot;server_time&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1710000000000</span><span class="p">,</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">    </span><span class="nt">&quot;capabilities&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">      </span><span class="nt">&quot;topics&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;marketdata.trade&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;marketdata.bookdelta&quot;</span><span class="p">],</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">      </span><span class="nt">&quot;venues&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;binance&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;bybit&quot;</span><span class="p">],</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">      </span><span class="nt">&quot;max_subscriptions&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">256</span><span class="p">,</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="w">      </span><span class="nt">&quot;max_symbols_per_connection&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">128</span><span class="p">,</span>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="w">      </span><span class="nt">&quot;max_frame_bytes&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">65536</span><span class="p">,</span>
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="w">      </span><span class="nt">&quot;outbound_queue_size&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1024</span><span class="p">,</span>
+<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="w">      </span><span class="nt">&quot;metrics_cadence_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">5000</span><span class="p">,</span>
+<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a><span class="w">      </span><span class="nt">&quot;keepalive_interval_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">30000</span><span class="p">,</span>
+<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a><span class="w">      </span><span class="nt">&quot;rate_limit&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a><span class="w">        </span><span class="nt">&quot;enabled&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a><span class="w">        </span><span class="nt">&quot;max_per_second&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">50</span><span class="p">,</span>
+<a id="__codelineno-3-18" name="__codelineno-3-18" href="#__codelineno-3-18"></a><span class="w">        </span><span class="nt">&quot;burst_capacity&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">100</span>
+<a id="__codelineno-3-19" name="__codelineno-3-19" href="#__codelineno-3-19"></a><span class="w">      </span><span class="p">},</span>
+<a id="__codelineno-3-20" name="__codelineno-3-20" href="#__codelineno-3-20"></a><span class="w">      </span><span class="nt">&quot;supported_features&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;batching&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;snapshot_hash&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;prev_seq&quot;</span><span class="p">]</span>
+<a id="__codelineno-3-21" name="__codelineno-3-21" href="#__codelineno-3-21"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-3-22" name="__codelineno-3-22" href="#__codelineno-3-22"></a><span class="w">  </span><span class="p">}</span>
+<a id="__codelineno-3-23" name="__codelineno-3-23" href="#__codelineno-3-23"></a><span class="p">}</span>
+</code></pre></div>
+<p>Field semantics:
+- <code>max_subscriptions</code>: hard cap on active subscriptions per session.
+- <code>max_symbols_per_connection</code>: hard cap on distinct symbols per session.
+- <code>max_frame_bytes</code>: maximum serialized frame size; oversized proto frames are silently dropped.
+- <code>outbound_queue_size</code>: bounded outbound queue capacity (for backpressure awareness).
+- <code>metrics_cadence_ms</code>: interval between server <code>metrics</code> frames.
+- <code>keepalive_interval_ms</code>: server keepalive/ping interval.
+- <code>rate_limit</code>: session-level command rate limiting config. Absent when disabled.
+- <code>supported_features</code>: list of optional protocol features the server supports.</p>
+<p>All new fields are <code>omitempty</code>/zero-value. Clients that predate this extension see the original <code>topics</code>+<code>venues</code> only.</p>
+<p>Hello ack diagnostics example:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="p">{</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ack&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span><span class="nt">&quot;op&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span><span class="nt">&quot;request_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;h1&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">  </span><span class="nt">&quot;negotiated_features&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;batching&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;snapshot_hash&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;prev_seq&quot;</span><span class="p">],</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">  </span><span class="nt">&quot;ts_server&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1710000001234</span><span class="p">,</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">  </span><span class="nt">&quot;clock_skew_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">-12</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="p">}</span>
+</code></pre></div></p>
+<ul>
+<li><code>ts_server</code> is always included in hello ack.</li>
+<li><code>clock_skew_ms</code> is included when client sends <code>ts_client</code>.</li>
+</ul>
+<p>Ack:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="p">{</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ack&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span><span class="nt">&quot;op&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;subscribe&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span><span class="nt">&quot;request_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;r1&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">  </span><span class="nt">&quot;subject&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;marketdata.trade/binance/BTCUSDT/raw&quot;</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="p">}</span>
+</code></pre></div></p>
+<p>Event:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="p">{</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;event&quot;</span><span class="p">,</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span><span class="nt">&quot;subject&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;marketdata.trade/binance/BTCUSDT/raw&quot;</span><span class="p">,</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span><span class="nt">&quot;seq&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">123</span><span class="p">,</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">  </span><span class="nt">&quot;ts_ingest&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1710000005000</span><span class="p">,</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">  </span><span class="nt">&quot;payload&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{}</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="p">}</span>
+</code></pre></div></p>
+<p>Proto event frame negotiation:
+- session can request proto frames via <code>GET /ws?format=proto</code> or <code>X-Delivery-Format: proto</code>.
+- when session proto mode is active and rollout flag for the event type is enabled, event frames are sent as binary <code>envelope.v1.Envelope</code> protobuf.
+- when proto mode is not requested, or rollout flag is disabled for that subject type, event frames stay JSON.</p>
+<p>Client quick-start:
+- web: connect with <code>wss://&lt;host&gt;/ws?format=proto</code>; parse binary frames as <code>envelope.v1.Envelope</code>.
+- desktop: use the same query/header negotiation and decode binary protobuf frames.
+- app/mobile: send <code>X-Delivery-Format: proto</code> during WS handshake when query params are constrained.</p>
+<p>Current runtime event frame fields:
+- mandatory: <code>type</code>, <code>subject</code>, <code>seq</code>, <code>ts_ingest</code>, <code>payload</code>
+- planned extension: optional <code>content_type</code> (not emitted yet by <code>SessionActor.writeData</code>)</p>
+<p>Error:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="p">{</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;error&quot;</span><span class="p">,</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span><span class="nt">&quot;op&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;subscribe&quot;</span><span class="p">,</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span><span class="nt">&quot;request_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;r1&quot;</span><span class="p">,</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">  </span><span class="nt">&quot;problem&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">    </span><span class="nt">&quot;code&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;VAL_VALIDATION_FAILED&quot;</span><span class="p">,</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">    </span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;subject must have 4 segments&quot;</span><span class="p">,</span>
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">    </span><span class="nt">&quot;action_hint&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ACTION_HINT_NONE&quot;</span>
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">  </span><span class="p">}</span>
+<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="p">}</span>
+</code></pre></div></p>
+<p>Range:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="p">{</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;range&quot;</span><span class="p">,</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">  </span><span class="nt">&quot;op&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;getrange&quot;</span><span class="p">,</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">  </span><span class="nt">&quot;request_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;r2&quot;</span><span class="p">,</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">  </span><span class="nt">&quot;subject&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;marketdata.trade/binance/BTCUSDT/raw&quot;</span><span class="p">,</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="w">  </span><span class="nt">&quot;items&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span>
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="p">}</span>
+</code></pre></div></p>
+<h3 id="error-taxonomy">Error Taxonomy<a class="headerlink" href="#error-taxonomy" title="Permanent link">&para;</a></h3>
+<p>Every <code>error</code> frame includes an <code>action_hint</code> field guiding client recovery:</p>
+<table>
+<thead>
+<tr>
+<th>Problem Code</th>
+<th>Error Code</th>
+<th>Action Hint</th>
+<th>Client Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ValidationFailed</code>, <code>InvalidArgument</code></td>
+<td><code>VALIDATION</code></td>
+<td><code>ACTION_HINT_NONE</code></td>
+<td>Fix request and retry</td>
+</tr>
+<tr>
+<td><code>NotFound</code></td>
+<td><code>NOT_FOUND</code></td>
+<td><code>ACTION_HINT_NONE</code></td>
+<td>Subject does not exist</td>
+</tr>
+<tr>
+<td><code>Unavailable</code></td>
+<td><code>RATE_LIMITED</code></td>
+<td><code>ACTION_HINT_RETRY</code></td>
+<td>Back off and retry</td>
+</tr>
+<tr>
+<td><code>Conflict</code></td>
+<td><code>RESYNC_REQUIRED</code></td>
+<td><code>ACTION_HINT_RESYNC</code></td>
+<td>Send <code>resync</code> for the stream</td>
+</tr>
+<tr>
+<td><code>IntegrityViolation</code></td>
+<td><code>RESYNC_REQUIRED</code></td>
+<td><code>ACTION_HINT_RESUBSCRIBE</code></td>
+<td>Unsubscribe and resubscribe</td>
+</tr>
+<tr>
+<td><code>Internal</code></td>
+<td><code>INTERNAL</code></td>
+<td><code>ACTION_HINT_RECONNECT</code></td>
+<td>Close and reconnect</td>
+</tr>
+<tr>
+<td>(other)</td>
+<td><code>INTERNAL</code></td>
+<td><code>ACTION_HINT_RECONNECT</code></td>
+<td>Close and reconnect</td>
+</tr>
+</tbody>
+</table>
+<p><code>action_hint</code> values:
+- <code>ACTION_HINT_UNSPECIFIED</code> / empty — pre-taxonomy server or unclassified error.
+- <code>ACTION_HINT_NONE</code> — no recovery action needed; fix the request.
+- <code>ACTION_HINT_RETRY</code> — retry the same operation after a brief delay.
+- <code>ACTION_HINT_RECONNECT</code> — close the connection and open a new session.
+- <code>ACTION_HINT_RESUBSCRIBE</code> — unsubscribe and resubscribe to the affected stream.
+- <code>ACTION_HINT_RESYNC</code> — send a <code>resync</code> command for the affected stream.</p>
+<p>Backward compatibility: <code>action_hint</code> is <code>omitempty</code>. Clients that do not recognize the field continue with existing error handling.</p>
+<h3 id="snapshot-sequencing">Snapshot Sequencing<a class="headerlink" href="#snapshot-sequencing" title="Permanent link">&para;</a></h3>
+<p>Snapshot frames include additional integrity fields:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="p">{</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;snapshot&quot;</span><span class="p">,</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">  </span><span class="nt">&quot;subject&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;aggregation.snapshot/binance/BTCUSDT/raw&quot;</span><span class="p">,</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">  </span><span class="nt">&quot;snapshot_seq&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">  </span><span class="nt">&quot;watermark_seq&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">456</span><span class="p">,</span>
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="w">  </span><span class="nt">&quot;snapshot_hash&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;a1b2c3d4e5f67890&quot;</span><span class="p">,</span>
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="w">  </span><span class="nt">&quot;payload&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{}</span>
+<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="p">}</span>
+</code></pre></div>
+<ul>
+<li><code>snapshot_seq</code>: per-session per-subject counter, incremented on every snapshot emission (subscribe and resync). Allows clients to detect duplicate or reordered snapshots.</li>
+<li><code>watermark_seq</code>: highest confirmed upstream sequence at the time of snapshot capture. Clients can use this to know what seq range the snapshot covers.</li>
+<li><code>snapshot_hash</code>: FNV-64a hex hash of the snapshot payload bytes. Clients can verify payload integrity or detect cache staleness.</li>
+</ul>
+<p>All fields are <code>omitempty</code>. <code>snapshot_seq == 0</code> means legacy snapshot (pre-F3).</p>
+<h3 id="client-gap-detection-via-prev_seq">Client Gap Detection via prev_seq<a class="headerlink" href="#client-gap-detection-via-prev_seq" title="Permanent link">&para;</a></h3>
+<p>Event frames include a <code>prev_seq</code> field for client-side gap detection:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="p">{</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;event&quot;</span><span class="p">,</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">  </span><span class="nt">&quot;subject&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;marketdata.trade/binance/BTCUSDT/raw&quot;</span><span class="p">,</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">  </span><span class="nt">&quot;seq&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">124</span><span class="p">,</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="w">  </span><span class="nt">&quot;prev_seq&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">123</span><span class="p">,</span>
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="w">  </span><span class="nt">&quot;ts_ingest&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1710000005000</span><span class="p">,</span>
+<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="w">  </span><span class="nt">&quot;payload&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{}</span>
+<a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="p">}</span>
+</code></pre></div>
+<ul>
+<li><code>prev_seq</code>: the <code>seq</code> value of the immediately preceding event for the same subject within this session.</li>
+<li><code>prev_seq == 0</code>: first event after subscribe/resync, or legacy server (pre-F3).</li>
+<li>Gap detection: if <code>event.prev_seq != 0 &amp;&amp; event.prev_seq != last_received_seq</code>, the client has a gap and should send <code>resync</code>.</li>
+</ul>
+<p><code>prev_seq</code> is tracked independently per subject within a session.</p>
+<h3 id="feature-negotiation">Feature Negotiation<a class="headerlink" href="#feature-negotiation" title="Permanent link">&para;</a></h3>
+<p>Clients can declare requested features via <code>ClientHello</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="p">{</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">  </span><span class="nt">&quot;op&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;hello&quot;</span><span class="p">,</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">  </span><span class="nt">&quot;requested_features&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;batching&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;snapshot_hash&quot;</span><span class="p">]</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="p">}</span>
+</code></pre></div>
+<p>The server advertises <code>supported_features</code> in its <code>hello</code> frame (see Extended Capabilities). Feature activation requires both client request and server support. Unknown features are silently ignored.</p>
+<p>Currently supported features:
+- <code>batching</code> — reserved for future batched frame delivery.
+- <code>snapshot_hash</code> — FNV-64a integrity hash on snapshot frames.
+- <code>prev_seq</code> — previous sequence tracking on event frames.</p>
+<h3 id="batchedframe-reserved">BatchedFrame (reserved)<a class="headerlink" href="#batchedframe-reserved" title="Permanent link">&para;</a></h3>
+<p>The <code>BatchedFrame</code> message type is defined in proto but reserved for future use. When activated, it allows the server to bundle multiple <code>ServerFrame</code> items into a single WebSocket message with <code>first_seq</code> and <code>last_seq</code> bounds. This is not yet emitted by the server.</p>
+<h3 id="backpressure-hints">Backpressure Hints<a class="headerlink" href="#backpressure-hints" title="Permanent link">&para;</a></h3>
+<p>The periodic <code>metrics</code> frame includes backpressure awareness fields:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="p">{</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;metrics&quot;</span><span class="p">,</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">  </span><span class="nt">&quot;payload&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">    </span><span class="nt">&quot;ws_queue_len&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">512</span><span class="p">,</span>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="w">    </span><span class="nt">&quot;queue_capacity&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1024</span><span class="p">,</span>
+<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="w">    </span><span class="nt">&quot;queue_high_watermark&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">768</span><span class="p">,</span>
+<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="w">    </span><span class="nt">&quot;backpressure_level&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span>
+<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="w">    </span><span class="nt">&quot;recommended_action&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;reduce_subscriptions&quot;</span><span class="p">,</span>
+<a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a><span class="w">    </span><span class="nt">&quot;resync_total&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span>
+<a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a><span class="w">    </span><span class="nt">&quot;resync_count&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span>
+<a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a><span class="w">    </span><span class="nt">&quot;active_subscriptions&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">,</span>
+<a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a><span class="w">    </span><span class="nt">&quot;messages_out_total&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">50000</span><span class="p">,</span>
+<a id="__codelineno-12-13" name="__codelineno-12-13" href="#__codelineno-12-13"></a><span class="w">    </span><span class="nt">&quot;ws_dropped_total&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">5</span><span class="p">,</span>
+<a id="__codelineno-12-14" name="__codelineno-12-14" href="#__codelineno-12-14"></a><span class="w">    </span><span class="nt">&quot;dropped_count&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">5</span><span class="p">,</span>
+<a id="__codelineno-12-15" name="__codelineno-12-15" href="#__codelineno-12-15"></a><span class="w">    </span><span class="nt">&quot;subject_count&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span>
+<a id="__codelineno-12-16" name="__codelineno-12-16" href="#__codelineno-12-16"></a><span class="w">  </span><span class="p">}</span>
+<a id="__codelineno-12-17" name="__codelineno-12-17" href="#__codelineno-12-17"></a><span class="p">}</span>
+</code></pre></div>
+<p>Backpressure levels:
+| Level | Name | Queue Ratio | Recommended Action |
+|---|---|---|---|
+| 0 | Normal | &lt; 50% | <code>none</code> |
+| 1 | Elevated | &gt;= 50% | <code>none</code> |
+| 2 | High | &gt;= 75% | <code>reduce_subscriptions</code> |
+| 3 | Critical | &gt;= 95% | <code>reconnect</code> |</p>
+<ul>
+<li><code>queue_capacity</code>: total outbound queue size.</li>
+<li><code>queue_high_watermark</code>: peak queue depth since last metrics emission, then reset.</li>
+<li><code>backpressure_level</code>: 0–3 severity indicator.</li>
+<li><code>recommended_action</code>: suggested client recovery action.</li>
+<li><code>resync_count</code>: per-session resync counter.</li>
+<li><code>dropped_count</code>: per-session drop counter.</li>
+<li><code>subject_count</code>: number of subject chains tracked in-session.</li>
+</ul>
+<p>All fields are <code>omitempty</code>/zero-value. <code>backpressure_level == 0</code> means normal (pre-F5 behavior).</p>
+<h3 id="multi-tenant-observability">Multi-tenant Observability<a class="headerlink" href="#multi-tenant-observability" title="Permanent link">&para;</a></h3>
+<p>When <code>tenant_id</code> is present in the authenticated principal, all session metrics are additionally emitted with tenant-scoped Prometheus labels:</p>
+<ul>
+<li><code>ws_tenant_drops_total{tenant_id, reason}</code> — drops per tenant.</li>
+<li><code>ws_tenant_queue_depth{tenant_id}</code> — current queue depth per tenant.</li>
+<li><code>ws_tenant_connections_active{tenant_id}</code> — active connections per tenant.</li>
+<li><code>ws_tenant_messages_out_total{tenant_id, channel}</code> — messages delivered per tenant.</li>
+</ul>
+<p>Empty <code>tenant_id</code> is normalized to <code>"default"</code>. These metrics are additive to existing unlabeled metrics for backward compatibility.</p>
+<p>Per-tenant limit overrides can be configured in <code>ws.tenant_limits</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="p">{</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">  </span><span class="nt">&quot;ws&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="w">    </span><span class="nt">&quot;tenant_limits&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="w">      </span><span class="nt">&quot;acme&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="w">        </span><span class="nt">&quot;max_connections_per_key&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">50</span><span class="p">,</span>
+<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="w">        </span><span class="nt">&quot;max_subs_per_connection&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">512</span><span class="p">,</span>
+<a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="w">        </span><span class="nt">&quot;rate_limit&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="w">          </span><span class="nt">&quot;enabled&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a><span class="w">          </span><span class="nt">&quot;max_per_second&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">100</span><span class="p">,</span>
+<a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a><span class="w">          </span><span class="nt">&quot;burst_capacity&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">200</span>
+<a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a><span class="w">        </span><span class="p">}</span>
+<a id="__codelineno-13-12" name="__codelineno-13-12" href="#__codelineno-13-12"></a><span class="w">      </span><span class="p">}</span>
+<a id="__codelineno-13-13" name="__codelineno-13-13" href="#__codelineno-13-13"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-13-14" name="__codelineno-13-14" href="#__codelineno-13-14"></a><span class="w">  </span><span class="p">}</span>
+<a id="__codelineno-13-15" name="__codelineno-13-15" href="#__codelineno-13-15"></a><span class="p">}</span>
+</code></pre></div>
+<p>When a tenant has a configured override, its limits take precedence over global defaults for <code>max_subs_per_connection</code> and <code>rate_limit</code>.</p>
+<h2 id="invariants">Invariants<a class="headerlink" href="#invariants" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>WS-1</code>: session is an isolated actor; one session failure cannot cascade.</li>
+<li><code>WS-2</code>: WS subject always has 4 segments (<code>stream_type/venue/symbol/timeframe</code>).</li>
+<li><code>WS-3</code>: per-subject ordering by <code>seq</code> is preserved inside one session.</li>
+<li><code>WS-4</code>: no unbounded per-session queue in parity target design.</li>
+<li><code>WS-5</code>: unsubscribe/remove session must release routing state and memory.</li>
+<li><code>WS-6</code>: when <code>getrange</code> is requested with symbol alias (<code>SYMBOL:MARKET_TYPE</code>) and no direct rows exist, delivery may perform one deterministic fallback lookup using canonical <code>SYMBOL</code>.</li>
+<li><code>WS-7</code>: orderbook deltas require snapshot-first on the client side; snapshot gap must trigger desync and resubscribe.</li>
+<li><code>WS-8</code>: protocol gate is mandatory (<code>hello</code> + <code>proto_ver</code> + required capabilities fields).</li>
+<li><code>WS-9</code>: <code>snapshot_seq(N) &lt; snapshot_seq(N+1)</code> within a session for the same subject.</li>
+<li><code>WS-10</code>: <code>prev_seq(event[N]) == seq(event[N-1])</code> for the same subject within a session.</li>
+<li><code>WS-11</code>: snapshot-before-delta ordering is guaranteed on subscribe and resync. See Snapshot Delivery Ordering below.</li>
+</ul>
+<h3 id="snapshot-delivery-ordering-ws-11">Snapshot Delivery Ordering (WS-11)<a class="headerlink" href="#snapshot-delivery-ordering-ws-11" title="Permanent link">&para;</a></h3>
+<p>On subscribe and resync, the server guarantees snapshot-before-delta ordering:</p>
+<ol>
+<li><strong>Subscribe flow:</strong></li>
+<li>Client sends <code>{"op":"subscribe","subject":"...","request_id":"r1"}</code></li>
+<li>Server emits <code>snapshot</code> frame from <code>HotSnapshotProvider.GetLatest(subject)</code> or session last event (fallback)</li>
+<li>Server emits <code>ack</code> frame</li>
+<li>Server then streams <code>event</code> frames starting from the watermark seq</li>
+<li>
+<p>First <code>event</code> after subscribe carries <code>prev_seq == 0</code> (fresh chain)</p>
+</li>
+<li>
+<p><strong>Resync flow:</strong></p>
+</li>
+<li>Client sends <code>{"op":"resync","subject":"...","last_seq":M}</code></li>
+<li>Server emits <code>snapshot</code> frame (updated watermark, incremented <code>snapshot_seq</code>)</li>
+<li>Server emits <code>ack</code> for resync</li>
+<li>Server resets <code>prev_seq</code> chain for this subject (first event carries <code>prev_seq == 0</code>)</li>
+<li>
+<p>Server resumes <code>event</code> frames from the new watermark</p>
+</li>
+<li>
+<p><strong>Snapshot source hierarchy:</strong></p>
+</li>
+<li>Primary: <code>HotSnapshotProvider</code> (in-memory latest state, bounded TTL cache)</li>
+<li>Fallback: session's last cached event for the subject</li>
+<li>
+<p>If neither source has data, no snapshot is emitted and events begin immediately</p>
+</li>
+<li>
+<p><strong>Guarantees:</strong></p>
+</li>
+<li>No <code>event</code> frame for a subject is delivered before its subscribe/resync <code>snapshot</code> (when a snapshot source is available)</li>
+<li><code>snapshot_seq</code> is monotonically increasing per subject per session</li>
+<li><code>watermark_seq</code> in the snapshot indicates the highest upstream seq covered</li>
+<li>Clients should treat <code>prev_seq == 0</code> on the first event after snapshot as normal (gap-free)</li>
+</ol>
+<p>Evidence: <code>internal/actors/delivery/runtime/session_commands.go:emitSnapshot</code>, <code>internal/actors/delivery/runtime/session_delivery.go</code></p>
+<h2 id="http-vs-ws-consumption-policy">HTTP vs WS Consumption Policy<a class="headerlink" href="#http-vs-ws-consumption-policy" title="Permanent link">&para;</a></h2>
+<p>Clients should use the correct transport for each data need:</p>
+<table>
+<thead>
+<tr>
+<th>Data Need</th>
+<th>Transport</th>
+<th>Endpoint</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Session bootstrap</td>
+<td>HTTP</td>
+<td><code>GET /api/v1/session</code></td>
+<td>Markets, capabilities, server time</td>
+</tr>
+<tr>
+<td>Session readiness dashboard</td>
+<td>HTTP</td>
+<td><code>GET /api/v1/session/dashboard</code></td>
+<td>Normalized global readiness/freshness/resync + artifact coverage</td>
+</tr>
+<tr>
+<td>Artifact matrix</td>
+<td>HTTP</td>
+<td><code>GET /api/v1/artifacts/summary</code></td>
+<td>Filterable artifact availability matrix for widget enablement</td>
+</tr>
+<tr>
+<td>Instrument overview</td>
+<td>HTTP</td>
+<td><code>GET /api/v1/instrument/overview</code></td>
+<td>Normalized readiness/freshness/resync + artifact timeline summary</td>
+</tr>
+<tr>
+<td>Stream catalog</td>
+<td>HTTP</td>
+<td><code>GET /api/v1/catalog</code></td>
+<td>Artifact types, timeframes</td>
+</tr>
+<tr>
+<td>Time range discovery</td>
+<td>HTTP</td>
+<td><code>GET /api/v1/timeline</code></td>
+<td>First/last timestamps per artifact</td>
+</tr>
+<tr>
+<td>Data flow health</td>
+<td>HTTP</td>
+<td><code>GET /api/v1/freshness</code></td>
+<td>Per-instrument channel freshness</td>
+</tr>
+<tr>
+<td>Delivery sequence diagnostics</td>
+<td>HTTP</td>
+<td><code>GET /api/v1/delivery/diagnostics</code></td>
+<td>Per-stream seq/lag/drop/resync state (localhost-only)</td>
+</tr>
+<tr>
+<td>Deep historical data</td>
+<td>HTTP</td>
+<td><code>GET /api/v1/candles</code>, etc.</td>
+<td>Federated (hot+cold), paginated</td>
+</tr>
+<tr>
+<td>Realtime events</td>
+<td>WS</td>
+<td><code>subscribe</code></td>
+<td>Live stream with snapshot-before-delta</td>
+</tr>
+<tr>
+<td>Lightweight history</td>
+<td>WS</td>
+<td><code>getrange</code></td>
+<td>In-memory only, bounded limit</td>
+</tr>
+<tr>
+<td>Gap recovery</td>
+<td>WS</td>
+<td><code>resync</code></td>
+<td>Snapshot + chain reset</td>
+</tr>
+<tr>
+<td>Latency measurement</td>
+<td>WS</td>
+<td><code>ping</code></td>
+<td>Round-trip with server timestamp</td>
+</tr>
+</tbody>
+</table>
+<p>Rules:
+- Use HTTP for bootstrap, discovery, and deep history (federation-backed)
+- Prefer <code>GET /api/v1/session/dashboard</code> for global session readiness views to avoid client-side aggregation drift
+- Prefer <code>GET /api/v1/artifacts/summary</code> for artifact enablement matrices instead of recomputing availability in-client
+- Prefer <code>GET /api/v1/instrument/overview</code> for per-instrument widget bootstrap state to avoid client-side composition drift
+- Use WS for realtime delivery and lightweight queries
+- WS <code>getrange</code> uses in-memory store only (no federation bridge); for deep history, use HTTP data endpoints
+- Do not poll HTTP endpoints for realtime data; subscribe via WS</p>
+<h2 id="backpressure">Backpressure<a class="headerlink" href="#backpressure" title="Permanent link">&para;</a></h2>
+<p>Current runtime behavior:
+1. session lifecycle isolation and cleanup are implemented;
+2. bounded per-session outbound queue is implemented;
+3. drop policy is configurable (<code>drop_newest|drop_oldest|priority_drop</code>) with labeled drop reasons;
+4. slow clients are disconnected after <code>delivery.slow_client_drop_threshold</code> breached;
+5. connection write failures close the session.</p>
+<p>Planned parity policy:
+1. stream-priority policies (<code>keep-latest</code> vs <code>drop_newest</code>) per stream class;
+2. per-stream dynamic thresholds by client tier/SLA.</p>
+<p>Required metrics:
+- <code>ws_queue_depth</code>
+- <code>ws_drops_total{reason}</code>
+- <code>ws_send_latency_ms</code>
+- <code>ws_clients_connected</code>
+- <code>delivery_range_alias_fallback_total{outcome}</code></p>
+<h2 id="storage-strategy">Storage Strategy<a class="headerlink" href="#storage-strategy" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Primary hot source: in-memory read models.</li>
+<li>Secondary durable hot source (planned): Timescale for multi-instance <code>getrange</code>.</li>
+<li>Cold path (ClickHouse) is not read directly by WS in real time; only via backfill jobs.</li>
+</ul>
+<h2 id="replay-strategy">Replay Strategy<a class="headerlink" href="#replay-strategy" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>getrange</code> must be deterministic for same window and limit.</li>
+<li>operational replay (fixture/jetstream) must reproduce equivalent frames per subject.</li>
+<li>output ordering validated by <code>(ts_ingest, seq)</code>.</li>
+</ul>
+<h2 id="implementation-matrix">Implementation Matrix<a class="headerlink" href="#implementation-matrix" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Status</th>
+<th>Evidence</th>
+<th>Tests</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Subject parser and 4-segment validation</td>
+<td>Existing</td>
+<td><code>internal/core/delivery/domain/subject.go</code></td>
+<td><code>internal/core/delivery/domain/subject_test.go:TestParseSubject</code>, <code>internal/core/delivery/domain/subject_test.go:TestParseSubject_invalid</code></td>
+</tr>
+<tr>
+<td>Session command handling (<code>subscribe</code>, <code>unsubscribe</code>, <code>getrange</code>)</td>
+<td>Existing</td>
+<td><code>internal/actors/delivery/runtime/session.go</code></td>
+<td><code>internal/actors/delivery/runtime/session_test.go:TestSession_parseSubscribeUnsubscribeGetRange</code></td>
+</tr>
+<tr>
+<td>Session emits protocol hello on attach</td>
+<td>Existing</td>
+<td><code>internal/actors/delivery/runtime/session.go</code></td>
+<td><code>internal/actors/delivery/runtime/session_test.go:TestSession_emitsHelloOnAttach</code></td>
+</tr>
+<tr>
+<td>Router broadcast only to subscribed sessions</td>
+<td>Existing</td>
+<td><code>internal/actors/delivery/runtime/router.go</code></td>
+<td><code>internal/actors/delivery/runtime/router_test.go:TestRouter_subscribeUnsubscribeAndBroadcast</code></td>
+</tr>
+<tr>
+<td>Disconnect cleanup and unregister</td>
+<td>Existing</td>
+<td><code>internal/actors/delivery/runtime/session.go</code></td>
+<td><code>internal/actors/delivery/runtime/session_test.go:TestSession_disconnectTriggersUnregister</code></td>
+</tr>
+<tr>
+<td>Deterministic range from durable store</td>
+<td>Planned</td>
+<td><code>internal/core/delivery/ports/ports.go</code></td>
+<td><code>internal/core/delivery/app/session_usecase_test.go:TestSessionService_GetRange_storeUnavailable</code></td>
+</tr>
+<tr>
+<td>Alias fallback for candle getrange (<code>SYMBOL:MARKET_TYPE</code> -&gt; <code>SYMBOL</code>)</td>
+<td>Existing</td>
+<td><code>internal/core/delivery/app/session_usecase.go</code></td>
+<td><code>internal/core/delivery/app/session_usecase_test.go:TestSessionService_GetRange_marketTypeAliasFallback</code></td>
+</tr>
+<tr>
+<td>Slow-client backpressure policy + threshold disconnect</td>
+<td>Existing</td>
+<td><code>internal/core/delivery/domain/backpressure_policy.go</code>, <code>internal/actors/delivery/runtime/session.go</code>, <code>internal/shared/config/schema.go</code></td>
+<td><code>internal/actors/delivery/runtime/session_backpressure_test.go:TestWSBackpressureSlowClientDropPolicy</code>, <code>internal/actors/delivery/runtime/session_backpressure_test.go:TestWSBackpressureSlowClientThresholdDisconnects</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="observability">Observability<a class="headerlink" href="#observability" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>delivery_ws_active_sessions</code></li>
+<li><code>delivery_ws_subscriptions_total</code></li>
+<li><code>delivery_ws_queue_depth</code></li>
+<li><code>delivery_ws_drop_total</code></li>
+<li><code>delivery_ws_frame_latency_ms</code></li>
+<li><code>delivery_ws_range_latency_ms</code></li>
+<li><code>delivery_range_alias_fallback_total{outcome}</code></li>
+</ul>
+<p>Minimum:
+- lag
+- drop
+- queue depth</p>
+<h2 id="acceptance-tests">Acceptance Tests<a class="headerlink" href="#acceptance-tests" title="Permanent link">&para;</a></h2>
+<p>Existing tests:
+- <code>internal/actors/delivery/runtime/session_test.go:TestSession_parseSubscribeUnsubscribeGetRange</code>
+- <code>internal/actors/delivery/runtime/session_test.go:TestSession_disconnectTriggersUnregister</code>
+- <code>internal/actors/delivery/runtime/router_test.go:TestRouter_subscribeUnsubscribeAndBroadcast</code>
+- <code>internal/core/delivery/domain/subject_test.go:TestParseSubject</code>
+- <code>internal/core/delivery/domain/subject_test.go:TestParseSubject_invalid</code>
+- <code>internal/core/delivery/app/session_usecase_test.go:TestSessionService_GetRange_storeUnavailable</code>
+- <code>internal/interfaces/ws/delivery_contract_e2e_test.go:TestWSRangeDeterminismReplay</code>
+- <code>internal/interfaces/ws/delivery_contract_e2e_test.go:TestWSRaceSubscribeUnsubscribeNoLeak</code>
+- <code>internal/interfaces/ws/delivery_contract_e2e_test.go:TestWSReconnectResubscribeIdempotent</code>
+- <code>internal/interfaces/ws/heatmap_delivery_contract_test.go:TestWSDelivery_HeatmapSnapshot_RoutedToSubscriber</code></p>
+<p>Tests to create for parity completion:
+- None for current delivery WS baseline.</p>
+<h2 id="compatibility">Compatibility<a class="headerlink" href="#compatibility" title="Permanent link">&para;</a></h2>
+<ul>
+<li>N/N-1 compatibility by envelope event version.</li>
+<li>New WS frame fields must remain optional.</li>
+<li>Do not remove mandatory fields without new <code>frame_version</code>.</li>
+<li>Default bus payload content type is <code>application/protobuf</code>; JSON remains supported via rollout/fallback policy in ADR-0016.</li>
+<li><code>getrange</code> keeps backward compatibility with <code>end_ts</code>; <code>to_ms</code> is the canonical parameter.</li>
+</ul>
+<h2 id="evidence-hooks">Evidence Hooks<a class="headerlink" href="#evidence-hooks" title="Permanent link">&para;</a></h2>
+<p>Current evidence:
+- <code>internal/core/delivery/domain/subject.go</code>
+- <code>internal/actors/delivery/runtime/router.go</code>
+- <code>internal/actors/delivery/runtime/session.go</code>
+- <code>internal/actors/delivery/runtime/session_test.go</code>
+- <code>internal/actors/delivery/runtime/router_test.go</code>
+- <code>internal/shared/metrics/metrics.go</code>
+- <code>internal/core/delivery/app/session_usecase_test.go</code>
+- <code>docs/rfcs/RFC-0003-W2-DELIVERY-BC.md</code></p>
+<p>TODO hooks (skeleton):
+- none for current delivery WS baseline.</p>
+<h2 id="failure-modes">Failure Modes<a class="headerlink" href="#failure-modes" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Slow WS client accumulation without explicit drop policy:</li>
+<li>Mitigation: bounded outbound queue + drop policy + threshold-based disconnect (<code>delivery.slow_client_drop_threshold</code>).</li>
+<li>network jitter/intermittency:</li>
+<li>Mitigation: keepalive + reconnect/resubscribe idempotency.</li>
+<li>poison command frame:</li>
+<li>Mitigation: structured error response without panic and keep session alive.</li>
+<li>upstream ack-on-enqueue drift:</li>
+<li>Mitigation: enforce ack-on-commit before delivery stage.</li>
+</ul>
+<hr />
+<h2 id="message-type-catalogue">Message Type Catalogue<a class="headerlink" href="#message-type-catalogue" title="Permanent link">&para;</a></h2>
+<p>Complete inventory of WS frame types and their direction.</p>
+<h3 id="client-server-frames-commands">Client → Server frames (commands)<a class="headerlink" href="#client-server-frames-commands" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Frame <code>type</code></th>
+<th>Required fields</th>
+<th>Optional fields</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>hello</code></td>
+<td><code>proto_ver</code></td>
+<td><code>features[]</code>, <code>client_id</code></td>
+<td>Capability handshake; must be first frame (Hello gate)</td>
+</tr>
+<tr>
+<td><code>subscribe</code></td>
+<td><code>subject</code></td>
+<td><code>timeframe</code>, <code>venue</code>, <code>symbol</code></td>
+<td>Subscribe to a stream</td>
+</tr>
+<tr>
+<td><code>unsubscribe</code></td>
+<td><code>subject</code></td>
+<td>—</td>
+<td>Unsubscribe from a stream</td>
+</tr>
+<tr>
+<td><code>getrange</code></td>
+<td><code>subject</code>, <code>from_ms</code></td>
+<td><code>to_ms</code> (default: now), <code>limit</code></td>
+<td>Historical range query</td>
+</tr>
+<tr>
+<td><code>resync</code></td>
+<td><code>subject</code></td>
+<td><code>from_seq</code></td>
+<td>Resync a stream from a specific sequence number</td>
+</tr>
+<tr>
+<td><code>ping</code></td>
+<td>—</td>
+<td><code>correlation_id</code></td>
+<td>Keep-alive / latency probe</td>
+</tr>
+</tbody>
+</table>
+<h3 id="server-client-frames-eventsresponses">Server → Client frames (events/responses)<a class="headerlink" href="#server-client-frames-eventsresponses" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Frame <code>type</code></th>
+<th>Required fields</th>
+<th>Optional fields</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>hello_ack</code></td>
+<td><code>proto_ver</code>, <code>features[]</code></td>
+<td><code>session_id</code>, <code>server_time_ms</code></td>
+<td>Server capability response to <code>hello</code></td>
+</tr>
+<tr>
+<td><code>subscribe_ack</code></td>
+<td><code>subject</code></td>
+<td><code>snapshot</code> (initial snapshot if available)</td>
+<td>Confirms subscription; may carry initial snapshot</td>
+</tr>
+<tr>
+<td><code>unsubscribe_ack</code></td>
+<td><code>subject</code></td>
+<td>—</td>
+<td>Confirms unsubscription</td>
+</tr>
+<tr>
+<td><code>event</code></td>
+<td><code>type</code>, <code>subject</code>, <code>seq</code>, <code>prev_seq</code>, <code>payload</code></td>
+<td><code>ts_exchange_ms</code>, <code>ts_ingest_ms</code></td>
+<td>Live event envelope delivery</td>
+</tr>
+<tr>
+<td><code>snapshot</code></td>
+<td><code>subject</code>, <code>seq</code>, <code>payload</code></td>
+<td><code>ts_ms</code>, <code>hash</code></td>
+<td>Full snapshot for backfill or resync response</td>
+</tr>
+<tr>
+<td><code>range</code></td>
+<td><code>subject</code>, <code>envelopes[]</code></td>
+<td><code>truncated</code>, <code>next_from_ms</code></td>
+<td>Response to <code>getrange</code>; may be paginated</td>
+</tr>
+<tr>
+<td><code>resync_ack</code></td>
+<td><code>subject</code>, <code>from_seq</code></td>
+<td><code>watermark_seq</code></td>
+<td>Confirms resync; client should discard buffered events before <code>from_seq</code></td>
+</tr>
+<tr>
+<td><code>pong</code></td>
+<td>—</td>
+<td><code>correlation_id</code>, <code>server_time_ms</code></td>
+<td>Response to <code>ping</code></td>
+</tr>
+<tr>
+<td><code>error</code></td>
+<td><code>code</code>, <code>message</code></td>
+<td><code>subject</code>, <code>correlation_id</code></td>
+<td>Structured error; session stays alive</td>
+</tr>
+</tbody>
+</table>
+<h3 id="error-codes">Error Codes<a class="headerlink" href="#error-codes" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Code</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>HELLO_REQUIRED</code></td>
+<td>Non-hello frame received before hello handshake complete</td>
+</tr>
+<tr>
+<td><code>UNKNOWN_COMMAND</code></td>
+<td>Unrecognized frame <code>type</code></td>
+</tr>
+<tr>
+<td><code>INVALID_SUBJECT</code></td>
+<td>Subject does not match the canonical format</td>
+</tr>
+<tr>
+<td><code>SUBSCRIPTION_LIMIT</code></td>
+<td>Client has reached the maximum subscription count</td>
+</tr>
+<tr>
+<td><code>RANGE_TOO_LARGE</code></td>
+<td><code>getrange</code> window exceeds <code>delivery.range_max_ms</code></td>
+</tr>
+<tr>
+<td><code>INTERNAL_ERROR</code></td>
+<td>Unhandled server-side error (session stays alive)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="supported-features-enum">Supported Features Enum<a class="headerlink" href="#supported-features-enum" title="Permanent link">&para;</a></h2>
+<p>Features are negotiated during the <code>hello</code>/<code>hello_ack</code> exchange. The client declares which
+features it supports; the server echoes back only the features it will use.</p>
+<table>
+<thead>
+<tr>
+<th>Feature token</th>
+<th>Direction</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>batching</code></td>
+<td>Client → Server</td>
+<td>Client accepts batched <code>event</code> frames (multiple envelopes in one WS message)</td>
+</tr>
+<tr>
+<td><code>snapshot_hash</code></td>
+<td>Server → Client</td>
+<td>Server will include a <code>hash</code> field in <code>snapshot</code> frames for integrity checks</td>
+</tr>
+<tr>
+<td><code>prev_seq</code></td>
+<td>Server → Client</td>
+<td>Server enforces the <code>prev_seq</code> chain invariant on all <code>event</code> frames</td>
+</tr>
+<tr>
+<td><code>metrics</code></td>
+<td>Client → Server</td>
+<td>Client accepts unsolicited <code>metrics</code> frames with session telemetry</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Current supported set (Terminal_V1):</strong> <code>prev_seq</code>, <code>snapshot_hash</code>.</p>
+<hr />
+<h2 id="client-compatibility-matrix">Client Compatibility Matrix<a class="headerlink" href="#client-compatibility-matrix" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Protocol</th>
+<th><code>proto_ver</code></th>
+<th>Features</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Terminal_V1</td>
+<td><code>1</code></td>
+<td><code>prev_seq</code>, <code>snapshot_hash</code></td>
+<td><strong>Active</strong> — current production protocol</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.annotate", "content.code.copy", "content.action.edit", "announce.dismiss", "navigation.tracking", "navigation.sections", "navigation.instant", "navigation.tabs", "navigation.tabs.sticky", "navigation.indexes", "navigation.top", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="https://unpkg.com/mermaid@11/dist/mermaid.min.js"></script>
+      
+        <script src="../../assets/js/mermaid-init.js"></script>
+      
+    
+  </body>
+</html>

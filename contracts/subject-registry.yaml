@@ -1,0 +1,324 @@
+---
+# Subject registry
+version: 1
+last_updated: 2026-06-25
+canonical_subject_format: "{event}.v{version}.{venue}.{instrument}"
+status_values:
+  - stable
+  - draft
+  - planned
+normalization:
+  venue: lowercase
+  instrument: uppercase_alnum
+  ws_symbol_note: "WS may use symbol label; event-bus subjects must use canonical instrument token."
+governance:
+  schema_authority_rule: "When producer_bc != owner_bc, schema_authority_bc determines who approves payload schema changes. Payload evolution (field additions, version bumps, deprecations) requires approval from schema_authority_bc."
+subjects:
+  - id: marketdata.trade.v1
+    pattern: marketdata.trade.v1.{venue}.{instrument}
+    root: marketdata
+    owner_bc: marketdata
+    producer_bc: marketdata
+    schema_authority_bc: marketdata
+    consumer_bcs: [aggregation, delivery, storage]
+    status: stable
+    sources:
+      - docs/contracts/event-bus.md
+      - .context/docs/feature-packs/delivery-ws.md
+      - .context/docs/feature-packs/storage.md
+      - .context/docs/feature-packs/orderbook.md
+      - .context/docs/feature-packs/heatmap.md
+      - .context/docs/feature-packs/volume-profiles.md
+  - id: marketdata.bookdelta.v1
+    pattern: marketdata.bookdelta.v1.{venue}.{instrument}
+    root: marketdata
+    owner_bc: marketdata
+    producer_bc: marketdata
+    schema_authority_bc: marketdata
+    consumer_bcs: [aggregation, delivery, storage]
+    status: stable
+    sources:
+      - docs/contracts/event-bus.md
+      - .context/docs/feature-packs/delivery-ws.md
+      - .context/docs/feature-packs/storage.md
+      - .context/docs/feature-packs/orderbook.md
+      - .context/docs/feature-packs/heatmap.md
+      - .context/docs/feature-packs/volume-profiles.md
+  - id: marketdata.markprice.v1
+    pattern: marketdata.markprice.v1.{venue}.{instrument}
+    root: marketdata
+    owner_bc: marketdata
+    producer_bc: marketdata
+    schema_authority_bc: marketdata
+    consumer_bcs: [delivery, storage]
+    status: stable
+    sources:
+      - docs/contracts/event-bus.md
+      - .context/docs/feature-packs/delivery-ws.md
+      - .context/docs/feature-packs/storage.md
+      - .context/docs/feature-packs/liquidations-markprice.md
+  - id: marketdata.open_interest.v1
+    pattern: marketdata.open_interest.v1.{venue}.{instrument}
+    root: marketdata
+    owner_bc: marketdata
+    producer_bc: marketdata
+    schema_authority_bc: marketdata
+    consumer_bcs: [aggregation, delivery, storage]
+    status: stable
+    sources:
+      - docs/contracts/event-bus.md
+      - proto/marketdata/v1/open_interest.proto
+  - id: marketdata.liquidation.v1
+    pattern: marketdata.liquidation.v1.{venue}.{instrument}
+    root: marketdata
+    owner_bc: marketdata
+    producer_bc: marketdata
+    schema_authority_bc: marketdata
+    consumer_bcs: [delivery, storage]
+    status: stable
+    sources:
+      - docs/contracts/event-bus.md
+      - .context/docs/feature-packs/delivery-ws.md
+      - .context/docs/feature-packs/storage.md
+      - .context/docs/feature-packs/liquidations-markprice.md
+  - id: insights.crossvenue.trade_snapshot.v1
+    pattern: insights.crossvenue.trade_snapshot.v1.global.{instrument}
+    root: insights
+    owner_bc: insights
+    producer_bc: aggregation
+    schema_authority_bc: aggregation
+    consumer_bcs: [delivery]
+    status: stable
+    sources:
+      - docs/contracts/event-bus.md
+  - id: insights.crossvenue.spread_signal.v1
+    pattern: insights.crossvenue.spread_signal.v1.global.{instrument}
+    root: insights
+    owner_bc: insights
+    producer_bc: aggregation
+    schema_authority_bc: aggregation
+    consumer_bcs: [delivery]
+    status: stable
+    sources:
+      - docs/contracts/event-bus.md
+  - id: quarantine.v1
+    pattern: quarantine.v1.{venue}.{instrument}
+    root: quarantine
+    owner_bc: marketdata
+    producer_bc: marketdata
+    schema_authority_bc: marketdata
+    consumer_bcs: [storage]
+    status: stable
+    sources:
+      - docs/contracts/event-bus.md
+  - id: aggregation.snapshot.v1
+    pattern: aggregation.snapshot.v1.{venue}.{instrument}
+    root: aggregation
+    owner_bc: aggregation
+    producer_bc: aggregation
+    schema_authority_bc: aggregation
+    consumer_bcs: [storage]
+    status: stable
+    sources:
+      - docs/contracts/event-bus.md
+      - .context/docs/feature-packs/orderbook.md
+      - proto/aggregation/v1/snapshot.proto
+  - id: aggregation.orderbook_inconsistency.v1
+    pattern: aggregation.orderbook_inconsistency.v1.{venue}.{instrument}
+    root: aggregation
+    owner_bc: aggregation
+    producer_bc: aggregation
+    schema_authority_bc: aggregation
+    consumer_bcs: [storage]
+    status: stable
+    sources:
+      - docs/contracts/event-bus.md
+      - .context/docs/feature-packs/orderbook.md
+      - proto/aggregation/v1/orderbook_inconsistency.proto
+  - id: aggregation.candle.v1
+    pattern: aggregation.candle.v1.{venue}.{instrument}
+    root: aggregation
+    owner_bc: aggregation
+    producer_bc: aggregation
+    schema_authority_bc: aggregation
+    consumer_bcs: [delivery, storage]
+    status: stable
+    sources:
+      - docs/contracts/event-bus.md
+      - .context/docs/feature-packs/candle-aggregation.md
+  - id: aggregation.stats.v1
+    pattern: aggregation.stats.v1.{venue}.{instrument}
+    root: aggregation
+    owner_bc: aggregation
+    producer_bc: aggregation
+    schema_authority_bc: aggregation
+    consumer_bcs: [delivery, storage]
+    status: stable
+    sources:
+      - docs/contracts/event-bus.md
+      - .context/docs/feature-packs/stats-aggregation.md
+  - id: aggregation.tape.v1
+    pattern: aggregation.tape.v1.{venue}.{instrument}
+    root: aggregation
+    owner_bc: aggregation
+    producer_bc: aggregation
+    schema_authority_bc: aggregation
+    consumer_bcs: [delivery, storage]
+    status: stable
+    sources:
+      - docs/contracts/event-bus.md
+      - proto/aggregation/v1/tape.proto
+  - id: aggregation.oi.v1
+    pattern: aggregation.oi.v1.{venue}.{instrument}
+    root: aggregation
+    owner_bc: aggregation
+    producer_bc: aggregation
+    schema_authority_bc: aggregation
+    consumer_bcs: [delivery, storage]
+    status: stable
+    sources:
+      - docs/contracts/event-bus.md
+      - proto/aggregation/v1/oi.proto
+  - id: aggregation.delta_volume.v1
+    pattern: aggregation.delta_volume.v1.{venue}.{instrument}
+    root: aggregation
+    owner_bc: aggregation
+    producer_bc: aggregation
+    schema_authority_bc: aggregation
+    consumer_bcs: [delivery, storage]
+    status: stable
+    sources:
+      - docs/contracts/event-bus.md
+      - proto/aggregation/v1/delta_volume.proto
+  - id: aggregation.cvd.v1
+    pattern: aggregation.cvd.v1.{venue}.{instrument}
+    root: aggregation
+    owner_bc: aggregation
+    producer_bc: aggregation
+    schema_authority_bc: aggregation
+    consumer_bcs: [delivery, storage]
+    status: stable
+    sources:
+      - docs/contracts/event-bus.md
+      - proto/aggregation/v1/cvd.proto
+  - id: aggregation.bar_stats.v1
+    pattern: aggregation.bar_stats.v1.{venue}.{instrument}
+    root: aggregation
+    owner_bc: aggregation
+    producer_bc: aggregation
+    schema_authority_bc: aggregation
+    consumer_bcs: [delivery, storage]
+    status: stable
+    sources:
+      - docs/contracts/event-bus.md
+      - proto/aggregation/v1/bar_stats.proto
+  - id: insights.heatmap_snapshot.v1
+    pattern: insights.heatmap_snapshot.v1.{venue}.{instrument}
+    root: insights
+    owner_bc: insights
+    producer_bc: aggregation
+    schema_authority_bc: aggregation
+    consumer_bcs: [delivery, storage]
+    status: stable
+    sources:
+      - .context/docs/feature-packs/heatmap.md
+      - docs/contracts/event-bus.md
+  - id: insights.heatmap_delta.v1
+    pattern: insights.heatmap_delta.v1.{venue}.{instrument}
+    root: insights
+    owner_bc: insights
+    producer_bc: insights
+    schema_authority_bc: insights
+    consumer_bcs: [delivery, storage]
+    status: planned
+    sources:
+      - .context/docs/feature-packs/heatmap.md
+      - docs/contracts/event-bus.md
+  - id: insights.volume_profile_snapshot.v1
+    pattern: insights.volume_profile_snapshot.v1.{venue}.{instrument}
+    root: insights
+    owner_bc: insights
+    producer_bc: aggregation
+    schema_authority_bc: aggregation
+    consumer_bcs: [delivery]
+    status: stable
+    sources:
+      - .context/docs/feature-packs/volume-profiles.md
+      - docs/contracts/event-bus.md
+  - id: insights.volume_profile_delta.v1
+    pattern: insights.volume_profile_delta.v1.{venue}.{instrument}
+    root: insights
+    owner_bc: insights
+    producer_bc: insights
+    schema_authority_bc: insights
+    consumer_bcs: [delivery]
+    status: stable
+    sources:
+      - .context/docs/feature-packs/volume-profiles.md
+      - docs/contracts/event-bus.md
+  - id: insights.volume_profile_window_close.v1
+    pattern: insights.volume_profile_window_close.v1.{venue}.{instrument}
+    root: insights
+    owner_bc: insights
+    producer_bc: insights
+    schema_authority_bc: insights
+    consumer_bcs: [delivery]
+    status: stable
+    sources:
+      - .context/docs/feature-packs/volume-profiles.md
+      - docs/contracts/event-bus.md
+  - id: insights.volume_profile_final.v1
+    pattern: insights.volume_profile_final.v1.{venue}.{instrument}
+    root: insights
+    owner_bc: insights
+    producer_bc: insights
+    schema_authority_bc: insights
+    consumer_bcs: [delivery]
+    status: stable
+    sources:
+      - .context/docs/feature-packs/volume-profiles.md
+      - docs/contracts/event-bus.md
+  - id: evidence.microstructure_evidence.v1
+    pattern: evidence.microstructure_evidence.v1.{venue}.{instrument}
+    root: evidence
+    owner_bc: evidence
+    producer_bc: evidence
+    schema_authority_bc: evidence
+    consumer_bcs: [delivery]
+    status: stable
+    sources:
+      - proto/evidence/v1/evidence.proto
+      - internal/core/evidence/domain/evidence.go
+    aliases: [insights.microstructure_evidence.v1]
+  - id: evidence.regime_evidence.v1
+    pattern: evidence.regime_evidence.v1.{venue}.{instrument}.{timeframe}
+    root: evidence
+    owner_bc: evidence
+    producer_bc: evidence
+    schema_authority_bc: evidence
+    consumer_bcs: [delivery]
+    status: stable
+    sources:
+      - internal/core/evidence/domain/regime.go
+    aliases: [insights.regime_evidence.v1]
+  - id: insights.markprice_liquidation_snapshot.v1
+    pattern: insights.markprice_liquidation_snapshot.v1.{venue}.{instrument}
+    root: insights
+    owner_bc: insights
+    producer_bc: insights
+    schema_authority_bc: insights
+    consumer_bcs: [delivery]
+    status: planned
+    sources:
+      - .context/docs/feature-packs/liquidations-markprice.md
+  # signal.event.v1, signal.composite.v1, strategy.intent.v1, execution.event.v1,
+  # portfolio.state.v1 — removed in S9 (codex/s9-legacy-removal-cutover).
+  # cmd/signals, cmd/strategist, cmd/executor, cmd/portfolio were retired.
+findings:
+  outside_owner_bc: []
+  naming_inconsistencies:
+    - issue: "Use of {symbol} in WS subjects and {instrument} in event-bus subjects."
+      resolution: "Registry enforces canonical instrument for event-bus; WS keeps symbol as delivery representation."
+  duplicates: []
+  tbd_subjects: []
+  instrument_symbol_divergence: true
