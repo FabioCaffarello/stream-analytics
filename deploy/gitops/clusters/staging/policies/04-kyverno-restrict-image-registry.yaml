@@ -1,0 +1,48 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: restrict-image-registry
+spec:
+  validationFailureAction: enforce
+  rules:
+    - name: restrict-registries
+      match:
+        resources:
+          kinds: [Deployment, StatefulSet, Job]
+      validate:
+        message: "Images must be from approved registries."
+        foreach:
+          - list: "request.object.spec.template.spec.containers"
+            deny:
+              conditions:
+                all:
+                  - key: "{{ element.image }}"
+                    operator: NotEquals
+                    value: "ghcr.io/*"
+                  - key: "{{ element.image }}"
+                    operator: NotEquals
+                    value: "prom/*"
+                  - key: "{{ element.image }}"
+                    operator: NotEquals
+                    value: "grafana/*"
+                  - key: "{{ element.image }}"
+                    operator: NotEquals
+                    value: "nats:*"
+                  - key: "{{ element.image }}"
+                    operator: NotEquals
+                    value: "timescale/*"
+                  - key: "{{ element.image }}"
+                    operator: NotEquals
+                    value: "clickhouse/*"
+                  - key: "{{ element.image }}"
+                    operator: NotEquals
+                    value: "docker.redpanda.com/*"
+                  - key: "{{ element.image }}"
+                    operator: NotEquals
+                    value: "metabase/*"
+                  - key: "{{ element.image }}"
+                    operator: NotEquals
+                    value: "apache/flink*"
+                  - key: "{{ element.image }}"
+                    operator: NotEquals
+                    value: "nginx:*"

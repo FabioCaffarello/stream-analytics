@@ -1,0 +1,35 @@
+---
+# Ingress for direct external WebSocket + REST access to the server.
+# Not included in base kustomization.yaml — add in environment overlays that need external access.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: stream-analytics-server
+  namespace: stream-analytics-system
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: api.stream-analytics.local
+      http:
+        paths:
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service:
+                name: stream-analytics-server
+                port:
+                  name: http
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: stream-analytics-server
+                port:
+                  name: http

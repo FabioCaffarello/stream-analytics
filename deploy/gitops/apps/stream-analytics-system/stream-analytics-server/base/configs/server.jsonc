@@ -1,0 +1,207 @@
+{
+  // Runtime config for Kubernetes deployment.
+  // Connection-sensitive values (DATABASE_URL, CLICKHOUSE_DSN) are injected
+  // via stream-analytics-app-secrets and override any values set here.
+  "bus": {
+    "type": "jetstream",
+    "wire_format": "proto"
+  },
+  "jetstream": {
+    "url": "nats://nats.data-management.svc:4222",
+    "stream_name": "MARKETDATA",
+    "consumer_durable": "delivery-v3",
+    "ack_wait": "30s",
+    "max_ack_pending": 1024,
+    "max_deliver": 5,
+    "deliver_policy": "new",
+    "filter_subjects": ["marketdata.>", "aggregation.>", "evidence.>", "insights.>"],
+    "dedup_window": "5m",
+    "max_age": "24h",
+    "max_bytes": "10GB"
+  },
+  "proto_rollout": {
+    "marketdata": {
+      "trade": false,
+      "bookdelta": false,
+      "markprice": false,
+      "liquidation": false
+    },
+    "aggregation": {
+      "candle": false,
+      "stats": false,
+      "snapshot": false
+    },
+    "insights": {
+      "volume_profile": false,
+      "heatmap": false,
+      "crossvenue": false
+    }
+  },
+  "log": {
+    "level": "info",
+    "format": "json"
+  },
+  "http": {
+    "addr": ":8080",
+    "read_timeout": "10s",
+    "write_timeout": "15s",
+    "idle_timeout": "60s",
+    "shutdown_timeout": "10s",
+    "publisher_flush_timeout": "3s",
+    "guardian_shutdown_timeout": "10s",
+    "enable_pprof": false
+  },
+  "ws": {
+    "auth": {
+      "enabled": true,
+      "api_keys": {}
+    },
+    "rate_limit": {
+      "enabled": true,
+      "max_per_second": 100,
+      "burst_capacity": 200
+    },
+    "tenant_metrics": {
+      "include_tenant_label": true,
+      "tenant_whitelist": [],
+      "fallback": "unknown"
+    }
+  },
+  "delivery": {
+    "enabled": true,
+    "max_sessions": 10000,
+    "session_outbound_queue_size": 512,
+    "metrics_cadence_ms": 5000,
+    "keepalive_interval_ms": 20000,
+    "backpressure_policy": "drop_newest",
+    "slow_client_drop_threshold": 1000,
+    "max_frame_bytes": 262144,
+    "nats": {
+      "consumer_durable": "delivery-v3",
+      "filter_subjects": ["marketdata.>", "aggregation.>", "evidence.>", "insights.>"]
+    }
+  },
+  "storage": {
+    "timescale": {
+      // DSN overridden at runtime by DATABASE_URL env var from stream-analytics-app-secrets.
+      "enabled": true,
+      "dsn": "postgres://postgres:CHANGE_ME@timescaledb.data-management.svc:5432/postgres?sslmode=disable",
+      "max_conns": 20,
+      "min_conns": 4,
+      "max_conn_lifetime": "30m",
+      "max_conn_idle_time": "5m",
+      "health_check_period": "30s"
+    },
+    "clickhouse": {
+      // Credentials overridden at runtime by CLICKHOUSE_USER/PASSWORD/DB env vars.
+      "enabled": true,
+      "addrs": ["clickhouse.data-management.svc:9000"],
+      "database": "default",
+      "username": "default",
+      "password": "CHANGE_ME",
+      "max_open_conns": 10,
+      "max_idle_conns": 5,
+      "conn_max_lifetime": "30m",
+      "dial_timeout": "5s",
+      "read_timeout": "30s"
+    }
+  },
+  "processor": {
+    "orderbook": {
+      "max_levels": 500,
+      "use_btree_orderbook": true
+    },
+    "xvenue": {
+      "enabled": true,
+      "stale_threshold_ms": 30000,
+      "max_instruments": 2048,
+      "max_venues": 6
+    },
+    "candle": {
+      "window_cap": 96
+    },
+    "stats": {
+      "window_cap": 96
+    },
+    "subminute_rollout": {
+      "enabled": true,
+      "venues": [],
+      "instruments": []
+    },
+    "insights": {
+      "insights_timeframes": ["1s", "5s", "1m", "5m", "15m", "30m", "1h", "4h", "1d"]
+    }
+  },
+  "data_plane": {
+    "enabled": false,
+    "state_bucket": "SA_DATAPLANE",
+    "result_limit": 200,
+    "kafka": {
+      "brokers": ["kafka.data-management.svc:9092"],
+      "consumer_group": "dataplane-consumer-v1"
+    }
+  },
+  "workspace": {
+    "state_dir": "/var/lib/stream-analytics"
+  },
+  "markets": {
+    "exchanges": [
+      {
+        "name": "binance-spot",
+        "symbols": [
+          {"ticker": "BTCUSDT", "tick_size": 0.01, "market_type": "SPOT"},
+          {"ticker": "ETHUSDT", "tick_size": 0.01, "market_type": "SPOT"},
+          {"ticker": "SOLUSDT", "tick_size": 0.01, "market_type": "SPOT"},
+          {"ticker": "BNBUSDT", "tick_size": 0.01, "market_type": "SPOT"}
+        ]
+      },
+      {
+        "name": "binance-futures",
+        "symbols": [
+          {"ticker": "BTCUSDT", "tick_size": 0.01, "market_type": "USD_M_FUTURES"},
+          {"ticker": "ETHUSDT", "tick_size": 0.01, "market_type": "USD_M_FUTURES"},
+          {"ticker": "SOLUSDT", "tick_size": 0.01, "market_type": "USD_M_FUTURES"},
+          {"ticker": "BNBUSDT", "tick_size": 0.01, "market_type": "USD_M_FUTURES"}
+        ]
+      },
+      {
+        "name": "bybit",
+        "symbols": [
+          {"ticker": "BTCUSDT", "tick_size": 0.01, "market_type": "USD_M_FUTURES"},
+          {"ticker": "ETHUSDT", "tick_size": 0.01, "market_type": "USD_M_FUTURES"},
+          {"ticker": "SOLUSDT", "tick_size": 0.01, "market_type": "USD_M_FUTURES"}
+        ]
+      },
+      {
+        "name": "coinbase",
+        "symbols": [
+          {"ticker": "BTC-USD", "tick_size": 0.01, "market_type": "SPOT"},
+          {"ticker": "ETH-USD", "tick_size": 0.01, "market_type": "SPOT"},
+          {"ticker": "SOL-USD", "tick_size": 0.01, "market_type": "SPOT"}
+        ]
+      },
+      {
+        "name": "hyperliquid",
+        "symbols": [
+          {"ticker": "BTC", "tick_size": 0.1, "market_type": "USD_M_FUTURES"},
+          {"ticker": "ETH", "tick_size": 0.01, "market_type": "USD_M_FUTURES"},
+          {"ticker": "SOL", "tick_size": 0.001, "market_type": "USD_M_FUTURES"}
+        ]
+      },
+      {
+        "name": "kraken-spot",
+        "symbols": [
+          {"ticker": "XBT/USD", "tick_size": 0.1, "market_type": "SPOT"},
+          {"ticker": "ETH/USD", "tick_size": 0.01, "market_type": "SPOT"}
+        ]
+      },
+      {
+        "name": "kraken-futures",
+        "symbols": [
+          {"ticker": "PF_XBTUSD", "tick_size": 0.5, "market_type": "USD_M_FUTURES"},
+          {"ticker": "PF_ETHUSD", "tick_size": 0.01, "market_type": "USD_M_FUTURES"}
+        ]
+      }
+    ]
+  }
+}

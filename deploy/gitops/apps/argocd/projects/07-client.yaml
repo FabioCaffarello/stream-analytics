@@ -1,0 +1,16 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: client
+  namespace: argocd
+spec:
+  description: "Odin WASM client served via nginx"
+  sourceRepos:
+    - https://github.com/stream-analytics/stream-analytics.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: stream-analytics-client
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace

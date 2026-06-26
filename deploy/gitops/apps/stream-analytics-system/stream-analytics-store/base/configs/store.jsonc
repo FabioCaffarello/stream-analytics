@@ -1,0 +1,70 @@
+{
+  // Runtime config for Kubernetes deployment.
+  // Connection-sensitive values (CLICKHOUSE_DSN, CLICKHOUSE_USER, CLICKHOUSE_PASSWORD)
+  // are injected via stream-analytics-app-secrets and override any values set here.
+  "bus": {
+    "type": "jetstream",
+    "wire_format": "proto"
+  },
+  "jetstream": {
+    "url": "nats://nats.data-management.svc:4222",
+    "stream_name": "MARKETDATA",
+    "consumer_durable": "store-v2",
+    "ack_wait": "30s",
+    "max_ack_pending": 2048,
+    "max_deliver": 10,
+    "deliver_policy": "all",
+    "filter_subjects": [
+      "aggregation.snapshot.v1.>",
+      "aggregation.candle.v1.>",
+      "aggregation.stats.v1.>",
+      "aggregation.orderbook_inconsistency.v1.>",
+      "insights.heatmap_snapshot.v1.>",
+      "insights.volume_profile_snapshot.v1.>"
+    ],
+    "dedup_window": "5m",
+    "max_age": "24h",
+    "max_bytes": "10GB"
+  },
+  "shard": {
+    "index": 0,
+    "count": 1,
+    "max_lag": 0
+  },
+  "log": {
+    "level": "info",
+    "format": "json"
+  },
+  "http": {
+    "addr": ":8083",
+    "shutdown_timeout": "10s",
+    "publisher_flush_timeout": "3s",
+    "guardian_shutdown_timeout": "10s"
+  },
+  "store": {
+    "clickhouse": {
+      // DSN overridden at runtime by CLICKHOUSE_DSN env var from stream-analytics-app-secrets.
+      "dsn": "clickhouse://default:CHANGE_ME@clickhouse.data-management.svc:9000/default"
+    },
+    "batch": {
+      "max_rows": 5000,
+      "max_bytes": 0,
+      "flush_interval": "250ms"
+    }
+  },
+  "storage": {
+    "clickhouse": {
+      // Credentials overridden at runtime by CLICKHOUSE_USER/PASSWORD/DB env vars.
+      "enabled": true,
+      "addrs": ["clickhouse.data-management.svc:9000"],
+      "database": "default",
+      "username": "default",
+      "password": "CHANGE_ME",
+      "max_open_conns": 20,
+      "max_idle_conns": 10,
+      "conn_max_lifetime": "30m",
+      "dial_timeout": "5s",
+      "read_timeout": "30s"
+    }
+  }
+}

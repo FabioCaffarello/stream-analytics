@@ -1,0 +1,97 @@
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka
+  namespace: analytics
+  labels:
+    app.kubernetes.io/name: kafka
+    app.kubernetes.io/component: message-bus
+spec:
+  serviceName: kafka-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kafka
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kafka
+        app.kubernetes.io/component: message-bus
+    spec:
+      serviceAccountName: kafka
+      securityContext:
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+        runAsNonRoot: true
+      containers:
+        - name: redpanda
+          image: docker.redpanda.com/redpandadata/redpanda:v24.2.13
+          command:
+            - redpanda
+            - start
+            - --smp=1
+            - --memory=512M
+            - --reserve-memory=0M
+            - --overprovisioned
+            - --node-id=0
+            - --kafka-addr=PLAINTEXT://0.0.0.0:9092
+            - --advertise-kafka-addr=PLAINTEXT://kafka.analytics.svc:9092
+            - --pandaproxy-addr=0.0.0.0:8082
+            - --advertise-pandaproxy-addr=kafka.analytics.svc:8082
+            - --schema-registry-addr=0.0.0.0:8081
+            - --rpc-addr=0.0.0.0:33145
+            - --advertise-rpc-addr=kafka.analytics.svc:33145
+            - --mode=dev-container
+            - --default-log-level=warn
+          ports:
+            - name: kafka
+              containerPort: 9092
+              protocol: TCP
+            - name: admin
+              containerPort: 9644
+              protocol: TCP
+            - name: proxy
+              containerPort: 8082
+              protocol: TCP
+            - name: schema-reg
+              containerPort: 8081
+              protocol: TCP
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/redpanda/data
+          livenessProbe:
+            httpGet:
+              path: /v1/cluster/health_overview
+              port: 9644
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /v1/cluster/health_overview
+              port: 9644
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi

@@ -5,6 +5,8 @@ namespace: observability-stack
 resources:
   - deployment.yaml
   - service.yaml
+  - serviceaccount.yaml
+  - pdb.yaml
 components:
   - ../../../../lib/labels
 configMapGenerator:

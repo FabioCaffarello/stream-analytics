@@ -1,0 +1,28 @@
+---
+# Root Application — bootstraps all ApplicationSets.
+# Applied once by Terraform during cluster bootstrap.
+# After initial apply, ArgoCD manages itself via GitOps.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: stream-analytics
+    app.kubernetes.io/component: gitops-root
+spec:
+  project: gitops-root
+  source:
+    repoURL: https://github.com/stream-analytics/stream-analytics.git
+    targetRevision: main
+    path: deploy/gitops/applicationsets
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

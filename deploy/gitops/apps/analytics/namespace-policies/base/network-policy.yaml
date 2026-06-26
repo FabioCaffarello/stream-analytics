@@ -1,0 +1,142 @@
+---
+# Allow Flink → Kafka within analytics namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-flink-to-kafka
+  namespace: analytics
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: kafka
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: flink
+      ports:
+        - protocol: TCP
+          port: 9092
+---
+# Allow consumer (stream-analytics-system) → Kafka for publishing analytics events
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-consumer-to-kafka
+  namespace: analytics
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: kafka
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: stream-analytics-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: stream-analytics-consumer
+      ports:
+        - protocol: TCP
+          port: 9092
+---
+# Allow Flink → TimescaleDB (cross-namespace: data-management)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-flink-egress-timescale
+  namespace: analytics
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: flink
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: data-management
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: timescaledb
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: kafka
+      ports:
+        - protocol: TCP
+          port: 9092
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# Allow Metabase → TimescaleDB (cross-namespace: data-management)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-metabase-egress
+  namespace: analytics
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: metabase
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: data-management
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: timescaledb
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# Allow observability (Prometheus) to scrape analytics pods
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scrape
+  namespace: analytics
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability-stack
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 9644
+        - protocol: TCP
+          port: 8081

@@ -1,0 +1,25 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+patches:
+  - target:
+      kind: ResourceQuota
+      name: analytics-quota
+    patch: |
+      - op: replace
+        path: /spec/hard/requests.cpu
+        value: "8"
+      - op: replace
+        path: /spec/hard/requests.memory
+        value: "16Gi"
+      - op: replace
+        path: /spec/hard/limits.cpu
+        value: "24"
+      - op: replace
+        path: /spec/hard/limits.memory
+        value: "32Gi"
+      - op: replace
+        path: /spec/hard/pods
+        value: "40"

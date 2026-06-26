@@ -1,0 +1,16 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: stream-analytics-system
+resources:
+  - deployment.yaml
+  - service.yaml
+  - pdb.yaml
+  - serviceaccount.yaml
+configMapGenerator:
+  - name: stream-analytics-store-config
+    files:
+      - configs/store.jsonc
+components:
+  - ../../../../lib/labels
+  - ../../../../lib/pod-security

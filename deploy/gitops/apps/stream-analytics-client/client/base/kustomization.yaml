@@ -1,0 +1,20 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: stream-analytics-client
+
+commonLabels:
+  app.kubernetes.io/part-of: stream-analytics
+  app.kubernetes.io/managed-by: argocd
+
+resources:
+  - serviceaccount.yaml
+  - nginx-configmap.yaml
+  - deployment.yaml
+  - service.yaml
+  - pdb.yaml
+
+components:
+  - ../../../../lib/labels
+  - ../../../../lib/pod-security

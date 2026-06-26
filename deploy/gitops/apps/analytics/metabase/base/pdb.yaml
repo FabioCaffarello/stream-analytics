@@ -1,0 +1,14 @@
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: metabase
+  namespace: analytics
+  labels:
+    app.kubernetes.io/name: metabase
+    app.kubernetes.io/component: bi-dashboard
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: metabase

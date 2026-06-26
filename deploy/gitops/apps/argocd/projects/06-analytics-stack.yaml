@@ -1,0 +1,16 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: analytics-stack
+  namespace: argocd
+spec:
+  description: "Analytics stack: Kafka/Redpanda, Flink, Metabase"
+  sourceRepos:
+    - https://github.com/stream-analytics/stream-analytics.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: analytics
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
