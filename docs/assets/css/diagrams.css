@@ -1,0 +1,142 @@
+/* ── Diagram wrapper ──────────────────────────────────────────────────── */
+.diagram-wrapper {
+  position: relative;
+  margin: 1.5rem 0;
+}
+
+/* Fullscreen button — hidden by default, shown on hover */
+.diagram-fullscreen-btn {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
+  pointer-events: none;
+  /* Material dark theme defaults */
+  background-color: rgba(30, 30, 30, 0.85);
+  color: #e0e0e0;
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+[data-md-color-scheme="default"] .diagram-fullscreen-btn {
+  background-color: rgba(245, 245, 245, 0.92);
+  color: #333;
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
+.diagram-wrapper:hover .diagram-fullscreen-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.diagram-fullscreen-btn:hover {
+  background-color: var(--md-accent-fg-color);
+  color: var(--md-accent-bg-color, #fff);
+  border-color: transparent;
+}
+
+.diagram-fullscreen-btn svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+/* ── Fullscreen overlay ───────────────────────────────────────────────── */
+.diagram-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  background-color: rgba(0, 0, 0, 0.82);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  animation: diagram-fadein 0.15s ease;
+}
+
+@keyframes diagram-fadein {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.diagram-overlay-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 1rem;
+  background-color: rgba(20, 20, 20, 0.9);
+  flex-shrink: 0;
+  gap: 1rem;
+}
+
+.diagram-overlay-hint {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.55);
+  user-select: none;
+}
+
+.diagram-overlay-close {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  background-color: transparent;
+  color: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+  line-height: 1;
+}
+
+.diagram-overlay-close:hover {
+  background-color: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.diagram-overlay-viewport {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+}
+
+.diagram-overlay-viewport:active {
+  cursor: grabbing;
+}
+
+/* SVG inside overlay — let svg-pan-zoom control dimensions */
+.diagram-overlay-viewport svg {
+  display: block;
+  max-width: none !important;
+  max-height: none !important;
+}
+
+/* svg-pan-zoom control icons — style to match overlay */
+.svg-pan-zoom-control {
+  fill: rgba(255, 255, 255, 0.7) !important;
+  stroke: none !important;
+}
+
+.svg-pan-zoom-control-background {
+  fill: rgba(30, 30, 30, 0.75) !important;
+}
+
+.svg-pan-zoom-control:hover .svg-pan-zoom-control-background {
+  fill: rgba(60, 60, 60, 0.9) !important;
+}
