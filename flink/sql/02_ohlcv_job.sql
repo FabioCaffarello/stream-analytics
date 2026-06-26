@@ -1,5 +1,15 @@
--- OHLCV candle aggregation: 1-minute tumbling windows.
+-- OHLCV candle aggregation — tumbling event-time windows.
 -- open/high/low/close use backtick quoting (reserved keywords in Flink SQL).
+--
+-- Determinism of FIRST_VALUE/LAST_VALUE:
+-- The Kafka producer keys every trade message as "venue:instrument"
+-- (internal/adapters/kafka/market_publisher.go). Kafka routes all messages
+-- with the same key to a single partition, and Flink's keyed state assigns
+-- all records for a given (venue, symbol) to a single sub-task. Records are
+-- therefore processed in Kafka-offset order within each symbol, making
+-- FIRST_VALUE the earliest-sent trade (open) and LAST_VALUE the
+-- latest-sent trade (close) for each window. This guarantee breaks if the
+-- producer key or topic partition count changes without a consumer-group reset.
 INSERT INTO pg_fact_candles
 SELECT
     venue AS exchange_name,
