@@ -131,7 +131,7 @@ time_axis_snap_interval :: proc(raw: int, tf_ms: i64) -> int {
 	count: int
 	switch {
 	case tf_ms <= 1_000:     nice = {5, 10, 15, 30, 60}; count = 5
-	case tf_ms <= 5_000:     nice = {2, 6, 12, 30, 60};  count = 5
+	case tf_ms <= 5_000:     nice = {2, 4, 6, 12, 30};   count = 5
 	case tf_ms <= 60_000:    nice = {5, 10, 15, 30, 60};  count = 5
 	case tf_ms <= 300_000:   nice = {2, 3, 6, 12, 24};    count = 5
 	case tf_ms <= 900_000:   nice = {2, 4, 8, 16, 32};    count = 5

@@ -16,12 +16,6 @@ canvas_render_outputs :: proc(buf: ^ui.Command_Buffer, out: ^Layer_Outputs) {
 				color = line.color,
 				thickness = line.thickness,
 			})
-		case .Heatmap_Cell:
-			cell := item.data.heatmap
-			ui.push(buf, ui.Cmd_Rect_Filled{
-				rect = cell.rect,
-				color = cell.color,
-			})
 		case .Bar:
 			bar := item.data.bar
 			ui.push(buf, ui.Cmd_Rect_Filled{

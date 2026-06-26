@@ -1,4 +1,4 @@
-// main.js — Market Raccoon web client bootstrap orchestrator.
+// main.js — Stream Analytics web client bootstrap orchestrator.
 //
 // Single ESM entry point. Delegates all work to runtime.js which
 // assembles modules and starts the WASM frame loop.

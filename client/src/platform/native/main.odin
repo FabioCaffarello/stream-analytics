@@ -84,7 +84,7 @@ main :: proc() {
 
 	// 2. Backend init.
 	be := use_sdl2 ? backend.make_sdl2_backend() : backend.make_glfw_backend()
-	if !be.init("Market Raccoon", 800, 600) do return
+	if !be.init("Stream Analytics", 800, 600) do return
 	defer be.shutdown()
 
 	// 3. Ports.

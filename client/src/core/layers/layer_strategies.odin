@@ -23,12 +23,6 @@ rect_bottom :: proc(r: ui.Rect) -> f32 {
 }
 
 @(private = "file")
-heatmap_color :: proc(intensity: f32) -> ui.Color {
-	base := ui.viridis_gradient(clamp(intensity, 0, 1))
-	return ui.with_alpha(base, 0.12 + 0.45 * clamp(intensity, 0, 1))
-}
-
-@(private = "file")
 signal_severity_color :: proc(entry: services.Signal_Entry) -> ui.Color {
 	e := entry
 	sev := services.signal_entry_severity_string(&e)
@@ -701,32 +695,8 @@ orderbook_dom_layer_strategy :: proc() -> Layer_Strategy {
 @(private = "file")
 vpvr_heatmap_render :: proc(ctx: ^Layer_Context, out: ^Layer_Outputs) {
 	if ctx == nil || out == nil || ctx.stream == nil do return
-	if !ctx.capabilities.has_heatmap && !ctx.capabilities.has_vpvr do return
+	if !ctx.capabilities.has_vpvr do return
 	stream := ctx.stream
-
-	if ctx.capabilities.has_heatmap && stream.heatmap.count > 0 {
-		snap := services.get_heatmap_snapshot(&stream.heatmap, stream.heatmap.count - 1)
-		if snap != nil {
-			min_p := snap.min_price
-			max_p := snap.max_price
-			if max_p <= min_p {
-				max_p = min_p + 1
-			}
-			max_size := max(snap.max_size, 1)
-			levels := min(snap.level_count, 120)
-			for i in 0 ..< levels {
-				level := snap.levels[i]
-				y := price_to_y(ctx.viewport, min_p, max_p, level.price)
-				intensity := f32(level.size / max_size)
-				h := max(ctx.viewport.size.y / f32(max(levels, 1)), 2)
-				layer_outputs_push_heatmap_cell(out, 10, Render_Heatmap_Cell{
-					rect = ui.Rect{pos = {ctx.viewport.pos.x, y - h * 0.5}, size = {ctx.viewport.size.x, h}},
-					intensity = intensity,
-					color = heatmap_color(intensity),
-				})
-			}
-		}
-	}
 
 	if ctx.capabilities.has_vpvr && stream.vpvr.count > 0 {
 		right_w := ctx.viewport.size.x * 0.25

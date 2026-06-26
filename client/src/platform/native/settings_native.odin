@@ -1,7 +1,7 @@
 package main
 
 // Native settings port — JSON file-backed persistence.
-// Config path: ~/.market-raccoon.json
+// Config path: ~/.stream-analytics.json
 
 import "core:encoding/json"
 import "core:fmt"
@@ -9,7 +9,7 @@ import "core:os"
 import "core:strings"
 import "mr:ports"
 
-SETTINGS_FILE :: ".market-raccoon.json"
+SETTINGS_FILE :: ".stream-analytics.json"
 
 // --- File-private state ---
 

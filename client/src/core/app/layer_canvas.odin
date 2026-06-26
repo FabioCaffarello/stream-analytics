@@ -41,9 +41,10 @@ render_cell_layer_canvas :: proc(
 	}
 
 	// S140: Set frame-local timeframe for time axis rendering.
-	tf_idx := clamp(state.active_tf_idx, 0, len(TF_OPTION_MS) - 1)
-	tf_ms_opts := TF_OPTION_MS
-	state.frame_tf_ms = tf_ms_opts[tf_idx]
+	// Use per-cell effective TF (falls back to global if no per-cell override).
+	// Must NOT use state.active_tf_idx unconditionally — that ignores per-pane TF overrides
+	// and causes the time axis to render with the wrong label format/spacing in multi-TF layouts.
+	state.frame_tf_ms = cell_effective_tf_ms(state, ci)
 
 	// S94: For candle cells, check if any analytics subplots are active.
 	if kind == .Candle && ci >= 0 && ci < state.world.count {

@@ -5,7 +5,7 @@ import { writeFileSync } from 'fs';
 
 const URL = 'http://localhost:8090';
 const WAIT_FOR_DATA_MS = 12000; // wait for WS data to arrive
-const SCREENSHOT_DIR = '/Volumes/OWC Express 1M2/Develop/market-raccoon/client/build';
+const SCREENSHOT_DIR = '/Volumes/OWC Express 1M2/Develop/stream-analytics/client/build';
 
 async function main() {
   const browser = await chromium.launch({ headless: true });

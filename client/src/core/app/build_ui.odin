@@ -87,7 +87,7 @@ build_ui :: proc(state: ^App_State, input: ports.Input_State) -> ^ui.Command_Buf
 		NAV_ITEMS :: [5]ui.Nav_Rail_Item{
 			{icon = "D", label = "Dashboard"},
 			{icon = "V", label = "Venues"},
-			{icon = "P", label = "Portfolio"},
+			{icon = "A", label = "Analytics"},
 			{icon = "G", label = "Settings"},
 			{icon = "H", label = "Health"},
 		}

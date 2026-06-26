@@ -9,7 +9,6 @@ TEXT_BADGE_CAP   :: 96
 
 Render_Primitive_Kind :: enum u8 {
 	Line,
-	Heatmap_Cell,
 	Bar,
 	Text_Badge,
 }
@@ -19,12 +18,6 @@ Render_Line :: struct {
 	to:        ui.Vec2,
 	color:     ui.Color,
 	thickness: f32,
-}
-
-Render_Heatmap_Cell :: struct {
-	rect:      ui.Rect,
-	intensity: f32,
-	color:     ui.Color,
 }
 
 Render_Bar :: struct {
@@ -41,10 +34,9 @@ Render_Text_Badge :: struct {
 }
 
 Render_Primitive_Data :: struct #raw_union {
-	line:    Render_Line,
-	heatmap: Render_Heatmap_Cell,
-	bar:     Render_Bar,
-	text:    Render_Text_Badge,
+	line: Render_Line,
+	bar:  Render_Bar,
+	text: Render_Text_Badge,
 }
 
 Render_Primitive :: struct {
@@ -88,12 +80,6 @@ layer_outputs_push_line :: proc(out: ^Layer_Outputs, z: u8, line: Render_Line) {
 	item, ok := layer_outputs_reserve(out, .Line, z)
 	if !ok do return
 	item.data = Render_Primitive_Data{line = line}
-}
-
-layer_outputs_push_heatmap_cell :: proc(out: ^Layer_Outputs, z: u8, cell: Render_Heatmap_Cell) {
-	item, ok := layer_outputs_reserve(out, .Heatmap_Cell, z)
-	if !ok do return
-	item.data = Render_Primitive_Data{heatmap = cell}
 }
 
 layer_outputs_push_bar :: proc(out: ^Layer_Outputs, z: u8, bar: Render_Bar) {

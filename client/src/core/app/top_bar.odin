@@ -6,7 +6,7 @@ import "mr:ui"
 // S113/S118: Top bar — global application context only.
 // Workspace-level concerns (instrument hero, price, TF, indicators, layout presets)
 // moved to workspace_toolbar.odin. Top bar retains: logo, connection, quick actions.
-// S118: Removed app title ("Market Raccoon") — wasted space with no information value.
+// S118: Removed app title ("Stream Analytics") — wasted space with no information value.
 
 draw_top_bar :: proc(state: ^App_State, input: ports.Input_State, viewport_w: f32, compact: bool = false) {
 	bar_w := viewport_w
@@ -34,7 +34,7 @@ draw_top_bar :: proc(state: ^App_State, input: ports.Input_State, viewport_w: f3
 	// --- Left: Logo ---
 	cursor_x := r.pos.x
 
-	logo_text := "MR"
+	logo_text := "SA"
 	logo_size := state.text.measure(ui.FONT_SIZE_SM, logo_text)
 	logo_box_w := logo_size.x + 10
 	logo_box_h := f32(18)

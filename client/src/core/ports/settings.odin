@@ -3,7 +3,7 @@ package ports
 // Settings port — platform-injected persistent key-value storage.
 // Core declares what to save; platform handles I/O.
 //
-// Native: backed by ~/.market-raccoon.json file.
+// Native: backed by ~/.stream-analytics.json file.
 // Web:    backed by localStorage (future), stub for now.
 
 Settings_Port :: struct {
