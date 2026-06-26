@@ -1,4 +1,4 @@
-# Client Architecture (Market-Raccoon)
+# Client Architecture (Stream-Analytics)
 
 Status: active
 Owner: client/core

@@ -1,6 +1,6 @@
 # Stage Review Checklist
 
-> Gate checklist for accepting any new stage into Market Raccoon.
+> Gate checklist for accepting any new stage into Stream Analytics.
 > Authority: T2 operational. Aligned with ADR-0036 baseline and evolution-criteria.
 > Effective: 2026-03-13. Review cadence: monthly with evolution-criteria.
 

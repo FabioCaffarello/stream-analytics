@@ -2,7 +2,7 @@
 
 > Status: **Active** | Last updated: 2026-02-20
 
-Market Raccoon uses dual storage (TimescaleDB hot + ClickHouse cold). Both require regular backups.
+Stream Analytics uses dual storage (TimescaleDB hot + ClickHouse cold). Both require regular backups.
 
 ## Quick Reference
 
@@ -32,7 +32,7 @@ Produces a `pg_dump` compressed SQL file. Includes all tables, hypertables, cont
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--output` | `./backups/timescaledb` | Destination directory |
-| `--container` | `market-raccoon-timescale` | Docker container name |
+| `--container` | `stream-analytics-timescale` | Docker container name |
 
 **Output:** `timescaledb-{db}-{timestamp}.sql.gz`
 
@@ -49,7 +49,7 @@ Exports each table in ClickHouse Native format (efficient binary). Also saves sc
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--output` | `./backups/clickhouse` | Destination directory |
-| `--container` | `market-raccoon-clickhouse` | Docker container name |
+| `--container` | `stream-analytics-clickhouse` | Docker container name |
 
 **Output:** `{timestamp}/{table}.native.gz` + `_schema.tsv`
 
@@ -107,10 +107,10 @@ For production, add cron entries:
 
 ```cron
 # Daily TimescaleDB backup at 02:00 UTC
-0 2 * * * cd /opt/market-raccoon && ./scripts/ops/backup-timescaledb.sh --output /backups/timescaledb
+0 2 * * * cd /opt/stream-analytics && ./scripts/ops/backup-timescaledb.sh --output /backups/timescaledb
 
 # Weekly ClickHouse backup on Sundays at 03:00 UTC
-0 3 * * 0 cd /opt/market-raccoon && ./scripts/ops/backup-clickhouse.sh --output /backups/clickhouse
+0 3 * * 0 cd /opt/stream-analytics && ./scripts/ops/backup-clickhouse.sh --output /backups/clickhouse
 ```
 
 ## Recovery Procedure

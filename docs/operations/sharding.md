@@ -5,7 +5,7 @@
 
 ## Overview
 
-Market-raccoon processors scale horizontally using **static shard-range
+Stream-analytics processors scale horizontally using **static shard-range
 consumers** — a coordination-free partitioning strategy where each replica is
 responsible for a deterministic subset of the subject space.
 
@@ -117,7 +117,7 @@ alerts can be scoped per replica.
 ## Alerts
 
 Three production alert rules are defined in
-[`deploy/observability/prometheus/shard-alerts.rules.yml`](../../deploy/observability/prometheus/shard-alerts.rules.yml):
+[`deploy/observability/prometheus/shard-alerts.rules.yml`](https://github.com/FabioCaffarello/stream-analytics/blob/main/deploy/observability/prometheus/shard-alerts.rules.yml):
 
 | Alert                       | Severity | Condition                                      | Window |
 |-----------------------------|----------|-------------------------------------------------|--------|

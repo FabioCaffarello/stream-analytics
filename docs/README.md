@@ -1,16 +1,16 @@
-# Market Raccoon — Documentation
+# Stream Analytics — Documentation
 
-**Last updated:** 2026-03-10
+**Last updated:** 2026-06-25
 
 ---
 
-## What Is Market Raccoon
+## What Is Stream Analytics
 
-Market Raccoon is a real-time, multi-exchange cryptocurrency market data platform with an integrated operational cockpit. It ingests, normalizes, aggregates, and visualizes live market data across 6 exchanges with sub-millisecond latency.
+Stream Analytics is a real-time, multi-exchange cryptocurrency market data platform with an integrated operational cockpit. It ingests, normalizes, aggregates, and visualizes live market data across 6 exchanges with sub-millisecond latency.
 
 The system has two halves:
 
-- **Backend (Go, ~131K LOC):** Actor-supervised pipeline that consumes exchange WebSocket feeds, normalizes into canonical envelopes, builds aggregated read models (candles, orderbook, stats, tape, heatmaps, volume profiles), and delivers them over WebSocket and HTTP. 12 bounded contexts, 10 actor subsystems, NATS JetStream event bus, TimescaleDB + ClickHouse storage. Execution framework behind a fail-closed governance boundary.
+- **Backend (Go, ~131K LOC):** Actor-supervised pipeline that consumes exchange WebSocket feeds, normalizes into canonical envelopes, builds aggregated read models (candles, orderbook, stats, tape, heatmaps, volume profiles), and delivers them over WebSocket and HTTP. 7 active service binaries, NATS JetStream event bus, TimescaleDB + ClickHouse storage + Kafka analytics path. Hexagonal architecture, DDD bounded contexts, Hollywood actor model.
 
 - **Client (Odin, ~30K LOC):** Cross-platform operational cockpit (WASM + native). 13 widget types, 8 indicators, 3 subplot analytics, orderflow visualization (DOM, footprint, trades, orderbook), workspace split-tree with compare mode, and a 5-layer stream health pipeline with operator-visible reliability signals.
 
@@ -26,17 +26,13 @@ For the full canonical product definition, see [product-definition.md](product-d
 Exchange WS (6 venues)
     |
     v
-[Consumer / MarketData] --> NATS JetStream --> [Processor / Aggregation]
-                                                    |
-                                              [Insights / Evidence]
-                                                    |
-                                        [Signal -> Strategy -> Execution -> Portfolio]
-                                                    |
-                                              [Delivery / Router]
-                                                 |        |
-                                              [Store]  [WS Session]
-                                                          |
-                                                    [Client]
+[Consumer / MarketData] --> NATS JetStream --> [Processor / Aggregation + Insights + Evidence]
+       |                                                    |
+       +--> Kafka (best-effort) --> Flink SQL          [Delivery / Router]
+                 |                       |              |           |
+       TimescaleDB analytics         [Store]       [WS Session]  [Store]
+            |                                           |
+         Metabase                                   [Client]
 ```
 
 **Backend:** Hexagonal architecture, DDD bounded contexts, actor model (Hollywood), event-driven. All state transitions via versioned envelopes. Deterministic and replay-safe.
@@ -68,33 +64,44 @@ When in doubt, canonical documents win. The [AUTHORITY-MAP](architecture/AUTHORI
 - [Subsystem Responsibilities](architecture/subsystems.md) — Per-subsystem boundary, I/O, and caps
 - [System Invariants](architecture/system-invariants.md) — Domain and layer isolation rules
 - [Sequencing Model](architecture/sequencing-model.md) — Ordering guarantees and replay invariants
-- [TRUTH-MAP](architecture/TRUTH-MAP.md) — Single source of truth per critical theme
-- [AUTHORITY-MAP](architecture/AUTHORITY-MAP.md) — Governance domain to authoritative document
+- [TRUTH-MAP](architecture/TRUTH-MAP.md) — Single source of truth per critical theme with code anchors
+- [AUTHORITY-MAP](architecture/AUTHORITY-MAP.md) — Document tier classification (T1–T4)
 
-### Product Requirements & Decisions
-- [PRDs](prds/) — Product Requirement Documents (0001-0006)
-- [ADRs](adrs/) — Architecture Decision Records (0000-0035); recent: [0032 Stream Reliability](adrs/ADR-0032-stream-reliability-model.md), [0033 Orderflow Blueprint](adrs/ADR-0033-orderflow-domain-blueprint.md), [0034 Health Recovery](adrs/ADR-0034-stream-health-recovery-completion.md), [0035 Orderflow Contracts](adrs/ADR-0035-orderflow-contract-architecture.md)
-- [RFCs](rfcs/) — Request for Comments (0001-0011); W-series completed and superseded by stage system
+### Architecture Diagrams (Mermaid)
+- [Diagrams Index](architecture/diagrams/README.md) — All visual diagrams
+- [C4 System Context](architecture/diagrams/c4-context.md) — Stream Analytics in its external environment
+- [C4 Container Map](architecture/diagrams/c4-containers.md) — 7 service binaries, message bus, storage tiers
+- [Actor Supervision Tree](architecture/diagrams/actor-supervision-tree.md) — Hollywood Guardian trees per binary
+- [Sequence: Live Data Ingestion](architecture/diagrams/sequence-live-ingestion.md) — End-to-end pipeline flow
+- [Sequence: Client Session Protocol](architecture/diagrams/sequence-client-session.md) — Terminal_V1 handshake, subscribe, backfill, resync
+- [Sequence: Storage Federation](architecture/diagrams/sequence-storage-federation.md) — L0/L1/L2 write + federated read
+- [Sequence: Evidence / LEL](architecture/diagrams/sequence-evidence-lel.md) — Liquidity Evidence Layer detection
+- [Sequence: Exchange Recovery](architecture/diagrams/sequence-exchange-recovery.md) — Disconnect, backoff, reconnect, gap fill
+- [C4 Analytics Profile](architecture/diagrams/c4-analytics.md) — Kafka, Flink, TimescaleDB analytics schema, Metabase
+- [Sequence: Analytics Pipeline](architecture/diagrams/sequence-analytics-pipeline.md) — Consumer → Kafka → Flink → TimescaleDB → Metabase
 
 ### Contracts
-- [Event Bus Contract](contracts/event-bus.md) — Topic taxonomy, envelope behavior
+- [Event Bus Contract](contracts/event-bus.md) — Topic taxonomy, envelope behavior, subject versioning
 - [Delivery WS Contract](contracts/delivery-ws.md) — WebSocket protocol, backpressure, limits
-- [Strategy/Execution/Portfolio Contracts](contracts/strategy-execution-portfolio-contracts.md) — Decision pipeline contracts
+- [Boundedness Matrix](contracts/boundedness-matrix.md) — Resource limits per subsystem
+- [Canonical Market Model](contracts/canonical-market-model.md) — CMM field definitions
+- [Liquidity Evidence Layer](contracts/liquidity-evidence-layer.md) — LEL rule contracts
+- [Signal Engine](contracts/signal-engine.md) — Signal engine contract (**Retired S9**)
 
 ### Operations
 - [Local Dev](local-dev.md) — Standing up the stack with Compose
 - [Development Workflow](development-workflow.md) — Makefile targets, branching, CI
 - [Testing Strategy](testing-strategy.md) — Unit, domain, and contract test expectations
 - [Tooling](tooling.md) — Linter, workspace, pre-commits
-- [Runbooks](runbooks/) — Incident procedures
-- [Observability](observability/) — SLO definitions and telemetry
+- [Operations Runbooks](operations/sharding.md) — Sharding, cold-path, backup, degradation
+- [Emulator](operations/emulator.md) — CLI tool for injecting synthetic events
+- [Validator](operations/validator.md) — JetStream schema validation service (:8089)
 
 ### Client
-- [Client Documentation](client/) — Memory ownership, runtime, Odin conventions
+- [Client Documentation](client/client-architecture.md) — Memory ownership, runtime, Odin conventions
 
-### History
-- [Stage Reports](stages/) — 158 incremental delivery reports (read for provenance, not as current spec)
-- [Product Definition](product-definition.md) — Canonical "what is Market Raccoon" with quantitative snapshot
+### Product
+- [Product Definition](product-definition.md) — Canonical "what is Stream Analytics" with quantitative snapshot
 
 ---
 

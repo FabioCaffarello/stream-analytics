@@ -1,12 +1,9 @@
 # Subsystem Responsibilities
 
 **Status:** Active
-**Date:** 2026-03-06
+**Date:** 2026-06-25
 **Owner:** Governance Doc-First Maintainer
-**Relates to:** `docs/architecture/system-invariants.md`, `docs/architecture/TRUTH-MAP.md`,
-  `docs/adrs/ADR-0003-actor-runtime.md`, `docs/adrs/ADR-0018-actor-topology-supervision-model.md`,
-  `docs/analysis/ARCHITECTURE-DOSSIER-S16-S17.md`, `docs/architecture/real-adapter-integration-stage7.md`,
-  `docs/architecture/execution-governance-stage9a.md`, `docs/architecture/credentials-broker-hardening-stage9b.md`
+**Relates to:** `docs/architecture/system-invariants.md`, `docs/architecture/TRUTH-MAP.md`
 
 ---
 
@@ -20,24 +17,23 @@ record validated by the baseline IQ Loop run (`artifacts/20260305T160115Z`).
 
 ## Subsystem Registry
 
-The Guardian (`internal/actors/runtime/guardian.go`) manages the following subsystems in the canonical
-order defined by `orderedSubsystems` (`internal/actors/runtime/protocol.go:22-30`):
+The Guardian (`internal/actors/runtime/guardian.go`) manages the following subsystems, wired per binary:
 
-| # | Subsystem constant | Actor package |
-|---|---|---|
-| 1 | `SubsystemMarketData` | `internal/actors/marketdata/runtime` |
-| 2 | `SubsystemAggregation` | `internal/actors/aggregation/runtime` |
-| 3 | `SubsystemDelivery` | `internal/actors/delivery/runtime` |
-| 4 | `SubsystemInsights` | `internal/actors/insights/runtime` |
-| 5 | `SubsystemEvidence` | `internal/actors/evidence/runtime` |
-| 6 | `SubsystemSignals` | `internal/actors/signal/runtime` |
-| 7 | `SubsystemStrategy` | `internal/actors/strategy/runtime` |
-| 8 | `SubsystemExecution` | `internal/actors/execution/runtime` |
-| 9 | `SubsystemPortfolio` | `internal/actors/portfolio/runtime` |
-| 10 | `SubsystemStorage` | `internal/actors/storage/runtime` |
+| # | Subsystem constant | Actor package | Wired in |
+|---|---|---|---|
+| 1 | `SubsystemMarketData` | `internal/actors/marketdata/runtime` | `cmd/consumer` |
+| 2 | `SubsystemAggregation` | `internal/actors/aggregation/runtime` | `cmd/processor` |
+| 3 | `SubsystemDelivery` | `internal/actors/delivery/runtime` | `cmd/server` |
+| 4 | `SubsystemInsights` | `internal/actors/insights/runtime` | `cmd/processor` |
+| 5 | `SubsystemEvidence` | `internal/actors/evidence/runtime` | `cmd/processor` |
+| 6 | `SubsystemStorage` | `internal/adapters/storage` | `cmd/store` |
 
 Dynamic exchange-level market-data subsystems use the key `marketdata:{exchange}` and bypass the static
 `SubsystemMarketData` slot when present (`guardian.go:603-616`).
+
+> Constants for `SubsystemSignals`, `SubsystemStrategy`, `SubsystemExecution`, `SubsystemPortfolio` remain
+> defined in `protocol.go` but have no active actor implementations. The decision pipeline binaries
+> (`cmd/signals`, `cmd/strategist`, `cmd/executor`, `cmd/portfolio`) were retired in S9.
 
 ---
 
@@ -81,7 +77,7 @@ Dynamic exchange-level market-data subsystems use the key `marketdata:{exchange}
 | Field | Value |
 |---|---|
 | **Responsibility** | Route envelopes from the bus to WebSocket sessions. Apply per-stream coherence, sequencing, backpressure, backfill (`getrange`/`getlast`/`resync`), and capabilities negotiation. |
-| **Inputs** | `marketdata.>`, `aggregation.>`, `insights.>`, `signal.event.>`. |
+| **Inputs** | `marketdata.>`, `aggregation.>`, `insights.>`, `evidence.>`. |
 | **Outputs** | WebSocket frames: `snapshot`, `event`, `batch`, `range`, `ack`, `problem`. |
 | **Boundedness** | Router TTL/sweep/cap: `30m`/`1m`/`50_000`. |
 | **Shard key** | `ShardKey(SubsystemDelivery, streamID)` token; per-stream ownership. |
@@ -113,81 +109,7 @@ Dynamic exchange-level market-data subsystems use the key `marketdata:{exchange}
 
 ---
 
-### 5 — Signals (Signal Engine)
-
-| Field | Value |
-|---|---|
-| **Responsibility** | Consume `liquidity.evidence` and microstructure/regime evidence, apply deterministic rules, dedup/rate-limit, and emit `signal.event` envelopes. |
-| **Inputs** | `liquidity.evidence`, `insights.microstructure_evidence`, `insights.regime_evidence`. |
-| **Outputs** | `signal.event`. |
-| **Topology** | Dedicated-only: `cmd/signals` service (embedded processor/server signal paths removed in Stage 2). |
-| **Shard key / Ownership** | `OwnerReplica(SubsystemSignals, StreamKey)` (`subsystem_owner_policy.go:71-77`). |
-| **Monotonicity** | `DecideMonotonic` + reject `duplicate`/`out_of_order`. |
-| **Boundedness** | State ownership cap `4096`; circular eviction (`subsystem_owner_policy.go:15-18,115-141`). |
-| **Deterministic IDs** | `signal_id`, `correlation_id`, `fingerprint`, `intent_id`, `idempotency_key`. |
-| **Dedup / replay** | `seq<=LastSeq` ignores replay; dedup window; tenant limit. |
-| **Code anchors** | `internal/core/signal/engine.go:162-235`; `internal/actors/signal/runtime/subsystem.go:486-507`; `subsystem_owner_policy.go:15-18,50-61,71-77,115-141,150-185`; `internal/core/signal/store.go:157-160,177-214`. |
-| **IQ baseline** | Seq monotonic PASS, router violations=0; signal→evidence link PASS (report.md:56,82,146-151,306-319). |
-| **Health checks** | `signal_emitted_total`, `signal_drop_total`, `ownership_contract_*`, `probe_md_canonical_signal_frames`. |
-
----
-
-### 7 — Strategy (Intent Planner, Bootstrap)
-
-| Field | Value |
-|---|---|
-| **Responsibility** | Consume canonical `signal.event` and emit deterministic `strategy.intent` decisions. |
-| **Inputs** | `signal.event` (canonical only). |
-| **Outputs** | `strategy.intent`. |
-| **Topology** | Dedicated-only: `cmd/strategist` service. |
-| **Boundedness** | Ownership map cap `4096`; monotonic stale gap bounded (`2048`). |
-| **Shard key / Ownership** | `OwnerReplica(SubsystemStrategy, venue/instrument/signal/raw)`. |
-| **Monotonicity** | `DecideMonotonic` before planning and publish. |
-| **Legacy posture** | Stage 6 retires `signal.composite` strategist intake. Any residual handling is historical compatibility only, outside strategist decision runtime. |
-| **Code anchors** | `cmd/strategist/bootstrap.go:35-78,228-233`; `internal/actors/strategy/runtime/subsystem.go:140-201,203-260`; `internal/core/strategy/app/plan_intent.go:10-117`. |
-| **IQ / bootstrap evidence** | Stage 4 runtime bootstrap chain tests PASS for strategist intent emission. |
-| **Health checks** | `ownership_contract_*{subsystem="strategy"}`, `bus_published_total{event_type="strategy.intent"}`. |
-
----
-
-### 8 — Execution (Adapter Boundary: Bootstrap + Safe Real)
-
-| Field | Value |
-|---|---|
-| **Responsibility** | Consume `strategy.intent` and emit canonical `execution.event` lifecycle transitions through `IntentExecutor`, with Stage 9A/9B governance deciding authorization, adapter selection, and brokered credential provenance/lease fitness before execution. |
-| **Inputs** | `strategy.intent`. |
-| **Outputs** | `execution.event` (`accepted`, `placed`, `partially_filled`, terminal/rejected depending on adapter mode/policy). |
-| **Topology** | Dedicated-only: `cmd/executor` service. |
-| **Boundedness** | Ownership map cap `4096`; monotonic stale gap bounded (`2048`). |
-| **Shard key / Ownership** | `OwnerReplica(SubsystemExecution, venue/instrument/intent/raw)`. |
-| **Monotonicity** | `DecideMonotonic` enforced before execution transition emission. |
-| **Deterministic rejection policy** | Stage 9B separates rejection classes more precisely: governance denial (`governance_denied_*`), credential unavailability (`credentials_unavailable_*`), invalid credential provenance/fitness (`credentials_invalid_*`), scope denial (`credentials_scope_denied_*`), lease denial (`credentials_lease_*`), adapter selection denial, execution-policy rejection (`rejected_*`), and venue/runtime failure (`failed_*` / `venue_runtime_failed_*`). |
-| **External dependencies** | Default remains no external dependency (`bootstrap_simulated`). Opt-in `real_adapter_safe` supports `test_order` validation and bounded testnet order lifecycle reconciliation behind the same adapter boundary. |
-| **Code anchors** | `cmd/executor/bootstrap.go`; `internal/actors/execution/runtime/subsystem.go`; `internal/core/execution/governance/model.go`; `internal/core/execution/app/static_governance.go`; `internal/core/execution/app/governed_executor.go`; `internal/core/execution/app/bootstrap_executor.go`; `internal/adapters/execution/credentials/broker.go`; `internal/adapters/execution/credentials/provider.go`; `internal/adapters/execution/binance/safe_intent_executor.go`; `internal/adapters/execution/binance/trade_api_client.go`. |
-| **IQ / bootstrap evidence** | Stage 9B tests cover deny-by-default governance, scope/limit enforcement, provider-behind-broker behavior, lease/provenance modeling, and runtime rejection taxonomy while preserving canonical output contracts. |
-| **Health checks** | `ownership_contract_*{subsystem="execution"}`, `bus_published_total{event_type="execution.event"}`. |
-
----
-
-### 9 — Portfolio (Bootstrap Projector)
-
-| Field | Value |
-|---|---|
-| **Responsibility** | Consume `execution.event` and project deterministic `portfolio.state` snapshots across the execution lifecycle. |
-| **Inputs** | `execution.event`. |
-| **Outputs** | `portfolio.state`. |
-| **Topology** | Dedicated-only: `cmd/portfolio` service. |
-| **Boundedness** | Ownership map cap `4096`; monotonic stale gap bounded (`2048`). |
-| **Shard key / Ownership** | `OwnerReplica(SubsystemPortfolio, venue/instrument/execution/raw)`. |
-| **Monotonicity** | `DecideMonotonic` before projector apply/publish. |
-| **Projection scope** | Stage 8 projector handles `accepted/placed/partially_filled/filled/rejected/canceled/failed`: pending-order locks, partial cumulative progression, position/cash updates, exposure and basic realized/unrealized PnL snapshot; still no marketdata/risk engine coupling. |
-| **Code anchors** | `cmd/portfolio/bootstrap.go:36-76,227-232`; `internal/actors/portfolio/runtime/subsystem.go:140-171,173-229`; `internal/core/portfolio/app/bootstrap_projector.go:10-133`. |
-| **IQ / bootstrap evidence** | Stage 4 runtime bootstrap chain tests PASS for execution-to-state projection. |
-| **Health checks** | `ownership_contract_*{subsystem="portfolio"}`, `bus_published_total{event_type="portfolio.state"}`. |
-
----
-
-### 10 — Store (History / Persistence)
+### 6 — Store (History / Persistence)
 
 | Field | Value |
 |---|---|
@@ -203,7 +125,7 @@ Dynamic exchange-level market-data subsystems use the key `marketdata:{exchange}
 
 ---
 
-### 11 — Server (HTTP / WS Gateway)
+### 7 — Server (HTTP / WS Gateway)
 
 | Field | Value |
 |---|---|
@@ -218,7 +140,7 @@ Dynamic exchange-level market-data subsystems use the key `marketdata:{exchange}
 
 ---
 
-### 12 — Client (Core/Platform/Widgets)
+### 8 — Client (Core/Platform/Widgets)
 
 > The client is an Odin/WASM application; it is not a Guardian-managed subsystem. It is documented here
 > for full data-path traceability.
@@ -240,45 +162,30 @@ Dynamic exchange-level market-data subsystems use the key `marketdata:{exchange}
 ## End-to-End Stream Traceability
 
 ```
-Exchange WS
+Exchange WS (6 venues)
     │
     ▼
-[MarketData] ──(marketdata.trade / bookdelta / markprice / liquidation)──►
-                                                                           │
-[Aggregation] ◄────────────────────────────────────────────────────────────┘
+[MarketData / cmd/consumer] ──(marketdata.trade / bookdelta / markprice / liquidation)──►
+                                                                                          │
+[Aggregation / cmd/processor] ◄───────────────────────────────────────────────────────────┘
     │
-    ├──(aggregation.tape)──────────────────────────────────────────┐
-    ├──(aggregation.candle / stats)────────────────────────────────┤
-    ├──(aggregation.snapshot v2)───────────────────────────────────┤
-    ├──(insights.heatmap_snapshot)─────────────────────────────────┤
-    └──(insights.volume_profile_snapshot)──────────────────────────┤
-                                                                    │
-[Evidence / LEL] ◄──(trades+bookdelta)                             │
-    │                                                               │
-    └──(liquidity.evidence)──►                                      │
-                              │                                     │
-              [Signal Engine]─┘                                     │
-                    │                                               │
-                    └──(signal.event)──────────────┐               │
-                                                   │               │
-                  [Strategy] (cmd/strategist) ◄────┘               │
-                    │                                               │
-                    └──(strategy.intent)───────────► [Execution]    │
-                                                  (cmd/executor)    │
-                                                  │                 │
-                                                  └──(execution.event)──► [Portfolio]
-                                                                     (cmd/portfolio)
-                                                                     │
-                                                                     └──(portfolio.state)────►┤
-                                                                    │
-                                                                    ▼
-                                                           [Delivery / Router]
-                                                                    │
-                                                     ┌──────────────┤
-                                                     │              │
-                                                  [Store]      [WS Session]
-                                               (persist +         │
-                                                range srv)    [Client WASM]
+    ├──(aggregation.tape)──────────────────────────────────────────────────────┐
+    ├──(aggregation.candle / stats)────────────────────────────────────────────┤
+    ├──(aggregation.snapshot v2)───────────────────────────────────────────────┤
+    ├──(insights.heatmap_snapshot)─────────────────────────────────────────────┤
+    ├──(insights.volume_profile_snapshot)──────────────────────────────────────┤
+    └──(trades+bookdelta)──► [Evidence / LEL]                                  │
+                                    │                                          │
+                                    └──(liquidity.evidence)────────────────────┤
+                                                                               │
+                                                                               ▼
+                                                                    [Delivery / cmd/server]
+                                                                               │
+                                                                  ┌────────────┤
+                                                                  │            │
+                                                              [Store]     [WS Session]
+                                                           (cmd/store)         │
+                                                                          [Client WASM]
 ```
 
 **IQ-validated coverage (baseline `2026-03-05T16:21:18Z`):**
@@ -287,28 +194,29 @@ Exchange WS
 |---|---|
 | `marketdata.trade → aggregation.tape → tape widget` | PASS |
 | `bookdelta → aggregation.snapshot v2 → DOM` | PASS |
-| `liquidity.evidence → signal.event → Evidence/Signal widget` | PASS |
+| `liquidity.evidence → Evidence widget` | PASS |
 | `stats/candle → price overlay` | PASS |
 
 ---
 
 ## Supervision Model (INV-TOPO-01)
 
-The Guardian (`internal/actors/runtime/guardian.go`) orchestrates all subsystems:
+The Guardian (`internal/actors/runtime/guardian.go`) orchestrates subsystems per binary:
 
 ```
-Engine
- └── Guardian (runtime.Guardian)
-      ├── Subsystem: marketdata
-      ├── Subsystem: aggregation
-      ├── Subsystem: delivery
-      ├── Subsystem: insights
-      ├── Subsystem: evidence
-      ├── Subsystem: signals
-      ├── Subsystem: strategy
-      ├── Subsystem: execution
-      ├── Subsystem: portfolio
-      └── Subsystem: storage
+cmd/consumer:
+  Engine → Guardian
+    ├── Subsystem: marketdata  (+ dynamic marketdata:{exchange} children)
+
+cmd/processor:
+  Engine → Guardian
+    ├── Subsystem: aggregation
+    ├── Subsystem: insights
+    └── Subsystem: evidence
+
+cmd/server:
+  Engine → Guardian
+    └── Subsystem: delivery
 ```
 
 **Restart policy** (`internal/actors/runtime/supervisor.go`):
@@ -329,23 +237,13 @@ Engine
 - `TOP-4` — Repeated restart cycles maintain goroutine stability (soak).
 - `TOP-5` — `Msg-ID` dedup on JetStream prevents double-delivery in dedup window.
 
-Authority: `docs/adrs/ADR-0018-actor-topology-supervision-model.md`, validated by
-`internal/actors/runtime/guardian_test.go:99,315,436`.
+Code anchor: `internal/actors/runtime/guardian_test.go:99,315,436`.
 
 ---
 
 ## Changelog
 
-- 2026-03-06: Stage 6 legacy retirement alignment.
-  Strategist intake is now canonical-only (`signal.event`), legacy `signal.composite` strategist path retired,
-  and execution boundary metadata (`execution_boundary` / `execution_adapter` / `execution_mode`) documented.
-- 2026-03-06: Stage 5 execution/portfolio hardening alignment.
-  Updated strategist cutover posture (canonical default, legacy opt-in),
-  executor deterministic rejection lifecycle policies, and portfolio lifecycle-aware projection semantics.
-- 2026-03-06: Stage 4 runtime bootstrap alignment.
-  Added `strategy`, `execution`, and `portfolio` subsystem ownership and runtime flow
-  (`signal.event -> strategy.intent -> execution.event -> portfolio.state`) while keeping
-  `signal.composite` explicitly transitional compatibility.
-- 2026-03-05: Initial creation as part of S16→S17 architecture documentation consolidation.
-  Sources: `docs/analysis/ARCHITECTURE-DOSSIER-S16-S17.md`, `internal/actors/runtime/protocol.go`,
-  `internal/actors/runtime/guardian.go`, IQ baseline `artifacts/20260305T160115Z`.
+- 2026-06-25: S9 legacy removal. Removed decision pipeline subsystems (Signals, Strategy, Execution, Portfolio)
+  from registry and responsibility table. Updated E2E diagram and supervision model to reflect post-cutover state.
+- 2026-03-05: Initial creation. Sources: `internal/actors/runtime/protocol.go`, `internal/actors/runtime/guardian.go`,
+  IQ baseline `artifacts/20260305T160115Z`.

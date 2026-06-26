@@ -7,8 +7,6 @@
   `docs/adrs/ADR-0015-deterministic-replay-time-invariants.md`,
   `docs/adrs/ADR-0014-stream-partitioning-strategy.md`,
   `docs/adrs/ADR-0018-actor-topology-supervision-model.md`,
-  `docs/analysis/s17-p2-policy-map.md`,
-  `docs/analysis/ARCHITECTURE-DOSSIER-S16-S17.md`,
   `docs/architecture/system-invariants.md`
 
 ---
@@ -69,7 +67,7 @@ Examples:
 - `marketdata.trade.v1.binance.BTCUSDT`
 - `aggregation.candle.v1.bybit.ETHUSDT`
 - `insights.heatmap_snapshot.v1.binance.BTCUSDT`
-- `signal.event.v1.binance.BTCUSDT`
+- `liquidity.evidence.v1.binance.BTCUSDT`
 
 Wildcard patterns used for consumer subscriptions:
 - `marketdata.>` — all marketdata events
@@ -91,20 +89,17 @@ Ownership is computed by a deterministic hash:
 ownerIndex = hash(salt(subsystem) | venue | instrument | channel | timeframe) % replicaCount
 ```
 
-**Subsystem salts are independent.** Delivery, Signal, and Strategist use different salts so
-each subsystem independently computes its owner without coordination.
+**Subsystem salts are independent.** Each active subsystem uses a different salt to compute ownership independently. Signal and Strategist constants remain defined in protocol.go but have no active actor implementations since S9.
 
 | Subsystem | Salt / Key | Policy file |
 |---|---|---|
 | Delivery | `SubsystemDelivery` | `internal/actors/delivery/runtime/router.go:718-730` |
-| Signal | `SubsystemSignals` | `internal/actors/signal/runtime/subsystem_owner_policy.go:71-77` |
-| Strategy / Strategist ownership salt | `SubsystemStrategist` | `internal/actors/strategy/runtime/subsystem.go:243`; legacy compatibility also remains in `internal/actors/signals/runtime/subsystem.go:371` |
 
 **Key invariant:** Non-owner replicas reject events with reason `owner_reject` and must not emit
 or mutate stream state. Double-emit is prevented by the combination of owner gating and monotonic
 dedup.
 
-Authority: `docs/analysis/s17-p2-policy-map.md`, `docs/adrs/ADR-0018-actor-topology-supervision-model.md`.
+Authority: `docs/architecture/system-invariants.md`, `docs/adrs/ADR-0018-actor-topology-supervision-model.md`.
 
 ---
 

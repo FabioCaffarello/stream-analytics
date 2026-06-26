@@ -1,4 +1,4 @@
-# Market Raccoon Client — Technical Roadmap (Phases 6.8 → 8.0)
+# Stream Analytics Client — Technical Roadmap (Phases 6.8 → 8.0)
 
 > **Owner:** Client Architecture Team
 > **Created:** 2026-02-21

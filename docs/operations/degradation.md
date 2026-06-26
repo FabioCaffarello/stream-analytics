@@ -179,4 +179,4 @@ warrant investigation.  Values < 0.9 are incidents.
 
 - [Local Development Guide](../local-dev.md) — service URLs, health checks, debug checklist
 - [Sharding Guide](sharding.md) — horizontal scaling of consumers
-- [Store Dashboard](../../deploy/observability/grafana/dashboards/store.json) — Grafana cold-path panels
+- [Store Dashboard](https://github.com/FabioCaffarello/stream-analytics/blob/main/deploy/observability/grafana/dashboards/store.json) — Grafana cold-path panels

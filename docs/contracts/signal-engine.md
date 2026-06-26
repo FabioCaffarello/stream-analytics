@@ -1,11 +1,13 @@
 # Signal Engine Contract
 
-**Status:** Active
+**Status:** Retired
 **Owner:** Signals
 **Last updated:** 2026-03-06
-**Relates to:** `docs/adrs/ADR-0023-frozen-semantic-model-feature-evidence-signal-intent-execution-portfolio.md`, `docs/contracts/canonical-market-model.md`, `docs/contracts/liquidity-evidence-layer.md`, `docs/contracts/strategy-execution-portfolio-contracts.md`, `proto/marketmodel/v1/market_event.proto`
+**Relates to:** `docs/contracts/canonical-market-model.md`, `docs/contracts/liquidity-evidence-layer.md`
 
 ---
+
+> **Retired in S9 (codex/s9-legacy-removal-cutover).** `cmd/signals` and all signal/signals/strategy actor packages were removed. The surviving liquidity signal equivalent is `docs/contracts/liquidity-evidence-layer.md`. This document is preserved as historical reference only — do not use it for new development.
 
 ## Purpose
 

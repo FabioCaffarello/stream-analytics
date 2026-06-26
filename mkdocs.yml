@@ -1,0 +1,115 @@
+site_name: Stream Analytics
+site_description: Real-time multi-exchange cryptocurrency market data platform — Go + Odin
+site_url: https://FabioCaffarello.github.io/stream-analytics/
+repo_url: https://github.com/FabioCaffarello/stream-analytics
+repo_name: FabioCaffarello/stream-analytics
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  icon:
+    repo: fontawesome/brands/github
+  font:
+    text: Roboto
+  palette:
+    - scheme: slate
+      primary: deep orange
+      accent: orange
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - scheme: default
+      primary: deep orange
+      accent: orange
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+  features:
+    - content.code.annotate
+    - content.code.copy
+    - content.action.edit
+    - announce.dismiss
+    - navigation.tracking
+    - navigation.sections
+    - navigation.instant
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.indexes
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - toc.follow
+
+plugins:
+  - search
+  - include-markdown
+  - gen-files:
+      scripts:
+        - scripts/docs/gen_doc_stubs.py
+  - literate-nav:
+      nav_file: SUMMARY.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+  - attr_list
+  - md_in_html
+
+extra_javascript:
+  - https://unpkg.com/mermaid@11/dist/mermaid.min.js
+  - assets/js/mermaid-init.js
+
+watch:
+  - docs/
+  - scripts/docs/
+
+docs_dir: docs
+site_dir: site
+
+not_in_nav: |
+  doc-contract-template.md
+  adrs/index.md
+  adrs/ADR-0000-foundation.md
+  adrs/ADR-0032-stream-reliability-model.md
+  adrs/ADR-0033-orderflow-domain-blueprint.md
+  adrs/ADR-0034-stream-health-recovery-completion.md
+  adrs/ADR-0035-orderflow-contract-architecture.md
+  architecture/AUTHORITY-MAP.md
+  architecture/TRUTH-MAP.md
+  architecture/decisions.md
+  architecture/diagrams/README.md
+  architecture/iq-loop-invariants.md
+  architecture/naming-rules.md
+  architecture/boundary-rules.md
+  architecture/workspace-schema.md
+  checklists/stage-review-checklist.md
+  client/client-roadmap-6.8-to-8.0.md
+  contracts/signal-engine.md
+  CONTRIBUTING.md
+  development-workflow.md
+  observability/slo.md
+  observability/runbooks/index.md
+  operations/cold-path-runbook.md
+  operations/backup-recovery.md
+  operations/degradation.md
+  operations/subminute-rollout.md
+  operations/shard-incidents.md
+  prds/moat.md
+  product-definition.md
+  rfcs/EXECUTION-SEQUENCE.md
+  testing-strategy.md
+  tooling.md

@@ -1,6 +1,6 @@
 # Local Development: Full Backend via Docker Compose
 
-Single source of truth for running the Market Raccoon backend locally. All other docs reference this file for setup; runbooks assume the stack described here is running.
+Single source of truth for running the Stream Analytics backend locally. All other docs reference this file for setup; runbooks assume the stack described here is running.
 
 ## Prerequisites
 
@@ -13,7 +13,7 @@ Single source of truth for running the Market Raccoon backend locally. All other
 | `promtool` (optional, for alert validation) | 2.50+ | `promtool --version` |
 | `jq` (optional, for operability checks) | 1.6+ | `jq --version` |
 
-Free ports required: `4222` (NATS), `5432` (TimescaleDB), fixed app ports `8080-8081` and `8083-8087`, one dynamic host port for `processor:8082`, `8123/9000` (ClickHouse), `8222` (NATS monitor), `9090` (Prometheus), `3000` (Grafana).
+Free ports required: `4222` (NATS), `5432` (TimescaleDB), fixed app ports `8080-8081`, `8083` (store), `8089` (validator), one dynamic host port for `processor:8082`, `8123/9000` (ClickHouse), `8222` (NATS monitor), `9090` (Prometheus), `3000` (Grafana), `19092` (Kafka host). Analytics profile: `8091` (Flink UI), `3001` (Metabase).
 
 ## Quick Start
 
@@ -23,7 +23,7 @@ make up
 
 # Or step by step:
 make up-infra    # NATS + TimescaleDB + ClickHouse + Prometheus + Grafana
-make up-core     # + consumer + processor + signals + strategist + executor + portfolio + server + store
+make up-core     # + consumer + processor + server + store + validator
 ```
 
 Wait ~30-60 s for all services to become healthy, then verify:
@@ -37,34 +37,30 @@ make ps          # all services should show "healthy" or "running"
 ```
  exchanges
     │
-    ▼
- consumer :8081  ──▶ marketdata.>
-    │
-    ▼
- processor :8082 ──▶ aggregation.>, insights.>
-    │
-    ▼
- signals :8084 ───▶ signal.event.>
-    │
-    ▼
- strategist :8085 ─▶ strategy.intent.>
-    │
-    ▼
- executor :8086  ──▶ execution.event.>
-    │
-    ▼
- portfolio :8087 ─▶ portfolio.state.>
-
- server :8080 subscribes to the canonical stream families for delivery/runtime APIs.
- store  :8083 persists cold-path snapshots into ClickHouse.
+    ├──▶ WebSocket feeds
+    │         │
+    ▼         │ [analytics path, best-effort]
+ consumer :8081 ──▶ NATS JetStream (marketdata.>)       └──▶ Kafka :9092
+    │                       │                                       │
+    │               processor :8082 ──▶ aggregation.>, insights.>  │
+    │                       │                    │           Flink SQL :8091
+    │                   store :8083              │               │
+    │                (ClickHouse cold)       server :8080    TimescaleDB
+    │                                     (WS delivery)    analytics schema
+    │                                                            │
+ validator :8089                                          Metabase :3001
+ (JetStream schema validation)                           (analytics profile)
 
  Infra:
  - NATS JetStream :4222 / :8222
+ - Kafka (Redpanda) :9092 / :19092
  - TimescaleDB    :5432
  - ClickHouse     :8123 / :9000
 
 Observability: Prometheus :9090 → scrapes runtime services configured in the local stack
                Grafana    :3000 → dashboards auto-provisioned
+
+Note: Kafka starts with every `make up`. Flink + Metabase require `--profile analytics` (see Analytics Profile section below).
 ```
 
 ## Service Endpoints
@@ -75,11 +71,10 @@ Observability: Prometheus :9090 → scrapes runtime services configured in the l
 | **consumer** | 8081 | `/healthz` | `/readyz` | `/metrics` |
 | **processor** | `docker compose port processor 8082` | `/healthz` | `/readyz` | `/metrics` |
 | **store** | 8083 | `/healthz` | `/readyz` | `/metrics` |
-| **signals** | 8084 | `/healthz` | `/readyz` | `/metrics` |
-| **strategist** | 8085 | `/healthz` | `/readyz` | `/metrics` |
-| **executor** | 8086 | `/healthz` | `/readyz` | `/metrics` |
-| **portfolio** | 8087 | `/healthz` | `/readyz` | `/metrics` |
+| **validator** | 8089 | `/healthz` | `/readyz` | — |
 | **NATS** | 4222 (client) / 8222 (monitor) | `http://127.0.0.1:8222/healthz` | — | — |
+| **Flink UI** | 8091 (analytics profile) | `http://127.0.0.1:8091/overview` | — | — |
+| **Metabase** | 3001 (analytics profile) | `http://127.0.0.1:3001/api/health` | — | — |
 | **TimescaleDB** | 5432 | `pg_isready -U raccoon -d raccoon` | — | — |
 | **ClickHouse** | 8123 (HTTP) / 9000 (native) | `http://127.0.0.1:8123/ping` | — | — |
 | **Prometheus** | 9090 | `http://127.0.0.1:9090/-/healthy` | — | — |
@@ -93,7 +88,6 @@ All app binaries also expose `/runtime/snapshot` (guardian state JSON) and `/run
 
 Source: `deploy/envs/local.env` — **never use these outside localhost**.
 
-The credential broker is not a standalone container in local compose. It is an in-process executor boundary. If you opt into `execution.mode=real_adapter_safe`, provide `MR_BINANCE_API_KEY` and `MR_BINANCE_API_SECRET` to the executor container environment.
 
 | Service | User | Password | Database |
 |---------|------|----------|----------|
@@ -113,10 +107,7 @@ curl -sf http://127.0.0.1:8080/readyz && echo "server: OK"
 curl -sf http://127.0.0.1:8081/readyz && echo "consumer: OK"
 curl -sf "${PROC_URL}/readyz" && echo "processor: OK"
 curl -sf http://127.0.0.1:8083/readyz && echo "store: OK"
-curl -sf http://127.0.0.1:8084/readyz && echo "signals: OK"
-curl -sf http://127.0.0.1:8085/readyz && echo "strategist: OK"
-curl -sf http://127.0.0.1:8086/readyz && echo "executor: OK"
-curl -sf http://127.0.0.1:8087/readyz && echo "portfolio: OK"
+curl -sf http://127.0.0.1:8089/readyz && echo "validator: OK"
 
 # 2. Infra healthy
 curl -sf http://127.0.0.1:8222/healthz  && echo "nats: OK"
@@ -133,19 +124,13 @@ curl -s http://127.0.0.1:8081/metrics | grep ingest_messages_total
 # 5. Processor is aggregating
 curl -s "${PROC_URL}/metrics" | grep orderbook_update_total
 
-# 6. Signals / strategist / executor / portfolio are alive on the canonical runtime boundary
-curl -s http://127.0.0.1:8084/metrics | grep signal
-curl -s http://127.0.0.1:8085/metrics | grep strategy
-curl -s http://127.0.0.1:8086/runtime/snapshot | jq .
-curl -s http://127.0.0.1:8087/runtime/snapshot | jq .
-
-# 7. Store is committing to ClickHouse
+# 6. Store is committing to ClickHouse
 curl -s http://127.0.0.1:8083/metrics | grep store_commit_total
 
-# 8. ClickHouse has tables
+# 7. ClickHouse has tables
 curl -s 'http://127.0.0.1:8123/?query=SHOW+TABLES+FROM+default' | grep aggregation
 
-# 9. WS delivery accepts connections
+# 8. WS delivery accepts connections
 # (requires a valid API key — see deploy/configs/server.jsonc ws.auth.api_keys)
 ```
 
@@ -177,31 +162,35 @@ curl -s "${PROC_URL}/metrics" | grep -E 'orderbook_update_total|candle_|stats_|c
 
 Filter subjects default to `marketdata.>` (all event types). Override in `deploy/configs/processor.jsonc` under `jetstream.filter_subjects`.
 
-### Signals, Strategist, Executor, Portfolio
+### Validator (schema validation)
 
 ```bash
-curl -sf http://127.0.0.1:8084/readyz && echo "signals ready"
-curl -sf http://127.0.0.1:8085/readyz && echo "strategist ready"
-curl -sf http://127.0.0.1:8086/readyz && echo "executor ready"
-curl -sf http://127.0.0.1:8087/readyz && echo "portfolio ready"
+# Readiness — 200 means JetStream consumer connected and ready
+curl -sf http://127.0.0.1:8089/readyz && echo "validator: OK"
 
-curl -s http://127.0.0.1:8084/runtime/snapshot | jq .
-curl -s http://127.0.0.1:8085/runtime/snapshot | jq .
-curl -s http://127.0.0.1:8086/runtime/snapshot | jq .
-curl -s http://127.0.0.1:8087/runtime/snapshot | jq .
+# Key metrics
+curl -s http://127.0.0.1:8089/metrics | grep -E 'dataplane_validation'
 ```
 
-Default execution posture is fail-closed:
+JetStream consumer durable: `validator-v1`. Filter subjects: `dataplane.message.>`. See [`docs/operations/validator.md`](operations/validator.md) for full contract.
 
-- `execution.mode=bootstrap_simulated`
-- `execution.safe_mode=true`
-- `execution.trade_only=true`
-- `execution.real.enabled=false`
+### Analytics Pipeline (requires `--profile analytics`)
 
-Switch to `real_adapter_safe` only when you also provide the broker-backed env vars consumed by `deploy/configs/executor.jsonc`:
+```bash
+# Start analytics profile (Flink + Metabase)
+make up-analytics
 
-- `MR_BINANCE_API_KEY`
-- `MR_BINANCE_API_SECRET`
+# Check Flink jobmanager
+curl -s http://127.0.0.1:8091/overview | jq .taskmanagers
+
+# Check Metabase health
+curl -sf http://127.0.0.1:3001/api/health && echo "metabase: OK"
+
+# Check TimescaleDB analytics schema is populated
+psql -h 127.0.0.1 -U raccoon -d raccoon -c "SELECT count(*) FROM analytics.fact_trades;"
+```
+
+See [`docs/architecture/analytics-pipeline.md`](architecture/analytics-pipeline.md) for full pipeline documentation.
 
 ### Server (WS delivery)
 
@@ -241,6 +230,7 @@ JetStream durable: `store-v2`. Filter subjects: `aggregation.snapshot.v1.>`, `ag
 | `make ps` | Show compose service status |
 | `make logs` | Tail all compose logs |
 | `make docker-build` | Build images without starting |
+| `make up-analytics` | Start infra + core + analytics profile (Flink + Metabase) |
 | `make dev-scale-smoke N=3` | Scale processor to N replicas with shard evidence |
 
 ## Sharding (multi-processor)
@@ -279,7 +269,7 @@ ClickHouse auto-init runs `sql/clickhouse/migrations/*.sql` only on first volume
 
 ```bash
 make down                                                        # stop + remove volumes
-docker volume rm market-raccoon-clickhouse-data || true          # force-remove data volume
+docker volume rm stream-analytics-clickhouse-data || true          # force-remove data volume
 make up                                                          # reinit from scratch
 ```
 
@@ -288,7 +278,7 @@ make up                                                          # reinit from s
 Same pattern — init scripts in `sql/timescale/migrations/` run only on first `docker-entrypoint-initdb.d` mount:
 
 ```bash
-docker volume rm market-raccoon-timescale-data || true
+docker volume rm stream-analytics-timescale-data || true
 make up
 ```
 
@@ -297,7 +287,7 @@ make up
 If a port is already in use, compose fails at startup. Check:
 
 ```bash
-lsof -i :4222 -i :5432 -i :8080 -i :8081 -i :8082 -i :8083 -i :8123 -i :9000 -i :9090 -i :3000
+lsof -i :4222 -i :5432 -i :8080 -i :8081 -i :8082 -i :8083 -i :8089 -i :8123 -i :9000 -i :9090 -i :3000
 ```
 
 All ports bind to `127.0.0.1` (loopback only). Kill the conflicting process or adjust ports in `deploy/compose/docker-compose.yml`.
@@ -324,7 +314,7 @@ If Grafana logs "can't read dashboard provisioning files":
 curl -s http://127.0.0.1:9090/api/v1/targets | jq '.data.activeTargets[] | {job: .labels.job, health: .health}'
 ```
 
-If targets show `down`, check that the app containers are on the `market-raccoon-network` and that Prometheus config (`deploy/observability/prometheus/prometheus.yml`) references the correct container names.
+If targets show `down`, check that the app containers are on the `stream-analytics-network` and that Prometheus config (`deploy/observability/prometheus/prometheus.yml`) references the correct container names.
 
 ### Full reset
 
@@ -332,8 +322,8 @@ When state is inconsistent and targeted fixes don't help:
 
 ```bash
 make down
-docker volume rm market-raccoon-clickhouse-data market-raccoon-timescale-data \
-  market-raccoon-nats-data market-raccoon-prometheus-data market-raccoon-grafana-data 2>/dev/null || true
+docker volume rm stream-analytics-clickhouse-data stream-analytics-timescale-data \
+  stream-analytics-nats-data stream-analytics-prometheus-data stream-analytics-grafana-data 2>/dev/null || true
 make up
 ```
 
@@ -385,5 +375,4 @@ When `enable_crossvenue_join` is true, the `join_trades_subject` is automaticall
 - [Degradation Contract](operations/degradation.md) — ClickHouse failure propagation and mitigation
 - [Sharding Guide](operations/sharding.md) — horizontal scaling of processors
 - [Shard Incidents](operations/shard-incidents.md) — shard-related alert playbooks
-- [Observability Runbooks](observability/runbooks/) — per-subsystem incident response (all assume this stack is running)
-- [SLO Definitions](observability/slo.md) — SLO targets and PromQL expressions
+- [Cold-Path Runbook](operations/cold-path-runbook.md) — per-subsystem incident response (all assume this stack is running)

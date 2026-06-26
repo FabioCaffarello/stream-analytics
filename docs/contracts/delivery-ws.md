@@ -2,12 +2,12 @@
 
 **Status:** Active
 **Owner:** Product Architect
-**Last updated:** 2026-03-06
+**Last updated:** 2026-06-25
 **Relates to:** `docs/adrs/ADR-0002-event-envelope-and-versioning.md`, `docs/adrs/ADR-0007-delivery-ws-sessions.md`, `docs/adrs/ADR-0013-backpressure-overload-policies.md`, `docs/adrs/ADR-0014-stream-partitioning-strategy.md`, `docs/contracts/event-bus.md`, `docs/rfcs/RFC-0003-W2-DELIVERY-BC.md`
 
 ## Purpose
 
-Define WS delivery contract for marketdata/aggregation/insights streams plus the canonical lifecycle streams (`signal.event`, `strategy.intent`, `execution.event`, `portfolio.state`) with explicit separation between current behavior and planned parity extensions.
+Define WS delivery contract for marketdata/aggregation/insights streams with explicit separation between current behavior and planned parity extensions.
 
 ## Terminology (canonical)
 
@@ -31,10 +31,6 @@ Accepted delivery router inputs:
 - `insights.crossvenue.trade_snapshot.v1.global.{instrument}`
 - `insights.crossvenue.spread_signal.v1.global.{instrument}`
 - `insights.microstructure_evidence.v1.{venue}.{instrument}`
-- `signal.event.v1.{venue}.{instrument}`
-- `strategy.intent.v1.{venue}.{instrument}`
-- `execution.event.v1.{venue}.{instrument}`
-- `portfolio.state.v1.{venue}.{instrument}`
 - `aggregation.snapshot.v1.{venue}.{instrument}`
 - `aggregation.candle.v1.{venue}.{instrument}`
 - `aggregation.stats.v1.{venue}.{instrument}`
@@ -56,10 +52,6 @@ Examples:
 - `aggregation.candle/binance/BTCUSDT/1m`
 - `aggregation.stats/binance/BTCUSDT/raw`
 - `insights.heatmap_snapshot/binance/BTCUSDT/1m`
-- `signal/regime_change/binance/BTCUSDT/raw`
-- `strategy.intent/binance/BTCUSDT/raw`
-- `execution.event/binance/BTCUSDT/raw`
-- `portfolio.state/binance/BTCUSDT/raw`
 
 Proto rollout is controlled by config (`proto_rollout.*`) and can be refreshed with `POST /runtime/reload`.
 - `proto_rollout.marketdata.trade`
@@ -69,10 +61,6 @@ Proto rollout is controlled by config (`proto_rollout.*`) and can be refreshed w
 - `proto_rollout.aggregation.candle|stats|snapshot`
 - `proto_rollout.insights.volume_profile|heatmap|crossvenue`
 - default for all flags is disabled (`false`), so rollout-controlled streams stay on JSON unless explicitly enabled.
-
-Lifecycle stream note:
-- `strategy.intent`, `execution.event`, and `portfolio.state` are routable through delivery for observability and audit use cases.
-- Durable storage/read APIs for those streams are not wired yet; do not infer cold-path support from WS delivery support.
 
 ## Contracts
 
@@ -635,3 +623,69 @@ TODO hooks (skeleton):
   - Mitigation: structured error response without panic and keep session alive.
 - upstream ack-on-enqueue drift:
   - Mitigation: enforce ack-on-commit before delivery stage.
+
+---
+
+## Message Type Catalogue
+
+Complete inventory of WS frame types and their direction.
+
+### Client → Server frames (commands)
+
+| Frame `type` | Required fields | Optional fields | Description |
+|--------------|-----------------|-----------------|-------------|
+| `hello` | `proto_ver` | `features[]`, `client_id` | Capability handshake; must be first frame (Hello gate) |
+| `subscribe` | `subject` | `timeframe`, `venue`, `symbol` | Subscribe to a stream |
+| `unsubscribe` | `subject` | — | Unsubscribe from a stream |
+| `getrange` | `subject`, `from_ms` | `to_ms` (default: now), `limit` | Historical range query |
+| `resync` | `subject` | `from_seq` | Resync a stream from a specific sequence number |
+| `ping` | — | `correlation_id` | Keep-alive / latency probe |
+
+### Server → Client frames (events/responses)
+
+| Frame `type` | Required fields | Optional fields | Description |
+|--------------|-----------------|-----------------|-------------|
+| `hello_ack` | `proto_ver`, `features[]` | `session_id`, `server_time_ms` | Server capability response to `hello` |
+| `subscribe_ack` | `subject` | `snapshot` (initial snapshot if available) | Confirms subscription; may carry initial snapshot |
+| `unsubscribe_ack` | `subject` | — | Confirms unsubscription |
+| `event` | `type`, `subject`, `seq`, `prev_seq`, `payload` | `ts_exchange_ms`, `ts_ingest_ms` | Live event envelope delivery |
+| `snapshot` | `subject`, `seq`, `payload` | `ts_ms`, `hash` | Full snapshot for backfill or resync response |
+| `range` | `subject`, `envelopes[]` | `truncated`, `next_from_ms` | Response to `getrange`; may be paginated |
+| `resync_ack` | `subject`, `from_seq` | `watermark_seq` | Confirms resync; client should discard buffered events before `from_seq` |
+| `pong` | — | `correlation_id`, `server_time_ms` | Response to `ping` |
+| `error` | `code`, `message` | `subject`, `correlation_id` | Structured error; session stays alive |
+
+### Error Codes
+
+| Code | Meaning |
+|------|---------|
+| `HELLO_REQUIRED` | Non-hello frame received before hello handshake complete |
+| `UNKNOWN_COMMAND` | Unrecognized frame `type` |
+| `INVALID_SUBJECT` | Subject does not match the canonical format |
+| `SUBSCRIPTION_LIMIT` | Client has reached the maximum subscription count |
+| `RANGE_TOO_LARGE` | `getrange` window exceeds `delivery.range_max_ms` |
+| `INTERNAL_ERROR` | Unhandled server-side error (session stays alive) |
+
+---
+
+## Supported Features Enum
+
+Features are negotiated during the `hello`/`hello_ack` exchange. The client declares which
+features it supports; the server echoes back only the features it will use.
+
+| Feature token | Direction | Description |
+|---------------|-----------|-------------|
+| `batching` | Client → Server | Client accepts batched `event` frames (multiple envelopes in one WS message) |
+| `snapshot_hash` | Server → Client | Server will include a `hash` field in `snapshot` frames for integrity checks |
+| `prev_seq` | Server → Client | Server enforces the `prev_seq` chain invariant on all `event` frames |
+| `metrics` | Client → Server | Client accepts unsolicited `metrics` frames with session telemetry |
+
+**Current supported set (Terminal_V1):** `prev_seq`, `snapshot_hash`.
+
+---
+
+## Client Compatibility Matrix
+
+| Protocol | `proto_ver` | Features | Status |
+|----------|------------|----------|--------|
+| Terminal_V1 | `1` | `prev_seq`, `snapshot_hash` | **Active** — current production protocol |

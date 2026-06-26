@@ -1,16 +1,16 @@
 # Architecture Overview
 
-**Status:** Active | **Last updated:** 2026-03-10
+**Status:** Active | **Last updated:** 2026-06-25
 
 ---
 
-## What Market Raccoon Is
+## What Stream Analytics Is
 
-Market Raccoon is a real-time, multi-exchange cryptocurrency market data platform with an integrated operational cockpit. It ingests, normalizes, aggregates, and visualizes live market data across 6 exchanges with sub-millisecond latency.
+Stream Analytics is a real-time, multi-exchange cryptocurrency market data platform with an integrated operational cockpit. It ingests, normalizes, aggregates, and visualizes live market data across 6 exchanges with sub-millisecond latency.
 
 The system has two halves:
 
-- **Backend (Go, ~131K LOC):** Actor-supervised pipeline that consumes exchange WebSocket feeds, normalizes events into canonical envelopes, builds aggregated read models, and delivers them over WebSocket and HTTP. 12 bounded contexts, 10 actor subsystems, NATS JetStream event bus, TimescaleDB + ClickHouse storage. Execution framework behind a fail-closed governance boundary.
+- **Backend (Go, ~131K LOC):** Actor-supervised pipeline that consumes exchange WebSocket feeds, normalizes events into canonical envelopes, builds aggregated read models, and delivers them over WebSocket and HTTP. 7 active service binaries, NATS JetStream event bus, TimescaleDB + ClickHouse storage. A parallel best-effort analytics path (Kafka → Flink SQL → TimescaleDB analytics schema → Metabase) provides BI dashboards without touching the primary NATS path.
 
 - **Client (Odin, ~30K LOC):** Cross-platform operational cockpit (WASM + native). 13 widget types, 8 indicators, 3 subplot analytics, orderflow visualization, workspace split-tree with compare mode, and a 5-layer stream health pipeline with operator-visible reliability signals.
 
@@ -50,6 +50,25 @@ Runtime orchestration uses Hollywood actors. A Guardian supervision tree manages
 
 ---
 
+## Architecture Diagrams
+
+Visual diagrams complement the text below. See [`diagrams/`](diagrams/README.md) for the full index.
+
+| Diagram | Quick link |
+|---------|-----------|
+| C4 System Context | [c4-context.md](diagrams/c4-context.md) |
+| C4 Container Map | [c4-containers.md](diagrams/c4-containers.md) |
+| C4 Analytics Profile | [c4-analytics.md](diagrams/c4-analytics.md) |
+| Actor Supervision Tree | [actor-supervision-tree.md](diagrams/actor-supervision-tree.md) |
+| Sequence: Live Data Ingestion | [sequence-live-ingestion.md](diagrams/sequence-live-ingestion.md) |
+| Sequence: Analytics Pipeline | [sequence-analytics-pipeline.md](diagrams/sequence-analytics-pipeline.md) |
+| Sequence: Client Session Protocol | [sequence-client-session.md](diagrams/sequence-client-session.md) |
+| Sequence: Storage Federation | [sequence-storage-federation.md](diagrams/sequence-storage-federation.md) |
+| Sequence: Evidence / LEL | [sequence-evidence-lel.md](diagrams/sequence-evidence-lel.md) |
+| Sequence: Exchange Recovery | [sequence-exchange-recovery.md](diagrams/sequence-exchange-recovery.md) |
+
+---
+
 ## Backend Architecture
 
 ### Layer Hierarchy
@@ -85,16 +104,11 @@ Layer isolation is enforced by `make invariants-check`.
 | **Storage** | `core/storage` (via adapters) | Persist aggregated events; serve historical queries from TimescaleDB (hot) and ClickHouse (cold) |
 | **MarketModel** | `core/marketmodel` | Instrument metadata and market type definitions |
 
-#### Decision Pipeline (intent-driven, fail-closed)
+#### Evidence
 
 | Context | Module | Responsibility |
 |---|---|---|
 | **Evidence** | `core/evidence` | Stateful liquidity evidence detection with multi-replica ownership by stream hash |
-| **Signal** | `core/signal` | Deterministic rules + rate limiting. Consumes evidence, emits `signal.event` |
-| **Signals** | `core/signals` | Composition engine. Combines atomic signals via regime and cross-venue rules |
-| **Strategy** | `core/strategy` | Intent planner. Consumes `signal.event`, emits `strategy.intent` |
-| **Execution** | `core/execution` | Governed executor with fail-closed FSM (4 states, 10 commands). Credential brokering |
-| **Portfolio** | `core/portfolio` | Projector. Consumes `execution.event`, projects `portfolio.state` with provenance |
 
 #### Cross-Cutting
 
@@ -139,57 +153,44 @@ Layer isolation is enforced by `make invariants-check`.
 Exchange WS (6 venues)
     │
     ▼
-[Consumer / MarketData] ──(marketdata.*)──────────────────────────────►
-                                                                        │
-[Processor / Aggregation] ◄─────────────────────────────────────────────┘
-    │
-    ├──(aggregation.snapshot / candle / stats / tape)───────────────────┐
-    ├──(insights.heatmap_snapshot / volume_profile_snapshot)────────────┤
-    └──(trades+bookdelta)──► [Evidence / LEL] ──► [Signal Engine]      │
-                                                        │              │
-                                              (signal.event)           │
-                                                        │              │
-                                                  [Strategy]           │
-                                                        │              │
-                                              (strategy.intent)        │
-                                                        │              │
-                                                  [Execution]          │
-                                                        │              │
-                                              (execution.event)        │
-                                                        │              │
-                                                  [Portfolio]          │
-                                                        │              │
-                                              (portfolio.state)────────┤
-                                                                       │
-                                                                       ▼
-                                                              [Delivery / Router]
-                                                                   │        │
-                                                                [Store]  [WS Session]
+[Consumer / MarketData] ──(marketdata.*)──────────────────────────────────►
                                                                             │
-                                                                      [Client]
+[Processor / Aggregation] ◄──────────────────────────────────────────────────┘
+    │
+    ├──(aggregation.snapshot / candle / stats / tape)───────────────────────┐
+    ├──(insights.heatmap_snapshot / volume_profile_snapshot)────────────────┤
+    └──(trades+bookdelta)──► [Evidence / LEL]                               │
+                                    │                                       │
+                                    └──(liquidity.evidence)─────────────────┤
+                                                                            │
+                                                                            ▼
+                                                                   [Delivery / Router]
+                                                                        │        │
+                                                                     [Store]  [WS Session]
+                                                                                  │
+                                                                            [Client]
 ```
-
-Canonical decision chain: `signal.event → strategy.intent → execution.event → portfolio.state`
 
 ### Runtime Model
 
 #### Guardian Supervision Tree
 
-The Guardian (`internal/actors/runtime/guardian.go`) manages 10 subsystems in canonical order:
+The Guardian (`internal/actors/runtime/guardian.go`) orchestrates subsystems per binary:
 
 ```
-Engine
- └── Guardian
-      ├── 1. MarketData        (+ dynamic per-exchange children)
-      ├── 2. Aggregation
-      ├── 3. Delivery
-      ├── 4. Insights
-      ├── 5. Evidence
-      ├── 6. Signals
-      ├── 7. Strategy
-      ├── 8. Execution
-      ├── 9. Portfolio
-      └── 10. Storage
+cmd/consumer:
+  Engine → Guardian
+    └── MarketData  (+ dynamic per-exchange children)
+
+cmd/processor:
+  Engine → Guardian
+    ├── Aggregation
+    ├── Insights
+    └── Evidence
+
+cmd/server:
+  Engine → Guardian
+    └── Delivery
 ```
 
 **Supervision policy:** BaseBackoff 250ms, MaxBackoff 5s, RestartWindow 30s, RestartLimit 5/window, Cooldown 30s. Global restart limit: 5 per minute.
@@ -209,29 +210,28 @@ Request:  engine.Request(pid, Query{}) with ReplyTo fallback to c.Sender()
 
 ### Service Entrypoints
 
-11 binaries in `cmd/`:
+7 binaries in `cmd/`:
 
 | Binary | Role |
 |---|---|
-| `consumer` | Exchange → NATS ingester |
-| `processor` | NATS → Aggregation pipeline |
+| `consumer` | Exchange WebSocket → NATS JetStream ingester |
+| `processor` | NATS → Aggregation pipeline (candles, orderbook, stats, tape, heatmaps, VPVR, evidence) |
 | `server` | HTTP + WS gateway |
-| `store` | Storage lifecycle manager |
-| `signals` | Signal engine |
-| `strategist` | Intent planner |
-| `executor` | Trade execution |
-| `portfolio` | Portfolio projector |
-| `backfill` | Historical data loading |
+| `store` | Storage lifecycle manager (TimescaleDB + ClickHouse) |
 | `migrate` | Database migrations (Goose) |
-| `credentials-broker` | Credential management |
+| `emulator` | Test event emitter for Kafka/NATS scenarios |
+| `validator` | JetStream event validator with HTTP healthcheck endpoint |
 
 ### Infrastructure
 
 | Component | Technology | Purpose |
 |---|---|---|
 | Event Bus | NATS JetStream | Versioned envelope transport, at-least-once delivery |
-| Hot Storage | TimescaleDB (PG16) | Recent data (7 days), range queries, idempotent upserts |
-| Cold Storage | ClickHouse 24.8.8 | Historical archive, analytical queries |
+| Analytics Bus | Kafka (Redpanda v24.2.13) | Best-effort analytics path; topics: market.trades, market.orderbook |
+| Flink Pipeline | Apache Flink 1.19 | Tumbling window SQL jobs (1m/5m/15m/1h OHLCV; 5m volume stats; trade tape) |
+| Hot Storage | TimescaleDB (PG16) | Recent data (7 days), range queries, idempotent upserts + analytics schema |
+| Cold Storage | ClickHouse 24.8.8 | Historical archive, analytical queries (90-day aggregation_*_cold tables) |
+| BI Dashboards | Metabase v0.52.2 | Analytics profile; 11 views over TimescaleDB analytics schema |
 | Actor Runtime | Hollywood v1.0.5 | Supervision, concurrency, message passing |
 | Observability | Prometheus (100+ metrics), Grafana (5 dashboards), 13 alerts | Monitoring |
 | Migrations | Goose | Schema evolution for TimescaleDB + ClickHouse |
@@ -363,19 +363,15 @@ Client-side per-stream stores: DOM_Store (512 levels), Footprint_Store (200 cand
 ## Module Structure
 
 ```
-market-raccoon/
-├── cmd/                          # 11 service entrypoints
+stream-analytics/
+├── cmd/                          # 7 service entrypoints
 │   ├── consumer/                 # Exchange → Event Bus ingester
-│   ├── processor/                # Event Bus → Aggregation pipeline
+│   ├── processor/                # Event Bus → Aggregation + Evidence pipeline
 │   ├── server/                   # HTTP + WS gateway
 │   ├── store/                    # Storage lifecycle
-│   ├── signals/                  # Signal engine
-│   ├── strategist/               # Intent planner
-│   ├── executor/                 # Trade execution
-│   ├── portfolio/                # Portfolio projector
-│   ├── backfill/                 # Historical data loading
 │   ├── migrate/                  # Database migrations
-│   └── credentials-broker/       # Credential management
+│   ├── emulator/                 # Test event emitter (Kafka/NATS)
+│   └── validator/                # JetStream event validator
 ├── internal/
 │   ├── shared/                   # Foundation (24 packages)
 │   ├── core/                     # Bounded contexts (hexagonal)
@@ -385,18 +381,13 @@ market-raccoon/
 │   │   ├── delivery/             #   domain/ + app/ + ports/
 │   │   ├── insights/             #   domain/ + app/ + ports/
 │   │   ├── evidence/             #   domain/ + app/ + ports/
-│   │   ├── signal/               #   atomic detection engine
-│   │   ├── signals/              #   composition engine
-│   │   ├── strategy/             #   domain/ + app/ + ports/
-│   │   ├── execution/            #   domain/ + app/ + governance/
-│   │   ├── portfolio/            #   domain/ + app/ + ports/
 │   │   └── workspace/            #   schema management
 │   ├── adapters/                 # Infrastructure implementations
 │   │   ├── exchange/             #   6 exchange adapters + common
 │   │   ├── bus/                  #   InMemoryBus
 │   │   ├── jetstream/            #   NATS JetStream
-│   │   ├── storage/              #   TimescaleDB + ClickHouse
-│   │   └── execution/            #   Binance safe adapter + credentials broker
+│   │   ├── kafka/                #   Kafka adapter
+│   │   └── storage/              #   TimescaleDB + ClickHouse
 │   ├── actors/                   # Hollywood actor subsystems
 │   └── interfaces/               # HTTP server + WS server
 ├── client/                       # Odin UI (WASM + native)

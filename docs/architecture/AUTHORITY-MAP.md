@@ -1,6 +1,6 @@
 # Authority Map
 
-**Status:** Active | **Date:** 2026-03-10 | **Version:** 4
+**Status:** Active | **Date:** 2026-06-25 | **Version:** 5
 
 ---
 
@@ -19,32 +19,7 @@ T4 Historical ─── past records, never governs
 
 ## T1 — Canonical (Source of Truth)
 
-Code must conform to T1 documents. Changes require ADR, PRD update, or contract revision.
-
-### ADRs (36 total) — `docs/adrs/ADR-NNNN-*.md`
-
-Why this approach? What alternatives were rejected?
-
-| Range | Domain |
-|-------|--------|
-| 0000–0020 | Foundation, bounded contexts, runtime, storage, bus, config, exchanges, lifecycle, backpressure, sequencing, replay, supervision, GitOps |
-| 0021–0023 | Signals-strategist cutover, Odin action pipeline, frozen semantic model |
-| 0024–0031 | Dashboard & workspace: architecture, split-tree, pane runtime, widget host, data context, migration, operating model |
-| 0032–0035 | Stream health & orderflow: reliability model, orderflow blueprint, health recovery, orderflow contracts |
-
-### PRDs (5 total) — `docs/prds/PRD-NNNN-*.md`
-
-What must be true? What are the acceptance criteria?
-
-| PRD | Scope | Status |
-|-----|-------|--------|
-| 0001 | Program baseline: SLOs, invariants | Implemented |
-| 0002 | Backend stable + Odin-ready acceptance | Implemented |
-| 0003 | MarketMonkey backend parity (M1–M7) | Validated |
-| 0004 | Backend evolution — production hardening | Draft |
-| 0006 | Client evolution — MM parity | Partially Implemented |
-
-**PRD vs ADR:** PRDs win on scope ("what"), ADRs win on mechanism ("how").
+Code must conform to T1 documents. Changes require a contract revision or explicit architecture update.
 
 ### Wire Contracts — `docs/contracts/`
 
@@ -58,7 +33,9 @@ Machine-enforceable truth. What goes on the wire?
 | `boundedness-matrix.md` | Resource limits per subsystem |
 | `canonical-market-model.md` | CMM field definitions |
 | `liquidity-evidence-layer.md` | LEL rule contracts |
-| `signal-engine.md` | Signal engine contract |
+| `signal-engine.md` | Signal engine contract (**Retired S9** — see T4) |
+| `analytics-pipeline.md` | Kafka→Flink→TimescaleDB wire contract (Kafka JSON schema + Flink sink schema) |
+| `workspace-schema.md` | Workspace persistence schema (MaxSchemaVersion, fingerprint algorithm) |
 
 ### Architecture Docs (structural)
 
@@ -71,7 +48,6 @@ How does the system work? These define structure, not wire formats.
 | `architecture/system-invariants.md` | INV-* rules (CI: `make invariants-check`) |
 | `architecture/sequencing-model.md` | Ordering guarantees, DecideMonotonic |
 | `architecture/iq-loop-invariants.md` | IQ1–IQ10 execution properties |
-| `architecture/decisions.md` | ADR + RFC index |
 | `architecture/TRUTH-MAP.md` | Per-theme source of truth with code anchors |
 | `architecture/AUTHORITY-MAP.md` | This file |
 
@@ -94,11 +70,9 @@ How to run, develop, test. Updated in-place by any contributor. Does not define 
 | Dev setup | `local-dev.md`, `tooling.md`, `development-workflow.md`, `CONTRIBUTING.md` |
 | Testing | `testing-strategy.md` |
 | Product | `product-definition.md` |
-| Observability | `observability/slo.md`, `observability/metrics-policy.md`, `observability/runbooks/*.md` |
-| Operations | `operations/sharding.md`, `operations/cold-path-runbook.md`, `operations/backup-recovery.md`, `operations/degradation.md`, `operations/subminute-rollout.md` |
-| Runbooks | `runbooks/*.md` |
+| Operations | `operations/sharding.md`, `operations/cold-path-runbook.md`, `operations/backup-recovery.md`, `operations/degradation.md`, `operations/subminute-rollout.md`, `operations/shard-incidents.md`, `operations/emulator.md`, `operations/validator.md` |
 | Alerts | `deploy/observability/prometheus/*.yml` |
-| Domain detail | `architecture/{orderbook,candle-aggregation,stats-aggregation,heatmap,volume-profiles,liquidations-markprice,storage,insights}.md` |
+| Domain detail | `architecture/{orderbook,candle-aggregation,stats-aggregation,heatmap,volume-profiles,liquidations-markprice,storage,metrics-catalogue}.md` |
 | Templates | `doc-contract-template.md` |
 
 Domain detail docs describe implementation that is governed by T1 (subsystems.md + ADRs).
@@ -111,30 +85,23 @@ Not yet binding. Consult for direction, do not treat as canonical.
 
 | Document | Scope | Status |
 |----------|-------|--------|
-| RFC-0012 | Client multi-exchange evolution | Draft (partially superseded) |
-| RFC-0013 | Client hardening blueprint | Draft (partially superseded) |
-| RFC-0015 | Backend sub-minute hardening | Draft |
 | `prds/moat.md` | Competitive analysis | Reference |
 
-Path: `docs/rfcs/RFC-NNNN-*.md`
-
-**Promotion:** RFC accepted + implemented → capture in ADR (T1) → RFC moves to T4.
+**Promotion:** Proposal accepted + implemented → capture in architecture doc (T1) → moves to T4.
 
 ---
 
 ## T4 — Historical
 
-Past records. **Never consulted for future decisions.** Append-only.
+Past records. **Never consulted for future decisions.**
 
-| Category | Location | Count |
-|----------|----------|-------|
-| Stage reports | `docs/stages/` (S010–S158) | 135 |
-| Current audits | `docs/audits/*-2026-03-10.md` | 7 |
-| Superseded audits | `AUDIT-PACK-W11`, `DRIFT-REPORT-W11`, etc. | — |
-| Retired RFCs | RFC-0001–0011, RFC-0014, `EXECUTION-SEQUENCE.md` | — |
-| Retired docs | `client-roadmap-6.8-to-8.0.md`, `ingestion.md`, `insights.md`, `rfcs/archive/*` | — |
+| Category | Notes |
+|----------|-------|
+| Stage planning docs (stage1–stage9b) | Removed from repo; described completed work phases |
+| Retired docs | `client-roadmap-6.8-to-8.0.md`, `ingestion.md`, `decisions.md`, `insights.md`, `signal-engine.md` (cmd/signals removed in S9) |
+| Retired operations | `signals-strategist-cutover.md` (topology no longer exists) |
 
-Stage reports are delivery receipts. Audits are point-in-time snapshots. Neither governs.
+Stage planning docs and runbooks for retired subsystems are not in the repo. They described work that is now part of the live codebase.
 
 ---
 
@@ -178,12 +145,8 @@ If unsure: default to T4. It's easy to promote; hard to demote.
 
 | I need to know... | Go to |
 |-------------------|-------|
-| Why a decision was made | ADR (T1) |
-| What the product must do | PRD (T1) |
 | What goes on the wire | Contract (T1) |
 | How the system is structured | Architecture doc (T1) |
+| Which doc owns a theme | TRUTH-MAP (T1) |
 | How to set up / operate | Operational doc (T2) |
-| What's being proposed | RFC (T3) |
-| What happened in stage N | Stage report (T4) |
-| Current system health | Latest audit (T4) |
-| Who owns a topic | TRUTH-MAP (T1) |
+| What's being proposed | T3 proposal |
