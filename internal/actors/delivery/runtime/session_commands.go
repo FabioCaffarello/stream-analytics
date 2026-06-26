@@ -78,7 +78,11 @@ func (s *SessionActor) handleSubscribe(cmd clientCommand) {
 	if !alreadySubscribed && subject.IsSignal() {
 		metrics.IncMRSignalWSActiveSubscriptions()
 	}
-	s.emitSnapshot(subject)
+	if !s.emitSnapshot(subject) && s.cfg.HotSnapshotProvider != nil {
+		subjectKey := subject.String()
+		s.deferredSnapshotSubjects[subjectKey] = struct{}{}
+		s.logger.Warn("delivery session: snapshot unavailable at subscribe, deferring", "subject", subjectKey)
+	}
 	if s.cfg.RouterPID != nil {
 		s.engine.Send(s.cfg.RouterPID, SubscribeSession{SessionID: s.session.ID(), Subject: subject})
 	}
@@ -130,6 +134,7 @@ func (s *SessionActor) handleUnsubscribe(cmd clientCommand) {
 	delete(s.lastSnapshot, subjectKey)
 	delete(s.snapshotSeq, subjectKey)
 	delete(s.lastDeliveredSeq, subjectKey)
+	delete(s.deferredSnapshotSubjects, subjectKey)
 	if s.cfg.RouterPID != nil {
 		s.engine.Send(s.cfg.RouterPID, UnsubscribeSession{SessionID: s.session.ID(), Subject: subject})
 	}
@@ -256,6 +261,21 @@ func (s *SessionActor) emitSnapshot(subject domain.Subject) bool {
 	s.writeJSON(frame)
 	metrics.IncWSQuery("snapshot", wsQueryBucket(subject.StreamType))
 	return true
+}
+
+// emitHotSnapshot emits a snapshot frame only if HotSnapshotProvider currently
+// has data for the subject. Unlike emitSnapshot it never falls back to
+// lastSnapshot, making it safe to call from the deferred-emit path where using
+// a recent event payload as a surrogate snapshot would be incorrect.
+func (s *SessionActor) emitHotSnapshot(subject domain.Subject) bool {
+	if s.cfg.HotSnapshotProvider == nil {
+		return false
+	}
+	raw, ok := s.cfg.HotSnapshotProvider.GetLatest(subject)
+	if !ok || len(raw) == 0 {
+		return false
+	}
+	return s.emitSnapshot(subject)
 }
 
 func fnvHexHash(data []byte) string {

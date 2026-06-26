@@ -7,5 +7,6 @@ resources:
   - service.yaml
   - configmap.yaml
   - pdb.yaml
+  - serviceaccount.yaml
 components:
   - ../../../../lib/labels

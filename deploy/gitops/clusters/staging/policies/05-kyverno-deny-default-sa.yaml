@@ -1,0 +1,19 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: deny-default-serviceaccount
+spec:
+  validationFailureAction: enforce
+  rules:
+    - name: deny-default-sa
+      match:
+        resources:
+          kinds: [Deployment, StatefulSet, Job]
+      validate:
+        message: "Workloads must specify a dedicated serviceAccountName (not 'default')."
+        deny:
+          conditions:
+            any:
+              - key: "{{ request.object.spec.template.spec.serviceAccountName || 'default' }}"
+                operator: Equals
+                value: "default"

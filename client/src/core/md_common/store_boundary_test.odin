@@ -2051,16 +2051,18 @@ test_s38_per_pane_tf_health_isolation :: proc(t: ^testing.T) {
 @(test)
 test_s38_per_pane_tf_staleness_isolation :: proc(t: ^testing.T) {
 	// Candle event at t=1000. At now=201_000 (200s gap):
-	// TF_Adaptive stale = max(3*tf, 10000)
-	// - tf=60_000 (1m): stale=180s → 200s > 180s → stale_count=1
-	// - tf=3_600_000 (1h): stale=10800s → 200s < 10800s → stale_count=0
+	// TF_Adaptive stale threshold = max(3*tf, 10000)
+	// - tf=60_000 (1m): stale=180s → 200s > 180s → TF_Adaptive stale → aging_count=1, stale=0
+	//   (TF_Adaptive stale is demoted to aging so low-volume markets do not trigger Stale_Unrecoverable)
+	// - tf=3_600_000 (1h): stale=10800s → 200s < 10800s → fresh → both=0
 	s: Stream_Apply_State
 	apply_state_mark_event(&s, .Candle, 1000, false)
 
-	stale_1m, _ := apply_state_stale_artifact_count(s, 201_000, 60_000)
+	stale_1m, aging_1m := apply_state_stale_artifact_count(s, 201_000, 60_000)
 	stale_1h, aging_1h := apply_state_stale_artifact_count(s, 201_000, 3_600_000)
 
-	testing.expect(t, stale_1m > 0, "1m TF: candle should be stale at 200s gap")
+	testing.expect(t, stale_1m == 0, "1m TF: TF_Adaptive candle stale must NOT enter stale bucket")
+	testing.expect(t, aging_1m > 0, "1m TF: TF_Adaptive candle stale must enter aging bucket")
 	testing.expect_value(t, stale_1h, 0)
 	testing.expect_value(t, aging_1h, 0)
 }
@@ -2937,19 +2939,20 @@ test_s43_surface_tf_sensitive_health_isolation :: proc(t: ^testing.T) {
 
 @(test)
 test_s43_surface_staleness_tf_scaling :: proc(t: ^testing.T) {
-	// Stale artifact counts must scale with TF for TF_Adaptive artifacts (Candle).
+	// TF_Adaptive (Candle) staleness must scale with TF — but appears in the aging bucket,
+	// not the stale bucket, since TF_Adaptive stale cannot be auto-recovered.
 	s: Stream_Apply_State
 	apply_state_mark_event(&s, .Candle, 1000, false)
 	now_ms := i64(200_000) // 199s gap
 
-	// 1m TF: Candle stale (3*60s = 180s threshold, gap=199s > threshold).
-	stale_1m, _ := apply_state_stale_artifact_count(s, now_ms, 60_000)
+	// 1m TF: Candle TF_Adaptive stale (3*60s = 180s threshold, gap=199s > threshold) → aging=1.
+	_, aging_1m := apply_state_stale_artifact_count(s, now_ms, 60_000)
 
-	// 1h TF: Candle not stale (3*3600s = 10800s threshold, gap=199s < threshold).
-	stale_1h, _ := apply_state_stale_artifact_count(s, now_ms, 3_600_000)
+	// 1h TF: Candle not stale (3*3600s = 10800s threshold, gap=199s < threshold) → aging=0.
+	_, aging_1h := apply_state_stale_artifact_count(s, now_ms, 3_600_000)
 
-	testing.expect(t, stale_1m > stale_1h,
-		"1m TF should have more stale artifacts than 1h TF")
+	testing.expect(t, aging_1m > aging_1h,
+		"1m TF should have more aging artifacts than 1h TF (TF_Adaptive stale demoted to aging)")
 }
 
 // --- S44: Compare Pane Autonomy Completion ---
@@ -3056,16 +3059,17 @@ test_s44_health_adapts_to_new_tf_after_change :: proc(t: ^testing.T) {
 	apply_state_mark_event(&s, .Candle, 1000, false)
 	now_ms := i64(200_000) // 199s gap
 
-	// 1m TF: candle stale (3*60s=180s threshold, 199s > 180s → stale).
+	// 1m TF: candle TF_Adaptive stale (3*60s=180s threshold, 199s > 180s) → aging bucket.
 	stale_1m, aging_1m := apply_state_stale_artifact_count(s, now_ms, 60_000)
 
-	// 1h TF: candle not stale (3*3600s=10800s threshold, 199s < 10800s → fresh).
+	// 1h TF: candle fresh (3*3600s=10800s threshold, 199s < 10800s) → nothing.
 	stale_1h, aging_1h := apply_state_stale_artifact_count(s, now_ms, 3_600_000)
 
-	testing.expect(t, stale_1m > stale_1h,
-		"1m TF should have more stale artifacts than 1h TF for same gap")
-	_ = aging_1m
-	_ = aging_1h
+	// TF_Adaptive stale is demoted to aging; stale bucket stays 0 for both TFs here.
+	testing.expect(t, stale_1m == 0, "TF_Adaptive candle stale: stale bucket must be 0 for 1m")
+	testing.expect(t, stale_1h == 0, "TF_Adaptive candle fresh: stale bucket must be 0 for 1h")
+	testing.expect(t, aging_1m > aging_1h,
+		"1m TF should have more aging artifacts than 1h TF for same gap")
 }
 
 // S44: Getrange timeout detection works correctly after invalidation + reseed.
@@ -3701,10 +3705,14 @@ test_s47_analytics_stale_count_includes_analytics :: proc(t: ^testing.T) {
 	apply_state_mark_event(&s, .Open_Interest, 1000, false)
 	apply_state_mark_event(&s, .Delta_Volume, 1000, false)
 
-	// At 200s later, OI should be stale (Sparse_Adaptive 180s), DV should be stale (TF_Adaptive ~10s default)
+	// At 200s later:
+	//   OI  (Sparse_Adaptive): 180s threshold → stale → stale bucket
+	//   DV  (TF_Adaptive):     3*5s = 15s threshold → stale, BUT demoted to aging bucket
+	// Total stale = 1, aging = 1.
 	stale, aging := apply_state_stale_artifact_count(s, 201_000, 5_000)
-	testing.expect(t, stale >= 2, "both OI and DV stale at 200s")
-	_ = aging
+	testing.expect(t, stale >= 1, "OI (Sparse_Adaptive) must enter stale bucket at 200s")
+	testing.expect(t, aging >= 1, "DV (TF_Adaptive) must enter aging bucket at 200s")
+	testing.expect(t, stale+aging >= 2, "both OI and DV are degraded (stale or aging) at 200s")
 }
 
 // -----------------------------------------------------------------------

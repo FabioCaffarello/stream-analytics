@@ -4,3 +4,4 @@ metadata:
   name: observability-stack
   labels:
     app.kubernetes.io/part-of: stream-analytics
+    pod-security.kubernetes.io/warn: restricted

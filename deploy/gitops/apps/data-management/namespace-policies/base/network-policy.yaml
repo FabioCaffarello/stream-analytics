@@ -10,12 +10,50 @@ spec:
   podSelector: {}
   policyTypes:
     - Ingress
+    - Egress
   ingress:
+    - from:
+        - podSelector: {}
     - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: stream-analytics-system
+      ports:
+        - protocol: TCP
+          port: 4222
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: 9000
+        - protocol: TCP
+          port: 8123
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: analytics
+      ports:
+        - protocol: TCP
+          port: 5432
+    - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: observability-stack
+      ports:
+        - protocol: TCP
+          port: 8222
+        - protocol: TCP
+          port: 9363
+        - protocol: TCP
+          port: 9100
+  egress:
+    - to:
         - podSelector: {}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

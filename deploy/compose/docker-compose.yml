@@ -566,6 +566,29 @@ services:
           memory: 1G
           cpus: "1.00"
 
+  kafka-topics-init:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.13
+    container_name: stream-analytics-kafka-topics-init
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        rpk topic create market.trades market.orderbook \
+          -X brokers=kafka:9092 -p 4 2>&1 || \
+        rpk topic list -X brokers=kafka:9092 | grep -qE "market\.(trades|orderbook)"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - stream-analytics-network
+    restart: "no"
+    profiles: ["analytics"]
+    logging:
+      driver: json-file
+      options:
+        max-size: "1m"
+        max-file: "1"
+
   flink-sql-init:
     image: stream-analytics/flink:dev
     container_name: stream-analytics-flink-sql-init
@@ -584,6 +607,8 @@ services:
         condition: service_started
       kafka:
         condition: service_healthy
+      kafka-topics-init:
+        condition: service_completed_successfully
       timescale:
         condition: service_healthy
       migrate:

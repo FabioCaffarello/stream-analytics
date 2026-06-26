@@ -1,0 +1,24 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-liveness-readiness-probes
+spec:
+  validationFailureAction: enforce
+  rules:
+    - name: require-probes
+      match:
+        resources:
+          kinds: [Deployment]
+      validate:
+        message: "All Deployment containers must define livenessProbe and readinessProbe."
+        foreach:
+          - list: "request.object.spec.template.spec.containers"
+            deny:
+              conditions:
+                any:
+                  - key: "{{ element.livenessProbe || null }}"
+                    operator: Equals
+                    value: null
+                  - key: "{{ element.readinessProbe || null }}"
+                    operator: Equals
+                    value: null

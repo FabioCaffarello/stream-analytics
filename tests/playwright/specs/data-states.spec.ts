@@ -58,6 +58,9 @@ test.describe('Data State Transitions', () => {
   });
 
   test('trades accumulate after subscription', async ({ page, probe }) => {
+    await page.addInitScript(() => {
+      window.localStorage.setItem('mr.settings.panel_visible_mask', '1111111');
+    });
     await page.goto('/');
     await waitForFullBoot(page);
     await waitForTrades(page);
@@ -70,6 +73,9 @@ test.describe('Data State Transitions', () => {
   });
 
   test('stats become live after bootstrap', async ({ page, probe }) => {
+    await page.addInitScript(() => {
+      window.localStorage.setItem('mr.settings.panel_visible_mask', '1111111');
+    });
     await page.goto('/');
     await waitForFullBoot(page);
     await waitForStats(page);
@@ -79,6 +85,9 @@ test.describe('Data State Transitions', () => {
   });
 
   test('full pipeline: hello → ACK → candles → trades → stats', async ({ page, probe }) => {
+    await page.addInitScript(() => {
+      window.localStorage.setItem('mr.settings.panel_visible_mask', '1111111');
+    });
     await page.goto('/');
     await probe.waitForReady();
 

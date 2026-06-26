@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: stream-analytics-system
+  labels:
+    app.kubernetes.io/part-of: stream-analytics
+    pod-security.kubernetes.io/warn: restricted

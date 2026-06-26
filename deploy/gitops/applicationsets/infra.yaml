@@ -1,0 +1,46 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: infra-controllers
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: stream-analytics
+spec:
+  generators:
+    - list:
+        elements:
+          - name: ingress-nginx
+            repoURL: https://kubernetes.github.io/ingress-nginx
+            chart: ingress-nginx
+            targetRevision: "4.12.0"
+            namespace: ingress-nginx
+          - name: metrics-server
+            repoURL: https://kubernetes-sigs.github.io/metrics-server/
+            chart: metrics-server
+            targetRevision: "3.12.2"
+            namespace: kube-system
+  template:
+    metadata:
+      name: "infra-{{name}}"
+      labels:
+        app.kubernetes.io/part-of: stream-analytics
+        app.kubernetes.io/component: "{{name}}"
+    spec:
+      project: infra
+      source:
+        repoURL: "{{repoURL}}"
+        chart: "{{chart}}"
+        targetRevision: "{{targetRevision}}"
+        helm:
+          releaseName: "{{name}}"
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "{{namespace}}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true

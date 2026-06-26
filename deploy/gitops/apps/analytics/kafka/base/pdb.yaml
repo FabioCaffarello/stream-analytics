@@ -1,0 +1,14 @@
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: kafka
+  namespace: analytics
+  labels:
+    app.kubernetes.io/name: kafka
+    app.kubernetes.io/component: message-bus
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kafka

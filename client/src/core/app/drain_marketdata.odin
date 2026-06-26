@@ -128,7 +128,9 @@ sync_slot_apply_state_from_stream :: proc(s: ^md_common.Stream_Apply_State, ms: 
 	s.has_live[.Signal]    = ms.signal_frames > 0
 	s.has_live[.Evidence]  = ms.evidence_count > 0
 
-	s.snapshot_seen[.Orderbook] = ob_has_data
+	if ob_has_data {
+		s.snapshot_seen[.Orderbook] = true
+	}
 
 	s.artifact_event_count[.Trade]     = ms.trades_frames
 	s.artifact_event_count[.Orderbook] = ms.orderbook_frames
@@ -204,7 +206,11 @@ sync_apply_state_from_active_stream :: proc(state: ^App_State) {
 	s.has_live[.Evidence] = active.evidence_count > 0
 
 	// S131: snapshot_seen — OB gate tracks whether a valid snapshot has populated the store.
-	s.snapshot_seen[.Orderbook] = ob_has_data
+	// Only advance to true; never clear here. Clearing is done by apply_state_on_reconnect
+	// and apply_state_mark_recovery so that recovery gates survive across frames.
+	if ob_has_data {
+		s.snapshot_seen[.Orderbook] = true
+	}
 
 	// S131: artifact_event_count — from per-artifact frame counters on Market_Stream.
 	// Required for staleness detection (skips artifacts with event_count == 0).

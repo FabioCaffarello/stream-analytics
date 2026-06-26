@@ -137,11 +137,11 @@ If the session's per-client bounded queue fills (slow network / frozen client):
 2. After N consecutive drops, Delivery marks the session as `lagging`.
 3. A lagging session receives a `Resync` signal automatically on reconnect.
 
-See [`docs/architecture/subsystems.md`](../subsystems.md) — Delivery section for bounds.
+See `docs/architecture/subsystems.md` — Delivery section for bounds.
 
 ---
 
 ## Related Diagrams
 
-- [Live Data Ingestion](sequence-live-ingestion.md) — how events arrive at Router (step 12 above)
-- [Storage Federation Write Path](sequence-storage-federation.md) — how StorFed serves backfill queries
+- Live Data Ingestion (`sequence-live-ingestion.md`) — how events arrive at Router (step 12 above)
+- Storage Federation Write Path (`sequence-storage-federation.md`) — how StorFed serves backfill queries

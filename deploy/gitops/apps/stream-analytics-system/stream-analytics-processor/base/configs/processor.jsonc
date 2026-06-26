@@ -1,0 +1,129 @@
+{
+  // Runtime config for Kubernetes deployment.
+  // Connection-sensitive values (DATABASE_URL, CLICKHOUSE_DSN) are injected
+  // via stream-analytics-app-secrets and override any values set here.
+  "bus": {
+    "type": "jetstream",
+    "wire_format": "proto"
+  },
+  "proto_rollout": {
+    "marketdata": {
+      "trade": false,
+      "bookdelta": false,
+      "markprice": false,
+      "liquidation": false
+    },
+    "aggregation": {
+      "candle": false,
+      "stats": false,
+      "snapshot": false
+    },
+    "insights": {
+      "volume_profile": false,
+      "heatmap": false,
+      "crossvenue": false
+    }
+  },
+  "jetstream": {
+    "url": "nats://nats.data-management.svc:4222",
+    "stream_name": "MARKETDATA",
+    "consumer_durable": "processor-v4",
+    "ack_wait": "30s",
+    "max_ack_pending": 2048,
+    "max_deliver": 10,
+    "deliver_policy": "new",
+    "filter_subjects": ["marketdata.>"],
+    "dedup_window": "5m",
+    "max_age": "24h",
+    "max_bytes": "10GB"
+  },
+  "shard": {
+    "index": 0,
+    "count": 1,
+    "max_lag": 0,
+    "registry": {
+      "enabled": false,
+      "strict": false,
+      "topology_grace": "60s"
+    }
+  },
+  "log": {
+    "level": "info",
+    "format": "json"
+  },
+  "http": {
+    "addr": ":8082",
+    "shutdown_timeout": "10s",
+    "publisher_flush_timeout": "3s",
+    "guardian_shutdown_timeout": "10s"
+  },
+  "marketdata": {
+    "publish_content_type": "application/protobuf",
+    "max_instruments": 4096
+  },
+  "processor": {
+    "bus_capacity": 4096,
+    "max_instruments": 4096,
+    "candle": {
+      "enabled": true,
+      "max_candles": 100000
+    },
+    "stats": {
+      "enabled": true,
+      "max_windows": 100000
+    },
+    "subminute_rollout": {
+      "enabled": true,
+      "venues": [],
+      "instruments": []
+    },
+    "rt_publish": {
+      "orderbook_interval_ms": 500,
+      "heatmap_interval_ms": 1000,
+      "volume_interval_ms": 1000
+    },
+    "catchup_skip_bookdelta_skew_ms": 0,
+    "catchup_skip_trade_skew_ms": 0,
+    "catchup_skip_stats_skew_ms": 0,
+    "insights": {
+      "enable_crossvenue_join": true,
+      "enable_volume_profile_snapshot_proto": true,
+      "enable_spread_signal": true,
+      "join_trades_subject": "marketdata.trade.v1.>",
+      "insights_timeframes": ["1s", "5s", "1m", "5m", "15m", "30m", "1h", "4h", "1d"],
+      "snapshot_subject_prefix": "",
+      "max_instruments": 4096,
+      "ttl": "1h",
+      "min_venues": 2,
+      "min_spread_bps": 0,
+      "rounding_mode": "half_even",
+      "sweep_every_n": 2048,
+      "sweep_every": "30s"
+    }
+  },
+  "storage": {
+    "timescale": {
+      // DSN overridden at runtime by DATABASE_URL env var from stream-analytics-app-secrets.
+      "enabled": true,
+      "dsn": "postgres://postgres:CHANGE_ME@timescaledb.data-management.svc:5432/postgres?sslmode=disable",
+      "max_conns": 20,
+      "min_conns": 4,
+      "max_conn_lifetime": "30m",
+      "max_conn_idle_time": "5m",
+      "health_check_period": "30s"
+    },
+    "clickhouse": {
+      // Credentials overridden at runtime by CLICKHOUSE_USER/PASSWORD/DB env vars.
+      "enabled": true,
+      "addrs": ["clickhouse.data-management.svc:9000"],
+      "database": "default",
+      "username": "default",
+      "password": "CHANGE_ME",
+      "max_open_conns": 20,
+      "max_idle_conns": 10,
+      "conn_max_lifetime": "30m",
+      "dial_timeout": "5s",
+      "read_timeout": "30s"
+    }
+  }
+}

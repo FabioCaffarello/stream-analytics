@@ -311,12 +311,11 @@ active_stream_reason_short :: proc(state: ^App_State) -> string {
 	}
 	if state.active_metrics.subscribe_acks <= 0 do return "sub not acked"
 
-	snapshot_ts_ms := i64(0)
-	if active := streams.registry_active(&state.stream_registry); active != nil {
-		snapshot_ts_ms = active.status.last_snapshot_ts_ms
-	}
-	// S90: Distinguish "awaiting first snapshot" from "snapshot pending" based on composition.
-	if snapshot_ts_ms <= 0 {
+	// Use apply_state.snapshot_seen[.Orderbook] as the canonical OB-snapshot signal.
+	// The stream-registry path (last_snapshot_ts_ms via controller_mark_message) is not
+	// wired in the layer architecture and would always return 0, making RSN permanently
+	// show "snapshot pending". snapshot_seen is set as soon as OB store has data.
+	if !state.active_apply_state.snapshot_seen[.Orderbook] {
 		comp := md_common.apply_state_composition_stage(state.active_apply_state)
 		if comp == .Live_Only {
 			return "seeding (no history)"

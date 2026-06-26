@@ -13,3 +13,6 @@ test-results/
 .venv/
 __pycache__/
 *.pyc
+
+# Showcase: intermediate video captures (GIFs are committed, webm are not)
+docs/assets/showcase/videos/

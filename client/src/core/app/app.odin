@@ -668,13 +668,12 @@ init :: proc(
 	}
 	state.active_tf_idx = 2 // default to "1m"
 	state.signal_evidence_link_enabled = true
-	// All panels visible by default.
+	// Default layout: Candle + Orderbook only. All other panels off until toggled.
 	for i in 0 ..< ui.PANEL_COUNT {
-		state.chrome.panel_visible[i] = true
+		state.chrome.panel_visible[i] = false
 	}
-	// Overlay-first default inspired by MarketMonkey: heatmap/VPVR on candle chart.
-	state.chrome.panel_visible[ui.PANEL_HEATMAP] = false
-	state.chrome.panel_visible[ui.PANEL_VPVR] = false
+	state.chrome.panel_visible[ui.PANEL_CANDLE]    = true
+	state.chrome.panel_visible[ui.PANEL_ORDERBOOK] = true
 	ui.init_sidebar(&state.chrome.sidebar, &state.chrome.panel_visible)
 
 	state.chrome.detail_w = ui.DETAIL_PANEL_W

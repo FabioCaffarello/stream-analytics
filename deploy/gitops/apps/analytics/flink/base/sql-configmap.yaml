@@ -1,0 +1,262 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flink-sql
+  namespace: analytics
+  labels:
+    app.kubernetes.io/name: flink
+    app.kubernetes.io/component: stream-processor
+data:
+  00_create_sources.sql: |
+    -- Kafka source: normalized trade events from the consumer analytics publisher.
+    CREATE TABLE IF NOT EXISTS kafka_trades (
+        venue           STRING,
+        symbol          STRING,
+        trade_id        STRING,
+        price           DOUBLE,
+        quantity        DOUBLE,
+        side            STRING,
+        ts_exchange_ms  BIGINT,
+        ts_ingest_ms    BIGINT,
+        event_time      AS TO_TIMESTAMP_LTZ(ts_exchange_ms, 3),
+        WATERMARK FOR event_time AS event_time - INTERVAL '5' SECOND
+    ) WITH (
+        'connector'                     = 'kafka',
+        'topic'                         = 'market.trades',
+        'properties.bootstrap.servers'  = 'kafka.analytics.svc:9092',
+        'properties.group.id'           = 'flink-market-trades',
+        'scan.startup.mode'             = 'latest-offset',
+        'format'                        = 'json',
+        'json.fail-on-missing-field'    = 'false',
+        'json.ignore-parse-errors'      = 'true'
+    );
+
+    -- Kafka source: order book delta events.
+    CREATE TABLE IF NOT EXISTS kafka_orderbook (
+        venue           STRING,
+        symbol          STRING,
+        update_id       BIGINT,
+        ts_exchange_ms  BIGINT,
+        ts_ingest_ms    BIGINT,
+        payload         BYTES,
+        event_time      AS TO_TIMESTAMP_LTZ(ts_exchange_ms, 3),
+        WATERMARK FOR event_time AS event_time - INTERVAL '5' SECOND
+    ) WITH (
+        'connector'                     = 'kafka',
+        'topic'                         = 'market.orderbook',
+        'properties.bootstrap.servers'  = 'kafka.analytics.svc:9092',
+        'properties.group.id'           = 'flink-market-orderbook',
+        'scan.startup.mode'             = 'latest-offset',
+        'format'                        = 'json',
+        'json.fail-on-missing-field'    = 'false',
+        'json.ignore-parse-errors'      = 'true'
+    );
+
+  01_create_sinks.sql: |
+    -- PostgreSQL sink: fact_trades (append-only trade tape).
+    CREATE TABLE IF NOT EXISTS pg_fact_trades (
+        exchange_name   STRING,
+        symbol          STRING,
+        trade_id        STRING,
+        price           DOUBLE,
+        quantity        DOUBLE,
+        side            STRING,
+        ts_exchange_ms  BIGINT,
+        ts_ingest_ms    BIGINT,
+        PRIMARY KEY (exchange_name, symbol, trade_id) NOT ENFORCED
+    ) WITH (
+        'connector'                   = 'jdbc',
+        'url'                         = 'jdbc:postgresql://timescaledb.data-management.svc:5432/raccoon?currentSchema=analytics',
+        'table-name'                  = 'fact_trades',
+        'username'                    = '${TIMESCALE_USER}',
+        'password'                    = '${TIMESCALE_PASSWORD}',
+        'sink.buffer-flush.max-rows'  = '500',
+        'sink.buffer-flush.interval'  = '2s'
+    );
+
+    -- PostgreSQL sink: fact_candles (OHLCV aggregations).
+    -- open/high/low/close are reserved words in Flink SQL -- use backtick quoting.
+    CREATE TABLE IF NOT EXISTS pg_fact_candles (
+        exchange_name   STRING,
+        symbol          STRING,
+        timeframe       STRING,
+        open_time_ms    BIGINT,
+        `open`          DOUBLE,
+        `high`          DOUBLE,
+        `low`           DOUBLE,
+        `close`         DOUBLE,
+        volume          DOUBLE,
+        trade_count     BIGINT,
+        PRIMARY KEY (exchange_name, symbol, timeframe, open_time_ms) NOT ENFORCED
+    ) WITH (
+        'connector'                   = 'jdbc',
+        'url'                         = 'jdbc:postgresql://timescaledb.data-management.svc:5432/raccoon?currentSchema=analytics',
+        'table-name'                  = 'fact_candles',
+        'username'                    = '${TIMESCALE_USER}',
+        'password'                    = '${TIMESCALE_PASSWORD}',
+        'sink.buffer-flush.max-rows'  = '200',
+        'sink.buffer-flush.interval'  = '5s'
+    );
+
+    -- PostgreSQL sink: fact_volume_stats (volume window aggregations).
+    CREATE TABLE IF NOT EXISTS pg_fact_volume_stats (
+        exchange_name    STRING,
+        symbol           STRING,
+        window_start_ms  BIGINT,
+        window_secs      INT,
+        total_volume     DOUBLE,
+        buy_volume       DOUBLE,
+        sell_volume      DOUBLE,
+        trade_count      BIGINT,
+        vwap             DOUBLE,
+        PRIMARY KEY (exchange_name, symbol, window_secs, window_start_ms) NOT ENFORCED
+    ) WITH (
+        'connector'                   = 'jdbc',
+        'url'                         = 'jdbc:postgresql://timescaledb.data-management.svc:5432/raccoon?currentSchema=analytics',
+        'table-name'                  = 'fact_volume_stats',
+        'username'                    = '${TIMESCALE_USER}',
+        'password'                    = '${TIMESCALE_PASSWORD}',
+        'sink.buffer-flush.max-rows'  = '200',
+        'sink.buffer-flush.interval'  = '5s'
+    );
+
+  02_ohlcv_job.sql: |
+    -- OHLCV candle aggregation: 1-minute tumbling windows.
+    -- open/high/low/close use backtick quoting (reserved keywords in Flink SQL).
+    INSERT INTO pg_fact_candles
+    SELECT
+        venue AS exchange_name,
+        symbol,
+        '1m' AS timeframe,
+        UNIX_TIMESTAMP(DATE_FORMAT(TUMBLE_START(event_time, INTERVAL '1' MINUTE), 'yyyy-MM-dd HH:mm:ss')) * 1000 AS open_time_ms,
+        FIRST_VALUE(price) AS `open`,
+        MAX(price)         AS `high`,
+        MIN(price)         AS `low`,
+        LAST_VALUE(price)  AS `close`,
+        SUM(quantity)      AS volume,
+        COUNT(*)           AS trade_count
+    FROM kafka_trades
+    GROUP BY venue, symbol, TUMBLE(event_time, INTERVAL '1' MINUTE);
+
+    -- OHLCV candle aggregation: 5-minute tumbling windows.
+    INSERT INTO pg_fact_candles
+    SELECT
+        venue AS exchange_name,
+        symbol,
+        '5m' AS timeframe,
+        UNIX_TIMESTAMP(DATE_FORMAT(TUMBLE_START(event_time, INTERVAL '5' MINUTE), 'yyyy-MM-dd HH:mm:ss')) * 1000 AS open_time_ms,
+        FIRST_VALUE(price) AS `open`,
+        MAX(price)         AS `high`,
+        MIN(price)         AS `low`,
+        LAST_VALUE(price)  AS `close`,
+        SUM(quantity)      AS volume,
+        COUNT(*)           AS trade_count
+    FROM kafka_trades
+    GROUP BY venue, symbol, TUMBLE(event_time, INTERVAL '5' MINUTE);
+
+    -- OHLCV candle aggregation: 15-minute tumbling windows.
+    INSERT INTO pg_fact_candles
+    SELECT
+        venue AS exchange_name,
+        symbol,
+        '15m' AS timeframe,
+        UNIX_TIMESTAMP(DATE_FORMAT(TUMBLE_START(event_time, INTERVAL '15' MINUTE), 'yyyy-MM-dd HH:mm:ss')) * 1000 AS open_time_ms,
+        FIRST_VALUE(price) AS `open`,
+        MAX(price)         AS `high`,
+        MIN(price)         AS `low`,
+        LAST_VALUE(price)  AS `close`,
+        SUM(quantity)      AS volume,
+        COUNT(*)           AS trade_count
+    FROM kafka_trades
+    GROUP BY venue, symbol, TUMBLE(event_time, INTERVAL '15' MINUTE);
+
+    -- OHLCV candle aggregation: 1-hour tumbling windows.
+    INSERT INTO pg_fact_candles
+    SELECT
+        venue AS exchange_name,
+        symbol,
+        '1h' AS timeframe,
+        UNIX_TIMESTAMP(DATE_FORMAT(TUMBLE_START(event_time, INTERVAL '1' HOUR), 'yyyy-MM-dd HH:mm:ss')) * 1000 AS open_time_ms,
+        FIRST_VALUE(price) AS `open`,
+        MAX(price)         AS `high`,
+        MIN(price)         AS `low`,
+        LAST_VALUE(price)  AS `close`,
+        SUM(quantity)      AS volume,
+        COUNT(*)           AS trade_count
+    FROM kafka_trades
+    GROUP BY venue, symbol, TUMBLE(event_time, INTERVAL '1' HOUR);
+
+  03_volume_stats_job.sql: |
+    -- Volume statistics aggregation: 5-minute tumbling windows.
+    INSERT INTO pg_fact_volume_stats
+    SELECT
+        venue AS exchange_name,
+        symbol,
+        UNIX_TIMESTAMP(DATE_FORMAT(TUMBLE_START(event_time, INTERVAL '5' MINUTE), 'yyyy-MM-dd HH:mm:ss')) * 1000 AS window_start_ms,
+        300 AS window_secs,
+        SUM(quantity)                                                       AS total_volume,
+        SUM(CASE WHEN side = 'buy'  THEN quantity ELSE 0.0 END)            AS buy_volume,
+        SUM(CASE WHEN side = 'sell' THEN quantity ELSE 0.0 END)            AS sell_volume,
+        COUNT(*)                                                            AS trade_count,
+        SUM(price * quantity) / NULLIF(SUM(quantity), 0)                   AS vwap
+    FROM kafka_trades
+    GROUP BY venue, symbol, TUMBLE(event_time, INTERVAL '5' MINUTE);
+
+  04_trade_tape_job.sql: |
+    -- Trade tape: append-only insert of every raw trade into the DW.
+    INSERT INTO pg_fact_trades
+    SELECT
+        venue     AS exchange_name,
+        symbol,
+        trade_id,
+        price,
+        quantity,
+        side,
+        ts_exchange_ms,
+        ts_ingest_ms
+    FROM kafka_trades;
+
+  init.sh: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    SQL_DIR="/sql"
+    FLINK_SQL_CLIENT="/opt/flink/bin/sql-client.sh"
+    JOBMANAGER_REST="http://flink-jobmanager:8081"
+    COMBINED_SQL="/tmp/flink-init-combined.sql"
+
+    echo "flink-init: waiting for Flink JobManager at ${JOBMANAGER_REST}"
+    for i in $(seq 1 60); do
+        if curl -sf "${JOBMANAGER_REST}/overview" > /dev/null 2>&1; then
+            echo "flink-init: JobManager is ready"
+            break
+        fi
+        echo "flink-init: attempt ${i}/60 -- not ready yet, sleeping 5s"
+        sleep 5
+    done
+
+    echo "flink-init: building combined SQL script"
+    > "${COMBINED_SQL}"
+    for sql_file in "${SQL_DIR}"/0*.sql; do
+        echo "-- === ${sql_file} ===" >> "${COMBINED_SQL}"
+        cat "${sql_file}" >> "${COMBINED_SQL}"
+        echo "" >> "${COMBINED_SQL}"
+    done
+
+    sed -i \
+      -e "s/\${TIMESCALE_USER}/${TIMESCALE_USER}/g" \
+      -e "s/\${TIMESCALE_PASSWORD}/${TIMESCALE_PASSWORD}/g" \
+      "${COMBINED_SQL}"
+
+    echo "flink-init: submitting combined SQL ($(wc -l < "${COMBINED_SQL}") lines)"
+
+    "${FLINK_SQL_CLIENT}" \
+        -Drest.address=flink-jobmanager \
+        -Drest.port=8081 \
+        --jar /opt/flink/lib/flink-sql-connector-kafka.jar \
+        --jar /opt/flink/lib/flink-connector-jdbc.jar \
+        --jar /opt/flink/lib/postgresql-jdbc.jar \
+        -f "${COMBINED_SQL}"
+
+    echo "flink-init: all SQL jobs submitted successfully"

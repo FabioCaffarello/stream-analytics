@@ -9,7 +9,7 @@
 ## What this shows
 
 The analytics Docker Compose profile containers and their relationships.
-Complements the main [C4 Container Map](c4-containers.md) by focusing on the
+Complements the main C4 Container Map by focusing on the
 best-effort analytics branch (Kafka → Flink → TimescaleDB analytics → Metabase).
 
 ---

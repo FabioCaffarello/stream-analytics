@@ -113,6 +113,6 @@ Step 3 shows that Kafka publish failures are silently absorbed:
 
 ## Related Diagrams
 
-- [C4 Analytics](c4-analytics.md) — container topology for this pipeline
-- [Live Data Ingestion](sequence-live-ingestion.md) — the primary NATS path (step 2 above)
-- [Storage Federation](sequence-storage-federation.md) — ClickHouse cold path (separate)
+- C4 Analytics (`c4-analytics.md`) — container topology for this pipeline
+- Live Data Ingestion (`sequence-live-ingestion.md`) — the primary NATS path (step 2 above)
+- Storage Federation (`sequence-storage-federation.md`) — ClickHouse cold path (separate)

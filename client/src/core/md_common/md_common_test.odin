@@ -1283,3 +1283,49 @@ test_s151_recovery_success_resets_to_reliable :: proc(t: ^testing.T) {
 	rel := stream_reliability(health, apply_state_recovery_status(s), false, false)
 	testing.expect(t, rel == .Reliable, "after recovery success → Reliable")
 }
+
+@(test)
+test_tf_adaptive_stale_does_not_block_render :: proc(t: ^testing.T) {
+	// Regression test for the STALE false-positive bug:
+	// When only Candle (TF_Adaptive) is stale (e.g. low-volume market, no tick in >3m),
+	// the widget must NOT show "Data stale, auto-recovery exhausted" because:
+	//   1. TF_Adaptive staleness intentionally does not trigger auto-recovery.
+	//   2. With recovery_attempts==0, stream_reliability() returns .Stale_Unrecoverable,
+	//      which blocks render — wrong for a condition that has no recovery path.
+	// Fix: apply_state_stale_artifact_count counts TF_Adaptive stale as aging (not stale),
+	// yielding health=.Degraded and reliability=.Degraded_Aging — renders with a warning.
+	s: Stream_Apply_State
+	s.event_count = 100
+	// Candle is the only active artifact.
+	s.artifact_event_count[.Candle] = 50
+	s.has_live[.Candle] = true
+	// 1m TF; stale threshold = 3 * 60000 = 180s. Set last event to 200s ago.
+	now := i64(300_000)
+	s.last_recv_ms[.Candle] = now - 200_000 // 200s ago → Stale by TF_Adaptive
+
+	candle_staleness := apply_state_artifact_staleness(s, .Candle, now, 60_000)
+	testing.expect(t, candle_staleness == .Stale, "candle 200s old on 1m TF → .Stale")
+
+	stale, aging := apply_state_stale_artifact_count(s, now, 60_000)
+	testing.expect(t, stale == 0, "TF_Adaptive stale must NOT count as stale")
+	testing.expect(t, aging == 1, "TF_Adaptive stale must count as aging")
+
+	health := stream_health_level(s, now, 60_000)
+	testing.expect(t, health == .Degraded, "candle-only stale → Degraded (not Unhealthy)")
+
+	rel := stream_reliability(health, apply_state_recovery_status(s), false, false)
+	testing.expect(t, rel == .Degraded_Aging, "candle-only stale → Degraded_Aging (not Stale_Unrecoverable)")
+	testing.expect(t, !stream_reliability_blocks_render(rel), "Degraded_Aging must not block render")
+
+	// Also verify: when OB also recovers (fresh), candle stale still does not degrade to Stale_Unrecoverable.
+	s2 := s
+	s2.artifact_event_count[.Orderbook] = 30
+	s2.last_recv_ms[.Orderbook] = now - 1_000 // 1s ago → Fresh Dual_Silence
+	s2.recovery_attempts = 0                   // recovery just cleared (simulates post-OB-recovery)
+	stale2, _ := apply_state_stale_artifact_count(s2, now, 60_000)
+	testing.expect(t, stale2 == 0, "OB fresh + Candle TF_Adaptive stale → no stale bucket entry")
+	h2 := stream_health_level(s2, now, 60_000)
+	r2 := stream_reliability(h2, apply_state_recovery_status(s2), false, false)
+	testing.expect(t, r2 != .Stale_Unrecoverable,
+		"OB recovered + candle-only stale must not produce Stale_Unrecoverable")
+}

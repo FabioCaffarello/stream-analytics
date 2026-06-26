@@ -1024,9 +1024,11 @@ test_snapshot_lifecycle_degraded_during_recovery :: proc(t: ^testing.T) {
 	apply_state_mark_event(&s, .Orderbook, 1000, true)
 	// Simulate recovery attempt.
 	apply_state_mark_recovery(&s, 2000)
-	// S144: recovery clears OB snapshot_seen (reconnect-sensitive),
-	// so lifecycle should be Pending, not Degraded.
-	testing.expect_value(t, apply_state_snapshot_lifecycle(s), Snapshot_Lifecycle.Pending)
+	// S144 / snapshot_ever_seen optimisation: recovery clears snapshot_seen[OB] but
+	// snapshot_ever_seen[OB] remains true (permanent latch). On the FIRST recovery
+	// attempt the unsatisfied gate is demoted from Pending to Degraded so the widget
+	// continues to render last-known data instead of going blank.
+	testing.expect_value(t, apply_state_snapshot_lifecycle(s), Snapshot_Lifecycle.Degraded)
 }
 
 @(test)
@@ -1095,7 +1097,9 @@ test_snapshot_lifecycle_label :: proc(t: ^testing.T) {
 test_snapshot_lifecycle_blocks_render :: proc(t: ^testing.T) {
 	testing.expect_value(t, snapshot_lifecycle_blocks_render(.Absent), true)
 	testing.expect_value(t, snapshot_lifecycle_blocks_render(.Pending), true)
-	testing.expect_value(t, snapshot_lifecycle_blocks_render(.Stale), true)
+	// .Stale does NOT block render — last-known data is shown with a stale overlay.
+	// Recovery was exhausted but the data is still displayable; blocking would be worse.
+	testing.expect_value(t, snapshot_lifecycle_blocks_render(.Stale), false)
 	testing.expect_value(t, snapshot_lifecycle_blocks_render(.Degraded), false)
 	testing.expect_value(t, snapshot_lifecycle_blocks_render(.Live), false)
 }

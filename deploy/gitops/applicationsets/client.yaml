@@ -1,0 +1,50 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: client-stack
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: stream-analytics
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - matrix:
+        generators:
+          - list:
+              elements:
+                - env: local
+                  cluster: https://kubernetes.default.svc
+                - env: staging
+                  cluster: https://kubernetes.default.svc
+                - env: prod
+                  cluster: https://kubernetes.default.svc
+          - git:
+              repoURL: https://github.com/stream-analytics/stream-analytics.git
+              revision: main
+              directories:
+                - path: deploy/gitops/apps/stream-analytics-client/*
+  template:
+    metadata:
+      name: "client-{{ .path.basename }}-{{ .env }}"
+      labels:
+        app.kubernetes.io/part-of: stream-analytics
+        app.kubernetes.io/component: "{{ .path.basename }}"
+        environment: "{{ .env }}"
+    spec:
+      project: client
+      source:
+        repoURL: https://github.com/stream-analytics/stream-analytics.git
+        targetRevision: main
+        path: "{{ .path.path }}/overlays/{{ .env }}"
+      destination:
+        server: "{{ .cluster }}"
+        namespace: stream-analytics-client
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
