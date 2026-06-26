@@ -1,9 +1,9 @@
 package contracts
 
 import (
-	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/problem"
-	envelopev1 "github.com/market-raccoon/internal/shared/proto/gen/envelope/v1"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/codec"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
+	envelopev1 "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/envelope/v1"
 )
 
 // RegisterEnvelopeV1 registers envelope v1 protobuf codec capability.

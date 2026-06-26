@@ -1,25 +1,20 @@
-module github.com/market-raccoon/internal/actors
+module github.com/FabioCaffarello/stream-analytics/internal/actors
 
 go 1.25.6
 
 require (
+	github.com/FabioCaffarello/stream-analytics/internal/adapters v0.0.0
+	github.com/FabioCaffarello/stream-analytics/internal/contracts v0.0.0
+	github.com/FabioCaffarello/stream-analytics/internal/core/aggregation v0.0.0
+	github.com/FabioCaffarello/stream-analytics/internal/core/delivery v0.0.0
+	github.com/FabioCaffarello/stream-analytics/internal/core/evidence v0.0.0
+	github.com/FabioCaffarello/stream-analytics/internal/core/insights v0.0.0
+	github.com/FabioCaffarello/stream-analytics/internal/core/marketdata v0.0.0
+	github.com/FabioCaffarello/stream-analytics/internal/core/marketmodel v0.0.0
+	github.com/FabioCaffarello/stream-analytics/internal/shared v0.0.0
 	github.com/anthdm/hollywood v1.0.5
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
-	github.com/market-raccoon/internal/adapters v0.0.0
-	github.com/market-raccoon/internal/contracts v0.0.0
-	github.com/market-raccoon/internal/core/aggregation v0.0.0
-	github.com/market-raccoon/internal/core/delivery v0.0.0
-	github.com/market-raccoon/internal/core/evidence v0.0.0
-	github.com/market-raccoon/internal/core/execution v0.0.0
-	github.com/market-raccoon/internal/core/insights v0.0.0
-	github.com/market-raccoon/internal/core/marketdata v0.0.0
-	github.com/market-raccoon/internal/core/marketmodel v0.0.0
-	github.com/market-raccoon/internal/core/portfolio v0.0.0
-	github.com/market-raccoon/internal/core/signal v0.0.0
-	github.com/market-raccoon/internal/core/signals v0.0.0
-	github.com/market-raccoon/internal/core/strategy v0.0.0
-	github.com/market-raccoon/internal/shared v0.0.0
 	github.com/prometheus/client_golang v1.18.0
 	go.opentelemetry.io/otel v1.40.0
 )
@@ -42,22 +37,17 @@ require (
 	go.opentelemetry.io/otel/metric v1.40.0 // indirect
 	go.opentelemetry.io/otel/trace v1.40.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
+	google.golang.org/protobuf v1.36.6 // indirect
 )
 
 replace (
-	github.com/market-raccoon/internal/adapters => ../adapters
-	github.com/market-raccoon/internal/contracts => ../contracts
-	github.com/market-raccoon/internal/core/aggregation => ../core/aggregation
-	github.com/market-raccoon/internal/core/delivery => ../core/delivery
-	github.com/market-raccoon/internal/core/evidence => ../core/evidence
-	github.com/market-raccoon/internal/core/execution => ../core/execution
-	github.com/market-raccoon/internal/core/insights => ../core/insights
-	github.com/market-raccoon/internal/core/marketdata => ../core/marketdata
-	github.com/market-raccoon/internal/core/marketmodel => ../core/marketmodel
-	github.com/market-raccoon/internal/core/portfolio => ../core/portfolio
-	github.com/market-raccoon/internal/core/signal => ../core/signal
-	github.com/market-raccoon/internal/core/signals => ../core/signals
-	github.com/market-raccoon/internal/core/strategy => ../core/strategy
-	github.com/market-raccoon/internal/shared => ../shared
+	github.com/FabioCaffarello/stream-analytics/internal/adapters => ../adapters
+	github.com/FabioCaffarello/stream-analytics/internal/contracts => ../contracts
+	github.com/FabioCaffarello/stream-analytics/internal/core/aggregation => ../core/aggregation
+	github.com/FabioCaffarello/stream-analytics/internal/core/delivery => ../core/delivery
+	github.com/FabioCaffarello/stream-analytics/internal/core/evidence => ../core/evidence
+	github.com/FabioCaffarello/stream-analytics/internal/core/insights => ../core/insights
+	github.com/FabioCaffarello/stream-analytics/internal/core/marketdata => ../core/marketdata
+	github.com/FabioCaffarello/stream-analytics/internal/core/marketmodel => ../core/marketmodel
+	github.com/FabioCaffarello/stream-analytics/internal/shared => ../shared
 )

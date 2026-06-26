@@ -3,9 +3,9 @@ package contracts_test
 import (
 	"testing"
 
-	"github.com/market-raccoon/internal/contracts"
-	"github.com/market-raccoon/internal/shared/codec"
-	marketdatav1 "github.com/market-raccoon/internal/shared/proto/gen/marketdata/v1"
+	"github.com/FabioCaffarello/stream-analytics/internal/contracts"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/codec"
+	marketdatav1 "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/marketdata/v1"
 	"google.golang.org/protobuf/proto"
 )
 

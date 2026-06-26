@@ -3,7 +3,7 @@ package federation
 import (
 	"context"
 
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 // rangeQueryFn abstracts a single-reader range query.

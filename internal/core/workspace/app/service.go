@@ -4,10 +4,11 @@ package app
 import (
 	"log/slog"
 
-	"github.com/market-raccoon/internal/core/workspace/domain"
-	"github.com/market-raccoon/internal/core/workspace/ports"
-	"github.com/market-raccoon/internal/shared/problem"
-	"github.com/market-raccoon/internal/shared/result"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/workspace/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/workspace/ports"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/clock"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/result"
 )
 
 // SaveResult is the output of a successful SaveWorkspace operation.
@@ -20,11 +21,12 @@ type SaveResult struct {
 // WorkspaceService orchestrates workspace use cases.
 type WorkspaceService struct {
 	repo ports.WorkspaceRepository
+	clk  clock.Clock
 }
 
 // NewWorkspaceService creates a service backed by the given repository.
 func NewWorkspaceService(repo ports.WorkspaceRepository) *WorkspaceService {
-	return &WorkspaceService{repo: repo}
+	return &WorkspaceService{repo: repo, clk: clock.NewSystemClock()}
 }
 
 // LoadWorkspace retrieves the current workspace state.
@@ -63,7 +65,7 @@ func (s *WorkspaceService) SaveWorkspace(schemaVersion int, layoutV6 string, set
 	}
 
 	// Stamp server-side save time if client didn't provide one.
-	ws.StampSaveTime(domain.NowMs())
+	ws.StampSaveTime(s.clk.NowUnixMilli())
 
 	if err := s.repo.Save(ws); err != nil {
 		slog.Error("workspace save failed", "err", err)

@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
-	httpserver "github.com/market-raccoon/internal/interfaces/http"
-	"github.com/market-raccoon/internal/shared/observability"
+	aggdomain "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
+	httpserver "github.com/FabioCaffarello/stream-analytics/internal/interfaces/http"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/observability"
 )
 
 func TestInstrumentOverview_MissingParams(t *testing.T) {

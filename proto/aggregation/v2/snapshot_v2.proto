@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package aggregation.v2;
 
-option go_package = "github.com/market-raccoon/internal/shared/proto/gen/aggregation/v2";
+option go_package = "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/aggregation/v2";
 
 // OrderBookLevelV1 represents a single price level in the order book.
 message OrderBookLevelV1 {

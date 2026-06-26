@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 // stubTimestampCandleReader returns fixed timestamps.

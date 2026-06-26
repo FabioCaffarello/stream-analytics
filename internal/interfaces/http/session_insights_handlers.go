@@ -4,9 +4,9 @@ import (
 	"context"
 	"net/http"
 
-	insightsdomain "github.com/market-raccoon/internal/core/insights/domain"
-	"github.com/market-raccoon/internal/shared/problem"
-	"github.com/market-raccoon/internal/shared/result"
+	insightsdomain "github.com/FabioCaffarello/stream-analytics/internal/core/insights/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/result"
 )
 
 // InsightsSnapshotter abstracts the snapshot query surface of the insights

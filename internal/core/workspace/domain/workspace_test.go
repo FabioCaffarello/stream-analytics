@@ -3,7 +3,7 @@ package domain
 import (
 	"testing"
 
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 func TestNewFromPayload_Valid(t *testing.T) {

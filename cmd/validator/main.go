@@ -10,16 +10,16 @@ import (
 	"sync/atomic"
 	"time"
 
-	adapterjs "github.com/market-raccoon/internal/adapters/jetstream"
-	adapternats "github.com/market-raccoon/internal/adapters/nats"
-	"github.com/market-raccoon/internal/application/dataplane"
-	"github.com/market-raccoon/internal/application/runtimebootstrap"
-	"github.com/market-raccoon/internal/application/validatorruntime"
-	"github.com/market-raccoon/internal/shared/bootstrap"
-	"github.com/market-raccoon/internal/shared/clock"
-	"github.com/market-raccoon/internal/shared/config"
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/problem"
+	adapterjs "github.com/FabioCaffarello/stream-analytics/internal/adapters/jetstream"
+	adapternats "github.com/FabioCaffarello/stream-analytics/internal/adapters/nats"
+	"github.com/FabioCaffarello/stream-analytics/internal/application/dataplane"
+	"github.com/FabioCaffarello/stream-analytics/internal/application/runtimebootstrap"
+	"github.com/FabioCaffarello/stream-analytics/internal/application/validatorruntime"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/bootstrap"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/clock"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/config"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 func main() {

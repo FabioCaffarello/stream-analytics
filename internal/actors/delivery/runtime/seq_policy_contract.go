@@ -1,6 +1,6 @@
 package deliveryruntime
 
-import "github.com/market-raccoon/internal/shared/ownership"
+import "github.com/FabioCaffarello/stream-analytics/internal/shared/ownership"
 
 // SeqPolicyContractInput is a stable, testable view of delivery seq-policy inputs.
 type SeqPolicyContractInput struct {

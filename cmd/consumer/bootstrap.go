@@ -11,20 +11,21 @@ import (
 	"sync"
 	"time"
 
+	mdruntime "github.com/FabioCaffarello/stream-analytics/internal/actors/marketdata/runtime"
+	actorruntime "github.com/FabioCaffarello/stream-analytics/internal/actors/runtime"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/bus"
+	adapterjs "github.com/FabioCaffarello/stream-analytics/internal/adapters/jetstream"
+	adapterkafka "github.com/FabioCaffarello/stream-analytics/internal/adapters/kafka"
+	mdapp "github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/app"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/ports"
+	httpserver "github.com/FabioCaffarello/stream-analytics/internal/interfaces/http"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/bootstrap"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/clock"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/config"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/replay"
 	"github.com/anthdm/hollywood/actor"
-	mdruntime "github.com/market-raccoon/internal/actors/marketdata/runtime"
-	actorruntime "github.com/market-raccoon/internal/actors/runtime"
-	"github.com/market-raccoon/internal/adapters/bus"
-	adapterjs "github.com/market-raccoon/internal/adapters/jetstream"
-	mdapp "github.com/market-raccoon/internal/core/marketdata/app"
-	"github.com/market-raccoon/internal/core/marketdata/ports"
-	httpserver "github.com/market-raccoon/internal/interfaces/http"
-	"github.com/market-raccoon/internal/shared/bootstrap"
-	"github.com/market-raccoon/internal/shared/clock"
-	"github.com/market-raccoon/internal/shared/config"
-	"github.com/market-raccoon/internal/shared/metrics"
-	"github.com/market-raccoon/internal/shared/problem"
-	"github.com/market-raccoon/internal/shared/replay"
 )
 
 // ---------------------------------------------------------------------------
@@ -281,6 +282,11 @@ func shutdownConsumerRuntime(
 // ---------------------------------------------------------------------------
 
 func buildPublisher(cfg config.AppConfig, logger *slog.Logger) (ports.EventPublisher, func(context.Context) *problem.Problem) {
+	primary, closeFn := buildPrimaryPublisher(cfg, logger)
+	return wrapWithAnalyticsPublisher(cfg, logger, primary, closeFn)
+}
+
+func buildPrimaryPublisher(cfg config.AppConfig, logger *slog.Logger) (ports.EventPublisher, func(context.Context) *problem.Problem) {
 	switch strings.ToLower(strings.TrimSpace(cfg.Bus.Type)) {
 	case "jetstream":
 		pub, p := adapterjs.NewPublisher(context.Background(), adapterjs.PublisherConfig{
@@ -307,6 +313,50 @@ func buildPublisher(cfg config.AppConfig, logger *slog.Logger) (ports.EventPubli
 		logger.Info("consumer: using in-memory/log publisher")
 		return bus.NewLogPublisher(logger), func(context.Context) *problem.Problem { return nil }
 	}
+}
+
+func wrapWithAnalyticsPublisher(
+	cfg config.AppConfig,
+	logger *slog.Logger,
+	primary ports.EventPublisher,
+	closePrimary func(context.Context) *problem.Problem,
+) (ports.EventPublisher, func(context.Context) *problem.Problem) {
+	kafkaCfg := cfg.Analytics.Kafka
+	if !kafkaCfg.Enabled || len(kafkaCfg.Brokers) == 0 {
+		return primary, closePrimary
+	}
+	writer, p := adapterkafka.NewWriter(adapterkafka.WriterConfig{
+		Brokers:      kafkaCfg.Brokers,
+		BatchTimeout: kafkaCfg.BatchTimeoutDuration(),
+	})
+	if p != nil {
+		logger.Warn("consumer: kafka analytics publisher init failed — analytics disabled", "err", p)
+		return primary, closePrimary
+	}
+	mktPub, p := adapterkafka.NewMarketPublisher(adapterkafka.MarketPublisherConfig{
+		Writer:         writer,
+		TradesTopic:    kafkaCfg.TradesTopic,
+		OrderbookTopic: kafkaCfg.OrderbookTopic,
+	})
+	if p != nil {
+		logger.Warn("consumer: kafka market publisher init failed — analytics disabled", "err", p)
+		_ = writer.Close()
+		return primary, closePrimary
+	}
+	logger.Info("consumer: analytics kafka publisher enabled",
+		"brokers", kafkaCfg.Brokers,
+		"trades_topic", kafkaCfg.TradesTopic,
+		"orderbook_topic", kafkaCfg.OrderbookTopic,
+	)
+	composite := adapterkafka.NewCompositePublisher(primary, mktPub)
+	closeAll := func(ctx context.Context) *problem.Problem {
+		if p := closePrimary(ctx); p != nil {
+			return p
+		}
+		_ = mktPub.Close()
+		return nil
+	}
+	return composite, closeAll
 }
 
 func wrapWithRecorderPublisher(

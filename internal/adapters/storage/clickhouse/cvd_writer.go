@@ -3,11 +3,11 @@ package clickhouse
 import (
 	"context"
 
-	adapterstorage "github.com/market-raccoon/internal/adapters/storage"
-	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
-	aggports "github.com/market-raccoon/internal/core/aggregation/ports"
-	"github.com/market-raccoon/internal/shared/metrics"
-	"github.com/market-raccoon/internal/shared/problem"
+	adapterstorage "github.com/FabioCaffarello/stream-analytics/internal/adapters/storage"
+	aggdomain "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
+	aggports "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/ports"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 var _ aggports.CVDHotReadModelStore = (*ChCVDWriter)(nil)

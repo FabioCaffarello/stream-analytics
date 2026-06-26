@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/market-raccoon/internal/core/insights/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/insights/domain"
 )
 
 func TestBuildTPOProfile_BasicAccumulation(t *testing.T) {

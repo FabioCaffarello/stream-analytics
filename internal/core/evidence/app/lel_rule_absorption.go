@@ -1,6 +1,6 @@
 package app
 
-import "github.com/market-raccoon/internal/core/evidence/domain"
+import "github.com/FabioCaffarello/stream-analytics/internal/core/evidence/domain"
 
 type lelAbsorptionState struct {
 	volumeRing RingFloat64

@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 func TestApplyFundingRate_SingleRate_SetsAvgAndLast(t *testing.T) {

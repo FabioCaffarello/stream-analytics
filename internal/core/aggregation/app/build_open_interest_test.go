@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/market-raccoon/internal/core/aggregation/app"
-	"github.com/market-raccoon/internal/shared/clock"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/app"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/clock"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 func newOpenInterestUC(maxStreams int) (*app.BuildOpenInterestFromEvents, *fakePublisher) {

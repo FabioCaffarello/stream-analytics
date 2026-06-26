@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
+	deliveryruntime "github.com/FabioCaffarello/stream-analytics/internal/actors/delivery/runtime"
+	httpserver "github.com/FabioCaffarello/stream-analytics/internal/interfaces/http"
+	wsserver "github.com/FabioCaffarello/stream-analytics/internal/interfaces/ws"
 	"github.com/anthdm/hollywood/actor"
 	"github.com/gorilla/websocket"
-	deliveryruntime "github.com/market-raccoon/internal/actors/delivery/runtime"
-	httpserver "github.com/market-raccoon/internal/interfaces/http"
-	wsserver "github.com/market-raccoon/internal/interfaces/ws"
 )
 
 func wsURLFromHTTP(httpURL string) string {

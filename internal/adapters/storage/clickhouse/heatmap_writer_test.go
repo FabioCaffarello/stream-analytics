@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/market-raccoon/internal/adapters/storage/clickhouse"
-	insightsdomain "github.com/market-raccoon/internal/core/insights/domain"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/storage/clickhouse"
+	insightsdomain "github.com/FabioCaffarello/stream-analytics/internal/core/insights/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 func TestChHeatmapWriter_Save_Success(t *testing.T) {

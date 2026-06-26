@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"strings"
 
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 // SessionID identifies a client session.
@@ -89,7 +89,7 @@ func isValidUUID(s string) bool {
 				return false
 			}
 		default:
-			if !isHexChar(byte(c)) {
+			if !isHexChar(byte(c)) { //nolint:gosec // c is a validated ASCII hex rune; byte truncation is intentional.
 				return false
 			}
 		}

@@ -492,7 +492,7 @@ const file_execution_v1_event_proto_rawDesc = "" +
 	"\x17EXECUTION_STATUS_FILLED\x10\x05\x12\x1d\n" +
 	"\x19EXECUTION_STATUS_CANCELED\x10\x06\x12\x1c\n" +
 	"\x18EXECUTION_STATUS_EXPIRED\x10\a\x12\x1b\n" +
-	"\x17EXECUTION_STATUS_FAILED\x10\bBBZ@github.com/market-raccoon/internal/shared/proto/gen/execution/v1b\x06proto3"
+	"\x17EXECUTION_STATUS_FAILED\x10\bBBZ@github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/execution/v1b\x06proto3"
 
 var (
 	file_execution_v1_event_proto_rawDescOnce sync.Once

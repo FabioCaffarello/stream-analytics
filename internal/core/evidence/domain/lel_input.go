@@ -3,7 +3,7 @@ package domain
 import (
 	"strings"
 
-	"github.com/market-raccoon/internal/shared/naming"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/naming"
 )
 
 // LELEventKind discriminates LEL input source.

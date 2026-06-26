@@ -3,8 +3,8 @@ package domain
 import (
 	"sort"
 
-	"github.com/market-raccoon/internal/shared/problem"
-	"github.com/market-raccoon/internal/shared/validation"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/validation"
 )
 
 // RollupCandle aggregates a slice of closed lower-timeframe candles into one

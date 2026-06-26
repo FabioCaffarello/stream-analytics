@@ -1,8 +1,8 @@
 package contracts
 
 import (
-	insightsdomain "github.com/market-raccoon/internal/core/insights/domain"
-	insightsv1 "github.com/market-raccoon/internal/shared/proto/gen/insights/v1"
+	insightsdomain "github.com/FabioCaffarello/stream-analytics/internal/core/insights/domain"
+	insightsv1 "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/insights/v1"
 )
 
 // DomainToProtoHeatmapArtifactV1 converts the domain heatmap artifact to the protobuf message.

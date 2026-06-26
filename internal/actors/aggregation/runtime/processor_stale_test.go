@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
-	"github.com/market-raccoon/internal/shared/metrics"
+	aggdomain "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 

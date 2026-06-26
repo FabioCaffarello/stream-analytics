@@ -4,9 +4,9 @@ import (
 	"slices"
 	"testing"
 
-	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
-	insightsapp "github.com/market-raccoon/internal/core/insights/app"
-	"github.com/market-raccoon/internal/shared/policykit"
+	aggdomain "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
+	insightsapp "github.com/FabioCaffarello/stream-analytics/internal/core/insights/app"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/policykit"
 )
 
 func TestSortedOrderBookKeys_DeterministicOrder(t *testing.T) {

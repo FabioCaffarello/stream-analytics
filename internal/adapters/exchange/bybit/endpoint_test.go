@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/market-raccoon/internal/adapters/exchange/bybit"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/exchange/bybit"
 )
 
 func TestBuildEndpoint_DefaultSpot(t *testing.T) {

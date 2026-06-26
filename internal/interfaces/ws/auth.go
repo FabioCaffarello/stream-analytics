@@ -5,8 +5,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/market-raccoon/internal/shared/problem"
 )
 
 const wsScopeRead = "read"

@@ -1,6 +1,6 @@
 package domain
 
-import "github.com/market-raccoon/internal/shared/problem"
+import "github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 
 // OrderBookLimitsPolicy centralizes order book boundedness limits.
 type OrderBookLimitsPolicy struct {

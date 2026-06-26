@@ -1,8 +1,8 @@
 package contracts
 
 import (
-	evidencedomain "github.com/market-raccoon/internal/core/evidence/domain"
-	evidencev1 "github.com/market-raccoon/internal/shared/proto/gen/evidence/v1"
+	evidencedomain "github.com/FabioCaffarello/stream-analytics/internal/core/evidence/domain"
+	evidencev1 "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/evidence/v1"
 )
 
 // DomainToProtoEvidenceV1 converts a domain EvidenceEvent to protobuf.

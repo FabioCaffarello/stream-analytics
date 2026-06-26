@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/market-raccoon/internal/core/aggregation/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
 )
 
 type tapeTrade struct {

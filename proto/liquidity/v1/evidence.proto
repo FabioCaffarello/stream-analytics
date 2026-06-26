@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package liquidity.v1;
 
-option go_package = "github.com/market-raccoon/internal/shared/proto/gen/liquidity/v1";
+option go_package = "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/liquidity/v1";
 
 // LiquiditySeverity classifies urgency of one liquidity evidence event.
 enum LiquiditySeverity {

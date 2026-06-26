@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/market-raccoon/internal/shared/codec"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/codec"
 )
 
 type subjectRegistryEntry struct {
@@ -37,20 +37,8 @@ func TestPayloadRegistryCoverage_SubjectRegistryStableDraft(t *testing.T) {
 	if p := RegisterLiquidityPayloadV1(reg); p != nil {
 		t.Fatalf("RegisterLiquidityPayloadV1: %v", p)
 	}
-	if p := RegisterSignalsPayloadV1(reg); p != nil {
-		t.Fatalf("RegisterSignalsPayloadV1: %v", p)
-	}
 	if p := RegisterSignalEnginePayloadV1(reg); p != nil {
 		t.Fatalf("RegisterSignalEnginePayloadV1: %v", p)
-	}
-	if p := RegisterStrategyPayloadV1(reg); p != nil {
-		t.Fatalf("RegisterStrategyPayloadV1: %v", p)
-	}
-	if p := RegisterExecutionPayloadV1(reg); p != nil {
-		t.Fatalf("RegisterExecutionPayloadV1: %v", p)
-	}
-	if p := RegisterPortfolioPayloadV1(reg); p != nil {
-		t.Fatalf("RegisterPortfolioPayloadV1: %v", p)
 	}
 
 	// Aggregation subjects that use non-standard payload schemas (not candle/stats).
@@ -97,10 +85,7 @@ func isCodecManagedRoot(root string) bool {
 		root == "insights" ||
 		root == "aggregation" ||
 		root == "liquidity" ||
-		root == "signal" ||
-		root == "strategy" ||
-		root == "execution" ||
-		root == "portfolio"
+		root == "signal"
 }
 
 func isUntypedDeltaSubject(id string) bool {

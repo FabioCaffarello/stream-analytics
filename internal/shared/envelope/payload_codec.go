@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/codec"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 // MarshalPayload encodes payload using the codec registered for envelope schema key.

@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/market-raccoon/internal/actors/marketdata/ws"
+	"github.com/FabioCaffarello/stream-analytics/internal/actors/marketdata/ws"
 )
 
 func TestMarkPriceLiquidationReplayGolden(t *testing.T) {

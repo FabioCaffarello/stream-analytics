@@ -4,10 +4,10 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/market-raccoon/internal/contracts"
-	marketdomain "github.com/market-raccoon/internal/core/marketdata/domain"
-	"github.com/market-raccoon/internal/shared/codec"
-	marketdatav1 "github.com/market-raccoon/internal/shared/proto/gen/marketdata/v1"
+	"github.com/FabioCaffarello/stream-analytics/internal/contracts"
+	marketdomain "github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/codec"
+	marketdatav1 "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/marketdata/v1"
 )
 
 func TestTradeTickV1_JSON_vs_Proto_SemanticEquivalence(t *testing.T) {

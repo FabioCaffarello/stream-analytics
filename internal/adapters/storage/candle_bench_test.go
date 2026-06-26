@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
+	aggdomain "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
 )
 
 func BenchmarkMarshalCandle(b *testing.B) {

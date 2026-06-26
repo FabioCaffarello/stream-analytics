@@ -5,9 +5,9 @@ import (
 	"math"
 	"strings"
 
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/problem"
-	envelopev1 "github.com/market-raccoon/internal/shared/proto/gen/envelope/v1"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
+	envelopev1 "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/envelope/v1"
 	"google.golang.org/protobuf/proto"
 )
 

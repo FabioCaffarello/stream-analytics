@@ -3,7 +3,7 @@ package app
 import (
 	"strings"
 
-	"github.com/market-raccoon/internal/core/evidence/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/evidence/domain"
 )
 
 // spreadStreamState holds per-stream rolling state for spread explosion detection.

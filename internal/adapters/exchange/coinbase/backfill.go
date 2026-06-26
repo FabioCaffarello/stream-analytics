@@ -12,14 +12,14 @@ import (
 	"strings"
 	"time"
 
-	common "github.com/market-raccoon/internal/adapters/exchange/common"
-	"github.com/market-raccoon/internal/contracts"
-	marketdomain "github.com/market-raccoon/internal/core/marketdata/domain"
-	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/naming"
-	"github.com/market-raccoon/internal/shared/problem"
-	"github.com/market-raccoon/internal/shared/replay"
+	common "github.com/FabioCaffarello/stream-analytics/internal/adapters/exchange/common"
+	"github.com/FabioCaffarello/stream-analytics/internal/contracts"
+	marketdomain "github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/codec"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/naming"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/replay"
 )
 
 const (
@@ -277,7 +277,7 @@ func httpGetJSON(ctx context.Context, url string, dest any) *problem.Problem {
 	if err != nil {
 		return problem.Wrap(err, problem.Internal, "coinbase backfill: build request failed")
 	}
-	req.Header.Set("User-Agent", "market-raccoon/backfill")
+	req.Header.Set("User-Agent", "stream-analytics/backfill")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return problem.Wrap(err, problem.Unavailable, "coinbase backfill: GET failed")

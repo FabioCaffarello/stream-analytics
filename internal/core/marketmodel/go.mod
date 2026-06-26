@@ -1,9 +1,9 @@
-module github.com/market-raccoon/internal/core/marketmodel
+module github.com/FabioCaffarello/stream-analytics/internal/core/marketmodel
 
 go 1.25.6
 
 require (
-	github.com/market-raccoon/internal/shared v0.0.0
+	github.com/FabioCaffarello/stream-analytics/internal/shared v0.0.0
 	github.com/prometheus/client_golang v1.18.0
 )
 
@@ -16,19 +16,11 @@ require (
 	github.com/prometheus/common v0.45.0 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
 	golang.org/x/sys v0.40.0 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
+	google.golang.org/protobuf v1.36.6 // indirect
 )
 
-replace github.com/market-raccoon/internal/shared => ../../../internal/shared
+replace github.com/FabioCaffarello/stream-analytics/internal/shared => ../../../internal/shared
 
-replace github.com/market-raccoon/internal/core/signal => ../signal
+replace github.com/FabioCaffarello/stream-analytics/internal/actors => ../../actors
 
-replace github.com/market-raccoon/internal/actors => ../../actors
-
-replace github.com/market-raccoon/internal/core/delivery => ../delivery
-
-replace github.com/market-raccoon/internal/core/strategy => ../strategy
-
-replace github.com/market-raccoon/internal/core/execution => ../execution
-
-replace github.com/market-raccoon/internal/core/portfolio => ../portfolio
+replace github.com/FabioCaffarello/stream-analytics/internal/core/delivery => ../delivery

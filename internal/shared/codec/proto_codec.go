@@ -3,7 +3,7 @@ package codec
 import (
 	"fmt"
 
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 	"google.golang.org/protobuf/proto"
 )
 

@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/market-raccoon/internal/application/dataplane"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/application/dataplane"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 func (s *Server) handleListDataPlaneBindings(w http.ResponseWriter, r *http.Request) {

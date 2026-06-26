@@ -3,8 +3,8 @@ package app
 import (
 	"time"
 
-	"github.com/market-raccoon/internal/core/evidence/domain"
-	"github.com/market-raccoon/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/evidence/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
 )
 
 // EvidenceEmitter publishes canonical evidence events.

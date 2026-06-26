@@ -1,6 +1,6 @@
 package domain
 
-import "github.com/market-raccoon/internal/shared/problem"
+import "github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 
 // WindowKey identifies one event-time window partition.
 type WindowKey struct {

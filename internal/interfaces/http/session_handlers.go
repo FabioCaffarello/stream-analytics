@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/market-raccoon/internal/actors/runtime"
-	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/actors/runtime"
+	aggdomain "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
 )
 
 // SessionOverviewResponse is the composed read model a client uses to bootstrap.

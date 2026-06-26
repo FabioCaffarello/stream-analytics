@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/market-raccoon/internal/adapters/storage/timescale"
-	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/storage/timescale"
+	aggdomain "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
 )
 
 func TestPgStatsWriter_Save_Success(t *testing.T) {

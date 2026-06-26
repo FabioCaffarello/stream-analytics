@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/market-raccoon/internal/shared/clock"
-	"github.com/market-raccoon/internal/shared/ds"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/clock"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/ds"
 )
 
 func TestBoundedMap_EvictBySizeLRU(t *testing.T) {

@@ -3,8 +3,8 @@ package policykit_test
 import (
 	"testing"
 
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/policykit"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/policykit"
 )
 
 var (

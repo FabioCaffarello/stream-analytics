@@ -277,7 +277,7 @@ const file_portfolio_v1_portfolio_summary_proto_rawDesc = "" +
 	"\n" +
 	"equity_usd\x18\x04 \x01(\x01R\tequityUsd\x12(\n" +
 	"\x10realized_pnl_usd\x18\x05 \x01(\x01R\x0erealizedPnlUsd\x12,\n" +
-	"\x12unrealized_pnl_usd\x18\x06 \x01(\x01R\x10unrealizedPnlUsdJ\x05\bd\x10\xc8\x01BBZ@github.com/market-raccoon/internal/shared/proto/gen/portfolio/v1b\x06proto3"
+	"\x12unrealized_pnl_usd\x18\x06 \x01(\x01R\x10unrealizedPnlUsdJ\x05\bd\x10\xc8\x01BBZ@github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/portfolio/v1b\x06proto3"
 
 var (
 	file_portfolio_v1_portfolio_summary_proto_rawDescOnce sync.Once

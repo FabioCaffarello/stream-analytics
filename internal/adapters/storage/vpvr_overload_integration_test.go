@@ -8,14 +8,14 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/market-raccoon/internal/adapters/storage"
-	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
-	aggports "github.com/market-raccoon/internal/core/aggregation/ports"
-	insightsapp "github.com/market-raccoon/internal/core/insights/app"
-	insightsdomain "github.com/market-raccoon/internal/core/insights/domain"
-	sharedhash "github.com/market-raccoon/internal/shared/hash"
-	"github.com/market-raccoon/internal/shared/policykit"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/storage"
+	aggdomain "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
+	aggports "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/ports"
+	insightsapp "github.com/FabioCaffarello/stream-analytics/internal/core/insights/app"
+	insightsdomain "github.com/FabioCaffarello/stream-analytics/internal/core/insights/domain"
+	sharedhash "github.com/FabioCaffarello/stream-analytics/internal/shared/hash"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/policykit"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 type commitRecorder struct {

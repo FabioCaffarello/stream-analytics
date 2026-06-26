@@ -3,7 +3,7 @@ package app
 import (
 	"math"
 
-	"github.com/market-raccoon/internal/core/evidence/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/evidence/domain"
 )
 
 // absStreamState holds per-stream state for absorption detection.

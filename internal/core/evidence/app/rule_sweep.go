@@ -1,6 +1,6 @@
 package app
 
-import "github.com/market-raccoon/internal/core/evidence/domain"
+import "github.com/FabioCaffarello/stream-analytics/internal/core/evidence/domain"
 
 // sweepStreamState tracks prior book depth/levels for sweep detection.
 type sweepStreamState struct {

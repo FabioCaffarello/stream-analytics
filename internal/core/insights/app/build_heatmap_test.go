@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	sharedhash "github.com/market-raccoon/internal/shared/hash"
+	sharedhash "github.com/FabioCaffarello/stream-analytics/internal/shared/hash"
 )
 
 func TestHeatmapBucketizationDeterministic(t *testing.T) {

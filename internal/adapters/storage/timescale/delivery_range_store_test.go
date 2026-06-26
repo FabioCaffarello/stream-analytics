@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/market-raccoon/internal/adapters/storage/timescale"
-	"github.com/market-raccoon/internal/core/delivery/domain"
-	"github.com/market-raccoon/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/storage/timescale"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/delivery/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
 )
 
 func TestDeliveryRangeStore_GetRange(t *testing.T) {

@@ -3,7 +3,7 @@ package contracts
 import (
 	"testing"
 
-	marketdatav1 "github.com/market-raccoon/internal/shared/proto/gen/marketdata/v1"
+	marketdatav1 "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/marketdata/v1"
 	"google.golang.org/protobuf/encoding/prototext"
 	"google.golang.org/protobuf/proto"
 )

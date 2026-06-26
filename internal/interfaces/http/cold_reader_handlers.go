@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	aggports "github.com/market-raccoon/internal/core/aggregation/ports"
-	"github.com/market-raccoon/internal/shared/config"
+	aggports "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/ports"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/config"
 )
 
 // handleGetMarkets serves GET /api/v1/markets and returns all configured

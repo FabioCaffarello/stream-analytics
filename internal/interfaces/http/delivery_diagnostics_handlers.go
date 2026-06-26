@@ -3,7 +3,7 @@ package httpserver
 import (
 	"net/http"
 
-	"github.com/market-raccoon/internal/shared/observability"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/observability"
 )
 
 // DeliveryDiagnosticsResponse provides per-subject delivery sequence state

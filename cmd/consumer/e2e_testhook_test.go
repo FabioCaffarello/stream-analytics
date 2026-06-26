@@ -11,13 +11,13 @@ import (
 func TestNewE2ERuntime_RequiresExplicitTestPosture(t *testing.T) {
 	t.Setenv(envConsumerE2ETestMode, "1")
 	t.Setenv(envRunMode, "prod")
-	t.Setenv(envMarketRaccoonMode, "")
+	t.Setenv(envStreamAnalyticsMode, "")
 
 	rt, p := newE2ERuntime(slog.Default())
 	if p == nil {
 		t.Fatal("expected e2e posture validation error")
 	}
-	if !strings.Contains(p.Message, "requires RUN_MODE=test or MARKET_RACCOON_MODE=test") {
+	if !strings.Contains(p.Message, "requires RUN_MODE=test or STREAM_ANALYTICS_MODE=test") {
 		t.Fatalf("unexpected message: %q", p.Message)
 	}
 	if rt != nil {
@@ -28,7 +28,7 @@ func TestNewE2ERuntime_RequiresExplicitTestPosture(t *testing.T) {
 func TestNewE2ERuntime_AllowsTestPosture(t *testing.T) {
 	t.Setenv(envConsumerE2ETestMode, "1")
 	t.Setenv(envRunMode, "test")
-	t.Setenv(envMarketRaccoonMode, "")
+	t.Setenv(envStreamAnalyticsMode, "")
 
 	rt, p := newE2ERuntime(slog.Default())
 	if p != nil {

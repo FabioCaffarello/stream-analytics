@@ -1,10 +1,10 @@
 package contracts
 
 import (
-	insightsdomain "github.com/market-raccoon/internal/core/insights/domain"
-	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/problem"
-	insightsv1 "github.com/market-raccoon/internal/shared/proto/gen/insights/v1"
+	insightsdomain "github.com/FabioCaffarello/stream-analytics/internal/core/insights/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/codec"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
+	insightsv1 "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/insights/v1"
 )
 
 const insightsV1Version int32 = 1

@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"github.com/market-raccoon/internal/application/dataplane"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/application/dataplane"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 type Store interface {

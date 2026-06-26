@@ -3,7 +3,7 @@ package deliveryruntime
 import (
 	"strings"
 
-	"github.com/market-raccoon/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
 )
 
 // EffectiveLimits captures resolved per-session limits after tenant/global

@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package aggregation.v1;
 
-option go_package = "github.com/market-raccoon/internal/shared/proto/gen/aggregation/v1";
+option go_package = "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/aggregation/v1";
 
 // CVDWindowV1 models per-window cumulative volume delta.
 message CVDWindowV1 {

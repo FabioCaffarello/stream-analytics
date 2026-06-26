@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"strings"
 
-	sharedhash "github.com/market-raccoon/internal/shared/hash"
+	sharedhash "github.com/FabioCaffarello/stream-analytics/internal/shared/hash"
 )
 
 // Subsystem identifies the stream ownership domain.

@@ -1,6 +1,6 @@
 package app
 
-import "github.com/market-raccoon/internal/core/marketdata/ports"
+import "github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/ports"
 
 // MarketDataServiceConfig configures all use cases exposed by MarketDataService.
 type MarketDataServiceConfig struct {

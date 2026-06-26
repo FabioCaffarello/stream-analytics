@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/market-raccoon/internal/core/aggregation/app"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/app"
 )
 
 func TestBuildTapeFromTrades_MultiReplica(t *testing.T) {

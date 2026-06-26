@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"testing"
 
-	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
-	httpserver "github.com/market-raccoon/internal/interfaces/http"
-	"github.com/market-raccoon/internal/shared/config"
-	"github.com/market-raccoon/internal/shared/problem"
+	aggdomain "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
+	httpserver "github.com/FabioCaffarello/stream-analytics/internal/interfaces/http"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/config"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 func TestArtifactSummary_HappyPath(t *testing.T) {

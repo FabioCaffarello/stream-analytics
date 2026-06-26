@@ -5,9 +5,9 @@ import (
 	"context"
 	"strings"
 
-	"github.com/market-raccoon/internal/core/insights/domain"
-	"github.com/market-raccoon/internal/shared/naming"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/insights/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/naming"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 // VolumeProfileBucketUpsert carries one deterministic VPVR bucket aggregate.

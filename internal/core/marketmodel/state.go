@@ -4,8 +4,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/market-raccoon/internal/shared/metrics"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 type StateStoreConfig struct {

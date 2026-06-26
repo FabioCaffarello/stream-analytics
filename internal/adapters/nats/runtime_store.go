@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/market-raccoon/internal/application/dataplane"
-	"github.com/market-raccoon/internal/application/runtimebootstrap"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/application/dataplane"
+	"github.com/FabioCaffarello/stream-analytics/internal/application/runtimebootstrap"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 	"github.com/nats-io/nats.go"
 )
 
@@ -27,7 +27,7 @@ type RuntimeStore struct {
 var _ runtimebootstrap.Store = (*RuntimeStore)(nil)
 
 func NewRuntimeStore(ctx context.Context, url, bucket string) (*RuntimeStore, *problem.Problem) {
-	nc, kv, p := openKeyValueBucket(url, bucket, "market-raccoon-dataplane-runtime")
+	nc, kv, p := openKeyValueBucket(url, bucket, "stream-analytics-dataplane-runtime")
 	if p != nil {
 		return nil, p
 	}

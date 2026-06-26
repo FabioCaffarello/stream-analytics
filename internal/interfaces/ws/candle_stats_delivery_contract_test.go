@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
+	deliveryruntime "github.com/FabioCaffarello/stream-analytics/internal/actors/delivery/runtime"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
 	"github.com/anthdm/hollywood/actor"
 	"github.com/gorilla/websocket"
-	deliveryruntime "github.com/market-raccoon/internal/actors/delivery/runtime"
-	"github.com/market-raccoon/internal/shared/envelope"
 )
 
 func TestWSDelivery_CandleClosed_RoutedToSubscriber(t *testing.T) {

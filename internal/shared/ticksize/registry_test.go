@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/market-raccoon/internal/shared/ticksize"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/ticksize"
 )
 
 func TestAutoGroupSize_EdgeCases(t *testing.T) {

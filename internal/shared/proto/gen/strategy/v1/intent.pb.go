@@ -791,7 +791,7 @@ const file_strategy_v1_intent_proto_rawDesc = "" +
 	"\x19TIME_IN_FORCE_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11TIME_IN_FORCE_GTC\x10\x01\x12\x15\n" +
 	"\x11TIME_IN_FORCE_IOC\x10\x02\x12\x15\n" +
-	"\x11TIME_IN_FORCE_FOK\x10\x03BAZ?github.com/market-raccoon/internal/shared/proto/gen/strategy/v1b\x06proto3"
+	"\x11TIME_IN_FORCE_FOK\x10\x03BAZ?github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/strategy/v1b\x06proto3"
 
 var (
 	file_strategy_v1_intent_proto_rawDescOnce sync.Once

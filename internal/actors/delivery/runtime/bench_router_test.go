@@ -5,10 +5,10 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/FabioCaffarello/stream-analytics/internal/core/delivery/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/ids"
 	"github.com/anthdm/hollywood/actor"
-	"github.com/market-raccoon/internal/core/delivery/domain"
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/ids"
 )
 
 type benchDeliverySink struct {

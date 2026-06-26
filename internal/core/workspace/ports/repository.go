@@ -2,7 +2,7 @@
 package ports
 
 import (
-	"github.com/market-raccoon/internal/core/workspace/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/workspace/domain"
 )
 
 // WorkspaceRepository abstracts load/save of the workspace aggregate.

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/FabioCaffarello/stream-analytics/internal/application/dataplane"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 	"github.com/google/uuid"
-	"github.com/market-raccoon/internal/application/dataplane"
-	"github.com/market-raccoon/internal/shared/problem"
 	kafkago "github.com/segmentio/kafka-go"
 )
 

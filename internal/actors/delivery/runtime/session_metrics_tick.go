@@ -3,9 +3,9 @@ package deliveryruntime
 import (
 	"time"
 
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/observability"
 	"github.com/gorilla/websocket"
-	"github.com/market-raccoon/internal/shared/metrics"
-	"github.com/market-raccoon/internal/shared/observability"
 )
 
 // ── Periodic tick handlers ──────────────────────────────────────────────────

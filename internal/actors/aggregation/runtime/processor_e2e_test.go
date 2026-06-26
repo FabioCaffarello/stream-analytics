@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
+	aggruntime "github.com/FabioCaffarello/stream-analytics/internal/actors/aggregation/runtime"
+	"github.com/FabioCaffarello/stream-analytics/internal/contracts"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
 	"github.com/anthdm/hollywood/actor"
-	aggruntime "github.com/market-raccoon/internal/actors/aggregation/runtime"
-	"github.com/market-raccoon/internal/contracts"
-	"github.com/market-raccoon/internal/shared/envelope"
 )
 
 func TestProcessorE2E_TradeToCandle_WindowClose(t *testing.T) {

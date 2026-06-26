@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/market-raccoon/internal/contracts"
-	"github.com/market-raccoon/internal/shared/clock"
-	"github.com/market-raccoon/internal/shared/envelope"
-	sharedhash "github.com/market-raccoon/internal/shared/hash"
-	"github.com/market-raccoon/internal/shared/replay"
+	"github.com/FabioCaffarello/stream-analytics/internal/contracts"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/clock"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	sharedhash "github.com/FabioCaffarello/stream-analytics/internal/shared/hash"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/replay"
 )
 
 var updateGoldenFlag = flag.Bool("update-golden", false, "update golden replay fixtures")

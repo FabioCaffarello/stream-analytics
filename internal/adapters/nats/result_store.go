@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/market-raccoon/internal/application/dataplane"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/application/dataplane"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 	"github.com/nats-io/nats.go"
 )
 
@@ -21,7 +21,7 @@ type ResultStore struct {
 var _ dataplane.ResultStore = (*ResultStore)(nil)
 
 func NewResultStore(_ context.Context, url, bucket string, defaultListLimit int) (*ResultStore, *problem.Problem) {
-	nc, kv, p := openKeyValueBucket(url, bucket, "market-raccoon-dataplane-results")
+	nc, kv, p := openKeyValueBucket(url, bucket, "stream-analytics-dataplane-results")
 	if p != nil {
 		return nil, p
 	}
@@ -68,6 +68,7 @@ func (s *ResultStore) Get(_ context.Context, messageID string) (dataplane.Valida
 	return result, nil
 }
 
+//nolint:gocyclo // Filter/sort/pagination branches are inherently enumerated here; no meaningful decomposition.
 func (s *ResultStore) List(_ context.Context, query dataplane.ResultQuery) ([]dataplane.ValidationResult, *problem.Problem) {
 	if s == nil || s.kv == nil {
 		return nil, problem.New(problem.Internal, "validation result store must not be nil")

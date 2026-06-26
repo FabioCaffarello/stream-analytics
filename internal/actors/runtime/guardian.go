@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 	"github.com/anthdm/hollywood/actor"
-	"github.com/market-raccoon/internal/shared/metrics"
-	"github.com/market-raccoon/internal/shared/problem"
 )
 
 // GuardianConfig configures runtime orchestration behavior.

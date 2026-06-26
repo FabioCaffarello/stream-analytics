@@ -4,11 +4,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FabioCaffarello/stream-analytics/internal/core/delivery/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/delivery/ports"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
 	"github.com/anthdm/hollywood/actor"
 	"github.com/gorilla/websocket"
-	"github.com/market-raccoon/internal/core/delivery/domain"
-	"github.com/market-raccoon/internal/core/delivery/ports"
-	"github.com/market-raccoon/internal/shared/envelope"
 )
 
 type stubSnapshotProvider struct {

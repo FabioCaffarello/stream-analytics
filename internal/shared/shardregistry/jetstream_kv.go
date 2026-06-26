@@ -73,7 +73,7 @@ func NewJetStreamKV(ctx context.Context, url, bucket string, cfg Config) (*Regis
 		heartbeat = DefaultHeartbeatInterval
 	}
 
-	nc, err := nats.Connect(url, nats.Name("market-raccoon-shard-registry"))
+	nc, err := nats.Connect(url, nats.Name("stream-analytics-shard-registry"))
 	if err != nil {
 		return nil, nil, err
 	}

@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	insightsapp "github.com/market-raccoon/internal/core/insights/app"
-	sharedhash "github.com/market-raccoon/internal/shared/hash"
+	insightsapp "github.com/FabioCaffarello/stream-analytics/internal/core/insights/app"
+	sharedhash "github.com/FabioCaffarello/stream-analytics/internal/shared/hash"
 )
 
 type heatmapFixtureRow struct {

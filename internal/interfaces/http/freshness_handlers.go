@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/market-raccoon/internal/shared/observability"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/observability"
 )
 
 // FreshnessResponse describes per-instrument data flow health.

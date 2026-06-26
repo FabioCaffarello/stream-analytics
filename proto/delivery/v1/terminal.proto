@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package delivery.v1;
 
-option go_package = "github.com/market-raccoon/internal/shared/proto/gen/delivery/v1";
+option go_package = "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/delivery/v1";
 
 // WireProtocolVersion identifies the terminal WS protocol.
 enum WireProtocolVersion {

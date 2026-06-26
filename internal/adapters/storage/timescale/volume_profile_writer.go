@@ -6,12 +6,12 @@ import (
 	"strings"
 	"sync"
 
-	adapterstorage "github.com/market-raccoon/internal/adapters/storage"
-	insightsports "github.com/market-raccoon/internal/core/insights/ports"
-	"github.com/market-raccoon/internal/shared/hash"
-	"github.com/market-raccoon/internal/shared/metrics"
-	"github.com/market-raccoon/internal/shared/naming"
-	"github.com/market-raccoon/internal/shared/problem"
+	adapterstorage "github.com/FabioCaffarello/stream-analytics/internal/adapters/storage"
+	insightsports "github.com/FabioCaffarello/stream-analytics/internal/core/insights/ports"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/hash"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/naming"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 // VolumeProfileWriter is a hot-path Timescale writer for VPVR buckets.

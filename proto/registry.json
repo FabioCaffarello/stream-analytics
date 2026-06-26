@@ -1,5 +1,5 @@
 {
-  "_coverage_note": "Proto schemas cover all hot-path payloads: marketdata, aggregation (candle + stats + tape + analytics primitives + cross_venue_book), insights (volume_profile + heatmap), evidence, signals, delivery frames, and Stage 3 contract anchors for strategy/execution/portfolio. See docs/contracts/subject-registry.yaml for the full subject catalog.",
+  "_coverage_note": "Proto schemas cover all hot-path payloads: marketdata, aggregation (candle + stats + tape + analytics primitives + cross_venue_book), insights (volume_profile + heatmap), evidence, delivery frames. See docs/contracts/subject-registry.yaml for the full subject catalog.",
   "schemas": [
     {
       "type": "envelope",
@@ -194,16 +194,6 @@
       "introduced_at": "2026-03-03"
     },
     {
-      "type": "signal.composite",
-      "version": 1,
-      "proto_file": "signals/v1/composite.proto",
-      "message": "signals.v1.CompositeSignalV1",
-      "status": "draft",
-      "introduced_at": "2026-03-03",
-      "updated_at": "2026-03-06",
-      "lifecycle": "deprecated_operationally"
-    },
-    {
       "type": "signal.event",
       "version": 1,
       "proto_file": "marketmodel/v1/market_event.proto",
@@ -211,84 +201,6 @@
       "status": "stable",
       "introduced_at": "2026-03-04",
       "updated_at": "2026-03-05"
-    },
-    {
-      "type": "strategy.intent",
-      "version": 1,
-      "proto_file": "strategy/v1/intent.proto",
-      "message": "strategy.v1.StrategyIntentV1",
-      "status": "draft",
-      "introduced_at": "2026-03-06"
-    },
-    {
-      "type": "execution.event",
-      "version": 1,
-      "proto_file": "execution/v1/event.proto",
-      "message": "execution.v1.ExecutionEventV1",
-      "status": "draft",
-      "introduced_at": "2026-03-06",
-      "updated_at": "2026-03-06",
-      "lifecycle": "stage8_safe_lifecycle_reconciliation"
-    },
-    {
-      "type": "portfolio.state",
-      "version": 1,
-      "proto_file": "portfolio/v1/state.proto",
-      "message": "portfolio.v1.PortfolioStateV1",
-      "status": "draft",
-      "introduced_at": "2026-03-06",
-      "stability_criteria": "round-trip codec tests pass, 30 days production without breaking change",
-      "stability_target": "2026-04-06"
-    },
-    {
-      "type": "portfolio.account_snapshot",
-      "version": 1,
-      "proto_file": "portfolio/v1/account_snapshot.proto",
-      "message": "portfolio.v1.AccountSnapshotV1",
-      "status": "draft",
-      "introduced_at": "2026-03-08",
-      "stability_criteria": "round-trip codec tests pass, 30 days production without breaking change",
-      "stability_target": "2026-04-08"
-    },
-    {
-      "type": "portfolio.summary",
-      "version": 1,
-      "proto_file": "portfolio/v1/portfolio_summary.proto",
-      "message": "portfolio.v1.PortfolioSummaryV1",
-      "status": "draft",
-      "introduced_at": "2026-03-08",
-      "stability_criteria": "round-trip codec tests pass, 30 days production without breaking change",
-      "stability_target": "2026-04-08"
-    },
-    {
-      "type": "portfolio.state_query",
-      "version": 1,
-      "proto_file": "portfolio/v1/query.proto",
-      "message": "portfolio.v1.PortfolioStateQueryRequest",
-      "status": "draft",
-      "introduced_at": "2026-03-08",
-      "stability_criteria": "round-trip codec tests pass, 30 days production without breaking change",
-      "stability_target": "2026-04-08"
-    },
-    {
-      "type": "portfolio.account_snapshot_query",
-      "version": 1,
-      "proto_file": "portfolio/v1/query.proto",
-      "message": "portfolio.v1.AccountSnapshotQueryRequest",
-      "status": "draft",
-      "introduced_at": "2026-03-08",
-      "stability_criteria": "round-trip codec tests pass, 30 days production without breaking change",
-      "stability_target": "2026-04-08"
-    },
-    {
-      "type": "portfolio.summary_query",
-      "version": 1,
-      "proto_file": "portfolio/v1/query.proto",
-      "message": "portfolio.v1.PortfolioSummaryQueryRequest",
-      "status": "draft",
-      "introduced_at": "2026-03-08",
-      "stability_criteria": "round-trip codec tests pass, 30 days production without breaking change",
-      "stability_target": "2026-04-08"
     }
   ]
 }

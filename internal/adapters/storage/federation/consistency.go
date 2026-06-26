@@ -3,8 +3,8 @@ package federation
 import (
 	"context"
 
-	aggports "github.com/market-raccoon/internal/core/aggregation/ports"
-	"github.com/market-raccoon/internal/shared/problem"
+	aggports "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/ports"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 // ConsistencyReport summarises hot vs cold alignment for a single artifact slice.

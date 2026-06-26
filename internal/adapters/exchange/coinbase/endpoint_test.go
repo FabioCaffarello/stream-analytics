@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/market-raccoon/internal/adapters/exchange/coinbase"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/exchange/coinbase"
 )
 
 func TestBuildSubscriptions(t *testing.T) {

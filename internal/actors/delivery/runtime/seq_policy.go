@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/market-raccoon/internal/shared/ownership"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/ownership"
 )
 
 const (

@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/market-raccoon/internal/core/insights/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/insights/domain"
 )
 
 // goldenBinCase captures one price/tickSize pair with expected bin sizes

@@ -3,7 +3,7 @@ package contracts_test
 import (
 	"testing"
 
-	"github.com/market-raccoon/internal/contracts"
+	"github.com/FabioCaffarello/stream-analytics/internal/contracts"
 )
 
 func TestDecodeEnvelopeV1FromHTTP_ValidEnvelope(t *testing.T) {

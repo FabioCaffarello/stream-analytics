@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/market-raccoon/internal/core/evidence/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/evidence/domain"
 )
 
 func TestTrendRegimeDetector_Trending(t *testing.T) {

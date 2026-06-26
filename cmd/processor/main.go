@@ -1,4 +1,4 @@
-// Package main is the market-raccoon processor binary.
+// Package main is the stream-analytics processor binary.
 //
 // The processor subscribes to an event bus, reads normalised event envelopes,
 // and applies them to the core aggregation use cases (order book, etc.).
@@ -18,8 +18,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/market-raccoon/internal/shared/bootstrap"
-	"github.com/market-raccoon/internal/shared/config"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/bootstrap"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/config"
 )
 
 func main() {

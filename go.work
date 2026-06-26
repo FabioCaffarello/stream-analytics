@@ -1,34 +1,23 @@
 go 1.25.6
 
 use (
-	./cmd/backfill
 	./cmd/consumer
 	./cmd/emulator
-	./cmd/credentials-broker
-	./cmd/executor
 	./cmd/migrate
-	./cmd/portfolio
 	./cmd/processor
 	./cmd/server
-	./cmd/signals
 	./cmd/store
-	./cmd/strategist
 	./cmd/validator
-	./internal/application
 	./internal/actors
 	./internal/adapters
+	./internal/application
 	./internal/contracts
 	./internal/core/aggregation
 	./internal/core/delivery
 	./internal/core/evidence
-	./internal/core/execution
 	./internal/core/insights
 	./internal/core/marketdata
 	./internal/core/marketmodel
-	./internal/core/portfolio
-	./internal/core/signal
-	./internal/core/signals
-	./internal/core/strategy
 	./internal/core/workspace
 	./internal/interfaces
 	./internal/shared

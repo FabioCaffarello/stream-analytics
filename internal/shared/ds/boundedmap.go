@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/market-raccoon/internal/shared/clock"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/clock"
 )
 
 const (

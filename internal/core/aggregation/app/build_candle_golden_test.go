@@ -6,8 +6,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/market-raccoon/internal/core/aggregation/app"
-	"github.com/market-raccoon/internal/core/aggregation/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/app"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
 )
 
 func runCandleSequence(t *testing.T, uc *app.BuildCandleFromEvents, seq []app.BuildCandleRequest) []domain.CandleClosed {

@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/market-raccoon/internal/shared/metrics"
-	"github.com/market-raccoon/internal/shared/problem"
-	deliveryv1 "github.com/market-raccoon/internal/shared/proto/gen/delivery/v1"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
+	deliveryv1 "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/delivery/v1"
 )
 
 // ── Protocol version & limit-type constants ─────────────────────────────────

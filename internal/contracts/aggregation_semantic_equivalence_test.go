@@ -4,8 +4,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/market-raccoon/internal/contracts"
-	"github.com/market-raccoon/internal/shared/codec"
+	"github.com/FabioCaffarello/stream-analytics/internal/contracts"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/codec"
 )
 
 func TestCandleClosedV1_JSON_vs_Proto_SemanticEquivalence(t *testing.T) {

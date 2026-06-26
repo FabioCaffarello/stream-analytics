@@ -3,8 +3,8 @@ package ports
 import (
 	"context"
 
-	"github.com/market-raccoon/internal/core/insights/domain"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/insights/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 // VolumeProfileSnapshotQuery specifies a range query for persisted VPVR snapshots.

@@ -5,9 +5,9 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/market-raccoon/internal/core/insights/domain"
-	"github.com/market-raccoon/internal/shared/metrics"
-	"github.com/market-raccoon/internal/shared/naming"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/insights/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/naming"
 )
 
 // VPVROverloadLevel represents overload severity (L0=normal through L3=critical).

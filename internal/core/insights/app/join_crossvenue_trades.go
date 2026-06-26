@@ -9,14 +9,14 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/market-raccoon/internal/core/insights/domain"
-	"github.com/market-raccoon/internal/shared/clock"
-	"github.com/market-raccoon/internal/shared/ds"
-	"github.com/market-raccoon/internal/shared/metrics"
-	"github.com/market-raccoon/internal/shared/naming"
-	"github.com/market-raccoon/internal/shared/problem"
-	"github.com/market-raccoon/internal/shared/result"
-	"github.com/market-raccoon/internal/shared/validation"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/insights/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/clock"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/ds"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/naming"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/result"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/validation"
 )
 
 // JoinCrossVenueTradesConfig controls bounded state for join processing.
@@ -150,7 +150,7 @@ func NewJoinCrossVenueTradesWithConfig(cfg JoinCrossVenueTradesConfig) *JoinCros
 		minVenues:    cfg.MinVenues,
 		minSpreadBPS: cfg.MinSpreadBPS,
 		roundingMode: parseSpreadRoundingMode(cfg.RoundingMode),
-		sweepEveryN:  uint64(cfg.SweepEveryN),
+		sweepEveryN:  uint64(cfg.SweepEveryN), //nolint:gosec // SweepEveryN is always positive; truncation cannot occur.
 		sweepEvery:   cfg.SweepEvery,
 	}
 	uc.lastSweepMs.Store(cfg.Clock.NowUnixMilli())

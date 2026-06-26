@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/metrics"
-	"github.com/market-raccoon/internal/shared/observability"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/observability"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 	"github.com/nats-io/nats.go"
 )
 
@@ -95,7 +95,7 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig, observer observability
 
 	nc, err := nats.Connect(
 		cfg.URL,
-		nats.Name("market-raccoon-jetstream-consumer"),
+		nats.Name("stream-analytics-jetstream-consumer"),
 		nats.RetryOnFailedConnect(true),
 		nats.MaxReconnects(-1),
 	)

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/market-raccoon/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 

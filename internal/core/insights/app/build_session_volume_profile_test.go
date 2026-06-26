@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/market-raccoon/internal/core/insights/domain"
-	sharedhash "github.com/market-raccoon/internal/shared/hash"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/insights/domain"
+	sharedhash "github.com/FabioCaffarello/stream-analytics/internal/shared/hash"
 )
 
 func TestBuildSessionVolumeProfile_BasicAccumulation(t *testing.T) {

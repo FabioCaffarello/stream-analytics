@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	insightsapp "github.com/market-raccoon/internal/core/insights/app"
-	insightsdomain "github.com/market-raccoon/internal/core/insights/domain"
-	sharedhash "github.com/market-raccoon/internal/shared/hash"
+	insightsapp "github.com/FabioCaffarello/stream-analytics/internal/core/insights/app"
+	insightsdomain "github.com/FabioCaffarello/stream-analytics/internal/core/insights/domain"
+	sharedhash "github.com/FabioCaffarello/stream-analytics/internal/shared/hash"
 )
 
 func TestVPVROverloadSoakBurstDeterministicBudgets(t *testing.T) {

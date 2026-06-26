@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	deliveryv1 "github.com/market-raccoon/internal/shared/proto/gen/delivery/v1"
+	deliveryv1 "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/delivery/v1"
 )
 
 type logCaptureHandler struct {

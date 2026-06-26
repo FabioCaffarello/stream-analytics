@@ -3,7 +3,7 @@ package ids_test
 import (
 	"testing"
 
-	"github.com/market-raccoon/internal/shared/ids"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/ids"
 )
 
 func TestAggregationSnapshotWriteKey_DeterministicAndCanonical(t *testing.T) {

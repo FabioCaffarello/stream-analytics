@@ -7,16 +7,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/FabioCaffarello/stream-analytics/internal/contracts"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/delivery/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/delivery/ports"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/codec"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/observability"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
+	deliveryv1 "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/delivery/v1"
 	"github.com/gorilla/websocket"
-	"github.com/market-raccoon/internal/contracts"
-	"github.com/market-raccoon/internal/core/delivery/domain"
-	"github.com/market-raccoon/internal/core/delivery/ports"
-	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/metrics"
-	"github.com/market-raccoon/internal/shared/observability"
-	"github.com/market-raccoon/internal/shared/problem"
-	deliveryv1 "github.com/market-raccoon/internal/shared/proto/gen/delivery/v1"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 )
@@ -390,7 +390,7 @@ func evidenceIDsFromWatermark(in []struct {
 }
 
 func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) *problem.Problem {
-	_, span := otel.Tracer("market-raccoon.delivery.session").Start(context.Background(), "session.write_delivery_event")
+	_, span := otel.Tracer("stream-analytics.delivery.session").Start(context.Background(), "session.write_delivery_event")
 	span.SetAttributes(
 		attribute.String("stream.id", evt.Subject.String()),
 		attribute.String("stream.type", evt.Subject.StreamType),

@@ -7,9 +7,9 @@ import (
 	"slices"
 	"testing"
 
-	marketdomain "github.com/market-raccoon/internal/core/marketdata/domain"
-	"github.com/market-raccoon/internal/shared/codec"
-	marketdatav1 "github.com/market-raccoon/internal/shared/proto/gen/marketdata/v1"
+	marketdomain "github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/codec"
+	marketdatav1 "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/marketdata/v1"
 )
 
 func TestRegistry_RegisterAndLookup(t *testing.T) {

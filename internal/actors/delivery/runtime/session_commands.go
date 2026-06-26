@@ -10,13 +10,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/market-raccoon/internal/core/delivery/app"
-	"github.com/market-raccoon/internal/core/delivery/domain"
-	"github.com/market-raccoon/internal/core/delivery/ports"
-	"github.com/market-raccoon/internal/shared/metrics"
-	"github.com/market-raccoon/internal/shared/observability"
-	"github.com/market-raccoon/internal/shared/problem"
-	deliveryv1 "github.com/market-raccoon/internal/shared/proto/gen/delivery/v1"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/delivery/app"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/delivery/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/delivery/ports"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/observability"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
+	deliveryv1 "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/delivery/v1"
 )
 
 // ── Inbound command dispatch ────────────────────────────────────────────────

@@ -24,18 +24,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/FabioCaffarello/stream-analytics/internal/actors/runtime"
+	"github.com/FabioCaffarello/stream-analytics/internal/application/dataplane"
+	"github.com/FabioCaffarello/stream-analytics/internal/application/runtimebootstrap"
+	"github.com/FabioCaffarello/stream-analytics/internal/contracts"
+	workspaceapp "github.com/FabioCaffarello/stream-analytics/internal/core/workspace/app"
+	workspaceports "github.com/FabioCaffarello/stream-analytics/internal/core/workspace/ports"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/config"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/observability"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 	"github.com/anthdm/hollywood/actor"
-	"github.com/market-raccoon/internal/actors/runtime"
-	"github.com/market-raccoon/internal/application/dataplane"
-	"github.com/market-raccoon/internal/application/runtimebootstrap"
-	"github.com/market-raccoon/internal/contracts"
-	executionports "github.com/market-raccoon/internal/core/execution/ports"
-	workspaceapp "github.com/market-raccoon/internal/core/workspace/app"
-	workspaceports "github.com/market-raccoon/internal/core/workspace/ports"
-	"github.com/market-raccoon/internal/shared/config"
-	"github.com/market-raccoon/internal/shared/metrics"
-	"github.com/market-raccoon/internal/shared/observability"
-	"github.com/market-raccoon/internal/shared/problem"
 )
 
 const defaultSnapshotTimeout = 5 * time.Second
@@ -65,8 +64,6 @@ type Server struct {
 	wsHandler           http.HandlerFunc
 	coldReaders         *ColdReaders
 	markets             *config.MarketsConfig
-	controlPlane        executionports.ControlPlane
-	portfolioReaders    *PortfolioReaders
 	insightsSnapshotter InsightsSnapshotter
 	consistencyChecks   map[string]ConsistencyCheckFn
 	workspaceSvc        *workspaceapp.WorkspaceService
@@ -211,16 +208,6 @@ func NewServer(
 	if s.coldReaders != nil {
 		mux.HandleFunc("GET /api/v1/timeline", s.handleGetTimeline)
 	}
-	if s.portfolioReaders != nil {
-		mux.HandleFunc("GET /api/v1/portfolio/state/latest", s.handleGetPortfolioStateLatest)
-		mux.HandleFunc("GET /api/v1/portfolio/states", s.handleGetPortfolioStates)
-		mux.HandleFunc("GET /api/v1/portfolio/account-snapshot/latest", s.handleGetAccountSnapshotLatest)
-		mux.HandleFunc("GET /api/v1/portfolio/summary/latest", s.handleGetPortfolioSummaryLatest)
-		mux.HandleFunc("GET /api/v1/portfolio/account-snapshots", s.handleGetAccountSnapshots)
-		mux.HandleFunc("GET /api/v1/portfolio/summaries", s.handleGetPortfolioSummaries)
-		mux.HandleFunc("GET /api/v1/portfolio/equity-curve", s.handleGetEquityCurve)
-		mux.HandleFunc("GET /api/v1/portfolio/reconciliation", s.handleGetReconciliation)
-	}
 	if s.insightsSnapshotter != nil {
 		mux.HandleFunc("GET /api/v1/insights/session-vp", s.handleGetSessionVolumeProfile)
 		mux.HandleFunc("GET /api/v1/insights/tpo", s.handleGetTPOProfile)
@@ -241,15 +228,6 @@ func NewServer(
 		if s.dataPlaneEmitter != nil {
 			mux.Handle("POST /api/v1/dataplane/emulator/emit", localhostOnly(http.HandlerFunc(s.handleEmitDataPlaneScenario)))
 		}
-	}
-	if s.controlPlane != nil {
-		mux.Handle("POST /api/v1/control", localhostOnly(http.HandlerFunc(s.handleControlApply)))
-		mux.Handle("GET /api/v1/control/snapshot", localhostOnly(http.HandlerFunc(s.handleControlSnapshot)))
-	}
-	// S78: Trading readiness surface — composed from control plane + portfolio.
-	// Available when either dependency is configured; degrades gracefully.
-	if s.controlPlane != nil || s.portfolioReaders != nil {
-		mux.HandleFunc("GET /api/v1/trading/readiness", s.handleGetTradingReadiness)
 	}
 	s.mux = mux
 
@@ -290,7 +268,7 @@ func (s *Server) Handler() http.Handler {
 // It must be called before ListenAndServe.
 func (s *Server) HandleFunc(pattern string, handler http.HandlerFunc) {
 	switch pattern {
-	case "GET /healthz", "GET /readyz", "GET /runtime/snapshot", "GET /runtime/overload", "GET /runtime/storage", "GET /runtime/ws", "GET /runtime/terminal", "GET /shardz", "POST /runtime/reload", "GET /metrics", "POST /api/v1/control", "GET /api/v1/control/snapshot":
+	case "GET /healthz", "GET /readyz", "GET /runtime/snapshot", "GET /runtime/overload", "GET /runtime/storage", "GET /runtime/ws", "GET /runtime/terminal", "GET /shardz", "POST /runtime/reload", "GET /metrics":
 		s.logger.Warn("httpserver: refusing to override critical route", "pattern", pattern)
 		return
 	}

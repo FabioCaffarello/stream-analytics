@@ -5,7 +5,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 // maxWorkspaceBodyBytes limits the PUT request body to 1 MiB.

@@ -3,7 +3,7 @@ package app
 import (
 	"math"
 
-	"github.com/market-raccoon/internal/core/evidence/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/evidence/domain"
 )
 
 // imbStreamState holds per-stream state for persistent imbalance detection.

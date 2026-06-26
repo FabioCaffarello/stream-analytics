@@ -3,7 +3,7 @@ package domain_test
 import (
 	"testing"
 
-	"github.com/market-raccoon/internal/core/delivery/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/delivery/domain"
 )
 
 func TestShouldDropOnBackpressure_dropNewest(t *testing.T) {

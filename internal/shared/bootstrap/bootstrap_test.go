@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"testing"
 
-	"github.com/market-raccoon/internal/shared/config"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/config"
 )
 
 func TestBuildLogger_TextFormat(t *testing.T) {
@@ -119,7 +119,7 @@ func TestApplyShardOverrides_HostnameFallbackWhenIndexUnset(t *testing.T) {
 	t.Setenv("SHARD_INDEX", "")
 	t.Setenv("SHARD_COUNT", "2")
 	t.Setenv("MR_ENV", "dev")
-	hostnameProvider = func() (string, error) { return "market-raccoon-processor-2", nil }
+	hostnameProvider = func() (string, error) { return "stream-analytics-processor-2", nil }
 	composeContainerNumberProvider = defaultComposeContainerNumberProvider
 	t.Cleanup(func() {
 		hostnameProvider = defaultHostnameProvider

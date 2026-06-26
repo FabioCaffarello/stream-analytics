@@ -13,11 +13,11 @@ import (
 	"sync"
 	"time"
 
+	ws "github.com/FabioCaffarello/stream-analytics/internal/actors/marketdata/ws"
+	actorruntime "github.com/FabioCaffarello/stream-analytics/internal/actors/runtime"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 	"github.com/anthdm/hollywood/actor"
-	ws "github.com/market-raccoon/internal/actors/marketdata/ws"
-	actorruntime "github.com/market-raccoon/internal/actors/runtime"
-	"github.com/market-raccoon/internal/shared/metrics"
-	"github.com/market-raccoon/internal/shared/problem"
 )
 
 const (
@@ -25,7 +25,7 @@ const (
 	envConsumerE2EHTTPAddr = "E2E_HTTP_ADDR"
 	envConsumerProbeAddr   = "PROBE_ADDR"
 	envRunMode             = "RUN_MODE"
-	envMarketRaccoonMode   = "MARKET_RACCOON_MODE"
+	envStreamAnalyticsMode = "STREAM_ANALYTICS_MODE"
 	defaultProbePort       = "18083"
 )
 
@@ -52,7 +52,7 @@ type e2eRuntime struct {
 func newE2ERuntime(logger *slog.Logger) (*e2eRuntime, *problem.Problem) {
 	enabled := strings.TrimSpace(os.Getenv(envConsumerE2ETestMode)) == "1"
 	if enabled && !hasE2ETestPosture() {
-		return nil, problem.New(problem.ValidationFailed, "E2E_TEST_MODE=1 requires RUN_MODE=test or MARKET_RACCOON_MODE=test")
+		return nil, problem.New(problem.ValidationFailed, "E2E_TEST_MODE=1 requires RUN_MODE=test or STREAM_ANALYTICS_MODE=test")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &e2eRuntime{
@@ -162,7 +162,7 @@ func hasE2ETestPosture() bool {
 	if strings.EqualFold(strings.TrimSpace(os.Getenv(envRunMode)), "test") {
 		return true
 	}
-	return strings.EqualFold(strings.TrimSpace(os.Getenv(envMarketRaccoonMode)), "test")
+	return strings.EqualFold(strings.TrimSpace(os.Getenv(envStreamAnalyticsMode)), "test")
 }
 
 func resolveLoopbackProbeAddr() string {

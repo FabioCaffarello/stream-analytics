@@ -1,4 +1,4 @@
-// Package main is the market-raccoon consumer binary.
+// Package main is the stream-analytics consumer binary.
 //
 // The consumer ingests real-time market data via WebSocket connections and
 // publishes normalised events to the event bus.
@@ -18,8 +18,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/market-raccoon/internal/shared/bootstrap"
-	"github.com/market-raccoon/internal/shared/config"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/bootstrap"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/config"
 )
 
 func main() {

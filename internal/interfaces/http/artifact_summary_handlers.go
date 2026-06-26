@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
+	aggdomain "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
 )
 
 // ArtifactSummaryResponse is a backend-owned artifact availability matrix

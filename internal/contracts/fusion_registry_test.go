@@ -3,7 +3,7 @@ package contracts
 import (
 	"testing"
 
-	"github.com/market-raccoon/internal/shared/codec"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/codec"
 )
 
 func TestRegisterFusionPayloadV1(t *testing.T) {

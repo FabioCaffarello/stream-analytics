@@ -58,7 +58,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules workspace-check tidy tidy-check go-tidy-check tidy-check-changed fmt fmt-check vet shell-script-check quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check legacy-check-staged legacy-check lint lint-changed smoke smoke-dataplane subminute-rollout-gate subminute-rollout-gate-full runtime-gate runtime-gate-full test test-root test-workspace test-workspace-race test-unit test-integration test-integration-changed test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store soak-roundtrip soak-pipeline soak-ws-delivery soak-c4-production soak-full test-short test-short-changed bench-hotpath bench-budget vuln build run clean docker-build client-docker-build client-docker-run client-docker-stop up up-fresh down down-clean up-infra up-core migrate processor-reset-durables dev-scale-smoke ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci backup backup-timescaledb backup-clickhouse restore-timescaledb restore-clickhouse
+.PHONY: help install-tools tools modules workspace-check tidy tidy-check go-tidy-check tidy-check-changed fmt fmt-check vet shell-script-check quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check legacy-check-staged legacy-check lint lint-changed smoke smoke-dataplane subminute-rollout-gate subminute-rollout-gate-full runtime-gate runtime-gate-full test test-root test-workspace test-workspace-race test-unit test-integration test-integration-changed test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store soak-roundtrip soak-pipeline soak-ws-delivery soak-c4-production soak-full test-short test-short-changed bench-hotpath bench-budget vuln build run clean docker-build client-docker-build client-docker-run client-docker-stop up up-fresh down down-clean up-infra up-core migrate processor-reset-durables dev-scale-smoke ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci backup backup-timescaledb backup-clickhouse restore-timescaledb restore-clickhouse docs-install docs-serve docs-build docs-clean docs-deploy
 
 help:
 	@echo "Targets:"
@@ -83,6 +83,11 @@ help:
 	@echo "  make docs-check-fast    - lightweight docs guardrails for local loop"
 	@echo "  make docs-check-full    - full strict docs guardrails"
 	@echo "  make docs-fix           - print docs fix checklist based on current guardrail findings"
+	@echo "  make docs-install       - install Python docs deps via uv"
+	@echo "  make docs-serve         - serve docs locally at http://127.0.0.1:8000"
+	@echo "  make docs-build         - build docs to ./site (strict mode, fails on any warning)"
+	@echo "  make docs-clean         - remove ./site build output"
+	@echo "  make docs-deploy        - deploy docs to GitHub Pages (gh-pages branch)"
 	@echo "  make invariants-check   - enforce domain isolation and runtime invariants checks"
 	@echo "  make lint               - run golangci-lint in workspace modules"
 	@echo "  make lint-changed       - run invariants + golangci-lint only in changed Go modules"
@@ -140,6 +145,9 @@ help:
 	@echo "                           vars: N or PROCESSOR_REPLICAS (default 3 for this target)"
 	@echo "  make ps                 - list compose service status"
 	@echo "  make logs               - stream compose logs"
+	@echo "  make up-analytics       - start infra + Flink + Metabase (analytics profile)"
+	@echo "  make metabase-provision - provision Metabase with expert analytics dashboard"
+	@echo "                           vars: METABASE_URL, METABASE_ADMIN_EMAIL, METABASE_ADMIN_PASSWORD"
 	@echo "  make pre-commit-install - install pre-commit hooks"
 	@echo "  make commit-msg-check   - validate Conventional Commit message (MSG_FILE or MSG)"
 	@echo "  make commit-msg-self-check - run pass/fail commit-msg examples"
@@ -303,6 +311,24 @@ docs-fix:
 	@./scripts/ci/docs/check-truth-map.sh --fix-hints
 	@./scripts/ci/docs/check-feature-pack-links.sh --fix-hints
 	@./scripts/check-pack-subjects.sh --fix-hints
+
+## ── MkDocs / GitHub Pages ────────────────────────────────────────────────────
+
+docs-install:
+	@uv sync
+
+docs-serve: docs-install
+	@lsof -ti:8000 | xargs kill -9 2>/dev/null; true
+	@DISABLE_MKDOCS_2_WARNING=true uv run mkdocs serve --dev-addr 127.0.0.1:8000
+
+docs-build: docs-install
+	@DISABLE_MKDOCS_2_WARNING=true uv run mkdocs build --strict
+
+docs-clean:
+	@rm -rf ./site
+
+docs-deploy: docs-install
+	@DISABLE_MKDOCS_2_WARNING=true uv run mkdocs gh-deploy --force --clean
 
 invariants-check:
 	@./scripts/ci/guards/check-domain-isolation.sh "$(CURDIR)"
@@ -599,7 +625,7 @@ up-fresh:
 	$(MAKE) up-infra >/dev/null; \
 	echo "[up-fresh] waiting for NATS health"; \
 	for i in $$(seq 1 60); do \
-		status="$$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}unknown{{end}}' market-raccoon-nats 2>/dev/null || true)"; \
+		status="$$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}unknown{{end}}' stream-analytics-nats 2>/dev/null || true)"; \
 		if [ "$$status" = "healthy" ]; then break; fi; \
 		if [ "$$i" -eq 60 ]; then \
 			echo "[up-fresh] NATS did not become healthy in time"; exit 1; \
@@ -696,6 +722,33 @@ ps:
 
 logs:
 	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile core --profile obs logs -f --tail=200
+
+# ── Analytics stack (Flink + Metabase) ──────────────────────────────────────
+
+METABASE_URL             ?= http://localhost:3001
+METABASE_ADMIN_EMAIL     ?= admin@raccoon.local
+METABASE_ADMIN_PASSWORD  ?= raccoon_admin!
+
+.PHONY: up-analytics metabase-provision
+
+up-analytics:
+	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env \
+		--profile analytics up -d nats kafka timescale clickhouse migrate \
+		flink-jobmanager flink-taskmanager flink-sql-init metabase
+	@echo "Analytics stack starting — Metabase will be available at $(METABASE_URL)"
+	@echo "Run 'make metabase-provision' once Metabase reports healthy."
+
+metabase-provision:
+	@command -v python3 >/dev/null 2>&1 || { echo "python3 not found"; exit 1; }
+	METABASE_URL="$(METABASE_URL)" \
+	METABASE_ADMIN_EMAIL="$(METABASE_ADMIN_EMAIL)" \
+	METABASE_ADMIN_PASSWORD="$(METABASE_ADMIN_PASSWORD)" \
+	TIMESCALE_HOST="localhost" \
+	TIMESCALE_PORT="5432" \
+	TIMESCALE_DB="$(shell grep '^TIMESCALE_DB' deploy/envs/local.env | cut -d= -f2)" \
+	TIMESCALE_USER="$(shell grep '^TIMESCALE_USER' deploy/envs/local.env | cut -d= -f2)" \
+	TIMESCALE_PASSWORD="$(shell grep '^TIMESCALE_PASSWORD' deploy/envs/local.env | cut -d= -f2)" \
+	python3 deploy/metabase/provision.py
 
 pre-commit-install:
 	$(PRE_COMMIT) install --install-hooks --hook-type pre-commit --hook-type pre-push --hook-type commit-msg

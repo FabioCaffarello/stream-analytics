@@ -6,7 +6,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 // Clock abstracts wall time for deterministic policy tests.

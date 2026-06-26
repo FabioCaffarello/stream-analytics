@@ -1,7 +1,7 @@
 ---
 # Subject registry
 version: 1
-last_updated: 2026-03-06
+last_updated: 2026-06-25
 canonical_subject_format: "{event}.v{version}.{venue}.{instrument}"
 status_values:
   - stable
@@ -284,7 +284,7 @@ subjects:
     owner_bc: evidence
     producer_bc: evidence
     schema_authority_bc: evidence
-    consumer_bcs: [delivery, signal]
+    consumer_bcs: [delivery]
     status: stable
     sources:
       - proto/evidence/v1/evidence.proto
@@ -296,7 +296,7 @@ subjects:
     owner_bc: evidence
     producer_bc: evidence
     schema_authority_bc: evidence
-    consumer_bcs: [delivery, signal]
+    consumer_bcs: [delivery]
     status: stable
     sources:
       - internal/core/evidence/domain/regime.go
@@ -311,73 +311,9 @@ subjects:
     status: planned
     sources:
       - .context/docs/feature-packs/liquidations-markprice.md
-  - id: signal.event.v1
-    pattern: signal.event.v1.{venue}.{instrument}
-    root: signal
-    owner_bc: signal
-    producer_bc: signal
-    schema_authority_bc: signal
-    consumer_bcs: [delivery, strategy]
-    status: stable
-    sources:
-      - docs/contracts/signal-engine.md
-      - proto/marketmodel/v1/market_event.proto
-      - proto/registry.json
-  - id: signal.composite.v1
-    pattern: signal.composite.v1.{venue}.{instrument}
-    root: signal
-    owner_bc: signal
-    producer_bc: signal
-    schema_authority_bc: signal
-    consumer_bcs: [delivery]
-    status: draft
-    runtime_state: retired
-    compatibility_mode: historical_replay_read_only
-    sources:
-      - docs/architecture/semantic-hardening-stage1.md
-      - docs/architecture/legacy-retirement-stage6.md
-      - docs/operations/signals-strategist-cutover.md
-      - proto/signals/v1/composite.proto
-      - proto/registry.json
-  - id: strategy.intent.v1
-    pattern: strategy.intent.v1.{venue}.{instrument}
-    root: strategy
-    owner_bc: strategy
-    producer_bc: strategy
-    schema_authority_bc: strategy
-    consumer_bcs: [execution, delivery]
-    status: draft
-    sources:
-      - docs/contracts/strategy-execution-portfolio-contracts.md
-      - proto/strategy/v1/intent.proto
-      - proto/registry.json
-  - id: execution.event.v1
-    pattern: execution.event.v1.{venue}.{instrument}
-    root: execution
-    owner_bc: execution
-    producer_bc: execution
-    schema_authority_bc: execution
-    consumer_bcs: [portfolio, delivery]
-    status: draft
-    runtime_state: stage8_safe_lifecycle_reconciliation
-    sources:
-      - docs/contracts/strategy-execution-portfolio-contracts.md
-      - docs/architecture/real-adapter-integration-stage7.md
-      - docs/architecture/real-execution-lifecycle-stage8.md
-      - proto/execution/v1/event.proto
-      - proto/registry.json
-  - id: portfolio.state.v1
-    pattern: portfolio.state.v1.{venue}.{instrument}
-    root: portfolio
-    owner_bc: portfolio
-    producer_bc: portfolio
-    schema_authority_bc: portfolio
-    consumer_bcs: [delivery]
-    status: draft
-    sources:
-      - docs/contracts/strategy-execution-portfolio-contracts.md
-      - proto/portfolio/v1/state.proto
-      - proto/registry.json
+  # signal.event.v1, signal.composite.v1, strategy.intent.v1, execution.event.v1,
+  # portfolio.state.v1 — removed in S9 (codex/s9-legacy-removal-cutover).
+  # cmd/signals, cmd/strategist, cmd/executor, cmd/portfolio were retired.
 findings:
   outside_owner_bc: []
   naming_inconsistencies:

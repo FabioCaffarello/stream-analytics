@@ -1,8 +1,8 @@
 package contracts
 
 import (
-	marketdomain "github.com/market-raccoon/internal/core/marketdata/domain"
-	marketdatav1 "github.com/market-raccoon/internal/shared/proto/gen/marketdata/v1"
+	marketdomain "github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/domain"
+	marketdatav1 "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/marketdata/v1"
 )
 
 func ProtoToDomainTradeTickV1(in *marketdatav1.TradeTickV1) marketdomain.TradeTickV1 {

@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package insights.v1;
 
-option go_package = "github.com/market-raccoon/internal/shared/proto/gen/insights/v1";
+option go_package = "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/insights/v1";
 
 // HeatmapCellV1 models one bounded price/size bucket inside a heatmap window.
 message HeatmapCellV1 {

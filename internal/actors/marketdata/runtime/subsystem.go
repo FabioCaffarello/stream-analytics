@@ -6,15 +6,15 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/FabioCaffarello/stream-analytics/internal/actors/marketdata/ws"
+	runtime "github.com/FabioCaffarello/stream-analytics/internal/actors/runtime"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/app"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/domain"
+	marketmodel "github.com/FabioCaffarello/stream-analytics/internal/core/marketmodel"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/naming"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 	"github.com/anthdm/hollywood/actor"
-	"github.com/market-raccoon/internal/actors/marketdata/ws"
-	runtime "github.com/market-raccoon/internal/actors/runtime"
-	"github.com/market-raccoon/internal/core/marketdata/app"
-	"github.com/market-raccoon/internal/core/marketdata/domain"
-	marketmodel "github.com/market-raccoon/internal/core/marketmodel"
-	"github.com/market-raccoon/internal/shared/metrics"
-	"github.com/market-raccoon/internal/shared/naming"
-	"github.com/market-raccoon/internal/shared/problem"
 )
 
 // SubsystemConfig configures the MarketDataSubsystemActor.

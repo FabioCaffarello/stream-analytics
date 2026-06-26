@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/market-raccoon/internal/application/dataplane"
+	"github.com/FabioCaffarello/stream-analytics/internal/application/dataplane"
 )
 
 func TestMapToDataPlaneMessage(t *testing.T) {

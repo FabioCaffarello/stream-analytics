@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/market-raccoon/internal/shared/slo"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/slo"
 )
 
 func TestNewEvaluator_DefaultSLOs(t *testing.T) {

@@ -1,7 +1,7 @@
 package contracts
 
 import (
-	aggregationv2 "github.com/market-raccoon/internal/shared/proto/gen/aggregation/v2"
+	aggregationv2 "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/aggregation/v2"
 )
 
 // WireDTOToProtoCrossVenueBookSnapshotV1 converts the wire DTO to the protobuf message.

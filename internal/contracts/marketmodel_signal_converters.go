@@ -3,9 +3,9 @@ package contracts
 import (
 	"strings"
 
-	evidencedomain "github.com/market-raccoon/internal/core/evidence/domain"
-	marketmodel "github.com/market-raccoon/internal/core/marketmodel"
-	marketmodelv1 "github.com/market-raccoon/internal/shared/proto/gen/marketmodel/v1"
+	evidencedomain "github.com/FabioCaffarello/stream-analytics/internal/core/evidence/domain"
+	marketmodel "github.com/FabioCaffarello/stream-analytics/internal/core/marketmodel"
+	marketmodelv1 "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/marketmodel/v1"
 )
 
 func DomainToProtoSignalEventV1(d marketmodel.SignalEvent) *marketmodelv1.SignalEvent {

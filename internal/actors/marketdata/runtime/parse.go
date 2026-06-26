@@ -12,8 +12,8 @@
 package mdruntime
 
 import (
-	"github.com/market-raccoon/internal/actors/marketdata/ws"
-	"github.com/market-raccoon/internal/core/marketdata/app"
+	"github.com/FabioCaffarello/stream-analytics/internal/actors/marketdata/ws"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/app"
 )
 
 // ParseFunc converts a raw WebSocket message into an IngestRequest.

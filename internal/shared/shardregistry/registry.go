@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/market-raccoon/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
 )
 
 const (

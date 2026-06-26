@@ -3,7 +3,7 @@ package hash_test
 import (
 	"testing"
 
-	"github.com/market-raccoon/internal/shared/hash"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/hash"
 )
 
 func TestHashBytes_stable(t *testing.T) {

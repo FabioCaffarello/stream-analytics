@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 // TickSpec defines deterministic display-grouping bounds.

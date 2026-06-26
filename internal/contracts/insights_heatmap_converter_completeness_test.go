@@ -3,8 +3,8 @@ package contracts
 import (
 	"testing"
 
-	insightsdomain "github.com/market-raccoon/internal/core/insights/domain"
-	insightsv1 "github.com/market-raccoon/internal/shared/proto/gen/insights/v1"
+	insightsdomain "github.com/FabioCaffarello/stream-analytics/internal/core/insights/domain"
+	insightsv1 "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/insights/v1"
 	"google.golang.org/protobuf/encoding/prototext"
 	"google.golang.org/protobuf/proto"
 )

@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
 	"github.com/anthdm/hollywood/actor"
-	"github.com/market-raccoon/internal/shared/envelope"
 )
 
 func TestDeliverySubsystem_forwardsBusEnvelopeToRouter(t *testing.T) {

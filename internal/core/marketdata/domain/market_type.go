@@ -3,7 +3,7 @@ package domain
 import (
 	"strings"
 
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 // MarketType classifies which Binance market an instrument belongs to.

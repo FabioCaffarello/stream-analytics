@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"os"
 
-	adapterkafka "github.com/market-raccoon/internal/adapters/kafka"
-	adapternats "github.com/market-raccoon/internal/adapters/nats"
-	"github.com/market-raccoon/internal/application/emulatorruntime"
-	"github.com/market-raccoon/internal/application/runtimebootstrap"
-	"github.com/market-raccoon/internal/shared/bootstrap"
-	"github.com/market-raccoon/internal/shared/clock"
+	adapterkafka "github.com/FabioCaffarello/stream-analytics/internal/adapters/kafka"
+	adapternats "github.com/FabioCaffarello/stream-analytics/internal/adapters/nats"
+	"github.com/FabioCaffarello/stream-analytics/internal/application/emulatorruntime"
+	"github.com/FabioCaffarello/stream-analytics/internal/application/runtimebootstrap"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/bootstrap"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/clock"
 )
 
 func main() {

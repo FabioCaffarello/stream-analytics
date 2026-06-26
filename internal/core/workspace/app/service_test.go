@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/market-raccoon/internal/core/workspace/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/workspace/domain"
 )
 
 // ---------------------------------------------------------------------------

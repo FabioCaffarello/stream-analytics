@@ -5,11 +5,11 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/storage/timescale"
+	aggdomain "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/market-raccoon/internal/adapters/storage/timescale"
-	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
-	"github.com/market-raccoon/internal/shared/problem"
 )
 
 // ---------------------------------------------------------------------------

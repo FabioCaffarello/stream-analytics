@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/market-raccoon/internal/core/aggregation/app"
-	mddomain "github.com/market-raccoon/internal/core/marketdata/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/app"
+	mddomain "github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/domain"
 )
 
 func TestBuildFundingRate_FromMarkPrice_InvokesStats(t *testing.T) {

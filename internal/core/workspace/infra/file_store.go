@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/market-raccoon/internal/core/workspace/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/workspace/domain"
 )
 
 // workspaceStateDTO is the on-disk JSON representation of a Workspace.
@@ -87,7 +87,7 @@ func (s *FileWorkspaceStore) Save(ws *domain.Workspace) error {
 	defer s.mu.Unlock()
 
 	dir := filepath.Dir(s.path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // 0755 is appropriate for a shared state directory.
 		return err
 	}
 
@@ -99,7 +99,7 @@ func (s *FileWorkspaceStore) Save(ws *domain.Workspace) error {
 
 	// Write to temp file, fsync, then rename for crash-safe persistence.
 	tmp := s.path + ".tmp"
-	f, err := os.Create(tmp)
+	f, err := os.Create(tmp) //nolint:gosec // tmp path is derived from a fixed configured path; not user-controlled.
 	if err != nil {
 		return err
 	}

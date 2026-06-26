@@ -3,7 +3,7 @@ package app
 import (
 	"math"
 
-	"github.com/market-raccoon/internal/core/evidence/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/evidence/domain"
 )
 
 // RegimeDetector is a deterministic strategy for classifying market regime.

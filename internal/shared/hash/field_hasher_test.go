@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/market-raccoon/internal/shared/hash"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/hash"
 )
 
 func TestFieldHasher_stable(t *testing.T) {

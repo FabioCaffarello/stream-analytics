@@ -1,6 +1,6 @@
 package domain
 
-import marketmodel "github.com/market-raccoon/internal/core/marketmodel"
+import marketmodel "github.com/FabioCaffarello/stream-analytics/internal/core/marketmodel"
 
 // TradeTickV1 is the canonical trade payload (CMM v1).
 // Deprecated alias kept only for package-compatibility; do not introduce new local models.

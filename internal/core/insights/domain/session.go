@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 // SessionAnchorKind classifies the session boundary strategy.

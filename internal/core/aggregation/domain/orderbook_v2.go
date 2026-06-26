@@ -1,6 +1,6 @@
 package domain
 
-import "github.com/market-raccoon/internal/shared/problem"
+import "github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 
 // OrderBookV2 defines the deterministic order book contract.
 type OrderBookV2 interface {

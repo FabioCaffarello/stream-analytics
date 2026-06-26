@@ -3,8 +3,8 @@ package replay
 import (
 	"testing"
 
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 func TestReplaySequencerMonotonicPerStreamDeterministic(t *testing.T) {

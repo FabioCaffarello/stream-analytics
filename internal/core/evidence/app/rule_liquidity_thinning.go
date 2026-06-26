@@ -1,7 +1,7 @@
 package app
 
 import (
-	"github.com/market-raccoon/internal/core/evidence/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/evidence/domain"
 )
 
 // liqStreamState holds per-stream rolling state for liquidity thinning.

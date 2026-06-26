@@ -855,7 +855,7 @@ const file_portfolio_v1_state_proto_rawDesc = "" +
 	"\x1bPORTFOLIO_SCOPE_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16PORTFOLIO_SCOPE_GLOBAL\x10\x01\x12\x1b\n" +
 	"\x17PORTFOLIO_SCOPE_ACCOUNT\x10\x02\x12!\n" +
-	"\x1dPORTFOLIO_SCOPE_VENUE_ACCOUNT\x10\x03BBZ@github.com/market-raccoon/internal/shared/proto/gen/portfolio/v1b\x06proto3"
+	"\x1dPORTFOLIO_SCOPE_VENUE_ACCOUNT\x10\x03BBZ@github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/portfolio/v1b\x06proto3"
 
 var (
 	file_portfolio_v1_state_proto_rawDescOnce sync.Once

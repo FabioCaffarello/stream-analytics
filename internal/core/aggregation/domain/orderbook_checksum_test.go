@@ -4,7 +4,7 @@ import (
 	"hash/crc32"
 	"testing"
 
-	"github.com/market-raccoon/internal/core/aggregation/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
 )
 
 func TestOrderBook_Checksum_Deterministic(t *testing.T) {

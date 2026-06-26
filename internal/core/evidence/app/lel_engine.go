@@ -5,9 +5,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/market-raccoon/internal/core/evidence/domain"
-	"github.com/market-raccoon/internal/shared/metrics"
-	"github.com/market-raccoon/internal/shared/naming"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/evidence/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/naming"
 )
 
 // LELEngineConfig configures deterministic bounded LEL behavior.

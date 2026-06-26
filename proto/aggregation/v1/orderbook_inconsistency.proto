@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package aggregation.v1;
 
-option go_package = "github.com/market-raccoon/internal/shared/proto/gen/aggregation/v1";
+option go_package = "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/aggregation/v1";
 
 // OrderBookInconsistencyV1 signals that the order book has detected an inconsistency
 // (e.g. crossed book) and needs a snapshot refresh.

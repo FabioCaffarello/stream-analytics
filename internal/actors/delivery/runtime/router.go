@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/FabioCaffarello/stream-analytics/internal/core/delivery/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/observability"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/ownership"
 	"github.com/anthdm/hollywood/actor"
-	"github.com/market-raccoon/internal/core/delivery/domain"
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/metrics"
-	"github.com/market-raccoon/internal/shared/observability"
-	"github.com/market-raccoon/internal/shared/ownership"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 )
@@ -370,7 +370,7 @@ func (r *RouterActor) handleEnvelope(env envelope.Envelope) {
 	if r.stopped {
 		return
 	}
-	_, span := otel.Tracer("market-raccoon.delivery.router").Start(context.Background(), "router.handle_envelope")
+	_, span := otel.Tracer("stream-analytics.delivery.router").Start(context.Background(), "router.handle_envelope")
 	span.SetAttributes(
 		attribute.String("event.type", env.Type),
 		attribute.String("event.venue", env.Venue),

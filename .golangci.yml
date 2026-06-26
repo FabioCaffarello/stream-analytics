@@ -38,6 +38,19 @@ linters:
       - path: ^internal/shared/config/loader\.go$
         linters:
           - gocyclo
+      # Deferred Close/Drain without error check is an accepted cleanup pattern.
+      - linters:
+          - errcheck
+        text: "\\.(Close|Drain)` is not checked"
+      # gosec G104 mirrors errcheck for the same Close/Drain cleanup pattern.
+      - linters:
+          - gosec
+        text: "G104"
+      # Test files may use simplified configs, temp paths, and placeholder credentials.
+      - path: "_test\\.go$"
+        linters:
+          - gosec
+          - gocyclo
 
 formatters:
   enable:

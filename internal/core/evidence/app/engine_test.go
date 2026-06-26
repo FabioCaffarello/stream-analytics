@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/market-raccoon/internal/core/evidence/domain"
-	"github.com/market-raccoon/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/evidence/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 

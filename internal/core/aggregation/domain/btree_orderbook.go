@@ -1,9 +1,9 @@
 package domain
 
 import (
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/validation"
 	"github.com/google/btree"
-	"github.com/market-raccoon/internal/shared/problem"
-	"github.com/market-raccoon/internal/shared/validation"
 )
 
 const orderBookBTreeDegree = 16

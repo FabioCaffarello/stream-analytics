@@ -1,6 +1,6 @@
 package marketmodel
 
-import "github.com/market-raccoon/internal/shared/problem"
+import "github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 
 type Book struct {
 	bids []Level

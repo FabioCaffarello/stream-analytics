@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"log/slog"
 
+	actorruntime "github.com/FabioCaffarello/stream-analytics/internal/actors/runtime"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
 	"github.com/anthdm/hollywood/actor"
-	actorruntime "github.com/market-raccoon/internal/actors/runtime"
-	"github.com/market-raccoon/internal/shared/envelope"
 )
 
 type subsystemEnvelopeMsg struct {

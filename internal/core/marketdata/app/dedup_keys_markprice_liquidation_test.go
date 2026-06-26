@@ -3,8 +3,8 @@ package app_test
 import (
 	"testing"
 
-	"github.com/market-raccoon/internal/core/marketdata/app"
-	"github.com/market-raccoon/internal/core/marketdata/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/app"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/domain"
 )
 
 func TestBuildMarkPriceDedupKey_CanonicalAndStable(t *testing.T) {

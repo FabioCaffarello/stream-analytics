@@ -3,7 +3,7 @@ package naming_test
 import (
 	"testing"
 
-	"github.com/market-raccoon/internal/shared/naming"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/naming"
 )
 
 func TestCanonicalVenue(t *testing.T) {

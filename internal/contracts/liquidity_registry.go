@@ -3,9 +3,9 @@ package contracts
 import (
 	"strings"
 
-	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/problem"
-	liquidityv1 "github.com/market-raccoon/internal/shared/proto/gen/liquidity/v1"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/codec"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
+	liquidityv1 "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/liquidity/v1"
 )
 
 const liquidityEventTypeEvidence = "liquidity.evidence"

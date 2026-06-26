@@ -13,7 +13,7 @@ func NewDefaultEngine() (*actor.Engine, error) {
 }
 
 // SpawnGuardian spawns a Guardian actor with the canonical "guardian" name and
-// ID.  All market-raccoon binaries use this convention.
+// ID.  All stream-analytics binaries use this convention.
 func SpawnGuardian(e *actor.Engine, cfg GuardianConfig) *actor.PID {
 	return e.Spawn(NewGuardian(cfg), "guardian", actor.WithID("guardian"))
 }

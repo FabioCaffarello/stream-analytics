@@ -136,7 +136,7 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 }
 
 func TestLoad_NonExistentFile_ReturnsNotFound(t *testing.T) {
-	_, prob := Load("/tmp/does-not-exist-market-raccoon.jsonc")
+	_, prob := Load("/tmp/does-not-exist-stream-analytics.jsonc")
 	if prob == nil {
 		t.Fatal("expected problem for non-existent file, got nil")
 	}

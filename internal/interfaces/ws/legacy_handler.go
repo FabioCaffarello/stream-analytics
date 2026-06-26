@@ -3,7 +3,7 @@ package wsserver
 import (
 	"net/http"
 
-	"github.com/market-raccoon/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
 )
 
 // HandleLegacyWS is the legacy compatibility choke point.

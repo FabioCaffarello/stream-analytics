@@ -4,8 +4,8 @@ import (
 	"context"
 	"sort"
 
-	"github.com/market-raccoon/internal/core/aggregation/ports"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/ports"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 // GapReport describes a contiguous gap in candle coverage.

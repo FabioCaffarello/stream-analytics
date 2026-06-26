@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/market-raccoon/internal/core/evidence/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/evidence/domain"
 )
 
 func TestApplyConfidenceDecay_DeterministicAt30sAnd60s(t *testing.T) {

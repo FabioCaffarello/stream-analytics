@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
+	deliveryruntime "github.com/FabioCaffarello/stream-analytics/internal/actors/delivery/runtime"
+	sharedclock "github.com/FabioCaffarello/stream-analytics/internal/shared/clock"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/config"
 	"github.com/anthdm/hollywood/actor"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
-	deliveryruntime "github.com/market-raccoon/internal/actors/delivery/runtime"
-	sharedclock "github.com/market-raccoon/internal/shared/clock"
-	"github.com/market-raccoon/internal/shared/config"
 )
 
 func mustSignTestJWT(t *testing.T, secret string, claims jwt.MapClaims) string {
@@ -158,7 +158,7 @@ func TestTenantOverrideAllLimits(t *testing.T) {
 		"sub":       "client-jwt",
 		"tenant_id": "tenant-a",
 		"scope":     "read",
-		"iss":       "market-raccoon",
+		"iss":       "stream-analytics",
 		"aud":       "odin",
 	})
 
@@ -173,7 +173,7 @@ func TestTenantOverrideAllLimits(t *testing.T) {
 			JWT: JWTAuthConfig{
 				Enabled:     true,
 				HS256Secret: jwtSecret,
-				Issuer:      "market-raccoon",
+				Issuer:      "stream-analytics",
 				Audience:    "odin",
 			},
 		}),

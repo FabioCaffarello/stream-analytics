@@ -1,10 +1,10 @@
 package contracts
 
 import (
-	marketmodel "github.com/market-raccoon/internal/core/marketmodel"
-	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/problem"
-	marketmodelv1 "github.com/market-raccoon/internal/shared/proto/gen/marketmodel/v1"
+	marketmodel "github.com/FabioCaffarello/stream-analytics/internal/core/marketmodel"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/codec"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
+	marketmodelv1 "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/marketmodel/v1"
 )
 
 const signalEngineEventType = "signal.event"

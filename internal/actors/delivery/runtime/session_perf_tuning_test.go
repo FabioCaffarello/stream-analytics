@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/market-raccoon/internal/core/delivery/domain"
-	sharedclock "github.com/market-raccoon/internal/shared/clock"
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/delivery/domain"
+	sharedclock "github.com/FabioCaffarello/stream-analytics/internal/shared/clock"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 

@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 	"github.com/anthdm/hollywood/actor"
 	"github.com/google/uuid"
-	"github.com/market-raccoon/internal/shared/problem"
 )
 
 // FillStrategy defines how tickers are distributed across websocket consumers.

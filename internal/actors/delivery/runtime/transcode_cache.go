@@ -6,8 +6,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/codec"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 const (
@@ -188,9 +188,9 @@ func (c *TranscodeCache) computeKey(eventType string, version int, payload []byt
 		h ^= uint64(eventType[i])
 		h *= prime64
 	}
-	h ^= uint64(byte(version >> 8))
+	h ^= uint64(byte(version >> 8)) //nolint:gosec // FNV-1a hash mixes; intentional byte-width truncation.
 	h *= prime64
-	h ^= uint64(byte(version))
+	h ^= uint64(byte(version)) //nolint:gosec // FNV-1a hash mixes; intentional byte-width truncation.
 	h *= prime64
 	for _, b := range payload {
 		h ^= uint64(b)

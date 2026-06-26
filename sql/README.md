@@ -38,8 +38,8 @@ sql/
 make up-infra
 
 # Verify tables exist
-docker exec market-raccoon-timescale psql -U raccoon -d raccoon -c '\dt'
-docker exec market-raccoon-clickhouse clickhouse-client --query 'SHOW TABLES'
+docker exec stream-analytics-timescale psql -U raccoon -d raccoon -c '\dt'
+docker exec stream-analytics-clickhouse clickhouse-client --query 'SHOW TABLES'
 ```
 
 ## Naming Convention

@@ -116,7 +116,7 @@ func TestAuthConfig_Authenticate_JWT(t *testing.T) {
 		"sub":       "client-jwt",
 		"tenant_id": "tenant-a",
 		"scope":     "read",
-		"iss":       "market-raccoon",
+		"iss":       "stream-analytics",
 		"aud":       "odin",
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -132,7 +132,7 @@ func TestAuthConfig_Authenticate_JWT(t *testing.T) {
 		JWT: JWTAuthConfig{
 			Enabled:     true,
 			HS256Secret: "secret",
-			Issuer:      "market-raccoon",
+			Issuer:      "stream-analytics",
 			Audience:    "odin",
 		},
 	}).Authenticate(req)

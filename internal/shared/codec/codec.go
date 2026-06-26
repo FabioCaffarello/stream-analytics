@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 var codecBufPool = sync.Pool{

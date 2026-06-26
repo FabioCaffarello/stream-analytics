@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/market-raccoon/internal/shared/observability"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/observability"
 )
 
 func TestHandleGetFreshness_MissingParams(t *testing.T) {

@@ -3,8 +3,8 @@ package deliveryruntime
 import (
 	"testing"
 
-	"github.com/market-raccoon/internal/core/delivery/domain"
-	deliveryv1 "github.com/market-raccoon/internal/shared/proto/gen/delivery/v1"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/delivery/domain"
+	deliveryv1 "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/delivery/v1"
 )
 
 func TestChannelEnumFromStreamTypeEvidence(t *testing.T) {

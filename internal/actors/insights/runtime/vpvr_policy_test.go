@@ -5,9 +5,9 @@ import (
 	"slices"
 	"testing"
 
-	insightsapp "github.com/market-raccoon/internal/core/insights/app"
-	"github.com/market-raccoon/internal/core/insights/domain"
-	sharedhash "github.com/market-raccoon/internal/shared/hash"
+	insightsapp "github.com/FabioCaffarello/stream-analytics/internal/core/insights/app"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/insights/domain"
+	sharedhash "github.com/FabioCaffarello/stream-analytics/internal/shared/hash"
 )
 
 func TestNextVPVROverloadLevel_Transitions(t *testing.T) {

@@ -3,8 +3,8 @@ package domain
 import (
 	"strings"
 
-	"github.com/market-raccoon/internal/shared/problem"
-	"github.com/market-raccoon/internal/shared/validation"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/validation"
 )
 
 // RegimeStoreKey partitions regime state by venue/instrument/timeframe.

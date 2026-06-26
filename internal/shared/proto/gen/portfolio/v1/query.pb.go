@@ -457,7 +457,7 @@ const file_portfolio_v1_query_proto_rawDesc = "" +
 	" PORTFOLIO_QUERY_KIND_UNSPECIFIED\x10\x00\x12\x1e\n" +
 	"\x1aPORTFOLIO_QUERY_KIND_STATE\x10\x01\x12)\n" +
 	"%PORTFOLIO_QUERY_KIND_ACCOUNT_SNAPSHOT\x10\x02\x12 \n" +
-	"\x1cPORTFOLIO_QUERY_KIND_SUMMARY\x10\x03BBZ@github.com/market-raccoon/internal/shared/proto/gen/portfolio/v1b\x06proto3"
+	"\x1cPORTFOLIO_QUERY_KIND_SUMMARY\x10\x03BBZ@github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/portfolio/v1b\x06proto3"
 
 var (
 	file_portfolio_v1_query_proto_rawDescOnce sync.Once

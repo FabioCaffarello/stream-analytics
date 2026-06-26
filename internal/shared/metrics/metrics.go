@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/market-raccoon/internal/shared/observability"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/observability"
 	"github.com/prometheus/client_golang/prometheus"
 )
 

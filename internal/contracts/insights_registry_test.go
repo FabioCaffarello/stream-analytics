@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/market-raccoon/internal/contracts"
-	insightsdomain "github.com/market-raccoon/internal/core/insights/domain"
-	"github.com/market-raccoon/internal/shared/codec"
+	"github.com/FabioCaffarello/stream-analytics/internal/contracts"
+	insightsdomain "github.com/FabioCaffarello/stream-analytics/internal/core/insights/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/codec"
 )
 
 func TestRegisterInsightsV1_DefaultsToJSONOnly(t *testing.T) {

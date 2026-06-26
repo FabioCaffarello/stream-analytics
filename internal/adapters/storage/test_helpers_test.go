@@ -1,7 +1,7 @@
 package storage_test
 
 import (
-	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
+	aggdomain "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
 )
 
 // testSnapshot provides a small deterministic snapshot used by multiple tests.

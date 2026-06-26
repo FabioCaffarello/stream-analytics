@@ -6,15 +6,15 @@ import (
 	"testing"
 	"time"
 
+	mdruntime "github.com/FabioCaffarello/stream-analytics/internal/actors/marketdata/runtime"
+	ws "github.com/FabioCaffarello/stream-analytics/internal/actors/marketdata/ws"
+	runtime "github.com/FabioCaffarello/stream-analytics/internal/actors/runtime"
+	mdapp "github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/app"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/codec"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 	"github.com/anthdm/hollywood/actor"
-	mdruntime "github.com/market-raccoon/internal/actors/marketdata/runtime"
-	ws "github.com/market-raccoon/internal/actors/marketdata/ws"
-	runtime "github.com/market-raccoon/internal/actors/runtime"
-	mdapp "github.com/market-raccoon/internal/core/marketdata/app"
-	"github.com/market-raccoon/internal/core/marketdata/domain"
-	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/problem"
 )
 
 // ---------------------------------------------------------------------------

@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/market-raccoon/internal/actors/marketdata/ws"
-	actorruntime "github.com/market-raccoon/internal/actors/runtime"
-	"github.com/market-raccoon/internal/adapters/exchange/binance"
-	"github.com/market-raccoon/internal/adapters/exchange/kraken"
-	"github.com/market-raccoon/internal/adapters/exchange/krakenf"
-	"github.com/market-raccoon/internal/shared/config"
+	"github.com/FabioCaffarello/stream-analytics/internal/actors/marketdata/ws"
+	actorruntime "github.com/FabioCaffarello/stream-analytics/internal/actors/runtime"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/exchange/binance"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/exchange/kraken"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/exchange/krakenf"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/config"
 )
 
 func TestBuildBinanceRuntime_StreamToggle(t *testing.T) {

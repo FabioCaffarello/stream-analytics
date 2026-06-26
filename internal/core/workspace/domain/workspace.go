@@ -10,9 +10,8 @@ import (
 	"hash/fnv"
 	"sort"
 	"strings"
-	"time"
 
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 // MaxSchemaVersion is the maximum workspace schema version this server
@@ -104,12 +103,6 @@ func (w *Workspace) StampSaveTime(nowMs int64) int64 {
 		w.savedAtMs = nowMs
 	}
 	return w.savedAtMs
-}
-
-// NowMs returns the current time in epoch milliseconds.
-// Extracted as a package-level function for testability.
-func NowMs() int64 {
-	return time.Now().UnixMilli()
 }
 
 // HasSameFingerprint returns true if this workspace's fingerprint matches another.

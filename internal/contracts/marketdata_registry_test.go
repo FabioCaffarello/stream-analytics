@@ -3,8 +3,8 @@ package contracts_test
 import (
 	"testing"
 
-	"github.com/market-raccoon/internal/contracts"
-	"github.com/market-raccoon/internal/shared/codec"
+	"github.com/FabioCaffarello/stream-analytics/internal/contracts"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/codec"
 )
 
 func TestRegisterMarketDataV1_RegistersAll(t *testing.T) {

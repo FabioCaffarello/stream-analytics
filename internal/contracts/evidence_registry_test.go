@@ -3,9 +3,9 @@ package contracts_test
 import (
 	"testing"
 
-	"github.com/market-raccoon/internal/contracts"
-	evidencedomain "github.com/market-raccoon/internal/core/evidence/domain"
-	"github.com/market-raccoon/internal/shared/codec"
+	"github.com/FabioCaffarello/stream-analytics/internal/contracts"
+	evidencedomain "github.com/FabioCaffarello/stream-analytics/internal/core/evidence/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/codec"
 )
 
 func TestRegisterEvidencePayloadV1(t *testing.T) {

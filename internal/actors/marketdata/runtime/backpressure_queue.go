@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"sync"
 
-	"github.com/market-raccoon/internal/actors/marketdata/ws"
+	"github.com/FabioCaffarello/stream-analytics/internal/actors/marketdata/ws"
 )
 
 type BackpressurePolicy string

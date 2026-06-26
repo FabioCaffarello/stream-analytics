@@ -4,8 +4,8 @@ import (
 	"math"
 	"strings"
 
-	"github.com/market-raccoon/internal/shared/problem"
-	"github.com/market-raccoon/internal/shared/validation"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/validation"
 )
 
 const candleFixedScale int64 = 100_000_000

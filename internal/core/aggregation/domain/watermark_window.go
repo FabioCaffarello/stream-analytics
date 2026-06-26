@@ -3,8 +3,8 @@ package domain
 import (
 	"strings"
 
-	"github.com/market-raccoon/internal/shared/problem"
-	"github.com/market-raccoon/internal/shared/validation"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/validation"
 )
 
 // WatermarkWindowConfig defines boundedness and late-arrival tolerance.

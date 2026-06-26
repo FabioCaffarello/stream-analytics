@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/market-raccoon/internal/adapters/storage/timescale"
-	insightsports "github.com/market-raccoon/internal/core/insights/ports"
-	"github.com/market-raccoon/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/storage/timescale"
+	insightsports "github.com/FabioCaffarello/stream-analytics/internal/core/insights/ports"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 

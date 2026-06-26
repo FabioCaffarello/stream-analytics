@@ -1,4 +1,4 @@
-// Package config provides structured configuration loading for market-raccoon.
+// Package config provides structured configuration loading for stream-analytics.
 //
 // Configuration is loaded from a JSONC file (JSON with comments).  Comments
 // (// ... and /* ... */) are stripped before JSON decoding so that operators
@@ -39,6 +39,30 @@ type AppConfig struct {
 	Signals      SignalsConfig      `json:"signals"`
 	Execution    ExecutionConfig    `json:"execution"`
 	Workspace    WorkspaceConfig    `json:"workspace"`
+	Analytics    AnalyticsConfig    `json:"analytics"`
+}
+
+// AnalyticsConfig configures the Kafka analytics publishing path.
+type AnalyticsConfig struct {
+	Kafka AnalyticsKafkaConfig `json:"kafka"`
+}
+
+// AnalyticsKafkaConfig controls the analytics Kafka publisher wired into the consumer.
+type AnalyticsKafkaConfig struct {
+	Enabled        bool     `json:"enabled"`
+	Brokers        []string `json:"brokers"`
+	TradesTopic    string   `json:"trades_topic"`
+	OrderbookTopic string   `json:"orderbook_topic"`
+	BatchTimeout   string   `json:"batch_timeout"`
+}
+
+// BatchTimeoutDuration parses BatchTimeout as a time.Duration.
+// Returns 250ms when the field is empty or invalid.
+func (k AnalyticsKafkaConfig) BatchTimeoutDuration() time.Duration {
+	if d, err := time.ParseDuration(k.BatchTimeout); err == nil && d > 0 {
+		return d
+	}
+	return 250 * time.Millisecond
 }
 
 // IQProfileBudgets captures strict p95/p99 IQ budget thresholds used in CI.

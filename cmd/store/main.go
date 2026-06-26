@@ -1,4 +1,4 @@
-// Package main is the market-raccoon store binary.
+// Package main is the stream-analytics store binary.
 //
 // The store is the cold-path (ClickHouse) authority for ack-on-commit.
 //
@@ -17,8 +17,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/market-raccoon/internal/shared/bootstrap"
-	"github.com/market-raccoon/internal/shared/config"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/bootstrap"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/config"
 )
 
 func main() {

@@ -4,8 +4,8 @@
 package domain
 
 import (
-	"github.com/market-raccoon/internal/shared/ids"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/ids"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 // Filter holds optional subscription criteria applied server-side.

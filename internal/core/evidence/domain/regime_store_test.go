@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/market-raccoon/internal/core/evidence/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/evidence/domain"
 )
 
 func TestRegimeStore_RegimeHistoryCapDropsOldest(t *testing.T) {

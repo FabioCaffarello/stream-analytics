@@ -5,8 +5,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/codec"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
 )
 
 func TestGoldenReplay_ProtoWireFormat_DeterministicOutput(t *testing.T) {

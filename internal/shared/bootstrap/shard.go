@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/market-raccoon/internal/shared/config"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/config"
 )
 
 var shardOrdinalSuffixPattern = regexp.MustCompile(`-(\d+)$`)

@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package aggregation.v1;
 
-option go_package = "github.com/market-raccoon/internal/shared/proto/gen/aggregation/v1";
+option go_package = "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/aggregation/v1";
 
 // DeltaVolumeWindowV1 models per-window buy/sell delta volume.
 message DeltaVolumeWindowV1 {

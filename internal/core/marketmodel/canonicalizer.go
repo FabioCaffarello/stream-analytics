@@ -3,7 +3,7 @@ package marketmodel
 import (
 	"strings"
 
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 func NormalizeTrade(adapter ExchangeAdapter, symbol Symbol, in Trade, fallbackTS ServerTS) (Trade, *problem.Problem) {

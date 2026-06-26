@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	workspaceapp "github.com/market-raccoon/internal/core/workspace/app"
-	"github.com/market-raccoon/internal/core/workspace/domain"
+	workspaceapp "github.com/FabioCaffarello/stream-analytics/internal/core/workspace/app"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/workspace/domain"
 )
 
 // ---------------------------------------------------------------------------

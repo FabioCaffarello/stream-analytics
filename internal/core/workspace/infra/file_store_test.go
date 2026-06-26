@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/market-raccoon/internal/core/workspace/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/workspace/domain"
 )
 
 func TestFileStore_LoadEmpty_NilNil(t *testing.T) {

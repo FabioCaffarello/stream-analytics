@@ -1,8 +1,8 @@
 package contracts
 
 import (
-	aggregationv1 "github.com/market-raccoon/internal/shared/proto/gen/aggregation/v1"
-	aggregationv2 "github.com/market-raccoon/internal/shared/proto/gen/aggregation/v2"
+	aggregationv1 "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/aggregation/v1"
+	aggregationv2 "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/aggregation/v2"
 )
 
 const (

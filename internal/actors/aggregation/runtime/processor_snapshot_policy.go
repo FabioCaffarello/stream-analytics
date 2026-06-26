@@ -3,8 +3,8 @@ package aggruntime
 import (
 	"time"
 
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
 )
 
 func (p *ProcessorSubsystemActor) handleSnapshotTick(msg SnapshotTick) {

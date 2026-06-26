@@ -259,7 +259,7 @@ const file_signals_v1_composite_proto_rawDesc = "" +
 	" \x01(\x01R\x0eregimeStrength\x12\x16\n" +
 	"\x06reason\x18\v \x01(\tR\x06reason\x12\x10\n" +
 	"\x03seq\x18\f \x01(\x03R\x03seq\x12!\n" +
-	"\fsource_kinds\x18\r \x03(\tR\vsourceKindsB@Z>github.com/market-raccoon/internal/shared/proto/gen/signals/v1b\x06proto3"
+	"\fsource_kinds\x18\r \x03(\tR\vsourceKindsB@Z>github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/signals/v1b\x06proto3"
 
 var (
 	file_signals_v1_composite_proto_rawDescOnce sync.Once

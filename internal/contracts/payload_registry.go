@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"sync"
 
-	marketdomain "github.com/market-raccoon/internal/core/marketdata/domain"
-	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/metrics"
-	"github.com/market-raccoon/internal/shared/problem"
-	aggregationv1 "github.com/market-raccoon/internal/shared/proto/gen/aggregation/v1"
-	aggregationv2 "github.com/market-raccoon/internal/shared/proto/gen/aggregation/v2"
-	marketdatav1 "github.com/market-raccoon/internal/shared/proto/gen/marketdata/v1"
+	marketdomain "github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/codec"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
+	aggregationv1 "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/aggregation/v1"
+	aggregationv2 "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/aggregation/v2"
+	marketdatav1 "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/marketdata/v1"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -75,23 +75,7 @@ func BootstrapPayloadCodecRegistryWithOptions(opts PayloadRegistryOptions) *prob
 			payloadRegistryErr = p
 			return
 		}
-		if p := RegisterSignalsPayloadV1(reg); p != nil {
-			payloadRegistryErr = p
-			return
-		}
 		if p := RegisterSignalEnginePayloadV1(reg); p != nil {
-			payloadRegistryErr = p
-			return
-		}
-		if p := RegisterStrategyPayloadV1(reg); p != nil {
-			payloadRegistryErr = p
-			return
-		}
-		if p := RegisterExecutionPayloadV1(reg); p != nil {
-			payloadRegistryErr = p
-			return
-		}
-		if p := RegisterPortfolioPayloadV1(reg); p != nil {
 			payloadRegistryErr = p
 			return
 		}

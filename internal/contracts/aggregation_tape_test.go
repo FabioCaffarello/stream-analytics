@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	aggregationv1 "github.com/market-raccoon/internal/shared/proto/gen/aggregation/v1"
+	aggregationv1 "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/aggregation/v1"
 	"google.golang.org/protobuf/proto"
 )
 

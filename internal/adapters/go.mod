@@ -1,20 +1,17 @@
-module github.com/market-raccoon/internal/adapters
+module github.com/FabioCaffarello/stream-analytics/internal/adapters
 
 go 1.25.6
 
 require (
-	github.com/market-raccoon/internal/application v0.0.0
-	github.com/market-raccoon/internal/contracts v0.0.0
-	github.com/market-raccoon/internal/shared v0.0.0
+	github.com/FabioCaffarello/stream-analytics/internal/application v0.0.0
+	github.com/FabioCaffarello/stream-analytics/internal/contracts v0.0.0
+	github.com/FabioCaffarello/stream-analytics/internal/shared v0.0.0
 )
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.34.0
+	github.com/FabioCaffarello/stream-analytics/internal/core/marketdata v0.0.0
 	github.com/jackc/pgx/v5 v5.8.0
-	github.com/market-raccoon/internal/core/execution v0.0.0
-	github.com/market-raccoon/internal/core/marketdata v0.0.0
-	github.com/market-raccoon/internal/core/portfolio v0.0.0
-	github.com/market-raccoon/internal/core/strategy v0.0.0
 	github.com/nats-io/nats.go v1.48.0
 	github.com/prometheus/client_golang v1.18.0
 	github.com/segmentio/kafka-go v0.4.49
@@ -23,6 +20,8 @@ require (
 
 require (
 	github.com/ClickHouse/ch-go v0.65.1 // indirect
+	github.com/FabioCaffarello/stream-analytics/internal/core/evidence v0.0.0 // indirect
+	github.com/FabioCaffarello/stream-analytics/internal/core/marketmodel v0.0.0 // indirect
 	github.com/andybalholm/brotli v1.2.0 // indirect
 	github.com/go-faster/city v1.0.1 // indirect
 	github.com/go-faster/errors v0.7.1 // indirect
@@ -30,9 +29,6 @@ require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
-	github.com/market-raccoon/internal/core/evidence v0.0.0 // indirect
-	github.com/market-raccoon/internal/core/marketmodel v0.0.0 // indirect
-	github.com/market-raccoon/internal/core/signals v0.0.0 // indirect
 	github.com/paulmach/orb v0.12.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.22 // indirect
 	github.com/segmentio/asm v1.2.0 // indirect
@@ -44,6 +40,9 @@ require (
 require (
 	dario.cat/mergo v1.0.2 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20210617225240-d185dfc1b5a1 // indirect
+	github.com/FabioCaffarello/stream-analytics/internal/core/aggregation v0.0.0
+	github.com/FabioCaffarello/stream-analytics/internal/core/delivery v0.0.0
+	github.com/FabioCaffarello/stream-analytics/internal/core/insights v0.0.0
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
@@ -68,9 +67,6 @@ require (
 	github.com/klauspost/compress v1.18.3 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/magiconair/properties v1.8.10 // indirect
-	github.com/market-raccoon/internal/core/aggregation v0.0.0
-	github.com/market-raccoon/internal/core/delivery v0.0.0
-	github.com/market-raccoon/internal/core/insights v0.0.0
 	github.com/matttproud/golang_protobuf_extensions/v2 v2.0.0 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moby/go-archive v0.1.0 // indirect
@@ -99,39 +95,28 @@ require (
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.49.0 // indirect
 	go.opentelemetry.io/otel v1.40.0 // indirect
-	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.40.0 // indirect
+	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.33.0 // indirect
 	go.opentelemetry.io/otel/metric v1.40.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.40.0 // indirect
 	go.opentelemetry.io/otel/trace v1.40.0 // indirect
-	go.opentelemetry.io/proto/otlp v1.9.0 // indirect
+	go.opentelemetry.io/proto/otlp v1.4.0 // indirect
 	golang.org/x/crypto v0.47.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
+	google.golang.org/protobuf v1.36.6
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
 replace (
-	github.com/market-raccoon/internal/application => ../application
-	github.com/market-raccoon/internal/contracts => ../contracts
-	github.com/market-raccoon/internal/core/evidence => ../core/evidence
-	github.com/market-raccoon/internal/core/insights => ../core/insights
-	github.com/market-raccoon/internal/core/marketmodel => ../core/marketmodel
-	github.com/market-raccoon/internal/core/signals => ../core/signals
-	github.com/market-raccoon/internal/shared => ../shared
+	github.com/FabioCaffarello/stream-analytics/internal/application => ../application
+	github.com/FabioCaffarello/stream-analytics/internal/contracts => ../contracts
+	github.com/FabioCaffarello/stream-analytics/internal/core/evidence => ../core/evidence
+	github.com/FabioCaffarello/stream-analytics/internal/core/insights => ../core/insights
+	github.com/FabioCaffarello/stream-analytics/internal/core/marketmodel => ../core/marketmodel
+	github.com/FabioCaffarello/stream-analytics/internal/shared => ../shared
 )
 
-replace github.com/market-raccoon/internal/core/marketdata => ../core/marketdata
+replace github.com/FabioCaffarello/stream-analytics/internal/core/marketdata => ../core/marketdata
 
-replace github.com/market-raccoon/internal/core/aggregation => ../core/aggregation
+replace github.com/FabioCaffarello/stream-analytics/internal/core/aggregation => ../core/aggregation
 
-replace github.com/market-raccoon/internal/core/delivery => ../core/delivery
-
-replace github.com/market-raccoon/internal/core/signal => ../core/signal
-
-replace github.com/market-raccoon/internal/actors => ../actors
-
-replace github.com/market-raccoon/internal/core/strategy => ../core/strategy
-
-replace github.com/market-raccoon/internal/core/execution => ../core/execution
-
-replace github.com/market-raccoon/internal/core/portfolio => ../core/portfolio
+replace github.com/FabioCaffarello/stream-analytics/internal/core/delivery => ../core/delivery

@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
+	aggdomain "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
 )
 
 // CatalogArtifact describes one available artifact type and its supported timeframes.

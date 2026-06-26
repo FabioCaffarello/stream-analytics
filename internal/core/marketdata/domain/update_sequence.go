@@ -1,6 +1,6 @@
 package domain
 
-import "github.com/market-raccoon/internal/shared/problem"
+import "github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 
 // UpdateSequence carries Binance depth delta sequence boundaries (U/u).
 type UpdateSequence struct {

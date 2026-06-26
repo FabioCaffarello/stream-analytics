@@ -3,9 +3,9 @@ package contracts_test
 import (
 	"testing"
 
-	"github.com/market-raccoon/internal/contracts"
-	marketmodel "github.com/market-raccoon/internal/core/marketmodel"
-	"github.com/market-raccoon/internal/shared/codec"
+	"github.com/FabioCaffarello/stream-analytics/internal/contracts"
+	marketmodel "github.com/FabioCaffarello/stream-analytics/internal/core/marketmodel"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/codec"
 )
 
 func TestRegisterSignalEnginePayloadV1(t *testing.T) {
