@@ -18,7 +18,7 @@ if [[ $# -lt 1 ]]; then
 fi
 
 BACKUP_DIR="$1"; shift
-CONTAINER="market-raccoon-clickhouse"
+CONTAINER="stream-analytics-clickhouse"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in

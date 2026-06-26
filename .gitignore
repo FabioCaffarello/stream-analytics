@@ -9,3 +9,7 @@ coverage.out
 qa
 node_modules
 test-results/
+/site/
+.venv/
+__pycache__/
+*.pyc

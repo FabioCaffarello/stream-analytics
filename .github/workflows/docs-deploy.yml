@@ -1,0 +1,56 @@
+name: docs-deploy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'pyproject.toml'
+      - 'scripts/docs/**'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'pyproject.toml'
+      - 'scripts/docs/**'
+
+concurrency:
+  group: docs-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  docs-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.12'
+      - name: Install docs dependencies
+        run: uv sync
+      - name: Build docs (strict)
+        run: uv run mkdocs build --strict
+
+  docs-deploy:
+    needs: docs-build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.12'
+      - name: Install docs dependencies
+        run: uv sync
+      - name: Deploy to GitHub Pages
+        run: uv run mkdocs gh-deploy --force --clean

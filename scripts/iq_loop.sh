@@ -46,7 +46,7 @@ is_truthy() {
 }
 
 is_release_mode() {
-  local run_mode="${RUN_MODE:-${MARKET_RACCOON_MODE:-${IQ_RUN_MODE:-${IQ_MODE:-}}}}"
+  local run_mode="${RUN_MODE:-${STREAM_ANALYTICS_MODE:-${IQ_RUN_MODE:-${IQ_MODE:-}}}}"
   run_mode="$(printf '%s' "$run_mode" | tr '[:upper:]' '[:lower:]')"
   if [[ "$run_mode" == "prod" || "$run_mode" == "production" || "$run_mode" == "release" ]]; then
     return 0

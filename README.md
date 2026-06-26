@@ -1,78 +1,67 @@
-# Market Raccoon
+# Stream Analytics
 
-[![ci-fast](https://github.com/market-raccoon/market-raccoon/actions/workflows/ci-fast.yml/badge.svg)](https://github.com/market-raccoon/market-raccoon/actions/workflows/ci-fast.yml)
+[![ci-fast](https://github.com/stream-analytics/stream-analytics/actions/workflows/ci-fast.yml/badge.svg)](https://github.com/stream-analytics/stream-analytics/actions/workflows/ci-fast.yml)
 
-## Docker Quick Start
+Real-time, multi-exchange cryptocurrency market data platform with an integrated operational cockpit.
+Ingests, normalizes, aggregates, and visualizes live market data across 6 exchanges with sub-millisecond latency.
 
-Run the full local stack (NATS/JetStream + server + consumer + processor):
-
-```bash
-make up
-```
-
-Infra-only bootstrap (NATS/JetStream):
+## Quick Start
 
 ```bash
-make up-infra
-```
-
-Useful operational commands:
-
-```bash
+make up          # full local stack (NATS/JetStream + consumer + processor + server + store)
+make up-infra    # infra only (NATS/JetStream)
 make ps
 make logs
 make down
 ```
 
-Compose entrypoint and deploy assets:
-- `deploy/compose/docker-compose.yml`
-- `deploy/nats/nats-server.conf`
-- `deploy/configs/*.jsonc`
-- `deploy/docker/*.Dockerfile`
+Compose assets: `deploy/compose/docker-compose.yml`, `deploy/nats/nats-server.conf`, `deploy/configs/*.jsonc`, `deploy/docker/*.Dockerfile`.
 
-## Binance Ingestion (Current Scope)
+## Architecture at a Glance
 
-Current Binance WS subscriptions are intentionally limited to:
-- `aggTrade`
-- `depth@100ms`
+```
+Exchange WS (6 venues: Binance spot/futures, Bybit, Coinbase, HyperLiquid, Kraken spot/futures)
+    │
+    ▼
+[consumer]  ──(marketdata.*)──► NATS JetStream ──► [processor]
+                                                         │
+                                              (aggregation.* / insights.*)
+                                                         │
+                                                  [store]   [server]
+                                                               │
+                                                          WS / HTTP
+                                                               │
+                                                          [client]
+```
 
-For each configured ticker, the consumer builds a combined stream endpoint like:
-- `wss://stream.binance.com:9443/stream?streams=btcusdt@aggTrade/btcusdt@depth@100ms`
+**Backend (Go, ~131K LOC):** Hexagonal architecture, DDD bounded contexts, Hollywood actor model. 7 binaries, NATS JetStream event bus, TimescaleDB + ClickHouse storage.
 
-### Supported vs Ignored Events
+**Client (Odin, ~30K LOC):** Cross-platform operational cockpit (WASM + native). 13 widget types, 8 indicators, 3 subplot analytics, orderflow visualization, workspace split-tree.
 
-Supported and published by the current pipeline:
-- `aggTrade` -> `marketdata.trade`
-- `depthUpdate` -> `marketdata.bookdelta`
+Full documentation: [`docs/`](docs/README.md).
 
-Explicitly ignored (for now), with telemetry:
-- unknown/unsupported Binance event types (for example `bookTicker`, `kline`, etc.)
-- control/empty envelope messages
-- invalid JSON / parse failures
+## Binaries
 
-### Runtime Telemetry
+| Binary | Role |
+|--------|------|
+| `consumer` | Exchange WebSocket → NATS JetStream ingester |
+| `processor` | NATS → Aggregation pipeline (candles, orderbook, stats, tape, heatmaps, VPVR) |
+| `server` | HTTP + WebSocket gateway |
+| `store` | Storage lifecycle manager (TimescaleDB + ClickHouse) |
+| `migrate` | Database migrations (Goose) |
+| `emulator` | Test event emitter (Kafka/NATS scenarios) |
+| `validator` | JetStream event validator with HTTP endpoint |
 
-`mdruntime` emits periodic counters (every 100 messages):
-- `total`, `ingested`, `skipped`
-- `by_event`
-- `skip_by_reason`
-- `skip_by_exchange_event_reason`
-- `parse_error_by_code`
+## Exchanges
 
-Parse skips with reason `parse_error` also emit sampled warning logs (rate-limited) with:
-- exchange/bucket/consumer/endpoint
-- event type and skip reason
-- problem code/message
-- truncated payload sample
+Binance (spot + futures), Bybit, Coinbase, HyperLiquid, Kraken (spot + futures).
 
-### Consumer JSONC knobs
+Each adapter in `internal/adapters/exchange/{name}/` implements: endpoint, parser, backfill.
 
-Main consumer settings in `deploy/configs/consumer.jsonc`:
-- `consumer.exchange` (must be `binance`)
-- `consumer.tickers`
-- `consumer.binance_ws_base_url`
-- `consumer.streams_per_ticker`
-- `consumer.max_streams_per_websocket`
-- `consumer.max_websockets`
-- `consumer.max_websocket_lifetime`
-- `consumer.respawn_overlap`
+## Dev Gates
+
+```bash
+make docs-check        # header format, internal links, truth-map integrity
+make invariants-check  # domain isolation leak scan
+make test-workspace    # full module-based test suite
+```
