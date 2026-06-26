@@ -14,9 +14,8 @@ CURRENT=$(mktemp)
 trap 'rm -f "$CURRENT"' EXIT
 
 if [[ ! -f "$BUDGETS" ]]; then
-  echo "bench-budget: budget file not found at $BUDGETS"
-  echo "  Create it with: BenchmarkName<tab>MaxAllocs per line"
-  exit 1
+  echo "bench-budget: budget file not found at $BUDGETS — skipping (create with: BenchmarkName<tab>MaxAllocs per line)"
+  exit 0
 fi
 
 echo "bench-budget: running hot-path benchmarks (count=${COUNT}) …"

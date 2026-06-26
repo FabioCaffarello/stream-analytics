@@ -57,7 +57,7 @@ jobs:
             exit 1
           fi
       - name: Import boundary guard
-        run: go test ./internal/shared/contracts -run TestImportGuard_ProtoImportsStayInSharedBoundary -count=1
+        run: go test ./internal/contracts -run TestImportGuard_ProtoImportsStayInSharedBoundary -count=1
       - name: Proto lint
         run: make proto-lint
       - name: Proto breaking change check
