@@ -92,6 +92,6 @@ hot-path columns to match DW naming conventions (`venue` → `exchange_name`, `i
 
 ## Related Diagrams
 
-- [Flink Jobs Detail](flink-jobs-detail.md) — how fact tables are populated
-- [C4 Analytics](c4-analytics.md) — container topology of the full analytics profile
-- [Analytics Pipeline Sequence](sequence-analytics-pipeline.md) — end-to-end event flow
+- Flink Jobs Detail (`flink-jobs-detail.md`) — how fact tables are populated
+- C4 Analytics (`c4-analytics.md`) — container topology of the full analytics profile
+- Analytics Pipeline Sequence (`sequence-analytics-pipeline.md`) — end-to-end event flow

@@ -833,7 +833,7 @@ proto-gen-if-needed: proto-tools
 proto-breaking: proto-tools
 	@set -euo pipefail; \
 	if git ls-tree -r --name-only main -- proto | grep -qE '\.proto$$'; then \
-		"$(BUF)" breaking proto --against '.git#branch=main'; \
+		"$(BUF)" breaking proto --against '.git#branch=main,subdir=proto'; \
 	else \
 		echo "Skipping proto-breaking: main has no proto baseline yet."; \
 	fi

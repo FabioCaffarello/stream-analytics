@@ -99,5 +99,5 @@ Seven runbooks in `docs/observability/runbooks/` cover the most common incident 
 | [WebSocket](../observability/runbooks/websocket.md) | WebSocket delivery backpressure — client session drops |
 | [Guardian](../observability/runbooks/guardian.md) | Actor supervisor restart storm — cascading actor failures |
 | [Consumer Stall](../observability/runbooks/consumer-stall.md) | Consumer throughput drops to zero |
-| [VPVR Overload](../observability/runbooks/vpvr-overload.md) | VPVR computation overload — insights pipeline falls behind |
+| [VPVR Overload](../observability/runbooks/vpvr-overload-runbook.md) | VPVR computation overload — insights pipeline falls behind |
 | [Index](../observability/runbooks/index.md) | Runbook index and escalation guide |

@@ -63,6 +63,6 @@ C4Context
 
 ## What Is NOT Shown Here
 
-- Internal services and actors — see [C4 Container Map](c4-containers.md)
-- Data flow sequencing — see [Live Data Ingestion](sequence-live-ingestion.md)
-- Actor supervision tree — see [Actor Supervision Tree](actor-supervision-tree.md)
+- Internal services and actors — see C4 Container Map (`c4-containers.md`)
+- Data flow sequencing — see Live Data Ingestion (`sequence-live-ingestion.md`)
+- Actor supervision tree — see Actor Supervision Tree (`actor-supervision-tree.md`)

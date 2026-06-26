@@ -64,7 +64,7 @@ C4Container
 | `insights.*.v1` | processor | server |
 | `liquidity.evidence.v1` | processor (Evidence) | server |
 
-Full subject registry: [`docs/contracts/event-bus.md`](../../contracts/event-bus.md)
+Full subject registry: `docs/contracts/event-bus.md`
 
 ---
 
@@ -75,7 +75,7 @@ Each binary runs a **Guardian** actor that manages its subsystem actors with:
 - Restart window: 30s, restart limit: 5 per window
 - Global circuit breaker: 5 restarts/min
 
-For the actor tree per binary, see [Actor Supervision Tree](actor-supervision-tree.md).
+For the actor tree per binary, see Actor Supervision Tree (`actor-supervision-tree.md`).
 
 ---
 

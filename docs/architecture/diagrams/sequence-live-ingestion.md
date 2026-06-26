@@ -120,6 +120,6 @@ sequenceDiagram
 
 ## Related Diagrams
 
-- [Client Session Protocol](sequence-client-session.md) — how the client receives the events pushed in step 16
-- [Storage Federation Write Path](sequence-storage-federation.md) — steps 18–21 in detail
-- [Exchange Reconnect & Recovery](sequence-exchange-recovery.md) — what happens when step 1 fails
+- Client Session Protocol (`sequence-client-session.md`) — how the client receives the events pushed in step 16
+- Storage Federation Write Path (`sequence-storage-federation.md`) — steps 18–21 in detail
+- Exchange Reconnect & Recovery (`sequence-exchange-recovery.md`) — what happens when step 1 fails

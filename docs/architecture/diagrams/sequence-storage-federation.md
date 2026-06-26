@@ -127,5 +127,5 @@ Test: `internal/adapters/storage/federation/consistency_test.go:1`
 
 ## Related Diagrams
 
-- [Live Data Ingestion](sequence-live-ingestion.md) — the producer side that feeds StorAct (steps 18–21)
-- [Client Session Protocol](sequence-client-session.md) — how the Backfill Service uses rangeQuery (step 11)
+- Live Data Ingestion (`sequence-live-ingestion.md`) — the producer side that feeds StorAct (steps 18–21)
+- Client Session Protocol (`sequence-client-session.md`) — how the Backfill Service uses rangeQuery (step 11)
