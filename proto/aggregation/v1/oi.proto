@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package aggregation.v1;
+
+option go_package = "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/aggregation/v1";
+
+// OpenInterestWindowV1 models deterministic open-interest aggregation output.
+message OpenInterestWindowV1 {
+  // Venue is the canonical venue identifier.
+  string venue = 1;
+  // Instrument is the canonical instrument identifier.
+  string instrument = 2;
+  // Timeframe is the aggregation window timeframe ("raw" for tick-level updates).
+  string timeframe = 3;
+  // WindowStartTs is the event window start in Unix milliseconds.
+  int64 window_start_ts = 4;
+  // WindowEndTs is the event window end in Unix milliseconds.
+  int64 window_end_ts = 5;
+  // OpenInterest is the current open interest value.
+  double open_interest = 6;
+  // Delta is the absolute change versus previous open interest sample.
+  double delta = 7;
+  // DeltaPct is delta/open_interest_previous. Zero when previous is unavailable.
+  double delta_pct = 8;
+  // Seq is the highest sequence observed for this stream.
+  int64 seq = 9;
+  // TsIngestMs is the deterministic ingest timestamp in Unix milliseconds.
+  int64 ts_ingest_ms = 10;
+  // CadenceHintMs is the estimated inter-arrival interval in milliseconds.
+  int64 cadence_hint_ms = 11;
+  // Confidence is the feed confidence level: "high", "medium", or "low".
+  string confidence = 12;
+
+  reserved 100 to 199;
+}

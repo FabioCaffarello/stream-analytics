@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 func canonicalizeJSONRaw(raw []byte) (json.RawMessage, *problem.Problem) {

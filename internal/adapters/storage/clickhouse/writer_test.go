@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/market-raccoon/internal/adapters/storage/clickhouse"
-	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/storage/clickhouse"
+	aggdomain "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 func TestWriter_IdempotentSamePayloadCommitsOnce(t *testing.T) {
@@ -98,6 +98,30 @@ func TestWriter_ClickHouseSchemaContractW4HasTTLAndPartition(t *testing.T) {
 	}
 	if !strings.Contains(ddl, "TTL toDateTime(ts) + INTERVAL 90 DAY") {
 		t.Fatalf("schema must have TTL of 90 days on ts column")
+	}
+}
+
+func TestWriter_ClickHouseSchemaContractM2HasSubMinuteTTLPolicy(t *testing.T) {
+	path := filepath.Clean(filepath.Join("..", "..", "..", "..", "sql", "clickhouse", "migrations", "0007_m2_subminute_ttl_policy.sql"))
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read schema %s: %v", path, err)
+	}
+	ddl := string(raw)
+	if !strings.Contains(ddl, "ALTER TABLE aggregation_candle_cold") {
+		t.Fatalf("migration must alter aggregation_candle_cold")
+	}
+	if !strings.Contains(ddl, "ALTER TABLE aggregation_stats_cold") {
+		t.Fatalf("migration must alter aggregation_stats_cold")
+	}
+	if !strings.Contains(ddl, "timeframe IN ('1s', '5s')") {
+		t.Fatalf("migration must define sub-minute timeframe policy")
+	}
+	if !strings.Contains(ddl, "INTERVAL 14 DAY") {
+		t.Fatalf("migration must set shorter TTL for sub-minute timeframes")
+	}
+	if !strings.Contains(ddl, "INTERVAL 90 DAY") {
+		t.Fatalf("migration must preserve default TTL for non-sub-minute timeframes")
 	}
 }
 

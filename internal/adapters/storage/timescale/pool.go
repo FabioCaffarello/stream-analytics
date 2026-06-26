@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
+	adapterstorage "github.com/FabioCaffarello/stream-analytics/internal/adapters/storage"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 	"github.com/jackc/pgx/v5/pgxpool"
-	adapterstorage "github.com/market-raccoon/internal/adapters/storage"
-	"github.com/market-raccoon/internal/shared/problem"
 )
 
 // PoolConfig controls Timescale pgxpool behavior.

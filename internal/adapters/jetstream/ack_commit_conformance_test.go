@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	adapterstorage "github.com/market-raccoon/internal/adapters/storage"
-	"github.com/market-raccoon/internal/adapters/storage/clickhouse"
-	"github.com/market-raccoon/internal/adapters/storage/timescale"
-	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/problem"
+	adapterstorage "github.com/FabioCaffarello/stream-analytics/internal/adapters/storage"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/storage/clickhouse"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/storage/timescale"
+	aggdomain "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 func TestACKOnlyAfterCommit_Success(t *testing.T) {

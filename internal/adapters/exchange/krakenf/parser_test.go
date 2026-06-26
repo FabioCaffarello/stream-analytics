@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/market-raccoon/internal/adapters/exchange/krakenf"
-	"github.com/market-raccoon/internal/core/marketdata/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/exchange/krakenf"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/domain"
 )
 
 func TestParseMessage_KrakenFTable(t *testing.T) {

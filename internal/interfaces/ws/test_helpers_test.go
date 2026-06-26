@@ -2,6 +2,7 @@ package wsserver
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -10,12 +11,12 @@ import (
 	"testing"
 	"time"
 
+	deliveryruntime "github.com/FabioCaffarello/stream-analytics/internal/actors/delivery/runtime"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/delivery/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/delivery/ports"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 	"github.com/anthdm/hollywood/actor"
 	"github.com/gorilla/websocket"
-	deliveryruntime "github.com/market-raccoon/internal/actors/delivery/runtime"
-	"github.com/market-raccoon/internal/core/delivery/domain"
-	"github.com/market-raccoon/internal/core/delivery/ports"
-	"github.com/market-raccoon/internal/shared/problem"
 )
 
 func wsURLFromHTTP(httpURL string) string {
@@ -100,10 +101,7 @@ func TestWSRangeDeterminismReplay(t *testing.T) {
 	if err := conn.WriteJSON(req); err != nil {
 		t.Fatalf("write req1: %v", err)
 	}
-	var resp1 map[string]any
-	if err := conn.ReadJSON(&resp1); err != nil {
-		t.Fatalf("read resp1: %v", err)
-	}
+	resp1 := readFrameSkipHello(t, conn, 2*time.Second)
 	if got, want := resp1["type"], "range"; got != want {
 		t.Fatalf("type=%v want=%v", got, want)
 	}
@@ -111,10 +109,7 @@ func TestWSRangeDeterminismReplay(t *testing.T) {
 	if err := conn.WriteJSON(req); err != nil {
 		t.Fatalf("write req2: %v", err)
 	}
-	var resp2 map[string]any
-	if err := conn.ReadJSON(&resp2); err != nil {
-		t.Fatalf("read resp2: %v", err)
-	}
+	resp2 := readFrameSkipHello(t, conn, 2*time.Second)
 	sig1 := extractRangeSignature(t, resp1)
 	sig2 := extractRangeSignature(t, resp2)
 	if len(sig1) != len(sig2) {
@@ -191,11 +186,34 @@ func extractRangeSignature(t *testing.T, msg map[string]any) []string {
 		if !ok {
 			t.Fatalf("ts type=%T", tsVal)
 		}
-		payload, ok := payloadVal.(string)
-		if !ok {
+		var payloadStr string
+		switch pv := payloadVal.(type) {
+		case string:
+			payloadStr = pv
+		case map[string]any:
+			// json.RawMessage payloads are inlined as JSON objects.
+			b, _ := json.Marshal(pv)
+			payloadStr = string(b)
+		default:
 			t.Fatalf("payload type=%T", payloadVal)
 		}
-		out = append(out, strconv.FormatInt(int64(seq), 10)+"|"+strconv.FormatInt(int64(ts), 10)+"|"+payload)
+		out = append(out, strconv.FormatInt(int64(seq), 10)+"|"+strconv.FormatInt(int64(ts), 10)+"|"+payloadStr)
 	}
 	return out
+}
+
+func readFrameSkipHello(t *testing.T, conn *websocket.Conn, timeout time.Duration) map[string]any {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		_ = conn.SetReadDeadline(deadline)
+		var msg map[string]any
+		if err := conn.ReadJSON(&msg); err != nil {
+			t.Fatalf("read frame: %v", err)
+		}
+		if typ, _ := msg["type"].(string); typ == "hello" {
+			continue
+		}
+		return msg
+	}
 }

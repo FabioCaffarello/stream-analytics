@@ -3,7 +3,7 @@ package domain
 import (
 	"strings"
 
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 // InstrumentIdentity keeps canonical and venue-native identity details.

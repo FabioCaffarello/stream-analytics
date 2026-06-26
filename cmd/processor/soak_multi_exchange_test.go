@@ -12,14 +12,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/market-raccoon/internal/adapters/exchange/binance"
-	"github.com/market-raccoon/internal/adapters/exchange/bybit"
-	"github.com/market-raccoon/internal/adapters/exchange/coinbase"
-	"github.com/market-raccoon/internal/adapters/exchange/hyperliquid"
-	aggapp "github.com/market-raccoon/internal/core/aggregation/app"
-	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
-	mdapp "github.com/market-raccoon/internal/core/marketdata/app"
-	mddomain "github.com/market-raccoon/internal/core/marketdata/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/exchange/binance"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/exchange/bybit"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/exchange/coinbase"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/exchange/hyperliquid"
+	aggapp "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/app"
+	aggdomain "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
+	mdapp "github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/app"
+	mddomain "github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/domain"
 )
 
 //nolint:gocyclo // soak scenario intentionally exercises mixed parser and aggregation paths.

@@ -13,30 +13,30 @@ import (
 	"sync"
 	"time"
 
+	aggruntime "github.com/FabioCaffarello/stream-analytics/internal/actors/aggregation/runtime"
+	actorruntime "github.com/FabioCaffarello/stream-analytics/internal/actors/runtime"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/bus"
+	adapterjs "github.com/FabioCaffarello/stream-analytics/internal/adapters/jetstream"
+	adapterstorage "github.com/FabioCaffarello/stream-analytics/internal/adapters/storage"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/storage/clickhouse"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/storage/timescale"
+	"github.com/FabioCaffarello/stream-analytics/internal/contracts"
+	aggapp "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/app"
+	aggdomain "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
+	aggports "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/ports"
+	insightsapp "github.com/FabioCaffarello/stream-analytics/internal/core/insights/app"
+	mddomain "github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/domain"
+	httpserver "github.com/FabioCaffarello/stream-analytics/internal/interfaces/http"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/bootstrap"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/codec"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/config"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	sharedhash "github.com/FabioCaffarello/stream-analytics/internal/shared/hash"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/replay"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/shardregistry"
 	"github.com/anthdm/hollywood/actor"
-	aggruntime "github.com/market-raccoon/internal/actors/aggregation/runtime"
-	actorruntime "github.com/market-raccoon/internal/actors/runtime"
-	"github.com/market-raccoon/internal/adapters/bus"
-	adapterjs "github.com/market-raccoon/internal/adapters/jetstream"
-	adapterstorage "github.com/market-raccoon/internal/adapters/storage"
-	"github.com/market-raccoon/internal/adapters/storage/clickhouse"
-	"github.com/market-raccoon/internal/adapters/storage/timescale"
-	aggapp "github.com/market-raccoon/internal/core/aggregation/app"
-	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
-	aggports "github.com/market-raccoon/internal/core/aggregation/ports"
-	insightsapp "github.com/market-raccoon/internal/core/insights/app"
-	mddomain "github.com/market-raccoon/internal/core/marketdata/domain"
-	httpserver "github.com/market-raccoon/internal/interfaces/http"
-	"github.com/market-raccoon/internal/shared/bootstrap"
-	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/config"
-	"github.com/market-raccoon/internal/shared/contracts"
-	"github.com/market-raccoon/internal/shared/envelope"
-	sharedhash "github.com/market-raccoon/internal/shared/hash"
-	"github.com/market-raccoon/internal/shared/metrics"
-	"github.com/market-raccoon/internal/shared/problem"
-	"github.com/market-raccoon/internal/shared/replay"
-	"github.com/market-raccoon/internal/shared/shardregistry"
 )
 
 // ---------------------------------------------------------------------------
@@ -90,6 +90,64 @@ func (p *logArtifactPublisher) PublishStatsClosed(_ context.Context, evt aggdoma
 	return nil
 }
 
+func (p *logArtifactPublisher) PublishTapeClosed(_ context.Context, evt aggdomain.TapeClosed) *problem.Problem {
+	p.logger.Debug("aggregation: tape window closed",
+		"venue", evt.Window.Venue,
+		"instrument", evt.Window.Instrument,
+		"timeframe", evt.Window.Timeframe,
+		"window_start_ts", evt.Window.WindowStartTs,
+		"window_end_ts", evt.Window.WindowEndTs,
+		"trade_count", evt.Window.TradeCount,
+		"is_burst", evt.IsBurst,
+	)
+	return nil
+}
+
+func (p *logArtifactPublisher) PublishOpenInterest(_ context.Context, evt aggdomain.OpenInterestClosed) *problem.Problem {
+	p.logger.Debug("aggregation: open_interest emitted",
+		"venue", evt.Window.Venue,
+		"instrument", evt.Window.Instrument,
+		"timeframe", evt.Window.Timeframe,
+		"seq", evt.Window.Seq,
+		"open_interest", evt.Window.OpenInterest,
+		"delta", evt.Window.Delta,
+	)
+	return nil
+}
+
+func (p *logArtifactPublisher) PublishDeltaVolume(_ context.Context, evt aggdomain.DeltaVolumeClosed) *problem.Problem {
+	p.logger.Debug("aggregation: delta_volume emitted",
+		"venue", evt.Window.Venue,
+		"instrument", evt.Window.Instrument,
+		"timeframe", evt.Window.Timeframe,
+		"seq", evt.Window.Seq,
+		"delta_volume", evt.Window.DeltaVolume,
+	)
+	return nil
+}
+
+func (p *logArtifactPublisher) PublishCVD(_ context.Context, evt aggdomain.CVDClosed) *problem.Problem {
+	p.logger.Debug("aggregation: cvd emitted",
+		"venue", evt.Window.Venue,
+		"instrument", evt.Window.Instrument,
+		"timeframe", evt.Window.Timeframe,
+		"seq", evt.Window.Seq,
+		"cvd", evt.Window.CVD,
+	)
+	return nil
+}
+
+func (p *logArtifactPublisher) PublishBarStats(_ context.Context, evt aggdomain.BarStatsClosed) *problem.Problem {
+	p.logger.Debug("aggregation: bar_stats emitted",
+		"venue", evt.Window.Venue,
+		"instrument", evt.Window.Instrument,
+		"timeframe", evt.Window.Timeframe,
+		"seq", evt.Window.Seq,
+		"trade_count", evt.Window.TradeCount,
+	)
+	return nil
+}
+
 type committedHotStore struct {
 	committer *adapterstorage.SnapshotCommitter
 }
@@ -123,6 +181,428 @@ func (s *logStatsHotStore) SaveStats(_ context.Context, evt aggdomain.StatsWindo
 		"liq_count", evt.Stats.LiqCount,
 	)
 	return nil
+}
+
+type logTapeHotStore struct{ logger *slog.Logger }
+
+func (s *logTapeHotStore) SaveTape(_ context.Context, evt aggdomain.TapeClosed) *problem.Problem {
+	s.logger.Debug("aggregation: tape saved to hot store",
+		"venue", evt.Window.Venue,
+		"instrument", evt.Window.Instrument,
+		"timeframe", evt.Window.Timeframe,
+		"trade_count", evt.Window.TradeCount,
+	)
+	return nil
+}
+
+type logOIHotStore struct{ logger *slog.Logger }
+
+func (s *logOIHotStore) SaveOI(_ context.Context, evt aggdomain.OpenInterestClosed) *problem.Problem {
+	s.logger.Debug("aggregation: oi saved to hot store",
+		"venue", evt.Window.Venue,
+		"instrument", evt.Window.Instrument,
+		"oi", evt.Window.OpenInterest,
+	)
+	return nil
+}
+
+type logDeltaVolumeHotStore struct{ logger *slog.Logger }
+
+func (s *logDeltaVolumeHotStore) SaveDeltaVolume(_ context.Context, evt aggdomain.DeltaVolumeClosed) *problem.Problem {
+	s.logger.Debug("aggregation: delta_volume saved to hot store",
+		"venue", evt.Window.Venue,
+		"instrument", evt.Window.Instrument,
+		"delta", evt.Window.DeltaVolume,
+	)
+	return nil
+}
+
+type logCVDHotStore struct{ logger *slog.Logger }
+
+func (s *logCVDHotStore) SaveCVD(_ context.Context, evt aggdomain.CVDClosed) *problem.Problem {
+	s.logger.Debug("aggregation: cvd saved to hot store",
+		"venue", evt.Window.Venue,
+		"instrument", evt.Window.Instrument,
+		"cvd", evt.Window.CVD,
+	)
+	return nil
+}
+
+type logBarStatsHotStore struct{ logger *slog.Logger }
+
+func (s *logBarStatsHotStore) SaveBarStats(_ context.Context, evt aggdomain.BarStatsClosed) *problem.Problem {
+	s.logger.Debug("aggregation: bar_stats saved to hot store",
+		"venue", evt.Window.Venue,
+		"instrument", evt.Window.Instrument,
+		"trade_count", evt.Window.TradeCount,
+	)
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// dual-write composite stores (Pg hot + CH cold)
+// ---------------------------------------------------------------------------
+
+type dualWriteCandleStore struct {
+	hot    aggports.CandleHotReadModelStore
+	cold   aggports.CandleHotReadModelStore
+	logger *slog.Logger
+}
+
+func (s *dualWriteCandleStore) SaveCandle(ctx context.Context, evt aggdomain.CandleClosed) *problem.Problem {
+	if p := s.hot.SaveCandle(ctx, evt); p != nil {
+		return p
+	}
+	if p := s.cold.SaveCandle(ctx, evt); p != nil {
+		s.logger.Warn("cold candle write failed (non-fatal)", "err", p.Message)
+		metrics.IncProcessorCommit("candle_cold_err")
+	}
+	return nil
+}
+
+type dualWriteStatsStore struct {
+	hot    aggports.StatsHotReadModelStore
+	cold   aggports.StatsHotReadModelStore
+	logger *slog.Logger
+}
+
+func (s *dualWriteStatsStore) SaveStats(ctx context.Context, evt aggdomain.StatsWindowClosed) *problem.Problem {
+	if p := s.hot.SaveStats(ctx, evt); p != nil {
+		return p
+	}
+	if p := s.cold.SaveStats(ctx, evt); p != nil {
+		s.logger.Warn("cold stats write failed (non-fatal)", "err", p.Message)
+		metrics.IncProcessorCommit("stats_cold_err")
+	}
+	return nil
+}
+
+type dualWriteTapeStore struct {
+	hot    aggports.TapeHotReadModelStore
+	cold   aggports.TapeHotReadModelStore
+	logger *slog.Logger
+}
+
+func (s *dualWriteTapeStore) SaveTape(ctx context.Context, evt aggdomain.TapeClosed) *problem.Problem {
+	if p := s.hot.SaveTape(ctx, evt); p != nil {
+		return p
+	}
+	if p := s.cold.SaveTape(ctx, evt); p != nil {
+		s.logger.Warn("cold tape write failed (non-fatal)", "err", p.Message)
+		metrics.IncProcessorCommit("tape_cold_err")
+	}
+	return nil
+}
+
+type dualWriteOIStore struct {
+	hot    aggports.OIHotReadModelStore
+	cold   aggports.OIHotReadModelStore
+	logger *slog.Logger
+}
+
+func (s *dualWriteOIStore) SaveOI(ctx context.Context, evt aggdomain.OpenInterestClosed) *problem.Problem {
+	if p := s.hot.SaveOI(ctx, evt); p != nil {
+		return p
+	}
+	if p := s.cold.SaveOI(ctx, evt); p != nil {
+		s.logger.Warn("cold oi write failed (non-fatal)", "err", p.Message)
+		metrics.IncProcessorCommit("oi_cold_err")
+	}
+	return nil
+}
+
+type dualWriteDeltaVolumeStore struct {
+	hot    aggports.DeltaVolumeHotReadModelStore
+	cold   aggports.DeltaVolumeHotReadModelStore
+	logger *slog.Logger
+}
+
+func (s *dualWriteDeltaVolumeStore) SaveDeltaVolume(ctx context.Context, evt aggdomain.DeltaVolumeClosed) *problem.Problem {
+	if p := s.hot.SaveDeltaVolume(ctx, evt); p != nil {
+		return p
+	}
+	if p := s.cold.SaveDeltaVolume(ctx, evt); p != nil {
+		s.logger.Warn("cold delta_volume write failed (non-fatal)", "err", p.Message)
+		metrics.IncProcessorCommit("delta_volume_cold_err")
+	}
+	return nil
+}
+
+type dualWriteCVDStore struct {
+	hot    aggports.CVDHotReadModelStore
+	cold   aggports.CVDHotReadModelStore
+	logger *slog.Logger
+}
+
+func (s *dualWriteCVDStore) SaveCVD(ctx context.Context, evt aggdomain.CVDClosed) *problem.Problem {
+	if p := s.hot.SaveCVD(ctx, evt); p != nil {
+		return p
+	}
+	if p := s.cold.SaveCVD(ctx, evt); p != nil {
+		s.logger.Warn("cold cvd write failed (non-fatal)", "err", p.Message)
+		metrics.IncProcessorCommit("cvd_cold_err")
+	}
+	return nil
+}
+
+type dualWriteBarStatsStore struct {
+	hot    aggports.BarStatsHotReadModelStore
+	cold   aggports.BarStatsHotReadModelStore
+	logger *slog.Logger
+}
+
+func (s *dualWriteBarStatsStore) SaveBarStats(ctx context.Context, evt aggdomain.BarStatsClosed) *problem.Problem {
+	if p := s.hot.SaveBarStats(ctx, evt); p != nil {
+		return p
+	}
+	if p := s.cold.SaveBarStats(ctx, evt); p != nil {
+		s.logger.Warn("cold bar_stats write failed (non-fatal)", "err", p.Message)
+		metrics.IncProcessorCommit("bar_stats_cold_err")
+	}
+	return nil
+}
+
+type subMinuteRolloutGate struct {
+	enabled     bool
+	venues      map[string]struct{}
+	instruments map[string]struct{}
+}
+
+func newSubMinuteRolloutGate(cfg config.ProcessorSubMinuteRolloutConfig) *subMinuteRolloutGate {
+	gate := &subMinuteRolloutGate{
+		enabled:     cfg.Enabled,
+		venues:      make(map[string]struct{}, len(cfg.Venues)),
+		instruments: make(map[string]struct{}, len(cfg.Instruments)),
+	}
+	for _, venue := range cfg.Venues {
+		if v := strings.ToUpper(strings.TrimSpace(venue)); v != "" {
+			gate.venues[v] = struct{}{}
+		}
+	}
+	for _, instrument := range cfg.Instruments {
+		if inst := strings.ToUpper(strings.TrimSpace(instrument)); inst != "" {
+			gate.instruments[inst] = struct{}{}
+		}
+	}
+	return gate
+}
+
+func (g *subMinuteRolloutGate) allows(venue, instrument, timeframe string) bool {
+	if g == nil || !isSubMinuteTimeframe(timeframe) {
+		return true
+	}
+	if !g.enabled {
+		return false
+	}
+	if len(g.venues) > 0 {
+		if _, ok := g.venues[strings.ToUpper(strings.TrimSpace(venue))]; !ok {
+			return false
+		}
+	}
+	if len(g.instruments) > 0 {
+		raw := strings.ToUpper(strings.TrimSpace(instrument))
+		if _, ok := g.instruments[raw]; ok {
+			return true
+		}
+		base := raw
+		if idx := strings.Index(base, ":"); idx > 0 {
+			base = base[:idx]
+		}
+		if _, ok := g.instruments[base]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func isSubMinuteTimeframe(timeframe string) bool {
+	switch strings.ToLower(strings.TrimSpace(timeframe)) {
+	case "1s", "5s":
+		return true
+	default:
+		return false
+	}
+}
+
+type subMinuteFilteringArtifactPublisher struct {
+	next aggports.ArtifactPublisher
+	gate *subMinuteRolloutGate
+}
+
+func (p *subMinuteFilteringArtifactPublisher) PublishSnapshot(ctx context.Context, snap aggdomain.SnapshotProduced) *problem.Problem {
+	if p == nil || p.next == nil {
+		return nil
+	}
+	return p.next.PublishSnapshot(ctx, snap)
+}
+
+func (p *subMinuteFilteringArtifactPublisher) PublishInconsistent(ctx context.Context, evt aggdomain.OrderBookInconsistentDetected) *problem.Problem {
+	if p == nil || p.next == nil {
+		return nil
+	}
+	return p.next.PublishInconsistent(ctx, evt)
+}
+
+func (p *subMinuteFilteringArtifactPublisher) PublishCandleClosed(ctx context.Context, evt aggdomain.CandleClosed) *problem.Problem {
+	if p == nil || p.next == nil {
+		return nil
+	}
+	if p.gate != nil && !p.gate.allows(evt.Candle.Venue, evt.Candle.Instrument, evt.Candle.Timeframe) {
+		metrics.IncIngestDrop("subminute_rollout_blocked")
+		return nil
+	}
+	return p.next.PublishCandleClosed(ctx, evt)
+}
+
+func (p *subMinuteFilteringArtifactPublisher) PublishStatsClosed(ctx context.Context, evt aggdomain.StatsWindowClosed) *problem.Problem {
+	if p == nil || p.next == nil {
+		return nil
+	}
+	if p.gate != nil && !p.gate.allows(evt.Stats.Venue, evt.Stats.Instrument, evt.Stats.Timeframe) {
+		metrics.IncIngestDrop("subminute_rollout_blocked")
+		return nil
+	}
+	return p.next.PublishStatsClosed(ctx, evt)
+}
+
+func (p *subMinuteFilteringArtifactPublisher) PublishTapeClosed(ctx context.Context, evt aggdomain.TapeClosed) *problem.Problem {
+	if p == nil || p.next == nil {
+		return nil
+	}
+	return p.next.PublishTapeClosed(ctx, evt)
+}
+
+func (p *subMinuteFilteringArtifactPublisher) PublishOpenInterest(ctx context.Context, evt aggdomain.OpenInterestClosed) *problem.Problem {
+	if p == nil || p.next == nil {
+		return nil
+	}
+	return p.next.PublishOpenInterest(ctx, evt)
+}
+
+func (p *subMinuteFilteringArtifactPublisher) PublishDeltaVolume(ctx context.Context, evt aggdomain.DeltaVolumeClosed) *problem.Problem {
+	if p == nil || p.next == nil {
+		return nil
+	}
+	return p.next.PublishDeltaVolume(ctx, evt)
+}
+
+func (p *subMinuteFilteringArtifactPublisher) PublishCVD(ctx context.Context, evt aggdomain.CVDClosed) *problem.Problem {
+	if p == nil || p.next == nil {
+		return nil
+	}
+	return p.next.PublishCVD(ctx, evt)
+}
+
+func (p *subMinuteFilteringArtifactPublisher) PublishBarStats(ctx context.Context, evt aggdomain.BarStatsClosed) *problem.Problem {
+	if p == nil || p.next == nil {
+		return nil
+	}
+	return p.next.PublishBarStats(ctx, evt)
+}
+
+type subMinuteFilteringCandleStore struct {
+	next aggports.CandleHotReadModelStore
+	gate *subMinuteRolloutGate
+}
+
+func (s *subMinuteFilteringCandleStore) SaveCandle(ctx context.Context, evt aggdomain.CandleClosed) *problem.Problem {
+	if s == nil || s.next == nil {
+		return nil
+	}
+	if s.gate != nil && !s.gate.allows(evt.Candle.Venue, evt.Candle.Instrument, evt.Candle.Timeframe) {
+		return nil
+	}
+	return s.next.SaveCandle(ctx, evt)
+}
+
+type subMinuteFilteringStatsStore struct {
+	next aggports.StatsHotReadModelStore
+	gate *subMinuteRolloutGate
+}
+
+func (s *subMinuteFilteringStatsStore) SaveStats(ctx context.Context, evt aggdomain.StatsWindowClosed) *problem.Problem {
+	if s == nil || s.next == nil {
+		return nil
+	}
+	if s.gate != nil && !s.gate.allows(evt.Stats.Venue, evt.Stats.Instrument, evt.Stats.Timeframe) {
+		return nil
+	}
+	return s.next.SaveStats(ctx, evt)
+}
+
+type subMinuteFilteringTapeStore struct {
+	next aggports.TapeHotReadModelStore
+	gate *subMinuteRolloutGate
+}
+
+func (s *subMinuteFilteringTapeStore) SaveTape(ctx context.Context, evt aggdomain.TapeClosed) *problem.Problem {
+	if s == nil || s.next == nil {
+		return nil
+	}
+	if s.gate != nil && !s.gate.allows(evt.Window.Venue, evt.Window.Instrument, evt.Window.Timeframe) {
+		return nil
+	}
+	return s.next.SaveTape(ctx, evt)
+}
+
+type subMinuteFilteringOIStore struct {
+	next aggports.OIHotReadModelStore
+	gate *subMinuteRolloutGate
+}
+
+func (s *subMinuteFilteringOIStore) SaveOI(ctx context.Context, evt aggdomain.OpenInterestClosed) *problem.Problem {
+	if s == nil || s.next == nil {
+		return nil
+	}
+	if s.gate != nil && !s.gate.allows(evt.Window.Venue, evt.Window.Instrument, evt.Window.Timeframe) {
+		return nil
+	}
+	return s.next.SaveOI(ctx, evt)
+}
+
+type subMinuteFilteringDeltaVolumeStore struct {
+	next aggports.DeltaVolumeHotReadModelStore
+	gate *subMinuteRolloutGate
+}
+
+func (s *subMinuteFilteringDeltaVolumeStore) SaveDeltaVolume(ctx context.Context, evt aggdomain.DeltaVolumeClosed) *problem.Problem {
+	if s == nil || s.next == nil {
+		return nil
+	}
+	if s.gate != nil && !s.gate.allows(evt.Window.Venue, evt.Window.Instrument, evt.Window.Timeframe) {
+		return nil
+	}
+	return s.next.SaveDeltaVolume(ctx, evt)
+}
+
+type subMinuteFilteringCVDStore struct {
+	next aggports.CVDHotReadModelStore
+	gate *subMinuteRolloutGate
+}
+
+func (s *subMinuteFilteringCVDStore) SaveCVD(ctx context.Context, evt aggdomain.CVDClosed) *problem.Problem {
+	if s == nil || s.next == nil {
+		return nil
+	}
+	if s.gate != nil && !s.gate.allows(evt.Window.Venue, evt.Window.Instrument, evt.Window.Timeframe) {
+		return nil
+	}
+	return s.next.SaveCVD(ctx, evt)
+}
+
+type subMinuteFilteringBarStatsStore struct {
+	next aggports.BarStatsHotReadModelStore
+	gate *subMinuteRolloutGate
+}
+
+func (s *subMinuteFilteringBarStatsStore) SaveBarStats(ctx context.Context, evt aggdomain.BarStatsClosed) *problem.Problem {
+	if s == nil || s.next == nil {
+		return nil
+	}
+	if s.gate != nil && !s.gate.allows(evt.Window.Venue, evt.Window.Instrument, evt.Window.Timeframe) {
+		return nil
+	}
+	return s.next.SaveBarStats(ctx, evt)
 }
 
 // ---------------------------------------------------------------------------
@@ -271,6 +751,11 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 	var hotWriter aggports.HotReadModelStore = timescale.NewWriter()
 	var candleStore aggports.CandleHotReadModelStore = &logCandleHotStore{logger: logger}
 	var statsStore aggports.StatsHotReadModelStore = &logStatsHotStore{logger: logger}
+	var tapeStore aggports.TapeHotReadModelStore = &logTapeHotStore{logger: logger}
+	var oiStore aggports.OIHotReadModelStore = &logOIHotStore{logger: logger}
+	var deltaVolumeStore aggports.DeltaVolumeHotReadModelStore = &logDeltaVolumeHotStore{logger: logger}
+	var cvdStore aggports.CVDHotReadModelStore = &logCVDHotStore{logger: logger}
+	var barStatsStore aggports.BarStatsHotReadModelStore = &logBarStatsHotStore{logger: logger}
 	var heatmapStore *timescale.HeatmapWriter
 	var volumeProfileStore *timescale.VolumeProfileWriter
 	var tsPool *timescale.Pool
@@ -300,6 +785,11 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 		hotWriter = timescale.NewPgWriter(tsPool)
 		candleStore = timescale.NewPgCandleWriter(tsPool)
 		statsStore = timescale.NewPgStatsWriter(tsPool)
+		tapeStore = timescale.NewPgTapeWriter(tsPool)
+		oiStore = timescale.NewPgOIWriter(tsPool)
+		deltaVolumeStore = timescale.NewPgDeltaVolumeWriter(tsPool)
+		cvdStore = timescale.NewPgCVDWriter(tsPool)
+		barStatsStore = timescale.NewPgBarStatsWriter(tsPool)
 		heatmapStore = timescale.NewPgHeatmapWriter(tsPool)
 		volumeProfileStore = timescale.NewPgVolumeProfileWriter(tsPool)
 		timescale.SetProductionReady(timescale.AdapterModePGX)
@@ -331,7 +821,17 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 		}()
 
 		coldWriter = clickhouse.NewChWriter(chPool)
-		logger.Info("processor: using ClickHouse writer")
+
+		// Dual-write: wrap Pg hot stores with CH cold stores.
+		candleStore = &dualWriteCandleStore{hot: candleStore, cold: clickhouse.NewChCandleWriter(chPool), logger: logger}
+		statsStore = &dualWriteStatsStore{hot: statsStore, cold: clickhouse.NewChStatsWriter(chPool), logger: logger}
+		tapeStore = &dualWriteTapeStore{hot: tapeStore, cold: clickhouse.NewChTapeWriter(chPool), logger: logger}
+		oiStore = &dualWriteOIStore{hot: oiStore, cold: clickhouse.NewChOIWriter(chPool), logger: logger}
+		deltaVolumeStore = &dualWriteDeltaVolumeStore{hot: deltaVolumeStore, cold: clickhouse.NewChDeltaVolumeWriter(chPool), logger: logger}
+		cvdStore = &dualWriteCVDStore{hot: cvdStore, cold: clickhouse.NewChCVDWriter(chPool), logger: logger}
+		barStatsStore = &dualWriteBarStatsStore{hot: barStatsStore, cold: clickhouse.NewChBarStatsWriter(chPool), logger: logger}
+
+		logger.Info("processor: using ClickHouse writer (dual-write for all 7 artifact types)")
 	} else {
 		logger.Warn("processor: using in-memory ClickHouse writer (storage.clickhouse.enabled=false)")
 	}
@@ -343,14 +843,75 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 	hotStore := &committedHotStore{
 		committer: adapterstorage.NewSnapshotCommitter(hotWriter, coldWriter),
 	}
+	subMinuteGate := newSubMinuteRolloutGate(cfg.Processor.SubMinuteRollout)
+	artifactPub = &subMinuteFilteringArtifactPublisher{
+		next: artifactPub,
+		gate: subMinuteGate,
+	}
+	candleStore = &subMinuteFilteringCandleStore{
+		next: candleStore,
+		gate: subMinuteGate,
+	}
+	statsStore = &subMinuteFilteringStatsStore{
+		next: statsStore,
+		gate: subMinuteGate,
+	}
+	tapeStore = &subMinuteFilteringTapeStore{
+		next: tapeStore,
+		gate: subMinuteGate,
+	}
+	oiStore = &subMinuteFilteringOIStore{
+		next: oiStore,
+		gate: subMinuteGate,
+	}
+	deltaVolumeStore = &subMinuteFilteringDeltaVolumeStore{
+		next: deltaVolumeStore,
+		gate: subMinuteGate,
+	}
+	cvdStore = &subMinuteFilteringCVDStore{
+		next: cvdStore,
+		gate: subMinuteGate,
+	}
+	barStatsStore = &subMinuteFilteringBarStatsStore{
+		next: barStatsStore,
+		gate: subMinuteGate,
+	}
+	logger.Info("processor: sub-minute rollout gate configured",
+		"enabled", subMinuteGate.enabled,
+		"venue_allowlist", len(subMinuteGate.venues),
+		"instrument_allowlist", len(subMinuteGate.instruments),
+	)
 	aggSvc := aggapp.NewAggregationService(aggapp.AggregationServiceConfig{
-		Update:      aggapp.UpdateConfig{MaxBooks: cfg.Processor.MaxInstruments},
-		Candle:      aggapp.BuildCandleConfig{MaxCandles: cfg.Processor.Candle.MaxCandles},
-		Stats:       aggapp.BuildStatsConfig{MaxWindows: cfg.Processor.Stats.MaxWindows},
-		Publisher:   artifactPub,
-		Store:       hotStore,
-		CandleStore: candleStore,
-		StatsStore:  statsStore,
+		Update: aggapp.UpdateConfig{
+			MaxBooks:                   cfg.Processor.MaxInstruments,
+			MaxLevels:                  cfg.Processor.OrderBook.MaxLevels,
+			PublishDepthCap:            cfg.Processor.RTPublish.WsSnapshotDepthCap,
+			SnapshotPublishMinInterval: time.Duration(cfg.Processor.RTPublish.OrderbookIntervalMs) * time.Millisecond,
+		},
+		Candle: aggapp.BuildCandleConfig{
+			MaxCandles: cfg.Processor.Candle.MaxCandles,
+			WindowCap:  cfg.Processor.Candle.WindowCap,
+		},
+		Stats: aggapp.BuildStatsConfig{
+			MaxWindows: cfg.Processor.Stats.MaxWindows,
+			WindowCap:  cfg.Processor.Stats.WindowCap,
+		},
+		Tape: aggapp.BuildTapeConfig{
+			MaxWindows: cfg.Processor.Stats.MaxWindows,
+			WindowCap:  cfg.Processor.Stats.WindowCap,
+		},
+		OpenInterest: aggapp.BuildOpenInterestConfig{
+			MaxStreams: cfg.Processor.MaxInstruments,
+		},
+		Publisher:        artifactPub,
+		Store:            hotStore,
+		CandleStore:      candleStore,
+		StatsStore:       statsStore,
+		TapeStore:        tapeStore,
+		OIStore:          oiStore,
+		DeltaVolumeStore: deltaVolumeStore,
+		CVDStore:         cvdStore,
+		BarStatsStore:    barStatsStore,
 	})
 
 	var publishEnvelope aggruntime.EventPublisher
@@ -391,31 +952,49 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 			"sweep_every", cfg.Processor.Insights.SweepEvery,
 		)
 	}
+	if cfg.Processor.XVenue.Enabled {
+		logger.Info("processor: cross-venue orderbook merge enabled",
+			"stale_threshold_ms", cfg.Processor.XVenue.StaleThresholdMs,
+			"max_instruments", cfg.Processor.XVenue.MaxInstruments,
+			"max_venues", cfg.Processor.XVenue.MaxVenues,
+		)
+	}
 
 	// ── envelope source ─────────────────────────────────────────────────
 	source := initEnvelopeSource(cfg, logger, e2e)
 
 	// ── processor subsystem config ──────────────────────────────────────
 	processorCfg := aggruntime.ProcessorConfig{
-		Logger:                logger,
-		EnvelopeCh:            source.envelopeCh,
-		Service:               aggSvc,
-		CandleEnabled:         boolPtr(cfg.Processor.Candle.Enabled),
-		StatsEnabled:          boolPtr(cfg.Processor.Stats.Enabled),
-		Insights:              insightsSvc,
-		JoinTrades:            joinTrades,
+		Logger:           logger,
+		EnvelopeCh:       source.envelopeCh,
+		Service:          aggSvc,
+		CandleEnabled:    boolPtr(cfg.Processor.Candle.Enabled),
+		StatsEnabled:     boolPtr(cfg.Processor.Stats.Enabled),
+		Insights:         insightsSvc,
+		JoinTrades:       joinTrades,
+		CrossVenueMerger: aggdomain.DeterministicCrossVenueBookMerger{},
+		CrossVenue: aggruntime.ProcessorCrossVenueConfig{
+			Enabled:        cfg.Processor.XVenue.Enabled,
+			StaleThreshold: time.Duration(cfg.Processor.XVenue.StaleThresholdMs) * time.Millisecond,
+			MaxInstruments: cfg.Processor.XVenue.MaxInstruments,
+			MaxVenues:      cfg.Processor.XVenue.MaxVenues,
+		},
 		PublishEnvelope:       publishEnvelope,
 		HeatmapStore:          heatmapStore,
 		VolumeProfileStore:    volumeProfileStore,
 		SnapshotSubjectPrefix: cfg.Processor.Insights.SnapshotSubjectPrefix,
 		RTPublish: aggruntime.ProcessorRTPublishConfig{
-			OrderbookInterval: time.Duration(cfg.Processor.RTPublish.OrderbookIntervalMs) * time.Millisecond,
-			HeatmapInterval:   time.Duration(cfg.Processor.RTPublish.HeatmapIntervalMs) * time.Millisecond,
-			VolumeInterval:    time.Duration(cfg.Processor.RTPublish.VolumeIntervalMs) * time.Millisecond,
+			OrderbookInterval:  time.Duration(cfg.Processor.RTPublish.OrderbookIntervalMs) * time.Millisecond,
+			WsSnapshotDepthCap: cfg.Processor.RTPublish.WsSnapshotDepthCap,
+			HeatmapInterval:    time.Duration(cfg.Processor.RTPublish.HeatmapIntervalMs) * time.Millisecond,
+			VolumeInterval:     time.Duration(cfg.Processor.RTPublish.VolumeIntervalMs) * time.Millisecond,
 		},
-		OnEnvelopeProcessed: source.onResult,
+		CatchUpSkipBookDeltaSkew: time.Duration(cfg.Processor.CatchUpSkipBookDeltaSkewMs) * time.Millisecond,
+		CatchUpSkipTradeSkew:     time.Duration(cfg.Processor.CatchUpSkipTradeSkewMs) * time.Millisecond,
+		CatchUpSkipStatsSkew:     time.Duration(cfg.Processor.CatchUpSkipStatsSkewMs) * time.Millisecond,
+		InsightsTimeframes:       cfg.Processor.Insights.InsightsTimeframes,
+		OnEnvelopeProcessed:      source.onResult,
 	}
-
 	// ── engine ──────────────────────────────────────────────────────────
 	e, err := actorruntime.NewDefaultEngine()
 	if err != nil {
@@ -423,11 +1002,12 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 	}
 
 	// ── guardian with aggregation factory ────────────────────────────────
+	factories := map[actorruntime.Subsystem]actor.Producer{
+		actorruntime.SubsystemAggregation: aggruntime.NewProcessorSubsystemActor(processorCfg),
+	}
 	guardianPID := actorruntime.SpawnGuardian(e, actorruntime.GuardianConfig{
-		Logger: logger,
-		Factories: map[actorruntime.Subsystem]actor.Producer{
-			actorruntime.SubsystemAggregation: aggruntime.NewProcessorSubsystemActor(processorCfg),
-		},
+		Logger:    logger,
+		Factories: factories,
 	})
 	logger.Info("processor: guardian spawned", "pid", guardianPID.String())
 	logger.Info("processor: waiting for envelopes (use cmd/consumer or inject via InMemoryBus)")
@@ -886,18 +1466,11 @@ func initReplayEnvelopeSource(path string, capacity int, logger *slog.Logger) en
 
 func effectiveJetStreamFilters(cfg config.AppConfig) []string {
 	base := append([]string(nil), cfg.JetStream.FilterSubjects...)
+	base = appendFilterSubjectIfMissing(base, "evidence.microstructure_evidence.v1.>")
+	base = appendFilterSubjectIfMissing(base, "liquidity.evidence.v1.>")
 	if cfg.Processor.Insights.EnableCrossVenueJoin {
 		if joinSubject := strings.TrimSpace(cfg.Processor.Insights.JoinTradesSubject); joinSubject != "" {
-			covered := false
-			for _, existing := range base {
-				if subjectMatchesFilter(joinSubject, strings.TrimSpace(existing)) {
-					covered = true
-					break
-				}
-			}
-			if !covered {
-				base = append(base, joinSubject)
-			}
+			base = appendFilterSubjectIfMissing(base, joinSubject)
 		}
 	}
 	if len(base) == 0 {
@@ -917,6 +1490,19 @@ func effectiveJetStreamFilters(cfg config.AppConfig) []string {
 		out = append(out, subject)
 	}
 	return out
+}
+
+func appendFilterSubjectIfMissing(base []string, subject string) []string {
+	subject = strings.TrimSpace(subject)
+	if subject == "" {
+		return base
+	}
+	for _, existing := range base {
+		if subjectMatchesFilter(subject, strings.TrimSpace(existing)) {
+			return base
+		}
+	}
+	return append(base, subject)
 }
 
 func subjectMatchesFilter(subject, filter string) bool {

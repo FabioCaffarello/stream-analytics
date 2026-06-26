@@ -17,7 +17,7 @@ if [[ $# -lt 1 ]]; then
 fi
 
 BACKUP_FILE="$1"; shift
-CONTAINER="market-raccoon-timescale"
+CONTAINER="stream-analytics-timescale"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in

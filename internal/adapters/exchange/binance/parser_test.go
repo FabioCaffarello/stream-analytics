@@ -4,8 +4,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/market-raccoon/internal/adapters/exchange/binance"
-	"github.com/market-raccoon/internal/core/marketdata/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/exchange/binance"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 func TestParseMessage_AggTrade(t *testing.T) {
@@ -121,6 +123,21 @@ func TestParseMessage_InvalidSkipsWithProblem(t *testing.T) {
 	_, skip, p := binance.ParseMessage([]byte(`{"e":"aggTrade","p":"abc"}`), time.Now())
 	if !skip || p == nil {
 		t.Fatalf("expected skip + problem, got skip=%v problem=%v", skip, p)
+	}
+}
+
+func TestBinanceParser_RejectsBadTrade(t *testing.T) {
+	before := testutil.ToFloat64(metrics.MRTradeBadValueTotal.WithLabelValues("binance", "zero_price"))
+	_, skip, p := binance.ParseMessage(
+		[]byte(`{"e":"aggTrade","E":1710000001111,"T":1710000001111,"s":"BTCUSDT","a":1,"p":"0","q":"2.0","m":false}`),
+		time.UnixMilli(1710000009999),
+	)
+	if !skip || p != nil {
+		t.Fatalf("expected skip + nil problem, got skip=%v problem=%v", skip, p)
+	}
+	after := testutil.ToFloat64(metrics.MRTradeBadValueTotal.WithLabelValues("binance", "zero_price"))
+	if after < before+1 {
+		t.Fatalf("mr_trade_bad_value_total did not increment: before=%f after=%f", before, after)
 	}
 }
 

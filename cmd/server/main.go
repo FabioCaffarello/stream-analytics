@@ -1,4 +1,4 @@
-// Package main is the market-raccoon server binary.
+// Package main is the stream-analytics server binary.
 //
 // The server exposes runtime observability and control over HTTP.  It does NOT
 // ingest market data or run any business logic — it only supervises the actor
@@ -18,8 +18,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/market-raccoon/internal/shared/bootstrap"
-	"github.com/market-raccoon/internal/shared/config"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/bootstrap"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/config"
 )
 
 func main() {

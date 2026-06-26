@@ -6,7 +6,7 @@
 #
 # Defaults:
 #   --output    ./backups/timescaledb
-#   --container market-raccoon-timescale
+#   --container stream-analytics-timescale
 #
 # Environment (or deploy/envs/local.env):
 #   TIMESCALE_USER     (default: raccoon)
@@ -14,7 +14,7 @@
 set -euo pipefail
 
 BACKUP_DIR="./backups/timescaledb"
-CONTAINER="market-raccoon-timescale"
+CONTAINER="stream-analytics-timescale"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in

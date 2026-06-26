@@ -1,4 +1,4 @@
-// Package bootstrap provides shared startup primitives for market-raccoon
+// Package bootstrap provides shared startup primitives for stream-analytics
 // binaries.  Each cmd/*/main.go delegates config loading, logger creation,
 // shard resolution, and signal handling to this package so that bootstrap
 // logic lives in exactly one place.
@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/market-raccoon/internal/shared/config"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/config"
 )
 
 // BuildLogger creates a structured *slog.Logger from the given LogConfig.

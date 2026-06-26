@@ -5,8 +5,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/market-raccoon/internal/core/aggregation/app"
-	"github.com/market-raccoon/internal/core/aggregation/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/app"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
 )
 
 func runStatsSequence(t *testing.T, uc *app.BuildStatsFromEvents, seq []app.BuildStatsRequest) []domain.StatsWindowClosed {

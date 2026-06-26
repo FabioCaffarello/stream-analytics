@@ -23,7 +23,7 @@ Defaults are sized for the full MR stack (infra + 4 services + observability + K
 
 | Variable       | Default          | Rationale                                    |
 |---------------|------------------|----------------------------------------------|
-| cluster_name  | market-raccoon   |                                              |
+| cluster_name  | stream-analytics   |                                              |
 | nodes         | 1                | Single node for local dev                    |
 | memory        | 12288 MB (12G)   | TSDB 1G + CH 2G + NATS 256M + apps 2G + K8s |
 | cpus          | 6                | Enough for all services + system pods        |

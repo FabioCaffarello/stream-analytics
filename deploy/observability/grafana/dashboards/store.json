@@ -229,7 +229,7 @@
     ]
   },
   "time": {"from": "now-1h", "to": "now"},
-  "title": "Market-Raccoon Store",
-  "uid": "market-raccoon-store",
+  "title": "Stream-Analytics Store",
+  "uid": "stream-analytics-store",
   "version": 1
 }

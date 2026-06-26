@@ -4,11 +4,11 @@ import (
 	"context"
 	"sync"
 
-	adapterstorage "github.com/market-raccoon/internal/adapters/storage"
-	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
-	aggports "github.com/market-raccoon/internal/core/aggregation/ports"
-	"github.com/market-raccoon/internal/shared/ids"
-	"github.com/market-raccoon/internal/shared/problem"
+	adapterstorage "github.com/FabioCaffarello/stream-analytics/internal/adapters/storage"
+	aggdomain "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
+	aggports "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/ports"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/ids"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 // Writer is an in-memory fallback hot-path storage writer for Timescale.

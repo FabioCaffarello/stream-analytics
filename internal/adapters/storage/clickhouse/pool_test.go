@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/market-raccoon/internal/adapters/storage/clickhouse"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/storage/clickhouse"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 func TestNewPool_EmptyAddrs(t *testing.T) {

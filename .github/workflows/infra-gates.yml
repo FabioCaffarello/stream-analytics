@@ -1,15 +1,6 @@
 name: infra-gates
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'deploy/infra/**'
-      - 'deploy/gitops/**'
-      - 'scripts/ci/**'
-      - '.pre-commit-config.yaml'
-      - '.yamllint.yaml'
-      - '.gitleaks.toml'
   pull_request:
     paths:
       - 'deploy/infra/**'
@@ -37,7 +28,7 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd  # v3.1.2
         with:
-          terraform_version: '1.6.0'
+          terraform_version: '1.11.0'
 
       - name: Install tflint and tfsec
         run: |

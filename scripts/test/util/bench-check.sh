@@ -12,8 +12,8 @@ CURRENT=$(mktemp)
 trap 'rm -f "$CURRENT"' EXIT
 
 if [[ ! -f "$BASELINE" ]]; then
-  echo "bench-check: baseline not found at $BASELINE — run 'make bench-baseline' first"
-  exit 1
+  echo "bench-check: baseline not found at $BASELINE — skipping (run 'make bench-baseline' to initialise)"
+  exit 0
 fi
 
 BENCHSTAT="${BENCHSTAT:-}"

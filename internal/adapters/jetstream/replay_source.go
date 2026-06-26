@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/metrics"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 	"github.com/nats-io/nats.go"
 )
 
@@ -74,7 +74,7 @@ func NewJetStreamReplaySource(cfg ReplaySourceConfig) (*Source, *problem.Problem
 
 	nc, err := nats.Connect(
 		cfg.URL,
-		nats.Name("market-raccoon-jetstream-replay-source"),
+		nats.Name("stream-analytics-jetstream-replay-source"),
 		nats.RetryOnFailedConnect(true),
 		nats.MaxReconnects(-1),
 	)

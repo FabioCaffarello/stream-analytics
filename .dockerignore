@@ -6,3 +6,9 @@ dist
 .DS_Store
 *.md
 .pre-commit-config.yaml
+.context
+.vscode
+.gitignore
+node_modules
+package-lock.json
+package.json

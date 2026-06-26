@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/market-raccoon/internal/shared/clock"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/clock"
 )
 
 func TestRateLimiter_BurstThenReject(t *testing.T) {

@@ -7,15 +7,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/market-raccoon/internal/adapters/bus"
-	mdapp "github.com/market-raccoon/internal/core/marketdata/app"
-	"github.com/market-raccoon/internal/core/marketdata/ports"
-	"github.com/market-raccoon/internal/shared/clock"
-	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/config"
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/problem"
-	"github.com/market-raccoon/internal/shared/replay"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/bus"
+	"github.com/FabioCaffarello/stream-analytics/internal/contracts"
+	mdapp "github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/app"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/ports"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/clock"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/codec"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/config"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/replay"
 )
 
 func runConsumerReplay(cfg config.AppConfig, logger *slog.Logger) {
@@ -41,7 +42,7 @@ func runConsumerReplay(cfg config.AppConfig, logger *slog.Logger) {
 		MaxStreams: cfg.MarketData.MaxInstruments,
 	})
 
-	player, p := replay.NewPlayer(replayPath, fakeClock)
+	player, p := replay.NewPlayer(replayPath, fakeClock, contracts.BootstrapPayloadCodecRegistry)
 	if p != nil {
 		logger.Error("consumer: replay player init failed", "err", p)
 		os.Exit(1)

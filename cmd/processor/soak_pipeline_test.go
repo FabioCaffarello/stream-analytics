@@ -9,17 +9,22 @@ import (
 	"runtime"
 	"testing"
 
-	aggapp "github.com/market-raccoon/internal/core/aggregation/app"
-	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
-	"github.com/market-raccoon/internal/shared/problem"
+	aggapp "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/app"
+	aggdomain "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 const soakEnableEnv = "MR_ENABLE_SOAK"
 
 type soakArtifactPublisher struct {
-	snapshots int
-	candles   int
-	stats     int
+	snapshots    int
+	candles      int
+	stats        int
+	tapes        int
+	openInterest int
+	deltaVolume  int
+	cvd          int
+	barStats     int
 }
 
 func (p *soakArtifactPublisher) PublishSnapshot(context.Context, aggdomain.SnapshotProduced) *problem.Problem {
@@ -38,6 +43,31 @@ func (p *soakArtifactPublisher) PublishCandleClosed(context.Context, aggdomain.C
 
 func (p *soakArtifactPublisher) PublishStatsClosed(context.Context, aggdomain.StatsWindowClosed) *problem.Problem {
 	p.stats++
+	return nil
+}
+
+func (p *soakArtifactPublisher) PublishTapeClosed(context.Context, aggdomain.TapeClosed) *problem.Problem {
+	p.tapes++
+	return nil
+}
+
+func (p *soakArtifactPublisher) PublishOpenInterest(context.Context, aggdomain.OpenInterestClosed) *problem.Problem {
+	p.openInterest++
+	return nil
+}
+
+func (p *soakArtifactPublisher) PublishDeltaVolume(context.Context, aggdomain.DeltaVolumeClosed) *problem.Problem {
+	p.deltaVolume++
+	return nil
+}
+
+func (p *soakArtifactPublisher) PublishCVD(context.Context, aggdomain.CVDClosed) *problem.Problem {
+	p.cvd++
+	return nil
+}
+
+func (p *soakArtifactPublisher) PublishBarStats(context.Context, aggdomain.BarStatsClosed) *problem.Problem {
+	p.barStats++
 	return nil
 }
 

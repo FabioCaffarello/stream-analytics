@@ -3,10 +3,12 @@ package domain
 import (
 	"strings"
 
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 var timeframeToMs = map[string]int64{
+	"1s":  1_000,
+	"5s":  5_000,
 	"1m":  60_000,
 	"5m":  300_000,
 	"15m": 900_000,

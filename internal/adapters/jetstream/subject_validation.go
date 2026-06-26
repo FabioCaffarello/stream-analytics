@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 var (
@@ -15,9 +15,16 @@ var (
 
 var allowedSubjectRoots = map[string]struct{}{
 	"aggregation": {},
+	"dataplane":   {},
+	"evidence":    {},
+	"execution":   {},
 	"insights":    {},
+	"liquidity":   {},
 	"marketdata":  {},
+	"portfolio":   {},
 	"quarantine":  {},
+	"signal":      {},
+	"strategy":    {},
 }
 
 // ValidateSubjectTaxonomy validates concrete publish subjects.

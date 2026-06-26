@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 func TestReplaySourceDefaultsAndValidation(t *testing.T) {

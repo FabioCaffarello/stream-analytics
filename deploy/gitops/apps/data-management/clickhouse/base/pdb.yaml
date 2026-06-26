@@ -6,7 +6,7 @@ metadata:
   namespace: data-management
   labels:
     app.kubernetes.io/name: clickhouse
-    app.kubernetes.io/part-of: market-raccoon
+    app.kubernetes.io/part-of: stream-analytics
 spec:
   minAvailable: 1
   selector:

@@ -9,16 +9,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/market-raccoon/internal/adapters/bus"
-	aggapp "github.com/market-raccoon/internal/core/aggregation/app"
-	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
-	mdapp "github.com/market-raccoon/internal/core/marketdata/app"
-	mddomain "github.com/market-raccoon/internal/core/marketdata/domain"
-	"github.com/market-raccoon/internal/shared/clock"
-	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/envelope"
-	sharedhash "github.com/market-raccoon/internal/shared/hash"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/bus"
+	aggapp "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/app"
+	aggdomain "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
+	mdapp "github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/app"
+	mddomain "github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/clock"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/codec"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	sharedhash "github.com/FabioCaffarello/stream-analytics/internal/shared/hash"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 var (
@@ -47,6 +47,21 @@ func (benchArtifactPublisher) PublishCandleClosed(context.Context, aggdomain.Can
 	return nil
 }
 func (benchArtifactPublisher) PublishStatsClosed(context.Context, aggdomain.StatsWindowClosed) *problem.Problem {
+	return nil
+}
+func (benchArtifactPublisher) PublishTapeClosed(context.Context, aggdomain.TapeClosed) *problem.Problem {
+	return nil
+}
+func (benchArtifactPublisher) PublishOpenInterest(context.Context, aggdomain.OpenInterestClosed) *problem.Problem {
+	return nil
+}
+func (benchArtifactPublisher) PublishDeltaVolume(context.Context, aggdomain.DeltaVolumeClosed) *problem.Problem {
+	return nil
+}
+func (benchArtifactPublisher) PublishCVD(context.Context, aggdomain.CVDClosed) *problem.Problem {
+	return nil
+}
+func (benchArtifactPublisher) PublishBarStats(context.Context, aggdomain.BarStatsClosed) *problem.Problem {
 	return nil
 }
 

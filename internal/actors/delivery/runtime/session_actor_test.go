@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FabioCaffarello/stream-analytics/internal/core/delivery/ports"
 	"github.com/anthdm/hollywood/actor"
-	"github.com/market-raccoon/internal/core/delivery/ports"
 )
 
 func TestSessionActor_GetRangeRequest_WritesRangeResponse(t *testing.T) {

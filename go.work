@@ -1,18 +1,24 @@
 go 1.25.6
 
 use (
-	./cmd/backfill
 	./cmd/consumer
+	./cmd/emulator
 	./cmd/migrate
 	./cmd/processor
 	./cmd/server
 	./cmd/store
+	./cmd/validator
 	./internal/actors
 	./internal/adapters
+	./internal/application
+	./internal/contracts
 	./internal/core/aggregation
 	./internal/core/delivery
+	./internal/core/evidence
 	./internal/core/insights
 	./internal/core/marketdata
+	./internal/core/marketmodel
+	./internal/core/workspace
 	./internal/interfaces
 	./internal/shared
 )

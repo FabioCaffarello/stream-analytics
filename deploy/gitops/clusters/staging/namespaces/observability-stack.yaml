@@ -3,4 +3,4 @@ kind: Namespace
 metadata:
   name: observability-stack
   labels:
-    app.kubernetes.io/part-of: market-raccoon
+    app.kubernetes.io/part-of: stream-analytics

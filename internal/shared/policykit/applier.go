@@ -3,7 +3,7 @@ package policykit
 import (
 	"sync"
 
-	"github.com/market-raccoon/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
 )
 
 // ApplyHooks customizes generic applier behavior.

@@ -10,11 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/market-raccoon/internal/shared/clock"
-	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/contracts"
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/clock"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/codec"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 // ReplaySummary captures deterministic replay execution output.
@@ -23,22 +22,32 @@ type ReplaySummary struct {
 	InputSHA   string
 }
 
+// BootstrapFn is a function that initialises the payload codec registry.
+// Callers supply contracts.BootstrapPayloadCodecRegistry (or a test stub).
+type BootstrapFn func() *problem.Problem
+
 // Player replays fixture envelopes deterministically through a handler.
 type Player struct {
-	path      string
-	clock     *clock.FakeClock
-	sequencer *ReplaySequencer
+	path        string
+	clock       *clock.FakeClock
+	sequencer   *ReplaySequencer
+	bootstrapFn BootstrapFn
 }
 
 // NewPlayer creates a streaming replay player for the fixture path.
-func NewPlayer(path string, fakeClock *clock.FakeClock) (*Player, *problem.Problem) {
+// bootstrapFn is called once before replaying to ensure the codec registry is
+// initialised. Pass contracts.BootstrapPayloadCodecRegistry in production.
+func NewPlayer(path string, fakeClock *clock.FakeClock, bootstrapFn BootstrapFn) (*Player, *problem.Problem) {
 	if strings.TrimSpace(path) == "" {
 		return nil, problem.WithDetail(
 			problem.New(problem.ValidationFailed, "fixture path must not be empty"),
 			"field", "path",
 		)
 	}
-	return &Player{path: path, clock: fakeClock}, nil
+	if bootstrapFn == nil {
+		return nil, problem.New(problem.ValidationFailed, "bootstrapFn must not be nil")
+	}
+	return &Player{path: path, clock: fakeClock, bootstrapFn: bootstrapFn}, nil
 }
 
 // Replay executes records in order, validating sequence and payload decode invariants.
@@ -49,8 +58,10 @@ func (p *Player) Replay(ctx context.Context, handler func(context.Context, envel
 	if handler == nil {
 		return ReplaySummary{}, problem.New(problem.ValidationFailed, "replay handler must not be nil")
 	}
-	if pp := contracts.BootstrapPayloadCodecRegistry(); pp != nil {
-		return ReplaySummary{}, pp
+	if p.bootstrapFn != nil {
+		if pp := p.bootstrapFn(); pp != nil {
+			return ReplaySummary{}, pp
+		}
 	}
 
 	r, pp := NewReader(p.path)

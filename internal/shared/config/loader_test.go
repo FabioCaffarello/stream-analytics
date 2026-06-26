@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -21,10 +22,16 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 		{name: "http.addr", got: cfg.HTTP.Addr, want: ":8080"},
 		{name: "http.publisher_flush_timeout", got: cfg.HTTP.PublisherFlushTimeoutDuration(), want: 3 * time.Second},
 		{name: "http.guardian_shutdown_timeout", got: cfg.HTTP.GuardianShutdownTimeoutDuration(), want: 10 * time.Second},
+		{name: "ws.allow_legacy_ws default", got: cfg.WS.IsLegacyAllowed(), want: false},
 		{name: "ws.rate_limit.max_per_second", got: cfg.WS.RateLimit.MaxPerSecond, want: 100},
 		{name: "ws.rate_limit.burst_capacity", got: cfg.WS.RateLimit.BurstCapacity, want: 200},
 		{name: "delivery.session_outbound_queue_size", got: cfg.Delivery.SessionOutboundQueueSize, want: 512},
 		{name: "delivery.slow_client_drop_threshold", got: cfg.Delivery.SlowClientDropThreshold, want: 1000},
+		{name: "delivery.metrics_cadence_ms", got: cfg.Delivery.MetricsCadenceMs, want: 5000},
+		{name: "delivery.keepalive_interval_ms", got: cfg.Delivery.KeepaliveIntervalMs, want: 20000},
+		{name: "delivery.router_stream_state_ttl", got: cfg.Delivery.RouterStreamStateTTL, want: "30m"},
+		{name: "ws.tenant_metrics.include_tenant_label", got: cfg.WS.TenantMetrics.IncludeTenantLabel, want: true},
+		{name: "ws.tenant_metrics.fallback", got: cfg.WS.TenantMetrics.Fallback, want: "unknown"},
 		{name: "shard.index", got: cfg.Shard.Index, want: 0},
 		{name: "shard.count", got: cfg.Shard.Count, want: 1},
 		{name: "bus.type", got: cfg.Bus.Type, want: "inmemory"},
@@ -39,6 +46,7 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 		{name: "jetstream.dedup_window", got: cfg.JetStream.DedupWindow, want: "5m"},
 		{name: "jetstream.max_age", got: cfg.JetStream.MaxAge, want: "24h"},
 		{name: "jetstream.max_bytes", got: cfg.JetStream.MaxBytes, want: "10GB"},
+		{name: "consumer.mode", got: cfg.Consumer.Mode, want: "marketdata"},
 		{name: "consumer.exchange", got: cfg.Consumer.Exchange, want: "binance"},
 		{name: "consumer.tickers non-empty", got: len(cfg.Consumer.Tickers) > 0, want: true},
 		{name: "consumer.exchanges has synthesized entry", got: len(cfg.Consumer.Exchanges), want: 1},
@@ -51,13 +59,31 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 		{name: "marketdata.max_instruments", got: cfg.MarketData.MaxInstruments, want: 2048},
 		{name: "marketdata.record_path", got: cfg.MarketData.RecordPath, want: ""},
 		{name: "marketdata.replay_path", got: cfg.MarketData.ReplayPath, want: ""},
+		{name: "data_plane.state_bucket", got: cfg.DataPlane.StateBucket, want: "MR_DATAPLANE"},
+		{name: "data_plane.result_limit", got: cfg.DataPlane.ResultLimit, want: 100},
 		{name: "processor.bus_capacity", got: cfg.Processor.BusCapacity, want: 1024},
 		{name: "processor.max_instruments", got: cfg.Processor.MaxInstruments, want: 2048},
+		{name: "processor.signals.enabled", got: cfg.Processor.Signals.IsEnabled(), want: true},
+		{name: "processor.orderbook.max_levels", got: cfg.Processor.OrderBook.MaxLevels, want: 500},
+		{name: "processor.orderbook.use_btree_orderbook", got: cfg.Processor.OrderBook.IsBTreeEnabled(), want: true},
+		{name: "processor.xvenue.enabled", got: cfg.Processor.XVenue.Enabled, want: false},
+		{name: "processor.xvenue.stale_threshold_ms", got: cfg.Processor.XVenue.StaleThresholdMs, want: int64(30_000)},
+		{name: "processor.xvenue.max_instruments", got: cfg.Processor.XVenue.MaxInstruments, want: 2048},
+		{name: "processor.xvenue.max_venues", got: cfg.Processor.XVenue.MaxVenues, want: 6},
 		{name: "processor.candle.enabled", got: cfg.Processor.Candle.Enabled, want: false},
 		{name: "processor.candle.max_candles", got: cfg.Processor.Candle.MaxCandles, want: 50_000},
+		{name: "processor.candle.window_cap", got: cfg.Processor.Candle.WindowCap, want: 96},
 		{name: "processor.stats.enabled", got: cfg.Processor.Stats.Enabled, want: false},
 		{name: "processor.stats.max_windows", got: cfg.Processor.Stats.MaxWindows, want: 50_000},
+		{name: "processor.stats.window_cap", got: cfg.Processor.Stats.WindowCap, want: 96},
+		{name: "processor.subminute_rollout.enabled", got: cfg.Processor.SubMinuteRollout.Enabled, want: true},
+		{name: "processor.subminute_rollout.venues", got: cfg.Processor.SubMinuteRollout.Venues, want: []string{}},
+		{name: "processor.subminute_rollout.instruments", got: cfg.Processor.SubMinuteRollout.Instruments, want: []string{}},
+		{name: "processor.catchup_skip_bookdelta_skew_ms", got: cfg.Processor.CatchUpSkipBookDeltaSkewMs, want: 0},
+		{name: "processor.catchup_skip_trade_skew_ms", got: cfg.Processor.CatchUpSkipTradeSkewMs, want: 0},
+		{name: "processor.catchup_skip_stats_skew_ms", got: cfg.Processor.CatchUpSkipStatsSkewMs, want: 0},
 		{name: "processor.rt_publish.orderbook_interval_ms", got: cfg.Processor.RTPublish.OrderbookIntervalMs, want: 200},
+		{name: "processor.rt_publish.ws_snapshot_depth_cap", got: cfg.Processor.RTPublish.WsSnapshotDepthCap, want: 50},
 		{name: "processor.rt_publish.heatmap_interval_ms", got: cfg.Processor.RTPublish.HeatmapIntervalMs, want: 200},
 		{name: "processor.rt_publish.volume_interval_ms", got: cfg.Processor.RTPublish.VolumeIntervalMs, want: 250},
 		{name: "processor.insights.enable_crossvenue_join", got: cfg.Processor.Insights.EnableCrossVenueJoin, want: false},
@@ -75,11 +101,42 @@ func TestLoad_EmptyPath_ReturnsDefaults(t *testing.T) {
 		{name: "store.clickhouse.dsn", got: cfg.Store.ClickHouse.DSN, want: "clickhouse://default:password@localhost:9000/default"},
 		{name: "storage.timescale.max_conns", got: cfg.Storage.Timescale.MaxConns, want: 10},
 		{name: "storage.clickhouse.database", got: cfg.Storage.ClickHouse.Database, want: "default"},
+		{name: "evidence.buffer_cap_per_kind", got: cfg.Evidence.BufferCapPerKind, want: 1000},
+		{name: "evidence.decay_half_life_ms", got: cfg.Evidence.DecayHalfLifeMs, want: 60000},
+		{name: "evidence.regime_max_streams", got: cfg.Evidence.RegimeMaxStreams, want: 1024},
+		{name: "evidence.regime_history_cap", got: cfg.Evidence.RegimeHistoryCap, want: 20},
+		{name: "signals.dedup_window_ms", got: cfg.Signals.DedupWindowMs, want: int64(30_000)},
+		{name: "signals.rate_limit_per_min", got: cfg.Signals.RateLimitPerMin, want: 10},
+		{name: "signals.global_rate_limit_per_min", got: cfg.Signals.GlobalRateLimitPerMin, want: 100},
+		{name: "signals.correlation_window_ms", got: cfg.Signals.CorrelationWindowMs, want: int64(5_000)},
+		{name: "signals.max_subs_per_session", got: cfg.Signals.MaxSubsPerSession, want: 20},
+		{name: "signals.window_cap", got: cfg.Signals.WindowCap, want: 50},
+		{name: "execution.mode", got: cfg.Execution.Mode, want: "bootstrap_simulated"},
+		{name: "execution.adapter", got: cfg.Execution.Adapter, want: "bootstrap.simulated"},
+		{name: "execution.safe_mode", got: cfg.Execution.SafeMode, want: true},
+		{name: "execution.trade_only", got: cfg.Execution.TradeOnly, want: true},
+		{name: "execution.allowed_venues", got: cfg.Execution.AllowedVenues, want: []string{}},
+		{name: "execution.allowed_symbols", got: cfg.Execution.AllowedSymbols, want: []string{}},
+		{name: "execution.allowed_accounts", got: cfg.Execution.AllowedAccounts, want: []string{}},
+		{name: "execution.max_intent_ttl_ms", got: cfg.Execution.MaxIntentTTLms, want: int64(30_000)},
+		{name: "execution.max_abs_quantity", got: cfg.Execution.MaxAbsQuantity, want: float64(5)},
+		{name: "execution.max_notional_usd", got: cfg.Execution.MaxNotionalUSD, want: float64(2_500)},
+		{name: "execution.max_slippage_bps", got: cfg.Execution.MaxSlippageBps, want: float64(50)},
+		{name: "execution.real.enabled", got: cfg.Execution.Real.Enabled, want: false},
+		{name: "execution.real.binance.trade_api.base_url", got: cfg.Execution.Real.Binance.TradeAPI.BaseURL, want: "https://testnet.binance.vision"},
+		{name: "execution.real.binance.trade_api.endpoint_mode", got: cfg.Execution.Real.Binance.TradeAPI.EndpointMode, want: "test_order"},
+		{name: "execution.real.binance.trade_api.api_key_env", got: cfg.Execution.Real.Binance.TradeAPI.APIKeyEnv, want: "MR_BINANCE_API_KEY"},
+		{name: "execution.real.binance.trade_api.api_secret_env", got: cfg.Execution.Real.Binance.TradeAPI.APISecretEnv, want: "MR_BINANCE_API_SECRET"},
+		{name: "execution.real.binance.trade_api.recv_window_ms", got: cfg.Execution.Real.Binance.TradeAPI.RecvWindowMs, want: int64(5_000)},
+		{name: "execution.real.binance.trade_api.request_timeout", got: cfg.Execution.Real.Binance.TradeAPI.RequestTimeout, want: "3s"},
+		{name: "execution.real.binance.trade_api.reconcile_enabled", got: cfg.Execution.Real.Binance.TradeAPI.ReconcileEnabled, want: false},
+		{name: "execution.real.binance.trade_api.reconcile_poll_interval", got: cfg.Execution.Real.Binance.TradeAPI.ReconcilePollInterval, want: "500ms"},
+		{name: "execution.real.binance.trade_api.reconcile_max_polls", got: cfg.Execution.Real.Binance.TradeAPI.ReconcileMaxPolls, want: 6},
 	})
 }
 
 func TestLoad_NonExistentFile_ReturnsNotFound(t *testing.T) {
-	_, prob := Load("/tmp/does-not-exist-market-raccoon.jsonc")
+	_, prob := Load("/tmp/does-not-exist-stream-analytics.jsonc")
 	if prob == nil {
 		t.Fatal("expected problem for non-existent file, got nil")
 	}
@@ -134,19 +191,42 @@ func TestLoad_ValidJSONC_ParsesFields(t *testing.T) {
 		"processor": {
 			"bus_capacity": 512,
 			"max_instruments": 1024,
+			"signals": {
+				"enabled": false
+			},
+			"orderbook": {
+				"max_levels": 750,
+				"use_btree_orderbook": true
+			},
+			"xvenue": {
+				"enabled": true,
+				"stale_threshold_ms": 25000,
+				"max_instruments": 1024,
+				"max_venues": 5
+			},
 			"candle": {
 				"enabled": true,
-				"max_candles": 60000
+				"max_candles": 60000,
+				"window_cap": 120
 			},
 			"stats": {
 				"enabled": true,
-				"max_windows": 70000
+				"max_windows": 70000,
+				"window_cap": 144
+			},
+			"subminute_rollout": {
+				"enabled": true,
+				"venues": ["binance"],
+				"instruments": ["BTCUSDT"]
 			},
 			"rt_publish": {
 				"orderbook_interval_ms": 150,
 				"heatmap_interval_ms": 0,
 				"volume_interval_ms": 300
 			},
+			"catchup_skip_bookdelta_skew_ms": 10000,
+			"catchup_skip_trade_skew_ms": 8000,
+			"catchup_skip_stats_skew_ms": 12000,
 			"insights": {
 				"enable_crossvenue_join": true,
 				"enable_volume_profile_snapshot_proto": true,
@@ -161,6 +241,21 @@ func TestLoad_ValidJSONC_ParsesFields(t *testing.T) {
 				"sweep_every_n": 0,
 				"sweep_every": "15s"
 			}
+		},
+		"evidence": {
+			"buffer_cap_per_kind": 2048,
+			"decay_half_life_ms": 30000,
+			"regime_max_streams": 512,
+			"regime_history_cap": 32
+		},
+		"signals": {
+			"use_composer": true,
+			"dedup_window_ms": 45000,
+			"rate_limit_per_min": 12,
+			"global_rate_limit_per_min": 120,
+			"correlation_window_ms": 7000,
+			"max_subs_per_session": 24,
+			"window_cap": 64
 		}
 	}`
 	path := writeTempFile(t, src)
@@ -197,11 +292,27 @@ func TestLoad_ValidJSONC_ParsesFields(t *testing.T) {
 		{name: "marketdata.replay_path", got: cfg.MarketData.ReplayPath, want: "/tmp/replay.input.jsonl"},
 		{name: "processor.bus_capacity", got: cfg.Processor.BusCapacity, want: 512},
 		{name: "processor.max_instruments", got: cfg.Processor.MaxInstruments, want: 1024},
+		{name: "processor.signals.enabled", got: cfg.Processor.Signals.IsEnabled(), want: false},
+		{name: "processor.orderbook.max_levels", got: cfg.Processor.OrderBook.MaxLevels, want: 750},
+		{name: "processor.orderbook.use_btree_orderbook", got: cfg.Processor.OrderBook.IsBTreeEnabled(), want: true},
+		{name: "processor.xvenue.enabled", got: cfg.Processor.XVenue.Enabled, want: true},
+		{name: "processor.xvenue.stale_threshold_ms", got: cfg.Processor.XVenue.StaleThresholdMs, want: int64(25000)},
+		{name: "processor.xvenue.max_instruments", got: cfg.Processor.XVenue.MaxInstruments, want: 1024},
+		{name: "processor.xvenue.max_venues", got: cfg.Processor.XVenue.MaxVenues, want: 5},
 		{name: "processor.candle.enabled", got: cfg.Processor.Candle.Enabled, want: true},
 		{name: "processor.candle.max_candles", got: cfg.Processor.Candle.MaxCandles, want: 60000},
+		{name: "processor.candle.window_cap", got: cfg.Processor.Candle.WindowCap, want: 120},
 		{name: "processor.stats.enabled", got: cfg.Processor.Stats.Enabled, want: true},
 		{name: "processor.stats.max_windows", got: cfg.Processor.Stats.MaxWindows, want: 70000},
+		{name: "processor.stats.window_cap", got: cfg.Processor.Stats.WindowCap, want: 144},
+		{name: "processor.subminute_rollout.enabled", got: cfg.Processor.SubMinuteRollout.Enabled, want: true},
+		{name: "processor.subminute_rollout.venues", got: cfg.Processor.SubMinuteRollout.Venues, want: []string{"binance"}},
+		{name: "processor.subminute_rollout.instruments", got: cfg.Processor.SubMinuteRollout.Instruments, want: []string{"BTCUSDT"}},
+		{name: "processor.catchup_skip_bookdelta_skew_ms", got: cfg.Processor.CatchUpSkipBookDeltaSkewMs, want: 10000},
+		{name: "processor.catchup_skip_trade_skew_ms", got: cfg.Processor.CatchUpSkipTradeSkewMs, want: 8000},
+		{name: "processor.catchup_skip_stats_skew_ms", got: cfg.Processor.CatchUpSkipStatsSkewMs, want: 12000},
 		{name: "processor.rt_publish.orderbook_interval_ms", got: cfg.Processor.RTPublish.OrderbookIntervalMs, want: 150},
+		{name: "processor.rt_publish.ws_snapshot_depth_cap", got: cfg.Processor.RTPublish.WsSnapshotDepthCap, want: 50},
 		{name: "processor.rt_publish.heatmap_interval_ms", got: cfg.Processor.RTPublish.HeatmapIntervalMs, want: 0},
 		{name: "processor.rt_publish.volume_interval_ms", got: cfg.Processor.RTPublish.VolumeIntervalMs, want: 300},
 		{name: "processor.insights.enable_crossvenue_join", got: cfg.Processor.Insights.EnableCrossVenueJoin, want: true},
@@ -216,6 +327,17 @@ func TestLoad_ValidJSONC_ParsesFields(t *testing.T) {
 		{name: "processor.insights.rounding_mode", got: cfg.Processor.Insights.RoundingMode, want: "floor"},
 		{name: "processor.insights.sweep_every_n", got: cfg.Processor.Insights.SweepEveryN, want: 0},
 		{name: "processor.insights.sweep_every", got: cfg.Processor.Insights.SweepEvery, want: "15s"},
+		{name: "evidence.buffer_cap_per_kind", got: cfg.Evidence.BufferCapPerKind, want: 2048},
+		{name: "evidence.decay_half_life_ms", got: cfg.Evidence.DecayHalfLifeMs, want: 30000},
+		{name: "evidence.regime_max_streams", got: cfg.Evidence.RegimeMaxStreams, want: 512},
+		{name: "evidence.regime_history_cap", got: cfg.Evidence.RegimeHistoryCap, want: 32},
+		{name: "signals.use_composer", got: cfg.Signals.UseComposer, want: true},
+		{name: "signals.dedup_window_ms", got: cfg.Signals.DedupWindowMs, want: int64(45_000)},
+		{name: "signals.rate_limit_per_min", got: cfg.Signals.RateLimitPerMin, want: 12},
+		{name: "signals.global_rate_limit_per_min", got: cfg.Signals.GlobalRateLimitPerMin, want: 120},
+		{name: "signals.correlation_window_ms", got: cfg.Signals.CorrelationWindowMs, want: int64(7_000)},
+		{name: "signals.max_subs_per_session", got: cfg.Signals.MaxSubsPerSession, want: 24},
+		{name: "signals.window_cap", got: cfg.Signals.WindowCap, want: 64},
 	})
 }
 
@@ -260,6 +382,23 @@ func TestLoad_PartialFile_FillsRemainingDefaults(t *testing.T) {
 	}
 }
 
+func TestLoad_ProcessorSubMinuteRolloutExplicitDisabled_Preserved(t *testing.T) {
+	path := writeTempFile(t, `{
+		"processor": {
+			"subminute_rollout": {
+				"enabled": false
+			}
+		}
+	}`)
+	cfg, prob := Load(path)
+	if prob != nil {
+		t.Fatalf("Load failed: %v", prob)
+	}
+	if cfg.Processor.SubMinuteRollout.Enabled {
+		t.Fatal("expected processor.subminute_rollout.enabled=false when explicitly configured")
+	}
+}
+
 func TestLoad_HTTPGuardianTimeout_FallsBackToLegacyShutdownTimeout(t *testing.T) {
 	path := writeTempFile(t, `{"http": {"shutdown_timeout": "8s"}}`)
 	cfg, prob := Load(path)
@@ -280,6 +419,98 @@ func TestValidate_Defaults_Passes(t *testing.T) {
 	cfg, _ := Load("")
 	if prob := cfg.Validate(); prob != nil {
 		t.Fatalf("default config should pass validation, got: %v", prob)
+	}
+}
+
+func TestValidate_ExecutionRealSafeRequiresExplicitAllowLists(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Execution.Mode = "real_adapter_safe"
+	cfg.Execution.Adapter = "binance.spot"
+	cfg.Execution.Real.Enabled = true
+	cfg.Execution.AllowedVenues = nil
+	cfg.Execution.AllowedSymbols = nil
+
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("expected validation error when real_adapter_safe has empty allowlists")
+	}
+	if !strings.Contains(prob.Message, "execution.allowed_venues") {
+		t.Fatalf("unexpected validation message: %q", prob.Message)
+	}
+}
+
+func TestValidate_ExecutionRealSafeRejectsUnsupportedEndpointMode(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Execution.Mode = "real_adapter_safe"
+	cfg.Execution.Adapter = "binance.spot"
+	cfg.Execution.Real.Enabled = true
+	cfg.Execution.AllowedVenues = []string{"binance"}
+	cfg.Execution.AllowedSymbols = []string{"BTCUSDT"}
+	cfg.Execution.Real.Binance.TradeAPI.EndpointMode = "live_order"
+
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("expected validation error for endpoint_mode live_order")
+	}
+	if !strings.Contains(prob.Message, "endpoint_mode") {
+		t.Fatalf("unexpected validation message: %q", prob.Message)
+	}
+}
+
+func TestValidate_ExecutionRealSafeLifecycleRequiresReconciliation(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Execution.Mode = "real_adapter_safe"
+	cfg.Execution.Adapter = "binance.spot"
+	cfg.Execution.Real.Enabled = true
+	cfg.Execution.AllowedVenues = []string{"binance"}
+	cfg.Execution.AllowedSymbols = []string{"BTCUSDT"}
+	cfg.Execution.Real.Binance.TradeAPI.EndpointMode = "safe_order_lifecycle"
+	cfg.Execution.Real.Binance.TradeAPI.ReconcileEnabled = false
+
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("expected validation error for safe_order_lifecycle without reconciliation")
+	}
+	if !strings.Contains(prob.Message, "reconcile_enabled") {
+		t.Fatalf("unexpected validation message: %q", prob.Message)
+	}
+}
+
+func TestValidate_ExecutionRealSafeLifecycleRequiresTestnetBaseURL(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Execution.Mode = "real_adapter_safe"
+	cfg.Execution.Adapter = "binance.spot"
+	cfg.Execution.Real.Enabled = true
+	cfg.Execution.AllowedVenues = []string{"binance"}
+	cfg.Execution.AllowedSymbols = []string{"BTCUSDT"}
+	cfg.Execution.Real.Binance.TradeAPI.EndpointMode = "safe_order_lifecycle"
+	cfg.Execution.Real.Binance.TradeAPI.ReconcileEnabled = true
+	cfg.Execution.Real.Binance.TradeAPI.BaseURL = "https://api.binance.com"
+
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("expected validation error for non-testnet safe_order_lifecycle base_url")
+	}
+	if !strings.Contains(prob.Message, "testnet") {
+		t.Fatalf("unexpected validation message: %q", prob.Message)
+	}
+}
+
+func TestValidate_ExecutionRealSafeRejectsInvalidCredentialEnvVarNames(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Execution.Mode = "real_adapter_safe"
+	cfg.Execution.Adapter = "binance.spot"
+	cfg.Execution.Real.Enabled = true
+	cfg.Execution.AllowedVenues = []string{"binance"}
+	cfg.Execution.AllowedSymbols = []string{"BTCUSDT"}
+	cfg.Execution.Real.Binance.TradeAPI.APIKeyEnv = "bad-key"
+
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("expected validation error for invalid api_key_env")
+	}
+	if !strings.Contains(prob.Message, "api_key_env") {
+		t.Fatalf("unexpected validation message: %q", prob.Message)
 	}
 }
 
@@ -319,6 +550,19 @@ func TestValidate_InvalidDuration(t *testing.T) {
 	prob := cfg.Validate()
 	if prob == nil {
 		t.Fatal("expected validation error for invalid duration")
+	}
+}
+
+func TestValidate_ProcessorOrderBookRejectsLegacyToggleOff(t *testing.T) {
+	cfg, _ := Load("")
+	disabled := false
+	cfg.Processor.OrderBook.UseBTreeOrderBook = &disabled
+	prob := cfg.Validate()
+	if prob == nil {
+		t.Fatal("expected validation error when processor.orderbook.use_btree_orderbook=false")
+	}
+	if prob.Code != codeInvalid {
+		t.Fatalf("problem code=%q want=%q", prob.Code, codeInvalid)
 	}
 }
 
@@ -464,6 +708,29 @@ func TestValidate_DeliverySlowClientDropThresholdNonNegative(t *testing.T) {
 	cfg.Delivery.SlowClientDropThreshold = 100
 	if prob := cfg.Validate(); prob != nil {
 		t.Fatalf("expected delivery slow-client threshold config to pass validation, got: %v", prob)
+	}
+}
+
+func TestValidate_WSLimitsNonNegative(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.WS.Limits.MaxConnectionsPerIP = -1
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for ws.limits.max_connections_per_ip < 0")
+	}
+	cfg.WS.Limits.MaxConnectionsPerIP = 1
+	cfg.WS.Limits.MaxConnectionsPerKey = -1
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for ws.limits.max_connections_per_key < 0")
+	}
+	cfg.WS.Limits.MaxConnectionsPerKey = 1
+	cfg.WS.Limits.MaxSubsPerConnection = -1
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for ws.limits.max_subs_per_connection < 0")
+	}
+	cfg.WS.Limits.MaxSubsPerConnection = 1
+	cfg.WS.Limits.MaxSymbolsPerConn = -1
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for ws.limits.max_symbols_per_connection < 0")
 	}
 }
 
@@ -810,6 +1077,46 @@ func TestValidate_ProcessorInvalidMaxInstruments(t *testing.T) {
 	}
 }
 
+func TestValidate_ProcessorXVenueInvalidStaleThreshold(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Processor.XVenue.StaleThresholdMs = 0
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for invalid processor.xvenue.stale_threshold_ms")
+	}
+}
+
+func TestValidate_ProcessorXVenueInvalidMaxInstruments(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Processor.XVenue.MaxInstruments = 0
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for invalid processor.xvenue.max_instruments")
+	}
+}
+
+func TestValidate_ProcessorXVenueInvalidMaxVenues(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Processor.XVenue.MaxVenues = 0
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for invalid processor.xvenue.max_venues")
+	}
+}
+
+func TestValidate_ProcessorInvalidCandleWindowCap(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Processor.Candle.WindowCap = 0
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for invalid processor.candle.window_cap")
+	}
+}
+
+func TestValidate_ProcessorInvalidStatsWindowCap(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Processor.Stats.WindowCap = 0
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for invalid processor.stats.window_cap")
+	}
+}
+
 func TestValidate_ProcessorInsightsInvalidMaxInstruments(t *testing.T) {
 	cfg, _ := Load("")
 	cfg.Processor.Insights.MaxInstruments = 0
@@ -859,6 +1166,130 @@ func TestValidate_ProcessorInsightsInvalidRoundingMode(t *testing.T) {
 	}
 }
 
+func TestLoad_InsightsTimeframes_DefaultApplied(t *testing.T) {
+	cfg, prob := Load("")
+	if prob != nil {
+		t.Fatalf("Load(\"\") failed: %v", prob)
+	}
+	if len(cfg.Processor.Insights.InsightsTimeframes) != 1 || cfg.Processor.Insights.InsightsTimeframes[0] != "1m" {
+		t.Fatalf("expected default [\"1m\"], got %v", cfg.Processor.Insights.InsightsTimeframes)
+	}
+}
+
+func TestValidate_InsightsTimeframes_AcceptsAll9(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Processor.Insights.InsightsTimeframes = []string{"1s", "5s", "1m", "5m", "15m", "30m", "1h", "4h", "1d"}
+	if prob := cfg.Validate(); prob != nil {
+		t.Fatalf("expected all 9 TFs to pass validation, got: %v", prob)
+	}
+}
+
+func TestValidate_InsightsTimeframes_RejectsUnsupported(t *testing.T) {
+	for _, bad := range []string{"banana", "10s", "2m", "3h"} {
+		t.Run(bad, func(t *testing.T) {
+			cfg, _ := Load("")
+			cfg.Processor.Insights.InsightsTimeframes = []string{bad}
+			if prob := cfg.Validate(); prob == nil {
+				t.Fatalf("expected validation error for unsupported timeframe %q", bad)
+			}
+		})
+	}
+}
+
+func TestValidate_InsightsTimeframes_RejectsDuplicates(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Processor.Insights.InsightsTimeframes = []string{"1m", "5m", "1m"}
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for duplicate timeframe")
+	}
+}
+
+func TestValidate_EvidenceInvalidBufferCapPerKind(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Evidence.BufferCapPerKind = 0
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for invalid evidence.buffer_cap_per_kind")
+	}
+}
+
+func TestValidate_EvidenceInvalidDecayHalfLifeMs(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Evidence.DecayHalfLifeMs = 0
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for invalid evidence.decay_half_life_ms")
+	}
+}
+
+func TestValidate_EvidenceInvalidRegimeMaxStreams(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Evidence.RegimeMaxStreams = 0
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for invalid evidence.regime_max_streams")
+	}
+}
+
+func TestValidate_EvidenceInvalidRegimeHistoryCap(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Evidence.RegimeHistoryCap = 0
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for invalid evidence.regime_history_cap")
+	}
+}
+
+func TestValidate_SignalsInvalidValues(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*AppConfig)
+	}{
+		{
+			name: "dedup_window_ms",
+			mutate: func(cfg *AppConfig) {
+				cfg.Signals.DedupWindowMs = 0
+			},
+		},
+		{
+			name: "rate_limit_per_min",
+			mutate: func(cfg *AppConfig) {
+				cfg.Signals.RateLimitPerMin = 0
+			},
+		},
+		{
+			name: "global_rate_limit_per_min",
+			mutate: func(cfg *AppConfig) {
+				cfg.Signals.GlobalRateLimitPerMin = 0
+			},
+		},
+		{
+			name: "correlation_window_ms",
+			mutate: func(cfg *AppConfig) {
+				cfg.Signals.CorrelationWindowMs = 0
+			},
+		},
+		{
+			name: "max_subs_per_session",
+			mutate: func(cfg *AppConfig) {
+				cfg.Signals.MaxSubsPerSession = 0
+			},
+		},
+		{
+			name: "window_cap",
+			mutate: func(cfg *AppConfig) {
+				cfg.Signals.WindowCap = 0
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, _ := Load("")
+			tc.mutate(&cfg)
+			if prob := cfg.Validate(); prob == nil {
+				t.Fatalf("expected validation error for invalid signals.%s", tc.name)
+			}
+		})
+	}
+}
+
 func TestValidate_ProcessorRTPublishIntervals_MustBeNonNegative(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -882,6 +1313,18 @@ func TestValidate_ProcessorRTPublishIntervals_MustBeNonNegative(t *testing.T) {
 				cfg.Processor.RTPublish.VolumeIntervalMs = -1
 			},
 		},
+		{
+			name: "ws_snapshot_depth_cap_low",
+			mutate: func(cfg *AppConfig) {
+				cfg.Processor.RTPublish.WsSnapshotDepthCap = 9
+			},
+		},
+		{
+			name: "ws_snapshot_depth_cap_high",
+			mutate: func(cfg *AppConfig) {
+				cfg.Processor.RTPublish.WsSnapshotDepthCap = 1001
+			},
+		},
 	}
 
 	for _, tc := range tests {
@@ -892,6 +1335,56 @@ func TestValidate_ProcessorRTPublishIntervals_MustBeNonNegative(t *testing.T) {
 				t.Fatalf("expected validation error for invalid processor.rt_publish.%s", tc.name)
 			}
 		})
+	}
+}
+
+func TestValidate_ProcessorCatchUpSkews_MustBeNonNegative(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*AppConfig)
+	}{
+		{
+			name: "bookdelta_skew_ms",
+			mutate: func(cfg *AppConfig) {
+				cfg.Processor.CatchUpSkipBookDeltaSkewMs = -1
+			},
+		},
+		{
+			name: "trade_skew_ms",
+			mutate: func(cfg *AppConfig) {
+				cfg.Processor.CatchUpSkipTradeSkewMs = -1
+			},
+		},
+		{
+			name: "stats_skew_ms",
+			mutate: func(cfg *AppConfig) {
+				cfg.Processor.CatchUpSkipStatsSkewMs = -1
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, _ := Load("")
+			tc.mutate(&cfg)
+			if prob := cfg.Validate(); prob == nil {
+				t.Fatalf("expected validation error for invalid processor catch-up %s", tc.name)
+			}
+		})
+	}
+}
+
+func TestValidate_ProcessorSubMinuteRolloutLists_MustNotContainEmptyEntries(t *testing.T) {
+	cfg, _ := Load("")
+	cfg.Processor.SubMinuteRollout.Venues = []string{"binance", " "}
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for empty processor.subminute_rollout.venues entry")
+	}
+
+	cfg, _ = Load("")
+	cfg.Processor.SubMinuteRollout.Instruments = []string{"BTCUSDT", ""}
+	if prob := cfg.Validate(); prob == nil {
+		t.Fatal("expected validation error for empty processor.subminute_rollout.instruments entry")
 	}
 }
 
@@ -1352,6 +1845,53 @@ func TestValidate_CrossField_DeliveryDisabled_SkipsCheck(t *testing.T) {
 	}
 }
 
+func TestValidate_DeliveryCadenceAndKeepalive_MustBeNonNegative(t *testing.T) {
+	cfg, prob := Load("")
+	if prob != nil {
+		t.Fatalf("Load: %v", prob)
+	}
+	cfg.Delivery.MetricsCadenceMs = -1
+	if p := cfg.Validate(); p == nil || !strings.Contains(p.Message, "delivery.metrics_cadence_ms") {
+		t.Fatalf("expected metrics cadence validation error, got=%v", p)
+	}
+
+	cfg, prob = Load("")
+	if prob != nil {
+		t.Fatalf("Load: %v", prob)
+	}
+	cfg.Delivery.KeepaliveIntervalMs = -1
+	if p := cfg.Validate(); p == nil || !strings.Contains(p.Message, "delivery.keepalive_interval_ms") {
+		t.Fatalf("expected keepalive validation error, got=%v", p)
+	}
+}
+
+func TestValidate_DeliveryRouterStreamStateTTL_MustBePositiveDuration(t *testing.T) {
+	cfg, prob := Load("")
+	if prob != nil {
+		t.Fatalf("Load: %v", prob)
+	}
+	cfg.Delivery.RouterStreamStateTTL = "0s"
+	if p := cfg.Validate(); p == nil || !strings.Contains(p.Message, "delivery.router_stream_state_ttl") {
+		t.Fatalf("expected router stream state ttl validation error, got=%v", p)
+	}
+
+	cfg.Delivery.RouterStreamStateTTL = "15m"
+	if p := cfg.Validate(); p != nil {
+		t.Fatalf("expected positive router stream state ttl to pass validation, got=%v", p)
+	}
+}
+
+func TestValidate_WSTenantMetricsFallback_RejectsUnknownValue(t *testing.T) {
+	cfg, prob := Load("")
+	if prob != nil {
+		t.Fatalf("Load: %v", prob)
+	}
+	cfg.WS.TenantMetrics.Fallback = "bad"
+	if p := cfg.Validate(); p == nil || !strings.Contains(p.Message, "ws.tenant_metrics.fallback") {
+		t.Fatalf("expected tenant fallback validation error, got=%v", p)
+	}
+}
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 func testConsumerExchanges() []ConsumerExchangeConfig {
@@ -1386,4 +1926,201 @@ func writeTempFile(t *testing.T, content string) string {
 		t.Fatalf("close temp file: %v", err)
 	}
 	return filepath.Clean(f.Name())
+}
+
+// ── AllowLegacy ──────────────────────────────────────────────────────────────
+
+func TestApplyDefaults_AllowLegacyDefaultFalse(t *testing.T) {
+	cfg, prob := Load("")
+	if prob != nil {
+		t.Fatalf("Load(\"\") unexpectedly failed: %v", prob)
+	}
+	if cfg.WS.IsLegacyAllowed() {
+		t.Fatal("IsLegacyAllowed() should default to false when AllowLegacy is nil")
+	}
+	if cfg.WS.AllowLegacy != nil {
+		t.Fatal("AllowLegacy should remain nil by default")
+	}
+}
+
+func TestWSConfig_AllowLegacyExplicitFalse(t *testing.T) {
+	src := `{"ws":{"allow_legacy_ws":false}}`
+	path := writeTempFile(t, src)
+	cfg, prob := Load(path)
+	if prob != nil {
+		t.Fatalf("Load() unexpectedly failed: %v", prob)
+	}
+	if cfg.WS.AllowLegacy == nil {
+		t.Fatal("AllowLegacy should not be nil after explicit false")
+	}
+	if cfg.WS.IsLegacyAllowed() {
+		t.Fatal("IsLegacyAllowed() should return false after explicit false")
+	}
+}
+
+func TestWSConfig_AllowLegacyExplicitTrue(t *testing.T) {
+	src := `{"ws":{"allow_legacy_ws":true}}`
+	path := writeTempFile(t, src)
+	cfg, prob := Load(path)
+	if prob != nil {
+		t.Fatalf("Load() unexpectedly failed: %v", prob)
+	}
+	if cfg.WS.AllowLegacy == nil {
+		t.Fatal("AllowLegacy should not be nil after explicit true")
+	}
+	if !cfg.WS.IsLegacyAllowed() {
+		t.Fatal("IsLegacyAllowed() should return true after explicit true")
+	}
+}
+
+func TestResolveIQProfileFromEnvMap_MergeAndDefaults(t *testing.T) {
+	profile, prob := ResolveIQProfileFromEnvMap(map[string]string{
+		"IQ_PROFILE":            "ci-strict",
+		"IQ_WIRE_P99_BUDGET_MS": "5000",
+		"PROCESSOR_REPLICAS":    "2",
+	})
+	if prob != nil {
+		t.Fatalf("ResolveIQProfileFromEnvMap failed: %v", prob)
+	}
+	if got := profile.ProfileName; got != "ci-strict" {
+		t.Fatalf("profile name=%q want ci-strict", got)
+	}
+	if got := profile.Values["IQ_STRICT"]; got != "1" {
+		t.Fatalf("IQ_STRICT=%q want 1", got)
+	}
+	if got := profile.Values["IQ_REQUIRE_STATS_CANONICAL"]; got != "1" {
+		t.Fatalf("IQ_REQUIRE_STATS_CANONICAL=%q want 1", got)
+	}
+	if got := profile.Values["PROCESSOR_REPLICAS"]; got != "2" {
+		t.Fatalf("PROCESSOR_REPLICAS=%q want 2", got)
+	}
+	if got := profile.Fingerprint.Caps.RouterStreamStateMax; got != 2048 {
+		t.Fatalf("router cap=%d want 2048", got)
+	}
+	if got := profile.Fingerprint.Caps.LayerStreamStateMax; got != 2048 {
+		t.Fatalf("layer cap=%d want 2048", got)
+	}
+}
+
+func TestResolveIQProfileFromEnvMap_RejectsInvalidOverrides(t *testing.T) {
+	_, prob := ResolveIQProfileFromEnvMap(map[string]string{
+		"IQ_PROFILE":                       "ci-strict",
+		"IQ_ALLOW_STATS_FALLBACK":          "1",
+		"IQ_WIRE_BUDGET_CHANNELS":          "",
+		"IQ_WIRE_BYTES_P95_BUDGET":         "0",
+		"PROCESSOR_REPLICAS":               "1",
+		"IQ_WIRE_P95_BUDGET_MS_BY_CHANNEL": "trade=99999",
+	})
+	if prob == nil {
+		t.Fatal("expected IQ profile validation failure")
+	}
+	msg := prob.Message
+	for _, key := range []string{
+		"IQ_ALLOW_STATS_FALLBACK",
+		"IQ_WIRE_BUDGET_CHANNELS",
+		"IQ_WIRE_BYTES_P95_BUDGET",
+		"PROCESSOR_REPLICAS",
+		"IQ_WIRE_P95_BUDGET_MS_BY_CHANNEL",
+	} {
+		if !strings.Contains(msg, key) {
+			t.Fatalf("expected validation message to include %q, got=%q", key, msg)
+		}
+	}
+}
+
+func TestResolveIQProfileFromEnvMap_FingerprintStable(t *testing.T) {
+	baseEnv := map[string]string{
+		"IQ_PROFILE":                 "ci-strict",
+		"IQ_STRICT":                  "1",
+		"IQ_REQUIRE_STATS_CANONICAL": "1",
+		"IQ_FALLBACK_STRICT":         "1",
+		"IQ_LEGACY_STRICT":           "1",
+		"IQ_ALLOW_BATCHED_FALLBACK":  "0",
+		"IQ_ALLOW_STATS_FALLBACK":    "0",
+		"IQ_ALLOW_UNEXPECTED_SKIPS":  "0",
+		"IQ_WIRE_BUDGET_CHANNELS":    "trade,book_snapshot,stats,candle",
+		"IQ_WIRE_P95_BUDGET_MS":      "5000",
+		"IQ_WIRE_P99_BUDGET_MS":      "5000",
+		"IQ_WIRE_BYTES_P95_BUDGET":   "65536",
+		"IQ_WIRE_BYTES_P99_BUDGET":   "131072",
+		"IQ_ROUTER_STREAM_STATE_MAX": "2048",
+		"IQ_LAYER_STREAM_STATE_MAX":  "2048",
+		"PROCESSOR_REPLICAS":         "2",
+	}
+
+	first, prob := ResolveIQProfileFromEnvMap(baseEnv)
+	if prob != nil {
+		t.Fatalf("first resolve failed: %v", prob)
+	}
+	second, prob := ResolveIQProfileFromEnvMap(map[string]string{
+		"PROCESSOR_REPLICAS":         "2",
+		"IQ_LAYER_STREAM_STATE_MAX":  "2048",
+		"IQ_ROUTER_STREAM_STATE_MAX": "2048",
+		"IQ_WIRE_BYTES_P99_BUDGET":   "131072",
+		"IQ_WIRE_BYTES_P95_BUDGET":   "65536",
+		"IQ_WIRE_P99_BUDGET_MS":      "5000",
+		"IQ_WIRE_P95_BUDGET_MS":      "5000",
+		"IQ_WIRE_BUDGET_CHANNELS":    "trade,book_snapshot,stats,candle",
+		"IQ_ALLOW_UNEXPECTED_SKIPS":  "0",
+		"IQ_ALLOW_STATS_FALLBACK":    "0",
+		"IQ_ALLOW_BATCHED_FALLBACK":  "0",
+		"IQ_LEGACY_STRICT":           "1",
+		"IQ_FALLBACK_STRICT":         "1",
+		"IQ_REQUIRE_STATS_CANONICAL": "1",
+		"IQ_STRICT":                  "1",
+		"IQ_PROFILE":                 "ci-strict",
+	})
+	if prob != nil {
+		t.Fatalf("second resolve failed: %v", prob)
+	}
+
+	if first.FingerprintHash != second.FingerprintHash {
+		t.Fatalf("fingerprint hash mismatch: %q vs %q", first.FingerprintHash, second.FingerprintHash)
+	}
+	if first.FingerprintJSON != second.FingerprintJSON {
+		t.Fatalf("fingerprint json mismatch: %q vs %q", first.FingerprintJSON, second.FingerprintJSON)
+	}
+
+	var parsed IQEffectiveProfileFingerprint
+	if err := json.Unmarshal([]byte(first.FingerprintJSON), &parsed); err != nil {
+		t.Fatalf("unmarshal fingerprint json: %v", err)
+	}
+	if parsed.ProfileName != "ci-strict" {
+		t.Fatalf("fingerprint profile_name=%q want ci-strict", parsed.ProfileName)
+	}
+	if parsed.ReplicaCount != 2 {
+		t.Fatalf("fingerprint replica_count=%d want 2", parsed.ReplicaCount)
+	}
+	if parsed.Budgets.P95Ms != 5000 || parsed.Budgets.P99Ms != 5000 {
+		t.Fatalf("unexpected budget p95/p99: %+v", parsed.Budgets)
+	}
+}
+
+func TestValidateConsumer_DataplaneModeSkipsMarketdataExchangeChecks(t *testing.T) {
+	cfg, prob := Load("")
+	if prob != nil {
+		t.Fatalf("load defaults: %v", prob)
+	}
+	cfg.Consumer.Mode = "dataplane"
+	cfg.Consumer.Exchanges = nil
+	cfg.Consumer.Tickers = nil
+	cfg.Consumer.StreamsPerTicker = 0
+	cfg.Consumer.MaxStreamsPerWebsocket = 0
+	cfg.Consumer.MaxWebsockets = 0
+	cfg.Consumer.BackpressureBufferSize = 0
+	if p := cfg.Validate(); p != nil {
+		t.Fatalf("expected dataplane consumer mode to pass base config validation, got: %v", p)
+	}
+}
+
+func TestValidateDataPlane_StateBucketRequiredWhenEnabled(t *testing.T) {
+	cfg, prob := Load("")
+	if prob != nil {
+		t.Fatalf("load defaults: %v", prob)
+	}
+	cfg.DataPlane.Enabled = true
+	cfg.DataPlane.StateBucket = ""
+	if p := cfg.Validate(); p == nil {
+		t.Fatal("expected validation failure for empty data_plane.state_bucket")
+	}
 }

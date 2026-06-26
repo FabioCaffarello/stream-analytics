@@ -11,17 +11,17 @@ import (
 	"testing"
 	"time"
 
+	aggruntime "github.com/FabioCaffarello/stream-analytics/internal/actors/aggregation/runtime"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/bus"
+	"github.com/FabioCaffarello/stream-analytics/internal/contracts"
+	aggapp "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/app"
+	insightsapp "github.com/FabioCaffarello/stream-analytics/internal/core/insights/app"
+	insightsdomain "github.com/FabioCaffarello/stream-analytics/internal/core/insights/domain"
+	mddomain "github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/codec"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 	"github.com/anthdm/hollywood/actor"
-	aggruntime "github.com/market-raccoon/internal/actors/aggregation/runtime"
-	"github.com/market-raccoon/internal/adapters/bus"
-	aggapp "github.com/market-raccoon/internal/core/aggregation/app"
-	insightsapp "github.com/market-raccoon/internal/core/insights/app"
-	insightsdomain "github.com/market-raccoon/internal/core/insights/domain"
-	mddomain "github.com/market-raccoon/internal/core/marketdata/domain"
-	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/contracts"
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/problem"
 )
 
 const (

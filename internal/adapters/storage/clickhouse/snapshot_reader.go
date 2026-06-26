@@ -4,8 +4,8 @@ import (
 	"context"
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
-	aggports "github.com/market-raccoon/internal/core/aggregation/ports"
-	"github.com/market-raccoon/internal/shared/problem"
+	aggports "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/ports"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 var _ aggports.SnapshotReader = (*ChSnapshotReader)(nil)

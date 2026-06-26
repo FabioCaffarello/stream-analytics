@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 	"github.com/anthdm/hollywood/actor"
-	"github.com/market-raccoon/internal/shared/problem"
 )
 
 type fakeClock struct {
@@ -85,7 +85,10 @@ func TestGuardian_StartStopDeterministicOrder(t *testing.T) {
 
 	g.stopAll(nil)
 
-	wantStop := []Subsystem{SubsystemStorage, SubsystemInsights, SubsystemDelivery, SubsystemAggregation, SubsystemMarketData}
+	wantStop := make([]Subsystem, 0, len(orderedSubsystems))
+	for i := len(orderedSubsystems) - 1; i >= 0; i-- {
+		wantStop = append(wantStop, orderedSubsystems[i])
+	}
 	if !reflect.DeepEqual(stopped, wantStop) {
 		t.Fatalf("stop order = %v, want %v", stopped, wantStop)
 	}
@@ -122,6 +125,11 @@ func TestGuardian_StartOrder_DynamicMarketDataKeys(t *testing.T) {
 		SubsystemAggregation,
 		SubsystemDelivery,
 		SubsystemInsights,
+		SubsystemEvidence,
+		SubsystemSignals,
+		SubsystemStrategy,
+		SubsystemExecution,
+		SubsystemPortfolio,
 		SubsystemStorage,
 		"marketdata:binance",
 		"marketdata:bybit",
@@ -224,7 +232,7 @@ func TestGuardian_SnapshotConsistent(t *testing.T) {
 	if !snap.At.Equal(clock.now) {
 		t.Fatalf("snapshot at = %v, want %v", snap.At, clock.now)
 	}
-	if got, want := len(snap.Subsystems), 5; got != want {
+	if got, want := len(snap.Subsystems), len(orderedSubsystems); got != want {
 		t.Fatalf("snapshot subsystem count = %d, want %d", got, want)
 	}
 

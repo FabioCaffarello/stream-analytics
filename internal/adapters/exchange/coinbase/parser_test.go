@@ -4,8 +4,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/market-raccoon/internal/adapters/exchange/coinbase"
-	"github.com/market-raccoon/internal/core/marketdata/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/exchange/coinbase"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 func TestParseMessage_CoinbaseTable(t *testing.T) {
@@ -100,6 +102,21 @@ func TestParseMessage_MatchPayload(t *testing.T) {
 	}
 	if payload.Price != 42000.5 || payload.Size != 0.1 || payload.Side != "buy" || payload.TradeID != "12345" {
 		t.Fatalf("unexpected payload: %#v", payload)
+	}
+}
+
+func TestCoinbaseParser_RejectsBadTrade(t *testing.T) {
+	before := testutil.ToFloat64(metrics.MRTradeBadValueTotal.WithLabelValues("coinbase", "empty_trade_id"))
+	_, skip, p := coinbase.ParseMessage(
+		[]byte(`{"type":"match","trade_id":0,"product_id":"BTC-USD","price":"42000.50","size":"0.100","side":"buy","time":"2023-11-14T22:13:20.000000Z"}`),
+		time.UnixMilli(1700000005000),
+	)
+	if !skip || p != nil {
+		t.Fatalf("expected skip + nil problem, got skip=%v problem=%v", skip, p)
+	}
+	after := testutil.ToFloat64(metrics.MRTradeBadValueTotal.WithLabelValues("coinbase", "empty_trade_id"))
+	if after < before+1 {
+		t.Fatalf("mr_trade_bad_value_total did not increment: before=%f after=%f", before, after)
 	}
 }
 

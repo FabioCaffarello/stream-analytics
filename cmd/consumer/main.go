@@ -1,4 +1,4 @@
-// Package main is the market-raccoon consumer binary.
+// Package main is the stream-analytics consumer binary.
 //
 // The consumer ingests real-time market data via WebSocket connections and
 // publishes normalised events to the event bus.
@@ -18,8 +18,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/market-raccoon/internal/shared/bootstrap"
-	"github.com/market-raccoon/internal/shared/config"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/bootstrap"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/config"
 )
 
 func main() {
@@ -50,6 +50,14 @@ func main() {
 	if prob != nil {
 		fmt.Fprintf(os.Stderr, "consumer: config error: %v\n", prob)
 		os.Exit(1)
+	}
+
+	if strings.EqualFold(strings.TrimSpace(cfg.Consumer.Mode), "dataplane") {
+		if err := RunDataPlane(context.Background(), cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "consumer dataplane: %v\n", err)
+			os.Exit(1)
+		}
+		return
 	}
 
 	if err := Run(context.Background(), cfg); err != nil {

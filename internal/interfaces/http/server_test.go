@@ -10,11 +10,12 @@ import (
 	"testing"
 	"time"
 
+	actorruntime "github.com/FabioCaffarello/stream-analytics/internal/actors/runtime"
+	"github.com/FabioCaffarello/stream-analytics/internal/contracts"
+	httpserver "github.com/FabioCaffarello/stream-analytics/internal/interfaces/http"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/config"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/observability"
 	"github.com/anthdm/hollywood/actor"
-	actorruntime "github.com/market-raccoon/internal/actors/runtime"
-	httpserver "github.com/market-raccoon/internal/interfaces/http"
-	"github.com/market-raccoon/internal/shared/contracts"
-	"github.com/market-raccoon/internal/shared/observability"
 )
 
 // ---------------------------------------------------------------------------
@@ -147,6 +148,95 @@ func TestServer_Healthz_returnsJSON(t *testing.T) {
 	}
 	if _, ok := body["last_publish_age_ms"]; !ok {
 		t.Fatalf("expected last_publish_age_ms field, got %#v", body)
+	}
+}
+
+func TestServer_MarketsDiscovery_NormalizesAndDeduplicates(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	markets := config.MarketsConfig{
+		Exchanges: []config.MarketsExchangeConfig{
+			{
+				Name: "ByBit",
+				Symbols: []config.MarketsSymbolConfig{
+					{Ticker: "btcusdt", TickSize: 0.5, MarketType: "spot"},
+					{Ticker: "BTCUSDT", TickSize: 0.5, MarketType: "SPOT"},
+				},
+			},
+			{
+				Name: "binance",
+				Symbols: []config.MarketsSymbolConfig{
+					{Ticker: "ETHUSDT", TickSize: 0.1, MarketType: "spot"},
+					{Ticker: "BTCUSDT", TickSize: 0.01, MarketType: "usd_m_futures"},
+				},
+			},
+			{
+				Name: " BINANCE ",
+				Symbols: []config.MarketsSymbolConfig{
+					{Ticker: "SOLUSDT", TickSize: -1, MarketType: " spot "},
+					{Ticker: "BTCUSDT", TickSize: 0.01, MarketType: "USD_M_FUTURES"},
+				},
+			},
+		},
+	}
+
+	srv := httpserver.NewServer(
+		e,
+		guardianPID,
+		":0",
+		false,
+		nil,
+		httpserver.WithMarkets(&markets),
+	)
+	rec := doRequest(t, srv, http.MethodGet, "/api/v1/markets", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var body config.MarketsConfig
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v body=%s", err, rec.Body.String())
+	}
+	assertMarketsDiscoveryPayload(t, body)
+}
+
+func assertMarketsDiscoveryPayload(t *testing.T, body config.MarketsConfig) {
+	t.Helper()
+	if len(body.Exchanges) != 2 {
+		t.Fatalf("exchanges=%d want=2", len(body.Exchanges))
+	}
+	if body.Exchanges[0].Name != "binance" || body.Exchanges[1].Name != "bybit" {
+		t.Fatalf("exchange order/name mismatch: %+v", body.Exchanges)
+	}
+	assertBinanceSymbols(t, body.Exchanges[0])
+	assertBybitSymbols(t, body.Exchanges[1])
+}
+
+func assertBinanceSymbols(t *testing.T, binance config.MarketsExchangeConfig) {
+	t.Helper()
+	if len(binance.Symbols) != 3 {
+		t.Fatalf("binance symbols=%d want=3", len(binance.Symbols))
+	}
+	if got := binance.Symbols[0]; got.Ticker != "BTCUSDT" || got.MarketType != "USD_M_FUTURES" {
+		t.Fatalf("binance symbol[0]=%+v want BTCUSDT/USD_M_FUTURES", got)
+	}
+	if got := binance.Symbols[1]; got.Ticker != "ETHUSDT" || got.MarketType != "SPOT" {
+		t.Fatalf("binance symbol[1]=%+v want ETHUSDT/SPOT", got)
+	}
+	if got := binance.Symbols[2]; got.Ticker != "SOLUSDT" || got.TickSize != 0 {
+		t.Fatalf("binance symbol[2]=%+v want SOLUSDT tick_size=0", got)
+	}
+}
+
+func assertBybitSymbols(t *testing.T, bybit config.MarketsExchangeConfig) {
+	t.Helper()
+	if len(bybit.Symbols) != 1 {
+		t.Fatalf("bybit symbols=%d want=1", len(bybit.Symbols))
+	}
+	if got := bybit.Symbols[0]; got.Ticker != "BTCUSDT" || got.MarketType != "SPOT" {
+		t.Fatalf("bybit symbol=%+v want BTCUSDT/SPOT", got)
 	}
 }
 
@@ -1016,6 +1106,75 @@ func TestServer_Shardz_RemoteForbidden(t *testing.T) {
 	}
 }
 
+func TestServer_DeliveryDiagnostics_ReturnsSnapshot(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	streamID := "s18-diag-" + strings.ReplaceAll(t.Name(), "/", "-")
+	observability.SetTerminalWSConnectionsActive(7)
+	observability.RecordTerminalWSDelivery(streamID, "binance", "BTCUSDT", "trade", 101, 1700000000000, 1700000000010, 10)
+	observability.IncTerminalWSResync(streamID)
+	observability.RecordTerminalWSDrop(streamID, "binance", "BTCUSDT", "trade", "queue_full")
+
+	srv := newTestServer(e, guardianPID)
+	rec := doRequest(t, srv, http.MethodGet, "/api/v1/delivery/diagnostics", "")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var body httpserver.DeliveryDiagnosticsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal diagnostics response: %v body=%s", err, rec.Body.String())
+	}
+	if body.StreamCount != len(body.Streams) {
+		t.Fatalf("stream_count=%d want=%d", body.StreamCount, len(body.Streams))
+	}
+	if body.ConnectionsActive < 1 {
+		t.Fatalf("connections_active=%d want>=1", body.ConnectionsActive)
+	}
+
+	var found *httpserver.DeliveryDiagnosticsStreamState
+	for i := range body.Streams {
+		if body.Streams[i].StreamID == streamID {
+			found = &body.Streams[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("expected stream %q in diagnostics response", streamID)
+	}
+	if found.LastSeq != 101 {
+		t.Fatalf("last_seq=%d want=101", found.LastSeq)
+	}
+	if found.DeliveredTotal != 1 {
+		t.Fatalf("delivered_total=%d want=1", found.DeliveredTotal)
+	}
+	if found.DroppedTotal != 1 {
+		t.Fatalf("dropped_total=%d want=1", found.DroppedTotal)
+	}
+	if found.ResyncTotal != 1 {
+		t.Fatalf("resync_total=%d want=1", found.ResyncTotal)
+	}
+}
+
+func TestServer_DeliveryDiagnostics_RemoteForbidden(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/delivery/diagnostics", strings.NewReader(""))
+	req.RemoteAddr = "203.0.113.10:12345"
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for remote addr, got %d", rec.Code)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // test doubles
 // ---------------------------------------------------------------------------
@@ -1123,5 +1282,21 @@ func assertNumberOrUnknown(t *testing.T, body map[string]any, field string) {
 		}
 	default:
 		t.Fatalf("%s should be number or unknown string, got %#v", field, v)
+	}
+}
+
+func TestRuntimeTerminal_ReturnsJSON(t *testing.T) {
+	e := newEngine(t)
+	guardianPID := newGuardian(t, e)
+	defer e.Poison(guardianPID)
+
+	srv := newTestServer(e, guardianPID)
+	rec := doRequest(t, srv, http.MethodGet, "/runtime/terminal", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d\nbody: %s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("response is not valid JSON: %v\nbody: %s", err, rec.Body.String())
 	}
 }

@@ -1,52 +1,70 @@
-# Consumer Stall / No-Progress Runbook
+---
+type: doc
+status: Active
+last_updated: 2026-06-25
+---
 
-## Trigger
-- Alerts: `ConsumerLagGrowingNoProgress`, `ProcessGoroutinesHigh`, `ProcessHeapAllocHigh`
+# Consumer Stall Runbook
 
-## Severity
-- `P1` when `ConsumerLagGrowingNoProgress` firing (data pipeline stalled).
-- `P2` when only resource alerts (`ProcessGoroutinesHigh`, `ProcessHeapAllocHigh`).
+**Scope:** Exchange consumer has stopped receiving market data — zero throughput alert.
 
-## First 5 Minutes
+---
+
+## Alert: `ConsumerStall`
+
+**Meaning:** A consumer has produced zero events for > 30 seconds on an active exchange.
+
+**Immediate check:**
 ```bash
-curl -fsS http://localhost:8081/runtime/snapshot | jq .
-curl -fsS http://localhost:8081/metrics | rg 'bus_consumer_lag|store_commit_total|process_goroutines|process_heap_alloc_bytes'
-curl -fsS http://localhost:8081/debug/pprof/goroutine?debug=1 | head -n 200
+make logs service=consumer | grep "stall\|disconnect\|reconnect\|error\|exchange="
+make ps
 ```
 
-## Diagnose
-- Confirm lag is growing while commits are zero:
-```promql
-slo:consumer_lag:deriv_5m
-sum(rate(store_commit_total{status="ok"}[5m]))
-bus_consumer_lag{bus_type="jetstream"}
+---
+
+## Decision tree
+
 ```
-- Check if store process is alive and ready:
-```bash
-curl -fsS http://localhost:8083/readyz
-curl -fsS http://localhost:8083/metrics | rg 'store_commit_total|store_flush_total'
-```
-- Check ClickHouse connectivity from store:
-```bash
-docker exec market-raccoon-clickhouse clickhouse-client --query "SELECT 1"
-```
-- Check goroutine profile for blocked operations:
-```bash
-curl -fsS http://localhost:8081/debug/pprof/goroutine?debug=1 | rg -A5 'Fetch|Pull|Wait|chan send|chan receive'
-```
-- Check NATS JetStream consumer info:
-```bash
-docker exec market-raccoon-nats nats consumer info market-raccoon market-raccoon-processor
-docker exec market-raccoon-nats nats consumer info market-raccoon market-raccoon-store
+ConsumerStall fired
+│
+├─ Exchange API down? → Check exchange status page
+│   └─ Yes → Wait for exchange to recover; consumer will reconnect automatically.
+│
+├─ Network issue? → make ps shows nats unhealthy / network errors in log
+│   └─ Yes → Restore network; consumer reconnects within back-off window (max 30 s).
+│
+├─ Rate-limited by exchange? → Log shows 429 or "too many connections"
+│   └─ Yes → Reduce connection count; wait out the ban window.
+│
+├─ Consumer actor crashed? → Guardian restarted the consumer actor
+│   └─ Yes → Check restart count; see Guardian Runbook if restart storm.
+│
+└─ Unknown → Restart the consumer service
+    docker compose restart consumer
 ```
 
-## Mitigate
-- If ClickHouse is down: restart ClickHouse, then verify store commits resume.
-- If store is stuck: restart store process; durable consumer will resume from last ACK.
-- If processor goroutines are blocked: restart processor; check result channel deadlock.
-- If NATS is unreachable: check NATS container health, restart if needed.
-- Do not force-ACK messages; always preserve ack-on-commit semantics.
+---
 
-## Escalate
-- Escalate to on-call SRE if `ConsumerLagGrowingNoProgress` persists for 10m after mitigation.
-- Escalate to platform owner if goroutine count exceeds 50 000 or heap exceeds 1 GB.
+## Back-off and reconnect behaviour
+
+The consumer uses exponential back-off (base 500 ms, max 30 s) on disconnect. After reconnect, gap-fill is triggered automatically for up to `CONSUMER_GAP_FILL_WINDOW` (default 5 min of missed data).
+
+See `docs/architecture/diagrams/sequence-exchange-recovery.md` for the full sequence.
+
+---
+
+## Checking gap-fill completion
+
+```bash
+make logs service=consumer | grep "gap.*filled\|gap.*failed\|backfill"
+```
+
+If gap-fill fails, the consumer logs the gap range and continues with live data.
+
+---
+
+## See also
+
+- [Ingest Runbook](ingest.md)
+- [Bus Runbook](bus.md)
+- [Guardian Runbook](guardian.md)

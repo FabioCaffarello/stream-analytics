@@ -3,7 +3,7 @@ package storage
 import (
 	"context"
 
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 // SQLExecutor abstracts a SQL execution surface for adapter tests.

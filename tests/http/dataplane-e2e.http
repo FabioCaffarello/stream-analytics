@@ -1,0 +1,71 @@
+### List runtime bindings
+GET http://127.0.0.1:8080/api/v1/dataplane/bindings
+
+### Check dataplane consumer readiness
+GET http://127.0.0.1:8088/readyz
+
+### Check validator readiness
+GET http://127.0.0.1:8089/readyz
+
+### Upsert runtime binding
+POST http://127.0.0.1:8080/api/v1/dataplane/bindings
+Content-Type: application/json
+
+{
+  "name": "orders",
+  "kafka_topic": "mr.orders"
+}
+
+### Upsert validation config
+POST http://127.0.0.1:8080/api/v1/dataplane/configs
+Content-Type: application/json
+
+{
+  "name": "orders-required",
+  "binding": "orders",
+  "version": "v1",
+  "rules": [
+    {"field": "account_id", "kind": "required"},
+    {"field": "account_id", "kind": "not_empty"},
+    {"field": "status", "kind": "equals", "expected": "OPEN"}
+  ]
+}
+
+### Activate validation config
+POST http://127.0.0.1:8080/api/v1/dataplane/configs/activate
+Content-Type: application/json
+
+{
+  "binding": "orders",
+  "version": "v1"
+}
+
+### List active configs
+GET http://127.0.0.1:8080/api/v1/dataplane/configs?active=true
+
+### Emit valid scenario through server edge
+POST http://127.0.0.1:8080/api/v1/dataplane/emulator/emit
+Content-Type: application/json
+
+{
+  "binding": "orders",
+  "scenario": "valid"
+}
+
+### Emit invalid scenario through server edge
+POST http://127.0.0.1:8080/api/v1/dataplane/emulator/emit
+Content-Type: application/json
+
+{
+  "binding": "orders",
+  "scenario": "missing_required"
+}
+
+### List latest validation results
+GET http://127.0.0.1:8080/api/v1/dataplane/results?binding=orders&limit=10
+
+### Query one validation result by message_id
+GET http://127.0.0.1:8080/api/v1/dataplane/results?message_id=replace-with-message-id
+
+### Query latest result by correlation_id
+GET http://127.0.0.1:8080/api/v1/dataplane/results?correlation_id=replace-with-correlation-id&limit=1

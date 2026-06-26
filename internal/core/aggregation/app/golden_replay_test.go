@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/market-raccoon/internal/core/aggregation/app"
-	"github.com/market-raccoon/internal/core/aggregation/domain"
-	"github.com/market-raccoon/internal/shared/clock"
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/replay"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/app"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/clock"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/replay"
 )
 
 var updateGolden = flag.Bool("update-golden", false, "update aggregation golden fixtures")

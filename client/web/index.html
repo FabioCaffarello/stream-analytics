@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Stream Analytics</title>
+    <link
+        rel="preload"
+        href="app.wasm"
+        as="fetch"
+        type="application/wasm"
+        crossorigin="anonymous"
+    />
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body {
+            width: 100%;
+            min-height: 100%;
+            background:
+                radial-gradient(circle at 20% 10%, rgba(0, 255, 170, 0.05), transparent 45%),
+                #0a0a0a;
+            color: #e0e0e0;
+            font-family: system-ui, sans-serif;
+            overflow-x: hidden;
+        }
+        #app {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            min-width: 0;
+            min-height: 100dvh;
+            padding: 0;
+            gap: 0;
+        }
+        canvas {
+            display: block;
+            border: none;
+            width: 100vw;
+            height: 100dvh;
+            max-width: none;
+            min-width: 0;
+            image-rendering: crisp-edges;
+        }
+        #output {
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 12px;
+            line-height: 1.35;
+            width: 100vw;
+            max-width: none;
+            color: #888;
+            text-align: center;
+        }
+        .error { color: #f44; }
+
+        @media (max-width: 899px) {
+            #output {
+                font-size: 11px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <canvas id="canvas" width="800" height="600"></canvas>
+        <pre id="output">Loading WASM...</pre>
+    </div>
+    <script type="module">
+        import("./main.js");
+    </script>
+</body>
+</html>

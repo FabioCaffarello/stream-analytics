@@ -1,5 +1,5 @@
 {
-  // Runtime config mounted in container at /etc/market-raccoon/consumer.jsonc
+  // Runtime config mounted in container at /etc/stream-analytics/consumer.jsonc
   "bus": {
     "type": "jetstream",
     "wire_format": "proto"
@@ -86,5 +86,14 @@
   "marketdata": {
     "publish_content_type": "application/protobuf",
     "max_instruments": 4096
+  },
+  "analytics": {
+    "kafka": {
+      "enabled": true,
+      "brokers": ["kafka:9092"],
+      "trades_topic": "market.trades",
+      "orderbook_topic": "market.orderbook",
+      "batch_timeout": "250ms"
+    }
   }
 }

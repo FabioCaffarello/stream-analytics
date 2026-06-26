@@ -3,7 +3,7 @@ package domain_test
 import (
 	"testing"
 
-	"github.com/market-raccoon/internal/core/aggregation/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
 )
 
 func BenchmarkCandleRollup_5x1mTo5m(b *testing.B) {

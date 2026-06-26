@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 // EventPublisher is the minimal publishing contract required by RecorderPublisher.

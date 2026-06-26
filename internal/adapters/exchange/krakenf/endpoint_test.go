@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/market-raccoon/internal/adapters/exchange/krakenf"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/exchange/krakenf"
 )
 
 func TestBuildEndpoint(t *testing.T) {

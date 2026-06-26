@@ -1,0 +1,379 @@
+syntax = "proto3";
+
+package delivery.v1;
+
+option go_package = "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/delivery/v1";
+
+// WireProtocolVersion identifies the terminal WS protocol.
+enum WireProtocolVersion {
+  // WIRE_PROTOCOL_VERSION_UNSPECIFIED indicates unknown protocol version.
+  WIRE_PROTOCOL_VERSION_UNSPECIFIED = 0;
+  // WIRE_PROTOCOL_VERSION_V1 is the first stable institutional terminal protocol.
+  WIRE_PROTOCOL_VERSION_V1 = 1;
+}
+
+// Channel identifies normalized stream families exposed to terminal clients.
+enum Channel {
+  // CHANNEL_UNSPECIFIED indicates unknown channel.
+  CHANNEL_UNSPECIFIED = 0;
+  // CHANNEL_TRADE maps to normalized trade ticks.
+  CHANNEL_TRADE = 1;
+  // CHANNEL_BOOK_DELTA maps to order-book incremental deltas.
+  CHANNEL_BOOK_DELTA = 2;
+  // CHANNEL_BOOK_SNAPSHOT maps to full order-book snapshots.
+  CHANNEL_BOOK_SNAPSHOT = 3;
+  // CHANNEL_TICKER maps to ticker/mark-price style events.
+  CHANNEL_TICKER = 4;
+  // CHANNEL_FUNDING maps to funding-rate events.
+  CHANNEL_FUNDING = 5;
+  // CHANNEL_OPEN_INTEREST maps to open-interest events.
+  CHANNEL_OPEN_INTEREST = 6;
+  // CHANNEL_LIQUIDATION maps to liquidation events.
+  CHANNEL_LIQUIDATION = 7;
+  // CHANNEL_STATS maps to aggregated stats windows.
+  CHANNEL_STATS = 8;
+  // CHANNEL_CANDLE maps to candle windows.
+  CHANNEL_CANDLE = 9;
+  // CHANNEL_HEATMAP_SNAPSHOT maps to heatmap snapshots.
+  CHANNEL_HEATMAP_SNAPSHOT = 10;
+  // CHANNEL_VOLUME_PROFILE_SNAPSHOT maps to volume-profile snapshots.
+  CHANNEL_VOLUME_PROFILE_SNAPSHOT = 11;
+  // CHANNEL_EVIDENCE maps to liquidity evidence events.
+  CHANNEL_EVIDENCE = 12;
+
+  reserved 100 to 199;
+}
+
+// ErrorCode is explicit and stable across transport codecs.
+enum ErrorCode {
+  // ERROR_CODE_UNSPECIFIED indicates unknown error class.
+  ERROR_CODE_UNSPECIFIED = 0;
+  // ERROR_CODE_VALIDATION indicates invalid input.
+  ERROR_CODE_VALIDATION = 1;
+  // ERROR_CODE_UNAUTHORIZED indicates auth failure.
+  ERROR_CODE_UNAUTHORIZED = 2;
+  // ERROR_CODE_FORBIDDEN indicates scope/permission failure.
+  ERROR_CODE_FORBIDDEN = 3;
+  // ERROR_CODE_RATE_LIMITED indicates throttling.
+  ERROR_CODE_RATE_LIMITED = 4;
+  // ERROR_CODE_NOT_FOUND indicates missing stream/resource.
+  ERROR_CODE_NOT_FOUND = 5;
+  // ERROR_CODE_RESYNC_REQUIRED indicates client must resync.
+  ERROR_CODE_RESYNC_REQUIRED = 6;
+  // ERROR_CODE_BACKPRESSURE indicates overload backpressure failure.
+  ERROR_CODE_BACKPRESSURE = 7;
+  // ERROR_CODE_INTERNAL indicates server internal error.
+  ERROR_CODE_INTERNAL = 8;
+
+  reserved 100 to 199;
+}
+
+// ActionHint suggests client recovery behavior for error conditions.
+enum ActionHint {
+  // ACTION_HINT_UNSPECIFIED indicates no recovery guidance.
+  ACTION_HINT_UNSPECIFIED = 0;
+  // ACTION_HINT_NONE indicates no action is needed.
+  ACTION_HINT_NONE = 1;
+  // ACTION_HINT_RETRY indicates the client should retry the operation.
+  ACTION_HINT_RETRY = 2;
+  // ACTION_HINT_RECONNECT indicates the client should reconnect.
+  ACTION_HINT_RECONNECT = 3;
+  // ACTION_HINT_RESUBSCRIBE indicates the client should resubscribe to the affected stream.
+  ACTION_HINT_RESUBSCRIBE = 4;
+  // ACTION_HINT_RESYNC indicates the client should send a resync request.
+  ACTION_HINT_RESYNC = 5;
+
+  reserved 100 to 199;
+}
+
+// StreamMeta is attached to every outbound stream event and snapshot.
+message StreamMeta {
+  // protocol_version identifies wire protocol version.
+  WireProtocolVersion protocol_version = 1;
+  // server_instance_id identifies emitting server instance.
+  string server_instance_id = 2;
+  // stream_id is deterministic stream identity.
+  string stream_id = 3;
+  // seq is stream monotonic sequence.
+  int64 seq = 4;
+  // ts_server is server-side emit timestamp in milliseconds.
+  int64 ts_server = 5;
+  // venue is normalized exchange/venue key.
+  string venue = 6;
+  // symbol is normalized instrument key.
+  string symbol = 7;
+  // channel identifies stream family.
+  Channel channel = 8;
+
+  reserved 100 to 199;
+}
+
+// ClientHello starts a session contract negotiation.
+message ClientHello {
+  // protocol_version is the client requested protocol version.
+  WireProtocolVersion protocol_version = 1;
+  // client_name is optional terminal identifier.
+  string client_name = 2;
+  // client_version is optional terminal version.
+  string client_version = 3;
+  // request_id is optional correlation id.
+  string request_id = 4;
+  // requested_features lists optional protocol features the client wants to enable.
+  repeated string requested_features = 5;
+
+  reserved 100 to 199;
+}
+
+// ClientSubscribe subscribes to one filtered stream.
+message ClientSubscribe {
+  // request_id is command correlation id.
+  string request_id = 1;
+  // stream_id is optional explicit stream identity.
+  string stream_id = 2;
+  // venue is normalized exchange/venue.
+  string venue = 3;
+  // symbol is normalized instrument.
+  string symbol = 4;
+  // channel is desired stream family.
+  Channel channel = 5;
+  // depth is optional depth filter.
+  uint32 depth = 6;
+  // aggregation is optional aggregation/timeframe filter.
+  string aggregation = 7;
+
+  reserved 100 to 199;
+}
+
+// ClientUnsubscribe removes one stream subscription.
+message ClientUnsubscribe {
+  // request_id is command correlation id.
+  string request_id = 1;
+  // stream_id is deterministic stream identity.
+  string stream_id = 2;
+
+  reserved 100 to 199;
+}
+
+// ClientPing carries optional timestamp for RTT calculations.
+message ClientPing {
+  // request_id is command correlation id.
+  string request_id = 1;
+  // ts_client is client send timestamp in milliseconds.
+  int64 ts_client = 2;
+
+  reserved 100 to 199;
+}
+
+// ClientResync requests deterministic snapshot+resume for one stream.
+message ClientResync {
+  // request_id is command correlation id.
+  string request_id = 1;
+  // stream_id is deterministic stream identity.
+  string stream_id = 2;
+  // last_seq is the last sequence seen by client.
+  int64 last_seq = 3;
+
+  reserved 100 to 199;
+}
+
+// ClientFrame wraps all client->server operations.
+message ClientFrame {
+  // frame selects the specific client operation payload.
+  oneof frame {
+    // hello carries protocol handshake information.
+    ClientHello hello = 1;
+    // subscribe carries subscription filter.
+    ClientSubscribe subscribe = 2;
+    // unsubscribe removes active subscription.
+    ClientUnsubscribe unsubscribe = 3;
+    // ping carries keepalive/rtt marker.
+    ClientPing ping = 4;
+    // resync requests snapshot+resume behavior.
+    ClientResync resync = 5;
+  }
+
+  reserved 100 to 199;
+}
+
+// OperationRateLimit describes per-session command rate limiting parameters.
+message OperationRateLimit {
+  // enabled indicates whether rate limiting is active.
+  bool enabled = 1;
+  // max_per_second is the sustained token refill rate.
+  uint32 max_per_second = 2;
+  // burst_capacity is the maximum burst token count.
+  uint32 burst_capacity = 3;
+
+  reserved 100 to 199;
+}
+
+// CapabilitySnapshot describes advertised server capabilities.
+message CapabilitySnapshot {
+  // venues is the list of supported venues.
+  repeated string venues = 1;
+  // channels is the list of supported channels.
+  repeated Channel channels = 2;
+  // max_subscriptions_per_connection is server-side hard cap.
+  uint32 max_subscriptions_per_connection = 3;
+  // max_symbols_per_connection bounds unique symbols per session.
+  uint32 max_symbols_per_connection = 4;
+  // max_frame_bytes is the maximum outbound frame size in bytes.
+  uint32 max_frame_bytes = 5;
+  // outbound_queue_size is the bounded outbound delivery queue capacity.
+  uint32 outbound_queue_size = 6;
+  // metrics_cadence_ms is the server metrics emission interval in milliseconds.
+  uint32 metrics_cadence_ms = 7;
+  // keepalive_interval_ms is the server ping/pong keepalive interval in milliseconds.
+  uint32 keepalive_interval_ms = 8;
+  // rate_limit describes per-session command rate limiting parameters.
+  OperationRateLimit rate_limit = 9;
+  // supported_features lists optional protocol features the server supports.
+  repeated string supported_features = 10;
+
+  reserved 100 to 199;
+}
+
+// ServerHello confirms protocol and server identity.
+message ServerHello {
+  // protocol_version is negotiated protocol version.
+  WireProtocolVersion protocol_version = 1;
+  // server_instance_id identifies server instance.
+  string server_instance_id = 2;
+  // ts_server is hello emission timestamp in milliseconds.
+  int64 ts_server = 3;
+  // capabilities lists supported venues/channels.
+  CapabilitySnapshot capabilities = 4;
+
+  reserved 100 to 199;
+}
+
+// ServerPong is server response for ping.
+message ServerPong {
+  // request_id echoes client request id.
+  string request_id = 1;
+  // ts_client echoes client timestamp.
+  int64 ts_client = 2;
+  // ts_server is server response timestamp.
+  int64 ts_server = 3;
+
+  reserved 100 to 199;
+}
+
+// ServerAck confirms subscribe/unsubscribe/resync commands.
+message ServerAck {
+  // request_id is command correlation id.
+  string request_id = 1;
+  // op is acknowledged operation name.
+  string op = 2;
+  // stream_id is affected stream identity.
+  string stream_id = 3;
+
+  reserved 100 to 199;
+}
+
+// ServerError provides explicit non-ambiguous error responses.
+message ServerError {
+  // request_id is failing command correlation id.
+  string request_id = 1;
+  // op is failing operation name.
+  string op = 2;
+  // code is stable machine-readable error code.
+  ErrorCode code = 3;
+  // message is human-readable error detail.
+  string message = 4;
+  // action_hint suggests client recovery behavior.
+  ActionHint action_hint = 5;
+
+  reserved 100 to 199;
+}
+
+// MarketEvent carries normalized payload bytes plus stream metadata.
+message MarketEvent {
+  // meta carries deterministic stream metadata.
+  StreamMeta meta = 1;
+  // payload_json is JSON payload bytes.
+  bytes payload_json = 2;
+  // prev_seq is the previous event seq for the same subject within this session.
+  // 0 means first event or legacy (no previous).
+  int64 prev_seq = 3;
+
+  reserved 100 to 199;
+}
+
+// SnapshotEvent is used for subscribe/resync deterministic bootstrap.
+message SnapshotEvent {
+  // meta carries deterministic stream metadata.
+  StreamMeta meta = 1;
+  // payload_json is JSON payload bytes.
+  bytes payload_json = 2;
+  // snapshot_seq is a per-session per-subject snapshot counter (1-indexed).
+  int64 snapshot_seq = 3;
+  // watermark_seq is the highest confirmed upstream seq at snapshot time.
+  int64 watermark_seq = 4;
+  // snapshot_hash is FNV-1a hex digest of the payload (optional integrity check).
+  string snapshot_hash = 5;
+
+  reserved 100 to 199;
+}
+
+// StreamMetrics exposes per-stream quality metrics to clients.
+message StreamMetrics {
+  // meta identifies the stream for this metrics sample.
+  StreamMeta meta = 1;
+  // rtt_ms is current measured round-trip time.
+  int64 rtt_ms = 2;
+  // last_msg_age_ms is age of last delivered message.
+  int64 last_msg_age_ms = 3;
+  // drop_count is cumulative drops for the stream/session.
+  uint64 drop_count = 4;
+  // reconnect_hint is optional reconnect guidance.
+  string reconnect_hint = 5;
+  // backpressure_level indicates queue pressure: 0=ok, 1=elevated, 2=high, 3=critical.
+  uint32 backpressure_level = 6;
+  // recommended_action suggests client behavior: "none", "reduce_subscriptions", "reconnect".
+  string recommended_action = 7;
+  // queue_capacity is the outbound queue capacity for the session.
+  uint32 queue_capacity = 8;
+  // queue_high_watermark is the peak queue depth since last metrics emission.
+  uint32 queue_high_watermark = 9;
+
+  reserved 100 to 199;
+}
+
+// BatchedFrame wraps multiple server frames for coalesced delivery.
+// Reserved for future use; documented as part of feature negotiation.
+message BatchedFrame {
+  // items is the list of server frames in this batch.
+  repeated ServerFrame items = 1;
+  // first_seq is the lowest event seq in the batch.
+  int64 first_seq = 2;
+  // last_seq is the highest event seq in the batch.
+  int64 last_seq = 3;
+
+  reserved 100 to 199;
+}
+
+// ServerFrame wraps all server->client operations.
+message ServerFrame {
+  // frame selects the specific server operation payload.
+  oneof frame {
+    // hello carries protocol/server capabilities.
+    ServerHello hello = 1;
+    // ack acknowledges successful command handling.
+    ServerAck ack = 2;
+    // pong acknowledges ping keepalive.
+    ServerPong pong = 3;
+    // error carries operation failure details.
+    ServerError error = 4;
+    // event carries live market event payload.
+    MarketEvent event = 5;
+    // snapshot carries bootstrap snapshot payload.
+    SnapshotEvent snapshot = 6;
+    // metrics carries stream QoS sample.
+    StreamMetrics metrics = 7;
+    // batch carries coalesced server frames.
+    BatchedFrame batch = 8;
+  }
+
+  reserved 100 to 199;
+}

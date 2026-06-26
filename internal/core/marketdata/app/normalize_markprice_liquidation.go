@@ -4,11 +4,11 @@ import (
 	"context"
 	"strings"
 
-	"github.com/market-raccoon/internal/core/marketdata/domain"
-	"github.com/market-raccoon/internal/shared/naming"
-	"github.com/market-raccoon/internal/shared/problem"
-	"github.com/market-raccoon/internal/shared/result"
-	"github.com/market-raccoon/internal/shared/validation"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/naming"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/result"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/validation"
 )
 
 const (

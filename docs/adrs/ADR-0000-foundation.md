@@ -1,34 +1,38 @@
-# ADR-0000 — Foundation & Decision Records
-
 **Status:** Accepted
-**Date:** 2026-02-10
-**Owners:** Core maintainers
+**Owner:** Architecture
+**Last updated:** 2026-06-25
+**Date:** 2026-01-01
+**Deciders:** Platform Team
+**Relates to:** [system-invariants](../architecture/system-invariants.md), [AUTHORITY-MAP](../architecture/AUTHORITY-MAP.md)
+
+# ADR-0000 — Foundation
 
 ## Context
 
-We are building a Go platform for market data aggregation and decision-support insights using an actor runtime and clean architecture. Early architectural decisions must be recorded, auditable, and stable.
+Stream Analytics requires a stable architectural foundation: a dependency direction,
+bounded-context ownership model, and time-handling contract that all future decisions can
+reference. This ADR establishes those primitives.
 
 ## Decision
 
-- We will use ADRs as the primary mechanism for recording architecture decisions.
-- ADRs are stored under `docs/adrs/` and use sequential numbering `ADR-000X`.
-- Every ADR must contain: Context, Decision, Consequences, and Alternatives.
-- Changes to an accepted ADR require a new ADR that supersedes it.
+1. **Layer dependency direction:** `cmd → interfaces → actors → adapters → core → shared`. No upward imports.
+2. **Bounded contexts:** 12 contexts own their domain types. Cross-context communication via versioned event contracts only.
+3. **Time:** All time-dependent code uses `clock.Clock`. Direct `time.Now()` is banned in `core/` and `actors/`.
+4. **Hot-path formatting:** `FieldHasher`, never `fmt.Sprintf`.
+5. **Envelope sequencing:** Every NATS envelope carries `seq` + `prev_seq`; receivers detect gaps.
 
 ## Consequences
 
-- Architectural decisions become traceable.
-- Refactors and rewrites can be grounded in explicit intent.
-
-## Alternatives
-
-- RFC-only (rejected: ADRs are simpler and better as a permanent record).
+- Layer guard `make invariants-check` enforces the dependency rule automatically.
+- Deterministic replay is possible because time is injected, not read from wall clock.
+- Event contract versioning is the only approved cross-context coupling mechanism.
 
 ## Evidence
 
-- Validation gate: `make docs-check-full`
-- Authority path: `docs/adrs/ADR-0000-foundation.md`
+- Layer guard: `scripts/ci/guards/check-domain-isolation.sh`
+- Clock contract: `internal/shared/clock/`
+- Envelope: `internal/shared/envelope/`
 
 ## Changelog
 
-- 2026-02-13: added required `Evidence` and `Changelog` sections for docs header compliance.
+- 2026-01-01: Accepted — foundation principles established

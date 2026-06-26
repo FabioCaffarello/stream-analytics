@@ -5,9 +5,9 @@ import (
 	"context"
 	"strings"
 
-	"github.com/market-raccoon/internal/core/insights/domain"
-	"github.com/market-raccoon/internal/shared/naming"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/insights/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/naming"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 // VolumeProfileBucketUpsert carries one deterministic VPVR bucket aggregate.
@@ -60,4 +60,19 @@ func (u VolumeProfileBucketUpsert) Validate() *problem.Problem {
 // Implementations must return *problem.Problem (VPVR-STO-3).
 type VolumeProfileHotWriter interface {
 	UpsertVolumeProfileBucket(ctx context.Context, upsert VolumeProfileBucketUpsert) *problem.Problem
+}
+
+// HeatmapHotWriter persists heatmap artifact snapshots.
+type HeatmapHotWriter interface {
+	UpsertHeatmapSnapshot(ctx context.Context, snapshot domain.HeatmapArtifactV1) *problem.Problem
+}
+
+// SessionVolumeProfileWriter persists session-scoped volume profile snapshots.
+type SessionVolumeProfileWriter interface {
+	UpsertSessionVolumeProfile(ctx context.Context, svp domain.SessionVolumeProfileV1) *problem.Problem
+}
+
+// TPOProfileWriter persists TPO (Time-Price Opportunity) profile snapshots.
+type TPOProfileWriter interface {
+	UpsertTPOProfile(ctx context.Context, tpo domain.TPOProfileV1) *problem.Problem
 }

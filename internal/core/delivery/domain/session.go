@@ -4,8 +4,8 @@
 package domain
 
 import (
-	"github.com/market-raccoon/internal/shared/ids"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/ids"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 // Filter holds optional subscription criteria applied server-side.
@@ -69,4 +69,15 @@ func (s *Session) Subscriptions() []Subscription {
 func (s *Session) IsSubscribed(subject Subject) bool {
 	_, ok := s.subscriptions[subject]
 	return ok
+}
+
+// SignalSubscriptionCount returns the number of active signal subscriptions.
+func (s *Session) SignalSubscriptionCount() int {
+	count := 0
+	for _, sub := range s.subscriptions {
+		if sub.Subject.IsSignal() {
+			count++
+		}
+	}
+	return count
 }

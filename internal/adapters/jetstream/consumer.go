@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/metrics"
-	"github.com/market-raccoon/internal/shared/observability"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/observability"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 	"github.com/nats-io/nats.go"
 )
 
@@ -95,7 +95,7 @@ func NewConsumer(ctx context.Context, cfg ConsumerConfig, observer observability
 
 	nc, err := nats.Connect(
 		cfg.URL,
-		nats.Name("market-raccoon-jetstream-consumer"),
+		nats.Name("stream-analytics-jetstream-consumer"),
 		nats.RetryOnFailedConnect(true),
 		nats.MaxReconnects(-1),
 	)
@@ -216,6 +216,9 @@ func (c *Consumer) Consume(ctx context.Context, handler ConsumeHandler) *problem
 
 		for _, msg := range msgs {
 			if p := c.consumeOne(ctx, msg, handler); p != nil {
+				if shouldContinueAfterConsumeError(p) {
+					continue
+				}
 				return p
 			}
 		}
@@ -226,6 +229,17 @@ func (c *Consumer) Consume(ctx context.Context, handler ConsumeHandler) *problem
 		default:
 		}
 	}
+}
+
+func shouldContinueAfterConsumeError(p *problem.Problem) bool {
+	if p == nil {
+		return false
+	}
+	if !p.Retryable || p.Code != problem.Unavailable {
+		return false
+	}
+	kind, _ := p.Details["kind"].(string)
+	return kind == "ack_failed"
 }
 
 func (c *Consumer) fetchBatchSize() int {

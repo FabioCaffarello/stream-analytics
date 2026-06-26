@@ -3,39 +3,50 @@ package app
 import (
 	"context"
 
-	"github.com/market-raccoon/internal/core/aggregation/domain"
-	"github.com/market-raccoon/internal/core/aggregation/ports"
-	"github.com/market-raccoon/internal/shared/problem"
-	"github.com/market-raccoon/internal/shared/result"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/ports"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/result"
 )
 
 // AggregationServiceConfig configures all use cases exposed by AggregationService.
 type AggregationServiceConfig struct {
-	Update      UpdateConfig
-	Candle      BuildCandleConfig
-	Stats       BuildStatsConfig
-	Publisher   ports.ArtifactPublisher
-	Store       ports.HotReadModelStore
-	CandleStore ports.CandleHotReadModelStore
-	StatsStore  ports.StatsHotReadModelStore
+	Update           UpdateConfig
+	Candle           BuildCandleConfig
+	Stats            BuildStatsConfig
+	Tape             BuildTapeConfig
+	OpenInterest     BuildOpenInterestConfig
+	Publisher        ports.ArtifactPublisher
+	Store            ports.HotReadModelStore
+	CandleStore      ports.CandleHotReadModelStore
+	StatsStore       ports.StatsHotReadModelStore
+	TapeStore        ports.TapeHotReadModelStore
+	OIStore          ports.OIHotReadModelStore
+	DeltaVolumeStore ports.DeltaVolumeHotReadModelStore
+	CVDStore         ports.CVDHotReadModelStore
+	BarStatsStore    ports.BarStatsHotReadModelStore
 }
 
 // AggregationService is the entrypoint facade for the aggregation bounded context.
 type AggregationService struct {
-	UpdateBook *UpdateOrderBookFromEvents
-	Candle     *BuildCandleFromEvents
-	Stats      *BuildStatsFromEvents
-	Funding    *BuildFundingRateFromEvents
+	UpdateBook   *UpdateOrderBookFromEvents
+	Candle       *BuildCandleFromEvents
+	Stats        *BuildStatsFromEvents
+	Tape         *BuildTapeFromTrades
+	OpenInterest *BuildOpenInterestFromEvents
+	Funding      *BuildFundingRateFromEvents
 }
 
 // NewAggregationService creates all aggregation use cases from a single config.
 func NewAggregationService(cfg AggregationServiceConfig) *AggregationService {
 	statsUC := NewBuildStatsFromEvents(cfg.Publisher, cfg.StatsStore, cfg.Stats)
 	return &AggregationService{
-		UpdateBook: NewUpdateOrderBookFromEventsWithConfig(cfg.Publisher, cfg.Store, cfg.Update),
-		Candle:     NewBuildCandleFromEvents(cfg.Publisher, cfg.CandleStore, cfg.Candle),
-		Stats:      statsUC,
-		Funding:    NewBuildFundingRateFromEvents(statsUC),
+		UpdateBook:   NewUpdateOrderBookFromEventsWithConfig(cfg.Publisher, cfg.Store, cfg.Update),
+		Candle:       NewBuildCandleFromEvents(cfg.Publisher, cfg.CandleStore, cfg.Candle),
+		Stats:        statsUC,
+		Tape:         NewBuildTapeFromTrades(cfg.Publisher, cfg.TapeStore, cfg.DeltaVolumeStore, cfg.CVDStore, cfg.BarStatsStore, cfg.Tape),
+		OpenInterest: NewBuildOpenInterestFromEvents(cfg.Publisher, cfg.OIStore, cfg.OpenInterest),
+		Funding:      NewBuildFundingRateFromEvents(statsUC),
 	}
 }
 

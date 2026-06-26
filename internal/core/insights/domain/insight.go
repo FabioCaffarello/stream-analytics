@@ -4,7 +4,7 @@
 // and why it might matter. They NEVER issue buy/sell directives (ADR-0008).
 package domain
 
-import "github.com/market-raccoon/internal/shared/problem"
+import "github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 
 // InsightType is a stable name for a class of insight.
 type InsightType string

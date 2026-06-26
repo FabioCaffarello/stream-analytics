@@ -3,7 +3,7 @@ package replay
 import (
 	"encoding/json"
 
-	"github.com/market-raccoon/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
 )
 
 // FixtureRecord is one replay fixture row after decode/validation.

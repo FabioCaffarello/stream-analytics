@@ -2,8 +2,8 @@
 
 **Status:** Active
 **Owner:** Governance Doc-First Maintainer
-**Last updated:** 2026-02-19
-**Relates to:** `docs/adrs/ADR-0002-event-envelope-and-versioning.md`, `docs/adrs/ADR-0014-stream-partitioning-strategy.md`, `docs/adrs/ADR-0016-protobuf-contract-layer.md`, `docs/contracts/subject-registry.yaml`
+**Last updated:** 2026-03-06
+**Relates to:** `docs/contracts/subject-registry.yaml`, `docs/contracts/canonical-market-model.md`, `internal/adapters/jetstream/subject_validation.go`
 
 ---
 
@@ -42,6 +42,11 @@ Definir contrato canônico de envelope e subject para publicacao/consumo no bus,
 Campos obrigatórios:
 - `type`, `version`, `venue`, `instrument`, `seq`, `idempotency_key`, `payload`.
 
+### CMM Envelope Contract
+
+- CMM is the only model in the hot path.
+- Typed canonical payload envelope is available as `marketmodel.v1.MarketEvent` in `proto/marketmodel/v1/market_event.proto`.
+
 ## Subject Taxonomy
 
 Subject de publish concreto:
@@ -69,7 +74,7 @@ Regras:
 
 ## Pattern Taxonomy (filters)
 
-Patterns com wildcard são válidos para subscription/filter quando respeitam raiz permitida (`aggregation`, `insights`, `marketdata`, `quarantine`) e regras de token.
+Patterns com wildcard são válidos para subscription/filter quando respeitam raiz permitida (`aggregation`, `insights`, `liquidity`, `marketdata`, `quarantine`) e regras de token.
 
 Exemplos:
 - `marketdata.>`
@@ -138,6 +143,144 @@ Proibido:
 | `aggregation.orderbook_inconsistency.v1.{venue}.{instrument}` | `aggregation` runtime (`UpdateOrderBookFromEvents` on crossed book) | `storage` | draft | `.context/docs/feature-packs/orderbook.md`, `internal/core/aggregation/ports/ports.go:13` |
 | `aggregation.candle.v1.{venue}.{instrument}` | `aggregation` runtime (`BuildCandleFromEvents` via `ArtifactPublisher`) | `delivery`, `storage` | stable | `.context/docs/feature-packs/candle-aggregation.md`, `internal/core/aggregation/ports/ports.go:14` |
 | `aggregation.stats.v1.{venue}.{instrument}` | `aggregation` runtime (`BuildStatsFromEvents` via `ArtifactPublisher`) | `delivery`, `storage` | stable | `.context/docs/feature-packs/stats-aggregation.md`, `internal/core/aggregation/ports/ports.go:15` |
+| `aggregation.tape.v1.{venue}.{instrument}` | `aggregation` runtime (`BuildTapeFromTrades` via `ArtifactPublisher`) | `delivery`, `storage` | stable | `proto/aggregation/v1/tape.proto`, `internal/core/aggregation/ports/ports.go:16` |
+
+## HTTP Discovery APIs
+
+### Timeline API
+
+```
+GET /api/v1/timeline?venue=X&instrument=Y&timeframe=Z&artifact=candle|stats
+→ {"venue":"X","instrument":"Y","timeframe":"Z","artifact":"candle","first_ts":N,"last_ts":M}
+```
+
+Returns the earliest and latest `window_start` timestamps for the requested artifact, enabling clients to discover available data ranges without transferring full payloads. The response hides hot/cold/federation details — the caller sees a single unified time range.
+
+- Artifact defaults to `candle` when omitted.
+- Uses existing federated readers (`GetFirstCandle/GetLastCandle`, `GetFirstStats/GetLastStats`).
+- Registered only when `coldReaders` is configured.
+
+### Stream Catalog API
+
+```
+GET /api/v1/catalog?venue=X&instrument=Y
+→ {"entries":[{"venue":"X","instrument":"Y","artifacts":[{"name":"candle","endpoint":"/api/v1/candles","timeframes":["1s","5s","1m",...]},...]}]}
+```
+
+Returns available artifacts, their supported timeframes, and HTTP endpoints for configured markets. Config-derived — no storage queries.
+
+- Both `venue` and `instrument` are optional filters.
+- Results are sorted by venue then instrument.
+- Registered only when `markets` config is present.
+
+### Session Overview API
+
+```
+GET /api/v1/session
+-> {"server_time_ms":N,"ready":bool,"markets":[{"venue":"X","instruments":["Y",...]}],"capabilities":{"artifacts":[{"name":"candle","endpoint":"/api/v1/candles","timeframes":["1s",...]}]}}
+```
+
+Returns a composed bootstrap payload combining server time, guardian readiness, available markets, and artifact capabilities. Replaces multiple startup calls (/readyz + /markets + /catalog) with a single request. Config-derived markets, domain-constant artifacts — no storage queries.
+
+- Registered only when `markets` config is present.
+- Readiness is best-effort (returns false on guardian timeout).
+
+### Session Dashboard API
+
+```
+GET /api/v1/session/dashboard
+-> {
+     "server_time_ms":N,
+     "status":"ready|degraded|inactive|not_ready",
+     "readiness":{"status":"ready|not_ready"},
+     "freshness":{"status":"flowing|partial|stale|inactive","active_instruments":A,"stale_instruments":S,"flowing_channels":C1,"stale_channels":C2,"checked_at":N},
+     "resync":{"status":"stable|recovering|degraded","connections_active":K,"streams":M,"resync_total":R,"drops_total":D,"max_lag_ms":L},
+     "artifacts":[
+       {"name":"candle","endpoint":"/api/v1/candles","timeframes":[...],"default_timeframe":"1m","coverage":{"status":"available|partial|empty|unavailable","total_instruments":T,"available_instruments":A1,"empty_instruments":E1,"unavailable_instruments":U1}},
+       {"name":"stats","endpoint":"/api/v1/stats","timeframes":[...],"default_timeframe":"1m","coverage":{"status":"available|partial|empty|unavailable","total_instruments":T,"available_instruments":A2,"empty_instruments":E2,"unavailable_instruments":U2}}
+     ],
+     "summary":{"venues":V,"instruments":I}
+   }
+```
+
+Returns a backend-owned session-level readiness dashboard composed from guardian readiness, terminal WS state, and best-effort timeline coverage for configured markets.
+
+- Registered only when `markets` config is present.
+- Coverage is computed from timeline availability without exposing hot/cold/federation internals.
+- Status enums are contract-level and must remain backward-compatible.
+
+### Artifact Summary API
+
+```
+GET /api/v1/artifacts/summary?timeframe=1m&venue=X&instrument=Y&artifact=candle|stats
+-> {
+     "timeframe":"1m",
+     "status":"available|partial|empty|unavailable",
+     "checked_at":N,
+     "filters":{"venue":"X","instrument":"Y","artifact":"candle"},
+     "artifacts":[
+       {"name":"candle","endpoint":"/api/v1/candles","timeframes":[...],"default_timeframe":"1m","coverage":{"status":"available|partial|empty|unavailable","total_instruments":T,"available_instruments":A,"empty_instruments":E,"unavailable_instruments":U}}
+     ],
+     "entries":[
+       {"venue":"X","instrument":"Y","artifacts":{"candle":"available"}}
+     ],
+     "summary":{"venues":V,"instruments":I,"entries":R}
+   }
+```
+
+Returns a dedicated backend-owned artifact matrix for dynamic widget enablement with optional filters and deterministic sorting.
+
+- Registered only when `markets` config is present.
+- `timeframe` defaults to `1m`; unsupported timeframes return `400`.
+- `artifact` is optional (`candle|stats`); unsupported artifacts return `400`.
+- Per-entry artifact statuses are `available|empty|unavailable`.
+
+### Instrument Freshness API
+
+```
+GET /api/v1/freshness?venue=X&instrument=Y
+-> {"venue":"X","instrument":"Y","active":bool,"channels":{"candle":{"last_event_ts":N,"lag_ms":M,"flowing":bool},...},"checked_at":N}
+```
+
+Returns per-channel data flow health for the requested instrument. Derived from terminal WS stream state — no storage queries. A channel is "flowing" if its last event is within 30 seconds.
+
+- Always available (no config gate).
+- Case-insensitive venue/instrument matching.
+- Hides internal stream IDs and observability details.
+
+### Instrument Overview API
+
+```
+GET /api/v1/instrument/overview?venue=X&instrument=Y
+-> {
+     "venue":"X",
+     "instrument":"Y",
+     "status":"ready|degraded|inactive|not_ready",
+     "checked_at":N,
+     "readiness":{"status":"ready|not_ready"},
+     "freshness":{"status":"flowing|stale|inactive","active":bool,"channels":{...}},
+     "resync":{"status":"stable|recovering|degraded","resync_total":N,"drops_total":M,"streams":K,"max_lag_ms":L},
+     "artifacts":[
+       {"name":"candle","endpoint":"/api/v1/candles","timeframes":[...],"timeline":{"timeframe":"1m","first_ts":N,"last_ts":M,"status":"available|empty|unavailable"}},
+       {"name":"stats","endpoint":"/api/v1/stats","timeframes":[...],"timeline":{"timeframe":"1m","first_ts":N,"last_ts":M,"status":"available|empty|unavailable"}}
+     ]
+   }
+```
+
+Returns a backend-owned composed read model for one instrument, normalizing readiness/freshness/resync semantics for client widget bootstrap without leaking hot/cold/federation internals.
+
+- Always available (no config gate).
+- Case-insensitive venue/instrument matching.
+- Timeline summaries are best-effort and marked as `unavailable` when readers are not wired.
+- Status enums are contract-level and must remain backward-compatible.
+
+### Wire Format Contract
+
+All aggregation domain types (CandleV1, StatsWindowV1, TapeWindowV1, DeltaVolumeWindowV1, CVDWindowV1, BarStatsWindowV1, OpenInterestWindowV1, SnapshotProduced) have explicit `json` tags preserving PascalCase field names. Wire format is frozen — any field rename requires a version bump.
+
+Insights domain types (HeatmapArtifactV1, VolumeProfileSnapshotV1, CrossVenueTradeSnapshotV1) use snake_case `json` tags. These two conventions coexist by design (aggregation types were stabilized in-place; insights types were designed with explicit tags from the start).
+
+Evidence: `internal/core/aggregation/domain/wire_format_golden_test.go`
 
 ## Evidence
 
@@ -150,6 +293,31 @@ Proibido:
 
 ## Changelog
 
+- 2026-06-25: S9 legacy retirement — removed signal/strategy/execution/portfolio subjects and both Runtime Controls sections; removed stale references to strategy-execution-portfolio-contracts.md, credentials-broker-hardening-stage9b.md, and deleted ADRs.
+- 2026-03-06:
+- Stage 19 slice 1:
+  - added Instrument Overview API (`GET /api/v1/instrument/overview`);
+  - froze initial normalized status enums for readiness/freshness/resync and overall instrument status;
+  - added artifact timeline summary contract (`available|empty|unavailable`) for candle/stats.
+- 2026-03-06:
+- Stage 19 slice 2:
+  - added Session Dashboard API (`GET /api/v1/session/dashboard`);
+  - froze session-level normalized statuses for readiness/freshness/resync and overall dashboard status;
+  - added compact artifact coverage matrix contract (`available|partial|empty|unavailable`) for candle/stats.
+- 2026-03-06:
+- Stage 19 slice 3:
+  - added Artifact Summary API (`GET /api/v1/artifacts/summary`);
+  - added filter/timeframe contract (`venue`, `instrument`, `artifact`, `timeframe`) for artifact matrix consumption;
+  - froze artifact summary status semantics (`available|partial|empty|unavailable`) and per-entry artifact status semantics (`available|empty|unavailable`).
+- 2026-03-06:
+- Stage 19 slice 4:
+  - added cross-endpoint client-readiness contract suite for:
+    - `GET /api/v1/instrument/overview`
+    - `GET /api/v1/session/dashboard`
+    - `GET /api/v1/artifacts/summary`
+  - codified enum stability and semantic consistency checks (`ready` and `degraded` paths) to prevent contract drift before S20 client slices.
+- 2026-03-04:
+- Added `aggregation.tape.v1.{venue}.{instrument}` to aggregation runtime subject matrix.
 - 2026-02-19:
 - `aggregation.candle.v1` promoted to `stable` after M6 production readiness (runtime + storage + WS contract + latency evidence).
 - `aggregation.stats.v1` promoted to `stable` after M7 production readiness (multi-timeframe tests + cross-source consistency + stream observability evidence).

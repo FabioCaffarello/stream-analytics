@@ -1,47 +1,64 @@
+---
+type: doc
+status: Active
+last_updated: 2026-06-25
+---
+
 # VPVR Overload Runbook
 
-## Trigger
-- `SLODataLossBurnRateFast`/`Slow`
-- elevated `vpvr_overload_level`
-- increasing `vpvr_drop_total`
+**Scope:** Volume Profile Visible Range (VPVR) computation — CPU spike, shard overload, memory pressure.
 
-## Severity
-- `P1` if data-loss burn-rate alert is firing.
-- `P2` if overload level is elevated with no drops.
+---
 
-## First 5 Minutes
+## Alert: `VPVRComputeOverload`
+
+**Meaning:** VPVR shard computation is saturating CPU (> 80% for > 2 min) or the queue depth is growing.
+
+**Immediate check:**
 ```bash
-curl -fsS http://localhost:8080/runtime/snapshot | jq .
-curl -fsS http://localhost:8080/debug/pprof/goroutine?debug=1 | head -n 200
-curl -fsS http://localhost:8080/metrics | rg 'vpvr_|heatmap_|slo:data_loss|ws_queue_depth|bus_consumer_lag'
+make logs service=processor | grep "vpvr\|shard\|overload\|pressure"
+curl -s http://localhost:9090/api/v1/query?query=vpvr_compute_duration_seconds | jq .
 ```
 
-## Diagnose
-- Use recording rules first:
-```promql
-slo:data_loss:burn_rate_5m
-slo:data_loss:burn_rate_1h
-slo:data_loss:drop_rate_5m
-slo:data_loss:cold_commit_errors_rate_5m
+**Common causes and actions:**
+
+| Cause | Signal | Action |
+|-------|--------|--------|
+| Wide VPVR window requested | High compute duration | Cap window via `VPVR_MAX_WINDOW_BARS` |
+| Too many concurrent shards | Shard count metric high | Reduce `VPVR_MAX_SHARDS` or scale processor |
+| Hot pair | One symbol dominates CPU | Enable per-pair rate limiting via `VPVR_RATE_LIMIT` |
+| Recompute storm after reconnect | Burst on reconnect | Expected; allow drain — typically < 30 s |
+
+---
+
+## Shard ownership
+
+VPVR shards are assigned per symbol-exchange pair. If a shard is stuck:
+```bash
+make logs service=processor | grep "shard.*stuck\|shard.*timeout"
 ```
-- Use bounded VPVR/Heatmap buckets (no raw instrument/timeframe):
-```promql
-max by (venue, instrument_bucket, timeframe_bucket) (vpvr_overload_level)
-sum by (reason) (rate(vpvr_drop_total[5m]))
-max by (venue, instrument_bucket, timeframe_bucket) (heatmap_queue_depth)
+
+A stuck shard self-heals via Guardian restart after the actor timeout fires (~10 s).
+
+---
+
+## Manual relief
+
+To shed load temporarily, reduce the number of VPVR-enabled subscriptions via the cockpit, or restart the processor with a reduced pair list:
+```bash
+docker compose restart processor
 ```
 
-## Mitigate
-- Apply overload policy and reduce per-window churn.
-- Lower ingest pressure for affected venue stream.
-- Preserve ack-on-commit and replay determinism.
+---
 
-## Escalate
-- Escalate to insights owner when overload persists > 10m.
-- Escalate to storage owner when `slo:data_loss:cold_commit_errors_rate_5m > 0`.
+## Useful Grafana panels
 
-## Checklist
-- [ ] `slo:data_loss:burn_rate_5m` returned below threshold.
-- [ ] `vpvr_overload_level` returned to baseline.
-- [ ] `vpvr_drop_total` no longer increasing.
-- [ ] queue/backlog stabilized (`ws_queue_depth`, `bus_consumer_lag`).
+- `VPVR` dashboard → `compute_duration`, `shard_count`, `queue_depth`
+
+---
+
+## See also
+
+- [Guardian Runbook](guardian.md)
+- [Ingest Runbook](ingest.md)
+- [SLO Definitions](../slo.md)

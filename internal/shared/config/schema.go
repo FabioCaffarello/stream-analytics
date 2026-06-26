@@ -1,4 +1,4 @@
-// Package config provides structured configuration loading for market-raccoon.
+// Package config provides structured configuration loading for stream-analytics.
 //
 // Configuration is loaded from a JSONC file (JSON with comments).  Comments
 // (// ... and /* ... */) are stripped before JSON decoding so that operators
@@ -28,11 +28,208 @@ type AppConfig struct {
 	JetStream    JetStreamConfig    `json:"jetstream"`
 	Consumer     ConsumerConfig     `json:"consumer"`
 	MarketData   MarketDataConfig   `json:"marketdata"`
+	DataPlane    DataPlaneConfig    `json:"data_plane"`
 	Replay       ReplayConfig       `json:"replay"`
 	Processor    ProcessorConfig    `json:"processor"`
 	Store        StoreConfig        `json:"store"`
 	Storage      StorageConfig      `json:"storage"`
 	Backfill     BackfillConfig     `json:"backfill"`
+	Markets      MarketsConfig      `json:"markets"`
+	Evidence     EvidenceConfig     `json:"evidence"`
+	Signals      SignalsConfig      `json:"signals"`
+	Execution    ExecutionConfig    `json:"execution"`
+	Workspace    WorkspaceConfig    `json:"workspace"`
+	Analytics    AnalyticsConfig    `json:"analytics"`
+}
+
+// AnalyticsConfig configures the Kafka analytics publishing path.
+type AnalyticsConfig struct {
+	Kafka AnalyticsKafkaConfig `json:"kafka"`
+}
+
+// AnalyticsKafkaConfig controls the analytics Kafka publisher wired into the consumer.
+type AnalyticsKafkaConfig struct {
+	Enabled        bool     `json:"enabled"`
+	Brokers        []string `json:"brokers"`
+	TradesTopic    string   `json:"trades_topic"`
+	OrderbookTopic string   `json:"orderbook_topic"`
+	BatchTimeout   string   `json:"batch_timeout"`
+}
+
+// BatchTimeoutDuration parses BatchTimeout as a time.Duration.
+// Returns 250ms when the field is empty or invalid.
+func (k AnalyticsKafkaConfig) BatchTimeoutDuration() time.Duration {
+	if d, err := time.ParseDuration(k.BatchTimeout); err == nil && d > 0 {
+		return d
+	}
+	return 250 * time.Millisecond
+}
+
+// IQProfileBudgets captures strict p95/p99 IQ budget thresholds used in CI.
+type IQProfileBudgets struct {
+	P95Ms    float64 `json:"p95_ms"`
+	P99Ms    float64 `json:"p99_ms"`
+	BytesP95 float64 `json:"bytes_p95"`
+	BytesP99 float64 `json:"bytes_p99"`
+}
+
+// IQProfileCaps captures strict state caps used in IQ CI profile validation.
+type IQProfileCaps struct {
+	RouterStreamStateMax int `json:"router_stream_state_max"`
+	LayerStreamStateMax  int `json:"layer_stream_state_max"`
+}
+
+// IQProfileLegacyFlags captures strict legacy/fallback guardrails.
+type IQProfileLegacyFlags struct {
+	Strict                bool `json:"strict"`
+	FallbackStrict        bool `json:"fallback_strict"`
+	LegacyStrict          bool `json:"legacy_strict"`
+	RequireStatsCanonical bool `json:"require_stats_canonical"`
+	AllowBatchedFallback  bool `json:"allow_batched_fallback"`
+	AllowStatsFallback    bool `json:"allow_stats_fallback"`
+	AllowUnexpectedSkips  bool `json:"allow_unexpected_skips"`
+}
+
+// IQEffectiveProfileFingerprint is the stable profile proof emitted in IQ CI.
+type IQEffectiveProfileFingerprint struct {
+	ProfileName  string               `json:"profile_name"`
+	Budgets      IQProfileBudgets     `json:"budgets"`
+	Caps         IQProfileCaps        `json:"caps"`
+	LegacyFlags  IQProfileLegacyFlags `json:"legacy_flags"`
+	ReplicaCount int                  `json:"replica_count"`
+}
+
+// IQEffectiveProfile is the resolved strict IQ profile contract.
+type IQEffectiveProfile struct {
+	RequestedProfile string                        `json:"requested_profile"`
+	ProfileName      string                        `json:"profile_name"`
+	Source           string                        `json:"source"`
+	Values           map[string]string             `json:"values"`
+	Fingerprint      IQEffectiveProfileFingerprint `json:"fingerprint"`
+	FingerprintJSON  string                        `json:"fingerprint_json"`
+	FingerprintHash  string                        `json:"fingerprint_hash"`
+}
+
+// MarketsConfig declares available exchanges and symbols for client discovery.
+type MarketsConfig struct {
+	Exchanges []MarketsExchangeConfig `json:"exchanges"`
+}
+
+// MarketsExchangeConfig describes one exchange with its available symbols.
+type MarketsExchangeConfig struct {
+	Name    string                `json:"name"`
+	Symbols []MarketsSymbolConfig `json:"symbols"`
+}
+
+// MarketsSymbolConfig describes one tradable symbol on an exchange.
+type MarketsSymbolConfig struct {
+	Ticker     string  `json:"ticker"`
+	TickSize   float64 `json:"tick_size"`
+	MarketType string  `json:"market_type"`
+}
+
+// EvidenceConfig controls evidence-engine boundedness and confidence decay.
+type EvidenceConfig struct {
+	// BufferCapPerKind bounds in-memory evidence history per kind.
+	BufferCapPerKind int `json:"buffer_cap_per_kind"`
+	// DecayHalfLifeMs controls time-weighted confidence decay half-life in milliseconds.
+	DecayHalfLifeMs int `json:"decay_half_life_ms"`
+	// RegimeMaxStreams bounds active regime streams.
+	RegimeMaxStreams int `json:"regime_max_streams"`
+	// RegimeHistoryCap bounds candle/regime history per stream.
+	RegimeHistoryCap int `json:"regime_history_cap"`
+}
+
+// SignalsConfig controls signal-composer boundedness and delivery limits.
+type SignalsConfig struct {
+	// UseComposer is deprecated and currently a no-op.
+	// Embedded server composer wiring was removed in Stage 2 boundary hardening.
+	// Kept only for backward-compatible config loading.
+	UseComposer bool `json:"use_composer"`
+	// DedupWindowMs controls dedup TTL window in milliseconds.
+	DedupWindowMs int64 `json:"dedup_window_ms"`
+	// RateLimitPerMin bounds per {venue,instrument} signal emits per minute.
+	RateLimitPerMin int `json:"rate_limit_per_min"`
+	// GlobalRateLimitPerMin bounds all signal emits per minute.
+	GlobalRateLimitPerMin int `json:"global_rate_limit_per_min"`
+	// CorrelationWindowMs controls cross-venue correlation window in milliseconds.
+	CorrelationWindowMs int64 `json:"correlation_window_ms"`
+	// MaxSubsPerSession bounds active signal subscriptions per websocket session.
+	MaxSubsPerSession int `json:"max_subs_per_session"`
+	// WindowCap bounds dedup history entries per signal key.
+	WindowCap int `json:"window_cap"`
+}
+
+// ExecutionConfig controls executor adapter mode selection plus Stage 9A static
+// governance grant inputs.
+type ExecutionConfig struct {
+	// Mode selects the active execution boundary behavior.
+	// Allowed: bootstrap_simulated | real_adapter_safe.
+	Mode string `json:"mode"`
+	// Adapter selects the concrete implementation behind IntentExecutor.
+	// Allowed in Stage 8 safe pilot: bootstrap.simulated | binance.spot.
+	Adapter string `json:"adapter"`
+	// SafeMode is required by Stage 9A governance for any execution grant.
+	SafeMode bool `json:"safe_mode"`
+	// TradeOnly is required by Stage 9A governance. Withdraw/custody are forbidden.
+	TradeOnly bool `json:"trade_only"`
+	// AllowedVenues defines the real-mode venue scope on the execution grant.
+	AllowedVenues []string `json:"allowed_venues"`
+	// AllowedSymbols defines the real-mode symbol scope on the execution grant.
+	AllowedSymbols []string `json:"allowed_symbols"`
+	// AllowedAccounts defines the optional account scope on the execution grant.
+	AllowedAccounts []string `json:"allowed_accounts"`
+	// MaxIntentTTLms bounds intent TTL authorized by the execution grant.
+	MaxIntentTTLms int64 `json:"max_intent_ttl_ms"`
+	// MaxAbsQuantity bounds absolute requested quantity authorized by the grant.
+	MaxAbsQuantity float64 `json:"max_abs_quantity"`
+	// MaxNotionalUSD bounds requested notional in USD authorized by the grant.
+	MaxNotionalUSD float64 `json:"max_notional_usd"`
+	// MaxSlippageBps bounds allowed slippage in basis points authorized by the grant.
+	MaxSlippageBps float64 `json:"max_slippage_bps"`
+	// Real holds real-adapter specific settings.
+	Real ExecutionRealConfig `json:"real"`
+}
+
+// ExecutionRealConfig holds real-adapter mode toggles.
+type ExecutionRealConfig struct {
+	Enabled bool                   `json:"enabled"`
+	Binance ExecutionBinanceConfig `json:"binance"`
+}
+
+// ExecutionBinanceConfig holds Binance trade API adapter settings.
+type ExecutionBinanceConfig struct {
+	TradeAPI ExecutionBinanceTradeAPIConfig `json:"trade_api"`
+}
+
+// ExecutionBinanceTradeAPIConfig controls Binance signed trade-only API access.
+type ExecutionBinanceTradeAPIConfig struct {
+	// BaseURL is the Binance REST base URL.
+	BaseURL string `json:"base_url"`
+	// EndpointMode is the allowed operational endpoint mode.
+	// Stage 8 allows: test_order | safe_order_lifecycle.
+	EndpointMode string `json:"endpoint_mode"`
+	// APIKeyEnv is the environment variable name for API key.
+	APIKeyEnv string `json:"api_key_env"`
+	// APISecretEnv is the environment variable name for API secret.
+	APISecretEnv string `json:"api_secret_env"`
+	// RecvWindowMs is Binance recvWindow in milliseconds.
+	RecvWindowMs int64 `json:"recv_window_ms"`
+	// RequestTimeout is the HTTP timeout for Binance signed requests.
+	RequestTimeout string `json:"request_timeout"`
+	// ReconcileEnabled enables deterministic order-status reconciliation polling.
+	ReconcileEnabled bool `json:"reconcile_enabled"`
+	// ReconcilePollInterval is the delay between reconciliation polls.
+	ReconcilePollInterval string `json:"reconcile_poll_interval"`
+	// ReconcileMaxPolls bounds reconciliation attempts per intent.
+	ReconcileMaxPolls int `json:"reconcile_max_polls"`
+}
+
+// WorkspaceConfig controls server-side client workspace persistence.
+type WorkspaceConfig struct {
+	// StateDir is the directory where workspace.json is written.
+	// Default: "." (current working directory).
+	StateDir string `json:"state_dir"`
 }
 
 // ShardConfig controls deterministic shard assignment for horizontal scaling.
@@ -85,17 +282,23 @@ type ProtoRolloutConfig struct {
 
 // ProtoRolloutMarketDataConfig controls marketdata.* event rollout.
 type ProtoRolloutMarketDataConfig struct {
-	Trade       bool `json:"trade"`
-	BookDelta   bool `json:"bookdelta"`
-	MarkPrice   bool `json:"markprice"`
-	Liquidation bool `json:"liquidation"`
+	Trade        bool `json:"trade"`
+	BookDelta    bool `json:"bookdelta"`
+	MarkPrice    bool `json:"markprice"`
+	Liquidation  bool `json:"liquidation"`
+	OpenInterest bool `json:"open_interest"`
 }
 
 // ProtoRolloutAggregationConfig controls aggregation.* event rollout.
 type ProtoRolloutAggregationConfig struct {
-	Candle   bool `json:"candle"`
-	Stats    bool `json:"stats"`
-	Snapshot bool `json:"snapshot"`
+	Candle      bool `json:"candle"`
+	Stats       bool `json:"stats"`
+	Tape        bool `json:"tape"`
+	OI          bool `json:"oi"`
+	CVD         bool `json:"cvd"`
+	DeltaVolume bool `json:"delta_volume"`
+	BarStats    bool `json:"bar_stats"`
+	Snapshot    bool `json:"snapshot"`
 }
 
 // ProtoRolloutInsightsConfig controls insights.* event rollout.
@@ -107,14 +310,20 @@ type ProtoRolloutInsightsConfig struct {
 
 // EventTypeFlags returns proto rollout enablement keyed by canonical event type.
 func (c ProtoRolloutConfig) EventTypeFlags() map[string]bool {
-	flags := make(map[string]bool, 14)
+	flags := make(map[string]bool, 19)
 	flags["marketdata.trade"] = c.MarketData.Trade
 	flags["marketdata.bookdelta"] = c.MarketData.BookDelta
 	flags["marketdata.markprice"] = c.MarketData.MarkPrice
 	flags["marketdata.liquidation"] = c.MarketData.Liquidation
+	flags["marketdata.open_interest"] = c.MarketData.OpenInterest
 
 	flags["aggregation.candle"] = c.Aggregation.Candle
 	flags["aggregation.stats"] = c.Aggregation.Stats
+	flags["aggregation.tape"] = c.Aggregation.Tape
+	flags["aggregation.oi"] = c.Aggregation.OI
+	flags["aggregation.cvd"] = c.Aggregation.CVD
+	flags["aggregation.delta_volume"] = c.Aggregation.DeltaVolume
+	flags["aggregation.bar_stats"] = c.Aggregation.BarStats
 	flags["aggregation.snapshot"] = c.Aggregation.Snapshot
 	flags["aggregation.orderbook_inconsistency"] = c.Aggregation.Snapshot
 
@@ -200,14 +409,59 @@ type HTTPConfig struct {
 
 // WSConfig controls websocket auth and per-session read-path rate limiting.
 type WSConfig struct {
-	Auth      WSAuthConfig      `json:"auth"`
-	RateLimit WSRateLimitConfig `json:"rate_limit"`
+	Auth          WSAuthConfig                   `json:"auth"`
+	RateLimit     WSRateLimitConfig              `json:"rate_limit"`
+	Limits        WSLimitsConfig                 `json:"limits"`
+	TenantLimits  map[string]WSTenantLimitConfig `json:"tenant_limits,omitempty"`
+	TenantMetrics WSTenantMetricsConfig          `json:"tenant_metrics,omitempty"`
+	// AllowLegacy controls whether the /ws/marketdata legacy route is served.
+	// nil defaults to false (legacy disabled). Explicit true requires opt-in.
+	AllowLegacy *bool `json:"allow_legacy_ws,omitempty"`
+}
+
+// WSTenantMetricsConfig controls tenant label behavior for ws_tenant_* metrics.
+type WSTenantMetricsConfig struct {
+	// IncludeTenantLabel toggles tenant_id label cardinality.
+	// Default true for backward compatibility.
+	IncludeTenantLabel bool `json:"include_tenant_label"`
+	// TenantWhitelist optionally restricts explicit tenant labels.
+	// When non-empty, unknown tenants use Fallback.
+	TenantWhitelist []string `json:"tenant_whitelist,omitempty"`
+	// Fallback controls non-whitelisted tenant mapping.
+	// Allowed: "unknown" (default) | "hash_bucket".
+	Fallback string `json:"fallback,omitempty"`
+}
+
+// IsLegacyAllowed returns whether the legacy /ws/marketdata route is enabled.
+// Default is false when AllowLegacy is nil (not specified in config).
+func (w WSConfig) IsLegacyAllowed() bool {
+	return w.AllowLegacy != nil && *w.AllowLegacy
+}
+
+// WSTenantLimitConfig defines per-tenant connection and rate limit overrides.
+type WSTenantLimitConfig struct {
+	MaxConnectionsPerKey int               `json:"max_connections_per_key"`
+	MaxSubsPerConnection int               `json:"max_subs_per_connection"`
+	MaxSymbolsPerConn    int               `json:"max_symbols_per_connection"`
+	MaxFrameBytes        int               `json:"max_frame_bytes"`
+	OutboundQueueSize    int               `json:"outbound_queue_size"`
+	RateLimit            WSRateLimitConfig `json:"rate_limit"`
 }
 
 // WSAuthConfig controls API-key authentication for websocket connections.
 type WSAuthConfig struct {
-	Enabled bool              `json:"enabled"`
-	APIKeys map[string]string `json:"api_keys"`
+	Enabled      bool                `json:"enabled"`
+	APIKeys      map[string]string   `json:"api_keys"`
+	APIKeyScopes map[string][]string `json:"api_key_scopes"`
+	JWT          WSJWTAuthConfig     `json:"jwt"`
+}
+
+// WSJWTAuthConfig controls optional HMAC JWT authentication.
+type WSJWTAuthConfig struct {
+	Enabled     bool   `json:"enabled"`
+	HS256Secret string `json:"hs256_secret"`
+	Issuer      string `json:"issuer"`
+	Audience    string `json:"audience"`
 }
 
 // WSRateLimitConfig controls per-session token bucket settings for websocket
@@ -218,6 +472,14 @@ type WSRateLimitConfig struct {
 	BurstCapacity int  `json:"burst_capacity"`
 }
 
+// WSLimitsConfig controls connection and subscription hard-limits.
+type WSLimitsConfig struct {
+	MaxConnectionsPerIP  int `json:"max_connections_per_ip"`
+	MaxConnectionsPerKey int `json:"max_connections_per_key"`
+	MaxSubsPerConnection int `json:"max_subs_per_connection"`
+	MaxSymbolsPerConn    int `json:"max_symbols_per_connection"`
+}
+
 // DeliveryConfig controls delivery subsystem runtime wiring in server binary.
 type DeliveryConfig struct {
 	Enabled                  bool   `json:"enabled"`
@@ -225,13 +487,27 @@ type DeliveryConfig struct {
 	SessionOutboundQueueSize int    `json:"session_outbound_queue_size"`
 	BackpressurePolicy       string `json:"backpressure_policy"`
 	SlowClientDropThreshold  int    `json:"slow_client_drop_threshold"`
+	// MaxFrameBytes is the maximum outbound frame size in bytes.
+	// 0 defaults to readLimitBytes (64KB).
+	MaxFrameBytes int `json:"max_frame_bytes,omitempty"`
+	// MetricsCadenceMs controls session metrics frame interval in milliseconds.
+	// 0 defaults to 5000.
+	MetricsCadenceMs int `json:"metrics_cadence_ms,omitempty"`
+	// KeepaliveIntervalMs controls ping keepalive interval in milliseconds.
+	// 0 defaults to 20000.
+	KeepaliveIntervalMs int `json:"keepalive_interval_ms,omitempty"`
 	// RouterReadyTimeout is the maximum time to wait for the delivery router PID.  Default: "2s".
 	RouterReadyTimeout string `json:"router_ready_timeout"`
 	// SubsystemReadyTimeout is the maximum time to wait for the delivery subsystem PID.  Default: "500ms".
 	SubsystemReadyTimeout string `json:"subsystem_ready_timeout"`
 	// SessionSpawnTimeout is the request timeout for spawning a new WS session.  Default: "2s".
-	SessionSpawnTimeout string             `json:"session_spawn_timeout"`
-	NATS                DeliveryNATSConfig `json:"nats"`
+	SessionSpawnTimeout string `json:"session_spawn_timeout"`
+	// RouterStreamStateTTL bounds delivery router stream-state retention. Default: "30m".
+	RouterStreamStateTTL string `json:"router_stream_state_ttl"`
+	// RequireClientHello gates subscribe/resync/getrange behind a client hello.
+	// Default false for backward compatibility.
+	RequireClientHello bool               `json:"require_client_hello,omitempty"`
+	NATS               DeliveryNATSConfig `json:"nats"`
 }
 
 // RouterReadyTimeoutDuration parses and returns DeliveryConfig.RouterReadyTimeout.
@@ -249,6 +525,11 @@ func (d DeliveryConfig) SessionSpawnTimeoutDuration() time.Duration {
 	return mustParseDuration(d.SessionSpawnTimeout)
 }
 
+// RouterStreamStateTTLDuration parses and returns DeliveryConfig.RouterStreamStateTTL.
+func (d DeliveryConfig) RouterStreamStateTTLDuration() time.Duration {
+	return mustParseDuration(d.RouterStreamStateTTL)
+}
+
 // DeliveryNATSConfig controls delivery consumer behavior for NATS/JetStream.
 type DeliveryNATSConfig struct {
 	ConsumerDurable string   `json:"consumer_durable"`
@@ -257,6 +538,9 @@ type DeliveryNATSConfig struct {
 
 // ConsumerConfig controls the market-data consumer binary.
 type ConsumerConfig struct {
+	// Mode selects the consumer runtime path.
+	// Allowed: "marketdata" (default) | "dataplane".
+	Mode string `json:"mode"`
 	// Exchange is the canonical exchange name.  Default: "binance".
 	// Legacy single-exchange field; kept for backward compatibility.
 	Exchange string `json:"exchange"`
@@ -338,6 +622,26 @@ type MarketDataConfig struct {
 	ReplayPath string `json:"replay_path"`
 }
 
+// DataPlaneConfig controls the minimal validation data plane runtime.
+type DataPlaneConfig struct {
+	// Enabled turns on data plane features for the current process.
+	Enabled bool `json:"enabled"`
+	// StateBucket is the JetStream KV bucket used for bindings/config activation state.
+	StateBucket string `json:"state_bucket"`
+	// ResultLimit is the default/capped result window exposed by server result queries.
+	ResultLimit int `json:"result_limit"`
+	// Kafka controls broker access for emulator/server emit and consumer intake.
+	Kafka DataPlaneKafkaConfig `json:"kafka"`
+}
+
+// DataPlaneKafkaConfig controls Kafka broker access used by the data plane.
+type DataPlaneKafkaConfig struct {
+	// Brokers are the bootstrap broker addresses.
+	Brokers []string `json:"brokers"`
+	// ConsumerGroup is the Kafka consumer group used by cmd/consumer dataplane mode.
+	ConsumerGroup string `json:"consumer_group"`
+}
+
 // ReplayConfig controls opt-in replay runtime.
 type ReplayConfig struct {
 	// Mode selects replay behavior:
@@ -392,6 +696,10 @@ type StoreConfig struct {
 type StorageConfig struct {
 	Timescale  StorageTimescaleConfig  `json:"timescale"`
 	ClickHouse StorageClickHouseConfig `json:"clickhouse"`
+	// FederationHotWindowMs defines how far back (in ms) the hot store is
+	// authoritative.  Queries older than (now - FederationHotWindowMs) route
+	// to cold.  Default: 86400000 (24h).
+	FederationHotWindowMs int64 `json:"federation_hot_window_ms"`
 }
 
 // StorageTimescaleConfig controls Timescale connection options.
@@ -481,6 +789,14 @@ type ProcessorConfig struct {
 	BusCapacity int `json:"bus_capacity"`
 	// MaxInstruments bounds in-memory order book state for aggregation.
 	MaxInstruments int `json:"max_instruments"`
+	// Signals is deprecated and currently a no-op.
+	// Embedded processor signal wiring was removed in Stage 2 boundary hardening.
+	// Kept only for backward-compatible config loading.
+	Signals ProcessorSignalsConfig `json:"signals"`
+	// OrderBook controls deterministic order book implementation and limits.
+	OrderBook ProcessorOrderBookConfig `json:"orderbook"`
+	// XVenue controls synthetic cross-venue top-of-book merge settings.
+	XVenue ProcessorXVenueConfig `json:"xvenue"`
 	// PublisherTimeout is the JetStream publish timeout per envelope.  Default: "5s".
 	PublisherTimeout string `json:"publisher_timeout"`
 	// Insights controls optional processor-side insight derivations.
@@ -489,8 +805,58 @@ type ProcessorConfig struct {
 	Candle ProcessorCandleConfig `json:"candle"`
 	// Stats controls stats aggregation runtime options.
 	Stats ProcessorStatsConfig `json:"stats"`
+	// SubMinuteRollout controls canary/rollback for 1s and 5s outputs.
+	SubMinuteRollout ProcessorSubMinuteRolloutConfig `json:"subminute_rollout"`
 	// RTPublish controls timer-driven publishing intervals for real-time snapshots.
 	RTPublish ProcessorRTPublishConfig `json:"rt_publish"`
+	// CatchUpSkipBookDeltaSkewMs skips stale bookdelta envelopes while the
+	// processor is catching up. 0 disables this behavior (default).
+	CatchUpSkipBookDeltaSkewMs int `json:"catchup_skip_bookdelta_skew_ms"`
+	// CatchUpSkipTradeSkewMs skips stale trade envelopes while the processor
+	// is catching up. 0 disables this behavior (default).
+	CatchUpSkipTradeSkewMs int `json:"catchup_skip_trade_skew_ms"`
+	// CatchUpSkipStatsSkewMs skips stale liquidation/markprice envelopes while
+	// the processor is catching up. 0 disables this behavior (default).
+	CatchUpSkipStatsSkewMs int `json:"catchup_skip_stats_skew_ms"`
+}
+
+// ProcessorSignalsConfig is deprecated and kept for config compatibility.
+type ProcessorSignalsConfig struct {
+	// Enabled no longer controls runtime behavior.
+	// Kept only for backward-compatible config loading.
+	Enabled *bool `json:"enabled,omitempty"`
+}
+
+// IsEnabled returns the legacy configured value.
+// Deprecated: embedded signal subsystem was removed from processor runtime.
+func (c ProcessorSignalsConfig) IsEnabled() bool {
+	return c.Enabled == nil || *c.Enabled
+}
+
+// ProcessorOrderBookConfig controls order book boundedness and implementation policy.
+type ProcessorOrderBookConfig struct {
+	// MaxLevels caps levels per side for in-memory order books.
+	MaxLevels int `json:"max_levels"`
+	// UseBTreeOrderBook keeps migration intent explicit in config.
+	// nil defaults to true.
+	UseBTreeOrderBook *bool `json:"use_btree_orderbook,omitempty"`
+}
+
+// ProcessorXVenueConfig controls synthetic cross-venue snapshot behavior.
+type ProcessorXVenueConfig struct {
+	// Enabled toggles cross-venue snapshot emission on order book updates.
+	Enabled bool `json:"enabled"`
+	// StaleThresholdMs excludes venue books older than this event-time age.
+	StaleThresholdMs int64 `json:"stale_threshold_ms"`
+	// MaxInstruments bounds active cross-venue instrument partitions.
+	MaxInstruments int `json:"max_instruments"`
+	// MaxVenues bounds active venue books per instrument.
+	MaxVenues int `json:"max_venues"`
+}
+
+// IsBTreeEnabled reports whether the B-Tree order book should be active.
+func (c ProcessorOrderBookConfig) IsBTreeEnabled() bool {
+	return c.UseBTreeOrderBook == nil || *c.UseBTreeOrderBook
 }
 
 // PublisherTimeoutDuration parses and returns ProcessorConfig.PublisherTimeout.
@@ -504,6 +870,8 @@ type ProcessorCandleConfig struct {
 	Enabled bool `json:"enabled"`
 	// MaxCandles bounds active candle windows in memory.
 	MaxCandles int `json:"max_candles"`
+	// WindowCap bounds tracked open watermark windows.
+	WindowCap int `json:"window_cap"`
 }
 
 // ProcessorStatsConfig controls stats aggregation options in processor runtime.
@@ -512,6 +880,47 @@ type ProcessorStatsConfig struct {
 	Enabled bool `json:"enabled"`
 	// MaxWindows bounds active stats windows in memory.
 	MaxWindows int `json:"max_windows"`
+	// WindowCap bounds tracked open watermark windows.
+	WindowCap int `json:"window_cap"`
+}
+
+// ProcessorSubMinuteRolloutConfig controls rollout for sub-minute outputs.
+type ProcessorSubMinuteRolloutConfig struct {
+	// Enabled toggles sub-minute (`1s`,`5s`) output publish/persist.
+	// Default: true.
+	Enabled bool `json:"enabled"`
+	// Venues optionally limits sub-minute outputs to a venue allow-list.
+	// Empty means all venues.
+	Venues []string `json:"venues"`
+	// Instruments optionally limits sub-minute outputs to an instrument allow-list.
+	// Empty means all instruments.
+	Instruments []string `json:"instruments"`
+
+	enabledSet bool `json:"-"`
+}
+
+func (c *ProcessorSubMinuteRolloutConfig) UnmarshalJSON(data []byte) error {
+	type Alias ProcessorSubMinuteRolloutConfig
+	aux := struct {
+		*Alias
+	}{
+		Alias: (*Alias)(c),
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if _, ok := raw["enabled"]; ok {
+		c.enabledSet = true
+	}
+	return nil
+}
+
+func (c ProcessorSubMinuteRolloutConfig) enabledConfigured() bool {
+	return c.enabledSet
 }
 
 // ProcessorRTPublishConfig controls timer-driven publish intervals in milliseconds.
@@ -519,6 +928,9 @@ type ProcessorRTPublishConfig struct {
 	// OrderbookIntervalMs controls periodic orderbook snapshot publish cadence.
 	// Default: 200ms. 0 disables timer-driven orderbook publishing.
 	OrderbookIntervalMs int `json:"orderbook_interval_ms"`
+	// WsSnapshotDepthCap bounds aggregation.snapshot levels per side for WS/tick publishes.
+	// Default: 50. Valid range: 10..1000.
+	WsSnapshotDepthCap int `json:"ws_snapshot_depth_cap"`
 	// HeatmapIntervalMs controls periodic heatmap snapshot publish cadence.
 	// Default: 200ms. 0 disables timer-driven heatmap publishing.
 	HeatmapIntervalMs int `json:"heatmap_interval_ms"`
@@ -527,6 +939,7 @@ type ProcessorRTPublishConfig struct {
 	VolumeIntervalMs int `json:"volume_interval_ms"`
 
 	orderbookIntervalSet bool `json:"-"`
+	depthCapSet          bool `json:"-"`
 	heatmapIntervalSet   bool `json:"-"`
 	volumeIntervalSet    bool `json:"-"`
 }
@@ -548,6 +961,9 @@ func (c *ProcessorRTPublishConfig) UnmarshalJSON(data []byte) error {
 	if _, ok := raw["orderbook_interval_ms"]; ok {
 		c.orderbookIntervalSet = true
 	}
+	if _, ok := raw["ws_snapshot_depth_cap"]; ok {
+		c.depthCapSet = true
+	}
 	if _, ok := raw["heatmap_interval_ms"]; ok {
 		c.heatmapIntervalSet = true
 	}
@@ -559,6 +975,10 @@ func (c *ProcessorRTPublishConfig) UnmarshalJSON(data []byte) error {
 
 func (c ProcessorRTPublishConfig) orderbookConfigured() bool {
 	return c.orderbookIntervalSet
+}
+
+func (c ProcessorRTPublishConfig) depthCapConfigured() bool {
+	return c.depthCapSet
 }
 
 func (c ProcessorRTPublishConfig) heatmapConfigured() bool {
@@ -600,6 +1020,10 @@ type ProcessorInsightsConfig struct {
 	// RoundingMode controls deterministic spread rounding.
 	// Supported: half_even (default) | floor.
 	RoundingMode string `json:"rounding_mode"`
+	// InsightsTimeframes controls which timeframes the processor generates
+	// heatmap and volume-profile snapshots for.
+	// Default: ["1m"]. Allowed: "1s","5s","1m","5m","15m","30m","1h","4h","1d".
+	InsightsTimeframes []string `json:"insights_timeframes"`
 }
 
 // ReadTimeout parses and returns HTTPConfig.ReadTimeout as a time.Duration.
@@ -683,6 +1107,16 @@ func (r ReplayJetStreamConfig) WindowDuration() time.Duration {
 // TTLDuration parses and returns ProcessorInsightsConfig.TTL.
 func (i ProcessorInsightsConfig) TTLDuration() time.Duration {
 	return mustParseDuration(i.TTL)
+}
+
+// RequestTimeoutDuration parses and returns ExecutionBinanceTradeAPIConfig.RequestTimeout.
+func (c ExecutionBinanceTradeAPIConfig) RequestTimeoutDuration() time.Duration {
+	return mustParseDuration(c.RequestTimeout)
+}
+
+// ReconcilePollIntervalDuration parses and returns ExecutionBinanceTradeAPIConfig.ReconcilePollInterval.
+func (c ExecutionBinanceTradeAPIConfig) ReconcilePollIntervalDuration() time.Duration {
+	return mustParseDuration(c.ReconcilePollInterval)
 }
 
 // SweepEveryDuration parses and returns ProcessorInsightsConfig.SweepEvery.

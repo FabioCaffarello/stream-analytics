@@ -6,12 +6,12 @@ import (
 	"strconv"
 	"strings"
 
-	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
-	insightsdomain "github.com/market-raccoon/internal/core/insights/domain"
-	insightsports "github.com/market-raccoon/internal/core/insights/ports"
-	"github.com/market-raccoon/internal/shared/codec"
-	sharedhash "github.com/market-raccoon/internal/shared/hash"
-	"github.com/market-raccoon/internal/shared/problem"
+	aggdomain "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
+	insightsdomain "github.com/FabioCaffarello/stream-analytics/internal/core/insights/domain"
+	insightsports "github.com/FabioCaffarello/stream-analytics/internal/core/insights/ports"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/codec"
+	sharedhash "github.com/FabioCaffarello/stream-analytics/internal/shared/hash"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 // UpsertAggregationSnapshot writes a SnapshotProduced to Timescale via Exec.

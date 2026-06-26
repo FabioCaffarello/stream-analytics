@@ -15,7 +15,7 @@ func TestNewE2ERuntime_RequiresExplicitTestPosture(t *testing.T) {
 	if p == nil {
 		t.Fatal("expected e2e posture validation error")
 	}
-	if !strings.Contains(p.Message, "requires RUN_MODE=test or MARKET_RACCOON_MODE=test") {
+	if !strings.Contains(p.Message, "requires RUN_MODE=test or STREAM_ANALYTICS_MODE=test") {
 		t.Fatalf("unexpected message: %q", p.Message)
 	}
 	if rt != nil {

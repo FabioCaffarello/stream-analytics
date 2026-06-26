@@ -3,8 +3,8 @@ package domain_test
 import (
 	"testing"
 
-	"github.com/market-raccoon/internal/core/delivery/domain"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/delivery/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 func mustSubject(t *testing.T, raw string) domain.Subject {
@@ -73,5 +73,16 @@ func TestSession_uniqueSubjects(t *testing.T) {
 	_ = s.Subscribe(sub, domain.Filter{MinSpread: 10}) // update same subject
 	if len(s.Subscriptions()) != 1 {
 		t.Errorf("duplicate subscription; expected 1, got %d", len(s.Subscriptions()))
+	}
+}
+
+func TestSession_signalSubscriptionCount(t *testing.T) {
+	s := domain.NewSession()
+	_ = s.Subscribe(mustSubject(t, "marketdata.trade/binance/BTC-USDT/raw"), domain.Filter{})
+	_ = s.Subscribe(mustSubject(t, "signal/absorption/binance/BTC-USDT/1m"), domain.Filter{})
+	_ = s.Subscribe(mustSubject(t, "signal/sweep/binance/BTC-USDT/1m"), domain.Filter{})
+
+	if got, want := s.SignalSubscriptionCount(), 2; got != want {
+		t.Fatalf("signal subscription count=%d want=%d", got, want)
 	}
 }

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/market-raccoon/internal/adapters/exchange/kraken"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/exchange/kraken"
 )
 
 func TestBuildEndpoint(t *testing.T) {

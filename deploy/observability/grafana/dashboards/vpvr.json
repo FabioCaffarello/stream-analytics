@@ -33,7 +33,7 @@
       "title": "Data Loss Burn Rate (5m)",
       "type": "timeseries",
       "targets": [
-        {"expr": "slo:data_loss:burn_rate_5m{service=\"market-raccoon\"}", "legendFormat": "{{stream}}/{{venue}}", "refId": "A"}
+        {"expr": "slo:data_loss:burn_rate_5m{service=\"stream-analytics\"}", "legendFormat": "{{stream}}/{{venue}}", "refId": "A"}
       ]
     },
     {
@@ -70,7 +70,7 @@
     ]
   },
   "time": {"from": "now-6h", "to": "now"},
-  "title": "Market-Raccoon VPVR",
-  "uid": "market-raccoon-vpvr",
+  "title": "Stream-Analytics VPVR",
+  "uid": "stream-analytics-vpvr",
   "version": 1
 }

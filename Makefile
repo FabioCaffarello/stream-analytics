@@ -13,6 +13,7 @@ PROMTOOL_VERSION ?= 3.9.1
 BENCHSTAT_VERSION ?= v0.0.0-20260211190930-8161c38c6cdc
 PROCESSOR_REPLICAS ?= 1
 PROCESSOR_SHARD_COUNT ?= $(PROCESSOR_REPLICAS)
+PROCESSOR_DURABLE_BASE ?= processor-v4
 
 APP_NAME ?= server
 APP_CMD ?= ./cmd/server
@@ -57,7 +58,7 @@ export GOLANGCI_LINT_CACHE
 
 MODULE_DIRS := $(shell ./scripts/list-modules.sh)
 
-.PHONY: help install-tools tools modules workspace-check tidy tidy-check go-tidy-check tidy-check-changed fmt fmt-check vet shell-script-check quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check legacy-check-staged legacy-check lint lint-changed smoke runtime-gate runtime-gate-full test test-root test-workspace test-workspace-race test-unit test-integration test-integration-changed test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store soak-roundtrip soak-pipeline soak-ws-delivery soak-c4-production soak-full test-short test-short-changed bench-hotpath bench-budget vuln build run clean docker-build up down down-clean up-infra up-core migrate dev-scale-smoke ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci backup backup-timescaledb backup-clickhouse restore-timescaledb restore-clickhouse
+.PHONY: help install-tools tools modules workspace-check tidy tidy-check go-tidy-check tidy-check-changed fmt fmt-check vet shell-script-check quick ci-local contract-gates operability-gates docs-check docs-check-fast docs-check-full docs-fix check-doc-headers check-doc-links check-doc-links-changed check-truth-map check-feature-pack-links check-pack-subjects-vs-event-bus registry-check invariants-check legacy-check-staged legacy-check lint lint-changed smoke smoke-dataplane subminute-rollout-gate subminute-rollout-gate-full runtime-gate runtime-gate-full test test-root test-workspace test-workspace-race test-unit test-integration test-integration-changed test-race test-partition test-replay-golden test-replay-golden-if-needed replay-trigger-self-check test-soak soak-check soak-vpvr soak-cold-path soak-store soak-roundtrip soak-pipeline soak-ws-delivery soak-c4-production soak-full test-short test-short-changed bench-hotpath bench-budget vuln build run clean docker-build client-docker-build client-docker-run client-docker-stop up up-fresh down down-clean up-infra up-core migrate processor-reset-durables dev-scale-smoke ps logs pre-commit-install commit-msg-check commit-msg-self-check proto-tools proto-lint proto-gen proto-gen-if-needed proto-breaking proto-check proto ci backup backup-timescaledb backup-clickhouse restore-timescaledb restore-clickhouse docs-install docs-serve docs-build docs-clean docs-deploy
 
 help:
 	@echo "Targets:"
@@ -82,6 +83,11 @@ help:
 	@echo "  make docs-check-fast    - lightweight docs guardrails for local loop"
 	@echo "  make docs-check-full    - full strict docs guardrails"
 	@echo "  make docs-fix           - print docs fix checklist based on current guardrail findings"
+	@echo "  make docs-install       - install Python docs deps via uv"
+	@echo "  make docs-serve         - serve docs locally at http://127.0.0.1:8000"
+	@echo "  make docs-build         - build docs to ./site (strict mode, fails on any warning)"
+	@echo "  make docs-clean         - remove ./site build output"
+	@echo "  make docs-deploy        - deploy docs to GitHub Pages (gh-pages branch)"
 	@echo "  make invariants-check   - enforce domain isolation and runtime invariants checks"
 	@echo "  make lint               - run golangci-lint in workspace modules"
 	@echo "  make lint-changed       - run invariants + golangci-lint only in changed Go modules"
@@ -114,21 +120,34 @@ help:
 	@echo "  make vuln               - run govulncheck"
 	@echo "  make build              - build all binaries under cmd/* (package main)"
 	@echo "  make run                - run selected app (default: server)"
+	@echo "  make client-docker-build - build Odin WASM client Docker image"
+	@echo "  make client-docker-run   - build + run client container on :$(CLIENT_PORT)"
+	@echo "  make client-docker-stop  - stop client container"
 	@echo "  make down               - stop full stack (preserve data volumes)"
 	@echo "  make down-clean         - stop full stack and remove all data volumes"
-	@echo "  make up                 - start full stack (nats + timescale + clickhouse + app services + observability)"
+	@echo "  make up                 - start full stack (nats + kafka + timescale + clickhouse + app services + observability)"
 	@echo "                           vars: PROCESSOR_REPLICAS=N, PROCESSOR_SHARD_COUNT (defaults to N; consumer fixed at 1 replica)"
 	@echo "                           dev/local: SHARD_INDEX is auto-derived from replica hostname when unset"
-	@echo "  make up-infra           - start only infrastructure services (nats + timescale + clickhouse + prometheus + grafana)"
+	@echo "  make up-fresh           - local clean startup: down -> up-infra -> reset processor durables -> up"
+	@echo "                           vars: PROCESSOR_REPLICAS=N, PROCESSOR_SHARD_COUNT (defaults to N), PROCESSOR_DURABLE_BASE"
+	@echo "  make up-infra           - start only infrastructure services (nats + kafka + timescale + clickhouse + prometheus + grafana)"
 	@echo "  make up-core            - start infra + core app services (no observability)"
 	@echo "  make migrate            - run database migrations (starts infra if needed)"
 	@echo "  make smoke              - wait up to 60s for /readyz on core services via docker compose"
+	@echo "  make smoke-dataplane    - seed runtime binding/config, emit valid+invalid messages, and verify validation results via server API"
+	@echo "  make subminute-rollout-gate - run sub-minute rollout canary gate (unit/contract checks + evidence report)"
+	@echo "  make subminute-rollout-gate-full - sub-minute gate + compose smoke + runtime-gate"
+	@echo "  make processor-reset-durables - delete local JetStream processor durables (processor-v4[-sN])"
+	@echo "                           vars: PROCESSOR_SHARD_COUNT, PROCESSOR_DURABLE_BASE, NATS_URL"
 	@echo "  make runtime-gate       - run up-core + smoke + soak-check with versioned evidence report"
 	@echo "  make runtime-gate-full  - run runtime-gate plus heavy C4 pipeline and ws-delivery soaks"
 	@echo "  make dev-scale-smoke    - start core with N processor replicas and print shard-resolution evidence"
 	@echo "                           vars: N or PROCESSOR_REPLICAS (default 3 for this target)"
 	@echo "  make ps                 - list compose service status"
 	@echo "  make logs               - stream compose logs"
+	@echo "  make up-analytics       - start infra + Flink + Metabase (analytics profile)"
+	@echo "  make metabase-provision - provision Metabase with expert analytics dashboard"
+	@echo "                           vars: METABASE_URL, METABASE_ADMIN_EMAIL, METABASE_ADMIN_PASSWORD"
 	@echo "  make pre-commit-install - install pre-commit hooks"
 	@echo "  make commit-msg-check   - validate Conventional Commit message (MSG_FILE or MSG)"
 	@echo "  make commit-msg-self-check - run pass/fail commit-msg examples"
@@ -291,10 +310,29 @@ docs-fix:
 	@./scripts/ci/docs/check-doc-links.sh --fix-hints
 	@./scripts/ci/docs/check-truth-map.sh --fix-hints
 	@./scripts/ci/docs/check-feature-pack-links.sh --fix-hints
-	@./scripts/ci/docs/check-pack-subjects-vs-event-bus.sh --fix-hints
+	@./scripts/check-pack-subjects.sh --fix-hints
+
+## ── MkDocs / GitHub Pages ────────────────────────────────────────────────────
+
+docs-install:
+	@uv sync
+
+docs-serve: docs-install
+	@lsof -ti:8000 | xargs kill -9 2>/dev/null; true
+	@DISABLE_MKDOCS_2_WARNING=true uv run mkdocs serve --dev-addr 127.0.0.1:8000
+
+docs-build: docs-install
+	@DISABLE_MKDOCS_2_WARNING=true uv run mkdocs build --strict
+
+docs-clean:
+	@rm -rf ./site
+
+docs-deploy: docs-install
+	@DISABLE_MKDOCS_2_WARNING=true uv run mkdocs gh-deploy --force --clean
 
 invariants-check:
 	@./scripts/ci/guards/check-domain-isolation.sh "$(CURDIR)"
+	@node ./scripts/iq/validate_boundedness_matrix.mjs
 
 legacy-check-staged:
 	@./scripts/legacy-scan.sh --staged
@@ -477,6 +515,8 @@ soak-c4-production: invariants-check
 soak-full: soak-check soak-store soak-cold-path soak-roundtrip soak-pipeline soak-ws-delivery soak-c4-production
 
 test-short:
+	@$(MAKE) -C client doctor
+	@$(MAKE) -C client check-wasm-compile
 	$(call RUN_IN_MODULES,bash -lc 'pkgs="$$( $(GO) list ./... 2>/dev/null || true )"; if [ -n "$$pkgs" ]; then $(GO) test -short $$pkgs; else echo "no packages to test (skipping)"; fi')
 
 test-short-changed:
@@ -541,7 +581,23 @@ clean:
 	@rm -rf ./bin ./dist ./.cache
 
 docker-build:
-	docker compose -f deploy/compose/docker-compose.yml --profile core build
+	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile core build
+
+# ── Client (Odin WASM) ──────────────────────────────────────────
+CLIENT_PORT ?= 8090
+
+.PHONY: client-docker-build client-docker-run client-docker-stop
+
+client-docker-build:
+	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile client build client
+
+client-docker-run: client-docker-build
+	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile client up -d client
+	@echo "Client running at http://localhost:$(CLIENT_PORT)"
+	@echo "Health: http://localhost:$(CLIENT_PORT)/healthz"
+
+client-docker-stop:
+	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile client stop client
 
 up:
 	@set -euo pipefail; \
@@ -550,20 +606,54 @@ up:
 		echo "PROCESSOR_REPLICAS must be >= 1 (got $$p_rep)"; exit 1; \
 	fi; \
 	PROCESSOR_SHARD_COUNT=$(PROCESSOR_SHARD_COUNT) \
-	docker compose -f deploy/compose/docker-compose.yml --profile core --profile obs up --build -d \
+	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile core --profile obs --profile client up --build -d \
 		--scale processor=$$p_rep
 
+up-fresh:
+	@set -euo pipefail; \
+	p_rep="$(PROCESSOR_REPLICAS)"; \
+	p_shards="$(PROCESSOR_SHARD_COUNT)"; \
+	if [ "$$p_rep" -lt 1 ]; then \
+		echo "PROCESSOR_REPLICAS must be >= 1 (got $$p_rep)"; exit 1; \
+	fi; \
+	if [ "$$p_shards" -lt 1 ]; then \
+		echo "PROCESSOR_SHARD_COUNT must be >= 1 (got $$p_shards)"; exit 1; \
+	fi; \
+	echo "[up-fresh] stopping previous stack (preserving volumes)"; \
+	$(MAKE) down >/dev/null || true; \
+	echo "[up-fresh] starting infra"; \
+	$(MAKE) up-infra >/dev/null; \
+	echo "[up-fresh] waiting for NATS health"; \
+	for i in $$(seq 1 60); do \
+		status="$$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}unknown{{end}}' stream-analytics-nats 2>/dev/null || true)"; \
+		if [ "$$status" = "healthy" ]; then break; fi; \
+		if [ "$$i" -eq 60 ]; then \
+			echo "[up-fresh] NATS did not become healthy in time"; exit 1; \
+		fi; \
+		sleep 1; \
+	done; \
+	echo "[up-fresh] resetting processor durables (base=$(PROCESSOR_DURABLE_BASE), shards=$$p_shards)"; \
+	$(MAKE) processor-reset-durables PROCESSOR_SHARD_COUNT="$$p_shards"; \
+	echo "[up-fresh] starting full stack with PROCESSOR_REPLICAS=$$p_rep PROCESSOR_SHARD_COUNT=$$p_shards"; \
+	$(MAKE) up PROCESSOR_REPLICAS="$$p_rep" PROCESSOR_SHARD_COUNT="$$p_shards"
+
 down:
-	docker compose -f deploy/compose/docker-compose.yml --profile core --profile obs down --remove-orphans
+	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile core --profile obs --profile client down --remove-orphans
 
 down-clean:
-	docker compose -f deploy/compose/docker-compose.yml --profile core --profile obs down -v --remove-orphans
+	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile core --profile obs --profile client down -v --remove-orphans
 
 up-infra:
-	docker compose -f deploy/compose/docker-compose.yml --profile obs up -d nats timescale clickhouse migrate prometheus grafana
+	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile obs up -d nats kafka timescale clickhouse migrate prometheus grafana
 
 migrate:
-	docker compose -f deploy/compose/docker-compose.yml run --rm migrate
+	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env run --rm migrate
+
+processor-reset-durables:
+	@chmod +x ./scripts/ops/reset-processor-durables.sh
+	@./scripts/ops/reset-processor-durables.sh \
+		--base "$(PROCESSOR_DURABLE_BASE)" \
+		--shards "$(PROCESSOR_SHARD_COUNT)"
 
 up-core:
 	@set -euo pipefail; \
@@ -572,12 +662,24 @@ up-core:
 		echo "PROCESSOR_REPLICAS must be >= 1 (got $$p_rep)"; exit 1; \
 	fi; \
 	PROCESSOR_SHARD_COUNT=$(PROCESSOR_SHARD_COUNT) \
-	docker compose -f deploy/compose/docker-compose.yml --profile core up --build -d \
+	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile core up --build -d \
 		--scale processor=$$p_rep
 
 smoke: shell-script-check
 	@chmod +x ./scripts/test/util/smoke-compose.sh
 	@./scripts/test/util/smoke-compose.sh
+
+smoke-dataplane: shell-script-check
+	@chmod +x ./scripts/test/util/dataplane-smoke.sh
+	@./scripts/test/util/dataplane-smoke.sh
+
+subminute-rollout-gate: shell-script-check
+	@chmod +x ./scripts/test/util/subminute-rollout-gate.sh
+	@./scripts/test/util/subminute-rollout-gate.sh
+
+subminute-rollout-gate-full: shell-script-check
+	@chmod +x ./scripts/test/util/subminute-rollout-gate.sh
+	@./scripts/test/util/subminute-rollout-gate.sh --with-smoke --with-runtime-gate
 
 runtime-gate: shell-script-check
 	@chmod +x ./scripts/runtime-reliability-gate.sh
@@ -597,29 +699,56 @@ dev-scale-smoke:
 	echo "[dev-scale-smoke] down previous stack"; \
 	$(MAKE) down >/dev/null; \
 	echo "[dev-scale-smoke] up core with PROCESSOR_REPLICAS=$$p_rep PROCESSOR_SHARD_COUNT=$$p_shards"; \
-	PROCESSOR_SHARD_COUNT="$$p_shards" docker compose -f deploy/compose/docker-compose.yml --profile core up --build -d --scale processor="$$p_rep"; \
+	PROCESSOR_SHARD_COUNT="$$p_shards" docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile core up --build -d --scale processor="$$p_rep"; \
 	echo "[dev-scale-smoke] waiting for processor replicas to become healthy"; \
 	for i in $$(seq 1 90); do \
-		healthy="$$(docker compose -f deploy/compose/docker-compose.yml --profile core ps | awk '/compose-processor-[0-9]+/ && /healthy/ {c++} END {print c+0}')"; \
+		healthy="$$(docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile core ps | awk '/compose-processor-[0-9]+/ && /healthy/ {c++} END {print c+0}')"; \
 		if [ "$$healthy" -ge "$$p_rep" ]; then break; fi; \
 		sleep 2; \
 	done; \
 	echo ""; \
 	echo "=== docker compose ps (core) ==="; \
-	docker compose -f deploy/compose/docker-compose.yml --profile core ps; \
+	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile core ps; \
 	echo ""; \
 	echo "=== shard resolution evidence ==="; \
-	logs="$$(docker compose -f deploy/compose/docker-compose.yml --profile core logs --since=10m --tail=500 processor)"; \
+	logs="$$(docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile core logs --since=10m --tail=500 processor)"; \
 	for idx in $$(seq 1 "$$p_rep"); do \
 		echo "--- processor-$$idx ---"; \
 		printf '%s\n' "$$logs" | rg "^processor-$$idx  \\| .*shard resolution applied|^processor-$$idx  \\| .*processor starting" | head -n 4 || true; \
 	done
 
 ps:
-	docker compose -f deploy/compose/docker-compose.yml --profile core --profile obs ps
+	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile core --profile obs ps
 
 logs:
-	docker compose -f deploy/compose/docker-compose.yml --profile core --profile obs logs -f --tail=200
+	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env --profile core --profile obs logs -f --tail=200
+
+# ── Analytics stack (Flink + Metabase) ──────────────────────────────────────
+
+METABASE_URL             ?= http://localhost:3001
+METABASE_ADMIN_EMAIL     ?= admin@raccoon.local
+METABASE_ADMIN_PASSWORD  ?= raccoon_admin!
+
+.PHONY: up-analytics metabase-provision
+
+up-analytics:
+	docker compose -f deploy/compose/docker-compose.yml --env-file deploy/envs/local.env \
+		--profile analytics up -d nats kafka timescale clickhouse migrate \
+		flink-jobmanager flink-taskmanager flink-sql-init metabase
+	@echo "Analytics stack starting — Metabase will be available at $(METABASE_URL)"
+	@echo "Run 'make metabase-provision' once Metabase reports healthy."
+
+metabase-provision:
+	@command -v python3 >/dev/null 2>&1 || { echo "python3 not found"; exit 1; }
+	METABASE_URL="$(METABASE_URL)" \
+	METABASE_ADMIN_EMAIL="$(METABASE_ADMIN_EMAIL)" \
+	METABASE_ADMIN_PASSWORD="$(METABASE_ADMIN_PASSWORD)" \
+	TIMESCALE_HOST="localhost" \
+	TIMESCALE_PORT="5432" \
+	TIMESCALE_DB="$(shell grep '^TIMESCALE_DB' deploy/envs/local.env | cut -d= -f2)" \
+	TIMESCALE_USER="$(shell grep '^TIMESCALE_USER' deploy/envs/local.env | cut -d= -f2)" \
+	TIMESCALE_PASSWORD="$(shell grep '^TIMESCALE_PASSWORD' deploy/envs/local.env | cut -d= -f2)" \
+	python3 deploy/metabase/provision.py
 
 pre-commit-install:
 	$(PRE_COMMIT) install --install-hooks --hook-type pre-commit --hook-type pre-push --hook-type commit-msg

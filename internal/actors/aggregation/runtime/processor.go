@@ -19,45 +19,56 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	actorruntime "github.com/FabioCaffarello/stream-analytics/internal/actors/runtime"
+	"github.com/FabioCaffarello/stream-analytics/internal/contracts"
+	aggapp "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/app"
+	aggdomain "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
+	insightsapp "github.com/FabioCaffarello/stream-analytics/internal/core/insights/app"
+	insightsdomain "github.com/FabioCaffarello/stream-analytics/internal/core/insights/domain"
+	insightsports "github.com/FabioCaffarello/stream-analytics/internal/core/insights/ports"
+	mddomain "github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/codec"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	sharedhash "github.com/FabioCaffarello/stream-analytics/internal/shared/hash"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/naming"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/policykit"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 	"github.com/anthdm/hollywood/actor"
-	actorruntime "github.com/market-raccoon/internal/actors/runtime"
-	aggapp "github.com/market-raccoon/internal/core/aggregation/app"
-	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
-	insightsapp "github.com/market-raccoon/internal/core/insights/app"
-	insightsdomain "github.com/market-raccoon/internal/core/insights/domain"
-	insightsports "github.com/market-raccoon/internal/core/insights/ports"
-	mddomain "github.com/market-raccoon/internal/core/marketdata/domain"
-	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/contracts"
-	"github.com/market-raccoon/internal/shared/envelope"
-	sharedhash "github.com/market-raccoon/internal/shared/hash"
-	"github.com/market-raccoon/internal/shared/metrics"
-	"github.com/market-raccoon/internal/shared/observability"
-	"github.com/market-raccoon/internal/shared/policykit"
-	"github.com/market-raccoon/internal/shared/problem"
 )
 
 const (
-	typeBookDelta   = "marketdata.bookdelta"
-	typeTrade       = "marketdata.trade"
-	typeRaw         = "marketdata.raw"
-	typeLiquidation = "marketdata.liquidation"
-	typeMarkPrice   = "marketdata.markprice"
+	typeBookDelta    = "marketdata.bookdelta"
+	typeTrade        = "marketdata.trade"
+	typeRaw          = "marketdata.raw"
+	typeLiquidation  = "marketdata.liquidation"
+	typeMarkPrice    = "marketdata.markprice"
+	typeOpenInterest = "marketdata.open_interest"
+	typeXVenueBook   = "aggregation.crossvenue_book"
+
+	xVenueBookVersion = 1
+	xVenueBookVenue   = "crossvenue"
 
 	reasonCodeDecodeFailed        = "DECODE_FAILED"
 	reasonCodeValidationFailed    = "VALIDATION_FAILED"
 	reasonCodeUnknownEventType    = "UNKNOWN_EVENT_TYPE"
 	reasonCodeUnknownEventVersion = "UNKNOWN_EVENT_VERSION"
 
-	metaKeyMarketType        = "instrument_market_type"
-	metaKeySubjectPrefix     = "subject_prefix"
-	metaKeyTimeframe         = "timeframe"
-	defaultInsightsTimeframe = "1m"
-	defaultInsightsTickSize  = 0.5
+	metaKeyMarketType                = "instrument_market_type"
+	metaKeySubjectPrefix             = "subject_prefix"
+	metaKeyTimeframe                 = "timeframe"
+	defaultInsightsTimeframe         = "1m"
+	defaultInsightsTickSize          = 0.5
+	insightsHeatmapBookLevelsPerSide = 8
+
+	defaultXVenueStaleThreshold = 30 * time.Second
+	defaultXVenueMaxInstruments = 2048
+	defaultXVenueMaxVenues      = 6
 )
 
 type heartbeatTickMsg struct{}
@@ -112,6 +123,10 @@ type ProcessorConfig struct {
 
 	// JoinTrades is the optional insights use case for cross-venue trade joins.
 	JoinTrades *insightsapp.JoinCrossVenueTrades
+	// CrossVenueMerger merges venue top-of-book snapshots into synthetic global view.
+	CrossVenueMerger aggdomain.CrossVenueBookMerger
+	// CrossVenue configures synthetic cross-venue book snapshots derived from order book updates.
+	CrossVenue ProcessorCrossVenueConfig
 	// Insights is the optional insights facade for in-memory builders and snapshot queries.
 	Insights *insightsapp.InsightsService
 
@@ -127,6 +142,21 @@ type ProcessorConfig struct {
 
 	// RTPublish controls timer-driven snapshot publishing.
 	RTPublish ProcessorRTPublishConfig
+	// CatchUpSkipBookDeltaSkew, when > 0, skips stale marketdata.bookdelta
+	// envelopes while the processor is catching up (based on ingest watermark skew).
+	// This is intended for local/dev throughput relief and is disabled by default.
+	CatchUpSkipBookDeltaSkew time.Duration
+	// CatchUpSkipTradeSkew, when > 0, skips stale marketdata.trade envelopes
+	// while the processor is catching up (based on ingest watermark skew).
+	// This is intended for local/dev throughput relief and is disabled by default.
+	CatchUpSkipTradeSkew time.Duration
+	// CatchUpSkipStatsSkew, when > 0, skips stale marketdata.liquidation and
+	// marketdata.markprice envelopes while the processor is catching up
+	// (based on ingest watermark skew). This is intended for local/dev throughput
+	// relief and is disabled by default.
+	CatchUpSkipStatsSkew time.Duration
+	// InsightsTimeframes lists TFs for heatmap/VPVR generation. Default: ["1m"].
+	InsightsTimeframes []string
 	// TickerProducer overrides ticker actor creation (tests only).
 	TickerProducer actor.Producer
 
@@ -142,13 +172,33 @@ type ProcessorConfig struct {
 	PolicyKitBacklogCapacity int
 	// PolicyKitResolver customizes subject category mapping.
 	PolicyKitResolver policykit.CategoryResolver
+
+	// Fusion controls multi-venue fused depth snapshot behavior.
+	Fusion ProcessorFusionConfig
+
+	// Now is an optional clock source for runtime decisions/log throttling.
+	// When nil, time.Now is used.
+	Now func() time.Time
+}
+
+// ProcessorCrossVenueConfig controls deterministic cross-venue snapshot behavior.
+type ProcessorCrossVenueConfig struct {
+	// Enabled toggles synthetic cross-venue snapshot publishing on book updates.
+	Enabled bool
+	// StaleThreshold excludes venue books whose last ingest timestamp is older than threshold.
+	StaleThreshold time.Duration
+	// MaxInstruments bounds active instrument partitions kept in memory.
+	MaxInstruments int
+	// MaxVenues bounds venue top-of-book entries per instrument.
+	MaxVenues int
 }
 
 // ProcessorRTPublishConfig controls timer-driven publish cadence.
 type ProcessorRTPublishConfig struct {
-	OrderbookInterval time.Duration
-	HeatmapInterval   time.Duration
-	VolumeInterval    time.Duration
+	OrderbookInterval  time.Duration
+	WsSnapshotDepthCap int
+	HeatmapInterval    time.Duration
+	VolumeInterval     time.Duration
 }
 
 const (
@@ -159,6 +209,12 @@ const (
 	heartbeatTickInterval = 10 * time.Second
 	// heartbeatLogInterval bounds timer-driven heartbeat emission frequency.
 	heartbeatLogInterval = 20 * time.Second
+	// When processor ingest is far behind wall clock, periodic snapshots become stale
+	// and expensive; defer them temporarily so the actor can catch up on envelopes.
+	snapshotTickDeferSkewThreshold = 30 * time.Second
+	snapshotTickDeferLogInterval   = 20 * time.Second
+	// policyPartitionCacheCap bounds interned "type|venue|instrument" keys used by PolicyKit.
+	policyPartitionCacheCap = 4096
 )
 
 // ProcessorSubsystemActor consumes envelopes from a channel and dispatches
@@ -179,20 +235,39 @@ type ProcessorSubsystemActor struct {
 	policyApplier    *policykit.Applier
 	policyLevels     map[string]policykit.Level
 	policyPartitions map[string]string // intern cache: "type|venue|instrument" → same string
+	policyPartitionQ []string          // deterministic FIFO ring for bounded partition eviction.
+	policyPartitionI int
 	shuttingDown     bool
 	tickerPID        *actor.PID
 
-	activeOrderBooks map[aggdomain.BookID]struct{}
-	activeHeatmaps   map[insightsapp.HeatmapSnapshotKey]struct{}
-	activeVolumes    map[insightsapp.VolumeProfileSnapshotKey]struct{}
+	activeOrderBooks      map[aggdomain.BookID]struct{}
+	lastOrderBookUpdateAt map[aggdomain.BookID]time.Time
+	lastOrderBookSnapshot map[aggdomain.BookID]orderBookSnapshotSignature
+	activeHeatmaps        map[insightsapp.HeatmapSnapshotKey]struct{}
+	activeVolumes         map[insightsapp.VolumeProfileSnapshotKey]struct{}
+
+	crossVenueBooks       map[string]map[string]aggdomain.CrossVenueVenueBook
+	crossVenueInstrumentQ []string
+	crossVenueSeq         map[string]int64
+	fusionSeq             map[string]int64
 
 	// heartbeat state — pure runtime counters, not persisted.
-	hbTotal         int64
-	hbByType        map[string]int64
-	hbLastSubject   string
-	hbLastStreamSeq int64
-	hbLastTsIngest  int64
-	hbLastEmitAt    time.Time
+	hbTotal                       int64
+	hbByType                      map[string]int64
+	hbLastSubject                 string
+	hbLastStreamSeq               int64
+	hbLastTsIngest                int64
+	hbLastEmitAt                  time.Time
+	snapshotTickDeferLastLogAt    time.Time
+	bookDeltaCatchUpSkipLastLogAt time.Time
+	tradeCatchUpSkipLastLogAt     time.Time
+	liquidationCatchUpSkipLogAt   time.Time
+	markPriceCatchUpSkipLogAt     time.Time
+}
+
+type orderBookSnapshotSignature struct {
+	Seq      int64
+	Checksum uint32
 }
 
 // NewProcessorSubsystemActor returns a hollywood actor.Producer for the
@@ -246,11 +321,38 @@ func (p *ProcessorSubsystemActor) ensureDefaults() {
 	if p.activeOrderBooks == nil {
 		p.activeOrderBooks = make(map[aggdomain.BookID]struct{})
 	}
+	if p.lastOrderBookUpdateAt == nil {
+		p.lastOrderBookUpdateAt = make(map[aggdomain.BookID]time.Time)
+	}
+	if p.lastOrderBookSnapshot == nil {
+		p.lastOrderBookSnapshot = make(map[aggdomain.BookID]orderBookSnapshotSignature)
+	}
 	if p.activeHeatmaps == nil {
 		p.activeHeatmaps = make(map[insightsapp.HeatmapSnapshotKey]struct{})
 	}
 	if p.activeVolumes == nil {
 		p.activeVolumes = make(map[insightsapp.VolumeProfileSnapshotKey]struct{})
+	}
+	if p.crossVenueBooks == nil {
+		p.crossVenueBooks = make(map[string]map[string]aggdomain.CrossVenueVenueBook)
+	}
+	if p.crossVenueSeq == nil {
+		p.crossVenueSeq = make(map[string]int64)
+	}
+	if p.cfg.CrossVenue.StaleThreshold <= 0 {
+		p.cfg.CrossVenue.StaleThreshold = defaultXVenueStaleThreshold
+	}
+	if p.cfg.CrossVenue.MaxInstruments <= 0 {
+		p.cfg.CrossVenue.MaxInstruments = defaultXVenueMaxInstruments
+	}
+	if p.cfg.CrossVenue.MaxVenues <= 0 {
+		p.cfg.CrossVenue.MaxVenues = defaultXVenueMaxVenues
+	}
+	if p.cfg.CrossVenueMerger == nil {
+		p.cfg.CrossVenueMerger = aggdomain.DeterministicCrossVenueBookMerger{}
+	}
+	if p.cfg.RTPublish.WsSnapshotDepthCap <= 0 {
+		p.cfg.RTPublish.WsSnapshotDepthCap = 50
 	}
 	if p.cfg.PolicyKitEngine != nil {
 		if p.policyApplier == nil {
@@ -261,6 +363,9 @@ func (p *ProcessorSubsystemActor) ensureDefaults() {
 		}
 		if p.policyPartitions == nil {
 			p.policyPartitions = make(map[string]string)
+		}
+		if p.policyPartitionQ == nil {
+			p.policyPartitionQ = make([]string, 0, policyPartitionCacheCap)
 		}
 	}
 }
@@ -368,10 +473,16 @@ func (p *ProcessorSubsystemActor) handleEnvelope(_ *actor.Context, env envelope.
 		if env.Version != 1 {
 			return unsupportedVersionProblem(env.Type, env.Version)
 		}
+		if p.shouldSkipBookDeltaForCatchUp(env) {
+			return nil
+		}
 		return p.handleBookDelta(env)
 	case typeTrade:
 		if env.Version != 1 {
 			return unsupportedVersionProblem(env.Type, env.Version)
+		}
+		if p.shouldSkipTradeForCatchUp(env) {
+			return nil
 		}
 		if p.candleEnabled() && p.cfg.Service != nil && p.cfg.Service.Candle != nil {
 			if prob := p.handleTradeForCandle(env); prob != nil {
@@ -395,6 +506,35 @@ func (p *ProcessorSubsystemActor) handleEnvelope(_ *actor.Context, env envelope.
 					)
 				}
 			}
+		} else if !p.candleEnabled() {
+			metrics.IncIngestDrop("candle_route_disabled")
+		} else {
+			metrics.IncIngestDrop("candle_route_unconfigured")
+		}
+		if p.cfg.Service != nil && p.cfg.Service.Tape != nil {
+			if prob := p.handleTradeForTape(env); prob != nil {
+				if isBenignStreamOrderProblem(prob) {
+					p.logger.Debug("aggruntime: BuildTape ignored stale event",
+						"venue", env.Venue,
+						"instrument", env.Instrument,
+						"market_type", envelopeMarketType(env),
+						"seq", env.Seq,
+						"code", prob.Code,
+						"reason", prob.Message,
+					)
+				} else {
+					p.logger.Warn("aggruntime: BuildTape failed",
+						"venue", env.Venue,
+						"instrument", env.Instrument,
+						"market_type", envelopeMarketType(env),
+						"seq", env.Seq,
+						"code", prob.Code,
+						"reason", prob.Message,
+					)
+				}
+			}
+		} else {
+			metrics.IncIngestDrop("tape_route_unconfigured")
 		}
 		if prob := p.handleTradeForRealtimeInsights(env); prob != nil {
 			p.logger.Warn("aggruntime: realtime insights trade handling failed",
@@ -412,12 +552,23 @@ func (p *ProcessorSubsystemActor) handleEnvelope(_ *actor.Context, env envelope.
 		if env.Version != 1 {
 			return unsupportedVersionProblem(env.Type, env.Version)
 		}
+		if p.shouldSkipLiquidationForCatchUp(env) {
+			return nil
+		}
 		return p.handleLiquidation(env)
 	case typeMarkPrice:
 		if env.Version != 1 {
 			return unsupportedVersionProblem(env.Type, env.Version)
 		}
+		if p.shouldSkipMarkPriceForCatchUp(env) {
+			return nil
+		}
 		return p.handleMarkPrice(env)
+	case typeOpenInterest:
+		if env.Version != 1 {
+			return unsupportedVersionProblem(env.Type, env.Version)
+		}
+		return p.handleOpenInterest(env)
 	case typeRaw:
 		if env.Version != 1 {
 			return unsupportedVersionProblem(env.Type, env.Version)
@@ -434,79 +585,11 @@ func (p *ProcessorSubsystemActor) handleEnvelope(_ *actor.Context, env envelope.
 	}
 }
 
-func (p *ProcessorSubsystemActor) applyPolicyKit(env envelope.Envelope) (envelope.Envelope, bool) {
-	if p.cfg.PolicyKitEngine == nil || p.policyApplier == nil {
-		return env, false
-	}
-	started := time.Now()
-
-	// Intern the partition key to avoid per-envelope allocations.
-	// The number of unique triples is small (bounded by type×venue×instrument),
-	// so the cache stays small while eliminating ~1.8M allocs/min.
-	partitionKey := env.Type + "|" + env.Venue + "|" + env.Instrument
-	partition, ok := p.policyPartitions[partitionKey]
-	if !ok {
-		partition = partitionKey
-		p.policyPartitions[partitionKey] = partition
-	}
-	prev := p.policyLevels[partition]
-	decision := p.cfg.PolicyKitEngine.Decide(prev, policykit.Signals{
-		Backlog:    len(p.cfg.EnvelopeCh),
-		BacklogCap: p.cfg.PolicyKitBacklogCapacity,
-	})
-	p.policyLevels[partition] = decision.Level
-	metrics.SetPolicyKitOverloadLevel(env.Type, env.Venue, env.Instrument, int(decision.Level))
-	stride := decision.DegradeStride()
-	enter, recover := activeThresholdsForLevel(decision.Level)
-	observability.UpdatePolicyKitOverload(observability.PolicyKitOverloadEntry{
-		Stream:        env.Type,
-		Venue:         env.Venue,
-		OverloadLevel: int(decision.Level),
-		Stride:        stride,
-		Thresholds: observability.PolicyKitThresholdPair{
-			Enter: observability.PolicyKitThreshold{
-				QueueRatio:   enter.QueueRatio,
-				BacklogRatio: enter.BacklogRatio,
-				MapRatio:     enter.MapRatio,
-				LatencyMs:    enter.LatencyMs,
-			},
-			Recover: observability.PolicyKitThreshold{
-				QueueRatio:   recover.QueueRatio,
-				BacklogRatio: recover.BacklogRatio,
-				MapRatio:     recover.MapRatio,
-				LatencyMs:    recover.LatencyMs,
-			},
-		},
-	})
-	if stride > 1 {
-		metrics.IncPolicyKitDegrade(env.Type, fmt.Sprintf("stride_%d", stride))
-	}
-
-	applied, keep := p.policyApplier.ApplySingle(decision, env, policykit.ApplyHooks{})
-	metrics.ObservePolicyKitLatencyMilliseconds(env.Type, float64(time.Since(started))/float64(time.Millisecond))
-	if !keep {
-		metrics.IncPolicyKitDrop(env.Type, "policy_drop")
-		return env, true
-	}
-	return applied, false
-}
-
-func activeThresholdsForLevel(level policykit.Level) (policykit.Threshold, policykit.Threshold) {
-	cfg := policykit.DefaultThresholdConfig()
-	switch level {
-	case policykit.L3:
-		return cfg.EnterL3, cfg.RecoverL3
-	case policykit.L2:
-		return cfg.EnterL2, cfg.RecoverL2
-	default:
-		return cfg.EnterL1, cfg.RecoverL1
-	}
-}
-
 // handleBookDelta decodes a BookDeltaV1 payload and calls UpdateOrderBook.
 func (p *ProcessorSubsystemActor) handleBookDelta(env envelope.Envelope) *problem.Problem {
 	if p.cfg.Service == nil || p.cfg.Service.UpdateBook == nil {
 		p.logger.Warn("aggruntime: no UpdateBook use case configured — dropping bookdelta")
+		metrics.IncIngestDrop("orderbook_route_unconfigured")
 		return problem.New(problem.ValidationFailed, "aggregation UpdateBook use case is not configured")
 	}
 
@@ -569,8 +652,29 @@ func (p *ProcessorSubsystemActor) handleBookDelta(env envelope.Envelope) *proble
 	}
 
 	resp := res.Value()
-	p.markOrderBookActive(env.Venue, orderBookInstrumentKey(env))
+	orderBookID := aggdomain.BookID{Venue: env.Venue, Instrument: orderBookInstrumentKey(env)}
+	p.markOrderBookActive(orderBookID.Venue, orderBookID.Instrument)
+	p.lastOrderBookUpdateAt[orderBookID] = p.clockNow()
+	metrics.SetMROrderBookStaleDuration(orderBookID.Venue, orderBookID.Instrument, 0)
 	p.handleBookDeltaForInsights(env, delta)
+	if prob := p.handleBookDeltaForCrossVenue(env, req.Instrument); prob != nil {
+		p.logger.Warn("aggruntime: cross-venue book merge failed",
+			"venue", env.Venue,
+			"instrument", env.Instrument,
+			"seq", req.Seq,
+			"code", prob.Code,
+			"message", prob.Message,
+		)
+	}
+	if prob := p.handleBookDeltaForFusion(env, req.Instrument); prob != nil {
+		p.logger.Warn("aggruntime: fused depth merge failed",
+			"venue", env.Venue,
+			"instrument", env.Instrument,
+			"seq", req.Seq,
+			"code", prob.Code,
+			"message", prob.Message,
+		)
+	}
 	p.logger.Debug("aggruntime: order book updated",
 		"venue", env.Venue,
 		"instrument", env.Instrument,
@@ -714,36 +818,105 @@ func (p *ProcessorSubsystemActor) handleBookDeltaForInsights(env envelope.Envelo
 		return
 	}
 
-	timeframe := defaultInsightsTimeframe
-	if len(delta.Bids) > 0 {
-		_ = p.cfg.Insights.Heatmap.Execute(context.Background(), insightsapp.BuildHeatmapRequest{
-			EventType:  env.Type,
-			Venue:      env.Venue,
-			Instrument: stateInstrumentKey(env),
-			Timeframe:  timeframe,
-			TickSize:   defaultInsightsTickSize,
-			Price:      delta.Bids[0].Price,
-			Size:       delta.Bids[0].Size,
-			Side:       "buy",
-			TsIngest:   env.TsIngest,
-			Seq:        env.Seq,
-		})
+	instrument := stateInstrumentKey(env)
+	for _, timeframe := range p.insightsTimeframes() {
+		bidDepth := min(len(delta.Bids), insightsHeatmapBookLevelsPerSide)
+		for i := 0; i < bidDepth; i++ {
+			bid := delta.Bids[i]
+			if bid.Price <= 0 || bid.Size <= 0 {
+				continue
+			}
+			_ = p.cfg.Insights.Heatmap.Execute(context.Background(), insightsapp.BuildHeatmapRequest{
+				EventType:  env.Type,
+				Venue:      env.Venue,
+				Instrument: instrument,
+				Timeframe:  timeframe,
+				TickSize:   defaultInsightsTickSize,
+				Price:      bid.Price,
+				Size:       bid.Size,
+				Side:       "buy",
+				TsIngest:   env.TsIngest,
+				Seq:        env.Seq,
+			})
+		}
+		askDepth := min(len(delta.Asks), insightsHeatmapBookLevelsPerSide)
+		for i := 0; i < askDepth; i++ {
+			ask := delta.Asks[i]
+			if ask.Price <= 0 || ask.Size <= 0 {
+				continue
+			}
+			_ = p.cfg.Insights.Heatmap.Execute(context.Background(), insightsapp.BuildHeatmapRequest{
+				EventType:  env.Type,
+				Venue:      env.Venue,
+				Instrument: instrument,
+				Timeframe:  timeframe,
+				TickSize:   defaultInsightsTickSize,
+				Price:      ask.Price,
+				Size:       ask.Size,
+				Side:       "sell",
+				TsIngest:   env.TsIngest,
+				Seq:        env.Seq,
+			})
+		}
+		p.markHeatmapActive(env.Venue, instrument, timeframe)
 	}
-	if len(delta.Asks) > 0 {
-		_ = p.cfg.Insights.Heatmap.Execute(context.Background(), insightsapp.BuildHeatmapRequest{
-			EventType:  env.Type,
-			Venue:      env.Venue,
-			Instrument: stateInstrumentKey(env),
-			Timeframe:  timeframe,
-			TickSize:   defaultInsightsTickSize,
-			Price:      delta.Asks[0].Price,
-			Size:       delta.Asks[0].Size,
-			Side:       "sell",
-			TsIngest:   env.TsIngest,
-			Seq:        env.Seq,
-		})
+}
+
+func sortedOrderBookKeys(active map[aggdomain.BookID]struct{}) []aggdomain.BookID {
+	if len(active) == 0 {
+		return nil
 	}
-	p.markHeatmapActive(env.Venue, stateInstrumentKey(env), timeframe)
+	keys := make([]aggdomain.BookID, 0, len(active))
+	for key := range active {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].Venue != keys[j].Venue {
+			return strings.Compare(keys[i].Venue, keys[j].Venue) < 0
+		}
+		return strings.Compare(keys[i].Instrument, keys[j].Instrument) < 0
+	})
+	return keys
+}
+
+func sortedHeatmapKeys(active map[insightsapp.HeatmapSnapshotKey]struct{}) []insightsapp.HeatmapSnapshotKey {
+	if len(active) == 0 {
+		return nil
+	}
+	keys := make([]insightsapp.HeatmapSnapshotKey, 0, len(active))
+	for key := range active {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].Venue != keys[j].Venue {
+			return strings.Compare(keys[i].Venue, keys[j].Venue) < 0
+		}
+		if keys[i].Instrument != keys[j].Instrument {
+			return strings.Compare(keys[i].Instrument, keys[j].Instrument) < 0
+		}
+		return strings.Compare(keys[i].Timeframe, keys[j].Timeframe) < 0
+	})
+	return keys
+}
+
+func sortedVolumeKeys(active map[insightsapp.VolumeProfileSnapshotKey]struct{}) []insightsapp.VolumeProfileSnapshotKey {
+	if len(active) == 0 {
+		return nil
+	}
+	keys := make([]insightsapp.VolumeProfileSnapshotKey, 0, len(active))
+	for key := range active {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].Venue != keys[j].Venue {
+			return strings.Compare(keys[i].Venue, keys[j].Venue) < 0
+		}
+		if keys[i].Instrument != keys[j].Instrument {
+			return strings.Compare(keys[i].Instrument, keys[j].Instrument) < 0
+		}
+		return strings.Compare(keys[i].Timeframe, keys[j].Timeframe) < 0
+	})
+	return keys
 }
 
 func (p *ProcessorSubsystemActor) handleTradeForInsights(env envelope.Envelope, trade mddomain.TradeTickV1) {
@@ -751,39 +924,41 @@ func (p *ProcessorSubsystemActor) handleTradeForInsights(env envelope.Envelope, 
 		return
 	}
 
-	timeframe := defaultInsightsTimeframe
-	if p.cfg.Insights.Heatmap != nil {
-		res := p.cfg.Insights.Heatmap.Execute(context.Background(), insightsapp.BuildHeatmapRequest{
-			EventType:  env.Type,
-			Venue:      env.Venue,
-			Instrument: stateInstrumentKey(env),
-			Timeframe:  timeframe,
-			TickSize:   defaultInsightsTickSize,
-			Price:      trade.Price,
-			Size:       trade.Size,
-			Side:       trade.Side,
-			TsIngest:   env.TsIngest,
-			Seq:        env.Seq,
-		})
-		if res.IsOk() {
-			p.markHeatmapActive(env.Venue, stateInstrumentKey(env), timeframe)
+	instrument := stateInstrumentKey(env)
+	for _, timeframe := range p.insightsTimeframes() {
+		if p.cfg.Insights.Heatmap != nil {
+			res := p.cfg.Insights.Heatmap.Execute(context.Background(), insightsapp.BuildHeatmapRequest{
+				EventType:  env.Type,
+				Venue:      env.Venue,
+				Instrument: instrument,
+				Timeframe:  timeframe,
+				TickSize:   defaultInsightsTickSize,
+				Price:      trade.Price,
+				Size:       trade.Size,
+				Side:       trade.Side,
+				TsIngest:   env.TsIngest,
+				Seq:        env.Seq,
+			})
+			if res.IsOk() {
+				p.markHeatmapActive(env.Venue, instrument, timeframe)
+			}
 		}
-	}
-	if p.cfg.Insights.VolumeProfile != nil {
-		res := p.cfg.Insights.VolumeProfile.Execute(context.Background(), insightsapp.BuildVolumeProfileRequest{
-			EventType:  env.Type,
-			Venue:      env.Venue,
-			Instrument: stateInstrumentKey(env),
-			Timeframe:  timeframe,
-			TickSize:   defaultInsightsTickSize,
-			Price:      trade.Price,
-			Size:       trade.Size,
-			Side:       trade.Side,
-			TsIngest:   env.TsIngest,
-			Seq:        env.Seq,
-		})
-		if res.IsOk() && res.Value().Emitted {
-			p.markVolumeActive(env.Venue, stateInstrumentKey(env), timeframe)
+		if p.cfg.Insights.VolumeProfile != nil {
+			res := p.cfg.Insights.VolumeProfile.Execute(context.Background(), insightsapp.BuildVolumeProfileRequest{
+				EventType:  env.Type,
+				Venue:      env.Venue,
+				Instrument: instrument,
+				Timeframe:  timeframe,
+				TickSize:   defaultInsightsTickSize,
+				Price:      trade.Price,
+				Size:       trade.Size,
+				Side:       trade.Side,
+				TsIngest:   env.TsIngest,
+				Seq:        env.Seq,
+			})
+			if res.IsOk() && res.Value().Emitted {
+				p.markVolumeActive(env.Venue, instrument, timeframe)
+			}
 		}
 	}
 }
@@ -831,12 +1006,54 @@ func (p *ProcessorSubsystemActor) handleTradeForCandle(env envelope.Envelope) *p
 	return nil
 }
 
+func (p *ProcessorSubsystemActor) handleTradeForTape(env envelope.Envelope) *problem.Problem {
+	if p.cfg.Service == nil || p.cfg.Service.Tape == nil {
+		return nil
+	}
+
+	decoded, prob := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
+	if prob != nil {
+		return problem.WithDetail(prob, "reason_code", reasonCodeDecodeFailed)
+	}
+	trade, ok := decoded.(mddomain.TradeTickV1)
+	if !ok {
+		return problem.WithDetail(
+			problem.Newf(problem.ValidationFailed, "decoded trade payload type mismatch: got %T", decoded),
+			"reason_code", reasonCodeValidationFailed,
+		)
+	}
+	req := aggapp.BuildTapeRequest{
+		Venue:      env.Venue,
+		Instrument: stateInstrumentKey(env),
+		Price:      trade.Price,
+		Quantity:   trade.Size,
+		IsBuy:      strings.EqualFold(trade.Side, "buy"),
+		Seq:        env.Seq,
+		TsIngest:   env.TsIngest,
+	}
+	resp, prob := p.cfg.Service.Tape.Execute(context.Background(), req)
+	if prob != nil {
+		return prob
+	}
+	if len(resp.ClosedWindows) > 0 {
+		p.logger.Debug("aggruntime: tape windows closed",
+			"venue", env.Venue,
+			"instrument", env.Instrument,
+			"closed_count", len(resp.ClosedWindows),
+			"active_windows", resp.ActiveWindows,
+		)
+	}
+	return nil
+}
+
 func (p *ProcessorSubsystemActor) handleLiquidation(env envelope.Envelope) *problem.Problem {
 	if !p.statsEnabled() {
+		metrics.IncIngestDrop("stats_route_disabled")
 		return nil
 	}
 	if p.cfg.Service == nil || p.cfg.Service.Stats == nil {
 		p.logger.Warn("aggruntime: no Stats use case configured — dropping liquidation")
+		metrics.IncIngestDrop("stats_route_unconfigured")
 		return nil
 	}
 
@@ -887,10 +1104,12 @@ func (p *ProcessorSubsystemActor) handleLiquidation(env envelope.Envelope) *prob
 
 func (p *ProcessorSubsystemActor) handleMarkPrice(env envelope.Envelope) *problem.Problem {
 	if !p.statsEnabled() {
+		metrics.IncIngestDrop("stats_route_disabled")
 		return nil
 	}
 	if p.cfg.Service == nil || p.cfg.Service.Stats == nil {
 		p.logger.Warn("aggruntime: no Stats use case configured — dropping markprice")
+		metrics.IncIngestDrop("stats_route_unconfigured")
 		return nil
 	}
 
@@ -951,6 +1170,49 @@ func (p *ProcessorSubsystemActor) handleMarkPrice(env envelope.Envelope) *proble
 			"instrument", env.Instrument,
 			"closed_count", len(resp.Closed),
 		)
+	}
+	return nil
+}
+
+func (p *ProcessorSubsystemActor) handleOpenInterest(env envelope.Envelope) *problem.Problem {
+	if p.cfg.Service == nil || p.cfg.Service.OpenInterest == nil {
+		metrics.IncIngestDrop("open_interest_route_unconfigured")
+		return nil
+	}
+
+	decoded, prob := codec.DecodePayload(env.Type, env.Version, env.ContentType, env.Payload)
+	if prob != nil {
+		return problem.WithDetail(prob, "reason_code", reasonCodeDecodeFailed)
+	}
+	oi, ok := decoded.(mddomain.OpenInterestTickV1)
+	if !ok {
+		return problem.WithDetail(
+			problem.Newf(problem.ValidationFailed, "decoded open_interest type mismatch: got %T", decoded),
+			"reason_code", reasonCodeValidationFailed,
+		)
+	}
+	req := aggapp.BuildOpenInterestRequest{
+		Venue:        env.Venue,
+		Instrument:   stateInstrumentKey(env),
+		OpenInterest: oi.OpenInterest,
+		Seq:          env.Seq,
+		TsIngest:     env.TsIngest,
+		Timestamp:    oi.Timestamp,
+	}
+	_, prob = p.cfg.Service.OpenInterest.Execute(context.Background(), req)
+	if prob != nil {
+		if isBenignStreamOrderProblem(prob) {
+			p.logger.Debug("aggruntime: BuildOpenInterest ignored stale open_interest",
+				"venue", env.Venue,
+				"instrument", env.Instrument,
+				"market_type", envelopeMarketType(env),
+				"seq", env.Seq,
+				"code", prob.Code,
+				"reason", prob.Message,
+			)
+			return nil
+		}
+		return prob
 	}
 	return nil
 }
@@ -1044,6 +1306,13 @@ func (p *ProcessorSubsystemActor) markOrderBookActive(venue, instrument string) 
 	}] = struct{}{}
 }
 
+func (p *ProcessorSubsystemActor) insightsTimeframes() []string {
+	if len(p.cfg.InsightsTimeframes) > 0 {
+		return p.cfg.InsightsTimeframes
+	}
+	return []string{defaultInsightsTimeframe}
+}
+
 func (p *ProcessorSubsystemActor) markHeatmapActive(venue, instrument, timeframe string) {
 	p.activeHeatmaps[insightsapp.HeatmapSnapshotKey{
 		Venue:      venue,
@@ -1060,34 +1329,27 @@ func (p *ProcessorSubsystemActor) markVolumeActive(venue, instrument, timeframe 
 	}] = struct{}{}
 }
 
-func (p *ProcessorSubsystemActor) handleSnapshotTick(msg SnapshotTick) {
-	if p.shuttingDown || p.cfg.PublishEnvelope == nil {
-		return
-	}
-
-	switch msg.Kind {
-	case SnapshotTickOrderBook:
-		p.publishOrderBookSnapshots()
-	case SnapshotTickHeatmap:
-		p.publishHeatmapSnapshots()
-	case SnapshotTickVolume:
-		p.publishVolumeSnapshots()
-	}
-}
-
 func (p *ProcessorSubsystemActor) publishOrderBookSnapshots() {
 	if p.cfg.Service == nil {
 		return
 	}
-	for key := range p.activeOrderBooks {
+	for _, key := range sortedOrderBookKeys(p.activeOrderBooks) {
 		res := p.cfg.Service.SnapshotOrderBook(context.Background(), key)
 		if res.IsFail() {
 			continue
 		}
-		env, prob := buildOrderbookSnapshotEnvelope(res.Value(), time.Now().UnixMilli())
+		capped := res.Value().Capped(p.cfg.RTPublish.WsSnapshotDepthCap, p.publishTimestampMs())
+		env, prob := buildOrderbookSnapshotEnvelope(capped)
 		if prob != nil {
 			continue
 		}
+		metrics.ObserveMROrderBookPublishDepth(key.Venue, "bid", len(capped.Bids))
+		metrics.ObserveMROrderBookPublishDepth(key.Venue, "ask", len(capped.Asks))
+		metrics.ObserveMROrderBookWireBytes(key.Venue, len(env.Payload))
+		if prev, ok := p.lastOrderBookSnapshot[key]; ok && prev.Seq == capped.Seq && prev.Checksum != capped.Checksum {
+			metrics.IncMROrderBookChecksumMismatch(key.Venue, key.Instrument)
+		}
+		p.lastOrderBookSnapshot[key] = orderBookSnapshotSignature{Seq: capped.Seq, Checksum: capped.Checksum}
 		if prob := p.cfg.PublishEnvelope.Publish(context.Background(), env); prob != nil {
 			p.logger.Warn("aggruntime: publish orderbook snapshot tick failed",
 				"venue", key.Venue,
@@ -1098,16 +1360,31 @@ func (p *ProcessorSubsystemActor) publishOrderBookSnapshots() {
 	}
 }
 
+func (p *ProcessorSubsystemActor) emitOrderBookStaleDurations(now time.Time) {
+	for _, key := range sortedOrderBookKeys(p.activeOrderBooks) {
+		lastUpdate, ok := p.lastOrderBookUpdateAt[key]
+		if !ok || lastUpdate.IsZero() {
+			metrics.SetMROrderBookStaleDuration(key.Venue, key.Instrument, 0)
+			continue
+		}
+		age := now.Sub(lastUpdate)
+		if age < 0 {
+			age = 0
+		}
+		metrics.SetMROrderBookStaleDuration(key.Venue, key.Instrument, age.Seconds())
+	}
+}
+
 func (p *ProcessorSubsystemActor) publishHeatmapSnapshots() {
 	if p.cfg.Insights == nil {
 		return
 	}
-	for key := range p.activeHeatmaps {
+	for _, key := range sortedHeatmapKeys(p.activeHeatmaps) {
 		res := p.cfg.Insights.SnapshotHeatmap(context.Background(), key)
 		if res.IsFail() {
 			continue
 		}
-		env, prob := buildHeatmapSnapshotEnvelope(res.Value(), time.Now().UnixMilli())
+		env, prob := buildHeatmapSnapshotEnvelope(res.Value(), p.publishTimestampMs())
 		if prob != nil {
 			continue
 		}
@@ -1136,12 +1413,12 @@ func (p *ProcessorSubsystemActor) publishVolumeSnapshots() {
 	if p.cfg.Insights == nil {
 		return
 	}
-	for key := range p.activeVolumes {
+	for _, key := range sortedVolumeKeys(p.activeVolumes) {
 		res := p.cfg.Insights.SnapshotVolumeProfile(context.Background(), key)
 		if res.IsFail() {
 			continue
 		}
-		env, prob := buildVolumeSnapshotEnvelope(res.Value(), time.Now().UnixMilli())
+		env, prob := buildVolumeSnapshotEnvelope(res.Value(), p.publishTimestampMs())
 		if prob != nil {
 			continue
 		}
@@ -1190,8 +1467,55 @@ func resolveContentType(eventType string) string {
 	return envelope.ContentTypeJSON
 }
 
-func buildOrderbookSnapshotEnvelope(snapshot aggdomain.SnapshotProduced, nowMs int64) (envelope.Envelope, *problem.Problem) {
-	payload, p := codec.Marshal(snapshot)
+func buildOrderbookSnapshotEnvelope(snapshot aggdomain.SnapshotProduced) (envelope.Envelope, *problem.Problem) {
+	contentType := resolveContentType("aggregation.snapshot")
+	wireDTO := contracts.AggregationSnapshotV2{
+		Venue:      snapshot.BookID.Venue,
+		Instrument: snapshot.BookID.Instrument,
+		Seq:        snapshot.Seq,
+		Bids:       make([]contracts.AggregationOrderBookLevelV1, len(snapshot.Bids)),
+		Asks:       make([]contracts.AggregationOrderBookLevelV1, len(snapshot.Asks)),
+	}
+	for i := range snapshot.Bids {
+		wireDTO.Bids[i] = contracts.AggregationOrderBookLevelV1{
+			Price:    float64(snapshot.Bids[i].Price),
+			Quantity: float64(snapshot.Bids[i].Quantity),
+		}
+	}
+	for i := range snapshot.Asks {
+		wireDTO.Asks[i] = contracts.AggregationOrderBookLevelV1{
+			Price:    float64(snapshot.Asks[i].Price),
+			Quantity: float64(snapshot.Asks[i].Quantity),
+		}
+	}
+	wireDTO.BestBidPrice = snapshot.BestBidPrice
+	wireDTO.BestAskPrice = snapshot.BestAskPrice
+	wireDTO.SpreadBPS = snapshot.SpreadBPS
+	wireDTO.Checksum = snapshot.Checksum
+	wireDTO.TsIngestMs = snapshot.TsIngestMs
+	wireDTO.BidCount = snapshot.BidCount
+	wireDTO.AskCount = snapshot.AskCount
+	wireDTO.DepthCap = snapshot.DepthCap
+	wireDTO.Version = snapshot.Version
+	if wireDTO.BidCount <= 0 {
+		wireDTO.BidCount = len(snapshot.Bids)
+	}
+	if wireDTO.AskCount <= 0 {
+		wireDTO.AskCount = len(snapshot.Asks)
+	}
+	if wireDTO.BestBidPrice <= 0 && len(snapshot.Bids) > 0 {
+		wireDTO.BestBidPrice = float64(snapshot.Bids[0].Price)
+	}
+	if wireDTO.BestAskPrice <= 0 && len(snapshot.Asks) > 0 {
+		wireDTO.BestAskPrice = float64(snapshot.Asks[0].Price)
+	}
+	if wireDTO.Checksum == 0 {
+		wireDTO.Checksum = aggdomain.ComputeOrderBookChecksum(snapshot.Bids, snapshot.Asks)
+	}
+	if wireDTO.Version <= 0 {
+		wireDTO.Version = 2
+	}
+	payload, p := codec.EncodePayload("aggregation.snapshot", 1, contentType, wireDTO)
 	if p != nil {
 		return envelope.Envelope{}, p
 	}
@@ -1199,17 +1523,16 @@ func buildOrderbookSnapshotEnvelope(snapshot aggdomain.SnapshotProduced, nowMs i
 		Type:        "aggregation.snapshot",
 		Version:     1,
 		Venue:       snapshot.BookID.Venue,
-		Instrument:  snapshot.BookID.Instrument,
-		TsIngest:    nowMs,
+		Instrument:  naming.StripMarketType(snapshot.BookID.Instrument),
+		TsIngest:    wireDTO.TsIngestMs,
 		Seq:         snapshot.Seq,
-		ContentType: envelope.ContentTypeJSON,
+		ContentType: contentType,
 		Payload:     payload,
 		IdempotencyKey: sharedhash.HashFieldsFast(
 			"aggregation.snapshot",
 			snapshot.BookID.Venue,
 			snapshot.BookID.Instrument,
 			strconv.FormatInt(snapshot.Seq, 10),
-			strconv.FormatInt(nowMs, 10),
 		),
 	}
 	if p := out.Validate(); p != nil {
@@ -1229,24 +1552,30 @@ func buildHeatmapSnapshotEnvelope(snapshot insightsdomain.HeatmapArtifactV1, now
 	if p != nil {
 		return envelope.Envelope{}, p
 	}
-	out := envelope.Envelope{
-		Type:        insightsdomain.HeatmapSnapshotType,
-		Version:     insightsdomain.HeatmapSnapshotVersion,
-		Venue:       snapshot.Venue,
-		Instrument:  snapshot.Instrument,
-		TsIngest:    nowMs,
-		Seq:         heatmapSeq(snapshot),
-		ContentType: ct,
-		Meta:        map[string]string{metaKeyTimeframe: snapshot.Timeframe},
-		Payload:     payload,
-		IdempotencyKey: sharedhash.HashFieldsFast(
+	idempotencyKey := insightsapp.HeatmapArtifactIdempotencyKey(snapshot)
+	if idempotencyKey == "" {
+		seq := heatmapSeq(snapshot)
+		idempotencyKey = sharedhash.HashFieldsFast(
 			insightsdomain.HeatmapSnapshotType,
 			snapshot.Venue,
 			snapshot.Instrument,
 			snapshot.Timeframe,
 			strconv.FormatInt(snapshot.WindowStartTs, 10),
-			strconv.FormatInt(nowMs, 10),
-		),
+			strconv.FormatInt(seq, 10),
+		)
+	}
+
+	out := envelope.Envelope{
+		Type:           insightsdomain.HeatmapSnapshotType,
+		Version:        insightsdomain.HeatmapSnapshotVersion,
+		Venue:          snapshot.Venue,
+		Instrument:     naming.StripMarketType(snapshot.Instrument),
+		TsIngest:       nowMs,
+		Seq:            heatmapSeq(snapshot),
+		ContentType:    ct,
+		Meta:           map[string]string{metaKeyTimeframe: snapshot.Timeframe},
+		Payload:        payload,
+		IdempotencyKey: idempotencyKey,
 	}
 	if p := out.Validate(); p != nil {
 		return envelope.Envelope{}, p
@@ -1269,7 +1598,7 @@ func buildVolumeSnapshotEnvelope(snapshot insightsdomain.VolumeProfileSnapshotV1
 		Type:        insightsdomain.VolumeProfileSnapshotType,
 		Version:     insightsdomain.VolumeProfileSnapshotVersion,
 		Venue:       snapshot.Venue,
-		Instrument:  snapshot.Instrument,
+		Instrument:  naming.StripMarketType(snapshot.Instrument),
 		TsIngest:    nowMs,
 		Seq:         volumeSeq(snapshot),
 		ContentType: ct,
@@ -1281,7 +1610,8 @@ func buildVolumeSnapshotEnvelope(snapshot insightsdomain.VolumeProfileSnapshotV1
 			snapshot.Instrument,
 			snapshot.Timeframe,
 			strconv.FormatInt(snapshot.WindowStartTs, 10),
-			strconv.FormatInt(nowMs, 10),
+			strconv.FormatInt(snapshot.WindowEndTs, 10),
+			strconv.FormatInt(volumeSeq(snapshot), 10),
 		),
 	}
 	if p := out.Validate(); p != nil {
@@ -1410,6 +1740,59 @@ func buildSpreadSignalEnvelope(
 	return out, nil
 }
 
+func buildCrossVenueBookEnvelope(
+	trigger envelope.Envelope,
+	instrumentKey string,
+	seq int64,
+	snapshot aggdomain.CrossVenueBookSnapshotV1,
+) (envelope.Envelope, *problem.Problem) {
+	if seq <= 0 {
+		return envelope.Envelope{}, problem.New(problem.ValidationFailed, "cross-venue seq must be > 0")
+	}
+	ct := resolveContentType(typeXVenueBook)
+	payload, p := codec.EncodePayload(
+		typeXVenueBook,
+		xVenueBookVersion,
+		ct,
+		snapshot,
+	)
+	if p != nil {
+		return envelope.Envelope{}, p
+	}
+
+	meta := make(map[string]string, 1)
+	if marketType := envelopeMarketType(trigger); marketType != "" {
+		meta[metaKeyMarketType] = marketType
+	}
+	if len(meta) == 0 {
+		meta = nil
+	}
+
+	out := envelope.Envelope{
+		Type:        typeXVenueBook,
+		Version:     xVenueBookVersion,
+		Venue:       xVenueBookVenue,
+		Instrument:  naming.StripMarketType(instrumentKey),
+		TsExchange:  trigger.TsExchange,
+		TsIngest:    snapshot.TsServerMs,
+		Seq:         seq,
+		ContentType: ct,
+		Meta:        meta,
+		Payload:     payload,
+		IdempotencyKey: sharedhash.HashFieldsFast(
+			typeXVenueBook,
+			strconv.Itoa(xVenueBookVersion),
+			strings.ToUpper(strings.TrimSpace(instrumentKey)),
+			strconv.FormatInt(seq, 10),
+			strings.TrimSpace(trigger.IdempotencyKey),
+		),
+	}
+	if p := out.Validate(); p != nil {
+		return envelope.Envelope{}, p
+	}
+	return out, nil
+}
+
 func unhandledTypeProblem(eventType string) *problem.Problem {
 	return problem.WithDetail(
 		problem.WithDetail(
@@ -1453,7 +1836,7 @@ func (p *ProcessorSubsystemActor) recordHeartbeat(env envelope.Envelope) {
 }
 
 func (p *ProcessorSubsystemActor) emitHeartbeat(force bool, trigger string) {
-	now := time.Now()
+	now := p.clockNow()
 	if !shouldEmitHeartbeat(now, p.hbLastEmitAt, force, heartbeatLogInterval) {
 		return
 	}
@@ -1479,6 +1862,23 @@ func shouldEmitHeartbeat(now, last time.Time, force bool, interval time.Duration
 		return true
 	}
 	return now.Sub(last) >= interval
+}
+
+func (p *ProcessorSubsystemActor) clockNow() time.Time {
+	if p.cfg.Now != nil {
+		return p.cfg.Now()
+	}
+	return time.Now()
+}
+
+// publishTimestampMs returns a deterministic publish timestamp for timer-driven
+// snapshots. Using the latest observed ingest watermark keeps replay output
+// byte-identical without depending on wall clock.
+func (p *ProcessorSubsystemActor) publishTimestampMs() int64 {
+	if p.hbLastTsIngest > 0 {
+		return p.hbLastTsIngest
+	}
+	return 1
 }
 
 // hbTopTypes returns the top-N event types by count as a compact string slice

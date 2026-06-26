@@ -8,11 +8,12 @@ import (
 	"strings"
 	"time"
 
-	common "github.com/market-raccoon/internal/adapters/exchange/common"
-	"github.com/market-raccoon/internal/core/marketdata/app"
-	"github.com/market-raccoon/internal/core/marketdata/domain"
-	"github.com/market-raccoon/internal/shared/naming"
-	"github.com/market-raccoon/internal/shared/problem"
+	common "github.com/FabioCaffarello/stream-analytics/internal/adapters/exchange/common"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/app"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/naming"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 const (
@@ -246,10 +247,8 @@ func parseTrade(data []byte, recvAt time.Time, marketType string) (app.IngestReq
 
 	tradeID := strings.TrimSpace(td.TradeID)
 	if tradeID == "" {
-		return app.IngestRequest{}, true, problem.WithDetail(
-			problem.New(problem.ValidationFailed, "bybit trade: trade id is empty"),
-			"reason", "missing_trade_id",
-		)
+		metrics.IncMRTradeBadValue(VenueBybit, "empty_trade_id")
+		return app.IngestRequest{}, true, nil
 	}
 
 	tsExchange := td.TradeTimeMs
@@ -258,6 +257,24 @@ func parseTrade(data []byte, recvAt time.Time, marketType string) (app.IngestReq
 	}
 	if tsExchange <= 0 {
 		tsExchange = recvAt.UnixMilli()
+	}
+	trade := domain.TradeTickV1{
+		Price:     price,
+		Size:      size,
+		Side:      side,
+		TradeID:   tradeID,
+		Timestamp: tsExchange,
+	}
+	if p := trade.Validate(); p != nil {
+		metrics.IncMRTradeBadValue(
+			VenueBybit,
+			common.ClassifyTradeValidationReason(trade.Price, trade.Size, trade.Side, trade.TradeID, trade.Timestamp),
+		)
+		return app.IngestRequest{}, true, nil
+	}
+	metrics.IncMRTradeIngest(VenueBybit)
+	if recvTs := recvAt.UnixMilli(); tsExchange > 0 && recvTs > tsExchange {
+		metrics.ObserveMRTradeLatency(VenueBybit, float64(recvTs-tsExchange)/1000.0)
 	}
 
 	return app.IngestRequest{
@@ -273,13 +290,7 @@ func parseTrade(data []byte, recvAt time.Time, marketType string) (app.IngestReq
 			tradeID,
 		),
 		Metadata: buildInstrumentMetadata(symbol, instrument, marketType),
-		Payload: domain.TradeTickV1{
-			Price:     price,
-			Size:      size,
-			Side:      side,
-			TradeID:   tradeID,
-			Timestamp: tsExchange,
-		},
+		Payload:  trade,
 	}, false, nil
 }
 
@@ -310,24 +321,9 @@ func parseOrderBookDelta(data []byte, recvAt time.Time, marketType string) (app.
 		return app.IngestRequest{}, true, p
 	}
 
-	firstID := msg.Data.Sequence
-	finalID := msg.Data.UpdateID
-	if firstID <= 0 {
-		firstID = finalID
-	}
-	if finalID <= 0 {
-		finalID = firstID
-	}
-	if firstID <= 0 || finalID <= 0 {
-		return app.IngestRequest{}, true, problem.WithDetail(
-			problem.New(problem.ValidationFailed, "bybit orderbook: update ids must be > 0"),
-			"reason", "missing_update_id",
-		)
-	}
-
-	prevFinal := msg.Data.PrevFinal
-	if prevFinal <= 0 && finalID > 1 {
-		prevFinal = finalID - 1
+	firstID, finalID, prevFinal, isSnapshot, p := resolveOrderBookWindow(msg)
+	if p != nil {
+		return app.IngestRequest{}, true, p
 	}
 
 	tsExchange := msg.Data.TsMs
@@ -352,12 +348,13 @@ func parseOrderBookDelta(data []byte, recvAt time.Time, marketType string) (app.
 		),
 		Metadata: buildInstrumentMetadata(symbol, instrument, marketType),
 		Payload: domain.BookDeltaV1{
-			Bids:      bids,
-			Asks:      asks,
-			FirstID:   firstID,
-			FinalID:   finalID,
-			PrevFinal: prevFinal,
-			Timestamp: tsExchange,
+			Bids:       bids,
+			Asks:       asks,
+			FirstID:    firstID,
+			FinalID:    finalID,
+			PrevFinal:  prevFinal,
+			Timestamp:  tsExchange,
+			IsSnapshot: isSnapshot,
 		},
 	}, false, nil
 }
@@ -380,24 +377,22 @@ func parseMarkPrice(data []byte, recvAt time.Time, marketType string) (app.Inges
 		)
 	}
 
-	markPriceRaw := strings.TrimSpace(msg.Data.MarkPrice)
-	if markPriceRaw == "" {
-		// Bybit can emit ticker updates without markPrice; skip silently.
-		return app.IngestRequest{}, true, nil
-	}
-	markPrice, err := strconv.ParseFloat(markPriceRaw, 64)
-	if err != nil || math.IsNaN(markPrice) || math.IsInf(markPrice, 0) || markPrice <= 0 {
-		// Non-finite/zero markPrice is non-actionable for our markprice event.
-		return app.IngestRequest{}, true, nil
-	}
-
-	indexPrice := 0.0
-	if strings.TrimSpace(msg.Data.IndexPrice) != "" {
-		indexPrice, err = strconv.ParseFloat(msg.Data.IndexPrice, 64)
-		if err != nil {
-			indexPrice = 0
+	markPrice, markPriceOK := parsePositiveFiniteFloat(msg.Data.MarkPrice)
+	indexPrice, indexPriceOK := parsePositiveFiniteFloat(msg.Data.IndexPrice)
+	if !markPriceOK {
+		// Bybit delta ticker updates can omit markPrice while still carrying indexPrice.
+		// Use indexPrice as deterministic fallback to avoid dropping actionable updates.
+		if indexPriceOK {
+			markPrice = indexPrice
+		} else {
+			return app.IngestRequest{}, true, nil
 		}
 	}
+	if !indexPriceOK {
+		indexPrice = 0
+	}
+
+	var err error
 	fundingRate := 0.0
 	if strings.TrimSpace(msg.Data.FundingRate) != "" {
 		fundingRate, err = strconv.ParseFloat(msg.Data.FundingRate, 64)
@@ -630,4 +625,58 @@ func rawInt64(obj map[string]json.RawMessage, key string) (int64, bool) {
 		return int64(f), true
 	}
 	return 0, false
+}
+
+func parsePositiveFiniteFloat(raw string) (float64, bool) {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return 0, false
+	}
+	out, err := strconv.ParseFloat(v, 64)
+	if err != nil || math.IsNaN(out) || math.IsInf(out, 0) || out <= 0 {
+		return 0, false
+	}
+	return out, true
+}
+
+func resolveOrderBookWindow(msg orderBookEnvelope) (firstID, finalID, prevFinal int64, isSnapshot bool, p *problem.Problem) {
+	isSnapshot = strings.EqualFold(strings.TrimSpace(msg.Type), "snapshot")
+
+	finalID = msg.Data.UpdateID
+	if finalID <= 0 {
+		finalID = msg.Data.Sequence
+	}
+	prevFinal = msg.Data.PrevFinal
+	if prevFinal <= 0 && finalID > 1 {
+		prevFinal = finalID - 1
+	}
+
+	if isSnapshot {
+		firstID = finalID
+		if firstID <= 0 {
+			firstID = msg.Data.Sequence
+		}
+	} else {
+		if prevFinal > 0 {
+			firstID = prevFinal + 1
+		}
+		if firstID <= 0 {
+			firstID = finalID
+		}
+	}
+
+	if firstID <= 0 || finalID <= 0 {
+		return 0, 0, 0, false, problem.WithDetail(
+			problem.New(problem.ValidationFailed, "bybit orderbook: update ids must be > 0"),
+			"reason", "missing_update_id",
+		)
+	}
+	if !isSnapshot && finalID < firstID {
+		return 0, 0, 0, false, problem.WithDetail(
+			problem.New(problem.ValidationFailed, "bybit orderbook: final update id must be >= first update id"),
+			"reason", "invalid_update_window",
+		)
+	}
+
+	return firstID, finalID, prevFinal, isSnapshot, nil
 }

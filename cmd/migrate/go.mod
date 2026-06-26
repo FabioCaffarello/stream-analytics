@@ -1,4 +1,4 @@
-module github.com/market-raccoon/cmd/migrate
+module github.com/FabioCaffarello/stream-analytics/cmd/migrate
 
 go 1.25.6
 
@@ -36,3 +36,7 @@ require (
 	golang.org/x/text v0.33.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/FabioCaffarello/stream-analytics/internal/actors => ../../internal/actors
+
+replace github.com/FabioCaffarello/stream-analytics/internal/core/delivery => ../../internal/core/delivery

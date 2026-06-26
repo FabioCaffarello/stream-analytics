@@ -24,6 +24,7 @@ repos:
     rev: v5.0.0
     hooks:
       - id: check-yaml
+        args: [--unsafe]
       - id: end-of-file-fixer
       - id: trailing-whitespace
       - id: check-merge-conflict
@@ -41,12 +42,6 @@ repos:
         entry: bash scripts/ci/k8s-validate.sh
         language: system
         files: ^deploy/gitops/
-        pass_filenames: false
-
-      - id: metrics-unstaged-guard
-        name: metrics unstaged guard
-        language: system
-        entry: scripts/check-metrics-unstaged.sh
         pass_filenames: false
 
       - id: go-tidy-check

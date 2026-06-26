@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 	"github.com/anthdm/hollywood/actor"
-	"github.com/market-raccoon/internal/shared/problem"
 )
 
 func TestSoak_Guardian_CrashRestart_500(t *testing.T) {

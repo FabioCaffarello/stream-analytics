@@ -6,11 +6,12 @@ import (
 	"strings"
 	"time"
 
-	common "github.com/market-raccoon/internal/adapters/exchange/common"
-	"github.com/market-raccoon/internal/core/marketdata/app"
-	"github.com/market-raccoon/internal/core/marketdata/domain"
-	"github.com/market-raccoon/internal/shared/naming"
-	"github.com/market-raccoon/internal/shared/problem"
+	common "github.com/FabioCaffarello/stream-analytics/internal/adapters/exchange/common"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/app"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/naming"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 const VenueHyperLiquid = "HYPERLIQUID"
@@ -137,7 +138,26 @@ func parseTrades(data json.RawMessage, recvAt time.Time, marketType string) (app
 		tradeID = common.TradeIDStringFromAny(entry.Tid)
 	}
 	if strings.TrimSpace(tradeID) == "" || tradeID == "0" {
-		return app.IngestRequest{}, true, problem.New(problem.ValidationFailed, "hyperliquid trades: trade id is empty")
+		metrics.IncMRTradeBadValue(VenueHyperLiquid, "empty_trade_id")
+		return app.IngestRequest{}, true, nil
+	}
+	trade := domain.TradeTickV1{
+		Price:     price,
+		Size:      size,
+		Side:      side,
+		TradeID:   tradeID,
+		Timestamp: tsExchange,
+	}
+	if p := trade.Validate(); p != nil {
+		metrics.IncMRTradeBadValue(
+			VenueHyperLiquid,
+			common.ClassifyTradeValidationReason(trade.Price, trade.Size, trade.Side, trade.TradeID, trade.Timestamp),
+		)
+		return app.IngestRequest{}, true, nil
+	}
+	metrics.IncMRTradeIngest(VenueHyperLiquid)
+	if recvTs := recvAt.UnixMilli(); tsExchange > 0 && recvTs > tsExchange {
+		metrics.ObserveMRTradeLatency(VenueHyperLiquid, float64(recvTs-tsExchange)/1000.0)
 	}
 
 	return app.IngestRequest{
@@ -153,13 +173,7 @@ func parseTrades(data json.RawMessage, recvAt time.Time, marketType string) (app
 			tradeID,
 		),
 		Metadata: buildInstrumentMetadata(entry.Coin, instrument, marketType),
-		Payload: domain.TradeTickV1{
-			Price:     price,
-			Size:      size,
-			Side:      side,
-			TradeID:   tradeID,
-			Timestamp: tsExchange,
-		},
+		Payload:  trade,
 	}, false, nil
 }
 

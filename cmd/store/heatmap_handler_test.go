@@ -5,13 +5,13 @@ import (
 	"log/slog"
 	"testing"
 
-	adapterstorage "github.com/market-raccoon/internal/adapters/storage"
-	"github.com/market-raccoon/internal/adapters/storage/clickhouse"
-	insightsdomain "github.com/market-raccoon/internal/core/insights/domain"
-	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/contracts"
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/problem"
+	adapterstorage "github.com/FabioCaffarello/stream-analytics/internal/adapters/storage"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/storage/clickhouse"
+	"github.com/FabioCaffarello/stream-analytics/internal/contracts"
+	insightsdomain "github.com/FabioCaffarello/stream-analytics/internal/core/insights/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/codec"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 type heatmapBatch struct {

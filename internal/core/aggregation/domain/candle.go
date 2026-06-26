@@ -4,14 +4,14 @@ import (
 	"math"
 	"strings"
 
-	"github.com/market-raccoon/internal/shared/problem"
-	"github.com/market-raccoon/internal/shared/validation"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/validation"
 )
 
 const candleFixedScale int64 = 100_000_000
 
 // AllowedCandleTimeframes defines the fixed candle timeframe set in v1.
-var AllowedCandleTimeframes = []string{"1m", "5m", "15m", "30m", "1h", "4h", "1d"}
+var AllowedCandleTimeframes = []string{"1s", "5s", "1m", "5m", "15m", "30m", "1h", "4h", "1d"}
 
 // CandleKey identifies one open candle state.
 type CandleKey struct {
@@ -38,22 +38,22 @@ func NewCandleKey(venue, instrument, timeframe string) (CandleKey, *problem.Prob
 
 // CandleV1 is the v1 OHLCV aggregate for one timeframe window.
 type CandleV1 struct {
-	Venue         string
-	Instrument    string
-	Timeframe     string
-	WindowStartTs int64
-	WindowEndTs   int64
-	Open          float64
-	High          float64
-	Low           float64
-	ClosePrice    float64
-	Volume        float64
-	BuyVolume     float64
-	SellVolume    float64
-	TradeCount    int64
-	SeqFirst      int64
-	SeqLast       int64
-	IsClosed      bool
+	Venue         string  `json:"Venue"`
+	Instrument    string  `json:"Instrument"`
+	Timeframe     string  `json:"Timeframe"`
+	WindowStartTs int64   `json:"WindowStartTs"`
+	WindowEndTs   int64   `json:"WindowEndTs"`
+	Open          float64 `json:"Open"`
+	High          float64 `json:"High"`
+	Low           float64 `json:"Low"`
+	ClosePrice    float64 `json:"ClosePrice"`
+	Volume        float64 `json:"Volume"`
+	BuyVolume     float64 `json:"BuyVolume"`
+	SellVolume    float64 `json:"SellVolume"`
+	TradeCount    int64   `json:"TradeCount"`
+	SeqFirst      int64   `json:"SeqFirst"`
+	SeqLast       int64   `json:"SeqLast"`
+	IsClosed      bool    `json:"IsClosed"`
 
 	openFixed       int64
 	highFixed       int64

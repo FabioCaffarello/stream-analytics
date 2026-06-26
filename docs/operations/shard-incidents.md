@@ -4,7 +4,7 @@
 **Last updated:** 2026-02-19
 
 Operational runbook for diagnosing and resolving shard-related incidents in
-Market Raccoon processor deployments.
+Stream Analytics processor deployments.
 
 > **Prerequisites:** Familiarity with [sharding overview](sharding.md) and
 > access to Prometheus/Grafana dashboards.
@@ -19,7 +19,7 @@ Market Raccoon processor deployments.
 | `ShardLagBudgetExceeded`    | critical | Shard lag exceeds configured `max_lag` budget   | 3 min       |
 | `ShardConsumerHighLag`      | warning  | Shard consumer lag > 10 000 messages            | 5 min       |
 
-Alert rules are defined in [`deploy/observability/prometheus/shard-alerts.rules.yml`](../../deploy/observability/prometheus/shard-alerts.rules.yml).
+Alert rules are defined in [`deploy/observability/prometheus/shard-alerts.rules.yml`](https://github.com/FabioCaffarello/stream-analytics/blob/main/deploy/observability/prometheus/shard-alerts.rules.yml).
 
 ---
 

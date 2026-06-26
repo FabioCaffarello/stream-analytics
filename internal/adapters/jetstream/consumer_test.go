@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/metrics"
-	"github.com/market-raccoon/internal/shared/observability"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/observability"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 	"github.com/nats-io/nats.go"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
@@ -81,6 +81,26 @@ func TestAckWithDisposition_AckUsesAckSyncWhenAvailable(t *testing.T) {
 	}
 	if msg.ackCalls != 0 {
 		t.Fatalf("ack calls=%d want=0 when AckSync is available", msg.ackCalls)
+	}
+}
+
+func TestShouldContinueAfterConsumeError_AckFailedRetryableOnly(t *testing.T) {
+	retryableAckFailed := problem.WithRetryable(problem.WithDetail(
+		problem.New(problem.Unavailable, "jetstream ack operation failed"),
+		"kind", "ack_failed",
+	))
+	if !shouldContinueAfterConsumeError(retryableAckFailed) {
+		t.Fatal("expected retryable ack_failed to continue consume loop")
+	}
+
+	nonRetryable := problem.WithDetail(problem.New(problem.Unavailable, "jetstream ack operation failed"), "kind", "ack_failed")
+	if shouldContinueAfterConsumeError(nonRetryable) {
+		t.Fatal("expected non-retryable ack_failed to remain fatal")
+	}
+
+	otherKind := problem.WithRetryable(problem.WithDetail(problem.New(problem.Unavailable, "fetch failed"), "kind", "fetch_failed"))
+	if shouldContinueAfterConsumeError(otherKind) {
+		t.Fatal("expected non-ack transport failures to remain fatal")
 	}
 }
 

@@ -12,7 +12,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates wget \
-    && addgroup -S app && adduser -S -G app app
+    && addgroup -S app && adduser -S -G app app \
+    && mkdir -p /var/lib/stream-analytics && chown app:app /var/lib/stream-analytics
 WORKDIR /
 COPY --from=builder /out/server /usr/local/bin/server
 USER app:app

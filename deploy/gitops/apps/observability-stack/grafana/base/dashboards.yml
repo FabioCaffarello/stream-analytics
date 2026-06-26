@@ -1,6 +1,6 @@
 apiVersion: 1
 providers:
-  - name: market-raccoon-observability
+  - name: stream-analytics-observability
     orgId: 1
     folder: Observability
     type: file

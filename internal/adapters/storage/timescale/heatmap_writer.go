@@ -5,11 +5,11 @@ import (
 	"strings"
 	"sync"
 
-	adapterstorage "github.com/market-raccoon/internal/adapters/storage"
-	insightsdomain "github.com/market-raccoon/internal/core/insights/domain"
-	"github.com/market-raccoon/internal/shared/ids"
-	"github.com/market-raccoon/internal/shared/metrics"
-	"github.com/market-raccoon/internal/shared/problem"
+	adapterstorage "github.com/FabioCaffarello/stream-analytics/internal/adapters/storage"
+	insightsdomain "github.com/FabioCaffarello/stream-analytics/internal/core/insights/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/ids"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 // HeatmapWriter persists heatmap artifacts.

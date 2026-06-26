@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	insightsapp "github.com/market-raccoon/internal/core/insights/app"
-	"github.com/market-raccoon/internal/shared/clock"
+	insightsapp "github.com/FabioCaffarello/stream-analytics/internal/core/insights/app"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/clock"
 )
 
 func TestJoinCrossVenueTrades_EmitsAfterSecondVenue_Sorted(t *testing.T) {

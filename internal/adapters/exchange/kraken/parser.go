@@ -6,11 +6,12 @@ import (
 	"strings"
 	"time"
 
-	common "github.com/market-raccoon/internal/adapters/exchange/common"
-	"github.com/market-raccoon/internal/core/marketdata/app"
-	"github.com/market-raccoon/internal/core/marketdata/domain"
-	"github.com/market-raccoon/internal/shared/naming"
-	"github.com/market-raccoon/internal/shared/problem"
+	common "github.com/FabioCaffarello/stream-analytics/internal/adapters/exchange/common"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/app"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/naming"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 const VenueKraken = "KRAKEN"
@@ -178,6 +179,24 @@ func parseTrade(data json.RawMessage, recvAt time.Time, marketType string) (app.
 	if tradeID == "" {
 		tradeID = common.TradeIDStringFromAny(tsExchange)
 	}
+	trade := domain.TradeTickV1{
+		Price:     price,
+		Size:      size,
+		Side:      side,
+		TradeID:   tradeID,
+		Timestamp: tsExchange,
+	}
+	if p := trade.Validate(); p != nil {
+		metrics.IncMRTradeBadValue(
+			VenueKraken,
+			common.ClassifyTradeValidationReason(trade.Price, trade.Size, trade.Side, trade.TradeID, trade.Timestamp),
+		)
+		return app.IngestRequest{}, true, nil
+	}
+	metrics.IncMRTradeIngest(VenueKraken)
+	if recvTs := recvAt.UnixMilli(); tsExchange > 0 && recvTs > tsExchange {
+		metrics.ObserveMRTradeLatency(VenueKraken, float64(recvTs-tsExchange)/1000.0)
+	}
 
 	return app.IngestRequest{
 		Venue:      VenueKraken,
@@ -192,13 +211,7 @@ func parseTrade(data json.RawMessage, recvAt time.Time, marketType string) (app.
 			tradeID,
 		),
 		Metadata: buildInstrumentMetadata(row.Symbol, instrument, marketType),
-		Payload: domain.TradeTickV1{
-			Price:     price,
-			Size:      size,
-			Side:      side,
-			TradeID:   tradeID,
-			Timestamp: tsExchange,
-		},
+		Payload:  trade,
 	}, false, nil
 }
 

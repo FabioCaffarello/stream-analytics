@@ -1,8 +1,8 @@
 package bootstrap
 
 import (
-	"github.com/market-raccoon/internal/shared/config"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/config"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 // ConfigOverride mutates an AppConfig after loading but before validation.

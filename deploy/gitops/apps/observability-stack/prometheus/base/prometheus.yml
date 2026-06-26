@@ -8,7 +8,7 @@ rule_files:
   - /etc/prometheus/shard-alerts.rules.yml
 
 scrape_configs:
-  - job_name: 'market-raccoon'
+  - job_name: 'stream-analytics'
     metrics_path: /metrics
     static_configs:
       - targets:

@@ -4,3 +4,12 @@
 coverage.out
 *.test
 .DS_Store
+.tmp
+.artifacts
+qa
+node_modules
+test-results/
+/site/
+.venv/
+__pycache__/
+*.pyc

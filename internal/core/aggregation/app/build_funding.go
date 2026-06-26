@@ -3,8 +3,8 @@ package app
 import (
 	"context"
 
-	mddomain "github.com/market-raccoon/internal/core/marketdata/domain"
-	"github.com/market-raccoon/internal/shared/problem"
+	mddomain "github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 // BuildFundingRateFromEvents is a thin adapter use-case that converts incoming

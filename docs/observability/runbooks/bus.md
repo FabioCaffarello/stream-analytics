@@ -1,33 +1,72 @@
-# Bus Runbook
+---
+type: doc
+status: Active
+last_updated: 2026-06-25
+---
 
-## Trigger
-- Alerts: `DataLossDropRateNonZero`, ingest/data-loss burn-rate alerts.
+# NATS JetStream Bus Runbook
 
-## Severity
-- `P1` when drop rate is non-zero for 5m.
-- `P2` for isolated retry/recovery events.
+**Scope:** NATS JetStream message bus — stream health, consumer lag, subject gaps.
 
-## First 5 Minutes
+---
+
+## Alert: `NATSStreamUnhealthy`
+
+**Meaning:** A JetStream stream is in a degraded state (no leader, lagging replicas, or storage failure).
+
+**Immediate check:**
 ```bash
-curl -fsS http://localhost:8080/runtime/snapshot | jq .
-curl -fsS http://localhost:8080/metrics | rg 'bus_|slo:data_loss|ingest_drop_total|ws_drops_total'
-curl -fsS http://localhost:8080/debug/pprof/goroutine?debug=1 | head -n 120
+docker compose exec nats nats stream report
+docker compose exec nats nats server report jetstream
 ```
 
-## Diagnose
-```promql
-slo:data_loss:drop_rate_5m
-sum by (reason) (rate(ingest_drop_total[5m]))
-sum by (reason) (rate(vpvr_drop_total[5m]))
-sum by (reason) (rate(heatmap_drop_total[5m]))
-sum by (reason) (rate(ws_drops_total[5m]))
-sum by (subscriber_id) (rate(bus_dropped_total[5m]))
+**Common causes:**
+
+| Cause | Signal | Action |
+|-------|--------|--------|
+| Raft leader election | `no leader` in report | Wait up to 30 s for re-election; restart NATS only if stuck |
+| Storage full | `storage_used` near limit | Purge old messages or increase retention limits |
+| Network partition | Split cluster in `nats server list` | Restore network; allow raft to converge |
+
+---
+
+## Alert: `JetStreamConsumerLag`
+
+**Meaning:** A push consumer's `num_pending` is growing — processor is not keeping up.
+
+```bash
+docker compose exec nats nats consumer report <stream> <consumer>
 ```
 
-## Mitigate
-- Reduce fanout pressure (throttle high-rate producers).
-- Increase bounded queue headroom if configured.
-- Restart only impacted consumer workers.
+If the processor is healthy, the lag should drain. If not, see [Ingest Runbook](ingest.md).
 
-## Escalate
-- Escalate to messaging owner if bus drops persist > 10m.
+---
+
+## Gap detection
+
+Clients detect sequence gaps via `prev_seq != last_seq + 1`. When a gap is detected:
+1. Consumer logs `gap detected seq=N prev=M` — this is expected on reconnect.
+2. Gap-fill is triggered automatically (see `docs/architecture/diagrams/sequence-exchange-recovery.md`).
+3. If gap-fill does not complete within 30 s, check exchange adapter connectivity.
+
+---
+
+## Manual NATS operations
+
+```bash
+# List all streams
+docker compose exec nats nats stream ls
+
+# Purge a stream (WARNING: loses data)
+docker compose exec nats nats stream purge <stream> --confirm
+
+# Check consumer state
+docker compose exec nats nats consumer info <stream> <consumer>
+```
+
+---
+
+## See also
+
+- [Ingest Runbook](ingest.md)
+- [Consumer Stall Runbook](consumer-stall.md)

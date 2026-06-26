@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/market-raccoon/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
 	"github.com/nats-io/nats.go"
 )
 
@@ -177,8 +177,8 @@ func TestE2EProcessorJetStream_FailClosedWithoutTestRunMode(t *testing.T) {
 	configPath := writeProcessorConfig(t, "nats://127.0.0.1:4222", "processor-e2e-failclosed", metricsAddr)
 
 	proc := startProcessorProcessWithEnv(t, ctx, repoRoot, processorBin, configPath, metricsAddr, map[string]string{
-		"RUN_MODE":            "prod",
-		"MARKET_RACCOON_MODE": "prod",
+		"RUN_MODE":              "prod",
+		"STREAM_ANALYTICS_MODE": "prod",
 	})
 	defer proc.forceStop()
 
@@ -188,7 +188,7 @@ func TestE2EProcessorJetStream_FailClosedWithoutTestRunMode(t *testing.T) {
 		t.Fatal("expected fail-closed exit when E2E_TEST_MODE=1 without test posture")
 	}
 	logs := proc.stdout.String() + "\n" + proc.stderr.String()
-	if !strings.Contains(logs, "requires RUN_MODE=test or MARKET_RACCOON_MODE=test") {
+	if !strings.Contains(logs, "requires RUN_MODE=test or STREAM_ANALYTICS_MODE=test") {
 		proc.dumpLogs(t)
 		t.Fatalf("expected fail-closed message in logs, got:\n%s", logs)
 	}

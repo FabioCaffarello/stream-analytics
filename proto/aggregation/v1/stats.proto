@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package aggregation.v1;
 
-option go_package = "github.com/market-raccoon/internal/shared/proto/gen/aggregation/v1";
+option go_package = "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/aggregation/v1";
 
 // StatsWindowClosedV1 models a closed stats window with liquidation, mark price, and funding data.
 message StatsWindowClosedV1 {
@@ -42,6 +42,12 @@ message StatsWindowClosedV1 {
   int64 seq_last = 17;
   // IsClosed indicates the stats window is finalized.
   bool is_closed = 18;
+  // WindowMs is the bounded window size in milliseconds.
+  int64 window_ms = 19;
+  // TsIngestMs is the latest ingest timestamp observed for this window.
+  int64 ts_ingest_ms = 20;
+  // QualityFlags is a deterministic bitset describing data quality for this window.
+  uint32 quality_flags = 21;
 
   reserved 100 to 199;
 }

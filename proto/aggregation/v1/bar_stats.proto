@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package aggregation.v1;
+
+option go_package = "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/aggregation/v1";
+
+// BarStatsWindowV1 models deterministic bar statistics derived from tape windows.
+message BarStatsWindowV1 {
+  // Venue is the canonical venue identifier.
+  string venue = 1;
+  // Instrument is the canonical instrument identifier.
+  string instrument = 2;
+  // Timeframe is the source tape timeframe.
+  string timeframe = 3;
+  // WindowStartTs is the window start in Unix milliseconds.
+  int64 window_start_ts = 4;
+  // WindowEndTs is the window end in Unix milliseconds.
+  int64 window_end_ts = 5;
+  // TradeCount is the total number of trades in this bar.
+  int64 trade_count = 6;
+  // BuyCount is the number of buy-side trades.
+  int64 buy_count = 7;
+  // SellCount is the number of sell-side trades.
+  int64 sell_count = 8;
+  // TotalVolume is the total traded volume in this bar.
+  double total_volume = 9;
+  // BuyVolume is the buy-side traded volume in this bar.
+  double buy_volume = 10;
+  // SellVolume is the sell-side traded volume in this bar.
+  double sell_volume = 11;
+  // VwapPrice is the window VWAP.
+  double vwap_price = 12;
+  // LastPrice is the deterministic last trade price.
+  double last_price = 13;
+  // MaxPrice is the highest trade price.
+  double max_price = 14;
+  // MinPrice is the lowest trade price.
+  double min_price = 15;
+  // Imbalance is (buy_volume-sell_volume)/total_volume.
+  double imbalance = 16;
+  // IsBurst indicates burst classification for the window.
+  bool is_burst = 17;
+  // Seq is the highest sequence observed for this window.
+  int64 seq = 18;
+  // TsIngestMs is the deterministic ingest timestamp in Unix milliseconds.
+  int64 ts_ingest_ms = 19;
+
+  reserved 100 to 199;
+}

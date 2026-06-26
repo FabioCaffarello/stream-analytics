@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	clickhouse "github.com/market-raccoon/internal/adapters/storage/clickhouse"
-	timescale "github.com/market-raccoon/internal/adapters/storage/timescale"
-	insightsdomain "github.com/market-raccoon/internal/core/insights/domain"
+	clickhouse "github.com/FabioCaffarello/stream-analytics/internal/adapters/storage/clickhouse"
+	timescale "github.com/FabioCaffarello/stream-analytics/internal/adapters/storage/timescale"
+	insightsdomain "github.com/FabioCaffarello/stream-analytics/internal/core/insights/domain"
 )
 
 func TestHeatmapStorageHotColdIdempotent(t *testing.T) {

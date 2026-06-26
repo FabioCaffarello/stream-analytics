@@ -2,16 +2,31 @@ package wsserver
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	deliveryruntime "github.com/FabioCaffarello/stream-analytics/internal/actors/delivery/runtime"
+	sharedclock "github.com/FabioCaffarello/stream-analytics/internal/shared/clock"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/config"
 	"github.com/anthdm/hollywood/actor"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
-	deliveryruntime "github.com/market-raccoon/internal/actors/delivery/runtime"
 )
+
+func mustSignTestJWT(t *testing.T, secret string, claims jwt.MapClaims) string {
+	t.Helper()
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	raw, err := token.SignedString([]byte(secret))
+	if err != nil {
+		t.Fatalf("sign jwt: %v", err)
+	}
+	return raw
+}
 
 func TestSessionWantsProto_QueryFormat(t *testing.T) {
 	req := httptest.NewRequest("GET", "/ws?format=proto", nil)
@@ -32,6 +47,26 @@ func TestSessionWantsProto_DefaultJSON(t *testing.T) {
 	req := httptest.NewRequest("GET", "/ws", nil)
 	if sessionWantsProto(req) {
 		t.Fatal("did not expect proto mode by default")
+	}
+}
+
+func TestWSClientModeFromRequestPath(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want wsClientMode
+	}{
+		{name: "v1 route", path: "/ws", want: wsClientModeV1},
+		{name: "legacy route defaults to v1 mode", path: "/ws/marketdata", want: wsClientModeV1},
+		{name: "unknown defaults to v1", path: "/ws/custom", want: wsClientModeV1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", tc.path, nil)
+			if got := wsClientModeFromRequestPath(req); got != tc.want {
+				t.Fatalf("mode=%q want=%q", got, tc.want)
+			}
+		})
 	}
 }
 
@@ -113,5 +148,337 @@ func TestHandleWS_UpgradeSpawnsSessionWithValidAPIKey(t *testing.T) {
 	case <-spawned:
 	case <-time.After(time.Second):
 		t.Fatal("expected session spawner to be called")
+	}
+}
+
+func TestTenantOverrideAllLimits(t *testing.T) {
+	spawned := make(chan deliveryruntime.SessionConfig, 1)
+	jwtSecret := "tenant-override-secret"
+	token := mustSignTestJWT(t, jwtSecret, jwt.MapClaims{
+		"sub":       "client-jwt",
+		"tenant_id": "tenant-a",
+		"scope":     "read",
+		"iss":       "stream-analytics",
+		"aud":       "odin",
+	})
+
+	srv := NewServer(
+		nil,
+		&actor.PID{},
+		nil,
+		nil,
+		256,
+		WithAuthConfig(AuthConfig{
+			Enabled: true,
+			JWT: JWTAuthConfig{
+				Enabled:     true,
+				HS256Secret: jwtSecret,
+				Issuer:      "stream-analytics",
+				Audience:    "odin",
+			},
+		}),
+		WithConnectionLimits(ServerConnectionLimits{
+			MaxConnectionsPerIP:  100,
+			MaxConnectionsPerKey: 10,
+			MaxSubsPerConnection: 64,
+			MaxSymbolsPerConn:    16,
+		}),
+		WithRateLimit(deliveryruntime.RateLimitConfig{
+			Enabled:       true,
+			MaxPerSecond:  100,
+			BurstCapacity: 200,
+		}),
+		WithMaxFrameBytes(65536),
+		WithTenantLimits(map[string]config.WSTenantLimitConfig{
+			"tenant-a": {
+				MaxSubsPerConnection: 32,
+				MaxSymbolsPerConn:    8,
+				MaxFrameBytes:        32768,
+				OutboundQueueSize:    64,
+				RateLimit: config.WSRateLimitConfig{
+					Enabled:       true,
+					MaxPerSecond:  15,
+					BurstCapacity: 30,
+				},
+			},
+		}),
+		WithSessionSpawner(func(cfg deliveryruntime.SessionConfig) *actor.PID {
+			select {
+			case spawned <- cfg:
+			default:
+			}
+			_ = cfg.Conn.Close()
+			return &actor.PID{}
+		}),
+	)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", srv.HandleUpgrade)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("loopback listener unavailable in this environment: %v", err)
+		return
+	}
+	httpSrv := &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: 2 * time.Second,
+	}
+	go func() { _ = httpSrv.Serve(ln) }()
+	defer func() { _ = httpSrv.Shutdown(context.Background()) }()
+
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+token)
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURLFromHTTP("http://"+ln.Addr().String())+"/ws", header)
+	if err != nil {
+		t.Fatalf("dial ws: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+	if resp == nil || resp.StatusCode != http.StatusSwitchingProtocols {
+		t.Fatalf("status=%v want=%d", resp.StatusCode, http.StatusSwitchingProtocols)
+	}
+
+	select {
+	case cfg := <-spawned:
+		if cfg.MaxSubscriptions != 32 {
+			t.Fatalf("max_subscriptions=%d want=32", cfg.MaxSubscriptions)
+		}
+		if cfg.MaxSymbolsPerConnection != 8 {
+			t.Fatalf("max_symbols=%d want=8", cfg.MaxSymbolsPerConnection)
+		}
+		if cfg.MaxFrameBytes != 32768 {
+			t.Fatalf("max_frame_bytes=%d want=32768", cfg.MaxFrameBytes)
+		}
+		if cfg.OutboundQueueSize != 64 {
+			t.Fatalf("outbound_queue_size=%d want=64", cfg.OutboundQueueSize)
+		}
+		if !cfg.RateLimit.Enabled || cfg.RateLimit.MaxPerSecond != 15 || cfg.RateLimit.BurstCapacity != 30 {
+			t.Fatalf("rate_limit=%+v want enabled=true max_per_second=15 burst=30", cfg.RateLimit)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected session spawner to be called")
+	}
+}
+
+func TestHandleIntrospection_ReturnsSnapshot(t *testing.T) {
+	srv := NewServer(nil, &actor.PID{}, nil, nil, 256)
+	req := httptest.NewRequest(http.MethodGet, "/introspection", nil)
+	rec := httptest.NewRecorder()
+	srv.HandleIntrospection(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d want=%d", rec.Code, http.StatusOK)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	for _, key := range []string{
+		"server_instance_id",
+		"sessions_active",
+		"subscriptions_active",
+		"drops_total",
+		"serialize_errors",
+		"resync_total",
+		"auth_fail_total",
+		"streams",
+	} {
+		if _, ok := body[key]; !ok {
+			t.Fatalf("missing %q in introspection response %v", key, body)
+		}
+	}
+}
+
+func TestHandleWS_ConnectionLimitPerKey(t *testing.T) {
+	srv := NewServer(
+		nil,
+		&actor.PID{},
+		nil,
+		nil,
+		256,
+		WithAuthConfig(AuthConfig{
+			Enabled: true,
+			APIKeys: map[string]string{"k1": "client-a"},
+		}),
+		WithConnectionLimits(ServerConnectionLimits{
+			MaxConnectionsPerIP:  100,
+			MaxConnectionsPerKey: 1,
+			MaxSubsPerConnection: 64,
+			MaxSymbolsPerConn:    64,
+		}),
+		WithSessionSpawner(func(cfg deliveryruntime.SessionConfig) *actor.PID {
+			return &actor.PID{}
+		}),
+	)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", srv.HandleUpgrade)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("loopback listener unavailable in this environment: %v", err)
+		return
+	}
+	httpSrv := &http.Server{Handler: mux, ReadHeaderTimeout: 2 * time.Second}
+	go func() { _ = httpSrv.Serve(ln) }()
+	defer func() { _ = httpSrv.Shutdown(context.Background()) }()
+
+	header := http.Header{}
+	header.Set("X-API-Key", "k1")
+	conn1, resp1, err := websocket.DefaultDialer.Dial(wsURLFromHTTP("http://"+ln.Addr().String())+"/ws", header)
+	if err != nil {
+		t.Fatalf("first dial failed: %v", err)
+	}
+	defer func() { _ = conn1.Close() }()
+	if resp1 == nil || resp1.StatusCode != http.StatusSwitchingProtocols {
+		t.Fatalf("first status=%v want=%d", resp1.StatusCode, http.StatusSwitchingProtocols)
+	}
+
+	conn2, resp2, err := websocket.DefaultDialer.Dial(wsURLFromHTTP("http://"+ln.Addr().String())+"/ws", header)
+	if err == nil {
+		_ = conn2.Close()
+		t.Fatalf("expected second dial to fail due connection limit")
+	}
+	if resp2 == nil || resp2.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("second status=%v want=%d", func() int {
+			if resp2 == nil {
+				return 0
+			}
+			return resp2.StatusCode
+		}(), http.StatusTooManyRequests)
+	}
+}
+
+// ── Legacy gate ──────────────────────────────────────────────────────────────
+
+func TestHandleLegacyWS_AlwaysReturns410(t *testing.T) {
+	srv := NewServer(nil, &actor.PID{}, nil, nil, 256)
+	req := httptest.NewRequest("GET", "/ws/marketdata", nil)
+	rec := httptest.NewRecorder()
+	srv.HandleLegacyWS(rec, req)
+
+	if rec.Code != http.StatusGone {
+		t.Fatalf("status=%d want=%d", rec.Code, http.StatusGone)
+	}
+}
+
+func TestLegacyRouteContract_AlwaysGoneAndNoLegacyAlternatives(t *testing.T) {
+	legacy := NewServer(nil, nil, nil, nil, 0)
+	v1 := NewServer(nil, nil, nil, nil, 0)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /ws/marketdata", legacy.HandleLegacyWS)
+	mux.HandleFunc("GET /ws", v1.HandleWS)
+
+	legacyVariants := []struct {
+		name    string
+		target  string
+		headers map[string]string
+	}{
+		{name: "legacy bare path", target: "/ws/marketdata"},
+		{name: "legacy with old format query", target: "/ws/marketdata?format=legacy&proto_ver=0"},
+		{name: "legacy with old auth query", target: "/ws/marketdata?api_key=old-key"},
+		{name: "legacy with old compat query", target: "/ws/marketdata?allow_legacy_ws=1"},
+		{
+			name:   "legacy with old headers",
+			target: "/ws/marketdata",
+			headers: map[string]string{
+				"X-Delivery-Format": "legacy",
+				"X-Legacy-WS":       "1",
+				"X-API-Key":         "legacy-key",
+			},
+		},
+	}
+
+	for _, tc := range legacyVariants {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tc.target, nil)
+			for key, value := range tc.headers {
+				req.Header.Set(key, value)
+			}
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+			if rec.Code != http.StatusGone {
+				t.Fatalf("target=%s status=%d want=%d", tc.target, rec.Code, http.StatusGone)
+			}
+		})
+	}
+
+	legacyAlternatives := []struct {
+		name   string
+		method string
+		target string
+	}{
+		{name: "legacy trailing slash path", method: http.MethodGet, target: "/ws/marketdata/"},
+		{name: "legacy prefixed path", method: http.MethodGet, target: "/v1/ws/marketdata"},
+		{name: "legacy suffixed path", method: http.MethodGet, target: "/ws/marketdata/v1"},
+		{name: "legacy renamed path", method: http.MethodGet, target: "/ws/legacy-marketdata"},
+		{name: "legacy swapped path", method: http.MethodGet, target: "/marketdata/ws"},
+		{name: "legacy wrong method", method: http.MethodPost, target: "/ws/marketdata"},
+	}
+
+	for _, tc := range legacyAlternatives {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.target, nil)
+			req.Header.Set("Connection", "Upgrade")
+			req.Header.Set("Upgrade", "websocket")
+			req.Header.Set("Sec-WebSocket-Version", "13")
+			req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+
+			if rec.Code == http.StatusSwitchingProtocols || rec.Code == http.StatusOK {
+				t.Fatalf("target=%s method=%s status=%d should reject legacy alternative", tc.target, tc.method, rec.Code)
+			}
+		})
+	}
+}
+
+func TestIPRateLimiter_EvictsIdleBuckets(t *testing.T) {
+	fc := sharedclock.NewFakeClock(time.Unix(1_700_000_000, 0))
+	limiter := &ipRateLimiter{
+		clock:      fc,
+		cfg:        deliveryruntime.RateLimitConfig{Enabled: true, MaxPerSecond: 10, BurstCapacity: 10},
+		buckets:    map[string]ipRateLimiterBucket{},
+		maxEntries: 100,
+		idleTTL:    time.Minute,
+		sweepEvery: 1,
+	}
+
+	if !limiter.Allow("10.0.0.1") {
+		t.Fatal("expected first allow to pass")
+	}
+	if got := len(limiter.buckets); got != 1 {
+		t.Fatalf("bucket_count=%d want=1", got)
+	}
+
+	fc.Advance(2 * time.Minute)
+	if !limiter.Allow("10.0.0.2") {
+		t.Fatal("expected second allow to pass")
+	}
+	if got := len(limiter.buckets); got != 1 {
+		t.Fatalf("bucket_count=%d want=1 after idle eviction", got)
+	}
+	if _, ok := limiter.buckets["10.0.0.1"]; ok {
+		t.Fatal("expected idle bucket to be evicted")
+	}
+}
+
+func TestIPRateLimiter_BoundsBucketCardinality(t *testing.T) {
+	fc := sharedclock.NewFakeClock(time.Unix(1_700_000_000, 0))
+	limiter := &ipRateLimiter{
+		clock:      fc,
+		cfg:        deliveryruntime.RateLimitConfig{Enabled: true, MaxPerSecond: 10, BurstCapacity: 10},
+		buckets:    map[string]ipRateLimiterBucket{},
+		maxEntries: 3,
+		idleTTL:    10 * time.Minute,
+		sweepEvery: 1024, // force eviction via maxEntries path, not periodic sweep.
+	}
+
+	for i := 1; i <= 5; i++ {
+		ip := fmt.Sprintf("10.0.0.%d", i)
+		if !limiter.Allow(ip) {
+			t.Fatalf("allow(%s)=false want=true", ip)
+		}
+		fc.Advance(time.Second)
+	}
+
+	if got := len(limiter.buckets); got > limiter.maxEntries {
+		t.Fatalf("bucket_count=%d exceeded max_entries=%d", got, limiter.maxEntries)
 	}
 }

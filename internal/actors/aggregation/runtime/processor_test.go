@@ -8,20 +8,20 @@ import (
 	"testing"
 	"time"
 
+	aggruntime "github.com/FabioCaffarello/stream-analytics/internal/actors/aggregation/runtime"
+	actorruntime "github.com/FabioCaffarello/stream-analytics/internal/actors/runtime"
+	"github.com/FabioCaffarello/stream-analytics/internal/contracts"
+	aggapp "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/app"
+	aggdomain "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
+	insightsapp "github.com/FabioCaffarello/stream-analytics/internal/core/insights/app"
+	insightsdomain "github.com/FabioCaffarello/stream-analytics/internal/core/insights/domain"
+	mddomain "github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/codec"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/policykit"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 	"github.com/anthdm/hollywood/actor"
-	aggruntime "github.com/market-raccoon/internal/actors/aggregation/runtime"
-	actorruntime "github.com/market-raccoon/internal/actors/runtime"
-	aggapp "github.com/market-raccoon/internal/core/aggregation/app"
-	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
-	insightsapp "github.com/market-raccoon/internal/core/insights/app"
-	insightsdomain "github.com/market-raccoon/internal/core/insights/domain"
-	mddomain "github.com/market-raccoon/internal/core/marketdata/domain"
-	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/contracts"
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/metrics"
-	"github.com/market-raccoon/internal/shared/policykit"
-	"github.com/market-raccoon/internal/shared/problem"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
@@ -36,10 +36,15 @@ func init() {
 // ---------------------------------------------------------------------------
 
 type spyArtifactPublisher struct {
-	mu        sync.Mutex
-	snapshots []aggdomain.SnapshotProduced
-	candles   []aggdomain.CandleClosed
-	stats     []aggdomain.StatsWindowClosed
+	mu           sync.Mutex
+	snapshots    []aggdomain.SnapshotProduced
+	candles      []aggdomain.CandleClosed
+	stats        []aggdomain.StatsWindowClosed
+	tapes        []aggdomain.TapeClosed
+	openInterest []aggdomain.OpenInterestClosed
+	deltaVolumes []aggdomain.DeltaVolumeClosed
+	cvds         []aggdomain.CVDClosed
+	barStats     []aggdomain.BarStatsClosed
 }
 
 func (s *spyArtifactPublisher) PublishSnapshot(_ context.Context, snap aggdomain.SnapshotProduced) *problem.Problem {
@@ -64,6 +69,41 @@ func (s *spyArtifactPublisher) PublishStatsClosed(_ context.Context, evt aggdoma
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.stats = append(s.stats, evt)
+	return nil
+}
+
+func (s *spyArtifactPublisher) PublishTapeClosed(_ context.Context, evt aggdomain.TapeClosed) *problem.Problem {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tapes = append(s.tapes, evt)
+	return nil
+}
+
+func (s *spyArtifactPublisher) PublishOpenInterest(_ context.Context, evt aggdomain.OpenInterestClosed) *problem.Problem {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.openInterest = append(s.openInterest, evt)
+	return nil
+}
+
+func (s *spyArtifactPublisher) PublishDeltaVolume(_ context.Context, evt aggdomain.DeltaVolumeClosed) *problem.Problem {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.deltaVolumes = append(s.deltaVolumes, evt)
+	return nil
+}
+
+func (s *spyArtifactPublisher) PublishCVD(_ context.Context, evt aggdomain.CVDClosed) *problem.Problem {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cvds = append(s.cvds, evt)
+	return nil
+}
+
+func (s *spyArtifactPublisher) PublishBarStats(_ context.Context, evt aggdomain.BarStatsClosed) *problem.Problem {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.barStats = append(s.barStats, evt)
 	return nil
 }
 
@@ -157,10 +197,19 @@ func boolPtr(v bool) *bool {
 }
 
 func makeBookDeltaEnvelope(venue, instrument string, seq int64, bids, asks []mddomain.PriceLevel) envelope.Envelope {
+	return makeBookDeltaEnvelopeAt(venue, instrument, seq, time.Now().UnixMilli(), bids, asks)
+}
+
+func makeBookDeltaEnvelopeAt(
+	venue, instrument string,
+	seq int64,
+	tsIngest int64,
+	bids, asks []mddomain.PriceLevel,
+) envelope.Envelope {
 	delta := mddomain.BookDeltaV1{
 		Bids:      bids,
 		Asks:      asks,
-		Timestamp: time.Now().UnixMilli(),
+		Timestamp: tsIngest,
 	}
 	payload, p := codec.Marshal(delta)
 	if p != nil {
@@ -172,7 +221,7 @@ func makeBookDeltaEnvelope(venue, instrument string, seq int64, bids, asks []mdd
 		Venue:          venue,
 		Instrument:     instrument,
 		Seq:            seq,
-		TsIngest:       time.Now().UnixMilli(),
+		TsIngest:       tsIngest,
 		IdempotencyKey: "test-idem",
 		Payload:        payload,
 	}
@@ -719,6 +768,7 @@ func TestProcessor_TradeEnvelopeWithoutJoin_CandleDisabled_SkipsCandle(t *testin
 
 	e := newEngine(t)
 	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+	beforeDrops := testutil.ToFloat64(metrics.IngestDropTotal.WithLabelValues("candle_route_disabled"))
 
 	ch <- makeTradeEnvelope("BINANCE", "BTCUSDT", 1, 1, 100.5, "buy", "trade-1")
 	ch <- makeTradeEnvelope("BINANCE", "BTCUSDT", 2, 60_001, 101.5, "sell", "trade-2")
@@ -737,6 +787,10 @@ func TestProcessor_TradeEnvelopeWithoutJoin_CandleDisabled_SkipsCandle(t *testin
 	time.Sleep(100 * time.Millisecond)
 	if got := pub.candleCount(); got != 0 {
 		t.Fatalf("candleCount=%d want=0 when candle route is disabled", got)
+	}
+	afterDrops := testutil.ToFloat64(metrics.IngestDropTotal.WithLabelValues("candle_route_disabled"))
+	if diff := afterDrops - beforeDrops; diff != 2 {
+		t.Fatalf("candle_route_disabled drops delta=%f want=2", diff)
 	}
 
 	<-e.Poison(pid).Done()
@@ -822,6 +876,7 @@ func TestProcessor_StatsDisabled_SkipsLiquidationAndMarkPriceRoutes(t *testing.T
 
 	e := newEngine(t)
 	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+	beforeDrops := testutil.ToFloat64(metrics.IngestDropTotal.WithLabelValues("stats_route_disabled"))
 
 	ch <- makeLiquidationEnvelope("BINANCE", "BTCUSDT", 1, 1, 2.0, "buy")
 	ch <- makeMarkPriceEnvelope("BINANCE", "BTCUSDT", 2, 60_001, 101.0, 0.0003)
@@ -840,6 +895,10 @@ func TestProcessor_StatsDisabled_SkipsLiquidationAndMarkPriceRoutes(t *testing.T
 	time.Sleep(100 * time.Millisecond)
 	if got := pub.statsCount(); got != 0 {
 		t.Fatalf("statsCount=%d want=0 when stats route is disabled", got)
+	}
+	afterDrops := testutil.ToFloat64(metrics.IngestDropTotal.WithLabelValues("stats_route_disabled"))
+	if diff := afterDrops - beforeDrops; diff != 2 {
+		t.Fatalf("stats_route_disabled drops delta=%f want=2", diff)
 	}
 
 	<-e.Poison(pid).Done()
@@ -896,6 +955,115 @@ func TestProcessor_TradeJoinEnabled_PublishesCrossVenueSnapshot(t *testing.T) {
 	}
 	if snap.Venues[0].Venue != "BINANCE" || snap.Venues[1].Venue != "BYBIT" {
 		t.Fatalf("snapshot venues order=%q,%q want BINANCE,BYBIT", snap.Venues[0].Venue, snap.Venues[1].Venue)
+	}
+
+	<-e.Poison(pid).Done()
+}
+
+func TestProcessor_BookDeltaCrossVenueEnabled_PublishesSnapshot(t *testing.T) {
+	pub := &spyArtifactPublisher{}
+	aggSvc := newAggService(pub)
+	outPublisher := &spyEnvelopePublisher{}
+
+	ch := make(chan envelope.Envelope, 8)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh:       ch,
+		Service:          aggSvc,
+		PublishEnvelope:  outPublisher,
+		CrossVenueMerger: aggdomain.DeterministicCrossVenueBookMerger{},
+		CrossVenue: aggruntime.ProcessorCrossVenueConfig{
+			Enabled:        true,
+			StaleThreshold: 30 * time.Second,
+			MaxInstruments: 8,
+			MaxVenues:      6,
+		},
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+
+	ch <- makeBookDeltaEnvelopeAt(
+		"BINANCE", "BTCUSDT", 1, 1_000,
+		[]mddomain.PriceLevel{{Price: 100.0, Size: 1.0}},
+		[]mddomain.PriceLevel{{Price: 101.0, Size: 1.0}},
+	)
+	ch <- makeBookDeltaEnvelopeAt(
+		"BYBIT", "BTCUSDT", 1, 1_010,
+		[]mddomain.PriceLevel{{Price: 100.5, Size: 1.0}},
+		[]mddomain.PriceLevel{{Price: 101.2, Size: 1.0}},
+	)
+
+	waitFor(t, 2*time.Second, func() bool { return outPublisher.count() == 2 })
+	published := outPublisher.all()
+	if published[0].Type != "aggregation.crossvenue_book" || published[1].Type != "aggregation.crossvenue_book" {
+		t.Fatalf("published types=%q,%q want aggregation.crossvenue_book", published[0].Type, published[1].Type)
+	}
+	if published[0].Seq != 1 || published[1].Seq != 2 {
+		t.Fatalf("published seq=%d,%d want=1,2", published[0].Seq, published[1].Seq)
+	}
+	if published[1].Venue != "crossvenue" {
+		t.Fatalf("published venue=%q want=crossvenue", published[1].Venue)
+	}
+
+	var snapshot aggdomain.CrossVenueBookSnapshotV1
+	if p := codec.Unmarshal(published[1].Payload, &snapshot); p != nil {
+		t.Fatalf("decode cross-venue payload: %v", p)
+	}
+	if len(snapshot.BestBids) != 2 || len(snapshot.BestAsks) != 2 {
+		t.Fatalf("snapshot depth bids=%d asks=%d want=2/2", len(snapshot.BestBids), len(snapshot.BestAsks))
+	}
+	if snapshot.BestBids[0].Venue != "BYBIT" || snapshot.BestBids[1].Venue != "BINANCE" {
+		t.Fatalf("snapshot bid order=%s,%s want=BYBIT,BINANCE", snapshot.BestBids[0].Venue, snapshot.BestBids[1].Venue)
+	}
+
+	<-e.Poison(pid).Done()
+}
+
+func TestProcessor_BookDeltaCrossVenueEnabled_ExcludesStaleVenue(t *testing.T) {
+	pub := &spyArtifactPublisher{}
+	aggSvc := newAggService(pub)
+	outPublisher := &spyEnvelopePublisher{}
+
+	ch := make(chan envelope.Envelope, 8)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh:       ch,
+		Service:          aggSvc,
+		PublishEnvelope:  outPublisher,
+		CrossVenueMerger: aggdomain.DeterministicCrossVenueBookMerger{},
+		CrossVenue: aggruntime.ProcessorCrossVenueConfig{
+			Enabled:        true,
+			StaleThreshold: 500 * time.Millisecond,
+			MaxInstruments: 8,
+			MaxVenues:      6,
+		},
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+
+	ch <- makeBookDeltaEnvelopeAt(
+		"BINANCE", "ETHUSDT", 1, 1_000,
+		[]mddomain.PriceLevel{{Price: 100.0, Size: 1.0}},
+		[]mddomain.PriceLevel{{Price: 101.0, Size: 1.0}},
+	)
+	ch <- makeBookDeltaEnvelopeAt(
+		"BYBIT", "ETHUSDT", 1, 2_000,
+		[]mddomain.PriceLevel{{Price: 100.2, Size: 1.0}},
+		[]mddomain.PriceLevel{{Price: 100.9, Size: 1.0}},
+	)
+
+	waitFor(t, 2*time.Second, func() bool { return outPublisher.count() == 2 })
+	published := outPublisher.all()
+
+	var snapshot aggdomain.CrossVenueBookSnapshotV1
+	if p := codec.Unmarshal(published[1].Payload, &snapshot); p != nil {
+		t.Fatalf("decode cross-venue payload: %v", p)
+	}
+	if got := len(snapshot.BestBids); got != 1 {
+		t.Fatalf("best_bids len=%d want=1", got)
+	}
+	if got := snapshot.BestBids[0].Venue; got != "BYBIT" {
+		t.Fatalf("best_bids[0].venue=%s want=BYBIT", got)
 	}
 
 	<-e.Poison(pid).Done()
@@ -1158,6 +1326,291 @@ func TestProcessor_TickerWiring_PublishesPeriodicOrderbookSnapshot(t *testing.T)
 	<-e.Poison(pid).Done()
 }
 
+func TestProcessor_TickerWiring_UsesIngestWatermarkTimestampForPeriodicSnapshot(t *testing.T) {
+	pub := &spyArtifactPublisher{}
+	outPublisher := &spyEnvelopePublisher{}
+	aggSvc := newAggService(pub)
+
+	ch := make(chan envelope.Envelope, 8)
+	fixedNow := time.UnixMilli(1710000005000)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh:      ch,
+		Service:         aggSvc,
+		PublishEnvelope: outPublisher,
+		Now: func() time.Time {
+			return fixedNow
+		},
+		RTPublish: aggruntime.ProcessorRTPublishConfig{
+			OrderbookInterval: 10 * time.Millisecond,
+		},
+		TickerProducer: func() actor.Receiver {
+			return &delayedTickActor{
+				delay: 40 * time.Millisecond,
+				kind:  aggruntime.SnapshotTickOrderBook,
+			}
+		},
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+
+	const tsIngest int64 = 1710000004000
+	ch <- makeBookDeltaEnvelopeAt(
+		"BINANCE", "BTC-USDT", 1, tsIngest,
+		[]mddomain.PriceLevel{{Price: 42000, Size: 1.5}},
+		[]mddomain.PriceLevel{{Price: 42001, Size: 2.0}},
+	)
+
+	waitFor(t, 2*time.Second, func() bool { return outPublisher.count() >= 1 })
+	last := outPublisher.last()
+	if got, want := last.TsIngest, tsIngest; got != want {
+		t.Fatalf("periodic snapshot ts_ingest=%d want=%d", got, want)
+	}
+
+	<-e.Poison(pid).Done()
+}
+
+func TestProcessor_TickerWiring_DefersPeriodicOrderbookSnapshotWhenIngestIsStale(t *testing.T) {
+	pub := &spyArtifactPublisher{}
+	outPublisher := &spyEnvelopePublisher{}
+	aggSvc := newAggService(pub)
+
+	ch := make(chan envelope.Envelope, 8)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh:      ch,
+		Service:         aggSvc,
+		PublishEnvelope: outPublisher,
+		RTPublish: aggruntime.ProcessorRTPublishConfig{
+			OrderbookInterval: 10 * time.Millisecond,
+		},
+		TickerProducer: func() actor.Receiver {
+			return &delayedTickActor{
+				delay: 40 * time.Millisecond,
+				kind:  aggruntime.SnapshotTickOrderBook,
+			}
+		},
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+
+	env := makeBookDeltaEnvelope(
+		"BINANCE", "BTC-USDT", 1,
+		[]mddomain.PriceLevel{{Price: 42000, Size: 1.5}},
+		[]mddomain.PriceLevel{{Price: 42001, Size: 2.0}},
+	)
+	env.TsIngest = time.Now().Add(-2 * time.Minute).UnixMilli()
+	ch <- env
+
+	// Wait past delayed tick. Snapshot should be deferred because hbLastTsIngest is stale.
+	time.Sleep(120 * time.Millisecond)
+	if got := outPublisher.count(); got != 0 {
+		t.Fatalf("expected no periodic snapshot while stale, got=%d", got)
+	}
+
+	<-e.Poison(pid).Done()
+}
+
+func TestProcessor_CatchUpSkipBookDeltaSkipsStaleBookDeltaWhenConfigured(t *testing.T) {
+	pub := &spyArtifactPublisher{}
+	aggSvc := newAggService(pub)
+
+	ch := make(chan envelope.Envelope, 8)
+	resultCh := make(chan aggruntime.EnvelopeProcessResult, 2)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh:               ch,
+		Service:                  aggSvc,
+		CatchUpSkipBookDeltaSkew: 5 * time.Second,
+		OnEnvelopeProcessed: func(res aggruntime.EnvelopeProcessResult) {
+			resultCh <- res
+		},
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+	beforeDrops := testutil.ToFloat64(metrics.IngestDropTotal.WithLabelValues("bookdelta_catchup_skip"))
+
+	fresh := makeBookDeltaEnvelope(
+		"BINANCE", "BTC-USDT", 1,
+		[]mddomain.PriceLevel{{Price: 42000, Size: 1.5}},
+		[]mddomain.PriceLevel{{Price: 42001, Size: 2.0}},
+	)
+	fresh.TsIngest = time.Now().UnixMilli()
+	ch <- fresh
+
+	waitFor(t, 2*time.Second, func() bool { return pub.count() == 1 })
+
+	stale := makeBookDeltaEnvelope(
+		"BINANCE", "BTC-USDT", 2,
+		[]mddomain.PriceLevel{{Price: 42000, Size: 2.5}},
+		[]mddomain.PriceLevel{{Price: 42001, Size: 3.0}},
+	)
+	stale.TsIngest = fresh.TsIngest - int64((2*time.Minute)/time.Millisecond)
+	ch <- stale
+
+	for i := 0; i < 2; i++ {
+		select {
+		case <-resultCh:
+		case <-time.After(2 * time.Second):
+			t.Fatal("timeout waiting for bookdelta processing result")
+		}
+	}
+	if got := pub.count(); got != 1 {
+		t.Fatalf("expected stale bookdelta to be skipped, snapshot_count=%d", got)
+	}
+	afterDrops := testutil.ToFloat64(metrics.IngestDropTotal.WithLabelValues("bookdelta_catchup_skip"))
+	if diff := afterDrops - beforeDrops; diff != 1 {
+		t.Fatalf("bookdelta_catchup_skip drops delta=%f want=1", diff)
+	}
+	<-e.Poison(pid).Done()
+}
+
+func TestProcessor_CatchUpSkipBookDeltaDoesNotDropMonotonicStreamWithOldWallclockTs(t *testing.T) {
+	pub := &spyArtifactPublisher{}
+	aggSvc := newAggService(pub)
+
+	ch := make(chan envelope.Envelope, 8)
+	resultCh := make(chan aggruntime.EnvelopeProcessResult, 2)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh:               ch,
+		Service:                  aggSvc,
+		CatchUpSkipBookDeltaSkew: 5 * time.Second,
+		OnEnvelopeProcessed: func(res aggruntime.EnvelopeProcessResult) {
+			resultCh <- res
+		},
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+	beforeDrops := testutil.ToFloat64(metrics.IngestDropTotal.WithLabelValues("bookdelta_catchup_skip"))
+
+	const baseTs int64 = 1700000000000
+	ch <- makeBookDeltaEnvelopeAt(
+		"BINANCE", "BTC-USDT", 1, baseTs,
+		[]mddomain.PriceLevel{{Price: 42000, Size: 1.5}},
+		[]mddomain.PriceLevel{{Price: 42001, Size: 2.0}},
+	)
+	ch <- makeBookDeltaEnvelopeAt(
+		"BINANCE", "BTC-USDT", 2, baseTs+1000,
+		[]mddomain.PriceLevel{{Price: 42000, Size: 2.5}},
+		[]mddomain.PriceLevel{{Price: 42001, Size: 3.0}},
+	)
+
+	for i := 0; i < 2; i++ {
+		select {
+		case <-resultCh:
+		case <-time.After(2 * time.Second):
+			t.Fatal("timeout waiting for monotonic bookdelta processing result")
+		}
+	}
+
+	if got := pub.count(); got != 2 {
+		t.Fatalf("expected monotonic bookdelta stream to be processed, snapshot_count=%d", got)
+	}
+	afterDrops := testutil.ToFloat64(metrics.IngestDropTotal.WithLabelValues("bookdelta_catchup_skip"))
+	if diff := afterDrops - beforeDrops; diff != 0 {
+		t.Fatalf("bookdelta_catchup_skip drops delta=%f want=0", diff)
+	}
+
+	<-e.Poison(pid).Done()
+}
+
+func TestProcessor_CatchUpSkipTradeSkipsStaleTradeWhenConfigured(t *testing.T) {
+	if p := contracts.BootstrapPayloadCodecRegistry(); p != nil {
+		t.Fatalf("BootstrapPayloadCodecRegistry: %v", p)
+	}
+
+	pub := &spyArtifactPublisher{}
+	aggSvc := newAggService(pub)
+
+	ch := make(chan envelope.Envelope, 8)
+	resultCh := make(chan aggruntime.EnvelopeProcessResult, 4)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh:           ch,
+		Service:              aggSvc,
+		CatchUpSkipTradeSkew: 5 * time.Second,
+		OnEnvelopeProcessed: func(res aggruntime.EnvelopeProcessResult) {
+			resultCh <- res
+		},
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+	beforeDrops := testutil.ToFloat64(metrics.IngestDropTotal.WithLabelValues("trade_catchup_skip"))
+
+	freshTs := time.Now().UnixMilli()
+	staleTs := freshTs - int64((2*time.Minute)/time.Millisecond)
+	ch <- makeTradeEnvelope("BINANCE", "BTCUSDT", 1, freshTs, 101.5, "sell", "trade-fresh")
+	ch <- makeTradeEnvelope("BINANCE", "BTCUSDT", 2, staleTs, 100.5, "buy", "trade-stale")
+
+	for i := 0; i < 2; i++ {
+		select {
+		case <-resultCh:
+		case <-time.After(2 * time.Second):
+			t.Fatal("timeout waiting for trade processing result")
+		}
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	if got := pub.candleCount(); got != 0 {
+		t.Fatalf("expected stale trade to be skipped, candle_count=%d", got)
+	}
+	afterDrops := testutil.ToFloat64(metrics.IngestDropTotal.WithLabelValues("trade_catchup_skip"))
+	if diff := afterDrops - beforeDrops; diff != 1 {
+		t.Fatalf("trade_catchup_skip drops delta=%f want=1", diff)
+	}
+
+	<-e.Poison(pid).Done()
+}
+
+func TestProcessor_CatchUpSkipStatsSkipsStaleLiquidationWhenConfigured(t *testing.T) {
+	if p := contracts.BootstrapPayloadCodecRegistry(); p != nil {
+		t.Fatalf("BootstrapPayloadCodecRegistry: %v", p)
+	}
+
+	pub := &spyArtifactPublisher{}
+	aggSvc := newAggService(pub)
+
+	ch := make(chan envelope.Envelope, 8)
+	resultCh := make(chan aggruntime.EnvelopeProcessResult, 4)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh:           ch,
+		Service:              aggSvc,
+		CatchUpSkipStatsSkew: 5 * time.Second,
+		OnEnvelopeProcessed: func(res aggruntime.EnvelopeProcessResult) {
+			resultCh <- res
+		},
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+	beforeDrops := testutil.ToFloat64(metrics.IngestDropTotal.WithLabelValues("liquidation_catchup_skip"))
+
+	freshTs := time.Now().UnixMilli()
+	staleTs := freshTs - int64((2*time.Minute)/time.Millisecond)
+	ch <- makeLiquidationEnvelope("BINANCE", "BTCUSDT", 1, freshTs, 1.0, "sell")
+	ch <- makeLiquidationEnvelope("BINANCE", "BTCUSDT", 2, staleTs, 2.0, "buy")
+
+	for i := 0; i < 2; i++ {
+		select {
+		case <-resultCh:
+		case <-time.After(2 * time.Second):
+			t.Fatal("timeout waiting for liquidation processing result")
+		}
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	if got := pub.statsCount(); got != 0 {
+		t.Fatalf("expected stale liquidation to be skipped, stats_count=%d", got)
+	}
+	afterDrops := testutil.ToFloat64(metrics.IngestDropTotal.WithLabelValues("liquidation_catchup_skip"))
+	if diff := afterDrops - beforeDrops; diff != 1 {
+		t.Fatalf("liquidation_catchup_skip drops delta=%f want=1", diff)
+	}
+
+	<-e.Poison(pid).Done()
+}
+
 func TestProcessor_NoPublishAfterShutdownBegins(t *testing.T) {
 	pub := &spyArtifactPublisher{}
 	outPublisher := &spyEnvelopePublisher{}
@@ -1186,6 +1639,367 @@ func TestProcessor_NoPublishAfterShutdownBegins(t *testing.T) {
 
 	if got := outPublisher.count(); got != 0 {
 		t.Fatalf("published snapshots after shutdown begin=%d want=0", got)
+	}
+
+	<-e.Poison(pid).Done()
+}
+
+func TestProcessorSubsystem_InsightsMultiTimeframe(t *testing.T) {
+	pub := &spyArtifactPublisher{}
+	aggSvc := newAggService(pub)
+	insightsSvc := insightsapp.NewInsightsService(insightsapp.InsightsServiceConfig{})
+
+	ch := make(chan envelope.Envelope, 8)
+	resultCh := make(chan aggruntime.EnvelopeProcessResult, 4)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh:         ch,
+		Service:            aggSvc,
+		Insights:           insightsSvc,
+		InsightsTimeframes: []string{"1m", "5m"},
+		OnEnvelopeProcessed: func(res aggruntime.EnvelopeProcessResult) {
+			select {
+			case resultCh <- res:
+			default:
+			}
+		},
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+
+	// Send a trade: this should populate heatmap state for both 1m and 5m.
+	now := time.Now().UnixMilli()
+	ch <- makeTradeEnvelope("BINANCE", "BTC-USDT", 1, now, 42000, "buy", "t-1")
+	select {
+	case <-resultCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for envelope processing")
+	}
+
+	// Verify heatmap state exists for both configured TFs.
+	// stateInstrumentKey appends ":SPOT" from Meta[instrument_market_type].
+	for _, tf := range []string{"1m", "5m"} {
+		res := insightsSvc.SnapshotHeatmap(context.Background(), insightsapp.HeatmapSnapshotKey{
+			Venue:      "BINANCE",
+			Instrument: "BTC-USDT:SPOT",
+			Timeframe:  tf,
+		})
+		if res.IsFail() {
+			t.Errorf("expected heatmap snapshot for TF=%s, got fail: %v", tf, res.Problem())
+		}
+	}
+
+	// Verify a TF that was NOT configured has no data.
+	res := insightsSvc.SnapshotHeatmap(context.Background(), insightsapp.HeatmapSnapshotKey{
+		Venue:      "BINANCE",
+		Instrument: "BTC-USDT:SPOT",
+		Timeframe:  "1h",
+	})
+	if res.IsOk() {
+		t.Error("expected no heatmap snapshot for unconfigured TF=1h")
+	}
+
+	<-e.Poison(pid).Done()
+}
+
+func TestProcessorSubsystem_InsightsHeatmapBookDepth5s(t *testing.T) {
+	pub := &spyArtifactPublisher{}
+	aggSvc := newAggService(pub)
+	insightsSvc := insightsapp.NewInsightsService(insightsapp.InsightsServiceConfig{})
+
+	ch := make(chan envelope.Envelope, 8)
+	resultCh := make(chan aggruntime.EnvelopeProcessResult, 4)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh:         ch,
+		Service:            aggSvc,
+		Insights:           insightsSvc,
+		InsightsTimeframes: []string{"5s"},
+		OnEnvelopeProcessed: func(res aggruntime.EnvelopeProcessResult) {
+			select {
+			case resultCh <- res:
+			default:
+			}
+		},
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+
+	now := time.Now().UnixMilli()
+	ch <- makeBookDeltaEnvelopeAt("BINANCE", "BTC-USDT", 1, now,
+		[]mddomain.PriceLevel{
+			{Price: 42000, Size: 1.0},
+			{Price: 41900, Size: 1.1},
+			{Price: 41800, Size: 1.2},
+			{Price: 41700, Size: 1.3},
+		},
+		[]mddomain.PriceLevel{
+			{Price: 42100, Size: 1.0},
+			{Price: 42200, Size: 1.1},
+			{Price: 42300, Size: 1.2},
+			{Price: 42400, Size: 1.3},
+		},
+	)
+	select {
+	case <-resultCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for envelope processing")
+	}
+
+	res := insightsSvc.SnapshotHeatmap(context.Background(), insightsapp.HeatmapSnapshotKey{
+		Venue:      "BINANCE",
+		Instrument: "BTC-USDT",
+		Timeframe:  "5s",
+	})
+	if res.IsFail() {
+		t.Fatalf("expected heatmap snapshot for 5s, got fail: %v", res.Problem())
+	}
+	if got := len(res.Value().Cells); got < 8 {
+		t.Fatalf("expected depth-informed heatmap with >=8 cells, got=%d", got)
+	}
+
+	<-e.Poison(pid).Done()
+}
+
+func TestProcessorSubsystem_HeatmapSnapshotIdempotencyStableWithoutNewData(t *testing.T) {
+	pub := &spyArtifactPublisher{}
+	aggSvc := newAggService(pub)
+	insightsSvc := insightsapp.NewInsightsService(insightsapp.InsightsServiceConfig{})
+	outPublisher := &spyEnvelopePublisher{}
+
+	ch := make(chan envelope.Envelope, 8)
+	resultCh := make(chan aggruntime.EnvelopeProcessResult, 4)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh:         ch,
+		Service:            aggSvc,
+		Insights:           insightsSvc,
+		InsightsTimeframes: []string{"5s"},
+		PublishEnvelope:    outPublisher,
+		OnEnvelopeProcessed: func(res aggruntime.EnvelopeProcessResult) {
+			select {
+			case resultCh <- res:
+			default:
+			}
+		},
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+
+	now := time.Now().UnixMilli()
+	ch <- makeTradeEnvelope("BINANCE", "BTC-USDT", 1, now, 42000, "buy", "t-stable")
+	select {
+	case <-resultCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for envelope processing")
+	}
+
+	e.Send(pid, aggruntime.SnapshotTick{Kind: aggruntime.SnapshotTickHeatmap})
+	waitFor(t, 2*time.Second, func() bool {
+		for _, env := range outPublisher.all() {
+			if env.Type == insightsdomain.HeatmapSnapshotType {
+				return true
+			}
+		}
+		return false
+	})
+
+	var firstKey string
+	for _, env := range outPublisher.all() {
+		if env.Type == insightsdomain.HeatmapSnapshotType {
+			firstKey = env.IdempotencyKey
+		}
+	}
+	if firstKey == "" {
+		t.Fatal("expected first heatmap snapshot idempotency key")
+	}
+
+	time.Sleep(20 * time.Millisecond)
+	e.Send(pid, aggruntime.SnapshotTick{Kind: aggruntime.SnapshotTickHeatmap})
+	waitFor(t, 2*time.Second, func() bool {
+		count := 0
+		for _, env := range outPublisher.all() {
+			if env.Type == insightsdomain.HeatmapSnapshotType {
+				count++
+			}
+		}
+		return count >= 2
+	})
+
+	var lastKey string
+	for _, env := range outPublisher.all() {
+		if env.Type == insightsdomain.HeatmapSnapshotType {
+			lastKey = env.IdempotencyKey
+		}
+	}
+	if lastKey == "" {
+		t.Fatal("expected second heatmap snapshot idempotency key")
+	}
+	if firstKey != lastKey {
+		t.Fatalf("heatmap idempotency key changed without new data: first=%s second=%s", firstKey, lastKey)
+	}
+
+	<-e.Poison(pid).Done()
+}
+
+func TestProcessorSubsystem_OrderbookSnapshotIdempotencyStableWithoutNewData(t *testing.T) {
+	pub := &spyArtifactPublisher{}
+	aggSvc := newAggService(pub)
+	outPublisher := &spyEnvelopePublisher{}
+
+	ch := make(chan envelope.Envelope, 8)
+	resultCh := make(chan aggruntime.EnvelopeProcessResult, 4)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh:      ch,
+		Service:         aggSvc,
+		PublishEnvelope: outPublisher,
+		OnEnvelopeProcessed: func(res aggruntime.EnvelopeProcessResult) {
+			select {
+			case resultCh <- res:
+			default:
+			}
+		},
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+
+	now := time.Now().UnixMilli()
+	ch <- makeBookDeltaEnvelopeAt(
+		"BINANCE", "BTC-USDT", 1, now,
+		[]mddomain.PriceLevel{{Price: 42000, Size: 1.5}},
+		[]mddomain.PriceLevel{{Price: 42001, Size: 2.0}},
+	)
+	select {
+	case <-resultCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for envelope processing")
+	}
+
+	e.Send(pid, aggruntime.SnapshotTick{Kind: aggruntime.SnapshotTickOrderBook})
+	waitFor(t, 2*time.Second, func() bool {
+		for _, env := range outPublisher.all() {
+			if env.Type == "aggregation.snapshot" {
+				return true
+			}
+		}
+		return false
+	})
+
+	var firstKey string
+	for _, env := range outPublisher.all() {
+		if env.Type == "aggregation.snapshot" {
+			firstKey = env.IdempotencyKey
+		}
+	}
+	if firstKey == "" {
+		t.Fatal("expected first orderbook snapshot idempotency key")
+	}
+
+	time.Sleep(20 * time.Millisecond)
+	e.Send(pid, aggruntime.SnapshotTick{Kind: aggruntime.SnapshotTickOrderBook})
+	waitFor(t, 2*time.Second, func() bool {
+		count := 0
+		for _, env := range outPublisher.all() {
+			if env.Type == "aggregation.snapshot" {
+				count++
+			}
+		}
+		return count >= 2
+	})
+
+	var lastKey string
+	for _, env := range outPublisher.all() {
+		if env.Type == "aggregation.snapshot" {
+			lastKey = env.IdempotencyKey
+		}
+	}
+	if lastKey == "" {
+		t.Fatal("expected second orderbook snapshot idempotency key")
+	}
+	if firstKey != lastKey {
+		t.Fatalf("orderbook idempotency key changed without new data: first=%s second=%s", firstKey, lastKey)
+	}
+
+	<-e.Poison(pid).Done()
+}
+
+func TestProcessorSubsystem_VolumeSnapshotIdempotencyStableWithoutNewData(t *testing.T) {
+	pub := &spyArtifactPublisher{}
+	aggSvc := newAggService(pub)
+	insightsSvc := insightsapp.NewInsightsService(insightsapp.InsightsServiceConfig{})
+	outPublisher := &spyEnvelopePublisher{}
+
+	ch := make(chan envelope.Envelope, 8)
+	resultCh := make(chan aggruntime.EnvelopeProcessResult, 4)
+	cfg := aggruntime.ProcessorConfig{
+		EnvelopeCh:         ch,
+		Service:            aggSvc,
+		Insights:           insightsSvc,
+		InsightsTimeframes: []string{"1m"},
+		PublishEnvelope:    outPublisher,
+		OnEnvelopeProcessed: func(res aggruntime.EnvelopeProcessResult) {
+			select {
+			case resultCh <- res:
+			default:
+			}
+		},
+	}
+
+	e := newEngine(t)
+	pid := e.Spawn(aggruntime.NewProcessorSubsystemActor(cfg), "processor", actor.WithID("processor"))
+
+	now := time.Now().UnixMilli()
+	ch <- makeTradeEnvelope("BINANCE", "BTC-USDT", 1, now, 42000, "buy", "t-vpvr-stable")
+	select {
+	case <-resultCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for envelope processing")
+	}
+
+	e.Send(pid, aggruntime.SnapshotTick{Kind: aggruntime.SnapshotTickVolume})
+	waitFor(t, 2*time.Second, func() bool {
+		for _, env := range outPublisher.all() {
+			if env.Type == insightsdomain.VolumeProfileSnapshotType {
+				return true
+			}
+		}
+		return false
+	})
+
+	var firstKey string
+	for _, env := range outPublisher.all() {
+		if env.Type == insightsdomain.VolumeProfileSnapshotType {
+			firstKey = env.IdempotencyKey
+		}
+	}
+	if firstKey == "" {
+		t.Fatal("expected first volume snapshot idempotency key")
+	}
+
+	time.Sleep(20 * time.Millisecond)
+	e.Send(pid, aggruntime.SnapshotTick{Kind: aggruntime.SnapshotTickVolume})
+	waitFor(t, 2*time.Second, func() bool {
+		count := 0
+		for _, env := range outPublisher.all() {
+			if env.Type == insightsdomain.VolumeProfileSnapshotType {
+				count++
+			}
+		}
+		return count >= 2
+	})
+
+	var lastKey string
+	for _, env := range outPublisher.all() {
+		if env.Type == insightsdomain.VolumeProfileSnapshotType {
+			lastKey = env.IdempotencyKey
+		}
+	}
+	if lastKey == "" {
+		t.Fatal("expected second volume snapshot idempotency key")
+	}
+	if firstKey != lastKey {
+		t.Fatalf("volume idempotency key changed without new data: first=%s second=%s", firstKey, lastKey)
 	}
 
 	<-e.Poison(pid).Done()

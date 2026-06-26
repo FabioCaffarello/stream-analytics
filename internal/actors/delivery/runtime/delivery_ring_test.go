@@ -3,8 +3,8 @@ package deliveryruntime
 import (
 	"testing"
 
-	"github.com/market-raccoon/internal/core/delivery/domain"
-	"github.com/market-raccoon/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/delivery/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
 )
 
 func makeEvt(seq int64) DeliveryEvent {

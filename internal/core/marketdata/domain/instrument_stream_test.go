@@ -3,8 +3,8 @@ package domain_test
 import (
 	"testing"
 
-	"github.com/market-raccoon/internal/core/marketdata/domain"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 func newStream(t *testing.T) *domain.InstrumentStream {

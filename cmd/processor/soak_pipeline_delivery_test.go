@@ -12,14 +12,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/market-raccoon/internal/adapters/bus"
-	"github.com/market-raccoon/internal/adapters/exchange/binance"
-	aggapp "github.com/market-raccoon/internal/core/aggregation/app"
-	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
-	mddomain "github.com/market-raccoon/internal/core/marketdata/domain"
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/observability"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/bus"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/exchange/binance"
+	aggapp "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/app"
+	aggdomain "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
+	mddomain "github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/observability"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 type soakBusObserver struct {
@@ -73,6 +73,26 @@ func (p *soakBusArtifactPublisher) PublishCandleClosed(ctx context.Context, evt 
 
 func (p *soakBusArtifactPublisher) PublishStatsClosed(ctx context.Context, evt aggdomain.StatsWindowClosed) *problem.Problem {
 	return p.inner.PublishStatsClosed(ctx, evt)
+}
+
+func (p *soakBusArtifactPublisher) PublishTapeClosed(ctx context.Context, evt aggdomain.TapeClosed) *problem.Problem {
+	return p.inner.PublishTapeClosed(ctx, evt)
+}
+
+func (p *soakBusArtifactPublisher) PublishOpenInterest(ctx context.Context, evt aggdomain.OpenInterestClosed) *problem.Problem {
+	return p.inner.PublishOpenInterest(ctx, evt)
+}
+
+func (p *soakBusArtifactPublisher) PublishDeltaVolume(ctx context.Context, evt aggdomain.DeltaVolumeClosed) *problem.Problem {
+	return p.inner.PublishDeltaVolume(ctx, evt)
+}
+
+func (p *soakBusArtifactPublisher) PublishCVD(ctx context.Context, evt aggdomain.CVDClosed) *problem.Problem {
+	return p.inner.PublishCVD(ctx, evt)
+}
+
+func (p *soakBusArtifactPublisher) PublishBarStats(ctx context.Context, evt aggdomain.BarStatsClosed) *problem.Problem {
+	return p.inner.PublishBarStats(ctx, evt)
 }
 
 //nolint:gocyclo // soak scenario intentionally validates aggregation and delivery behavior jointly.

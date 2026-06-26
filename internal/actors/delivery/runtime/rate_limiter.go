@@ -3,7 +3,7 @@ package deliveryruntime
 import (
 	"time"
 
-	"github.com/market-raccoon/internal/shared/clock"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/clock"
 )
 
 // RateLimitConfig configures per-session read-path limiting.

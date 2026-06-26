@@ -57,6 +57,12 @@ go test ./cmd/consumer -run TestReplayIngestGolden1000
 - Se um item estiver parcialmente implementado, a ADR/RFC correspondente deve usar `Status: Partially Implemented` e `Implementation Matrix`.
 - `docs/architecture/TRUTH-MAP.md` e `docs/audits/DRIFT-REPORT-W11.md` devem continuar como baseline de reconciliação doc vs runtime.
 
+## IQ Loop Validation
+
+Para invariantes validados pelo IQ Loop em cada ciclo, consulte:
+
+- [`docs/architecture/iq-loop-invariants.md`](iq-loop-invariants.md) — Top-10 propriedades, guardrail metrics, fallback e procedimentos de rollback.
+
 ## Changelog
 
 - 2026-02-17:

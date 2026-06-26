@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/market-raccoon/internal/adapters/storage/clickhouse"
-	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/storage/clickhouse"
+	aggdomain "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 // soakDuration reads SOAK_DURATION_SECONDS from the environment or defaults to 60.

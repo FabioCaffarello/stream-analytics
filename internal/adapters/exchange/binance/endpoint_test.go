@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/market-raccoon/internal/adapters/exchange/binance"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/exchange/binance"
 )
 
 func TestBuildEndpoint(t *testing.T) {

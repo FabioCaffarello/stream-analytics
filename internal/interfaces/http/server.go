@@ -24,11 +24,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/FabioCaffarello/stream-analytics/internal/actors/runtime"
+	"github.com/FabioCaffarello/stream-analytics/internal/application/dataplane"
+	"github.com/FabioCaffarello/stream-analytics/internal/application/runtimebootstrap"
+	"github.com/FabioCaffarello/stream-analytics/internal/contracts"
+	workspaceapp "github.com/FabioCaffarello/stream-analytics/internal/core/workspace/app"
+	workspaceports "github.com/FabioCaffarello/stream-analytics/internal/core/workspace/ports"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/config"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/observability"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 	"github.com/anthdm/hollywood/actor"
-	"github.com/market-raccoon/internal/actors/runtime"
-	"github.com/market-raccoon/internal/shared/contracts"
-	"github.com/market-raccoon/internal/shared/metrics"
-	"github.com/market-raccoon/internal/shared/observability"
 )
 
 const defaultSnapshotTimeout = 5 * time.Second
@@ -53,13 +59,24 @@ type Server struct {
 	readyGate  func() bool
 	reloadHook func() error
 
-	tlsCertFile string
-	tlsKeyFile  string
-	wsHandler   http.HandlerFunc
-	coldReaders *ColdReaders
+	tlsCertFile         string
+	tlsKeyFile          string
+	wsHandler           http.HandlerFunc
+	coldReaders         *ColdReaders
+	markets             *config.MarketsConfig
+	insightsSnapshotter InsightsSnapshotter
+	consistencyChecks   map[string]ConsistencyCheckFn
+	workspaceSvc        *workspaceapp.WorkspaceService
+	dataPlaneRuntime    *runtimebootstrap.Runtime
+	dataPlaneResults    dataplane.ResultStore
+	dataPlaneEmitter    DataPlaneEmitter
 }
 
 type Option func(*Server)
+
+type DataPlaneEmitter interface {
+	Emit(ctx context.Context, bindingName, scenario string) (dataplane.Message, *problem.Problem)
+}
 
 func WithTLS(certFile, keyFile string) Option {
 	return func(s *Server) {
@@ -82,10 +99,43 @@ func WithReloadHook(hook func() error) Option {
 	}
 }
 
+// ConsistencyCheckFn checks a single artifact type's hot/cold consistency.
+type ConsistencyCheckFn func(ctx context.Context, venue, instrument, timeframe string, fromMs, toMs int64) (any, error)
+
+// WithConsistencyChecks registers named artifact consistency check functions.
+func WithConsistencyChecks(checks map[string]ConsistencyCheckFn) Option {
+	return func(s *Server) {
+		s.consistencyChecks = checks
+	}
+}
+
+// WithWorkspaceRepository configures server-side workspace persistence
+// by wiring a repository into a WorkspaceService.
+func WithWorkspaceRepository(repo workspaceports.WorkspaceRepository) Option {
+	return func(s *Server) {
+		s.workspaceSvc = workspaceapp.NewWorkspaceService(repo)
+	}
+}
+
 // WithColdReaders configures optional ClickHouse-backed cold reader API routes.
 func WithColdReaders(readers *ColdReaders) Option {
 	return func(s *Server) {
 		s.coldReaders = readers
+	}
+}
+
+// WithMarkets configures the markets discovery endpoint.
+func WithMarkets(markets *config.MarketsConfig) Option {
+	return func(s *Server) {
+		s.markets = markets
+	}
+}
+
+func WithDataPlane(runtime *runtimebootstrap.Runtime, results dataplane.ResultStore, emitter DataPlaneEmitter) Option {
+	return func(s *Server) {
+		s.dataPlaneRuntime = runtime
+		s.dataPlaneResults = results
+		s.dataPlaneEmitter = emitter
 	}
 }
 
@@ -121,6 +171,7 @@ func NewServer(
 	mux.Handle("GET /runtime/overload", localhostOnly(http.HandlerFunc(s.handleRuntimeOverload)))
 	mux.Handle("GET /runtime/storage", localhostOnly(http.HandlerFunc(s.handleRuntimeStorage)))
 	mux.Handle("GET /runtime/ws", localhostOnly(http.HandlerFunc(s.handleRuntimeWS)))
+	mux.Handle("GET /runtime/terminal", localhostOnly(http.HandlerFunc(s.handleRuntimeTerminal)))
 	mux.Handle("GET /shardz", localhostOnly(http.HandlerFunc(s.handleShardz)))
 	mux.Handle("POST /runtime/reload", localhostOnly(http.HandlerFunc(s.handleReload)))
 	if s.wsHandler != nil {
@@ -134,6 +185,49 @@ func NewServer(
 		mux.HandleFunc("GET /api/v1/candles", s.handleGetCandles)
 		mux.HandleFunc("GET /api/v1/stats", s.handleGetStats)
 		mux.HandleFunc("GET /api/v1/snapshots", s.handleGetSnapshots)
+		mux.HandleFunc("GET /api/v1/tape", s.handleGetTape)
+		mux.HandleFunc("GET /api/v1/oi", s.handleGetOI)
+		mux.HandleFunc("GET /api/v1/delta_volume", s.handleGetDeltaVolume)
+		mux.HandleFunc("GET /api/v1/cvd", s.handleGetCVD)
+		mux.HandleFunc("GET /api/v1/bar_stats", s.handleGetBarStats)
+	}
+	if s.markets != nil {
+		mux.HandleFunc("GET /api/v1/markets", s.handleGetMarkets)
+		mux.HandleFunc("GET /api/v1/catalog", s.handleGetCatalog)
+		mux.HandleFunc("GET /api/v1/session", s.handleGetSession)
+		mux.HandleFunc("GET /api/v1/session/dashboard", s.handleGetSessionDashboard)
+		mux.HandleFunc("GET /api/v1/artifacts/summary", s.handleGetArtifactSummary)
+	}
+	if s.workspaceSvc != nil {
+		mux.HandleFunc("GET /api/v1/workspace", s.handleGetWorkspace)
+		mux.HandleFunc("PUT /api/v1/workspace", s.handlePutWorkspace)
+		mux.HandleFunc("DELETE /api/v1/workspace", s.handleDeleteWorkspace)
+	}
+	mux.HandleFunc("GET /api/v1/freshness", s.handleGetFreshness)
+	mux.HandleFunc("GET /api/v1/instrument/overview", s.handleGetInstrumentOverview)
+	if s.coldReaders != nil {
+		mux.HandleFunc("GET /api/v1/timeline", s.handleGetTimeline)
+	}
+	if s.insightsSnapshotter != nil {
+		mux.HandleFunc("GET /api/v1/insights/session-vp", s.handleGetSessionVolumeProfile)
+		mux.HandleFunc("GET /api/v1/insights/tpo", s.handleGetTPOProfile)
+	}
+	if len(s.consistencyChecks) > 0 {
+		mux.Handle("GET /api/v1/consistency", localhostOnly(http.HandlerFunc(s.handleConsistencyCheck)))
+	}
+	mux.Handle("GET /api/v1/delivery/diagnostics", localhostOnly(http.HandlerFunc(s.handleDeliveryDiagnostics)))
+	if s.dataPlaneRuntime != nil {
+		mux.Handle("GET /api/v1/dataplane/bindings", localhostOnly(http.HandlerFunc(s.handleListDataPlaneBindings)))
+		mux.Handle("POST /api/v1/dataplane/bindings", localhostOnly(http.HandlerFunc(s.handleUpsertDataPlaneBinding)))
+		mux.Handle("GET /api/v1/dataplane/configs", localhostOnly(http.HandlerFunc(s.handleListDataPlaneConfigs)))
+		mux.Handle("POST /api/v1/dataplane/configs", localhostOnly(http.HandlerFunc(s.handleUpsertDataPlaneConfig)))
+		mux.Handle("POST /api/v1/dataplane/configs/activate", localhostOnly(http.HandlerFunc(s.handleActivateDataPlaneConfig)))
+		if s.dataPlaneResults != nil {
+			mux.Handle("GET /api/v1/dataplane/results", localhostOnly(http.HandlerFunc(s.handleGetDataPlaneResults)))
+		}
+		if s.dataPlaneEmitter != nil {
+			mux.Handle("POST /api/v1/dataplane/emulator/emit", localhostOnly(http.HandlerFunc(s.handleEmitDataPlaneScenario)))
+		}
 	}
 	s.mux = mux
 
@@ -174,7 +268,7 @@ func (s *Server) Handler() http.Handler {
 // It must be called before ListenAndServe.
 func (s *Server) HandleFunc(pattern string, handler http.HandlerFunc) {
 	switch pattern {
-	case "GET /healthz", "GET /readyz", "GET /runtime/snapshot", "GET /runtime/overload", "GET /runtime/storage", "GET /runtime/ws", "GET /shardz", "POST /runtime/reload", "GET /metrics":
+	case "GET /healthz", "GET /readyz", "GET /runtime/snapshot", "GET /runtime/overload", "GET /runtime/storage", "GET /runtime/ws", "GET /runtime/terminal", "GET /shardz", "POST /runtime/reload", "GET /metrics":
 		s.logger.Warn("httpserver: refusing to override critical route", "pattern", pattern)
 		return
 	}
@@ -326,6 +420,11 @@ func (s *Server) handleRuntimeStorage(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRuntimeWS(w http.ResponseWriter, r *http.Request) {
 	snapshot := buildWSStateSnapshot()
 	writeResponse(w, r, http.StatusOK, "runtime.ws", snapshot)
+}
+
+func (s *Server) handleRuntimeTerminal(w http.ResponseWriter, r *http.Request) {
+	snapshot := observability.SnapshotTerminalWSState(100)
+	writeResponse(w, r, http.StatusOK, "runtime.terminal", snapshot)
 }
 
 // handleShardz returns live shard topology, lag, and budget status as JSON.

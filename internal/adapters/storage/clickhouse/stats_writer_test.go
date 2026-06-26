@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/market-raccoon/internal/adapters/storage/clickhouse"
-	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/storage/clickhouse"
+	aggdomain "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 func testStatsWindowClosed() aggdomain.StatsWindowClosed {
@@ -18,6 +18,7 @@ func testStatsWindowClosed() aggdomain.StatsWindowClosed {
 			Timeframe:       "1m",
 			WindowStartTs:   1_710_000_000_000,
 			WindowEndTs:     1_710_000_060_000,
+			WindowMs:        60_000,
 			LiqBuyVolume:    2.5,
 			LiqSellVolume:   1.0,
 			LiqTotalVolume:  3.5,

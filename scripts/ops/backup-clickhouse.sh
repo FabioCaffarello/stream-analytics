@@ -6,7 +6,7 @@
 #
 # Defaults:
 #   --output    ./backups/clickhouse
-#   --container market-raccoon-clickhouse
+#   --container stream-analytics-clickhouse
 #
 # Environment (or deploy/envs/local.env):
 #   CLICKHOUSE_USER     (default: default)
@@ -15,7 +15,7 @@
 set -euo pipefail
 
 BACKUP_DIR="./backups/clickhouse"
-CONTAINER="market-raccoon-clickhouse"
+CONTAINER="stream-analytics-clickhouse"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in

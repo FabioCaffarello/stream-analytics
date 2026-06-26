@@ -1,32 +1,66 @@
-# Guardian Runbook
+---
+type: doc
+status: Active
+last_updated: 2026-06-25
+---
 
-## Trigger
-- Alerts: `SLODataLossBurnRateFast`, `SLODataLossBurnRateSlow`, `ColdPathCommitErrorsNonZero`
+# Guardian / Actor Runtime Runbook
 
-## Severity
-- `P1` when commit errors are non-zero.
-- `P2` when slow burn-rate only.
+**Scope:** Hollywood actor supervision tree — restart storms, actor crashes, Guardian health.
 
-## First 5 Minutes
+---
+
+## Alert: `ActorRestartStorm`
+
+**Meaning:** An actor is restarting more than 5 times in 60 seconds.
+
+**Immediate check:**
 ```bash
-curl -fsS http://localhost:8080/runtime/snapshot | jq .
-curl -fsS http://localhost:8080/metrics | rg 'slo:data_loss|vpvr_writer_write_fail_total|bus_publish_errors_total|guardian_'
-curl -fsS http://localhost:8080/debug/pprof/goroutine?debug=1 | head -n 120
+make logs service=processor | grep "actor\|panic\|restart\|killed"
+make logs service=consumer | grep "actor\|panic\|restart\|killed"
 ```
 
-## Diagnose
-```promql
-slo:data_loss:burn_rate_5m
-slo:data_loss:burn_rate_1h
-slo:data_loss:cold_commit_errors_rate_5m
-sum(rate(vpvr_writer_write_fail_total[5m]))
-sum(rate(bus_publish_errors_total[5m]))
+**Resolution steps:**
+
+1. Identify which actor is restarting: look for `actor=<name>` in log lines.
+2. Check for the root cause error that preceded the first restart.
+3. If the actor is a JetStream consumer actor: verify NATS connectivity (`make ps`).
+4. If the actor is an exchange adapter: check exchange API status and rate limits.
+5. Force a clean restart of the affected service if restarts don't self-heal within 2 min:
+   ```bash
+   docker compose restart <service>
+   ```
+
+---
+
+## Alert: `GuardianPanic`
+
+**Meaning:** The Guardian root actor has panicked — the service will exit.
+
+This is a hard failure. Collect the panic stack from logs, then restart:
+```bash
+make logs service=processor | grep -A30 "panic:"
+docker compose restart processor
 ```
 
-## Mitigate
-- Stop non-essential writers causing commit errors.
-- Keep ack-on-commit contract; do not ACK before durable write.
-- Trigger bounded replay for impacted stream partition.
+File an incident with the panic stack attached.
 
-## Escalate
-- Escalate to storage and SRE owners when cold commit errors persist > 5m.
+---
+
+## Actor supervision tree reference
+
+```
+Guardian
+├── ExchangeSupervisor → [BinanceActor, BybitActor, ...]
+├── ProcessorSupervisor → [AggregationActor, DeliveryActor, ...]
+└── StoreSupervisor → [TimescaleActor, ClickHouseActor]
+```
+
+See `docs/architecture/diagrams/actor-supervision-tree.md` for the full tree.
+
+---
+
+## See also
+
+- [Ingest Runbook](ingest.md)
+- [SLO Definitions](../slo.md)

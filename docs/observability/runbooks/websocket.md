@@ -1,31 +1,74 @@
-# Websocket Runbook
+---
+type: doc
+status: Active
+last_updated: 2026-06-25
+---
 
-## Trigger
-- Alerts: `SLODeliveryLatencyBurnRateFast`, `SLODeliveryLatencyBurnRateSlow`
+# WebSocket Delivery Runbook
 
-## Severity
-- `P1` for fast burn-rate.
-- `P2` for slow burn-rate only.
+**Scope:** Terminal_V1 WebSocket server — session health, fan-out latency, backfill failures.
 
-## First 5 Minutes
+---
+
+## Alert: `WSDeliveryLatencyHigh`
+
+**Meaning:** WebSocket fan-out p95 latency exceeds 20 ms.
+
+**Immediate check:**
 ```bash
-curl -fsS http://localhost:8080/runtime/snapshot | jq .
-curl -fsS http://localhost:8080/metrics | rg 'slo:delivery_latency|ws_send_latency_ms|ws_queue_depth|ws_drops_total'
-curl -fsS http://localhost:8080/debug/pprof/goroutine?debug=1 | head -n 120
+make logs service=server | grep "delivery\|fanout\|slow\|session"
 ```
 
-## Diagnose
-```promql
-slo:delivery_latency:burn_rate_5m
-slo:delivery_latency:burn_rate_1h
-slo:delivery_latency:error_ratio
-histogram_quantile(0.99, sum(rate(ws_send_latency_ms_bucket[5m])) by (le))
+**Common causes:**
+
+| Cause | Signal | Action |
+|-------|--------|--------|
+| High session count | `ws_active_sessions` metric high | Verify load balancing; check session limits per instance |
+| Codec bottleneck | `transcode_cache_misses` climbing | Increase cache size via `WS_TRANSCODE_CACHE_SIZE` |
+| Slow client backpressure | `ws_send_blocked_total` rising | Drop slow clients (already automatic after write timeout) |
+
+---
+
+## Alert: `WSBackfillFailed`
+
+**Meaning:** A client requested backfill and the server failed to deliver it.
+
+```bash
+make logs service=server | grep "backfill\|error\|timeout"
 ```
 
-## Mitigate
-- Reduce outbound batch size and per-client fanout.
-- Isolate slow consumers.
-- Keep deterministic ordering and replay compatibility.
+Backfill reads from TimescaleDB. Check DB connectivity:
+```bash
+make ps | grep timescaledb
+```
 
-## Escalate
-- Escalate to delivery/runtime owner if p99 remains above target for 15m.
+---
+
+## Terminal_V1 protocol quick reference
+
+```
+Client → Server: Hello{session_id, subscriptions}
+Server → Client: Welcome{snapshot}
+Client → Server: Subscribe{subjects}
+Server → Client: Event stream
+Client → Server: Backfill{from, to, subjects}
+Server → Client: BackfillResult
+```
+
+Full protocol: `docs/contracts/delivery-ws.md`.
+
+---
+
+## Active session inspection
+
+```bash
+# Count active WebSocket sessions (via Prometheus)
+curl -s http://localhost:9090/api/v1/query?query=ws_active_sessions
+```
+
+---
+
+## See also
+
+- [Ingest Runbook](ingest.md)
+- [SLO Definitions](../slo.md)

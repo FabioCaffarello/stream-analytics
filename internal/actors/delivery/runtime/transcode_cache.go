@@ -6,8 +6,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/codec"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 const (
@@ -18,11 +18,12 @@ const (
 // TranscodeCache is a sharded LRU cache for proto→JSON transcode results.
 // The cache is sharded to reduce lock contention under high concurrency.
 type TranscodeCache struct {
-	shards     []*transcodeShard
-	shardCount uint64
-	maxSize    int // global max across all shards
-	hits       atomic.Int64
-	misses     atomic.Int64
+	shards      []*transcodeShard
+	shardCount  int
+	shardCountU uint64
+	maxSize     int // global max across all shards
+	hits        atomic.Int64
+	misses      atomic.Int64
 }
 
 type transcodeShard struct {
@@ -52,26 +53,49 @@ func uint64ToIntSafe(u uint64) int {
 	return int(u)
 }
 
+// intToUint64Safe converts non-negative int to uint64.
+func intToUint64Safe(i int) uint64 {
+	if i <= 0 {
+		return 0
+	}
+	return uint64(i)
+}
+
 // NewTranscodeCache creates a bounded proto→JSON cache.
 // maxSize controls the overall max number of cached entries (across shards). 0 uses default.
 func NewTranscodeCache(maxSize int) *TranscodeCache {
 	if maxSize <= 0 {
 		maxSize = defaultTranscodeCacheSize
 	}
-	shardCount := uint64(defaultTranscodeShardCount)
-	perShard := (maxSize + int(shardCount) - 1) / int(shardCount)
-	shards := make([]*transcodeShard, int(shardCount))
-	for i := 0; i < int(shardCount); i++ {
+	shardCount := defaultTranscodeShardCount
+	if maxSize < shardCount {
+		shardCount = maxSize
+	}
+	if shardCount == 0 {
+		shardCount = 1
+	}
+	base := maxSize / shardCount
+	rem := maxSize % shardCount
+	shards := make([]*transcodeShard, shardCount)
+	for i := 0; i < shardCount; i++ {
+		capacity := base
+		if i < rem {
+			capacity++
+		}
+		if capacity < 1 {
+			capacity = 1
+		}
 		shards[i] = &transcodeShard{
-			entries: make(map[uint64]*list.Element, perShard),
+			entries: make(map[uint64]*list.Element, capacity),
 			lru:     list.New(),
-			maxSize: perShard,
+			maxSize: capacity,
 		}
 	}
 	return &TranscodeCache{
-		shards:     shards,
-		shardCount: shardCount,
-		maxSize:    maxSize,
+		shards:      shards,
+		shardCount:  shardCount,
+		shardCountU: intToUint64Safe(shardCount),
+		maxSize:     maxSize,
 	}
 }
 
@@ -89,10 +113,10 @@ func (c *TranscodeCache) TranscodeProtoToJSON(
 	// If shardCount is a power-of-two we can use a mask which avoids modulo
 	// and keeps the index conversion safe on all architectures.
 	if (c.shardCount & (c.shardCount - 1)) == 0 {
-		idx := uint64ToIntSafe(key & (c.shardCount - 1))
+		idx := uint64ToIntSafe(key & (c.shardCountU - 1))
 		shard = c.shards[idx]
 	} else {
-		idx := uint64ToIntSafe(key % c.shardCount)
+		idx := uint64ToIntSafe(key % c.shardCountU)
 		shard = c.shards[idx]
 	}
 
@@ -164,9 +188,9 @@ func (c *TranscodeCache) computeKey(eventType string, version int, payload []byt
 		h ^= uint64(eventType[i])
 		h *= prime64
 	}
-	h ^= uint64(byte(version >> 8))
+	h ^= uint64(byte(version >> 8)) //nolint:gosec // FNV-1a hash mixes; intentional byte-width truncation.
 	h *= prime64
-	h ^= uint64(byte(version))
+	h ^= uint64(byte(version)) //nolint:gosec // FNV-1a hash mixes; intentional byte-width truncation.
 	h *= prime64
 	for _, b := range payload {
 		h ^= uint64(b)

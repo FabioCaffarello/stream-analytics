@@ -6,12 +6,12 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/FabioCaffarello/stream-analytics/internal/core/delivery/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/delivery/ports"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/market-raccoon/internal/core/delivery/domain"
-	"github.com/market-raccoon/internal/core/delivery/ports"
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/problem"
 )
 
 // DeliveryRangeStore is an in-memory hot-path store used by delivery getrange.
@@ -33,7 +33,8 @@ func NewDeliveryRangeStore(maxPerSubject int) *DeliveryRangeStore {
 }
 
 func (s *DeliveryRangeStore) StoreEnvelope(env envelope.Envelope) {
-	sub, p := domain.SubjectFromEnvelope(env, domain.DefaultTimeframe)
+	tf := domain.TimeframeFromEnvelopeMeta(env, domain.DefaultTimeframe)
+	sub, p := domain.SubjectFromEnvelope(env, tf)
 	if p != nil {
 		return
 	}
@@ -115,7 +116,8 @@ func (s *PgRangeStore) StoreEnvelope(env envelope.Envelope) {
 	if s == nil || s.pool == nil {
 		return
 	}
-	sub, p := domain.SubjectFromEnvelope(env, domain.DefaultTimeframe)
+	tf := domain.TimeframeFromEnvelopeMeta(env, domain.DefaultTimeframe)
+	sub, p := domain.SubjectFromEnvelope(env, tf)
 	if p != nil {
 		return
 	}

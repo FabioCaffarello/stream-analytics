@@ -2,13 +2,16 @@ package app_test
 
 import (
 	"context"
+	"math"
 	"testing"
 	"time"
 
-	"github.com/market-raccoon/internal/core/aggregation/app"
-	"github.com/market-raccoon/internal/core/aggregation/domain"
-	"github.com/market-raccoon/internal/shared/clock"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/app"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/clock"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 // --- fakes ---
@@ -18,6 +21,11 @@ type fakePublisher struct {
 	inconsistent []domain.OrderBookInconsistentDetected
 	candles      []domain.CandleClosed
 	stats        []domain.StatsWindowClosed
+	tapes        []domain.TapeClosed
+	openInterest []domain.OpenInterestClosed
+	deltaVolume  []domain.DeltaVolumeClosed
+	cvd          []domain.CVDClosed
+	barStats     []domain.BarStatsClosed
 	snapErr      *problem.Problem
 }
 
@@ -41,6 +49,31 @@ func (f *fakePublisher) PublishCandleClosed(_ context.Context, e domain.CandleCl
 
 func (f *fakePublisher) PublishStatsClosed(_ context.Context, e domain.StatsWindowClosed) *problem.Problem {
 	f.stats = append(f.stats, e)
+	return nil
+}
+
+func (f *fakePublisher) PublishTapeClosed(_ context.Context, e domain.TapeClosed) *problem.Problem {
+	f.tapes = append(f.tapes, e)
+	return nil
+}
+
+func (f *fakePublisher) PublishOpenInterest(_ context.Context, e domain.OpenInterestClosed) *problem.Problem {
+	f.openInterest = append(f.openInterest, e)
+	return nil
+}
+
+func (f *fakePublisher) PublishDeltaVolume(_ context.Context, e domain.DeltaVolumeClosed) *problem.Problem {
+	f.deltaVolume = append(f.deltaVolume, e)
+	return nil
+}
+
+func (f *fakePublisher) PublishCVD(_ context.Context, e domain.CVDClosed) *problem.Problem {
+	f.cvd = append(f.cvd, e)
+	return nil
+}
+
+func (f *fakePublisher) PublishBarStats(_ context.Context, e domain.BarStatsClosed) *problem.Problem {
+	f.barStats = append(f.barStats, e)
 	return nil
 }
 
@@ -185,6 +218,128 @@ func TestUpdateOrderBook_snapshotContainsLevels(t *testing.T) {
 	}
 }
 
+func TestUpdateOrderBook_V2_Checksum_Populated(t *testing.T) {
+	uc, _, _ := newUC()
+	resp := applyDelta(t, uc, 1,
+		[]domain.Level{{Price: 100, Quantity: 1}},
+		[]domain.Level{{Price: 101, Quantity: 1}},
+	)
+	if resp.Checksum == 0 {
+		t.Fatal("checksum must be populated")
+	}
+	if resp.BestBidPrice != 100 {
+		t.Fatalf("best bid=%f want=100", resp.BestBidPrice)
+	}
+	if resp.BestAskPrice != 101 {
+		t.Fatalf("best ask=%f want=101", resp.BestAskPrice)
+	}
+	if resp.SpreadBPS <= 0 {
+		t.Fatalf("spread_bps=%f want>0", resp.SpreadBPS)
+	}
+}
+
+func TestUpdateOrderBook_V2_DepthCap_Respected(t *testing.T) {
+	pub := &fakePublisher{}
+	store := &fakeStore{}
+	uc := app.NewUpdateOrderBookFromEventsWithConfig(pub, store, app.UpdateConfig{
+		MaxBooks:        16,
+		BookTTL:         time.Hour,
+		MaxLevels:       1000,
+		PublishDepthCap: 25,
+		Clock:           clock.NewFakeClock(time.UnixMilli(1_700_000_000_000)),
+	})
+
+	bids := make([]domain.Level, 0, 100)
+	asks := make([]domain.Level, 0, 100)
+	for i := 0; i < 100; i++ {
+		bids = append(bids, domain.Level{Price: domain.Price(1000 - i), Quantity: 1})
+		asks = append(asks, domain.Level{Price: domain.Price(1001 + i), Quantity: 1})
+	}
+	applyDelta(t, uc, 1, bids, asks)
+
+	if len(pub.snaps) != 1 {
+		t.Fatalf("published snapshots=%d want=1", len(pub.snaps))
+	}
+	if got, want := len(pub.snaps[0].Bids), 25; got != want {
+		t.Fatalf("published bids=%d want=%d", got, want)
+	}
+	if got, want := len(pub.snaps[0].Asks), 25; got != want {
+		t.Fatalf("published asks=%d want=%d", got, want)
+	}
+	if got, want := pub.snaps[0].BidCount, 100; got != want {
+		t.Fatalf("published bid_count=%d want=%d", got, want)
+	}
+	if got, want := pub.snaps[0].AskCount, 100; got != want {
+		t.Fatalf("published ask_count=%d want=%d", got, want)
+	}
+	if got, want := pub.snaps[0].DepthCap, 25; got != want {
+		t.Fatalf("published depth_cap=%d want=%d", got, want)
+	}
+}
+
+func TestBadLevelMetric_NaN(t *testing.T) {
+	uc, _, _ := newUC()
+	bucket := metrics.InstrumentBucket("BTCUSDT")
+	before := testutil.ToFloat64(metrics.MROrderBookBadLevelTotal.WithLabelValues("binance", bucket, "nan"))
+
+	res := uc.Execute(context.Background(), app.UpdateRequest{
+		Venue:      "binance",
+		Instrument: "BTCUSDT",
+		Seq:        1,
+		Bids:       []domain.Level{{Price: domain.Price(math.NaN()), Quantity: 1}},
+	})
+	if res.IsOk() {
+		t.Fatal("expected validation failure")
+	}
+
+	after := testutil.ToFloat64(metrics.MROrderBookBadLevelTotal.WithLabelValues("binance", bucket, "nan"))
+	if after < before+1 {
+		t.Fatalf("bad_level nan metric not incremented: before=%f after=%f", before, after)
+	}
+}
+
+func TestBadLevelMetric_NegativePrice(t *testing.T) {
+	uc, _, _ := newUC()
+	bucket := metrics.InstrumentBucket("BTCUSDT")
+	before := testutil.ToFloat64(metrics.MROrderBookBadLevelTotal.WithLabelValues("binance", bucket, "neg_price"))
+
+	res := uc.Execute(context.Background(), app.UpdateRequest{
+		Venue:      "binance",
+		Instrument: "BTCUSDT",
+		Seq:        1,
+		Bids:       []domain.Level{{Price: -1, Quantity: 1}},
+	})
+	if res.IsOk() {
+		t.Fatal("expected validation failure")
+	}
+
+	after := testutil.ToFloat64(metrics.MROrderBookBadLevelTotal.WithLabelValues("binance", bucket, "neg_price"))
+	if after < before+1 {
+		t.Fatalf("bad_level neg_price metric not incremented: before=%f after=%f", before, after)
+	}
+}
+
+func TestBadLevelMetric_InfQuantity(t *testing.T) {
+	uc, _, _ := newUC()
+	bucket := metrics.InstrumentBucket("BTCUSDT")
+	before := testutil.ToFloat64(metrics.MROrderBookBadLevelTotal.WithLabelValues("binance", bucket, "inf"))
+
+	res := uc.Execute(context.Background(), app.UpdateRequest{
+		Venue:      "binance",
+		Instrument: "BTCUSDT",
+		Seq:        1,
+		Asks:       []domain.Level{{Price: 100, Quantity: domain.Quantity(math.Inf(1))}},
+	})
+	if res.IsOk() {
+		t.Fatal("expected validation failure")
+	}
+
+	after := testutil.ToFloat64(metrics.MROrderBookBadLevelTotal.WithLabelValues("binance", bucket, "inf"))
+	if after < before+1 {
+		t.Fatalf("bad_level inf metric not incremented: before=%f after=%f", before, after)
+	}
+}
+
 func TestUpdateOrderBook_saveFailureDoesNotPublishSnapshot(t *testing.T) {
 	pub := &fakePublisher{}
 	store := &fakeStore{
@@ -209,6 +364,41 @@ func TestUpdateOrderBook_saveFailureDoesNotPublishSnapshot(t *testing.T) {
 	}
 	if len(store.saved) != 0 {
 		t.Fatalf("persisted snapshots=%d want=0", len(store.saved))
+	}
+}
+
+func TestUpdateOrderBook_snapshotPublishMinIntervalThrottlesPublishOnly(t *testing.T) {
+	pub := &fakePublisher{}
+	store := &fakeStore{}
+	clk := clock.NewFakeClock(time.UnixMilli(1_700_000_000_000))
+	uc := app.NewUpdateOrderBookFromEventsWithConfig(pub, store, app.UpdateConfig{
+		MaxBooks:                   8,
+		BookTTL:                    time.Hour,
+		MaxLevels:                  128,
+		Clock:                      clk,
+		SnapshotPublishMinInterval: 200 * time.Millisecond,
+	})
+
+	applyDelta(t, uc, 1,
+		[]domain.Level{{Price: 100, Quantity: 1}},
+		[]domain.Level{{Price: 101, Quantity: 1}},
+	)
+	clk.Advance(50 * time.Millisecond)
+	applyDelta(t, uc, 2,
+		[]domain.Level{{Price: 100, Quantity: 2}},
+		[]domain.Level{{Price: 101, Quantity: 2}},
+	)
+	clk.Advance(250 * time.Millisecond)
+	applyDelta(t, uc, 3,
+		[]domain.Level{{Price: 100, Quantity: 3}},
+		[]domain.Level{{Price: 101, Quantity: 3}},
+	)
+
+	if got, want := len(store.saved), 3; got != want {
+		t.Fatalf("persisted snapshots=%d want=%d", got, want)
+	}
+	if got, want := len(pub.snaps), 2; got != want {
+		t.Fatalf("published snapshots=%d want=%d", got, want)
 	}
 }
 

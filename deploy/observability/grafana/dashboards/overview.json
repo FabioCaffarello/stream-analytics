@@ -11,7 +11,7 @@
       "title": "Ingest Error Ratio",
       "type": "timeseries",
       "targets": [
-        {"expr": "slo:ingest:error_ratio{service=\"market-raccoon\"}", "legendFormat": "{{stream}}/{{venue}}", "refId": "A"}
+        {"expr": "slo:ingest:error_ratio{service=\"stream-analytics\"}", "legendFormat": "{{stream}}/{{venue}}", "refId": "A"}
       ]
     },
     {
@@ -22,7 +22,7 @@
       "title": "Delivery Latency Burn Rate (5m)",
       "type": "timeseries",
       "targets": [
-        {"expr": "slo:delivery_latency:burn_rate_5m{service=\"market-raccoon\"}", "legendFormat": "{{stream}}/{{venue}}", "refId": "A"}
+        {"expr": "slo:delivery_latency:burn_rate_5m{service=\"stream-analytics\"}", "legendFormat": "{{stream}}/{{venue}}", "refId": "A"}
       ]
     },
     {
@@ -33,7 +33,7 @@
       "title": "Data Loss Burn Rate (5m)",
       "type": "timeseries",
       "targets": [
-        {"expr": "slo:data_loss:burn_rate_5m{service=\"market-raccoon\"}", "legendFormat": "{{stream}}/{{venue}}", "refId": "A"}
+        {"expr": "slo:data_loss:burn_rate_5m{service=\"stream-analytics\"}", "legendFormat": "{{stream}}/{{venue}}", "refId": "A"}
       ]
     },
     {
@@ -44,7 +44,7 @@
       "title": "Ingest Success Rate",
       "type": "timeseries",
       "targets": [
-        {"expr": "slo:ingest_success:rate{service=\"market-raccoon\"}", "legendFormat": "{{stream}}/{{venue}}", "refId": "A"}
+        {"expr": "slo:ingest_success:rate{service=\"stream-analytics\"}", "legendFormat": "{{stream}}/{{venue}}", "refId": "A"}
       ]
     },
     {
@@ -143,7 +143,7 @@
     ]
   },
   "time": {"from": "now-6h", "to": "now"},
-  "title": "Market-Raccoon Overview",
-  "uid": "market-raccoon-overview",
+  "title": "Stream-Analytics Overview",
+  "uid": "stream-analytics-overview",
   "version": 1
 }

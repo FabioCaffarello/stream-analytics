@@ -2,37 +2,42 @@ package deliveryruntime
 
 import (
 	"bytes"
+	"compress/flate"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"sort"
 	"strings"
 	"time"
 
+	"github.com/FabioCaffarello/stream-analytics/internal/core/delivery/app"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/delivery/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/delivery/ports"
+	sharedclock "github.com/FabioCaffarello/stream-analytics/internal/shared/clock"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/observability"
 	"github.com/anthdm/hollywood/actor"
-	"github.com/gorilla/websocket"
-	"github.com/market-raccoon/internal/core/delivery/app"
-	"github.com/market-raccoon/internal/core/delivery/domain"
-	"github.com/market-raccoon/internal/core/delivery/ports"
-	sharedclock "github.com/market-raccoon/internal/shared/clock"
-	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/contracts"
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/metrics"
-	"github.com/market-raccoon/internal/shared/observability"
-	"github.com/market-raccoon/internal/shared/problem"
 )
+
+// ── Constants ───────────────────────────────────────────────────────────────
 
 const readLimitBytes = 64 * 1024
+const wsKeepalivePingInterval = 20 * time.Second
+const wsMetricsCadence = 5 * time.Second
+const wsFlushBatchSize = 32
+const wsCompressThresholdBytes = 1024
 
 const (
-	defaultRangeLimit = 100
-	maxLimit          = 1000
-	maxPage           = 100
-	maxQueryLimit     = 20000
-	maxResponseItems  = 1000
+	defaultRangeLimit      = 100
+	maxLimit               = 1000
+	maxPage                = 100
+	maxQueryLimit          = 20000
+	maxResponseItems       = 1000
+	subscribeBackfillLimit = 64
 )
+
+// ── Interfaces ──────────────────────────────────────────────────────────────
 
 type wsConn interface {
 	ReadMessage() (messageType int, p []byte, err error)
@@ -44,13 +49,21 @@ type wsConn interface {
 	Close() error
 }
 
+// HotSnapshotProvider returns latest snapshot bytes for a subject.
+type HotSnapshotProvider interface {
+	GetLatest(subject domain.Subject) ([]byte, bool)
+}
+
+// ── SessionConfig ───────────────────────────────────────────────────────────
+
 type SessionConfig struct {
-	Logger     *slog.Logger
-	RouterPID  *actor.PID
-	Conn       wsConn
-	ClientID   string
-	RangeStore ports.RangeStore
-	// HotSnapshotProvider returns latest snapshot bytes for a subject.
+	Logger              *slog.Logger
+	RouterPID           *actor.PID
+	Conn                wsConn
+	ClientID            string
+	TenantID            string
+	RangeStore          ports.RangeStore
+	ServerInstanceID    string
 	HotSnapshotProvider HotSnapshotProvider
 	// OutboundQueueSize bounds queued delivery events per session.
 	OutboundQueueSize int
@@ -65,17 +78,40 @@ type SessionConfig struct {
 	// SlowClientDropThreshold disconnects a session after N dropped outbound
 	// events due to backpressure. 0 disables threshold-based disconnects.
 	SlowClientDropThreshold int
+	// MaxSubscriptions bounds active subscriptions per websocket session.
+	// 0 disables the limit.
+	MaxSubscriptions int
+	// MaxSignalSubscriptions bounds active signal subscriptions per session.
+	// 0 disables the signal-specific limit.
+	MaxSignalSubscriptions int
+	// MaxSymbolsPerConnection bounds active unique symbols per session.
+	// 0 disables the limit.
+	MaxSymbolsPerConnection int
+	// MaxFrameBytes is the maximum outbound frame size in bytes.
+	// 0 defaults to readLimitBytes.
+	MaxFrameBytes int
+	// KeepaliveInterval controls periodic websocket pings.
+	// 0 defaults to wsKeepalivePingInterval.
+	KeepaliveInterval time.Duration
+	// MetricsCadence controls periodic metrics frame emission.
+	// 0 defaults to wsMetricsCadence.
+	MetricsCadence time.Duration
 	// Clock is optional; defaults to SystemClock.
 	Clock sharedclock.Clock
 	// TranscodeCache is an optional shared proto→JSON transcode cache.
-	// When set, proto payloads destined for JSON clients are cached to avoid
-	// redundant decode+marshal across sessions receiving the same event.
 	TranscodeCache *TranscodeCache
+	// SnapshotWireCache caches pre-encoded snapshot frames shared across sessions.
+	SnapshotWireCache *SnapshotWireCache
+	// CompressionEnabled toggles websocket write compression support.
+	CompressionEnabled bool
+	// RequireClientHello gates subscribe/resync/getrange behind a client hello.
+	// When true, these commands are rejected until the client sends a hello frame.
+	RequireClientHello bool
+	// OnClosed is invoked once when session is closed.
+	OnClosed func()
 }
 
-type HotSnapshotProvider interface {
-	GetLatest(subject domain.Subject) ([]byte, bool)
-}
+// ── SessionActor ────────────────────────────────────────────────────────────
 
 type SessionActor struct {
 	cfg SessionConfig
@@ -87,23 +123,77 @@ type SessionActor struct {
 	session *domain.Session
 	service *app.SessionService
 
+	limits   EffectiveLimits
+	features NegotiatedFeatures
+
 	readerCtx    context.Context
 	cancelReader context.CancelFunc
+	started      bool
 	closed       bool
 	outbound     *deliveryRing
-	outboundCap  int
 	flushing     bool
 	policy       domain.BackpressurePolicy
 	priorities   map[string]int
 	rateLimiter  *RateLimiter
 	dropCount    int
+	helloSeen    bool
+	lastLagMs    int64
+	messagesOut  int64
+	lastSnapshot map[string]sessionSnapshotEntry
+
+	// Per-subject snapshot counter (1-indexed, incremented on each snapshot emit).
+	snapshotSeq map[string]int64
+	// Per-subject last delivered event seq for prev_seq chaining.
+	lastDeliveredSeq map[string]int64
+	// Per-session resync counter (total resyncs across all subjects).
+	resyncCount int64
+
+	// Peak queue depth since last metrics emission (reset after each emission).
+	queueHighWatermark int
+	bpStrategy         backpressureStrategy
+	bpDropSamples      map[backpressureDropSampleKey]int
+	bpDropSampleDrops  int
+	bpDropSampleWindow int
+
+	compressBuf    bytes.Buffer
+	compressWriter *flate.Writer
+
+	batchPrepared []preparedBatchEvent
+	batchItems    []wsBatchItem
 }
+
+type sessionKeepaliveTick struct{}
+type sessionMetricsTick struct{}
+
+type sessionSnapshotEntry struct {
+	Seq      int64
+	TsServer int64
+	Venue    string
+	Symbol   string
+	Channel  string
+	Payload  json.RawMessage
+}
+
+type preparedBatchEvent struct {
+	subject  domain.Subject
+	env      envelope.Envelope
+	channel  string
+	seq      int64
+	prevSeq  int64
+	tsIngest int64
+	tsServer int64
+	payload  json.RawMessage
+}
+
+// ── Constructor ─────────────────────────────────────────────────────────────
 
 func NewSessionActor(cfg SessionConfig) actor.Producer {
 	return func() actor.Receiver {
 		return &SessionActor{cfg: cfg}
 	}
 }
+
+// ── Receive ─────────────────────────────────────────────────────────────────
 
 func (s *SessionActor) Receive(c *actor.Context) {
 	s.ensureDefaults(c)
@@ -118,6 +208,10 @@ func (s *SessionActor) Receive(c *actor.Context) {
 		s.attachConn(msg.Conn)
 	case sessionInboundText:
 		s.handleInboundText(msg.Data)
+	case sessionKeepaliveTick:
+		s.handleKeepaliveTick()
+	case sessionMetricsTick:
+		s.handleMetricsTick()
 	case GetRangeRequest:
 		s.handleGetRangeRequest(msg)
 	case sessionDisconnected:
@@ -130,6 +224,8 @@ func (s *SessionActor) Receive(c *actor.Context) {
 		s.logger.Warn("delivery session: unknown message", "type", fmt.Sprintf("%T", msg))
 	}
 }
+
+// ── Init / lifecycle ────────────────────────────────────────────────────────
 
 func (s *SessionActor) ensureDefaults(c *actor.Context) {
 	if s.logger == nil {
@@ -145,18 +241,20 @@ func (s *SessionActor) ensureDefaults(c *actor.Context) {
 	}
 	if s.session == nil {
 		s.session = domain.NewSession()
+		s.logger = s.logger.With(
+			"connection_id", s.session.ID().String(),
+			"user_id", strings.TrimSpace(s.cfg.ClientID),
+			"tenant_id", strings.TrimSpace(s.cfg.TenantID),
+		)
 	}
 	if s.service == nil {
 		s.service = app.NewSessionService(s.cfg.RangeStore)
 	}
-	if s.outboundCap <= 0 {
-		s.outboundCap = s.cfg.OutboundQueueSize
-		if s.outboundCap <= 0 {
-			s.outboundCap = 256
-		}
+	if s.limits.MaxFrameBytes <= 0 {
+		s.limits = NewEffectiveLimits(s.cfg)
 	}
 	if s.outbound == nil {
-		s.outbound = newDeliveryRing(s.outboundCap)
+		s.outbound = newDeliveryRing(s.limits.OutboundQueueSize)
 	}
 	if s.policy == "" {
 		s.policy = domain.NormalizeBackpressurePolicy(s.cfg.BackpressurePolicy)
@@ -170,27 +268,62 @@ func (s *SessionActor) ensureDefaults(c *actor.Context) {
 	if s.cfg.Clock == nil {
 		s.cfg.Clock = sharedclock.NewSystemClock()
 	}
-	if s.rateLimiter == nil && s.cfg.RateLimit.Enabled {
-		burst := s.cfg.RateLimit.BurstCapacity
+	if s.bpStrategy.sampleFlushEvery <= 0 {
+		s.bpStrategy = defaultBackpressureStrategy()
+	}
+	if s.bpDropSamples == nil {
+		s.bpDropSamples = make(map[backpressureDropSampleKey]int)
+	}
+	if strings.TrimSpace(s.cfg.ServerInstanceID) == "" {
+		s.cfg.ServerInstanceID = "unknown"
+	}
+	if s.rateLimiter == nil && s.limits.RateLimit.Enabled {
+		burst := s.limits.RateLimit.BurstCapacity
 		if burst <= 0 {
 			burst = 200
 		}
-		rate := s.cfg.RateLimit.MaxPerSecond
+		rate := s.limits.RateLimit.MaxPerSecond
 		if rate <= 0 {
 			rate = 100
 		}
 		s.rateLimiter = NewRateLimiter(burst, rate, s.cfg.Clock)
 	}
+	if s.lastSnapshot == nil {
+		s.lastSnapshot = make(map[string]sessionSnapshotEntry)
+	}
+	if s.snapshotSeq == nil {
+		s.snapshotSeq = make(map[string]int64)
+	}
+	if s.lastDeliveredSeq == nil {
+		s.lastDeliveredSeq = make(map[string]int64)
+	}
+	if s.compressWriter == nil {
+		if w, err := flate.NewWriter(&s.compressBuf, flate.BestSpeed); err == nil {
+			s.compressWriter = w
+		}
+	}
+	if s.batchPrepared == nil {
+		s.batchPrepared = make([]preparedBatchEvent, wsFlushBatchSize)
+	}
+	if s.batchItems == nil {
+		s.batchItems = make([]wsBatchItem, wsFlushBatchSize)
+	}
+	s.limits.EmitMetrics()
+	metrics.SetWSQueueCapacity(s.limits.OutboundQueueSize)
+	metrics.SetWSBackpressureLevel(0)
+	metrics.SetWSQueueHighWatermark(0)
 }
 
 func (s *SessionActor) onStarted() {
-	if s.cfg.RouterPID != nil {
-		s.engine.Send(s.cfg.RouterPID, RegisterSession{SessionID: s.session.ID(), PID: s.self})
-	}
+	s.started = true
 	metrics.IncWSClientsConnected()
+	metrics.IncWSTenantConnectionsActive(s.cfg.TenantID)
 	observability.IncSessionsActive()
 	if s.cfg.PreferProto {
 		observability.IncPreferProtoSessions()
+	}
+	if s.cfg.RouterPID != nil {
+		s.engine.Send(s.cfg.RouterPID, RegisterSession{SessionID: s.session.ID(), PID: s.self})
 	}
 	s.attachConn(s.cfg.Conn)
 }
@@ -208,6 +341,7 @@ func (s *SessionActor) attachConn(conn wsConn) {
 	if s.cfg.Conn == nil {
 		return
 	}
+	s.emitHello()
 	s.readerCtx, s.cancelReader = context.WithCancel(context.Background())
 	s.cfg.Conn.SetReadLimit(readLimitBytes)
 	if err := s.cfg.Conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
@@ -216,11 +350,33 @@ func (s *SessionActor) attachConn(conn wsConn) {
 	s.cfg.Conn.SetPongHandler(func(string) error {
 		return s.cfg.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	})
+	go s.keepaliveLoop(s.readerCtx)
 	go s.readLoop()
 }
 
 func (s *SessionActor) onStopped() {
 	s.closeSession()
+}
+
+func (s *SessionActor) keepaliveLoop(ctx context.Context) {
+	pingTicker := time.NewTicker(time.Duration(s.limits.KeepaliveIntervalMs) * time.Millisecond)
+	metricsTicker := time.NewTicker(time.Duration(s.limits.MetricsCadenceMs) * time.Millisecond)
+	defer pingTicker.Stop()
+	defer metricsTicker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-pingTicker.C:
+			if s.engine != nil && s.self != nil {
+				s.engine.Send(s.self, sessionKeepaliveTick{})
+			}
+		case <-metricsTicker.C:
+			if s.engine != nil && s.self != nil {
+				s.engine.Send(s.self, sessionMetricsTick{})
+			}
+		}
+	}
 }
 
 func (s *SessionActor) readLoop() {
@@ -234,565 +390,11 @@ func (s *SessionActor) readLoop() {
 				s.engine.Send(s.self, sessionDisconnected{})
 				return
 			}
-			if messageType != websocket.TextMessage {
+			if messageType != 1 { // websocket.TextMessage == 1
 				continue
 			}
 			s.engine.Send(s.self, sessionInboundText{Data: data})
 		}
-	}
-}
-
-type clientCommand struct {
-	Op        string          `json:"op"`
-	Subject   string          `json:"subject"`
-	RequestID string          `json:"request_id,omitempty"`
-	Params    json.RawMessage `json:"params,omitempty"`
-}
-
-// Pre-allocated typed structs for outbound JSON frames.
-// These eliminate map[string]any allocations on the delivery hot path.
-
-type wsAckFrame struct {
-	Type      string `json:"type"`
-	Op        string `json:"op"`
-	RequestID string `json:"request_id"`
-	Subject   string `json:"subject"`
-}
-
-type wsSnapshotFrame struct {
-	Type    string          `json:"type"`
-	Subject string          `json:"subject"`
-	Payload json.RawMessage `json:"payload"`
-}
-
-type wsLastFrame struct {
-	Type      string `json:"type"`
-	Op        string `json:"op"`
-	RequestID string `json:"request_id"`
-	Subject   string `json:"subject"`
-	Item      any    `json:"item"`
-}
-
-type wsRangeFrame struct {
-	Type      string `json:"type"`
-	Op        string `json:"op"`
-	RequestID string `json:"request_id"`
-	Subject   string `json:"subject"`
-	Page      int    `json:"page"`
-	Limit     int    `json:"limit"`
-	Items     any    `json:"items"`
-}
-
-type wsEventFrame struct {
-	Type     string          `json:"type"`
-	Subject  string          `json:"subject"`
-	Seq      int64           `json:"seq"`
-	TsIngest int64           `json:"ts_ingest"`
-	Payload  json.RawMessage `json:"payload"`
-}
-
-type wsErrorProblem struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-}
-
-type wsErrorFrame struct {
-	Type      string         `json:"type"`
-	Op        string         `json:"op"`
-	RequestID string         `json:"request_id"`
-	Problem   wsErrorProblem `json:"problem"`
-}
-
-type getRangeParams struct {
-	FromMs int64 `json:"from_ms"`
-	ToMs   int64 `json:"to_ms"`
-	Limit  int   `json:"limit"`
-	Page   int   `json:"page"`
-}
-
-func (s *SessionActor) handleInboundText(data []byte) {
-	var cmd clientCommand
-	if err := json.Unmarshal(data, &cmd); err != nil {
-		s.writeProblem(cmd.Op, cmd.RequestID, problem.Wrap(err, problem.ValidationFailed, "invalid JSON payload"))
-		return
-	}
-	switch cmd.Op {
-	case "subscribe":
-		s.handleSubscribe(cmd)
-	case "unsubscribe":
-		s.handleUnsubscribe(cmd)
-	case "getlast":
-		s.handleGetLast(cmd)
-	case "getrange":
-		s.handleGetRange(cmd)
-	default:
-		s.writeProblem(cmd.Op, cmd.RequestID, problem.Newf(problem.ValidationFailed, "unsupported op %q", cmd.Op))
-	}
-}
-
-func paginateTail(items []ports.RangeItem, page, limit int) []ports.RangeItem {
-	if limit <= 0 {
-		return items
-	}
-	if page <= 0 {
-		page = 1
-	}
-	n := len(items)
-	end := n - (page-1)*limit
-	if end <= 0 {
-		return []ports.RangeItem{}
-	}
-	start := end - limit
-	if start < 0 {
-		start = 0
-	}
-	return items[start:end]
-}
-
-func sortRangeItems(items []ports.RangeItem) {
-	sort.SliceStable(items, func(i, j int) bool {
-		if items[i].Seq != items[j].Seq {
-			return items[i].Seq < items[j].Seq
-		}
-		if items[i].TsIngest != items[j].TsIngest {
-			return items[i].TsIngest < items[j].TsIngest
-		}
-		return bytes.Compare(items[i].Payload, items[j].Payload) < 0
-	})
-}
-
-func (s *SessionActor) handleSubscribe(cmd clientCommand) {
-	if !s.allowRateLimitedCommand(cmd.Op, cmd.RequestID) {
-		return
-	}
-	subRes := s.service.ParseSubject(cmd.Subject)
-	if subRes.IsFail() {
-		s.writeProblem(cmd.Op, cmd.RequestID, subRes.Problem())
-		return
-	}
-	subject := subRes.Value()
-	if p := s.session.Subscribe(subject, domain.Filter{}); p != nil {
-		s.writeProblem(cmd.Op, cmd.RequestID, p)
-		return
-	}
-	s.emitSnapshot(subject)
-	if s.cfg.RouterPID != nil {
-		s.engine.Send(s.cfg.RouterPID, SubscribeSession{SessionID: s.session.ID(), Subject: subject})
-	}
-	s.writeJSON(wsAckFrame{
-		Type:      "ack",
-		Op:        cmd.Op,
-		RequestID: cmd.RequestID,
-		Subject:   subject.String(),
-	})
-}
-
-func (s *SessionActor) emitSnapshot(subject domain.Subject) {
-	if s.cfg.HotSnapshotProvider == nil {
-		return
-	}
-	raw, ok := s.cfg.HotSnapshotProvider.GetLatest(subject)
-	if !ok || len(raw) == 0 {
-		return
-	}
-	payload := json.RawMessage(raw)
-	if !json.Valid(payload) {
-		s.logger.Warn("delivery session: invalid snapshot payload, skipping", "subject", subject.String())
-		return
-	}
-	s.writeJSON(wsSnapshotFrame{
-		Type:    "snapshot",
-		Subject: subject.String(),
-		Payload: payload,
-	})
-	metrics.IncWSQuery("snapshot", wsQueryBucket(subject.StreamType))
-}
-
-func (s *SessionActor) handleUnsubscribe(cmd clientCommand) {
-	subRes := s.service.ParseSubject(cmd.Subject)
-	if subRes.IsFail() {
-		s.writeProblem(cmd.Op, cmd.RequestID, subRes.Problem())
-		return
-	}
-	subject := subRes.Value()
-	if p := s.session.Unsubscribe(subject); p != nil {
-		s.writeProblem(cmd.Op, cmd.RequestID, p)
-		return
-	}
-	if s.cfg.RouterPID != nil {
-		s.engine.Send(s.cfg.RouterPID, UnsubscribeSession{SessionID: s.session.ID(), Subject: subject})
-	}
-	s.writeJSON(wsAckFrame{
-		Type:      "ack",
-		Op:        cmd.Op,
-		RequestID: cmd.RequestID,
-		Subject:   subject.String(),
-	})
-}
-
-func (s *SessionActor) handleGetLast(cmd clientCommand) {
-	subRes := s.service.ParseSubject(cmd.Subject)
-	if subRes.IsFail() {
-		metrics.IncWSQueryRejected("subject_invalid")
-		s.writeProblem(cmd.Op, cmd.RequestID, subRes.Problem())
-		return
-	}
-	subject := subRes.Value()
-	res := s.service.GetRange(context.Background(), app.GetRangeRequest{
-		SubjectRaw: subject.String(),
-		Limit:      maxQueryLimit,
-	})
-	if res.IsFail() {
-		metrics.IncWSQueryRejected("range_failed")
-		s.writeProblem(cmd.Op, cmd.RequestID, res.Problem())
-		return
-	}
-	var item any
-	items := append([]ports.RangeItem(nil), res.Value()...)
-	sortRangeItems(items)
-	if len(items) > 0 {
-		item = items[len(items)-1] // highest seq after defensive sort
-	}
-	metrics.IncWSQuery("getlast", wsQueryBucket(subject.StreamType))
-	s.writeJSON(wsLastFrame{
-		Type:      "last",
-		Op:        cmd.Op,
-		RequestID: cmd.RequestID,
-		Subject:   subject.String(),
-		Item:      item,
-	})
-}
-
-func (s *SessionActor) handleGetRange(cmd clientCommand) {
-	if !s.allowRateLimitedCommand(cmd.Op, cmd.RequestID) {
-		return
-	}
-	var params getRangeParams
-	if len(cmd.Params) != 0 {
-		if err := json.Unmarshal(cmd.Params, &params); err != nil {
-			metrics.IncWSQueryRejected("params_invalid")
-			s.writeProblem(cmd.Op, cmd.RequestID, problem.Wrap(err, problem.ValidationFailed, "invalid getrange params"))
-			return
-		}
-	}
-	s.executeGetRange(cmd.Op, cmd.RequestID, cmd.Subject, params)
-}
-
-func (s *SessionActor) handleGetRangeRequest(req GetRangeRequest) {
-	if !s.allowRateLimitedCommand("getrange", req.RequestID) {
-		return
-	}
-	s.executeGetRange("getrange", req.RequestID, req.Subject, getRangeParams{
-		FromMs: req.FromMs,
-		ToMs:   req.ToMs,
-		Limit:  req.Limit,
-		Page:   req.Page,
-	})
-}
-
-func (s *SessionActor) executeGetRange(op, requestID, subjectRaw string, params getRangeParams) {
-	subRes := s.service.ParseSubject(subjectRaw)
-	if subRes.IsFail() {
-		metrics.IncWSQueryRejected("subject_invalid")
-		s.writeProblem(op, requestID, subRes.Problem())
-		return
-	}
-	subject := subRes.Value()
-
-	page := params.Page
-	if page <= 0 {
-		page = 1
-	}
-	limit := params.Limit
-	if limit <= 0 {
-		limit = defaultRangeLimit
-	}
-	if limit > maxLimit {
-		metrics.IncWSQueryRejected("limit_cap")
-		s.writeProblem(op, requestID, problem.Newf(problem.ValidationFailed, "limit must be <= %d", maxLimit))
-		return
-	}
-	if page > maxPage {
-		metrics.IncWSQueryRejected("page_cap")
-		s.writeProblem(op, requestID, problem.Newf(problem.ValidationFailed, "page must be <= %d", maxPage))
-		return
-	}
-	queryLimit := limit * page
-	if queryLimit > maxQueryLimit {
-		metrics.IncWSQueryRejected("query_cap")
-		s.writeProblem(op, requestID, problem.Newf(problem.ValidationFailed, "limit*page must be <= %d", maxQueryLimit))
-		return
-	}
-
-	// Defensive window: fetch bounded superset, then sort/paginate in-memory.
-	// This avoids relying on implicit store ordering semantics.
-	res := s.service.GetRange(context.Background(), app.GetRangeRequest{
-		SubjectRaw: subject.String(),
-		FromMs:     params.FromMs,
-		ToMs:       params.ToMs,
-		Limit:      maxQueryLimit,
-	})
-	if res.IsFail() {
-		metrics.IncWSQueryRejected("range_failed")
-		s.writeProblem(op, requestID, res.Problem())
-		return
-	}
-	items := append([]ports.RangeItem(nil), res.Value()...)
-	sortRangeItems(items)
-	items = paginateTail(items, page, limit)
-	if len(items) > maxResponseItems {
-		items = items[len(items)-maxResponseItems:]
-	}
-	metrics.IncWSQuery("getrange", wsQueryBucket(subject.StreamType))
-	s.writeJSON(wsRangeFrame{
-		Type:      "range",
-		Op:        op,
-		RequestID: requestID,
-		Subject:   subject.String(),
-		Page:      page,
-		Limit:     limit,
-		Items:     items,
-	})
-}
-
-func (s *SessionActor) allowRateLimitedCommand(op, requestID string) bool {
-	switch op {
-	case "subscribe", "getrange":
-	default:
-		return true
-	}
-	if s.rateLimiter == nil {
-		return true
-	}
-	if s.rateLimiter.Allow() {
-		return true
-	}
-	metrics.IncWSQueryRejected("rate_limited")
-	s.writeProblem(op, requestID, problem.New(problem.Unavailable, "rate limit exceeded"))
-	return false
-}
-
-func (s *SessionActor) enqueueDelivery(evt DeliveryEvent) {
-	if s.outbound.IsFull() {
-		switch s.policy {
-		case domain.BackpressureDropNewest:
-			if s.onDrop("queue_full") {
-				return
-			}
-			return
-		case domain.BackpressureDropOldest:
-			s.outbound.DropFront()
-			if s.onDrop("drop_oldest") {
-				return
-			}
-		case domain.BackpressurePriorityDrop:
-			if !s.priorityDrop(evt) {
-				if s.onDrop("priority_drop_self") {
-					return
-				}
-				return
-			}
-			if s.onDrop("priority_drop") {
-				return
-			}
-			metrics.SetWSQueueDepth(s.outbound.Len())
-			if s.flushing {
-				return
-			}
-			s.flushing = true
-			s.engine.Send(s.self, sessionFlushOutbound{})
-			return
-		default:
-			if s.onDrop("queue_full") {
-				return
-			}
-			return
-		}
-	}
-	s.outbound.PushBack(evt)
-	metrics.SetWSQueueDepth(s.outbound.Len())
-	if s.flushing {
-		return
-	}
-	s.flushing = true
-	s.engine.Send(s.self, sessionFlushOutbound{})
-}
-
-func (s *SessionActor) priorityDrop(evt DeliveryEvent) bool {
-	if !s.outbound.IsFull() {
-		s.outbound.PushBack(evt)
-		return true
-	}
-	incomingPri := s.eventPriority(evt.Env.Type)
-	lowestIdx := -1
-	lowestPri := incomingPri
-	for i := 0; i < s.outbound.Len(); i++ {
-		pri := s.eventPriority(s.outbound.At(i).Env.Type)
-		if pri < lowestPri {
-			lowestPri = pri
-			lowestIdx = i
-		}
-	}
-	if lowestIdx < 0 {
-		return false
-	}
-	s.outbound.RemoveAt(lowestIdx)
-	s.outbound.PushBack(evt)
-	return true
-}
-
-func (s *SessionActor) onDrop(reason string) bool {
-	metrics.IncWSDrops(reason)
-	s.dropCount++
-	threshold := s.cfg.SlowClientDropThreshold
-	if threshold <= 0 || s.dropCount < threshold {
-		return false
-	}
-
-	metrics.IncWSDrops("slow_client_disconnect")
-	s.logger.Warn(
-		"delivery session: slow client disconnected after drop threshold breach",
-		"client_id", s.cfg.ClientID,
-		"session_id", s.session.ID(),
-		"drops", s.dropCount,
-		"threshold", threshold,
-		"reason", reason,
-	)
-	s.closeSession()
-	return true
-}
-
-func (s *SessionActor) eventPriority(eventType string) int {
-	if s.priorities == nil {
-		return 0
-	}
-	// eventType arrives pre-normalized (lowercase, trimmed) from the ingest
-	// pipeline via envelope.Validate(). Priorities map keys are also lowercase
-	// (built in ensureDefaults). Direct lookup avoids per-event string allocs.
-	return s.priorities[eventType]
-}
-
-func (s *SessionActor) flushOutbound() {
-	if s.closed {
-		s.flushing = false
-		return
-	}
-	evt, ok := s.outbound.PopFront()
-	if !ok {
-		s.flushing = false
-		metrics.SetWSQueueDepth(0)
-		return
-	}
-	metrics.SetWSQueueDepth(s.outbound.Len())
-
-	started := time.Now()
-	if err := s.writeDeliveryEvent(evt); err != nil {
-		s.logger.Warn("delivery session: write failed", "err", err)
-		s.closeSession()
-		return
-	}
-	metrics.ObserveWSSendLatency(time.Since(started))
-
-	if s.outbound.Len() > 0 {
-		s.engine.Send(s.self, sessionFlushOutbound{})
-		return
-	}
-	s.flushing = false
-}
-
-func (s *SessionActor) writeDeliveryEvent(evt DeliveryEvent) *problem.Problem {
-	if s.cfg.PreferProto && contracts.ProtoRolloutEnabledForEventType(evt.Env.Type) {
-		raw, p := contracts.MarshalEnvelopeV1FromDomain(evt.Env)
-		if p != nil {
-			return p
-		}
-		if err := s.writeProtoDirect(websocket.BinaryMessage, raw); err != nil {
-			return problem.Wrap(err, problem.Internal, "proto write failed")
-		}
-		observability.IncDeliveryProto()
-		return nil
-	}
-	payload := evt.Env.Payload
-	if evt.Env.ContentType == envelope.ContentTypeProto {
-		if s.cfg.TranscodeCache != nil {
-			cached, p := s.cfg.TranscodeCache.TranscodeProtoToJSON(
-				evt.Env.Type, evt.Env.Version, evt.Env.ContentType, payload,
-			)
-			if p != nil {
-				return p
-			}
-			payload = cached
-		} else {
-			decoded, p := codec.DecodePayload(evt.Env.Type, evt.Env.Version, evt.Env.ContentType, payload)
-			if p != nil {
-				return p
-			}
-			transcoded, err := json.Marshal(decoded)
-			if err != nil {
-				return problem.Wrap(err, problem.Internal, "proto→json transcode failed")
-			}
-			payload = json.RawMessage(transcoded)
-		}
-	}
-	if err := s.writeJSONDirect(wsEventFrame{
-		Type:     "event",
-		Subject:  evt.Subject.String(),
-		Seq:      evt.Env.Seq,
-		TsIngest: evt.Env.TsIngest,
-		Payload:  payload,
-	}); err != nil {
-		return problem.Wrap(err, problem.Internal, "json write failed")
-	}
-	observability.IncDeliveryJSON()
-	return nil
-}
-
-func (s *SessionActor) writeProblem(op, requestID string, p *problem.Problem) {
-	if p == nil {
-		return
-	}
-	s.writeJSON(wsErrorFrame{
-		Type:      "error",
-		Op:        op,
-		RequestID: requestID,
-		Problem: wsErrorProblem{
-			Code:    string(p.Code),
-			Message: p.Message,
-		},
-	})
-}
-
-func (s *SessionActor) writeJSON(v any) {
-	if err := s.writeJSONDirect(v); err != nil {
-		s.logger.Warn("delivery session: write failed", "err", err)
-		s.closeSession()
-	}
-}
-
-func (s *SessionActor) writeJSONDirect(v any) error {
-	if s.cfg.Conn == nil {
-		return nil
-	}
-	return s.cfg.Conn.WriteJSON(v)
-}
-
-func (s *SessionActor) writeProtoDirect(messageType int, payload []byte) error {
-	if s.cfg.Conn == nil {
-		return nil
-	}
-	return s.cfg.Conn.WriteMessage(messageType, payload)
-}
-
-func wsQueryBucket(streamType string) string {
-	switch {
-	case strings.HasPrefix(streamType, "marketdata."):
-		return "marketdata"
-	case strings.HasPrefix(streamType, "aggregation."):
-		return "aggregation"
-	case strings.HasPrefix(streamType, "insights."):
-		return "insights"
-	default:
-		return "unknown"
 	}
 }
 
@@ -804,26 +406,40 @@ func (s *SessionActor) closeSession() {
 	if s.cancelReader != nil {
 		s.cancelReader()
 	}
-	metrics.DecWSClientsConnected()
-	observability.DecSessionsActive()
-	if s.cfg.PreferProto {
-		observability.DecPreferProtoSessions()
-	}
-	metrics.SetWSQueueDepth(0)
-	// Explicitly emit unsubscribe for each tracked subject before unregister.
-	// Unregister remains the idempotent safety net.
-	for _, sub := range s.session.Subscriptions() {
-		if s.cfg.RouterPID != nil {
-			s.engine.Send(s.cfg.RouterPID, UnsubscribeSession{
-				SessionID: s.session.ID(),
-				Subject:   sub.Subject,
-			})
+	s.flushBackpressureDropSamples(true)
+	if s.started {
+		metrics.DecWSClientsConnected()
+		metrics.DecWSTenantConnectionsActive(s.cfg.TenantID)
+		observability.DecSessionsActive()
+		if s.cfg.PreferProto {
+			observability.DecPreferProtoSessions()
 		}
-	}
-	if s.cfg.RouterPID != nil {
-		s.engine.Send(s.cfg.RouterPID, UnregisterSession{SessionID: s.session.ID()})
+		metrics.SetWSQueueDepth(0)
+		metrics.SetWSTenantQueueDepth(s.cfg.TenantID, 0)
+		metrics.SetWSBackpressureLevel(0)
+		metrics.SetWSQueueHighWatermark(0)
+		for _, sub := range s.session.Subscriptions() {
+			if sub.Subject.IsSignal() {
+				metrics.DecMRSignalWSActiveSubscriptions()
+			}
+			if s.cfg.RouterPID != nil {
+				s.engine.Send(s.cfg.RouterPID, UnsubscribeSession{
+					SessionID: s.session.ID(),
+					Subject:   sub.Subject,
+				})
+			}
+		}
+		if s.cfg.RouterPID != nil {
+			s.engine.Send(s.cfg.RouterPID, UnregisterSession{SessionID: s.session.ID()})
+		}
 	}
 	if s.cfg.Conn != nil {
 		_ = s.cfg.Conn.Close()
 	}
+	if s.cfg.OnClosed != nil {
+		s.cfg.OnClosed()
+	}
+	s.lastSnapshot = nil
+	s.snapshotSeq = nil
+	s.lastDeliveredSeq = nil
 }

@@ -4,8 +4,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/market-raccoon/internal/shared/hash"
-	"github.com/market-raccoon/internal/shared/naming"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/hash"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/naming"
 )
 
 const (

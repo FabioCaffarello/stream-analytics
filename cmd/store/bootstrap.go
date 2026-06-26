@@ -13,19 +13,19 @@ import (
 
 	"github.com/anthdm/hollywood/actor"
 
-	actorruntime "github.com/market-raccoon/internal/actors/runtime"
-	adapterjs "github.com/market-raccoon/internal/adapters/jetstream"
-	"github.com/market-raccoon/internal/adapters/storage/clickhouse"
-	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
-	insightsdomain "github.com/market-raccoon/internal/core/insights/domain"
-	httpserver "github.com/market-raccoon/internal/interfaces/http"
-	"github.com/market-raccoon/internal/shared/bootstrap"
-	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/config"
-	"github.com/market-raccoon/internal/shared/contracts"
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/metrics"
-	"github.com/market-raccoon/internal/shared/problem"
+	actorruntime "github.com/FabioCaffarello/stream-analytics/internal/actors/runtime"
+	adapterjs "github.com/FabioCaffarello/stream-analytics/internal/adapters/jetstream"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/storage/clickhouse"
+	"github.com/FabioCaffarello/stream-analytics/internal/contracts"
+	aggdomain "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
+	insightsdomain "github.com/FabioCaffarello/stream-analytics/internal/core/insights/domain"
+	httpserver "github.com/FabioCaffarello/stream-analytics/internal/interfaces/http"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/bootstrap"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/codec"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/config"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 // storeHeartbeatEveryN controls the heartbeat log interval.
@@ -395,6 +395,9 @@ func handleAggregationStats(ctx context.Context, env envelope.Envelope, writer *
 			Timeframe:       wireDTO.Stats.Timeframe,
 			WindowStartTs:   wireDTO.Stats.WindowStartTs,
 			WindowEndTs:     wireDTO.Stats.WindowEndTs,
+			WindowMs:        wireDTO.Stats.WindowMs,
+			TsIngestMs:      wireDTO.Stats.TsIngestMs,
+			QualityFlags:    wireDTO.Stats.QualityFlags,
 			LiqBuyVolume:    wireDTO.Stats.LiqBuyVolume,
 			LiqSellVolume:   wireDTO.Stats.LiqSellVolume,
 			LiqTotalVolume:  wireDTO.Stats.LiqTotalVolume,

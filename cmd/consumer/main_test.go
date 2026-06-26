@@ -11,13 +11,13 @@ import (
 	"testing"
 	"time"
 
-	ws "github.com/market-raccoon/internal/actors/marketdata/ws"
-	mdapp "github.com/market-raccoon/internal/core/marketdata/app"
-	"github.com/market-raccoon/internal/core/marketdata/domain"
-	"github.com/market-raccoon/internal/shared/clock"
-	"github.com/market-raccoon/internal/shared/config"
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/problem"
+	ws "github.com/FabioCaffarello/stream-analytics/internal/actors/marketdata/ws"
+	mdapp "github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/app"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/clock"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/config"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 type seqStub struct {

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/observability"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/observability"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 	"github.com/nats-io/nats.go"
 )
 
@@ -20,7 +20,19 @@ const (
 	busTypeJetStream      = "jetstream"
 )
 
-var subjectWildcards = []string{"marketdata.>", "insights.>", "aggregation.>", "quarantine.>"}
+var subjectWildcards = []string{
+	"dataplane.>",
+	"marketdata.>",
+	"aggregation.>",
+	"evidence.>",
+	"insights.>",
+	"liquidity.>",
+	"signal.>",
+	"strategy.>",
+	"execution.>",
+	"portfolio.>",
+	"quarantine.>",
+}
 
 // PublisherConfig defines JetStream publisher runtime behavior.
 type PublisherConfig struct {
@@ -52,7 +64,7 @@ func NewPublisher(ctx context.Context, cfg PublisherConfig, observer observabili
 
 	nc, err := nats.Connect(
 		cfg.URL,
-		nats.Name("market-raccoon-jetstream-publisher"),
+		nats.Name("stream-analytics-jetstream-publisher"),
 		nats.RetryOnFailedConnect(true),
 		nats.MaxReconnects(-1),
 	)

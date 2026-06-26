@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 func swapKrakenBackfillHTTPGet(t *testing.T, fn func(ctx context.Context, url string, dest any) *problem.Problem) {

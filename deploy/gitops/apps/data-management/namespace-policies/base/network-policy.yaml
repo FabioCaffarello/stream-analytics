@@ -5,7 +5,7 @@ metadata:
   name: data-management-default
   namespace: data-management
   labels:
-    app.kubernetes.io/part-of: market-raccoon
+    app.kubernetes.io/part-of: stream-analytics
 spec:
   podSelector: {}
   policyTypes:
@@ -14,7 +14,7 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: raccoon-system
+              kubernetes.io/metadata.name: stream-analytics-system
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: observability-stack

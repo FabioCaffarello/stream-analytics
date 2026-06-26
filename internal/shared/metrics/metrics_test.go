@@ -1,12 +1,14 @@
 package metrics
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	dto "github.com/prometheus/client_model/go"
 )
 
 func TestRegistryAndMetricsInitialized(t *testing.T) {
@@ -15,6 +17,167 @@ func TestRegistryAndMetricsInitialized(t *testing.T) {
 	}
 	if Handler() == nil {
 		t.Fatal("handler must not be nil")
+	}
+}
+
+func TestOrderBookV2MetricsExposedWithoutRuntimeEvents(t *testing.T) {
+	mfs, err := Registry().Gather()
+	if err != nil {
+		t.Fatalf("gather metrics: %v", err)
+	}
+
+	var wireFamily *dto.MetricFamily
+	var checksumFamily *dto.MetricFamily
+	for _, mf := range mfs {
+		switch mf.GetName() {
+		case "mr_orderbook_wire_bytes":
+			wireFamily = mf
+		case "mr_orderbook_checksum_mismatch_total":
+			checksumFamily = mf
+		}
+	}
+
+	if wireFamily == nil {
+		t.Fatal("mr_orderbook_wire_bytes metric family not found")
+	}
+	if wireFamily.GetType() != dto.MetricType_HISTOGRAM {
+		t.Fatalf("mr_orderbook_wire_bytes type=%v want=%v", wireFamily.GetType(), dto.MetricType_HISTOGRAM)
+	}
+	if len(wireFamily.GetMetric()) == 0 {
+		t.Fatal("mr_orderbook_wire_bytes has no exposed series")
+	}
+
+	if checksumFamily == nil {
+		t.Fatal("mr_orderbook_checksum_mismatch_total metric family not found")
+	}
+	if checksumFamily.GetType() != dto.MetricType_COUNTER {
+		t.Fatalf("mr_orderbook_checksum_mismatch_total type=%v want=%v", checksumFamily.GetType(), dto.MetricType_COUNTER)
+	}
+	if len(checksumFamily.GetMetric()) == 0 {
+		t.Fatal("mr_orderbook_checksum_mismatch_total has no exposed series")
+	}
+}
+
+func TestTradeQualityMetricsExposedWithoutRuntimeEvents(t *testing.T) {
+	mfs, err := Registry().Gather()
+	if err != nil {
+		t.Fatalf("gather metrics: %v", err)
+	}
+
+	for _, name := range []string{
+		"mr_trade_bad_value_total",
+		"mr_trade_out_of_order_total",
+		"mr_trade_duplicate_total",
+		"mr_trade_ingest_total",
+		"mr_trade_latency_seconds",
+		"mr_trade_wire_bytes",
+	} {
+		found := false
+		for _, mf := range mfs {
+			if mf.GetName() == name {
+				found = true
+				if len(mf.GetMetric()) == 0 {
+					t.Fatalf("%s has no exposed series", name)
+				}
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("%s metric family not found", name)
+		}
+	}
+}
+
+func TestAnalyticsPrimitivesMetricsExposedWithoutRuntimeEvents(t *testing.T) {
+	mfs, err := Registry().Gather()
+	if err != nil {
+		t.Fatalf("gather metrics: %v", err)
+	}
+
+	for _, name := range []string{
+		"mr_oi_wire_bytes",
+		"mr_oi_quality_flags_total",
+		"mr_delta_volume_wire_bytes",
+		"mr_cvd_wire_bytes",
+		"mr_bar_stats_wire_bytes",
+		"mr_bar_stats_quality_flags_total",
+	} {
+		found := false
+		for _, mf := range mfs {
+			if mf.GetName() == name {
+				found = true
+				if len(mf.GetMetric()) == 0 {
+					t.Fatalf("%s has no exposed series", name)
+				}
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("%s metric family not found", name)
+		}
+	}
+}
+
+func TestLELMetricsExposedWithoutRuntimeEvents(t *testing.T) {
+	mfs, err := Registry().Gather()
+	if err != nil {
+		t.Fatalf("gather metrics: %v", err)
+	}
+	for _, name := range []string{
+		"lel_evidence_emitted_total",
+		"lel_evidence_dropped_total",
+		"lel_state_entries",
+		"lel_state_evicted_total",
+		"lel_eval_latency_seconds",
+		"lel_input_processed_total",
+		"lel_wire_budget_bytes",
+	} {
+		found := false
+		for _, mf := range mfs {
+			if mf.GetName() == name {
+				found = true
+				if len(mf.GetMetric()) == 0 {
+					t.Fatalf("%s has no exposed series", name)
+				}
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("%s metric family not found", name)
+		}
+	}
+}
+
+func TestDeliveryCriticalMetricsExposedWithoutRuntimeEvents(t *testing.T) {
+	mfs, err := Registry().Gather()
+	if err != nil {
+		t.Fatalf("gather metrics: %v", err)
+	}
+
+	for _, name := range []string{
+		"ws_backpressure_level",
+		"ws_queue_high_watermark",
+		"ws_queue_capacity",
+		"ws_queue_depth",
+		"ws_queue_len",
+		"ws_wire_bytes",
+		"router_stream_state_entries",
+		"router_stream_state_active_total",
+		"delivery_router_sessions_active",
+	} {
+		found := false
+		for _, mf := range mfs {
+			if mf.GetName() == name {
+				found = true
+				if len(mf.GetMetric()) == 0 {
+					t.Fatalf("%s has no exposed series", name)
+				}
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("%s metric family not found", name)
+		}
 	}
 }
 
@@ -91,9 +254,26 @@ func TestMetricsNamesPresent(t *testing.T) {
 	SetWSConnectionsActive("binance", 1)
 	SetWSQueueDepth(2)
 	IncWSDrops("queue_full")
+	IncWSDropped("queue_full", "trade", "high_volume")
+	IncWSCompressApplied()
+	AddWSCompressBytesIn(2048)
+	AddWSCompressBytesOut(512)
+	IncWSBatchFrames()
+	AddWSBatchEvents(4)
+	IncWSMessagesOut("trade")
+	AddWSBytesOut("trade", 128)
+	ObserveWSWireBytes("trade", 128)
+	SetWSLag("trade", 42)
+	ObserveWSPublishToDeliverLatency("trade", 5*time.Millisecond)
+	IncWSSerializeErrors()
+	IncWSAuthFail()
+	IncWSResync()
 	ObserveWSSendLatency(5 * time.Millisecond)
 	IncWSClientsConnected()
 	DecWSClientsConnected()
+	IncWSClientsConnectedByMode("v1")
+	DecWSClientsConnectedByMode("v1")
+	IncWSControlFrame("metrics")
 	IncBusPublishError("timeout")
 	ObserveBusPublishLatency("jetstream", 2*time.Millisecond)
 	IncBusConsumed("jetstream", "ok")
@@ -115,17 +295,82 @@ func TestMetricsNamesPresent(t *testing.T) {
 	IncVPVRDrop("delta_l3")
 	IncVPVRDegrade("compress")
 	ObserveVPVRCompressRatio(0.5)
-	ObserveVPVRProcessingLatencyMilliseconds(4)
+	ObserveVPVRProcessingLatencySeconds(0.004)
 	SetPolicyKitOverloadLevel("marketdata.bookdelta", "binance", "BTC-USDT", 2)
 	IncPolicyKitDrop("marketdata.bookdelta", "binance", "delta_l3")
 	IncPolicyKitDegrade("marketdata.bookdelta", "binance", "stride_2")
 	IncPolicyKitCompress("insights.volume_profile_snapshot")
-	ObservePolicyKitLatencyMilliseconds("marketdata.bookdelta", 1.5)
+	ObservePolicyKitLatencySeconds("marketdata.bookdelta", 0.0015)
 	ObserveHeatmapBuildLatency("binance", "BTC-USDT", "1m", 3*time.Millisecond)
 	SetHeatmapCells("binance", "BTC-USDT", "1m", 42)
 	ObserveHeatmapPayloadBytes("binance", "BTC-USDT", "1m", 2048)
 	IncHeatmapDrop("queue_full")
 	SetHeatmapQueueDepth("binance", "BTC-USDT", 7)
+	IncDeliveryRangeAliasFallback("hit")
+	SetDeliveryWSSnapshotCacheEntries(3)
+	IncDeliveryWSSnapshotCacheHit()
+	IncDeliveryWSSnapshotCacheMiss()
+	SetDeliveryRouterCoherenceMode("sticky_session")
+	IncDeliveryRouterCoherenceViolation("seq_non_monotonic", "out_of_order_input")
+	IncDeliveryRouterCoherenceViolation("seq_invalid", "unknown")
+	SetDeliveryRouterStreamStateEntries(5)
+	AddDeliveryRouterStreamStateEvicted(2)
+	SetDeliveryRouterStreamStateActive(3)
+	IncWSResyncRejected("snapshot_unavailable")
+	IncWSContractViolation("missing_ts_server")
+	SetMROrderBookLevels("binance", "BTC-USDT", "bid", 42)
+	SetMROrderBookSpreadBPS("binance", "BTC-USDT", 12.5)
+	ObserveMROrderBookUpdateDuration("binance", 3*time.Millisecond)
+	AddMROrderBookPruned("binance", "BTC-USDT", 2)
+	IncMROrderBookCrossed("binance", "BTC-USDT")
+	IncMROrderBookStale("binance", "BTC-USDT")
+	IncMROrderBookBadLevel("binance", "BTC-USDT", "nan")
+	IncMROrderBookGap("binance", "BTC-USDT")
+	IncMROrderBookDrop("binance", "BTC-USDT", "out_of_order")
+	SetMROrderBookStaleDuration("binance", "BTC-USDT", 5)
+	ObserveMROrderBookPublishDepth("binance", "bid", 50)
+	ObserveMROrderBookWireBytes("binance", 1024)
+	IncMROrderBookChecksumMismatch("binance", "BTC-USDT")
+	IncMRTradeBadValue("binance", "zero_price")
+	IncMRTradeOutOfOrder("binance", "BTC-USDT")
+	IncMRTradeDuplicate("binance")
+	IncMRTradeIngest("binance")
+	ObserveMRTradeLatency("binance", 0.01)
+	ObserveMRTradeWireBytes("binance", "trade", 256)
+	ObserveMRTradeWireBytes("binance", "tape", 512)
+	ObserveMRStatsWireBytes("binance", "1m", 768)
+	ObserveMRStatsQualityFlags("binance", "BTC-USDT", "1m", 0)
+	ObserveMRStatsQualityFlags("binance", "BTC-USDT", "1m", (1<<0)|(1<<3))
+	ObserveMROIWireBytes("binance", 196)
+	ObserveMROIQuality("binance", "BTC-USDT", 12345, 17)
+	ObserveMRDeltaVolumeWireBytes("binance", "1m", 220)
+	ObserveMRCVDWireBytes("binance", "1m", 244)
+	ObserveMRBarStatsWireBytes("binance", "1m", 330)
+	ObserveMRBarStatsQuality("binance", "BTC-USDT", "1m", 30, 123.4, 17)
+	SetMRWindowOpen("binance", "BTC-USDT", "1m", 1)
+	IncMRWindowLateArrival("binance", "BTC-USDT", "1m")
+	IncMRWindowForceClose("binance", "BTC-USDT", "1m")
+	SetMRXVenueSpreadBPS("BTC-USDT", 3.2)
+	SetMRXVenueDivergenceBPS("BTC-USDT", 1.1)
+	ObserveMRXVenueMergeDuration("BTC-USDT", 2*time.Millisecond)
+	SetMRXVenueVenuesActive("BTC-USDT", 2)
+	SetEvidenceBufferEntries("sweep", 10)
+	IncEvidenceBufferOverwrites("sweep")
+	SetMRRegimeCurrent("binance", "BTC-USDT", "1m", "trending")
+	SetMRRegimeStrength("binance", "BTC-USDT", "1m", 0.82)
+	IncMRRegimeTransition("binance", "BTC-USDT", "1m", "ranging", "trending")
+	ObserveMRRegimeDetectionDuration("binance", "BTC-USDT", "1m", 60*time.Second)
+	IncMRSignalEmitted("absorption", "binance", "BTC-USDT", "high")
+	IncMRSignalDeduplicated("absorption", "binance", "BTC-USDT")
+	IncMRSignalRateLimited("binance", "BTC-USDT")
+	ObserveMRSignalCompositionDuration("absorption", 3*time.Millisecond)
+	ObserveMRSignalConfidence("absorption", 0.87)
+	IncMRSignalCorrelationHit("absorption")
+	IncMRSignalRegimeBoost("absorption", "trending")
+	IncMRSignalWSDelivered("absorption", "binance", "BTC-USDT")
+	IncMRSignalWSSubscriptionRejected("max_signal_subscriptions")
+	IncMRSignalWSActiveSubscriptions()
+	DecMRSignalWSActiveSubscriptions()
 
 	mfs, err := Registry().Gather()
 	if err != nil {
@@ -140,9 +385,36 @@ func TestMetricsNamesPresent(t *testing.T) {
 		"ingest_latency_seconds",
 		"ws_connections_active",
 		"ws_queue_depth",
+		"ws_queue_len",
 		"ws_drops_total",
+		"ws_dropped_total",
+		"ws_compress_applied_total",
+		"ws_compress_bytes_in_total",
+		"ws_compress_bytes_out_total",
+		"ws_batch_frames_total",
+		"ws_batch_events_total",
+		"ws_batch_fallback_events_total",
+		"ws_messages_out_total",
+		"ws_bytes_out_total",
+		"ws_wire_bytes",
+		"ws_lag_ms",
+		"ws_lag_seconds",
+		"ws_publish_to_deliver_latency_ms",
+		"ws_publish_to_deliver_latency_seconds",
 		"ws_send_latency_ms",
+		"ws_send_latency_seconds",
 		"ws_clients_connected",
+		"ws_clients_connected_by_mode",
+		"ws_clients_total",
+		"ws_subscriptions_active",
+		"ws_control_frames_total",
+		"serialize_errors_total",
+		"auth_fail_total",
+		"resync_total",
+		"ws_resync_rejected_total",
+		"ws_contract_violations_total",
+		"ws_limit_rejections_total",
+		"ws_effective_limits",
 		"bus_dropped_total",
 		"bus_publish_errors_total",
 		"bus_publish_latency_seconds",
@@ -165,19 +437,86 @@ func TestMetricsNamesPresent(t *testing.T) {
 		"vpvr_drop_total",
 		"vpvr_degrade_total",
 		"vpvr_compress_ratio",
-		"vpvr_processing_latency_ms",
+		"vpvr_processing_latency_seconds",
 		"policykit_overload_level",
 		"policykit_drop_total",
 		"policykit_degrade_total",
 		"policykit_compress_total",
-		"policykit_latency_ms",
-		"heatmap_build_latency_ms",
+		"policykit_latency_seconds",
+		"heatmap_build_latency_seconds",
 		"heatmap_cells_total",
 		"heatmap_payload_bytes",
 		"heatmap_drop_total",
 		"heatmap_queue_depth",
 		"guardian_rate_limited_total",
 		"process_heap_alloc_bytes",
+		"mr_orderbook_levels_total",
+		"mr_orderbook_spread_bps",
+		"mr_orderbook_update_duration_seconds",
+		"mr_orderbook_prune_total",
+		"mr_orderbook_crossed_total",
+		"mr_orderbook_stale_total",
+		"mr_orderbook_bad_level_total",
+		"mr_orderbook_gap_total",
+		"mr_orderbook_drops_total",
+		"mr_orderbook_stale_duration_seconds",
+		"mr_orderbook_publish_depth",
+		"mr_orderbook_wire_bytes",
+		"mr_orderbook_checksum_mismatch_total",
+		"mr_trade_bad_value_total",
+		"mr_trade_out_of_order_total",
+		"mr_trade_duplicate_total",
+		"mr_trade_ingest_total",
+		"mr_trade_latency_seconds",
+		"mr_trade_wire_bytes",
+		"mr_stats_wire_bytes",
+		"mr_stats_quality_flags_total",
+		"mr_oi_wire_bytes",
+		"mr_oi_quality_flags_total",
+		"mr_delta_volume_wire_bytes",
+		"mr_cvd_wire_bytes",
+		"mr_bar_stats_wire_bytes",
+		"mr_bar_stats_quality_flags_total",
+		"mr_window_open_total",
+		"mr_window_late_arrival_total",
+		"mr_window_force_close_total",
+		"mr_xvenue_spread_bps",
+		"mr_xvenue_divergence_bps",
+		"mr_xvenue_merge_duration_seconds",
+		"mr_xvenue_venues_active",
+		"evidence_buffer_entries",
+		"evidence_buffer_overwrites_total",
+		"mr_regime_current",
+		"mr_regime_strength",
+		"mr_regime_transition_total",
+		"mr_regime_detection_duration_seconds",
+		"mr_signal_emitted_total",
+		"mr_signal_deduplicated_total",
+		"mr_signal_rate_limited_total",
+		"mr_signal_composition_duration_seconds",
+		"mr_signal_confidence_distribution",
+		"mr_signal_correlation_hit_total",
+		"mr_signal_regime_boost_total",
+		"mr_signal_ws_delivered_total",
+		"mr_signal_ws_subscription_rejected_total",
+		"mr_signal_ws_subscriptions_active",
+		"signal_emitted_total",
+		"signal_emit_total",
+		"signal_state_entries",
+		"signal_evicted_total",
+		"signal_eval_latency_seconds",
+		"signal_dedup_total",
+		"signal_wire_bytes",
+		"signal_lel_adapted_total",
+		"signal_lel_adapt_errors_total",
+		"delivery_range_alias_fallback_total",
+		"delivery_ws_snapshot_cache_entries",
+		"delivery_ws_snapshot_cache_hits_total",
+		"delivery_ws_snapshot_cache_misses_total",
+		"delivery_router_coherence_mode",
+		"delivery_router_coherence_violations_total",
+		"router_stream_state_entries",
+		"router_stream_state_active_total",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("expected metric %s in registry", want)
@@ -207,6 +546,271 @@ func TestPolicyKitMetrics_StableLabelsOnly(t *testing.T) {
 	assertMetricLabelNames(t, "policykit_degrade_total", []string{"stream", "venue"})
 }
 
+func TestCrossVenueMetrics_StableLabelsOnly(t *testing.T) {
+	t.Parallel()
+	SetMRXVenueSpreadBPS("BTC-USDT", 2.1)
+	SetMRXVenueDivergenceBPS("BTC-USDT", 0.7)
+	ObserveMRXVenueMergeDuration("BTC-USDT", time.Millisecond)
+	SetMRXVenueVenuesActive("BTC-USDT", 2)
+
+	assertMetricLabelNames(t, "mr_xvenue_spread_bps", []string{"instrument_bucket"})
+	assertMetricLabelNames(t, "mr_xvenue_divergence_bps", []string{"instrument_bucket"})
+	assertMetricLabelNames(t, "mr_xvenue_merge_duration_seconds", []string{"instrument_bucket"})
+	assertMetricLabelNames(t, "mr_xvenue_venues_active", []string{"instrument_bucket"})
+}
+
+func TestEvidenceBufferMetrics_StableLabelsOnly(t *testing.T) {
+	t.Parallel()
+	SetEvidenceBufferEntries("sweep", 2)
+	IncEvidenceBufferOverwrites("sweep")
+
+	assertMetricLabelNames(t, "evidence_buffer_entries", []string{"kind"})
+	assertMetricLabelNames(t, "evidence_buffer_overwrites_total", []string{"kind"})
+}
+
+func TestRegimeMetrics_StableLabelsOnly(t *testing.T) {
+	t.Parallel()
+
+	SetMRRegimeCurrent("binance", "BTC-USDT", "1m", "trending")
+	SetMRRegimeStrength("binance", "BTC-USDT", "1m", 0.8)
+	IncMRRegimeTransition("binance", "BTC-USDT", "1m", "ranging", "trending")
+	ObserveMRRegimeDetectionDuration("binance", "BTC-USDT", "1m", time.Minute)
+
+	assertMetricLabelNames(t, "mr_regime_current", []string{"instrument_bucket", "kind", "timeframe_bucket", "venue"})
+	assertMetricLabelNames(t, "mr_regime_strength", []string{"instrument_bucket", "timeframe_bucket", "venue"})
+	assertMetricLabelNames(t, "mr_regime_transition_total", []string{"from", "instrument_bucket", "timeframe_bucket", "to", "venue"})
+	assertMetricLabelNames(t, "mr_regime_detection_duration_seconds", []string{"instrument_bucket", "timeframe_bucket", "venue"})
+}
+
+func TestRegimeCurrentMetric_BoundedCardinality(t *testing.T) {
+	before := mrRegimeCurrentSeriesCount(t)
+	for i := 0; i < 512; i++ {
+		SetMRRegimeCurrent("binance", fmt.Sprintf("PAIR-%d", i), "weird_tf", "unsupported_kind")
+	}
+	after := mrRegimeCurrentSeriesCount(t)
+	if growth := after - before; growth > 6 {
+		t.Fatalf("mr_regime_current cardinality growth=%d want<=6", growth)
+	}
+}
+
+func TestSignalMetrics_StableLabelsOnly(t *testing.T) {
+	t.Parallel()
+
+	IncMRSignalEmitted("absorption", "binance", "BTC-USDT", "high")
+	IncMRSignalDeduplicated("absorption", "binance", "BTC-USDT")
+	IncMRSignalRateLimited("binance", "BTC-USDT")
+	ObserveMRSignalCompositionDuration("absorption", 2*time.Millisecond)
+	ObserveMRSignalConfidence("absorption", 0.91)
+	IncMRSignalCorrelationHit("absorption")
+	IncMRSignalRegimeBoost("absorption", "trending")
+
+	assertMetricLabelNames(t, "mr_signal_emitted_total", []string{"instrument_bucket", "kind", "severity", "venue"})
+	assertMetricLabelNames(t, "mr_signal_deduplicated_total", []string{"instrument_bucket", "kind", "venue"})
+	assertMetricLabelNames(t, "mr_signal_rate_limited_total", []string{"instrument_bucket", "venue"})
+	assertMetricLabelNames(t, "mr_signal_composition_duration_seconds", []string{"kind"})
+	assertMetricLabelNames(t, "mr_signal_confidence_distribution", []string{"kind"})
+	assertMetricLabelNames(t, "mr_signal_correlation_hit_total", []string{"kind"})
+	assertMetricLabelNames(t, "mr_signal_regime_boost_total", []string{"kind", "regime"})
+}
+
+func TestSignalEmitted_BoundedCardinality(t *testing.T) {
+	before := signalEmittedSeriesCount(t)
+	for i := 0; i < 512; i++ {
+		IncMRSignalEmitted(
+			"kind_"+string(rune('a'+(i%26))),
+			"binance",
+			fmt.Sprintf("PAIR-%d", i),
+			"severity_"+string(rune('a'+(i%26))),
+		)
+	}
+	after := signalEmittedSeriesCount(t)
+	if growth := after - before; growth > 60 {
+		t.Fatalf("mr_signal_emitted_total cardinality growth=%d want<=60", growth)
+	}
+}
+
+func TestSignalWSMetrics_StableLabelsOnly(t *testing.T) {
+	t.Parallel()
+
+	IncMRSignalWSDelivered("absorption", "binance", "BTC-USDT")
+	IncMRSignalWSSubscriptionRejected("max_signal_subscriptions")
+	IncMRSignalWSActiveSubscriptions()
+	DecMRSignalWSActiveSubscriptions()
+
+	assertMetricLabelNames(t, "mr_signal_ws_delivered_total", []string{"instrument_bucket", "kind", "venue"})
+	assertMetricLabelNames(t, "mr_signal_ws_subscription_rejected_total", []string{"reason"})
+}
+
+func TestSignalWSActiveSubscriptions_NonNegative(t *testing.T) {
+	before := testutil.ToFloat64(MRSignalWSSubscriptionsActive)
+	DecMRSignalWSActiveSubscriptions()
+	mid := testutil.ToFloat64(MRSignalWSSubscriptionsActive)
+	if mid < 0 {
+		t.Fatalf("mr_signal_ws_subscriptions_active=%f want >= 0", mid)
+	}
+	IncMRSignalWSActiveSubscriptions()
+	DecMRSignalWSActiveSubscriptions()
+	after := testutil.ToFloat64(MRSignalWSSubscriptionsActive)
+	if after < 0 {
+		t.Fatalf("mr_signal_ws_subscriptions_active=%f want >= 0", after)
+	}
+	if before < 0 {
+		t.Fatalf("initial mr_signal_ws_subscriptions_active=%f want >= 0", before)
+	}
+}
+
+func TestSignalEngineMetrics_StableLabelsOnly(t *testing.T) {
+	t.Parallel()
+
+	IncSignalEmitted("liquidity_collapse", "high")
+	SetSignalStateEntries(10)
+	IncSignalEvicted("tenant_cap")
+	ObserveSignalEvalLatency(5 * time.Millisecond)
+	IncSignalDedup("liquidity_collapse")
+	ObserveSignalWireBytes("liquidity_collapse", 512)
+	IncSignalLELAdapted("BOOK_IMBALANCE")
+	IncSignalLELAdaptError("decode_failed")
+
+	assertMetricLabelNames(t, "signal_emitted_total", []string{"severity", "type"})
+	assertMetricLabelNames(t, "signal_emit_total", []string{"severity", "type"})
+	assertMetricLabelNames(t, "signal_state_entries", nil)
+	assertMetricLabelNames(t, "signal_evicted_total", []string{"reason"})
+	assertMetricLabelNames(t, "signal_eval_latency_seconds", nil)
+	assertMetricLabelNames(t, "signal_dedup_total", []string{"type"})
+	assertMetricLabelNames(t, "signal_wire_bytes", []string{"type"})
+	assertMetricLabelNames(t, "signal_lel_adapted_total", []string{"lel_type"})
+	assertMetricLabelNames(t, "signal_lel_adapt_errors_total", []string{"reason"})
+}
+
+func TestWSExtendedMetrics_StableLabelsOnly(t *testing.T) {
+	t.Parallel()
+	assertMetricLabelNames(t, "ws_dropped_total", []string{"reason", "channel", "priority"})
+	assertMetricLabelNames(t, "ws_messages_out_total", []string{"channel"})
+	assertMetricLabelNames(t, "ws_bytes_out_total", []string{"channel"})
+	assertMetricLabelNames(t, "ws_wire_bytes", []string{"channel"})
+	assertMetricLabelNames(t, "ws_lag_ms", []string{"channel"})
+	assertMetricLabelNames(t, "ws_lag_seconds", []string{"channel"})
+	assertMetricLabelNames(t, "ws_publish_to_deliver_latency_ms", []string{"channel"})
+	assertMetricLabelNames(t, "ws_publish_to_deliver_latency_seconds", []string{"channel"})
+	assertMetricLabelNames(t, "ws_clients_connected_by_mode", []string{"mode"})
+	assertMetricLabelNames(t, "ws_clients_total", []string{"mode"})
+	assertMetricLabelNames(t, "ws_control_frames_total", []string{"type"})
+	assertMetricLabelNames(t, "ws_resync_rejected_total", []string{"reason"})
+	assertMetricLabelNames(t, "ws_contract_violations_total", []string{"reason"})
+	assertMetricLabelNames(t, "ws_limit_rejections_total", []string{"type"})
+	assertMetricLabelNames(t, "ws_effective_limits", []string{"limit_name"})
+	assertMetricLabelNames(t, "delivery_router_coherence_violations_total", []string{"reason", "type"})
+}
+
+func TestTradeQualityMetrics_StableLabelsOnly(t *testing.T) {
+	t.Parallel()
+
+	IncMRTradeBadValue("binance", "zero_price")
+	IncMRTradeOutOfOrder("binance", "BTC-USDT")
+	IncMRTradeDuplicate("binance")
+	IncMRTradeIngest("binance")
+	ObserveMRTradeLatency("binance", 0.02)
+	ObserveMRTradeWireBytes("binance", "trade", 128)
+
+	assertMetricLabelNames(t, "mr_trade_bad_value_total", []string{"reason", "venue"})
+	assertMetricLabelNames(t, "mr_trade_out_of_order_total", []string{"instrument_bucket", "venue"})
+	assertMetricLabelNames(t, "mr_trade_duplicate_total", []string{"venue"})
+	assertMetricLabelNames(t, "mr_trade_ingest_total", []string{"venue"})
+	assertMetricLabelNames(t, "mr_trade_latency_seconds", []string{"venue"})
+	assertMetricLabelNames(t, "mr_trade_wire_bytes", []string{"channel", "venue"})
+}
+
+func TestStatsQualityMetrics_StableLabelsOnly(t *testing.T) {
+	t.Parallel()
+
+	ObserveMRStatsWireBytes("binance", "1m", 512)
+	ObserveMRStatsQualityFlags("binance", "BTC-USDT", "1m", (1<<1)|(1<<2))
+
+	assertMetricLabelNames(t, "mr_stats_wire_bytes", []string{"timeframe_bucket", "venue"})
+	assertMetricLabelNames(t, "mr_stats_quality_flags_total", []string{"flag", "instrument_bucket", "timeframe_bucket", "venue"})
+}
+
+func TestAnalyticsPrimitivesMetrics_StableLabelsOnly(t *testing.T) {
+	t.Parallel()
+
+	ObserveMROIWireBytes("binance", 256)
+	ObserveMROIQuality("binance", "BTC-USDT", 10000, 10)
+	ObserveMRDeltaVolumeWireBytes("binance", "1m", 256)
+	ObserveMRCVDWireBytes("binance", "1m", 256)
+	ObserveMRBarStatsWireBytes("binance", "1m", 512)
+	ObserveMRBarStatsQuality("binance", "BTC-USDT", "1m", 20, 35.5, 10)
+
+	assertMetricLabelNames(t, "mr_oi_wire_bytes", []string{"venue"})
+	assertMetricLabelNames(t, "mr_oi_quality_flags_total", []string{"flag", "instrument_bucket", "venue"})
+	assertMetricLabelNames(t, "mr_delta_volume_wire_bytes", []string{"timeframe_bucket", "venue"})
+	assertMetricLabelNames(t, "mr_cvd_wire_bytes", []string{"timeframe_bucket", "venue"})
+	assertMetricLabelNames(t, "mr_bar_stats_wire_bytes", []string{"timeframe_bucket", "venue"})
+	assertMetricLabelNames(t, "mr_bar_stats_quality_flags_total", []string{"flag", "instrument_bucket", "timeframe_bucket", "venue"})
+}
+
+func TestLELMetrics_StableLabelsOnly(t *testing.T) {
+	t.Parallel()
+
+	IncLELEvidenceEmitted("SWEEP", "high", "binance")
+	IncLELEvidenceDropped("invalid_kind")
+	SetLELStateEntries(10)
+	IncLELStateEvicted("capacity")
+	ObserveLELEvalLatency(0.004)
+	IncLELInputProcessed("snapshot")
+	ObserveLELWireBudget("SWEEP", 128)
+
+	assertMetricLabelNames(t, "lel_evidence_emitted_total", []string{"severity", "type", "venue"})
+	assertMetricLabelNames(t, "lel_evidence_dropped_total", []string{"reason"})
+	assertMetricLabelNames(t, "lel_state_entries", nil)
+	assertMetricLabelNames(t, "lel_state_evicted_total", []string{"reason"})
+	assertMetricLabelNames(t, "lel_eval_latency_seconds", nil)
+	assertMetricLabelNames(t, "lel_input_processed_total", []string{"kind"})
+	assertMetricLabelNames(t, "lel_wire_budget_bytes", []string{"type"})
+}
+
+func TestWSTenantMetrics_LabelPolicy_WhitelistAndFallbackUnknown(t *testing.T) {
+	ConfigureWSTenantLabelPolicy(true, []string{"acme"}, "unknown")
+	defer ConfigureWSTenantLabelPolicy(true, nil, "unknown")
+
+	IncWSTenantDrop("acme", "queue_full")
+	IncWSTenantDrop("globex", "queue_full")
+
+	if got := testutil.ToFloat64(WSTenantDropsTotal.WithLabelValues("acme", "queue_full")); got < 1 {
+		t.Fatalf("expected whitelisted tenant series increment, got=%f", got)
+	}
+	if got := testutil.ToFloat64(WSTenantDropsTotal.WithLabelValues("unknown", "queue_full")); got < 1 {
+		t.Fatalf("expected unknown fallback series increment, got=%f", got)
+	}
+}
+
+func TestWSTenantMetrics_LabelPolicy_HashBucketBoundsCardinality(t *testing.T) {
+	ConfigureWSTenantLabelPolicy(true, []string{"acme"}, "hash_bucket")
+	defer ConfigureWSTenantLabelPolicy(true, nil, "unknown")
+	before := tenantDropsSeriesCount(t)
+	for i := 0; i < 1024; i++ {
+		IncWSTenantDrop("tenant-"+strings.Repeat("x", i%8)+string(rune('a'+(i%26))), "queue_full")
+	}
+	after := tenantDropsSeriesCount(t)
+	if growth := after - before; growth > 70 {
+		t.Fatalf("ws_tenant_drops_total cardinality growth=%d want<=70", growth)
+	}
+}
+
+func tenantDropsSeriesCount(t *testing.T) int {
+	t.Helper()
+	mfs, err := Registry().Gather()
+	if err != nil {
+		t.Fatalf("gather metrics: %v", err)
+	}
+	for _, mf := range mfs {
+		if mf.GetName() == "ws_tenant_drops_total" {
+			return len(mf.GetMetric())
+		}
+	}
+	t.Fatal("ws_tenant_drops_total metric family not found")
+	return 0
+}
+
 func TestVPVRAndHeatmapMetrics_BoundedLabelsOnly(t *testing.T) {
 	t.Parallel()
 
@@ -222,7 +826,7 @@ func TestVPVRAndHeatmapMetrics_BoundedLabelsOnly(t *testing.T) {
 		"vpvr_builder_bucket_count",
 		"vpvr_builder_windows_open",
 		"vpvr_overload_level",
-		"heatmap_build_latency_ms",
+		"heatmap_build_latency_seconds",
 		"heatmap_cells_total",
 		"heatmap_payload_bytes",
 	} {
@@ -232,18 +836,59 @@ func TestVPVRAndHeatmapMetrics_BoundedLabelsOnly(t *testing.T) {
 	assertMetricLabelNames(t, "heatmap_queue_depth", []string{"instrument_bucket", "venue"})
 }
 
+func TestMROrderBookMetrics_BoundedLabelsOnly(t *testing.T) {
+	t.Parallel()
+
+	SetMROrderBookLevels("binance", "BTC-USDT", "bid", 10)
+	SetMROrderBookSpreadBPS("binance", "BTC-USDT", 3.5)
+	ObserveMROrderBookUpdateDuration("binance", 2*time.Millisecond)
+	AddMROrderBookPruned("binance", "BTC-USDT", 1)
+	IncMROrderBookCrossed("binance", "BTC-USDT")
+	IncMROrderBookStale("binance", "BTC-USDT")
+
+	assertMetricLabelNames(t, "mr_orderbook_levels_total", []string{"instrument_bucket", "side", "venue"})
+	assertMetricLabelNames(t, "mr_orderbook_spread_bps", []string{"instrument_bucket", "venue"})
+	assertMetricLabelNames(t, "mr_orderbook_update_duration_seconds", []string{"venue"})
+	assertMetricLabelNames(t, "mr_orderbook_prune_total", []string{"instrument_bucket", "venue"})
+	assertMetricLabelNames(t, "mr_orderbook_crossed_total", []string{"instrument_bucket", "venue"})
+	assertMetricLabelNames(t, "mr_orderbook_stale_total", []string{"instrument_bucket", "venue"})
+}
+
+func TestMROrderBookLevels_BoundedCardinality(t *testing.T) {
+	before := mrOrderbookLevelsSeriesCount(t)
+	for i := 0; i < 512; i++ {
+		SetMROrderBookLevels("binance", "PAIR-"+string(rune('A'+(i%26))), "invalid_side", i)
+	}
+	after := mrOrderbookLevelsSeriesCount(t)
+	if growth := after - before; growth > 8 {
+		t.Fatalf("mr_orderbook_levels_total cardinality growth=%d want<=8", growth)
+	}
+}
+
+func TestMRWindowMetrics_BoundedLabelsOnly(t *testing.T) {
+	t.Parallel()
+
+	SetMRWindowOpen("binance", "BTC-USDT", "1m", 1)
+	IncMRWindowLateArrival("binance", "BTC-USDT", "1m")
+	IncMRWindowForceClose("binance", "BTC-USDT", "1m")
+
+	assertMetricLabelNames(t, "mr_window_open_total", []string{"instrument_bucket", "timeframe_bucket", "venue"})
+	assertMetricLabelNames(t, "mr_window_late_arrival_total", []string{"instrument_bucket", "timeframe_bucket", "venue"})
+	assertMetricLabelNames(t, "mr_window_force_close_total", []string{"instrument_bucket", "timeframe_bucket", "venue"})
+}
+
 func TestPolicyKitLatencyDeterministicSampling(t *testing.T) {
 	t.Parallel()
 
 	stream := "marketdata.bookdelta_sampling"
 	venue := "binance"
-	before := policyKitLatencySampleCount(t, sanitizeEventType(stream))
+	beforeSeconds := policyKitLatencySampleCount(t, "policykit_latency_seconds", sanitizeEventType(stream))
 	for i := 0; i < int(policyKitLatencyEveryN*2); i++ {
-		ObservePolicyKitLatencyMilliseconds(stream, 1.5, venue)
+		ObservePolicyKitLatencySeconds(stream, 0.0015, venue)
 	}
-	after := policyKitLatencySampleCount(t, sanitizeEventType(stream))
-	if got := after - before; got != 2 {
-		t.Fatalf("expected deterministic sampling count delta=2, got %d", got)
+	afterSeconds := policyKitLatencySampleCount(t, "policykit_latency_seconds", sanitizeEventType(stream))
+	if got := afterSeconds - beforeSeconds; got != 2 {
+		t.Fatalf("expected deterministic sampling count delta=2 on seconds metric, got %d", got)
 	}
 }
 
@@ -328,15 +973,18 @@ func TestTimeframeBucketAllowList(t *testing.T) {
 	t.Parallel()
 
 	allowed := map[string]struct{}{
+		"1s":      {},
+		"5s":      {},
 		"1m":      {},
 		"5m":      {},
 		"15m":     {},
+		"30m":     {},
 		"1h":      {},
 		"4h":      {},
 		"1d":      {},
 		"unknown": {},
 	}
-	inputs := []string{"1m", "5m", "15m", "1h", "4h", "1d", "30m", "7d", ""}
+	inputs := []string{"1s", "5s", "1m", "5m", "15m", "30m", "1h", "4h", "1d", "7d", ""}
 	for _, input := range inputs {
 		got := bucketTimeframe(input)
 		if _, ok := allowed[got]; !ok {
@@ -359,6 +1007,57 @@ func insightsSnapshotSeriesCount(t *testing.T) int {
 	}
 
 	t.Fatal("insights_snapshots_total metric family not found")
+	return 0
+}
+
+func mrOrderbookLevelsSeriesCount(t *testing.T) int {
+	t.Helper()
+
+	mfs, err := Registry().Gather()
+	if err != nil {
+		t.Fatalf("gather metrics: %v", err)
+	}
+	for _, mf := range mfs {
+		if mf.GetName() == "mr_orderbook_levels_total" {
+			return len(mf.GetMetric())
+		}
+	}
+
+	t.Fatal("mr_orderbook_levels_total metric family not found")
+	return 0
+}
+
+func mrRegimeCurrentSeriesCount(t *testing.T) int {
+	t.Helper()
+
+	mfs, err := Registry().Gather()
+	if err != nil {
+		t.Fatalf("gather metrics: %v", err)
+	}
+	for _, mf := range mfs {
+		if mf.GetName() == "mr_regime_current" {
+			return len(mf.GetMetric())
+		}
+	}
+
+	t.Fatal("mr_regime_current metric family not found")
+	return 0
+}
+
+func signalEmittedSeriesCount(t *testing.T) int {
+	t.Helper()
+
+	mfs, err := Registry().Gather()
+	if err != nil {
+		t.Fatalf("gather metrics: %v", err)
+	}
+	for _, mf := range mfs {
+		if mf.GetName() == "mr_signal_emitted_total" {
+			return len(mf.GetMetric())
+		}
+	}
+
+	t.Fatal("mr_signal_emitted_total metric family not found")
 	return 0
 }
 
@@ -398,7 +1097,7 @@ func assertMetricLabelNames(t *testing.T, metricName string, want []string) {
 	t.Fatalf("metric family %s not found", metricName)
 }
 
-func policyKitLatencySampleCount(t *testing.T, stream string) uint64 {
+func policyKitLatencySampleCount(t *testing.T, metricName, stream string) uint64 {
 	t.Helper()
 
 	mfs, err := Registry().Gather()
@@ -406,7 +1105,7 @@ func policyKitLatencySampleCount(t *testing.T, stream string) uint64 {
 		t.Fatalf("gather metrics: %v", err)
 	}
 	for _, mf := range mfs {
-		if mf.GetName() != "policykit_latency_ms" {
+		if mf.GetName() != metricName {
 			continue
 		}
 		for _, metric := range mf.GetMetric() {
@@ -421,4 +1120,130 @@ func policyKitLatencySampleCount(t *testing.T, stream string) uint64 {
 		}
 	}
 	return 0
+}
+
+// ── ws_legacy_requests_total ─────────────────────────────────────────────────
+
+func TestIncWSLegacyRequest_AcceptedAndRejected(t *testing.T) {
+	before := testutil.ToFloat64(WSLegacyRequestsTotal.WithLabelValues("accepted"))
+	IncWSLegacyRequest("accepted")
+	after := testutil.ToFloat64(WSLegacyRequestsTotal.WithLabelValues("accepted"))
+	if after-before != 1 {
+		t.Fatalf("accepted: delta=%f want=1", after-before)
+	}
+
+	beforeR := testutil.ToFloat64(WSLegacyRequestsTotal.WithLabelValues("rejected"))
+	IncWSLegacyRequest("rejected")
+	afterR := testutil.ToFloat64(WSLegacyRequestsTotal.WithLabelValues("rejected"))
+	if afterR-beforeR != 1 {
+		t.Fatalf("rejected: delta=%f want=1", afterR-beforeR)
+	}
+}
+
+func TestIncWSLegacyRequest_UnknownDefaultsToRejected(t *testing.T) {
+	before := testutil.ToFloat64(WSLegacyRequestsTotal.WithLabelValues("rejected"))
+	IncWSLegacyRequest("bogus")
+	after := testutil.ToFloat64(WSLegacyRequestsTotal.WithLabelValues("rejected"))
+	if after-before != 1 {
+		t.Fatalf("bogus→rejected: delta=%f want=1", after-before)
+	}
+}
+
+func TestWSLegacyRequestsTotal_Registered(t *testing.T) {
+	count := testutil.CollectAndCount(WSLegacyRequestsTotal)
+	if count == 0 {
+		t.Fatal("WSLegacyRequestsTotal not registered or has no series")
+	}
+}
+
+func TestAddWSBatchFallbackEvents(t *testing.T) {
+	before := testutil.ToFloat64(WSBatchFallbackEventsTotal)
+	AddWSBatchFallbackEvents(3)
+	after := testutil.ToFloat64(WSBatchFallbackEventsTotal)
+	if after-before != 3 {
+		t.Fatalf("fallback events delta=%f want=3", after-before)
+	}
+}
+
+// ── Transcode cache metrics ──────────────────────────────────────────────────
+
+func TestTranscodeCacheMetrics_Registered(t *testing.T) {
+	if testutil.ToFloat64(TranscodeCacheEntries) < 0 {
+		t.Fatal("TranscodeCacheEntries should be >= 0")
+	}
+	SetTranscodeCacheEntries(42)
+	if got := testutil.ToFloat64(TranscodeCacheEntries); got != 42 {
+		t.Fatalf("entries=%f want=42", got)
+	}
+
+	SetTranscodeCacheHits(100)
+	if got := testutil.ToFloat64(TranscodeCacheHits); got != 100 {
+		t.Fatalf("hits=%f want=100", got)
+	}
+
+	SetTranscodeCacheMisses(5)
+	if got := testutil.ToFloat64(TranscodeCacheMisses); got != 5 {
+		t.Fatalf("misses=%f want=5", got)
+	}
+}
+
+func TestPublishDepth_Histogram(t *testing.T) {
+	before := testutil.CollectAndCount(MROrderBookPublishDepth)
+	ObserveMROrderBookPublishDepth("binance", "bid", 50)
+	after := testutil.CollectAndCount(MROrderBookPublishDepth)
+	if after < before {
+		t.Fatalf("publish depth histogram count decreased: before=%d after=%d", before, after)
+	}
+}
+
+func TestMetricCardinality_Bounded(t *testing.T) {
+	before := metricSeriesCount(t, "mr_orderbook_bad_level_total")
+	for i := 0; i < 200; i++ {
+		instrument := fmt.Sprintf("asset-%d", i)
+		IncMROrderBookBadLevel("binance", instrument, fmt.Sprintf("bad-reason-%d", i))
+	}
+	after := metricSeriesCount(t, "mr_orderbook_bad_level_total")
+	if growth := after - before; growth > 20 {
+		t.Fatalf("bad-level metric cardinality growth=%d want<=20", growth)
+	}
+}
+
+func metricSeriesCount(t *testing.T, name string) int {
+	t.Helper()
+	mfs, err := Registry().Gather()
+	if err != nil {
+		t.Fatalf("gather metrics: %v", err)
+	}
+	for _, mf := range mfs {
+		if mf.GetName() == name {
+			return len(mf.GetMetric())
+		}
+	}
+	return 0
+}
+
+func TestSanitizeTenantID(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "valid", input: "acme", want: "acme"},
+		{name: "empty", input: "", want: "default"},
+		{name: "whitespace", input: "  ", want: "default"},
+		{name: "dash_underscore", input: "my-tenant_01", want: "my-tenant_01"},
+		{name: "invalid_chars", input: "tenant;drop table", want: "invalid"},
+		{name: "special_chars", input: "foo@bar.com", want: "invalid"},
+		{name: "truncated_valid", input: "aaaaaaaaaa" + "aaaaaaaaaa" + "aaaaaaaaaa" + "aaaaaaaaaa" + "aaaaaaaaaa" + "aaaaaaaaaa" + "aaaaa", want: "aaaaaaaaaa" + "aaaaaaaaaa" + "aaaaaaaaaa" + "aaaaaaaaaa" + "aaaaaaaaaa" + "aaaaaaaaaa" + "aaaa"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := sanitizeTenantID(tc.input)
+			if got != tc.want {
+				t.Fatalf("sanitizeTenantID(%q)=%q want=%q", tc.input, got, tc.want)
+			}
+		})
+	}
 }

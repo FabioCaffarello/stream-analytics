@@ -1,38 +1,60 @@
-# Ingest Runbook
+---
+type: doc
+status: Active
+last_updated: 2026-06-25
+---
 
-## Trigger
-- Alerts: `SLOIngestBurnRateFast`, `SLOIngestBurnRateSlow`
+# Ingest Pipeline Runbook
 
-## Severity
-- `P1` when fast burn-rate firing.
-- `P2` when only slow burn-rate firing.
+**Scope:** Consumer → NATS JetStream → Processor throughput and lag alerts.
 
-## First 5 Minutes
+---
+
+## Alert: `IngestLagHigh`
+
+**Meaning:** Consumer-to-processor message lag exceeds 50 ms p99.
+
+**Immediate check:**
 ```bash
-curl -fsS http://localhost:8080/runtime/snapshot | jq .
-curl -fsS http://localhost:8080/metrics | rg 'slo:ingest|ingest_messages_total|ingest_drop_total|ingest_nak_total|ingest_term_total'
-curl -fsS http://localhost:8080/debug/pprof/goroutine?debug=1 | head -n 120
+make logs service=consumer | grep "lag\|dropped\|backpressure"
+make logs service=processor | grep "lag\|slow\|overflow"
+make ps
 ```
 
-## Diagnose
-- Confirm affected `stream` and `venue` via:
-```promql
-slo:ingest:burn_rate_5m
-slo:ingest:burn_rate_1h
-slo:ingest:error_ratio
-```
-- Correlate ingest outcomes:
-```promql
-sum by (reason) (rate(ingest_drop_total[5m]))
-sum by (reason) (rate(ingest_nak_total[5m]))
-sum by (reason) (rate(ingest_term_total[5m]))
+**Common causes and actions:**
+
+| Cause | Signal | Action |
+|-------|--------|--------|
+| Exchange burst | Consumer CPU spike | Verify adapter back-pressure; scale consumer replicas |
+| Processor overload | Processor queue depth rising | Check `processor_queue_depth` metric; reduce enabled pairs |
+| NATS JetStream pressure | `nats_js_pending_msgs` climbing | Increase consumer replicas or reduce subject fanout |
+| Network partition | Connection resets in consumer log | Allow reconnect; monitor gap-fill completion |
+
+**Escalation:** If lag stays > 200 ms for > 5 min, page on-call.
+
+---
+
+## Alert: `ConsumerDropRate`
+
+**Meaning:** Consumer is dropping messages due to queue overflow.
+
+```bash
+make logs service=consumer | grep "drop\|overflow"
 ```
 
-## Mitigate
-- Reduce upstream load or pause high-volume stream input.
-- Drain/restart consumer shard with persistent drops.
-- Keep replay mode deterministic; do not bypass ack-on-commit.
+Increase `CONSUMER_QUEUE_DEPTH` env var or scale horizontally.
 
-## Escalate
-- Escalate to on-call SRE if `SLOIngestBurnRateFast` persists for 10m.
-- Escalate to data/platform owner if `slo:data_loss:drop_rate_5m > 0`.
+---
+
+## Useful Grafana panels
+
+- `Ingest` dashboard → `evt/sec`, `lag p99`, `drop rate`
+- `Overview` dashboard → NATS publish rate
+
+---
+
+## See also
+
+- [SLO Definitions](../slo.md)
+- [Consumer Stall Runbook](consumer-stall.md)
+- [Bus Runbook](bus.md)

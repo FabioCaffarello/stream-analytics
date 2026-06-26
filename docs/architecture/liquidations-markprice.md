@@ -1,8 +1,8 @@
 # Liquidations + MarkPrice Architecture (End-to-End)
 
-**Status:** Draft
+**Status:** Partially Implemented
 **Owner:** Product Architect
-**Last updated:** 2026-02-13
+**Last updated:** 2026-06-25
 **Relates to:** `docs/adrs/ADR-0002-event-envelope-and-versioning.md`, `docs/adrs/ADR-0004-bus-nats-jetstream.md`, `docs/adrs/ADR-0011-marketdata-binance-canonical-instrument-and-event-mapping.md`, `docs/adrs/ADR-0013-backpressure-overload-policies.md`, `docs/adrs/ADR-0015-deterministic-replay-time-invariants.md`, `docs/adrs/ADR-0017-multi-exchange-normalization.md`
 
 ## Purpose

@@ -1,7 +1,7 @@
 services:
   nats:
     image: nats:2.10.18-alpine
-    container_name: market-raccoon-nats
+    container_name: stream-analytics-nats
     command: ["-c", "/etc/nats/nats-server.conf"]
     ports:
       - "127.0.0.1:4222:4222"
@@ -16,7 +16,7 @@ services:
       retries: 10
       start_period: 5s
     networks:
-      - market-raccoon-network
+      - stream-analytics-network
     restart: unless-stopped
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
@@ -28,12 +28,13 @@ services:
     deploy:
       resources:
         limits:
-          memory: 256M
+          memory: 1G
           cpus: "0.50"
 
   timescale:
     image: timescale/timescaledb:2.25.1-pg16
-    container_name: market-raccoon-timescale
+    container_name: stream-analytics-timescale
+    command: postgres -c max_connections=200 -c shared_buffers=256MB
     ports:
       - "127.0.0.1:5432:5432"
     env_file:
@@ -51,8 +52,87 @@ services:
       retries: 20
       start_period: 10s
     networks:
-      - market-raccoon-network
+      - stream-analytics-network
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.00"
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8.8
+    container_name: stream-analytics-clickhouse
+    ports:
+      - "127.0.0.1:8123:8123"
+      - "127.0.0.1:9000:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse/
+      - clickhouse_logs:/var/log/clickhouse-server/
+      - ../clickhouse/config/listen.xml:/etc/clickhouse-server/config.d/listen.xml:ro
+      - ../clickhouse/users/raccoon-user.xml:/etc/clickhouse-server/users.d/raccoon-user.xml:ro
+    cap_add:
+      - SYS_NICE
+    networks:
+      - stream-analytics-network
+    env_file:
+      - ../envs/local.env
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --port 9000 --user ${CLICKHOUSE_USER:-default} --password ${CLICKHOUSE_PASSWORD:?Set CLICKHOUSE_PASSWORD in env file} --query 'SELECT 1' >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: "2.00"
+
+  kafka:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.13
+    container_name: stream-analytics-kafka
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp
+      - "1"
+      - --memory
+      - "512M"
+      - --reserve-memory
+      - "0M"
+      - --check=false
+      - --node-id
+      - "0"
+      - --kafka-addr
+      - PLAINTEXT://0.0.0.0:9092,OUTSIDE://0.0.0.0:19092
+      - --advertise-kafka-addr
+      - PLAINTEXT://kafka:9092,OUTSIDE://localhost:19092
+    ports:
+      - "127.0.0.1:19092:19092"
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster info --brokers=127.0.0.1:9092 >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 15s
+    networks:
+      - stream-analytics-network
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     logging:
       driver: json-file
       options:
@@ -68,15 +148,17 @@ services:
     build:
       context: ../..
       dockerfile: deploy/docker/server.Dockerfile
-    image: market-raccoon/server:dev
-    container_name: market-raccoon-server
-    command: ["-config", "/etc/market-raccoon/server.jsonc"]
+    image: stream-analytics/server:dev
+    container_name: stream-analytics-server
+    command: ["-config", "/etc/stream-analytics/server.jsonc"]
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
-      - ../configs/server.jsonc:/etc/market-raccoon/server.jsonc:ro
+      - ../configs/server.jsonc:/etc/stream-analytics/server.jsonc:ro
     depends_on:
       nats:
+        condition: service_healthy
+      kafka:
         condition: service_healthy
       timescale:
         condition: service_healthy
@@ -91,7 +173,7 @@ services:
       retries: 10
       start_period: 10s
     networks:
-      - market-raccoon-network
+      - stream-analytics-network
     restart: unless-stopped
     profiles: ["core"]
     cap_drop: [ALL]
@@ -111,22 +193,20 @@ services:
     build:
       context: ../..
       dockerfile: deploy/docker/consumer.Dockerfile
-    image: market-raccoon/consumer:dev
-    command: ["-config", "/etc/market-raccoon/consumer.jsonc"]
+    image: stream-analytics/consumer:dev
+    command: ["-config", "/etc/stream-analytics/consumer.jsonc"]
     environment:
       SHARD_INDEX: 0
       SHARD_COUNT: ${CONSUMER_SHARD_COUNT:-1}
     ports:
-      - "8081"
+      - "127.0.0.1:8081:8081"
     volumes:
-      - ../configs/consumer.jsonc:/etc/market-raccoon/consumer.jsonc:ro
+      - ../configs/consumer.jsonc:/etc/stream-analytics/consumer.jsonc:ro
     depends_on:
       nats:
         condition: service_healthy
-      server:
-        condition: service_started
-      migrate:
-        condition: service_completed_successfully
+      kafka:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/readyz"]
       interval: 10s
@@ -134,7 +214,7 @@ services:
       retries: 10
       start_period: 10s
     networks:
-      - market-raccoon-network
+      - stream-analytics-network
     restart: unless-stopped
     profiles: ["core"]
     cap_drop: [ALL]
@@ -150,19 +230,56 @@ services:
           memory: 512M
           cpus: "1.00"
 
+  validator:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/validator.Dockerfile
+    image: stream-analytics/validator:dev
+    container_name: stream-analytics-validator
+    command: ["-config", "/etc/stream-analytics/validator.jsonc"]
+    ports:
+      - "127.0.0.1:8089:8089"
+    volumes:
+      - ../configs/validator.jsonc:/etc/stream-analytics/validator.jsonc:ro
+    depends_on:
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8089/readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - stream-analytics-network
+    restart: unless-stopped
+    profiles: ["core"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.50"
+
   processor:
     build:
       context: ../..
       dockerfile: deploy/docker/processor.Dockerfile
-    image: market-raccoon/processor:dev
-    command: ["-config", "/etc/market-raccoon/processor.jsonc"]
+    image: stream-analytics/processor:dev
+    command: ["-config", "/etc/stream-analytics/processor.jsonc"]
     user: "0:0"
     environment:
       MR_ENV: ${MR_ENV:-dev}
       SHARD_COUNT: ${PROCESSOR_SHARD_COUNT:-1}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ../configs/processor.jsonc:/etc/market-raccoon/processor.jsonc:ro
+      - ../configs/processor.jsonc:/etc/stream-analytics/processor.jsonc:ro
     ports:
       - "8082"
     depends_on:
@@ -174,8 +291,6 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
-      server:
-        condition: service_started
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8082/readyz"]
       interval: 10s
@@ -183,7 +298,7 @@ services:
       retries: 10
       start_period: 10s
     networks:
-      - market-raccoon-network
+      - stream-analytics-network
     restart: unless-stopped
     profiles: ["core"]
     cap_drop: [ALL]
@@ -197,19 +312,19 @@ services:
       resources:
         limits:
           memory: 512M
-          cpus: "1.00"
+          cpus: "4.00"
 
   store:
     build:
       context: ../..
       dockerfile: deploy/docker/store.Dockerfile
-    image: market-raccoon/store:dev
-    container_name: market-raccoon-store
-    command: ["-config", "/etc/market-raccoon/store.jsonc"]
+    image: stream-analytics/store:dev
+    container_name: stream-analytics-store
+    command: ["-config", "/etc/stream-analytics/store.jsonc"]
     ports:
       - "127.0.0.1:8083:8083"
     volumes:
-      - ../configs/store.jsonc:/etc/market-raccoon/store.jsonc:ro
+      - ../configs/store.jsonc:/etc/stream-analytics/store.jsonc:ro
       - ../../sql/clickhouse/migrations:/sql/clickhouse/migrations:ro
     depends_on:
       nats:
@@ -225,7 +340,7 @@ services:
       retries: 10
       start_period: 10s
     networks:
-      - market-raccoon-network
+      - stream-analytics-network
     restart: unless-stopped
     profiles: ["core"]
     cap_drop: [ALL]
@@ -241,47 +356,12 @@ services:
           memory: 512M
           cpus: "1.00"
 
-  clickhouse:
-    image: clickhouse/clickhouse-server:24.8.8
-    container_name: market-raccoon-clickhouse
-    ports:
-      - "127.0.0.1:8123:8123"
-      - "127.0.0.1:9000:9000"
-    volumes:
-      - clickhouse_data:/var/lib/clickhouse/
-      - clickhouse_logs:/var/log/clickhouse-server/
-      - ../clickhouse/config/listen.xml:/etc/clickhouse-server/config.d/listen.xml:ro
-      - ../clickhouse/users/raccoon-user.xml:/etc/clickhouse-server/users.d/raccoon-user.xml:ro
-    cap_add:
-      - SYS_NICE
-    networks:
-      - market-raccoon-network
-    env_file:
-      - ../envs/local.env
-    healthcheck:
-      test: ["CMD-SHELL", "clickhouse-client --port 9000 --user ${CLICKHOUSE_USER:-default} --password ${CLICKHOUSE_PASSWORD:?Set CLICKHOUSE_PASSWORD in env file} --query 'SELECT 1' >/dev/null 2>&1"]
-      interval: 10s
-      timeout: 3s
-      retries: 20
-      start_period: 30s
-    restart: unless-stopped
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "5"
-    deploy:
-      resources:
-        limits:
-          memory: 2G
-          cpus: "2.00"
-
   migrate:
     build:
       context: ../..
       dockerfile: deploy/docker/migrate.Dockerfile
-    image: market-raccoon/migrate:dev
-    container_name: market-raccoon-migrate
+    image: stream-analytics/migrate:dev
+    container_name: stream-analytics-migrate
     env_file:
       - ../envs/local.env
     environment:
@@ -298,7 +378,7 @@ services:
         /usr/local/bin/migrate -target timescale up &&
         /usr/local/bin/migrate -target clickhouse up
     networks:
-      - market-raccoon-network
+      - stream-analytics-network
     restart: "no"
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
@@ -313,9 +393,47 @@ services:
           memory: 128M
           cpus: "0.25"
 
+  client:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/client.Dockerfile
+      args:
+        ODIN_VERSION: dev-2026-02
+    image: stream-analytics/client:dev
+    container_name: stream-analytics-client
+    ports:
+      - "127.0.0.1:8090:8090"
+    env_file:
+      - ../envs/local.env
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8090/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - stream-analytics-network
+    depends_on:
+      server:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles: ["client"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: "0.25"
+
   prometheus:
     image: prom/prometheus:v2.54.1
-    container_name: market-raccoon-prometheus
+    container_name: stream-analytics-prometheus
     volumes:
       - ../observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ../observability/prometheus/recording.rules.yml:/etc/prometheus/recording.rules.yml:ro
@@ -332,7 +450,7 @@ services:
       start_period: 10s
     restart: unless-stopped
     networks:
-      - market-raccoon-network
+      - stream-analytics-network
     profiles: ["obs"]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
@@ -349,7 +467,7 @@ services:
 
   grafana:
     image: grafana/grafana:11.2.0
-    container_name: market-raccoon-grafana
+    container_name: stream-analytics-grafana
     env_file:
       - ../envs/local.env
     ports:
@@ -366,7 +484,7 @@ services:
       start_period: 10s
     restart: unless-stopped
     networks:
-      - market-raccoon-network
+      - stream-analytics-network
     depends_on:
       prometheus:
         condition: service_healthy
@@ -384,21 +502,166 @@ services:
           memory: 256M
           cpus: "0.50"
 
+  flink-jobmanager:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/flink.Dockerfile
+    image: stream-analytics/flink:dev
+    container_name: stream-analytics-flink-jobmanager
+    command: jobmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.numberOfTaskSlots: 8
+        parallelism.default: 1
+    ports:
+      - "127.0.0.1:8091:8081"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:8081/overview"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    networks:
+      - stream-analytics-network
+    restart: unless-stopped
+    profiles: ["analytics"]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.00"
+
+  flink-taskmanager:
+    image: stream-analytics/flink:dev
+    container_name: stream-analytics-flink-taskmanager
+    command: taskmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.numberOfTaskSlots: 8
+        parallelism.default: 1
+    depends_on:
+      flink-jobmanager:
+        condition: service_healthy
+    networks:
+      - stream-analytics-network
+    restart: unless-stopped
+    profiles: ["analytics"]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.00"
+
+  flink-sql-init:
+    image: stream-analytics/flink:dev
+    container_name: stream-analytics-flink-sql-init
+    entrypoint: ["/bin/bash", "/sql/init.sh"]
+    volumes:
+      - ../../flink/sql:/sql:ro
+    env_file:
+      - ../envs/local.env
+    environment:
+      TIMESCALE_USER: ${TIMESCALE_USER:?Set TIMESCALE_USER in env file}
+      TIMESCALE_PASSWORD: ${TIMESCALE_PASSWORD:?Set TIMESCALE_PASSWORD in env file}
+    depends_on:
+      flink-jobmanager:
+        condition: service_healthy
+      flink-taskmanager:
+        condition: service_started
+      kafka:
+        condition: service_healthy
+      timescale:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - stream-analytics-network
+    restart: "no"
+    profiles: ["analytics"]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.50"
+
+  metabase:
+    image: metabase/metabase:v0.52.2
+    container_name: stream-analytics-metabase
+    ports:
+      - "127.0.0.1:3001:3000"
+    env_file:
+      - ../envs/local.env
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_HOST: timescale
+      MB_DB_PORT: "5432"
+      MB_DB_DBNAME: ${TIMESCALE_DB:-raccoon}
+      MB_DB_USER: ${TIMESCALE_USER:?Set TIMESCALE_USER in env file}
+      MB_DB_PASS: ${TIMESCALE_PASSWORD:?Set TIMESCALE_PASSWORD in env file}
+    volumes:
+      - metabase_data:/metabase-data
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+    depends_on:
+      timescale:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - stream-analytics-network
+    restart: unless-stopped
+    profiles: ["analytics"]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.00"
+
 networks:
-  market-raccoon-network:
-    name: market-raccoon-network
+  stream-analytics-network:
+    name: stream-analytics-network
     driver: bridge
 
 volumes:
   nats_data:
-    name: market-raccoon-nats-data
+    name: stream-analytics-nats-data
   timescale_data:
-    name: market-raccoon-timescale-data
+    name: stream-analytics-timescale-data
   clickhouse_data:
-    name: market-raccoon-clickhouse-data
+    name: stream-analytics-clickhouse-data
   clickhouse_logs:
-    name: market-raccoon-clickhouse-logs
+    name: stream-analytics-clickhouse-logs
   prometheus_data:
-    name: market-raccoon-prometheus-data
+    name: stream-analytics-prometheus-data
   grafana_data:
-    name: market-raccoon-grafana-data
+    name: stream-analytics-grafana-data
+  metabase_data:
+    name: stream-analytics-metabase-data

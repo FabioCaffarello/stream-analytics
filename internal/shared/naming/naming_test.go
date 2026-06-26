@@ -3,7 +3,7 @@ package naming_test
 import (
 	"testing"
 
-	"github.com/market-raccoon/internal/shared/naming"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/naming"
 )
 
 func TestCanonicalVenue(t *testing.T) {
@@ -115,6 +115,26 @@ func TestNormalizeSide(t *testing.T) {
 		if got := naming.NormalizeSide(tc.input); got != tc.want {
 			t.Errorf("NormalizeSide(%q) = %q; want %q", tc.input, got, tc.want)
 		}
+	}
+}
+
+func TestStripMarketType(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"BTCUSDT:USDMFUTURES", "BTCUSDT"},
+		{"BTCUSDT:SPOT", "BTCUSDT"},
+		{"ETHUSD:SPOT", "ETHUSD"},
+		{"BTCUSDT", "BTCUSDT"},
+		{"", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			if got := naming.StripMarketType(tc.input); got != tc.want {
+				t.Errorf("StripMarketType(%q) = %q; want %q", tc.input, got, tc.want)
+			}
+		})
 	}
 }
 

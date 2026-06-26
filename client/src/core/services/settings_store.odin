@@ -1,0 +1,222 @@
+package services
+
+// In-memory settings store with dirty tracking.
+// Fixed capacity, zero allocation. Platform port handles persistence.
+
+import "mr:ports"
+
+SETTINGS_CAP :: 128
+
+Settings_Entry :: struct {
+	key:   string,
+	value: string,
+	used:  bool,
+}
+
+Settings_Store :: struct {
+	entries: [SETTINGS_CAP]Settings_Entry,
+	count:   int,
+	dirty:   bool,
+	port:    ports.Settings_Port,
+}
+
+// Known settings keys.
+SETTING_ACTIVE_TF_IDX             :: "active_tf_idx"
+SETTING_OB_PRICE_GRP :: "ob_price_group"
+SETTING_ACTIVE_STREAM_SUBJECT_ID :: "active_stream_subject_id"
+SETTING_ACTIVE_STREAM_VENUE      :: "active_stream_venue"
+SETTING_ACTIVE_STREAM_SYMBOL     :: "active_stream_symbol"
+SETTING_ACTIVE_STREAM_CHANNEL    :: "active_stream_channel"
+SETTING_SIDEBAR_EXPANDED         :: "sidebar_expanded"
+SETTING_OB_GROUP_IDX             :: "ob_group_idx"
+SETTING_TRADE_FILTER_IDX         :: "trade_filter_idx"
+SETTING_SHOW_CANDLE_VOL          :: "show_candle_vol"
+SETTING_SHOW_CANDLE_HEATMAP      :: "show_candle_heatmap"
+SETTING_SHOW_CANDLE_VPVR         :: "show_candle_vpvr"
+SETTING_CANDLE_HEATMAP_INTENSITY_IDX :: "candle_heatmap_intensity_idx"
+SETTING_PANEL_VISIBLE_MASK       :: "panel_visible_mask"
+SETTING_LAYOUT_PRESET            :: "layout_preset"
+SETTING_CUSTOM_LAYOUT_0          :: "custom_layout_0"
+SETTING_CUSTOM_LAYOUT_1          :: "custom_layout_1"
+SETTING_CUSTOM_LAYOUT_2          :: "custom_layout_2"
+SETTING_CUSTOM_LAYOUT_3          :: "custom_layout_3"
+SETTING_SHOW_MA                  :: "show_ma"
+SETTING_SHOW_BBANDS              :: "show_bbands"
+SETTING_SHOW_VWAP                :: "show_vwap"
+SETTING_SHOW_RSI                 :: "show_rsi"
+SETTING_SHOW_MACD                :: "show_macd"
+SETTING_SHOW_FUNDING             :: "show_funding"
+SETTING_SHOW_LIQ                 :: "show_liq"
+SETTING_SHOW_TRADE_COUNTER       :: "show_trade_counter"
+SETTING_SHOW_CVD                 :: "show_cvd"
+SETTING_SHOW_DELTA_VOL           :: "show_delta_vol"
+SETTING_SHOW_OI                  :: "show_oi"
+SETTING_DRAW_TOOLS               :: "draw_tools"
+SETTING_MA_PERIOD_0              :: "ma_period_0"
+SETTING_MA_PERIOD_1              :: "ma_period_1"
+SETTING_MA_PERIOD_2              :: "ma_period_2"
+SETTING_BB_PERIOD                :: "bb_period"
+SETTING_BB_SIGMA                 :: "bb_sigma"
+SETTING_RSI_PERIOD               :: "rsi_period"
+SETTING_MACD_FAST                :: "macd_fast"
+SETTING_MACD_SLOW                :: "macd_slow"
+SETTING_MACD_SIGNAL              :: "macd_signal"
+SETTING_ROW_WEIGHTS              :: "row_weights"
+SETTING_COL_WEIGHTS              :: "col_weights"
+SETTING_LAYOUT_V6                :: "layout_v6"
+SETTING_LAYOUT_MODE              :: "layout_mode"
+SETTING_CONNECTION_PROFILE_COUNT :: "connection_profile_count"
+SETTING_CONNECTION_PROFILE_ACTIVE :: "connection_profile_active"
+SETTING_CONNECTION_PROFILE_0     :: "connection_profile_0"
+SETTING_CONNECTION_PROFILE_1     :: "connection_profile_1"
+SETTING_CONNECTION_PROFILE_2     :: "connection_profile_2"
+SETTING_CONNECTION_PROFILE_3     :: "connection_profile_3"
+SETTING_CONNECTION_PROFILE_4     :: "connection_profile_4"
+SETTING_CONNECTION_PROFILE_5     :: "connection_profile_5"
+SETTING_CONNECTION_PROFILE_6     :: "connection_profile_6"
+SETTING_CONNECTION_PROFILE_7     :: "connection_profile_7"
+SETTING_CONNECTION_PROFILE_8     :: "connection_profile_8"
+SETTING_CONNECTION_PROFILE_9     :: "connection_profile_9"
+SETTING_CONNECTION_PROFILE_10    :: "connection_profile_10"
+SETTING_CONNECTION_PROFILE_11    :: "connection_profile_11"
+SETTING_AUTO_CONNECT             :: "auto_connect"
+SETTING_TF_DEFAULT               :: "tf_default"
+SETTING_SETTINGS_VERSION         :: "settings_version"
+SETTING_FEATURE_BATCHING         :: "feature_batching"
+SETTING_FEATURE_SNAPSHOT_HASH    :: "feature_snapshot_hash"
+SETTING_FEATURE_PREV_SEQ         :: "feature_prev_seq"
+SETTING_FEATURE_COMPRESS         :: "feature_compress"
+SETTING_ASSIST_MODE              :: "assist_mode"
+SETTING_LAYER_PRICE_CANDLES      :: "layer_price_candles"
+SETTING_LAYER_TRADES_TAPE        :: "layer_trades_tape"
+SETTING_LAYER_ORDERBOOK_DOM      :: "layer_orderbook_dom"
+SETTING_LAYER_VPVR_HEATMAP       :: "layer_vpvr_heatmap"
+SETTING_LAYER_EVIDENCE           :: "layer_evidence"
+SETTING_LAYER_SIGNAL             :: "layer_signal"
+/// S80: Route + tab persistence — survives restart.
+SETTING_ACTIVE_ROUTE             :: "active_route"
+SETTING_PORTFOLIO_TAB            :: "portfolio_tab"
+
+// Initialize store, loading known keys from port.
+settings_init :: proc(store: ^Settings_Store, port: ports.Settings_Port) {
+	store.port = port
+	if port.load == nil do return
+
+	// S126: Try loading workspace from backend before reading local settings.
+	// This populates localStorage with backend state on first load (or after clear).
+	if port.backend_load != nil {
+		port.backend_load()
+	}
+
+	// Pre-load known keys.
+	// NOTE: legacy WS settings keys were intentionally removed in S9 hard cutover.
+	// Older persisted keys remain harmlessly ignored (idempotent migration behavior).
+	known_keys := [?]string{
+		SETTING_ACTIVE_TF_IDX, SETTING_OB_PRICE_GRP,
+			SETTING_ACTIVE_STREAM_SUBJECT_ID,
+			SETTING_ACTIVE_STREAM_VENUE, SETTING_ACTIVE_STREAM_SYMBOL, SETTING_ACTIVE_STREAM_CHANNEL,
+				SETTING_SIDEBAR_EXPANDED, SETTING_OB_GROUP_IDX, SETTING_TRADE_FILTER_IDX, SETTING_SHOW_CANDLE_VOL,
+				SETTING_SHOW_CANDLE_HEATMAP, SETTING_SHOW_CANDLE_VPVR, SETTING_CANDLE_HEATMAP_INTENSITY_IDX,
+				SETTING_PANEL_VISIBLE_MASK,
+				SETTING_LAYOUT_PRESET,
+				SETTING_CUSTOM_LAYOUT_0, SETTING_CUSTOM_LAYOUT_1,
+				SETTING_CUSTOM_LAYOUT_2, SETTING_CUSTOM_LAYOUT_3,
+				SETTING_SHOW_MA, SETTING_SHOW_BBANDS, SETTING_SHOW_VWAP,
+				SETTING_SHOW_RSI, SETTING_SHOW_MACD,
+				SETTING_SHOW_FUNDING, SETTING_SHOW_LIQ,
+				SETTING_SHOW_TRADE_COUNTER,
+				SETTING_SHOW_CVD, SETTING_SHOW_DELTA_VOL, SETTING_SHOW_OI,
+				SETTING_DRAW_TOOLS,
+				SETTING_MA_PERIOD_0, SETTING_MA_PERIOD_1, SETTING_MA_PERIOD_2,
+				SETTING_BB_PERIOD, SETTING_BB_SIGMA,
+				SETTING_RSI_PERIOD,
+				SETTING_MACD_FAST, SETTING_MACD_SLOW, SETTING_MACD_SIGNAL,
+				SETTING_ROW_WEIGHTS, SETTING_COL_WEIGHTS,
+				SETTING_LAYOUT_V6, SETTING_LAYOUT_MODE,
+				SETTING_CONNECTION_PROFILE_COUNT, SETTING_CONNECTION_PROFILE_ACTIVE,
+				SETTING_CONNECTION_PROFILE_0, SETTING_CONNECTION_PROFILE_1,
+				SETTING_CONNECTION_PROFILE_2, SETTING_CONNECTION_PROFILE_3,
+				SETTING_CONNECTION_PROFILE_4, SETTING_CONNECTION_PROFILE_5,
+				SETTING_CONNECTION_PROFILE_6, SETTING_CONNECTION_PROFILE_7,
+				SETTING_CONNECTION_PROFILE_8, SETTING_CONNECTION_PROFILE_9,
+				SETTING_CONNECTION_PROFILE_10, SETTING_CONNECTION_PROFILE_11,
+				SETTING_AUTO_CONNECT, SETTING_TF_DEFAULT, SETTING_SETTINGS_VERSION,
+				SETTING_FEATURE_BATCHING, SETTING_FEATURE_SNAPSHOT_HASH, SETTING_FEATURE_PREV_SEQ,
+				SETTING_FEATURE_COMPRESS, SETTING_ASSIST_MODE,
+				SETTING_LAYER_PRICE_CANDLES, SETTING_LAYER_TRADES_TAPE,
+				SETTING_LAYER_ORDERBOOK_DOM, SETTING_LAYER_VPVR_HEATMAP,
+				SETTING_LAYER_EVIDENCE, SETTING_LAYER_SIGNAL,
+				SETTING_ACTIVE_ROUTE, SETTING_PORTFOLIO_TAB,
+			}
+	for key in known_keys {
+		value, ok := port.load(key)
+		if ok {
+			settings_set_internal(store, key, value)
+		}
+	}
+	store.dirty = false // loading doesn't count as dirty
+}
+
+settings_get :: proc(store: ^Settings_Store, key: string) -> (string, bool) {
+	for i in 0 ..< store.count {
+		if store.entries[i].used && store.entries[i].key == key {
+			return store.entries[i].value, true
+		}
+	}
+	return "", false
+}
+
+settings_set :: proc(store: ^Settings_Store, key: string, value: string) {
+	settings_set_internal(store, key, value)
+	store.dirty = true
+}
+
+settings_flush :: proc(store: ^Settings_Store) {
+	if !store.dirty do return
+	if store.port.save == nil do return
+
+	for i in 0 ..< store.count {
+		if store.entries[i].used {
+			store.port.save(store.entries[i].key, store.entries[i].value)
+		}
+	}
+
+	if store.port.flush != nil {
+		store.port.flush()
+	}
+
+	// S126: Sync workspace to backend after local write.
+	if store.port.backend_sync != nil {
+		store.port.backend_sync()
+	}
+
+	store.dirty = false
+}
+
+// Copy text to the system clipboard via platform port.
+settings_clipboard_write :: proc(store: ^Settings_Store, text: string) -> bool {
+	if store.port.clipboard_write == nil do return false
+	return store.port.clipboard_write(text)
+}
+
+// --- Internal ---
+
+@(private = "file")
+settings_set_internal :: proc(store: ^Settings_Store, key: string, value: string) {
+	// Update existing.
+	for i in 0 ..< store.count {
+		if store.entries[i].used && store.entries[i].key == key {
+			store.entries[i].value = value
+			return
+		}
+	}
+	// Insert new.
+	if store.count < SETTINGS_CAP {
+		store.entries[store.count] = Settings_Entry{
+			key   = key,
+			value = value,
+			used  = true,
+		}
+		store.count += 1
+	}
+}

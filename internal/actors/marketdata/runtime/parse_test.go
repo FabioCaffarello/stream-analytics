@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	ws "github.com/market-raccoon/internal/actors/marketdata/ws"
-	"github.com/market-raccoon/internal/core/marketdata/app"
+	ws "github.com/FabioCaffarello/stream-analytics/internal/actors/marketdata/ws"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/app"
 )
 
 // ── MakeRawParseFunc ────────────────────────────────────────────────────────

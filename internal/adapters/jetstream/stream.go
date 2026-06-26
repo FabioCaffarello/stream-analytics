@@ -5,7 +5,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 	"github.com/nats-io/nats.go"
 )
 

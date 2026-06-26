@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	sharedhash "github.com/market-raccoon/internal/shared/hash"
+	sharedhash "github.com/FabioCaffarello/stream-analytics/internal/shared/hash"
 )
 
 func TestHeatmapBucketizationDeterministic(t *testing.T) {
@@ -148,6 +148,52 @@ func TestHeatmapReplayGoldenMatrixHash(t *testing.T) {
 		}
 	}
 	t.Logf("stable golden hash (%d runs): %s", runs, hashes[0])
+}
+
+func TestHeatmapSubMinuteTF_FinerBins(t *testing.T) {
+	// With sub-minute TF (5s), the same price distribution should produce
+	// more distinct price buckets than with the default 1h TF due to the
+	// smaller bin factor. Use $1 increments over a $19 range at BTC price —
+	// tight enough that coarser bins (25 for 1h) merge most levels while
+	// finer bins (1.0 for 5s) keep them distinct.
+	runAndCountBuckets := func(tf string) int {
+		uc := NewBuildHeatmap()
+		var last BuildHeatmapResponse
+		for i := 0; i < 20; i++ {
+			res := uc.Execute(context.Background(), BuildHeatmapRequest{
+				EventType:  "marketdata.trade",
+				Venue:      "binance",
+				Instrument: "BTCUSDT",
+				Timeframe:  tf,
+				TickSize:   0.01,
+				Price:      90000 + float64(i),
+				Size:       1,
+				Side:       "buy",
+				TsIngest:   1_710_000_000_000 + int64(i),
+				Seq:        int64(i + 1),
+			})
+			if res.IsFail() {
+				t.Fatalf("Execute failed for tf=%s: %v", tf, res.Problem())
+			}
+			last = res.Value()
+		}
+		buckets := map[float64]struct{}{}
+		for _, c := range last.Artifact.Cells {
+			buckets[c.PriceBucketLow] = struct{}{}
+		}
+		return len(buckets)
+	}
+
+	buckets5s := runAndCountBuckets("5s")
+	buckets1h := runAndCountBuckets("1h")
+
+	// 5s (bin ~1.0) should have many more distinct price buckets than
+	// 1h (bin ~25), since $1 increments stay distinct at 1.0 granularity
+	// but merge at 25 granularity.
+	if buckets5s <= buckets1h {
+		t.Fatalf("5s should have more buckets than 1h: got 5s=%d, 1h=%d", buckets5s, buckets1h)
+	}
+	t.Logf("price bucket counts: 5s=%d, 1h=%d", buckets5s, buckets1h)
 }
 
 func testHeatmapSequence() []BuildHeatmapRequest {

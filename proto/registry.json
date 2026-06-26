@@ -1,5 +1,5 @@
 {
-  "_coverage_note": "Proto schemas cover all hot-path payloads: marketdata, aggregation (candle + stats), and insights (volume_profile + heatmap).  See docs/contracts/subject-registry.yaml for the full subject catalog.",
+  "_coverage_note": "Proto schemas cover all hot-path payloads: marketdata, aggregation (candle + stats + tape + analytics primitives + cross_venue_book), insights (volume_profile + heatmap), evidence, delivery frames. See docs/contracts/subject-registry.yaml for the full subject catalog.",
   "schemas": [
     {
       "type": "envelope",
@@ -8,6 +8,14 @@
       "message": "envelope.v1.Envelope",
       "status": "stable",
       "introduced_at": "2026-02-12"
+    },
+    {
+      "type": "marketmodel.event",
+      "version": 1,
+      "proto_file": "marketmodel/v1/market_event.proto",
+      "message": "marketmodel.v1.MarketEvent",
+      "status": "stable",
+      "introduced_at": "2026-03-04"
     },
     {
       "type": "marketdata.trade",
@@ -42,6 +50,14 @@
       "introduced_at": "2026-02-12"
     },
     {
+      "type": "marketdata.open_interest",
+      "version": 1,
+      "proto_file": "marketdata/v1/open_interest.proto",
+      "message": "marketdata.v1.OpenInterestTickV1",
+      "status": "stable",
+      "introduced_at": "2026-03-06"
+    },
+    {
       "type": "aggregation.candle",
       "version": 1,
       "proto_file": "aggregation/v1/candle.proto",
@@ -56,6 +72,46 @@
       "message": "aggregation.v1.StatsWindowClosedV1",
       "status": "stable",
       "introduced_at": "2026-02-18"
+    },
+    {
+      "type": "aggregation.tape",
+      "version": 1,
+      "proto_file": "aggregation/v1/tape.proto",
+      "message": "aggregation.v1.TapeWindowV1",
+      "status": "stable",
+      "introduced_at": "2026-03-04"
+    },
+    {
+      "type": "aggregation.oi",
+      "version": 1,
+      "proto_file": "aggregation/v1/oi.proto",
+      "message": "aggregation.v1.OpenInterestWindowV1",
+      "status": "stable",
+      "introduced_at": "2026-03-06"
+    },
+    {
+      "type": "aggregation.cvd",
+      "version": 1,
+      "proto_file": "aggregation/v1/cvd.proto",
+      "message": "aggregation.v1.CVDWindowV1",
+      "status": "stable",
+      "introduced_at": "2026-03-06"
+    },
+    {
+      "type": "aggregation.delta_volume",
+      "version": 1,
+      "proto_file": "aggregation/v1/delta_volume.proto",
+      "message": "aggregation.v1.DeltaVolumeWindowV1",
+      "status": "stable",
+      "introduced_at": "2026-03-06"
+    },
+    {
+      "type": "aggregation.bar_stats",
+      "version": 1,
+      "proto_file": "aggregation/v1/bar_stats.proto",
+      "message": "aggregation.v1.BarStatsWindowV1",
+      "status": "stable",
+      "introduced_at": "2026-03-06"
     },
     {
       "type": "insights.volume_profile_snapshot",
@@ -82,12 +138,69 @@
       "introduced_at": "2026-02-19"
     },
     {
+      "type": "aggregation.snapshot",
+      "version": 2,
+      "proto_file": "aggregation/v2/snapshot_v2.proto",
+      "message": "aggregation.v2.OrderBookSnapshotV2",
+      "status": "stable",
+      "introduced_at": "2026-03-04"
+    },
+    {
       "type": "aggregation.orderbook_inconsistency",
       "version": 1,
       "proto_file": "aggregation/v1/orderbook_inconsistency.proto",
       "message": "aggregation.v1.OrderBookInconsistencyV1",
       "status": "stable",
       "introduced_at": "2026-02-19"
+    },
+    {
+      "type": "delivery.client_frame",
+      "version": 1,
+      "proto_file": "delivery/v1/terminal.proto",
+      "message": "delivery.v1.ClientFrame",
+      "status": "stable",
+      "introduced_at": "2026-03-02"
+    },
+    {
+      "type": "delivery.server_frame",
+      "version": 1,
+      "proto_file": "delivery/v1/terminal.proto",
+      "message": "delivery.v1.ServerFrame",
+      "status": "stable",
+      "introduced_at": "2026-03-02"
+    },
+    {
+      "type": "evidence.microstructure_evidence",
+      "version": 1,
+      "proto_file": "evidence/v1/evidence.proto",
+      "message": "evidence.v1.MicrostructureEvidenceV1",
+      "status": "stable",
+      "introduced_at": "2026-03-03"
+    },
+    {
+      "type": "liquidity.evidence",
+      "version": 1,
+      "proto_file": "liquidity/v1/evidence.proto",
+      "message": "liquidity.v1.LiquidityEvidenceV1",
+      "status": "stable",
+      "introduced_at": "2026-03-04"
+    },
+    {
+      "type": "aggregation.cross_venue_book",
+      "version": 1,
+      "proto_file": "aggregation/v2/cross_venue_book.proto",
+      "message": "aggregation.v2.CrossVenueBookSnapshotV1",
+      "status": "stable",
+      "introduced_at": "2026-03-03"
+    },
+    {
+      "type": "signal.event",
+      "version": 1,
+      "proto_file": "marketmodel/v1/market_event.proto",
+      "message": "marketmodel.v1.SignalEvent",
+      "status": "stable",
+      "introduced_at": "2026-03-04",
+      "updated_at": "2026-03-05"
     }
   ]
 }

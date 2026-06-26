@@ -71,6 +71,7 @@ func TestProtoRolloutEventTypeFlags(t *testing.T) {
 			Trade: true,
 		},
 		Aggregation: ProtoRolloutAggregationConfig{
+			Tape:     true,
 			Snapshot: true,
 		},
 		Insights: ProtoRolloutInsightsConfig{
@@ -84,10 +85,27 @@ func TestProtoRolloutEventTypeFlags(t *testing.T) {
 	if !flags["aggregation.orderbook_inconsistency"] {
 		t.Fatal("aggregation.orderbook_inconsistency should follow aggregation.snapshot")
 	}
+	if !flags["aggregation.tape"] {
+		t.Fatal("aggregation.tape should be enabled")
+	}
 	if !flags["insights.heatmap_delta"] {
 		t.Fatal("insights.heatmap_delta should follow insights.heatmap")
 	}
 	if flags["insights.crossvenue.trade_snapshot"] {
 		t.Fatal("insights.crossvenue.trade_snapshot should be disabled")
+	}
+}
+
+func TestExecutionTradeAPITimeoutHelper(t *testing.T) {
+	cfg := ExecutionBinanceTradeAPIConfig{RequestTimeout: "3s"}
+	if got := cfg.RequestTimeoutDuration().String(); got != "3s" {
+		t.Fatalf("RequestTimeoutDuration=%s want=3s", got)
+	}
+}
+
+func TestExecutionTradeAPIReconcilePollIntervalHelper(t *testing.T) {
+	cfg := ExecutionBinanceTradeAPIConfig{ReconcilePollInterval: "500ms"}
+	if got := cfg.ReconcilePollIntervalDuration().String(); got != "500ms" {
+		t.Fatalf("ReconcilePollIntervalDuration=%s want=500ms", got)
 	}
 }

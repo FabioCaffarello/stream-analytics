@@ -1,17 +1,20 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
 	"os"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 const (
@@ -21,6 +24,218 @@ const (
 )
 
 var metricsExchangeNamePattern = regexp.MustCompile(`^[a-z0-9_-]{1,24}$`)
+var envVarNamePattern = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
+
+const (
+	iqProfileCIStrictName         = "ci-strict"
+	iqProfileCIStrictSource       = "internal/shared/config:ci-strict"
+	iqProfileRouterStateMaxCap    = 2048
+	iqProfileLayerStateMaxCap     = 2048
+	iqProfileReplicaCount         = 2
+	iqProfileRequiredWireChannels = "trade,book_snapshot,stats,candle"
+)
+
+var iqProfilePinnedValues = map[string]string{
+	"IQ_STRICT":                  "1",
+	"IQ_REQUIRE_STATS_CANONICAL": "1",
+	"IQ_FALLBACK_STRICT":         "1",
+	"IQ_LEGACY_STRICT":           "1",
+	"IQ_ALLOW_BATCHED_FALLBACK":  "0",
+	"IQ_ALLOW_STATS_FALLBACK":    "0",
+	"IQ_ALLOW_UNEXPECTED_SKIPS":  "0",
+	"IQ_WIRE_BUDGET_CHANNELS":    iqProfileRequiredWireChannels,
+	"IQ_WIRE_P95_BUDGET_MS":      "5000",
+	"IQ_WIRE_P99_BUDGET_MS":      "5000",
+	"IQ_WIRE_BYTES_P95_BUDGET":   "65536",
+	"IQ_WIRE_BYTES_P99_BUDGET":   "131072",
+	"IQ_ROUTER_STREAM_STATE_MAX": strconv.Itoa(iqProfileRouterStateMaxCap),
+	"IQ_LAYER_STREAM_STATE_MAX":  strconv.Itoa(iqProfileLayerStateMaxCap),
+	"PROCESSOR_REPLICAS":         strconv.Itoa(iqProfileReplicaCount),
+}
+
+var iqProfileForbiddenOverrideKeys = []string{
+	"IQ_WIRE_P95_BUDGET_MS_BY_CHANNEL",
+	"IQ_WIRE_P99_BUDGET_MS_BY_CHANNEL",
+	"IQ_WIRE_BYTES_P95_BUDGET_BY_CHANNEL",
+	"IQ_WIRE_BYTES_P99_BUDGET_BY_CHANNEL",
+}
+
+var iqProfileNumericBudgetKeys = []string{
+	"IQ_WIRE_P95_BUDGET_MS",
+	"IQ_WIRE_P99_BUDGET_MS",
+	"IQ_WIRE_BYTES_P95_BUDGET",
+	"IQ_WIRE_BYTES_P99_BUDGET",
+}
+
+// ResolveIQProfileFromOS resolves and validates IQ strict-profile env contract.
+func ResolveIQProfileFromOS() (IQEffectiveProfile, *problem.Problem) {
+	env := make(map[string]string)
+	for _, pair := range os.Environ() {
+		idx := strings.Index(pair, "=")
+		if idx <= 0 {
+			continue
+		}
+		env[pair[:idx]] = pair[idx+1:]
+	}
+	return ResolveIQProfileFromEnvMap(env)
+}
+
+// ResolveIQProfileFromEnvMap resolves and validates the IQ CI profile contract.
+func ResolveIQProfileFromEnvMap(env map[string]string) (IQEffectiveProfile, *problem.Problem) {
+	requestedRaw := strings.TrimSpace(env["IQ_PROFILE"])
+	requestedProfile := strings.ToLower(requestedRaw)
+	if requestedProfile == "" {
+		requestedProfile = iqProfileCIStrictName
+	}
+	if requestedProfile != iqProfileCIStrictName {
+		return IQEffectiveProfile{}, problem.Newf(
+			codeInvalid,
+			"IQ_PROFILE must be %q, got %q; set IQ_PROFILE=ci-strict in CI and IQ runs",
+			iqProfileCIStrictName,
+			strings.TrimSpace(env["IQ_PROFILE"]),
+		)
+	}
+
+	effectiveValues := make(map[string]string, len(iqProfilePinnedValues))
+	for key, value := range iqProfilePinnedValues {
+		effectiveValues[key] = value
+	}
+
+	violations := make([]string, 0)
+	for key, expected := range iqProfilePinnedValues {
+		raw, exists := env[key]
+		if !exists {
+			continue
+		}
+		actual := strings.TrimSpace(raw)
+		if actual != expected {
+			if actual == "" {
+				actual = "<empty>"
+			}
+			violations = append(violations, fmt.Sprintf("%s=%s (expected %s)", key, actual, expected))
+		}
+	}
+	for _, key := range iqProfileForbiddenOverrideKeys {
+		if raw, exists := env[key]; exists && strings.TrimSpace(raw) != "" {
+			violations = append(violations, fmt.Sprintf("%s must be unset for ci-strict profile", key))
+		}
+	}
+
+	wireChannels := parseCSVNonEmpty(effectiveValues["IQ_WIRE_BUDGET_CHANNELS"])
+	if len(wireChannels) == 0 {
+		violations = append(violations, "IQ_WIRE_BUDGET_CHANNELS must not be empty")
+	}
+	for _, key := range iqProfileNumericBudgetKeys {
+		if _, err := parseStrictPositiveFloat(effectiveValues[key]); err != nil {
+			violations = append(violations, fmt.Sprintf("%s %v", key, err))
+		}
+	}
+	for _, key := range []string{"IQ_ROUTER_STREAM_STATE_MAX", "IQ_LAYER_STREAM_STATE_MAX", "PROCESSOR_REPLICAS"} {
+		if _, err := parseStrictPositiveInt(effectiveValues[key]); err != nil {
+			violations = append(violations, fmt.Sprintf("%s %v", key, err))
+		}
+	}
+
+	if len(violations) > 0 {
+		return IQEffectiveProfile{}, problem.Newf(
+			codeInvalid,
+			"IQ ci-strict profile validation failed: %s. Fix by exporting IQ_PROFILE=ci-strict and removing relax overrides.",
+			strings.Join(violations, "; "),
+		)
+	}
+
+	wireP95, _ := parseStrictPositiveFloat(effectiveValues["IQ_WIRE_P95_BUDGET_MS"])
+	wireP99, _ := parseStrictPositiveFloat(effectiveValues["IQ_WIRE_P99_BUDGET_MS"])
+	wireBytesP95, _ := parseStrictPositiveFloat(effectiveValues["IQ_WIRE_BYTES_P95_BUDGET"])
+	wireBytesP99, _ := parseStrictPositiveFloat(effectiveValues["IQ_WIRE_BYTES_P99_BUDGET"])
+	routerCap, _ := parseStrictPositiveInt(effectiveValues["IQ_ROUTER_STREAM_STATE_MAX"])
+	layerCap, _ := parseStrictPositiveInt(effectiveValues["IQ_LAYER_STREAM_STATE_MAX"])
+	replicaCount, _ := parseStrictPositiveInt(effectiveValues["PROCESSOR_REPLICAS"])
+
+	fingerprint := IQEffectiveProfileFingerprint{
+		ProfileName: iqProfileCIStrictName,
+		Budgets: IQProfileBudgets{
+			P95Ms:    wireP95,
+			P99Ms:    wireP99,
+			BytesP95: wireBytesP95,
+			BytesP99: wireBytesP99,
+		},
+		Caps: IQProfileCaps{
+			RouterStreamStateMax: routerCap,
+			LayerStreamStateMax:  layerCap,
+		},
+		LegacyFlags: IQProfileLegacyFlags{
+			Strict:                parseIQProfileBool(effectiveValues["IQ_STRICT"]),
+			FallbackStrict:        parseIQProfileBool(effectiveValues["IQ_FALLBACK_STRICT"]),
+			LegacyStrict:          parseIQProfileBool(effectiveValues["IQ_LEGACY_STRICT"]),
+			RequireStatsCanonical: parseIQProfileBool(effectiveValues["IQ_REQUIRE_STATS_CANONICAL"]),
+			AllowBatchedFallback:  parseIQProfileBool(effectiveValues["IQ_ALLOW_BATCHED_FALLBACK"]),
+			AllowStatsFallback:    parseIQProfileBool(effectiveValues["IQ_ALLOW_STATS_FALLBACK"]),
+			AllowUnexpectedSkips:  parseIQProfileBool(effectiveValues["IQ_ALLOW_UNEXPECTED_SKIPS"]),
+		},
+		ReplicaCount: replicaCount,
+	}
+
+	fingerprintRaw, err := json.Marshal(fingerprint)
+	if err != nil {
+		return IQEffectiveProfile{}, problem.Wrap(err, codeParseError, "could not marshal IQ profile fingerprint")
+	}
+	sum := sha256.Sum256(fingerprintRaw)
+	fingerprintHash := "sha256:" + hex.EncodeToString(sum[:])
+
+	return IQEffectiveProfile{
+		RequestedProfile: requestedProfile,
+		ProfileName:      iqProfileCIStrictName,
+		Source:           iqProfileCIStrictSource,
+		Values:           effectiveValues,
+		Fingerprint:      fingerprint,
+		FingerprintJSON:  string(fingerprintRaw),
+		FingerprintHash:  fingerprintHash,
+	}, nil
+}
+
+func parseStrictPositiveFloat(raw string) (float64, error) {
+	v, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+	if err != nil {
+		return 0, fmt.Errorf("must be a number > 0, got %q", raw)
+	}
+	if math.IsNaN(v) || math.IsInf(v, 0) || v <= 0 {
+		return 0, fmt.Errorf("must be > 0, got %q", raw)
+	}
+	return v, nil
+}
+
+func parseStrictPositiveInt(raw string) (int, error) {
+	v, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil {
+		return 0, fmt.Errorf("must be an integer > 0, got %q", raw)
+	}
+	if v <= 0 {
+		return 0, fmt.Errorf("must be > 0, got %q", raw)
+	}
+	return v, nil
+}
+
+func parseCSVNonEmpty(raw string) []string {
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
+func parseIQProfileBool(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
 
 // Load reads a JSONC config file and returns an AppConfig with defaults applied.
 // If path is empty, Load returns a fully-defaulted AppConfig without reading any file.
@@ -84,10 +299,22 @@ func (a AppConfig) Validate() *problem.Problem {
 	if prob := validateMarketData(a.MarketData); prob != nil {
 		return prob
 	}
+	if prob := validateDataPlane(a.DataPlane); prob != nil {
+		return prob
+	}
 	if prob := validateReplay(a.Bus, a.MarketData, a.Replay); prob != nil {
 		return prob
 	}
 	if prob := validateProcessor(a.Processor); prob != nil {
+		return prob
+	}
+	if prob := validateEvidence(a.Evidence); prob != nil {
+		return prob
+	}
+	if prob := validateSignals(a.Signals); prob != nil {
+		return prob
+	}
+	if prob := validateExecution(a.Execution); prob != nil {
 		return prob
 	}
 	if prob := validateStore(a.Store); prob != nil {
@@ -320,8 +547,8 @@ func validateWS(w WSConfig) *problem.Problem {
 		return problem.Newf(codeInvalid, "ws.rate_limit.burst_capacity must be >= 0, got %d", w.RateLimit.BurstCapacity)
 	}
 	if w.Auth.Enabled {
-		if len(w.Auth.APIKeys) == 0 {
-			return problem.New(codeInvalid, "ws.auth.api_keys must not be empty when ws.auth.enabled=true")
+		if len(w.Auth.APIKeys) == 0 && !w.Auth.JWT.Enabled {
+			return problem.New(codeInvalid, "ws.auth requires api_keys or jwt when ws.auth.enabled=true")
 		}
 		for key, clientID := range w.Auth.APIKeys {
 			if strings.TrimSpace(key) == "" {
@@ -331,6 +558,9 @@ func validateWS(w WSConfig) *problem.Problem {
 				return problem.Newf(codeInvalid, "ws.auth.api_keys[%q] client_id must not be empty", key)
 			}
 		}
+		if w.Auth.JWT.Enabled && strings.TrimSpace(w.Auth.JWT.HS256Secret) == "" {
+			return problem.New(codeInvalid, "ws.auth.jwt.hs256_secret must not be empty when ws.auth.jwt.enabled=true")
+		}
 	}
 	if w.RateLimit.Enabled {
 		if w.RateLimit.MaxPerSecond <= 0 {
@@ -339,6 +569,58 @@ func validateWS(w WSConfig) *problem.Problem {
 		if w.RateLimit.BurstCapacity <= 0 {
 			return problem.Newf(codeInvalid, "ws.rate_limit.burst_capacity must be > 0 when ws.rate_limit.enabled=true, got %d", w.RateLimit.BurstCapacity)
 		}
+	}
+	if w.Limits.MaxConnectionsPerIP < 0 {
+		return problem.Newf(codeInvalid, "ws.limits.max_connections_per_ip must be >= 0, got %d", w.Limits.MaxConnectionsPerIP)
+	}
+	if w.Limits.MaxConnectionsPerKey < 0 {
+		return problem.Newf(codeInvalid, "ws.limits.max_connections_per_key must be >= 0, got %d", w.Limits.MaxConnectionsPerKey)
+	}
+	if w.Limits.MaxSubsPerConnection < 0 {
+		return problem.Newf(codeInvalid, "ws.limits.max_subs_per_connection must be >= 0, got %d", w.Limits.MaxSubsPerConnection)
+	}
+	if w.Limits.MaxSymbolsPerConn < 0 {
+		return problem.Newf(codeInvalid, "ws.limits.max_symbols_per_connection must be >= 0, got %d", w.Limits.MaxSymbolsPerConn)
+	}
+	for tenantID, tl := range w.TenantLimits {
+		if strings.TrimSpace(tenantID) == "" {
+			return problem.New(codeInvalid, "ws.tenant_limits keys must not be empty")
+		}
+		if tl.MaxConnectionsPerKey < 0 {
+			return problem.Newf(codeInvalid, "ws.tenant_limits[%q].max_connections_per_key must be >= 0, got %d", tenantID, tl.MaxConnectionsPerKey)
+		}
+		if tl.MaxSubsPerConnection < 0 {
+			return problem.Newf(codeInvalid, "ws.tenant_limits[%q].max_subs_per_connection must be >= 0, got %d", tenantID, tl.MaxSubsPerConnection)
+		}
+		if tl.MaxSymbolsPerConn < 0 {
+			return problem.Newf(codeInvalid, "ws.tenant_limits[%q].max_symbols_per_connection must be >= 0, got %d", tenantID, tl.MaxSymbolsPerConn)
+		}
+		if tl.MaxFrameBytes < 0 {
+			return problem.Newf(codeInvalid, "ws.tenant_limits[%q].max_frame_bytes must be >= 0, got %d", tenantID, tl.MaxFrameBytes)
+		}
+		if tl.OutboundQueueSize < 0 {
+			return problem.Newf(codeInvalid, "ws.tenant_limits[%q].outbound_queue_size must be >= 0, got %d", tenantID, tl.OutboundQueueSize)
+		}
+		if tl.RateLimit.MaxPerSecond < 0 {
+			return problem.Newf(codeInvalid, "ws.tenant_limits[%q].rate_limit.max_per_second must be >= 0, got %d", tenantID, tl.RateLimit.MaxPerSecond)
+		}
+		if tl.RateLimit.BurstCapacity < 0 {
+			return problem.Newf(codeInvalid, "ws.tenant_limits[%q].rate_limit.burst_capacity must be >= 0, got %d", tenantID, tl.RateLimit.BurstCapacity)
+		}
+		if tl.RateLimit.Enabled {
+			if tl.RateLimit.MaxPerSecond <= 0 {
+				return problem.Newf(codeInvalid, "ws.tenant_limits[%q].rate_limit.max_per_second must be > 0 when enabled, got %d", tenantID, tl.RateLimit.MaxPerSecond)
+			}
+			if tl.RateLimit.BurstCapacity <= 0 {
+				return problem.Newf(codeInvalid, "ws.tenant_limits[%q].rate_limit.burst_capacity must be > 0 when enabled, got %d", tenantID, tl.RateLimit.BurstCapacity)
+			}
+		}
+	}
+	fallback := strings.ToLower(strings.TrimSpace(w.TenantMetrics.Fallback))
+	switch fallback {
+	case "", "unknown", "hash_bucket":
+	default:
+		return problem.Newf(codeInvalid, "ws.tenant_metrics.fallback must be unknown|hash_bucket, got %q", w.TenantMetrics.Fallback)
 	}
 	return nil
 }
@@ -353,6 +635,12 @@ func validateDelivery(d DeliveryConfig) *problem.Problem {
 	if d.SlowClientDropThreshold < 0 {
 		return problem.Newf(codeInvalid, "delivery.slow_client_drop_threshold must be >= 0, got %d", d.SlowClientDropThreshold)
 	}
+	if d.MetricsCadenceMs < 0 {
+		return problem.Newf(codeInvalid, "delivery.metrics_cadence_ms must be >= 0, got %d", d.MetricsCadenceMs)
+	}
+	if d.KeepaliveIntervalMs < 0 {
+		return problem.Newf(codeInvalid, "delivery.keepalive_interval_ms must be >= 0, got %d", d.KeepaliveIntervalMs)
+	}
 	switch strings.ToLower(strings.TrimSpace(d.BackpressurePolicy)) {
 	case "drop_newest", "drop_oldest", "priority_drop":
 	default:
@@ -365,9 +653,14 @@ func validateDelivery(d DeliveryConfig) *problem.Problem {
 		{"delivery.router_ready_timeout", d.RouterReadyTimeout},
 		{"delivery.subsystem_ready_timeout", d.SubsystemReadyTimeout},
 		{"delivery.session_spawn_timeout", d.SessionSpawnTimeout},
+		{"delivery.router_stream_state_ttl", d.RouterStreamStateTTL},
 	} {
-		if _, err := time.ParseDuration(field.value); err != nil {
+		parsed, err := time.ParseDuration(field.value)
+		if err != nil {
 			return problem.Newf(codeInvalid, "%s: invalid duration %q: %v", field.name, field.value, err)
+		}
+		if field.name == "delivery.router_stream_state_ttl" && parsed <= 0 {
+			return problem.Newf(codeInvalid, "%s must be > 0 duration, got %q", field.name, field.value)
 		}
 	}
 	if !d.Enabled {
@@ -388,6 +681,14 @@ func validateDelivery(d DeliveryConfig) *problem.Problem {
 }
 
 func validateConsumer(c ConsumerConfig) *problem.Problem {
+	switch strings.ToLower(strings.TrimSpace(c.Mode)) {
+	case "", "marketdata":
+	case "dataplane":
+		return nil
+	default:
+		return problem.Newf(codeInvalid, "consumer.mode must be marketdata|dataplane, got %q", c.Mode)
+	}
+
 	exchanges := c.Exchanges
 	if len(exchanges) == 0 {
 		exchanges = []ConsumerExchangeConfig{synthesizeLegacyExchange(c)}
@@ -457,6 +758,24 @@ func validateConsumer(c ConsumerConfig) *problem.Problem {
 				requiredStreams,
 				c.EnableMarkPriceLiquidation,
 			)
+		}
+	}
+	return nil
+}
+
+func validateDataPlane(d DataPlaneConfig) *problem.Problem {
+	if !d.Enabled {
+		return nil
+	}
+	if strings.TrimSpace(d.StateBucket) == "" {
+		return problem.New(codeInvalid, "data_plane.state_bucket must not be empty when data_plane.enabled=true")
+	}
+	if d.ResultLimit <= 0 {
+		return problem.Newf(codeInvalid, "data_plane.result_limit must be > 0 when data_plane.enabled=true, got %d", d.ResultLimit)
+	}
+	for i, broker := range d.Kafka.Brokers {
+		if strings.TrimSpace(broker) == "" {
+			return problem.Newf(codeInvalid, "data_plane.kafka.brokers[%d] must not be empty", i)
 		}
 	}
 	return nil
@@ -593,20 +912,67 @@ func validateProcessor(p ProcessorConfig) *problem.Problem {
 	if p.MaxInstruments <= 0 {
 		return problem.Newf(codeInvalid, "processor.max_instruments must be > 0, got %d", p.MaxInstruments)
 	}
+	if p.OrderBook.MaxLevels <= 0 {
+		return problem.Newf(codeInvalid, "processor.orderbook.max_levels must be > 0, got %d", p.OrderBook.MaxLevels)
+	}
+	if !p.OrderBook.IsBTreeEnabled() {
+		return problem.New(codeInvalid, "processor.orderbook.use_btree_orderbook must be true (legacy orderbook removed)")
+	}
+	if p.XVenue.StaleThresholdMs <= 0 {
+		return problem.Newf(codeInvalid, "processor.xvenue.stale_threshold_ms must be > 0, got %d", p.XVenue.StaleThresholdMs)
+	}
+	if p.XVenue.MaxInstruments <= 0 {
+		return problem.Newf(codeInvalid, "processor.xvenue.max_instruments must be > 0, got %d", p.XVenue.MaxInstruments)
+	}
+	if p.XVenue.MaxVenues <= 0 {
+		return problem.Newf(codeInvalid, "processor.xvenue.max_venues must be > 0, got %d", p.XVenue.MaxVenues)
+	}
 	if p.Candle.MaxCandles <= 0 {
 		return problem.Newf(codeInvalid, "processor.candle.max_candles must be > 0, got %d", p.Candle.MaxCandles)
+	}
+	if p.Candle.WindowCap <= 0 {
+		return problem.Newf(codeInvalid, "processor.candle.window_cap must be > 0, got %d", p.Candle.WindowCap)
 	}
 	if p.Stats.MaxWindows <= 0 {
 		return problem.Newf(codeInvalid, "processor.stats.max_windows must be > 0, got %d", p.Stats.MaxWindows)
 	}
+	if p.Stats.WindowCap <= 0 {
+		return problem.Newf(codeInvalid, "processor.stats.window_cap must be > 0, got %d", p.Stats.WindowCap)
+	}
 	if p.RTPublish.OrderbookIntervalMs < 0 {
 		return problem.Newf(codeInvalid, "processor.rt_publish.orderbook_interval_ms must be >= 0, got %d", p.RTPublish.OrderbookIntervalMs)
+	}
+	if p.RTPublish.WsSnapshotDepthCap < 10 || p.RTPublish.WsSnapshotDepthCap > 1000 {
+		return problem.Newf(
+			codeInvalid,
+			"processor.rt_publish.ws_snapshot_depth_cap must be in [10,1000], got %d",
+			p.RTPublish.WsSnapshotDepthCap,
+		)
 	}
 	if p.RTPublish.HeatmapIntervalMs < 0 {
 		return problem.Newf(codeInvalid, "processor.rt_publish.heatmap_interval_ms must be >= 0, got %d", p.RTPublish.HeatmapIntervalMs)
 	}
 	if p.RTPublish.VolumeIntervalMs < 0 {
 		return problem.Newf(codeInvalid, "processor.rt_publish.volume_interval_ms must be >= 0, got %d", p.RTPublish.VolumeIntervalMs)
+	}
+	if p.CatchUpSkipBookDeltaSkewMs < 0 {
+		return problem.Newf(codeInvalid, "processor.catchup_skip_bookdelta_skew_ms must be >= 0, got %d", p.CatchUpSkipBookDeltaSkewMs)
+	}
+	if p.CatchUpSkipTradeSkewMs < 0 {
+		return problem.Newf(codeInvalid, "processor.catchup_skip_trade_skew_ms must be >= 0, got %d", p.CatchUpSkipTradeSkewMs)
+	}
+	if p.CatchUpSkipStatsSkewMs < 0 {
+		return problem.Newf(codeInvalid, "processor.catchup_skip_stats_skew_ms must be >= 0, got %d", p.CatchUpSkipStatsSkewMs)
+	}
+	for i, venue := range p.SubMinuteRollout.Venues {
+		if strings.TrimSpace(venue) == "" {
+			return problem.Newf(codeInvalid, "processor.subminute_rollout.venues[%d] must not be empty", i)
+		}
+	}
+	for i, instrument := range p.SubMinuteRollout.Instruments {
+		if strings.TrimSpace(instrument) == "" {
+			return problem.Newf(codeInvalid, "processor.subminute_rollout.instruments[%d] must not be empty", i)
+		}
 	}
 
 	insights := p.Insights
@@ -639,6 +1005,199 @@ func validateProcessor(p ProcessorConfig) *problem.Problem {
 	case "", "half_even", "floor":
 	default:
 		return problem.Newf(codeInvalid, "processor.insights.rounding_mode must be half_even|floor, got %q", insights.RoundingMode)
+	}
+	if prob := validateInsightsTimeframes(insights.InsightsTimeframes); prob != nil {
+		return prob
+	}
+	return nil
+}
+
+var allowedInsightsTimeframes = map[string]struct{}{
+	"1s": {}, "5s": {}, "1m": {}, "5m": {}, "15m": {},
+	"30m": {}, "1h": {}, "4h": {}, "1d": {},
+}
+
+func validateInsightsTimeframes(tfs []string) *problem.Problem {
+	seen := make(map[string]struct{}, len(tfs))
+	for i, tf := range tfs {
+		tf = strings.TrimSpace(tf)
+		if _, ok := allowedInsightsTimeframes[tf]; !ok {
+			return problem.Newf(codeInvalid,
+				"processor.insights.insights_timeframes[%d] %q is not a supported timeframe; allowed: 1s,5s,1m,5m,15m,30m,1h,4h,1d", i, tf)
+		}
+		if _, dup := seen[tf]; dup {
+			return problem.Newf(codeInvalid,
+				"processor.insights.insights_timeframes[%d] %q is a duplicate", i, tf)
+		}
+		seen[tf] = struct{}{}
+	}
+	return nil
+}
+
+func validateEvidence(e EvidenceConfig) *problem.Problem {
+	if e.BufferCapPerKind <= 0 {
+		return problem.Newf(codeInvalid, "evidence.buffer_cap_per_kind must be > 0, got %d", e.BufferCapPerKind)
+	}
+	if e.DecayHalfLifeMs <= 0 {
+		return problem.Newf(codeInvalid, "evidence.decay_half_life_ms must be > 0, got %d", e.DecayHalfLifeMs)
+	}
+	if e.RegimeMaxStreams <= 0 {
+		return problem.Newf(codeInvalid, "evidence.regime_max_streams must be > 0, got %d", e.RegimeMaxStreams)
+	}
+	if e.RegimeHistoryCap <= 0 {
+		return problem.Newf(codeInvalid, "evidence.regime_history_cap must be > 0, got %d", e.RegimeHistoryCap)
+	}
+	return nil
+}
+
+func validateSignals(s SignalsConfig) *problem.Problem {
+	if s.DedupWindowMs <= 0 {
+		return problem.Newf(codeInvalid, "signals.dedup_window_ms must be > 0, got %d", s.DedupWindowMs)
+	}
+	if s.RateLimitPerMin <= 0 {
+		return problem.Newf(codeInvalid, "signals.rate_limit_per_min must be > 0, got %d", s.RateLimitPerMin)
+	}
+	if s.GlobalRateLimitPerMin <= 0 {
+		return problem.Newf(codeInvalid, "signals.global_rate_limit_per_min must be > 0, got %d", s.GlobalRateLimitPerMin)
+	}
+	if s.CorrelationWindowMs <= 0 {
+		return problem.Newf(codeInvalid, "signals.correlation_window_ms must be > 0, got %d", s.CorrelationWindowMs)
+	}
+	if s.MaxSubsPerSession <= 0 {
+		return problem.Newf(codeInvalid, "signals.max_subs_per_session must be > 0, got %d", s.MaxSubsPerSession)
+	}
+	if s.WindowCap <= 0 {
+		return problem.Newf(codeInvalid, "signals.window_cap must be > 0, got %d", s.WindowCap)
+	}
+	return nil
+}
+
+func validateExecution(e ExecutionConfig) *problem.Problem {
+	mode := strings.ToLower(strings.TrimSpace(e.Mode))
+	adapter := strings.ToLower(strings.TrimSpace(e.Adapter))
+
+	switch mode {
+	case "bootstrap_simulated", "real_adapter_safe":
+	default:
+		return problem.Newf(codeInvalid, "execution.mode must be bootstrap_simulated|real_adapter_safe, got %q", e.Mode)
+	}
+	switch adapter {
+	case "bootstrap.simulated", "binance.spot":
+	default:
+		return problem.Newf(codeInvalid, "execution.adapter must be bootstrap.simulated|binance.spot, got %q", e.Adapter)
+	}
+	if !e.SafeMode {
+		return problem.New(codeInvalid, "execution.safe_mode must be true in Stage 8 safe pilot")
+	}
+	if !e.TradeOnly {
+		return problem.New(codeInvalid, "execution.trade_only must be true (withdraw/custody are out of scope)")
+	}
+	if e.MaxIntentTTLms <= 0 {
+		return problem.Newf(codeInvalid, "execution.max_intent_ttl_ms must be > 0, got %d", e.MaxIntentTTLms)
+	}
+	if e.MaxAbsQuantity <= 0 {
+		return problem.Newf(codeInvalid, "execution.max_abs_quantity must be > 0, got %f", e.MaxAbsQuantity)
+	}
+	if e.MaxNotionalUSD <= 0 {
+		return problem.Newf(codeInvalid, "execution.max_notional_usd must be > 0, got %f", e.MaxNotionalUSD)
+	}
+	if e.MaxSlippageBps <= 0 {
+		return problem.Newf(codeInvalid, "execution.max_slippage_bps must be > 0, got %f", e.MaxSlippageBps)
+	}
+
+	switch mode {
+	case "bootstrap_simulated":
+		if adapter != "bootstrap.simulated" {
+			return problem.Newf(codeInvalid, "execution.adapter=%q must be bootstrap.simulated when execution.mode=bootstrap_simulated", e.Adapter)
+		}
+		if e.Real.Enabled {
+			return problem.New(codeInvalid, "execution.real.enabled must be false when execution.mode=bootstrap_simulated")
+		}
+		return nil
+	case "real_adapter_safe":
+		if adapter != "binance.spot" {
+			return problem.Newf(codeInvalid, "execution.adapter=%q must be binance.spot when execution.mode=real_adapter_safe", e.Adapter)
+		}
+		if !e.Real.Enabled {
+			return problem.New(codeInvalid, "execution.real.enabled must be true when execution.mode=real_adapter_safe")
+		}
+		if len(e.AllowedVenues) == 0 {
+			return problem.New(codeInvalid, "execution.allowed_venues must not be empty when execution.mode=real_adapter_safe")
+		}
+		if len(e.AllowedSymbols) == 0 {
+			return problem.New(codeInvalid, "execution.allowed_symbols must not be empty when execution.mode=real_adapter_safe")
+		}
+		for i, venue := range e.AllowedVenues {
+			if strings.TrimSpace(venue) == "" {
+				return problem.Newf(codeInvalid, "execution.allowed_venues[%d] must not be empty", i)
+			}
+		}
+		for i, symbol := range e.AllowedSymbols {
+			if strings.TrimSpace(symbol) == "" {
+				return problem.Newf(codeInvalid, "execution.allowed_symbols[%d] must not be empty", i)
+			}
+		}
+		for i, account := range e.AllowedAccounts {
+			if strings.TrimSpace(account) == "" {
+				return problem.Newf(codeInvalid, "execution.allowed_accounts[%d] must not be empty", i)
+			}
+		}
+
+		tradeAPI := e.Real.Binance.TradeAPI
+		if strings.TrimSpace(tradeAPI.BaseURL) == "" {
+			return problem.New(codeInvalid, "execution.real.binance.trade_api.base_url must not be empty")
+		}
+		if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(tradeAPI.BaseURL)), "https://") {
+			return problem.New(codeInvalid, "execution.real.binance.trade_api.base_url must use https://")
+		}
+		endpointMode := strings.ToLower(strings.TrimSpace(tradeAPI.EndpointMode))
+		switch endpointMode {
+		case "test_order", "safe_order_lifecycle":
+		default:
+			return problem.Newf(codeInvalid, "execution.real.binance.trade_api.endpoint_mode must be test_order|safe_order_lifecycle, got %q", tradeAPI.EndpointMode)
+		}
+		if !envVarNamePattern.MatchString(strings.TrimSpace(tradeAPI.APIKeyEnv)) {
+			return problem.Newf(codeInvalid, "execution.real.binance.trade_api.api_key_env must match %s, got %q", envVarNamePattern.String(), tradeAPI.APIKeyEnv)
+		}
+		if !envVarNamePattern.MatchString(strings.TrimSpace(tradeAPI.APISecretEnv)) {
+			return problem.Newf(codeInvalid, "execution.real.binance.trade_api.api_secret_env must match %s, got %q", envVarNamePattern.String(), tradeAPI.APISecretEnv)
+		}
+		if tradeAPI.RecvWindowMs <= 0 {
+			return problem.Newf(codeInvalid, "execution.real.binance.trade_api.recv_window_ms must be > 0, got %d", tradeAPI.RecvWindowMs)
+		}
+		if tradeAPI.RecvWindowMs > 60_000 {
+			return problem.Newf(codeInvalid, "execution.real.binance.trade_api.recv_window_ms must be <= 60000, got %d", tradeAPI.RecvWindowMs)
+		}
+		timeout := tradeAPI.RequestTimeoutDuration()
+		if timeout <= 0 {
+			return problem.Newf(codeInvalid, "execution.real.binance.trade_api.request_timeout must be > 0 duration, got %q", tradeAPI.RequestTimeout)
+		}
+		if endpointMode == "test_order" {
+			if tradeAPI.ReconcileEnabled {
+				return problem.New(codeInvalid, "execution.real.binance.trade_api.reconcile_enabled must be false when endpoint_mode=test_order")
+			}
+		}
+		if endpointMode == "safe_order_lifecycle" {
+			if !strings.Contains(strings.ToLower(strings.TrimSpace(tradeAPI.BaseURL)), "testnet.binance.") {
+				return problem.New(codeInvalid, "execution.real.binance.trade_api.base_url must target testnet in safe_order_lifecycle mode")
+			}
+			if !tradeAPI.ReconcileEnabled {
+				return problem.New(codeInvalid, "execution.real.binance.trade_api.reconcile_enabled must be true when endpoint_mode=safe_order_lifecycle")
+			}
+			if tradeAPI.ReconcileMaxPolls <= 0 {
+				return problem.Newf(codeInvalid, "execution.real.binance.trade_api.reconcile_max_polls must be > 0, got %d", tradeAPI.ReconcileMaxPolls)
+			}
+			if tradeAPI.ReconcileMaxPolls > 120 {
+				return problem.Newf(codeInvalid, "execution.real.binance.trade_api.reconcile_max_polls must be <= 120, got %d", tradeAPI.ReconcileMaxPolls)
+			}
+			pollInterval := tradeAPI.ReconcilePollIntervalDuration()
+			if pollInterval <= 0 {
+				return problem.Newf(codeInvalid, "execution.real.binance.trade_api.reconcile_poll_interval must be > 0 duration, got %q", tradeAPI.ReconcilePollInterval)
+			}
+			if pollInterval > 30*time.Second {
+				return problem.Newf(codeInvalid, "execution.real.binance.trade_api.reconcile_poll_interval must be <= 30s, got %q", tradeAPI.ReconcilePollInterval)
+			}
+		}
 	}
 	return nil
 }
@@ -941,6 +1500,59 @@ func dedupeStrings(values []string) []string {
 	return out
 }
 
+func dedupeLowerStrings(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, raw := range values {
+		v := strings.ToLower(strings.TrimSpace(raw))
+		if v == "" {
+			continue
+		}
+		if _, exists := seen[v]; exists {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	return out
+}
+
+func dedupeExecutionSymbols(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, raw := range values {
+		v := canonicalExecutionSymbol(raw)
+		if v == "" {
+			continue
+		}
+		if _, exists := seen[v]; exists {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	return out
+}
+
+func canonicalExecutionSymbol(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	b := make([]rune, 0, len(trimmed))
+	for _, r := range trimmed {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b = append(b, r-'a'+'A')
+		case r >= 'A' && r <= 'Z':
+			b = append(b, r)
+		case r >= '0' && r <= '9':
+			b = append(b, r)
+		}
+	}
+	return string(b)
+}
+
 // applyDefaults fills zero-value fields with safe defaults.
 // It is idempotent: calling it multiple times has no additional effect.
 func applyDefaults(c *AppConfig) {
@@ -986,6 +1598,12 @@ func applyDefaults(c *AppConfig) {
 	if c.Delivery.SlowClientDropThreshold == 0 {
 		c.Delivery.SlowClientDropThreshold = 1000
 	}
+	if c.Delivery.MetricsCadenceMs == 0 {
+		c.Delivery.MetricsCadenceMs = 5000
+	}
+	if c.Delivery.KeepaliveIntervalMs == 0 {
+		c.Delivery.KeepaliveIntervalMs = 20000
+	}
 	if c.Delivery.RouterReadyTimeout == "" {
 		c.Delivery.RouterReadyTimeout = "2s"
 	}
@@ -994,6 +1612,27 @@ func applyDefaults(c *AppConfig) {
 	}
 	if c.Delivery.SessionSpawnTimeout == "" {
 		c.Delivery.SessionSpawnTimeout = "2s"
+	}
+	if c.Delivery.RouterStreamStateTTL == "" {
+		c.Delivery.RouterStreamStateTTL = "30m"
+	}
+	if !c.WS.TenantMetrics.IncludeTenantLabel &&
+		strings.TrimSpace(c.WS.TenantMetrics.Fallback) == "" &&
+		len(c.WS.TenantMetrics.TenantWhitelist) == 0 {
+		c.WS.TenantMetrics.IncludeTenantLabel = true
+	}
+	if strings.TrimSpace(c.WS.TenantMetrics.Fallback) == "" {
+		c.WS.TenantMetrics.Fallback = "unknown"
+	}
+	if len(c.WS.TenantMetrics.TenantWhitelist) > 0 {
+		out := make([]string, 0, len(c.WS.TenantMetrics.TenantWhitelist))
+		for _, tenant := range c.WS.TenantMetrics.TenantWhitelist {
+			trimmed := strings.TrimSpace(tenant)
+			if trimmed != "" {
+				out = append(out, trimmed)
+			}
+		}
+		c.WS.TenantMetrics.TenantWhitelist = out
 	}
 	if strings.TrimSpace(c.Delivery.NATS.ConsumerDurable) == "" {
 		c.Delivery.NATS.ConsumerDurable = "delivery-v1"
@@ -1057,6 +1696,9 @@ func applyDefaults(c *AppConfig) {
 	if c.Consumer.Exchange == "" {
 		c.Consumer.Exchange = "binance"
 	}
+	if c.Consumer.Mode == "" {
+		c.Consumer.Mode = "marketdata"
+	}
 	if c.Consumer.MarketType == "" {
 		c.Consumer.MarketType = "SPOT"
 	}
@@ -1112,6 +1754,18 @@ func applyDefaults(c *AppConfig) {
 	if c.MarketData.MaxInstruments == 0 {
 		c.MarketData.MaxInstruments = 2048
 	}
+	if c.DataPlane.StateBucket == "" {
+		c.DataPlane.StateBucket = "MR_DATAPLANE"
+	}
+	if c.DataPlane.ResultLimit == 0 {
+		c.DataPlane.ResultLimit = 100
+	}
+	if c.DataPlane.Kafka.ConsumerGroup == "" {
+		c.DataPlane.Kafka.ConsumerGroup = "dataplane-consumer-v1"
+	}
+	for i := range c.DataPlane.Kafka.Brokers {
+		c.DataPlane.Kafka.Brokers[i] = strings.TrimSpace(c.DataPlane.Kafka.Brokers[i])
+	}
 	if c.Replay.Mode == "" {
 		c.Replay.Mode = "off"
 	}
@@ -1151,14 +1805,35 @@ func applyDefaults(c *AppConfig) {
 	if c.Processor.MaxInstruments == 0 {
 		c.Processor.MaxInstruments = 2048
 	}
+	if c.Processor.OrderBook.MaxLevels == 0 {
+		c.Processor.OrderBook.MaxLevels = 500
+	}
+	if c.Processor.XVenue.StaleThresholdMs == 0 {
+		c.Processor.XVenue.StaleThresholdMs = 30_000
+	}
+	if c.Processor.XVenue.MaxInstruments == 0 {
+		c.Processor.XVenue.MaxInstruments = c.Processor.MaxInstruments
+	}
+	if c.Processor.XVenue.MaxVenues == 0 {
+		c.Processor.XVenue.MaxVenues = 6
+	}
 	if c.Processor.Candle.MaxCandles == 0 {
 		c.Processor.Candle.MaxCandles = 50_000
+	}
+	if c.Processor.Candle.WindowCap == 0 {
+		c.Processor.Candle.WindowCap = 96
 	}
 	if c.Processor.Stats.MaxWindows == 0 {
 		c.Processor.Stats.MaxWindows = 50_000
 	}
+	if c.Processor.Stats.WindowCap == 0 {
+		c.Processor.Stats.WindowCap = 96
+	}
 	if c.Processor.RTPublish.OrderbookIntervalMs == 0 && !c.Processor.RTPublish.orderbookConfigured() {
 		c.Processor.RTPublish.OrderbookIntervalMs = 200
+	}
+	if c.Processor.RTPublish.WsSnapshotDepthCap == 0 && !c.Processor.RTPublish.depthCapConfigured() {
+		c.Processor.RTPublish.WsSnapshotDepthCap = 50
 	}
 	if c.Processor.RTPublish.HeatmapIntervalMs == 0 && !c.Processor.RTPublish.heatmapConfigured() {
 		c.Processor.RTPublish.HeatmapIntervalMs = 200
@@ -1187,6 +1862,93 @@ func applyDefaults(c *AppConfig) {
 	if c.Processor.Insights.RoundingMode == "" {
 		c.Processor.Insights.RoundingMode = "half_even"
 	}
+	if len(c.Processor.Insights.InsightsTimeframes) == 0 {
+		c.Processor.Insights.InsightsTimeframes = []string{"1m"}
+	}
+	if c.Evidence.BufferCapPerKind == 0 {
+		c.Evidence.BufferCapPerKind = 1000
+	}
+	if c.Evidence.DecayHalfLifeMs == 0 {
+		c.Evidence.DecayHalfLifeMs = 60_000
+	}
+	if c.Evidence.RegimeMaxStreams == 0 {
+		c.Evidence.RegimeMaxStreams = 1024
+	}
+	if c.Evidence.RegimeHistoryCap == 0 {
+		c.Evidence.RegimeHistoryCap = 20
+	}
+	if c.Signals.DedupWindowMs == 0 {
+		c.Signals.DedupWindowMs = 30_000
+	}
+	if c.Signals.RateLimitPerMin == 0 {
+		c.Signals.RateLimitPerMin = 10
+	}
+	if c.Signals.GlobalRateLimitPerMin == 0 {
+		c.Signals.GlobalRateLimitPerMin = 100
+	}
+	if c.Signals.CorrelationWindowMs == 0 {
+		c.Signals.CorrelationWindowMs = 5_000
+	}
+	if c.Signals.MaxSubsPerSession == 0 {
+		c.Signals.MaxSubsPerSession = 20
+	}
+	if c.Signals.WindowCap == 0 {
+		c.Signals.WindowCap = 50
+	}
+	if strings.TrimSpace(c.Execution.Mode) == "" {
+		c.Execution.Mode = "bootstrap_simulated"
+	}
+	if strings.TrimSpace(c.Execution.Adapter) == "" {
+		c.Execution.Adapter = "bootstrap.simulated"
+	}
+	// Stage 8 remains safe-mode only; defaults enforce fail-closed posture.
+	if !c.Execution.SafeMode {
+		c.Execution.SafeMode = true
+	}
+	if !c.Execution.TradeOnly {
+		c.Execution.TradeOnly = true
+	}
+	if c.Execution.MaxIntentTTLms == 0 {
+		c.Execution.MaxIntentTTLms = 30_000
+	}
+	if c.Execution.MaxAbsQuantity == 0 {
+		c.Execution.MaxAbsQuantity = 5
+	}
+	if c.Execution.MaxNotionalUSD == 0 {
+		c.Execution.MaxNotionalUSD = 2_500
+	}
+	if c.Execution.MaxSlippageBps == 0 {
+		c.Execution.MaxSlippageBps = 50
+	}
+	if strings.TrimSpace(c.Execution.Real.Binance.TradeAPI.BaseURL) == "" {
+		c.Execution.Real.Binance.TradeAPI.BaseURL = "https://testnet.binance.vision"
+	}
+	if strings.TrimSpace(c.Execution.Real.Binance.TradeAPI.EndpointMode) == "" {
+		c.Execution.Real.Binance.TradeAPI.EndpointMode = "test_order"
+	}
+	if strings.TrimSpace(c.Execution.Real.Binance.TradeAPI.APIKeyEnv) == "" {
+		c.Execution.Real.Binance.TradeAPI.APIKeyEnv = "MR_BINANCE_API_KEY"
+	}
+	if strings.TrimSpace(c.Execution.Real.Binance.TradeAPI.APISecretEnv) == "" {
+		c.Execution.Real.Binance.TradeAPI.APISecretEnv = "MR_BINANCE_API_SECRET"
+	}
+	if c.Execution.Real.Binance.TradeAPI.RecvWindowMs == 0 {
+		c.Execution.Real.Binance.TradeAPI.RecvWindowMs = 5_000
+	}
+	if strings.TrimSpace(c.Execution.Real.Binance.TradeAPI.RequestTimeout) == "" {
+		c.Execution.Real.Binance.TradeAPI.RequestTimeout = "3s"
+	}
+	if strings.TrimSpace(c.Execution.Real.Binance.TradeAPI.ReconcilePollInterval) == "" {
+		c.Execution.Real.Binance.TradeAPI.ReconcilePollInterval = "500ms"
+	}
+	if c.Execution.Real.Binance.TradeAPI.ReconcileMaxPolls == 0 {
+		c.Execution.Real.Binance.TradeAPI.ReconcileMaxPolls = 6
+	}
+	if !c.Processor.SubMinuteRollout.enabledConfigured() {
+		c.Processor.SubMinuteRollout.Enabled = true
+	}
+	c.Processor.SubMinuteRollout.Venues = dedupeStrings(c.Processor.SubMinuteRollout.Venues)
+	c.Processor.SubMinuteRollout.Instruments = dedupeStrings(c.Processor.SubMinuteRollout.Instruments)
 	if c.Store.ClickHouse.DSN == "" {
 		c.Store.ClickHouse.DSN = "clickhouse://default:password@localhost:9000/default"
 	}
@@ -1235,11 +1997,25 @@ func applyDefaults(c *AppConfig) {
 	if strings.TrimSpace(c.Storage.ClickHouse.ReadTimeout) == "" {
 		c.Storage.ClickHouse.ReadTimeout = "5s"
 	}
+	// WS.AllowLegacy defaults to false via *bool nil semantics (IsLegacyAllowed).
+	// No explicit assignment needed: nil → true.
 	if c.WS.RateLimit.MaxPerSecond <= 0 {
 		c.WS.RateLimit.MaxPerSecond = 100
 	}
 	if c.WS.RateLimit.BurstCapacity <= 0 {
 		c.WS.RateLimit.BurstCapacity = 200
+	}
+	if c.WS.Limits.MaxConnectionsPerIP <= 0 {
+		c.WS.Limits.MaxConnectionsPerIP = 200
+	}
+	if c.WS.Limits.MaxConnectionsPerKey <= 0 {
+		c.WS.Limits.MaxConnectionsPerKey = 20
+	}
+	if c.WS.Limits.MaxSubsPerConnection <= 0 {
+		c.WS.Limits.MaxSubsPerConnection = 256
+	}
+	if c.WS.Limits.MaxSymbolsPerConn <= 0 {
+		c.WS.Limits.MaxSymbolsPerConn = 128
 	}
 	if len(c.WS.Auth.APIKeys) > 0 {
 		normalized := make(map[string]string, len(c.WS.Auth.APIKeys))
@@ -1253,11 +2029,43 @@ func applyDefaults(c *AppConfig) {
 		}
 		c.WS.Auth.APIKeys = normalized
 	}
+	if len(c.WS.Auth.APIKeyScopes) > 0 {
+		normalized := make(map[string][]string, len(c.WS.Auth.APIKeyScopes))
+		for key, scopes := range c.WS.Auth.APIKeyScopes {
+			k := strings.TrimSpace(key)
+			if k == "" {
+				continue
+			}
+			cleanScopes := make([]string, 0, len(scopes))
+			for _, scope := range scopes {
+				s := strings.ToLower(strings.TrimSpace(scope))
+				if s == "" {
+					continue
+				}
+				cleanScopes = append(cleanScopes, s)
+			}
+			normalized[k] = dedupeStrings(cleanScopes)
+		}
+		c.WS.Auth.APIKeyScopes = normalized
+	}
+	c.WS.Auth.JWT.HS256Secret = strings.TrimSpace(c.WS.Auth.JWT.HS256Secret)
+	c.WS.Auth.JWT.Issuer = strings.TrimSpace(c.WS.Auth.JWT.Issuer)
+	c.WS.Auth.JWT.Audience = strings.TrimSpace(c.WS.Auth.JWT.Audience)
 	c.Processor.Insights.JoinTradesSubject = strings.TrimSpace(c.Processor.Insights.JoinTradesSubject)
 	c.Processor.Insights.SnapshotSubjectPrefix = strings.TrimSpace(c.Processor.Insights.SnapshotSubjectPrefix)
 	c.Processor.Insights.TTL = strings.TrimSpace(c.Processor.Insights.TTL)
 	c.Processor.Insights.SweepEvery = strings.TrimSpace(c.Processor.Insights.SweepEvery)
 	c.Processor.Insights.RoundingMode = strings.ToLower(strings.TrimSpace(c.Processor.Insights.RoundingMode))
+	c.Execution.Mode = strings.ToLower(strings.TrimSpace(c.Execution.Mode))
+	c.Execution.Adapter = strings.ToLower(strings.TrimSpace(c.Execution.Adapter))
+	c.Execution.AllowedVenues = dedupeLowerStrings(c.Execution.AllowedVenues)
+	c.Execution.AllowedSymbols = dedupeExecutionSymbols(c.Execution.AllowedSymbols)
+	c.Execution.AllowedAccounts = dedupeStrings(c.Execution.AllowedAccounts)
+	c.Execution.Real.Binance.TradeAPI.BaseURL = strings.TrimSpace(c.Execution.Real.Binance.TradeAPI.BaseURL)
+	c.Execution.Real.Binance.TradeAPI.EndpointMode = strings.ToLower(strings.TrimSpace(c.Execution.Real.Binance.TradeAPI.EndpointMode))
+	c.Execution.Real.Binance.TradeAPI.APIKeyEnv = strings.TrimSpace(c.Execution.Real.Binance.TradeAPI.APIKeyEnv)
+	c.Execution.Real.Binance.TradeAPI.APISecretEnv = strings.TrimSpace(c.Execution.Real.Binance.TradeAPI.APISecretEnv)
+	c.Execution.Real.Binance.TradeAPI.RequestTimeout = strings.TrimSpace(c.Execution.Real.Binance.TradeAPI.RequestTimeout)
 	c.Storage.Timescale.DSN = strings.TrimSpace(c.Storage.Timescale.DSN)
 	c.Storage.Timescale.MaxConnLifetime = strings.TrimSpace(c.Storage.Timescale.MaxConnLifetime)
 	c.Storage.Timescale.MaxConnIdleTime = strings.TrimSpace(c.Storage.Timescale.MaxConnIdleTime)

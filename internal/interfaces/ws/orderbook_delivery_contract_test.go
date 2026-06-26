@@ -3,7 +3,7 @@ package wsserver
 import (
 	"testing"
 
-	"github.com/market-raccoon/internal/core/delivery/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/delivery/domain"
 )
 
 func TestOrderbookDeliverySlowClientPolicy(t *testing.T) {

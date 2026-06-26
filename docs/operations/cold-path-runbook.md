@@ -21,12 +21,12 @@ after the underlying writer has committed successfully.
 
 ## Operational Tooling (C3)
 
-The repository now includes `cmd/backfill` for historical bootstrap and
-gap diagnostics.
+> **Note:** `cmd/backfill` was retired in S9 (codex/s9-legacy-removal-cutover). The binary no longer exists in the repository. The commands below are preserved for historical reference only.
 
-### Backfill fixture generation
+### Backfill fixture generation (RETIRED)
 
 ```bash
+# RETIRED — cmd/backfill was removed in S9
 go run ./cmd/backfill \
   --mode download \
   --exchange binance \
@@ -40,9 +40,10 @@ go run ./cmd/backfill \
 
 Expected result: exit code `0` and a JSONL fixture path printed in stdout.
 
-### Candle gap detection
+### Candle gap detection (RETIRED)
 
 ```bash
+# RETIRED — cmd/backfill was removed in S9
 go run ./cmd/backfill \
   --mode gaps \
   --exchange binance \

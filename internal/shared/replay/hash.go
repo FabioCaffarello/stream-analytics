@@ -3,7 +3,7 @@ package replay
 import (
 	"strings"
 
-	sharedhash "github.com/market-raccoon/internal/shared/hash"
+	sharedhash "github.com/FabioCaffarello/stream-analytics/internal/shared/hash"
 )
 
 func lineSHA256(data []byte) string {

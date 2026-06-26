@@ -6,12 +6,12 @@ import (
 	"strings"
 	"sync"
 
-	adapterstorage "github.com/market-raccoon/internal/adapters/storage"
-	insightsports "github.com/market-raccoon/internal/core/insights/ports"
-	"github.com/market-raccoon/internal/shared/hash"
-	"github.com/market-raccoon/internal/shared/metrics"
-	"github.com/market-raccoon/internal/shared/naming"
-	"github.com/market-raccoon/internal/shared/problem"
+	adapterstorage "github.com/FabioCaffarello/stream-analytics/internal/adapters/storage"
+	insightsports "github.com/FabioCaffarello/stream-analytics/internal/core/insights/ports"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/hash"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/naming"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 // VolumeProfileWriter is a hot-path Timescale writer for VPVR buckets.
@@ -65,13 +65,13 @@ func (w *VolumeProfileWriter) UpsertVolumeProfileBucket(ctx context.Context, ups
 	if w == nil {
 		metrics.IncVPVRWriterWriteFail("writer_nil")
 		metrics.IncVPVRWriterUpsertOps("failed")
-		metrics.ObserveVPVRWriterUpsertLatencyMilliseconds(0)
+		metrics.ObserveVPVRWriterUpsertLatencySeconds(0)
 		return problem.New(problem.ValidationFailed, "timescale volume profile writer is nil")
 	}
 	if p := upsert.Validate(); p != nil {
 		metrics.IncVPVRWriterWriteFail("validation_failed")
 		metrics.IncVPVRWriterUpsertOps("validation_failed")
-		metrics.ObserveVPVRWriterUpsertLatencyMilliseconds(0)
+		metrics.ObserveVPVRWriterUpsertLatencySeconds(0)
 		return p
 	}
 
@@ -92,7 +92,7 @@ func (w *VolumeProfileWriter) UpsertVolumeProfileBucket(ctx context.Context, ups
 	if _, dup := windowSeen[key][fp]; dup {
 		metrics.IncVPVRWriterUpsertDedup()
 		metrics.IncVPVRWriterUpsertOps("duplicate")
-		metrics.ObserveVPVRWriterUpsertLatencyMilliseconds(0)
+		metrics.ObserveVPVRWriterUpsertLatencySeconds(0)
 		return nil
 	}
 
@@ -105,7 +105,7 @@ func (w *VolumeProfileWriter) UpsertVolumeProfileBucket(ctx context.Context, ups
 	windowSeen[key][fp] = struct{}{}
 	w.commits++
 	metrics.IncVPVRWriterUpsertOps("ok")
-	metrics.ObserveVPVRWriterUpsertLatencyMilliseconds(0)
+	metrics.ObserveVPVRWriterUpsertLatencySeconds(0)
 	return nil
 }
 

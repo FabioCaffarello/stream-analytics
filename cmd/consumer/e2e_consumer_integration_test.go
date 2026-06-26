@@ -66,10 +66,10 @@ func TestE2EConsumerFailClosedWithoutTestRunMode(t *testing.T) {
 	probeAddr := reserveLocalAddr(t)
 
 	proc := startConsumerProcessWithEnv(t, ctx, repoRoot, consumerBin, configPath, probeAddr, map[string]string{
-		"RUN_MODE":            "prod",
-		"MARKET_RACCOON_MODE": "prod",
-		"E2E_TEST_MODE":       "1",
-		"E2E_HTTP_ADDR":       probeAddr,
+		"RUN_MODE":              "prod",
+		"STREAM_ANALYTICS_MODE": "prod",
+		"E2E_TEST_MODE":         "1",
+		"E2E_HTTP_ADDR":         probeAddr,
 	})
 	defer proc.forceStop()
 
@@ -80,7 +80,7 @@ func TestE2EConsumerFailClosedWithoutTestRunMode(t *testing.T) {
 	}
 
 	logs := proc.stdout.String() + "\n" + proc.stderr.String()
-	if !strings.Contains(logs, "requires RUN_MODE=test or MARKET_RACCOON_MODE=test") {
+	if !strings.Contains(logs, "requires RUN_MODE=test or STREAM_ANALYTICS_MODE=test") {
 		proc.dumpLogs(t)
 		t.Fatalf("expected fail-closed message in logs, got:\n%s", logs)
 	}

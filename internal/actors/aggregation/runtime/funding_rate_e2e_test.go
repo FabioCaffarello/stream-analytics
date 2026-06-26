@@ -7,16 +7,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/market-raccoon/internal/adapters/bus"
-	"github.com/market-raccoon/internal/adapters/exchange/binance"
-	"github.com/market-raccoon/internal/adapters/exchange/bybit"
-	mdapp "github.com/market-raccoon/internal/core/marketdata/app"
-	"github.com/market-raccoon/internal/core/marketdata/domain"
-	"github.com/market-raccoon/internal/shared/clock"
-	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/contracts"
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/bus"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/exchange/binance"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/exchange/bybit"
+	"github.com/FabioCaffarello/stream-analytics/internal/contracts"
+	mdapp "github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/app"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/clock"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/codec"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 type fundingRateSequencer struct {

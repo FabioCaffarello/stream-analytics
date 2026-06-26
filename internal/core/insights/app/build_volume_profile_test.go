@@ -5,8 +5,8 @@ import (
 	"slices"
 	"testing"
 
-	sharedhash "github.com/market-raccoon/internal/shared/hash"
-	"github.com/market-raccoon/internal/shared/metrics"
+	sharedhash "github.com/FabioCaffarello/stream-analytics/internal/shared/hash"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 

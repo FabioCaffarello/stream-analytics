@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/market-raccoon/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
 )
 
 func TestApplierDeterministicSameInputSameOutput(t *testing.T) {

@@ -6,14 +6,15 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/FabioCaffarello/stream-analytics/internal/actors/marketdata/ws"
+	runtime "github.com/FabioCaffarello/stream-analytics/internal/actors/runtime"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/app"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/domain"
+	marketmodel "github.com/FabioCaffarello/stream-analytics/internal/core/marketmodel"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/naming"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 	"github.com/anthdm/hollywood/actor"
-	"github.com/market-raccoon/internal/actors/marketdata/ws"
-	runtime "github.com/market-raccoon/internal/actors/runtime"
-	"github.com/market-raccoon/internal/core/marketdata/app"
-	"github.com/market-raccoon/internal/core/marketdata/domain"
-	"github.com/market-raccoon/internal/shared/metrics"
-	"github.com/market-raccoon/internal/shared/naming"
-	"github.com/market-raccoon/internal/shared/problem"
 )
 
 // SubsystemConfig configures the MarketDataSubsystemActor.
@@ -90,7 +91,9 @@ type SubsystemActor struct {
 	backpressureOn  bool
 	lastHeartbeatAt time.Time
 
-	lmNormalizer *app.NormalizeMarkPriceLiquidation
+	lmNormalizer    *app.NormalizeMarkPriceLiquidation
+	adapterRegistry *marketmodel.AdapterRegistry
+	canonicalState  *marketmodel.StateStore
 }
 
 type publishTick struct {
@@ -163,6 +166,15 @@ func (s *SubsystemActor) ensureDefaults() {
 	}
 	if s.lmNormalizer == nil {
 		s.lmNormalizer = app.NewNormalizeMarkPriceLiquidation(app.NormalizeMarkPriceLiquidationConfig{})
+	}
+	if s.adapterRegistry == nil {
+		s.adapterRegistry = marketmodel.NewAdapterRegistry()
+	}
+	if s.canonicalState == nil {
+		s.canonicalState = marketmodel.NewStateStore(marketmodel.StateStoreConfig{
+			MaxEntries: 20_000,
+			TTL:        time.Hour,
+		})
 	}
 }
 
@@ -292,7 +304,8 @@ func (s *SubsystemActor) processMessage(msg *ws.WsMessage) {
 		metrics.IncWSMessageReceived(msg.Exchange, eventType)
 		metrics.ObserveIngest(msg.Exchange, instrument, eventType, "validation_failed", 0)
 		s.telemetry.recordSkip(msg.Exchange, meta.EventType, meta.SkipReason, meta.ProblemCode, meta.Ticker, meta.WSStream)
-		if meta.SkipReason == "parse_error" && s.telemetry.shouldSample(time.Now(), meta.ProblemCode) {
+		if !isExpectedSkipReason(meta.EventType, meta.SkipReason, meta.ProblemCode, meta.WSStream) &&
+			s.telemetry.shouldSample(time.Now(), meta.SkipReason+"|"+meta.ProblemCode) {
 			s.logger.Warn("mdruntime: parse skip sampled",
 				"exchange", msg.Exchange,
 				"bucket_id", msg.BucketID,
@@ -317,6 +330,27 @@ func (s *SubsystemActor) processMessage(msg *ws.WsMessage) {
 		s.logProgress()
 		return
 	}
+	req, p := s.canonicalizeRequest(req, msg.RecvAt.UnixMilli())
+	if p != nil {
+		metrics.IncCanonicalizationError(req.Venue, "normalize_"+req.EventType)
+		metrics.IncWSMessageReceived(msg.Exchange, req.EventType)
+		metrics.ObserveIngest(msg.Exchange, req.Instrument, req.EventType, "validation_failed", 0)
+		s.telemetry.recordSkip(msg.Exchange, req.EventType, "canonicalization_error", string(p.Code), req.Instrument, req.Metadata["ws_stream"])
+		if !isExpectedSkipReason(req.EventType, "canonicalization_error", string(p.Code), req.Metadata["ws_stream"]) &&
+			s.telemetry.shouldSample(time.Now(), "canonicalization_error|"+string(p.Code)) {
+			s.logger.Warn("mdruntime: canonicalization skip sampled",
+				"exchange", msg.Exchange,
+				"event_type", req.EventType,
+				"venue", req.Venue,
+				"instrument", req.Instrument,
+				"problem_code", p.Code,
+				"problem_message", p.Message,
+			)
+		}
+		s.logProgress()
+		return
+	}
+	metrics.IncCanonicalEvent(marketmodel.ChannelFromEventType(req.EventType), req.Venue)
 
 	if req.EventType == "marketdata.bookdelta" {
 		if depth, ok := req.Payload.(domain.BookDeltaV1); ok && depth.FirstID > 0 && depth.FinalID > 0 && !depth.IsSnapshot {
@@ -340,8 +374,14 @@ func (s *SubsystemActor) processMessage(msg *ws.WsMessage) {
 		switch p.Code {
 		case problem.Duplicate:
 			status = "duplicate"
+			if req.EventType == "marketdata.trade" {
+				metrics.IncMRTradeDuplicate(req.Venue)
+			}
 		case problem.OutOfOrder:
 			status = "out_of_order"
+			if req.EventType == "marketdata.trade" {
+				metrics.IncMRTradeOutOfOrder(req.Venue, req.Instrument)
+			}
 		case problem.ValidationFailed, problem.InvalidArgument:
 			status = "validation_failed"
 		}
@@ -387,6 +427,27 @@ func (s *SubsystemActor) ingestSingleRequest(msg *ws.WsMessage, req app.IngestRe
 		s.telemetry.recordSkip(msg.Exchange, req.EventType, "duplicate_normalized", string(problem.Duplicate), req.Instrument, req.Metadata["ws_stream"])
 		return
 	}
+	var p *problem.Problem
+	req, p = s.canonicalizeRequest(req, msg.RecvAt.UnixMilli())
+	if p != nil {
+		metrics.IncCanonicalizationError(req.Venue, "normalize_"+req.EventType)
+		metrics.IncWSMessageReceived(msg.Exchange, req.EventType)
+		metrics.ObserveIngest(msg.Exchange, req.Instrument, req.EventType, "validation_failed", 0)
+		s.telemetry.recordSkip(msg.Exchange, req.EventType, "canonicalization_error", string(p.Code), req.Instrument, req.Metadata["ws_stream"])
+		if !isExpectedSkipReason(req.EventType, "canonicalization_error", string(p.Code), req.Metadata["ws_stream"]) &&
+			s.telemetry.shouldSample(time.Now(), "canonicalization_error|"+string(p.Code)) {
+			s.logger.Warn("mdruntime: canonicalization skip sampled",
+				"exchange", msg.Exchange,
+				"event_type", req.EventType,
+				"venue", req.Venue,
+				"instrument", req.Instrument,
+				"problem_code", p.Code,
+				"problem_message", p.Message,
+			)
+		}
+		return
+	}
+	metrics.IncCanonicalEvent(marketmodel.ChannelFromEventType(req.EventType), req.Venue)
 
 	startedAt := time.Now()
 	res := s.cfg.Service.Ingest.Execute(context.Background(), req)
@@ -397,8 +458,14 @@ func (s *SubsystemActor) ingestSingleRequest(msg *ws.WsMessage, req app.IngestRe
 		switch p.Code {
 		case problem.Duplicate:
 			status = "duplicate"
+			if req.EventType == "marketdata.trade" {
+				metrics.IncMRTradeDuplicate(req.Venue)
+			}
 		case problem.OutOfOrder:
 			status = "out_of_order"
+			if req.EventType == "marketdata.trade" {
+				metrics.IncMRTradeOutOfOrder(req.Venue, req.Instrument)
+			}
 		case problem.ValidationFailed, problem.InvalidArgument:
 			status = "validation_failed"
 		}
@@ -489,24 +556,221 @@ func (s *SubsystemActor) normalizeMarkPriceLiquidation(msg *ws.WsMessage, req ap
 	return req, out.IsDuplicate
 }
 
+func (s *SubsystemActor) canonicalizeRequest(req app.IngestRequest, fallbackTS int64) (app.IngestRequest, *problem.Problem) {
+	if req.Venue == "" || req.Instrument == "" {
+		return req, problem.New(problem.ValidationFailed, "canonicalization requires venue and instrument")
+	}
+	adapter := s.adapterRegistry.Resolve(req.Venue)
+	symbol, p := marketmodel.NewSymbol(req.Instrument)
+	if p != nil {
+		return req, p
+	}
+	fallback := marketmodel.ServerTS(fallbackTS)
+	if req.TsExchange > 0 {
+		fallback = marketmodel.ServerTS(req.TsExchange)
+	}
+	switch req.EventType {
+	case "marketdata.trade":
+		switch in := req.Payload.(type) {
+		case domain.TradeTickV1:
+			out, p := marketmodel.NormalizeTrade(adapter, symbol, in, fallback)
+			if p != nil {
+				return req, p
+			}
+			req.Payload = out
+			req.TsExchange = out.Timestamp
+			return req, nil
+		case *domain.TradeTickV1:
+			if in == nil {
+				return req, problem.New(problem.ValidationFailed, "trade payload must not be nil")
+			}
+			out, p := marketmodel.NormalizeTrade(adapter, symbol, *in, fallback)
+			if p != nil {
+				return req, p
+			}
+			req.Payload = out
+			req.TsExchange = out.Timestamp
+			return req, nil
+		default:
+			return req, problem.Newf(problem.ValidationFailed, "unsupported trade payload type %T", req.Payload)
+		}
+	case "marketdata.bookdelta":
+		switch in := req.Payload.(type) {
+		case domain.BookDeltaV1:
+			out, p := marketmodel.NormalizeBookDelta(adapter, symbol, in, fallback)
+			if p != nil {
+				return req, p
+			}
+			if p := s.trackCanonicalBookState(req.Venue, req.Instrument, out); p != nil {
+				return req, p
+			}
+			req.Payload = out
+			req.TsExchange = out.Timestamp
+			return req, nil
+		case *domain.BookDeltaV1:
+			if in == nil {
+				return req, problem.New(problem.ValidationFailed, "bookdelta payload must not be nil")
+			}
+			out, p := marketmodel.NormalizeBookDelta(adapter, symbol, *in, fallback)
+			if p != nil {
+				return req, p
+			}
+			if p := s.trackCanonicalBookState(req.Venue, req.Instrument, out); p != nil {
+				return req, p
+			}
+			req.Payload = out
+			req.TsExchange = out.Timestamp
+			return req, nil
+		default:
+			return req, problem.Newf(problem.ValidationFailed, "unsupported bookdelta payload type %T", req.Payload)
+		}
+	case "marketdata.markprice":
+		switch in := req.Payload.(type) {
+		case domain.MarkPriceTickV1:
+			out := domain.MarkPriceTickV1{
+				MarkPrice:   adapter.Precision(symbol).NormalizePrice(in.MarkPrice),
+				IndexPrice:  adapter.Precision(symbol).NormalizePrice(in.IndexPrice),
+				FundingRate: in.FundingRate,
+				Timestamp:   adapter.NormalizeTimestamp(in.Timestamp, fallback).UnixMilli(),
+			}
+			req.Payload = out
+			req.TsExchange = out.Timestamp
+			return req, nil
+		case *domain.MarkPriceTickV1:
+			if in == nil {
+				return req, problem.New(problem.ValidationFailed, "markprice payload must not be nil")
+			}
+			out := domain.MarkPriceTickV1{
+				MarkPrice:   adapter.Precision(symbol).NormalizePrice(in.MarkPrice),
+				IndexPrice:  adapter.Precision(symbol).NormalizePrice(in.IndexPrice),
+				FundingRate: in.FundingRate,
+				Timestamp:   adapter.NormalizeTimestamp(in.Timestamp, fallback).UnixMilli(),
+			}
+			req.Payload = out
+			req.TsExchange = out.Timestamp
+			return req, nil
+		default:
+			return req, problem.Newf(problem.ValidationFailed, "unsupported markprice payload type %T", req.Payload)
+		}
+	case "marketdata.liquidation":
+		switch in := req.Payload.(type) {
+		case domain.LiquidationTickV1:
+			side, p := adapter.NormalizeSide(string(in.Side))
+			if p != nil {
+				return req, p
+			}
+			out := domain.LiquidationTickV1{
+				Side:      string(side),
+				Price:     adapter.Precision(symbol).NormalizePrice(in.Price),
+				Size:      adapter.Precision(symbol).NormalizeSize(in.Size),
+				Timestamp: adapter.NormalizeTimestamp(in.Timestamp, fallback).UnixMilli(),
+			}
+			req.Payload = out
+			req.TsExchange = out.Timestamp
+			return req, nil
+		case *domain.LiquidationTickV1:
+			if in == nil {
+				return req, problem.New(problem.ValidationFailed, "liquidation payload must not be nil")
+			}
+			side, p := adapter.NormalizeSide(string(in.Side))
+			if p != nil {
+				return req, p
+			}
+			out := domain.LiquidationTickV1{
+				Side:      string(side),
+				Price:     adapter.Precision(symbol).NormalizePrice(in.Price),
+				Size:      adapter.Precision(symbol).NormalizeSize(in.Size),
+				Timestamp: adapter.NormalizeTimestamp(in.Timestamp, fallback).UnixMilli(),
+			}
+			req.Payload = out
+			req.TsExchange = out.Timestamp
+			return req, nil
+		default:
+			return req, problem.Newf(problem.ValidationFailed, "unsupported liquidation payload type %T", req.Payload)
+		}
+	default:
+		return req, nil
+	}
+}
+
+func (s *SubsystemActor) trackCanonicalBookState(venue, instrument string, delta domain.BookDeltaV1) *problem.Problem {
+	if s.canonicalState == nil {
+		return nil
+	}
+	key, p := marketmodel.NewStreamKey(venue, instrument, marketmodel.ChannelBookDelta)
+	if p != nil {
+		return p
+	}
+	seqVal := delta.FinalID
+	if seqVal <= 0 {
+		seqVal = delta.Timestamp
+	}
+	if seqVal <= 0 {
+		seqVal = 1
+	}
+	seq := marketmodel.Seq(seqVal)
+	if delta.IsSnapshot {
+		return s.canonicalState.UpsertSnapshot(key, seq, marketmodel.BookSnapshot{
+			Bids:      delta.Bids,
+			Asks:      delta.Asks,
+			Timestamp: delta.Timestamp,
+		})
+	}
+	if _, p := s.canonicalState.ApplyDelta(key, seq, delta, delta.Timestamp); p != nil {
+		if p.Code == problem.NotFound {
+			return s.canonicalState.UpsertSnapshot(key, seq, marketmodel.BookSnapshot{
+				Bids:      delta.Bids,
+				Asks:      delta.Asks,
+				Timestamp: delta.Timestamp,
+			})
+		}
+		return p
+	}
+	return nil
+}
+
 func (s *SubsystemActor) logProgress() {
-	if s.telemetry.shouldEmitProgress() {
-		s.logger.Info("mdruntime: message counters",
-			"total", s.telemetry.total,
-			"ingested", s.telemetry.ingested,
-			"skipped", s.telemetry.skipped,
-			"by_event", s.telemetry.byEvent,
-			"skip_by_reason", s.telemetry.bySkipReason,
-			"skip_by_exchange_event_reason", s.telemetry.byExchangeEventAndSkip,
-			"parse_error_by_code", s.telemetry.parseErrorsByProblemCode,
-			"depth_gaps_total", s.telemetry.depthGapsTotal,
-			"depth_gaps_by_symbol", s.telemetry.depthGapsBySymbol,
-			"ws_backpressure_drops_total", s.telemetry.backpressureDropsTotal,
+	if !s.telemetry.shouldEmitProgress() {
+		return
+	}
+	topN := 5
+	s.logger.Info("mdruntime: message counters",
+		"subsystem", s.cfg.Subsystem,
+		"sample_kind", "progress_topn",
+		"sample_window_seconds", int(s.telemetry.sampleWindow/time.Second),
+		"top_n", topN,
+		"total", s.telemetry.total,
+		"ingested", s.telemetry.ingested,
+		"skipped", s.telemetry.skipped,
+		"by_event_top", topCounts(s.telemetry.byEvent, topN),
+		"skip_by_reason_top", s.telemetry.topSkipReasons(topN),
+		"skip_expected_total", s.telemetry.expectedSkipTotal,
+		"skip_expected_by_reason_top", s.telemetry.topExpectedSkipReasons(3),
+		"skip_unexpected_total", s.telemetry.unexpectedSkipTotal,
+		"skip_unexpected_by_reason_top", s.telemetry.topUnexpectedSkipReasons(topN),
+		"skip_by_exchange_event_reason_top", s.telemetry.topExchangeEventSkips(topN),
+		"parse_error_by_code_top", topCounts(s.telemetry.parseErrorsByProblemCode, topN),
+		"depth_gaps_total", s.telemetry.depthGapsTotal,
+		"depth_gaps_by_symbol_top", topCounts(s.telemetry.depthGapsBySymbol, topN),
+		"ws_backpressure_drops_total", s.telemetry.backpressureDropsTotal,
+		"ws_reconnect_total", s.telemetry.wsReconnectTotal,
+		"ws_disconnect_reason_top", topCounts(s.telemetry.wsDisconnectByReason, topN),
+		"ws_connection_uptime_seconds", s.telemetry.wsConnectionUptimeSecs,
+		"top_ws_streams", s.telemetry.topWSStreams(topN),
+		"top_ticker_share_pct", s.telemetry.topTickerSharePercent(topN),
+	)
+
+	if s.telemetry.unexpectedSkipTotal > 0 && s.telemetry.shouldSample(time.Now(), "top-unexpected-skips") {
+		s.logger.Warn("mdruntime: top unexpected skips sampled",
+			"subsystem", s.cfg.Subsystem,
+			"sample_kind", "unexpected_skip_topn",
+			"sample_window_seconds", int(s.telemetry.sampleWindow/time.Second),
+			"top_n", topN,
+			"skip_unexpected_total", s.telemetry.unexpectedSkipTotal,
+			"skip_unexpected_by_reason_top", s.telemetry.topUnexpectedSkipReasons(topN),
+			"skip_by_exchange_event_reason_top", s.telemetry.topExchangeEventSkips(topN),
 			"ws_reconnect_total", s.telemetry.wsReconnectTotal,
-			"ws_disconnect_reason", s.telemetry.wsDisconnectByReason,
-			"ws_connection_uptime_seconds", s.telemetry.wsConnectionUptimeSecs,
-			"top_ws_streams", s.telemetry.topWSStreams(5),
-			"top_ticker_share_pct", s.telemetry.topTickerSharePercent(5),
+			"ws_backpressure_drops_total", s.telemetry.backpressureDropsTotal,
 		)
 	}
 }

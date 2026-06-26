@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package aggregation.v2;
+
+option go_package = "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/aggregation/v2";
+
+// VenueLevel is one venue-contributed price/size level in fixed-point form.
+message VenueLevel {
+  // venue is the canonical venue identifier.
+  string venue = 1;
+  // price_fp is the fixed-point encoded price.
+  int64 price_fp = 2;
+  // size_fp is the fixed-point encoded size.
+  int64 size_fp = 3;
+}
+
+// CrossVenueBookSnapshotV1 is a deterministic merged top-of-book snapshot.
+message CrossVenueBookSnapshotV1 {
+  // instrument is the canonical instrument identifier.
+  string instrument = 1;
+  // ts_server_ms is the server emission timestamp in Unix milliseconds.
+  int64 ts_server_ms = 2;
+  // best_bids carries one best-bid level per active venue.
+  repeated VenueLevel best_bids = 3;
+  // best_asks carries one best-ask level per active venue.
+  repeated VenueLevel best_asks = 4;
+  // global_spread_bps is the global best spread in basis points.
+  double global_spread_bps = 5;
+  // venue_divergence_bps is spread divergence across contributing venues in basis points.
+  double venue_divergence_bps = 6;
+}

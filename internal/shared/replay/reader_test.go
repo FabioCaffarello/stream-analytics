@@ -3,7 +3,7 @@ package replay
 import (
 	"testing"
 
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 func TestAnnotateLine_NilProblem(t *testing.T) {

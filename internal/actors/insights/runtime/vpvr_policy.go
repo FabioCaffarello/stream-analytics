@@ -4,8 +4,8 @@
 package insightsruntime
 
 import (
-	insightsapp "github.com/market-raccoon/internal/core/insights/app"
-	"github.com/market-raccoon/internal/shared/policykit"
+	insightsapp "github.com/FabioCaffarello/stream-analytics/internal/core/insights/app"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/policykit"
 )
 
 // NewPolicyKitDecideFunc returns an OverloadDecideFunc backed by a policykit.Engine.

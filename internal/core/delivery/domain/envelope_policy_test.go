@@ -3,8 +3,8 @@ package domain_test
 import (
 	"testing"
 
-	"github.com/market-raccoon/internal/core/delivery/domain"
-	"github.com/market-raccoon/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/delivery/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
 )
 
 func TestValidateEnvelopeForDelivery_AllowsAggregationSnapshot(t *testing.T) {
@@ -18,7 +18,31 @@ func TestValidateEnvelopeForDelivery_AllowsAggregationSnapshot(t *testing.T) {
 }
 
 func TestValidateEnvelopeForDelivery_AllowsAggregationCandleAndStats(t *testing.T) {
-	for _, eventType := range []string{"aggregation.candle", "aggregation.stats", "insights.heatmap_snapshot"} {
+	for _, eventType := range []string{
+		"marketdata.open_interest",
+		"aggregation.candle",
+		"aggregation.stats",
+		"aggregation.tape",
+		"aggregation.oi",
+		"aggregation.delta_volume",
+		"aggregation.cvd",
+		"aggregation.bar_stats",
+		"aggregation.orderbook_inconsistency",
+		"insights.heatmap_snapshot",
+		"insights.heatmap_delta",
+		"insights.volume_profile_snapshot",
+		"insights.volume_profile_delta",
+		"insights.session_volume_profile",
+		"insights.tpo_profile",
+		"insights.fused_volume_profile_snapshot",
+		"insights.fused_heatmap_snapshot",
+		"liquidity.evidence",
+		"signal.event",
+		"signal.composite",
+		"strategy.intent",
+		"execution.event",
+		"portfolio.state",
+	} {
 		p := domain.ValidateEnvelopeForDelivery(envelope.Envelope{
 			Type:    eventType,
 			Version: 1,

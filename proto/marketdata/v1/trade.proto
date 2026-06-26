@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package marketdata.v1;
 
-option go_package = "github.com/market-raccoon/internal/shared/proto/gen/marketdata/v1";
+option go_package = "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/marketdata/v1";
 
 // TradeTickV1 models a single trade tick.
 message TradeTickV1 {

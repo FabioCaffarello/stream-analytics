@@ -1,9 +1,22 @@
 {
-  // Runtime config mounted in container at /etc/market-raccoon/server.jsonc
-  // The server binary serves WebSocket delivery; no JetStream consumer needed.
+  // Runtime config mounted in container at /etc/stream-analytics/server.jsonc
+  // JetStream bridges NATS envelopes into the delivery subsystem.
   "bus": {
-    "type": "inmemory",
+    "type": "jetstream",
     "wire_format": "proto"
+  },
+  "jetstream": {
+    "url": "nats://nats:4222",
+    "stream_name": "MARKETDATA",
+    "consumer_durable": "delivery-v3",
+    "ack_wait": "30s",
+    "max_ack_pending": 1024,
+    "max_deliver": 5,
+    "deliver_policy": "new",
+    "filter_subjects": ["marketdata.>", "aggregation.>", "evidence.>", "insights.>", "signal.event.>", "strategy.intent.>", "execution.event.>", "portfolio.state.>"],
+    "dedup_window": "5m",
+    "max_age": "24h",
+    "max_bytes": "10GB"
   },
   "proto_rollout": {
     "marketdata": {
@@ -35,7 +48,7 @@
     "shutdown_timeout": "10s",
     "publisher_flush_timeout": "3s",
     "guardian_shutdown_timeout": "10s",
-    "enable_pprof": false
+    "enable_pprof": true
   },
   "ws": {
     "auth": {
@@ -49,17 +62,27 @@
       "enabled": true,
       "max_per_second": 100,
       "burst_capacity": 200
+    },
+    "tenant_metrics": {
+      "include_tenant_label": true,
+      "tenant_whitelist": [],
+      "fallback": "unknown"
     }
   },
   "delivery": {
     "enabled": true,
     "max_sessions": 10000,
     "session_outbound_queue_size": 512,
+    "metrics_cadence_ms": 5000,
+    "keepalive_interval_ms": 20000,
     "backpressure_policy": "drop_newest",
     "slow_client_drop_threshold": 1000,
+    "router_stream_state_ttl": "30m",
+    // Keep bookdelta snapshots/resync frames below rejection threshold in local QA.
+    "max_frame_bytes": 262144,
     "nats": {
-      "consumer_durable": "delivery-v2",
-      "filter_subjects": ["marketdata.>", "aggregation.>", "insights.>"]
+      "consumer_durable": "delivery-v3",
+      "filter_subjects": ["marketdata.>", "aggregation.>", "evidence.>", "insights.>", "signal.event.>", "strategy.intent.>", "execution.event.>", "portfolio.state.>"]
     }
   },
   "storage": {
@@ -84,5 +107,106 @@
       "dial_timeout": "5s",
       "read_timeout": "30s"
     }
+  },
+  "processor": {
+    "orderbook": {
+      "max_levels": 500,
+      "use_btree_orderbook": true
+    },
+    "xvenue": {
+      "enabled": false,
+      "stale_threshold_ms": 30000,
+      "max_instruments": 2048,
+      "max_venues": 6
+    },
+    "candle": {
+      "window_cap": 96
+    },
+    "stats": {
+      "window_cap": 96
+    },
+    "subminute_rollout": {
+      // Server-side read/query gate for 1s/5s (getrange + cold APIs + hot fallback).
+      // enabled=false => rollback sub-minute reads immediately.
+      "enabled": true,
+      "venues": [],
+      "instruments": []
+    },
+    "insights": {
+      "insights_timeframes": ["1s", "5s", "1m", "5m", "15m", "30m", "1h", "4h", "1d"]
+    }
+  },
+  "data_plane": {
+    "enabled": true,
+    "state_bucket": "MR_DATAPLANE",
+    "result_limit": 200,
+    "kafka": {
+      "brokers": ["kafka:9092"],
+      "consumer_group": "dataplane-consumer-v1"
+    }
+  },
+  // S126: Server-side workspace persistence for client layout + settings.
+  "workspace": {
+    "state_dir": "/var/lib/stream-analytics"
+  },
+  "markets": {
+    "exchanges": [
+      {
+        "name": "binance-spot",
+        "symbols": [
+          {"ticker": "BTCUSDT", "tick_size": 0.01, "market_type": "SPOT"},
+          {"ticker": "ETHUSDT", "tick_size": 0.01, "market_type": "SPOT"},
+          {"ticker": "SOLUSDT", "tick_size": 0.01, "market_type": "SPOT"},
+          {"ticker": "BNBUSDT", "tick_size": 0.01, "market_type": "SPOT"}
+        ]
+      },
+      {
+        "name": "binance-futures",
+        "symbols": [
+          {"ticker": "BTCUSDT", "tick_size": 0.01, "market_type": "USD_M_FUTURES"},
+          {"ticker": "ETHUSDT", "tick_size": 0.01, "market_type": "USD_M_FUTURES"},
+          {"ticker": "SOLUSDT", "tick_size": 0.01, "market_type": "USD_M_FUTURES"},
+          {"ticker": "BNBUSDT", "tick_size": 0.01, "market_type": "USD_M_FUTURES"}
+        ]
+      },
+      {
+        "name": "bybit",
+        "symbols": [
+          {"ticker": "BTCUSDT", "tick_size": 0.01, "market_type": "USD_M_FUTURES"},
+          {"ticker": "ETHUSDT", "tick_size": 0.01, "market_type": "USD_M_FUTURES"},
+          {"ticker": "SOLUSDT", "tick_size": 0.01, "market_type": "USD_M_FUTURES"}
+        ]
+      },
+      {
+        "name": "coinbase",
+        "symbols": [
+          {"ticker": "BTC-USD", "tick_size": 0.01, "market_type": "SPOT"},
+          {"ticker": "ETH-USD", "tick_size": 0.01, "market_type": "SPOT"},
+          {"ticker": "SOL-USD", "tick_size": 0.01, "market_type": "SPOT"}
+        ]
+      },
+      {
+        "name": "hyperliquid",
+        "symbols": [
+          {"ticker": "BTC", "tick_size": 0.1, "market_type": "USD_M_FUTURES"},
+          {"ticker": "ETH", "tick_size": 0.01, "market_type": "USD_M_FUTURES"},
+          {"ticker": "SOL", "tick_size": 0.001, "market_type": "USD_M_FUTURES"}
+        ]
+      },
+      {
+        "name": "kraken-spot",
+        "symbols": [
+          {"ticker": "XBT/USD", "tick_size": 0.1, "market_type": "SPOT"},
+          {"ticker": "ETH/USD", "tick_size": 0.01, "market_type": "SPOT"}
+        ]
+      },
+      {
+        "name": "kraken-futures",
+        "symbols": [
+          {"ticker": "PF_XBTUSD", "tick_size": 0.5, "market_type": "USD_M_FUTURES"},
+          {"ticker": "PF_ETHUSD", "tick_size": 0.01, "market_type": "USD_M_FUTURES"}
+        ]
+      }
+    ]
   }
 }

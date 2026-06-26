@@ -6,8 +6,8 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
-	adapterstorage "github.com/market-raccoon/internal/adapters/storage"
-	"github.com/market-raccoon/internal/shared/problem"
+	adapterstorage "github.com/FabioCaffarello/stream-analytics/internal/adapters/storage"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 // PoolConfig controls ClickHouse connection lifecycle.

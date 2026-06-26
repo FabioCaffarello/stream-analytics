@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+package aggregation.v2;
+
+option go_package = "github.com/FabioCaffarello/stream-analytics/internal/shared/proto/gen/aggregation/v2";
+
+// OrderBookLevelV1 represents a single price level in the order book.
+message OrderBookLevelV1 {
+  // price is the level price in quote currency units.
+  double price = 1;
+  // quantity is the resting size available at price.
+  double quantity = 2;
+}
+
+// OrderBookSnapshotV2 models an enriched orderbook snapshot used by DOM/orderbook consumers.
+message OrderBookSnapshotV2 {
+  // venue is the canonical exchange identifier.
+  string venue = 1;
+  // instrument is the canonical instrument symbol.
+  string instrument = 2;
+  // seq is the monotonic stream sequence at snapshot build time.
+  int64 seq = 3;
+  // bids holds top-N bid levels ordered best-to-worst.
+  repeated OrderBookLevelV1 bids = 4;
+  // asks holds top-N ask levels ordered best-to-worst for asks.
+  repeated OrderBookLevelV1 asks = 5;
+  // best_bid_price is the best bid in the full in-memory book.
+  double best_bid_price = 6;
+  // best_ask_price is the best ask in the full in-memory book.
+  double best_ask_price = 7;
+  // spread_bps is spread normalized to basis points.
+  double spread_bps = 8;
+  // checksum is deterministic CRC32C over full-book levels.
+  uint32 checksum = 9;
+  // ts_ingest_ms is processor snapshot publication time in Unix milliseconds.
+  int64 ts_ingest_ms = 10;
+  // bid_count is total bid levels in the full in-memory book.
+  int32 bid_count = 11;
+  // ask_count is total ask levels in the full in-memory book.
+  int32 ask_count = 12;
+  // depth_cap is the bounded top-N cap applied to bids/asks payload arrays.
+  int32 depth_cap = 13;
+  // version is the canonical snapshot schema version emitted by producer.
+  int32 version = 14;
+}

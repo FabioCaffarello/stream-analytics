@@ -3,10 +3,6 @@ name: ci-fast
 on:
   workflow_call:
   pull_request:
-  push:
-    branches:
-      - main
-
 concurrency:
   group: ci-fast-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -61,7 +57,7 @@ jobs:
             exit 1
           fi
       - name: Import boundary guard
-        run: go test ./internal/shared/contracts -run TestImportGuard_ProtoImportsStayInSharedBoundary -count=1
+        run: go test ./internal/contracts -run TestImportGuard_ProtoImportsStayInSharedBoundary -count=1
       - name: Proto lint
         run: make proto-lint
       - name: Proto breaking change check
@@ -80,3 +76,17 @@ jobs:
         run: make registry-check
       - name: Operability gates
         run: make operability-gates
+
+  docs-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.12'
+      - name: Install docs dependencies
+        run: uv sync
+      - name: Build docs (strict)
+        run: uv run mkdocs build --strict

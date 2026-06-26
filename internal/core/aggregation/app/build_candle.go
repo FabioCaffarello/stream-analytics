@@ -5,21 +5,24 @@ import (
 	"math"
 	"time"
 
-	"github.com/market-raccoon/internal/core/aggregation/domain"
-	"github.com/market-raccoon/internal/core/aggregation/ports"
-	"github.com/market-raccoon/internal/shared/clock"
-	"github.com/market-raccoon/internal/shared/ds"
-	"github.com/market-raccoon/internal/shared/naming"
-	"github.com/market-raccoon/internal/shared/problem"
-	"github.com/market-raccoon/internal/shared/validation"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/ports"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/clock"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/ds"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/naming"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/validation"
 )
 
-const candleTimeframe1m = "1m"
+const candleTimeframeBase = "1s"
 
 // BuildCandleConfig controls bounded state and window durations for candle build.
 type BuildCandleConfig struct {
 	MaxCandles     int
+	WindowCap      int
 	CandleTTL      time.Duration
+	LateTolerance  time.Duration
 	WindowDuration map[string]time.Duration
 	Clock          clock.Clock
 }
@@ -46,6 +49,7 @@ type BuildCandleFromEvents struct {
 	publisher  ports.ArtifactPublisher
 	store      ports.CandleHotReadModelStore
 	candles    *ds.BoundedMap[domain.CandleKey, *domain.CandleV1]
+	windows    domain.WindowManager
 	windowMs   map[string]int64
 	timeframes []string
 }
@@ -62,6 +66,12 @@ func NewBuildCandleFromEvents(
 	if cfg.CandleTTL <= 0 {
 		cfg.CandleTTL = time.Hour
 	}
+	if cfg.WindowCap <= 0 {
+		cfg.WindowCap = 96
+	}
+	if cfg.LateTolerance <= 0 {
+		cfg.LateTolerance = 30 * time.Second
+	}
 	if cfg.Clock == nil {
 		cfg.Clock = clock.NewSystemClock()
 	}
@@ -73,13 +83,24 @@ func NewBuildCandleFromEvents(
 	candles := ds.NewBoundedMap[domain.CandleKey, *domain.CandleV1](cfg.MaxCandles, cfg.CandleTTL, cfg.Clock)
 	candles.SetSweepEveryOps(1024)
 	candles.SetSweepMinInterval(time.Second)
+	windows, p := domain.NewWatermarkWindowManager(domain.WatermarkWindowConfig{
+		MaxOpenWindows:  cfg.WindowCap,
+		LateToleranceMs: cfg.LateTolerance.Milliseconds(),
+	})
+	if p != nil {
+		windows, _ = domain.NewWatermarkWindowManager(domain.WatermarkWindowConfig{
+			MaxOpenWindows:  96,
+			LateToleranceMs: 30_000,
+		})
+	}
 
 	return &BuildCandleFromEvents{
 		publisher:  pub,
 		store:      store,
 		candles:    candles,
+		windows:    windows,
 		windowMs:   windowMs,
-		timeframes: []string{"1m", "5m", "15m", "30m", "1h", "4h", "1d"},
+		timeframes: []string{"1s", "5s", "1m", "5m", "15m", "30m", "1h", "4h", "1d"},
 	}
 }
 
@@ -93,36 +114,51 @@ func (uc *BuildCandleFromEvents) Execute(ctx context.Context, req BuildCandleReq
 	instrument := naming.CanonicalInstrument(req.Instrument)
 	var closed []domain.CandleClosed
 
-	minuteKey := domain.CandleKey{
+	baseKey := domain.CandleKey{
 		Venue:      venue,
 		Instrument: instrument,
-		Timeframe:  candleTimeframe1m,
+		Timeframe:  candleTimeframeBase,
 	}
-	minuteWindowStart := bucketStart(req.TsIngest, uc.windowMs[candleTimeframe1m])
-	minuteClosedEvt, minuteClosed, p := uc.closeIfWindowChanged(
+	baseDecision, forcedClosed, p := uc.observeWindow(ctx, baseKey, req.TsIngest, uc.windowMs[candleTimeframeBase])
+	if p != nil {
+		return BuildCandleResponse{}, p
+	}
+	if forcedClosed != nil {
+		closed = append(closed, *forcedClosed)
+	}
+	if baseDecision.IsLate {
+		metrics.IncMRWindowLateArrival(baseKey.Venue, baseKey.Instrument, baseKey.Timeframe)
+		return BuildCandleResponse{
+			Closed:        closed,
+			ActiveCandles: uc.candles.Len(),
+		}, nil
+	}
+	metrics.SetMRWindowOpen(baseKey.Venue, baseKey.Instrument, baseKey.Timeframe, 1)
+	baseWindowStart := baseDecision.WindowStart
+	baseClosedEvt, baseClosed, p := uc.closeIfWindowChanged(
 		ctx,
-		minuteKey,
-		minuteWindowStart,
-		uc.windowMs[candleTimeframe1m],
+		baseKey,
+		baseWindowStart,
+		uc.windowMs[candleTimeframeBase],
 	)
 	if p != nil {
 		return BuildCandleResponse{}, p
 	}
-	if minuteClosedEvt != nil {
-		closed = append(closed, *minuteClosedEvt)
+	if baseClosedEvt != nil {
+		closed = append(closed, *baseClosedEvt)
 	}
 
-	minuteCandle, p := uc.getOrCreateCandle(minuteKey, minuteWindowStart)
+	baseCandle, p := uc.getOrCreateCandle(baseKey, baseWindowStart)
 	if p != nil {
 		return BuildCandleResponse{}, p
 	}
-	if p := minuteCandle.ApplyTrade(req.Price, req.Quantity, req.IsBuy, req.Seq); p != nil {
+	if p := baseCandle.ApplyTrade(req.Price, req.Quantity, req.IsBuy, req.Seq); p != nil {
 		return BuildCandleResponse{}, p
 	}
-	uc.candles.Put(minuteKey, minuteCandle)
+	uc.candles.Put(baseKey, baseCandle)
 
-	if minuteClosed != nil {
-		cascadeClosed, p := uc.cascadeFromClosedMinute(ctx, *minuteClosed)
+	if baseClosed != nil {
+		cascadeClosed, p := uc.cascadeFromClosedBase(ctx, *baseClosed)
 		if p != nil {
 			return BuildCandleResponse{}, p
 		}
@@ -158,21 +194,33 @@ func (uc *BuildCandleFromEvents) validateRequest(req BuildCandleRequest) *proble
 	return nil
 }
 
-func (uc *BuildCandleFromEvents) cascadeFromClosedMinute(
+func (uc *BuildCandleFromEvents) cascadeFromClosedBase(
 	ctx context.Context,
-	minute domain.CandleV1,
+	base domain.CandleV1,
 ) ([]domain.CandleClosed, *problem.Problem) {
 	var closed []domain.CandleClosed
 	for _, timeframe := range uc.timeframes {
-		if timeframe == candleTimeframe1m {
+		if timeframe == candleTimeframeBase {
 			continue
 		}
 		key := domain.CandleKey{
-			Venue:      minute.Venue,
-			Instrument: minute.Instrument,
+			Venue:      base.Venue,
+			Instrument: base.Instrument,
 			Timeframe:  timeframe,
 		}
-		windowStart := bucketStart(minute.WindowStartTs, uc.windowMs[timeframe])
+		decision, forcedClosed, p := uc.observeWindow(ctx, key, base.WindowStartTs, uc.windowMs[timeframe])
+		if p != nil {
+			return nil, p
+		}
+		if forcedClosed != nil {
+			closed = append(closed, *forcedClosed)
+		}
+		if decision.IsLate {
+			metrics.IncMRWindowLateArrival(key.Venue, key.Instrument, key.Timeframe)
+			continue
+		}
+		metrics.SetMRWindowOpen(key.Venue, key.Instrument, key.Timeframe, 1)
+		windowStart := decision.WindowStart
 		closedEvt, _, p := uc.closeIfWindowChanged(ctx, key, windowStart, uc.windowMs[timeframe])
 		if p != nil {
 			return nil, p
@@ -184,7 +232,7 @@ func (uc *BuildCandleFromEvents) cascadeFromClosedMinute(
 		if p != nil {
 			return nil, p
 		}
-		if p := candle.ApplyClosedCandle(minute); p != nil {
+		if p := candle.ApplyClosedCandle(base); p != nil {
 			return nil, p
 		}
 		uc.candles.Put(key, candle)
@@ -253,11 +301,74 @@ func (uc *BuildCandleFromEvents) persistClosedCandle(
 	return evt, nil
 }
 
+func (uc *BuildCandleFromEvents) observeWindow(
+	ctx context.Context,
+	key domain.CandleKey,
+	eventTsMs int64,
+	windowDurationMs int64,
+) (domain.WindowDecision, *domain.CandleClosed, *problem.Problem) {
+	if uc.windows == nil {
+		return domain.WindowDecision{WindowStart: bucketStart(eventTsMs, windowDurationMs)}, nil, nil
+	}
+	decision, p := uc.windows.Observe(domain.WindowKey(key), eventTsMs, windowDurationMs)
+	if p != nil {
+		return domain.WindowDecision{}, nil, p
+	}
+	if decision.ForcedClose == nil {
+		return decision, nil, nil
+	}
+	metrics.IncMRWindowForceClose(
+		decision.ForcedClose.Key.Venue,
+		decision.ForcedClose.Key.Instrument,
+		decision.ForcedClose.Key.Timeframe,
+	)
+	forcedClosed, p := uc.forceCloseWindow(ctx, *decision.ForcedClose)
+	if p != nil {
+		return domain.WindowDecision{}, nil, p
+	}
+	return decision, forcedClosed, nil
+}
+
+func (uc *BuildCandleFromEvents) forceCloseWindow(
+	ctx context.Context,
+	forced domain.ForcedWindowClose,
+) (*domain.CandleClosed, *problem.Problem) {
+	key := domain.CandleKey{
+		Venue:      forced.Key.Venue,
+		Instrument: forced.Key.Instrument,
+		Timeframe:  forced.Key.Timeframe,
+	}
+	existing, ok := uc.candles.Get(key)
+	if !ok {
+		metrics.SetMRWindowOpen(key.Venue, key.Instrument, key.Timeframe, 0)
+		return nil, nil
+	}
+	if existing.WindowStartTs != forced.WindowStart {
+		return nil, nil
+	}
+	windowDurationMs := uc.windowMs[key.Timeframe]
+	if windowDurationMs <= 0 {
+		return nil, problem.Newf(problem.ValidationFailed, "window duration must be > 0 for timeframe=%s", key.Timeframe)
+	}
+	if p := existing.Close(existing.WindowStartTs + windowDurationMs); p != nil {
+		return nil, p
+	}
+	evt, p := uc.persistClosedCandle(ctx, *existing)
+	if p != nil {
+		return nil, p
+	}
+	uc.candles.Delete(key)
+	metrics.SetMRWindowOpen(key.Venue, key.Instrument, key.Timeframe, 0)
+	return &evt, nil
+}
+
 func resolveWindowDurations(
 	config map[string]time.Duration,
 	allowed []string,
 ) (map[string]int64, *problem.Problem) {
 	defaults := map[string]time.Duration{
+		"1s":  time.Second,
+		"5s":  5 * time.Second,
 		"1m":  time.Minute,
 		"5m":  5 * time.Minute,
 		"15m": 15 * time.Minute,

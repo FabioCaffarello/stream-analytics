@@ -1,0 +1,29 @@
+{
+  "name": "stream-analytics",
+  "version": "1.0.0",
+  "description": "stream-analytics is a trading platform for the crypto market",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FabioCaffarello/stream-analytics.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/FabioCaffarello/stream-analytics/issues"
+  },
+  "homepage": "https://github.com/FabioCaffarello/stream-analytics#readme",
+  "devDependencies": {
+    "@playwright/mcp": "^0.0.68",
+    "@playwright/test": "^1.58.2"
+  }
+}

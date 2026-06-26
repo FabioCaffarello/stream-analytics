@@ -36,7 +36,7 @@ variable "argocd_root_project" {
 variable "git_repo_url" {
   description = "Git repository URL for ArgoCD to watch"
   type        = string
-  default     = "https://github.com/market-raccoon/market-raccoon.git"
+  default     = "https://github.com/stream-analytics/stream-analytics.git"
 }
 
 variable "git_target_revision" {

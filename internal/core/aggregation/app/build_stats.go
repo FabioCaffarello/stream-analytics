@@ -5,13 +5,14 @@ import (
 	"math"
 	"time"
 
-	"github.com/market-raccoon/internal/core/aggregation/domain"
-	"github.com/market-raccoon/internal/core/aggregation/ports"
-	"github.com/market-raccoon/internal/shared/clock"
-	"github.com/market-raccoon/internal/shared/ds"
-	"github.com/market-raccoon/internal/shared/naming"
-	"github.com/market-raccoon/internal/shared/problem"
-	"github.com/market-raccoon/internal/shared/validation"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/ports"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/clock"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/ds"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/naming"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/validation"
 )
 
 // StatsInputKind identifies the source event kind for stats updates.
@@ -26,7 +27,9 @@ const (
 // BuildStatsConfig controls bounded state and window durations for stats build.
 type BuildStatsConfig struct {
 	MaxWindows     int
+	WindowCap      int
 	WindowTTL      time.Duration
+	LateTolerance  time.Duration
 	WindowDuration map[string]time.Duration
 	Clock          clock.Clock
 }
@@ -56,9 +59,12 @@ type BuildStatsFromEvents struct {
 	publisher  ports.ArtifactPublisher
 	store      ports.StatsHotReadModelStore
 	windows    *ds.BoundedMap[domain.StatsKey, *domain.StatsWindowV1]
+	lifecycle  domain.WindowManager
 	windowMs   map[string]int64
 	timeframes []string
 }
+
+const statsClosedBufferCap = 18 // 9 timeframes + up to 9 forced closes in one input tick.
 
 // NewBuildStatsFromEvents constructs BuildStatsFromEvents.
 func NewBuildStatsFromEvents(
@@ -72,6 +78,12 @@ func NewBuildStatsFromEvents(
 	if cfg.WindowTTL <= 0 {
 		cfg.WindowTTL = time.Hour
 	}
+	if cfg.WindowCap <= 0 {
+		cfg.WindowCap = 96
+	}
+	if cfg.LateTolerance <= 0 {
+		cfg.LateTolerance = 30 * time.Second
+	}
 	if cfg.Clock == nil {
 		cfg.Clock = clock.NewSystemClock()
 	}
@@ -83,13 +95,24 @@ func NewBuildStatsFromEvents(
 	windows := ds.NewBoundedMap[domain.StatsKey, *domain.StatsWindowV1](cfg.MaxWindows, cfg.WindowTTL, cfg.Clock)
 	windows.SetSweepEveryOps(1024)
 	windows.SetSweepMinInterval(time.Second)
+	lifecycle, p := domain.NewWatermarkWindowManager(domain.WatermarkWindowConfig{
+		MaxOpenWindows:  cfg.WindowCap,
+		LateToleranceMs: cfg.LateTolerance.Milliseconds(),
+	})
+	if p != nil {
+		lifecycle, _ = domain.NewWatermarkWindowManager(domain.WatermarkWindowConfig{
+			MaxOpenWindows:  96,
+			LateToleranceMs: 30_000,
+		})
+	}
 
 	return &BuildStatsFromEvents{
 		publisher:  pub,
 		store:      store,
 		windows:    windows,
+		lifecycle:  lifecycle,
 		windowMs:   windowMs,
-		timeframes: []string{"1m", "5m", "15m", "30m", "1h", "4h", "1d"},
+		timeframes: []string{"1s", "5s", "1m", "5m", "15m", "30m", "1h", "4h", "1d"},
 	}
 }
 
@@ -100,7 +123,8 @@ func (uc *BuildStatsFromEvents) Execute(ctx context.Context, req BuildStatsReque
 	}
 	venue := naming.CanonicalVenue(req.Venue)
 	instrument := naming.CanonicalInstrument(req.Instrument)
-	var closed []domain.StatsWindowClosed
+	var closedBuf [statsClosedBufferCap]domain.StatsWindowClosed
+	closedCount := 0
 
 	for _, timeframe := range uc.timeframes {
 		key := domain.StatsKey{
@@ -108,23 +132,50 @@ func (uc *BuildStatsFromEvents) Execute(ctx context.Context, req BuildStatsReque
 			Instrument: instrument,
 			Timeframe:  timeframe,
 		}
-		windowStart := bucketStart(req.TsIngest, uc.windowMs[timeframe])
+		decision, forcedClosed, p := uc.observeWindow(ctx, key, req.TsIngest, uc.windowMs[timeframe])
+		if p != nil {
+			return BuildStatsResponse{}, p
+		}
+		if forcedClosed != nil {
+			if closedCount < len(closedBuf) {
+				closedBuf[closedCount] = *forcedClosed
+				closedCount++
+			}
+		}
+		if decision.IsLate {
+			metrics.IncMRWindowLateArrival(key.Venue, key.Instrument, key.Timeframe)
+			continue
+		}
+		metrics.SetMRWindowOpen(key.Venue, key.Instrument, key.Timeframe, 1)
+		windowStart := decision.WindowStart
 		closedEvt, p := uc.closeIfWindowChanged(ctx, key, windowStart, uc.windowMs[timeframe])
 		if p != nil {
 			return BuildStatsResponse{}, p
 		}
 		if closedEvt != nil {
-			closed = append(closed, *closedEvt)
+			if closedCount < len(closedBuf) {
+				closedBuf[closedCount] = *closedEvt
+				closedCount++
+			}
 		}
 
-		win, p := uc.getOrCreateWindow(key, windowStart)
+		win, p := uc.getOrCreateWindow(key, windowStart, uc.windowMs[timeframe])
 		if p != nil {
 			return BuildStatsResponse{}, p
+		}
+		if req.TsIngest > win.TsIngestMs {
+			win.TsIngestMs = req.TsIngest
 		}
 		if p := applyStatsUpdate(win, req); p != nil {
 			return BuildStatsResponse{}, p
 		}
 		uc.windows.Put(key, win)
+	}
+
+	var closed []domain.StatsWindowClosed
+	if closedCount > 0 {
+		closed = make([]domain.StatsWindowClosed, closedCount)
+		copy(closed, closedBuf[:closedCount])
 	}
 
 	return BuildStatsResponse{
@@ -185,6 +236,11 @@ func (uc *BuildStatsFromEvents) closeIfWindowChanged(
 	if p := existing.Close(existing.WindowStartTs + windowDurationMs); p != nil {
 		return nil, p
 	}
+	existing.WindowMs = windowDurationMs
+	if existing.TsIngestMs <= 0 {
+		existing.TsIngestMs = existing.WindowEndTs
+	}
+	existing.SetQualityFlags(false)
 	evt, p := uc.persistClosedStats(ctx, *existing)
 	if p != nil {
 		return nil, p
@@ -196,10 +252,14 @@ func (uc *BuildStatsFromEvents) closeIfWindowChanged(
 func (uc *BuildStatsFromEvents) getOrCreateWindow(
 	key domain.StatsKey,
 	windowStart int64,
+	windowDurationMs int64,
 ) (*domain.StatsWindowV1, *problem.Problem) {
 	if w, ok := uc.windows.Get(key); ok {
 		if w.WindowStartTs != windowStart {
 			return nil, problem.New(problem.IntegrityViolation, "stats window mismatch after window roll")
+		}
+		if w.WindowMs <= 0 {
+			w.WindowMs = windowDurationMs
 		}
 		return w, nil
 	}
@@ -207,6 +267,7 @@ func (uc *BuildStatsFromEvents) getOrCreateWindow(
 	if p != nil {
 		return nil, p
 	}
+	w.WindowMs = windowDurationMs
 	uc.windows.Put(key, w)
 	return w, nil
 }
@@ -240,4 +301,70 @@ func applyStatsUpdate(window *domain.StatsWindowV1, req BuildStatsRequest) *prob
 	default:
 		return problem.Newf(problem.ValidationFailed, "unknown stats input kind %q", req.Kind)
 	}
+}
+
+func (uc *BuildStatsFromEvents) observeWindow(
+	ctx context.Context,
+	key domain.StatsKey,
+	eventTsMs int64,
+	windowDurationMs int64,
+) (domain.WindowDecision, *domain.StatsWindowClosed, *problem.Problem) {
+	if uc.lifecycle == nil {
+		return domain.WindowDecision{WindowStart: bucketStart(eventTsMs, windowDurationMs)}, nil, nil
+	}
+	decision, p := uc.lifecycle.Observe(domain.WindowKey(key), eventTsMs, windowDurationMs)
+	if p != nil {
+		return domain.WindowDecision{}, nil, p
+	}
+	if decision.ForcedClose == nil {
+		return decision, nil, nil
+	}
+	metrics.IncMRWindowForceClose(
+		decision.ForcedClose.Key.Venue,
+		decision.ForcedClose.Key.Instrument,
+		decision.ForcedClose.Key.Timeframe,
+	)
+	forcedClosed, p := uc.forceCloseWindow(ctx, *decision.ForcedClose)
+	if p != nil {
+		return domain.WindowDecision{}, nil, p
+	}
+	return decision, forcedClosed, nil
+}
+
+func (uc *BuildStatsFromEvents) forceCloseWindow(
+	ctx context.Context,
+	forced domain.ForcedWindowClose,
+) (*domain.StatsWindowClosed, *problem.Problem) {
+	key := domain.StatsKey{
+		Venue:      forced.Key.Venue,
+		Instrument: forced.Key.Instrument,
+		Timeframe:  forced.Key.Timeframe,
+	}
+	existing, ok := uc.windows.Get(key)
+	if !ok {
+		metrics.SetMRWindowOpen(key.Venue, key.Instrument, key.Timeframe, 0)
+		return nil, nil
+	}
+	if existing.WindowStartTs != forced.WindowStart {
+		return nil, nil
+	}
+	windowDurationMs := uc.windowMs[key.Timeframe]
+	if windowDurationMs <= 0 {
+		return nil, problem.Newf(problem.ValidationFailed, "window duration must be > 0 for timeframe=%s", key.Timeframe)
+	}
+	if p := existing.Close(existing.WindowStartTs + windowDurationMs); p != nil {
+		return nil, p
+	}
+	existing.WindowMs = windowDurationMs
+	if existing.TsIngestMs <= 0 {
+		existing.TsIngestMs = existing.WindowEndTs
+	}
+	existing.SetQualityFlags(true)
+	evt, p := uc.persistClosedStats(ctx, *existing)
+	if p != nil {
+		return nil, p
+	}
+	uc.windows.Delete(key)
+	metrics.SetMRWindowOpen(key.Venue, key.Instrument, key.Timeframe, 0)
+	return &evt, nil
 }

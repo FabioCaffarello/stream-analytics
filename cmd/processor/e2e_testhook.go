@@ -14,9 +14,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/metrics"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 const (
@@ -27,7 +27,7 @@ const (
 	envE2EInjectJoinFixture   = "E2E_INJECT_JOIN_FIXTURE"
 	envE2EJoinInstrument      = "E2E_JOIN_INSTRUMENT"
 	envProcessorRunMode       = "RUN_MODE"
-	envProcessorMode          = "MARKET_RACCOON_MODE"
+	envProcessorMode          = "STREAM_ANALYTICS_MODE"
 	defaultProcessorProbePort = "18082"
 )
 
@@ -59,7 +59,7 @@ func newE2ERuntime(logger *slog.Logger) (*e2eRuntime, *problem.Problem) {
 		return rt, nil
 	}
 	if !hasProcessorE2ETestPosture() {
-		return nil, problem.New(problem.ValidationFailed, "E2E_TEST_MODE=1 requires RUN_MODE=test or MARKET_RACCOON_MODE=test")
+		return nil, problem.New(problem.ValidationFailed, "E2E_TEST_MODE=1 requires RUN_MODE=test or STREAM_ANALYTICS_MODE=test")
 	}
 
 	rt.transientInstrument = strings.TrimSpace(os.Getenv(envE2ETransientInstrument))

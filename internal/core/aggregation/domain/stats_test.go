@@ -3,8 +3,8 @@ package domain_test
 import (
 	"testing"
 
-	"github.com/market-raccoon/internal/core/aggregation/domain"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 func newStatsWindow(t *testing.T) *domain.StatsWindowV1 {
@@ -117,5 +117,38 @@ func TestStatsWindowV1_ApplyLiquidation_OutOfOrderDoesNotMutate(t *testing.T) {
 	if w.LiqBuyVolume != buyBefore || w.LiqTotalVolume != totalBefore || w.LiqCount != countBefore {
 		t.Fatalf("window mutated on out_of_order: before(buy=%v total=%v count=%d) after(buy=%v total=%v count=%d)",
 			buyBefore, totalBefore, countBefore, w.LiqBuyVolume, w.LiqTotalVolume, w.LiqCount)
+	}
+}
+
+func TestStatsWindowV1_Close_SetsWindowMsAndQualityFlags(t *testing.T) {
+	w := newStatsWindow(t)
+	if p := w.ApplyMarkPrice(100, 1); p != nil {
+		t.Fatalf("ApplyMarkPrice: %v", p)
+	}
+	if p := w.Close(120_000); p != nil {
+		t.Fatalf("Close: %v", p)
+	}
+	if got, want := w.WindowMs, int64(60_000); got != want {
+		t.Fatalf("window_ms=%d want=%d", got, want)
+	}
+	if w.QualityFlags&domain.StatsQualityFlagMissingLiquidation == 0 {
+		t.Fatalf("expected missing liquidation flag set, flags=%b", w.QualityFlags)
+	}
+	if w.QualityFlags&domain.StatsQualityFlagMissingFunding == 0 {
+		t.Fatalf("expected missing funding flag set, flags=%b", w.QualityFlags)
+	}
+	if w.QualityFlags&domain.StatsQualityFlagMissingMarkPrice != 0 {
+		t.Fatalf("did not expect missing mark price flag, flags=%b", w.QualityFlags)
+	}
+}
+
+func TestStatsWindowV1_SetQualityFlags_ForcedCloseBit(t *testing.T) {
+	w := newStatsWindow(t)
+	if p := w.ApplyMarkPrice(100, 1); p != nil {
+		t.Fatalf("ApplyMarkPrice: %v", p)
+	}
+	w.SetQualityFlags(true)
+	if w.QualityFlags&domain.StatsQualityFlagForcedClose == 0 {
+		t.Fatalf("expected forced close flag set, flags=%b", w.QualityFlags)
 	}
 }

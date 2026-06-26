@@ -1,20 +1,45 @@
 package deliveryruntime
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
+	"strings"
+	"time"
 
+	"github.com/FabioCaffarello/stream-analytics/internal/core/delivery/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/observability"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/ownership"
 	"github.com/anthdm/hollywood/actor"
-	"github.com/market-raccoon/internal/core/delivery/domain"
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/metrics"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // RouterConfig configures the Delivery router actor.
 type RouterConfig struct {
-	Logger        *slog.Logger
-	Timeframe     string
-	EnvelopeStore envelopeStore
+	Logger              *slog.Logger
+	Timeframe           string
+	EnvelopeStore       envelopeStore
+	StreamCoherenceMode string
+	// StreamStateTTL bounds per-stream sequence state retention.
+	// Zero or negative values default to 30m.
+	StreamStateTTL time.Duration
+	// StreamStateSweepEvery controls inactive stream-state eviction cadence.
+	// Zero or negative values default to 1m.
+	StreamStateSweepEvery time.Duration
+	// MaxActiveSessions bounds concurrent registered sessions.
+	// 0 disables the limit.
+	MaxActiveSessions int
+	// MaxStreamStateEntries bounds stream-state map entries.
+	// When exceeded, a forced sweep runs and oldest entries are evicted.
+	// 0 defaults to 50000.
+	MaxStreamStateEntries int
+	// Now overrides wall-clock access for deterministic tests.
+	// Nil defaults to time.Now.
+	Now func() time.Time
 }
 
 type envelopeStore interface {
@@ -33,12 +58,47 @@ type RouterActor struct {
 	subjectSessions map[domain.Subject]map[string]*actor.PID
 	// subjectPIDs is a pre-built slice cache for the hot fan-out path.
 	// Rebuilt from subjectSessions on subscribe/unsubscribe (cold path).
-	subjectPIDs map[domain.Subject][]*actor.PID
+	subjectPIDs           map[domain.Subject][]*actor.PID
+	streamState           map[string]*streamState
+	streamStateTTL        time.Duration
+	maxStreamStateEntries int
+	now                   func() time.Time
+	streamSweepEvery      time.Duration
+	streamSweepRepeater   *actor.SendRepeater
+	coherenceMode         string
+	seqPolicy             SeqPolicy
+	coherenceSamples      map[coherenceSampleKey]int
+	coherenceSampleDrops  int
+	coherenceSampleWindow int
 
 	engine  *actor.Engine
 	selfPID *actor.PID
 	stopped bool
 }
+
+type streamState struct {
+	lastOriginSeq           int64
+	lastOriginTsIngest      int64
+	lastProcessorInstanceID string
+	pendingResyncWatermark  int64
+	lastDeliverySeq         int64
+	lastSeenAt              time.Time
+}
+
+type routerSweepStreamState struct{}
+
+const routerInstrumentMarketTypeMetaKey = "instrument_market_type"
+const routerProcessorInstanceIDMetaKey = "processor_instance_id"
+const routerOriginMetaKey = "origin"
+const routerServerInstanceIDMetaKey = "server_instance_id"
+
+const (
+	streamCoherenceModeStickySession     = "sticky_session"
+	streamCoherenceModeUpstreamSequencer = "upstream_sequencer"
+	defaultRouterStreamStateTTL          = 30 * time.Minute
+	defaultRouterStreamStateSweepEvery   = time.Minute
+	defaultMaxStreamStateEntries         = 50000
+)
 
 func NewRouterActor(cfg RouterConfig) actor.Producer {
 	return func() actor.Receiver {
@@ -71,6 +131,8 @@ func (r *RouterActor) Receive(c *actor.Context) {
 		r.handleEnvelope(msg.Envelope)
 	case busEnvelopeMsg:
 		r.handleEnvelope(msg.Env)
+	case routerSweepStreamState:
+		r.sweepStreamState()
 	default:
 		r.logger.Warn("delivery router: unknown message", "type", fmt.Sprintf("%T", msg))
 	}
@@ -99,6 +161,47 @@ func (r *RouterActor) ensureDefaults(c *actor.Context) {
 	if r.subjectPIDs == nil {
 		r.subjectPIDs = make(map[domain.Subject][]*actor.PID)
 	}
+	if r.streamState == nil {
+		r.streamState = make(map[string]*streamState)
+		metrics.SetDeliveryRouterStreamStateEntries(0)
+		metrics.SetDeliveryRouterStreamStateActive(0)
+		metrics.SetOwnershipContractEntries("delivery", 0)
+	}
+	if r.coherenceSamples == nil {
+		r.coherenceSamples = make(map[coherenceSampleKey]int)
+	}
+	if r.streamStateTTL <= 0 {
+		r.streamStateTTL = r.cfg.StreamStateTTL
+		if r.streamStateTTL <= 0 {
+			r.streamStateTTL = defaultRouterStreamStateTTL
+		}
+	}
+	if r.streamSweepEvery <= 0 {
+		r.streamSweepEvery = r.cfg.StreamStateSweepEvery
+		if r.streamSweepEvery <= 0 {
+			r.streamSweepEvery = defaultRouterStreamStateSweepEvery
+		}
+	}
+	if r.maxStreamStateEntries <= 0 {
+		r.maxStreamStateEntries = r.cfg.MaxStreamStateEntries
+		if r.maxStreamStateEntries <= 0 {
+			r.maxStreamStateEntries = defaultMaxStreamStateEntries
+		}
+	}
+	if r.now == nil {
+		if r.cfg.Now != nil {
+			r.now = r.cfg.Now
+		} else {
+			r.now = time.Now
+		}
+	}
+	if r.coherenceMode == "" {
+		r.coherenceMode = normalizeStreamCoherenceMode(r.cfg.StreamCoherenceMode)
+		metrics.SetDeliveryRouterCoherenceMode(r.coherenceMode)
+	}
+	if r.seqPolicy == nil {
+		r.seqPolicy = newDefaultSeqPolicy()
+	}
 	if r.engine == nil && c != nil {
 		r.engine = c.Engine()
 		r.selfPID = c.PID()
@@ -108,14 +211,34 @@ func (r *RouterActor) ensureDefaults(c *actor.Context) {
 func (r *RouterActor) onStarted() {
 	if r.engine != nil && r.selfPID != nil {
 		r.engine.Subscribe(r.selfPID)
+		r.startStreamStateSweep()
+		r.sweepStreamState()
 	}
 }
 
 func (r *RouterActor) onStopped() {
 	r.stopped = true
+	r.stopStreamStateSweep()
+	r.flushCoherenceSamples()
 	if r.engine != nil && r.selfPID != nil {
 		r.engine.Unsubscribe(r.selfPID)
 	}
+}
+
+func (r *RouterActor) startStreamStateSweep() {
+	if r.streamSweepRepeater != nil || r.engine == nil || r.selfPID == nil || r.streamSweepEvery <= 0 {
+		return
+	}
+	repeater := r.engine.SendRepeat(r.selfPID, routerSweepStreamState{}, r.streamSweepEvery)
+	r.streamSweepRepeater = &repeater
+}
+
+func (r *RouterActor) stopStreamStateSweep() {
+	if r.streamSweepRepeater == nil {
+		return
+	}
+	r.streamSweepRepeater.Stop()
+	r.streamSweepRepeater = nil
 }
 
 func (r *RouterActor) onActorStopped(evt actor.ActorStoppedEvent) {
@@ -134,6 +257,15 @@ func (r *RouterActor) register(msg RegisterSession) {
 	if id == "" || msg.PID == nil {
 		return
 	}
+	// Enforce MaxActiveSessions when registering a new (not re-registering) session.
+	if _, exists := r.sessions[id]; !exists {
+		if r.cfg.MaxActiveSessions > 0 && len(r.sessions) >= r.cfg.MaxActiveSessions {
+			metrics.IncDeliveryRouterSessionsRejected()
+			r.logger.Warn("delivery router: max active sessions reached, rejecting",
+				"max", r.cfg.MaxActiveSessions, "current", len(r.sessions))
+			return
+		}
+	}
 	if previousPID, exists := r.sessions[id]; exists && previousPID != nil {
 		delete(r.sessionByPID, previousPID.String())
 	}
@@ -142,6 +274,7 @@ func (r *RouterActor) register(msg RegisterSession) {
 	if _, ok := r.sessionSubjects[id]; !ok {
 		r.sessionSubjects[id] = make(map[domain.Subject]struct{})
 	}
+	metrics.SetDeliveryRouterSessionsActive(len(r.sessions))
 }
 
 func (r *RouterActor) unregister(sessionID string) {
@@ -156,6 +289,7 @@ func (r *RouterActor) unregister(sessionID string) {
 		delete(r.sessionByPID, pid.String())
 	}
 	delete(r.sessions, sessionID)
+	metrics.SetDeliveryRouterSessionsActive(len(r.sessions))
 }
 
 func (r *RouterActor) subscribe(msg SubscribeSession) {
@@ -196,6 +330,8 @@ func (r *RouterActor) removeSessionFromSubject(sessionID string, subject domain.
 		if len(pids) == 0 {
 			delete(r.subjectSessions, subject)
 			delete(r.subjectPIDs, subject)
+			delete(r.streamState, subject.String())
+			r.syncStreamStateMetrics(-1)
 		} else {
 			r.rebuildSubjectPIDs(subject)
 		}
@@ -209,6 +345,7 @@ func (r *RouterActor) updateSubscriptionGauge() {
 		total += len(subs)
 	}
 	metrics.SetDeliveryRouterSubscriptionsActive(total)
+	observability.SetTerminalWSSubscriptionsActive(int64(total))
 }
 
 // rebuildSubjectPIDs rebuilds the fan-out slice cache for a subject
@@ -233,34 +370,368 @@ func (r *RouterActor) handleEnvelope(env envelope.Envelope) {
 	if r.stopped {
 		return
 	}
+	_, span := otel.Tracer("stream-analytics.delivery.router").Start(context.Background(), "router.handle_envelope")
+	span.SetAttributes(
+		attribute.String("event.type", env.Type),
+		attribute.String("event.venue", env.Venue),
+		attribute.String("event.instrument", env.Instrument),
+		attribute.Int64("event.seq", env.Seq),
+	)
+	defer span.End()
 	if p := domain.ValidateEnvelopeForDelivery(env); p != nil {
 		metrics.IncDeliveryRouterEventsRejected("contract_policy")
 		r.logger.Warn("delivery router: envelope rejected by contract policy", "err", p)
+		span.SetAttributes(attribute.Bool("event.rejected", true))
 		return
 	}
 	if r.cfg.EnvelopeStore != nil {
 		r.cfg.EnvelopeStore.StoreEnvelope(env)
 	}
-	timeframe := r.cfg.Timeframe
-	if tf, ok := env.Meta["timeframe"]; ok && tf != "" {
-		timeframe = tf
-	}
-	if timeframe == "" {
-		timeframe = domain.DefaultTimeframe
-	}
+	timeframe := routingTimeframeForEnvelope(r.cfg.Timeframe, env)
 	subject, p := domain.SubjectFromEnvelope(env, timeframe)
 	if p != nil {
 		metrics.IncDeliveryRouterEventsRejected("invalid_subject")
 		r.logger.Warn("delivery router: invalid envelope subject", "err", p)
 		return
 	}
+	aliasSubject, hasAlias := routingMarketTypeAliasSubject(subject, env)
 	targets := r.subjectPIDs[subject]
-	if len(targets) == 0 {
+	aliasTargets := []*actor.PID(nil)
+	if hasAlias {
+		aliasTargets = r.subjectPIDs[aliasSubject]
+	}
+	wildcardSubject := domain.Subject{}
+	wildcardTargets := []*actor.PID(nil)
+	if subject.IsSignal() {
+		if wild, wp := domain.NewSignalSubject("*", subject.Venue, subject.Symbol, subject.Timeframe); wp == nil && wild != subject {
+			wildcardSubject = wild
+			wildcardTargets = r.subjectPIDs[wild]
+		}
+	}
+	if len(targets) == 0 && len(aliasTargets) == 0 && len(wildcardTargets) == 0 {
 		return
 	}
-	metrics.IncDeliveryRouterEventsRouted()
-	evt := DeliveryEvent{Subject: subject, Env: env}
-	for _, pid := range targets {
-		r.engine.Send(pid, evt)
+	if len(targets) > 0 {
+		if ok, reason := r.acceptStreamSeq(subject.String(), env); !ok {
+			metrics.IncDeliveryRouterEventsRejected(reason)
+			return
+		}
 	}
+	if len(aliasTargets) > 0 {
+		if ok, reason := r.acceptStreamSeq(aliasSubject.String(), env); !ok {
+			metrics.IncDeliveryRouterEventsRejected(reason)
+			return
+		}
+	}
+	if len(wildcardTargets) > 0 {
+		if ok, reason := r.acceptStreamSeq(wildcardSubject.String(), env); !ok {
+			metrics.IncDeliveryRouterEventsRejected(reason)
+			return
+		}
+	}
+	metrics.IncDeliveryRouterEventsRouted()
+	sent := map[string]struct{}(nil)
+	if len(targets)+len(aliasTargets)+len(wildcardTargets) > 1 {
+		sent = make(map[string]struct{}, len(targets)+len(aliasTargets)+len(wildcardTargets))
+	}
+	primaryEnv := env
+	primaryEnv.Seq = r.nextDeliverySeq(subject.String())
+	for _, pid := range targets {
+		if sent != nil && pid != nil {
+			sent[pid.String()] = struct{}{}
+		}
+		r.engine.Send(pid, DeliveryEvent{Subject: subject, Env: primaryEnv})
+	}
+	aliasEnv := env
+	aliasSeqAssigned := false
+	for _, pid := range aliasTargets {
+		if pid == nil {
+			continue
+		}
+		if sent != nil {
+			if _, exists := sent[pid.String()]; exists {
+				continue
+			}
+			sent[pid.String()] = struct{}{}
+		}
+		if !aliasSeqAssigned {
+			aliasEnv.Seq = r.nextDeliverySeq(aliasSubject.String())
+			aliasSeqAssigned = true
+		}
+		r.engine.Send(pid, DeliveryEvent{Subject: aliasSubject, Env: aliasEnv})
+	}
+	wildcardEnv := env
+	wildcardSeqAssigned := false
+	for _, pid := range wildcardTargets {
+		if pid == nil {
+			continue
+		}
+		if sent != nil {
+			if _, exists := sent[pid.String()]; exists {
+				continue
+			}
+			sent[pid.String()] = struct{}{}
+		}
+		if !wildcardSeqAssigned {
+			wildcardEnv.Seq = r.nextDeliverySeq(wildcardSubject.String())
+			wildcardSeqAssigned = true
+		}
+		r.engine.Send(pid, DeliveryEvent{Subject: wildcardSubject, Env: wildcardEnv})
+	}
+}
+
+func (r *RouterActor) acceptStreamSeq(streamID string, env envelope.Envelope) (bool, string) {
+	streamID = strings.TrimSpace(streamID)
+	if streamID == "" {
+		metrics.IncDeliveryRouterCoherenceViolation("seq_invalid", coherenceReasonUnknown)
+		return false, "seq_invalid"
+	}
+	seq := env.Seq
+	if seq <= 0 {
+		metrics.IncDeliveryRouterCoherenceViolation("seq_invalid", coherenceReasonUnknown)
+		return false, "seq_invalid"
+	}
+	now := r.now()
+	state, ok := r.streamState[streamID]
+	if !ok || state == nil {
+		if len(r.streamState) >= r.maxStreamStateEntries {
+			r.sweepStreamState()
+			if len(r.streamState) >= r.maxStreamStateEntries {
+				r.evictOldestStreamState()
+			}
+		}
+		state = &streamState{}
+		r.streamState[streamID] = state
+		r.syncStreamStateMetrics(-1)
+	}
+	state.lastSeenAt = now
+	candidateOwner := processorInstanceIDFromMeta(env.Meta)
+	if candidateOwner == "" {
+		candidateOwner = deliveryOwnershipToken(streamID)
+	}
+	decision := r.seqPolicy.Decide(seqPolicyInput{
+		streamKey:              streamID,
+		eventType:              env.Type,
+		candidateSeq:           seq,
+		candidateTsIngest:      env.TsIngest,
+		lastSeq:                state.lastOriginSeq,
+		lastTsIngest:           state.lastOriginTsIngest,
+		candidateProcessorID:   candidateOwner,
+		lastProcessorID:        state.lastProcessorInstanceID,
+		handoffWatermarkSeq:    handoffWatermarkFromMeta(env.Meta),
+		pendingResyncWatermark: state.pendingResyncWatermark,
+	})
+	if decision.action == seqPolicyActionAccept {
+		state.lastOriginSeq = seq
+		if env.TsIngest > 0 {
+			state.lastOriginTsIngest = env.TsIngest
+		}
+		if candidateOwner != "" {
+			state.lastProcessorInstanceID = candidateOwner
+		}
+		if state.pendingResyncWatermark > 0 && seq > state.pendingResyncWatermark {
+			state.pendingResyncWatermark = 0
+		}
+		return true, ""
+	}
+	if decision.action == seqPolicyActionConvertToResync && decision.resyncWatermark > state.pendingResyncWatermark {
+		state.pendingResyncWatermark = decision.resyncWatermark
+	}
+	if decision.duplicate {
+		metrics.IncOwnershipContractDuplicate("delivery")
+	}
+	if decision.outOfOrder {
+		metrics.IncOwnershipContractOutOfOrder("delivery")
+	}
+	if decision.violationType != "" {
+		metrics.IncDeliveryRouterCoherenceViolation(decision.violationType, decision.coherenceReason)
+	}
+	sampleReason := decision.coherenceReason
+	if sampleReason == "" {
+		sampleReason = coherenceReasonUnknown
+	}
+	r.recordCoherenceSample(coherenceSampleKey{
+		streamKey:    streamID,
+		lastSeq:      state.lastOriginSeq,
+		candidateSeq: seq,
+		reason:       sampleReason,
+		owner:        candidateOwner,
+		instance:     instanceIDForLog(env.Meta),
+		origin:       originFromMeta(env.Meta),
+	})
+	rejectReason := strings.TrimSpace(decision.rejectReason)
+	if rejectReason == "" {
+		rejectReason = "seq_non_monotonic"
+	}
+	return false, rejectReason
+}
+
+func (r *RouterActor) nextDeliverySeq(streamID string) int64 {
+	streamID = strings.TrimSpace(streamID)
+	if streamID == "" {
+		return 0
+	}
+	now := r.now()
+	state, ok := r.streamState[streamID]
+	if !ok || state == nil {
+		state = &streamState{}
+		r.streamState[streamID] = state
+	}
+	next := state.lastDeliverySeq + 1
+	if next <= 0 {
+		next = 1
+	}
+	state.lastDeliverySeq = next
+	state.lastSeenAt = now
+	return next
+}
+
+func (r *RouterActor) sweepStreamState() {
+	if len(r.streamState) == 0 {
+		r.syncStreamStateMetrics(0)
+		return
+	}
+	now := r.now()
+	active := 0
+	evicted := 0
+	for streamID, state := range r.streamState {
+		if state == nil || state.lastSeenAt.IsZero() || now.Sub(state.lastSeenAt) > r.streamStateTTL {
+			delete(r.streamState, streamID)
+			evicted++
+			continue
+		}
+		active++
+	}
+	r.syncStreamStateMetrics(active)
+	if evicted > 0 {
+		metrics.AddDeliveryRouterStreamStateEvicted(evicted)
+		metrics.IncOwnershipContractEvicted("delivery", "ttl")
+	}
+}
+
+func (r *RouterActor) evictOldestStreamState() {
+	var oldestID string
+	var oldestTime time.Time
+	for id, state := range r.streamState {
+		if state == nil {
+			delete(r.streamState, id)
+			metrics.AddDeliveryRouterStreamStateEvicted(1)
+			metrics.IncOwnershipContractEvicted("delivery", "unknown")
+			r.syncStreamStateMetrics(-1)
+			return
+		}
+		if oldestID == "" || state.lastSeenAt.Before(oldestTime) {
+			oldestID = id
+			oldestTime = state.lastSeenAt
+		}
+	}
+	if oldestID != "" {
+		delete(r.streamState, oldestID)
+		metrics.AddDeliveryRouterStreamStateEvicted(1)
+		metrics.IncOwnershipContractEvicted("delivery", "size")
+		r.syncStreamStateMetrics(-1)
+	}
+}
+
+func (r *RouterActor) syncStreamStateMetrics(active int) {
+	entries := len(r.streamState)
+	if active < 0 {
+		active = entries
+	}
+	if active > entries {
+		active = entries
+	}
+	metrics.SetDeliveryRouterStreamStateEntries(entries)
+	metrics.SetDeliveryRouterStreamStateActive(active)
+	metrics.SetOwnershipContractEntries("delivery", entries)
+}
+
+func routingTimeframeForEnvelope(defaultTimeframe string, env envelope.Envelope) string {
+	timeframe := strings.TrimSpace(defaultTimeframe)
+	if timeframe == "" {
+		timeframe = domain.DefaultTimeframe
+	}
+	if !allowEnvelopeTimeframeOverride(env.Type) {
+		return timeframe
+	}
+	if len(env.Meta) == 0 {
+		return timeframe
+	}
+	if tf := strings.TrimSpace(env.Meta["timeframe"]); tf != "" {
+		return strings.ToLower(tf)
+	}
+	return timeframe
+}
+
+func allowEnvelopeTimeframeOverride(eventType string) bool {
+	// Timeframe-qualified streams honour envelope Meta["timeframe"] so that
+	// clients can subscribe to a specific TF (e.g. /1m) and only receive
+	// events for that window.  Raw marketdata (trade, bookdelta) is always
+	// routed on DefaultTimeframe ("raw") because those streams have no TF.
+	et := strings.ToLower(strings.TrimSpace(eventType))
+	switch {
+	case strings.HasPrefix(et, "insights."),
+		strings.HasPrefix(et, "evidence."):
+		return true
+	case et == "aggregation.candle",
+		et == "aggregation.stats",
+		et == "aggregation.tape",
+		et == "aggregation.oi",
+		et == "aggregation.delta_volume",
+		et == "aggregation.cvd",
+		et == "aggregation.bar_stats":
+		return true
+	case et == "signal.composite", et == "signal.event":
+		return true
+	default:
+		return false
+	}
+}
+
+func routingMarketTypeAliasSubject(primary domain.Subject, env envelope.Envelope) (domain.Subject, bool) {
+	if len(env.Meta) == 0 {
+		return domain.Subject{}, false
+	}
+	marketType := strings.ToUpper(strings.TrimSpace(env.Meta[routerInstrumentMarketTypeMetaKey]))
+	if marketType == "" {
+		return domain.Subject{}, false
+	}
+	symbol := strings.TrimSpace(env.Instrument)
+	if symbol == "" {
+		return domain.Subject{}, false
+	}
+	if !strings.Contains(symbol, ":") {
+		symbol = symbol + ":" + marketType
+	}
+	alias, p := domain.NewSubject(primary.StreamType, primary.Venue, symbol, primary.Timeframe)
+	if p != nil || alias == primary {
+		return domain.Subject{}, false
+	}
+	return alias, true
+}
+
+func normalizeStreamCoherenceMode(raw string) string {
+	mode := strings.ToLower(strings.TrimSpace(raw))
+	switch mode {
+	case "", streamCoherenceModeStickySession:
+		return streamCoherenceModeStickySession
+	case streamCoherenceModeUpstreamSequencer:
+		return streamCoherenceModeUpstreamSequencer
+	default:
+		return "unknown"
+	}
+}
+
+func deliveryOwnershipToken(streamID string) string {
+	parts := strings.SplitN(strings.TrimSpace(streamID), "/", 4)
+	if len(parts) != 4 {
+		return ""
+	}
+	key := ownership.StreamKey{
+		Channel:    parts[0],
+		Venue:      parts[1],
+		Instrument: parts[2],
+		Timeframe:  parts[3],
+	}
+	return strconv.FormatUint(ownership.ShardKey(ownership.SubsystemDelivery, key), 10)
 }

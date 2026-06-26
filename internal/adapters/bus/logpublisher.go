@@ -1,4 +1,4 @@
-// Package bus provides EventPublisher adapters for the market-raccoon event bus.
+// Package bus provides EventPublisher adapters for the stream-analytics event bus.
 //
 // v1 ships two adapters:
 //   - LogPublisher: writes every envelope to a slog.Logger (development / debugging).
@@ -16,8 +16,8 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 // LogPublisher logs every published envelope via slog at DEBUG level.

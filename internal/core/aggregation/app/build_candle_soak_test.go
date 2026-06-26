@@ -8,7 +8,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/market-raccoon/internal/core/aggregation/app"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/app"
 )
 
 func TestBuildCandle_Soak_HighCardinality(t *testing.T) {

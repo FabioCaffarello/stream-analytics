@@ -1,7 +1,7 @@
 // Package result provides a typed success/failure result container.
 package result
 
-import "github.com/market-raccoon/internal/shared/problem"
+import "github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 
 // Result is a discriminated union: either a value T or a Problem.
 // It is never both and never neither.

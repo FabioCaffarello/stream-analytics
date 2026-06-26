@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/market-raccoon/internal/core/aggregation/app"
-	"github.com/market-raccoon/internal/core/aggregation/domain"
-	"github.com/market-raccoon/internal/shared/clock"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/app"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/clock"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 type fakeStatsStore struct {
@@ -31,6 +31,7 @@ func newStatsUC(maxWindows int) (*app.BuildStatsFromEvents, *fakePublisher, *fak
 	store := &fakeStatsStore{}
 	uc := app.NewBuildStatsFromEvents(pub, store, app.BuildStatsConfig{
 		MaxWindows: maxWindows,
+		WindowCap:  96,
 		WindowTTL:  time.Hour,
 		Clock:      clock.NewFakeClock(time.Unix(0, 0)),
 	})
@@ -45,7 +46,7 @@ func TestBuildStats_WindowClose_EmitsStatsClosed(t *testing.T) {
 		t.Fatalf("Execute #1: %v", p)
 	}
 	resp, p := uc.Execute(context.Background(), app.BuildStatsRequest{
-		Venue: "binance", Instrument: "BTCUSDT", Kind: app.StatsInputMarkPrice, MarkPrice: 101, Seq: 2, TsIngest: 60_001,
+		Venue: "binance", Instrument: "BTCUSDT", Kind: app.StatsInputMarkPrice, MarkPrice: 101, Seq: 2, TsIngest: 1_001,
 	})
 	if p != nil {
 		t.Fatalf("Execute #2: %v", p)
@@ -53,8 +54,14 @@ func TestBuildStats_WindowClose_EmitsStatsClosed(t *testing.T) {
 	if len(resp.Closed) == 0 {
 		t.Fatal("expected at least one closed stats window")
 	}
-	if resp.Closed[0].Stats.Timeframe != "1m" {
-		t.Fatalf("closed timeframe=%s want=1m", resp.Closed[0].Stats.Timeframe)
+	if resp.Closed[0].Stats.Timeframe != "1s" {
+		t.Fatalf("closed timeframe=%s want=1s", resp.Closed[0].Stats.Timeframe)
+	}
+	if resp.Closed[0].Stats.WindowMs != 1_000 {
+		t.Fatalf("window_ms=%d want=1000", resp.Closed[0].Stats.WindowMs)
+	}
+	if resp.Closed[0].Stats.TsIngestMs != 1 {
+		t.Fatalf("ts_ingest_ms=%d want=1", resp.Closed[0].Stats.TsIngestMs)
 	}
 	if len(pub.stats) == 0 || len(store.events) == 0 {
 		t.Fatalf("expected publish+store side effects, got pub=%d store=%d", len(pub.stats), len(store.events))
@@ -147,7 +154,7 @@ func TestBuildStats_MixedInputs_CloseAllTimeframes_CrossSourceConsistency(t *tes
 			Instrument: "BTCUSDT",
 			Kind:       app.StatsInputMarkPrice,
 			Seq:        2,
-			TsIngest:   10_000,
+			TsIngest:   500,
 			MarkPrice:  100.0,
 		},
 		{
@@ -155,11 +162,11 @@ func TestBuildStats_MixedInputs_CloseAllTimeframes_CrossSourceConsistency(t *tes
 			Instrument:  "BTCUSDT",
 			Kind:        app.StatsInputFundingRate,
 			Seq:         3,
-			TsIngest:    20_000,
+			TsIngest:    900,
 			FundingRate: 0.0002,
 		},
 		{
-			// Rolls all open windows (1m/5m/15m/30m/1h/4h/1d).
+			// Rolls all open windows (1s/5s/1m/5m/15m/30m/1h/4h/1d).
 			Venue:      "binance",
 			Instrument: "BTCUSDT",
 			Kind:       app.StatsInputMarkPrice,
@@ -223,7 +230,73 @@ func assertStatsWindowValues(t *testing.T, s domain.StatsWindowV1) {
 	if s.FundingRateAvg != 0.0002 || s.FundingRateLast != 0.0002 {
 		t.Fatalf("timeframe=%s unexpected funding: avg=%f last=%f", s.Timeframe, s.FundingRateAvg, s.FundingRateLast)
 	}
+	if s.WindowMs <= 0 {
+		t.Fatalf("timeframe=%s expected positive window_ms, got=%d", s.Timeframe, s.WindowMs)
+	}
+	if s.TsIngestMs <= 0 {
+		t.Fatalf("timeframe=%s expected positive ts_ingest_ms, got=%d", s.Timeframe, s.TsIngestMs)
+	}
+	if s.QualityFlags != 0 {
+		t.Fatalf("timeframe=%s expected quality_flags=0 when all inputs are present, got=%d", s.Timeframe, s.QualityFlags)
+	}
 	if !s.IsClosed {
 		t.Fatalf("timeframe=%s expected closed window", s.Timeframe)
 	}
+}
+
+func TestBuildStats_GapEventDriven_NoSyntheticWindowClosures(t *testing.T) {
+	uc, _, _ := newStatsUC(1_000)
+	if _, p := uc.Execute(context.Background(), app.BuildStatsRequest{
+		Venue: "binance", Instrument: "BTCUSDT", Kind: app.StatsInputMarkPrice, MarkPrice: 100, Seq: 1, TsIngest: 1,
+	}); p != nil {
+		t.Fatalf("Execute #1: %v", p)
+	}
+
+	resp, p := uc.Execute(context.Background(), app.BuildStatsRequest{
+		Venue: "binance", Instrument: "BTCUSDT", Kind: app.StatsInputMarkPrice, MarkPrice: 101, Seq: 2, TsIngest: 86_400_001,
+	})
+	if p != nil {
+		t.Fatalf("Execute #2: %v", p)
+	}
+
+	if got, want := len(resp.Closed), len(domain.AllowedStatsTimeframes); got != want {
+		t.Fatalf("closed windows=%d want=%d (event-driven, no synthetic empty-window closes)", got, want)
+	}
+	if got := countClosedStatsByTimeframe(resp.Closed, "1s"); got != 1 {
+		t.Fatalf("1s close count=%d want=1", got)
+	}
+}
+
+func TestBuildStats_LateArrivalDropped(t *testing.T) {
+	uc, _, _ := newStatsUC(1_000)
+
+	if _, p := uc.Execute(context.Background(), app.BuildStatsRequest{
+		Venue: "binance", Instrument: "BTCUSDT", Kind: app.StatsInputMarkPrice, MarkPrice: 100, Seq: 1, TsIngest: 60_000,
+	}); p != nil {
+		t.Fatalf("Execute #1: %v", p)
+	}
+	if _, p := uc.Execute(context.Background(), app.BuildStatsRequest{
+		Venue: "binance", Instrument: "BTCUSDT", Kind: app.StatsInputMarkPrice, MarkPrice: 101, Seq: 2, TsIngest: 120_000,
+	}); p != nil {
+		t.Fatalf("Execute #2: %v", p)
+	}
+	resp, p := uc.Execute(context.Background(), app.BuildStatsRequest{
+		Venue: "binance", Instrument: "BTCUSDT", Kind: app.StatsInputMarkPrice, MarkPrice: 99, Seq: 3, TsIngest: 60_000,
+	})
+	if p != nil {
+		t.Fatalf("Execute late: %v", p)
+	}
+	if len(resp.Closed) != 0 {
+		t.Fatalf("late arrival should not close windows, got %d closed", len(resp.Closed))
+	}
+}
+
+func countClosedStatsByTimeframe(closed []domain.StatsWindowClosed, timeframe string) int {
+	count := 0
+	for i := range closed {
+		if closed[i].Stats.Timeframe == timeframe {
+			count++
+		}
+	}
+	return count
 }

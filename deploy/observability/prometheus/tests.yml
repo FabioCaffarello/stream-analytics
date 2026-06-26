@@ -17,9 +17,9 @@ tests:
   # for: 2m → alert is active at eval_time=3m (condition true since t=0).
   - interval: 1m
     input_series:
-      - series: 'slo:ingest:burn_rate_5m{service="market-raccoon",stream="bookdelta",venue="binance"}'
+      - series: 'slo:ingest:burn_rate_5m{service="stream-analytics",stream="bookdelta",venue="binance"}'
         values: "20+0x4"
-      - series: 'slo:ingest:burn_rate_1h{service="market-raccoon",stream="bookdelta",venue="binance"}'
+      - series: 'slo:ingest:burn_rate_1h{service="stream-analytics",stream="bookdelta",venue="binance"}'
         values: "20+0x4"
     alert_rule_test:
       - eval_time: 3m
@@ -27,7 +27,7 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: page
-              service: market-raccoon
+              service: stream-analytics
               slo: ingest
               stream: bookdelta
               venue: binance
@@ -41,7 +41,7 @@ tests:
   # and MUST fire at 16m (sustained ≥ 15m). Validates noise-reduction fix.
   - interval: 1m
     input_series:
-      - series: 'slo:data_loss:drop_rate_5m{service="market-raccoon",stream="all",venue="all"}'
+      - series: 'slo:data_loss:drop_rate_5m{service="stream-analytics",stream="all",venue="all"}'
         values: "0.001+0x17"
     alert_rule_test:
       - eval_time: 14m
@@ -52,7 +52,7 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: ticket
-              service: market-raccoon
+              service: stream-analytics
               slo: data_loss
               stream: all
               venue: all
@@ -65,7 +65,7 @@ tests:
   # ColdPathCommitErrorsNonZero: same policy — no page at 14m, ticket at 16m.
   - interval: 1m
     input_series:
-      - series: 'slo:data_loss:cold_commit_errors_rate_5m{service="market-raccoon",stream="all",venue="all"}'
+      - series: 'slo:data_loss:cold_commit_errors_rate_5m{service="stream-analytics",stream="all",venue="all"}'
         values: "0.001+0x17"
     alert_rule_test:
       - eval_time: 14m
@@ -76,7 +76,7 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: ticket
-              service: market-raccoon
+              service: stream-analytics
               slo: data_loss
               stream: all
               venue: all
@@ -90,9 +90,9 @@ tests:
   # but the 1h window stays below the threshold (conjunction guard).
   - interval: 1m
     input_series:
-      - series: 'slo:ingest:burn_rate_5m{service="market-raccoon",stream="bookdelta",venue="binance"}'
+      - series: 'slo:ingest:burn_rate_5m{service="stream-analytics",stream="bookdelta",venue="binance"}'
         values: "20+0x4"
-      - series: 'slo:ingest:burn_rate_1h{service="market-raccoon",stream="bookdelta",venue="binance"}'
+      - series: 'slo:ingest:burn_rate_1h{service="stream-analytics",stream="bookdelta",venue="binance"}'
         values: "5+0x4"
     alert_rule_test:
       - eval_time: 3m
@@ -105,9 +105,9 @@ tests:
   # Both series are recording-rule outputs injected directly.
   - interval: 1m
     input_series:
-      - series: 'slo:consumer_lag:deriv_5m{service="market-raccoon"}'
+      - series: 'slo:consumer_lag:deriv_5m{service="stream-analytics"}'
         values: "5+0x10"
-      - series: 'slo:store:commit_rate_ok_5m{service="market-raccoon"}'
+      - series: 'slo:store:commit_rate_ok_5m{service="stream-analytics"}'
         values: "0+0x10"
     alert_rule_test:
       - eval_time: 4m
@@ -118,7 +118,7 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: page
-              service: market-raccoon
+              service: stream-analytics
               slo: store
             exp_annotations:
               summary: "Consumer lag growing with zero commits"
@@ -130,9 +130,9 @@ tests:
   # even if lag derivative is positive (lag catching up is normal).
   - interval: 1m
     input_series:
-      - series: 'slo:consumer_lag:deriv_5m{service="market-raccoon"}'
+      - series: 'slo:consumer_lag:deriv_5m{service="stream-analytics"}'
         values: "2+0x10"
-      - series: 'slo:store:commit_rate_ok_5m{service="market-raccoon"}'
+      - series: 'slo:store:commit_rate_ok_5m{service="stream-analytics"}'
         values: "5+0x10"
     alert_rule_test:
       - eval_time: 7m
@@ -154,7 +154,7 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: ticket
-              service: market-raccoon
+              service: stream-analytics
               slo: runtime
             exp_annotations:
               summary: "Goroutine count is abnormally high"
@@ -176,7 +176,7 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: ticket
-              service: market-raccoon
+              service: stream-analytics
               slo: runtime
             exp_annotations:
               summary: "Heap allocation is high"
@@ -204,7 +204,7 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: ticket
-              service: market-raccoon
+              service: stream-analytics
               slo: store
             exp_annotations:
               summary: "Store commit latency p95 exceeds 1s"
@@ -216,9 +216,9 @@ tests:
   # for: 5m → alert fires at eval_time=7m (condition true since t=0).
   - interval: 1m
     input_series:
-      - series: 'slo:ingest:burn_rate_30m{service="market-raccoon",stream="bookdelta",venue="binance"}'
+      - series: 'slo:ingest:burn_rate_30m{service="stream-analytics",stream="bookdelta",venue="binance"}'
         values: "10+0x10"
-      - series: 'slo:ingest:burn_rate_6h{service="market-raccoon",stream="bookdelta",venue="binance"}'
+      - series: 'slo:ingest:burn_rate_6h{service="stream-analytics",stream="bookdelta",venue="binance"}'
         values: "10+0x10"
     alert_rule_test:
       - eval_time: 4m
@@ -229,7 +229,7 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: ticket
-              service: market-raccoon
+              service: stream-analytics
               slo: ingest
               stream: bookdelta
               venue: binance
@@ -243,9 +243,9 @@ tests:
   # but 6h stays below (conjunction guard).
   - interval: 1m
     input_series:
-      - series: 'slo:ingest:burn_rate_30m{service="market-raccoon",stream="bookdelta",venue="binance"}'
+      - series: 'slo:ingest:burn_rate_30m{service="stream-analytics",stream="bookdelta",venue="binance"}'
         values: "10+0x10"
-      - series: 'slo:ingest:burn_rate_6h{service="market-raccoon",stream="bookdelta",venue="binance"}'
+      - series: 'slo:ingest:burn_rate_6h{service="stream-analytics",stream="bookdelta",venue="binance"}'
         values: "3+0x10"
     alert_rule_test:
       - eval_time: 7m
@@ -257,9 +257,9 @@ tests:
   # exceed 14.4. for: 2m → fires at eval_time=3m.
   - interval: 1m
     input_series:
-      - series: 'slo:delivery_latency:burn_rate_5m{service="market-raccoon",stream="ws",venue="binance"}'
+      - series: 'slo:delivery_latency:burn_rate_5m{service="stream-analytics",stream="ws",venue="binance"}'
         values: "20+0x5"
-      - series: 'slo:delivery_latency:burn_rate_1h{service="market-raccoon",stream="ws",venue="binance"}'
+      - series: 'slo:delivery_latency:burn_rate_1h{service="stream-analytics",stream="ws",venue="binance"}'
         values: "20+0x5"
     alert_rule_test:
       - eval_time: 3m
@@ -267,7 +267,7 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: page
-              service: market-raccoon
+              service: stream-analytics
               slo: delivery_latency
               stream: ws
               venue: binance
@@ -280,9 +280,9 @@ tests:
   # SLODeliveryLatencyBurnRateFast must NOT fire when 1h is below threshold.
   - interval: 1m
     input_series:
-      - series: 'slo:delivery_latency:burn_rate_5m{service="market-raccoon",stream="ws",venue="binance"}'
+      - series: 'slo:delivery_latency:burn_rate_5m{service="stream-analytics",stream="ws",venue="binance"}'
         values: "20+0x5"
-      - series: 'slo:delivery_latency:burn_rate_1h{service="market-raccoon",stream="ws",venue="binance"}'
+      - series: 'slo:delivery_latency:burn_rate_1h{service="stream-analytics",stream="ws",venue="binance"}'
         values: "5+0x5"
     alert_rule_test:
       - eval_time: 3m
@@ -294,9 +294,9 @@ tests:
   # for: 5m → fires at eval_time=7m.
   - interval: 1m
     input_series:
-      - series: 'slo:delivery_latency:burn_rate_30m{service="market-raccoon",stream="ws",venue="binance"}'
+      - series: 'slo:delivery_latency:burn_rate_30m{service="stream-analytics",stream="ws",venue="binance"}'
         values: "10+0x10"
-      - series: 'slo:delivery_latency:burn_rate_6h{service="market-raccoon",stream="ws",venue="binance"}'
+      - series: 'slo:delivery_latency:burn_rate_6h{service="stream-analytics",stream="ws",venue="binance"}'
         values: "10+0x10"
     alert_rule_test:
       - eval_time: 4m
@@ -307,7 +307,7 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: ticket
-              service: market-raccoon
+              service: stream-analytics
               slo: delivery_latency
               stream: ws
               venue: binance
@@ -321,9 +321,9 @@ tests:
   # for: 2m → fires at eval_time=3m.
   - interval: 1m
     input_series:
-      - series: 'slo:data_loss:burn_rate_5m{service="market-raccoon",stream="all",venue="all"}'
+      - series: 'slo:data_loss:burn_rate_5m{service="stream-analytics",stream="all",venue="all"}'
         values: "20+0x5"
-      - series: 'slo:data_loss:burn_rate_1h{service="market-raccoon",stream="all",venue="all"}'
+      - series: 'slo:data_loss:burn_rate_1h{service="stream-analytics",stream="all",venue="all"}'
         values: "20+0x5"
     alert_rule_test:
       - eval_time: 3m
@@ -331,7 +331,7 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: page
-              service: market-raccoon
+              service: stream-analytics
               slo: data_loss
               stream: all
               venue: all
@@ -344,9 +344,9 @@ tests:
   # SLODataLossBurnRateFast must NOT fire when 1h is below threshold.
   - interval: 1m
     input_series:
-      - series: 'slo:data_loss:burn_rate_5m{service="market-raccoon",stream="all",venue="all"}'
+      - series: 'slo:data_loss:burn_rate_5m{service="stream-analytics",stream="all",venue="all"}'
         values: "20+0x5"
-      - series: 'slo:data_loss:burn_rate_1h{service="market-raccoon",stream="all",venue="all"}'
+      - series: 'slo:data_loss:burn_rate_1h{service="stream-analytics",stream="all",venue="all"}'
         values: "5+0x5"
     alert_rule_test:
       - eval_time: 3m
@@ -358,9 +358,9 @@ tests:
   # for: 5m → fires at eval_time=7m.
   - interval: 1m
     input_series:
-      - series: 'slo:data_loss:burn_rate_30m{service="market-raccoon",stream="all",venue="all"}'
+      - series: 'slo:data_loss:burn_rate_30m{service="stream-analytics",stream="all",venue="all"}'
         values: "10+0x10"
-      - series: 'slo:data_loss:burn_rate_6h{service="market-raccoon",stream="all",venue="all"}'
+      - series: 'slo:data_loss:burn_rate_6h{service="stream-analytics",stream="all",venue="all"}'
         values: "10+0x10"
     alert_rule_test:
       - eval_time: 4m
@@ -371,7 +371,7 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: ticket
-              service: market-raccoon
+              service: stream-analytics
               slo: data_loss
               stream: all
               venue: all

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/market-raccoon/internal/shared/config"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/config"
 )
 
 var shardOrdinalSuffixPattern = regexp.MustCompile(`-(\d+)$`)
@@ -103,6 +103,23 @@ func ApplyShardOverrides(cfg *config.AppConfig, flagIndex, flagCount int) {
 				"reason", "unable to read hostname",
 			)
 		}
+	}
+
+	if mode == runtimeEnvDev &&
+		cfg.Shard.Count > 1 &&
+		cfg.Shard.Index >= cfg.Shard.Count &&
+		cfg.Shard.Index >= 0 &&
+		indexSource == "hostname" {
+		original := cfg.Shard.Index
+		cfg.Shard.Index = cfg.Shard.Index % cfg.Shard.Count
+		slog.Warn("shard index normalized in dev",
+			"shard_index_source", indexSource,
+			"hostname", resolvedHost,
+			"original_shard_index", original,
+			"normalized_shard_index", cfg.Shard.Index,
+			"shard_count", cfg.Shard.Count,
+			"reason", "derived compose container ordinal exceeded shard_count after replica recreation",
+		)
 	}
 
 	if v := os.Getenv("SHARD_MAX_LAG"); v != "" {

@@ -1,6 +1,9 @@
 package metrics
 
 import (
+	"fmt"
+	"hash/fnv"
+	"math"
 	"regexp"
 	"runtime"
 	"strings"
@@ -8,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/market-raccoon/internal/shared/observability"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/observability"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -19,6 +22,45 @@ const (
 	statusOutOfOrder       = "out_of_order"
 	statusValidationFailed = "validation_failed"
 	policyKitLatencyEveryN = uint64(8)
+)
+
+const (
+	statsQualityFlagMissingLiquidationMask uint32 = 1 << iota
+	statsQualityFlagMissingMarkPriceMask
+	statsQualityFlagMissingFundingMask
+	statsQualityFlagForcedCloseMask
+)
+
+const (
+	oiQualityFlagSeqInvalidMask uint32 = 1 << iota
+	oiQualityFlagOpenInterestInvalidMask
+)
+
+const (
+	barStatsQualityFlagTradeCountInvalidMask uint32 = 1 << iota
+	barStatsQualityFlagTotalVolumeInvalidMask
+	barStatsQualityFlagSeqInvalidMask
+)
+
+const (
+	tapeQualityFlagEmptyWindowMask uint32 = 1 << iota
+	tapeQualityFlagWindowBoundsInvalidMask
+	tapeQualityFlagLastSeqInvalidMask
+	tapeQualityFlagLastPriceInvalidMask
+	tapeQualityFlagTotalVolumeInvalidMask
+)
+
+const (
+	evidenceQualityFlagMissingExplainMask uint32 = 1 << iota
+	evidenceQualityFlagMissingFeaturesMask
+	evidenceQualityFlagConfidenceInvalidMask
+)
+
+const (
+	signalQualityFlagMissingExplainMask uint32 = 1 << iota
+	signalQualityFlagMissingCorrelationIDsMask
+	signalQualityFlagMissingEvidenceLinkMask
+	signalQualityFlagConfidenceInvalidMask
 )
 
 var (
@@ -42,6 +84,33 @@ var (
 			Name: "ingest_streams_active",
 			Help: "Number of active ingest streams held in memory.",
 		},
+	)
+	CanonicalizationErrorsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "canonicalization_errors_total",
+			Help: "Total canonicalization errors by venue and reason.",
+		},
+		[]string{"venue", "reason"},
+	)
+	CanonicalEventsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "canonical_events_total",
+			Help: "Total canonical events produced by channel and venue.",
+		},
+		[]string{"channel", "venue"},
+	)
+	CanonicalStateEntries = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "canonical_state_entries",
+			Help: "Current number of canonical per-stream state entries.",
+		},
+	)
+	CanonicalStateEvictedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "canonical_state_evicted_total",
+			Help: "Total canonical per-stream state evictions by reason.",
+		},
+		[]string{"reason"},
 	)
 
 	BackpressureQueueDepth = prometheus.NewGaugeVec(
@@ -209,6 +278,12 @@ var (
 			Help: "Current outbound websocket queue depth across delivery sessions.",
 		},
 	)
+	WSQueueLen = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "ws_queue_len",
+			Help: "Current outbound websocket queue length across delivery sessions.",
+		},
+	)
 	WSDropsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "ws_drops_total",
@@ -216,18 +291,147 @@ var (
 		},
 		[]string{"reason"},
 	)
+	WSDroppedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ws_dropped_total",
+			Help: "Total dropped websocket outbound events by reason, channel, and priority.",
+		},
+		[]string{"reason", "channel", "priority"},
+	)
+	WSCompressAppliedTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "ws_compress_applied_total",
+			Help: "Total websocket outbound frames where compression was applied.",
+		},
+	)
+	WSCompressBytesInTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "ws_compress_bytes_in_total",
+			Help: "Total uncompressed websocket outbound bytes considered for compression.",
+		},
+	)
+	WSCompressBytesOutTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "ws_compress_bytes_out_total",
+			Help: "Total compressed websocket outbound bytes after compression.",
+		},
+	)
+	WSBatchFramesTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "ws_batch_frames_total",
+			Help: "Total websocket batched frames emitted.",
+		},
+	)
+	WSBatchEventsTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "ws_batch_events_total",
+			Help: "Total websocket events emitted inside batched frames.",
+		},
+	)
+	WSBatchFallbackEventsTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "ws_batch_fallback_events_total",
+			Help: "Total websocket events that fell back to single-frame writes after batch candidacy.",
+		},
+	)
+	WSMessagesOutTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ws_messages_out_total",
+			Help: "Total websocket outbound messages by channel.",
+		},
+		[]string{"channel"},
+	)
+	WSBytesOutTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ws_bytes_out_total",
+			Help: "Total websocket outbound bytes by channel.",
+		},
+		[]string{"channel"},
+	)
+	WSWireBytes = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "ws_wire_bytes",
+			Help:    "Websocket frame wire bytes by channel (post-compression estimate).",
+			Buckets: []float64{64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144},
+		},
+		[]string{"channel"},
+	)
 	WSSendLatencyMilliseconds = prometheus.NewHistogram(
 		prometheus.HistogramOpts{
 			Name:    "ws_send_latency_ms",
-			Help:    "Latency in milliseconds for websocket event frame writes.",
+			Help:    "(DEPRECATED; remove-by=2026-06-30: use ws_send_latency_seconds) Latency in milliseconds for websocket event frame writes.",
 			Buckets: []float64{0.1, 0.5, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000},
 		},
+	)
+	WSSendLatencySeconds = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "ws_send_latency_seconds",
+			Help:    "Latency in seconds for websocket event frame writes.",
+			Buckets: []float64{0.0001, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1},
+		},
+	)
+	WSPublishToDeliverLatencyMilliseconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "ws_publish_to_deliver_latency_ms",
+			Help:    "(DEPRECATED; remove-by=2026-06-30: use ws_publish_to_deliver_latency_seconds) Latency in milliseconds from event publish(ts_ingest) to websocket delivery.",
+			Buckets: []float64{0.5, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2000, 5000},
+		},
+		[]string{"channel"},
+	)
+	WSPublishToDeliverLatencySeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "ws_publish_to_deliver_latency_seconds",
+			Help:    "Latency in seconds from event publish(ts_ingest) to websocket delivery.",
+			Buckets: []float64{0.0005, 0.001, 0.002, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5},
+		},
+		[]string{"channel"},
+	)
+	WSLagMilliseconds = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "ws_lag_ms",
+			Help: "(DEPRECATED; remove-by=2026-06-30: use ws_lag_seconds) Current websocket delivery lag in milliseconds by channel.",
+		},
+		[]string{"channel"},
+	)
+	WSLagSeconds = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "ws_lag_seconds",
+			Help: "Current websocket delivery lag in seconds by channel.",
+		},
+		[]string{"channel"},
 	)
 	WSClientsConnected = prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "ws_clients_connected",
 			Help: "Connected websocket delivery clients.",
 		},
+	)
+	WSClientsConnectedByMode = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "ws_clients_connected_by_mode",
+			Help: "Connected websocket delivery clients by route compatibility mode.",
+		},
+		[]string{"mode"},
+	)
+	WSClientsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ws_clients_total",
+			Help: "Total websocket client connections accepted by route compatibility mode.",
+		},
+		[]string{"mode"},
+	)
+	WSSubscriptionsActive = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "ws_subscriptions_active",
+			Help: "Active websocket subscriptions across all sessions.",
+		},
+	)
+	WSControlFramesTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ws_control_frames_total",
+			Help: "Total websocket control frames sent by frame type.",
+		},
+		[]string{"type"},
 	)
 	WSQueryTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -242,6 +446,96 @@ var (
 			Help: "Total rejected websocket read-path queries by reason.",
 		},
 		[]string{"reason"},
+	)
+	WSLimitRejectionsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ws_limit_rejections_total",
+			Help: "Total websocket rejections caused by explicit session limits.",
+		},
+		[]string{"type"},
+	)
+	WSEffectiveLimits = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "ws_effective_limits",
+			Help: "Effective websocket session limits after tenant/global resolution.",
+		},
+		[]string{"limit_name"},
+	)
+	WSSerializeErrorsTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "serialize_errors_total",
+			Help: "Total websocket serialization/transcoding errors.",
+		},
+	)
+	WSAuthFailTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "auth_fail_total",
+			Help: "Total websocket authentication/authorization failures.",
+		},
+	)
+	WSResyncTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "resync_total",
+			Help: "Total websocket resync requests handled.",
+		},
+	)
+	WSResyncRejectedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ws_resync_rejected_total",
+			Help: "Total websocket resync requests rejected by reason.",
+		},
+		[]string{"reason"},
+	)
+	WSContractViolationsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ws_contract_violations_total",
+			Help: "Total websocket contract violations fixed/rejected by reason.",
+		},
+		[]string{"reason"},
+	)
+
+	// F5: backpressure introspection gauges.
+	WSBackpressureLevel = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "ws_backpressure_level",
+			Help: "Current session backpressure level (0=ok, 1=elevated, 2=high, 3=critical).",
+		},
+	)
+	WSQueueHighWatermark = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "ws_queue_high_watermark",
+			Help: "Peak queue depth since last metrics emission.",
+		},
+	)
+
+	// F6: tenant-labeled metrics.
+	WSTenantDropsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ws_tenant_drops_total",
+			Help: "Total dropped messages by tenant and reason.",
+		},
+		[]string{"tenant_id", "reason"},
+	)
+	WSTenantQueueDepth = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "ws_tenant_queue_depth",
+			Help: "Current queue depth by tenant.",
+		},
+		[]string{"tenant_id"},
+	)
+	WSTenantConnectionsActive = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "ws_tenant_connections_active",
+			Help: "Active connections by tenant.",
+		},
+		[]string{"tenant_id"},
+	)
+	WSTenantMessagesOutTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ws_tenant_messages_out_total",
+			Help: "Total outbound messages by tenant and channel.",
+		},
+		[]string{"tenant_id", "channel"},
 	)
 
 	GuardianRestartsTotal = prometheus.NewCounterVec(
@@ -298,6 +592,270 @@ var (
 			Help: "Number of active order books held in memory.",
 		},
 	)
+	MROrderBookLevelsTotal = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "mr_orderbook_levels_total",
+			Help: "Current order book levels by bounded instrument bucket and side.",
+		},
+		[]string{"venue", "instrument_bucket", "side"},
+	)
+	MROrderBookSpreadBPS = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "mr_orderbook_spread_bps",
+			Help: "Current order book spread in bps by bounded instrument bucket.",
+		},
+		[]string{"venue", "instrument_bucket"},
+	)
+	MROrderBookUpdateDurationSeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mr_orderbook_update_duration_seconds",
+			Help:    "Latency in seconds for order book apply operations.",
+			Buckets: []float64{0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05},
+		},
+		[]string{"venue"},
+	)
+	MROrderBookPruneTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_orderbook_prune_total",
+			Help: "Total pruned order book levels due to cap enforcement.",
+		},
+		[]string{"venue", "instrument_bucket"},
+	)
+	MROrderBookCrossedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_orderbook_crossed_total",
+			Help: "Total crossed-book detections.",
+		},
+		[]string{"venue", "instrument_bucket"},
+	)
+	MROrderBookStaleTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_orderbook_stale_total",
+			Help: "Total stale (out-of-order) order book deltas.",
+		},
+		[]string{"venue", "instrument_bucket"},
+	)
+	MROrderBookBadLevelTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_orderbook_bad_level_total",
+			Help: "Total rejected order book levels by bounded reason.",
+		},
+		[]string{"venue", "instrument_bucket", "reason"},
+	)
+	MROrderBookGapTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_orderbook_gap_total",
+			Help: "Total detected sequence gaps between consecutive accepted updates.",
+		},
+		[]string{"venue", "instrument_bucket"},
+	)
+	MROrderBookDropsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_orderbook_drops_total",
+			Help: "Total dropped/rejected order book updates by reason.",
+		},
+		[]string{"venue", "instrument_bucket", "reason"},
+	)
+	MROrderBookStaleDurationSeconds = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "mr_orderbook_stale_duration_seconds",
+			Help: "Seconds since last successful update per bounded instrument bucket.",
+		},
+		[]string{"venue", "instrument_bucket"},
+	)
+	MROrderBookPublishDepth = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mr_orderbook_publish_depth",
+			Help:    "Published snapshot depth per side.",
+			Buckets: []float64{5, 10, 25, 50, 100, 200, 500, 1000},
+		},
+		[]string{"venue", "side"},
+	)
+	MROrderBookWireBytes = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mr_orderbook_wire_bytes",
+			Help:    "Encoded orderbook snapshot frame size in bytes.",
+			Buckets: []float64{256, 512, 1024, 2048, 4096, 8192, 16384, 32768},
+		},
+		[]string{"venue"},
+	)
+	MROrderBookChecksumMismatchTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_orderbook_checksum_mismatch_total",
+			Help: "Total checksum mismatches observed for repeated snapshot sequence numbers.",
+		},
+		[]string{"venue", "instrument_bucket"},
+	)
+	MRTradeBadValueTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_trade_bad_value_total",
+			Help: "Total trades rejected by data-quality validation, by venue and reason.",
+		},
+		[]string{"venue", "reason"},
+	)
+	MRTradeOutOfOrderTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_trade_out_of_order_total",
+			Help: "Total out-of-order trades detected per venue/instrument.",
+		},
+		[]string{"venue", "instrument_bucket"},
+	)
+	MRTradeDuplicateTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_trade_duplicate_total",
+			Help: "Total duplicate trades dropped per venue.",
+		},
+		[]string{"venue"},
+	)
+	MRTradeIngestTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_trade_ingest_total",
+			Help: "Total trades successfully ingested per venue.",
+		},
+		[]string{"venue"},
+	)
+	MRTradeLatencySeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mr_trade_latency_seconds",
+			Help:    "Latency from exchange timestamp to MR ingest, per venue.",
+			Buckets: []float64{0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5},
+		},
+		[]string{"venue"},
+	)
+	MRTradeWireBytes = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mr_trade_wire_bytes",
+			Help:    "Encoded trade event frame size in bytes.",
+			Buckets: []float64{64, 128, 256, 512, 1024},
+		},
+		[]string{"venue", "channel"},
+	)
+	MRTapeWireBytes = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mr_tape_wire_bytes",
+			Help:    "Encoded tape window payload size in bytes.",
+			Buckets: []float64{128, 256, 512, 1024, 2048, 4096, 8192},
+		},
+		[]string{"venue", "timeframe_bucket"},
+	)
+	MRTapeQualityFlagsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_tape_quality_flags_total",
+			Help: "Total observed tape quality flags by bounded venue/instrument/timeframe and flag.",
+		},
+		[]string{"venue", "instrument_bucket", "timeframe_bucket", "flag"},
+	)
+	MRStatsWireBytes = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mr_stats_wire_bytes",
+			Help:    "Encoded stats window frame size in bytes.",
+			Buckets: []float64{128, 256, 512, 1024, 2048, 4096, 8192},
+		},
+		[]string{"venue", "timeframe_bucket"},
+	)
+	MRStatsQualityFlagsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_stats_quality_flags_total",
+			Help: "Total observed stats quality flags by bounded venue/instrument/timeframe and flag.",
+		},
+		[]string{"venue", "instrument_bucket", "timeframe_bucket", "flag"},
+	)
+	MROIWireBytes = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mr_oi_wire_bytes",
+			Help:    "Encoded open-interest window frame size in bytes.",
+			Buckets: []float64{64, 128, 256, 512, 1024, 2048},
+		},
+		[]string{"venue"},
+	)
+	MROIQualityFlagsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_oi_quality_flags_total",
+			Help: "Total observed open-interest quality flags by bounded venue/instrument and flag.",
+		},
+		[]string{"venue", "instrument_bucket", "flag"},
+	)
+	MRDeltaVolumeWireBytes = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mr_delta_volume_wire_bytes",
+			Help:    "Encoded delta-volume window frame size in bytes.",
+			Buckets: []float64{64, 128, 256, 512, 1024, 2048},
+		},
+		[]string{"venue", "timeframe_bucket"},
+	)
+	MRCVDWireBytes = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mr_cvd_wire_bytes",
+			Help:    "Encoded CVD window frame size in bytes.",
+			Buckets: []float64{64, 128, 256, 512, 1024, 2048},
+		},
+		[]string{"venue", "timeframe_bucket"},
+	)
+	MRBarStatsWireBytes = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mr_bar_stats_wire_bytes",
+			Help:    "Encoded bar-stats window frame size in bytes.",
+			Buckets: []float64{128, 256, 512, 1024, 2048, 4096},
+		},
+		[]string{"venue", "timeframe_bucket"},
+	)
+	MRBarStatsQualityFlagsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_bar_stats_quality_flags_total",
+			Help: "Total observed bar-stats quality flags by bounded venue/instrument/timeframe and flag.",
+		},
+		[]string{"venue", "instrument_bucket", "timeframe_bucket", "flag"},
+	)
+	MRWindowOpenTotal = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "mr_window_open_total",
+			Help: "Current open event-time windows by bounded partition.",
+		},
+		[]string{"venue", "instrument_bucket", "timeframe_bucket"},
+	)
+	MRWindowLateArrivalTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_window_late_arrival_total",
+			Help: "Total late-arrival events dropped by watermark policy.",
+		},
+		[]string{"venue", "instrument_bucket", "timeframe_bucket"},
+	)
+	MRWindowForceCloseTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_window_force_close_total",
+			Help: "Total forced window closes triggered by hard cap.",
+		},
+		[]string{"venue", "instrument_bucket", "timeframe_bucket"},
+	)
+	MRXVenueSpreadBPS = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "mr_xvenue_spread_bps",
+			Help: "Current cross-venue best-spread in bps by bounded instrument bucket.",
+		},
+		[]string{"instrument_bucket"},
+	)
+	MRXVenueDivergenceBPS = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "mr_xvenue_divergence_bps",
+			Help: "Current cross-venue spread divergence in bps by bounded instrument bucket.",
+		},
+		[]string{"instrument_bucket"},
+	)
+	MRXVenueMergeDurationSeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mr_xvenue_merge_duration_seconds",
+			Help:    "Latency in seconds for cross-venue merge operations.",
+			Buckets: []float64{0.00001, 0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05},
+		},
+		[]string{"instrument_bucket"},
+	)
+	MRXVenueVenuesActive = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "mr_xvenue_venues_active",
+			Help: "Number of active (non-stale) venues in cross-venue merge by instrument bucket.",
+		},
+		[]string{"instrument_bucket"},
+	)
 	StreamsEvictedTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "streams_evicted_total",
@@ -329,6 +887,329 @@ var (
 		prometheus.CounterOpts{
 			Name: "insights_state_evictions_total",
 			Help: "Total cross-venue join cache evictions by reason.",
+		},
+		[]string{"reason"},
+	)
+	EvidenceEmittedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "evidence_emitted_total",
+			Help: "Total liquidity evidence events emitted by type, severity, and venue.",
+		},
+		[]string{"type", "severity", "venue"},
+	)
+	EvidenceDroppedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "evidence_dropped_total",
+			Help: "Total liquidity evidence events dropped by deterministic reason.",
+		},
+		[]string{"reason"},
+	)
+	EvidenceStateEntries = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "evidence_state_entries",
+			Help: "Number of active per-stream evidence state entries.",
+		},
+	)
+	EvidenceStateEvictedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "evidence_state_evicted_total",
+			Help: "Total per-stream evidence state evictions by reason.",
+		},
+		[]string{"reason"},
+	)
+	EvidenceEvalLatencySeconds = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "evidence_eval_latency_seconds",
+			Help:    "Deterministic evaluation latency derived from canonical event ts_server deltas.",
+			Buckets: []float64{0, 0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5},
+		},
+	)
+	LELEvidenceEmittedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "lel_evidence_emitted_total",
+			Help: "Total LEL v1 evidence events emitted by type, severity, and venue.",
+		},
+		[]string{"type", "severity", "venue"},
+	)
+	LELEvidenceDroppedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "lel_evidence_dropped_total",
+			Help: "Total LEL v1 evidence events dropped by deterministic reason.",
+		},
+		[]string{"reason"},
+	)
+	LELStateEntries = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "lel_state_entries",
+			Help: "Current active stream entries tracked by LEL state store.",
+		},
+	)
+	LELStateEvictedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "lel_state_evicted_total",
+			Help: "Total LEL state-store evictions by reason.",
+		},
+		[]string{"reason"},
+	)
+	LELEvalLatencySeconds = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "lel_eval_latency_seconds",
+			Help:    "LEL rule evaluation latency derived from deterministic ts deltas.",
+			Buckets: []float64{0, 0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5},
+		},
+	)
+	LELInputProcessedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "lel_input_processed_total",
+			Help: "Total LEL input events processed by kind.",
+		},
+		[]string{"kind"},
+	)
+	LELWireBudgetBytes = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "lel_wire_budget_bytes",
+			Help:    "Serialized liquidity.evidence payload size in bytes by evidence type.",
+			Buckets: []float64{64, 128, 256, 512, 1024, 2048, 4096, 8192},
+		},
+		[]string{"type"},
+	)
+	EvidenceWireBytes = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "evidence_wire_bytes",
+			Help:    "Encoded canonical evidence payload size in bytes by evidence type.",
+			Buckets: []float64{64, 128, 256, 512, 1024, 2048, 4096, 8192},
+		},
+		[]string{"type"},
+	)
+	EvidenceQualityFlagsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "evidence_quality_flags_total",
+			Help: "Total observed canonical evidence quality flags by type and flag.",
+		},
+		[]string{"type", "flag"},
+	)
+	EvidenceEngineEventsTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "evidence_engine_events_total",
+			Help: "Total events processed by the evidence engine.",
+		},
+	)
+	EvidenceBufferEntries = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "evidence_buffer_entries",
+			Help: "Current number of buffered evidence events by kind.",
+		},
+		[]string{"kind"},
+	)
+	EvidenceBufferOverwritesTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "evidence_buffer_overwrites_total",
+			Help: "Total evidence buffer overwrites (ring replacement) by kind.",
+		},
+		[]string{"kind"},
+	)
+	MRRegimeCurrent = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "mr_regime_current",
+			Help: "Current active regime one-hot gauge by bounded venue/instrument/timeframe and regime kind.",
+		},
+		[]string{"venue", "instrument_bucket", "timeframe_bucket", "kind"},
+	)
+	MRRegimeStrength = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "mr_regime_strength",
+			Help: "Current regime strength by bounded venue/instrument/timeframe.",
+		},
+		[]string{"venue", "instrument_bucket", "timeframe_bucket"},
+	)
+	MRRegimeTransitionTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_regime_transition_total",
+			Help: "Total regime transitions by bounded venue/instrument/timeframe and transition pair.",
+		},
+		[]string{"venue", "instrument_bucket", "timeframe_bucket", "from", "to"},
+	)
+	MRRegimeDetectionDurationSeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mr_regime_detection_duration_seconds",
+			Help:    "Detection window duration in seconds for regime classification.",
+			Buckets: []float64{1, 5, 10, 30, 60, 300, 900, 3600},
+		},
+		[]string{"venue", "instrument_bucket", "timeframe_bucket"},
+	)
+	MRSignalEmittedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_signal_emitted_total",
+			Help: "Total composed signals emitted by kind, bounded venue/instrument bucket and severity.",
+		},
+		[]string{"kind", "venue", "instrument_bucket", "severity"},
+	)
+	MRSignalDeduplicatedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_signal_deduplicated_total",
+			Help: "Total composed signals dropped by dedup policy.",
+		},
+		[]string{"kind", "venue", "instrument_bucket"},
+	)
+	MRSignalRateLimitedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_signal_rate_limited_total",
+			Help: "Total composed signals dropped by per-key or global rate limits.",
+		},
+		[]string{"venue", "instrument_bucket"},
+	)
+	MRSignalCompositionDurationSeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mr_signal_composition_duration_seconds",
+			Help:    "Deterministic composition span in seconds (cross-venue correlation span).",
+			Buckets: []float64{0, 0.001, 0.01, 0.1, 0.5, 1, 2, 5},
+		},
+		[]string{"kind"},
+	)
+	MRSignalConfidenceDistribution = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mr_signal_confidence_distribution",
+			Help:    "Composed signal confidence distribution by kind.",
+			Buckets: []float64{0, 0.1, 0.2, 0.4, 0.6, 0.8, 0.9, 0.95, 0.99, 1},
+		},
+		[]string{"kind"},
+	)
+	MRSignalCorrelationHitTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_signal_correlation_hit_total",
+			Help: "Total signals where cross-venue confirmation rule fired.",
+		},
+		[]string{"kind"},
+	)
+	MRSignalRegimeBoostTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_signal_regime_boost_total",
+			Help: "Total signals where regime boost rule fired by signal/regime kind.",
+		},
+		[]string{"kind", "regime"},
+	)
+	MRSignalWSDeliveredTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_signal_ws_delivered_total",
+			Help: "Total signal frames delivered to websocket clients.",
+		},
+		[]string{"kind", "venue", "instrument_bucket"},
+	)
+	MRSignalWSSubscriptionRejectedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mr_signal_ws_subscription_rejected_total",
+			Help: "Total rejected signal subscriptions by reason.",
+		},
+		[]string{"reason"},
+	)
+	MRSignalWSSubscriptionsActive = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "mr_signal_ws_subscriptions_active",
+			Help: "Current active signal websocket subscriptions across sessions.",
+		},
+	)
+	SignalEmittedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "signal_emitted_total",
+			Help: "Total emitted canonical signal events by type and severity.",
+		},
+		[]string{"type", "severity"},
+	)
+	SignalEmitTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "signal_emit_total",
+			Help: "Total emitted canonical signal events by type and severity.",
+		},
+		[]string{"type", "severity"},
+	)
+	SignalStateEntries = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "signal_state_entries",
+			Help: "Current number of signal state entries.",
+		},
+	)
+	SignalEvictedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "signal_evicted_total",
+			Help: "Total signal state evictions by reason.",
+		},
+		[]string{"reason"},
+	)
+	SignalDropTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "signal_drop_total",
+			Help: "Total signal events dropped before emit by deterministic reason.",
+		},
+		[]string{"reason"},
+	)
+	OwnershipContractEntries = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "ownership_contract_entries",
+			Help: "Current number of ownership-contract stream-state entries per subsystem.",
+		},
+		[]string{"subsystem"},
+	)
+	OwnershipContractEvictedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ownership_contract_evicted_total",
+			Help: "Total ownership-contract stream-state evictions by subsystem and reason.",
+		},
+		[]string{"subsystem", "reason"},
+	)
+	OwnershipContractDuplicateTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ownership_contract_duplicate_total",
+			Help: "Total ownership-contract duplicate rejections by subsystem.",
+		},
+		[]string{"subsystem"},
+	)
+	OwnershipContractOutOfOrderTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ownership_contract_out_of_order_total",
+			Help: "Total ownership-contract out-of-order/watermark regressions by subsystem.",
+		},
+		[]string{"subsystem"},
+	)
+	SignalEvalLatencySeconds = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "signal_eval_latency_seconds",
+			Help:    "Deterministic signal evaluation span in seconds.",
+			Buckets: []float64{0.0001, 0.001, 0.01, 0.05, 0.1, 0.5, 1, 2, 5},
+		},
+	)
+	SignalDedupTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "signal_dedup_total",
+			Help: "Total deduplicated signal events by type.",
+		},
+		[]string{"type"},
+	)
+	SignalWireBytes = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "signal_wire_bytes",
+			Help:    "Encoded canonical signal event payload size in bytes.",
+			Buckets: []float64{128, 256, 512, 1024, 2048, 4096, 8192, 16384},
+		},
+		[]string{"type"},
+	)
+	SignalQualityFlagsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "signal_quality_flags_total",
+			Help: "Total observed canonical signal quality flags by type and flag.",
+		},
+		[]string{"type", "flag"},
+	)
+	SignalLELAdaptedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "signal_lel_adapted_total",
+			Help: "Total liquidity.evidence events adapted into signal evidence inputs.",
+		},
+		[]string{"lel_type"},
+	)
+	SignalLELAdaptErrorsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "signal_lel_adapt_errors_total",
+			Help: "Total liquidity.evidence adaptation errors by reason.",
 		},
 		[]string{"reason"},
 	)
@@ -379,11 +1260,11 @@ var (
 			Help: "Total VPVR writer deduplicated upsert operations.",
 		},
 	)
-	VPVRWriterUpsertLatencyMilliseconds = prometheus.NewHistogram(
+	VPVRWriterUpsertLatencySeconds = prometheus.NewHistogram(
 		prometheus.HistogramOpts{
-			Name:    "vpvr_writer_upsert_latency_ms",
-			Help:    "Latency in milliseconds for VPVR writer upsert operations.",
-			Buckets: []float64{0, 0.1, 0.5, 1, 2, 5, 10, 25, 50, 100, 250, 500},
+			Name:    "vpvr_writer_upsert_latency_seconds",
+			Help:    "Latency in seconds for VPVR writer upsert operations.",
+			Buckets: []float64{0, 0.0001, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5},
 		},
 	)
 	VPVRWriterWriteFailTotal = prometheus.NewCounterVec(
@@ -421,11 +1302,11 @@ var (
 			Buckets: []float64{0, 0.1, 0.2, 0.25, 0.33, 0.5, 0.66, 0.75, 0.9, 1.0},
 		},
 	)
-	VPVRProcessingLatencyMilliseconds = prometheus.NewHistogram(
+	VPVRProcessingLatencySeconds = prometheus.NewHistogram(
 		prometheus.HistogramOpts{
-			Name:    "vpvr_processing_latency_ms",
-			Help:    "Latency in milliseconds observed for VPVR processing in emit path.",
-			Buckets: []float64{0, 0.1, 0.5, 1, 2, 5, 10, 25, 50, 100, 250, 500},
+			Name:    "vpvr_processing_latency_seconds",
+			Help:    "Latency in seconds observed for VPVR processing in emit path.",
+			Buckets: []float64{0, 0.0001, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5},
 		},
 	)
 	PolicyKitOverloadLevel = prometheus.NewGaugeVec(
@@ -456,19 +1337,19 @@ var (
 		},
 		[]string{"stream"},
 	)
-	PolicyKitLatencyMilliseconds = prometheus.NewHistogramVec(
+	PolicyKitLatencySeconds = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "policykit_latency_ms",
-			Help:    "Latency in milliseconds for PolicyKit decision+apply path.",
-			Buckets: []float64{0, 0.05, 0.1, 0.5, 1, 2, 5, 10, 25, 50, 100, 250},
+			Name:    "policykit_latency_seconds",
+			Help:    "Latency in seconds for PolicyKit decision+apply path.",
+			Buckets: []float64{0, 0.00005, 0.0001, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25},
 		},
 		[]string{"stream"},
 	)
-	HeatmapBuildLatencyMilliseconds = prometheus.NewHistogramVec(
+	HeatmapBuildLatencySeconds = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "heatmap_build_latency_ms",
-			Help:    "Latency in milliseconds to build one heatmap artifact window.",
-			Buckets: []float64{0.1, 0.5, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000},
+			Name:    "heatmap_build_latency_seconds",
+			Help:    "Latency in seconds to build one heatmap artifact window.",
+			Buckets: []float64{0.0001, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1},
 		},
 		[]string{"venue", "instrument_bucket", "timeframe_bucket"},
 	)
@@ -724,6 +1605,24 @@ var (
 			Help: "Total active subject subscriptions across all delivery sessions.",
 		},
 	)
+	DeliveryWSSnapshotCacheEntries = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "delivery_ws_snapshot_cache_entries",
+			Help: "Total entries currently stored in bounded websocket snapshot cache.",
+		},
+	)
+	DeliveryWSSnapshotCacheHits = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "delivery_ws_snapshot_cache_hits_total",
+			Help: "Total cache hits in bounded websocket snapshot cache.",
+		},
+	)
+	DeliveryWSSnapshotCacheMisses = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "delivery_ws_snapshot_cache_misses_total",
+			Help: "Total cache misses in bounded websocket snapshot cache.",
+		},
+	)
 	DeliveryRouterEventsRoutedTotal = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "delivery_router_events_routed_total",
@@ -737,6 +1636,124 @@ var (
 		},
 		[]string{"reason"},
 	)
+	DeliveryRouterCoherenceMode = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "delivery_router_coherence_mode",
+			Help: "Active delivery router stream coherence mode. Value is always 1 for active mode.",
+		},
+		[]string{"mode"},
+	)
+	DeliveryRouterCoherenceViolationsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "delivery_router_coherence_violations_total",
+			Help: "Total stream coherence violations detected by the delivery router.",
+		},
+		[]string{"type", "reason"},
+	)
+	DeliveryRouterStreamStateEntries = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "router_stream_state_entries",
+			Help: "Current number of delivery router stream-state entries.",
+		},
+	)
+	DeliveryRouterStreamStateEvictedTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "delivery_router_stream_state_evicted_total",
+			Help: "Total delivery router stream-state entries evicted by TTL sweeps or hard-cap eviction.",
+		},
+	)
+	DeliveryRouterStreamStateActiveTotal = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "router_stream_state_active_total",
+			Help: "Current number of active delivery router stream states observed during sweep.",
+		},
+	)
+	DeliveryRouterSessionsActive = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "delivery_router_sessions_active",
+			Help: "Current number of active sessions registered with the delivery router.",
+		},
+	)
+	DeliveryRouterSessionsRejectedTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "delivery_router_sessions_rejected_total",
+			Help: "Total sessions rejected by MaxActiveSessions cap.",
+		},
+	)
+	WSQueueCapacity = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "ws_queue_capacity",
+			Help: "Configured outbound websocket queue capacity per session.",
+		},
+	)
+	DeliveryRangeAliasFallbackTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "delivery_range_alias_fallback_total",
+			Help: "Total delivery getrange alias fallback attempts by outcome.",
+		},
+		[]string{"outcome"},
+	)
+
+	// ── Legacy strangler metrics ─────────────────────────────────────────
+
+	// ── Transcode cache observability ────────────────────────────────────
+
+	TranscodeCacheEntries = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "transcode_cache_entries",
+			Help: "Current entries in the proto-to-JSON transcode cache.",
+		},
+	)
+	TranscodeCacheHits = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "transcode_cache_hits",
+			Help: "Cumulative transcode cache hits.",
+		},
+	)
+	TranscodeCacheMisses = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "transcode_cache_misses",
+			Help: "Cumulative transcode cache misses.",
+		},
+	)
+
+	WSLegacyRequestsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "ws_legacy_requests_total",
+			Help: "Total /ws/marketdata legacy route requests by status (accepted/rejected).",
+		},
+		[]string{"status"},
+	)
+
+	// S51: SLO runtime evaluator metrics.
+	SLOBreachActive = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "slo_breach_active",
+			Help: "Whether an SLO is currently in breach (0=ok, 1=breached).",
+		},
+		[]string{"name"},
+	)
+	SLOErrorBudgetRemainingRatio = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "slo_error_budget_remaining_ratio",
+			Help: "Remaining error budget as a ratio (0.0-1.0).",
+		},
+		[]string{"name"},
+	)
+	SLOBurnRateFast = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "slo_burn_rate_fast",
+			Help: "Current fast burn rate for SLO.",
+		},
+		[]string{"name"},
+	)
+	SLOBurnRateSlow = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "slo_burn_rate_slow",
+			Help: "Current slow burn rate for SLO.",
+		},
+		[]string{"name"},
+	)
 )
 
 var (
@@ -744,36 +1761,63 @@ var (
 	gcMu         sync.Mutex
 	lastNumGC    uint32
 	samplerMu    sync.Map
+	signalWSSubs atomic.Int64
 
-	venuePattern            = regexp.MustCompile(`^[a-z0-9_\-]{1,24}$`)
-	eventTypePattern        = regexp.MustCompile(`^[a-z0-9_.]{1,64}$`)
-	policyPattern           = regexp.MustCompile(`^[a-z_]{1,32}$`)
-	kindPattern             = regexp.MustCompile(`^[a-z0-9_]{1,48}$`)
-	busTypePattern          = regexp.MustCompile(`^[a-z0-9_]{1,24}$`)
-	busStatusPattern        = regexp.MustCompile(`^[a-z_]{1,24}$`)
-	instrumentBucketAliases = map[string]string{
-		"btc":   "btc",
-		"xbt":   "btc",
-		"eth":   "eth",
-		"usdt":  "stable",
-		"usdc":  "stable",
-		"dai":   "stable",
-		"fdusd": "stable",
-		"bnb":   "major",
-		"sol":   "major",
-		"xrp":   "major",
-		"ada":   "major",
-		"doge":  "major",
-		"dot":   "major",
-		"avax":  "major",
+	venuePattern          = regexp.MustCompile(`^[a-z0-9_\-]{1,24}$`)
+	eventTypePattern      = regexp.MustCompile(`^[a-z0-9_.]{1,64}$`)
+	policyPattern         = regexp.MustCompile(`^[a-z_]{1,32}$`)
+	kindPattern           = regexp.MustCompile(`^[a-z0-9_]{1,48}$`)
+	busTypePattern        = regexp.MustCompile(`^[a-z0-9_]{1,24}$`)
+	busStatusPattern      = regexp.MustCompile(`^[a-z_]{1,24}$`)
+	instrumentBucketRules = []struct {
+		alias  string
+		bucket string
+	}{
+		{alias: "btc", bucket: "btc"},
+		{alias: "xbt", bucket: "btc"},
+		{alias: "eth", bucket: "eth"},
+		{alias: "bnb", bucket: "major"},
+		{alias: "sol", bucket: "major"},
+		{alias: "xrp", bucket: "major"},
+		{alias: "ada", bucket: "major"},
+		{alias: "doge", bucket: "major"},
+		{alias: "dot", bucket: "major"},
+		{alias: "avax", bucket: "major"},
+		{alias: "usdt", bucket: "stable"},
+		{alias: "usdc", bucket: "stable"},
+		{alias: "dai", bucket: "stable"},
+		{alias: "fdusd", bucket: "stable"},
 	}
 	timeframeAllowedBuckets = map[string]struct{}{
+		"1s":  {},
+		"5s":  {},
 		"1m":  {},
 		"5m":  {},
 		"15m": {},
+		"30m": {},
 		"1h":  {},
 		"4h":  {},
 		"1d":  {},
+	}
+	regimeAllowedKinds = []string{
+		"trending",
+		"ranging",
+		"breakout",
+		"high_volatility",
+		"low_volatility",
+		"unknown",
+	}
+	tenantLabelPolicy = struct {
+		mu                    sync.RWMutex
+		includeTenantLabel    bool
+		whitelist             map[string]struct{}
+		fallback              string
+		hashBucketCardinality uint32
+	}{
+		includeTenantLabel:    true,
+		whitelist:             nil,
+		fallback:              "unknown",
+		hashBucketCardinality: 64,
 	}
 )
 
@@ -787,6 +1831,10 @@ func registerAll() {
 			IngestMessagesTotal,
 			IngestLatencySeconds,
 			IngestStreamsActive,
+			CanonicalizationErrorsTotal,
+			CanonicalEventsTotal,
+			CanonicalStateEntries,
+			CanonicalStateEvictedTotal,
 			BackpressureQueueDepth,
 			BackpressureDropsTotal,
 			BusPublishedTotal,
@@ -810,11 +1858,44 @@ func registerAll() {
 			WSMessagesReceivedTotal,
 			WSErrorsTotal,
 			WSQueueDepth,
+			WSQueueLen,
 			WSDropsTotal,
+			WSDroppedTotal,
+			WSCompressAppliedTotal,
+			WSCompressBytesInTotal,
+			WSCompressBytesOutTotal,
+			WSBatchFramesTotal,
+			WSBatchEventsTotal,
+			WSBatchFallbackEventsTotal,
+			WSMessagesOutTotal,
+			WSBytesOutTotal,
+			WSWireBytes,
 			WSSendLatencyMilliseconds,
+			WSSendLatencySeconds,
+			WSPublishToDeliverLatencyMilliseconds,
+			WSPublishToDeliverLatencySeconds,
+			WSLagMilliseconds,
+			WSLagSeconds,
 			WSClientsConnected,
+			WSClientsConnectedByMode,
+			WSClientsTotal,
+			WSSubscriptionsActive,
+			WSControlFramesTotal,
 			WSQueryTotal,
 			WSQueryRejectedTotal,
+			WSLimitRejectionsTotal,
+			WSEffectiveLimits,
+			WSSerializeErrorsTotal,
+			WSAuthFailTotal,
+			WSResyncTotal,
+			WSResyncRejectedTotal,
+			WSContractViolationsTotal,
+			WSBackpressureLevel,
+			WSQueueHighWatermark,
+			WSTenantDropsTotal,
+			WSTenantQueueDepth,
+			WSTenantConnectionsActive,
+			WSTenantMessagesOutTotal,
 			GuardianRestartsTotal,
 			GuardianDegradedTotal,
 			GuardianSubsystemState,
@@ -823,11 +1904,93 @@ func registerAll() {
 			ProcessHeapAllocBytes,
 			ProcessGCPauseSeconds,
 			AggregationBooksActive,
+			MROrderBookLevelsTotal,
+			MROrderBookSpreadBPS,
+			MROrderBookUpdateDurationSeconds,
+			MROrderBookPruneTotal,
+			MROrderBookCrossedTotal,
+			MROrderBookStaleTotal,
+			MROrderBookBadLevelTotal,
+			MROrderBookGapTotal,
+			MROrderBookDropsTotal,
+			MROrderBookStaleDurationSeconds,
+			MROrderBookPublishDepth,
+			MROrderBookWireBytes,
+			MROrderBookChecksumMismatchTotal,
+			MRTradeBadValueTotal,
+			MRTradeOutOfOrderTotal,
+			MRTradeDuplicateTotal,
+			MRTradeIngestTotal,
+			MRTradeLatencySeconds,
+			MRTradeWireBytes,
+			MRTapeWireBytes,
+			MRTapeQualityFlagsTotal,
+			MRStatsWireBytes,
+			MRStatsQualityFlagsTotal,
+			MROIWireBytes,
+			MROIQualityFlagsTotal,
+			MRDeltaVolumeWireBytes,
+			MRCVDWireBytes,
+			MRBarStatsWireBytes,
+			MRBarStatsQualityFlagsTotal,
+			MRWindowOpenTotal,
+			MRWindowLateArrivalTotal,
+			MRWindowForceCloseTotal,
+			MRXVenueSpreadBPS,
+			MRXVenueDivergenceBPS,
+			MRXVenueMergeDurationSeconds,
+			MRXVenueVenuesActive,
 			StreamsEvictedTotal,
 			BooksEvictedTotal,
 			InsightsSnapshotsTotal,
 			InsightsStateInstrumentsActive,
 			InsightsStateEvictionsTotal,
+			EvidenceEmittedTotal,
+			EvidenceDroppedTotal,
+			EvidenceStateEntries,
+			EvidenceStateEvictedTotal,
+			EvidenceEvalLatencySeconds,
+			LELEvidenceEmittedTotal,
+			LELEvidenceDroppedTotal,
+			LELStateEntries,
+			LELStateEvictedTotal,
+			LELEvalLatencySeconds,
+			LELInputProcessedTotal,
+			LELWireBudgetBytes,
+			EvidenceWireBytes,
+			EvidenceQualityFlagsTotal,
+			EvidenceEngineEventsTotal,
+			EvidenceBufferEntries,
+			EvidenceBufferOverwritesTotal,
+			MRRegimeCurrent,
+			MRRegimeStrength,
+			MRRegimeTransitionTotal,
+			MRRegimeDetectionDurationSeconds,
+			MRSignalEmittedTotal,
+			MRSignalDeduplicatedTotal,
+			MRSignalRateLimitedTotal,
+			MRSignalCompositionDurationSeconds,
+			MRSignalConfidenceDistribution,
+			MRSignalCorrelationHitTotal,
+			MRSignalRegimeBoostTotal,
+			MRSignalWSDeliveredTotal,
+			MRSignalWSSubscriptionRejectedTotal,
+			MRSignalWSSubscriptionsActive,
+			SignalEmittedTotal,
+			SignalEmitTotal,
+			SignalStateEntries,
+			SignalEvictedTotal,
+			SignalDropTotal,
+			OwnershipContractEntries,
+			OwnershipContractEvictedTotal,
+			OwnershipContractDuplicateTotal,
+			OwnershipContractOutOfOrderTotal,
+			SignalEvalLatencySeconds,
+			SignalDedupTotal,
+			SignalWireBytes,
+			SignalQualityFlagsTotal,
+			SignalLELAdaptedTotal,
+			SignalLELAdaptErrorsTotal,
 			VPVRBuilderBucketCount,
 			VPVRBuilderWindowsOpen,
 			VPVRBuilderOverloadActionsTotal,
@@ -835,19 +1998,19 @@ func registerAll() {
 			VPVRBuilderReplayMismatchTotal,
 			VPVRWriterUpsertOpsTotal,
 			VPVRWriterUpsertDedupTotal,
-			VPVRWriterUpsertLatencyMilliseconds,
+			VPVRWriterUpsertLatencySeconds,
 			VPVRWriterWriteFailTotal,
 			VPVROverloadLevel,
 			VPVRDropTotal,
 			VPVRDegradeTotal,
 			VPVRCompressRatio,
-			VPVRProcessingLatencyMilliseconds,
+			VPVRProcessingLatencySeconds,
 			PolicyKitOverloadLevel,
 			PolicyKitDropTotal,
 			PolicyKitDegradeTotal,
 			PolicyKitCompressTotal,
-			PolicyKitLatencyMilliseconds,
-			HeatmapBuildLatencyMilliseconds,
+			PolicyKitLatencySeconds,
+			HeatmapBuildLatencySeconds,
 			HeatmapCellsTotal,
 			HeatmapPayloadBytes,
 			HeatmapDropTotal,
@@ -881,14 +2044,38 @@ func registerAll() {
 			BoundedMapEvictionsTotal,
 			BoundedMapSweepsTotal,
 			DeliveryRouterSubscriptionsActive,
+			DeliveryWSSnapshotCacheEntries,
+			DeliveryWSSnapshotCacheHits,
+			DeliveryWSSnapshotCacheMisses,
 			DeliveryRouterEventsRoutedTotal,
 			DeliveryRouterEventsRejectedTotal,
+			DeliveryRouterCoherenceMode,
+			DeliveryRouterCoherenceViolationsTotal,
+			DeliveryRouterStreamStateEntries,
+			DeliveryRouterStreamStateEvictedTotal,
+			DeliveryRouterStreamStateActiveTotal,
+			DeliveryRouterSessionsActive,
+			DeliveryRouterSessionsRejectedTotal,
+			WSQueueCapacity,
+			DeliveryRangeAliasFallbackTotal,
+			TranscodeCacheEntries,
+			TranscodeCacheHits,
+			TranscodeCacheMisses,
+			WSLegacyRequestsTotal,
+			SLOBreachActive,
+			SLOErrorBudgetRemainingRatio,
+			SLOBurnRateFast,
+			SLOBurnRateSlow,
 		)
 
 		// Pre-create one series for vector metrics so /metrics exposition is stable
 		// even before the first domain event is observed.
 		IngestMessagesTotal.WithLabelValues("unknown", "unknown", "unknown")
 		IngestLatencySeconds.WithLabelValues("unknown", "unknown")
+		CanonicalizationErrorsTotal.WithLabelValues("unknown", "unknown")
+		CanonicalEventsTotal.WithLabelValues("unknown", "unknown")
+		CanonicalStateEntries.Set(0)
+		CanonicalStateEvictedTotal.WithLabelValues("unknown")
 		BackpressureQueueDepth.WithLabelValues("unknown")
 		BackpressureDropsTotal.WithLabelValues("unknown")
 		BusPublishedTotal.WithLabelValues("unknown", "unknown")
@@ -911,17 +2098,172 @@ func registerAll() {
 		WSReconnectsTotal.WithLabelValues("unknown", "unknown")
 		WSMessagesReceivedTotal.WithLabelValues("unknown", "unknown")
 		WSErrorsTotal.WithLabelValues("unknown", "unknown")
+		WSQueueDepth.Set(0)
+		WSQueueLen.Set(0)
 		WSDropsTotal.WithLabelValues("unknown")
+		WSDroppedTotal.WithLabelValues("unknown", "unknown", "unknown")
+		WSMessagesOutTotal.WithLabelValues("unknown")
+		WSBytesOutTotal.WithLabelValues("unknown")
+		for _, channel := range []string{"unknown", "trade", "book_snapshot", "stats", "candle", "signal"} {
+			WSWireBytes.WithLabelValues(channel)
+		}
+		WSLagMilliseconds.WithLabelValues("unknown")
+		WSLagSeconds.WithLabelValues("unknown")
+		WSPublishToDeliverLatencyMilliseconds.WithLabelValues("unknown")
+		WSPublishToDeliverLatencyMilliseconds.WithLabelValues("book_snapshot")
+		WSPublishToDeliverLatencyMilliseconds.WithLabelValues("candle")
+		WSPublishToDeliverLatencyMilliseconds.WithLabelValues("stats")
+		WSPublishToDeliverLatencyMilliseconds.WithLabelValues("trade")
+		WSPublishToDeliverLatencySeconds.WithLabelValues("unknown")
+		WSPublishToDeliverLatencySeconds.WithLabelValues("book_snapshot")
+		WSPublishToDeliverLatencySeconds.WithLabelValues("candle")
+		WSPublishToDeliverLatencySeconds.WithLabelValues("stats")
+		WSPublishToDeliverLatencySeconds.WithLabelValues("trade")
+		WSClientsConnectedByMode.WithLabelValues("v1")
+		WSClientsConnectedByMode.WithLabelValues("legacy")
+		WSClientsConnectedByMode.WithLabelValues("unknown")
+		WSClientsTotal.WithLabelValues("v1")
+		WSClientsTotal.WithLabelValues("legacy")
+		WSClientsTotal.WithLabelValues("unknown")
+		WSControlFramesTotal.WithLabelValues("hello")
+		WSControlFramesTotal.WithLabelValues("pong")
+		WSControlFramesTotal.WithLabelValues("metrics")
+		WSControlFramesTotal.WithLabelValues("ack_resync")
 		WSQueryTotal.WithLabelValues("unknown", "unknown")
 		WSQueryRejectedTotal.WithLabelValues("unknown")
+		WSLimitRejectionsTotal.WithLabelValues("max_subscriptions_per_connection")
+		WSLimitRejectionsTotal.WithLabelValues("max_symbols_per_connection")
+		WSLimitRejectionsTotal.WithLabelValues("max_frame_bytes")
+		WSLimitRejectionsTotal.WithLabelValues("outbound_queue_size")
+		WSLimitRejectionsTotal.WithLabelValues("rate_limit")
+		WSEffectiveLimits.WithLabelValues("max_subscriptions_per_connection").Set(0)
+		WSEffectiveLimits.WithLabelValues("max_symbols_per_connection").Set(0)
+		WSEffectiveLimits.WithLabelValues("max_frame_bytes").Set(0)
+		WSEffectiveLimits.WithLabelValues("outbound_queue_size").Set(0)
+		WSEffectiveLimits.WithLabelValues("rate_limit").Set(0)
+		WSResyncRejectedTotal.WithLabelValues("subject_invalid")
+		WSResyncRejectedTotal.WithLabelValues("not_subscribed")
+		WSResyncRejectedTotal.WithLabelValues("snapshot_unavailable")
+		WSContractViolationsTotal.WithLabelValues("missing_ts_server")
+		WSContractViolationsTotal.WithLabelValues("unknown_feature")
+		WSBackpressureLevel.Set(0)
+		WSQueueHighWatermark.Set(0)
+		WSQueueCapacity.Set(0)
 		GuardianRestartsTotal.WithLabelValues("unknown", "unknown")
 		GuardianDegradedTotal.WithLabelValues("unknown")
 		GuardianSubsystemState.WithLabelValues("unknown")
+		// Keep V2 orderbook quality series visible on /metrics even when a
+		// process only exposes metrics (e.g. server) and does not produce OB events.
+		MROrderBookWireBytes.WithLabelValues("unknown")
+		MROrderBookChecksumMismatchTotal.WithLabelValues("unknown", "unknown")
+		MRTradeBadValueTotal.WithLabelValues("unknown", "unknown")
+		MRTradeOutOfOrderTotal.WithLabelValues("unknown", "unknown")
+		MRTradeDuplicateTotal.WithLabelValues("unknown")
+		MRTradeIngestTotal.WithLabelValues("unknown")
+		MRTradeLatencySeconds.WithLabelValues("unknown")
+		MRTradeWireBytes.WithLabelValues("unknown", "trade")
+		MRTradeWireBytes.WithLabelValues("unknown", "tape")
+		MRTapeWireBytes.WithLabelValues("unknown", "unknown")
+		MRTapeQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "none")
+		MRTapeQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "empty_window")
+		MRTapeQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "window_bounds_invalid")
+		MRTapeQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "last_seq_invalid")
+		MRTapeQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "last_price_invalid")
+		MRTapeQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "total_volume_invalid")
+		MRStatsWireBytes.WithLabelValues("unknown", "unknown")
+		MRStatsQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "none")
+		MRStatsQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "missing_liquidation")
+		MRStatsQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "missing_mark_price")
+		MRStatsQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "missing_funding")
+		MRStatsQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "forced_close")
+		MROIWireBytes.WithLabelValues("unknown")
+		MROIQualityFlagsTotal.WithLabelValues("unknown", "unknown", "none")
+		MROIQualityFlagsTotal.WithLabelValues("unknown", "unknown", "seq_invalid")
+		MROIQualityFlagsTotal.WithLabelValues("unknown", "unknown", "open_interest_invalid")
+		MRDeltaVolumeWireBytes.WithLabelValues("unknown", "unknown")
+		MRCVDWireBytes.WithLabelValues("unknown", "unknown")
+		MRBarStatsWireBytes.WithLabelValues("unknown", "unknown")
+		MRBarStatsQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "none")
+		MRBarStatsQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "trade_count_invalid")
+		MRBarStatsQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "total_volume_invalid")
+		MRBarStatsQualityFlagsTotal.WithLabelValues("unknown", "unknown", "unknown", "seq_invalid")
 		InsightsSnapshotsTotal.WithLabelValues("2")
 		InsightsSnapshotsTotal.WithLabelValues("3_4")
 		InsightsSnapshotsTotal.WithLabelValues("5_8")
 		InsightsSnapshotsTotal.WithLabelValues("9_plus")
 		InsightsStateEvictionsTotal.WithLabelValues("unknown")
+		EvidenceEmittedTotal.WithLabelValues("spread_explosion", "medium", "unknown")
+		EvidenceEmittedTotal.WithLabelValues("liquidity_thinning", "medium", "unknown")
+		EvidenceEmittedTotal.WithLabelValues("persistent_imbalance", "medium", "unknown")
+		EvidenceEmittedTotal.WithLabelValues("absorption", "medium", "unknown")
+		EvidenceDroppedTotal.WithLabelValues("unknown")
+		EvidenceStateEntries.Set(0)
+		EvidenceStateEvictedTotal.WithLabelValues("ttl")
+		EvidenceStateEvictedTotal.WithLabelValues("capacity")
+		EvidenceEvalLatencySeconds.Observe(0)
+		LELEvidenceEmittedTotal.WithLabelValues("book_imbalance", "medium", "unknown")
+		LELEvidenceEmittedTotal.WithLabelValues("absorption", "medium", "unknown")
+		LELEvidenceEmittedTotal.WithLabelValues("sweep", "medium", "unknown")
+		LELEvidenceEmittedTotal.WithLabelValues("thinning", "medium", "unknown")
+		LELEvidenceEmittedTotal.WithLabelValues("spread_regime", "medium", "unknown")
+		LELEvidenceDroppedTotal.WithLabelValues("unknown")
+		LELStateEntries.Set(0)
+		LELStateEvictedTotal.WithLabelValues("ttl")
+		LELStateEvictedTotal.WithLabelValues("capacity")
+		LELEvalLatencySeconds.Observe(0)
+		LELInputProcessedTotal.WithLabelValues("snapshot")
+		LELInputProcessedTotal.WithLabelValues("tape")
+		LELWireBudgetBytes.WithLabelValues("book_imbalance").Observe(0)
+		LELWireBudgetBytes.WithLabelValues("absorption").Observe(0)
+		LELWireBudgetBytes.WithLabelValues("sweep").Observe(0)
+		LELWireBudgetBytes.WithLabelValues("thinning").Observe(0)
+		LELWireBudgetBytes.WithLabelValues("spread_regime").Observe(0)
+		EvidenceWireBytes.WithLabelValues("unknown").Observe(0)
+		EvidenceQualityFlagsTotal.WithLabelValues("unknown", "none")
+		EvidenceQualityFlagsTotal.WithLabelValues("unknown", "missing_explain")
+		EvidenceQualityFlagsTotal.WithLabelValues("unknown", "missing_features")
+		EvidenceQualityFlagsTotal.WithLabelValues("unknown", "confidence_invalid")
+		MRRegimeCurrent.WithLabelValues("unknown", "unknown", "unknown", "unknown").Set(0)
+		MRRegimeCurrent.WithLabelValues("unknown", "unknown", "unknown", "trending").Set(0)
+		MRRegimeCurrent.WithLabelValues("unknown", "unknown", "unknown", "ranging").Set(0)
+		MRRegimeCurrent.WithLabelValues("unknown", "unknown", "unknown", "breakout").Set(0)
+		MRRegimeCurrent.WithLabelValues("unknown", "unknown", "unknown", "high_volatility").Set(0)
+		MRRegimeCurrent.WithLabelValues("unknown", "unknown", "unknown", "low_volatility").Set(0)
+		MRRegimeStrength.WithLabelValues("unknown", "unknown", "unknown").Set(0)
+		MRRegimeTransitionTotal.WithLabelValues("unknown", "unknown", "unknown", "unknown", "unknown")
+		MRRegimeDetectionDurationSeconds.WithLabelValues("unknown", "unknown", "unknown")
+		MRSignalEmittedTotal.WithLabelValues("unknown", "unknown", "unknown", "unknown")
+		MRSignalDeduplicatedTotal.WithLabelValues("unknown", "unknown", "unknown")
+		MRSignalRateLimitedTotal.WithLabelValues("unknown", "unknown")
+		MRSignalCompositionDurationSeconds.WithLabelValues("unknown")
+		MRSignalConfidenceDistribution.WithLabelValues("unknown")
+		MRSignalCorrelationHitTotal.WithLabelValues("unknown")
+		MRSignalRegimeBoostTotal.WithLabelValues("unknown", "unknown")
+		MRSignalWSDeliveredTotal.WithLabelValues("unknown", "unknown", "unknown")
+		MRSignalWSSubscriptionRejectedTotal.WithLabelValues("unknown")
+		MRSignalWSSubscriptionsActive.Set(0)
+		SignalEmittedTotal.WithLabelValues("unknown", "unknown")
+		SignalEmitTotal.WithLabelValues("unknown", "unknown")
+		SignalStateEntries.Set(0)
+		SignalEvictedTotal.WithLabelValues("unknown")
+		SignalDropTotal.WithLabelValues("unknown")
+		SignalDropTotal.WithLabelValues("owner_reject")
+		SignalDropTotal.WithLabelValues("duplicate")
+		SignalDropTotal.WithLabelValues("out_of_order")
+		OwnershipContractEntries.WithLabelValues("unknown").Set(0)
+		OwnershipContractEvictedTotal.WithLabelValues("unknown", "unknown")
+		OwnershipContractDuplicateTotal.WithLabelValues("unknown")
+		OwnershipContractOutOfOrderTotal.WithLabelValues("unknown")
+		SignalEvalLatencySeconds.Observe(0)
+		SignalDedupTotal.WithLabelValues("unknown")
+		SignalWireBytes.WithLabelValues("unknown").Observe(0)
+		SignalQualityFlagsTotal.WithLabelValues("unknown", "none")
+		SignalQualityFlagsTotal.WithLabelValues("unknown", "missing_explain")
+		SignalQualityFlagsTotal.WithLabelValues("unknown", "missing_correlation_ids")
+		SignalQualityFlagsTotal.WithLabelValues("unknown", "missing_evidence_link")
+		SignalQualityFlagsTotal.WithLabelValues("unknown", "confidence_invalid")
+		SignalLELAdaptedTotal.WithLabelValues("unknown")
+		SignalLELAdaptErrorsTotal.WithLabelValues("unknown")
 		VPVRBuilderBucketCount.WithLabelValues("unknown", "unknown", "unknown")
 		VPVRBuilderWindowsOpen.WithLabelValues("unknown", "unknown", "unknown")
 		VPVRBuilderOverloadActionsTotal.WithLabelValues("unknown")
@@ -935,8 +2277,8 @@ func registerAll() {
 		PolicyKitDropTotal.WithLabelValues("unknown", "unknown")
 		PolicyKitDegradeTotal.WithLabelValues("unknown", "unknown")
 		PolicyKitCompressTotal.WithLabelValues("unknown")
-		PolicyKitLatencyMilliseconds.WithLabelValues("unknown")
-		HeatmapBuildLatencyMilliseconds.WithLabelValues("unknown", "unknown", "unknown")
+		PolicyKitLatencySeconds.WithLabelValues("unknown")
+		HeatmapBuildLatencySeconds.WithLabelValues("unknown", "unknown", "unknown")
 		HeatmapCellsTotal.WithLabelValues("unknown", "unknown", "unknown")
 		HeatmapPayloadBytes.WithLabelValues("unknown", "unknown", "unknown")
 		HeatmapDropTotal.WithLabelValues("unknown")
@@ -973,6 +2315,41 @@ func registerAll() {
 		BoundedMapSweepsTotal.WithLabelValues("unknown")
 		DeliveryRouterEventsRejectedTotal.WithLabelValues("contract_policy")
 		DeliveryRouterEventsRejectedTotal.WithLabelValues("invalid_subject")
+		DeliveryRouterEventsRejectedTotal.WithLabelValues("seq_non_monotonic")
+		DeliveryRouterEventsRejectedTotal.WithLabelValues("seq_invalid")
+		DeliveryRouterEventsRejectedTotal.WithLabelValues("stale_event")
+		DeliveryRouterEventsRejectedTotal.WithLabelValues("replay_duplicate")
+		DeliveryRouterEventsRejectedTotal.WithLabelValues("owner_change")
+		DeliveryRouterEventsRejectedTotal.WithLabelValues("resync_overlap")
+		DeliveryRouterCoherenceMode.WithLabelValues("sticky_session")
+		DeliveryRouterCoherenceMode.WithLabelValues("upstream_sequencer")
+		DeliveryRouterCoherenceMode.WithLabelValues("unknown")
+		DeliveryRouterStreamStateEntries.Set(0)
+		DeliveryRouterStreamStateActiveTotal.Set(0)
+		DeliveryRouterSessionsActive.Set(0)
+		DeliveryRouterSessionsRejectedTotal.Add(0)
+		for _, reason := range []string{
+			"out_of_order_input",
+			"stale_event",
+			"owner_change",
+			"resync_overlap",
+			"replay_duplicate",
+			"unknown",
+		} {
+			DeliveryRouterCoherenceViolationsTotal.WithLabelValues("seq_non_monotonic", reason)
+		}
+		DeliveryRouterCoherenceViolationsTotal.WithLabelValues("seq_invalid", "unknown")
+		DeliveryRangeAliasFallbackTotal.WithLabelValues("hit")
+		DeliveryRangeAliasFallbackTotal.WithLabelValues("miss")
+		DeliveryRangeAliasFallbackTotal.WithLabelValues("error")
+		WSLegacyRequestsTotal.WithLabelValues("accepted")
+		WSLegacyRequestsTotal.WithLabelValues("rejected")
+		for _, name := range []string{"ingest_success", "delivery_latency", "data_loss_guard"} {
+			SLOBreachActive.WithLabelValues(name).Set(0)
+			SLOErrorBudgetRemainingRatio.WithLabelValues(name).Set(1)
+			SLOBurnRateFast.WithLabelValues(name).Set(0)
+			SLOBurnRateSlow.WithLabelValues(name).Set(0)
+		}
 	})
 }
 
@@ -984,6 +2361,33 @@ func ObserveIngest(venue, instrument, eventType, status string, latency time.Dur
 	if s == statusOK {
 		IngestLatencySeconds.WithLabelValues(v, e).Observe(latency.Seconds())
 	}
+}
+
+func IncCanonicalizationError(venue, reason string) {
+	CanonicalizationErrorsTotal.WithLabelValues(sanitizeVenue(venue), sanitizeReason(reason)).Inc()
+}
+
+func IncCanonicalEvent(channel any, venue string) {
+	label := "unknown"
+	switch v := channel.(type) {
+	case string:
+		label = sanitizeEventType(v)
+	case fmt.Stringer:
+		label = sanitizeEventType(v.String())
+	default:
+		if channel != nil {
+			label = sanitizeEventType(fmt.Sprint(channel))
+		}
+	}
+	CanonicalEventsTotal.WithLabelValues(label, sanitizeVenue(venue)).Inc()
+}
+
+func SetCanonicalStateEntries(count int) {
+	CanonicalStateEntries.Set(float64(max(count, 0)))
+}
+
+func IncCanonicalStateEvicted(reason string) {
+	CanonicalStateEvictedTotal.WithLabelValues(sanitizeReason(reason)).Inc()
 }
 
 func SetBackpressureQueueDepth(venue string, depth int) {
@@ -1091,10 +2495,82 @@ func IncWSError(venue, status string) {
 
 func SetWSQueueDepth(depth int) {
 	WSQueueDepth.Set(float64(max(depth, 0)))
+	WSQueueLen.Set(float64(max(depth, 0)))
 }
 
 func IncWSDrops(reason string) {
 	WSDropsTotal.WithLabelValues(sanitizeKind(reason)).Inc()
+}
+
+func IncWSDropped(reason, channel, priority string) {
+	WSDroppedTotal.WithLabelValues(
+		sanitizeKind(reason),
+		sanitizeEventType(channel),
+		sanitizeKind(priority),
+	).Inc()
+}
+
+func IncWSCompressApplied() {
+	WSCompressAppliedTotal.Inc()
+}
+
+func AddWSCompressBytesIn(n int) {
+	if n <= 0 {
+		return
+	}
+	WSCompressBytesInTotal.Add(float64(n))
+}
+
+func AddWSCompressBytesOut(n int) {
+	if n <= 0 {
+		return
+	}
+	WSCompressBytesOutTotal.Add(float64(n))
+}
+
+func IncWSBatchFrames() {
+	WSBatchFramesTotal.Inc()
+}
+
+func AddWSBatchEvents(n int) {
+	if n <= 0 {
+		return
+	}
+	WSBatchEventsTotal.Add(float64(n))
+}
+
+func AddWSBatchFallbackEvents(n int) {
+	if n <= 0 {
+		return
+	}
+	WSBatchFallbackEventsTotal.Add(float64(n))
+}
+
+func IncWSMessagesOut(channel string) {
+	WSMessagesOutTotal.WithLabelValues(sanitizeEventType(channel)).Inc()
+}
+
+func AddWSBytesOut(channel string, n int) {
+	if n <= 0 {
+		return
+	}
+	WSBytesOutTotal.WithLabelValues(sanitizeEventType(channel)).Add(float64(n))
+}
+
+func ObserveWSWireBytes(channel string, n int) {
+	if n <= 0 {
+		return
+	}
+	WSWireBytes.WithLabelValues(sanitizeEventType(channel)).Observe(float64(n))
+}
+
+func SetWSLag(channel string, lagMs int64) {
+	if lagMs < 0 {
+		lagMs = 0
+	}
+	ch := sanitizeEventType(channel)
+	WSLagMilliseconds.WithLabelValues(ch).Set(float64(lagMs))
+	WSLagSeconds.WithLabelValues(ch).Set(float64(lagMs) / 1000)
 }
 
 func ObserveWSSendLatency(latency time.Duration) {
@@ -1102,6 +2578,18 @@ func ObserveWSSendLatency(latency time.Duration) {
 		latency = 0
 	}
 	WSSendLatencyMilliseconds.Observe(float64(latency) / float64(time.Millisecond))
+	WSSendLatencySeconds.Observe(latency.Seconds())
+}
+
+func ObserveWSPublishToDeliverLatency(channel string, latency time.Duration) {
+	if latency < 0 {
+		latency = 0
+	}
+	ch := sanitizeEventType(channel)
+	WSPublishToDeliverLatencyMilliseconds.WithLabelValues(ch).
+		Observe(float64(latency) / float64(time.Millisecond))
+	WSPublishToDeliverLatencySeconds.WithLabelValues(ch).
+		Observe(latency.Seconds())
 }
 
 func IncWSClientsConnected() {
@@ -1112,12 +2600,184 @@ func DecWSClientsConnected() {
 	WSClientsConnected.Dec()
 }
 
+func IncWSClientsConnectedByMode(mode string) {
+	m := sanitizeWSClientMode(mode)
+	WSClientsConnectedByMode.WithLabelValues(m).Inc()
+	WSClientsTotal.WithLabelValues(m).Inc()
+}
+
+func DecWSClientsConnectedByMode(mode string) {
+	WSClientsConnectedByMode.WithLabelValues(sanitizeWSClientMode(mode)).Dec()
+}
+
 func IncWSQuery(op, boundedCategory string) {
 	WSQueryTotal.WithLabelValues(sanitizeWSQueryOp(op), sanitizeWSQueryCategory(boundedCategory)).Inc()
 }
 
 func IncWSQueryRejected(reason string) {
 	WSQueryRejectedTotal.WithLabelValues(sanitizeKind(reason)).Inc()
+}
+
+func IncWSLimitRejection(limitType string) {
+	WSLimitRejectionsTotal.WithLabelValues(sanitizeKind(limitType)).Inc()
+}
+
+func SetWSEffectiveLimit(limitName string, value int) {
+	if value < 0 {
+		value = 0
+	}
+	WSEffectiveLimits.WithLabelValues(sanitizeKind(limitName)).Set(float64(value))
+}
+
+func SetWSSubscriptionsActive(count int) {
+	WSSubscriptionsActive.Set(float64(max(count, 0)))
+}
+
+func IncWSControlFrame(frameType string) {
+	WSControlFramesTotal.WithLabelValues(sanitizeWSControlFrameType(frameType)).Inc()
+}
+
+func IncWSSerializeErrors() {
+	WSSerializeErrorsTotal.Inc()
+}
+
+func IncWSAuthFail() {
+	WSAuthFailTotal.Inc()
+}
+
+func IncWSResync() {
+	WSResyncTotal.Inc()
+}
+
+func IncWSResyncRejected(reason string) {
+	WSResyncRejectedTotal.WithLabelValues(sanitizeWSResyncRejectReason(reason)).Inc()
+}
+
+func IncWSContractViolation(reason string) {
+	WSContractViolationsTotal.WithLabelValues(sanitizeWSContractViolationReason(reason)).Inc()
+}
+
+// F5: backpressure introspection helpers.
+
+func SetWSBackpressureLevel(level int) {
+	if level < 0 {
+		level = 0
+	}
+	WSBackpressureLevel.Set(float64(level))
+}
+
+func SetWSQueueHighWatermark(watermark int) {
+	if watermark < 0 {
+		watermark = 0
+	}
+	WSQueueHighWatermark.Set(float64(watermark))
+}
+
+// F6: tenant-labeled metric helpers.
+
+var tenantIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
+const maxTenantIDLen = 64
+
+// ConfigureWSTenantLabelPolicy controls ws_tenant_* metric tenant label behavior.
+func ConfigureWSTenantLabelPolicy(include bool, whitelist []string, fallback string) {
+	policyFallback := strings.ToLower(strings.TrimSpace(fallback))
+	switch policyFallback {
+	case "", "unknown", "hash_bucket":
+	default:
+		policyFallback = "unknown"
+	}
+	wl := make(map[string]struct{}, len(whitelist))
+	for _, tenant := range whitelist {
+		id := strings.TrimSpace(tenant)
+		if id == "" {
+			continue
+		}
+		if len(id) > maxTenantIDLen {
+			id = id[:maxTenantIDLen]
+		}
+		if !tenantIDPattern.MatchString(id) {
+			continue
+		}
+		wl[id] = struct{}{}
+	}
+	tenantLabelPolicy.mu.Lock()
+	tenantLabelPolicy.includeTenantLabel = include
+	if len(wl) == 0 {
+		tenantLabelPolicy.whitelist = nil
+	} else {
+		tenantLabelPolicy.whitelist = wl
+	}
+	tenantLabelPolicy.fallback = policyFallback
+	tenantLabelPolicy.mu.Unlock()
+}
+
+func sanitizeTenantID(tenantID string) string {
+	id := strings.TrimSpace(tenantID)
+	tenantLabelPolicy.mu.RLock()
+	include := tenantLabelPolicy.includeTenantLabel
+	whitelist := tenantLabelPolicy.whitelist
+	fallback := tenantLabelPolicy.fallback
+	buckets := tenantLabelPolicy.hashBucketCardinality
+	tenantLabelPolicy.mu.RUnlock()
+
+	if !include {
+		return "unknown"
+	}
+	if id == "" {
+		if len(whitelist) == 0 {
+			return "default"
+		}
+		return "unknown"
+	}
+	if len(id) > maxTenantIDLen {
+		id = id[:maxTenantIDLen]
+	}
+	if tenantIDPattern.MatchString(id) {
+		if len(whitelist) == 0 {
+			return id
+		}
+		if _, ok := whitelist[id]; ok {
+			return id
+		}
+	} else {
+		if len(whitelist) == 0 {
+			return "invalid"
+		}
+		id = strings.TrimSpace(tenantID)
+		if id == "" {
+			id = "unknown"
+		}
+	}
+	if fallback == "hash_bucket" && buckets > 0 {
+		h := fnv.New32a()
+		_, _ = h.Write([]byte(id))
+		return fmt.Sprintf("tenant_bucket_%02d", h.Sum32()%buckets)
+	}
+	return "unknown"
+}
+
+func IncWSTenantDrop(tenantID, reason string) {
+	WSTenantDropsTotal.WithLabelValues(sanitizeTenantID(tenantID), sanitizeKind(reason)).Inc()
+}
+
+func SetWSTenantQueueDepth(tenantID string, depth int) {
+	if depth < 0 {
+		depth = 0
+	}
+	WSTenantQueueDepth.WithLabelValues(sanitizeTenantID(tenantID)).Set(float64(depth))
+}
+
+func IncWSTenantConnectionsActive(tenantID string) {
+	WSTenantConnectionsActive.WithLabelValues(sanitizeTenantID(tenantID)).Inc()
+}
+
+func DecWSTenantConnectionsActive(tenantID string) {
+	WSTenantConnectionsActive.WithLabelValues(sanitizeTenantID(tenantID)).Dec()
+}
+
+func IncWSTenantMessagesOut(tenantID, channel string) {
+	WSTenantMessagesOutTotal.WithLabelValues(sanitizeTenantID(tenantID), sanitizeEventType(channel)).Inc()
 }
 
 func IncGuardianRestart(subsystem, status string) {
@@ -1146,6 +2806,467 @@ func IncBooksEvicted(reason string) {
 	BooksEvictedTotal.WithLabelValues(sanitizeReason(reason)).Inc()
 }
 
+func SetMROrderBookLevels(venue, instrument, side string, levels int) {
+	if levels < 0 {
+		levels = 0
+	}
+	MROrderBookLevelsTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+		sanitizeOrderBookSide(side),
+	).Set(float64(levels))
+}
+
+func SetMROrderBookSpreadBPS(venue, instrument string, spreadBPS float64) {
+	if spreadBPS < 0 {
+		spreadBPS = 0
+	}
+	MROrderBookSpreadBPS.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+	).Set(spreadBPS)
+}
+
+func ObserveMROrderBookUpdateDuration(venue string, d time.Duration) {
+	seconds := d.Seconds()
+	if seconds < 0 {
+		seconds = 0
+	}
+	MROrderBookUpdateDurationSeconds.WithLabelValues(sanitizeVenue(venue)).Observe(seconds)
+}
+
+func AddMROrderBookPruned(venue, instrument string, count int) {
+	if count <= 0 {
+		return
+	}
+	MROrderBookPruneTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+	).Add(float64(count))
+}
+
+func IncMROrderBookCrossed(venue, instrument string) {
+	MROrderBookCrossedTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+	).Inc()
+}
+
+func IncMROrderBookStale(venue, instrument string) {
+	MROrderBookStaleTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+	).Inc()
+}
+
+func IncMROrderBookBadLevel(venue, instrument, reason string) {
+	MROrderBookBadLevelTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+		sanitizeOrderBookBadLevelReason(reason),
+	).Inc()
+}
+
+func IncMROrderBookGap(venue, instrument string) {
+	MROrderBookGapTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+	).Inc()
+}
+
+func IncMROrderBookDrop(venue, instrument, reason string) {
+	MROrderBookDropsTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+		sanitizeOrderBookDropReason(reason),
+	).Inc()
+}
+
+func SetMROrderBookStaleDuration(venue, instrument string, seconds float64) {
+	if seconds < 0 || math.IsNaN(seconds) || math.IsInf(seconds, 0) {
+		seconds = 0
+	}
+	MROrderBookStaleDurationSeconds.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+	).Set(seconds)
+}
+
+func ObserveMROrderBookPublishDepth(venue, side string, depth int) {
+	if depth < 0 {
+		depth = 0
+	}
+	MROrderBookPublishDepth.WithLabelValues(
+		sanitizeVenue(venue),
+		sanitizeOrderBookSide(side),
+	).Observe(float64(depth))
+}
+
+func ObserveMROrderBookWireBytes(venue string, bytes int) {
+	if bytes < 0 {
+		bytes = 0
+	}
+	MROrderBookWireBytes.WithLabelValues(sanitizeVenue(venue)).Observe(float64(bytes))
+}
+
+func IncMROrderBookChecksumMismatch(venue, instrument string) {
+	MROrderBookChecksumMismatchTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+	).Inc()
+}
+
+func IncMRTradeBadValue(venue, reason string) {
+	MRTradeBadValueTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		sanitizeTradeBadValueReason(reason),
+	).Inc()
+}
+
+func IncMRTradeOutOfOrder(venue, instrument string) {
+	MRTradeOutOfOrderTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+	).Inc()
+}
+
+func IncMRTradeDuplicate(venue string) {
+	MRTradeDuplicateTotal.WithLabelValues(
+		sanitizeVenue(venue),
+	).Inc()
+}
+
+func IncMRTradeIngest(venue string) {
+	MRTradeIngestTotal.WithLabelValues(
+		sanitizeVenue(venue),
+	).Inc()
+}
+
+func ObserveMRTradeLatency(venue string, seconds float64) {
+	if seconds < 0 || math.IsNaN(seconds) || math.IsInf(seconds, 0) {
+		seconds = 0
+	}
+	MRTradeLatencySeconds.WithLabelValues(
+		sanitizeVenue(venue),
+	).Observe(seconds)
+}
+
+func ObserveMRTradeWireBytes(venue, channel string, bytes int) {
+	if bytes < 0 {
+		bytes = 0
+	}
+	MRTradeWireBytes.WithLabelValues(
+		sanitizeVenue(venue),
+		sanitizeTradeWireChannel(channel),
+	).Observe(float64(bytes))
+}
+
+func ObserveMRTapeWireBytes(venue, timeframe string, bytes int) {
+	if bytes < 0 {
+		bytes = 0
+	}
+	MRTapeWireBytes.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketTimeframe(timeframe),
+	).Observe(float64(bytes))
+}
+
+func ObserveMRTapeQuality(
+	venue, instrument, timeframe string,
+	tradeCount int64,
+	windowStartTs, windowEndTs, lastSeq int64,
+	lastPrice, totalVolume float64,
+) {
+	flags := computeMRTapeQualityFlags(
+		tradeCount,
+		windowStartTs,
+		windowEndTs,
+		lastSeq,
+		lastPrice,
+		totalVolume,
+	)
+	if flags == 0 {
+		MRTapeQualityFlagsTotal.WithLabelValues(
+			sanitizeVenue(venue),
+			bucketInstrument(instrument),
+			bucketTimeframe(timeframe),
+			"none",
+		).Inc()
+		return
+	}
+
+	for _, candidate := range []struct {
+		mask uint32
+		flag string
+	}{
+		{mask: tapeQualityFlagEmptyWindowMask, flag: "empty_window"},
+		{mask: tapeQualityFlagWindowBoundsInvalidMask, flag: "window_bounds_invalid"},
+		{mask: tapeQualityFlagLastSeqInvalidMask, flag: "last_seq_invalid"},
+		{mask: tapeQualityFlagLastPriceInvalidMask, flag: "last_price_invalid"},
+		{mask: tapeQualityFlagTotalVolumeInvalidMask, flag: "total_volume_invalid"},
+	} {
+		if flags&candidate.mask != 0 {
+			incMRTapeQualityFlag(venue, instrument, timeframe, candidate.flag)
+		}
+	}
+}
+
+func computeMRTapeQualityFlags(
+	tradeCount int64,
+	windowStartTs, windowEndTs, lastSeq int64,
+	lastPrice, totalVolume float64,
+) uint32 {
+	var flags uint32
+	if tradeCount <= 0 {
+		flags |= tapeQualityFlagEmptyWindowMask
+	}
+	if windowEndTs <= windowStartTs {
+		flags |= tapeQualityFlagWindowBoundsInvalidMask
+	}
+	if lastSeq <= 0 {
+		flags |= tapeQualityFlagLastSeqInvalidMask
+	}
+	if math.IsNaN(lastPrice) || math.IsInf(lastPrice, 0) || lastPrice <= 0 {
+		flags |= tapeQualityFlagLastPriceInvalidMask
+	}
+	if math.IsNaN(totalVolume) || math.IsInf(totalVolume, 0) || totalVolume < 0 {
+		flags |= tapeQualityFlagTotalVolumeInvalidMask
+	}
+	return flags
+}
+
+func incMRTapeQualityFlag(venue, instrument, timeframe, flag string) {
+	MRTapeQualityFlagsTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+		bucketTimeframe(timeframe),
+		sanitizeTapeQualityFlag(flag),
+	).Inc()
+}
+
+func ObserveMRStatsWireBytes(venue, timeframe string, bytes int) {
+	if bytes < 0 {
+		bytes = 0
+	}
+	MRStatsWireBytes.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketTimeframe(timeframe),
+	).Observe(float64(bytes))
+}
+
+func ObserveMRStatsQualityFlags(venue, instrument, timeframe string, flags uint32) {
+	if flags == 0 {
+		MRStatsQualityFlagsTotal.WithLabelValues(
+			sanitizeVenue(venue),
+			bucketInstrument(instrument),
+			bucketTimeframe(timeframe),
+			"none",
+		).Inc()
+		return
+	}
+	if flags&statsQualityFlagMissingLiquidationMask != 0 {
+		incMRStatsQualityFlag(venue, instrument, timeframe, "missing_liquidation")
+	}
+	if flags&statsQualityFlagMissingMarkPriceMask != 0 {
+		incMRStatsQualityFlag(venue, instrument, timeframe, "missing_mark_price")
+	}
+	if flags&statsQualityFlagMissingFundingMask != 0 {
+		incMRStatsQualityFlag(venue, instrument, timeframe, "missing_funding")
+	}
+	if flags&statsQualityFlagForcedCloseMask != 0 {
+		incMRStatsQualityFlag(venue, instrument, timeframe, "forced_close")
+	}
+}
+
+func ObserveMROIWireBytes(venue string, bytes int) {
+	if bytes < 0 {
+		bytes = 0
+	}
+	MROIWireBytes.WithLabelValues(
+		sanitizeVenue(venue),
+	).Observe(float64(bytes))
+}
+
+func ObserveMROIQuality(venue, instrument string, openInterest float64, seq int64) {
+	var flags uint32
+	if seq <= 0 {
+		flags |= oiQualityFlagSeqInvalidMask
+	}
+	if math.IsNaN(openInterest) || math.IsInf(openInterest, 0) || openInterest < 0 {
+		flags |= oiQualityFlagOpenInterestInvalidMask
+	}
+	if flags == 0 {
+		MROIQualityFlagsTotal.WithLabelValues(
+			sanitizeVenue(venue),
+			bucketInstrument(instrument),
+			"none",
+		).Inc()
+		return
+	}
+	if flags&oiQualityFlagSeqInvalidMask != 0 {
+		incMROIQualityFlag(venue, instrument, "seq_invalid")
+	}
+	if flags&oiQualityFlagOpenInterestInvalidMask != 0 {
+		incMROIQualityFlag(venue, instrument, "open_interest_invalid")
+	}
+}
+
+func incMROIQualityFlag(venue, instrument, flag string) {
+	MROIQualityFlagsTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+		sanitizeOIQualityFlag(flag),
+	).Inc()
+}
+
+func ObserveMRDeltaVolumeWireBytes(venue, timeframe string, bytes int) {
+	if bytes < 0 {
+		bytes = 0
+	}
+	MRDeltaVolumeWireBytes.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketTimeframe(timeframe),
+	).Observe(float64(bytes))
+}
+
+func ObserveMRCVDWireBytes(venue, timeframe string, bytes int) {
+	if bytes < 0 {
+		bytes = 0
+	}
+	MRCVDWireBytes.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketTimeframe(timeframe),
+	).Observe(float64(bytes))
+}
+
+func ObserveMRBarStatsWireBytes(venue, timeframe string, bytes int) {
+	if bytes < 0 {
+		bytes = 0
+	}
+	MRBarStatsWireBytes.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketTimeframe(timeframe),
+	).Observe(float64(bytes))
+}
+
+func ObserveMRBarStatsQuality(venue, instrument, timeframe string, tradeCount int64, totalVolume float64, seq int64) {
+	var flags uint32
+	if tradeCount <= 0 {
+		flags |= barStatsQualityFlagTradeCountInvalidMask
+	}
+	if math.IsNaN(totalVolume) || math.IsInf(totalVolume, 0) || totalVolume < 0 {
+		flags |= barStatsQualityFlagTotalVolumeInvalidMask
+	}
+	if seq <= 0 {
+		flags |= barStatsQualityFlagSeqInvalidMask
+	}
+	if flags == 0 {
+		MRBarStatsQualityFlagsTotal.WithLabelValues(
+			sanitizeVenue(venue),
+			bucketInstrument(instrument),
+			bucketTimeframe(timeframe),
+			"none",
+		).Inc()
+		return
+	}
+	if flags&barStatsQualityFlagTradeCountInvalidMask != 0 {
+		incMRBarStatsQualityFlag(venue, instrument, timeframe, "trade_count_invalid")
+	}
+	if flags&barStatsQualityFlagTotalVolumeInvalidMask != 0 {
+		incMRBarStatsQualityFlag(venue, instrument, timeframe, "total_volume_invalid")
+	}
+	if flags&barStatsQualityFlagSeqInvalidMask != 0 {
+		incMRBarStatsQualityFlag(venue, instrument, timeframe, "seq_invalid")
+	}
+}
+
+func incMRBarStatsQualityFlag(venue, instrument, timeframe, flag string) {
+	MRBarStatsQualityFlagsTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+		bucketTimeframe(timeframe),
+		sanitizeBarStatsQualityFlag(flag),
+	).Inc()
+}
+
+func incMRStatsQualityFlag(venue, instrument, timeframe, flag string) {
+	MRStatsQualityFlagsTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+		bucketTimeframe(timeframe),
+		sanitizeStatsQualityFlag(flag),
+	).Inc()
+}
+
+// InstrumentBucket returns the bounded metrics label bucket for an instrument.
+func InstrumentBucket(instrument string) string {
+	return bucketInstrument(instrument)
+}
+
+func SetMRWindowOpen(venue, instrument, timeframe string, openCount int) {
+	if openCount < 0 {
+		openCount = 0
+	}
+	MRWindowOpenTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+		bucketTimeframe(timeframe),
+	).Set(float64(openCount))
+}
+
+func IncMRWindowLateArrival(venue, instrument, timeframe string) {
+	MRWindowLateArrivalTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+		bucketTimeframe(timeframe),
+	).Inc()
+}
+
+func IncMRWindowForceClose(venue, instrument, timeframe string) {
+	MRWindowForceCloseTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+		bucketTimeframe(timeframe),
+	).Inc()
+}
+
+func SetMRXVenueSpreadBPS(instrument string, spreadBPS float64) {
+	if spreadBPS < 0 {
+		spreadBPS = 0
+	}
+	MRXVenueSpreadBPS.WithLabelValues(
+		bucketInstrument(instrument),
+	).Set(spreadBPS)
+}
+
+func SetMRXVenueDivergenceBPS(instrument string, divergenceBPS float64) {
+	if divergenceBPS < 0 {
+		divergenceBPS = 0
+	}
+	MRXVenueDivergenceBPS.WithLabelValues(
+		bucketInstrument(instrument),
+	).Set(divergenceBPS)
+}
+
+func ObserveMRXVenueMergeDuration(instrument string, d time.Duration) {
+	seconds := d.Seconds()
+	if seconds < 0 {
+		seconds = 0
+	}
+	MRXVenueMergeDurationSeconds.WithLabelValues(
+		bucketInstrument(instrument),
+	).Observe(seconds)
+}
+
+func SetMRXVenueVenuesActive(instrument string, venues int) {
+	if venues < 0 {
+		venues = 0
+	}
+	MRXVenueVenuesActive.WithLabelValues(
+		bucketInstrument(instrument),
+	).Set(float64(venues))
+}
+
 func IncInsightsSnapshots(venueCount int) {
 	InsightsSnapshotsTotal.WithLabelValues(bucketVenueCount(venueCount)).Inc()
 }
@@ -1159,6 +3280,350 @@ func SetInsightsStateInstrumentsActive(active float64) {
 
 func IncInsightsStateEvictions(reason string) {
 	InsightsStateEvictionsTotal.WithLabelValues(sanitizeReason(reason)).Inc()
+}
+
+func IncEvidenceEmitted(typ, severity, venue string) {
+	EvidenceEmittedTotal.WithLabelValues(sanitizeKind(typ), sanitizeSignalSeverity(severity), sanitizeVenue(venue)).Inc()
+}
+
+func IncEvidenceDropped(reason string) {
+	EvidenceDroppedTotal.WithLabelValues(sanitizeReason(reason)).Inc()
+}
+
+func SetEvidenceStateEntries(count int) {
+	if count < 0 {
+		count = 0
+	}
+	EvidenceStateEntries.Set(float64(count))
+}
+
+func IncEvidenceStateEvicted(reason string) {
+	EvidenceStateEvictedTotal.WithLabelValues(sanitizeReason(reason)).Inc()
+}
+
+func IncEvidenceEngineEvents() {
+	EvidenceEngineEventsTotal.Inc()
+}
+
+func SetEvidenceBufferEntries(kind string, count int) {
+	if count < 0 {
+		count = 0
+	}
+	EvidenceBufferEntries.WithLabelValues(sanitizeKind(kind)).Set(float64(count))
+}
+
+func IncEvidenceBufferOverwrites(kind string) {
+	EvidenceBufferOverwritesTotal.WithLabelValues(sanitizeKind(kind)).Inc()
+}
+
+func ObserveEvidenceEvalLatency(seconds float64) {
+	if seconds < 0 {
+		seconds = 0
+	}
+	EvidenceEvalLatencySeconds.Observe(seconds)
+}
+
+func IncLELEvidenceEmitted(typ, severity, venue string) {
+	LELEvidenceEmittedTotal.WithLabelValues(sanitizeKind(typ), sanitizeSignalSeverity(severity), sanitizeVenue(venue)).Inc()
+}
+
+func IncLELEvidenceDropped(reason string) {
+	LELEvidenceDroppedTotal.WithLabelValues(sanitizeReason(reason)).Inc()
+}
+
+func SetLELStateEntries(count int) {
+	if count < 0 {
+		count = 0
+	}
+	LELStateEntries.Set(float64(count))
+}
+
+func IncLELStateEvicted(reason string) {
+	LELStateEvictedTotal.WithLabelValues(sanitizeReason(reason)).Inc()
+}
+
+func ObserveLELEvalLatency(seconds float64) {
+	if seconds < 0 {
+		seconds = 0
+	}
+	LELEvalLatencySeconds.Observe(seconds)
+}
+
+func IncLELInputProcessed(kind string) {
+	LELInputProcessedTotal.WithLabelValues(sanitizeLELInputKind(kind)).Inc()
+}
+
+func ObserveLELWireBudget(typ string, sizeBytes int) {
+	if sizeBytes < 0 {
+		sizeBytes = 0
+	}
+	LELWireBudgetBytes.WithLabelValues(sanitizeKind(typ)).Observe(float64(sizeBytes))
+}
+
+func ObserveEvidenceWireBytes(typ string, sizeBytes int) {
+	if sizeBytes < 0 {
+		sizeBytes = 0
+	}
+	EvidenceWireBytes.WithLabelValues(sanitizeKind(typ)).Observe(float64(sizeBytes))
+}
+
+func ObserveEvidenceQuality(typ, explain string, featureCount int, confidence float64) {
+	typeLabel := sanitizeKind(typ)
+	var flags uint32
+	if strings.TrimSpace(explain) == "" {
+		flags |= evidenceQualityFlagMissingExplainMask
+	}
+	if featureCount <= 0 {
+		flags |= evidenceQualityFlagMissingFeaturesMask
+	}
+	if math.IsNaN(confidence) || math.IsInf(confidence, 0) || confidence < 0 || confidence > 1 {
+		flags |= evidenceQualityFlagConfidenceInvalidMask
+	}
+	if flags == 0 {
+		EvidenceQualityFlagsTotal.WithLabelValues(typeLabel, "none").Inc()
+		return
+	}
+	if flags&evidenceQualityFlagMissingExplainMask != 0 {
+		incEvidenceQualityFlag(typeLabel, "missing_explain")
+	}
+	if flags&evidenceQualityFlagMissingFeaturesMask != 0 {
+		incEvidenceQualityFlag(typeLabel, "missing_features")
+	}
+	if flags&evidenceQualityFlagConfidenceInvalidMask != 0 {
+		incEvidenceQualityFlag(typeLabel, "confidence_invalid")
+	}
+}
+
+func incEvidenceQualityFlag(typ, flag string) {
+	EvidenceQualityFlagsTotal.WithLabelValues(
+		sanitizeKind(typ),
+		sanitizeEvidenceQualityFlag(flag),
+	).Inc()
+}
+
+func SetMRRegimeCurrent(venue, instrument, timeframe, kind string) {
+	sanitizedVenue := sanitizeVenue(venue)
+	sanitizedInstrument := bucketInstrument(instrument)
+	sanitizedTimeframe := bucketTimeframe(timeframe)
+	selected := sanitizeRegimeKind(kind)
+	for i := 0; i < len(regimeAllowedKinds); i++ {
+		value := 0.0
+		if regimeAllowedKinds[i] == selected {
+			value = 1
+		}
+		MRRegimeCurrent.WithLabelValues(
+			sanitizedVenue,
+			sanitizedInstrument,
+			sanitizedTimeframe,
+			regimeAllowedKinds[i],
+		).Set(value)
+	}
+}
+
+func SetMRRegimeStrength(venue, instrument, timeframe string, strength float64) {
+	if strength < 0 {
+		strength = 0
+	}
+	if strength > 1 {
+		strength = 1
+	}
+	MRRegimeStrength.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+		bucketTimeframe(timeframe),
+	).Set(strength)
+}
+
+func IncMRRegimeTransition(venue, instrument, timeframe, from, to string) {
+	MRRegimeTransitionTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+		bucketTimeframe(timeframe),
+		sanitizeRegimeKind(from),
+		sanitizeRegimeKind(to),
+	).Inc()
+}
+
+func ObserveMRRegimeDetectionDuration(venue, instrument, timeframe string, d time.Duration) {
+	if d < 0 {
+		d = 0
+	}
+	MRRegimeDetectionDurationSeconds.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+		bucketTimeframe(timeframe),
+	).Observe(d.Seconds())
+}
+
+func IncMRSignalEmitted(kind, venue, instrument, severity string) {
+	MRSignalEmittedTotal.WithLabelValues(
+		sanitizeKind(kind),
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+		sanitizeSignalSeverity(severity),
+	).Inc()
+}
+
+func IncMRSignalDeduplicated(kind, venue, instrument string) {
+	MRSignalDeduplicatedTotal.WithLabelValues(
+		sanitizeKind(kind),
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+	).Inc()
+}
+
+func IncMRSignalRateLimited(venue, instrument string) {
+	MRSignalRateLimitedTotal.WithLabelValues(
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+	).Inc()
+}
+
+func ObserveMRSignalCompositionDuration(kind string, d time.Duration) {
+	if d < 0 {
+		d = 0
+	}
+	MRSignalCompositionDurationSeconds.WithLabelValues(sanitizeKind(kind)).Observe(d.Seconds())
+}
+
+func ObserveMRSignalConfidence(kind string, confidence float64) {
+	if confidence < 0 {
+		confidence = 0
+	}
+	if confidence > 1 {
+		confidence = 1
+	}
+	MRSignalConfidenceDistribution.WithLabelValues(sanitizeKind(kind)).Observe(confidence)
+}
+
+func IncMRSignalCorrelationHit(kind string) {
+	MRSignalCorrelationHitTotal.WithLabelValues(sanitizeKind(kind)).Inc()
+}
+
+func IncMRSignalRegimeBoost(kind, regime string) {
+	MRSignalRegimeBoostTotal.WithLabelValues(sanitizeKind(kind), sanitizeRegimeKind(regime)).Inc()
+}
+
+func IncMRSignalWSDelivered(kind, venue, instrument string) {
+	MRSignalWSDeliveredTotal.WithLabelValues(
+		sanitizeKind(kind),
+		sanitizeVenue(venue),
+		bucketInstrument(instrument),
+	).Inc()
+}
+
+func IncMRSignalWSSubscriptionRejected(reason string) {
+	MRSignalWSSubscriptionRejectedTotal.WithLabelValues(sanitizeSignalWSRejectReason(reason)).Inc()
+}
+
+func IncMRSignalWSActiveSubscriptions() {
+	v := signalWSSubs.Add(1)
+	MRSignalWSSubscriptionsActive.Set(float64(v))
+}
+
+func DecMRSignalWSActiveSubscriptions() {
+	v := signalWSSubs.Add(-1)
+	if v < 0 {
+		signalWSSubs.Store(0)
+		v = 0
+	}
+	MRSignalWSSubscriptionsActive.Set(float64(v))
+}
+
+func IncSignalEmitted(signalType, severity string) {
+	typeLabel := sanitizeKind(signalType)
+	severityLabel := sanitizeSignalSeverity(severity)
+	SignalEmittedTotal.WithLabelValues(typeLabel, severityLabel).Inc()
+	SignalEmitTotal.WithLabelValues(typeLabel, severityLabel).Inc()
+}
+
+func SetSignalStateEntries(entries int) {
+	if entries < 0 {
+		entries = 0
+	}
+	SignalStateEntries.Set(float64(entries))
+}
+
+func IncSignalEvicted(reason string) {
+	SignalEvictedTotal.WithLabelValues(sanitizeReason(reason)).Inc()
+}
+
+func IncSignalDrop(reason string) {
+	SignalDropTotal.WithLabelValues(sanitizeSignalDropReason(reason)).Inc()
+}
+
+func ObserveSignalEvalLatency(d time.Duration) {
+	if d < 0 {
+		d = 0
+	}
+	SignalEvalLatencySeconds.Observe(d.Seconds())
+}
+
+func IncSignalDedup(signalType string) {
+	SignalDedupTotal.WithLabelValues(sanitizeKind(signalType)).Inc()
+}
+
+func ObserveSignalWireBytes(signalType string, sizeBytes int) {
+	if sizeBytes < 0 {
+		sizeBytes = 0
+	}
+	SignalWireBytes.WithLabelValues(sanitizeKind(signalType)).Observe(float64(sizeBytes))
+}
+
+func ObserveSignalQuality(signalType string, explain []string, correlationIDs []string, confidence float64) {
+	typeLabel := sanitizeKind(signalType)
+	var flags uint32
+	if len(explain) == 0 {
+		flags |= signalQualityFlagMissingExplainMask
+	}
+	if len(correlationIDs) == 0 {
+		flags |= signalQualityFlagMissingCorrelationIDsMask
+	} else {
+		hasEvidenceLink := false
+		for i := range correlationIDs {
+			if strings.HasPrefix(strings.TrimSpace(correlationIDs[i]), "evidence:") {
+				hasEvidenceLink = true
+				break
+			}
+		}
+		if !hasEvidenceLink {
+			flags |= signalQualityFlagMissingEvidenceLinkMask
+		}
+	}
+	if math.IsNaN(confidence) || math.IsInf(confidence, 0) || confidence < 0 || confidence > 1 {
+		flags |= signalQualityFlagConfidenceInvalidMask
+	}
+	if flags == 0 {
+		SignalQualityFlagsTotal.WithLabelValues(typeLabel, "none").Inc()
+		return
+	}
+	if flags&signalQualityFlagMissingExplainMask != 0 {
+		incSignalQualityFlag(typeLabel, "missing_explain")
+	}
+	if flags&signalQualityFlagMissingCorrelationIDsMask != 0 {
+		incSignalQualityFlag(typeLabel, "missing_correlation_ids")
+	}
+	if flags&signalQualityFlagMissingEvidenceLinkMask != 0 {
+		incSignalQualityFlag(typeLabel, "missing_evidence_link")
+	}
+	if flags&signalQualityFlagConfidenceInvalidMask != 0 {
+		incSignalQualityFlag(typeLabel, "confidence_invalid")
+	}
+}
+
+func incSignalQualityFlag(signalType, flag string) {
+	SignalQualityFlagsTotal.WithLabelValues(
+		sanitizeKind(signalType),
+		sanitizeSignalQualityFlag(flag),
+	).Inc()
+}
+
+func IncSignalLELAdapted(lelType string) {
+	SignalLELAdaptedTotal.WithLabelValues(sanitizeKind(lelType)).Inc()
+}
+
+func IncSignalLELAdaptError(reason string) {
+	SignalLELAdaptErrorsTotal.WithLabelValues(sanitizeReason(reason)).Inc()
 }
 
 func SetVPVRBuilderBucketCount(venue, instrument, timeframe string, count int) {
@@ -1203,11 +3668,11 @@ func IncVPVRWriterUpsertDedup() {
 	VPVRWriterUpsertDedupTotal.Inc()
 }
 
-func ObserveVPVRWriterUpsertLatencyMilliseconds(latencyMs float64) {
-	if latencyMs < 0 {
-		latencyMs = 0
+func ObserveVPVRWriterUpsertLatencySeconds(latencySeconds float64) {
+	if latencySeconds < 0 {
+		latencySeconds = 0
 	}
-	VPVRWriterUpsertLatencyMilliseconds.Observe(latencyMs)
+	VPVRWriterUpsertLatencySeconds.Observe(latencySeconds)
 }
 
 func IncVPVRWriterWriteFail(reason string) {
@@ -1246,11 +3711,11 @@ func ObserveVPVRCompressRatio(ratio float64) {
 	VPVRCompressRatio.Observe(ratio)
 }
 
-func ObserveVPVRProcessingLatencyMilliseconds(latencyMs float64) {
-	if latencyMs < 0 {
-		latencyMs = 0
+func ObserveVPVRProcessingLatencySeconds(latencySeconds float64) {
+	if latencySeconds < 0 {
+		latencySeconds = 0
 	}
-	VPVRProcessingLatencyMilliseconds.Observe(latencyMs)
+	VPVRProcessingLatencySeconds.Observe(latencySeconds)
 }
 
 func SetPolicyKitOverloadLevel(stream, venue, instrument string, level int) {
@@ -1285,9 +3750,9 @@ func IncPolicyKitCompress(stream string) {
 	PolicyKitCompressTotal.WithLabelValues(sanitizeEventType(stream)).Inc()
 }
 
-func ObservePolicyKitLatencyMilliseconds(stream string, latencyMs float64, args ...string) {
-	if latencyMs < 0 {
-		latencyMs = 0
+func ObservePolicyKitLatencySeconds(stream string, latencySeconds float64, args ...string) {
+	if latencySeconds < 0 {
+		latencySeconds = 0
 	}
 	venue := policyKitVenueFromArgs(args...)
 	if !shouldSampleDeterministically(
@@ -1296,7 +3761,8 @@ func ObservePolicyKitLatencyMilliseconds(stream string, latencyMs float64, args 
 	) {
 		return
 	}
-	PolicyKitLatencyMilliseconds.WithLabelValues(sanitizeEventType(stream)).Observe(latencyMs)
+	sanitizedStream := sanitizeEventType(stream)
+	PolicyKitLatencySeconds.WithLabelValues(sanitizedStream).Observe(latencySeconds)
 }
 
 func policyKitVenueFromArgs(args ...string) string {
@@ -1326,11 +3792,14 @@ func ObserveHeatmapBuildLatency(venue, instrument, timeframe string, latency tim
 	if latency < 0 {
 		latency = 0
 	}
-	HeatmapBuildLatencyMilliseconds.WithLabelValues(
-		sanitizeVenue(venue),
-		bucketInstrument(instrument),
-		bucketTimeframe(timeframe),
-	).Observe(float64(latency) / float64(time.Millisecond))
+	sanitizedVenue := sanitizeVenue(venue)
+	sanitizedInstrument := bucketInstrument(instrument)
+	sanitizedTimeframe := bucketTimeframe(timeframe)
+	HeatmapBuildLatencySeconds.WithLabelValues(
+		sanitizedVenue,
+		sanitizedInstrument,
+		sanitizedTimeframe,
+	).Observe(latency.Seconds())
 }
 
 func SetHeatmapCells(venue, instrument, timeframe string, cells int) {
@@ -1641,7 +4110,9 @@ func sanitizeSubsystem(v string) string {
 func sanitizeReason(v string) string {
 	v = strings.ToLower(strings.TrimSpace(v))
 	switch v {
-	case "ttl", "size", "unknown":
+	case "ttl", "size", "capacity", "unknown",
+		"nil_store", "empty_stream_id", "invalid_seq", "invalid_ts_server",
+		"non_monotonic_seq", "invalid_evidence", "invalid_event", "invalid_kind":
 		return v
 	default:
 		return "unknown"
@@ -1654,6 +4125,151 @@ func sanitizeKind(v string) string {
 		return v
 	}
 	return "unknown"
+}
+
+func sanitizeRegimeKind(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	for i := 0; i < len(regimeAllowedKinds); i++ {
+		if v == regimeAllowedKinds[i] {
+			return v
+		}
+	}
+	return "unknown"
+}
+
+func sanitizeSignalSeverity(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "low", "medium", "high", "critical":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeLELInputKind(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "snapshot", "tape":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeSignalWSRejectReason(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "max_signal_subscriptions", "max_subscriptions_per_connection", "max_symbols_per_connection":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeSignalDropReason(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "owner_reject", "duplicate", "out_of_order", "rate_limited", "decode_failed", "validation_failed":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeOrderBookSide(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "bid", "ask":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeOrderBookBadLevelReason(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "nan", "inf", "neg_price", "neg_qty", "zero_price":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeOrderBookDropReason(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "out_of_order", "validation_failed", "integrity_violation", "publish_failed", "store_failed":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeTradeBadValueReason(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "nan_price", "nan_size", "zero_price", "zero_size", "neg_price", "neg_size", "empty_side", "empty_trade_id", "bad_timestamp", "unknown":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeTradeWireChannel(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "trade", "tape":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeStatsQualityFlag(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "none", "missing_liquidation", "missing_mark_price", "missing_funding", "forced_close":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeOIQualityFlag(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "none", "seq_invalid", "open_interest_invalid":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeBarStatsQualityFlag(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "none", "trade_count_invalid", "total_volume_invalid", "seq_invalid":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeTapeQualityFlag(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "none", "empty_window", "window_bounds_invalid", "last_seq_invalid", "last_price_invalid", "total_volume_invalid":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeEvidenceQualityFlag(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "none", "missing_explain", "missing_features", "confidence_invalid":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeSignalQualityFlag(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "none", "missing_explain", "missing_correlation_ids", "missing_evidence_link", "confidence_invalid":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return "unknown"
+	}
 }
 
 func sanitizeBusType(v string) string {
@@ -1716,12 +4332,13 @@ func bucketInstrument(v string) string {
 	if sanitized == "" {
 		return "unknown"
 	}
-	for alias, bucket := range instrumentBucketAliases {
-		if strings.Contains(strings.ToLower(sanitized), alias) {
-			return bucket
+	sanitizedLower := strings.ToLower(sanitized)
+	for _, rule := range instrumentBucketRules {
+		if strings.Contains(sanitizedLower, rule.alias) {
+			return rule.bucket
 		}
 	}
-	if strings.HasSuffix(strings.ToLower(sanitized), "usd") {
+	if strings.HasSuffix(sanitizedLower, "usd") {
 		return "fiat"
 	}
 	return "other"
@@ -1775,6 +4392,46 @@ func sanitizeWSQueryCategory(v string) string {
 	v = strings.ToLower(strings.TrimSpace(v))
 	switch v {
 	case "marketdata", "aggregation", "insights":
+		return v
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeWSClientMode(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	switch v {
+	case "v1", "legacy":
+		return v
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeWSControlFrameType(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	switch v {
+	case "hello", "pong", "metrics", "ack_resync":
+		return v
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeWSResyncRejectReason(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	switch v {
+	case "subject_invalid", "not_subscribed", "snapshot_unavailable":
+		return v
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeWSContractViolationReason(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	switch v {
+	case "missing_ts_server", "unknown_feature":
 		return v
 	default:
 		return "unknown"
@@ -1840,11 +4497,70 @@ func sanitizeBoundedMapName(v string) string {
 	return "unknown"
 }
 
+func sanitizeOwnershipSubsystem(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	switch v {
+	case "signals", "strategist", "delivery":
+		return v
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeOwnershipEvictReason(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	switch v {
+	case "size", "ttl", "capacity", "unknown":
+		return v
+	default:
+		return "unknown"
+	}
+}
+
+// SetOwnershipContractEntries sets stream-state entries tracked by the ownership contract.
+func SetOwnershipContractEntries(subsystem string, entries int) {
+	OwnershipContractEntries.WithLabelValues(sanitizeOwnershipSubsystem(subsystem)).Set(float64(max(entries, 0)))
+}
+
+// IncOwnershipContractEvicted increments stream-state evictions by subsystem and reason.
+func IncOwnershipContractEvicted(subsystem, reason string) {
+	OwnershipContractEvictedTotal.WithLabelValues(
+		sanitizeOwnershipSubsystem(subsystem),
+		sanitizeOwnershipEvictReason(reason),
+	).Inc()
+}
+
+// IncOwnershipContractDuplicate increments duplicate drops for the subsystem.
+func IncOwnershipContractDuplicate(subsystem string) {
+	OwnershipContractDuplicateTotal.WithLabelValues(sanitizeOwnershipSubsystem(subsystem)).Inc()
+}
+
+// IncOwnershipContractOutOfOrder increments out-of-order drops for the subsystem.
+func IncOwnershipContractOutOfOrder(subsystem string) {
+	OwnershipContractOutOfOrderTotal.WithLabelValues(sanitizeOwnershipSubsystem(subsystem)).Inc()
+}
+
 // ── Delivery router observability helpers ────────────────────────────────────
 
 // SetDeliveryRouterSubscriptionsActive sets the active subscriptions gauge.
 func SetDeliveryRouterSubscriptionsActive(count int) {
 	DeliveryRouterSubscriptionsActive.Set(float64(max(count, 0)))
+	SetWSSubscriptionsActive(count)
+}
+
+// SetDeliveryWSSnapshotCacheEntries sets the bounded ws snapshot cache size gauge.
+func SetDeliveryWSSnapshotCacheEntries(count int) {
+	DeliveryWSSnapshotCacheEntries.Set(float64(max(count, 0)))
+}
+
+// IncDeliveryWSSnapshotCacheHit increments the snapshot cache hit counter.
+func IncDeliveryWSSnapshotCacheHit() {
+	DeliveryWSSnapshotCacheHits.Inc()
+}
+
+// IncDeliveryWSSnapshotCacheMiss increments the snapshot cache miss counter.
+func IncDeliveryWSSnapshotCacheMiss() {
+	DeliveryWSSnapshotCacheMisses.Inc()
 }
 
 // IncDeliveryRouterEventsRouted increments the routed events counter.
@@ -1855,4 +4571,125 @@ func IncDeliveryRouterEventsRouted() {
 // IncDeliveryRouterEventsRejected increments the rejected events counter.
 func IncDeliveryRouterEventsRejected(reason string) {
 	DeliveryRouterEventsRejectedTotal.WithLabelValues(sanitizeKind(reason)).Inc()
+}
+
+// SetDeliveryRouterCoherenceMode sets the active delivery stream coherence mode info gauge.
+func SetDeliveryRouterCoherenceMode(mode string) {
+	DeliveryRouterCoherenceMode.WithLabelValues(sanitizeDeliveryRouterCoherenceMode(mode)).Set(1)
+}
+
+// IncDeliveryRouterCoherenceViolation increments the coherence violation counter.
+func IncDeliveryRouterCoherenceViolation(violationType, reason string) {
+	label := "seq_non_monotonic"
+	switch violationType {
+	case "seq_non_monotonic", "seq_invalid":
+		label = violationType
+	}
+	DeliveryRouterCoherenceViolationsTotal.WithLabelValues(label, sanitizeDeliveryRouterCoherenceReason(reason)).Inc()
+}
+
+// SetDeliveryRouterStreamStateEntries sets the current stream-state entry count.
+func SetDeliveryRouterStreamStateEntries(count int) {
+	DeliveryRouterStreamStateEntries.Set(float64(max(count, 0)))
+}
+
+// AddDeliveryRouterStreamStateEvicted increments stream-state evictions by n.
+func AddDeliveryRouterStreamStateEvicted(n int) {
+	if n <= 0 {
+		return
+	}
+	DeliveryRouterStreamStateEvictedTotal.Add(float64(n))
+}
+
+// SetDeliveryRouterStreamStateActive sets the active stream-state count from the latest sweep.
+func SetDeliveryRouterStreamStateActive(count int) {
+	DeliveryRouterStreamStateActiveTotal.Set(float64(max(count, 0)))
+}
+
+// SetDeliveryRouterSessionsActive sets the active sessions gauge for the delivery router.
+func SetDeliveryRouterSessionsActive(count int) {
+	DeliveryRouterSessionsActive.Set(float64(max(count, 0)))
+}
+
+// IncDeliveryRouterSessionsRejected increments the sessions-rejected counter.
+func IncDeliveryRouterSessionsRejected() {
+	DeliveryRouterSessionsRejectedTotal.Inc()
+}
+
+// SetWSQueueCapacity sets the per-session outbound queue capacity gauge.
+func SetWSQueueCapacity(capacity int) {
+	WSQueueCapacity.Set(float64(max(capacity, 0)))
+}
+
+// IncDeliveryRangeAliasFallback increments getrange alias fallback attempts by outcome.
+func IncDeliveryRangeAliasFallback(outcome string) {
+	DeliveryRangeAliasFallbackTotal.WithLabelValues(sanitizeKind(outcome)).Inc()
+}
+
+// SetTranscodeCacheEntries sets the current transcode cache size gauge.
+func SetTranscodeCacheEntries(n int) {
+	TranscodeCacheEntries.Set(float64(max(n, 0)))
+}
+
+// SetTranscodeCacheHits sets the cumulative hit gauge.
+func SetTranscodeCacheHits(n int64) {
+	if n < 0 {
+		n = 0
+	}
+	TranscodeCacheHits.Set(float64(n))
+}
+
+// SetTranscodeCacheMisses sets the cumulative miss gauge.
+func SetTranscodeCacheMisses(n int64) {
+	if n < 0 {
+		n = 0
+	}
+	TranscodeCacheMisses.Set(float64(n))
+}
+
+// IncWSLegacyRequest increments the legacy route request counter.
+func IncWSLegacyRequest(status string) {
+	s := strings.ToLower(strings.TrimSpace(status))
+	switch s {
+	case "accepted", "rejected":
+	default:
+		s = "rejected"
+	}
+	WSLegacyRequestsTotal.WithLabelValues(s).Inc()
+}
+
+func sanitizeDeliveryRouterCoherenceMode(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	switch v {
+	case "sticky_session", "upstream_sequencer":
+		return v
+	default:
+		return "unknown"
+	}
+}
+
+func sanitizeDeliveryRouterCoherenceReason(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	switch v {
+	case "out_of_order_input", "stale_event", "owner_change", "resync_overlap", "replay_duplicate":
+		return v
+	default:
+		return "unknown"
+	}
+}
+
+// SetSLOState exports SLO evaluator state to Prometheus gauges.
+func SetSLOState(name string, breached bool, budgetRatio, burnFast, burnSlow float64) {
+	n := strings.ToLower(strings.TrimSpace(name))
+	if n == "" {
+		return
+	}
+	b := float64(0)
+	if breached {
+		b = 1
+	}
+	SLOBreachActive.WithLabelValues(n).Set(b)
+	SLOErrorBudgetRemainingRatio.WithLabelValues(n).Set(budgetRatio)
+	SLOBurnRateFast.WithLabelValues(n).Set(burnFast)
+	SLOBurnRateSlow.WithLabelValues(n).Set(burnSlow)
 }

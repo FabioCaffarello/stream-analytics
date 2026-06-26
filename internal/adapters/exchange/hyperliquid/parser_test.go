@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/market-raccoon/internal/adapters/exchange/hyperliquid"
-	"github.com/market-raccoon/internal/core/marketdata/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/exchange/hyperliquid"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/domain"
 )
 
 func TestParseMessage_HyperLiquidTable(t *testing.T) {

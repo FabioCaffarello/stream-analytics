@@ -6,11 +6,12 @@ import (
 	"strings"
 	"time"
 
-	common "github.com/market-raccoon/internal/adapters/exchange/common"
-	"github.com/market-raccoon/internal/core/marketdata/app"
-	"github.com/market-raccoon/internal/core/marketdata/domain"
-	"github.com/market-raccoon/internal/shared/naming"
-	"github.com/market-raccoon/internal/shared/problem"
+	common "github.com/FabioCaffarello/stream-analytics/internal/adapters/exchange/common"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/app"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/naming"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 const VenueKrakenF = "KRAKENF"
@@ -158,21 +159,7 @@ func parseTrade(data []byte, recvAt time.Time, marketType string) (app.IngestReq
 	if p != nil {
 		return app.IngestRequest{}, true, p
 	}
-
-	entry := tradeData{
-		PriceRaw:  msg.PriceRaw,
-		QtyRaw:    msg.QtyRaw,
-		SizeRaw:   msg.SizeRaw,
-		Side:      msg.Side,
-		TimeRaw:   msg.TimeRaw,
-		Timestamp: msg.Timestamp,
-		Seq:       msg.Seq,
-		UID:       msg.UID,
-		TradeID:   msg.TradeID,
-	}
-	if len(msg.Trades) > 0 {
-		entry = msg.Trades[0]
-	}
+	entry := primaryTradeEntry(msg)
 
 	price, p := parseRequiredFloat(entry.PriceRaw, "krakenf trade: invalid price")
 	if p != nil {
@@ -194,16 +181,16 @@ func parseTrade(data []byte, recvAt time.Time, marketType string) (app.IngestReq
 	if p != nil {
 		return app.IngestRequest{}, true, p
 	}
-
-	tradeID := strings.TrimSpace(entry.UID)
-	if tradeID == "" {
-		tradeID = common.TradeIDStringFromAny(entry.TradeID)
+	tradeID := resolveTradeID(entry, tsExchange)
+	trade := domain.TradeTickV1{
+		Price:     price,
+		Size:      size,
+		Side:      side,
+		TradeID:   tradeID,
+		Timestamp: tsExchange,
 	}
-	if tradeID == "" && entry.Seq > 0 {
-		tradeID = common.TradeIDStringFromAny(entry.Seq)
-	}
-	if tradeID == "" {
-		tradeID = common.TradeIDStringFromAny(tsExchange)
+	if !recordTradeQualityMetrics(recvAt, VenueKrakenF, trade) {
+		return app.IngestRequest{}, true, nil
 	}
 
 	return app.IngestRequest{
@@ -219,14 +206,55 @@ func parseTrade(data []byte, recvAt time.Time, marketType string) (app.IngestReq
 			tradeID,
 		),
 		Metadata: buildInstrumentMetadata(msg.ProductID, instrument, marketType),
-		Payload: domain.TradeTickV1{
-			Price:     price,
-			Size:      size,
-			Side:      side,
-			TradeID:   tradeID,
-			Timestamp: tsExchange,
-		},
+		Payload:  trade,
 	}, false, nil
+}
+
+func primaryTradeEntry(msg tradeMessage) tradeData {
+	entry := tradeData{
+		PriceRaw:  msg.PriceRaw,
+		QtyRaw:    msg.QtyRaw,
+		SizeRaw:   msg.SizeRaw,
+		Side:      msg.Side,
+		TimeRaw:   msg.TimeRaw,
+		Timestamp: msg.Timestamp,
+		Seq:       msg.Seq,
+		UID:       msg.UID,
+		TradeID:   msg.TradeID,
+	}
+	if len(msg.Trades) > 0 {
+		entry = msg.Trades[0]
+	}
+	return entry
+}
+
+func resolveTradeID(entry tradeData, tsExchange int64) string {
+	tradeID := strings.TrimSpace(entry.UID)
+	if tradeID == "" {
+		tradeID = common.TradeIDStringFromAny(entry.TradeID)
+	}
+	if tradeID == "" && entry.Seq > 0 {
+		tradeID = common.TradeIDStringFromAny(entry.Seq)
+	}
+	if tradeID == "" {
+		tradeID = common.TradeIDStringFromAny(tsExchange)
+	}
+	return tradeID
+}
+
+func recordTradeQualityMetrics(recvAt time.Time, venue string, trade domain.TradeTickV1) bool {
+	if p := trade.Validate(); p != nil {
+		metrics.IncMRTradeBadValue(
+			venue,
+			common.ClassifyTradeValidationReason(trade.Price, trade.Size, trade.Side, trade.TradeID, trade.Timestamp),
+		)
+		return false
+	}
+	metrics.IncMRTradeIngest(venue)
+	if recvTs := recvAt.UnixMilli(); trade.Timestamp > 0 && recvTs > trade.Timestamp {
+		metrics.ObserveMRTradeLatency(venue, float64(recvTs-trade.Timestamp)/1000.0)
+	}
+	return true
 }
 
 func parseBook(data []byte, feed string, recvAt time.Time, marketType string) (app.IngestRequest, bool, *problem.Problem) {

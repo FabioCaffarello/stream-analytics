@@ -3,8 +3,8 @@ package domain_test
 import (
 	"testing"
 
-	"github.com/market-raccoon/internal/core/aggregation/domain"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 func newCandle(t *testing.T) *domain.CandleV1 {
@@ -22,6 +22,18 @@ func TestCandleV1_NewValidation(t *testing.T) {
 	}
 	if _, p := domain.NewCandleV1("BINANCE", "BTCUSDT", "2m", 1); p == nil || p.Code != problem.ValidationFailed {
 		t.Fatalf("expected validation failure for invalid timeframe, got=%v", p)
+	}
+}
+
+func TestCandleV1_SubMinuteTimeframes(t *testing.T) {
+	for _, tf := range []string{"1s", "5s"} {
+		c, p := domain.NewCandleV1("BINANCE", "BTCUSDT", tf, 1_000)
+		if p != nil {
+			t.Fatalf("NewCandleV1(%s): %v", tf, p)
+		}
+		if c.Timeframe != tf {
+			t.Fatalf("timeframe=%s want=%s", c.Timeframe, tf)
+		}
 	}
 }
 

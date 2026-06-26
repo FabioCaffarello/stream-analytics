@@ -1,8 +1,8 @@
 # Orderbook Architecture (Snapshots + Delivery)
 
-**Status:** Draft
+**Status:** Partially Implemented
 **Owner:** Product Architect
-**Last updated:** 2026-02-13
+**Last updated:** 2026-06-25
 **Relates to:** `docs/adrs/ADR-0002-event-envelope-and-versioning.md`, `docs/adrs/ADR-0005-sequencing-and-time-normalization.md`, `docs/adrs/ADR-0006-storage-hot-vs-cold.md`, `docs/adrs/ADR-0013-backpressure-overload-policies.md`, `docs/adrs/ADR-0014-stream-partitioning-strategy.md`, `docs/adrs/ADR-0015-deterministic-replay-time-invariants.md`
 
 ## Purpose

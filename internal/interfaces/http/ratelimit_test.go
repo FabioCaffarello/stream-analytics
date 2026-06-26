@@ -5,12 +5,28 @@ import (
 	"testing"
 	"time"
 
+	deliveryruntime "github.com/FabioCaffarello/stream-analytics/internal/actors/delivery/runtime"
+	httpserver "github.com/FabioCaffarello/stream-analytics/internal/interfaces/http"
+	wsserver "github.com/FabioCaffarello/stream-analytics/internal/interfaces/ws"
 	"github.com/anthdm/hollywood/actor"
 	"github.com/gorilla/websocket"
-	deliveryruntime "github.com/market-raccoon/internal/actors/delivery/runtime"
-	httpserver "github.com/market-raccoon/internal/interfaces/http"
-	wsserver "github.com/market-raccoon/internal/interfaces/ws"
 )
+
+func readFrameSkipHello(t *testing.T, conn *websocket.Conn, timeout time.Duration) map[string]any {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		_ = conn.SetReadDeadline(deadline)
+		var msg map[string]any
+		if err := conn.ReadJSON(&msg); err != nil {
+			t.Fatalf("read frame: %v", err)
+		}
+		if typ, _ := msg["type"].(string); typ == "hello" {
+			continue
+		}
+		return msg
+	}
+}
 
 type noopRouterActor struct{}
 
@@ -61,10 +77,7 @@ func TestWSRateLimit_TokenBucket(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("write first subscribe: %v", err)
 	}
-	var first map[string]any
-	if err := conn.ReadJSON(&first); err != nil {
-		t.Fatalf("read first subscribe response: %v", err)
-	}
+	first := readFrameSkipHello(t, conn, 2*time.Second)
 	if got, want := first["type"], "ack"; got != want {
 		t.Fatalf("first response type=%v want=%v", got, want)
 	}
@@ -76,10 +89,7 @@ func TestWSRateLimit_TokenBucket(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("write second subscribe: %v", err)
 	}
-	var second map[string]any
-	if err := conn.ReadJSON(&second); err != nil {
-		t.Fatalf("read second subscribe response: %v", err)
-	}
+	second := readFrameSkipHello(t, conn, 2*time.Second)
 	if got, want := second["type"], "error"; got != want {
 		t.Fatalf("second response type=%v want=%v", got, want)
 	}

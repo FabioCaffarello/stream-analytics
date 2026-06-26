@@ -1,58 +1,35 @@
-# SLO / SLI (Market-Raccoon)
+---
+type: doc
+status: Draft
+last_updated: 2026-06-25
+---
 
-**Status:** Active
-**Last updated:** 2026-02-19
+# SLO Definitions
 
-## SLO-1: Ingest Success Ratio
-- Objective (30d): `99.9%`
-- SLI: successful ingest ratio (`ok / total`) from ingest pipeline.
-- PromQL (reference):
+**Status:** Draft
+**Owner:** Platform
+**Last updated:** 2026-06-25
+
+---
+
+## Service Level Objectives
+
+| Service | Indicator | Target | Window |
+|---------|-----------|--------|--------|
+| Consumer | Message lag (p99) | < 50ms | 30 days |
+| Processor | Throughput | ≥ 100K evt/sec | 30 days |
+| Delivery | WebSocket latency (p95) | < 25ms | 30 days |
+| Store | Write latency (p99) | < 100ms | 30 days |
+
+## PromQL Expressions
+
 ```promql
-sum(rate(ingest_messages_total{status="ok"}[5m]))
-/
-clamp_min(sum(rate(ingest_messages_total[5m])), 1e-9)
-```
-- Error budget (30d): `0.1%`
-- Burn-rate thresholds:
-  - Fast: `5m/1h > 14.4`
-  - Slow: `30m/6h > 6`
+# Consumer lag p99 (placeholder)
+histogram_quantile(0.99, sum(rate(mr_consumer_lag_seconds_bucket[5m])) by (le))
 
-## SLO-2: Delivery Latency p99 (WS/HTTP)
-- Objective (30d): `99%` of deliveries under `250ms` (p99 guardrail).
-- SLI: good latency ratio from delivery histogram.
-- PromQL (reference):
-```promql
-sum(rate(ws_send_latency_ms_bucket{le="250"}[5m]))
-/
-clamp_min(sum(rate(ws_send_latency_ms_count[5m])), 1e-9)
+# Processor throughput
+sum(rate(mr_processor_events_total[1m]))
 ```
-- Error budget (30d): `1%`
-- Burn-rate thresholds:
-  - Fast: `5m/1h > 14.4`
-  - Slow: `30m/6h > 6`
 
-## SLO-3: Data Loss Guard
-- Objective (30d): `99.99%` (guardrail for `drop_total == 0` and `cold-path commit errors == 0`).
-- SLI: no data-loss symptoms and no cold-path commit errors.
-- PromQL (reference):
-```promql
-(
-  sum(rate(ingest_drop_total[5m]))
-+ sum(rate(ingest_nak_total[5m]))
-+ sum(rate(ingest_term_total[5m]))
-+ sum(rate(vpvr_drop_total[5m]))
-+ sum(rate(heatmap_drop_total[5m]))
-+ sum(rate(ws_drops_total[5m]))
-+ sum(rate(backpressure_drops_total[5m]))
-+ sum(rate(bus_dropped_total[5m]))
-+ sum(rate(policykit_drop_total[5m]))
-+ sum(rate(vpvr_writer_write_fail_total[5m]))
-+ sum(rate(bus_publish_errors_total[5m]))
-)
-/
-clamp_min(sum(rate(ingest_messages_total[5m])), 1e-9)
-```
-- Error budget (30d): `0.01%`
-- Burn-rate thresholds:
-  - Fast: `5m/1h > 14.4`
-  - Slow: `30m/6h > 6`
+> This document is a stub. Full SLO definitions with burn-rate alerts to be added.
+> See [Metrics Catalogue](../architecture/metrics-catalogue.md) for available metrics.

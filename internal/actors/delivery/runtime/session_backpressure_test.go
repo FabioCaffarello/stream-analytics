@@ -4,10 +4,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FabioCaffarello/stream-analytics/internal/core/delivery/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
 	"github.com/anthdm/hollywood/actor"
-	"github.com/market-raccoon/internal/core/delivery/domain"
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/metrics"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 

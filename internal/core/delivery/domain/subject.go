@@ -3,12 +3,19 @@ package domain
 import (
 	"strings"
 
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/naming"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/naming"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 const DefaultTimeframe = "raw"
+
+const (
+	signalStreamType         = "signal"
+	signalCompositeEventType = "signal.composite"
+	signalEventType          = "signal.event"
+	unknownSignalSubjectKind = "unknown"
+)
 
 // Subject is the canonical delivery routing key.
 //
@@ -18,6 +25,7 @@ const DefaultTimeframe = "raw"
 // stream_type may include dots because envelope types are namespaced.
 type Subject struct {
 	StreamType string
+	Kind       string
 	Venue      string
 	Symbol     string
 	Timeframe  string
@@ -25,9 +33,12 @@ type Subject struct {
 
 func ParseSubject(raw string) (Subject, *problem.Problem) {
 	parts := strings.Split(strings.TrimSpace(raw), "/")
+	if len(parts) == 5 && strings.EqualFold(strings.TrimSpace(parts[0]), signalStreamType) {
+		return NewSignalSubject(parts[1], parts[2], parts[3], parts[4])
+	}
 	if len(parts) != 4 {
 		return Subject{}, problem.Newf(problem.ValidationFailed,
-			"subject must have 4 segments <stream_type>/<venue>/<symbol>/<timeframe>, got %q", raw,
+			"subject must have 4 segments <stream_type>/<venue>/<symbol>/<timeframe> or 5 segments signal/<kind>/<venue>/<symbol>/<timeframe>, got %q", raw,
 		)
 	}
 	return NewSubject(parts[0], parts[1], parts[2], parts[3])
@@ -54,6 +65,33 @@ func NewSubject(streamType, venue, symbol, timeframe string) (Subject, *problem.
 
 	return Subject{
 		StreamType: streamType,
+		Kind:       "",
+		Venue:      venue,
+		Symbol:     symbol,
+		Timeframe:  timeframe,
+	}, nil
+}
+
+func NewSignalSubject(kind, venue, symbol, timeframe string) (Subject, *problem.Problem) {
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	if kind == "" {
+		return Subject{}, problem.New(problem.ValidationFailed, "subject signal kind must not be empty")
+	}
+	venue = strings.ToLower(strings.TrimSpace(venue))
+	symbol = NormalizeSymbol(symbol)
+	timeframe = strings.ToLower(strings.TrimSpace(timeframe))
+	if venue == "" {
+		return Subject{}, problem.New(problem.ValidationFailed, "subject venue must not be empty")
+	}
+	if symbol == "" {
+		return Subject{}, problem.New(problem.ValidationFailed, "subject symbol must not be empty")
+	}
+	if timeframe == "" {
+		timeframe = DefaultTimeframe
+	}
+	return Subject{
+		StreamType: signalStreamType,
+		Kind:       kind,
 		Venue:      venue,
 		Symbol:     symbol,
 		Timeframe:  timeframe,
@@ -73,9 +111,41 @@ func IsInstrumentSymbolEquivalent(symbol, instrument string) bool {
 }
 
 func SubjectFromEnvelope(env envelope.Envelope, timeframe string) (Subject, *problem.Problem) {
+	eventType := strings.ToLower(strings.TrimSpace(env.Type))
+	if eventType == signalCompositeEventType || eventType == signalEventType {
+		kind := unknownSignalSubjectKind
+		if len(env.Meta) > 0 {
+			if rawKind := strings.ToLower(strings.TrimSpace(env.Meta["kind"])); rawKind != "" {
+				kind = rawKind
+			}
+		}
+		return NewSignalSubject(kind, env.Venue, env.Instrument, timeframe)
+	}
 	return NewSubject(env.Type, env.Venue, env.Instrument, timeframe)
 }
 
+// TimeframeFromEnvelopeMeta returns the timeframe from env.Meta["timeframe"]
+// if present, otherwise returns the provided fallback.
+func TimeframeFromEnvelopeMeta(env envelope.Envelope, fallback string) string {
+	if len(env.Meta) > 0 {
+		if tf := strings.TrimSpace(env.Meta["timeframe"]); tf != "" {
+			return tf
+		}
+	}
+	return fallback
+}
+
 func (s Subject) String() string {
+	if s.IsSignal() {
+		kind := strings.ToLower(strings.TrimSpace(s.Kind))
+		if kind == "" {
+			kind = unknownSignalSubjectKind
+		}
+		return signalStreamType + "/" + kind + "/" + s.Venue + "/" + s.Symbol + "/" + s.Timeframe
+	}
 	return s.StreamType + "/" + s.Venue + "/" + s.Symbol + "/" + s.Timeframe
+}
+
+func (s Subject) IsSignal() bool {
+	return strings.EqualFold(strings.TrimSpace(s.StreamType), signalStreamType)
 }

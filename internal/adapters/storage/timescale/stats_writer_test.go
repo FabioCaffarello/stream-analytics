@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/market-raccoon/internal/adapters/storage/timescale"
-	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/storage/timescale"
+	aggdomain "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
 )
 
 func TestPgStatsWriter_Save_Success(t *testing.T) {
@@ -64,6 +64,7 @@ func testStatsClosed(withMarkPrice, withFunding bool) aggdomain.StatsWindowClose
 		Timeframe:      "1m",
 		WindowStartTs:  1_710_000_000_000,
 		WindowEndTs:    1_710_000_060_000,
+		WindowMs:       60_000,
 		LiqBuyVolume:   5,
 		LiqSellVolume:  3,
 		LiqTotalVolume: 8,

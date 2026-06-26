@@ -1,7 +1,7 @@
 variable "cluster_name" {
   description = "Minikube cluster name"
   type        = string
-  default     = "market-raccoon"
+  default     = "stream-analytics"
 }
 
 variable "nodes" {

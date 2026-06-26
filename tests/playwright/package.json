@@ -1,0 +1,22 @@
+{
+  "name": "mr-playwright",
+  "version": "2.0.0",
+  "description": "Stream Analytics E2E test suite",
+  "type": "module",
+  "scripts": {
+    "test": "npx playwright test",
+    "test:boot": "npx playwright test specs/boot.spec.ts",
+    "test:tf": "npx playwright test specs/timeframe.spec.ts",
+    "test:compare": "npx playwright test specs/compare-mode.spec.ts",
+    "test:ui": "npx playwright test specs/ui-modes.spec.ts",
+    "test:stability": "npx playwright test specs/stability.spec.ts",
+    "test:report": "npx playwright show-report tests/playwright/artifacts/report",
+    "legacy:m1": "node scripts/m1-baseline-probes.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "playwright": "^1.58.2"
+  }
+}

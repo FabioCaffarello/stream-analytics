@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 func TestNew(t *testing.T) {

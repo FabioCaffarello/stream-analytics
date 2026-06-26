@@ -2,10 +2,10 @@
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
-  name: raccoon-system
+  name: stream-analytics-system
   namespace: argocd
   labels:
-    app.kubernetes.io/part-of: market-raccoon
+    app.kubernetes.io/part-of: stream-analytics
 spec:
   goTemplate: true
   goTemplateOptions: ["missingkey=error"]
@@ -21,26 +21,26 @@ spec:
                 - env: prod
                   cluster: https://kubernetes.default.svc
           - git:
-              repoURL: https://github.com/market-raccoon/market-raccoon.git
+              repoURL: https://github.com/stream-analytics/stream-analytics.git
               revision: main
               directories:
-                - path: deploy/gitops/apps/raccoon-system/*
+                - path: deploy/gitops/apps/stream-analytics-system/*
   template:
     metadata:
-      name: "raccoon-system-{{ .path.basename }}-{{ .env }}"
+      name: "stream-analytics-system-{{ .path.basename }}-{{ .env }}"
       labels:
-        app.kubernetes.io/part-of: market-raccoon
+        app.kubernetes.io/part-of: stream-analytics
         app.kubernetes.io/component: "{{ .path.basename }}"
         environment: "{{ .env }}"
     spec:
-      project: raccoon-system
+      project: stream-analytics-system
       source:
-        repoURL: https://github.com/market-raccoon/market-raccoon.git
+        repoURL: https://github.com/stream-analytics/stream-analytics.git
         targetRevision: main
         path: "{{ .path.path }}/overlays/{{ .env }}"
       destination:
         server: "{{ .cluster }}"
-        namespace: raccoon-system
+        namespace: stream-analytics-system
       syncPolicy:
         automated:
           prune: true

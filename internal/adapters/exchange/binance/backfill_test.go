@@ -9,11 +9,12 @@ import (
 	"testing"
 	"time"
 
-	marketdomain "github.com/market-raccoon/internal/core/marketdata/domain"
-	"github.com/market-raccoon/internal/shared/codec"
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/problem"
-	"github.com/market-raccoon/internal/shared/replay"
+	"github.com/FabioCaffarello/stream-analytics/internal/contracts"
+	marketdomain "github.com/FabioCaffarello/stream-analytics/internal/core/marketdata/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/codec"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/replay"
 )
 
 //nolint:gocyclo // end-to-end parsing assertions are intentionally explicit.
@@ -137,7 +138,7 @@ func TestDownloadAggTrades_ProducesValidFixture(t *testing.T) {
 		t.Fatalf("DownloadAggTrades: %v", p)
 	}
 
-	player, p := replay.NewPlayer(res.OutputPath, nil)
+	player, p := replay.NewPlayer(res.OutputPath, nil, contracts.BootstrapPayloadCodecRegistry)
 	if p != nil {
 		t.Fatalf("NewPlayer: %v", p)
 	}

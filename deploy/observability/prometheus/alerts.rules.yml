@@ -7,7 +7,7 @@ groups:
         for: 2m
         labels:
           severity: page
-          service: market-raccoon
+          service: stream-analytics
           slo: ingest
         annotations:
           summary: "Ingest SLO fast burn-rate high"
@@ -19,7 +19,7 @@ groups:
         for: 5m
         labels:
           severity: ticket
-          service: market-raccoon
+          service: stream-analytics
           slo: ingest
         annotations:
           summary: "Ingest SLO slow burn-rate high"
@@ -31,7 +31,7 @@ groups:
         for: 2m
         labels:
           severity: page
-          service: market-raccoon
+          service: stream-analytics
           slo: delivery_latency
         annotations:
           summary: "Delivery latency SLO fast burn-rate high"
@@ -43,7 +43,7 @@ groups:
         for: 5m
         labels:
           severity: ticket
-          service: market-raccoon
+          service: stream-analytics
           slo: delivery_latency
         annotations:
           summary: "Delivery latency SLO slow burn-rate high"
@@ -55,7 +55,7 @@ groups:
         for: 2m
         labels:
           severity: page
-          service: market-raccoon
+          service: stream-analytics
           slo: data_loss
         annotations:
           summary: "Data loss guard fast burn-rate high"
@@ -67,7 +67,7 @@ groups:
         for: 5m
         labels:
           severity: ticket
-          service: market-raccoon
+          service: stream-analytics
           slo: data_loss
         annotations:
           summary: "Data loss guard slow burn-rate high"
@@ -79,7 +79,7 @@ groups:
         for: 15m
         labels:
           severity: ticket
-          service: market-raccoon
+          service: stream-analytics
           slo: data_loss
         annotations:
           summary: "Drop-rate detected"
@@ -91,7 +91,7 @@ groups:
         for: 5m
         labels:
           severity: ticket
-          service: market-raccoon
+          service: stream-analytics
           slo: store
         annotations:
           summary: "Store commit latency p95 exceeds 1s"
@@ -106,7 +106,7 @@ groups:
         for: 5m
         labels:
           severity: page
-          service: market-raccoon
+          service: stream-analytics
           slo: store
         annotations:
           summary: "Consumer lag growing with zero commits"
@@ -118,7 +118,7 @@ groups:
         for: 5m
         labels:
           severity: ticket
-          service: market-raccoon
+          service: stream-analytics
           slo: runtime
         annotations:
           summary: "Goroutine count is abnormally high"
@@ -130,7 +130,7 @@ groups:
         for: 5m
         labels:
           severity: ticket
-          service: market-raccoon
+          service: stream-analytics
           slo: runtime
         annotations:
           summary: "Heap allocation is high"
@@ -142,7 +142,7 @@ groups:
         for: 15m
         labels:
           severity: ticket
-          service: market-raccoon
+          service: stream-analytics
           slo: data_loss
         annotations:
           summary: "Cold-path commit errors detected"
@@ -154,7 +154,7 @@ groups:
         for: 5m
         labels:
           severity: ticket
-          service: market-raccoon
+          service: stream-analytics
           slo: store
         annotations:
           summary: "Store batch flush failures detected"
@@ -166,7 +166,7 @@ groups:
         for: 15m
         labels:
           severity: ticket
-          service: market-raccoon
+          service: stream-analytics
           slo: store
         annotations:
           summary: "Store quarantine rate is non-zero"
@@ -178,7 +178,7 @@ groups:
         for: 5m
         labels:
           severity: ticket
-          service: market-raccoon
+          service: stream-analytics
           slo: store
         annotations:
           summary: "Store batch flush latency p95 exceeds 500ms"

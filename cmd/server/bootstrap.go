@@ -2,30 +2,363 @@ package main
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"math"
 	"net/http"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
+	deliveryruntime "github.com/FabioCaffarello/stream-analytics/internal/actors/delivery/runtime"
+	actorruntime "github.com/FabioCaffarello/stream-analytics/internal/actors/runtime"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/bus"
+	adapterjs "github.com/FabioCaffarello/stream-analytics/internal/adapters/jetstream"
+	adapterkafka "github.com/FabioCaffarello/stream-analytics/internal/adapters/kafka"
+	adapternats "github.com/FabioCaffarello/stream-analytics/internal/adapters/nats"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/storage/clickhouse"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/storage/federation"
+	"github.com/FabioCaffarello/stream-analytics/internal/adapters/storage/timescale"
+	"github.com/FabioCaffarello/stream-analytics/internal/application/emulatorruntime"
+	"github.com/FabioCaffarello/stream-analytics/internal/application/runtimebootstrap"
+	"github.com/FabioCaffarello/stream-analytics/internal/contracts"
+	aggdomain "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
+	aggports "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/ports"
+	deliverydomain "github.com/FabioCaffarello/stream-analytics/internal/core/delivery/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/delivery/ports"
+	workspaceinfra "github.com/FabioCaffarello/stream-analytics/internal/core/workspace/infra"
+	httpserver "github.com/FabioCaffarello/stream-analytics/internal/interfaces/http"
+	wsserver "github.com/FabioCaffarello/stream-analytics/internal/interfaces/ws"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/bootstrap"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/clock"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/config"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/ids"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 	"github.com/anthdm/hollywood/actor"
-	deliveryruntime "github.com/market-raccoon/internal/actors/delivery/runtime"
-	actorruntime "github.com/market-raccoon/internal/actors/runtime"
-	"github.com/market-raccoon/internal/adapters/bus"
-	"github.com/market-raccoon/internal/adapters/storage/clickhouse"
-	"github.com/market-raccoon/internal/adapters/storage/timescale"
-	deliverydomain "github.com/market-raccoon/internal/core/delivery/domain"
-	"github.com/market-raccoon/internal/core/delivery/ports"
-	httpserver "github.com/market-raccoon/internal/interfaces/http"
-	wsserver "github.com/market-raccoon/internal/interfaces/ws"
-	"github.com/market-raccoon/internal/shared/bootstrap"
-	"github.com/market-raccoon/internal/shared/config"
-	"github.com/market-raccoon/internal/shared/contracts"
-	"github.com/market-raccoon/internal/shared/envelope"
-	"github.com/market-raccoon/internal/shared/metrics"
 )
+
+type subMinuteRolloutGate struct {
+	enabled     bool
+	venues      map[string]struct{}
+	instruments map[string]struct{}
+}
+
+func newSubMinuteRolloutGate(cfg config.ProcessorSubMinuteRolloutConfig) *subMinuteRolloutGate {
+	gate := &subMinuteRolloutGate{
+		enabled:     cfg.Enabled,
+		venues:      make(map[string]struct{}, len(cfg.Venues)),
+		instruments: make(map[string]struct{}, len(cfg.Instruments)),
+	}
+	for _, venue := range cfg.Venues {
+		if v := strings.ToUpper(strings.TrimSpace(venue)); v != "" {
+			gate.venues[v] = struct{}{}
+		}
+	}
+	for _, instrument := range cfg.Instruments {
+		if inst := strings.ToUpper(strings.TrimSpace(instrument)); inst != "" {
+			gate.instruments[inst] = struct{}{}
+		}
+	}
+	return gate
+}
+
+func (g *subMinuteRolloutGate) allows(venue, instrument, timeframe string) bool {
+	if g == nil || !isSubMinuteTimeframe(timeframe) {
+		return true
+	}
+	if !g.enabled {
+		return false
+	}
+	if len(g.venues) > 0 {
+		if _, ok := g.venues[strings.ToUpper(strings.TrimSpace(venue))]; !ok {
+			return false
+		}
+	}
+	if len(g.instruments) > 0 {
+		raw := strings.ToUpper(strings.TrimSpace(instrument))
+		if _, ok := g.instruments[raw]; ok {
+			return true
+		}
+		base := raw
+		if idx := strings.Index(base, ":"); idx > 0 {
+			base = base[:idx]
+		}
+		if _, ok := g.instruments[base]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func isSubMinuteTimeframe(timeframe string) bool {
+	switch strings.ToLower(strings.TrimSpace(timeframe)) {
+	case "1s", "5s":
+		return true
+	default:
+		return false
+	}
+}
+
+type deliveryEnvelopeRangeStore interface {
+	ports.RangeStore
+	StoreEnvelope(env envelope.Envelope)
+}
+
+type subMinuteFilteringRangeStore struct {
+	next deliveryEnvelopeRangeStore
+	gate *subMinuteRolloutGate
+}
+
+func (s subMinuteFilteringRangeStore) StoreEnvelope(env envelope.Envelope) {
+	if s.next == nil {
+		return
+	}
+	s.next.StoreEnvelope(env)
+}
+
+func (s subMinuteFilteringRangeStore) GetRange(
+	ctx context.Context,
+	subject deliverydomain.Subject,
+	fromMs, toMs int64,
+	limit int,
+) ([]ports.RangeItem, *problem.Problem) {
+	if s.next == nil {
+		return nil, nil
+	}
+	if subject.StreamType == "aggregation.candle" || subject.StreamType == "aggregation.stats" {
+		if s.gate != nil && !s.gate.allows(subject.Venue, subject.Symbol, subject.Timeframe) {
+			metrics.IncWSQueryRejected("subminute_rollout_blocked")
+			return nil, nil
+		}
+	}
+	return s.next.GetRange(ctx, subject, fromMs, toMs, limit)
+}
+
+type subMinuteFilteringCandleReader struct {
+	next aggports.CandleReader
+	gate *subMinuteRolloutGate
+}
+
+func (r subMinuteFilteringCandleReader) GetCandleRange(
+	ctx context.Context,
+	venue, instrument, timeframe string,
+	fromMs, toMs int64,
+	limit int,
+) ([]aggdomain.CandleV1, *problem.Problem) {
+	if r.next == nil {
+		return nil, nil
+	}
+	if r.gate != nil && !r.gate.allows(venue, instrument, timeframe) {
+		return nil, nil
+	}
+	return r.next.GetCandleRange(ctx, venue, instrument, timeframe, fromMs, toMs, limit)
+}
+
+func (r subMinuteFilteringCandleReader) GetCandleTimestamps(
+	ctx context.Context,
+	venue, instrument, timeframe string,
+	fromMs, toMs int64,
+) ([]int64, *problem.Problem) {
+	if r.next == nil {
+		return nil, nil
+	}
+	if r.gate != nil && !r.gate.allows(venue, instrument, timeframe) {
+		return nil, nil
+	}
+	return r.next.GetCandleTimestamps(ctx, venue, instrument, timeframe, fromMs, toMs)
+}
+
+func (r subMinuteFilteringCandleReader) GetFirstCandle(
+	ctx context.Context,
+	venue, instrument, timeframe string,
+) (*aggdomain.CandleV1, *problem.Problem) {
+	if r.next == nil {
+		return nil, nil
+	}
+	if r.gate != nil && !r.gate.allows(venue, instrument, timeframe) {
+		return nil, nil
+	}
+	return r.next.GetFirstCandle(ctx, venue, instrument, timeframe)
+}
+
+func (r subMinuteFilteringCandleReader) GetLastCandle(
+	ctx context.Context,
+	venue, instrument, timeframe string,
+) (*aggdomain.CandleV1, *problem.Problem) {
+	if r.next == nil {
+		return nil, nil
+	}
+	if r.gate != nil && !r.gate.allows(venue, instrument, timeframe) {
+		return nil, nil
+	}
+	return r.next.GetLastCandle(ctx, venue, instrument, timeframe)
+}
+
+type subMinuteFilteringTapeReader struct {
+	next aggports.TapeReader
+	gate *subMinuteRolloutGate
+}
+
+func (r subMinuteFilteringTapeReader) GetTapeRange(
+	ctx context.Context,
+	venue, instrument, timeframe string,
+	fromMs, toMs int64,
+	limit int,
+) ([]aggdomain.TapeWindowV1, *problem.Problem) {
+	if r.next == nil {
+		return nil, nil
+	}
+	if r.gate != nil && !r.gate.allows(venue, instrument, timeframe) {
+		return nil, nil
+	}
+	return r.next.GetTapeRange(ctx, venue, instrument, timeframe, fromMs, toMs, limit)
+}
+
+type subMinuteFilteringOIReader struct {
+	next aggports.OIReader
+	gate *subMinuteRolloutGate
+}
+
+func (r subMinuteFilteringOIReader) GetOIRange(
+	ctx context.Context,
+	venue, instrument, timeframe string,
+	fromMs, toMs int64,
+	limit int,
+) ([]aggdomain.OpenInterestWindowV1, *problem.Problem) {
+	if r.next == nil {
+		return nil, nil
+	}
+	if r.gate != nil && !r.gate.allows(venue, instrument, timeframe) {
+		return nil, nil
+	}
+	return r.next.GetOIRange(ctx, venue, instrument, timeframe, fromMs, toMs, limit)
+}
+
+type subMinuteFilteringDeltaVolumeReader struct {
+	next aggports.DeltaVolumeReader
+	gate *subMinuteRolloutGate
+}
+
+func (r subMinuteFilteringDeltaVolumeReader) GetDeltaVolumeRange(
+	ctx context.Context,
+	venue, instrument, timeframe string,
+	fromMs, toMs int64,
+	limit int,
+) ([]aggdomain.DeltaVolumeWindowV1, *problem.Problem) {
+	if r.next == nil {
+		return nil, nil
+	}
+	if r.gate != nil && !r.gate.allows(venue, instrument, timeframe) {
+		return nil, nil
+	}
+	return r.next.GetDeltaVolumeRange(ctx, venue, instrument, timeframe, fromMs, toMs, limit)
+}
+
+type subMinuteFilteringCVDReader struct {
+	next aggports.CVDReader
+	gate *subMinuteRolloutGate
+}
+
+func (r subMinuteFilteringCVDReader) GetCVDRange(
+	ctx context.Context,
+	venue, instrument, timeframe string,
+	fromMs, toMs int64,
+	limit int,
+) ([]aggdomain.CVDWindowV1, *problem.Problem) {
+	if r.next == nil {
+		return nil, nil
+	}
+	if r.gate != nil && !r.gate.allows(venue, instrument, timeframe) {
+		return nil, nil
+	}
+	return r.next.GetCVDRange(ctx, venue, instrument, timeframe, fromMs, toMs, limit)
+}
+
+type subMinuteFilteringBarStatsReader struct {
+	next aggports.BarStatsReader
+	gate *subMinuteRolloutGate
+}
+
+func (r subMinuteFilteringBarStatsReader) GetBarStatsRange(
+	ctx context.Context,
+	venue, instrument, timeframe string,
+	fromMs, toMs int64,
+	limit int,
+) ([]aggdomain.BarStatsWindowV1, *problem.Problem) {
+	if r.next == nil {
+		return nil, nil
+	}
+	if r.gate != nil && !r.gate.allows(venue, instrument, timeframe) {
+		return nil, nil
+	}
+	return r.next.GetBarStatsRange(ctx, venue, instrument, timeframe, fromMs, toMs, limit)
+}
+
+type subMinuteFilteringStatsReader struct {
+	next aggports.StatsReader
+	gate *subMinuteRolloutGate
+}
+
+func (r subMinuteFilteringStatsReader) GetStatsTimestamps(
+	ctx context.Context,
+	venue, instrument, timeframe string,
+	fromMs, toMs int64,
+) ([]int64, *problem.Problem) {
+	if r.next == nil {
+		return nil, nil
+	}
+	if r.gate != nil && !r.gate.allows(venue, instrument, timeframe) {
+		return nil, nil
+	}
+	return r.next.GetStatsTimestamps(ctx, venue, instrument, timeframe, fromMs, toMs)
+}
+
+func (r subMinuteFilteringStatsReader) GetStatsRange(
+	ctx context.Context,
+	venue, instrument, timeframe string,
+	fromMs, toMs int64,
+	limit int,
+) ([]aggdomain.StatsWindowV1, *problem.Problem) {
+	if r.next == nil {
+		return nil, nil
+	}
+	if r.gate != nil && !r.gate.allows(venue, instrument, timeframe) {
+		return nil, nil
+	}
+	return r.next.GetStatsRange(ctx, venue, instrument, timeframe, fromMs, toMs, limit)
+}
+
+func (r subMinuteFilteringStatsReader) GetFirstStats(
+	ctx context.Context,
+	venue, instrument, timeframe string,
+) (*aggdomain.StatsWindowV1, *problem.Problem) {
+	if r.next == nil {
+		return nil, nil
+	}
+	if r.gate != nil && !r.gate.allows(venue, instrument, timeframe) {
+		return nil, nil
+	}
+	return r.next.GetFirstStats(ctx, venue, instrument, timeframe)
+}
+
+func (r subMinuteFilteringStatsReader) GetLastStats(
+	ctx context.Context,
+	venue, instrument, timeframe string,
+) (*aggdomain.StatsWindowV1, *problem.Problem) {
+	if r.next == nil {
+		return nil, nil
+	}
+	if r.gate != nil && !r.gate.allows(venue, instrument, timeframe) {
+		return nil, nil
+	}
+	return r.next.GetLastStats(ctx, venue, instrument, timeframe)
+}
 
 // Run is the server composition root.  It wires all dependencies, starts
 // the actor engine, HTTP server, and blocks until a signal or fatal error.
@@ -35,7 +368,16 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 	logger := bootstrap.BuildLogger(cfg.Log)
 	slog.SetDefault(logger)
 	contracts.SetProtoRolloutConfig(cfg.ProtoRollout.EventTypeFlags())
+	if p := contracts.BootstrapPayloadCodecRegistry(); p != nil {
+		return fmt.Errorf("payload codec registry bootstrap: %v", p)
+	}
 	logger.Info("server starting", "addr", cfg.HTTP.Addr)
+	subMinuteGate := newSubMinuteRolloutGate(cfg.Processor.SubMinuteRollout)
+	logger.Info("server: sub-minute rollout gate configured",
+		"enabled", subMinuteGate.enabled,
+		"venue_allowlist", len(subMinuteGate.venues),
+		"instrument_allowlist", len(subMinuteGate.instruments),
+	)
 	var tsPool *timescale.Pool
 	timescale.SetStubMode(timescale.AdapterModeStubMemory)
 	if cfg.Storage.Timescale.Enabled {
@@ -64,8 +406,8 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 		logger.Info("server: using Timescale pgx pool")
 	}
 
-	// ── ClickHouse cold readers ──────────────────────────────────────────
-	var coldOpt httpserver.Option
+	// ── ClickHouse cold readers + federation ──────────────────────────────
+	var coldOpt, consistencyOpt httpserver.Option
 	if cfg.Storage.ClickHouse.Enabled {
 		chPool, chP := clickhouse.NewPool(ctx, clickhouse.PoolConfig{
 			Addrs:           cfg.Storage.ClickHouse.Addrs,
@@ -86,17 +428,54 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 					logger.Warn("server: clickhouse pool close failed", "err", p)
 				}
 			}()
-			coldOpt = httpserver.WithColdReaders(&httpserver.ColdReaders{
-				Candles:   clickhouse.NewChCandleReader(chPool),
-				Stats:     clickhouse.NewChStatsReader(chPool),
-				Snapshots: clickhouse.NewChSnapshotReader(chPool),
-			})
-			logger.Info("server: cold reader APIs enabled (ClickHouse)")
+			coldOpt, consistencyOpt = buildStorageOptions(chPool, tsPool, cfg.Storage.FederationHotWindowMs, subMinuteGate, logger)
 		}
 	}
 	if !timescale.IsProductionReady() {
 		logger.Warn("server: timescale adapter running in non-production stub mode",
 			"adapter_mode", timescale.AdapterMode(),
+		)
+	}
+
+	var dataPlaneOpt httpserver.Option
+	if cfg.DataPlane.Enabled {
+		store, p := adapternats.NewRuntimeStore(ctx, cfg.JetStream.URL, cfg.DataPlane.StateBucket)
+		if p != nil {
+			return fmt.Errorf("server: dataplane runtime store init failed: %v", p)
+		}
+		defer func() {
+			if err := store.Close(); err != nil {
+				logger.Warn("server: dataplane runtime store close failed", "err", err)
+			}
+		}()
+		dataPlaneRuntime := runtimebootstrap.New(store)
+		dataPlaneResults, p := adapternats.NewResultStore(ctx, cfg.JetStream.URL, cfg.DataPlane.StateBucket, cfg.DataPlane.ResultLimit)
+		if p != nil {
+			return fmt.Errorf("server: dataplane result store init failed: %v", p)
+		}
+		defer func() {
+			if err := dataPlaneResults.Close(); err != nil {
+				logger.Warn("server: dataplane result store close failed", "err", err)
+			}
+		}()
+
+		var emitter httpserver.DataPlaneEmitter
+		if len(cfg.DataPlane.Kafka.Brokers) > 0 {
+			writer, p := adapterkafka.NewWriter(adapterkafka.WriterConfig{Brokers: cfg.DataPlane.Kafka.Brokers})
+			if p != nil {
+				return fmt.Errorf("server: dataplane kafka writer init failed: %v", p)
+			}
+			defer func() {
+				if err := writer.Close(); err != nil {
+					logger.Warn("server: dataplane kafka writer close failed", "err", err)
+				}
+			}()
+			emitter = emulatorruntime.NewEmitter(dataPlaneRuntime, writer, clock.NewSystemClock())
+		}
+		dataPlaneOpt = httpserver.WithDataPlane(dataPlaneRuntime, dataPlaneResults, emitter)
+		logger.Info("server: dataplane control surface enabled",
+			"state_bucket", cfg.DataPlane.StateBucket,
+			"result_limit", cfg.DataPlane.ResultLimit,
 		)
 	}
 
@@ -110,20 +489,73 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 	routerPIDCh := make(chan *actor.PID, 1)
 	subsystemPIDCh := make(chan *actor.PID, 1)
 	var eventBus *bus.InMemoryBus
-	var rangeStore interface {
-		ports.RangeStore
-		StoreEnvelope(env envelope.Envelope)
-	}
+	var rangeStore deliveryEnvelopeRangeStore
 	if tsPool != nil {
-		rangeStore = timescale.NewPgRangeStore(tsPool, 4096)
+		rangeStore = subMinuteFilteringRangeStore{
+			next: timescale.NewPgRangeStore(tsPool, 4096),
+			gate: subMinuteGate,
+		}
 		logger.Info("server: using Timescale range store")
 	} else {
-		rangeStore = timescale.NewDeliveryRangeStore(4096)
+		rangeStore = subMinuteFilteringRangeStore{
+			next: timescale.NewDeliveryRangeStore(4096),
+			gate: subMinuteGate,
+		}
 	}
 
+	// ── JetStream → InMemoryBus bridge ───────────────────────────────────
+	var shutdownJSConsumer func(context.Context)
+
 	var deliveryFactory actor.Producer
+	bridgeEnabled := cfg.Delivery.Enabled
 	if cfg.Delivery.Enabled {
 		eventBus = bus.NewInMemoryBus(cfg.Processor.BusCapacity, metrics.NewBusObserver())
+	}
+
+	if bridgeEnabled && strings.EqualFold(strings.TrimSpace(cfg.Bus.Type), "jetstream") {
+		jsConsumer, p := adapterjs.NewConsumer(ctx, adapterjs.ConsumerConfig{
+			URL:             cfg.JetStream.URL,
+			StreamName:      cfg.JetStream.StreamName,
+			DedupWindow:     cfg.JetStream.DedupWindowDuration(),
+			MaxAge:          cfg.JetStream.MaxAgeDuration(),
+			MaxBytes:        cfg.JetStream.MaxBytesInt64(),
+			ConsumerDurable: cfg.JetStream.ConsumerDurable,
+			FilterSubjects:  cfg.JetStream.FilterSubjects,
+			AckWait:         cfg.JetStream.AckWaitDuration(),
+			MaxAckPending:   cfg.JetStream.MaxAckPending,
+			MaxDeliver:      cfg.JetStream.MaxDeliver,
+			DeliverPolicy:   cfg.JetStream.DeliverPolicy,
+		}, metrics.NewBusObserver())
+		if p != nil {
+			return fmt.Errorf("server: jetstream consumer init failed: %v", p)
+		}
+		consumeCtx, cancelConsume := context.WithCancel(ctx)
+		go func() {
+			if p := jsConsumer.Consume(consumeCtx, func(_ context.Context, env envelope.Envelope) *problem.Problem {
+				if cfg.Delivery.Enabled && eventBus != nil {
+					rangeStore.StoreEnvelope(env)
+					return eventBus.Publish(ctx, env)
+				}
+				return nil
+			}); p != nil {
+				logger.Error("server: jetstream consume loop failed", "err", p)
+			}
+		}()
+		shutdownJSConsumer = func(shutCtx context.Context) {
+			cancelConsume()
+			if p := jsConsumer.Close(shutCtx); p != nil {
+				logger.Warn("server: jetstream consumer close failed", "err", p)
+			}
+		}
+		logger.Info("server: subscribed to jetstream consumer",
+			"url", cfg.JetStream.URL,
+			"stream", cfg.JetStream.StreamName,
+			"durable", cfg.JetStream.ConsumerDurable,
+			"filters", cfg.JetStream.FilterSubjects,
+		)
+	}
+
+	if cfg.Delivery.Enabled {
 		deliveryCfg := deliveryruntime.SubsystemConfig{
 			Logger:       logger,
 			EnvelopeCh:   eventBus.Subscribe(),
@@ -132,9 +564,11 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 			NATSDurable:  cfg.Delivery.NATS.ConsumerDurable,
 			NATSSubjects: append([]string(nil), cfg.Delivery.NATS.FilterSubjects...),
 			Router: deliveryruntime.RouterConfig{
-				Logger:        logger,
-				Timeframe:     "raw",
-				EnvelopeStore: rangeStore,
+				Logger:              logger,
+				Timeframe:           "raw",
+				EnvelopeStore:       rangeStore,
+				StreamCoherenceMode: "sticky_session",
+				StreamStateTTL:      cfg.Delivery.RouterStreamStateTTLDuration(),
 			},
 			OnRouterReady: func(pid *actor.PID) {
 				select {
@@ -160,6 +594,21 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 	logger.Info("guardian spawned", "pid", guardianPID.String())
 
 	// ── HTTP server ──────────────────────────────────────────────────────
+	var marketsOpt httpserver.Option
+	if len(cfg.Markets.Exchanges) > 0 {
+		marketsOpt = httpserver.WithMarkets(&cfg.Markets)
+		logger.Info("server: markets discovery enabled", "exchanges", len(cfg.Markets.Exchanges))
+	}
+	// S126/S128/S137: Workspace persistence (file-backed repository).
+	var workspaceOpt httpserver.Option
+	wsStateDir := cfg.Workspace.StateDir
+	if wsStateDir == "" {
+		wsStateDir = "."
+	}
+	workspaceRepo := workspaceinfra.NewFileWorkspaceStore(wsStateDir)
+	workspaceOpt = httpserver.WithWorkspaceRepository(workspaceRepo)
+	logger.Info("server: workspace persistence enabled", "state_dir", wsStateDir)
+
 	srv := httpserver.NewServer(
 		e,
 		guardianPID,
@@ -169,9 +618,13 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 		httpserver.WithTLS(cfg.HTTP.TLSCert, cfg.HTTP.TLSKey),
 		httpserver.WithReloadHook(protoRolloutReloadHook(configPath, logger)),
 		coldOpt,
+		marketsOpt,
+		consistencyOpt,
+		workspaceOpt,
+		dataPlaneOpt,
 	)
 	if cfg.Delivery.Enabled {
-		enableWSRoute(e, srv, routerPIDCh, subsystemPIDCh, logger, rangeStore, cfg)
+		enableWSRoute(e, srv, routerPIDCh, subsystemPIDCh, logger, rangeStore, tsPool, subMinuteGate, cfg)
 	}
 
 	serverErr := make(chan error, 1)
@@ -194,11 +647,15 @@ func Run(ctx context.Context, cfg config.AppConfig, configPath string) error {
 
 	// ── shutdown ─────────────────────────────────────────────────────────
 	logger.Info("server: shutting down")
+
+	shutCtx, cancel := context.WithTimeout(context.Background(), cfg.HTTP.ShutdownTimeoutDuration())
+
+	if shutdownJSConsumer != nil {
+		shutdownJSConsumer(shutCtx)
+	}
 	if eventBus != nil {
 		eventBus.Close()
 	}
-
-	shutCtx, cancel := context.WithTimeout(context.Background(), cfg.HTTP.ShutdownTimeoutDuration())
 	defer cancel()
 
 	if err := srv.Shutdown(shutCtx); err != nil {
@@ -224,8 +681,20 @@ func enableWSRoute(
 	subsystemPIDCh <-chan *actor.PID,
 	logger *slog.Logger,
 	rangeStore ports.RangeStore,
+	tsPool *timescale.Pool,
+	subMinuteGate *subMinuteRolloutGate,
 	cfg config.AppConfig,
 ) {
+	hotSnapshotProvider := newWSHotSnapshotProvider(rangeStore, tsPool, subMinuteGate)
+	hotSnapshotProvider = newBoundedSnapshotCacheProvider(hotSnapshotProvider, wsSnapshotCacheTTL, wsSnapshotCacheMaxEntries)
+	legacyWS := wsserver.NewServer(nil, nil, logger, nil, 0)
+	srv.HandleFunc("GET /ws/marketdata", legacyWS.HandleLegacyWS)
+	logger.Info("legacy websocket route hard-disabled", "route", "GET /ws/marketdata", "status", http.StatusGone)
+	metrics.ConfigureWSTenantLabelPolicy(
+		cfg.WS.TenantMetrics.IncludeTenantLabel,
+		cfg.WS.TenantMetrics.TenantWhitelist,
+		cfg.WS.TenantMetrics.Fallback,
+	)
 	select {
 	case routerPID := <-routerPIDCh:
 		var subsystemPID *actor.PID
@@ -240,11 +709,24 @@ func enableWSRoute(
 			rangeStore,
 			cfg.Delivery.SessionOutboundQueueSize,
 			wsserver.WithAuthConfig(wsserver.AuthConfig{
-				Enabled: cfg.WS.Auth.Enabled,
-				APIKeys: cfg.WS.Auth.APIKeys,
+				Enabled:      cfg.WS.Auth.Enabled,
+				APIKeys:      cfg.WS.Auth.APIKeys,
+				APIKeyScopes: cfg.WS.Auth.APIKeyScopes,
+				JWT: wsserver.JWTAuthConfig{
+					Enabled:     cfg.WS.Auth.JWT.Enabled,
+					HS256Secret: cfg.WS.Auth.JWT.HS256Secret,
+					Issuer:      cfg.WS.Auth.JWT.Issuer,
+					Audience:    cfg.WS.Auth.JWT.Audience,
+				},
 			}),
 			wsserver.WithSessionSpawner(func(sessionCfg deliveryruntime.SessionConfig) *actor.PID {
 				sessionCfg.BackpressurePolicy = deliverydomain.BackpressurePolicy(cfg.Delivery.BackpressurePolicy)
+				sessionCfg.HotSnapshotProvider = hotSnapshotProvider
+				sessionCfg.MetricsCadence = time.Duration(cfg.Delivery.MetricsCadenceMs) * time.Millisecond
+				sessionCfg.KeepaliveInterval = time.Duration(cfg.Delivery.KeepaliveIntervalMs) * time.Millisecond
+				if sessionCfg.MaxFrameBytes <= 0 {
+					sessionCfg.MaxFrameBytes = cfg.Delivery.MaxFrameBytes
+				}
 				if subsystemPID == nil {
 					return nil
 				}
@@ -266,14 +748,593 @@ func enableWSRoute(
 				MaxPerSecond:  cfg.WS.RateLimit.MaxPerSecond,
 				BurstCapacity: cfg.WS.RateLimit.BurstCapacity,
 			}),
+			wsserver.WithSignalSubscriptionLimit(cfg.Signals.MaxSubsPerSession),
+			wsserver.WithIPRateLimit(deliveryruntime.RateLimitConfig{
+				Enabled:       cfg.WS.RateLimit.Enabled,
+				MaxPerSecond:  cfg.WS.RateLimit.MaxPerSecond,
+				BurstCapacity: cfg.WS.RateLimit.BurstCapacity,
+			}),
+			wsserver.WithConnectionLimits(wsserver.ServerConnectionLimits{
+				MaxConnectionsPerIP:  cfg.WS.Limits.MaxConnectionsPerIP,
+				MaxConnectionsPerKey: cfg.WS.Limits.MaxConnectionsPerKey,
+				MaxSubsPerConnection: cfg.WS.Limits.MaxSubsPerConnection,
+				MaxSymbolsPerConn:    cfg.WS.Limits.MaxSymbolsPerConn,
+			}),
+			wsserver.WithTenantLimits(cfg.WS.TenantLimits),
+			wsserver.WithServerInstanceID(ids.NewSessionID().String()),
 			wsserver.WithSlowClientDropThreshold(cfg.Delivery.SlowClientDropThreshold),
 			wsserver.WithTranscodeCache(deliveryruntime.NewTranscodeCache(0)),
+			wsserver.WithMaxFrameBytes(cfg.Delivery.MaxFrameBytes),
+			wsserver.WithRequireClientHello(cfg.Delivery.RequireClientHello),
 		)
 		srv.HandleFunc("GET /ws", ws.HandleWS)
-		logger.Info("delivery websocket route enabled", "route", "GET /ws")
+		srv.HandleFunc("GET /introspection", ws.HandleIntrospection)
+		logger.Info("delivery websocket route enabled", "route", "GET /ws (v1)")
 	case <-time.After(cfg.Delivery.RouterReadyTimeoutDuration()):
 		logger.Warn("delivery router not ready in time; /ws route disabled")
 	}
+}
+
+const wsHotSnapshotRecentWindow = 24 * time.Hour
+const wsSnapshotCacheTTL = 3 * time.Second
+const wsSnapshotCacheMaxEntries = 1024
+
+type rangeStoreHotSnapshotProvider struct {
+	rangeStore ports.RangeStore
+}
+
+func newRangeStoreHotSnapshotProvider(rangeStore ports.RangeStore) deliveryruntime.HotSnapshotProvider {
+	if rangeStore == nil {
+		return nil
+	}
+	return rangeStoreHotSnapshotProvider{rangeStore: rangeStore}
+}
+
+type wsHotSnapshotProvider struct {
+	live  deliveryruntime.HotSnapshotProvider
+	hotTS deliveryruntime.HotSnapshotProvider
+}
+
+type snapshotCacheEntry struct {
+	payload  []byte
+	cachedAt time.Time
+}
+
+type boundedSnapshotCacheProvider struct {
+	next       deliveryruntime.HotSnapshotProvider
+	ttl        time.Duration
+	maxEntries int
+	clock      func() time.Time
+
+	mu    sync.Mutex
+	cache map[string]snapshotCacheEntry
+	order []string
+}
+
+func newWSHotSnapshotProvider(
+	rangeStore ports.RangeStore,
+	tsPool *timescale.Pool,
+	subMinuteGate *subMinuteRolloutGate,
+) deliveryruntime.HotSnapshotProvider {
+	p := wsHotSnapshotProvider{
+		live:  newRangeStoreHotSnapshotProvider(rangeStore),
+		hotTS: newTimescaleAggregateHotSnapshotProvider(tsPool, subMinuteGate),
+	}
+	if p.live == nil && p.hotTS == nil {
+		return nil
+	}
+	return p
+}
+
+func newBoundedSnapshotCacheProvider(
+	next deliveryruntime.HotSnapshotProvider,
+	ttl time.Duration,
+	maxEntries int,
+) deliveryruntime.HotSnapshotProvider {
+	if next == nil {
+		return nil
+	}
+	if ttl <= 0 {
+		ttl = wsSnapshotCacheTTL
+	}
+	if maxEntries <= 0 {
+		maxEntries = wsSnapshotCacheMaxEntries
+	}
+	provider := &boundedSnapshotCacheProvider{
+		next:       next,
+		ttl:        ttl,
+		maxEntries: maxEntries,
+		clock:      time.Now,
+		cache:      make(map[string]snapshotCacheEntry, maxEntries),
+		order:      make([]string, 0, maxEntries),
+	}
+	metrics.SetDeliveryWSSnapshotCacheEntries(0)
+	return provider
+}
+
+func (p wsHotSnapshotProvider) GetLatest(subject deliverydomain.Subject) ([]byte, bool) {
+	if p.live != nil {
+		if raw, ok := p.live.GetLatest(subject); ok {
+			return raw, true
+		}
+	}
+	if p.hotTS != nil {
+		return p.hotTS.GetLatest(subject)
+	}
+	return nil, false
+}
+
+func (p *boundedSnapshotCacheProvider) GetLatest(subject deliverydomain.Subject) ([]byte, bool) {
+	if p == nil || p.next == nil {
+		return nil, false
+	}
+	key := strings.TrimSpace(subject.String())
+	if key == "" {
+		return p.next.GetLatest(subject)
+	}
+	now := time.Now()
+	if p.clock != nil {
+		now = p.clock()
+	}
+
+	p.mu.Lock()
+	if entry, ok := p.cache[key]; ok {
+		if now.Sub(entry.cachedAt) <= p.ttl {
+			payload := append([]byte(nil), entry.payload...)
+			p.mu.Unlock()
+			metrics.IncDeliveryWSSnapshotCacheHit()
+			return payload, true
+		}
+		delete(p.cache, key)
+		p.removeOrderKey(key)
+		metrics.SetDeliveryWSSnapshotCacheEntries(len(p.cache))
+	}
+	p.mu.Unlock()
+
+	metrics.IncDeliveryWSSnapshotCacheMiss()
+	payload, ok := p.next.GetLatest(subject)
+	if !ok || len(payload) == 0 {
+		return payload, ok
+	}
+	copied := append([]byte(nil), payload...)
+	p.mu.Lock()
+	if _, exists := p.cache[key]; !exists {
+		p.order = append(p.order, key)
+	}
+	p.cache[key] = snapshotCacheEntry{payload: copied, cachedAt: now}
+	for len(p.cache) > p.maxEntries && len(p.order) > 0 {
+		evict := p.order[0]
+		p.order = p.order[1:]
+		if evict == key {
+			continue
+		}
+		delete(p.cache, evict)
+	}
+	metrics.SetDeliveryWSSnapshotCacheEntries(len(p.cache))
+	p.mu.Unlock()
+	return copied, true
+}
+
+func (p *boundedSnapshotCacheProvider) removeOrderKey(key string) {
+	if p == nil || len(p.order) == 0 || key == "" {
+		return
+	}
+	dst := p.order[:0]
+	for _, current := range p.order {
+		if current != key {
+			dst = append(dst, current)
+		}
+	}
+	p.order = dst
+}
+
+func (p rangeStoreHotSnapshotProvider) GetLatest(subject deliverydomain.Subject) ([]byte, bool) {
+	if p.rangeStore == nil {
+		return nil, false
+	}
+	// Keep this focused on low-frequency aggregated streams to avoid expensive
+	// scans or stale results from capped range queries on high-frequency streams.
+	switch subject.StreamType {
+	case "aggregation.candle", "aggregation.stats":
+	default:
+		return nil, false
+	}
+
+	if payload, ok := p.getLatestForSubject(subject); ok {
+		return payload, true
+	}
+	// Compatibility: range store is keyed by canonical envelope instrument (no
+	// :MARKET_TYPE suffix) while WS clients may subscribe to alias subjects.
+	if i := strings.IndexByte(subject.Symbol, ':'); i > 0 {
+		fallback := subject
+		fallback.Symbol = subject.Symbol[:i]
+		return p.getLatestForSubject(fallback)
+	}
+	return nil, false
+}
+
+func (p rangeStoreHotSnapshotProvider) getLatestForSubject(subject deliverydomain.Subject) ([]byte, bool) {
+	nowMs := time.Now().UnixMilli()
+	fromMs := nowMs - wsHotSnapshotRecentWindow.Milliseconds()
+	items, prob := p.rangeStore.GetRange(context.Background(), subject, fromMs, 0, 4096)
+	if prob != nil || len(items) == 0 {
+		return nil, false
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].TsIngest == items[j].TsIngest {
+			return items[i].Seq < items[j].Seq
+		}
+		return items[i].TsIngest < items[j].TsIngest
+	})
+	payload := items[len(items)-1].Payload
+	if len(payload) == 0 {
+		return nil, false
+	}
+	return append([]byte(nil), payload...), true
+}
+
+type timescaleAggregateHotSnapshotProvider struct {
+	pool *timescale.Pool
+	gate *subMinuteRolloutGate
+}
+
+func newTimescaleAggregateHotSnapshotProvider(
+	pool *timescale.Pool,
+	gate *subMinuteRolloutGate,
+) deliveryruntime.HotSnapshotProvider {
+	if pool == nil || pool.Raw() == nil {
+		return nil
+	}
+	return timescaleAggregateHotSnapshotProvider{pool: pool, gate: gate}
+}
+
+func (p timescaleAggregateHotSnapshotProvider) GetLatest(subject deliverydomain.Subject) ([]byte, bool) {
+	if p.pool == nil || p.pool.Raw() == nil {
+		return nil, false
+	}
+	switch subject.StreamType {
+	case "aggregation.candle":
+		return p.getLatestCandle(subject)
+	case "aggregation.stats":
+		return p.getLatestStats(subject)
+	case "aggregation.tape":
+		return p.getLatestTape(subject)
+	case "aggregation.oi":
+		return p.getLatestOI(subject)
+	case "aggregation.delta_volume":
+		return p.getLatestDeltaVolume(subject)
+	case "aggregation.cvd":
+		return p.getLatestCVD(subject)
+	case "aggregation.bar_stats":
+		return p.getLatestBarStats(subject)
+	default:
+		return nil, false
+	}
+}
+
+func (p timescaleAggregateHotSnapshotProvider) getLatestCandle(subject deliverydomain.Subject) ([]byte, bool) {
+	tf := strings.TrimSpace(subject.Timeframe)
+	if tf == "" || strings.EqualFold(tf, "raw") {
+		tf = "1m"
+	}
+	if p.gate != nil && !p.gate.allows(subject.Venue, subject.Symbol, tf) {
+		return nil, false
+	}
+	venue := strings.ToUpper(strings.TrimSpace(subject.Venue))
+	symbols := snapshotSymbolCandidates(subject.Symbol)
+	for _, instrument := range symbols {
+		var c aggdomain.CandleV1
+		err := p.pool.Raw().QueryRow(context.Background(), `
+SELECT venue, instrument, timeframe, window_start, window_end,
+       open_price, high_price, low_price, close_price,
+       volume, buy_volume, sell_volume, trade_count, seq_first, seq_last
+FROM aggregation_candle
+WHERE venue = $1 AND instrument = $2 AND timeframe = $3
+ORDER BY window_end DESC
+LIMIT 1
+`, venue, instrument, tf).Scan(
+			&c.Venue,
+			&c.Instrument,
+			&c.Timeframe,
+			&c.WindowStartTs,
+			&c.WindowEndTs,
+			&c.Open,
+			&c.High,
+			&c.Low,
+			&c.ClosePrice,
+			&c.Volume,
+			&c.BuyVolume,
+			&c.SellVolume,
+			&c.TradeCount,
+			&c.SeqFirst,
+			&c.SeqLast,
+		)
+		if err != nil {
+			continue
+		}
+		c.IsClosed = true
+		raw, err := json.Marshal(c)
+		if err != nil || len(raw) == 0 {
+			return nil, false
+		}
+		return raw, true
+	}
+	return nil, false
+}
+
+func (p timescaleAggregateHotSnapshotProvider) getLatestStats(subject deliverydomain.Subject) ([]byte, bool) {
+	tf := strings.TrimSpace(subject.Timeframe)
+	if tf == "" || strings.EqualFold(tf, "raw") {
+		tf = "1m"
+	}
+	if p.gate != nil && !p.gate.allows(subject.Venue, subject.Symbol, tf) {
+		return nil, false
+	}
+	venue := strings.ToUpper(strings.TrimSpace(subject.Venue))
+	symbols := snapshotSymbolCandidates(subject.Symbol)
+	for _, instrument := range symbols {
+		var (
+			s               aggdomain.StatsWindowV1
+			markPriceOpen   sql.NullFloat64
+			markPriceHigh   sql.NullFloat64
+			markPriceLow    sql.NullFloat64
+			markPriceClose  sql.NullFloat64
+			fundingRateAvg  sql.NullFloat64
+			fundingRateLast sql.NullFloat64
+		)
+		err := p.pool.Raw().QueryRow(context.Background(), `
+SELECT venue, instrument, timeframe, window_start, window_end,
+       liq_buy_volume, liq_sell_volume, liq_total_volume, liq_count,
+       markprice_open, markprice_high, markprice_low, markprice_close,
+       funding_rate_avg, funding_rate_last, seq_first, seq_last
+FROM aggregation_stats
+WHERE venue = $1 AND instrument = $2 AND timeframe = $3
+ORDER BY window_end DESC
+LIMIT 1
+`, venue, instrument, tf).Scan(
+			&s.Venue,
+			&s.Instrument,
+			&s.Timeframe,
+			&s.WindowStartTs,
+			&s.WindowEndTs,
+			&s.LiqBuyVolume,
+			&s.LiqSellVolume,
+			&s.LiqTotalVolume,
+			&s.LiqCount,
+			&markPriceOpen,
+			&markPriceHigh,
+			&markPriceLow,
+			&markPriceClose,
+			&fundingRateAvg,
+			&fundingRateLast,
+			&s.SeqFirst,
+			&s.SeqLast,
+		)
+		if err != nil {
+			continue
+		}
+		s.MarkPriceOpen = markPriceOpen.Float64
+		s.MarkPriceHigh = markPriceHigh.Float64
+		s.MarkPriceLow = markPriceLow.Float64
+		s.MarkPriceClose = markPriceClose.Float64
+		s.FundingRateAvg = fundingRateAvg.Float64
+		s.FundingRateLast = fundingRateLast.Float64
+		s.IsClosed = true
+		raw, err := json.Marshal(s)
+		if err != nil || len(raw) == 0 {
+			return nil, false
+		}
+		return raw, true
+	}
+	return nil, false
+}
+
+func (p timescaleAggregateHotSnapshotProvider) getLatestTape(subject deliverydomain.Subject) ([]byte, bool) {
+	tf := strings.TrimSpace(subject.Timeframe)
+	if tf == "" || strings.EqualFold(tf, "raw") {
+		tf = "1s"
+	}
+	if p.gate != nil && !p.gate.allows(subject.Venue, subject.Symbol, tf) {
+		return nil, false
+	}
+	venue := strings.ToUpper(strings.TrimSpace(subject.Venue))
+	symbols := snapshotSymbolCandidates(subject.Symbol)
+	for _, instrument := range symbols {
+		var t aggdomain.TapeWindowV1
+		err := p.pool.Raw().QueryRow(context.Background(), `
+SELECT venue, instrument, timeframe, window_start, window_end,
+       trade_count, buy_count, sell_count, buy_volume, sell_volume, total_volume,
+       buy_notional, sell_notional, vwap_price, max_price, min_price, last_price,
+       max_trade_size, rate_trades_per_sec, volume_imbalance, seq_last
+FROM aggregation_tape
+WHERE venue = $1 AND instrument = $2 AND timeframe = $3
+ORDER BY window_end DESC
+LIMIT 1
+`, venue, instrument, tf).Scan(
+			&t.Venue, &t.Instrument, &t.Timeframe,
+			&t.WindowStartTs, &t.WindowEndTs,
+			&t.TradeCount, &t.BuyCount, &t.SellCount,
+			&t.BuyVolume, &t.SellVolume, &t.TotalVolume,
+			&t.BuyNotional, &t.SellNotional,
+			&t.VwapPrice, &t.MaxPrice, &t.MinPrice, &t.LastPrice,
+			&t.MaxTradeSize, &t.RateTradesPerSec, &t.VolumeImbalance,
+			&t.LastSeq,
+		)
+		if err != nil {
+			continue
+		}
+		t.IsClosed = true
+		raw, err := json.Marshal(t)
+		if err != nil || len(raw) == 0 {
+			return nil, false
+		}
+		return raw, true
+	}
+	return nil, false
+}
+
+func (p timescaleAggregateHotSnapshotProvider) getLatestOI(subject deliverydomain.Subject) ([]byte, bool) {
+	tf := strings.TrimSpace(subject.Timeframe)
+	if tf == "" || strings.EqualFold(tf, "raw") {
+		tf = "raw"
+	}
+	if p.gate != nil && !p.gate.allows(subject.Venue, subject.Symbol, tf) {
+		return nil, false
+	}
+	venue := strings.ToUpper(strings.TrimSpace(subject.Venue))
+	symbols := snapshotSymbolCandidates(subject.Symbol)
+	for _, instrument := range symbols {
+		var oi aggdomain.OpenInterestWindowV1
+		err := p.pool.Raw().QueryRow(context.Background(), `
+SELECT venue, instrument, timeframe, window_start, window_end,
+       open_interest, delta, delta_pct, seq, ts_ingest
+FROM aggregation_oi
+WHERE venue = $1 AND instrument = $2 AND timeframe = $3
+ORDER BY window_end DESC
+LIMIT 1
+`, venue, instrument, tf).Scan(
+			&oi.Venue, &oi.Instrument, &oi.Timeframe,
+			&oi.WindowStartTs, &oi.WindowEndTs,
+			&oi.OpenInterest, &oi.Delta, &oi.DeltaPct,
+			&oi.Seq, &oi.TsIngestMs,
+		)
+		if err != nil {
+			continue
+		}
+		raw, err := json.Marshal(oi)
+		if err != nil || len(raw) == 0 {
+			return nil, false
+		}
+		return raw, true
+	}
+	return nil, false
+}
+
+func (p timescaleAggregateHotSnapshotProvider) getLatestDeltaVolume(subject deliverydomain.Subject) ([]byte, bool) {
+	tf := strings.TrimSpace(subject.Timeframe)
+	if tf == "" || strings.EqualFold(tf, "raw") {
+		tf = "1s"
+	}
+	if p.gate != nil && !p.gate.allows(subject.Venue, subject.Symbol, tf) {
+		return nil, false
+	}
+	venue := strings.ToUpper(strings.TrimSpace(subject.Venue))
+	symbols := snapshotSymbolCandidates(subject.Symbol)
+	for _, instrument := range symbols {
+		var dv aggdomain.DeltaVolumeWindowV1
+		err := p.pool.Raw().QueryRow(context.Background(), `
+SELECT venue, instrument, timeframe, window_start, window_end,
+       buy_volume, sell_volume, delta_volume, seq, ts_ingest
+FROM aggregation_delta_volume
+WHERE venue = $1 AND instrument = $2 AND timeframe = $3
+ORDER BY window_end DESC
+LIMIT 1
+`, venue, instrument, tf).Scan(
+			&dv.Venue, &dv.Instrument, &dv.Timeframe,
+			&dv.WindowStartTs, &dv.WindowEndTs,
+			&dv.BuyVolume, &dv.SellVolume, &dv.DeltaVolume,
+			&dv.Seq, &dv.TsIngestMs,
+		)
+		if err != nil {
+			continue
+		}
+		raw, err := json.Marshal(dv)
+		if err != nil || len(raw) == 0 {
+			return nil, false
+		}
+		return raw, true
+	}
+	return nil, false
+}
+
+func (p timescaleAggregateHotSnapshotProvider) getLatestCVD(subject deliverydomain.Subject) ([]byte, bool) {
+	tf := strings.TrimSpace(subject.Timeframe)
+	if tf == "" || strings.EqualFold(tf, "raw") {
+		tf = "1s"
+	}
+	if p.gate != nil && !p.gate.allows(subject.Venue, subject.Symbol, tf) {
+		return nil, false
+	}
+	venue := strings.ToUpper(strings.TrimSpace(subject.Venue))
+	symbols := snapshotSymbolCandidates(subject.Symbol)
+	for _, instrument := range symbols {
+		var c aggdomain.CVDWindowV1
+		err := p.pool.Raw().QueryRow(context.Background(), `
+SELECT venue, instrument, timeframe, window_start, window_end,
+       delta_volume, cvd, seq, ts_ingest
+FROM aggregation_cvd
+WHERE venue = $1 AND instrument = $2 AND timeframe = $3
+ORDER BY window_end DESC
+LIMIT 1
+`, venue, instrument, tf).Scan(
+			&c.Venue, &c.Instrument, &c.Timeframe,
+			&c.WindowStartTs, &c.WindowEndTs,
+			&c.DeltaVolume, &c.CVD,
+			&c.Seq, &c.TsIngestMs,
+		)
+		if err != nil {
+			continue
+		}
+		raw, err := json.Marshal(c)
+		if err != nil || len(raw) == 0 {
+			return nil, false
+		}
+		return raw, true
+	}
+	return nil, false
+}
+
+func (p timescaleAggregateHotSnapshotProvider) getLatestBarStats(subject deliverydomain.Subject) ([]byte, bool) {
+	tf := strings.TrimSpace(subject.Timeframe)
+	if tf == "" || strings.EqualFold(tf, "raw") {
+		tf = "1s"
+	}
+	if p.gate != nil && !p.gate.allows(subject.Venue, subject.Symbol, tf) {
+		return nil, false
+	}
+	venue := strings.ToUpper(strings.TrimSpace(subject.Venue))
+	symbols := snapshotSymbolCandidates(subject.Symbol)
+	for _, instrument := range symbols {
+		var b aggdomain.BarStatsWindowV1
+		err := p.pool.Raw().QueryRow(context.Background(), `
+SELECT venue, instrument, timeframe, window_start, window_end,
+       trade_count, buy_count, sell_count, total_volume, buy_volume, sell_volume,
+       vwap_price, last_price, max_price, min_price, imbalance, is_burst, seq, ts_ingest
+FROM aggregation_bar_stats
+WHERE venue = $1 AND instrument = $2 AND timeframe = $3
+ORDER BY window_end DESC
+LIMIT 1
+`, venue, instrument, tf).Scan(
+			&b.Venue, &b.Instrument, &b.Timeframe,
+			&b.WindowStartTs, &b.WindowEndTs,
+			&b.TradeCount, &b.BuyCount, &b.SellCount,
+			&b.TotalVolume, &b.BuyVolume, &b.SellVolume,
+			&b.VwapPrice, &b.LastPrice, &b.MaxPrice, &b.MinPrice,
+			&b.Imbalance, &b.IsBurst,
+			&b.Seq, &b.TsIngestMs,
+		)
+		if err != nil {
+			continue
+		}
+		raw, err := json.Marshal(b)
+		if err != nil || len(raw) == 0 {
+			return nil, false
+		}
+		return raw, true
+	}
+	return nil, false
+}
+
+func snapshotSymbolCandidates(symbol string) []string {
+	symbol = strings.TrimSpace(symbol)
+	if symbol == "" {
+		return nil
+	}
+	out := []string{strings.ToUpper(symbol)}
+	if i := strings.IndexByte(symbol, ':'); i > 0 {
+		out = append(out, strings.ToUpper(symbol[:i]))
+	}
+	return out
 }
 
 func buildServerFactories(deliveryEnabled bool, deliveryFactory actor.Producer) map[actorruntime.Subsystem]actor.Producer {
@@ -282,6 +1343,103 @@ func buildServerFactories(deliveryEnabled bool, deliveryFactory actor.Producer) 
 		factories[actorruntime.SubsystemDelivery] = deliveryFactory
 	}
 	return factories
+}
+
+// buildColdReadersOption builds the HTTP cold readers option, optionally
+// wrapping each reader in a federated composite when both hot (Pg) and
+// cold (CH) pools are available.
+func buildStorageOptions(
+	chPool *clickhouse.Pool,
+	tsPool *timescale.Pool,
+	hotWindowMs int64,
+	gate *subMinuteRolloutGate,
+	logger *slog.Logger,
+) (coldOpt, consistencyOpt httpserver.Option) {
+	// Cold-only CH readers (always needed)
+	chCandle := clickhouse.NewChCandleReader(chPool)
+	chStats := clickhouse.NewChStatsReader(chPool)
+	chTape := clickhouse.NewChTapeReader(chPool)
+	chOI := clickhouse.NewChOIReader(chPool)
+	chDV := clickhouse.NewChDeltaVolumeReader(chPool)
+	chCVD := clickhouse.NewChCVDReader(chPool)
+	chBS := clickhouse.NewChBarStatsReader(chPool)
+
+	readers := &httpserver.ColdReaders{
+		Snapshots: clickhouse.NewChSnapshotReader(chPool),
+	}
+
+	if tsPool != nil {
+		// Federation: route across hot (Pg) + cold (CH)
+		fedCfg := federation.DefaultConfig()
+		if hotWindowMs > 0 {
+			fedCfg.HotWindowMs = hotWindowMs
+		}
+		pgCandle := timescale.NewPgCandleReader(tsPool)
+		pgStats := timescale.NewPgStatsReader(tsPool)
+
+		readers.Candles = federation.NewFederatedCandleReader(pgCandle, chCandle, fedCfg)
+		readers.Stats = federation.NewFederatedStatsReader(pgStats, chStats, fedCfg)
+		readers.Tape = federation.NewFederatedTapeReader(
+			timescale.NewPgTapeReader(tsPool), chTape, fedCfg,
+		)
+		readers.OI = federation.NewFederatedOIReader(
+			timescale.NewPgOIReader(tsPool), chOI, fedCfg,
+		)
+		readers.DeltaVolume = federation.NewFederatedDeltaVolumeReader(
+			timescale.NewPgDeltaVolumeReader(tsPool), chDV, fedCfg,
+		)
+		readers.CVD = federation.NewFederatedCVDReader(
+			timescale.NewPgCVDReader(tsPool), chCVD, fedCfg,
+		)
+		readers.BarStats = federation.NewFederatedBarStatsReader(
+			timescale.NewPgBarStatsReader(tsPool), chBS, fedCfg,
+		)
+
+		// Consistency checker (uses raw hot/cold readers, not federated)
+		cc := federation.NewConsistencyChecker(pgCandle, chCandle, pgStats, chStats)
+		consistencyOpt = httpserver.WithConsistencyChecks(map[string]httpserver.ConsistencyCheckFn{
+			"candle": func(ctx context.Context, v, i, tf string, from, to int64) (any, error) {
+				r, p := cc.CheckCandles(ctx, v, i, tf, from, to)
+				if p != nil {
+					return nil, fmt.Errorf("%s", p.Message)
+				}
+				return r, nil
+			},
+			"stats": func(ctx context.Context, v, i, tf string, from, to int64) (any, error) {
+				r, p := cc.CheckStats(ctx, v, i, tf, from, to)
+				if p != nil {
+					return nil, fmt.Errorf("%s", p.Message)
+				}
+				return r, nil
+			},
+		})
+
+		logger.Info("server: federated reader APIs enabled (Pg hot + CH cold)",
+			"hot_window_ms", fedCfg.HotWindowMs)
+	} else {
+		// CH-only fallback
+		readers.Candles = chCandle
+		readers.Stats = chStats
+		readers.Tape = chTape
+		readers.OI = chOI
+		readers.DeltaVolume = chDV
+		readers.CVD = chCVD
+		readers.BarStats = chBS
+		logger.Info("server: cold reader APIs enabled (ClickHouse only, no Pg hot pool)")
+	}
+
+	// Wrap with sub-minute filtering
+	coldOpt = httpserver.WithColdReaders(&httpserver.ColdReaders{
+		Candles:     subMinuteFilteringCandleReader{next: readers.Candles, gate: gate},
+		Stats:       subMinuteFilteringStatsReader{next: readers.Stats, gate: gate},
+		Snapshots:   readers.Snapshots,
+		Tape:        subMinuteFilteringTapeReader{next: readers.Tape, gate: gate},
+		OI:          subMinuteFilteringOIReader{next: readers.OI, gate: gate},
+		DeltaVolume: subMinuteFilteringDeltaVolumeReader{next: readers.DeltaVolume, gate: gate},
+		CVD:         subMinuteFilteringCVDReader{next: readers.CVD, gate: gate},
+		BarStats:    subMinuteFilteringBarStatsReader{next: readers.BarStats, gate: gate},
+	})
+	return coldOpt, consistencyOpt
 }
 
 func protoRolloutReloadHook(configPath string, logger *slog.Logger) func() error {

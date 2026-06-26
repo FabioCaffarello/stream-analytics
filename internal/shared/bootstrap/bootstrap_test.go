@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"testing"
 
-	"github.com/market-raccoon/internal/shared/config"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/config"
 )
 
 func TestBuildLogger_TextFormat(t *testing.T) {
@@ -119,7 +119,7 @@ func TestApplyShardOverrides_HostnameFallbackWhenIndexUnset(t *testing.T) {
 	t.Setenv("SHARD_INDEX", "")
 	t.Setenv("SHARD_COUNT", "2")
 	t.Setenv("MR_ENV", "dev")
-	hostnameProvider = func() (string, error) { return "market-raccoon-processor-2", nil }
+	hostnameProvider = func() (string, error) { return "stream-analytics-processor-2", nil }
 	composeContainerNumberProvider = defaultComposeContainerNumberProvider
 	t.Cleanup(func() {
 		hostnameProvider = defaultHostnameProvider
@@ -195,6 +195,38 @@ func TestApplyShardOverrides_ComposeContainerIDFallbackWhenIndexUnset(t *testing
 	}
 	if cfg.Shard.Count != 3 {
 		t.Fatalf("expected shard count from env=3, got %d", cfg.Shard.Count)
+	}
+}
+
+func TestApplyShardOverrides_DevComposeContainerIDFallback_NormalizesOutOfRangeIndex(t *testing.T) {
+	t.Setenv("SHARD_INDEX", "")
+	t.Setenv("SHARD_COUNT", "2")
+	t.Setenv("MR_ENV", "dev")
+	hostnameProvider = func() (string, error) { return "13d5d7951762", nil }
+	composeContainerNumberProvider = func(containerID string) (int, bool) {
+		if containerID != "13d5d7951762" {
+			return 0, false
+		}
+		// Docker Compose may keep incrementing container-number after recreates
+		// even when service scale is only 2 replicas.
+		return 3, true
+	}
+	t.Cleanup(func() {
+		hostnameProvider = defaultHostnameProvider
+		composeContainerNumberProvider = defaultComposeContainerNumberProvider
+	})
+
+	cfg := defaultTestConfig()
+	cfg.Shard.Index = 0
+	cfg.Shard.Count = 1
+
+	ApplyShardOverrides(&cfg, -1, -1)
+
+	if cfg.Shard.Index != 0 {
+		t.Fatalf("expected normalized shard index 0 from compose container-number=3 with count=2, got %d", cfg.Shard.Index)
+	}
+	if cfg.Shard.Count != 2 {
+		t.Fatalf("expected shard count from env=2, got %d", cfg.Shard.Count)
 	}
 }
 

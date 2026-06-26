@@ -5,8 +5,8 @@ import (
 	"math"
 	"testing"
 
-	"github.com/market-raccoon/internal/core/aggregation/app"
-	"github.com/market-raccoon/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/app"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 func TestBuildStats_FundingRate_FlowsToWindow(t *testing.T) {

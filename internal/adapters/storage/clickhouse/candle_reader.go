@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	aggdomain "github.com/market-raccoon/internal/core/aggregation/domain"
-	aggports "github.com/market-raccoon/internal/core/aggregation/ports"
-	"github.com/market-raccoon/internal/shared/problem"
+	aggdomain "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/domain"
+	aggports "github.com/FabioCaffarello/stream-analytics/internal/core/aggregation/ports"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
 )
 
 var _ aggports.CandleReader = (*ChCandleReader)(nil)

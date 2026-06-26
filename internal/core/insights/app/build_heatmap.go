@@ -7,13 +7,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/market-raccoon/internal/core/insights/domain"
-	"github.com/market-raccoon/internal/shared/hash"
-	"github.com/market-raccoon/internal/shared/metrics"
-	"github.com/market-raccoon/internal/shared/naming"
-	"github.com/market-raccoon/internal/shared/problem"
-	"github.com/market-raccoon/internal/shared/result"
-	"github.com/market-raccoon/internal/shared/validation"
+	"github.com/FabioCaffarello/stream-analytics/internal/core/insights/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/hash"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/metrics"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/naming"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/problem"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/result"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/validation"
 )
 
 const (
@@ -232,7 +232,8 @@ func (uc *BuildHeatmap) getWindow(ps *partitionState, start, end int64) *windowS
 
 func (uc *BuildHeatmap) apply(ws *windowState, req BuildHeatmapRequest) string {
 	dropReason := ""
-	binSize := domain.CalculateHeatmapBinSize(req.Price, req.TickSize)
+	factor := domain.HeatmapBinFactorForTimeframe(naming.NormalizeTimeframe(req.Timeframe))
+	binSize := domain.CalculateHeatmapBinSizeWithFactor(req.Price, req.TickSize, factor)
 	for {
 		priceIdx := bucketIndex(req.Price, binSize, ws.priceMult)
 		low, high := priceBounds(priceIdx, binSize, ws.priceMult)
@@ -240,7 +241,7 @@ func (uc *BuildHeatmap) apply(ws *windowState, req BuildHeatmapRequest) string {
 		cellKey := makeCellKey(priceIdx, sizeBucket)
 		if _, exists := ws.cells[cellKey]; !exists {
 			if uc.priceBucketCount(ws) >= uc.cfg.MaxPriceBucketsPerWindow {
-				if uc.coarsen(ws, req.TickSize) {
+				if uc.coarsen(ws, req.TickSize, factor) {
 					dropReason = "coarsen_price_bucket"
 					continue
 				}
@@ -277,14 +278,14 @@ func (uc *BuildHeatmap) apply(ws *windowState, req BuildHeatmapRequest) string {
 	return dropReason
 }
 
-func (uc *BuildHeatmap) coarsen(ws *windowState, tickSize float64) bool {
+func (uc *BuildHeatmap) coarsen(ws *windowState, tickSize, binFactor float64) bool {
 	if ws.priceMult >= 64 {
 		return false
 	}
 	ws.priceMult *= 2
 	next := make(map[int64]*heatmapCellState, len(ws.cells))
 	for _, c := range ws.cells {
-		cellBin := domain.CalculateHeatmapBinSize(c.priceMid, tickSize)
+		cellBin := domain.CalculateHeatmapBinSizeWithFactor(c.priceMid, tickSize, binFactor)
 		priceIdx := bucketIndex(c.priceMid, cellBin, ws.priceMult)
 		low, high := priceBounds(priceIdx, cellBin, ws.priceMult)
 		key := makeCellKey(priceIdx, c.size)
@@ -549,6 +550,8 @@ func timeframeToWindowMs(tf string) int64 {
 	switch tf {
 	case "1s":
 		return int64(time.Second / time.Millisecond)
+	case "5s":
+		return int64(5 * time.Second / time.Millisecond)
 	case "10s":
 		return int64(10 * time.Second / time.Millisecond)
 	case "1m", "raw":
@@ -557,8 +560,14 @@ func timeframeToWindowMs(tf string) int64 {
 		return int64(5 * time.Minute / time.Millisecond)
 	case "15m":
 		return int64(15 * time.Minute / time.Millisecond)
+	case "30m":
+		return int64(30 * time.Minute / time.Millisecond)
 	case "1h":
 		return int64(time.Hour / time.Millisecond)
+	case "4h":
+		return int64(4 * time.Hour / time.Millisecond)
+	case "1d":
+		return int64(24 * time.Hour / time.Millisecond)
 	default:
 		return heatmapDefaultWindowMs
 	}

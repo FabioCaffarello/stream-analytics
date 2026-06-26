@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
+	deliveryruntime "github.com/FabioCaffarello/stream-analytics/internal/actors/delivery/runtime"
+	insightsdomain "github.com/FabioCaffarello/stream-analytics/internal/core/insights/domain"
+	"github.com/FabioCaffarello/stream-analytics/internal/shared/envelope"
 	"github.com/anthdm/hollywood/actor"
 	"github.com/gorilla/websocket"
-	deliveryruntime "github.com/market-raccoon/internal/actors/delivery/runtime"
-	insightsdomain "github.com/market-raccoon/internal/core/insights/domain"
-	"github.com/market-raccoon/internal/shared/envelope"
 )
 
 func TestWSDelivery_HeatmapSnapshot_RoutedToSubscriber(t *testing.T) {
@@ -42,10 +42,7 @@ func TestWSDelivery_HeatmapSnapshot_RoutedToSubscriber(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("subscribe write: %v", err)
 	}
-	var ack map[string]any
-	if err := conn.ReadJSON(&ack); err != nil {
-		t.Fatalf("subscribe read: %v", err)
-	}
+	ack := readFrameSkipHello(t, conn, 2*time.Second)
 	if got, want := ack["type"], "ack"; got != want {
 		t.Fatalf("ack type=%v want=%v", got, want)
 	}
@@ -61,18 +58,14 @@ func TestWSDelivery_HeatmapSnapshot_RoutedToSubscriber(t *testing.T) {
 		Payload:    []byte(`{"cells":[]}`),
 	}})
 
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	var evt map[string]any
-	if err := conn.ReadJSON(&evt); err != nil {
-		t.Fatalf("event read: %v", err)
-	}
+	evt := readFrameSkipHello(t, conn, 2*time.Second)
 	if got, want := evt["type"], "event"; got != want {
 		t.Fatalf("event type=%v want=%v", got, want)
 	}
 	if got, want := evt["subject"], "insights.heatmap_snapshot/binance/BTCUSDT/1m"; got != want {
 		t.Fatalf("subject=%v want=%v", got, want)
 	}
-	if got, want := int64(evt["seq"].(float64)), int64(7); got != want {
+	if got, want := int64(evt["seq"].(float64)), int64(1); got != want {
 		t.Fatalf("seq=%d want=%d", got, want)
 	}
 }
@@ -106,10 +99,7 @@ func TestWSDelivery_VolumeProfileSnapshot_RoutedToSubscriber(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("subscribe write: %v", err)
 	}
-	var ack map[string]any
-	if err := conn.ReadJSON(&ack); err != nil {
-		t.Fatalf("subscribe read: %v", err)
-	}
+	ack := readFrameSkipHello(t, conn, 2*time.Second)
 	if got, want := ack["type"], "ack"; got != want {
 		t.Fatalf("ack type=%v want=%v", got, want)
 	}
@@ -125,18 +115,14 @@ func TestWSDelivery_VolumeProfileSnapshot_RoutedToSubscriber(t *testing.T) {
 		Payload:    []byte(`{"buckets":[]}`),
 	}})
 
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	var evt map[string]any
-	if err := conn.ReadJSON(&evt); err != nil {
-		t.Fatalf("event read: %v", err)
-	}
+	evt := readFrameSkipHello(t, conn, 2*time.Second)
 	if got, want := evt["type"], "event"; got != want {
 		t.Fatalf("event type=%v want=%v", got, want)
 	}
 	if got, want := evt["subject"], "insights.volume_profile_snapshot/binance/BTCUSDT/5m"; got != want {
 		t.Fatalf("subject=%v want=%v", got, want)
 	}
-	if got, want := int64(evt["seq"].(float64)), int64(3); got != want {
+	if got, want := int64(evt["seq"].(float64)), int64(1); got != want {
 		t.Fatalf("seq=%d want=%d", got, want)
 	}
 }
