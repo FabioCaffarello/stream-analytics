@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Market Raccoon — Comprehensive Client Diagnostic via Playwright
+// Stream Analytics — Comprehensive Client Diagnostic via Playwright
 // Usage: npx playwright test tests/playwright/client-diagnostic.mjs --reporter=list
 //   or:  node tests/playwright/client-diagnostic.mjs  (standalone mode)
 
@@ -65,7 +65,7 @@ async function testPageLoad(page) {
     // Check title
     const title = await page.title();
     log(`Page title: "${title}"`);
-    if (!title.includes("Market Raccoon")) bug("LOAD-2", "P2", "Title missing 'Market Raccoon'", `got="${title}"`);
+    if (!title.includes("Stream Analytics")) bug("LOAD-2", "P2", "Title missing 'Stream Analytics'", `got="${title}"`);
 
     // Wait for canvas to appear
     const canvas = await page.waitForSelector("canvas#canvas", { timeout: 10000 }).catch(() => null);
@@ -472,7 +472,7 @@ async function testResponsiveness(page, browser) {
 
 async function main() {
     log("========================================");
-    log("Market Raccoon — Client Diagnostic Suite");
+    log("Stream Analytics — Client Diagnostic Suite");
     log(`Target: ${BASE_URL}`);
     log("========================================");
 

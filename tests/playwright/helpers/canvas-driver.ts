@@ -1,7 +1,7 @@
 /**
  * CanvasDriver — helpers for interacting with and inspecting the <canvas>.
  *
- * Since Market Raccoon renders entirely to Canvas2D (no DOM widgets),
+ * Since Stream Analytics renders entirely to Canvas2D (no DOM widgets),
  * visual assertions rely on pixel sampling + WASM probes rather than
  * DOM selectors.
  */

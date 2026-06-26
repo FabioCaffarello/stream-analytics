@@ -1,5 +1,5 @@
 /**
- * DashboardPage — keyboard-driven page object for Market Raccoon.
+ * DashboardPage — keyboard-driven page object for Stream Analytics.
  *
  * Since the entire UI is rendered to canvas, all interactions are via
  * keyboard shortcuts. This page object encapsulates the keybindings

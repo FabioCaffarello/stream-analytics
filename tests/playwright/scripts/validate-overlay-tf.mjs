@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Market Raccoon — Per-TF Overlay Correctness Validation (v2)
+// Stream Analytics — Per-TF Overlay Correctness Validation (v2)
 // Validates heatmap/VPVR overlays actually RENDER on canvas by pixel-diffing
 // overlay-ON vs overlay-OFF states at each timeframe.
 //
@@ -611,7 +611,7 @@ async function testStressAndCompare(page, consoleMessages) {
 
 async function main() {
     log("================================================================");
-    log("Market Raccoon — Overlay Rendering Validation (v2)");
+    log("Stream Analytics — Overlay Rendering Validation (v2)");
     log(`Target: ${BASE_URL}`);
     log(`Timestamp: ${new Date().toISOString()}`);
     log("================================================================\n");

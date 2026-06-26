@@ -1,7 +1,7 @@
 {
   "name": "mr-playwright",
   "version": "2.0.0",
-  "description": "Market Raccoon E2E test suite",
+  "description": "Stream Analytics E2E test suite",
   "type": "module",
   "scripts": {
     "test": "npx playwright test",

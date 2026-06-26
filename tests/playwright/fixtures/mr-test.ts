@@ -1,5 +1,5 @@
 /**
- * mr-test — Custom Playwright test fixtures for Market Raccoon.
+ * mr-test — Custom Playwright test fixtures for Stream Analytics.
  *
  * Provides pre-wired helpers so every test gets:
  *   - `probe`   — WasmProbe instance
