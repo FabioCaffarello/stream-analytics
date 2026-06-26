@@ -69,8 +69,12 @@ markdown_extensions:
   - attr_list
   - md_in_html
 
+extra_css:
+  - assets/css/diagrams.css
+
 extra_javascript:
   - https://unpkg.com/mermaid@11/dist/mermaid.min.js
+  - https://unpkg.com/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js
   - assets/js/mermaid-init.js
 
 watch:
