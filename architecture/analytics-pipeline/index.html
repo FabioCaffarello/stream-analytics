@@ -1515,6 +1515,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#delivery-semantics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Delivery Semantics
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#operational-notes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1522,6 +1533,45 @@
       
     </span>
   </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#known-limitations-roadmap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Known Limitations &amp; Roadmap
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Known Limitations &amp; Roadmap">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#no-tenant_id-in-the-analytics-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        No tenant_id in the analytics path
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-schema-registry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        No Schema Registry
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -2700,6 +2750,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#delivery-semantics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Delivery Semantics
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#operational-notes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2707,6 +2768,45 @@
       
     </span>
   </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#known-limitations-roadmap" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Known Limitations &amp; Roadmap
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Known Limitations &amp; Roadmap">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#no-tenant_id-in-the-analytics-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        No tenant_id in the analytics path
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-schema-registry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        No Schema Registry
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -2737,7 +2837,7 @@
 
 <h1 id="analytics-pipeline">Analytics Pipeline<a class="headerlink" href="#analytics-pipeline" title="Permanent link">&para;</a></h1>
 <p><strong>Status:</strong> Active
-<strong>Last updated:</strong> 2026-06-25
+<strong>Last updated:</strong> 2026-06-26
 <strong>Relates to:</strong> <code>deploy/compose/docker-compose.yml</code>, <code>flink/sql/</code>, <code>sql/timescale/migrations/0009_analytics_metabase_views.sql</code>, <code>internal/adapters/kafka/</code>, <code>docs/architecture/diagrams/c4-analytics.md</code></p>
 <hr />
 <h2 id="purpose">Purpose<a class="headerlink" href="#purpose" title="Permanent link">&para;</a></h2>
@@ -2792,7 +2892,7 @@ pipeline (NATS JetStream) continues to function whether or not the analytics pro
 <tr>
 <td><strong>Analytics</strong></td>
 <td>Consumer → Kafka → Flink → TimescaleDB</td>
-<td>Best-effort, seconds latency</td>
+<td>At-least-once (Kafka boundary); effectively exactly-once at sink via idempotent upsert — see <a href="../../adrs/ADR-0036-analytics-delivery-semantics/">ADR-0036</a></td>
 <td>BI dashboards, historical queries</td>
 </tr>
 </tbody>
@@ -2930,6 +3030,7 @@ them as a single Flink SQL session.</p>
 <th>Table</th>
 <th>Kafka topic</th>
 <th>Group ID</th>
+<th>Startup mode</th>
 <th>Watermark</th>
 </tr>
 </thead>
@@ -2938,13 +3039,8 @@ them as a single Flink SQL session.</p>
 <td><code>kafka_trades</code></td>
 <td><code>market.trades</code></td>
 <td><code>flink-market-trades</code></td>
+<td><code>group-offsets</code></td>
 <td>5 seconds event-time</td>
-</tr>
-<tr>
-<td><code>kafka_orderbook</code></td>
-<td><code>market.orderbook</code></td>
-<td><code>flink-market-orderbook</code></td>
-<td>5 seconds event-time (no active jobs)</td>
 </tr>
 </tbody>
 </table>
@@ -2991,7 +3087,7 @@ them as a single Flink SQL session.</p>
 <tbody>
 <tr>
 <td><code>flink/sql/02_ohlcv_job.sql</code></td>
-<td>4× <code>INSERT INTO pg_fact_candles</code>: tumbling windows 1m, 5m, 15m, 1h using <code>FIRST_VALUE</code>/<code>LAST_VALUE</code> for open/close</td>
+<td>4× <code>INSERT INTO pg_fact_candles</code>: tumbling windows 1m, 5m, 15m, 1h. <code>FIRST_VALUE(price)</code> = open, <code>LAST_VALUE(price)</code> = close — deterministic because the producer keys every message as <code>venue:instrument</code>, routing all trades for a symbol to a single Kafka partition and therefore a single Flink sub-task (see <a href="../../adrs/ADR-0036-analytics-delivery-semantics/">ADR-0036</a>).</td>
 </tr>
 <tr>
 <td><code>flink/sql/03_volume_stats_job.sql</code></td>
@@ -3005,6 +3101,11 @@ them as a single Flink SQL session.</p>
 </table>
 <p><strong>Watermark latency floor:</strong> The 5-second event-time watermark means tumbling window results
 are emitted at most 5 seconds after the window boundary.</p>
+<p><strong>Checkpointing:</strong> All three jobs run with <code>execution.checkpointing.interval = 60s</code> in
+<code>EXACTLY_ONCE</code> mode. Checkpoints are stored in the <code>stream-analytics-flink-checkpoints</code>
+named volume (compose) / <code>/flink/checkpoints</code> PVC path (k8s). On restart, Flink restores
+from the latest checkpoint; if none exists, it falls back to the committed <code>group-offsets</code>
+consumer position. Maximum re-processing window: 60 seconds.</p>
 <hr />
 <h2 id="timescaledb-analytics-schema">TimescaleDB Analytics Schema<a class="headerlink" href="#timescaledb-analytics-schema" title="Permanent link">&para;</a></h2>
 <p>Created by migration: <code>sql/timescale/migrations/0009_analytics_metabase_views.sql</code></p>
@@ -3134,6 +3235,40 @@ from the ClickHouse cold path managed by <code>cmd/store</code>.</p>
 </table>
 <p>Flink does NOT write to ClickHouse. ClickHouse is not a Flink sink.</p>
 <hr />
+<h2 id="delivery-semantics">Delivery Semantics<a class="headerlink" href="#delivery-semantics" title="Permanent link">&para;</a></h2>
+<p>See <a href="../../adrs/ADR-0036-analytics-delivery-semantics/">ADR-0036 — Analytics Delivery Semantics</a>
+for the full rationale. Summary:</p>
+<table>
+<thead>
+<tr>
+<th>Boundary</th>
+<th>Guarantee</th>
+<th>Mechanism</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Consumer → Kafka</td>
+<td>Best-effort</td>
+<td>Errors swallowed; never propagates to NATS path</td>
+</tr>
+<tr>
+<td>Kafka → Flink</td>
+<td>At-least-once</td>
+<td>Checkpoint-based offset tracking; <code>group-offsets</code> fallback</td>
+</tr>
+<tr>
+<td>Flink → TimescaleDB</td>
+<td>Effectively exactly-once</td>
+<td>JDBC connector generates <code>INSERT ... ON CONFLICT DO UPDATE</code> on the natural key for each fact table</td>
+</tr>
+</tbody>
+</table>
+<p>The combined effect is that any given <code>(exchange_name, symbol, trade_id)</code> /
+<code>(exchange_name, symbol, timeframe, open_time_ms)</code> / <code>(exchange_name, symbol, window_secs, window_start_ms)</code>
+row converges to the correct final value even under Flink restart, because the upsert
+overwrites a partial row with the final aggregated value.</p>
+<hr />
 <h2 id="operational-notes">Operational Notes<a class="headerlink" href="#operational-notes" title="Permanent link">&para;</a></h2>
 <p><strong>Flink job resubmission</strong> — <code>flink-sql-init</code> has <code>restart: "no"</code> (runs once). To re-submit:
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>deploy/compose/docker-compose.yml<span class="w"> </span><span class="se">\</span>
@@ -3147,6 +3282,36 @@ from the ClickHouse cold path managed by <code>cmd/store</code>.</p>
 <p><strong>Flink overview:</strong>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>curl<span class="w"> </span>-s<span class="w"> </span>http://127.0.0.1:8091/overview<span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>.taskmanagers
 </code></pre></div></p>
+<hr />
+<h2 id="known-limitations-roadmap">Known Limitations &amp; Roadmap<a class="headerlink" href="#known-limitations-roadmap" title="Permanent link">&para;</a></h2>
+<p>These are conscious scope decisions, not oversights.</p>
+<h3 id="no-tenant_id-in-the-analytics-path">No <code>tenant_id</code> in the analytics path<a class="headerlink" href="#no-tenant_id-in-the-analytics-path" title="Permanent link">&para;</a></h3>
+<p>The analytics schema (<code>fact_trades</code>, <code>fact_candles</code>, <code>fact_volume_stats</code>) has no tenant
+dimension. The only segmentation axes are <code>exchange_name</code> and <code>symbol</code>. <code>tenant_id</code> exists
+in the WebSocket delivery layer (JWT claim, per-tenant Prometheus metrics, per-tenant rate
+limits) but was deliberately excluded from the analytics path because this project targets a
+single-operator deployment. Adding tenant support would require:</p>
+<ol>
+<li>Propagating <code>tenant_id</code> from the Consumer into the Kafka message schema.</li>
+<li>Adding the column to all three Flink sink DDLs and TimescaleDB migrations.</li>
+<li>Updating Metabase filters to expose per-tenant views.</li>
+</ol>
+<p>This makes sense when the platform serves multiple operators or exchange clients from the
+same deployment.</p>
+<h3 id="no-schema-registry">No Schema Registry<a class="headerlink" href="#no-schema-registry" title="Permanent link">&para;</a></h3>
+<p>Kafka uses plain JSON without a Schema Registry (Confluent or Redpanda SR). The current
+wire schema is defined in code (<code>internal/adapters/kafka/market_publisher.go</code>) and mirrored
+in the Flink DDL (<code>flink/sql/00_create_sources.sql</code>). Schema drift between producer and Flink
+consumer is caught only at query time (Flink silently drops unknown fields via
+<code>json.ignore-parse-errors: true</code>).</p>
+<p>A Schema Registry would be warranted when:</p>
+<ul>
+<li>The <code>market.trades</code> schema needs to evolve with backward/forward compatibility guarantees.</li>
+<li>Multiple teams or services consume the same Kafka topics.</li>
+<li>Compliance or audit requirements demand a versioned schema history.</li>
+</ul>
+<p>For a single-team, single-consumer setup the current approach is adequate. The wire schema
+is the contract; changes must update both the producer struct and the Flink DDL atomically.</p>
 
 
 

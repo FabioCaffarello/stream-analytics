@@ -2392,12 +2392,36 @@
 
 
 <h1 id="analytics-stack">Analytics Stack<a class="headerlink" href="#analytics-stack" title="Permanent link">&para;</a></h1>
-<p>The analytics path is a <strong>best-effort OLAP pipeline</strong>, completely separate from the primary NATS
+<p>The analytics path is a <strong>parallel OLAP pipeline</strong>, completely separate from the primary NATS
 hot path. This is a deliberate architectural decision: the primary path guarantees strict
 at-least-once delivery with microsecond latency; bolting BI workloads onto it would risk degrading
 the operational cockpit. Instead, the Consumer dual-publishes every canonicalised trade event —
-NATS JetStream receives it with full guarantees, while Kafka (Redpanda) receives a fire-and-forget
+NATS JetStream receives it with full guarantees, while Kafka (Redpanda) receives a best-effort
 copy. Kafka errors are swallowed and never propagate back to the primary pipeline.</p>
+<p><strong>Delivery semantics by layer:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Boundary</th>
+<th>Guarantee</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Consumer → Kafka</td>
+<td>Best-effort (fire-and-forget)</td>
+</tr>
+<tr>
+<td>Kafka → Flink</td>
+<td>At-least-once — Flink checkpoints every 60 s; restarts replay from the last checkpoint, falling back to the committed consumer-group offset</td>
+</tr>
+<tr>
+<td>Flink → TimescaleDB</td>
+<td>Effectively exactly-once — the JDBC sink uses <code>INSERT ... ON CONFLICT DO UPDATE</code> on the natural key of each fact table, making re-delivery idempotent</td>
+</tr>
+</tbody>
+</table>
+<p>See <a href="../../adrs/ADR-0036-analytics-delivery-semantics/">ADR-0036</a> for the full rationale.</p>
 <div class="admonition warning">
 <p class="admonition-title">Analytics Latency Budget</p>
 <p>End-to-end latency for a 1-minute candle is up to <strong>~65 seconds</strong>:</p>
@@ -2833,6 +2857,10 @@ affect the others. All three read from the same Kafka topic via independent cons
 <h3 id="02_ohlcv_jobsql-ohlcv-candles"><code>02_ohlcv_job.sql</code> — OHLCV Candles<a class="headerlink" href="#02_ohlcv_jobsql-ohlcv-candles" title="Permanent link">&para;</a></h3>
 <p>Computes OHLCV candles using tumbling event-time windows. Each window emits one row per
 <code>(venue, symbol, timeframe)</code> combination.</p>
+<p><strong>Open/close determinism:</strong> <code>FIRST_VALUE(price)</code> and <code>LAST_VALUE(price)</code> are deterministic
+because every Kafka message is keyed as <code>venue:instrument</code>, routing all trades for a given
+symbol to a single Kafka partition and a single Flink sub-task. Records are therefore
+processed in send-time order. See <a href="../../adrs/ADR-0036-analytics-delivery-semantics/">ADR-0036</a>.</p>
 <table>
 <thead>
 <tr>
@@ -2893,6 +2921,9 @@ Batch flush: 500 rows or 2 seconds, whichever comes first.</p>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <p><img alt="Flink cluster — all 3 jobs in RUNNING state" src="../../assets/showcase/screenshots/flink-cluster-overview.png" /></p>
+<p>All three jobs run with <strong>60-second checkpoints</strong> stored in a persistent named volume
+(<code>stream-analytics-flink-checkpoints</code>). On restart, Flink replays at most 60 seconds
+of trades from Kafka and the idempotent JDBC sink absorbs any re-delivered rows.</p>
 </div>
 <div class="tabbed-block">
 <p><img alt="Flink completed and running jobs detail" src="../../assets/showcase/screenshots/flink-completed-jobs.png" /></p>
@@ -3154,6 +3185,19 @@ market microstructure dashboards and KPI cards.</p>
 analytics profile is enabled. Flink and Metabase start only with <code>make up-analytics</code>.</p>
 <p>The <code>flink-sql-init</code> container submits all three SQL jobs once on startup. Jobs are managed by
 Flink thereafter — re-submit manually after schema changes using <code>flink/sql/init.sh</code>.</p>
+<hr />
+<h2 id="known-limitations-roadmap">Known Limitations &amp; Roadmap<a class="headerlink" href="#known-limitations-roadmap" title="Permanent link">&para;</a></h2>
+<p>These are conscious scope decisions, not oversights.</p>
+<p><strong>No <code>tenant_id</code> in the analytics path.</strong> The fact tables and views have no tenant dimension;
+the only segmentation axes are <code>exchange_name</code> and <code>symbol</code>. <code>tenant_id</code> exists in the
+WebSocket delivery layer for per-tenant rate-limiting and metrics but was excluded here because
+the current deployment model is single-operator. Extending it would require propagating the
+claim into the Kafka wire schema, Flink DDL, and TimescaleDB migrations.</p>
+<p><strong>No Schema Registry.</strong> Kafka uses plain JSON without schema versioning. The wire contract is
+defined in code (<code>internal/adapters/kafka/market_publisher.go</code>) and mirrored in the Flink DDL.
+This is adequate for a single-team, single-consumer setup; a registry (Confluent or Redpanda SR)
+would be the right investment when multiple teams consume <code>market.trades</code> or when schema
+evolution history becomes a compliance requirement.</p>
 
 
 

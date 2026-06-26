@@ -10,7 +10,7 @@
       
       
       
-        <link rel="canonical" href="https://FabioCaffarello.github.io/stream-analytics/adrs/">
+        <link rel="canonical" href="https://FabioCaffarello.github.io/stream-analytics/adrs/ADR-0036-analytics-delivery-semantics/">
       
       
       
@@ -18,19 +18,19 @@
         
       
       
-      <link rel="icon" href="../assets/images/favicon.png">
+      <link rel="icon" href="../../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
     
     
       
-        <title>Architecture Decision Records - Stream Analytics</title>
+        <title>ADR 0036 analytics delivery semantics - Stream Analytics</title>
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
       
         
-        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -49,9 +49,9 @@
       
     
     
-      <link rel="stylesheet" href="../assets/css/diagrams.css">
+      <link rel="stylesheet" href="../../assets/css/diagrams.css">
     
-    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -76,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#architecture-decision-records" class="md-skip">
+        <a href="#adr-0036-analytics-delivery-semantics" class="md-skip">
           Skip to content
         </a>
       
@@ -92,7 +92,7 @@
 
 <header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href=".." title="Stream Analytics" class="md-header__button md-logo" aria-label="Stream Analytics" data-md-component="logo">
+    <a href="../.." title="Stream Analytics" class="md-header__button md-logo" aria-label="Stream Analytics" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -112,7 +112,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Architecture Decision Records
+              ADR 0036 analytics delivery semantics
             
           </span>
         </div>
@@ -219,7 +219,7 @@
   
   
     <li class="md-tabs__item">
-      <a href=".." class="md-tabs__link">
+      <a href="../.." class="md-tabs__link">
         
   
   
@@ -240,7 +240,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../architecture/" class="md-tabs__link">
+        <a href="../../architecture/" class="md-tabs__link">
           
   
   
@@ -262,7 +262,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../showcase/" class="md-tabs__link">
+        <a href="../../showcase/" class="md-tabs__link">
           
   
   
@@ -284,7 +284,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../architecture/diagrams/c4-context/" class="md-tabs__link">
+        <a href="../../architecture/diagrams/c4-context/" class="md-tabs__link">
           
   
   
@@ -306,7 +306,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../architecture/analytics-pipeline/" class="md-tabs__link">
+        <a href="../../architecture/analytics-pipeline/" class="md-tabs__link">
           
   
   
@@ -328,7 +328,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../architecture/candle-aggregation/" class="md-tabs__link">
+        <a href="../../architecture/candle-aggregation/" class="md-tabs__link">
           
   
   
@@ -350,7 +350,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../contracts/event-bus/" class="md-tabs__link">
+        <a href="../../contracts/event-bus/" class="md-tabs__link">
           
   
   
@@ -372,7 +372,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../client/client-architecture/" class="md-tabs__link">
+        <a href="../../client/client-architecture/" class="md-tabs__link">
           
   
   
@@ -394,7 +394,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../local-dev/" class="md-tabs__link">
+        <a href="../../local-dev/" class="md-tabs__link">
           
   
   
@@ -436,7 +436,7 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href=".." title="Stream Analytics" class="md-nav__button md-logo" aria-label="Stream Analytics" data-md-component="logo">
+    <a href="../.." title="Stream Analytics" class="md-nav__button md-logo" aria-label="Stream Analytics" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -466,7 +466,7 @@
   
   
     <li class="md-nav__item">
-      <a href=".." class="md-nav__link">
+      <a href="../.." class="md-nav__link">
         
   
   
@@ -522,7 +522,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../architecture/" class="md-nav__link ">
+            <a href="../../architecture/" class="md-nav__link ">
               
   
   
@@ -566,7 +566,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/subsystems/" class="md-nav__link">
+      <a href="../../architecture/subsystems/" class="md-nav__link">
         
   
   
@@ -594,7 +594,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/system-invariants/" class="md-nav__link">
+      <a href="../../architecture/system-invariants/" class="md-nav__link">
         
   
   
@@ -622,7 +622,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/sequencing-model/" class="md-nav__link">
+      <a href="../../architecture/sequencing-model/" class="md-nav__link">
         
   
   
@@ -692,7 +692,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../showcase/" class="md-nav__link ">
+            <a href="../../showcase/" class="md-nav__link ">
               
   
   
@@ -736,7 +736,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../showcase/pipeline/" class="md-nav__link">
+      <a href="../../showcase/pipeline/" class="md-nav__link">
         
   
   
@@ -764,7 +764,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../showcase/services/" class="md-nav__link">
+      <a href="../../showcase/services/" class="md-nav__link">
         
   
   
@@ -792,7 +792,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../showcase/client/" class="md-nav__link">
+      <a href="../../showcase/client/" class="md-nav__link">
         
   
   
@@ -820,7 +820,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../showcase/analytics/" class="md-nav__link">
+      <a href="../../showcase/analytics/" class="md-nav__link">
         
   
   
@@ -848,7 +848,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../showcase/observability/" class="md-nav__link">
+      <a href="../../showcase/observability/" class="md-nav__link">
         
   
   
@@ -876,7 +876,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../showcase/performance/" class="md-nav__link">
+      <a href="../../showcase/performance/" class="md-nav__link">
         
   
   
@@ -981,7 +981,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/diagrams/c4-context/" class="md-nav__link">
+      <a href="../../architecture/diagrams/c4-context/" class="md-nav__link">
         
   
   
@@ -1009,7 +1009,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/diagrams/c4-containers/" class="md-nav__link">
+      <a href="../../architecture/diagrams/c4-containers/" class="md-nav__link">
         
   
   
@@ -1037,7 +1037,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/diagrams/sequence-live-ingestion/" class="md-nav__link">
+      <a href="../../architecture/diagrams/sequence-live-ingestion/" class="md-nav__link">
         
   
   
@@ -1065,7 +1065,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/diagrams/sequence-storage-federation/" class="md-nav__link">
+      <a href="../../architecture/diagrams/sequence-storage-federation/" class="md-nav__link">
         
   
   
@@ -1093,7 +1093,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/diagrams/sequence-exchange-recovery/" class="md-nav__link">
+      <a href="../../architecture/diagrams/sequence-exchange-recovery/" class="md-nav__link">
         
   
   
@@ -1121,7 +1121,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/diagrams/actor-supervision-tree/" class="md-nav__link">
+      <a href="../../architecture/diagrams/actor-supervision-tree/" class="md-nav__link">
         
   
   
@@ -1149,7 +1149,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/diagrams/sequence-client-session/" class="md-nav__link">
+      <a href="../../architecture/diagrams/sequence-client-session/" class="md-nav__link">
         
   
   
@@ -1177,7 +1177,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/diagrams/sequence-evidence-lel/" class="md-nav__link">
+      <a href="../../architecture/diagrams/sequence-evidence-lel/" class="md-nav__link">
         
   
   
@@ -1272,7 +1272,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/analytics-pipeline/" class="md-nav__link">
+      <a href="../../architecture/analytics-pipeline/" class="md-nav__link">
         
   
   
@@ -1300,7 +1300,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/diagrams/c4-analytics/" class="md-nav__link">
+      <a href="../../architecture/diagrams/c4-analytics/" class="md-nav__link">
         
   
   
@@ -1328,7 +1328,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/diagrams/sequence-analytics-pipeline/" class="md-nav__link">
+      <a href="../../architecture/diagrams/sequence-analytics-pipeline/" class="md-nav__link">
         
   
   
@@ -1431,7 +1431,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/candle-aggregation/" class="md-nav__link">
+      <a href="../../architecture/candle-aggregation/" class="md-nav__link">
         
   
   
@@ -1459,7 +1459,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/stats-aggregation/" class="md-nav__link">
+      <a href="../../architecture/stats-aggregation/" class="md-nav__link">
         
   
   
@@ -1487,7 +1487,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/orderbook/" class="md-nav__link">
+      <a href="../../architecture/orderbook/" class="md-nav__link">
         
   
   
@@ -1515,7 +1515,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/heatmap/" class="md-nav__link">
+      <a href="../../architecture/heatmap/" class="md-nav__link">
         
   
   
@@ -1543,7 +1543,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/volume-profiles/" class="md-nav__link">
+      <a href="../../architecture/volume-profiles/" class="md-nav__link">
         
   
   
@@ -1571,7 +1571,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/liquidations-markprice/" class="md-nav__link">
+      <a href="../../architecture/liquidations-markprice/" class="md-nav__link">
         
   
   
@@ -1599,7 +1599,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/insights/" class="md-nav__link">
+      <a href="../../architecture/insights/" class="md-nav__link">
         
   
   
@@ -1700,7 +1700,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../contracts/event-bus/" class="md-nav__link">
+      <a href="../../contracts/event-bus/" class="md-nav__link">
         
   
   
@@ -1728,7 +1728,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../contracts/delivery-ws/" class="md-nav__link">
+      <a href="../../contracts/delivery-ws/" class="md-nav__link">
         
   
   
@@ -1756,7 +1756,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../contracts/canonical-market-model/" class="md-nav__link">
+      <a href="../../contracts/canonical-market-model/" class="md-nav__link">
         
   
   
@@ -1784,7 +1784,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../contracts/liquidity-evidence-layer/" class="md-nav__link">
+      <a href="../../contracts/liquidity-evidence-layer/" class="md-nav__link">
         
   
   
@@ -1812,7 +1812,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../contracts/boundedness-matrix/" class="md-nav__link">
+      <a href="../../contracts/boundedness-matrix/" class="md-nav__link">
         
   
   
@@ -1840,7 +1840,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../contracts/subject-registry/" class="md-nav__link">
+      <a href="../../contracts/subject-registry/" class="md-nav__link">
         
   
   
@@ -1935,7 +1935,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../client/client-architecture/" class="md-nav__link">
+      <a href="../../client/client-architecture/" class="md-nav__link">
         
   
   
@@ -1963,7 +1963,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../client/layer-architecture/" class="md-nav__link">
+      <a href="../../client/layer-architecture/" class="md-nav__link">
         
   
   
@@ -1991,7 +1991,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../client/client-memory-ownership-rules/" class="md-nav__link">
+      <a href="../../client/client-memory-ownership-rules/" class="md-nav__link">
         
   
   
@@ -2092,7 +2092,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../local-dev/" class="md-nav__link">
+      <a href="../../local-dev/" class="md-nav__link">
         
   
   
@@ -2120,7 +2120,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/storage/" class="md-nav__link">
+      <a href="../../architecture/storage/" class="md-nav__link">
         
   
   
@@ -2148,7 +2148,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/metrics-catalogue/" class="md-nav__link">
+      <a href="../../architecture/metrics-catalogue/" class="md-nav__link">
         
   
   
@@ -2176,7 +2176,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../operations/sharding/" class="md-nav__link">
+      <a href="../../operations/sharding/" class="md-nav__link">
         
   
   
@@ -2204,7 +2204,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../operations/emulator/" class="md-nav__link">
+      <a href="../../operations/emulator/" class="md-nav__link">
         
   
   
@@ -2232,7 +2232,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../operations/validator/" class="md-nav__link">
+      <a href="../../operations/validator/" class="md-nav__link">
         
   
   
@@ -2287,10 +2287,93 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#index" class="md-nav__link">
+  <a href="#context" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Index
+        Context
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decision
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Decision">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-declared-delivery-semantics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Declared delivery semantics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-checkpointing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Checkpointing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-openclose-determinism-in-ohlcv-candles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Open/close determinism in OHLCV candles
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consequences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consequences
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evidence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evidence
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#changelog" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changelog
       
     </span>
   </a>
@@ -2314,7 +2397,7 @@
 
 
   
-    <a href="https://github.com/FabioCaffarello/stream-analytics/edit/main/docs/adrs/index.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/FabioCaffarello/stream-analytics/edit/main/docs/adrs/ADR-0036-analytics-delivery-semantics.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -2322,69 +2405,133 @@
   
 
 
-<h1 id="architecture-decision-records">Architecture Decision Records<a class="headerlink" href="#architecture-decision-records" title="Permanent link">&para;</a></h1>
-<p>ADRs capture significant architectural decisions, their context, options considered,
-and the rationale for the chosen approach.</p>
-<p>Each file follows the naming pattern <code>ADR-NNNN-short-title.md</code> and must pass the
-<code>scripts/ci/docs/check-doc-headers.sh</code> format gate, which requires:</p>
-<ul>
-<li><code>**Status:**</code> line (Proposed / Accepted / Superseded / Deprecated)</li>
-<li><code>## Evidence</code> section with code and test anchors</li>
-<li><code>## Changelog</code> section with dated entries</li>
-</ul>
-<p>Use <code>docs/doc-contract-template.md</code> as the starting template.</p>
-<hr />
-<h2 id="index">Index<a class="headerlink" href="#index" title="Permanent link">&para;</a></h2>
+<p><strong>Status:</strong> Accepted
+<strong>Owner:</strong> Architecture
+<strong>Last updated:</strong> 2026-06-26
+<strong>Date:</strong> 2026-06-26
+<strong>Deciders:</strong> Platform Team
+<strong>Relates to:</strong> <a href="../ADR-0000-foundation/">ADR-0000</a>, <a href="../../architecture/analytics-pipeline/">analytics-pipeline</a></p>
+<h1 id="adr-0036-analytics-delivery-semantics">ADR-0036 — Analytics Delivery Semantics<a class="headerlink" href="#adr-0036-analytics-delivery-semantics" title="Permanent link">&para;</a></h1>
+<h2 id="context">Context<a class="headerlink" href="#context" title="Permanent link">&para;</a></h2>
+<p>The analytics path (Consumer → Kafka → Flink → TimescaleDB) has different delivery
+requirements than the primary NATS path. Three concrete gaps drove this ADR:</p>
+<ol>
+<li>The delivery semantics of the analytics pipeline were never formally declared.</li>
+<li>The Flink JDBC sink used <code>PRIMARY KEY NOT ENFORCED</code> but no document explained
+   what guarantees this provided (or didn't) at the TimescaleDB level.</li>
+<li>Flink was running without <code>execution.checkpointing.interval</code>, meaning the
+   restart strategy was configured but no checkpoints were actually taken — a
+   restart would lose all in-flight data back to <code>latest-offset</code>.</li>
+</ol>
+<h2 id="decision">Decision<a class="headerlink" href="#decision" title="Permanent link">&para;</a></h2>
+<h3 id="1-declared-delivery-semantics">1. Declared delivery semantics<a class="headerlink" href="#1-declared-delivery-semantics" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
 <tr>
-<th>ADR</th>
-<th>Title</th>
-<th>Decision (one line)</th>
+<th>Boundary</th>
+<th>Guarantee</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><a href="ADR-0000-foundation/">ADR-0000</a></td>
-<td>Foundation</td>
-<td>Layer dependency direction, 12 bounded contexts, <code>clock.Clock</code>, <code>FieldHasher</code>, and NATS envelope sequencing established as non-negotiable primitives.</td>
+<td>Consumer → Kafka</td>
+<td>Best-effort. Kafka errors are swallowed; a Kafka outage never blocks the primary NATS path.</td>
 </tr>
 <tr>
-<td><a href="ADR-0032-stream-reliability-model/">ADR-0032</a></td>
-<td>Stream Reliability Model</td>
-<td>Adopt a 5-layer health pipeline (Detect → Classify → Signal → Recover → Surface) driven by <code>prev_seq</code> gap detection.</td>
+<td>Kafka → Flink</td>
+<td>At-least-once. Flink re-reads from the last checkpointed offset on restart; <code>scan.startup.mode = 'group-offsets'</code> provides a fallback for cold starts without a checkpoint.</td>
 </tr>
 <tr>
-<td><a href="ADR-0033-orderflow-domain-blueprint/">ADR-0033</a></td>
-<td>Orderflow Domain Blueprint</td>
-<td>CMM (<code>internal/core/marketmodel/</code>) is the single canonical orderflow representation; exchange adapters must not leak raw types past their boundary.</td>
-</tr>
-<tr>
-<td><a href="ADR-0034-stream-health-recovery-completion/">ADR-0034</a></td>
-<td>Stream Health Recovery Completion</td>
-<td>Gap → backfill from last good seq; disconnect → exponential backoff + gap-fill on reconnect; Guardian restart → re-subscribe without history replay.</td>
-</tr>
-<tr>
-<td><a href="ADR-0035-orderflow-contract-architecture/">ADR-0035</a></td>
-<td>Orderflow Contract Architecture</td>
-<td>All orderflow events use <code>{event}.v{version}.{venue}.{instrument}</code>; new types must be registered in <code>docs/contracts/subject-registry.yaml</code>.</td>
-</tr>
-<tr>
-<td><a href="ADR-0036-analytics-delivery-semantics/">ADR-0036</a></td>
-<td>Analytics Delivery Semantics</td>
-<td>Analytics path is at-least-once Kafka + effectively-exactly-once sink via idempotent upsert on natural keys; checkpointing interval 60s; FIRST_VALUE/LAST_VALUE deterministic via <code>venue:instrument</code> key partitioning.</td>
+<td>Flink → TimescaleDB</td>
+<td>Effectively exactly-once via idempotent upsert. The Flink JDBC connector generates <code>INSERT ... ON CONFLICT (pk) DO UPDATE SET ...</code> for PostgreSQL when the sink table declares <code>PRIMARY KEY NOT ENFORCED</code>. The natural keys are:</td>
 </tr>
 </tbody>
 </table>
+<table>
+<thead>
+<tr>
+<th>Fact table</th>
+<th>Natural key (upsert key)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>fact_trades</code></td>
+<td><code>(exchange_name, symbol, trade_id)</code></td>
+</tr>
+<tr>
+<td><code>fact_candles</code></td>
+<td><code>(exchange_name, symbol, timeframe, open_time_ms)</code></td>
+</tr>
+<tr>
+<td><code>fact_volume_stats</code></td>
+<td><code>(exchange_name, symbol, window_secs, window_start_ms)</code></td>
+</tr>
+</tbody>
+</table>
+<p>Combined effect: at-least-once delivery at the Kafka boundary with idempotent
+sink means the end-to-end observable result is exactly-once for any given natural
+key. Duplicate delivery (e.g., on Flink restart within the checkpoint interval)
+overwrites rows with identical values — no phantom rows, no counters inflated.</p>
+<h3 id="2-checkpointing">2. Checkpointing<a class="headerlink" href="#2-checkpointing" title="Permanent link">&para;</a></h3>
+<p><code>execution.checkpointing.interval = 60s</code> with <code>EXACTLY_ONCE</code> mode is set in
+<code>flink/sql/init.sh</code>. This means:</p>
+<ul>
+<li>Maximum re-processing on restart: up to 60 seconds of trades from Kafka.</li>
+<li>Checkpoint storage: named Docker volume <code>stream-analytics-flink-checkpoints</code>
+  (compose) / <code>/flink/checkpoints</code> PVC path (k8s — requires a PersistentVolumeClaim
+  in the cluster overlay; the ConfigMap path is set but the PVC binding is left to
+  the cluster operator).</li>
+<li>Recovery gap: events produced during Flink downtime that remain within Kafka's
+  retention window (default 7 days for <code>market.trades</code>) are replayed automatically
+  on restart.</li>
+</ul>
+<h3 id="3-openclose-determinism-in-ohlcv-candles">3. Open/close determinism in OHLCV candles<a class="headerlink" href="#3-openclose-determinism-in-ohlcv-candles" title="Permanent link">&para;</a></h3>
+<p><code>FIRST_VALUE(price)</code> and <code>LAST_VALUE(price)</code> in <code>flink/sql/02_ohlcv_job.sql</code> are
+deterministic for this pipeline because:</p>
+<ul>
+<li>The Kafka producer keys every message as <code>venue:instrument</code>
+  (<code>internal/adapters/kafka/market_publisher.go:126</code>).</li>
+<li>Kafka routes all messages with the same key to a single partition; Flink's keyed
+  state routes all records for a given <code>(venue, symbol)</code> to a single sub-task.</li>
+<li>Records are therefore processed in Kafka-offset order within each symbol, so
+  <code>FIRST_VALUE</code> = earliest-sent trade (open) and <code>LAST_VALUE</code> = latest-sent trade
+  (close) for each tumbling window.</li>
+</ul>
+<p><strong>Invariant to preserve:</strong> if the producer key scheme or topic partition count
+changes, a consumer-group offset reset is required before restarting Flink jobs,
+otherwise open/close values may be incorrect for the transition window.</p>
+<h2 id="consequences">Consequences<a class="headerlink" href="#consequences" title="Permanent link">&para;</a></h2>
+<ul>
+<li>The analytics path tolerates data loss only at the Consumer → Kafka boundary
+  (fire-and-forget). All other stages are loss-free within Kafka's retention window.</li>
+<li>End-to-end latency budget is unaffected: the 60s checkpoint interval adds no
+  observable latency to steady-state operation.</li>
+<li>The k8s Flink overlay requires a <code>PersistentVolumeClaim</code> named to match the
+  <code>state.checkpoints.dir</code> path. This is left to the cluster operator and is
+  explicitly out of scope for the local-dev compose setup.</li>
+</ul>
+<h2 id="evidence">Evidence<a class="headerlink" href="#evidence" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Checkpointing config: <code>flink/sql/init.sh</code></li>
+<li>Startup mode: <code>flink/sql/00_create_sources.sql</code></li>
+<li>Upsert sink DDL: <code>flink/sql/01_create_sinks.sql</code></li>
+<li>Open/close determinism comment: <code>flink/sql/02_ohlcv_job.sql</code></li>
+<li>Checkpoint volume (compose): <code>deploy/compose/docker-compose.yml</code></li>
+<li>Checkpoint path (k8s): <code>deploy/gitops/apps/analytics/flink/base/flink-config-configmap.yaml</code></li>
+<li>Producer key: <code>internal/adapters/kafka/market_publisher.go:126</code></li>
+</ul>
+<h2 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h2>
+<ul>
+<li>2026-06-26: Accepted — analytics delivery semantics formalised; checkpointing enabled;
+  open/close determinism documented</li>
+</ul>
 
 
 
 
 
 
-
-  
-  
 
 
 
@@ -2434,16 +2581,16 @@ and the rationale for the chosen approach.</p>
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.annotate", "content.code.copy", "content.action.edit", "announce.dismiss", "navigation.tracking", "navigation.sections", "navigation.instant", "navigation.tabs", "navigation.tabs.sticky", "navigation.indexes", "navigation.top", "search.suggest", "search.highlight", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.annotate", "content.code.copy", "content.action.edit", "announce.dismiss", "navigation.tracking", "navigation.sections", "navigation.instant", "navigation.tabs", "navigation.tabs.sticky", "navigation.indexes", "navigation.top", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
       
         <script src="https://unpkg.com/mermaid@11/dist/mermaid.min.js"></script>
       
         <script src="https://unpkg.com/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
       
-        <script src="../assets/js/mermaid-init.js"></script>
+        <script src="../../assets/js/mermaid-init.js"></script>
       
     
   </body>
